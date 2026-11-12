@@ -1,9 +1,15 @@
+import { RouteDayService } from '../route-day.service';
+import { MessageService } from 'primeng/api';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import type { PresaleSellerOrder, PresaleSellerStatusResponse } from '@megadulces/contracts';
 import { VendorMisPedidosComponent } from './vendor-mis-pedidos.component';
 import { PresaleStatusService } from '../presale-status.service';
 import { VendorService } from '../vendor.service';
+import { RecuentoDiaService } from '../recuento-dia.service';
+import { OfflineOrderService } from '../../../core/services/offline-order.service';
+import { Router, provideRouter } from '@angular/router';
+import { hoyMx, sumarDias } from '../mis-pedidos-dia';
 
 /**
  * `[MCP.8]` «Mis pedidos» de la vendedora, montada de verdad con el servidor simulado. Lo que
@@ -38,15 +44,28 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     { id: 'l2', product_name: 'FLAN VAINILLA', quantity: 168, qty_unit: 'PAQ', qty_factor: 12 },
   ] })) };
 
+  let recuentoApi: { dia: ReturnType<typeof vi.fn> };
+
   async function montar(resp: PresaleSellerStatusResponse | Error): Promise<void> {
+    recuentoApi = { dia: vi.fn(() => throwError(() => ({ error: { message: 'sin servidor en la prueba' } }))) };
     api = {
       status: vi.fn(() => (resp instanceof Error ? throwError(() => ({ error: { message: resp.message } })) : of(resp))),
       markSeen: vi.fn(() => of({ updated: 1 })),
       unseen: vi.fn(() => of({ unseen_reports: 0 })),
     };
+    // [MCP.16] La pestaña Pedidos | Cotizaciones sale de la URL: la pantalla necesita el router.
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
     await TestBed.configureTestingModule({
       imports: [VendorMisPedidosComponent],
-      providers: [{ provide: PresaleStatusService, useValue: api }, { provide: VendorService, useValue: vendor }],
+      providers: [
+        { provide: PresaleStatusService, useValue: api }, { provide: VendorService, useValue: vendor },
+        // [MCP.19] El recuento del día y la cola del celular viven arriba de la lista: aquí no se miden (ver vendor-recuento-dia.spec.ts).
+        { provide: RecuentoDiaService, useValue: recuentoApi },
+        { provide: OfflineOrderService, useValue: { pendingSummaries: vi.fn(() => Promise.resolve([])) } },
+        // [MCP.21] Corregir/cancelar avisan con el toast; «Terminar mi día» lee la ruta del día.
+        { provide: MessageService, useValue: { add: vi.fn() } },
+        { provide: RouteDayService, useValue: { today: vi.fn(() => of({ state: 'sin_iniciar' })) } },
+      ],
     }).compileComponents();
     fix = TestBed.createComponent(VendorMisPedidosComponent);
     fix.detectChanges();
@@ -58,12 +77,167 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     await montar({ today: '2026-10-14', data: [SURTIDO_CON_FALTANTES], unseen_reports: 1 });
     fix.detectChanges();
     expect(texto()).toContain('Surtido con faltantes');
-    expect(texto()).toContain('Juan Pérez · empezó');
+    expect(texto()).toContain('Juan Pérez · terminó'); // [MCP.21] una línea: lo último que pasó, con quién y a qué hora
+    expect(texto()).not.toContain('Lo tomó el surtidor');
     expect(texto()).toContain('Se quitó del pedido (no hubo):');
     expect(texto()).toContain('SALSA MAGA 1 1/2 · 1 CJA');
     expect(texto()).toContain('FLAN VAINILLA · 20 → 14 PAQ');
     expect(texto()).toContain('$1,584.84');
     expect(api.markSeen).toHaveBeenCalledTimes(1);
+  });
+
+  describe('[MCP.21] modificar y cancelar desde la tarjeta', () => {
+    const el = (): HTMLElement => fix.nativeElement as HTMLElement;
+    const botonEn = (raiz: Element | null, t: string): HTMLButtonElement | undefined =>
+      Array.from(raiz?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((b) => (b.getAttribute('aria-label') || b.textContent?.replace(/\s+/g, ' ').trim()) === t);
+    const tarjeta = (id: string) => el().querySelector(`#mp-${id}`);
+    const v = vendor as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const clic = (b: HTMLButtonElement | undefined) => { expect(b).toBeTruthy(); b?.click(); fix.detectChanges(); };
+    const radio = (valor: string) => Array.from(el().querySelectorAll<HTMLInputElement>('input[type=radio]')).find((r) => r.value === valor);
+    beforeEach(() => {
+      v['reopenOrder'] = vi.fn(() => of({ id: 'o-rosy' }));
+      v['modificarPedido'] = vi.fn(() => of({ id: 'o-rosy', total: 999.5, status: 'confirmed' }));
+      v['cancelarConMotivo'] = vi.fn(() => of({ id: 'o-rosy', status: 'cancelled' }));
+    });
+    /** Abre la tarjeta en modo edición (las líneas vienen del doble: PALETA 2 CJA de 24 · FLAN 14 PAQ de 12). */
+    async function abrir(): Promise<void> {
+      await montar({ today: '2026-10-14', data: [pedido({ customer_id: 'c-1' })], unseen_reports: 0 });
+      fix.detectChanges();
+      clic(botonEn(tarjeta('o-rosy'), 'Modificar'));
+      await fix.whenStable();
+      fix.detectChanges();
+    }
+
+    it('un agendado que nadie surte trae Modificar y Cancelar; uno que el surtidor ya tomó, no (no promete lo que no hay)', async () => {
+      const tomado = pedido({ order_id: 'o-2', started: { user_id: 's1', name: 'Juan Pérez', at: '2026-10-14T15:43:00.000Z' } });
+      await montar({ today: '2026-10-14', data: [pedido({ customer_id: 'c-1' }), tomado], unseen_reports: 0 });
+      fix.detectChanges();
+      expect(botonEn(tarjeta('o-rosy'), 'Modificar')).toBeTruthy();
+      expect(botonEn(tarjeta('o-rosy'), 'Cancelar')).toBeTruthy();
+      expect(botonEn(tarjeta('o-2'), 'Modificar')).toBeUndefined();
+      expect(botonEn(tarjeta('o-2'), 'Cancelar')).toBeUndefined();
+    });
+
+    it('Modificar abre sus productos en su unidad, sin los seis pasos: una línea dice lo que sigue', async () => {
+      await abrir();
+      expect(texto()).toContain('Esperando a que el surtidor empiece');
+      expect(texto()).not.toContain('Revisado en caja');
+      expect(texto()).toContain('PALETA PRUEBA');
+      expect(texto()).toContain('2 CJA');
+      expect(texto()).toContain('14 PAQ');
+      expect(botonEn(tarjeta('o-rosy'), 'Guardar cambios')?.disabled).toBe(true);
+    });
+
+    it('⭐ + y Guardar: el motivo viene sugerido («agregar») y se manda TODO junto, en su unidad y con su sello', async () => {
+      await abrir();
+      clic(botonEn(tarjeta('o-rosy'), 'Uno más de PALETA PRUEBA'));
+      expect(texto()).toContain('3 CJA');
+      expect(texto()).toContain('1 cambio sin guardar');
+      clic(botonEn(tarjeta('o-rosy'), 'Guardar cambios'));
+      expect(texto()).toContain('¿Por qué cambian los productos?');
+      expect(radio('agregar')?.checked).toBe(true);
+      const n = api.status.mock.calls.length;
+      clic(botonEn(el().querySelector('app-vendor-motivo-sheet'), 'Guardar cambios'));
+      expect(v['modificarPedido']).toHaveBeenCalledWith('o-rosy', { reason_code: 'agregar' },
+        [{ line_id: 'l1', quantity: 3, qty_unit: 'CJA', qty_factor: 24 }], false);
+      expect(v['reopenOrder']).not.toHaveBeenCalled();
+      expect(api.status.mock.calls.length).toBeGreaterThan(n);
+    });
+
+    it('negativa: si el servidor dice que no (el surtidor lo tomó), lo cambiado se queda en pantalla y lo dice', async () => {
+      v['modificarPedido'] = vi.fn(() => throwError(() => ({ error: { message: 'Ya lo está surtiendo Juan desde las 10:42' } })));
+      await abrir();
+      const toast = TestBed.inject(MessageService) as unknown as { add: ReturnType<typeof vi.fn> };
+      clic(botonEn(tarjeta('o-rosy'), 'Quitar FLAN VAINILLA'));
+      expect(texto()).toContain('Se quita');
+      clic(botonEn(tarjeta('o-rosy'), 'Guardar cambios'));
+      expect(radio('quitar')?.checked).toBe(true);
+      clic(botonEn(el().querySelector('app-vendor-motivo-sheet'), 'Guardar cambios'));
+      expect(toast.add).toHaveBeenCalledWith(expect.objectContaining({ detail: 'Ya lo está surtiendo Juan desde las 10:42' }));
+      expect(fix.componentInstance.nCambios(fix.componentInstance.pedidos()[0])).toBe(1);
+    });
+
+    it('«Agregar otro producto» guarda lo cambiado dejándolo abierto y abre la captura de ESE pedido', async () => {
+      await abrir();
+      const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+      clic(botonEn(tarjeta('o-rosy'), 'Agregar otro producto'));
+      expect(radio('agregar')?.checked).toBe(true);
+      clic(botonEn(el().querySelector('app-vendor-motivo-sheet'), 'Seguir y agregar'));
+      expect(v['modificarPedido']).toHaveBeenCalledWith('o-rosy', { reason_code: 'agregar' }, [], true);
+      expect(nav).toHaveBeenCalledWith(['/vendor/take-order', 'c-1'], { queryParams: { order: 'o-rosy' } });
+    });
+
+    it('cancelar es directo y con UN motivo: no reabre, manda el motivo y vuelve a pedir la lista', async () => {
+      await montar({ today: '2026-10-14', data: [pedido({ customer_id: 'c-1' })], unseen_reports: 0 });
+      fix.detectChanges();
+      clic(botonEn(tarjeta('o-rosy'), 'Cancelar'));
+      expect(texto()).toContain('¿Por qué lo cancelas?');
+      const n = api.status.mock.calls.length;
+      radio('duplicado')?.dispatchEvent(new Event('change'));
+      fix.detectChanges();
+      clic(botonEn(el(), 'Cancelar el pedido'));
+      expect(v['cancelarConMotivo']).toHaveBeenCalledWith('o-rosy', expect.objectContaining({ reason_code: 'duplicado' }));
+      expect(v['reopenOrder']).not.toHaveBeenCalled();
+      expect(api.status.mock.calls.length).toBeGreaterThan(n);
+      expect(texto()).not.toContain('¿Por qué lo cancelas?');
+    });
+  });
+
+  describe('[MCP.20] un día a la vez', () => {
+    const boton = (t: string): HTMLButtonElement | undefined =>
+      Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent?.replace(/\s+/g, ' ').trim() === t);
+    const hoy = hoyMx();
+    const ayer = sumarDias(hoy, -1);
+
+    it('por omisión pide hoy: la lista y el recuento del mismo día, y lo dice', async () => {
+      await montar({ today: hoy, date: hoy, data: [pedido()], unseen_reports: 0, unseen_days: [] });
+      fix.detectChanges();
+      expect(api.status).toHaveBeenCalledWith(hoy);
+      expect(recuentoApi.dia).toHaveBeenCalledWith(hoy);
+      expect(texto()).toContain('Pedidos que levantaste hoy');
+      expect(boton('Hoy')?.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('al tocar «Ayer» pide ayer (lista y recuento) y dice que no hubo, sin dibujar la lista de hoy', async () => {
+      await montar({ today: hoy, date: hoy, data: [pedido()], unseen_reports: 0, unseen_days: [] });
+      api.status.mockImplementation(() => of({ today: hoy, date: ayer, data: [], unseen_reports: 0, unseen_days: [] }));
+      boton('Ayer')?.click();
+      fix.detectChanges();
+      expect(api.status).toHaveBeenLastCalledWith(ayer);
+      expect(recuentoApi.dia).toHaveBeenLastCalledWith(ayer);
+      expect(boton('Ayer')?.getAttribute('aria-pressed')).toBe('true');
+      expect(texto()).toContain('No levantaste pedidos de preventa ayer.');
+      expect(texto()).not.toContain('ABARROTES ROSY');
+    });
+
+    it('marca vistos SÓLO los reportes del día en pantalla; un día con reporte nuevo lo dice en su botón', async () => {
+      await montar({ today: hoy, date: hoy, data: [SURTIDO_CON_FALTANTES, pedido({ order_id: 'o-2' })], unseen_reports: 1, unseen_days: [hoy, ayer] });
+      fix.detectChanges();
+      expect(api.markSeen).toHaveBeenCalledWith(['o-rosy']);
+      const b = Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.mp-dia'))
+        .find((x) => x.getAttribute('aria-label')?.startsWith('Ayer'));
+      expect(b?.getAttribute('aria-label')).toBe('Ayer, con un reporte de surtido nuevo');
+    });
+
+    it('un reporte nuevo de hace más de una semana se avisa con su liga al día', async () => {
+      const viejo = sumarDias(hoy, -12);
+      await montar({ today: hoy, date: hoy, data: [], unseen_reports: 0, unseen_days: [viejo] });
+      fix.detectChanges();
+      expect(texto()).toContain('Tienes reportes de surtido nuevos de');
+      api.status.mockImplementation(() => of({ today: hoy, date: viejo, data: [], unseen_reports: 0, unseen_days: [viejo] }));
+      const liga = (fix.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.mp-aviso .mp-art-re');
+      liga?.click();
+      fix.detectChanges();
+      expect(api.status).toHaveBeenLastCalledWith(viejo);
+    });
+
+    it('negativa: un día futuro o vacío desde el calendario no pide nada', async () => {
+      await montar({ today: hoy, date: hoy, data: [], unseen_reports: 0, unseen_days: [] });
+      const n = api.status.mock.calls.length;
+      fix.componentInstance.elegirDia(sumarDias(hoy, 3));
+      fix.componentInstance.elegirDia('');
+      expect(api.status.mock.calls.length).toBe(n);
+    });
   });
 
   it('un cobro detectado se dice «por confirmar», no como hecho', async () => {
@@ -175,7 +349,7 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     await montar({ today: '2026-10-14', data: [SURTIDO_CON_FALTANTES], unseen_reports: 1 });
     fix.detectChanges();
     expect(texto()).toContain('Se ajustó a lo que hubo');
-    expect(texto()).toContain('Esperando a que la caja lo revise');
+    expect(texto()).toContain('sigue: esperando a que la caja lo revise'); // [MCP.21] en la línea única
   });
 
   describe('[MCP.15] en orden de captura y con lo que pidió contra lo que surtieron', () => {
@@ -231,6 +405,8 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     TestBed.resetTestingModule();
     await montar({ today: '2026-10-14', data: [], unseen_reports: 0 });
     fix.detectChanges();
-    expect(texto()).toContain('Todavía no tienes pedidos de preventa abiertos.');
+    // [MCP.20] El vacío es del día: el «hoy» del servidor (2026-10-14) manda sobre el del reloj del equipo.
+    expect(texto()).toContain('Todavía no levantas pedidos de preventa hoy.');
+    expect(api.status).toHaveBeenLastCalledWith('2026-10-14');
   });
 });

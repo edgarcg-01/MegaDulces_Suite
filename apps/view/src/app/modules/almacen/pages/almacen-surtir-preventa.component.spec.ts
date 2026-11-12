@@ -170,7 +170,82 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
     fix.detectChanges();
     expect(texto()).toContain('no hubo');
     clic('Enviar reporte a Vendedora Prueba · faltaron 1');
-    expect(api.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 0 }] });
+    // [MCP.18] El faltante viaja con su motivo: sin tocar, el de por omisión («No había en la sucursal»).
+    expect(api.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 0, reason: 'sin_existencia' }] });
+  });
+
+  describe('[MCP.18] el porqué de lo que faltó', () => {
+    async function conSalsaEnCero(): Promise<void> {
+      await montar(DETALLE('surtiendo'));
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+      (Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes('Completo')) as HTMLButtonElement).click();
+      fix.detectChanges();
+      (el().querySelector('[aria-label="Menos SALSA MAGA 1 1/2"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+    }
+    const radio = (t: string): HTMLButtonElement =>
+      Array.from(el().querySelectorAll('[role="radio"]')).find((b) => (b.textContent ?? '').includes(t)) as HTMLButtonElement;
+
+    it('el faltante pregunta «¿Por qué?» con «No había en la sucursal» ya marcado; lo que hubo completo, no', async () => {
+      await conSalsaEnCero();
+      const grupos = el().querySelectorAll('app-motivo-chips');
+      expect(grupos.length).toBe(1);
+      expect(radio('No había en la sucursal').getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('elegir otro motivo y una nota viaja al terminar', async () => {
+      await conSalsaEnCero();
+      radio('Dañado o caducado').click();
+      fix.detectChanges();
+      clic('Agregar nota');
+      const nota = el().querySelector('#sp-mot-l2-n') as HTMLInputElement;
+      nota.value = 'caja mojada';
+      nota.dispatchEvent(new Event('input'));
+      fix.detectChanges();
+      clic('Enviar reporte');
+      expect(api.finish.mock.calls[0][1].lines[1]).toEqual({ line_id: 'l2', picked: 0, reason: 'danado', reason_note: 'caja mojada' });
+    });
+
+    it('negativa: «Otro motivo» sin escribir no deja enviar el reporte, y lo dice', async () => {
+      await conSalsaEnCero();
+      radio('Otro motivo').click();
+      fix.detectChanges();
+      expect(texto()).toContain('Con «Otro motivo» escribe cuál fue.');
+      expect(boton('Enviar reporte')?.disabled).toBe(true);
+      boton('Enviar reporte')?.click();
+      expect(api.finish).not.toHaveBeenCalled();
+      const nota = el().querySelector('#sp-mot-l2-n') as HTMLInputElement;
+      nota.value = 'el cliente lo canceló por teléfono';
+      nota.dispatchEvent(new Event('input'));
+      fix.detectChanges();
+      expect(boton('Enviar reporte')?.disabled).toBe(false);
+    });
+
+    it('un pedido cerrado dice por qué cambió; lo guardado sin motivo dice «Sin motivo registrado»', async () => {
+      const cerrado: PresalePickDetail = {
+        order: fila({ state: 'con_faltantes', started: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-11-10T16:00:00.000Z' }, finished: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-11-10T16:10:00.000Z' } }),
+        lines: [{ line_id: 'l1', product_id: 'p1', sku: '1', product_name: 'BOMBON GRANDE', qty: 5, unit: 'PAQ', factor: 1, picked: 5 }],
+        justifications: [
+          { actor: 'seller', action: 'reopened', by_name: 'Vendedora Prueba', at: '2026-11-10T15:00:00.000Z', product_name: null, detail: null, reason: 'El cliente quiere agregar productos' },
+          { actor: 'picker', action: 'removed', by_name: 'Surtidor Prueba', at: '2026-11-10T16:10:00.000Z', product_name: 'SALSA MAGA', detail: '1 CJA', reason: null },
+        ],
+      };
+      await montar(cerrado);
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+      expect(texto()).toContain('Por qué cambió este pedido');
+      expect(texto()).toContain('Vendedor · Vendedora Prueba');
+      expect(texto()).toContain('Corrigió el pedido. Motivo: El cliente quiere agregar productos');
+      expect(texto()).toContain('Quitó SALSA MAGA (1 CJA). Motivo: Sin motivo registrado');
+    });
+
+    it('negativa: sin cambios no se pinta el recuadro', async () => {
+      await montar(DETALLE('nuevo'));
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+      expect(texto()).not.toContain('Por qué cambió');
+    });
   });
 
   it('si hubo todo, el botón es «Confirmar: hubo todo»', async () => {
@@ -245,7 +320,7 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
       expect(api.finish).toHaveBeenCalledWith('o-rosy', {
         lines: [
           { line_id: 'l1', picked: 5 },
-          { line_id: 'l2', picked: 0, substitute: { product_id: 'p9', quantity: 1, unit: 'CJA' } },
+          { line_id: 'l2', picked: 0, substitute: { product_id: 'p9', quantity: 1, unit: 'CJA' }, reason: 'sin_existencia' },
         ],
       });
     });

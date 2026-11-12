@@ -485,6 +485,27 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(specs).toContain('Baloo 2');
   });
 
+  /**
+   * `[ETQ-FUENTE.2]` El iframe de impresión NO imprime sin sus caras cargadas. Los tamaños viajan
+   * inline, medidos con Baloo 2; si el papel sale con la de respaldo, el renglón del código se pasa
+   * 0.77 mm y el `overflow:hidden` corta el último dígito (NUTELLA 42089 y 42022, 2026-11-11).
+   * `fonts.ready` del iframe resolvía a 1 ms, antes de que la hoja clonada declarara ninguna cara.
+   */
+  it('⭐⭐ el iframe espera SUS fuentes (no fonts.ready a secas) y, si faltan, no imprime', () => {
+    const codigo = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(codigo).not.toMatch(/fonts\.ready\.then\(\(\) => setTimeout\(fire/);
+    expect(codigo).toContain('this.fuentesDelIframe(doc)');
+    // Pregunta por el documento DEL IFRAME, con el mismo helper y las mismas tres caras.
+    expect(codigo).toContain('familiasFaltantes(doc)');
+    expect(codigo).toMatch(/FUENTES_SPECS\.map\(\(s\) => f\.load\(s\)/);
+    // Si faltan, se dice y no se llama a print().
+    const gate = /fuentesDelIframe\(doc\)\.then\(\(faltan\) => \{([\s\S]*?)\n {4}\}\);/.exec(codigo)?.[1] ?? '';
+    expect(gate).toContain('if (!faltan?.length) { setTimeout(fire, 150); return; }');
+    expect(gate).toContain("kind: 'error'");
+    expect(gate).toContain('finish();');
+    expect(LABEL).toMatch(/export function familiasFaltantes\(doc\?: Document\)/);
+  });
+
   it('la reserva de la franja está en lockstep con el punteado interior', () => {
     // Son dos declaraciones del MISMO número; si se mueve una sola, el borde punteado se mete
     // debajo de la franja verde y nadie lo nota hasta imprimir.

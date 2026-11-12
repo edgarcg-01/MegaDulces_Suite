@@ -312,7 +312,7 @@ export class PresaleRouteService {
           bags.push({ ...base, outcome: 'sin_mercancia', total_before: total, total_after: total });
           continue;
         }
-        const { outcome, report } = await this.picking.cerrarPedido(trx, fila, pick.id, c.marcados, quien);
+        const { outcome, report } = await this.picking.cerrarPedido(trx, fila, pick.id, c.marcados, quien, { exigirMotivos: false }); // [MCP.18] su pantalla no pide motivo
         bags.push({
           ...base,
           outcome,

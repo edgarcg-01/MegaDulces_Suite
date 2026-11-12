@@ -6,6 +6,22 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## Surtir en otra unidad cuando no hubo la caja completa (MCP.17, 2026-11-10)
+
+- **Problema:** se pacta «1 caja» pero al surtir la caja ya está abierta. El sistema cuenta piezas, no cajas cerradas, así
+  que sólo el surtidor lo sabe. Hasta hoy sólo podía marcar «no había» y la venta se perdía, o pedirle al vendedor que
+  usara «Corregir» (medido: 15 de 35 correcciones de un mes se hicieron con el surtido ya empezado y 11 ya terminado).
+- **Solución:** en el renglón con faltante, **«Surtir en otra unidad»**: ofrece sólo las presentaciones más chicas del
+  mismo producto (PAQ, PZA) que Kepler tiene con precio en la sucursal, dice cuántas caben y se pone. Al terminar, el
+  pedido queda con esa cantidad al precio de esa unidad; la caja lo revisa («en lugar de X en CJA») y la vendedora
+  recibe «1 en otra unidad».
+- **Implementada:** pestaña Sucursal de esta pantalla. Servidor: el cambio de producto de MCP.13 acepta el mismo producto
+  en otra unidad, con tope en lo que faltó; nueva consulta `GET …/:id/lines/:lineId/units`. La regla del tope
+  (`topeEnUnidad`) vive en `libs/contracts` y la usan la pantalla y el servidor.
+- **Por qué el surtidor y no el vendedor:** en preventa el vendedor no está en la bodega, y «Corregir» con el surtido
+  empezado reemplaza los renglones que el surtidor está marcando. Decisión de David, 2026-11-10.
+
+---
 ## Pedidos separados por vendedor y en orden de folio (MCP.14, 2026-11-10)
 
 - **Problema:** la operación de rutas vecinales pidió «separar los pedidos por vendedor» y «mostrar un orden de
@@ -14,6 +30,11 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 - **Solución:** cada vendedor encabeza su grupo («Vendedor · N pedidos») y dentro sus pedidos van por folio, el orden
   en que los capturó. Los grupos siguen el orden de llegada: arriba el vendedor del pedido más viejo. La tarjeta ya
   no repite el nombre del vendedor. Lo mismo en Revisión de pedidos (las cajeras).
+- **Dónde:** en esta pantalla, pestaña **Sucursal** (la de las capturas del documento), y en `/almacen/surtir-preventa`.
+  Aquí lo que el surtidor ya empezó va primero y aparte, «Los que estás surtiendo · N»: es lo que tiene que
+  terminar, y en esas tarjetas sí va el vendedor porque ahí se mezclan.
+- **Corrección del mismo día:** la primera versión sólo agrupó `/almacen/surtir-preventa`; esta pestaña seguía en
+  una sola lista. Se encontró al revisar contra las capturas del documento.
 - **Cómo:** regla compartida `almacen/pedidos-por-vendedor.ts`, sólo en la pantalla.
 - **Por qué los folios «se saltan»:** el folio es un solo contador para toda la empresa. Medido el 2026-11-09: del
   PD-2026-00376 al 00407 existen los 32, repartidos entre 5 vendedores; no se pierde ninguno.

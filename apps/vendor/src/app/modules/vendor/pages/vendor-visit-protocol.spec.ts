@@ -22,10 +22,10 @@ const LUPITA = {
 };
 const CERCA = { id: 'c1', code: 'C1', name: 'ABARROTES LUPITA', address: 'Av. Juárez 12, Centro', latitude: 19.4, longitude: -99.1, distance_m: 23 };
 
-async function montar(o: { checkIn?: unknown; home?: unknown[]; nearby?: unknown[] } = {}) {
+async function montar(o: { checkIn?: unknown; home?: unknown[]; nearby?: unknown[]; hoy?: unknown[] } = {}) {
   const vendor = {
     home: vi.fn(() => of(o.home ?? [LUPITA])),
-    myOrdersToday: vi.fn(() => of([])),
+    myOrdersToday: vi.fn(() => of(o.hoy ?? [])),
     dayPickState: vi.fn(() => of(null)),
     nearbyCustomers: vi.fn(() => of(o.nearby ?? [CERCA])),
     checkIn: vi.fn(() => (o.checkIn instanceof Error ? throwError(() => o.checkIn) : of(o.checkIn ?? { id: 'v1', distance_m: 23 }))),
@@ -139,5 +139,83 @@ describe('Protocolo de visitas (MCP.3.7)', () => {
     expect(arrivalDetail({ id: 'v', distance_m: null })).toBe(' · sin ubicación para medir la distancia');
     expect(arrivalDetail({ id: 'v', location: { location_set: true } as never })).toBe(' · se guardó la ubicación del cliente');
     expect(arrivalDetail(null)).toBe(' · sin ubicación para medir la distancia');
+  });
+});
+
+describe('[MCP.21] cada renglón de Mi ruta dice cómo va el cliente', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const ayer = new Date(Date.now() - 2 * 86_400_000).toISOString();
+  const ahora = new Date().toISOString();
+  const cli = (id: string, extra: Record<string, unknown> = {}) => ({ ...LUPITA, id, code: id, name: `CLIENTE ${id}`, ...extra });
+  const renglon = (el: HTMLElement, nombre: string) =>
+    Array.from(el.querySelectorAll<HTMLButtonElement>('button.client')).find((b) => b.textContent?.includes(nombre));
+  const textoDe = (b: Element | undefined) => b?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+
+  it('⭐ los cuatro estados, en palabras, y ningún «·» en el círculo (en prod ningún cliente tiene orden de visita)', async () => {
+    const { el } = await montar({
+      nearby: [],
+      home: [
+        cli('A'),
+        cli('B', { visited_today: true }),
+        cli('C', { visited_today: true, no_sale_reason_today: 'con_inventario' }),
+        cli('D', { visited_today: true, ordered_today: true }),
+        cli('E', { ordered_today: true }),
+      ],
+      hoy: [{ id: 'o1', customer_id: 'D', status: 'confirmed', total: '274.81' }],
+    });
+    expect(textoDe(renglon(el, 'CLIENTE A'))).toContain('Sin visita');
+    expect(textoDe(renglon(el, 'CLIENTE B'))).toContain('Visitado, sin cerrar');
+    expect(textoDe(renglon(el, 'CLIENTE C'))).toContain('No pidió · Todavía tiene producto');
+    expect(textoDe(renglon(el, 'CLIENTE D'))).toContain('Pedido hoy $274.81');
+    // E pidió hoy, pero no se lo levantó esta vendedora: no inventa un monto.
+    expect(textoDe(renglon(el, 'CLIENTE E'))).toMatch(/Pedido hoy$/);
+    for (const seq of Array.from(el.querySelectorAll('button.client .seq'))) expect(seq.textContent?.trim()).not.toBe('·');
+    expect(renglon(el, 'CLIENTE A')?.querySelector('.seq')?.textContent?.trim()).toBe('');
+    expect(renglon(el, 'CLIENTE D')?.querySelector('.seq .pi-check')).toBeTruthy();
+  });
+
+  it('el pedido de hoy no se repite como «por entregar»; lo de días anteriores sí, y la preventa con SU monto', async () => {
+    const { el } = await montar({
+      nearby: [],
+      home: [
+        cli('H', { ordered_today: true, pending_count: 1, pending_total: 100, pending_orders: [{ id: 'h', code: 'PD-1', status: 'confirmed', total: 100, created_at: ahora }] }),
+        cli('V', {
+          pending_count: 2, pending_total: 1300, has_preventa_pending: true,
+          pending_orders: [
+            { id: 'v', code: 'PD-2', status: 'confirmed', total: '300', created_at: ayer, is_preventa: true },
+            { id: 'w', code: 'PD-3', status: 'confirmed', total: 1000, created_at: ayer },
+          ],
+        }),
+      ],
+      hoy: [{ id: 'h', customer_id: 'H', status: 'confirmed', total: 100 }],
+    });
+    expect(textoDe(renglon(el, 'CLIENTE H'))).not.toContain('por entregar');
+    const v = textoDe(renglon(el, 'CLIENTE V'));
+    expect(v).toContain('Preventa $300.00');
+    expect(v).toContain('1 anterior por entregar');
+  });
+
+  it('al cerrar «no pidió», su renglón lo dice sin recargar la ruta', async () => {
+    const { boton, el, asentar, vendor } = await montar({ nearby: [] });
+    renglon(el, 'ABARROTES LUPITA')!.click();
+    await asentar();
+    boton('El cliente no pidió nada')!.click();
+    await asentar();
+    Array.from(el.querySelectorAll<HTMLInputElement>('input[type=radio]')).find((r) => r.value === 'sin_recursos')!.click();
+    await asentar();
+    boton('Cerrar visita sin pedido')!.click();
+    await asentar();
+    expect(vendor.home).toHaveBeenCalledTimes(1);
+    expect(textoDe(renglon(el, 'ABARROTES LUPITA'))).toContain('No pidió · No tiene dinero');
+  });
+
+  it('«Capturar exhibición» ya no es un renglón de la hoja: va junto a Llamar y WhatsApp', async () => {
+    const { el, asentar } = await montar({ nearby: [], home: [{ ...LUPITA, phone: '4441234567' }] });
+    renglon(el, 'ABARROTES LUPITA')!.click();
+    await asentar();
+    const fila = el.querySelector('.sheet .contact');
+    expect(fila?.textContent).toContain('Llamar');
+    expect(fila?.textContent).toContain('Capturar exhibición');
+    expect(Array.from(el.querySelectorAll('.sheet .action')).some((b) => b.textContent?.includes('Capturar exhibición'))).toBe(false);
   });
 });

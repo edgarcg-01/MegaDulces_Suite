@@ -158,7 +158,8 @@ function cargar() {
       const surtir = async (id, picked) => {
         await como(SURT, () => picking.start(id));
         const ls = await lineas(id);
-        return como(SURT, () => picking.finish(id, { lines: ls.map((l) => ({ line_id: l.id, picked: picked(l) })) }));
+        // [MCP.18] D4: lo que faltó lleva su motivo, como lo manda la pantalla.
+        return como(SURT, () => picking.finish(id, { lines: ls.map((l) => ({ line_id: l.id, picked: picked(l), ...(picked(l) < Number(l.quantity) ? { reason: 'sin_existencia' } : {}) })) }));
       };
 
       const A = await pedido([{ product_id: p1, quantity: 1 }, { product_id: p2, quantity: 3 }, { product_id: p3, quantity: 2 }]);
@@ -230,7 +231,7 @@ function cargar() {
       const [b1, b2] = await lineas(B);
       const n4 = await falla(CAJA, () => review.finish(B, { lines: [{ key: b1.id, final: 0 }, { key: b2.id, final: 0 }] }), 400, /quedaría vacío/);
       ok(n4.ok, `dejar el pedido vacío → 400 (${n4.msg})`);
-      const rB = await como(CAJA, () => review.finish(B, { lines: [{ key: b1.id, final: 1 }, { key: b2.id, final: 1 }] }));
+      const rB = await como(CAJA, () => review.finish(B, { lines: [{ key: b1.id, final: 1, reason: 'no_venia' }, { key: b2.id, final: 1 }] })); // [MCP.18] D4
       const bDespues = await lineas(B);
       ok(Number(bDespues.find((l) => l.id === b1.id)?.quantity) === 1, 'el renglón que dio completo el surtidor se recorta a 1');
       ok(rB.review.lines[0].resolution === 'no_hubo' && rB.review.total_after < rB.review.total_before, `no_hubo y el total baja (${rB.review.total_before} → ${rB.review.total_after})`);

@@ -190,6 +190,25 @@ const MAYOREO_MIN_DESC = 0.01;
 export const MAX_RENGLONES = 4;
 
 /**
+ * `[ETQ-OFERTA.1]` Tope de renglones TOTALES de la columna derecha cuando la etiqueta va en OFERTA.
+ *
+ * `MAX_RENGLONES` se midió para el diseño normal, donde el «Código» vive a la izquierda. En oferta el
+ * «Código» baja a esta columna (5.5 mm) y además se suman «Precio normal» y, con mayoreo apilado,
+ * «Oferta 1 a N». El tope contaba sólo las presentaciones: el CHOC SNICKERS 06001 de Morelia Abastos
+ * imprimía **6 renglones en 13.49 mm** (necesitaban 20.99), con el monto a 1.42 mm y el «Código»
+ * encimado 3.47 mm (reporte de tienda, 2026-11-11).
+ *
+ * Medido con el arnés (`scripts/etiqueta-geometria.js`, diseño de oferta): **4 renglones totales
+ * caben** (0 mm encimados, monto 2.58 mm) y **5 o más nunca**, con escalón o sin él. Sobre las 238
+ * etiquetas con promo vigente en prod: 52 se encimaban; con este tope, 0. Ninguna de las 186 que
+ * salían bien cambia.
+ *
+ * El precio normal y el escalón NO se recortan nunca (son el argumento de la oferta): ceden las
+ * presentaciones, con la misma regla de `recortar`.
+ */
+export const MAX_RENGLONES_OFERTA = 4;
+
+/**
  * Las familias de las que depende el TAMAÑO medido, exportadas para que la pantalla declare
  * exactamente éstas y no otra.
  *
@@ -215,8 +234,9 @@ export const FUENTES_SPECS: readonly string[] = ['11mm Anton', "5mm 'Bebas Neue'
  * cuando el navegador expone la lista de caras (`FontFaceSet` es iterable), se exige además una
  * cara de esa familia con `status === 'loaded'`. Sin lista, `check` es todo lo que hay y se usa.
  */
-export function familiasFaltantes(): string[] | null {
-  const f: any = (globalThis as any).document?.fonts;
+export function familiasFaltantes(doc?: Document): string[] | null {
+  // `[ETQ-FUENTE.2]` `doc`: el iframe de impresión pregunta por SU documento, que carga las caras por su cuenta.
+  const f: any = (doc ?? (globalThis as any).document)?.fonts;
   if (!f?.check) return null;
   try {
     let cargadas: Set<string> | null = null;
@@ -974,7 +994,13 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * de las otras están en otra unidad, y compararlos exigiría la división que esta fase vino a
    * eliminar — así que no se ocultan, simplemente no se realzan.
    */
-  get renglones(): RenglonEtiqueta[] {
+  get renglones(): RenglonEtiqueta[] { return this.recortar(this.candidatos); }
+
+  /**
+   * Todos los renglones que la etiqueta QUERRÍA imprimir, antes del tope del papel. `renglonesOcultos`
+   * es la resta contra `renglones`: una sola regla para lo que se imprime y lo que se declara.
+   */
+  private get candidatos(): RenglonEtiqueta[] {
     const ps = this.presentaciones;
     if (!ps.length) return [];
     const heroU = String(this.heroUnidad ?? '').toUpperCase();
@@ -1014,7 +1040,7 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
         }
       }
     }
-    return this.recortar(out);
+    return out;
   }
 
   /**
@@ -1055,18 +1081,22 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * una unidad menos.
    */
   private recortar(rs: RenglonEtiqueta[]): RenglonEtiqueta[] {
-    if (rs.length <= MAX_RENGLONES) return rs;
+    // `[ETQ-OFERTA.1]` En oferta el tope es de la columna entera: descuenta los renglones fijos de la oferta.
+    const max = this.enPromo
+      ? Math.max(0, MAX_RENGLONES_OFERTA - (this.precioNormal !== null ? 1 : 0) - (this.escalonOferta ? 1 : 0))
+      : MAX_RENGLONES;
+    if (rs.length <= max) return rs;
     const fuera = new Set<string>();
     // 1) Los peldaños, del descuento más chico al más grande.
     const peldanos = rs.filter((r) => r.mayoreo).sort((a, b) => a.descuento - b.descuento);
     for (const p of peldanos) {
-      if (rs.length - fuera.size <= MAX_RENGLONES) break;
+      if (rs.length - fuera.size <= max) break;
       fuera.add(p.clave);
     }
     // 2) Sólo si todavía sobran: el precio de lista de menor factor (el más cercano al hero).
     const listas = rs.filter((r) => !r.mayoreo).sort((a, b) => a.factor - b.factor);
     for (const l of listas) {
-      if (rs.length - fuera.size <= MAX_RENGLONES) break;
+      if (rs.length - fuera.size <= max) break;
       fuera.add(l.clave);
     }
     return rs.filter((r) => !fuera.has(r.clave));
@@ -1076,19 +1106,13 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * Cuántas presentaciones NO entraron en el papel. **Cero en el 97.9% de las etiquetas** (medido:
    * sólo el 2.06% llega a cinco renglones). La etiquetera lo muestra en la cola: lo que no cabe se
    * DECLARA, no desaparece.
+   *
+   * `[ETQ-OFERTA.1]` Es la resta `candidatos − renglones`, la misma regla que imprime. Antes repetía a
+   * mano qué cuenta y no sabía de la oferta: contaba como «no entra» el mayoreo del hero que la oferta
+   * ya consume (el 06001 decía «1 no entra» sin que se hubiera recortado nada).
    */
   get renglonesOcultos(): number {
-    const ps = this.presentaciones;
-    if (!ps.length) return 0;
-    const heroU = String(this.heroUnidad ?? '').toUpperCase();
-    let todos = 0;
-    for (const p of ps) {
-      const esHero = !!heroU && String(p.unidad).toUpperCase() === heroU;
-      if (!esHero && this.num(p.precio_lista) > 0 && this.show.presentaciones) todos++;
-      if (this.show.mayoreo && p.mayoreo_veredicto === 'ok'
-          && this.num(p.mayoreo_precio) > 0 && Number(p.mayoreo_desde) > 1) todos++;
-    }
-    return Math.max(0, todos - this.renglones.length);
+    return Math.max(0, this.candidatos.length - this.renglones.length);
   }
 
   /**

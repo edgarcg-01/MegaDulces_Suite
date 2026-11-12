@@ -1,10 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { VecinalVendorDetail, VecinalVendorsResponse, VisitMonitorResponse, VisitMonitorVendor } from '@megadulces/contracts';
+import type { SellerDayRecap, VecinalVendorDetail, VecinalVendorsResponse, VisitMonitorResponse, VisitMonitorVendor } from '@megadulces/contracts';
 import { VendorSupervisorEquipoComponent } from './vendor-supervisor-equipo.component';
 import { VendorSupervisorVendedorComponent } from './vendor-supervisor-vendedor.component';
 import { SupervisorEquipoService } from '../supervisor-equipo.service';
+import { RecuentoDiaService } from '../recuento-dia.service';
 
 /**
  * `[SUP.2]` «Mi equipo» montada con el servidor simulado: abre con el resumen, el que tiene faltas va
@@ -117,6 +118,7 @@ describe('VendorSupervisorVendedorComponent · un vendedor (SUP.2)', () => {
       providers: [
         provideRouter([]),
         { provide: SupervisorEquipoService, useValue: api },
+        { provide: RecuentoDiaService, useValue: { dia: vi.fn(() => of(RECUENTO)) } },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ userId: 'u-falta' }), queryParamMap: convertToParamMap({ date: '2026-11-06' }) } } },
       ],
     }).compileComponents();
@@ -134,4 +136,45 @@ describe('VendorSupervisorVendedorComponent · un vendedor (SUP.2)', () => {
     expect(texto(el)).toContain('2 CJA');
     expect(texto(el)).toContain('Kepler le cobró: $450.00');
   });
+
+  it('[MCP.19] abajo, su recuento del día (el mismo que él ve), en tercera persona y sin repetir visitas ni clientes', async () => {
+    const recuento = { dia: vi.fn(() => of(RECUENTO)) };
+    await TestBed.configureTestingModule({
+      imports: [VendorSupervisorVendedorComponent],
+      providers: [
+        provideRouter([]),
+        { provide: SupervisorEquipoService, useValue: { dia: vi.fn(() => of(DIA)), ventas: vi.fn(), ventasDe: vi.fn(() => throwError(() => ({ status: 404 }))) } },
+        { provide: RecuentoDiaService, useValue: recuento },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ userId: 'u-falta' }), queryParamMap: convertToParamMap({ date: '2026-11-06' }) } } },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(VendorSupervisorVendedorComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    expect(recuento.dia).toHaveBeenCalledWith('2026-11-06', 'u-falta');
+    const caja = el.querySelector<HTMLElement>('app-vendor-recuento-dia');
+    expect(caja).not.toBeNull();
+    const rd = texto(caja as HTMLElement);
+    expect(rd).toContain('Levantó 1 pedido');
+    expect(rd).toContain('Surtidos con faltantes');
+    expect(rd).toContain('Borradores sin mandar');
+    expect(rd).not.toContain('Visitó');
+    expect(rd).not.toContain('sin visita');
+  });
 });
+
+/** `[MCP.19]` Un recuento chico: 1 levantado con faltantes, 1 borrador y un cliente sin visita (que aquí no se repite). */
+const RECUENTO: SellerDayRecap = {
+  date: '2026-11-06', today: '2026-11-10', user_id: 'u-falta', name: 'Vendedor Faltas',
+  orders: { count: 1, total: 500 },
+  picking: { completo: 0, con_faltantes: 1, surtiendo: 0, sin_surtir: 0, sin_dato: 0, removed_total: 50, charged: 0, charged_to_confirm: 0, delivered: 0 },
+  picking_unmeasured_reason: null,
+  visits: { route_customers: 2, routes: ['RUTA 9'], visited: 1, visited_on_route: 1, off_route: 0, with_order: 1, without_order: 0, open: 0, missed: 1, pending: 0,
+    closed: true, not_visited: [{ customer_id: 'c2', code: 'C-002', name: 'Tienda Dos', state: 'no_paso' }], no_sale_reasons: [] },
+  visits_unmeasured_reason: null,
+  pending: { drafts: [{ order_id: 'd1', code: 'PD-9', customer_id: 'c1', customer_name: 'Tienda Uno', total: 80, created_at: '2026-11-06T16:00:00.000Z',
+    status: 'draft', pick: 'sin_surtir', removed_total: 0, charge: null, delivered: false, reason: null }], awaiting_approval: [] },
+  cancelled: [],
+  orders_list: [{ order_id: 'o1', code: 'PD-1', customer_id: 'c1', customer_name: 'Tienda Uno', total: 500, created_at: '2026-11-06T15:05:00.000Z',
+    status: 'confirmed', pick: 'con_faltantes', removed_total: 50, charge: null, delivered: false, reason: null }],
+};

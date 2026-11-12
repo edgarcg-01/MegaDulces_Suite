@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -20,10 +21,26 @@ import {
   ReplaceLinesDto,
   UpdateOrderDraftDto,
   OrderStatus,
+  type PedidoEscrito,
 } from './commercial-orders.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { MOTIVOS_CANCELAR, MOTIVOS_CORREGIR, MOTIVO_OBLIGATORIO_EN_SERVIDOR, type MotivoOpcion } from '@megadulces/contracts';
+import { MotivoInvalido, motivoDelCuerpo } from './justificantes.engine';
+
+/** `[MCP.18]` Cuerpo de «Corregir» y «Cancelar»: el motivo nuevo (clave + nota) o el texto de antes. */
+type CuerpoConMotivo = { reason?: string; reason_code?: string; note?: string | null; check_only?: boolean };
+
+/** `[MCP.18]` El motivo del cuerpo como texto para la historia; uno inválido es un 400 con su porqué. */
+function motivoO400(body: CuerpoConMotivo | undefined, catalogo: readonly MotivoOpcion[], obligatorio: boolean): string | undefined {
+  try {
+    return motivoDelCuerpo(body, catalogo, obligatorio) ?? undefined;
+  } catch (e) {
+    if (e instanceof MotivoInvalido) throw new BadRequestException(e.message);
+    throw e;
+  }
+}
 
 @ApiTags('commercial-orders')
 @ApiBearerAuth()
@@ -281,8 +298,22 @@ export class CommercialOrdersController {
     summary:
       'Reabrir para corregir (confirmed/pending_approval → draft). Conserva el folio, libera solo lo que ESE pedido apartó y deja el pedido editable con el flujo normal de borrador. Entregado y cancelado NO se reabren.',
   })
-  reopen(@Param('id') id: string, @Body() body: { reason?: string } = {}) {
-    return this.service.reopen(id, body?.reason);
+  reopen(@Param('id') id: string, @Body() body: CuerpoConMotivo = {}): Promise<PedidoEscrito> {
+    // [MCP.18] `check_only`: sólo pregunta si se puede (D1: no con el surtido empezado), sin escribir.
+    if (body?.check_only === true) return this.service.reopen(id, undefined, { soloRevisar: true });
+    return this.service.reopen(id, motivoO400(body, MOTIVOS_CORREGIR, MOTIVO_OBLIGATORIO_EN_SERVIDOR));
+  }
+
+  @Post(':id/modify')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
+  @ApiOperation({
+    summary:
+      '[MCP.21] Modificar un pedido agendado (cantidades y quitar), con su motivo, en UNA transacción: reabre, cambia y lo vuelve a agendar. keep_open deja el borrador para agregar productos en la captura.',
+  })
+  modify(@Param('id') id: string, @Body() body: CuerpoConMotivo & { changes?: unknown; keep_open?: unknown }): Promise<PedidoEscrito> {
+    // El motivo es siempre obligatorio aquí (es una pantalla nueva: no hay apps viejas que no lo manden).
+    const motivo = motivoO400(body, MOTIVOS_CORREGIR, true) as string;
+    return this.service.modificarAgendado(id, motivo, body?.changes, body?.keep_open === true);
   }
 
   @Post(':id/fulfill')
@@ -363,7 +394,9 @@ export class CommercialOrdersController {
   @Post(':id/cancel')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CANCELAR)
   @ApiOperation({ summary: 'Cancelar pedido. Libera reservas si estaba confirmed.' })
-  cancel(@Param('id') id: string, @Body() body: { reason?: string }) {
-    return this.service.cancel(id, body?.reason);
+  cancel(@Param('id') id: string, @Body() body: CuerpoConMotivo): Promise<PedidoEscrito> {
+    // [MCP.18] D4: el servicio lo exige sólo si el pedido estaba agendado y es de quien cancela
+    // (Comercial cancelando el de otra persona no pide motivo).
+    return this.service.cancel(id, motivoO400(body, MOTIVOS_CANCELAR, false), { motivoObligatorio: MOTIVO_OBLIGATORIO_EN_SERVIDOR });
   }
 }

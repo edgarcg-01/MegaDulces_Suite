@@ -49,6 +49,8 @@ import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { esSinSenal, TEXTO_SIN_SENAL } from '../../../core/http/sin-senal';
 import { LectorCodigoComponent } from '../components/lector-codigo.component';
+import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
+import { MOTIVOS_CANCELAR, type MotivoElegido } from '@megadulces/contracts';
 import { ChecadorPreciosService } from '../checador-precios.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
 import { fechaEntregaPorOmision, todayIso } from '../../../core/date/biz-days';
@@ -98,6 +100,7 @@ const foldText = (s: string | null | undefined): string =>
     InputTextModule,
     ConfirmDialogModule,
     LectorCodigoComponent,
+    VendorMotivoSheetComponent,
   ],
   // [MCP.3.5] SIN MessageService propio: esta pantalla no tiene <p-toast>, así que una
   // instancia local se tragaba TODOS sus avisos (el error de agregar incluido) y el vendedor
@@ -106,7 +109,19 @@ const foldText = (s: string | null | undefined): string =>
   providers: [ConfirmationService],
   template: `
     <p-confirmdialog></p-confirmdialog>
-    
+    <!-- [MCP.18] Cancelar un pedido que el cliente ya tenía agendado pide el porqué (no así un borrador suelto). -->
+    @if (cancelandoAgendado()) {
+      <app-vendor-motivo-sheet
+        titulo="¿Por qué lo cancelas?"
+        [sub]="(editingCode() || 'El pedido') + ' ya estaba agendado con el cliente. No se puede deshacer.'"
+        [opciones]="motivosCancelar"
+        confirmarTexto="Cancelar el pedido"
+        [busy]="cancelandoBusy()"
+        (confirm)="cancelarAgendado($event)"
+        (cancel)="cancelandoAgendado.set(false)"
+      ></app-vendor-motivo-sheet>
+    }
+
     <!-- Header sticky -->
     @if (customer(); as c) {
       <header class="to-head">
@@ -1787,6 +1802,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   readonly editingOrderId = signal<string | null>(null);
   readonly editingCode = signal<string | null>(null);
+  /** `[MCP.18]` Hoja del motivo al cancelar un pedido que ya estaba agendado. */
+  readonly cancelandoAgendado = signal(false);
+  readonly cancelandoBusy = signal(false);
+  readonly motivosCancelar = MOTIVOS_CANCELAR;
   readonly isEditing = computed(() => !!this.editingOrderId());
 
   ngOnInit(): void {
@@ -2713,6 +2732,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   cancelDraft(): void {
     const orderId = this.cartOrderId();
     if (!orderId) return;
+    // [MCP.18] Corrigiendo con señal, se cancela un pedido que el cliente ya tenía agendado: pide el porqué.
+    // Sin señal no se llega aquí corrigiendo (se regresa a «Por entregar»), así que lo offline no cambia.
+    if (this.isEditing() && !this.offlineMode()) {
+      this.cancelandoAgendado.set(true);
+      return;
+    }
     this.confirmSvc.confirm({
       // Corrigiendo, esto NO cancela un borrador suelto: cancela un pedido que el
       // cliente ya tenía agendado. Tiene que decirlo.
@@ -2740,6 +2765,28 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           },
           error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.message || err.message }),
         });
+      },
+    });
+  }
+
+  /** `[MCP.18]` Cancela el pedido agendado que se estaba corrigiendo, con su motivo, y vuelve a «Por entregar». */
+  cancelarAgendado(motivo: MotivoElegido): void {
+    const orderId = this.cartOrderId();
+    if (!orderId || this.cancelandoBusy()) return;
+    this.cancelandoBusy.set(true);
+    this.api.cancelarConMotivo(orderId, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.cancelandoBusy.set(false);
+        this.cancelandoAgendado.set(false);
+        this.cartLines.set([]);
+        this.cartOrderId.set(null);
+        this.cartOpen.set(false);
+        this.toast.add({ severity: 'info', summary: 'Pedido cancelado', detail: this.editingCode() || '' });
+        this.router.navigate(['/vendor/pending']);
+      },
+      error: (err) => {
+        this.cancelandoBusy.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo cancelar', detail: err?.error?.message || err?.message || 'Intenta de nuevo.' });
       },
     });
   }

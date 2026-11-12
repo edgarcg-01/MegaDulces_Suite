@@ -63,7 +63,14 @@ export function armarRenglonesRevision(vivos: RenglonVivo[], reporte: PresalePic
   // [MCP.13] Lo que el surtidor cambió por otro producto: el faltante del original ya está cubierto
   // (no se le pide a la caja completarlo) y el sustituto dice en lugar de qué va.
   const cubiertos = new Set((reporte?.substituted ?? []).map((x) => x.for_line_id));
-  const enLugarDe = new Map((reporte?.substituted ?? []).map((x) => [x.line_id, x.for_product_name]));
+  // [MCP.17] Si es el MISMO producto en otra unidad, «en lugar de» dice la unidad que no hubo completa.
+  const unidadDe = new Map(
+    [...(reporte?.removed ?? []), ...ajustados].filter((r) => !!r.line_id).map((r) => [r.line_id as string, r.unit]),
+  );
+  const enLugarDe = new Map((reporte?.substituted ?? []).map((x) => [
+    x.line_id,
+    x.same_product && unidadDe.get(x.for_line_id) ? `${x.for_product_name} en ${unidadDe.get(x.for_line_id)}` : x.for_product_name,
+  ]));
   const out: RenglonRevision[] = vivos.map((l) => {
     const m = cantidadMostrada({ quantity: l.quantity, qty_unit: l.qty_unit, qty_factor: l.qty_factor });
     const rep = delReporte(l, m.unit, ajustados);

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 472 KB, 4163 líneas, 115 secciones.
+> **Índice navegable** — 473 KB, 4173 líneas, 115 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -121,7 +121,7 @@
 | 4064 | 4112 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
 | 4113 | 4164 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
 | 4165 | 4240 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
-| 4241 | 4290 | 3 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
+| 4241 | 4300 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4287,3 +4287,13 @@ vales, que cerraba sin pedir una sola fecha, mientras el Andén estaba fuera del
 
 Relacionado: ADR-044 (estación de recepción en paralelo) · ADR-022 (FEFO por lote) · ADR-056 (lo no
 medido se declara).
+
+### Ampliación (2026-11-11, misma fecha: «hagamos lo pendiente»)
+
+6. **El traspaso PROPONE la fecha del origen**, nunca la escribe: el lote que el almacén que mandó
+   despacharía primero por FEFO (fechado, con existencia, no vencido). El operario la confirma contra la
+   etiqueta. Medido: los traspasos son ~19,600 renglones en 60 días contra 11,583 de compra.
+7. **Un rojo rechazado levanta reclamo `caducidad_corta`** a quien la mandó, en la misma transacción
+   que el rechazo (reglas `expired`, `min_shelf_life`, `older_than_existing`).
+8. **«Por vencer» declara lo que puede estar vendido** (existencia sin fecha del mismo almacén) y propone
+   la acción con el mismo `juzgarLotes` del flujo del producto — no una segunda implementación.

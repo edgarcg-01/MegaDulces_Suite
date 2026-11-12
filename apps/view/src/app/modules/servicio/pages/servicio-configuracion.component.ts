@@ -266,6 +266,23 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
             </div>
           }
 
+          <!-- [MS.8.3] Nueva área (cola). Nace APAGADA: después se nombra a su coordinación, sus categorías, y se enciende. -->
+          <div class="sc-new">
+            <h3>Nueva área</h3>
+            <p class="sc-hint">Nace apagada. Después nombra a quien la coordina y la atiende, agrega sus categorías y enciéndela.</p>
+            <div class="sc-grid">
+              <label class="sc-field"><span>Nombre</span><input pInputText [(ngModel)]="areaNueva.name" maxlength="80" placeholder="Ej. Compras (precios y productos)" /></label>
+              <label class="sc-field"><span>Código (minúsculas y guion bajo)</span><input pInputText [(ngModel)]="areaNueva.code" maxlength="30" [placeholder]="codigoDe(areaNueva.name) || 'compras'" /></label>
+              <label class="sc-field"><span>Prioridad sugerida por</span>
+                <p-select [options]="modelos" optionLabel="label" optionValue="value" [(ngModel)]="areaNueva.priority_model" appendTo="body" ariaLabel="Cómo se sugiere la prioridad en el área nueva" /></label>
+            </div>
+            <label class="sc-chk"><input type="checkbox" [(ngModel)]="areaNueva.confidential" /> Confidencial</label>
+            @if (areaNueva.confidential) {
+              <span class="sc-hint">Sólo la verán quien reporta y su coordinación; ni el administrador. Necesita coordinación desde el principio: si la creas tú como administrador, créala sin la marca, nombra a su coordinación y márcala después.</span>
+            }
+            <div class="sc-foot"><p-button label="Crear área" icon="pi pi-plus" [loading]="guardando()" [disabled]="!areaValida()" (onClick)="crearArea()" /></div>
+          </div>
+
           <div class="sc-new">
             <h3>Nueva categoría</h3>
             <div class="sc-grid">
@@ -559,6 +576,19 @@ export class ServicioConfiguracionComponent implements OnInit {
   }
   alternarCola(id: string, activa: boolean): void { this.guardar(this.api.updateQueue(id, { active: !activa }), activa ? 'Cola apagada.' : 'Cola encendida.'); }
   alternarCategoria(id: string, activa: boolean): void { this.guardar(this.api.updateCategory(id, { active: !activa }), activa ? 'Categoría apagada.' : 'Categoría encendida.'); }
+
+  // ── `[MS.8.3]` Nueva área ──
+  areaNueva: { name: string; code: string; priority_model: 'impacto' | 'riesgo_operacion'; confidential: boolean } = { name: '', code: '', priority_model: 'impacto', confidential: false };
+  /** El código escrito, o el que se deriva del nombre si se dejó vacío. */
+  private codigoArea(): string { return this.areaNueva.code.trim() || this.codigoDe(this.areaNueva.name); }
+  areaValida(): boolean { return !!this.areaNueva.name.trim() && /^[a-z][a-z0-9_]{0,29}$/.test(this.codigoArea()); }
+  crearArea(): void {
+    if (!this.areaValida()) return;
+    const a = this.areaNueva;
+    this.guardar(this.api.createQueue({ name: a.name.trim(), code: this.codigoArea(), priority_model: a.priority_model, confidential: a.confidential, active: false }),
+      `Área «${a.name.trim()}» creada, apagada. Nombra a su coordinación, agrega sus categorías y enciéndela.`);
+    this.areaNueva = { name: '', code: '', priority_model: 'impacto', confidential: false };
+  }
 
   nuevaValida(): boolean { return !!this.nueva.queue_id && !!this.nueva.name.trim() && /^[a-z][a-z0-9_]*$/.test(this.nueva.code.trim()); }
   agregarCategoria(): void {

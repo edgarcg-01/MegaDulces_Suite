@@ -7,6 +7,7 @@ import type {
   PresalePickFinishResponse,
   PresalePickInboxResponse,
   PresalePickInboxRow,
+  PresaleOtherUnitsResponse,
   PresaleSubstituteResponse,
   RouteBatchDetail,
   RouteBatchFinishRequest,
@@ -42,6 +43,11 @@ export class PresalePickingService {
   substitutes(orderId: string, lineId: string, q = ''): Observable<PresaleSubstituteResponse> {
     const params = q.trim() ? new HttpParams().set('q', q.trim()) : undefined;
     return this.http.get<PresaleSubstituteResponse>(this.base + '/' + orderId + '/lines/' + lineId + '/substitutes', { params });
+  }
+
+  /** `[MCP.17]` Presentaciones más chicas del mismo producto (no hubo la caja completa: van paquetes o piezas). */
+  otherUnits(orderId: string, lineId: string): Observable<PresaleOtherUnitsResponse> {
+    return this.http.get<PresaleOtherUnitsResponse>(this.base + '/' + orderId + '/lines/' + lineId + '/units');
   }
 
   // ── [MCP.3.6] La ruta del vendedor como UN pedido global ──

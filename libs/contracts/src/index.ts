@@ -126,6 +126,8 @@ export * from './http/warehouse-picking-kepler.contract';
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
 export * from './http/presale-review.contract';
+// [MCP.18] Justificantes: el motivo de cada cambio a un pedido de preventa, visible para los otros roles.
+export * from './http/order-justification.contract';
 export * from './http/vecinal-monitor.contract';
 // [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
 export * from './http/new-customers-kepler.contract';
@@ -136,6 +138,9 @@ export * from './http/supervisor-board.contract';
 export * from './http/contabilidad-contpaqi.contract';
 // [MCP.3.7] Protocolo de visitas: el monitoreo de visitas del día para el supervisor de ventas.
 export * from './http/visit-monitor.contract';
+// [MCP.19] Recuento del día del vendedor: lo levantado, el surtido, las visitas y lo pendiente.
+export * from './http/seller-day-recap.contract';
+export * from './http/order-modify.contract';
 // [MCP.5] Guías de carga de preventa: el repartidor pesca sus pedidos y la cajera imprime la guía.
 export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a

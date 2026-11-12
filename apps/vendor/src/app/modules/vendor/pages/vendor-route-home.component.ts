@@ -32,6 +32,8 @@ import { MX_TZ } from '../../../core/utils/mx-date';
 import { VendorArrivalCardComponent } from '../components/vendor-arrival-card.component';
 import { VendorNoSaleSheetComponent } from '../components/vendor-no-sale-sheet.component';
 import { ArrivalResult, NoSaleKey, RecentFix, VisitProtocolService } from '../visit-protocol';
+import { anterioresPorEntregar, estadoDelCliente, montoPreventa, ventaDeHoyPorCliente, type EstadoCliente } from '../ruta-estado';
+import { hoyMx } from '../mis-pedidos-dia';
 
 /** [MCP.3.7] Lo que se dice junto a «Visita registrada»: a cuántos metros, o por qué no se sabe. */
 export function arrivalDetail(res: ArrivalResult | null | undefined): string {
@@ -231,41 +233,40 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
     
         @if (!loading() && customers().length > 0) {
           <div class="list">
-            @for (c of filtered(); track trackId(i, c); let i = $index) {
+            <!-- [MCP.21] Cada renglón dice cómo va el cliente (pedido · no pidió · visitado · sin visita),
+                 con palabra e icono: el color nunca va solo. -->
+            @for (f of filas(); track f.c.id; let i = $index) {
               <button
                 class="client"
                 [style.animation-delay.ms]="(i > 9 ? 9 : i) * 35"
-                [class.visited]="c.visited_today"
-                [class.preventa]="!c.visited_today && c.has_preventa_pending"
-                (click)="openSheet(c)"
+                [attr.data-estado]="f.e.clave"
+                [class.preventa]="f.e.clave !== 'pedido' && f.c.has_preventa_pending"
+                (click)="openSheet(f.c)"
                 >
-                <span class="seq" [class.ok]="c.visited_today">
-                  @if (c.visited_today) {
-                    <i class="pi pi-check"></i>
-                  }
-                  @if (!c.visited_today) {
-                    {{ c.visit_sequence ?? '·' }}
+                <span class="seq" [attr.data-estado]="f.e.clave" aria-hidden="true">
+                  @if (f.e.icono) {
+                    <i class="pi {{ f.e.icono }}"></i>
+                  } @else if (f.c.visit_sequence) {
+                    {{ f.c.visit_sequence }}
                   }
                 </span>
                 <span class="cbody">
-                  <span class="nm">{{ c.name }}</span>
+                  <span class="nm">{{ f.c.name }}</span>
                   <span class="chips">
-                    @if (c.has_preventa_pending) {
+                    <span class="estado" [attr.data-estado]="f.e.clave">{{ f.e.texto }}</span>
+                    @if (f.preventa > 0) {
                       <span class="chip pre">
-                        <i class="pi pi-inbox"></i> Preventa {{ fmtMoney(c.pending_total) }}
+                        <i class="pi pi-inbox" aria-hidden="true"></i> Preventa {{ fmtMoney(f.preventa) }}
                       </span>
                     }
-                    @if (!c.has_preventa_pending && c.pending_count > 0) {
+                    @if (f.anteriores > 0) {
                       <span class="chip pend">
-                        {{ c.pending_count }} por entregar
+                        {{ f.anteriores }} {{ f.anteriores === 1 ? 'anterior' : 'anteriores' }} por entregar
                       </span>
-                    }
-                    @if (c.ordered_today) {
-                      <span class="chip ok">Pedido hoy</span>
                     }
                   </span>
                 </span>
-                <i class="pi pi-ellipsis-v more"></i>
+                <i class="pi pi-ellipsis-v more" aria-hidden="true"></i>
               </button>
             }
             @if (filtered().length === 0) {
@@ -325,9 +326,10 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
             <i class="pi pi-shopping-cart"></i> Tomar pedido
           </button>
           @if (c.pending_count > 0) {
-            <button class="action" (click)="goPending()">
-              <i class="pi pi-inbox"></i>
-              <span class="lbl">Ver pedido pendiente</span>
+            <!-- [MCP.21] Su pedido se abre en «Pedidos», con Corregir y Cancelar a la mano (antes: «Por entregar», sin avance). -->
+            <button class="action" (click)="goPending(c)">
+              <i class="pi pi-inbox" aria-hidden="true"></i>
+              <span class="lbl">Ver, corregir o cancelar su pedido</span>
               <span class="badge">{{ fmtMoney(c.pending_total) }}</span>
             </button>
           }
@@ -350,22 +352,20 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
             <i class="pi pi-ban"></i>
             <span class="lbl">El cliente no pidió nada</span>
           </button>
-          <button class="action" (click)="goCapture(c)">
-            <i class="pi pi-camera"></i>
-            <span class="lbl">Capturar exhibición</span>
-          </button>
-          @if (c.phone || c.whatsapp) {
-            <div class="contact">
-              @if (c.phone) {
-                <a class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone"></i> Llamar</a>
-              }
-              @if (c.whatsapp) {
-                <a class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
-                  <i class="pi pi-whatsapp"></i> WhatsApp
-                </a>
-              }
-            </div>
-          }
+          <!-- [MCP.21] «Capturar exhibición» se usó 17 veces en 30 días: baja aquí, junto a Llamar y WhatsApp. -->
+          <div class="contact">
+            @if (c.phone) {
+              <a class="contact-btn" [href]="'tel:' + c.phone"><i class="pi pi-phone" aria-hidden="true"></i> Llamar</a>
+            }
+            @if (c.whatsapp) {
+              <a class="contact-btn wa" [href]="waLink(c.whatsapp)" target="_blank" rel="noopener">
+                <i class="pi pi-whatsapp" aria-hidden="true"></i> WhatsApp
+              </a>
+            }
+            <button type="button" class="contact-btn" (click)="goCapture(c)">
+              <i class="pi pi-camera" aria-hidden="true"></i> Capturar exhibición
+            </button>
+          </div>
         </div>
       }
 
@@ -553,7 +553,7 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
       }
       @keyframes client-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       .client::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--border-color); }
-      .client.visited::before { background: var(--ok-fg); }
+      .client[data-estado='pedido']::before { background: var(--ok-fg); }
       .client.preventa::before { background: var(--warn-fg); }
       .client:active { transform: scale(0.985); }
       .seq {
@@ -561,7 +561,13 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
         background: var(--surface-ground); color: var(--text-muted);
         font-family: var(--font-mono); font-weight: 700; font-size: 0.9rem; font-variant-numeric: tabular-nums;
       }
-      .seq.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+      /* [MCP.21] Sin visita = casilla vacía (como un pendiente por palomear); con pedido = palomeado. */
+      .seq[data-estado='sin_visita'] { background: transparent; border: 1.5px solid var(--border-color); }
+      .seq[data-estado='pedido'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+      .seq i { font-size: 0.95rem; }
+      .estado { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); align-self: center; }
+      .estado[data-estado='pedido'] { color: var(--ok-soft-fg); font-weight: 700; }
+      .estado[data-estado='sin_visita'] { font-weight: 500; }
       .cbody { flex: 1; min-width: 0; }
       .nm { display: block; font-weight: 700; font-size: 0.95rem; letter-spacing: -0.01em; color: var(--text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .chips { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem; }
@@ -626,8 +632,8 @@ export function arrivalDetail(res: ArrivalResult | null | undefined): string {
       .visit-line .ok { color: var(--ok-fg); }
       .visit-line .bad { color: var(--bad-fg); }
       .visit-retry { border: none; background: none; padding: 0.4rem 0.2rem; color: var(--action); font-weight: 700; font-size: var(--fs-sm); cursor: pointer; }
-      .contact { display: flex; gap: 0.5rem; margin-top: 0.875rem; }
-      .contact-btn { flex: 1; height: 2.9rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
+      .contact { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.875rem; }
+      .contact-btn { flex: 1 1 8rem; height: 2.9rem; cursor: pointer; font-family: var(--font-body); display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: var(--r-md, 12px); text-decoration: none; font-weight: 700; font-size: var(--fs-body); border: 1px solid var(--border-color); color: var(--text-main); background: var(--surface-ground); }
       .contact-btn.wa { background: #25d366; color: #fff; border-color: #25d366; }
 
       /* feedback táctil — todo lo presionable responde al press */
@@ -738,6 +744,23 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
       .reduce((s, o) => s + Number(o.total), 0),
   );
   readonly porEntregar = computed(() => this.customers().reduce((s, c) => s + (c.pending_count || 0), 0));
+  /** [MCP.21] Lo levantado hoy por cliente, para que su renglón diga «Pedido hoy $X». */
+  private readonly ventaHoy = computed(() => ventaDeHoyPorCliente(this.ordersToday()));
+  /** [MCP.21] El renglón de cada cliente: cómo va, sus preventas y lo de días anteriores por entregar. */
+  readonly filas = computed((): Array<{ c: HomeCustomer; e: EstadoCliente; preventa: number; anteriores: number }> => {
+    const venta = this.ventaHoy();
+    const hoy = hoyMx();
+    return this.filtered().map((c) => {
+      const pend = c.pending_orders ?? [];
+      const monto = venta.get(c.id);
+      return {
+        c,
+        e: estadoDelCliente(c, monto ? this.fmtMoney(monto) : null),
+        preventa: montoPreventa(pend),
+        anteriores: anterioresPorEntregar(pend, hoy),
+      };
+    });
+  });
   readonly filtered = computed(() => {
     const term = this.search().trim().toLowerCase();
     const all = this.customers();
@@ -1000,9 +1023,9 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     this.closeSheet();
     this.router.navigate(['/vendor/take-order', c.id], { queryParams: { mode } });
   }
-  goPending(): void {
+  goPending(c: { id: string }): void {
     this.closeSheet();
-    this.router.navigate(['/vendor/pending']);
+    this.router.navigate(['/vendor/mis-pedidos'], { queryParams: { cliente: c.id } });
   }
   goTicket(): void {
     this.closeSheet();
@@ -1060,7 +1083,7 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
         next: () => {
           this.closingNoSale.set(false);
           this.noSaleFor.set(null);
-          this.customers.set(this.customers().map((x) => (x.id === c.id ? { ...x, visited_today: true } : x)));
+          this.customers.set(this.customers().map((x) => (x.id === c.id ? { ...x, visited_today: true, no_sale_reason_today: e.reason } : x)));
           if (this.detected()?.id === c.id) this.detected.set(null);
           this.toast.add({ severity: 'success', summary: 'Visita cerrada sin pedido', detail: c.name });
         },
@@ -1082,9 +1105,6 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     const parts = (name || '').trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return '?';
     return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
-  }
-  trackId(_: number, c: HomeCustomer): string {
-    return c.id;
   }
   fmtMoney(n: unknown): string {
     return this.money.format(Number(n) || 0);

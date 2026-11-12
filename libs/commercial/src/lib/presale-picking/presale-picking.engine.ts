@@ -135,8 +135,12 @@ export function planearCierre(
       const q = Number(cambio.quantity);
       const unidad = String(cambio.unit ?? '').trim().toUpperCase();
       if (typeof cambio.product_id !== 'string' || !cambio.product_id) throw new CierreInvalido(`«${r.product_name}»: el cambio no dice por qué producto.`);
-      if (r.product_id && cambio.product_id === r.product_id) throw new CierreInvalido(`«${r.product_name}»: no se puede cambiar por el mismo producto.`);
       if (!unidad) throw new CierreInvalido(`«${r.product_name}»: el cambio no dice en qué unidad.`);
+      // [MCP.17] El mismo producto sí, pero en OTRA unidad: pidieron 1 CJA y no hubo caja completa, van 8 PAQ.
+      // En la misma unidad no es un cambio, es lo surtido: va en `picked`.
+      if (r.product_id && cambio.product_id === r.product_id && unidad === m.unit.trim().toUpperCase()) {
+        throw new CierreInvalido(`«${r.product_name}»: para surtirlo en ${unidad} anótalo en lo surtido; el cambio es para otra unidad.`);
+      }
       if (!Number.isFinite(q) || q <= 0) throw new CierreInvalido(`«${r.product_name}»: la cantidad del cambio tiene que ser mayor a cero.`);
       if (!/^(KG|GR|LT|LTS|L|ML)$/i.test(unidad) && Math.abs(q - Math.round(q)) > 1e-9) {
         throw new CierreInvalido(`«${r.product_name}»: la cantidad del cambio en ${unidad} va entera.`);

@@ -165,6 +165,65 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     ] });
   });
 
+  describe('[MCP.18] el porqué de lo que la caja no cobra', () => {
+    const radio = (t: string): HTMLButtonElement =>
+      Array.from(el().querySelectorAll('[role="radio"]')).find((b) => (b.textContent ?? '').includes(t)) as HTMLButtonElement;
+    /** La PALETA venía completa según el surtidor (1 de 1) y la caja no la encuentra: eso lo decide la caja. */
+    async function sinPaleta(): Promise<void> {
+      await montar();
+      await abrir();
+      clic('No coincide');
+      (el().querySelector('[aria-label="Uno menos"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+      clic('Guardar');
+      clic('No hay');          // PALETA: la caja deja 0 de 1 surtido
+      clic('Ya se completó');  // MAZAPÁN: el surtidor trajo lo que faltó
+      clic('No hay');          // SALSA: ya venía quitada del surtido
+    }
+
+    it('sólo lo que la CAJA deja por debajo de lo surtido pide motivo, con «No venía en el carrito» ya marcado', async () => {
+      await sinPaleta();
+      expect(texto()).toContain('Pedido revisado');
+      const grupos = Array.from(el().querySelectorAll('.rv-motivo')).map((g) => g.querySelector('b')?.textContent);
+      // Negativa: la SALSA ya faltaba al surtir (tiene el motivo del surtidor), no se le pregunta a la caja.
+      expect(grupos).toEqual(['PALETA PAYASO GRANDE']);
+      expect(radio('No venía en el carrito').getAttribute('aria-checked')).toBe('true');
+      clic('Terminar y seguir con el siguiente');
+      expect(api.finish).toHaveBeenCalledWith('o-carm', { lines: [
+        { key: 'l1', final: 0, reason: 'no_venia' }, { key: 'l2', final: 3 }, { key: 'borrado:0', final: 0 },
+      ] });
+    });
+
+    it('elegir otro motivo viaja al terminar', async () => {
+      await sinPaleta();
+      radio('Lo pidió quitar el vendedor o el cliente').click();
+      fix.detectChanges();
+      clic('Terminar y seguir con el siguiente');
+      expect(api.finish.mock.calls[0][1].lines[0]).toEqual({ key: 'l1', final: 0, reason: 'lo_pidio_quitar' });
+    });
+
+    it('negativa: «Otro motivo» sin escribir no deja terminar', async () => {
+      await sinPaleta();
+      radio('Otro motivo').click();
+      fix.detectChanges();
+      expect(texto()).toContain('Con «Otro motivo» escribe cuál fue.');
+      expect(boton('Terminar y seguir con el siguiente')?.disabled).toBe(true);
+      boton('Terminar y seguir con el siguiente')?.click();
+      expect(api.finish).not.toHaveBeenCalled();
+    });
+
+    it('la caja ve por qué cambió el pedido antes de llegarle (vendedora y surtidor)', async () => {
+      await montar(() => ({ ...DETALLE(), justifications: [
+        { actor: 'seller', action: 'reopened', by_name: 'Vendedor Prueba', at: '2026-10-29T15:00:00.000Z', product_name: null, detail: null, reason: null },
+        { actor: 'picker', action: 'removed', by_name: 'Surtidor Prueba', at: '2026-10-29T16:00:00.000Z', product_name: 'SALSA MAGA', detail: '1 CJA', reason: 'Dañado o caducado' },
+      ] }));
+      await abrir();
+      expect(texto()).toContain('Corrigió el pedido. Motivo: Sin motivo registrado');
+      expect(texto()).toContain('Surtidor · Surtidor Prueba');
+      expect(texto()).toContain('Quitó SALSA MAGA (1 CJA). Motivo: Dañado o caducado');
+    });
+  });
+
   it('«No coincide» abre el − / + y lo que falta se vuelve faltante', async () => {
     await montar();
     await abrir();

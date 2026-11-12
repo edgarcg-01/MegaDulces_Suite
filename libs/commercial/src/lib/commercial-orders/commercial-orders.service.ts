@@ -24,6 +24,8 @@ import { revisionDeRenglones, llaveDestino, skusDeKepler, type DestinoRenglon } 
 import { completarRegistro, marcaDeVersion, marcarAlAgendar } from './order-stock-notices';
 import type { LineStockReview, PresalePickRestore, StockState } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
+import { AVISO_PANTALLA_VIEJA, MAX_CAMBIOS_PEDIDO, POLITICA_CORREGIR, motivoDeHistoria, type OrderModifyChange } from '@megadulces/contracts';
+import { bloqueoParaCorregir, type SurtidoDelPedido } from './justificantes.engine';
 
 // ─────────── tipos ───────────
 
@@ -156,7 +158,7 @@ export interface UpdateLineDto {
 }
 
 /** `[MCP.3.13]` Lo que la separación por sucursal y la toma en campo leen del pedido. */
-interface PedidoFila {
+export interface PedidoFila {
   id: string;
   tenant_id: string;
   code: string;
@@ -176,6 +178,12 @@ interface PedidoFila {
   group_id: string | null;
   pending_approval_at: string | Date | null;
 }
+
+/** `[MCP.21]` Un pedido recién escrito: la fila de `orders` (el agrupado dice cuántas partes tiene). */
+export type PedidoEscrito = PedidoFila & { total: number | string; group_parts?: number };
+
+/** `[MCP.21]` Un renglón recién escrito: la fila de `order_lines` con su revisión de existencia. */
+export type RenglonEscrito = Record<string, unknown> & { stock_state: StockState | null; stock_review: LineStockReview | null };
 
 /** `[MCP.3.13]` Lo que la separación lee de cada renglón. */
 interface RenglonFila {
@@ -788,157 +796,160 @@ export class CommercialOrdersService {
     )
       throw new BadRequestException('discount_percent debe estar en [0..1]');
 
-    return this.tk.run(async (trx) => {
-      // Lock pesimista sobre la row del order. Serializa addLine concurrentes
-      // sobre el mismo order y evita race en el MAX(line_number)+1 que
-      // explotaba el UNIQUE (tenant_id, order_id, line_number). El lock dura
-      // hasta el commit de esta trx.
-      await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
+    return this.tk.run((trx) => this.addLineEnTrx(trx, orderId, dto));
+  }
 
-      const order = await this.requireDraft(trx, orderId);
-      await this.enforceOrderOwnership(trx, order);
+  /** `[MCP.21]` El cuerpo de `addLine` dentro de una transacción ajena (lo usa `modificarAgendado`). Sin validar los ids: valida quien llama. */
+  async addLineEnTrx(trx: Knex.Transaction, orderId: string, dto: AddLineDto): Promise<RenglonEscrito> {
+    // Lock pesimista sobre la row del order. Serializa addLine concurrentes
+    // sobre el mismo order y evita race en el MAX(line_number)+1 que
+    // explotaba el UNIQUE (tenant_id, order_id, line_number). El lock dura
+    // hasta el commit de esta trx.
+    await trx.raw('SELECT id FROM commercial.orders WHERE id = ? FOR UPDATE', [orderId]);
 
-      // [DN.7] ¿Lo agrega el vendedor desde su app? Sólo a él se le revisa la existencia (abajo): ya no
-      // se le bloquea (ADR-115), el estado viaja en la respuesta.
-      // Un duplicado legado se guarda con SU product_id, no con el de su gemelo: la regla 3 pide usar
-      // la EXISTENCIA del gemelo (eso lo hace `revisionDeRenglones` vía `gemelosDe`), no cambiar el
-      // producto. Cambiarlo rompía la pantalla: la fila del legado nunca encontraba su renglón,
-      // volvía a 0 y cada «+» sumaba en silencio al renglón del gemelo.
-      const esVendedor = await this.esTomaDelVendedor(trx);
+    const order = await this.requireDraft(trx, orderId);
+    await this.enforceOrderOwnership(trx, order);
 
-      // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
-      // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
-      // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
-      const conv = await this.resolverUnidadCaptura(
-        trx, dto.product_id, dto.quantity, dto.qty_unit, dto.qty_factor);
-      const qtyBase = conv.quantity;
-      // [MCP.3.13] De qué sucursal se surte: el precio es el de ESA sucursal (se cobra en su Kepler).
-      const origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
-      const whPrecio = origen ?? order.warehouse_id;
+    // [DN.7] ¿Lo agrega el vendedor desde su app? Sólo a él se le revisa la existencia (abajo): ya no
+    // se le bloquea (ADR-115), el estado viaja en la respuesta.
+    // Un duplicado legado se guarda con SU product_id, no con el de su gemelo: la regla 3 pide usar
+    // la EXISTENCIA del gemelo (eso lo hace `revisionDeRenglones` vía `gemelosDe`), no cambiar el
+    // producto. Cambiarlo rompía la pantalla: la fila del legado nunca encontraba su renglón,
+    // volvía a 0 y cada «+» sumaba en silencio al renglón del gemelo.
+    const esVendedor = await this.esTomaDelVendedor(trx);
 
-      // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
-      // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
-      // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
-      // producto aparecía como líneas separadas al re-agregarlo desde rails/sheet.
-      // [MCP.3.13] Se fusiona por (producto, sucursal de surtido): el mismo producto pedido de dos
-      // sucursales son dos renglones, porque se surten, se cobran y se recogen en lugares distintos.
-      const existing = await trx('commercial.order_lines')
-        .where({ order_id: orderId, product_id: dto.product_id })
-        .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
-        .first();
-      if (existing) {
-        const newQty = Number(existing.quantity) + qtyBase;
-        const exDiscount = Number(existing.discount_percent) || 0;
-        const mismaUnidad = String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '');
-        // [VTK.2] Motor de cotizaciones primero (Kepler por sucursal y peldaño); si no puede,
-        // el cálculo anterior. Con unidades distintas se tarifica en la base.
-        const motor = await this.tarificarConMotor(
-          trx, whPrecio, dto.product_id, newQty,
-          mismaUnidad ? conv.sello.qty_unit : null, exDiscount);
-        // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
-        // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
-        const pi = motor ? null : await this.pricing.resolvePriceForQty(dto.product_id, newQty);
-        const exUnit = motor ? motor.unit_price : (pi!.price != null ? Number(pi!.price) : Number(existing.unit_price));
-        const exTax = motor ? motor.tax_rate : (pi!.price != null ? Number(pi!.tax_rate) : Number(existing.tax_rate));
-        const exSubtotal = motor ? motor.line_subtotal : +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
-        const exLineTax = motor ? motor.line_tax : +(exSubtotal * exTax).toFixed(2);
-        const exTotal = motor ? motor.line_total : +(exSubtotal + exLineTax).toFixed(2);
-        const [merged] = await trx('commercial.order_lines')
-          .where({ id: existing.id })
-          .update({
-            quantity: newQty,
-            // draft-only (requireDraft arriba): la cantidad pedida sigue al carrito.
-            requested_quantity: newQty,
-            unit_price: exUnit,
-            tax_rate: exTax,
-            line_subtotal: exSubtotal,
-            line_tax: exLineTax,
-            line_total: exTotal,
-            erp_gross_total: motor ? motor.erp_gross_total : null,
-            // [VU.2] Al FUSIONAR, el sello de la línea vieja ya no describe el total. Si las dos
-            // capturas fueron en la misma unidad, el sello sigue siendo cierto; si no, se pone en
-            // null: una línea que suma 2 cajas + 5 piezas no está "en cajas" ni "en piezas", y
-            // dejar el sello viejo sería peor que no tenerlo.
-            ...(String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '')
-              ? {}
-              : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
-          })
-          .returning('*');
-        await this.recalcOrderTotals(trx, orderId);
-        // Sumar a un renglón que ya existe no es «agregar»: no se revisa (como antes no se frenaba).
-        return this.conRevision(merged, null);
-      }
+    // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
+    // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
+    // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
+    const conv = await this.resolverUnidadCaptura(
+      trx, dto.product_id, dto.quantity, dto.qty_unit, dto.qty_factor);
+    const qtyBase = conv.quantity;
+    // [MCP.3.13] De qué sucursal se surte: el precio es el de ESA sucursal (se cobra en su Kepler).
+    const origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
+    const whPrecio = origen ?? order.warehouse_id;
 
-      const discount = dto.discount_percent ?? 0;
-      // [VTK.2] Línea nueva: el motor de cotizaciones (Kepler por sucursal y peldaño + volumen +
-      // promos). Kepler vende desde 1 unidad: con el motor no hay mínimo de compra.
+    // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
+    // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
+    // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
+    // producto aparecía como líneas separadas al re-agregarlo desde rails/sheet.
+    // [MCP.3.13] Se fusiona por (producto, sucursal de surtido): el mismo producto pedido de dos
+    // sucursales son dos renglones, porque se surten, se cobran y se recogen en lugares distintos.
+    const existing = await trx('commercial.order_lines')
+      .where({ order_id: orderId, product_id: dto.product_id })
+      .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
+      .first();
+    if (existing) {
+      const newQty = Number(existing.quantity) + qtyBase;
+      const exDiscount = Number(existing.discount_percent) || 0;
+      const mismaUnidad = String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '');
+      // [VTK.2] Motor de cotizaciones primero (Kepler por sucursal y peldaño); si no puede,
+      // el cálculo anterior. Con unidades distintas se tarifica en la base.
       const motor = await this.tarificarConMotor(
-        trx, whPrecio, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
-
-      let unitPrice: number;
-      let taxRate: number;
-      let lineSubtotal: number;
-      let lineTax: number;
-      let lineTotal: number;
-      if (motor) {
-        ({ unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax, line_total: lineTotal } = motor);
-      } else {
-        // Cálculo anterior: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
-        // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
-        const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
-        if (priceInfo.price === null) {
-          if (priceInfo.source === 'below_min') {
-            throw new ConflictException(
-              `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
-            );
-          }
-          throw new ConflictException(
-            `Producto ${dto.product_id} sin precio configurado`,
-          );
-        }
-        unitPrice = Number(priceInfo.price);
-        taxRate = Number(priceInfo.tax_rate);
-        lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
-        lineTax = +(lineSubtotal * taxRate).toFixed(2);
-        lineTotal = +(lineSubtotal + lineTax).toFixed(2);
-      }
-
-      // line_number consecutivo (safe ahora gracias al FOR UPDATE arriba).
-      const [{ next_line }] = await trx('commercial.order_lines')
-        .where({ order_id: orderId })
-        .max({ next_line: 'line_number' });
-      const lineNumber = (Number(next_line) || 0) + 1;
-
-      const [line] = await trx('commercial.order_lines')
-        .insert({
-          tenant_id: trx.raw('public.current_tenant_id()'),
-          order_id: orderId,
-          product_id: dto.product_id,
-          line_number: lineNumber,
-          quantity: qtyBase,
-          requested_quantity: qtyBase,
-          ...conv.sello,
-          unit_price: unitPrice,
-          tax_rate: taxRate,
-          discount_percent: discount,
-          line_subtotal: lineSubtotal,
-          line_tax: lineTax,
-          line_total: lineTotal,
+        trx, whPrecio, dto.product_id, newQty,
+        mismaUnidad ? conv.sello.qty_unit : null, exDiscount);
+      // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
+      // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
+      const pi = motor ? null : await this.pricing.resolvePriceForQty(dto.product_id, newQty);
+      const exUnit = motor ? motor.unit_price : (pi!.price != null ? Number(pi!.price) : Number(existing.unit_price));
+      const exTax = motor ? motor.tax_rate : (pi!.price != null ? Number(pi!.tax_rate) : Number(existing.tax_rate));
+      const exSubtotal = motor ? motor.line_subtotal : +(newQty * exUnit * (1 - exDiscount)).toFixed(2);
+      const exLineTax = motor ? motor.line_tax : +(exSubtotal * exTax).toFixed(2);
+      const exTotal = motor ? motor.line_total : +(exSubtotal + exLineTax).toFixed(2);
+      const [merged] = await trx('commercial.order_lines')
+        .where({ id: existing.id })
+        .update({
+          quantity: newQty,
+          // draft-only (requireDraft arriba): la cantidad pedida sigue al carrito.
+          requested_quantity: newQty,
+          unit_price: exUnit,
+          tax_rate: exTax,
+          line_subtotal: exSubtotal,
+          line_tax: exLineTax,
+          line_total: exTotal,
           erp_gross_total: motor ? motor.erp_gross_total : null,
-          notes: dto.notes || null,
-          source_warehouse_id: origen,
+          // [VU.2] Al FUSIONAR, el sello de la línea vieja ya no describe el total. Si las dos
+          // capturas fueron en la misma unidad, el sello sigue siendo cierto; si no, se pone en
+          // null: una línea que suma 2 cajas + 5 piezas no está "en cajas" ni "en piezas", y
+          // dejar el sello viejo sería peor que no tenerlo.
+          ...(String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '')
+            ? {}
+            : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
         })
         .returning('*');
-
       await this.recalcOrderTotals(trx, orderId);
-      // [DN.7] Renglón NUEVO desde la app del vendedor: se GUARDA aunque su sucursal de surtido esté
-      // agotada o no lo maneje (hasta ADR-115 era un 409 y lo que el cliente pidió se perdía sin
-      // rastro). Su estado viaja en la respuesta; el registro para Compras lo hace `place()` (DN.8).
-      const revision = esVendedor
-        ? await this.revisarRenglon(trx, order.warehouse_id, { product_id: dto.product_id, warehouse_id: whPrecio, quantity: qtyBase })
-        : null;
-      return this.conRevision(line, revision);
-    });
+      // Sumar a un renglón que ya existe no es «agregar»: no se revisa (como antes no se frenaba).
+      return this.conRevision(merged, null);
+    }
+
+    const discount = dto.discount_percent ?? 0;
+    // [VTK.2] Línea nueva: el motor de cotizaciones (Kepler por sucursal y peldaño + volumen +
+    // promos). Kepler vende desde 1 unidad: con el motor no hay mínimo de compra.
+    const motor = await this.tarificarConMotor(
+      trx, whPrecio, dto.product_id, qtyBase, conv.sello.qty_unit, discount);
+
+    let unitPrice: number;
+    let taxRate: number;
+    let lineSubtotal: number;
+    let lineTax: number;
+    let lineTotal: number;
+    if (motor) {
+      ({ unit_price: unitPrice, tax_rate: taxRate, line_subtotal: lineSubtotal, line_tax: lineTax, line_total: lineTotal } = motor);
+    } else {
+      // Cálculo anterior: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
+      // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
+      const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
+      if (priceInfo.price === null) {
+        if (priceInfo.source === 'below_min') {
+          throw new ConflictException(
+            `Cantidad mínima ${priceInfo.min_purchase} para este producto`,
+          );
+        }
+        throw new ConflictException(
+          `Producto ${dto.product_id} sin precio configurado`,
+        );
+      }
+      unitPrice = Number(priceInfo.price);
+      taxRate = Number(priceInfo.tax_rate);
+      lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
+      lineTax = +(lineSubtotal * taxRate).toFixed(2);
+      lineTotal = +(lineSubtotal + lineTax).toFixed(2);
+    }
+
+    // line_number consecutivo (safe ahora gracias al FOR UPDATE arriba).
+    const [{ next_line }] = await trx('commercial.order_lines')
+      .where({ order_id: orderId })
+      .max({ next_line: 'line_number' });
+    const lineNumber = (Number(next_line) || 0) + 1;
+
+    const [line] = await trx('commercial.order_lines')
+      .insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        order_id: orderId,
+        product_id: dto.product_id,
+        line_number: lineNumber,
+        quantity: qtyBase,
+        requested_quantity: qtyBase,
+        ...conv.sello,
+        unit_price: unitPrice,
+        tax_rate: taxRate,
+        discount_percent: discount,
+        line_subtotal: lineSubtotal,
+        line_tax: lineTax,
+        line_total: lineTotal,
+        erp_gross_total: motor ? motor.erp_gross_total : null,
+        notes: dto.notes || null,
+        source_warehouse_id: origen,
+      })
+      .returning('*');
+
+    await this.recalcOrderTotals(trx, orderId);
+    // [DN.7] Renglón NUEVO desde la app del vendedor: se GUARDA aunque su sucursal de surtido esté
+    // agotada o no lo maneje (hasta ADR-115 era un 409 y lo que el cliente pidió se perdía sin
+    // rastro). Su estado viaja en la respuesta; el registro para Compras lo hace `place()` (DN.8).
+    const revision = esVendedor
+      ? await this.revisarRenglon(trx, order.warehouse_id, { product_id: dto.product_id, warehouse_id: whPrecio, quantity: qtyBase })
+      : null;
+    return this.conRevision(line, revision);
   }
 
   /**
@@ -1160,168 +1171,174 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(orderId) || !UUID_REGEX.test(lineId))
       throw new BadRequestException('id inválido');
 
-    return this.tk.run(async (trx) => {
-      const order = await this.requireEditableForLines(trx, orderId);
-      await this.enforceOrderOwnership(trx, order);
+    return this.tk.run((trx) => this.updateLineEnTrx(trx, orderId, lineId, dto));
+  }
 
-      const line = await trx('commercial.order_lines')
-        .where({ id: lineId, order_id: orderId })
-        .first();
-      if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
+  /** `[MCP.21]` El cuerpo de `updateLine` dentro de una transacción ajena (lo usa `modificarAgendado`). Sin validar los ids: valida quien llama. */
+  async updateLineEnTrx(trx: Knex.Transaction, orderId: string, lineId: string, dto: UpdateLineDto): Promise<RenglonEscrito> {
+    const order = await this.requireEditableForLines(trx, orderId);
+    await this.enforceOrderOwnership(trx, order);
 
-      const prevQty = Number(line.quantity);
-      const requested = Number(line.requested_quantity ?? line.quantity);
+    const line = await trx('commercial.order_lines')
+      .where({ id: lineId, order_id: orderId })
+      .first();
+    if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
 
-      // [VU.4] Recaptura CON unidad: se convierte igual que en addLine (el servidor resuelve el
-      // factor, no el cliente) y la línea queda sellada. Sin unidad se mantiene el
-      // comportamiento de siempre: la cantidad llega en base.
-      let quantity = dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
-      let selloTrasEdicion: Record<string, any> = {};
-      if (dto.quantity !== undefined && String(dto.qty_unit ?? '').trim()) {
-        const conv = await this.resolverUnidadCaptura(
-          trx, line.product_id, Number(dto.quantity), dto.qty_unit, dto.qty_factor);
-        quantity = conv.quantity;
-        selloTrasEdicion = { ...conv.sello };
-      } else if (dto.quantity !== undefined && quantity !== prevQty) {
-        // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
-        // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
-        selloTrasEdicion = { qty_unit: null, qty_factor: null, qty_factor_source: null };
-      }
-      const discount =
-        dto.discount_percent !== undefined
-          ? dto.discount_percent
-          : Number(line.discount_percent);
+    const prevQty = Number(line.quantity);
+    const requested = Number(line.requested_quantity ?? line.quantity);
 
-      // [MCP.3.13] Cambiar de qué sucursal se surte: sólo en borrador (después ya es otra parte del
-      // pedido) y sin chocar con otro renglón del mismo producto en esa sucursal.
-      const origenAntes: string | null = line.source_warehouse_id ?? null;
-      let origen = origenAntes;
-      if (dto.source_warehouse_id !== undefined) {
-        origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
-        if (origen !== origenAntes) {
-          if (order.status !== 'draft') {
-            throw new ConflictException('La sucursal de surtido sólo se cambia mientras el pedido es borrador.');
-          }
-          const choca = await trx('commercial.order_lines')
-            .where({ order_id: orderId, product_id: line.product_id })
-            .whereNot('id', lineId)
-            .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
-            .first('id');
-          if (choca) throw new ConflictException('Ya tienes ese producto pedido de esa sucursal: súmalo en ese renglón.');
+    // [VU.4] Recaptura CON unidad: se convierte igual que en addLine (el servidor resuelve el
+    // factor, no el cliente) y la línea queda sellada. Sin unidad se mantiene el
+    // comportamiento de siempre: la cantidad llega en base.
+    let quantity = dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
+    let selloTrasEdicion: Record<string, unknown> = {};
+    if (dto.quantity !== undefined && String(dto.qty_unit ?? '').trim()) {
+      const conv = await this.resolverUnidadCaptura(
+        trx, line.product_id, Number(dto.quantity), dto.qty_unit, dto.qty_factor);
+      quantity = conv.quantity;
+      selloTrasEdicion = { ...conv.sello };
+    } else if (dto.quantity !== undefined && quantity !== prevQty) {
+      // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
+      // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
+      selloTrasEdicion = { qty_unit: null, qty_factor: null, qty_factor_source: null };
+    }
+    const discount =
+      dto.discount_percent !== undefined
+        ? dto.discount_percent
+        : Number(line.discount_percent);
+
+    // [MCP.3.13] Cambiar de qué sucursal se surte: sólo en borrador (después ya es otra parte del
+    // pedido) y sin chocar con otro renglón del mismo producto en esa sucursal.
+    const origenAntes: string | null = line.source_warehouse_id ?? null;
+    let origen = origenAntes;
+    if (dto.source_warehouse_id !== undefined) {
+      origen = await this.origenDelRenglon(trx, order, dto.source_warehouse_id);
+      if (origen !== origenAntes) {
+        if (order.status !== 'draft') {
+          throw new ConflictException('La sucursal de surtido sólo se cambia mientras el pedido es borrador.');
         }
+        const choca = await trx('commercial.order_lines')
+          .where({ order_id: orderId, product_id: line.product_id })
+          .whereNot('id', lineId)
+          .whereRaw('source_warehouse_id IS NOT DISTINCT FROM ?::uuid', [origen])
+          .first('id');
+        if (choca) throw new ConflictException('Ya tienes ese producto pedido de esa sucursal: súmalo en ese renglón.');
       }
-      const cambioOrigen = origen !== origenAntes;
-      const whPrecio = origen ?? order.warehouse_id;
+    }
+    const cambioOrigen = origen !== origenAntes;
+    const whPrecio = origen ?? order.warehouse_id;
 
-      if (quantity <= 0) throw new BadRequestException('quantity debe ser > 0');
-      if (discount < 0 || discount > 1)
-        throw new BadRequestException('discount_percent en [0..1]');
+    if (quantity <= 0) throw new BadRequestException('quantity debe ser > 0');
+    if (discount < 0 || discount > 1)
+      throw new BadRequestException('discount_percent en [0..1]');
 
-      // [DN.7] Desde la app del vendedor, cambiar la sucursal de surtido (o subir un renglón que estaba
-      // en 0) es AGREGAR en esa sucursal: se revisa su existencia y el estado viaja en la respuesta.
-      // Hasta ADR-115 esto era un 409 y el cambio no se hacía. Ajustar la cantidad de un renglón que
-      // ya tenía algo no se revisa (tampoco se frenaba).
-      const revisar = (cambioOrigen || (prevQty <= 0 && quantity > 0)) && (await this.esTomaDelVendedor(trx));
+    // [DN.7] Desde la app del vendedor, cambiar la sucursal de surtido (o subir un renglón que estaba
+    // en 0) es AGREGAR en esa sucursal: se revisa su existencia y el estado viaja en la respuesta.
+    // Hasta ADR-115 esto era un 409 y el cambio no se hacía. Ajustar la cantidad de un renglón que
+    // ya tenía algo no se revisa (tampoco se frenaba).
+    const revisar = (cambioOrigen || (prevQty <= 0 && quantity > 0)) && (await this.esTomaDelVendedor(trx));
 
-      // En pending_approval el vendedor solo puede RECORTAR la cantidad: nunca
-      // entregar más de lo que el cliente pidió. La cantidad pedida queda
-      // congelada en `requested_quantity` al entrar a pending_approval.
-      if (order.status === 'pending_approval' && quantity > requested) {
-        throw new BadRequestException(
-          `La cantidad aprobada (${quantity}) no puede superar la pedida por el cliente (${requested}).`,
-        );
+    // En pending_approval el vendedor solo puede RECORTAR la cantidad: nunca
+    // entregar más de lo que el cliente pidió. La cantidad pedida queda
+    // congelada en `requested_quantity` al entrar a pending_approval.
+    if (order.status === 'pending_approval' && quantity > requested) {
+      throw new BadRequestException(
+        `La cantidad aprobada (${quantity}) no puede superar la pedida por el cliente (${requested}).`,
+      );
+    }
+
+    // Si el pedido ya está pending_approval, el stock está reservado.
+    // Ajustar la reserva por delta: liberar exceso o reservar lo nuevo.
+    if (order.status === 'pending_approval' && quantity !== prevQty) {
+      const delta = quantity - prevQty;
+      if (delta > 0) {
+        await this.stock.reserve(trx, order.warehouse_id, line.product_id, delta, orderId);
+      } else {
+        await this.stock.release(trx, order.warehouse_id, line.product_id, -delta, orderId);
       }
+    }
 
-      // Si el pedido ya está pending_approval, el stock está reservado.
-      // Ajustar la reserva por delta: liberar exceso o reservar lo nuevo.
-      if (order.status === 'pending_approval' && quantity !== prevQty) {
-        const delta = quantity - prevQty;
-        if (delta > 0) {
-          await this.stock.reserve(trx, order.warehouse_id, line.product_id, delta, orderId);
-        } else {
-          await this.stock.release(trx, order.warehouse_id, line.product_id, -delta, orderId);
-        }
-      }
+    // [VTK.2] Si cambió la cantidad (o el descuento), se vuelve a tarificar con el motor de
+    // cotizaciones: el precio de Kepler depende de la cantidad (volumen, promos). Antes la
+    // edición conservaba el precio viejo, que con el motor quedaría mal. Si el motor no puede,
+    // se conserva el precio del renglón como siempre y se suelta el total de Kepler (ya no
+    // describe la nueva cantidad).
+    const unidadTrasEdicion = 'qty_unit' in selloTrasEdicion ? selloTrasEdicion.qty_unit : line.qty_unit;
+    const motor = (quantity !== prevQty || discount !== Number(line.discount_percent) || cambioOrigen)
+      ? await this.tarificarConMotor(trx, whPrecio, line.product_id, quantity, unidadTrasEdicion, discount)
+      : null;
+    const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
+    const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
+    const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
+    const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
+    const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
+    const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent) && !cambioOrigen;
 
-      // [VTK.2] Si cambió la cantidad (o el descuento), se vuelve a tarificar con el motor de
-      // cotizaciones: el precio de Kepler depende de la cantidad (volumen, promos). Antes la
-      // edición conservaba el precio viejo, que con el motor quedaría mal. Si el motor no puede,
-      // se conserva el precio del renglón como siempre y se suelta el total de Kepler (ya no
-      // describe la nueva cantidad).
-      const unidadTrasEdicion = 'qty_unit' in selloTrasEdicion ? selloTrasEdicion.qty_unit : line.qty_unit;
-      const motor = (quantity !== prevQty || discount !== Number(line.discount_percent) || cambioOrigen)
-        ? await this.tarificarConMotor(trx, whPrecio, line.product_id, quantity, unidadTrasEdicion, discount)
-        : null;
-      const unitPrice = motor ? motor.unit_price : Number(line.unit_price);
-      const taxRate = motor ? motor.tax_rate : Number(line.tax_rate);
-      const lineSubtotal = motor ? motor.line_subtotal : +(quantity * unitPrice * (1 - discount)).toFixed(2);
-      const lineTax = motor ? motor.line_tax : +(lineSubtotal * taxRate).toFixed(2);
-      const lineTotal = motor ? motor.line_total : +(lineSubtotal + lineTax).toFixed(2);
-      const sinCambioDePrecio = quantity === prevQty && discount === Number(line.discount_percent) && !cambioOrigen;
+    // En draft el cliente sigue armando — `requested_quantity` se sincroniza
+    // con `quantity` porque NO existe todavía una "cantidad pedida congelada".
+    // En pending_approval queda intocable.
+    const updatePatch: Record<string, unknown> = {
+      quantity,
+      discount_percent: discount,
+      unit_price: unitPrice,
+      tax_rate: taxRate,
+      line_subtotal: lineSubtotal,
+      line_tax: lineTax,
+      line_total: lineTotal,
+      erp_gross_total: motor ? motor.erp_gross_total : (sinCambioDePrecio ? line.erp_gross_total : null),
+      notes: dto.notes !== undefined ? dto.notes : line.notes,
+      ...selloTrasEdicion,
+      ...(cambioOrigen ? { source_warehouse_id: origen } : {}),
+    };
+    if (order.status === 'draft') {
+      updatePatch.requested_quantity = quantity;
+    }
 
-      // En draft el cliente sigue armando — `requested_quantity` se sincroniza
-      // con `quantity` porque NO existe todavía una "cantidad pedida congelada".
-      // En pending_approval queda intocable.
-      const updatePatch: Record<string, any> = {
-        quantity,
-        discount_percent: discount,
-        unit_price: unitPrice,
-        tax_rate: taxRate,
-        line_subtotal: lineSubtotal,
-        line_tax: lineTax,
-        line_total: lineTotal,
-        erp_gross_total: motor ? motor.erp_gross_total : (sinCambioDePrecio ? line.erp_gross_total : null),
-        notes: dto.notes !== undefined ? dto.notes : line.notes,
-        ...selloTrasEdicion,
-        ...(cambioOrigen ? { source_warehouse_id: origen } : {}),
-      };
-      if (order.status === 'draft') {
-        updatePatch.requested_quantity = quantity;
-      }
+    const [updated] = await trx('commercial.order_lines')
+      .where({ id: lineId })
+      .update(updatePatch)
+      .returning('*');
 
-      const [updated] = await trx('commercial.order_lines')
-        .where({ id: lineId })
-        .update(updatePatch)
-        .returning('*');
-
-      await this.recalcOrderTotals(trx, orderId);
-      const revision = revisar
-        ? await this.revisarRenglon(trx, order.warehouse_id, {
-            product_id: line.product_id as string, warehouse_id: whPrecio as string, quantity,
-          })
-        : null;
-      return this.conRevision(updated, revision);
-    });
+    await this.recalcOrderTotals(trx, orderId);
+    const revision = revisar
+      ? await this.revisarRenglon(trx, order.warehouse_id, {
+          product_id: line.product_id as string, warehouse_id: whPrecio as string, quantity,
+        })
+      : null;
+    return this.conRevision(updated, revision);
   }
 
   async removeLine(orderId: string, lineId: string) {
     if (!UUID_REGEX.test(orderId) || !UUID_REGEX.test(lineId))
       throw new BadRequestException('id inválido');
 
-    return this.tk.run(async (trx) => {
-      const order = await this.requireEditableForLines(trx, orderId);
-      await this.enforceOrderOwnership(trx, order);
+    return this.tk.run((trx) => this.removeLineEnTrx(trx, orderId, lineId));
+  }
 
-      const line = await trx('commercial.order_lines')
-        .where({ id: lineId, order_id: orderId })
-        .first();
-      if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
+  /** `[MCP.21]` El cuerpo de `removeLine` dentro de una transacción ajena (lo usa `modificarAgendado`). Sin validar los ids: valida quien llama. */
+  async removeLineEnTrx(trx: Knex.Transaction, orderId: string, lineId: string): Promise<{ deleted: true; id: string }> {
+    const order = await this.requireEditableForLines(trx, orderId);
+    await this.enforceOrderOwnership(trx, order);
 
-      // Si el pedido está pending_approval, liberar la reserva antes de borrar.
-      if (order.status === 'pending_approval') {
-        await this.stock.release(
-          trx,
-          order.warehouse_id,
-          line.product_id,
-          Number(line.quantity),
-          orderId,
-        );
-      }
+    const line = await trx('commercial.order_lines')
+      .where({ id: lineId, order_id: orderId })
+      .first();
+    if (!line) throw new NotFoundException(`Line ${lineId} no encontrada`);
 
-      await trx('commercial.order_lines').where({ id: lineId }).delete();
-      await this.recalcOrderTotals(trx, orderId);
-      return { deleted: true, id: lineId };
-    });
+    // Si el pedido está pending_approval, liberar la reserva antes de borrar.
+    if (order.status === 'pending_approval') {
+      await this.stock.release(
+        trx,
+        order.warehouse_id,
+        line.product_id,
+        Number(line.quantity),
+        orderId,
+      );
+    }
+
+    await trx('commercial.order_lines').where({ id: lineId }).delete();
+    await this.recalcOrderTotals(trx, orderId);
+    return { deleted: true, id: lineId };
   }
 
   /**
@@ -1526,7 +1543,8 @@ export class CommercialOrdersService {
   async agregarSustitutos(
     trx: Knex.Transaction,
     orderId: string,
-    items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string }>,
+    // [MCP.17] `notes` propia cuando es el mismo producto en otra unidad (no es «en lugar de» otro).
+    items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string; notes?: string }>,
   ): Promise<Array<{ line_id: string; product_id: string; line_total: number }>> {
     if (!items.length) return [];
     const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
@@ -1561,7 +1579,7 @@ export class CommercialOrdersService {
           line_tax: p.line_tax,
           line_total: p.line_total,
           erp_gross_total: p.erp_gross_total,
-          notes: `En lugar de «${it.for_product_name}» (no hubo al surtir)`.slice(0, 500),
+          notes: (it.notes ?? `En lugar de «${it.for_product_name}» (no hubo al surtir)`).slice(0, 500),
           qty_unit: it.qty_unit,
           qty_factor: it.qty_factor,
           qty_factor_source: it.qty_factor > 1 ? 'kepler_ladder' : 'captura_directa',
@@ -1744,6 +1762,26 @@ export class CommercialOrdersService {
     // (`as`: se asigna dentro del callback y TS no sigue esa asignación; sin esto lo estrecha a `null`.)
     let registro = null as { root: string | null; marcadas: number } | null;
     const tomado = await this.tk.run(async (trx) => {
+      const r = await this.placeEnTrx(trx, orderId, dto);
+      registro = r.registro;
+      return r.tomado;
+    });
+    // [DN.8] Paso 2, ya con el pedido confirmado y el candado suelto.
+    if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
+    return tomado;
+  }
+
+  /**
+   * `[MCP.21]` El cuerpo de `place` dentro de una transacción ajena. Devuelve también lo registrado para
+   * Compras: el paso 2 (`completarRegistroDespues`) lo corre quien llama, DESPUÉS del commit.
+   */
+  async placeEnTrx(
+    trx: Knex.Transaction,
+    orderId: string,
+    dto: UpdateOrderDraftDto = {},
+  ): Promise<{ tomado: PedidoEscrito; registro: { root: string | null; marcadas: number } | null }> {
+    let registro = null as { root: string | null; marcadas: number } | null;
+    const tomado = await (async () => {
       // FOR UPDATE (Fix #4): bloqueo del pedido → evita doble reserva de stock si
       // el device reintenta place (o el vendedor da doble-tap) de forma solapada.
       const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
@@ -1796,10 +1834,8 @@ export class CommercialOrdersService {
       // [DN.8] Paso 1 del registro para Compras: la marca de cada renglón, en esta misma transacción.
       registro = await this.marcarParaCompras(trx, order, [order.id, ...partes.map((p) => p.id)], userId, dto.client_build, raizAntes);
       return partes.length ? { ...updated, group_parts: partes.length + 1 } : updated;
-    });
-    // [DN.8] Paso 2, ya con el pedido confirmado y el candado suelto.
-    if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
-    return tomado;
+    })();
+    return { tomado, registro };
   }
 
   /**
@@ -2639,7 +2675,7 @@ export class CommercialOrdersService {
    * Si está pending_approval o confirmed, libera reservas (stock se reserva en
    * el confirm del cliente, sigue reservado hasta cancel o fulfill).
    */
-  async cancel(orderId: string, reason?: string) {
+  async cancel(orderId: string, reason?: string, opts: { motivoObligatorio?: boolean } = {}): Promise<PedidoEscrito> {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
@@ -2665,6 +2701,22 @@ export class CommercialOrdersService {
         throw new ConflictException(
           'Este pedido ya se entregó en su guía de carga: no se cancela, va por devolución y nota de crédito en Kepler.',
         );
+
+      // [MCP.18] D4: la vendedora que cancela SU pedido ya agendado dice por qué; el texto fijo de antes no
+      // cuenta. Fuera: el cliente del portal B2B (customer_b2b) y Comercial cancelando el de otra persona.
+      const agendado = order.status === 'confirmed' || order.status === 'pending_approval';
+      const ctxCancela = this.tenantCtx.get();
+      const quienCancela = ctxCancela?.userId || null;
+      const esSuyo = ctxCancela?.roleName !== 'customer_b2b' && !!quienCancela && order.user_id === quienCancela;
+      if (opts.motivoObligatorio && agendado && !motivoDeHistoria(reason) && esSuyo) {
+        throw new BadRequestException(`Elige el motivo de la cancelación. ${AVISO_PANTALLA_VIEJA}`);
+      }
+      // [MCP.21] Cancelar directo desde la app (sin reabrir antes) sigue D1: lo que el surtidor ya tomó no se
+      // cancela desde la app; si no, el surtidor terminaría un pedido que ya no existe. Comercial no cambia.
+      if (opts.motivoObligatorio && agendado && esSuyo) {
+        const bloqueo = bloqueoParaCorregir(await this.surtidosDelGrupo(trx, order), POLITICA_CORREGIR, 'cancelar');
+        if (bloqueo) throw new ConflictException(bloqueo);
+      }
 
       if (order.status === 'confirmed' || order.status === 'pending_approval') {
         const lines = await trx('commercial.order_lines')
@@ -2723,84 +2775,166 @@ export class CommercialOrdersService {
    * la cantidad de la línea: en preventa `place()` nunca reserva, así que restar la
    * línea le estaría soltando el apartado a OTRO pedido.
    */
-  async reopen(orderId: string, reason?: string) {
+  /**
+   * `[MCP.21]` Modificar un pedido AGENDADO desde la tarjeta de «Pedidos»: reabre (con su motivo y la regla D1),
+   * cambia o quita renglones y lo vuelve a agendar, TODO en una transacción. O pasa todo o nada: el surtidor
+   * nunca ve un pedido a medias y no se queda un borrador suelto si algo falla a la mitad. Con `keepOpen`
+   * se queda en borrador (mismo folio) para agregar productos en la captura, que es donde se eligen la
+   * presentación y el precio; ahí se vuelve a agendar.
+   */
+  async modificarAgendado(orderId: string, reason: string, changes: unknown, keepOpen = false): Promise<PedidoEscrito> {
+    if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
+    const cambios = validarCambios(changes);
+    if (!cambios.length && !keepOpen) throw new BadRequestException('No hay cambios que guardar.');
+    const tenantId = this.tenantCtx.requireTenantId();
+    let registro = null as { root: string | null; marcadas: number } | null;
+    const res = await this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first('id', 'status');
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      if (order.status !== 'confirmed' && order.status !== 'pending_approval') {
+        throw new ConflictException(order.status === 'draft'
+          ? 'Este pedido ya está abierto para corregir: termínalo en «Tomar pedido».'
+          : `Este pedido ya no se puede modificar (está «${order.status}»).`);
+      }
+      const ids = (await trx('commercial.order_lines').where({ order_id: orderId }).pluck('id')) as string[];
+      if (cambios.some((c) => !ids.includes(c.line_id))) {
+        throw new ConflictException('Un producto ya no está en el pedido: vuelve a abrirlo para ver cómo quedó.');
+      }
+      const quedan = ids.filter((id) => !cambios.some((c) => c.line_id === id && c.remove)).length;
+      if (!quedan && !keepOpen) {
+        throw new BadRequestException('Quitarías todos los productos: si el cliente ya no quiere nada, cancela el pedido.');
+      }
+      // Reabrir trae sus reglas: que sea tuyo, D1 (el surtidor no lo ha tomado) y el motivo en la historia.
+      await this.reopenEnTrx(trx, orderId, reason, { omitirOtroBorrador: !keepOpen });
+      for (const c of cambios) {
+        if (c.remove) await this.removeLineEnTrx(trx, orderId, c.line_id);
+        else {
+          await this.updateLineEnTrx(trx, orderId, c.line_id, {
+            quantity: c.quantity as number,
+            ...(c.qty_unit ? { qty_unit: c.qty_unit } : {}),
+            ...(c.qty_factor ? { qty_factor: c.qty_factor } : {}),
+          });
+        }
+      }
+      if (keepOpen) return trx('commercial.orders').where({ id: orderId }).first();
+      const r = await this.placeEnTrx(trx, orderId, {});
+      registro = r.registro;
+      return r.tomado;
+    });
+    if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
+    return res;
+  }
+
+  async reopen(orderId: string, reason?: string, opts: { soloRevisar?: boolean } = {}): Promise<PedidoEscrito> {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
-    return this.tk.run(async (trx) => {
-      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
-      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
-      await this.enforceOrderOwnership(trx, order);
+    return this.tk.run((trx) => this.reopenEnTrx(trx, orderId, reason, opts));
+  }
 
-      if (order.status === 'draft') return order; // idempotente: ya editable
-      if (order.status !== 'confirmed' && order.status !== 'pending_approval')
-        throw new ConflictException(
-          order.status === 'fulfilled'
-            ? 'Pedido ya entregado: se corrige con una devolución, no reabriéndolo'
-            : `Pedido en estado '${order.status}' no se puede reabrir`,
-        );
+  /** `[MCP.21]` El cuerpo de `reopen` dentro de una transacción ajena (lo usa `modificarAgendado`). Sin validar los ids: valida quien llama. */
+  async reopenEnTrx(
+    trx: Knex.Transaction, orderId: string, reason?: string, opts: { soloRevisar?: boolean; omitirOtroBorrador?: boolean } = {},
+  ): Promise<PedidoEscrito> {
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    await this.enforceOrderOwnership(trx, order);
 
-      const ctx = this.tenantCtx.get();
-      const userId = ctx?.userId || null;
-      if (
-        order.user_id &&
-        userId &&
-        order.user_id !== userId &&
-        !isPlatformAdminRole(ctx?.roleName)
-      ) {
-        throw new ForbiddenException('Este pedido lo tomó otro vendedor');
-      }
-
-      const otroBorrador = await trx('commercial.orders')
-        .where({ customer_id: order.customer_id, status: 'draft' })
-        .modify((q: any) => {
-          if (order.user_id) q.where('user_id', order.user_id);
-        })
-        .whereNot('id', orderId)
-        .first();
-      if (otroBorrador)
-        throw new ConflictException(
-          `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Termínalo o cancélalo antes de corregir este.`,
-        );
-
-      // Lo efectivamente apartado por ESTE pedido, por producto.
-      const apartado = await trx('commercial.stock_movements')
-        .where({ reference_type: 'order', reference_id: orderId })
-        .whereIn('movement_type', ['reserve', 'release'])
-        .groupBy('product_id')
-        .select('product_id')
-        .sum({
-          neto: trx.raw(
-            "CASE WHEN movement_type = 'reserve' THEN quantity ELSE -quantity END",
-          ),
-        });
-      for (const row of apartado as Array<{ product_id: string; neto: string }>) {
-        const neto = Number(row.neto);
-        if (neto > 0)
-          await this.stock.release(trx, order.warehouse_id, row.product_id, neto, orderId);
-      }
-
-      const [updated] = await trx('commercial.orders')
-        .where({ id: orderId })
-        .update({
-          status: 'draft',
-          confirmed_at: null,
-          pending_approval_at: null,
-          updated_at: trx.fn.now(),
-          updated_by: userId,
-        })
-        .returning('*');
-
-      await this.recordHistory(
-        trx,
-        orderId,
-        order.status,
-        'draft',
-        reason || 'reabierto para corregir',
+    if (order.status === 'draft') return order; // idempotente: ya editable
+    if (order.status !== 'confirmed' && order.status !== 'pending_approval')
+      throw new ConflictException(
+        order.status === 'fulfilled'
+          ? 'Pedido ya entregado: se corrige con una devolución, no reabriéndolo'
+          : `Pedido en estado '${order.status}' no se puede reabrir`,
       );
 
-      return updated;
-    });
+    const ctx = this.tenantCtx.get();
+    const userId = ctx?.userId || null;
+    if (
+      order.user_id &&
+      userId &&
+      order.user_id !== userId &&
+      !isPlatformAdminRole(ctx?.roleName)
+    ) {
+      throw new ForbiddenException('Este pedido lo tomó otro vendedor');
+    }
+
+    // [MCP.18] D1: lo que el surtidor ya tomó no se reabre. Reabrir lo saca de su bandeja (sólo lee
+    // confirmados) y `replaceLines` cambia los ids de renglón: sus marcas y su reporte quedan sueltos.
+    const bloqueo = bloqueoParaCorregir(await this.surtidosDelGrupo(trx, order), POLITICA_CORREGIR);
+    if (bloqueo) throw new ConflictException(bloqueo);
+
+    const otroBorrador = await trx('commercial.orders')
+      .where({ customer_id: order.customer_id, status: 'draft' })
+      .modify((q: Knex.QueryBuilder) => {
+        if (order.user_id) q.where('user_id', order.user_id);
+      })
+      .whereNot('id', orderId)
+      .first();
+    if (otroBorrador && !opts.omitirOtroBorrador)
+      throw new ConflictException(
+        `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Termínalo o cancélalo antes de corregir este.`,
+      );
+    // [MCP.18] «¿Se puede corregir?»: las mismas reglas, sin escribir nada.
+    if (opts.soloRevisar) return order;
+
+    // Lo efectivamente apartado por ESTE pedido, por producto.
+    const apartado = await trx('commercial.stock_movements')
+      .where({ reference_type: 'order', reference_id: orderId })
+      .whereIn('movement_type', ['reserve', 'release'])
+      .groupBy('product_id')
+      .select('product_id')
+      .sum({
+        neto: trx.raw(
+          "CASE WHEN movement_type = 'reserve' THEN quantity ELSE -quantity END",
+        ),
+      });
+    for (const row of apartado as Array<{ product_id: string; neto: string }>) {
+      const neto = Number(row.neto);
+      if (neto > 0)
+        await this.stock.release(trx, order.warehouse_id, row.product_id, neto, orderId);
+    }
+
+    const [updated] = await trx('commercial.orders')
+      .where({ id: orderId })
+      .update({
+        status: 'draft',
+        confirmed_at: null,
+        pending_approval_at: null,
+        updated_at: trx.fn.now(),
+        updated_by: userId,
+      })
+      .returning('*');
+
+    await this.recordHistory(
+      trx,
+      orderId,
+      order.status,
+      'draft',
+      reason || 'reabierto para corregir',
+    );
+
+    return updated;
+  }
+
+  /**
+   * `[MCP.18]` El surtido del pedido y el de las otras partes vivas de su grupo (`[MCP.3.13]`): si
+   * cualquiera ya empezó, reabrir el principal movería renglones bajo la mano de un surtidor.
+   */
+  private async surtidosDelGrupo(trx: Knex.Transaction, order: { id: string; group_id?: string | null }): Promise<SurtidoDelPedido[]> {
+    return trx('commercial.presale_picks as pp')
+      .join('commercial.orders as o', function (this: Knex.JoinClause) {
+        this.on('o.id', '=', 'pp.order_id').andOn('o.tenant_id', '=', 'pp.tenant_id');
+      })
+      .where(function (this: Knex.QueryBuilder) {
+        this.where('pp.order_id', order.id);
+        if (order.group_id) {
+          this.orWhere(function (this: Knex.QueryBuilder) {
+            this.where('o.group_id', order.group_id).whereNot('o.status', 'cancelled');
+          });
+        }
+      })
+      .select('pp.started_at', 'pp.started_by_name', 'pp.finished_at', 'pp.finished_by_name', 'pp.reviewed_at', 'pp.reviewed_by_name');
   }
 
   /** Devuelve historial de cambios de status para un pedido. */
@@ -3559,4 +3693,31 @@ export class CommercialOrdersService {
     }
     return ctx.userId;
   }
+}
+
+/**
+ * `[MCP.21]` Los cambios de «Modificar pedido», validados antes de tocar nada: cada uno es quitar O una
+ * cantidad > 0; sin renglones repetidos; unidad y factor, si vienen, con forma. Un error es 400.
+ */
+export function validarCambios(v: unknown): OrderModifyChange[] {
+  if (!Array.isArray(v)) throw new BadRequestException('changes tiene que ser una lista.');
+  if (v.length > MAX_CAMBIOS_PEDIDO) throw new BadRequestException(`Son más de ${MAX_CAMBIOS_PEDIDO} cambios a la vez.`);
+  const vistos = new Set<string>();
+  return v.map((x) => {
+    const c = (x ?? {}) as Record<string, unknown>;
+    const id = typeof c['line_id'] === 'string' ? c['line_id'] : '';
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('Un cambio no dice a qué producto del pedido.');
+    if (vistos.has(id)) throw new BadRequestException('El mismo producto viene dos veces en los cambios.');
+    vistos.add(id);
+    if (c['remove'] === true) return { line_id: id, remove: true };
+    const q = c['quantity'];
+    if (typeof q !== 'number' || !Number.isFinite(q) || q <= 0) {
+      throw new BadRequestException('La cantidad tiene que ser mayor que 0 (para dejarlo en 0, quítalo).');
+    }
+    const u = c['qty_unit'];
+    const f = c['qty_factor'];
+    if (u != null && (typeof u !== 'string' || !u.trim() || u.length > 20)) throw new BadRequestException('La unidad no es válida.');
+    if (f != null && (typeof f !== 'number' || !Number.isFinite(f) || f <= 0)) throw new BadRequestException('El factor de la unidad no es válido.');
+    return { line_id: id, quantity: q, qty_unit: (u as string | null) ?? null, qty_factor: (f as number | null) ?? null };
+  });
 }

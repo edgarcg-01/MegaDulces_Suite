@@ -64,6 +64,29 @@ export function puedeAdministrarCola(a: AccesoColas, queueId: string, confidenci
   return confidencial ? a.coordina.has(queueId) : puedeCoordinarCola(a, queueId);
 }
 
+/**
+ * `[MS.8.2]` La salida de una cola confidencial HUÉRFANA. H1 deja que una cola confidencial sólo la cambie su coordinación; si no tiene
+ * coordinación, nadie la puede cambiar nunca. Pasó en prod: el 2026-11-10 se marcó «Mantenimiento» (0 miembros) como confidencial y
+ * quedó trabada, ni el god-mode le quitaba la marca.
+ *
+ * El god-mode puede SÓLO quitarle la marca, y sólo si la cola no tiene coordinación NI solicitudes: sin solicitudes no hay nada
+ * confidencial que proteger, y quitar la marca no lo agrega como miembro (lo que H1 evita). Cualquier otro cambio sigue cerrado.
+ */
+export function puedeLiberarConfidencialHuerfana(
+  a: AccesoColas,
+  cola: { coordinadores: number; solicitudes: number },
+  cambios: { confidential?: unknown } & Record<string, unknown>,
+): boolean {
+  const campos = Object.keys(cambios).filter((k) => cambios[k] !== undefined);
+  return a.todas && cola.coordinadores === 0 && cola.solicitudes === 0 && campos.length === 1 && cambios.confidential === false;
+}
+
+/**
+ * `[MS.8.2]` Marcar una cola como confidencial exige que ya tenga coordinación: es quien la va a poder administrar después (H1). Sin
+ * ella, la marca la deja trabada (ver `puedeLiberarConfidencialHuerfana`).
+ */
+export const puedeMarcarConfidencial = (cola: { coordinadores: number }): boolean => cola.coordinadores > 0;
+
 export type AccesoTicket = 'completo' | 'basico' | 'ninguno';
 
 /**
