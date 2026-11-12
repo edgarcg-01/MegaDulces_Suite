@@ -1512,6 +1512,11 @@ export class TiendaEtiquetasComponent {
     // Clona TODOS los estilos del documento (incluye los estilos del componente etiqueta + fuente Baloo).
     const styles = Array.from(document.querySelectorAll('head style, head link[rel="stylesheet"]'))
       .map((n) => n.outerHTML).join('\n');
+    // `[ETQ-FUENTE.3]` El <base> del documento viaja con los estilos. En prod la hoja global se enlaza RELATIVA
+    // (`styles-XXXX.css`) y la resuelve `<base href="/">`; el iframe escrito con doc.write toma la URL de la
+    // página (`/tienda/etiquetas`), así que sin <base> la pedía en `/tienda/styles-XXXX.css` → 404, y el
+    // papel salía SIN las @font-face de la etiqueta (el código cortado de la NUTELLA 42089).
+    const base = `<base href="${document.baseURI.replace(/"/g, '&quot;')}">`;
 
     // Papel del camino de respaldo. Va en un <style> temporal y no en los estilos del componente
     // porque `@page` no se puede acotar por selector: dejarlo fijo le cambiaría el tamaño de hoja
@@ -1537,7 +1542,7 @@ export class TiendaEtiquetasComponent {
     if (!doc || !win) { dropFallback(); iframe.remove(); this.finishPrint(); return; }
 
     doc.open();
-    doc.write(`<!doctype html><html><head><meta charset="utf-8">${styles}
+    doc.write(`<!doctype html><html><head><meta charset="utf-8">${base}${styles}
       <style>
         @page { size:letter landscape; margin:8mm; }
         /* Reset height/overflow del styles.css global clonado: html,body{height:100%} en impresión

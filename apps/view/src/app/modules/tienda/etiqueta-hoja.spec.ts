@@ -506,6 +506,18 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(LABEL).toMatch(/export function familiasFaltantes\(doc\?: Document\)/);
   });
 
+  /**
+   * `[ETQ-FUENTE.3]` El iframe lleva el <base> del documento ANTES de los estilos clonados. Sin él, la hoja global
+   * relativa (`styles-XXXX.css`, resuelta por `<base href="/">`) se pedía en `/tienda/styles-XXXX.css` → 404: el
+   * papel salía sin las @font-face (NUTELLA 42089 cortada) y, con la espera de `[ETQ-FUENTE.2]`, no se imprimía
+   * nada (2026-11-12, todas las tiendas).
+   */
+  it('⭐⭐ el iframe de impresión lleva el <base> del documento antes de los estilos', () => {
+    const codigo = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(codigo).toContain('document.baseURI');
+    expect(codigo).toMatch(/<head><meta charset="utf-8">\$\{base\}\$\{styles\}/);
+  });
+
   it('la reserva de la franja está en lockstep con el punteado interior', () => {
     // Son dos declaraciones del MISMO número; si se mueve una sola, el borde punteado se mete
     // debajo de la franja verde y nadie lo nota hasta imprimir.
