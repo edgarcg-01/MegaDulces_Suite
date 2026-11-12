@@ -1440,7 +1440,7 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 | `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
 | `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
 | `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
-| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo). **2026-11-11:** ya no espera la D15 — el carril es la descarga del SAT (`fiscal.cfdi_payment_links`); su ingesta perdía 16,195 de 16,845 CFDI, arreglada en `[PGP.110b]` 🧪; falta re-descargar y medir |
+| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo). **2026-11-11:** ya no espera la D15 — el carril es la descarga del SAT (`fiscal.cfdi_payment_links`); su ingesta perdía 16,195 de 16,845 CFDI, arreglada en `[PGP.110b]` 🚀 (`857add821`, 2026-11-12); falta re-descargar y medir |
 | `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
 | `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
 | `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
@@ -1766,7 +1766,7 @@ preparar · 11 por autorizar · 56 pagados. Cinco defectos que sólo se vieron a
 Además, «Preparado · por autorizar» ya no se repite dentro de «Por autorizar», y «Folio» no ocupa ancho mientras ningún pago lo tenga.
 ⚠️ La vista se hizo con un backend LOCAL conectado a prod (lo levantaron fuera de esta sesión): regla 3. Registra el uso de pantalla en prod.
 
-#### `[PGP.115]` Lo que Kepler ya pagó: medido antes de «cerrarlo» (🧪 2026-11-11)
+#### `[PGP.115]` Lo que Kepler ya pagó: medido antes de «cerrarlo» (🧪 2026-11-11 · 🚀 2026-11-12, `afa25fffd`)
 
 Se pidió «cerrar desde la Suite los pagos que Kepler ya pagó, que siguen apartando saldo». **Medido en prod (sólo lectura,
 código real del cierre): la premisa era FALSA.** Son 58 pagos ($9.9 M) y sus 122 facturas son TODAS de la deuda derivada de
@@ -1828,7 +1828,7 @@ lectura, `system_identifier` verificado):
 - Los ZIP no se guardaron (R2 no está configurado en prod: `stored_ref` vacío en los 24 paquetes de la historia), así
   que no hay de dónde reprocesar: hay que volver a pedirle al SAT.
 
-**El arreglo — 🧪 2026-11-11** (`libs/fiscal/src/lib/cfdi/ligas-de-pago.ts` y `cfdi-ingest.service.ts`):
+**El arreglo — 🧪 2026-11-11 · 🚀 2026-11-12** (`libs/fiscal/src/lib/cfdi/ligas-de-pago.ts` y `cfdi-ingest.service.ts`):
 
 - Las ligas con `IdDocumento` vacío o en ceros no se insertan (no identifican ninguna factura); de una llave repetida
   queda la primera; un CFDI repetido en el lote, una vez. Lo omitido se **declara** en el log del paquete.
@@ -1841,7 +1841,9 @@ lectura, `system_identifier` verificado):
 
 **Lo que sigue, en orden:**
 
-1. Desplegar el arreglo.
+1. ✅ Desplegado el 2026-11-12: el vigía registró `DESPLEGADO 857add821` a las 10:04 y `/api/health` contesta
+   `857add821`. Lo frenó 20 min la siembra `20261111135132_servicedesk_seed_compras.js` de `[MS.8.1]`, que se
+   mergeó sin aplicar (aplicada a mano, batch 1163).
 2. **Una persona con la e.firma** vuelve a pedir en la Suite (descarga masiva) las **recibidas del 1-ene-2026 a hoy**.
    ⚠️ Repetir el rango exacto del 27-oct puede rechazarse como duplicado; con fin = hoy es otra solicitud.
 3. Medir mes por mes que las facturas PPD con REP en el SAT sean ≥ las de ContPAQi. Recién entonces la vista pasa a
