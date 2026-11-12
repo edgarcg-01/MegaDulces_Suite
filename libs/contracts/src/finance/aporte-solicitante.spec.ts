@@ -1,4 +1,4 @@
-import { faltaParaMandar, puedeMandar, quedaDebiendoComprobante, type EstadoAporte } from './aporte-solicitante.contract';
+import { detallePagoOpcional, esSolicitudDeNomina, faltaParaMandar, puedeMandar, quedaDebiendoComprobante, type EstadoAporte } from './aporte-solicitante.contract';
 import { FORMAS_PAGO, codigoKepler, detalleInvalido, esFormaPagoValida, exigeDetalle, formaPago } from './forma-pago.contract';
 
 /**
@@ -420,5 +420,44 @@ describe('[GX.14] el catálogo de formas de pago', () => {
     // equivocado y se pondría a escribir un dato de una forma que no existe.
     expect(exigeDetalle('no-existe')).toBe(false);
     expect(exigeDetalle(null)).toBe(false);
+  });
+});
+
+/**
+ * `[GX.111]` La nómina se solicita ANTES de pagarse: la referencia o el número de cheque no
+ * existen todavía. Se prueba también el lado negativo — fuera de nómina, el dato se sigue
+ * exigiendo — porque una compuerta que se afloja para todos pasaría el caso positivo igual.
+ */
+describe('[GX.111] nómina: el dato del pago llega al pagar', () => {
+  const nomina = (forma: string, detalle: string | null): EstadoAporte =>
+    ({ ...completo(), forma_pago: forma, forma_pago_detalle: detalle, es_nomina: true });
+
+  it('reconoce el beneficiario de Kepler, con o sin acento y espacios', () => {
+    expect(esSolicitudDeNomina('NOMINA')).toBe(true);
+    expect(esSolicitudDeNomina(' Nómina ')).toBe(true);
+    expect(esSolicitudDeNomina('SECRETARIA DE FINANZAS DEL ESTADO DE GUANAJUATO')).toBe(false);
+    expect(esSolicitudDeNomina('IMPUESTO SOBRE NOMINA')).toBe(false);
+    expect(esSolicitudDeNomina(null)).toBe(false);
+  });
+
+  it('transferencia o cheque sin dato se pueden mandar en nómina', () => {
+    expect(faltaParaMandar(nomina('transferencia', ''))).toEqual([]);
+    expect(faltaParaMandar(nomina('cheque', null))).toEqual([]);
+  });
+
+  it('fuera de nómina el dato se sigue exigiendo (prueba negativa)', () => {
+    const sinNomina = { ...nomina('transferencia', ''), es_nomina: false };
+    expect(faltaParaMandar(sinNomina).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    expect(faltaParaMandar({ ...nomina('cheque', ''), es_nomina: undefined }).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+  });
+
+  it('en nómina, si se escribe, se sigue validando', () => {
+    expect(faltaParaMandar(nomina('cheque', 'AB-12')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+  });
+
+  it('sólo afloja transferencia y cheque: tarjeta y otro siguen pidiendo su dato', () => {
+    expect(detallePagoOpcional({ forma_pago: 'tarjeta', es_nomina: true })).toBe(false);
+    expect(faltaParaMandar(nomina('tarjeta', '')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    expect(faltaParaMandar(nomina('otro', '')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
   });
 });

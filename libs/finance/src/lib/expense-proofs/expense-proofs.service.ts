@@ -6,7 +6,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission, applySmartSearch } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
-import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
+import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, esSolicitudDeNomina, type EstadoAporte } from '@megadulces/contracts';
 import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional, faltaParaEvidenciaAdicional, ROL_EVIDENCIA_ADICIONAL } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
@@ -1050,6 +1050,8 @@ export class ExpenseProofsService {
       // lo escribe. ⛔ Sin esta línea la regla nueva rebotaría TODO POST: el estado llegaría
       // sin concepto y el faltante saldría siempre.
       concepto: motivo,
+      // `[GX.111]` La nómina se solicita antes de pagarse: Kepler manda sobre el DTO.
+      es_nomina: esSolicitudDeNomina(sol?.beneficiario ?? proveedor),
     } satisfies EstadoAporte);
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
 

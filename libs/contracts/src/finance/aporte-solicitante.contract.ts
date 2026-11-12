@@ -62,6 +62,34 @@ export interface EstadoAporte {
    * regla en dos lugares termina siendo dos reglas. Acá se escribe una y la leen los dos.
    */
   concepto?: string | null;
+  /**
+   * `[GX.111]` **¿Es una solicitud de nómina?** Se deriva con `esSolicitudDeNomina()` del
+   * beneficiario de la solicitud de Kepler; no lo marca quien captura.
+   */
+  es_nomina?: boolean;
+}
+
+/**
+ * `[GX.111]` **La nómina se solicita ANTES de pagarse.** Pedido de Edgar (2026-11-12): en la
+ * solicitud de nómina, Transferencia o Cheque pedían la referencia o el número de cheque, y
+ * ese dato no existe todavía: llega al pagar. Ahí el dato del pago se vuelve opcional; si
+ * se escribe, se sigue validando.
+ *
+ * ⚠️ La llave es el BENEFICIARIO, no la cuenta: medido en prod el 2026-11-12, las 263
+ * solicitudes de nómina de 120 días traen beneficiario `NOMINA` (cuenta GN001), y GN001 se
+ * renombró a otro acreedor el 2026-11-08 — la cuenta ya no es un testigo estable.
+ */
+export function esSolicitudDeNomina(beneficiario: string | null | undefined): boolean {
+  const b = String(beneficiario ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  return b === 'NOMINA';
+}
+
+/** Formas cuyo dato llega hasta que se paga: en nómina no se exige al solicitar. */
+const DETALLE_LLEGA_AL_PAGAR: ReadonlySet<string> = new Set(['transferencia', 'cheque']);
+
+/** `[GX.111]` ¿El dato del pago es opcional para esta solicitud? */
+export function detallePagoOpcional(estado: Pick<EstadoAporte, 'forma_pago' | 'es_nomina'>): boolean {
+  return !!estado.es_nomina && DETALLE_LLEGA_AL_PAGAR.has(String(estado.forma_pago ?? ''));
 }
 
 /** Cada cosa que falta, con el texto que se le muestra a la persona. */
@@ -125,7 +153,8 @@ export function faltaParaMandar(estado: EstadoAporte): Faltante[] {
       motivo: 'falta declarar cómo se pagó el gasto (efectivo, tarjeta, transferencia, cheque, vales u otro)',
     });
   } else if (exigeDetalle(estado.forma_pago) && !String(estado.forma_pago_detalle ?? '').trim()) {
-    faltan.push({
+    // `[GX.111]` En nómina, la referencia o el número de cheque llegan al pagar.
+    if (!detallePagoOpcional(estado)) faltan.push({
       id: 'forma_pago_detalle',
       label: 'El dato del pago',
       motivo: 'la forma de pago elegida exige su dato (caja, últimos 4 dígitos, referencia o número de cheque)',

@@ -21,7 +21,7 @@ import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseP
   type ListasParaComprobar } from '../comprobaciones.service';
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
-import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
+import { FORMAS_PAGO, faltaParaMandar, esSolicitudDeNomina, detallePagoOpcional, type FormaPagoId, type Faltante } from '@megadulces/contracts';
 import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
 import { MAX_DETALLES_PAGO, unirDetallesDePago } from '@megadulces/contracts';
 import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component';
@@ -214,7 +214,7 @@ interface SelSolicitud {
                       de linea con que se guardan nunca choca con lo escrito). Tope en el contrato.
                     -->
                     <div class="cap-f cap-det" role="group" [attr.aria-label]="fs.detalle_label">
-                      <span>{{ fs.detalle_label }}</span>
+                      <span>{{ fs.detalle_label }}@if (detalleOpcional()) { <em class="cap-hint">— opcional en nómina: llega al pagar</em> }</span>
                       @for (d of detallesPago(); track $index; let i = $index) {
                         <div class="cap-det-row">
                           <!--
@@ -892,7 +892,11 @@ export class FinanzasCapturarGastoComponent {
     // `[GX.57]` El concepto entra a la compuerta compartida. Es una SEÑAL justamente para
     // que este `computed` se entere cuando la persona lo escribe.
     concepto: this.comentarios(),
+    // `[GX.111]` En nómina, la referencia o el número de cheque llegan al pagar.
+    es_nomina: this.esNomina(),
   }));
+  readonly esNomina = computed(() => esSolicitudDeNomina(this.gasto()?.beneficiario));
+  readonly detalleOpcional = computed(() => detallePagoOpcional({ forma_pago: this.formaPago(), es_nomina: this.esNomina() }));
 
   puedeEnviar(): boolean {
     if (!this.gasto()) return false;
