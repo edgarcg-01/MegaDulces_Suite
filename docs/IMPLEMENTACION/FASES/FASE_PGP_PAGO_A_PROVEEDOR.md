@@ -1848,8 +1848,21 @@ lectura, `system_identifier` verificado):
    ⚠️ Repetir el rango exacto del 27-oct puede rechazarse como duplicado; con fin = hoy es otra solicitud.
 3. Medir mes por mes que las facturas PPD con REP en el SAT sean ≥ las de ContPAQi. Recién entonces la vista pasa a
    leer `fiscal.cfdi_payment_links`, y `sincronizado_hasta` sale de la última descarga de recibidas que terminó bien.
-4. `[PGP.110c]` ⬜ Hoy la descarga la dispara una persona. Si la Suite puede pedirla sola cuando un pago PPD espera su
-   REP (con la e.firma que ya usa el orquestador) se mide antes de prometerlo.
+4. `[PGP.110c]` ⬜ **Que la Suite pida la descarga sola** (Edgar, 2026-11-12: «debemos automatizar ese proceso»).
+   Medido el 2026-11-12: la e.firma vive en la bóveda (`fiscal.sat_credentials`) y el orquestador firma en el servidor;
+   la cola `fiscal.jobs` la drena el worker (sus crons laten) y ya admite llave de idempotencia y `run_after`.
+   ⚠️ **El SAT no avisa** cuando hay un CFDI nuevo: no hay evento externo que escuchar. Lo que sí hay son eventos de la
+   Suite que dicen que algo **espera** al SAT. Diseño propuesto, sin cron (espera la firma de Edgar):
+   - **Arranca por evento:** un pago PPD ejecutado sin REP, o una factura de proveedor en Kepler sin su CFDI. Cada evento
+     encola UN job `sat.al_dia` con llave por rol y día: diez eventos el mismo día son una sola solicitud.
+   - **Pide sólo lo nuevo:** desde el `fecha_fin` de la última solicitud de ese rol que terminó bien, hasta hoy.
+   - **Una a la vez:** la siguiente la dispara el FIN de la anterior, y sólo si algo sigue esperando. Cuando nada
+     espera, no corre nada. Como mucho, una por día y rol: el rango va por fecha, y el SAT limita las solicitudes con
+     los mismos parámetros (código 5002) y pide no repetir mientras una se procesa.
+   - **Se frena sola:** si la última terminó en error, no pide otra; lo declara en `/contabilidad/descarga` hasta que
+     una persona la revise. Así un defecto como el del 27-oct no quema la cuota del SAT, que deja bajar cada paquete
+     sólo 2 veces (código 5008).
+   - **Orden:** se construye DESPUÉS de que la re-descarga manual (paso 2) demuestre el arreglo de `[PGP.110b]`.
 
 **Hallazgo aparte, sin tocar:** `cfdi_payment_links.fecha_pago` guarda la `FechaPago` del XML (hora local, sin zona)
 como si fuera UTC. 194 de 14,484 ligas caen un día antes en hora de México y 3 cambian de mes, que es el mes en que
