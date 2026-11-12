@@ -781,3 +781,29 @@ después los productos que habían entrado a SIN-LINEA (el hop-2 sólo cambiaba 
   15, promo 21 ✓. API: `tsc --noEmit` exit 0, `db-health` 24 ✓.
 - **El día del despliegue de la ingesta:** `node database/importers/kepler/import-brands-lineas.js` (sólo lectura)
   y, si da más de 0, `--apply` una vez: los 31 atorados no tienen evento propio hasta que cambie su `kdii` o su línea.
+
+**9.6 hecho en código (2026-11-12, `[CANON.6.13]`): `inventory.products_active` es una VISTA.** La llenaba
+`refresh-products-active.js` a las 05:20 con TRUNCATE + INSERT desde `catalog.products` (+ subfamilia, categoría e
+imagen de `inventory.products`), y en cada corrida borraba una FK. Lo leen el buscador, precios, portal, el
+extractor de tickets y el corpus del matcher; lo que el catálogo cambiaba en el día les llegaba a la mañana siguiente.
+- **Medido antes (prod, sólo lectura):** la misma consulta, en línea, contra la tabla: iguales columna por columna
+  salvo lo del día — 4 nombres cambiados en Kepler después de las 05:20 (p. ej. 17060 FAJILLA «/ 100» → «/ 50») y 13
+  altas que la tabla aún no tenía. Nadie escribe en ella salvo el script; no hay vistas, funciones ni FKs que
+  dependan. Latencia de los lectores reales con la vista: +6 a +21 ms (búsqueda 23 ms, catálogo completo 30 ms,
+  corpus 13 ms). El latido del cron fallaba el 20 % de las corridas.
+- **Migración `20261112135015`:** la tabla se RENOMBRA a `inventory.products_active_congelada_20261112` (no se
+  borra, regla 5; sin permisos para la app) y el nombre pasa a una vista con la MISMA consulta. La vista es de
+  `postgres` (quien migra): no pasa por el RLS de `catalog.products`, por eso el tenant va fijo — como la tabla, que
+  no tenía `tenant_id` ni RLS, y así el corpus del matcher (lee sin `app.tenant_id`) sigue viendo todo. Piso
+  anti-vaciado del script, conservado: si la vista diera menos de la mitad, aborta. `down()` devuelve la tabla.
+- **Fuera:** la línea de `crontab.feeds` (05:20) y el latido `products_active_refresh` de `db-health`. El script
+  queda manual sólo para `--reactivate` (el drift de activos, que el cron nunca usó; hoy 0).
+- **Orden:** la migración va antes de que la ingesta deje de agendar el script (la ingesta sólo despliega lo que la
+  API ya sirve). Si el script viejo alcanza a correr con la vista, falla en su primer `ALTER TABLE` y se revierte —
+  probado en base local—: latido rojo esa mañana, sin daño. Desplegar la ingesta el mismo día lo evita.
+- Pruebas: 12 ✓ (ejerce el `up()` y el `down()` reales; control de RLS: `app_runtime` sin tenant no ve
+  `catalog.products` y sí la vista) y 8 mutantes en rojo (tenant, GRANT, REVOKE, piso, `security_invoker`, activos,
+  `down`, respaldo de nombre). API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar:** borrar `inventory.products_active_congelada_20261112` cuando quiera (con las demás congeladas).
+  `inventory.products` (05:10) sigue con reloj: es el siguiente de la lista; la vista no lo necesita (las filas que
+  agrega ese cron sólo copian lo que la vista ya toma del catálogo).
