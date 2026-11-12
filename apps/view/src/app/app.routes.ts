@@ -910,6 +910,23 @@ export const routes: Routes = [
         canActivate: [mktHomeGuard],
         loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),
       },
+      // [MKT.11] Ranking de promociones (reemplaza el Excel semanal de Mercadotecnia), sus objetivos y los
+      // incentivos de venta. Mismas claves que los acuerdos: GESTIONAR va en la lista por la misma razón.
+      {
+        path: 'ranking',
+        loadComponent: () => import('./modules/comercial/pages/mkt-ranking.component').then(m => m.MktRankingComponent),
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR)]
+      },
+      {
+        path: 'ranking/promociones',
+        loadComponent: () => import('./modules/comercial/pages/mkt-ranking-promos.component').then(m => m.MktRankingPromosComponent),
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR)]
+      },
+      {
+        path: 'incentivos',
+        loadComponent: () => import('./modules/comercial/pages/mkt-incentivos.component').then(m => m.MktIncentivosComponent),
+        canActivate: [anyPermissionGuard(Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR)]
+      },
       {
         path: 'promotions',
         loadComponent: () => import('./modules/comercial/pages/comercial-promotions.component').then(m => m.ComercialPromotionsComponent),

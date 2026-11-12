@@ -181,6 +181,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-megaphone',
         route: '/mkt',
         modules: [
+          // [MKT.11] Ranking de promociones, sus objetivos e incentivos (reemplazan el Excel semanal).
+          { id: 'ranking', label: 'Ranking de promociones', route: '/mkt/ranking', view: [Permission.MKT_AGREEMENTS_VER], manage: [Permission.MKT_AGREEMENTS_GESTIONAR] },
+          { id: 'ranking-objetivos', label: 'Objetivos del ranking', route: '/mkt/ranking/promociones', view: [Permission.MKT_AGREEMENTS_VER], manage: [Permission.MKT_AGREEMENTS_GESTIONAR] },
+          { id: 'incentivos', label: 'Incentivos de venta', route: '/mkt/incentivos', view: [Permission.MKT_AGREEMENTS_VER], manage: [Permission.MKT_AGREEMENTS_GESTIONAR] },
           { id: 'promotions', label: 'Promociones', route: '/mkt/promotions', view: [Permission.COMMERCIAL_PROMOTIONS_VER], manage: [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR] },
           { id: 'erp-promos', label: 'Promos del ERP', route: '/mkt/erp-promos', view: [Permission.COMMERCIAL_ERP_PROMOS_VER], manage: [] },
           // `[MKT.1]` Los acuerdos con proveedor (formato MKTN001) y su expediente por plaza.

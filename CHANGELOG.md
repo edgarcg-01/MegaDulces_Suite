@@ -54,6 +54,12 @@
 - La bajada ya no dice que «Costo por proveedor» es la misma cifra: allá se suman todas las notas del proveedor.
 
 ### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en prod)
+### Added — Mercadotecnia: el ranking de promociones y los incentivos salen de Kepler, sin Excel (MKT.9–MKT.14 · 2026-11-11 · en código, sin soltar)
+- **Ranking** (`/mkt/ranking`): quién cumplió las promociones de la semana, por canal (Sucursales · Vecinal · Rutas · Televenta), con la venta de Kepler. Cubrimiento con tope de 100 % por promoción; sin objetivo se cuenta aparte, no como cero. PDF semanal.
+- **Objetivos** (`/mkt/ranking/promociones`): alta de la promoción con su código de Kepler y vigencia; objetivo sugerido (promedio de 4 semanas) y editable. Dar de baja termina la promo ayer: el pasado no cambia.
+- **Incentivos** (`/mkt/incentivos`): por caja (con el factor de la ficha de Kepler), por unidad, por cada $X, por cliente distinto o por exhibidor capturado. PDF de pago con firmas. Calcula, no paga.
+- Migración `20261111131929_mkt_ranking_promociones` (4 tablas, aditiva). Sin permisos nuevos.
+### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en código, sin soltar)
 - En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
 - Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.
 - Dos filtros nuevos en Hallazgo: «Nota sólo en el CFDI (Kepler no la aplicó)» y «Nota sólo en Kepler (falta su CFDI)», con su conteo. Sin factura ligada no se afirma nada del lado del SAT.

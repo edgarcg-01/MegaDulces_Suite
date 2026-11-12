@@ -1,0 +1,176 @@
+/**
+ * `[MKT.10]` — Las reglas del ranking de promociones, sin base de datos ni Nest.
+ *
+ * Reemplazan las fórmulas del Excel «RANKING SEMANA NN». Cada regla corrige un defecto medido en
+ * los 45 archivos de 2026 (auditoría del 2026-11-11):
+ *
+ *  · CUBRIMIENTO CON TOPE de 100 %. En el Excel una fila con objetivo 1 y venta 34 (3,400 %)
+ *    decidía el lugar de la sucursal; con tope, cumplir una promo vale lo mismo que cumplir otra.
+ *  · SIN OBJETIVO ≠ CERO. Una promo sin objetivo no entra al promedio y se cuenta aparte; el
+ *    Excel la dibujaba como 0 % y castigaba a la sucursal por una captura que no hizo nadie.
+ *  · EL PROMEDIO CUBRE TODAS LAS FILAS. Los rangos `AVERAGE(G5:G45)` del Excel dejaban fuera
+ *    renglones (20 de 45 semanas); aquí no hay rango que escribir.
+ *  · EL PAGO ES LA REGLA, NO UNA FÓRMULA COPIADA. En el Excel 165 renglones multiplicaban por un
+ *    monto distinto al que decía su texto ($25 × 100). Aquí el monto se captura una vez.
+ */
+
+export type Canal = 'mostrador' | 'preventa' | 'ruta' | 'mayoreo';
+export const CANALES: readonly Canal[] = ['mostrador', 'preventa', 'ruta', 'mayoreo'];
+
+/** Cómo se llama cada canal en la pantalla y en el PDF. */
+export const CANAL_TEXTO: Record<Canal, string> = {
+  mostrador: 'Sucursales (mostrador)',
+  preventa: 'Vecinal (preventa)',
+  ruta: 'Rutas',
+  mayoreo: 'Televenta (mayoreo)',
+};
+
+export const esCanal = (v: unknown): v is Canal => typeof v === 'string' && (CANALES as readonly string[]).includes(v);
+
+// ─────────────────────────────── semanas ───────────────────────────────
+
+const DIA = 86_400_000;
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const utc = (ymd: string) => new Date(`${ymd}T00:00:00Z`);
+
+/** El lunes de la semana de una fecha `YYYY-MM-DD` (semana ISO, lunes a domingo). */
+export function lunesDe(ymd: string): string {
+  const d = utc(ymd);
+  const dow = d.getUTCDay() || 7; // domingo = 7
+  return iso(new Date(d.getTime() - (dow - 1) * DIA));
+}
+
+export const sumarDias = (ymd: string, n: number) => iso(new Date(utc(ymd).getTime() + n * DIA));
+
+/** Número de semana ISO (la que usa el Excel en su título «SEMANA 45»). */
+export function numeroSemana(lunes: string): number {
+  const d = utc(lunes);
+  const jueves = new Date(d.getTime() + 3 * DIA);
+  const inicioAnio = new Date(Date.UTC(jueves.getUTCFullYear(), 0, 1));
+  return Math.ceil(((jueves.getTime() - inicioAnio.getTime()) / DIA + 1) / 7);
+}
+
+export interface Semana {
+  lunes: string;
+  domingo: string;
+  numero: number;
+  /** Hasta qué día hay datos: hoy si la semana está en curso. */
+  hasta: string;
+  en_curso: boolean;
+}
+
+/**
+ * La semana pedida. Sin fecha, la última semana CERRADA (como el Excel, que se publica el lunes
+ * con la semana anterior). Una semana futura se rechaza: no hay nada que medir.
+ */
+export function resolverSemana(pedida: string | undefined, hoy: string): Semana {
+  const lunes = pedida && /^\d{4}-\d{2}-\d{2}$/.test(pedida) ? lunesDe(pedida) : sumarDias(lunesDe(hoy), -7);
+  if (lunes > hoy) throw new Error('semana_futura');
+  const domingo = sumarDias(lunes, 6);
+  const en_curso = domingo >= hoy;
+  return { lunes, domingo, numero: numeroSemana(lunes), hasta: en_curso ? hoy : domingo, en_curso };
+}
+
+// ─────────────────────────────── cubrimiento y ranking ───────────────────────────────
+
+/** Venta ÷ objetivo con tope de 100 %. NULL si no hay objetivo (no se puede medir, no es cero). */
+export function cubrimiento(venta: number, objetivo: number | null | undefined): number | null {
+  if (objetivo === null || objetivo === undefined || !(objetivo > 0)) return null;
+  return Math.min(1, Math.max(0, venta) / objetivo);
+}
+
+export interface RenglonPromo {
+  promo_id: string;
+  objetivo: number | null;
+  venta: number;
+}
+
+export interface Puntaje {
+  /** Promedio del cubrimiento con tope, sólo sobre las promos con objetivo. NULL si ninguna tiene. */
+  puntaje: number | null;
+  con_objetivo: number;
+  sin_objetivo: number;
+  cumplidas: number;
+  sin_venta: number;
+}
+
+export function puntaje(rs: RenglonPromo[]): Puntaje {
+  let suma = 0, con = 0, sin = 0, cumplidas = 0, sinVenta = 0;
+  for (const r of rs) {
+    if (!(r.venta > 0)) sinVenta++;
+    const c = cubrimiento(r.venta, r.objetivo);
+    if (c === null) { sin++; continue; }
+    con++;
+    suma += c;
+    if (c >= 1) cumplidas++;
+  }
+  return { puntaje: con ? suma / con : null, con_objetivo: con, sin_objetivo: sin, cumplidas, sin_venta: sinVenta };
+}
+
+/**
+ * Lugar en el ranking: mejor puntaje primero; empate → más promos cumplidas; los que no se pueden
+ * medir (sin ningún objetivo) al final y SIN lugar.
+ */
+export function ordenarRanking<T extends Puntaje & { nombre: string }>(xs: T[]): Array<T & { lugar: number | null }> {
+  const medibles = xs.filter((x) => x.puntaje !== null)
+    .sort((a, b) => (b.puntaje! - a.puntaje!) || (b.cumplidas - a.cumplidas) || a.nombre.localeCompare(b.nombre, 'es'));
+  const resto = xs.filter((x) => x.puntaje === null).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  return [
+    ...medibles.map((x, i) => ({ ...x, lugar: i + 1 })),
+    ...resto.map((x) => ({ ...x, lugar: null })),
+  ];
+}
+
+/** Promedio general: cada participante pesa igual. NULL si nadie se pudo medir. */
+export function promedioGeneral(xs: Array<{ puntaje: number | null }>): number | null {
+  const v = xs.map((x) => x.puntaje).filter((p): p is number => p !== null);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+// ─────────────────────────────── objetivo sugerido ───────────────────────────────
+
+/**
+ * Lo que el sistema propone como objetivo semanal: el promedio de lo vendido en las semanas de
+ * historia que haya (hasta 4), redondeado hacia arriba, mínimo 1. Sin ninguna semana de historia
+ * no se inventa: NULL, y Marketing lo captura.
+ */
+export function objetivoSugerido(ventasSemanales: number[]): number | null {
+  const v = ventasSemanales.filter((x) => Number.isFinite(x));
+  if (!v.length) return null;
+  const prom = v.reduce((a, b) => a + b, 0) / v.length;
+  return Math.max(1, Math.ceil(prom));
+}
+
+// ─────────────────────────────── incentivos ───────────────────────────────
+
+export type TipoIncentivo = 'por_caja' | 'por_unidad' | 'por_monto' | 'por_cliente' | 'por_captura';
+export type Redondeo = 'proporcional' | 'completo';
+
+export const TIPO_INCENTIVO_TEXTO: Record<TipoIncentivo, string> = {
+  por_caja: 'por caja vendida',
+  por_unidad: 'por unidad vendida',
+  por_monto: 'por cada monto vendido',
+  por_cliente: 'por cliente distinto',
+  por_captura: 'por captura (exhibidor colocado)',
+};
+
+/**
+ * Cuántas «unidades de pago» lleva un vendedor. `proporcional` paga la fracción (como hoy el
+ * Excel: 0.25 cajas → $12.50); `completo` sólo cuenta las unidades enteras.
+ */
+export function unidadesDePago(cantidad: number, redondeo: Redondeo): number {
+  const c = Math.max(0, cantidad);
+  return redondeo === 'completo' ? Math.floor(c + 1e-9) : Math.round(c * 100) / 100;
+}
+
+/** El texto de la regla, armado desde sus datos (nunca tecleado aparte del monto). */
+export function textoRegla(i: { tipo: TipoIncentivo; pago: number; base_monto: number | null }): string {
+  const p = `$${i.pago.toFixed(2)}`;
+  switch (i.tipo) {
+    case 'por_caja': return `${p} por caja vendida`;
+    case 'por_unidad': return `${p} por unidad vendida`;
+    case 'por_monto': return `${p} por cada $${(i.base_monto ?? 0).toFixed(2)} vendidos`;
+    case 'por_cliente': return `${p} por cada cliente distinto`;
+    case 'por_captura': return `${p} por cada exhibidor colocado (captura)`;
+  }
+}

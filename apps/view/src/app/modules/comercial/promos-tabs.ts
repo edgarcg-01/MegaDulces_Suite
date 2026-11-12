@@ -11,6 +11,10 @@ import { Permission } from '../../core/constants/permissions';
  * escondía — Mercadotecnia no veía las dos pestañas de Mercadotecnia. Lo fija `promos-tabs.spec`.
  */
 export const PROMOS_TABS: PageTab[] = [
+  // [MKT.11] Lo que Mercadotecnia hace cada semana (antes el Excel «RANKING SEMANA NN»): va primero.
+  { label: 'Ranking', route: '/mkt/ranking', icon: 'pi pi-trophy', anyOf: [Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR] },
+  { label: 'Objetivos', route: '/mkt/ranking/promociones', icon: 'pi pi-sliders-h', anyOf: [Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR] },
+  { label: 'Incentivos', route: '/mkt/incentivos', icon: 'pi pi-wallet', anyOf: [Permission.MKT_AGREEMENTS_VER, Permission.MKT_AGREEMENTS_GESTIONAR] },
   { label: 'Promociones', route: '/mkt/promotions', icon: 'pi pi-gift', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
   { label: 'Promos ERP', route: '/mkt/erp-promos', icon: 'pi pi-percentage', permission: Permission.COMMERCIAL_ERP_PROMOS_VER },
   // `[MKT.1]` La pestaña la ven las DOS audiencias: Mercadotecnia (ver/gestionar) y la gente de

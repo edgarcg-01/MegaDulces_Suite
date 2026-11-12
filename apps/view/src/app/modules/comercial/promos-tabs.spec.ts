@@ -11,22 +11,27 @@ const visibles = (tiene: (p: Permission) => boolean) =>
   PROMOS_TABS.filter((t) => pestanaVisible(t, tiene)).map((t) => t.label);
 
 describe('[MKT.7] pestañas de Promociones MKT', () => {
-  it('Mercadotecnia (VER + GESTIONAR acuerdos, sin subir evidencia) ve las cuatro', () => {
+  it('Mercadotecnia (VER + GESTIONAR acuerdos, sin subir evidencia) ve las siete, con el ranking primero', () => {
     const marketing = con(
       Permission.COMMERCIAL_PROMOTIONS_VER,
       Permission.COMMERCIAL_ERP_PROMOS_VER,
       Permission.MKT_AGREEMENTS_VER,
       Permission.MKT_AGREEMENTS_GESTIONAR,
     );
-    expect(visibles(marketing)).toEqual(['Promociones', 'Promos ERP', 'Acuerdos', 'Resultado']);
+    expect(visibles(marketing)).toEqual(['Ranking', 'Objetivos', 'Incentivos', 'Promociones', 'Promos ERP', 'Acuerdos', 'Resultado']);
   });
 
   it('la plaza que sólo sube evidencia sigue viendo Acuerdos y Resultado', () => {
     expect(visibles(con(Permission.MKT_AGREEMENT_EVIDENCE_SUBIR))).toEqual(['Acuerdos', 'Resultado']);
   });
 
-  it('sólo GESTIONAR acuerdos: ve Acuerdos (su guard lo acepta) y no Resultado (el suyo no)', () => {
-    expect(visibles(con(Permission.MKT_AGREEMENTS_GESTIONAR))).toEqual(['Acuerdos']);
+  it('sólo GESTIONAR acuerdos: ve Acuerdos y las tres del ranking (sus guards lo aceptan) y no Resultado (el suyo no)', () => {
+    expect(visibles(con(Permission.MKT_AGREEMENTS_GESTIONAR))).toEqual(['Ranking', 'Objetivos', 'Incentivos', 'Acuerdos']);
+  });
+
+  it('[MKT.11] la plaza que sólo sube evidencia NO ve el ranking ni los incentivos (son de Mercadotecnia)', () => {
+    expect(visibles(con(Permission.MKT_AGREEMENT_EVIDENCE_SUBIR))).not.toContain('Ranking');
+    expect(visibles(con(Permission.MKT_AGREEMENT_EVIDENCE_SUBIR))).not.toContain('Incentivos');
   });
 
   it('«Promos ERP» pide el MISMO permiso que su ruta, no el de las promociones propias', () => {
