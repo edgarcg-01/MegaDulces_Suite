@@ -874,3 +874,25 @@ sin actualizar nunca las existentes. Es el «catálogo del almacén» del conteo
   la de 6.13 se ajustó para ese caso. 9 mutantes en rojo. API: `tsc` exit 0, `db-health` 24 ✓.
 - **Para Edgar:** borrar `products_legado_fdw` NO — guarda las imágenes y la foto que nada más tiene. Lo que sí se
   puede firmar es quitarle las columnas que el catálogo ya trae (nombre, código, unidades), cuando se quiera.
+
+**Presencia del catálogo (2026-11-12, `[CANON.6.16]`): por evento.** `repoint-catalog-presence.js` corría en el nocturno
+y hacía tres cosas: altas, reactivar borrados que Kepler trae vivos y llenar `factor_sale` vacío desde el árbitro
+(`[VSO.10]`). Bitácora de 30 días: **1 alta, 5 reactivaciones (6 y 10-nov) y ~40 factores** (0–6 por noche).
+- **Altas:** ya las hacía el hop-2 (`normalizeProductsFromOds`: 127 en 60 días, contra 1 del nocturno). Las 4 que hoy
+  faltan no las puede dar nadie: Kepler tiene dos SKUs con el MISMO nombre en la misma marca (99225/99204 «ETIQUETA
+  NARANJA 30X49 9000», 99165/99164, 40709/40703, 95371/17493) y el catálogo exige (marca, nombre) único. Las reglas
+  de alta del hop-2 (sin filtro de precio ni de «DESCONTINUADO») NO se tocaron: es la que ya regía.
+- **Reactivar** pasa al hop-2 (paso 0 de `normalizeProductsFromOds`): SKU con sólo filas borradas que Kepler trae vivo
+  (precio real, nombre que no es «DESCONTINUADO» ni asteriscos); una fila por SKU (el nocturno reactivaba todas: dos
+  vivas con el mismo SKU). Ningún camino de la app borra productos del catálogo: reactivar no pelea con nadie.
+- **Factor de caja vacío** pasa a `normalizeFactorSale` en la cadena de `kdii`, después de `normalizeBoxFactor` y
+  ANTES de `normalizeCost`: un alta nace con su costo por caja (el costo sólo recalcula la caja cuando cambia el
+  costo base, así que el orden decide). Mismas reglas: sólo lo vacío, sólo con testigo, sólo entero.
+- **Costo, medido:** la vista del árbitro de factor cuesta ~0.5 s aunque se acote, así que el normalizador primero mira
+  —barato— si alguna llave del lote trae el factor vacío (100 de ~9,600 SKUs vivos). La reactivación igual: primero
+  si el lote trae SKUs sólo-borrados; leer `kdii` entero con ILIKE y regex costaba ~1 s.
+- **Sin árbitro, a propósito:** su consulta cuesta ~1.2 s en prod (la primera lectura de `kdii` de cada consulta paga
+  ~0.9 s por filas muertas, todavía bajo el umbral de autovacuum) para vigilar ~1 alta y ~5 reactivaciones al mes;
+  las fallas del evento quedan en `hop2_fallas`. La herramienta manual mide en sólo lectura: hoy 0 / 0 / 5.
+- Pruebas: 12 ✓ con dos negativas; 9 mutantes en rojo (incluido el que pone el costo antes que el factor). Vecinas en
+  verde. El día del despliegue de la ingesta: `repoint-catalog-presence.js --apply` una vez para los 5 factores.
