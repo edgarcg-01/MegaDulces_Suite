@@ -807,3 +807,31 @@ extractor de tickets y el corpus del matcher; lo que el catálogo cambiaba en el
 - **Para Edgar:** borrar `inventory.products_active_congelada_20261112` cuando quiera (con las demás congeladas).
   `inventory.products` (05:10) sigue con reloj: es el siguiente de la lista; la vista no lo necesita (las filas que
   agrega ese cron sólo copian lo que la vista ya toma del catálogo).
+
+**9.7 hecho en código (2026-11-12, `[CANON.6.14]`): códigos de barras — el «residuo» era un pleito y un hueco de
+borrado.** `import-product-barcodes.js` corría cada 30 min (carril `prices`): ~190 cambios por día hasta el 29-oct,
+0–4 desde el 30-oct (34 el 3-nov). Medido en prod (sólo lectura) qué eran esos pocos:
+- **El pleito (casi todo):** su parte **Wincaja** lee `wincaja.articulos`, una foto **congelada** (última
+  importación el 29-sep; la mayoría de las sucursales, julio). De ahí ya no sale nada nuevo: lo único que hacía era
+  REVIVIR —como `source=wincaja`, unidad `CJA` (su unidad de compra)— códigos que Kepler acababa de retirar y el hop-2
+  había dado de baja entre 11 y 28 min antes (08062 hoy: Kepler cambió `7891000299951` por su clave; a las 16:02 volvió como
+  CJA, cuando Kepler lo tenía como PAQ). De 695 bajas Kepler en 90 días, 102 siguen vivas así; en **47** Kepler las
+  había **reemplazado** por otro código real; en 50 dejó el producto sin código (relleno = SKU).
+- **El hueco (lo poco de Kepler):** 4 de sus 5 bajas Kepler en dos semanas eran SKUs que **ya no existen en `kdii`**.
+  `raw-delete` borraba en el ODS pero no corría normalizadores: lo que Kepler QUITA nunca se recalculaba.
+- **Hecho:** `raw-delete` corre los normalizadores de la tabla sobre las llaves borradas (mismo `normalizarLlaves`
+  que `raw-upsert`, con reintento por partes y `hop2_fallas`) — aplica a todo el catálogo, no sólo a códigos. El
+  script sale del carril y queda manual, **sólo Kepler** (la parte Wincaja se quita: congelada, sólo revivía). Las
+  1,609 filas Wincaja vivas se quedan como están.
+- **Árbitro** `catalogo_codigos_evento` (con el reloj del escáner; sólo alarma; retiro con 30 días sin el script y
+  sin alertas): faltan + sobran + siguen como Wincaja. Hoy **0**, igual que el cálculo en JS; ~400 ms (la regex
+  sobre los valores crudos de las 9 plazas costaba ~1.1 s: se deduplica antes). No compara unidad ni factor: el
+  mismo código con unidades distintas entre plazas se desempata en el orden de llegada, no determinista.
+- Pruebas: 11 ✓ (borrado de SKU y de una plaza por el camino real, wincaja intacta, cruce con el árbitro; negativas
+  `normalize=false` y borrado de 0 filas) y **7 mutantes en rojo**. Vecinas re-corridas en verde (nombres, markup,
+  promo, `hop2_fallas`, marcas, árbitro, `products_active`, `ods-pk-texto`). API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar (D, no tocado):** los 102 códigos revividos desde Wincaja. Recomiendo dar de baja los **47** que Kepler
+  reemplazó por otro código real (el escáner de bodega los lee como CAJA cuando Kepler dice PAQ/PZA: error de
+  cantidad ×factor); los 50 que Kepler dejó sin código piden tu regla — `catalog.products.barcode` ya conserva el EAN
+  real cuando Kepler pone relleno (política del 2026-08-17), y lo consistente sería que el escáner también lo
+  conserve, pero con la unidad de Kepler, no `CJA`.
