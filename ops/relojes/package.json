@@ -1,0 +1,12 @@
+{
+  "name": "trade-relojes",
+  "private": true,
+  "version": "1.0.0",
+  "description": "[RH.1.3] El lector de relojes checadores (database/importers/checadores/agente) en su propia imagen: un cambio del lector no reinicia los carriles del ODS, y uno del ODS no le corta la sesion a los relojes (un ZKTeco acepta UNA).",
+  "engines": { "node": ">=20 <21" },
+  "_comment": "FIJADAS a las versiones que corrian en el agente de Mega Talento (1.3.0 y 11.10.0): el traslado no cambia el protocolo ni la cola. better-sqlite3 trae binario precompilado para linux-musl (Alpine): no hace falta toolchain. Son las DOS unicas dependencias externas del agente (lo vigila agente-relojes.spec.ts).",
+  "dependencies": {
+    "node-zklib": "1.3.0",
+    "better-sqlite3": "11.10.0"
+  }
+}

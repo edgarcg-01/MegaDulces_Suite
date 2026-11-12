@@ -111,6 +111,26 @@ ON CONFLICT (tenant_id, job_key) DO UPDATE
 SQL
 }
 
+# ── `[OPS.ING.1]` LA INGESTA SIGUE A LA API ─────────────────────────────────────────────────────────────────────
+# Hasta el 2026-11-12 los once carriles de `ingesta` (ODS, CAOS, feeds, relojes) sólo se desplegaban desde una
+# laptop (`ops/vl/deploy.sh --k3s`), y este carril los excluía. Ahora, cuando la API YA sirve `DESEADO` (verificada),
+# se despliega la ingesta del mismo commit, en su PROPIO paso: su falla no revierte la API (late aparte como
+# `auto_deploy_ingesta`) y la de la API no llega hasta acá. El guion corre desde el checkout de este despliegue, no
+# desde `~/ops/prod`: actúa la versión sellada por el CI, sin que nadie la suba.
+desplegar_ingesta() {
+  _ing="$REPO_DIR/ops/prod/desplegar-ingesta.sh"
+  if [ ! -f "$_ing" ]; then
+    di "ingesta: $DESEADO no trae ops/prod/desplegar-ingesta.sh — no se toca"
+    return 0
+  fi
+  if AUTO_DEPLOY_IMAGENES="$IMAGENES" sh "$_ing" "$DESEADO" >/tmp/auto-deploy-ingesta.log 2>&1; then
+    sed 's/^/      /' /tmp/auto-deploy-ingesta.log
+  else
+    sed 's/^/      /' /tmp/auto-deploy-ingesta.log
+    di "⛔ la ingesta NO quedó en $DESEADO (la API sí) — detalle arriba y en el latido auto_deploy_ingesta"
+  fi
+}
+
 # ── El repo, en SÓLO LECTURA y superficial ──────────────────────────────────
 # `--depth` acotado a propósito: acá no se desarrolla, se despliega. Un clon completo de este
 # repo son cientos de MB de historia que nadie va a leer en el servidor.
@@ -190,6 +210,8 @@ if [ "$VIVO" = "$DESEADO" ]; then
     latir error "prod al día en $DESEADO pero estos no tienen ni una réplica viva: $_sin_vivas"
   else
     latir ok "al día en $DESEADO"
+    # `[OPS.ING.1]` La API ya sirve este commit: la ingesta converge a él (no-op si su código no cambió).
+    [ "$SECO" = 1 ] || desplegar_ingesta
   fi
   exit 0
 fi
@@ -751,8 +773,13 @@ done
 # Dockerfile de ese commit, no se re-etiquetó una vieja.
 _ya_publicadas=''
 K3S_DIR_AD="${K3S_DIR:-$HOME/ops/k3s}"
-_imgs_k3s=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
-              "$K3S_DIR_AD"/*.yaml 2>/dev/null | sort -u | grep -v '^trade-ingest$' || true)
+# `[OPS.ING.1]` Sólo los manifiestos de `prod`. Los de `ingesta` (`trade-ingest`, `trade-relojes`) los despliega
+# `desplegar-ingesta.sh` con etiqueta por contenido; antes se excluía `trade-ingest` por nombre, y la imagen nueva
+# del lector habría caído en el `*)` de abajo y frenado el despliegue entero de la API.
+_mf_prod=$(grep -l 'namespace: prod' "$K3S_DIR_AD"/*.yaml 2>/dev/null || true)
+# shellcheck disable=SC2086
+_imgs_k3s=$( [ -n "$_mf_prod" ] && sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):__COMMIT__.*#\1#p' \
+              $_mf_prod 2>/dev/null | sort -u || true)
 
 for img in $_imgs_k3s; do
   case "$img" in
@@ -1144,6 +1171,9 @@ esac
 
 di "DESPLEGADO $DESEADO (venía de $ANTERIOR)"
 latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
+
+# `[OPS.ING.1]` Recién con la API verificada (pods, /api/health y humo del login): la ingesta del mismo commit.
+desplegar_ingesta
 
 # ── [VL.20.5] LA PODA, DESPUÉS DE DESPLEGAR ─────────────────────────────────────────────────
 # ⛔ Acá estaba el agujero: `podar_imagenes()` existía en `deploy.sh` y funcionaba, pero el

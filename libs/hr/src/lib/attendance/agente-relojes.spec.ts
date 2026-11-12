@@ -89,8 +89,15 @@ describe('[RH.1.3] lector de relojes — manifiesto, agente y API alineados', ()
     expect(archivos).not.toContain('instalar-servicio.js');
     const todo = archivos.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(AGENTE, f), 'utf8')).join('\n');
     expect(todo).not.toMatch(/require\(['"](\.\/origen-hr|node-windows|pg)['"]\)/);
-    const pkg = JSON.parse(fs.readFileSync(path.join(RAIZ, 'ops/ingest/package.json'), 'utf8'));
+    // `[OPS.ING.1]` En su propia imagen (`ops/relojes/`), ya no en `trade-ingest`.
+    const pkg = JSON.parse(fs.readFileSync(path.join(RAIZ, 'ops/relojes/package.json'), 'utf8'));
     expect(pkg.dependencies['node-zklib']).toBe('1.3.0');
     expect(pkg.dependencies['better-sqlite3']).toBe('11.10.0');
+    // Y todo lo que el agente pide de afuera está en esa imagen (lo demás es de Node o relativo).
+    const conZk = todo + fs.readdirSync(path.join(AGENTE, 'zk')).filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(path.join(AGENTE, 'zk', f), 'utf8')).join('\n');
+    const externos = new Set([...conZk.matchAll(/require\(['"]([^'"./][^'"]*)['"]\)/g)].map((m) => m[1].split('/')[0]));
+    for (const nativo of ['fs', 'net', 'os', 'path']) externos.delete(nativo);
+    expect([...externos].sort()).toEqual(Object.keys(pkg.dependencies).sort());
   });
 });
