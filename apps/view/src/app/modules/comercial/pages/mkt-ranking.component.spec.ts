@@ -13,7 +13,7 @@ const BASE = `${environment.apiUrl}/commercial/mkt-ranking`;
 const p = (over: Partial<ParticipanteRanking>): ParticipanteRanking => ({
   clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
   lugar: 1, puntaje: 0.9, con_objetivo: 3, sin_objetivo: 0, cumplidas: 2, sin_venta: 0,
-  promos: [{ promo_id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'sugerido', venta: 9, cubrimiento: 0.9, existencia: 4, descripcion_distinta: true,
+  promos: [{ promo_id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'dinamico', venta: 9, cubrimiento: 0.9, existencia: 4, descripcion_distinta: true,
     productos: [{ sku: 'DM201', nombre: 'LECHE ENTERA LT /12', unidades: 24, cajas: 2 }], productos_metodo: 'ticket_y_nombre', productos_nota: '' }],
   ...over,
 });

@@ -9,7 +9,7 @@ const part = (over: Partial<ParticipanteRanking>): ParticipanteRanking => ({
   clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
   lugar: 1, puntaje: 0.875, con_objetivo: 4, sin_objetivo: 1, cumplidas: 2, sin_venta: 1,
   promos: [
-    { promo_id: 'a', code: '09066', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'manual', venta: 26, cubrimiento: 1, existencia: 10, descripcion_distinta: false,
+    { promo_id: 'a', code: '09066', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'fijo', venta: 26, cubrimiento: 1, existencia: 10, descripcion_distinta: false,
       productos: [{ sku: '99891', nombre: 'LECHE ENTERA 1L', unidades: 78, cajas: 6.5 }, { sku: '99893', nombre: 'LECHE DESLACTOSADA 1L', unidades: 5, cajas: null }],
       productos_metodo: 'ticket_y_nombre' as const, productos_nota: '' },
     { promo_id: 'b', code: '00229', mecanica: '2 exh Turín', objetivo: null, objetivo_fuente: null, venta: 9, cubrimiento: null, existencia: null, descripcion_distinta: true,
@@ -87,19 +87,23 @@ describe('[MKT.11] objetivos de una promoción', () => {
     expect(filas[0].nombre).toBe('RUTA 21');
   });
 
-  it('⭐ sólo se manda lo que cambió; vaciar = quitar (no 0); aceptar el sugerido queda marcado como sugerido', () => {
+  it('⭐ sólo se manda lo que cambió; vaciar = quitar (no 0); [MKT.17] todo lo guardado es FIJO', () => {
     const base = armarFilas('mostrador', ['01', '02', '03'],
       [{ warehouse_code: '01', canal: 'mostrador', vendor_code: '', objetivo_semanal: 12, fuente: 'manual' }],
       [{ promo_id: 'p', warehouse_code: '02', canal: 'mostrador', vendor_code: '', vendor_name: '', sugerido: 7, semanas_historia: 4 }]);
     expect(cambios('mostrador', base)).toEqual([]);
     base[0].valor = null; // quitar el de Padre Hidalgo
-    base[1].valor = 7;    // aceptar el sugerido
+    base[1].valor = 7;    // fijar el mismo número que el dinámico: queda fijo (ya no se recalcula)
     base[2].valor = 5;    // capturar a mano
     expect(cambios('mostrador', base)).toEqual([
       { warehouse_code: '01', canal: 'mostrador', vendor_code: '', objetivo_semanal: null, fuente: 'manual' },
-      { warehouse_code: '02', canal: 'mostrador', vendor_code: '', objetivo_semanal: 7, fuente: 'sugerido' },
+      { warehouse_code: '02', canal: 'mostrador', vendor_code: '', objetivo_semanal: 7, fuente: 'manual' },
       { warehouse_code: '03', canal: 'mostrador', vendor_code: '', objetivo_semanal: 5, fuente: 'manual' },
     ]);
+    // Sin escribir nada no se manda nada: la fila sin objetivo fijo sigue con el dinámico.
+    const intacta = armarFilas('mostrador', ['02'], [], [{ promo_id: 'p', warehouse_code: '02', canal: 'mostrador', vendor_code: '', vendor_name: '', sugerido: 7, semanas_historia: 4 }]);
+    expect(intacta[0].valor).toBeNull();
+    expect(cambios('mostrador', intacta)).toEqual([]);
   });
 
   it('estado de la promo y dar de baja = terminar ayer', () => {

@@ -64,8 +64,15 @@ async function http(method, path, token, body) {
     const lugares = rk.participantes.filter((p) => p.lugar !== null).map((p) => p.puntaje);
     check(lugares.every((v, i) => i === 0 || lugares[i - 1] >= v), 'el lugar sigue al puntaje (descendente)');
     check(rk.participantes.every((p) => p.promos.every((x) => x.cubrimiento === null || x.cubrimiento <= 1)), '⭐ ningún cubrimiento pasa de 100 %');
-    const sinObj = rk.participantes[0].promos.filter((x) => x.objetivo === null);
-    check(sinObj.length === 2 && sinObj.every((x) => x.cubrimiento === null), '⭐ las 2 promos sin objetivo (DM007/DM008) van en NULL, no en 0', sinObj.map((x) => x.code));
+    // [MKT.17] DM007/DM008 no tienen objetivo fijado: llevan el DINÁMICO (promedio de las 4 semanas previas).
+    const din = rk.participantes[0].promos.filter((x) => x.code === 'DM007' || x.code === 'DM008');
+    check(din.length === 2 && din.every((x) => x.objetivo_fuente === 'dinamico' && x.objetivo >= 1), '⭐ sin objetivo fijado → objetivo dinámico (no NULL, no 0)', din.map((x) => [x.code, x.objetivo, x.objetivo_fuente]));
+    const dm7 = rk.participantes.find((p) => p.warehouse_code === '01').promos.find((x) => x.code === 'DM007');
+    const { rows: [h7] } = await db.query(
+      `SELECT coalesce(sum(qty),0)::numeric q FROM analytics.v_kepler_sales_lines
+        WHERE warehouse_code='01' AND sku='DM007' AND canal='mostrador' AND business_date BETWEEN ($1::date - 28) AND ($1::date - 1)`, [rk.semana.lunes]);
+    check(dm7.objetivo === Math.max(1, Math.ceil(Number(h7.q) / 4)), '⭐ dinámico DM007 en Padre Hidalgo = ceil(venta de 4 semanas ÷ 4) por SQL directo', { api: dm7.objetivo, sql: Number(h7.q) / 4 });
+    check(rk.participantes.find((p) => p.warehouse_code === '01').promos.find((x) => x.code === 'DM001').objetivo_fuente === 'fijo', 'lo que Marketing fijó gana sobre el dinámico (DM001)');
 
     // Segunda implementación: la venta de DM001 en Padre Hidalgo esa semana, con SQL directo.
     const ph = rk.participantes.find((p) => p.warehouse_code === '01');
@@ -101,8 +108,7 @@ async function http(method, path, token, body) {
     check(prDm1 && Math.abs(prDm1.puntaje - conObj1.reduce((a, x) => a + x.cubrimiento, 0) / conObj1.length) < 1e-9,
       '⭐ cubrimiento de la promo = promedio con tope de sus participantes CON objetivo', prDm1?.puntaje);
     check(prDm1.venta_total === filasDm1.reduce((a, x) => a + x.venta, 0) && prDm1.participantes === 8, 'venta de la promo = suma de sus 8 sucursales');
-    const sinObjPromo = rk.promos_ranking.filter((x) => x.puntaje === null);
-    check(sinObjPromo.length === 2 && sinObjPromo.every((x) => x.lugar === null), '⭐ las 2 promos sin objetivo no tienen lugar (no se rankean como 0)', sinObjPromo.map((x) => x.code));
+    check(rk.promos_ranking.every((x) => x.lugar !== null), 'con objetivo dinámico, toda promo con historia tiene lugar');
     const r1 = await http('GET', `/commercial/mkt-ranking?canal=mostrador&promo=${prDm1.promo_id}`, token);
     const ph1 = r1.json.participantes.find((p) => p.warehouse_code === '01');
     check(r1.status === 200 && r1.json.promo_filtrada === prDm1.promo_id && r1.json.promos_vigentes === 1
@@ -164,6 +170,8 @@ async function http(method, path, token, body) {
     check((await http('PUT', `/commercial/mkt-ranking/promos/${creados.promo}/objetivos`, token, { items: [{ warehouse_code: 'x', canal: 'mostrador', objetivo_semanal: 3 }] })).status === 400, '[negativa] sucursal inválida: 400');
     const r2 = await http('GET', '/commercial/mkt-ranking?canal=mostrador', token);
     check(r2.json.promos_vigentes === rk.promos_vigentes + 1, 'la promo dada de alta ya cuenta en el ranking', { antes: rk.promos_vigentes, despues: r2.json.promos_vigentes });
+    const dm9z = r2.json.participantes.find((p) => p.warehouse_code === '05').promos.find((x) => x.code === 'DM009');
+    check(dm9z && dm9z.objetivo === null && dm9z.objetivo_fuente === null, '⭐ [negativa] promo que empieza esa semana: sin historia NO hay dinámico (queda sin objetivo, no 0)', dm9z);
 
     console.log('\n[6] Dar de baja = terminar ayer (las semanas pasadas no cambian)');
     const baja = await http('PATCH', `/commercial/mkt-ranking/promos/${creados.promo}`, token, { vigencia_hasta: rk.semana.domingo });

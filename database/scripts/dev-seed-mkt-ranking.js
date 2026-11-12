@@ -223,7 +223,7 @@ async function limpiar(c) {
         `INSERT INTO commercial.mkt_ranking_promos (tenant_id, code, descripcion_kepler, mecanica, vigencia_desde, canales, notas, created_by_username, updated_by_username)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'semilla', 'semilla') RETURNING id`,
         [T, sku, desc, desc.replace(' DEMO', '').toLowerCase().replace(/^./, (x) => x.toUpperCase()), ini, canales, MARCA]);
-      if (sku === 'DM007' || sku === 'DM008') continue; // sin objetivo a propósito
+      if (sku === 'DM007' || sku === 'DM008') continue; // [MKT.17] sin objetivo fijado: van con el DINÁMICO
       for (const s of SUC) {
         const media = PROMOS.find((x) => x[0] === sku)[2];
         await c.query(

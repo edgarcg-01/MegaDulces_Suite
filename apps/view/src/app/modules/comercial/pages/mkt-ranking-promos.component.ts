@@ -84,11 +84,12 @@ export function armarFilas(canal: Canal, sucursales: string[], objetivos: Objeti
 /** Lo que cambió respecto de lo guardado, listo para mandar. Vacío o 0 = quitar el objetivo. */
 export function cambios(canal: Canal, filas: FilaObjetivo[]): Objetivo[] {
   return filas
-    .filter((f) => (f.valor ?? null) !== (f.guardado ?? null) || (f.valor !== null && f.fuente === 'sugerido' && f.valor !== f.sugerido))
+    .filter((f) => (f.valor ?? null) !== (f.guardado ?? null))
     .map((f) => ({
       warehouse_code: f.warehouse_code, canal, vendor_code: f.vendor_code,
       objetivo_semanal: f.valor && f.valor > 0 ? f.valor : null,
-      fuente: f.valor !== null && f.valor === f.sugerido && f.guardado === null ? 'sugerido' : 'manual',
+      // [MKT.17] Todo lo que se guarda es un objetivo FIJO; lo que no se guarda va con el dinámico.
+      fuente: 'manual',
     }));
 }
 
@@ -115,9 +116,8 @@ interface Formulario {
  * `[MKT.11]` **Objetivos** — qué promociones mide el ranking y contra qué objetivo.
  *
  * Propósito: dar de alta una promoción (Kepler no guarda su vigencia y reutiliza códigos) y fijar
- * su objetivo semanal por sucursal o vendedor. El sistema SUGIERE (promedio de las 4 semanas
- * anteriores) y la persona decide; lo sugerido se marca como tal. «Sugerir los que faltan» nunca
- * pisa un objetivo capturado.
+ * su objetivo semanal por sucursal o vendedor. `[MKT.17]` Sin objetivo fijo, el ranking usa el
+ * DINÁMICO (promedio de las 4 semanas anteriores, recalculado cada semana); fijarlo es opcional.
  *
  * Jerarquía: primario = qué promos están vigentes y cuántas NO tienen objetivo; secundario =
  * vigencia y canales; terciario = código y quién capturó.
@@ -143,8 +143,6 @@ interface Formulario {
         <app-freshness-pill measures="fetch" [since]="cargadoEn()" [staleAfterSec]="900"></app-freshness-pill>
         @if (puedeGestionar) {
           <div class="rp-acciones">
-            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="sugerirFaltantes()" [disabled]="trabajando()">
-              <span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span><span class="p-button-label">Sugerir los que faltan</span></button>
             <button pButton type="button" class="p-button-sm" (click)="nueva()" [disabled]="trabajando()">
               <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Dar de alta</span></button>
           </div>
@@ -176,7 +174,7 @@ interface Formulario {
               <th>Vigencia</th>
               <th>Canales</th>
               <th>Sucursales</th>
-              <th class="comm-num">Objetivos</th>
+              <th class="comm-num">Objetivos fijos</th>
               <th>Estado</th>
             </tr>
           </ng-template>
@@ -193,7 +191,7 @@ interface Formulario {
               <td data-label="Canales">{{ canalesTexto(p.canales) }}</td>
               <td data-label="Sucursales">{{ p.warehouse_codes ? p.warehouse_codes.length + ' de 8' : 'Todas' }}</td>
               <td class="comm-num" data-label="Objetivos">
-                @if (p.objetivos) { {{ p.objetivos }} } @else { <p-tag value="Sin objetivos" severity="warn"></p-tag> }
+                @if (p.objetivos) { {{ p.objetivos }} } @else { <span class="rp-tenue rp-inline">dinámico</span> }
               </td>
               <td data-label="Estado"><p-tag [value]="estadoTexto(p)" [severity]="estadoSev(p)"></p-tag></td>
             </tr>
@@ -209,16 +207,17 @@ interface Formulario {
             <app-segmented [options]="canalesPeek()" [value]="canalPeek()" (valueChange)="elegirCanalPeek($any($event))" ariaLabel="Canal"></app-segmented>
           }
           <p class="rp-ayuda">Objetivo semanal: cuántas veces se debe aplicar la promoción de lunes a domingo.
-            El sugerido es el promedio de las últimas 4 semanas{{ canalPeek() === 'mostrador' ? '' : ' de cada vendedor' }}. Vacío = sin objetivo (no cuenta para el lugar, no es cero).</p>
+            Si no fijas uno, el ranking usa el <strong>dinámico</strong>: el promedio de las 4 semanas anteriores{{ canalPeek() === 'mostrador' ? '' : ' de cada vendedor' }}, que se recalcula solo cada semana.
+            Fíjalo sólo si quieres una meta distinta; bórralo para volver al dinámico. Sin historia ni objetivo fijo = sin objetivo (no cuenta para el lugar, no es cero).</p>
           <app-load-state [loading]="cargandoObj()" [error]="errorObj()" [isEmpty]="!cargandoObj() && !errorObj() && !filasObj().length"
                           emptyIcon="pi-users" emptyTitle="Nadie vendió esta promoción en este canal"
-                          emptyHint="Cuando un vendedor la venda aparecerá aquí con su sugerido." (retry)="cargarObjetivos(p)">
+                          emptyHint="Cuando un vendedor la venda aparecerá aquí con su objetivo dinámico." (retry)="cargarObjetivos(p)">
             <p-table [value]="filasObj()" size="small" class="surf-table surf-table--plain">
               <ng-template #header>
                 <tr>
                   <th>{{ canalPeek() === 'mostrador' ? 'Sucursal' : 'Vendedor' }}</th>
-                  <th class="comm-num">Sugerido</th>
-                  <th class="comm-num">Objetivo semanal</th>
+                  <th class="comm-num">Dinámico esta semana</th>
+                  <th class="comm-num">Objetivo fijo <span class="rp-tenue rp-inline">(opcional)</span></th>
                 </tr>
               </ng-template>
               <ng-template #body let-f>
@@ -235,8 +234,8 @@ interface Formulario {
                   <td class="comm-num rp-input">
                     <p-inputnumber [(ngModel)]="f.valor" (ngModelChange)="marcarSucio()" [min]="0" [max]="1000000" [maxFractionDigits]="0"
                                    [disabled]="!puedeGestionar" [inputStyle]="{ width: '6rem', 'text-align': 'right' }"
-                                   [ariaLabel]="'Objetivo de ' + f.nombre" placeholder="—"></p-inputnumber>
-                    @if (f.fuente === 'sugerido' && f.valor === f.guardado) { <span class="rp-tenue">sugerido</span> }
+                                   [ariaLabel]="'Objetivo fijo de ' + f.nombre" placeholder="dinámico"></p-inputnumber>
+                    @if (f.valor === null) { <span class="rp-tenue">{{ f.sugerido !== null ? 'usa el dinámico' : 'sin objetivo' }}</span> }
                   </td>
                 </tr>
               </ng-template>
@@ -249,8 +248,6 @@ interface Formulario {
               <span class="rp-espacio"></span>
               <button pButton type="button" class="p-button-sm p-button-outlined" (click)="editar(p)" [disabled]="trabajando()">
                 <span class="p-button-label">Editar promoción</span></button>
-              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="usarSugeridos()" [disabled]="trabajando() || !hayHuecosConSugerido()">
-                <span class="p-button-label">Llenar vacíos con el sugerido</span></button>
               <button pButton type="button" class="p-button-sm" (click)="guardarObjetivos(p)" [disabled]="trabajando() || !sucio()" [loading]="trabajando()">
                 <span class="p-button-label">Guardar objetivos</span></button>
             </div>
@@ -329,6 +326,7 @@ interface Formulario {
     .rp-filtros { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; margin: var(--sp-4) 0 var(--sp-3); }
     .rp-buscar { min-width: 14rem; margin-left: auto; }
     .rp-nombre { display: block; font-weight: var(--fw-medium); }
+    .rp-inline { display: inline; }
     .rp-producto { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
     .rp-tenue { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .rp-tenue-i { color: var(--text-muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
@@ -387,7 +385,7 @@ export class MktRankingPromosComponent {
     const sin = ps.filter((p) => !p.objetivos).length;
     return [
       { label: 'Promociones activas', value: ps.length, format: 'number' },
-      { label: 'Sin objetivos', value: sin, format: 'number', tone: sin ? 'warn' : 'ok', sub: sin ? 'no entran al ranking' : 'todas se miden' },
+      { label: 'Con objetivo dinámico', value: sin, format: 'number', sub: 'sin objetivo fijo: se recalcula cada semana' },
       { label: 'Sin fecha de fin', value: ps.filter((p) => !p.vigencia_hasta).length, format: 'number', sub: 'hasta agotar' },
     ];
   });
@@ -402,7 +400,6 @@ export class MktRankingPromosComponent {
   readonly filasObj = signal<FilaObjetivo[]>([]);
   readonly sucio = signal(false);
   readonly canalesPeek = computed<SegOption[]>(() => (this.abierta()?.canales ?? []).map((c) => ({ label: CANAL_CORTO[c], value: c })));
-  readonly hayHuecosConSugerido = computed(() => this.filasObj().some((f) => f.valor === null && f.sugerido !== null));
 
   // ── alta ──
   readonly form = signal<Formulario | null>(null);
@@ -470,11 +467,6 @@ export class MktRankingPromosComponent {
 
   marcarSucio(): void { this.sucio.set(true); }
 
-  usarSugeridos(): void {
-    this.filasObj.update((fs) => fs.map((f) => (f.valor === null && f.sugerido !== null ? { ...f, valor: f.sugerido } : f)));
-    this.sucio.set(true);
-  }
-
   async guardarObjetivos(p: PromoMkt): Promise<void> {
     const items = cambios(this.canalPeek(), this.filasObj());
     if (!items.length) { this.sucio.set(false); return; }
@@ -503,28 +495,6 @@ export class MktRankingPromosComponent {
       message: 'Si sigues, se pierden los cambios que escribiste.',
       acceptLabel: 'Descartar cambios', rejectLabel: 'Seguir editando',
       acceptButtonStyleClass: 'p-button-danger', accept: seguir,
-    });
-  }
-
-  sugerirFaltantes(): void {
-    this.confirm.confirm({
-      header: 'Sugerir los objetivos que faltan',
-      message: 'Se guarda el promedio de las últimas 4 semanas donde NO hay objetivo. Los que ya capturaste no se tocan. Después puedes ajustarlos.',
-      acceptLabel: 'Sugerir', rejectLabel: 'Cancelar',
-      accept: async () => {
-        this.trabajando.set(true);
-        try {
-          const r = await firstValueFrom(this.api.sugerir(null, true));
-          const sinHistoria = r.sugeridos.filter((s) => s.sugerido === null).length;
-          this.toast.add({ severity: 'success', summary: `${r.aplicados} objetivos sugeridos`,
-            detail: sinHistoria ? `${sinHistoria} sin historia: captúralos a mano.` : 'Revísalos en cada promoción.' });
-          this.res.reload();
-        } catch (e: unknown) {
-          this.toast.add({ severity: 'error', summary: 'No se pudo sugerir', detail: this.mensaje(e) });
-        } finally {
-          this.trabajando.set(false);
-        }
-      },
     });
   }
 

@@ -218,7 +218,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
                   @if (canal() !== 'mostrador') { <span class="rk-tenue">{{ f.warehouse_name }}</span> }
                   @for (pr of f.renglon.productos; track pr.sku) { <span class="rk-producto">{{ textoVentaProducto(pr) }}</span> }
                 </td>
-                <td class="comm-num">@if (f.renglon.objetivo !== null) { {{ f.renglon.objetivo | number:'1.0-2' }} } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }</td>
+                <td class="comm-num">@if (f.renglon.objetivo !== null) { {{ f.renglon.objetivo | number:'1.0-2' }} @if (f.renglon.objetivo_fuente === 'dinamico') { <span class="rk-tenue">dinámico</span> } } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }</td>
                 <td class="comm-num">{{ f.renglon.venta | number:'1.0-2' }}</td>
                 <td class="comm-num rk-pct">{{ pct(f.renglon.cubrimiento) }}</td>
               </tr>
@@ -266,7 +266,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
                 <td class="comm-num">
                   @if (x.objetivo !== null) {
                     {{ x.objetivo | number:'1.0-2' }}
-                    @if (x.objetivo_fuente === 'sugerido') { <span class="rk-tenue">sugerido</span> }
+                    @if (x.objetivo_fuente === 'dinamico') { <span class="rk-tenue">dinámico</span> }
                   } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }
                 </td>
                 <td class="comm-num">{{ x.venta | number:'1.0-2' }}</td>

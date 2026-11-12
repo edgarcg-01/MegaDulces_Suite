@@ -45,7 +45,8 @@ export interface RenglonRanking {
   code: string;
   mecanica: string;
   objetivo: number | null;
-  objetivo_fuente: 'sugerido' | 'manual' | null;
+  /** [MKT.17] fijo = lo fijó Marketing · dinamico = promedio de las 4 semanas previas, recalculado cada semana. */
+  objetivo_fuente: 'fijo' | 'dinamico' | null;
   venta: number;
   cubrimiento: number | null;
   existencia: number | null;

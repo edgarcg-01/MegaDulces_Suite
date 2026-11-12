@@ -673,7 +673,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Las cifras',
         entries: [
           { term: 'Venta', def: 'Las veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. En sucursales cuenta el mostrador; vecinal, rutas y televenta tienen su propio ranking.' },
-          { term: 'Objetivo', def: 'Cuántas veces debe aplicarse por semana. El sistema sugiere el promedio de las 4 semanas anteriores y Mercadotecnia lo ajusta. Lo sugerido se marca como tal.' },
+          { term: 'Objetivo', def: 'Cuántas veces debe aplicarse por semana. Si Mercadotecnia fija uno, gana el suyo; si no, va el dinámico.' },
+          { term: 'Dinámico', def: 'El objetivo que se calcula solo cada semana: el promedio de lo aplicado en las 4 semanas anteriores dentro de la vigencia, hacia arriba y mínimo 1. Sin ninguna semana de historia no hay dinámico: la promoción queda sin objetivo.' },
+          { term: 'Producto', def: 'El producto que activa la promoción y lo vendido de él en la semana. Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».' },
+          { term: 'Por promoción', def: 'El mismo cálculo visto al revés: cada promoción con el cubrimiento promedio de las sucursales o vendedores que la tienen, y cuántos llegaron a su objetivo.' },
           { term: 'Cubrimiento', def: 'Venta entre objetivo, con tope de 100 % por promoción: cumplir de más una promoción no tapa las que no se cumplieron.' },
           { term: 'Lugar', def: 'El promedio del cubrimiento de las promociones CON objetivo. Las que no tienen objetivo se cuentan aparte y no como cero; quien no tiene ningún objetivo queda sin lugar.' },
           { term: 'Regalos en existencia', def: 'La existencia del código de la promoción según Kepler (los regalos disponibles). No es un conteo físico.' },

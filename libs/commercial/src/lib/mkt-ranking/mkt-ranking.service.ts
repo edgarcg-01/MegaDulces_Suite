@@ -75,6 +75,12 @@ export interface ObjetivoDto {
   fuente?: 'sugerido' | 'manual';
 }
 
+/** `[MKT.17]` El objetivo dinámico de un participante en una promo, para una semana. */
+export interface ObjetivoDinamico {
+  promo_id: string; warehouse_code: string; canal: Canal; vendor_code: string; vendor_name: string;
+  sugerido: number | null; semanas_historia: number;
+}
+
 export interface Quien { id?: string; username?: string }
 
 export interface RenglonRanking {
@@ -82,7 +88,8 @@ export interface RenglonRanking {
   code: string;
   mecanica: string;
   objetivo: number | null;
-  objetivo_fuente: 'sugerido' | 'manual' | null;
+  /** `fijo` = lo fijó Marketing (gana) · `dinamico` = promedio de las 4 semanas previas, recalculado cada semana. */
+  objetivo_fuente: 'fijo' | 'dinamico' | null;
   venta: number;
   cubrimiento: number | null;
   /** Existencia del código en Kepler (sólo canal mostrador). NULL = sin dato. */
@@ -548,7 +555,7 @@ export class MktRankingService {
    * como `sugerido` SÓLO donde no hay objetivo — nunca pisa una captura.
    */
   async sugerirObjetivos(semanaPedida: string | undefined, canal: string | undefined, aplicar: boolean, quien: Quien): Promise<{
-    semana: Semana; sugeridos: Array<{ promo_id: string; warehouse_code: string; canal: Canal; vendor_code: string; vendor_name: string; sugerido: number | null; semanas_historia: number }>;
+    semana: Semana; sugeridos: ObjetivoDinamico[];
     aplicados: number;
   }> {
     const semana = this.semana(semanaPedida);
@@ -557,9 +564,36 @@ export class MktRankingService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const promos = await this.promosVigentes(trx, semana);
-      const sugeridos: Array<{ promo_id: string; warehouse_code: string; canal: Canal; vendor_code: string; vendor_name: string; sugerido: number | null; semanas_historia: number }> = [];
+      const sugeridos = await this.objetivosDinamicos(trx, promos, semana, canales);
+      let aplicados = 0;
+      if (aplicar) {
+        for (const s of sugeridos) {
+          if (s.sugerido === null) continue;
+          const ins = await trx.raw(
+            `INSERT INTO commercial.mkt_ranking_objectives
+               (tenant_id, promo_id, warehouse_code, canal, vendor_code, objetivo_semanal, fuente,
+                created_by, created_by_username, updated_by, updated_by_username)
+             VALUES (?, ?, ?, ?, ?, ?, 'sugerido', ?, ?, ?, ?)
+             ON CONFLICT (tenant_id, promo_id, warehouse_code, canal, vendor_code) DO NOTHING`,
+            [tenantId, s.promo_id, s.warehouse_code, s.canal, s.vendor_code, s.sugerido,
+              quien.id ?? null, quien.username ?? null, quien.id ?? null, quien.username ?? null],
+          );
+          aplicados += ins.rowCount ?? 0;
+        }
+      }
+      return { semana, sugeridos, aplicados };
+    });
+  }
+
+  /**
+   * `[MKT.17]` El objetivo DINÁMICO de una semana para cada participante de cada promo: el promedio
+   * de lo vendido en las 4 semanas anteriores que caen en la vigencia (`objetivoSugerido`: hacia
+   * arriba, mínimo 1; sin historia, NULL). Lo usan el ranking (en vivo) y el editor de objetivos.
+   */
+  private async objetivosDinamicos(trx: Knex.Transaction, promos: PromoMkt[], semana: Semana, canales: Canal[]): Promise<ObjetivoDinamico[]> {
+      const sugeridos: ObjetivoDinamico[] = [];
       const nombreVendedor = new Map<string, string>();
-      if (!promos.length) return { semana, sugeridos, aplicados: 0 };
+      if (!promos.length) return sugeridos;
       const desde = sumarDias(semana.lunes, -28);
       const hasta = sumarDias(semana.lunes, -1);
       const codes = [...new Set(promos.map((p) => p.code))];
@@ -603,24 +637,7 @@ export class MktRankingService {
           sugerido: objetivoSugerido(ventas), semanas_historia: semanas.length,
         });
       }
-      let aplicados = 0;
-      if (aplicar) {
-        for (const s of sugeridos) {
-          if (s.sugerido === null) continue;
-          const ins = await trx.raw(
-            `INSERT INTO commercial.mkt_ranking_objectives
-               (tenant_id, promo_id, warehouse_code, canal, vendor_code, objetivo_semanal, fuente,
-                created_by, created_by_username, updated_by, updated_by_username)
-             VALUES (?, ?, ?, ?, ?, ?, 'sugerido', ?, ?, ?, ?)
-             ON CONFLICT (tenant_id, promo_id, warehouse_code, canal, vendor_code) DO NOTHING`,
-            [tenantId, s.promo_id, s.warehouse_code, s.canal, s.vendor_code, s.sugerido,
-              quien.id ?? null, quien.username ?? null, quien.id ?? null, quien.username ?? null],
-          );
-          aplicados += ins.rowCount ?? 0;
-        }
-      }
-      return { semana, sugeridos, aplicados };
-    });
+      return sugeridos;
   }
 
   // ═════════════════════════════════ ranking ═════════════════════════════════
@@ -667,7 +684,9 @@ export class MktRankingService {
           .sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es')),
         promo_filtrada: promoId ? (promos[0]?.id ?? null) : null,
         promedio_general: null, participantes: [], promos_ranking: [],
-        criterio: 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
+        criterio: 'Objetivo = el que fijó Mercadotecnia o, si no fijó, el DINÁMICO: el promedio de las 4 semanas anteriores '
+          + 'dentro de la vigencia, recalculado cada semana. '
+          + 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
           + 'las promociones CON objetivo; las que no tienen se cuentan aparte. Venta = veces que se aplicó el código de '
           + 'promoción en Kepler, de lunes a domingo.',
         consultado_at: new Date().toISOString(),
@@ -676,7 +695,7 @@ export class MktRankingService {
 
       const codes = [...new Set(promos.map((p) => p.code))];
       const ids = promos.map((p) => p.id);
-      const [identificados, ventas, objetivos, existencias] = await Promise.all([
+      const [identificados, ventas, objetivos, existencias, dinamicos] = await Promise.all([
         // `[MKT.15]` El producto de cada promo: tickets de las 4 semanas que cierran ésta, sin salir de su vigencia.
         this.productosDePromos(trx, promos.map((p) => {
           const hace4 = sumarDias(semana.lunes, -21);
@@ -694,6 +713,8 @@ export class MktRankingService {
         canal === 'mostrador'
           ? trx.raw(`SELECT warehouse_code, sku, qty_stock_units FROM analytics.v_erp_stock_on_hand WHERE sku = ANY(?::text[])`, [codes])
           : Promise.resolve({ rows: [] }),
+        // `[MKT.17]` El objetivo dinámico de ESTA semana (la matview, ~130 ms medido).
+        this.objetivosDinamicos(trx, promos, semana, [canal]),
       ]);
 
       const ventaDe = new Map<string, { qty: number; desc: string[]; vendor_name: string }>();
@@ -702,9 +723,13 @@ export class MktRankingService {
           qty: n(v['qty']), desc: ((v['descripciones'] as string[]) ?? []).filter(Boolean), vendor_name: String(v['vendor_name'] ?? ''),
         });
       }
-      const objDe = new Map<string, { v: number; fuente: 'sugerido' | 'manual' }>();
+      // `[MKT.17]` Lo que Marketing FIJÓ gana; donde no fijó nada, el dinámico de esta semana.
+      const objDe = new Map<string, { v: number; fuente: 'fijo' | 'dinamico' }>();
+      for (const d of dinamicos) {
+        if (d.sugerido !== null) objDe.set(`${d.promo_id}|${d.warehouse_code}|${d.vendor_code}`, { v: d.sugerido, fuente: 'dinamico' });
+      }
       for (const o of objetivos as Array<Record<string, unknown>>) {
-        objDe.set(`${o['promo_id']}|${o['warehouse_code']}|${o['vendor_code'] ?? ''}`, { v: n(o['objetivo_semanal']), fuente: o['fuente'] as 'sugerido' | 'manual' });
+        objDe.set(`${o['promo_id']}|${o['warehouse_code']}|${o['vendor_code'] ?? ''}`, { v: n(o['objetivo_semanal']), fuente: 'fijo' });
       }
       const exDe = new Map<string, number>();
       for (const e of existencias.rows as Array<Record<string, unknown>>) exDe.set(`${e['warehouse_code']}|${e['sku']}`, n(e['qty_stock_units']));
@@ -746,6 +771,12 @@ export class MktRankingService {
         for (const o of objetivos as Array<Record<string, unknown>>) {
           const k = `${o['warehouse_code']}|${o['vendor_code']}`;
           if (!part.has(k)) part.set(k, { warehouse_code: String(o['warehouse_code']), vendor_code: String(o['vendor_code']), vendor_name: '' });
+        }
+        // `[MKT.17]` Quien vendió en las semanas previas tiene objetivo dinámico: si esta semana no
+        // vendió, entra con venta 0 (antes desaparecía del ranking sin que se notara).
+        for (const d of dinamicos) {
+          const k = `${d.warehouse_code}|${d.vendor_code}`;
+          if (d.sugerido !== null && !part.has(k)) part.set(k, { warehouse_code: d.warehouse_code, vendor_code: d.vendor_code, vendor_name: d.vendor_name });
         }
       }
 
