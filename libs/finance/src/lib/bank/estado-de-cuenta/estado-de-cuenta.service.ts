@@ -82,7 +82,11 @@ export interface ArchivosDelBanco {
   /** Cuántos archivos hay en total: si es mayor que `archivos.length`, la lista está recortada. */
   total: number;
   tope: number;
-  cuentas: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+  /**
+   * `hasta` es el día del ÚLTIMO MOVIMIENTO de la cuenta (una cuenta quieta no avanza aunque se baje a diario);
+   * `ultima_subida` es cuándo se guardó su descarga más reciente: eso dice si la cuenta ya se subió hoy (CB.63).
+   */
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
 }
 
 const pesos = (centavos: number) => Math.round(centavos) / 100;
@@ -302,12 +306,13 @@ export class EstadoDeCuentaService {
         .where({ 'a.kind': 'bank', 'a.active': true })
         .groupBy('a.id', 'a.bank', 'a.alias', 'a.account_label')
         .select('a.id', 'a.bank', trx.raw('coalesce(a.alias, a.account_label) as alias'),
-          trx.raw("to_char(max(f.date_to), 'YYYY-MM-DD') as hasta"), trx.raw('count(f.id)::int as archivos'),
+          trx.raw("to_char(max(f.date_to), 'YYYY-MM-DD') as hasta"), trx.raw('max(f.created_at) as ultima_subida'),
+          trx.raw('count(f.id)::int as archivos'),
           trx.raw("count(f.id) FILTER (WHERE f.account_check = 'sin_testigo')::int as sin_testigo"))
         .orderBy('alias');
       return {
         archivos, total: Number(n), tope,
-        cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number }) =>
+        cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number }) =>
           ({ ...c, con_lector: conLector.includes(c.bank) })),
       };
     });

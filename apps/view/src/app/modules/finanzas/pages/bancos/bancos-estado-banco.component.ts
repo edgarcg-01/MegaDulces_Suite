@@ -22,6 +22,26 @@ import { BANCOS_STYLES } from './bancos.styles';
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
   santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío', banamex: 'Banamex',
 };
+/** El banco como lo guarda `bank_accounts.bank`, por su nombre. */
+const BANCO_DE_CUENTA: Readonly<Record<string, string>> = {
+  SANTANDER: 'Santander', BANORTE: 'Banorte', BBVA: 'BBVA', BBAJIO: 'BanBajío', BANAMEX: 'Banamex',
+};
+/** El día (YYYY-MM-DD) en la Ciudad de México: una subida a las 23:30 del 11 es del 11, aunque en UTC ya sea el 12. */
+export function diaMx(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+
+/** [CB.63] Lo que falta subir: cuántas cuentas ya se subieron en el día que se mide y, por banco, cuáles faltan. */
+export interface PorSubir {
+  /** «Subidas hoy» entre semana; en sábado o domingo se mide contra el viernes. */
+  etiqueta: string;
+  titulo: string;
+  total: number;
+  subidas: number;
+  faltan: number;
+  porBanco: { banco: string; cuentas: { alias: string; texto: string }[] }[];
+}
+
 const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; sev: 'success' | 'warn' }>> = {
   en_archivo: { corto: 'en el archivo', largo: 'el número de cuenta viene en el archivo', sev: 'success' },
   saldo_continuo: { corto: 'por saldo', largo: 'arranca exactamente donde cerró esa cuenta', sev: 'success' },
@@ -73,6 +93,20 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
  *  4. Ligas: lo que entra va a Bancos › Movimientos (la pantalla refresca el periodo); la carga del libro avisa
  *     qué renglones de esa cuenta ya no entran.
  *  5. Pulsa quien sube el libro (FINANCE_BANK_GESTIONAR, el mismo permiso del endpoint); quien sólo ve, ve el estado.
+ *
+ * `[CB.63]` Lo que falta subir hoy (Edgar, 2026-11-12: «se sube todos los días; que el usuario entienda qué tiene
+ * pendiente por subir»). Medido ese día a las 10:03: Tesorería sube una descarga por cuenta cada mañana (8:18–9:43) y
+ * llevaba 11 de 18; la pantalla decía «17 de 18 con descarga» (cualquier día) y «la más atrasada llega al 06/11», que
+ * es el día del último MOVIMIENTO: una cuenta quieta bajada hoy se veía atrasada. Las cinco preguntas:
+ *  1. Qué ve y en qué orden: «Subidas hoy N de M» en el resumen y, arriba de la franja para soltar, las que faltan,
+ *     por banco (se bajan portal por portal) y cada una con el día desde el que hay que bajarla.
+ *  2. Qué no: «la más atrasada llega al» (la lista ya lo dice cuenta por cuenta, y sin confundir quieta con atrasada);
+ *     las cuentas ya subidas (sólo su número). Si todo está subido, no hay lista.
+ *  3. Accesibilidad: sin clic, por nombre, en palabras (no depende del color). «Desde el» es el día del último
+ *     movimiento guardado: bajar desde ahí nunca deja hueco, y lo que se encima no se duplica (llave por renglón).
+ *  4. Ligas: al guardar, la lista se recalcula sola (la pantalla recarga).
+ *  5. Le toca a quien sube (FINANCE_BANK_GESTIONAR) y lo ve quien ve la pantalla. NO MEDIDO: los días feriados (cuentan
+ *     como día hábil: dirá que falta lo que nadie tenía que subir).
  */
 @Component({
   selector: 'bancos-estado-banco',
@@ -94,6 +128,20 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         <div class="eb-resumen">
           <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Descargas del banco por cuenta" />
         </div>
+
+        <!-- [CB.63] Lo que falta subir: por banco (se baja portal por portal) y desde qué día bajar cada cuenta. -->
+        @if (porSubir(); as ps) { @if (ps.faltan) {
+          <div class="eb-pend" role="group" aria-labelledby="eb-pend-t">
+            <p id="eb-pend-t" class="eb-pend-t"><span class="eb-strong">{{ ps.titulo }}: {{ ps.faltan === 1 ? '1 cuenta' : ps.faltan + ' cuentas' }}.</span>
+              <span class="muted">Baja cada una desde el día que dice hasta hoy; lo que se encime con lo ya subido no se duplica.</span></p>
+            <ul class="eb-pend-l">
+              @for (g of ps.porBanco; track g.banco) {
+                <li><span class="eb-pend-b">{{ g.banco }}</span>
+                  <span class="eb-pend-cs">@for (c of g.cuentas; track c.alias) { <span class="eb-pend-c"><span class="eb-strong">{{ c.alias }}</span> {{ c.texto }}</span> }</span></li>
+              }
+            </ul>
+          </div>
+        } }
 
         @if (puedeSubir()) {
           <div class="eb-soltar" [class.encima]="encima()">
@@ -280,6 +328,15 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-soltar.encima { border-style: solid; border-color: var(--action); background: color-mix(in srgb, var(--action) 6%, transparent); color: var(--text-main); }
     .eb-elegir { flex: none; }
 
+    /* [CB.63] Lo que falta subir: una línea por banco, la cuenta en negrita y desde qué día. */
+    .eb-pend { margin: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .eb-pend-t { margin: 0 0 var(--sp-1); }
+    .eb-pend-l { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); }
+    .eb-pend-l > li { display: flex; align-items: baseline; gap: var(--sp-3); }
+    .eb-pend-b { flex: none; width: 6rem; color: var(--text-muted); }
+    .eb-pend-cs { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
+    .eb-pend-c { white-space: nowrap; }
+
     .eb-lote { margin: 0 var(--sp-3) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     .eb-lote-pie { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); font-size: var(--fs-sm); }
     .eb-nombre { font-size: var(--fs-xs); word-break: break-all; }
@@ -360,24 +417,67 @@ export class BancosEstadoBancoComponent implements OnInit {
   private siguienteId = 1;
 
   readonly ultimaSubida = computed(() => this.archivos()[0]?.created_at ?? null);
+
+  /** [CB.63] El día de hoy en la Ciudad de México; se renueva en cada carga (la pantalla puede quedar abierta de un día a otro). */
+  readonly hoy = signal(diaMx(new Date()));
+  /**
+   * [CB.63] Qué cuentas no se han subido en el día que se mide (hoy; en fin de semana, el viernes). Cuenta la SUBIDA,
+   * no el último movimiento: una cuenta quieta bajada hoy está al día. `null` con una API anterior a CB.63 (sin
+   * `ultima_subida`): no se afirma qué falta.
+   */
+  readonly porSubir = computed<PorSubir | null>(() => {
+    const hoy = this.hoy();
+    const cuentas = (this.datos()?.cuentas ?? []).filter((c) => c.con_lector);
+    if (!cuentas.length || cuentas.some((c) => c.ultima_subida === undefined)) return null;
+    const [y, m, d] = hoy.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const atras = dow === 6 ? 1 : dow === 0 ? 2 : 0;
+    const ref = new Date(Date.UTC(y, m - 1, d - atras)).toISOString().slice(0, 10);
+    const faltan = cuentas.filter((c) => !c.ultima_subida || diaMx(new Date(c.ultima_subida)) < ref)
+      // Primero lo que nunca se subió, después lo más atrasado: el banco de la cuenta más atrasada va arriba.
+      .sort((a, b) => (a.hasta ?? '').localeCompare(b.hasta ?? '') || a.alias.localeCompare(b.alias));
+    const porBanco: PorSubir['porBanco'] = [];
+    for (const c of faltan) {
+      const banco = BANCO_DE_CUENTA[c.bank] ?? c.bank;
+      let g = porBanco.find((x) => x.banco === banco);
+      if (!g) porBanco.push((g = { banco, cuentas: [] }));
+      g.cuentas.push({ alias: c.alias, texto: c.hasta ? `desde el ${this.fecha(c.hasta).slice(0, 5)}` : 'nunca se ha subido' });
+    }
+    return {
+      etiqueta: atras ? 'Subidas desde el viernes' : 'Subidas hoy',
+      titulo: atras ? 'Sin subir desde el viernes' : 'Por subir hoy',
+      total: cuentas.length, subidas: cuentas.length - faltan.length, faltan: faltan.length, porBanco,
+    };
+  });
+
   /**
    * Por cuenta de banco activa con lector: hasta qué día llega su descarga. Lo calcula el servidor sobre
    * TODOS los archivos: la lista de abajo trae tope y un resumen hecho con ella mentiría.
    */
   readonly resumen = computed<MetricStripItem[]>(() => {
+    const ps = this.porSubir();
     const cuentas = (this.datos()?.cuentas ?? []).filter((c) => c.con_lector);
+    const sinTestigoN = cuentas.reduce((n, c) => n + c.sin_testigo, 0);
+    const sinTestigoItem: MetricStripItem = { label: 'Sin testigo', value: sinTestigoN, format: 'number', tone: sinTestigoN ? 'warn' : 'muted', sub: 'archivos guardados sin poder comprobar la cuenta' };
+    // [CB.63] Con la última subida medida, el primer número es «cuántas se subieron hoy»; la lista dice cuáles faltan.
+    if (ps) {
+      return [
+        { label: ps.etiqueta, value: `${ps.subidas} de ${ps.total}`, format: 'text', tone: ps.faltan ? 'warn' : 'ok', sub: ps.faltan ? `faltan ${ps.faltan}` : 'todas' },
+        ...this.itemContra(),
+        sinTestigoItem,
+      ];
+    }
     const con = cuentas.filter((c) => c.hasta);
     const faltan = cuentas.filter((c) => !c.hasta).map((c) => c.alias);
     const conDescarga: MetricStripItem = { label: 'Cuentas con descarga', value: `${con.length} de ${cuentas.length}`, format: 'text', tone: faltan.length ? 'warn' : 'ok',
       sub: faltan.length ? `faltan ${faltan.slice(0, 3).join(', ')}${faltan.length > 3 ? ` y ${faltan.length - 3} más` : ''}` : 'todas' };
     if (!con.length) return [conDescarga];
     const atrasada = [...con].sort((a, b) => a.hasta!.localeCompare(b.hasta!))[0];
-    const sinTestigo = cuentas.reduce((n, c) => n + c.sin_testigo, 0);
     return [
       conDescarga,
       { label: 'La más atrasada llega al', value: this.fecha(atrasada.hasta!), format: 'text', sub: atrasada.alias },
       ...this.itemContra(),
-      { label: 'Sin testigo', value: sinTestigo, format: 'number', tone: sinTestigo ? 'warn' : 'muted', sub: 'archivos guardados sin poder comprobar la cuenta' },
+      sinTestigoItem,
     ];
   });
 
@@ -398,6 +498,7 @@ export class BancosEstadoBancoComponent implements OnInit {
   cargar(): void {
     this.cargando.set(true);
     this.error.set(null);
+    this.hoy.set(diaMx(new Date()));
     this.api.archivosDelBanco().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.datos.set(d); this.cargando.set(false); },
       error: (e: HttpErrorResponse) => { this.error.set(this.mensaje(e, 'No se pudo leer la lista de estados de cuenta subidos.')); this.cargando.set(false); },

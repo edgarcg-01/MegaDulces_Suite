@@ -277,4 +277,71 @@ describe('BancosEstadoBancoComponent', () => {
       expect(cmp.textoAlimenta()).toBe('');
     });
   });
+
+  describe('[CB.63] lo que falta subir hoy', () => {
+    // El jueves 12-nov-2026 a media mañana, como en prod: unas cuentas subidas hoy, otras el lunes o ayer, una nunca.
+    const sub = (alias: string, bank: string, hasta: string | null, ultima_subida: string | null, con_lector = true) =>
+      ({ id: alias, bank, alias, hasta, ultima_subida, archivos: ultima_subida ? 1 : 0, sin_testigo: 0, con_lector });
+    const datos = (...cuentas: ReturnType<typeof sub>[]): ArchivosDelBanco => ({ archivos: [], total: 0, tope: 100, cuentas });
+    const montarEl = (hoy: string, d: ArchivosDelBanco) => {
+      const m = montar({ datos: d });
+      m.cmp.hoy.set(hoy);
+      m.fx.detectChanges();
+      return m;
+    };
+
+    it('dice cuántas se subieron hoy y, por banco, cuáles faltan y desde qué día bajarlas', () => {
+      const { cmp, el } = montarEl('2026-11-12', datos(
+        sub('BB 3660', 'BBAJIO', '2026-11-06', '2026-11-10T15:43:00Z'),
+        sub('BB 4166', 'BBAJIO', '2026-11-12', '2026-11-12T14:43:00Z'),
+        sub('STDR 5565', 'SANTANDER', null, null),
+        sub('BBVA 2182', 'BBVA', '2026-11-11', '2026-11-11T14:59:00Z'),
+        sub('BNMX 9999', 'BANAMEX', null, null, false),
+      ));
+      const [subidas] = cmp.resumen();
+      expect(subidas.label).toBe('Subidas hoy');
+      expect(subidas.value).toBe('1 de 4');
+      expect(subidas.sub).toBe('faltan 3');
+      expect(cmp.resumen().map((i) => i.label)).not.toContain('La más atrasada llega al');
+      const lista = el.querySelector('.eb-pend')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(lista).toContain('Por subir hoy: 3 cuentas.');
+      expect(lista).toContain('STDR 5565 nunca se ha subido');
+      expect(lista).toContain('BB 3660 desde el 06/11');
+      expect(lista).toContain('BBVA 2182 desde el 11/11');
+      expect(lista).not.toContain('BB 4166');
+      expect(lista).not.toContain('BNMX');
+      // Lo que nunca se subió va primero, después el banco de la cuenta más atrasada.
+      expect(cmp.porSubir()!.porBanco.map((g) => g.banco)).toEqual(['Santander', 'BanBajío', 'BBVA']);
+    });
+
+    it('[negativa] una cuenta quieta bajada hoy está al día, aunque su último movimiento sea de hace días', () => {
+      const { cmp, el } = montarEl('2026-11-12', datos(sub('BBVA 5712', 'BBVA', '2026-11-06', '2026-11-12T14:19:00Z')));
+      expect(cmp.resumen()[0].value).toBe('1 de 1');
+      expect(cmp.resumen()[0].sub).toBe('todas');
+      expect(el.querySelector('.eb-pend')).toBeNull();
+    });
+
+    it('[negativa] el día se cuenta en la Ciudad de México: lo subido a las 23:30 del 11 no es de hoy', () => {
+      // 2026-11-12T05:30Z = 11-nov 23:30 en MX. Con el día en UTC contaría como subida el 12.
+      const { cmp } = montarEl('2026-11-12', datos(sub('BB 854', 'BBAJIO', '2026-11-11', '2026-11-12T05:30:00Z')));
+      expect(cmp.porSubir()!.faltan).toBe(1);
+    });
+
+    it('en sábado se mide contra el viernes, y lo dice', () => {
+      const { cmp, el } = montarEl('2026-11-14', datos(
+        sub('BB 3660', 'BBAJIO', '2026-11-13', '2026-11-13T15:00:00Z'),
+        sub('BB 506', 'BBAJIO', '2026-11-11', '2026-11-12T15:00:00Z'),
+      ));
+      expect(cmp.resumen()[0].label).toBe('Subidas desde el viernes');
+      expect(cmp.resumen()[0].value).toBe('1 de 2');
+      expect(el.querySelector('.eb-pend')?.textContent).toContain('Sin subir desde el viernes: 1 cuenta.');
+    });
+
+    it('[negativa] una API sin la última subida (anterior a CB.63) no afirma qué falta: queda el resumen de antes', () => {
+      const { cmp, el } = montarEl('2026-11-12', DATOS);
+      expect(cmp.porSubir()).toBeNull();
+      expect(el.querySelector('.eb-pend')).toBeNull();
+      expect(cmp.resumen()[0].label).toBe('Cuentas con descarga');
+    });
+  });
 });
