@@ -132,6 +132,103 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
 });
 
 /**
+ * El pareo de la compuerta: cada renglón del banco con UN renglón del libro del mismo lado e importe al centavo.
+ * Primero el mismo día; lo que sobra, contra el libro de ±3 días (el más cercano). `[CB.64]` Lo usan la
+ * compuerta y Movimientos: una sola regla para decir «el libro lo tiene».
+ */
+function parear(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[]) {
+  const pareado = new Set<string>(); // ids de los dos lados ya usados
+  const parDe = new Map<string, RenglonComparable>(); // id del banco → su renglón del libro
+  const fechaDistinta = new Map<string, number>(); // día del banco → pares con otro día
+  // Pase 1: mismo día, mismo lado, mismo importe.
+  const libroPorDiaLlave = new Map<string, RenglonComparable[]>();
+  for (const l of libro) {
+    const k = `${l.fecha}|${llave(l)}`;
+    (libroPorDiaLlave.get(k) || libroPorDiaLlave.set(k, []).get(k)!).push(l);
+  }
+  for (const b of banco) {
+    const l = (libroPorDiaLlave.get(`${b.fecha}|${llave(b)}`) || []).find((x) => !pareado.has(x.id));
+    if (l) { pareado.add(b.id); pareado.add(l.id); parDe.set(b.id, l); }
+  }
+  // Pase 2: lo que sobró, contra el libro de ±3 días (el más cercano).
+  const libroPorLlave = new Map<string, RenglonComparable[]>();
+  for (const l of libro) (libroPorLlave.get(llave(l)) || libroPorLlave.set(llave(l), []).get(llave(l))!).push(l);
+  for (const b of banco) {
+    if (pareado.has(b.id)) continue;
+    let mejor: RenglonComparable | null = null;
+    for (const l of libroPorLlave.get(llave(b)) || []) {
+      if (pareado.has(l.id)) continue;
+      const d = diasEntre(b.fecha, l.fecha);
+      if (d <= VENTANA_DIAS && (!mejor || d < diasEntre(b.fecha, mejor.fecha))) mejor = l;
+    }
+    if (mejor) {
+      pareado.add(b.id); pareado.add(mejor.id); parDe.set(b.id, mejor);
+      fechaDistinta.set(b.fecha, (fechaDistinta.get(b.fecha) ?? 0) + 1);
+    }
+  }
+  return { pareado, parDe, fechaDistinta };
+}
+
+/** Último día del libro. Las fechas absurdas (año mal capturado: 2027 en BTE 7744, CB.UI.9) no cuentan. */
+function ultimoDiaDelLibro(libro: readonly RenglonComparable[], ultimoDelBanco: string | null): string | null {
+  const tope = ultimoDelBanco ? sumarDias(ultimoDelBanco, 31) : null;
+  return libro.map((l) => l.fecha).filter((f) => !tope || f <= tope).sort().pop() ?? null;
+}
+
+/**
+ * `[CB.64]` Por qué un renglón de la descarga no está en el libro:
+ * `libro_no_llega` — el libro todavía no llega a ese día (o es su último día y sólo le faltan renglones: se subió antes
+ * de cerrarlo); `libro_sin_ese_dia` — el libro ya va más adelante y de ese día no tiene nada; `falta_en_libro` — el
+ * libro tiene ese día y no trae este movimiento.
+ */
+export type MotivoSoloDescarga = 'libro_no_llega' | 'libro_sin_ese_dia' | 'falta_en_libro';
+
+export interface DescargaEnMovimientos {
+  /** Renglones de la descarga sin renglón en el libro (los de $0.00 no cuentan: no mueven dinero). */
+  solo_descarga: { id: string; motivo: MotivoSoloDescarga }[];
+  /** Renglones del libro que la descarga trae. */
+  trae: string[];
+  /** Renglones del libro, dentro de lo que cubre un archivo y fuera de su último día abierto, que la descarga NO trae. */
+  no_trae: string[];
+}
+
+/**
+ * `[CB.64]` La descarga dentro de Movimientos, UNA cuenta: qué renglones del banco no tiene el libro (y por qué), y qué
+ * renglones del libro trae o no trae el banco. Mismo pareo que la compuerta (`parear`), mismos renglones fuera ($0.00,
+ * lo posterior al corte de una cuenta que ya usa el banco).
+ *
+ * `cobertura`: los rangos de fechas de los archivos subidos. Un renglón del libro sólo se declara «no lo trae» si cae
+ * dentro de un archivo: un hueco entre dos descargas no es un movimiento que el banco no tenga. Y nunca en el último
+ * día de la descarga si está abierto (pudo bajarse a medias).
+ */
+export function descargaEnMovimientos(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[],
+  cobertura: readonly { desde: string; hasta: string }[], cortaEn?: string | null): DescargaEnMovimientos {
+  const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
+  const antesDelCorte = (r: RenglonComparable) => !cortaEn || r.fecha < cortaEn;
+  const banco = bancoTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const libro = libroTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const ultimoDia = banco.map((b) => b.fecha).sort().pop() ?? null;
+  const abierto = ultimoDia && !bancoTodo.some((r) => !antesDelCorte(r)) ? ultimoDia : null;
+  const { parDe } = parear(banco, libro);
+  const ultimoDelLibro = ultimoDiaDelLibro(libro, ultimoDia);
+  const trae = new Set<string>(Array.from(parDe.values()).map((l) => l.id));
+  const libroDelDia = new Map<string, RenglonComparable[]>();
+  for (const l of libro) (libroDelDia.get(l.fecha) || libroDelDia.set(l.fecha, []).get(l.fecha)!).push(l);
+  const soloDescarga = banco.filter((b) => !parDe.has(b.id)).map((b) => {
+    const delDia = libroDelDia.get(b.fecha) ?? [];
+    // «A medias»: el último día del libro al que sólo le faltan renglones (nada suyo sin par ese día).
+    const aMedias = b.fecha === ultimoDelLibro && delDia.every((l) => trae.has(l.id));
+    const motivo: MotivoSoloDescarga = !ultimoDelLibro || b.fecha > ultimoDelLibro || (delDia.length > 0 && aMedias) ? 'libro_no_llega'
+      : !delDia.length ? 'libro_sin_ese_dia'
+      : 'falta_en_libro';
+    return { id: b.id, motivo };
+  });
+  const cubierto = (f: string) => f !== abierto && cobertura.some((c) => f >= c.desde && f <= c.hasta);
+  const noTrae = libro.filter((l) => !trae.has(l.id) && cubierto(l.fecha)).map((l) => l.id);
+  return { solo_descarga: soloDescarga, trae: Array.from(trae), no_trae: noTrae };
+}
+
+/**
  * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
  * necesita); sólo se juzgan los días en que hay banco.
  */
@@ -171,40 +268,8 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
   const hayDespuesDelCorte = bancoTodo.some((r) => !antesDelCorte(r));
   const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
   const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
-  const pareado = new Set<string>(); // ids de los dos lados ya usados
-  const parDe = new Map<string, RenglonComparable>(); // id del banco → su renglón del libro
-  const fechaDistinta = new Map<string, number>(); // día del banco → pares con otro día
-
-  // Pase 1: mismo día, mismo lado, mismo importe.
-  const libroPorDiaLlave = new Map<string, RenglonComparable[]>();
-  for (const l of libro) {
-    const k = `${l.fecha}|${llave(l)}`;
-    (libroPorDiaLlave.get(k) || libroPorDiaLlave.set(k, []).get(k)!).push(l);
-  }
-  for (const b of banco) {
-    const l = (libroPorDiaLlave.get(`${b.fecha}|${llave(b)}`) || []).find((x) => !pareado.has(x.id));
-    if (l) { pareado.add(b.id); pareado.add(l.id); parDe.set(b.id, l); }
-  }
-  // Pase 2: lo que sobró, contra el libro de ±3 días (el más cercano).
-  const libroPorLlave = new Map<string, RenglonComparable[]>();
-  for (const l of libro) (libroPorLlave.get(llave(l)) || libroPorLlave.set(llave(l), []).get(llave(l))!).push(l);
-  for (const b of banco) {
-    if (pareado.has(b.id)) continue;
-    let mejor: RenglonComparable | null = null;
-    for (const l of libroPorLlave.get(llave(b)) || []) {
-      if (pareado.has(l.id)) continue;
-      const d = diasEntre(b.fecha, l.fecha);
-      if (d <= VENTANA_DIAS && (!mejor || d < diasEntre(b.fecha, mejor.fecha))) mejor = l;
-    }
-    if (mejor) {
-      pareado.add(b.id); pareado.add(mejor.id); parDe.set(b.id, mejor);
-      fechaDistinta.set(b.fecha, (fechaDistinta.get(b.fecha) ?? 0) + 1);
-    }
-  }
-
-  // Último día del libro. Las fechas absurdas (año mal capturado: 2027 en BTE 7744, CB.UI.9) no cuentan.
-  const tope = ultimoDia ? sumarDias(ultimoDia, 31) : null;
-  const ultimoDelLibro = libro.map((l) => l.fecha).filter((f) => !tope || f <= tope).sort().pop() ?? null;
+  const { pareado, parDe, fechaDistinta } = parear(banco, libro);
+  const ultimoDelLibro = ultimoDiaDelLibro(libro, ultimoDia);
 
   const resumen = { cuadra: 0, difiere: 0, sin_libro: 0, abierto: 0, solo_banco: 0, solo_libro: 0, monto_solo_banco: 0, monto_solo_libro: 0 };
   const dias: DiaContraElLibro[] = diasBanco.map((fecha) => {

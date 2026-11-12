@@ -1,4 +1,4 @@
-import { compararContraElLibro, listoParaBanco, DIAS_PARA_USAR_EL_BANCO, type DiaContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, descargaEnMovimientos, listoParaBanco, DIAS_PARA_USAR_EL_BANCO, type DiaContraElLibro, type RenglonComparable } from './contra-el-libro';
 
 // Importes inventados (el repo es público). Cuenta que abre en 1,000.00.
 let n = 0;
@@ -212,5 +212,77 @@ describe('[CB.60] compararContraElLibro', () => {
       const c = compararContraElLibro([...BANCO, r('2026-10-03', 0, 0, 1395.93)], libro02, undefined, undefined, '2026-10-03');
       expect(c.dias[1].solo_banco.map((x) => x.importe)).toEqual([0.56]);
     });
+  });
+});
+
+describe('[CB.64] descargaEnMovimientos: la descarga dentro de Movimientos', () => {
+  // Banco: 01 (+500, −200) · 02 (−3.51, −0.56) · 03 (+100, último día: abierto).
+  const B = [
+    r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300),
+    r('2026-10-02', 0, 3.51, 1296.49), r('2026-10-02', 0, 0.56, 1295.93),
+    r('2026-10-03', 100, 0, 1395.93),
+  ];
+  const [b1, b2, b3, b4, b5] = B.map((x) => x.id);
+  const COBERTURA = [{ desde: '2026-10-01', hasta: '2026-10-03' }];
+  const motivos = (d: ReturnType<typeof descargaEnMovimientos>) => Object.fromEntries(d.solo_descarga.map((x) => [x.id, x.motivo]));
+
+  it('al libro le falta un movimiento de un día que sí tiene: «falta en el libro»; lo que casa, «lo trae»', () => {
+    const L = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49), r('2026-10-03', 7, 0, 1303.49)];
+    const d = descargaEnMovimientos(B, L, COBERTURA);
+    expect(motivos(d)).toEqual({ [b4]: 'falta_en_libro', [b5]: 'falta_en_libro' });
+    expect(d.trae.sort()).toEqual([L[0].id, L[1].id, L[2].id].sort());
+    // El +7 del libro cae en el día abierto del banco (pudo bajarse a medias): no se afirma que el banco no lo trae.
+    expect(d.no_trae).toEqual([]);
+  });
+
+  it('el libro todavía no llega a esos días: «el libro no llega», no «falta»', () => {
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300)], COBERTURA);
+    expect(motivos(d)).toEqual({ [b3]: 'libro_no_llega', [b4]: 'libro_no_llega', [b5]: 'libro_no_llega' });
+  });
+
+  it('[negativa] su último día con renglones de menos (se subió antes de cerrarlo) tampoco es «falta»', () => {
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49)], COBERTURA);
+    expect(motivos(d)[b4]).toBe('libro_no_llega');
+  });
+
+  it('el libro va más adelante y de ese día no tiene nada: «sin ese día»', () => {
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-03', 100, 0, 1400)], COBERTURA);
+    expect(motivos(d)).toEqual({ [b3]: 'libro_sin_ese_dia', [b4]: 'libro_sin_ese_dia' });
+  });
+
+  it('un renglón del libro que el banco no trae, dentro de un archivo: «no lo trae»', () => {
+    const extra = r('2026-10-01', 0, 50, 1250);
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), extra], COBERTURA);
+    expect(d.no_trae).toEqual([extra.id]);
+  });
+
+  it('[negativa] el mismo renglón fuera de lo que cubre un archivo (un hueco entre descargas) no se acusa', () => {
+    const extra = r('2026-10-01', 0, 50, 1250);
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), extra], [{ desde: '2026-10-02', hasta: '2026-10-03' }]);
+    expect(d.no_trae).toEqual([]);
+  });
+
+  it('el libro lo anotó otro día (±3): lo trae, y el banco no lo da por faltante', () => {
+    const tarde = r('2026-10-03', 0, 0.56, 1295.93);
+    const d = descargaEnMovimientos(B, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49), tarde], COBERTURA);
+    expect(d.trae).toContain(tarde.id);
+    expect(motivos(d)[b4]).toBeUndefined();
+  });
+
+  it('un renglón del banco en $0.00 no aparece: no mueve dinero', () => {
+    const cero = r('2026-10-02', 0, 0, 1295.93);
+    const d = descargaEnMovimientos([...B, cero], [], COBERTURA);
+    expect(d.solo_descarga.map((x) => x.id)).not.toContain(cero.id);
+    expect(d.solo_descarga).toHaveLength(5);
+  });
+
+  it('cuenta que ya usa el banco: lo del corte en adelante ya está en Movimientos, y el día anterior deja de estar abierto', () => {
+    const extra = r('2026-10-02', 0, 9, 1287);
+    const L = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49), r('2026-10-02', 0, 0.56, 1295.93), extra];
+    const d = descargaEnMovimientos(B, L, COBERTURA, '2026-10-03');
+    expect(d.solo_descarga).toEqual([]);
+    expect(d.no_trae).toEqual([extra.id]);
+    // [negativa] sin corte, el 03 sigue siendo de la descarga sola y el 02 no es el día abierto, así que el extra igual se acusa.
+    expect(motivos(descargaEnMovimientos(B, L, COBERTURA))[b5]).toBe('libro_no_llega');
   });
 });

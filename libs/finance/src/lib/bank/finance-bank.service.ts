@@ -1,12 +1,14 @@
 import { Injectable, BadRequestException, Logger, Inject, Optional } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
+import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -147,6 +149,8 @@ export interface ListMovementsQuery {
   search?: string;
   limit?: number;
   offset?: number;
+  /** `[CB.64]` 'solo_descarga' → sólo lo que trae la descarga y el libro no · 'no_trae' → sólo lo del libro que la descarga no trae. */
+  contra_descarga?: string;
 }
 
 @Injectable()
@@ -552,13 +556,25 @@ export class FinanceBankService {
     });
   }
 
-  /** Movimientos filtrados (grid). Pagina; devuelve total para el contador. */
+  /**
+   * Movimientos filtrados (grid). Pagina; devuelve total para el contador. Del más nuevo al más viejo (CB.64: lo que
+   * se viene a ver es lo de hoy; antes salían primero los del día 1 y el tope de 500 dejaba fuera los últimos días).
+   *
+   * `[CB.64]` Con `period`, la descarga del banco entra a la MISMA lista (Edgar, 2026-11-12: «una sola interfaz»):
+   * cada renglón del libro dice si la descarga lo trae (`en_descarga`), y los renglones de la descarga que el libro no
+   * tiene vienen como filas con `fuente: 'descarga'` y su `motivo`. No tienen categoría ni conciliación (no están en
+   * `bank_movements`), así que un filtro de categoría, grupo, «sin clasificar» o conciliación los deja fuera.
+   */
   async movements(q: ListMovementsQuery) {
     this.tenantCtx.requireTenantId();
     if (!q.period && !q.account_id) throw new BadRequestException('period o account_id requerido');
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 200));
     const offset = Math.max(0, Number(q.offset) || 0);
     return this.tk.run(async (trx) => {
+      const descarga = q.period ? await leerDescargaDelPeriodo(trx, q.period, q.account_id || undefined) : null;
+      const filtraLibro = !!(q.category_id || q.group_key || q.uncategorized === 'true' || q.recon_status);
+      const conLibro = q.contra_descarga !== 'solo_descarga';
+      const conDescarga = !!descarga?.solo.size && !filtraLibro && q.contra_descarga !== 'no_trae';
       const base = () => {
         const b = trx('finance.bank_movements as bm')
           .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
@@ -576,13 +592,25 @@ export class FinanceBankService {
           // `[BU.2.2]` Motor único: concepto, código crudo y sucursal, palabra por palabra.
           applySmartSearch(b, q.search, { columns: ['bm.concept', 'bm.raw_code', 'bm.sucursal'] });
         }
+        if (q.contra_descarga === 'no_trae') b.whereIn('bm.id', Array.from(descarga?.no_trae ?? []));
         return b;
       };
-      const [{ count }] = await base().count({ count: '*' });
+      // [CB.64] Los renglones de la descarga que el libro no tiene, con los mismos filtros que aplican (cuenta y búsqueda).
+      const baseDescarga = () => {
+        const b = trx('finance.bank_statement_lines as sl')
+          .join('finance.bank_accounts as ba', 'ba.id', 'sl.bank_account_id')
+          .join('finance.bank_statement_files as f', 'f.id', 'sl.file_id')
+          .whereIn('sl.id', Array.from(descarga?.solo.keys() ?? []));
+        if (q.account_id) b.where('sl.bank_account_id', q.account_id);
+        if (q.search) applySmartSearch(b, q.search, { columns: ['sl.concept', 'sl.reference'] });
+        return b;
+      };
+      const contar = async (b: Knex.QueryBuilder) => Number((await b.count({ count: '*' }))[0].count);
+      const total = (conLibro ? await contar(base()) : 0) + (conDescarga ? await contar(baseDescarga()) : 0);
       // El folio REAL conciliado (leftJoin solo en las filas, no en el count: runMatch
       // parea 1:1, así que a lo más hay un match por movimiento). Esto distingue la
       // "regla contable" (mc.kepler_account) del cruce verificado (rm.kepler_doc_folio).
-      const rows = await base()
+      const delLibro = () => base()
         // CB.27 — un movimiento puede tener N matches (pase agrupado 1:N); DISTINCT ON deja
         // uno representativo (el de mayor monto) para no duplicar filas del grid.
         .leftJoin(trx.raw(`(SELECT DISTINCT ON (bank_movement_id) bank_movement_id, kepler_doc_tipo, kepler_doc_folio
@@ -592,16 +620,41 @@ export class FinanceBankService {
           'bm.category_id', 'mc.code as category_code', 'mc.name as category_name', 'mc.group_key',
           'mc.kepler_account', 'bm.raw_type', 'bm.raw_code', 'bm.sucursal', 'bm.concept',
           'bm.amount_in', 'bm.amount_out', 'bm.running_balance', 'bm.recon_status',
-          'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
-        .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }])
-        .limit(limit).offset(offset);
+          'rm.kepler_doc_tipo', 'rm.kepler_doc_folio', 'bm.sync_source',
+          trx.raw("'libro'::text as fuente"), trx.raw('null::text as referencia'),
+          trx.raw('null::timestamptz as subido_en'), trx.raw('null::text as subido_por'));
+      // Las columnas que la descarga no tiene van como `null` sin tipo: en el UNION toman el tipo del libro.
+      const deDescarga = () => baseDescarga()
+        .select('sl.id', 'sl.movement_date', 'ba.bank', 'ba.account_label', 'sl.bank_account_id',
+          trx.raw('null as category_id'), trx.raw('null as category_code'), trx.raw('null as category_name'), trx.raw('null as group_key'),
+          trx.raw('null as kepler_account'), trx.raw('null as raw_type'), trx.raw('null as raw_code'), trx.raw('null as sucursal'), 'sl.concept',
+          'sl.amount_in', 'sl.amount_out', 'sl.running_balance', trx.raw('null as recon_status'),
+          trx.raw('null as kepler_doc_tipo'), trx.raw('null as kepler_doc_folio'), trx.raw('null as sync_source'),
+          trx.raw("'descarga' as fuente"), 'sl.reference as referencia', 'f.created_at as subido_en', 'f.created_by as subido_por');
+      const fuente = conLibro && conDescarga ? trx.queryBuilder().from(trx.raw('(? union all ?) as u', [delLibro(), deDescarga()]))
+        : conLibro ? trx.queryBuilder().from(delLibro().as('u'))
+        : conDescarga ? trx.queryBuilder().from(deDescarga().as('u'))
+        : null;
+      const rows = fuente
+        ? await fuente.select('*').orderBy([{ column: 'movement_date', order: 'desc' }, { column: 'id', order: 'desc' }]).limit(limit).offset(offset)
+        : [];
+      const enDescarga = (r: { id: string; fuente: string; sync_source?: string | null }) =>
+        r.fuente === 'descarga' || !descarga ? null
+        : r.sync_source === 'banco' ? 'es_descarga'
+        : descarga.trae.has(r.id) ? 'trae'
+        : descarga.no_trae.has(r.id) ? 'no_trae'
+        : null;
       return {
-        total: Number(count),
+        total,
         rows: rows.map((r: any) => ({
           ...r,
           amount_in: n(r.amount_in), amount_out: n(r.amount_out),
           running_balance: r.running_balance === null ? null : n(r.running_balance),
+          en_descarga: enDescarga(r),
+          motivo: r.fuente === 'descarga' ? descarga?.solo.get(r.id) ?? null : null,
         })),
+        // [CB.64] Del mes y de la cuenta a la vista; null = el periodo no tiene descarga (no se afirma nada).
+        descarga: descarga?.resumen ?? null,
       };
     });
   }

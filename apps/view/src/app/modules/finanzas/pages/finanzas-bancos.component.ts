@@ -18,7 +18,7 @@ import { MenuItem, MessageService } from 'primeng/api';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
@@ -168,7 +168,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
 
       <!-- ── MOVIMIENTOS: la tabla de todos los ingresos y egresos ── -->
       @if (view() === 'movimientos') {
-        <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()"
+        <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()" [descarga]="movDescarga()" [fDescarga]="fDescarga()"
           [accountOpts]="accountOpts()" [groupOpts]="groupOpts()" [reconOpts]="reconOpts"
           [fAccount]="fAccount()" [fGroup]="fGroup()" [fRecon]="fRecon()" [fUncat]="fUncat()" [fSearch]="fSearch()"
           (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" />
@@ -221,7 +221,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
       @if (view() === 'estados') {
-        <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones(); softRefresh()" />
+        <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones(); softRefresh()" (verMovimientos)="verMovimientosDeCuenta($event)" />
         <!-- El libro sigue entrando mientras dure el paralelo (D2, CB.60): sus dos entradas viven aquí. -->
         <section class="card-premium card-flat fb-libro" aria-labelledby="fb-libro-t">
           <div class="fb-libro-txt">
@@ -399,6 +399,9 @@ export class FinanzasBancosComponent implements OnInit {
   readonly fUncat = signal(false);
   readonly fSearch = signal('');
   readonly fRecon = signal('');
+  /** [CB.64] '' | 'solo_descarga' | 'no_trae': la descarga del banco contra el libro, dentro de Movimientos. */
+  readonly fDescarga = signal('');
+  readonly movDescarga = signal<DescargaEnMovimientos | null>(null);
   readonly uploading = signal(false);
   private searchTimer: any = null;
 
@@ -801,9 +804,9 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.movements({
       period: p, account_id: this.fAccount() || undefined, group_key: this.fGroup() || undefined,
       uncategorized: this.fUncat() || undefined, recon_status: this.fRecon() || undefined,
-      search: this.fSearch() || undefined, limit: 500,
+      search: this.fSearch() || undefined, limit: 500, contra_descarga: this.fDescarga() || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.loading.set(false); },
+      next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.movDescarga.set(r.descarga ?? null); this.loading.set(false); },
       error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.loading.set(false); },
     });
   }
@@ -876,6 +879,7 @@ export class FinanzasBancosComponent implements OnInit {
       case 'group': this.fGroup.set(e.value || ''); break;
       case 'recon': this.fRecon.set(e.value || ''); break;
       case 'uncat': this.fUncat.set(!!e.value); break;
+      case 'descarga': this.fDescarga.set(e.value || ''); break;
     }
     this.reloadMovements();
   }
@@ -897,7 +901,16 @@ export class FinanzasBancosComponent implements OnInit {
     this.fAccount.set(acct?.id || '');
     this.fGroup.set('');
     this.fUncat.set(false);
+    this.fDescarga.set('');
     this.view.set('movimientos');
+    this.reloadMovements();
+  }
+
+  /** [CB.64] Desde Estados de cuenta: los movimientos de esa cuenta, con lo que trajo la descarga en la misma lista. */
+  verMovimientosDeCuenta(cuentaId: string): void {
+    this.fAccount.set(cuentaId || '');
+    this.fGroup.set(''); this.fUncat.set(false); this.fRecon.set(''); this.fDescarga.set('');
+    this.goView('movimientos');
     this.reloadMovements();
   }
   // CB.13 — búsqueda en el catálogo real de cuentas de Kepler.

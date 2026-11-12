@@ -199,10 +199,11 @@ export class FinanceBankController {
     @Query('search') search?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('contra_descarga') contra_descarga?: string,
   ) {
     const q: ListMovementsQuery = {
       period, account_id, category_id, group_key, uncategorized, recon_status, search,
-      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined,
+      limit: limit ? Number(limit) : undefined, offset: offset ? Number(offset) : undefined, contra_descarga,
     };
     return this.svc.movements(q);
   }

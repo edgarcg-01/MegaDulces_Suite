@@ -280,6 +280,61 @@ async function completo(urlAdmin, urlRuntime) {
     check(dS?.importe === 1250.5 && dS.banco === 'cobranza' && dS.por === 'deposito' && dS.libro === 'nomina',
       `⛔ el abono SPEI: la sombra dice cobranza (por ser depósito) y nombra que el libro dice nómina (${JSON.stringify(dS)})`);
 
+    console.log('\n[12b] CB.64 — la descarga dentro de Movimientos: una sola lista, con app_runtime y RLS');
+    {
+      const { FinanceBankService } = require(path.join(ROOT, 'libs/finance/src/lib/bank/finance-bank.service.ts'));
+      const tkM = { run: (cb) => runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]); return cb(trx); }) };
+      const fbs = new FinanceBankService(tkM, { requireTenantId: () => MEGA });
+      fbs.logger = { log() {}, warn() {}, error() {}, debug() {} };
+      const mov = (account_id, extra = {}) => fbs.movements({ period: '2026-11', account_id, limit: 50, ...extra });
+      // STDR: el libro llega al 02 (los dos casan); los dos depósitos del 03 sólo están en la descarga.
+      const mS = await mov(STDR);
+      const fS = (f) => mS.rows.filter((x) => x.fuente === f);
+      check(mS.total === 4 && fS('libro').length === 2 && fS('descarga').length === 2,
+        `STDR: una sola lista con los 2 del libro y los 2 de la descarga (${mS.total}: ${mS.rows.map((x) => x.fuente).join(',')})`);
+      check(String(mS.rows[0].movement_date).includes('03') || new Date(mS.rows[0].movement_date).getUTCDate() === 3,
+        `del más nuevo al más viejo: arriba el 03 (${mS.rows[0].movement_date})`);
+      check(fS('libro').every((x) => x.en_descarga === 'trae'), `lo del libro dice que la descarga lo trae (${fS('libro').map((x) => x.en_descarga)})`);
+      check(fS('descarga').every((x) => x.motivo === 'libro_no_llega' && x.subido_por === 'prueba' && x.referencia && x.category_id === null && x.recon_status === null),
+        `lo de la descarga: el libro no llega, con su referencia y quién la subió (${JSON.stringify(fS('descarga').map((x) => [x.motivo, x.referencia, x.subido_por]))})`);
+      // BBVA A: al libro del 02 le falta la comisión de $100 y el 03 trae otro renglón (+1); el 03 es el día abierto.
+      const [stA] = await admin('finance.bank_statements').where({ bank_account_id: BBVA_A, period: '2026-11' }).select('id');
+      await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stA.id, bank_account_id: BBVA_A, movement_date: '2026-11-02',
+        concept: 'PRUEBA LIBRO SIN BANCO', amount_in: 0, amount_out: 7, running_balance: 1193, client_uuid: 'prueba-cb64-sin-banco' });
+      const mA = await mov(BBVA_A);
+      const motivoDe = (imp) => mA.rows.find((x) => x.fuente === 'descarga' && (x.amount_out === imp || x.amount_in === imp))?.motivo;
+      check(motivoDe(100) === 'falta_en_libro' && motivoDe(16) === 'falta_en_libro' && motivoDe(500) === 'falta_en_libro',
+        `BBVA A: lo que el libro no tiene de días que sí tiene es «falta en el libro» (${motivoDe(100)}, ${motivoDe(16)}, ${motivoDe(500)})`);
+      const deLibro = (imp) => mA.rows.find((x) => x.fuente === 'libro' && (x.amount_out === imp || x.amount_in === imp))?.en_descarga;
+      check(deLibro(1000) === 'trae' && deLibro(7) === 'no_trae' && deLibro(1) === null,
+        `el libro: lo trae · no lo trae (dentro del archivo) · sin juicio en el día abierto (${deLibro(1000)}, ${deLibro(7)}, ${deLibro(1)})`);
+      check(mA.descarga?.solo_descarga === 3 && mA.descarga?.trae === 1 && mA.descarga?.no_trae === 1,
+        `el resumen de la cuenta (${JSON.stringify(mA.descarga)})`);
+      const solo = await mov(BBVA_A, { contra_descarga: 'solo_descarga' });
+      check(solo.total === 3 && solo.rows.every((x) => x.fuente === 'descarga'), `filtro «sólo en la descarga»: ${solo.total}, todas de la descarga`);
+      const noTrae = await mov(BBVA_A, { contra_descarga: 'no_trae' });
+      check(noTrae.total === 1 && noTrae.rows[0]?.concept === 'PRUEBA LIBRO SIN BANCO', `filtro «la descarga no lo trae»: el resumen se recorre (${noTrae.total})`);
+      // El buscador real necesita f_unaccent y pg_trgm; aquí va un ILIKE por columna EN SU LUGAR: lo que se prueba es que la
+      // búsqueda llega a la rama de la descarga con sus columnas (concepto y referencia), no el motor.
+      const pc = STUBS['@megadulces/platform-core'];
+      const motorStub = pc.applySmartSearch;
+      pc.applySmartSearch = (qb, q, o) => qb.andWhere((w) => { for (const c of o.columns) w.orWhereRaw(`${c} ilike ?`, [`%${q}%`]); });
+      const busca = await mov(BBVA_A, { search: 'IVA' });
+      const buscaRef = await mov(STDR, { search: '0000099998' });
+      pc.applySmartSearch = motorStub;
+      check(busca.total === 1 && busca.rows[0]?.fuente === 'descarga', `la búsqueda también entra a la descarga, por concepto (${busca.total})`);
+      check(buscaRef.total === 1 && buscaRef.rows[0]?.referencia === '0000099998', `y por referencia (${buscaRef.total})`);
+      const sinCat = await mov(BBVA_A, { uncategorized: 'true' });
+      check(sinCat.rows.length > 0 && sinCat.rows.every((x) => x.fuente === 'libro'),
+        `[negativa] «sin clasificar» es del libro: la descarga no se clasifica ahí (${sinCat.rows.map((x) => x.fuente)})`);
+      const sinPeriodo = await fbs.movements({ account_id: BBVA_A, limit: 50 });
+      check(sinPeriodo.descarga === null && sinPeriodo.rows.every((x) => x.fuente === 'libro' && x.en_descarga === null),
+        '[negativa] sin periodo no se afirma nada de la descarga');
+      const otroMes = await mov(BBVA_A, { period: '2026-09' });
+      check(otroMes.descarga === null && otroMes.total === 0, `un mes sin descarga: null, no ceros (${JSON.stringify(otroMes.descarga)})`);
+      await admin('finance.bank_movements').where({ client_uuid: 'prueba-cb64-sin-banco' }).del();
+    }
+
     console.log('\n[13] CB.60b — usar el banco: la descarga alimenta los movimientos de Bancos');
     if (!(await admin.raw("select to_regclass('finance.bank_branch_keys') r")).rows[0].r) {
       noMedido('la migración CB.60b no está aplicada en este destino');

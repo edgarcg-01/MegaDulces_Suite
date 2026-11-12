@@ -10,7 +10,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
-import { BankService, BankMovement, MovementFlow } from '../../bank.service';
+import { BankService, BankMovement, MovementFlow, DescargaEnMovimientos } from '../../bank.service';
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
@@ -65,6 +65,23 @@ import { BANCOS_STYLES } from './bancos.styles';
         }
       </div>
     }
+    <!-- [CB.64] La descarga del banco en esta misma lista: cuánto no tiene el libro y cuánto del libro no trae el banco. -->
+    @if (descarga(); as d) {
+      <div class="fb-desc" role="group" aria-label="La descarga del banco en esta lista">
+        <span class="fb-desc-t">Descarga del banco:</span>
+        @if (d.solo_descarga) {
+          <button type="button" class="fb-desc-b" [class.active]="fDescarga() === 'solo_descarga'" [attr.aria-pressed]="fDescarga() === 'solo_descarga'"
+                  (click)="filter.emit({ field: 'descarga', value: fDescarga() === 'solo_descarga' ? '' : 'solo_descarga' })">
+            <b class="mono">{{ d.solo_descarga | number }}</b> que el libro no tiene</button>
+        } @else { <span class="muted">el libro tiene todo lo que trae</span> }
+        @if (d.no_trae) {
+          <button type="button" class="fb-desc-b" [class.active]="fDescarga() === 'no_trae'" [attr.aria-pressed]="fDescarga() === 'no_trae'"
+                  (click)="filter.emit({ field: 'descarga', value: fDescarga() === 'no_trae' ? '' : 'no_trae' })">
+            <b class="mono">{{ d.no_trae | number }}</b> del libro que el banco no trae</button>
+        }
+        <span class="muted">· {{ d.trae | number }} coinciden</span>
+      </div>
+    }
     <div class="card-premium card-flat fb-tablewrap">
       <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
@@ -76,23 +93,34 @@ import { BANCOS_STYLES } from './bancos.styles';
             <th class="col-w11" pSortableColumn="category_name">Categoría <p-sorticon field="category_name" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sorticon field="amount_in" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sorticon field="amount_out" /></th>
+            @if (descarga()) { <th class="col-w6">Descarga</th> }
             <th class="col-w25" title="Conciliación"></th>
           </tr>
         </ng-template>
         <ng-template #body let-m>
           <tr class="fb-mov-row fb-row-click" [class.fb-colored]="colorByGroup()"
               [style.--g]="colorByGroup() ? color(m.group_key) : null"
-              [class.fb-uncat]="!m.category_id && !colorByGroup()"
+              [class.fb-uncat]="!m.category_id && !colorByGroup() && m.fuente !== 'descarga'"
+              [class.fb-row-desc]="m.fuente === 'descarga'"
               (click)="openMov(m)" tabindex="0" role="button" (keyup.enter)="openMov(m)">
             <td class="mono">{{ dm(m.movement_date) }}</td>
             <td class="muted">{{ m.account_label }}</td>
             <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
             <td>
-              @if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
+              @if (m.fuente === 'descarga') { <span class="fb-cat-chip" [class.fb-desc-falta]="m.motivo === 'falta_en_libro'">{{ motivoCorto(m.motivo) }}</span> }
+              @else if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
               @else { <span class="fb-cat-chip fb-cat-none">sin clasificar</span> }
             </td>
             <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
             <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+            @if (descarga()) {
+              <td class="fb-desc-c">
+                @if (m.fuente === 'descarga') { <span class="fb-desc-solo">sólo ahí</span> }
+                @else if (m.en_descarga === 'trae') { <i class="pi pi-check fb-desc-ok" aria-hidden="true"></i><span class="sr-only">La descarga lo trae</span> }
+                @else if (m.en_descarga === 'es_descarga') { <span class="muted">de ahí</span> }
+                @else if (m.en_descarga === 'no_trae') { <span class="fb-desc-no">no viene</span> }
+              </td>
+            }
             <td class="ta-c">
               @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Conciliado con Kepler"></i> }
               @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin conciliar"></i> }
@@ -100,7 +128,7 @@ import { BANCOS_STYLES } from './bancos.styles';
           </tr>
         </ng-template>
         <ng-template #emptymessage>
-          <tr><td colspan="7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
+          <tr><td [attr.colspan]="descarga() ? 8 : 7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>
@@ -230,6 +258,19 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-flow-chain { overflow-x: auto; }
     table.fb-flow-table > tbody > tr > td { white-space: nowrap; }
     .fb-flow-cob { font-size: var(--fs-sm); color: var(--text-main); margin: 0; line-height: 1.4; }
+    /* [CB.64] La descarga del banco dentro de la lista. */
+    .fb-desc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin-bottom: var(--sp-2); font-size: var(--fs-sm); }
+    .fb-desc-t { color: var(--text-muted); }
+    .fb-desc-b { font: inherit; color: var(--text-main); background: none; border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      padding: 2px var(--sp-3); cursor: pointer; }
+    .fb-desc-b:hover { background: var(--hover-bg); }
+    .fb-desc-b.active { border-color: var(--action); background: var(--surface-selected-bg); }
+    .fb-desc-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .fb-row-desc > td { background: var(--surface-2); }
+    .fb-desc-c { font-size: var(--fs-xs); white-space: nowrap; }
+    .fb-desc-ok { color: var(--text-muted); font-size: 0.8rem; }
+    .fb-desc-no, .fb-cat-chip.fb-desc-falta { color: var(--warn-soft-fg); }
+    .fb-desc-solo { color: var(--text-muted); }
   `],
 })
 export class BancosMovimientosComponent {
@@ -243,6 +284,9 @@ export class BancosMovimientosComponent {
   readonly fRecon = input<string>('');
   readonly fUncat = input<boolean>(false);
   readonly fSearch = input<string>('');
+  /** [CB.64] La descarga del banco en el mes y la cuenta a la vista; null = no hay descarga (no se pinta nada de ella). */
+  readonly descarga = input<DescargaEnMovimientos | null>(null);
+  readonly fDescarga = input<string>('');
   @Output() filter = new EventEmitter<{ field: string; value: any }>();
   @Output() searchChange = new EventEmitter<string>();
 
@@ -276,7 +320,9 @@ export class BancosMovimientosComponent {
           { header: 'Grupo', get: (r: any) => r.group_key, width: 16 },
           { header: 'Deposito', get: (r: any) => r.amount_in, type: 'money', total: true },
           { header: 'Retiro', get: (r: any) => r.amount_out, type: 'money', total: true },
-          { header: 'Conciliado', get: (r: any) => (r.reconciled ? 'Si' : 'No'), width: 11 },
+          // Antes leía `r.reconciled`, que no existe: decía «No» en todos (CB.64).
+          { header: 'Conciliado', get: (r: any) => (r.fuente === 'descarga' ? '' : r.recon_status === 'matched' ? 'Si' : 'No'), width: 11 },
+          { header: 'Descarga', get: (r: any) => this.descargaTexto(r), width: 26 },
         ],
       }]);
     } finally { this.exporting.set(false); }
@@ -325,8 +371,48 @@ export class BancosMovimientosComponent {
     return Math.abs(fl.proveedor.banco_total_mes - fl.proveedor.kepler_total_mes) < 1000;
   }
 
+  /** [CB.64] Por qué el libro no tiene un renglón de la descarga, en la celda de categoría. */
+  motivoCorto(motivo: BankMovement['motivo']): string {
+    return motivo === 'falta_en_libro' ? 'falta en el libro'
+      : motivo === 'libro_sin_ese_dia' ? 'el libro no tiene ese día'
+      : 'el libro aún no llega';
+  }
+
+  /** [CB.64] Lo que dice la columna «Descarga», en palabras (Excel y detalle). */
+  descargaTexto(m: BankMovement): string {
+    if (m.fuente === 'descarga') return `sólo en la descarga (${this.motivoCorto(m.motivo)})`;
+    return m.en_descarga === 'trae' ? 'la descarga lo trae'
+      : m.en_descarga === 'no_trae' ? 'la descarga no lo trae'
+      : m.en_descarga === 'es_descarga' ? 'viene de la descarga'
+      : '';
+  }
+
+  /** [CB.64] Un renglón de la descarga que el libro no tiene: no está en Movimientos, así que no tiene flujo ni categoría. */
+  private openDescarga(m: BankMovement): void {
+    const esRetiro = (m.amount_out || 0) > 0;
+    const subido = m.subido_en ? new Date(m.subido_en) : null;
+    const fields = [
+      { k: 'Fecha', v: dmy(m.movement_date), mono: true },
+      { k: 'Cuenta', v: `${m.bank} ${m.account_label}` },
+      { k: 'Concepto', v: m.concept || '—' },
+      { k: 'Referencia', v: m.referencia || '—', mono: true },
+      { k: esRetiro ? 'Retiro' : 'Depósito', v: money(esRetiro ? m.amount_out : m.amount_in), mono: true },
+      { k: 'Saldo del banco', v: m.running_balance === null ? '—' : money(m.running_balance), mono: true },
+      // En hora de México: un archivo subido a las 20:00 ya es el día siguiente en UTC.
+      { k: 'Subido', v: subido ? new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit',
+          hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(subido) + (m.subido_por ? ' · ' + m.subido_por : '') : '—' },
+    ];
+    const note = m.motivo === 'falta_en_libro'
+      ? 'Viene de la descarga del banco y el libro de ese día no lo tiene (mismo lado e importe, hasta 3 días antes o después). Falta capturarlo en el libro, o se capturó con otro importe.'
+      : m.motivo === 'libro_sin_ese_dia'
+        ? 'Viene de la descarga del banco. El libro ya tiene días posteriores, pero de este día no tiene ningún movimiento: revisa si falta capturar el día completo.'
+        : 'Viene de la descarga del banco. El libro todavía no llega a este día: cuando se cargue, este movimiento se verá una sola vez, como del libro y con la marca de que la descarga lo trae.';
+    this.detail.set({ title: 'Movimiento de la descarga del banco', fields, note });
+  }
+
   openMov(m: BankMovement): void {
     this.flow.set(null);
+    if (m.fuente === 'descarga') { this.closeDetail(); this.openDescarga(m); return; }
     this.currentId.set(m.id);
     const esRetiro = (m.amount_out || 0) > 0;
     const conciliado = m.recon_status === 'matched';
@@ -346,6 +432,8 @@ export class BancosMovimientosComponent {
       { k: 'Conciliación', v: conciliado ? 'Conciliado con Kepler' : m.recon_status === 'unmatched' ? 'Sin conciliar' : '—' },
       // Solo cuando SÍ hay cruce real: el folio de la póliza del 102 de Kepler (verificado).
       ...(folio ? [{ k: 'Póliza Kepler', v: folio, mono: true }] : []),
+      // [CB.64] Si la descarga del banco cubre este día: si lo trae o no.
+      ...(this.descargaTexto(m) ? [{ k: 'Descarga del banco', v: this.descargaTexto(m) }] : []),
     ];
     let note: string;
     if (m.group_key === 'ingreso' && esRetiro) {

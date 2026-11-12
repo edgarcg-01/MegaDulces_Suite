@@ -293,7 +293,7 @@ export class EstadoDeCuentaService {
     return this.tk.run(async (trx) => {
       const archivos = await trx('finance.bank_statement_files as f')
         .join('finance.bank_accounts as a', 'a.id', 'f.bank_account_id')
-        .select('f.id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name',
+        .select('f.id', 'f.bank_account_id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name',
           // La fecha como texto: sin setTypeParser, un `date` llega como Date y el JSON lo corre de día.
           trx.raw("to_char(f.date_from, 'YYYY-MM-DD') as date_from"), trx.raw("to_char(f.date_to, 'YYYY-MM-DD') as date_to"),
           'f.lines_in_file', 'f.lines_new', 'f.opening_balance', 'f.closing_balance', 'f.total_in', 'f.total_out',

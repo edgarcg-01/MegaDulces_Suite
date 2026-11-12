@@ -16,7 +16,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, UsoDelBanco, VeredictoDelDia } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, UsoDelBanco, VeredictoDelDia } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
@@ -279,7 +279,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         @if (contraError(); as ce) { <p class="eb-leyenda eb-v--bad">{{ ce }}</p> }
 
         @if (archivos().length) {
-          <h4 class="eb-sec">Archivos subidos</h4>
+          <h4 class="eb-sec">Archivos subidos <span class="muted">· clic en uno para ver los movimientos de su cuenta</span></h4>
           <p-table [value]="archivos()" dataKey="id" size="small" class="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="40vh">
             <ng-template #header>
               <tr>
@@ -289,7 +289,10 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
               </tr>
             </ng-template>
             <ng-template #body let-f>
-              <tr>
+              <!-- [CB.64] Un clic: los movimientos de esa cuenta, con lo que trajo la descarga en la misma lista. -->
+              <tr [class.eb-abre]="!!f.bank_account_id" [attr.tabindex]="f.bank_account_id ? 0 : null" [attr.role]="f.bank_account_id ? 'button' : null"
+                  [attr.aria-label]="f.bank_account_id ? 'Ver los movimientos de ' + (f.alias || f.account_label) : null"
+                  (click)="abrirMovimientos(f)" (keyup.enter)="abrirMovimientos(f)">
                 <td class="eb-strong">{{ f.alias || f.account_label }}</td>
                 <td class="mono">{{ f.date_from | date:'dd/MM/yy' }} – {{ f.date_to | date:'dd/MM/yy' }}</td>
                 <td class="comm-num mono">{{ f.lines_in_file }}@if (f.lines_in_file > f.lines_new) { <span class="muted"> ({{ f.lines_in_file - f.lines_new }} ya estaban)</span> }</td>
@@ -336,6 +339,10 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-pend-b { flex: none; width: 6rem; color: var(--text-muted); }
     .eb-pend-cs { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
     .eb-pend-c { white-space: nowrap; }
+    /* [CB.64] Un archivo abre los movimientos de su cuenta. */
+    .eb-abre { cursor: pointer; }
+    .eb-abre:hover > td { background: var(--hover-bg); }
+    .eb-abre:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
     .eb-lote { margin: 0 var(--sp-3) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     .eb-lote-pie { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); font-size: var(--fs-sm); }
@@ -376,6 +383,9 @@ export class BancosEstadoBancoComponent implements OnInit {
    * el aviso del Cierre y el periodo (en una cuenta que usa el banco, guardar la descarga mete movimientos).
    */
   readonly guardado = output<void>();
+  /** [CB.64] El id de la cuenta cuyos movimientos se quieren ver (la vista Movimientos, con la descarga dentro). */
+  readonly verMovimientos = output<string>();
+  abrirMovimientos(f: ArchivoEstadoBanco): void { if (f.bank_account_id) this.verMovimientos.emit(f.bank_account_id); }
 
   readonly puedeSubir = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
 
