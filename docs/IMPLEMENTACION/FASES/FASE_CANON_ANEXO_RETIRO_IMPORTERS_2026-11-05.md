@@ -752,3 +752,32 @@ en verde. La nota dice cuántos y con qué script se miden y se cierran. Torre: 
   Pruebas: `hop2_fallas` 8 ✓ (ejerce el `up()` real de la migración), árbitro 16 ✓; seis mutantes en rojo.
 - `repoint-catalog-names` sale del nocturno y queda manual con la misma función del hop-2; se quitó `--source=kp`.
   Prueba: 13 ✓ con tres negativas y tres mutantes en rojo.
+
+**9.5 hecho en código (2026-11-12, `[CANON.6.12]`): marcas por evento — y el hueco era mayor que «hasta 7 días».**
+`import-brands-lineas.js` corría los sábados a las 02:00 (carril `catalog`) y sólo daba de ALTA la marca; nadie movía
+después los productos que habían entrado a SIN-LINEA (el hop-2 sólo cambiaba marca al renombrar). Medido en prod
+(sólo lectura): **31 productos vivos en SIN-LINEA con la marca de su línea ya creada**, algunos desde agosto
+(KURUMAYA 5, COLOMBINA 4, PERFETTI 4, GALFRA 4, SEÑOR PISTACHO 3…). En 60 días el script dio de alta 5 marcas.
+- **Hop-2:** `normalizeBrandsFromKdig`, registrado para `kdig` (carril hash, ya llegaba por evento). Mismas reglas
+  que el script —alta, adoptar código, conflicto (el nombre ya es de otra marca con código), nombre borrado en la
+  dedup, desempate por sucursal menor— y después saca de SIN-LINEA los productos de esas líneas.
+  `normalizeProductsFromOds` también los saca al llegar su `kdii`. **Sólo desde SIN-LINEA**: una marca puesta a mano
+  no se toca (de los productos con marca distinta a la de su línea, 569 vivos, la mayoría es dedup curada).
+- **Oráculo:** el script anterior (HEAD) y la regla nueva, sobre prod, deciden lo mismo: 1 alta (línea 355
+  COMERCIALIZADORA GRUSURT), 0 adoptar, 41 conflictos, 21 nombres borrados.
+- **Árbitro** `catalogo_marcas_evento` (corre con el reloj del escáner de `db-health`, cada 5 min; sólo alarma):
+  líneas que la regla daría de alta o adoptaría + atorados, sin contar conflictos, borradas ni lo que frena la
+  unique. Hoy **32** (= 1 + 31), ~200 ms. Se retira con 30 días sin `import-brands-lineas.js` y sin alertas.
+- **Lo que NO se resuelve por código de línea (declarado, no tocado):** 58 productos en SIN-LINEA cuya línea no es
+  marca por código. 14 tendrían marca **por nombre** (JUAN SANCHEZ 5, GAMAHUBIN 4, VICTOR ANGUIANO 2, ISMAEL RIVERA
+  2, J. GUADALUPE ALCARAZ 1), pero la regla «por nombre» la contradice el testigo de los hermanos: en ISMAEL RIVERA
+  (241) el nombre apunta a la marca `085` y sus 57 hermanos están en `241` (una marca **borrada**, con productos
+  vivos colgando — hallazgo aparte). De los otros 44, 43 son de líneas que **no existen en `kdig`** (986, 344, 689…,
+  y 2 con la línea vacía: el `kdii.c3` apunta a una línea que Kepler no tiene) y 1 (TRIBILIN, 184) es de una línea
+  cuyo nombre es el de una marca borrada. Nada de esto se adivina; si importa, lo decide Compras.
+- Pruebas: 19 ✓ contra base local (los dos órdenes de llegada, adoptar, conflicto, borrada, desempate, atorados,
+  colisión, desempate de un lote que mueve y renombra, sin churn, cruce con el árbitro; dos negativas) y **9
+  mutantes en rojo** con el control en verde. Vecinas re-corridas: nombres 13, árbitro 16, `hop2_fallas` 8, markup
+  15, promo 21 ✓. API: `tsc --noEmit` exit 0, `db-health` 24 ✓.
+- **El día del despliegue de la ingesta:** `node database/importers/kepler/import-brands-lineas.js` (sólo lectura)
+  y, si da más de 0, `--apply` una vez: los 31 atorados no tienen evento propio hasta que cambie su `kdii` o su línea.
