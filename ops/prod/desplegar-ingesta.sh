@@ -143,7 +143,9 @@ ANTES=$(k get deploy -n ingesta -o jsonpath='{range .items[*]}{.metadata.name}={
 for f in $MANIFIESTOS; do
   # shellcheck disable=SC2086
   txt=$(sed $SUST "$f")
-  if printf '%s\n' "$txt" | grep -q '__COMMIT__'; then
+  # Sólo renglones que no son comentario: un `__COMMIT__` mencionado en un comentario no levanta ningún pod
+  # (lo encontró la prueba de control con el comentario de `29-hr-relojes`).
+  if printf '%s\n' "$txt" | grep -v '^[[:space:]]*#' | grep -q '__COMMIT__'; then
     fallo "$(basename "$f") todavía pide algo con __COMMIT__ después de sustituir — una imagen que este guion no conoce"
   fi
   printf '%s\n' "$txt" | k apply -f - >/dev/null || fallo "kubectl apply de $(basename "$f") falló"
