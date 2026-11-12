@@ -257,4 +257,7 @@ El detalle está en §2 del [plan](FASE_MSH_PRIVACIDAD_Y_RETENCION.md). Si Legal
    - `status = 'vigente'` y `published_at`.
 3. Ligar el aviso a la cola con `queues.privacy_notice_code = 'rh'`.
 
-Los pasos 2 y 3 los hace la migración de la cola RH (**MSH.4**), con el aviso en `borrador` hasta que haya aprobación.
+El paso 3 (ligar la cola al código `rh`) ya lo hace la migración de la cola RH (**MSH.4**). El paso 2 **no**: el aviso
+se carga sólo con el texto aprobado, con una migración propia. Un borrador con huecos `[…]` no debe vivir en la tabla de
+evidencia. Mientras no haya un aviso `vigente`, el servidor rechaza todo ticket a RH con 409 (PRV.2, *fail-closed*), y la
+cola está apagada.
