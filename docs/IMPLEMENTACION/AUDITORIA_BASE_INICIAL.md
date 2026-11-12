@@ -1014,7 +1014,34 @@ pólizas de la cuenta 515 por documento).
 
 ---
 
-## Cómo usar este documento
+## Addendum — `AUD-DAT.31`: el resolvedor de costo no sale todo del ODS (2026-11-12)
+
+**Estado: ABIERTO. Decisión de Edgar** («todo, absolutamente todo debe salir del ODS», 2026-11-12).
+Lo encontró `[CE.1.7]` al barrer las fuentes de «Por vencer».
+
+- **Qué pasa:** `analytics.v_erp_unit_cost` (el costo de ~9 servicios y de `mv_erp_unit_cost`) tiene tres
+  fuentes y sólo una es el ODS. Medido en prod, sólo lectura, sobre sus 250,338 celdas:
+  | fuente | celdas | de dónde sale |
+  |---|---:|---|
+  | `kepler_kdik` | 35,366 | `kepler_ods.kdik` — **ODS** |
+  | `wincaja_costo_promedio` | 69,424 | `wincaja.existencias`, copia importada, **último `imported_at` 2026-09-29** (44 días) |
+  | `catalogo_*` | 106,186 | `catalog.products.cost_base`, escrito por importers (`repoint-catalog-cost`, `import-catalog-bulk`…) |
+  | `sin_costo` | 39,362 | declarado |
+- **Dónde pesa:** en las celdas con existencia (`commercial.stock`, sólo almacenes Kepler) el 99.5 % del valor
+  ($65.3 M de $65.6 M) ya es `kdik`; el catálogo cubre 324 celdas (~$312 mil). Lo de Wincaja pesa donde se
+  usa el costo sin existencia: rentabilidad y demás lectores de `mv_erp_unit_cost`.
+- **Lo que el ODS NO tiene hoy:** la réplica de Wincaja (`wincaja_h00…h54`) trae sólo `Clientes`,
+  `MaestroMovAlmacen` y `DetallesMovAlmacen`: ni existencia ni costo promedio. Para Kepler sí hay un
+  respaldo del ODS en vez del catálogo: el costo estándar de la ficha (`analytics.v_kepler_standard_cost`,
+  fase CE de costo estándar), cuya cobertura sobre esas celdas NO se ha medido.
+- **Lo mismo en existencia:** la rama Wincaja de `analytics.v_erp_stock_on_hand` lee la misma copia
+  (`wincaja.v_stock`).
+- **Decisiones que faltan (de Edgar):** (1) Wincaja — replicar su existencia/costo al ODS o declarar esas
+  celdas `sin_costo` (los números de rentabilidad Wincaja cambian); (2) Kepler sin `kdik` — sustituir el
+  catálogo por el costo estándar de la ficha (cambia ~104 mil celdas; exige medición antes/después).
+
+---
+
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
 2. El plan correctivo (Sprint A.0bis) está reflejado como tareas en `01_TRACKER_PROGRESO.md`.

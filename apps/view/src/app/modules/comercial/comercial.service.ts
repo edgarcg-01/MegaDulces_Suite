@@ -583,8 +583,15 @@ export interface ExpiringLot {
   value_at_cost: number | string;
   /** `[CE.3.1]` La sucursal de Kepler del almacén (para casar el juicio). Opcional: servidores previos no la traen. */
   plaza?: string | null;
-  /** `[CE.1.4]` Lo SIN fecha (lote NA) del mismo producto en el mismo almacén. NULL/ausente = no se leyó. */
+  /**
+   * `[CE.1.4] · [CE.1.7]` Lo SIN fecha del mismo producto en el mismo almacén = existencia de Kepler (ODS)
+   * − lo fechado. Negativo = lo fechado excede la existencia. NULL/ausente = no se leyó.
+   */
   na_qty?: number | string | null;
+  /** `[CE.1.7]` Existencia de Kepler de la celda (ODS). NULL/ausente = no se leyó. */
+  stock_erp?: number | string | null;
+  /** `[CE.1.7]` Lo fechado (lotes con caducidad) de la celda. */
+  dated_qty?: number | string | null;
   /**
    * `[CE.1.4]` true = puede estar ya vendido (la venta descuenta primero lo sin fecha). NULL/ausente = no se
    * sabe: nunca se pinta como cierto.
