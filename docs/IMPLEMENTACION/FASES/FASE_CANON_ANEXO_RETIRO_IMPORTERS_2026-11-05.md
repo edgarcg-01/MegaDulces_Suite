@@ -683,6 +683,15 @@ columnas): el testigo de que el evento funciona es ese «difieren = 0». Prueba 
 negativa (`normalize=false` no mueve el markup) y dos mutantes en rojo. Llega con el mismo despliegue de la
 ingesta que 9.1 y la oleada 12; el hueco del día del despliegue (lo cambiado entre las 03:00 y ese momento)
 se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--apply` una sola vez.
+- **Hecho el 2026-11-12** (la ingesta salió con `d592bfbf2`, ~13:50 MX): el árbitro y la herramienta dieron 18 → 19;
+  Edgar corrió `--apply` desde `feeds-cron` (con `/secrets/feeds.env`; la imagen desplegada es la versión de 6.8):
+  19 escritos, árbitro de markup en 0. Fechados por `xmin` contra las filas de `knex_migrations` de las 19:48 y 20:24
+  UTC: 17 de los 19 cambiaron en Kepler ANTES del despliegue (lo esperado), 44320 en la ventana y **01033 DESPUÉS**
+  —su costo sí entró por evento (`hop2:normalizeCost`, 20:24 y 20:28), su markup no—. ⚠️ **Abierto:** confirmar en
+  los logs de `ods-live-mirror` / `ods-reconcile-chicas` si `normalizeMarkup` corrió o falló para 01033; hasta
+  desplegar `20261112102727` las fallas no quedan en `analytics.hop2_fallas`. Medir desde la base no alcanzó:
+  `pg_stat_statements` tampoco muestra el UPDATE de `normalizeCost`, que sí corrió (control negativo), así que su
+  ausencia no prueba nada.
 
 **9.3 hecho en código (2026-11-12, `[CANON.6.9]`): `is_promo` por evento.** La recalculaba
 `repoint-catalog-prices --solo-promo` cada 30 min (1,443 corridas al mes) con tres pases que se peleaban
