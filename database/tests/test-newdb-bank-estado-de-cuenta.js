@@ -218,6 +218,11 @@ async function completo(urlAdmin, urlRuntime) {
     check(porCuenta(STDR)?.archivos === 2 && porCuenta(BBVA_A)?.archivos === 1 && porCuenta(BBVA_A)?.hasta === '2026-11-02',
       `y cada cuenta sigue contando todos sus archivos (STDR ${porCuenta(STDR)?.archivos}, BBVA A ${porCuenta(BBVA_A)?.archivos} hasta ${porCuenta(BBVA_A)?.hasta})`);
     check(porCuenta(BBVA_A)?.sin_testigo === 1 && porCuenta(BBVA_A)?.con_lector === true, 'con su archivo sin testigo y su lector');
+    // [CB.63] Cuándo se subió la descarga más reciente: dice si la cuenta ya se subió hoy. Sin archivos, null (no «hoy»).
+    const sinArchivo = lst.cuentas.find((c) => c.archivos === 0);
+    check(porCuenta(STDR)?.ultima_subida instanceof Date && Date.now() - porCuenta(STDR).ultima_subida.getTime() < 3600e3
+      && (!sinArchivo || sinArchivo.ultima_subida === null),
+      `[CB.63] la última subida por cuenta (STDR ${porCuenta(STDR)?.ultima_subida?.toISOString?.()}; sin archivo: ${sinArchivo ? sinArchivo.ultima_subida : 'no hay'})`);
 
     console.log('\n[9] ⛔ RLS');
     // Sin `app.tenant_id`, la política filtra todo (o `current_tenant_id()` se niega): las dos son «no ve».

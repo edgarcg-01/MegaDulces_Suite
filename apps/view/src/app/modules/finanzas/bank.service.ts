@@ -392,7 +392,11 @@ export interface ArchivoEstadoBanco {
 /** La lista trae tope; `cuentas` no: es cada cuenta de banco activa y hasta dónde llega su descarga. */
 export interface ArchivosDelBanco {
   archivos: ArchivoEstadoBanco[]; total: number; tope: number;
-  cuentas: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+  /**
+   * `hasta` = día del último movimiento (una cuenta quieta no avanza aunque se baje diario). `ultima_subida` = cuándo se
+   * guardó su descarga más reciente (CB.63); falta en una API anterior, y entonces no se afirma qué está por subir.
+   */
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida?: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
 }
 
 /** [CB.60] La descarga del banco contra el libro, por cuenta y día (`GET statement-files/contra-libro`). */
