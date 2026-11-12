@@ -1,5 +1,18 @@
 import type { Knex } from 'knex';
 import { descargaEnMovimientos, type MotivoSoloDescarga, type RenglonComparable } from './contra-el-libro';
+import { clasificarRenglon, type FuenteDeCategoria } from './clasificador';
+import { classifyWith, compileRules } from '../classify-rules';
+
+/**
+ * `[CB.61]` Las reglas del libro que sólo miran el concepto, como función. Una sola lectura para los tres que
+ * clasifican la descarga: la comparación contra el libro, «usar el banco» (lo que se escribe) y Movimientos (lo
+ * que se ve): lo que la ventana muestra es lo que entra al usar el banco.
+ */
+export async function leerReglaDelLibro(trx: Knex.Transaction): Promise<(concepto: string) => string> {
+  const reglas = compileRules(await trx('finance.bank_classify_rules').where({ active: true })
+    .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
+  return (concepto: string) => classifyWith(reglas, '', '', concepto);
+}
 
 /**
  * `[CB.64]` La descarga del banco DENTRO de Movimientos (Edgar, 2026-11-12: «hay que hacerlo una sola interfaz»).
@@ -16,6 +29,11 @@ import { descargaEnMovimientos, type MotivoSoloDescarga, type RenglonComparable 
 export interface DescargaDelPeriodo {
   /** Renglones de la descarga (del mes) que el libro no tiene, con por qué. */
   solo: Map<string, MotivoSoloDescarga>;
+  /**
+   * `[CB.65]` La categoría de cada uno de `solo`, del clasificador de CB.61 con el texto del banco (sin documento
+   * de Kepler: no está en el libro, no pasó por el motor). `sin_clasificar` = el texto no dice qué es.
+   */
+  categoria: Map<string, { codigo: string; por: FuenteDeCategoria }>;
   /** Renglones del libro que la descarga trae. */
   trae: Set<string>;
   /** Renglones del libro, dentro de lo que cubre un archivo, que la descarga no trae. */
@@ -37,7 +55,8 @@ export async function leerDescargaDelPeriodo(trx: Knex.Transaction, periodo: str
   const banco = (await trx('finance.bank_statement_lines')
     .whereBetween('movement_date', [desde, hasta])
     .modify((q) => { if (cuentaId) q.where('bank_account_id', cuentaId); })
-    .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance'))
+    .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance',
+      'concept as concepto'))
     .map((b: RenglonComparable & { bank_account_id: string }) => b);
   if (!banco.length) return null;
   const ids: string[] = Array.from(new Set(banco.map((b) => b.bank_account_id)));
@@ -61,8 +80,9 @@ export async function leerDescargaDelPeriodo(trx: Knex.Transaction, periodo: str
     .where('date_from', '<=', hasta).where('date_to', '>=', desde)
     .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"));
 
-  const res: DescargaDelPeriodo = { solo: new Map(), trae: new Set(), no_trae: new Set(), resumen: { solo_descarga: 0, no_trae: 0, trae: 0 } };
+  const res: DescargaDelPeriodo = { solo: new Map(), categoria: new Map(), trae: new Set(), no_trae: new Set(), resumen: { solo_descarga: 0, no_trae: 0, trae: 0 } };
   const fechaDe = new Map<string, string>(banco.map((r) => [r.id, r.fecha]));
+  const renglon = new Map<string, RenglonComparable>(banco.map((r) => [r.id, r]));
   for (const id of ids) {
     const d = descargaEnMovimientos(
       banco.filter((b) => b.bank_account_id === id), libro.filter((l) => l.bank_account_id === id),
@@ -70,6 +90,14 @@ export async function leerDescargaDelPeriodo(trx: Knex.Transaction, periodo: str
     for (const s of d.solo_descarga) if (enMes(fechaDe.get(s.id) ?? '')) res.solo.set(s.id, s.motivo);
     for (const t of d.trae) res.trae.add(t);
     for (const t of d.no_trae) res.no_trae.add(t);
+  }
+  if (res.solo.size) {
+    const regla = await leerReglaDelLibro(trx);
+    for (const id of res.solo.keys()) {
+      const b = renglon.get(id)!;
+      const c = clasificarRenglon({ amount_in: b.amount_in, amount_out: b.amount_out, concepto: b.concepto }, regla);
+      res.categoria.set(id, { codigo: c.categoria, por: c.por });
+    }
   }
   res.resumen = {
     solo_descarga: res.solo.size,

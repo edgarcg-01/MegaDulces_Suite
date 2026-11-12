@@ -572,9 +572,21 @@ export class FinanceBankService {
     const offset = Math.max(0, Number(q.offset) || 0);
     return this.tk.run(async (trx) => {
       const descarga = q.period ? await leerDescargaDelPeriodo(trx, q.period, q.account_id || undefined) : null;
-      const filtraLibro = !!(q.category_id || q.group_key || q.uncategorized === 'true' || q.recon_status);
+      // [CB.65] Lo de la descarga trae su categoría (la del clasificador, la misma que se escribe al «usar el banco»):
+      // los filtros de categoría y de grupo la alcanzan. «Sin clasificar» y conciliación siguen siendo del libro:
+      // son trabajo sobre el libro, y un renglón de la descarga no se reclasifica ni se concilia aquí.
+      type Cat = { id: string; code: string; name: string; group_key: string | null };
+      const catDe = new Map<string, Cat>(descarga?.solo.size
+        ? (await trx('finance.movement_categories').select('id', 'code', 'name', 'group_key')).map((c: Cat) => [c.code, c]) : []);
+      const catDeDescarga = (id: string): Cat | null => {
+        const c = descarga?.categoria.get(id)?.codigo;
+        return c && c !== 'sin_clasificar' ? catDe.get(c) ?? null : null;
+      };
+      const idsDescarga = Array.from(descarga?.solo.keys() ?? []).filter((id) =>
+        (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || catDeDescarga(id)?.group_key === q.group_key));
+      const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status;
       const conLibro = q.contra_descarga !== 'solo_descarga';
-      const conDescarga = !!descarga?.solo.size && !filtraLibro && q.contra_descarga !== 'no_trae';
+      const conDescarga = idsDescarga.length > 0 && !soloDelLibro && q.contra_descarga !== 'no_trae';
       const base = () => {
         const b = trx('finance.bank_movements as bm')
           .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
@@ -600,7 +612,7 @@ export class FinanceBankService {
         const b = trx('finance.bank_statement_lines as sl')
           .join('finance.bank_accounts as ba', 'ba.id', 'sl.bank_account_id')
           .join('finance.bank_statement_files as f', 'f.id', 'sl.file_id')
-          .whereIn('sl.id', Array.from(descarga?.solo.keys() ?? []));
+          .whereIn('sl.id', idsDescarga);
         if (q.account_id) b.where('sl.bank_account_id', q.account_id);
         if (q.search) applySmartSearch(b, q.search, { columns: ['sl.concept', 'sl.reference'] });
         return b;
@@ -646,13 +658,21 @@ export class FinanceBankService {
         : null;
       return {
         total,
-        rows: rows.map((r: any) => ({
-          ...r,
-          amount_in: n(r.amount_in), amount_out: n(r.amount_out),
-          running_balance: r.running_balance === null ? null : n(r.running_balance),
-          en_descarga: enDescarga(r),
-          motivo: r.fuente === 'descarga' ? descarga?.solo.get(r.id) ?? null : null,
-        })),
+        rows: rows.map((r: any) => {
+          const cat = r.fuente === 'descarga' ? catDeDescarga(r.id) : null;
+          return {
+            ...r,
+            ...(r.fuente === 'descarga' ? {
+              category_id: cat?.id ?? null, category_code: cat?.code ?? null, category_name: cat?.name ?? null, group_key: cat?.group_key ?? null,
+              // [CB.65] Quién le puso la categoría: el texto del banco, un depósito sin otra señal, o una regla del libro.
+              categoria_por: descarga?.categoria.get(r.id)?.por ?? null,
+            } : {}),
+            amount_in: n(r.amount_in), amount_out: n(r.amount_out),
+            running_balance: r.running_balance === null ? null : n(r.running_balance),
+            en_descarga: enDescarga(r),
+            motivo: r.fuente === 'descarga' ? descarga?.solo.get(r.id) ?? null : null,
+          };
+        }),
         // [CB.64] Del mes y de la cuenta a la vista; null = el periodo no tiene descarga (no se afirma nada).
         descarga: descarga?.resumen ?? null,
       };

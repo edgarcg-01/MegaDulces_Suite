@@ -92,7 +92,7 @@ import { BANCOS_STYLES } from './bancos.styles';
             <th class="col-w11" pSortableColumn="category_name">Categoría <p-sorticon field="category_name" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_in">Depósito <p-sorticon field="amount_in" /></th>
             <th class="ta-r col-w8" pSortableColumn="amount_out">Retiro <p-sorticon field="amount_out" /></th>
-            @if (descarga()) { <th class="col-w6">Descarga</th> }
+            @if (descarga()) { <th class="col-w10">Descarga</th> }
             <th class="col-w25" title="Conciliación"></th>
           </tr>
         </ng-template>
@@ -106,15 +106,15 @@ import { BANCOS_STYLES } from './bancos.styles';
             <td class="muted">{{ m.account_label }}</td>
             <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
             <td>
-              @if (m.fuente === 'descarga') { <span class="fb-cat-chip" [class.fb-desc-falta]="m.motivo === 'falta_en_libro'">{{ motivoCorto(m.motivo) }}</span> }
-              @else if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
+              @if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
+              @else if (m.fuente === 'descarga') { <span class="fb-cat-chip fb-cat-none">el banco no dice qué es</span> }
               @else { <span class="fb-cat-chip fb-cat-none">sin clasificar</span> }
             </td>
             <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
             <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
             @if (descarga()) {
               <td class="fb-desc-c">
-                @if (m.fuente === 'descarga') { <span class="fb-desc-solo">sólo ahí</span> }
+                @if (m.fuente === 'descarga') { <span class="fb-desc-solo" [class.fb-desc-falta]="m.motivo === 'falta_en_libro'">{{ motivoCorto(m.motivo) }}</span> }
                 @else if (m.en_descarga === 'trae') { <i class="pi pi-check fb-desc-ok" aria-hidden="true"></i><span class="sr-only">La descarga lo trae</span> }
                 @else if (m.en_descarga === 'es_descarga') { <span class="muted">de ahí</span> }
                 @else if (m.en_descarga === 'no_trae') { <span class="fb-desc-no">no viene</span> }
@@ -270,7 +270,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-row-desc > td { background: var(--surface-2); }
     .fb-desc-c { font-size: var(--fs-xs); white-space: nowrap; }
     .fb-desc-ok { color: var(--text-muted); font-size: 0.8rem; }
-    .fb-desc-no, .fb-cat-chip.fb-desc-falta { color: var(--warn-soft-fg); }
+    .fb-desc-no, .fb-desc-solo.fb-desc-falta { color: var(--warn-soft-fg); }
     .fb-desc-solo { color: var(--text-muted); }
     /* El detalle bajo su fila. */
     .fb-mov-det > td { background: var(--surface-2); padding: var(--sp-3) var(--sp-4); }
@@ -322,7 +322,7 @@ export class BancosMovimientosComponent {
           { header: 'Fecha', get: (r: any) => r.movement_date, type: 'date', width: 12 },
           { header: 'Cuenta', get: (r: any) => r.account_label, width: 18 },
           { header: 'Concepto', get: (r: any) => r.concept, width: 48 },
-          { header: 'Categoria', get: (r: any) => r.category_name || 'sin clasificar', width: 22 },
+          { header: 'Categoria', get: (r: any) => r.category_name || (r.fuente === 'descarga' ? 'el banco no dice qué es' : 'sin clasificar'), width: 22 },
           { header: 'Grupo', get: (r: any) => r.group_key, width: 16 },
           { header: 'Deposito', get: (r: any) => r.amount_in, type: 'money', total: true },
           { header: 'Retiro', get: (r: any) => r.amount_out, type: 'money', total: true },
@@ -380,7 +380,7 @@ export class BancosMovimientosComponent {
     return Math.abs(fl.proveedor.banco_total_mes - fl.proveedor.kepler_total_mes) < 1000;
   }
 
-  /** [CB.64] Por qué el libro no tiene un renglón de la descarga, en la celda de categoría. */
+  /** [CB.64] Por qué el libro no tiene un renglón de la descarga, en la columna «Descarga». */
   motivoCorto(motivo: BankMovement['motivo']): string {
     return motivo === 'falta_en_libro' ? 'falta en el libro'
       : motivo === 'libro_sin_ese_dia' ? 'el libro no tiene ese día'
@@ -396,7 +396,19 @@ export class BancosMovimientosComponent {
       : '';
   }
 
-  /** [CB.64] Un renglón de la descarga que el libro no tiene: no está en Movimientos, así que no tiene flujo ni categoría. */
+  /** [CB.65] Quién le puso la categoría a un renglón de la descarga, en palabras. */
+  categoriaPor(m: BankMovement): string {
+    return m.categoria_por === 'banco' ? 'el sistema, por lo que dice el banco'
+      : m.categoria_por === 'deposito' ? 'el sistema: un depósito sin otra señal se toma como cobranza'
+      : m.categoria_por === 'regla_del_libro' ? 'el sistema, con una regla del libro'
+      : m.categoria_por === 'documento' ? 'el sistema, por su documento de Kepler'
+      : '—';
+  }
+
+  /**
+   * [CB.64] Un renglón de la descarga que el libro no tiene: no está en Movimientos, así que no tiene flujo.
+   * [CB.65] Su categoría la pone el sistema, con el mismo clasificador con que entra al «usar el banco».
+   */
   private openDescarga(m: BankMovement): void {
     const esRetiro = (m.amount_out || 0) > 0;
     const subido = m.subido_en ? new Date(m.subido_en) : null;
@@ -405,6 +417,8 @@ export class BancosMovimientosComponent {
       { k: 'Cuenta', v: `${m.bank} ${m.account_label}` },
       { k: 'Concepto', v: m.concept || '—' },
       { k: 'Referencia', v: m.referencia || '—', mono: true },
+      { k: 'Categoría', v: m.category_name || 'sin categoría: el texto del banco no dice qué es' },
+      ...(m.category_name ? [{ k: 'La puso', v: this.categoriaPor(m) }] : []),
       { k: esRetiro ? 'Retiro' : 'Depósito', v: money(esRetiro ? m.amount_out : m.amount_in), mono: true },
       { k: 'Saldo del banco', v: m.running_balance === null ? '—' : money(m.running_balance), mono: true },
       // En hora de México: un archivo subido a las 20:00 ya es el día siguiente en UTC.
@@ -416,7 +430,10 @@ export class BancosMovimientosComponent {
       : m.motivo === 'libro_sin_ese_dia'
         ? 'Viene de la descarga del banco. El libro ya tiene días posteriores, pero de este día no tiene ningún movimiento: revisa si falta capturar el día completo.'
         : 'Viene de la descarga del banco. El libro todavía no llega a este día: cuando se cargue, este movimiento se verá una sola vez, como del libro y con la marca de que la descarga lo trae.';
-    this.detail.set({ title: 'Movimiento de la descarga del banco', fields, note });
+    const cat = m.category_name
+      ? ' La categoría la pone el sistema con lo que dice el banco: es la misma con que entrará cuando la cuenta use el banco.'
+      : ' El texto del banco no dice qué es: cuando la cuenta use el banco, entrará «sin clasificar» para asignarla a mano.';
+    this.detail.set({ title: 'Movimiento de la descarga del banco', fields, note: note + cat });
   }
 
   openMov(m: BankMovement): void {

@@ -7,7 +7,7 @@ import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 import { compararContraElLibro, DIAS_PARA_USAR_EL_BANCO, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
-import { classifyWith, compileRules } from '../classify-rules';
+import { leerReglaDelLibro } from './descarga-en-movimientos.query';
 import { avisarBancos } from '../aviso-bancos';
 
 /**
@@ -401,9 +401,7 @@ export class EstadoDeCuentaService {
   }
 
   private async reglaDelLibro(trx: Knex.Transaction): Promise<(concepto: string) => string> {
-    const reglas = compileRules(await trx('finance.bank_classify_rules').where({ active: true })
-      .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
-    return (concepto: string) => classifyWith(reglas, '', '', concepto);
+    return leerReglaDelLibro(trx);
   }
 
   /**

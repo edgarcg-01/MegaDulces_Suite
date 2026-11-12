@@ -40,6 +40,8 @@ export interface BankMovement {
   /** De la descarga: por qué el libro no lo tiene. */
   motivo?: 'libro_no_llega' | 'libro_sin_ese_dia' | 'falta_en_libro' | null;
   referencia?: string | null; subido_en?: string | null; subido_por?: string | null;
+  /** [CB.65] Sólo de la descarga: quién le puso la categoría (el libro no la tiene). `ninguna` = el texto no dice qué es. */
+  categoria_por?: 'documento' | 'banco' | 'regla_del_libro' | 'deposito' | 'ninguna' | null;
 }
 
 /** [CB.64] Del mes y de la cuenta a la vista. null = el periodo no tiene descarga. */

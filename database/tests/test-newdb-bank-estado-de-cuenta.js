@@ -295,8 +295,12 @@ async function completo(urlAdmin, urlRuntime) {
       check(String(mS.rows[0].movement_date).includes('03') || new Date(mS.rows[0].movement_date).getUTCDate() === 3,
         `del más nuevo al más viejo: arriba el 03 (${mS.rows[0].movement_date})`);
       check(fS('libro').every((x) => x.en_descarga === 'trae'), `lo del libro dice que la descarga lo trae (${fS('libro').map((x) => x.en_descarga)})`);
-      check(fS('descarga').every((x) => x.motivo === 'libro_no_llega' && x.subido_por === 'prueba' && x.referencia && x.category_id === null && x.recon_status === null),
+      check(fS('descarga').every((x) => x.motivo === 'libro_no_llega' && x.subido_por === 'prueba' && x.referencia && x.recon_status === null),
         `lo de la descarga: el libro no llega, con su referencia y quién la subió (${JSON.stringify(fS('descarga').map((x) => [x.motivo, x.referencia, x.subido_por]))})`);
+      // [CB.65] Un depósito en efectivo sin otra señal: cobranza, y dice que salió de «depósito», no del texto.
+      check(fS('descarga').every((x) => x.category_code === 'cobranza' && x.category_id && x.category_name && x.categoria_por === 'deposito'),
+        `[CB.65] lo de la descarga trae categoría y quién la puso (${JSON.stringify(fS('descarga').map((x) => [x.category_code, x.categoria_por]))})`);
+      check(fS('libro').every((x) => x.categoria_por === undefined), '[CB.65] lo del libro no trae «quién la puso» de la descarga');
       // BBVA A: al libro del 02 le falta la comisión de $100 y el 03 trae otro renglón (+1); el 03 es el día abierto.
       const [stA] = await admin('finance.bank_statements').where({ bank_account_id: BBVA_A, period: '2026-11' }).select('id');
       await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stA.id, bank_account_id: BBVA_A, movement_date: '2026-11-02',
@@ -310,6 +314,26 @@ async function completo(urlAdmin, urlRuntime) {
         `el libro: lo trae · no lo trae (dentro del archivo) · sin juicio en el día abierto (${deLibro(1000)}, ${deLibro(7)}, ${deLibro(1)})`);
       check(mA.descarga?.solo_descarga === 3 && mA.descarga?.trae === 1 && mA.descarga?.no_trae === 1,
         `el resumen de la cuenta (${JSON.stringify(mA.descarga)})`);
+      // [CB.65] Cada uno con la categoría del clasificador de CB.61: comisión e IVA por el texto del banco, la venta por ser depósito.
+      const catDe = (imp) => { const r = mA.rows.find((x) => x.fuente === 'descarga' && (x.amount_out === imp || x.amount_in === imp)); return r ? `${r.category_code}/${r.categoria_por}` : null; };
+      check(catDe(100) === 'comision_bancaria/banco' && catDe(16) === 'iva_acreditable/banco' && catDe(500) === 'cobranza/deposito',
+        `[CB.65] BBVA A: comisión, IVA y venta con su categoría (${catDe(100)}, ${catDe(16)}, ${catDe(500)})`);
+      const catId = async (code) => (await runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.movement_categories').where({ code }).first('id', 'group_key'); }));
+      const comision = await catId('comision_bancaria');
+      const porCat = await mov(BBVA_A, { category_id: comision.id });
+      const descDeCat = porCat.rows.filter((x) => x.fuente === 'descarga');
+      check(descDeCat.length === 1 && descDeCat[0].amount_out === 100 && porCat.rows.every((x) => x.category_id === comision.id),
+        `[CB.65] filtrar por categoría alcanza a la descarga: sólo la comisión de $100 (${porCat.rows.map((x) => `${x.fuente}:${x.amount_out || x.amount_in}`)})`);
+      const cobranza = await catId('cobranza');
+      const porGrupo = await mov(BBVA_A, { group_key: cobranza.group_key });
+      check(porGrupo.rows.some((x) => x.fuente === 'descarga' && x.amount_in === 500) && porGrupo.rows.every((x) => x.group_key === cobranza.group_key),
+        `[CB.65] y por grupo (${cobranza.group_key}): la venta de $500 entra (${porGrupo.rows.map((x) => `${x.fuente}:${x.amount_out || x.amount_in}`)})`);
+      const otra = await runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.movement_categories').whereNotIn('code', ['comision_bancaria', 'iva_acreditable', 'cobranza', 'sin_clasificar']).first('id'); });
+      const otraCat = otra ? await mov(BBVA_A, { category_id: otra.id }) : null;
+      check(otraCat && otraCat.rows.every((x) => x.fuente !== 'descarga'),
+        `[negativa] una categoría que ningún renglón de la descarga tiene no trae ninguno (${otraCat?.rows.map((x) => x.fuente)})`);
       const solo = await mov(BBVA_A, { contra_descarga: 'solo_descarga' });
       check(solo.total === 3 && solo.rows.every((x) => x.fuente === 'descarga'), `filtro «sólo en la descarga»: ${solo.total}, todas de la descarga`);
       const noTrae = await mov(BBVA_A, { contra_descarga: 'no_trae' });

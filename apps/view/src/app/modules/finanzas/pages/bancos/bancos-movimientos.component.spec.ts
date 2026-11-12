@@ -17,8 +17,9 @@ const mov = (p: Partial<BankMovement>): BankMovement => ({
 });
 const FILAS = [
   mov({ id: 'd1', fuente: 'descarga', motivo: 'falta_en_libro', concept: 'COMISION', amount_out: 100, recon_status: null as never, referencia: '0001',
-    subido_en: '2026-11-13T02:30:00Z', subido_por: 'carmen', running_balance: 1100 }),
-  mov({ id: 'd2', fuente: 'descarga', motivo: 'libro_no_llega', concept: 'VENTAS', amount_in: 500, recon_status: null as never }),
+    subido_en: '2026-11-13T02:30:00Z', subido_por: 'carmen', running_balance: 1100,
+    category_id: 'cb', category_code: 'comision_bancaria', category_name: 'Comisión bancaria', categoria_por: 'banco' }),
+  mov({ id: 'd2', fuente: 'descarga', motivo: 'libro_no_llega', concept: 'RETIRO DEP. ELECTRONICO', amount_out: 500, recon_status: null as never, categoria_por: 'ninguna' }),
   mov({ id: 'l1', fuente: 'libro', en_descarga: 'trae', category_id: 'c', category_name: 'Cobranza', amount_in: 1000 }),
   mov({ id: 'l2', fuente: 'libro', en_descarga: 'no_trae', amount_out: 7 }),
   mov({ id: 'l3', fuente: 'libro', en_descarga: null, amount_in: 1 }),
@@ -49,22 +50,24 @@ describe('[CB.64] la descarga del banco dentro de Movimientos', () => {
   it('una sola lista: lo del libro dice si la descarga lo trae y lo de la descarga entra marcado con su porqué', () => {
     const { el, fila, celdaDescarga } = montar(FILAS, RESUMEN);
     expect(Array.from(el.querySelectorAll('th')).map((t) => t.textContent?.trim())).toContain('Descarga');
-    expect(celdaDescarga(0)).toBe('sólo ahí');
+    // [CB.65] El porqué va en la columna «Descarga»; la de categoría dice la categoría, como en cualquier movimiento.
+    expect(celdaDescarga(0)).toBe('falta en el libro');
     expect(fila(0).classList).toContain('fb-row-desc');
-    expect(fila(0).textContent).toContain('falta en el libro');
-    expect(fila(1).textContent).toContain('el libro aún no llega');
+    expect(fila(0).querySelectorAll('td')[3].textContent?.trim()).toBe('Comisión bancaria');
+    expect(celdaDescarga(1)).toBe('el libro aún no llega');
+    expect(fila(1).querySelectorAll('td')[3].textContent?.trim()).toBe('el banco no dice qué es');
     expect(celdaDescarga(2)).toBe('La descarga lo trae');
     expect(celdaDescarga(3)).toBe('no viene');
     expect(celdaDescarga(4)).toBe('');
     expect(fila(2).classList).not.toContain('fb-row-desc');
   });
 
-  it('[negativa] lo de la descarga no se pinta como «sin clasificar»: no es del libro, no se clasifica aquí', () => {
+  it('[negativa] lo de la descarga sin categoría no se pinta como «sin clasificar»: no es del libro, no se reclasifica aquí', () => {
     const { fx, cmp, fila } = montar(FILAS, RESUMEN);
     cmp.colorByGroup.set(false);
     fx.detectChanges();
-    expect(fila(0).classList).not.toContain('fb-uncat');
-    expect(fila(0).textContent).not.toContain('sin clasificar');
+    expect(fila(1).classList).not.toContain('fb-uncat');
+    expect(fila(1).textContent).not.toContain('sin clasificar');
     expect(fila(3).classList).toContain('fb-uncat');
   });
 
@@ -100,6 +103,19 @@ describe('[CB.64] la descarga del banco dentro de Movimientos', () => {
     expect(d?.note).toContain('Falta capturarlo en el libro');
     expect(d?.fields.find((f) => f.k === 'Referencia')?.v).toBe('0001');
     expect(flujos).toEqual([]);
+  });
+
+  it('[CB.65] su categoría dice quién la puso y que es la misma con que entrará; sin categoría, que el banco no dice qué es', () => {
+    const { cmp } = montar(FILAS, RESUMEN);
+    cmp.openMov(FILAS[0]);
+    const campo = (k: string) => cmp.detail()?.fields.find((f) => f.k === k)?.v;
+    expect(campo('Categoría')).toBe('Comisión bancaria');
+    expect(campo('La puso')).toBe('el sistema, por lo que dice el banco');
+    expect(cmp.detail()?.note).toContain('la misma con que entrará cuando la cuenta use el banco');
+    cmp.openMov(FILAS[1]);
+    expect(campo('Categoría')).toBe('sin categoría: el texto del banco no dice qué es');
+    expect(campo('La puso')).toBeUndefined();
+    expect(cmp.detail()?.note).toContain('entrará «sin clasificar» para asignarla a mano');
   });
 
   it('[negativa] la hora de subida va en hora de México: 02:30 UTC del 13 es el 12 a las 20:30', () => {
