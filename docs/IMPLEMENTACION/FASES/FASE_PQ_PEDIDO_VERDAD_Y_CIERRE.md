@@ -2570,6 +2570,118 @@ la borraría y la API daría 500: quien reconstruya esa cadena tiene que recrear
 
 **Tiempo de candidatos, re-medido en prod con la base de meses:** ~0.4–1.6 s por temporada-año (2026 trae más
 renglones por mes que 2025). Más de 500 ms: queda en caché.
+## 20. El menú de Compras de Kepler dentro de la Suite (2026-11-09)
+
+**Pedido literal (PM, 2026-11-09):** *«agreguemos todos estos módulos, pero bien optimizados:
+analicemos si de verdad es necesario tener una interfaz completa o agregarlo en una pantalla»*,
+sobre la captura del menú Compras de Kepler: Requisición, Órdenes de compra (con «Modifica»), Vale
+de entrada, Órdenes de entrada, Aplicación de orden de entrada, Devolución directa y Saldar
+documento (con «masivamente»), cada uno con alta, baja y consulta.
+
+**Cómo cambió:** no son siete módulos, son **un solo flujo físico** (pedir → ordenar → recibir →
+registrar la compra → a veces devolver) que Kepler obliga a capturar como documentos separados. La
+Suite modela el **acto**, no el formulario de cada documento. Resultado: **cero pantallas nuevas**,
+siete acciones en pantallas que ya existen.
+
+### 20.1 Lo medido (prod, sólo lectura, `system_identifier` verificado, 90 días por fecha de captura `c68`, 9 sucursales)
+
+| Documento Kepler | Menú | Vigentes 90 d | De qué nace (`c37`) | Mismo día que su origen |
+|---|---|---:|---|---:|
+| `X-A-30` | Requisición | 543 | — | — |
+| `X-A-35` | Orden de compra | 2,633 | 20 % de una requisición, 80 % sin origen | — |
+| `X-A-37` | Vale de entrada | 3,324 | 82 % de una OC, 18 % sin OC | 76 % (OC → vale) |
+| `X-A-40` | Orden de entrada | 3,281 | 100 % de un vale | 92 % |
+| `X-A-20` | Aplicación de orden de entrada | 3,221 | 100 % de una orden de entrada | 95 % |
+| `X-D-40` | Devolución directa | 114 | 93 % sin documento de origen | — |
+| `X-A-90` | Saldar documento | **1 en toda la historia** (2026-01-07) | — | — |
+
+- ⭐ **La recepción se captura tres veces.** Vale, orden de entrada y aplicación van casi 1:1:1 y el
+  mismo día: ~115 capturas diarias para un solo acto, «llegó la mercancía».
+- **La OC se hace cuando la mercancía ya llegó**: 3 de cada 4 se capturan el mismo día que su vale.
+- **«Saldar» no se usa como documento.** La necesidad real son las OC que se quedan abiertas: 48 de
+  2,224 (2 %) de 15 a 90 días sin ningún vale.
+- `X-D-30`/`X-D-35` (devolución en dos pasos), `X-A-5`/`X-A-6` (compra directa) y `X-A-60`: **cero**
+  documentos en toda la historia.
+- **Lo que la Suite escribe hoy en Kepler:** `X-A-30`, `U-D-40` y `X-A-35` (PQ.22), sólo al
+  **crear**. Nada da de baja, salda, recibe ni devuelve en Kepler. Desde el 2026-10-13, 132
+  requisiciones escritas; las 723 con `kepler_error` son interruptores apagados por sucursal, no fallas.
+
+### 20.2 Módulo por módulo
+
+| Kepler | Hoy en la Suite | Lo que falta | Dónde va | Item |
+|---|---|---|---|---|
+| Requisición — alta / consulta | `/compras/pedido`, `/compras/requisiciones`, `/almacen/autoabasto` | — | — | — |
+| Requisición — baja | rechazar sólo antes de aprobar | cancelarla en Kepler («documento referenciado») | botón en `/compras/requisiciones/:id` | `[KR.7]` (ya existe) |
+| OC — alta / consulta | `/compras/oc-abiertas`; alta con la requisición | — | — | — |
+| OC — baja | la pantalla dice «ciérrala en Kepler a mano» | cancelarla en Kepler | acción de fila en `oc-abiertas` | `[PQ.110]` |
+| OC — modifica | no existe | **no se hace** (D39): cancelar y reemitir deja rastro | — | — |
+| Saldar (uno y masivo) | no existe en Kepler | cerrar la OC abierta en Kepler | acción de fila + barra en `oc-abiertas` | `[PQ.111]` |
+| Vale + orden de entrada | el Andén coteja lo que ya se capturó en Kepler | que **cerrar la recepción** en el Andén los escriba | `/almacen/anden` | `[PQ.112]` ⚠️ D37 |
+| Aplicación | `/compras/entradas` valida la factura | escribirla al validar | Captura de facturas | `[PQ.114]` ⚠️ D38 |
+| Devolución directa | sólo se ve en `/compras/descuentos` | que el reclamo resuelto «devolver al proveedor» la genere | `/compras/reclamos` | `[PQ.113]` ⚠️ D37 |
+
+### 20.3 El orden (dinero en juego × esfuerzo)
+
+1. **`[PQ.110]` + `[PQ.111]` cancelar y saldar la OC desde `oc-abiertas`.** Esfuerzo bajo: un
+   `UPDATE` de la cabecera, con el precedente de la autorización de gasto (`kdm1.c43` N→A, GRANT
+   por columna ya dado en las 9). Quita el «ciérrala en Kepler a mano» del aviso de la pantalla.
+2. **`[KR.7]` la baja de la requisición.** La Suite ya las crea; un documento que no se puede
+   cancelar es peor que uno que no se puede crear (FASE_KR §6).
+3. **`[PQ.112]` la recepción desde el Andén.** El mayor ahorro (dos de tres capturas por recepción),
+   y el más delicado: **la orden de entrada mete inventario**.
+4. **`[PQ.113]` la devolución desde Reclamos.** Poco volumen; también saca inventario.
+5. **`[PQ.114]` la aplicación.** Crea la **cuenta por pagar y la póliza**: el mayor riesgo, al final
+   o nunca.
+
+### 20.4 Decisiones (sin firma)
+
+- **D37 — ¿La Suite escribe en Kepler documentos que MUEVEN inventario (`X-A-40`, `X-D-40`)?** Hasta
+  hoy sólo escribe documentos con `c8=N`. **Recomendación: sí, sólo la recepción del Andén**, después
+  de PQ.110/111 y KR.7, con prueba contra base real (regla 13) y la baja resuelta antes que la alta.
+- **D38 — ¿La aplicación (`X-A-20`, cuenta por pagar) la escribe la Suite?** **Recomendación: no por
+  ahora.** Es mecánica y del mismo día; se revisa cuando PQ.112 funcione. ContPAQi sigue siendo el
+  sistema de registro contable (ADR-040).
+- **D39 — «Modifica orden de compra» se reemplaza por cancelar y reemitir.** **Recomendación: sí.**
+
+### 20.5 Lo que NO se sabe todavía
+
+- ⛔ **Qué escribe «saldar» en Kepler es INFERIDO**: cabecera `c43='F'` y pendiente `c42=0`, como ya
+  hace la Suite al convertir su requisición (PQ.22). Antes de programar PQ.111 se mira un saldado
+  hecho en Kepler por una persona y se lee qué cambió (`PQ.111` arranca por ahí, regla 10).
+- **Qué escribe la baja de una OC con vale** (¿Kepler la deja cancelar?) — NO MEDIDO.
+
+### 20.6 PQ.110/PQ.111, primer paso: la huella en el ODS (2026-11-09, sólo lectura)
+
+`X-A-35` de 180 días por estado `c43` (N nueva · A autorizada · R parcial · F terminada · C cancelada)
+y por si tienen vale vigente. `c24` de `kdm2` es el **pendiente del renglón** (negativo = llegó de
+más): en la OC 0007127 de oficinas, 280 pendientes de 500 en el renglón que llegó incompleto.
+
+| Estado | Con vale | OC | Cabecera | Renglones |
+|---|---|---:|---|---|
+| C | no | 449 | `c13`–`c16` y `c42` en **0** (las 449) | no están en el ODS, salvo 14 OC viejas de La Piedad Abastos y 8 Esquinas que los conservan con cantidad e importe y pendiente 0 |
+| C | sí | **0** | — | — |
+| F | recibió menos de lo pedido | 68 | `c42`=0, importe intacto | pendiente en 0 en 66 de 68 |
+| F | sin ningún vale | 3 | `c42`=0, importe intacto | pendiente en 0 en las 3 |
+| R | sí | 454 | `c42` = lo que falta | pendiente > 0 en 365 |
+
+**Lo que sugiere (hipótesis, sin testigo del Kepler vivo):**
+- **Saldar** = `c43`→`F`, `c42`→0 y `c24`→0 en cada renglón; no toca el importe.
+- **Cancelar** = `c43`→`C`, `c13`–`c16` y `c42`→0, y los renglones **se borran** (o el ODS deja de
+  verlos). **Ninguna OC con vale está cancelada**: Kepler probablemente lo impide, como con la
+  requisición («documento referenciado»).
+
+⛔ **Falta el testigo**, igual que en la autorización de gasto: leer en el Kepler vivo, por `xmin`, qué
+tablas toca una cancelación y un saldado reales. Así se ve si la cancelación devuelve la requisición,
+si borra renglones y si hay más tablas. Desde `md` con `kepler_push`, sólo lectura: **espera la
+autorización del PM** (el clasificador lo frena). Candidata para la cancelación observada: la OC de
+prueba 0000346 (Lico), que de todos modos hay que cancelar.
+
+**Lo que tocará `kepler_push` (los GRANT los corre el PM, después del testigo):** hoy sólo tiene
+`UPDATE (c43)` en `md.kdm1`. Saldar pide además `UPDATE (c42)` en `kdm1` y `UPDATE (c24)` en `kdm2`.
+Cancelar pide `c13`–`c16` y, si de verdad borra renglones, un `DELETE` en `kdm2`, que el rol **no
+tiene a propósito** (KR). Ahí D40 tendría que decidir si se le da o si la Suite sólo salda.
+- Cada pantalla que se toque pasa antes por las cinco preguntas de `diseno` §0b.
+- No se abre fase nueva (Fase 0, cupo lleno): todo entra como items de PQ.
 
 ---
 
@@ -2581,6 +2693,7 @@ renglones por mes que 2025). Más de 500 ms: queda en caché.
 | 2026-11-10 | **PQ.94 🧪 C0** (§19.10): migración de Temporadas (3 tablas en `catalog`, 2 vistas) sin aplicar en prod; la venta sale del sell-out canónico `mv_sellout_monthly` (no de `sales_daily`, importer); 37/37 contra Postgres real con dos pruebas negativas. Lista de Navidad «no reponer» para Compras: 47 productos, 4 con ~$197 mil en tránsito (fuera del repo). D36: la temporada en el catálogo de la Suite; una sola puerta de escritura | sesión Claude + Francisco |
 | 2026-11-10 | **D35 contestada por Francisco** (dueños: Compras, Mercadotecnia, Dirección Comercial y General; falta que el PM la ratifique) y regla **«compra única, lo que sobra es remate»** (§19.7). Remate de Muertos/Halloween: 43 productos, ~$102 mil a costo; Canels Piñatero se sacó a mano (es de posadas). PQ.96 ⬜ | sesión Claude + Francisco |
 | 2026-11-09 | **§19, PQ.93 ✅ C0:** historia del freno de demanda con etiqueta de temporada. Muertos/Halloween a una semana del cierre: los 39 productos con nombre de la temporada siguen pidiéndose (114 pares, ~$165 mil a costo, pedido crudo) y fin de pico frena 0; el patrón de venta solo confunde temporada, pico y agotado. PQ.94–PQ.95 ⬜; D35 sin firmar. Lista para Compras fuera del repo | sesión Claude + Francisco |
+| 2026-11-09 | **§20, el menú de Compras de Kepler**: los siete módulos son un solo flujo y caben en pantallas que ya existen (cero nuevas). Medido: la recepción se captura tres veces el mismo día (vale, orden de entrada, aplicación) y «saldar» se usó una vez en la historia. Nacen **PQ.110–PQ.114** y **D37–D39** (sin firma) | Claude |
 | 2026-11-07 | **PQ.91 🧪** (§17.20): la prueba final de PQ.87 en prod encontró la demanda todavía en cajas de 40 donde Kepler dice que no hay caja; el plan usa la caja del almacén ahí (282 celdas), la compra consolidada lee el factor del renglón y el adaptador trata «sin factor» como 1. Queda `[PQ.92]` (guardar la caja del renglón) | Claude |
 | 2026-11-06 | **PQ.87 🧪** (§17.20): la caja de los productos que Kepler compra sueltos (ficha con peldaños que repiten la base) pasa a 1; el envío a Kepler y la validación del lote usan el factor del almacén, el mismo de la mesa; el adaptador frena si la ficha dice sin caja y la Suite trae caja | Claude |
 | 2026-11-06 | **PQ.83 🧪 · PQ.84 🧪** (§17.20): el freno de duplicados ya no llama «hecha fuera de la Suite» a lo que mandó la Suite (RQ-2026-02269 contra su propia RQ-2026-02055); OC abiertas con buscador por folio, requisición y proveedor, y filtro de origen | Claude |
