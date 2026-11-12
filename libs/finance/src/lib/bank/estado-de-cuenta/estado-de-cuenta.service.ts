@@ -4,7 +4,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { describirArchivo, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
-import { compararContraElLibro, DIAS_PARA_USAR_EL_BANCO, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, corteSinParalelo, type ClasificarSinLibro, type CorteSinParalelo, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
@@ -326,7 +326,7 @@ export class EstadoDeCuentaService {
   async contraElLibro(dias = 45, hoy = todayMx()): Promise<{ desde: string; cuentas: CuentaComparada[] }> {
     this.tenantCtx.requireTenantId();
     const desde = this.ventana(dias, hoy);
-    return this.tk.run(async (trx) => ({ desde, cuentas: await this.compararEn(trx, desde) }));
+    return this.tk.run(async (trx) => ({ desde, cuentas: await this.compararEn(trx, desde, undefined, undefined, hoy) }));
   }
 
   private ventana(dias: number, hoy: string): string {
@@ -353,7 +353,7 @@ export class EstadoDeCuentaService {
    * se aprendió de la sucursal. ⛔ El lado libro EXCLUYE lo que el propio banco alimentó (`sync_source = 'banco'`):
    * comparar el banco contra sí mismo daría «cuadra» siempre.
    */
-  private async compararEn(trx: Knex.Transaction, desde: string, soloCuenta?: string, mapa?: MapaDeSucursal): Promise<CuentaComparada[]> {
+  private async compararEn(trx: Knex.Transaction, desde: string, soloCuenta?: string, mapa?: MapaDeSucursal, hoy = todayMx()): Promise<CuentaComparada[]> {
     const banco = await trx('finance.bank_statement_lines')
       .where('movement_date', '>=', desde)
       .modify((q) => { if (soloCuenta) q.where('bank_account_id', soloCuenta); })
@@ -389,12 +389,20 @@ export class EstadoDeCuentaService {
         trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde')))
       .map((a: { id: string; alias: string; banco_desde: string | null }) => [a.id, { alias: a.alias, banco_desde: a.banco_desde }]));
     const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
+    // [CB.67] Sin paralelo: el último día del libro (en TODA su historia, sin fechas futuras) y lo que cubren los archivos.
+    const ultimos = new Map<string, string>((await trx('finance.bank_movements').whereIn('bank_account_id', ids).whereNull('deleted_at')
+      .whereIn('sync_source', ['upload', 'sheet']).where('movement_date', '<=', hoy).groupBy('bank_account_id')
+      .select('bank_account_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as ultimo")))
+      .map((r: { bank_account_id: string; ultimo: string }) => [r.bank_account_id, r.ultimo]));
+    const archivos = await trx('finance.bank_statement_files').whereIn('bank_account_id', ids)
+      .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"));
     // [CB.60b] Una cuenta que ya usa el banco se compara sólo hasta el día anterior a `banco_desde`: desde ahí el
     // libro ya no entra, y juzgar esos días los pintaría «sin libro» para siempre. La cuenta sigue en la lista con su fecha.
     return ids.map((id) => {
       const bd = cuentas.get(id)?.banco_desde ?? null;
       return {
         id, alias: cuentas.get(id)?.alias ?? id, banco_desde: bd,
+        sin_paralelo: corteSinParalelo(ultimos.get(id) ?? null, archivos.filter((a: { bank_account_id: string }) => a.bank_account_id === id), hoy),
         ...compararContraElLibro(de(banco, id), de(libro, id), clasificar, id === soloCuenta ? mapa : undefined, bd),
       };
     }).sort((a, b) => a.alias.localeCompare(b.alias));
@@ -406,7 +414,7 @@ export class EstadoDeCuentaService {
 
   /**
    * `[CB.60b]` **Usar el banco** en una cuenta (decisiones firmadas por Edgar, 2026-11-11). Sólo si lleva
-   * `DIAS_PARA_USAR_EL_BANCO` días hábiles seguidos que cuadran. En UNA transacción:
+   * `DIAS_PARA_USAR_EL_BANCO` días hábiles seguidos que cuadran — o, desde `[CB.67]` (el libro deja de existir), sin paralelo desde el último día del libro si la descarga lo cubre. En UNA transacción:
    *  1. guarda el catálogo de llaves → sucursal aprendido del paralelo, confirmado por quien pulsa;
    *  2. desde el día siguiente al último que cuadró, marca borrados los renglones del LIBRO de la cuenta
    *     (los días que el libro no había cerrado; el banco los trae completos) — nada de lo ya cerrado se toca;
@@ -425,13 +433,16 @@ export class EstadoDeCuentaService {
       if (!cuenta) throw new BadRequestException('la cuenta no existe o no es de banco');
       if (cuenta.desde) return { cuenta: cuenta.alias, desde: cuenta.desde, ya_estaba: true, llaves: 0, libro_borrados: 0, ...SIN_ALIMENTAR };
       const mapa = new MapaDeSucursal();
-      const [c] = await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa);
+      const [c] = await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa, hoy);
       const listo = c?.listo_para_banco;
-      if (!listo?.cumple || !listo.desde) {
+      // [CB.67] El libro deja de existir (Edgar, 2026-11-12, opción 2): con el paralelo cumplido manda el banco desde el día
+      // siguiente al último que cuadró; sin él, desde el último día del libro, siempre que la descarga lo cubra sin hueco.
+      const sin = c?.sin_paralelo;
+      const desde = listo?.cumple && listo.desde ? listo.desde : sin?.cubre ? sin.desde : null;
+      if (!desde) {
         throw new BadRequestException({ message: `${cuenta.alias} todavía no puede usar el banco`,
-          motivos: [`lleva ${listo?.dias_seguidos ?? 0} día(s) hábiles seguidos que cuadran con el libro; hacen falta ${DIAS_PARA_USAR_EL_BANCO}`] });
+          motivos: [sin?.motivo ?? 'la cuenta no tiene descarga subida'] });
       }
-      const desde = listo.desde;
       const llaves = mapa.llavesPuras();
       for (let i = 0; i < llaves.length; i += 500) {
         await trx('finance.bank_branch_keys').insert(llaves.slice(i, i + 500).map((k) => ({
@@ -507,4 +518,4 @@ export interface UsoDelBanco extends Alimentado {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
 }
 
-export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null };
+export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null; sin_paralelo: CorteSinParalelo };

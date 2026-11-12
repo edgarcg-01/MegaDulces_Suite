@@ -272,6 +272,28 @@ describe('BancosEstadoBancoComponent', () => {
       expect(el.textContent).not.toContain('Dejar el libro:');
     });
 
+    it('[CB.67] sin el paralelo: si la descarga cubre desde el último día del libro, puede; si no, dice qué falta y no hay botón', () => {
+      const sinP = (cubre: boolean, motivo: string | null) => ({ desde: '2026-11-10', ultimo_del_libro: '2026-11-10', cubre, motivo });
+      const contra: ContraElLibro = { desde: '2026-09-27', cuentas: [
+        cuentaB('q', 'BBVA 6721', { resumen: resumenC({ cuadra: 8 }), listo_para_banco: listo(8), sin_paralelo: sinP(true, null) }),
+        cuentaB('t', 'STDR 1621', { resumen: resumenC({ cuadra: 0 }), listo_para_banco: listo(0),
+          sin_paralelo: sinP(false, 'el libro llega al 2026-11-03 y la descarga empieza el 2026-11-10: falta bajar del 2026-11-03 al 2026-11-09') }),
+      ] };
+      const { cmp, fx, el, confirmaciones, usados } = montar({ contra, usar: () => USO });
+      const [b6721, s1621] = ['BBVA 6721', 'STDR 1621'].map((a) => cmp.cuentasContra().find((c) => c.alias === a)!);
+      expect(cmp.dejar(b6721)).toMatchObject({ texto: 'puede usar el banco', accion: true });
+      expect(cmp.dejar(s1621)).toMatchObject({ texto: 'no puede: el libro llega al 2026-11-03 y la descarga empieza el 2026-11-10: falta bajar del 2026-11-03 al 2026-11-09', accion: false });
+      expect(boton(el, 'STDR 1621')).toBeNull();
+      cmp.pedirUsarElBanco(s1621);
+      expect(confirmaciones).toEqual([]); // [negativa] ni por código se puede pedir
+      boton(el, 'BBVA 6721')!.click();
+      fx.detectChanges();
+      expect(cmp.desdeDe(b6721)).toBe('2026-11-10');
+      expect(document.body.textContent).toContain('Sin el paralelo de 10 días');
+      confirmaciones[0].accept!();
+      expect(usados).toEqual(['q']);
+    });
+
     it('[negativa] sin la comparación no se afirma si la descarga alimenta o no Movimientos', () => {
       const { cmp } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
       expect(cmp.textoAlimenta()).toBe('');

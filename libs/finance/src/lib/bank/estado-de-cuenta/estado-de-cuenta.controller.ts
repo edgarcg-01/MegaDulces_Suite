@@ -36,7 +36,7 @@ export class EstadoDeCuentaController {
 
   @Post('usar-el-banco')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: '[CB.60b] La cuenta deja el libro: guarda el catálogo de sucursal aprendido, y desde el día siguiente al último que cuadró la descarga del banco alimenta los movimientos. Sólo con 10 días hábiles seguidos que cuadran.' })
+  @ApiOperation({ summary: '[CB.60b] La cuenta deja el libro: guarda el catálogo de sucursal aprendido, y desde el día siguiente al último que cuadró la descarga del banco alimenta los movimientos. Con 10 días hábiles seguidos que cuadran; o [CB.67], sin paralelo, desde el último día del libro si la descarga lo cubre sin hueco.' })
   usarElBanco(@Body() body: { bank_account_id?: string }, @Req() req: AuthedRequest): ReturnType<Svc['usarElBanco']> {
     return this.svc.usarElBanco(String(body?.bank_account_id ?? ''), req?.user?.full_name || req?.user?.username);
   }
