@@ -100,3 +100,6 @@ export * from './lib/entity-ref/entity-ref.types';
 // se EJECUTÓ; esto mide si SIRVIÓ, leyendo la venta del ERP contra una línea base.
 export * from './lib/commercial-promo-sellout/commercial-promo-sellout.module';
 export * from './lib/commercial-promo-sellout/promo-sellout.service';
+export * from './lib/mkt-ranking/mkt-ranking.module';
+export * from './lib/mkt-ranking/mkt-ranking.service';
+export * from './lib/mkt-ranking/mkt-ranking.logic';

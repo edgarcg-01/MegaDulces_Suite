@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { CardModule } from 'primeng/card';
@@ -56,22 +57,29 @@ interface ProductOption {
     TooltipModule,
     PromotionFormDialogComponent,
     PageTabsComponent,
+    RouterLink,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page pm">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="promoTabs" />
+      <app-page-tabs [tabs]="promoTabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Promociones</h1>
           <p class="surf-page-sub">
-            <b>{{ activeCount() }}</b> activa{{ activeCount() === 1 ? '' : 's' }}
-            <span class="pm-divider" aria-hidden="true">·</span>
-            {{ total() }} totales
+            @if (loadFailed()) {
+              No se pudo cargar: el conteo no está medido
+            } @else {
+              <b>{{ total() }}</b> {{ onlyActiveValue ? 'vigente' : 'en total' }}{{ onlyActiveValue && total() !== 1 ? 's' : '' }}
+              @if (!onlyActiveValue && total() > 0) {
+                <span class="pm-divider" aria-hidden="true">·</span>
+                {{ activeCount() }} activa{{ activeCount() === 1 ? '' : 's' }}{{ total() > rows().length ? ' en esta página' : '' }}
+              }
+            }
             <span class="pm-divider" aria-hidden="true">·</span>
             6 tipos de mecánica
           </p>
@@ -143,7 +151,7 @@ interface ProductOption {
             [rows]="pageSize()"
             [totalRecords]="total()"
             [first]="(page() - 1) * pageSize()"
-            [rowsPerPageOptions]="[25, 50, 100, 200]"
+            [rowsPerPageOptions]="[25, 50, 100]"
             (onLazyLoad)="onLazyLoad($event)"
            
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
@@ -207,8 +215,19 @@ interface ProductOption {
                 <td colspan="8" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-megaphone" aria-hidden="true"></i></div>
-                    <h3>Sin promociones</h3>
-                    <p>{{ typeFilter ? 'No hay promociones de este tipo.' : 'Crea tu primera promoción para incentivar pedidos.' }}</p>
+                    @if (loadFailed()) {
+                      <h3>No se pudo cargar</h3>
+                      <p>La consulta falló, así que no se sabe si hay o no. Intenta con el botón de refrescar.</p>
+                    } @else if (typeFilter) {
+                      <h3>Sin promociones</h3>
+                      <p>No hay promociones de este tipo.</p>
+                    } @else {
+                      <h3>Sin promociones</h3>
+                      <!-- [MKT.7] Esta lista es el motor de promociones de la Suite (portal y pedidos). Las de
+                           Kepler no viven aquí: decir «crea tu primera» a quien busca las del ERP lo manda a
+                           duplicarlas a mano. -->
+                      <p>Aquí van las promociones que se crean en la Suite para el portal y los pedidos{{ onlyActiveValue ? ' y que están vigentes hoy' : '' }}. Las que están dadas de alta en Kepler se consultan en <a routerLink="/mkt/erp-promos">Promos ERP</a>.</p>
+                    }
                     <button type="button" pButton severity="contrast" size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva promoción</span></button>
                   </div>
                 </td>
@@ -394,6 +413,8 @@ export class ComercialPromotionsComponent {
   readonly pageSize = signal(25);
   readonly loading = signal(false);
   readonly togglingId = signal<string | null>(null);
+  /** [MKT.7] Un error no es una lista vacía: el estado vacío no dice «sin promociones» si no se pudo leer. */
+  readonly loadFailed = signal(false);
 
   typeFilter: PromotionType | null = null;
   onlyActiveValue = false;
@@ -466,12 +487,16 @@ export class ComercialPromotionsComponent {
       })
       .subscribe({
         next: (r) => {
+          this.loadFailed.set(false);
           this.rows.set(r.data || []);
           this.total.set(r.pagination?.total || 0);
           this.loading.set(false);
         },
         error: () => {
           this.loading.set(false);
+          this.loadFailed.set(true);
+          this.rows.set([]);
+          this.total.set(0);
           this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar promociones' });
         },
       });

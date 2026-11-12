@@ -454,8 +454,9 @@ export class CommercialInventoryService {
    * `days` días (default 30). Base de alertas/dashboard de caducidad. (VER)
    *
    * `[CE.1.4]` Cada renglón trae `na_qty` (lo sin fecha del mismo almacén × producto) y
-   * `dated_may_be_stale` (ver `por-vencer.ts`): con NA > 0 el lote puede estar ya vendido y la
-   * pantalla lo DECLARA, nunca lo dibuja como cierto.
+   * `dated_may_be_stale` (ver `por-vencer.ts`): con lo sin fecha ≠ 0 el lote puede estar ya vendido y
+   * la pantalla lo DECLARA, nunca lo dibuja como cierto. `[CE.1.7]` Lo sin fecha = existencia de Kepler
+   * del ODS − lo fechado (trae también `stock_erp` y `dated_qty`); ya no el lote NA de la copia.
    *
    * `[CE.1.5]` El costo sale del resolvedor VIVO (`analytics.v_erp_unit_cost`, derivado del ODS:
    * `kdik` en Kepler, `existencias` en Wincaja), **evaluado UNA sola vez y sólo para las celdas de
@@ -464,7 +465,11 @@ export class CommercialInventoryService {
    * un nested loop que recalculaba la vista entera POR LOTE. Medido en prod el 2026-11-12, sólo
    * lectura, 30 d (73 lotes): JOIN directo **31.1 s** (18,252,117 filas descartadas) → la vista una
    * vez para esas celdas **~1.9 s**. Mismo resolvedor, mismo número; sin copia ni refresco.
-   * ⚠️ Sigue arriba de 500 ms: el piso es la enumeración del resolvedor (deuda con nombre en el plan).
+   *
+   * `[CE.1.6]` Ya no se enumera el resolvedor: cada lote pide SU celda a
+   * `analytics.erp_unit_cost_at(warehouse_id, product_id)` — la MISMA fórmula que la vista
+   * (`analytics.erp_unit_cost_resolve`, mig 20261112135447), buscando sólo esa celda en `kdik`
+   * (`ix_kdik_suc_btrim_c2`) o en Wincaja. Ensayado en prod: mismo md5 de los 73 lotes que con la vista.
    */
   async listExpiring(query: { days?: number; warehouse_id?: string }) {
     const days = Number.isFinite(Number(query.days)) ? Math.max(0, Math.floor(Number(query.days))) : 30;
@@ -481,31 +486,32 @@ export class CommercialInventoryService {
         .whereRaw('l0.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
       if (query.warehouse_id) lotes = lotes.where('l0.warehouse_id', query.warehouse_id);
       lotes = lotes.select('l0.*').orderBy('l0.expiry_date', 'asc').limit(500);
-      // [KE.3] El resolvedor único de costo, una vez, sólo para las celdas de esos lotes.
-      const costo = trx('analytics.v_erp_unit_cost as c')
-        .whereIn(['c.tenant_id', 'c.warehouse_id', 'c.product_id'], trx('lotes').select('tenant_id', 'warehouse_id', 'product_id'))
-        .select('c.tenant_id', 'c.warehouse_id', 'c.product_id', 'c.costo_unitario', 'c.costo_source');
       const q = trx
         .withMaterialized('lotes', lotes)
-        .withMaterialized('uc', costo)
         .from('lotes as l')
         .join('commercial.warehouses as w', function () {
           this.on('w.tenant_id', '=', 'l.tenant_id').andOn('w.id', '=', 'l.warehouse_id');
         })
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
-        .leftJoin('uc', function () {
-          this.on('uc.tenant_id', '=', 'l.tenant_id')
-            .andOn('uc.warehouse_id', '=', 'l.warehouse_id')
-            .andOn('uc.product_id', '=', 'l.product_id');
-        })
-        // [CE.1.4] Lo SIN fecha (lote NA) del mismo almacén × producto: la venta lo descuenta primero, así
-        // que con NA > 0 el lote fechado puede estar ya vendido. Índice whp; medido en prod: +~3 ms.
+        // [KE.3 · CE.1.6] El resolvedor único de costo, celda por celda (no las 250 mil).
+        .joinRaw(
+          `LEFT JOIN LATERAL analytics.erp_unit_cost_at(l.warehouse_id, l.product_id) uc ON uc.tenant_id = l.tenant_id`,
+        )
+        // [CE.1.4 · CE.1.7] Lo SIN fecha se deriva del ODS: existencia de Kepler de la celda
+        // (`v_erp_stock_on_hand` sobre `kdil`, índice `ix_kdil_suc_btrim_c3`) menos lo fechado de la
+        // celda. ⛔ No del lote NA: ése lo cuadra un trigger contra la copia del importer de stock.
+        // Sólo la rama `kepler_ods`: la de Wincaja es una copia importada y sale NULL (no medido).
         .joinRaw(`LEFT JOIN LATERAL (
-            SELECT COALESCE(SUM(n.quantity), 0) AS na_qty
-              FROM commercial.stock_lots n
-             WHERE n.tenant_id = l.tenant_id AND n.warehouse_id = l.warehouse_id AND n.product_id = l.product_id
-               AND n.lot_code = 'NA' AND n.expiry_date IS NULL
-          ) na ON true`);
+            SELECT SUM(e.qty_stock_units) AS stock_erp
+              FROM analytics.v_erp_stock_on_hand e
+             WHERE e.warehouse_id = l.warehouse_id AND e.product_id = l.product_id AND e.source = 'kepler_ods'
+          ) ods ON true`)
+        .joinRaw(`LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(d.quantity), 0) AS dated_qty
+              FROM commercial.stock_lots d
+             WHERE d.tenant_id = l.tenant_id AND d.warehouse_id = l.warehouse_id AND d.product_id = l.product_id
+               AND d.expiry_date IS NOT NULL AND d.quantity > 0
+          ) fe ON true`);
       const rows = await q
         .select(
           'l.id',
@@ -522,11 +528,15 @@ export class CommercialInventoryService {
           trx.raw('(l.expiry_date - CURRENT_DATE)::int as days_to_expiry'),
           trx.raw('(l.quantity * uc.costo_unitario)::numeric as value_at_cost'),
           trx.raw('uc.costo_source AS costo_source'),
-          'na.na_qty',
+          'ods.stock_erp',
+          'fe.dated_qty',
         )
         .orderBy('l.expiry_date', 'asc')
         .limit(500);
-      return (rows as Array<Record<string, unknown> & { na_qty: unknown }>).map((r) => ({ ...r, ...declararFechado(r.na_qty) }));
+      return (rows as Array<Record<string, unknown> & { stock_erp: unknown; dated_qty: unknown }>).map((r) => ({
+        ...r,
+        ...declararFechado(r.stock_erp, r.dated_qty),
+      }));
     });
   }
 

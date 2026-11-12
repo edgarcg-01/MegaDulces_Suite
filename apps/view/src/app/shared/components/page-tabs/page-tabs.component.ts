@@ -1,7 +1,9 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, input, viewChild, viewChildren } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { filter } from 'rxjs/operators';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { filter, map } from 'rxjs/operators';
+import { MenuModule } from 'primeng/menu';
+import type { MenuItem } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -62,11 +64,22 @@ export interface PageTab {
 @Component({
   selector: 'app-page-tabs',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive],
+  imports: [RouterLink, RouterLinkActive, MenuModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (visibleTabs().length > 1) {
-      @if (variant() === 'liquid') {
+      @if (variant() === 'menu') {
+        <nav class="pt-menu" [attr.aria-label]="ariaLabel()">
+          <button type="button" class="pt-menu-btn" (click)="lista.toggle($event)" aria-haspopup="menu"
+                  [attr.aria-label]="'Sección: ' + (actual()?.label ?? 'ninguna') + '. Cambiar de sección'">
+            @if (actual()?.icon) { <i [class]="actual()!.icon" aria-hidden="true"></i> }
+            <span>{{ actual()?.label ?? 'Secciones' }}</span>
+            @if (pendientesFuera()) { <span class="ptab-num" aria-hidden="true">{{ pendientesFuera() }}</span><span class="sr-only">, {{ pendientesFuera() }} por atender en otras secciones</span> }
+            <i class="pi pi-chevron-down pt-menu-flecha" aria-hidden="true"></i>
+          </button>
+          <p-menu #lista [model]="itemsMenu()" [popup]="true" appendTo="body" />
+        </nav>
+      } @else if (variant() === 'liquid') {
         <nav class="modern-tabs-wrapper liquid-tabs-host pt-liquid-wrap" [attr.aria-label]="ariaLabel()">
           <div class="liquid-tabs liquid-tabs--scroll" #lqContainer>
             <span class="liquid-tabs-indicator" aria-hidden="true" #lqIndicator></span>
@@ -158,6 +171,16 @@ export interface PageTab {
       .pt-liquid-wrap {
         margin-bottom: 1rem;
       }
+      .pt-menu { display: inline-flex; }
+      .pt-menu-btn {
+        display: inline-flex; align-items: center; gap: var(--sp-2);
+        padding: var(--sp-1) var(--sp-3); min-height: 2.25rem;
+        border: 1px solid var(--surface-border); border-radius: var(--r-pill);
+        background: transparent; color: var(--fg-1); font: inherit; font-weight: var(--fw-bold); cursor: pointer;
+      }
+      .pt-menu-btn:hover { background: var(--overlay-hover); }
+      .pt-menu-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+      .pt-menu-flecha { font-size: var(--fs-xs); color: var(--text-muted); }
       .pt-liquid-wrap .liquid-tab {
         text-decoration: none;
       }
@@ -196,7 +219,32 @@ export class PageTabsComponent implements AfterViewInit {
    * mal con el riel. Retirarla el mismo día que se cambia el default deja sin salida al primero
    * que encuentre un caso raro.
    */
-  readonly variant = input<'underline' | 'liquid'>('liquid');
+  readonly variant = input<'underline' | 'liquid' | 'menu'>('liquid');
+
+  /**
+   * `menu` (`[MKT.19]`, 2026-11-12): las secciones caben en UN botón con la actual («Ranking ▾») y
+   * se abren como lista. Para un módulo cuya gente vive en una sección y rara vez cambia: quita una
+   * fila entera de la pantalla. Costo, a sabiendas: ver las demás secciones pide un clic. Las filtra
+   * la MISMA regla de permisos (`visibleTabs`); el contador de pendientes de otras secciones se suma
+   * en el botón para que no quede escondido.
+   */
+  private readonly urlViva = toSignal(
+    this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd), map((e) => e.urlAfterRedirects)),
+    { initialValue: this.router.url },
+  );
+  private estaEn(t: PageTab): boolean {
+    const url = (this.urlViva() ?? '').split(String.fromCharCode(63))[0];
+    if (url === t.route) return true;
+    if (t.exact === false && url.startsWith(t.route + '/')) return true;
+    return this.activoPorAlias(t);
+  }
+  readonly actual = computed(() => this.visibleTabs().find((t) => this.estaEn(t)) ?? null);
+  readonly pendientesFuera = computed(() => this.visibleTabs().filter((t) => !this.estaEn(t)).reduce((a, t) => a + (t.badge ?? 0), 0));
+  readonly itemsMenu = computed<MenuItem[]>(() => this.visibleTabs().map((t) => ({
+    label: t.badge ? `${t.label} (${t.badge})` : t.label,
+    icon: t.icon,
+    routerLink: t.route,
+  })));
 
   /**
    * `[TAB.2]` — Nombre de la barra para el lector de pantalla.
