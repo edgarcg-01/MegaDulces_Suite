@@ -133,12 +133,25 @@ es, en la práctica, lo que se usa en el celular. Rutas de API → pantalla:
 | Puesto | Lo que más usa (días con uso de 30) | Pantalla |
 |---|---|---|
 | surtidor | `warehouse/presale-picking` (16 d), `reparto/surtido/waves/mine` (20 d), `users/me/work` (21 d) | `/almacen/surtir`, `/almacen/surtir-preventa`, `/almacen/surtir/ruta/:id`, «Mi trabajo» |
-| piso_tienda | `store/labels/notices`, `store/live/snapshot`, `users/me/work` (5 d: puesto nuevo) | `/tienda/etiquetas`, tienda en vivo, «Mi trabajo» |
-| encargado_tienda | `store/arqueo/turnos` (31 d), `store/labels/notices` (31 d), `finance/expenses/proofs/mine` (31 d) | `/tienda/arqueo`, `/tienda/etiquetas`, comprobantes de gasto |
+| piso_tienda | `store/live/snapshot`, `store/live/rhythm`, `users/me/work` (5 d: puesto nuevo) | Monitor en vivo, Ritmo del día, «Mi trabajo» |
+| encargado_tienda | `store/arqueo/turnos` (31 d), `finance/expenses/proofs/mine` (31 d) | `/tienda/arqueo`, comprobantes de gasto |
 | supervisor_ventas | `catalogs`, `commercial/orders`, `daily-captures` (22 d) | captura diaria (y la app del vendedor) |
 
 ⚠️ Universo: **por puesto, no por persona ni por dispositivo**; un encargado que usa el arqueo en
 escritorio cuenta igual. Contraste pendiente contra el log del Caddy (D1) antes de cerrar MOV.0.2.
+
+⛔ **Corrección del mismo día: los HITS no son visitas.** `store/labels/notices` lo llama la
+**campana de notificaciones** por poll (`notifications-bell.component.ts`), no la pantalla de
+Etiquetas: «piso y encargado usan Etiquetas» **no está medido**. `store/arqueo/turnos` también es
+un poll (cada 45 s), pero sólo corre con el Arqueo abierto, así que sus **días con uso** sí son uso.
+Regla para leer `ui_usage`: **días con uso, no hits**, y antes de atribuir una ruta a una
+pantalla, `grep` de quién la llama.
+
+**Primer reordenamiento aplicado (Tienda, `[MOV]` 2026-11-13):** la barra tomaba los 4 primeros
+del menú —Caja (práctica), Verificador, Monitor en vivo, Sucursales— y dejaba el **Arqueo**
+(31 de 31 días, encargado) detrás de «Más». Ahora: **Arqueo · Monitor en vivo · Ritmo del día ·
+Caja (práctica)** (`movil` en el `NavItem`, `layout-barra-movil.ts` + spec con su negativa
+verificada). Las demás áreas no cambian: sin `movil`, el orden es el del menú.
 
 ### MOV.3.B — Barra inferior: las cinco preguntas (propuesta, sin código)
 
