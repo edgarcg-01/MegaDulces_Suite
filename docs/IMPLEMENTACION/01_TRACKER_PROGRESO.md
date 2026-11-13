@@ -583,7 +583,7 @@ Y se actualiza el símbolo al avanzar:
       **No incluye:** sellar la versión en el build de las tres apps, ni reportar los errores del
       cliente a GlitchTip (ese es el item que mediría la frecuencia).
 
-- [ ] **[AUD.7]** 🧪 **Recargar no arregla una copia local rota: el aviso ofrece la cura que sí funciona** —
+- [x] **[AUD.7]** 🚀 **Recargar no arregla una copia local rota: el aviso ofrece la cura que sí funciona** —
       2026-11-13 (lo vio Edgar en prod, en un teléfono: el aviso de [AUD.6] con causa «sin determinar»,
       y **recargar devolvía al mismo aviso**).
       **Para:** cualquiera con la Suite instalada o abierta en un equipo que ya cargó antes ·
@@ -627,6 +627,10 @@ Y se actualiza el símbolo al avanzar:
       ⛔ **Sin validación visual:** no se vio el botón nuevo en un navegador.
       ⛔ **NO MEDIDO:** cuántos equipos están hoy en ese estado. Los errores del cliente siguen sin
       reportarse a GlitchTip.
+      **En prod el 2026-11-13**: `9a783484e`, medido con `/api/health` (uptime 48 s).
+      ⚠️ **El arreglo NO alcanza solo a los equipos ya rotos**: viaja en el mismo código que su
+      copia dañada no puede cargar. Esos se curan a mano (borrar los datos del sitio, o
+      reinstalar la app) y desde ahí en adelante el botón hace el trabajo.
       **No incluye:** `apps/vendor`, que tiene el MISMO `unrecoverable` con el mismo recargar pelado
       ([`app.component.ts:68`](../../apps/vendor/src/app/app.component.ts)) — queda como deuda con nombre.
 
