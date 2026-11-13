@@ -285,8 +285,8 @@ Lo que eso significa para construir PQ.110:
    con permiso. El adaptador las rechaza con «Kepler todavía no le da a la Suite el permiso».
    **Medido el 2026-11-13** (como `kepler_push`, sólo lectura): la 03 (`192.168.40.40`), la 04 (`192.168.44.44`)
    y la 05 (`192.168.54.54`) son servidores propios; `kepler_push` tiene ahí `UPDATE (c43)` pero **no** el
-   resto de D40 ni `DELETE` en `kdm2`. Extender D40 a esos 3 es decisión de Edgar; mientras, el interruptor
-   de esas sucursales se queda apagado.
+   resto de D40 ni `DELETE` en `kdm2`. **Extendido el mismo día** (§6, D40): los 9 servidores tienen
+   ya los 11 permisos. El interruptor de cada sucursal sigue apagado.
 4. **La requisición de la Suite.** Kepler reabre su requisición `X-A-30`, pero el renglón de
    `/compras/requisiciones` sigue en «ordered». **Resuelto por D41 (§6):** se queda así, y su ficha dice
    que su OC se canceló (con motivo y quién), leyendo `purchase_order_cancellations`. Va con C3.
@@ -368,6 +368,9 @@ pantalla).
   el PM agregó en su `pg_hba` una línea para `md`, así que los permisos que vengan se aplican desde `md`.
   **`UPDATE (c24)` en `md.kdm2`** (reabrir la requisición): firmado por Edgar y aplicado el 2026-11-13 en
   los 6, desde `md` (una transacción por servidor; antes false, `verificar` completo después = true).
+  **03, 04 y 05 (Edgar, 2026-11-13: «hay que dárselo»):** el PM abrió su `pg_hba` para `md` y se aplicó
+  el archivo completo como `postgres` (una transacción por servidor, antes false, después true).
+  **Verificado como `kepler_push` en los 9: los 11 permisos.**
 - ✅ **D41 — firmada por Edgar el 2026-11-13: «se cancela sólo la OC».** En la **Suite**, la requisición de
   `/compras/requisiciones` **no cambia** de estado al cancelar su OC (no vuelve a pendiente): sólo dice que
   su OC se canceló, con el motivo y quién. En **Kepler**, la Suite hace lo mismo que Kepler a mano (§3c):
@@ -439,6 +442,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **D40 extendida a 03, 04 y 05** (Edgar): `pg_hba` abierto para `md`, permisos aplicados como `postgres`; verificado como `kepler_push` en los **9** servidores: 11 de 11 | Claude |
 | 2026-11-13 | **Hueco 3 de §3d medido:** la 03, la 04 y la 05 tienen servidor propio y `kepler_push` no tiene ahí los permisos de D40 (sólo `UPDATE (c43)`). Extenderlos espera a Edgar | Claude |
 | 2026-11-13 | **D41 firmada** (Edgar): «se cancela sólo la OC» — la requisición de la Suite no cambia de estado y sólo dice que su OC se canceló; en Kepler, igual que Kepler (reabre la `X-A-30`, como ya hace el adaptador) | Claude |
 | 2026-11-13 | **PQ.110 C2, hueco 1 de §3d en código:** `GET …/cancelacion` dice si se puede ofrecer el botón y por qué no (interruptor, tope, ya cancelada, regla de Kepler contra la réplica: ≈ 22 ms en prod). Los mensajes nombran la sucursal en vez de su código. Prueba de base real extendida (7b–7c), NO MEDIDA | Claude |
