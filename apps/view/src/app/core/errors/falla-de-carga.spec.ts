@@ -134,10 +134,13 @@ describe('[AUD.6] ningún texto afirma lo que no se comprobó', () => {
   });
 
   it('sólo manda a recargar cuando recargar sirve', () => {
-    expect(AVISOS['stale-version'].recargar).toBe(true);
-    expect(AVISOS['load-offline'].recargar).toBe(false);
-    expect(AVISOS['load-server'].recargar).toBe(false);
-    expect(AVISOS['load-unknown'].recargar).toBe(false);
+    // `[AUD.7]` cambió el booleano por el tipo de acción, porque aparecieron TRES salidas y
+    // no dos: recargar, reintentar y limpiar la copia local.
+    expect(AVISOS['stale-version'].accionTipo).toBe('recargar');
+    expect(AVISOS['load-offline'].accionTipo).toBe('reintentar');
+    expect(AVISOS['load-server'].accionTipo).toBe('reintentar');
+    expect(AVISOS['load-unknown'].accionTipo).toBe('reintentar');
+    expect(AVISOS['local-copy'].accionTipo).toBe('reparar');
   });
 
   it('mientras se pregunta no se afirma ninguna causa', () => {
