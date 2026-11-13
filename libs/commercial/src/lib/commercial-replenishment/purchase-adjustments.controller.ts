@@ -52,8 +52,9 @@ export class PurchaseAdjustmentsController {
 
   @Get('for-entrada')
   @RequirePermissions(Permission.COMPRAS_DESCUENTOS_VER)
-  @ApiOperation({ summary: 'RE.2/RE.21 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. Kepler NO liga la nota de crédito a la recepción (entrada_folio viene vacío en el 96%, y en las X-D-55 en el 100%), así que se buscan candidatos por entrada_folio exacto cuando existe o por proveedor + ventana de fecha. Con `delta` (el hueco a explicar) cada candidato se marca `explica` si su MAGNITUD casa dentro de `tolerancia`, se ordena por eso y se devuelve `explicacion` {explicado, grupo, confianza: alta|media|ambigua|ninguna}. Se compara magnitud y no signo: la dirección contable no es estable. Params: proveedor_code, entrada_folio, date, window_days, delta, tolerancia.' })
+  @ApiOperation({ summary: 'RE.2/RE.21 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. Kepler NO liga la nota de crédito a la recepción (entrada_folio viene vacío en el 96%, y en las X-D-55 en el 100%), así que se buscan candidatos por (sucursal, entrada_folio) cuando existe —el folio solo NO es llave: cada sucursal lleva su consecutivo (RE.70)— o por proveedor + ventana de fecha. Con `delta` (el hueco a explicar) cada candidato se marca `explica` si su MAGNITUD casa dentro de `tolerancia`, se ordena por eso y se devuelve `explicacion` {explicado, grupo, confianza: alta|media|ambigua|ninguna}. Se compara magnitud y no signo: la dirección contable no es estable. Params: sucursal, proveedor_code, entrada_folio, date, window_days, delta, tolerancia.' })
   forEntrada(
+    @Query('sucursal') sucursal?: string,
     @Query('proveedor_code') proveedor_code?: string,
     @Query('entrada_folio') entrada_folio?: string,
     @Query('date') date?: string,
@@ -62,7 +63,7 @@ export class PurchaseAdjustmentsController {
     @Query('tolerancia') tolerancia?: string,
   ) {
     return this.svc.forEntrada({
-      proveedor_code, entrada_folio, date,
+      sucursal, proveedor_code, entrada_folio, date,
       window_days: window_days ? Number(window_days) : undefined,
       delta: delta ? Number(delta) : undefined,
       tolerancia: tolerancia ? Number(tolerancia) : undefined,

@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
 import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
+import { ligadoAEntrada } from './ajuste-entrada-liga';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -240,15 +241,18 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
-   * RE.2 — ajustes que EXPLICAN el descuadre de una entrada. Link: `entrada_folio`
-   * exacto cuando existe (~12/132); si no, heurístico por proveedor + ventana de fecha
+   * RE.2 — ajustes que EXPLICAN el descuadre de una entrada. Link: `(sucursal, entrada_folio)`
+   * cuando Kepler lo trae; si no, heurístico por proveedor + ventana de fecha
    * (Kepler no liga la nota a la entrada estructuralmente — igual que el pago). Etiqueta
    * cada match como 'exacto' | 'proveedor+fecha' para ser honestos con la precisión.
+   * `[RE.70]` El folio SOLO no es llave: cada sucursal lleva su consecutivo (`ajuste-entrada-liga.ts`).
    */
-  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }) {
+  async forEntrada(p: { sucursal?: string; proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const win = Math.min(90, Math.max(0, Number(p.window_days) || 15));
-    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0, explicacion: null };
+    // `[RE.70]` Sin sucursal el folio no identifica la entrada: esa rama se apaga, no se adivina.
+    const porFolio = !!(p.sucursal && p.entrada_folio);
+    if (!p.proveedor_code && !porFolio) return { rows: [], total_monto: 0, explicacion: null };
     // `[RE.21]` — el hueco a explicar y con cuánta holgura. Sin `delta` esto se comporta igual
     // que antes (lista de candidatos sin ranking), que es lo que piden los llamadores viejos.
     const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
@@ -256,7 +260,7 @@ export class PurchaseAdjustmentsService {
     return this.tk.run(async (trx) => {
       let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado');
       b = b.andWhere((w: any) => {
-        if (p.entrada_folio) w.orWhere('entrada_folio', p.entrada_folio);
+        if (porFolio) w.orWhere((wf: any) => wf.where('sucursal', p.sucursal).andWhere('entrada_folio', p.entrada_folio));
         if (p.proveedor_code && p.date) {
           w.orWhere((ww: any) => ww.where('proveedor_code', p.proveedor_code)
             .andWhereRaw(`adjustment_date BETWEEN ?::date - ?::int AND ?::date + ?::int`, [p.date, win, p.date, win]));
@@ -289,7 +293,7 @@ export class PurchaseAdjustmentsService {
           ...r, grupo: grupoOf(r.categoria), explica, dias_despues: diasDespues,
           // Tres niveles honestos en vez de dos: `exacto` es el 4% que Kepler sí liga; `monto`
           // es fuerte pero circunstancial; `proveedor+fecha` es un candidato que puede ser ruido.
-          match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto'
+          match: ligadoAEntrada(r, { sucursal: p.sucursal, entrada_folio: p.entrada_folio }) ? 'exacto'
             : explica ? 'monto' : 'proveedor+fecha',
         };
       });

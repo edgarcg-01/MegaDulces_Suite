@@ -77,6 +77,22 @@ export function plural(n: number, sing: string, plur: string): string {
   return `${n} ${n === 1 ? sing : plur}`;
 }
 
+/** `[RE.70]` Lo mínimo de un ajuste que hace falta para decidir si la pista lo nombra. */
+export interface AjusteParaPista {
+  monto: number | string | null;
+  match?: string | null;
+}
+
+/**
+ * `[RE.70]` ¿Algún ajuste puede explicar el hueco? Ligado por Kepler a la entrada (`exacto`) o de
+ * la MISMA magnitud que la diferencia (dentro de `EPS`; se compara tamaño, no signo, igual que el
+ * servidor en RE.21). Un `boolean` conserva el contrato viejo.
+ */
+export function ajustesQueExplican(ajustes: boolean | readonly AjusteParaPista[], dif: number): boolean {
+  if (typeof ajustes === 'boolean') return ajustes;
+  return ajustes.some((a) => a.match === 'exacto' || Math.abs(Math.abs(Number(a.monto) || 0) - Math.abs(dif)) <= EPS);
+}
+
 /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
 export function depForCuadre(d: EntradaDetail): ReceiptDeposit | null {
   const deps = d.deposits || [];
@@ -86,10 +102,13 @@ export function depForCuadre(d: EntradaDetail): ReceiptDeposit | null {
 /**
  * @param hayAjustes si el proveedor tiene devoluciones/notas de crédito cerca de la fecha —
  *        cambia la pista del descuadre (es la explicación más frecuente después del IVA).
+ *        `[RE.70]` Con la LISTA de ajustes, la pista sólo sale si alguno está ligado por Kepler a
+ *        esta entrada o su monto casa con la diferencia: «mira abajo» con un ajuste de $900 sobre
+ *        un hueco de $1.25 mandaba a buscar una explicación que no estaba ahí.
  * @param cfdi `[RE.35.6]` el CFDI de ContPAQi que ya cuadra con la entrada (`cfdiQueCuadra`).
  *        Si viene, manda sobre el OCR: el papel identifica, el CFDI informa (ADR-085).
  */
-export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQueCuadra | null = null): ReceiptVerdict {
+export function receiptVerdict(d: EntradaDetail, hayAjustes: boolean | readonly AjusteParaPista[] = false, cfdi: CfdiQueCuadra | null = null): ReceiptVerdict {
   const kepler = Number(d.entrada.monto) || 0;
   const lineas = lineasTotal(d.lineas);
   const dep = depForCuadre(d);
@@ -171,7 +190,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQ
   // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
   const pista = Math.abs(dif - lineas * IVA) <= EPS
     ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
-    : hayAjustes
+    : ajustesQueExplican(hayAjustes, dif)
       ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mira "¿Por qué no cuadra?" más abajo.'
       : '';
   return { ...base, tone: 'bad', icon: 'pi-exclamation-triangle',

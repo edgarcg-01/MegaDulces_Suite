@@ -1202,7 +1202,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           } @else if (!explains().length) {
             <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito (X-D-40/55) de este proveedor cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
           } @else {
-            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> ±15 días — explican por qué la factura difiere de lo recibido.</p>
+            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> ±15 días — pueden explicar por qué la factura difiere de lo recibido.</p>
             <ul class="cb-explains-list">
               @for (a of explains(); track a.doctype + a.folio) {
                 <li class="cb-explains-item">
@@ -3279,7 +3279,8 @@ export class ComprasEntradasComponent {
     this.explainsTotal.set(0);
     if (!c.proveedor_code && !c.folio) return;
     this.explainsLoading.set(true);
-    this.compras.adjustmentsForEntrada({ proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
+    // `[RE.70]` La sucursal es parte de la llave: el folio solo existe en cada sucursal.
+    this.compras.adjustmentsForEntrada({ sucursal: c.sucursal, proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { if (this.detailTarget() !== c) return; this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
@@ -3312,7 +3313,7 @@ export class ComprasEntradasComponent {
     // `[RE.35.6]` Si el CFDI de ContPAQi de ESTA entrada ya cuadra con Kepler, manda sobre el OCR.
     const x = this.expedientePanel();
     const cfdi = x && x.sucursal === d.entrada.sucursal && x.folio === d.entrada.folio ? cfdiQueCuadra(x) : null;
-    return receiptVerdict(d, this.explains().length > 0, cfdi);
+    return receiptVerdict(d, this.explains(), cfdi);
   }
   /** `[RE.35.6]` El expediente que cargó el panel lateral (lo emite `app-compras-entrada-expediente`). */
   readonly expedientePanel = signal<ReceiptExpediente | null>(null);
