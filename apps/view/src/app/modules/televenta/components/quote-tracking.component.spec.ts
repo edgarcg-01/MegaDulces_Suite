@@ -1,4 +1,4 @@
-import { fechaCorta, respuesta, resumenCambios, textoCambio } from './quote-tracking.component';
+import { fechaCorta, gruposCambios, marcaRenglon, respuesta, resumenCambios, textoCambio } from './quote-tracking.component';
 import type { PasoSeguimiento } from '../quotes.service';
 
 /** `[GP.9.1]` La línea que contesta «¿dónde va mi pedido?», con casos medidos en prod el 2026-11-12. */
@@ -34,6 +34,20 @@ describe('respuesta', () => {
     expect(r.sigue).toBeNull();
   });
 
+  it('facturado con factura viva: el importe va en la respuesta (COT-2026-00279: $9,000.10)', () => {
+    const r = respuesta(cadena(5, { facturado: { cuando: '2026-11-12', documentos: [
+      { documento: 'UD0801-0000764', fecha: '2026-11-12', cancelado: false, importe: 9000.1 },
+    ] } }));
+    expect(r.ahora).toBe('Facturado · 12 nov · $9,000.10');
+  });
+
+  it('el importe de una cancelada NO va en la respuesta (prueba negativa)', () => {
+    const r = respuesta(cadena(5, { facturado: { cuando: '2026-11-12', documentos: [
+      { documento: 'UD0801-0001350', fecha: '2026-11-12', cancelado: true, importe: 500 },
+    ] } }));
+    expect(r.ahora).toBe('Facturado · 12 nov');
+  });
+
   it('sin pasos hechos no inventa avance', () => {
     expect(respuesta(cadena(-1))).toEqual({ ahora: 'Sin avance en Kepler', sigue: null });
   });
@@ -56,7 +70,31 @@ describe('[GP.9.3] cambios contra la cotización', () => {
   });
 
   it('un solo renglón, en singular', () => {
-    expect(resumenCambios([c('menos')])).toBe('En Kepler cambiaron 1 renglón de tu cotización: 1 con otra cantidad o agregado');
+    expect(resumenCambios([c('menos')])).toBe('En Kepler cambió 1 renglón de tu cotización: 1 con otra cantidad o agregado');
+  });
+});
+
+describe('[GP.9.3] detalle agrupado y marca en la tabla (auditoría 2026-11-13)', () => {
+  const c = (tipo: 'quitado' | 'menos' | 'mas' | 'agregado', o: Record<string, unknown> = {}) =>
+    ({ sku: '47005', nombre: 'X', tipo, cotizado: 2, pedido: tipo === 'quitado' ? 0 : 1, unidad: 'CJA', importe_cotizado: 812.5, ...o }) as never;
+
+  it('agrupa por lo que pasó; cada renglón sólo lleva su cantidad, sin repetir la frase', () => {
+    const g = gruposCambios([c('quitado', { cotizado: 16, unidad: 'PAQ' }), c('menos', { sku: '2' }), c('agregado', { sku: '3', cotizado: null, pedido: 60, unidad: 'KG' }), c('quitado', { sku: '4' })]);
+    expect(g.map((x) => [x.clave, x.renglones.length])).toEqual([['quitado', 2], ['cantidad', 1], ['agregado', 1]]);
+    expect(g[0].renglones[0]).toEqual({ sku: '47005', nombre: 'X', cantidad: '16 PAQ' });
+    expect(g[1].renglones[0].cantidad).toBe('2 → 1 CJA');
+    expect(g[2].renglones[0].cantidad).toBe('60 KG');
+  });
+
+  it('sin cambios no hay grupos', () => {
+    expect(gruposCambios([])).toEqual([]);
+  });
+
+  it('la marca del renglón: quitado y otra cantidad sí; agregado y sin cambio no', () => {
+    expect(marcaRenglon(c('quitado'))).toBe('No va en el pedido de Kepler');
+    expect(marcaRenglon(c('menos'))).toBe('El pedido de Kepler trae 1 CJA');
+    expect(marcaRenglon(c('agregado'))).toBeNull();
+    expect(marcaRenglon(undefined)).toBeNull();
   });
 });
 

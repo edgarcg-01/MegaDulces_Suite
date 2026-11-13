@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, output, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -7,6 +7,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { QuotesService, type CambioContraCotizacion, type PasoSeguimiento, type SeguimientoCotizacion } from '../quotes.service';
+
+const pesos = (n: number): string => n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -28,7 +30,10 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
   if (!ultimo) return { ahora: 'Sin avance en Kepler', sigue: null };
   const fac = pasos.find((p) => p.clave === 'facturado');
   const cancelada = fac && !fac.hecho ? fac.documentos.find((d) => d.cancelado) : undefined;
-  const ahora = `${ultimo.titulo}${ultimo.cuando ? ' · ' + fechaCorta(ultimo.cuando) : ''}`;
+  // Facturado con una factura viva: el importe va en la respuesta (auditoría 2026-11-13: «Facturado» solo
+  // se leía como «todo bien» aunque Kepler hubiera quitado la mitad de la cotización).
+  const viva = ultimo.clave === 'facturado' ? ultimo.documentos.find((d) => !d.cancelado && d.importe !== null) : undefined;
+  const ahora = `${ultimo.titulo}${ultimo.cuando ? ' · ' + fechaCorta(ultimo.cuando) : ''}${viva ? ' · ' + pesos(Number(viva.importe)) : ''}`;
   if (cancelada) return { ahora, sigue: `La factura ${cancelada.documento} se canceló y falta refacturar` };
   return { ahora, sigue: siguiente ? `Sigue: ${siguiente.titulo.toLowerCase()}` : null };
 }
@@ -86,20 +91,13 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
             @if (r.sigue) { <p class="seg-sigue" [class.seg-sigue--bad]="r.sigue.startsWith('La factura')">{{ r.sigue }}</p> }
           }
 
-          <!-- [GP.9.3] Lo que el cliente pidió y el pedido de Kepler ya no trae igual: para avisarle antes de que llegue. -->
+          <!-- [GP.9.3] Una sola línea arriba: el aviso. El detalle va después de los pasos para que los
+               pasos queden en la primera pantalla (auditoría 2026-11-13: con 16 cambios medía 951 px). -->
           @if (d.cambios.length) {
-            <div class="seg-cambios" role="region" aria-labelledby="seg-cambios-t">
-              <p id="seg-cambios-t" class="seg-cambios-t">{{ resumenCambios(d.cambios) }}</p>
-              <ul class="seg-cambios-l">
-                @for (c of d.cambios; track c.sku + c.tipo) {
-                  <li class="seg-cambio" [class.is-quitado]="c.tipo === 'quitado'">
-                    <span class="seg-cambio-n">{{ c.nombre || c.sku }} <span class="mono seg-sku">{{ c.sku }}</span></span>
-                    <span class="seg-cambio-q">{{ textoCambio(c) }}</span>
-                  </li>
-                }
-              </ul>
-              <p class="seg-nota">Se compara la cotización con el pedido de Kepler de hoy. Kepler no guarda por qué se quitó o cambió un renglón.</p>
-            </div>
+            <p class="seg-cambios-t" role="status">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <span>{{ resumenCambios(d.cambios) }}. <a href="#seg-detalle" class="seg-ir" (click)="irADetalle($event)">Ver cuáles</a></span>
+            </p>
           }
 
           <ol class="seg-pasos">
@@ -133,6 +131,28 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
           </ol>
           <p class="seg-nota">Kepler no guarda la hora del surtido ni del checado; aparece cuando el almacén los marca en la Suite.
             Quién se muestra como la clave que capturó Kepler.</p>
+
+          @if (d.cambios.length) {
+            <section id="seg-detalle" class="seg-detalle" tabindex="-1" aria-labelledby="seg-detalle-t">
+              <h4 id="seg-detalle-t" class="seg-detalle-t">Lo que cambió contra tu cotización</h4>
+              @for (g of grupos(); track g.clave) {
+                <p class="seg-grupo-t" [class.is-quitado]="g.clave === 'quitado'">
+                  <i class="pi" [class.pi-minus-circle]="g.clave === 'quitado'" [class.pi-pencil]="g.clave === 'cantidad'"
+                     [class.pi-plus-circle]="g.clave === 'agregado'" aria-hidden="true"></i>
+                  {{ g.titulo }} ({{ g.renglones.length }})
+                </p>
+                <ul class="seg-cambios-l">
+                  @for (c of g.renglones; track c.sku) {
+                    <li class="seg-cambio">
+                      <span class="seg-cambio-q mono">{{ c.cantidad }}</span>
+                      <span class="seg-cambio-n">{{ c.nombre }} <span class="mono seg-sku">{{ c.sku }}</span></span>
+                    </li>
+                  }
+                </ul>
+              }
+              <p class="seg-nota">Se compara la cotización con el pedido de Kepler de hoy. Kepler no guarda por qué se quitó o cambió un renglón.</p>
+            </section>
+          }
         }
       </app-load-state>
     </section>
@@ -166,15 +186,26 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
     .seg-tag { font-size: var(--fs-xs); color: var(--bad-fg); font-weight: var(--fw-medium); }
     .seg-num { font-variant-numeric: tabular-nums; color: var(--text-muted); }
     .seg-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.4; }
-    .seg-cambios { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3);
-                   border: 1px solid var(--warn-border); border-radius: var(--r-sm); background: var(--warn-soft-bg); }
-    .seg-cambios-t { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--warn-soft-fg); }
-    .seg-cambios-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
-    .seg-cambio { display: flex; flex-direction: column; font-size: var(--fs-xs); color: var(--text-main); }
-    .seg-cambio-n { font-weight: var(--fw-medium); }
+    .seg-recargar { min-width: var(--sp-8); min-height: var(--sp-8); }
+    .seg-cambios-t { display: flex; gap: var(--sp-2); align-items: flex-start; margin: 0; padding: var(--sp-2) var(--sp-3);
+                     border: 1px solid var(--warn-border); border-radius: var(--r-sm); background: var(--warn-soft-bg);
+                     font-size: var(--fs-sm); font-weight: var(--fw-bold); line-height: 1.4; color: var(--warn-soft-fg); }
+    .seg-cambios-t i { margin-top: 2px; flex: none; }
+    .seg-ir { color: inherit; text-decoration: underline; font-weight: var(--fw-medium); white-space: nowrap; }
+    .seg-detalle { display: flex; flex-direction: column; gap: var(--sp-1); padding-top: var(--sp-2); border-top: 1px solid var(--border-color); }
+    .seg-detalle:focus { outline: none; }
+    .seg-detalle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .seg-detalle-t { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--text-main); }
+    .seg-grupo-t { display: flex; gap: var(--sp-1); align-items: center; margin: var(--sp-1) 0 0; font-size: var(--fs-xs);
+                   font-weight: var(--fw-bold); color: var(--text-main); }
+    .seg-grupo-t i { color: var(--text-muted); }
+    .seg-grupo-t.is-quitado i { color: var(--bad-fg); }
+    .seg-cambios-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+    .seg-cambio { display: grid; grid-template-columns: minmax(4.5rem, auto) 1fr; gap: var(--sp-2); align-items: baseline;
+                  font-size: var(--fs-xs); color: var(--text-main); }
+    .seg-cambio-q { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .seg-cambio-n { min-width: 0; }
     .seg-sku { color: var(--text-muted); margin-left: var(--sp-1); }
-    .seg-cambio-q { color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .seg-cambio.is-quitado .seg-cambio-q { color: var(--bad-fg); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   `],
 })
@@ -183,6 +214,8 @@ export class QuoteTrackingComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
 
   readonly quoteId = input.required<string>();
+  /** `[GP.9.3]` La lectura, para que la página marque en la tabla lo que Kepler quitó y nombre el pedido igual. */
+  readonly leido = output<SeguimientoCotizacion>();
 
   readonly dato = signal<SeguimientoCotizacion | null>(null);
   readonly cargando = signal(false);
@@ -203,7 +236,7 @@ export class QuoteTrackingComponent implements OnInit {
   cargar(): void {
     this.cargando.set(true);
     this.svc.tracking(this.quoteId()).subscribe({
-      next: (r) => { this.dato.set(r); this.error.set(null); this.cargando.set(false); },
+      next: (r) => { this.dato.set(r); this.error.set(null); this.cargando.set(false); this.leido.emit(r); },
       error: (err) => { this.error.set(err?.error?.message || 'El servidor no respondió.'); this.cargando.set(false); },
     });
   }
@@ -212,12 +245,18 @@ export class QuoteTrackingComponent implements OnInit {
     return fechaCorta(v);
   }
 
-  textoCambio(c: CambioContraCotizacion): string {
-    return textoCambio(c);
-  }
+  readonly grupos = computed(() => gruposCambios(this.dato()?.cambios ?? []));
 
   resumenCambios(cs: CambioContraCotizacion[]): string {
     return resumenCambios(cs);
+  }
+
+  /** «Ver cuáles» lleva al detalle (debajo de los pasos) y le pasa el foco, sin cambiar la URL. */
+  irADetalle(ev: Event): void {
+    ev.preventDefault();
+    const el = document.getElementById('seg-detalle');
+    el?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    el?.focus({ preventScroll: true });
   }
 }
 
@@ -244,5 +283,36 @@ export function resumenCambios(cs: CambioContraCotizacion[]): string {
     partes.push(`${q.length} ${q.length === 1 ? 'quitado' : 'quitados'} (${importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} cotizados)`);
   }
   if (otros) partes.push(`${otros} con otra cantidad o agregado${otros === 1 ? '' : 's'}`);
-  return `En Kepler cambiaron ${cs.length} ${cs.length === 1 ? 'renglón' : 'renglones'} de tu cotización: ${partes.join(', ')}`;
+  return `En Kepler ${cs.length === 1 ? 'cambió 1 renglón' : `cambiaron ${cs.length} renglones`} de tu cotización: ${partes.join(', ')}`;
+}
+
+export interface GrupoCambios {
+  clave: 'quitado' | 'cantidad' | 'agregado';
+  titulo: string;
+  renglones: Array<{ sku: string; nombre: string; cantidad: string }>;
+}
+
+/**
+ * `[GP.9.3]` El detalle agrupado: el título del grupo dice qué pasó y cada renglón sólo su cantidad,
+ * sin repetir «el pedido ya no lo trae» en cada uno (auditoría 2026-11-13: 9 veces en COT-2026-00247).
+ */
+export function gruposCambios(cs: CambioContraCotizacion[]): GrupoCambios[] {
+  const fila = (c: CambioContraCotizacion, cantidad: string) => ({ sku: c.sku, nombre: c.nombre || c.sku, cantidad });
+  const quitados = cs.filter((c) => c.tipo === 'quitado').map((c) => fila(c, conUnidad(c.cotizado, c.unidad)));
+  const cantidad = cs.filter((c) => c.tipo === 'menos' || c.tipo === 'mas')
+    .map((c) => fila(c, `${num(c.cotizado)} → ${conUnidad(c.pedido, c.unidad)}`));
+  const agregados = cs.filter((c) => c.tipo === 'agregado').map((c) => fila(c, conUnidad(c.pedido, c.unidad)));
+  const g: GrupoCambios[] = [];
+  if (quitados.length) g.push({ clave: 'quitado', titulo: 'Ya no vienen en el pedido', renglones: quitados });
+  if (cantidad.length) g.push({ clave: 'cantidad', titulo: 'Con otra cantidad (cotizaste → trae)', renglones: cantidad });
+  if (agregados.length) g.push({ clave: 'agregado', titulo: 'Vienen sin haberse cotizado', renglones: agregados });
+  return g;
+}
+
+/** `[GP.9.3]` La marca del renglón en la tabla de la cotización. null = el renglón viene igual. */
+export function marcaRenglon(c: CambioContraCotizacion | undefined): string | null {
+  if (!c) return null;
+  if (c.tipo === 'quitado') return 'No va en el pedido de Kepler';
+  if (c.tipo === 'menos' || c.tipo === 'mas') return `El pedido de Kepler trae ${conUnidad(c.pedido, c.unidad)}`;
+  return null;
 }

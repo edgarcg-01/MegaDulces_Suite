@@ -55,6 +55,11 @@ export interface RenglonTabla {
   neto: number | null;
   /** `[E.29]` Precio de la presentación antes del redondeo de Kepler por unidad base; null = no se sabe. */
   sinRedondear: number | null;
+  /**
+   * `[GP.9.3]` Lo que el pedido de Kepler ya no trae igual que este renglón («No va en el pedido»,
+   * «El pedido trae 1 CJA»). Sólo en una cotización con pedido; undefined/null = sin cambio o sin pedido.
+   */
+  enPedido?: string | null;
 }
 
 export interface CambioCantidad {
@@ -109,6 +114,9 @@ export interface CambioCantidad {
             }
             @if (r.notaRegalo) {
               <span class="gift-nota"><i class="pi pi-gift" aria-hidden="true"></i> {{ r.notaRegalo }}</span>
+            }
+            @if (r.enPedido) {
+              <span class="en-pedido"><i class="pi pi-minus-circle" aria-hidden="true"></i> {{ r.enPedido }}</span>
             }
           </td>
           <td role="cell" data-label="Presentación">
@@ -239,6 +247,7 @@ export interface CambioCantidad {
       .p-sku { display: block; font-size: var(--fs-micro); color: var(--text-muted); }
       .gift { font-size: 0.7rem; color: var(--ok-soft-fg); margin-right: 0.35rem; }
       .gift-nota { display: block; font-size: 0.7rem; color: var(--ok-soft-fg); }
+      .en-pedido { display: block; font-size: var(--fs-micro); font-weight: var(--fw-medium); color: var(--bad-soft-fg); }
       .sin-casar { font-size: 0.7rem; color: var(--warn-soft-fg); margin-left: 0.35rem; }
       .factor { margin-left: 0.25rem; font-size: 0.7rem; color: var(--text-muted); }
       .dto { font-size: 0.7rem; color: var(--ok-soft-fg); margin-left: 0.3rem; }

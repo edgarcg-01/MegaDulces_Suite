@@ -59,7 +59,8 @@ import { totalesCotizacion } from '@megadulces/contracts';
 import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
-import { QuoteTrackingComponent } from '../components/quote-tracking.component';
+import { QuoteTrackingComponent, marcaRenglon } from '../components/quote-tracking.component';
+import type { CambioContraCotizacion, SeguimientoCotizacion } from '../quotes.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
 
@@ -767,7 +768,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
             @if (q.kepler_folio) {
               <div class="rail-kepler kepler-ok" role="status">
                 <i class="pi pi-check-circle" aria-hidden="true"></i>
-                <span>Pedido en Kepler <b class="mono">{{ q.kepler_folio }}</b> · {{ nombreSucursal(q.kepler_sucursal ?? q.source_branch) }}</span>
+                <span>Pedido en Kepler <b class="mono">{{ documentoPedido() ?? q.kepler_folio }}</b> · {{ nombreSucursal(q.kepler_sucursal ?? q.source_branch) }}</span>
               </div>
               @if (direccionElegida(); as d) {
                 <p class="tot-nota dir-fija">Entrega en {{ etiquetaDireccion(d) }}</p>
@@ -776,7 +777,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 <p class="tot-nota dir-fija">Observaciones: {{ q.order_notes }}</p>
               }
               <!-- [GP.9.1] Lo que pasó después: surtido, checado, embarque y factura, sin llamarle al almacén. -->
-              <app-quote-tracking [quoteId]="q.id" />
+              <app-quote-tracking [quoteId]="q.id" (leido)="onSeguimiento($event)" />
             } @else if (aceptable()) {
               <div class="rail-kepler">
                 <!-- [COT.26] A dónde va el pedido decide la ruta que lo entrega (Dir. envío en Kepler).
@@ -1330,10 +1331,24 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   // ausente (API vieja) se trata como `true`: el servidor valida igual y responde 403.
   readonly editable = computed(() => this.cot()?.status === 'draft' && this.cot()?.branch_writable !== false);
 
+  /**
+   * `[GP.9.3]` Lo que el pedido de Kepler ya no trae igual, por SKU, leído por el seguimiento. Con él la
+   * tabla marca el renglón: la tabla y el seguimiento cuentan el mismo universo (auditoría 2026-11-13).
+   */
+  readonly cambiosPedido = signal<Map<string, CambioContraCotizacion>>(new Map());
+  /** El pedido con su nombre de documento (`UD4001-0001346`), el mismo que usa el seguimiento. */
+  readonly documentoPedido = signal<string | null>(null);
+
+  onSeguimiento(s: SeguimientoCotizacion): void {
+    this.cambiosPedido.set(new Map((s.cambios ?? []).map((c) => [c.sku, c])));
+    this.documentoPedido.set(s.pedido?.documento ?? null);
+  }
+
   /** [E.29] Los renglones como los pinta la tabla compartida con el alta (app-quote-lines-table). */
   readonly renglonesVista = computed<RenglonTabla[]>(() => {
     const q = this.cot();
     if (!q) return [];
+    const cambios = this.cambiosPedido();
     const editable = this.editable();
     const revisando = this.revisando();
     this.revisionPorRenglon(); // dependencia explícita: la existencia llega después de la cotización
@@ -1370,6 +1385,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         explicacion: this.explicacionDe(l),
         importe: this.num(l.line_total),
         neto: netos ? netos[i] : null,
+        enPedido: l.parent_line_number === null && l.product_sku ? marcaRenglon(cambios.get(l.product_sku)) : null,
         // A lista, lo guardado basta; con descuento, los pasos de hoy sólo si el precio no cambió.
         sinRedondear: l.price_source === 'list' ? this.num(l.list_price)
           : rv?.now && !rv.price_changed ? precioSinRedondear(rv.now.applied) : null,
