@@ -324,7 +324,9 @@ const STEPS = {
     // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
     // RETIRADO del nightly 2026-11-05 [CANON.5.0]: `repoint-catalog-prices.js --solo-promo` corre
     // con los MISMOS argumentos cada 30 min en `prices` (dueño de `is_promo`); acá repetía su salida.
-    path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
+    // RETIRADO 2026-11-13 [CANON.6.17]: repoint-catalog-cost.js — el costo lo mantiene el hop-2 (normalizeCost) al
+    // llegar o borrarse kdii/kdik; el nocturno corrigió 3 en 14 noches, las 3 por huecos ya cerrados. Árbitro:
+    // catalogo_costo_evento. El .js queda como herramienta manual.
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
     path.join(K, 'import-ap-findings.js'),      // GX v3 — auxiliar de proveedores (201) + hallazgos (iva_bug/203/107)

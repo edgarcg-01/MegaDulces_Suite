@@ -241,6 +241,40 @@ export const ARBITRO_CODIGOS_SQL = `
     'códigos sin tomar de Kepler (faltan, sobran o siguen como Wincaja)')}`;
 
 /**
+ * `[CANON.6.17]` Costo: misma regla que `normalizeCost` (`costoNetoCte` + cuándo escribe, en
+ * `services/feeds-ingest/ods-derived.js`): la mediana de `kdik.c16` retail anclada a `kdii.c90 / 1.2333` (si la mediana
+ * cae fuera de [¼, 4]× el ancla, manda el ancla); cuenta los productos cuyo `cost_base` cambiaría — más que la
+ * tolerancia (0.005) y DENTRO de la banda [⅓, 3]× (lo de fuera lo frena a propósito la regla anti-unidad-caja; no es
+ * hueco). Medido en prod el 13-nov: 0, ~380 ms.
+ */
+export const ARBITRO_COSTO_SQL = `
+  WITH kk AS (
+    SELECT btrim(c2) AS sku, (percentile_cont(0.5) WITHIN GROUP (ORDER BY c16::numeric))::numeric AS med
+      FROM kepler_ods.kdik
+     WHERE c16::numeric > 0 AND btrim(sucursal) <> '00' AND btrim(coalesce(c2, '')) <> ''
+     GROUP BY btrim(c2)),
+  anchor AS (
+    SELECT sku, (precio / 1.2333)::numeric AS net FROM (
+      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS precio
+        FROM kepler_ods.kdii
+       WHERE c90::numeric > 0.05 AND btrim(sucursal) <> '00' AND btrim(coalesce(c1, '')) <> ''
+       GROUP BY btrim(c1)) r),
+  net AS (
+    SELECT COALESCE(kk.sku, a.sku) AS sku,
+      CASE WHEN kk.med IS NOT NULL AND a.net IS NOT NULL
+             THEN CASE WHEN kk.med BETWEEN a.net * 0.25 AND a.net * 4 THEN kk.med ELSE a.net END
+           WHEN kk.med IS NOT NULL THEN kk.med ELSE a.net END AS net
+      FROM kk FULL OUTER JOIN anchor a ON a.sku = kk.sku),
+  c AS MATERIALIZED (
+    SELECT ${VISTOS} AS vistos,
+           (SELECT count(*) FROM net n JOIN catalog.products p ON p.tenant_id = ${T} AND p.deleted_at IS NULL AND p.sku = n.sku
+             WHERE n.net > 0
+               AND (p.cost_base IS NULL OR abs(p.cost_base::numeric - n.net) > 0.005)
+               AND (p.cost_base IS NULL OR (n.net BETWEEN p.cost_base::numeric / 3 AND p.cost_base::numeric * 3))) AS difieren)
+  ${veredicto('catalogo_costo_evento', 'costo', 'Medir: node database/importers/kepler/repoint-catalog-cost.js; cerrar: --apply', 'repoint-catalog-cost.js',
+    ['feed_nightly/repoint-catalog-cost.js'])}`;
+
+/**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`
  * cuando un normalizador siguió fallando después de reintentar por partes. No compara nada contra Kepler:
  * sólo lee el registro. Una falla en las últimas 24 h → warn (más de 50 → critical); se limpia sola a las

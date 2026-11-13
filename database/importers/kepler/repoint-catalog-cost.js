@@ -4,17 +4,20 @@
  * catalog.products.cost_base/with_tax/per_case. Clamp in-band [1/3,3]× anti-unidad-caja, UPDATE-only,
  * churn-free.
  *
- * BACKSTOP nocturno (full-catálogo). La frescura AL-MOMENTO la da el hop-2 `normalizeCost` en
- * services/feeds-ingest/apply-handlers.js (dispara al llegar un cambio de kdii o kdik al ODS). Ambos
- * comparten la MISMA computación: services/feeds-ingest/ods-derived (single source of truth).
- * Ver feedback_ods_derived_realtime_no_batch_lag.
+ * ⛔ RETIRADO del carril nocturno 2026-11-13 `[CANON.6.17]`. Lo mantiene el hop-2 `normalizeCost` AL LLEGAR un cambio de
+ * `kdii` (ancla) o `kdik` (costo) — y desde `[CANON.6.14]` también al BORRARSE una de sus filas (la llave de `kdik`
+ * incluye el SKU, `c2`). Medido antes de retirarlo: 3 correcciones en 14 noches contra 12–102 diarias del hop-2, y las
+ * 3 explicadas por huecos ya cerrados (95341/95342: la falla sin registro del 9-nov, hoy reintentada y en
+ * `hop2_fallas`; 26019: editado en Kepler entre reconciliaciones con borrados, que no recalculaban). El árbitro
+ * `catalogo_costo_evento` de db-health vigila lo que el evento no vea.
  *
- *   node database/importers/kepler/repoint-catalog-cost.js            # dry-run
- *   node database/importers/kepler/repoint-catalog-cost.js --apply
+ * Queda como herramienta MANUAL, con la MISMA regla (`costoNetoCte` de ods-derived, que usa normalizeCost):
+ *   node database/importers/kepler/repoint-catalog-cost.js            # sólo lectura: cuántos cambiaría
+ *   node database/importers/kepler/repoint-catalog-cost.js --apply    # catálogo entero (+ is_promo)
  */
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
-const { normalizeCost, normalizePromo } = require('../../../services/feeds-ingest/ods-derived');
+const { normalizeCost, normalizePromo, costoPendienteSql } = require('../../../services/feeds-ingest/ods-derived');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -30,7 +33,12 @@ const APPLY = process.argv.includes('--apply');
     console.log(`\n=== REPOINT costo kepler_ods → catalog.products (${APPLY ? 'APPLY' : 'DRY-RUN'}) — vía ods-derived (al-momento share) ===`);
     const ok = (await db.query(`SELECT to_regclass('kepler_ods.kdik') a, to_regclass('kepler_ods.kdii') b`)).rows[0];
     if (!ok.a || !ok.b) { console.error('❌ kepler_ods.kdik/kdii ausente — abortando (¿DST sin ODS?)'); process.exitCode = 1; return; }
-    if (!APPLY) { console.log('DRY-RUN: delega el full-catálogo en normalizeCost(null). Corré --apply.'); return; }
+    await db.query('BEGIN');
+    await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+    const [pend] = (await db.query(costoPendienteSql(), [M])).rows;
+    await db.query('ROLLBACK');
+    console.log(`  costos que cambiaría: ${pend.pendientes} (de ésos, sin costo hoy: ${pend.sin_costo})`);
+    if (!APPLY) { console.log('\n[SÓLO LECTURA] nada cambió.'); return; }
     const n = await normalizeCost(db, M, null);
     console.log(`[APPLY] ${n} costos actualizados (en banda, churn-free, full).`);
     // `[CANON.6.9]` El costo es entrada de `is_promo` (costo en (0, $0.05] = clave de regalo). Quien

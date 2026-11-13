@@ -22,17 +22,15 @@ const clean = (skus) => Array.from(new Set((Array.isArray(skus) ? skus : []).map
  * COSTO (CANON.0.1) — kdik.c16 (mediana retail) anclado a kdii.c90 → catalog.products.cost_*.
  * UPDATE-only, clamp in-band [1/3,3]× anti-unidad-caja, churn-free. Dispara en kdii (ancla) y kdik (costo).
  */
-async function normalizeCost(client, tenantId, skus) {
-  const s = clean(skus);                 // null/[] = full
-  const scoped = s.length > 0;
-  const params = scoped ? [tenantId, s] : [tenantId];
+/**
+ * `[CANON.6.17]` El costo NETO que dicta Kepler por SKU — la mediana de `kdik.c16` (retail) anclada a `kdii.c90` — como
+ * CTE `net(sku, net)`. Lo usan `normalizeCost` (que escribe) y la herramienta manual `repoint-catalog-cost.js` (que en
+ * sólo lectura cuenta lo pendiente con `costoPendienteSql`): una regla, no dos. `scoped` = acotar a `$2` (SKUs).
+ */
+function costoNetoCte(scoped) {
   const f2 = scoped ? 'AND btrim(c2) = ANY($2)' : '';
   const f1 = scoped ? 'AND btrim(c1) = ANY($2)' : '';
-  const fp = scoped ? 'AND p.sku = ANY($2)' : '';
-  await client.query('BEGIN');
-  try {
-    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    const res = await client.query(`
+  return `
       WITH kk AS (
         SELECT btrim(c2) AS sku, (percentile_cont(0.5) WITHIN GROUP (ORDER BY c16::numeric))::numeric AS med
           FROM kepler_ods.kdik
@@ -49,7 +47,29 @@ async function normalizeCost(client, tenantId, skus) {
           CASE WHEN kk.med IS NOT NULL AND a.net IS NOT NULL
                  THEN CASE WHEN kk.med BETWEEN a.net*0.25 AND a.net*4 THEN kk.med ELSE a.net END
                WHEN kk.med IS NOT NULL THEN kk.med ELSE a.net END AS net
-        FROM kk FULL OUTER JOIN anchor a ON a.sku = kk.sku)
+        FROM kk FULL OUTER JOIN anchor a ON a.sku = kk.sku)`;
+}
+/** Cuándo `normalizeCost` escribe: hay costo, cambia más que la tolerancia y cae en la banda [1/3, 3]× (anti caja). */
+const COSTO_CAMBIA = `n.net > 0
+        AND (p.cost_base IS NULL OR abs(p.cost_base::numeric - n.net) > ${TOL})
+        AND (p.cost_base IS NULL OR (n.net BETWEEN p.cost_base::numeric/3 AND p.cost_base::numeric*3))`;
+/** Sólo lectura: cuántos costos escribiría `normalizeCost` sobre el catálogo entero (`$1` = tenant). */
+function costoPendienteSql() {
+  return `${costoNetoCte(false)}
+      SELECT count(*)::int AS pendientes, count(*) FILTER (WHERE p.cost_base IS NULL)::int AS sin_costo
+        FROM net n JOIN catalog.products p ON p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=n.sku
+       WHERE ${COSTO_CAMBIA}`;
+}
+
+async function normalizeCost(client, tenantId, skus) {
+  const s = clean(skus);                 // null/[] = full
+  const scoped = s.length > 0;
+  const params = scoped ? [tenantId, s] : [tenantId];
+  const fp = scoped ? 'AND p.sku = ANY($2)' : '';
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const res = await client.query(`${costoNetoCte(scoped)}
       UPDATE catalog.products p SET
         cost_base     = round(n.net, 6),
         cost_with_tax = round(n.net * (1 + COALESCE(p.iva_rate,0) + COALESCE(p.ieps_rate,0)), 6),
@@ -58,9 +78,7 @@ async function normalizeCost(client, tenantId, skus) {
                              ELSE p.cost_per_case END,
         updated_at = now()
       FROM net n
-      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=n.sku ${fp} AND n.net > 0
-        AND (p.cost_base IS NULL OR abs(p.cost_base::numeric - n.net) > ${TOL})
-        AND (p.cost_base IS NULL OR (n.net BETWEEN p.cost_base::numeric/3 AND p.cost_base::numeric*3))`, params);
+      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=n.sku ${fp} AND ${COSTO_CAMBIA}`, params);
     await client.query('COMMIT');
     return res.rowCount;
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
@@ -565,4 +583,4 @@ async function normalizeSalePrice(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };
+module.exports = { costoNetoCte, costoPendienteSql, normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };

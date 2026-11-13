@@ -62,6 +62,8 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
       c90 numeric, PRIMARY KEY (sucursal, c1))`);
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdpv_prod_util (sucursal text NOT NULL, c1 text NOT NULL, c2 text NOT NULL,
       c3 numeric NOT NULL, c4 numeric, c5 numeric, c6 numeric, c7 numeric, PRIMARY KEY (sucursal, c1, c2, c3))`);
+    await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdik (sucursal text NOT NULL, c1 text NOT NULL, c2 text NOT NULL, c16 double precision,
+      PRIMARY KEY (sucursal, c1, c2))`);
     await c.query(`CREATE TABLE IF NOT EXISTS catalog.brands (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
       nombre varchar NOT NULL, code varchar, deleted_at timestamptz)`);
     await c.query(`CREATE TABLE IF NOT EXISTS catalog.products (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
@@ -75,7 +77,8 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
     await c.query(`CREATE TABLE IF NOT EXISTS analytics.db_health_alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
       source_key varchar NOT NULL, status varchar NOT NULL, last_seen_at timestamptz NOT NULL DEFAULT now(), resolved_at timestamptz)`);
     // Los nocturnos que estos sensores reemplazan «corrieron hace un rato»: así ninguno pide su retiro todavía.
-    const LLAVES = ['feed_nightly/import-margin.js', 'feed_prices/repoint-catalog-prices.js --solo-promo', 'feed_nightly/repoint-catalog-names.js'];
+    const LLAVES = ['feed_nightly/import-margin.js', 'feed_prices/repoint-catalog-prices.js --solo-promo', 'feed_nightly/repoint-catalog-names.js',
+      'feed_nightly/repoint-catalog-cost.js'];
     for (const k of LLAVES) {
       await c.query(`INSERT INTO analytics.cron_run_log (tenant_id, job_key, status, finished_at) VALUES ($1, $2, 'ok', now() - interval '1 hour')`, [M, k]);
     }
@@ -87,7 +90,9 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
 
     // Un producto neutro (sin filas en Kepler: no puede diferir) para que la base vacía de CI tenga algo a la vista.
     await prod('T611-BASE', 'Neutro 6.11');
-    const base = { markup: await sensor(A.ARBITRO_MARKUP_SQL), promo: await sensor(A.ARBITRO_PROMO_SQL), nombres: await sensor(A.ARBITRO_NOMBRES_SQL) };
+    const base = { markup: await sensor(A.ARBITRO_MARKUP_SQL), promo: await sensor(A.ARBITRO_PROMO_SQL), nombres: await sensor(A.ARBITRO_NOMBRES_SQL),
+      costo: await sensor(A.ARBITRO_COSTO_SQL) };
+    const pendienteCosto = async () => Number((await q(D.costoPendienteSql(), [M]))[0].pendientes);
     for (const [k, v] of Object.entries(base)) {
       if (v.n == null) { noMedido(`${k}: la línea base es «${v.nota}» — esta base no tiene catálogo del tenant`); }
     }
@@ -125,6 +130,22 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
     ok(nm2.n === (base.nombres.n ?? 0), 'nombres: corrido normalizeProductsFromOds, el sensor vuelve a la base', nm2.nota);
     ok((await q(`SELECT nombre FROM catalog.products WHERE tenant_id=$1 AND sku='T611-B2'`, [M]))[0].nombre === 'B2 6.11',
       'el que frena la unique sigue distinto en el catálogo (y el sensor no lo cuenta)');
+
+    // ── Costo [CANON.6.17] ────────────────────────────────────────────────────────────────────
+    // Base propia del bloque: los productos de los bloques de arriba ya tienen precio en kdii y no tienen costo.
+    const co0 = await sensor(A.ARBITRO_COSTO_SQL);
+    const baseHerramienta = await pendienteCosto();
+    await c.query(`INSERT INTO catalog.products (tenant_id, brand_id, sku, nombre, cost_base) VALUES ($1,$2,'T611-CO','Costo 6.11',10), ($1,$2,'T611-CX','Caja 6.11',1)`, [M, B]);
+    await c.query(`INSERT INTO kepler_ods.kdik (sucursal, c1, c2, c16) VALUES ('01','K611CO','T611-CO',12), ('01','K611CX','T611-CX',50)`);
+    await c.query(`INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c3, c90) VALUES ('01','T611-CO','Costo 6.11','T611',14.8), ('01','T611-CX','Caja 6.11','T611',61.7)`);
+    const co1 = await sensor(A.ARBITRO_COSTO_SQL);
+    ok(co1.n === co0.n + 1, 'costo: uno desfasado suma 1; el que cae fuera de la banda [1/3, 3] (anti-caja) no cuenta', co1.nota);
+    ok(await pendienteCosto() === baseHerramienta + 1, 'costo: la herramienta manual (costoPendienteSql, la regla de normalizeCost) dice lo mismo');
+    await D.normalizeCost(db, M, ['T611-CO', 'T611-CX']);
+    const co2 = await sensor(A.ARBITRO_COSTO_SQL);
+    const cx = (await q(`SELECT cost_base::float8 c FROM catalog.products WHERE tenant_id=$1 AND sku IN ('T611-CO','T611-CX') ORDER BY sku`, [M])).map((r) => r.c);
+    ok(co2.n === co0.n && cx[0] === 12 && cx[1] === 1,
+      'costo: corrido normalizeCost, vuelve a la base — escribió el de la banda (12) y frenó el de fuera (1)', `${co2.nota} · ${cx}`);
 
     // ── Veredicto ─────────────────────────────────────────────────────────────────────────────
     if (base.markup.n === 0) {
