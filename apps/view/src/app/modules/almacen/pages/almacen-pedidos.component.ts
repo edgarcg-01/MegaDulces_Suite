@@ -13,7 +13,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DrawerModule } from 'primeng/drawer';
-import type { WarehouseOrderDetail, WarehouseOrderRow, WarehouseOrdersResponse } from '@megadulces/contracts';
+import { WAREHOUSE_ORDER_CANCELADO, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPedidosService, type AlmacenPedidosFiltro } from '../almacen-pedidos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -29,6 +29,9 @@ const ESTATUS: Record<string, { label: string; sev: Sev }> = {
   SURTIDO: { label: 'Surtido', sev: 'warn' },
   CHECADO: { label: 'Checado', sev: 'warn' },
   EMBARCADO: { label: 'Embarcado', sev: 'success' },
+  // [GP.10.0] Kepler cancela con c43 = 'C' y conserva el c11 viejo: el servidor lo devuelve como
+  // CANCELADO. Gris y no rojo: no es una alarma ni trabajo pendiente; el texto lo distingue de Creado.
+  [WAREHOUSE_ORDER_CANCELADO]: { label: 'Cancelado', sev: 'secondary' },
 };
 const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal' };
 /** Lo que ya le toca al almacén: todo menos Creado, que aún no está autorizado. */
@@ -192,11 +195,15 @@ const dmy = (v: string | null | undefined): string => {
               <div class="gp-det-head">
                 <h2 id="gp-h-det" class="sr-only">Detalle del pedido {{ x.pedido.documento }}</h2>
                 <p-tag [value]="estatusLabel(x.pedido.estatus)" [severity]="estatusSev(x.pedido.estatus)" styleClass="gp-tag" />
-                <span class="muted">{{ x.pedido.renglones }} renglones · {{ x.pedido.importe === null ? '—' : money(x.pedido.importe) }}</span>
+                @if (x.pedido.estatus === cancelado) {
+                  <span class="muted">Cancelado en Kepler · su último estatus fue {{ estatusLabel(x.pedido.estatus_kepler).toLowerCase() }}</span>
+                } @else {
+                  <span class="muted">{{ x.pedido.renglones }} renglones · {{ x.pedido.importe === null ? '—' : money(x.pedido.importe) }}</span>
+                }
               </div>
               <div class="gp-step">
                 <div class="gp-row"><span>Cliente</span><span>{{ x.pedido.destino_nombre || x.pedido.cliente_code || '—' }}@if (x.pedido.destino_ciudad) { <span class="muted"> · {{ x.pedido.destino_ciudad }}</span> }</span></div>
-                <div class="gp-row"><span>Origen</span><span>{{ origenLabel(x.pedido.origen) }} · {{ x.pedido.sucursal }} {{ x.pedido.sucursal_nombre }}</span></div>
+                <div class="gp-row"><span>Origen</span><span>{{ origenLabel(x.pedido.origen) }} · {{ x.pedido.sucursal_nombre }}</span></div>
                 <div class="gp-row"><span>Vendedor</span><span>{{ x.pedido.vendedor_nombre || x.pedido.vendedor_code || '—' }}</span></div>
                 <div class="gp-row"><span>Creado</span><span class="mono">{{ dmy(x.pedido.fecha) }} {{ x.pedido.hora || '' }}</span></div>
                 <div class="gp-row"><span>Responsables (surtido · checado · embarque)</span><span class="mono">{{ x.pedido.resp_surtido || '—' }} · {{ x.pedido.resp_checado || '—' }} · {{ x.pedido.resp_embarque || '—' }}</span></div>
@@ -482,7 +489,11 @@ export class AlmacenPedidosComponent implements OnInit {
   }
 
   multiSucursal(d: WarehouseOrdersResponse): boolean { return !this.sucursal() && (d.alcance.todas || d.alcance.sucursales.length > 1); }
-  totalConteos(d: WarehouseOrdersResponse): number { return d.conteos.reduce((t, c) => t + c.pedidos, 0); }
+  /** El número de «Todos»: los mismos que lista sin filtro, o sea SIN cancelados (`[GP.10.0]`). */
+  totalConteos(d: WarehouseOrdersResponse): number {
+    return d.conteos.reduce((t, c) => (c.estatus === WAREHOUSE_ORDER_CANCELADO ? t : t + c.pedidos), 0);
+  }
+  readonly cancelado = WAREHOUSE_ORDER_CANCELADO;
   sucursalesTexto(d: WarehouseOrdersResponse): string { return d.alcance.sucursales.map((x) => `${x.codigo} ${x.nombre}`).join(', '); }
   estatusLabel(e: string | null): string { return e ? ESTATUS[e]?.label ?? e : 'Sin estatus'; }
   estatusSev(e: string | null): Sev { return (e && ESTATUS[e]?.sev) || 'secondary'; }

@@ -8,13 +8,15 @@ import type {
   WarehouseOrdersAlcance,
   WarehouseOrdersResponse,
 } from '@megadulces/contracts';
+import { ESTATUS_VIGENTE_SQL } from '../commercial-picking/kepler-origen';
 import { armarRespuesta, horasAbierto, periodo, PeriodoInvalido, relojMx, type Filtros } from './warehouse-orders.engine';
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén — lectura pura sobre el ODS, sin importer
  * (derive-no-copy, mismo patrón que Cortes/Sucursales). La Suite NO escribe en Kepler (ADR-086).
  *
- *  · Pedido   = `kepler_ods.kdm1` `U-D-40`. Origen `c27`, estatus `c11`, responsables
+ *  · Pedido   = `kepler_ods.kdm1` `U-D-40`. Origen `c27`, estatus `c11` (o CANCELADO si `c43 = 'C'`:
+ *               Kepler conserva el `c11` viejo al cancelar, `[GP.10.0]`), responsables
  *               `c100/c102/c103`, transporte/chofer/guía `c83/c84/c86`. Decode: ERP_KEPLER §3.y.3.
  *  · Renglón  = `kepler_ods.kdm2`. Cantidades por etapa `c51..c54` (en la unidad `c55`), ubicación
  *               por etapa `c59/c60/c61`, etapa en que se agregó el renglón `c28`.
@@ -46,7 +48,8 @@ WITH h AS MATERIALIZED (
          to_char(h.c9::date, 'YYYY-MM-DD')                   AS fecha,
          NULLIF(btrim(h.c62::text), '')                      AS hora,
          upper(NULLIF(btrim(h.c27::text), ''))               AS origen,
-         upper(NULLIF(btrim(h.c11::text), ''))               AS estatus,
+         ${ESTATUS_VIGENTE_SQL} AS estatus,
+         upper(NULLIF(btrim(h.c11::text), ''))               AS estatus_kepler,
          NULLIF(btrim(h.c10::text), '')                      AS cliente_code,
          NULLIF(btrim(h.c32::text), '')                      AS destino_nombre,
          NULLIF(btrim(h.c34::text), '')                      AS destino_ciudad,
@@ -70,7 +73,7 @@ vend AS (
     FROM kepler_ods.kduv u
    ORDER BY btrim(u.sucursal), btrim(u.c2::text)
 )
-SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.cliente_code,
+SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.estatus_kepler, h.cliente_code,
        h.destino_nombre, h.destino_ciudad, h.vendedor_code, v.nombre AS vendedor_nombre,
        coalesce(lc.renglones, 0) AS renglones, lc.volumen, h.importe, h.guia, h.transporte, h.chofer,
        h.resp_surtido, h.resp_checado, h.resp_embarque

@@ -13,6 +13,14 @@
 export const WAREHOUSE_ORDER_ESTATUS = ['CREADO', 'AUTORIZADO', 'SURTIDO', 'CHECADO', 'EMBARCADO'] as const;
 export type WarehouseOrderEstatus = (typeof WAREHOUSE_ORDER_ESTATUS)[number];
 
+/**
+ * `[GP.10.0]` Estatus VIGENTE de un pedido cancelado. Kepler cancela con `kdm1.c43 = 'C'`, deja el
+ * importe en $0 y borra los renglones, pero **conserva el `c11`** que tenía: sin esto, un cancelado
+ * se contaba como vivo en su estatus viejo (medido 2026-11-13: 34 de los 54 «en SURTIDO» de
+ * noviembre). No es una etapa del flujo: no va en `WAREHOUSE_ORDER_ESTATUS`.
+ */
+export const WAREHOUSE_ORDER_CANCELADO = 'CANCELADO' as const;
+
 export type WarehouseOrderOrigen = 'TELEMARK' | 'SUCURSAL';
 
 export interface WarehouseOrderRow {
@@ -30,8 +38,13 @@ export interface WarehouseOrderRow {
   hora: string | null;
   /** `TELEMARK`, `SUCURSAL`, u otro valor crudo si Kepler trae algo nuevo. */
   origen: string | null;
-  /** Estatus crudo de Kepler (`kdm1.c11`). */
+  /**
+   * Estatus VIGENTE: el de Kepler (`kdm1.c11`), o `CANCELADO` si el documento está cancelado
+   * (`c43 = 'C'`, `[GP.10.0]`).
+   */
   estatus: string | null;
+  /** Estatus crudo de Kepler (`kdm1.c11`). En un cancelado es el que tenía al cancelarse. */
+  estatus_kepler: string | null;
   cliente_code: string | null;
   /** Nombre del destino tal como lo trae el pedido (`c32`). */
   destino_nombre: string | null;
@@ -54,7 +67,7 @@ export interface WarehouseOrderRow {
   resp_embarque: string | null;
   /**
    * Horas desde que se CREÓ el pedido (fecha + hora del ticket, hora de México). `null` si ya
-   * está `EMBARCADO` o si falta la hora. ⚠️ No es el tiempo en la etapa actual: Kepler no guarda
+   * está `EMBARCADO` o `CANCELADO`, o si falta la hora. ⚠️ No es el tiempo en la etapa actual: Kepler no guarda
    * cuándo cambió de estatus (ERP_KEPLER §3.y.3), así que ese dato no existe.
    */
   horas_abierto: number | null;
@@ -73,10 +86,13 @@ export interface WarehouseOrdersResponse {
   filtros: { estatus: string[]; origen: string | null; sucursal: string | null; q: string | null };
   /**
    * Pedidos por estatus en el periodo, con origen/sucursal aplicados pero SIN el filtro de
-   * estatus: son los números de los botones de filtro.
+   * estatus: son los números de los botones de filtro. Incluye `CANCELADO` si hay alguno.
    */
   conteos: Array<{ estatus: string; pedidos: number; renglones: number; mas_antiguo_horas: number | null }>;
-  /** `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`). */
+  /**
+   * `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`).
+   * Sin filtro de estatus, los cancelados NO entran (ni aquí ni en `items`): se ven eligiéndolos.
+   */
   totales: { pedidos: number; renglones: number; importe: number | null };
   items: WarehouseOrderRow[];
   /** `true` si `items` se recortó al tope; los conteos y totales NO se recortan. */

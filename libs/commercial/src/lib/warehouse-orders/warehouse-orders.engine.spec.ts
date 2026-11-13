@@ -13,7 +13,7 @@ import { armarRespuesta, horasAbierto, ordenEstatus, periodo, PeriodoInvalido, r
 
 const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   clave: '01-1-0002781', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0002781',
-  documento: 'UD4001-0002781', fecha: '2026-10-05', hora: '18:10', origen: 'SUCURSAL', estatus: 'EMBARCADO',
+  documento: 'UD4001-0002781', fecha: '2026-10-05', hora: '18:10', origen: 'SUCURSAL', estatus: 'EMBARCADO', estatus_kepler: 'EMBARCADO',
   cliente_code: 'RUTA 21', destino_nombre: 'R.D. 21 PH Urbano Olivares Victorino', destino_ciudad: 'Santa Ana Pacueco',
   vendedor_code: '00021', vendedor_nombre: null, renglones: 102, volumen: [{ unidad: 'PAQ', cantidad: 164 }], importe: 22591.35, guia: '0001644',
   transporte: '00013', chofer: '00014', resp_surtido: '06', resp_checado: '03', resp_embarque: '02',
@@ -48,6 +48,9 @@ describe('[GP.1] antigüedad', () => {
   });
   it('EMBARCADO no cuenta antigüedad', () => {
     expect(horasAbierto('2026-10-05', '18:10', 'EMBARCADO', reloj)).toBeNull();
+  });
+  it('[GP.10.0] un CANCELADO no cuenta antigüedad: no espera a nadie', () => {
+    expect(horasAbierto('2026-10-05', '18:10', 'CANCELADO', reloj)).toBeNull();
   });
   it('NEGATIVA: sin hora no se inventa una medianoche', () => {
     expect(horasAbierto('2026-10-05', null, 'AUTORIZADO', reloj)).toBeNull();
@@ -96,10 +99,53 @@ describe('[GP.1] filtros y conteos', () => {
     expect(armarRespuesta(rows, { ...SIN_FILTRO, q: 'pacueco' }, per, ALCANCE, ahora).items).toHaveLength(4);
   });
 
-  it('un estatus que Kepler traiga nuevo no se pierde: va al final', () => {
-    const r = armarRespuesta([...rows, fila({ clave: 'x', estatus: 'CANCELADO' })], SIN_FILTRO, per, ALCANCE, ahora);
-    expect(r.conteos[r.conteos.length - 1]).toMatchObject({ estatus: 'CANCELADO', pedidos: 1 });
-    expect(ordenEstatus('CANCELADO', 'CREADO')).toBeGreaterThan(0);
+  it('un estatus que Kepler traiga nuevo no se pierde: va al final y se lista', () => {
+    const r = armarRespuesta([...rows, fila({ clave: 'x', estatus: 'EN RUTA', estatus_kepler: 'EN RUTA' })], SIN_FILTRO, per, ALCANCE, ahora);
+    expect(r.conteos[r.conteos.length - 1]).toMatchObject({ estatus: 'EN RUTA', pedidos: 1 });
+    expect(r.items.some((i) => i.estatus === 'EN RUTA')).toBe(true);
+    expect(ordenEstatus('EN RUTA', 'CREADO')).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `[GP.10.0]` Kepler cancela con `c43 = 'C'` (importe $0, renglones borrados) y CONSERVA el `c11`.
+ * Caso real, 2026-11-13: `00|0001170` (CEDIS, 17-oct) sigue `SURTIDO` en `c11`, con $0 y sin renglones.
+ */
+describe('[GP.10.0] los cancelados no son trabajo pendiente', () => {
+  const ahora = new Date('2026-11-13T22:00:00Z');
+  const per = { from: '2026-11-01', to: '2026-11-30' };
+  const vivo = fila({
+    clave: '00-1-0001171', sucursal: '00', folio: '0001171', documento: 'UD4001-0001171',
+    estatus: 'SURTIDO', estatus_kepler: 'SURTIDO', renglones: 12, importe: 4000, horas_abierto: 40,
+  });
+  const cancelado = fila({
+    clave: '00-1-0001170', sucursal: '00', folio: '0001170', documento: 'UD4001-0001170',
+    estatus: 'CANCELADO', estatus_kepler: 'SURTIDO', renglones: 0, importe: 0, horas_abierto: null,
+  });
+  const rows = [vivo, cancelado];
+
+  it('«Todos» no lista al cancelado ni lo suma a los totales', () => {
+    const r = armarRespuesta(rows, SIN_FILTRO, per, ALCANCE, ahora);
+    expect(r.items.map((i) => i.folio)).toEqual(['0001171']);
+    expect(r.totales).toEqual({ pedidos: 1, renglones: 12, importe: 4000 });
+  });
+
+  it('NEGATIVA: el cancelado NO cuenta en el botón de su estatus viejo', () => {
+    const r = armarRespuesta(rows, SIN_FILTRO, per, ALCANCE, ahora);
+    expect(r.conteos.find((c) => c.estatus === 'SURTIDO')?.pedidos).toBe(1);
+  });
+
+  it('tiene su propio botón, al final, y se ve eligiéndolo (con el estatus que tenía en Kepler)', () => {
+    const r = armarRespuesta(rows, SIN_FILTRO, per, ALCANCE, ahora);
+    expect(r.conteos[r.conteos.length - 1]).toEqual({ estatus: 'CANCELADO', pedidos: 1, renglones: 0, mas_antiguo_horas: null });
+    const solo = armarRespuesta(rows, { ...SIN_FILTRO, estatus: ['CANCELADO'] }, per, ALCANCE, ahora);
+    expect(solo.items.map((i) => [i.folio, i.estatus_kepler])).toEqual([['0001170', 'SURTIDO']]);
+    expect(solo.totales.pedidos).toBe(1);
+  });
+
+  it('sin cancelados en el periodo no aparece un botón vacío', () => {
+    const r = armarRespuesta([vivo], SIN_FILTRO, per, ALCANCE, ahora);
+    expect(r.conteos.some((c) => c.estatus === 'CANCELADO')).toBe(false);
   });
 });
 

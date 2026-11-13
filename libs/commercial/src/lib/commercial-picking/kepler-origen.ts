@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { WAREHOUSE_ORDER_CANCELADO } from '@megadulces/contracts';
 
 /**
  * `[GP.2]` El pedido de Kepler (`U-D-40`) como origen del motor de surtido (ADR-086, ADR-067).
@@ -11,6 +12,17 @@ import { createHash } from 'node:crypto';
  * tablero de GP.1 (`btrim(c1) = sucursal`): sin él, la réplica de la `03` trae copias de pedidos
  * de la `02` con la misma serie y folio y se mezclarían.
  */
+
+/**
+ * `[GP.10.0]` Estatus VIGENTE de la cabecera `h` de un `U-D-40`, en SQL. Kepler cancela con
+ * `c43 = 'C'` (importe en $0, renglones borrados) pero **conserva el `c11`** que tenía, así que
+ * contar por `c11` a secas cuenta cancelados como vivos: medido el 2026-11-13, 34 de los 54 pedidos
+ * «en SURTIDO» de noviembre y 15 de los 75 AUTORIZADO que la cola ofrecía para surtir.
+ * UN solo lugar para la regla: el tablero (GP.1), la cola de surtido y los atorados la usan igual.
+ * Pide el alias `h` para `kepler_ods.kdm1`.
+ */
+export const ESTATUS_VIGENTE_SQL = `CASE WHEN btrim(coalesce(h.c43::text, '')) = 'C' THEN '${WAREHOUSE_ORDER_CANCELADO}'
+              ELSE upper(NULLIF(btrim(h.c11::text), '')) END`;
 
 /** Llave natural de un pedido Kepler. `folio` siempre con 7 dígitos, como lo guarda Kepler. */
 export interface PedidoKeplerLlave {
@@ -161,7 +173,7 @@ WITH h AS MATERIALIZED (
          to_char(h.c9::date, 'YYYY-MM-DD')                   AS fecha,
          NULLIF(btrim(h.c62::text), '')                      AS hora,
          upper(NULLIF(btrim(h.c27::text), ''))               AS origen,
-         upper(NULLIF(btrim(h.c11::text), ''))               AS estatus,
+         ${ESTATUS_VIGENTE_SQL} AS estatus,
          NULLIF(btrim(h.c10::text), '')                      AS cliente_code,
          NULLIF(btrim(h.c32::text), '')                      AS destino_nombre,
          round(NULLIF(btrim(h.c16::text), '')::numeric, 2)   AS importe
@@ -204,7 +216,7 @@ SELECT count(*)::int AS n, min(fecha) AS desde
   FROM (
     SELECT DISTINCT ON (h.c5, h.c6)
            to_char(h.c9::date, 'YYYY-MM-DD') AS fecha,
-           upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
+           ${ESTATUS_VIGENTE_SQL} AS estatus,
            upper(NULLIF(btrim(h.c27::text), '')) AS origen
       FROM kepler_ods.kdm1 h
      WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 40

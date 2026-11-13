@@ -166,7 +166,7 @@ su estado real en Kepler y en el piso, y priorice desde ahí (D1, D2).
 
 | # | Resultado | Capa | Depende | ¿Escribe? |
 |---|---|---|---|---|
-| **GP.10.0** | **Veracidad, antes que nada:** la consola deja de contar como vivos los pedidos cancelados (`c43 = 'C'`). Se ven aparte, como «cancelado», y no entran a los totales ni al «sin embarcar más antiguo». HOY son 180 en 30 días, y 70 de los 94 que se ven «en SURTIDO» (§2.1 punto 8) | C0/C1 | — | no |
+| **GP.10.0** 🧪 | **Veracidad, antes que nada:** la consola deja de contar como vivos los pedidos cancelados (`c43 = 'C'`). Se ven aparte, como «cancelado», y no entran a los totales ni al «sin embarcar más antiguo». Antes eran 180 en 30 días, y 70 de los 94 que se veían «en SURTIDO» (§2.1 punto 8). **Hecho el 2026-11-13** con una sola expresión, `ESTATUS_VIGENTE_SQL`, que usan el Tablero, la cola de Surtir y los atorados: «en SURTIDO» de noviembre pasa de 54 a 20, y la cola de 75 a 60. La cabecera de los pedidos que ya están en una ola sigue en GP.10.1 | C0/C1 | — | no |
 | **GP.10.1** | La «cabecera vigente» del `U-D-40` en `kdm1` se calcula en **un solo lugar**. Hoy está reescrita en 4 servicios (`warehouse-orders`, `kepler-origen`, `picking-captura`, `checado`) | C0/C1 | — | no |
 | **GP.10.2** | La **etapa del pedido** se deriva con una sola función (Kepler + olas + `presale_picks` + checado), que reemplaza las dos derivaciones duplicadas de preventa (`etapaDe` y `state`). Cada etapa dice su fuente (Kepler o piso) | C1 | GP.10.1 | no |
 | **GP.10.3** | La consola lista `U-D-40` y `PD-` del periodo con filtros por origen, sucursal, etapa y texto, en < 500 ms | C2 | GP.10.2 | no |

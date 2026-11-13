@@ -64,7 +64,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
     items: [{
       clave: '02-1-0000900', sucursal: '02', sucursal_nombre: 'La Piedad Abastos', serie: 1, folio: '0000900',
       documento: 'UD4001-0000900', fecha: '2026-10-19', hora: '10:00', origen: 'TELEMARK', estatus: 'AUTORIZADO',
-      cliente_code: 'C001', destino_nombre: 'SUCURSAL ZAMORA CANINDO', destino_ciudad: 'ZAMORA', vendedor_code: null,
+      estatus_kepler: 'AUTORIZADO', cliente_code: 'C001', destino_nombre: 'SUCURSAL ZAMORA CANINDO', destino_ciudad: 'ZAMORA', vendedor_code: null,
       vendedor_nombre: null, renglones: 3, volumen: [], importe: null, guia: null, transporte: null, chofer: null,
       resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 2,
     }],
@@ -135,5 +135,64 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
     expect(columnas()).toContain('Estatus');
     expect(el.querySelector('.gp-chips')).not.toBeNull();
     expect(el.querySelector('.gp-foot')).not.toBeNull();
+  });
+});
+
+/**
+ * `[GP.10.0]` Kepler cancela con `c43 = 'C'` y conserva el `c11` viejo; el servidor lo manda como
+ * CANCELADO, fuera de la lista y los totales de «Todos». El botón «Todos» tiene que contar lo mismo
+ * que lista: si sumara los cancelados, diría 6 y mostraría 3.
+ */
+describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
+  const RESP = (): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: true, sucursales: [] },
+    filtros: { estatus: [], origen: null, sucursal: null, q: null },
+    conteos: [
+      { estatus: 'CREADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
+      { estatus: 'AUTORIZADO', pedidos: 2, renglones: 20, mas_antiguo_horas: 30 },
+      { estatus: 'SURTIDO', pedidos: 1, renglones: 12, mas_antiguo_horas: 40 },
+      { estatus: 'CHECADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
+      { estatus: 'EMBARCADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
+      { estatus: 'CANCELADO', pedidos: 3, renglones: 0, mas_antiguo_horas: null },
+    ],
+    totales: { pedidos: 3, renglones: 32, importe: 9000 },
+    items: [],
+    truncado: false,
+    generado_en: '2026-11-13T22:00:00.000Z',
+  });
+
+  async function montar() {
+    const perms = new PermissionsService();
+    perms.load({ [Permission.ALMACEN_PEDIDOS_VER]: true }, 'almacenista');
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(RESP())), detail: vi.fn(() => NEVER) } },
+        { provide: PermissionsService, useValue: perms },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const chips = (): string[] =>
+      Array.from((fix.nativeElement as HTMLElement).querySelectorAll('.gp-chip')).map((b) => b.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    return { fix, chips };
+  }
+
+  it('⭐ «Todos» cuenta los vivos (3), igual que la lista y los totales', async () => {
+    const { chips } = await montar();
+    expect(chips()[0]).toBe('Todos 3');
+  });
+
+  it('NEGATIVA: «Todos» NO suma los cancelados (no dice 6)', async () => {
+    const { fix } = await montar();
+    expect(fix.componentInstance.totalConteos(RESP())).toBe(3);
+  });
+
+  it('los cancelados tienen su botón, con su nombre y no su código', async () => {
+    const { chips } = await montar();
+    expect(chips()).toContain('Cancelado 3');
+    expect(chips().some((c) => c.startsWith('CANCELADO'))).toBe(false);
   });
 });

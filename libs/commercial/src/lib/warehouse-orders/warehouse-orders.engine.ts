@@ -1,4 +1,5 @@
 import {
+  WAREHOUSE_ORDER_CANCELADO,
   WAREHOUSE_ORDER_ESTATUS,
   type WarehouseOrderRow,
   type WarehouseOrdersAlcance,
@@ -50,8 +51,9 @@ export function relojMx(now: Date): { fecha: string; minutos: number } {
 }
 
 /**
- * Horas desde que se creó el pedido, contadas en hora de México. `null` si ya se embarcó o si
- * Kepler no trae la hora (no se inventa una medianoche: sería un número falso, ADR-056).
+ * Horas desde que se creó el pedido, contadas en hora de México. `null` si ya se embarcó, si está
+ * cancelado (`[GP.10.0]`: no espera a nadie) o si Kepler no trae la hora (no se inventa una
+ * medianoche: sería un número falso, ADR-056).
  */
 export function horasAbierto(
   fecha: string,
@@ -59,7 +61,7 @@ export function horasAbierto(
   estatus: string | null,
   reloj: { fecha: string; minutos: number },
 ): number | null {
-  if (estatus === 'EMBARCADO') return null;
+  if (estatus === 'EMBARCADO' || estatus === WAREHOUSE_ORDER_CANCELADO) return null;
   const hm = hora && /^(\d{1,2}):(\d{2})/.exec(hora);
   if (!hm || !ISO.test(fecha)) return null;
   const dias = Math.round((Date.parse(`${reloj.fecha}T00:00:00Z`) - Date.parse(`${fecha}T00:00:00Z`)) / 86_400_000);
@@ -90,6 +92,9 @@ function coincideTexto(r: WarehouseOrderRow, q: string): boolean {
 /**
  * Arma la respuesta. Los conteos por estatus respetan origen, sucursal y búsqueda pero NO el
  * filtro de estatus: son los números que van en los botones para elegirlo.
+ *
+ * `[GP.10.0]` Sin filtro de estatus («Todos»), los CANCELADOS no entran a la lista ni a los totales:
+ * un cancelado no es trabajo pendiente ni venta. Tienen su propio conteo y se ven eligiéndolo.
  */
 export function armarRespuesta(
   rows: WarehouseOrderRow[],
@@ -121,7 +126,9 @@ export function armarRespuesta(
     .sort(([a], [b]) => ordenEstatus(a, b))
     .map(([estatus, c]) => ({ estatus, ...c }));
 
-  const filtrados = filtros.estatus.length ? base.filter((r) => filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) : base;
+  const filtrados = filtros.estatus.length
+    ? base.filter((r) => filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS'))
+    : base.filter((r) => r.estatus !== WAREHOUSE_ORDER_CANCELADO);
   const totales = filtrados.reduce(
     (t, r) => ({ pedidos: t.pedidos + 1, renglones: t.renglones + r.renglones, importe: t.importe + (r.importe ?? 0) }),
     { pedidos: 0, renglones: 0, importe: 0 },
