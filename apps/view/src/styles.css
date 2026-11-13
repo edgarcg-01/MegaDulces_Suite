@@ -198,13 +198,55 @@ button, [role="button"], [role="tab"] {
 
 /*
  * iOS auto-zoom kill: inputs <16px detonan auto-zoom de Safari mobile que
- * desencaja layout y molesta. Forzamos 16px en mobile para los inputs.
+ * desencaja layout y molesta. Forzamos 16px en táctil para los inputs.
+ * [MOV] 2026-11-13: desde que la suite PERMITE zoom (index.html) esta regla es la
+ * única defensa, así que:
+ *   - también con `pointer: coarse` (una tableta pasa de 48rem y sigue siendo iOS);
+ *   - incluye `.p-inputtext`: su regla de clase le gana al selector de elemento;
+ *   - `!important`: los estilos de componente llevan `[_ngcontent-*]` y también ganan.
+ *     Sólo vive dentro de este media, así que el escritorio conserva su densidad.
  */
-@media (max-width: 48rem) {
+@media (max-width: 48rem), (pointer: coarse) {
   input:not([type='button']):not([type='submit']):not([type='checkbox']):not([type='radio']),
   textarea,
-  select {
-    font-size: 16px;
+  select,
+  .p-inputtext {
+    font-size: 16px !important;
+  }
+}
+
+/*
+ * [MOV] Scroll encadenado: al llegar al final de un diálogo, cajón u hoja, el gesto
+ * NO debe pasar a mover la página de atrás (la persona pierde dónde estaba). Antes
+ * sólo lo tenían 2 componentes a mano; acá va para todos los superpuestos.
+ */
+.p-dialog-content,
+.p-drawer-content,
+.p-confirmdialog .p-dialog-content,
+.p-select-overlay .p-select-list-container,
+.p-autocomplete-overlay .p-autocomplete-list-container,
+dialog {
+  overscroll-behavior: contain;
+}
+
+/*
+ * [MOV] Diálogo en celular = a todo el ancho. De 107 `p-dialog` sólo 15 declaraban
+ * `[breakpoints]`; el resto salía con su ancho de escritorio (`[style]="{ width: '48rem' }"`
+ * es inline, de ahí el `!important`) y quedaba cortado o con scroll lateral.
+ * Los que sí declaran `[breakpoints]` siguen mandando: PrimeNG genera su regla con un
+ * atributo propio, más específica que ésta. El maximizado no se toca.
+ * El pie respeta el indicador de inicio del iPhone.
+ */
+@media (max-width: 40rem) {
+  .p-dialog:not(.p-dialog-maximized) {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100dvh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+  }
+  .p-dialog .p-dialog-footer {
+    padding-bottom: max(var(--sp-3, 0.75rem), env(safe-area-inset-bottom));
   }
 }
 
@@ -223,7 +265,8 @@ html, body {
   height: 100%;
   box-sizing: border-box;
   /* Evita que iOS reescale el texto solo (auto-zoom en rotación / texto grande)
-     → otra fuente de desalineación. El zoom de usuario ya está bloqueado en el viewport. */
+     → otra fuente de desalineación. El zoom de USUARIO (pinch) sí está permitido desde
+     [MOV] 2026-11-13: esto sólo evita el reescalado automático, no el que pide la persona. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   scrollbar-width: thin;

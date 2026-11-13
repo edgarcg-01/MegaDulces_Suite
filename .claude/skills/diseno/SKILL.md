@@ -317,6 +317,49 @@ la excepción de la regla de color. **Una mención no es cobertura** — es el m
 
 ---
 
+## 3e. Celular y toque (2026-11-13, [MOV])
+
+> **De dónde sale:** las reglas de toque y de layout de las
+> [Web Interface Guidelines de Vercel](https://github.com/vercel-labs/web-interface-guidelines),
+> filtradas contra lo que la suite ya tenía. **No se instaló su skill**: descarga sus reglas en cada
+> corrida, sin versión, y una cuarta parte son de React/Next o de copy en inglés (Title Case,
+> comillas curvas) que choca con esta suite. Si sale una regla nueva allá, se trae **acá**, a mano.
+>
+> **Quién lo usa en celular** (último login de los últimos 30 días, medido el 2026-11-13): 32 de 147
+> personas, sobre todo surtido, piso de tienda y ruta. La suite es de escritorio, pero no sólo.
+
+**Ya resuelto en el CSS global** de `apps/view/src/styles.css`. No lo repitas por componente: si
+no funciona en tu pantalla, es que algo le está ganando a la regla global.
+
+| Regla | Dónde vive |
+|---|---|
+| `touch-action: manipulation` + sin destello al tocar, en `a`, `button` y los `role` interactivos | `styles.css` «Mobile baseline» |
+| Campos a 16 px en táctil, para que iOS no haga zoom solo al enfocar | `styles.css`, con `!important` |
+| El zoom de la persona **está permitido** (WCAG 1.4.4) | `apps/view/src/index.html` |
+| Diálogos, cajones, listas de `p-select` y `side-peek` no arrastran el scroll a la página | `overscroll-behavior: contain` en `styles.css` y `side-peek` |
+| Todo `p-dialog` sale a todo el ancho por debajo de 40rem, con el pie sobre el indicador del iPhone | `styles.css` «Diálogo en celular» (un `[breakpoints]` propio sigue mandando) |
+| Filas y objetivos a 44 px en táctil | `tokens.css` `@media (pointer: coarse)` |
+| La tabla ancha se apila en estrecho | `dense-table.css` + `check:tables` |
+
+**Lo que tu pantalla TIENE que hacer** (nadie lo hace por ella):
+
+| # | Regla | ⛔ Cómo se viola |
+|---|---|---|
+| M.1 | **Nunca bloquear el zoom** ni bajar de 16 px la letra de un campo en táctil | `maximum-scale=1`, `user-scalable=no`, `font-size: 14px !important` dentro de un `(pointer: coarse)` |
+| M.2 | **El teclado correcto**: `inputmode="decimal"` en dinero y cantidad, `inputmode="numeric"` en folio o código, `enterkeyhint="search"` en una búsqueda, `autocomplete="off"` en lo que no es identidad | se abre el teclado de letras para capturar un importe |
+| M.3 | **La acción principal al alcance del pulgar**: en un flujo de captura en celular, Guardar/Confirmar va en una barra pegada abajo con `padding-bottom: env(safe-area-inset-bottom)` | el botón queda al final de un formulario largo, o debajo de la barra del iPhone |
+| M.4 | **El contenido del diálogo cabe en 390 px**: el ancho ya lo da la regla global, lo de adentro no (rejillas de 3 columnas, `min-width` fijos, tablas sin `.dt-stack`) | el diálogo ya ocupa la pantalla pero su formulario sigue en 3 columnas cortadas |
+| M.5 | **Sin scroll horizontal de la página.** Lo que no cabe se apila (tabla) o pierde un eje (pivote, `DESIGN_TABLES.md` §6) | `min-width` fijo en un contenedor de página |
+| M.6 | **Todo gesto tiene su botón**: deslizar para borrar, mantener presionado o arrastrar llevan también un botón o un atajo de teclado | una acción que sólo existe deslizando |
+| M.7 | **Nada fijo pegado al borde** sin `env(safe-area-inset-*)` | barra inferior que tapa el indicador de inicio del iPhone |
+| M.8 | **Listas largas**: más de ~50 renglones en táctil se paginan, se virtualizan o usan `content-visibility: auto` | 800 tarjetas apiladas que traban el desplazamiento |
+
+**Para revisarlo**, DevTools en modo dispositivo a **390 × 844** (iPhone) y **360 × 800** (Android
+chico), en claro y en oscuro. Lo que no se vio a ese ancho se declara «sin validación en celular».
+⚠️ `check:pantalla` **todavía no** mide a 390 px: hoy esto se revisa a ojo.
+
+---
+
 ## 4. Lo que no se negocia (cada una ya cobró)
 
 - **Iconos, nunca emojis** en la UI — `<i class="pi pi-pencil">`, no ✏️. Vale también cuando hablás

@@ -1491,6 +1491,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 
 ### 7. Viewport / zoom
 - `user-scalable=no` + `maximum-scale=1` **rompe WCAG 1.4.4** (zoom). Se tolera como excepción documentada solo por la desalineación de inputs en iOS (`feedback_pwa_mobile_chrome`). Preferir arreglar el layout y **permitir zoom**; si se mantiene el bloqueo, justificarlo en el PR.
+- **Estado (2026-11-13, [MOV]):** `apps/view` (la suite) **permite zoom**. La defensa contra el auto-zoom de iOS es la regla global de `apps/view/src/styles.css`: todo campo a 16 px en `(max-width: 48rem), (pointer: coarse)`, con `!important` porque `.p-inputtext` y los estilos de componente le ganan al selector de elemento. Un campo táctil con letra menor a 16 px vuelve a disparar el auto-zoom: no se baja. `apps/vendor` **conserva** el bloqueo como excepción (app de campo con FAB y barra inferior fijos); `apps/portal` nunca lo tuvo.
 
 ### Antipatrones PWA (flag en review)
 - App "instalable" (con manifest) **sin service worker**.

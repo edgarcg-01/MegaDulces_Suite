@@ -50,12 +50,15 @@
   })();
   </script>
 
-  <!-- App-like: bloqueamos el pinch/double-tap zoom del usuario. El zoom mueve el
-       viewport visual y desalinea los elementos position:fixed (FAB, bottom-nav,
-       hero, header sticky). maximum-scale=1 + user-scalable=no lo fija a 1x como una
-       app nativa. (Trade-off a11y: el usuario no puede hacer zoom para leer; aceptable
-       en una app interna de campo. El texto sí escala con el tamaño de fuente del SO.) -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <!-- [MOV] Zoom PERMITIDO (2026-11-13). Hasta esa fecha se bloqueaba con
+       maximum-scale=1 + user-scalable=no por dos razones: el auto-zoom de iOS al
+       enfocar un campo <16px y la desalineación de lo position:fixed al hacer pinch.
+       La primera ya la cubre styles.css (campos a 16px en táctil, con !important para
+       ganarle a .p-inputtext y a los estilos de componente). La segunda es un costo
+       visual menor contra el que pagaba el bloqueo: en Android nadie podía ampliar
+       para leer (WCAG 1.4.4). apps/vendor conserva la excepción documentada en
+       DESIGN.md §PWA 7. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
   <!-- Google Fonts: preconnect + carga asíncrona (no bloquea render).
        Truco: media="print" hace que el browser baje la hoja sin parar el

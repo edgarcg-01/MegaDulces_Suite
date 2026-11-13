@@ -212,6 +212,7 @@ import {
       .sp-body {
         flex: 1;
         overflow-y: auto;
+        overscroll-behavior: contain;
         padding: 1.25rem;
       }
       /* ── Modo VENTANA ──────────────────────────────────────────────────────────────────

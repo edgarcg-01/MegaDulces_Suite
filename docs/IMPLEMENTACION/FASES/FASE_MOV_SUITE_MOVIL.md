@@ -1,0 +1,167 @@
+# Fase MOV — La suite en el celular (iOS y Android)
+
+> El método que la gobierna: [`docs/METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
+> **Propuesta, no abierta.** Hay 5 fases 🔨 contra un cupo de 4 (`node .claude/skills/pm/tablero.js`,
+> 2026-11-13) y la Fase 0 (campaña de aterrizaje) sigue en curso. MOV no tiene fila en el roadmap de
+> `CLAUDE.md` hasta que el PM la ratifique **y** haya cupo.
+
+```
+OBJETIVO: que quien trabaja de pie (surtido, piso de tienda, ruta, supervisión) haga su tarea
+          desde el celular sin pelear con una pantalla de escritorio, en Android y en iPhone.
+MÉTRICA:  pantallas de piso que pasan la compuerta de celular (390 px) —
+          HOY: NO MEDIDO (la compuerta no existe: check:pantalla no fija viewport) → META: las N
+          pantallas de MOV.0.2, todas en verde, para <fecha que fije el PM>.
+          Métrica de contexto, medida: 32 de 147 usuarios activos (22 %) entraron por última vez
+          desde un celular.
+CAPA TOPE: C3
+ÁREA:      Plataforma (consumidores: Almacén, Tiendas, Comercial)
+DUEÑO:     <falta — lo nombra el PM>
+ESTADO:    ⬜ propuesta
+```
+
+Con qué se midió: `pg-prod` (`system_identifier` 7688376744939610156), sólo lectura, rol `dev_ro`,
+2026-11-13. `public.users.last_login_user_agent` y `last_login_at` (últimos 30 días);
+`commercial.push_subscriptions.user_agent`.
+
+---
+
+## 1. Qué problema resuelve
+
+**Una de cada cinco personas que usaron la suite el último mes entró desde el celular**, y la suite
+está hecha para escritorio: de 459 componentes en `apps/view/src/app/modules`, sólo 41 archivos
+tienen alguna regla de tamaño de pantalla.
+
+| Hecho medido (2026-11-13) | Valor |
+|---|---|
+| Usuarios con login en los últimos 30 días | 147 |
+| … cuyo último login fue desde Android | 26 |
+| … cuyo último login fue desde iPhone/iPad | 6 |
+| Suscripciones push registradas (todas las apps) | 5 (3 iOS, 1 Android, 1 otro) |
+| App nativa | Sólo `apps/vendor`, **sólo Android** (`com.megadulces.vendedor`); falta `@capacitor/ios` |
+| `capacitor.config.ts` versionado | **No** — sólo la copia generada en `android/app/src/main/assets/` |
+| Compuerta de celular en `check:pantalla` | **No existe** (el script no fija viewport) |
+
+**Quién entra desde el celular** (último login en 30 días, por `role_name`):
+
+| Puesto | Desde celular | Activos |
+|---|---:|---:|
+| vendedor_ruta | 9 | 12 |
+| surtidor | 7 | 9 |
+| piso_tienda | 5 | 5 |
+| supervisor_ventas | 3 | 4 |
+| encargado_tienda | 3 | 9 |
+| promotor_ruta | 1 | 4 |
+| almacenista | 1 | 5 |
+| repartidor | 1 | 1 |
+| finanzas_operativo · superadmin | 1 c/u | 8 c/u |
+
+El hallazgo que manda: **surtidor (7 de 9) y piso_tienda (5 de 5) no usan la app del vendedor, usan
+la suite** — y la suite no está pensada para ellos en ese tamaño.
+
+### Lo que esta medición NO dice (declarado)
+
+- Es el **último** login por usuario, no cada sesión: quien alterna equipo cuenta sólo por el último.
+- El user-agent no distingue **qué app** (suite, vendedor, portal) abrió la sesión: `login-core` es
+  compartido. Para vendedor_ruta probablemente es `apps/vendor`; NO MEDIDO.
+- No dice **qué rutas** se abren desde el celular. Eso es MOV.0.1.
+- 1,072 usuarios no tienen user-agent registrado (nunca entraron desde que existe la columna, o son
+  cuentas viejas); quedan fuera del universo.
+
+---
+
+## 2. Qué NO incluye
+
+- **Toda la suite en celular.** Contabilidad, compras, finanzas y los tableros densos se quedan en
+  escritorio. Se adapta sólo lo que se usa de pie (lista de MOV.0.2).
+- **Venta sin internet en ruta**: eso es la fase **VR** (⏸️). MOV no toca el flujo de venta del
+  vendedor; sólo lo lleva a iOS tal como está.
+- **Reescribir en nativo** (Swift/Kotlin, React Native, Flutter). Se queda Angular + Capacitor/PWA.
+- **Por regla del repo**: certificados de Apple/Google, llaves de firma y de push **nunca** van al
+  repo (es público) ni a un runner propio de Actions (prohibido). CORS y credenciales no se tocan
+  (regla 7).
+- **Ningún cron** para avisos: el aviso push sale de un evento.
+
+---
+
+## 3. Las capas
+
+### C0 · Dato — qué pantallas y quién
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| MOV.0.1 | Medir **qué rutas** se abren desde celular, por puesto, en 14 días. Fuente a decidir (D1). | ⬜ | Testigo independiente: el log de acceso del Caddy en `md` para la misma ventana (rutas `/api/*` por user-agent) |
+| MOV.0.2 | Lista cerrada de **pantallas de piso** (ruta, puesto, frecuencia), salida de MOV.0.1. Esa lista es la N de la métrica. | ⬜ | Se revisa con un encargado de cada área antes de cerrarla |
+
+⛔ Sin MOV.0.2 no se diseña ninguna pantalla: la lista no se adivina.
+
+### C1 · Dominio — primitivos compartidos (ADR-056)
+
+| # | Item | Estado | Prueba que lo ejerce |
+|---|---|---|---|
+| MOV.1.1 | Primitivo «tabla → lista de tarjetas» bajo 640 px (master-detail a pantalla completa), en `libs/`, no por pantalla | ⬜ | Spec + una pantalla consumidora |
+| MOV.1.2 | Shell móvil: menú inferior en lugar del panel lateral, zonas táctiles ≥ 44 px, `inputmode` numérico en cantidad y dinero | ⬜ | Spec + `check:pantalla` a 390 px |
+| MOV.1.3 | Escáner con cámara como servicio único (web: `BarcodeDetector`; nativo: ML Kit) con la pistola como respaldo | ⬜ | Prueba con códigos reales del catálogo, en Android **y** iPhone |
+
+### C2 · API
+
+| # | Item | Estado | ¿Escribe? | Prueba contra base real |
+|---|---|---|---|---|
+| MOV.2.1 | Avisos push por **evento** (tarea en «Mi trabajo», pedido listo para surtir, firma pendiente), reusando `commercial.push_subscriptions` | ⬜ | sí | ⛔ Obligatoria, con el payload real de suscripción de un iPhone y un Android |
+| MOV.2.2 | (Si D3 = sí) entrada con huella/cara: el token local sólo reabre una sesión ya iniciada con contraseña | ⬜ | sí | ⛔ Obligatoria |
+
+### C3 · UI
+
+| # | Item | Estado | `check:pantalla` antes → después |
+|---|---|---|---|
+| MOV.3.0 | **Compuerta**: `check:pantalla` corre también a 390×844 y falla con scroll horizontal o zona táctil < 44 px. Con su `:self` (prueba negativa). | ⬜ | Rota a propósito una vez, rojo verificado |
+| MOV.3.1…N | Una fila por pantalla de MOV.0.2, en orden de frecuencia | ⬜ | NO MEDIDO → verde a 390 px |
+| MOV.3.V | Vendedor en iOS: `@capacitor/ios`, `capacitor.config.ts` versionado, compilación en la nube (D2) | ⬜ | Probado en un iPhone físico, no sólo simulador |
+
+⛔ Cargar la skill `diseno` **antes** de tocar el primer archivo. Las cinco preguntas por escrito por
+pantalla. <500 ms por consulta.
+⛔ **Antes del primer item C3:** sección «Observaciones de diseño UI — revisión del plan» al final de
+este doc ([`auditoria-diseno` §9](../../../.claude/skills/auditoria-diseno/SKILL.md)).
+
+---
+
+## 4. Decisiones a firmar
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1 | De dónde sale MOV.0.1 | a) log del Caddy en `md` · b) una tabla de telemetría nueva en la suite · c) ambas | **a)** No crea tabla ni escritura nueva y ya existe; se contrasta con `last_login_user_agent`. Sólo si el log no trae user-agent, se pasa a b). |
+| D2 | Cómo se compila iOS | a) Xcode Cloud · b) Codemagic · c) una Mac física de la empresa | **b) Codemagic**: compila Android e iOS desde el mismo lugar, los certificados viven en su bóveda (no en el repo público) y no exige runner propio. Costo a confirmar. |
+| D3 | Huella/cara para entrar | sí / no / después | **Después**: primero que las pantallas sirvan; es comodidad, no bloquea a nadie. |
+| D4 | ¿La suite se vuelve app nativa o sigue PWA? | a) PWA · b) Capacitor como el vendedor | **a) PWA** mientras los avisos y el escáner funcionen en ambos sistemas desde el navegador; se reabre sólo si iOS los bloquea (iOS sólo da push web a una PWA instalada en la pantalla de inicio). |
+| D5 | Cuenta Apple Developer (99 USD/año) y a nombre de quién | — | **Es del PM**: dinero y titularidad de la empresa. Sin ella no hay vendedor en iOS. |
+
+---
+
+## 5. Riesgos y bloqueos
+
+| Bloqueo | Dueño | Causa | Qué lo destraba |
+|---|---|---|---|
+| Sin cupo | Edgar (PM) | 5 fases 🔨 contra tope de 4 | Cerrar o pausar una; MOV.0.1 (sólo medir) puede ir antes sin abrir la fase |
+| Cuenta de Apple | Edgar (PM) | D5 | Alta de la cuenta a nombre de la empresa |
+| Revisión de Apple al GPS en segundo plano | Dueño de MOV.3.V | `@capacitor-community/background-geolocation` es lo que Apple más rechaza | Texto de uso claro en `Info.plist` y justificación de negocio en la ficha |
+| Push web en iPhone | Dueño de MOV.2.1 | iOS sólo lo permite a una PWA instalada en la pantalla de inicio | Instrucción de instalación en el shell móvil; si no basta, D4 → b) |
+
+---
+
+## 6. Definición de Terminado
+
+- [ ] 1. Métrica de la cabecera **remedida**, antes/después publicado
+- [ ] 2. Cada capa verificada **o declarada NO MEDIDA** (ADR-056)
+- [ ] 3. Todo endpoint que escribe **ejercido contra base real** con el payload de la pantalla
+- [ ] 4. Toda compuerta nueva **rota a propósito una vez**, rojo verificado (MOV.3.0)
+- [ ] 5. Todo primitivo genérico en `libs/` compartido **o** deuda con nombre en el tracker (MOV.1.x)
+- [ ] 6. Tracker + `03_LOG_REVISIONES.md` + roadmap de `CLAUDE.md` al día
+- [ ] 7. **En prod**, o escrito por qué no y qué falta
+
+---
+
+## 7. Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-13 | Propuesta escrita. HOY medido en `pg-prod`: 32 de 147 usuarios activos con último login desde celular; surtido y piso de tienda son los que más lo usan. Queda ⬜ por cupo. | Claude, a pedido de Edgar |
+| 2026-11-13 | Base global de celular, sin abrir la fase (CSS compartido, no pantallas), a pedido de Edgar: la suite **permite zoom**; campos a 16 px en táctil también para `.p-inputtext`; `overscroll-behavior: contain` en diálogos, cajones, listas y `side-peek`; todo `p-dialog` a todo el ancho bajo 40rem. Sección «Celular y toque» (M.1–M.8) en la skill `diseno`, tomada de las guías de Vercel **sin instalar su skill**. Se sacaron 6 pantallas vencidas de la deuda de `check:tables`. **Sin validación visual en celular** y presupuesto de bundle de `view` NO MEDIDO (lo dice el CI). Pendiente fuera de alcance: la tabla de `comercial-monitoreo-vecinal` (12 columnas, filas desplegables) para su dueño. | Claude, a pedido de Edgar |
