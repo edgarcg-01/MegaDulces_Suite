@@ -2868,6 +2868,33 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[PGP.7]` La pantalla absorbió a Pronto pago y quedó como el único lugar donde se hace un
   // pago. Sin esta entrada, lo absorbido llega sin explicación: el chip del descuento vivía con
   // su definición metida en un `title`, que sólo existe para quien tiene mouse (regla P).
+  // `[PGP.118]` Anticipos a proveedor: qué hacer con cada X-D-60 sin aplicar. Palabra llana.
+  'anticipos-proveedor': {
+    title: 'Anticipos a proveedor — qué hacer con cada uno',
+    intro:
+      'Un anticipo es dinero que se le adelantó a un proveedor antes de tener su factura. En Kepler es el documento «Anticipo» (X-D-60). Mientras no se aplica a una factura, es saldo a nuestro favor. Esta pantalla sólo lee Kepler: aplicar el anticipo lo hace Cuentas por pagar en Kepler.',
+    groups: [
+      {
+        heading: 'Los grupos',
+        entries: [
+          { term: 'Aplicable hoy', def: 'El acreedor tiene facturas abiertas: el anticipo se puede aplicar contra ellas en Kepler y esa parte ya no se paga.' },
+          { term: 'Se puede aplicar hoy', def: 'Por acreedor, lo menor entre lo que tiene a favor y lo que le debemos. Nunca más que ninguno de los dos.' },
+          { term: 'Sin contra qué', def: 'El acreedor no tiene ninguna factura abierta: hay que pedirle la factura o que regrese el dinero.' },
+          { term: 'No es anticipo de mercancía', def: 'Gasto (acreedores G…) o tarjeta (TC…) capturados en Kepler como anticipo. Se muestran para que el total cuadre con Kepler, pero no se aplican contra compras.' },
+          { term: 'Calculando', def: 'Todavía no llega lo que les debemos a esos acreedores (se lee aparte porque tarda casi medio segundo). No quiere decir que no se les deba nada.' },
+        ],
+      },
+      {
+        heading: 'Las cifras',
+        entries: [
+          { term: 'A favor', def: 'Lo que queda del anticipo sin aplicar. Es el mismo remanente que guarda Kepler en el documento: el 13 de noviembre de 2026 coincidió en los 64 anticipos.' },
+          { term: 'Días', def: 'Desde la fecha del documento. Pasados 90 días se marca: ese anticipo ya debería tener factura o reembolso.' },
+          { term: 'Sin referencia en Kepler', def: 'Quien capturó el anticipo dejó vacía la referencia: no se puede saber a qué compra corresponde sin preguntarle.' },
+        ],
+      },
+    ],
+  },
+
   // `[PGP.97]` Salidas del banco: la guía de quien elabora el pago en Kepler. Palabra llana.
   'salidas-del-banco': {
     title: 'Salidas del banco — lo que salió, contra Kepler y contra el programa',

@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -58,6 +58,26 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Todos los descuentos de un acreedor por tipo —nota de crédito, nota de crédito CFDI, devolución de compra, bonificación, anticipo, ajuste de abono— con su importe, lo que Kepler ya aplicó y lo que queda a favor. Incluye los YA APLICADOS a propósito: sin eso, un proceso que funciona (las notas de crédito se netean casi al 100%) se lee como que el sistema no hace nada. ⛔ Cheque y transferencia quedan fuera: son pagos, no descuentos.' })
   listSupplierCredits(@Param('proveedor') proveedor: string): Promise<SupplierCreditRow[]> {
     return this.svc.listSupplierCredits(proveedor);
+  }
+
+  /**
+   * `[PGP.118]` El submódulo de Anticipos: todos los `X-D-60` sin aplicar. ~85-106 ms.
+   */
+  @Get('anticipos')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Los anticipos a proveedor (X-D-60 de Kepler) que todavía no se aplicaron entero a una factura, documento por documento, de TODOS los acreedores — también gasto (G*) y tarjeta (TC*), que la pantalla separa. a_favor = el remanente de Kepler (kdxe.c20), 64/64 el 2026-11-13.' })
+  listAnticipos(): Promise<AnticipoRow[]> {
+    return this.svc.listAnticipos();
+  }
+
+  /**
+   * `[PGP.118]` Lo que le debemos a esos acreedores (contra qué se aplica). En diferido: ~390-460 ms.
+   */
+  @Get('anticipos/deuda')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'La deuda viva (facturas con saldo, importe y vencimiento más próximo) de los acreedores pedidos en ?proveedores=C1,C2… Se pide aparte de la lista porque v_supplier_payables tiene un piso de ~390 ms.' })
+  listAnticipoDeuda(@Query('proveedores') proveedores?: string): Promise<AnticipoDeudaRow[]> {
+    return this.svc.listAnticipoDeuda(String(proveedores ?? '').split(','));
   }
 
   /**

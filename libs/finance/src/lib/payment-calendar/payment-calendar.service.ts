@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
@@ -666,6 +666,56 @@ export class PaymentCalendarService {
           ORDER BY c.pendiente DESC, c.fecha DESC NULLS LAST, c.a_favor DESC
           LIMIT 200`,
         [tenantId, code],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.118]` **Los anticipos sin aplicar** (`X-D-60`), todos los acreedores, documento por
+   * documento. Medido en prod el 2026-11-13: 64 documentos, 82-106 ms; `a_favor` = `kdxe.c20` en
+   * 64/64. La deuda viva de esos acreedores va APARTE (`listAnticipoDeuda`): juntas pasan de 500 ms.
+   *
+   * ⛔ No filtra por tipo de acreedor: devuelve también gasto (`G*`) y tarjeta (`TC*`), y la pantalla
+   *    los separa (D2). Filtrarlos acá haría que el total deje de cuadrar con Kepler.
+   */
+  async listAnticipos(): Promise<AnticipoRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT c.sucursal, c.proveedor, c.proveedor_nombre, c.folio, c.referencia,
+                to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+                (current_date - c.fecha)::int AS dias,
+                c.importe::float8 AS importe, c.aplicado::float8 AS aplicado,
+                c.a_favor::float8 AS a_favor
+           FROM analytics.v_supplier_credits c
+          WHERE c.tenant_id = ? AND c.doc_tipo::int = 60 AND c.pendiente
+          ORDER BY c.a_favor DESC
+          LIMIT 1000`,
+        [tenantId],
+      );
+      return rows;
+    });
+  }
+
+  /**
+   * `[PGP.118]` Lo que le debemos a los acreedores que nos pidió la pantalla (los de anticipo de
+   * mercancía). Va en diferido porque `v_supplier_payables` tiene un piso medido de ~390 ms aun con
+   * el predicado por acreedor. La pantalla manda los códigos que ya tiene: así no se vuelve a leer
+   * la vista de créditos.
+   */
+  async listAnticipoDeuda(proveedores: readonly string[]): Promise<AnticipoDeudaRow[]> {
+    const codes = [...new Set(proveedores.map((p) => String(p ?? '').trim()).filter((p) => /^[A-Za-z0-9]{1,20}$/.test(p)))].slice(0, 300);
+    if (!codes.length) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT p.proveedor, count(*)::int AS facturas, sum(p.pendiente)::float8 AS deuda,
+                to_char(min(p.vencimiento), 'YYYY-MM-DD') AS vence_primero
+           FROM analytics.v_supplier_payables p
+          WHERE p.tenant_id = ? AND p.pendiente > 0.005 AND p.proveedor = ANY(?::text[])
+          GROUP BY p.proveedor`,
+        [tenantId, codes],
       );
       return rows;
     });

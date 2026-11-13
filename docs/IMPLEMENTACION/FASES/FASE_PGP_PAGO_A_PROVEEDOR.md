@@ -1244,7 +1244,7 @@ cuadra con la cola ($2.86M = $2,863,347.69) y la semana cuadra con los días ($1
 
 ---
 
-## Anticipos a proveedor — análisis (2026-11-09, ⬜ sin código)
+## Anticipos a proveedor — análisis (2026-11-09) · submódulo decidido 2026-11-13 (`[PGP.118]`–`[PGP.120]`)
 
 > Pedido de Edgar (2026-11-09): *«un apartado para anticipos de proveedor»* y *«analiza cómo vamos a
 > agregar anticipos a proveedor»*. Medido en prod, sólo lectura (`system_identifier` verificado).
@@ -1309,6 +1309,98 @@ como los créditos.
 **NO MEDIDO:** cuántos anticipos se pueden ligar a una OC (en Kepler la referencia es texto libre);
 cuántos de los 42 acreedores existen en `catalog.suppliers`; si lo que salió de Caja General fue
 efectivo.
+
+### El submódulo de Anticipos — re-medido y decidido (2026-11-13)
+
+> Pedido de Edgar (2026-11-13): *«hay que crear un submódulo de anticipos»*. Es el mismo pedido del
+> 9-nov, ahora como submódulo. **Frente de PGP, no fase nueva** (PGP ya está 🔨; el cupo va 6 contra
+> 4 y esto no abre fase). Re-medido en `pg-prod` (`system_identifier 7688376744939610156`, sólo
+> lectura) con `analytics.v_supplier_credits` y `analytics.v_supplier_payables`.
+
+| Qué (prod, 2026-11-13) | Cifra |
+|---|---|
+| `X-D-60`, últimos 12 meses | 206 documentos, ~$15.6 M, 82 acreedores |
+| **Sin aplicar hoy** (universo) | **63 documentos, ~$7.02 M, 43 acreedores** |
+| … de mercancía (`C*`) — **el trabajo** | 41 documentos, ~$4.96 M, 27 acreedores |
+| … de gasto (`G*`) | 13 documentos, ~$1.68 M, 12 acreedores |
+| … de tarjeta (`TC*`) | 9 documentos, ~$0.38 M, 4 acreedores |
+| `C*` con deuda viva del mismo acreedor | 21 acreedores, $3.89 M a favor, **$2.18 M se pueden netear hoy** |
+| `C*` sin deuda viva (pedir factura o reembolso) | 6 acreedores, $1.07 M |
+| Antigüedad del saldo: 0–30 · 31–90 · +90 días | $1.20 M · $0.76 M · **$5.05 M (33 docs)** |
+| Dónde: Matriz | 56 de 63 documentos, $6.89 M |
+| Aplicaciones de `X-D-60` en 12 meses | 115; **41 (36 %) contra una factura ANTERIOR al documento** (pago capturado como anticipo) |
+| Del anticipo a su aplicación | mediana 2 días, p90 16 días |
+| Costo: la lista de anticipos · la deuda viva de sus 43 acreedores | 82–106 ms · 388–459 ms (por eso van en dos llamadas) |
+
+**Decisiones — tomadas por encargo del PM (2026-11-13)**, con la regla de 2026-10-31 (proceso,
+diseño y parámetros reversibles los decide Claude; a Edgar sólo lo irreducible):
+
+| # | Decisión | Por qué |
+|---|---|---|
+| D1 ✅ | Pide Compras desde la OC; entra al armado del día como cualquier pago (Dirección autoriza el día); firma Tesorería | Se sigue de la cadena ya firmada de PGP (armar → preparar → autorizar → pagar); no se inventa otra |
+| D2 ✅ | El submódulo publica **los tres tipos por separado** y declara el universo: «Anticipos a proveedor» = `C*`; `G*` y `TC*` en su propio grupo «X-D-60 que no es anticipo de mercancía». Programar uno nuevo (PGP.119): sólo `C*` | $2.06 M de los $7.02 M no son anticipo de mercancía; esconderlos haría que el total no cuadre con Kepler, mezclarlos haría que la cifra mienta |
+| D3 ✅ | Al programar una factura de un acreedor con anticipo sin aplicar, el anticipo se precarga como descuento, modificable con firma (PGP.120) | $2.18 M se pueden netear hoy: un aviso que nadie lee es pagar dos veces |
+| D4 ✅ | Lo de +90 días va primero en el submódulo con la acción «pedir factura o reembolso». La alerta a la bandeja de Compras/CxP va con PGP.119 (necesita quién responde por cada acreedor, no sólo el permiso) | 33 documentos, $5.05 M: el 72 % del saldo |
+| D5 ✅ | Lo aplica CxP en Kepler; la Suite verifica en `kdxf` | Se sigue de que la escritura de la aplicación de anticipo no existe (las 8 escrituras de PGP.106 son del pago) |
+| D6 ✅ | Tope = el saldo de la OC (100 %), como parámetro configurable; bajarlo es una política que se mueve sin código | La proporción histórica anticipo/OC es NO MEDIDA (la referencia de Kepler es texto libre) |
+| D7 ⚠️ | **Lo único para Edgar: que Contabilidad confirme dos documentos de Matriz.** Folio `0000149` ($1.54 M, fechado 1-ene-2025: huele a saldo de apertura) cae en `G*` por D2. Folio `0000048` ($2.0 M, 23-mar-2026, sin referencia) es `C*`: se publica con la marca genérica «sin referencia en Kepler» (la llevan todos los que no traen referencia), **no se esconde ni bloquea el submódulo** | Pedirle trabajo a otra área es de Edgar. Mientras no conteste, el número se ve con su marca |
+
+**Dónde vive:** pestaña **«Anticipos»** en *Deuda con proveedores* (`DEUDA_PROVEEDORES_TABS`), ruta
+`/finanzas/anticipos`, permiso `FINANCE_PAYMENTS_VER` (ya repartido: regla 20 cumplida sin tocar
+roles). Va ahí y no en Pagos porque es deuda que se mira **antes** de pagar (`[PGP.7]` deja Pagos con
+las dos pantallas del ciclo vivo). Las hermanas ya muestran pedazos —Estado de cuenta acreedores el
+saldo a favor por acreedor, el Calendario el aviso «trae $X a favor»— pero ninguna da la lista de
+todos los anticipos con su antigüedad y contra qué se aplican; el submódulo enlaza a las dos.
+
+**Items:**
+- `[PGP.118]` 🧪 (2026-11-13, sin validación visual, arranque no verificado) C2+C3 — el submódulo, sólo lectura: `GET finance/payment-calendar/anticipos` (la
+  lista) y `GET …/anticipos/deuda` (la deuda viva de esos acreedores, en diferido); pestaña con tres
+  grupos: «Aplicable hoy» (C* con deuda viva) · «Sin contra qué» (C* sin deuda) · «No es anticipo de
+  mercancía» (G*/TC*). Sin migración.
+- `[PGP.119]` ⬜ C0–C3 — programar un anticipo nuevo: `nature` en
+  `commercial.supplier_payment_obligations` (regla 14: recorrer todos los caminos que insertan), pareo
+  con el `X-D-60` (±$1, ±5 días), cierre por `kdxf`, alerta +90 días a la bandeja. Con migración.
+- `[PGP.120]` ⬜ C2–C3 — el anticipo sin aplicar se precarga como descuento al programar la factura
+  (un motivo más de `[PGP.101]`), y el cierre dice «saldada con anticipo», no «pagada».
+
+**Árbitro (2026-11-13):** `a_favor` = `kdxe.c20` (el remanente que guarda Kepler) en **64 de 64**
+anticipos sin aplicar ($7,025,062 los dos lados); control negativo: los 144 `X-D-60` aplicados enteros
+de 12 meses tienen `c20 = 0`. (Eran 63 a media mañana y 64 una hora después: el ODS está vivo.)
+
+#### `[PGP.118]` Diseño — las doce preguntas de la skill `diseno` (antes de la plantilla)
+
+| # | Paso | Respuesta |
+|---|---|---|
+| 1 | Propósito | *«¿Qué hay que hacer con cada anticipo que sigue sin aplicar?»* — una pregunta, sin «y». La respuesta es el grupo: aplicarlo (hay facturas abiertas), pedir factura o reembolso (no las hay), o nada aquí (no es de mercancía) |
+| 2 | Quién entra | Los roles con `FINANCE_PAYMENTS_VER` (CxP, Tesorería, Contabilidad). Pantalla nueva: sin telemetría propia. La hermana `/finanzas/estado-cuenta-acreedores` no tiene llamadas en `ui_usage` en 30 días |
+| 3 | Estado real | 64 documentos, $7.03 M; **$5.05 M con más de 90 días**; $2.18 M se pueden netear hoy contra deuda viva |
+| 4 | Nivel 0 | Veredicto en una frase (cuánto es de mercancía, cuánto se aplica hoy, cuánto no tiene contra qué) · franja de 4 cifras · la lista por grupo |
+| 5 | Qué no ve | Los anticipos ya aplicados (viven en el desglose del acreedor del Calendario y en el Estado de cuenta) · la cuenta de salida (la vista no la tiene: hueco declarado) |
+| 6 | Desglose | Cada cifra de la franja → su grupo en la misma pantalla. Cada fila: folio y sucursal (por nombre), fecha y días, importe, aplicado, a favor, referencia de Kepler, y la deuda viva del acreedor (facturas, monto, vencimiento más próximo) |
+| 7 | Accesibilidad | Buscador tokenizado (`coincideBusqueda`: nombre, código, folio, referencia) · orden por defecto: «aplicable» por monto (lo que más dinero libera), «sin contra qué» por antigüedad (lo más viejo primero) · días con número, no sólo color |
+| 8 | Ligas | Origen: el `X-D-60` de Kepler (folio + sucursal en la fila). Destino: la factura contra la que se aplica (`kdxf`) — CxP lo hace en Kepler (D5). Futuro: la OC (PGP.119). ⚠️ Hueco nombrado: ni el Calendario ni el Estado de cuenta aceptan el acreedor por URL, así que la fila no puede abrir sus facturas ya filtradas |
+| 9 | ¿Le toca? | Sí: es deuda que se mira antes de pagar (Deuda con proveedores). Aplicar se hace en Kepler; programar uno nuevo es PGP.119, en el Calendario |
+| 10 | Maqueta | abajo |
+| 11 | Aceptación | Los tres grupos suman lo que Kepler guarda sin aplicar · la deuda llega diferida y dice «calculando», nunca $0 · sucursal por nombre · `check:pantalla` sin fallas nuevas |
+| 12 | Lo que no resuelve | La cuenta de salida · la liga a la OC (texto libre en Kepler) · D7 |
+
+Jerarquía: **primario** = el veredicto y lo aplicable hoy; **secundario** = la lista por grupo;
+**terciario** = la referencia, lo aplicado y lo que no es de mercancía.
+
+```text
+Anticipos a proveedor                                  [Kepler hace 2 min] [↻]
+Deuda con proveedores: Estado de cuenta · Cuadre y deuda · Cuentas por pagar · [Anticipos]
+$4.96 M de anticipos de mercancía sin aplicar: $2.18 M se pueden aplicar hoy contra
+facturas abiertas; $1.07 M no tienen contra qué (pedir factura o reembolso).
+ Aplicable hoy $2.18 M | Sin contra qué $1.07 M | Más de 90 días $5.05 M | No es de mercancía $2.06 M
+[buscar acreedor, folio o referencia…]
+Aplicable hoy (35)
+  Acreedor           Documento            Fecha    Días  A favor   Le debemos
+  NOMBRE · C0001     Anticipo 0000048 ·   23-mar   235   $2.0 M    $X en N facturas · vence d
+                     Matriz
+Sin contra qué (7)        — lo más viejo primero
+No es anticipo de mercancía (22) — gasto y tarjeta capturados como X-D-60
+```
 
 ---
 

@@ -689,6 +689,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // `[PGP.118]` Anticipos a proveedor: los X-D-60 sin aplicar, contra qué se aplican. Sólo lectura.
+        // Mismo permiso que el resto de Deuda con proveedores (ya repartido: no cambia el acceso de nadie).
+        path: 'anticipos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-anticipos.component').then(m => m.FinanzasAnticiposComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
         path: 'programa-pagos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),

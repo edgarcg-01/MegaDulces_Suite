@@ -39,4 +39,11 @@ export const DEUDA_PROVEEDORES_TABS: PageTab[] = [
     icon: 'pi pi-chart-bar',
     permission: Permission.FINANCE_AI_CHAT,
   },
+  {
+    // `[PGP.118]` Los anticipos (X-D-60) sin aplicar: también es deuda que se mira antes de pagar.
+    label: 'Anticipos',
+    route: '/finanzas/anticipos',
+    icon: 'pi pi-replay',
+    permission: Permission.FINANCE_PAYMENTS_VER,
+  },
 ];
