@@ -84,7 +84,8 @@ describe('[RH.1.7c] Tolerancia y Faltas', () => {
     expect(filas.length).toBe(1);
     expect(filas[0].textContent).toContain('martes 6');
     fix.componentInstance.capturar(p, '2026-10-06');
-    expect(navigate).toHaveBeenCalledWith(['/rh/incidencias'], { queryParams: { nueva: 1, site: 'PH', persona: '118', desde: '2026-10-06' } });
+    // `[RH.13.5]` La captura abre el panel de Incidencias DENTRO de Asistencia, sin salir del modo Faltas.
+    expect(navigate).toHaveBeenCalledWith(['/rh/asistencia'], { queryParams: { ver: 'faltas', panel: 'incidencias', nueva: 1, site: 'PH', persona: '118', desde: '2026-10-06' } });
   });
 
   it('⛔ Faltas sin permiso de capturar: no hay botón', async () => {

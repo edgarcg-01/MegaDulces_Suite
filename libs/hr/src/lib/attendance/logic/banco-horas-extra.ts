@@ -1,5 +1,5 @@
 import type {
-  HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrDiaHorasExtraDto, HrPersonaHorasExtraDto, HrUsoHorasExtraDto,
+  HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrDiaHorasExtraDto, HrPagoHorasExtraDto, HrPersonaHorasExtraDto, HrUsoHorasExtraDto,
 } from '@megadulces/contracts';
 import { EXTRA_BLOQUE_MIN, type AsistenciaPersonas } from './asistencia-persona';
 import { diasEntre } from './fechas';
@@ -9,7 +9,8 @@ import { diasEntre } from './fechas';
  * horas-extra.ts` @ ee4ff38 (08/10/2026). Lógica PURA: recibe el cálculo de asistencia y los ajustes.
  *
  * Lo que cada persona GANA quedándose después de su hora de salida (bloques de 30 min) y lo que USA
- * cuando RH captura «Uso de horas extra». El saldo es ganadas − usadas + ajustes, contado desde
+ * cuando RH captura «Uso de horas extra». `[RH.6.7]` Desde el 6-nov (Mega Talento fcc10d7) también baja con «Pago de horas
+ * extras»: le pagaron el tiempo en vez de tomarlo. El saldo es ganadas − usadas − pagadas + ajustes, contado desde
  * `HORAS_EXTRA_DESDE`: antes de esa fecha no había banco, y contar meses atrás daría saldos que nadie
  * autorizó. No se guarda: una checada que llega tarde o un «Horario distinto» capturado después
  * corrigen el saldo solos. Lo único guardado son los AJUSTES de RH (`hr.overtime_adjustments`).
@@ -66,16 +67,21 @@ export function bancoHorasExtra(p: {
         return { id: i.id, desde: i.desde, hasta: i.hasta, minutos: Number(i.minutos), dias, totalMin: dias * Number(i.minutos), nota: i.nota || '' };
       })
       .filter((u) => u.dias > 0);
+    // `[RH.6.7]` El pago es un TOTAL en una fecha: no se multiplica por días; cuenta si su fecha cae en el banco.
+    const pagos: HrPagoHorasExtraDto[] = per.incidencias
+      .filter((i) => i.tipo === 'pago_horas_extra' && Number(i.minutos) > 0 && i.desde >= desde && i.desde <= hasta)
+      .map((i) => ({ id: i.id, fecha: i.desde, minutos: Number(i.minutos), nota: i.nota || '' }));
     const ganadasMin = ganadas.reduce((t, x) => t + x.extraMin, 0);
     const usadasMin = usos.reduce((t, x) => t + x.totalMin, 0);
+    const pagadasMin = pagos.reduce((t, x) => t + x.minutos, 0);
     const susAjustes = porCodigo.get(per.codigo) || [];
     const ajustesMin = susAjustes.reduce((t, x) => t + x.minutos, 0);
-    if (!per.horasExtraSegun && !ganadasMin && !usadasMin && !susAjustes.length) continue;
+    if (!per.horasExtraSegun && !ganadasMin && !usadasMin && !pagadasMin && !susAjustes.length) continue;
     personas.push({
       codigo: per.codigo, nombreCompleto: per.nombreCompleto, departamento: per.departamento,
       segun: per.horasExtraSegun, salida: per.salida,
-      ganadasMin, usadasMin, ajustesMin, saldoMin: ganadasMin - usadasMin + ajustesMin,
-      ganadas, usos, ajustes: susAjustes,
+      ganadasMin, usadasMin, pagadasMin, ajustesMin, saldoMin: ganadasMin - usadasMin - pagadasMin + ajustesMin,
+      ganadas, usos, pagos, ajustes: susAjustes,
     });
   }
   personas.sort((x, y) => y.saldoMin - x.saldoMin || x.nombreCompleto.localeCompare(y.nombreCompleto, 'es'));

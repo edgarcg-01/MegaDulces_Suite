@@ -54,7 +54,7 @@ const MOTIVO_MINIMO = 5;
               <table class="he-tabla dt-stack">
                 <thead><tr>
                   <th scope="col">Clv</th><th scope="col">Nombre</th><th scope="col">Departamento</th><th scope="col">Según</th>
-                  <th scope="col" class="num">Ganadas</th><th scope="col" class="num">Usadas</th><th scope="col" class="num">Ajustes</th><th scope="col" class="num">Saldo</th>
+                  <th scope="col" class="num">Ganadas</th><th scope="col" class="num">Usadas</th><th scope="col" class="num">Pagadas</th><th scope="col" class="num">Ajustes</th><th scope="col" class="num">Saldo</th>
                 </tr></thead>
                 <tbody>
                   @for (p of personas(); track p.codigo) {
@@ -65,6 +65,8 @@ const MOTIVO_MINIMO = 5;
                       <td role="cell" data-label="Según">{{ segun(p) }}</td>
                       <td class="num mono dt-num" role="cell" data-label="Ganadas">{{ horas(p.ganadasMin) }}</td>
                       <td class="num mono dt-num" role="cell" data-label="Usadas">{{ horas(p.usadasMin) }}</td>
+                      <!-- [RH.6.7] Lo que se le pagó en efectivo (descuenta del saldo). Mismo formato que Usadas. -->
+                      <td class="num mono dt-num" role="cell" data-label="Pagadas">{{ p.pagadasMin === undefined ? '—' : horas(p.pagadasMin) }}</td>
                       <td class="num mono dt-num" role="cell" data-label="Ajustes">{{ p.ajustesMin ? firma(p.ajustesMin) : '—' }}</td>
                       <td class="num mono he-saldo dt-num" role="cell" data-label="Saldo" [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</td>
                     </tr>
@@ -81,6 +83,7 @@ const MOTIVO_MINIMO = 5;
         @if (sel(); as p) {
           <div class="he-ficha">
             <p class="he-resumen">Ganó <b>{{ horas(p.ganadasMin) }}</b> · usó <b>{{ horas(p.usadasMin) }}</b>
+              @if (p.pagadasMin) { · le pagaron <b>{{ horas(p.pagadasMin) }}</b> }
               @if (p.ajustesMin) { · ajustes <b>{{ firma(p.ajustesMin) }}</b> } · saldo <b [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</b></p>
 
             <h3>Días con horas extra</h3>
@@ -97,6 +100,16 @@ const MOTIVO_MINIMO = 5;
               <ul class="he-lista">
                 @for (u of p.usos; track u.id) {
                   <li><span>{{ corta(u.desde) }}@if (u.hasta !== u.desde) { a {{ corta(u.hasta) }} }</span><span>{{ u.nota }}</span><b class="mono">−{{ horas(u.totalMin) }}</b></li>
+                }
+              </ul>
+            }
+
+            <!-- [RH.6.7] Cada pago de horas extras: un total en una fecha, con la referencia del pago. -->
+            <h3>Pagadas</h3>
+            @if (!p.pagos?.length) { <p class="he-vacio">Ninguna.</p> } @else {
+              <ul class="he-lista">
+                @for (x of p.pagos; track x.id) {
+                  <li><span>{{ corta(x.fecha) }}</span><span>{{ x.nota }}</span><b class="mono">−{{ horas(x.minutos) }}</b></li>
                 }
               </ul>
             }
@@ -148,6 +161,9 @@ const MOTIVO_MINIMO = 5;
   `,
   styles: [`
     :host { display: block; }
+    .he-nom { min-height: var(--tap-min); }
+    /* [RH.13.5] Con el dedo, todo lo que se toca mide al menos 44 px (--tap-min: 0 con mouse, 44 en táctil). */
+    :host ::ng-deep .p-button, :host ::ng-deep .p-select, :host ::ng-deep .p-multiselect, :host ::ng-deep input.p-inputtext { min-height: var(--tap-min); }
     .he-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
     .he-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .he-plaza { min-width: 14rem; }

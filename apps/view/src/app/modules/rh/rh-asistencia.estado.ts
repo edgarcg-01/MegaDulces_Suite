@@ -29,9 +29,10 @@ export class RhAsistenciaEstado {
   readonly soloPromotoras = signal(false);
 
   // ── Filtros de la vista: se conservan al cambiar de pestaña, como en Mega Talento ──
+  /** Departamentos elegidos ENTEROS (siguen enteros aunque la semana traiga a alguien nuevo). */
   readonly departamentos = signal<string[]>([]);
-  /** «Ver solo a esta persona»: su código. */
-  readonly unica = signal<string | null>(null);
+  /** `[RH.13.5]` Personas sueltas, por código (de esta plaza: se limpian al cambiarla). Una sola = su tabla día por día. */
+  readonly elegidas = signal<string[]>([]);
   readonly buscar = signal('');
   readonly soloIrregulares = signal(false);
   /** Una persona elegida en «Buscar en todas las plazas»: su ficha se abre en cuanto llega su plaza. */
@@ -219,9 +220,21 @@ export class RhAsistenciaEstado {
 
   limpiarFiltros(): void {
     this.departamentos.set([]);
-    this.unica.set(null);
+    this.elegidas.set([]);
     this.buscar.set('');
     this.soloIrregulares.set(false);
+  }
+
+  /** «Ver solo a esta persona». */
+  verSolo(codigo: string): void {
+    this.departamentos.set([]);
+    this.elegidas.set([codigo]);
+  }
+
+  /** «Ver a todos»: toda la plaza otra vez (la búsqueda y «Solo irregulares» se quedan como estaban). */
+  verATodos(): void {
+    this.departamentos.set([]);
+    this.elegidas.set([]);
   }
 
   /** El directorio de todas las plazas se baja una vez, la primera vez que alguien busca. */

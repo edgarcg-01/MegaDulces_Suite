@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import type { HrDiaAsistencia, HrPersonaAsistencia } from '@megadulces/contracts';
 import { ESTADO_DIA_LABEL } from '../rh.service';
 import { type ColumnaDia, diasPorFecha, difHorario, firmaHoras, horasTexto, incidenciasEnDescanso, pausasDelDia } from '../reporte-formato';
@@ -32,6 +32,7 @@ interface RenglonDia {
             <th scope="col">Día</th><th scope="col">Entrada</th><th scope="col">Desayuno</th><th scope="col">Comida</th><th scope="col">Salida</th>
             <th class="num" scope="col">Horas</th><th class="num" scope="col">{{ mideRetardo() ? 'Min. retardo' : 'Retardo' }}</th>
             @if (persona().horarioAsignado) { <th class="num" scope="col">vs. horario</th> }
+            @if (capturable()) { <th scope="col"><span class="sr-only">Acción</span></th> }
           </tr>
         </thead>
         <tbody>
@@ -53,6 +54,11 @@ interface RenglonDia {
               } @else {
                 <td role="cell" data-label="Qué pasó" [attr.colspan]="persona().horarioAsignado ? 7 : 6"><span class="pill" [attr.data-t]="r.tono">{{ r.etiqueta }}</span></td>
               }
+              <!-- [RH.13.5] La incidencia se captura con ESE día ya puesto (antes: el inicio de la semana y a buscar el día). -->
+              @if (capturable()) {
+                <td class="pd-acc" role="cell"><button type="button" class="pd-inc" (click)="capturar.emit(r.col.fecha)"
+                  [attr.aria-label]="'Capturar una incidencia del ' + r.col.dow + ' ' + r.col.dia">+ Incidencia</button></td>
+              }
             </tr>
           }
         </tbody>
@@ -62,24 +68,38 @@ interface RenglonDia {
             <td class="num">{{ horas(persona().minutosTrabajados) }}</td>
             <td class="num">{{ mideRetardo() ? persona().atrasoBrutoMin : '—' }}</td>
             @if (persona().horarioAsignado) { <td class="num">{{ firma(dif()) }}</td> }
+            @if (capturable()) { <td></td> }
           </tr>
         </tfoot>
       </table>
     </div>
   `,
   styles: [`
-    :host { display: block; min-width: 0; }
-    .pd-scroll { overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .pd-acc { text-align: right; white-space: nowrap; }
+    .pd-inc { border: 0; background: none; padding: 2px var(--sp-1); font: inherit; font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm); }
+    .pd-inc:hover { color: var(--text-main); background: var(--surface-hover-bg); }
+    .pd-inc:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    @media (pointer: coarse) { .pd-inc { min-height: 44px; padding: 0 var(--sp-2); } }
+    :host { display: block; min-width: 0;
+      /* [RH.13.5] «Con cuadros» (David, 13-nov): la misma rejilla visible que la tabla de la semana. */
+      --pd-linea: color-mix(in srgb, var(--text-muted) 30%, var(--card-bg));
+      --pd-linea-fuerte: color-mix(in srgb, var(--text-muted) 55%, var(--card-bg)); }
+    .pd-scroll { overflow-x: auto; border: 1px solid var(--pd-linea); border-radius: var(--r-md); }
     .pd-tabla { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
     .pd-tabla th { text-align: left; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
       background: var(--surface-2); padding: var(--sp-2); white-space: nowrap; }
-    .pd-tabla td { padding: 6px var(--sp-2); border-top: 1px solid var(--border-color); vertical-align: top; white-space: nowrap; color: var(--text-main); }
+    .pd-tabla td { padding: 6px var(--sp-2); border-top: 1px solid var(--pd-linea); vertical-align: top; white-space: nowrap; color: var(--text-main); }
     .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     th.num { text-align: right; }
     .m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .d { color: var(--text-muted); font-size: var(--fs-xs); }
     tr.apagado td { color: var(--text-faint); }
-    tfoot td { font-weight: 700; background: var(--surface-2); }
+    tfoot td { font-weight: 700; background: var(--surface-2); border-top: 2px solid var(--pd-linea-fuerte); }
+    /* Las líneas verticales sólo con la rejilla: apilada en el teléfono cada renglón ya es una tarjeta. */
+    @container densetable (min-width: 34.0625rem) {
+      .pd-tabla th { border-bottom: 2px solid var(--pd-linea-fuerte); }
+      .pd-tabla th + th, .pd-tabla td + td { border-left: 1px solid var(--pd-linea); }
+    }
     .tag { display: inline-block; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 5px; border-radius: var(--r-sm); margin-left: 4px; }
     .tag.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .tag.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
@@ -97,6 +117,9 @@ export class RhPersonaDiasComponent {
   readonly columnas = input.required<ColumnaDia[]>();
   readonly hoy = input.required<string>();
   readonly mideRetardo = input(true);
+  /** `[RH.13.5]` Con un «+ Incidencia» por día (quien captura). */
+  readonly capturable = input(false);
+  readonly capturar = output<string>();
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;

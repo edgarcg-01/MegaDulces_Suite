@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
 import {
   type ColumnaDia, type GrupoDepartamento, type Irregularidad, celdaDe, cuentaIrregular, departamentoDe, diasPorFecha, difHorario,
-  firmaHoras, horarioDe, horasTexto, saldoHorasTexto,
+  firmaHoras, horarioPartes, horasTexto, saldoHorasTexto,
 } from '../reporte-formato';
 
 /**
@@ -31,12 +31,11 @@ import {
               <th class="rs-dia" [class.hoy]="c.hoy" scope="col">{{ c.dow }}<span>{{ c.dia }}</span></th>
             }
             <th class="num" scope="col" title="Horas netas del periodo: jornada menos comida. En Oficinas el desayuno no se descuenta.">Horas</th>
-            <th class="num" scope="col" title="Horas extra GANADAS en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min.">HE ganó</th>
-            <th class="num" scope="col" title="Horas extra USADAS en el periodo («Uso de horas extra» en Incidencias): se suman a sus horas.">HE usó</th>
-            <th class="num" scope="col" [title]="saldos() ? 'Saldo de horas extra al último día del periodo: todo lo ganado menos lo usado, más los ajustes. El detalle está en la pestaña Horas extra.' : 'No se pudo leer el saldo de horas extra.'">HE saldo</th>
-            <th class="num" scope="col" [title]="mideRetardo() ? 'Minutos tarde en la entrada contra su hora. La tolerancia semanal se aplica en la pestaña Tolerancia.' : 'Esta plaza no tiene hora límite de entrada: no se mide retardo.'">{{ mideRetardo() ? 'Min. retardo' : 'Retardo' }}</th>
-            @if (hayAsignados()) { <th class="num" scope="col" title="Horas trabajadas menos las que pide su horario asignado">vs. horario</th> }
-            <th scope="col"><span class="sr-only">Acciones</span></th>
+            <th class="num rs-c-gano" scope="col" title="Horas extra GANADAS en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min.">Extra ganó</th>
+            <th class="num rs-c-uso" scope="col" title="Horas extra USADAS en el periodo («Uso de horas extra» en Incidencias): se suman a sus horas.">Extra usó</th>
+            <th class="num rs-c-saldo" scope="col" [title]="saldos() ? 'Saldo de horas extra al último día del periodo: todo lo ganado menos lo usado, más los ajustes. El detalle está en la pestaña Horas extra.' : 'No se pudo leer el saldo de horas extra.'">Extra saldo</th>
+            <th class="num" scope="col" [title]="mideRetardo() ? 'Minutos tarde en la entrada contra su hora. La tolerancia semanal se aplica en la pestaña Tolerancia.' : 'Esta plaza no tiene hora límite de entrada: no se mide retardo.'">{{ mideRetardo() ? 'Retardo (min)' : 'Retardo' }}</th>
+            @if (hayAsignados()) { <th class="num rs-c-vs" scope="col" title="Horas trabajadas menos las que pide su horario asignado">vs. horario</th> }
           </tr>
         </thead>
         <tbody>
@@ -47,20 +46,32 @@ import {
                   [attr.aria-label]="'Abrir la ficha de ' + (f.p.nombreCompleto || f.p.nombre)">
                 <td class="rs-clv">{{ f.p.codigo }}</td>
                 <td class="rs-nom" [title]="f.p.nombreCompleto || f.p.nombre">
-                  <span class="rs-n" [class.reloj]="!f.p.registrado">{{ f.p.nombreCompleto || f.p.nombre }}</span>
-                  @if (f.alta) { <span class="rs-pill alta" [title]="f.alta + ' irregularidad' + (f.alta === 1 ? '' : 'es') + ': abre su ficha para ver cuáles'">{{ f.alta }}</span> }
-                  @else if (f.baja) { <span class="rs-pill baja" [title]="f.baja + ' aviso' + (f.baja === 1 ? '' : 's')">{{ f.baja }}</span> }
-                  @for (i of f.incs; track i.codigo) { <span class="rs-inc" [title]="i.etiqueta">{{ i.codigo }}</span> }
+                  <div class="rs-nom-in">
+                    <span class="rs-nom-txt">
+                      <span class="rs-n" [class.reloj]="!f.p.registrado">{{ f.p.nombreCompleto || f.p.nombre }}</span>
+                      @if (f.alta) { <span class="rs-pill alta" [title]="f.alta + ' irregularidad' + (f.alta === 1 ? '' : 'es') + ': abre su ficha para ver cuáles'">{{ f.alta }}</span> }
+                      @else if (f.baja) { <span class="rs-pill baja" [title]="f.baja + ' aviso' + (f.baja === 1 ? '' : 's')">{{ f.baja }}</span> }
+                      @for (i of f.incs; track i.codigo) { <span class="rs-inc" [title]="i.etiqueta">{{ i.codigo }}</span> }
+                      <!-- Cuando la columna Horario no cabe, su dato baja aquí, debajo del nombre. -->
+                      <small class="rs-hor-movil">{{ f.horario.hora }}@if (f.horario.nota) { · {{ f.horario.nota }} }</small>
+                    </span>
+                    <button type="button" class="rs-acc-btn" (click)="$event.stopPropagation(); menu.emit({ persona: f.p, evento: $event })"
+                            (keydown.enter)="$event.stopPropagation()" [attr.aria-label]="'Acciones para ' + (f.p.nombreCompleto || f.p.nombre)">
+                      <i class="pi pi-ellipsis-h" aria-hidden="true"></i>
+                    </button>
+                  </div>
                 </td>
-                <td class="rs-hor" [class.ded]="!f.horario.asignado">{{ f.horario.texto }}</td>
+                <td class="rs-hor" [class.ded]="!f.horario.asignado">{{ f.horario.hora }}@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
                 @for (c of f.celdas; track $index) {
                   <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [title]="c.titulo">
-                    <span class="j">@if (c.partes; as pt) { {{ pt[0] }} - <span class="antes">{{ pt[1] }}</span> } @else { {{ c.jornada }} }</span>
+                    <span class="j">@if (c.partes; as pt) { {{ pt[0] }}–<span class="antes">{{ pt[1] }}</span> } @else { {{ rango(c) }} }</span>
                     @if (c.tramos.length) { <span class="t">@for (t of c.tramos; track $index) { <span>{{ t }}</span> }</span> }
-                    @if (c.desMin !== null || c.comMin !== null) {
+                    <!-- [RH.13.5] D y C sólo cuando se pasó: «C 60» en 37 de 49 celdas era ruido que tapaba las 2 que importaban.
+                         El PDF y el Excel siguen trayendo los minutos de todos los días (es el papel de RH). -->
+                    @if (c.desExcedido || c.comExcedida) {
                       <span class="pz">
-                        @if (c.desMin !== null) { <span [class.exc]="c.desExcedido">D {{ c.desMin }}</span> }
-                        @if (c.comMin !== null) { <span [class.exc]="c.comExcedida">C {{ c.comMin }}</span> }
+                        @if (c.desExcedido) { <span class="exc">D {{ c.desMin }}</span> }
+                        @if (c.comExcedida) { <span class="exc">C {{ c.comMin }}</span> }
                       </span>
                     }
                     @if (c.extraMin) { <span class="rs-extra" [title]="'Horas extra: debía salir a las ' + (c.salidaEsperada || '—')">+{{ horas(c.extraMin) }} extra</span> }
@@ -68,59 +79,76 @@ import {
                   </td>
                 }
                 <td class="num">{{ horas(f.p.minutosTrabajados) }}</td>
-                <td class="num rs-extra-tot">{{ f.p.horasExtraGanadasMin ? horas(f.p.horasExtraGanadasMin) : '' }}</td>
-                <td class="num rs-usada-tot">{{ f.p.horasExtraUsadasMin ? horas(f.p.horasExtraUsadasMin) : '' }}</td>
-                <td class="num" [class.rs-neg]="(f.saldo ?? 0) < 0">@if (saldos()) { {{ saldoTexto(f.saldo) }} } @else { <span class="na">—</span> }</td>
+                <td class="num rs-extra-tot rs-c-gano">{{ f.p.horasExtraGanadasMin ? horas(f.p.horasExtraGanadasMin) : '' }}</td>
+                <td class="num rs-usada-tot rs-c-uso">{{ f.p.horasExtraUsadasMin ? horas(f.p.horasExtraUsadasMin) : '' }}</td>
+                <td class="num rs-c-saldo" [class.rs-neg]="(f.saldo ?? 0) < 0">@if (saldos()) { {{ saldoTexto(f.saldo) }} } @else { <span class="na">—</span> }</td>
                 <td class="num" [class.rs-ret]="mideRetardo() && f.p.atrasoBrutoMin > 0">@if (mideRetardo()) { {{ f.p.atrasoBrutoMin || '' }} } @else { <span class="na">—</span> }</td>
-                @if (hayAsignados()) { <td class="num" [class.menos]="(f.dif ?? 0) < 0" [class.mas]="(f.dif ?? 0) > 0">{{ firma(f.dif) }}</td> }
-                <td class="rs-acc">
-                  <button type="button" class="rs-acc-btn" (click)="$event.stopPropagation(); menu.emit({ persona: f.p, evento: $event })"
-                          (keydown.enter)="$event.stopPropagation()" [attr.aria-label]="'Acciones para ' + (f.p.nombreCompleto || f.p.nombre)">
-                    <i class="pi pi-ellipsis-h" aria-hidden="true"></i>
-                  </button>
-                </td>
+                @if (hayAsignados()) { <td class="num rs-c-vs" [class.menos]="(f.dif ?? 0) < 0" [class.mas]="(f.dif ?? 0) > 0">{{ firma(f.dif) }}</td> }
               </tr>
             }
             @if (subtotales()) {
               <tr class="rs-sub">
-                <td [attr.colspan]="columnas().length + 3"><span class="sr-only">Subtotal de {{ g.departamento }}</span></td>
+                <td class="rs-clv"></td>
+                <td class="rs-nom rs-sub-et">Subtotal {{ g.departamento }}</td>
+                <td class="rs-hor"></td>
+                <td class="rs-sub-dias" [attr.colspan]="columnas().length"></td>
                 <td class="num">{{ horas(g.subMin) }}</td>
-                <td class="num rs-extra-tot">{{ g.subExtra ? horas(g.subExtra) : '' }}</td>
-                <td class="num rs-usada-tot">{{ g.subUsadas ? horas(g.subUsadas) : '' }}</td>
-                <td class="num">{{ saldos() ? saldoTexto(g.subSaldo) : '' }}</td>
+                <td class="num rs-extra-tot rs-c-gano">{{ g.subExtra ? horas(g.subExtra) : '' }}</td>
+                <td class="num rs-usada-tot rs-c-uso">{{ g.subUsadas ? horas(g.subUsadas) : '' }}</td>
+                <td class="num rs-c-saldo">{{ saldos() ? saldoTexto(g.subSaldo) : '' }}</td>
                 <td class="num">{{ mideRetardo() ? g.subRet : '' }}</td>
-                @if (hayAsignados()) { <td></td> }
-                <td></td>
+                @if (hayAsignados()) { <td class="rs-c-vs"></td> }
               </tr>
             }
           }
         </tbody>
         <tfoot>
           <tr>
-            <td [attr.colspan]="columnas().length + 3">{{ parcial() ? 'Totales de lo que se ve' : 'Totales' }}</td>
+            <td class="rs-clv"></td>
+            <td class="rs-nom rs-sub-et">{{ parcial() ? 'Totales de lo que se ve' : 'Totales' }}</td>
+            <td class="rs-hor"></td>
+            <td class="rs-sub-dias" [attr.colspan]="columnas().length"></td>
             <td class="num">{{ horas(totales().min) }}</td>
-            <td class="num rs-extra-tot">{{ totales().extra ? horas(totales().extra) : '' }}</td>
-            <td class="num rs-usada-tot">{{ totales().usadas ? horas(totales().usadas) : '' }}</td>
-            <td class="num">{{ saldos() ? saldoTexto(totales().saldo) : '' }}</td>
+            <td class="num rs-extra-tot rs-c-gano">{{ totales().extra ? horas(totales().extra) : '' }}</td>
+            <td class="num rs-usada-tot rs-c-uso">{{ totales().usadas ? horas(totales().usadas) : '' }}</td>
+            <td class="num rs-c-saldo">{{ saldos() ? saldoTexto(totales().saldo) : '' }}</td>
             <td class="num">{{ mideRetardo() ? totales().ret : '—' }}</td>
-            @if (hayAsignados()) { <td></td> }
-            <td></td>
+            @if (hayAsignados()) { <td class="rs-c-vs"></td> }
           </tr>
         </tfoot>
       </table>
     </div>
   `,
   styles: [`
-    :host { display: block; min-width: 0; }
-    .rs-scroll { overflow: auto; max-height: calc(100vh - 300px); border-top: 1px solid var(--border-color); }
+    :host { display: block; min-width: 0; container: rs / inline-size;
+      /* [RH.13.5] «Con cuadros» (David, 13-nov): la rejilla se tiene que VER, como en el papel de RH. El hairline del sistema
+         (--border-color, 1.27:1 sobre blanco) casi desaparece en una matriz de 7 días; éste sale del texto atenuado, así que
+         se ajusta solo al modo oscuro. La línea fuerte separa encabezado, nombre fijo y subtotales. */
+      --rs-linea: color-mix(in srgb, var(--text-muted) 30%, var(--card-bg));
+      --rs-linea-fuerte: color-mix(in srgb, var(--text-muted) 55%, var(--card-bg)); }
+    .rs-scroll { overflow: auto; max-height: calc(100vh - 300px); border: 1px solid var(--rs-linea); border-radius: var(--r-md); }
     .rs-tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-size: var(--fs-xs); }
+    /* [RH.13.5] «Hazla tabla» (David, 12-nov): cada día y cada total en SU celda. Sin líneas verticales los números flotaban y
+       no se sabía a qué columna pertenecían (HE saldo y Min. retardo se leían corridos). */
     .rs-tabla th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-micro); font-weight: 700;
-      text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: var(--sp-2); border-bottom: 1px solid var(--border-color); white-space: nowrap; }
-    .rs-tabla td { padding: 6px var(--sp-2); border-bottom: 1px solid var(--border-color); vertical-align: top; background: var(--card-bg); color: var(--text-main); }
+      text-transform: uppercase; letter-spacing: .04em; text-align: left; padding: 6px 5px; border-bottom: 2px solid var(--rs-linea-fuerte);
+      border-right: 1px solid var(--rs-linea); white-space: nowrap; vertical-align: bottom; }
+    .rs-tabla td { padding: 5px 6px; border-bottom: 1px solid var(--rs-linea); border-right: 1px solid var(--rs-linea); vertical-align: top;
+      background: var(--card-bg); color: var(--text-main); }
+    .rs-tabla th:last-child, .rs-tabla td:last-child { border-right: 0; }
+    /* Los totales en dos renglones de encabezado («HE / saldo»): columnas angostas, la tabla cabe sin irse a la derecha. */
+    .rs-tabla th.num { white-space: normal; line-height: 1.25; width: 3.6rem; min-width: 3.6rem; }
+    .rs-hor-movil { display: none; margin-top: 1px; font: 400 var(--fs-micro)/1.25 var(--font-body); color: var(--text-muted); }
+    .rs-sub-et { text-align: left; color: var(--text-muted); font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
     .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .rs-tabla td.num { padding-inline: 4px; }
     th.num { text-align: right; }
-    .rs-clv { position: sticky; left: 0; z-index: 1; width: 3.4rem; min-width: 3.4rem; font-family: var(--font-mono); color: var(--text-muted); }
-    .rs-nom { position: sticky; left: 3.4rem; z-index: 1; min-width: 13rem; max-width: 16rem; border-right: 1px solid var(--border-color); }
+    .rs-clv { position: sticky; left: 0; z-index: 1; width: 2.6rem; min-width: 2.6rem; font-family: var(--font-mono); color: var(--text-muted); }
+    .rs-nom-in { display: flex; align-items: flex-start; gap: 2px; }
+    .rs-nom-txt { flex: 1 1 auto; min-width: 0; }
+    .rs-nom { position: sticky; left: 2.6rem; z-index: 1; min-width: 9rem; max-width: 13rem; }
+    /* La columna fija lleva su borde más marcado: es la que se queda cuando la semana se desplaza. */
+    .rs-tabla td.rs-nom, .rs-tabla th.rs-nom { border-right: 2px solid var(--rs-linea-fuerte); }
     th.rs-clv, th.rs-nom { z-index: 3; }
     .rs-n { font-weight: 600; overflow-wrap: anywhere; }
     .rs-n.reloj { font-style: italic; }
@@ -129,12 +157,13 @@ import {
     .rs-pill.baja { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .rs-inc { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 4px; border-radius: var(--r-sm);
       background: var(--info-soft-bg); color: var(--info-soft-fg); vertical-align: 1px; }
-    .rs-hor { white-space: nowrap; font-family: var(--font-mono); }
-    .rs-hor.ded { font-family: var(--font-body); color: var(--text-muted); }
+    .rs-hor { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.8rem; max-width: 6rem; line-height: 1.3; }
+    .rs-hor.ded { color: var(--text-muted); }
+    .rs-hor small { display: block; font: 400 var(--fs-micro)/1.2 var(--font-body); color: var(--text-faint); }
     th.rs-dia { text-align: center; }
     th.rs-dia span { display: block; font: 700 var(--fs-sm)/1.2 var(--font-mono); color: var(--text-main); letter-spacing: 0; }
     th.rs-dia.hoy span { color: var(--action); }
-    td.rs-celda { min-width: 6.6rem; text-align: center; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .rs-tabla td.rs-celda { min-width: 4.6rem; padding-inline: 3px; text-align: center; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .rs-celda .j { display: block; font-weight: 500; white-space: nowrap; }
     .rs-celda .t { display: block; color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.35; }
     .rs-celda .t span { display: inline-block; white-space: nowrap; margin: 0 2px; }
@@ -158,21 +187,38 @@ import {
     tr.rs-fila:hover td { background: var(--surface-hover-bg); }
     tr.rs-fila.irr td { background: var(--bad-soft-bg); }
     tr.rs-fila:focus-visible td { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    tr.rs-depto td { background: var(--surface-2); font-size: var(--fs-micro); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); padding-block: 5px; }
+    tr.rs-depto td { border-right: 0; background: var(--surface-2); font-size: var(--fs-micro); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); padding-block: 5px; }
     tr.rs-depto td span { position: sticky; left: var(--sp-2); }
     tr.rs-depto small { font-weight: 500; letter-spacing: 0; }
-    tr.rs-sub td { color: var(--text-muted); font-weight: 600; border-bottom-width: 2px; }
-    tfoot td { background: var(--surface-2); font-weight: 700; position: sticky; bottom: 0; }
-    .rs-acc { width: 2.2rem; }
-    .rs-acc-btn { border: 0; background: none; border-radius: var(--r-sm); padding: 2px 6px; color: var(--text-muted); cursor: pointer; }
+    tr.rs-sub td { color: var(--text-muted); font-weight: 600; border-bottom: 2px solid var(--rs-linea-fuerte); }
+    tfoot td { background: var(--surface-2); font-weight: 700; position: sticky; bottom: 0; border-top: 2px solid var(--rs-linea-fuerte); }
+    tfoot tr:last-child td { border-bottom: 0; }
+    .rs-acc-btn { border: 0; background: none; border-radius: var(--r-sm); padding: 2px 6px; color: var(--text-muted); cursor: pointer;
+      min-width: var(--tap-min); min-height: var(--tap-min); }
     .rs-acc-btn:hover { background: var(--surface-hover-bg); color: var(--text-main); }
     .rs-acc-btn:focus-visible { outline: 2px solid var(--focus-ring); }
     .rs-estrecha { display: none; }
+    /* [RH.13.5] «Que se ajuste a cualquier dispositivo» (David, 13-nov). Se mide el ANCHO DE LA TABLA, no la ventana (el menú
+       lateral cambia lo que queda). Medido con 7 personas: a 1024 px la tabla pedía 1,137 px en 884; a 768, en 707.
+       1) Angosta: la jornada en dos renglones («07:52–» / «17:00»), sin las pausas (se ven al tocar a la persona; lo que se
+          PASÓ sigue saliendo) y sin «Extra ganó / usó» (su detalle vive en Horas extra; queda el saldo). */
+    @container rs (max-width: 72rem) {
+      .rs-tabla td.rs-celda { min-width: 0; }
+      .rs-celda .j { white-space: normal; }
+      .rs-celda .t { display: none; }
+      .rs-c-gano, .rs-c-uso { display: none; }
+    }
+    /* 2) Más angosta: la columna Horario baja debajo del nombre. */
+    @container rs (max-width: 52rem) {
+      .rs-hor, .rs-hor-h { display: none; }
+      .rs-hor-movil { display: block; }
+      .rs-nom { min-width: 7.5rem; }
+    }
     /* Es un PIVOTE (persona x día): en un teléfono pierde el eje de los días (DESIGN_TABLES §6, caso B). Quedan
        quién es y sus totales; la semana día por día está en la ficha, en vertical. Se anuncia arriba. */
     @media (max-width: 34rem) {
       .rs-estrecha { display: block; margin: 0; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
-      th.rs-dia, td.rs-celda, .rs-hor, .rs-hor-h, tr.rs-sub { display: none; }
+      th.rs-dia, td.rs-celda, .rs-sub-dias, .rs-hor, .rs-hor-h, .rs-c-saldo { display: none; }
       .rs-nom { min-width: 9.5rem; position: static; border-right: 0; }
       .rs-clv { position: static; }
       .rs-scroll { max-height: none; }
@@ -201,6 +247,17 @@ export class RhReporteSemanalComponent {
   readonly saldoTexto = saldoHorasTexto;
 
   readonly hayAsignados = computed(() => this.todas().some((p) => !!p.horarioAsignado));
+
+  /**
+   * `[RH.13.5]` En pantalla la jornada es un rango, «07:52–17:00», como las comidas («13:00-14:00»): sin los espacios
+   * cabe la semana a 1280 px. La falta sigue «0 - 0» (es la marca del papel de RH, no un rango), y el PDF no cambia.
+   */
+  rango(c: { tipo: string; jornada: string }): string {
+    return c.tipo === 'dia' || c.tipo === 'marca' || c.tipo === 'curso' ? c.jornada.replace(' - ', '–') : c.jornada;
+  }
+
+  // Clv, Nombre, Horario + los días + Horas, Extra ganó, Extra usó, Extra saldo y Retardo (+ vs. horario). Antes contaba una
+  // de menos y la barra del departamento no llegaba a la última columna.
   readonly ncol = computed(() => this.columnas().length + 8 + (this.hayAsignados() ? 1 : 0));
 
   readonly modelo = computed(() => {
@@ -231,7 +288,7 @@ export class RhReporteSemanalComponent {
               // La salida antes de hora va en ámbar: se parte aquí, no en la plantilla.
               return { ...x, partes: x.salioAntes ? x.jornada.split(' - ') : null };
             }),
-            horario: horarioDe(p),
+            horario: horarioPartes(p),
             alta: cuentaIrregular(lista, 'alta'),
             baja: cuentaIrregular(lista, 'baja'),
             incs: [...incs.entries()].map(([codigo, etiqueta]) => ({ codigo, etiqueta })),

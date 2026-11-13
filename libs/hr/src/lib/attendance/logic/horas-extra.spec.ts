@@ -120,6 +120,26 @@ describe('[RH.1.10] cambio de día de descanso', () => {
   });
 });
 
+describe('[RH.6.6] Visita fuera (Mega Talento 028ac14)', () => {
+  // Lo recogen 08:00 y lo dejan 17:00 → 540 min.
+  const vf = (desde: string, hasta = desde) => ({ ...inc('visita_fuera', desde, 540, hasta), nota: 'visita a cliente' });
+  it('⭐ no checó el lunes 20 por una visita fuera: el día cuenta como justificado y suma sus 9 h, sin tocar horas extra', () => {
+    const e = escenario((f) => (f === '2026-07-20' ? null : undefined), { incidencias: [vf('2026-07-20')] });
+    const d = dia(e, '2026-07-20');
+    expect(d?.estado).not.toBe('falta');
+    expect(d?.netasMin).toBe(540);
+    expect([ana(e)?.faltas, ana(e)?.horasExtraUsadasMin]).toEqual([0, 0]);
+  });
+  it('⛔ NEGATIVA — una visita que cruza su domingo no le suma horas ese día (no trabajó)', () => {
+    const e = escenario(undefined, { incidencias: [vf('2026-07-18', '2026-07-20')] });
+    expect(dia(e, '2026-07-19')?.netasMin ?? 0).toBe(0);
+  });
+  it('⛔ NEGATIVA — sin la incidencia, el lunes que no checó es falta', () => {
+    const e = escenario((f) => (f === '2026-07-20' ? null : undefined));
+    expect(ana(e)?.faltas).toBe(1);
+  });
+});
+
 describe('[RH.1.10] día con incidencia sin checadas en el periodo', () => {
   it('pidió sólo el jueves 23 (no checó) con uso de horas extra todo el día: aparece y cuenta', () => {
     const e = escenario(undefined, { desde: '2026-07-23', hasta: '2026-07-23', incidencias: [inc('horas_extra', '2026-07-23', 540)] });

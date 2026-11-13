@@ -394,6 +394,14 @@ export interface HrAjusteHorasExtraDto {
   creadoEn: string;
 }
 
+/** `[RH.6.7]` Un pago de horas extras: el TOTAL pagado en una fecha, con su referencia. */
+export interface HrPagoHorasExtraDto {
+  id: string;
+  fecha: string;
+  minutos: number;
+  nota: string;
+}
+
 export interface HrPersonaHorasExtraDto {
   codigo: string;
   nombreCompleto: string;
@@ -403,11 +411,15 @@ export interface HrPersonaHorasExtraDto {
   salida: string | null;
   ganadasMin: number;
   usadasMin: number;
+  /** `[RH.6.7]` Lo que ya se le pagó en efectivo: descuenta del saldo. Opcional: una API anterior no lo manda. */
+  pagadasMin?: number;
   ajustesMin: number;
   saldoMin: number;
   ganadas: HrDiaHorasExtraDto[];
   usos: HrUsoHorasExtraDto[];
   ajustes: HrAjusteHorasExtraDto[];
+  /** `[RH.6.7]` Cada «Pago de horas extras» del banco. */
+  pagos?: HrPagoHorasExtraDto[];
 }
 
 /** `GET /hr/attendance/overtime` — el banco de horas extra de un sitio (o de una persona). */
