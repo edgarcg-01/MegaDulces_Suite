@@ -689,13 +689,19 @@ se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--appl
   UTC: 17 de los 19 cambiaron en Kepler ANTES del despliegue (lo esperado), 44320 en la ventana y **01033 DESPUÉS**
   —su costo sí entró por evento (`hop2:normalizeCost`, 20:24 y 20:28), su markup no—. Logs (Edgar, 4 h):
   `normalizeMarkup` está en la imagen y corre en `ods-live-mirror` (6 lotes) y `ods-reconcile-chicas` (2), **sin un
-  ⚠**. No fue una falla. ⚠️ **Hipótesis abierta, no probada:** carrera entre los dos carriles — los dos normalizan
-  el mismo SKU; si uno tomó su lectura de `kdpv` ANTES del cambio y espera el candado del producto, al soltarse
-  escribe el valor viejo encima del bueno (actualización perdida en READ COMMITTED: el `UPDATE … FROM` usa la foto
-  del inicio de la sentencia). Cuadra con el `xmin` (el producto se escribió 4 transacciones después de la fila
-  nueva y quedó con el valor de la noche); los logs no dan SKUs. **Prueba:** el árbitro de markup el 13-nov — si
-  aparece otro rezagado con su cambio en Kepler posterior al despliegue, el arreglo es bloquear las filas del
-  producto (`FOR UPDATE`) y recalcular en una sentencia aparte (foto nueva), en markup, costo y promo. Medir desde la
+  ⚠**. No fue una falla. ~~Hipótesis: carrera entre los dos carriles~~ → **DESCARTADA el 13-nov, la causa es el
+  BORRADO.** El árbitro dio 6 rezagados, los 6 con su cambio en Kepler DESPUÉS del despliegue (de 71 cambios, el
+  hop-2 tomó 65). La carrera no puede dejar un valor viejo: la sentencia tardía filtra el producto con su foto, donde
+  lo guardado coincide con su cálculo viejo, y no lo toca. Lo que sí cuadra: Kepler reacomoda los ESCALONES de precio
+  (`c3`) — el upsert de las filas que quedan recalcula el markup con los escalones viejos aún presentes, y el BORRADO
+  de ésos llega después por la reconciliación (`cdc_reconcile_chicas`: «borrados 162» a las 22:58, «108» a las
+  23:29) por `raw-delete`, que no recalculaba. Los 6 productos se escribieron entre 22:31 y 23:09 y cada uno tuvo
+  una reconciliación con borrados en los ~30 min siguientes; lo guardado no coincide con NINGUNA sucursal de hoy
+  (las 9 dicen lo mismo que Kepler) y en 28164 se reconstruye con dos escalones a 0.5 de distancia (9.6375 = media
+  de 10, 12, 8.525 y 8.025). Es el hueco que cierra `[CANON.6.14]` (`raw-delete` normaliza; su `pk` es la misma que
+  la del upsert, así que la llave es el SKU). Hasta desplegarlo, `import-margin.js --apply` una vez tras el
+  despliegue. ⚠️ El `xmin` no prueba que la foto fuera nueva: el xid se asigna al ESCRIBIR, no al empezar la
+  sentencia — «4 transacciones después» no dice nada de qué leyó. Medir desde la
   base no alcanzó: `pg_stat_statements` tampoco muestra el UPDATE de `normalizeCost`, que sí corrió (control
   negativo), así que su ausencia no prueba nada.
 
@@ -845,11 +851,16 @@ borrado.** `import-product-barcodes.js` corría cada 30 min (carril `prices`): ~
 - Pruebas: 11 ✓ (borrado de SKU y de una plaza por el camino real, wincaja intacta, cruce con el árbitro; negativas
   `normalize=false` y borrado de 0 filas) y **7 mutantes en rojo**. Vecinas re-corridas en verde (nombres, markup,
   promo, `hop2_fallas`, marcas, árbitro, `products_active`, `ods-pk-texto`). API: `tsc` exit 0, `db-health` 24 ✓.
-- **Para Edgar (D, no tocado):** los 102 códigos revividos desde Wincaja. Recomiendo dar de baja los **47** que Kepler
-  reemplazó por otro código real (el escáner de bodega los lee como CAJA cuando Kepler dice PAQ/PZA: error de
-  cantidad ×factor); los 50 que Kepler dejó sin código piden tu regla — `catalog.products.barcode` ya conserva el EAN
-  real cuando Kepler pone relleno (política del 2026-08-17), y lo consistente sería que el escáner también lo
-  conserve, pero con la unidad de Kepler, no `CJA`.
+- **Decisión de Edgar (2026-11-13): «hay que omitir los que Kepler ya reemplazó».** Re-medido ese día: 104 revividos;
+  49 con reemplazo, de los que **6 son el mismo código sin el cero de adelante** (`0664697025397` ↔ `664697025397`,
+  familia 1513x–1516x: EAN-13 contra UPC-A) — NO son un reemplazo y no se bajan (el lector que manda 13 dígitos sólo
+  encuentra esa fila; siguen con la unidad `CJA` de Wincaja, cosa aparte). Quedan **43** a la baja:
+  `import-product-barcodes.js --retirar-revividos --apply` (regla en `database/importers/lib/codigos-revividos.js`,
+  con lo que trae Kepler hoy según `computeBarcodes`). ⛔ Sólo DESPUÉS de desplegar esta ingesta: el script viejo los
+  revive en 30 min. Prueba: 15 ✓; 3 de 4 mutantes en rojo, el vivo es equivalente (el índice único impide una fila
+  Kepler viva y una Wincaja viva con el mismo código). Los 55 que Kepler dejó sin código (en la unidad o en todo)
+  siguen sin regla: `catalog.products.barcode` conserva el EAN real cuando Kepler pone relleno (política del
+  2026-08-17); lo consistente sería conservarlo también en el escáner, con la unidad de Kepler.
 
 **Después de la oleada 9 — `inventory.products` (2026-11-12, `[CANON.6.15]`): VISTA sobre el catálogo.** Era la foto de
 junio del FDW muerto (13,852 filas) más las altas que `refresh-inventory-products.js` le agregaba a las 05:10 (909),
