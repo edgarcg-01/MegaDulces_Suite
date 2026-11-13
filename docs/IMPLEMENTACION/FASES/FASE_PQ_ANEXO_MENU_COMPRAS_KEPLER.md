@@ -305,10 +305,10 @@ pantalla).
   `ops/prod/kepler-grants/pq110_cancelar_oc.sql`; lo corre el PM con `kepler-sql-todos.js` (pide la
   contraseña de superusuario y no la guarda), primero en 00 y luego en 01, 02, 06, 07 y 08. El permiso
   no enciende nada: el `DELETE` lo acota el adaptador de PQ.110 a una OC sin vale vivo.
-  **Aplicado el 2026-11-13 en 01, 06 y 07** (como `sa`, una transacción por servidor, `verificar`
-  antes = false y después = true). **Falta 00, 02 y 08:** su `pg_hba` no deja entrar a `sa` ni desde la
-  PC ni desde `md` (00 y 08 cortan la conexión desde la PC; ninguno acepta SSL). En 00 entra `postgres`
-  desde `md`; 02 y 08 los tiene que abrir quien administra Kepler, o correr ahí el archivo.
+  **Aplicado el 2026-11-13 en 00, 01, 06 y 07** (01/06/07 como `sa` desde la PC; 00 como `postgres`
+  desde `md`; una transacción por servidor, `verificar` antes = false y después = true). **Falta 02 y
+  08:** su `pg_hba` no deja entrar ni a `sa` ni a `postgres`, desde la PC ni desde `md`, y no aceptan
+  SSL. Los tiene que abrir quien administra Kepler, o correr ahí el archivo.
 - Siguen sin firma, del plan base: **D37** (¿la Suite escribe documentos que mueven inventario?),
   **D38** (¿escribe la aplicación?) y **D39** (Modifica = cancelar y reemitir).
 
