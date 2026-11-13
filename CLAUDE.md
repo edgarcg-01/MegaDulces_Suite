@@ -149,7 +149,7 @@
 | **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco; opera como **ventanilla bancaria** (ADR-112: billetes en la bóveda, ninguna salida sin orden, pagar es registrar); reemplaza a CGA | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
-| **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
+| **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel). Reestructurada el 2026-11-13: la Suite escribe cada estatus en Kepler (ADR-117). **E1 (consola maestra) abierta por Edgar el 2026-11-13 por encima del cupo** | 🔨 |
 | **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler). 9ª en curso: el PM abrió O3 (escribir el pago en Kepler) el 2026-11-04 por encima del cupo de 4 | 🔨 |
 | **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
 | **FC** | Flotilla: costo por unidad — reemplaza la hoja «TRANSPORTES 2026» (anexo FCU; todo con pantalla). **Pausada por cupo (2026-11-06).** | ⏸️ |

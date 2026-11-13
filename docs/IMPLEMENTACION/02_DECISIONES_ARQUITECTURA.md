@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 478 KB, 4267 líneas, 116 secciones.
+> **Índice navegable** — 479 KB, 4268 líneas, 116 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -122,7 +122,7 @@
 | 4114 | 4165 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
 | 4166 | 4241 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
 | 4242 | 4303 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
-| 4304 | 4395 | 5 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
+| 4304 | 4396 | 5 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4303,7 +4303,7 @@ medido se declara).
 
 ## ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su lugar; la Salida por Embarque sigue en Kepler
 
-**Fecha:** 2026-11-13 · **Estado:** ⏳ propuesto — falta la firma de Edgar (`[GP.12.0b]`) · **Fase:** GP
+**Fecha:** 2026-11-13 · **Estado:** ✅ aceptada — firmada por Edgar el 2026-11-13 (`[GP.12.0b]`) · **Fase:** GP
 ([plan de implementación](FASES/FASE_GP_PLAN_IMPLEMENTACION.md) §2) · **Enmienda:** ADR-086 (puntos 3 y 4) ·
 **Sigue el patrón de:** `[PQ.110]` (cancelar una OC en Kepler) · **Mide:** prod, sid `7688376744939610156`,
 sólo lectura
@@ -4387,7 +4387,8 @@ alguien los capturara (§2.2 del plan); hasta hoy, siete transiciones:
 
   Se miden con la foto antes del primer `UPDATE`.
 - **Hoy Kepler deja agregar productos al embarcar.** El 3.2 % de los renglones nace después del
-  pedido. Si la Suite lo permite o no es decisión de Edgar (P-GP.10).
+  pedido. **D29 (Edgar, 2026-11-13):** en la Suite se agrega sólo en el checado, con motivo y con el
+  nombre de quien lo agregó; nunca en el embarque.
 
 Relacionado: ADR-086 (lo enmienda) · ADR-092 y ADR-113 (escribir en Kepler clonando) · ADR-054 (el
 permiso es una clave) · ADR-056 (lo no medido se declara) · ADR-059 (la cifra se arbitra contra un

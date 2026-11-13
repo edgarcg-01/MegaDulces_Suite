@@ -17,7 +17,8 @@ MÉTRICA:  pedidos U-D-40 surtidos en la Suite / pedidos U-D-40 del periodo
 CAPA TOPE: C3
 ÁREA:      Logística (almacén)
 DUEÑO:     Edgar (PM). Dueño de piso por sucursal: por confirmar (P-GP.1)
-ESTADO:    🧪 lo construido (GP.1–GP.9) · ⬜ lo nuevo (GP.10–GP.16). Construir lo nuevo requiere cupo 🔨.
+ESTADO:    🔨 desde el 2026-11-13: E1 abierta POR ENCIMA DEL CUPO (7ª fase 🔨), aprobado por Edgar ese día.
+           GP.10.0 y GP.10.1 en 🧪 · ADR-117 firmado · lo construido antes (GP.1–GP.9) sigue 🧪.
 ```
 
 ---
@@ -265,6 +266,7 @@ capturista no registra, pronto los dos dejan de hacer su trabajo»*.
 | D25 | Un pedido cancelado a medio camino se resuelve con devolución | 9 | — |
 | D26 | La Suite escribe el **estatus** EMBARCADO; la *Salida por Embarque* (`U-D-41`, saca inventario, lleva la guía y de ahí sale la factura) **sigue en Kepler**. *Decidida por encargo del PM (2026-11-13): son capturas separadas (CEDIS tiene 67 embarcados sin `U-D-41`), y escribir un documento que mueve inventario es otra escala de riesgo* | 6–8 | entra en la enmienda a ADR-086 |
 | D27 | La escritura de SURTIDO va **en dos tiempos**: primero los pedidos surtidos completos; los que tienen diferencia, cuando la foto haya visto al menos 3 casos de cada transición con borrado y renumeración de renglones. *Decidida por encargo del PM (2026-11-13): bajar una cantidad hace que Kepler recalcule el importe, borre el renglón en cero y renumere el resto. El importe ya está verificado (GP.12.0d: 509 de 509 al centavo); el borrado y la renumeración tienen 2 casos* | 4b | ADR-117 |
+| D29 | En la Suite se puede **agregar un producto** al pedido sólo en el **checado**, con motivo y con el nombre de quien lo agregó; nunca en el embarque (resuelve P-GP.10). *Edgar, 2026-11-13* | 5 | ADR-117 |
 | D28 | Sucursal piloto: **Padre Hidalgo**. *Decidida por encargo del PM (2026-11-13): es el piloto de UB (misma bodega, mismo censo) y la de más pedidos (955 en 30 días)* | Piloto | — |
 
 **Decisiones de octubre que quedan sin efecto:** la tesis «la Suite no escribe en Kepler» y «el
@@ -287,7 +289,7 @@ arman en el checado, D12); GP.6 como cuadre (lo sustituye la bandeja de fallas d
 | P-GP.7 | Regla de «atorado» por etapa (D3) | Consola maestra, segunda vuelta | Edgar |
 | P-GP.8 | ~~Sucursal piloto~~ (Padre Hidalgo, D28) y la **fecha** de su META, que se fija al cerrar E4 | Métrica de la cabecera | Edgar |
 | P-GP.9 | ¿La Asignación de Transporte se hace en la Suite (y se escribe a Kepler) o sigue en Kepler? | E4 (GP.15.2) | Edgar |
-| P-GP.10 | ¿Se puede **agregar un producto** al pedido en piso (surtido, checado o embarque), como hoy deja Kepler? El 3.2 % de los renglones nace después del pedido (medido en 21 días; ERP_KEPLER §3.y.3), y en un embarque real entraron 2 productos. Cambia lo que se vende, así que no es sólo proceso. **Recomendación:** sí, sólo en el checado, con motivo y con el nombre de quien lo agregó; nunca en el embarque | GP.12 (2º tiempo), GP.13 | Edgar |
+| ~~P-GP.10~~ | **Resuelto: D29 (Edgar, 2026-11-13).** ¿Se puede **agregar un producto** al pedido en piso (surtido, checado o embarque), como hoy deja Kepler? El 3.2 % de los renglones nace después del pedido (medido en 21 días; ERP_KEPLER §3.y.3), y en un embarque real entraron 2 productos. Cambia lo que se vende, así que no es sólo proceso. **Recomendación:** sí, sólo en el checado, con motivo y con el nombre de quien lo agregó; nunca en el embarque | GP.12 (2º tiempo), GP.13 | Edgar |
 | UB.P4 | Croquis de pasillos y racks de la bodega piloto | Pasos 1–2 | Almacén piloto |
 
 ---
@@ -360,3 +362,4 @@ GP.7 (indicadores) y GP.8 (piloto) siguen, después de GP.15.
 | 2026-11-13 | Medición de uso real (§0) y recorrido proceso por proceso: D1–D25, pendientes P-GP.1–8, orden GP.10–GP.16. El plan anterior pasa a anexo | Edgar, Claude |
 | 2026-11-13 | E0 (sólo lectura): unidad de cantidades resuelta, Kepler recalcula el importe al bajar una cantidad, Salida por Embarque separada del estatus, D21 y D23 medidas. D4/D15 interpretadas, D26–D28 decididas por encargo del PM ([plan §2.1](FASE_GP_PLAN_IMPLEMENTACION.md)) | Claude |
 | 2026-11-13 | GP.10.0 en código (los cancelados ya no se cuentan como vivos). GP.12.0d verificado. Borrador de ADR-117 para D13/D17. Nuevo pendiente P-GP.10 (agregar productos en piso) | Claude |
+| 2026-11-13 | Edgar firma ADR-117, decide D29 (agregar productos sólo en el checado) y abre E1 por encima del cupo (GP pasa a 🔨, 7ª fase). El push espera. GP.10.1 en 🧪 | Edgar, Claude |
