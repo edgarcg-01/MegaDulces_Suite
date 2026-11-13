@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { ReclutamientoService } from './reclutamiento.service';
-import { ETAPAS, duracion, etapaLabel, hace, rebasaSla, siguienteEtapa, telefono } from './reclutamiento-formato';
+import { ETAPAS, duracion, esperando, etapaLabel, fechaCortaMx, hace, rebasaSla, siguienteEtapa, telefono, telefonoPartes } from './reclutamiento-formato';
 
 /**
  * `[RH.2.3]` El cliente y los textos de Reclutamiento. Lo que se defiende: los nombres de etapa son los de Mega Talento,
@@ -45,6 +45,32 @@ describe('[RH.2.3] formato de reclutamiento', () => {
     expect(rebasaSla('filtro_inicial', '2026-10-12T12:00:00Z', ahora)).toBe(false);
     expect(rebasaSla('contratado', '2026-01-01T00:00:00Z', ahora)).toBeNull();
     expect(rebasaSla('aptitudes', null, ahora)).toBeNull();
+  });
+
+  it('[RH.13.6] esperando: cuánto lleva sin respuesta, sin «hace»', () => {
+    const ahora = new Date('2026-10-12T18:00:00Z');
+    expect(esperando('2026-10-12T17:30:00Z', ahora)).toBe('menos de 1 h');
+    expect(esperando('2026-10-12T12:30:00Z', ahora)).toBe('5 h');
+    expect(esperando('2026-10-11T12:00:00Z', ahora)).toBe('1 día');
+    expect(esperando('2026-10-09T17:00:00Z', ahora)).toBe('3 días');
+    expect(esperando('2026-10-13T00:00:00Z', ahora)).toBe('menos de 1 h');   // reloj adelantado: nunca negativo
+    expect(esperando(null, ahora)).toBe('—');
+  });
+
+  it('[RH.13.6] teléfono en tres grupos (la separación es de CSS: copiado sale entero)', () => {
+    expect(telefonoPartes('5213511234567')).toEqual(['351', '123', '4567']);
+    expect(telefonoPartes('(351) 123-4567')).toEqual(['351', '123', '4567']);
+    expect(telefonoPartes('123')).toEqual(['123']);
+    expect(telefonoPartes(null)).toEqual([]);
+  });
+
+  it('[RH.13.6] fecha corta: sin el año si es el de hoy; con el año si no', () => {
+    const ahora = new Date('2026-11-13T18:00:00Z');
+    expect(fechaCortaMx('2026-11-12T16:00:00Z', ahora)).toMatch(/^12 nov\.?$/);
+    expect(fechaCortaMx('2025-12-03T16:00:00Z', ahora)).toMatch(/^3 dic\.? 2025$/);
+    // en hora de México: las 03:00 UTC del 1-nov todavía son el 31-oct
+    expect(fechaCortaMx('2026-11-01T03:00:00Z', ahora)).toMatch(/^31 oct/);
+    expect(fechaCortaMx(null, ahora)).toBe('—');
   });
 
   it('teléfono legible con los últimos 10 dígitos (el bot guarda 13)', () => {

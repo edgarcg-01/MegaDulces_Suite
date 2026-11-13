@@ -133,17 +133,74 @@ es, en la práctica, lo que se usa en el celular. Rutas de API → pantalla:
 | Puesto | Lo que más usa (días con uso de 30) | Pantalla |
 |---|---|---|
 | surtidor | `warehouse/presale-picking` (16 d), `reparto/surtido/waves/mine` (20 d), `users/me/work` (21 d) | `/almacen/surtir`, `/almacen/surtir-preventa`, `/almacen/surtir/ruta/:id`, «Mi trabajo» |
-| piso_tienda | `store/labels/notices`, `store/live/snapshot`, `users/me/work` (5 d: puesto nuevo) | `/tienda/etiquetas`, tienda en vivo, «Mi trabajo» |
-| encargado_tienda | `store/arqueo/turnos` (31 d), `store/labels/notices` (31 d), `finance/expenses/proofs/mine` (31 d) | `/tienda/arqueo`, `/tienda/etiquetas`, comprobantes de gasto |
+| piso_tienda | `store/live/snapshot`, `store/live/rhythm`, `users/me/work` (5 d: puesto nuevo) | Monitor en vivo, Ritmo del día, «Mi trabajo» |
+| encargado_tienda | `store/arqueo/turnos` (31 d), `finance/expenses/proofs/mine` (31 d) | `/tienda/arqueo`, comprobantes de gasto |
 | supervisor_ventas | `catalogs`, `commercial/orders`, `daily-captures` (22 d) | captura diaria (y la app del vendedor) |
 
 ⚠️ Universo: **por puesto, no por persona ni por dispositivo**; un encargado que usa el arqueo en
 escritorio cuenta igual. Contraste pendiente contra el log del Caddy (D1) antes de cerrar MOV.0.2.
 
+⛔ **Corrección del mismo día: los HITS no son visitas.** `store/labels/notices` lo llama la
+**campana de notificaciones** por poll (`notifications-bell.component.ts`), no la pantalla de
+Etiquetas: «piso y encargado usan Etiquetas» **no está medido**. `store/arqueo/turnos` también es
+un poll (cada 45 s), pero sólo corre con el Arqueo abierto, así que sus **días con uso** sí son uso.
+Regla para leer `ui_usage`: **días con uso, no hits**, y antes de atribuir una ruta a una
+pantalla, `grep` de quién la llama.
+
+⛔⛔ **Segunda corrección del mismo día: `ui_usage` NO sirve para la barra del celular.** El primer
+reordenamiento (commit `ee0413ca3`) puso el **Arqueo** primero en Tienda por sus 31 de 31 días en
+`ui_usage`, y la barra sólo existe en el celular. Medido después por dispositivo: el Arqueo se
+abre **9 persona-días en celular contra 685 en computadora**; «Ritmo del día», que entró 3º, **1**.
+Lo que el mismo universo usa en el celular es el Verificador y el Monitor en vivo (22 cada uno).
+
+**El instrumento correcto ya existía:** `commercial.portal_telemetry_events` (la escribe
+`UsoService` de `apps/view`) guarda **ruta + user agent + usuario** en cada muestra de
+`web_vital` y en cada `abrio_puerta`. Es la fuente de D1, sin tabla ni log nuevo. Script:
+`node .claude/skills/pm/uso-movil.js '^/tienda/'` (sólo lectura, verifica `system_identifier`; en Git Bash con `MSYS_NO_PATHCONV=1`).
+⚠️ Lo que no mide: `web_vital` se manda al cargar la página y al ocultarla, así que cuenta la
+pantalla donde se **entró o se dejó** la app, no cada navegación interna; `abrio_puerta` lleva la
+ruta de la landing (`/projects`), no la del destino. Es una cota inferior del uso, no un conteo.
+
+**Lo que se abre desde celular** (persona-días en 30 días, al 2026-11-13; 64 personas, 354
+persona-días en celular contra 2,169 en computadora):
+
+| Pantalla | Celular | Personas | Computadora | Puestos en celular |
+|---|---:|---:|---:|---|
+| `/finanzas/gastos` (captura) | 106 | 14 | 244 | 10 puestos: encargados, cajero, vendedor, promotor, supervisor, finanzas… |
+| `/finanzas/mis-gastos` | 72 | 16 | 282 | los mismos |
+| `/almacen/surtir` | 45 | 11 | 40 | surtidor (8 personas) |
+| `/finanzas/egresos` | 25 | 7 | 68 | dirección, finanzas |
+| `/tienda/verificador` | 22 | 8 | 87 | piso, encargado, cajero |
+| `/tienda/live` | 22 | 13 | 71 | dirección, encargado, piso |
+| `/tienda/arqueo` | 9 | 7 | **685** | — es trabajo de computadora |
+
+**Barra aplicada (medida en celular):**
+- **Tienda:** Verificador · Monitor en vivo · Arqueo · Lista de faltantes. Faltantes empata a 4
+  con Sucursales, Caducidades y Etiquetas; gana por ser la captura de piso, y es de las pocas que
+  se usan más en celular que en computadora. Caja (práctica) y Ritmo del día, 1 cada una, a «Más».
+- **Finanzas:** Gastos · Libros contables · Caja · Pagos. Gastos era el **8º** del menú: quien
+  firma o revisa lo tenía detrás de «Más».
+- **Almacén:** sin cambio (las áreas que ve el surtidor caben).
+
+⭐ **El hallazgo que no resuelve la barra:** Gastos es la pantalla nº 1 en celular de **diez
+puestos**, y la barra es **por área**. Un encargado parado en Tienda no la tiene a la mano: tiene
+que volver a `/projects` y entrar a Finanzas. Es el argumento medido para D7 (destinos por puesto,
+no por área): «capturar un gasto» debería estar en la barra de quien lo hace, en el área que sea.
+
 ### MOV.3.B — Barra inferior: las cinco preguntas (propuesta, sin código)
 
-Hoy, en celular, la suite sólo tiene el menú hamburguesa: llegar a la pantalla del puesto cuesta
-abrir el cajón, encontrar el grupo y tocar la entrada (2–3 toques, todos los días).
+> ⛔ **La premisa de esta propuesta cayó el mismo día (2026-11-13).** Decía «hoy, en celular, la
+> suite sólo tiene el menú hamburguesa». **Falso:** el layout tiene barra inferior desde mayo de
+> 2026 (`useBottomNav` / `bottomNavItems` en `layout.component.ts`): en celular muestra los
+> **primeros 4 ítems del menú del área** + «Más» (abre el cajón entero), con `safe-bottom` y
+> objetivos de 56 px. Se encontró al ir a construirla; el error fue diagnosticar contando
+> menciones en el código en vez de leer el layout.
+>
+> **Lo que queda del trabajo:** no es construir la barra, es **elegir sus 4 lugares por uso** y no
+> por el orden del menú. Falta medir qué ve hoy cada puesto en esos 4 lugares (depende de su
+> permiso y del área; en Almacén los ítems salen de las áreas WMS que alcanza). Ya se corrigió una
+> cosa: la etiqueta bajaba a 10 px (`--fs-nano`, «último recurso») y subió a 12 px (`--fs-xs`).
+> Las cinco preguntas de abajo siguen valiendo para esa reordenación.
 
 | # | Pregunta | Respuesta |
 |---|---|---|
@@ -157,9 +214,9 @@ abrir el cajón, encontrar el grupo y tocar la entrada (2–3 toques, todos los 
 
 | Puesto | 2º | 3º |
 |---|---|---|
-| surtidor | Surtir | Surtir preventa |
-| piso_tienda | Etiquetas | Tienda en vivo |
-| encargado_tienda | Arqueo | Etiquetas |
+| surtidor | Surtir | Revisión de pedidos |
+| piso_tienda | Verificador | Lista de faltantes |
+| encargado_tienda | Gastos | Verificador |
 | cualquier otro | las dos entradas del menú que más abrió (si no hay dato: sólo Mi trabajo y Menú) | |
 
 ```
@@ -180,12 +237,12 @@ la hamburguesa de arriba desaparece; su lugar es «Menú» abajo.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D1 | De dónde sale MOV.0.1 | a) log del Caddy en `md` · b) una tabla de telemetría nueva en la suite · c) ambas | **a)** No crea tabla ni escritura nueva y ya existe; se contrasta con `last_login_user_agent`. Sólo si el log no trae user-agent, se pasa a b). |
+| D1 | De dónde sale MOV.0.1 | a) log del Caddy en `md` · b) una tabla de telemetría nueva en la suite · c) ambas | **a)** No crea tabla ni escritura nueva y ya existe; se contrasta con `last_login_user_agent`. Sólo si el log no trae user-agent, se pasa a b). ⭐ **2026-11-13: la b) ya existía** — `commercial.portal_telemetry_events` guarda ruta + user agent + usuario (ver MOV.0.1); el log del Caddy queda como testigo independiente |
 | D2 | Cómo se compila iOS | a) Xcode Cloud · b) Codemagic · c) una Mac física de la empresa | **b) Codemagic**: compila Android e iOS desde el mismo lugar, los certificados viven en su bóveda (no en el repo público) y no exige runner propio. Costo a confirmar. |
 | D3 | Huella/cara para entrar | sí / no / después | **Después**: primero que las pantallas sirvan; es comodidad, no bloquea a nadie. |
 | D4 | ¿La suite se vuelve app nativa o sigue PWA? | a) PWA · b) Capacitor como el vendedor | **a) PWA** mientras los avisos y el escáner funcionen en ambos sistemas desde el navegador; se reabre sólo si iOS los bloquea (iOS sólo da push web a una PWA instalada en la pantalla de inicio). |
 | D5 | Cuenta Apple Developer (99 USD/año) y a nombre de quién | — | **Es del PM**: dinero y titularidad de la empresa. Sin ella no hay vendedor en iOS. Alternativa sin costo: vendedor como PWA instalada en iPhone; se pierde el GPS en segundo plano |
-| D6 | Barra inferior en celular (MOV.3.B) | a) como se propone · b) sólo Mi trabajo + Menú · c) no | **a)**: los destinos salen del uso medido por puesto, y el cajón completo sigue detrás de «Menú» |
+| D6 | Barra inferior en celular (MOV.3.B) — **ya existe**; la decisión es cómo se eligen sus 4 lugares | a) por uso medido del puesto · b) como hoy (orden del menú) | **a)**, tomada por Claude el 2026-11-13 (decisión de diseño); falta medir qué ve cada puesto hoy antes de tocar el orden |
 | D7 | Destinos fijos por puesto o elegidos por la persona | a) fijos (tabla de arriba) · b) que cada quien fije los suyos | **a) fijos** para empezar: la persona de piso no va a configurar nada; se reabre si piden cambiar |
 
 ---
@@ -219,3 +276,5 @@ la hamburguesa de arriba desaparece; su lugar es «Menú» abajo.
 |---|---|---|
 | 2026-11-13 | Propuesta escrita. HOY medido en `pg-prod`: 32 de 147 usuarios activos con último login desde celular; surtido y piso de tienda son los que más lo usan. Queda ⬜ por cupo. | Claude, a pedido de Edgar |
 | 2026-11-13 | Base global de celular, sin abrir la fase (CSS compartido, no pantallas), a pedido de Edgar: la suite **permite zoom**; campos a 16 px en táctil también para `.p-inputtext`; `overscroll-behavior: contain` en diálogos, cajones, listas y `side-peek`; todo `p-dialog` a todo el ancho bajo 40rem. Sección «Celular y toque» (M.1–M.8) en la skill `diseno`, tomada de las guías de Vercel **sin instalar su skill**. Se sacaron 6 pantallas vencidas de la deuda de `check:tables`. **Sin validación visual en celular** y presupuesto de bundle de `view` NO MEDIDO (lo dice el CI). Pendiente fuera de alcance: la tabla de `comercial-monitoreo-vecinal` (12 columnas, filas desplegables) para su dueño. | Claude, a pedido de Edgar |
+| 2026-11-13 | Barra inferior por uso medido (`movil` en `NavItem`): en Tienda entra el Arqueo. **Surtidor revisado, sin cambio**: aterriza en Almacén (`/almacen/surtir`), no en Reparto, y con sus permisos sólo alcanza dos áreas —Ubicaciones y Pedidos (→ Surtir)—, las dos caben en la barra. Lo que usa en 30 días (`ui_usage`, por días): sus olas de surtido 20, surtido de preventa 16, existencia y ubicaciones 12. | Claude, a pedido de Edgar |
+| 2026-11-13 | ⛔ **Corrección de la barra de Tienda empujada horas antes**: se había ordenado con `ui_usage`, que no distingue dispositivo; medida en celular con `commercial.portal_telemetry_events`, el Arqueo es trabajo de computadora (9 contra 685 persona-días). Tienda queda Verificador · Monitor en vivo · Arqueo · Faltantes; Finanzas, Gastos · Libros contables · Caja · Pagos (Gastos era el 8º y es la pantalla nº 1 en celular de diez puestos). D1 resuelta en los hechos: la telemetría con user agent ya existía. Spec 5/5. **Sin validación visual en celular.** | Claude, a pedido de Edgar |

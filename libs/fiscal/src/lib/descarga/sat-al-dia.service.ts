@@ -25,7 +25,8 @@ const ESPERA_MS = 60_000;
  *
  * ── Qué pide ────────────────────────────────────────────────────────────────────────────────────────
  * Lo decide `decidirAlDia` (función pura, con sus pruebas): desde el último día cubierto hasta hoy, una
- * a la vez, y nada si una solicitud dejó días sin cubrir. El porqué de cada regla está en `al-dia.ts`.
+ * a la vez. Si una solicitud dejó días sin cubrir, la siguiente los vuelve a pedir sola (`[PGP.110e]`); sólo
+ * se frena ante lo que pedir otra vez no arregla. El porqué de cada regla está en `al-dia.ts`.
  * Lo que decidió queda en `fiscal.jobs.result`; si está frenada, además lo dice el log en `warn`.
  *
  * Sólo escucha en el worker (`WORKER=true`), como el apareo de entradas (`GoodsReceiptTwinsService`).
@@ -111,7 +112,7 @@ export class SatAlDiaService implements OnModuleInit, OnModuleDestroy {
     const d = decidirAlDia(previas, hoy);
     if (d.accion === 'pedir') {
       const { id } = await this.descarga.crear({ rfcSolicitante: rfc, rol, tipo: 'CFDI', fechaIni: d.desde, fechaFin: d.hasta });
-      this.logger.log(`descarga automática: ${rol} del ${d.desde} al ${d.hasta} → solicitud ${id}`);
+      this.logger.log(`descarga automática: ${rol} del ${d.desde} al ${d.hasta} → solicitud ${id}${d.recupera ? ` (recupera: ${d.recupera})` : ''}`);
       return { ...d, rol, solicitud: id };
     }
     if (d.accion === 'frenada') this.logger.warn(`descarga automática de ${rol} FRENADA (${d.motivo}): ${d.detalle}`);

@@ -46,6 +46,12 @@ export interface HrCandidatoFilaDto {
   phone: string | null;
   phone_key: string | null;
   city_branch: string | null;
+  /**
+   * `[RH.13.6]` La zona con la que se agrupa la lista: una ciudad del catálogo, o `sin_ciudad`. La calcula el servidor con
+   * la MISMA regla del Resumen y del filtro de ciudad (`ciudadDe`): la pantalla no tiene una segunda regla que algún día
+   * cuente distinto.
+   */
+  ciudad: string;
   position_interest: string | null;
   /** La etapa con la que se lee (las viejas ya reubicadas; sin etapa = filtro_inicial). */
   stage: HrTalentEtapa;

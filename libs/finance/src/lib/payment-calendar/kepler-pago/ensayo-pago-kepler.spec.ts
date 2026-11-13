@@ -9,7 +9,7 @@ const entrada = (o: Partial<PagoKeplerEntrada> = {}): PagoKeplerEntrada => ({
   sucursal: '00', fecha: '2026-11-04', hora: '12:00', referencia: 'PGP-1', importe: 1160, cuentaTesoreria: '0005',
   destino: 'BBVA · CLABE 032180000118359719',
   proveedor: { codigo: 'C0001', rfc: 'GAM010101AB1', nombre: 'GAMAHUBIN', domicilio: ['', '', ''], dias: 30 },
-  facturas: [{ almacen: '00', tipo: 20, subtipo: 1, folio: '0009469', concepto: 'C-001', saldo: 1160, aplicado: 1160, iva: 160, ieps: 0, total: 1160 }],
+  facturas: [{ almacen: '00', tipo: 20, subtipo: 1, folio: '0009469', concepto: 'C-001', referencia: '0-F9760', saldo: 1160, aplicado: 1160, iva: 160, ieps: 0, total: 1160 }],
   ...o,
 });
 const plan = () => { const r = armarPagoKepler(entrada()); if (!r.ok) throw new Error(r.motivos.join()); return r.plan; };
@@ -39,5 +39,23 @@ describe('[PGP.105] el ensayo contra la captura de Tesorería', () => {
   });
   it('⛔ otro IVA (el proporcional de la Suite contra el de Tesorería)', () => {
     expect(compararConCaptura(plan(), real({ iva: 150 })).diferencias[0]).toMatch(/IVA/);
+  });
+});
+
+describe('[PGP.106] el ensayo compara también la póliza', () => {
+  const poliza = [{ cuenta: '102', cargo: 0, abono: 1160 }, { cuenta: '201', cargo: 1160, abono: 0 }];
+  it('⭐ la misma póliza que asentó Kepler: coincide', () => {
+    expect(compararConCaptura(plan(), real({ poliza })).coincide).toBe(true);
+  });
+  it('⛔ otra cuenta de banco en la póliza: se dice cuál', () => {
+    const r = compararConCaptura(plan(), real({ poliza: [{ cuenta: '103', cargo: 0, abono: 1160 }, { cuenta: '201', cargo: 1160, abono: 0 }] }));
+    expect(r.coincide).toBe(false);
+    expect(r.diferencias.join(' | ')).toMatch(/cuenta 102.*abono \$1160\.00.*abono \$0\.00/);
+    expect(r.diferencias.join(' | ')).toMatch(/cuenta 103/);
+  });
+  it('⛔ la réplica no trae la póliza: NO MEDIDO, nunca «coincide»', () => {
+    const r = compararConCaptura(plan(), real({ poliza: null }));
+    expect(r.coincide).toBe(false);
+    expect(r.diferencias).toEqual(['Póliza de Kepler: la réplica no la trae (NO MEDIDO)']);
   });
 });

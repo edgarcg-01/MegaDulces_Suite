@@ -1,4 +1,5 @@
 import { ivaProporcional } from '../../payment-calendar/kepler-pago/pago-kepler.armador';
+import type { PolizaKepler } from '../../shared/kepler-contable';
 
 /**
  * `[CB.62]` — **Las comisiones de la terminal, de la descarga del banco al idioma de Kepler, sin tocar Kepler.**
@@ -209,13 +210,12 @@ export interface GrupoComisiones {
 type Valor = string | number;
 
 /**
- * Una póliza `kdc2AAMM`: tipo (`c8`), fecha (`c2`) y renglones. El número (`c1`, `MAX+1` por mes y tipo), la
- * sucursal (`c14`) y el documento (`c15`–`c19`) los pone C2 al escribir. Medido en octubre: los 1,408 pagos
- * traen UNA póliza `E` de dos renglones (cargo 201, abono 102, su fecha y su referencia en `c7`); 272 de 273
- * gastos traen UNA póliza `D` con su fecha y referencia, el IVA en 122-001 (272 de 272) y un 611-003 por renglón.
- * La solicitud no hace póliza.
+ * La póliza `kdc2AAMM` vive en `shared/kepler-contable.ts` (un modelo para el pago a proveedor y las comisiones).
+ * Medido en octubre: los 1,408 pagos traen UNA póliza `E` de dos renglones (cargo 201, abono 102, su fecha y su
+ * referencia en `c7`); 272 de 273 gastos traen UNA póliza `D` con su fecha y referencia, el IVA en 122-001 (272 de
+ * 272) y un 611-003 por renglón. La solicitud no hace póliza.
  */
-export interface PolizaKepler { tipo: 'D' | 'E'; fecha: string; renglones: Record<string, Valor>[] }
+export type { PolizaKepler };
 
 export interface PlanComisionesKepler {
   /** La solicitud `X-A-15`: cabecera y renglones (`c6` folio lo pone C2, `MAX+1`). */

@@ -513,7 +513,7 @@
             [attr.aria-label]="item.label"
           >
             <i [ngClass]="item.icon" class="text-lg" aria-hidden="true"></i>
-            <span class="text-[10px] font-medium leading-none truncate max-w-full">{{ item.label }}</span>
+            <span class="text-xs font-medium leading-none truncate max-w-full">{{ item.label }}</span>
           </a>
         }
         @if (hasOverflowItems()) {
@@ -524,7 +524,7 @@
             aria-label="Más opciones"
           >
             <i class="pi pi-ellipsis-h text-lg" aria-hidden="true"></i>
-            <span class="text-[10px] font-medium leading-none">Más</span>
+            <span class="text-xs font-medium leading-none">Más</span>
           </button>
         }
       </nav>

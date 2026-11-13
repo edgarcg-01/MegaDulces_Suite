@@ -32,6 +32,7 @@ import { Permission } from '../../../core/constants/permissions';
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
 import { LANDING_ROUTE, resolveProjectForUrl } from '../../../core/constants/suite-map';
 import { construirMigas, type Miga } from './layout-crumbs';
+import { ordenarParaBarraMovil } from './layout-barra-movil';
 import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
@@ -148,6 +149,17 @@ interface NavItem {
    *  · se marca activo en cualquiera de las pantallas del área, no sólo en la de su `route`.
    */
   tabs?: readonly PageTab[];
+  /**
+   * `[MOV]` Lugar en la **barra inferior del celular** (1 = primero). Sin esto, la barra toma
+   * los primeros 4 del menú en su orden de escritorio. Se pone SÓLO con uso medido **en
+   * celular**; los items sin `movil` rellenan en el orden del menú.
+   *
+   * ⛔ La medida es por DISPOSITIVO: `commercial.portal_telemetry_events` (ruta + user agent),
+   * en persona-días. NO `analytics.ui_usage`, que no sabe de qué aparato vino la llamada: con
+   * ella el Arqueo entró primero en Tienda y en celular se abre 9 persona-días contra 685 en
+   * computadora (2026-11-13). La barra sólo existe en el celular.
+   */
+  movil?: number;
 }
 
 /**
@@ -693,8 +705,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[PDV.31]` La caja de mostrador va primero: es la tarea del mostrador. Modo práctica hasta D0/D1.
         { label: 'Caja (práctica)', icon: 'pi pi-shopping-cart', route: '/tienda/caja', permission: Permission.STORE_LIVE_VER,
           anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR] },
-        { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
-        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
+        // `[MOV]` Barra del celular en Tienda, medida en celular (persona-días, 30 días al 2026-11-13):
+        // Verificador 22 · Monitor en vivo 22 · Arqueo 9 · Faltantes 4 (empate a 4 con Sucursales,
+        // Caducidades y Etiquetas: gana la captura de piso, la única que se usa más en celular que
+        // en computadora junto con Sucursales). Caja (práctica) 1 y Ritmo del día 1 quedan en «Más».
+        { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER, movil: 1 },
+        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER, movil: 2 },
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
         { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },
         { label: 'Cajas abiertas',  icon: 'pi pi-inbox',      route: '/tienda/cajas',    permission: Permission.STORE_LIVE_VER },
@@ -702,7 +718,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // cliente enfrente. `anyOf` porque la cajera sólo tiene CAPTURAR — con el gate en VER el
         // item no le aparecería en el menú, que es el mismo defecto que tuvo Caducidades.
         { label: 'Lista de faltantes', icon: 'pi pi-flag',    route: '/tienda/faltantes', permission: Permission.STORE_STOCKOUT_VER,
-          anyOf: [Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR] },
+          anyOf: [Permission.STORE_STOCKOUT_VER, Permission.STORE_STOCKOUT_CAPTURAR], movil: 4 },
       ],
     },
     {
@@ -713,7 +729,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
         // la vista por persona son el mismo tema, no dos modulos.
         // [NAV.1] Arqueo y Por cajera: una entrada, dos pestañas.
-        { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', tabs: ARQUEO_TABS },
+        { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', tabs: ARQUEO_TABS, movil: 3 },
         // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
         // en VER, la pantalla donde trabaja no le aparecía en el menú.
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
@@ -800,7 +816,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
          * lista que leen la barra y esta entrada. `route` queda como valor por omisión:
          * `conDestino()` la reemplaza por la PRIMERA pestaña que la persona ve.
          */
-        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS },
+        { label: 'Caja', icon: 'pi pi-money-bill', route: '/finanzas/caja-general', tabs: CAJA_TABS, movil: 3 },
         // `[CGA-A.38]` El espejo del Access Control: movimientos hasta el 10-oct; desde el 12 la caja
         // se opera en «Caja». ⛔ Otra pantalla y otro circuito: se retira en `CG.16`, no se mete en Caja.
         { label: 'Control (histórico)', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
@@ -817,7 +833,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
          * la MISMA que pinta la barra de arriba de cada pantalla. `[PGP.7]` Lleva al Calendario, que
          * es donde se hace el pago.
          */
-        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS },
+        { label: 'Pagos', icon: 'pi pi-send', route: '/finanzas/calendario-pagos', tabs: PAGOS_TABS, movil: 4 },
         // `[NAV.7]` Estado de cuenta acreedores + Cuadre y deuda + Cuentas por pagar: la deuda que se
         // mira antes de pagar, junto a Pagos (ver `deuda-proveedores-tabs.ts`).
         { label: DEUDA_PROVEEDORES_LABEL, icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', tabs: DEUDA_PROVEEDORES_TABS },
@@ -827,7 +843,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
          * pestaña que la persona ve. «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de gastos»
          * (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas.
          */
-        { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS },
+        // `[MOV]` Barra del celular en Finanzas, medida en celular (persona-días, 30 días al 2026-11-13):
+        // Gastos 178 (captura 106 + Mis gastos 72; las dos pantallas más abiertas desde celular en
+        // toda la suite, 10 puestos) · Libros contables 25 · Caja 6 · Pagos 4. Aquí Gastos era el 8º
+        // del menú: quien firma o revisa lo tenía detrás de «Más».
+        { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS, movil: 1 },
       ],
     },
     {
@@ -835,7 +855,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // después de Gastos: Egresos contables + Gastos es el par que más se abre junto (26 visitas).
       title: 'Registro y análisis',
       items: [
-        { label: LIBROS_CONTABLES_LABEL, icon: 'pi pi-book', route: '/finanzas/egresos', tabs: LIBROS_CONTABLES_TABS },
+        { label: LIBROS_CONTABLES_LABEL, icon: 'pi pi-book', route: '/finanzas/egresos', tabs: LIBROS_CONTABLES_TABS, movil: 2 },
         { label: MAAT_LABEL, icon: 'pi pi-sparkles', route: '/finanzas/hallazgos', tabs: MAAT_TABS },
       ],
     },
@@ -1481,7 +1501,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   bottomNavItems = computed(() => {
     if (!this.useBottomNav()) return [];
-    return [...this.navItems()].slice(0, 4);
+    return ordenarParaBarraMovil(this.navItems()).slice(0, 4);
   });
 
   hasOverflowItems = computed(() => {
