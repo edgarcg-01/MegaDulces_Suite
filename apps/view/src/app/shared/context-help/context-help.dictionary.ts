@@ -667,14 +667,14 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // [MKT.11] Ranking de promociones (antes el Excel «RANKING SEMANA NN» de Mercadotecnia).
   'mkt-ranking': {
     title: 'Ranking de promociones — cómo se calcula',
-    intro: 'Mide qué tanto se aplicaron las promociones de la semana en cada sucursal o vendedor. La venta sale sola de Kepler: lo único que captura Mercadotecnia es qué promociones cuentan y su objetivo.',
+    intro: 'Mide qué tanto se aplicaron las promociones de la semana en cada sucursal o vendedor. Las promociones y su venta salen solas de Kepler (las mismas que ve la app de vendedor): lo único que captura Mercadotecnia es el objetivo, si quiere uno distinto del dinámico.',
     groups: [
       {
         heading: 'Las cifras',
         entries: [
           { term: 'Venta', def: 'Las veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. En sucursales cuenta el mostrador; vecinal, rutas y televenta tienen su propio ranking.' },
           { term: 'Objetivo', def: 'Cuántas veces debe aplicarse por semana. Si Mercadotecnia fija uno, gana el suyo; si no, va el dinámico.' },
-          { term: 'Dinámico', def: 'El objetivo que se calcula solo cada semana: el promedio de lo aplicado en las 4 semanas anteriores dentro de la vigencia, hacia arriba y mínimo 1. Sin ninguna semana de historia no hay dinámico: la promoción queda sin objetivo.' },
+          { term: 'Dinámico', def: 'El objetivo que se calcula solo cada semana: el promedio de lo aplicado en las 4 semanas anteriores (desde que la promoción empezó a venderse), hacia arriba y mínimo 1. Sin ninguna semana de historia no hay dinámico: la promoción queda sin objetivo.' },
           { term: 'Producto', def: 'El producto que activa la promoción y lo vendido de él en la semana. Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».' },
           { term: 'Por promoción', def: 'El mismo cálculo visto al revés: cada promoción con el cubrimiento promedio de las sucursales o vendedores que la tienen, y cuántos llegaron a su objetivo.' },
           { term: 'Cubrimiento', def: 'Venta entre objetivo, con tope de 100 % por promoción: cumplir de más una promoción no tapa las que no se cumplieron.' },
@@ -683,9 +683,9 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
-        heading: 'Por qué se da de alta',
+        heading: 'Qué promociones cuentan',
         entries: [
-          { term: 'Vigencia', def: 'Kepler no guarda cuándo empieza ni cuándo termina una promoción, y reutiliza el mismo código para otra. Por eso se da de alta con su vigencia; al vencer deja de contar sola.' },
+          { term: 'Las de la semana', def: 'Toda promoción de Kepler («= GRATIS») que se vendió esa semana en ese canal. Nadie las da de alta. Cada una cuenta en las sucursales o vendedores que la vendieron esa semana o en las 4 anteriores.' },
           { term: 'Código reutilizado', def: 'Si Kepler vendió el código con otra descripción, el detalle lo avisa: puede ser otra promoción con el mismo código.' },
         ],
       },
@@ -699,7 +699,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Cómo se llena',
         entries: [
-          { term: 'Los tickets', def: 'Los de tus turnos que llevan una promoción que Mercadotecnia está midiendo, tal como los registró Kepler: folio, caja y cuántas veces se aplicó cada promoción. No hay que teclear cantidades.' },
+          { term: 'Los tickets', def: 'Los de tu sucursal que llevan una promoción de Kepler, tal como los registró: folio, caja, cajero y cuántas veces se aplicó cada promoción. No hay que teclear cantidades.' },
           { term: 'La persona', def: 'Sale de quien checó en el reloj de tu sucursal en los últimos 30 días. Si alguien no aparece, es que no ha checado: avisa a RH.' },
           { term: 'Asignar los vacíos', def: 'Pone a la misma persona en todos los tickets que todavía no tienen. Revisa antes de guardar: puedes cambiar cualquiera.' },
           { term: 'Guardar', def: 'Nada se guarda hasta que presionas «Guardar». Si sales con cambios, la pantalla te avisa.' },

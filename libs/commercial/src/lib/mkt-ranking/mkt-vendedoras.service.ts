@@ -16,10 +16,16 @@ import { sumarDias } from './mkt-ranking.logic';
  *    y casi nadie tiene puesto (12 de 823 ligados a usuario): por eso la lista trae a todos.
  *  · LA CAJERA: sólo QUIÉN. Se guarda la clave del reloj y el nombre de ese momento.
  *
- * Alcance: la cajera ve los tickets de SUS turnos (`kdpv_folio_caja.c8` = su usuario, como el
- * arqueo); quien supervisa (`verTodo`) ve los de la sucursal. La escritura se valida contra el
- * alcance de sucursal (`ScopeService.assertCanWrite`) y cada ticket se vuelve a buscar en Kepler:
- * no se guarda un ticket que no existe, ni de otro turno, ni una persona que no está en la lista.
+ * Alcance (`[MKT.23]`, 2026-11-13, opción A de David): quien captura ve los tickets de SU SUCURSAL,
+ * no sólo los de sus turnos. Antes se filtraba por `kdpv_folio_caja.c8` = usuario de la Suite, y
+ * medido en prod (6–13 nov) sólo 17 de 36 usuarios de caja de Kepler tienen un usuario idéntico en
+ * la Suite: 221 de 625 tickets (35 %) no los veía ninguna cajera, y en la 06 ninguno. El cajero de
+ * cada ticket se sigue mostrando. La escritura se valida contra el alcance de sucursal
+ * (`ScopeService.assertCanWrite`) y cada ticket se vuelve a buscar en Kepler: no se guarda un
+ * ticket que no existe ni una persona que no está en la lista.
+ *
+ * Promociones (`[MKT.23]`): las de Kepler (`catalog.products.is_promo`), como la app de vendedor y
+ * el ranking (`[MKT.22]`). Antes eran las «dadas de alta», que en prod eran 0: la pestaña salía vacía.
  */
 
 export interface PersonaVendedora { code: string; nombre: string; promotora: boolean }
@@ -50,8 +56,6 @@ export interface TicketsDeTurnos {
 
 export interface AsignacionDto { doc_tipo: number; caja: string; folio: string; person_code: string | null }
 
-/** Un usuario sin clave no es la cajera de ningún turno: no ve ningún ticket (y no se confunde con «ver todo»). */
-const SIN_USUARIO = '#sin-usuario#';
 const DIAS_DEFAULT = 7;
 const DIAS_TOPE = 30;
 const n = (v: unknown) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -112,28 +116,32 @@ export class MktVendedorasService {
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
   }
 
+  /** `[MKT.23]` Las promociones de Kepler con su nombre: las mismas que ve la app de vendedor. */
+  private async promosKepler(trx: Knex.Transaction): Promise<Map<string, string>> {
+    const r = await trx.raw(
+      `SELECT btrim(sku) code, (array_agg(btrim(nombre) ORDER BY activo DESC, updated_at DESC NULLS LAST))[1] nombre
+         FROM catalog.products
+        WHERE is_promo AND deleted_at IS NULL AND sku IS NOT NULL AND btrim(sku) <> ''
+        GROUP BY 1`);
+    return new Map((r.rows as Array<{ code: string; nombre: string | null }>).map((x) => [x.code, x.nombre ?? x.code]));
+  }
+
   /**
-   * Los tickets de mostrador con una promoción DADA DE ALTA (vigente ese día, canal mostrador, esa
-   * sucursal), con su turno; sólo los de los turnos de `cajero` salvo que vea toda la sucursal.
+   * Los tickets de mostrador de la sucursal con una promoción de Kepler, con su turno y su cajero;
+   * `cajero` (opcional) deja sólo los de sus turnos — hoy nadie lo pide (`[MKT.23]`).
    */
   private async ticketsConPromo(trx: Knex.Transaction, sucursal: string, desde: string, hasta: string, cajero: string | null): Promise<TicketConPromo[]> {
+    const promos = await this.promosKepler(trx);
+    if (!promos.size) return [];
     const r = await trx.raw(
-      `WITH pr AS (
-         SELECT code, mecanica, vigencia_desde, vigencia_hasta FROM commercial.mkt_ranking_promos
-          WHERE deleted_at IS NULL AND activo AND 'mostrador' = ANY(canales)
-            AND (warehouse_codes IS NULL OR ? = ANY(warehouse_codes))
-            AND vigencia_desde <= ? AND (vigencia_hasta IS NULL OR vigencia_hasta >= ?)
-       ),
-       l AS (
+      `WITH l AS (
          SELECT l.doc_tipo, l.caja, l.folio, l.business_date, l.total_documento, l.sku, sum(l.qty) qty
            FROM analytics.v_kepler_sales_lines l
           WHERE l.warehouse_code = ? AND l.canal = 'mostrador' AND l.business_date BETWEEN ? AND ?
-            AND l.sku IN (SELECT code FROM pr)
+            AND l.sku = ANY(?::text[])
           GROUP BY 1, 2, 3, 4, 5, 6
        )
        SELECT l.doc_tipo, l.caja, l.folio, l.business_date, l.total_documento, l.sku, l.qty,
-              (SELECT p.mecanica FROM pr p WHERE p.code = l.sku AND l.business_date BETWEEN p.vigencia_desde AND COALESCE(p.vigencia_hasta, l.business_date)
-                ORDER BY p.vigencia_desde DESC LIMIT 1) mecanica,
               NULLIF(ltrim(btrim(h.c80::text), '0'), '') apertura,
               NULLIF(btrim(f.c8), '') cajero
          FROM l
@@ -145,12 +153,10 @@ export class MktVendedorasService {
             WHERE f.sucursal = ? AND btrim(f.c1) = ? AND f.c3::bigint::text = NULLIF(ltrim(btrim(h.c80::text), '0'), '')
             ORDER BY f.c5 DESC LIMIT 1
          ) f ON true`,
-      [sucursal, hasta, desde, sucursal, desde, hasta, sucursal, sucursal, sucursal, sucursal]);
+      [sucursal, desde, hasta, [...promos.keys()], sucursal, sucursal, sucursal, sucursal]);
 
     const porTicket = new Map<string, TicketConPromo>();
     for (const x of r.rows as Array<Record<string, unknown>>) {
-      // Sólo cuenta si la promo estaba vigente ESE día (el código pudo ser otra promo antes).
-      if (!x['mecanica']) continue;
       const cajeroTicket = (x['cajero'] as string | null)?.toUpperCase() ?? null;
       if (cajero && cajeroTicket !== cajero) continue;
       const t = { doc_tipo: n(x['doc_tipo']), caja: String(x['caja']).trim(), folio: String(x['folio']).trim() };
@@ -159,7 +165,7 @@ export class MktVendedorasService {
         ...t, business_date: ymd(x['business_date']), turno_apertura: (x['apertura'] as string) ?? null,
         cajero: cajeroTicket, total: n(x['total_documento']), promos: [], vendedora: null,
       };
-      actual.promos.push({ code: String(x['sku']), mecanica: String(x['mecanica']), cantidad: n(x['qty']) });
+      actual.promos.push({ code: String(x['sku']), mecanica: promos.get(String(x['sku'])) ?? String(x['sku']), cantidad: n(x['qty']) });
       porTicket.set(k, actual);
     }
     return [...porTicket.values()].sort((a, b) =>
@@ -167,11 +173,12 @@ export class MktVendedorasService {
   }
 
   /** Lo que ve el arqueo: los tickets con promoción de sus turnos, la lista de personas y lo ya asignado. */
-  async tickets(sucursalPedida: string | undefined, diasPedidos: string | undefined, usuario: string | undefined, verTodo: boolean): Promise<TicketsDeTurnos> {
+  async tickets(sucursalPedida: string | undefined, diasPedidos: string | undefined, _usuario?: string, _verTodo?: boolean): Promise<TicketsDeTurnos> {
     const sucursal = await this.resolverSucursal(sucursalPedida);
     const d = Number(diasPedidos ?? DIAS_DEFAULT);
     const dias = Math.min(DIAS_TOPE, Math.max(0, Number.isFinite(d) ? Math.floor(d) : DIAS_DEFAULT));
-    const cajero = verTodo ? null : (usuario ?? '').trim().toUpperCase() || SIN_USUARIO;
+    // `[MKT.23]` Toda la sucursal: el filtro por turno dejaba fuera el 35 % de los tickets (ver arriba).
+    const cajero = null;
     const hasta = todayMx();
     const desde = sumarDias(hasta, -dias);
     return this.tk.run(async (trx) => {
@@ -187,7 +194,7 @@ export class MktVendedorasService {
       ]));
       for (const t of tickets) t.vendedora = de.get(llave(t)) ?? null;
       return {
-        sucursal, dias, ve_toda_la_sucursal: verTodo, tickets, personas,
+        sucursal, dias, ve_toda_la_sucursal: true, tickets, personas,
         asignados: tickets.filter((t) => t.vendedora).length,
         consultado_at: new Date().toISOString(),
       };
@@ -199,12 +206,12 @@ export class MktVendedorasService {
    * Kepler dentro del alcance de quien guarda (su turno, o la sucursal si supervisa) y la persona
    * debe estar en la lista del reloj: el nombre lo pone el servidor, no la pantalla.
    */
-  async guardar(sucursalPedida: string | undefined, items: AsignacionDto[] | undefined, usuario: { id?: string; username?: string }, verTodo: boolean): Promise<{ guardados: number; quitados: number }> {
+  async guardar(sucursalPedida: string | undefined, items: AsignacionDto[] | undefined, usuario: { id?: string; username?: string }, _verTodo?: boolean): Promise<{ guardados: number; quitados: number }> {
     const sucursal = await this.resolverSucursal(sucursalPedida);
     if (!Array.isArray(items) || !items.length) throw new BadRequestException('No hay nada que guardar');
     if (items.length > 500) throw new BadRequestException('Demasiados tickets en una sola captura');
     const tenantId = this.tenantCtx.requireTenantId();
-    const cajero = verTodo ? null : (usuario.username ?? '').trim().toUpperCase() || SIN_USUARIO;
+    const cajero = null; // `[MKT.23]` toda la sucursal, igual que al listar
     const hasta = todayMx();
     const desde = sumarDias(hasta, -DIAS_TOPE);
     return this.tk.run(async (trx) => {
@@ -218,7 +225,7 @@ export class MktVendedorasService {
       let quitados = 0;
       for (const it of items) {
         const t = ticketDe.get(llave({ doc_tipo: n(it?.doc_tipo), caja: String(it?.caja ?? ''), folio: String(it?.folio ?? '') }));
-        if (!t) throw new BadRequestException(`El ticket ${it?.caja}-${it?.folio} no es de tus turnos con promoción (o ya pasaron ${DIAS_TOPE} días).`);
+        if (!t) throw new BadRequestException(`El ticket ${it?.caja}-${it?.folio} no es de esta sucursal con promoción (o ya pasaron ${DIAS_TOPE} días).`);
         const where = { tenant_id: tenantId, warehouse_code: sucursal, doc_tipo: t.doc_tipo, caja: t.caja, folio: t.folio };
         if (it.person_code === null || it.person_code === undefined || String(it.person_code).trim() === '') {
           quitados += await trx('commercial.mkt_promo_ticket_sellers').where(where).del();
