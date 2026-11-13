@@ -12,6 +12,8 @@
 --    columna ni por fila en Kepler; lo acota el adaptador (una OC, su sucursal, su folio, sin vale vivo).
 -- ⚠️ `kepler_push` ya tiene UPDATE (c43) y UPDATE (c115) en md.kdm1 (cot37); aquí se agregan las demás.
 --
+-- 2026-11-13: aplicado en los 9 (00, 01, 02, 06, 07, 08 primero; 03, 04 y 05 después, desde md, cuando el PM
+--   abrió su pg_hba). Verificado como kepler_push en los 9: el bloque «verificar» completo = true.
 -- Correr con (primero CEDIS, luego las sucursales donde la Suite ya escribe OC: 01, 02, 06, 07, 08):
 --   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/pq110_cancelar_oc.sql --servidores 00
 --   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/pq110_cancelar_oc.sql --servidores 00 --aplicar
