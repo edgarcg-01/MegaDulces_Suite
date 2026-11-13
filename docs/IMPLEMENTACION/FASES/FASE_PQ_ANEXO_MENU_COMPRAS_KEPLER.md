@@ -164,9 +164,20 @@ captura si no hay vale.
 | N nueva | sin vale | 45 | ≈ $4.3 M |
 | A | sin vale | 6 | ≈ $1.3 M |
 
-**Material.** ~$11 M de pedido parcial que nadie ha cerrado y que, si la Suite lo cuenta como «en
-camino», **frena el sugerido de compra**. ⚠️ Hipótesis sin medir: si el pedido de `/compras/pedido` usa
-el saldo de las OC abiertas como tránsito. Se verifica antes de construir PQ.111.
+**Material, pero no por donde se suponía.** ~$11 M de pedido parcial que nadie ha cerrado. Se verificó
+(2026-11-13, en el código) si eso **frena el sugerido** de `/compras/pedido`: **no**. Desde el
+2026-10-09 la política de tránsito es `'ignorar'` (`commercial-replenishment/transito.ts`,
+`POLITICA_TRANSITO`, pedido de Edgar: *«hay muchas ordenes que no cumplen o se ignoran»*): el
+tránsito no se resta, sólo se muestra en «En camino». El costo de las OC sin cerrar es otro, y es el
+que justifica PQ.111:
+
+- **La columna «En camino» muestra papel.** Las OC que nunca van a llegar aparecen como mercancía que
+  viene; el comprador decide a ojo con ese dato.
+- **La compra doble conocida.** `transito.ts` documenta que, al ignorar el tránsito, el motor vuelve a
+  sugerir lo que sí llega esa semana (38 OC de menos de 7 días, $6.6 M al medirlo). Se aceptó **porque
+  el papel estaba sucio**. Con las OC viejas saldadas, se puede volver a restar el tránsito reciente
+  (política `'curva'` o una ventana corta, como hace `ya-pedido-sucursal.ts` con 7 días para los
+  traspasos) sin quedarse corto. Esa es la ganancia de PQ.111, y se mide antes y después.
 
 **Qué decide esto:**
 - **PQ.110 es un botón «Cancelar OC» para OC sin vale**, no «reemplazar OC» (no hay recapturas que
@@ -174,7 +185,8 @@ el saldo de las OC abiertas como tránsito. Se verifica antes de construir PQ.11
 - **La recepción anulada entera (112) es «Baja» del vale y de la orden de entrada** → va con PQ.112, desde
   el Andén. PQ.110 **se niega** a cancelar una OC con vale vivo y dice por qué.
 - **PQ.111 sigue** (criterio de PQ.125 cumplido): el siguiente paso es el testigo de un saldado real en el
-  Kepler vivo y confirmar si el tránsito del pedido cuenta esas OC.
+  Kepler vivo. El tránsito del pedido **no** cuenta esas OC hoy (política `'ignorar'`); el objetivo de
+  saldar es limpiar el papel para poder volver a restar el tránsito reciente.
 - **Preguntar** (como parámetro, no por WhatsApp) a la 01, a `COMPRAS` y a `42YAGL` el motivo de sus
   cancelaciones: el motivo se vuelve el catálogo de razones del botón de PQ.110.
 
