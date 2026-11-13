@@ -23,6 +23,12 @@ import { traspasosSinPareja, type MovimientoDeTraspaso } from './traspasos-sin-p
 
 const n = (v: any) => Number(v) || 0;
 
+/** `[CB.69]` Un TI/TE del periodo tal como lo lee `diagnostico` (knex devuelve `numeric` como string). */
+interface FilaTraspaso {
+  id: string | number; fecha: string; account_label: string | null; alias: string; concept: string | null;
+  entra: string | number; sale: string | number;
+}
+
 /**
  * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. Empareja
  * por cuenta enlazada, dirección e importe al centavo; si el banco tiene k movimientos de un mismo
@@ -1329,7 +1335,7 @@ export class FinanceBankService {
     // 1. Movimientos sin clasificar (+ evidencia: los grupos que más pesan = qué regla agregar).
     if (n((sinClas as any)?.n) > 0) {
       // [CB.70] Un renglón sin código ni concepto decía «Cód — · "(sin concepto)…"» (11 de 31 en nov-2026, $278,842).
-      const evidencia = (sinClasBuckets as any[]).map((b) => {
+      const evidencia = (sinClasBuckets as Array<{ code: string; concepto: string | null; n: number | string; monto: number | string }>).map((b) => {
         const concepto = String(b.concepto || '').trim();
         return {
           label: b.code === '—' && !concepto ? 'Sin código ni concepto en el libro'
@@ -1382,7 +1388,7 @@ export class FinanceBankService {
           .select('bm.id', trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`), 'ba.account_label', 'bm.concept',
             trx.raw(`coalesce(ba.alias, ba.bank || ' ' || ba.account_label) AS alias`),
             trx.raw('bm.amount_in::numeric AS entra'), trx.raw('bm.amount_out::numeric AS sale')))
-          .map((r: any) => ({ id: String(r.id), fecha: r.fecha, cuenta: String(r.account_label ?? ''), alias: r.alias,
+          .map((r: FilaTraspaso) => ({ id: String(r.id), fecha: r.fecha, cuenta: String(r.account_label ?? ''), alias: r.alias,
             entra: n(r.entra), sale: n(r.sale), concepto: r.concept ?? null })));
       } catch (e) {
         this.logger.warn(`[CB.69] diagnostico ${period}: no se pudieron leer los traspasos: ${(e as Error).message}`);
@@ -1399,7 +1405,8 @@ export class FinanceBankService {
       // Las cuentas sin estado de cuenta ya están calculadas arriba: si hay alguna, es la
       // explicación más probable y conviene decirla en la acción, no dejarla para adivinar.
       // [CB.68] Sólo cuentas de banco (FACTORAJE no explica un traspaso), por su alias.
-      const faltantes = (cuentasSinEstado as any[]).filter((a) => (a.kind ?? 'bank') === 'bank').map((a) => a.alias).filter(Boolean);
+      const faltantes = (cuentasSinEstado as Array<{ kind: string | null; alias: string | null }>)
+        .filter((a) => (a.kind ?? 'bank') === 'bank').map((a) => a.alias).filter(Boolean);
       const cuantos = pares?.sueltos.length ?? 0;
       items.push({ tipo: 'traspaso_descuadre', severidad: 'warn', importe: Math.abs(bal.traspasos.delta),
         titulo: 'Los traspasos internos no netean',
@@ -1522,7 +1529,7 @@ export class FinanceBankService {
       period,
       ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100,
       movimientos: n((totales as any)?.movs),
-      movimientos_hasta: (totales as any)?.hasta ?? null,
+      movimientos_hasta: (totales as { hasta?: string | null } | undefined)?.hasta ?? null,
       cuadra,
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { traspasosSinPareja, type MovimientoDeTraspaso } from './traspasos-sin-pareja';
 
 let id = 0;
