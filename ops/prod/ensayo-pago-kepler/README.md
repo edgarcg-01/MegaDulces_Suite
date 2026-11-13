@@ -38,3 +38,4 @@ contra los documentos nuevos de `kdm1`.
 | Fecha | Resultado |
 |---|---|
 | 2026-11-04 | Corre de punta a punta en `md`. Lee el acreedor (`kdxd`) y se detiene en «permiso denegado a la tabla kdb1»: faltan los `GRANT` (ver `FASE_PGP_PAGO_A_PROVEEDOR.md` §4). Control: 0 documentos. |
+| 2026-11-13 | `[PGP.106]` **Verde**, con las 8 escrituras: documento, `kdm5`, póliza E de noviembre cuadrada y los 13 permisos que pide escribir de verdad (`has_*_privilege`). Control: 0 documentos. El primer intento cayó en «permiso denegado a la tabla kdc22610» (la póliza de la plantilla, de octubre): el permiso es tabla por mes. |

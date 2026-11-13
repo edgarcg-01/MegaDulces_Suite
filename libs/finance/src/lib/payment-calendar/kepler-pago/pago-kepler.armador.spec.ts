@@ -8,7 +8,7 @@ import {
  * forma de escribir en el ERP un pago que se ve bien y significa otra cosa.
  */
 const factura = (o: Partial<FacturaAPagar> = {}): FacturaAPagar => ({
-  almacen: '00', tipo: 20, subtipo: 1, folio: '0009469', concepto: 'C-001',
+  almacen: '00', tipo: 20, subtipo: 1, folio: '0009469', concepto: 'C-001', referencia: '0-F9760',
   saldo: 1160, aplicado: 1160, iva: 160, ieps: 0, total: 1160, ...o,
 });
 const entrada = (o: Partial<PagoKeplerEntrada> = {}): PagoKeplerEntrada => ({
@@ -169,5 +169,75 @@ describe('[PGP.111] P7 y P8: un X-D-26 por concepto, y el gasto con 007', () => 
     const sin = armarPagoKepler(entrada({ facturas: [factura({ concepto: '' })] }));
     expect(sin.ok).toBe(false);
     if (!sin.ok) expect(sin.motivos.join(' ')).toMatch(/no trae concepto/);
+  });
+});
+
+/**
+ * `[PGP.106]` Las cuatro escrituras que faltaban, contra un pago REAL de oficinas: `X-D-26 00/1/0024254` del
+ * 9-nov-2026, dos facturas de CC016 (leído de `kepler_ods`: su `kdm5`, su póliza `E 227` en `kdc22611`).
+ */
+describe('[PGP.106] kdm5, póliza E y acumulados — contra el pago real 0024254', () => {
+  const real = () => armarPagoKepler(entrada({
+    referencia: '09/11/2026', fecha: '2026-11-09', importe: 244537.92,
+    proveedor: { codigo: 'CC016', rfc: 'X', nombre: 'COMER. PEPSICO MEXICO S DE R L DE CV', domicilio: ['', '', ''], dias: 30 },
+    facturas: [
+      factura({ folio: '0009750', referencia: '0-F9760', saldo: 225850.19, aplicado: 225850.19, total: 225850.19, iva: 0 }),
+      factura({ folio: '0009755', referencia: '0-F9761', saldo: 18687.73, aplicado: 18687.73, total: 18687.73, iva: 0 }),
+    ],
+  }));
+
+  it('⭐ kdm5: un renglón por factura, como los que capturó Tesorería', () => {
+    const r = real();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.kdm5).toEqual([
+      { c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c7: 1, c8: 'A', c9: 20, c10: 1, c11: '0009750', c12: 225850.19, c13: 225850.19, c14: '0-F9760' },
+      { c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c7: 2, c8: 'A', c9: 20, c10: 1, c11: '0009755', c12: 18687.73, c13: 18687.73, c14: '0-F9761' },
+    ]);
+  });
+
+  it('⭐ la póliza: cargo 201 por factura (renglones 1 y 2) y abono 102 por el total (renglón 3), como la E 227', () => {
+    const r = real();
+    if (!r.ok) throw new Error(r.motivos.join());
+    expect(r.plan.poliza.tipo).toBe('E');
+    expect(r.plan.poliza.fecha).toBe('2026-11-09');
+    expect(r.plan.poliza.renglones.map((x) => [x['c10'], x['c3'], x['c4'], x['c5'], x['c9']])).toEqual([
+      [1, '201', 'C', 225850.19, 225850.19],
+      [2, '201', 'C', 18687.73, 18687.73],
+      [3, '102', 'A', 244537.92, 244537.92],
+    ]);
+    expect(r.plan.poliza.renglones.every((x) => x['c6'] === 'COMER. PEPSICO MEXICO S DE R L DE CV' && x['c7'] === '09/11/2026' && x['c14'] === '00' && x['c23'] === '0')).toBe(true);
+  });
+
+  it('⭐ los acumulados: abono del acreedor en noviembre; 201 al cargo y 102 al abono por el total', () => {
+    const r = real();
+    if (!r.ok) throw new Error(r.motivos.join());
+    expect(r.plan.acumulados).toEqual({
+      anio: 2026, mes: 11, acreedor: 'CC016', abonoAcreedor: 244537.92,
+      cuentas: [{ cuenta: '102', cargo: 0, abono: 244537.92 }, { cuenta: '201', cargo: 244537.92, abono: 0 }],
+    });
+  });
+
+  it('⛔ la póliza cuadra (cargos = abonos) aunque lo aplicado traiga milésimas', () => {
+    const facturas = [factura(), factura({ folio: '2', saldo: 420.01, aplicado: 420.004, total: 420 })];
+    const r = armarPagoKepler(entrada({ importe: 1580, facturas }));
+    if (!r.ok) throw new Error(r.motivos.join());
+    const c = r.plan.acumulados.cuentas.reduce((s, m) => s + m.cargo, 0);
+    const a = r.plan.acumulados.cuentas.reduce((s, m) => s + m.abono, 0);
+    expect(Math.round(c * 100)).toBe(Math.round(a * 100));
+  });
+
+  it('⛔ si los centavos de cada factura no suman el total, no se arma (la póliza quedaría descuadrada)', () => {
+    // 0.005 + 0.005 redondea a 0.01 + 0.01 = 0.02 en los cargos, y el total 0.01 en el abono.
+    const r = armarPagoKepler(entrada({ importe: 0.01, facturas: [factura({ saldo: 1, aplicado: 0.005 }), factura({ folio: '2', saldo: 1, aplicado: 0.005 })] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivos.join(' ')).toMatch(/descuadrada/);
+  });
+
+  it('P7: cada X-D-26 lleva su propia póliza con sólo sus facturas', () => {
+    const r = armarPagosKepler(entrada({ importe: 2320, facturas: [factura(), factura({ folio: '2', concepto: 'C-010' })] }));
+    if (!r.ok) throw new Error(r.motivos.join());
+    expect(r.planes.map((p) => p.plan.poliza.renglones.length)).toEqual([2, 2]);
+    expect(r.planes.map((p) => p.plan.acumulados.abonoAcreedor)).toEqual([1160, 1160]);
   });
 });

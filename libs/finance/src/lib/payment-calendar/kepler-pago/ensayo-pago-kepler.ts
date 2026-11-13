@@ -1,4 +1,5 @@
 import type { PlanPagoKepler } from './pago-kepler.armador';
+import type { MovimientoCuenta } from '../../shared/kepler-contable';
 
 /**
  * `[PGP.105]` **El ensayo contra lo que Tesorería capturó a mano.** Cuando el `X-D-26` que la Suite
@@ -19,6 +20,11 @@ export interface CapturaKepler {
   ieps: number;
   /** `tipo-subtipo-folio` de la factura → lo aplicado (`kdxf.c10`). */
   aplicaciones: Record<string, number>;
+  /**
+   * `[PGP.106]` La póliza que Kepler asentó a ese documento (`kdc2AAMM`), sumada por cuenta. `null` = la réplica
+   * no la trae (NO MEDIDO: no se da por igual); ausente = no se compara.
+   */
+  poliza?: MovimientoCuenta[] | null;
 }
 
 const CENTAVO = 0.01;
@@ -42,13 +48,22 @@ export function compararConCaptura(plan: PlanPagoKepler, real: CapturaKepler): {
     else if (t === undefined) d.push(`Factura ${f}: la Suite le aplica ${pesos(s)} y Tesorería no la pagó en ese documento`);
     else if (Math.abs(s - t) > CENTAVO) d.push(`Factura ${f}: la Suite aplica ${pesos(s)}, Tesorería ${pesos(t)}`);
   }
+  if (real.poliza === null) d.push('Póliza de Kepler: la réplica no la trae (NO MEDIDO)');
+  else if (real.poliza) {
+    const suya = new Map(plan.acumulados.cuentas.map((m) => [m.cuenta, m]));
+    for (const cta of new Set([...suya.keys(), ...real.poliza.map((m) => m.cuenta)])) {
+      const s = suya.get(cta) ?? { cuenta: cta, cargo: 0, abono: 0 };
+      const t = real.poliza.find((m) => m.cuenta === cta) ?? { cuenta: cta, cargo: 0, abono: 0 };
+      if (Math.abs(s.cargo - t.cargo) > CENTAVO || Math.abs(s.abono - t.abono) > CENTAVO) {
+        d.push(`Póliza, cuenta ${cta}: la Suite cargo ${pesos(s.cargo)} abono ${pesos(s.abono)}, Kepler cargo ${pesos(t.cargo)} abono ${pesos(t.abono)}`);
+      }
+    }
+  }
   return { coincide: d.length === 0, diferencias: d };
 }
 
 /** Lo que el adaptador todavía no escribe de las 8 escrituras de un pago (FASE_PGP §4): se declara en cada ensayo. */
 export const NO_CUBIERTO_POR_EL_ENSAYO = [
-  'kdm5: un renglón por factura',
-  'kdxg: el acumulado del acreedor por mes',
-  'kdc2AAMM: la póliza del mes en Kepler',
-  'kdc126: los acumulados contables de la cuenta',
+  'kdm5: los renglones del pago (el armador los arma; la réplica no se compara renglón por renglón)',
+  'kdxg y kdc126: los acumulados (se suman en el Kepler vivo; el ensayo de la réplica no los ve cambiar)',
 ] as const;
