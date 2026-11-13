@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { Router } from '@angular/router';
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
@@ -19,8 +19,8 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
   imports: [NgTemplateOutlet, LoadStateComponent, RhMarcoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rt-page">
-      <app-rh-marco [barra]="true" [franja]="true" />
+    <div class="rt-page" [class.emb]="embebido()">
+      @if (!embebido()) { <app-rh-marco [barra]="true" [franja]="true" /> }
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" (retry)="est.asegurar(true)">
@@ -50,20 +50,20 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
     </div>
 
     <ng-template #tabla let-personas>
-      <div class="rt-scroll">
-        <table class="rt-tabla">
+      <div class="rt-scroll dt-scope">
+        <table class="rt-tabla dt-stack">
           <thead><tr><th scope="col">Clv</th><th scope="col">Nombre</th><th scope="col">Departamento</th><th scope="col">Entra</th>
             <th class="num" scope="col">Min. tarde</th><th class="num" scope="col">Tolerancia</th><th class="num" scope="col">Excede</th></tr></thead>
           <tbody>
             @for (p of personas; track p.codigo) {
               <tr tabindex="0" (click)="ver(p)" (keydown.enter)="ver(p)" [attr.aria-label]="'Abrir la ficha de ' + (p.nombreCompleto || p.nombre)">
-                <td class="mono">{{ p.codigo }}</td>
-                <td><b>{{ p.nombreCompleto || p.nombre }}</b></td>
-                <td>{{ depto(p) }}</td>
-                <td class="mono">{{ entra(p) }}</td>
-                <td class="num">{{ p.atrasoBrutoMin }}</td>
-                <td class="num">{{ bolsa() }}</td>
-                <td class="num rt-exc">{{ p.retardoRealMin }} min</td>
+                <td class="mono" role="cell" data-label="Clv">{{ p.codigo }}</td>
+                <td class="dt-id" role="cell" data-label="Nombre"><b>{{ p.nombreCompleto || p.nombre }}</b></td>
+                <td role="cell" data-label="Departamento">{{ depto(p) }}</td>
+                <td class="mono" role="cell" data-label="Entra">{{ entra(p) }}</td>
+                <td class="num" role="cell" data-label="Min. tarde">{{ p.atrasoBrutoMin }}</td>
+                <td class="num" role="cell" data-label="Tolerancia">{{ bolsa() }}</td>
+                <td class="num rt-exc" role="cell" data-label="Excede">{{ p.retardoRealMin }} min</td>
               </tr>
             }
           </tbody>
@@ -74,6 +74,7 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
   styles: [`
     :host { display: block; }
     .rt-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
+    .rt-page.emb { padding: 0; }
     .rt-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; padding-bottom: var(--sp-2); }
     .rt-nota { margin: 0; padding: var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); max-width: 90ch; line-height: 1.5; }
     .rt-nota b { color: var(--text-main); }
@@ -96,6 +97,8 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
   `],
 })
 export class RhToleranciaComponent {
+  /** `[RH.13.5]` Es el modo «Tolerancia rebasada» de Checadas (`/rh/asistencia?ver=tolerancia`): sin su propio marco. */
+  readonly embebido = input(false);
   readonly est = inject(RhAsistenciaEstado);
   private readonly router = inject(Router);
 

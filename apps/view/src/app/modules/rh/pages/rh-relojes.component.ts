@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
@@ -34,13 +34,18 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
   imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent, RhSinPersonaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="rr-page">
-      <app-rh-marco [barra]="false" [franja]="false">
-        <div acciones class="rr-head-btns">
-          @if (gestiona()) { <p-button icon="pi pi-plus" label="Agregar reloj" severity="secondary" [outlined]="true" (onClick)="editar(null)" /> }
-          <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
-        </div>
-      </app-rh-marco>
+    <div class="rr-page" [class.emb]="embebido()">
+      <ng-template #botonesCabecera>
+        @if (gestiona()) { <p-button icon="pi pi-plus" label="Agregar reloj" severity="secondary" [outlined]="true" (onClick)="editar(null)" /> }
+        <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
+      </ng-template>
+      @if (embebido()) {
+        <div class="rr-head-btns rr-emb-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
+      } @else {
+        <app-rh-marco [barra]="false" [franja]="false">
+          <div acciones class="rr-head-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
+        </app-rh-marco>
+      }
       <p class="rr-intro">Los relojes checadores de todas las plazas. Lo que importa es la última señal del lector: un reloj sin señal puede tener
         checadas guardadas que todavía no llegan.</p>
 
@@ -133,6 +138,8 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
   styles: [`
     :host { display: block; }
     .rr-page { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); }
+    .rr-page.emb { padding: 0; }
+    .rr-emb-btns { display: flex; justify-content: flex-end; gap: var(--sp-2); flex-wrap: wrap; }
     .rr-intro { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 90ch; }
     .rr-head-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .rr-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
@@ -159,6 +166,11 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
   `],
 })
 export class RhRelojesComponent implements OnInit {
+  /**
+   * `[RH.13.5]` Dentro del panel de Asistencia: sin el encabezado ni las pestañas (ya están detrás del panel) y sin el
+   * margen de página. Su ruta propia (`/rh/relojes`) sólo queda para quien no ve Asistencia.
+   */
+  readonly embebido = input(false);
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
 

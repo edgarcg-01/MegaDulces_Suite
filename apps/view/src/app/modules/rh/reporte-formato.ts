@@ -209,6 +209,18 @@ export function horarioDe(p: HrPersonaAsistencia): { texto: string; asignado: bo
   return { texto: '—', asignado: false };
 }
 
+/**
+ * `[RH.13.5]` El horario para la TABLA: la hora primero y, aparte y en chico, si es deducido o rota. «Deducido · 8:00 am»
+ * en las siete filas hacía leer siete veces la misma palabra antes de la hora. El PDF y el Excel siguen con `horarioDe`.
+ */
+export function horarioPartes(p: HrPersonaAsistencia): { hora: string; nota: string; asignado: boolean } {
+  const h = horarioDe(p);
+  if (h.asignado) return { hora: h.texto, nota: '', asignado: true };
+  if (h.texto.startsWith('Deducido · ')) return { hora: h.texto.slice('Deducido · '.length), nota: 'deducido', asignado: false };
+  if (h.texto.startsWith('Rota · ')) return { hora: h.texto.slice('Rota · '.length), nota: 'rota', asignado: false };
+  return { hora: h.texto, nota: '', asignado: false };
+}
+
 // ── Irregularidades (las de la fila en rojo) ───────────────────────────────────────────────
 
 export type NivelIrregularidad = 'alta' | 'baja';
@@ -315,11 +327,18 @@ export function porDepartamento(todas: HrPersonaAsistencia[], visibles: HrPerson
 }
 
 /** «solo SISTEMAS», «solo 3 personas», «solo Daniela Ortiz»: los reportes parciales dicen que lo son (regla 8 de RH). */
-export function etiquetaParcial(o: { unica: HrPersonaAsistencia | null; departamentos: string[]; buscar: string; soloIrregulares: boolean }): string {
+export function etiquetaParcial(o: {
+  unica: HrPersonaAsistencia | null; departamentos: string[]; buscar: string; soloIrregulares: boolean;
+  /** `[RH.13.5]` Cuántas personas sueltas se eligieron (fuera de los departamentos enteros). */
+  sueltas?: number;
+}): string {
   if (o.unica) return `solo ${o.unica.nombreCompleto || o.unica.nombre}`;
   const partes: string[] = [];
-  if (o.departamentos.length === 1) partes.push(`solo ${o.departamentos[0]}`);
-  else if (o.departamentos.length > 1) partes.push(`solo ${o.departamentos.length} departamentos`);
+  const n = o.sueltas ?? 0;
+  const mas = n ? ` y ${n} persona${n === 1 ? '' : 's'} más` : '';
+  if (o.departamentos.length === 1) partes.push(`solo ${o.departamentos[0]}${mas}`);
+  else if (o.departamentos.length > 1) partes.push(`solo ${o.departamentos.length} departamentos${mas}`);
+  else if (n) partes.push(`solo ${n} persona${n === 1 ? '' : 's'}`);
   if (o.buscar.trim()) partes.push(`quien coincide con «${o.buscar.trim()}»`);
   if (o.soloIrregulares) partes.push('sólo con irregularidades');
   return partes.join(' · ');

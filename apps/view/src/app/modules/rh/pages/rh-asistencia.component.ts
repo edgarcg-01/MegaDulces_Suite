@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
@@ -15,13 +16,18 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.component';
 import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
+import { RhFaltasComponent } from './rh-faltas.component';
+import { RhToleranciaComponent } from './rh-tolerancia.component';
+import { RhIncidenciasComponent } from './rh-incidencias.component';
+import { RhRelojesComponent } from './rh-relojes.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
   type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, difHorario, etiquetaParcial, firmaHoras,
   hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento, SIN_DEPARTAMENTO,
 } from '../reporte-formato';
-import { type ContextoExport, exportarExcel, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
+import { cubiertas, haySeleccion, personaUnica } from '../personas-seleccion';
+import { type ContextoExport, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
 
 interface TurnoForm { entrada: string; salida: string; comida: number; }
 /** `[RH.6.3]` Hasta 4 horarios (mañana, tarde…): cada día se mide contra el más cercano a su entrada. El sábado es uno. */
@@ -42,6 +48,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   imports: [
     NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, LoadStateComponent, SidePeekComponent,
     RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent,
+    RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -49,6 +56,47 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
       <app-rh-marco [barra]="true" [franja]="true" [personas]="true" />
       <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
       @if (!est.sinPlazas()) {
+
+      <!-- [RH.13.5] Faltas y Tolerancia eran pestañas: son la MISMA semana vista de otra forma. Su cifra sólo sale
+           cuando hay datos (sin datos no hay «0 faltas», hay «no medido»). -->
+      <!-- [RH.13.5] Un solo renglón: qué ver, cuántos y quién tiene algo que revisar, y las acciones del reporte. Antes eran
+           cuatro (modo, título que repetía plaza y semana, irregularidades y leyenda) y la primera persona salía al 76 % del alto. -->
+      <div class="ra-barra">
+        <div class="ra-ver" role="group" aria-label="Qué ver de la semana">
+          <button type="button" [attr.aria-pressed]="ver() === 'semana'" (click)="irAVer('semana')">Semana</button>
+          <button type="button" [attr.aria-pressed]="ver() === 'faltas'" (click)="irAVer('faltas')">
+            Faltas@if (est.datos()) {&ngsp;<b class="ra-ver-n">{{ est.nFaltas() }}</b> }
+          </button>
+          <button type="button" [attr.aria-pressed]="ver() === 'tolerancia'" (click)="irAVer('tolerancia')">
+            Tolerancia<span class="ra-largo"> rebasada</span>@if (est.datos() && est.nRebasados() !== null) {&ngsp;<b class="ra-ver-n">{{ est.nRebasados() }}</b> }
+          </button>
+        </div>
+        @if (ver() === 'semana' && !unica() && est.datos() && !vacio()) {
+          <p class="ra-resumen">
+            <span>{{ visibles().length }} persona{{ visibles().length === 1 ? '' : 's' }}@if (est.soloPromotoras()) { de promotoría }</span>
+            @if (parcial()) { <span class="ra-parcial">· {{ parcial() }}</span> }
+            @if (nIrregulares()) {
+              <span class="ra-irr"><span class="ra-irr-dot" aria-hidden="true"></span><b>{{ nIrregulares() }}</b>&ngsp;con irregularidades, en rojo</span>
+              <button type="button" class="ra-chip" [attr.aria-pressed]="est.soloIrregulares()" (click)="est.soloIrregulares.set(!est.soloIrregulares())">
+                {{ est.soloIrregulares() ? 'Ver a todos' : 'Solo irregulares' }}
+              </button>
+            }
+          </p>
+          <div class="ra-rep-acc">
+            @if (puedeGestionar()) {
+              <p-button label="Horario" icon="pi pi-clock" ariaLabel="Horario" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" (onClick)="abrirHorario(null)" />
+            }
+            <!-- [RH.13.5] Sólo el PDF para firmar (David, 13-nov: sin Excel). Una sola salida no necesita menú. Sale lo que se ve:
+                 si hay filtro, el resumen de la izquierda ya lo dice («solo SISTEMAS»). -->
+            <p-button label="PDF para firmar" icon="pi pi-file-pdf" ariaLabel="PDF para firmar" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="pdfPlaza()" />
+          </div>
+        }
+      </div>
+
+      @switch (ver()) {
+        @case ('faltas') { <app-rh-faltas [embebido]="true" /> }
+        @case ('tolerancia') { <app-rh-tolerancia [embebido]="true" /> }
+        @default {
 
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" [isEmpty]="vacio()"
                       emptyIcon="pi-users" [emptyTitle]="vacioTitulo()" emptyHint="Revisa en la franja de relojes que el reloj de la plaza esté mandando checadas."
@@ -61,7 +109,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                 <p>#{{ p.codigo }} · {{ depto(p) }} · {{ est.nombreSitio() }} · {{ periodoTexto() }} <span class="ra-parcial">· solo esta persona</span></p>
               </div>
               <div class="ra-rep-acc">
-                <p-button label="Ver a todos" [text]="true" severity="secondary" (onClick)="est.unica.set(null)" />
+                <p-button label="Ver a todos" [text]="true" severity="secondary" (onClick)="est.verATodos()" />
                 <p-button label="PDF para firmar" icon="pi pi-file-pdf" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="pdfPersona(p)" />
               </div>
             </div>
@@ -75,58 +123,37 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             </div>
           </section>
         } @else {
-          <section class="ra-rep" aria-label="Reporte de asistencia">
-            <div class="ra-rep-head">
-              <div>
-                <h2>{{ est.nombreSitio() }}</h2>
-                <p>{{ periodoTexto() }} · {{ visibles().length }} persona{{ visibles().length === 1 ? '' : 's' }}@if (est.soloPromotoras()) { de promotoría }@if (parcial()) { <span class="ra-parcial"> · {{ parcial() }}</span> }</p>
-              </div>
-              <div class="ra-rep-acc">
-                @if (puedeGestionar()) {
-                  <p-button label="Horario" icon="pi pi-clock" severity="secondary" [outlined]="true" (onClick)="abrirHorario(null)" />
-                }
-                <p-button label="Exportar" icon="pi pi-download" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="exp.toggle($event)" />
-                <p-popover #exp appendTo="body" ariaLabel="Exportar">
-                  <div class="ra-menu">
-                    <button type="button" (click)="exp.hide(); pdfPlaza()">PDF para firmar</button>
-                    <button type="button" (click)="exp.hide(); excel()">Excel</button>
-                    <p>Sale lo que se ve: {{ parcial() || 'toda la plaza' }}.</p>
-                  </div>
-                </p-popover>
-              </div>
-            </div>
+          <section class="ra-rep" [attr.aria-label]="'Asistencia de ' + est.nombreSitio() + ', ' + periodoTexto()">
             @if (form() && !destino()) {
               <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: null }" />
             }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
-            @if (nIrregulares()) {
-              <div class="ra-irr">
-                <span class="ra-irr-dot" aria-hidden="true"></span>
-                <span><b>{{ nIrregulares() }}</b> con irregularidades · toca su fila para ver qué día y por qué</span>
-                <button type="button" class="ra-chip" [attr.aria-pressed]="est.soloIrregulares()" (click)="est.soloIrregulares.set(!est.soloIrregulares())">
-                  {{ est.soloIrregulares() ? 'Ver a todos' : 'Solo irregulares' }}
-                </button>
-              </div>
-            }
-            <p class="ra-ley">Debajo de cada día: <b>D</b> minutos de desayuno · <b>C</b> minutos de comida, en ámbar si se pasó.
-              {{ mide() ? 'En rojo, la entrada tarde y la falta.' : 'En esta plaza no se mide retardo: cada quien entra en su turno.' }}</p>
             @if (filas().length) {
               <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
                                       [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()" [saldos]="est.saldosHE()"
                                       (abrir)="abrir($event)" (menu)="menu($event)" />
+              <!-- La leyenda, al pie y en palabras: cada color dice lo que significa; toca a una persona para ver su semana. -->
+              <p class="ra-ley">
+                @if (mide()) { <span><b class="ra-ley-rojo">En rojo</b>, la entrada tarde y la falta.</span> }
+                @else { <span>En esta plaza no se mide retardo: cada quien entra en su turno.</span> }
+                <span class="ra-ley-dc"><b class="ra-ley-ambar">D</b> desayuno y <b class="ra-ley-ambar">C</b> comida salen sólo si se pasó, con sus minutos.</span>
+                <span>Toca a una persona para ver su semana día por día.</span>
+              </p>
             } @else {
               <p class="ra-vacio">{{ sinFilas() }}</p>
             }
           </section>
         }
       </app-load-state>
+        }
+      }
       }
 
       <p-popover #acc appendTo="body" ariaLabel="Acciones de la persona">
         @if (enMenu(); as p) {
           <div class="ra-menu">
             <button type="button" (click)="acc.hide(); abrir(p)">Ver su ficha</button>
-            <button type="button" (click)="acc.hide(); est.unica.set(p.codigo)">Ver solo a esta persona</button>
+            <button type="button" (click)="acc.hide(); est.verSolo(p.codigo)">Ver solo a esta persona</button>
             @if (puedeCapturar()) { <button type="button" (click)="acc.hide(); capturar(p)">Capturar incidencia</button> }
             @if (puedeGestionar()) { <button type="button" (click)="acc.hide(); abrir(p); abrirHorario(p)">Horario</button> }
           </div>
@@ -214,7 +241,8 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
-            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
+            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()"
+                                 [capturable]="puedeCapturar()" (capturar)="capturar(p, $event)" />
 
             <div class="ra-acciones">
               @if (puedeCapturar()) {
@@ -225,6 +253,17 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             </div>
           </div>
         }
+      </app-side-peek>
+
+      <!-- [RH.13.5] Incidencias y Relojes eran pestañas con su página: son trabajo SOBRE esta semana y esta plaza, así que
+           se abren encima, sin salir. La URL dice cuál está abierto (?panel=): un enlace o un aviso lo abre igual. -->
+      <app-side-peek [open]="panel() === 'incidencias'" (openChange)="!$event && cerrarPanel()" [width]="1040"
+                     title="Incidencias y cierre de semana" [subtitle]="est.nombreSitio()">
+        @if (panel() === 'incidencias') { <app-rh-incidencias [embebido]="true" /> }
+      </app-side-peek>
+      <app-side-peek [open]="panel() === 'relojes'" (openChange)="!$event && cerrarPanel()" [width]="1040"
+                     title="Relojes checadores" subtitle="Todas las plazas">
+        @if (panel() === 'relojes') { <app-rh-relojes [embebido]="true" /> }
       </app-side-peek>
     </div>
 
@@ -287,6 +326,20 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   styles: [`
     :host { display: block; }
     .ra-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
+    .ra-barra { display: flex; align-items: center; gap: var(--sp-2) var(--sp-3); flex-wrap: wrap; }
+    /* [RH.13.5] Con el dedo, todo lo que se toca mide al menos 44 px (--tap-min: 0 con mouse). */
+    .ra-chip { min-height: var(--tap-min); }
+    :host ::ng-deep .p-button { min-height: var(--tap-min); }
+    .ra-resumen { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-barra .ra-rep-acc { margin-left: auto; }
+    .ra-ver { display: inline-flex; align-self: flex-start; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; background: var(--card-bg); }
+    .ra-ver button { border: 0; background: none; color: var(--text-muted); padding: var(--sp-2) var(--sp-3); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+      white-space: nowrap; display: inline-flex; align-items: center; gap: var(--sp-1); }
+    .ra-ver button + button { border-left: 1px solid var(--border-color); }
+    .ra-ver button[aria-pressed='true'] { background: var(--surface-selected-bg); color: var(--text-main); font-weight: 600; }
+    .ra-ver button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .ra-ver-n { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-main); }
+    @media (pointer: coarse) { .ra-ver button { min-height: 44px; } }
     .ra-rep { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
     .ra-rep-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
     .ra-rep-head h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
@@ -297,14 +350,16 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-menu button { text-align: left; border: 0; background: none; padding: 6px var(--sp-2); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
     .ra-menu button:hover, .ra-menu button:focus-visible { background: var(--surface-hover-bg); outline: none; }
     .ra-menu p { margin: var(--sp-1) var(--sp-2) 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 16rem; }
-    .ra-irr { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-irr { display: inline-flex; align-items: center; gap: 6px; }
     .ra-irr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); }
     .ra-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); border-radius: var(--r-pill); padding: 2px var(--sp-3);
       font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
     .ra-chip[aria-pressed='true'] { background: var(--surface-selected-bg); border-color: var(--text-muted); }
     .ra-chip:focus-visible { outline: 2px solid var(--focus-ring); }
-    .ra-ley { margin: 0; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
-    .ra-ley b { color: var(--text-main); }
+    .ra-ley { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted);
+      border-top: 1px solid var(--border-color); }
+    .ra-ley-rojo { color: var(--bad-fg); }
+    .ra-ley-ambar { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; }
     .ra-vacio { margin: 0; padding: var(--sp-5) var(--sp-3); text-align: center; color: var(--text-muted); font-size: var(--fs-sm); border-top: 1px solid var(--border-color); }
     .ra-una { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 var(--sp-3) var(--sp-3); }
     .ra-ficha { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -340,6 +395,18 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-banner { margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ra-ficha .ra-banner, .ra-una .ra-banner { margin: 0; }
     .ra-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    /* [RH.13.5] Angosta: «Horario» y «PDF para firmar» sólo con su ícono (conservan el nombre para el lector de pantalla).
+       En el teléfono la tabla no trae los días, así que la leyenda de D y C sobra. */
+    @media (max-width: 48rem) {
+      :host ::ng-deep .ra-icono-chico .p-button-label { display: none; }
+      /* Renglón 1: qué ver y las dos acciones; renglón 2: cuántos y quién tiene algo. */
+      .ra-ver { order: 1; }
+      .ra-barra .ra-rep-acc { order: 2; }
+      .ra-resumen { order: 3; flex: 1 1 100%; }
+    }
+    @media (max-width: 34rem) {
+      .ra-ley-dc, .ra-largo { display: none; }
+    }
     @media (max-width: 40rem) {
       .ra-page { padding: var(--sp-3); }
       .ra-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -394,10 +461,13 @@ export class RhAsistenciaComponent {
     const o = { hoy: this.est.hoy(), desayunoAlertaMin: this.est.datos()?.desayunoAlertaMin ?? 10 };
     return new Map<string, Irregularidad[]>(this.todas().map((p) => [p.codigo, irregularidadesDe(p, o)]));
   });
-  /** Lo que se ve antes de «Solo irregulares»: departamentos y búsqueda. */
+  /** `[RH.13.5]` Lo elegido en «Personas»: departamentos enteros y personas sueltas. */
+  private readonly seleccion = computed(() => ({ departamentos: this.est.departamentos(), elegidas: this.est.elegidas() }));
+  /** Lo que se ve antes de «Solo irregulares»: personas elegidas y búsqueda. */
   readonly visibles = computed(() => {
-    const deps = this.est.departamentos();
-    const base = deps.length ? this.todas().filter((p) => deps.includes(departamentoDe(p))) : this.todas();
+    const s = this.seleccion();
+    const dentro = cubiertas(this.todas(), s);
+    const base = haySeleccion(s) ? this.todas().filter((p) => dentro.has(p.codigo)) : this.todas();
     return filtrarPorBusqueda(base, this.est.buscar(), (p) => [p.nombre, p.nombreCompleto, p.codigo]);
   });
   private readonly esIrregular = (p: HrPersonaAsistencia) => cuentaIrregular(this.irr().get(p.codigo) ?? [], 'alta') > 0;
@@ -405,12 +475,11 @@ export class RhAsistenciaComponent {
   readonly filas = computed(() => (this.est.soloIrregulares() ? this.visibles().filter(this.esIrregular) : this.visibles()));
   readonly grupos = computed(() => porDepartamento(this.todas(), this.filas()));
   readonly conSubtotales = computed(() => !this.est.buscar().trim() && !this.est.soloIrregulares());
-  readonly unica = computed(() => {
-    const c = this.est.unica();
-    return c ? this.todas().find((p) => p.codigo === c) ?? null : null;
-  });
+  /** Lo elegido cubre a una sola persona («Ver solo a esta persona», o elegirla en «Personas»): su tabla día por día. */
+  readonly unica = computed(() => personaUnica(this.todas(), this.seleccion()));
   readonly parcial = computed(() => etiquetaParcial({
-    unica: null, departamentos: this.est.departamentos(), buscar: this.est.buscar(), soloIrregulares: this.est.soloIrregulares(),
+    unica: null, departamentos: this.est.departamentos(), sueltas: this.est.elegidas().filter((c) => this.todas().some((p) => p.codigo === c)).length,
+    buscar: this.est.buscar(), soloIrregulares: this.est.soloIrregulares(),
   }));
   readonly periodoTexto = computed(() => {
     const e = this.est;
@@ -430,6 +499,30 @@ export class RhAsistenciaComponent {
     const p = this.sel();
     return p ? `#${p.codigo} · ${this.depto(p)} · ${this.est.nombreSitio()}` : null;
   });
+
+  /** `[RH.13.5]` Qué se ve de la semana y qué panel está abierto: en la URL, para que un enlace llegue igual. */
+  private readonly ruta = inject(ActivatedRoute);
+  private readonly q = toSignal(this.ruta.queryParamMap, { initialValue: this.ruta.snapshot.queryParamMap });
+  readonly ver = computed<'semana' | 'faltas' | 'tolerancia'>(() => {
+    const v = this.q().get('ver');
+    return v === 'faltas' || v === 'tolerancia' ? v : 'semana';
+  });
+  readonly panel = computed<'incidencias' | 'relojes' | null>(() => {
+    const p = this.q().get('panel');
+    return p === 'incidencias' || p === 'relojes' ? p : null;
+  });
+
+  irAVer(v: 'semana' | 'faltas' | 'tolerancia'): void {
+    void this.router.navigate([], { relativeTo: this.ruta, queryParams: { ver: v === 'semana' ? null : v }, queryParamsHandling: 'merge' });
+  }
+
+  /** Al cerrar el panel se quita lo que sólo servía para abrirlo (la captura nueva, la persona, el día). */
+  cerrarPanel(): void {
+    void this.router.navigate([], {
+      relativeTo: this.ruta, queryParamsHandling: 'merge',
+      queryParams: { panel: null, nueva: null, persona: null, desde: null, site: null },
+    });
+  }
 
   constructor() {
     // Elegida en «Buscar en todas las plazas»: en cuanto llega su plaza, se abre su ficha.
@@ -464,16 +557,20 @@ export class RhAsistenciaComponent {
   abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
   cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
   cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
-  soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.unica.set(p.codigo); }
+  soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.verSolo(p.codigo); }
 
   menu(e: { persona: HrPersonaAsistencia; evento: Event }): void {
     this.enMenu.set(e.persona);
     this.acc()?.toggle(e.evento);
   }
 
-  /** La captura vive en Incidencias: se llega con la persona, la plaza y la semana ya puestas. */
-  capturar(p: HrPersonaAsistencia): void {
-    void this.router.navigate(['/rh/incidencias'], { queryParams: { nueva: 1, site: this.est.sitio(), persona: p.codigo, desde: this.est.rango().desde } });
+  /** La captura vive en el panel de Incidencias: se abre AQUÍ, con la persona, la plaza y la semana ya puestas. */
+  capturar(p: HrPersonaAsistencia, fecha?: string): void {
+    this.cerrar();
+    void this.router.navigate([], {
+      relativeTo: this.ruta, queryParamsHandling: 'merge',
+      queryParams: { panel: 'incidencias', nueva: 1, site: this.est.sitio(), persona: p.codigo, desde: fecha ?? this.est.rango().desde },
+    });
   }
 
   abrirHorario(p: HrPersonaAsistencia | null): void {
@@ -609,7 +706,6 @@ export class RhAsistenciaComponent {
   }
 
   pdfPlaza(): void { void this.exportar(() => exportarPdfPlaza(this.grupos(), this.todas(), this.contexto(), this.conSubtotales())); }
-  excel(): void { void this.exportar(() => exportarExcel(this.grupos(), this.todas(), this.contexto(), this.conSubtotales())); }
   pdfPersona(p: HrPersonaAsistencia): void { void this.exportar(() => exportarPdfPersona(p, this.contexto())); }
 
   private async exportar(fn: () => Promise<void>): Promise<void> {

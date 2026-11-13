@@ -1,6 +1,6 @@
 import { asistencia, dia, persona } from '../../../testing/rh.fixture';
 import {
-  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horasTexto,
+  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horarioPartes, horasTexto,
   irregularidadesDe, pausasDelDia, porDepartamento, rebasados, tramosDe,
 } from './reporte-formato';
 
@@ -107,6 +107,10 @@ describe('[RH.1.7c] pausas, horas y horario', () => {
       .toEqual({ texto: '08:00–17:00', asignado: true });
     expect(horarioDe(persona({ turnos: ['09:00', '13:00'] })).texto).toBe('Rota · 09:00 / 13:00');
     expect(horarioDe(persona({ horario: '08:30', turnos: ['08:30'] })).texto).toBe('Deducido · 8:30 am');
+    // [RH.13.5] En la tabla, la hora primero y «deducido» / «rota» aparte; el asignado va sin nota.
+    expect(horarioPartes(persona({ horario: '08:30', turnos: ['08:30'] }))).toEqual({ hora: '8:30 am', nota: 'deducido', asignado: false });
+    expect(horarioPartes(persona({ turnos: ['09:00', '13:00'] }))).toEqual({ hora: '09:00 / 13:00', nota: 'rota', asignado: false });
+    expect(horarioPartes(persona({ horario: '', turnos: [] }))).toEqual({ hora: '—', nota: '', asignado: false });
   });
 
   it('una columna por día, con hoy marcado', () => {
@@ -178,5 +182,8 @@ describe('[RH.1.7c] lo que cuentan las pestañas y el agrupado', () => {
     expect(etiquetaParcial({ unica: null, departamentos: ['SISTEMAS'], buscar: '', soloIrregulares: false })).toBe('solo SISTEMAS');
     expect(etiquetaParcial({ unica: null, departamentos: [], buscar: ' ana ', soloIrregulares: true })).toBe('quien coincide con «ana» · sólo con irregularidades');
     expect(etiquetaParcial({ unica: null, departamentos: [], buscar: '', soloIrregulares: false })).toBe('');
+    // [RH.13.5] Personas sueltas: el reporte parcial dice que lo es también cuando se eligió gente y no departamentos.
+    expect(etiquetaParcial({ unica: null, departamentos: [], sueltas: 3, buscar: '', soloIrregulares: false })).toBe('solo 3 personas');
+    expect(etiquetaParcial({ unica: null, departamentos: ['SISTEMAS'], sueltas: 2, buscar: '', soloIrregulares: false })).toBe('solo SISTEMAS y 2 personas más');
   });
 });
