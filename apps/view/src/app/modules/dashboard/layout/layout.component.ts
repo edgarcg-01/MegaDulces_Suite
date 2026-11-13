@@ -32,6 +32,7 @@ import { Permission } from '../../../core/constants/permissions';
 // Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
 import { LANDING_ROUTE, resolveProjectForUrl } from '../../../core/constants/suite-map';
 import { construirMigas, type Miga } from './layout-crumbs';
+import { ordenarParaBarraMovil } from './layout-barra-movil';
 import { ModoDetalle, MultitareaService } from '../../../core/services/multitarea.service';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
@@ -142,6 +143,13 @@ interface NavItem {
    *  · se marca activo en cualquiera de las pantallas del área, no sólo en la de su `route`.
    */
   tabs?: readonly PageTab[];
+  /**
+   * `[MOV]` Lugar en la **barra inferior del celular** (1 = primero). Sin esto, la barra toma
+   * los primeros 4 del menú en su orden de escritorio — y en Tienda eso dejaba fuera el Arqueo,
+   * la pantalla que el encargado abre los 31 días del mes (`analytics.ui_usage`, 2026-11-13).
+   * Se pone SÓLO con uso medido; los items sin `movil` rellenan en el orden del menú.
+   */
+  movil?: number;
 }
 
 /**
@@ -684,9 +692,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Caja (práctica)', icon: 'pi pi-shopping-cart', route: '/tienda/caja', permission: Permission.STORE_LIVE_VER,
           anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR] },
         { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
-        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER, movil: 2 },
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
-        { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },
+        { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER, movil: 3 },
         { label: 'Cajas abiertas',  icon: 'pi pi-inbox',      route: '/tienda/cajas',    permission: Permission.STORE_LIVE_VER },
         // `[FLT.11]` Va en Operación y no en Análisis: es captura de mostrador, se usa con el
         // cliente enfrente. `anyOf` porque la cajera sólo tiene CAPTURAR — con el gate en VER el
@@ -703,7 +711,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
         // la vista por persona son el mismo tema, no dos modulos.
         // [NAV.1] Arqueo y Por cajera: una entrada, dos pestañas.
-        { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', tabs: ARQUEO_TABS },
+        { label: 'Arqueo de caja', icon: 'pi pi-eye-slash', route: '/tienda/arqueo', tabs: ARQUEO_TABS, movil: 1 },
         // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
         // en VER, la pantalla donde trabaja no le aparecía en el menú.
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
@@ -1471,7 +1479,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   bottomNavItems = computed(() => {
     if (!this.useBottomNav()) return [];
-    return [...this.navItems()].slice(0, 4);
+    return ordenarParaBarraMovil(this.navItems()).slice(0, 4);
   });
 
   hasOverflowItems = computed(() => {
