@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
+import { CheckboxModule } from 'primeng/checkbox';
 import { HR_SUCURSALES_EMPLEO, type HrVacanteDto, type HrVacanteEdicion } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -38,17 +39,20 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
 /**
  * Fase RH · `[RH.2.3]` — Vacantes (`/rh/reclutamiento/vacantes`). Antes: «Puestos» de Mega Talento (7 al 12-oct-2026).
  * Se desactivan, no se borran: un candidato puede apuntar a una vacante que ya cerró.
+ *
+ * `[RH.13.6]` Contesta «¿qué vacantes se publican y dónde?»: las publicadas primero y las cerradas aparte (antes iban
+ * revueltas en el orden de captura, con una pastilla «Publicada» en cada renglón). La fila entera abre la edición.
  */
 @Component({
   selector: 'app-rh-vacantes',
   standalone: true,
-  imports: [FormsModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhReclutamientoMarcoComponent],
+  imports: [FormsModule, InputTextModule, ButtonModule, CheckboxModule, LoadStateComponent, SidePeekComponent, RhReclutamientoMarcoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rv-page">
-      <app-rh-reclutamiento-marco subtitulo="Las vacantes que se publican. Una vacante cerrada se desactiva: no se borra, porque hay candidatos que se postularon a ella.">
+      <app-rh-reclutamiento-marco subtitulo="Las vacantes de la bolsa de trabajo. Cerrar una no la borra: hay candidatos que se postularon a ella.">
         <div acciones class="rv-btns">
-          @if (gestiona()) { <p-button icon="pi pi-plus" label="Nueva vacante" severity="secondary" [outlined]="true" (onClick)="editar(null)" /> }
+          @if (gestiona()) { <p-button icon="pi pi-plus" label="Nueva vacante" (onClick)="editar(null)" /> }
           <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
         </div>
       </app-rh-reclutamiento-marco>
@@ -59,49 +63,64 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
           <div class="rv-scroll dt-scope">
             <table class="rv-tabla dt-stack">
               <thead><tr>
-                <th scope="col">Vacante</th><th scope="col">Área</th><th scope="col">Plazas</th><th scope="col">Sueldo</th>
-                <th scope="col">Horario</th><th scope="col">Estado</th>
+                <th scope="col" class="rv-c-nom">Vacante</th><th scope="col">Plazas</th><th scope="col">Sueldo</th><th scope="col">Horario</th>
               </tr></thead>
-              <tbody>
-                @for (v of vacantes(); track v.id) {
-                  <tr [class.inactiva]="!v.is_active">
-                    <td class="dt-id" role="cell">
-                      @if (gestiona()) { <button type="button" class="rv-nom" (click)="editar(v)">{{ v.name }}</button> } @else { <b>{{ v.name }}</b> }
-                    </td>
-                    <td role="cell" data-label="Área">{{ v.area || '—' }}</td>
-                    <td role="cell" data-label="Plazas">{{ plazas(v) }}</td>
-                    <td role="cell" data-label="Sueldo">{{ v.salary_text || '—' }}</td>
-                    <td role="cell" data-label="Horario">{{ v.schedule_text || '—' }}</td>
-                    <td role="cell" data-label="Estado"><span class="pill" [attr.data-t]="v.is_active ? 'ok' : 'gris'">{{ v.is_active ? 'Publicada' : 'Cerrada' }}</span></td>
-                  </tr>
-                }
-              </tbody>
+              @for (g of grupos(); track g.id) {
+                <tbody [class.rv-cerradas]="g.id === 'cerradas'">
+                  <tr class="rv-grupo"><th scope="rowgroup" colspan="4">{{ g.titulo }} <small>{{ g.vacantes.length }}</small></th></tr>
+                  @for (v of g.vacantes; track v.id) {
+                    <!-- Quien gestiona abre la edición desde la fila, con el mouse o el teclado (Tab llega; Enter o Espacio abre). -->
+                    <tr [class.rv-abre]="gestiona()" (click)="gestiona() && editar(v)" [attr.tabindex]="gestiona() ? 0 : null"
+                        (keydown.enter)="gestiona() && editar(v)" (keydown.space)="teclaEspacio($event, v)"
+                        [attr.aria-label]="gestiona() ? 'Editar la vacante ' + v.name : null">
+                      <td class="dt-id rv-c-nom" role="cell">
+                        <b class="rv-nom">{{ v.name }}</b>
+                        @if (v.area) { <span class="rv-meta">{{ v.area }}</span> }
+                      </td>
+                      <td role="cell" data-label="Plazas">{{ plazas(v) }}</td>
+                      <td role="cell" data-label="Sueldo">{{ v.salary_text || '—' }}</td>
+                      <td role="cell" data-label="Horario">{{ v.schedule_text || '—' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="4" class="rv-vacio" role="cell">Ninguna publicada ahora mismo.</td></tr>
+                  }
+                </tbody>
+              }
             </table>
           </div>
-          <p class="rv-pie">{{ activas() }} publicada(s) · {{ vacantes().length - activas() }} cerrada(s)</p>
         </section>
       </app-load-state>
 
       <app-side-peek [open]="peek()" (openChange)="peek.set($event)" [title]="form()?.id ? 'Editar vacante' : 'Nueva vacante'" [subtitle]="form()?.name || null">
         @if (form(); as f) {
           <form class="rv-form" (ngSubmit)="guardar()" aria-label="Datos de la vacante">
-            <label>Nombre <input pInputText name="name" [(ngModel)]="f.name" required maxlength="200" /></label>
-            <label>Área <input pInputText name="area" [(ngModel)]="f.area" /></label>
-            <fieldset class="rv-suc">
-              <legend>Sucursales donde se contrata</legend>
+            <fieldset class="rv-bloque">
+              <legend>Lo que se publica</legend>
+              <label>Nombre (obligatorio) <input pInputText name="name" [(ngModel)]="f.name" required maxlength="200" /></label>
+              <label>Área <input pInputText name="area" [(ngModel)]="f.area" placeholder="Ventas, Almacén…" /></label>
+              <label>Sueldo <input pInputText name="sueldo" [(ngModel)]="f.salary_text" placeholder="$2,300 semanales" /></label>
+              <label>Horario <input pInputText name="horario" [(ngModel)]="f.schedule_text" placeholder="Lunes a sábado, 8:00 a 17:00" /></label>
+            </fieldset>
+            <fieldset class="rv-bloque">
+              <legend>Dónde se contrata</legend>
               <small>Sin ninguna marcada, la vacante sale en todas las ciudades de la bolsa de trabajo.</small>
               @for (s of sucursales; track s.id) {
-                <label class="rv-check"><input type="checkbox" [checked]="f.branch_codes.includes(s.id)" (change)="alternar(f, s.id)" /> {{ s.ciudad }} — {{ sucursalCorta(s.direccion) }}</label>
+                <label class="rv-check"><p-checkbox [binary]="true" [ngModel]="f.branch_codes.includes(s.id)" (ngModelChange)="alternar(f, s.id)"
+                  [ngModelOptions]="{ standalone: true }" [inputId]="'rv-suc-' + s.id" /> <span><b>{{ s.ciudad }}</b> — {{ sucursalCorta(s.direccion) }}</span></label>
               }
+              <label>Texto de plazas que se publica (opcional) <input pInputText name="plazas" [(ngModel)]="f.branches_text" placeholder="Zamora y La Piedad" /></label>
             </fieldset>
-            <label>Plazas (texto que se publica, opcional) <input pInputText name="plazas" [(ngModel)]="f.branches_text" placeholder="Zamora y La Piedad" /></label>
-            <label>Sueldo <input pInputText name="sueldo" [(ngModel)]="f.salary_text" placeholder="$2,300 semanales" /></label>
-            <label>Horario <input pInputText name="horario" [(ngModel)]="f.schedule_text" /></label>
-            <label>Requisitos <textarea pInputText name="req" rows="3" [(ngModel)]="f.requirements"></textarea></label>
-            <label>Descripción <textarea pInputText name="desc" rows="3" [(ngModel)]="f.description"></textarea></label>
-            <label>Imagen (liga) <input pInputText name="img" [(ngModel)]="f.image_url" /></label>
-            <label>Orden <input pInputText type="number" name="orden" [(ngModel)]="f.sort_order" /></label>
-            <label class="rv-check"><input type="checkbox" name="activa" [(ngModel)]="f.is_active" /> Publicada</label>
+            <fieldset class="rv-bloque">
+              <legend>Detalle</legend>
+              <label>Requisitos <textarea pInputText name="req" rows="3" [(ngModel)]="f.requirements"></textarea></label>
+              <label>Descripción <textarea pInputText name="desc" rows="3" [(ngModel)]="f.description"></textarea></label>
+              <label>Imagen (liga) <input pInputText name="img" [(ngModel)]="f.image_url" /></label>
+            </fieldset>
+            <fieldset class="rv-bloque">
+              <legend>Publicación</legend>
+              <label class="rv-check"><p-checkbox [binary]="true" name="activa" [(ngModel)]="f.is_active" inputId="rv-activa" /> <span>Publicada en la bolsa de trabajo</span></label>
+              <label>Orden en la lista <input pInputText type="number" name="orden" [(ngModel)]="f.sort_order" /></label>
+            </fieldset>
             @if (aviso(); as a) { <p class="rv-banner" role="alert">{{ a }}</p> }
             <div class="rv-btns">
               <p-button type="submit" label="Guardar" [disabled]="!f.name.trim()" [loading]="ocupado()" />
@@ -116,26 +135,41 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
     :host { display: block; }
     .rv-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
     .rv-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-    .rv-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
+    .rv-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; overflow: hidden; }
     .rv-scroll { overflow-x: auto; }
     .rv-tabla { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
-    .rv-tabla th { text-align: left; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+    .rv-tabla thead th { text-align: left; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
       background: var(--surface-2); padding: var(--sp-2) var(--sp-3); white-space: nowrap; }
     .rv-tabla td { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-main); vertical-align: middle; }
-    .rv-tabla tr.inactiva td { color: var(--text-muted); }
-    .rv-nom { border: 0; background: none; padding: 0; font: inherit; font-weight: 700; color: var(--text-main); cursor: pointer; text-align: left; }
-    .rv-nom:hover { text-decoration: underline; }
-    .rv-nom:focus-visible { outline: 2px solid var(--focus-ring); }
-    .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
-    .pill[data-t='ok'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .rv-pie { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); border-top: 1px solid var(--border-color); }
-    .rv-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .rv-c-nom { width: 34%; }
+    /* Un grupo por estado (como las zonas de Candidatos): primero lo publicado, lo cerrado al final y atenuado. */
+    .rv-tabla tr.rv-grupo th { text-align: left; padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); background: var(--surface-2);
+      font-size: var(--fs-xs); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-main); }
+    .rv-tabla tr.rv-grupo small { margin-left: var(--sp-1); font-size: var(--fs-xs); font-weight: 500; letter-spacing: 0; color: var(--text-muted); }
+    .rv-cerradas td, .rv-cerradas .rv-nom { color: var(--text-muted); }
+    .rv-tabla tr.rv-abre { cursor: pointer; }
+    .rv-tabla tr.rv-abre:hover td { background: var(--surface-hover-bg); }
+    .rv-nom { font-weight: 700; color: var(--text-main); }
+    .rv-tabla tr.rv-abre:hover .rv-nom { text-decoration: underline; }
+    .rv-tabla tr.rv-abre:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .rv-tabla tr.rv-abre:focus-visible td { background: var(--surface-hover-bg); }
+    /* Con el dedo, la fila que abre la edición mide al menos 44 px (--tap-min: 0 con mouse). */
+    .rv-tabla tr.rv-abre td { height: var(--tap-min); }
+    .rv-meta { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--text-muted); }
+    .rv-vacio { color: var(--text-muted); font-size: var(--fs-sm); }
+    @container densetable (max-width: 34rem) { .rv-tabla td.rv-c-nom { width: auto; } }
+
+    /* El formulario en cuatro bloques con título (antes: 11 campos seguidos). */
+    .rv-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+    .rv-bloque { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+    .rv-bloque legend { padding: 0 0 var(--sp-2); margin-bottom: var(--sp-1); width: 100%; border-bottom: 1px solid var(--border-color);
+      font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .rv-bloque > small { font-size: var(--fs-xs); color: var(--text-muted); }
     .rv-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
-    .rv-form .rv-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
-    .rv-suc { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); margin: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
-    .rv-suc legend { font-size: var(--fs-xs); color: var(--text-muted); padding: 0 var(--sp-1); }
-    .rv-suc small { font-size: var(--fs-xs); color: var(--text-muted); }
+    .rv-form .rv-check { flex-direction: row; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); min-height: var(--tap-min); }
+    .rv-check b { font-weight: 600; }
     .rv-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    :host ::ng-deep .p-button, :host ::ng-deep input.p-inputtext { min-height: var(--tap-min); }
     @media (max-width: 40rem) { .rv-page { padding: var(--sp-3); } }
   `],
 })
@@ -153,7 +187,14 @@ export class RhVacantesComponent implements OnInit {
   readonly aviso = signal<string | null>(null);
 
   readonly gestiona = computed(() => this.perms.has(Permission.HR_RECRUITMENT_GESTIONAR));
-  readonly activas = computed(() => this.vacantes().filter((v) => v.is_active).length);
+  /** Publicadas primero (siempre, aunque no haya ninguna: eso también se dice); las cerradas al final, sólo si hay. */
+  readonly grupos = computed(() => {
+    const vs = this.vacantes();
+    const g = [{ id: 'publicadas', titulo: 'Publicadas', vacantes: vs.filter((v) => v.is_active) }];
+    const cerradas = vs.filter((v) => !v.is_active);
+    if (cerradas.length) g.push({ id: 'cerradas', titulo: 'Cerradas', vacantes: cerradas });
+    return g;
+  });
 
   ngOnInit(): void { this.cargar(); }
 
@@ -176,6 +217,13 @@ export class RhVacantesComponent implements OnInit {
   /** La primera parte de la dirección (calle y número), para distinguir dos sucursales de la misma ciudad. */
   sucursalCorta(dir: string): string {
     return dir.split(',')[0] || dir;
+  }
+
+  /** Espacio sobre la fila abre la edición (sin desplazar la página), sólo para quien gestiona. */
+  teclaEspacio(e: Event, v: HrVacanteDto): void {
+    if (!this.gestiona()) return;
+    e.preventDefault();
+    this.editar(v);
   }
 
   alternar(f: FormVacante, id: string): void {

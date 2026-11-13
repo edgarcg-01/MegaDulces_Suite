@@ -57,7 +57,7 @@ const iso = (d: Date | string | null | undefined): string | null => (d == null ?
 
 function aFila(r: FilaCruda): HrCandidatoFilaDto {
   return {
-    id: r.id, full_name: r.full_name, phone: r.phone, phone_key: r.phone_key, city_branch: r.city_branch,
+    id: r.id, full_name: r.full_name, phone: r.phone, phone_key: r.phone_key, city_branch: r.city_branch, ciudad: ciudadDe(r.city_branch),
     position_interest: r.position_interest, stage: etapaDe(r.stage_raw), stage_raw: r.stage_raw,
     source: r.source, traffic_light: r.traffic_light, has_cv: tieneCv(r), no_rehire: r.no_rehire,
     is_spam: r.is_spam, created_at: iso(r.created_at) as string, last_activity_at: iso(r.last_activity_at),
