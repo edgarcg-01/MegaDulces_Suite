@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 117 KB, 1740 líneas, 35 secciones.
+> **Índice navegable** — 117 KB, 1749 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,26 +22,26 @@
 | 615 | 653 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
 | 654 | 812 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
 | 813 | 935 | 10 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 936 | 990 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 991 | 1028 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1029 | 1058 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1059 | 1112 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1113 | 1161 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1162 | 1193 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1194 | 1254 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1255 | 1289 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1290 | 1331 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
-| 1332 | 1443 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1444 | 1474 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1475 | 1522 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1523 | 1550 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1551 | 1607 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1608 | 1658 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1659 | 1684 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1685 | 1749 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1750 | 1769 | 1 | 6. Importers / feeds relevantes |
-| 1770 | 1777 | 1 | 7. Conexiones y credenciales |
-| 1778 | 1787 | 1 | 8. Para profundizar |
+| 936 | 999 | 5 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 1000 | 1037 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1038 | 1067 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1068 | 1121 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1122 | 1170 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1171 | 1202 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1203 | 1263 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1264 | 1298 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1299 | 1340 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
+| 1341 | 1452 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1453 | 1483 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1484 | 1531 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1532 | 1559 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1560 | 1616 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1617 | 1667 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1668 | 1693 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1694 | 1758 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1759 | 1778 | 1 | 6. Importers / feeds relevantes |
+| 1779 | 1786 | 1 | 7. Conexiones y credenciales |
+| 1787 | 1796 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -979,9 +979,18 @@ pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valore
    `c52`). Ejemplo: POPULAR CAM GRANDE (17111) del pedido 2749 nació en `CHECADO` y no tiene
    cantidad surtida. El estatus del pedido lo manda `kdm1.c11`. **Hipótesis:** la "Cant. Ped" de
    la pantalla es `c56` (llena en el 100%) y `c51` es la cantidad original del pedido.
-2. **`c51` y `c52` no siempre están en la misma unidad** (1 pedido contra 21.18 kg surtidos; `c51`
-   vacío en algunos renglones). "Embarcado ÷ pedido" da 102–103%: **no publicar % de surtido** sin
-   resolver la unidad.
+2. ~~`c51` y `c52` no siempre están en la misma unidad~~ — **resuelto el 2026-11-13 (`[GP.12.0a]`):**
+   las cuatro cantidades van en la unidad de `c55` (surtida = pedida en 45,320 de 45,551 renglones
+   embarcados en 30 días, las 9 sucursales). El 102–103 % venía de los renglones sin `c51` (trampa 1).
+   **`c56` = cantidad vigente** (sigue a la última etapa), **`c9` = `c56 × c58`** (unidad base),
+   **`c57` = precio por presentación**. Al bajar una cantidad, Kepler **recalcula el importe**:
+   `c13` = `round(c9 × c12, 2)` (47,626 de 47,626 renglones) y `kdm1.c16` =
+   `round(Σc13 × (1 − c19/100), 2)` (2,884 de 2,885 pedidos, incluidos los 508 con diferencia).
+   ⚠️ **Un pedido cancelado** queda `c43 = 'C'`, con $0 y sin renglones, pero **conserva su `c11`**
+   (180 en 30 días; 70 de 94 «en SURTIDO»): filtrar `c43` antes de contar por estatus.
+   ⚠️ *Estatus Surtido* copia lo pedido (surtida < pedida en 146 de 47,626 renglones): la
+   diferencia aparece en el checado (`c53`) o el embarque (`c54`). Detalle:
+   `FASES/FASE_GP_PLAN_IMPLEMENTACION.md` §2.1.
 3. **No hay hora por etapa.** Sólo `c62` (ticket) y `c69` (sin decodificar: 18:27 en el pedido,
    19:30 en su embarque). El tiempo de surtido/checado/embarque **no existe en Kepler**.
 
