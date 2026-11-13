@@ -13,6 +13,7 @@ import { alCambiarEnOtraVentana } from './core/utils/cross-tab';
 import { loginUrlTree } from './core/auth/login-redirect';
 import { enRutaPublica } from './core/auth/rutas-publicas';
 import { recargaAutomaticaBloqueada } from './core/services/recarga-segura';
+import { AppUpdateState } from './core/services/app-update-state.service';
 import { AuthService } from './core/services/auth.service';
 import { ArqueoDueService } from './modules/tienda/arqueo-due.service';
 import { ServiceDeskAvisoToastComponent } from './modules/dashboard/layout/service-desk-aviso-toast.component';
@@ -49,6 +50,12 @@ export class AppComponent implements OnInit {
   readonly enRutaPublica = enRutaPublica;
 
   private updatePending = false;
+  /**
+   * `[AUD.8]` El mismo "hay versión staged", pero legible desde fuera de este componente: el
+   * `GlobalErrorHandler` lo lee para clasificar una falla de carga como `stale-version` sin
+   * preguntarle al servidor por el archivo. Se mantiene en espejo con `updatePending`.
+   */
+  private readonly updateState = inject(AppUpdateState);
   private static readonly UPDATE_POLL_MS = 30 * 60 * 1000;
   /**
    * `[SW.1]` **Piso entre dos consultas de actualización, sea cual sea el disparador.**
@@ -115,10 +122,11 @@ export class AppComponent implements OnInit {
   private applyUpdate(): void {
     if (!this.updatePending) return;
     this.updatePending = false;
+    this.updateState.pending.set(false);
     this.swUpdate.activateUpdate()
       .then(() => document.location.reload())
       // Si falla la activación se queda pendiente: se reintenta la próxima vez que se oculte.
-      .catch(() => { this.updatePending = true; });
+      .catch(() => { this.updatePending = true; this.updateState.pending.set(true); });
   }
 
   /** Lleva a contar el corte que toca y saca ese de la barra; si quedan otros, siguen. */
@@ -197,7 +205,7 @@ export class AppComponent implements OnInit {
         filter((evt): evt is VersionReadyEvent => evt.type === 'VERSION_READY'),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe(() => { this.updatePending = true; });
+      .subscribe(() => { this.updatePending = true; this.updateState.pending.set(true); });
 
     /**
      * ⭐ `[SW.2]` **El único disparador: la pestaña deja de estar a la vista.**

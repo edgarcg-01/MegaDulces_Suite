@@ -1,6 +1,27 @@
 import { ErrorHandler, Injectable, inject } from '@angular/core';
 import { AppErrorService, AppErrorKind } from './app-error.service';
 import { hayServiceWorker, versionDelServidor } from './rescate';
+import { AppUpdateState } from '../services/app-update-state.service';
+
+/**
+ * ⭐ `[AUD.8]` ¿Qué hacer con una falla de carga, según si ngsw ya tiene una versión staged?
+ *
+ * Pura y exportada para poder probar las DOS ramas sin montar el handler:
+ *
+ *  - `stale-version-directo`: hay una versión nueva bajada y pendiente de activar, así que esta
+ *    pestaña corre la vieja y acaba de pedir un trozo que el despliegue borró. Es `stale-version`
+ *    sin ambigüedad — **no se le pregunta al servidor**, porque el `HEAD` del discriminador pasa
+ *    por el mismo service worker que sirve la copia vieja y por eso quedaba en «sin determinar».
+ *  - `clasificar`: no hay versión staged → se recorre el camino honesto de `[AUD.6]`, que
+ *    distingue 404 / sin red / 5xx / copia local / indeterminado preguntando al servidor.
+ *
+ * ⛔ La rama negativa (sin versión staged ⇒ `clasificar`) es la que protege a `[AUD.6]`: sin una
+ * versión realmente lista, NO se afirma un despliegue.
+ */
+export type PlanDeFalla = 'stale-version-directo' | 'clasificar';
+export function planearFallaDeCarga(versionStaged: boolean): PlanDeFalla {
+  return versionStaged ? 'stale-version-directo' : 'clasificar';
+}
 
 /**
  * ErrorHandler global de la plataforma web.
@@ -15,6 +36,7 @@ import { hayServiceWorker, versionDelServidor } from './rescate';
 @Injectable()
 export class GlobalErrorHandler implements ErrorHandler {
   private readonly errors = inject(AppErrorService);
+  private readonly updateState = inject(AppUpdateState);
   private hooked = false;
 
   constructor() {
@@ -31,9 +53,18 @@ export class GlobalErrorHandler implements ErrorHandler {
       : undefined;
 
     if (fallaDeCarga(error, message)) {
-      // ⛔ No se afirma la causa todavía: el navegador da el MISMO error para
-      // «ya no existe» y «no llegó». Se pregunta y recién entonces se dice.
       const recurso = recursoDe(error, message) ?? undefined;
+      // ⭐ `[AUD.8]` Si ngsw YA tiene una versión nueva staged, una falla de carga es
+      // `stale-version` sin lugar a dudas: esta pestaña corre la vieja y pidió un trozo que el
+      // despliegue borró. No se le pregunta al servidor —el `HEAD` lo contesta el mismo service
+      // worker con su copia vieja, y por eso quedaba en «sin determinar» después de cada deploy.
+      if (planearFallaDeCarga(this.updateState.pending()) === 'stale-version-directo') {
+        const err = this.errors.report('stale-version', message, stack, recurso);
+        console.error(`[${err.id}]`, error);
+        return;
+      }
+      // ⛔ Sin versión staged NO se afirma la causa todavía: el navegador da el MISMO error para
+      // «ya no existe» y «no llegó». Se pregunta y recién entonces se dice (`[AUD.6]`).
       const err = this.errors.report('load-checking', message, stack, recurso);
       console.error(`[${err.id}]`, error);
       void clasificarFallaDeCarga(recurso ?? null).then((kind) => this.errors.resolver(err.id, kind));

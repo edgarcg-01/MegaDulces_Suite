@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fallaDeCarga, recursoDe, clasificarFallaDeCarga } from './global-error-handler';
+import { fallaDeCarga, recursoDe, clasificarFallaDeCarga, planearFallaDeCarga } from './global-error-handler';
 import { AVISOS } from './app-error-outlet.component';
 import { AppErrorService } from './app-error.service';
 
@@ -112,6 +112,16 @@ describe('[AUD.6] la causa la decide el servidor, no el navegador', () => {
     });
     expect(kind).toBe('load-unknown');
     expect(kind).not.toBe('stale-version');
+  });
+});
+
+describe('[AUD.8] con una versión staged no se adivina: es stale-version', () => {
+  it('⭐ ngsw ya tiene una versión nueva lista ⇒ stale-version directo, sin preguntar al servidor', () => {
+    expect(planearFallaDeCarga(true)).toBe('stale-version-directo');
+  });
+
+  it('⛔ NEGATIVA: sin versión staged NO se afirma un despliegue — se clasifica como en [AUD.6]', () => {
+    expect(planearFallaDeCarga(false)).toBe('clasificar');
   });
 });
 

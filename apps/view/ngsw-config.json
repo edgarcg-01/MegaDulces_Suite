@@ -31,9 +31,10 @@
       }
     },
     {
+      "//": "[AUD.8] (2026-11-13) PREFETCH, NO LAZY. En lazy el SW no bajaba estos trozos al instalar: solo guardaba cada uno DESPUES de visitar su ruta. Tras un despliegue, SW.2 deja la pestaña visible en la version VIEJA, y al navegar a una ruta lazy no visitada antes del deploy la app pedia /chunk-HASHVIEJO.js, que el deploy ya borro -> 404 -> ChunkLoadError, que ademas quedaba en 'sin determinar' porque el HEAD del clasificador lo contesta el mismo SW. En prefetch el SW baja TODOS los trozos al instalar y en cada actualizacion, asi el cliente viejo los sirve de su cache y nunca pega al 404. Costo: ancho de banda al instalar/actualizar en equipos de sucursal con LTE -- aceptado por Edgar el 2026-11-13 ('ambos'), y es ademas lo que hace que la app funcione sin red (verificador de mostrador). Complementa al candado de clasificacion de [AUD.8] en GlobalErrorHandler (red limpia vs. mensaje correcto). NEGATIVA: etiqueta-hoja.spec exige que las tipografias sigan en prefetch y antes de 'assets'; este grupo no las toca.",
       "name": "chunks",
-      "installMode": "lazy",
-      "updateMode": "lazy",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
       "resources": {
         "files": [
           "/*.js"

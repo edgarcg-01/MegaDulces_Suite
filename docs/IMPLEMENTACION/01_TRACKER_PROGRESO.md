@@ -552,6 +552,43 @@ Y se actualiza el símbolo al avanzar:
       **No incluye:** `apps/vendor`, que tiene el MISMO `unrecoverable` con el mismo recargar pelado
       ([`app.component.ts:68`](../../apps/vendor/src/app/app.component.ts)) — queda como deuda con nombre.
 
+- [ ] **[AUD.8]** 🧪 **La pantalla deja de romperse en «sin determinar» cada vez que se sube una actualización** —
+      2026-11-13 (lo reportó Edgar: *«se repite cada que se sube una actualización»*, con el mismo
+      aviso de [AUD.6]/[AUD.7] en un teléfono tras cada despliegue).
+      **Para:** cualquiera con una pestaña de la Suite abierta y a la vista cuando se publica una versión ·
+      **Por qué:** se cruzan dos decisiones buenas. [SW.2] no activa la versión nueva mientras la
+      pestaña está a la vista (para no recargar encima de una captura), así que la pestaña sigue en la
+      **vieja**; y el grupo `chunks` de [`ngsw-config.json`](../../apps/view/ngsw-config.json) estaba en
+      **`installMode: lazy`** (los ~529 trozos no se bajaban al instalar, sólo al visitar su ruta). Al
+      navegar, tras el deploy, a una ruta lazy **no visitada antes**, la app pedía `/chunk-HASHVIEJO.js`
+      que el despliegue ya borró → **404** → `ChunkLoadError`; y como el `HEAD` del clasificador de
+      [AUD.6] lo contesta el **mismo service worker** desde su caché vieja, nunca veía el 404 y caía en
+      `load-unknown` («sin determinar»).
+      **Capa:** C3 · **Depende de:** [AUD.6] y [AUD.7] (en prod desde el 2026-11-13) · [SW.2].
+      **Decisión (Edgar, 2026-11-13, «ambos»):** se aplican los dos arreglos, cinturón y tirantes.
+      **Criterios:**
+      - **Option A (la cura):** el grupo `chunks` pasa a **`installMode: prefetch` + `updateMode:
+        prefetch`**: el service worker baja todos los trozos al instalar y en cada actualización, así el
+        cliente viejo los sirve de su caché y **nunca** pega al 404. Costo aceptado: ancho de banda de
+        instalación/actualización en equipos de sucursal con LTE (y de paso la app queda offline-capable).
+      - **Option B (el mensaje correcto):** el `GlobalErrorHandler` lee un estado compartido
+        `AppUpdateState.pending` (lo marca `app.component` con el evento `VERSION_READY` del propio
+        service worker, **sin** ningún `fetch` que el SW pueda ensuciar). Si hay una versión staged, una
+        falla de carga es `stale-version` **directo** —«Hay una actualización lista · Recargar ahora»—,
+        no «sin determinar».
+      - ❌ Prueba negativa: `planearFallaDeCarga(false)` → `'clasificar'` (sin versión staged NO se
+        afirma un despliegue; [AUD.6] intacto). Corrida y verde.
+      **Verificado contra:** `tsc --noEmit` de `apps/view` limpio para mis archivos (los rojos del
+      `tsconfig.spec` son deuda preexistente en specs ajenos); `falla-de-carga.spec.ts` 20/20,
+      `etiqueta-hoja.spec.ts` + `rescate.spec.ts` 76/76 (candados de prefetch de tipografías y de rescate
+      siguen verdes).
+      **¿Escribe?** no.
+      ⛔ **Sin validación visual:** no se vio en un navegador el aviso de `stale-version` saliendo tras un
+      deploy real; el flujo quedó verificado por lectura y pruebas, no montado.
+      ⛔ **NO MEDIDO:** cuántos equipos pegan hoy al 404 por despliegue; los errores del cliente siguen
+      sin reportarse a GlitchTip.
+      **No incluye:** `apps/vendor` (mismo `chunks` lazy — deuda con nombre, junto a la de [AUD.7]).
+
 
 ### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
 
@@ -5231,7 +5268,7 @@ cerrados con `validated_by = 'Claude Vision'`.
 - [ ] **[PQ.97]** 🧪 C0 (2026-11-10, plan §19.8; backtest §19.9) **Preliminar de temporada: qué puede sobrar antes del cierre** (3 y 1 semanas antes), con sobrante esperado por producto × sucursal y la acción (no reponer, mover, adelantar promoción) — **Capa:** C0 → C1. **Backtest Muertos 2026 (8 sucursales, árbitro = foto del 3-nov):** el preliminar (curva 2025 × razón) **no le gana al ingenuo** (recall 65 % vs 76 % a 3 semanas; venta proyectada 2.2× la real); el ingenuo sí gana al trivial (MAE −34 %). Recomendado: ritmo 2 sem × factor agregado de la temporada anterior (recall 83 %, MAE $223 mil sobre $290 mil reales a 21 d; 89 % y $100 mil a 7 d) y universo U4 (falsos 34 → 17). Navidad 2025 sólo venta (ingenuo −15 %/−24 %); sobrante y CEDIS NO MEDIDOS. ⛔ Los $1.25 M del corte de Navidad no se citan. Falta C1 (vista) y confirmación de Compras (D35).
 - [ ] **[PQ.98]** ⬜ (2026-11-10, plan §19.8) **Informes preliminar y de cierre asistidos con IA** — **Capa:** C2 → C3. El SQL calcula, la IA redacta; un número del texto que no esté en la tabla bloquea el envío; lo envía una persona (DESIGN §X). Depende de ADR-007 (proveedor) y de PQ.97.
 - [ ] **[PQ.99]** 🔨 C3 (2026-11-10, commit 4a47f16a7: /compras/temporadas con Calendario y Productos de una temporada-año, confirmar/descartar por lote; check:pantalla 10/10, plantilla tipada con control, 14/14 vitest de sus reglas; vista viva en el Docker local (calendario, confirmar y corregir fechas); En curso, Remate e Informes siguen fuera) (plan §19.8) **Pantalla Compras › Temporadas** (Calendario · En curso · Cierre y remate · Informes) con permisos `COMPRAS_TEMPORADAS_VER`/`_GESTIONAR` repartidos a Compras, Mercadotecnia y Dirección — **Capa:** C3, skill `diseno`. Maqueta: `C:\DEV\_reportes\maqueta-temporadas.html`. **Depende de:** PQ.94, PQ.96, PQ.97.
-- [ ] **[PQ.110]** 🔨 (2026-11-09, plan §20, §20.6) **Cancelar la OC en Kepler desde `/compras/oc-abiertas`** — **Capa:** C0–C3. Hoy el aviso dice «ciérrala en Kepler a mano». Arranca midiendo qué escribe Kepler al cancelar una OC con y sin vale. Prioridad 1 junto con PQ.111. **2026-11-09:** huella en el ODS medida (cancelar = importes y `c42` en 0, renglones fuera; ninguna OC con vale cancelada). Falta el testigo del Kepler vivo por `xmin` (espera autorización del PM). **2026-11-13 (anexo K §3c, autorizado por Edgar):** testigo por respaldo de `md` contra prod — cancelar = `c43`→C, `c15`/`c16`/`c42`→0, `c67`→quien cancela, `c68`/`c69`→fecha de cancelación, renglones de `kdm2` borrados ⇒ necesita `DELETE` en `kdm2` (D40). 20 de 195 OC de la Suite canceladas a mano en Kepler. Universo: OC sin vale vivo; motivo obligatorio. Pendiente: si el borrado de renglones es un segundo paso de Kepler o retraso de la réplica. **D40 = (a), Edgar 2026-11-13:** `ops/prod/kepler-grants/pq110_cancelar_oc.sql` (UPDATE de 9 columnas de `kdm1` + DELETE en `kdm2`): **aplicado en 01, 06 y 07 (2026-11-13, verificado); falta 00, 02 y 08** (`pg_hba` no deja entrar a `sa`).
+- [ ] **[PQ.110]** 🔨 (2026-11-09, plan §20, §20.6) **Cancelar la OC en Kepler desde `/compras/oc-abiertas`** — **Capa:** C0–C3. Hoy el aviso dice «ciérrala en Kepler a mano». Arranca midiendo qué escribe Kepler al cancelar una OC con y sin vale. Prioridad 1 junto con PQ.111. **2026-11-09:** huella en el ODS medida (cancelar = importes y `c42` en 0, renglones fuera; ninguna OC con vale cancelada). Falta el testigo del Kepler vivo por `xmin` (espera autorización del PM). **2026-11-13 (anexo K §3c, autorizado por Edgar):** testigo por respaldo de `md` contra prod — cancelar = `c43`→C, `c15`/`c16`/`c42`→0, `c67`→quien cancela, `c68`/`c69`→fecha de cancelación, renglones de `kdm2` borrados ⇒ necesita `DELETE` en `kdm2` (D40). 20 de 195 OC de la Suite canceladas a mano en Kepler. Universo: OC sin vale vivo; motivo obligatorio. Pendiente: si el borrado de renglones es un segundo paso de Kepler o retraso de la réplica. **D40 = (a), Edgar 2026-11-13:** `ops/prod/kepler-grants/pq110_cancelar_oc.sql` (UPDATE de 9 columnas de `kdm1` + DELETE en `kdm2`): **aplicado en 00, 01, 02, 06, 07 y 08 (2026-11-13, verificado)** (la 02 y la 08 se abrieron para `md` en su `pg_hba`). Falta el código del adaptador.
 - [ ] **[PQ.111]** 🔨 (2026-11-09, plan §20, §20.6) **Saldar la OC abierta en Kepler, una o masivo, desde `oc-abiertas`** — **Capa:** C0–C3. `X-A-90` se usó 1 vez en la historia; la necesidad son las OC sin vale (2 % de 15–90 días). ⛔ Qué escribe «saldar» es INFERIDO (`c43='F'`, `c42=0`): primero se lee un saldado real.
 - [ ] **[PQ.112]** ⚠️ D37 de PQ (2026-11-09, plan §20) **Cerrar la recepción en el Andén escribe el vale y la orden de entrada en Kepler** — **Capa:** C0–C3. Hoy son tres capturas el mismo día por recepción (~115 diarias). Mueve inventario: espera D37 de PQ, PQ.110/111 y KR.7.
 - [ ] **[PQ.113]** ⚠️ D37 de PQ (2026-11-09, plan §20) **El reclamo resuelto «devolver al proveedor» genera la devolución `X-D-40`** — **Capa:** C0–C3. 114 en 90 días; sin plan previo en ninguna fase.
