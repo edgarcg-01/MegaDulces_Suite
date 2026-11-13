@@ -60,9 +60,11 @@ const NUMERO: Record<string, string> = {
 export function consultaDeDictado(frase: string | null | undefined): string {
   const limpio = String(frase ?? '')
     .toLowerCase()
-    .replace(/(\d)[.,](\d)/g, '$1\u0000$2') // el punto decimal se respeta: «1.5 litros»
-    .replace(/[^\p{L}\p{N}\s/\u0000]/gu, ' ') // «Coca-Cola.» → «coca cola»
-    .replace(/\u0000/g, '.')
+    // El punto decimal se respeta («1.5 litros»): se aparta con una marca de uso privado (U+E000, no es de
+    // control: `no-control-regex`), sobrevive a la limpieza y vuelve a ser punto.
+    .replace(/(\d)[.,](\d)/g, '$1$2')
+    .replace(/[^\p{L}\p{N}\s/]/gu, ' ') // «Coca-Cola.» → «coca cola»
+    .replace(//g, '.')
     .replace(/(\d)(\p{L})/gu, '$1 $2'); // «600ml» → «600 ml»: encuentra «600ML» y «600 ML»
   const palabras = limpio.split(/\s+/).filter(Boolean);
   const salida: string[] = [];
