@@ -63,8 +63,9 @@ persona captura cada estatus a mano, y que haya piloto con dueño.
 | # | Resultado | Capa | Verificado contra / entrega |
 |---|---|---|---|
 | **GP.12.0a** 🔨 | Se sabe qué campos cambia Kepler al capturar *Estatus Surtido*, *Estatus Checado* y *Estatus Embarque*: diff por `xmin` en la réplica de 3 pedidos por pantalla, en la sucursal piloto. Incluye la **unidad de `kdm2.c51` vs `c52`** (pendiente desde GP.0: pedida y surtida vienen en unidades distintas), responsables `c100/c102/c103` y ubicaciones `c59/c60/c61`. **Medido el 2026-11-13 (§2.1).** Por corte transversal: unidad resuelta, recálculo del importe encontrado, Salida por Embarque separada. **Foto antes/después en marcha** (§2.2). Primeros casos reales: el checado recalcula el importe y **borra o renumera renglones**. Falta juntar ≥3 pedidos por transición | C0 | La pantalla de Kepler (captura de la persona que lo hizo) y el `kdm2` antes/después |
-| **GP.12.0d** 🧪 | Se sabe **cómo recalcula Kepler el renglón y la cabecera cuando una etapa baja la cantidad**. **Medido el 2026-11-13:**<br>· `c56` es la cantidad vigente y `c9` = `c56 × c58`.<br>· El renglón: `c13` = `round(c9 × c12, 2)` en 47,626 de 47,626 renglones.<br>· La cabecera: `c16` = `round(Σc13 × (1 − c19/100), 2)` en 2,884 de 2,885 pedidos (el otro a 5 centavos, por el kg sin redondear de E.25), incluidos los 508 con diferencia.<br>· `c14`/`c15` (IVA, IEPS) ya los reproduce `armarPedidoTlmk` → `totalesCotizacion` (E.25, 79 de 79), **y se reusa** (ADR-056).<br>Falta verificar `c14`/`c15` con esa función sobre los 508 pedidos con diferencia | C0 | Espejo: el importe que Kepler calculó en esos 508 pedidos, al centavo |
-| **GP.12.0b** | ADR que **enmienda ADR-086**: la Suite actualiza en su lugar el estatus y las cantidades de un `U-D-40` existente: interruptor por sucursal apagado al nacer, todo o nada, idempotente, sólo desde `md`. **Ya tiene precedente:** `[PQ.110]` actualiza en su lugar una OC de Kepler (`UPDATE` de cabecera con el estado leído en el `WHERE`, más `DELETE` de renglones; `kepler-oc-cancelacion.ts`). GP.12 sigue ese patrón, no inventa otro | Decisión | Firma del PM |
+| **GP.12.0e** ⬜ | **Permisos por columna para `kepler_push`**, en un archivo propio como `ops/prod/kepler-grants/pq110_cancelar_oc.sql`. Contiene `UPDATE` sólo en las columnas que mide GP.12.0a (ADR-117, tabla). El `DELETE` en `md.kdm2` ya está desde D40 (00, 01, 02, 06, 07 y 08). Lo corre el PM | C0 | El permiso aplicado, verificado como `kepler_push` en sólo lectura (`has_column_privilege`) |
+| **GP.12.0d** 🧪 | Se sabe **cómo recalcula Kepler el renglón y la cabecera cuando una etapa baja la cantidad**. **Medido el 2026-11-13:**<br>· `c56` es la cantidad vigente y `c9` = `c56 × c58`.<br>· El renglón: `c13` = `round(c9 × c12, 2)` en 47,626 de 47,626 renglones.<br>· La cabecera: `c16` = `round(Σc13 × (1 − c19/100), 2)` en 2,884 de 2,885 pedidos (el otro a 5 centavos, por el kg sin redondear de E.25), incluidos los 508 con diferencia.<br>· `c14`/`c15` (IVA, IEPS) ya los reproduce `armarPedidoTlmk` → `totalesCotizacion` (E.25, 79 de 79), **y se reusa** (ADR-056).<br>**Verificado el 2026-11-13** con esa misma función: descuento, IVA, IEPS y total al centavo en **2,889 de 2,890** pedidos embarcados y **509 de 509** con diferencia (el otro, a 2¢ por kilos sin redondear). Control negativo: con la cantidad pedida, 6 de 508 | C0 | Espejo: el importe que Kepler calculó en esos 508 pedidos, al centavo |
+| **GP.12.0b** 🔨 | **Borrador: [ADR-117](../02_DECISIONES_ARQUITECTURA.md), propuesto el 2026-11-13; falta la firma.** ADR que **enmienda ADR-086**: la Suite actualiza en su lugar el estatus y las cantidades de un `U-D-40` existente: interruptor por sucursal apagado al nacer, todo o nada, idempotente, sólo desde `md`. **Ya tiene precedente:** `[PQ.110]` actualiza en su lugar una OC de Kepler (`UPDATE` de cabecera con el estado leído en el `WHERE`, más `DELETE` de renglones; `kepler-oc-cancelacion.ts`). GP.12 sigue ese patrón, no inventa otro | Decisión | Firma del PM |
 | **GP.12.0c** 🧪 | Catálogo de motivos de diferencia (falta de existencia, dañado, …): reusar el de preventa (`shared/motivos-preventa`) en vez de inventar otro (ADR-056). **Existe y se reusa:** `MotivoOpcion` y `errorDeMotivo` en `libs/contracts`, `http-motivo.ts`, `motivo-chips.component.ts` (motivo por omisión, «Otro motivo» pide nota). Falta la lista de motivos de almacén | C0 | Lista firmada por el dueño de piso |
 | **GP.15.0** 🧪 | Se sabe qué hay en `logistics.vehicles` (ya tiene `capacity_boxes` y `capacity_kg`): unidades reales contra las 33 de prueba (GP.P1), y dónde va el número de estibas (**extender esa tabla, no crear otra**). **Medido:** 57 unidades activas, 28 ligadas a Kepler (`kepler_code`), **1** con capacidad en cajas, ninguna con estibas. Kepler tiene 33 transportes (`kdm_transporte`, el mismo catálogo replicado en las 9 sucursales). Va como columna nueva en `logistics.vehicles` | C0 | Lista de camiones del piloto con Logística |
 | **GP.8.0** 🧪 | Sucursal piloto, dueño de piso y META con fecha firmados (P-GP.1, P-GP.8). **Piloto: Padre Hidalgo** (D28). Falta el dueño de piso (P-GP.1); la fecha de la META se fija al cerrar E4 | Decisión | Firma del PM |
@@ -124,10 +125,15 @@ ADR sin firmar; dinero en juego NO MEDIDO.
    - 70 de los 94 que aparecen «en SURTIDO» están cancelados.
    - La consola de hoy (`warehouse-orders.service.ts`) **no lee `c43`**: los cuenta como pedidos
      vivos y los pinta como atorados. Se arregla primero (GP.10.0).
-9. **El checado puede borrar o renumerar renglones.** En el primer caso real que capturó la foto
-   (§2.2), el checado de un pedido de Morelia Abastos recalculó `c13`–`c16` y `c42` en la cabecera,
-   y de sus renglones salieron 26 y entraron 19 llaves (`c7`, `c8`). Escribir CHECADO o EMBARCADO
-   con faltantes tendrá que reproducir eso, no sólo cambiar una cantidad.
+9. **El checado y el embarque borran el renglón que queda en cero y renumeran los demás.**
+   Comparado por producto en los dos casos reales que capturó la foto (§2.2):
+   - **Morelia Abastos, en el checado:** 7 productos sin checar salieron del pedido y 19 cambiaron
+     de número de renglón (`c7`). Se recalcularon `c13`–`c16` y `c42`.
+   - **Padre Hidalgo, en el embarque:** salieron 5 productos y **entraron 2 nuevos**.
+
+   Escribir CHECADO o EMBARCADO con faltantes es entonces `DELETE` + renumerar + recalcular, no sólo
+   cambiar una cantidad. Hoy Kepler deja agregar productos en piso: el 3.2 % de los renglones nace
+   después del pedido (P-GP.10).
 
 ### 2.2 Foto antes/después (GP.12.0a)
 
@@ -145,12 +151,20 @@ por transición de estatus. También dice si nació un `U-D-41`.
   CHECADO→EMBARCADO.
 - **Los datos no van al repo**, porque es público. El script es de la sesión: se reescribe con
   esta receta si hace falta.
-- **Primeros casos reales** (a 4 minutos de la foto):
+- **Casos reales** (los primeros 22 minutos después de la foto):
 
   | Pedido | Transición | Cabecera (`kdm1`) | Renglones (`kdm2`) | `U-D-41` |
   |---|---|---|---|---|
-  | Morelia Abastos | SURTIDO→CHECADO | `c11`, `c13`–`c16`, `c42`, `c63`, `c69`, `c83`, `c84`, `c102` | `c53`; 26 llaves salen, 19 entran | no |
+  | Morelia Abastos | CREADO→AUTORIZADO | `c11` | — | no |
+  | Morelia Abastos | CREADO→SURTIDO | `c11`, `c67`, `c69`, `c83`, `c84`, `c88`, `c100` | `c52`, `c62`, `c63` | no |
+  | Morelia Abastos | CREADO→CHECADO | `c11`, `c30`, `c67`, `c69`, `c88`, `c100`, `c102` | `c52`, `c53`, `c62`, `c63` | no |
+  | Morelia Abastos | SURTIDO→CHECADO | `c11`, `c13`–`c16`, `c42`, `c63`, `c69`, `c83`, `c84`, `c102` | `c53`; 7 productos salen, 19 renumerados | no |
+  | CEDIS | SURTIDO→EMBARCADO | `c11`, `c43`, `c69`, `c83`–`c85`, `c102`, `c103` | `c53`, `c54` | no |
+  | Padre Hidalgo | CHECADO→EMBARCADO | `c11`, `c16`, `c42`, `c43`, `c63`, `c69`, `c85`, `c103` | `c54`; 5 productos salen, 2 entran | no (todavía) |
   | Padre Hidalgo | AUTORIZADO→EMBARCADO, en <4 min | `c11`, `c30`, `c42`, `c43`, `c69`, `c83`–`c86`, `c88`, `c100`, `c102`, `c103` | `c24`, `c52`–`c54`, `c62`, `c63` | **sí, en la misma pasada** |
+
+  Faltan casos de una sola etapa: hay 1 de SURTIDO→CHECADO, 1 de CHECADO→EMBARCADO y ninguno de
+  AUTORIZADO→SURTIDO.
 
   El de Padre Hidalgo muestra que las cuatro capturas (surtido, checado, embarque y salida) se
   hacen de corrido al final: es la recaptura del papel. EMBARCADO también toca `c43` (estado del
@@ -317,4 +331,5 @@ prod, o escrito por qué no. La fase cierra con E5 y la métrica de la cabecera 
 |---|---|---|
 | 2026-11-13 | Plan de implementación por etapas E0–E5 sobre el recorrido D1–D25 | Edgar, Claude |
 | 2026-11-13 | E0 arrancado (sólo lectura). GP.12.0a medido por corte transversal: unidad resuelta, recálculo del importe y Salida por Embarque separada (§2.1). Nuevo GP.12.0d. GP.15.0, GP.12.0c y GP.7.0 (NO MEDIDO) hechos. D26–D28 decididas por encargo del PM | Claude |
+| 2026-11-13 | GP.12.0d verificado con `totalesCotizacion`: 509 de 509 pedidos con diferencia al centavo. GP.12.0a: siete transiciones reales; el checado y el embarque borran y renumeran renglones, y el embarque agrega productos. Borrador de ADR-117 (GP.12.0b). Nuevo GP.12.0e (permisos por columna) y P-GP.10 | Claude |
 | 2026-11-13 | GP.12.0d: fórmula del renglón y de la cabecera al centavo; IVA/IEPS se reusan de E.25. GP.12.0b sigue el precedente de PQ.110. Foto antes/después en marcha (§2.2): su prueba negativa destapó los cancelados que conservan estatus → nuevo GP.10.0 | Claude |

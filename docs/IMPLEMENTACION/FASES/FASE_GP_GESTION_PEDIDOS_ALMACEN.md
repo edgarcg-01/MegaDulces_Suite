@@ -250,11 +250,11 @@ capturista no registra, pronto los dos dejan de hacer su trabajo»*.
 | D10 | El checado toma de la cola de pedidos en Surtido e identifica el pedido escaneando la carreta | 5 | — |
 | D11 | Se checa todo, renglón por renglón (sin muestreo) | 5 | — |
 | D12 | Los bultos se arman en el checado | 5 | — |
-| D13 | La Suite escribe SURTIDO en Kepler en automático al finalizar el surtido | 4b | **enmienda ADR-086** |
+| D13 | La Suite escribe SURTIDO en Kepler en automático al finalizar el surtido | 4b | **ADR-117** (propuesto; enmienda ADR-086) |
 | D14 | Se escribe lo pedido vs lo surtido por renglón, con el motivo de la diferencia | 4b | idem |
 | D15 | Tras escribir, el pedido queda en la cola abierta para cualquier checador, salvo quien lo surtió. *Interpretación decidida por encargo del PM (2026-11-13); es reversible: si el piloto pide asignar checador, se agrega sin cambiar el resto* | 4b | — |
 | D16 | Lo checado va a una posición de embarque con identificador; la posición dice qué pedido(s) tiene | 6 | — |
-| D17 | Todo cambio de estatus en Kepler (Surtido, Checado, Embarcado) lo escribe la Suite | 4b–7 | **enmienda ADR-086** |
+| D17 | Todo cambio de estatus en Kepler (Surtido, Checado, Embarcado) lo escribe la Suite | 4b–7 | **ADR-117** (propuesto; enmienda ADR-086) |
 | D18 | Al cargar, cada bulto recibe su posición de estiba en el camión | 7 | — |
 | D19 | El transporte se asigna antes de cargar | 7 | — |
 | D20 | Quién da la Salida por Embarque: no se sabe aún | 8 | — |
@@ -264,7 +264,7 @@ capturista no registra, pronto los dos dejan de hacer su trabajo»*.
 | D24 | El catálogo de unidades con su número de estibas lo genera la Suite | 7 | — |
 | D25 | Un pedido cancelado a medio camino se resuelve con devolución | 9 | — |
 | D26 | La Suite escribe el **estatus** EMBARCADO; la *Salida por Embarque* (`U-D-41`, saca inventario, lleva la guía y de ahí sale la factura) **sigue en Kepler**. *Decidida por encargo del PM (2026-11-13): son capturas separadas (CEDIS tiene 67 embarcados sin `U-D-41`), y escribir un documento que mueve inventario es otra escala de riesgo* | 6–8 | entra en la enmienda a ADR-086 |
-| D27 | La escritura de SURTIDO va **en dos tiempos**: primero los pedidos surtidos completos; los que tienen diferencia, cuando GP.12.0d quede verificado. *Decidida por encargo del PM (2026-11-13): bajar una cantidad hace que Kepler recalcule el importe. La fórmula de `c16` ya cuadra al centavo (2,884 de 2,885 pedidos); faltan IVA/IEPS sobre los pedidos con diferencia y que el checado borra o renumera renglones* | 4b | idem |
+| D27 | La escritura de SURTIDO va **en dos tiempos**: primero los pedidos surtidos completos; los que tienen diferencia, cuando la foto haya visto al menos 3 casos de cada transición con borrado y renumeración de renglones. *Decidida por encargo del PM (2026-11-13): bajar una cantidad hace que Kepler recalcule el importe, borre el renglón en cero y renumere el resto. El importe ya está verificado (GP.12.0d: 509 de 509 al centavo); el borrado y la renumeración tienen 2 casos* | 4b | ADR-117 |
 | D28 | Sucursal piloto: **Padre Hidalgo**. *Decidida por encargo del PM (2026-11-13): es el piloto de UB (misma bodega, mismo censo) y la de más pedidos (955 en 30 días)* | Piloto | — |
 
 **Decisiones de octubre que quedan sin efecto:** la tesis «la Suite no escribe en Kepler» y «el
@@ -287,6 +287,7 @@ arman en el checado, D12); GP.6 como cuadre (lo sustituye la bandeja de fallas d
 | P-GP.7 | Regla de «atorado» por etapa (D3) | Consola maestra, segunda vuelta | Edgar |
 | P-GP.8 | ~~Sucursal piloto~~ (Padre Hidalgo, D28) y la **fecha** de su META, que se fija al cerrar E4 | Métrica de la cabecera | Edgar |
 | P-GP.9 | ¿La Asignación de Transporte se hace en la Suite (y se escribe a Kepler) o sigue en Kepler? | E4 (GP.15.2) | Edgar |
+| P-GP.10 | ¿Se puede **agregar un producto** al pedido en piso (surtido, checado o embarque), como hoy deja Kepler? El 3.2 % de los renglones nace después del pedido (medido en 21 días; ERP_KEPLER §3.y.3), y en un embarque real entraron 2 productos. Cambia lo que se vende, así que no es sólo proceso. **Recomendación:** sí, sólo en el checado, con motivo y con el nombre de quien lo agregó; nunca en el embarque | GP.12 (2º tiempo), GP.13 | Edgar |
 | UB.P4 | Croquis de pasillos y racks de la bodega piloto | Pasos 1–2 | Almacén piloto |
 
 ---
@@ -358,3 +359,4 @@ GP.7 (indicadores) y GP.8 (piloto) siguen, después de GP.15.
 | 2026-10-06 → 11-12 | Plan original, GP.0–GP.9 (ver el anexo de historia) | Francisco, Edgar, Claude |
 | 2026-11-13 | Medición de uso real (§0) y recorrido proceso por proceso: D1–D25, pendientes P-GP.1–8, orden GP.10–GP.16. El plan anterior pasa a anexo | Edgar, Claude |
 | 2026-11-13 | E0 (sólo lectura): unidad de cantidades resuelta, Kepler recalcula el importe al bajar una cantidad, Salida por Embarque separada del estatus, D21 y D23 medidas. D4/D15 interpretadas, D26–D28 decididas por encargo del PM ([plan §2.1](FASE_GP_PLAN_IMPLEMENTACION.md)) | Claude |
+| 2026-11-13 | GP.10.0 en código (los cancelados ya no se cuentan como vivos). GP.12.0d verificado. Borrador de ADR-117 para D13/D17. Nuevo pendiente P-GP.10 (agregar productos en piso) | Claude |
