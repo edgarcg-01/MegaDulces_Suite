@@ -21,10 +21,12 @@
  *  · OC que no está en `N` (pendiente): `R` tiene recepción parcial, `F` está surtida, `C` ya está
  *    cancelada; `A` (9 en 90 días) no se midió.
  *  · OC con un **vale vivo** (`X-A-37` con `c37 = 35`, `c39` = folio, `c43 ≠ C`): eso es deshacer una
- *    recepción, y va por el Andén (`[PQ.112]`).
+ *    recepción: hoy se hace en Kepler (que el Andén lo haga es `[PQ.112]`).
  *  · Requisición que no está en `F`, o que tiene OTRA OC viva: Kepler no se observó en esos casos
  *    (0 de 45 OC canceladas con requisición tenían otra OC viva).
  */
+
+import { OC_CANCELAR_MOTIVO_MIN } from '@megadulces/contracts';
 
 /** Lo que el adaptador lee de Kepler, ya plano. */
 export interface OcEnKepler {
@@ -76,7 +78,7 @@ const ESTADO_OC: Record<string, string> = {
 };
 
 /** Mínimo de letras del motivo: «ya no» no explica nada a quien lo lea después. */
-export const MOTIVO_MINIMO = 10;
+export const MOTIVO_MINIMO = OC_CANCELAR_MOTIVO_MIN;
 
 export function motivoValido(motivo: string | null | undefined): { ok: true; valor: string } | { ok: false; motivo: string } {
   const v = (motivo ?? '').replace(/\s+/g, ' ').trim();
@@ -95,13 +97,13 @@ export function decidirCancelacionOc(e: EntradaDecision): Decision {
   const oc = e.oc;
   if (oc.estado !== 'N') {
     const como = ESTADO_OC[oc.estado] ?? `en estado ${oc.estado}`;
-    if (oc.estado === 'R') return { ok: false, motivo: `La OC está ${como}: deshacer lo recibido va por el Andén, no por aquí` };
+    if (oc.estado === 'R') return { ok: false, motivo: `La OC está ${como}: deshacer lo recibido se hace en Kepler, no aquí` };
     return { ok: false, motivo: `La OC está ${como}: sólo se cancela una OC pendiente` };
   }
   if (e.vales_vivos.length) {
     return {
       ok: false,
-      motivo: `La OC ya tiene vale de entrada (${e.vales_vivos.slice(0, 3).join(', ')}): cancelarla es deshacer una recepción, y eso va por el Andén`,
+      motivo: `La OC ya tiene vale de entrada (${e.vales_vivos.slice(0, 3).join(', ')}): cancelarla es deshacer una recepción, y eso se hace en Kepler`,
     };
   }
   if (oc.origen_tipo !== '30') return { ok: true, reabre_requisicion: false };

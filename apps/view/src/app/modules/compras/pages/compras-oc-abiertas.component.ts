@@ -14,6 +14,7 @@ import {
   CLASES_OC, CLASE_OC_ACCION, CLASE_OC_LABEL, ClaseOc, clasificarOc,
   OC_NOTA_MAX, OC_SEGUIMIENTO_ESTATUS, OC_SEGUIMIENTO_LABEL, OC_SIN_REVISAR, OcSeguimientoEstatus,
   notaObligatoria, validarSeguimiento,
+  OC_CANCELAR_MOTIVO_MIN, type OcCancelacionDisponibleDto, type OcCancelacionDto,
 } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -156,13 +157,19 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
         }
       </div>
 
-      <!-- [PQ.29] Ocultarlas no las cancela en Kepler: se dice, a la vista. Medido el 2026-10-29
-           en el servidor 01: la OC queda convertida (F) y su vale X-A-37 sigue abierto con saldo. -->
+      <!-- [PQ.29] Ocultarlas no las cancela en Kepler: se dice, a la vista.
+           [PQ.110] El texto anterior decía que TODAS tenían su vale de entrada abierto. Medido el
+           2026-11-13: sólo 21 de 160 lo tienen; lo que sigue vivo en Kepler casi siempre es la OC
+           misma, y ésa se cancela desde su detalle. -->
       @if (noSurtidas() > 0 && fSeg() !== 'no_surtida_cancelada') {
         <p class="oa-aviso" role="status">
           <span class="pi pi-info-circle" aria-hidden="true"></span>
-          {{ noSurtidas() | number }} marcadas «No surtida / cancelada» no se cuentan como abiertas. En Kepler siguen vivas:
-          su vale de entrada (X-A-37) está abierto y hay que cancelarlo allá para cerrarlas.
+          <span>
+            {{ noSurtidas() | number }} marcadas «No surtida / cancelada» no se cuentan como abiertas, pero en Kepler siguen abiertas.
+            @if (canCancelar) { Desde el detalle de cada una se cancela en Kepler; las que ya tienen vale de entrada se cancelan en Kepler. }
+            @else { Hay que cancelarlas en Kepler. }
+            <button type="button" class="oa-aviso-btn" (click)="fSeg.set('no_surtida_cancelada'); syncUrl()">Verlas</button>
+          </span>
         </p>
       }
 
@@ -429,8 +436,90 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               <span class="p-button-label">PDF interno</span>
             </button>
           </div>
+
+          <!-- [PQ.110] Cancelar en Kepler: acción destructiva, separada de las de todos los días y en
+               --bad-fg. Sólo se ofrece si el servidor dice que se puede (interruptor, tope, regla de
+               Kepler); si no, se dice por qué en vez de mostrar un botón que va a fallar. -->
+          @if (canCancelar) {
+            <div class="oa-pk-canc">
+              @if (cancInfo(); as ci) {
+                @if (ci.ultima?.estado === 'cancelada') {
+                  <p class="oa-pk-canc-msg">
+                    <span class="pi pi-ban" aria-hidden="true"></span>
+                    <span>Cancelada en Kepler desde la Suite el {{ ci.ultima!.cancelada_en | date:'dd/MM/yy HH:mm' }}
+                      por {{ ci.ultima!.cancelada_por || 'alguien sin nombre registrado' }}.
+                      @if (ci.ultima!.requisicion_reabierta) { Su requisición {{ ci.ultima!.requisicion_reabierta }} volvió a pendiente en Kepler. }</span>
+                  </p>
+                } @else if (ci.disponible) {
+                  <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="abrirCancelar(peekOrden()!)">
+                    <span class="p-button-icon p-button-icon-left pi pi-ban" aria-hidden="true"></span>
+                    <span class="p-button-label">Cancelar en Kepler</span>
+                  </button>
+                } @else {
+                  <p class="oa-pk-canc-msg oa-muted">
+                    <span class="pi pi-info-circle" aria-hidden="true"></span>
+                    <span>{{ ci.porque }}</span>
+                  </p>
+                }
+                @if (ci.ultima?.estado === 'rechazada') {
+                  <p class="oa-pk-canc-msg oa-muted">Último intento desde la Suite, sin cambios en Kepler: {{ ci.ultima!.rechazo }}</p>
+                }
+              } @else if (cancInfoError()) {
+                <p class="oa-pk-canc-msg oa-muted">No se pudo revisar si esta orden se puede cancelar desde aquí.</p>
+              }
+            </div>
+          }
         }
       </app-side-peek>
+
+      <!-- [PQ.110] Confirmar la cancelación. Dice ANTES qué pasa en Kepler (la OC y su requisición);
+           el motivo llega lleno con la nota de «No surtida / cancelada» cuando la hay. -->
+      <p-dialog [visible]="!!cancOrden()" (visibleChange)="$event ? null : cerrarCancelar()" [modal]="true"
+                [style]="{ width: '32rem' }" [breakpoints]="{ '640px': '95vw' }"
+                [dismissableMask]="!cancEnviando()" [closable]="!cancEnviando()" [closeOnEscape]="!cancEnviando()"
+                [header]="cancOrden() ? 'Cancelar en Kepler · OC ' + cancOrden()!.folio : ''">
+        @if (cancOrden(); as o) {
+          <div class="oa-dlg">
+            @if (cancResultado(); as r) {
+              @if (r.estado === 'cancelada') {
+                <p class="oa-canc-ok" role="status">
+                  <span class="pi pi-check-circle" aria-hidden="true"></span>
+                  <span>La OC {{ o.folio }} de {{ o.almacen | sucursal }} quedó cancelada en Kepler.
+                    @if (r.requisicion_reabierta) { La requisición {{ r.requisicion_reabierta }} volvió a pendiente en Kepler. }</span>
+                </p>
+                <p class="oa-dlg-hint">Kepler la quita de las abiertas en uno o dos minutos; mientras, la lista la marca como cancelada.</p>
+              } @else {
+                <p class="oa-dlg-err" role="alert">Kepler no la canceló: {{ r.rechazo }}</p>
+                <p class="oa-dlg-hint">No se escribió nada en Kepler. El intento quedó registrado con tu motivo.</p>
+              }
+            } @else {
+              <p class="oa-dlg-sub">{{ o.proveedor || 'Sin proveedor' }} · {{ o.almacen | sucursal }} · {{ money(o.valor) }}</p>
+              <p class="oa-canc-que">
+                La orden queda <b>cancelada en Kepler</b> y se borran sus renglones, igual que si la cancelaras allá.
+                @if (cancInfo()?.reabriria_requisicion; as rq) {
+                  La requisición <b>{{ rq }}</b> vuelve a pendiente en Kepler; en la Suite sólo dirá que su orden se canceló.
+                }
+              </p>
+              <label class="oa-dlg-lbl" for="oa-canc-motivo">Por qué se cancela <span class="oa-req">(obligatorio)</span></label>
+              <textarea id="oa-canc-motivo" class="oa-dlg-nota" rows="3" maxlength="500" [disabled]="cancEnviando()"
+                        [ngModel]="cancMotivo()" (ngModelChange)="cancMotivo.set($event)"
+                        placeholder="Por ejemplo: el proveedor no surtió y ya no se necesita."></textarea>
+              <p class="oa-dlg-hint">Al menos {{ motivoMin }} letras. Queda en la Suite junto a la orden, con tu nombre.</p>
+              @if (cancError()) { <p class="oa-dlg-err" role="alert">{{ cancError() }}</p> }
+            }
+          </div>
+        }
+        <ng-template #footer>
+          @if (cancResultado()) {
+            <button pButton type="button" class="p-button-sm" (click)="cerrarCancelar()">Cerrar</button>
+          } @else {
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="cancEnviando()" (click)="cerrarCancelar()">Volver</button>
+            <button pButton type="button" class="p-button-sm p-button-danger" [disabled]="cancEnviando() || !motivoOk()" (click)="confirmarCancelar()">
+              {{ cancEnviando() ? 'Cancelando en Kepler…' : 'Cancelar en Kepler' }}
+            </button>
+          }
+        </ng-template>
+      </p-dialog>
 
       <!-- [RA-PRO.62] Cambiar el estatus de seguimiento. La nota es obligatoria salvo "Vigente"
            (misma regla que valida el servidor, de @megadulces/contracts). -->
@@ -609,6 +698,18 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-dlg-hint { margin: .25rem 0 0; font-size: .72rem; color: var(--text-muted); }
     .oa-dlg-err { margin: .25rem 0 0; font-size: .78rem; color: var(--bad-fg); }
     .oa-cv { margin: 0 .45rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* [PQ.110] Cancelar en Kepler. Separado de las acciones diarias por su propia linea; el boton
+       va en --bad-fg (p-button-danger) y nunca en --action. */
+    .oa-aviso-btn { all: unset; cursor: pointer; margin-left: .25rem; color: var(--action); font-weight: 600;
+      text-decoration: underline; text-underline-offset: 2px; }
+    .oa-aviso-btn:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 2px; }
+    .oa-pk-canc { margin-top: .6rem; padding-top: .6rem; border-top: 1px dashed var(--border-color); }
+    .oa-pk-canc-msg { display: flex; gap: .45rem; align-items: flex-start; margin: .25rem 0; font-size: .8rem; line-height: 1.45; }
+    .oa-pk-canc-msg .pi { margin-top: .15rem; font-size: var(--fs-xs); }
+    .oa-canc-que { margin: 0 0 .35rem; font-size: .85rem; line-height: 1.5; }
+    .oa-canc-ok { display: flex; gap: .45rem; align-items: flex-start; margin: 0; font-size: .9rem; line-height: 1.5; }
+    .oa-canc-ok .pi { color: var(--ok-fg); margin-top: .2rem; }
   `],
 })
 export class ComprasOcAbiertasComponent implements OnInit {
@@ -792,6 +893,88 @@ export class ComprasOcAbiertasComponent implements OnInit {
           this.peekLoading.set(false);
         },
       });
+    this.revisarCancelacion(o);
+  }
+
+  // ── [PQ.110] Cancelar la OC en Kepler ────────────────────────────────────────────────────
+  // La regla vive en el servidor (interruptor por sucursal, tope del día, estado de la OC, vale vivo,
+  // requisición): la pantalla PREGUNTA si se puede antes de ofrecer el botón, y si no, dice por qué.
+  readonly canCancelar = this.perms.has(Permission.COMPRAS_OC_CANCELAR);
+  readonly motivoMin = OC_CANCELAR_MOTIVO_MIN;
+  readonly cancInfo = signal<OcCancelacionDisponibleDto | null>(null);
+  readonly cancInfoError = signal(false);
+  private cancInfoSub: Subscription | null = null;
+  readonly cancOrden = signal<FilaOc | null>(null);
+  readonly cancMotivo = signal('');
+  readonly cancError = signal<string | null>(null);
+  readonly cancEnviando = signal(false);
+  readonly cancResultado = signal<OcCancelacionDto | null>(null);
+  /** La misma regla que el servidor (`motivoValido`): espacios colapsados, al menos N letras. */
+  readonly motivoOk = computed(() => this.cancMotivo().replace(/\s+/g, ' ').trim().length >= OC_CANCELAR_MOTIVO_MIN);
+  /**
+   * Órdenes canceladas desde esta pantalla en esta visita. La réplica de Kepler tarda uno o dos
+   * minutos en verlas canceladas; mientras, la fila lo dice en vez de seguir afirmando «Pendiente».
+   */
+  readonly canceladasAqui = signal<ReadonlySet<string>>(new Set<string>());
+  private llaveOc(o: { almacen: string; folio: string }): string { return `${o.almacen}|${o.folio}`; }
+
+  private revisarCancelacion(o: FilaOc): void {
+    this.cancInfo.set(null);
+    this.cancInfoError.set(false);
+    this.cancInfoSub?.unsubscribe();
+    if (!this.canCancelar) return;
+    this.cancInfoSub = this.api.ocCancelacion(o.almacen, o.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.cancInfo.set(r),
+      error: () => this.cancInfoError.set(true),
+    });
+  }
+
+  abrirCancelar(o: FilaOc): void {
+    if (!this.cancInfo()?.disponible) return;
+    this.cancOrden.set(o);
+    // Si Compras ya la marcó «No surtida / cancelada», su nota ES el motivo: no se teclea dos veces.
+    const s = o.seguimiento;
+    this.cancMotivo.set(s?.estatus === 'no_surtida_cancelada' && s.nota ? s.nota : '');
+    this.cancError.set(null);
+    this.cancResultado.set(null);
+  }
+
+  /** Mientras se envía no se cierra: la respuesta tardía no tendría dónde decir qué pasó en Kepler. */
+  cerrarCancelar(): void {
+    if (this.cancEnviando()) return;
+    const cancelada = this.cancResultado()?.estado === 'cancelada';
+    this.cancOrden.set(null);
+    this.cancResultado.set(null);
+    // Los conteos son sobre TODAS las órdenes y sólo el servidor los sabe.
+    if (cancelada) this.reload();
+  }
+
+  /** Ficha de la última petición: una respuesta vieja no pisa el diálogo actual. */
+  private cancReq = 0;
+  confirmarCancelar(): void {
+    const o = this.cancOrden();
+    if (!o || this.cancEnviando() || !this.motivoOk()) return;
+    this.cancEnviando.set(true); // en el mismo clic: el doble clic no manda dos
+    this.cancError.set(null);
+    const req = ++this.cancReq;
+    this.api.cancelarOc(o.almacen, o.folio, this.cancMotivo()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        if (req !== this.cancReq) return;
+        this.cancEnviando.set(false);
+        this.cancResultado.set(r);
+        if (r.estado === 'cancelada') this.canceladasAqui.update((s) => new Set(s).add(this.llaveOc(o)));
+        // El detalle abierto se vuelve a preguntar: ya no ofrece el botón y dice quién y cuándo.
+        const p = this.peekOrden();
+        if (p && this.llaveOc(p) === this.llaveOc(o)) this.revisarCancelacion(p);
+      },
+      error: (e) => {
+        if (req !== this.cancReq) return;
+        this.cancEnviando.set(false);
+        // Un 4xx/5xx del servidor trae su porqué. Sin respuesta NO se sabe si Kepler cambió: se dice así.
+        this.cancError.set(e?.error?.message
+          || 'No se pudo confirmar la cancelación. Vuelve a abrir la orden para ver si quedó cancelada en Kepler.');
+      },
+    });
   }
 
   /** El % que ya llegó. `null` = la orden no tiene importe: se DECLARA, no se dibuja 0%. */
@@ -985,6 +1168,8 @@ export class ComprasOcAbiertasComponent implements OnInit {
    * («Finalizada» + «Falta orden de entrada» + «0 %») diciendo lo mismo.
    */
   estadoTexto(o: FilaOc): string {
+    // [PQ.110] Cancelada aquí y la réplica todavía la ve pendiente: se dice, no se afirma «Pendiente».
+    if (o.estatus === 'N' && this.canceladasAqui().has(this.llaveOc(o))) return 'Cancelada desde la Suite · Kepler todavía no lo refleja';
     const base = this.clasifOk() ? o._claseLabel : this.estLabel(o.estatus);
     return o.estatus === 'N' && o.prob != null ? `${base} · llega ${o.prob} %` : base;
   }

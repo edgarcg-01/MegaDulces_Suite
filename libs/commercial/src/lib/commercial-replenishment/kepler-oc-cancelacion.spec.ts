@@ -27,7 +27,7 @@ describe('[PQ.110] decidirCancelacionOc — sólo lo medido en Kepler', () => {
   });
 
   it.each([
-    ['R', /Andén/], ['F', /surtida/], ['C', /cancelada/], ['A', /estado A/],
+    ['R', /deshacer lo recibido/], ['F', /surtida/], ['C', /cancelada/], ['A', /estado A/],
   ])('OC en %s: se rechaza', (estado, msg) => {
     const d = decidirCancelacionOc(base({ oc: { ...OC, estado } }));
     expect(d.ok).toBe(false);

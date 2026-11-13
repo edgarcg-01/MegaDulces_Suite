@@ -3,6 +3,9 @@
  * `POST /commercial/replenishment/open-purchase-orders/:sucursal/:folio/cancelar`, llave `COMPRAS_OC_CANCELAR`.
  */
 
+/** Mínimo de letras del motivo. Lo usan el servidor (`motivoValido`) y la pantalla: la misma regla. */
+export const OC_CANCELAR_MOTIVO_MIN = 10;
+
 export interface OcCancelarInputDto {
   /** Por qué se cancela. Obligatorio, al menos 10 letras: queda en la Suite junto a la OC. */
   motivo: string;

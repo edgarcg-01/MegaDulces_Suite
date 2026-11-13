@@ -7,6 +7,8 @@ import { ComprasOcAbiertasComponent } from './compras-oc-abiertas.component';
 function comp(clasifOk = true) {
   const c = Object.create(ComprasOcAbiertasComponent.prototype) as ComprasOcAbiertasComponent & Record<string, unknown>;
   (c as unknown as { clasifOk: () => boolean }).clasifOk = () => clasifOk;
+  // [PQ.110] Las canceladas desde esta pantalla (ninguna aquí).
+  (c as unknown as { canceladasAqui: () => ReadonlySet<string> }).canceladasAqui = () => new Set<string>();
   return c;
 }
 const fila = (o: Record<string, unknown>) => ({ _clase: 'x', _claseLabel: 'Falta orden de entrada', estatus: 'F', prob: 0, ...o }) as never;

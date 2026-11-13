@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, type OcCancelacionDisponibleDto, type OcCancelacionDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -1407,6 +1407,18 @@ export class ComprasService {
   /** [RA-PRO.61] Una OC de Kepler completa (todos los renglones, recepciones, seguimiento) para su PDF. */
   openPurchaseOrderDetail(sucursal: string, folio: string): Observable<OcDetalle> {
     return this.http.get<OcDetalle>(`${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
+  }
+
+  /** [PQ.110] ¿Se puede ofrecer «Cancelar en Kepler» para esta OC, y si no, por qué? No escribe. */
+  ocCancelacion(sucursal: string, folio: string): Observable<OcCancelacionDisponibleDto> {
+    return this.http.get<OcCancelacionDisponibleDto>(
+      `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/cancelacion`);
+  }
+
+  /** [PQ.110] Cancela la OC en Kepler (como Kepler). Devuelve cancelada | rechazada con el porqué. */
+  cancelarOc(sucursal: string, folio: string, motivo: string): Observable<OcCancelacionDto> {
+    return this.http.post<OcCancelacionDto>(
+      `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/cancelar`, { motivo });
   }
 
   /** [RA-PRO.62] Guarda el estatus de seguimiento de una OC (registro de Compras; no toca Kepler). */

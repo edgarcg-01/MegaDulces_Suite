@@ -272,13 +272,25 @@ Lo que eso significa para construir PQ.110:
 | 4 | ¿Está ligada a otro proceso? | Sí, a la requisición de la que salió. La confirmación dice **antes** de cancelar qué pasa: «la OC queda cancelada y la requisición 0000087 vuelve a pendiente en Kepler». Después lo repite, con liga a la requisición. Y al seguimiento: cancelar desde aquí cierra el «No surtida / cancelada» de verdad. |
 | 5 | ¿Le toca a esta pantalla? | Sí. `oc-abiertas` es la bandeja «para cerrarlas o cancelarlas» (`[RA-PRO.45]`), y ahí ya se decide cancelar. No hay pantalla nueva. Lo que tiene vale vivo es del Andén (`[PQ.112]`), no de aquí. |
 
+**Con la pantalla terminada (2026-11-13), las cinco otra vez:** (1) igual que hoy; el botón vive en el
+detalle, en su propio renglón bajo las acciones diarias, y el aviso lleva con «Verlas» al filtro de las
+marcadas. (2) Sin la llave no hay bloque; sin «disponible» del servidor no hay botón, hay su porqué (apagado,
+tope, vale, estado). (3) Fila → detalle → «Cancelar en Kepler» → confirmar: 3 clics; motivo lleno con la nota;
+el envío se bloquea en el mismo clic; el diálogo no se cierra mientras envía. (4) El diálogo dice antes qué
+requisición vuelve a pendiente en Kepler y lo repite después; la ficha de la requisición en la Suite (D41)
+**todavía no** dice que su OC se canceló: queda pendiente. (5) Sin pantalla nueva. **Sin validación visual**
+(sin backend local por regla; se ve en prod al soltar).
+
 **Lo que C3 NO puede resolver sin tocar C2** (se dice primero porque cambia el orden):
 1. **Saber si está apagado antes de ofrecer el botón.** Hoy sólo el `POST` lo dice (503). Mostrar
    un botón que en 8 de 9 sucursales siempre falla es afirmar algo falso. Hace falta que el detalle
    de la orden diga si se puede y por qué no, en C2. **En código el 2026-11-13:** `GET …/:sucursal/:folio/cancelacion`
    (`OcCancelacionDisponibleDto`: `disponible`, `porque`, `reabriria_requisicion`, `ultima`), con la regla de Kepler
    contra la réplica (≈ 22 ms en prod; para 0000393 y 0000338 dice lo mismo que el ensayo contra Kepler vivo).
-2. **El desfase del ODS.** Después de cancelar, la réplica tarda en ver la OC en C, y mientras tanto la
+2. **El desfase del ODS.** **Medido el 2026-11-13:** la réplica va casi en vivo (el documento más nuevo de
+   cada sucursal, de 1 a 16 minutos, por falta de movimiento) y `analytics.erp_purchase_orders` es una vista,
+   sin caché. Se resuelve en la pantalla: la fila cancelada aquí dice «Cancelada desde la Suite · Kepler todavía
+   no lo refleja» mientras siga en N, y quien la abra después ve «ya se canceló» por el `GET`. Texto original: Después de cancelar, la réplica tarda en ver la OC en C, y mientras tanto la
    lista la seguiría dando por abierta. La lista tiene que leer `purchase_order_cancellations` y decir
    «cancelada desde la Suite, Kepler todavía no lo refleja», no esconderla ni dibujarla abierta.
 3. **La 03 y la 04.** Hay una OC cancelable en cada una, y sus bases no están entre los 6 servidores
@@ -442,6 +454,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **PQ.110 C3 en código:** «Cancelar en Kepler» en el detalle de la orden (sólo si el `GET …/cancelacion` dice que se puede; si no, su porqué), confirmación con motivo lleno desde la nota de «No surtida / cancelada» y la requisición que vuelve a pendiente, bloqueo en el mismo clic, la fila no afirma «Pendiente» mientras la réplica se pone al día. El aviso de `[PQ.29]` deja de afirmar que todas tienen vale. Los rechazos dejan de decir «va por el Andén» (el Andén aún no cancela: PQ.112). Pruebas: spec nuevo 10/10 con negativa vista en rojo (sin el bloqueo síncrono: 2 rojas); `check:pantalla` igual antes y después (0 fallas nuevas en oc-abiertas); `check:templates` y `check:templates-types` verdes. **Sin validación visual.** Falta: la ficha de la requisición diga que su OC se canceló (D41) | Claude |
 | 2026-11-13 | **PQ.110 C2 VERIFICADO.** Empujado sólo PQ.110 sobre `origin/main` (`3e65d9759`, 10 commits rearmados; lo de otras sesiones quedó local). Migración `20261113142557` aplicada en prod (ledger 1177, 0.2 s; tabla con RLS forzado y 0 filas, 9 interruptores apagados con tope 1, llave en 6 roles). CI: `pruebas-db` corrió `test-newdb-pq110-cancelar-oc.js` **25 ✓ · 0 ✗ · 0 no medido** (incluye el SQL de la réplica contra base real); `boot-api` verde (el API arranca y escucha); `ci-green` selló el commit. `landing-guards` se puso rojo por la llave nueva (sola mandaba a una ruta que exige `COMPRAS_PEDIDO_VER`): declarada como llave de acción, igual que `FINANCE_CAJA_VENTANILLA`; los 6 roles con la llave tienen la de ver (medido en prod) | Claude |
 | 2026-11-13 | **D40 extendida a 03, 04 y 05** (Edgar): `pg_hba` abierto para `md`, permisos aplicados como `postgres`; verificado como `kepler_push` en los **9** servidores: 11 de 11 | Claude |
 | 2026-11-13 | **Hueco 3 de §3d medido:** la 03, la 04 y la 05 tienen servidor propio y `kepler_push` no tiene ahí los permisos de D40 (sólo `UPDATE (c43)`). Extenderlos espera a Edgar | Claude |
