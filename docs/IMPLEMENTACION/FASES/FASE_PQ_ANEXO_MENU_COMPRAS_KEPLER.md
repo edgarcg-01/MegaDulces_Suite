@@ -244,6 +244,47 @@ Lo que eso significa para construir PQ.110:
   escribir): las sentencias del adaptador dejan la OC y la requisición como Kepler; una OC con vale sale
   rechazada; las 3 OC reales quedaron intactas. Repetido tras aplicar `c24`: los 11 permisos en true, sin fallas.
 
+## 3d. PQ.110 C3 — el botón, antes de la plantilla (2026-11-13)
+
+> Las cinco preguntas de [`diseno` §0b](../../../.claude/skills/diseno/SKILL.md), por escrito y con
+> datos de prod, **antes** de escribir código. C3 se construye cuando C2 esté verificado (migración
+> aplicada, `pruebas-db` y `boot-api` en verde); esto es sólo el diseño.
+
+**Lo medido (prod, sólo lectura, 2026-11-13):**
+- **Quién entra:** en 30 días, `GET open-purchase-orders` 1,150 veces en 25 días (gerente_compras,
+  compras_operaciones, auxiliar_compras, encargado_tienda, facturación, dirección); el detalle 517;
+  el seguimiento se cambia 277 veces (compras_operaciones, facturación, gerente_compras).
+- ⭐ **Compras ya decidió cancelar, y Kepler no se enteró.** De las 160 OC marcadas «No surtida /
+  cancelada» en el seguimiento: **53 siguen en N en Kepler sin vale vivo (≈ $4.0 M en papel)**. Son
+  justo las que el botón cierra. 49 son de CEDIS, 2 de Morelia Madero, 1 de la 03 y 1 de la 04. Las
+  marcaron gerente_compras (50) y compras_operaciones (3); los dos roles tienen la llave.
+  82 ya están en C (alguien las canceló a mano en Kepler); 21 tienen vale vivo (van por el Andén);
+  4 están en A.
+- ⛔ **El aviso de hoy afirma algo falso** (`[PQ.29]`, sobre la tabla): «En Kepler siguen vivas: su
+  vale de entrada (X-A-37) está abierto y hay que cancelarlo allá». Sólo **21 de 160** tienen vale
+  vivo. Las 53 de arriba no tienen vale: lo que sigue vivo es la OC. Se corrige con C3.
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve al entrar, y en qué orden? | Lo mismo que hoy. El botón vive en el **side-peek** de la orden, en sus acciones, no en la fila (`[PQ.28]` sacó los botones de las filas: 2 × 149). El aviso de arriba pasa a decir la verdad y a ser la entrada: «53 marcadas No surtida / cancelada siguen pendientes en Kepler» y lleva al chip de ese seguimiento, donde ya están filtradas. |
+| 2 | ¿Qué NO ve? | El botón no aparece si la persona no tiene `COMPRAS_OC_CANCELAR`. Tampoco si la OC no está en N, ni si está apagado para su sucursal. Si tiene vale vivo, en lugar del botón se dice por qué no: «tiene el vale 0000533: se cancela en el Andén». Nada técnico (`kdm2`, `c43`) en pantalla. |
+| 3 | ¿Qué accesibilidad necesita? | Fila → side-peek (1) → «Cancelar en Kepler» (2) → confirmación con el motivo (3). El motivo **llega lleno** con la nota del seguimiento «No surtida / cancelada» cuando la hay (las 53 la tienen: es el mismo acto, no se teclea dos veces). Foco en el motivo; el envío se deshabilita en el primer clic. Es una acción destructiva: va en `--bad-fg`, separada de «Cambiar seguimiento». |
+| 4 | ¿Está ligada a otro proceso? | Sí, a la requisición de la que salió. La confirmación dice **antes** de cancelar qué pasa: «la OC queda cancelada y la requisición 0000087 vuelve a pendiente en Kepler». Después lo repite, con liga a la requisición. Y al seguimiento: cancelar desde aquí cierra el «No surtida / cancelada» de verdad. |
+| 5 | ¿Le toca a esta pantalla? | Sí. `oc-abiertas` es la bandeja «para cerrarlas o cancelarlas» (`[RA-PRO.45]`), y ahí ya se decide cancelar. No hay pantalla nueva. Lo que tiene vale vivo es del Andén (`[PQ.112]`), no de aquí. |
+
+**Lo que C3 NO puede resolver sin tocar C2** (se dice primero porque cambia el orden):
+1. **Saber si está apagado antes de ofrecer el botón.** Hoy sólo el `POST` lo dice (503). Mostrar
+   un botón que en 8 de 9 sucursales siempre falla es afirmar algo falso. Hace falta que el detalle
+   de la orden diga `cancelable: { ok, porque }` (interruptor, tope, llave, vale), en C2.
+2. **El desfase del ODS.** Después de cancelar, la réplica tarda en ver la OC en C, y mientras tanto la
+   lista la seguiría dando por abierta. La lista tiene que leer `purchase_order_cancellations` y decir
+   «cancelada desde la Suite, Kepler todavía no lo refleja», no esconderla ni dibujarla abierta.
+3. **La 03 y la 04.** Hay una OC cancelable en cada una, y sus bases no están entre los 6 servidores
+   con permiso. El adaptador las rechaza con «Kepler todavía no le da a la Suite el permiso»; falta
+   medir dónde viven esas bases.
+4. **La requisición de la Suite.** Kepler reabre su requisición `X-A-30`, pero el renglón de
+   `/compras/requisiciones` sigue en «ordered». Liga rota que hay que nombrar antes de encender.
+
 ## 4. Opción por opción: a dónde va cada una
 
 | Módulo | Opción | Hoy en la Suite | Destino | Item |
@@ -253,7 +294,7 @@ Lo que eso significa para construir PQ.110:
 | | Consulta | ficha de la requisición y «Lo pedido» (PQ.108/109) | ya está | — |
 | Orden de compra | Alta | sale con la requisición aprobada (PQ.22) | ya está; el 80 % sigue naciendo a mano en Kepler, sin requisición (§20.1), y cerrar esa brecha es el trabajo de PQ, no de este anexo | — |
 | | Modifica | no existe | **no se hace**: se cancela y se reemite, que deja rastro (D39) | — |
-| | Baja | la pantalla dice «ciérrala en Kepler a mano» | acción de fila en `/compras/oc-abiertas` | `[PQ.110]` |
+| | Baja | la pantalla dice «ciérrala en Kepler a mano» | acción en el side-peek de la orden en `/compras/oc-abiertas` (§3d) | `[PQ.110]` |
 | | Consulta | `/compras/oc-abiertas` y `/compras/ordenes/:id` (sólo lectura) | ya está | — |
 | Vale de entrada | Alta | el Andén coteja lo que ya se capturó en Kepler | que **cerrar la recepción** en `/almacen/anden` lo escriba | `[PQ.112]` (D37) |
 | | Baja | no existe | la baja de la recepción, desde el Andén, **antes** que la alta | `[PQ.112]` |
@@ -388,6 +429,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **PQ.110 C3, diseño** (§3d): las 5 preguntas con datos de prod. 53 OC marcadas «No surtida / cancelada» siguen en N sin vale (≈ $4.0 M): son las que el botón cierra. El aviso de `[PQ.29]` dice algo falso (sólo 21 de 160 tienen vale vivo). Cuatro huecos antes de C3; el primero (saber si está apagado antes de ofrecer el botón) es de C2 | Claude |
 | 2026-11-13 | **PQ.110: `UPDATE (c24)` en `kdm2` aplicado en los 6** (firma de Edgar). Ensayo repetido en la 08 como `kepler_push`: 11 de 11 permisos, sin fallas, las 3 OC intactas. La migración de C2 sigue sin aplicar: el envoltorio exige que esté en `origin/main` (falta push) | Claude |
 | 2026-11-13 | **PQ.110 C2** (`3b0dcb360`): tabla `purchase_order_cancellations` (cada intento, con capturista/fecha/hora originales), interruptor `cancela_oc` apagado con tope 1/día, llave `COMPRAS_OC_CANCELAR` (5 roles, no GESTIONAR: lo tienen marketing, finanzas y tesorería) y el endpoint. Migración sin aplicar; prueba de base real y arranque sin medir | Claude |
 | 2026-11-13 | **PQ.110 C1** (§3c): cancelar una OC reabre su requisición (25 de 25); regla + sentencias en `kepler-oc-cancelacion.ts` (14 pruebas, prueba negativa vista en rojo) y `KeplerOcCancelAdapter`; ensayo en la 08 sin escribir: verde salvo el permiso `UPDATE (c24)` en `kdm2`, que espera firma | Claude |
