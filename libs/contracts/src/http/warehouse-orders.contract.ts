@@ -21,6 +21,29 @@ export type WarehouseOrderEstatus = (typeof WAREHOUSE_ORDER_ESTATUS)[number];
  */
 export const WAREHOUSE_ORDER_CANCELADO = 'CANCELADO' as const;
 
+/**
+ * `[GP.10.2]` Etapa de ALMACÉN de un pedido, de Kepler (`U-D-40`) o de preventa (`PD-`), en el orden
+ * en que avanza (FASE_GP §3, paso 3). `en_cola`, `surtiendo` y `checando` sólo existen en el piso
+ * (la Suite); los demás también los registra Kepler. La deriva `etapaDePedido` (warehouse-orders).
+ */
+export const ETAPAS_PEDIDO = ['creado', 'autorizado', 'en_cola', 'surtiendo', 'surtido', 'checando', 'checado', 'embarcado'] as const;
+/** `cancelado` y `sin_dato` (sin cabecera en el ODS: nunca se pinta como «creado») van fuera del flujo. */
+export type EtapaPedido = (typeof ETAPAS_PEDIDO)[number] | 'cancelado' | 'sin_dato';
+/** Quién sabe la etapa: Kepler (su estatus) o el piso (lo que se registró en la Suite). */
+export type FuenteEtapaPedido = 'kepler' | 'piso';
+
+export interface EtapaPedidoResultado {
+  etapa: EtapaPedido;
+  /** `null` sólo en `sin_dato`. */
+  fuente: FuenteEtapaPedido | null;
+  /**
+   * El piso registró un hito que Kepler todavía no (`piso_adelante`: surtido en la Suite, AUTORIZADO
+   * en Kepler), o Kepler avanzó sin pasar por la Suite (`kepler_adelante`). Sólo se compara en los
+   * hitos que registran los dos (surtido, checado, embarcado). Se marca, no se esconde.
+   */
+  desfase: 'piso_adelante' | 'kepler_adelante' | null;
+}
+
 export type WarehouseOrderOrigen = 'TELEMARK' | 'SUCURSAL';
 
 export interface WarehouseOrderRow {
