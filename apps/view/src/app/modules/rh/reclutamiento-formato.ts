@@ -75,6 +75,15 @@ export function fechaHoraMx(iso: string | null | undefined): string {
 }
 
 /** Horas como «18 h» o «3.5 días» (el KPI de tiempo por etapa). */
+/**
+ * El tiempo promedio de una etapa contra la meta que RH se dio (SLA de Mega Talento). `null` = la etapa no tiene meta:
+ * no se juzga. Vivía en Revisiones; desde `[RH.13.6]` lo lee el Resumen («¿cuánto tarda cada paso?»).
+ */
+export function contraMeta(f: { etapa: string; avg_horas: number }): { meta: number | null; pasa: boolean | null } {
+  const meta = ETAPAS.find((e) => e.id === f.etapa)?.slaHoras ?? null;
+  return { meta, pasa: meta == null ? null : f.avg_horas > meta };
+}
+
 export function duracion(horas: number | null | undefined): string {
   if (horas == null || Number.isNaN(horas)) return '—';
   if (horas < 48) return `${Math.round(horas * 10) / 10} h`;
@@ -117,6 +126,42 @@ export function leerComoDataUri(f: File): Promise<string> {
     r.onload = () => resolve(String(r.result ?? ''));
     r.onerror = () => reject(r.error ?? new Error('No se pudo leer el archivo.'));
     r.readAsDataURL(f);
+  });
+}
+
+/**
+ * `[RH.13.6]` Cuánto lleva esperando que RH le responda, sin «hace»: «menos de 1 h», «5 h», «1 día», «3 días».
+ * Va junto a «Atrasado»: el tiempo es el porqué de la marca.
+ */
+export function esperando(iso: string | null | undefined, ahora: Date = new Date()): string {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '—';
+  const h = Math.max(0, (ahora.getTime() - t) / 3600000);
+  if (h < 1) return 'menos de 1 h';
+  if (h < 24) return `${Math.floor(h)} h`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 día' : `${d} días`;
+}
+
+/**
+ * `[RH.13.6]` El teléfono en tres grupos (3-3-4) para leerlo. La pantalla los separa con espacio de CSS, no con un
+ * carácter: al copiarlo sale entero, listo para pegar en WhatsApp.
+ */
+export function telefonoPartes(t: string | null | undefined): string[] {
+  if (!t) return [];
+  const d = t.replace(/\D/g, '').slice(-10);
+  return d.length === 10 ? [d.slice(0, 3), d.slice(3, 6), d.slice(6)] : [t];
+}
+
+/** `[RH.13.6]` Fecha corta en hora de México: «12 nov»; con el año sólo si no es el de hoy: «3 dic 2025». */
+export function fechaCortaMx(iso: string | null | undefined, ahora: Date = new Date()): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const anio = (x: Date) => x.toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', year: 'numeric' });
+  return d.toLocaleDateString('es-MX', {
+    timeZone: 'America/Mexico_City', day: 'numeric', month: 'short', ...(anio(d) === anio(ahora) ? {} : { year: 'numeric' as const }),
   });
 }
 
