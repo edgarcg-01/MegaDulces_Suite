@@ -282,8 +282,11 @@ Lo que eso significa para construir PQ.110:
    lista la seguiría dando por abierta. La lista tiene que leer `purchase_order_cancellations` y decir
    «cancelada desde la Suite, Kepler todavía no lo refleja», no esconderla ni dibujarla abierta.
 3. **La 03 y la 04.** Hay una OC cancelable en cada una, y sus bases no están entre los 6 servidores
-   con permiso. El adaptador las rechaza con «Kepler todavía no le da a la Suite el permiso»; falta
-   medir dónde viven esas bases.
+   con permiso. El adaptador las rechaza con «Kepler todavía no le da a la Suite el permiso».
+   **Medido el 2026-11-13** (como `kepler_push`, sólo lectura): la 03 (`192.168.40.40`), la 04 (`192.168.44.44`)
+   y la 05 (`192.168.54.54`) son servidores propios; `kepler_push` tiene ahí `UPDATE (c43)` pero **no** el
+   resto de D40 ni `DELETE` en `kdm2`. Extender D40 a esos 3 es decisión de Edgar; mientras, el interruptor
+   de esas sucursales se queda apagado.
 4. **La requisición de la Suite.** Kepler reabre su requisición `X-A-30`, pero el renglón de
    `/compras/requisiciones` sigue en «ordered». **Resuelto por D41 (§6):** se queda así, y su ficha dice
    que su OC se canceló (con motivo y quién), leyendo `purchase_order_cancellations`. Va con C3.
@@ -436,6 +439,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **Hueco 3 de §3d medido:** la 03, la 04 y la 05 tienen servidor propio y `kepler_push` no tiene ahí los permisos de D40 (sólo `UPDATE (c43)`). Extenderlos espera a Edgar | Claude |
 | 2026-11-13 | **D41 firmada** (Edgar): «se cancela sólo la OC» — la requisición de la Suite no cambia de estado y sólo dice que su OC se canceló; en Kepler, igual que Kepler (reabre la `X-A-30`, como ya hace el adaptador) | Claude |
 | 2026-11-13 | **PQ.110 C2, hueco 1 de §3d en código:** `GET …/cancelacion` dice si se puede ofrecer el botón y por qué no (interruptor, tope, ya cancelada, regla de Kepler contra la réplica: ≈ 22 ms en prod). Los mensajes nombran la sucursal en vez de su código. Prueba de base real extendida (7b–7c), NO MEDIDA | Claude |
 | 2026-11-13 | **PQ.110 C3, diseño** (§3d): las 5 preguntas con datos de prod. 53 OC marcadas «No surtida / cancelada» siguen en N sin vale (≈ $4.0 M): son las que el botón cierra. El aviso de `[PQ.29]` dice algo falso (sólo 21 de 160 tienen vale vivo). Cuatro huecos antes de C3; el primero (saber si está apagado antes de ofrecer el botón) es de C2 | Claude |
