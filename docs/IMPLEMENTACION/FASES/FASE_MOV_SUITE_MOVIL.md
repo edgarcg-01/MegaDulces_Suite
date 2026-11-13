@@ -124,6 +124,58 @@ este doc ([`auditoria-diseno` §9](../../../.claude/skills/auditoria-diseno/SKIL
 
 ---
 
+### MOV.0.1 — primera lectura (2026-11-13)
+
+`analytics.ui_usage` no guarda el dispositivo, pero sí el **puesto**. Para los puestos que entran
+casi siempre desde el celular (piso de tienda 5 de 5, surtidor 7 de 9), lo que consumen en 30 días
+es, en la práctica, lo que se usa en el celular. Rutas de API → pantalla:
+
+| Puesto | Lo que más usa (días con uso de 30) | Pantalla |
+|---|---|---|
+| surtidor | `warehouse/presale-picking` (16 d), `reparto/surtido/waves/mine` (20 d), `users/me/work` (21 d) | `/almacen/surtir`, `/almacen/surtir-preventa`, `/almacen/surtir/ruta/:id`, «Mi trabajo» |
+| piso_tienda | `store/labels/notices`, `store/live/snapshot`, `users/me/work` (5 d: puesto nuevo) | `/tienda/etiquetas`, tienda en vivo, «Mi trabajo» |
+| encargado_tienda | `store/arqueo/turnos` (31 d), `store/labels/notices` (31 d), `finance/expenses/proofs/mine` (31 d) | `/tienda/arqueo`, `/tienda/etiquetas`, comprobantes de gasto |
+| supervisor_ventas | `catalogs`, `commercial/orders`, `daily-captures` (22 d) | captura diaria (y la app del vendedor) |
+
+⚠️ Universo: **por puesto, no por persona ni por dispositivo**; un encargado que usa el arqueo en
+escritorio cuenta igual. Contraste pendiente contra el log del Caddy (D1) antes de cerrar MOV.0.2.
+
+### MOV.3.B — Barra inferior: las cinco preguntas (propuesta, sin código)
+
+Hoy, en celular, la suite sólo tiene el menú hamburguesa: llegar a la pantalla del puesto cuesta
+abrir el cajón, encontrar el grupo y tocar la entrada (2–3 toques, todos los días).
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve al entrar y en qué orden? | Cuatro destinos fijos abajo: **Mi trabajo · [pantalla 1 del puesto] · [pantalla 2 del puesto] · Menú**. El activo resaltado con `--action` |
+| 2 | ¿Qué NO ve? | Ni búsqueda (la suite no tiene buscador global: inventarla aquí sería un primitivo de fase, ADR-056), ni contadores que no sean trabajo pendiente, ni la barra en escritorio |
+| 3 | ¿Qué accesibilidad necesita? | A **un** toque la pantalla diaria del puesto. Objetivos de 48 px, nombre visible bajo el icono (no sólo el icono), `nav` con `aria-label`, `aria-current="page"` en el activo, `env(safe-area-inset-bottom)` |
+| 4 | ¿Está ligada a otro proceso? | Sí: «Mi trabajo» ya es la bandeja por responsabilidad; su conteo pendiente va en la barra. Los destinos salen de la **misma** definición del menú lateral filtrada por permiso: un destino sin permiso no aparece |
+| 5 | ¿Este proceso la debe ver? | Sólo en celular (`isMobile()` del layout, que ya existe) y sólo en el marco de la app; las pantallas fuera del marco (`/captura/:token`, `/levantamiento`) no la llevan |
+
+**Los destinos por puesto** salen de la tabla de arriba, no de una opinión:
+
+| Puesto | 2º | 3º |
+|---|---|---|
+| surtidor | Surtir | Surtir preventa |
+| piso_tienda | Etiquetas | Tienda en vivo |
+| encargado_tienda | Arqueo | Etiquetas |
+| cualquier otro | las dos entradas del menú que más abrió (si no hay dato: sólo Mi trabajo y Menú) | |
+
+```
+┌──────────────────────────────────────┐
+│  (pantalla)                          │
+│                                      │
+├──────────────────────────────────────┤
+│   ▣ 3       ⇣         ▤         ☰    │
+│ Mi trabajo Surtir   Preventa   Menú  │
+└──────────────────────────────────────┘
+      └── safe-area del iPhone ──┘
+```
+
+**Se conserva:** el cajón lateral entero detrás de «Menú» (nada se pierde). **Cambia:** en celular,
+la hamburguesa de arriba desaparece; su lugar es «Menú» abajo.
+
 ## 4. Decisiones a firmar
 
 | # | Decisión | Opciones | Recomendación |
@@ -132,7 +184,9 @@ este doc ([`auditoria-diseno` §9](../../../.claude/skills/auditoria-diseno/SKIL
 | D2 | Cómo se compila iOS | a) Xcode Cloud · b) Codemagic · c) una Mac física de la empresa | **b) Codemagic**: compila Android e iOS desde el mismo lugar, los certificados viven en su bóveda (no en el repo público) y no exige runner propio. Costo a confirmar. |
 | D3 | Huella/cara para entrar | sí / no / después | **Después**: primero que las pantallas sirvan; es comodidad, no bloquea a nadie. |
 | D4 | ¿La suite se vuelve app nativa o sigue PWA? | a) PWA · b) Capacitor como el vendedor | **a) PWA** mientras los avisos y el escáner funcionen en ambos sistemas desde el navegador; se reabre sólo si iOS los bloquea (iOS sólo da push web a una PWA instalada en la pantalla de inicio). |
-| D5 | Cuenta Apple Developer (99 USD/año) y a nombre de quién | — | **Es del PM**: dinero y titularidad de la empresa. Sin ella no hay vendedor en iOS. |
+| D5 | Cuenta Apple Developer (99 USD/año) y a nombre de quién | — | **Es del PM**: dinero y titularidad de la empresa. Sin ella no hay vendedor en iOS. Alternativa sin costo: vendedor como PWA instalada en iPhone; se pierde el GPS en segundo plano |
+| D6 | Barra inferior en celular (MOV.3.B) | a) como se propone · b) sólo Mi trabajo + Menú · c) no | **a)**: los destinos salen del uso medido por puesto, y el cajón completo sigue detrás de «Menú» |
+| D7 | Destinos fijos por puesto o elegidos por la persona | a) fijos (tabla de arriba) · b) que cada quien fije los suyos | **a) fijos** para empezar: la persona de piso no va a configurar nada; se reabre si piden cambiar |
 
 ---
 
