@@ -16,9 +16,10 @@ import { Permission } from '../../../core/constants/permissions';
 import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
-  FiltroMovimientos, MovimientoBanco, CategoriaEgreso, VistaPreviaBeneficiario,
+  FiltroMovimientos, MovimientoBanco,
   DictamenResp, PolizaDictaminada, Hallazgo, Veredicto, SeguimientoCuadre, SeguimientoPoliza, CuentaGastoProveedor,
 } from '../contpaqi-puente.service';
+import { CategorizarEgresoComponent } from '../../../shared/components/categorizar-egreso/categorizar-egreso.component';
 
 /**
  * Fase CP `[CP.8.33]` — **Las pólizas de egresos de banco para ContPAQi, mes por mes.**
@@ -51,7 +52,7 @@ import {
   selector: 'app-contabilidad-contpaqi-puente',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, SelectModule, TagModule, MetricStripComponent,
-    LoadStateComponent, FreshnessPillComponent, SidePeekComponent, ContextHelpComponent],
+    LoadStateComponent, FreshnessPillComponent, SidePeekComponent, ContextHelpComponent, CategorizarEgresoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in cpp-page">
@@ -717,35 +718,8 @@ import {
                 <!-- [CP.8.80] Categorizar aquí mismo; con la casilla, también los que vengan de ese beneficiario. -->
                 @if (catAbierto() === x.id) {
                   <tr class="cpp-cat-fila"><td colspan="4">
-                    <div class="cpp-cat" role="group" [attr.aria-label]="'Categorizar ' + (x.razon_social || x.concepto)">
-                      <div class="cpp-cat-campos">
-                        <p-select [options]="categorias() ?? []" optionLabel="nombre" optionValue="code" [filter]="true" filterBy="nombre"
-                                  appendTo="body" placeholder="Categoría" ariaLabel="Categoría" styleClass="cpp-cat-sel"
-                                  [loading]="categorias() === null" [ngModel]="catElegida()" (ngModelChange)="catElegida.set($event)" />
-                        <label class="cpp-sug"><input type="checkbox" [ngModel]="catRecordar()" (ngModelChange)="cambiarRecordar($event)" /> y todos los que empiecen con</label>
-                        <input type="text" class="cpp-buscar-in cpp-cat-texto" [disabled]="!catRecordar()" aria-label="Nombre del beneficiario"
-                               [ngModel]="catTexto()" (ngModelChange)="escribirTexto($event)" />
-                      </div>
-                      @if (catRecordar()) {
-                        @if (catPreviaError(); as pe) { <p class="cpp-mal cpp-cat-nota" role="alert">{{ pe }}</p> }
-                        @else if (catPrevia(); as v) {
-                          <p class="cpp-cat-nota">Toma <strong class="mono">{{ v.movimientos | number }}</strong> egresos sin categoría
-                            (<span class="mono">{{ v.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>) de todos los meses, y los que traigan los próximos estados de cuenta.
-                            @if (v.regla_existente; as re) { Ya hay una regla con ese texto: {{ re.categoria }}. }</p>
-                          <ul class="cpp-lista-simple cpp-lista">
-                            @for (f of v.filas.slice(0, 8); track f.id) {
-                              <li><span class="mono muted">{{ f.fecha }}</span> {{ f.concepto }} <span class="mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></li>
-                            }
-                          </ul>
-                          @if (v.movimientos > 8) { <p class="cpp-sub">Se muestran 8 de {{ v.movimientos | number }}.</p> }
-                        } @else { <p class="cpp-sub">Calculando qué toma…</p> }
-                      }
-                      <div class="cpp-acciones">
-                        <button type="button" class="cpp-btn-ok" [disabled]="!puedeGuardarCategoria()" (click)="guardarCategoria(x)">
-                          <i class="pi" [class.pi-check]="!catGuardando()" [class.pi-spin]="catGuardando()" [class.pi-spinner]="catGuardando()" aria-hidden="true"></i> Guardar</button>
-                        <button type="button" class="cpp-btn-sec" (click)="cerrarCategorizar()">Cancelar</button>
-                      </div>
-                    </div>
+                    <app-categorizar-egreso [movimiento]="{ id: x.id, concepto: x.concepto }"
+                                            (guardado)="alCategorizar($event.texto)" (cancelar)="cerrarCategorizar()" />
                   </td></tr>
                 }
               </ng-template>
@@ -910,13 +884,6 @@ import {
 
     /* [CP.8.80] El formulario en línea bajo el movimiento. */
     .cpp-cat-fila > td { background: var(--surface-hover); }
-    .cpp-cat { padding: .5rem 0; }
-    .cpp-cat-campos { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-    .cpp-cat-campos .cpp-sug { padding: 0; }
-    .cpp-cat-texto { padding-left: 10px; width: 16rem; }
-    .cpp-cat-texto:disabled { color: var(--c-text-3); }
-    .cpp-cat-nota { margin: .6rem 0 .25rem; font-size: var(--fs-sm); color: var(--c-text-2); }
-    .cpp-cat .cpp-lista { max-height: 10rem; }
 
     @media (max-width: 56.25rem) {
       .cpp-md { grid-template-columns: 1fr; }
@@ -1454,102 +1421,26 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   /** ⚠️ Cortesía, no puerta: manda el guard del endpoint (`_CATEGORIZAR`). Los roles de plataforma pasan. */
   readonly puedeCategorizar = this.perms.has$(Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR);
-  readonly categorias = signal<CategoriaEgreso[] | null>(null);
   readonly catAbierto = signal<string | null>(null);
-  readonly catElegida = signal('');
-  readonly catRecordar = signal(true);
-  readonly catTexto = signal('');
-  readonly catPrevia = signal<VistaPreviaBeneficiario | null>(null);
-  readonly catPreviaError = signal<string | null>(null);
-  readonly catGuardando = signal(false);
   readonly catAviso = signal<{ texto: string; mal: boolean } | null>(null);
-  private esperaPrevia: ReturnType<typeof setTimeout> | null = null;
-  /** Sólo cuenta la última vista previa pedida: una lenta que llega tarde no pisa a la nueva. */
-  private previaPedida = 0;
 
-  /** ⛔ Con la casilla, no se guarda sin haber visto qué toma la regla. */
-  readonly puedeGuardarCategoria = computed(() => {
-    const elegida = this.catElegida(), guardando = this.catGuardando(), recordar = this.catRecordar();
-    const previa = this.catPrevia(), error = this.catPreviaError();
-    return !!elegida && !guardando && (!recordar || (!!previa && !error));
-  });
-
+  /** `[CB.70]` El formulario es `<app-categorizar-egreso>` (compartido con Bancos); aquí sólo se abre y se cierra. */
   abrirCategorizar(m: MovimientoBanco): void {
     if (this.catAbierto() === m.id) { this.cerrarCategorizar(); return; }
-    this.cerrarCategorizar();
-    this.catAbierto.set(m.id);
-    this.catElegida.set('');
-    this.catRecordar.set(true);
     this.catAviso.set(null);
-    this.catTexto.set(sugerenciaBeneficiario(m.concepto));
-    if (this.categorias() === null) {
-      this.api.categoriasEgreso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (c) => this.categorias.set(c),
-        error: (e) => {
-          this.categorias.set([]);
-          this.catAviso.set({ mal: true, texto: `No se pudieron leer las categorías: ${e?.error?.message ?? 'error de red'}` });
-        },
-      });
-    }
-    this.pedirPrevia();
+    this.catAbierto.set(m.id);
   }
 
   cerrarCategorizar(): void {
-    if (this.esperaPrevia) { clearTimeout(this.esperaPrevia); this.esperaPrevia = null; }
-    this.previaPedida += 1;
     this.catAbierto.set(null);
-    this.catPrevia.set(null);
-    this.catPreviaError.set(null);
-  }
-
-  cambiarRecordar(v: boolean): void {
-    this.catRecordar.set(!!v);
-    if (v) this.pedirPrevia();
-  }
-
-  escribirTexto(v: string): void {
-    this.catTexto.set(v ?? '');
-    this.catPrevia.set(null);
-    this.catPreviaError.set(null);
-    if (this.esperaPrevia) clearTimeout(this.esperaPrevia);
-    this.esperaPrevia = setTimeout(() => this.pedirPrevia(), 400);
-  }
-
-  private pedirPrevia(): void {
-    const id = this.catAbierto();
-    if (!id || !this.catRecordar()) return;
-    const n = ++this.previaPedida;
-    this.catPrevia.set(null);
-    this.catPreviaError.set(null);
-    this.api.vistaPreviaBeneficiario(id, this.catTexto()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (v) => { if (n === this.previaPedida) this.catPrevia.set(v); },
-      error: (e) => { if (n === this.previaPedida) this.catPreviaError.set(e?.error?.message ?? 'No se pudo calcular qué toma la regla.'); },
-    });
   }
 
   /** ⭐ Al guardar se recarga la lista y la bandeja: la categoría cambia qué entra al archivo. */
-  guardarCategoria(m: MovimientoBanco): void {
-    if (!this.puedeGuardarCategoria()) return;
-    this.catGuardando.set(true);   // idempotencia visual: el segundo clic ya no pasa
-    const categoria = this.catElegida();
-    const body = this.catRecordar() ? { categoria, beneficiario: this.catTexto() } : { categoria };
-    this.api.categorizar(m.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.catGuardando.set(false);
-        const nombre = this.categorias()?.find((c) => c.code === r.categoria)?.nombre ?? r.categoria;
-        const imp = r.importe_aplicado.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-        this.cerrarCategorizar();
-        this.catAviso.set({ mal: false, texto: r.regla
-          ? `Categorizado como ${nombre}. Con «${r.regla.texto}» se categorizaron ${r.aplicados} más (${imp}), y se aplicará a los próximos estados de cuenta.`
-          : `Categorizado como ${nombre}.` });
-        this.recargarMovimientos();
-        this.cargar(true);
-      },
-      error: (e) => {
-        this.catGuardando.set(false);
-        this.catAviso.set({ mal: true, texto: e?.error?.message ?? 'No se pudo categorizar.' });
-      },
-    });
+  alCategorizar(texto: string): void {
+    this.cerrarCategorizar();
+    this.catAviso.set({ mal: false, texto });
+    this.recargarMovimientos();
+    this.cargar(true);
   }
 
   elegirCuenta(categoria: string, cuenta: string | null): void {
@@ -1955,16 +1846,8 @@ export function fraseQueFalta(pasos: PasoVista[]): string {
  * `[CP.8.78]` A qué paso lleva «Ir» desde un movimiento, según por qué no entra. `null` = no se resuelve en esta
  * pantalla: sin categoría se categoriza en Bancos, y fuera de banco no es de este puente.
  */
-/**
- * `[CP.8.80]` El nombre con que se propone la regla: el concepto sin las iniciales sueltas del final. Medido: el
- * mismo beneficiario llega como «Oscar Hernandez R» y «Oscar Hernandez Rodriguez»; proponer «OSCAR HERNANDEZ R»
- * tomaría uno solo. Nunca deja menos de dos palabras.
- */
-export function sugerenciaBeneficiario(concepto: string | null | undefined): string {
-  const p = String(concepto ?? '').replace(/\s+/g, ' ').trim().toUpperCase().split(' ').filter(Boolean);
-  while (p.length > 2 && p[p.length - 1].replace(/[^A-Z0-9ÁÉÍÓÚÜÑ]/g, '').length <= 1) p.pop();
-  return p.join(' ');
-}
+/** `[CB.70]` Vive en la pieza compartida de categorizar; se reexporta para quien la importaba de aquí. */
+export { sugerenciaBeneficiario } from '../../../shared/components/categorizar-egreso/categorizar-egreso.api';
 
 export function pasoDeMotivo(motivo: string | null): Paso | null {
   if (motivo === null) return 'archivo';

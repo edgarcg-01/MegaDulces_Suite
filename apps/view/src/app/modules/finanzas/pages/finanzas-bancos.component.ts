@@ -271,7 +271,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
             <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()" [descarga]="movDescarga()" [fDescarga]="fDescarga()"
               [accountOpts]="accountOpts()" [groupOpts]="groupOpts()" [reconOpts]="reconOpts"
               [fAccount]="fAccount()" [fGroup]="fGroup()" [fRecon]="fRecon()" [fUncat]="fUncat()" [fSearch]="fSearch()"
-              (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" />
+              (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" (categorizado)="softRefresh()" />
           }
         }
       </app-side-peek>

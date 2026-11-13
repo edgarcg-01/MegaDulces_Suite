@@ -13,6 +13,9 @@ import { BankService, BankMovement, MovementFlow, DescargaEnMovimientos } from '
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
+import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
+import { CategorizarEgresoComponent } from '../../../../shared/components/categorizar-egreso/categorizar-egreso.component';
 
 /**
  * CB.14 — Vista MOVIMIENTOS (tabla filtrable read-only). El shell posee los filtros
@@ -22,7 +25,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 @Component({
   selector: 'bancos-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, ButtonModule],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, ButtonModule, CategorizarEgresoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-filters">
@@ -64,6 +67,8 @@ import { BANCOS_STYLES } from './bancos.styles';
         }
       </div>
     }
+    <!-- [CB.70] Lo que hizo «Categorizar»: la lista se recarga y la fila puede irse (si el filtro es «sin clasificar»), así que el aviso va arriba. -->
+    @if (catAviso(); as a) { <p class="fb-cat-aviso" role="status"><i class="pi pi-check" aria-hidden="true"></i> {{ a }}</p> }
     <!-- [CB.64] La descarga del banco en esta misma lista: cuánto no tiene el libro y cuánto del libro no trae el banco. -->
     @if (descarga(); as d) {
       <div class="fb-desc" role="group" aria-label="La descarga del banco en esta lista">
@@ -137,6 +142,26 @@ import { BANCOS_STYLES } from './bancos.styles';
             @if (detail(); as d) {
               <p class="fb-det-t">{{ d.title }}</p>
               <p class="fb-det-nota">{{ d.note }}</p>
+              <!-- [CB.70] Sin categoría: se categoriza aquí, con la MISMA pieza del puente ContPAQi (un solo motor y un solo permiso). -->
+              @if (!m.category_id && m.fuente !== 'descarga') {
+                <div class="fb-cat-sec">
+                  @if ((m.amount_out || 0) > 0) {
+                    @if (puedeCategorizar()) {
+                      @if (categorizando() === m.id) {
+                        <app-categorizar-egreso [movimiento]="{ id: m.id, concepto: m.concept }"
+                                                (guardado)="alCategorizar($event.texto)" (cancelar)="categorizando.set(null)" />
+                      } @else {
+                        <button pButton type="button" class="p-button-sm p-button-outlined" (click)="categorizando.set(m.id)">
+                          <span class="p-button-icon p-button-icon-left pi pi-tag" aria-hidden="true"></span><span class="p-button-label">Categorizar</span></button>
+                      }
+                    } @else {
+                      <p class="fb-det-nota">Sin categoría. Lo categoriza quien tiene el permiso «Categorizar egresos en el Puente ContPAQi» (Finanzas y Contabilidad).</p>
+                    }
+                  } @else {
+                    <p class="fb-det-nota">Es un depósito sin categoría: los depósitos todavía no se categorizan en la suite. Ponle su código en el libro CUENTAS y vuelve a subirlo.</p>
+                  }
+                </div>
+              }
               <dl class="fb-dl fb-dl--grid">
                 @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
               </dl>
@@ -280,6 +305,8 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-mov-det > td { background: var(--surface-2); padding: var(--sp-3) var(--sp-4); }
     .fb-det-t { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
     .fb-det-nota { margin: var(--sp-1) 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); max-width: 80ch; line-height: 1.4; }
+    .fb-cat-sec { margin: 0 0 var(--sp-3); }
+    .fb-cat-aviso { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
     .fb-dl.fb-dl--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--sp-2) var(--sp-4); }
   `],
 })
@@ -299,6 +326,25 @@ export class BancosMovimientosComponent {
   readonly fDescarga = input<string>('');
   @Output() filter = new EventEmitter<{ field: string; value: any }>();
   @Output() searchChange = new EventEmitter<string>();
+  /** `[CB.70]` Se categorizó un egreso (y quizá otros por la regla): el shell recarga la lista y el Cierre. */
+  @Output() categorizado = new EventEmitter<void>();
+
+  /**
+   * `[CB.70]` Categorizar desde aquí usa la pieza del puente (`[CP.8.80]`) y su permiso. ⚠️ Cortesía, no puerta:
+   * manda el guard del endpoint. Medido el 2026-11-13: lo tienen finanzas, contabilidad y superadmin; NO
+   * `finanzas_operativo` ni `tesoreria`, que ven quién lo hace.
+   */
+  private readonly perms = inject(PermissionsService);
+  readonly puedeCategorizar = this.perms.has$(Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR);
+  /** El movimiento con el formulario abierto. */
+  readonly categorizando = signal<string | null>(null);
+  readonly catAviso = signal<string | null>(null);
+  alCategorizar(texto: string): void {
+    this.categorizando.set(null);
+    this.catAviso.set(texto);
+    this.closeDetail();
+    this.categorizado.emit();
+  }
 
   private readonly api = inject(BankService);
   private readonly destroyRef = inject(DestroyRef);
@@ -348,7 +394,7 @@ export class BancosMovimientosComponent {
   readonly flowError = signal(false);
 
   closeDetail(): void {
-    this.detail.set(null); this.flow.set(null); this.currentId.set(null); this.abierta.set(null);
+    this.detail.set(null); this.flow.set(null); this.currentId.set(null); this.abierta.set(null); this.categorizando.set(null);
     // Si se cierra con una petición en vuelo, su respuesta se descarta abajo — hay que bajar
     // la bandera acá o el próximo movimiento abriría mostrando "Rastreando…" para siempre.
     this.flowLoading.set(false); this.flowError.set(false);
