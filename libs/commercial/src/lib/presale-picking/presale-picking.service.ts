@@ -20,6 +20,7 @@ import type {
   PresalePickState,
   PresalePickSubstitution,
   PresaleReviewResult,
+  PresaleReviewStock,
   PresaleSellerOrder,
   PresaleSellerStatusResponse,
   PresaleOtherUnitsResponse,
@@ -54,6 +55,7 @@ import {
   unidadSugerida,
 } from './presale-substitute.engine';
 import { PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA } from './presale-route.engine';
+import { DiaInvalido, diaDeConsulta } from './bandeja-dia';
 import { MOTIVOS_SURTIDO, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
 import { MotivoInvalido, armarJustificantes, conMotivosEnReporte, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
 import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
@@ -131,17 +133,24 @@ export class PresalePickingService {
 
   async inbox(query: Record<string, unknown> = {}): Promise<PresalePickInboxResponse> {
     const hoy = relojMx(new Date()).fecha;
-    const vacio: PresalePickInboxResponse = { today: hoy, counts: { hoy: 0, manana: 0, proximos: 0 }, data: [], scope: 'ninguno' };
+    // [MCP.24] `?date=` trae ese día de entrega completo (también lo cerrado), para revisar días anteriores.
+    let dia: string | null;
+    try { dia = diaDeConsulta(query['date']); } catch (e) {
+      if (e instanceof DiaInvalido) throw new BadRequestException(e.message);
+      throw e;
+    }
+    const conDia = dia ? { date: dia } : {};
+    const vacio: PresalePickInboxResponse = { today: hoy, counts: { hoy: 0, manana: 0, proximos: 0 }, data: [], scope: 'ninguno', ...conDia };
     const almacenes = await this.scope.warehouseIds(query, AREA);
     if (almacenes !== null && almacenes.length === 0) return vacio;
 
     return this.tk.run(async (trx) => {
-      const filas = await this.leer(trx, { almacenes, desde: sumarDias(hoy, -DIAS_ATRAS) });
+      const filas = await this.leer(trx, dia ? { almacenes, dia } : { almacenes, desde: sumarDias(hoy, -DIAS_ATRAS) });
       const data = filas.map((f) => this.aRenglon(f, hoy));
       const counts = { hoy: 0, manana: 0, proximos: 0 };
       // El contador de la pestaña es lo que FALTA por surtir, no lo que ya se cerró.
       for (const r of data) if (r.state === 'nuevo' || r.state === 'surtiendo') counts[r.bucket]++;
-      return { today: hoy, counts, data, scope: almacenes === null ? 'todos' : 'propios' };
+      return { today: hoy, counts, data, scope: almacenes === null ? 'todos' : 'propios', ...conDia };
     });
   }
 
@@ -176,6 +185,13 @@ export class PresalePickingService {
           ...(enLugarDe.has(l.id) ? { substitutes: enLugarDe.get(l.id) } : {}),
         };
       });
+      // [MCP.23] La existencia de cada renglón mientras se surte. Medido en prod (30 días al 2026-11-12): de
+      // 159 renglones quitados por «no hubo», en 100 el sistema tenía ese producto al empezar el día. Ayuda,
+      // no requisito: si no se lee, cada renglón la DECLARA sin dato (`stock: null`). Cerrado, ya no viaja.
+      if (!fila['finished_at'] && lines.length) {
+        const existencia = await this.existenciaPorRenglon(trx, String(fila['warehouse_id']), lines);
+        for (const l of lines) l.stock = existencia ? existencia(l) : null;
+      }
       // [MCP.18] Por qué cambió: lo que corrigió la vendedora, lo que quitó el surtido y lo que quitó la caja.
       const revision = revisado ? ((await trx('commercial.presale_picks').where({ order_id: orderId }).first('review'))?.review ?? null) : null;
       const justifications = armarJustificantes({
@@ -422,6 +438,31 @@ export class PresalePickingService {
         ...(mismos.has(x.for_line_id) ? { same_product: true } : {}),
       };
     });
+  }
+
+  /**
+   * `[MCP.23]` La existencia de los renglones en la sucursal del pedido, en la unidad mostrada y redondeada
+   * hacia abajo (como la ve la caja, `[MCP.10]`). `null` = no se pudo leer. En un savepoint: una lectura
+   * que falla no puede abortar la transacción de la que cuelga el resto del detalle.
+   */
+  private async existenciaPorRenglon(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    lines: readonly PresalePickLine[],
+  ): Promise<((l: PresalePickLine) => PresaleReviewStock) | null> {
+    try {
+      const { estado } = await trx.transaction(async (sp) => {
+        const wh = await sp('commercial.warehouses').where({ id: warehouseId }).first('code');
+        return estadoDeProductos(sp, [{ id: warehouseId, code: (wh?.code as string) ?? null }], lines.map((l) => l.product_id));
+      });
+      return (l: PresalePickLine): PresaleReviewStock => {
+        const e = estado(warehouseId, l.product_id);
+        return { state: e.state, qty: e.qty == null ? null : Math.floor((e.qty + 1e-9) / (l.factor || 1)), checked_at: e.checked_at };
+      };
+    } catch (e) {
+      this.logger.warn(`[MCP.23] no se pudo leer la existencia para surtir: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   /** `[MCP.13]` La existencia en una sucursal; `null` si no se pudo leer (no bloquea: se declara). */
@@ -738,7 +779,7 @@ export class PresalePickingService {
    */
   async leer(
     trx: Knex.Transaction,
-    f: { almacenes: string[] | null; desde?: string; orderId?: string; incluirRutas?: boolean },
+    f: { almacenes: string[] | null; desde?: string; dia?: string; orderId?: string; incluirRutas?: boolean },
   ): Promise<Array<Record<string, unknown>>> {
     const qb = trx('commercial.orders as o')
       .join('commercial.warehouses as w', function () {
@@ -761,6 +802,8 @@ export class PresalePickingService {
     if (!f.incluirRutas && SURTIDO_DE_RUTA) {
       qb.whereRaw(`NOT EXISTS (SELECT 1 FROM commercial.seller_route_days rd WHERE ${PEDIDO_EN_RUTA_SQL})`);
     }
+    // [MCP.24] Un día de entrega completo: lo pendiente y lo cerrado, sin la ventana de un día.
+    if (f.dia) qb.where('o.requested_delivery_date', f.dia);
     if (f.desde) {
       qb.where('o.requested_delivery_date', '>=', f.desde)
         .where(function () {

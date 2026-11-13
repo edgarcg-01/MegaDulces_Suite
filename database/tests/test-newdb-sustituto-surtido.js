@@ -261,6 +261,14 @@ function cargar() {
       console.log('\n[6] Las sugerencias corren su SQL real');
       const C = await pedido([{ product_id: p1.id, quantity: 1 }, { product_id: p2.id, quantity: 1 }]);
       const [c1] = await lineas(C);
+      // [MCP.23] El surtidor ve la existencia de cada renglón mientras surte; cerrado, ya no viaja.
+      const detC = await como(SURT, () => picking.detail(C));
+      ok(detC.lines.length === 2 && detC.lines.every((l) => 'stock' in l), '[MCP.23] cada renglón de un pedido por surtir trae su existencia (o «sin dato»)');
+      const ESTADOS = new Set(['con_existencia', 'agotado', 'no_se_maneja', 'sin_dato']);
+      ok(detC.lines.every((l) => l.stock === null || (ESTADOS.has(l.stock.state) && (l.stock.qty === null || (Number.isInteger(l.stock.qty) && l.stock.qty >= 0)))),
+        `[MCP.23] con un estado válido y una cantidad entera (${detC.lines.map((l) => (l.stock ? `${l.stock.state}:${l.stock.qty}` : 'null')).join(', ')})`);
+      if (detC.lines.every((l) => l.stock === null || l.stock.state === 'sin_dato')) noMedido('[MCP.23] la base local no tiene existencia leída de la sucursal 02: sólo se midió la forma');
+      ok(!det.lines.some((l) => 'stock' in l), '[MCP.23] en un pedido ya surtido no viaja');
       const sug = await como(SURT, () => picking.substitutes(C, c1.id, ''));
       ok(sug.for_line_id === c1.id && sug.for_product_name === p1.nombre, `responde para el renglón pedido (${sug.data.length} sugerencias)`);
       if (!sug.data.length) noMedido('no hubo sugerencias para medir su contenido');
@@ -321,6 +329,36 @@ function cargar() {
           `la caja revisa 8 PZA y no pide reponer la caja (${revD.lines.map((l) => `${l.key}:${l.ordered}`).join(', ')})`);
         const rD = await como(CAJA, () => review.finish(D, { lines: revD.lines.map((l) => ({ key: l.key, final: l.ordered })) }));
         ok(Math.abs(rD.review.total_after - tD) < 0.005, `la caja cierra con el payload de la pantalla y el total no se mueve (${rD.review.total_after})`);
+      }
+
+      console.log('\n[MCP.24] Las bandejas, un día a la vez (?date=)');
+      {
+        const mios = new Set([A, B, C, D]);
+        const ENTREGA = '2030-01-02';
+        const hoyMx = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+        const sd = await como(SURT, () => picking.inbox({ date: ENTREGA }));
+        const sdIds = sd.data.map((r) => r.order_id).filter((id) => mios.has(id));
+        ok(sd.date === ENTREGA && sd.data.every((r) => r.requested_delivery_date === ENTREGA), `surtidor: trae sólo el día de entrega pedido (${sd.data.length} pedidos)`);
+        // Control contra la base: los pedidos de prueba confirmados para ese día, surtidos o no.
+        const vivos = (await trx('commercial.orders').whereIn('id', [...mios]).where({ status: 'confirmed' }).select('id')).map((r) => r.id);
+        ok(vivos.length > 0 && vivos.every((id) => sdIds.includes(id)), `surtidor: están todos los de prueba confirmados para ese día (${sdIds.length} de ${vivos.length})`);
+        ok(sd.data.some((r) => mios.has(r.order_id) && r.finished), 'surtidor: con un día pedido también llega lo ya surtido');
+        const otroDia = await como(SURT, () => picking.inbox({ date: '2030-01-03' }));
+        ok(!otroDia.data.some((r) => mios.has(r.order_id)), 'surtidor (control): otro día no trae los de prueba');
+        // Caja: por el día en que se SURTIÓ (hoy), no por el de entrega (2030).
+        const esperados = (await trx('commercial.presale_picks').whereIn('order_id', [...mios]).whereNotNull('finished_at')
+          .where(function () { this.where('review_required', true).orWhereNotNull('reviewed_at'); }).select('order_id')).map((r) => r.order_id);
+        const cd = await como(CAJA, () => review.inbox({ date: hoyMx }));
+        const cdIds = cd.data.map((r) => r.order_id).filter((id) => mios.has(id));
+        ok(esperados.length > 0 && esperados.length === cdIds.length && esperados.every((id) => cdIds.includes(id)),
+          `caja: lo surtido hoy, revisado o no (${cdIds.length} de ${esperados.length} esperados por la base)`);
+        ok(cd.data.some((r) => mios.has(r.order_id) && r.state === 'revisado'), 'caja: con un día pedido también llega lo ya revisado');
+        const cdEntrega = await como(CAJA, () => review.inbox({ date: ENTREGA }));
+        ok(!cdEntrega.data.some((r) => mios.has(r.order_id)), 'caja (control): el día de ENTREGA no los trae: la caja va por el día de surtido');
+        for (const [quien, fn] of [['surtidor', () => picking.inbox({ date: '2026-02-30' })], ['caja', () => review.inbox({ date: '30/01/2030' })]]) {
+          const n = await falla(quien === 'caja' ? CAJA : SURT, fn, 400, /AAAA-MM-DD/);
+          ok(n.ok, `${quien}: una fecha mal escrita es 400, no «hoy» en silencio (${n.msg})`);
+        }
       }
 
       throw new Error(RB);

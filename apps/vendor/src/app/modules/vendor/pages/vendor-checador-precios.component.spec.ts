@@ -301,3 +301,45 @@ describe('Checador de precios [VTK.17]', () => {
     expect(texto()).toContain('Sin señal: se usa la sucursal de tu última copia guardada');
   });
 });
+
+describe('[MCP.26] Checador · buscar dictando', () => {
+  const ventana = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+  const vozFalsa = (frase: string) => class {
+    lang = ''; interimResults = false; continuous = false;
+    onresult: ((e: unknown) => void) | null = null;
+    onend: (() => void) | null = null;
+    onerror: ((e: { error?: string }) => void) | null = null;
+    start(): void {
+      this.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: frase }, isFinal: true }] });
+      this.onend?.();
+    }
+    stop(): void { this.onend?.(); }
+  };
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    delete ventana.SpeechRecognition;
+    delete ventana.webkitSpeechRecognition;
+  });
+
+  it('⭐ en la pantalla completa, dictar busca en la copia lo convertido («cajeta 1 k»)', async () => {
+    ventana.SpeechRecognition = vozFalsa('cajeta de un kilo');
+    const { el, listo, svc, cmp } = montar();
+    await listo();
+    const mic = el.querySelector<HTMLButtonElement>('app-dictar-busqueda button');
+    expect(mic).toBeTruthy();
+    mic!.click();
+    await new Promise((r) => setTimeout(r, 160)); // la búsqueda espera 120 ms a que se deje de escribir
+    await listo();
+    expect(cmp.texto()).toBe('cajeta 1 k');
+    expect(svc.buscarEnCopia).toHaveBeenCalledWith('02', 'cajeta 1 k', expect.any(Number));
+  });
+
+  it('en el encabezado (compacto) no hay micrófono: no cabe junto al campo en un teléfono', async () => {
+    ventana.SpeechRecognition = vozFalsa('cajeta');
+    const { el, listo, fix } = montar();
+    fix.componentRef.setInput('compacto', true);
+    await listo();
+    expect(el.querySelector('input[type=search]')).toBeTruthy();
+    expect(el.querySelector('app-dictar-busqueda')).toBeNull();
+  });
+});

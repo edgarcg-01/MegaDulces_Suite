@@ -16,7 +16,7 @@
  * reporte del surtido: el reporte cuenta lo que pasó al surtir; la revisión, cómo quedó.
  */
 
-import type { PresaleReviewResult } from './presale-review.contract';
+import type { PresaleReviewResult, PresaleReviewStock } from './presale-review.contract';
 import type { StockState } from './stock-state.contract';
 import type { OrderJustification } from './order-justification.contract';
 
@@ -79,6 +79,11 @@ export interface PresalePickInboxResponse {
   data: PresalePickInboxRow[];
   /** `ninguno` = el usuario no tiene almacén en su alcance; se dice, no se muestra vacío mudo. */
   scope: 'todos' | 'propios' | 'ninguno';
+  /**
+   * `[MCP.24]` Con `?date=YYYY-MM-DD`: el día de ENTREGA que se pidió, y `data` trae TODOS sus pedidos (también
+   * los cerrados, sin la ventana de un día). Ausente = la bandeja viva (hoy, mañana, próximos y lo atrasado).
+   */
+  date?: string;
 }
 
 export interface PresalePickLine {
@@ -102,6 +107,12 @@ export interface PresalePickLine {
   final?: number | null;
   /** `[MCP.13]` Este renglón lo puso el surtidor EN LUGAR de otro que no hubo; ausente = no es sustituto. */
   substitutes?: { product_name: string; sku: string | null } | null;
+  /**
+   * `[MCP.23]` La existencia del sistema en la sucursal del pedido, en la unidad mostrada (la misma forma que
+   * ve la caja). Sólo mientras el pedido no se ha cerrado. `null` = no se pudo leer (se declara «sin dato»,
+   * nunca cero); ausente = pedido cerrado o servidor anterior.
+   */
+  stock?: PresaleReviewStock | null;
 }
 
 export interface PresalePickDetail {

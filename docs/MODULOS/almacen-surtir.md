@@ -6,6 +6,42 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## Preventa: un día a la vez y por vendedor (MCP.24, 2026-11-12 — en código, sin desplegar)
+
+- **Problema:** en «Hoy» caía también lo atrasado de días anteriores, mezclado con lo de hoy. Lo ya surtido de días
+  anteriores no se podía consultar: lo cerrado sólo se quedaba un día en la bandeja.
+- **Solución:** «Hoy» trae sólo lo de hoy. Lo pendiente de días anteriores va en un aviso arriba, por día, y tocarlo
+  abre ese día. «Ayer» y un día del calendario traen ese día de entrega completo, también lo surtido. Arriba se elige
+  vendedor; «Todos» conserva los encabezados de MCP.14.
+- **Implementada:** `GET …/presale-picking?date=AAAA-MM-DD` (ese día de entrega completo; 400 si la fecha está
+  mal escrita). Pantalla: `almacen-surtir-preventa.component.ts`; la lógica pura en `pedidos-por-dia.ts`.
+- **Por qué así:** David pidió que siempre tengan a la mano lo de hoy, que puedan revisar lo anterior y que no se
+  mezclen días ni vendedores. Lo atrasado no se esconde en otra pestaña, porque un pedido que nadie ve no se surte.
+- **Pendiente:** verlo en pantalla. Cancelar un pedido completo mientras se surte es `[MCP.25]`.
+
+---
+
+## La existencia del sistema en cada renglón de preventa (MCP.23, 2026-11-12 — en código, sin desplegar)
+
+- **Problema:** el surtidor de preventa no veía cuánto dice el sistema que hay; sólo la veía en las sugerencias de
+  cambio (MCP.13), y la caja sólo al marcar un faltante. Medido en prod (30 días): 161 renglones quitados por «no
+  hubo»; de 159 medibles, en **100 (63 %)** la foto de inventario del día anterior tenía el producto y en 84
+  alcanzaba para todo lo pedido. Cada uno es una venta que se quitó del pedido.
+- **Solución:** cada renglón dice «Sistema: hay 40 CJA», «no hay», «no se maneja aquí», «sin dato» o «menos de 1
+  CJA», y una vez por pedido la hora de la lectura y que **manda el anaquel**. Si baja la cantidad de algo que el
+  sistema dice que hay, la pantalla pide «búscalo en bodega antes de quitarlo». No bloquea.
+- **Implementada:** `PresalePickingService.detail` agrega `stock` a cada renglón mientras el pedido no se cierra
+  (`existenciaPorRenglon`, en un savepoint; si la lectura falla, `stock: null`). Contrato: `PresalePickLine.stock`,
+  la misma forma que ya recibe la caja (`PresaleReviewStock`). Pantalla: `almacen-surtir-preventa.component.ts`.
+- **Por qué así:** la caja se quedó como estaba (decisión de David): ella cuenta lo que llegó y la existencia sólo le
+  cambia la decisión cuando falta algo, que es cuando ya la ve. «Sin dato» nunca se pinta como cero (ADR-056).
+- **Cómo se sabe si sirvió:** volver a medir los renglones quitados por «no hubo» con existencia en el sistema (hoy
+  100 de 159 en 30 días). Si no baja, el problema es el inventario de Kepler, no el surtidor, y va a Inventario
+  Continuo.
+- **Pendiente:** verlo en la pantalla del surtidor (no se ha visto en un celular).
+
+---
+
 ## Surtir en otra unidad cuando no hubo la caja completa (MCP.17, 2026-11-10)
 
 - **Problema:** se pacta «1 caja» pero al surtir la caja ya está abierta. El sistema cuenta piezas, no cajas cerradas, así

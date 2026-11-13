@@ -103,11 +103,76 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(orden).toEqual(['TIENDA A1', 'TIENDA B1', 'TIENDA B2']);
   });
 
-  it('lo que no se revisó no desaparece: dice desde cuándo, y lo de hoy no lleva atraso', async () => {
+  it('[MCP.24] lo que no se revisó no desaparece ni se mezcla: va en un aviso por día y, abierto, dice desde cuándo', async () => {
     await montar();
-    const tarjetas = Array.from(el().querySelectorAll('.rv-card')).map((b) => (b.textContent ?? '').replace(/\s+/g, ' '));
-    expect(tarjetas.find((t) => t.includes('MISCELANEA LUPITA'))).toContain('Sin revisar · hace 2 días');
-    expect(tarjetas.find((t) => t.includes('ABARROTES CARMELITA'))).not.toContain('Sin revisar');
+    const tarjetas = (): string[] => Array.from(el().querySelectorAll('.rv-card')).map((b) => (b.textContent ?? '').replace(/\s+/g, ' '));
+    expect(tarjetas().find((t) => t.includes('ABARROTES CARMELITA'))).not.toContain('Sin revisar');
+    expect(tarjetas().some((t) => t.includes('MISCELANEA LUPITA'))).toBe(false);
+    const aviso = (el().querySelector('.rv-atras')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(aviso).toContain('1 pedido sin revisar de días anteriores');
+    expect(aviso).toContain('mar 27 oct · 1');
+    api.inbox.mockReturnValueOnce(of({ ...BANDEJA(), date: '2026-10-27', data: [BANDEJA().data[1]] }));
+    (el().querySelector('.rv-atras-d') as HTMLButtonElement).click();
+    fix.detectChanges();
+    expect(api.inbox).toHaveBeenLastCalledWith('2026-10-27');
+    expect(tarjetas().find((t) => t.includes('MISCELANEA LUPITA'))).toContain('Sin revisar · hace 2 días');
+    expect(tarjetas().some((t) => t.includes('ABARROTES CARMELITA'))).toBe(false);
+  });
+
+  describe('[MCP.24] un día a la vez y por vendedor', () => {
+    it('⭐ «Ayer» pide lo surtido ayer, revisado o no; «Hoy» regresa sin pedir nada', async () => {
+      await montar();
+      api.inbox.mockReturnValueOnce(of({ ...BANDEJA(), date: '2026-10-28', data: [
+        fila({ order_id: 'y1', code: 'PD-2026-00120', customer_name: 'TIENDA DE AYER', state: 'revisado',
+               finished: { user_id: 's1', name: 'Juan Surtidor', at: '2026-10-28T16:00:00.000Z' },
+               reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-10-28T17:00:00.000Z' } }),
+      ] }));
+      fix.componentInstance.elegirPestana('ayer');
+      fix.detectChanges();
+      expect(api.inbox).toHaveBeenLastCalledWith('2026-10-28');
+      expect(texto()).toContain('TIENDA DE AYER');
+      expect(texto()).not.toContain('ABARROTES CARMELITA');
+      const n = api.inbox.mock.calls.length;
+      fix.componentInstance.elegirPestana('hoy');
+      fix.detectChanges();
+      expect(api.inbox.mock.calls.length).toBe(n);
+      expect(texto()).toContain('ABARROTES CARMELITA');
+    });
+
+    it('⭐ la búsqueda en otros pedidos sigue viendo TODO lo pendiente, aunque la vista sea de un día', async () => {
+      await montar();
+      await abrir();
+      expect(fix.componentInstance.otros().map((p) => p.order_id)).toEqual(['o-lupi']);
+      // Y la métrica cuenta todo lo que falta, de cualquier día.
+      expect(fix.componentInstance.metricas()[0].value).toBe(2);
+    });
+
+    it('elegir un vendedor deja sólo sus pedidos (pendientes y revisados)', async () => {
+      await montar();
+      const comp = fix.componentInstance;
+      comp.bandeja.set({ ...BANDEJA(), data: [
+        fila({ order_id: 'a1', code: 'PD-1', customer_name: 'TIENDA A1', seller_name: 'Vendedor A' }),
+        fila({ order_id: 'b1', code: 'PD-2', customer_name: 'TIENDA B1', seller_name: 'Vendedor B' }),
+        fila({ order_id: 'b2', code: 'PD-3', customer_name: 'TIENDA B2 REVISADA', seller_name: 'Vendedor B', state: 'revisado',
+               reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-10-29T17:00:00.000Z' } }),
+      ] });
+      fix.detectChanges();
+      expect(comp.opcionesVendedor().map((o) => o.label)).toEqual(['Todos · 3', 'Vendedor A · 1', 'Vendedor B · 2']);
+      comp.vendedor.set('Vendedor A');
+      fix.detectChanges();
+      expect(texto()).toContain('TIENDA A1');
+      expect(texto()).not.toContain('TIENDA B1');
+      expect(texto()).not.toContain('TIENDA B2 REVISADA');
+    });
+
+    it('prueba negativa: si el día no carga, lo dice (no lo pinta vacío)', async () => {
+      await montar();
+      api.inbox.mockReturnValueOnce(throwError(() => ({ status: 0 })));
+      fix.componentInstance.irADia('2026-10-20');
+      fix.detectChanges();
+      expect(texto()).not.toContain('Nada surtido');
+      expect(texto()).toContain('No se pudieron cargar los pedidos de ese día');
+    });
   });
 
   it('si la lista se cortó en el tope, lo dice con el total real', async () => {

@@ -20,6 +20,11 @@ import { JustificantesComponent } from '../shared/justificantes.component';
 import { camposDeMotivo, motivoDe, motivosIncompletos, pidenMotivoEnCaja, type MotivoLinea } from '../shared/motivos-preventa';
 import { PresaleReviewService } from '../presale-review.service';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
+import { deVendedor, etiquetaDia, pendientesDeOtrosDias, sumarDiasIso, vendedoresDe } from '../pedidos-por-dia';
+import { FormsModule } from '@angular/forms';
+import { DatePickerModule } from 'primeng/datepicker';
+import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
+import { diaMxDe, todayMx } from '../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -74,7 +79,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 @Component({
   selector: 'app-almacen-revision-preventa',
   standalone: true,
-  imports: [CommonModule, ToastModule, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, MotivoChipsComponent, JustificantesComponent],
+  imports: [CommonModule, FormsModule, ToastModule, DatePickerModule, SegmentedComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -109,10 +114,36 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
           </div>
         }
 
-        <app-load-state [loading]="cargando() && !bandeja()" [error]="error()" [isEmpty]="!!bandeja() && !bandeja()!.data.length"
-                        emptyIcon="pi-check-circle" emptyTitle="No hay pedidos por revisar"
+        <!-- [MCP.24] Un día a la vez, por el día en que se SURTIÓ: Hoy abre siempre; Ayer y el calendario, aparte. -->
+        <div class="rv-dias">
+          <app-segmented [options]="pestanas()" [value]="pestana()" ariaLabel="Día de surtido"
+                         (valueChange)="elegirPestana($any($event))"></app-segmented>
+          <p-datepicker [ngModel]="null" (ngModelChange)="elegirFecha($event)" [maxDate]="maxCalendario" [showIcon]="true"
+                        [readonlyInput]="true" dateFormat="dd/mm/yy" placeholder="Otro día" appendTo="body"
+                        ariaLabel="Ver los pedidos surtidos otro día"></p-datepicker>
+        </div>
+        <!-- [MCP.24] Lo que quedó sin revisar de otros días no se mezcla con hoy, pero tampoco se esconde. -->
+        @if (pestana() === 'hoy' && atrasados().length) {
+          <section class="rv-atras" aria-label="Sin revisar de días anteriores">
+            <p class="rv-atras-t"><i class="pi pi-history" aria-hidden="true"></i>
+              {{ totalAtrasados() === 1 ? '1 pedido sin revisar' : totalAtrasados() + ' pedidos sin revisar' }} de días anteriores</p>
+            <div class="rv-atras-dias">
+              @for (a of atrasados(); track a.fecha) {
+                <button type="button" class="rv-atras-d" (click)="irADia(a.fecha)">{{ etiqueta(a.fecha) }} · {{ a.n }}</button>
+              }
+            </div>
+          </section>
+        }
+        <!-- [MCP.24] Por vendedor: «Todos» conserva los encabezados; uno deja sólo los suyos. -->
+        @if (opcionesVendedor().length > 2) {
+          <app-segmented [options]="opcionesVendedor()" [value]="vendedorEfectivo() ?? ''" ariaLabel="Vendedor"
+                         (valueChange)="vendedor.set($any($event) || null)"></app-segmented>
+        }
+
+        <app-load-state [loading]="cargandoVista()" [error]="errorVista()" [isEmpty]="vistaLista() && !delDia().length"
+                        emptyIcon="pi-check-circle" [emptyTitle]="vacioTitulo()"
                         emptyHint="Cuando el surtidor termine un pedido de preventa, va a aparecer aquí solo."
-                        (retry)="cargar()">
+                        (retry)="recargarVista()">
           <!-- [MCP.14] Los pedidos a revisar separados por vendedor y, dentro, en orden de folio. -->
           <div class="rv-lista">
             @for (g of grupos(); track g.vendedor) {
@@ -135,10 +166,10 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
             }
             }
           </div>
-          @if (revisados().length) {
+          @if (revisadosVista().length) {
             <h2 class="rv-h2">Revisados</h2>
             <ul class="rv-hechos">
-              @for (p of revisados(); track p.order_id) {
+              @for (p of revisadosVista(); track p.order_id) {
                 <li class="rv-hecho"><span>{{ p.customer_name || p.code }} · {{ p.code }}</span>
                   <span>{{ p.reviewed?.name }} · {{ horaDe(p.reviewed?.at) }}</span></li>
               }
@@ -375,6 +406,17 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-lista { display: flex; flex-direction: column; gap: var(--sp-2); }
     /* [MCP.14] El vendedor encabeza su grupo de pedidos. */
     .rv-grupo { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0 0; font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
+    /* [MCP.24] Un día a la vez; lo de otros días, aparte y por día; el vendedor, arriba. */
+    .rv-dias { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .rv-atras { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-fg);
+      border-radius: var(--r-md); background: var(--card-bg); }
+    .rv-atras-t { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .rv-atras-t i { color: var(--text-muted); }
+    .rv-atras-dias { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+    .rv-atras-d { min-height: var(--tap-min); padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
+    .rv-atras-d:hover { background: var(--surface-hover); }
+    .rv-atras-d:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .rv-grupo:first-child { margin-top: 0; }
     .rv-grupo-n { font-weight: 500; color: var(--text-muted); }
     .rv-card { display: flex; flex-direction: column; gap: var(--sp-1); width: 100%; text-align: left; cursor: pointer;
@@ -534,8 +576,54 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
 
   readonly porRevisar = computed<PresaleReviewInboxRow[]>(() => (this.bandeja()?.data ?? []).filter((p) => p.state === 'por_revisar'));
   readonly revisados = computed<PresaleReviewInboxRow[]>(() => (this.bandeja()?.data ?? []).filter((p) => p.state === 'revisado'));
+  // ── [MCP.24] Un día a la vez (el día en que se SURTIÓ, hora de México) y por vendedor ──
+  // `porRevisar` sigue siendo TODO lo pendiente: de ahí salen las métricas y la búsqueda en otros pedidos.
+  readonly pestana = signal<'ayer' | 'hoy' | 'dia'>('hoy');
+  readonly diaElegido = signal<string | null>(null);
+  readonly bandejaDia = signal<PresaleReviewInboxResponse | null>(null);
+  readonly cargandoDia = signal(false);
+  readonly errorDia = signal<string | null>(null);
+  readonly vendedor = signal<string | null>(null);
+  /** La caja revisa lo ya surtido: el calendario llega hasta hoy. */
+  readonly maxCalendario = new Date();
+  readonly hoy = computed(() => this.bandeja()?.today ?? todayMx());
+  readonly pestanas = computed<SegOption[]>(() => {
+    const hoy = this.hoy();
+    const deHoy = this.porRevisar().filter((p) => diaMxDe(p.finished.at) === hoy).length;
+    const opciones: SegOption[] = [{ value: 'ayer', label: 'Ayer' }, { value: 'hoy', label: `Hoy · ${deHoy}` }];
+    const d = this.diaElegido();
+    if (this.pestana() === 'dia' && d) opciones.push({ value: 'dia', label: this.etiqueta(d) });
+    return opciones;
+  });
+  readonly enDia = computed(() => this.pestana() !== 'hoy');
+  /** Los pedidos del día que se ve, antes de elegir vendedor. Hoy = lo surtido hoy (pendiente o revisado). */
+  readonly delDia = computed<PresaleReviewInboxRow[]>(() => {
+    if (this.enDia()) return this.bandejaDia()?.data ?? [];
+    const hoy = this.hoy();
+    return (this.bandeja()?.data ?? []).filter((p) => diaMxDe(p.finished.at) === hoy);
+  });
+  /** Lo que quedó sin revisar de otros días, por día (el más reciente primero). */
+  readonly atrasados = computed(() => pendientesDeOtrosDias(this.porRevisar(), (p) => diaMxDe(p.finished.at), () => true, this.hoy()));
+  readonly totalAtrasados = computed(() => this.atrasados().reduce((s, a) => s + a.n, 0));
+  readonly opcionesVendedor = computed<SegOption[]>(() => {
+    const vs = vendedoresDe(this.delDia(), (p) => p.finished?.at);
+    return [{ value: '', label: `Todos · ${this.delDia().length}` }, ...vs.map((v) => ({ value: v.vendedor, label: `${v.vendedor} · ${v.n}` }))];
+  });
+  readonly vendedorEfectivo = computed(() => {
+    const v = this.vendedor();
+    return v && this.opcionesVendedor().some((o) => o.value === v) ? v : null;
+  });
+  readonly porRevisarVista = computed(() => deVendedor(this.delDia().filter((p) => p.state === 'por_revisar'), this.vendedorEfectivo()));
+  readonly revisadosVista = computed(() => deVendedor(this.delDia().filter((p) => p.state === 'revisado'), this.vendedorEfectivo()));
+  readonly cargandoVista = computed(() => (this.enDia() ? this.cargandoDia() : this.cargando() && !this.bandeja()));
+  readonly errorVista = computed(() => (this.enDia() ? this.errorDia() : this.error()));
+  readonly vistaLista = computed(() => (this.enDia() ? !!this.bandejaDia() : !!this.bandeja()));
+  readonly vacioTitulo = computed(() => {
+    if (!this.enDia()) return 'No hay pedidos surtidos hoy por revisar';
+    return this.pestana() === 'ayer' ? 'Ayer no se surtió nada que revisar' : `Nada surtido el ${this.etiqueta(this.diaElegido() ?? '')}`;
+  });
   /** `[MCP.14]` Por vendedor (el que el surtidor terminó primero arriba) y en orden de folio. */
-  readonly grupos = computed(() => agruparPorVendedor(this.porRevisar(), (p) => p.finished?.at));
+  readonly grupos = computed(() => agruparPorVendedor(this.porRevisarVista(), (p) => p.finished?.at));
   readonly metricas = computed<MetricStripItem[]>(() => {
     const pend = this.porRevisar();
     const conFalta = pend.filter((p) => p.pick_outcome === 'con_faltantes').length;
@@ -885,6 +973,50 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   }
 
   /** «Sin revisar · hace N días» si el surtidor lo terminó antes de hoy; si es de hoy, nada. */
+  /** `[MCP.24]` «Ayer» pide ese día al servidor; «Hoy» es la bandeja viva. */
+  elegirPestana(p: 'ayer' | 'hoy' | 'dia'): void {
+    if (p === 'ayer') { this.irADia(sumarDiasIso(this.hoy(), -1)); return; }
+    if (p === 'dia') return;
+    this.pestana.set('hoy');
+    this.diaElegido.set(null);
+  }
+  elegirFecha(d: Date | null): void {
+    if (!(d instanceof Date) || Number.isNaN(d.getTime())) return;
+    this.irADia(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  /** `[MCP.24]` Abre lo surtido un día, revisado o no. */
+  irADia(fecha: string): void {
+    if (fecha === this.hoy()) { this.elegirPestana('hoy'); return; }
+    this.pestana.set(fecha === sumarDiasIso(this.hoy(), -1) ? 'ayer' : 'dia');
+    this.diaElegido.set(fecha);
+    this.cargarDia(fecha);
+  }
+  recargarVista(): void {
+    const d = this.diaElegido();
+    if (this.enDia() && d) this.cargarDia(d);
+    else this.cargar();
+  }
+  private cargarDia(fecha: string): void {
+    this.bandejaDia.set(null);
+    this.errorDia.set(null);
+    this.cargandoDia.set(true);
+    this.api.inbox(fecha).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (b) => {
+        if (this.diaElegido() !== fecha) return;
+        this.bandejaDia.set(b);
+        this.cargandoDia.set(false);
+      },
+      error: (e) => {
+        if (this.diaElegido() !== fecha) return;
+        this.cargandoDia.set(false);
+        this.errorDia.set(mensaje(e, 'No se pudieron cargar los pedidos de ese día.'));
+      },
+    });
+  }
+  etiqueta(fecha: string): string {
+    return fecha ? etiquetaDia(fecha, this.hoy()) : '';
+  }
+
   atraso(p: PresaleReviewInboxRow): string | null {
     const hoy = this.bandeja()?.today;
     return hoy ? textoAtraso(diasSinRevisar(p.finished.at, hoy)) : null;

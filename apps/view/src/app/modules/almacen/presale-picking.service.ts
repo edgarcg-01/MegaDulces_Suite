@@ -23,8 +23,9 @@ export class PresalePickingService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/warehouse/presale-picking`;
 
-  inbox(): Observable<PresalePickInboxResponse> {
-    return this.http.get<PresalePickInboxResponse>(this.base);
+  /** `[MCP.24]` Sin `date`, la bandeja viva; con `date` (`YYYY-MM-DD`), ese día de entrega completo. */
+  inbox(date?: string): Observable<PresalePickInboxResponse> {
+    return this.http.get<PresalePickInboxResponse>(this.base, date ? { params: { date } } : {});
   }
 
   detail(orderId: string): Observable<PresalePickDetail> {

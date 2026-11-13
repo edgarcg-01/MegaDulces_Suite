@@ -17,6 +17,7 @@ import { MessageService } from 'primeng/api';
 import { VendorService, DayPickOption, DayPickState } from '../vendor.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { markRoutePickAsked } from '../route-pick.guard';
+import { filtrarPorBusqueda } from '@megadulces/ui-web';
 
 const DAY_SHORT = ['', 'L', 'M', 'Mi', 'J', 'V', 'S', 'D'];
 
@@ -208,14 +209,8 @@ export class VendorRoutePickComponent implements OnInit {
 
   private readonly filteredOpts = computed(() => {
     const opts = this.state()?.options ?? [];
-    const term = this.search().trim().toLowerCase();
-    if (!term) return opts;
-    return opts.filter(
-      (o) =>
-        o.route.toLowerCase().includes(term) ||
-        (o.zone ?? '').toLowerCase().includes(term) ||
-        o.vendors.some((v) => v.username.toLowerCase().includes(term)),
-    );
+    // [MCP.26] Cada palabra, en cualquier orden y sin acentos, en ruta, zona o vendedor (la misma regla de toda la suite).
+    return filtrarPorBusqueda(opts, this.search(), (o) => [o.route, o.zone, ...o.vendors.map((v) => v.username)]);
   });
   readonly todayOpts = computed(() => this.filteredOpts().filter((o) => o.scheduled_today));
   readonly otherOpts = computed(() => this.filteredOpts().filter((o) => !o.scheduled_today));
