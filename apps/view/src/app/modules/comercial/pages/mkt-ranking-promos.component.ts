@@ -2,18 +2,11 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
-import { Subject, debounceTime, distinctUntilChanged, firstValueFrom, switchMap, of, catchError } from 'rxjs';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { firstValueFrom, of, catchError } from 'rxjs';
 import { TableModule } from 'primeng/table';
-import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { DialogModule } from 'primeng/dialog';
-import { DatePickerModule } from 'primeng/datepicker';
-import { MultiSelectModule } from 'primeng/multiselect';
-import { CheckboxModule } from 'primeng/checkbox';
-import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
@@ -30,20 +23,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
-  CANALES, CANAL_CORTO, Canal, CodigoKepler, MktRankingService, Objetivo, PromoMkt, Sugerido,
+  CANAL_CORTO, Canal, MktRankingService, Objetivo, PromoMkt, Sugerido,
   ProductosDePromo, textoProductos,
 } from '../mkt-ranking.service';
 
 /** Las 8 sucursales que venden (la 00 es oficinas). */
 export const SUCURSALES_VENTA = ['01', '02', '03', '04', '05', '06', '07', '08'];
-
-/** Estado de una promo en la lista, en palabras. */
-export function estadoPromo(p: Pick<PromoMkt, 'activo' | 'vigencia_desde' | 'vigencia_hasta'>, hoy: string): 'activa' | 'programada' | 'vencida' | 'inactiva' {
-  if (!p.activo) return 'inactiva';
-  if (p.vigencia_hasta && p.vigencia_hasta < hoy) return 'vencida';
-  if (p.vigencia_desde > hoy) return 'programada';
-  return 'activa';
-}
 
 /** Un renglón editable de objetivos: lo guardado, lo sugerido y lo que se está escribiendo. */
 export interface FilaObjetivo {
@@ -93,40 +78,21 @@ export function cambios(canal: Canal, filas: FilaObjetivo[]): Objetivo[] {
     }));
 }
 
-/** El último día de una promo que se da de baja hoy: ayer. */
-export const bajaHasta = (hoy: string) => new Date(Date.parse(`${hoy}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
-
-const hoyMx = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
-const ymd = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null);
-const aFecha = (s: string | null) => (s ? new Date(`${s}T12:00:00`) : null);
-
-interface Formulario {
-  id: string | null;
-  code: string;
-  descripcion_kepler: string | null;
-  mecanica: string;
-  desde: Date | null;
-  hasta: Date | null;
-  canales: Canal[];
-  sucursales: string[];
-  notas: string;
-}
-
 /**
  * `[MKT.11]` **Objetivos** — qué promociones mide el ranking y contra qué objetivo.
  *
- * Propósito: dar de alta una promoción (Kepler no guarda su vigencia y reutiliza códigos) y fijar
- * su objetivo semanal por sucursal o vendedor. `[MKT.17]` Sin objetivo fijo, el ranking usa el
+ * Propósito: fijar el objetivo semanal por sucursal o vendedor de las promociones de Kepler.
+ * `[MKT.22]` Nadie las da de alta: salen de Kepler (las que vendieron en 5 semanas), como en la app
+ * de vendedor. `[MKT.17]` Sin objetivo fijo, el ranking usa el
  * DINÁMICO (promedio de las 4 semanas anteriores, recalculado cada semana); fijarlo es opcional.
  *
- * Jerarquía: primario = qué promos están vigentes y cuántas NO tienen objetivo; secundario =
- * vigencia y canales; terciario = código y quién capturó.
+ * Jerarquía: primario = qué promos hay y cuáles tienen objetivo fijo; secundario = dónde
+ * vendieron; terciario = el código.
  */
 @Component({
   selector: 'app-mkt-ranking-promos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, InputTextModule, InputNumberModule, DialogModule,
-    DatePickerModule, MultiSelectModule, CheckboxModule, TextareaModule, ToastModule, ConfirmDialogModule,
+  imports: [CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, InputNumberModule, ToastModule, ConfirmDialogModule,
     PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -137,22 +103,16 @@ interface Formulario {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Objetivos del ranking <app-context-help topic="mkt-ranking" /></h1>
-          <p class="surf-page-sub">Qué promociones se miden y contra qué objetivo semanal.</p>
+          <p class="surf-page-sub">Las promociones salen de Kepler, como en la app de vendedor. Aquí sólo fijas su objetivo semanal.</p>
         </div>
         <div class="rp-cabeza-der">
         <app-freshness-pill measures="fetch" [since]="cargadoEn()" [staleAfterSec]="900"></app-freshness-pill>
-        @if (puedeGestionar) {
-          <div class="rp-acciones">
-            <button pButton type="button" class="p-button-sm" (click)="nueva()" [disabled]="trabajando()">
-              <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Dar de alta</span></button>
-          </div>
-        }
         </div>
       </header>
       <app-page-tabs [tabs]="tabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
 
       <div class="rp-filtros">
-        <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="vista.set($any($event))" ariaLabel="Qué promociones ver"></app-segmented>
+        <span class="rp-tenue rp-inline">Promociones de Kepler («= GRATIS») que vendieron en las últimas 5 semanas.</span>
         <input pInputText type="search" class="rp-buscar" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
                placeholder="Código o promoción" aria-label="Buscar promoción" />
       </div>
@@ -163,19 +123,17 @@ interface Formulario {
 
       <app-load-state [loading]="res.isLoading() && !promos()" [error]="res.error() ? 'No se pudieron cargar las promociones.' : null"
                       [isEmpty]="!!promos() && !filas().length" emptyIcon="pi-megaphone"
-                      [emptyTitle]="(promos()?.length ?? 0) ? 'Nada coincide' : 'Todavía no hay promociones dadas de alta'"
-                      [emptyHint]="(promos()?.length ?? 0) ? 'Prueba otra búsqueda o mira todas.' : 'Da de alta las promociones de la semana: eliges el código de Kepler, su vigencia y en qué canales cuenta.'"
-                      [emptyCta]="puedeGestionar && !(promos()?.length ?? 0) ? 'Dar de alta' : null" (cta)="nueva()" (retry)="res.reload()">
+                      [emptyTitle]="(promos()?.length ?? 0) ? 'Nada coincide' : 'Ninguna promoción de Kepler vendió en las últimas 5 semanas'"
+                      [emptyHint]="(promos()?.length ?? 0) ? 'Prueba otra búsqueda.' : 'Las promociones aparecen solas cuando Kepler registra su venta.'"
+                      (retry)="res.reload()">
         <p-table [value]="filas()" dataKey="id" selectionMode="single" size="small" [rowHover]="true"
                  class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrir($any($event).data)">
           <ng-template #header>
             <tr>
               <th>Promoción</th>
-              <th>Vigencia</th>
-              <th>Canales</th>
+              <th>Vendió en</th>
               <th>Sucursales</th>
               <th class="comm-num">Objetivos fijos</th>
-              <th>Estado</th>
             </tr>
           </ng-template>
           <ng-template #body let-p>
@@ -187,13 +145,11 @@ interface Formulario {
                   <span class="rp-producto" [title]="pr.nota">{{ textoProductos(pr.metodo, nombresProducto(pr)) }}</span>
                 }
               </td>
-              <td class="rp-nowrap" data-label="Vigencia">{{ fecha(p.vigencia_desde) }} → {{ p.vigencia_hasta ? fecha(p.vigencia_hasta) : 'hasta agotar' }}</td>
-              <td data-label="Canales">{{ canalesTexto(p.canales) }}</td>
-              <td data-label="Sucursales">{{ p.warehouse_codes ? p.warehouse_codes.length + ' de 8' : 'Todas' }}</td>
+              <td data-label="Vendió en">{{ canalesTexto(p.canales) }}</td>
+              <td data-label="Sucursales">{{ sucursalesTexto(p) }}</td>
               <td class="comm-num" data-label="Objetivos">
                 @if (p.objetivos) { {{ p.objetivos }} } @else { <span class="rp-tenue rp-inline">dinámico</span> }
               </td>
-              <td data-label="Estado"><p-tag [value]="estadoTexto(p)" [severity]="estadoSev(p)"></p-tag></td>
             </tr>
           </ng-template>
         </p-table>
@@ -201,7 +157,7 @@ interface Formulario {
 
       <!-- Objetivos de una promoción -->
       <app-side-peek [open]="!!abierta()" (openChange)="$event ? null : cerrarPeek()" [width]="720"
-                     [title]="abierta()?.mecanica ?? ''" [subtitle]="abierta() ? abierta()!.code + ' · ' + (abierta()!.vigencia_hasta ? 'hasta ' + fecha(abierta()!.vigencia_hasta!) : 'hasta agotar') : null">
+                     [title]="abierta()?.mecanica ?? ''" [subtitle]="abierta() ? abierta()!.code + ' · vendió en ' + canalesTexto(abierta()!.canales) : null">
         @if (abierta(); as p) {
           @if (p.canales.length > 1) {
             <app-segmented [options]="canalesPeek()" [value]="canalPeek()" (valueChange)="elegirCanalPeek($any($event))" ariaLabel="Canal"></app-segmented>
@@ -243,11 +199,7 @@ interface Formulario {
           </app-load-state>
           @if (puedeGestionar) {
             <div class="rp-peek-acciones">
-              <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="darDeBaja(p)" [disabled]="trabajando()">
-                <span class="p-button-label">Dar de baja</span></button>
               <span class="rp-espacio"></span>
-              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="editar(p)" [disabled]="trabajando()">
-                <span class="p-button-label">Editar promoción</span></button>
               <button pButton type="button" class="p-button-sm" (click)="guardarObjetivos(p)" [disabled]="trabajando() || !sucio()" [loading]="trabajando()">
                 <span class="p-button-label">Guardar objetivos</span></button>
             </div>
@@ -255,68 +207,6 @@ interface Formulario {
         }
       </app-side-peek>
 
-      <!-- Alta / edición -->
-      <p-dialog [visible]="!!form()" (visibleChange)="$event ? null : form.set(null)" [modal]="true" [style]="{ width: 'min(44rem, 96vw)' }"
-                [header]="form()?.id ? 'Editar promoción' : 'Dar de alta una promoción'" [draggable]="false">
-        @if (form(); as f) {
-          <div class="rp-form">
-            @if (!f.id) {
-              <label class="rp-campo" for="rp-buscar-codigo">Código de la promoción en Kepler</label>
-              <input id="rp-buscar-codigo" pInputText type="search" [ngModel]="buscarCodigo()" (ngModelChange)="buscarCodigo.set($event); buscar$.next($event)"
-                     placeholder="Código o parte del nombre («leche», «09066»)" autocomplete="off" />
-              @if (!f.code) {
-                <ul class="rp-codigos" role="listbox" aria-label="Códigos de promoción de Kepler">
-                  @for (c of codigos(); track c.code) {
-                    <li>
-                      <button type="button" class="rp-codigo" role="option" [attr.aria-selected]="false" (click)="elegirCodigo(c)">
-                        <span class="rp-nombre">{{ c.code }} · {{ c.descripcion }}</span>
-                        <span class="rp-tenue">
-                          {{ c.ultima_venta ? 'Última venta ' + fecha(c.ultima_venta) : 'Sin venta en 60 días' }} · en {{ c.sucursales.length }} sucursales
-                          @if (c.ya_registrada) { · ya está dada de alta }
-                        </span>
-                      </button>
-                    </li>
-                  } @empty {
-                    <li class="rp-tenue">{{ buscarCodigo() ? 'Ningún código de promoción coincide.' : 'Escribe para buscar.' }}</li>
-                  }
-                </ul>
-              } @else {
-                <p class="rp-elegido"><strong>{{ f.code }}</strong> · {{ f.descripcion_kepler }}
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="cambiarCodigo()"><span class="p-button-label">Cambiar</span></button></p>
-              }
-            }
-            @if (f.code) {
-              <label class="rp-campo" for="rp-mecanica">Cómo se llama en el ranking</label>
-              <textarea id="rp-mecanica" pTextarea rows="2" [(ngModel)]="f.mecanica" maxlength="500"></textarea>
-              <div class="rp-dos">
-                <div>
-                  <label class="rp-campo" for="rp-desde">Empieza</label>
-                  <p-datepicker inputId="rp-desde" [(ngModel)]="f.desde" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"></p-datepicker>
-                </div>
-                <div>
-                  <label class="rp-campo" for="rp-hasta">Termina <span class="rp-tenue-i">(vacío = hasta agotar)</span></label>
-                  <p-datepicker inputId="rp-hasta" [(ngModel)]="f.hasta" dateFormat="dd/mm/yy" [showIcon]="true" [showClear]="true" [minDate]="f.desde" appendTo="body"></p-datepicker>
-                </div>
-              </div>
-              <span class="rp-campo" id="rp-canales-l">En qué canales cuenta</span>
-              <div class="rp-canales" role="group" aria-labelledby="rp-canales-l">
-                @for (c of todosCanales; track c) {
-                  <label class="rp-check"><p-checkbox [inputId]="'rp-c-' + c" [value]="c" [(ngModel)]="f.canales"></p-checkbox><span>{{ canalCorto(c) }}</span></label>
-                }
-              </div>
-              <label class="rp-campo" for="rp-sucs">Sucursales <span class="rp-tenue-i">(vacío = todas)</span></label>
-              <p-multiselect inputId="rp-sucs" [options]="opcionesSucursal" optionLabel="label" optionValue="value" [(ngModel)]="f.sucursales"
-                             placeholder="Todas las sucursales" display="chip" appendTo="body" [showToggleAll]="true"></p-multiselect>
-              @if (errorForm()) { <p class="rp-error" role="alert">{{ errorForm() }}</p> }
-            }
-          </div>
-        }
-        <ng-template #footer>
-          <button pButton type="button" class="p-button-text" (click)="form.set(null)"><span class="p-button-label">Cancelar</span></button>
-          <button pButton type="button" (click)="guardarPromo()" [disabled]="trabajando() || !form()?.code" [loading]="trabajando()">
-            <span class="p-button-label">{{ form()?.id ? 'Guardar cambios' : 'Dar de alta' }}</span></button>
-        </ng-template>
-      </p-dialog>
     </div>
   `,
   styles: [`
@@ -359,19 +249,12 @@ export class MktRankingPromosComponent {
   private readonly perms = inject(PermissionsService);
   readonly tabs = PROMOS_TABS;
   readonly puedeGestionar = this.perms.has(Permission.MKT_AGREEMENTS_GESTIONAR);
-  readonly todosCanales = CANALES;
-  readonly opcionesSucursal = SUCURSALES_VENTA.map((c) => ({ label: warehouseName(c), value: c }));
   readonly suc = warehouseName;
 
-  readonly vista = signal<'vigentes' | 'todas'>('vigentes');
   readonly busqueda = signal('');
   readonly trabajando = signal(false);
-  private readonly hoy = hoyMx();
 
-  readonly res = rxResource({
-    params: () => this.vista(),
-    stream: ({ params }) => this.api.promos(params === 'todas'),
-  });
+  readonly res = rxResource({ stream: () => this.api.promos(false) });
   readonly promos = computed<PromoMkt[] | undefined>(() => (this.res.hasValue() ? this.res.value() : undefined));
   /** Cuándo se trajo la lista (los objetivos sugeridos y los capturados cambian con el uso). */
   readonly cargadoEn = computed(() => (this.promos() ? new Date() : null));
@@ -379,14 +262,13 @@ export class MktRankingPromosComponent {
     const q = this.busqueda();
     return (this.promos() ?? []).filter((p) => coincideBusqueda(q, p.code, p.mecanica, p.descripcion_kepler, ...(p.productos?.productos ?? []).flatMap((x) => [x.sku, x.nombre ?? ''])));
   });
-  readonly vistas = computed<SegOption[]>(() => [{ label: 'Vigentes', value: 'vigentes' }, { label: 'Todas', value: 'todas' }]);
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const ps = (this.promos() ?? []).filter((p) => estadoPromo(p, this.hoy) === 'activa');
-    const sin = ps.filter((p) => !p.objetivos).length;
+    const ps = this.promos() ?? [];
+    const fijo = ps.filter((p) => p.objetivos).length;
     return [
-      { label: 'Promociones activas', value: ps.length, format: 'number' },
-      { label: 'Con objetivo dinámico', value: sin, format: 'number', sub: 'sin objetivo fijo: se recalcula cada semana' },
-      { label: 'Sin fecha de fin', value: ps.filter((p) => !p.vigencia_hasta).length, format: 'number', sub: 'hasta agotar' },
+      { label: 'Promociones de Kepler', value: ps.length, format: 'number', sub: 'vendieron en 5 semanas' },
+      { label: 'Con objetivo fijo', value: fijo, format: 'number' },
+      { label: 'Con objetivo dinámico', value: ps.length - fijo, format: 'number', sub: 'se recalcula cada semana' },
     ];
   });
 
@@ -401,32 +283,17 @@ export class MktRankingPromosComponent {
   readonly sucio = signal(false);
   readonly canalesPeek = computed<SegOption[]>(() => (this.abierta()?.canales ?? []).map((c) => ({ label: CANAL_CORTO[c], value: c })));
 
-  // ── alta ──
-  readonly form = signal<Formulario | null>(null);
-  readonly errorForm = signal<string | null>(null);
-  readonly buscarCodigo = signal('');
-  readonly buscar$ = new Subject<string>();
-  readonly codigos = toSignal(
-    this.buscar$.pipe(debounceTime(250), distinctUntilChanged(), switchMap((q) => this.api.codigosKepler(q).pipe(catchError(() => of([] as CodigoKepler[]))))),
-    { initialValue: [] as CodigoKepler[] },
-  );
-
   readonly textoProductos = textoProductos;
   /** [MKT.15] El producto que activa la promo, por nombre (derivado de sus tickets). */
   nombresProducto(pr: ProductosDePromo): string[] {
     return pr.productos.map((x) => x.nombre ?? x.sku);
   }
 
-  fecha(s: string): string {
-    return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' }).format(new Date(`${s}T00:00:00Z`)).replace('.', '');
-  }
-  canalCorto(c: Canal): string { return CANAL_CORTO[c]; }
   canalesTexto(cs: Canal[]): string { return cs.length === 4 ? 'Todos' : cs.map((c) => CANAL_CORTO[c]).join(', '); }
-  estadoTexto(p: PromoMkt): string {
-    return { activa: 'Activa', programada: 'Programada', vencida: 'Vencida', inactiva: 'Dada de baja' }[estadoPromo(p, this.hoy)];
-  }
-  estadoSev(p: PromoMkt): 'success' | 'info' | 'secondary' | 'warn' {
-    return ({ activa: 'success', programada: 'info', vencida: 'secondary', inactiva: 'secondary' } as const)[estadoPromo(p, this.hoy)];
+  /** Dónde vendió (la semana o las 4 previas). */
+  sucursalesTexto(p: PromoMkt): string {
+    const w = p.warehouse_codes ?? [];
+    return w.length >= SUCURSALES_VENTA.length ? 'Todas' : w.length <= 2 ? w.map((c) => warehouseName(c)).join(', ') : `${w.length} de 8`;
   }
 
   abrir(p: PromoMkt): void {
@@ -495,95 +362,6 @@ export class MktRankingPromosComponent {
       message: 'Si sigues, se pierden los cambios que escribiste.',
       acceptLabel: 'Descartar cambios', rejectLabel: 'Seguir editando',
       acceptButtonStyleClass: 'p-button-danger', accept: seguir,
-    });
-  }
-
-  nueva(): void {
-    this.errorForm.set(null);
-    this.buscarCodigo.set('');
-    this.buscar$.next('');
-    this.form.set({ id: null, code: '', descripcion_kepler: null, mecanica: '', desde: aFecha(this.hoy), hasta: null, canales: ['mostrador'], sucursales: [], notas: '' });
-  }
-
-  editar(p: PromoMkt): void {
-    this.errorForm.set(null);
-    this.form.set({
-      id: p.id, code: p.code, descripcion_kepler: p.descripcion_kepler, mecanica: p.mecanica,
-      desde: aFecha(p.vigencia_desde), hasta: aFecha(p.vigencia_hasta), canales: [...p.canales], sucursales: p.warehouse_codes ?? [], notas: p.notas ?? '',
-    });
-  }
-
-  elegirCodigo(c: CodigoKepler): void {
-    const f = this.form();
-    if (!f) return;
-    if (c.ya_registrada) {
-      this.toast.add({ severity: 'warn', summary: 'Ya está dada de alta', detail: 'Ese código ya tiene una promoción vigente. Si Kepler lo reutilizó para otra, da de baja la anterior primero.' });
-    }
-    this.form.set({ ...f, code: c.code, descripcion_kepler: c.descripcion, mecanica: c.descripcion });
-  }
-
-  cambiarCodigo(): void {
-    const f = this.form();
-    if (f) this.form.set({ ...f, code: '', descripcion_kepler: null });
-  }
-
-  async guardarPromo(): Promise<void> {
-    const f = this.form();
-    if (!f || this.trabajando()) return;
-    if (!f.mecanica.trim()) { this.errorForm.set('Escribe cómo se llama la promoción.'); return; }
-    if (!f.desde) { this.errorForm.set('Elige cuándo empieza.'); return; }
-    if (!f.canales.length) { this.errorForm.set('Elige al menos un canal.'); return; }
-    if (f.hasta && f.hasta < f.desde) { this.errorForm.set('La fecha de fin es anterior a la de inicio.'); return; }
-    this.trabajando.set(true);
-    this.errorForm.set(null);
-    const dto = {
-      mecanica: f.mecanica.trim(), vigencia_desde: ymd(f.desde)!, vigencia_hasta: ymd(f.hasta),
-      canales: f.canales, warehouse_codes: f.sucursales.length && f.sucursales.length < SUCURSALES_VENTA.length ? f.sucursales : null,
-    };
-    try {
-      const p = f.id
-        ? await firstValueFrom(this.api.editarPromo(f.id, dto))
-        : await firstValueFrom(this.api.crearPromo({ ...dto, code: f.code, descripcion_kepler: f.descripcion_kepler }));
-      this.form.set(null);
-      this.toast.add({ severity: 'success', summary: f.id ? 'Promoción actualizada' : 'Promoción dada de alta', detail: f.id ? undefined : 'Ahora fija sus objetivos.' });
-      this.res.reload();
-      this.abrir(p);
-    } catch (e: unknown) {
-      this.errorForm.set(this.mensaje(e));
-    } finally {
-      this.trabajando.set(false);
-    }
-  }
-
-  /**
-   * Dar de baja = TERMINAR la promo ayer: deja de contar desde hoy y las semanas pasadas se siguen
-   * midiendo igual. Borrarla la quitaría también del pasado; eso sólo se hace con una promo que
-   * todavía no empezaba (no hay pasado que conservar).
-   */
-  darDeBaja(p: PromoMkt): void {
-    const ayer = bajaHasta(this.hoy);
-    const borrar = p.vigencia_desde > ayer;
-    this.confirm.confirm({
-      header: 'Dar de baja la promoción',
-      message: borrar
-        ? `«${p.mecanica}» empieza hoy o después: no tiene semanas pasadas y se quita del ranking.`
-        : `«${p.mecanica}» termina ayer y deja de contar desde hoy. Las semanas pasadas no cambian.`,
-      acceptLabel: 'Dar de baja', rejectLabel: 'Cancelar', acceptButtonStyleClass: 'p-button-danger',
-      accept: async () => {
-        this.trabajando.set(true);
-        try {
-          if (borrar) await firstValueFrom(this.api.borrarPromo(p.id));
-          else await firstValueFrom(this.api.editarPromo(p.id, { vigencia_hasta: ayer }));
-          this.abierta.set(null);
-          this.sucio.set(false);
-          this.toast.add({ severity: 'success', summary: 'Promoción dada de baja' });
-          this.res.reload();
-        } catch (e: unknown) {
-          this.toast.add({ severity: 'error', summary: 'No se pudo dar de baja', detail: this.mensaje(e) });
-        } finally {
-          this.trabajando.set(false);
-        }
-      },
     });
   }
 

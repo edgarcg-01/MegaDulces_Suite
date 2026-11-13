@@ -46,7 +46,8 @@ import { pdfRanking } from '../mkt-ranking-pdf';
  *
  * Desglose: la fila abre el detalle por promoción (objetivo, venta, cubrimiento, regalos en
  * existencia y el aviso de un código que Kepler reutilizó). «Sin objetivo» lleva a capturarlos.
- * Dar de alta y fijar objetivos vive en «Objetivos» (otra pregunta: qué se mide y contra qué).
+ * `[MKT.22]` Las promociones salen de Kepler (las que vendieron esa semana, como en la app de vendedor):
+ * nadie las da de alta. Fijar objetivos vive en «Objetivos» (otra pregunta: contra qué se mide).
  */
 @Component({
   selector: 'app-mkt-ranking',
@@ -182,8 +183,8 @@ import { pdfRanking } from '../mkt-ranking-pdf';
       </app-load-state>
       } @else if (vista() === 'promociones') {
       <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasPromo().length"
-                      emptyIcon="pi-search" [emptyTitle]="datos()?.promos_vigentes ? 'Ninguna promoción coincide con los filtros' : 'Sin promociones dadas de alta para esta semana'"
-                      [emptyHint]="datos()?.promos_vigentes ? 'Cambia o quita los filtros.' : null" (retry)="res.reload()">
+                      emptyIcon="pi-search" [emptyTitle]="datos()?.promos_vigentes ? 'Ninguna promoción coincide con los filtros' : vacioTitulo()"
+                      [emptyHint]="datos()?.promos_vigentes ? 'Cambia o quita los filtros.' : vacioPista()" (retry)="res.reload()">
         <p-table [value]="filasPromo()" dataKey="promo_id" selectionMode="single" size="small" [rowHover]="true"
                  class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrirPromo($any($event).data)">
           <ng-template #header>
@@ -222,8 +223,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
       <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filas().length"
                       [emptyIcon]="datos()?.promos_vigentes ? 'pi-search' : 'pi-megaphone'"
                       [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()"
-                      [emptyCta]="!datos()?.promos_vigentes && puedeGestionar ? 'Dar de alta una promoción' : null"
-                      (cta)="irAObjetivos()" (retry)="res.reload()">
+                      (retry)="res.reload()">
         <p-table [value]="filas()" dataKey="clave" selectionMode="single" size="small" [rowHover]="true"
                  class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrir($any($event).data)">
           <ng-template #header>
@@ -679,10 +679,10 @@ export class MktRankingComponent {
     return items;
   }
 
-  readonly vacioTitulo = computed(() => (this.datos()?.promos_vigentes ? 'Nadie coincide con la búsqueda' : 'Sin promociones dadas de alta para esta semana'));
+  readonly vacioTitulo = computed(() => (this.datos()?.promos_vigentes ? 'Nadie coincide con la búsqueda' : 'Ninguna promoción se ha vendido esta semana en este canal'));
   readonly vacioPista = computed(() => (this.datos()?.promos_vigentes
     ? 'Prueba con otro nombre o limpia la búsqueda.'
-    : 'El ranking mide sólo las promociones que Mercadotecnia da de alta, con su vigencia. Kepler no guarda la vigencia y reutiliza los códigos.'));
+    : 'El ranking toma de Kepler las promociones («= GRATIS») que se vendieron en la semana. Cambia de canal o mira la semana anterior.'));
 
   readonly subtitulo = computed(() => {
     const p = this.abierto();

@@ -18,9 +18,10 @@ import {
   renglonDe,
   rungDeUnidad,
 } from '../cotizacion';
+import { normalizarBusqueda, tokensDeBusqueda } from '@megadulces/ui-web';
+import { DictarBusquedaComponent } from '../components/dictar-busqueda.component';
 
 const pesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
-const fold = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 /** Sin buscar se muestran los más vendidos; buscando, hasta 60 resultados. */
 const TOPE = 60;
 
@@ -36,7 +37,7 @@ const TOPE = 60;
 @Component({
   selector: 'app-vendor-quote',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, DictarBusquedaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cq">
@@ -59,10 +60,13 @@ const TOPE = 60;
         <p class="cq-note">No es un pedido: no aparta mercancía ni llega al surtidor. Los precios los calcula el sistema con Kepler.</p>
         <div class="cq-search">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input type="search" placeholder="Buscar producto o código" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
+          <input type="search" [placeholder]="voz.escuchando() ? 'Escuchando… di el producto' : 'Buscar producto o código'" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Buscar producto" />
+          <!-- [MCP.26] Buscar dictando. -->
+          <app-dictar-busqueda #voz (texto)="busqueda.set($event)" />
         </div>
-        <div class="cq-lh"><b>{{ busqueda().trim() ? visibles().length + ' resultado' + (visibles().length === 1 ? '' : 's') : 'Catálogo · más vendidos' }}</b><span>toca + para cotizar</span></div>
+        @if (voz.error(); as ve) { <p class="cq-err" role="alert">{{ ve }}</p> }
+        <div class="cq-lh"><b>{{ busqueda().trim() ? visibles().length + (topada() ? '+' : '') + ' resultado' + (visibles().length === 1 ? '' : 's') : 'Catálogo · más vendidos' }}</b><span>toca + para cotizar</span></div>
         <div class="cq-lista">
           @for (p of visibles(); track p.product_id) {
             <div class="cq-prod" [class.in]="cantidadDe(p) > 0">
@@ -225,16 +229,35 @@ export class VendorQuoteComponent implements OnInit {
   private desde: string | null = null;
 
   readonly propios = computed<RenglonCotizado[]>(() => (this.cot()?.lines ?? []).filter((l) => l.parent_line_number == null));
+  /**
+   * `[MCP.26]` Lo cotizable, con su texto de búsqueda ya normalizado (una vez por catálogo, no por
+   * tecla). Antes se buscaba la frase entera pegada: «coca 600» no encontraba «COCA COLA 600 ML».
+   */
+  private readonly indice = computed(() =>
+    this.prices()
+      .filter((p) => p.price != null && Number(p.price) > 0)
+      .map((p) => ({ p, hay: normalizarBusqueda(`${p.product_name} ${p.sku ?? ''}`) })),
+  );
   readonly visibles = computed<PriceRow[]>(() => {
-    const q = fold(this.busqueda().trim());
-    const con = this.prices().filter((p) => p.price != null && Number(p.price) > 0);
-    if (!q) {
+    const tokens = tokensDeBusqueda(this.busqueda());
+    const con = this.indice();
+    if (!tokens.length) {
       // Lo ya cotizado primero, para que se vea y se corrija sin buscarlo.
       const en = new Set(this.propios().map((l) => l.product_id));
-      return [...con.filter((p) => en.has(p.product_id)), ...con.filter((p) => !en.has(p.product_id))].slice(0, TOPE);
+      return [...con.filter((x) => en.has(x.p.product_id)), ...con.filter((x) => !en.has(x.p.product_id))].slice(0, TOPE).map((x) => x.p);
     }
-    return con.filter((p) => fold(`${p.product_name} ${p.sku ?? ''}`).includes(q)).slice(0, TOPE);
+    // Cada palabra, en cualquier orden y en nombre o SKU (la misma regla de toda la suite).
+    const out: PriceRow[] = [];
+    for (const x of con) {
+      if (tokens.every((t) => x.hay.includes(t))) {
+        out.push(x.p);
+        if (out.length >= TOPE) break;
+      }
+    }
+    return out;
   });
+  /** `[MCP.26]` ¿La búsqueda llegó al tope? Entonces hay más de los que se ven y se dice («60+»). */
+  readonly topada = computed(() => tokensDeBusqueda(this.busqueda()).length > 0 && this.visibles().length >= TOPE);
   readonly linkWa = computed(() => {
     const c = this.cot();
     if (!c) return '#';

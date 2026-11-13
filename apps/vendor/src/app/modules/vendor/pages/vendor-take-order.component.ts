@@ -49,6 +49,7 @@ import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { esSinSenal, TEXTO_SIN_SENAL } from '../../../core/http/sin-senal';
 import { LectorCodigoComponent } from '../components/lector-codigo.component';
+import { DictarBusquedaComponent } from '../components/dictar-busqueda.component';
 import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
 import { MOTIVOS_CANCELAR, type MotivoElegido } from '@megadulces/contracts';
 import { ChecadorPreciosService } from '../checador-precios.service';
@@ -68,11 +69,10 @@ import {
   // `[COT.1b]` Se mudó a `libs/ui-web` (con su spec) para que la pantalla de cotizaciones
   // pueda usar la MISMA aritmética: una app Nx no importa de otra app. Acá no cambia nada
   // de comportamiento — es la misma función, en una casa donde dos apps la alcanzan.
+  // `[MCP.26]` La búsqueda tokenizada de la librería (la misma de toda la suite), no una copia local.
+  normalizarBusqueda,
+  tokensDeBusqueda,
 } from '@megadulces/ui-web';
-
-/** Normaliza para búsqueda tipo Google: minúsculas + sin acentos/diacríticos. */
-const foldText = (s: string | null | undefined): string =>
-  (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 /**
  * Tomar pedido (rediseño Mercado mobile-first). Catálogo con "+" 44px, carrito con
@@ -100,6 +100,7 @@ const foldText = (s: string | null | undefined): string =>
     InputTextModule,
     ConfirmDialogModule,
     LectorCodigoComponent,
+    DictarBusquedaComponent,
     VendorMotivoSheetComponent,
   ],
   // [MCP.3.5] SIN MessageService propio: esta pantalla no tiene <p-toast>, así que una
@@ -246,14 +247,20 @@ const foldText = (s: string | null | undefined): string =>
         <!-- Search. [VTK.6] Fijo arriba al desplazarse. -->
         <div class="search sticky">
           <i class="pi pi-search"></i>
-          <input pInputText type="search" placeholder="Buscar producto o código"
+          <input pInputText type="search" [placeholder]="voz.escuchando() ? 'Escuchando… di el producto' : 'Buscar producto o código'"
+            aria-label="Buscar producto o código"
             [ngModel]="searchTerm()" (ngModelChange)="alBuscar($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
+          <!-- [MCP.26] Buscar dictando: lo dicho se convierte («bombón rosa 1 k») y queda escrito en el campo. -->
+          <app-dictar-busqueda #voz (texto)="alBuscar($event)" />
           <!-- [VTK.18] Leer el código de barras con la cámara: lo leído busca ese producto. -->
           <app-lector-codigo etiqueta="Buscar leyendo el código de barras con la cámara"
             (leido)="alEscanear($event)" (sinCamara)="avisoEscaneo.set({ texto: $event, warn: true })" />
           </div>
+          @if (voz.error(); as ve) {
+            <p class="cat-age warn" role="alert"><i class="pi pi-microphone" aria-hidden="true"></i> {{ ve }}</p>
+          }
           @if (avisoEscaneo(); as ae) {
             <p class="cat-age" [class.warn]="ae.warn" role="status"><i class="pi pi-camera" aria-hidden="true"></i> {{ ae.texto }}</p>
           }
@@ -545,22 +552,44 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
               <div class="sh-foot">
-                <!-- [MCP.3.15] Indicaciones para el surtidor: una sola por pedido; se pueden dictar. -->
+                <!-- [MCP.3.15] Indicaciones para el surtidor: una sola por pedido; se pueden dictar.
+                     [MCP.22] Plegadas en un renglón: la hoja es para ver los productos. Con texto, el
+                     renglón lo muestra, así que se siguen viendo antes de agendar. -->
                 <div class="ind">
-                  <label class="ind-l" for="to-ind">Indicaciones para el surtidor<span>Opcional · una para todo el pedido; nombra el producto</span></label>
-                  <textarea id="to-ind" class="ind-t" rows="3" maxlength="500" [ngModel]="indicaciones()" (ngModelChange)="indicaciones.set($event)"
-                            placeholder="Ej. las Sabritas con caducidad larga, que no vengan golpeadas…"></textarea>
-                  <div class="ind-row">
-                    @if (dictadoDisponible) {
-                      <button type="button" class="ind-mic" [class.on]="escuchando()" [attr.aria-pressed]="escuchando()" (click)="alternarDictado()">
-                        <i class="pi" [ngClass]="escuchando() ? 'pi-stop-circle' : 'pi-microphone'" aria-hidden="true"></i>
-                        {{ escuchando() ? 'Escuchando… toca para parar' : 'Dictar' }}
+                  @if (indAbiertas()) {
+                    <label class="ind-l" for="to-ind">Indicaciones para el surtidor<span>Opcional · una para todo el pedido; nombra el producto</span></label>
+                    <textarea id="to-ind" class="ind-t" rows="2" maxlength="500" [ngModel]="indicaciones()" (ngModelChange)="indicaciones.set($event)"
+                              placeholder="Ej. las Sabritas con caducidad larga, que no vengan golpeadas…"></textarea>
+                    <div class="ind-row">
+                      @if (dictadoDisponible) {
+                        <button type="button" class="ind-mic" [class.on]="escuchando()" [attr.aria-pressed]="escuchando()" (click)="alternarDictado()">
+                          <i class="pi" [ngClass]="escuchando() ? 'pi-stop-circle' : 'pi-microphone'" aria-hidden="true"></i>
+                          {{ escuchando() ? 'Escuchando… toca para parar' : 'Dictar' }}
+                        </button>
+                      } @else {
+                        <span class="ind-n">Este navegador no puede dictar: escríbelas.</span>
+                      }
+                      <span class="ind-n">{{ indicaciones().length }}/500</span>
+                      <button type="button" class="ind-listo" (click)="indAbiertas.set(false)" aria-controls="to-ind">Listo</button>
+                    </div>
+                  } @else {
+                    <div class="ind-fila">
+                      <button type="button" class="ind-abrir" [class.con]="!!indicaciones().trim()" [attr.aria-expanded]="false" (click)="indAbiertas.set(true)">
+                        <i class="pi pi-pencil" aria-hidden="true"></i>
+                        @if (indicaciones().trim(); as txt) {
+                          <span class="ind-res"><span class="ind-oculto">Indicaciones para el surtidor: </span>{{ txt }}</span>
+                        } @else {
+                          <span class="ind-res">Indicaciones para el surtidor <small>opcional</small></span>
+                        }
                       </button>
-                    } @else {
-                      <span class="ind-n">Este navegador no puede dictar: escríbelas.</span>
-                    }
-                    <span class="ind-n">{{ indicaciones().length }}/500</span>
-                  </div>
+                      @if (dictadoDisponible) {
+                        <button type="button" class="ind-mic" [class.on]="escuchando()" [attr.aria-pressed]="escuchando()" (click)="dictarDesdeFila()">
+                          <i class="pi" [ngClass]="escuchando() ? 'pi-stop-circle' : 'pi-microphone'" aria-hidden="true"></i>
+                          {{ escuchando() ? 'Parar' : 'Dictar' }}
+                        </button>
+                      }
+                    </div>
+                  }
                   @if (dictadoError(); as de) { <p class="ind-err" role="alert">{{ de }}</p> }
                   @if (avisoSabores()) {
                     <p class="ind-warn" role="note"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -574,15 +603,30 @@ const foldText = (s: string | null | undefined): string =>
                     · un pedido; cada sucursal cobra lo suyo
                   </p>
                 }
+                <!-- [MCP.22] El desglose se pliega: el total queda en un renglón. Un margen negativo no se
+                     esconde: se ve junto al total aunque el desglose esté cerrado. -->
                 <div class="totals">
-                  <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
-                  <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
-                  @if (cartMarginPct() !== null) {
-                    <div class="row mg-row"><span>Margen aprox.</span><b [class.neg]="cartMarginPct()! < 0">{{ cartMarginPct() }}%</b></div>
+                  @if (desglose()) {
+                    <div id="to-desglose" class="t-desglose">
+                      <div class="row"><span>Subtotal</span><b>{{ fmtMoney(cartSubtotal()) }}</b></div>
+                      <div class="row"><span>IVA</span><b>{{ fmtMoney(cartTaxTotal()) }}</b></div>
+                      @if (cartMarginPct() !== null) {
+                        <div class="row mg-row"><span>Margen aprox.</span><b [class.neg]="cartMarginPct()! < 0">{{ cartMarginPct() }}%</b></div>
+                      }
+                    </div>
                   }
                   <div class="row total">
-                    <span>Total@if (totalPendiente()) {<small class="t-stale">actualizando…</small>}</span>
-                    <b [class.stale]="totalPendiente()">{{ fmtMoney(cartTotal()) }}</b>
+                    <span class="t-izq">Total@if (totalPendiente()) {<small class="t-stale">actualizando…</small>}
+                      <button type="button" class="t-des" [attr.aria-expanded]="desglose()" aria-controls="to-desglose" (click)="desglose.set(!desglose())">
+                        {{ desglose() ? 'ocultar' : 'desglose' }} <i class="pi" [ngClass]="desglose() ? 'pi-chevron-down' : 'pi-chevron-up'" aria-hidden="true"></i>
+                      </button>
+                    </span>
+                    <span class="t-der">
+                      @if (!desglose() && cartMarginPct() !== null && cartMarginPct()! < 0) {
+                        <small class="t-neg">margen {{ cartMarginPct() }}%</small>
+                      }
+                      <b [class.stale]="totalPendiente()">{{ fmtMoney(cartTotal()) }}</b>
+                    </span>
                   </div>
                 </div>
                 <button class="sh-go" [disabled]="submitting() || settling()" (click)="submit()">
@@ -806,7 +850,8 @@ const foldText = (s: string | null | undefined): string =>
       /* [VTK.11] Edad del catálogo cuando se abrió con la copia guardada. */
       .cat-age { display: flex; align-items: center; gap: 0.35rem; margin: 0.4rem 0 0; font-size: 0.74rem; color: var(--text-muted); }
       .cat-age i { font-size: 0.7rem; }
-      .cat-age.warn { color: var(--warn-fg); }
+      /* [MCP.26] Texto en --warn-soft-fg: --warn-fg sobre blanco da 2.15:1 (no pasa AA); es para rellenos e iconos. */
+      .cat-age.warn { color: var(--warn-soft-fg); }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
@@ -848,7 +893,7 @@ const foldText = (s: string | null | undefined): string =>
          que no se lea como cifra final. Ver totalPendiente() en la clase. */
       .totals .row b.stale, .cartbar .cb-info b.stale { opacity: 0.45; }
       .totals .row .t-stale { margin-left: 0.35rem; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
-      .totals .mg-row b { color: var(--ok-fg); } .totals .mg-row b.neg { color: var(--bad-fg); }
+      .totals .mg-row b { color: var(--ok-soft-fg); } .totals .mg-row b.neg { color: var(--bad-fg); }
       .totals .total { border-top: 2px solid var(--brand-400); padding-top: 0.4rem; margin-top: 0.4rem; font-size: 1.1rem; font-weight: 800; }
       .cancel { margin-top: 0.875rem; background: none; border: none; color: var(--bad-fg); font-weight: 600; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; }
 
@@ -875,7 +920,8 @@ const foldText = (s: string | null | undefined): string =>
       .sheet-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 50; animation: shfade 0.15s var(--ease, ease); }
       .cart-sheet {
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 51;
-        max-height: 82vh; display: flex; flex-direction: column;
+        /* [MCP.22] 92 % del alto VISIBLE (dvh descuenta la barra del navegador del celular). */
+        max-height: 92vh; max-height: 92dvh; display: flex; flex-direction: column;
         background: var(--card-bg); border-radius: 20px 20px 0 0;
         box-shadow: 0 -12px 32px -8px rgba(0,0,0,0.35);
         padding: 0 1rem calc(1rem + env(safe-area-inset-bottom)); animation: shslide 0.2s var(--ease, ease);
@@ -888,12 +934,33 @@ const foldText = (s: string | null | undefined): string =>
       .cart-sheet .sh-x { width: 2.25rem; height: 2.25rem; border: none; border-radius: 12px; background: var(--surface-ground); color: var(--text-muted); display: grid; place-items: center; flex-shrink: 0; }
       .cart-sheet .sh-lines { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; min-height: 0; }
       .cart-sheet .sh-foot { border-top: 1px solid var(--border-color); padding-top: 0.6rem; flex-shrink: 0; }
-      .cart-sheet .totals { margin: 0 0 0.7rem 0; max-width: 100%; }
+      .cart-sheet .totals { margin: 0 0 0.6rem 0; max-width: 100%; }
+      /* [MCP.22] El total en un renglón; el desglose se abre desde ahí. */
+      .cart-sheet .totals .total { margin-top: 0; }
+      .totals .t-izq { display: inline-flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+      .totals .t-der { display: inline-flex; align-items: baseline; gap: 0.5rem; }
+      .totals .t-des { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 2.75rem; padding: 0 0.4rem; border: none; background: transparent;
+        color: var(--text-muted); font: inherit; font-size: 0.76rem; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+      .totals .t-des i { font-size: 0.66rem; }
+      .totals .t-neg { font-size: 0.74rem; font-weight: 700; color: var(--bad-fg); font-family: var(--font-mono); }
+      .totals .t-desglose { padding-bottom: 0.2rem; }
       /* [MCP.3.15] Indicaciones para el surtidor */
-      .ind { display: grid; gap: 0.4rem; margin: 0 0 0.75rem; }
+      .ind { display: grid; gap: 0.4rem; margin: 0 0 0.6rem; }
+      /* [MCP.22] Plegadas: un renglón de 44 px; con texto, el texto en una línea. */
+      .ind-fila { display: flex; align-items: center; gap: 0.5rem; }
+      .ind-abrir { flex: 1; min-width: 0; min-height: 2.75rem; display: flex; align-items: center; gap: 0.5rem; padding: 0 0.75rem; text-align: left;
+        border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); background: var(--surface-ground); color: var(--text-muted); font: inherit; font-size: 0.86rem; }
+      .ind-abrir.con { color: var(--text-main); }
+      .ind-abrir i { font-size: 0.8rem; flex-shrink: 0; }
+      .ind-res { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ind-res small { font-size: 0.72rem; margin-left: 0.25rem; }
+      .ind-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .ind-fila .ind-mic { flex-shrink: 0; min-height: 2.75rem; }
+      .ind-listo { margin-left: auto; min-height: 2.5rem; padding: 0 0.9rem; border: 1px solid var(--border-color); border-radius: 999px;
+        background: transparent; color: var(--text-main); font: inherit; font-weight: 700; font-size: 0.82rem; }
       .ind-l { font-size: 0.86rem; font-weight: 700; color: var(--text-main); display: grid; gap: 0.1rem; }
       .ind-l span { font-size: 0.72rem; font-weight: 500; color: var(--text-muted); }
-      .ind-t { width: 100%; min-height: 4.5rem; resize: vertical; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
+      .ind-t { width: 100%; min-height: 3.4rem; resize: vertical; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px);
         padding: 0.6rem 0.7rem; font: inherit; font-size: 0.9rem; color: var(--text-main); background: var(--surface-ground); }
       .ind-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
       .ind-mic { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2.5rem; padding: 0 0.9rem; border: 1px solid var(--border-color);
@@ -1109,6 +1176,16 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** Hablan de sabores: cada sabor es otro producto en Kepler (David: sólo avisar, no partir solo). */
   readonly avisoSabores = computed(() => mencionaSabores(this.indicaciones()));
   private pararDictado: (() => void) | null = null;
+  /** `[MCP.22]` Las indicaciones abiertas para escribir; plegadas, son un renglón y la hoja es de los productos. */
+  readonly indAbiertas = signal(false);
+  /** `[MCP.22]` El desglose del total (subtotal, IVA, margen) abierto. */
+  readonly desglose = signal(false);
+
+  /** `[MCP.22]` Dictar desde el renglón plegado: se abre el recuadro para que se vea lo que se escucha. */
+  dictarDesdeFila(): void {
+    if (!this.escuchando()) this.indAbiertas.set(true);
+    this.alternarDictado();
+  }
 
   /** Empieza o para el dictado; lo dictado se suma a lo que ya estaba escrito. */
   alternarDictado(): void {
@@ -1675,7 +1752,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    *  normalizado "nombre + código de producto (sku)" por producto → cada tecla
    *  solo hace includes. */
   readonly priceIndex = computed(() =>
-    this.prices().map((p) => ({ p, hay: foldText(p.product_name + ' ' + (p.sku || '')) })),
+    this.prices().map((p) => ({ p, hay: normalizarBusqueda(p.product_name + ' ' + (p.sku || '')) })),
   );
   /** ¿la búsqueda llegó al tope (hay más matches sin mostrar)? → mostrar "N+". */
   readonly searchCapped = computed(
@@ -1685,8 +1762,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly displayed = computed(() => {
     const raw = this.searchTerm().trim();
     if (raw) {
-      // Match por tokens (AND), sin acentos. Corta al llegar al tope.
-      const tokens = foldText(raw).split(/\s+/).filter(Boolean);
+      // Match por tokens (AND), sin acentos, en cualquier orden. Corta al llegar al tope.
+      const tokens = tokensDeBusqueda(raw);
       const out: PriceRow[] = [];
       for (const it of this.priceIndex()) {
         if (tokens.every((t) => it.hay.includes(t))) {

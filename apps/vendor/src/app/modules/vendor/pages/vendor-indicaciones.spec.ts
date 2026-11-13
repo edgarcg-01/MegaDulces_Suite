@@ -103,7 +103,8 @@ describe('Tomar pedido · indicaciones para el surtidor [MCP.3.15]', () => {
     barra!.click();
     fixture.detectChanges();
     expect(cmp.cartOpen()).toBe(true);
-    expect(el.querySelector('#to-ind')).toBeTruthy();
+    // [MCP.22] Plegadas en un renglón, pero a la vista: con texto, el renglón lo muestra.
+    expect(el.querySelector('.ind-abrir')?.textContent).toContain('Bajar por la puerta de atrás');
     expect(llamadas['placeOrder']).toBeUndefined();
   });
 
@@ -165,6 +166,75 @@ describe('Tomar pedido · indicaciones para el surtidor [MCP.3.15]', () => {
     cmp.cartOpen.set(true);
     fixture.detectChanges();
     expect(el.querySelector('.ind-mic')).toBeNull();
+    el.querySelector<HTMLButtonElement>('.ind-abrir')!.click();
+    fixture.detectChanges();
     expect(el.textContent).toContain('Este navegador no puede dictar');
+  });
+});
+
+describe('[MCP.22] «Tu pedido» es para ver los productos', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    delete ventana.SpeechRecognition;
+    delete ventana.webkitSpeechRecognition;
+  });
+
+  it('⭐ las indicaciones nacen plegadas en un renglón: sin recuadro de texto hasta que se toca', () => {
+    const { cmp, fixture, el } = montar({ draftForCustomer: { id: 'o1', code: 'PD-1', notes: null, lines: [RENGLON] } });
+    cmp.cartOpen.set(true);
+    fixture.detectChanges();
+    expect(el.querySelector('#to-ind')).toBeNull();
+    const fila = el.querySelector<HTMLButtonElement>('.ind-abrir');
+    expect(fila?.textContent).toContain('Indicaciones para el surtidor');
+    expect(fila?.textContent).toContain('opcional');
+    fila!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('#to-ind')).toBeTruthy();
+    // «Listo» las vuelve a plegar sin perder lo escrito.
+    cmp.indicaciones.set('Que no vengan golpeadas');
+    el.querySelector<HTMLButtonElement>('.ind-listo')!.click();
+    fixture.detectChanges();
+    expect(el.querySelector('#to-ind')).toBeNull();
+    expect(el.querySelector('.ind-abrir')?.textContent).toContain('Que no vengan golpeadas');
+  });
+
+  it('dictar desde el renglón plegado abre el recuadro para ver lo que se escucha', () => {
+    ventana.SpeechRecognition = vozFalsa('traer cambio de 500');
+    const { cmp, fixture, el } = montar({ draftForCustomer: { id: 'o1', code: 'PD-1', notes: null, lines: [RENGLON] } });
+    cmp.cartOpen.set(true);
+    fixture.detectChanges();
+    el.querySelector<HTMLButtonElement>('.ind-fila .ind-mic')!.click();
+    fixture.detectChanges();
+    expect(cmp.indicaciones()).toBe('Traer cambio de 500');
+    expect(el.querySelector('#to-ind')).toBeTruthy();
+  });
+
+  it('el total va en un renglón; subtotal e IVA sólo al abrir el desglose', () => {
+    const { cmp, fixture, el } = montar();
+    cmp.cartOpen.set(true);
+    fixture.detectChanges();
+    const totales = () => el.querySelector('.cart-sheet .totals')!.textContent ?? '';
+    expect(totales()).toContain('Total');
+    expect(totales()).not.toContain('Subtotal');
+    const des = el.querySelector<HTMLButtonElement>('.t-des')!;
+    expect(des.getAttribute('aria-expanded')).toBe('false');
+    des.click();
+    fixture.detectChanges();
+    expect(totales()).toContain('Subtotal');
+    expect(totales()).toContain('IVA');
+    expect(el.querySelector('.t-des')!.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('⭐ un margen negativo no se esconde con el desglose cerrado; uno positivo sí', () => {
+    const { cmp, fixture, el } = montar();
+    cmp.cartOpen.set(true);
+    const margen = vi.spyOn(cmp, 'cartMarginPct');
+    margen.mockReturnValue(-3);
+    fixture.detectChanges();
+    expect(el.querySelector('.t-neg')?.textContent).toContain('-3%');
+    margen.mockReturnValue(18);
+    cmp.desglose.set(true); cmp.desglose.set(false); // fuerza otra pasada del template
+    fixture.detectChanges();
+    expect(el.querySelector('.t-neg')).toBeNull();
   });
 });

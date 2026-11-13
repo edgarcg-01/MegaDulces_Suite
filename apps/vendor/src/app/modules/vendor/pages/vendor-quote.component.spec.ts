@@ -132,3 +132,64 @@ describe('VendorQuoteComponent · cotizar al cliente (MCP.12)', () => {
     expect(texto()).toContain('No puedes cotizar en la sucursal 01.');
   });
 });
+
+describe('[MCP.26] Cotización · buscar por palabras y dictando', () => {
+  const ventana = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    delete ventana.SpeechRecognition;
+    delete ventana.webkitSpeechRecognition;
+  });
+  const nombres = (cmp: VendorQuoteComponent) => cmp.visibles().map((p) => p.product_name);
+
+  it('⭐ cada palabra, en cualquier orden: «50 mazapan gigante» encuentra «MAZAPAN GIGANTE 50 G»', () => {
+    const { cmp } = montar();
+    cmp.busqueda.set('50 mazapan gigante');
+    expect(nombres(cmp)).toEqual(['MAZAPAN GIGANTE 50 G']);
+    // Prueba negativa del criterio anterior (la frase entera pegada): con él esto no encontraba nada.
+    expect('MAZAPAN GIGANTE 50 G 13205'.includes('50 MAZAPAN GIGANTE')).toBe(false);
+  });
+
+  it('sin acentos y por SKU: «mazapán» y «30117» encuentran su producto', () => {
+    const { cmp } = montar();
+    cmp.busqueda.set('mazapán');
+    expect(nombres(cmp)).toEqual(['MAZAPAN GIGANTE 50 G']);
+    cmp.busqueda.set('payaso 30117');
+    expect(nombres(cmp)).toEqual(['PALETA PAYASO GRANDE']);
+  });
+
+  it('⭐ dictar «mazapán gigante de cincuenta gramos» deja la búsqueda convertida en el campo y lo encuentra', () => {
+    ventana.SpeechRecognition = class {
+      lang = ''; interimResults = false; continuous = false;
+      onresult: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((e: { error?: string }) => void) | null = null;
+      start(): void {
+        this.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: 'mazapán gigante de cincuenta gramos' }, isFinal: true }] });
+        this.onend?.();
+      }
+      stop(): void { this.onend?.(); }
+    };
+    const { cmp, fix, el } = montar();
+    el.querySelector<HTMLButtonElement>('app-dictar-busqueda button')!.click();
+    fix.detectChanges();
+    expect(cmp.busqueda()).toBe('mazapán gigante 50 g');
+    expect(el.querySelector<HTMLInputElement>('.cq-search input')!.value).toBe('mazapán gigante 50 g');
+    expect(nombres(cmp)).toEqual(['MAZAPAN GIGANTE 50 G']);
+  });
+
+  it('⛔ sin permiso del micrófono se dice debajo del buscador', () => {
+    ventana.SpeechRecognition = class {
+      lang = ''; interimResults = false; continuous = false;
+      onresult: ((e: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      onerror: ((e: { error?: string }) => void) | null = null;
+      start(): void { this.onerror?.({ error: 'not-allowed' }); this.onend?.(); }
+      stop(): void { this.onend?.(); }
+    };
+    const { fix, el } = montar();
+    el.querySelector<HTMLButtonElement>('app-dictar-busqueda button')!.click();
+    fix.detectChanges();
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain('no dio permiso para usar el micrófono');
+  });
+});

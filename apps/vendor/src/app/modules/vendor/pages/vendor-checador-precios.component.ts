@@ -15,6 +15,7 @@ import {
 } from '../checador-precios';
 import { presentacionesDe, unidadesDelRespaldo, type Escalon, type PresentacionMostrador } from '@megadulces/ui-web';
 import { LectorCodigoComponent } from '../components/lector-codigo.component';
+import { DictarBusquedaComponent } from '../components/dictar-busqueda.component';
 
 const pesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -55,7 +56,7 @@ interface Renglon {
 @Component({
   selector: 'app-vendor-checador-precios',
   standalone: true,
-  imports: [LectorCodigoComponent],
+  imports: [LectorCodigoComponent, DictarBusquedaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { '(document:pointerdown)': 'alTocarFuera($event)' },
   template: `
@@ -98,7 +99,7 @@ interface Renglon {
       } @else if (sucursal().estado === 'lista') {
         <div class="ck-buscar" role="search">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input #campo type="search" class="ck-in" [placeholder]="compacto() ? 'Precio: nombre, proveedor, clave o código' : 'Nombre, proveedor, clave o código de barras'"
+          <input #campo type="search" class="ck-in" [placeholder]="vozEscucha() ? 'Escuchando… di el producto' : compacto() ? 'Precio: nombre, proveedor, clave o código' : 'Nombre, proveedor, clave o código de barras'"
             aria-label="Buscar precio por nombre, proveedor, clave o código de barras"
             inputmode="search" enterkeyhint="search" autocomplete="off" autocapitalize="none" spellcheck="false"
             maxlength="64" [value]="texto()" (input)="alEscribir($any($event.target).value)" (keydown.enter)="alEnter()"
@@ -108,9 +109,17 @@ interface Renglon {
               <i class="pi pi-times" aria-hidden="true"></i>
             </button>
           }
+          <!-- [MCP.26] Buscar dictando, sólo en la pantalla completa: en el encabezado (compacto) un botón
+               más dejaría el campo sin ancho en un teléfono de 360 px; ahí queda el micrófono del teclado. -->
+          @if (!compacto()) {
+            <app-dictar-busqueda (texto)="alEscribir($event)" />
+          }
           <app-lector-codigo etiqueta="Leer el código de barras con la cámara"
             (leido)="alLeerCodigo($event)" (sinCamara)="avisoCamara.set($event)" />
         </div>
+        @if (vozError(); as ve) {
+          <p class="ck-nota warn" role="alert"><i class="pi pi-microphone" aria-hidden="true"></i> {{ ve }}</p>
+        }
         <!-- [VTK.17] En compacto, todo lo de abajo vive en una ventana que sólo aparece mientras se busca. -->
         @if (!compacto() || abierta()) {
         <div class="ck-ventana" [class.ck-flota]="compacto()" [attr.role]="compacto() ? 'region' : null"
@@ -341,7 +350,8 @@ interface Renglon {
     }
     .ck-copia-btn:disabled { opacity: .5; cursor: default; }
     .ck-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
-    .ck-nota.warn { color: var(--warn-fg); }
+    /* [MCP.26] Texto en --warn-soft-fg: --warn-fg sobre blanco da 2.15:1 (no pasa AA); es para rellenos e iconos. */
+    .ck-nota.warn { color: var(--warn-soft-fg); }
     .ck-aviso {
       display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-3);
       border: 1px solid var(--warn-border); border-radius: var(--r-md); background: var(--warn-soft-bg); color: var(--warn-soft-fg);
@@ -435,6 +445,10 @@ export class VendorChecadorPreciosComponent implements OnInit, OnDestroy {
   readonly descargando = this.svc.bajandoCopia;
   readonly errorCopia = signal<string | null>(null);
   readonly avisoCamara = signal<string | null>(null);
+  /** `[MCP.26]` El micrófono (sólo en la pantalla completa) y por qué no buscó, si no buscó. */
+  private readonly voz = viewChild(DictarBusquedaComponent);
+  readonly vozError = computed(() => this.voz()?.error() ?? null);
+  readonly vozEscucha = computed(() => this.voz()?.escuchando() ?? false);
 
   private readonly campo = viewChild<ElementRef<HTMLInputElement>>('campo');
   private temporizador: ReturnType<typeof setTimeout> | null = null;
