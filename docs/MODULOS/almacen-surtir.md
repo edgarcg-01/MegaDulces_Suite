@@ -6,6 +6,32 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## MCP.23 y MCP.24 también en Surtir › Sucursal (2026-11-13 — en código, sin desplegar)
+
+- **Problema:** el surtidor tiene dos puertas para la preventa: **Surtir › Sucursal** (`/almacen/surtir`) y
+  **Preventa por surtir** (`/almacen/surtir-preventa`). Entra por la primera: ahí aterriza al abrir Almacén y ahí
+  lo lleva el aviso de la campana de cada pedido nuevo. MCP.23 y MCP.24 se habían hecho sólo en la segunda. Así, el
+  surtidor seguía sin ver la existencia, con lo atrasado mezclado en Hoy y sin poder elegir vendedor. Se encontró
+  al recorrer la pantalla desde el menú con datos simulados, no con una prueba.
+- **Solución, en Surtir › Sucursal:**
+  - «Hoy» trae sólo lo de hoy. Lo atrasado que el surtidor ya empezó se queda arriba, en «Los que estás surtiendo».
+  - Lo pendiente de días anteriores va en un aviso, por día, y tocar un día lo abre.
+  - Con dos o más vendedores en el día, chips «Todos · 6 · Vendedor Uno · 3…». Lo que dice cada chip es lo que se ve.
+  - Al surtir, cada renglón dice lo que tiene el sistema. Si se marca de menos algo que el sistema dice que hay,
+    pide buscarlo en bodega, sin bloquear.
+  - Arriba del pedido ya no van notas de explicación («Lo que marques se guarda en este celular…» y la hora de la
+    existencia): David las quitó para que el surtidor vaya directo a los renglones. La hora de la lectura sigue
+    en Preventa por surtir.
+- **Implementada:** `almacen-surtir.component.ts`. Lee la misma bandeja (`GET …/presale-picking`) y la misma
+  existencia por renglón (`PresalePickLine.stock`): no hubo cambios en el servidor. El texto de la existencia salió a
+  `existencia-surtido.ts`, que ahora usan las dos puertas, para que digan lo mismo.
+- **Por qué así:** Surtir es la fila de trabajo: sólo lo pendiente, para elegir qué surtir. Por eso ahí no van «Ayer»
+  ni el calendario con lo ya surtido; ese historial por día sigue en Preventa por surtir. Tener dos pantallas para el
+  mismo trabajo es la causa de fondo. Si se deja una sola, lo decide el PM.
+- **Pendiente:** verlo en un celular con pedidos reales.
+
+---
+
 ## Preventa: un día a la vez y por vendedor (MCP.24, 2026-11-12 — en código, sin desplegar)
 
 - **Problema:** en «Hoy» caía también lo atrasado de días anteriores, mezclado con lo de hoy. Lo ya surtido de días
@@ -14,7 +40,8 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
   abre ese día. «Ayer» y un día del calendario traen ese día de entrega completo, también lo surtido. Arriba se elige
   vendedor; «Todos» conserva los encabezados de MCP.14.
 - **Implementada:** `GET …/presale-picking?date=AAAA-MM-DD` (ese día de entrega completo; 400 si la fecha está
-  mal escrita). Pantalla: `almacen-surtir-preventa.component.ts`; la lógica pura en `pedidos-por-dia.ts`.
+  mal escrita). Pantalla: `almacen-surtir-preventa.component.ts`; la lógica pura en `pedidos-por-dia.ts`. En Surtir
+  › Sucursal, ver la entrada del 2026-11-13.
 - **Por qué así:** David pidió que siempre tengan a la mano lo de hoy, que puedan revisar lo anterior y que no se
   mezclen días ni vendedores. Lo atrasado no se esconde en otra pestaña, porque un pedido que nadie ve no se surte.
 - **Pendiente:** verlo en pantalla. Cancelar un pedido completo mientras se surte es `[MCP.25]`.

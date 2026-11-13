@@ -34,6 +34,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePickerModule } from 'primeng/datepicker';
 import { todayMx } from '../../../core/utils/mx-date';
 import { deVendedor, etiquetaDia, pendientesDeOtrosDias, sumarDiasIso, vendedoresDe } from '../pedidos-por-dia';
+import { avisoBuscarEnBodega, lecturaDeExistencia, sistemaSinProducto, textoSistema } from '../existencia-surtido';
 
 /** `[MCP.13]` Lo que el surtidor eligió poner en lugar de lo que faltó de un renglón. */
 interface CambioElegido {
@@ -793,45 +794,21 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.cerrarCambio();
   }
 
-  /**
-   * `[MCP.23]` Lo que dice el sistema de un renglón, en palabras. `null` = servidor anterior o pedido
-   * cerrado (no viaja `stock`): no se pinta nada. `stock: null` = no se pudo leer: se DECLARA.
-   */
+  /** `[MCP.23]` Lo que dice el sistema de un renglón, en palabras (la misma pieza que Surtir › Sucursal). */
   hayTexto(l: PresalePickLine): string | null {
-    if (l.stock === undefined) return null;
-    const s = l.stock;
-    if (!s || s.state === 'sin_dato') return 'Sistema: sin dato';
-    if (s.state === 'agotado') return 'Sistema: no hay';
-    if (s.state === 'no_se_maneja') return 'Sistema: no se maneja aquí';
-    if (s.qty == null) return 'Sistema: sí hay';
-    if (s.qty === 0) return `Sistema: menos de 1 ${l.unit}`;
-    return `Sistema: hay ${s.qty} ${l.unit}`;
+    return textoSistema(l.stock, l.unit);
   }
   /** `[MCP.23]` El sistema dice que no hay o que no se maneja: va en negritas (además de la palabra). */
   sinProducto(l: PresalePickLine): boolean {
-    return l.stock?.state === 'agotado' || l.stock?.state === 'no_se_maneja';
+    return sistemaSinProducto(l.stock);
   }
-  /**
-   * `[MCP.23]` Marcó que faltó y el sistema dice que hay al menos una unidad del renglón: que lo busque antes
-   * de quitarlo. Medido en prod (30 días al 2026-11-12): en 100 de 159 renglones quitados por «no hubo», el
-   * sistema tenía el producto al empezar el día. No bloquea: el anaquel manda.
-   */
+  /** `[MCP.23]` Marcó que faltó y el sistema dice que hay: que lo busque antes de quitarlo. No bloquea. */
   avisoBuscar(l: PresalePickLine): string | null {
-    const m = this.marca(l);
-    const s = l.stock;
-    if (m === null || m >= l.qty || !s || s.state !== 'con_existencia') return null;
-    if (s.qty === 0) return null;
-    return s.qty == null
-      ? 'El sistema dice que sí hay: búscalo en bodega antes de quitarlo.'
-      : `El sistema dice que hay ${s.qty} ${l.unit}: búscalo en bodega antes de quitarlo.`;
+    return avisoBuscarEnBodega(l.stock, l.unit, this.marca(l), l.qty);
   }
   /** `[MCP.23]` Una sola vez por pedido, la hora de la lectura y que manda el anaquel (no se repite por renglón). */
   existenciaAl(d: PresalePickDetail): string | null {
-    const horas = d.lines.map((l) => l.stock?.checked_at).filter((x): x is string => !!x).sort();
-    if (!d.lines.some((l) => l.stock !== undefined)) return null;
-    return horas.length
-      ? `«Sistema» es la existencia de Kepler al ${this.horaDe(horas[0])}; lo que manda es lo que ves en el anaquel.`
-      : '«Sistema» es la existencia de Kepler; no se pudo leer ahora. Lo que manda es lo que ves en el anaquel.';
+    return lecturaDeExistencia(d.lines.map((l) => l.stock), (iso) => this.horaDe(iso));
   }
   leyenda(l: PresalePickLine): string {
     const v = this.marca(l);
