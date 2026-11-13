@@ -5407,9 +5407,27 @@ export class CommercialReplenishmentService {
           lote = { documentos: Number(n?.c || 0), folio: header.batch_folio ?? null };
         }
       }
+      // `[PQ.110]` D41 (Edgar, 2026-11-13): «se cancela sólo la OC». La requisición NO cambia de estado
+      // cuando su OC se cancela desde la Suite; lo DICE. Llave = la de oc-abiertas (sucursal + folio de
+      // Kepler): 225 de 227 requisiciones con folio casan así con su OC en la réplica (medido ese día).
+      let oc_cancelada: { en: string; por: string | null; motivo: string; requisicion_reabierta: boolean } | null = null;
+      if (header.oc_folio && header.oc_sucursal
+          && (await trx.raw(`SELECT to_regclass('commercial.purchase_order_cancellations') AS t`)).rows[0]?.t) {
+        const c: any = await trx('commercial.purchase_order_cancellations')
+          .where({ tenant_id: tenantId, sucursal: header.oc_sucursal, oc_folio: header.oc_folio, estado: 'cancelada' })
+          .whereNull('deleted_at')
+          .first('created_at', 'created_by_username', 'motivo', 'requisicion_reabierta');
+        if (c) {
+          oc_cancelada = {
+            en: new Date(c.created_at).toISOString(), por: c.created_by_username ?? null,
+            motivo: c.motivo, requisicion_reabierta: !!c.requisicion_reabierta,
+          };
+        }
+      }
       return {
         ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
         purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
+        oc_cancelada,
       };
     });
   }

@@ -136,4 +136,15 @@ describe('[PQ.110] OC abiertas — cancelar en Kepler', () => {
     // NEGATIVA: el texto viejo afirmaba que todas tenían su vale abierto (sólo 21 de 160, medido).
     expect(src).not.toContain('su vale de entrada (X-A-37) está abierto y hay que cancelarlo allá');
   });
+
+  it('D41: la ficha de la requisición DICE que su OC se canceló (no cambia de estado) y el servidor lo manda', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const ficha = readFileSync(join(__dirname, 'compras-requisicion-detalle.component.ts'), 'utf8');
+    const back = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', '..', 'libs', 'commercial', 'src', 'lib', 'commercial-replenishment', 'commercial-replenishment.service.ts'), 'utf8');
+    expect(ficha).toMatch(/@if \(r\.oc_cancelada; as c\)/);
+    expect(ficha).toContain('se canceló en Kepler');
+    expect(back).toMatch(/purchase_order_cancellations[\s\S]{0,300}estado: 'cancelada'/);
+    expect(back).toMatch(/purchase_order_folio: po\?\.folio \?\? null,\s*oc_cancelada,/);
+  });
 });

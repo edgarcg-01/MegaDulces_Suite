@@ -96,6 +96,16 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
              31-60 días y en el 98.7 % de los de 60+. Aprobar eso es ordenar a un precio que no
              existe, y la ficha no lo decía en ningún lado. Las TRES salidas llevan rótulos
              distintos a propósito: "sin medir" no es "al día" (ADR-056). -->
+        <!-- [PQ.110] D41 (Edgar, 2026-11-13): «se cancela sólo la OC». La requisición no cambia de
+             estado cuando su OC se cancela desde la Suite: lo dice aquí, con quién, cuándo y por qué. -->
+        @if (r.oc_cancelada; as c) {
+          <div class="rd-ruta" role="status">
+            <i class="pi pi-ban" aria-hidden="true"></i>
+            <span>Su orden de compra <strong>{{ r.oc_folio }}</strong> de {{ r.oc_sucursal | sucursal }} <strong>se canceló en Kepler</strong>
+              desde la Suite el {{ c.en | date:'dd/MM/yy HH:mm' }} por {{ c.por || 'alguien sin nombre registrado' }}: «{{ c.motivo }}».
+              @if (c.requisicion_reabierta) { En Kepler, esta requisición volvió a pendiente; en la Suite se queda como está. }</span>
+          </div>
+        }
         <!-- [RQ.8] DE DÓNDE VIENE Y A DÓNDE VA. Se DERIVA de la FK bajada→compra, no se copia:
              las sucursales destino de una compra consolidada SON los destinos de sus bajadas. -->
         @if (r.bajadas?.length) {

@@ -808,6 +808,11 @@ export interface RequisitionDetail extends RequisitionRow {
   /** `[PQ.16]`/RQ.15 — el documento de Kepler con el que se ordenó (sucursal + folio); null si se marcó sin él. */
   oc_sucursal?: string | null;
   oc_folio?: string | null;
+  /**
+   * `[PQ.110]` D41: su OC se canceló en Kepler desde la Suite. La requisición NO cambia de estado:
+   * esto lo dice (cuándo, quién, por qué). `null` = no se canceló desde la Suite.
+   */
+  oc_cancelada?: { en: string; por: string | null; motivo: string; requisicion_reabierta: boolean } | null;
   /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
   dias?: number;
   vigencia?: RequisitionVigencia | null;
