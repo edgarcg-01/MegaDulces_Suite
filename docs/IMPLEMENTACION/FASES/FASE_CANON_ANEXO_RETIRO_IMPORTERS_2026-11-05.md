@@ -916,3 +916,17 @@ los 5 factores de caja se resolvieron solos esa madrugada, por evento. Edgar cor
 **ninguna falla en `hop2_fallas`**. Pendiente: los 43 códigos revividos (`--retirar-revividos`, llega con el siguiente
 despliegue de la ingesta; una corrida previa sin la bandera en la imagen hizo sólo la reconciliación Kepler: 0 cambios).
 ⚠️ A vigilar: esa misma medición dio nombres ~1 s y promo ~0.5 s (antes ~0.35 y ~0.2): la primera lectura de `kdii`.
+
+**Costo (2026-11-13, `[CANON.6.17]`): sale `repoint-catalog-cost` del nocturno.** El hop-2 (`normalizeCost`, al llegar
+`kdii` o `kdik`) escribe 12–102 costos al día; el nocturno corrigió **3 en 14 noches**, y los 3 por huecos ya cerrados:
+95341/95342 (las claves reusadas que el hop-2 perdió el 9-nov sin dejar registro; hoy se reintenta y queda en
+`hop2_fallas`) y 26019 (editado en Kepler entre reconciliaciones con borrados, que no recalculaban — `[CANON.6.14]`;
+la llave de `kdik` incluye el SKU `c2`, así que su borrado también recalcula).
+- La regla del costo neto (`costoNetoCte`: mediana de `kdik.c16` retail anclada a `kdii.c90 / 1.2333`) y cuándo
+  escribe (`COSTO_CAMBIA`: más que 0.005 y dentro de la banda [⅓, 3]× anti-unidad-caja) salen de `normalizeCost` para
+  compartirse con la herramienta, que ahora sí mide en sólo lectura. El SQL de `normalizeCost` quedó idéntico
+  (comparado completo y acotado).
+- Árbitro `catalogo_costo_evento` (corre con el reloj del escáner; sólo alarma; retiro con 30 días sin el nocturno y
+  sin alertas): misma regla, no cuenta lo que frena la banda. Hoy **0**, ~380–500 ms.
+- Prueba en `test-newdb-arbitro-catalogo` (19 ✓): uno desfasado suma 1 en el árbitro y en la herramienta, el de fuera
+  de la banda no, y corrido `normalizeCost` vuelve a la base. 2 mutantes en rojo. API: `tsc` exit 0, `db-health` 24 ✓.
