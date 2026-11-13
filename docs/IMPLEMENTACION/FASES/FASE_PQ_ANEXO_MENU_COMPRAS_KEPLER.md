@@ -275,7 +275,9 @@ Lo que eso significa para construir PQ.110:
 **Lo que C3 NO puede resolver sin tocar C2** (se dice primero porque cambia el orden):
 1. **Saber si está apagado antes de ofrecer el botón.** Hoy sólo el `POST` lo dice (503). Mostrar
    un botón que en 8 de 9 sucursales siempre falla es afirmar algo falso. Hace falta que el detalle
-   de la orden diga `cancelable: { ok, porque }` (interruptor, tope, llave, vale), en C2.
+   de la orden diga si se puede y por qué no, en C2. **En código el 2026-11-13:** `GET …/:sucursal/:folio/cancelacion`
+   (`OcCancelacionDisponibleDto`: `disponible`, `porque`, `reabriria_requisicion`, `ultima`), con la regla de Kepler
+   contra la réplica (≈ 22 ms en prod; para 0000393 y 0000338 dice lo mismo que el ensayo contra Kepler vivo).
 2. **El desfase del ODS.** Después de cancelar, la réplica tarda en ver la OC en C, y mientras tanto la
    lista la seguiría dando por abierta. La lista tiene que leer `purchase_order_cancellations` y decir
    «cancelada desde la Suite, Kepler todavía no lo refleja», no esconderla ni dibujarla abierta.
@@ -429,6 +431,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **PQ.110 C2, hueco 1 de §3d en código:** `GET …/cancelacion` dice si se puede ofrecer el botón y por qué no (interruptor, tope, ya cancelada, regla de Kepler contra la réplica: ≈ 22 ms en prod). Los mensajes nombran la sucursal en vez de su código. Prueba de base real extendida (7b–7c), NO MEDIDA | Claude |
 | 2026-11-13 | **PQ.110 C3, diseño** (§3d): las 5 preguntas con datos de prod. 53 OC marcadas «No surtida / cancelada» siguen en N sin vale (≈ $4.0 M): son las que el botón cierra. El aviso de `[PQ.29]` dice algo falso (sólo 21 de 160 tienen vale vivo). Cuatro huecos antes de C3; el primero (saber si está apagado antes de ofrecer el botón) es de C2 | Claude |
 | 2026-11-13 | **PQ.110: `UPDATE (c24)` en `kdm2` aplicado en los 6** (firma de Edgar). Ensayo repetido en la 08 como `kepler_push`: 11 de 11 permisos, sin fallas, las 3 OC intactas. La migración de C2 sigue sin aplicar: el envoltorio exige que esté en `origin/main` (falta push) | Claude |
 | 2026-11-13 | **PQ.110 C2** (`3b0dcb360`): tabla `purchase_order_cancellations` (cada intento, con capturista/fecha/hora originales), interruptor `cancela_oc` apagado con tope 1/día, llave `COMPRAS_OC_CANCELAR` (5 roles, no GESTIONAR: lo tienen marketing, finanzas y tesorería) y el endpoint. Migración sin aplicar; prueba de base real y arranque sin medir | Claude |

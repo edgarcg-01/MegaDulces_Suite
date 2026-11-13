@@ -1,7 +1,7 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { OcCancelacionDto, OcCancelarInputDto } from '@megadulces/contracts';
+import type { OcCancelacionDisponibleDto, OcCancelacionDto, OcCancelarInputDto } from '@megadulces/contracts';
 
 import { OcCancelacionService } from './oc-cancelacion.service';
 
@@ -26,5 +26,15 @@ export class OcCancelacionController {
     @Body() body: Partial<OcCancelarInputDto>,
   ): Promise<OcCancelacionDto> {
     return this.svc.cancelar(sucursal, folio, body ?? {});
+  }
+
+  @Get('open-purchase-orders/:sucursal/:folio/cancelacion')
+  @RequirePermissions(Permission.COMPRAS_OC_CANCELAR)
+  @ApiOperation({ summary: 'PQ.110 — ¿Se puede ofrecer «Cancelar en Kepler» para esta OC? No escribe. Revisa el interruptor, el tope, si ya se canceló y la regla de Kepler contra la réplica (al cancelar se revisa otra vez contra Kepler vivo). Devuelve disponible, el porqué y el último intento.' })
+  disponible(
+    @Param('sucursal') sucursal: string,
+    @Param('folio') folio: string,
+  ): Promise<OcCancelacionDisponibleDto> {
+    return this.svc.disponible(sucursal, folio);
   }
 }

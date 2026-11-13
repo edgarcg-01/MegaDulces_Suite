@@ -135,7 +135,40 @@ const ORIGINAL = {
       // 7. Alcance.
       alcance = ['01'];
       ok(await status(() => s.cancelar(SUC, 'PQ110D', pantalla)) === 404, 'sucursal fuera del alcance → 404');
+      ok(await status(() => s.disponible(SUC, 'PQ110D')) === 404, 'disponible: sucursal fuera del alcance → 404 también');
       alcance = null;
+
+      // 7b. GET …/cancelacion: ¿se puede OFRECER el botón? (no escribe). La réplica es un doble aquí;
+      //     su SQL se ejerce aparte, abajo, contra la base real.
+      let replica = null; let lecturas = 0;
+      s.leerReplica = async () => { lecturas++; return replica; };
+      const OK_REQ = { oc: { ...ORIGINAL, folio: 'PQ110G' }, coincidencias: 1, vales_vivos: [], otras_oc_vivas: [],
+        requisicion: { serie: '1', folio: '0000087', estado: 'F', total: 351489.45, renglones: 0 } };
+      const ya = await s.disponible(SUC, 'PQ110A');
+      ok(ya.disponible === false && /ya se canceló/.test(ya.porque || '') && ya.ultima?.estado === 'cancelada' && ya.ultima?.requisicion_reabierta === '0000087',
+        'disponible: la OC ya cancelada no ofrece botón y trae el último intento', ya);
+      replica = OK_REQ;
+      const si = await s.disponible(SUC, 'PQ110G');
+      ok(si.disponible === true && si.porque === null && si.reabriria_requisicion === '0000087' && si.ultima === null,
+        'disponible: pendiente, sin vale, de requisición F → sí, y dice qué requisición reabriría', si);
+      replica = { ...OK_REQ, vales_vivos: ['0000533'] };
+      const conVale = await s.disponible(SUC, 'PQ110G');
+      ok(conVale.disponible === false && /vale de entrada \(0000533\)/.test(conVale.porque || ''), 'disponible: con vale vivo → no, y dice cuál', conVale);
+      replica = null;
+      const sinReplica = await s.disponible(SUC, 'PQ110G');
+      ok(sinReplica.disponible === false && /réplica/.test(sinReplica.porque || ''), 'disponible: sin réplica de Kepler → no, y lo declara', sinReplica);
+      const antesApagado = lecturas;
+      await sw({ encendida: false });
+      const apagado = await s.disponible(SUC, 'PQ110G');
+      ok(apagado.disponible === false && /apagado/.test(apagado.porque || '') && !/\b08\b/.test(apagado.porque || '') && lecturas === antesApagado,
+        'disponible: apagado → no, nombra la sucursal (no «08») y ni lee la réplica', apagado);
+      await sw({ encendida: true });
+      delete s.leerReplica;
+
+      // 7c. El SQL de la réplica, REAL (si la base tiene kepler_ods): un folio que no existe → 0 coincidencias.
+      const real = await s.tk.run((k) => Servicio.prototype.leerReplica.call(s, k, SUC, 'PQ110NOEXISTE')).catch((e) => ({ error: e.message }));
+      if (real === null) noMedido('la base no tiene kepler_ods.kdm1: el SQL de la réplica no se ejerció');
+      else ok(real && real.coincidencias === 0 && real.oc === null && Array.isArray(real.vales_vivos), 'leerReplica contra la base real: folio inexistente → 0 coincidencias, sin error', real);
 
       // 8. NEGATIVAS de la tabla.
       const base = { tenant_id: T, sucursal: SUC, motivo: pantalla.motivo, created_by: ME };
