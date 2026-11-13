@@ -20,6 +20,11 @@ import { Injectable, signal } from '@angular/core';
  *  - `load-offline`: el equipo no tiene conexión. Recargar no ayuda; se reintenta.
  *  - `load-server`: el servidor contestó con error (5xx). Ni versión nueva ni la red de quien
  *    la usa.
+ *  - `local-copy`: el archivo SÍ está en el servidor, esta pestaña corre la versión de hoy, y
+ *    hay un service worker controlándola. El único que queda en el camino es la copia que el
+ *    dispositivo tiene guardada, y la cura es borrarla — no recargar (`[AUD.7]`, 2026-11-13:
+ *    recargar devolvía al mismo aviso una y otra vez, porque el service worker sobrevive a la
+ *    recarga y vuelve a servir lo mismo).
  *  - `load-unknown`: no se pudo determinar la causa (el archivo responde bien, o la consulta
  *    también falló). Se DECLARA, no se inventa ninguna de las otras tres.
  *  - `unexpected`: cualquier otra excepción no capturada. Casi siempre la app sigue usable,
@@ -31,12 +36,13 @@ export type AppErrorKind =
   | 'stale-version'
   | 'load-offline'
   | 'load-server'
+  | 'local-copy'
   | 'load-unknown'
   | 'unexpected';
 
 /** Las que tapan la pantalla: la navegación quedó inservible y hay que decidir algo. */
 const BLOQUEANTES: readonly AppErrorKind[] = [
-  'load-checking', 'stale-version', 'load-offline', 'load-server', 'load-unknown',
+  'load-checking', 'stale-version', 'load-offline', 'load-server', 'local-copy', 'load-unknown',
 ];
 
 export function bloquea(kind: AppErrorKind): kind is Exclude<AppErrorKind, 'unexpected'> {

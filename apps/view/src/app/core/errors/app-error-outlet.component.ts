@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { AppErrorService, AppError, AppErrorKind, bloquea } from './app-error.service';
 import { clasificarFallaDeCarga } from './global-error-handler';
+import { repararYRecargar, yaSeReparo } from './rescate';
 
 /**
  * Lo que ve el usuario cuando algo se rompe. Vive en el shell, fuera del router,
@@ -54,15 +55,29 @@ import { clasificarFallaDeCarga } from './global-error-handler';
                 </p>
               } @else {
                 <div class="ae-acts">
-                  @if (a.recargar) {
-                    <button type="button" class="ae-btn" (click)="reload()">
-                      <i class="pi pi-refresh" aria-hidden="true"></i> {{ a.accion }}
-                    </button>
-                  } @else {
-                    <button type="button" class="ae-btn" (click)="reintentar(e)">
-                      <i class="pi pi-replay" aria-hidden="true"></i> {{ a.accion }}
-                    </button>
-                    <button type="button" class="ae-alt" (click)="reload()">Recargar de todos modos</button>
+                  @switch (a.accionTipo) {
+                    @case ('recargar') {
+                      <button type="button" class="ae-btn" (click)="reload()">
+                        <i class="pi pi-refresh" aria-hidden="true"></i> {{ a.accion }}
+                      </button>
+                    }
+                    @case ('reparar') {
+                      <!-- Sin "recargar de todos modos": acá recargar está MEDIDO que no saca
+                           a nadie, y ofrecerlo sería mandar a la persona al mismo lugar. -->
+                      <button type="button" class="ae-btn" (click)="reparar()" [disabled]="reparando()">
+                        @if (reparando()) {
+                          <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Limpiando…
+                        } @else {
+                          <i class="pi pi-wrench" aria-hidden="true"></i> {{ a.accion }}
+                        }
+                      </button>
+                    }
+                    @default {
+                      <button type="button" class="ae-btn" (click)="reintentar(e)">
+                        <i class="pi pi-replay" aria-hidden="true"></i> {{ a.accion }}
+                      </button>
+                      <button type="button" class="ae-alt" (click)="reload()">Recargar de todos modos</button>
+                    }
                   }
                 </div>
                 @if (e.kind !== 'stale-version') {
@@ -286,8 +301,29 @@ export class AppErrorOutletComponent {
     const e = this.err();
     if (!e) return null;
     const causa = e.kind;
-    return bloquea(causa) ? AVISOS[causa] : null;
+    if (!bloquea(causa)) return null;
+    // ⭐ Una reparación que ya se intentó no se vuelve a ofrecer. Si la copia local se limpió
+    // y la pantalla falla igual, la causa es otra: lo honesto es decirlo y dar el código, no
+    // repetir la misma cura con otra redacción.
+    if (causa === 'local-copy' && yaSeReparo()) return AVISO_REPARADO_Y_FALLA;
+    return AVISOS[causa];
   });
+
+  /** Se pone en true de forma SÍNCRONA al primer clic: el botón no acepta un segundo. */
+  readonly reparando = signal(false);
+
+  /**
+   * Borra la copia de código guardada en este dispositivo y vuelve a cargar.
+   *
+   * Es la única salida de `local-copy`: el archivo está en el servidor y la pestaña corre la
+   * versión de hoy, así que lo que sobra es lo guardado acá. **No cierra la sesión** — ver la
+   * cabecera de `rescate.ts`.
+   */
+  async reparar(): Promise<void> {
+    if (this.reparando()) return;
+    this.reparando.set(true);
+    await repararYRecargar();
+  }
 
   /**
    * ⛔ **El bloqueo NO se pinta sobre una pantalla pública.** Medido en producción el 2026-10-14,
@@ -350,8 +386,13 @@ export interface AvisoDeCarga {
   titulo: string;
   texto: string;
   accion: string;
-  /** true = el botón recarga (sirve); false = reintenta, porque recargar no arreglaría nada. */
-  recargar: boolean;
+  /**
+   * Qué hace el botón, y es la pieza que impide prometer de más:
+   *  - `recargar`  la versión nueva ya está en el servidor y recargar la trae;
+   *  - `reparar`   recargar NO alcanza, hay que borrar la copia guardada en el dispositivo;
+   *  - `reintentar` todavía no se sabe o fue pasajero: se vuelve a medir antes de moverse.
+   */
+  accionTipo: 'recargar' | 'reintentar' | 'reparar';
 }
 
 /**
@@ -366,7 +407,7 @@ export const AVISOS: Record<Exclude<AppErrorKind, 'unexpected'>, AvisoDeCarga> =
     titulo: 'Esta pantalla no cargó completa',
     texto: 'Faltó una parte y estamos viendo por qué antes de decirte qué hacer.',
     accion: '',
-    recargar: false,
+    accionTipo: 'reintentar',
   },
   'stale-version': {
     rotulo: 'Versión nueva',
@@ -374,7 +415,7 @@ export const AVISOS: Record<Exclude<AppErrorKind, 'unexpected'>, AvisoDeCarga> =
     texto: 'Se publicó una versión mientras tenías esta pestaña abierta, así que esta pantalla '
       + 'quedó a medias. Recarga para seguir trabajando; no pierdes nada de lo que ya se guardó.',
     accion: 'Recargar ahora',
-    recargar: true,
+    accionTipo: 'recargar',
   },
   'load-offline': {
     rotulo: 'Sin conexión',
@@ -383,7 +424,7 @@ export const AVISOS: Record<Exclude<AppErrorKind, 'unexpected'>, AvisoDeCarga> =
       + 'ninguna versión nueva: en cuanto vuelva la red, vuelve a intentar. No pierdes nada de '
       + 'lo que ya se guardó.',
     accion: 'Reintentar',
-    recargar: false,
+    accionTipo: 'reintentar',
   },
   'load-server': {
     rotulo: 'Servidor',
@@ -391,7 +432,16 @@ export const AVISOS: Record<Exclude<AppErrorKind, 'unexpected'>, AvisoDeCarga> =
     texto: 'Pedimos la parte que falta y el servidor respondió con un error. No es una versión '
       + 'nueva ni tu conexión. Vuelve a intentar en un momento; si sigue igual, reporta el código.',
     accion: 'Reintentar',
-    recargar: false,
+    accionTipo: 'reintentar',
+  },
+  'local-copy': {
+    rotulo: 'Copia de este equipo',
+    titulo: 'La copia guardada en este equipo quedó dañada',
+    texto: 'El archivo que faltó sí está en el servidor y tu versión es la de hoy, así que lo '
+      + 'que falló es la copia que este dispositivo guarda para funcionar rápido. Recargar no '
+      + 'la arregla: hay que borrarla. No cierras sesión ni pierdes lo que ya se guardó.',
+    accion: 'Limpiar y volver a cargar',
+    accionTipo: 'reparar',
   },
   'load-unknown': {
     rotulo: 'Sin determinar',
@@ -399,6 +449,23 @@ export const AVISOS: Record<Exclude<AppErrorKind, 'unexpected'>, AvisoDeCarga> =
     texto: 'Faltó una parte de la pantalla y no pudimos determinar por qué: no fue una versión '
       + 'nueva ni tu conexión. Vuelve a intentar; si se repite, reporta el código.',
     accion: 'Reintentar',
-    recargar: false,
+    accionTipo: 'reintentar',
   },
+};
+
+/**
+ * ⭐ Lo que se dice cuando YA se limpió la copia y la pantalla falla igual.
+ *
+ * No es una variante cosmética de `local-copy`: es el único texto de toda la tabla que admite
+ * que nos quedamos sin explicación después de haber intentado una. Repetir el mismo botón
+ * sería pedirle a la persona que haga dos veces algo que ya no funcionó.
+ */
+export const AVISO_REPARADO_Y_FALLA: AvisoDeCarga = {
+  rotulo: 'Sin determinar',
+  titulo: 'Sigue sin cargar después de limpiar',
+  texto: 'Ya borramos la copia guardada en este equipo y la pantalla volvió a fallar, así que '
+    + 'la causa es otra y no la podemos determinar desde aquí. Reporta el código: lleva el '
+    + 'archivo que faltó y sirve para encontrarlo.',
+  accion: 'Reintentar',
+  accionTipo: 'reintentar',
 };

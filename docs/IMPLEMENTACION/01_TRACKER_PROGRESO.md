@@ -583,63 +583,53 @@ Y se actualiza el símbolo al avanzar:
       **No incluye:** sellar la versión en el build de las tres apps, ni reportar los errores del
       cliente a GlitchTip (ese es el item que mediría la frecuencia).
 
-
-- [ ] **[AUD.6]** 🧪 **El aviso de versión nueva deja de afirmar un despliegue que no ocurrió** —
-      2026-11-12 (lo vio Edgar en prod: la tarjeta «Hay una actualización lista» tapando la pantalla).
-      **Para:** cualquier persona con la Suite abierta (las 9 sucursales) · **Por qué:** es la ley 0 del
-      estándar —*nada afirma lo que no es*— rota en la pantalla que aparece **encima de todo** y cuyo
-      único botón manda a recargar.
-      **Capa:** C3 · **Depende de:** nada.
-      **El defecto, medido hoy:** `isStaleChunk`
-      ([`global-error-handler.ts:45`](../../apps/view/src/app/core/errors/global-error-handler.ts)) da
-      `true` ante `ChunkLoadError` o cinco textos de error, y **ninguno distingue «el archivo ya no
-      existe» de «el archivo no llegó»**. Con eso, `app-error-outlet` bloquea la pantalla y afirma
-      *«Se publicó una versión mientras tenías esta pestaña abierta»* también cuando se cortó la red,
-      cuando el nodo de CDN que le tocó no tenía el archivo, o cuando la máquina está sin conexión —
-      y en esos casos recargar **no la saca de ahí**. ⚠️ **Hoy la app no sabe con qué versión corre**:
-      no hay constante de build en `apps/view` (sin `environment.prod.ts`, sin `APP_COMMIT`); el
-      servidor sí la dice, en `/api/health`.
-      ⛔ **NO MEDIDO:** cuántas veces disparó en falso en prod. Los errores del cliente se guardan en
-      el navegador, no se reportan; hay GlitchTip en el clúster (`obs`) y no se consultó.
-      **Descartado como causa, medido el 2026-11-12:** el `index.html` sale con
-      `no-cache, no-store, must-revalidate` y `cf-cache-status: DYNAMIC` por el dominio, así que el
-      borde **no** sirve un índice viejo; el caso que vio Edgar fue un despliegue real 38 min antes.
-      **Recomendación (decide quien lo tome):** al fallar la carga, **preguntar por el archivo que
-      falló** (`fetch(url, { method:'HEAD', cache:'no-store' })`) y repartir por lo que conteste —
-      404 es versión nueva, un error de red es conexión. No necesita constante de build, funciona sin
-      servidor y no agrega endpoint. La alternativa —sellar la versión en el build y contrastarla
-      contra `/api/health`— es más honesta pero obliga a tocar el build de las tres apps.
+- [ ] **[AUD.7]** 🧪 **Recargar no arregla una copia local rota: el aviso ofrece la cura que sí funciona** —
+      2026-11-13 (lo vio Edgar en prod, en un teléfono: el aviso de [AUD.6] con causa «sin determinar»,
+      y **recargar devolvía al mismo aviso**).
+      **Para:** cualquiera con la Suite instalada o abierta en un equipo que ya cargó antes ·
+      **Por qué:** [AUD.6] dejó de mentir sobre la causa, pero la pantalla seguía sin salida: su único
+      botón manda a recargar y recargar **está medido que no saca a nadie** de este caso.
+      **Capa:** C3 · **Depende de:** [AUD.6] (en prod desde el 2026-11-13).
+      **El defecto, medido hoy:** el grupo `chunks` de
+      [`ngsw-config.json`](../../apps/view/ngsw-config.json) toma **`/*.js`**, así que los trozos de
+      código de cada pantalla los sirve el **service worker** desde su caché y los verifica contra el
+      hash de SU manifiesto. Si ese manifiesto quedó viejo, la carga falla aunque el archivo esté
+      perfecto en el servidor — y **el service worker sobrevive a la recarga**, así que vuelve a servir
+      exactamente lo mismo. Con el archivo contestando 200, el clasificador de [AUD.6] no tenía más
+      preguntas y declaraba `load-unknown`. Medido contra prod el 2026-11-13: un chunk inexistente SÍ
+      da 404 (nginx, por IP y por dominio), así que el 404 no era la causa y la pista quedaba del lado
+      del dispositivo. Y en [`app.component.ts`](../../apps/view/src/app/app.component.ts) el manejador
+      de `unrecoverable` decía literalmente *«single fix: reload»* y recargaba — el mismo ciclo.
       **Criterios:**
-      - Dado un despliegue real y un pedazo de código que ya no existe (HTTP 404), cuando la pestaña
-        vieja navega, entonces tapa la pantalla, dice que hay versión nueva y ofrece «Recargar ahora»
-        (lo de hoy, que se conserva).
-      - Dado que el archivo falla **sin respuesta del servidor** (red cortada, DNS, TLS), entonces
-        **no** afirma que se publicó nada: dice que la pantalla no pudo cargar por la conexión y
-        ofrece **reintentar sin recargar**.
-      - Dado `navigator.onLine === false`, entonces lo nombra como falta de conexión.
-      - Dado que no se puede determinar la causa (la consulta por el archivo también falla), entonces
-        lo **declara** —«no pudimos saber por qué»— y no inventa ninguna de las dos.
-      - Dado un 5xx del servidor, entonces se distingue de los dos anteriores y no dice «versión nueva».
-      - ❌ Prueba negativa: forzar un 404 y un corte de red en la misma pantalla y verificar que
-        **cambia el texto**; un gate sin prueba negativa es una intención.
-      **Verificado contra:** el commit que publica `/api/health` y el estado HTTP real del archivo.
+      - Dado que el archivo responde 200, la pestaña corre el `main-*.js` de hoy y **hay un service
+        worker controlando**, entonces la causa es `local-copy` y el botón **limpia la copia** (da de
+        baja los service workers y vacía las cachés) antes de recargar.
+      - Dado lo mismo **sin** service worker, entonces **no** se culpa a la copia local: se declara
+        indeterminado. Sin ese testigo no hay a quién atribuirle la falla.
+      - Dado que el error no traía archivo que preguntar, entonces la medición **sigue**: compara el
+        `main-*.js` de la pestaña contra el del `index.html` de hoy; distintos = `stale-version`.
+      - Dado que ya se limpió en esta pestaña y vuelve a fallar, entonces **lo admite por escrito** y
+        no vuelve a ofrecer la misma cura (tope de un intento, marca en `sessionStorage`).
+      - La reparación **no cierra la sesión**: `localStorage` no se toca (el rescate de arranque de
+        `index.html` sí lo limpia, pero ahí la app ni montó).
+      - ❌ Prueba negativa: quitar el testigo del service worker y verificar que la suite se pone roja.
+      **Verificado contra:** el estado HTTP real del archivo en prod y el `main-*.js` que sirve
+      `index.html`.
       **¿Escribe?** no.
-      **Hecho (2026-11-12, 🧪):** `clasificarFallaDeCarga` le pregunta al servidor por el archivo
-      que falló (`HEAD`, `no-store`, corte a 4 s **por carrera, no por la señal de aborto** — la
-      prueba del tiempo encontró que delegarlo en `AbortSignal` deja el aviso colgado si quien
-      contesta la ignora). Seis causas en vez de dos (`load-checking` mientras se pregunta,
-      `stale-version` sólo con 404/410, `load-offline`, `load-server`, `load-unknown`, `unexpected`)
-      y un texto por causa; los tres que no son despliegue lo **niegan por escrito**, y sólo
-      `stale-version` manda a recargar — «Reintentar» se **niega a recargar sin conexión**, porque
-      eso deja a la persona en la pantalla de error del navegador. **18 de 18** en
-      `falla-de-carga.spec.ts`, con **prueba negativa corrida**: devolver `stale-version` ante un
-      503 pone la suite en rojo en el caso que le toca. `tsc --noEmit` de `apps/view` limpio;
-      compuertas de plantillas, estilos y motion en verde (el halo del botón nuevo va con
-      `--focus-ring`, no con el `--action-ring` de 1.56:1 que la compuerta lleva como deuda).
-      ⛔ **Sin validación visual:** no se vio la tarjeta en un navegador — los cuatro textos están
-      probados como dato, no como pantalla.
-      **No incluye:** sellar la versión en el build de las tres apps, ni reportar los errores del
-      cliente a GlitchTip (ese es el item que mediría la frecuencia).
+      **Hecho (2026-11-13, 🧪):** `rescate.ts` nuevo (purga, tope de un intento, comparación de
+      versión); el clasificador gana una segunda medida cuando el servidor NO acusa al archivo, y una
+      sexta causa `local-copy`; el aviso cambia el booleano `recargar` por **tres** salidas
+      (`recargar` · `reintentar` · `reparar`) y el botón de reparar se deshabilita **síncrono** al
+      primer clic; `unrecoverable` purga en vez de recargar. **38 de 38** entre `rescate.spec.ts` y
+      `falla-de-carga.spec.ts`, con **prueba negativa corrida**: sin el testigo del service worker la
+      suite se pone en rojo en el caso que le toca. `tsc --noEmit` de `apps/view` limpio; plantillas y
+      estilos en verde.
+      ⛔ **Sin validación visual:** no se vio el botón nuevo en un navegador.
+      ⛔ **NO MEDIDO:** cuántos equipos están hoy en ese estado. Los errores del cliente siguen sin
+      reportarse a GlitchTip.
+      **No incluye:** `apps/vendor`, que tiene el MISMO `unrecoverable` con el mismo recargar pelado
+      ([`app.component.ts:68`](../../apps/vendor/src/app/app.component.ts)) — queda como deuda con nombre.
+
 
 ### Fase MOS — Buscador de mostrador y productos no registrados · 2026-10-16 · rama `feat/mostrador-buscador-no-registrados`
 
@@ -5340,7 +5330,7 @@ cerrados con `validated_by = 'Claude Vision'`.
 - [ ] **[PQ.97]** 🧪 C0 (2026-11-10, plan §19.8; backtest §19.9) **Preliminar de temporada: qué puede sobrar antes del cierre** (3 y 1 semanas antes), con sobrante esperado por producto × sucursal y la acción (no reponer, mover, adelantar promoción) — **Capa:** C0 → C1. **Backtest Muertos 2026 (8 sucursales, árbitro = foto del 3-nov):** el preliminar (curva 2025 × razón) **no le gana al ingenuo** (recall 65 % vs 76 % a 3 semanas; venta proyectada 2.2× la real); el ingenuo sí gana al trivial (MAE −34 %). Recomendado: ritmo 2 sem × factor agregado de la temporada anterior (recall 83 %, MAE $223 mil sobre $290 mil reales a 21 d; 89 % y $100 mil a 7 d) y universo U4 (falsos 34 → 17). Navidad 2025 sólo venta (ingenuo −15 %/−24 %); sobrante y CEDIS NO MEDIDOS. ⛔ Los $1.25 M del corte de Navidad no se citan. Falta C1 (vista) y confirmación de Compras (D35).
 - [ ] **[PQ.98]** ⬜ (2026-11-10, plan §19.8) **Informes preliminar y de cierre asistidos con IA** — **Capa:** C2 → C3. El SQL calcula, la IA redacta; un número del texto que no esté en la tabla bloquea el envío; lo envía una persona (DESIGN §X). Depende de ADR-007 (proveedor) y de PQ.97.
 - [ ] **[PQ.99]** 🔨 C3 (2026-11-10, commit 4a47f16a7: /compras/temporadas con Calendario y Productos de una temporada-año, confirmar/descartar por lote; check:pantalla 10/10, plantilla tipada con control, 14/14 vitest de sus reglas; vista viva en el Docker local (calendario, confirmar y corregir fechas); En curso, Remate e Informes siguen fuera) (plan §19.8) **Pantalla Compras › Temporadas** (Calendario · En curso · Cierre y remate · Informes) con permisos `COMPRAS_TEMPORADAS_VER`/`_GESTIONAR` repartidos a Compras, Mercadotecnia y Dirección — **Capa:** C3, skill `diseno`. Maqueta: `C:\DEV\_reportes\maqueta-temporadas.html`. **Depende de:** PQ.94, PQ.96, PQ.97.
-- [ ] **[PQ.110]** 🔨 (2026-11-09, plan §20, §20.6) **Cancelar la OC en Kepler desde `/compras/oc-abiertas`** — **Capa:** C0–C3. Hoy el aviso dice «ciérrala en Kepler a mano». Arranca midiendo qué escribe Kepler al cancelar una OC con y sin vale. Prioridad 1 junto con PQ.111. **2026-11-09:** huella en el ODS medida (cancelar = importes y `c42` en 0, renglones fuera; ninguna OC con vale cancelada). Falta el testigo del Kepler vivo por `xmin` (espera autorización del PM).
+- [ ] **[PQ.110]** 🔨 (2026-11-09, plan §20, §20.6) **Cancelar la OC en Kepler desde `/compras/oc-abiertas`** — **Capa:** C0–C3. Hoy el aviso dice «ciérrala en Kepler a mano». Arranca midiendo qué escribe Kepler al cancelar una OC con y sin vale. Prioridad 1 junto con PQ.111. **2026-11-09:** huella en el ODS medida (cancelar = importes y `c42` en 0, renglones fuera; ninguna OC con vale cancelada). Falta el testigo del Kepler vivo por `xmin` (espera autorización del PM). **2026-11-13 (anexo K §3c, autorizado por Edgar):** testigo por respaldo de `md` contra prod — cancelar = `c43`→C, `c15`/`c16`/`c42`→0, `c67`→quien cancela, `c68`/`c69`→fecha de cancelación, renglones de `kdm2` borrados ⇒ necesita `DELETE` en `kdm2` (D40). 20 de 195 OC de la Suite canceladas a mano en Kepler. Universo: OC sin vale vivo; motivo obligatorio. Pendiente: si el borrado de renglones es un segundo paso de Kepler o retraso de la réplica. **D40 = (a), Edgar 2026-11-13:** `ops/prod/kepler-grants/pq110_cancelar_oc.sql` (UPDATE de 9 columnas de `kdm1` + DELETE en `kdm2`): **aplicado en 01, 06 y 07 (2026-11-13, verificado); falta 00, 02 y 08** (`pg_hba` no deja entrar a `sa`).
 - [ ] **[PQ.111]** 🔨 (2026-11-09, plan §20, §20.6) **Saldar la OC abierta en Kepler, una o masivo, desde `oc-abiertas`** — **Capa:** C0–C3. `X-A-90` se usó 1 vez en la historia; la necesidad son las OC sin vale (2 % de 15–90 días). ⛔ Qué escribe «saldar» es INFERIDO (`c43='F'`, `c42=0`): primero se lee un saldado real.
 - [ ] **[PQ.112]** ⚠️ D37 de PQ (2026-11-09, plan §20) **Cerrar la recepción en el Andén escribe el vale y la orden de entrada en Kepler** — **Capa:** C0–C3. Hoy son tres capturas el mismo día por recepción (~115 diarias). Mueve inventario: espera D37 de PQ, PQ.110/111 y KR.7.
 - [ ] **[PQ.113]** ⚠️ D37 de PQ (2026-11-09, plan §20) **El reclamo resuelto «devolver al proveedor» genera la devolución `X-D-40`** — **Capa:** C0–C3. 114 en 90 días; sin plan previo en ninguna fase.
@@ -5353,7 +5343,9 @@ cerrados con `validated_by = 'Claude Vision'`.
 - [ ] **[PQ.120]** ⚠️ DT3 de PQ, de Edgar (anexo T §2.3) **Liga requisición de la Suite ↔ `U-D-40`** — **Capa:** C0–C2. Hoy 0 de 1,228; la escritura de traspaso está apagada en 00/01/08 y 355 de 359 aprobadas no llegaron.
 - [ ] **[PQ.121]** ⬜ (anexo T §2.2) **Lo no medido de la cadena**: 278 embarques sin destino traducible, 74 «EMBARCADO» sin `U-D-41` vivo, recepción de las `U-D-6` — **Capa:** C0.
 - [ ] **[PQ.122]** ⬜ (2026-11-12, anexo K §8) **Inventario de «Reportes» del menú Compras de Kepler**: nombre de cada reporte, quién lo abre (si `orglogtbl` lo permite), qué decisión se toma con él y qué pantalla de la Suite ya la contesta; ninguno se copia tal cual (DK3, sin firma). Espera la captura desplegada del menú — **Capa:** C0.
-- [ ] **[PQ.123]** ⬜ (2026-11-12, anexo K §8) **La ficha de la cadena de compra por folio** («Consulta de documentos» de Kepler): requisición → OC → vale → orden de entrada → aplicación → pago, leída del ODS por las ligas `c37`/`c39` (sin importer ni copia), con la misma pieza que la ficha del anexo T (DK2, sin firma). Se abre desde el buscador. Control: una OC terminada con su cadena completa y una sin vale — **Capa:** C0–C3.
+- [ ] **[PQ.123]** ⬜ (2026-11-12, anexo K §8) **La ficha de la cadena de compra por folio** («Consulta de documentos» de Kepler): requisición → OC → vale → orden de entrada → aplicación → pago, leída del ODS por las ligas `c37`/`c39` (sin importer ni copia), con la misma pieza que la ficha del anexo T (DK2, sin firma). Se abre desde el buscador. **C0 primero (2026-11-13): medir cada liga después del vale (vale → orden de entrada → aplicación → pago) con cobertura y control negativo; la que no pase se dibuja «sin liga medida».** Cierre: una OC terminada con su cadena completa, una sin vale y una cancelada — **Capa:** C0–C3.
+- [x] **[PQ.124]** ✅ 2026-11-13 (anexo K §3b): liga OC → vale con placebo 98.4 % vs 18.1 %/3.2 %; N con vale = 143 (no 154); cancelaciones = 249 OC sin vale + 112 recepciones anuladas enteras; recaptura **no concluyente** (Kepler sobrescribe la fecha al cancelar, §3c); la 01 cancela 27 %; autorización sin regla; la Suite escribe X-A-30/35 en 00/01/02/06/07/08 (169 OC). Decide PQ.110 = «Cancelar OC sin vale» con motivo. (2026-11-13, anexo K §8) **Las cancelaciones de OC, medidas** (sólo lectura en `pg-prod`): control negativo de la liga OC → vale (folio ±1 y otra sucursal ≈ 0; las 360 canceladas, 0), clasificar las 360 cancelaciones en recaptura / no surtido / otro (con tasa de azar contra OC no canceladas), quién y dónde cancela, las autorizaciones de DK1 por sucursal y usuario, y en qué sucursales escribe hoy la Suite. Cierre: tabla en el anexo, META con número y decisión de PQ.110 («cancelar» o «reemplazar OC»). Va antes que PQ.110 — **Capa:** C0.
+- [x] **[PQ.125]** ✅ 2026-11-13 (anexo K §3b.6): 74 OC parciales con último vale de hace más de 30 días, ≈ $10.9 M de saldo nominal → PQ.111 sigue; antes, medir si el tránsito de `/compras/pedido` cuenta esas OC. (2026-11-13, anexo K §8) **La necesidad real de «saldar»**: OC en R sin vale nuevo en 30/60/90 días con su saldo en pesos, y OC en N/A sin vale con más de 30 días (hoy 39), por sucursal. Cierre: si el saldo viejo es material, sigue PQ.111; si no, PQ.111 pasa a ❌ «no se hace» con la cifra — **Capa:** C0.
 - [x] **[PQ.58]** ✅ 2026-11-04 **Árbitro del peldaño por unidad ASENTADA, identificada por precio** (plan §18; el commit y el archivo dicen `pq41` por choque de códigos) — `7b438a6c1`. **Capa:** C0. Aplicada: celdas sin valuar 428 → 316, ninguna nueva; mutante 428 → 11,385 (abortó).
 - [x] **[PQ.59]** ✅ 2026-11-04 **Historia de la ficha de Kepler mantenida por trigger** (`analytics.kepler_ficha_history`, plan §18) — `fb95bcc85`/`ea13b53c2`. **Capa:** C0. Aplicada: 86,076 fichas iniciales, 0 errores, 3 triggers. Prueba 17/17 (CI ✅), mutante 9 rojos.
 - [x] **[PQ.60]** ✅ 2026-11-04 **Unidades del kardex desde el último conteo, por trigger** (`analytics.kardex_unit_state`, plan §18) — `41548bafb`. **Capa:** C0. Aplicada: 40,202 llaves, 1,356 mezcladas, 0 errores; se actualiza sola con cada movimiento. Prueba 15/15 (CI ✅). La clasificación A/B/C/D y la pantalla van en PQ.65.
@@ -6012,6 +6004,12 @@ Detalle: `docs/MODULOS/finanzas-mis-gastos-v2.md`. Sale de una auditoría en pro
   re-piden sus archivos a `GET /:id`. Spec: 4 pruebas; negativa (sin el re-pedido) → 2 rojas. **NO MEDIDO en
   prod**: no se pudo ver la pantalla viva (sin sesión) ni el `S3_ENDPOINT` del pod; si el PDF tampoco aparece
   recién cargada la página, la causa es otra.
+- [x] **[GX.111]** 🧪 Nómina (Edgar, 2026-11-12): al capturar el vale, Transferencia o Cheque ya **no exigen** la
+  referencia ni el número de cheque — la nómina se solicita antes de pagarse y ese dato llega al pagar. Si se
+  escribe, se sigue validando. La nómina se reconoce por el **beneficiario `NOMINA`** de la solicitud de Kepler
+  (prod, 120 días: 263 solicitudes, una sola variante); no por la cuenta GN001, renombrada el 8-nov. Regla única
+  en `faltaParaMandar` (pantalla + 400). Spec: 5 pruebas, con la negativa (fuera de nómina sigue exigiéndose).
+  **Sin validación visual** ni prueba contra base real del `POST`.
 - [ ] **[GX.91.x]** Declarado: **sin validación en prod** (sí en local con `database/scripts/dev-seed-gx91-mis-gastos.js`
   y en una maqueta con la pantalla real y datos de demo); sin medir modo claro, Alto Contraste y ancho de teléfono.
   Sin migraciones ni permisos nuevos → sin re-login. Pendiente del PM: relacionar el usuario de Kepler con el de la
@@ -13761,9 +13759,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
 - [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.
 - [ ] **[GP.9]** 🔨 Continuidad desde telemarketing (Edgar, 2026-11-12): la cotización sigue a su pedido y el surtidor recibe lo que la cotización sabe. FASE_GP §11. D1 (cupo, 6 de 4) y D2 (piloto) son de Edgar.
-  - [ ] **[GP.9.1]** 🧪 Seguimiento en `/telemarketing/cotizaciones/:id` (2026-11-12): Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado desde el ODS (`GET /commercial/quotes/:id/tracking`, sólo lectura, sin migración), quién (clave de Kepler o nombre de la Suite), canceladas tachadas, identidad del pedido (98 confirmadas · 8 por folio · 3 dudosas con aviso) y hallazgos AX.22. Prod READ ONLY: 109 cotizaciones, 26 ms p50 / 86 ms máx; control de cliente 106/109 contra placebo 18/107. Pruebas 18 + 9 + 7 con negativas. ⚠️ Sin validación visual; arranque de Nest no verificado en proceso real.
+  - [x] **[GP.9.1]** ✅ 2026-11-12 en prod (b62a14c66; /api/health lo sirve, la API arrancó con el módulo, la ruta responde 401 sin token). Seguimiento en `/telemarketing/cotizaciones/:id` (2026-11-12): Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado desde el ODS (`GET /commercial/quotes/:id/tracking`, sólo lectura, sin migración), quién (clave de Kepler o nombre de la Suite), canceladas tachadas, identidad del pedido (98 confirmadas · 8 por folio · 3 dudosas con aviso) y hallazgos AX.22. Prod READ ONLY: 109 cotizaciones, 26 ms p50 / 86 ms máx; control de cliente 106/109 contra placebo 18/107. Pruebas 18 + 9 + 7 con negativas. ⚠️ Sin validación visual; arranque de Nest no verificado en proceso real.
   - [ ] **[GP.9.2]** 🧪 Aviso de caja por renglón en `/almacen/surtir` (2026-11-12): *capturada con otra caja* (factor del pedido ≠ ficha, vista AX.22.1 → se cuenta en la BASE, el faltante sin ×factor viejo) o *en transición* (`kepler_ficha_history`, 30 días, por nombre de unidad: 19 SKU de 1,477 en la 06; por casilla habrían sido 178). Prod READ ONLY: 15 olas, 16 ms p50 / 50 ms máx; Canindo → «Cuenta 400 PAQ, no cajas.». Pruebas 17 + 3 de pantalla con mutante. Pendiente: observaciones/dirección TLMK y capturar «esta caja trae N» (escribe). FASE_GP §11.3.
-  - [ ] **[GP.9.3]** ⬜ El faltante del surtidor avisa al vendedor y alimenta DN (espera D2).
+  - [x] **[GP.9.3]** ✅ 2026-11-12 en prod (b7269e0d7, /api/health). Lo cotizado contra lo que quedó en Kepler, en el seguimiento (2026-11-12): Kepler corrige el pedido al faltar (pedido=embarque 698/698), así que el testigo es la cotización. 67 de 115 cotizaciones con cambios: 448 renglones quitados, 51 bajados, 14 subidos, 27 agregados; testigo de existencia 32.8 % vs 5.8 % (apunta a faltante, no lo prueba). 32 ms p50. Pendiente: aviso en campana al cambiar; faltante del surtidor en la Suite (espera D2). FASE_GP §11.4.
 
 **Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-087) — ⚠️ absorbidos por la Fase UB (2026-10-08, ADR-090)**
 - [ ] **[WMS.2]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
