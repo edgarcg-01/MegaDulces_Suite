@@ -9,6 +9,7 @@ import { ParticipanteRanking, RankingSemana } from '../mkt-ranking.service';
 import { environment } from '../../../../environments/environment';
 
 const BASE = `${environment.apiUrl}/commercial/mkt-ranking`;
+const PROV = '11111111-2222-4333-8444-555555555555';
 
 const p = (over: Partial<ParticipanteRanking>): ParticipanteRanking => ({
   clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
@@ -26,8 +27,10 @@ const ranking = (over: Partial<RankingSemana> = {}): RankingSemana => ({
     p({ clave: '04|', warehouse_code: '04', warehouse_name: 'Yurécuaro', nombre: 'Yurécuaro', lugar: null, puntaje: null, con_objetivo: 0, sin_objetivo: 3, cumplidas: 0,
       promos: [{ ...p({}).promos[0], objetivo: null, objetivo_fuente: null, cubrimiento: null }] }),
   ],
-  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1' }], promo_filtrada: null,
-  promos_ranking: [{ promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
+  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', proveedor_id: PROV }], promo_filtrada: null,
+  proveedores_lista: [{ id: PROV, code: 'CD015', name: 'DULCES DEMO SA', promos: 1 }], proveedor_filtrado: null,
+  promos_ranking: [{ promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', proveedor: { id: PROV, code: 'CD015', name: 'DULCES DEMO SA' }, proveedor_fuente: 'asignado',
+    productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
     participantes: 2, venta_total: 18, objetivo_total: 10, lugar: 1, puntaje: 0.9, con_objetivo: 1, sin_objetivo: 1, cumplidas: 0, sin_venta: 0 }],
   vendedoras: {
     tickets_con_promo: 10, tickets_con_vendedora: 4,
@@ -153,6 +156,64 @@ describe('[MKT.11] MktRankingComponent', () => {
     expect(comp.filasDePromo().map((f) => f.nombre)).toEqual(['Padre Hidalgo', 'Yurécuaro']);
     comp.elegirEstado('sin_venta');
     expect(comp.filasPromo()).toEqual([]);
+  });
+
+  it('[MKT.24] proveedor: lo pide al servidor, se ve como etiqueta y la portada del PDF lo nombra; quitarlo lo suelta', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    expect(comp.opcionesProveedor()).toEqual([{ label: 'CD015 · DULCES DEMO SA (1)', value: PROV }]);
+    comp.elegirProveedor(PROV);
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('proveedor') === PROV).flush(ranking({ proveedor_filtrado: PROV }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(comp.chips().map((c) => c.texto)).toContain('DULCES DEMO SA');
+    expect(comp.filtrosTexto()).toContain('Proveedor: DULCES DEMO SA');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('El lugar se calcula sólo con las promociones de DULCES DEMO SA');
+    comp.quitarFiltro('proveedor');
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && !q.params.has('proveedor')).flush(ranking());
+    await fixture.whenStable();
+    expect(comp.hayFiltros()).toBe(false);
+  });
+
+  it('[MKT.24] «Sin proveedor asignado» se ofrece como filtro y se pide como «sin»', async () => {
+    const { comp, http, fixture } = await montar(ranking({ proveedores_lista: [{ id: null, code: null, name: 'Sin proveedor asignado', promos: 3 }] }));
+    expect(comp.opcionesProveedor()).toEqual([{ label: 'Sin proveedor asignado (3)', value: 'sin' }]);
+    comp.elegirProveedor('sin');
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('proveedor') === 'sin').flush(ranking());
+    await fixture.whenStable();
+    expect(comp.chips().map((c) => c.texto)).toContain('Sin proveedor asignado');
+  });
+
+  it('⭐ [MKT.25] la promoción abierta dice su proveedor y QUIÉN la vendió, con lo atribuido contra el total', async () => {
+    const { comp, fixture } = await montar(ranking());
+    comp.elegirVista('promociones');
+    comp.abrirPromo(comp.filasPromo()[0]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(comp.vendedorasDePromo().map((v) => [v.nombre, v.cantidad])).toEqual([['VENDEDORA DEMO A', 7], ['VENDEDORA DEMO B', 2]]);
+    // 7 + 2 = 9 con vendedora, de 9 + 9 = 18 vendidas: lo atribuido no se presenta como el total.
+    expect(comp.textoAtribuido()).toBe('Con vendedora: 9 de 18 piezas. El resto, la cajera aún no lo asigna en el arqueo.');
+    const texto = document.body.textContent || '';
+    expect(texto).toContain('CD015 · DULCES DEMO SA');
+    expect(texto).toContain('Quién la vendió');
+    expect(texto).toContain('VENDEDORA DEMO A');
+    // con el filtro de sucursal, sólo las de esa sucursal
+    comp.sucursales.set(['01']);
+    expect(comp.vendedorasDePromo().map((v) => v.nombre)).toEqual(['VENDEDORA DEMO A']);
+  });
+
+  it('[negativa MKT.25] si ninguna cajera la asignó, lo dice en vez de una tabla vacía', async () => {
+    const { comp, fixture } = await montar(ranking({ vendedoras: { ...ranking().vendedoras!, personas: [] } }));
+    comp.elegirVista('promociones');
+    comp.abrirPromo(comp.filasPromo()[0]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(comp.vendedorasDePromo()).toEqual([]);
+    expect(document.body.textContent).toContain('Ninguna cajera ha escrito quién vendió esta promoción esta semana.');
   });
 
   it('[MKT.18] por vendedora: dice cuánto está atribuido y dónde no hay captura (no lo dibuja como cero)', async () => {

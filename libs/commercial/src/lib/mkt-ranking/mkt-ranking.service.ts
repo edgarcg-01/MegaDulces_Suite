@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+import { TenantCacheService, TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import {
   Canal, CANALES, CANAL_TEXTO, Semana, TipoIncentivo, Redondeo,
   esCanal, resolverSemana, sumarDias, cubrimiento, puntaje, ordenarRanking, promedioGeneral,
@@ -43,6 +44,53 @@ export interface PromoMkt {
   updated_by_username: string | null;
   /** `[MKT.15]` Qué producto activa la promoción, derivado de los tickets (sólo en el listado). */
   productos?: ProductosDePromo;
+  /**
+   * `[MKT.24]` El proveedor: el que asignó Mercadotecnia o, si no asignó, el del PRODUCTO que activa
+   * la promo (`proveedor_fuente`). NULL = ninguno de los dos.
+   */
+  proveedor?: ProveedorPromo | null;
+  /** `[MKT.24]` De dónde salió el proveedor: `asignado` (Mercadotecnia) · `producto` (derivado) · NULL. */
+  proveedor_fuente?: FuenteProveedor;
+}
+
+/** `[MKT.24]` De dónde salió el proveedor de una promo. */
+export type FuenteProveedor = 'asignado' | 'producto' | null;
+
+/** `[MKT.24]` Un proveedor de `catalog.suppliers`, con su clave de Kepler. */
+export interface ProveedorPromo { id: string; code: string; name: string }
+
+/** `[MKT.24]` Valor del filtro «sin proveedor asignado». */
+export const SIN_PROVEEDOR = 'sin';
+
+/**
+ * `[MKT.24]` El proveedor de una promo por su PRODUCTO: el de los productos que la activan
+ * (`[MKT.15]`, ticket + nombre), sólo si TODOS tienen proveedor y es el MISMO. Si uno no tiene o
+ * hay dos distintos, no se adivina: NULL. Medido en prod (2026-11-13, 108 promos de 5 semanas): 57
+ * con un solo proveedor y nombre que lo confirma (VOLT → AJEMEX, Kisses → Hershey, Nutresa →
+ * Tresmontes Lucchetti); 5 con varios; 46 sin producto identificado.
+ */
+export function proveedorDelProducto(deProductos: Array<ProveedorPromo | null | undefined>): ProveedorPromo | null {
+  if (!deProductos.length || deProductos.some((p) => !p)) return null;
+  const ids = new Set(deProductos.map((p) => p!.id));
+  return ids.size === 1 ? deProductos[0]! : null;
+}
+
+/**
+ * `[MKT.24]` Los proveedores de un conjunto de promos, con cuántas tiene cada uno: por nombre, y
+ * «Sin proveedor asignado» al final — es lo que falta, se cuenta, no se esconde.
+ */
+export function listaProveedores(promos: Array<{ proveedor?: ProveedorPromo | null }>): RankingSemana['proveedores_lista'] {
+  const de = new Map<string, { id: string; code: string; name: string; promos: number }>();
+  let sin = 0;
+  for (const p of promos) {
+    if (!p.proveedor) { sin++; continue; }
+    const a = de.get(p.proveedor.id) ?? { ...p.proveedor, promos: 0 };
+    a.promos++;
+    de.set(p.proveedor.id, a);
+  }
+  const lista: RankingSemana['proveedores_lista'] = [...de.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  if (sin) lista.push({ id: null, code: null, name: 'Sin proveedor asignado', promos: sin });
+  return lista;
 }
 
 /** `[MKT.15]` La venta de la semana de un producto de la promoción, en el participante. */
@@ -123,9 +171,16 @@ export interface RankingSemana {
   canal_texto: string;
   promos_vigentes: number;
   /** `[MKT.16]` Todas las promos vigentes del canal, para el filtro (aunque se pida una sola). */
-  promos_lista: Array<{ id: string; code: string; mecanica: string }>;
+  promos_lista: Array<{ id: string; code: string; mecanica: string; proveedor_id: string | null }>;
   /** La promo pedida en el filtro; NULL = todas (o el id no es una promo vigente de este canal). */
   promo_filtrada: string | null;
+  /**
+   * `[MKT.24]` Los proveedores de las promos del canal, con cuántas tiene cada uno, para el filtro;
+   * `id: null` = las que nadie ha asignado (siempre al final, si hay).
+   */
+  proveedores_lista: Array<{ id: string | null; code: string | null; name: string; promos: number }>;
+  /** `[MKT.24]` El proveedor pedido (`id` o `'sin'`); NULL = todos. */
+  proveedor_filtrado: string | null;
   promedio_general: number | null;
   participantes: ParticipanteRanking[];
   /** `[MKT.16]` El ranking de promociones: cada promo, con los participantes que la tienen. */
@@ -155,6 +210,9 @@ export interface PromoEnRanking {
   promo_id: string;
   code: string;
   nombre: string;
+  /** `[MKT.24]` NULL = ni asignado ni derivable del producto. */
+  proveedor: ProveedorPromo | null;
+  proveedor_fuente: FuenteProveedor;
   productos: string[];
   productos_metodo: MetodoProducto;
   participantes: number;
@@ -235,6 +293,8 @@ export interface IncentivoConResultado extends Incentivo {
 }
 
 const TIPOS: readonly TipoIncentivo[] = ['por_caja', 'por_unidad', 'por_monto', 'por_cliente', 'por_captura'];
+/** `[MKT.26]` Cuánto vive en caché el producto identificado de cada promo. */
+const PRODUCTOS_TTL_MS = 10 * 60_000;
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const CODIGO = /^[0-9A-Za-z]{1,20}$/;
 /** `[MKT.22]` Una promo de Kepler sin renglón propio todavía: su id es el código con prefijo. */
@@ -256,7 +316,26 @@ export class MktRankingService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // `[MKT.26]` Opcional, como en margin-engine: sin Redis (o en pruebas) se calcula sin caché.
+    @Optional() private readonly cache?: TenantCacheService,
   ) {}
+
+  /**
+   * `[MKT.26]` `productosDePromos` con caché por tenant (Redis, 10 min). El producto se deduce de 4
+   * semanas de tickets y casi no cambia; recalcularlo en cada cambio de filtro o de canal costaba
+   * ~1.5 s (medido en prod). La llave son los códigos y sus ventanas: otra semana es otra llave.
+   */
+  private async productosConCache(
+    trx: Knex.Transaction,
+    pedidos: Array<{ code: string; descripcion: string | null; desde: string; hasta: string }>,
+  ): Promise<Map<string, ProductosDePromo>> {
+    if (!this.cache) return this.productosDePromos(trx, pedidos);
+    const firma = [...pedidos].sort((a, b) => a.code.localeCompare(b.code) || a.desde.localeCompare(b.desde))
+      .map((p) => `${p.code}|${p.desde}|${p.hasta}|${p.descripcion ?? ''}`).join('\n');
+    const llave = 'mkt-ranking:productos:' + createHash('sha1').update(firma).digest('hex');
+    const pares = await this.cache.getOrSet(llave, PRODUCTOS_TTL_MS, async () => [...(await this.productosDePromos(trx, pedidos)).entries()]);
+    return new Map(pares);
+  }
 
   // ═════════════════════════════════ promociones (alta) ═════════════════════════════════
 
@@ -271,11 +350,35 @@ export class MktRankingService {
       const promos = await this.promosVigentes(trx, semana, undefined, { ventanaSemanas: 5 });
       // `[MKT.15]` El producto de cada promo, de los tickets de sus últimas 4 semanas.
       const hoy = todayMx();
-      const productos = await this.productosDePromos(trx, promos.map((p) => {
+      const productos = await this.productosConCache(trx, promos.map((p) => {
         const hace4 = sumarDias(hoy, -27);
         return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: hoy };
       }));
-      return promos.map((p) => ({ ...p, productos: productos.get(p.code) }));
+      const conProv = await this.conProveedorDelProducto(trx, promos, productos);
+      return conProv.map((p) => ({ ...p, productos: productos.get(p.code) }));
+    });
+  }
+
+  /**
+   * `[MKT.24]` A cada promo SIN proveedor asignado le pone el de su producto (`proveedorDelProducto`),
+   * marcado `proveedor_fuente = 'producto'`. Sólo de productos identificados por ticket y nombre:
+   * `mismo_codigo` es el propio código de la promo, cuyo proveedor en Kepler es la cubeta.
+   */
+  private async conProveedorDelProducto(trx: Knex.Transaction, promos: PromoMkt[], ident: Map<string, ProductosDePromo>): Promise<PromoMkt[]> {
+    const deProducto = (p: PromoMkt) => { const x = ident.get(p.code); return x?.metodo === 'ticket_y_nombre' ? x.productos : []; };
+    const skus = [...new Set(promos.filter((p) => !p.proveedor).flatMap((p) => deProducto(p).map((x) => x.sku)))];
+    if (!skus.length) return promos;
+    const r = await trx.raw(
+      `SELECT DISTINCT ON (btrim(p.sku)) btrim(p.sku) sku, s.id, s.code, s.name
+         FROM catalog.products p JOIN catalog.suppliers s ON s.id = p.supplier_id
+        WHERE btrim(p.sku) = ANY(?::text[]) AND p.deleted_at IS NULL
+        ORDER BY btrim(p.sku), p.activo DESC, p.updated_at DESC NULLS LAST`, [skus]);
+    const de = new Map<string, ProveedorPromo>((r.rows as Array<Record<string, unknown>>).map((x) => [String(x['sku']),
+      { id: String(x['id']), code: String(x['code'] ?? '').trim(), name: String(x['name'] ?? '').trim() }]));
+    return promos.map((p) => {
+      if (p.proveedor) return p;
+      const prov = proveedorDelProducto(deProducto(p).map((x) => de.get(x.sku)));
+      return prov ? { ...p, proveedor: prov, proveedor_fuente: 'producto' as const } : p;
     });
   }
 
@@ -316,7 +419,10 @@ export class MktRankingService {
          SELECT DISTINCT l.code, l.w, l.caja, l.folio, l.doc_tipo FROM l JOIN p ON p.code = l.code AND l.d BETWEEN p.desde AND p.hasta
        ),
        n AS (SELECT code, count(*)::int tickets FROM t GROUP BY 1),
-       co AS (
+       -- [MKT.26] MATERIALIZED: el planificador estimaba 1 fila (son ~27 mil) y la recalculaba UNA
+       -- VEZ POR PROMOCIÓN (61 × 255 ms). Medido en prod (2026-11-13, sólo lectura): ranking 14.9 s →
+       -- 1.4 s y Objetivos 27.3 s → 1.4 s, con el resultado idéntico fila por fila (948 y 1,203).
+       co AS MATERIALIZED (
          SELECT t.code, btrim(d.c8) sku, count(DISTINCT (t.w, t.caja, t.folio))::int tk
            FROM t JOIN kepler_ods.kdm2 d
              ON btrim(d.sucursal) = t.w AND d.c2 = 'U' AND d.c3 = 'D' AND d.c4::int = t.doc_tipo
@@ -510,6 +616,52 @@ export class MktRankingService {
         ultima_venta: ymdOrNull(x['ultima']),
         ya_registrada: x['ya'] === true,
       }));
+    });
+  }
+
+  // ═════════════════════════════════ proveedor (`[MKT.24]`) ═════════════════════════════════
+
+  /**
+   * `[MKT.24]` Los proveedores activos para asignar a una promo (1,026 en prod, medido 2026-11-13:
+   * caben en una respuesta y se filtran en la pantalla por clave o nombre).
+   */
+  async proveedores(): Promise<ProveedorPromo[]> {
+    return this.tk.run(async (trx) => {
+      const rows = await trx('catalog.suppliers').whereNull('deleted_at').where('activo', true)
+        .select('id', 'code', 'name').orderBy('name');
+      return (rows as Array<Record<string, unknown>>).map((r) => ({ id: String(r['id']), code: String(r['code'] ?? '').trim(), name: String(r['name'] ?? '').trim() }));
+    });
+  }
+
+  /**
+   * `[MKT.24]` Asigna (o quita, con NULL) el proveedor de una promo. Una promo de Kepler sin renglón
+   * lo crea aquí, como al fijar su primer objetivo; quitarle el proveedor a una que no tiene renglón
+   * no crea nada. El proveedor tiene que existir y estar activo.
+   */
+  async asignarProveedor(promoId: string, supplierId: string | null | undefined, quien: Quien): Promise<{ proveedor: ProveedorPromo | null }> {
+    const sid = supplierId ? String(supplierId).trim() : null;
+    if (sid && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) throw new BadRequestException('El proveedor no es válido');
+    return this.tk.run(async (trx) => {
+      let proveedor: ProveedorPromo | null = null;
+      if (sid) {
+        const p = await trx('catalog.suppliers').where({ id: sid }).whereNull('deleted_at').where('activo', true).first('id', 'code', 'name');
+        if (!p) throw new NotFoundException('Ese proveedor no existe o ya no está activo');
+        proveedor = { id: String(p.id), code: String(p.code ?? '').trim(), name: String(p.name ?? '').trim() };
+      }
+      const id = await this.promoIdParaObjetivos(trx, promoId, !!sid, quien);
+      if (!id) return { proveedor: null };
+      try {
+        await trx('commercial.mkt_ranking_promos').where({ id }).update({
+          supplier_id: sid, updated_by: quien.id ?? null, updated_by_username: quien.username ?? null, updated_at: trx.fn.now(),
+        });
+      } catch (e) {
+        // Código desplegado antes que su migración: se dice qué falta, no un 500 mudo.
+        if (/supplier_id/.test(String((e as Error)?.message))) {
+          throw new ServiceUnavailableException('Falta aplicar la migración del proveedor de promociones ([MKT.24]). Avísale a Sistemas.');
+        }
+        throw e;
+      }
+      return { proveedor };
     });
   }
 
@@ -798,6 +950,15 @@ export class MktRankingService {
     }
     const regDe = new Map<string, Record<string, unknown>>();
     for (const r of registradas as Array<Record<string, unknown>>) if (!regDe.has(String(r['code']))) regDe.set(String(r['code']), r);
+    // `[MKT.24]` Antes de aplicar su migración la columna no viene en `p.*`: todas salen sin proveedor.
+    const provIds = [...new Set([...regDe.values()].map((r) => r['supplier_id']).filter((x): x is string => typeof x === 'string' && !!x))];
+    const provDe = new Map<string, ProveedorPromo>();
+    if (provIds.length) {
+      const ps = await trx('catalog.suppliers').whereIn('id', provIds).select('id', 'code', 'name');
+      for (const p of ps as Array<Record<string, unknown>>) {
+        provDe.set(String(p['id']), { id: String(p['id']), code: String(p['code'] ?? '').trim(), name: String(p['name'] ?? '').trim() });
+      }
+    }
     const out: PromoMkt[] = [];
     for (const [code, v] of porCode) {
       if (!v.canales.size) continue; // vendió antes, pero no en la semana (o ventana) pedida
@@ -818,6 +979,8 @@ export class MktRankingService {
         objetivos: reg ? n(reg['objetivos']) : 0,
         updated_at: reg && reg['updated_at'] instanceof Date ? (reg['updated_at'] as Date).toISOString() : '',
         updated_by_username: reg ? ((reg['updated_by_username'] as string) ?? null) : null,
+        proveedor: reg && typeof reg['supplier_id'] === 'string' ? (provDe.get(reg['supplier_id']) ?? null) : null,
+        proveedor_fuente: reg && typeof reg['supplier_id'] === 'string' && provDe.has(reg['supplier_id']) ? 'asignado' : null,
       });
     }
     return out.sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es'));
@@ -867,51 +1030,92 @@ export class MktRankingService {
    * `sucursales`: el ranking de PROMOCIONES se calcula sólo con los participantes de esas sucursales;
    * el de participantes no cambia (su lugar es el de toda la semana; la pantalla sólo filtra filas).
    */
-  async ranking(semanaPedida: string | undefined, canalPedido: string | undefined, promoId?: string, sucursales?: string[]): Promise<RankingSemana> {
+  async ranking(semanaPedida: string | undefined, canalPedido: string | undefined, promoId?: string, sucursales?: string[], proveedor?: string): Promise<RankingSemana> {
     const canal: Canal = esCanal(canalPedido) ? canalPedido : 'mostrador';
     const semana = this.semana(semanaPedida);
-    return this.tk.run(async (trx) => {
-      const nombres = await this.nombresSucursal(trx);
-      const todas = (await this.promosVigentes(trx, semana, canal)).filter((p) => p.canales.includes(canal));
-      const promos = promoId ? todas.filter((p) => p.id === promoId) : todas;
+    // `[MKT.26]` En TRAMOS cortos y en paralelo, sin anidar: ninguno retiene su conexión mientras espera a
+    // otro (con un pool de 10, anidar podía trabar peticiones simultáneas). Antes era una sola transacción
+    // y sus consultas iban en fila: medido en prod (sólo lectura), Sucursales 4.4 s → ver el doc de fase.
+    {
+      type Filas = { rows: Array<Record<string, unknown>> };
+      // Las existencias (sólo mostrador) arrancan YA, para TODOS los códigos de promoción: no esperan a
+      // saber cuáles vendieron. Medido en prod: 355 códigos como ARREGLO en 0.8 s (menos que 61: otro
+      // plan); como subconsulta `ANY(ARRAY(SELECT …))` el plan empeora (~5 s el ranking). Por eso dos pasos.
+      const existenciasP: Promise<Filas> = canal === 'mostrador'
+        ? this.tk.run(async (t) => {
+          const cods = (await t.raw(
+            `SELECT DISTINCT btrim(sku) s FROM catalog.products
+              WHERE is_promo AND deleted_at IS NULL AND sku IS NOT NULL AND btrim(sku) <> ''`)).rows.map((x: { s: string }) => x.s);
+          return t.raw(`SELECT warehouse_code, sku, qty_stock_units FROM analytics.v_erp_stock_on_hand WHERE sku = ANY(?::text[])`, [cods]) as unknown as Promise<Filas>;
+        })
+        : Promise.resolve({ rows: [] });
+      existenciasP.catch(() => undefined); // se espera abajo
+      const [nombres, delCanal] = await this.tk.run(async (trx) => [
+        await this.nombresSucursal(trx),
+        (await this.promosVigentes(trx, semana, canal)).filter((p) => p.canales.includes(canal)),
+      ] as const);
+      // Lo que NO depende del proveedor sale ya, para todas las promos del canal; se filtra en memoria.
+      const codesCanal = [...new Set(delCanal.map((p) => p.code))];
+      const idsCanal = delCanal.map((p) => p.id).filter((id) => !ID_KEPLER.test(id)); // los k-… no tienen objetivos fijos
+      const independientes: Promise<[Filas, Array<Record<string, unknown>>, ObjetivoDinamico[]] | null> = delCanal.length
+        ? Promise.all([
+          this.tk.run((t) => t.raw(
+            `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code,
+                    max(vendor_name) vendor_name, sku, sum(qty) qty, array_agg(DISTINCT producto) descripciones
+               FROM analytics.v_kepler_sales_lines
+              WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
+              GROUP BY 1, 2, 4`,
+            [canal, semana.lunes, semana.hasta, codesCanal, canal]) as unknown as Promise<Filas>),
+          this.tk.run((t) => t('commercial.mkt_ranking_objectives').whereIn('promo_id', idsCanal).where('canal', canal) as unknown as Promise<Array<Record<string, unknown>>>),
+          // `[MKT.17]` El objetivo dinámico de ESTA semana (la matview, ~130 ms medido).
+          this.tk.run((t) => this.objetivosDinamicos(t, delCanal, semana, [canal])),
+        ])
+        : Promise.resolve(null);
+      independientes.catch(() => undefined); // se espera abajo; esto sólo evita un «rechazo sin manejar» entretanto
+      // `[MKT.15]` El producto de cada promo (tickets de las 4 semanas que cierran ésta, sin salir de su
+      // vigencia) se identifica ANTES de filtrar: de él sale el proveedor derivado (`[MKT.24]`), que filtra.
+      const hace4 = sumarDias(semana.lunes, -21);
+      const [identificados, todas] = await this.tk.run(async (trx) => {
+        const ident = delCanal.length
+          ? await this.productosConCache(trx, delCanal.map((p) => ({
+            code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: semana.hasta,
+          })))
+          : new Map<string, ProductosDePromo>();
+        return [ident, await this.conProveedorDelProducto(trx, delCanal, ident)] as const;
+      });
+      // `[MKT.24]` El proveedor filtra como la promo: el lugar se recalcula sólo con las suyas.
+      const delProveedor = (p: PromoMkt) => !proveedor || (proveedor === SIN_PROVEEDOR ? !p.proveedor : p.proveedor?.id === proveedor);
+      const promos = todas.filter((p) => (!promoId || p.id === promoId) && delProveedor(p));
       const base: RankingSemana = {
         semana, canal, canal_texto: CANAL_TEXTO[canal], promos_vigentes: promos.length,
-        promos_lista: todas.map((p) => ({ id: p.id, code: p.code, mecanica: p.mecanica }))
+        promos_lista: todas.map((p) => ({ id: p.id, code: p.code, mecanica: p.mecanica, proveedor_id: p.proveedor?.id ?? null }))
           .sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es')),
         promo_filtrada: promoId ? (promos[0]?.id ?? null) : null,
+        proveedores_lista: listaProveedores(todas),
+        proveedor_filtrado: proveedor ?? null,
         promedio_general: null, participantes: [], promos_ranking: [], vendedoras: null,
         criterio: 'Objetivo = el que fijó Mercadotecnia o, si no fijó, el DINÁMICO: el promedio de las 4 semanas anteriores '
           + 'dentro de la vigencia, recalculado cada semana. '
           + 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
           + 'las promociones CON objetivo; las que no tienen se cuentan aparte. Venta = veces que se aplicó el código de '
-          + 'promoción en Kepler, de lunes a domingo.',
+          + 'promoción en Kepler, de lunes a domingo, en piezas (en Kepler la caja de un código de promoción es de 1 '
+          + 'pieza; las cajas son las del producto que la activa, cuando se identifica). Proveedor = el que asignó '
+          + 'Mercadotecnia en Objetivos o, si no asignó, el del producto que activa la promoción (marcado «del '
+          + 'producto», sólo si todos sus productos son de un mismo proveedor). Kepler registra el código de la '
+          + 'promoción a nombre de «PROMOCIONES MKT».',
         consultado_at: new Date().toISOString(),
       };
-      if (!promos.length) return base;
+      if (!promos.length) { await Promise.all([independientes, existenciasP]); return base; }
 
-      const codes = [...new Set(promos.map((p) => p.code))];
-      const ids = promos.map((p) => p.id).filter((id) => !ID_KEPLER.test(id)); // los k-… no tienen objetivos fijos
-      const [identificados, ventas, objetivos, existencias, dinamicos] = await Promise.all([
-        // `[MKT.15]` El producto de cada promo: tickets de las 4 semanas que cierran ésta, sin salir de su vigencia.
-        this.productosDePromos(trx, promos.map((p) => {
-          const hace4 = sumarDias(semana.lunes, -21);
-          return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: semana.hasta };
-        })),
-        trx.raw(
-          `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code,
-                  max(vendor_name) vendor_name, sku, sum(qty) qty, array_agg(DISTINCT producto) descripciones
-             FROM analytics.v_kepler_sales_lines
-            WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
-            GROUP BY 1, 2, 4`,
-          [canal, semana.lunes, semana.hasta, codes, canal],
-        ),
-        trx('commercial.mkt_ranking_objectives').whereIn('promo_id', ids).where('canal', canal),
-        canal === 'mostrador'
-          ? trx.raw(`SELECT warehouse_code, sku, qty_stock_units FROM analytics.v_erp_stock_on_hand WHERE sku = ANY(?::text[])`, [codes])
-          : Promise.resolve({ rows: [] }),
-        // `[MKT.17]` El objetivo dinámico de ESTA semana (la matview, ~130 ms medido).
-        this.objetivosDinamicos(trx, promos, semana, [canal]),
-      ]);
+      // Quién vendió (mostrador) también en paralelo con lo que sigue.
+      const vendedorasP = canal === 'mostrador' ? this.tk.run((t) => this.vendedorasDeLaSemana(t, promos, semana, nombres)) : Promise.resolve(null);
+      vendedorasP.catch(() => undefined);
+      const [[ventasCanal, objetivosCanal, dinamicosCanal], existencias] = await Promise.all([independientes.then((x) => x!), existenciasP]);
+      const codeSet = new Set(promos.map((p) => p.code));
+      const idSet = new Set(promos.map((p) => p.id));
+      const ventas = { rows: ventasCanal.rows.filter((v) => codeSet.has(String(v['sku']))) };
+      const objetivos = objetivosCanal.filter((o) => idSet.has(String(o['promo_id'])));
+      const dinamicos = dinamicosCanal.filter((d) => idSet.has(d.promo_id));
 
       const ventaDe = new Map<string, { qty: number; desc: string[]; vendor_name: string }>();
       for (const v of ventas.rows as Array<Record<string, unknown>>) {
@@ -936,13 +1140,13 @@ export class MktRankingService {
       const skusProducto = [...new Set([...identificados.values()].flatMap((x) => x.productos.map((p) => p.sku)))];
       const [ventaProd, factores] = skusProducto.length
         ? await Promise.all([
-          trx.raw(
+          this.tk.run((trx) => trx.raw(
             `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code, sku, sum(qty) qty
                FROM analytics.v_kepler_sales_lines
               WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
               GROUP BY 1, 2, 3`,
-            [canal, semana.lunes, semana.hasta, skusProducto, canal]),
-          trx.raw(`SELECT sucursal, sku, factor_caja FROM analytics.v_kepler_unit_ladder WHERE sku = ANY(?::text[])`, [skusProducto]),
+            [canal, semana.lunes, semana.hasta, skusProducto, canal]) as unknown as Promise<Filas>),
+          this.tk.run((trx) => trx.raw(`SELECT sucursal, sku, factor_caja FROM analytics.v_kepler_unit_ladder WHERE sku = ANY(?::text[])`, [skusProducto]) as unknown as Promise<Filas>),
         ])
         : [{ rows: [] }, { rows: [] }];
       const prodDe = new Map<string, number>();
@@ -1020,7 +1224,7 @@ export class MktRankingService {
         const pt = puntaje(filas.map((x) => ({ promo_id: p.id, objetivo: x.objetivo, venta: x.venta })));
         const ident = identificados.get(p.code);
         return {
-          promo_id: p.id, code: p.code, nombre: p.mecanica,
+          promo_id: p.id, code: p.code, nombre: p.mecanica, proveedor: p.proveedor ?? null, proveedor_fuente: p.proveedor_fuente ?? null,
           productos: (ident?.productos ?? []).map((x) => x.nombre ?? x.sku),
           productos_metodo: ident?.metodo ?? ('sin_identificar' as MetodoProducto),
           participantes: filas.length,
@@ -1029,9 +1233,9 @@ export class MktRankingService {
           ...pt,
         };
       }));
-      const vendedoras = canal === 'mostrador' ? await this.vendedorasDeLaSemana(trx, promos, semana, nombres) : null;
+      const vendedoras = await vendedorasP;
       return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking, vendedoras };
-    });
+    }
   }
 
   // ═════════════════════════════════ incentivos ═════════════════════════════════
