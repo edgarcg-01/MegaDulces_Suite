@@ -1221,9 +1221,11 @@ export class FinanceBankService {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
-        .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'))
+        .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'),
+          // [CB.68] Hasta dónde ve el cierre: texto, no Date, para que la zona del servidor no lo corra un día.
+          trx.raw(`to_char(MAX(bm.movement_date), 'YYYY-MM-DD') AS hasta`))
         .first();
-      const sc = await trx('finance.bank_movements as bm')
+      const sc =await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.category_id').whereNull('bm.deleted_at')
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')).first();
@@ -1242,7 +1244,8 @@ export class FinanceBankService {
         .where('ba.active', true)
         .whereRaw(`coalesce(ba.kind,'bank') <> 'cash'`)
         .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
-        .select('ba.bank', 'ba.account_label', 'ba.kind');
+        // [CB.68] Con su alias («BB 3660»), el mismo nombre que usa el aviso de descargas y la hoja del libro.
+        .select('ba.bank', 'ba.account_label', 'ba.kind', trx.raw(`coalesce(ba.alias, ba.bank || ' ' || ba.account_label) AS alias`));
       // ¿Ya corrió la conciliación por-transacción? Si 0 casados, la evidencia dirá
       // "sin casar en Kepler" en TODO → engañoso (parece que falta en Kepler cuando
       // en realidad no se ha pareado). Avisamos que corra "Conciliar" primero.
@@ -1345,9 +1348,13 @@ export class FinanceBankService {
     // 3. Cuentas sin estado de cuenta cargado (CAJA GENERAL, etc.).
     for (const c of cuentasSinEstado as any[]) {
       items.push({ tipo: 'cuenta_sin_cargar', severidad: 'warn', importe: 0,
-        titulo: `${c.bank} ${c.account_label}: sin cargar`,
-        detalle: `La cuenta existe en el catálogo pero no tiene estado de cuenta en ${period}.${c.kind === 'cash' ? ' (CAJA GENERAL tiene un layout de columnas distinto — pendiente de soportar.)' : ''}`,
-        accion: 'Sube su estado de cuenta del periodo, o desactívala en Admin si ya no aplica.' });
+        // [CB.68] La acción decía «Sube su estado de cuenta» y el botón abre el libro CUENTAS: volver a subir el
+        // mismo libro la vuelve a dejar fuera si su hoja se llama distinto. Así lleva BB 3660 de septiembre a
+        // noviembre de 2026 (la hoja es «BB 366», CB.60). Se dice la causa que más pasa y se nombra Configuración,
+        // que es como se llama en pantalla (decía «Admin»). La nota de CAJA GENERAL se fue: la consulta ya excluye la caja.
+        titulo: `${c.alias}: sin movimientos en ${period}`,
+        detalle: `La cuenta está activa pero no tiene movimientos cargados en ${period}: ni el libro CUENTAS ni la descarga del banco los metieron al cierre.`,
+        accion: `Si viene en el libro con otro nombre de hoja, renombra la hoja como «${c.alias}» y vuelve a subir el libro: si no, se vuelve a quedar fuera. Si ya tiene su descarga del banco, úsala con «Usar el banco» en Estados de cuenta. Si la cuenta ya no se usa, desactívala en Configuración (el engrane).` });
     }
     // 4. Traspasos internos que no netean (TI=TE).
     if (Math.abs(bal.traspasos.delta) >= 1000) {
@@ -1375,7 +1382,8 @@ export class FinanceBankService {
         .orderByRaw('(bm.amount_in + bm.amount_out) DESC').limit(6)).catch(() => []);
       // Las cuentas sin estado de cuenta ya están calculadas arriba: si hay alguna, es la
       // explicación más probable y conviene decirla en la acción, no dejarla para adivinar.
-      const faltantes = (cuentasSinEstado as any[]).map((a) => a.account_label).filter(Boolean);
+      // [CB.68] Sólo cuentas de banco (los huérfanos se buscan sólo ahí: FACTORAJE no explica un traspaso), por su alias.
+      const faltantes = (cuentasSinEstado as any[]).filter((a) => (a.kind ?? 'bank') === 'bank').map((a) => a.alias).filter(Boolean);
       items.push({ tipo: 'traspaso_descuadre', severidad: 'warn', importe: Math.abs(bal.traspasos.delta),
         titulo: 'Los traspasos internos no netean',
         detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales: lo que sale de una cuenta nuestra entra en otra.`,
@@ -1497,6 +1505,7 @@ export class FinanceBankService {
       period,
       ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100,
       movimientos: n((totales as any)?.movs),
+      movimientos_hasta: (totales as any)?.hasta ?? null,
       cuadra,
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,
