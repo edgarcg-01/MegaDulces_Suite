@@ -1342,7 +1342,7 @@ export class FinanceBankService {
         detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan.`,
         // [CB.70] Decía «la clasificación no se edita aquí… en Kepler»: corregir en Kepler no le pone categoría al
         // movimiento. Ahora se categoriza en el detalle del movimiento, con la pieza y el permiso del puente (CP.8.80).
-        accion: 'Abre «Ver sin clasificar» y, en el detalle de cada egreso, usa «Categorizar»: con la casilla quedan también todos los que empiecen con el mismo nombre, ahora y en los próximos estados de cuenta. Lo hacen Finanzas y Contabilidad (permiso «Categorizar egresos en el Puente ContPAQi»). Si no sabes qué es, en Kepler búscalo por monto y fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Los depósitos todavía no se categorizan en la suite: se corrigen con su código en el libro CUENTAS.',
+        accion: 'Abre «Ver sin clasificar» y, en el detalle de cada egreso, usa «Categorizar»: con la casilla quedan también todos los que empiecen con el mismo nombre, ahora y en los próximos estados de cuenta. Lo hacen Tesorería, Finanzas y Contabilidad (permiso «Categorizar egresos en el Puente ContPAQi»). Si no sabes qué es, en Kepler búscalo por monto y fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Los depósitos todavía no se categorizan en la suite: se corrigen con su código en el libro CUENTAS.',
         evidencia });
     }
     // 2. Cuentas cuyo saldo no cuadra (+ evidencia: el renglón donde el saldo salta).

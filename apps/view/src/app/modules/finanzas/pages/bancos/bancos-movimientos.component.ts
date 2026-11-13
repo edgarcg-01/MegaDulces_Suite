@@ -155,7 +155,7 @@ import { CategorizarEgresoComponent } from '../../../../shared/components/catego
                           <span class="p-button-icon p-button-icon-left pi pi-tag" aria-hidden="true"></span><span class="p-button-label">Categorizar</span></button>
                       }
                     } @else {
-                      <p class="fb-det-nota">Sin categoría. Lo categoriza quien tiene el permiso «Categorizar egresos en el Puente ContPAQi» (Finanzas y Contabilidad).</p>
+                      <p class="fb-det-nota">Sin categoría. Lo categoriza quien tiene el permiso «Categorizar egresos en el Puente ContPAQi» (Tesorería, Finanzas y Contabilidad).</p>
                     }
                   } @else {
                     <p class="fb-det-nota">Es un depósito sin categoría: los depósitos todavía no se categorizan en la suite. Ponle su código en el libro CUENTAS y vuelve a subirlo.</p>
@@ -331,8 +331,8 @@ export class BancosMovimientosComponent {
 
   /**
    * `[CB.70]` Categorizar desde aquí usa la pieza del puente (`[CP.8.80]`) y su permiso. ⚠️ Cortesía, no puerta:
-   * manda el guard del endpoint. Medido el 2026-11-13: lo tienen finanzas, contabilidad y superadmin; NO
-   * `finanzas_operativo` ni `tesoreria`, que ven quién lo hace.
+   * manda el guard del endpoint. Lo tienen finanzas, contabilidad y superadmin, y desde la migración
+   * `20261113172620` (Edgar, 2026-11-13) también `finanzas_operativo` y `tesoreria`; quien no, ve quién lo hace.
    */
   private readonly perms = inject(PermissionsService);
   readonly puedeCategorizar = this.perms.has$(Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR);
