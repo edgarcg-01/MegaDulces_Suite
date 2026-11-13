@@ -298,7 +298,9 @@ const STEPS = {
     // la era Wincaja está CERRADA — lo que se mueve intradía es el push, que ya corre cada hora.
     path.join(K, 'import-canindo-routes-monthly.js'),
     [path.join(K, 'reconcile-route-provenance.js'), '--apply'], // VP/ADR-056 (deuda D) — DECLARA push vs branch en la llave que ambos escriben (GREATEST ciego); tras push+canindo. Sólo metadata → route_monthly_provenance; el sensor route_provenance dispara si branch gana (push atorado)
-    path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
+    // RETIRADO 2026-11-12 [CANON.6.16]: repoint-catalog-presence.js — altas, reactivaciones y factor de caja vacío
+    // los hace el hop-2 al llegar el cambio de kdii (normalizeProductsFromOds + normalizeFactorSale). En 30 días el
+    // nocturno dio 1 alta, 5 reactivaciones y ~40 factores. El .js queda como herramienta manual.
     // RETIRADO 2026-11-12 [CANON.6.10]: repoint-catalog-names.js — el nombre (y la marca de una clave
     // reusada) lo mantiene el hop-2 al llegar el cambio de kdii (`normalizeProductsFromOds`), que ahora
     // mueve la marca y no tumba el lote por dos SKUs al mismo nombre; un normalizador que falla se
@@ -378,7 +380,10 @@ const STEPS = {
     // 10 ya eran vistas y 5 congeladas; lo pendiente era lo escrito ese día por la app y la carga de RH.
   ],
   catalog: [
-    path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
+    // RETIRADO 2026-11-12 [CANON.6.12]: import-brands-lineas.js — una línea nueva de Kepler es marca AL
+    // LLEGAR (`normalizeBrandsFromKdig`, hop-2 de `kdig`), y sus productos salen de SIN-LINEA. Aquí, los
+    // sábados, una línea nueva esperaba hasta 7 días y sus productos se quedaban en SIN-LINEA para siempre
+    // (31 vivos el 12-nov). El .js queda como herramienta manual.
     // CANON.0.2 (2026-08-21) — RETIRADOS los 2 escritores .245 (Mega_Dulces) → mata la fuente .245 (7→6):
     //   · import-catalog-bulk.js  — su COSTO ya lo cubre repoint-catalog-cost (CANON.0.1); nombre/precio/
     //     presencia/barcode los cubren los repoints ODS (CANON.1.3). Los campos ESTÁTICOS que solo él
@@ -420,7 +425,9 @@ const STEPS = {
     //
     // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
     // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
-    path.join(K, 'import-product-barcodes.js'),                  // → catalog.product_barcodes (1 SKU → N, Kepler ∪ Wincaja)
+    // RETIRADO 2026-11-12 [CANON.6.14]: import-product-barcodes.js — lo de Kepler lo mantiene el hop-2 al llegar
+    // Y al borrarse una fila de kdii; lo de Wincaja venía de una foto congelada (29-sep) y sólo revivía, como
+    // CJA, códigos que Kepler había retirado (102 vivos así). El .js queda como herramienta manual, Kepler solo.
     // `[VPR.3]` 2026-10-05 — ESTE PASO YA NO ESCRIBE EL PRECIO. Pasaba `--sync` y competia con
     // `services/feeds-ingest/ods-derived.js`, que escribe la MISMA columna con la politica
     // contraria: este ponia lo que Kepler CONFIGURA (`kdii.c90`) y aquel lo que el PdV COBRA

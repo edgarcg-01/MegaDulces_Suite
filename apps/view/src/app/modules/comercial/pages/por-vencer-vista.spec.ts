@@ -18,6 +18,12 @@ describe('[CE.1.4] Por vencer: ¿se puede creer la cantidad del lote?', () => {
       'Puede estar ya vendido: hay 1,250 sin fecha de este producto en este almacén y la venta descuenta primero lo sin fecha');
   });
 
+  it('⭐ [CE.1.7] lo fechado excede la existencia de Kepler: dice que YA se vendió parte, con las dos cantidades', () => {
+    const l = { dated_may_be_stale: true, na_qty: -30, stock_erp: '10', dated_qty: 40 };
+    expect(confianzaLote(l)).toBe('vendido');
+    expect(textoConfianza(l)).toBe('Ya se vendió parte: hay 40 con fecha y Kepler sólo tiene 10 de este producto en este almacén');
+  });
+
   it('sin NA la cantidad se puede creer: no se dice nada', () => {
     expect(confianzaLote({ dated_may_be_stale: false })).toBe('cierta');
     expect(textoConfianza({ dated_may_be_stale: false, na_qty: 0 })).toBeNull();

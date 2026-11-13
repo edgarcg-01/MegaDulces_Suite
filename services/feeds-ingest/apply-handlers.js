@@ -21,7 +21,7 @@ const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute')
 const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
-const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -480,30 +480,7 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     // se llena de errores que no son fallas — y un tablero con ruido se lee igual que uno apagado.
     // Default sin cambios: si `normalize` no viene, se comporta exactamente como antes.
     const normalizar = !(meta && meta.normalize === false);
-    const cfg = (schema === 'kepler_ods' && normalizar) ? ODS_NORMALIZERS[table] : null;
-    if (cfg && Array.isArray(rows) && rows.length) {
-      const skuCol = cfg.skuCol || pk[0];
-      const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
-      if (keys.length) {
-        for (const norm of cfg.fns) {
-          // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
-          // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
-          const clave = `${table}:${norm.name}`;
-          if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
-          // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
-          try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
-          catch (e) {
-            // `[CANON.6.10]` Ya no hay barrido nocturno que «lo tome»: se reintenta AQUÍ, partiendo el lote.
-            const r = await reintentarPorPartes(client, tenantId, norm, keys);
-            const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
-            if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
-            else console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
-              + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
-              + ' — quedan como estaban hasta su próximo cambio; las mide el script manual en seco');
-          }
-        }
-      }
-    }
+    if (schema === 'kepler_ods' && normalizar) await normalizarLlaves(client, tenantId, table, rows, pk);
     // [DB-MEM.20] FUERA del `if (cfg…)` a propósito: si `kdm2` deja de embarcar un rato, lo que ya
     // se juntó igual tiene que salir. Es no-op mientras no le toque la ventana, y nunca tira.
     if (schema === 'kepler_ods' && normalizar && pendientes.size) {
@@ -514,6 +491,42 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
+  }
+}
+
+/**
+ * Corre los normalizadores de `table` (ODS_NORMALIZERS) sobre las llaves de `rows`, cada uno en su PROPIA tx:
+ * si uno falla NO tumba a los otros ni al CDC. Lo usan `raw-upsert` (lo que llegó) y, desde `[CANON.6.14]`,
+ * `raw-delete` (lo que Kepler quitó). Nunca lanza por un normalizador: lo reintenta partiendo el lote y, si
+ * sigue fallando, lo deja como dato en `analytics.hop2_fallas`.
+ */
+async function normalizarLlaves(client, tenantId, table, rows, pk) {
+  const cfg = ODS_NORMALIZERS[table];
+  if (!cfg || !Array.isArray(rows) || !rows.length) return;
+  const skuCol = cfg.skuCol || pk[0];
+  const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
+  if (!keys.length) return;
+  for (const norm of cfg.fns) {
+    // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
+    // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
+    const clave = `${table}:${norm.name}`;
+    if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
+    try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
+    catch (e) {
+      // `[CANON.6.10]` Ya no hay barrido nocturno que «lo tome»: se reintenta AQUÍ, partiendo el lote.
+      const r = await reintentarPorPartes(client, tenantId, norm, keys);
+      const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
+      if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
+      else {
+        // `[CANON.6.11]` La falla definitiva queda como DATO en el momento (el log del pod se pierde en
+        // cada reinicio); el sensor `hop2_fallas` de db-health la lleva a la bandeja.
+        const reg = await registrarFalla(client, tenantId, table, norm.name, r.fallidas, keys.length, r.error);
+        console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
+          + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
+          + ` — quedan como estaban hasta su próximo cambio; ${reg ? 'registrada en analytics.hop2_fallas'
+            : 'NO se pudo registrar (¿falta la migración 20261112102727?)'}`);
+      }
+    }
   }
 }
 
@@ -552,6 +565,13 @@ async function applyRawDelete(client, tenantId, rows, meta) {
        VALUES ($1, now(), $2, $2)
        ON CONFLICT (table_name) DO UPDATE SET last_push_at=now()`, [table, del.rowCount]).catch(() => {});
     await client.query('COMMIT');
+    // `[CANON.6.14]` Lo que Kepler QUITA también se normaliza. Antes el borrado llegaba al ODS y nadie
+    // recalculaba: un SKU que Kepler eliminó de `kdii` dejaba vivos sus códigos de barras (y su precio, su
+    // promo…) hasta que un barrido los encontraba — medido el 12-nov: 4 de las 5 bajas de códigos que hizo
+    // `import-product-barcodes` en dos semanas eran SKUs que ya no existen en `kdii`. Los normalizadores
+    // recalculan desde lo que QUEDA (idempotentes); si la llave no viene en las filas del borrado (p. ej. el
+    // SKU de `kdik` va en `c2`, fuera de su PK), no corre nada.
+    if (del.rowCount && !(meta && meta.normalize === false)) await normalizarLlaves(client, tenantId, table, rows, pk);
     return del.rowCount;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -649,6 +669,31 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     const fallback = (await client.query(
       `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' LIMIT 1`, [tenantId])).rows[0]?.id || null;
 
+    // 0) `[CANON.6.16]` REACTIVAR: el SKU sólo tiene filas BORRADAS en el catálogo y Kepler lo trae VIVO —precio real
+    //    (c90 > 0.05) con un nombre que no es «DESCONTINUADO» ni sólo asteriscos, en alguna plaza—. Lo hacía
+    //    `repoint-catalog-presence.js` de noche (5 en 30 días); aquí el alta de abajo no lo tomaba porque el SKU ya
+    //    tiene fila. Una sola fila por SKU (la más reciente): reactivar dos dejaría dos vivas con el mismo SKU. Después
+    //    el UPDATE de identidad de abajo le pone el nombre, la marca y el código de hoy.
+    //    Dos pasos a propósito: primero —barato, sobre el catálogo— qué SKUs del lote sólo tienen filas borradas (casi
+    //    nunca hay); sólo entonces se mira `kdii`, y acotado a ésos (leer `kdii` entero con ILIKE y regex costó ~1 s).
+    const borrados = (await client.query(`
+      SELECT DISTINCT p.sku FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM catalog.products a WHERE a.tenant_id = $1 AND a.sku = p.sku AND a.deleted_at IS NULL)`,
+      [tenantId])).rows.map((r) => r.sku);
+    const react = !borrados.length ? 0 : (await client.query(`
+      WITH vivo AS (
+        SELECT DISTINCT btrim(k.c1) AS sku FROM kepler_ods.kdii k
+         WHERE btrim(k.c1) = ANY($2::text[]) AND k.c90::numeric > 0.05 AND btrim(coalesce(k.c2, '')) <> ''
+           AND btrim(k.c2) NOT ILIKE '%DESCONTINUADO%' AND btrim(k.c2) !~ '^[*[:space:]]+$'),
+      cand AS (
+        SELECT DISTINCT ON (p.sku) p.id
+          FROM catalog.products p JOIN vivo v ON v.sku = p.sku
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NOT NULL
+         ORDER BY p.sku, p.updated_at DESC NULLS LAST, p.id)
+      UPDATE catalog.products p SET deleted_at = NULL, updated_at = now()
+        FROM cand WHERE p.id = cand.id`, [tenantId, borrados])).rowCount;
+
     // 1) INSERT nuevos: sku sin fila alguna, (brand,nombre) sin colisión, marca = resuelta ∨ fallback.
     const ins = fallback ? (await client.query(`
       INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, source, created_at, updated_at)
@@ -670,26 +715,34 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     //     se valida renglón por renglón, el NOT EXISTS sólo ve el estado previo, y un 23505 revertía
     //     TODOS los SKUs del lote. Pasa el de clave menor; el otro queda como estaba (igual que antes
     //     con el barrido, que deduplicaba por la misma razón).
+    //   · `[CANON.6.12]` un producto que entró a SIN-LINEA (su línea todavía no era marca) pasa a la marca
+    //     de su línea en cuanto ésta existe. Antes NADIE lo movía: el alta de marcas sólo creaba la marca y
+    //     este UPDATE sólo cambiaba marca al renombrar — 31 productos vivos se quedaron en SIN-LINEA con su
+    //     marca ya creada (KURUMAYA, COLOMBINA, PERFETTI…; medido en prod el 12-nov). Sólo desde SIN-LINEA:
+    //     una marca puesta a mano (dedup de CANON.1.3b) no se toca.
     const idn = (await client.query(`
       WITH cand AS (
         SELECT p.id, p.sku, s.nombre,
                CASE WHEN btrim(upper(p.nombre)) <> btrim(upper(s.nombre)) THEN COALESCE(s.brand_id, p.brand_id)
+                    WHEN p.brand_id = $2::uuid AND s.brand_id IS NOT NULL THEN s.brand_id
                     ELSE p.brand_id END AS marca,
                ${BARCODE_CASE} AS cb,
-               (p.nombre IS DISTINCT FROM s.nombre) AS renombra
+               -- cambia su llave única (marca, nombre): se renombra o sale de SIN-LINEA
+               -- (coalesce: sin marca SIN-LINEA, $2 es NULL y un NULL aquí sacaría la fila de las DOS ramas de ok)
+               (p.nombre IS DISTINCT FROM s.nombre OR coalesce(p.brand_id = $2::uuid AND s.brand_id IS NOT NULL, false)) AS mueve
           FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
          WHERE p.tenant_id=$1 AND p.deleted_at IS NULL),
       ok AS (
-        SELECT id, nombre, marca, cb FROM cand WHERE NOT renombra
+        SELECT id, nombre, marca, cb FROM cand WHERE NOT mueve
         UNION ALL
-        SELECT * FROM (SELECT DISTINCT ON (marca, nombre) id, nombre, marca, cb FROM cand WHERE renombra
+        SELECT * FROM (SELECT DISTINCT ON (marca, nombre) id, nombre, marca, cb FROM cand WHERE mueve
                         ORDER BY marca, nombre, sku) d)
       UPDATE catalog.products p SET nombre=ok.nombre, brand_id=ok.marca, barcode=ok.cb, updated_at=now()
       FROM ok
       WHERE p.id = ok.id
         AND ( p.nombre IS DISTINCT FROM ok.nombre OR p.barcode IS DISTINCT FROM ok.cb OR p.brand_id IS DISTINCT FROM ok.marca )
         AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
-                          AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId])).rowCount;
+                          AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId, fallback])).rowCount;
 
     // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
     // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
@@ -697,11 +750,91 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     // BITÁCORA con su unidad y valida contra lo cobrado / la escalera / el costo. Sigue siendo
     // al-momento: está registrado en ODS_NORMALIZERS para kdm2 (la venta), kdii y kdpv_prod_util.
     await client.query('COMMIT');
-    return ins + idn;
+    return react + ins + idn;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
   }
+}
+
+/**
+ * `[CANON.6.12]` Líneas de Kepler (`kepler_ods.kdig`: c1 = código, c2 = nombre del proveedor/marca) →
+ * `catalog.brands`, AL LLEGAR la línea. Lo hacía `import-brands-lineas.js` los sábados a las 02:00: una línea
+ * nueva dejaba sus productos en SIN-LINEA hasta 7 días — y después para siempre, porque nadie los movía.
+ *
+ * Las reglas del script, sin cambios (la normalización manual de marcas es intocable; sólo ALTAS, nunca
+ * renombra ni borra):
+ *   · el código ya es de una marca viva                    → nada.
+ *   · el nombre ya es de una marca viva SIN código          → la marca adopta el código.
+ *   · el nombre ya es de una marca viva con OTRO código     → conflicto: nada (dos líneas de Kepler, una marca).
+ *   · el nombre es de una marca BORRADA                     → nada (se borró a propósito en la dedup; la unique
+ *                                                            de nombre cuenta las borradas).
+ *   · si no                                                 → alta, nombre en mayúsculas y espacios colapsados.
+ * La precedencia también es la del script: el nombre de un código sale de la sucursal menor que lo trae, y
+ * entre dos códigos nuevos con el mismo nombre gana el que aparece primero (sucursal menor, código menor).
+ * Por eso se calcula sobre TODO `kdig` (~5 mil filas) y se acota a los NOMBRES de las líneas que llegaron:
+ * una línea que pierde el desempate no deja sin alta al ganador que no vino en este lote.
+ *
+ * Después mueve a la marca nueva los productos vivos que estaban en SIN-LINEA con esas líneas — con el mismo
+ * `normalizeProductsFromOds` (su regla SIN-LINEA → marca de la línea), en su propia transacción.
+ *
+ * `codes` = códigos de línea que llegaron; `null` = todas (la herramienta manual `import-brands-lineas.js`).
+ * @returns {Promise<number>} marcas dadas de alta + códigos adoptados + productos movidos
+ */
+async function normalizeBrandsFromKdig(client, tenantId, codes) {
+  assertTenant(tenantId);
+  const todas = codes == null;
+  if (!todas && (!Array.isArray(codes) || !codes.length)) return 0;
+  const lineas = todas ? null : [...new Set(codes.map((c) => String(c).trim()).filter(Boolean))];
+  let marcas = 0;
+  let skus = [];
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    // k: un renglón por código (su nombre, de la sucursal menor). n: los códigos sin marca viva, y de ésos
+    // UNO por nombre (el que gana el desempate). Acotado a los nombres de las líneas que llegaron.
+    await client.query(`
+      CREATE TEMP TABLE kdig_n ON COMMIT DROP AS
+      WITH k AS (
+        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS code, upper(btrim(regexp_replace(c2, '\\s+', ' ', 'g'))) AS nombre,
+               btrim(sucursal) AS suc
+          FROM kepler_ods.kdig
+         WHERE btrim(coalesce(c1, '')) <> '' AND btrim(coalesce(c2, '')) <> ''
+         ORDER BY btrim(c1), btrim(sucursal))
+      SELECT DISTINCT ON (k.nombre) k.code, k.nombre
+        FROM k
+       WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = $1 AND b.deleted_at IS NULL AND btrim(b.code) = k.code)
+         AND ($2::text[] IS NULL OR k.nombre IN (SELECT k2.nombre FROM k k2 WHERE k2.code = ANY($2::text[])))
+       ORDER BY k.nombre, k.suc, k.code`, [tenantId, lineas]);
+    // Adoptar: la marca viva sin código con ese nombre (y sólo si es UNA: dos con el mismo nombre normalizado
+    // recibirían el mismo código y romperían la unique parcial de código).
+    marcas += (await client.query(`
+      UPDATE catalog.brands b SET code = n.code, updated_at = now()
+        FROM kdig_n n
+       WHERE b.tenant_id = $1 AND b.deleted_at IS NULL AND b.code IS NULL AND btrim(upper(b.nombre)) = n.nombre
+         AND NOT EXISTS (SELECT 1 FROM catalog.brands b2 WHERE b2.tenant_id = $1 AND b2.deleted_at IS NULL
+                           AND b2.id <> b.id AND btrim(upper(b2.nombre)) = n.nombre)`, [tenantId])).rowCount;
+    // Alta: ninguna marca (viva o borrada) con ese nombre.
+    marcas += (await client.query(`
+      INSERT INTO catalog.brands (code, nombre, tenant_id, created_at, updated_at)
+      SELECT n.code, n.nombre, $1, now(), now()
+        FROM kdig_n n
+       WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = $1 AND btrim(upper(b.nombre)) = n.nombre)
+      ON CONFLICT (tenant_id, nombre) DO NOTHING`, [tenantId])).rowCount;
+    // Los productos vivos en SIN-LINEA cuya línea (identidad retail-primero de kdii) es una de éstas. Dentro
+    // de la transacción: con RLS, fuera de ella `app.tenant_id` ya no está y la lista saldría vacía.
+    const sl = (await client.query(`
+      SELECT p.sku FROM catalog.products p JOIN catalog.brands b ON b.id = p.brand_id AND b.code = 'SIN-LINEA'
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.sku IS NOT NULL`, [tenantId])).rows.map((r) => r.sku);
+    skus = !sl.length ? [] : (await client.query(`
+      SELECT i.sku FROM (${identitySnapshotSql({ skuParam: '$1' })}) i
+       WHERE i.linea IS NOT NULL AND ($2::text[] IS NULL OR i.linea = ANY($2::text[]))`, [sl, lineas])).rows.map((r) => r.sku);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+  return marcas + (skus.length ? await normalizeProductsFromOds(client, tenantId, skus) : 0);
 }
 
 /**
@@ -961,14 +1094,39 @@ async function reintentarPorPartes(client, tenantId, norm, keys) {
   return keys.length === 1 ? intentar(keys) : partir(keys);
 }
 
+/**
+ * `[CANON.6.11]` Escribe la falla DEFINITIVA de un normalizador en `analytics.hop2_fallas` (migración
+ * 20261112102727): la alarma por evento. NUNCA lanza — si la tabla aún no existe o la escritura falla,
+ * devuelve `false` y el carril sigue (quien llama lo dice en el log). Exportada sólo para su prueba.
+ */
+async function registrarFalla(client, tenantId, tabla, normalizador, llaves, lote, error) {
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+    await client.query(
+      `INSERT INTO analytics.hop2_fallas (tenant_id, tabla, normalizador, llaves, llaves_lote, error, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'hop2')`,
+      [tenantId, tabla, normalizador, llaves.slice(0, 500), lote, String((error && error.message) || error || '').slice(0, 500)]);
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    await client.query('ROLLBACK').catch(() => {});
+    return false;
+  }
+}
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
   // `[CANON.6.9]` `normalizePromo` va AL FINAL: sus entradas son el precio de kdii, el nombre
   // (`normalizeProductsFromOds`) y el costo (`normalizeCost`). Antes lo hacía `repoint-catalog-prices` cada 30 min.
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder, normalizePromo] },
+  // `[CANON.6.16]` + normalizeFactorSale (el factor de caja vacío, antes en repoint-catalog-presence): DESPUÉS de
+  // normalizeBoxFactor (alimenta al árbitro) y ANTES de normalizeCost (cost_per_case usa factor_sale).
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeBoxFactor, normalizeFactorSale, normalizeCost, normalizeReorder, normalizePromo] },
   kdik: { skuCol: 'c2', fns: [normalizeCost, normalizePromo] },  // costo: c16 es la fuente primaria; la promo depende del costo
+  // `[CANON.6.12]` Una línea nueva de Kepler es una marca al llegar (antes `import-brands-lineas.js`, sábados).
+  kdig: { skuCol: 'c1', fns: [normalizeBrandsFromKdig] },
   // `[CANON.6.8]` + markup (`catalog.products.markup_pct`): antes lo escribía `import-margin.js` de noche.
   kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice, normalizeMarkup] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
@@ -1036,7 +1194,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor, reintentarPorPartes,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, normalizeBrandsFromKdig, normalizeBarcodesFromOds, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se

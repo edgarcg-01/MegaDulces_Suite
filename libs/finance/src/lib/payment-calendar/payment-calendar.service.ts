@@ -23,6 +23,11 @@ import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, 
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import { leerCorteSueltas } from './corte-suelta.sql';
+import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
+import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
+
+/** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
+export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -1776,6 +1781,80 @@ export class PaymentCalendarService {
         porDia.set(p.date, d);
       }
       return [...porDia.values()];
+    });
+  }
+
+  /**
+   * `[PGP.117]` **A la semana, el pago que nadie pagó se libera, y queda en la bitácora.** Edgar,
+   * 2026-11-12: «después de una semana hay que quitar lo que no se haya pagado, pero dejar logs de lo
+   * ocurrido». `[PGP.48]` sólo avisaba de los pagos atrasados; mientras seguían `pending`, sus facturas
+   * no se ofrecían para programar.
+   *
+   * La regla es `decidirVencido` (pura, con sus pruebas): se libera sólo si NINGÚN testigo dice que se
+   * pagó (Kepler sin abono a ninguna de sus facturas y el banco sin una salida por ese importe). Aquí
+   * sólo se lee y se escribe. Liberar = `status = 'cancelled'` + nota + una fila en
+   * `finance.payment_allocation_history` con lo medido en ese momento; los renglones no se borran.
+   *
+   * ⛔ Todo en UNA transacción: si la bitácora no se puede escribir (su migración sin aplicar), no se
+   * libera nada. Liberar sin dejar constancia es justo lo que se pidió que no pase. Y si el banco no
+   * se puede leer, la pasada entera falla: tampoco se libera nada.
+   *
+   * Lo llama `PagosVencidosService` en el worker, con el primer aviso de Kepler de cada día, dentro
+   * del scope del tenant. Re-correrlo el mismo día no hace nada nuevo: lo liberado ya no está pendiente.
+   */
+  async liberarVencidos(hoy: string = todayMx(), autor = AUTOR_PAGOS_VENCIDOS): Promise<ResultadoPagosVencidos> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const conservados: Record<MotivoConservar, number> = {
+        ligado: 0, kepler_sin_medir: 0, kepler_pagado: 0, kepler_en_parte: 0, banco: 0, banco_sin_medir: 0,
+      };
+      const out: ResultadoPagosVencidos = { hoy, revisados: 0, liberados: 0, monto_liberado: 0, ids_liberados: [], conservados };
+      const pend = (await trx.raw(SQL_PENDIENTES_VENCIDOS, [tenantId, hoy])).rows as FilaPendienteVencido[];
+      out.revisados = pend.length;
+      if (!pend.length) return out;
+      const ids = pend.map((p) => p.id);
+      const items = (await trx('finance.payment_allocation_items').whereIn('allocation_id', ids)
+        .select('allocation_id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount')) as
+        (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
+      const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.lot_date, alta: p.alta })), items);
+      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, [tenantId, hoy, ids, pend.map((p) => p.monto), pend.map((p) => p.lot_date)]))
+        .rows as { id: string; salio: boolean }[];
+      const banco = new Map(salidas.map((s) => [s.id, !!s.salio]));
+
+      for (const p of pend) {
+        const cierre = cierres.get(p.id) ?? null;
+        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.get(p.id) ?? null, ligado: !!p.ligado }, hoy);
+        if (d.accion === 'esperar') continue;
+        if (d.accion === 'conservar') { conservados[d.motivo]++; continue; }
+        const nota = notaLiberado(hoy, d.dias);
+        // Guarda de carrera: sólo si sigue pendiente en este instante (alguien pudo pagarlo o moverlo).
+        const n = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: p.id, status: 'pending' }).update({
+          status: 'cancelled', notes: `${p.notes ?? ''}\n${nota}`.trim(), updated_by: autor, updated_at: trx.fn.now(),
+        });
+        if (!n) continue;
+        const renglones = items.filter((i) => i.allocation_id === p.id);
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: p.id, event: EVENTO_LIBERADO, status_from: 'pending', status_to: 'cancelled',
+          created_by: autor,
+          detail: JSON.stringify({
+            regla: 'PGP.117', hoy, dias: d.dias, nota,
+            pago: {
+              dia: p.lot_date, estado_del_dia: p.lot_status, alta: p.alta, monto: p.monto, clasificacion: p.classification,
+              programo: p.created_by, autorizo: p.authorized_by,
+            },
+            renglones: renglones.map((r) => ({
+              origen: r.obligation_source, obligacion: r.obligation_id,
+              aplicado: Number(r.applied_amount), descuento: Number(r.discount_amount ?? 0),
+            })),
+            testigos: { kepler: cierre ? { estado: cierre.estado, facturas: cierre.facturas } : null, banco_mismo_importe: false },
+          }),
+        });
+        for (const r of renglones) await this.recalcObligation(trx, r.obligation_source as ObligationSource, r.obligation_id);
+        out.liberados++;
+        out.monto_liberado = round2(out.monto_liberado + Number(p.monto));
+        out.ids_liberados.push(p.id);
+      }
+      return out;
     });
   }
 

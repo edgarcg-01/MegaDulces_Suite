@@ -32,6 +32,7 @@ import {
   type PedidoKeplerLlave,
 } from './kepler-origen';
 import { congelarPorPedido, presentacionDeProducto, type PedidoCongelado } from './congelar';
+import { avisoCaja, type CajaCapturada, type CambioFicha } from './aviso-caja';
 import {
   ROUTE_KINDS,
   type RouteKind,
@@ -753,6 +754,7 @@ export class PickingService {
       const lineas: Array<Record<string, unknown>> = await this.lineasDe(trx, waveId);
       const n = (v: unknown): number | null => (v == null ? null : Number(v));
       const exist = await this.existenciaDe(trx, w.warehouse_id, lineas.map((l) => String(l['product_id'])));
+      const cajas = await this.cajasDeOla(trx, waveId, w.warehouse_id, lineas.map((l) => String(l['sku'] ?? '')).filter(Boolean));
       return {
         id: w.id,
         code: w.code,
@@ -780,10 +782,93 @@ export class PickingService {
             status: l['status'] as PickerWaveLine['status'],
             bin_code: (l['bin_code'] as string | null) ?? null,
             note: (l['note'] as string | null) ?? null,
+            aviso_caja: avisoCaja(
+              cajas.capturadas.get(String(l['sku'] ?? '')) ?? [],
+              cajas.cambios.get(String(l['sku'] ?? '')) ?? [],
+              (l['unidad_presentacion'] as string | null) ?? null,
+              Number(l['qty_requested']),
+              (l['qty_unit'] as string | null) ?? null,
+            ),
           }),
         ),
       };
     });
+  }
+
+  /**
+   * `[GP.9.2]` Las dos señales de «la caja no es la de la hoja» para los SKU de una ola (reglas en
+   * `aviso-caja.ts`). Sólo lectura, por llave:
+   *  · capturadas: los renglones de los pedidos Kepler de la ola cuyo factor capturado ya no es el de
+   *    la ficha (`v_erp_order_line_box_factor`, AX.22.1, 3–8 ms por pedido medido en prod).
+   *  · cambios: los movimientos de presentación (no de costo) de la ficha de la sucursal en 30 días
+   *    (`kepler_ficha_history`, índice `ix_kfh_llave (sucursal, sku, observado_at)`): TODAS las filas de 30
+   *    días con algún movimiento de presentación; cuál cuenta lo decide `cambioDeLaUnidad` (por unidad).
+   * Si algo falla, la ola sale SIN avisos y se registra: no se le niega el trabajo al surtidor por un
+   * aviso — pero un aviso ausente no se pinta como «revisado» (la pantalla no dice «caja correcta»).
+   */
+  private async cajasDeOla(
+    trx: Knex.Transaction,
+    waveId: string,
+    warehouseId: string,
+    skus: string[],
+  ): Promise<{ capturadas: Map<string, CajaCapturada[]>; cambios: Map<string, CambioFicha[]> }> {
+    const capturadas = new Map<string, CajaCapturada[]>();
+    const cambios = new Map<string, CambioFicha[]>();
+    if (!skus.length) return { capturadas, cambios };
+    try {
+      // Savepoint: si una lectura de aviso falla, se deshace SÓLO ella; la transacción de la ola sigue sana.
+      await trx.transaction(async (sp) => {
+        const llaves: Array<{ s: string; se: number; f: string }> = (await sp.raw(
+          `SELECT DISTINCT btrim(kepler_sucursal) AS s, kepler_serie::int AS se, btrim(kepler_folio) AS f
+             FROM commercial.wave_orders WHERE wave_id = ? AND source = 'kepler' AND kepler_folio IS NOT NULL`,
+          [waveId],
+        )).rows;
+        if (llaves.length) {
+          const vals = llaves.map(() => '(?::text, ?::int, ?::text)').join(', ');
+          const { rows } = await sp.raw(
+            `SELECT btrim(v.sku) AS sku, v.captured_unit, v.captured_factor::float8 AS captured_factor,
+                    v.current_factor::float8 AS current_factor
+               FROM analytics.v_erp_order_line_box_factor v
+               JOIN (VALUES ${vals}) k(s, se, f) ON v.sucursal = k.s AND v.serie = k.se AND v.folio = k.f
+              WHERE v.doc_type = 40 AND v.status = 'factor_cambio' AND btrim(v.sku) = ANY(?::text[])`,
+            [...llaves.flatMap((k) => [k.s, k.se, k.f]), skus],
+          );
+          for (const r of rows as CajaCapturada[]) {
+            const l = capturadas.get(r.sku) ?? [];
+            l.push(r);
+            capturadas.set(r.sku, l);
+          }
+        }
+        const w: { code: string | null } | undefined = await sp('commercial.warehouses').where({ id: warehouseId }).first('code');
+        const suc = String(w?.code ?? '').trim();
+        if (/^\d{2}$/.test(suc)) {
+          const { rows } = await sp.raw(
+            `WITH h AS (
+               SELECT sku, operacion, u2, f2::float8 AS f2, u3, f3::float8 AS f3, observado_at,
+                      lag(u2) OVER w AS pu2, (lag(f2) OVER w)::float8 AS pf2, lag(u3) OVER w AS pu3, (lag(f3) OVER w)::float8 AS pf3
+                 FROM analytics.kepler_ficha_history
+                WHERE sucursal = ? AND sku = ANY(?::text[])
+               WINDOW w AS (PARTITION BY sku ORDER BY observado_at, id))
+             SELECT sku, u2, f2, u3, f3, pu2, pf2, pu3, pf3, observado_at
+               FROM h
+              WHERE operacion = 'cambio' AND observado_at >= now() - interval '30 days'
+                AND (pu2 IS DISTINCT FROM u2 OR pf2 IS DISTINCT FROM f2 OR pu3 IS DISTINCT FROM u3 OR pf3 IS DISTINCT FROM f3)
+              ORDER BY sku, observado_at DESC`,
+            [suc, skus],
+          );
+          for (const r of rows as Array<CambioFicha & { observado_at: Date | string }>) {
+            const l = cambios.get(r.sku) ?? [];
+            l.push({ ...r, observado_at: new Date(r.observado_at).toISOString() });
+            cambios.set(r.sku, l);
+          }
+        }
+      });
+    } catch (e) {
+      capturadas.clear();
+      cambios.clear();
+      this.logger.warn(`[GP.9.2] ola ${waveId}: sin avisos de caja (${(e as Error).message})`);
+    }
+    return { capturadas, cambios };
   }
 
   /**

@@ -3,34 +3,46 @@ import { join } from 'path';
 import { declararFechado } from './por-vencer';
 
 /**
- * `[CE.1.4]` Por vencer declara cuando un lote fechado puede estar ya vendido: el trigger
- * `fn_rebalance_stock_lots` descuenta primero lo sin fecha (lote `NA`) del mismo almacén × producto.
+ * `[CE.1.4] · [CE.1.7]` Por vencer declara cuando un lote fechado puede estar ya vendido. Lo sin fecha
+ * = existencia de Kepler del ODS − lo fechado de la celda (ya no el lote NA de la copia del importer).
  */
-describe('[CE.1.4] declararFechado', () => {
-  it('⭐ con NA > 0 el lote fechado puede estar ya vendido (caso NA mayor que lo fechado)', () => {
-    expect(declararFechado('1250.000')).toEqual({ na_qty: 1250, dated_may_be_stale: true });
-    expect(declararFechado(0.5)).toEqual({ na_qty: 0.5, dated_may_be_stale: true });
+describe('[CE.1.7] declararFechado', () => {
+  it('⭐ con existencia sin fecha (> 0) el lote fechado puede estar ya vendido', () => {
+    expect(declararFechado('1300', '50')).toEqual({ stock_erp: 1300, dated_qty: 50, na_qty: 1250, dated_may_be_stale: true });
   });
 
-  it('sin NA, el lote sí baja con la venta: no se marca', () => {
-    expect(declararFechado('0')).toEqual({ na_qty: 0, dated_may_be_stale: false });
-    expect(declararFechado(0)).toEqual({ na_qty: 0, dated_may_be_stale: false });
+  it('⭐ lo fechado excede la existencia de Kepler: parte YA se vendió (negativo, se declara)', () => {
+    expect(declararFechado(10, '40')).toEqual({ stock_erp: 10, dated_qty: 40, na_qty: -30, dated_may_be_stale: true });
   });
 
-  it('⛔ si no se pudo leer el NA se declara NULL, nunca «cierto» (false)', () => {
-    expect(declararFechado(null)).toEqual({ na_qty: null, dated_may_be_stale: null });
-    expect(declararFechado(undefined)).toEqual({ na_qty: null, dated_may_be_stale: null });
-    expect(declararFechado('no-numero')).toEqual({ na_qty: null, dated_may_be_stale: null });
+  it('existencia = lo fechado: la cantidad se puede creer', () => {
+    expect(declararFechado('24.0000', 24)).toEqual({ stock_erp: 24, dated_qty: 24, na_qty: 0, dated_may_be_stale: false });
+  });
+
+  it('el double de Kepler no inventa un sobrante de 0.0000001', () => {
+    expect(declararFechado(0.1 + 0.2, 0.3).dated_may_be_stale).toBe(false);
+  });
+
+  it('⛔ sin existencia del ODS (sin renglón o almacén no Kepler) se declara NULL, nunca «cierto»', () => {
+    expect(declararFechado(null, 24)).toEqual({ stock_erp: null, dated_qty: 24, na_qty: null, dated_may_be_stale: null });
+    expect(declararFechado(undefined, 24).dated_may_be_stale).toBeNull();
+    expect(declararFechado('no-numero', 24).dated_may_be_stale).toBeNull();
   });
 });
 
-describe('[CE.1.4] la consulta de Por vencer lee el NA correcto', () => {
+describe('[CE.1.7] la consulta de Por vencer deriva lo sin fecha del ODS', () => {
   const FUENTE = readFileSync(join(__dirname, 'commercial-inventory.service.ts'), 'utf8');
   const bloque = FUENTE.slice(FUENTE.indexOf('async listExpiring('), FUENTE.indexOf('async listLotMovements('));
 
-  it('el NA es el del MISMO tenant × almacén × producto, lote NA sin fecha (el que mueve el trigger)', () => {
-    expect(bloque).toMatch(/n\.tenant_id = l\.tenant_id AND n\.warehouse_id = l\.warehouse_id AND n\.product_id = l\.product_id/);
-    expect(bloque).toMatch(/n\.lot_code = 'NA' AND n\.expiry_date IS NULL/);
+  it('lo sin fecha sale del ODS (existencia Kepler de la celda) y lo fechado de la MISMA celda', () => {
+    expect(bloque).toContain('FROM analytics.v_erp_stock_on_hand e');
+    expect(bloque).toMatch(/e.warehouse_id = l.warehouse_id AND e.product_id = l.product_id AND e.source = 'kepler_ods'/);
+    expect(bloque).toMatch(/d.tenant_id = l.tenant_id AND d.warehouse_id = l.warehouse_id AND d.product_id = l.product_id/);
+    expect(bloque).toMatch(/d.expiry_date IS NOT NULL AND d.quantity > 0/);
+    // ⛔ ni el lote NA (lo cuadra un trigger contra la copia del importer) ni la copia misma
+    expect(bloque).not.toContain("lot_code = 'NA'");
+    expect(bloque).not.toContain('commercial.stock ');
+    expect(bloque).not.toContain("'commercial.stock'");
   });
 
   it('[CE.1.6] el costo es el resolvedor VIVO, celda por celda (sin enumerar la vista, sin copia ni refresco)', () => {
@@ -42,7 +54,7 @@ describe('[CE.1.4] la consulta de Por vencer lee el NA correcto', () => {
   });
 
   it('cada renglón sale con su declaración y con la sucursal de Kepler (para casar el juicio)', () => {
-    expect(bloque).toContain('declararFechado(r.na_qty)');
+    expect(bloque).toContain('declararFechado(r.stock_erp, r.dated_qty)');
     expect(bloque).toContain("'w.kepler_code as plaza'");
   });
 });

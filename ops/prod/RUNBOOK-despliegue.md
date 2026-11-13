@@ -266,29 +266,55 @@ prevuelo del registro, aplica los manifiestos `namespace: ingesta`, espera cada 
 - La etiqueta es el hash de lo que la imagen copia (`ops/prod/etiqueta-imagen.sh`): si el código
   de un carril no cambió, su pod no se reinicia. El lector de relojes tiene imagen propia
   (`ops/relojes/`), así que no se reinicia por un cambio del ODS ni al revés.
-- Forzar que converja ya, desde `md`: `sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh`
+- Forzar que converja ya, desde `md` y con el candado del vigía:
+  `flock -n /tmp/auto-deploy.lock sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh`
   (o desde una laptop, `sh ops/vl/deploy.sh --k3s`, que sólo se lo pide a `md`).
 - Se niega si la API sirve otro commit o no contesta: la ingesta nunca corre un commit que no
   pasó las compuertas del vigía.
 
-⛔ **`~/ops/prod/auto-deploy.sh` es una COPIA y no se actualiza sola** (hasta `[OPS.ING.2]`). Con
-el primer soltar de `[OPS.ING.1]`, la copia vieja habría visto `trade-relojes` como una imagen que
-no sabe construir y **habría frenado el despliegue de la API**. Por eso se instaló antes, en `md`,
-desde GitHub. Se hizo el 2026-11-12 y el respaldo es `auto-deploy.sh.anterior-20261112`. Cada cambio
-futuro de ese guion se instala igual (no desde una laptop):
-
-```sh
-cd ~/auto-deploy/repo && GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_md -o IdentitiesOnly=yes" \
-  git fetch --depth 50 origin +refs/heads/main:refs/remotes/origin/main && \
-  git show origin/main:ops/prod/auto-deploy.sh > ~/ops/prod/.auto-deploy.sh.nuevo && \
-  sh -n ~/ops/prod/.auto-deploy.sh.nuevo && cp ~/ops/prod/auto-deploy.sh ~/ops/prod/auto-deploy.sh.anterior && \
-  mv ~/ops/prod/.auto-deploy.sh.nuevo ~/ops/prod/auto-deploy.sh && chmod +x ~/ops/prod/auto-deploy.sh
-```
-
+El primer soltar de `[OPS.ING.1]` necesitó que una persona instalara antes, a mano, el
+`auto-deploy.sh` nuevo (respaldo `auto-deploy.sh.anterior-20261112`): la copia vieja habría visto
+`trade-relojes` como una imagen que no sabía construir y **habría frenado la API**. Desde
+`[OPS.ING.2]` eso ya no hace falta (§5ter).
 ✅ El primer despliegue (2026-11-12, de 13:56 a 13:57, con `d592bfbf2`) reinició **una vez** los
 **diez** carriles (antes se decía once, por error) y les puso la etiqueta nueva a las tres CronJob.
 Trajo de GHCR `trade-ingest:e-f3c1c90e9216` y `trade-relojes:e-81f1114c1760` y tardó 76 s.
 Desde entonces sólo se reinicia el carril que cambió.
+
+---
+
+## 5ter. Los guiones de `~/ops/prod` — `[OPS.ING.2]`, 2026-11-12
+
+**Ya no los sube una laptop ni se instalan a mano.** Al final de cada despliegue sano (y en el «al
+día»), `auto-deploy.sh` corre `ops/prod/instalar-guiones.sh` desde su checkout, con el commit que
+la API ya sirve. Instala lo que dice [`guiones-del-host.txt`](guiones-del-host.txt):
+
+- **`auto`** (23): se instalan solos. La copia previa de cada uno queda en `<archivo>.anterior`.
+  Es **todo o nada**: si uno no pasa `sh -n`, o si el `auto-deploy.sh` nuevo no pasa su prueba
+  en seco (`--seco`, sin latido), **no queda puesto ninguno** de esa pasada.
+- **`mano`** (5): se comparan y, si difieren, se avisa en el registro y en el latido, pero los
+  instala una persona. Son el vigía mismo (`vigia-ci-green.sh`: si se instalara solo, uno malo no
+  podría reponerse), las dos unidades de systemd, el `Caddyfile` y el compose.
+- Latido aparte: `instalar_guiones`. Su falla no toca la API.
+
+```sh
+# qué difiere, sin tocar nada
+sh ~/auto-deploy/repo/ops/prod/instalar-guiones.sh --ver
+# instalar ya (toma el candado del vigía; si hay un despliegue en curso, sale con 9)
+sh ~/auto-deploy/repo/ops/prod/instalar-guiones.sh
+# volver un guion a su copia previa
+mv ~/ops/prod/auto-deploy.sh.anterior ~/ops/prod/auto-deploy.sh
+```
+
+⛔ **Lo que la prueba en seco no ve:** un `auto-deploy.sh` que arranca bien pero falla en un paso
+que sólo corre al desplegar (traer imágenes, aplicar, revertir). Prod no se cae (sigue la versión
+anterior), pero el carril queda trabado hasta que alguien devuelve `auto-deploy.sh.anterior`.
+
+⚠️ **El arranque.** El primer `auto-deploy.sh` que trae `instalar_guiones` hay que instalarlo a mano
+una vez (la copia vieja no sabe llamarlo). Después se mantiene solo.
+
+Una compuerta del push (`npm run check:guiones-host`, prueba negativa en `:self`) exige que todo
+guion que otro llama esté en la lista. Sin eso, uno nuevo no llegaría nunca a `md` y nadie avisaría.
 
 ---
 

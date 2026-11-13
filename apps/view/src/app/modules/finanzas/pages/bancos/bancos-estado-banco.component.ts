@@ -16,7 +16,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, UsoDelBanco, VeredictoDelDia } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, UsoDelBanco, VeredictoDelDia } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
@@ -263,9 +263,12 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
             <ng-template #message>
               @if (aConfirmar(); as c) {
                 <div class="eb-confirma">
-                  <p>Desde el <b>{{ c.listo_para_banco?.desde | date:'dd/MM/yy' }}</b>, los movimientos de {{ c.alias }} salen de la descarga del banco, no del libro.</p>
+                  <p>Desde el <b>{{ desdeDe(c) | date:'dd/MM/yy' }}</b>, los movimientos de {{ c.alias }} salen de la descarga del banco, no del libro.</p>
                   <ul>
-                    <li>Lo que el libro tiene hasta el {{ c.listo_para_banco?.ultimo_que_cuadra | date:'dd/MM' }} no se toca: su conciliación, su categoría y su póliza se quedan.</li>
+                    @if (sinParalelo(c)) {
+                      <li><b>Sin el paralelo de {{ c.listo_para_banco?.requeridos }} días</b> (lleva {{ c.listo_para_banco?.dias_seguidos }}): el libro deja de existir. Ese día es el último que tiene el libro y se reemplaza completo con el del banco.</li>
+                    }
+                    <li>Lo que el libro tiene antes del {{ desdeDe(c) | date:'dd/MM' }} no se toca: su conciliación, su categoría y su póliza se quedan.</li>
                     <li>Si el libro ya trae renglones desde esa fecha, los reemplazan los del banco.</li>
                     <li>La carga del libro deja de meter renglones de esta cuenta desde esa fecha, y lo avisa.</li>
                     <li>{{ textoSucursal(c) }}</li>
@@ -279,7 +282,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         @if (contraError(); as ce) { <p class="eb-leyenda eb-v--bad">{{ ce }}</p> }
 
         @if (archivos().length) {
-          <h4 class="eb-sec">Archivos subidos</h4>
+          <h4 class="eb-sec">Archivos subidos <span class="muted">· clic en uno para ver los movimientos de su cuenta</span></h4>
           <p-table [value]="archivos()" dataKey="id" size="small" class="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="40vh">
             <ng-template #header>
               <tr>
@@ -289,7 +292,10 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
               </tr>
             </ng-template>
             <ng-template #body let-f>
-              <tr>
+              <!-- [CB.64] Un clic: los movimientos de esa cuenta, con lo que trajo la descarga en la misma lista. -->
+              <tr [class.eb-abre]="!!f.bank_account_id" [attr.tabindex]="f.bank_account_id ? 0 : null" [attr.role]="f.bank_account_id ? 'button' : null"
+                  [attr.aria-label]="f.bank_account_id ? 'Ver los movimientos de ' + (f.alias || f.account_label) : null"
+                  (click)="abrirMovimientos(f)" (keyup.enter)="abrirMovimientos(f)">
                 <td class="eb-strong">{{ f.alias || f.account_label }}</td>
                 <td class="mono">{{ f.date_from | date:'dd/MM/yy' }} – {{ f.date_to | date:'dd/MM/yy' }}</td>
                 <td class="comm-num mono">{{ f.lines_in_file }}@if (f.lines_in_file > f.lines_new) { <span class="muted"> ({{ f.lines_in_file - f.lines_new }} ya estaban)</span> }</td>
@@ -336,6 +342,10 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-pend-b { flex: none; width: 6rem; color: var(--text-muted); }
     .eb-pend-cs { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
     .eb-pend-c { white-space: nowrap; }
+    /* [CB.64] Un archivo abre los movimientos de su cuenta. */
+    .eb-abre { cursor: pointer; }
+    .eb-abre:hover > td { background: var(--hover-bg); }
+    .eb-abre:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
     .eb-lote { margin: 0 var(--sp-3) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     .eb-lote-pie { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); font-size: var(--fs-sm); }
@@ -376,6 +386,9 @@ export class BancosEstadoBancoComponent implements OnInit {
    * el aviso del Cierre y el periodo (en una cuenta que usa el banco, guardar la descarga mete movimientos).
    */
   readonly guardado = output<void>();
+  /** [CB.64] El id de la cuenta cuyos movimientos se quieren ver (la vista Movimientos, con la descarga dentro). */
+  readonly verMovimientos = output<string>();
+  abrirMovimientos(f: ArchivoEstadoBanco): void { if (f.bank_account_id) this.verMovimientos.emit(f.bank_account_id); }
 
   readonly puedeSubir = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
 
@@ -517,7 +530,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     const juzgadas = cuentas.filter((c) => c.resumen.cuadra + c.resumen.difiere > 0);
     if (!juzgadas.length) return [];
     const difieren = juzgadas.filter((c) => c.resumen.difiere).map((c) => c.alias);
-    const listas = cuentas.filter((c) => !c.banco_desde && c.listo_para_banco?.cumple).map((c) => c.alias);
+    const listas = cuentas.filter((c) => !c.banco_desde && this.desdeDe(c)).map((c) => c.alias);
     const partes = [difieren.length ? `difieren ${difieren.join(', ')}` : 'cuentas con días cerrados para comparar'];
     if (listas.length) partes.push(`${listas.join(', ')} ${listas.length === 1 ? 'ya puede' : 'ya pueden'} usar el banco`);
     return [{ label: 'Cuadran con el libro', value: `${juzgadas.length - difieren.length} de ${juzgadas.length}`, format: 'text', tone: difieren.length ? 'bad' : 'ok',
@@ -527,7 +540,7 @@ export class BancosEstadoBancoComponent implements OnInit {
   private grupo(c: CuentaContraElLibro): number {
     if (c.banco_desde) return 3;
     if (c.resumen.difiere) return 0;
-    return c.listo_para_banco?.cumple ? 1 : 2;
+    return this.desdeDe(c) ? 1 : 2;
   }
 
   /**
@@ -539,8 +552,19 @@ export class BancosEstadoBancoComponent implements OnInit {
     const l = c.listo_para_banco;
     if (!l) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'no medido', accion: false };
     if (l.cumple) return { tono: 'ok', icono: 'pi-check-circle', texto: 'puede usar el banco', accion: true };
+    // [CB.67] El libro deja de existir: sin el paralelo, puede si la descarga cubre desde el último día del libro.
+    const s = c.sin_paralelo;
+    if (s?.cubre) return { tono: 'ok', icono: 'pi-check-circle', texto: 'puede usar el banco', accion: true };
+    if (s?.motivo) return { tono: 'warn', icono: 'pi-exclamation-triangle', texto: `no puede: ${s.motivo}`, accion: false };
     return { tono: 'muted', icono: 'pi-minus-circle', texto: `lleva ${l.dias_seguidos} de ${l.requeridos} días seguidos`, accion: false };
   }
+
+  /** [CB.67] Desde qué día mandaría el banco: con el paralelo, el siguiente al último que cuadró; sin él, el último del libro. */
+  desdeDe(c: CuentaContraElLibro): string | null {
+    return c.listo_para_banco?.cumple ? c.listo_para_banco.desde : c.sin_paralelo?.cubre ? c.sin_paralelo.desde : null;
+  }
+
+  sinParalelo(c: CuentaContraElLibro): boolean { return !c.listo_para_banco?.cumple && !!c.sin_paralelo?.cubre; }
 
   /** [CB.60b] Lo que confirma quien pulsa sobre la sucursal: cuánto acertó en el paralelo lo aprendido. */
   textoSucursal(c: CuentaContraElLibro): string {
@@ -551,7 +575,7 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   /** [CB.60b] Pide confirmación: dice desde qué día, qué no se toca y que no hay botón para regresar. */
   pedirUsarElBanco(c: CuentaContraElLibro): void {
-    if (!c.listo_para_banco?.cumple || c.banco_desde || this.pasando() !== null) return;
+    if (!this.desdeDe(c) || c.banco_desde || this.pasando() !== null) return;
     this.aConfirmar.set(c);
     this.confirm.confirm({
       key: 'usar-el-banco', header: `Usar el banco en ${c.alias}`,

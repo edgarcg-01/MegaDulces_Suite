@@ -280,6 +280,85 @@ async function completo(urlAdmin, urlRuntime) {
     check(dS?.importe === 1250.5 && dS.banco === 'cobranza' && dS.por === 'deposito' && dS.libro === 'nomina',
       `⛔ el abono SPEI: la sombra dice cobranza (por ser depósito) y nombra que el libro dice nómina (${JSON.stringify(dS)})`);
 
+    console.log('\n[12b] CB.64 — la descarga dentro de Movimientos: una sola lista, con app_runtime y RLS');
+    {
+      const { FinanceBankService } = require(path.join(ROOT, 'libs/finance/src/lib/bank/finance-bank.service.ts'));
+      const tkM = { run: (cb) => runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]); return cb(trx); }) };
+      const fbs = new FinanceBankService(tkM, { requireTenantId: () => MEGA });
+      fbs.logger = { log() {}, warn() {}, error() {}, debug() {} };
+      const mov = (account_id, extra = {}) => fbs.movements({ period: '2026-11', account_id, limit: 50, ...extra });
+      // STDR: el libro llega al 02 (los dos casan); los dos depósitos del 03 sólo están en la descarga.
+      const mS = await mov(STDR);
+      const fS = (f) => mS.rows.filter((x) => x.fuente === f);
+      check(mS.total === 4 && fS('libro').length === 2 && fS('descarga').length === 2,
+        `STDR: una sola lista con los 2 del libro y los 2 de la descarga (${mS.total}: ${mS.rows.map((x) => x.fuente).join(',')})`);
+      check(String(mS.rows[0].movement_date).includes('03') || new Date(mS.rows[0].movement_date).getUTCDate() === 3,
+        `del más nuevo al más viejo: arriba el 03 (${mS.rows[0].movement_date})`);
+      check(fS('libro').every((x) => x.en_descarga === 'trae'), `lo del libro dice que la descarga lo trae (${fS('libro').map((x) => x.en_descarga)})`);
+      check(fS('descarga').every((x) => x.motivo === 'libro_no_llega' && x.subido_por === 'prueba' && x.referencia && x.recon_status === null),
+        `lo de la descarga: el libro no llega, con su referencia y quién la subió (${JSON.stringify(fS('descarga').map((x) => [x.motivo, x.referencia, x.subido_por]))})`);
+      // [CB.65] Un depósito en efectivo sin otra señal: cobranza, y dice que salió de «depósito», no del texto.
+      check(fS('descarga').every((x) => x.category_code === 'cobranza' && x.category_id && x.category_name && x.categoria_por === 'deposito'),
+        `[CB.65] lo de la descarga trae categoría y quién la puso (${JSON.stringify(fS('descarga').map((x) => [x.category_code, x.categoria_por]))})`);
+      check(fS('libro').every((x) => x.categoria_por === undefined), '[CB.65] lo del libro no trae «quién la puso» de la descarga');
+      // BBVA A: al libro del 02 le falta la comisión de $100 y el 03 trae otro renglón (+1); el 03 es el día abierto.
+      const [stA] = await admin('finance.bank_statements').where({ bank_account_id: BBVA_A, period: '2026-11' }).select('id');
+      await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stA.id, bank_account_id: BBVA_A, movement_date: '2026-11-02',
+        concept: 'PRUEBA LIBRO SIN BANCO', amount_in: 0, amount_out: 7, running_balance: 1193, client_uuid: 'prueba-cb64-sin-banco' });
+      const mA = await mov(BBVA_A);
+      const motivoDe = (imp) => mA.rows.find((x) => x.fuente === 'descarga' && (x.amount_out === imp || x.amount_in === imp))?.motivo;
+      check(motivoDe(100) === 'falta_en_libro' && motivoDe(16) === 'falta_en_libro' && motivoDe(500) === 'falta_en_libro',
+        `BBVA A: lo que el libro no tiene de días que sí tiene es «falta en el libro» (${motivoDe(100)}, ${motivoDe(16)}, ${motivoDe(500)})`);
+      const deLibro = (imp) => mA.rows.find((x) => x.fuente === 'libro' && (x.amount_out === imp || x.amount_in === imp))?.en_descarga;
+      check(deLibro(1000) === 'trae' && deLibro(7) === 'no_trae' && deLibro(1) === null,
+        `el libro: lo trae · no lo trae (dentro del archivo) · sin juicio en el día abierto (${deLibro(1000)}, ${deLibro(7)}, ${deLibro(1)})`);
+      check(mA.descarga?.solo_descarga === 3 && mA.descarga?.trae === 1 && mA.descarga?.no_trae === 1,
+        `el resumen de la cuenta (${JSON.stringify(mA.descarga)})`);
+      // [CB.65] Cada uno con la categoría del clasificador de CB.61: comisión e IVA por el texto del banco, la venta por ser depósito.
+      const catDe = (imp) => { const r = mA.rows.find((x) => x.fuente === 'descarga' && (x.amount_out === imp || x.amount_in === imp)); return r ? `${r.category_code}/${r.categoria_por}` : null; };
+      check(catDe(100) === 'comision_bancaria/banco' && catDe(16) === 'iva_acreditable/banco' && catDe(500) === 'cobranza/deposito',
+        `[CB.65] BBVA A: comisión, IVA y venta con su categoría (${catDe(100)}, ${catDe(16)}, ${catDe(500)})`);
+      const catId = async (code) => (await runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.movement_categories').where({ code }).first('id', 'group_key'); }));
+      const comision = await catId('comision_bancaria');
+      const porCat = await mov(BBVA_A, { category_id: comision.id });
+      const descDeCat = porCat.rows.filter((x) => x.fuente === 'descarga');
+      check(descDeCat.length === 1 && descDeCat[0].amount_out === 100 && porCat.rows.every((x) => x.category_id === comision.id),
+        `[CB.65] filtrar por categoría alcanza a la descarga: sólo la comisión de $100 (${porCat.rows.map((x) => `${x.fuente}:${x.amount_out || x.amount_in}`)})`);
+      const cobranza = await catId('cobranza');
+      const porGrupo = await mov(BBVA_A, { group_key: cobranza.group_key });
+      check(porGrupo.rows.some((x) => x.fuente === 'descarga' && x.amount_in === 500) && porGrupo.rows.every((x) => x.group_key === cobranza.group_key),
+        `[CB.65] y por grupo (${cobranza.group_key}): la venta de $500 entra (${porGrupo.rows.map((x) => `${x.fuente}:${x.amount_out || x.amount_in}`)})`);
+      const otra = await runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.movement_categories').whereNotIn('code', ['comision_bancaria', 'iva_acreditable', 'cobranza', 'sin_clasificar']).first('id'); });
+      const otraCat = otra ? await mov(BBVA_A, { category_id: otra.id }) : null;
+      check(otraCat && otraCat.rows.every((x) => x.fuente !== 'descarga'),
+        `[negativa] una categoría que ningún renglón de la descarga tiene no trae ninguno (${otraCat?.rows.map((x) => x.fuente)})`);
+      const solo = await mov(BBVA_A, { contra_descarga: 'solo_descarga' });
+      check(solo.total === 3 && solo.rows.every((x) => x.fuente === 'descarga'), `filtro «sólo en la descarga»: ${solo.total}, todas de la descarga`);
+      const noTrae = await mov(BBVA_A, { contra_descarga: 'no_trae' });
+      check(noTrae.total === 1 && noTrae.rows[0]?.concept === 'PRUEBA LIBRO SIN BANCO', `filtro «la descarga no lo trae»: el resumen se recorre (${noTrae.total})`);
+      // El buscador real necesita f_unaccent y pg_trgm; aquí va un ILIKE por columna EN SU LUGAR: lo que se prueba es que la
+      // búsqueda llega a la rama de la descarga con sus columnas (concepto y referencia), no el motor.
+      const pc = STUBS['@megadulces/platform-core'];
+      const motorStub = pc.applySmartSearch;
+      pc.applySmartSearch = (qb, q, o) => qb.andWhere((w) => { for (const c of o.columns) w.orWhereRaw(`${c} ilike ?`, [`%${q}%`]); });
+      const busca = await mov(BBVA_A, { search: 'IVA' });
+      const buscaRef = await mov(STDR, { search: '0000099998' });
+      pc.applySmartSearch = motorStub;
+      check(busca.total === 1 && busca.rows[0]?.fuente === 'descarga', `la búsqueda también entra a la descarga, por concepto (${busca.total})`);
+      check(buscaRef.total === 1 && buscaRef.rows[0]?.referencia === '0000099998', `y por referencia (${buscaRef.total})`);
+      const sinCat = await mov(BBVA_A, { uncategorized: 'true' });
+      check(sinCat.rows.length > 0 && sinCat.rows.every((x) => x.fuente === 'libro'),
+        `[negativa] «sin clasificar» es del libro: la descarga no se clasifica ahí (${sinCat.rows.map((x) => x.fuente)})`);
+      const sinPeriodo = await fbs.movements({ account_id: BBVA_A, limit: 50 });
+      check(sinPeriodo.descarga === null && sinPeriodo.rows.every((x) => x.fuente === 'libro' && x.en_descarga === null),
+        '[negativa] sin periodo no se afirma nada de la descarga');
+      const otroMes = await mov(BBVA_A, { period: '2026-09' });
+      check(otroMes.descarga === null && otroMes.total === 0, `un mes sin descarga: null, no ceros (${JSON.stringify(otroMes.descarga)})`);
+      await admin('finance.bank_movements').where({ client_uuid: 'prueba-cb64-sin-banco' }).del();
+    }
+
     console.log('\n[13] CB.60b — usar el banco: la descarga alimenta los movimientos de Bancos');
     if (!(await admin.raw("select to_regclass('finance.bank_branch_keys') r")).rows[0].r) {
       noMedido('la migración CB.60b no está aplicada en este destino');
@@ -318,10 +397,38 @@ async function completo(urlAdmin, urlRuntime) {
       await niega(() => admin.transaction(async (trx) => { await avisarBancos(trx, { origen: 'descarga', periodos: ['2026-10'] }); throw new Error('rollback a propósito'); }));
       check((await recoger()).length === 0, '⛔ una transacción que se deshace NO avisa: el oyente nunca concilia un dato que no quedó');
 
-      // STDR tiene UN día que cuadra (el 02): hay racha, pero corta. Con cero días fallaría por otro lado y no probaría la regla.
-      const corto = await niega(() => svc.usarElBanco(STDR, 'prueba', '2026-11-09'));
-      check(/hacen falta 10/.test(JSON.stringify(corto?.response ?? corto?.message ?? '')),
-        `⛔ una cuenta con menos de 10 días seguidos que cuadran NO puede usar el banco: STDR lleva 1 (${JSON.stringify(corto?.response?.motivos ?? corto?.message)})`);
+      // [CB.67] El libro deja de existir: sin el paralelo, el banco manda desde el ÚLTIMO día del libro si la descarga lo
+      // cubre sin hueco. ⛔ Con hueco se niega, dice qué falta bajar y no escribe nada.
+      const HUECO = await cuenta('BBVA', '59003', `${ALIAS} HUECO`);
+      const rH = renglonesDe(10, 12, 5000);
+      await svc.confirmar({ file_base64: bbva(rH.map((x) => x.txt).reverse()), bank_account_id: HUECO, aceptar_sin_testigo: true }, 'prueba');
+      const [stH] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: HUECO, period: '2026-10' }).returning('id');
+      await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stH.id ?? stH, bank_account_id: HUECO, movement_date: '2026-10-05',
+        concept: 'PRUEBA LIBRO', amount_in: 50, amount_out: 0, running_balance: 5000, client_uuid: 'prueba-cb67-hueco' });
+      const hueco = await niega(() => svc.usarElBanco(HUECO, 'prueba', '2026-10-20'));
+      check(/falta bajar del 2026-10-05 al 2026-10-09/.test(JSON.stringify(hueco?.response ?? hueco?.message ?? '')),
+        `⛔ [CB.67] el libro llega al 05 y la descarga empieza el 10: NO pasa y dice qué falta bajar (${JSON.stringify(hueco?.response?.motivos ?? hueco?.message)})`);
+      const escritoH = await admin('finance.bank_movements').where({ bank_account_id: HUECO }).where((w) => w.where('sync_source', 'banco').orWhereNotNull('deleted_at')).count({ n: '*' });
+      const ctaH = await admin('finance.bank_accounts').where({ id: HUECO }).first('statement_source_since');
+      check(Number(escritoH[0].n) === 0 && ctaH.statement_source_since === null, '⛔ [CB.67] y no escribe nada: ni borra el libro, ni mete del banco, ni fija el corte');
+      // Sin paralelo y sin hueco: el libro llega al 06 (a medias), la descarga trae del 05 al 07.
+      const SINP = await cuenta('BBVA', '59004', `${ALIAS} SINP`);
+      const rS = renglonesDe(5, 7, 7000);
+      await svc.confirmar({ file_base64: bbva(rS.map((x) => x.txt).reverse()), bank_account_id: SINP, aceptar_sin_testigo: true }, 'prueba');
+      const [stS] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: SINP, period: '2026-10' }).returning('id');
+      for (const [d, imp] of [[3, 10], [4, 20], [6, 30]]) {
+        await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP, movement_date: `2026-10-0${d}`,
+          concept: 'PRUEBA LIBRO', amount_in: imp, amount_out: 0, running_balance: 7000 + imp, client_uuid: `prueba-cb67-sinp-${d}` });
+      }
+      // ⛔ Una fecha FUTURA del libro (capturada mal) no es su último día.
+      await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP, movement_date: '2027-08-06',
+        concept: 'PRUEBA FECHA MAL', amount_in: 1, amount_out: 0, running_balance: 1, client_uuid: 'prueba-cb67-futura' });
+      const uS = await svc.usarElBanco(SINP, 'prueba', '2026-10-20');
+      check(uS.desde === '2026-10-06', `[CB.67] sin paralelo manda desde el último día del libro, sin contar la fecha futura (${uS.desde})`);
+      check(uS.libro_borrados === 2 && uS.metidos === 4, `el 06 del libro (y la fecha futura) se reemplazan; entran el 06 y el 07 del banco (${uS.libro_borrados} borrados, ${uS.metidos} metidos)`);
+      const vivosS = await admin('finance.bank_movements').where({ bank_account_id: SINP }).whereNull('deleted_at').whereNot('sync_source', 'banco').count({ n: '*' });
+      check(Number(vivosS[0].n) === 2, `lo del libro antes del 06 no se toca (${vivosS[0].n} de 2)`);
+      await recoger();
       const sinQuien = await niega(() => svc.usarElBanco(BANCO, undefined, '2026-10-20'));
       check(!!sinQuien, '⛔ sin una persona que lo decida, no se pasa');
 

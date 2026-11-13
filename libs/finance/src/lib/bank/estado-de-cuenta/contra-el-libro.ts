@@ -132,49 +132,14 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
 });
 
 /**
- * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
- * necesita); sólo se juzgan los días en que hay banco.
+ * El pareo de la compuerta: cada renglón del banco con UN renglón del libro del mismo lado e importe al centavo.
+ * Primero el mismo día; lo que sobra, contra el libro de ±3 días (el más cercano). `[CB.64]` Lo usan la
+ * compuerta y Movimientos: una sola regla para decir «el libro lo tiene».
  */
-/** `[CB.60b]` Días hábiles SEGUIDOS que cuadran para poder usar el banco (decisión firmada por Edgar, 2026-11-11). */
-export const DIAS_PARA_USAR_EL_BANCO = 10;
-
-/**
- * `[CB.60b]` La racha de días que cuadran que termina en el último día juzgado. Al final se saltan el día
- * `abierto` del banco y los días a los que el libro todavía no llega (`sin_libro`); a la mitad, cualquier día
- * que no cuadra (difiere o sin libro) corta la racha: un día que no se pudo comparar no se cuenta a favor.
- * `desde` es el día siguiente al último que cuadra: ahí empezaría a mandar el banco, sin tocar nada que el
- * libro ya tenga cerrado.
- */
-export interface ListoParaBanco { dias_seguidos: number; requeridos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
-
-export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanco {
-  let i = dias.length - 1;
-  while (i >= 0 && (dias[i].veredicto === 'abierto' || dias[i].veredicto === 'sin_libro')) i--;
-  let n = 0;
-  const ultimo = i >= 0 && dias[i].veredicto === 'cuadra' ? dias[i].fecha : null;
-  while (i >= 0 && dias[i].veredicto === 'cuadra') { n++; i--; }
-  return { dias_seguidos: n, requeridos: DIAS_PARA_USAR_EL_BANCO, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
-}
-
-/**
- * `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco).
- * `cortaEn` `[CB.60b]`: la cuenta usa el banco desde ese día; sólo se juzga lo anterior (el paralelo), en los dos
- * lados ANTES de parear. Si el banco trae días después del corte, el último día juzgado no está «abierto».
- */
-export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro, mapa = new MapaDeSucursal(), cortaEn?: string | null): CuentaContraElLibro {
-  // Un renglón en $0.00 no mueve dinero: no se busca en el libro ni entra a la cadena de saldos (repite el
-  // saldo y deja el cierre del día sin afirmar). Se declara cuántos hubo (BB 4166, 2026-11-10: 6).
-  const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
-  const antesDelCorte = (r: RenglonComparable) => !cortaEn || r.fecha < cortaEn;
-  const banco = bancoTodo.filter((r) => antesDelCorte(r) && !enCero(r));
-  const libro = libroTodo.filter((r) => antesDelCorte(r) && !enCero(r));
-  const hayDespuesDelCorte = bancoTodo.some((r) => !antesDelCorte(r));
-  const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
-  const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
+function parear(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[]) {
   const pareado = new Set<string>(); // ids de los dos lados ya usados
   const parDe = new Map<string, RenglonComparable>(); // id del banco → su renglón del libro
   const fechaDistinta = new Map<string, number>(); // día del banco → pares con otro día
-
   // Pase 1: mismo día, mismo lado, mismo importe.
   const libroPorDiaLlave = new Map<string, RenglonComparable[]>();
   for (const l of libro) {
@@ -201,10 +166,143 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
       fechaDistinta.set(b.fecha, (fechaDistinta.get(b.fecha) ?? 0) + 1);
     }
   }
+  return { pareado, parDe, fechaDistinta };
+}
 
-  // Último día del libro. Las fechas absurdas (año mal capturado: 2027 en BTE 7744, CB.UI.9) no cuentan.
-  const tope = ultimoDia ? sumarDias(ultimoDia, 31) : null;
-  const ultimoDelLibro = libro.map((l) => l.fecha).filter((f) => !tope || f <= tope).sort().pop() ?? null;
+/** Último día del libro. Las fechas absurdas (año mal capturado: 2027 en BTE 7744, CB.UI.9) no cuentan. */
+function ultimoDiaDelLibro(libro: readonly RenglonComparable[], ultimoDelBanco: string | null): string | null {
+  const tope = ultimoDelBanco ? sumarDias(ultimoDelBanco, 31) : null;
+  return libro.map((l) => l.fecha).filter((f) => !tope || f <= tope).sort().pop() ?? null;
+}
+
+/**
+ * `[CB.64]` Por qué un renglón de la descarga no está en el libro:
+ * `libro_no_llega` — el libro todavía no llega a ese día (o es su último día y sólo le faltan renglones: se subió antes
+ * de cerrarlo); `libro_sin_ese_dia` — el libro ya va más adelante y de ese día no tiene nada; `falta_en_libro` — el
+ * libro tiene ese día y no trae este movimiento.
+ */
+export type MotivoSoloDescarga = 'libro_no_llega' | 'libro_sin_ese_dia' | 'falta_en_libro';
+
+export interface DescargaEnMovimientos {
+  /** Renglones de la descarga sin renglón en el libro (los de $0.00 no cuentan: no mueven dinero). */
+  solo_descarga: { id: string; motivo: MotivoSoloDescarga }[];
+  /** Renglones del libro que la descarga trae. */
+  trae: string[];
+  /** Renglones del libro, dentro de lo que cubre un archivo y fuera de su último día abierto, que la descarga NO trae. */
+  no_trae: string[];
+}
+
+/**
+ * `[CB.64]` La descarga dentro de Movimientos, UNA cuenta: qué renglones del banco no tiene el libro (y por qué), y qué
+ * renglones del libro trae o no trae el banco. Mismo pareo que la compuerta (`parear`), mismos renglones fuera ($0.00,
+ * lo posterior al corte de una cuenta que ya usa el banco).
+ *
+ * `cobertura`: los rangos de fechas de los archivos subidos. Un renglón del libro sólo se declara «no lo trae» si cae
+ * dentro de un archivo: un hueco entre dos descargas no es un movimiento que el banco no tenga. Y nunca en el último
+ * día de la descarga si está abierto (pudo bajarse a medias).
+ */
+export function descargaEnMovimientos(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[],
+  cobertura: readonly { desde: string; hasta: string }[], cortaEn?: string | null): DescargaEnMovimientos {
+  const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
+  const antesDelCorte = (r: RenglonComparable) => !cortaEn || r.fecha < cortaEn;
+  const banco = bancoTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const libro = libroTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const ultimoDia = banco.map((b) => b.fecha).sort().pop() ?? null;
+  const abierto = ultimoDia && !bancoTodo.some((r) => !antesDelCorte(r)) ? ultimoDia : null;
+  const { parDe } = parear(banco, libro);
+  const ultimoDelLibro = ultimoDiaDelLibro(libro, ultimoDia);
+  const trae = new Set<string>(Array.from(parDe.values()).map((l) => l.id));
+  const libroDelDia = new Map<string, RenglonComparable[]>();
+  for (const l of libro) (libroDelDia.get(l.fecha) || libroDelDia.set(l.fecha, []).get(l.fecha)!).push(l);
+  const soloDescarga = banco.filter((b) => !parDe.has(b.id)).map((b) => {
+    const delDia = libroDelDia.get(b.fecha) ?? [];
+    // «A medias»: el último día del libro al que sólo le faltan renglones (nada suyo sin par ese día).
+    const aMedias = b.fecha === ultimoDelLibro && delDia.every((l) => trae.has(l.id));
+    const motivo: MotivoSoloDescarga = !ultimoDelLibro || b.fecha > ultimoDelLibro || (delDia.length > 0 && aMedias) ? 'libro_no_llega'
+      : !delDia.length ? 'libro_sin_ese_dia'
+      : 'falta_en_libro';
+    return { id: b.id, motivo };
+  });
+  const cubierto = (f: string) => f !== abierto && cobertura.some((c) => f >= c.desde && f <= c.hasta);
+  const noTrae = libro.filter((l) => !trae.has(l.id) && cubierto(l.fecha)).map((l) => l.id);
+  return { solo_descarga: soloDescarga, trae: Array.from(trae), no_trae: noTrae };
+}
+
+/**
+ * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
+ * necesita); sólo se juzgan los días en que hay banco.
+ */
+/** `[CB.60b]` Días hábiles SEGUIDOS que cuadran para poder usar el banco (decisión firmada por Edgar, 2026-11-11). */
+export const DIAS_PARA_USAR_EL_BANCO = 10;
+
+/**
+ * `[CB.60b]` La racha de días que cuadran que termina en el último día juzgado. Al final se saltan el día
+ * `abierto` del banco y los días a los que el libro todavía no llega (`sin_libro`); a la mitad, cualquier día
+ * que no cuadra (difiere o sin libro) corta la racha: un día que no se pudo comparar no se cuenta a favor.
+ * `desde` es el día siguiente al último que cuadra: ahí empezaría a mandar el banco, sin tocar nada que el
+ * libro ya tenga cerrado.
+ */
+export interface ListoParaBanco { dias_seguidos: number; requeridos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
+
+export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanco {
+  let i = dias.length - 1;
+  while (i >= 0 && (dias[i].veredicto === 'abierto' || dias[i].veredicto === 'sin_libro')) i--;
+  let n = 0;
+  const ultimo = i >= 0 && dias[i].veredicto === 'cuadra' ? dias[i].fecha : null;
+  while (i >= 0 && dias[i].veredicto === 'cuadra') { n++; i--; }
+  return { dias_seguidos: n, requeridos: DIAS_PARA_USAR_EL_BANCO, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
+}
+
+/**
+ * `[CB.67]` **El libro deja de existir** (Edgar, 2026-11-12: «el libro ya no va a existir» → opción 2: todas las
+ * cuentas pasan al banco sin el paralelo de 10 días). Sin días que cuadren, el corte es el ÚLTIMO día del libro
+ * (ese día se reemplaza: puede haberse capturado a medias), y sólo si la descarga lo cubre de ahí en adelante sin
+ * hueco: si no, el banco dejaría días sin ningún renglón. Las fechas FUTURAS del libro (capturadas mal, p. ej.
+ * 2027 en BTE 7744) no cuentan como su último día. Sin libro, manda desde el primer día de la descarga.
+ */
+export interface CorteSinParalelo { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null }
+
+export function corteSinParalelo(ultimoDelLibro: string | null, archivos: readonly { desde: string; hasta: string }[], hoy: string): CorteSinParalelo {
+  const ult = ultimoDelLibro && ultimoDelLibro <= hoy ? ultimoDelLibro : null;
+  const rangos: { desde: string; hasta: string }[] = [];
+  for (const a of [...archivos].sort((x, y) => x.desde.localeCompare(y.desde))) {
+    const u = rangos[rangos.length - 1];
+    if (u && a.desde <= sumarDias(u.hasta, 1)) { if (a.hasta > u.hasta) u.hasta = a.hasta; } else rangos.push({ desde: a.desde, hasta: a.hasta });
+  }
+  if (!rangos.length) return { desde: null, ultimo_del_libro: ult, cubre: false, motivo: 'no hay ninguna descarga subida' };
+  const desde = ult ?? rangos[0].desde;
+  const r = rangos.find((x) => x.desde <= desde && x.hasta >= desde);
+  if (!r) {
+    const sig = rangos.find((x) => x.desde > desde);
+    return { desde, ultimo_del_libro: ult, cubre: false, motivo: sig
+      ? `el libro llega al ${desde} y la descarga empieza el ${sig.desde}: falta bajar del ${desde} al ${sumarDias(sig.desde, -1)}`
+      : `el libro llega al ${desde} y la descarga termina el ${rangos[rangos.length - 1].hasta}: falta bajar del ${desde} en adelante` };
+  }
+  const i = rangos.indexOf(r);
+  if (i < rangos.length - 1) {
+    return { desde, ultimo_del_libro: ult, cubre: false,
+      motivo: `a la descarga le faltan del ${sumarDias(r.hasta, 1)} al ${sumarDias(rangos[i + 1].desde, -1)}` };
+  }
+  return { desde, ultimo_del_libro: ult, cubre: true, motivo: null };
+}
+
+/**
+ * `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco).
+ * `cortaEn` `[CB.60b]`: la cuenta usa el banco desde ese día; sólo se juzga lo anterior (el paralelo), en los dos
+ * lados ANTES de parear. Si el banco trae días después del corte, el último día juzgado no está «abierto».
+ */
+export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro, mapa = new MapaDeSucursal(), cortaEn?: string | null): CuentaContraElLibro {
+  // Un renglón en $0.00 no mueve dinero: no se busca en el libro ni entra a la cadena de saldos (repite el
+  // saldo y deja el cierre del día sin afirmar). Se declara cuántos hubo (BB 4166, 2026-11-10: 6).
+  const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
+  const antesDelCorte = (r: RenglonComparable) => !cortaEn || r.fecha < cortaEn;
+  const banco = bancoTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const libro = libroTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const hayDespuesDelCorte = bancoTodo.some((r) => !antesDelCorte(r));
+  const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
+  const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
+  const { pareado, parDe, fechaDistinta } = parear(banco, libro);
+  const ultimoDelLibro = ultimoDiaDelLibro(libro, ultimoDia);
 
   const resumen = { cuadra: 0, difiere: 0, sin_libro: 0, abierto: 0, solo_banco: 0, solo_libro: 0, monto_solo_banco: 0, monto_solo_libro: 0 };
   const dias: DiaContraElLibro[] = diasBanco.map((fecha) => {

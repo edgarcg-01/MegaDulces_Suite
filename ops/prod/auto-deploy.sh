@@ -102,6 +102,9 @@ recortar_diario
 # que no tenerla (mismo criterio que `backup-prod.sh`).
 latir() {
   _st="$1"; _nota="$2"
+  # `[OPS.ING.2]` La prueba en seco de `instalar-guiones.sh` no late: un «al día» de la prueba pisaría el
+  # «desplegado X desde Y» que acaba de escribir el despliegue de verdad.
+  [ "${AUTO_DEPLOY_PRUEBA:-}" = 1 ] && return 0
   sh "$HOME/ops/prod/pgprod.sh" -q >/dev/null 2>&1 <<SQL || di "aviso: el latido no se pudo escribir"
 INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, host, updated_at)
 VALUES ('$TENANT', '$JOB', 'Despliegue automático (origin/$RAMA)', now(), now(), '$(echo "$_st" | sed "s/'/''/g")',
@@ -128,6 +131,26 @@ desplegar_ingesta() {
   else
     sed 's/^/      /' /tmp/auto-deploy-ingesta.log
     di "⛔ la ingesta NO quedó en $DESEADO (la API sí) — detalle arriba y en el latido auto_deploy_ingesta"
+  fi
+}
+
+# ── `[OPS.ING.2]` LOS GUIONES DE ESTE HOST SALEN DEL COMMIT QUE YA SE SIRVE ─────────────────────────────────────────
+# Hasta el 2026-11-12, `~/ops/prod/*.sh` —este guion incluido— los subía una laptop o alguien a mano, y divergían
+# callados. Ahora, con la API ya verificada en `DESEADO`, `instalar-guiones.sh` (desde el checkout, como la ingesta)
+# pone los de `ops/prod/guiones-del-host.txt`, todo o nada y con la copia previa al lado. Si este guion cambió, lo
+# prueba en seco antes de dejarlo puesto. El que corre AHORA no se entera: `mv` deja su inodo intacto, y la próxima
+# pasada ya corre el nuevo. Su falla no toca la API (late aparte como `instalar_guiones`).
+instalar_guiones() {
+  _ig="$REPO_DIR/ops/prod/instalar-guiones.sh"
+  if [ ! -f "$_ig" ]; then
+    di "guiones: $DESEADO no trae ops/prod/instalar-guiones.sh — no se tocan"
+    return 0
+  fi
+  if AUTO_DEPLOY_EN_CURSO=1 sh "$_ig" "$(git -C "$REPO_DIR" rev-parse HEAD)" >/tmp/auto-deploy-guiones.log 2>&1; then
+    sed 's/^/      /' /tmp/auto-deploy-guiones.log
+  else
+    sed 's/^/      /' /tmp/auto-deploy-guiones.log
+    di "⛔ los guiones del host NO quedaron en $DESEADO (la API sí) — detalle arriba y en el latido instalar_guiones"
   fi
 }
 
@@ -209,9 +232,13 @@ if [ "$VIVO" = "$DESEADO" ]; then
     di "⛔ al día en $DESEADO pero SIN RÉPLICAS VIVAS: $_sin_vivas"
     latir error "prod al día en $DESEADO pero estos no tienen ni una réplica viva: $_sin_vivas"
   else
+    # `[OPS.ING.2]` En seco se DICE (es lo que `instalar-guiones.sh` cita como prueba); en vivo lo dice el latido.
+    [ "$SECO" = 1 ] && di "SECO: al día en $DESEADO — nada que desplegar"
     latir ok "al día en $DESEADO"
     # `[OPS.ING.1]` La API ya sirve este commit: la ingesta converge a él (no-op si su código no cambió).
-    [ "$SECO" = 1 ] || desplegar_ingesta
+    # `[OPS.ING.2]` Y los guiones de este host también (no-op si ninguno cambió). Nunca en seco: la prueba en seco
+    # ES la que lanza `instalar-guiones.sh`, y llamarlo desde ahí sería un ciclo.
+    [ "$SECO" = 1 ] || { desplegar_ingesta; instalar_guiones; }
   fi
   exit 0
 fi
@@ -240,7 +267,8 @@ if [ -f "$CUARENTENA" ]; then
     exit 1
   fi
   # El commit cambió: hubo un arreglo (o al menos algo distinto). Se limpia y se intenta.
-  rm -f "$CUARENTENA"
+  # `[OPS.ING.2]` En seco, no: «dice qué haría y NO toca nada» incluye la cuarentena.
+  [ "$SECO" = 1 ] || rm -f "$CUARENTENA"
 fi
 
 # ── [VL.20.4] QUÉ SERVICIOS ENTRAN — portal y vendedor sólo si cambiaron ────────────────────
@@ -1174,6 +1202,8 @@ latir ok "desplegado $DESEADO desde $ANTERIOR · servicios: $SERVICIOS$AVISO_CI"
 
 # `[OPS.ING.1]` Recién con la API verificada (pods, /api/health y humo del login): la ingesta del mismo commit.
 desplegar_ingesta
+# `[OPS.ING.2]` Y los guiones de este host, del mismo commit (no-op si ninguno cambió).
+instalar_guiones
 
 # ── [VL.20.5] LA PODA, DESPUÉS DE DESPLEGAR ─────────────────────────────────────────────────
 # ⛔ Acá estaba el agujero: `podar_imagenes()` existía en `deploy.sh` y funcionaba, pero el

@@ -1,0 +1,60 @@
+# `[OPS.ING.2]` Los guiones que corren en el HOST de `md` desde `~/ops/prod`, y cómo llega cada uno.
+#
+#   <archivo>  <modo>  [<destino>]
+#
+#   auto  lo instala `instalar-guiones.sh` desde el commit que la API YA sirve, al final de cada despliegue.
+#         Nadie lo sube desde una laptop. La copia previa queda en `<archivo>.anterior`.
+#   mano  se COMPARA y se avisa si difiere (en el registro y en el latido `instalar_guiones`), pero lo
+#         instala una persona: cada uno trae su motivo al lado. `<destino>` es dónde vive la copia
+#         instalada (por omisión, `~/ops/prod/<archivo>`).
+#
+# ⛔ Regla (heredada de `deploy.sh subir_compose`): si un guion de esta lista llama a otro archivo de
+# `~/ops/prod`, ese archivo va en la lista. `npm run check:guiones-host` lo comprueba.
+#
+# Fuera a propósito:
+#   · la AGENDA (`crontab.*`): un cron cambiado sin que una persona lo mire es cómo se duplica un
+#     carril. La compuerta sí exige que todo guion que la agenda llama esté acá en `auto`.
+#   · lo que corre desde el checkout, no desde `~/ops/prod`: `desplegar-ingesta.sh`,
+#     `etiqueta-imagen.sh`, `instalar-guiones.sh` mismo.
+#   · lo que corre en la máquina de quien lo lanza: `deploy.sh`, `aplicar-migracion.sh`.
+
+# ── El carril de despliegue ──────────────────────────────────────────────────────────────
+auto-deploy.sh              auto
+aplicar-k3s-prod.sh         auto
+compuerta-ci.sh             auto
+compuerta-migraciones.sh    auto
+clasificar-migraciones.awk  auto
+soltar.sh                   auto
+pgprod.sh                   auto
+node.sh                     auto
+
+# ── Lo que llama la agenda ───────────────────────────────────────────────────────────────
+termometro.sh               auto
+tunel-vigia.sh              auto
+vigia-disco.sh              auto
+podar-disco.sh              auto
+podar-registro.sh           auto
+
+# ── Respaldo, restauración y verificación ────────────────────────────────────────────────
+verificar.sh                auto
+verificar-copia.sh          auto
+verificar-arranque.sh       auto
+restaurar.sh                auto
+esperar-y-restaurar.sh      auto
+probar-pitr.sh              auto
+ssh-llaves.sh               auto
+dev-ro.sql                  auto
+dev-ro-crear.sh             auto
+dev-ro-verificar.sh         auto
+
+# ── A mano, cada uno con su motivo ───────────────────────────────────────────────────────
+# El arranque: es el bucle que lanza todo lo de arriba. Si se instalara solo, uno malo no podría
+# reponerse, porque lo que lo repondría es él mismo.
+vigia-ci-green.sh           mano
+# Unidades de systemd: piden sudo y `systemctl daemon-reload`.
+vigia-despliegue.service    mano  /etc/systemd/system/vigia-despliegue.service
+verificar-arranque.service  mano  /etc/systemd/system/verificar-arranque.service
+# Caddy lo monta por INODO (`mv` lo desengancharía) y sólo lo relee al reiniciar el pod.
+Caddyfile                   mano
+# Lo que sigue en Compose (registro, respaldo) se recrea con `docker compose up`, no con copiarlo.
+docker-compose.yml          mano

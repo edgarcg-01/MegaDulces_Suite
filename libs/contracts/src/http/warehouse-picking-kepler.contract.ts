@@ -102,6 +102,27 @@ export interface PickerWaveLine {
   existencia: number | null;
   /** Unidad de esa existencia (kdii.c11). Si difiere de `qty_unit`, la pantalla no compara. */
   existencia_unidad: string | null;
+  /**
+   * [GP.9.2] La caja de este producto no es la que dice la hoja. null = sin aviso.
+   * `capturada_con_otra`: el pedido se capturó con un factor y la ficha de hoy dice otro (el caso
+   * Canindo: 10 CJA de 40 = 400 PAQ, y hoy la CJA es de 25) — contar en la unidad base, no en cajas.
+   * `transicion`: la ficha cambió hace poco; puede haber cajas viejas en el anaquel.
+   */
+  aviso_caja: AvisoCajaRenglon | null;
+}
+
+/** [GP.9.2] Por qué la caja de un renglón no es de fiar, con el texto que lee el surtidor. */
+export interface AvisoCajaRenglon {
+  tipo: 'capturada_con_otra' | 'transicion';
+  /** La presentación de la que se habla (CJA, BTO). */
+  unidad: string;
+  /** Piezas base por caja según el pedido (capturada) o según la ficha anterior (transición). */
+  factor_antes: number | null;
+  /** Piezas base por caja según la ficha de hoy. */
+  factor_hoy: number | null;
+  /** Cuándo cambió la ficha (ISO), si se sabe. */
+  desde: string | null;
+  texto: string;
 }
 
 /** La ola que trae el surtidor, con sus renglones (lo pendiente primero). */

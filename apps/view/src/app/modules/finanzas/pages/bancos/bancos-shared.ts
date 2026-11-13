@@ -68,7 +68,7 @@ export const VIEW_GRUPOS: { key: BankViewGrupo; label: string }[] = [
 export const WORK_VIEWS: { key: BankView; label: string; icon: string; grupo: BankViewGrupo }[] = [
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag', grupo: 'cierre' },
   { key: 'estados', label: 'Estados de cuenta', icon: 'pi pi-file-import', grupo: 'entra' },
-  { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list', grupo: 'revisa' },
+  // [CB.64] «Movimientos» ya no es pestaña: es una ventana que abre Cuentas (y el Cierre, y un archivo subido).
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet', grupo: 'revisa' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync', grupo: 'kepler' },
   { key: 'cuadre', label: 'Cuadre 3 vías', icon: 'pi pi-check-square', grupo: 'kepler' },
@@ -98,8 +98,6 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
       const con = c.filter((x) => x.hasta).length;
       return { texto: `${con}/${c.length}`, aria: `${con} de ${c.length} cuentas con su descarga`, aviso: con < c.length };
     }
-    case 'movimientos':
-      return d.sinClasificar ? { texto: d.sinClasificar.toLocaleString('es-MX'), aria: `${d.sinClasificar} sin clasificar`, aviso: true } : null;
     case 'cuentas':
       return d.descuadradas ? { texto: String(d.descuadradas), aria: `${d.descuadradas} sin cuadrar`, aviso: true } : null;
     case 'conciliacion': {

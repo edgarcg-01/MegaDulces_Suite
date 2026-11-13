@@ -18,7 +18,18 @@
  *  6. [control] el candado del corte SÍ está puesto: cambiarle el importe falla.
  *
  * Todo en una transacción que se deshace. Plan: `FASE_LE_ANEXO_CUADRE` / tracker `[CGA-A.72]`.
+ *
+ * ⚠️ `[CGA-A.74]` **Dónde no existe la tabla de cobros de ruta.** En la base del CI (y en la de
+ * desarrollo) `analytics.route_collections` NO EXISTE: el arranque desde cero salta la migración que
+ * la crea (`20261012151405`, «cannot drop columns from view»), y en prod es una VISTA sobre una tabla
+ * foránea del runner (`[CGA-A.22]`). Hasta el 2026-11-12 esta prueba moría en la siembra y el
+ * endpoint que escribe quedaba sin probar. Ahora, si falta, se arma DENTRO de esta transacción (el
+ * ROLLBACK la deshace): la tabla con las columnas que prod expone y la vista de la cola con la
+ * definición de `[CGA-A.22]`, **leída del archivo de la migración, no copiada acá** —textual a la de
+ * prod, comparada el 2026-11-12—. Si una migración posterior vuelve a escribir la vista, la prueba
+ * declara NO MEDIDO en vez de medir contra una definición vieja.
  */
+const fs = require('fs');
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
 const knex = require('knex')(require('../knexfile-newdb.js').development);
@@ -62,6 +73,38 @@ async function error(fn) {
   try { await fn(); return null; } catch (e) { return { status: e.getStatus?.() ?? null, code: e.code ?? null, constraint: e.constraint ?? null, msg: String(e.message).slice(0, 160) }; }
 }
 
+const MIGS = path.join(__dirname, '..', 'migrations-newdb');
+const MIG_A22 = '20261019143732_cga_a22_route_collections_en_vivo_por_fdw.js';
+/** Una migración que ESCRIBE la vista de la cola a mano (las que la reponen con su `pg_get_viewdef` no la cambian). */
+const ESCRIBE_LA_COLA = /CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+(?:finance\.v_caja_movimientos_pendientes|\$\{PEND\})\s+AS/;
+
+/**
+ * `[CGA-A.74]` Deja `analytics.route_collections` sembrable y la cola leyéndola, como en prod. Devuelve
+ * `{ como }` si se puede medir o `{ noMedido }` con la razón. Corre como superusuario, dentro de la
+ * transacción de la prueba.
+ */
+async function prepararCobrosDeRuta(trx, hayRol) {
+  const rel = (await trx.raw(`SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.route_collections')`)).rows[0]?.relkind ?? null;
+  if (rel === 'r') return { como: 'la tabla de esta base' };
+  if (rel) return { noMedido: `analytics.route_collections es relkind '${rel}' (vista o foránea, como en prod): no se le puede sembrar un cobro` };
+  const ultima = fs.readdirSync(MIGS).filter((f) => f.endsWith('.js')).sort()
+    .filter((f) => ESCRIBE_LA_COLA.test(fs.readFileSync(path.join(MIGS, f), 'utf8'))).pop();
+  if (ultima !== MIG_A22) return { noMedido: `la vista de la cola la escribe ${ultima}, posterior a [CGA-A.22]: actualizar de dónde sale su definición` };
+  const def = fs.readFileSync(path.join(MIGS, MIG_A22), 'utf8').match(/const DEF_PENDIENTES = `([\s\S]*?)`;/)?.[1];
+  if (!def) return { noMedido: `no encontré DEF_PENDIENTES en ${MIG_A22}` };
+  await trx.raw(`CREATE TABLE analytics.route_collections (
+      tenant_id uuid NOT NULL, truck text, almacen text, cobro_folio text, fecha date, cuenta text,
+      doc_tipo text, folio_corte text, importe numeric, referencia text,
+      created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())`);
+  // CASCADE suelta la matvista del autollenado, que cuelga de la cola; el ROLLBACK la devuelve. Ni la
+  // cola ni Ligar la leen.
+  await trx.raw('DROP VIEW IF EXISTS finance.v_caja_movimientos_pendientes CASCADE');
+  await trx.raw(`CREATE VIEW finance.v_caja_movimientos_pendientes AS ${def}`);
+  // Los permisos de prod (medidos el 2026-11-12): app_runtime lee las dos.
+  if (hayRol) await trx.raw('GRANT SELECT ON analytics.route_collections, finance.v_caja_movimientos_pendientes TO app_runtime');
+  return { como: `armada en esta transacción con la definición de ${MIG_A22.slice(0, 14)} ([CGA-A.22])` };
+}
+
 (async () => {
   console.log('\n[CGA-A.72] Ligar un depósito de CAOS con su documento de Kepler — servicio real\n');
   const id = (await knex.raw('SELECT system_identifier::text sid, current_database() db FROM pg_control_system()')).rows[0];
@@ -76,6 +119,9 @@ async function error(fn) {
       ON CONFLICT (tenant_id, role_name) DO UPDATE SET permissions = EXCLUDED.permissions`, [T]);
     await trx.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo, password_hash)
       VALUES (?, ?, 'cga72_opera', 'cga72_opera', true, 'prueba-sin-login')`, [OPERA, T]);
+    const rutas = await prepararCobrosDeRuta(trx, hayRol);
+    if (rutas.noMedido) { skip(rutas.noMedido); throw new Error('__ROLLBACK__'); }
+    console.log(`   cobros de ruta: ${rutas.como}`);
     // El cobro de la camioneta, como lo trae la ruta (y otro de OTRA ruta por el MISMO importe: el señuelo).
     for (const [truck, almacen] of [['ruta_21', '01-001'], ['ruta_22', '01-002']]) {
       await trx('analytics.route_collections').insert({

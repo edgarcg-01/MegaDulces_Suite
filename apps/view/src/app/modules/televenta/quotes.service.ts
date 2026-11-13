@@ -339,6 +339,42 @@ export interface EnvioKepler {
 export interface DireccionEntrega { key: string; calle: string; ciudad: string; telefono: string; ruta: string }
 export interface DireccionesCotizacion { direcciones: DireccionEntrega[]; elegida: string | null; editable: boolean }
 
+/**
+ * `[GP.9.1]` Seguimiento del pedido de la cotización en Kepler (`GET :id/tracking`). Espejo de
+ * `SeguimientoCotizacion` en `libs/commercial/.../quote-tracking.reglas.ts`: si cambia allá, cambia acá.
+ */
+export type ClavePasoSeguimiento = 'pedido' | 'autorizado' | 'surtido' | 'checado' | 'embarcado' | 'facturado';
+export interface DocumentoSeguimiento { documento: string; fecha: string | null; cancelado: boolean; importe: number | null }
+export interface PasoSeguimiento {
+  clave: ClavePasoSeguimiento;
+  titulo: string;
+  hecho: boolean;
+  /** null = Kepler no guarda la hora de esta etapa (surtido y checado, salvo que el piso los marque en la Suite). */
+  cuando: string | null;
+  quien: string | null;
+  sin_responsable: boolean;
+  documentos: DocumentoSeguimiento[];
+}
+export interface SeguimientoCotizacion {
+  en_kepler: boolean;
+  pendiente_replica: boolean;
+  pedido: { sucursal: string; sucursal_nombre: string; documento: string; estatus: string | null; identidad: 'confirmada' | 'por_folio' | 'dudosa' } | null;
+  pasos: PasoSeguimiento[];
+  /** `[GP.9.3]` Lo que el pedido de Kepler ya no dice igual que la cotización (quitado / bajado / subido / agregado). */
+  cambios: CambioContraCotizacion[];
+  hallazgos: Array<{ titulo: string; resumen: string; importe: number | null; severidad: string | null }>;
+  leido_en: string;
+}
+export interface CambioContraCotizacion {
+  sku: string;
+  nombre: string | null;
+  tipo: 'quitado' | 'menos' | 'mas' | 'agregado';
+  cotizado: number | null;
+  pedido: number | null;
+  unidad: string | null;
+  importe_cotizado: number | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class QuotesService {
   private readonly http = inject(HttpClient);
@@ -381,6 +417,11 @@ export class QuotesService {
 
   check(id: string): Observable<QuoteCheck> {
     return this.http.get<QuoteCheck>(`${this.base}/${id}/check`);
+  }
+
+  /** `[GP.9.1]` Los pasos del pedido en Kepler hasta la factura. Sólo lectura. */
+  tracking(id: string): Observable<SeguimientoCotizacion> {
+    return this.http.get<SeguimientoCotizacion>(`${this.base}/${id}/tracking`);
   }
 
   /** `[E.27]` Re-cotiza un borrador vigente a precios de hoy (y guarda su IVA/IEPS). */

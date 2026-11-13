@@ -10,7 +10,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 /**
  * CB.14 — Vista CUENTAS (cuadre de saldos por cuenta + fallback estados de cuenta).
  * Presentacional: recibe balances/statements/diagnóstico; emite `openAccount` para
- * que el shell navegue a Movimientos filtrado por esa cuenta.
+ * que el shell abra la VENTANA de Movimientos de esa cuenta (CB.64: Movimientos ya no es pestaña).
  */
 @Component({
   selector: 'bancos-cuentas',

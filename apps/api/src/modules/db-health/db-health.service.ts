@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_CODIGOS_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -897,6 +897,21 @@ const APP_SOURCES: SourceCfg[] = [
     key: 'catalogo_nombres_evento', label: 'Catálogo por evento — nombres (árbitro)', table: 'catalog.products', tsCandidates: [],
     sql: ARBITRO_NOMBRES_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii) — debe dar 0',
   },
+  // `[CANON.6.12]` Marcas: línea nueva de Kepler = marca al llegar `kdig`; sus productos salen de SIN-LINEA.
+  {
+    key: 'catalogo_marcas_evento', label: 'Catálogo por evento — marcas (árbitro)', table: 'catalog.brands', tsCandidates: [],
+    sql: ARBITRO_MARCAS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdig / kdii) — debe dar 0',
+  },
+  // `[CANON.6.14]` Códigos de barras por unidad: los mantiene el hop-2 al llegar Y al borrarse una fila de kdii.
+  {
+    key: 'catalogo_codigos_evento', label: 'Catálogo por evento — códigos de barras (árbitro)', table: 'catalog.product_barcodes', tsCandidates: [],
+    sql: ARBITRO_CODIGOS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar o borrarse kdii) — debe dar 0',
+  },
+  // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
+  {
+    key: 'hop2_fallas', label: 'Hop-2 de la ingesta — fallas definitivas (24 h)', table: 'analytics.hop2_fallas', tsCandidates: [],
+    sql: HOP2_FALLAS_SQL, warnH: 24, critH: 48, cadence: 'por evento (el hop-2 escribe al fallar) — debe dar 0',
+  },
 ];
 
 const EXT_SOURCES: ExtCfg[] = [
@@ -935,9 +950,9 @@ const EXT_SOURCES: ExtCfg[] = [
   //     la encuentra. Y el search_path pone `catalog` ANTES que `public`: un `products_active` sin
   //     calificar resuelve a la que tiene el FDW. La mig 20260905140000 la repunta a
   //     `kepler_ods.kdii` en vez de borrarla.
-  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen la TABLA
-  //     `inventory.products_active` (todos la califican), que llena `refresh-products-active.js`
-  //     desde `catalog.products` + `kepler_ods.kdii`, explícitamente NO desde el FDW.
+  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen
+  //     `inventory.products_active` (todos la califican) — desde `[CANON.6.13]` una VISTA sobre
+  //     `catalog.products` + la foto congelada `inventory.products_legado_fdw` (`[CANON.6.15]`), explícitamente NO desde el FDW.
 ];
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };
@@ -1276,18 +1291,12 @@ export const CRON_JOBS: CronCfg[] = [
   // la nota de `CronCfg`): su llave cae sola en `unknown`. El CLI queda para correrlo a mano si hace falta.
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
-  // [NORM.2] Este carril EXISTÍA COMO SCRIPT Y NO ESTABA AGENDADO EN NINGÚN LADO. Llena
-  // `inventory.products`, que es el catálogo de escaneo del conteo físico: medido el 2026-09-23,
-  // llevaba **37 días** sin un `synced_at` nuevo y **147 SKUs** no eran escaneables. Un producto
-  // que el ERP dio de alta y que el contador no puede escanear se cuenta como faltante.
-  // 05:10 = después del nocturno (03:00) que puebla `catalog.products`, y sin chocar con
-  // `receipts` (04:30) ni `contpaqi-cfdis-full` (05:45).
-  { key: 'inventory_products_refresh', label: 'inventory.products ← catalog (escaneo de conteo)', cadence: 'diario 05:10 MX', warnH: 26, critH: 50, maxRunH: 1 },
-  // [NORM.2] Hermana de la de arriba y con el mismo defecto de origen: escrita, con 9 lectores
-  // vivos (buscador, pricing, portal, extractor de tickets, AI-matcher) y SIN AGENDA. Refresca por
-  // TRUNCATE+INSERT, así que se le agregó un PISO anti-vaciado: si el origen diera menos del 50%
-  // de lo que la tabla tiene, ABORTA y late en rojo en vez de commitear una tabla casi vacía.
-  { key: 'products_active_refresh',    label: 'inventory.products_active ← catalog (9 lectores)',  cadence: 'diario 05:20 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // RETIRADO 2026-11-12 [CANON.6.15]: `inventory_products_refresh` (diario 05:10). `inventory.products` es una
+  // VISTA sobre `catalog.products` (migración 20261112152928): un producto dado de alta es escaneable al momento,
+  // sin esperar a la mañana siguiente; no hay latido que vigilar.
+  // RETIRADO 2026-11-12 [CANON.6.13]: `products_active_refresh` (diario 05:20). `inventory.products_active`
+  // es una VISTA sobre `catalog.products` (migración 20261112135015): no hay copia que refrescar ni latido
+  // que vigilar. Fallaba el 20 % de las corridas.
   // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
   // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
   // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación

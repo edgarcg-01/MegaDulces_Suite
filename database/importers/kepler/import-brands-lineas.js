@@ -2,27 +2,31 @@
 /**
  * Líneas Kepler (kepler_ods.kdig) → catalog.brands (solo ALTAS, nunca renombra).
  *
- * En Kepler cada producto pertenece a una "línea" (kdii.c3 → kdig.c1) cuyo
- * nombre es el proveedor/marca. catalog.brands.code = kdig.c1: el seed original
- * quedó incompleto (374 brands vs 543 líneas) y todo producto cuya línea no
- * existe como brand es DESCARTADO por import-catalog-bulk (skip sin-brand)
- * → invisible en salidas/sell-out/todo. Caso detonante: línea 874
- * "JOSE BALTAZAR ZUÑIGA VAZQUEZ" (obleas ZUVA, 12 SKUs).
+ * ⛔ RETIRADO del carril `catalog` (sábados 02:00) 2026-11-12 `[CANON.6.12]`. Lo hace el hop-2 de la ingesta AL
+ * LLEGAR la línea (`normalizeBrandsFromKdig` en `services/feeds-ingest/apply-handlers.js`, registrado para
+ * `kdig`), con estas mismas reglas. Y además mueve a la marca nueva los productos que habían entrado a
+ * SIN-LINEA, cosa que este script nunca hizo: medido en prod el 12-nov, 31 productos vivos seguían en
+ * SIN-LINEA con la marca de su línea ya creada (KURUMAYA 5, COLOMBINA 4, PERFETTI 4, GALFRA 4…).
  *
- * Reglas (la normalización manual de brands es intocable):
+ * En Kepler cada producto pertenece a una "línea" (kdii.c3 → kdig.c1) cuyo nombre es el proveedor/marca.
+ * catalog.brands.code = kdig.c1. Caso que lo originó: línea 874 "JOSE BALTAZAR ZUÑIGA VAZQUEZ" (obleas ZUVA).
+ *
+ * Reglas (la normalización manual de brands es intocable) — viven en `normalizeBrandsFromKdig`:
  *   - code ya existe            → skip.
  *   - nombre ya existe sin code → adopta el code (backfill).
- *   - nombre ya existe con OTRO code → conflicto, se reporta y skip.
- *   - nombre corresponde a una brand SOFT-DELETED → skip (se borró a propósito en
- *     la dedup; reinsertar la resucitaría y violaría brands_tenant_nombre_unique,
- *     que NO es parcial y cuenta las borradas). Se reporta.
- *   - resto                     → INSERT (nombre UPPERCASE canónico), ON CONFLICT DO NOTHING.
+ *   - nombre ya existe con OTRO code → conflicto, skip.
+ *   - nombre corresponde a una brand SOFT-DELETED → skip (la unique de nombre cuenta las borradas).
+ *   - resto                     → INSERT (nombre UPPERCASE canónico).
  *
- *   node database/importers/kepler/import-brands-lineas.js          # dry-run
- *   node database/importers/kepler/import-brands-lineas.js --apply  # commit
+ * Queda como herramienta MANUAL, con la MISMA función del hop-2 (la importa, no la copia):
+ *   node database/importers/kepler/import-brands-lineas.js          # sólo lectura: qué haría
+ *   node database/importers/kepler/import-brands-lineas.js --apply  # todas las líneas + productos en SIN-LINEA
  */
 
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
+const { normalizeBrandsFromKdig } = require('../../../services/feeds-ingest/apply-handlers');
+const { identitySnapshotSql } = require('../../../services/feeds-ingest/product-identity');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -31,87 +35,50 @@ const APPLY = process.argv.includes('--apply');
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  await declararActor(db, 'import-brands-lineas');
   try {
-    console.log(`\n=== Líneas Kepler (kdig) → catalog.brands (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
-
-    // `[OPS.LIMPIEZA.4]` **DEL ODS, no de las sucursales.** Antes abría una conexión por sucursal
-    // con `stockMap()`, que da el POS REMOTO de cada una (no la réplica local): siete viajes por la
-    // red de las plazas, y una sucursal caída se saltaba con un `⚠` que nadie leía. Viola la regla
-    // principal (todo del ODS, de una tabla). `kepler_ods.kdig` ya trae las 9 con `sucursal`.
-    //
-    // ⭐ La PRECEDENCIA se conserva: antes ganaba la primera sucursal del mapa (00 → 08) que traía
-    // el código; acá, `ORDER BY sucursal` y la misma regla «primera gana». Medido en prod el
-    // 2026-10-19: 549 códigos y UNO solo con nombre distinto entre sucursales (`002`: KI´SNACKS
-    // en 00–05, MONDELEZ en 01/06/07/08) — gana la 00 antes y después.
-    const { rows } = await db.query(
-      `SELECT sucursal, btrim(c1) AS code, btrim(c2) AS nombre FROM kepler_ods.kdig
-        WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> ''
-        ORDER BY sucursal, c1`);
-    // Una fuente vacía no es «no hay líneas nuevas»: es que la lectura falló. Se DECLARA.
-    if (!rows.length) throw new Error('kepler_ods.kdig devolvió 0 líneas — fuente vacía, no se decide nada');
-    const byCode = new Map();
-    const porSucursal = new Map();
-    for (const r of rows) {
-      porSucursal.set(r.sucursal, (porSucursal.get(r.sucursal) || 0) + 1);
-      // \s+ → ' ': kdig trae \r y dobles espacios (btrim de PG solo quita espacios)
-      if (!byCode.has(r.code)) byCode.set(r.code, r.nombre.replace(/\s+/g, ' ').trim().toUpperCase());
-    }
-    console.log(`  kepler_ods.kdig: ${[...porSucursal].map(([s, n]) => `${s}=${n}`).join(' · ')}`);
-    console.log(`  total dedup: ${byCode.size} líneas\n`);
-
-    const existing = await db.query(
-      `SELECT code, btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]);
-    const haveCode = new Set(existing.rows.map((r) => r.code).filter(Boolean));
-    const codeByName = new Map(existing.rows.map((r) => [r.nombre, r.code]));
-    // Nombres de brands SOFT-DELETED: brands_tenant_nombre_unique NO es parcial → cuenta
-    // las borradas. Reinsertar un nombre borrado viola la constraint (tumbaba el nightly).
-    const deletedRows = await db.query(
-      `SELECT btrim(upper(nombre)) AS nombre FROM catalog.brands WHERE tenant_id=$1 AND deleted_at IS NOT NULL`, [M]);
-    const deletedNames = new Set(deletedRows.rows.map((r) => r.nombre));
-
-    const inserts = [], adopts = [], conflicts = [], skippedDeleted = [];
-    const seenName = new Map(); // dedup por nombre TAMBIÉN entre las nuevas (unique tenant+nombre)
-    for (const [code, nombre] of byCode) {
-      if (haveCode.has(code)) continue;
-      if (codeByName.has(nombre)) {
-        const other = codeByName.get(nombre);
-        if (other == null) adopts.push([code, nombre]);
-        else conflicts.push({ code, nombre, existing_code: other });
-        continue;
-      }
-      if (deletedNames.has(nombre)) { skippedDeleted.push([code, nombre]); continue; }
-      if (seenName.has(nombre)) { conflicts.push({ code, nombre, existing_code: `${seenName.get(nombre)} (nueva)` }); continue; }
-      seenName.set(nombre, code);
-      inserts.push([code, nombre]);
-    }
-    console.log(`  → INSERT nuevas: ${inserts.length}`);
-    console.log(`  → adoptar code (nombre ya existe sin code): ${adopts.length}`);
-    if (skippedDeleted.length) { console.log(`  → skip (nombre = brand borrada en dedup): ${skippedDeleted.length}`); console.table(skippedDeleted.slice(0, 10).map(([code, nombre]) => ({ code, nombre }))); }
-    if (conflicts.length) { console.log(`  → conflictos nombre-con-otro-code (skip): ${conflicts.length}`); console.table(conflicts.slice(0, 10)); }
-    if (inserts.length) console.table(inserts.slice(0, 15).map(([code, nombre]) => ({ code, nombre })));
-
-    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
-
+    console.log(`\n=== Líneas Kepler (kdig) → catalog.brands (${APPLY ? 'APPLY' : 'SÓLO LECTURA'}) ===\n`);
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    for (const [code, nombre] of adopts) {
-      await db.query(
-        `UPDATE catalog.brands SET code=$2, updated_at=now()
-          WHERE tenant_id=$1 AND code IS NULL AND btrim(upper(nombre))=$3`, [M, code, nombre]);
-    }
-    for (let i = 0; i < inserts.length; i += 500) {
-      const chunk = inserts.slice(i, i + 500);
-      const vals = chunk.map((_, ri) => `($${ri * 2 + 1}, $${ri * 2 + 2}, '${M}', now(), now())`);
-      const params = []; chunk.forEach(([code, nombre]) => params.push(code, nombre));
-      await db.query(
-        `INSERT INTO catalog.brands (code, nombre, tenant_id, created_at, updated_at) VALUES ${vals.join(',')}
-           ON CONFLICT (tenant_id, nombre) DO NOTHING`, params);
-    }
-    await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${inserts.length} brands nuevas + ${adopts.length} codes adoptados.`);
+    const lineas = (await db.query(`
+      WITH k AS (
+        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS code, upper(btrim(regexp_replace(c2, '\\s+', ' ', 'g'))) AS nombre,
+               btrim(sucursal) AS suc
+          FROM kepler_ods.kdig
+         WHERE btrim(coalesce(c1, '')) <> '' AND btrim(coalesce(c2, '')) <> ''
+         ORDER BY btrim(c1), btrim(sucursal))
+      SELECT k.code, k.nombre,
+             CASE WHEN EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(upper(b.nombre))=k.nombre AND b.code IS NULL) THEN 'adoptar'
+                  WHEN EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(upper(b.nombre))=k.nombre) THEN 'conflicto'
+                  WHEN EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id=$1 AND btrim(upper(b.nombre))=k.nombre) THEN 'borrada'
+                  ELSE 'alta' END AS accion
+        FROM k
+       WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=k.code)
+       ORDER BY 3, 1`, [M])).rows;
+    const atorados = (await db.query(`
+      WITH sl AS (SELECT p.sku FROM catalog.products p JOIN catalog.brands b ON b.id=p.brand_id AND b.code='SIN-LINEA'
+                   WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku IS NOT NULL)
+      SELECT i.linea, count(*)::int AS productos
+        FROM (${identitySnapshotSql({ skuParam: '$2' })}) i
+        JOIN catalog.brands b ON b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=i.linea AND b.code<>'SIN-LINEA'
+       GROUP BY 1 ORDER BY 2 DESC`,
+      [M, (await db.query(`SELECT p.sku FROM catalog.products p JOIN catalog.brands b ON b.id=p.brand_id AND b.code='SIN-LINEA'
+                             WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku IS NOT NULL`, [M])).rows.map((r) => r.sku)])).rows;
+    await db.query('ROLLBACK');
+    const por = (a) => lineas.filter((l) => l.accion === a);
+    // Dos códigos nuevos con el mismo nombre: sólo uno se da de alta (el otro queda en conflicto después).
+    console.log(`  líneas sin marca por código: ${lineas.length} — alta ${por('alta').length} · adoptar código ${por('adoptar').length}`
+      + ` · conflicto (el nombre ya es de otra marca con código) ${por('conflicto').length} · nombre de marca borrada ${por('borrada').length}`);
+    if (por('alta').length + por('adoptar').length) console.table(lineas.filter((l) => l.accion === 'alta' || l.accion === 'adoptar').slice(0, 20));
+    console.log(`  productos vivos en SIN-LINEA cuya línea ya es marca: ${atorados.reduce((s, r) => s + r.productos, 0)}`
+      + (atorados.length ? ` (${atorados.map((r) => `${r.linea}×${r.productos}`).join(' ')})` : ''));
+
+    if (!APPLY) { console.log('\n[SÓLO LECTURA] nada cambió.'); return; }
+    const n = await normalizeBrandsFromKdig(db, M, null);
+    console.log(`\n[APPLY] COMMIT — ${n} (marcas dadas de alta + códigos adoptados + productos movidos de SIN-LINEA).`);
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
-    console.error('\nERROR (rollback):', e.message);
+    console.error('\nERROR:', e.message);
     process.exitCode = 1;
-  } finally { await db.end(); }
+  } finally { await db.end().catch(() => {}); }
 })();

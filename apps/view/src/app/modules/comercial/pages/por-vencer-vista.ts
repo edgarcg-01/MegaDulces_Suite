@@ -42,9 +42,15 @@ export function confianzaLote(l: Pick<ExpiringLot, 'dated_may_be_stale'>): Confi
 }
 
 /** La declaración del renglón en llano; NULL si la cantidad se puede creer. */
-export function textoConfianza(l: Pick<ExpiringLot, 'dated_may_be_stale' | 'na_qty'>): string | null {
+export function textoConfianza(
+  l: Pick<ExpiringLot, 'dated_may_be_stale' | 'na_qty' | 'stock_erp' | 'dated_qty'>,
+): string | null {
   switch (confianzaLote(l)) {
     case 'vendido':
+      // [CE.1.7] Negativo = lo fechado es más que la existencia de Kepler: parte ya se vendió seguro.
+      if (Number(l.na_qty) < 0) {
+        return `Ya se vendió parte: hay ${cantidad(l.dated_qty)} con fecha y Kepler sólo tiene ${cantidad(l.stock_erp)} de este producto en este almacén`;
+      }
       return `Puede estar ya vendido: hay ${cantidad(l.na_qty)} sin fecha de este producto en este almacén y la venta descuenta primero lo sin fecha`;
     case 'sin_dato':
       return 'No se pudo comprobar si ya se vendió';

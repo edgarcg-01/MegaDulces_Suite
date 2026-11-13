@@ -219,6 +219,8 @@ export * from './finance/cierre-kepler.contract';
 export * from './finance/salida-proveedor.contract';
 // `[PGP.113]` La factura de sucursal anterior al corte que Oficinas nunca registró se puede programar.
 export * from './finance/corte-suelta.contract';
+// `[PGP.117]` A la semana, el pago que nadie pagó se libera del Calendario y queda en la bitácora.
+export * from './finance/pago-vencido.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).

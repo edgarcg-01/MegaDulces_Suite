@@ -683,6 +683,21 @@ columnas): el testigo de que el evento funciona es ese «difieren = 0». Prueba 
 negativa (`normalize=false` no mueve el markup) y dos mutantes en rojo. Llega con el mismo despliegue de la
 ingesta que 9.1 y la oleada 12; el hueco del día del despliegue (lo cambiado entre las 03:00 y ese momento)
 se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--apply` una sola vez.
+- **Hecho el 2026-11-12** (la ingesta salió con `d592bfbf2`, ~13:50 MX): el árbitro y la herramienta dieron 18 → 19;
+  Edgar corrió `--apply` desde `feeds-cron` (con `/secrets/feeds.env`; la imagen desplegada es la versión de 6.8):
+  19 escritos, árbitro de markup en 0. Fechados por `xmin` contra las filas de `knex_migrations` de las 19:48 y 20:24
+  UTC: 17 de los 19 cambiaron en Kepler ANTES del despliegue (lo esperado), 44320 en la ventana y **01033 DESPUÉS**
+  —su costo sí entró por evento (`hop2:normalizeCost`, 20:24 y 20:28), su markup no—. Logs (Edgar, 4 h):
+  `normalizeMarkup` está en la imagen y corre en `ods-live-mirror` (6 lotes) y `ods-reconcile-chicas` (2), **sin un
+  ⚠**. No fue una falla. ⚠️ **Hipótesis abierta, no probada:** carrera entre los dos carriles — los dos normalizan
+  el mismo SKU; si uno tomó su lectura de `kdpv` ANTES del cambio y espera el candado del producto, al soltarse
+  escribe el valor viejo encima del bueno (actualización perdida en READ COMMITTED: el `UPDATE … FROM` usa la foto
+  del inicio de la sentencia). Cuadra con el `xmin` (el producto se escribió 4 transacciones después de la fila
+  nueva y quedó con el valor de la noche); los logs no dan SKUs. **Prueba:** el árbitro de markup el 13-nov — si
+  aparece otro rezagado con su cambio en Kepler posterior al despliegue, el arreglo es bloquear las filas del
+  producto (`FOR UPDATE`) y recalcular en una sentencia aparte (foto nueva), en markup, costo y promo. Medir desde la
+  base no alcanzó: `pg_stat_statements` tampoco muestra el UPDATE de `normalizeCost`, que sí corrió (control
+  negativo), así que su ausencia no prueba nada.
 
 **9.3 hecho en código (2026-11-12, `[CANON.6.9]`): `is_promo` por evento.** La recalculaba
 `repoint-catalog-prices --solo-promo` cada 30 min (1,443 corridas al mes) con tres pases que se peleaban
@@ -736,5 +751,148 @@ en verde. La nota dice cuántos y con qué script se miden y se cierran. Torre: 
   negativa de ceguera y cuatro mutantes en rojo. Lo que este árbitro NO ve: que la regla misma esté mal.
 - Llega con el despliegue de la API (no de la ingesta). Si la API sale antes que la ingesta, el sensor de markup
   dirá `warn` hasta entonces — es verdad, no ruido.
+- ⚠️ **Sí corre con reloj** (Edgar preguntó, 2026-11-12): el escáner de `db-health` es un `@Cron` de la API, cada
+  5 min; no agregué uno, le agregué 3 consultas. Decisión de Edgar: **1 + 2**:
+  1. **Alarma por evento:** cuando un normalizador sigue fallando después de reintentar, el hop-2 escribe la falla
+     en `analytics.hop2_fallas` en ese momento (tabla, normalizador, llaves, lote, error; migración
+     `20261112102727`). Antes quedaba sólo en el log del pod, que se pierde en cada reinicio. El sensor
+     `hop2_fallas` sólo LEE esa tabla (no compara nada): una falla en 24 h → warn. Llega a la bandeja en el
+     siguiente escaneo (≤ 5 min); abrirla al instante exigiría que el escáner deje de cerrar las alertas que él no
+     evalúa — cambio aparte, no hecho.
+  2. **Fecha de retiro de los tres árbitros, como condición medible:** cada uno pide su propio retiro (warn
+     «CUMPLIÓ … retirar este sensor») cuando su script nocturno lleva 30 días sin correr y en esos 30 días no
+     tuvo ni una alerta. Con la ingesta desplegada esta semana, cae a mediados de diciembre. Lo que el evento
+     solo no puede ver —un cambio que nunca llegó, sin error, como el del 9-nov— es justo lo que cubren mientras
+     tanto. `hop2_fallas` no se retira con ellos: es la alarma del hop-2 mismo.
+  Pruebas: `hop2_fallas` 8 ✓ (ejerce el `up()` real de la migración), árbitro 16 ✓; seis mutantes en rojo.
 - `repoint-catalog-names` sale del nocturno y queda manual con la misma función del hop-2; se quitó `--source=kp`.
   Prueba: 13 ✓ con tres negativas y tres mutantes en rojo.
+
+**9.5 hecho en código (2026-11-12, `[CANON.6.12]`): marcas por evento — y el hueco era mayor que «hasta 7 días».**
+`import-brands-lineas.js` corría los sábados a las 02:00 (carril `catalog`) y sólo daba de ALTA la marca; nadie movía
+después los productos que habían entrado a SIN-LINEA (el hop-2 sólo cambiaba marca al renombrar). Medido en prod
+(sólo lectura): **31 productos vivos en SIN-LINEA con la marca de su línea ya creada**, algunos desde agosto
+(KURUMAYA 5, COLOMBINA 4, PERFETTI 4, GALFRA 4, SEÑOR PISTACHO 3…). En 60 días el script dio de alta 5 marcas.
+- **Hop-2:** `normalizeBrandsFromKdig`, registrado para `kdig` (carril hash, ya llegaba por evento). Mismas reglas
+  que el script —alta, adoptar código, conflicto (el nombre ya es de otra marca con código), nombre borrado en la
+  dedup, desempate por sucursal menor— y después saca de SIN-LINEA los productos de esas líneas.
+  `normalizeProductsFromOds` también los saca al llegar su `kdii`. **Sólo desde SIN-LINEA**: una marca puesta a mano
+  no se toca (de los productos con marca distinta a la de su línea, 569 vivos, la mayoría es dedup curada).
+- **Oráculo:** el script anterior (HEAD) y la regla nueva, sobre prod, deciden lo mismo: 1 alta (línea 355
+  COMERCIALIZADORA GRUSURT), 0 adoptar, 41 conflictos, 21 nombres borrados.
+- **Árbitro** `catalogo_marcas_evento` (corre con el reloj del escáner de `db-health`, cada 5 min; sólo alarma):
+  líneas que la regla daría de alta o adoptaría + atorados, sin contar conflictos, borradas ni lo que frena la
+  unique. Hoy **32** (= 1 + 31), ~200 ms. Se retira con 30 días sin `import-brands-lineas.js` y sin alertas.
+- **Lo que NO se resuelve por código de línea (declarado, no tocado):** 58 productos en SIN-LINEA cuya línea no es
+  marca por código. 14 tendrían marca **por nombre** (JUAN SANCHEZ 5, GAMAHUBIN 4, VICTOR ANGUIANO 2, ISMAEL RIVERA
+  2, J. GUADALUPE ALCARAZ 1), pero la regla «por nombre» la contradice el testigo de los hermanos: en ISMAEL RIVERA
+  (241) el nombre apunta a la marca `085` y sus 57 hermanos están en `241` (una marca **borrada**, con productos
+  vivos colgando — hallazgo aparte). De los otros 44, 43 son de líneas que **no existen en `kdig`** (986, 344, 689…,
+  y 2 con la línea vacía: el `kdii.c3` apunta a una línea que Kepler no tiene) y 1 (TRIBILIN, 184) es de una línea
+  cuyo nombre es el de una marca borrada. Nada de esto se adivina; si importa, lo decide Compras.
+- Pruebas: 19 ✓ contra base local (los dos órdenes de llegada, adoptar, conflicto, borrada, desempate, atorados,
+  colisión, desempate de un lote que mueve y renombra, sin churn, cruce con el árbitro; dos negativas) y **9
+  mutantes en rojo** con el control en verde. Vecinas re-corridas: nombres 13, árbitro 16, `hop2_fallas` 8, markup
+  15, promo 21 ✓. API: `tsc --noEmit` exit 0, `db-health` 24 ✓.
+- **El día del despliegue de la ingesta:** `node database/importers/kepler/import-brands-lineas.js` (sólo lectura)
+  y, si da más de 0, `--apply` una vez: los 31 atorados no tienen evento propio hasta que cambie su `kdii` o su línea.
+
+**9.6 hecho en código (2026-11-12, `[CANON.6.13]`): `inventory.products_active` es una VISTA.** La llenaba
+`refresh-products-active.js` a las 05:20 con TRUNCATE + INSERT desde `catalog.products` (+ subfamilia, categoría e
+imagen de `inventory.products`), y en cada corrida borraba una FK. Lo leen el buscador, precios, portal, el
+extractor de tickets y el corpus del matcher; lo que el catálogo cambiaba en el día les llegaba a la mañana siguiente.
+- **Medido antes (prod, sólo lectura):** la misma consulta, en línea, contra la tabla: iguales columna por columna
+  salvo lo del día — 4 nombres cambiados en Kepler después de las 05:20 (p. ej. 17060 FAJILLA «/ 100» → «/ 50») y 13
+  altas que la tabla aún no tenía. Nadie escribe en ella salvo el script; no hay vistas, funciones ni FKs que
+  dependan. Latencia de los lectores reales con la vista: +6 a +21 ms (búsqueda 23 ms, catálogo completo 30 ms,
+  corpus 13 ms). El latido del cron fallaba el 20 % de las corridas.
+- **Migración `20261112135015`:** la tabla se RENOMBRA a `inventory.products_active_congelada_20261112` (no se
+  borra, regla 5; sin permisos para la app) y el nombre pasa a una vista con la MISMA consulta. La vista es de
+  `postgres` (quien migra): no pasa por el RLS de `catalog.products`, por eso el tenant va fijo — como la tabla, que
+  no tenía `tenant_id` ni RLS, y así el corpus del matcher (lee sin `app.tenant_id`) sigue viendo todo. Piso
+  anti-vaciado del script, conservado: si la vista diera menos de la mitad, aborta. `down()` devuelve la tabla.
+- **Fuera:** la línea de `crontab.feeds` (05:20) y el latido `products_active_refresh` de `db-health`. El script
+  queda manual sólo para `--reactivate` (el drift de activos, que el cron nunca usó; hoy 0).
+- **Orden:** la migración va antes de que la ingesta deje de agendar el script (la ingesta sólo despliega lo que la
+  API ya sirve). Si el script viejo alcanza a correr con la vista, falla en su primer `ALTER TABLE` y se revierte —
+  probado en base local—: latido rojo esa mañana, sin daño. Desplegar la ingesta el mismo día lo evita.
+- Pruebas: 12 ✓ (ejerce el `up()` y el `down()` reales; control de RLS: `app_runtime` sin tenant no ve
+  `catalog.products` y sí la vista) y 8 mutantes en rojo (tenant, GRANT, REVOKE, piso, `security_invoker`, activos,
+  `down`, respaldo de nombre). API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar:** borrar `inventory.products_active_congelada_20261112` cuando quiera (con las demás congeladas).
+  `inventory.products` (05:10) sigue con reloj: es el siguiente de la lista; la vista no lo necesita (las filas que
+  agrega ese cron sólo copian lo que la vista ya toma del catálogo).
+
+**9.7 hecho en código (2026-11-12, `[CANON.6.14]`): códigos de barras — el «residuo» era un pleito y un hueco de
+borrado.** `import-product-barcodes.js` corría cada 30 min (carril `prices`): ~190 cambios por día hasta el 29-oct,
+0–4 desde el 30-oct (34 el 3-nov). Medido en prod (sólo lectura) qué eran esos pocos:
+- **El pleito (casi todo):** su parte **Wincaja** lee `wincaja.articulos`, una foto **congelada** (última
+  importación el 29-sep; la mayoría de las sucursales, julio). De ahí ya no sale nada nuevo: lo único que hacía era
+  REVIVIR —como `source=wincaja`, unidad `CJA` (su unidad de compra)— códigos que Kepler acababa de retirar y el hop-2
+  había dado de baja entre 11 y 28 min antes (08062 hoy: Kepler cambió `7891000299951` por su clave; a las 16:02 volvió como
+  CJA, cuando Kepler lo tenía como PAQ). De 695 bajas Kepler en 90 días, 102 siguen vivas así; en **47** Kepler las
+  había **reemplazado** por otro código real; en 50 dejó el producto sin código (relleno = SKU).
+- **El hueco (lo poco de Kepler):** 4 de sus 5 bajas Kepler en dos semanas eran SKUs que **ya no existen en `kdii`**.
+  `raw-delete` borraba en el ODS pero no corría normalizadores: lo que Kepler QUITA nunca se recalculaba.
+- **Hecho:** `raw-delete` corre los normalizadores de la tabla sobre las llaves borradas (mismo `normalizarLlaves`
+  que `raw-upsert`, con reintento por partes y `hop2_fallas`) — aplica a todo el catálogo, no sólo a códigos. El
+  script sale del carril y queda manual, **sólo Kepler** (la parte Wincaja se quita: congelada, sólo revivía). Las
+  1,609 filas Wincaja vivas se quedan como están.
+- **Árbitro** `catalogo_codigos_evento` (con el reloj del escáner; sólo alarma; retiro con 30 días sin el script y
+  sin alertas): faltan + sobran + siguen como Wincaja. Hoy **0**, igual que el cálculo en JS; ~400 ms (la regex
+  sobre los valores crudos de las 9 plazas costaba ~1.1 s: se deduplica antes). No compara unidad ni factor: el
+  mismo código con unidades distintas entre plazas se desempata en el orden de llegada, no determinista.
+- Pruebas: 11 ✓ (borrado de SKU y de una plaza por el camino real, wincaja intacta, cruce con el árbitro; negativas
+  `normalize=false` y borrado de 0 filas) y **7 mutantes en rojo**. Vecinas re-corridas en verde (nombres, markup,
+  promo, `hop2_fallas`, marcas, árbitro, `products_active`, `ods-pk-texto`). API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar (D, no tocado):** los 102 códigos revividos desde Wincaja. Recomiendo dar de baja los **47** que Kepler
+  reemplazó por otro código real (el escáner de bodega los lee como CAJA cuando Kepler dice PAQ/PZA: error de
+  cantidad ×factor); los 50 que Kepler dejó sin código piden tu regla — `catalog.products.barcode` ya conserva el EAN
+  real cuando Kepler pone relleno (política del 2026-08-17), y lo consistente sería que el escáner también lo
+  conserve, pero con la unidad de Kepler, no `CJA`.
+
+**Después de la oleada 9 — `inventory.products` (2026-11-12, `[CANON.6.15]`): VISTA sobre el catálogo.** Era la foto de
+junio del FDW muerto (13,852 filas) más las altas que `refresh-inventory-products.js` le agregaba a las 05:10 (909),
+sin actualizar nunca las existentes. Es el «catálogo del almacén» del conteo físico, de la ficha de producto
+(`entity-ref`) y de `products_active`.
+- **Medido (prod, sólo lectura):** de 14,761 filas, 10,222 son productos vivos del catálogo — 1,346 con OTRO nombre y
+  1,310 con OTRO código de barras —; faltaban 13 vivos. Las 4,539 fuera del catálogo vivo: 2,676 borrados, 1,333
+  fantasmas del FDW (ni catálogo ni `kdii`) y 530 en `kdii` sin producto, de los que 521 se llaman «* DESCONTINUADO»
+  (los 9 restantes son de presencia). El conteo físico no se usa desde junio (6 folios, todos cancelados). Lectores
+  reales con la vista: de ~4 a ~18 ms.
+- **Migración `20261112152928`:** la tabla se RENOMBRA a `inventory.products_legado_fdw` (regla 5; sin permisos para la
+  app) y queda como dueña de lo que no se deriva: subfamilia, categoría, factores, impuestos, estadísticas anuales e
+  IMÁGENES. El nombre pasa a una vista: productos VIVOS del catálogo con SKU (activos o no), con nombre, código,
+  descripción y unidades del catálogo al momento y lo demás de la foto, tal cual. Los **factores no cambian de
+  fuente**: catálogo y Kepler discrepan en unidades (`UNIDADES_DE_MEDIDA.md`); cambiarla sin verificar sería adivinar.
+  Dueña `postgres`, tenant fijo, piso anti-vaciado. `products_active` (6.13) la sigue por OID: tras el renombre lee la
+  foto para lo que toma de ella.
+- **Fuera:** la línea de las 05:10 (el script se borra: ya no hay altas que agregar) y el latido
+  `inventory_products_refresh`. `upload-product-images-to-cloudinary.js` escribe la imagen en `products_legado_fdw`
+  como UPSERT (un producto nuevo no tiene fila ahí; un UPDATE la perdería en silencio).
+- Pruebas: 15 ✓ en base vacía y en base con las migraciones ya aplicadas (como el CI, que corre `migrate:latest`);
+  la de 6.13 se ajustó para ese caso. 9 mutantes en rojo. API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar:** borrar `products_legado_fdw` NO — guarda las imágenes y la foto que nada más tiene. Lo que sí se
+  puede firmar es quitarle las columnas que el catálogo ya trae (nombre, código, unidades), cuando se quiera.
+
+**Presencia del catálogo (2026-11-12, `[CANON.6.16]`): por evento.** `repoint-catalog-presence.js` corría en el nocturno
+y hacía tres cosas: altas, reactivar borrados que Kepler trae vivos y llenar `factor_sale` vacío desde el árbitro
+(`[VSO.10]`). Bitácora de 30 días: **1 alta, 5 reactivaciones (6 y 10-nov) y ~40 factores** (0–6 por noche).
+- **Altas:** ya las hacía el hop-2 (`normalizeProductsFromOds`: 127 en 60 días, contra 1 del nocturno). Las 4 que hoy
+  faltan no las puede dar nadie: Kepler tiene dos SKUs con el MISMO nombre en la misma marca (99225/99204 «ETIQUETA
+  NARANJA 30X49 9000», 99165/99164, 40709/40703, 95371/17493) y el catálogo exige (marca, nombre) único. Las reglas
+  de alta del hop-2 (sin filtro de precio ni de «DESCONTINUADO») NO se tocaron: es la que ya regía.
+- **Reactivar** pasa al hop-2 (paso 0 de `normalizeProductsFromOds`): SKU con sólo filas borradas que Kepler trae vivo
+  (precio real, nombre que no es «DESCONTINUADO» ni asteriscos); una fila por SKU (el nocturno reactivaba todas: dos
+  vivas con el mismo SKU). Ningún camino de la app borra productos del catálogo: reactivar no pelea con nadie.
+- **Factor de caja vacío** pasa a `normalizeFactorSale` en la cadena de `kdii`, después de `normalizeBoxFactor` y
+  ANTES de `normalizeCost`: un alta nace con su costo por caja (el costo sólo recalcula la caja cuando cambia el
+  costo base, así que el orden decide). Mismas reglas: sólo lo vacío, sólo con testigo, sólo entero.
+- **Costo, medido:** la vista del árbitro de factor cuesta ~0.5 s aunque se acote, así que el normalizador primero mira
+  —barato— si alguna llave del lote trae el factor vacío (100 de ~9,600 SKUs vivos). La reactivación igual: primero
+  si el lote trae SKUs sólo-borrados; leer `kdii` entero con ILIKE y regex costaba ~1 s.
+- **Sin árbitro, a propósito:** su consulta cuesta ~1.2 s en prod (la primera lectura de `kdii` de cada consulta paga
+  ~0.9 s por filas muertas, todavía bajo el umbral de autovacuum) para vigilar ~1 alta y ~5 reactivaciones al mes;
+  las fallas del evento quedan en `hop2_fallas`. La herramienta manual mide en sólo lectura: hoy 0 / 0 / 5.
+- Pruebas: 12 ✓ con dos negativas; 9 mutantes en rojo (incluido el que pone el costo antes que el factor). Vecinas en
+  verde. El día del despliegue de la ingesta: `repoint-catalog-presence.js --apply` una vez para los 5 factores.

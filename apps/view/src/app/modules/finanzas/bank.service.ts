@@ -30,9 +30,24 @@ export interface BankMovement {
   raw_type: string | null; raw_code: string | null; sucursal: string | null; concept: string | null;
   amount_in: number; amount_out: number; running_balance: number | null; recon_status: string;
   kepler_doc_tipo?: string | null; kepler_doc_folio?: string | null;
+  /**
+   * [CB.64] La descarga del banco en la misma lista. 'libro' = renglón de Movimientos; 'descarga' = renglón de la
+   * descarga que el libro no tiene (sin categoría ni conciliación). Opcionales: una API anterior no los manda.
+   */
+  fuente?: 'libro' | 'descarga';
+  /** Del libro: 'trae' / 'no_trae' (dentro de un archivo subido) / 'es_descarga' (la cuenta ya usa el banco) / null = sin juicio. */
+  en_descarga?: 'trae' | 'no_trae' | 'es_descarga' | null;
+  /** De la descarga: por qué el libro no lo tiene. */
+  motivo?: 'libro_no_llega' | 'libro_sin_ese_dia' | 'falta_en_libro' | null;
+  referencia?: string | null; subido_en?: string | null; subido_por?: string | null;
+  /** [CB.65] Sólo de la descarga: quién le puso la categoría (el libro no la tiene). `ninguna` = el texto no dice qué es. */
+  categoria_por?: 'documento' | 'banco' | 'regla_del_libro' | 'deposito' | 'ninguna' | null;
 }
 
-export interface MovementsPage { total: number; rows: BankMovement[]; }
+/** [CB.64] Del mes y de la cuenta a la vista. null = el periodo no tiene descarga. */
+export interface DescargaEnMovimientos { solo_descarga: number; no_trae: number; trae: number; }
+
+export interface MovementsPage { total: number; rows: BankMovement[]; descarga?: DescargaEnMovimientos | null; }
 
 export interface ConcentradoGroup { deposits: number; withdrawals: number; movs: number; }
 export interface ConcentradoAccount {
@@ -251,6 +266,8 @@ export interface FactorajeCompare {
 export interface MovementsQuery {
   period?: string; account_id?: string; category_id?: string; group_key?: string;
   uncategorized?: boolean; recon_status?: string; search?: string; limit?: number; offset?: number;
+  /** [CB.64] 'solo_descarga' | 'no_trae'. */
+  contra_descarga?: string;
 }
 
 /** CB.24 — Cuadre 3 vías (Workbook ↔ Kepler 102 ↔ ContPAQi). */
@@ -384,6 +401,8 @@ export interface RevisionEstadoBanco {
 }
 export interface ArchivoEstadoBanco {
   id: string; bank: string; alias: string | null; account_label: string; file_name: string | null;
+  /** [CB.64] Para abrir sus movimientos; falta en una API anterior (entonces la fila no abre nada). */
+  bank_account_id?: string;
   date_from: string; date_to: string; lines_in_file: number; lines_new: number;
   opening_balance: number; closing_balance: number; total_in: number; total_out: number;
   balance_ok: boolean; declared_ok: boolean | null; account_check: ComoSeFijoLaCuenta;
@@ -417,6 +436,8 @@ export interface CuentaContraElLibro {
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
   /** [CB.60b] Opcionales: una API anterior a CB.60b no los manda, y entonces no se ofrece pasar al banco. */
   listo_para_banco?: ListoParaBanco;
+  /** [CB.67] El libro deja de existir: desde qué día mandaría el banco sin el paralelo, o por qué no se puede. */
+  sin_paralelo?: { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null };
   /** [CB.60b] Desde qué día la cuenta usa el banco (`null` = sigue con el libro). Sólo se compara lo anterior. */
   banco_desde?: string | null;
   /** [CB.61] La sucursal sin el libro contra la S del libro, en el paralelo. */
@@ -487,6 +508,7 @@ export class BankService {
     if (q.search) p.set('search', q.search);
     if (q.limit != null) p.set('limit', String(q.limit));
     if (q.offset != null) p.set('offset', String(q.offset));
+    if (q.contra_descarga) p.set('contra_descarga', q.contra_descarga);
     return this.http.get<MovementsPage>(`${this.base}/movements?${p.toString()}`);
   }
 

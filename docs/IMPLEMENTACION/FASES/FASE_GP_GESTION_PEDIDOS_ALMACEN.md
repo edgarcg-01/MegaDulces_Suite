@@ -1065,6 +1065,132 @@ lee de aquí cuando existan.
 
 ---
 
+## 11. GP.9 — Continuidad desde telemarketing: la cotización sigue a su pedido (2026-11-12)
+
+**Pedido (Edgar, 2026-11-12):** *«el punto es dar la accesibilidad al surtidor. Podemos seguir el
+proceso en TLMK, para que haya una continuidad de pasos.»* Nació del caso Canindo (embarque
+`06UD4101-0001823`: 10 CJA de 40 capturadas antes de que la ficha cambiara a 25; la factura las
+re-presentó como 16 CJA) y de la revisión AX.22 ([`FASE_AX`](FASE_AX_ANEXO_VENTA.md) §AX.22).
+
+**Medido en prod, sólo lectura (2026-11-12):**
+- La cotización terminaba en «Pedido en Kepler X». De 98 pedidos nacidos en cotización (30 días):
+  69 embarcados, 13 detenidos en surtido o checado, 15 creados sin autorizar, 1 autorizado.
+- Kepler registra **quién surtió en 42 de 98** y quién embarcó en 24 (con 69 ya embarcados). La
+  hora de cada etapa no existe en Kepler (§2.3).
+- GP ya lee los pedidos `AUTORIZADO` de Kepler (GP.2) — los de telemarketing incluidos — pero **no
+  se usa**: 39 olas desde el 08-oct, la última creada el 04-nov, ninguna checada.
+
+| Item | Qué | Estado |
+|---|---|---|
+| **GP.9.1** | En `/telemarketing/cotizaciones/:id`, debajo de «Pedido en Kepler», los pasos Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado: cuándo (sólo si existe), quién (nombre si lo marcó la Suite, clave de Kepler si no), embarques y facturas (canceladas tachadas), aviso si el pedido quizá no es el de la cotización y los hallazgos abiertos de AX.22. `GET /api/commercial/quotes/:id/tracking`, sólo lectura, sin migración | 🧪 |
+| **GP.9.2** | En la pantalla del surtidor (`/almacen/surtir`), por renglón, el **aviso de caja** (§11.3): *capturada con otra caja* (el pedido trae un factor que ya no es el de la ficha → el renglón se cuenta en la unidad BASE) o *en transición* (la caja cambió en 30 días → revisar cuántas piezas trae). Observaciones y dirección del pedido TLMK: siguen ⬜ | 🧪 aviso de caja |
+| **GP.9.3** | Lo que el vendedor no se entera: en el seguimiento de la cotización, **lo que cambió en Kepler contra lo cotizado** (renglón quitado, cantidad bajada/subida, producto agregado) — sin esperar al piloto (§11.4). Pendiente: el aviso en la campana al cambiar, y el faltante que marque el surtidor en la Suite (espera D2) | 🧪 cambios en el seguimiento |
+
+**Decisiones abiertas:** D1 — GP vuelve a 🔨 y el cupo queda en 6 de 4: qué pasa a ⏸️ (Edgar). D2 —
+qué sucursal y qué surtidores pilotean la pantalla del celular (Edgar). Sin piloto, GP.9.2/9.3 no
+tienen datos y GP.9.1 sólo muestra lo que Kepler registra.
+
+### 11.1 GP.9.1 — las cinco preguntas, antes de la plantilla
+
+1. **Qué ve y en qué orden.** Quien levantó la cotización y viene a preguntar «¿dónde va mi
+   pedido?». Primero lo que pide actuar (pedido dudoso, hallazgo abierto), después **la respuesta en
+   una línea** («Facturado · 11 nov 16:49» / «Surtido — sigue: checado» / «la factura X se canceló
+   y falta refacturar») y abajo los seis pasos en orden del proceso.
+2. **Qué NO ve.** Cantidades por etapa (`kdm2.c51..c54`): pedida y surtida vienen en unidades
+   distintas (§2.3, «embarcado ÷ pedido» da 102 %) — publicarlas mentiría. Horas que Kepler no
+   guarda. Importe del embarque (lo que importa al vendedor es lo facturado).
+3. **Accesibilidad.** Cero clics: está donde ya estaba el folio. Lista ordenada (`<ol>`), estado con
+   icono **y** texto para lector de pantalla, nunca sólo color. La factura abre en Facturación TM
+   (`?doc=`) para quien tiene ese permiso; a los demás se les muestra el folio, copiable.
+4. **Ligas.** Cotización → pedido `U-D-40` → embarque `U-D-41` → factura `U-D-8`, por el apuntador
+   `c37/c38/c39` del hijo. Folio visible en cada paso.
+5. **¿Le toca a esta pantalla?** Sí: es la continuación de la decisión que se toma aquí (aceptar →
+   pedido). No es otra pantalla ni otra lista.
+
+**Jerarquía:** primario = el paso en que va · secundario = la lista con fecha y documento ·
+terciario = quién (clave) y la nota de lo que Kepler no guarda.
+
+### 11.2 GP.9.1 — lo medido
+
+- **Servicio real contra prod (sólo lectura), 115 cotizaciones:** 109 con pedido en Kepler, 0
+  pendientes de réplica; último paso: 76 facturadas, 4 embarcadas, 5 checadas, 7 surtidas, 1
+  autorizada, 16 sólo creadas. **26 ms p50, 37 ms p95, 86 ms máx.**
+- **Control independiente:** el cliente de la cadena contra el de la cotización — pedido 106/109,
+  embarque 73/76, factura 76/82. **Placebo** (pedido con folio + 1): 18/107. Las filas que no casan
+  tienen un patrón: los 3 pedidos **no traen** el código de la cotización en «Comentarios» y son de
+  otro cliente (COT-2026-00016, -00174, y -00219 de contado cambiado a cliente con nombre); las
+  facturas restantes son de contado facturadas a nombre de quien pidió (normal). Por eso el
+  seguimiento declara la **identidad** del pedido: 98 confirmadas (código en comentarios), 8 por
+  folio (mismo cliente), 3 dudosas — esas se muestran con aviso, no como seguras.
+- **Pruebas:** reglas 18/18 (con mutante rojo: «Facturado» contando canceladas), arranque y
+  acceso 9/9 (no toca la base si la cotización es ajena; NG8008 rojo si falta `[quoteId]`),
+  pantalla 7/7; módulo de cotizaciones 186 verdes.
+- ⚠️ **Sin validación visual** (no se levanta la app en local) y **arranque de Nest no verificado
+  en proceso real** — se confirma al soltar.
+- **Corrección:** la factura `UD0801-0001370` **no es** la refactura de Canindo (es de C3084,
+  embarque 1759). El embarque 1823 sólo tiene la 1350, cancelada; está pendiente de refacturar.
+
+### 11.3 GP.9.2 — el aviso de caja en la pantalla del surtidor
+
+**El problema, en la hoja:** el pedido de Canindo dice «10 CJA · 400 PAQ» porque se capturó con la
+caja de 40; el 29-oct la caja pasó a 25. Si el surtidor cuenta 10 cajas nuevas salen 250 PAQ, y un
+faltante capturado en cajas se convertía con el factor viejo (×40).
+
+**Dos señales por renglón** (`libs/commercial/.../commercial-picking/aviso-caja.ts`, campo
+`aviso_caja` de `PickerWaveLine`):
+1. **capturada_con_otra** — algún pedido de la ola trae ese SKU con `status = factor_cambio` en
+   `analytics.v_erp_order_line_box_factor` (AX.22.1). La pantalla deja de contar en la presentación:
+   la cantidad principal pasa a la base («400 PAQ») y el faltante se guarda tal cual, sin factor.
+2. **transicion** — la ficha de esa presentación cambió de factor en los últimos 30 días
+   (`analytics.kepler_ficha_history`, que existe desde el 2026-11-04: un cambio anterior sólo lo ve
+   la señal 1). Se avisa y se sigue contando en la presentación.
+
+**Lo que se encontró al medir (06, 2026-11-12):** la primera versión comparaba casilla por casilla y
+habría avisado en **178 SKU**; 150 eran Kepler moviendo la CJA de la 2ª a la 3ª presentación con el
+**mismo** factor. Comparando **por nombre de unidad** (y tratando factor 0 como «no declarado»)
+quedan **19 SKU** de 1,477 pedidos en 30 días (1.3 %): CJA 18→12, CJA 40→4, KG 2→2.5…
+
+**Medido:** `cajasDeOla` real sobre las 15 olas de prod: 16 ms p50, 50 ms máx, sin errores (son olas
+de prueba de octubre, sin avisos: no hay positivo en olas reales todavía). La consulta de la vista con
+la llave de Canindo devuelve 95644 CJA 40→25 y el aviso «El pedido se capturó con CJA de 40 y hoy la
+CJA es de 25. Cuenta 400 PAQ, no cajas.». Si una lectura de aviso falla, la ola sale sin avisos
+(savepoint: no aborta la transacción de la ola) y se registra.
+
+**Pruebas:** reglas 17 (reacomodo de casilla, 0→40, reacomodo que no tapa un cambio real), surtido
+126 verdes; pantalla 84/84 con 3 nuevas — Canindo cuenta en base y guarda 250 PAQ sin ×40 (mutante
+rojo al quitar la regla), transición conserva la presentación, sin aviso no se pinta nada.
+⚠️ Sin validación visual en el celular.
+
+**Pendiente de GP.9.2:** observaciones y dirección de entrega del pedido TLMK en la pantalla, y
+**capturar** la respuesta del surtidor («esta caja trae N») — eso escribe, y exige su prueba contra base
+real antes de prod.
+
+### 11.4 GP.9.3 — lo cotizado contra lo que quedó en Kepler
+
+**Por qué no sale de Kepler solo (medido 2026-11-12, 103 pedidos de cotización):** el pedido contra su
+embarque coincide en **698/698** renglones y lo pedido contra lo surtido en **1,005/1,005** — cero
+faltantes. No es que no falte nada: cuando falta, **Kepler corrige el pedido mismo** y el pedido deja
+de recordar lo que se pidió. Lo pedido de verdad vive en la cotización de la Suite.
+
+**Lo medido contra la cotización** (base = cantidad × factor de la presentación, el que se verificó
+contra la ficha al escribir): de 115 cotizaciones en Kepler, **67 tienen cambios** — 448 renglones
+quitados, 51 con cantidad bajada, 14 subida, 27 productos agregados. La escritura del pedido es todo o
+nada (`armarPedidoTlmk`), así que un renglón ausente lo quitó alguien en Kepler después.
+- **Testigo independiente:** de los quitados, 32.8 % no tiene existencia hoy; de los que se quedaron,
+  5.8 %. Apunta a faltante, **no lo prueba** renglón por renglón (Kepler no guarda por qué): la pantalla
+  dice el hecho, no el motivo.
+- **Dos implementaciones:** el servicio y un script aparte cuentan los mismos 448 quitados.
+- **No es la réplica a medias:** COT-2026-00279 (enviada 15:31, ya EMBARCADO) quedó con 7 de 14
+  renglones, renumerados 1–7, y el total de la cabecera cuadra con esos 7.
+- Con la identidad del pedido **dudosa** no se comparan renglones (fabricaría quitados falsos).
+
+**En pantalla:** debajo de la respuesta, «En Kepler cambiaron N renglones de tu cotización: X quitados
+($ cotizados), Y con otra cantidad o agregados» y la lista en la presentación cotizada («Cotizaste 2
+CJA; el pedido ya no lo trae»). Servicio real contra prod: 32 ms p50, 82 ms máx. Pruebas: reglas 6
+nuevas, panel 3 nuevas; cotizaciones 192 verdes.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

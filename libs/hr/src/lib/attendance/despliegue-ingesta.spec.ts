@@ -211,7 +211,8 @@ describe('[OPS.ING.1] CI, manifiestos, vigía y guion nombran lo mismo', () => {
 
   it('⛔ el vigía despliega la ingesta en sus dos salidas, y no trata sus imágenes como de prod', () => {
     const auto = leer('ops/prod/auto-deploy.sh');
-    expect(auto.match(/^\s*(\[ "\$SECO" = 1 \] \|\| )?desplegar_ingesta$/gm)?.length).toBe(2);
+    // `[OPS.ING.2]` La del «al día» va junto con instalar_guiones: `[ "$SECO" = 1 ] || { desplegar_ingesta; … }`.
+    expect(auto.match(/^\s*(\[ "\$SECO" = 1 \] \|\| (\{ )?)?desplegar_ingesta(;|$)/gm)?.length).toBe(2);
     expect(auto).toMatch(/_mf_prod=\$\(grep -l 'namespace: prod'/);
     expect(auto).not.toMatch(/grep -v '\^trade-ingest\$'/);
   });
