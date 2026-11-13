@@ -1,4 +1,4 @@
-import type { BulkLocationInputRow } from '@megadulces/contracts';
+import type { BulkAssignmentInputRow, BulkLocationInputRow } from '@megadulces/contracts';
 
 /**
  * `[UB.2]` Leer un archivo de ubicaciones (Excel o CSV) a renglones para la captura masiva.
@@ -107,4 +107,60 @@ export function csvATabla(texto: string): string[][] {
       out.push(cur);
       return out;
     });
+}
+
+// ── `[UB.3]` Excel de asignaciones: producto → presentación → ubicación → papel ────────────────
+
+const ALIAS_ASIG: Record<'sku' | 'presentacion' | 'ubicacion' | 'papel' | 'min' | 'max', string[]> = {
+  sku: ['clave', 'sku', 'producto', 'codigo producto', 'clave producto'],
+  presentacion: ['presentacion', 'unidad', 'empaque'],
+  ubicacion: ['ubicacion', 'codigo ubicacion', 'lugar'],
+  papel: ['papel', 'uso', 'tipo'],
+  min: ['minimo', 'min'],
+  max: ['maximo', 'max'],
+};
+
+export type LecturaAsignaciones =
+  | { ok: true; filas: BulkAssignmentInputRow[]; vacias: number }
+  | { ok: false; motivo: string };
+
+/** Igual que `leerTablaUbicaciones`, para el Excel de asignaciones. Exige clave, presentación, ubicación y papel. */
+export function leerTablaAsignaciones(tabla: unknown[][]): LecturaAsignaciones {
+  if (!tabla.length) return { ok: false, motivo: 'El archivo está vacío.' };
+  const enc = (tabla[0] ?? []).map((c) => SIN_ACENTOS(celda(c)));
+  const col = (k: keyof typeof ALIAS_ASIG) => enc.findIndex((h) => ALIAS_ASIG[k].includes(h));
+  const i = { sku: col('sku'), presentacion: col('presentacion'), ubicacion: col('ubicacion'), papel: col('papel'), min: col('min'), max: col('max') };
+  const faltan = (['sku', 'presentacion', 'ubicacion', 'papel'] as const).filter((k) => i[k] < 0);
+  if (faltan.length) {
+    return { ok: false, motivo: `Faltan columnas: ${faltan.map((k) => ({ sku: 'Clave', presentacion: 'Presentación', ubicacion: 'Ubicación', papel: 'Papel' })[k]).join(', ')}. Descarga la plantilla.` };
+  }
+  const filas: BulkAssignmentInputRow[] = [];
+  let vacias = 0;
+  for (let n = 1; n < tabla.length; n++) {
+    const r = tabla[n] ?? [];
+    const v = (k: keyof typeof i) => (i[k] >= 0 ? celda(r[i[k]]).trim() : '');
+    if (!v('sku') && !v('presentacion') && !v('ubicacion') && !v('papel')) { vacias++; continue; }
+    filas.push({ fila: n + 1, sku: v('sku'), presentacion: v('presentacion'), ubicacion: v('ubicacion'), papel: v('papel'), min: v('min') || null, max: v('max') || null });
+  }
+  if (!filas.length) return { ok: false, motivo: 'El archivo no trae renglones debajo de los encabezados.' };
+  return { ok: true, filas, vacias };
+}
+
+/**
+ * Primera hoja de un Excel como tabla de celdas, para los lectores de arriba. `exceljs` se carga
+ * BAJO DEMANDA (no entra al bundle inicial). exceljs indexa las celdas desde 1: `values[0]` siempre
+ * viene vacío, y las filas vacías llegan como huecos.
+ */
+export async function leerXlsx(buf: ArrayBuffer): Promise<unknown[][]> {
+  const mod = (await import('exceljs')) as unknown as Record<string, any>;
+  const ExcelJS = mod['default'] ?? mod;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  if (!ws) return [];
+  const tabla: unknown[][] = [];
+  ws.eachRow({ includeEmpty: true }, (row: { values: unknown[] }, n: number) => {
+    tabla[n - 1] = (row.values as unknown[]).slice(1);
+  });
+  return Array.from(tabla, (r) => r ?? []);
 }

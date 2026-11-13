@@ -18,8 +18,6 @@
   "apps/view/src/app/modules/logistica/pages/logistica-guides.component.ts",
   "apps/view/src/app/modules/televenta/pages/televenta-take-order.component.ts",
   "apps/view/src/app/modules/tienda/analisis/analisis-productos.component.ts",
-  "apps/vendor/src/app/modules/vendor/pages/vendor-route-home.component.ts",
-  "apps/vendor/src/app/modules/vendor/pages/vendor-route-pick.component.ts",
   "apps/portal/src/app/modules/portal/pages/portal-catalog.component.ts",
   "apps/portal/src/app/modules/portal/pages/portal-promotions.component.ts"
 ]

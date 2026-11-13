@@ -262,6 +262,9 @@ export class BinLocationService {
       // vaciarlo es justo el paso previo a darlo de baja.
       await trx('commercial.stock_lot_locations').where({ bin_id: id }).del();
 
+      // `[UB.3]` Con productos asignados (vivos o ya quitados) la FK frena el DELETE: se dice en claro.
+      const asignada = await trx('commercial.bin_assignments').where({ bin_id: id }).first('id');
+      if (asignada) throw new ConflictException('La ubicación tiene (o tuvo) productos asignados en Ubicaciones; quítalos o dala de baja desde Mantenimiento.');
       const n = await trx('commercial.warehouse_bins').where({ id }).del();
       if (!n) throw new NotFoundException('Bin no encontrado');
       return { deleted: true };

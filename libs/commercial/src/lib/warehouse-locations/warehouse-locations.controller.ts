@@ -1,7 +1,16 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequireAuthGuard, RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import type {
+  BulkAssignmentsBody,
+  BulkAssignmentsPreview,
+  BulkAssignmentsResult,
+  CreateAssignmentBody,
+  ProductAssignment,
+  ProductLocationDetail,
+  ProductLocationFilter,
+  ProductLocationsList,
+  UpdateAssignmentBody,
   BulkLocationsBody,
   BulkLocationsPreview,
   BulkLocationsResult,
@@ -13,6 +22,7 @@ import type {
 } from '@megadulces/contracts';
 import { WarehouseLocationsService } from './warehouse-locations.service';
 import { WarehouseLocationsBulkService } from './warehouse-locations-bulk.service';
+import { WarehouseLocationsAssignService } from './warehouse-locations-assign.service';
 
 /**
  * `[UB.1]` Catálogo de ubicaciones (Fase UB, ADR-090) — pantalla `/almacen/ubicaciones`.
@@ -30,6 +40,7 @@ export class WarehouseLocationsController {
   constructor(
     private readonly svc: WarehouseLocationsService,
     private readonly bulk: WarehouseLocationsBulkService,
+    private readonly assign: WarehouseLocationsAssignService,
   ) {}
 
   // Leer el catálogo es parte de acomodar y de gestionar: quien tiene cualquiera de las tres lo lee.
@@ -77,5 +88,66 @@ export class WarehouseLocationsController {
   @ApiOperation({ summary: 'Deshacer un lote: retira sus ubicaciones si ninguna tiene mercancía todavía.' })
   undo(@Param('id') id: string): Promise<UndoLocationBatchResult> {
     return this.bulk.undo(id);
+  }
+
+  // ── `[UB.3]` Asignación por producto y presentación ─────────────────────────────────────────
+  // Leer: cualquiera de las tres (quien acomoda necesita saber dónde va cada cosa).
+  // Asignar, cambiar y quitar: GESTIONAR (es catálogo, no piso).
+
+  @Get('products')
+  @RequireAnyPermission(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Productos con ficha Kepler en el almacén, con su lugar fijo (?warehouse_id=&q=&filtro=todos|sin_ubicacion|con_ubicacion&limit=&offset=).' })
+  products(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('q') q?: string,
+    @Query('filtro') filtro?: ProductLocationFilter,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ): Promise<ProductLocationsList> {
+    const f: ProductLocationFilter = filtro === 'sin_ubicacion' || filtro === 'con_ubicacion' ? filtro : 'todos';
+    return this.assign.products(warehouseId, q, f, Number(limit), Number(offset));
+  }
+
+  @Get('products/:productId')
+  @RequireAnyPermission(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Un producto en el almacén: sus presentaciones de Kepler (con factor y códigos) y sus asignaciones.' })
+  productDetail(@Param('productId') productId: string, @Query('warehouse_id') warehouseId: string): Promise<ProductLocationDetail> {
+    return this.assign.detail(warehouseId, productId);
+  }
+
+  // Va ANTES de 'assignments/:id' para que Nest no lea «bulk» como un id.
+  @Post('assignments/bulk/preview')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Vista previa de un Excel producto → presentación → ubicación → papel.' })
+  assignmentsBulkPreview(@Body() body: BulkAssignmentsBody): Promise<BulkAssignmentsPreview> {
+    return this.assign.bulkPreview(body);
+  }
+
+  @Post('assignments/bulk')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Aplicar el Excel de asignaciones: crea las nuevas y mueve las que cambian.' })
+  assignmentsBulkApply(@Body() body: BulkAssignmentsBody): Promise<BulkAssignmentsResult> {
+    return this.assign.bulkApply(body);
+  }
+
+  @Post('assignments')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Asignar una presentación de un producto a una ubicación con un papel y su mínimo/máximo.' })
+  createAssignment(@Body() body: CreateAssignmentBody): Promise<ProductAssignment> {
+    return this.assign.create(body);
+  }
+
+  @Patch('assignments/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Cambiar la ubicación o el mínimo/máximo de una asignación.' })
+  updateAssignment(@Param('id') id: string, @Body() body: UpdateAssignmentBody): Promise<ProductAssignment> {
+    return this.assign.update(id, body);
+  }
+
+  @Delete('assignments/:id')
+  @RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'Quitar una asignación (no se borra: queda quién y cuándo).' })
+  removeAssignment(@Param('id') id: string): Promise<{ id: string; quitada: true }> {
+    return this.assign.remove(id);
   }
 }

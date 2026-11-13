@@ -5,6 +5,24 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
 
 ---
 
+## Un día a la vez y por vendedor (MCP.24, 2026-11-12 — en código, sin desplegar)
+
+- **Problema:** la lista mezclaba días. Medido en prod: **52 pedidos por revisar de 18 días distintos**, desde el
+  28 de septiembre, en una sola lista. Lo de hoy quedaba revuelto con lo que nadie cerró.
+- **Solución:** abre siempre en **Hoy**: lo que el surtidor terminó hoy, por revisar y ya revisado. «Ayer» y un
+  día del calendario muestran lo surtido ese día. Lo que quedó sin revisar de otros días va en un aviso arriba, por
+  día («mar 27 oct · 1»), y tocarlo abre ese día. Arriba se elige vendedor; «Todos» conserva los encabezados.
+- **Implementada:** `GET …/presale-review?date=AAAA-MM-DD` (lo surtido ese día en hora de México, revisado o no;
+  400 si la fecha está mal escrita). Pantalla: `almacen-revision-preventa.component.ts`; la lógica pura en
+  `pedidos-por-dia.ts`, compartida con el surtidor.
+- **Por qué así:** el día de la caja es el día en que se **surtió**, no el de entrega. En 30 días, 451 de 467
+  revisiones se hicieron el mismo día del surtido, pero 108 de 515 surtidos se hicieron después de su fecha de entrega.
+  Con la fecha de entrega, uno de cada cinco pedidos de hoy habría quedado en otro día. La búsqueda «está en otro
+  pedido» y la métrica «Por revisar» siguen viendo todo lo pendiente.
+- **Pendiente:** verlo en pantalla. Cancelar un pedido completo desde la caja es `[MCP.25]`.
+
+---
+
 ## Los pedidos a revisar, separados por vendedor y en orden de folio (MCP.14, 2026-11-10)
 
 - **Problema:** «separar los pedidos a revisar por vendedor» (solicitud de rutas vecinales, 2026-11-09). La lista era

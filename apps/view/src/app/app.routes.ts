@@ -1852,6 +1852,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
       },
       {
+        // [UB.3] Asignación por producto y presentación (Fase UB, ADR-090).
+        path: 'ubicaciones/asignacion',
+        loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones-asignacion.component').then(m => m.AlmacenUbicacionesAsignacionComponent),
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)]
+      },
+      {
         // [UB.1] Mapa de ubicaciones (Fase UB, ADR-090): catálogo con código BA053 por zona.
         path: 'ubicaciones',
         loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones-mapa.component').then(m => m.AlmacenUbicacionesMapaComponent),

@@ -95,6 +95,13 @@ Todas las tablas nuevas llevan `tenant_id` + audit + RLS forzado. Las migracione
 - **Reposición con desempaque.** Si el lugar de paquetes está bajo y sólo hay reserva en cajas, la tarea dice "**abre 1 caja (= 12 paquetes)** y acomódalos en TA021". Abrir una caja no cambia la existencia de Kepler (en base es lo mismo), pero sí cambia la cantidad en la reserva: −1 caja.
 - **Estimado §3.2.** Las cantidades de las reservas se convierten a base con el factor de la sucursal antes de restarlas a Kepler. **Si la presentación no tiene factor** (peldaño vacío o factor ≤ 1), el estimado se publica como **"no medido"** con su motivo, nunca como 0 (ADR-056 / ADR-057).
 
+### 3.0.1 Lo medido al construir UB.3a (prod, PH, 2026-10-10)
+
+- **La escalera por sucursal ya existía:** `analytics.v_kepler_unit_ladder` (grano sucursal × sku, factor capturado o derivado del costo, `peldano_caja`). Los **códigos de barras** por peldaño se leen de la ficha `kdii` de la misma sucursal (base `c7/c93/c102`, dos `c82/c95/c96`, tres `c85` + `C`+sku), igual que el checado de GP.4.
+- **Rendimiento:** con sucursal y SKU como VALORES la escalera de un producto sale en **4–12 ms**; uniéndola desde `catalog.products` tardaba **~4 s** (el filtro no llegaba al índice). La lista de productos de PH (9,028 con ficha) sale en **20–56 ms** con o sin búsqueda.
+- **Peldaños fantasma:** **2,661 de 9,656** fichas de PH traen un peldaño SIN factor que REPITE el rótulo de otro (p. ej. 70243: PAQ · PAQ · CJA ×20). No se ofrecen. Sólo **17** traen uno sin factor con rótulo PROPIO: se ofrecen, marcados «sin factor» (se asignan, pero no convierten cantidades).
+- **El factor NO se copia** en `bin_assignments`: se guarda el número de peldaño y una foto del rótulo; el factor se lee vivo de Kepler.
+
 ### 3.1 Por qué `entered_at` va en la reserva y no en el lote
 
 `commercial.stock_lots.received_at` **no sirve como fecha de entrada**: se pisa con `now()` en cada upsert (`commercial-inventory.service.ts` l.282-286 y l.402-406; `commercial-expiry-reviews.service.ts` l.606-610), y los lotes `NA` se funden en uno. Si PEPS se apoyara en eso, sería **falso sin dar error**. Cada acomodo en reserva crea su propia fila con su `entered_at`, y PEPS ordena esas filas. Arreglar `received_at` queda como deuda con nombre (**[UB.D1]**), porque lo usan otras pantallas.
@@ -216,7 +223,8 @@ Toda acción queda en `bin_history` con valor anterior → nuevo y motivo. Las b
 | **UB.0** | ADR-090 + claves de permiso en enum/`authz-tree` + **migración de reparto** + roles verificados contra prod | — |
 | **UB.1** | Catálogo: columnas de capa 1, validación de código, estados, `pick_sequence`, `tipo-ubicacion` por columna, pantalla Mapa | UB.0 |
 | **UB.2** | Captura masiva: generar por rango + Excel/CSV + etiquetas + deshacer por lote | UB.1 |
-| **UB.3** | `bin_assignments` + pantalla de asignación + medición de Wincaja (§2.1) + censo en celular | UB.1 |
+| **UB.3a** | `bin_assignments` por presentación + pantalla de asignación + Excel producto → presentación → ubicación | UB.1 |
+| **UB.3b** | Medición de Wincaja (§2.1) + censo en celular | UB.3a |
 | **UB.4** | Mantenimiento + `bin_history` | UB.1 |
 | **UB.5** | Cantidad sólo en reservas + `entered_at` + acomodo en celular + pantalla Excedente | UB.3 |
 | **UB.6** | `location_tasks` + estimado §3.2 + tareas de rotación PEPS + aviso de caducidad | UB.5 |

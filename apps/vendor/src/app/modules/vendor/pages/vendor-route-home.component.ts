@@ -34,6 +34,7 @@ import { VendorNoSaleSheetComponent } from '../components/vendor-no-sale-sheet.c
 import { ArrivalResult, NoSaleKey, RecentFix, VisitProtocolService } from '../visit-protocol';
 import { anterioresPorEntregar, estadoDelCliente, montoPreventa, ventaDeHoyPorCliente, type EstadoCliente } from '../ruta-estado';
 import { hoyMx } from '../mis-pedidos-dia';
+import { filtrarPorBusqueda } from '@megadulces/ui-web';
 
 /** [MCP.3.7] Lo que se dice junto a «Visita registrada»: a cuántos metros, o por qué no se sabe. */
 export function arrivalDetail(res: ArrivalResult | null | undefined): string {
@@ -762,12 +763,9 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     });
   });
   readonly filtered = computed(() => {
-    const term = this.search().trim().toLowerCase();
-    const all = this.customers();
-    if (!term) return all;
-    return all.filter(
-      (c) => c.name.toLowerCase().includes(term) || c.code.toLowerCase().includes(term),
-    );
+    // [MCP.26] Cada palabra, en cualquier orden y sin acentos, en nombre o clave. La ruta del día llega
+    // entera (no paginada), así que filtrar aquí no esconde clientes.
+    return filtrarPorBusqueda(this.customers(), this.search(), (c) => [c.name, c.code]);
   });
 
   // ── [MCP.3.6] Iniciar / finalizar ruta ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { filasDetalle, filasIncentivo, filasRanking } from './mkt-ranking-pdf';
 import { moverSemana, pct, textoSemana, IncentivoConResultado, ParticipanteRanking, RankingSemana } from './mkt-ranking.service';
-import { armarFilas, bajaHasta, cambios, estadoPromo } from './pages/mkt-ranking-promos.component';
+import { armarFilas, cambios } from './pages/mkt-ranking-promos.component';
 import { dtoDeForm } from './pages/mkt-incentivos.component';
 
 const semana = { lunes: '2026-11-02', domingo: '2026-11-08', numero: 45, hasta: '2026-11-08', en_curso: false };
@@ -104,14 +104,6 @@ describe('[MKT.11] objetivos de una promoción', () => {
     const intacta = armarFilas('mostrador', ['02'], [], [{ promo_id: 'p', warehouse_code: '02', canal: 'mostrador', vendor_code: '', vendor_name: '', sugerido: 7, semanas_historia: 4 }]);
     expect(intacta[0].valor).toBeNull();
     expect(cambios('mostrador', intacta)).toEqual([]);
-  });
-
-  it('estado de la promo y dar de baja = terminar ayer', () => {
-    expect(estadoPromo({ activo: true, vigencia_desde: '2026-10-01', vigencia_hasta: null }, '2026-11-11')).toBe('activa');
-    expect(estadoPromo({ activo: true, vigencia_desde: '2026-10-01', vigencia_hasta: '2026-11-01' }, '2026-11-11')).toBe('vencida');
-    expect(estadoPromo({ activo: true, vigencia_desde: '2026-12-01', vigencia_hasta: null }, '2026-11-11')).toBe('programada');
-    expect(estadoPromo({ activo: false, vigencia_desde: '2026-10-01', vigencia_hasta: null }, '2026-11-11')).toBe('inactiva');
-    expect(bajaHasta('2026-11-01')).toBe('2026-10-31');
   });
 });
 

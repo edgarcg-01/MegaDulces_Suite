@@ -11,7 +11,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import type {
   KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
-  PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport, PresaleOtherUnitsResponse,
+  PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport, PresaleOtherUnitsResponse, PresaleReviewStock,
 } from '@megadulces/contracts';
 import { topeEnUnidad } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -22,6 +22,9 @@ import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.compo
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 import { textoParte } from '../surtir-ruta/ruta-surtido.util';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
+import { deVendedor, etiquetaDia, pendientesDeOtrosDias, vendedoresDe } from '../pedidos-por-dia';
+import { avisoBuscarEnBodega, sistemaSinProducto, textoSistema } from '../existencia-surtido';
+import { todayMx } from '../../../core/utils/mx-date';
 import { MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION, textoDeMotivo, type OrderJustification } from '@megadulces/contracts';
 import { MotivoChipsComponent } from '../shared/motivo-chips.component';
 import { JustificantesComponent } from '../shared/justificantes.component';
@@ -205,10 +208,35 @@ function plural(n: number, uno: string, varios: string): string {
           @if (sucursal()) {
             <div class="sr-chips" role="radiogroup" aria-label="Día de entrega">
               @for (d of dias; track d.v) {
-                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="dia() === d.v"
-                        [class.sr-chip-on]="dia() === d.v" (click)="dia.set(d.v)">{{ d.l }} · {{ porDia()[d.v] }}</button>
+                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="dia() === d.v && !diaAtrasado()"
+                        [class.sr-chip-on]="dia() === d.v && !diaAtrasado()" (click)="elegirDia(d.v)">{{ d.l }} · {{ porDia()[d.v] }}</button>
+              }
+              <!-- [MCP.24] El día atrasado abierto desde el aviso queda elegido hasta volver a una pestaña. -->
+              @if (diaAtrasado(); as f) {
+                <button type="button" class="sr-chip sr-chip-on" role="radio" aria-checked="true">{{ etiqueta(f) }} · {{ pedidosDelDia().length }}</button>
               }
             </div>
+            <!-- [MCP.24] Lo pendiente de días anteriores no se mezcla con hoy, pero tampoco se esconde: por día. -->
+            @if (dia() === 'hoy' && !diaAtrasado() && atrasados().length) {
+              <section class="sr-atras" aria-label="Pendientes de días anteriores">
+                <p class="sr-atras-t"><i class="pi pi-history" aria-hidden="true"></i>
+                  {{ plural(totalAtrasados(), 'pedido pendiente', 'pedidos pendientes') }} de días anteriores</p>
+                <div class="sr-chips">
+                  @for (a of atrasados(); track a.fecha) {
+                    <button type="button" class="sr-chip" (click)="verAtrasado(a.fecha)">{{ etiqueta(a.fecha) }} · {{ a.n }}</button>
+                  }
+                </div>
+              </section>
+            }
+            <!-- [MCP.24] Por vendedor: «Todos» conserva los encabezados; uno deja sólo los suyos. -->
+            @if (opcionesVendedor().length > 2) {
+              <div class="sr-chips" role="radiogroup" aria-label="Vendedor">
+                @for (o of opcionesVendedor(); track o.v) {
+                  <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="(vendedorEfectivo() ?? '') === o.v"
+                          [class.sr-chip-on]="(vendedorEfectivo() ?? '') === o.v" (click)="vendedor.set(o.v || null)">{{ o.l }}</button>
+                }
+              </div>
+            }
             @if (!pedidosDelDia().length) {
               <p class="sr-tip sr-sec-vacia">No hay pedidos de sucursal {{ diaTexto() }}.</p>
             }
@@ -305,7 +333,8 @@ function plural(n: number, uno: string, varios: string): string {
           @if (pedidoSucursal(); as p) {
             <span class="sr-ola-ped">{{ p.customer_name || 'Cliente sin nombre' }} · {{ p.seller_name || 'Sin vendedor' }}</span>
             @if (textoParte(p); as tp) { <span class="sr-ola-ped sr-tag-parte">{{ tp }}</span> }
-            <span class="sr-ola-ped"><i class="pi pi-mobile" aria-hidden="true"></i> Lo que marques se guarda en este celular. Al terminar, lo que no hubo se quita del pedido y se le avisa a la vendedora.</span>
+            <!-- [MCP.23] Sin notas de explicación arriba del pedido («se guarda en este celular», la hora de la
+                 existencia): las quitó David el 2026-11-13. El surtidor ve el cliente y va directo a los renglones. -->
           } @else {
             <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
             <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
@@ -369,8 +398,7 @@ function plural(n: number, uno: string, varios: string): string {
                 <span class="sr-cant-u">{{ unidadConteo(l) }}</span>
                 @if (cantidadBase(l); as b) { <span class="sr-cant-b">{{ b }}</span> }
               </div>
-              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. En un
-                   pedido de Sucursal no se trae (MCP.3 no la lee): se omite en vez de decir "sin dato". -->
+              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. -->
               @if (!pedidoSucursal()) {
               <div class="sr-datos">
                 <span class="sr-dato" [ngClass]="'sr-exist-' + existenciaEstado(l)">
@@ -383,6 +411,14 @@ function plural(n: number, uno: string, varios: string): string {
                   {{ l.bin_code ? 'Ubicación ' + l.bin_code : 'Sin ubicación dada de alta' }}
                 </span>
               </div>
+              } @else {
+                <!-- [MCP.23] En un pedido de Sucursal, la existencia que trae el servidor por renglón. Sin ella
+                     (servidor anterior) no se pinta nada; si no se pudo leer, dice «sin dato», nunca cero. -->
+                @if (sistemaDe(l); as h) {
+                  <div class="sr-datos">
+                    <span class="sr-dato sr-sistema" [class.sr-sistema-no]="sinProductoDe(l)"><i class="pi pi-box" aria-hidden="true"></i>{{ h }}</span>
+                  </div>
+                }
               }
               @if (l.unidad_mixta) {
                 <p class="sr-tip"><i class="pi pi-info-circle" aria-hidden="true"></i> Los pedidos lo piden en unidades distintas: cuenta en {{ unidadConteo(l) }}.</p>
@@ -406,6 +442,10 @@ function plural(n: number, uno: string, varios: string): string {
                     @if (borradorFueraDeRango(l)) { No puede ser más de {{ cantidadPrincipal(l) }}. }
                     @else { Entre 0 y {{ cantidadPrincipal(l) }}. }
                   </p>
+                  <!-- [MCP.23] Va a quitar algo que el sistema dice que hay: que lo busque antes. No bloquea. -->
+                  @if (buscarEnBodega(l, borrador()); as a) {
+                    <p class="sr-buscar" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
+                  }
                   <div class="sr-falta-acc">
                     <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="cerrarEditor()">Cancelar</button>
                     <button pButton type="button" class="sr-tap" [disabled]="!borradorValido(l) || guardando().has(l.id)"
@@ -443,6 +483,10 @@ function plural(n: number, uno: string, varios: string): string {
               <button pButton type="button" [text]="true" class="sr-tap" (click)="abrirFaltante(l)"
                       [attr.aria-label]="'Corregir ' + (l.product_name || l.sku)">Corregir</button>
             </article>
+            <!-- [MCP.23] Ya lo marcó con faltante y el sistema dice que hay: el aviso sigue a la vista para corregir. -->
+            @if (l.status !== 'surtido' && buscarEnBodega(l, l.qty_picked); as a) {
+              <p class="sr-buscar" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
+            }
             <!-- [MCP.18] Por qué faltó: ya viene «No había en la sucursal» (lo que dice el botón); se cambia con un toque. -->
             @if (pedidoSucursal() && l.status !== 'surtido') {
               <app-motivo-chips class="sr-motivo" [opciones]="motivosSurtido" [valor]="motivoDeLinea(l.id)" [idBase]="'sr-mot-' + l.id"
@@ -722,6 +766,18 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-ped { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
       padding: .75rem .85rem; margin: .6rem 0; display: flex; flex-direction: column; gap: .35rem; }
     .sr-ped-tarde { border-left: 4px solid var(--warn-fg); }
+    /* [MCP.24] Lo atrasado, aparte y por día: borde ámbar (no texto ámbar, que no pasa contraste). */
+    .sr-atras { display: flex; flex-direction: column; gap: var(--sp-2); margin: .6rem 0; padding: var(--sp-2) var(--sp-3);
+      border: 1px solid var(--warn-fg); border-radius: var(--r-md); background: var(--surface-card); }
+    .sr-atras-t { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+    .sr-atras-t i { color: var(--text-muted); }
+    .sr-chips + .sr-chips { margin-top: .6rem; }
+    /* [MCP.23] Lo que dice el sistema: en palabras; «no hay» en negritas (el estado no depende del color). */
+    .sr-sistema { color: var(--text-muted); }
+    .sr-sistema-no { color: var(--text-main); font-weight: 700; }
+    .sr-buscar { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+      border: 1px solid var(--warn-fg); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); font-weight: 600; }
+    .sr-buscar i { margin-top: .2rem; color: var(--text-muted); }
     .sr-ped-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
     .sr-ped-cli { font-size: var(--fs-lg); line-height: 1.2; }
     .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
@@ -808,26 +864,64 @@ export class AlmacenSurtirComponent implements OnInit {
       (p) => (p.state === 'nuevo' || p.state === 'surtiendo') && (!this.almacenId() || p.warehouse_id === this.almacenId()),
     ),
   );
+  /**
+   * `[MCP.24]` «Hoy» es sólo lo de hoy: lo atrasado va en su aviso, por día. Lo atrasado que YO ya empecé
+   * se queda en Hoy («Los que estás surtiendo»): es lo que tengo que terminar.
+   */
+  private enHoy(p: PresalePickInboxRow): boolean {
+    return p.bucket === 'hoy' && (p.days_late === 0 || this.esMio(p));
+  }
+  /** `[MCP.24]` Hoy en México según el servidor; antes de la primera carga, el del navegador. */
+  readonly hoy = computed(() => this.sucursal()?.today ?? todayMx());
+  /** `[MCP.24]` El día atrasado abierto desde el aviso (`YYYY-MM-DD`); `null` = el día de las pestañas. */
+  readonly diaAtrasado = signal<string | null>(null);
+  /** `[MCP.24]` El vendedor elegido; `null` = todos (con sus encabezados de MCP.14). */
+  readonly vendedor = signal<string | null>(null);
   readonly porDia = computed(() => {
     const c: Record<PresalePickBucket, number> = { hoy: 0, manana: 0, proximos: 0 };
-    for (const p of this.pendientesSucursal()) c[p.bucket]++;
+    for (const p of this.pendientesSucursal()) if (p.bucket !== 'hoy' || this.enHoy(p)) c[p.bucket]++;
     return c;
   });
-  /** Lo que ya empezó esta persona va primero: es lo que tiene que terminar. */
-  readonly pedidosDelDia = computed(() =>
-    this.pendientesSucursal()
-      .filter((p) => p.bucket === this.dia())
-      .sort((a, b) => Number(this.esMio(b)) - Number(this.esMio(a))),
-  );
+  /** `[MCP.24]` Lo pendiente de días anteriores, por día (el más reciente primero). Lo que yo empecé ya está en Hoy. */
+  readonly atrasados = computed(() => pendientesDeOtrosDias(
+    this.pendientesSucursal(), (p) => p.requested_delivery_date, (p) => p.days_late > 0 && !this.esMio(p), this.hoy()));
+  readonly totalAtrasados = computed(() => this.atrasados().reduce((s, a) => s + a.n, 0));
+  /** Los del día que se ve, antes de elegir vendedor. Lo que ya empezó esta persona va primero. */
+  readonly pedidosDelDia = computed(() => {
+    const atr = this.diaAtrasado();
+    return this.pendientesSucursal()
+      .filter((p) => (atr
+        ? p.days_late > 0 && p.requested_delivery_date === atr && !this.esMio(p)
+        : p.bucket === this.dia() && (p.bucket !== 'hoy' || this.enHoy(p))))
+      .sort((a, b) => Number(this.esMio(b)) - Number(this.esMio(a)));
+  });
+  /** `[MCP.24]` «Todos · 6 · Vendedor Uno · 3…», en orden de llegada (el mismo de los encabezados). */
+  readonly opcionesVendedor = computed<ReadonlyArray<{ v: string; l: string }>>(() => [
+    { v: '', l: `Todos · ${this.pedidosDelDia().length}` },
+    ...vendedoresDe(this.pedidosDelDia(), (p) => p.arrived_at).map((o) => ({ v: o.vendedor, l: `${o.vendedor} · ${o.n}` })),
+  ]);
+  /** El vendedor elegido, si tiene pedidos en el día que se ve; si no, todos. */
+  readonly vendedorEfectivo = computed(() => {
+    const v = this.vendedor();
+    return v && this.opcionesVendedor().some((o) => o.v === v) ? v : null;
+  });
+  /** `[MCP.24]` Lo que se pinta: el día y, si se eligió, el vendedor (los números de los chips cuentan esto mismo). */
+  private readonly pedidosVisibles = computed(() => deVendedor(this.pedidosDelDia(), this.vendedorEfectivo()));
   /** [MCP.14] Los que ya empezó esta persona: arriba y aparte, en orden de folio. */
   readonly misEnCurso = computed(() =>
-    this.pedidosDelDia().filter((p) => this.esMio(p)).sort((a, b) => a.code.localeCompare(b.code)),
+    this.pedidosVisibles().filter((p) => this.esMio(p)).sort((a, b) => a.code.localeCompare(b.code)),
   );
   /** [MCP.14] El resto, separado por vendedor y en orden de folio; los grupos, por orden de llegada (D5). */
   readonly gruposDelDia = computed(() =>
-    agruparPorVendedor(this.pedidosDelDia().filter((p) => !this.esMio(p)), (p) => p.arrived_at),
+    agruparPorVendedor(this.pedidosVisibles().filter((p) => !this.esMio(p)), (p) => p.arrived_at),
   );
-  readonly diaTexto = computed(() => ({ hoy: 'para hoy', manana: 'para mañana', proximos: 'para los próximos días' })[this.dia()]);
+  readonly diaTexto = computed(() => {
+    const atr = this.diaAtrasado();
+    if (atr) return this.etiqueta(atr) === 'Ayer' ? 'pendientes de ayer' : `pendientes del ${this.etiqueta(atr)}`;
+    return ({ hoy: 'para hoy', manana: 'para mañana', proximos: 'para los próximos días' })[this.dia()];
+  });
+  /** `[MCP.23]` La existencia del sistema de cada renglón del pedido de Sucursal abierto (`PresalePickLine.stock`). */
+  readonly stockPedido = signal<Record<string, PresaleReviewStock | null | undefined>>({});
   readonly ola = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);
   /** Surtidos armados a mano que no se pudieron abrir (se liberaron): hay que avisar al supervisor. */
@@ -933,6 +1027,39 @@ export class AlmacenSurtirComponent implements OnInit {
     return !!yo && p.started?.user_id === yo;
   }
 
+  /** `[MCP.24]` Una pestaña de día (Hoy / Mañana / Próximos) cierra el día atrasado que estuviera abierto. */
+  elegirDia(d: PresalePickBucket): void {
+    this.diaAtrasado.set(null);
+    this.dia.set(d);
+  }
+  /** `[MCP.24]` Abre lo pendiente de un día anterior (tocado en el aviso). */
+  verAtrasado(fecha: string): void {
+    this.dia.set('hoy');
+    this.diaAtrasado.set(fecha);
+  }
+  /** «Ayer» o «mié 11 nov». */
+  etiqueta(fecha: string): string {
+    return etiquetaDia(fecha, this.hoy());
+  }
+
+  /** `[MCP.23]` «Sistema: hay 15 CJA / no hay / sin dato» del renglón del pedido de Sucursal; `null` = no se pinta. */
+  sistemaDe(l: PickerWaveLine): string | null {
+    // La unidad con que se cuenta (la que sale junto a la cantidad): el servidor manda `stock` en esa misma unidad.
+    return this.pedidoSucursal() ? textoSistema(this.stockPedido()[l.id], this.unidadConteo(l)) : null;
+  }
+  sinProductoDe(l: PickerWaveLine): boolean {
+    return sistemaSinProducto(this.stockPedido()[l.id]);
+  }
+  /**
+   * `[MCP.23]` Va a quitar algo que el sistema dice que hay: que lo busque en bodega. En el teclado de faltante
+   * cuenta lo que lleva escrito (vacío = nada); ya marcado, lo que se guardó. No bloquea: manda el anaquel.
+   */
+  buscarEnBodega(l: PickerWaveLine, marcado: number | null): string | null {
+    if (!this.pedidoSucursal()) return null;
+    const m = marcado == null || (marcado as unknown) === '' || !Number.isFinite(Number(marcado)) ? 0 : Number(marcado);
+    return avisoBuscarEnBodega(this.stockPedido()[l.id], this.unidadConteo(l), m, l.qty_requested);
+  }
+
   /**
    * Abre un pedido de Sucursal para surtirlo con los mismos renglones de siempre. «Empezar» deja
    * registrado quién y a qué hora (y le avisa a la vendedora); es idempotente para la misma persona,
@@ -1005,6 +1132,8 @@ export class AlmacenSurtirComponent implements OnInit {
     this.tomandoId.set(null);
     this.error.set(null);
     this.reporte.set(null);
+    // [MCP.23] La existencia viaja por renglón mientras el pedido no se cierra (ausente = servidor anterior).
+    this.stockPedido.set(Object.fromEntries(d.lines.map((l) => [l.line_id, l.stock])));
     this.pedidoSucursal.set(d.order);
     this.indicacionesOk.set(false);
     this.ola.set(ola);

@@ -160,6 +160,7 @@
 | **ALC** | Alta de clientes desde la constancia del SAT (o a mano) → crédito con firma → liga con la clave de Kepler; la Suite NO escribe `kdud` (D1-b, de Edgar). 9ª en curso, **empezada por Francisco el 2026-11-04 por encima del cupo: falta que el PM la ratifique** | 🧪 |
 | **DN** | Demanda negada para Compras: lo que el cliente pide y no hay. Frente 1 del [anexo A](docs/IMPLEMENTACION/FASES/FASE_DN_ANEXO_AVISO_AL_AGENDAR.md): el vendedor captura sin bloqueo y el servidor registra lo agotado al agendar (ADR-115). 10ª en curso, **aprobada por Edgar el 2026-11-07 por encima del cupo** (lo comunicó Francisco) | 🔨 |
 | **RP** | Reporte de problema de producto: cualquiera reporta en ≤2 toques un producto mal (precio, impuesto, código de barras, descripción, margen) desde donde lo ve (ficha, POS con scan); cae como ticket en la cola Catálogo para que Compras lo corrija en Kepler. **Frente de MS** (cola + categorías + entradas precargadas, no un reporter nuevo). Dueño: Felipe/Sistemas. Abierta 2026-11-11 por Edgar | ⬜ |
+| **UB** | Ubicación de mercancía (almacén y tienda): código `BA053`, captura masiva, asignación por producto y **presentación** (caja/paquete/pieza de la escalera Kepler), excedente y rotación PEPS. UB.0–UB.2 en prod (#317, #324); UB.3a en PR. Piloto PH. **Aprobada por Edgar (verbal, 2026-11-13; lo comunicó Francisco)** | 🔨 |
 
 ### Entregadas — 23 fases fuera del tablero activo (🟢 beta / 🚀 en prod)
 

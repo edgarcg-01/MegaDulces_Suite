@@ -21,7 +21,8 @@ const PV = (p: Partial<PresalePickInboxRow> = {}): PresalePickInboxRow => ({
 
 const BANDEJA = (data: PresalePickInboxRow[] = [
   PV(),
-  PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO', days_late: 2 }),
+  // [MCP.24] Atrasado de verdad: se prometió para el sábado 17 y hoy es lunes 19.
+  PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO', days_late: 2, requested_delivery_date: '2026-10-17' }),
   PV({ order_id: 'o-esc', code: 'PD-2026-00083', customer_name: 'ESCUELA AMARILLA', bucket: 'manana', requested_delivery_date: '2026-10-20' }),
   PV({ order_id: 'o-otra', code: 'PD-2026-00090', customer_name: 'DE OTRA SUCURSAL', warehouse_id: 'w-lp' }),
   PV({ order_id: 'o-hecho', code: 'PD-2026-00060', customer_name: 'YA SURTIDO', state: 'completo' }),
@@ -292,10 +293,93 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(pv.inbox).toHaveBeenCalled();
     expect(boton('Tomar siguiente')).toBeFalsy();
     expect(texto()).toContain('ABARROTES ROSY');
-    expect(texto()).toContain('VERO VASCO');
-    expect(texto()).toContain('Atrasado 2 días');
     expect(texto()).toContain('Vendedora Prueba');
     expect(texto()).not.toContain('ESCUELA AMARILLA'); // es de mañana
+  });
+
+  it('⭐ [MCP.24] Hoy no mezcla lo atrasado: va en un aviso, por día, y tocar el día lo abre', async () => {
+    await montar();
+    clic('Sucursal');
+    expect(texto()).toContain('Hoy · 1');
+    expect(texto()).not.toContain('VERO VASCO');
+    expect(texto()).toContain('1 pedido pendiente de días anteriores');
+    clic('sáb 17 oct · 1');
+    expect(texto()).toContain('VERO VASCO');
+    expect(texto()).toContain('Atrasado 2 días');
+    expect(texto()).not.toContain('ABARROTES ROSY');
+    // Con el día atrasado abierto, el aviso ya no se repite; una pestaña regresa a lo de hoy.
+    expect(texto()).not.toContain('pendiente de días anteriores');
+    clic('Hoy · 1');
+    expect(texto()).toContain('ABARROTES ROSY');
+    expect(texto()).not.toContain('VERO VASCO');
+  });
+
+  it('[MCP.24] prueba negativa: abrir un día atrasado muestra SÓLO los de ese día', async () => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([
+      PV(),
+      PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO', days_late: 2, requested_delivery_date: '2026-10-17' }),
+      PV({ order_id: 'o-ayer', code: 'PD-2026-00072', customer_name: 'DE AYER', days_late: 1, requested_delivery_date: '2026-10-18' }),
+    ])));
+    await montar();
+    clic('Sucursal');
+    expect(texto()).toContain('2 pedidos pendientes de días anteriores');
+    const dias = Array.from(el().querySelectorAll('.sr-atras .sr-chip')).map((n) => (n.textContent ?? '').trim());
+    expect(dias).toEqual(['Ayer · 1', 'sáb 17 oct · 1']); // el más reciente primero
+    clic('Ayer · 1');
+    expect(texto()).toContain('DE AYER');
+    expect(texto()).not.toContain('VERO VASCO');
+  });
+
+  it('[MCP.24] lo atrasado que YO empecé se queda en Hoy, arriba, y no se cuenta en el aviso', async () => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([
+      PV(),
+      PV({ order_id: 'o-mio', code: 'PD-2026-00071', customer_name: 'ATRASADO MIO', days_late: 1, requested_delivery_date: '2026-10-18',
+        state: 'surtiendo', started: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-10-19T15:00:00.000Z' } }),
+      PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO', days_late: 2, requested_delivery_date: '2026-10-17' }),
+    ])));
+    await montar();
+    clic('Sucursal');
+    const grupos = Array.from(el().querySelectorAll('.sr-grupo')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(grupos[0]).toBe('Los que estás surtiendo · 1 pedido');
+    expect(texto()).toContain('ATRASADO MIO');
+    expect(texto()).toContain('Hoy · 2');
+    // Prueba negativa: el aviso cuenta sólo el de VERO (el mío no se cuenta dos veces).
+    expect(texto()).toContain('1 pedido pendiente de días anteriores');
+    expect(boton('Ayer · ')).toBeFalsy();
+  });
+
+  it('⭐ [MCP.24] dos vendedores: los chips dicen cuántos, elegir uno deja sólo los suyos y «Todos» los regresa', async () => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([
+      PV({ order_id: 'u1', code: 'PD-2026-00101', customer_name: 'CLIENTE U1', seller_name: 'Vendedor Uno', arrived_at: '2026-10-19T14:00:00.000Z' }),
+      PV({ order_id: 'd1', code: 'PD-2026-00102', customer_name: 'CLIENTE D1', seller_name: 'Vendedora Dos', arrived_at: '2026-10-19T14:30:00.000Z' }),
+      PV({ order_id: 'u2', code: 'PD-2026-00103', customer_name: 'CLIENTE U2', seller_name: 'Vendedor Uno', arrived_at: '2026-10-19T15:00:00.000Z' }),
+      PV({ order_id: 'mio', code: 'PD-2026-00104', customer_name: 'CLIENTE MIO', seller_name: 'Vendedora Dos', state: 'surtiendo',
+        started: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-10-19T16:00:00.000Z' } }),
+      PV({ order_id: 'm1', code: 'PD-2026-00110', customer_name: 'CLIENTE MANANA', seller_name: 'Vendedora Dos', bucket: 'manana', requested_delivery_date: '2026-10-20' }),
+    ])));
+    await montar();
+    clic('Sucursal');
+    const chips = Array.from(el().querySelectorAll('[aria-label="Vendedor"] .sr-chip')).map((n) => (n.textContent ?? '').trim());
+    expect(chips).toEqual(['Todos · 4', 'Vendedor Uno · 2', 'Vendedora Dos · 2']);
+    clic('Vendedora Dos · 2');
+    const clientes = (): Array<string | undefined> => Array.from(el().querySelectorAll('.sr-ped-cli')).map((n) => n.textContent?.trim());
+    // Lo que dice el chip es lo que se ve: el que estoy surtiendo de Dos (arriba) y su otro pedido.
+    expect(clientes()).toEqual(['CLIENTE MIO', 'CLIENTE D1']);
+    clic('Vendedor Uno · 2');
+    expect(clientes()).toEqual(['CLIENTE U1', 'CLIENTE U2']);
+    clic('Todos · 4');
+    expect(el().querySelectorAll('.sr-ped').length).toBe(4);
+    // Prueba negativa: en Mañana Uno no tiene pedidos; el vendedor elegido no deja la lista vacía: regresa a todos.
+    clic('Vendedor Uno · 2');
+    clic('Mañana · 1');
+    expect(texto()).toContain('CLIENTE MANANA');
+    expect(el().querySelector('[aria-label="Vendedor"]')).toBeNull(); // un solo vendedor ese día: sin chips
+  });
+
+  it('[MCP.24] prueba negativa: con un solo vendedor en el día no hay chips de vendedor', async () => {
+    await montar();
+    clic('Sucursal');
+    expect(el().querySelector('[aria-label="Vendedor"]')).toBeNull();
   });
 
   it('[MCP.3.8] avisa de los clientes nuevos sin clave de Kepler y marca SÓLO sus pedidos', async () => {
@@ -304,10 +388,11 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     clic('Sucursal');
     expect(texto()).toContain('2 clientes nuevos sin clave de Kepler');
     expect(texto()).toContain('1 pedido suyo espera');
-    const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
-    expect(tarjetas.find((t) => t.includes('VERO VASCO'))).toContain('Cliente nuevo · sin clave de Kepler');
+    const tarjetas = (): string[] => Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
     // Prueba negativa: un pedido de cliente con clave no se marca.
-    expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).not.toContain('sin clave de Kepler');
+    expect(tarjetas().find((t) => t.includes('ABARROTES ROSY'))).not.toContain('sin clave de Kepler');
+    clic('sáb 17 oct · 1'); // [MCP.24] VERO VASCO está atrasado: se abre su día
+    expect(tarjetas().find((t) => t.includes('VERO VASCO'))).toContain('Cliente nuevo · sin clave de Kepler');
   });
 
   it('[MCP.3.8] sin clientes por ligar no hay aviso; si no se pudo revisar, lo dice (error ≠ vacío)', async () => {
@@ -340,7 +425,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('separa Hoy / Mañana / Próximos y cuenta sólo lo pendiente de MI almacén', async () => {
     await montar();
     clic('Sucursal');
-    expect(texto()).toContain('Hoy · 2'); // ni el de otra sucursal ni el ya surtido
+    expect(texto()).toContain('Hoy · 1'); // ni el de otra sucursal, ni el ya surtido, ni el atrasado ([MCP.24])
     expect(texto()).toContain('Mañana · 1');
     expect(texto()).toContain('Próximos · 0');
     expect(texto()).not.toContain('DE OTRA SUCURSAL');
@@ -377,9 +462,9 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('⭐ "Surtir este" empieza el pedido (queda quién y a qué hora) y lo abre con los MISMOS renglones', async () => {
     await montar();
     clic('Sucursal');
-    clic('Surtir este'); // [MCP.14] el primero en orden de folio: VERO VASCO, PD-2026-00070
-    expect(pv.start).toHaveBeenCalledWith('o-vero');
-    expect(pv.detail).toHaveBeenCalledWith('o-vero');
+    clic('Surtir este'); // [MCP.24] el único de hoy: ABARROTES ROSY (VERO VASCO está atrasado, en su aviso)
+    expect(pv.start).toHaveBeenCalledWith('o-rosy');
+    expect(pv.detail).toHaveBeenCalledWith('o-rosy');
     expect(c.fase()).toBe('surtiendo');
     expect(texto()).toContain('BOMBON GRANDE');
     expect(cantidades()).toContain('Surtir 5 PAQ');
@@ -397,6 +482,68 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     c.busqueda.set('7500000000012');
     fix.detectChanges();
     expect(c.visibles().map((l) => l.product_name)).toEqual(['BOMBON GRANDE']);
+  });
+
+  // ── [MCP.23] La existencia del sistema por renglón, también en esta puerta ─────────────
+  const conExistencia = (): PresalePickDetail => {
+    const d = DETALLE();
+    d.lines[0].stock = { state: 'con_existencia', qty: 15, checked_at: '2026-10-19T19:50:00.000Z' };
+    d.lines[1].stock = { state: 'agotado', qty: 0, checked_at: '2026-10-19T19:40:00.000Z' };
+    return d;
+  };
+
+  it('⭐ [MCP.23] al surtir un pedido de Sucursal, cada renglón dice lo que tiene el sistema', async () => {
+    pv.detail = vi.fn(() => of(conExistencia()));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    const sistema = Array.from(el().querySelectorAll('.sr-sistema')).map((n) => n.textContent?.trim());
+    expect(sistema).toEqual(['Sistema: hay 15 PAQ', 'Sistema: no hay']);
+    expect(el().querySelector('.sr-sistema-no')?.textContent).toContain('no hay');
+    // Arriba del pedido no van notas de explicación (las quitó David, 2026-11-13): sólo el cliente y el vendedor.
+    const arriba = el().querySelector('.sr-ola')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(arriba).toContain('ABARROTES ROSY · Vendedora Prueba');
+    expect(arriba).not.toContain('celular');
+    expect(arriba).not.toContain('«Sistema»');
+  });
+
+  it('⭐ [MCP.23] faltante de algo que el sistema dice que hay: pide buscarlo en bodega, sin bloquear', async () => {
+    pv.detail = vi.fn(() => of(conExistencia()));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    clic('Faltante'); // BOMBON GRANDE: 5 PAQ, el sistema dice 15
+    expect(texto()).toContain('El sistema dice que hay 15 PAQ: búscalo en bodega antes de quitarlo.');
+    c.borrador.set(5);
+    fix.detectChanges();
+    expect(texto()).not.toContain('búscalo en bodega'); // completo: no hay nada que buscar
+    c.borrador.set(2);
+    fix.detectChanges();
+    expect(texto()).toContain('búscalo en bodega');
+    expect(boton('Guardar')?.disabled).toBe(false); // avisa, no bloquea
+    clic('Guardar');
+    // Ya marcado con faltante, el aviso sigue a la vista para corregir.
+    expect(texto()).toContain('El sistema dice que hay 15 PAQ: búscalo en bodega antes de quitarlo.');
+    // Prueba negativa: lo que el sistema dice que NO hay no pide buscar.
+    c.noHabia(c.pendientes()[0]); // SALSA MAGA, agotado
+    fix.detectChanges();
+    expect(texto().match(/búscalo en bodega/g)?.length).toBe(1);
+  });
+
+  it('[MCP.23] prueba negativa: sin existencia del servidor no pinta nada; si no se pudo leer dice «sin dato», nunca cero', async () => {
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este'); // DETALLE sin `stock`: servidor anterior
+    expect(el().querySelector('.sr-sistema')).toBeNull();
+    expect(texto()).not.toContain('«Sistema»');
+    TestBed.resetTestingModule();
+    const d = DETALLE();
+    d.lines[0].stock = null;
+    pv.detail = vi.fn(() => of(d));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    expect(el().querySelector('.sr-sistema')?.textContent).toContain('Sistema: sin dato');
   });
 
   it('⭐ marcar en Sucursal NO llama al guardado de olas; se cierra con lo que hubo y muestra el reporte', async () => {

@@ -7,14 +7,15 @@ import { ComercialService, SalesByRouteDetail, SalesByRouteRow } from '../comerc
 import { ComercialVentasPorRutaComponent } from './comercial-ventas-por-ruta.component';
 
 /**
- * `[VEC.42]` La pestaña «Por semana» del desglose de una ruta. Cifras de EJEMPLO.
+ * `[VEC.42]`/`[VEC.43]` La pestaña «Calendario» del desglose de una ruta. Cifras de EJEMPLO.
  *
  * ── Qué se vigila ────────────────────────────────────────────────────────────────────────────
- *  1. La pestaña existe junto a «Por día» y pinta las semanas (se monta el template de verdad).
+ *  1. La pestaña existe junto a «Por día» y pinta semanas y días (se monta el template de verdad).
  *  2. Las semanas salen de los mismos días que «Por día» y suman lo mismo.
  *  3. El clic en una semana lleva a SUS tickets, con from/to de esa semana RECORTADOS al periodo
  *     del panel: si no, la S44 en noviembre traería tickets de octubre.
- *  4. Quitar filtros suelta la semana; elegir semana suelta el día.
+ *  4. El clic en el cuadro de un día lleva a los tickets de ESE día.
+ *  5. Quitar filtros suelta la semana; elegir semana suelta el día.
  */
 
 const DAILY = [
@@ -68,7 +69,7 @@ const ultimoRango = (svc: ReturnType<typeof montar>['svc']) => {
   return { from: opts.from, to: opts.to };
 };
 
-describe('VEC.42 · Ventas por ruta: pestaña «Por semana»', () => {
+describe('VEC.43 · Ventas por ruta: pestaña «Calendario»', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-11T18:00:00Z'));
@@ -78,18 +79,25 @@ describe('VEC.42 · Ventas por ruta: pestaña «Por semana»', () => {
     TestBed.resetTestingModule();
   });
 
-  it('pinta las semanas al lado de «Por día» y en su mismo orden, de la más vieja a la más reciente', () => {
+  it('pinta el calendario al lado de «Por día» y en su mismo orden, de la semana más vieja a la más reciente', () => {
     const { fix, cmp } = montar();
     cmp.openRoute(ruta('1V009'), '11');
-    cmp.setTab('semanas');
+    cmp.setTab('calendario');
     fix.detectChanges();
-    const html: string = fix.nativeElement.textContent;
+    const el: HTMLElement = fix.nativeElement;
+    const html = el.textContent ?? '';
     expect(html).toContain('Por día');
-    expect(html).toContain('Por semana');
+    expect(html).toContain('Calendario');
     expect(html).toContain('S46 · 9–15 nov');
     expect(html).toContain('en curso');
+    // Un cuadro con botón por cada día con venta; la leyenda nombra el mejor día.
+    expect(el.querySelectorAll('button.rr-cal')).toHaveLength(DAILY.length);
+    expect(html).toContain('martes 3 nov');
+    // El total de la S46 tiene UN ticket: singular.
+    expect(html).toContain('1 ticket · 1 día');
+    expect(html).not.toContain('1 tickets');
     const semanas = cmp.porSemana().semanas;
-    expect(semanas.map((s: { etiqueta: string }) => s.etiqueta)).toEqual(['S45 · 2–8 nov', 'S46 · 9–15 nov']);
+    expect(semanas.map((s: { etiqueta: string }) => s.etiqueta)).toEqual(['S44 · 26 oct–1 nov', 'S45 · 2–8 nov', 'S46 · 9–15 nov']);
     // Control: las semanas suman lo mismo que los días.
     const suma = semanas.reduce((a: number, s: { revenue: number }) => a + s.revenue, 0);
     expect(suma).toBe(DAILY.reduce((a, d) => a + d.revenue, 0));
@@ -103,6 +111,19 @@ describe('VEC.42 · Ventas por ruta: pestaña «Por semana»', () => {
     expect(cmp.tab()).toBe('tickets');
     expect(cmp.dWeekLabel()).toBe('S45 · 2–8 nov');
     expect(ultimoRango(svc)).toEqual({ from: '2026-11-02', to: '2026-11-09' });
+  });
+
+  it('⛔ el clic en el cuadro de un día pide los tickets de ESE día', () => {
+    const { fix, cmp, svc } = montar();
+    cmp.openRoute(ruta('1V009'), '11');
+    cmp.setTab('calendario');
+    fix.detectChanges();
+    const cuadro = [...(fix.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button.rr-cal')]
+      .find((b) => (b.getAttribute('aria-label') ?? '').startsWith('martes 3 nov'));
+    expect(cuadro).toBeTruthy();
+    cuadro!.click();
+    expect(cmp.dDay()).toBe('2026-11-03');
+    expect(ultimoRango(svc)).toEqual({ from: '2026-11-03', to: '2026-11-04' });
   });
 
   it('⛔ la semana cortada por el periodo se pide RECORTADA (no trae días de octubre)', () => {

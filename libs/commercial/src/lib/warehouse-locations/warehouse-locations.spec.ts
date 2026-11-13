@@ -14,7 +14,7 @@ import { resumir } from './warehouse-locations.service';
  */
 const FUENTE = readFileSync(join(__dirname, 'warehouse-locations.controller.ts'), 'utf8');
 
-function gateDe(metodo: 'Get' | 'Post', ruta = ''): string {
+function gateDe(metodo: 'Get' | 'Post' | 'Patch' | 'Delete', ruta = ''): string {
   const marca = ruta ? `@${metodo}('${ruta}')` : `@${metodo}()`;
   const i = FUENTE.indexOf(marca);
   if (i < 0) throw new Error(`No existe la ruta ${marca}`);
@@ -46,6 +46,27 @@ describe('[UB.1] ubicaciones · permisos', () => {
     const g = gateDe(m, ruta);
     expect(g).toContain('@RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)');
     expect(g).not.toContain('RequireAnyPermission');
+  });
+
+  it.each([
+    ['Post', 'assignments/bulk/preview'],
+    ['Post', 'assignments/bulk'],
+    ['Post', 'assignments'],
+    ['Patch', 'assignments/:id'],
+    ['Delete', 'assignments/:id'],
+  ] as const)('[UB.3] %s %s pide GESTIONAR, y sólo GESTIONAR', (m, ruta) => {
+    const g = gateDe(m, ruta);
+    expect(g).toContain('@RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)');
+    expect(g).not.toContain('RequireAnyPermission');
+  });
+
+  it.each([['products'], ['products/:productId']] as const)('[UB.3] leer %s lo puede cualquiera de las tres', (ruta) => {
+    const g = gateDe('Get', ruta);
+    for (const k of ['VER', 'ACOMODAR', 'GESTIONAR']) expect(g).toContain(`Permission.ALMACEN_UBICACIONES_${k}`);
+  });
+
+  it('[UB.3] «assignments/bulk» va antes de «assignments/:id» (si no, Nest lee «bulk» como id)', () => {
+    expect(FUENTE.indexOf("@Post('assignments/bulk')")).toBeLessThan(FUENTE.indexOf("@Patch('assignments/:id')"));
   });
 
   it('ninguna ruta se cuelga de la clave de equipos de conteo', () => {

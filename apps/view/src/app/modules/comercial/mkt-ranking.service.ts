@@ -134,26 +134,6 @@ export interface PromoMkt {
   productos?: ProductosDePromo;
 }
 
-export interface PromoDto {
-  code?: string;
-  descripcion_kepler?: string | null;
-  mecanica?: string;
-  vigencia_desde?: string;
-  vigencia_hasta?: string | null;
-  canales?: Canal[];
-  warehouse_codes?: string[] | null;
-  activo?: boolean;
-  notas?: string | null;
-}
-
-export interface CodigoKepler {
-  code: string;
-  descripcion: string;
-  sucursales: string[];
-  ultima_venta: string | null;
-  ya_registrada: boolean;
-}
-
 export interface Objetivo {
   warehouse_code: string;
   canal: Canal;
@@ -252,22 +232,6 @@ export class MktRankingService {
 
   promos(todas = false): Observable<PromoMkt[]> {
     return this.http.get<PromoMkt[]>(`${this.base}/promos`, { params: todas ? { todas: '1' } : {} });
-  }
-
-  codigosKepler(q: string): Observable<CodigoKepler[]> {
-    return this.http.get<CodigoKepler[]>(`${this.base}/codigos-kepler`, { params: { q } });
-  }
-
-  crearPromo(dto: PromoDto): Observable<PromoMkt> {
-    return this.http.post<PromoMkt>(`${this.base}/promos`, dto);
-  }
-
-  editarPromo(id: string, dto: PromoDto): Observable<PromoMkt> {
-    return this.http.patch<PromoMkt>(`${this.base}/promos/${id}`, dto);
-  }
-
-  borrarPromo(id: string): Observable<{ ok: true }> {
-    return this.http.delete<{ ok: true }>(`${this.base}/promos/${id}`);
   }
 
   objetivos(id: string): Observable<Objetivo[]> {

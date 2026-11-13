@@ -270,19 +270,14 @@ export class ExistenciaService {
                ${BUCKET} AS bucket,
                p.sku, p.nombre, p.supplier_id, p.brand_id, p.category_id,
                -- KE.2 — el costo sale del MISMO ERP y del MISMO almacen que la cantidad.
-               -- KX — el fallback del catalogo va BLINDADO (ver la nota EL COSTO arriba).
-               COALESCE(kc.costo_unitario,
-                        CASE WHEN s.source = 'kepler_ods'
-                             THEN CASE WHEN COALESCE(p.cost_with_tax, 0) > 0
-                                        AND p.cost_with_tax < p.cost_base
-                                       THEN p.cost_with_tax ELSE p.cost_base END
-                             ELSE COALESCE(p.cost_with_tax, p.cost_base) END, 0)::float8 AS cu,
-               CASE WHEN kc.costo_unitario IS NOT NULL      THEN 'erp'
-                    WHEN s.source = 'kepler_ods'
-                     AND COALESCE(p.cost_with_tax, 0) > 0
-                     AND p.cost_with_tax < p.cost_base      THEN 'catalogo_columnas_invertidas'
-                    WHEN s.source = 'kepler_ods'            THEN 'catalogo_neto'
-                    ELSE                                         'catalogo' END AS cu_source,
+               -- [AUD-DAT.31] En Kepler TODO sale del ODS: sin kdik, el costo de la ficha de ESA
+               -- sucursal (v_kepler_unit_ladder.costo1 = kdii.c77; en 91 % a ±10 % de kdik); el catálogo
+               -- (lo escriben importers) ya no valúa nada. Sin ninguno: 'sin_costo', declarado.
+               -- Wincaja ya no existe (2026-11-12): la vista de existencia sólo trae 'kepler_ods'.
+               COALESCE(kc.costo_unitario, NULLIF(lad.costo1, 0), 0)::float8 AS cu,
+               CASE WHEN kc.costo_unitario IS NOT NULL THEN 'erp'
+                    WHEN lad.costo1 > 0                THEN 'kepler_ficha'
+                    ELSE                                    'sin_costo' END AS cu_source,
                CASE WHEN lad.f2_cap > 1 AND lad.f2_cap < ${DBF}
                      AND lad.u2_label IS DISTINCT FROM lad.u1_label
                     THEN lad.f2_cap::float8 END AS pf,

@@ -296,11 +296,213 @@ export interface LocationCaptureBatch {
   created_by_name: string | null;
   undone_at: string | null;
   undone_count: number | null;
-  /** Ubicaciones del lote que ya tienen mercancía: si hay alguna, el lote no se puede deshacer. */
+  /** Ubicaciones del lote ya en uso (con mercancía o con productos asignados, UB.3): si hay alguna, el lote no se puede deshacer. */
   en_uso: number;
 }
 
 export interface UndoLocationBatchResult {
   batch_id: string;
   retiradas: number;
+}
+
+// ── `[UB.3]` Asignación por producto y presentación ────────────────────────────────────────────
+
+/** Papel de una ubicación para un producto × presentación (FASE_UB §3, decisión D10). */
+export type AssignmentRole = 'surtido_fijo' | 'exhibicion_tienda' | 'reserva_preferida';
+
+/** Cada papel vive en una zona: surtido y reserva en BODEGA, exhibición en TIENDA. */
+export const ASSIGNMENT_ROLES: ReadonlyArray<{ key: AssignmentRole; label: string; zona: LocationZone; unico: boolean }> = [
+  { key: 'surtido_fijo', label: 'Lugar fijo de surtido', zona: 'B', unico: true },
+  { key: 'exhibicion_tienda', label: 'Exhibición en tienda', zona: 'T', unico: false },
+  { key: 'reserva_preferida', label: 'Reserva preferida', zona: 'B', unico: true },
+];
+
+/** De dónde sale el factor de un peldaño (lo publica `v_kepler_unit_ladder`; aquí no se inventa). */
+export type PresentationFactorSource = 'base' | 'capturado' | 'derivado_del_costo' | 'sin_factor';
+
+/** Una presentación de la escalera de Kepler de ESA sucursal. */
+export interface ProductPresentation {
+  peldano: 1 | 2 | 3;
+  /** Rótulo de Kepler (`CJA`, `PAQ`, `PZA`…). Si es una cantidad (`500`), se muestra tal cual. */
+  rotulo: string | null;
+  /** Cuántas unidades base trae. `null` = Kepler no lo tiene: NO medido, nunca 0. */
+  factor: number | null;
+  fuente: PresentationFactorSource;
+  /** Códigos de barras de este peldaño en la ficha de esa sucursal. */
+  codigos: string[];
+  /** Es la presentación mayor (la caja): la de mayor factor, no la última rotulada. */
+  es_caja: boolean;
+}
+
+export interface ProductAssignment {
+  id: string;
+  bin_id: string;
+  code: string;
+  zona: LocationZone | null;
+  estado: LocationStatus;
+  presentacion: 1 | 2 | 3;
+  presentacion_rotulo: string | null;
+  papel: AssignmentRole;
+  min_qty: number | null;
+  max_qty: number | null;
+}
+
+export interface ProductLocationDetail {
+  warehouse: { id: string; code: string; name: string };
+  product: { id: string; sku: string; nombre: string };
+  /** `false` = el almacén no tiene ficha de Kepler para este producto (o no es sucursal Kepler). */
+  ficha_kepler: boolean;
+  presentaciones: ProductPresentation[];
+  asignaciones: ProductAssignment[];
+  /** Algo que el usuario debe saber de la escalera (factor que contradice al costo, etc.). */
+  aviso: string | null;
+}
+
+export interface ProductLocationRow {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  /** Códigos de sus lugares fijos de surtido (uno por presentación). */
+  surtido_fijo: string[];
+  asignaciones: number;
+}
+
+export type ProductLocationFilter = 'todos' | 'sin_ubicacion' | 'con_ubicacion';
+
+export interface ProductLocationsList {
+  warehouse: { id: string; code: string; name: string } | null;
+  /** `false` = el almacén no es sucursal Kepler: no hay fichas de dónde listar productos. */
+  ficha_kepler: boolean;
+  /** Productos con ficha en Kepler de esta sucursal que coinciden con la búsqueda (sin el filtro de lugar fijo). */
+  universo: number;
+  /** Los de la página actual, con el filtro de lugar fijo puesto. */
+  total: number;
+  /** Del universo, cuántos NO tienen lugar fijo de surtido en ninguna presentación. */
+  sin_ubicacion: number;
+  filas: ProductLocationRow[];
+  limit: number;
+  offset: number;
+}
+
+export interface CreateAssignmentBody {
+  warehouse_id: string;
+  product_id: string;
+  presentacion: 1 | 2 | 3;
+  papel: AssignmentRole;
+  bin_code: string;
+  min_qty?: number | null;
+  max_qty?: number | null;
+}
+
+export interface UpdateAssignmentBody {
+  bin_code?: string;
+  min_qty?: number | null;
+  max_qty?: number | null;
+}
+
+// Excel producto → presentación → ubicación → papel
+
+export interface BulkAssignmentInputRow {
+  fila?: number | null;
+  sku: string;
+  /** `1`/`2`/`3`, el rótulo de Kepler (`CJA`) o la palabra (`caja`, `paquete`, `pieza`). */
+  presentacion: string;
+  ubicacion: string;
+  /** `surtido`, `exhibicion`, `reserva` (o el nombre completo del papel). */
+  papel: string;
+  min?: string | number | null;
+  max?: string | number | null;
+}
+
+export interface BulkAssignmentsBody {
+  warehouse_id: string;
+  filas: BulkAssignmentInputRow[];
+  archivo?: string | null;
+}
+
+/** `cambia` = el producto ya tenía lugar fijo (o reserva) para esa presentación y se mueve al nuevo. */
+export type BulkAssignmentAction = 'nueva' | 'cambia' | 'igual' | 'repetida' | 'error';
+
+export interface BulkAssignmentPreviewRow {
+  fila: number | null;
+  sku: string;
+  nombre: string | null;
+  presentacion: string;
+  peldano: number | null;
+  ubicacion: string;
+  papel: AssignmentRole | null;
+  min_qty: number | null;
+  max_qty: number | null;
+  accion: BulkAssignmentAction;
+  motivo: string | null;
+}
+
+export interface BulkAssignmentsPreview {
+  warehouse: { id: string; code: string; name: string };
+  total: number;
+  conteo: Record<BulkAssignmentAction, number>;
+  filas: BulkAssignmentPreviewRow[];
+  truncado: boolean;
+}
+
+export interface BulkAssignmentsResult {
+  creadas: number;
+  actualizadas: number;
+  omitidas: number;
+}
+
+const SINONIMOS_PAPEL: Record<string, AssignmentRole> = {
+  surtido: 'surtido_fijo',
+  surtido_fijo: 'surtido_fijo',
+  'lugar fijo': 'surtido_fijo',
+  fijo: 'surtido_fijo',
+  exhibicion: 'exhibicion_tienda',
+  exhibicion_tienda: 'exhibicion_tienda',
+  tienda: 'exhibicion_tienda',
+  reserva: 'reserva_preferida',
+  reserva_preferida: 'reserva_preferida',
+};
+
+const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+
+/** Lee el papel como lo escribe la gente («Surtido», «exhibición», «reserva»). */
+export function parseAssignmentRole(raw: string | null | undefined): AssignmentRole | null {
+  return SINONIMOS_PAPEL[sinAcentos(String(raw ?? ''))] ?? null;
+}
+
+/** Palabras de la gente → rótulos de Kepler que pueden significar eso. */
+const SINONIMOS_PRESENTACION: Record<string, string[]> = {
+  caja: ['CJA', 'CAJA', 'CJ'],
+  cja: ['CJA', 'CAJA', 'CJ'],
+  paquete: ['PAQ', 'PAQUETE', 'PQT', 'PQ'],
+  paq: ['PAQ', 'PAQUETE', 'PQT', 'PQ'],
+  pieza: ['PZA', 'PZ', 'PIEZA'],
+  pza: ['PZA', 'PZ', 'PIEZA'],
+  bulto: ['BTO', 'BULTO'],
+  exhibidor: ['EXH', 'EXHIBIDOR'],
+  bolsa: ['BOL', 'BOLSA'],
+};
+
+/**
+ * Qué peldaño quiso decir quien escribió «caja», «CJA» o «3», contra la escalera REAL de esa
+ * sucursal. Si dos peldaños con factor comparten el rótulo, es ambiguo: se pide el número.
+ */
+export function resolvePresentation(
+  raw: string | number | null | undefined,
+  escalera: ProductPresentation[],
+): { ok: true; peldano: 1 | 2 | 3; rotulo: string | null } | { ok: false; motivo: string } {
+  const txt = String(raw ?? '').trim();
+  if (!txt) return { ok: false, motivo: 'Falta la presentación (caja, paquete, pieza… o 1, 2, 3).' };
+  const validos = escalera;
+  if (/^[123]$/.test(txt)) {
+    const p = validos.find((x) => x.peldano === Number(txt));
+    return p ? { ok: true, peldano: p.peldano, rotulo: p.rotulo } : { ok: false, motivo: `Este producto no tiene presentación ${txt} en Kepler de esta sucursal.` };
+  }
+  const k = sinAcentos(txt);
+  const rotulos = (SINONIMOS_PRESENTACION[k] ?? [txt.toUpperCase()]).map((r) => r.toUpperCase());
+  const hits = validos.filter((x) => x.rotulo && rotulos.includes(x.rotulo.toUpperCase()));
+  if (hits.length === 1) return { ok: true, peldano: hits[0].peldano, rotulo: hits[0].rotulo };
+  const disponibles = validos.map((x) => `${x.peldano} = ${x.rotulo ?? 'sin rótulo'}`).join(', ');
+  if (!hits.length) return { ok: false, motivo: `«${txt}» no es una presentación de este producto aquí. Tiene: ${disponibles}.` };
+  return { ok: false, motivo: `«${txt}» aparece en más de un peldaño. Usa el número: ${disponibles}.` };
 }

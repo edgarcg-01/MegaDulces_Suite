@@ -1132,10 +1132,12 @@ export class CommercialReplenishmentService {
   //
   // ⛔ Sin `, 0)` en la rama Kepler: donde el árbitro dice `sin_costo` el valor sale NULL y la
   // columna queda vacía. Un costo ausente dibujado como 0 valúa en cero y se lee como "gratis".
+  //
+  // [AUD-DAT.31] Wincaja ya no existe (2026-11-12): el resolvedor sólo publica Kepler, así que la
+  // rama `wincaja_costo_promedio` (valuaba con el catálogo) se retiró. Los renglones del plan de los
+  // almacenes RUTA-* quedan sin costo: vacío, no inventado.
   private costUnit() {
-    return `CASE WHEN euc.costo_source = 'wincaja_costo_promedio'
-                 THEN COALESCE(pr.cost_with_tax, pr.cost_base, 0)
-                 ELSE euc.costo_unitario END`;
+    return `euc.costo_unitario`;
   }
   /**
    * U.2 — ¿se puede valuar esta fila? El costo unitario de arriba está en peldaño BASE (medido en
