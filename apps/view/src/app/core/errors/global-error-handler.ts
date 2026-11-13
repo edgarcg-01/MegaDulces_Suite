@@ -1,5 +1,6 @@
 import { ErrorHandler, Injectable, inject } from '@angular/core';
 import { AppErrorService, AppErrorKind } from './app-error.service';
+import { hayServiceWorker, versionDelServidor } from './rescate';
 
 /**
  * ErrorHandler global de la plataforma web.
@@ -102,13 +103,19 @@ export async function clasificarFallaDeCarga(
     fetch?: typeof fetch;
     enLinea?: () => boolean;
     timeoutMs?: number;
+    /** Para la segunda medida (`veredictoLocal`): quién controla la página y qué corre. */
+    nav?: Navigator;
+    documento?: Document;
   } = {},
 ): Promise<AppErrorKind> {
   const enLinea = deps.enLinea ?? (() => globalThis.navigator?.onLine !== false);
   const hacerFetch = deps.fetch ?? globalThis.fetch?.bind(globalThis);
 
   if (!enLinea()) return 'load-offline';
-  if (!recurso || !hacerFetch) return 'load-unknown';
+  if (!hacerFetch) return 'load-unknown';
+  // Sin archivo que preguntar no se acabó la medición: todavía se puede comparar la versión
+  // de esta pestaña contra la del servidor, que no necesita saber cuál archivo faltó.
+  if (!recurso) return veredictoLocal(deps);
 
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const ms = deps.timeoutMs ?? TIMEOUT_MS;
@@ -126,9 +133,9 @@ export async function clasificarFallaDeCarga(
       const r = await hacerFetch(recurso, { method: 'HEAD', cache: 'no-store', signal: ctrl?.signal });
       if (r.status === 404 || r.status === 410) return 'stale-version';
       if (r.status >= 500) return 'load-server';
-      // Contesta bien (o con otro 4xx): el archivo está. Fue algo pasajero y se DECLARA
-      // como indeterminado — afirmar «versión nueva» acá es justo el defecto de AUD.6.
-      return 'load-unknown';
+      // Contesta bien (o con otro 4xx): el archivo ESTÁ en el servidor. Entonces lo que falló
+      // está de este lado, y hay una medida más que hacer antes de rendirse (`[AUD.7]`).
+      return veredictoLocal(deps);
     } catch {
       // La consulta tampoco llegó. Si entretanto se cayó la red, eso explica las dos.
       return enLinea() ? 'load-unknown' : 'load-offline';
@@ -140,6 +147,31 @@ export async function clasificarFallaDeCarga(
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * ⭐ Segunda medida, cuando el servidor NO acusó al archivo: ¿de qué lado está el problema?
+ *
+ * Se llega acá en dos situaciones, y en las dos el servidor queda descartado: el archivo
+ * contestó bien, o el error del navegador no traía ningún archivo que preguntar. Lo que queda
+ * por medir es local, y son dos preguntas:
+ *
+ *  1. **¿Esta pestaña corre la versión de hoy?** Si no, hubo despliegue y es `stale-version`,
+ *     aunque el archivo que falló todavía exista — el servidor conserva los viejos un rato.
+ *  2. **¿Hay un service worker controlando la página?** Si la versión es la de hoy y el archivo
+ *     está en el servidor, el único que queda en el camino es la copia guardada del dispositivo.
+ *
+ * ⛔ **Si no hay service worker, no se culpa a la copia local.** No hay nadie entre el navegador
+ * y el servidor a quien atribuirle la falla, así que se DECLARA indeterminada. Acusar sin ese
+ * testigo sería inventar una causa, que es exactamente el defecto que `[AUD.6]` vino a cerrar.
+ */
+async function veredictoLocal(
+  deps: { fetch?: typeof fetch; nav?: Navigator; documento?: Document } = {},
+): Promise<AppErrorKind> {
+  const version = await versionDelServidor(deps);
+  if (version === 'vieja') return 'stale-version';
+  if (version === 'al-dia' && hayServiceWorker(deps)) return 'local-copy';
+  return 'load-unknown';
 }
 
 function describe(err: unknown): string {

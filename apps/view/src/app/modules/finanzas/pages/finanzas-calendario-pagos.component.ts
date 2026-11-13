@@ -429,8 +429,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <!-- ── AGREGAR: el buscador; la lista, sólo cuando se pide ──
                [PGP.66] En su panel lateral (botón «Agregar facturas» o la tecla /); sólo se pinta abierto. -->
           <app-side-peek [open]="panelAgregar()" (openChange)="panelAgregar.set($event)" [width]="720"
-                         [title]="'Agregar facturas al ' + dayShort(day.date)">
-          @if (panelAgregar() && verDeuda()) {
+                         [title]="'Agregar facturas al ' + dayShort(day.date)"
+                         [subtitle]="diaPasado() ? 'Día pasado: agrega sólo lo que ya se pagó ese día' : ''">
+          @if (panelAgregar() && puedeAgregar()) {
             <section class="pg-add" aria-label="Agregar facturas">
               <div class="pg-add-bar">
                 <span class="pg-buscar">
@@ -666,7 +667,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <span class="pi pi-bolt" aria-hidden="true"></span>&nbsp;Pronto pago@if (prontoUrgente().acreedores) { · {{ prontoUrgente().acreedores }} cierran hoy o mañana }
                   </button>
                 }
-                @if (day && verDeuda()) {
+                @if (day && puedeAgregar()) {
                   <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-expanded]="panelAgregar()" aria-keyshortcuts="/" (click)="abrirAgregar()">
                     <span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Agregar facturas <kbd class="pg-kbd" aria-hidden="true">/</kbd>
                   </button>
@@ -2483,6 +2484,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return !liberado && !pasado;
   });
   /**
+   * `[PGP.115]` **Un día pasado SÍ recibe lo que ya se pagó ese día.** PGP.48 lo cerró para no apartar
+   * saldo en una fecha que nadie va a pagar, pero Tesorería también registra después una transferencia
+   * ya hecha (Edgar, 2026-11-13: un pago del 5-nov que la pantalla no dejaba poner en su día). Sólo un
+   * día autorizado deja de recibir; Pronto pago sigue siendo de hoy en adelante (`verDeuda`).
+   */
+  readonly puedeAgregar = computed(() => !this.isReleased());
+  /**
    * ⛔ `[PGP.52]` **La lista de deuda se abre al BUSCAR o con «Ver todas», no siempre.** Estaba
    * siempre abierta con ~1,000 renglones que nadie recorre (Edgar: «el 80 % es el buscador»), y
    * pedía su factura a la vista de evidencia en tandas de ~2.3 s aunque nadie la mirara. Cerrada,
@@ -2497,7 +2505,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly panelPronto = signal(false);
   readonly panelAgregar = signal(false);
   readonly listaAbierta = computed(() => {
-    const puede = this.verDeuda();
+    const puede = this.puedeAgregar();
     const panel = this.panelAgregar();
     const busca = !!this.busquedaAplicada();
     const pidio = this.verLista();

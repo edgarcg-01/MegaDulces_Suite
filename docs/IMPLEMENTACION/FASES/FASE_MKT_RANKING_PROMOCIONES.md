@@ -115,6 +115,39 @@ Auditoría en la pantalla viva (local, semilla): **13 controles y 533 px** antes
 
 **NO MEDIDO:** tiempo de punta a punta en prod (local: Sucursales 1.1–1.2 s, Rutas 0.17 s); contenido visual del PDF filtrado (cubierto por pruebas, no leído a ojo).
 
+## 6e. `[MKT.22]` — las promociones salen de Kepler, no de un alta (2026-11-13)
+
+**El hallazgo:** en prod `/mkt/ranking` salía vacío. Código y migraciones estaban desplegados, pero `commercial.mkt_ranking_promos` tenía **0 filas**: el ranking medía sólo lo que Mercadotecnia diera de alta, y nadie lo había hecho. La app de vendedor no tiene ese paso: lee las promociones de `catalog.products.is_promo` (los «= GRATIS» de Kepler).
+
+**Decisión (David, opción A):** entran al ranking **todas las promociones de Kepler que vendieron esa semana** en ese canal; Mercadotecnia sólo ajusta objetivos (el dinámico de MKT.17 cubre el resto). Costo aceptado: el lugar se reparte entre ~64 promociones (no ~15 como en el Excel) y no es comparable con él.
+
+| Pieza | Regla |
+|---|---|
+| Qué entra | `is_promo` con venta en la semana (la línea `v_kepler_sales_lines`) en ese canal |
+| Sucursales de cada promo | donde vendió, la semana o las 4 previas — una sucursal que nunca la tuvo no sale «sin objetivo» |
+| Inicio para el dinámico | su primera venta dentro de las 4 semanas previas (no promedia ceros de antes de existir) |
+| Objetivos | la pantalla «Objetivos» lista las que vendieron en 5 semanas (matview); al fijar el primero se crea su renglón en `mkt_ranking_promos` (guarda la llave de los objetivos; el nombre se relee de Kepler). Sin renglón, el id es `k-<código>` |
+| Sacar una del ranking | `activo = false` en su renglón (sin pantalla todavía) |
+| Sin migración | usa las tablas ya aplicadas |
+
+**Medido en prod (sólo lectura, las mismas consultas):** 355 códigos de promo en el catálogo; semana 45 Sucursales **64 promos** (cuadra con la medición independiente del 13-nov) en 0.76 s; preventa 21; semana en curso 54; lista de Objetivos 111 en 0.16 s.
+
+**NO MEDIDO:** el endpoint de punta a punta (la API local no se pudo reiniciar con el código nuevo: un proceso anterior ocupa :3334 y no se verificó su dueño); el tiempo total del ranking con ~64 promos (la identificación del producto de cada promo, MKT.15, medía 1.8 s por 30 códigos). Sin validación visual.
+
+**Quedó sin uso (deuda con nombre):** los endpoints de alta/edición/baja de promos (`POST/PATCH/DELETE promos`, `codigos-kepler`) siguen en el backend; la pantalla ya no los llama.
+
+## 6f. `[MKT.23]` — «¿Quién vendió las promociones?» del arqueo (2026-11-13)
+
+**Por qué no funcionaba en prod (dos causas, medidas en prod en sólo lectura, 6–13 nov):**
+1. Buscaba tickets con una promo **dada de alta** (`mkt_ranking_promos`, 0 filas): la lista nunca traía nada. Con las promos de Kepler hay **625 tickets** en 8 sucursales, todos ligados a su turno y cajero.
+2. La cajera veía sólo SUS turnos, comparando su usuario de la Suite con el de caja de Kepler (`kdpv_folio_caja.c8`): sólo **17 de 36** cajas tienen un usuario idéntico. **221 de 625 tickets (35 %) no los veía nadie**; en la 06, ninguno (5 cajas sin usuario). `C01` existe en la 07 y la 08 y en la Suite es uno solo.
+
+**Arreglo (opción A de David):** promos de Kepler (`catalog.products.is_promo`) y **toda la sucursal** (el alcance de escritura de sucursal ya lo limita); cada ticket sigue mostrando caja, turno y cajero. Costo aceptado: una cajera puede asignar un ticket de otra. Si se prefiere la B (filtro por turno + igualar los usuarios en Sistemas), es una línea (`cajero`) en `tickets()` y `guardar()`.
+
+**Probado en local (API con el código nuevo en :3339, base `platform_local`, cuenta superadmin):** la pestaña trae 18 tickets por sucursal e incluye DM009/DM010 (promos sólo de Kepler, que antes quedaban fuera); guardar una vendedora → 200 y «sin vendedora» bajó de 2 a 1. Ranking: 10 promos, una `k-DM009`; fijarle objetivo desde «Objetivos» creó su renglón (`k-DM009` → UUID, 1 objetivo). Control: `GET promos/k-DM999/objetivos` = 200 `[]` (el código viejo daba 400).
+
+**NO MEDIDO:** la vista con una cuenta de cajera (en local no hay contraseña conocida de una); tiempos en prod de punta a punta (local: arqueo 3.7–3.9 s, ranking 2.3 s, objetivos 1.0 s). Las primeras pruebas de esta sesión pegaron por error a un proceso viejo de la API (detener la tarea de `nx serve` no mata su `node`): no cuentan.
+
 ## 7. Pendiente / abierto
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.

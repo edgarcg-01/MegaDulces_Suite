@@ -8,6 +8,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { PwaInstallService } from './core/services/pwa-install.service';
 import { StatusBarService } from './core/services/status-bar.service';
 import { AppErrorOutletComponent } from './core/errors/app-error-outlet.component';
+import { repararYRecargar, yaSeReparo } from './core/errors/rescate';
 import { alCambiarEnOtraVentana } from './core/utils/cross-tab';
 import { loginUrlTree } from './core/auth/login-redirect';
 import { enRutaPublica } from './core/auth/rutas-publicas';
@@ -219,13 +220,24 @@ export class AppComponent implements OnInit {
       if (document.visibilityState === 'hidden' && !enRutaPublica() && !recargaAutomaticaBloqueada()) this.applyUpdate();
     });
 
-    // unrecoverable: el SW entró en estado roto (raro pero pasa en iOS
-    // Safari cuando se evicta el cache mid-fetch). Single fix: reload.
+    /**
+     * `unrecoverable`: el service worker entró en estado roto —se evictó la caché a mitad de
+     * un fetch, o el hash de un archivo no casa con su manifiesto.
+     *
+     * ⛔⛔ **Acá decía «single fix: reload», y recargar NO lo arregla** (`[AUD.7]`, 2026-11-13).
+     * El service worker sobrevive a la recarga con su caché rota incluida, así que vuelve a
+     * servir exactamente lo mismo: el usuario recarga, falla, recarga, falla. Lo que rompe el
+     * ciclo es dar de baja el registro y vaciar las cachés ANTES de volver a cargar.
+     *
+     * `yaSeReparo` pone el tope de un intento por pestaña: si después de limpiar sigue roto,
+     * la causa es otra y se deja ver el error en vez de recargar para siempre.
+     */
     this.swUpdate.unrecoverable
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt: UnrecoverableStateEvent) => {
         console.error('[SW] unrecoverable state:', evt.reason);
-        document.location.reload();
+        if (yaSeReparo()) return;
+        void repararYRecargar();
       });
 
     // La primera de la sesión sale siempre: el usuario acaba de entrar.

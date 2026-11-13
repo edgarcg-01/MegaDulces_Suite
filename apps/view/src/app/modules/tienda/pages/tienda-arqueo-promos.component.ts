@@ -26,12 +26,16 @@ const SUCURSALES = ['01', '02', '03', '04', '05', '06', '07', '08'];
 /**
  * `[MKT.18]` **¿Quién vendió las promociones?** — pestaña del arqueo (`/tienda/arqueo/promociones`).
  *
- * Propósito (una pregunta): ¿quién vendió cada ticket con promoción de mi turno? Lo contesta la
+ * Propósito (una pregunta): ¿quién vendió cada ticket con promoción de mi sucursal? Lo contesta la
  * cajera al cerrar; NO bloquea el arqueo (es otra pestaña, opcional). Kepler no lo sabe: en
  * mostrador todo sale a nombre del vendedor «PISO» (148 de 149 tickets de PH, semana 45).
  *
  * Kepler pone el ticket, sus promociones y cantidades; la cajera sólo elige la persona, de la
  * lista del reloj checador de su sucursal. Así la suma cuadra sola con Kepler.
+ *
+ * `[MKT.23]` Las promociones son las de Kepler (como la app de vendedor) y se ven los tickets de
+ * toda la sucursal, con su caja y cajero: filtrar por turno dejaba fuera el 35 % (el usuario de
+ * caja de Kepler no coincide con el de la Suite en 19 de 36 cajas).
  *
  * Jerarquía: primario = cuántos tickets faltan y la columna «Vendió»; secundario = las promos
  * del ticket; terciario = folio, caja y turno.
@@ -51,7 +55,7 @@ const SUCURSALES = ['01', '02', '03', '04', '05', '06', '07', '08'];
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>¿Quién vendió las promociones? <app-context-help topic="arqueo-promos" /></h1>
-          <p class="surf-page-sub">Los tickets con promoción de tus turnos, según Kepler. Sólo elige quién atendió cada uno.</p>
+          <p class="surf-page-sub">Los tickets con promoción de tu sucursal, según Kepler. Sólo elige quién atendió cada uno.</p>
         </div>
         <app-freshness-pill measures="fetch" [since]="datos()?.consultado_at ?? null" [staleAfterSec]="600"></app-freshness-pill>
       </header>
@@ -83,8 +87,10 @@ const SUCURSALES = ['01', '02', '03', '04', '05', '06', '07', '08'];
         }
       }
 
-      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filas().length"
-                      [emptyIcon]="datos()?.tickets?.length ? 'pi-check-circle' : 'pi-ticket'"
+      <!-- [MKT.23] Pedir la sucursal no es una falla: va como estado vacío con su instrucción, no en rojo. -->
+      <app-load-state [loading]="res.isLoading() && !datos()" [error]="pideSucursal() ? null : error()"
+                      [isEmpty]="pideSucursal() || (!!datos() && !filas().length)"
+                      [emptyIcon]="pideSucursal() ? 'pi-building' : datos()?.tickets?.length ? 'pi-check-circle' : 'pi-ticket'"
                       [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()" (retry)="res.reload()">
         <p-table [value]="filas()" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack">
           <ng-template #header>
@@ -230,10 +236,12 @@ export class TiendaArqueoPromosComponent {
     ];
   });
 
-  readonly vacioTitulo = computed(() => (this.datos()?.tickets.length ? 'Todos tienen vendedora' : 'Sin tickets con promoción'));
-  readonly vacioPista = computed(() => (this.datos()?.tickets.length
+  readonly vacioTitulo = computed(() => (this.pideSucursal() ? 'Elige una sucursal'
+    : this.datos()?.tickets.length ? 'Todos tienen vendedora' : 'Sin tickets con promoción'));
+  readonly vacioPista = computed(() => (this.pideSucursal() ? 'Elígela arriba para ver sus tickets con promoción.'
+    : this.datos()?.tickets.length
     ? 'Cambia a «Todos» para revisarlos o corregir alguno.'
-    : 'En estos días tus turnos no tienen tickets con una promoción que Mercadotecnia esté midiendo.'));
+    : 'En estos días la sucursal no tiene tickets con una promoción de Kepler.'));
 
   nombreSucursal(c: string): string { return warehouseName(c); }
   fecha(ymd: string): string {

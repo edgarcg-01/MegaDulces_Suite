@@ -91,6 +91,10 @@ describe('[MKT.18] TiendaArqueoPromosComponent', () => {
     const comp = fixture.componentInstance;
     expect(comp.pideSucursal()).toBe(true);
     expect(comp.error()).toContain('Elige la sucursal');
+    // [MKT.23] Se ve como instrucción, no como falla en rojo (lo encontró David en la pantalla, 2026-11-13).
+    const texto = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(texto).toContain('Elige una sucursal');
+    expect(texto).not.toContain('No se pudo cargar');
     comp.elegirSucursal('03');
     fixture.detectChanges();
     http.expectOne((q) => q.url === BASE && q.params.get('sucursal') === '03').flush(respuesta({ sucursal: '03' }));
@@ -119,5 +123,8 @@ describe('[MKT.18] TiendaArqueoPromosComponent', () => {
     await fixture.whenStable();
     expect(fixture.componentInstance.error()).toBe('No tienes permiso');
     expect(fixture.componentInstance.pideSucursal()).toBe(false);
+    // Control de la anterior: una falla de verdad SÍ se pinta como falla.
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('No se pudo cargar');
   });
 });
