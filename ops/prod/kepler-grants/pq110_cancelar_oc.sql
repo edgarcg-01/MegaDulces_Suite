@@ -8,7 +8,7 @@
 --                  en 90 días; caso 08|0000362 visto en el respaldo). Por eso UPDATE (c24) en kdm2.
 -- En las 361 OC canceladas de 90 días, c13–c16 y c42 están en 0 sin excepción.
 --
--- ⛔ Dar el permiso NO enciende nada: PQ.110 todavía no tiene código. El DELETE no se puede acotar por
+-- ⛔ Dar el permiso NO enciende nada: lo enciende el interruptor cancela_oc de kepler_push_switch, por sucursal. El DELETE no se puede acotar por
 --    columna ni por fila en Kepler; lo acota el adaptador (una OC, su sucursal, su folio, sin vale vivo).
 -- ⚠️ `kepler_push` ya tiene UPDATE (c43) y UPDATE (c115) en md.kdm1 (cot37); aquí se agregan las demás.
 --
@@ -19,5 +19,5 @@
 
 GRANT UPDATE (c13, c14, c15, c16, c42, c43, c67, c68, c69) ON md.kdm1 TO kepler_push;  -- la cabecera cancelada
 GRANT DELETE ON md.kdm2 TO kepler_push;                                                -- sus renglones
--- [2026-11-13, tras el ensayo] Reabrir la requisición. Aplicado el bloque de arriba en los 6; ÉSTE espera la firma de Edgar.
+-- [2026-11-13, tras el ensayo] Reabrir la requisición. Firmado por Edgar y aplicado el mismo día en los 6 (desde md, verificar = true).
 GRANT UPDATE (c24) ON md.kdm2 TO kepler_push;                                          -- pendiente de los renglones de la requisición

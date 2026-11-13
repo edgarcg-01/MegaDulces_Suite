@@ -37,3 +37,4 @@ Cómo leer la salida:
 | Fecha | Servidor | Resultado |
 |---|---|---|
 | 2026-11-13 | 08 | **0000393** (con requisición 0000087, 4 renglones): las 4 sentencias afectan lo esperado, la OC queda como Kepler la deja y la requisición se reabre (A, `c42` = `c16`, `c24` = `c9`). **Falta `UPDATE (c24)` en `md.kdm2`**. **0000236** (sin requisición, 20 renglones): verde, con todos los permisos. **0000338** (con vale 0000533): rechazada con su motivo. Control: las 3 OC intactas. |
+| 2026-11-13 (tarde) | 08 | Después de aplicar `UPDATE (c24)` en los 6: los mismos 3 folios, **los 11 permisos en true**, `fallas: []` en los 3, 0000393 y 0000236 «cancelada» (sólo en el ensayo), 0000338 rechazada por su vale. Control: las 3 OC intactas (estado N y total idénticos antes y después). |
