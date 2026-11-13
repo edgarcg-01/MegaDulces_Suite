@@ -54,6 +54,12 @@ export interface PresaleReviewInboxResponse {
   data: PresaleReviewInboxRow[];
   /** `ninguno` = el usuario no tiene sucursal en su alcance; se dice, no se muestra vacío mudo. */
   scope: 'todos' | 'propios' | 'ninguno';
+  /**
+   * `[MCP.24]` Con `?date=YYYY-MM-DD`: el día de SURTIDO que se pidió (hora de México), y `data` trae todo lo que
+   * se surtió ese día, revisado o no. `pending` sigue contando todo lo que falta por revisar, de cualquier día.
+   * Ausente = la bandeja viva (todo lo pendiente y lo revisado del último día).
+   */
+  date?: string;
 }
 
 /** La existencia de Kepler del producto en la sucursal del pedido, en la unidad mostrada. */

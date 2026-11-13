@@ -219,3 +219,25 @@ describe('[MCP.21] cada renglón de Mi ruta dice cómo va el cliente', () => {
     expect(Array.from(el.querySelectorAll('.sheet .action')).some((b) => b.textContent?.includes('Capturar exhibición'))).toBe(false);
   });
 });
+
+describe('[MCP.26] «Filtrar mi ruta» busca por palabras', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const cli = (id: string, name: string) => ({ ...LUPITA, id, code: id, name });
+
+  it('⭐ cada palabra, en cualquier orden y sin acentos, en nombre o clave', async () => {
+    const { fix } = await montar({
+      nearby: [],
+      home: [cli('C1', 'ABARROTES LUPITA'), cli('C2', 'MISCELÁNEA DOÑA PIÑA'), cli('C3', 'ABARROTES EL GÜERO')],
+    });
+    const cmp = fix.componentInstance;
+    const nombres = () => cmp.filtered().map((c) => c.name);
+    cmp.search.set('pina dona');
+    expect(nombres()).toEqual(['MISCELÁNEA DOÑA PIÑA']);
+    cmp.search.set('lupita abarrotes');
+    expect(nombres()).toEqual(['ABARROTES LUPITA']);
+    cmp.search.set('abarrotes c3');
+    expect(nombres()).toEqual(['ABARROTES EL GÜERO']);
+    cmp.search.set('');
+    expect(nombres()).toHaveLength(3);
+  });
+});

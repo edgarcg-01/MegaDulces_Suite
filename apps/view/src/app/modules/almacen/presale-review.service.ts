@@ -16,8 +16,9 @@ export class PresaleReviewService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/warehouse/presale-review`;
 
-  inbox(): Observable<PresaleReviewInboxResponse> {
-    return this.http.get<PresaleReviewInboxResponse>(this.base);
+  /** `[MCP.24]` Sin `date`, la bandeja viva; con `date` (`YYYY-MM-DD`), lo surtido ese día, revisado o no. */
+  inbox(date?: string): Observable<PresaleReviewInboxResponse> {
+    return this.http.get<PresaleReviewInboxResponse>(this.base, date ? { params: { date } } : {});
   }
 
   detail(orderId: string): Observable<PresaleReviewDetail> {

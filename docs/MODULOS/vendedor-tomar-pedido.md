@@ -5,6 +5,55 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Buscar el producto dictando, y todos los buscadores por palabras (MCP.26, 2026-11-13 — en código, sin desplegar)
+
+- **Problema:** la vendedora en ruta trae una mano ocupada y el buscador sólo se tecleaba. El micrófono que hubo
+  («Dictar pedido por voz») se quitó en VTK.8 porque mandaba lo dictado a la IA. Además, la frase dicha no sirve tal
+  cual: Kepler nombra «LA ROSA BOMBON 1KG» y se dice «bombón de la rosa de un kilo»; «de», «un» y «kilo» no están en el
+  nombre. Medido con 1,963 nombres reales: la frase tal cual encuentra su producto el 0 % de las veces. Aparte,
+  Cotización buscaba la frase entera pegada («coca 600» no encontraba «COCA COLA 600 ML»), y Mi ruta y Elegir ruta
+  buscaban con `.includes()` (sin acentos ni varias palabras).
+- **Solución:** un micrófono junto a la cámara en el buscador de Tomar pedido, de Cotización y de la pantalla del
+  checador de precios. Lo dicho se convierte antes de buscar: se quitan las palabras de enlace («de», «la», «sabor»,
+  «caja»), el número dicho antes de una unidad pasa a cifra, la unidad a su abreviatura («un kilo» → `1 k`, «gramos» →
+  `g`) y número y unidad van separados. Lo convertido queda escrito en el campo: lo que se ve es lo que se busca, y se
+  corrige a mano. Mientras escucha, el campo dice «Escuchando… di el producto». Si no hubo permiso o no se oyó un
+  producto, lo dice debajo del buscador. Todos los buscadores de la app buscan ahora por palabras: cada una, en
+  cualquier orden, sin acentos.
+- **Implementada:** `libs/ui-web/src/search/consulta-de-dictado.ts` (la conversión, junto a `coincideBusqueda`);
+  `apps/vendor/.../components/dictar-busqueda.component.ts` (el botón); Tomar pedido, `vendor-quote`, `vendor-checador-
+  precios`, `vendor-route-home` y `vendor-route-pick`. Sin servidor ni migración. Pruebas: 24 nuevas, 10 sabotajes en
+  rojo.
+- **Por qué así:** medido en prod sobre 11,163 productos, gramos se escribe GR, G o GRS (sólo «g» está en las tres) y
+  kilos KG o K. El número va pegado a la unidad tres de cada cuatro veces y separado la otra, y dos palabras encuentran
+  las dos formas. Quitar palabras de enlace sólo agrega resultados, nunca quita. Convertida, la frase encuentra su
+  producto el 99.9 % de las veces, con una mediana de 1 resultado. En el checador del **encabezado** no hay micrófono:
+  junto a Cotizar, Buscar cliente, Notificaciones y Configuración no cabe otro botón de 44 px en un teléfono de 360 px
+  (estimado, no medido en pantalla). Ahí queda el micrófono del teclado del teléfono.
+- **Límites:** las frases medidas son sintéticas (sin audio real): el reconocedor puede escribir distinto. «Medio kilo»
+  queda en `k`, porque Kepler escribe «1/2 KG» o «500G» y elegir una escondería la otra. «PIEZAS» escrito completo (7
+  nombres) no lo encuentra `pz`. Un código dictado número por número no se arma; para eso está la cámara.
+- **Pendiente:** probarlo con voz real en el celular de una vendedora.
+
+---
+
+## «Tu pedido» deja ver los productos (MCP.22, 2026-11-12 — en código, sin desplegar)
+
+- **Problema:** en la hoja «Tu pedido» se veía poco más de un producto. Abajo, fijo, iban las indicaciones (recuadro de
+  3 renglones), el botón Dictar, subtotal, IVA, margen, total y los dos botones: unos 395 px que nunca cedían, en una
+  hoja de 82 % del alto. Quedaban ~65 px para la lista, que es justo lo que el vendedor viene a revisar.
+- **Solución:** las indicaciones se pliegan en un renglón («Indicaciones para el surtidor · opcional», con Dictar al
+  lado); si ya hay texto, el renglón lo muestra en una línea. Tocarlo abre el recuadro; «Listo» lo vuelve a plegar.
+  El total va en un renglón con «desglose» para ver subtotal, IVA y margen. La hoja sube a 92 % del alto visible.
+- **Implementada:** `vendor-take-order.component.ts` (`indAbiertas`, `desglose`, `dictarDesdeFila`); pruebas en
+  `vendor-indicaciones.spec.ts` (4 nuevas: plegadas al abrir, dictar abre el recuadro, desglose, margen negativo).
+- **Por qué así:** las indicaciones siguen a la vista antes de agendar (lo que pidió MCP.3.15) sin ocupar la pantalla;
+  un margen **negativo** se ve junto al total aunque el desglose esté cerrado, porque es lo único de ese bloque que
+  cambia una decisión. Llevarlas a un paso aparte costaba un toque más en cada pedido.
+- **Pendiente:** verlo en un celular (que caben ~5 productos se estimó por CSS, no se midió en pantalla).
+
+---
+
 ## Buscar leyendo el código de barras con la cámara (VTK.18 — en código el 2026-11-09, sin desplegar)
 
 - **Problema:** con el producto en la mano, había que escribir su nombre o su clave para encontrarlo.

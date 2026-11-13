@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { signal } from '@angular/core';
-import { Subject, of } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import type { PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow, PresaleSubstituteResponse } from '@megadulces/contracts';
 import { AlmacenSurtirPreventaComponent } from './almacen-surtir-preventa.component';
 import { PresalePickingService } from '../presale-picking.service';
@@ -98,13 +98,89 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('abre en Hoy con lo de hoy y lo vencido, y cuenta lo que falta por día', async () => {
+  it('[MCP.24] abre en Hoy SÓLO con lo de hoy; lo vencido va en un aviso por día, sin mezclarse', async () => {
     await montar();
-    expect(texto()).toContain('Hoy · 2');
+    expect(texto()).toContain('Hoy · 1');
     expect(texto()).toContain('Mañana · 1');
-    expect(texto()).toContain('ABARROTES ROSY');
-    expect(texto()).toContain('vencido 2 días');
-    expect(texto()).not.toContain('ESCUELA AMARILLA');
+    const lista = el().querySelector('.sp-lista')?.textContent ?? '';
+    expect(lista).toContain('ABARROTES ROSY');
+    expect(lista).not.toContain('VERO VASCO');
+    expect(lista).not.toContain('ESCUELA AMARILLA');
+    // Lo atrasado no se esconde: el aviso lo cuenta por su día.
+    const aviso = (el().querySelector('.sp-atras')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(aviso).toContain('1 pedido pendiente de días anteriores');
+    expect(aviso).toContain('lun 12 oct · 1');
+  });
+
+  describe('[MCP.24] un día a la vez y por vendedor', () => {
+    const DIA = (fecha: string, filas: PresalePickInboxRow[]): PresalePickInboxResponse =>
+      ({ today: '2026-10-14', counts: { hoy: 0, manana: 0, proximos: 0 }, scope: 'propios', date: fecha, data: filas });
+
+    it('⭐ «Ayer» pide ese día completo al servidor, también lo ya surtido', async () => {
+      await montar();
+      const ayer = DIA('2026-10-13', [
+        fila({ order_id: 'a1', code: 'PD-2026-00060', customer_name: 'TIENDA DE AYER', requested_delivery_date: '2026-10-13', days_late: 1,
+               state: 'completo', finished: { user_id: 'yo', name: 'Juan Pérez', at: '2026-10-13T18:00:00.000Z' } }),
+      ]);
+      api.inbox.mockReturnValueOnce(of(ayer));
+      fix.componentInstance.elegirPestana('ayer');
+      fix.detectChanges();
+      expect(api.inbox).toHaveBeenLastCalledWith('2026-10-13');
+      const lista = el().querySelector('.sp-lista')?.textContent ?? '';
+      expect(lista).toContain('TIENDA DE AYER');
+      expect(lista).not.toContain('ABARROTES ROSY');
+      expect(el().querySelector('.sp-atras')).toBeNull();
+    });
+
+    it('tocar un día del aviso abre ESE día; «Hoy» regresa a la bandeja viva sin pedir nada', async () => {
+      await montar();
+      api.inbox.mockReturnValueOnce(of(DIA('2026-10-12', [BANDEJA().data[1]])));
+      (el().querySelector('.sp-atras-d') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(api.inbox).toHaveBeenLastCalledWith('2026-10-12');
+      expect(texto()).toContain('lun 12 oct');
+      expect(el().querySelector('.sp-lista')?.textContent).toContain('VERO VASCO');
+      const llamadas = api.inbox.mock.calls.length;
+      fix.componentInstance.elegirPestana('hoy');
+      fix.detectChanges();
+      expect(api.inbox.mock.calls.length).toBe(llamadas);
+      expect(el().querySelector('.sp-lista')?.textContent).toContain('ABARROTES ROSY');
+    });
+
+    it('⭐ elegir un vendedor deja sólo sus pedidos; con uno solo no se ofrece elegir', async () => {
+      await montar();
+      const comp = fix.componentInstance;
+      expect(comp.opcionesVendedor().length).toBe(2); // «Todos» + un vendedor: no se pinta el selector
+      expect(el().querySelectorAll('app-segmented').length).toBe(1);
+      comp.bandeja.set({
+        ...BANDEJA(),
+        data: [
+          fila({ order_id: 'a1', code: 'PD-1', customer_name: 'TIENDA A1', seller_name: 'Vendedor A' }),
+          fila({ order_id: 'b1', code: 'PD-2', customer_name: 'TIENDA B1', seller_name: 'Vendedor B' }),
+          fila({ order_id: 'a2', code: 'PD-3', customer_name: 'TIENDA A2', seller_name: 'Vendedor A' }),
+        ],
+      });
+      fix.detectChanges();
+      expect(comp.opcionesVendedor().map((o) => o.label)).toEqual(['Todos · 3', 'Vendedor A · 2', 'Vendedor B · 1']);
+      comp.vendedor.set('Vendedor B');
+      fix.detectChanges();
+      const clientes = Array.from(el().querySelectorAll('.sp-card .sp-cliente')).map((c) => c.textContent?.trim());
+      expect(clientes).toEqual(['TIENDA B1']);
+      // Un vendedor sin pedidos en el día que se ve no deja la pantalla vacía: vuelve a «Todos».
+      comp.vendedor.set('Vendedor Z');
+      fix.detectChanges();
+      expect(comp.vendedorEfectivo()).toBeNull();
+      expect(el().querySelectorAll('.sp-card').length).toBe(3);
+    });
+
+    it('prueba negativa: si el día no carga, lo dice (no lo pinta vacío)', async () => {
+      await montar();
+      api.inbox.mockReturnValueOnce(throwError(() => ({ status: 0 })));
+      fix.componentInstance.irADia('2026-10-10');
+      fix.detectChanges();
+      expect(texto()).not.toContain('Nada para entregar');
+      expect(texto()).toContain('No se pudieron cargar los pedidos de ese día');
+    });
   });
 
   it('[MCP.14] separa por vendedor y, dentro, en orden de folio (no por hora de llegada)', async () => {
@@ -172,6 +248,62 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
     clic('Enviar reporte a Vendedora Prueba · faltaron 1');
     // [MCP.18] El faltante viaja con su motivo: sin tocar, el de por omisión («No había en la sucursal»).
     expect(api.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 0, reason: 'sin_existencia' }] });
+  });
+
+  describe('[MCP.23] el surtidor ve la existencia del sistema en cada renglón', () => {
+    const CON_EXISTENCIA = (estado: PresalePickInboxRow['state']): PresalePickDetail => {
+      const d = DETALLE(estado);
+      d.lines = [
+        // Agotado sin registro: el servidor manda `qty: null` (lo que distingue el aviso es el ESTADO).
+        { ...d.lines[0], stock: { state: 'agotado', qty: null, checked_at: '2026-10-14T15:40:00.000Z' } },
+        { ...d.lines[1], stock: { state: 'con_existencia', qty: 40, checked_at: '2026-10-14T15:41:00.000Z' } },
+        { line_id: 'l3', product_id: 'p3', sku: '5', product_name: 'CHICLE CANEL', qty: 2, unit: 'CJA', factor: 20, picked: null, stock: null },
+        { line_id: 'l4', product_id: 'p4', sku: '6', product_name: 'PALETA PAYASO', qty: 1, unit: 'CJA', factor: 12, picked: null,
+          stock: { state: 'con_existencia', qty: 0, checked_at: '2026-10-14T15:41:00.000Z' } },
+      ];
+      return d;
+    };
+    async function abrir(d: PresalePickDetail): Promise<void> {
+      await montar(d);
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+    }
+    const renglon = (nombre: string): string =>
+      (Array.from(el().querySelectorAll('.sp-ren')).find((r) => r.textContent?.includes(nombre))?.textContent ?? '').replace(/\s+/g, ' ');
+
+    it('⭐ antes de empezar: cuánto hay, «no hay», «sin dato» (nunca cero) y «menos de 1»', async () => {
+      await abrir(CON_EXISTENCIA('nuevo'));
+      expect(renglon('SALSA MAGA')).toContain('Sistema: hay 40 CJA');
+      expect(renglon('BOMBON GRANDE')).toContain('Sistema: no hay');
+      expect(renglon('CHICLE CANEL')).toContain('Sistema: sin dato');
+      expect(renglon('CHICLE CANEL')).not.toContain('hay 0');
+      expect(renglon('PALETA PAYASO')).toContain('Sistema: menos de 1 CJA');
+      // La hora de la lectura va UNA vez (la más vieja), no en cada renglón.
+      expect(el().querySelectorAll('.sp-hay').length).toBe(4);
+      expect(texto().match(/existencia de Kepler al/g)?.length).toBe(1);
+      expect(texto()).toContain('lo que manda es lo que ves en el anaquel');
+    });
+
+    it('⭐ marcar que faltó algo que el sistema dice que hay pide buscarlo; si dice que no hay, no', async () => {
+      await abrir(CON_EXISTENCIA('surtiendo'));
+      (el().querySelector('[aria-label="Menos SALSA MAGA 1 1/2"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(el().querySelector('.sp-buscar')?.textContent).toContain('El sistema dice que hay 40 CJA: búscalo en bodega antes de quitarlo.');
+      (el().querySelector('[aria-label="Más SALSA MAGA 1 1/2"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(el().querySelector('.sp-buscar')).toBeNull();
+      // BOMBON: el sistema dice que no hay → faltar es lo esperado, no se le pide nada.
+      (el().querySelector('[aria-label="Menos BOMBON GRANDE"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(el().querySelector('.sp-buscar')).toBeNull();
+    });
+
+    it('prueba negativa: un servidor anterior (sin `stock`) no pinta nada ni inventa una hora', async () => {
+      await abrir(DETALLE('nuevo'));
+      expect(el().querySelector('.sp-hay')).toBeNull();
+      expect(texto()).not.toContain('Sistema:');
+      expect(texto()).not.toContain('existencia de Kepler');
+    });
   });
 
   describe('[MCP.18] el porqué de lo que faltó', () => {

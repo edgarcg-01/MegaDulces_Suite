@@ -18,6 +18,7 @@ import { estadoDeProductos, type EstadoEnSucursal } from '../commercial-inventor
 import { PresalePickingService } from './presale-picking.service';
 import { RevisionInvalida, armarRenglonesRevision, buscarEnRenglones, codigosDeFicha, planearRevision, type RenglonVivo } from './presale-review.engine';
 import { kdiiPorSku } from '../shared/kdii-lectura';
+import { DiaInvalido, diaDeConsulta } from './bandeja-dia';
 import { MOTIVOS_CAJA, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
 import { MotivoInvalido, armarJustificantes, conMotivosEnRevision, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
 import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
@@ -55,14 +56,23 @@ export class PresaleReviewService {
 
   async inbox(query: Record<string, unknown> = {}): Promise<PresaleReviewInboxResponse> {
     const hoy = relojMx(new Date()).fecha;
+    // [MCP.24] `?date=` trae lo que se SURTIÓ ese día (hora de México), revisado o no: la caja revisa el
+    // mismo día que se surte (medido en prod: 451 de 467 en 30 días), no el día de entrega.
+    let dia: string | null;
+    try { dia = diaDeConsulta(query['date']); } catch (e) {
+      if (e instanceof DiaInvalido) throw new BadRequestException(e.message);
+      throw e;
+    }
+    const conDia = dia ? { date: dia } : {};
     const almacenes = await this.scope.warehouseIds(query, RUTA);
-    if (almacenes !== null && almacenes.length === 0) return { today: hoy, pending: 0, truncated: false, data: [], scope: 'ninguno' };
+    if (almacenes !== null && almacenes.length === 0) return { today: hoy, pending: 0, truncated: false, data: [], scope: 'ninguno', ...conDia };
     return this.tk.run(async (trx) => {
-      const filas = await this.leer(trx, { almacenes });
+      const filas = await this.leer(trx, dia ? { almacenes, dia } : { almacenes });
       const data = filas.map((f) => this.aRenglon(f));
       const pending = await this.contarPendientes(trx, almacenes);
-      const mostrados = data.filter((d) => d.state === 'por_revisar').length;
-      return { today: hoy, pending, truncated: pending > mostrados, data, scope: almacenes === null ? 'todos' : 'propios' };
+      // Con un día pedido, `truncated` habla de ESE día: si se llegó al tope, la pantalla lo dice.
+      const truncated = dia ? filas.length >= TOPE : pending > data.filter((d) => d.state === 'por_revisar').length;
+      return { today: hoy, pending, truncated, data, scope: almacenes === null ? 'todos' : 'propios', ...conDia };
     });
   }
 
@@ -275,7 +285,7 @@ export class PresaleReviewService {
   }
 
   /** Los pedidos de preventa surtidos: todo lo que falta por revisar (sin límite de días) y lo revisado del último día. */
-  private async leer(trx: Knex.Transaction, f: { almacenes: string[] | null; orderId?: string }): Promise<Array<Record<string, unknown>>> {
+  private async leer(trx: Knex.Transaction, f: { almacenes: string[] | null; orderId?: string; dia?: string }): Promise<Array<Record<string, unknown>>> {
     const qb = trx('commercial.presale_picks as pp')
       .join('commercial.orders as o', function () {
         this.on('o.id', '=', 'pp.order_id').andOn('o.tenant_id', '=', 'pp.tenant_id');
@@ -292,7 +302,12 @@ export class PresaleReviewService {
       .whereNotNull('o.requested_delivery_date');
     if (f.almacenes !== null) qb.whereIn('o.warehouse_id', f.almacenes);
     if (f.orderId) qb.where('o.id', f.orderId);
-    else {
+    else if (f.dia) {
+      // [MCP.24] Todo lo surtido ese día en hora de México, revisado o no.
+      qb.whereRaw(`(pp.finished_at AT TIME ZONE 'America/Mexico_City')::date = ?::date`, [f.dia])
+        // Lo que no pide revisión no se pinta como «por revisar» (igual que la bandeja viva).
+        .where(function () { this.where('pp.review_required', true).orWhereNotNull('pp.reviewed_at'); });
+    } else {
       qb.where(function () {
         this.where(function () {
           // Sin límite de días: lo que no se revisó se queda hasta que alguien lo revise.
