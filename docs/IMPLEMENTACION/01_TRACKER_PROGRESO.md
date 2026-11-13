@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2553 KB, 14396 líneas, 77 secciones.
+> **Índice navegable** — 2554 KB, 14396 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,7 +10,7 @@
 | 90 | 97 | 15 | Tracker de Progreso |
 | 98 | 196 | 283 | 📊 Estado global de fases |
 | 197 | 223 | 1 | 🚦 Estado por item (granular) |
-| 224 | 3822 | 539 | 🎯 EN PROGRESO |
+| 224 | 3822 | 540 | 🎯 EN PROGRESO |
 | 3839 | 3876 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3877 | 3910 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
 | 3911 | 3995 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
@@ -322,7 +322,7 @@ Y se actualiza el símbolo al avanzar:
 
 - [ ] **[PGP.118]** 🧪 **En código 2026-11-13** — pestaña «Anticipos» en *Deuda con proveedores* (`/finanzas/anticipos`, `FINANCE_PAYMENTS_VER`), sólo lectura, sin migración. `GET finance/payment-calendar/anticipos` (82–158 ms en prod) y `GET …/anticipos/deuda?proveedores=` (397–572 ms: en frío pasa los 500 ms → va diferida, la pantalla no la espera). Contrato `anticipos.contract.ts`. Medido hoy: 64 `X-D-60` sin aplicar, ~$7.03 M (C* $4.96 M · G* $1.68 M · TC* $0.38 M); $2.18 M se pueden netear contra deuda viva; $5.05 M con más de 90 días. Árbitro: `a_favor` = `kdxe.c20` en 64/64, control negativo 144/144 aplicados con `c20 = 0`. 📏 13 pruebas de contrato + 7 de componente (2 negativas: deuda que no llega o falla ≠ «sin contra qué»); 2 mutantes de la regla, los 2 en rojo. `check:pantalla` 0 fallas, `templates`/`templates-types`/`estilos`/`busqueda`/`tokens` verdes. ⚠️ **Sin validación visual · arranque de la API no verificado** (ruta nueva con `@Query`).
 - [ ] **[PGP.119]** ⬜ C0–C3 — programar un anticipo nuevo desde la OC (`nature` en `supplier_payment_obligations`, pareo con el `X-D-60`, cierre por `kdxf`, alerta +90 días). Con migración.
-- [ ] **[PGP.120]** ⬜ C2–C3 — el anticipo sin aplicar se precarga como descuento al programar la factura; el cierre dice «saldada con anticipo».
+- [ ] **[PGP.120]** 🧪 **En código 2026-11-13** — pedido de Edgar: *«estos que se puedan aplicar directamente en la programación de pagos»*. Botón «Aplicar anticipo $X» en la factura del pago (Calendario): el anticipo entra como un renglón más del descuento (`[PGP.101]`) con su documento; el servidor lo verifica contra Kepler (misma sucursal, mismo acreedor de mercancía, alcanza = remanente − apartado en otros pagos no cancelados, con candado por anticipo) y queda apartado hasta que CxP lo aplica en Kepler. ⚠️ **Corrige `[PGP.118]`:** Kepler aplica el anticipo sólo en su sucursal (115/115) → aplicable hoy **$2.02 M** (no $2.18 M), sin contra qué **$1.25 M**. ⛔ **Migración `20261113171713` va a prod ANTES del código** (amplía el CHECK del motivo). 📏 15 pruebas nuevas, 6 mutantes en rojo (un 7.º sobrevivió por redundante y la línea se quitó); prueba con base real escrita en `payment-calendar.it.spec.ts`, **NO MEDIDA aquí** (Docker local caído; las bases de la laptop no se tocan): corre en el job de integración del CI. ⚠️ Sin validación visual · arranque no verificado.
 - [ ] ⚠️ **D7** — que Contabilidad confirme dos documentos de Matriz (folio `0000149` $1.54 M y `0000048` $2.0 M). Dueño: Edgar. No bloquea PGP.118 (se publican marcados).
 
 ### Arqueo de ruta (RD/RV) · 2026-10-16

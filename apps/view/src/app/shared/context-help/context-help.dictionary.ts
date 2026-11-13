@@ -2877,9 +2877,10 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Los grupos',
         entries: [
-          { term: 'Aplicable hoy', def: 'El acreedor tiene facturas abiertas: el anticipo se puede aplicar contra ellas en Kepler y esa parte ya no se paga.' },
-          { term: 'Se puede aplicar hoy', def: 'Por acreedor, lo menor entre lo que tiene a favor y lo que le debemos. Nunca más que ninguno de los dos.' },
-          { term: 'Sin contra qué', def: 'El acreedor no tiene ninguna factura abierta: hay que pedirle la factura o que regrese el dinero.' },
+          { term: 'Aplicable hoy', def: 'El acreedor tiene facturas abiertas en la MISMA sucursal del anticipo (Kepler no aplica un anticipo contra una factura de otra sucursal). Al programar una de esas facturas en el Calendario de pagos, el botón «Aplicar anticipo» lo resta de lo que se transfiere; Cuentas por pagar lo aplica después en Kepler.' },
+          { term: 'Se puede aplicar hoy', def: 'Por acreedor y sucursal, lo menor entre lo que tiene a favor y lo que le debemos ahí. Nunca más que ninguno de los dos.' },
+          { term: 'Sin contra qué', def: 'El acreedor no tiene ninguna factura abierta en la sucursal del anticipo: hay que pedirle la factura o que regrese el dinero.' },
+          { term: 'Ya apartado en el Calendario', def: 'La parte del anticipo que ya se aplicó a una factura en un pago del Calendario y que Kepler todavía no registra. Queda apartada para que no se use dos veces; cuando Cuentas por pagar la aplica en Kepler, deja de contarse aquí.' },
           { term: 'No es anticipo de mercancía', def: 'Gasto (acreedores G…) o tarjeta (TC…) capturados en Kepler como anticipo. Se muestran para que el total cuadre con Kepler, pero no se aplican contra compras.' },
           { term: 'Calculando', def: 'Todavía no llega lo que les debemos a esos acreedores (se lee aparte porque tarda casi medio segundo). No quiere decir que no se les deba nada.' },
         ],

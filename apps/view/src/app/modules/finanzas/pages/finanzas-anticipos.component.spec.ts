@@ -14,7 +14,7 @@ import { FinanzasAnticiposComponent } from './finanzas-anticipos.component';
  */
 const fila = (p: Partial<AnticipoRow>): AnticipoRow => ({
   sucursal: '00', proveedor: 'CA001', proveedor_nombre: 'ACREEDOR UNO', folio: '0000001', referencia: null,
-  fecha: '2026-11-01', dias: 12, importe: 1000, aplicado: 0, a_favor: 1000, ...p,
+  fecha: '2026-11-01', dias: 12, importe: 1000, aplicado: 0, a_favor: 1000, apartado: 0, ...p,
 });
 const FILAS: AnticipoRow[] = [
   fila({ proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', folio: '0000001', a_favor: 1000, importe: 1000 }),
@@ -24,8 +24,12 @@ const FILAS: AnticipoRow[] = [
   fila({ proveedor: 'TC004', proveedor_nombre: 'TARJETA EMPRESA', folio: '0000005', a_favor: 300 }),
 ];
 const TOTAL = FILAS.reduce((s, r) => s + r.a_favor, 0);
-// CA001 debe 1,200 (menos que su anticipo de 1,500); CB002 no debe nada (no viene en la respuesta).
-const DEUDA: AnticipoDeudaRow[] = [{ proveedor: 'CA001', facturas: 2, deuda: 1200, vence_primero: '2026-11-20' }];
+// CA001 debe 1,200 en la MISMA sucursal (menos que su anticipo de 1,500). CB002 sólo debe en OTRA sucursal:
+// en Kepler un anticipo no se aplica contra facturas de otra sucursal, así que para CB002 no hay contra qué.
+const DEUDA: AnticipoDeudaRow[] = [
+  { proveedor: 'CA001', sucursal: '00', facturas: 2, deuda: 1200, vence_primero: '2026-11-20' },
+  { proveedor: 'CB002', sucursal: '03', facturas: 4, deuda: 9000, vence_primero: '2026-11-25' },
+];
 
 describe('[PGP.118] FinanzasAnticiposComponent', () => {
   let fixture: ComponentFixture<FinanzasAnticiposComponent>;
@@ -109,6 +113,23 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     expect(c.visibles()).toBe(1);
     expect(c.grupos().find((g) => g.key === 'sin_contra_que')?.filas).toHaveLength(1);
     expect(c.kpis().map((k) => k.value)).toEqual(antes);
+  });
+
+  it('⛔ NEGATIVA [PGP.120] — la deuda en OTRA sucursal no vuelve aplicable un anticipo (Kepler no lo cruza)', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    const cb = c.conGrupo().find((r) => r.proveedor === 'CB002');
+    expect(cb?.grupo).toBe('sin_contra_que');
+    expect(c.neteable()).toBe(1200); // los 9,000 que debemos a CB002 en otra sucursal no suman
+    expect(c.contraQue(cb!)).toContain('Ninguna factura abierta en');
+  });
+
+  it('[PGP.120] lo apartado en el Calendario se dice en la fila', () => {
+    http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/anticipos')).flush([fila({ apartado: 400 })]);
+    fixture.detectChanges();
+    pedidoDeuda().flush([]);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('ya apartado en el Calendario de pagos');
   });
 
   it('más de 90 días cuenta sólo mercancía', () => {

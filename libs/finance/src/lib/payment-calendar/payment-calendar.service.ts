@@ -17,7 +17,10 @@ import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliz
 import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
 import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
 import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
-import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
+import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados, type LineaDescuento } from './descuento-al-pagar';
+// `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
+import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
+import { tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -277,6 +280,8 @@ interface VentanaRow {
   pronto_fecha_limite: string | null; pronto_tasa: number | string | null;
   pronto_beneficio: number | string | null; pronto_estado: string | null;
   entity_ref: string | null; doc_ref: string | null;
+  /** `[PGP.120]` El código del acreedor en Kepler: con la sucursal, casa la factura con sus anticipos. */
+  payee_code: string | null;
 }
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
@@ -681,21 +686,8 @@ export class PaymentCalendarService {
    */
   async listAnticipos(): Promise<AnticipoRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT c.sucursal, c.proveedor, c.proveedor_nombre, c.folio, c.referencia,
-                to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
-                (current_date - c.fecha)::int AS dias,
-                c.importe::float8 AS importe, c.aplicado::float8 AS aplicado,
-                c.a_favor::float8 AS a_favor
-           FROM analytics.v_supplier_credits c
-          WHERE c.tenant_id = ? AND c.doc_tipo::int = 60 AND c.pendiente
-          ORDER BY c.a_favor DESC
-          LIMIT 1000`,
-        [tenantId],
-      );
-      return rows;
-    });
+    // `[PGP.120]` Con lo apartado en pagos pendientes del Calendario (84-88 ms en prod, 2026-11-13).
+    return this.tk.run(async (trx) => (await trx.raw(SQL_ANTICIPOS_CON_APARTADO, [tenantId, tenantId])).rows);
   }
 
   /**
@@ -703,6 +695,7 @@ export class PaymentCalendarService {
    * mercancía). Va en diferido porque `v_supplier_payables` tiene un piso medido de ~390 ms aun con
    * el predicado por acreedor. La pantalla manda los códigos que ya tiene: así no se vuelve a leer
    * la vista de créditos.
+   * `[PGP.120]` Por acreedor Y SUCURSAL: un anticipo sólo se aplica contra facturas de su sucursal.
    */
   async listAnticipoDeuda(proveedores: readonly string[]): Promise<AnticipoDeudaRow[]> {
     const codes = [...new Set(proveedores.map((p) => String(p ?? '').trim()).filter((p) => /^[A-Za-z0-9]{1,20}$/.test(p)))].slice(0, 300);
@@ -710,15 +703,59 @@ export class PaymentCalendarService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
-        `SELECT p.proveedor, count(*)::int AS facturas, sum(p.pendiente)::float8 AS deuda,
+        `SELECT btrim(p.proveedor) AS proveedor, p.sucursal, count(*)::int AS facturas, sum(p.pendiente)::float8 AS deuda,
                 to_char(min(p.vencimiento), 'YYYY-MM-DD') AS vence_primero
            FROM analytics.v_supplier_payables p
           WHERE p.tenant_id = ? AND p.pendiente > 0.005 AND p.proveedor = ANY(?::text[])
-          GROUP BY p.proveedor`,
+          GROUP BY 1, 2`,
         [tenantId, codes],
       );
       return rows;
     });
+  }
+
+  /**
+   * `[PGP.120]` **Verifica cada renglón «Anticipo» de una factura contra Kepler** antes de guardarlo:
+   * que la factura sea de Kepler y de la MISMA sucursal del anticipo, que el anticipo exista y sea del
+   * mismo acreedor (de mercancía, D2), y que alcance: lo que Kepler guarda menos lo ya apartado en
+   * otros pagos pendientes. Un candado por anticipo (`pg_advisory_xact_lock`) serializa a dos personas
+   * que aplican el mismo anticipo a la vez: la segunda lee lo apartado por la primera.
+   */
+  private async verificarAnticipos(
+    trx: Knex.Transaction, tenantId: string,
+    item: { id: string; obligation_source: string; obligation_id: string }, lines: LineaDescuento[],
+  ): Promise<void> {
+    const anticipos = lines.filter((l) => l.reason === 'anticipo');
+    if (!anticipos.length) return;
+    if (item.obligation_source !== 'kepler_payable') {
+      throw new BadRequestException('Un anticipo sólo se aplica contra una factura de Kepler: ésta no viene de Kepler.');
+    }
+    for (const l of anticipos) {
+      const ref = l.anticipo;
+      if (!ref) throw new BadRequestException('El renglón de anticipo necesita su documento de Kepler (sucursal y folio).');
+      const suc = warehouseName(ref.sucursal);
+      await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`pgp120:${tenantId}:${ref.sucursal}:${ref.folio}`]);
+      const { rows: [f] } = await trx.raw(SQL_ANTICIPO_PARA_FACTURA, [
+        tenantId, item.id, ref.sucursal, item.obligation_id, tenantId, ref.sucursal, ref.folio, ref.sucursal, ref.folio,
+      ]) as { rows: FilaAnticipoParaFactura[] };
+      if (!f || f.ant_n === 0) throw new BadRequestException(`El anticipo ${ref.folio} de ${suc} no existe en Kepler.`);
+      if (f.ant_n > 1) throw new BadRequestException(`Hay ${f.ant_n} anticipos con el folio ${ref.folio} en ${suc}: no se puede saber cuál es.`);
+      if (f.fac_n === 0) throw new BadRequestException(`El anticipo ${ref.folio} es de ${suc} y esta factura no: en Kepler un anticipo sólo se aplica contra facturas de su misma sucursal.`);
+      if ((f.fac_acreedor ?? '').toUpperCase() !== (f.ant_proveedor ?? '').toUpperCase()) {
+        throw new BadRequestException(`El anticipo ${ref.folio} es de otro acreedor: sólo se aplica contra facturas del acreedor al que se le dio.`);
+      }
+      if (tipoDeAcreedor(f.ant_proveedor) !== 'mercancia') {
+        throw new BadRequestException(`El anticipo ${ref.folio} es de gasto o tarjeta: no se aplica contra compras.`);
+      }
+      const aFavor = round2(Number(f.a_favor ?? 0));
+      const apartado = round2(Number(f.apartado ?? 0));
+      const disponible = round2(Math.max(0, aFavor - apartado));
+      if (l.amount > disponible + 0.005) {
+        throw new BadRequestException(aFavor <= 0.005
+          ? `El anticipo ${ref.folio} ya se aplicó entero en Kepler.`
+          : `Del anticipo ${ref.folio} quedan $${disponible.toFixed(2)} por aplicar ($${aFavor.toFixed(2)} en Kepler${apartado > 0 ? `, $${apartado.toFixed(2)} ya apartados en otros pagos del Calendario` : ''}); no alcanza para $${l.amount.toFixed(2)}.`);
+      }
+    }
   }
 
   /**
@@ -1251,6 +1288,8 @@ export class PaymentCalendarService {
         beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
         /** `[PGP.58]` La llave de la ficha y de la evidencia, y la referencia que tecleó quien capturó. */
         entity_ref?: string | null; doc_ref?: string | null;
+        /** `[PGP.120]` El acreedor en Kepler (sólo facturas derivadas vivas). */
+        payee_code?: string | null;
         // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
         vence?: string | null;
         /** `[PGP.40]` La etiqueta vino del universo completo: el ERP ya no debe esa factura. */
@@ -1300,12 +1339,15 @@ export class PaymentCalendarService {
                */
               trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) AS entity_ref`),
               trx.raw(`nullif(btrim(v.referencia), '') AS doc_ref`),
+              // `[PGP.120]` El acreedor en Kepler: con la sucursal, es la llave de sus anticipos sin aplicar.
+              trx.raw('btrim(v.proveedor) AS payee_code'),
             );
           for (const r of rows as VentanaRow[]) {
             labels.set(`${source}:${r.id}`, {
               beneficiary: r.beneficiary, concept: r.concept,
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
               entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
+              payee_code: r.payee_code ?? null,
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1395,6 +1437,7 @@ export class PaymentCalendarService {
           branch_code: label?.branch_code ?? null,
           entity_ref: label?.entity_ref ?? null,
           doc_ref: label?.doc_ref ?? null,
+          payee_code: label?.payee_code ?? null,
           kepler_saldada: saldada,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
@@ -2196,6 +2239,8 @@ export class PaymentCalendarService {
             return { ...n, lines: n.discount_amount > 0 ? [{ reason: n.discount_reason!, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note }] : [] };
           })();
       assertDescuentoPermitido(item.obligation_source, allocation.classification, norm.discount_amount);
+      // `[PGP.120]` Un renglón «Anticipo» se verifica contra Kepler: documento, acreedor, sucursal y disponible.
+      await this.verificarAnticipos(trx, tenantId, item, norm.lines);
       const con = norm.discount_amount > 0;
       await trx('finance.payment_allocation_items').where({ id: itemId }).update({
         applied_amount: norm.applied_amount, discount_amount: norm.discount_amount, discount_reason: norm.discount_reason,

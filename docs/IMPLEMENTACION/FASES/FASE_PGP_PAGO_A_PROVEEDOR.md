@@ -1324,8 +1324,8 @@ efectivo.
 | … de mercancía (`C*`) — **el trabajo** | 41 documentos, ~$4.96 M, 27 acreedores |
 | … de gasto (`G*`) | 13 documentos, ~$1.68 M, 12 acreedores |
 | … de tarjeta (`TC*`) | 9 documentos, ~$0.38 M, 4 acreedores |
-| `C*` con deuda viva del mismo acreedor | 21 acreedores, $3.89 M a favor, **$2.18 M se pueden netear hoy** |
-| `C*` sin deuda viva (pedir factura o reembolso) | 6 acreedores, $1.07 M |
+| `C*` con deuda viva del mismo acreedor | 21 acreedores, $3.89 M a favor, **$2.18 M se pueden netear hoy** — ⚠️ **corregido el mismo día: $2.02 M** (sólo cuenta la deuda de la MISMA sucursal del anticipo; ver `[PGP.120]`) |
+| `C*` sin deuda viva (pedir factura o reembolso) | 6 acreedores, $1.07 M — ⚠️ **corregido: $1.25 M** por sucursal |
 | Antigüedad del saldo: 0–30 · 31–90 · +90 días | $1.20 M · $0.76 M · **$5.05 M (33 docs)** |
 | Dónde: Matriz | 56 de 63 documentos, $6.89 M |
 | Aplicaciones de `X-D-60` en 12 meses | 115; **41 (36 %) contra una factura ANTERIOR al documento** (pago capturado como anticipo) |
@@ -1360,8 +1360,10 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
 - `[PGP.119]` ⬜ C0–C3 — programar un anticipo nuevo: `nature` en
   `commercial.supplier_payment_obligations` (regla 14: recorrer todos los caminos que insertan), pareo
   con el `X-D-60` (±$1, ±5 días), cierre por `kdxf`, alerta +90 días a la bandeja. Con migración.
-- `[PGP.120]` ⬜ C2–C3 — el anticipo sin aplicar se precarga como descuento al programar la factura
-  (un motivo más de `[PGP.101]`), y el cierre dice «saldada con anticipo», no «pagada».
+- `[PGP.120]` 🧪 (2026-11-13, sin validación visual, arranque no verificado, prueba con base real
+  pendiente del CI) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
+  (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
+  cierre de `[PGP.94]` ya rotula el `X-D-60` como «Anticipo». Detalle abajo.
 
 **Árbitro (2026-11-13):** `a_favor` = `kdxe.c20` (el remanente que guarda Kepler) en **64 de 64**
 anticipos sin aplicar ($7,025,062 los dos lados); control negativo: los 144 `X-D-60` aplicados enteros
@@ -1401,6 +1403,71 @@ Aplicable hoy (35)
 Sin contra qué (7)        — lo más viejo primero
 No es anticipo de mercancía (22) — gasto y tarjeta capturados como X-D-60
 ```
+
+#### `[PGP.120]` El anticipo se aplica desde la programación de pagos (2026-11-13) — 🧪
+
+> Pedido de Edgar (2026-11-13), sobre el grupo «Aplicable hoy»: *«estos que se puedan aplicar
+> directamente en la programación de pagos»*.
+
+**Lo que creíamos y cayó (medido al diseñarlo, prod, sólo lectura):**
+
+| # | Lo que decía `[PGP.118]` | Lo que midió prod |
+|---|---|---|
+| 1 | La deuda viva del acreedor, sumada en todas las sucursales, es contra lo que se aplica | Kepler aplica abono y factura **en la misma sucursal**: 115 de 115 aplicaciones de `X-D-60` en 12 meses. Lo aplicable hoy es **$2.02 M, no $2.18 M**; «sin contra qué», **$1.25 M, no $1.07 M**. El submódulo ya cruza por acreedor + sucursal |
+
+**Cómo funciona.**
+- En el Calendario, la factura de un pago pendiente cuyo acreedor tiene anticipo libre **en su misma
+  sucursal** muestra el botón **«Aplicar anticipo $X»**. Abre el diálogo del descuento con los
+  renglones «Anticipo» ya puestos, del más viejo al más nuevo; se guarda con «Guardar».
+- El anticipo es **un renglón más del descuento** (`[PGP.101]`): motivo `anticipo` más su documento
+  `{sucursal, folio}` dentro de `discount_lines`. Baja lo que sale del banco y la factura queda
+  cubierta igual. El tope del día, el cruce con Kepler, el cierre (`[PGP.94]`, que ya cuenta el
+  `X-D-60` como pago con dinero) y la escritura del pago (que usa el neto) no cambian.
+- **El servidor verifica cada renglón contra Kepler** (`verificarAnticipos`, ~80 ms):
+  - la factura es de Kepler y de la misma sucursal del anticipo;
+  - el anticipo existe, es del mismo acreedor y es de mercancía (D2);
+  - alcanza: remanente de Kepler menos lo **apartado** en otros pagos. Lo apartado son los renglones
+    «Anticipo» en pagos no cancelados, menos lo que Kepler ya aplicó de ese anticipo a esas mismas
+    facturas.
+  - Un candado por anticipo (`pg_advisory_xact_lock`) serializa a dos personas que aplican el mismo
+    anticipo a la vez.
+- **No se cuenta dos veces:** cuando Cuentas por pagar lo aplica en Kepler, el remanente baja y lo
+  apartado baja lo mismo. Si lo aplica a OTRA factura, lo apartado no baja y el disponible queda corto
+  (error conservador).
+- Si el anticipo alcanza para **toda** la factura no se propone nada y se dice por qué: no hay pago
+  que programar; se quita la factura y Cuentas por pagar aplica el anticipo en Kepler.
+- El submódulo de Anticipos muestra en cada fila lo «ya apartado en el Calendario de pagos».
+
+**D3 ajustada (por encargo del PM):** un clic en la factura, **no** precarga automática. La
+automática tocaría los cinco caminos que dan de alta una factura en un pago (regla 14) y cambiaría
+montos sin que nadie lo viera. El botón con el monto, en la misma fila, es el aviso que sí se lee.
+
+**Despliegue — el orden importa:**
+1. La migración `20261113171713_pgp120_descuento_por_anticipo` (amplía el CHECK
+   `ck_pai_discount_reason` con `anticipo`) va a prod **ANTES** del código, una por una con
+   `apply-one-migration-prod.js`. Es compatible con la API desplegada: sólo amplía lo permitido.
+2. Después, el código. Sin la migración, guardar un anticipo que sea el renglón mayor da un 500.
+
+**Pruebas:**
+- 8 de contrato del renglón, 3 de la propuesta, 2 de llave/disponible y 2 nuevas del submódulo, entre
+  ellas «la deuda de otra sucursal no vuelve aplicable un anticipo».
+- 6 mutantes del validador y de la propuesta, los 6 en rojo. Un 7.º sobrevivió porque su línea era
+  redundante con la suma total: se quitó.
+- Prueba contra base real en `payment-calendar.it.spec.ts`, con el cuerpo exacto del diálogo:
+  aplicar; no pasar de lo que queda; otra sucursal; otro acreedor; folio inexistente; Kepler lo
+  aplica y no cuenta doble; cancelar libera.
+
+**NO MEDIDO:**
+- La prueba contra base real **no corrió aquí**: Docker local caído, y las dos bases locales de la
+  laptop no se tocan (los carriles de Caja General leen de una y escriben a prod). Corre en el job
+  «Pruebas de integración» del CI.
+- Lo apartado con datos reales: en prod todavía no hay renglones de anticipo.
+- **Sin validación visual. Arranque de la API no verificado.**
+
+**Qué NO incluye:**
+- Escribir en Kepler la aplicación del anticipo (`kdxf`): la hace Cuentas por pagar (D5).
+- Aplicar un anticipo a facturas capturadas a mano (`supplier_payable`): sólo facturas de Kepler.
+- El aviso del diálogo cuando la persona quita el anticipo y lo quiere volver a poner sin cerrar.
 
 ---
 

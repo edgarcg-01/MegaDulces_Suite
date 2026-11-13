@@ -22,12 +22,26 @@ export type PaymentMethod = 'transferencia' | 'cheque' | 'efectivo' | 'cargo_aut
  * el CHECK `ck_pai_discount_reason` de `finance.payment_allocation_items`. Kepler lo formaliza
  * después con una nota de crédito (`X-D-55/56`) o una bonificación (`45`).
  */
-export type DiscountReason = 'pronto_pago' | 'volumen' | 'otro';
+export type DiscountReason = 'pronto_pago' | 'volumen' | 'otro' | 'anticipo';
+/**
+ * Los motivos que se capturan A MANO (el selector del diálogo y el cuerpo de un solo descuento).
+ * ⛔ `anticipo` NO está aquí a propósito (`[PGP.120]`): sólo entra como renglón de la lista y con su
+ * documento (`anticipo: { sucursal, folio }`), porque un anticipo sin documento no se puede verificar.
+ */
 export const DISCOUNT_REASONS: readonly DiscountReason[] = ['pronto_pago', 'volumen', 'otro'];
 /** `[PGP.91]` El rótulo de cada motivo. Lo comparten la pantalla, el PDF y la ficha: uno solo. */
 export const DISCOUNT_REASON_LABEL: Record<DiscountReason, string> = {
-  pronto_pago: 'Pronto pago', volumen: 'Volumen', otro: 'Otro',
+  pronto_pago: 'Pronto pago', volumen: 'Volumen', otro: 'Otro', anticipo: 'Anticipo',
 };
+/**
+ * `[PGP.120]` El anticipo (`X-D-60` de Kepler) que se aplica contra una factura del pago: sucursal y
+ * folio del documento. Sólo se aplica en SU sucursal (Kepler aplica abono y factura en la misma base:
+ * 115 de 115 aplicaciones de 12 meses, medido el 2026-11-13).
+ */
+export interface AnticipoRef {
+  sucursal: string;
+  folio: string;
+}
 /**
  * `[PGP.101]` **Un renglón del descuento al pagar.** Una factura puede llevar VARIOS (pronto pago 3 % +
  * volumen 2 %; pedido de Edgar, 2026-11-09). Cada % va sobre lo que el pago cubre de la factura, con
@@ -39,6 +53,8 @@ export interface PaymentCalendarDiscountLine {
   /** Fracción (0.03 = 3 %) sólo si se capturó en %; null si en pesos. */
   rate: number | null;
   note: string | null;
+  /** `[PGP.120]` Sólo con `reason = 'anticipo'`: el documento que se aplica. */
+  anticipo?: AnticipoRef | null;
 }
 /**
  * `[PGP.91]` `POST allocations/:id/items/:itemId/descuento` — fija el descuento de una factura ya puesta; 0 lo quita.
@@ -50,7 +66,7 @@ export interface PaymentCalendarItemDiscountBody {
   discount_reason?: DiscountReason | null;
   discount_rate?: number | null;
   discount_note?: string | null;
-  discounts?: { discount_amount: number; discount_reason: DiscountReason; discount_rate?: number | null; discount_note?: string | null }[];
+  discounts?: { discount_amount: number; discount_reason: DiscountReason; discount_rate?: number | null; discount_note?: string | null; anticipo?: AnticipoRef | null }[];
 }
 /** `[PGP.91]` Lo que devuelve fijar el descuento: el neto nuevo de la factura y el total nuevo del pago. */
 export interface PaymentCalendarItemDiscountResult {
@@ -85,6 +101,11 @@ export interface PaymentCalendarAllocationItem {
   supplier_id: string | null;
   /** `[TP.16.3]` Sucursal (centro de costo) de la factura; null fuera de facturas de proveedor. */
   branch_code: string | null;
+  /**
+   * `[PGP.120]` El código del acreedor en Kepler (`kdxe.c2`). Con la sucursal, es la llave para ofrecer
+   * sus anticipos sin aplicar. Sólo en facturas derivadas de Kepler vivas; null en las demás.
+   */
+  payee_code?: string | null;
   /**
    * `[PGP.58]` La llave del documento (`oblig:<sucursal>|<tipo>|<subtipo>|<folio>`): abre la ficha
    * y pide su evidencia (PDF o foto del comprobante). Sólo el origen derivado (`kepler_payable`)

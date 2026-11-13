@@ -4,7 +4,7 @@
  * Vectores SINTÉTICOS (el repo es público): reproducen la forma de los casos medidos en prod sin
  * nombres ni montos reales.
  */
-import { grupoDeAnticipo, neteableHoy, tipoDeAcreedor, tramoDeAnticipo } from './anticipos.contract';
+import { disponibleDeAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, tipoDeAcreedor, tramoDeAnticipo } from './anticipos.contract';
 
 describe('[PGP.118] tipoDeAcreedor', () => {
   it('C* es mercancía, G* gasto, TC* tarjeta', () => {
@@ -69,5 +69,17 @@ describe('[PGP.118] neteableHoy', () => {
   it('⛔ la deuda que no llegó da null, no cero', () => {
     expect(neteableHoy(1000, null)).toBeNull();
     expect(neteableHoy(1000, undefined)).toBeNull();
+  });
+});
+
+describe('[PGP.120] llaveAnticipo y disponibleDeAnticipo', () => {
+  it('la llave junta acreedor y sucursal, sin espacios ni mayúsculas de por medio', () => {
+    expect(llaveAnticipo(' cf001 ', '00')).toBe('CF001|00');
+    expect(llaveAnticipo('CF001', '03')).not.toBe(llaveAnticipo('CF001', '00'));
+  });
+  it('lo disponible es lo de Kepler menos lo apartado en el Calendario, nunca negativo', () => {
+    expect(disponibleDeAnticipo({ a_favor: 1000, apartado: 400 })).toBe(600);
+    expect(disponibleDeAnticipo({ a_favor: 1000, apartado: 1200 })).toBe(0);
+    expect(disponibleDeAnticipo({ a_favor: 1000, apartado: 0 })).toBe(1000);
   });
 });

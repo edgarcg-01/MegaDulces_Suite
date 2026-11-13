@@ -55,6 +55,10 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261110080925_pgp107_evidencia_del_pago.js',
   // `[PGP.113]` Quién autorizó cada pago (se autoriza el pago, no el día).
   '../../../../../database/migrations-newdb/20261110141406_pgp113_autorizacion_por_pago.js',
+  // `[PGP.120]` La vista de créditos de proveedor (el anticipo `X-D-60` y lo que le queda) y el CHECK
+  // del motivo que admite `anticipo`.
+  '../../../../../database/migrations-newdb/20261026173001_pgp17_creditos_de_proveedor_aplicados_y_no.js',
+  '../../../../../database/migrations-newdb/20261113171713_pgp120_descuento_por_anticipo.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -118,6 +122,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[6], trx);   // `[PGP.101]` los renglones del descuento (idempotente)
     await migUp(MIGS[7], trx);   // `[PGP.107]` la evidencia del pago (idempotente)
     await migUp(MIGS[8], trx);   // `[PGP.113]` la autorización por pago (idempotente)
+    await migUp(MIGS[9], trx);   // `[PGP.120]` la vista de créditos de proveedor (idempotente)
+    await migUp(MIGS[10], trx);  // `[PGP.120]` el motivo `anticipo` en el CHECK (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1539,6 +1545,99 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       // El día dice lo mismo que la bandeja (una regla, dos vistas).
       const dia = await cal.listDayAllocations(DIA);
       expect(dia.find((p) => p.id === p1)).toMatchObject({ autorizado: true, lot_date: DIA });
+    });
+  });
+
+  /**
+   * `[PGP.120]` **El anticipo se aplica desde la programación de pagos** (Edgar, 2026-11-13). Un `X-D-60`
+   * de $6,000 en la 08 contra dos facturas de $10,000 del mismo acreedor en la 08, y una en la 01. Con el
+   * cuerpo EXACTO que manda «Aplicar anticipo» del diálogo (regla 13). Lo que cuida: que no se aplique
+   * dos veces el mismo peso (entre pagos, y cuando Kepler ya lo aplicó), que sólo vaya contra facturas
+   * de su sucursal y de su acreedor, y que al quitarlo se libere.
+   */
+  describe('[PGP.120] aplicar un anticipo a una factura del pago', () => {
+    const PROV = 'CTPIT120';
+    const OTRO = 'CTPIT121';
+    const F1 = 'CTPIT120-F1';
+    const F2 = 'CTPIT120-F2';
+    const F9 = 'CTPIT120-F9';   // en la 01: otra sucursal
+    const ANT = 'ANT120';
+    const ANT_OTRO = 'ANT121';
+    const kid = (suc: string, folio: string) => keplerPayableId(suc, 20, 1, folio);
+    const cuerpo = (monto: number, folio = ANT, suc = '08'): PaymentCalendarItemDiscountBody => ({
+      discounts: [{ discount_amount: monto, discount_reason: 'anticipo', discount_rate: null, discount_note: null, anticipo: { sucursal: suc, folio } }],
+    });
+    const renglonDe = async (allocId: string) => (await trx('finance.payment_allocation_items').where({ allocation_id: allocId }))[0];
+    const delAnticipo = async (folio = ANT) => (await cal.listAnticipos()).find((r) => r.folio === folio && r.sucursal === '08');
+    let pF1 = '', iF1 = '', pF2 = '', iF2 = '', pF9 = '', iF9 = '';
+
+    beforeAll(async () => {
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: PROV, c3: 'CTPIT ANTICIPOS DE PRUEBA', c13: '001' });
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: OTRO, c3: 'CTPIT OTRO ACREEDOR', c13: '001' });
+      await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'CTPIT ANTICIPOS DE PRUEBA', activo: true });
+      for (const [suc, folio] of [['08', F1], ['08', F2], ['01', F9]] as [string, string][]) {
+        await trx('kepler_ods.kdxe').insert({ sucursal: suc, c1: suc, c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-05-01 00:00:00', c10: '2030-05-20 00:00:00', c11: 10000 });
+      }
+      // Los anticipos: documento `D`, tipo 60. El remanente sale de importe − aplicado en kdxf.
+      await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'D', c4: 60, c5: 1, c6: ANT, c7: '2030-04-20 00:00:00', c11: 6000, c16: 'OC 120' });
+      await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: OTRO, c3: 'D', c4: 60, c5: 1, c6: ANT_OTRO, c7: '2030-04-20 00:00:00', c11: 5000 });
+      const pago = async (suc: string, folio: string, dia: string) => {
+        const a = await cal.createAllocation({ date: dia, items: [{ obligation_source: 'kepler_payable', obligation_id: kid(suc, folio), applied_amount: 10000 }] }, USER);
+        return [a.id, (await renglonDe(a.id)).id];
+      };
+      [pF1, iF1] = await pago('08', F1, '2030-05-06');
+      [pF2, iF2] = await pago('08', F2, '2030-05-07');
+      [pF9, iF9] = await pago('01', F9, '2030-05-08');
+    }, 60_000);
+
+    it('control: el anticipo aparece con su remanente y nada apartado', async () => {
+      expect(await delAnticipo()).toMatchObject({ a_favor: 6000, apartado: 0 });
+    });
+
+    it('⭐ $4,000 contra F1: sale el neto, la factura queda cubierta y el anticipo queda apartado', async () => {
+      const r = await cal.setItemDiscount(pF1, iF1, cuerpo(4000), USER);
+      expect(r).toEqual({ allocation_id: pF1, item_id: iF1, applied_amount: 6000, discount_amount: 4000, amount_assigned: 6000 });
+      const i = await renglonDe(pF1);
+      expect(i.discount_reason).toBe('anticipo');
+      expect(i.discount_lines).toEqual([{ reason: 'anticipo', amount: 4000, rate: null, note: null, anticipo: { sucursal: '08', folio: ANT } }]);
+      expect(await delAnticipo()).toMatchObject({ a_favor: 6000, apartado: 4000 });
+      // El día lo lee como renglón con su documento, y la factura trae su acreedor (la llave del botón).
+      const it = (await cal.listDayAllocations('2030-05-06')).find((x) => x.id === pF1)!.items[0];
+      expect(it.discount_lines[0].anticipo).toEqual({ sucursal: '08', folio: ANT });
+      expect(it.payee_code).toBe(PROV);
+    });
+
+    it('⛔ NEGATIVA — el mismo anticipo en otro pago no pasa de lo que queda ($2,000), y lo dice', async () => {
+      await expect(cal.setItemDiscount(pF2, iF2, cuerpo(3000), USER)).rejects.toThrow(/quedan \$2000\.00/);
+      expect(Number((await renglonDe(pF2)).discount_amount)).toBe(0);
+      const r = await cal.setItemDiscount(pF2, iF2, cuerpo(2000), USER);
+      expect(r.applied_amount).toBeCloseTo(8000, 2);
+      expect(await delAnticipo()).toMatchObject({ apartado: 6000 });
+    });
+
+    it('⛔ NEGATIVA — contra una factura de OTRA sucursal se rechaza (Kepler no lo aplica ahí)', async () => {
+      await expect(cal.setItemDiscount(pF9, iF9, cuerpo(100), USER)).rejects.toThrow(/misma sucursal/);
+    });
+
+    it('⛔ NEGATIVA — el anticipo de otro acreedor, o uno que no existe, se rechaza', async () => {
+      await cal.setItemDiscount(pF2, iF2, { discounts: [] }, USER);   // libera los $2,000 para que no estorben
+      await expect(cal.setItemDiscount(pF2, iF2, cuerpo(100, ANT_OTRO), USER)).rejects.toThrow(/otro acreedor/);
+      await expect(cal.setItemDiscount(pF2, iF2, cuerpo(100, 'NOEXISTE'), USER)).rejects.toThrow(/no existe/);
+      expect(await delAnticipo()).toMatchObject({ apartado: 4000 });
+    });
+
+    it('⭐ cuando CxP lo aplica en Kepler a F1, el remanente baja y lo apartado baja igual (no cuenta doble)', async () => {
+      await trx('kepler_ods.kdxf').insert({ sucursal: '08', c1: '08', c2: PROV, c3: '2030-05-06 00:00:00', c4: 60, c5: 1, c6: ANT, c7: 20, c8: 1, c9: F1, c10: 4000 });
+      expect(await delAnticipo()).toMatchObject({ a_favor: 2000, apartado: 0 });
+      // Lo que queda ($2,000) se puede aplicar a F2; un peso más, no.
+      await expect(cal.setItemDiscount(pF2, iF2, cuerpo(2000.01), USER)).rejects.toThrow(/quedan \$2000\.00/);
+      await cal.setItemDiscount(pF2, iF2, cuerpo(2000), USER);
+      expect(await delAnticipo()).toMatchObject({ a_favor: 2000, apartado: 2000 });
+    });
+
+    it('cancelar el pago libera lo apartado', async () => {
+      await trx('finance.payment_allocations').where({ id: pF2 }).update({ status: 'cancelled' });
+      expect(await delAnticipo()).toMatchObject({ apartado: 0 });
     });
   });
 

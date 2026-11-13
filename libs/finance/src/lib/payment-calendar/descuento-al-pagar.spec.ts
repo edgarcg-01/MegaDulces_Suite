@@ -222,3 +222,39 @@ describe('[PGP.101] lectura de los renglones', () => {
       .toBe('Pronto pago 3 % + Volumen');
   });
 });
+
+describe('[PGP.120] el renglón «Anticipo»: un X-D-60 aplicado contra la factura', () => {
+  const ant = (p: Record<string, unknown> = {}) => ({ discount_amount: 400, discount_reason: 'anticipo', anticipo: { sucursal: '00', folio: '0000048' }, ...p });
+  it('baja lo que se transfiere y guarda su documento; la factura queda cubierta igual', () => {
+    const n = descuentosSobreCubierto(1000, [ant()]);
+    expect(n).toMatchObject({ applied_amount: 600, discount_amount: 400, covered: 1000, discount_reason: 'anticipo', discount_rate: null });
+    expect(n.lines).toEqual([{ reason: 'anticipo', amount: 400, rate: null, note: null, anticipo: { sucursal: '00', folio: '0000048' } }]);
+  });
+  it('convive con otros descuentos: el mayor manda el motivo agregado', () => {
+    const n = descuentosSobreCubierto(10000, [ant({ discount_amount: 2000 }), { discount_amount: 300, discount_reason: 'pronto_pago', discount_rate: 0.03 }]);
+    expect(n).toMatchObject({ applied_amount: 7700, discount_amount: 2300, discount_reason: 'anticipo' });
+  });
+  it('⛔ sin su documento no entra (no se puede verificar contra Kepler)', () => {
+    expect(() => descuentosSobreCubierto(1000, [ant({ anticipo: null })])).toThrow(/documento de Kepler/);
+    expect(() => descuentosSobreCubierto(1000, [ant({ anticipo: { sucursal: 'Matriz', folio: '48' } })])).toThrow(/documento de Kepler/);
+  });
+  it('⛔ va en pesos: con porcentaje se rechaza', () => {
+    expect(() => descuentosSobreCubierto(1000, [ant({ discount_rate: 0.4 })])).toThrow(/pesos/);
+  });
+  it('⛔ el mismo anticipo dos veces en la factura se rechaza', () => {
+    expect(() => descuentosSobreCubierto(1000, [ant({ discount_amount: 100 }), ant({ discount_amount: 100 })])).toThrow(/dos veces/);
+  });
+  it('⛔ si alcanza para toda la factura no hay pago: se dice que lo aplica CxP en Kepler', () => {
+    expect(() => descuentosSobreCubierto(1000, [ant({ discount_amount: 1000 })])).toThrow(/Cuentas por pagar aplica el anticipo en Kepler/);
+    expect(() => descuentosSobreCubierto(1000, [ant({ discount_amount: 900 }), { discount_amount: 100, discount_reason: 'volumen' }])).toThrow(/Cuentas por pagar/);
+  });
+  it('⛔ no entra por el cuerpo de un solo descuento (ahí no viaja el documento)', () => {
+    expect(() => normalizarDescuento({ applied_amount: 600, discount_amount: 400, discount_reason: 'anticipo' })).toThrow(/Motivo de descuento inválido/);
+  });
+  it('se lee de la base con su documento y se rotula con su folio', () => {
+    const ls = lineasDeDescuento({ discount_lines: [{ reason: 'anticipo', amount: 400, rate: null, note: null, anticipo: { sucursal: '00', folio: '0000048' } }, { reason: 'volumen', amount: 50, rate: null, note: null }] });
+    expect(ls[0].anticipo).toEqual({ sucursal: '00', folio: '0000048' });
+    expect('anticipo' in ls[1]).toBe(false);
+    expect(rotuloDescuentos(ls)).toBe('Anticipo 0000048 + Volumen');
+  });
+});

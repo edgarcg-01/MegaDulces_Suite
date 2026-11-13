@@ -9,7 +9,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import {
-  grupoDeAnticipo, neteableHoy, tipoDeAcreedor, warehouseName,
+  grupoDeAnticipo, llaveAnticipo, neteableHoy, tipoDeAcreedor, warehouseName,
   type AnticipoDeudaRow, type AnticipoGrupo, type AnticipoRow,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
@@ -114,6 +114,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
                       <td role="cell" data-label="A favor" class="comm-num">
                         <div class="an-strong">{{ money2(r.a_favor) }}</div>
                         @if (r.aplicado > 0.005) { <div class="an-muted">de {{ money2(r.importe) }}; aplicado {{ money2(r.aplicado) }}</div> }
+                        @if (r.apartado > 0.005) { <div class="an-muted">{{ money2(r.apartado) }} ya apartado en el Calendario de pagos</div> }
                       </td>
                       <td role="cell" [attr.data-label]="g.key === 'no_mercancia' ? 'Tipo' : 'Contra qué se aplica'">{{ contraQue(r) }}</td>
                       <td role="cell" data-label="Referencia">
@@ -183,17 +184,20 @@ export class FinanzasAnticiposComponent implements OnInit {
   readonly cargadoEn = signal<Date | null>(null);
   readonly q = signal('');
 
-  /** La deuda viva de un acreedor; `null` mientras no se sabe. Un acreedor que no vino en la respuesta no debe nada. */
-  deudaDe(proveedor: string): number | null {
+  /**
+   * La deuda viva de un acreedor EN LA SUCURSAL del anticipo; `null` mientras no se sabe. `[PGP.120]` Un
+   * anticipo sólo se aplica contra facturas de su sucursal (Kepler: 115 de 115). Sin deuda ahí = cero.
+   */
+  deudaDe(proveedor: string, sucursal: string): number | null {
     const d = this.deuda();
     if (!d) return null;
-    return d.get(proveedor.trim())?.deuda ?? 0;
+    return d.get(llaveAnticipo(proveedor, sucursal))?.deuda ?? 0;
   }
 
   /** Todas las filas con su grupo (sin filtrar por la búsqueda: las cifras de arriba son del universo). */
   readonly conGrupo = computed<Fila[]>(() => {
     this.deuda(); // se lee siempre: el grupo depende de ella aunque no haya filas todavía.
-    return this.filas().map((r) => ({ ...r, grupo: grupoDeAnticipo(r.proveedor, this.deudaDe(r.proveedor)) }));
+    return this.filas().map((r) => ({ ...r, grupo: grupoDeAnticipo(r.proveedor, this.deudaDe(r.proveedor, r.sucursal)) }));
   });
 
   private readonly filtradas = computed<Fila[]>(() => {
@@ -217,9 +221,9 @@ export class FinanzasAnticiposComponent implements OnInit {
       const ap = de('aplicable');
       const sc = de('sin_contra_que');
       out.push({ key: 'aplicable', titulo: 'Aplicable hoy', filas: porMonto(ap), monto: suma(ap),
-        ayuda: 'El acreedor tiene facturas abiertas: CxP puede aplicar el anticipo en Kepler. Los de más dinero primero.' });
+        ayuda: 'El acreedor tiene facturas abiertas en la misma sucursal del anticipo. Al programar una de esas facturas en el Calendario de pagos, «Aplicar anticipo» lo resta de lo que se transfiere; CxP lo aplica en Kepler. Los de más dinero primero.' });
       out.push({ key: 'sin_contra_que', titulo: 'Sin contra qué', filas: porDias(sc), monto: suma(sc),
-        ayuda: 'El acreedor no tiene ninguna factura abierta: hay que pedirle la factura o el reembolso. Los más viejos primero.' });
+        ayuda: 'El acreedor no tiene ninguna factura abierta en la sucursal del anticipo (Kepler no lo aplica contra otra sucursal): hay que pedirle la factura o el reembolso. Los más viejos primero.' });
     }
     const nm = de('no_mercancia');
     out.push({ key: 'no_mercancia', titulo: 'No es anticipo de mercancía', filas: porMonto(nm), monto: suma(nm),
@@ -229,13 +233,22 @@ export class FinanzasAnticiposComponent implements OnInit {
 
   private readonly mercancia = computed(() => this.conGrupo().filter((r) => r.grupo !== 'no_mercancia'));
   private readonly totalMercancia = computed(() => this.mercancia().reduce((s, r) => s + r.a_favor, 0));
-  /** Lo que se puede aplicar hoy, por ACREEDOR: nunca más que su anticipo ni más que lo que le debemos. `null` sin deuda. */
+  /**
+   * Lo que se puede aplicar hoy, por ACREEDOR Y SUCURSAL: nunca más que su anticipo ni más que lo que le
+   * debemos en esa sucursal. `null` sin deuda. `[PGP.120]` Sumarlo por acreedor (todas las sucursales)
+   * daba $2.18 M; por acreedor y sucursal, $2.02 M (prod, 2026-11-13).
+   */
   readonly neteable = computed<number | null>(() => {
     if (!this.deuda()) return null;
-    const porAcreedor = new Map<string, number>();
-    for (const r of this.mercancia()) porAcreedor.set(r.proveedor.trim(), (porAcreedor.get(r.proveedor.trim()) ?? 0) + r.a_favor);
+    const porLlave = new Map<string, { af: number; p: string; s: string }>();
+    for (const r of this.mercancia()) {
+      const k = llaveAnticipo(r.proveedor, r.sucursal);
+      const x = porLlave.get(k) ?? { af: 0, p: r.proveedor, s: r.sucursal };
+      x.af += r.a_favor;
+      porLlave.set(k, x);
+    }
     let s = 0;
-    for (const [p, af] of porAcreedor) s += neteableHoy(af, this.deudaDe(p)) ?? 0;
+    for (const x of porLlave.values()) s += neteableHoy(x.af, this.deudaDe(x.p, x.s)) ?? 0;
     return s;
   });
 
@@ -286,7 +299,7 @@ export class FinanzasAnticiposComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (rows) => {
-          this.filas.set((rows ?? []).map((r) => ({ ...r, importe: Number(r.importe), aplicado: Number(r.aplicado), a_favor: Number(r.a_favor) })));
+          this.filas.set((rows ?? []).map((r) => ({ ...r, importe: Number(r.importe), aplicado: Number(r.aplicado), a_favor: Number(r.a_favor), apartado: Number(r.apartado ?? 0) })));
           this.cargadoEn.set(new Date());
           this.loading.set(false);
           this.cargarDeuda();
@@ -305,7 +318,7 @@ export class FinanzasAnticiposComponent implements OnInit {
     this.peticionDeuda = this.http.get<AnticipoDeudaRow[]>(`${this.base}/anticipos/deuda`, { params: { proveedores: codes.join(',') } })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (rows) => this.deuda.set(new Map((rows ?? []).map((d) => [d.proveedor.trim(), { ...d, deuda: Number(d.deuda) }]))),
+        next: (rows) => this.deuda.set(new Map((rows ?? []).map((d) => [llaveAnticipo(d.proveedor, d.sucursal), { ...d, deuda: Number(d.deuda) }]))),
         error: () => this.deudaError.set(true),
       });
   }
@@ -316,11 +329,11 @@ export class FinanzasAnticiposComponent implements OnInit {
       return t === 'gasto' ? 'Gasto' : t === 'tarjeta' ? 'Tarjeta' : 'Otro acreedor';
     }
     if (r.grupo === 'calculando') return this.deudaError() ? 'No se pudo leer' : 'Calculando…';
-    if (r.grupo === 'sin_contra_que') return 'Ninguna factura abierta: pedir factura o reembolso';
-    const d = this.deuda()?.get(r.proveedor.trim());
+    if (r.grupo === 'sin_contra_que') return `Ninguna factura abierta en ${warehouseName(r.sucursal)}: pedir factura o reembolso`;
+    const d = this.deuda()?.get(llaveAnticipo(r.proveedor, r.sucursal));
     if (!d) return '—';
     const vence = d.vence_primero ? ` · vence ${this.fecha(d.vence_primero)}` : '';
-    return `Le debemos ${this.money2(d.deuda)} en ${d.facturas} ${d.facturas === 1 ? 'factura' : 'facturas'}${vence}`;
+    return `Le debemos ${this.money2(d.deuda)} en ${d.facturas} ${d.facturas === 1 ? 'factura' : 'facturas'} de ${warehouseName(r.sucursal)}${vence}`;
   }
 
   fecha(ymd: string): string {

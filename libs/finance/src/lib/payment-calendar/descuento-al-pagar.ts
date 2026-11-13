@@ -188,8 +188,22 @@ export function descuentosSobreCubierto(cubierto: number, renglones: unknown): D
   if (!(c > 0)) throw new BadRequestException('La factura no tiene importe cubierto: no hay a qué descontarle.');
   if (!Array.isArray(renglones)) throw new BadRequestException('Los descuentos llegan como una lista (discounts).');
   if (renglones.length > MAX_RENGLONES_DESCUENTO) throw new BadRequestException(`Son ${renglones.length} descuentos para una factura: el máximo es ${MAX_RENGLONES_DESCUENTO}.`);
+  const anticiposVistos = new Set<string>();
   const lines: LineaDescuento[] = renglones.map((r, i) => {
     const x = (r ?? {}) as Record<string, unknown>;
+    // `[PGP.120]` El anticipo tiene su propia regla: con su documento, en pesos, una vez por documento.
+    // Que el documento exista, sea del acreedor y alcance lo verifica el servicio contra Kepler.
+    if (String(x['discount_reason'] ?? '').trim() === 'anticipo') {
+      const ref = refDeAnticipo(x['anticipo']);
+      const llave = `${ref.sucursal}|${ref.folio}`;
+      if (anticiposVistos.has(llave)) throw new BadRequestException(`El anticipo ${ref.folio} viene dos veces: va una sola vez por factura.`);
+      anticiposVistos.add(llave);
+      if (!vacio(x['discount_rate'])) throw new BadRequestException(`El anticipo ${ref.folio} se aplica en pesos: no lleva porcentaje.`);
+      const monto = Number(x['discount_amount']);
+      if (!Number.isFinite(monto) || !(round2(monto) > 0)) throw new BadRequestException(`El anticipo ${ref.folio} no trae importe: di cuánto se aplica.`);
+      // Que no alcance para toda la factura lo cuida la suma de abajo (un renglón solo es una suma de uno).
+      return { reason: 'anticipo' as const, amount: round2(monto), rate: null, note: null, anticipo: ref };
+    }
     const d = vacio(x['discount_amount']) ? 0 : Number(x['discount_amount']);
     if (Number.isFinite(d) && d === 0) throw new BadRequestException(`El descuento ${i + 1} es cero: quítalo o captura cuánto es.`);
     // Cada renglón se revisa solo, como si fuera el único: si la suma no cabe se dice abajo.
@@ -198,7 +212,11 @@ export function descuentosSobreCubierto(cubierto: number, renglones: unknown): D
     return { reason: n.discount_reason as DiscountReason, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note };
   });
   const total = round2(lines.reduce((s, l) => s + l.amount, 0));
-  if (total >= c - 0.005) throw new BadRequestException(`Los descuentos suman $${total.toFixed(2)} y el pago cubre $${c.toFixed(2)}: no puede ser toda la factura.`);
+  if (total >= c - 0.005) {
+    throw new BadRequestException(lines.some((l) => l.reason === 'anticipo')
+      ? MSG_ANTICIPO_TODA_LA_FACTURA
+      : `Los descuentos suman $${total.toFixed(2)} y el pago cubre $${c.toFixed(2)}: no puede ser toda la factura.`);
+  }
   lines.sort((a, b) => b.amount - a.amount);
   const uno = lines.length === 1 ? lines[0] : null;
   return {
@@ -218,11 +236,16 @@ export function lineasDeDescuento(it: {
 }): LineaDescuento[] {
   const raw = typeof it.discount_lines === 'string' ? JSON.parse(it.discount_lines) : it.discount_lines;
   if (Array.isArray(raw) && raw.length) {
-    return raw.map((l: Record<string, unknown>) => ({
-      reason: l['reason'] as DiscountReason, amount: Number(l['amount']),
-      rate: l['rate'] === null || l['rate'] === undefined ? null : Number(l['rate']),
-      note: (l['note'] ?? null) as string | null,
-    }));
+    return raw.map((l: Record<string, unknown>) => {
+      const a = l['anticipo'] as { sucursal?: unknown; folio?: unknown } | null | undefined;
+      return {
+        reason: l['reason'] as DiscountReason, amount: Number(l['amount']),
+        rate: l['rate'] === null || l['rate'] === undefined ? null : Number(l['rate']),
+        note: (l['note'] ?? null) as string | null,
+        // `[PGP.120]` Sólo el renglón de anticipo trae su documento; los demás no ganan la llave.
+        ...(a && a.sucursal && a.folio ? { anticipo: { sucursal: String(a.sucursal), folio: String(a.folio) } } : {}),
+      };
+    });
   }
   const monto = Number(it.discount_amount ?? 0);
   if (!(monto > 0) || !it.discount_reason) return [];
@@ -235,5 +258,26 @@ export function lineasDeDescuento(it: {
 
 /** `[PGP.101]` El rótulo de TODOS los descuentos de una factura: `Pronto pago 3 % + Volumen`. Lo usan el PDF y la ficha. */
 export function rotuloDescuentos(lines: LineaDescuento[]): string {
-  return lines.map((l) => rotuloDescuento(l.reason, l.rate)).join(' + ');
+  return lines.map((l) => (l.reason === 'anticipo' && l.anticipo ? `Anticipo ${l.anticipo.folio}` : rotuloDescuento(l.reason, l.rate))).join(' + ');
+}
+
+/**
+ * `[PGP.120]` Cuando el anticipo (solo o con otros descuentos) alcanza para toda la factura, no hay pago
+ * que programar: el dinero ya salió con el anticipo y lo que falta es aplicarlo en Kepler.
+ */
+export const MSG_ANTICIPO_TODA_LA_FACTURA =
+  'El anticipo alcanza para toda la factura: no hay pago que programar. Quita la factura del pago; Cuentas por pagar aplica el anticipo en Kepler.';
+
+/**
+ * `[PGP.120]` El documento del anticipo como llega en el renglón: sucursal de dos dígitos y folio de
+ * Kepler (con sus ceros a la izquierda). Liberal con la forma (espacios), estricto con el significado.
+ */
+export function refDeAnticipo(v: unknown): { sucursal: string; folio: string } {
+  const x = (v ?? {}) as Record<string, unknown>;
+  const sucursal = String(x['sucursal'] ?? '').trim();
+  const folio = String(x['folio'] ?? '').trim();
+  if (!/^\d{2}$/.test(sucursal) || !/^[0-9A-Za-z]{1,20}$/.test(folio)) {
+    throw new BadRequestException('El renglón de anticipo necesita su documento de Kepler (sucursal y folio).');
+  }
+  return { sucursal, folio };
 }

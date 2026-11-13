@@ -47,11 +47,22 @@ export interface AnticipoRow {
   aplicado: number;
   /** Lo que queda por aplicar (= `kdxe.c20`). */
   a_favor: number;
+  /**
+   * `[PGP.120]` Lo ya apartado en pagos NO CANCELADOS del Calendario (renglones «Anticipo» de sus
+   * facturas) que Kepler todavía no aplica. Lo que queda para otra factura es `a_favor − apartado`.
+   */
+  apartado: number;
 }
 
-/** La deuda viva de un acreedor que tiene anticipo sin aplicar. */
+/**
+ * `[PGP.120]` La deuda viva de un acreedor EN UNA SUCURSAL. Un anticipo sólo se aplica contra facturas
+ * de su misma sucursal: Kepler aplica abono y factura en la misma base (115 de 115 aplicaciones de
+ * `X-D-60` en 12 meses, medido el 2026-11-13). Sumar la deuda de todas las sucursales inflaba lo
+ * aplicable hoy: $2.18 M contra $2.02 M reales.
+ */
 export interface AnticipoDeudaRow {
   proveedor: string;
+  sucursal: string;
   /** Facturas con saldo. */
   facturas: number;
   /** Lo que le debemos, en pesos. */
@@ -86,6 +97,17 @@ export function tramoDeAnticipo(dias: number | null | undefined): AnticipoTramo 
   if (dias <= 30) return '0-30';
   if (dias <= 90) return '31-90';
   return '+90';
+}
+
+/** `[PGP.120]` La llave acreedor + sucursal: la que casa un anticipo con su deuda y con una factura del pago. */
+export function llaveAnticipo(proveedor: string | null | undefined, sucursal: string | null | undefined): string {
+  return `${String(proveedor ?? '').trim().toUpperCase()}|${String(sucursal ?? '').trim()}`;
+}
+
+/** `[PGP.120]` Lo que queda de un anticipo para aplicar en otra factura: lo que Kepler guarda menos lo apartado. */
+export function disponibleDeAnticipo(r: Pick<AnticipoRow, 'a_favor' | 'apartado'>): number {
+  const d = Number(r.a_favor) - Number(r.apartado ?? 0);
+  return Number.isFinite(d) ? Math.max(0, Math.round(d * 100) / 100) : 0;
 }
 
 /** Lo que se puede netear hoy contra la deuda de ese acreedor: nunca más que ninguno de los dos. */

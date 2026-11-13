@@ -1,4 +1,4 @@
-import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, pesosDeTexto, prontoCapturado, round2, tasaDePct } from './calendario-pagos-descuento';
+import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, pesosDeTexto, prontoCapturado, proponerAnticipos, round2, tasaDePct } from './calendario-pagos-descuento';
 
 /**
  * `[PGP.91]` La cuenta del descuento al pagar que ve la persona ANTES de guardar. Las cifras de
@@ -161,5 +161,22 @@ describe('[PGP.101] varios descuentos por factura', () => {
     expect(faltaLista(ya, 300, 1000)).toBeNull();
     expect(faltaLista(ya, 400, 1000)).toMatch(/menores/);
     expect(faltaLista(Array(5).fill(ya[0]).map((x) => ({ ...x, amount: 1 })), 1, 1000)).toMatch(/máximo/);
+  });
+});
+
+describe('[PGP.120] proponerAnticipos: los renglones «Anticipo» para una factura', () => {
+  const d = (folio: string, disponible: number, fecha: string | null = '2026-10-01') => ({ sucursal: '00', folio, fecha, disponible });
+  it('del más viejo al más nuevo, cada uno por lo que le queda', () => {
+    const p = proponerAnticipos([d('0000002', 300, '2026-10-05'), d('0000001', 200, '2026-09-01')], 1000);
+    expect(p.cubreTodo).toBe(false);
+    expect(p.lineas.map((l) => [l.anticipo?.folio, l.amount, l.reason])).toEqual([['0000001', 200, 'anticipo'], ['0000002', 300, 'anticipo']]);
+    expect(p.total).toBe(500);
+  });
+  it('⛔ si alcanzan para toda la factura no propone nada: no hay pago que programar', () => {
+    const p = proponerAnticipos([d('0000001', 600), d('0000002', 400)], 1000);
+    expect(p).toMatchObject({ cubreTodo: true, lineas: [], total: 1000 });
+  });
+  it('sin anticipos con saldo no propone nada ni dice que cubre', () => {
+    expect(proponerAnticipos([d('0000001', 0)], 1000)).toMatchObject({ cubreTodo: false, lineas: [], total: 0 });
   });
 });

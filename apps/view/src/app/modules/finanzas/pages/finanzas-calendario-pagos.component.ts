@@ -34,7 +34,8 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
-import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, round2, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
+import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, proponerAnticipos, round2, type AnticipoOfrecido, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
+import { disponibleDeAnticipo, llaveAnticipo, tipoDeAcreedor, type AnticipoRow } from '@megadulces/contracts';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -1050,6 +1051,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                             [disabled]="saving() || loadingWeek()"
                                             [attr.aria-label]="(numero(it.discount_amount) > 0 ? 'Cambiar el descuento al pagar de ' : 'Capturar un descuento al pagar en ') + nombreFactura(it)"
                                             (click)="abrirDescuento(a, it)">Descuento</button>
+                                    <!-- [PGP.120] El acreedor tiene anticipo sin aplicar en ESTA sucursal: se descuenta de lo que se transfiere. -->
+                                    @if (!tieneAnticipo(it) && anticipoLibre(it) > 0.005) {
+                                      <button pButton type="button" class="p-button-sm p-button-text"
+                                              [disabled]="saving() || loadingWeek()"
+                                              [attr.aria-label]="'Aplicar a ' + nombreFactura(it) + ' el anticipo sin aplicar de ' + it.beneficiary + ': ' + money(anticipoLibre(it))"
+                                              (click)="aplicarAnticipo(a, it)">Aplicar anticipo {{ money(anticipoLibre(it)) }}</button>
+                                    }
                                   }
                                   <!-- [PGP.92] Quitar SÓLO esta factura. Con una sola no sale: el servidor no deja vaciar un
                                        pago, y para quitarlo entero está la ✕ del renglón (PGP.70). -->
@@ -1373,16 +1381,23 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint">Se transfiere el neto y lo que este pago cubre de la factura queda cubierto (neto + descuento): no se vuelve a ofrecer. La nota de crédito del descuento la emite el proveedor después en Kepler. El % va sobre lo que este pago cubre de la factura, con IVA.</p>
         <!-- R4: los datos no detectan una nota de crédito ya aplicada a ESTE descuento; se dice antes de capturar. -->
         <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Si Kepler ya trae la nota de crédito de este descuento, no lo captures aquí: se descontaría dos veces.</p>
+        <!-- [PGP.120] El anticipo no es un descuento del proveedor: es dinero que ya salió. Se dice qué pasa con él. -->
+        @if (descConAnticipo()) {
+          <p class="cal-dlg-hint"><i class="pi pi-replay" aria-hidden="true"></i> El anticipo ya salió del banco: se resta de lo que se transfiere y Cuentas por pagar lo aplica en Kepler contra esta factura. Queda apartado para que no se use en otro pago.</p>
+        }
+        @if (descAnticipoAviso(); as av) {
+          <p class="cal-dlg-hint cal-habito-nm" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ av }}</p>
+        }
         <!-- [PGP.101] Varios descuentos (pronto pago + volumen): los ya agregados, cada uno con su importe y su ✕;
              abajo se captura el siguiente. Cada % va sobre lo cubierto; uno en cascada se captura en pesos. -->
         @if (descLineas().length) {
           <ul class="pg-dsc-l" aria-label="Descuentos agregados">
             @for (l of descLineas(); track $index) {
               <li>
-                <span>{{ motivoDescuento(l.reason, l.rate, l.note) }}</span>
+                <span>{{ rotuloRenglon(l) }}</span>
                 <span class="comm-num">−{{ money(l.amount) }}</span>
                 <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [disabled]="saving()"
-                        [attr.aria-label]="'Quitar el descuento ' + motivoDescuento(l.reason, l.rate, l.note)" (click)="quitarRenglonDescuento($index)"><span class="pi pi-times" aria-hidden="true"></span></button>
+                        [attr.aria-label]="'Quitar ' + rotuloRenglon(l)" (click)="quitarRenglonDescuento($index)"><span class="pi pi-times" aria-hidden="true"></span></button>
               </li>
             }
           </ul>
@@ -3727,9 +3742,74 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** `[PGP.101]` Todos los descuentos de una factura, dichos en llano: «Pronto pago 3 % + Volumen 2 %». */
   motivosDe(it: PaymentCalendarAllocationItem): string {
-    return lineasDe(it).map((l) => this.motivoDescuento(l.reason, l.rate, l.note)).join(' + ');
+    return lineasDe(it).map((l) => this.rotuloRenglon(l)).join(' + ');
+  }
+  /** `[PGP.120]` Un renglón dicho en llano; el de anticipo, con su documento: «Anticipo 0000048 · Matriz». */
+  rotuloRenglon(l: PaymentCalendarDiscountLine): string {
+    if (l.reason === 'anticipo') return l.anticipo ? `Anticipo ${l.anticipo.folio} · ${warehouseName(l.anticipo.sucursal)}` : 'Anticipo';
+    return this.motivoDescuento(l.reason, l.rate, l.note);
   }
   readonly lineasDe = lineasDe;
+
+  /**
+   * `[PGP.120]` **Los anticipos sin aplicar, por acreedor + sucursal** (`GET anticipos`, ~85 ms). Se piden
+   * una vez y otra cada que se guarda un descuento (lo apartado cambia). Sólo de mercancía (D2).
+   * ⛔ Si falla, el botón «Aplicar anticipo» no aparece: su ausencia no afirma que no haya anticipos.
+   */
+  readonly anticipos = signal<ReadonlyMap<string, AnticipoRow[]>>(new Map());
+  private loadAnticipos(): void {
+    this.http.get<AnticipoRow[]>(`${this.base}/anticipos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => {
+        const m = new Map<string, AnticipoRow[]>();
+        for (const r of rows ?? []) {
+          if (tipoDeAcreedor(r.proveedor) !== 'mercancia') continue;
+          const k = llaveAnticipo(r.proveedor, r.sucursal);
+          m.set(k, [...(m.get(k) ?? []), { ...r, a_favor: Number(r.a_favor), apartado: Number(r.apartado ?? 0) }]);
+        }
+        this.anticipos.set(m);
+      },
+      error: () => this.anticipos.set(new Map()),
+    });
+  }
+  /**
+   * `[PGP.120]` Los anticipos que se le pueden aplicar a ESTA factura: del mismo acreedor y de SU sucursal
+   * (Kepler no aplica un anticipo contra una factura de otra sucursal). Lo que la propia factura ya tiene
+   * apartado vuelve a contar para ella.
+   */
+  anticiposOfrecidos(it: PaymentCalendarAllocationItem): AnticipoOfrecido[] {
+    if (it.obligation_source !== 'kepler_payable' || !it.payee_code || !it.branch_code) return [];
+    const docs = this.anticipos().get(llaveAnticipo(it.payee_code, it.branch_code)) ?? [];
+    const propio = new Map(lineasDe(it).filter((l) => l.reason === 'anticipo' && l.anticipo).map((l) => [l.anticipo!.folio, Number(l.amount)]));
+    return docs.map((d) => ({ sucursal: d.sucursal, folio: d.folio, fecha: d.fecha, disponible: round2(disponibleDeAnticipo(d) + (propio.get(d.folio) ?? 0)) }))
+      .filter((d) => d.disponible > 0.005);
+  }
+  /** `[PGP.120]` La factura ya lleva un renglón «Anticipo». */
+  tieneAnticipo(it: PaymentCalendarAllocationItem): boolean { return lineasDe(it).some((l) => l.reason === 'anticipo'); }
+  /** `[PGP.120]` Lo que el acreedor tiene libre en anticipos de esa sucursal (lo que el botón ofrece). */
+  anticipoLibre(it: PaymentCalendarAllocationItem): number {
+    return round2(this.anticiposOfrecidos(it).reduce((s, d) => s + d.disponible, 0));
+  }
+  /** `[PGP.120]` Por qué no se propuso aplicar el anticipo (alcanza para toda la factura). */
+  readonly descAnticipoAviso = signal<string | null>(null);
+  /** `[PGP.120]` El diálogo trae al menos un renglón «Anticipo». */
+  readonly descConAnticipo = computed(() => this.descLineas().some((l) => l.reason === 'anticipo'));
+  /**
+   * `[PGP.120]` **«Aplicar anticipo»** desde la factura del pago: abre el diálogo del descuento con los
+   * renglones «Anticipo» ya puestos (del más viejo al más nuevo). Nada se guarda hasta «Guardar», y el
+   * servidor vuelve a verificar contra Kepler (documento, acreedor, sucursal y lo que queda).
+   */
+  aplicarAnticipo(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): void {
+    this.abrirDescuento(a, it);
+    const otros = this.descLineas().filter((l) => l.reason !== 'anticipo').reduce((s, l) => s + Number(l.amount || 0), 0);
+    const enEditor = this.descEditorVacio() || this.descFalta() ? 0 : this.descCuenta().descuento;
+    const restante = round2(cubiertoDe(it) - otros - enEditor);
+    const p = proponerAnticipos(this.anticiposOfrecidos(it), restante);
+    if (p.cubreTodo) {
+      this.descAnticipoAviso.set(`El anticipo (${this.money(p.total)}) alcanza para toda la factura (${this.money(restante)} por pagar): no hay que pagarla. Quítala del pago; Cuentas por pagar aplica el anticipo en Kepler.`);
+      return;
+    }
+    this.descLineas.update((ls) => [...ls.filter((l) => l.reason !== 'anticipo'), ...p.lineas]);
+  }
 
   /** `[PGP.91]` La factura cuyo descuento se está capturando; abre el diálogo. Estado en signals (OnPush). */
   readonly descObjetivo = signal<{ a: PaymentCalendarAllocation; it: PaymentCalendarAllocationItem } | null>(null);
@@ -3794,10 +3874,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** Abre con lo guardado tal cual: con tasa queda en %, capturado en pesos queda en pesos. */
   abrirDescuento(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): void {
     // `[PGP.101]` Con UN descuento, se abre en el editor como siempre; con varios, van a la lista y el editor queda libre.
-    const ls = lineasDe(it);
+    // `[PGP.120]` El renglón «Anticipo» va SIEMPRE a la lista: el editor no sabe de documentos y lo perdería.
+    const todos = lineasDe(it);
+    const anticipos = todos.filter((l) => l.reason === 'anticipo');
+    const ls = todos.filter((l) => l.reason !== 'anticipo');
     const uno = ls.length === 1 ? ls[0] : null;
     const pct = uno ? pctDeTasa(uno.rate) : '';
-    this.descLineas.set(ls.length > 1 ? [...ls] : []);
+    this.descAnticipoAviso.set(null);
+    this.descLineas.set([...anticipos, ...(ls.length > 1 ? ls : [])]);
     this.descMotivo.set(uno ? uno.reason : 'ninguno');
     this.descModo.set(uno && !pct ? 'pesos' : 'tasa');
     this.descPct.set(uno ? pct : '');
@@ -3806,7 +3890,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.descSugerida.set(false);
     this.descObjetivo.set({ a, it });
   }
-  cerrarDescuento(): void { this.descObjetivo.set(null); }
+  cerrarDescuento(): void { this.descObjetivo.set(null); this.descAnticipoAviso.set(null); }
   /**
    * `[PGP.91]` D2: al elegir «Pronto pago» con el campo activo vacío se precarga la tasa OBSERVADA del
    * proveedor (y se dice que lo es). Si se cambia a otro motivo, la sugerencia se va con él: el % de
@@ -3835,15 +3919,17 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const enCaptura = this.descEditorVacio() ? null : this.renglonEnCaptura();
     const lista = quitar ? [] : [...this.descLineas(), ...(enCaptura ? [enCaptura] : [])];
     const body: PaymentCalendarItemDiscountBody = {
-      discounts: lista.map((l) => ({ discount_amount: l.amount, discount_reason: l.reason, discount_rate: l.rate, discount_note: l.note })),
+      discounts: lista.map((l) => ({ discount_amount: l.amount, discount_reason: l.reason, discount_rate: l.rate, discount_note: l.note, anticipo: l.anticipo ?? null })),
     };
+    const conAnticipo = lista.some((l) => l.reason === 'anticipo');
     this.saving.set(true);
     this.http.post<PaymentCalendarItemDiscountResult>(`${this.base}/allocations/${a.id}/items/${it.id}/descuento`, body)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
-          this.saving.set(false); this.descObjetivo.set(null); this.invalidarDeuda(); this.reload();
+          // `[PGP.120]` Lo apartado de los anticipos cambió (se apartó o se liberó): se vuelve a pedir.
+          this.saving.set(false); this.descObjetivo.set(null); this.invalidarDeuda(); this.reload(); this.loadAnticipos();
           this.toast.add(this.numero(r.discount_amount) > 0
-            ? { severity: 'success', summary: 'Descuento guardado',
+            ? { severity: 'success', summary: conAnticipo ? 'Anticipo aplicado' : 'Descuento guardado',
                 detail: `${this.nombreFactura(it)}: se transfieren ${this.money(r.applied_amount)} (descuento ${this.money(r.discount_amount)}). El pago de ${this.allocationTitle(a)} queda en ${this.money(r.amount_assigned)}.` }
             : { severity: 'success', summary: 'Descuento quitado',
                 detail: `${this.nombreFactura(it)} vuelve a pagarse sin descuento: ${this.money(r.applied_amount)}. El pago de ${this.allocationTitle(a)} queda en ${this.money(r.amount_assigned)}.` });
@@ -3891,6 +3977,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
     this.loadCreditos();
+    // [PGP.120] Los anticipos sin aplicar por acreedor + sucursal: el botón «Aplicar anticipo» de cada factura.
+    this.loadAnticipos();
     // [PGP.113] Las de antes del corte que Oficinas nunca registró: se piden UNA vez.
     this.loadCorteSueltas();
     // [PGP.30] El habito de pago de cada acreedor. Sin toast y sin bloquear: si no llega, el

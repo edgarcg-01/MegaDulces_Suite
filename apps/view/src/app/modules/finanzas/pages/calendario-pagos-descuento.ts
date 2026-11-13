@@ -131,6 +131,37 @@ export function lineasDe(it: {
   return [{ reason: it.discount_reason, amount: d, rate: it.discount_rate != null && r > 0 ? r : null, note: it.discount_note ?? null }];
 }
 
+/** `[PGP.120]` Un anticipo que se le puede aplicar a ESTA factura: su documento y lo que queda de él para ella. */
+export interface AnticipoOfrecido {
+  sucursal: string;
+  folio: string;
+  fecha: string | null;
+  disponible: number;
+}
+/** `[PGP.120]` Lo que se propone aplicar. `cubreTodo` = el anticipo alcanza para toda la factura: no hay pago. */
+export interface PropuestaAnticipo {
+  lineas: PaymentCalendarDiscountLine[];
+  total: number;
+  cubreTodo: boolean;
+}
+/**
+ * `[PGP.120]` **Los renglones «Anticipo» para una factura**, del anticipo más viejo al más nuevo.
+ * `restante` es lo que todavía se pagaría (lo cubierto menos los otros descuentos). Si los anticipos
+ * alcanzan para todo, NO se propone nada: el servidor rechaza un pago de $0 (no hay pago que programar,
+ * hay un anticipo que Cuentas por pagar aplica en Kepler) y se dice por qué.
+ */
+export function proponerAnticipos(docs: readonly AnticipoOfrecido[], restante: number): PropuestaAnticipo {
+  const vivos = [...docs].filter((d) => Number(d.disponible) > 0.005)
+    .sort((a, b) => (a.fecha ?? '9999').localeCompare(b.fecha ?? '9999') || a.folio.localeCompare(b.folio));
+  const total = round2(vivos.reduce((s, d) => s + Number(d.disponible), 0));
+  if (!vivos.length) return { lineas: [], total: 0, cubreTodo: false };
+  if (total >= round2(restante) - 0.005) return { lineas: [], total, cubreTodo: true };
+  return {
+    lineas: vivos.map((d): PaymentCalendarDiscountLine => ({ reason: 'anticipo', amount: round2(Number(d.disponible)), rate: null, note: null, anticipo: { sucursal: d.sucursal, folio: d.folio } })),
+    total, cubreTodo: false,
+  };
+}
+
 /** `[PGP.101]` Lo capturado como pronto pago en una factura (con varios descuentos, sólo ese renglón). */
 export function prontoCapturado(it: Parameters<typeof lineasDe>[0]): number {
   return round2(lineasDe(it).filter((l) => l.reason === 'pronto_pago').reduce((s, l) => s + Number(l.amount || 0), 0));
