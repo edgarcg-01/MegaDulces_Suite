@@ -299,9 +299,14 @@ pantalla).
 - **DK3 — Ningún reporte de Kepler se copia tal cual.** Cada uno se lleva a la pantalla que ya contesta
   su pregunta, o se declara sin uso. **Recomendación: sí.** Un reporte sin una decisión detrás es carga,
   no información.
+- ✅ **D40 — firmada por Edgar el 2026-11-13: (a) sí se le da `DELETE` en `md.kdm2` a `kepler_push`**,
+  para que la Suite cancele una OC igual que Kepler (§3c). Con él, `UPDATE` de las columnas que toca la
+  cancelación (`c13`–`c16`, `c42`, `c43`, `c67`, `c68`, `c69`). Archivo:
+  `ops/prod/kepler-grants/pq110_cancelar_oc.sql`; lo corre el PM con `kepler-sql-todos.js` (pide la
+  contraseña de superusuario y no la guarda), primero en 00 y luego en 01, 02, 06, 07 y 08. El permiso
+  no enciende nada: el `DELETE` lo acota el adaptador de PQ.110 a una OC sin vale vivo.
 - Siguen sin firma, del plan base: **D37** (¿la Suite escribe documentos que mueven inventario?),
-  **D38** (¿escribe la aplicación?), **D39** (Modifica = cancelar y reemitir) y **D40** (¿se le da
-  `DELETE` en `kdm2` al rol de escritura, o la Suite sólo salda?).
+  **D38** (¿escribe la aplicación?) y **D39** (Modifica = cancelar y reemitir).
 
 ## 7. Lo que NO se sabe todavía
 
