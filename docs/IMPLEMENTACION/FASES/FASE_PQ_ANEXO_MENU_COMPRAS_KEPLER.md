@@ -221,6 +221,7 @@ renglones desaparecieron después, 1 que terminó (N→F) y 2 que pasaron a parc
 | **Cancelar** (N→C) | `c43` N→**C** · `c15`, `c16`, `c42` → **0** · `c67` → **usuario que cancela** · `c68`/`c69` → **fecha y hora de la cancelación** | **se borran** (4 → 0) |
 | Recibir parcial (N→R) | `c43` → R · `c42` baja (puede quedar negativo) | sin cambio |
 | Recibir todo (N→F) | `c43` → F · `c42` → 0 | sin cambio |
+| **Cancelar la OC: su requisición** (`c37=30`) | `c43` F→**A** · `c42` 0→`c16` · `c67`–`c69` **sin cambio** | `c24` 0→`c9` (vuelve a pendiente) |
 
 Lo que eso significa para construir PQ.110:
 - **Cancelar = UPDATE de cabecera + DELETE de renglones.** Para que la Suite cancele igual que Kepler
@@ -233,6 +234,15 @@ Lo que eso significa para construir PQ.110:
   en un segundo paso, o la réplica llegó tarde? **No medido**; se ve en el Kepler vivo antes de escribir.
 - **«Saldar» sigue sin testigo:** no hay ningún `X-A-90` reciente que comparar. Lo que sí se vio es que la
   recepción mueve `c42`; un saldado debería dejarlo en 0 y el estado en F, **pero es inferencia**.
+- **Cancelar una OC REABRE su requisición** (medido el 2026-11-13, ODS a 90 días + respaldo): de 45 OC
+  canceladas que salieron de una requisición, 25 dejaron la requisición en A con `c42` = `c16` y sus 169
+  renglones con `c24` = `c9` (25 de 25); 17 la dejaron cancelada (un segundo acto de la persona) y 1 en F.
+  Ninguna tenía otra OC viva. Caso `08|0000362` en el respaldo: requisición `0000064` F→A, `c42` 0→12,560.76,
+  4 renglones con `c24` 0→`c9`; `c67`/`c68`/`c69` de la requisición, intactos. ⇒ La Suite también la reabre,
+  y para eso `kepler_push` necesita **`UPDATE (c24)` en `md.kdm2`** (no lo tiene en ningún servidor).
+- **Ensayo contra el Kepler vivo de la 08** (2026-11-13, [`ops/prod/ensayo-cancelar-oc/`](../../../ops/prod/ensayo-cancelar-oc/README.md), sin
+  escribir): las sentencias del adaptador dejan la OC y la requisición como Kepler; una OC con vale sale
+  rechazada; las 3 OC reales quedaron intactas. Falta sólo el permiso `c24`.
 
 ## 4. Opción por opción: a dónde va cada una
 
@@ -376,4 +386,5 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-13 | **PQ.110 C1** (§3c): cancelar una OC reabre su requisición (25 de 25); regla + sentencias en `kepler-oc-cancelacion.ts` (14 pruebas, prueba negativa vista en rojo) y `KeplerOcCancelAdapter`; ensayo en la 08 sin escribir: verde salvo el permiso `UPDATE (c24)` en `kdm2`, que espera firma | Claude |
 | 2026-11-13 | **Testigo de la cancelación** (§3c, respaldos de `md` contra prod): cancelar pone `c43`=C, importes y `c42` en 0, **sobrescribe `c67` con quien cancela y `c68`/`c69` con la fecha de cancelación**, y borra los renglones → PQ.110 necesita `DELETE` en `kdm2` (D40). Corrige §3b: la recaptura queda **no concluyente** (la fecha original se pierde) y `c67` en las canceladas es quien canceló. **20 de las 195 OC de la Suite las canceló una persona a mano en Kepler** (18 en la 08) sin que la Suite se entere. `c42` = saldo en pesos: 110 OC en N con vale tienen $11.1 M en papel contra $0.8 M por vales | Claude |
