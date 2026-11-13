@@ -31,7 +31,7 @@ export interface EntregaPagoKepler {
 
 export type ResultadoPagoKepler =
   /** `folios`: un `X-D-26` por concepto (P7); todos con la misma referencia, escritos en una transacción. */
-  | { estado: 'escrito'; kepler: { sucursal: string; folios: string[]; facturas: number } }
+  | { estado: 'escrito'; kepler: { sucursal: string; folios: string[]; facturas: number; /** `kdm1.c5` de la plantilla: arma el prefijo `XD26` + serie a 2 dígitos. */ serie: string } }
   | { estado: 'rechazado'; motivo: string };
 
 /** Lo que `confirmar` pasa de las temporales a Kepler: los documentos ya armados y la tabla de pólizas del mes. */
@@ -205,6 +205,32 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     await c.query('COMMIT');
   }
 
+  /**
+   * `[PGP.121]` **Los `X-D-26` que la Suite ya escribió con esta referencia**, leídos del Kepler vivo (sólo lectura).
+   * Un `COMMIT` que llegó a Kepler cuya respuesta se perdió en la red sale de `entregar` como «rechazado»: antes de
+   * soltar el pago para reintentarlo, quien llama pregunta aquí. Si no se puede preguntar (sin conexión), devuelve
+   * `null` y quien llama NO suelta el pago.
+   */
+  async foliosConReferencia(sucursal: string, referencia: string): Promise<string[] | null> {
+    const srv = urlDeServidor(sucursal, this.env);
+    if (!srv.ok) return null;
+    try {
+      const c = await this.poolDe(srv.valor).connect();
+      try {
+        const r = await c.query(
+          `SELECT btrim(c6) AS folio FROM md.kdm1
+            WHERE c1 = $1 AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c11) = $2 AND btrim(c67) = 'SUITE'
+            ORDER BY c6`, [sucursal, referencia]);
+        return r.rows.map((x: { folio: string }) => x.folio);
+      } finally {
+        c.release();
+      }
+    } catch (err) {
+      this.logger.error(`No se pudo preguntar a Kepler ${sucursal} por la referencia ${referencia}: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   async entregar(e: EntregaPagoKepler): Promise<ResultadoPagoKepler> {
     if (!escrituraDePagoEncendida(this.env)) return { estado: 'rechazado', motivo: 'La escritura de pagos a Kepler está apagada (KEPLER_PAGO_ESCRITURA)' };
     const srv = urlDeServidor(e.sucursal, this.env);
@@ -331,7 +357,7 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       await this.confirmar(c, { sucursal: e.sucursal, tablaPoliza, documentos });
       const folios = documentos.map((x) => x.folio);
       this.logger.log(`Pago ${e.referencia} → Kepler ${e.sucursal}/X-D-26/${folios.join(', ')} (${e.facturas.length} facturas, póliza ${tablaPoliza} E ${documentos.map((x) => x.poliza).join(', ')})`);
-      return { estado: 'escrito', kepler: { sucursal: e.sucursal, folios, facturas: e.facturas.length } };
+      return { estado: 'escrito', kepler: { sucursal: e.sucursal, folios, facturas: e.facturas.length, serie: String(serie) } };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);
       const motivo = (err as Error).message;
