@@ -237,6 +237,11 @@ export interface IncentivoConResultado extends Incentivo {
 const TIPOS: readonly TipoIncentivo[] = ['por_caja', 'por_unidad', 'por_monto', 'por_cliente', 'por_captura'];
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const CODIGO = /^[0-9A-Za-z]{1,20}$/;
+/** `[MKT.22]` Una promo de Kepler sin renglón propio todavía: su id es el código con prefijo. */
+export const ID_KEPLER = /^k-([0-9A-Za-z]{1,20})$/;
+export const idKepler = (code: string): string => `k-${code}`;
+/** El id de una promo: UUID de su renglón o `k-<código>`. */
+export const esIdPromo = (id: string): boolean => ID_KEPLER.test(id) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
 const n = (v: unknown): number => (v === null || v === undefined || v === '' ? 0 : Number(v));
 const nOrNull = (v: unknown): number | null => (v === null || v === undefined || v === '' ? null : Number(v));
@@ -255,23 +260,20 @@ export class MktRankingService {
 
   // ═════════════════════════════════ promociones (alta) ═════════════════════════════════
 
-  async listarPromos(opts: { todas?: boolean } = {}): Promise<PromoMkt[]> {
+  /**
+   * `[MKT.22]` La lista de Objetivos: las promociones de Kepler que vendieron en las últimas 5
+   * semanas (para fijar la meta aunque esta semana todavía no venda). `todas` se conserva por
+   * compatibilidad y ya no cambia nada: no hay alta, todo sale de Kepler.
+   */
+  async listarPromos(_opts: { todas?: boolean } = {}): Promise<PromoMkt[]> {
     return this.tk.run(async (trx) => {
-      const q = trx('commercial.mkt_ranking_promos as p')
-        .whereNull('p.deleted_at')
-        .select('p.*')
-        .select(trx.raw('(SELECT count(*) FROM commercial.mkt_ranking_objectives o WHERE o.promo_id = p.id)::int AS objetivos'))
-        .orderBy([{ column: 'p.activo', order: 'desc' }, { column: 'p.vigencia_desde', order: 'desc' }, { column: 'p.code' }]);
-      if (!opts.todas) {
-        q.where('p.activo', true).where((w) => w.whereNull('p.vigencia_hasta').orWhere('p.vigencia_hasta', '>=', todayMx()));
-      }
-      const promos = (await q).map((r: Record<string, unknown>) => this.mapPromo(r));
-      // `[MKT.15]` El producto de cada promo, de los tickets de sus últimas 4 semanas de vigencia.
+      const semana = this.semana(undefined);
+      const promos = await this.promosVigentes(trx, semana, undefined, { ventanaSemanas: 5 });
+      // `[MKT.15]` El producto de cada promo, de los tickets de sus últimas 4 semanas.
       const hoy = todayMx();
       const productos = await this.productosDePromos(trx, promos.map((p) => {
-        const hasta = p.vigencia_hasta && p.vigencia_hasta < hoy ? p.vigencia_hasta : hoy;
-        const hace4 = sumarDias(hasta, -27);
-        return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta };
+        const hace4 = sumarDias(hoy, -27);
+        return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: hoy };
       }));
       return promos.map((p) => ({ ...p, productos: productos.get(p.code) }));
     });
@@ -515,7 +517,10 @@ export class MktRankingService {
 
   async objetivosDePromo(promoId: string): Promise<Array<ObjetivoDto & { fuente: 'sugerido' | 'manual'; updated_by_username: string | null }>> {
     return this.tk.run(async (trx) => {
-      const rows = await trx('commercial.mkt_ranking_objectives').where({ promo_id: promoId })
+      // `[MKT.22]` Una promo de Kepler sin renglón todavía no tiene objetivos fijos.
+      const id = await this.promoIdParaObjetivos(trx, promoId, false);
+      if (!id) return [];
+      const rows = await trx('commercial.mkt_ranking_objectives').where({ promo_id: id })
         .orderBy(['canal', 'warehouse_code', 'vendor_code']);
       return rows.map((r: Record<string, unknown>) => ({
         warehouse_code: String(r['warehouse_code']),
@@ -537,15 +542,17 @@ export class MktRankingService {
     if (items.length > 2000) throw new BadRequestException('Demasiados objetivos en una sola llamada');
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const promo = await trx('commercial.mkt_ranking_promos').where({ id: promoId }).whereNull('deleted_at').first();
-      if (!promo) throw new NotFoundException('Promoción no encontrada');
+      // `[MKT.22]` Sólo se crea el renglón de una promo de Kepler si de verdad se fija algún objetivo.
+      const fija = items.some((it) => it.objetivo_semanal !== null && it.objetivo_semanal !== undefined && Number(it.objetivo_semanal) > 0);
+      const id = await this.promoIdParaObjetivos(trx, promoId, fija, quien);
+      if (!id) return { guardados: 0, quitados: 0 };
       let guardados = 0, quitados = 0;
       for (const it of items) {
         const wh = String(it.warehouse_code ?? '').trim();
         if (!/^\d{2}$/.test(wh)) throw new BadRequestException(`Sucursal inválida: ${wh}`);
         if (!esCanal(it.canal)) throw new BadRequestException(`Canal inválido: ${it.canal}`);
         const vendor = it.canal === 'mostrador' ? '' : String(it.vendor_code ?? '').trim().slice(0, 40);
-        const llave = { tenant_id: tenantId, promo_id: promoId, warehouse_code: wh, canal: it.canal, vendor_code: vendor };
+        const llave = { tenant_id: tenantId, promo_id: id, warehouse_code: wh, canal: it.canal, vendor_code: vendor };
         const v = it.objetivo_semanal === null || it.objetivo_semanal === undefined ? null : Number(it.objetivo_semanal);
         if (v === null || !(v > 0)) {
           quitados += await trx('commercial.mkt_ranking_objectives').where(llave).delete();
@@ -580,12 +587,12 @@ export class MktRankingService {
     if (!canales.length) throw new BadRequestException('Canal inválido');
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const promos = await this.promosVigentes(trx, semana);
+      const promos = await this.promosVigentes(trx, semana, undefined, { ventanaSemanas: 5 });
       const sugeridos = await this.objetivosDinamicos(trx, promos, semana, canales);
       let aplicados = 0;
       if (aplicar) {
         for (const s of sugeridos) {
-          if (s.sugerido === null) continue;
+          if (s.sugerido === null || ID_KEPLER.test(s.promo_id)) continue; // sin renglón: el dinámico ya cuenta solo
           const ins = await trx.raw(
             `INSERT INTO commercial.mkt_ranking_objectives
                (tenant_id, promo_id, warehouse_code, canal, vendor_code, objetivo_semanal, fuente,
@@ -725,13 +732,127 @@ export class MktRankingService {
     };
   }
 
-  private async promosVigentes(trx: Knex.Transaction, s: Semana): Promise<PromoMkt[]> {
-    const rows = await trx('commercial.mkt_ranking_promos')
-      .whereNull('deleted_at').where('activo', true)
-      .where('vigencia_desde', '<=', s.domingo)
-      .where((w) => w.whereNull('vigencia_hasta').orWhere('vigencia_hasta', '>=', s.lunes))
-      .select('*');
-    return rows.map((r: Record<string, unknown>) => this.mapPromo({ ...r, objetivos: 0 }));
+  /**
+   * `[MKT.22]` Las promociones de la semana salen de KEPLER, igual que en la app de vendedor: los
+   * productos `catalog.products.is_promo` («= GRATIS») que SE VENDIERON (decisión A de David,
+   * 2026-11-13: entran todas las que vendieron; Mercadotecnia sólo ajusta objetivos). Nadie las da
+   * de alta. Medido en prod: 355 códigos de promo; la semana sobre la línea en 357 ms; la historia de
+   * 6 semanas sobre la matview en 128 ms (al día).
+   *
+   *  · `canal`: sólo las que vendieron en ese canal, y sus sucursales son las de ese canal.
+   *  · `ventanaSemanas` (> 1): «vendió» = en esa semana o en las anteriores (la lista de Objetivos,
+   *    para poder fijar la meta antes de que la promo venda esta semana). Lee la matview.
+   *  · `warehouse_codes` = dónde vendió (la semana o las 4 previas): una sucursal que nunca la tuvo
+   *    no sale «sin objetivo».
+   *  · `vigencia_desde` = su primera venta dentro de las 4 semanas previas: antes no existía, y el
+   *    dinámico no promedia ceros de cuando no había promoción.
+   *  · El renglón de `mkt_ranking_promos` (si Mercadotecnia ya fijó un objetivo) pone el id —la llave
+   *    de sus objetivos— y el nombre; `activo = false` la saca del ranking. Sin renglón, el id es
+   *    `k-<código>` y el renglón se crea al guardar el primer objetivo (`promoIdParaObjetivos`).
+   */
+  private async promosVigentes(trx: Knex.Transaction, s: Semana, canal?: Canal, opts: { ventanaSemanas?: number } = {}): Promise<PromoMkt[]> {
+    const catalogo = await trx.raw(
+      `SELECT btrim(sku) code, (array_agg(btrim(nombre) ORDER BY activo DESC, updated_at DESC NULLS LAST))[1] nombre
+         FROM catalog.products
+        WHERE is_promo AND deleted_at IS NULL AND sku IS NOT NULL AND btrim(sku) <> ''
+        GROUP BY 1`);
+    const nombreDe = new Map<string, string>((catalogo.rows as Array<{ code: string; nombre: string | null }>).map((r) => [r.code, r.nombre ?? r.code]));
+    if (!nombreDe.size) return [];
+    const codes = [...nombreDe.keys()];
+    const canales: Canal[] = canal ? [canal] : [...CANALES];
+    const ventana = Math.max(1, Math.floor(opts.ventanaSemanas ?? 1));
+    const desdeVenta = sumarDias(s.lunes, -7 * (ventana - 1));
+    const desdeHist = sumarDias(s.lunes, -28);
+    const [semana, hist, registradas] = await Promise.all([
+      ventana === 1
+        ? trx.raw(
+          `SELECT canal, sku, warehouse_code, min(business_date) primera
+             FROM analytics.v_kepler_sales_lines
+            WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ANY(?::text[])
+            GROUP BY 1, 2, 3`, [s.lunes, s.hasta, codes, canales])
+        : Promise.resolve(null),
+      trx.raw(
+        `SELECT channel canal, sku, warehouse_code, min(business_date) primera, bool_or(business_date >= ?) en_ventana
+           FROM analytics.mv_kepler_sales_daily
+          WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND channel = ANY(?::text[]) AND units > 0
+          GROUP BY 1, 2, 3`, [desdeVenta, desdeHist < desdeVenta ? desdeHist : desdeVenta, s.hasta, codes, canales]),
+      trx('commercial.mkt_ranking_promos as p').whereNull('p.deleted_at')
+        .select('p.*')
+        .select(trx.raw('(SELECT count(*) FROM commercial.mkt_ranking_objectives o WHERE o.promo_id = p.id)::int AS objetivos'))
+        .orderBy('p.updated_at', 'desc'),
+    ]);
+    const filas = [
+      ...((semana?.rows ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, en_semana: true })),
+      ...(hist.rows as Array<Record<string, unknown>>).map((r) => ({ ...r, en_semana: ventana > 1 && r['en_ventana'] === true })),
+    ];
+    // Lo que vendió en la ventana pedida: con la matview en la ventana larga; la semana, con la línea.
+    const porCode = new Map<string, { canales: Set<Canal>; sucs: Set<string>; primera: string }>();
+    for (const r of filas) {
+      const code = String(r['sku']);
+      const acc = porCode.get(code) ?? { canales: new Set<Canal>(), sucs: new Set<string>(), primera: '9999-12-31' };
+      if (r.en_semana) acc.canales.add(String(r['canal']) as Canal);
+      acc.sucs.add(String(r['warehouse_code']));
+      const p = ymd(r['primera']);
+      if (p >= desdeHist && p < acc.primera) acc.primera = p;
+      porCode.set(code, acc);
+    }
+    const regDe = new Map<string, Record<string, unknown>>();
+    for (const r of registradas as Array<Record<string, unknown>>) if (!regDe.has(String(r['code']))) regDe.set(String(r['code']), r);
+    const out: PromoMkt[] = [];
+    for (const [code, v] of porCode) {
+      if (!v.canales.size) continue; // vendió antes, pero no en la semana (o ventana) pedida
+      const reg = regDe.get(code);
+      if (reg && reg['activo'] === false) continue; // Mercadotecnia la sacó del ranking
+      const nombre = nombreDe.get(code) ?? code;
+      out.push({
+        id: reg ? String(reg['id']) : idKepler(code),
+        code,
+        descripcion_kepler: nombre,
+        mecanica: reg && String(reg['mecanica'] ?? '').trim() ? String(reg['mecanica']) : nombre,
+        vigencia_desde: v.primera < s.lunes ? v.primera : s.lunes,
+        vigencia_hasta: null,
+        canales: CANALES.filter((c) => v.canales.has(c)),
+        warehouse_codes: [...v.sucs].sort(),
+        activo: true,
+        notas: reg ? ((reg['notas'] as string) ?? null) : null,
+        objetivos: reg ? n(reg['objetivos']) : 0,
+        updated_at: reg && reg['updated_at'] instanceof Date ? (reg['updated_at'] as Date).toISOString() : '',
+        updated_by_username: reg ? ((reg['updated_by_username'] as string) ?? null) : null,
+      });
+    }
+    return out.sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es'));
+  }
+
+  /**
+   * `[MKT.22]` El id de la promo cuyos objetivos se guardan. Un `k-<código>` (promo de Kepler que
+   * nadie ha tocado) crea aquí su renglón: guarda la LLAVE de los objetivos, no una copia del
+   * catálogo (el nombre se vuelve a leer de Kepler en cada consulta). Candado por código para que
+   * dos personas guardando a la vez no creen dos renglones.
+   */
+  private async promoIdParaObjetivos(trx: Knex.Transaction, id: string, crear: boolean, quien?: Quien): Promise<string | null> {
+    const k = ID_KEPLER.exec(id);
+    if (!k) {
+      const promo = await trx('commercial.mkt_ranking_promos').where({ id }).whereNull('deleted_at').first();
+      if (!promo) throw new NotFoundException('Promoción no encontrada');
+      return id;
+    }
+    const code = k[1];
+    if (crear) await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`mkt_ranking_promo:${code}`]);
+    const reg = await trx('commercial.mkt_ranking_promos').where({ code }).whereNull('deleted_at').orderBy('updated_at', 'desc').first();
+    if (reg) return String(reg.id);
+    if (!crear) return null;
+    const cat = await trx.raw(
+      `SELECT btrim(nombre) nombre FROM catalog.products WHERE is_promo AND deleted_at IS NULL AND btrim(sku) = ?
+        ORDER BY activo DESC, updated_at DESC NULLS LAST LIMIT 1`, [code]);
+    const nombre = (cat.rows[0]?.nombre as string | undefined) ?? null;
+    if (!nombre) throw new NotFoundException('Ese código no es una promoción de Kepler');
+    const [row] = await trx('commercial.mkt_ranking_promos').insert({
+      tenant_id: this.tenantCtx.requireTenantId(), code, descripcion_kepler: nombre.slice(0, 300), mecanica: nombre.slice(0, 500),
+      vigencia_desde: todayMx(), canales: [...CANALES], activo: true,
+      created_by: quien?.id ?? null, created_by_username: quien?.username ?? null,
+      updated_by: quien?.id ?? null, updated_by_username: quien?.username ?? null,
+    }).returning('id');
+    return String(row.id ?? row);
   }
 
   private async nombresSucursal(trx: Knex.Transaction): Promise<Map<string, string>> {
@@ -751,7 +872,7 @@ export class MktRankingService {
     const semana = this.semana(semanaPedida);
     return this.tk.run(async (trx) => {
       const nombres = await this.nombresSucursal(trx);
-      const todas = (await this.promosVigentes(trx, semana)).filter((p) => p.canales.includes(canal));
+      const todas = (await this.promosVigentes(trx, semana, canal)).filter((p) => p.canales.includes(canal));
       const promos = promoId ? todas.filter((p) => p.id === promoId) : todas;
       const base: RankingSemana = {
         semana, canal, canal_texto: CANAL_TEXTO[canal], promos_vigentes: promos.length,
@@ -769,7 +890,7 @@ export class MktRankingService {
       if (!promos.length) return base;
 
       const codes = [...new Set(promos.map((p) => p.code))];
-      const ids = promos.map((p) => p.id);
+      const ids = promos.map((p) => p.id).filter((id) => !ID_KEPLER.test(id)); // los k-… no tienen objetivos fijos
       const [identificados, ventas, objetivos, existencias, dinamicos] = await Promise.all([
         // `[MKT.15]` El producto de cada promo: tickets de las 4 semanas que cierran ésta, sin salir de su vigencia.
         this.productosDePromos(trx, promos.map((p) => {

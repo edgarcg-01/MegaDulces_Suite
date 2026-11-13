@@ -1,11 +1,17 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { MktRankingService } from './mkt-ranking.service';
+import { MktRankingService, esIdPromo } from './mkt-ranking.service';
 import type { PromoDto, ObjetivoDto, IncentivoDto, Quien } from './mkt-ranking.service';
 
 interface AuthedRequest { user?: { id?: string; username?: string } }
 const quien = (req: AuthedRequest): Quien => ({ id: req?.user?.id, username: req?.user?.username });
+/** `[MKT.22]` El id de una promo: UUID de su renglón o `k-<código>` (promo de Kepler sin renglón todavía). */
+const idPromo = (id: string | undefined): string => {
+  const v = String(id ?? '').trim();
+  if (!esIdPromo(v)) throw new BadRequestException('La promoción no es válida');
+  return v;
+};
 
 /**
  * `[MKT.10]` — Ranking de promociones de Marketing (reemplaza el Excel «RANKING SEMANA NN»).
@@ -31,10 +37,8 @@ export class MktRankingController {
   @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
   @ApiOperation({ summary: 'Ranking de la semana por canal (mostrador · preventa · ruta · mayoreo), en vivo desde Kepler' })
   ranking(@Query('semana') semana?: string, @Query('canal') canal?: string, @Query('promo') promo?: string, @Query('sucursales') sucursales?: string): ReturnType<MktRankingService['ranking']> {
-    // Un id que no es UUID no filtra nada: se rechaza en vez de devolver un ranking vacío que parezca real.
-    if (promo && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(promo)) {
-      throw new BadRequestException('La promoción del filtro no es válida');
-    }
+    // Un id que no es de promo no filtra nada: se rechaza en vez de devolver un ranking vacío que parezca real.
+    if (promo) idPromo(promo);
     const whs = String(sucursales ?? '').split(',').map((x) => x.trim()).filter((x) => /^\d{2}$/.test(x));
     return this.service.ranking(semana, canal, promo || undefined, whs.length ? whs : undefined);
   }
@@ -77,14 +81,14 @@ export class MktRankingController {
 
   @Get('promos/:id/objetivos')
   @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
-  objetivos(@Param('id', ParseUUIDPipe) id: string): ReturnType<MktRankingService['objetivosDePromo']> {
-    return this.service.objetivosDePromo(id);
+  objetivos(@Param('id') id: string): ReturnType<MktRankingService['objetivosDePromo']> {
+    return this.service.objetivosDePromo(idPromo(id));
   }
 
   @Put('promos/:id/objetivos')
   @RequirePermissions(Permission.MKT_AGREEMENTS_GESTIONAR)
-  guardarObjetivos(@Param('id', ParseUUIDPipe) id: string, @Body() body: { items: ObjetivoDto[] }, @Req() req: AuthedRequest): ReturnType<MktRankingService['guardarObjetivos']> {
-    return this.service.guardarObjetivos(id, body?.items ?? [], quien(req));
+  guardarObjetivos(@Param('id') id: string, @Body() body: { items: ObjetivoDto[] }, @Req() req: AuthedRequest): ReturnType<MktRankingService['guardarObjetivos']> {
+    return this.service.guardarObjetivos(idPromo(id), body?.items ?? [], quien(req));
   }
 
   @Post('objetivos/sugerir')
