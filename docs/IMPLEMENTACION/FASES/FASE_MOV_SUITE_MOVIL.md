@@ -142,8 +142,18 @@ escritorio cuenta igual. Contraste pendiente contra el log del Caddy (D1) antes 
 
 ### MOV.3.B — Barra inferior: las cinco preguntas (propuesta, sin código)
 
-Hoy, en celular, la suite sólo tiene el menú hamburguesa: llegar a la pantalla del puesto cuesta
-abrir el cajón, encontrar el grupo y tocar la entrada (2–3 toques, todos los días).
+> ⛔ **La premisa de esta propuesta cayó el mismo día (2026-11-13).** Decía «hoy, en celular, la
+> suite sólo tiene el menú hamburguesa». **Falso:** el layout tiene barra inferior desde mayo de
+> 2026 (`useBottomNav` / `bottomNavItems` en `layout.component.ts`): en celular muestra los
+> **primeros 4 ítems del menú del área** + «Más» (abre el cajón entero), con `safe-bottom` y
+> objetivos de 56 px. Se encontró al ir a construirla; el error fue diagnosticar contando
+> menciones en el código en vez de leer el layout.
+>
+> **Lo que queda del trabajo:** no es construir la barra, es **elegir sus 4 lugares por uso** y no
+> por el orden del menú. Falta medir qué ve hoy cada puesto en esos 4 lugares (depende de su
+> permiso y del área; en Almacén los ítems salen de las áreas WMS que alcanza). Ya se corrigió una
+> cosa: la etiqueta bajaba a 10 px (`--fs-nano`, «último recurso») y subió a 12 px (`--fs-xs`).
+> Las cinco preguntas de abajo siguen valiendo para esa reordenación.
 
 | # | Pregunta | Respuesta |
 |---|---|---|
@@ -185,7 +195,7 @@ la hamburguesa de arriba desaparece; su lugar es «Menú» abajo.
 | D3 | Huella/cara para entrar | sí / no / después | **Después**: primero que las pantallas sirvan; es comodidad, no bloquea a nadie. |
 | D4 | ¿La suite se vuelve app nativa o sigue PWA? | a) PWA · b) Capacitor como el vendedor | **a) PWA** mientras los avisos y el escáner funcionen en ambos sistemas desde el navegador; se reabre sólo si iOS los bloquea (iOS sólo da push web a una PWA instalada en la pantalla de inicio). |
 | D5 | Cuenta Apple Developer (99 USD/año) y a nombre de quién | — | **Es del PM**: dinero y titularidad de la empresa. Sin ella no hay vendedor en iOS. Alternativa sin costo: vendedor como PWA instalada en iPhone; se pierde el GPS en segundo plano |
-| D6 | Barra inferior en celular (MOV.3.B) | a) como se propone · b) sólo Mi trabajo + Menú · c) no | **a)**: los destinos salen del uso medido por puesto, y el cajón completo sigue detrás de «Menú» |
+| D6 | Barra inferior en celular (MOV.3.B) — **ya existe**; la decisión es cómo se eligen sus 4 lugares | a) por uso medido del puesto · b) como hoy (orden del menú) | **a)**, tomada por Claude el 2026-11-13 (decisión de diseño); falta medir qué ve cada puesto hoy antes de tocar el orden |
 | D7 | Destinos fijos por puesto o elegidos por la persona | a) fijos (tabla de arriba) · b) que cada quien fije los suyos | **a) fijos** para empezar: la persona de piso no va a configurar nada; se reabre si piden cambiar |
 
 ---
