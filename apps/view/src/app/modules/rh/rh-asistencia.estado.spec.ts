@@ -74,10 +74,11 @@ describe('[RH.1.7c] RhAsistenciaEstado', () => {
     crear(Permission.HR_ATTENDANCE_VER);
     est.iniciar();
     est.departamentos.set(['SISTEMAS']);
-    est.unica.set('101');
+    est.elegidas.set(['101']);
     est.buscar.set('ana');
     est.setSitio('CEDIS');
-    expect([est.departamentos(), est.unica(), est.buscar()]).toEqual([[], null, '']);
+    // [RH.13.5] Las personas sueltas son de ESTA plaza: el #101 de aquí no es el #101 de allá.
+    expect([est.departamentos(), est.elegidas(), est.buscar()]).toEqual([[], [], '']);
     expect(api['asistencia']).toHaveBeenLastCalledWith(expect.objectContaining({ site_code: 'CEDIS' }));
   });
 

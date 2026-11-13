@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -47,10 +47,19 @@ interface FormCaptura {
   horas: string; entrada: string; reason: string; authorized_by_name: string; deliver: boolean;
   /** `[RH.1.10]` Desayuno o comida distintos: los minutos que RH autorizó ese día. */
   minutos: string;
+  /** `[RH.6.6]` Visita fuera: a qué hora lo recogieron y a qué hora lo dejaron en su casa. */
+  recogida?: string;
+  entrega?: string;
+  /** `[RH.6.7]` Pago de horas extras: el total pagado, en horas (12.5 = 12 h 30). */
+  horasPagadas?: string;
 }
 
 /** `[RH.1.10]` Los tipos de UN solo día (no llevan «Hasta»), como `TIPOS_DE_AJUSTE` del servidor. */
-const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso']);
+const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso', 'pago_horas_extra']);
+/** Los que exigen la nota (y qué se escribe en ella). */
+const NOTA_OBLIGATORIA: Record<string, string> = {
+  otros: 'Motivo', visita_fuera: 'A dónde fue y por qué', pago_horas_extra: 'Referencia del pago (p. ej. nómina del 15)',
+};
 /** Los que piden motivo y quién lo autorizó. */
 const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta']);
 
@@ -60,13 +69,21 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
   imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ri-page" [class.con-ficha]="!!sel()">
-      <app-rh-marco [barra]="false" [franja]="false">
-        <div acciones class="ri-head-btns">
-          @if (puede.capturar()) { <p-button icon="pi pi-plus" label="Capturar incidencia" (onClick)="abrirCaptura()" /> }
-          <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
-        </div>
-      </app-rh-marco>
+    <div class="ri-page" [class.con-ficha]="!!sel()" [class.emb]="embebido()">
+      <ng-template #botonesCabecera>
+        <!-- [RH.13.5] Un solo primario: con la semana lista para cerrar, cerrar es el paso; capturar queda al lado. -->
+        @if (puede.capturar()) {
+          <p-button icon="pi pi-plus" label="Capturar incidencia" [outlined]="tocaCerrar()" [severity]="tocaCerrar() ? 'secondary' : null" (onClick)="abrirCaptura()" />
+        }
+        <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
+      </ng-template>
+      @if (embebido()) {
+        <div class="ri-head-btns ri-emb-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
+      } @else {
+        <app-rh-marco [barra]="false" [franja]="false">
+          <div acciones class="ri-head-btns"><ng-container *ngTemplateOutlet="botonesCabecera" /></div>
+        </app-rh-marco>
+      }
       <p class="ri-intro">Vacaciones, permisos, incapacidades, horas extra… Lo capturado no cuenta hasta que lo califica otra persona;
         al cerrar la semana para prenómina ya no se puede cambiar sin reabrirla.</p>
 
@@ -150,6 +167,20 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
             <label>Minutos de {{ f.incident_type === 'desayuno_distinto' ? 'desayuno' : 'comida' }} autorizados
               <input pInputText type="number" name="minutos" min="0" max="240" [(ngModel)]="f.minutos" required /></label>
           }
+          @if (f.incident_type === 'visita_fuera') {
+            <label>Lo recogieron a las <input pInputText type="time" name="recogida" [(ngModel)]="f.recogida" required /></label>
+            <label>Lo dejaron a las <input pInputText type="time" name="entrega" [(ngModel)]="f.entrega" required /></label>
+            <label>Quién autorizó la visita <input pInputText name="autorizoVf" [(ngModel)]="f.authorized_by_name" required /></label>
+            <p class="ri-ancho ri-ayuda">Justifica el día y el tiempo de la recogida a la entrega se suma a sus horas trabajadas. No toca su saldo de horas extra; en su día de descanso no suma.</p>
+          }
+          @if (f.incident_type === 'pago_horas_extra') {
+            <label>Horas pagadas <input pInputText type="number" name="horasPagadas" min="0.5" max="100" step="0.5" [(ngModel)]="f.horasPagadas" required /></label>
+            <div class="ri-saldo">
+              <p-button label="Ver su saldo" [text]="true" size="small" [disabled]="!f.person_code.trim()" (onClick)="verSaldo(f.person_code)" />
+              @if (saldoUso(); as s) { <span role="status">{{ s }}</span> }
+            </div>
+            <p class="ri-ancho ri-ayuda">Se le pagaron en efectivo en vez de tomarlas: descuentan de su saldo de horas extra. Es el total, en un solo día, y no cambia su asistencia.</p>
+          }
           @if (f.incident_type === 'cambio_descanso') {
             <p class="ri-ancho ri-ayuda">El día elegido es su descanso de esa semana, y su descanso de siempre pasa a ser día de trabajo: si no viene ese día, es falta.</p>
           }
@@ -160,7 +191,7 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
             <label class="ri-ancho">Por qué ese día fue distinto <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
             <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>
           }
-          <label class="ri-ancho">Nota (folio, motivo) <input pInputText name="nota" [(ngModel)]="f.note" [required]="f.incident_type === 'otros'" /></label>
+          <label class="ri-ancho">{{ etiquetaNota(f.incident_type) }} <input pInputText name="nota" [(ngModel)]="f.note" [required]="notaObligatoria(f.incident_type)" /></label>
           @if (puede.calificar()) {
             <label class="ri-check"><input type="checkbox" name="entregar" [(ngModel)]="f.deliver" /> Entregarla para que la califique otra persona</label>
           }
@@ -253,6 +284,8 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
   styles: [`
     :host { display: block; }
     .ri-page { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); }
+    .ri-page.emb { padding: 0; }
+    .ri-emb-btns { display: flex; justify-content: flex-end; gap: var(--sp-2); flex-wrap: wrap; }
     .ri-intro { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 90ch; }
     .ri-head-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ri-ctl { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
@@ -327,6 +360,11 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
   `],
 })
 export class RhIncidenciasComponent implements OnInit {
+  /**
+   * `[RH.13.5]` Dentro del panel de Asistencia: sin el encabezado ni las pestañas (ya están detrás del panel) y sin el
+   * margen de página. Su ruta propia (`/rh/incidencias`) sólo queda para quien no ve Asistencia.
+   */
+  readonly embebido = input(false);
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
   private readonly route = inject(ActivatedRoute);
@@ -371,13 +409,17 @@ export class RhIncidenciasComponent implements OnInit {
   /** Sólo se cierra lo que ya pasó: el miércoles que cierra la semana tiene que ser antes de hoy. */
   readonly semanaTerminada = computed(() => sumarDias(this.jueves(), 6) < hoyEnMexico());
   readonly cierreVigente = computed(() => this.cierres().find((c) => c.vigente && c.period_start === this.jueves()) ?? null);
+  /** `[RH.13.5]` La semana ya terminó, sigue abierta y quien ve puede cerrarla: ése es el paso que toca. */
+  readonly tocaCerrar = computed(() => this.puede.cerrar() && this.semanaTerminada() && !this.cierreVigente());
   private readonly tiposPorClave = computed(() => new Map(this.tipos().map((t) => [t.tipo, t])));
 
   ngOnInit(): void {
     const q = this.route.snapshot?.queryParamMap;
     const siteQ = q?.get('site');
     const desdeQ = q?.get('desde');
-    if (desdeQ) this.jueves.set(juevesDeLaSemana(desdeQ));
+    // `[RH.13.5]` Si llega con otra semana (una liga vieja, la captura de un día), el fondo de Asistencia también va a
+    // esa semana: el panel y lo que hay detrás hablan de la misma.
+    if (desdeQ) { this.jueves.set(juevesDeLaSemana(desdeQ)); this.est.irASemana(this.jueves()); }
     else if (this.est.sitio()) this.jueves.set(this.est.modoHoy() ? juevesDeLaSemana(this.est.hoy()) : this.est.jueves());
     this.api.tiposIncidencia().subscribe({ next: (t) => this.tipos.set(t), error: () => this.tipos.set([]) });
     this.api.sitios().subscribe({
@@ -494,16 +536,28 @@ export class RhIncidenciasComponent implements OnInit {
     const pausa = t === 'desayuno_distinto' || t === 'comida_distinta';
     const autoriza = CON_AUTORIZACION.has(t);
     const minPausa = String(f.minutos ?? '').trim() === '' ? undefined : Math.round(Number(f.minutos));
+    // `[RH.6.6]` La recogida va como horario base y el lapso hasta la entrega, como minutos (lo valida el servidor).
+    const recogida = t === 'visita_fuera' ? aMin(f.recogida ?? '') : undefined;
+    const entrega = t === 'visita_fuera' ? aMin(f.entrega ?? '') : undefined;
+    const lapsoVf = recogida !== undefined && entrega !== undefined ? entrega - recogida : undefined;
+    // `[RH.6.7]` Las horas pagadas, a minutos («1,5» también se entiende).
+    const hp = Number(String(f.horasPagadas ?? '').replace(',', '.'));
+    const minPagados = t === 'pago_horas_extra' && String(f.horasPagadas ?? '').trim() !== '' && Number.isFinite(hp) ? Math.round(hp * 60) : undefined;
     return {
       site_code: site, person_code: f.person_code.trim(), incident_type: t, date_from: f.date_from,
       date_to: DE_UN_DIA.has(t) ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
-      minutes: t === 'horas_extra' ? aMin(f.horas) : t === 'horario_distinto' ? aMin(f.entrada) : pausa ? minPausa : undefined,
-      reason: autoriza ? f.reason.trim() : undefined, authorized_by_name: autoriza ? f.authorized_by_name.trim() : undefined,
+      minutes: t === 'horas_extra' ? aMin(f.horas) : t === 'horario_distinto' ? aMin(f.entrada) : pausa ? minPausa
+        : t === 'visita_fuera' ? lapsoVf : t === 'pago_horas_extra' ? minPagados : undefined,
+      reason: autoriza ? f.reason.trim() : undefined,
+      authorized_by_name: autoriza || t === 'visita_fuera' ? f.authorized_by_name.trim() : undefined,
+      base_schedule_minutes: recogida,
       deliver: f.deliver || undefined,
     };
   }
 
   deUnDia(tipo: string): boolean { return DE_UN_DIA.has(tipo); }
+  notaObligatoria(tipo: string): boolean { return tipo in NOTA_OBLIGATORIA; }
+  etiquetaNota(tipo: string): string { return NOTA_OBLIGATORIA[tipo] ?? 'Nota (folio, motivo)'; }
   conAutorizacion(tipo: string): boolean { return CON_AUTORIZACION.has(tipo); }
 
   /** `[RH.1.10]` El saldo de horas extra de la persona, para capturar su uso sabiendo cuánto tiene. */

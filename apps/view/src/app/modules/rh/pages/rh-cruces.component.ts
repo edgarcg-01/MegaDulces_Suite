@@ -117,6 +117,8 @@ const CLASES: Record<HrClaseCruce, { label: string; severity: 'danger' | 'warn' 
   `,
   styles: [`
     :host { display: block; }
+    /* [RH.13.5] Con el dedo, todo lo que se toca mide al menos 44 px (--tap-min: 0 con mouse, 44 en táctil). */
+    :host ::ng-deep .p-button, :host ::ng-deep .p-select, :host ::ng-deep .p-multiselect, :host ::ng-deep input.p-inputtext { min-height: var(--tap-min); }
     .rc-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
     .rc-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .rc-semana { min-width: 17rem; }

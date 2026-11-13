@@ -6,6 +6,36 @@ import { banderasDe, rechazoDelPaso, validarCaptura, tipoIncidencia, type Actor,
 
 const base = { site_code: 'corporativo', person_code: '15', date_from: '2026-07-07' };
 
+describe('[RH.6.6] [RH.6.7] captura de Visita fuera y Pago de horas extras (reglas de Mega Talento)', () => {
+  const vf = { ...base, incident_type: 'visita_fuera', base_schedule_minutes: 480, minutes: 540, note: 'visita a cliente', authorized_by_name: 'Jefe Prueba' };
+  it('⭐ Visita fuera válida: la recogida va como horario base y el lapso como minutos; puede ser de varios días', () => {
+    const r = validarCaptura({ ...vf, date_to: '2026-07-08' });
+    expect(r.ok && [r.valor.base_schedule_minutes, r.valor.minutes, r.valor.date_to]).toEqual([480, 540, '2026-07-08']);
+  });
+  it('⛔ Visita fuera sin recogida, con entrega pasada de las 23:59, sin a dónde fue o sin quién autorizó: rebota', () => {
+    const err = (o: object) => { const r = validarCaptura({ ...vf, ...o }); return r.ok ? 'pasó' : r.error; };
+    expect(err({ base_schedule_minutes: '' })).toContain('recogieron');
+    expect(err({ minutes: 1000 })).toContain('dejaron');
+    expect(err({ note: ' ' })).toContain('a dónde fue');
+    expect(err({ authorized_by_name: '' })).toContain('autorizó');
+  });
+  const phe = { ...base, incident_type: 'pago_horas_extra', minutes: 600, note: 'nómina del 15' };
+  it('⭐ Pago de horas extras válido: el total en un solo día con su referencia', () => {
+    const r = validarCaptura(phe);
+    expect(r.ok && [r.valor.minutes, r.valor.date_to]).toEqual([600, '2026-07-07']);
+  });
+  it('⛔ Pago de varios días, de más de 100 h, de 0 o sin referencia: rebota', () => {
+    const err = (o: object) => { const r = validarCaptura({ ...phe, ...o }); return r.ok ? 'pasó' : r.error; };
+    expect(err({ date_to: '2026-07-08' })).toContain('un solo día');
+    expect(err({ minutes: 6001 })).toContain('100 horas');
+    expect(err({ minutes: 0 })).toContain('cuántas horas');
+    expect(err({ note: '' })).toContain('referencia');
+  });
+  it('Visita fuera justifica el día; el pago no (sólo mueve el banco)', () => {
+    expect([tipoIncidencia('visita_fuera')?.excusaFalta, tipoIncidencia('pago_horas_extra')?.excusaFalta]).toEqual([true, false]);
+  });
+});
+
 describe('captura', () => {
   it('vacaciones de una semana se aceptan; "hasta" vacío es un solo día', () => {
     const r = validarCaptura({ ...base, incident_type: 'vacaciones', date_to: '2026-07-13', note: 'folio 33' });

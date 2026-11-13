@@ -162,10 +162,45 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     expect([c.deUnDia('cambio_descanso'), c.deUnDia('vacaciones'), c.conAutorizacion('desayuno_distinto')]).toEqual([true, false, true]);
   });
 
+  it('⭐ [RH.6.6] Visita fuera: la recogida va como horario base y el lapso hasta la entrega como minutos, con quién autorizó', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    const base = { person_code: '101', incident_type: 'visita_fuera', date_from: '2026-10-02', date_to: '2026-10-03', note: 'Visita a cliente', horas: '',
+      entrada: '', reason: '', authorized_by_name: 'Jefe Prueba', deliver: false, minutos: '', recogida: '08:00', entrega: '17:30' };
+    const vf = c.cuerpoCaptura(base, 'PH');
+    expect([vf.base_schedule_minutes, vf.minutes, vf.date_to, vf.authorized_by_name, vf.note]).toEqual([480, 570, '2026-10-03', 'Jefe Prueba', 'Visita a cliente']);
+    // ⛔ Sin la hora de entrega no se inventa un lapso: el servidor lo rechaza con su mensaje.
+    expect(c.cuerpoCaptura({ ...base, entrega: '' }, 'PH').minutes).toBeUndefined();
+    expect([c.notaObligatoria('visita_fuera'), c.etiquetaNota('visita_fuera')]).toEqual([true, 'A dónde fue y por qué']);
+  });
+
+  it('⭐ [RH.6.7] Pago de horas extras: el total en minutos, en UN día, con la referencia del pago', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    const base = { person_code: '101', incident_type: 'pago_horas_extra', date_from: '2026-10-02', date_to: '2026-10-05', note: 'nómina del 15', horas: '',
+      entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '', horasPagadas: '12.5' };
+    const phe = c.cuerpoCaptura(base, 'PH');
+    expect([phe.minutes, phe.date_to, phe.authorized_by_name, phe.base_schedule_minutes]).toEqual([750, undefined, undefined, undefined]);
+    // Postel: «1,5» con coma también son hora y media.
+    expect(c.cuerpoCaptura({ ...base, horasPagadas: '1,5' }, 'PH').minutes).toBe(90);
+    expect([c.deUnDia('pago_horas_extra'), c.etiquetaNota('pago_horas_extra')]).toEqual([true, 'Referencia del pago (p. ej. nómina del 15)']);
+  });
+
   it('⛔ NEGATIVA — la semana en curso no se puede cerrar todavía', async () => {
     await render({ claves: [Permission.HR_PERIOD_CLOSE] });
     expect(texto()).toContain('Se puede cerrar a partir del jueves siguiente');
     expect(boton('Cerrar semana para prenómina')).toBeUndefined();
+  });
+
+  it('⭐ [RH.13.5] un solo primario: con la semana lista para cerrar, «Capturar» queda secundario; en la semana en curso, es el primario', async () => {
+    await render({ claves: [Permission.HR_PERIOD_CLOSE, Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    const capturaEsPrimaria = () => !boton('Capturar incidencia')?.className.includes('p-button-outlined');
+    expect([c.tocaCerrar(), capturaEsPrimaria()]).toEqual([false, true]);
+    c.moverSemana(-7);
+    fix.detectChanges();
+    expect(boton('Cerrar semana para prenómina')).toBeDefined();
+    expect([c.tocaCerrar(), capturaEsPrimaria()]).toEqual([true, false]);
   });
 
   it('la semana pasada se cierra; ya cerrada, se reabre sólo con motivo', async () => {

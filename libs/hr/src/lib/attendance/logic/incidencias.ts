@@ -48,6 +48,13 @@ export const TIPOS_INCIDENCIA: TipoIncidencia[] = [
   { tipo: 'semana_reducida',     etiqueta: 'Semana reducida',            codigo: 'SR',  excusaFalta: true },
   // Usó horas a favor: justifica el día y sus minutos SE SUMAN a las horas de ese día.
   { tipo: 'horas_extra',         etiqueta: 'Uso de horas extra',         codigo: 'HE',  excusaFalta: true },
+  // `[RH.6.6]` VISITA FUERA (Mega Talento 028ac14, 29-oct): salió a una visita de trabajo y lo recogen/dejan en su casa,
+  // así que no checa. JUSTIFICA el día y el lapso recogida→entrega se SUMA a sus horas, pero NO toca su saldo de horas
+  // extra. Lleva a dónde fue (nota) y quién autorizó; `base_schedule_minutes` es la recogida y `minutes` el lapso.
+  { tipo: 'visita_fuera',        etiqueta: 'Visita fuera',               codigo: 'VF',  excusaFalta: true },
+  // `[RH.6.7]` PAGO DE HORAS EXTRAS (Mega Talento fcc10d7, 6-nov): le pagaron el tiempo en vez de tomarlo. Es sólo un
+  // movimiento del banco que DESCUENTA del saldo: ni justifica el día ni suma horas. El TOTAL pagado, en un solo día.
+  { tipo: 'pago_horas_extra',    etiqueta: 'Pago de horas extras',       codigo: 'PHE', excusaFalta: false },
   // "Otros" justifica desde el 29/09/2026: exige escribir el motivo.
   { tipo: 'otros',               etiqueta: 'Otros',                      codigo: 'OTR', excusaFalta: true },
   // Ese día entró en otro horario: NO justifica, su retardo de ESE día se mide contra la hora
@@ -180,6 +187,9 @@ export interface CapturaValida {
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
+/** `[RH.6.7]` Tope de un pago de horas extras en un solo registro: 100 h (el de Mega Talento). */
+export const TOPE_PAGO_HORAS_EXTRA_MIN = 6000;
+
 /** Valida una captura y la deja lista para escribir; o devuelve el error en palabras de RH. */
 export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: CapturaValida } | { ok: false; error: string } {
   const site = String(b.site_code ?? '').trim();
@@ -210,6 +220,29 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
     if (!Number.isFinite(minutos) || minutos < 1 || minutos > 720) {
       return { ok: false, error: 'Indica cuántas horas extra usó (entre 1 minuto y 12 horas).' };
     }
+  }
+  // `[RH.6.6]` Visita fuera: la recogida (minuto del día) y el lapso hasta que lo dejaron; la entrega no pasa de 23:59.
+  if (tipo === 'visita_fuera') {
+    const recogida = b.base_schedule_minutes === null || b.base_schedule_minutes === undefined || b.base_schedule_minutes === ''
+      ? NaN : Math.round(Number(b.base_schedule_minutes));
+    minutos = Math.round(Number(b.minutes));
+    if (!Number.isFinite(recogida) || recogida < 0 || recogida > 1439) return { ok: false, error: 'Indica a qué hora lo recogieron.' };
+    if (!Number.isFinite(minutos) || minutos < 1 || recogida + minutos > 1439) {
+      return { ok: false, error: 'Indica a qué hora lo dejaron en su casa (después de la recogida).' };
+    }
+    if (!nota) return { ok: false, error: 'Escribe a dónde fue y por qué.' };
+    if (!autorizo) return { ok: false, error: 'Escribe quién autorizó la visita fuera.' };
+    base = recogida;
+  }
+  // `[RH.6.7]` Pago de horas extras: el total pagado (no por día), en un solo día y con la referencia del pago. 100 h de
+  // tope: cubre una liquidación acumulada de semanas y atrapa un dedazo (1000 h). El mismo tope que Mega Talento.
+  if (tipo === 'pago_horas_extra') {
+    minutos = Math.round(Number(b.minutes));
+    if (!Number.isFinite(minutos) || minutos < 1 || minutos > TOPE_PAGO_HORAS_EXTRA_MIN) {
+      return { ok: false, error: `Indica cuántas horas extra se pagaron (entre 1 minuto y ${TOPE_PAGO_HORAS_EXTRA_MIN / 60} horas).` };
+    }
+    if (hasta !== desde) return { ok: false, error: 'El pago de horas extras se registra en un solo día.' };
+    if (!nota) return { ok: false, error: 'Escribe la referencia del pago (p. ej. nómina del 15).' };
   }
   if (tipo === 'horario_distinto') {
     minutos = Math.round(Number(b.minutes));

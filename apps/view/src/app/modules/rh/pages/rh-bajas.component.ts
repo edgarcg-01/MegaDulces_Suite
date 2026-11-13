@@ -100,6 +100,9 @@ import { fechaHoraMx } from '../reclutamiento-formato';
   `,
   styles: [`
     :host { display: block; }
+    /* [RH.13.5] Con el dedo, todo lo que se toca mide al menos 44 px (--tap-min: 0 con mouse, 44 en táctil). */
+    :host ::ng-deep .p-button, :host ::ng-deep .p-select, :host ::ng-deep .p-multiselect, :host ::ng-deep input.p-inputtext { min-height: var(--tap-min); }
+    :host ::ng-deep input { min-height: var(--tap-min); }
     .rb-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
     .rb-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .rb-plaza { min-width: 14rem; }

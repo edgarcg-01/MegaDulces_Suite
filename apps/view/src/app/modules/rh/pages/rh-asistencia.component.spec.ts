@@ -10,6 +10,8 @@ import { RhService } from '../rh.service';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { SITIOS, asistencia, authCon, dia, permisos, persona } from '../../../../testing/rh.fixture';
 import { RhAsistenciaComponent } from './rh-asistencia.component';
+import { By } from '@angular/platform-browser';
+import { RhMarcoComponent } from '../components/rh-marco.component';
 
 /**
  * `[RH.1.7c]` Checadas: el reporte semanal «calcado» de Mega Talento. Lo que se defiende: se lee como el papel de
@@ -87,16 +89,44 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(texto()).toContain('jue 1 oct – mié 7 oct');
   });
 
-  it('⭐ el reporte calcado: por departamento, un día por columna, con D y C', async () => {
+  it('⭐ el reporte calcado: por departamento, un día por columna; D y C sólo cuando se pasó', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
     const deptos = Array.from(el().querySelectorAll('tr.rs-depto')).map((t) => t.textContent?.replace(/\s+/g, ' ').trim());
     expect(deptos).toEqual(['CONTABILIDAD (1)', 'SISTEMAS (2)']);
     const dias = Array.from(el().querySelectorAll('th.rs-dia')).map((t) => t.textContent?.replace(/\s+/g, ''));
     expect(dias).toEqual(['Jue1', 'Vie2', 'Sáb3', 'Dom4', 'Lun5', 'Mar6', 'Mié7']);
     const uno = filas().find((f) => f.textContent?.includes('Prueba Uno'))!;
-    expect(uno.textContent).toContain('07:56 - 17:04');
-    expect(uno.textContent).toContain('D 22');
-    expect(uno.textContent).toContain('C 59');
+    expect(uno.textContent).toContain('07:56–17:04');   // [RH.13.5] en pantalla, rango sin espacios
+    // [RH.13.5] Desayuno de 22 y comida de 59 sin pasarse: no se repiten en la celda (las pausas sí se ven).
+    expect(uno.textContent).toContain('11:02');
+    expect(uno.querySelector('.pz')).toBeNull();
+    // El horario empieza por la hora; «deducido» va aparte, en chico.
+    expect(uno.querySelector('.rs-hor small')?.textContent?.trim()).toBe('deducido');
+  });
+
+  it('[RH.13.5] la comida que se pasó SÍ sale, con sus minutos y en ámbar', async () => {
+    const datos = SEMANA();
+    datos.personas[0].semanas[0].dias = [dia({ fecha: '2026-10-05', entrada: '07:56', salida: '17:04', comida: '13:00 – 14:15', comidaMin: 75, comidaExcesoMin: 15, desayunoMin: 10 })];
+    await render({ datos, claves: [Permission.HR_ATTENDANCE_VER] });
+    const uno = filas().find((f) => f.textContent?.includes('Prueba Uno'))!;
+    expect([...uno.querySelectorAll('.pz .exc')].map((x) => x.textContent?.trim())).toEqual(['C 75']);
+  });
+
+  it('[RH.13.5] un renglón arriba de la tabla: el modo, cuántos, quién tiene algo y el PDF — sin repetir plaza ni semana', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    const barra = el().querySelector('.ra-barra')!;
+    expect(barra.textContent).toContain('3 personas');
+    expect(barra.textContent).toContain('1 con irregularidades');
+    // Sólo el PDF para firmar, directo (David, 13-nov: sin Excel ni menú).
+    expect([...barra.querySelectorAll('button')].some((b) => b.textContent?.includes('PDF para firmar'))).toBe(true);
+    expect(barra.textContent).not.toContain('Excel');
+    // Ya no hay un título que repita la plaza encima de la tabla, ni el párrafo de explicación bajo «Asistencia».
+    expect(el().querySelector('.ra-rep h2')).toBeNull();
+    expect(el().querySelector('.mc-head p')).toBeNull();
+    // El buscador de todas las plazas vive en la cabecera.
+    expect(el().querySelector('.mc-head .mc-buscar input')).not.toBeNull();
+    // La leyenda va al pie, en palabras.
+    expect(el().querySelector('.ra-ley')?.textContent).toContain('sólo si se pasó');
   });
 
   it('⭐ la fila en rojo es la que tiene algo que revisar, y «Solo irregulares» la aísla', async () => {
@@ -109,10 +139,13 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(texto()).toContain('sólo con irregularidades');
   });
 
-  it('⛔ el día de hoy no es falta: la pestaña Faltas cuenta 1 (el martes), no 2', async () => {
+  it('⛔ el día de hoy no es falta: el modo Faltas cuenta 1 (el martes), no 2', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
-    expect(badges()['Faltas']).toBe('1');
-    expect(badges()['Incidencias']).toBe('2');
+    // `[RH.13.5]` Faltas e Incidencias ya no son pestañas: la cifra va en el modo y en el globo del botón.
+    const modo = Array.from(el().querySelectorAll('.ra-ver button')).find((b) => b.textContent?.includes('Faltas'));
+    expect(modo?.querySelector('.ra-ver-n')?.textContent?.trim()).toBe('1');
+    const inc = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes('Incidencias'));
+    expect(inc?.textContent?.replace(/\D/g, '')).toBe('2');
     const dos = filas().find((f) => f.textContent?.includes('Prueba Dos'))!;
     const celdas = Array.from(dos.querySelectorAll('td.rs-celda')).map((c) => c.textContent?.trim());
     expect(celdas[5]).toBe('0 - 0');
@@ -169,6 +202,56 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(el().querySelector('app-rh-reporte-semanal')).toBeNull();
   });
 
+  it('[RH.13.5] la semana también se elige en el calendario: cualquier día abre su semana de jueves a miércoles', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+    expect(el().querySelector('[aria-label="Elegir la semana en el calendario"]')).not.toBeNull();
+    // un martes lleva al jueves anterior; un jueves, a sí mismo
+    marco.elegirDia(new Date(2026, 8, 22));
+    expect(est().jueves()).toBe('2026-09-17');
+    marco.elegirDia(new Date(2026, 8, 10));
+    expect(est().jueves()).toBe('2026-09-10');
+    // el calendario pinta la semana elegida completa, de jueves a miércoles
+    const [ini, fin] = marco.rangoSemana();
+    expect([ini.getDate(), ini.getDay(), fin.getDate(), fin.getDay()]).toEqual([10, 4, 16, 3]);
+    // un día que todavía no llega no abre una semana futura: se queda en la actual
+    marco.elegirDia(new Date(2027, 0, 20));
+    expect(est().jueves()).toBe(est().juevesActual());
+    // desde «Hoy», elegir un día sale del modo hoy
+    est().irA('hoy');
+    marco.elegirDia(new Date(2026, 8, 22));
+    expect([est().modoHoy(), est().jueves()]).toEqual([false, '2026-09-17']);
+  });
+
+  it('[RH.13.5] «Personas» es plaza, departamento y personas: un departamento entero, sueltas o una sola', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+    const nombres = () => filas().map((f) => f.querySelector('.rs-n')?.textContent?.trim());
+    // las opciones traen a la gente debajo de su departamento
+    expect(marco.opcPersonas().map((o) => o.value)).toEqual(['d:CONTABILIDAD', 'p:087', 'd:SISTEMAS', 'p:118', 'p:104']);
+    marco.cambiarPersonas(['d:SISTEMAS']);
+    await ciclo();
+    expect(nombres()).toEqual(['Prueba Dos Ejemplo', 'Prueba Uno Ejemplo']);
+    expect(texto()).toContain('solo SISTEMAS');
+    expect(el().querySelector('.mc-per-sel')?.textContent?.trim()).toBe('SISTEMAS');
+    // personas sueltas de dos departamentos (el campo cambia de a una casilla, como el clic)
+    est().verATodos();
+    marco.cambiarPersonas(['p:104']);
+    marco.cambiarPersonas([...marco.valorPersonas(), 'p:087']);
+    await ciclo();
+    expect(nombres()).toEqual(['Prueba Tres Ejemplo', 'Prueba Uno Ejemplo']);
+    expect(texto()).toContain('solo 2 personas');
+    // una sola: su tabla día por día, y «Ver a todos» regresa a la plaza
+    marco.cambiarPersonas(marco.valorPersonas().filter((v) => v !== 'p:087'));
+    await ciclo();
+    expect(el().querySelector('app-rh-reporte-semanal')).toBeNull();
+    expect(texto()).toContain('solo esta persona');
+    boton('Ver a todos')!.click();
+    await ciclo();
+    expect(filas()).toHaveLength(3);
+    expect(el().querySelector('.mc-per-sel')).toBeNull();
+  });
+
   it('⛔ con sólo VER, la ficha no ofrece capturar ni tocar el horario, y no hay botón Horario', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
     expect(boton('Horario')).toBeUndefined();
@@ -178,10 +261,160 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(boton('Asignarle horario')).toBeUndefined();
   });
 
-  it('con CAPTURAR, «Capturar incidencia» lleva a Incidencias con la persona y la semana puestas', async () => {
+  it('con CAPTURAR, «Capturar incidencia» abre el panel de Incidencias AQUÍ, con la persona y la semana puestas', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
     fix.componentInstance.capturar(fix.componentInstance.todas()[0]);
-    expect(navigate).toHaveBeenCalledWith(['/rh/incidencias'], { queryParams: { nueva: 1, site: 'PH', persona: '104', desde: '2026-10-01' } });
+    expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({
+      queryParamsHandling: 'merge',
+      queryParams: { panel: 'incidencias', nueva: 1, site: 'PH', persona: '104', desde: '2026-10-01' },
+    }));
+  });
+
+  describe('[RH.13.5] una sola pantalla', () => {
+    /** Lo que piden Incidencias y Relojes al abrirse dentro del panel. */
+    const completarApi = () => Object.assign(api, {
+      tiposIncidencia: vi.fn(() => of([])), cierres: vi.fn(() => of([])), bitacora: vi.fn(() => of([])),
+      relojes: vi.fn(() => of([])), lotesPendientes: vi.fn(() => of([])), ordenes: vi.fn(() => of({ relojes: [], ordenes: [] })),
+      sinPersona: vi.fn(() => of({ filas: [], total: 0, secciones: [] })),
+    });
+    const conUrl = async (url: string) => { navigate.mockRestore(); await TestBed.inject(Router).navigateByUrl(url); await ciclo(); };
+    const pestanas = () => Array.from(el().querySelectorAll('.ptab')).map((t) => t.querySelector('span')?.textContent?.trim());
+
+    it('⭐ las pestañas son sólo las que contestan otra pregunta: Checadas · Horas extra · Cruces · Bajas', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+      expect(pestanas().filter(Boolean)).toEqual(['Checadas', 'Horas extra', 'Cruces', 'Bajas']);
+    });
+
+    it('⭐ Faltas y Tolerancia son modos de la misma semana, con su cifra; la URL dice cuál', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      const modos = () => Array.from(el().querySelectorAll('.ra-ver button')).map((b) => [b.textContent?.replace(/\s+/g, ' ').trim(), b.getAttribute('aria-pressed')]);
+      expect(modos()[0]).toEqual(['Semana', 'true']);
+      expect(modos()[1][0]).toBe(`Faltas ${fix.componentInstance.est.nFaltas()}`);
+      await conUrl('/?ver=faltas');
+      expect(fix.componentInstance.ver()).toBe('faltas');
+      expect(el().querySelector('app-rh-faltas')).not.toBeNull();
+      expect(el().querySelector('app-rh-reporte-semanal')).toBeNull();
+      // Embebida: sin su propio encabezado (el de Asistencia ya está arriba).
+      expect(el().querySelectorAll('app-rh-marco').length).toBe(1);
+    });
+
+    it('⛔ NEGATIVA — un modo que no existe en la URL cae en la semana, no en una pantalla en blanco', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      await conUrl('/?ver=lo-que-sea');
+      expect(fix.componentInstance.ver()).toBe('semana');
+    });
+
+    it('⭐ ?panel=incidencias abre Incidencias encima, montada y sin su marco; ?panel=relojes, Relojes', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+      completarApi();
+      await conUrl('/?panel=incidencias&site=PH');
+      expect(fix.componentInstance.panel()).toBe('incidencias');
+      expect(document.querySelector('app-rh-incidencias')).not.toBeNull();
+      expect(document.querySelector('app-rh-incidencias app-rh-marco')).toBeNull();
+      expect(api['tiposIncidencia']).toHaveBeenCalled();
+      await conUrl('/?panel=relojes');
+      expect(document.querySelector('app-rh-incidencias')).toBeNull();
+      expect(document.querySelector('app-rh-relojes')).not.toBeNull();
+      expect(document.querySelector('app-rh-relojes app-rh-marco')).toBeNull();
+    });
+
+    it('⭐ en la ficha, «+ Incidencia» de un día abre la captura con ESE día y esa persona (no el inicio de la semana)', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+      const dos = fix.componentInstance.todas().find((p) => p.codigo === '118')!;
+      fix.componentInstance.abrir(dos);
+      await ciclo();
+      const del6 = Array.from(document.querySelectorAll('button.pd-inc')).find((b) => b.getAttribute('aria-label')?.includes(' 6')) as HTMLButtonElement;
+      expect(del6).toBeDefined();
+      del6.click();
+      expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({
+        queryParams: expect.objectContaining({ panel: 'incidencias', persona: '118', desde: '2026-10-06' }),
+      }));
+    });
+
+    it('⛔ NEGATIVA — sin permiso de capturar, la ficha no ofrece «+ Incidencia»', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      fix.componentInstance.abrir(fix.componentInstance.todas()[0]);
+      await ciclo();
+      expect(document.querySelectorAll('button.pd-inc').length).toBe(0);
+    });
+
+    it('[RH.13.5] cada columna que la pantalla angosta esconde existe en TODOS los renglones (si no, la tabla se corre)', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      const ancho = (tr: Element) => Array.from(tr.children).reduce((t, td) => t + Number(td.getAttribute('colspan') || 1), 0);
+      const columnas = el().querySelectorAll('.rs-tabla thead th').length;
+      const renglones = Array.from(el().querySelectorAll('.rs-tabla tbody tr:not(.rs-depto), .rs-tabla tfoot tr'));
+      expect(renglones.length).toBeGreaterThan(3);
+      for (const tr of renglones) {
+        expect(ancho(tr)).toBe(columnas);
+        for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo']) expect(tr.querySelectorAll('.' + c).length).toBe(1);
+        expect(tr.querySelectorAll('.rs-hor').length).toBe(1);
+      }
+      for (const c of ['rs-c-gano', 'rs-c-uso', 'rs-c-saldo', 'rs-hor-h']) expect(el().querySelectorAll('.rs-tabla thead th.' + c).length).toBe(1);
+      // El horario tiene a dónde bajar cuando su columna no cabe.
+      expect(el().querySelectorAll('tr.rs-fila .rs-hor-movil').length).toBe(el().querySelectorAll('tr.rs-fila').length);
+    });
+
+    it('[RH.13.5] en pantalla angosta los filtros plegados dicen cuántos están puestos', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      const marco = fix.debugElement.query(By.directive(RhMarcoComponent)).componentInstance as RhMarcoComponent;
+      expect(marco.filtrosActivos()).toBe(0);
+      est().setPromotoras(true);
+      expect(marco.filtrosActivos()).toBe(1);
+      est().irA('hoy');
+      expect(marco.filtrosActivos()).toBe(2);
+      const btn = el().querySelector('.mc-filtros-btn') as HTMLButtonElement;
+      expect(btn.getAttribute('aria-expanded')).toBe('false');
+      btn.click();
+      await ciclo();
+      expect(btn.getAttribute('aria-expanded')).toBe('true');
+    });
+
+    it('⭐ la rejilla es TABLA: la barra de cada departamento cubre todas las columnas y no hay columna de acciones suelta', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      const columnas = el().querySelectorAll('.rs-tabla thead th').length;
+      const barras = Array.from(el().querySelectorAll('tr.rs-depto td')).map((td) => Number(td.getAttribute('colspan')));
+      expect(barras.length).toBeGreaterThan(0);
+      expect(new Set(barras)).toEqual(new Set([columnas]));
+      // El «⋯» de cada persona vive en su celda de nombre (columna fija).
+      expect(el().querySelectorAll('tr.rs-fila td.rs-nom .rs-acc-btn').length).toBe(el().querySelectorAll('tr.rs-fila').length);
+    });
+
+    it('cerrar el panel quita sólo lo que servía para abrirlo', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      fix.componentInstance.cerrarPanel();
+      expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({
+        queryParamsHandling: 'merge', queryParams: { panel: null, nueva: null, persona: null, desde: null, site: null },
+      }));
+    });
+
+    it('⭐ el botón principal es el paso que toca: semana en curso → «Capturar incidencia»', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_PERIOD_CLOSE] });
+      expect(boton('Capturar incidencia')).toBeDefined();
+      expect(boton('Cerrar semana')).toBeUndefined();
+    });
+
+    it('⭐ semana que ya terminó y sigue abierta → «Cerrar semana» (uno solo, nunca los dos)', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_PERIOD_CLOSE] });
+      fix.componentInstance.est.irA('pasada');
+      await ciclo();
+      expect(boton('Cerrar semana')).toBeDefined();
+      expect(boton('Capturar incidencia')).toBeUndefined();
+    });
+
+    it('⛔ NEGATIVA — sin permiso de cierre, la semana pasada no ofrece cerrarla', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR] });
+      fix.componentInstance.est.irA('pasada');
+      await ciclo();
+      expect(boton('Cerrar semana')).toBeUndefined();
+      expect(boton('Capturar incidencia')).toBeDefined();
+    });
+
+    it('Relojes e Incidencias son botones del encabezado, con lo que falta calificar en el globo', async () => {
+      await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+      expect(boton('Relojes')).toBeDefined();
+      const inc = Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes('Incidencias'));
+      expect(inc?.textContent).toContain('2');
+    });
   });
 
   it('con GESTIONAR, el horario de una persona va sólo a ella; el de «Horario» va a las que se ven', async () => {
@@ -262,7 +495,8 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
   it('[RH.6.4] el reporte trae HE usó y HE saldo; sin saldo leído dice «—», no un cero', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
     const ths = [...el().querySelectorAll('app-rh-reporte-semanal th')].map((t) => t.textContent?.trim());
-    expect(ths).toEqual(expect.arrayContaining(['HE ganó', 'HE usó', 'HE saldo']));
+    // [RH.13.5] En pantalla dice «Extra» (en el PDF y el Excel sigue «HE», como el papel de RH).
+    expect(ths).toEqual(expect.arrayContaining(['Extra ganó', 'Extra usó', 'Extra saldo']));
   });
 
   it('semana pasada sin cerrar: el aviso dice qué falta para cerrarla', async () => {
@@ -287,12 +521,33 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     segundosSinSenal: 30, logsEnReloj: null, logsEnBase: null, desfaseRelojSeg: null, ultimoError: '', agenteVersion: '', agenteHost: '', semaforo: 'ok', ...o,
   });
 
-  it('⭐ [RH.1.7b] si el reloj de la plaza no reporta, el chip dice «Sin señal» y el aviso se ve', async () => {
-    relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null }), reloj({ serie: 'S9', sucursalId: 'CEDIS', semaforo: 'ok' })];
+  it('[RH.13.5] sin administrar relojes, un reloj sin señal se dice en el chip pero NO trae la franja', async () => {
+    relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null })];
     await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    expect(el().querySelector('.mc-vivo')?.textContent?.trim()).toBe('Sin señal');
+    expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
+  });
+
+  it('⭐ [RH.1.7b] si el reloj de la plaza no reporta, el chip dice «Sin señal» y quien administra relojes ve el aviso', async () => {
+    relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null }), reloj({ serie: 'S9', sucursalId: 'CEDIS', semaforo: 'ok' })];
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
     expect(el().querySelector('.mc-vivo')?.textContent?.trim()).toBe('Sin señal');
     expect(el().querySelector('.rf-alerta')?.textContent).toContain('no ha reportado');
     expect(el().querySelector('.rf-resumen')?.textContent?.trim()).toBe('1 sin señal');
+  });
+
+  it('[RH.13.5] con todos los relojes al día no hay franja: ya lo dicen «En vivo» y el botón Relojes', async () => {
+    relojes = [reloj({ semaforo: 'ok' })];
+    await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    expect(el().querySelector('.mc-vivo')).not.toBeNull();
+    expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
+    expect(boton('Relojes')).toBeDefined();
+  });
+
+  it('[RH.13.5] un reloj con la hora corrida SÍ trae la franja aunque esté al día (a quien administra relojes)', async () => {
+    relojes = [reloj({ semaforo: 'ok', desfaseRelojSeg: 600 })];
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+    expect(el().querySelector('app-rh-relojes-franja')).not.toBeNull();
   });
 
   it('⛔ si no se pudo leer el estado de los relojes, no se pinta ni chip ni franja', async () => {

@@ -67,6 +67,19 @@ describe('[RH.1.10] RhHorasExtraComponent', () => {
     expect(texto()).toContain('2 persona(s) de planta');
   });
 
+  it('⭐ [RH.6.7] lo pagado en efectivo sale en su columna y en la ficha; sin el dato (API anterior), «—» y no 0', async () => {
+    const pagada = ana({ codigo: '17', nombreCompleto: 'Prueba Tres', pagadasMin: 60, saldoMin: -30,
+      pagos: [{ id: 'p1', fecha: '2026-10-01', minutos: 60, nota: 'nómina del 15' }] });
+    await render({ personas: [pagada, ana({ codigo: '18', nombreCompleto: 'Prueba Cuatro' })], claves: [Permission.HR_ATTENDANCE_VER] });
+    const celda = (n: string) => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('tbody tr'))
+      .find((tr) => tr.textContent?.includes(n))?.querySelector('td[data-label="Pagadas"]')?.textContent?.trim();
+    expect([celda('Prueba Tres'), celda('Prueba Cuatro')]).toEqual(['1h 00m', '—']);
+    fix.componentInstance.abrir(pagada);
+    fix.detectChanges();
+    expect(document.body.textContent).toContain('nómina del 15');
+    expect(document.body.textContent).toContain('le pagaron');
+  });
+
   it('el ajuste sale con su signo, y sólo con motivo de 5 letras', async () => {
     await render({ personas: [ana()], claves: [Permission.HR_ATTENDANCE_GESTIONAR] });
     const c = fix.componentInstance;

@@ -1,5 +1,52 @@
 # Recursos Humanos › Asistencia — relojes y personas
 
+## RH.13.5 · Asistencia en una sola pantalla · RH.6.6 Visita fuera · RH.6.7 Pago de horas extras · RH.13.7 (2026-11-13)
+
+### Problema
+
+- **Seis páginas para una tarea.** Para revisar la semana de una plaza había que pasar por Checadas, Tolerancia,
+  Faltas, Incidencias y Relojes, cada una con su menú y su filtro. En la auditoría del 11 de noviembre, a 1440×900 la
+  primera persona aparecía al 76 % del alto de la pantalla y sólo se veían 3 de 7 personas.
+- **Las tablas costaban leerlas**: sin rejilla, con columnas que no cabían en una laptop y nada pensado para teléfono.
+- **Faltaban dos incidencias de Mega Talento**: Visita fuera y Pago de horas extras.
+- **«Corporativo Comida»** seguía como plaza activa aunque su reloj ya estaba unido a Corporativo.
+
+### Solución
+
+- **Una pantalla:** Checadas, con Tolerancia y Faltas como modos, e Incidencias y Relojes en un panel. Las ligas viejas
+  siguen funcionando y llevan ahí; quien no ve Asistencia (Contabilidad con Incidencias) conserva su página.
+- **Más fácil de leer:** tablas con cuadros, buscador de todas las plazas arriba, calendario para elegir la semana,
+  «PDF para firmar» como única exportación, la franja de relojes sólo para quien los administra, y en teléfono una
+  vista con lo esencial. La primera persona sube al 49 % del alto, se ven las 7 y cada fila baja de 61 a 44 px.
+- **Visita fuera:** justifica el día y suma el lapso de la visita a sus horas, sin tocar su saldo de horas extra.
+- **Pago de horas extras:** descuenta del saldo lo que se le pagó; la pestaña Horas extra suma la columna «Pagadas».
+- **Corporativo Comida** queda desactivada (no se borra).
+
+### Cómo se implementó
+
+- Las rutas viejas pasan por una guarda que lleva a la pantalla única con lo que traían en la URL; el menú deja de
+  repetir Incidencias y Relojes a quien ya los ve dentro de Asistencia.
+- La tabla se compacta por el ancho de su contenedor, no de la ventana: el menú lateral abierto o cerrado cambia el
+  espacio real.
+- Las dos incidencias nuevas no necesitan migración: el tipo es texto y las columnas que usan ya existían. Aun así,
+  una prueba contra la base las captura con el mismo cuerpo que manda la pantalla y comprueba que el servidor rechaza
+  un pago en dos días o una visita sin quién autorizó.
+- La migración de Corporativo Comida sólo desactiva la plaza, deja una marca para poder revertir sólo lo suyo, y se
+  niega si hay un reloj activo ahí.
+
+### Por qué así
+
+RH revisa la semana de una plaza de corrido; partirla en seis páginas la obligaba a armarla en la cabeza. Las dos
+incidencias nuevas siguen las reglas de Mega Talento para que la paridad con el sistema anterior siga en cero
+diferencias.
+
+### Pendiente
+
+- Confirmar con RH que no extrañan el Excel y que no necesitan ver los minutos de desayuno y comida cuando no se pasan.
+- `[RH.13.4]`: «Sin dato» en vez de «Falta» día por día cuando el reloj no entregó (más importante ahora que la franja
+  de relojes es sólo para administradores).
+- `[RH.14.1]`: que la baja en RH quite el acceso a la Suite. Es una decisión de accesos y la toma Edgar.
+
 ## RH.13.1 · Un reloj caído ya no sale verde · RH.13.2 · Incidencias con nombre (2026-11-12)
 
 ### Problema

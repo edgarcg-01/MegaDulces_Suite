@@ -1,5 +1,5 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, input, viewChild, viewChildren } from '@angular/core';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, type IsActiveMatchOptions } from '@angular/router';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { filter, map } from 'rxjs/operators';
 import { MenuModule } from 'primeng/menu';
@@ -90,7 +90,7 @@ export interface PageTab {
                 [routerLink]="t.route"
                 routerLinkActive="is-active"
                 #rla="routerLinkActive"
-                [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
+                [routerLinkActiveOptions]="opcionesActivo(t)"
                 [class.is-active]="activoPorAlias(t)"
                 [attr.aria-current]="rla.isActive || activoPorAlias(t) ? 'page' : null"
               >
@@ -109,7 +109,7 @@ export interface PageTab {
               [routerLink]="t.route"
               routerLinkActive="is-active"
               #rla="routerLinkActive"
-              [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
+              [routerLinkActiveOptions]="opcionesActivo(t)"
               [class.is-active]="activoPorAlias(t)"
               [attr.aria-current]="rla.isActive || activoPorAlias(t) ? 'page' : null"
             >
@@ -198,6 +198,18 @@ export class PageTabsComponent implements AfterViewInit {
    * reemplaza: el caso normal (la URL ES su `route`) lo sigue resolviendo el router.
    * Se compara sin query string — un filtro no cambia en qué sección estás.
    */
+  /**
+   * `[RH.13.5]` Qué cuenta para marcar la pestaña: la RUTA, no los parámetros. `exact: true` de Angular también exige
+   * los mismos query params, y entonces un modo o un filtro en la URL (`/rh/asistencia?ver=faltas`) apagaba la pestaña
+   * en la que la persona sigue estando. Ninguna pestaña se distingue por parámetros (`PageTab` no los tiene). Mismo
+   * criterio que `activoPorAlias` y `estaEn`, que ya comparaban sin query string. Objetos fijos: no se recrean por ciclo.
+   */
+  private static readonly ACTIVO_EXACTO: IsActiveMatchOptions = { paths: 'exact', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' };
+  private static readonly ACTIVO_PREFIJO: IsActiveMatchOptions = { paths: 'subset', queryParams: 'ignored', matrixParams: 'ignored', fragment: 'ignored' };
+  opcionesActivo(t: PageTab): IsActiveMatchOptions {
+    return t.exact === false ? PageTabsComponent.ACTIVO_PREFIJO : PageTabsComponent.ACTIVO_EXACTO;
+  }
+
   activoPorAlias(t: PageTab): boolean {
     const alias = t.alsoActiveOn;
     if (!alias?.length) return false;

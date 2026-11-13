@@ -30,6 +30,22 @@ describe('[RH.1.10] banco de horas extra', () => {
     expect(b.personas[0].ganadas.map((g) => g.fecha)).toEqual(['2026-09-25', '2026-09-26']);
   });
 
+  it('⭐ [RH.6.7] saldo = ganadas − usadas − PAGADAS + ajustes; el pago es un total, no por día', () => {
+    const p = persona({
+      incidencias: [{ id: 'p1', tipo: 'pago_horas_extra', codigo: 'PHE', etiqueta: 'Pago', nota: 'nómina del 15', minutos: 60, desde: '2026-10-01', hasta: '2026-10-01' }],
+    });
+    const per = bancoHorasExtra({ ...base, asistencia: asistencia([p]), ajustes: [] }).personas[0];
+    expect(per).toMatchObject({ ganadasMin: 90, usadasMin: 0, pagadasMin: 60, saldoMin: 30 });
+    expect(per.pagos).toEqual([{ id: 'p1', fecha: '2026-10-01', minutos: 60, nota: 'nómina del 15' }]);
+  });
+
+  it('⛔ [RH.6.7] NEGATIVA — un pago fuera del periodo del banco no descuenta', () => {
+    const p = persona({
+      incidencias: [{ id: 'p1', tipo: 'pago_horas_extra', codigo: 'PHE', etiqueta: 'Pago', nota: 'x', minutos: 60, desde: '2026-09-10', hasta: '2026-09-10' }],
+    });
+    expect(bancoHorasExtra({ ...base, asistencia: asistencia([p]), ajustes: [] }).personas[0]).toMatchObject({ pagadasMin: 0, saldoMin: 90 });
+  });
+
   it('un uso que empezó antes del banco sólo cuenta sus días dentro', () => {
     const p = persona({
       incidencias: [{ id: 'i1', tipo: 'horas_extra', codigo: 'HE', etiqueta: 'Uso', nota: '', minutos: 60, desde: '2026-09-20', hasta: '2026-09-25' }],

@@ -3,6 +3,7 @@ import { CanMatchFn, Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
+import { aLaPantallaUnica } from './modules/rh/rh-una-pantalla.guard';
 import { Permission } from './core/constants/permissions';
 import { PermissionsService } from './core/services/permissions.service';
 
@@ -1045,16 +1046,18 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-asistencia.component').then(m => m.RhAsistenciaComponent),
       },
-      // `[RH.1.7c]` Las pestañas de Mega Talento (Checadas · Tolerancia · Faltas) son páginas hermanas que comparten
-      // la plaza y el periodo (RhAsistenciaEstado); Incidencias y Relojes conservan su ruta y llevan las mismas pestañas.
+      // `[RH.13.5]` Asistencia es UNA pantalla: Tolerancia y Faltas son modos de Checadas (`?ver=`), e Incidencias y
+      // Relojes abren en su panel (`?panel=`). Las rutas viejas se quedan para que ningún enlace se rompa y llevan ahí,
+      // con lo que traían en la URL. Incidencias y Relojes siguen siendo su página para quien NO ve Asistencia
+      // (Contabilidad audita incidencias así, medido en MATRIZ_ACCESOS).
       {
         path: 'asistencia/tolerancia',
-        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR), aLaPantallaUnica({ ver: 'tolerancia' })],
         loadComponent: () => import('./modules/rh/pages/rh-tolerancia.component').then(m => m.RhToleranciaComponent),
       },
       {
         path: 'asistencia/faltas',
-        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR), aLaPantallaUnica({ ver: 'faltas' })],
         loadComponent: () => import('./modules/rh/pages/rh-faltas.component').then(m => m.RhFaltasComponent),
       },
       // `[RH.1.10]` El banco de horas extra: lo leen quienes ven la asistencia y quienes capturan o califican
@@ -1079,12 +1082,12 @@ export const routes: Routes = [
       },
       {
         path: 'incidencias',
-        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE), aLaPantallaUnica({ panel: 'incidencias' }, true)],
         loadComponent: () => import('./modules/rh/pages/rh-incidencias.component').then(m => m.RhIncidenciasComponent),
       },
       {
         path: 'relojes',
-        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)],
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR), aLaPantallaUnica({ panel: 'relojes' }, true)],
         loadComponent: () => import('./modules/rh/pages/rh-relojes.component').then(m => m.RhRelojesComponent),
       },
       // `[RH.2.3]` Reclutamiento (antes el portal de Mega Talento). Las tres pestañas leen con VER o GESTIONAR,

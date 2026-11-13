@@ -23,7 +23,7 @@ const ID = 'c0000000-0000-4000-8000-000000000001';
 const OTRO = 'c0000000-0000-4000-8000-000000000002';
 function ficha(o: Partial<HrCandidatoFichaDto> = {}): HrCandidatoFichaDto {
   return {
-    id: ID, full_name: 'Ana Prueba', phone: '3511234567', phone_key: '3511234567', city_branch: 'Zamora', position_interest: 'Cajera',
+    id: ID, full_name: 'Ana Prueba', phone: '3511234567', phone_key: '3511234567', city_branch: 'Zamora', ciudad: 'Zamora', position_interest: 'Cajera',
     stage: 'entrevista_rh', stage_raw: 'entrevista_rh', source: 'portal', traffic_light: null, has_cv: true, no_rehire: false, is_spam: false,
     created_at: '2026-10-01T15:00:00Z', last_activity_at: null, deleted_at: null, deletion_reason: null,
     email: null, legacy_portal_id: null, job_posting_id: null, origin: null, bot_state: null, commute_time: null, availability: null,

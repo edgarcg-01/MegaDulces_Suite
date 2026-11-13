@@ -236,6 +236,24 @@ suite('lógica de asistencia contra la base', () => {
         const fotoLog = await trx('hr.attendance_incident_log').where({ incident_id: deQuien[0].id }).first('row_snapshot');
         r['fotoSinNombre'] = 'person_name' in (fotoLog?.row_snapshot ?? {});
 
+        // ── `[RH.6.6]` `[RH.6.7]` Los dos tipos nuevos llegan a la BASE con el payload que arma la pantalla
+        //    (`rh-incidencias.cuerpo()`): `incident_type` es texto sin CHECK, pero eso se prueba, no se supone.
+        //    Visita fuera: la recogida va como horario base y el lapso como minutos, con quién autorizó.
+        const vf = await incidents.capturar({ site_code: site, person_code: '17', incident_type: 'visita_fuera', date_from: '2026-09-28',
+          note: 'cliente en otra ciudad', minutes: 300, authorized_by_name: 'jefe de ventas', base_schedule_minutes: 540 }, califica);
+        const filaVf = await trx('hr.attendance_incidents').where({ id: vf.id }).first('incident_type', 'base_schedule_minutes', 'minutes', 'authorized_by_name');
+        r['visitaFuera'] = [filaVf?.incident_type, filaVf?.base_schedule_minutes, filaVf?.minutes, filaVf?.authorized_by_name];
+        //    Pago de horas extras: el total pagado, en un solo día, con su referencia.
+        const phe = await incidents.capturar({ site_code: site, person_code: '17', incident_type: 'pago_horas_extra', date_from: '2026-09-28',
+          note: 'nómina del 30', minutes: 600 }, califica);
+        const filaPhe = await trx('hr.attendance_incidents').where({ id: phe.id }).first('incident_type', 'minutes');
+        r['pagoHorasExtra'] = [filaPhe?.incident_type, filaPhe?.minutes];
+        //    ⛔ El pago en dos días o sin referencia no entra (el servidor manda, aunque la pantalla ya lo impida).
+        r['pagoDosDias'] = await fallo(() => incidents.capturar({ site_code: site, person_code: '17', incident_type: 'pago_horas_extra',
+          date_from: '2026-09-28', date_to: '2026-09-29', note: 'x', minutes: 60 }, califica));
+        r['visitaSinAutorizo'] = await fallo(() => incidents.capturar({ site_code: site, person_code: '17', incident_type: 'visita_fuera',
+          date_from: '2026-09-29', note: 'x', minutes: 60, base_schedule_minutes: 540 }, califica));
+
         throw ROLLBACK;
       });
     } catch (e) {
@@ -294,5 +312,9 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['vacacionesDeQuien']).toBe('PRUEBA UNO');
     expect(r['deQuien']).toEqual([['15', 'PRUEBA UNO'], ['17', 'Juan'], ['99', null]]);
     expect(r['fotoSinNombre']).toBe(false);
+    expect(r['visitaFuera']).toEqual(['visita_fuera', 540, 300, 'jefe de ventas']);
+    expect(r['pagoHorasExtra']).toEqual(['pago_horas_extra', 600]);
+    expect(r['pagoDosDias']).toBe('400');
+    expect(r['visitaSinAutorizo']).toBe('400');
   }, 120000);
 });

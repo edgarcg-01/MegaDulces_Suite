@@ -496,7 +496,11 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         if (desPermitido !== null && det.desayunoMin !== null) det.desayunoExcesoMin = Math.max(0, det.desayunoMin - desPermitido);
         // USO DE HORAS EXTRA: los minutos que usó ese día se SUMAN a lo que trabajó.
         const extraUsadas = incs.filter((i) => i.tipo === 'horas_extra').reduce((t, i) => t + (Number(i.minutos) || 0), 0);
-        const netas = (det.netasMin || 0) + extraUsadas;
+        // `[RH.6.6]` VISITA FUERA: el lapso recogida→entrega también se SUMA a lo que trabajó, pero va aparte del uso de
+        // horas extra (no toca su saldo). En su día de descanso no se suma: sería pagar horas de un día que no trabajó.
+        const visitaFueraMin = d.estado === 'descanso' ? 0
+          : incs.filter((i) => i.tipo === 'visita_fuera').reduce((t, i) => t + (Number(i.minutos) || 0), 0);
+        const netas = (det.netasMin || 0) + extraUsadas + visitaFueraMin;
         if (netas) { minTrabajados += netas; minSemana += netas; }
         if (det.desayunoExcesoMin) { desayunoExcesoMin += det.desayunoExcesoMin; diasDesayunoExcedido++; }
         if (incs.length) diasConIncidencia++;

@@ -89,17 +89,6 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
   return { encabezado, filas };
 }
 
-function guardarBlob(buf: ArrayBuffer, nombre: string, tipo: string): void {
-  const url = URL.createObjectURL(new Blob([buf], { type: tipo }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = nombre;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function nombreArchivo(c: ContextoExport, sufijo: string, ext: string): string {
   return `ASISTENCIA-${textoParaArchivo(c.plaza, 24)}-${textoParaArchivo(sufijo || 'PLAZA', 24)}-${fechaHoraArchivo(new Date())}.${ext}`;
 }
@@ -210,34 +199,4 @@ function pie(doc: jsPDFType): void {
     doc.text('Semana de nómina de jueves a miércoles. D = minutos de desayuno, C = minutos de comida.', M, H - 16);
     doc.text(`Página ${i} de ${n}`, W - M, H - 16, { align: 'right' });
   }
-}
-
-/** El mismo reporte en Excel: un renglón por persona, un día por columna. */
-export async function exportarExcel(grupos: GrupoDepartamento[], todas: HrPersonaAsistencia[], c: ContextoExport, conSubtotales: boolean): Promise<void> {
-  const mod = (await import('exceljs')) as unknown as { default?: unknown };
-  const ExcelJS = (mod.default ?? mod) as { Workbook: new () => ExcelWorkbook };
-  const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Asistencia');
-  const { encabezado, filas } = filasExportacion(grupos, todas, c, conSubtotales);
-  ws.addRow([`${c.plaza} · ${c.periodo}${c.parcial ? ` · ${c.parcial}` : ''}`]).font = { bold: true, size: 12 };
-  ws.addRow([]);
-  const head = ws.addRow(encabezado);
-  head.font = { bold: true };
-  for (const f of filas) {
-    const r = ws.addRow(f.tipo === 'depto' ? [f.titulo ?? ''] : f.celdas);
-    if (f.tipo !== 'persona') r.font = { bold: true };
-    r.alignment = { vertical: 'top', wrapText: true };
-  }
-  ws.columns.forEach((col, i) => { col.width = i === 1 ? 34 : i === 2 ? 20 : i < 3 + c.columnas.length ? 16 : 12; });
-  const buf = await wb.xlsx.writeBuffer();
-  guardarBlob(buf, nombreArchivo(c, c.parcial, 'xlsx'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-}
-
-/** Lo mínimo de exceljs que se usa (el paquete trae sus tipos, pero se carga perezoso). */
-interface ExcelWorkbook {
-  addWorksheet(nombre: string): {
-    addRow(v: unknown[]): { font: unknown; alignment: unknown };
-    columns: Array<{ width?: number }>;
-  };
-  xlsx: { writeBuffer(): Promise<ArrayBuffer> };
 }

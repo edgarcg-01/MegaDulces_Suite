@@ -117,6 +117,12 @@ interface NavItem {
    */
   anyOf?: Permission[];
   /**
+   * `[RH.13.5]` Si el usuario tiene CUALQUIERA de estas, el item NO sale: lo que abre ya vive dentro de otra pantalla
+   * que esa persona sí ve (Incidencias y Relojes dentro de Asistencia). Quien no la ve —Contabilidad con
+   * Incidencias— conserva su entrada. Pesa más que `anyOf`, también para el god-mode (que ve la pantalla que lo contiene).
+   */
+  exceptAnyOf?: Permission[];
+  /**
    * Si es `true`, `routerLinkActive` solo matchea cuando la URL es
    * exactamente `route` (no sub-rutas). Necesario para `/dashboard`, que
    * como root sería prefix de TODAS las otras rutas.
@@ -628,6 +634,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * el fallback al record legacy se mantiene.
    */
   private hasPermFor(item: NavItem): boolean {
+    if (item.exceptAnyOf?.length) {
+      const legacyEx = this.user()?.permissions;
+      if (this.perms.isAdmin() || item.exceptAnyOf.some((p) => legacyEx?.[p] === true)) return false;
+    }
     if (this.perms.isAdmin()) return true;
     // `[GX.80]` Un área con pestañas se ve si la persona ve al menos una de ellas.
     if (item.tabs) return item.tabs.some((t) => pestanaVisible(t, (p) => this.canPerm(p)));
@@ -901,8 +911,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Asistencia',
       items: [
         { label: 'Asistencia', icon: 'pi pi-calendar', route: '/rh/asistencia', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] },
-        { label: 'Incidencias', icon: 'pi pi-file-edit', route: '/rh/incidencias', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE] },
-        { label: 'Relojes', icon: 'pi pi-clock', route: '/rh/relojes', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] },
+        { label: 'Incidencias', icon: 'pi pi-file-edit', route: '/rh/incidencias', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE], exceptAnyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] },
+        { label: 'Relojes', icon: 'pi pi-clock', route: '/rh/relojes', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR], exceptAnyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] },
       ],
     },
   ];
