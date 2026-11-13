@@ -18,6 +18,7 @@ import type {
 } from '@megadulces/contracts';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { PickingCapturaService } from './picking-captura.service';
+import { cabeceraVigenteSql } from './kepler-origen';
 import { PickingConsolaService } from './picking-consola.service';
 import { esCerrada, resolverCodigo, unidadMayor } from '../shared/kdii-codigo';
 import { kdiiPorCodigo, kdiiPorSku } from '../shared/kdii-lectura';
@@ -219,12 +220,9 @@ export class ChecadoService {
            FROM commercial.picking_waves pw
            JOIN commercial.wave_orders wo ON wo.wave_id = pw.id AND wo.source = 'kepler'
            LEFT JOIN LATERAL (
-             SELECT upper(NULLIF(btrim(h.c11::text), '')) AS estatus
-               FROM kepler_ods.kdm1 h
-              WHERE h.c2 = 'U' AND h.c3 = 'D' AND btrim(h.sucursal) = wo.kepler_sucursal AND (h.c4)::integer = 40
-                AND (h.c5)::integer = wo.kepler_serie AND btrim(h.c6) = wo.kepler_folio AND btrim(h.c1) = btrim(h.sucursal)
-              ORDER BY h.c9 DESC
-              LIMIT 1
+             -- [GP.10.1] Un solo lugar para la cabecera vigente: un cancelado llega CANCELADO y no se
+             -- ofrece a checar aunque su c11 viejo diga SURTIDO.
+             ${cabeceraVigenteSql({ sucursal: 'wo.kepler_sucursal', serie: 'wo.kepler_serie', folio: 'wo.kepler_folio' })}
            ) hh ON true
           WHERE pw.warehouse_id = ? AND pw.status = 'surtida'
             AND pw.finished_at >= now() - (? || ' days')::interval

@@ -24,6 +24,34 @@ import { WAREHOUSE_ORDER_CANCELADO } from '@megadulces/contracts';
 export const ESTATUS_VIGENTE_SQL = `CASE WHEN btrim(coalesce(h.c43::text, '')) = 'C' THEN '${WAREHOUSE_ORDER_CANCELADO}'
               ELSE upper(NULLIF(btrim(h.c11::text), '')) END`;
 
+/**
+ * `[GP.10.1]` La cabecera VIGENTE de UN pedido `U-D-40` por su llave, como cuerpo de un `LATERAL`:
+ *  · la versión más reciente (el ODS puede traer el mismo documento más de una vez: `ORDER BY c9 DESC`);
+ *  · del documento de SU plaza (`btrim(c1) = sucursal`, filtro canónico de la Fase PO);
+ *  · con el estatus VIGENTE (`ESTATUS_VIGENTE_SQL`: un cancelado sale CANCELADO, no con su `c11` viejo).
+ * UN solo lugar: antes estaba escrita tres veces (aquí, la captura y el checado) y ninguna miraba `c43`.
+ * Medido el 2026-11-13: 5 de los 24 pedidos de olas ABIERTAS estaban cancelados en Kepler.
+ * Escrita para usar `ix_kdm1_venta_doc` (`btrim(sucursal)`, `c4::int`, `c5::int`, `btrim(c6)`).
+ *
+ * ⚠️ `llave` son tres EXPRESIONES SQL de la consulta externa (`k.sucursal`, `wo.kepler_folio`…),
+ * nunca un valor del usuario: los valores van por parámetro en la consulta que la usa.
+ */
+export function cabeceraVigenteSql(llave: { sucursal: string; serie: string; folio: string }): string {
+  return `SELECT to_char(h.c9::date, 'YYYY-MM-DD')                   AS fecha,
+           ${ESTATUS_VIGENTE_SQL} AS estatus,
+           upper(NULLIF(btrim(h.c11::text), ''))               AS estatus_kepler,
+           upper(NULLIF(btrim(h.c27::text), ''))               AS origen,
+           NULLIF(btrim(h.c10::text), '')                      AS cliente_code,
+           NULLIF(btrim(h.c32::text), '')                      AS destino_nombre,
+           round(NULLIF(btrim(h.c16::text), '')::numeric, 2)   AS importe
+      FROM kepler_ods.kdm1 h
+     WHERE h.c2 = 'U' AND h.c3 = 'D' AND btrim(h.sucursal) = ${llave.sucursal} AND (h.c4)::integer = 40
+       AND (h.c5)::integer = ${llave.serie} AND btrim(h.c6) = ${llave.folio}
+       AND btrim(h.c1) = btrim(h.sucursal)
+     ORDER BY h.c9 DESC
+     LIMIT 1`;
+}
+
 /** Llave natural de un pedido Kepler. `folio` siempre con 7 dígitos, como lo guarda Kepler. */
 export interface PedidoKeplerLlave {
   sucursal: string;
@@ -235,18 +263,7 @@ export const CABECERAS_POR_LLAVE_SQL = `
 SELECT k.sucursal, k.serie, k.folio, hh.fecha, hh.estatus, hh.origen, hh.cliente_code, hh.destino_nombre, hh.importe
   FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
   LEFT JOIN LATERAL (
-    SELECT to_char(h.c9::date, 'YYYY-MM-DD') AS fecha,
-           upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
-           upper(NULLIF(btrim(h.c27::text), '')) AS origen,
-           NULLIF(btrim(h.c10::text), '') AS cliente_code,
-           NULLIF(btrim(h.c32::text), '') AS destino_nombre,
-           round(NULLIF(btrim(h.c16::text), '')::numeric, 2) AS importe
-      FROM kepler_ods.kdm1 h
-     WHERE h.sucursal = k.sucursal AND h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 40
-       AND (h.c5)::int = k.serie AND btrim(h.c6::text) = k.folio
-       AND btrim(h.c1) = btrim(h.sucursal)
-     ORDER BY h.c9 DESC
-     LIMIT 1
+    ${cabeceraVigenteSql({ sucursal: 'k.sucursal', serie: 'k.serie', folio: 'k.folio' })}
   ) hh ON true`;
 
 /**

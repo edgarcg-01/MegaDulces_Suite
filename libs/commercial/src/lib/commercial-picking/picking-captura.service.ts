@@ -7,6 +7,7 @@ import type {
   CapturaKeplerResponse,
 } from '@megadulces/contracts';
 import { ScopeService, TenantKnexService } from '@megadulces/platform-core';
+import { cabeceraVigenteSql } from './kepler-origen';
 
 /** Estatus de Kepler a partir de los cuales Facturación ya hizo su parte. */
 const YA_AVANZADO = new Set(['SURTIDO', 'CHECADO', 'EMBARCADO']);
@@ -316,17 +317,13 @@ export class PickingCapturaService {
     // Cabecera VIGENTE y renglones de Kepler. Escritas para usar `ix_kdm1_venta_doc` y
     // `ix_kdm2_venta_doc` (btrim(sucursal), c4::int, c5::int, btrim(c6)). Medido en prod con los
     // 2,510 pedidos U-D-40 de 30 días (el peor caso): 42 ms y 404 ms.
+    // `[GP.10.1]` La cabecera sale de `cabeceraVigenteSql` (un solo lugar): un pedido cancelado en
+    // Kepler llega CANCELADO y queda `kepler_otro`, en vez de pedirle a Facturación que lo capture.
     const { rows: cabs } = await trx.raw(
       `SELECT k.sucursal, k.serie, k.folio, hh.estatus, hh.origen
          FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
          LEFT JOIN LATERAL (
-           SELECT upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
-                  upper(NULLIF(btrim(h.c27::text), '')) AS origen
-             FROM kepler_ods.kdm1 h
-            WHERE h.c2 = 'U' AND h.c3 = 'D' AND btrim(h.sucursal) = k.sucursal AND (h.c4)::integer = 40
-              AND (h.c5)::integer = k.serie AND btrim(h.c6) = k.folio AND btrim(h.c1) = btrim(h.sucursal)
-            ORDER BY h.c9 DESC
-            LIMIT 1
+           ${cabeceraVigenteSql({ sucursal: 'k.sucursal', serie: 'k.serie', folio: 'k.folio' })}
          ) hh ON true`,
       [llaves],
     );

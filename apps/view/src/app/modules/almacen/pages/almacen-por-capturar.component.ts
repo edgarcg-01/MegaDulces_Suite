@@ -4,7 +4,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
-import type { CapturaKeplerEstado, CapturaKeplerPedido, CapturaKeplerResponse } from '@megadulces/contracts';
+import { WAREHOUSE_ORDER_CANCELADO, type CapturaKeplerEstado, type CapturaKeplerPedido, type CapturaKeplerResponse } from '@megadulces/contracts';
 import { PickingService } from '../../reparto/picking.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { branchName } from '../../../core/constants/store-branches';
@@ -353,7 +353,9 @@ export class AlmacenPorCapturarComponent implements OnInit {
       case 'por_avanzar': return 'Pasar a SURTIDO';
       case 'con_diferencias': return `Revisar: ${plural(n, 'renglón no cuadra', 'renglones no cuadran')}`;
       case 'capturado': return 'Listo';
-      default: return p.estatus_kepler ? `Kepler lo trae en ${p.estatus_kepler}` : 'No se encontró en Kepler';
+      // [GP.10.1] El servidor ya distingue el cancelado (c43): no hay nada que capturar.
+      default: return p.estatus_kepler === WAREHOUSE_ORDER_CANCELADO ? 'Cancelado en Kepler: nada que capturar'
+        : p.estatus_kepler ? `Kepler lo trae en ${p.estatus_kepler}` : 'No se encontró en Kepler';
     }
   }
 
@@ -363,9 +365,11 @@ export class AlmacenPorCapturarComponent implements OnInit {
       case 'por_avanzar': return `${p.code} salió completo: sólo pásalo a SURTIDO en Kepler.`;
       case 'con_diferencias': return `Kepler ya tiene ${p.code} en ${p.estatus_kepler}, pero estos renglones no traen lo que se surtió:`;
       case 'capturado': return `${p.code} ya está en Kepler como se surtió.`;
-      default: return p.estatus_kepler
-        ? `Kepler trae ${p.code} en ${p.estatus_kepler}: revisa si se canceló o se regresó.`
-        : `No se encontró ${p.code} en Kepler.`;
+      default: return p.estatus_kepler === WAREHOUSE_ORDER_CANCELADO
+        ? `${p.code} está cancelado en Kepler: lo que se surtió hay que regresarlo a su lugar.`
+        : p.estatus_kepler
+          ? `Kepler trae ${p.code} en ${p.estatus_kepler}: revisa si se canceló o se regresó.`
+          : `No se encontró ${p.code} en Kepler.`;
     }
   }
 

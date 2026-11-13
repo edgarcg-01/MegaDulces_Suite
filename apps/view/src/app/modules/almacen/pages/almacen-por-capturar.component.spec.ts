@@ -185,4 +185,19 @@ describe('AlmacenPorCapturarComponent · la entrega a Facturación (GP.3d)', () 
     await montar();
     expect(texto()).toContain('Kepler (todas las sucursales) leído hace 3 min');
   });
+
+  // [GP.10.1] Kepler cancela con c43 = 'C' y conserva el c11 viejo; el servidor ya lo manda CANCELADO.
+  it('un pedido cancelado en Kepler no pide captura: dice que se regrese lo surtido', async () => {
+    await montar();
+    const cancelado = P({ code: 'UD4001-0000289', estado: 'kepler_otro', estatus_kepler: 'CANCELADO' });
+    expect(c.queHacer(cancelado)).toBe('Cancelado en Kepler: nada que capturar');
+    expect(c.instruccion(cancelado)).toBe('UD4001-0000289 está cancelado en Kepler: lo que se surtió hay que regresarlo a su lugar.');
+  });
+
+  it('NEGATIVA: otro estatus inesperado sigue pidiendo revisar (no se da por cancelado)', async () => {
+    await montar();
+    const otro = P({ code: 'UD4001-0000290', estado: 'kepler_otro', estatus_kepler: 'CREADO' });
+    expect(c.queHacer(otro)).toBe('Kepler lo trae en CREADO');
+    expect(c.instruccion(otro)).toContain('revisa si se canceló o se regresó');
+  });
 });

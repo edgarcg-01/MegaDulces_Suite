@@ -13,6 +13,7 @@
 - Kepler cancela un pedido dejándolo en $0 y sin renglones, pero conserva el estatus que tenía. El Tablero de `/almacen/pedidos` lo seguía contando como vivo: de los 54 pedidos «en Surtido» de noviembre, 34 estaban cancelados.
 - Ahora los cancelados tienen su propio botón, **Cancelado**, y salen de «Todos», de los totales y del «sin embarcar más antiguo». En el detalle se ve cuál era su último estatus.
 - La cola de **Surtir** ya no ofrece pedidos cancelados (eran 15 de 75 en dos semanas), y la cuenta de «atorados» deja de incluirlos.
+- (GP.10.1) Tampoco el **checado** los ofrece, ni **Por capturar** le pide a Facturación capturarlos: ahora dice que lo surtido se regrese a su lugar. Las olas muestran su pedido como cancelado; había 7 de 60, 5 de ellos en olas abiertas.
 
 ### Added — Mesa de Servicio: área de Compras y «Nueva área» desde la pantalla (MS.8.1–MS.8.3, 2026-11-11 · en código, sin soltar)
 - Nueva área **Compras (precios y productos)** para reportar precio incorrecto, código de barras, producto no encontrado en Kepler, descripción, IVA, margen e IEPS, con sucursal obligatoria y código de barras / clave / observaciones opcionales. Responsable: Mario Ventura (los permisos de la Mesa se le dan sólo a él).

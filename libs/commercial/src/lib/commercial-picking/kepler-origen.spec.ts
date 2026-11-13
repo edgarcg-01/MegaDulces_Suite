@@ -1,5 +1,12 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver la nota de `allocation.spec.ts`).
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
+  ATORADOS_KEPLER_SQL,
+  cabeceraVigenteSql,
+  CABECERAS_POR_LLAVE_SQL,
+  ESTATUS_VIGENTE_SQL,
+  POOL_KEPLER_SQL,
   documentoKepler,
   keplerOrderId,
   normalizarLlave,
@@ -145,5 +152,38 @@ describe('unidadesMezcladas · el mismo producto en dos unidades frena la ola', 
 
   it('un renglón sin producto se ignora acá (lo frena la regla del catálogo)', () => {
     expect(unidadesMezcladas([r('kepler', null, 'PAQ', '999'), r('kepler', null, 'PZA', '999')])).toEqual([]);
+  });
+});
+
+/**
+ * `[GP.10.0]` y `[GP.10.1]` La cabecera VIGENTE del pedido vive en UN lugar. Kepler cancela con
+ * `c43 = 'C'` y conserva el `c11` viejo: medido el 2026-11-13, 5 de los 24 pedidos de olas abiertas
+ * estaban cancelados, y la captura, el checado y la cola los veían vivos.
+ */
+describe('[GP.10.1] cabecera vigente del pedido, en un solo lugar', () => {
+  it('el estatus vigente vuelve CANCELADO lo que Kepler canceló (c43), antes de mirar c11', () => {
+    expect(ESTATUS_VIGENTE_SQL).toMatch(/CASE WHEN btrim\(coalesce\(h\.c43::text, ''\)\) = 'C' THEN 'CANCELADO'/);
+  });
+
+  it('la cabecera por llave usa las tres expresiones que recibe, la versión más reciente y el estatus vigente', () => {
+    const sql = cabeceraVigenteSql({ sucursal: 'wo.kepler_sucursal', serie: 'wo.kepler_serie', folio: 'wo.kepler_folio' });
+    expect(sql).toContain('btrim(h.sucursal) = wo.kepler_sucursal');
+    expect(sql).toContain('(h.c5)::integer = wo.kepler_serie');
+    expect(sql).toContain('btrim(h.c6) = wo.kepler_folio');
+    expect(sql).toContain('btrim(h.c1) = btrim(h.sucursal)');
+    expect(sql).toMatch(/ORDER BY h\.c9 DESC\s+LIMIT 1/);
+    expect(sql).toContain(ESTATUS_VIGENTE_SQL);
+  });
+
+  it('las consultas del motor (cabeceras, cola, atorados) toman el estatus vigente', () => {
+    for (const sql of [CABECERAS_POR_LLAVE_SQL, POOL_KEPLER_SQL, ATORADOS_KEPLER_SQL]) expect(sql).toContain(ESTATUS_VIGENTE_SQL);
+  });
+
+  it('NEGATIVA: la captura y el checado ya no leen la cabecera por su cuenta (sin h.c11 propio)', () => {
+    for (const archivo of ['picking-captura.service.ts', 'checado.service.ts']) {
+      const fuente = readFileSync(join(__dirname, archivo), 'utf8');
+      expect(fuente, archivo).not.toMatch(/h\.c11/);
+      expect(fuente, archivo).toContain('cabeceraVigenteSql(');
+    }
   });
 });
