@@ -126,46 +126,10 @@ export class ContpaqiPuenteService {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
 
-  /** `[CP.8.80]` Las categorías que puede llevar un egreso. `_VER`. */
-  categoriasEgreso(): Observable<CategoriaEgreso[]> {
-    return this.http.get<CategoriaEgreso[]>(`${this.base}/categorias-egreso`);
-  }
-
-  /** `[CP.8.80]` Qué egresos sin categoría tomaría «empieza con `texto`», sin guardar nada. `_VER`. */
-  vistaPreviaBeneficiario(movimiento: string, texto: string): Observable<VistaPreviaBeneficiario> {
-    return this.http.get<VistaPreviaBeneficiario>(
-      `${this.base}/movimientos/${encodeURIComponent(movimiento)}/beneficiario?texto=${encodeURIComponent(texto)}`);
-  }
-
-  /** `[CP.8.80]` Categoriza un egreso sin categoría; con `beneficiario`, deja la regla. Exige `_CATEGORIZAR`. */
-  categorizar(movimiento: string, body: { categoria: string; beneficiario?: string }): Observable<ResultadoCategorizar> {
-    return this.http.post<ResultadoCategorizar>(`${this.base}/movimientos/${encodeURIComponent(movimiento)}/categoria`, body);
-  }
 }
 
-/** `[CP.8.80]` Una categoría de egreso de banco. */
-export interface CategoriaEgreso {
-  code: string;
-  nombre: string;
-  grupo: string;
-}
-
-/** `[CP.8.80]` Lo que tomaría la regla por beneficiario. ⛔ `movimientos` puede ser mayor que `filas` (muestra de 50). */
-export interface VistaPreviaBeneficiario {
-  texto: string;
-  movimientos: number;
-  importe: number;
-  filas: { id: string; fecha: string; banco: string; concepto: string; importe: number }[];
-  regla_existente: { prioridad: number; categoria: string } | null;
-}
-
-export interface ResultadoCategorizar {
-  movimiento_id: string;
-  categoria: string;
-  regla: { prioridad: number; texto: string; nueva: boolean } | null;
-  aplicados: number;
-  importe_aplicado: number;
-}
+/** `[CB.70]` Categorizar un egreso vive en la pieza compartida (Bancos también la usa): sus llamadas y sus tipos están allá. */
+export type { CategoriaEgreso, VistaPreviaBeneficiario, ResultadoCategorizar } from '../../shared/components/categorizar-egreso/categorizar-egreso.api';
 
 /** Un lote = una póliza candidata, al grano real: **(cuenta de banco × día)**. */
 export interface LoteRow {

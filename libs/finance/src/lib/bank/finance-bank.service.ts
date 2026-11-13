@@ -1328,14 +1328,21 @@ export class FinanceBankService {
 
     // 1. Movimientos sin clasificar (+ evidencia: los grupos que más pesan = qué regla agregar).
     if (n((sinClas as any)?.n) > 0) {
-      const evidencia = (sinClasBuckets as any[]).map((b) => ({
-        label: `Cód ${b.code} · "${String(b.concepto || '').trim() || '(sin concepto)'}…"`,
-        count: Number(b.n), monto: n(b.monto),
-      }));
+      // [CB.70] Un renglón sin código ni concepto decía «Cód — · "(sin concepto)…"» (11 de 31 en nov-2026, $278,842).
+      const evidencia = (sinClasBuckets as any[]).map((b) => {
+        const concepto = String(b.concepto || '').trim();
+        return {
+          label: b.code === '—' && !concepto ? 'Sin código ni concepto en el libro'
+            : `${b.code === '—' ? 'Sin código' : `Código ${b.code}`} · «${concepto || 'sin concepto'}…»`,
+          count: Number(b.n), monto: n(b.monto),
+        };
+      });
       items.push({ tipo: 'sin_clasificar', severidad: 'warn', importe: n((sinClas as any)?.monto),
         titulo: `${(sinClas as any).n} movimientos sin clasificar`,
         detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan.`,
-        accion: 'Por ahora la clasificación no se edita aquí. En Kepler, busca cada movimiento por monto + fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Si no está registrado, captúralo en la cuenta correcta.',
+        // [CB.70] Decía «la clasificación no se edita aquí… en Kepler»: corregir en Kepler no le pone categoría al
+        // movimiento. Ahora se categoriza en el detalle del movimiento, con la pieza y el permiso del puente (CP.8.80).
+        accion: 'Abre «Ver sin clasificar» y, en el detalle de cada egreso, usa «Categorizar»: con la casilla quedan también todos los que empiecen con el mismo nombre, ahora y en los próximos estados de cuenta. Lo hacen Finanzas y Contabilidad (permiso «Categorizar egresos en el Puente ContPAQi»). Si no sabes qué es, en Kepler búscalo por monto y fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Los depósitos todavía no se categorizan en la suite: se corrigen con su código en el libro CUENTAS.',
         evidencia });
     }
     // 2. Cuentas cuyo saldo no cuadra (+ evidencia: el renglón donde el saldo salta).
