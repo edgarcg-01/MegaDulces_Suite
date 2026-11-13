@@ -146,6 +146,11 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
       @if (view() === 'cierre') {
         @if (diagError()) {
           <app-load-state [error]="diagError()" (retry)="setPeriod(period())"></app-load-state>
+        } @else if (diagCargando()) {
+          <!-- [CB.68] El Cierre espera al diagnóstico (~1 s), no al concentrado: sin esto pintaba «Sin datos» mientras cargaba. -->
+          <div class="fb-skeleton" aria-busy="true" aria-label="Cargando el cierre del periodo">
+            @for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }
+          </div>
         } @else {
           <!-- [CB.59] Lo primero del cierre: si falta la descarga del banco de alguna cuenta. -->
           <bancos-descargas-aviso [cuentas]="descargas()?.cuentas ?? null" [error]="descargasError()" (irA)="goView('estados')" />
@@ -452,6 +457,12 @@ export class FinanzasBancosComponent implements OnInit {
   readonly movError = signal<string | null>(null);
   readonly reconError = signal<string | null>(null);
   readonly diagError = signal<string | null>(null);
+  /**
+   * `[CB.68]` El diagnóstico del periodo todavía no llega. El esqueleto general se quita con el concentrado (~80 ms)
+   * y el diagnóstico tarda ~1 s: en ese hueco el Cierre decía «Sin datos para 2026-11. Sube un estado de cuenta»
+   * con el mes lleno (184 cargas en 14 días, medido en prod el 2026-11-13).
+   */
+  readonly diagCargando = signal(false);
   // Auto-disable síncrono del alta de cuenta (anti doble-submit — DESIGN §13).
   readonly addingAcct = signal(false);
 
@@ -826,7 +837,13 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
     this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => { this.reconciliation.set(null); this.reconError.set('No se pudo cargar la conciliación del periodo.'); } });
     this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
-    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => { this.diagnostico.set(null); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); } });
+    // [CB.68] Se limpia el del periodo anterior: mientras carga, el Cierre no muestra otro mes con el rótulo de éste.
+    this.diagnostico.set(null);
+    this.diagCargando.set(true);
+    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.diagnostico.set(d); this.diagCargando.set(false); },
+      error: () => { this.diagnostico.set(null); this.diagCargando.set(false); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); },
+    });
     this.reloadMovements();
   }
 
