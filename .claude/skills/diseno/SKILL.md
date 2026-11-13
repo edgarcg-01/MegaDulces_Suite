@@ -53,7 +53,7 @@ se apoya en el anterior; los pasos 4–9 son las cinco preguntas de §0b, ahora 
 | # | Paso | La salida que se escribe |
 |---|---|---|
 | 1 | **Propósito** | el ACTO que la pantalla cierra, y la prueba de la frase (una pregunta, sin «y») |
-| 2 | **Quién entra y con qué pregunta** | roles (de `MATRIZ_ACCESOS.md`) × paso del proceso × lo que hizo, **medido** en `analytics.ui_usage` (`node .claude/skills/pm/uso.js <ruta>`) |
+| 2 | **Quién entra y con qué pregunta** | roles (de `MATRIZ_ACCESOS.md`) × paso del proceso × lo que hizo, **medido** en `analytics.ui_usage` (`node .claude/skills/pm/uso.js <ruta>`). ⛔ Si la pantalla es **de celular**, `ui_usage` no sirve (no sabe el dispositivo): `node .claude/skills/pm/uso-movil.js '^/<ruta>'` da persona-días en celular contra computadora — el Arqueo daba 31/31 días en `ui_usage` y en celular es 9 contra 685 |
 | 3 | **El estado real** | dónde está detenido el trabajo hoy, con cifras de prod en sólo lectura. ⭐ El cuello que salga de aquí es lo primero que ve la persona |
 | 4 | **Qué ve, en qué orden (nivel 0)** | lo que define el estado, sin clic, completo, con UN botón |
 | 5 | **Qué no ve** | tabla: pieza de hoy → decisión → por qué |
