@@ -907,3 +907,12 @@ y hacía tres cosas: altas, reactivar borrados que Kepler trae vivos y llenar `f
   las fallas del evento quedan en `hop2_fallas`. La herramienta manual mide en sólo lectura: hoy 0 / 0 / 5.
 - Pruebas: 12 ✓ con dos negativas; 9 mutantes en rojo (incluido el que pone el costo antes que el factor). Vecinas en
   verde. El día del despliegue de la ingesta: `repoint-catalog-presence.js --apply` una vez para los 5 factores.
+
+**Cierre del despliegue de la oleada 9 (2026-11-13).** Las migraciones `20261112102727`, `…135015` y `…152928` se
+aplicaron el 12-nov (~17:58 MX) y salieron la API y la ingesta con 6.8–6.16. Los 31 productos atorados en SIN-LINEA y
+los 5 factores de caja se resolvieron solos esa madrugada, por evento. Edgar corrió desde `feeds-cron`:
+`import-margin.js --apply` (los 6 rezagados del borrado, ver 9.2) e `import-brands-lineas.js --apply` (alta de la línea
+355). Medido después, en sólo lectura: **los cinco árbitros en 0** (markup, promo, nombres, marcas, códigos) y
+**ninguna falla en `hop2_fallas`**. Pendiente: los 43 códigos revividos (`--retirar-revividos`, llega con el siguiente
+despliegue de la ingesta; una corrida previa sin la bandera en la imagen hizo sólo la reconciliación Kepler: 0 cambios).
+⚠️ A vigilar: esa misma medición dio nombres ~1 s y promo ~0.5 s (antes ~0.35 y ~0.2): la primera lectura de `kdii`.
