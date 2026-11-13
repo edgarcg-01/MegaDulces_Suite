@@ -25,7 +25,7 @@ import {
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
-import { csvATabla, decodificarCsv, leerTablaUbicaciones } from '../shared/ubicaciones-archivo';
+import { csvATabla, decodificarCsv, leerTablaUbicaciones, leerXlsx } from '../shared/ubicaciones-archivo';
 
 type Modo = 'rango' | 'archivo';
 type Sev = 'success' | 'secondary' | 'warn' | 'danger' | 'info';
@@ -53,7 +53,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
   template: `
     <section class="uc-block" aria-labelledby="uc-h">
       <div class="uc-bh">
-        <h2 id="uc-h">Captura masiva · {{ warehouse().code }}</h2>
+        <h2 id="uc-h">Captura masiva · {{ warehouse().name }}</h2>
         <app-segmented [options]="modos" [value]="modo()" (valueChange)="pickModo($any($event))" ariaLabel="Forma de captura" />
       </div>
 
@@ -148,7 +148,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
       }
 
       <div class="uc-step">
-        <h3>Últimas capturas en {{ warehouse().code }}</h3>
+        <h3>Últimas capturas en {{ warehouse().name }}</h3>
         @if (lotes().length) {
           <ul class="uc-lotes">
             @for (l of lotes(); track l.id) {
@@ -158,7 +158,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
                 @if (l.undone_at) {
                   <span class="uc-sub">Deshecho {{ fecha(l.undone_at) }} ({{ l.undone_count }} retiradas)</span>
                 } @else if (l.en_uso) {
-                  <span class="uc-sub">{{ l.en_uso }} con mercancía acomodada: ya no se deshace</span>
+                  <span class="uc-sub">{{ l.en_uso }} ya en uso (con mercancía o con productos asignados): ya no se deshace</span>
                 } @else if (confirmar() === l.id) {
                   <span class="uc-confirm">
                     <span class="uc-sub">¿Retirar las {{ l.created_count }}?</span>
@@ -424,20 +424,4 @@ export class UbicacionesCapturaComponent {
 function mensaje(e: HttpErrorResponse, fallback: string): string {
   const m = e.error?.message;
   return typeof m === 'string' ? m : Array.isArray(m) ? m.join(' · ') : fallback;
-}
-
-/** Primera hoja del Excel como tabla de celdas. `exceljs` se carga bajo demanda (no entra al bundle inicial). */
-async function leerXlsx(buf: ArrayBuffer): Promise<unknown[][]> {
-  const mod = (await import('exceljs')) as unknown as Record<string, any>;
-  const ExcelJS = mod['default'] ?? mod;
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf);
-  const ws = wb.worksheets[0];
-  if (!ws) return [];
-  const tabla: unknown[][] = [];
-  ws.eachRow({ includeEmpty: true }, (row: { values: unknown[] }, n: number) => {
-    // exceljs indexa las celdas desde 1: values[0] siempre viene vacío.
-    tabla[n - 1] = (row.values as unknown[]).slice(1);
-  });
-  return Array.from(tabla, (r) => r ?? []);
 }

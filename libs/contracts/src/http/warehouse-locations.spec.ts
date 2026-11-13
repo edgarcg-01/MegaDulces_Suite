@@ -2,6 +2,9 @@ import {
   defaultPickSequence,
   expandLocationRange,
   LOCATION_BULK_MAX,
+  parseAssignmentRole,
+  resolvePresentation,
+  type ProductPresentation,
   describeLocationCode,
   formatLocationCode,
   LOCATION_CODE_RE,
@@ -122,5 +125,50 @@ describe('[UB.2] expandir un rango', () => {
     const r = expandLocationRange({ ...base, pasillo_hasta: 'Z', rack_hasta: 99, nivel_hasta: 6 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motivo).toContain('tope');
+  });
+});
+
+describe('[UB.3] leer presentación y papel como los escribe la gente', () => {
+  // La escalera real del 70243 en PH (medida en prod): PAQ base · peldaño 2 fantasma · CJA ×20.
+  const mazapan: ProductPresentation[] = [
+    { peldano: 1, rotulo: 'PAQ', factor: 1, fuente: 'base', codigos: ['724869008464'], es_caja: false },
+    { peldano: 3, rotulo: 'CJA', factor: 20, fuente: 'capturado', codigos: ['C70243'], es_caja: true },
+  ];
+
+  it.each([
+    ['caja', 3], ['CAJA', 3], ['cja', 3], ['3', 3],
+    ['paquete', 1], ['Paquete', 1], ['PAQ', 1], ['1', 1],
+  ])('%j → peldaño %i', (raw, peldano) => {
+    const r = resolvePresentation(raw, mazapan);
+    expect(r.ok && r.peldano).toBe(peldano);
+  });
+
+  it('una presentación que el producto no tiene se rechaza diciendo cuáles sí', () => {
+    const r = resolvePresentation('pieza', mazapan);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('1 = PAQ, 3 = CJA');
+  });
+
+  it('el peldaño fantasma (2) no existe para elegirlo', () => {
+    expect(resolvePresentation('2', mazapan).ok).toBe(false);
+  });
+
+  it('si dos peldaños comparten rótulo, pide el número (no adivina)', () => {
+    const doble: ProductPresentation[] = [
+      { peldano: 1, rotulo: 'PZA', factor: 1, fuente: 'base', codigos: [], es_caja: false },
+      { peldano: 2, rotulo: 'CJA', factor: 12, fuente: 'capturado', codigos: [], es_caja: false },
+      { peldano: 3, rotulo: 'CJA', factor: 48, fuente: 'capturado', codigos: [], es_caja: true },
+    ];
+    const r = resolvePresentation('caja', doble);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('Usa el número');
+    expect(resolvePresentation('3', doble).ok).toBe(true);
+  });
+
+  it.each([
+    ['Surtido', 'surtido_fijo'], ['lugar fijo', 'surtido_fijo'], ['exhibición', 'exhibicion_tienda'],
+    ['Tienda', 'exhibicion_tienda'], ['RESERVA', 'reserva_preferida'], ['bodega', null], ['', null],
+  ])('papel %j → %s', (raw, papel) => {
+    expect(parseAssignmentRole(raw)).toBe(papel);
   });
 });

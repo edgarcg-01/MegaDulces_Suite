@@ -1,4 +1,4 @@
-import { csvATabla, decodificarCsv, leerTablaUbicaciones } from './ubicaciones-archivo';
+import { csvATabla, decodificarCsv, leerTablaAsignaciones, leerTablaUbicaciones } from './ubicaciones-archivo';
 
 describe('[UB.2] leer archivo de ubicaciones', () => {
   it('reconoce encabezados con acentos, mayúsculas y en cualquier orden', () => {
@@ -61,5 +61,29 @@ describe('[UB.2] CSV', () => {
 
   it('coma por default y BOM de Excel', () => {
     expect(csvATabla('\uFEFFcodigo,tipo\r\nBA011,reserva')).toEqual([['codigo', 'tipo'], ['BA011', 'reserva']]);
+  });
+});
+
+describe('[UB.3] leer Excel de asignaciones', () => {
+  it('lee clave, presentación, ubicación, papel, mínimo y máximo con encabezados como los escribe la gente', () => {
+    const r = leerTablaAsignaciones([
+      ['Clave', 'Presentación', 'Ubicación', 'Papel', 'Mínimo', 'Máximo'],
+      ['70243', 'caja', 'BA053', 'surtido', 4, 12],
+      ['70243', 'paquete', 'TA021', 'exhibición', '', ''],
+    ]);
+    expect(r).toEqual({
+      ok: true,
+      vacias: 0,
+      filas: [
+        { fila: 2, sku: '70243', presentacion: 'caja', ubicacion: 'BA053', papel: 'surtido', min: '4', max: '12' },
+        { fila: 3, sku: '70243', presentacion: 'paquete', ubicacion: 'TA021', papel: 'exhibición', min: null, max: null },
+      ],
+    });
+  });
+
+  it('sin las columnas obligatorias dice cuáles faltan', () => {
+    const r = leerTablaAsignaciones([['Clave', 'Ubicación'], ['70243', 'BA053']]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('Presentación, Papel');
   });
 });
