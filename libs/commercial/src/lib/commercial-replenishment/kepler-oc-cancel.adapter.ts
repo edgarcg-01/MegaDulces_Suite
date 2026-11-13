@@ -3,7 +3,7 @@ import { Pool, PoolClient } from 'pg';
 import { urlDeServidor, type Env } from '@megadulces/platform-core';
 
 import {
-  decidirCancelacionOc, sentenciasCancelacion, TABLAS_KEPLER,
+  decidirCancelacionOc, permisosNecesarios, sentenciasCancelacion, TABLAS_KEPLER,
   type OcEnKepler, type PlanCancelacion, type RequisicionEnKepler, type Tablas,
 } from './kepler-oc-cancelacion';
 
@@ -84,6 +84,16 @@ export class KeplerOcCancelAdapter implements OnModuleDestroy {
    * y aquí ejecute las MISMAS sentencias sobre copias temporales y haga ROLLBACK.
    */
   protected async confirmar(c: PoolClient, plan: PlanCancelacion, tablas: Tablas = TABLAS_KEPLER): Promise<string | null> {
+    // Antes de tocar nada: ¿Kepler le da a `kepler_push` cada permiso? Sin esto, la falta de uno se
+    // descubre a media transacción con un «permiso denegado» que no dice cuál ni para qué.
+    const faltan: string[] = [];
+    for (const expr of permisosNecesarios(!!plan.requisicion)) {
+      if ((await c.query(`SELECT (${expr}) ok`)).rows[0]?.ok !== true) faltan.push(expr.replace(/^has_\w+\(current_user, /, '').replace(/\)$/, ''));
+    }
+    if (faltan.length) {
+      await c.query('ROLLBACK');
+      return `Kepler (sucursal ${plan.sucursal}) todavía no le da a la Suite el permiso para ${plan.requisicion ? 'reabrir la requisición' : 'cancelar'} (${faltan.join('; ')}); no se escribió nada`;
+    }
     for (const s of sentenciasCancelacion(plan, tablas)) {
       const r = await c.query(s.sql, s.params);
       if (r.rowCount !== s.esperadas) {

@@ -19,6 +19,9 @@ import { KEPLER_REQUISITION_SINK_PORT } from '@megadulces/contracts';
 import { KeplerRequisitionSinkAdapter } from './kepler-requisition-sink.adapter';
 import { SucursalPendientesService } from './sucursal-pendientes.service';
 import { SucursalPendientesController } from './sucursal-pendientes.controller';
+import { KeplerOcCancelAdapter } from './kepler-oc-cancel.adapter';
+import { OcCancelacionService } from './oc-cancelacion.service';
+import { OcCancelacionController } from './oc-cancelacion.controller';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -30,14 +33,16 @@ import { SucursalPendientesController } from './sucursal-pendientes.controller';
 @Module({
   // `[AB.45]` Pendientes de la sucursal: vive aquí porque reusa `AutoabastoPedidoService.viene` y el
   // alcance de almacenes de Autoabasto.
-  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController, PedidoNegociacionController, SucursalPendientesController],
+  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController, PedidoNegociacionController, SucursalPendientesController, OcCancelacionController],
   providers: [CommercialReplenishmentService, AutoabastoPedidoService, SucursalPendientesService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService, PedidoNegociacionService,
     // `[KR.4]` La puerta hacia Kepler (ADR-016, excepción autorizada 2026-10-13).
     // ⛔ Estar ligado NO significa estar encendido: el adapter sólo abre conexión si existe
     // `KEPLER_PUSH_URL`, y aunque exista, sin `GRANT INSERT` sobre `md.kdm1`/`kdm2` la base
     // rechaza la escritura. Son tres candados independientes y el de la base es el que manda.
     KeplerRequisitionSinkAdapter,
-    { provide: KEPLER_REQUISITION_SINK_PORT, useExisting: KeplerRequisitionSinkAdapter }],
+    { provide: KEPLER_REQUISITION_SINK_PORT, useExisting: KeplerRequisitionSinkAdapter },
+    // `[PQ.110]` Cancelar OC en Kepler: apagado por sucursal en kepler_push_switch (tipo cancela_oc).
+    KeplerOcCancelAdapter, OcCancelacionService],
   exports: [CommercialReplenishmentService, CommercialPurchaseOrdersService, PurchaseAdjustmentsService],
 })
 export class CommercialReplenishmentModule {}

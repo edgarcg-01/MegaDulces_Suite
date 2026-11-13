@@ -159,6 +159,7 @@ export * from './http/precios-sucursales.contract';
 // [CAT-PRECIO.2–5] Precios (catálogo por sucursal + historia) y Mantenimiento › Sin clasificar.
 export * from './http/precios-catalogo.contract';
 export * from './http/oc-seguimiento.contract';
+export * from './http/oc-cancelacion.contract';
 export * from './http/oc-cadena.contract';
 export * from './http/flujo-compras.contract';
 export * from './http/replenishment-monthly.contract';
