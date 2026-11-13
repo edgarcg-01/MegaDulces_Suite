@@ -87,8 +87,10 @@ const SUCURSALES = ['01', '02', '03', '04', '05', '06', '07', '08'];
         }
       }
 
-      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filas().length"
-                      [emptyIcon]="datos()?.tickets?.length ? 'pi-check-circle' : 'pi-ticket'"
+      <!-- [MKT.23] Pedir la sucursal no es una falla: va como estado vacío con su instrucción, no en rojo. -->
+      <app-load-state [loading]="res.isLoading() && !datos()" [error]="pideSucursal() ? null : error()"
+                      [isEmpty]="pideSucursal() || (!!datos() && !filas().length)"
+                      [emptyIcon]="pideSucursal() ? 'pi-building' : datos()?.tickets?.length ? 'pi-check-circle' : 'pi-ticket'"
                       [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()" (retry)="res.reload()">
         <p-table [value]="filas()" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack">
           <ng-template #header>
@@ -234,8 +236,10 @@ export class TiendaArqueoPromosComponent {
     ];
   });
 
-  readonly vacioTitulo = computed(() => (this.datos()?.tickets.length ? 'Todos tienen vendedora' : 'Sin tickets con promoción'));
-  readonly vacioPista = computed(() => (this.datos()?.tickets.length
+  readonly vacioTitulo = computed(() => (this.pideSucursal() ? 'Elige una sucursal'
+    : this.datos()?.tickets.length ? 'Todos tienen vendedora' : 'Sin tickets con promoción'));
+  readonly vacioPista = computed(() => (this.pideSucursal() ? 'Elígela arriba para ver sus tickets con promoción.'
+    : this.datos()?.tickets.length
     ? 'Cambia a «Todos» para revisarlos o corregir alguno.'
     : 'En estos días la sucursal no tiene tickets con una promoción de Kepler.'));
 
