@@ -156,6 +156,8 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       // quien no tenía ninguna clave de Ubicaciones veía el área y rebotaba (revisión del PR). El
       // reparto da VER a todo rol que acomoda o gestiona; la RUTA sí acepta las tres (candado SN.4).
       { label: 'Mapa', icon: 'pi pi-map', route: '/almacen/ubicaciones', permission: Permission.ALMACEN_UBICACIONES_VER, exact: true },
+      // `[UB.3]` Dónde va cada producto, por presentación. Mismo permiso que el Mapa.
+      { label: 'Asignación', icon: 'pi pi-sitemap', route: '/almacen/ubicaciones/asignacion', permission: Permission.ALMACEN_UBICACIONES_VER, exact: true },
       { label: 'Contenido', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR], exact: true },
     ],
   },

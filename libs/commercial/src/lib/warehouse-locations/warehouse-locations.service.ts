@@ -1,5 +1,5 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, branchKeySql } from '@megadulces/platform-core';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import {
   defaultPickSequence,
   LOCATION_KINDS,
@@ -10,16 +10,13 @@ import {
   type WarehouseLocationsResponse,
   type WarehouseLocationsSummary,
 } from '@megadulces/contracts';
+import { almacenDeUbicaciones, ES_RUTA } from './warehouse-locations-scope';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LABEL_MAX = 120;
 const TIPOS = new Set<string>(LOCATION_KINDS.map((k) => k.key));
-/**
- * Las rutas (`RUTA-*`) son camiones: no tienen racks. Se dejan fuera del selector para que nadie
- * genere ubicaciones de bodega sobre un camión. Si algún día se ubican estibas del camión, entran
- * como familia `estiba`, no como `ubicacion`.
- */
-const ES_RUTA = /^RUTA-/i;
+// Las rutas (`RUTA-*`, ES_RUTA) son camiones: no tienen racks y se dejan fuera del selector. Si algún
+// día se ubican estibas del camión, entran como familia `estiba`, no como `ubicacion`.
 
 interface FilaCruda extends Omit<WarehouseLocationRow, 'renglones_con_cantidad' | 'updated_at'> {
   renglones_con_cantidad: string | number;
@@ -95,23 +92,12 @@ export class WarehouseLocationsService {
     const label = String(body.label ?? '').trim();
     if (label.length > LABEL_MAX) throw new BadRequestException(`El nombre no puede pasar de ${LABEL_MAX} caracteres.`);
 
-    const visibles = await this.visibles();
-    if (visibles !== null && !visibles.includes(warehouseId)) throw new NotFoundException('Almacén no encontrado.');
-    const resuelto = await this.scope.current('almacen');
+    // [UB.3] Alcance de lectura + escritura con el validador común del módulo (clave canónica de la
+    // sucursal, no `code`: en Morelia `code` es 'MD-30' y la clave del alcance es '30').
+    const ctx = { visibles: await this.visibles(), resuelto: await this.scope.current('almacen') };
 
     return this.tk.run(async (trx) => {
-      // `clave` = la llave canónica de la sucursal (branchKeySql), NO `code`: en Morelia `code` es
-      // 'MD-30' y la clave del alcance es '30'. Comparar contra `code` le negaba al encargado su
-      // propia sucursal (revisión del PR).
-      const wh = await trx('commercial.warehouses as w')
-        .where('w.id', warehouseId)
-        .whereNull('w.deleted_at')
-        .first('w.id', 'w.code', trx.raw(`${branchKeySql('w')} AS clave`));
-      if (!wh || ES_RUTA.test(wh.code)) throw new NotFoundException('Almacén no encontrado.');
-      // Leer no es escribir: el alcance de escritura puede ser más corto que el de lectura.
-      if (!this.scope.canWrite(resuelto, 'warehouse', wh.clave)) {
-        throw new ForbiddenException(`No puedes dar de alta ubicaciones en el almacén ${wh.code}.`);
-      }
+      const wh = await almacenDeUbicaciones(trx, this.scope, ctx, warehouseId, true);
       const dup = await trx('commercial.warehouse_bins')
         .where({ warehouse_id: wh.id })
         .whereRaw('UPPER(code) = ?', [parsed.code])

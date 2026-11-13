@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ScopeService, branchKeySql } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { almacenDeUbicaciones } from './warehouse-locations-scope';
 import {
   defaultPickSequence,
   expandLocationRange,
@@ -22,7 +23,6 @@ import {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LABEL_MAX = 120;
 const TIPOS = new Set<string>(LOCATION_KINDS.map((k) => k.key));
-const ES_RUTA = /^RUTA-/i;
 /** Lo que se pinta en la vista previa; los conteos sí cubren todo. */
 const PREVIEW_MAX = 500;
 /** Primero lo que tiene algo que decir. */
@@ -58,15 +58,8 @@ export class WarehouseLocationsBulkService {
 
   /** Valida el almacén: visible, no camión, y con alcance de ESCRITURA (clave canónica, no `code`). */
   private async almacenEscribible(trx: Knex.Transaction, warehouseId: string, visibles: string[] | null, resuelto: Awaited<ReturnType<ScopeService['current']>>): Promise<Almacen> {
-    if (visibles !== null && !visibles.includes(warehouseId)) throw new NotFoundException('Almacén no encontrado.');
-    const wh = await trx('commercial.warehouses as w')
-      .where('w.id', warehouseId)
-      .whereNull('w.deleted_at')
-      .first('w.id', 'w.code', 'w.name', trx.raw(`${branchKeySql('w')} AS clave`));
-    if (!wh || ES_RUTA.test(wh.code)) throw new NotFoundException('Almacén no encontrado.');
-    if (!this.scope.canWrite(resuelto, 'warehouse', wh.clave)) {
-      throw new ForbiddenException(`No puedes dar de alta ubicaciones en el almacén ${wh.code}.`);
-    }
+    // `[UB.3]` La regla vive en warehouse-locations-scope.ts, compartida con la asignación.
+    const wh = await almacenDeUbicaciones(trx, this.scope, { visibles, resuelto }, warehouseId, true);
     return { id: wh.id, code: wh.code, name: wh.name };
   }
 
@@ -243,9 +236,14 @@ export class WarehouseLocationsBulkService {
       const r = await trx.raw(
         `SELECT b.id, b.kind, b.params, b.created_count, b.skipped_count, b.created_at, b.undone_at, b.undone_count,
                 COALESCE(u.nombre, u.username) AS created_by_name,
-                (SELECT count(DISTINCT wb.id) FROM commercial.warehouse_bins wb
-                   JOIN commercial.stock_lot_locations l ON l.tenant_id = wb.tenant_id AND l.bin_id = wb.id AND l.quantity > 0
-                  WHERE wb.tenant_id = b.tenant_id AND wb.capture_batch_id = b.id) AS en_uso
+                -- [UB.3] En uso = con mercancía acomodada O con un producto asignado (vivo o quitado):
+                -- cualquiera de los dos frena el Deshacer, así que el aviso tiene que contar los dos.
+                (SELECT count(*) FROM commercial.warehouse_bins wb
+                  WHERE wb.tenant_id = b.tenant_id AND wb.capture_batch_id = b.id
+                    AND (EXISTS (SELECT 1 FROM commercial.stock_lot_locations l
+                                  WHERE l.tenant_id = wb.tenant_id AND l.bin_id = wb.id AND l.quantity > 0)
+                      OR EXISTS (SELECT 1 FROM commercial.bin_assignments a
+                                  WHERE a.tenant_id = wb.tenant_id AND a.bin_id = wb.id))) AS en_uso
            FROM commercial.location_capture_batches b
            LEFT JOIN identity.users u ON u.id = b.created_by
           WHERE b.warehouse_id = ?
@@ -295,6 +293,21 @@ export class WarehouseLocationsBulkService {
           `No se puede deshacer: ${usadas.length > 10 ? 'más de 10' : usadas.length} ubicación(es) del lote ya tienen mercancía (${lista}). Dalas de baja una por una desde Mantenimiento.`,
         );
       }
+      // `[UB.3]` Si ya se le asignaron productos a alguna, el lote ya se usó: no se deshace.
+      const conProductos = await trx('commercial.bin_assignments as a')
+        .join('commercial.warehouse_bins as wb', function () {
+          this.on('wb.tenant_id', 'a.tenant_id').andOn('wb.id', 'a.bin_id');
+        })
+        .where('wb.capture_batch_id', batchId)
+        .whereNull('a.deleted_at')
+        .distinct('wb.code')
+        .orderBy('wb.code')
+        .limit(11);
+      if (conProductos.length) {
+        throw new ConflictException(
+          `No se puede deshacer: ${conProductos.length > 10 ? 'más de 10' : conProductos.length} ubicación(es) del lote ya tienen productos asignados (${conProductos.slice(0, 10).map((u: { code: string }) => u.code).join(', ')}). Quítalos primero en Asignación.`,
+        );
+      }
       // Lo que alguien ya bloqueó o dio de baja tiene un motivo registrado: se respeta, no se borra.
       const tocadas = await trx('commercial.warehouse_bins')
         .where({ capture_batch_id: batchId })
@@ -312,12 +325,16 @@ export class WarehouseLocationsBulkService {
       // es RESTRICT y existir alcanza para reventar el DELETE.
       const ids = trx('commercial.warehouse_bins').where({ capture_batch_id: batchId }).select('id');
       await trx('commercial.stock_lot_locations').whereIn('bin_id', ids).where('quantity', '<=', 0).del();
+      // Asignaciones ya QUITADAS (deleted_at) también apuntan a la ubicación y frenarían el DELETE por FK.
+      // No hay grant de DELETE sobre bin_assignments: deshacer no las borra, así que si existen, se dice.
+      const quitadas = await trx('commercial.bin_assignments').whereIn('bin_id', ids).first('id');
+      if (quitadas) throw new ConflictException('No se puede deshacer: alguna ubicación del lote tuvo productos asignados (aunque ya se quitaron). Dalas de baja una por una desde Mantenimiento.');
       const retiradas = await trx('commercial.warehouse_bins')
         .where({ capture_batch_id: batchId })
         .del()
         .catch((e: { code?: string }) => {
           // Un acomodo que entró entre la revisión y el borrado: mismo 409, no un 500.
-          if (e?.code === '23503') throw new ConflictException('Mientras deshacías, se acomodó mercancía en una ubicación del lote. Ya no se puede deshacer.');
+          if (e?.code === '23503') throw new ConflictException('Mientras deshacías, alguien usó una ubicación del lote (mercancía o un producto asignado). Ya no se puede deshacer.');
           throw e;
         });
       await trx('commercial.location_capture_batches')
