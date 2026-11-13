@@ -1844,8 +1844,8 @@ lectura, `system_identifier` verificado):
 1. ✅ Desplegado el 2026-11-12: el vigía registró `DESPLEGADO 857add821` a las 10:04 y `/api/health` contesta
    `857add821`. Lo frenó 20 min la siembra `20261111135132_servicedesk_seed_compras.js` de `[MS.8.1]`, que se
    mergeó sin aplicar (aplicada a mano, batch 1163).
-2. **Una persona con la e.firma** vuelve a pedir en la Suite (descarga masiva) las **recibidas del 1-ene-2026 a hoy**.
-   ⚠️ Repetir el rango exacto del 27-oct puede rechazarse como duplicado; con fin = hoy es otra solicitud.
+2. ~~Una persona con la e.firma vuelve a pedir las recibidas del 1-ene-2026 a hoy~~ → **ya no hace falta**: desde
+   `[PGP.110e]` (punto 5) la Suite vuelve a pedir sola los días que una descarga dejó sin cubrir.
 3. Medir mes por mes que las facturas PPD con REP en el SAT sean ≥ las de ContPAQi. Recién entonces la vista pasa a
    leer `fiscal.cfdi_payment_links`, y `sincronizado_hasta` sale de la última descarga de recibidas que terminó bien.
 4. `[PGP.110c]` 🧪 2026-11-12 **La Suite pide la descarga sola, una vez al día** (Edgar: «debemos automatizar
@@ -1872,6 +1872,23 @@ lectura, `system_identifier` verificado):
      despliegue leyendo `fiscal.jobs` (`type = 'sat.al_dia'`).
    - **Deuda con nombre `[PGP.110d]`:** la bandeja `/contabilidad/descarga` todavía no dice si la descarga automática
      está andando o frenada; hoy sólo lo dicen `fiscal.jobs.result` y el log.
+5. `[PGP.110e]` 🧪 2026-11-13 **Se recupera sola de una descarga que falló** (Edgar: «te dije que automaticemos este
+   proceso»). Medido ese día en prod, sólo lectura: la e.firma está en la bóveda (vigente a 2030) y el job diario corría,
+   pero las dos decisiones salían **frenadas** (recibidas por el 27-oct, emitidas sin ninguna completa): el punto 4
+   dejaba el arranque en manos de una persona.
+   - **Por qué se puede pedir otra vez:** lo que el 27-oct agotó fue el cupo de bajadas de ESOS paquetes (5008), no el
+     derecho a pedir. Una solicitud nueva trae paquetes nuevos y nunca repite parámetros (termina hoy). Así que el
+     hueco se cubre pidiendo desde el último día cubierto; sin ninguna completa, desde el 1-ene del año. Lo repetido
+     se fusiona por UUID.
+   - **Lo que sí frena** (pedir otra vez no lo arregla): rechazo del SAT por la e.firma (300–305) o por el tope de la
+     consulta (5003, hay que partir el rango); **3 solicitudes seguidas** sin cubrir sus días (a una por día, ya no es
+     un mal día del SAT); una en curso más de 3 días. Un 5002 no frena: la de mañana termina otro día.
+   - **Con los datos de prod de hoy decide:** recibidas del 17-jul a hoy; emitidas del 1-ene a hoy. Las pide el primer
+     aviso de Kepler del día siguiente al despliegue: el job del día del despliegue ya corrió (llave por día).
+   - Pruebas: 14 de la decisión + 5 del arranque. Prueba negativa fuera del árbol: 4 mutaciones (sin freno por fallas,
+     305 no frena, 5002 frena, sin base vuelve a frenar), las 4 en rojo; el control, verde.
+   - **NO MEDIDO:** la solicitud real al SAT. Se verifica tras el despliegue en `fiscal.download_requests` (dos nuevas,
+     `fecha_fin` = el día) y en `fiscal.jobs.result` (`accion: 'pedir'`, con `recupera`).
 
 **Hallazgo aparte, sin tocar:** `cfdi_payment_links.fecha_pago` guarda la `FechaPago` del XML (hora local, sin zona)
 como si fuera UTC. 194 de 14,484 ligas caen un día antes en hora de México y 3 cambian de mes, que es el mes en que
