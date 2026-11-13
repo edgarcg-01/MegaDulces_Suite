@@ -4,8 +4,8 @@ import * as path from 'node:path';
 import { Client, type PoolClient } from 'pg';
 import type { Env } from '@megadulces/platform-core';
 
-import { KeplerPagoSinkAdapter, plantillaPagoDe } from './kepler-pago-sink.adapter';
-import type { PlanPagoKepler } from './pago-kepler.armador';
+import { KeplerPagoSinkAdapter, plantillaPagoDe, type EscrituraPagoKepler } from './kepler-pago-sink.adapter';
+import { revisarEscrituraPago } from './kepler-pago-sink.revision';
 
 /**
  * `[PGP.71]` ENSAYO contra el Kepler REAL: corre `entregar()` completo —acreedor, cuenta de
@@ -40,29 +40,9 @@ class AdaptadorEnsayo extends KeplerPagoSinkAdapter {
   public revisado = false;
   constructor(private readonly envEnsayo: Env) { super(); }
   protected override get env(): Env { return this.envEnsayo; }
-  protected override async confirmar(c: PoolClient, plan: PlanPagoKepler, sucursal: string): Promise<void> {
-    const no: string[] = [];
-    const h = (await c.query(`SELECT count(*) OVER ()::int n, c6, btrim(c10) c10, c16::text c16, c42::text c42, btrim(c45) c45, btrim(c12) c12, btrim(c67) c67 FROM _h`)).rows;
-    const e = (await c.query(`SELECT count(*) OVER ()::int n, c6, btrim(c2) c2, c3, c11::text c11, c20::text c20, btrim(c22) c22 FROM _e`)).rows;
-    const f = (await c.query(`SELECT c6, c10::text c10 FROM _f`)).rows;
-    const max = (await c.query(`SELECT max(c6::int) m FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)='1'`, [sucursal])).rows[0].m;
-    if (h.length !== 1) no.push(`_h tiene ${h.length} filas`);
-    if (e.length !== 1) no.push(`_e tiene ${e.length} filas`);
-    const H = h[0] ?? {}, E = e[0] ?? {};
-    if (Number(H.c6) !== Number(max) + 1) no.push(`folio ${H.c6} ≠ MAX+1 (${Number(max) + 1})`);
-    if (E.c6 !== H.c6) no.push(`kdxe.c6 ${E.c6} ≠ kdm1.c6 ${H.c6}`);
-    if (Number(H.c16) !== Number(plan.kdm1['c16']) || Number(H.c42) !== Number(H.c16)) no.push(`importe ${H.c16}/${H.c42}`);
-    if (H.c45 !== plan.kdm1['c45'] || E.c22 !== H.c45) no.push(`c45 ${H.c45} / kdxe.c22 ${E.c22}`);
-    if (Number(E.c20) !== 0 || Number(E.c11) !== Number(H.c16)) no.push(`kdxe c11 ${E.c11} c20 ${E.c20}`);
-    if (H.c67 !== 'SUITE') no.push(`c67 ${H.c67}`);
-    if (f.length !== plan.kdxf.length || f.some((x) => x.c6 !== H.c6)) no.push(`kdxf ${f.length} filas`);
-    // La baja de saldo no se ensaya (pide el UPDATE que aún no está): se comprueba que su fila exista.
-    for (const s of plan.saldos) {
-      const r = await c.query(`SELECT c20::float8 c20 FROM md.kdxe WHERE btrim(c1)=$1 AND btrim(c2)=$2 AND c3='A' AND btrim(c4::text)=$3 AND btrim(c5::text)=$4 AND c6=$5`,
-        [s.almacen, s.acreedor, String(s.tipo), String(s.subtipo), s.folio]);
-      if (r.rowCount !== 1 || r.rows[0].c20 < s.menos - 0.005) no.push(`saldo de ${s.folio}: ${r.rows[0]?.c20}`);
-    }
-    this.fallas = no;
+  protected override async confirmar(c: PoolClient, w: EscrituraPagoKepler): Promise<void> {
+    const r = await revisarEscrituraPago(c, w);
+    this.fallas = r.fallas;
     this.revisado = true;
     await c.query('ROLLBACK');
   }

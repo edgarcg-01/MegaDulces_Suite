@@ -1,4 +1,5 @@
 import { clabeDeTexto } from '@megadulces/contracts/finance/clabe';
+import { movimientosDePoliza, type MovimientoCuenta, type PolizaKepler } from '../../shared/kepler-contable';
 
 /**
  * `[PGP.71]` — **El pago `X-D-26` en el idioma de Kepler, armado sin tocar Kepler.**
@@ -20,6 +21,10 @@ import { clabeDeTexto } from '@megadulces/contracts/finance/clabe';
  * | `md.kdxe` | su renglón de cuentas por pagar (`c3='D'`) | se clona el de la plantilla |
  * | `md.kdxf` | una aplicación por factura | se construye: 11 columnas, todas conocidas |
  * | `md.kdxe` | ⛔ el SALDO de cada factura (`c20`) | **UPDATE** `c20 = c20 − aplicado` |
+ * | `md.kdm5` | un renglón por factura (`[PGP.106]`) | se construye: sus 14 columnas |
+ * | `md.kdc2AAMM` | la póliza `E` del mes (`[PGP.106]`) | se CLONA el renglón de la póliza de la plantilla |
+ * | `md.kdxg` | acumulado del acreedor (`[PGP.106]`) | **UPDATE** abonos del mes + fechas |
+ * | `md.kdc126` | acumulado de 201 y 102 (`[PGP.106]`) | **UPDATE** cargos/abonos del mes, los dos juegos |
  *
  * ⛔⛔ La cuarta fila es la que el plan del 22-oct no tenía: Kepler **guarda** el saldo de la
  * factura en `kdxe.c20` (2,072 de 2,081 facturas abiertas lo traen igual a importe − aplicado;
@@ -70,6 +75,8 @@ export interface FacturaAPagar {
   concepto: string;
   /** `kdxe.c20`: el saldo vivo. */
   saldo: number;
+  /** `kdxe.c16`: la referencia de la factura (`0-F9760`), que el pago repite en su renglón `kdm5.c14` (511 de 524). */
+  referencia: string;
   /** Lo que este pago le aplica. */
   aplicado: number;
   /** `kdm1.c14` / `c15` / `c16` de la factura: IVA, IEPS y total, para el IVA proporcional. */
@@ -119,7 +126,20 @@ export interface PlanPagoKepler {
   kdxf: Record<string, Valor>[];
   /** Cuánto baja el saldo (`kdxe.c20`) de cada factura. El adapter exige `c20 >= menos` en el mismo UPDATE. */
   saldos: { almacen: string; acreedor: string; tipo: number; subtipo: number; folio: string; menos: number }[];
+  /** `[PGP.106]` Un renglón `kdm5` por factura, completos salvo `c6` (el folio del pago). Las 14 columnas de la tabla. */
+  kdm5: Record<string, Valor>[];
+  /**
+   * `[PGP.106]` La póliza `E` del pago: un cargo `201` por factura (renglones 1..N) y el abono `102` por el total
+   * (renglón N+1), con el nombre del acreedor y la referencia del pago. Medido: 131 de 131 pagos de octubre.
+   */
+  poliza: PolizaKepler;
+  /** `[PGP.106]` Lo que el pago suma a los acumulados: el del acreedor (`kdxg`) y el de cada cuenta (`kdc126`). */
+  acumulados: { anio: number; mes: number; acreedor: string; abonoAcreedor: number; cuentas: MovimientoCuenta[] };
 }
+
+/** `[PGP.106]` Las cuentas de la póliza del pago a proveedor (131 de 131 en octubre). */
+export const CUENTA_PROVEEDORES = '201';
+export const CUENTA_BANCOS = '102';
 
 export type ResultadoArmado = { ok: true; plan: PlanPagoKepler } | { ok: false; motivos: string[] };
 
@@ -176,6 +196,11 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   }
   const suma = e.facturas.reduce((s, f) => s + f.aplicado, 0);
   if (Math.abs(suma - e.importe) > CENTAVO) motivos.push(`El importe del pago (${e.importe.toFixed(2)}) no es la suma de lo aplicado (${suma.toFixed(2)})`);
+  // `[PGP.106]` La póliza carga cada factura a centavos y abona el total a centavos: si los redondeos no suman lo
+  // mismo, la póliza de Kepler quedaría descuadrada. No se escribe.
+  else if (Math.round(e.facturas.reduce((s, f) => s + Math.round(f.aplicado * 100), 0)) !== Math.round(e.importe * 100)) {
+    motivos.push(`Lo aplicado a cada factura, a centavos, no suma el importe del pago (${e.importe.toFixed(2)}): la póliza quedaría descuadrada`);
+  }
 
   const conceptos = [...new Set(e.facturas.map(conceptoDeFactura))];
   if (conceptos.length > 1) motivos.push(`Las facturas traen conceptos distintos (${conceptos.join(', ')}) y Kepler pide uno por pago: pártelo en un pago por concepto`);
@@ -187,6 +212,16 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   const clabe = clabeDeTexto(e.destino);
   const { c81, c82, c84 } = ivaProporcional(e.facturas);
   const importe = r2(e.importe);
+  // La póliza: el nombre y la referencia son los del documento (`kdm1.c32` / `c11`), igual en los N+1 renglones.
+  const asiento = (c10: number, c3: string, c4: 'C' | 'A', monto: number): Record<string, Valor> =>
+    ({ c10, c3, c4, c5: monto, c9: monto, c6: prov.nombre, c7: e.referencia, c14: e.sucursal, c23: '0' });
+  const poliza: PolizaKepler = {
+    tipo: 'E', fecha: e.fecha,
+    renglones: [
+      ...e.facturas.map((f, i) => asiento(i + 1, CUENTA_PROVEEDORES, 'C', r2(f.aplicado))),
+      asiento(e.facturas.length + 1, CUENTA_BANCOS, 'A', importe),
+    ],
+  };
 
   return {
     ok: true,
@@ -211,6 +246,15 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
         c7: f.tipo, c8: f.subtipo, c9: f.folio, c10: r2(f.aplicado), c11: r2(f.aplicado),
       })),
       saldos: e.facturas.map((f) => ({ almacen: f.almacen, acreedor: prov.codigo, tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, menos: r2(f.aplicado) })),
+      kdm5: e.facturas.map((f, i) => ({
+        c1: e.sucursal, c2: 'X', c3: 'D', c4: 26, c5: 1, c7: i + 1,
+        c8: 'A', c9: f.tipo, c10: f.subtipo, c11: f.folio, c12: r2(f.aplicado), c13: r2(f.aplicado), c14: (f.referencia ?? '').trim(),
+      })),
+      poliza,
+      acumulados: {
+        anio: Number(e.fecha.slice(0, 4)), mes: Number(e.fecha.slice(5, 7)),
+        acreedor: prov.codigo, abonoAcreedor: importe, cuentas: movimientosDePoliza(poliza),
+      },
     },
   };
 }

@@ -5,6 +5,7 @@ import { armarPagosKepler, conceptoDeFactura, CONCEPTO_GASTOS_GENERALES, motivos
 import { compararConCaptura, NO_CUBIERTO_POR_EL_ENSAYO, type CapturaKepler } from './ensayo-pago-kepler';
 import { SQL_CIERRE_KEPLER, armarCierres, type FilaCierreKepler } from '../cierre-kepler.sql';
 import { leerValidacionDelDia } from '../validacion-pago.sql';
+import { movimientosDePoliza, tablaPolizaDelMes } from '../../shared/kepler-contable';
 
 /**
  * `[PGP.105]` **El ensayo del `X-D-26`, leído de la réplica.** Lee de `kepler_ods` —no del Kepler
@@ -26,11 +27,11 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 /** Las facturas del pago, con su documento, saldo, concepto e impuestos. Parámetros: `[llaves (uuid[])]`. */
 const SQL_FACTURAS_ENSAYO = `
 SELECT k.oid::text AS oid, k.sucursal, btrim(k.c1) AS almacen, k.acreedor, k.doc_tipo::int AS tipo, k.doc_sub::int AS subtipo, k.folio,
-       btrim(coalesce(k.c18, '')) AS concepto, k.c20::float8 AS saldo,
+       btrim(coalesce(k.c18, '')) AS concepto, btrim(coalesce(k.c16, '')) AS referencia, k.c20::float8 AS saldo,
        coalesce(m.c14::numeric, 0)::float8 AS iva, coalesce(m.c15::numeric, 0)::float8 AS ieps, coalesce(m.c16::numeric, 0)::float8 AS total
   FROM (SELECT ${sqlKeplerPayableId('d')} AS oid, d.*
           FROM (SELECT kdxe.sucursal, kdxe.c1, btrim(kdxe.c2) AS acreedor, kdxe.c4 AS doc_tipo, kdxe.c5 AS doc_sub,
-                       btrim(kdxe.c6) AS folio, kdxe.c18, kdxe.c20
+                       btrim(kdxe.c6) AS folio, kdxe.c16, kdxe.c18, kdxe.c20
                   FROM kepler_ods.kdxe
                  WHERE btrim(kdxe.c1) = kdxe.sucursal AND kdxe.c3 = 'A') d) k
   LEFT JOIN kepler_ods.kdm1 m
@@ -95,7 +96,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
     return vacio(['El pago trae renglones que no son facturas de Kepler: sólo se escriben pagos a facturas de proveedor']);
   }
   const docs = (await trx.raw(SQL_FACTURAS_ENSAYO, [oids])).rows as
-    { oid: string; sucursal: string; almacen: string; acreedor: string; tipo: number; subtipo: number; folio: string; concepto: string; saldo: number; iva: number; ieps: number; total: number }[];
+    { oid: string; sucursal: string; almacen: string; acreedor: string; tipo: number; subtipo: number; folio: string; concepto: string; referencia: string; saldo: number; iva: number; ieps: number; total: number }[];
   const docDe = new Map(docs.map((d) => [d.oid, d]));
   const faltan = items.filter((i) => !docDe.has(i.oid as string)).length;
   if (faltan) return vacio([`${faltan === 1 ? 'Una factura no está' : `${faltan} facturas no están`} en la réplica de Kepler`]);
@@ -114,7 +115,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
   const capturas: CapturaKepler[] = [];
   for (const xd of cierre?.pagos.filter((p) => p.tipo === 'transferencia' && p.sucursal === servidor) ?? []) {
     const h = (await trx.raw(`
-      SELECT btrim(c10) AS acreedor, c16::float8 AS importe, btrim(coalesce(c45, '')) AS cuenta, btrim(coalesce(c12, '')) AS concepto,
+      SELECT to_char(c9, 'YYYY-MM-DD') AS fecha, btrim(c10) AS acreedor, c16::float8 AS importe, btrim(coalesce(c45, '')) AS cuenta, btrim(coalesce(c12, '')) AS concepto,
              coalesce(c81::numeric, 0)::float8 AS iva, coalesce(c84::numeric, 0)::float8 AS ieps
         FROM kepler_ods.kdm1
        WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c5::text) = '1' AND btrim(c6) = ?
@@ -124,7 +125,16 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
         FROM kepler_ods.kdxf
        WHERE sucursal = ? AND btrim(c1) = ? AND btrim(c4::text) = '26' AND btrim(c5::text) = '1' AND btrim(c6) = ?
        GROUP BY 1`, [servidor, servidor, xd.folio])).rows as { factura: string; aplicado: number }[];
-    if (h) capturas.push({ folio: xd.folio, ...h, aplicaciones: Object.fromEntries(ap.map((x) => [x.factura, Number(x.aplicado)])) });
+    if (h) {
+      // `[PGP.106]` La póliza que Kepler le asentó, para compararla con la que armaría la Suite.
+      const tabla = tablaPolizaDelMes(String(h.fecha));
+      const hay = tabla ? (await trx.raw('SELECT to_regclass(?) IS NOT NULL AS ok', [`kepler_ods.${tabla}`])).rows[0].ok : false;
+      const renglones = hay ? (await trx.raw(`
+        SELECT btrim(c3) AS c3, btrim(c4) AS c4, c5::float8 AS c5 FROM kepler_ods.${tabla}
+         WHERE sucursal = ? AND c8 = 'E' AND btrim(c15) = 'X' AND btrim(c16) = 'D' AND btrim(c17::text) = '26' AND btrim(c19) = ?`, [servidor, xd.folio])).rows : [];
+      capturas.push({ folio: xd.folio, acreedor: h.acreedor, importe: h.importe, cuenta: h.cuenta, concepto: h.concepto, iva: h.iva, ieps: h.ieps, aplicaciones: Object.fromEntries(ap.map((x) => [x.factura, Number(x.aplicado)])),
+        poliza: renglones.length ? movimientosDePoliza({ tipo: 'E', fecha: String(h.fecha), renglones }) : null });
+    }
   }
 
   // ── El acreedor: catálogo del servidor + datos fiscales de su último pago (como el adaptador).
@@ -153,7 +163,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
     const k = docDe.get(i.oid as string)!;
     // Con la captura de Tesorería, el saldo de antes de ese pago; si no, el de hoy.
     const saldo = r2(Number(k.saldo) + aplicadoReal(k));
-    return { almacen: k.almacen, tipo: k.tipo, subtipo: k.subtipo, folio: k.folio, concepto: k.concepto, saldo, aplicado: Number(i.aplicado), iva: k.iva, ieps: k.ieps, total: k.total };
+    return { almacen: k.almacen, tipo: k.tipo, subtipo: k.subtipo, folio: k.folio, concepto: k.concepto, referencia: k.referencia, saldo, aplicado: Number(i.aplicado), iva: k.iva, ieps: k.ieps, total: k.total };
   });
 
   const motivos: string[] = [];

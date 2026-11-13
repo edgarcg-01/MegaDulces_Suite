@@ -1443,7 +1443,7 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 | `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo). **2026-11-11:** ya no espera la D15 — el carril es la descarga del SAT (`fiscal.cfdi_payment_links`); su ingesta perdía 16,195 de 16,845 CFDI, arreglada en `[PGP.110b]` 🚀 (`857add821`, 2026-11-12); falta re-descargar y medir |
 | `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
 | `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
-| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
+| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS | 🧪 **2026-11-13**: el adaptador escribe las 8 (y varios documentos por pago, P7); ensayo contra el Kepler vivo en verde, con ROLLBACK. Ver «`[PGP.106]` Las 8 escrituras» abajo. **Sigue apagado** |
 
 ### Decisiones (de Edgar y de la contadora)
 
@@ -1578,7 +1578,7 @@ cron con su umbral en `CRON_JOBS`.
 | # | Decisión | En código |
 |---|---|---|
 | P6 | **El concepto del `X-D-26` lo decide la factura** (`kdxe.c18`: carga la compra a la sucursal que la recibió) | `conceptoDeFactura` — era la regla del armador; ahora es decisión |
-| P7 | **Un pago con facturas de varias sucursales sale como un `X-D-26` por concepto**, para la misma transferencia | `armarPagosKepler` 🧪: cada documento con el importe de sus facturas y la misma referencia; si una parte no se arma, no se arma ninguna (mutante: rojo). ⚠️ El adaptador (`[PGP.106]`) todavía escribe UN documento: escribir varios es parte de encenderlo |
+| P7 | **Un pago con facturas de varias sucursales sale como un `X-D-26` por concepto**, para la misma transferencia | `armarPagosKepler` 🧪: cada documento con el importe de sus facturas y la misma referencia; si una parte no se arma, no se arma ninguna (mutante: rojo). ✅ 2026-11-13: el adaptador (`[PGP.106]`) ya escribe los varios documentos en UNA transacción |
 | P8 | **Factura de gasto (`10-1`) sin concepto → `007` «Gastos generales»**, como lo hace Tesorería (40 de 43) | `CONCEPTO_GASTOS_GENERALES` 🧪; el ensayo lo AVISA («pendiente de que Contabilidad lo confirme») sin detener |
 | P3 | **La cuenta contable de cada proveedor de gasto la define la contadora, en el sistema** | El lugar ya existe: Contabilidad › Puente ContPAQi (firma de reglas `[CP.8.51]` y cuentas de proveedor por alias). ⬜ `[PGP.111b]`: la firma hoy es por CATEGORÍA del movimiento bancario, no por proveedor de gasto (0 de 51 renglones de gasto del Calendario con cuenta): falta la firma por proveedor en esa misma pantalla, y que el Calendario diga «falta la cuenta contable» con la liga ahí |
 
@@ -1927,3 +1927,47 @@ Coincidir con el banco por importe (±$1, desde 3 días antes del día programad
   del pago.
 - **Hallazgo aparte:** 54 pagos ($9.77 M) que Kepler ya saldó siguen `pending` en la Suite. Ya no apartan nada
   (las facturas salieron de la deuda viva), pero inflan «pagos atrasados». Cerrarlos como pagados es otro item.
+
+### `[PGP.106]` Las 8 escrituras del pago, en código y ensayadas contra el Kepler vivo (🧪 2026-11-13)
+
+Pedido de Edgar (2026-11-13: «sí, arranca» — el concepto y el adaptador). **La escritura sigue APAGADA**
+(`KEPLER_PAGO_ESCRITURA`): esto deja el código listo y probado, no lo enciende.
+
+**El concepto (`c12`) ya no es pendiente:** lo decidió P6 (manda la factura). Re-medido en oficinas, 120 días: en la
+mayoría de los pagos Tesorería pone el concepto de la factura; lo demás son desvíos de la captura a mano, y el ensayo
+los muestra así («la Suite sigue la regla, la captura se desvía»).
+
+**Lo que faltaba, medido en `kepler_ods` (oficinas, octubre y noviembre) y ya en el armador:**
+
+| Escritura | Regla | Prueba |
+|---|---|---|
+| `kdm5` × N | sus 14 columnas: el documento, `c7` renglón, `c8`='A', la factura (`c9 c10 c11`), `c12`=`c13` aplicado, `c14` = `kdxe.c16` de la factura | 524 renglones; `c14` casa en 511 |
+| `kdc2AAMM` × (N+1) | póliza `E`: cargo `201` por factura (renglones 1..N), abono `102` por el total (N+1); `c6` nombre, `c7` referencia, `c23`='0'; número MAX+1 del mes | el pago real 0024254 (póliza E 227), renglón por renglón |
+| `kdc126` | cargos del mes `c27`–`c38` y abonos `c63`–`c74`, **y** el segundo juego `c51`–`c62` / `c75`–`c86`: el segundo sólo excluye los renglones con `c23` vacío (notas de crédito `X-D-55`) | 102 y 201, octubre y noviembre, al centavo |
+| `kdxg` | abonos del mes en `c35`–`c46`; `c4` = último movimiento; `c7` = último pago | abonos 324/324, `c4` 324/324, `c7` 317/324 (placebo: 24/342). `c5` no se deriva: no se toca |
+
+**El código:** el modelo de póliza y los números de columna viven en `libs/finance/src/lib/shared/kepler-contable.ts`
+(lo reusan las comisiones de `[CB.62]`: un solo modelo, ADR-056). El armador arma los cuatro; el adaptador los escribe
+en UNA transacción con los otros cuatro, un documento por concepto (P7). Candados nuevos: la póliza tiene que cuadrar a
+centavos (si no, no se arma); el número de póliza se revisa antes del COMMIT; `kdxg` y `kdc126` exigen exactamente una
+fila; un pago de otro año se rechaza (los acumulados son del año en curso). La revisión del ensayo es una sola
+(`kepler-pago-sink.revision.ts`) para el spec y para md.
+
+**Ensayo contra el Kepler vivo** (`ops/prod/ensayo-pago-kepler`, desde md, ROLLBACK; una factura real de CF020 por
+$38,870.50): **verde**. Armó el documento, su `kdm5` y la póliza E 236 de noviembre cuadrada; los 13 permisos que pide
+la escritura de verdad están (`has_*_privilege`); control: 0 documentos del ensayo quedaron en Kepler.
+El primer intento cayó en «permiso denegado a la tabla kdc22610»: la plantilla es de octubre y **el permiso es tabla por
+tabla, una por mes** (hoy noviembre y diciembre). Por eso el renglón base de la póliza se toma del mes del pago.
+⛔ **En enero de 2027 hace falta el permiso sobre `kdc22701`, y así cada mes**: sin él la escritura se rechaza
+diciéndolo; no escribe a medias.
+
+**Ensayo con la réplica, con el código real** (prod, sólo lectura; 225 pagos de 30 días): de los que Tesorería capturó y
+la Suite arma, **la póliza coincide en 44 de 51**. Los 7 restantes son pagos donde Tesorería aplicó otro importe
+(parciales, centavos), no la regla de la póliza. **Coinciden en todo: 0**, sobre todo por la cuenta de origen (24
+difieren sólo en eso). p50 273 ms, máximo 506 ms.
+
+**Lo que falta para encender:** (1) que Tesorería prepare la cuenta de origen; (2) dos semanas de ensayo en verde en lo
+mecánico; (3) conectar `entregar()` al momento «validado» del pago, con el reclamo atómico de `kepler_payment_folio`;
+(4) el permiso del mes siguiente antes de cada cambio de mes.
+**NO MEDIDO:** los `INSERT`/`UPDATE` reales (el ensayo termina en ROLLBACK) y la foto de contadores de una captura de
+Tesorería, que confirmaría que no hay una novena tabla.
