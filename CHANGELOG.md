@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Changed — Pedidos del almacén: el Tablero muestra también la preventa, por etapa (GP.10.4a · 2026-11-14 · en código, sin soltar)
+- `/almacen/pedidos` lista ahora, junto a los pedidos de Kepler, los de **preventa** del vendedor, por su fecha de entrega. También se pueden filtrar con el origen «Preventa».
+- Los botones de arriba ya no son el estatus de Kepler, sino la **etapa en el almacén**: Autorizado, En cola, Surtiendo, Surtido, Checando, Checado y Embarcado. Así «Todos» cuenta lo mismo que la lista, incluida la preventa.
+- Si la Suite ya registró un pedido como surtido o checado y Kepler sigue atrás, la fila lo dice: «Kepler aún dice autorizado».
+- Un pedido de preventa abre su resumen. El botón «Documento, cobro y recorrido» lo abre en la Mesa de Control de Preventa, ya seleccionado.
+- La pestaña Preventa y la Consola de surtido siguen por ahora; salen cuando el Tablero tenga también la fila de surtido (GP.10.4b–c).
+
 ### Fixed — Pedidos del almacén: un pedido cancelado en Kepler ya no se cuenta como pendiente (GP.10.0 · 2026-11-13 · en código, sin soltar)
 - Kepler cancela un pedido dejándolo en $0 y sin renglones, pero conserva el estatus que tenía. El Tablero de `/almacen/pedidos` lo seguía contando como vivo: de los 54 pedidos «en Surtido» de noviembre, 34 estaban cancelados.
 - Ahora los cancelados tienen su propio botón, **Cancelado**, y salen de «Todos», de los totales y del «sin embarcar más antiguo». En el detalle se ve cuál era su último estatus.

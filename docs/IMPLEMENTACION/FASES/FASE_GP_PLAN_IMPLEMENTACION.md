@@ -186,7 +186,10 @@ su estado real en Kepler y en el piso, y priorice desde ahí (D1, D2).
 | **GP.10.1 (definición original)** | La «cabecera vigente» del `U-D-40` en `kdm1` se calcula en **un solo lugar**. Hoy está reescrita en 4 servicios (`warehouse-orders`, `kepler-origen`, `picking-captura`, `checado`) | C0/C1 | — | no |
 | **GP.10.2** 🧪 | **Hecho el 2026-11-13:** `etapaDePedido` (`warehouse-orders/etapa-pedido.ts`). En noviembre, en prod: 1,342 pedidos de Kepler y 591 de preventa, cada uno en una sola etapa. «Piso adelante» 11, igual que el control. «Kepler adelante» 19 de 34 metidos a olas. `etapaDe` y el `state` de la bandeja se quedan por D9 (GP.10.2-deuda); el cruce contra `etapaDe` encontró un defecto que quedó corregido. Definición original: la **etapa del pedido** se deriva con una sola función (Kepler + olas + `presale_picks` + checado), que reemplaza las dos derivaciones duplicadas de preventa (`etapaDe` y `state`). Cada etapa dice su fuente (Kepler o piso) | C1 | GP.10.1 | no |
 | **GP.10.3** 🧪 | La consola lista `U-D-40` y `PD-` del periodo con filtros por origen, sucursal, etapa y texto, en < 500 ms. **Hecho el 2026-11-13:** `presale=1` y `stage=` en `GET /warehouse/orders`, con la etapa en cada fila y conteos por etapa. Probado con el servicio real contra prod: noviembre, 1,269 de Kepler y 588 de preventa; 254–362 ms con preventa; la primera llamada en frío tardó 511 ms. **NO MEDIDO:** si salieron 512 pedidos de preventa revisados en caja (la Suite no registra la salida desde el 17-oct) | C2 | GP.10.2 | no |
-| **GP.10.4** | El Tablero absorbe Preventa (como origen) y la Consola de surtido (prioridad, hora de salida, armar, con `ALMACEN_SURTIDO_COORDINAR`); las dos pestañas viejas redirigen | C3 | GP.10.3 | usa las acciones que ya existen |
+| **GP.10.4** | El Tablero absorbe Preventa (como origen) y la Consola de surtido (prioridad, hora de salida, armar, con `ALMACEN_SURTIDO_COORDINAR`); las dos pestañas viejas redirigen. Se parte en 4a/4b/4c (§3.1) | C3 | GP.10.3 | usa las acciones que ya existen |
+| **GP.10.4a** 🧪 | **Hecho el 2026-11-14.** El Tablero lista Kepler **y** preventa. Los botones son por **etapa**. La fila avisa cuando Kepler va atrás de la Suite. Un `PD-` abre su resumen y lleva a la Mesa de Control con el pedido abierto (`?pedido=`). Medido con el servicio real en prod (noviembre): «Todos» 1,901 = lista 1,901 = totales; «autorizados en adelante» 1,867 = lo esperado; 597 `PD-`, todos con su liga; 11 filas con «Kepler aún dice». 200–230 ms en caliente; la primera llamada en frío, 330–603 ms. ⚠️ La respuesta pesa 1.29 MB (905 KB sin preventa), y el tope de 2,000 filas se alcanzará a mediados de mes (octubre completo ya lo topa): los conteos sí cuentan todo y la pantalla lo dice. Va a GP.10.5 | C3 | GP.10.3 | no |
+| **GP.10.4b** ⬜ | La fila de surtido como segunda vista del Tablero, con `ALMACEN_SURTIDO_COORDINAR` | C3 | GP.10.4a | usa las acciones de la consola |
+| **GP.10.4c** ⬜ | Salen las pestañas Preventa y Consola de surtido; sus rutas redirigen; la Mesa queda sin pestaña, como detalle de un `PD-` | C3 | GP.10.4b | no |
 | **GP.10.5** | Correcciones de la consola: el volumen deja de encimarse sobre el estatus; unidades con leyenda; el importe de venta y el de traspaso se muestran separados en el total (D4) | C3 | GP.10.4 | no |
 
 **Meta E1:**
@@ -197,6 +200,55 @@ su estado real en Kepler y en el piso, y priorice desde ahí (D1, D2).
 - Carga < 500 ms, medida en prod.
 
 **No incluye:** la regla de «atorado» (D3), Análisis BI (D5), cambios al proceso de preventa (D9).
+
+### 3.1 Diseño de GP.10.4 (escrito antes de tocar la pantalla, 2026-11-14)
+
+**Uso medido** (`analytics.ui_usage`, 30 días, sólo lectura):
+
+| Pantalla | Lo que se usa | Lo que no |
+|---|---|---|
+| Tablero | 665 lecturas en 26 días y 58 detalles, de 11 roles | — |
+| Preventa (Mesa de Control) | 69 lecturas en 13 días; 74 detalles; 33 búsquedas de documento | ligar documento: 14 veces, sólo Dirección y sólo en octubre |
+| Consola de surtido | 63 aperturas en 13 días; hora de salida 12 veces (2 días); tanda 5 (2 con error); armar 6 (4 con error) | urgente, liberar y cancelar: **0** |
+
+**Se parte en tres, para que nadie se quede sin acceso a medio camino:** primero el Tablero
+muestra todo; después se retiran las pestañas.
+
+| # | Resultado |
+|---|---|
+| **GP.10.4a** | El Tablero lista también la preventa y su etapa de almacén. Los botones de arriba pasan de estatus de Kepler a **etapa**. Un `PD-` abre su resumen y, a un clic, su detalle completo en la Mesa de Control (documento de Kepler, cobro, ligar) |
+| **GP.10.4b** | La fila de surtido entra al Tablero como segunda vista, sólo con `ALMACEN_SURTIDO_COORDINAR` |
+| **GP.10.4c** | Las pestañas Preventa y Consola de surtido salen; sus rutas redirigen. La Mesa de Control queda como detalle de un `PD-`, sin pestaña |
+
+**Las cinco preguntas (GP.10.4a):**
+1. **Qué ve y en qué orden.** Los botones por etapa (Todos, y las etapas con pedidos), los filtros y
+   la lista. Un pedido por fila, de cualquier origen, del más nuevo al más viejo. La columna Etapa
+   dice la etapa y, si Kepler y la Suite no coinciden, cuál va atrás («Kepler aún dice Autorizado»).
+   - Primario: la etapa.
+   - Secundario: el cliente y el folio.
+   - Terciario: el volumen, la guía y el importe.
+2. **Qué no ve.**
+   - Los botones por estatus de Kepler: la preventa no tiene estatus de Kepler, así que «Todos»
+     no cuadraría con la lista. El estatus de Kepler se sigue viendo en la fila cuando difiere, y
+     también en el detalle.
+   - Los cancelados no entran a «Todos»; tienen su propio botón.
+3. **Accesibilidad.**
+   - Un `PD-` se busca por su folio, cliente o vendedor.
+   - Con un clic se ve su resumen: etapa, entrega prometida, cliente, vendedor y total.
+   - Con dos, su detalle en la Mesa, con el pedido ya abierto.
+   - La etapa se lee como texto, no por color.
+4. **Ligas.**
+   - `PD-` → Mesa de Control: documento de Kepler, cobro, comparación y recorrido.
+   - `U-D-40` → sus embarques `U-D-41`, como hasta hoy.
+5. **¿Le toca?**
+   - Seguir el pedido dentro del almacén, sí.
+   - Ligar y cobrar, no: viven en la Mesa, que es el detalle de un `PD-`, y no se copian.
+   - El proceso de preventa no cambia (D9).
+
+**Lo que la interfaz no puede resolver:**
+- **512 `PD-` «checados»:** no se sabe si ya salieron (GP.10.3).
+- **Volumen de un `PD-`:** sale vacío, porque sus renglones no son de Kepler.
+- **Vista del surtidor:** no cambia.
 
 ---
 
@@ -335,3 +387,4 @@ prod, o escrito por qué no. La fase cierra con E5 y la métrica de la cabecera 
 | 2026-11-13 | E0 arrancado (sólo lectura). GP.12.0a medido por corte transversal: unidad resuelta, recálculo del importe y Salida por Embarque separada (§2.1). Nuevo GP.12.0d. GP.15.0, GP.12.0c y GP.7.0 (NO MEDIDO) hechos. D26–D28 decididas por encargo del PM | Claude |
 | 2026-11-13 | GP.12.0d verificado con `totalesCotizacion`: 509 de 509 pedidos con diferencia al centavo. GP.12.0a: siete transiciones reales; el checado y el embarque borran y renumeran renglones, y el embarque agrega productos. Borrador de ADR-117 (GP.12.0b). Nuevo GP.12.0e (permisos por columna) y P-GP.10 | Claude |
 | 2026-11-13 | GP.12.0d: fórmula del renglón y de la cabecera al centavo; IVA/IEPS se reusan de E.25. GP.12.0b sigue el precedente de PQ.110. Foto antes/después en marcha (§2.2): su prueba negativa destapó los cancelados que conservan estatus → nuevo GP.10.0 | Claude |
+| 2026-11-14 | GP.10.4 diseñado por escrito (§3.1) con el uso medido y partido en 4a/4b/4c. GP.10.4a hecho: el Tablero lista Kepler y preventa por etapa; un `PD-` lleva a la Mesa con el pedido abierto. Hallazgo para GP.10.5: con preventa, el tope de 2,000 filas se alcanza a mediados de mes | Claude |

@@ -110,7 +110,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
     expect(el.querySelector('.gp-filters')).toBeNull();
     expect(el.querySelector('.gp-foot')).toBeNull();
     expect(el.querySelector('p-datepicker')).toBeNull();
-    for (const t of ['Mes en curso', 'Sólo autorizados', 'Todos los orígenes', 'Kepler leído', 'renglones', 'Importe', 'Estatus', 'Guía']) {
+    for (const t of ['Mes en curso', 'Sólo autorizados', 'Todos los orígenes', 'Kepler leído', 'renglones', 'Importe', 'Estatus', 'Etapa', 'Guía']) {
       expect(texto()).not.toContain(t);
     }
   });
@@ -134,7 +134,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
   it('prueba negativa: quien SÍ ve el tablero lo sigue viendo completo', async () => {
     const { el, columnas } = await montar({ [Permission.ALMACEN_PEDIDOS_VER]: true });
     expect(columnas()).toContain('Importe');
-    expect(columnas()).toContain('Estatus');
+    expect(columnas()).toContain('Etapa'); // [GP.10.4a] antes «Estatus» (de Kepler)
     expect(el.querySelector('.gp-chips')).not.toBeNull();
     expect(el.querySelector('.gp-foot')).not.toBeNull();
   });
@@ -158,7 +158,13 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
       { estatus: 'EMBARCADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
       { estatus: 'CANCELADO', pedidos: 3, renglones: 0, mas_antiguo_horas: null },
     ],
-    conteos_etapa: [],
+    // [GP.10.4a] Los botones salen de aquí (etapa), no de `conteos` (estatus de Kepler).
+    conteos_etapa: [
+      { etapa: 'creado', pedidos: 0, con_desfase: 0 },
+      { etapa: 'autorizado', pedidos: 2, con_desfase: 0 },
+      { etapa: 'surtido', pedidos: 1, con_desfase: 0 },
+      { etapa: 'cancelado', pedidos: 3, con_desfase: 0 },
+    ],
     totales: { pedidos: 3, renglones: 32, importe: 9000 },
     items: [],
     truncado: false,
@@ -197,5 +203,130 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
     const { chips } = await montar();
     expect(chips()).toContain('Cancelado 3');
     expect(chips().some((c) => c.startsWith('CANCELADO'))).toBe(false);
+  });
+});
+
+/**
+ * `[GP.10.4a]` D1: la preventa (`PD-`) entra al Tablero. Los botones pasan a ETAPA de almacén, porque
+ * un `PD-` no tiene estatus de Kepler y «Todos» dejaría de cuadrar con la lista. El `PD-` abre su
+ * resumen y lleva a la Mesa de Control para el documento y el cobro (no se copian aquí).
+ */
+describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
+  type Fila = WarehouseOrdersResponse['items'][number];
+  const KEPLER = (extra: Partial<Fila> = {}): Fila => ({
+    clave: '01-1-0000500', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0000500',
+    documento: 'UD4001-0000500', fecha: '2026-11-13', hora: '09:00', origen: 'TELEMARK', estatus: 'AUTORIZADO',
+    estatus_kepler: 'AUTORIZADO', cliente_code: 'C9', destino_nombre: 'ABARROTES LUPITA', destino_ciudad: 'ZAMORA',
+    vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen: [], importe: 1200, guia: null, transporte: null,
+    chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...extra,
+  });
+  const PD: Fila = {
+    clave: '01-PD-PD-000123', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 0, folio: 'PD-000123',
+    documento: 'PD-000123', fecha: '2026-11-14', hora: null, origen: 'PREVENTA', estatus: null, estatus_kepler: null,
+    cliente_code: 'C77', destino_nombre: 'TIENDA LA ESQUINA', destino_ciudad: null, vendedor_code: null,
+    vendedor_nombre: 'Juan Vendedor', renglones: 6, volumen: [], importe: 850.5, guia: null, transporte: null, chofer: null,
+    resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: null,
+    etapa: 'surtiendo', etapa_fuente: 'piso', desfase: null, order_id: '6f1c0f7e-0000-4000-8000-000000000123',
+  };
+  const DESFASADO = KEPLER({ clave: '01-1-0000501', folio: '0000501', documento: 'UD4001-0000501', etapa: 'surtido', etapa_fuente: 'piso', desfase: 'piso_adelante' });
+  const RESP = (): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: false, sucursales: [{ codigo: '01', nombre: 'Padre Hidalgo' }] },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: true },
+    conteos: [{ estatus: 'AUTORIZADO', pedidos: 2, renglones: 8, mas_antiguo_horas: 5 }],
+    conteos_etapa: [
+      { etapa: 'creado', pedidos: 0, con_desfase: 0 },
+      { etapa: 'autorizado', pedidos: 1, con_desfase: 0 },
+      { etapa: 'en_cola', pedidos: 0, con_desfase: 0 },
+      { etapa: 'surtiendo', pedidos: 1, con_desfase: 0 },
+      { etapa: 'surtido', pedidos: 1, con_desfase: 1 },
+    ],
+    totales: { pedidos: 3, renglones: 14, importe: 3250.5 },
+    items: [KEPLER(), PD, DESFASADO],
+    truncado: false,
+    generado_en: '2026-11-14T16:00:00.000Z',
+  });
+
+  async function montar() {
+    const perms = new PermissionsService();
+    perms.load({ [Permission.ALMACEN_PEDIDOS_VER]: true }, 'coordinador_embarques');
+    const list = vi.fn(() => of(RESP()));
+    const detail = vi.fn(() => NEVER);
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AlmacenPedidosService, useValue: { list, detail } },
+        { provide: PermissionsService, useValue: perms },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    const texto = (): string => el.textContent?.replace(/\s+/g, ' ') ?? '';
+    const chips = (): string[] => Array.from(el.querySelectorAll('.gp-chip')).map((b) => b.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    const ultimoFiltro = () => (list.mock.calls.at(-1) as unknown as [Record<string, unknown>])[0];
+    return { fix, el, list, detail, texto, chips, ultimoFiltro };
+  }
+
+  it('⭐ pide la preventa del periodo y lista el PD- junto a los de Kepler', async () => {
+    const { ultimoFiltro, texto } = await montar();
+    expect(ultimoFiltro()['preventa']).toBe(true);
+    expect(texto()).toContain('PD-000123');
+    expect(texto()).toContain('UD4001-0000500');
+    expect(texto()).toContain('Preventa');
+  });
+
+  it('⭐ los botones son por etapa y «Todos» cuadra con la lista (incluye el PD-)', async () => {
+    const { chips } = await montar();
+    expect(chips()).toEqual(['Todos 3', 'Autorizado 1', 'Surtiendo 1', 'Surtido 1']);
+  });
+
+  it('NEGATIVA: no hay botón para una etapa sin pedidos (Creado 0, En cola 0)', async () => {
+    const { chips } = await montar();
+    expect(chips().some((c) => c.startsWith('Creado') || c.startsWith('En cola'))).toBe(false);
+  });
+
+  it('elegir una etapa filtra por etapa (stage), no por estatus de Kepler', async () => {
+    const { fix, ultimoFiltro } = await montar();
+    fix.componentInstance.pickEtapa('surtido');
+    expect(ultimoFiltro()['etapa']).toEqual(['surtido']);
+    expect(ultimoFiltro()['estatus']).toBeUndefined();
+  });
+
+  it('«Sólo autorizados en adelante» pide toda etapa menos Creado', async () => {
+    const { fix, ultimoFiltro } = await montar();
+    fix.componentInstance.toggleAutorizados(true);
+    expect(ultimoFiltro()['etapa']).toEqual(['autorizado', 'en_cola', 'surtiendo', 'surtido', 'checando', 'checado', 'embarcado']);
+  });
+
+  it('⭐ si la Suite va adelante, la fila dice lo que Kepler aún tiene', async () => {
+    const { texto } = await montar();
+    expect(texto()).toContain('Kepler aún dice autorizado');
+  });
+
+  it('NEGATIVA: sin desfase, la fila no agrega aviso', async () => {
+    const { fix } = await montar();
+    expect(fix.componentInstance.desfaseTexto(KEPLER())).toBeNull();
+    expect(fix.componentInstance.desfaseTexto(PD)).toBeNull();
+  });
+
+  it('⭐ un PD- abre su resumen sin pedir el detalle de Kepler, y lleva a la Mesa con el pedido', async () => {
+    const { fix, detail } = await montar();
+    fix.componentInstance.pick(PD);
+    fix.detectChanges();
+    expect(detail).not.toHaveBeenCalled();
+    expect(fix.componentInstance.preventaSel()?.documento).toBe('PD-000123');
+    const a = Array.from(document.querySelectorAll('a')).find((x) => x.textContent?.includes('Documento, cobro y recorrido'));
+    expect(a?.getAttribute('href')).toBe('/almacen/pedidos/preventa?pedido=6f1c0f7e-0000-4000-8000-000000000123');
+  });
+
+  it('NEGATIVA: un pedido de Kepler sí pide su detalle y no muestra la liga a la Mesa', async () => {
+    const { fix, detail } = await montar();
+    fix.componentInstance.pick(KEPLER());
+    fix.detectChanges();
+    expect(detail).toHaveBeenCalledWith('01', 1, '0000500');
+    expect(fix.componentInstance.preventaSel()).toBeNull();
   });
 });
