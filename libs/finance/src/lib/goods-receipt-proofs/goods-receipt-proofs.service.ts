@@ -2498,12 +2498,13 @@ export class GoodsReceiptProofsService {
       const bfMap = new Map<string, number>();
       if (skus.length) {
         const bf = await trx.raw(
-          `SELECT p.sku, COALESCE(vbf.box_factor, 1)::numeric AS box_factor
+          `SELECT p.sku, vbf.box_factor::numeric AS box_factor
              FROM catalog.products p
-             LEFT JOIN analytics.v_product_box_factor vbf
-                    ON vbf.tenant_id = p.tenant_id AND vbf.product_id = p.id
-            WHERE p.tenant_id = ? AND p.sku = ANY(?)`, [tenantId, skus]);
-        for (const r of bf.rows || []) bfMap.set(String(r.sku), Number(r.box_factor) || 1);
+             JOIN analytics.v_product_box_factor vbf
+               ON vbf.tenant_id = p.tenant_id AND vbf.product_id = p.id
+            WHERE p.tenant_id = ? AND p.sku = ANY(?) AND vbf.box_factor > 0`, [tenantId, skus]);
+        // `[RE.72]` Sólo el factor MEDIDO: sin él el motor no supone 1 (una caja no es una pieza).
+        for (const r of bf.rows || []) if (Number(r.box_factor) > 0) bfMap.set(String(r.sku), Number(r.box_factor));
       }
 
       // Aliases aprendidos para este proveedor.

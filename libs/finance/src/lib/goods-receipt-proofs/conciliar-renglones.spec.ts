@@ -201,3 +201,48 @@ describe('[RE.60] lo que no es producto no se concilia, pero se dice', () => {
     expect(c.no_producto).toHaveLength(0);
   });
 });
+
+/**
+ * `[RE.72]` La cantidad de Kepler está en su unidad BASE (`kdm2.c9`) y el rótulo del proveedor no es
+ * confiable. Medido en prod (2026-11-14): 1,277 renglones salían «Difiere cantidad» con el importe
+ * cuadrando. Importes sintéticos; el patrón es el de los casos reales.
+ */
+describe('[RE.72] la cantidad se lee en la unidad base de Kepler', () => {
+  const k1 = (cantidad: number, importe: number, unidad = 'PAQ'): RenglonKepler =>
+    ({ linea: '1', sku: 'CZ75', nombre: 'CERIZE 75 GRS', unidad, cantidad, costo_unitario: importe / cantidad, importe });
+  const una = (r: RemisionLine, k: RenglonKepler, factores: Map<string, number>) =>
+    conciliarRenglones({ remision: [r], kepler: [k], aliases: new Map(), barcodes: new Map(), boxFactor: factores }).lines[0];
+
+  it('el proveedor rotula «H87» (pieza) lo que son cajas: 15 × factor 30 = 450 PAQ cuadra', () => {
+    const l = una(rem('CERIZE 75 GRS', 15, 1000, 'H87'), k1(450, 1000), new Map([['CZ75', 30]]));
+    expect(l.qty_match).toBe(true);
+    expect(l.qty_remision_pz).toBe(450);
+    expect(l.status).toBe('cuadra');
+  });
+
+  it('NEGATIVA: con el factor equivocado sigue siendo diferencia', () => {
+    expect(una(rem('CERIZE 75 GRS', 15, 1000, 'H87'), k1(450, 1000), new Map([['CZ75', 24]])).status).toBe('difiere_cantidad');
+  });
+
+  it('kilos contra piezas no se comparan: ni cuadra ni difiere en cantidad', () => {
+    const l = una(rem('CERIZE 75 GRS', 109.8, 1000, 'KGM'), k1(224, 1000, 'PZA'), new Map([['CZ75', 32]]));
+    expect(l.qty_match).toBeNull();
+    expect(l.status).toBe('revisar');
+  });
+
+  it('una caja SIN factor medido no se supone de 1 pieza: no se afirma diferencia', () => {
+    const l = una(rem('CERIZE 75 GRS', 15, 1000, 'CJA'), k1(450, 1000), new Map());
+    expect(l.box_factor).toBeNull();
+    expect(l.qty_match).toBeNull();
+    expect(l.status).not.toBe('difiere_cantidad');
+  });
+
+  it('al EMPAREJAR, «1 caja» no se va con el renglón de Kepler que trae 1 (se lee con su factor)', () => {
+    const kep2: RenglonKepler[] = [
+      { linea: '1', sku: 'NAP', nombre: 'CARAMELO NAPOLEON', unidad: 'PAQ', cantidad: 1, costo_unitario: 700, importe: 700 },
+      { linea: '2', sku: 'NAP2', nombre: 'CARAMELO NAPOLEON', unidad: 'PAQ', cantidad: 12, costo_unitario: 700 / 12, importe: 700 },
+    ];
+    const c = conciliarRenglones({ remision: [rem('CARAMELO NAPOLEON', 1, 700, 'CJA')], kepler: kep2, aliases: new Map(), barcodes: new Map(), boxFactor: new Map([['NAP', 12], ['NAP2', 12]]) });
+    expect(c.lines[0].kepler?.linea).toBe('2');
+  });
+});

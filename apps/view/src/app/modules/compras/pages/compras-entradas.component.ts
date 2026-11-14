@@ -1106,10 +1106,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   </td>
                   <td class="ta-r">
                     {{ (l.remision.cantidad ?? 0) | number:'1.0-2' }}<span class="muted"> {{ l.remision.unidad || '' }}</span>
-                    @if (l.qty_remision_pz != null && l.box_factor > 1) { <span class="muted"> = {{ l.qty_remision_pz | number:'1.0-0' }} pz</span> }
+                    <!-- [RE.72] La cantidad de Kepler está en SU unidad base (PAQ, PZA, KG…), no siempre en piezas: se rotula con ella. -->
+                    @if (l.qty_remision_pz != null && l.qty_remision_pz !== l.remision.cantidad) { <span class="muted"> = {{ l.qty_remision_pz | number:'1.0-2' }} {{ l.kepler?.unidad || '' }}</span> }
                     @if (l.qty_kepler != null) {
                       <div class="cb-par"><i class="pi pi-arrow-right" aria-hidden="true"></i>
-                        <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span></div>
+                        <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span><span class="muted"> {{ l.kepler?.unidad || '' }}</span></div>
+                      @if (l.qty_match === null) { <div class="muted xs">No se comparan: {{ l.remision.unidad || 'sin unidad' }} contra {{ l.kepler?.unidad || 'sin unidad' }}{{ l.box_factor ? '' : ', sin factor de caja medido' }}</div> }
                     }
                   </td>
                   <td>

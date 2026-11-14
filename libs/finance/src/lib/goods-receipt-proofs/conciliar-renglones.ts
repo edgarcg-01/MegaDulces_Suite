@@ -62,7 +62,9 @@ export interface ReconciledLine {
   /** `[RE.56]` `numeros` = el nombre no alcanzaba, pero la cantidad y el importe cuadran exactos. */
   method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
-  box_factor: number;
+  /** `[RE.72]` Factor de caja MEDIDO; `null` si no hay (antes se suponía 1). */
+  box_factor: number | null;
+  /** La cantidad de la remisión en la unidad BASE de Kepler (`kepler.unidad`), no necesariamente piezas. */
   qty_remision_pz: number | null;
   qty_kepler: number | null;
   qty_match: boolean | null;
@@ -158,14 +160,57 @@ function importeRemision(r: RemisionLine): number | null {
   return r.cantidad != null && r.precio_unitario != null && q > 0 && p > 0 ? q * p : null;
 }
 
-function cantidadPiezas(r: RemisionLine, bf: number): number | null {
+/** `[RE.72]` Kilos y gramos: no se convierten a piezas ni a cajas (no hay factor de peso). */
+export const esPeso = (unidad: string | null | undefined) =>
+  /^(KG|KGM|KGS|KILO|KILOS|KILOGRAMOS?|GR|GRS|GRM|GRAMOS?)$/.test((unidad || '').toUpperCase().replace(/[^A-Z]/g, ''));
+
+/**
+ * La cantidad de la remisión llevada a la unidad BASE de Kepler (`kdm2.c9`, rotulada en `c11`). Una
+ * caja sin factor medido no se puede llevar: `null`, nunca «el factor es 1».
+ */
+function cantidadPiezas(r: RemisionLine, bf: number | null): number | null {
   if (r.cantidad == null || !Number.isFinite(Number(r.cantidad))) return null;
-  return esCaja(r.unidad) ? Number(r.cantidad) * bf : Number(r.cantidad);
+  if (!esCaja(r.unidad)) return Number(r.cantidad);
+  return bf ? Number(r.cantidad) * bf : null;
 }
 
-function cuadraCantidad(qtyPz: number | null, k: RenglonKepler): boolean | null {
-  if (qtyPz == null) return null;
-  return Math.abs(qtyPz - k.cantidad) / Math.max(Math.abs(k.cantidad), 1) <= QTY_TOL;
+const casaQty = (q: number, k: number) => Math.abs(q - k) / Math.max(Math.abs(k), 1) <= QTY_TOL;
+
+/**
+ * `[RE.72]` ¿La cantidad de la remisión casa con la de Kepler? Y en qué cantidad se leyó.
+ *
+ * La cantidad de Kepler está en su unidad BASE (`kdm2.c9`; `c11` es su rótulo: PAQ, PZA, KG…) y
+ * el rótulo de la remisión NO es confiable: medido en prod (2026-11-14, 1,806 evidencias de 75 días),
+ * 1,277 renglones salían «Difiere cantidad» con el importe cuadrando. El proveedor pone «H87»
+ * (pieza) a lo que son cajas (CERIZE 75 GRS: 15 «H87» → 450 PAQ, factor 30), o factura en kilos lo
+ * que Kepler recibe en piezas (ROLLO DE GUAYABA: 109.8 KGM → 224 PZA). Árbitro: en los pares cuyo
+ * importe cuadra, la cantidad casa cruda o como `remisión × factor` y NUNCA como `Kepler × factor`.
+ *
+ * Por eso se prueban las dos lecturas, cruda y por el factor medido. Si ninguna casa: es diferencia
+ * si las dos unidades son comparables; si una es de peso y la otra no, o es una caja sin factor
+ * medido, `null`: no se puede afirmar ni que cuadra ni que difiere.
+ *
+ * `paraEmparejar`: al ELEGIR pareja, lo que el papel rotula caja se lee sólo con su factor. Leerlo
+ * crudo también desacomodaba los pares («1 CJA» se iba con el renglón de Kepler que trae 1, en
+ * 08/0000543); crudo sólo vale para el veredicto de un par ya formado (122 de 2,403 pares caja→caja
+ * con importe que cuadra casan así).
+ */
+export function cantidadCasa(r: RemisionLine, k: RenglonKepler, bf: number | null, paraEmparejar = false): { qty: number | null; casa: boolean | null } {
+  if (r.cantidad == null || !Number.isFinite(Number(r.cantidad))) return { qty: null, casa: null };
+  const q = Number(r.cantidad);
+  const conFactor = bf && bf > 1 ? q * bf : null;
+  const caja = esCaja(r.unidad);
+  // Una caja SIN factor medido sólo puede casar cruda (es lo único que se sabe de ella).
+  const lecturas = caja ? (paraEmparejar ? [conFactor ?? q] : [conFactor, q]) : [q, conFactor];
+  for (const x of lecturas) if (x != null && casaQty(x, k.cantidad)) return { qty: x, casa: true };
+  const qty = cantidadPiezas(r, bf);
+  if (qty == null || esPeso(r.unidad) !== esPeso(k.unidad)) return { qty, casa: null };
+  return { qty, casa: false };
+}
+
+/** Para emparejar (base de IVA, pares por números, puntaje). El veredicto usa `cantidadCasa`. */
+function cuadraCantidad(r: RemisionLine, k: RenglonKepler, bf: number | null): boolean | null {
+  return cantidadCasa(r, k, bf, true).casa;
 }
 
 /** El importe de la remisión, llevado a la base de Kepler (sin IVA), contra el de Kepler. */
@@ -177,7 +222,7 @@ function cuadraImporte(r: RemisionLine, k: RenglonKepler, base: BasePrecio): boo
   return base === 'con_iva' ? dentro(ri / (1 + IVA)) || dentro(ri) : dentro(ri);
 }
 
-interface Par { i: number; j: number; sim: number; metodo: ReconciledLine['method']; bf: number }
+interface Par { i: number; j: number; sim: number; metodo: ReconciledLine['method']; bf: number | null }
 
 /**
  * Concilia la remisión contra los renglones de Kepler. Puro y determinista: mismo insumo, mismo
@@ -189,8 +234,9 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
   const noProducto = leidos.filter((l) => !esRenglonDeProducto(l));
   const kep = e.kepler;
   const kepTokens = kep.map((k) => tokenize(k.nombre || ''));
-  const bfDe = (sku: string | null, alias?: AliasAprendido | null) =>
-    (sku && e.boxFactor.get(sku)) || alias?.box_factor || 1;
+  // `[RE.72]` Sin factor medido es `null`, no 1: con 1, una caja se comparaba como pieza.
+  const bfDe = (sku: string | null, alias?: AliasAprendido | null): number | null =>
+    (sku && e.boxFactor.get(sku)) || alias?.box_factor || null;
 
   // 1) Lo determinista primero: alias aprendido y código de barras fijan el SKU.
   const fijo = new Map<number, { sku: string; nombre: string | null; metodo: 'alias' | 'barcode'; alias: AliasAprendido | null }>();
@@ -223,7 +269,7 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
   let a1 = 0, aIva = 0;
   for (const p of cands) {
     const r = rem[p.i], k = kep[p.j];
-    if (cuadraCantidad(cantidadPiezas(r, p.bf), k) !== true) continue;
+    if (cuadraCantidad(r, k, p.bf) !== true) continue;
     const ri = importeRemision(r);
     if (ri == null || !(k.importe > 0)) continue;
     const q = ri / k.importe;
@@ -243,7 +289,7 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     kep.forEach((k, j) => {
       if (yaEs.has(`${i}|${j}`)) return;
       const bf = bfDe(k.sku);
-      if (cuadraCantidad(cantidadPiezas(r, bf), k) !== true) return;
+      if (cuadraCantidad(r, k, bf) !== true) return;
       const imp = cuadraImporte(r, k, base);
       if (imp === false) return;
       if (imp === null && kep.filter((o) => Math.abs(o.cantidad - k.cantidad) / Math.max(Math.abs(k.cantidad), 1) <= QTY_TOL).length > 1) return;
@@ -254,7 +300,7 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
   // 4) Emparejamiento GLOBAL: nombre + cantidad + importe. Un par fijo (alias/barras) va primero.
   const puntaje = (p: Par) => {
     const r = rem[p.i], k = kep[p.j];
-    const q = cuadraCantidad(cantidadPiezas(r, p.bf), k) === true ? 0.5 : 0;
+    const q = cuadraCantidad(r, k, p.bf) === true ? 0.5 : 0;
     const m = cuadraImporte(r, k, base) === true ? 0.5 : 0;
     return (p.metodo === 'descripcion' || p.metodo === 'numeros' ? 0 : 10) + p.sim + q + m;
   };
@@ -298,8 +344,7 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
       };
     }
     const k = kep[p.j];
-    const qtyPz = cantidadPiezas(r, p.bf);
-    const qty_match = cuadraCantidad(qtyPz, k);
+    const { qty: qtyPz, casa: qty_match } = cantidadCasa(r, k, p.bf);
     const price_match = cuadraImporte(r, k, base);
     const status: ReconciledLine['status'] =
       qty_match === false ? 'difiere_cantidad'
@@ -329,7 +374,7 @@ export const GRUPO_MAX = 5;
  */
 function agruparHuerfanos(
   rem: RemisionLine[], kep: RenglonKepler[], remUsado: Map<number, Par>, kepUsado: Set<number>,
-  fijo: Map<number, { sku: string }>, bfDe: (sku: string | null) => number, base: BasePrecio,
+  fijo: Map<number, { sku: string }>, bfDe: (sku: string | null) => number | null, base: BasePrecio,
 ): Map<number, { j: number; n: number }> {
   const out = new Map<number, { j: number; n: number }>();
   kep.forEach((k, j) => {

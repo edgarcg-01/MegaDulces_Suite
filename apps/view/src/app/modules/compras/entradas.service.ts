@@ -474,7 +474,9 @@ export interface ReconciledLine {
   resolved_nombre: string | null;
   method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
-  box_factor: number;
+  /** `[RE.72]` Factor de caja MEDIDO; `null` si no hay. */
+  box_factor: number | null;
+  /** La cantidad de la remisión en la unidad base de Kepler (`kepler.unidad`), no necesariamente piezas. */
   qty_remision_pz: number | null;
   qty_kepler: number | null;
   qty_match: boolean | null;
