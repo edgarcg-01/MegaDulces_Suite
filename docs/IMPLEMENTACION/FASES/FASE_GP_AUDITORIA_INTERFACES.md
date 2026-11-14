@@ -74,29 +74,32 @@ Los resultados (JSON y capturas) caen en `e2e/reestructura/.resultados/`, fuera 
 Uso de 30 días al 2026-11-14, prod, sólo lectura.
 - **Entradas** son persona-días en que alguien entró o salió de la app por esa ruta. Es una **cota
   inferior**: la telemetría no registra la navegación interna (ver §6, P-RF.2).
-- **API** son llamadas del endpoint principal de la pantalla (`analytics.ui_usage`).
+- **API, por quién opera** son las llamadas del endpoint principal, separadas por rol
+  (`analytics.ui_usage`). ⛔ Se separan por rol **siempre**: sin separar, las pruebas de Dirección
+  y la vista de superadmin se leían como problemas de la operación (§4.5).
 
-| # | Paso del pedido | Ruta | Quién | Entradas | API (30 d) | `check:pantalla` (deuda) | Estado tras GP.10.4 |
+| # | Paso del pedido | Ruta | Quién opera | Entradas | API de quien opera (30 d) | `check:pantalla` (deuda) | Estado tras GP.10.4 |
 |---|---|---|---|---:|---|---|---|
-| 1 | Consola maestra | `/almacen/pedidos` | coordinación, consulta | 34 | 682 lecturas (135 ms en promedio, máx. 823) | Q.1 · §2 · §9 | absorbió Preventa y Consola |
-| 1a | — vista «Fila de surtido» | `/almacen/pedidos?vista=fila` | coordina el surtido | (5 por la ruta vieja) | 63 aperturas · armar 4/6 con error · tanda 2/5 con error | Q.1 · §2 · §9 · O.4 | era la Consola de surtido |
+| 1 | Consola maestra | `/almacen/pedidos` | coordinación, consulta | 34 | 682 lecturas (135 ms en promedio, máx. 823) | Q.1 · §2 · §9 | absorbió Preventa y Consola (en código, sin soltar) |
+| 1a | — vista «Fila de surtido» | `/almacen/pedidos?vista=fila` | coordina el surtido | (5 por la ruta vieja) | 63 aperturas; armar 2 veces sin falla | Q.1 · §2 · §9 · O.4 | era la Consola de surtido |
 | 1b | — detalle de un `PD-` | `/almacen/pedidos/preventa?pedido=` | encargado, Dirección | 2 | 69 lecturas · ligar 14 (sólo Dirección, octubre) | Q.1 · §2 · §9 | sin pestaña: detalle de preventa |
-| 2 | Surtir (celular) | `/almacen/surtir` | surtidor | 73 | «siguiente» 74 (**1.3 s en promedio**) · renglón 99 · terminar 10 | Q.1 · §2 · §9 | sin cambio; E2 le agrega carreta |
-| 2b | Surtir preventa (celular) | `/almacen/surtir-preventa` | surtidor de sucursal | 0 | 6,880 lecturas · terminar 711 (72 rechazados) | Q.1 | ⚠️ duplica el modo Sucursal de Surtir (deuda con nombre) |
-| 3 | Checar | `/almacen/checar` | checador | 1 | «siguiente» 16 (**9 rechazados**) | Q.1 · §2 · §9 | sin cambio; E3 lo rehace |
+| 2 | Surtir (celular) | `/almacen/surtir` | surtidor | 73 | surtidores: «mis surtidos» 570 (14 ms) · «siguiente» 54 (173 ms, máx. 781) | Q.1 · §2 · §9 | sin cambio; E2 le agrega carreta |
+| 2b | Surtir preventa (celular) | `/almacen/surtir-preventa` | surtidor de sucursal | 0 | 6,880 lecturas · terminar: **73 de 696 rechazados (10.5 %)** | Q.1 | ⚠️ duplica el modo Sucursal de Surtir (deuda con nombre) |
+| 3 | Checar | `/almacen/checar` | checador | 1 | **ningún checador lo usó**: 16 «siguiente», de Dirección, superadmin y un surtidor | Q.1 · §2 · §9 | sin cambio; E3 lo rehace |
 | 4 | Por capturar en Kepler | `/almacen/pedidos-por-capturar` | facturación | 0 | 33 lecturas | Q.1 · §2 · §9 · O.4 | se retira o queda como bandeja de fallas (paso 4b) |
-| 5 | Revisión de pedidos (caja) | `/almacen/pedidos/revision` | caja | 52 | 15,974 lecturas · terminar 619 (20 rechazados) | — | D9: preventa no se toca en esta etapa |
+| 5 | Revisión de pedidos (caja) | `/almacen/pedidos/revision` | caja | 52 | 15,974 lecturas · terminar: caja **20 de 187 rechazados (10.7 %)** | — | D9: preventa no se toca en esta etapa |
 | 6 | Guías de carga | `/almacen/pedidos/guias` | caja | 15 | 307 lecturas | Q.1 · §2 · §9 · O.4 | D9 |
 | 7 | Clientes nuevos (Kepler) | `/almacen/clientes-nuevos` | encargado de sucursal | 2 | 1,213 lecturas del resumen | — | D9 |
 | 8 | Ubicaciones · mapa (fase UB, paso 1) | `/almacen/ubicaciones` | almacén | 9 | 181 lecturas | §2 · §9 | de la fase UB |
-| 9 | Ubicaciones · contenido (fase UB, paso 2) | `/almacen/inventory/ubicaciones` | almacén | 1 | lotes 3/6 con error · alta 2/2 con error | Q.1 · §9 · D.8 | de la fase UB |
+| 9 | Ubicaciones · contenido (fase UB, paso 2) | `/almacen/inventory/ubicaciones` | almacén | 1 | las altas rechazadas son pruebas de Dirección | Q.1 · §9 · D.8 | de la fase UB |
 
-**Leído en una línea:** el pedido de almacén se sigue hoy en **10 interfaces**, más el detalle
-de un `PD-`. En tres de ellas el servidor rechaza seguido lo que la persona intenta: Checar, la
-fila de surtido y el alta de ubicaciones. **Todos los rechazos medidos son 4xx** (el servidor dice
-«no» por una regla) y **ningún 5xx**; «armar» no se puede separar, porque sus filas son anteriores a
-esas columnas. Un 4xx no siempre es un defecto: lo es cuando la pantalla no explica por qué ni qué
-hacer (§4.5).
+**Leído en una línea:** el pedido de almacén se sigue hoy en **10 interfaces**, más el detalle de
+un `PD-`. Lo que de verdad le cuesta a quien opera:
+- en dos cierres, **uno de cada diez intentos es rechazado**: el surtido de preventa y la revisión
+  en caja;
+- **Checar todavía no lo usa ningún checador**.
+
+Todos los rechazos medidos son 4xx, es decir, el servidor dice «no» por una regla. Ninguno es 5xx.
 
 ---
 
@@ -127,17 +130,77 @@ instrumento **no** lo marca, y un botón con nombre no cuenta como «sin nombre�
 - un `GET /api/health` **sí** pasa (200), así que el bloqueo es selectivo;
 - ningún service worker controla la página.
 
-### 4.3 La línea base por pantalla — ⬜ NO MEDIDA
+En el recorrido de 4.3, **ninguna pantalla intentó escribir** (0 escrituras abortadas).
 
-`paso0.e2e.ts` › *0.3* recorre las 12 rutas de §3. Las de celular (Surtir, Surtir preventa,
-Checar) se recorren a 390×844 con toque. En cada una mide:
-- el tiempo hasta que la pantalla queda quieta;
-- las mediciones de `medir.ts`;
-- las llamadas a la API que fallan y los errores de consola;
-- una captura.
+### 4.3 La línea base por pantalla ✅ (con dos límites declarados)
 
-**Falta la sesión:** se corre con `MD_TOKEN_FILE` (P-RF.1). Sin ella, la prueba se salta y dice
-NO MEDIDO; no inventa un cero.
+**Cómo se midió:** `paso0.e2e.ts` › *0.3*, el 2026-11-14 a las 12:01, con la sesión de Edgar
+(**superadmin**). La sesión se obtuvo con `iniciar-sesion.js`: Edgar entró en un Chromium visible y
+el script guardó el token fuera del repo, sin imprimirlo.
+- Escritorio: 1366×768.
+- Celular (Surtir, Surtir preventa, Checar): 390×844, con toque.
+
+⛔ **Límite 1 — prod tiene la versión de ANTES:** el commit desplegado es `d88bfc45a`, que **no**
+incluye GP.10.4. Por eso `?vista=fila` y `?origen=PREVENTA` midieron lo mismo que el Tablero
+viejo, y por eso esto es la línea base del «antes»: el Tablero con sus 7 pestañas.
+
+⛔ **Límite 2 — superadmin no ve lo que ve quien opera:** ve todos los almacenes y todo el
+dinero. Ejemplo medido: al entrar a Surtir, «mis surtidos» tardó **más de 11.5 s** y la pantalla
+siguió en «Cargando…»; para los surtidores ese mismo llamado promedia **14 ms** (§4.5). Las cifras
+de carga visual y accesibilidad valen como estructura; **el tiempo y el contenido se vuelven a medir
+con el puesto de cada pantalla** (P-RF.1).
+
+| Pantalla | Quieta en | Accionables | Cifras | Marco hasta la 1.ª fila | Letra mín. | Niveles de letra | Bajo AA | Sin nombre | Objetivos < 24 px |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Tablero (`/almacen/pedidos`) | 5.2 s (en frío) | **58** | **108** | **415 px de 768 (54 %)** | 10 px | 6 | 0 | 0 | 3 |
+| Surtir 📱 | — | 11 | 0 | — | 12 px | 3 | 1 | 0 | 1 |
+| Surtir preventa 📱 | 2.4 s | 33 | 34 | — | 10 px | 7 | 0 | 0 | 1 |
+| Checar 📱 | 1.8 s | 16 | 1 | — | 10 px | 6 | 0 | 0 | 1 |
+| Por capturar en Kepler | 2.1 s | 42 | 28 | 462 px (60 %) | 10 px | 6 | 1 | 0 | 3 |
+| Revisión de pedidos | 2.0 s | 46 | 29 | — | 10 px | **9** | 0 | 0 | **7** |
+| Guías de carga | 1.8 s | 30 | 4 | — | 10 px | 6 | 0 | 0 | 3 |
+| Clientes nuevos | 1.8 s | 29 | 23 | — | 10 px | 8 | 0 | 0 | 4 |
+| Ubicaciones · mapa | 1.9 s | 35 | 17 | — | 10 px | 7 | 0 | 0 | 3 |
+| Ubicaciones · contenido | 1.8 s | 30 | 1 | — | 10 px | 7 | 0 | **1** | 3 |
+
+«Quieta en» es el tiempo hasta que la red queda sin peticiones por medio segundo; incluye cargar
+la app. «—» en el marco quiere decir que la pantalla no tiene filas de tabla visibles. Surtir se
+midió todavía en «Cargando…» (límite 2): sus cifras no describen la pantalla de trabajo.
+
+**Lo que se ve en las capturas** (nivel A; están en `e2e/reestructura/.resultados/paso0/`):
+- **Tablero:** antes de la primera fila hay siete franjas:
+  1. la barra superior;
+  2. las migas;
+  3. las **7 pestañas**;
+  4. el título y la fecha;
+  5. Surtir, Checar, el periodo, el rango y actualizar;
+  6. los botones de estatus;
+  7. los filtros.
+
+  Las 108 cifras de la primera pantalla incluyen el importe y la hora de cada fila. El «Abierto»
+  de cada pedido sale como «12 min», «18 min»: es el tiempo desde que se creó, no el tiempo en su
+  estatus (declarado en la pantalla).
+- **Checar:** para hacer cualquier cosa primero hay que **elegir el almacén en un `<select>` nativo**
+  («— Elige —»). «Tomar siguiente» queda apagado hasta entonces. Es un clic de más en **cada**
+  entrada si la persona checa en un solo almacén. El `<select>` nativo no es el control del sistema
+  de diseño (`p-select`).
+- **Surtir:** abre en «Cargando…» con la barra de navegación de celular abajo (Inventario,
+  Ubicaciones, Abasto, Pedidos, Más).
+- **Todas las pantallas:** los dos errores de consola son el script de **Cloudflare Insights que la
+  política de seguridad del sitio bloquea**. No es de estas pantallas, sino de la infraestructura:
+  se avisa, no se toca (regla 7).
+
+**Accesibilidad, en una línea:**
+- **Contraste:** sólo 2 textos bajo AA en las 12 pantallas:
+  - «Salir» en Surtir, a 4.40:1;
+  - un «1» en ámbar `--warn-fg` sobre blanco en Por capturar, a **2.15:1**: el defecto que ya
+    describe la skill de auditoría.
+- **Nombre:** sólo 1 botón sin nombre accesible, en Ubicaciones · contenido.
+- **Tamaño:** lo que más se repite es la **letra de 10 px en todas** y los objetivos de menos de
+  24 px: 7 en Revisión.
+
+⛔ **NO MEDIDO todavía:** alto contraste de Windows (`forced-colors`), zoom al 200 %, recorrido sólo
+con teclado y lector de pantalla.
 
 ### 4.4 Inventario y uso (contexto de toda la suite)
 
@@ -164,17 +227,23 @@ NO MEDIDO; no inventa un cero.
   | D.8 — búsqueda con `.includes()` | 12 |
 - ⚠️ «En 0» **no** quiere decir «sin uso». Por eso esa columna no basta para retirar nada (P-RF.2).
 
-### 4.5 Lo que la base ya dice, antes de abrir el navegador (nivel B)
+### 4.5 Lo que dice la base (nivel B), separado por rol
 
-| ID | Hallazgo | Costo | Siguiente |
-|---|---|---|---|
-| GP.RF.1 | Checar: «tomar el siguiente» fue rechazado **9 de 16** veces en 30 días, todas 4xx | quien checa no recibe pedido más de la mitad de las veces | ver en la pantalla qué dice ese rechazo: si es «no hay pedidos», el defecto es que no se diga antes del toque |
-| GP.RF.2 | Fila de surtido: «Armar surtidos ahora» falló **4 de 6** (sin poder separar 4xx de 5xx); la tanda fue rechazada 2 de 5 (4xx) | el coordinador arma a mano o no arma | recorrerlo en el paso 1 |
-| GP.RF.3 | Surtir preventa: **72 de 711** «terminar» rechazados (10 %, todos 4xx) | el surtido se repite o queda abierto | recorrer el cierre en el paso 2b |
-| GP.RF.7 | Surtir: «Tomar siguiente» tarda **1,303 ms en promedio** y llegó a **14,999 ms** (74 llamadas) | el surtidor espera con el celular en la mano cada vez que pide trabajo; la regla es < 500 ms | medir el servicio real en el paso 2 (consulta y armado de la ola) |
-| GP.RF.4 | Revisión en caja: 20 de 619 «terminar» rechazados (4xx); el más lento tardó 2,832 ms | retrabajo en caja | paso 5 (D9: sólo auditar) |
-| GP.RF.5 | Ubicaciones: el alta fue rechazada 2 de 2 y la lectura de lotes 3 de 6 (4xx) | el acomodo no se guarda | fase UB; se avisa a su dueño |
-| GP.RF.6 | Revisión en caja hace **15,974** lecturas en 30 días (19 ms en promedio) | cada pantalla abierta pregunta sin parar: barato para el servidor, no medido en el celular | medir cada cuánto encuesta y si hace falta |
+| ID | Hallazgo | Quién lo vive | Costo | Siguiente |
+|---|---|---|---|---|
+| GP.RF.3 | Surtir preventa: «terminar» rechazado **73 de 696** veces (10.5 %, 4xx) | surtidores | uno de cada diez surtidos de preventa no se cierra al primer intento | paso 2b: qué regla lo rechaza y qué ve el surtidor |
+| GP.RF.4 | Revisión en caja: «terminar» rechazado **20 de 187** veces a cajeros (10.7 %, 4xx). A encargados, surtidores y auxiliares, 0 de 436 | cajeros | uno de cada diez cierres de caja se repite | paso 5 (D9: sólo auditar) |
+| GP.RF.8 | Checar: **ningún checador lo ha usado** en 30 días. Lo usaron Dirección (9 «siguiente», los 9 rechazados), superadmin (5) y un surtidor (2) | — | el checado sigue en papel o en Kepler | paso 3; es la adopción de E3, no un defecto de pantalla |
+| GP.RF.6 | Revisión en caja hace **15,974** lecturas en 30 días (19 ms en promedio) | caja, encargados | cada pantalla abierta pregunta sin parar: barato para el servidor, no medido en el celular | medir cada cuánto encuesta y si hace falta |
+| GP.RF.9 | Superadmin y Dirección esperan **2.6 s en promedio** (máx. 15.8 s) al entrar a Surtir, y **7.6 s** en «siguiente» | superadmin, Dirección | quien supervisa no puede revisar Surtir en vivo | el servicio arma la consulta de todos los almacenes; se ve en el paso 2 |
+| ~~GP.RF.1~~ | ~~Checar «siguiente» rechazado 9 de 16~~ | — | — | **retirado:** eran pruebas de Dirección (ver GP.RF.8) |
+| ~~GP.RF.2~~ | ~~Armar 4 de 6 con error, tanda 2 de 5~~ | — | — | **retirado:** los 6 fallos son de Dirección; los coordinadores armaron 2 veces sin falla |
+| ~~GP.RF.5~~ | ~~Alta de ubicaciones 2 de 2 rechazada~~ | — | — | **retirado:** eran de Dirección |
+| ~~GP.RF.7~~ | ~~Surtir «siguiente» 1.3 s en promedio~~ | — | — | **corregido:** para surtidores son **173 ms** (máx. 781); el promedio lo inflaba superadmin (GP.RF.9) |
+
+⭐ **La lección del paso 0, que vale para todos los que siguen:** un error o un tiempo sin separar
+por rol miente. Cuatro de los siete hallazgos de la primera lectura eran pruebas de Dirección o la
+vista de superadmin. Desde aquí, todo hallazgo de base se publica **por rol**.
 
 ---
 
@@ -186,9 +255,9 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 | Paso | Interfaz | La pregunta del paso | Qué se mide con Playwright |
 |---|---|---|---|
 | **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | clics de «entro» a «prioricé» y a «armé»; carga de la primera pantalla; el volumen encimado y las unidades sin leyenda (GP.10.5); la lista topada a 2,000 |
-| **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | toques por renglón; objetivos ≥44 px; qué pasa si se cae la red a medio surtido |
-| **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad») |
-| **3** | Checar | ¿Por qué falla «siguiente» y qué ve el checador entonces? | el recorrido con y sin pedidos en la cola; el mensaje de cada error |
+| **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | con el puesto de surtidor: toques por renglón; objetivos ≥44 px; qué pasa si se cae la red a medio surtido; la espera de superadmin (GP.RF.9) |
+| **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad»); el mensaje del rechazo |
+| **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? ¿Hace falta elegir almacén cada vez? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo |
 | **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy |
 | **5** | Revisión + Guías (caja) | ¿Cuántas pantallas y clics le toma a la caja cerrar un pedido de preventa? | clics por pedido; frecuencia de encuesta (GP.RF.6). D9: sólo se audita |
 | **6** | Clientes nuevos | ¿Es una pantalla, o es un aviso dentro de Surtir o del Tablero? | qué hace la persona ahí y cuántas veces |
@@ -200,7 +269,7 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 
 | # | Pregunta | Recomendación |
 |---|---|---|
-| **P-RF.1** | ¿Con qué sesión se recorre prod? Hace falta un `MD_TOKEN_FILE`: un archivo, fuera del repo, con el `auth_token` del navegador | Uno tuyo para empezar, porque lo ve todo. Para auditar «como su usuario», uno por puesto (coordinador de embarques, surtidor, checador, caja): cada puesto ve otra pantalla |
+| **P-RF.1** | ✅ en parte: Edgar inició sesión (superadmin) con `iniciar-sesion.js`. Falta medir **como cada puesto**: el paso 0 probó que superadmin no ve lo que vive el surtidor (14 ms contra más de 11 s) | Una sesión por puesto para los pasos 1–3: coordinador de embarques, surtidor, checador y caja. La persona entra con `iniciar-sesion.js`; nadie comparte su contraseña |
 | **P-RF.2** | Hoy la Suite registra en qué pantalla entra o sale la persona, no por dónde navega. Lo dejó prometido por escrito: *«el evento es el clic en un enlace de navegación, no el recorrido dentro de cada módulo»* (SN.12). Sin el recorrido no se puede contar cuántos clics da la gente de verdad, ni afirmar que una pantalla no se usa | Registrar sólo la **ruta** al cambiar de pantalla (nada del contenido), y analizarla por puesto, nunca por persona. Es tu decisión porque cambia lo que se prometió |
 | **P-RF.3** | ¿Se extiende después a toda la suite? (356 pantallas en `view`; el 80 % del uso en 22) | Primero cerrar este alcance; el inventario de §4.4 queda listo para cuando se decida |
 
@@ -217,7 +286,11 @@ Formato de cada hallazgo:
 
 | ID | Paso | Sev | Hallazgo | Nivel | Costo | Regla | Decisión | Estado |
 |---|---|---|---|---|---|---|---|---|
-| GP.RF.1–7 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso con Playwright | ⬜ |
+| GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
+| GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el paso 1 mide el después | 🔨 |
+| GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén | ⬜ |
+| GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
+| GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | ⬜ |
 
 ---
 
@@ -225,4 +298,5 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-14 | Paso 0.3 medido con la sesión de Edgar (superadmin), en prod `d88bfc45a` (sin GP.10.4: es el «antes»). Separados por rol, cuatro de los siete hallazgos de base eran pruebas de Dirección o la vista de superadmin: se retiran o corrigen (§4.5). Nuevos: GP.RF.8–13 | Claude |
 | 2026-11-14 | Nace el documento, a pedido de Edgar. Paso 0: instrumento con control y negativa ✅, blindaje contra escrituras en prod ✅, inventario y uso medidos, línea base por pantalla NO MEDIDA (falta la sesión, P-RF.1). Alcance acotado por Edgar al plan GP y a lo trabajado en la sesión | Edgar, Claude |

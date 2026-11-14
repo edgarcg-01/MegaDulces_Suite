@@ -121,15 +121,18 @@ test.describe('0.3 · línea base de las pantallas del alcance', () => {
       const fallidas: string[] = [];
       const consola: string[] = [];
       page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 400) fallidas.push(`${r.status()} ${new URL(r.url()).pathname}`); });
-      page.on('console', (m) => { if (m.type() === 'error') consola.push(m.text().slice(0, 120)); });
+      page.on('console', (m) => { if (m.type() === 'error') consola.push(m.text().slice(0, 160)); });
       const t0 = Date.now();
       await page.goto(p.ruta);
       await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => undefined);
+      // Una pantalla en «Cargando…» no es la pantalla de trabajo (Surtir como superadmin lo estuvo >11 s,
+      // 2026-11-14): se espera hasta 15 s a que se quite, y si no, se DECLARA en la fila.
+      const seguiaCargando = await page.getByText(/Cargando/).first().waitFor({ state: 'hidden', timeout: 15_000 }).then(() => false, () => true);
       const ms = Date.now() - t0;
       const url = new URL(page.url());
       const m = await medir(page);
       await page.screenshot({ path: path.join(RES, 'paso0', `${p.id}.png`) });
-      filas.push({ ...p, url_final: url.pathname + url.search, ms_hasta_quieta: ms, ...m, api_fallidas: fallidas, escrituras_abortadas: b.abortadas, errores_consola: consola.length });
+      filas.push({ ...p, url_final: url.pathname + url.search, ms_hasta_quieta: ms, seguia_cargando: seguiaCargando, ...m, api_fallidas: fallidas, escrituras_abortadas: b.abortadas, errores_consola: consola });
       await ctx.close();
     }
     fs.writeFileSync(path.join(RES, 'paso0-medicion.json'), JSON.stringify({ medido_at: new Date().toISOString(), rol: carga.role_name ?? carga.role ?? null, filas }, null, 2));
