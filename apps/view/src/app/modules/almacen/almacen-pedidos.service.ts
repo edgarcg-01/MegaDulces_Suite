@@ -10,10 +10,6 @@ export interface AlmacenPedidosFiltro {
   from?: string;
   to?: string;
   estatus?: string[];
-  /** `[GP.10.4a]` Etapa de almacén (`stage`). */
-  etapa?: string[];
-  /** `[GP.10.4a]` Incluir los pedidos de preventa (`PD-`). */
-  preventa?: boolean;
   origen?: string | null;
   sucursal?: string | null;
   q?: string | null;
@@ -30,8 +26,6 @@ export class AlmacenPedidosService {
     if (f.from && f.to) p = p.set('from', f.from).set('to', f.to);
     else if (f.month) p = p.set('month', f.month);
     if (f.estatus?.length) p = p.set('status', f.estatus.join(','));
-    if (f.etapa?.length) p = p.set('stage', f.etapa.join(','));
-    if (f.preventa) p = p.set('presale', '1');
     if (f.origen) p = p.set('origin', f.origen);
     if (f.sucursal) p = p.set('branch', f.sucursal);
     if (f.q) p = p.set('q', f.q);

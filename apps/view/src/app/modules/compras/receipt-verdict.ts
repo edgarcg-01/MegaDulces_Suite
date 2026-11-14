@@ -1,5 +1,5 @@
 import type { ExpedienteNotasLados, ReceiptExpediente } from '@megadulces/contracts';
-import { escalaDeLectura } from '@megadulces/contracts';
+import { CENTAVO, cuadraDentroDeTolerancia, escalaDeLectura, TOLERANCIA_TEXTO } from '@megadulces/contracts';
 import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from './entradas.service';
 import { money } from '../../shared/util';
 
@@ -15,7 +15,11 @@ import { money } from '../../shared/util';
  * exactamente el IVA no es un problema, y un delta crudo de $1,234.56 no le dice eso a nadie.
  */
 
-/** Dos importes son el mismo por debajo de esto (centavos de redondeo del OCR). */
+/**
+ * Dos importes son «el mismo» por debajo de esto, para las PISTAS (es el IVA, es la captura de oficinas,
+ * es este ajuste). `[RE.73]` El cuadre del total NO usa esto: usa `cuadraDentroDeTolerancia`, la regla
+ * del expediente.
+ */
 export const EPS = 1;
 /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
 export const IVA = 0.16;
@@ -160,12 +164,20 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes: boolean | readonly 
       titulo: 'El documento está, pero no se pudo leer su total',
       lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
   }
-  if (Math.abs(delta as number) <= EPS) {
+  // `[RE.73]` La MISMA regla que el expediente de abajo (`E1_cuadre`): antes era ±$1 fijo, y en 40
+  // entradas el panel decía «cobra de más» mientras el expediente decía «cuadra». Y «al centavo» se
+  // dice sólo si lo es: lo decía con hasta $1 de diferencia (317 entradas).
+  const dif = Math.abs(delta as number);
+  if (dif < CENTAVO) {
     return { ...base, tone: 'ok', icon: 'pi-check-circle',
       titulo: 'El documento cuadra con Kepler',
       lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
   }
-  const dif = Math.abs(delta as number);
+  if (cuadraDentroDeTolerancia(dif, kepler)) {
+    return { ...base, tone: 'ok', icon: 'pi-check-circle',
+      titulo: 'El documento cuadra con Kepler',
+      lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: difieren ${money(dif)}, dentro de la tolerancia (${TOLERANCIA_TEXTO}).` };
+  }
   // RE.14.4 — la MISMA recepción está capturada dos veces y los dos importes no siempre casan al
   // centavo. Si la factura coincide con la captura de oficinas, el papel del proveedor está bien:
   // lo que difiere son NUESTRAS dos capturas. Decirle "el documento cobra de más" al capturista

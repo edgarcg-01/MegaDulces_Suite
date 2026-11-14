@@ -1111,7 +1111,9 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                     @if (l.qty_kepler != null) {
                       <div class="cb-par"><i class="pi pi-arrow-right" aria-hidden="true"></i>
                         <span [class.cb-qty-bad]="l.qty_match === false">{{ l.qty_kepler | number:'1.0-2' }}</span><span class="muted"> {{ l.kepler?.unidad || '' }}</span></div>
+                      <!-- [RE.73] «Revisar» con la cantidad bien: lo que falta es el importe. -->
                       @if (l.qty_match === null) { <div class="muted xs">No se comparan: {{ l.remision.unidad || 'sin unidad' }} contra {{ l.kepler?.unidad || 'sin unidad' }}{{ l.box_factor ? '' : ', sin factor de caja medido' }}</div> }
+                      @else if (l.qty_match === true && l.price_match === null) { <div class="muted xs">La cantidad casa; el importe no se pudo comparar</div> }
                     }
                   </td>
                   <td>

@@ -246,3 +246,20 @@ describe('[RE.72] la cantidad se lee en la unidad base de Kepler', () => {
     expect(c.lines[0].kepler?.linea).toBe('2');
   });
 });
+
+// `[RE.73]` «Cuadra» exige cantidad E importe: con el importe sin medir es «revisar».
+describe('[RE.73] cuadra sólo con cantidad e importe', () => {
+  const k: RenglonKepler = { linea: '1', sku: 'X1', nombre: 'GOMITA OSITO', unidad: 'PZA', cantidad: 10, costo_unitario: 10, importe: 100 };
+  const una = (importe: number | null) => conciliarRenglones({ remision: [rem('GOMITA OSITO', 10, importe, 'PZA')], kepler: [k], aliases: new Map(), barcodes: new Map(), boxFactor: new Map() }).lines[0];
+
+  it('la cantidad casa y el papel no trae importe: «revisar», no «cuadra»', () => {
+    const l = una(null);
+    expect(l.qty_match).toBe(true);
+    expect(l.price_match).toBeNull();
+    expect(l.status).toBe('revisar');
+  });
+
+  it('control: cantidad e importe casan → «cuadra»', () => {
+    expect(una(100).status).toBe('cuadra');
+  });
+});

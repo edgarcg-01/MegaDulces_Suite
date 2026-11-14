@@ -346,10 +346,12 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     const k = kep[p.j];
     const { qty: qtyPz, casa: qty_match } = cantidadCasa(r, k, p.bf);
     const price_match = cuadraImporte(r, k, base);
+    // `[RE.73]` «Cuadra» sólo si casan la cantidad Y el importe. Con el importe sin medir (sin importe
+    // en el papel, o sin base de IVA) era «cuadra» por la cantidad sola: 91 renglones en 32 entradas.
     const status: ReconciledLine['status'] =
       qty_match === false ? 'difiere_cantidad'
       : price_match === false ? 'difiere_precio'
-      : qty_match === true ? 'cuadra' : 'revisar';
+      : qty_match === true && price_match === true ? 'cuadra' : 'revisar';
     return {
       idx: i, remision: r, kepler: k,
       resolved_sku: k.sku, resolved_nombre: f?.nombre || k.nombre,

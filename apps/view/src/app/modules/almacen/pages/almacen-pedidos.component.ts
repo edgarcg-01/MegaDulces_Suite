@@ -13,7 +13,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
 import { DrawerModule } from 'primeng/drawer';
-import { ETAPAS_PEDIDO, WAREHOUSE_ORDER_CANCELADO, type EtapaPedido, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersResponse } from '@megadulces/contracts';
+import { WAREHOUSE_ORDER_CANCELADO, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPedidosService, type AlmacenPedidosFiltro } from '../almacen-pedidos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -33,26 +33,9 @@ const ESTATUS: Record<string, { label: string; sev: Sev }> = {
   // CANCELADO. Gris y no rojo: no es una alarma ni trabajo pendiente; el texto lo distingue de Creado.
   [WAREHOUSE_ORDER_CANCELADO]: { label: 'Cancelado', sev: 'secondary' },
 };
-/**
- * `[GP.10.4a]` La etapa de ALMACÉN del pedido (Kepler + lo registrado en la Suite), la de los botones
- * y la columna. Tres colores y el texto siempre: el color no es el único portador.
- */
-const ETAPA: Record<EtapaPedido, { label: string; sev: Sev }> = {
-  creado: { label: 'Creado', sev: 'secondary' },
-  autorizado: { label: 'Autorizado', sev: 'info' },
-  en_cola: { label: 'En cola', sev: 'info' },
-  surtiendo: { label: 'Surtiendo', sev: 'warn' },
-  surtido: { label: 'Surtido', sev: 'warn' },
-  checando: { label: 'Checando', sev: 'warn' },
-  checado: { label: 'Checado', sev: 'warn' },
-  embarcado: { label: 'Embarcado', sev: 'success' },
-  cancelado: { label: 'Cancelado', sev: 'secondary' },
-  sin_dato: { label: 'Sin dato', sev: 'secondary' },
-};
-const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal', PREVENTA: 'Preventa' };
-const ORIGEN_PREVENTA = 'PREVENTA';
-/** Lo que ya le toca al almacén: toda etapa menos Creado, que aún no está autorizado. */
-const ETAPAS_DE_ALMACEN: string[] = ETAPAS_PEDIDO.filter((e) => e !== 'creado');
+const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal' };
+/** Lo que ya le toca al almacén: todo menos Creado, que aún no está autorizado. */
+const ESTATUS_DE_ALMACEN = ['AUTORIZADO', 'SURTIDO', 'CHECADO', 'EMBARCADO'];
 /** Orden de las unidades en el volumen: de la más grande a la más chica; las demás al final. */
 const ORDEN_UNIDADES = ['CJA', 'BULTO', 'BTO', 'CUB', 'PAQ', 'PZA', 'KG', '500', '400', '250'];
 
@@ -128,10 +111,10 @@ const dmy = (v: string | null | undefined): string => {
             <!-- [MCP.3.2] El surtidor ve sólo la lista: sin estatus, filtros ni totales. -->
             @if (!soloSurtidor()) {
             <div class="gp-bh">
-              <div class="gp-chips" role="group" aria-label="Etapa en el almacén">
-                <button type="button" class="gp-chip" [class.on]="!etapa()" [attr.aria-pressed]="!etapa()" (click)="pickEtapa(null)">Todos <span class="num">{{ totalConteos(d) }}</span></button>
-                @for (c of chipsEtapa(d); track c.etapa) {
-                  <button type="button" class="gp-chip" [class.on]="etapa() === c.etapa" [attr.aria-pressed]="etapa() === c.etapa" (click)="pickEtapa(c.etapa)">{{ etapaLabel(c.etapa) }} <span class="num">{{ c.pedidos }}</span></button>
+              <div class="gp-chips" role="group" aria-label="Estatus en Kepler">
+                <button type="button" class="gp-chip" [class.on]="!estatus()" [attr.aria-pressed]="!estatus()" (click)="pickEstatus(null)">Todos <span class="num">{{ totalConteos(d) }}</span></button>
+                @for (c of d.conteos; track c.estatus) {
+                  <button type="button" class="gp-chip" [class.on]="estatus() === c.estatus" [attr.aria-pressed]="estatus() === c.estatus" (click)="pickEstatus(c.estatus)">{{ estatusLabel(c.estatus) }} <span class="num">{{ c.pedidos }}</span></button>
                 }
               </div>
               <div class="gp-filters">
@@ -143,11 +126,11 @@ const dmy = (v: string | null | undefined): string => {
                 @if (sucursalOpts().length > 2) {
                   <p-select [options]="sucursalOpts()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (onChange)="pickSucursal($event.value)" ariaLabel="Sucursal" appendTo="body" class="gp-sel" />
                 }
-                <input pInputText type="search" class="gp-q" [ngModel]="q()" (ngModelChange)="onQ($event)" placeholder="Folio, cliente, vendedor o ciudad" aria-label="Buscar por folio, cliente, vendedor, ciudad o guía" />
+                <input pInputText type="search" class="gp-q" [ngModel]="q()" (ngModelChange)="onQ($event)" placeholder="Folio, cliente, ciudad o guía" aria-label="Buscar folio, cliente, ciudad o guía" />
               </div>
             </div>
             }
-            @if (d.truncado && !soloSurtidor()) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por etapa u origen.</p> }
+            @if (d.truncado && !soloSurtidor()) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por estatus.</p> }
             @if (soloSurtidor()) {
               <!-- [MCP.3.2] Vista del surtidor: sólo el pedido y para quién es. Sin detalle (es del tablero). -->
               <p-table [value]="d.items" size="small" class="surf-table dt-stack" [scrollable]="true" scrollHeight="calc(100vh - 14rem)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
@@ -169,7 +152,7 @@ const dmy = (v: string | null | undefined): string => {
               <ng-template #header>
                 <tr>
                   <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Cliente / destino</th>
-                  <th class="ta-r" title="Renglones del pedido y volumen sumado por unidad">Reng. · volumen</th><th>Etapa</th>
+                  <th class="ta-r" title="Renglones del pedido y volumen sumado por unidad">Reng. · volumen</th><th>Estatus</th>
                   <th class="ta-r" title="Horas desde que se creó el pedido. Kepler no guarda cuándo cambió de estatus.">Abierto</th>
                   <th>Guía</th><th class="ta-r">Importe</th>
                 </tr>
@@ -177,11 +160,11 @@ const dmy = (v: string | null | undefined): string => {
               <ng-template #body let-r>
                 <tr [pSelectableRow]="r">
                   <td role="cell" data-label="Pedido"><span class="mono">{{ r.documento }}</span><span class="muted gp-sub">{{ origenLabel(r.origen) }}</span></td>
-                  <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span>@if (esPreventa(r)) { <span class="muted gp-sub">entrega</span> }</td>
+                  <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span></td>
                   @if (multiSucursal(d)) { <td class="mono muted" role="cell" data-label="Suc">{{ r.sucursal | sucursal }}</td> }
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
                   <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol num">{{ volumenTexto(r.volumen) }}</span></td>
-                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" styleClass="gp-tag" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }</td>
+                  <td role="cell" data-label="Estatus"><p-tag [value]="estatusLabel(r.estatus)" [severity]="estatusSev(r.estatus)" styleClass="gp-tag" /></td>
                   <td class="ta-r num" role="cell" data-label="Abierto">{{ horas(r.horas_abierto) }}</td>
                   <td class="mono" role="cell" data-label="Guía" [class.muted]="!r.guia">{{ r.guia || '—' }}</td>
                   <td class="ta-r num" role="cell" data-label="Importe">{{ r.importe === null ? '—' : money(r.importe) }}</td>
@@ -206,32 +189,12 @@ const dmy = (v: string | null | undefined): string => {
         <p-drawer [visible]="!!sel()" (visibleChange)="!$event && pick(null)" position="right" styleClass="gp-drawer"
                   [style]="{ width: 'min(560px, 100vw)' }" [header]="sel()?.documento || 'Pedido'">
           <section class="gp-detail" aria-labelledby="gp-h-det" aria-live="polite">
-            @if (preventaSel(); as p) {
-              <!-- [GP.10.4a] Un PD- no vive en Kepler: su resumen sale de la fila, y lo que es de cobro
-                   (documento de Kepler, comparación, ligar, recorrido) se abre en la Mesa de Control, sin copiarlo. -->
-              <div class="gp-det-head">
-                <h2 id="gp-h-det" class="sr-only">Pedido de preventa {{ p.documento }}</h2>
-                <p-tag [value]="etapaLabel(p.etapa)" [severity]="etapaSev(p.etapa)" styleClass="gp-tag" />
-                <span class="muted">{{ p.renglones }} renglones · {{ p.importe === null ? '—' : money(p.importe) }}</span>
-              </div>
-              <div class="gp-step">
-                <div class="gp-row"><span>Cliente</span><span>{{ p.destino_nombre || '—' }}@if (p.cliente_code) { <span class="muted mono"> · {{ p.cliente_code }}</span> }</span></div>
-                <div class="gp-row"><span>Origen</span><span>Preventa · {{ p.sucursal_nombre || '—' }}</span></div>
-                <div class="gp-row"><span>Vendedor</span><span>{{ p.vendedor_nombre || '—' }}</span></div>
-                <div class="gp-row"><span>Entrega prometida</span><span class="mono">{{ dmy(p.fecha) }}</span></div>
-              </div>
-              @if (p.order_id) {
-                <div class="gp-step">
-                  <a pButton routerLink="/almacen/pedidos/preventa" [queryParams]="{ pedido: p.order_id }" class="p-button-sm p-button-outlined gp-surtir"><span class="p-button-label">Documento, cobro y recorrido</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span></a>
-                  <p class="gp-hint">Abre el pedido en la Mesa de Control de Preventa: con qué documento de Kepler se cobró, el pedido contra lo cobrado y cada cambio que tuvo.</p>
-                </div>
-              }
-            } @else if (detLoading()) {
+            @if (detLoading()) {
               <div class="gp-skeleton gp-pad" aria-busy="true">@for (i of skelDet; track $index) { <div class="gp-skel-row"></div> }</div>
             } @else if (det(); as x) {
               <div class="gp-det-head">
                 <h2 id="gp-h-det" class="sr-only">Detalle del pedido {{ x.pedido.documento }}</h2>
-                <p-tag [value]="etapaLabel(x.pedido.etapa)" [severity]="etapaSev(x.pedido.etapa)" styleClass="gp-tag" />
+                <p-tag [value]="estatusLabel(x.pedido.estatus)" [severity]="estatusSev(x.pedido.estatus)" styleClass="gp-tag" />
                 @if (x.pedido.estatus === cancelado) {
                   <span class="muted">Cancelado en Kepler · su último estatus fue {{ estatusLabel(x.pedido.estatus_kepler).toLowerCase() }}</span>
                 } @else {
@@ -241,10 +204,6 @@ const dmy = (v: string | null | undefined): string => {
               <div class="gp-step">
                 <div class="gp-row"><span>Cliente</span><span>{{ x.pedido.destino_nombre || x.pedido.cliente_code || '—' }}@if (x.pedido.destino_ciudad) { <span class="muted"> · {{ x.pedido.destino_ciudad }}</span> }</span></div>
                 <div class="gp-row"><span>Origen</span><span>{{ origenLabel(x.pedido.origen) }} · {{ x.pedido.sucursal_nombre }}</span></div>
-                @if (x.pedido.estatus !== cancelado) {
-                  <!-- [GP.10.4a] La etapa de arriba junta Kepler y la Suite; aquí, lo que dice Kepler solo. -->
-                  <div class="gp-row"><span>Estatus en Kepler</span><span>{{ estatusLabel(x.pedido.estatus) }}@if (desfaseDetalle(x.pedido); as t) { <span class="muted gp-sub">{{ t }}</span> }</span></div>
-                }
                 <div class="gp-row"><span>Vendedor</span><span>{{ x.pedido.vendedor_nombre || x.pedido.vendedor_code || '—' }}</span></div>
                 <div class="gp-row"><span>Creado</span><span class="mono">{{ dmy(x.pedido.fecha) }} {{ x.pedido.hora || '' }}</span></div>
                 <div class="gp-row"><span>Responsables (surtido · checado · embarque)</span><span class="mono">{{ x.pedido.resp_surtido || '—' }} · {{ x.pedido.resp_checado || '—' }} · {{ x.pedido.resp_embarque || '—' }}</span></div>
@@ -386,14 +345,11 @@ export class AlmacenPedidosComponent implements OnInit {
     { label: 'Todos los orígenes', value: null },
     { label: 'Telemarketing', value: 'TELEMARK' },
     { label: 'Sucursal', value: 'SUCURSAL' },
-    // [GP.10.4a] D1: la preventa del vendedor entra al tablero como un origen más.
-    { label: 'Preventa', value: ORIGEN_PREVENTA },
   ];
 
   readonly preset = signal<Preset>('mes');
   rangeDates: Date[] | null = null;
-  /** `[GP.10.4a]` Botón de etapa elegido (antes era el estatus de Kepler: la preventa no tiene). */
-  readonly etapa = signal<EtapaPedido | null>(null);
+  readonly estatus = signal<string | null>(null);
   readonly origen = signal<string | null>(null);
   readonly sucursal = signal<string | null>(null);
   readonly soloAutorizados = signal(false);
@@ -453,29 +409,27 @@ export class AlmacenPedidosComponent implements OnInit {
     this.reload();
   }
 
-  pickEtapa(e: EtapaPedido | null): void { this.etapa.set(this.etapa() === e ? null : e); this.reload(); }
+  pickEstatus(e: string | null): void { this.estatus.set(this.estatus() === e ? null : e); this.reload(); }
   /** Con la casilla puesta, elegir "Creado" no tiene sentido: se quita ese filtro en vez de dejar la lista vacía. */
   toggleAutorizados(v: boolean): void {
     this.soloAutorizados.set(v);
-    if (v && this.etapa() && !ETAPAS_DE_ALMACEN.includes(this.etapa() as string)) this.etapa.set(null);
+    if (v && this.estatus() && !ESTATUS_DE_ALMACEN.includes(this.estatus() as string)) this.estatus.set(null);
     this.reload();
   }
   pickOrigen(o: string | null): void { this.origen.set(o); this.reload(); }
   pickSucursal(s: string | null): void { this.sucursal.set(s); this.reload(); }
   onQ(v: string): void { this.q$.next(v); }
 
-  hayFiltros(): boolean { return !!(this.etapa() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados()); }
+  hayFiltros(): boolean { return !!(this.estatus() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados()); }
   limpiar(): void {
-    this.etapa.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false);
+    this.estatus.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false);
     this.reload();
   }
 
   private filtro(): AlmacenPedidosFiltro {
     const f: AlmacenPedidosFiltro = {
-      // Un botón de etapa elegido manda; si no, la casilla limita a las etapas de almacén.
-      etapa: this.etapa() ? [this.etapa() as string] : this.soloAutorizados() ? [...ETAPAS_DE_ALMACEN] : [],
-      // [GP.10.4a] D1: el tablero trae también la preventa (`PD-`) del periodo, por su fecha de entrega.
-      preventa: true,
+      // Un botón de estatus elegido manda; si no, la casilla limita a los cuatro de almacén.
+      estatus: this.estatus() ? [this.estatus() as string] : this.soloAutorizados() ? [...ESTATUS_DE_ALMACEN] : [],
       origen: this.origen(),
       sucursal: this.sucursal(),
       q: this.q() || null,
@@ -526,9 +480,7 @@ export class AlmacenPedidosComponent implements OnInit {
     this.sel.set(r);
     this.det.set(null);
     this.detErr.set(null);
-    this.detLoading.set(false);
-    // [GP.10.4a] Un PD- no tiene detalle de Kepler: su resumen sale de la fila (preventaSel).
-    if (!r || this.esPreventa(r)) return;
+    if (!r) return;
     this.detLoading.set(true);
     this.api.detail(r.sucursal, r.serie, r.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => { if (this.sel()?.clave === r.clave) this.det.set(x); this.detLoading.set(false); },
@@ -537,41 +489,11 @@ export class AlmacenPedidosComponent implements OnInit {
   }
 
   multiSucursal(d: WarehouseOrdersResponse): boolean { return !this.sucursal() && (d.alcance.todas || d.alcance.sucursales.length > 1); }
-  /**
-   * El número de «Todos»: los mismos que lista sin filtro, o sea SIN cancelados (`[GP.10.0]`). Se suma
-   * por ETAPA (`[GP.10.4a]`): por estatus de Kepler dejaría fuera la preventa, que sí está en la lista.
-   */
+  /** El número de «Todos»: los mismos que lista sin filtro, o sea SIN cancelados (`[GP.10.0]`). */
   totalConteos(d: WarehouseOrdersResponse): number {
-    return d.conteos_etapa.reduce((t, c) => (c.etapa === 'cancelado' ? t : t + c.pedidos), 0);
-  }
-  /** Botones de etapa: las que tienen pedidos, en el orden del flujo, y la elegida aunque quede en cero. */
-  chipsEtapa(d: WarehouseOrdersResponse): WarehouseOrdersResponse['conteos_etapa'] {
-    return d.conteos_etapa.filter((c) => c.pedidos > 0 || c.etapa === this.etapa());
+    return d.conteos.reduce((t, c) => (c.estatus === WAREHOUSE_ORDER_CANCELADO ? t : t + c.pedidos), 0);
   }
   readonly cancelado = WAREHOUSE_ORDER_CANCELADO;
-  /** `[GP.10.4a]` El `PD-` elegido, cuyo resumen va en el panel en lugar del detalle de Kepler. */
-  readonly preventaSel = computed<WarehouseOrderRow | null>(() => {
-    const s = this.sel();
-    return s && this.esPreventa(s) ? s : null;
-  });
-  esPreventa(r: WarehouseOrderRow): boolean { return r.origen === ORIGEN_PREVENTA; }
-  etapaLabel(e: EtapaPedido | null | undefined): string { return e ? ETAPA[e]?.label ?? e : 'Sin dato'; }
-  etapaSev(e: EtapaPedido | null | undefined): Sev { return (e && ETAPA[e]?.sev) || 'secondary'; }
-  /**
-   * `[GP.10.4a]` Kepler y la Suite no coinciden en un hito (surtido, checado, embarcado). En la fila se
-   * dice cuál va atrás; si Kepler va atrás es trabajo pendiente de captura (por eso el tono de aviso).
-   */
-  desfaseTexto(r: Pick<WarehouseOrderRow, 'desfase' | 'estatus_kepler' | 'estatus'>): string | null {
-    if (r.desfase === 'piso_adelante') return `Kepler aún dice ${this.estatusLabel(r.estatus_kepler ?? r.estatus).toLowerCase()}`;
-    if (r.desfase === 'kepler_adelante') return 'En la Suite sigue abierto';
-    return null;
-  }
-  /** Lo mismo, junto al estatus de Kepler en el detalle (ahí ya se lee qué dice Kepler). */
-  desfaseDetalle(r: Pick<WarehouseOrderRow, 'desfase'>): string | null {
-    if (r.desfase === 'piso_adelante') return 'atrás de lo registrado en la Suite';
-    if (r.desfase === 'kepler_adelante') return 'adelante de lo registrado en la Suite';
-    return null;
-  }
   sucursalesTexto(d: WarehouseOrdersResponse): string { return d.alcance.sucursales.map((x) => `${x.codigo} ${x.nombre}`).join(', '); }
   estatusLabel(e: string | null): string { return e ? ESTATUS[e]?.label ?? e : 'Sin estatus'; }
   estatusSev(e: string | null): Sev { return (e && ESTATUS[e]?.sev) || 'secondary'; }
