@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2580 KB, 14466 líneas, 77 secciones.
+> **Índice navegable** — 2593 KB, 14473 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -40,50 +40,50 @@
 | 7428 | 7493 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 7494 | 7521 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 7522 | 7688 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 7689 | 8071 | 153 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8072 | 8134 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8135 | 8264 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8265 | 8327 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 8328 | 8488 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 8489 | 8559 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 8560 | 8608 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 8609 | 8641 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 8642 | 9198 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9199 | 9330 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 9331 | 9384 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 9385 | 9424 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 9425 | 9477 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 9478 | 9544 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 9545 | 9707 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 9708 | 9991 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 9992 | 10159 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10160 | 12590 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 12591 | 12599 | 1 | Fase RR — Ventas por ruta |
-| 12600 | 12895 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 12896 | 12906 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 12907 | 12927 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 12928 | 12938 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 12939 | 12950 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 12951 | 13010 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13011 | 13438 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 13439 | 13453 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 13454 | 13495 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 13496 | 13652 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 13653 | 13683 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13684 | 13814 | 23 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 13815 | 13879 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13880 | 13888 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 13889 | 13922 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 13929 | 13938 | 1 | 📝 Convenciones |
-| 13939 | 13976 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 13977 | 13995 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 13996 | 14048 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14049 | 14421 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14422 | 14452 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14453 | 14474 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14475 | 14502 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14503 | 14532 | 16 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14533 | 14555 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 7689 | 8078 | 165 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8079 | 8141 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8142 | 8271 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 8272 | 8334 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 8335 | 8495 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 8496 | 8566 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 8567 | 8615 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8616 | 8648 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8649 | 9205 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9206 | 9337 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 9338 | 9391 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 9392 | 9431 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 9432 | 9484 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 9485 | 9551 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 9552 | 9714 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9715 | 9998 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9999 | 10166 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10167 | 12597 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 12598 | 12606 | 1 | Fase RR — Ventas por ruta |
+| 12607 | 12902 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12903 | 12913 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12914 | 12934 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12935 | 12945 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12946 | 12957 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12958 | 13017 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13018 | 13445 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 13446 | 13460 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 13461 | 13502 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 13503 | 13659 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 13660 | 13690 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13691 | 13821 | 23 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13822 | 13886 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13887 | 13895 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13896 | 13929 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13936 | 13945 | 1 | 📝 Convenciones |
+| 13946 | 13983 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13984 | 14002 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14003 | 14055 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14056 | 14428 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14429 | 14459 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14460 | 14481 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14482 | 14509 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14510 | 14539 | 16 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14540 | 14562 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -229,20 +229,20 @@ Y se actualiza el símbolo al avanzar:
 - [x] **[MDT.0.6]** ✅ 2026-11-13 Organigrama: 89 de 90 puestos de MDTask cruzan con la Suite; faltaba `kileadora` (con manual). En prod existen 22 de 23 puestos con manual (87 personas).
 - [ ] **[MDT.D0]** 🧪 2026-11-13 Seguridad de MDTask: parche entregado a David (la contraseña deja de guardarse y de salir en `/api/usuarios`, SQL `061` borra el espejo, webhook de WhatsApp falla cerrado). **No aplicado**: lo aplica su dueño, más borrar el campo en Firestore, rotar la cadena de conexión y hacer privado el repo.
 - [x] **[MDT.1.1]** ✅ 2026-11-13 Motor de checklist: genérico en `platform` (ADR-118); `logistics.shipment_checklists` queda como deuda `[MDT.1.1b]`.
-- [ ] **[MDT.1.2]** 🧪 2026-11-13 La norma como dato: migración `20261113175536` + seed (20 manuales, 51 tareas, 391 puntos). **No aplicada a prod.**
-- [ ] **[MDT.1.3]** 🧪 2026-11-13 Tarea del día DERIVADA (sin emisor) + fuente `platform.checklist_runs` en el contrato de tarea y en Mi trabajo.
+- [x] **[MDT.1.2]** ✅ 2026-11-14 La norma como dato: migración `20261113175536` + seed (20 manuales, 51 tareas, 391 puntos) **aplicada en prod** (`d88bfc45a`, la siembra dentro de la migración); llaves en piloto: Dirección, RH (+ superadmin).
+- [x] **[MDT.1.3]** ✅ 2026-11-14 Tarea del día DERIVADA (sin emisor) + fuente `platform.checklist_runs` en el contrato de tarea y en Mi trabajo. En prod. `test-newdb-me-context.js` es HTTP y el CI no la corre: **NO MEDIDA**.
 - [ ] **[MDT.1.4]** 🧪 2026-11-13 Reglas portadas (hecho = con evidencia; justificado ≠ hecho): `checklist.contract.spec.ts` 23 ✓. Sin portar: urgencia, productividad.
-- [ ] **[MDT.2.1–2.5]** 🧪 2026-11-13 API `/checklists/*` (mine, runs, items, files, submit, team, norms, versions) con 3 llaves (**piloto desde 2026-11-14**: sólo Dirección, RH y superadmin hasta el corte `[MDT.C1]`); `checklists.controller.spec.ts` 5 ✓; `test-newdb-mdt-checklists.js` contra base real **NO MEDIDA en local** (job `pruebas-db`).
-- [ ] **[MDT.3.1–3.3]** 🧪 2026-11-13 Pantallas `/tareas/hoy`, `/tareas/entrega/:id`, `/tareas/equipo`, `/tareas/manual` + sidebar + ayuda `tareas-puesto`. `check:pantalla` 0 fallas · `check:templates-types --all` verde · **sin validación visual**.
+- [x] **[MDT.2.1–2.5]** ✅ 2026-11-14 API `/checklists/*` (mine, runs, items, files, submit, team, norms, versions) con 3 llaves (**piloto desde 2026-11-14**: sólo Dirección, RH y superadmin hasta el corte `[MDT.C1]`); `checklists.controller.spec.ts` 5 ✓; `test-newdb-mdt-checklists.js` contra base real en el CI (job `pruebas-db`): **50 ✓ · 0 ✗ · 0 no medido**. En prod (`/api/health` 5bac92dda).
+- [x] **[MDT.3.1–3.3]** ✅ 2026-11-14 (en prod, piloto) Pantallas `/tareas/hoy`, `/tareas/entrega/:id`, `/tareas/equipo`, `/tareas/manual` + sidebar + ayuda `tareas-puesto`. `check:pantalla` 0 fallas · `check:templates-types --all` verde · **sin validación visual**.
 - [x] **[MDT.3.5]** ✅ 2026-11-14 Observaciones de diseño UI (`auditoria-diseno` §9, nivel C, tarde: debía ir antes del primer C3): 13 observaciones, 3 🔴, al final del doc de fase.
-- [ ] **[MDT.3.6]** 🧪 2026-11-14 Arreglos de la revisión en las 4 pantallas: «0 vencidas» ya no se pinta en verde cuando todo vence a las 23:00 y los límites (horario, descansos) se ven sin abrir nada; lo escrito que no se guardó lo dice en su punto con «Reintentar» y «Entregar» espera; cada punto sube su foto sin congelar y la que falla se conserva; quitar foto con confirmación y 44 px; entrega tardía hasta 7 días (constante en el contrato); orden por momento del día; «una vez al día» en las 7 tareas por evento; «—» en vez de 0 %. `check:pantalla` 0 nuevas · `check:templates-types --all` verde · contratos 102 ✓ · **sin validación visual**.
-- [ ] **[MDT.3.2b]** 🧪 2026-11-14 Editor del manual en el panel de `/tareas/manual`: hora límite, puntos, desde cuándo y motivo, como versión nueva; sólo `TAREAS_PUESTO_NORMA_GESTIONAR`. La hora límite pasa a la versión (enmienda de ADR-118): cambiarla no reescribe lo ya juzgado. Prueba contra base real §8b escrita, **NO MEDIDA en local** · contratos 157 ✓ · barrido `check:pantalla` 0 nuevas · `check:templates-types --all` verde · **sin validación visual**.
+- [x] **[MDT.3.6]** ✅ 2026-11-14 (en prod, piloto) Arreglos de la revisión en las 4 pantallas: «0 vencidas» ya no se pinta en verde cuando todo vence a las 23:00 y los límites (horario, descansos) se ven sin abrir nada; lo escrito que no se guardó lo dice en su punto con «Reintentar» y «Entregar» espera; cada punto sube su foto sin congelar y la que falla se conserva; quitar foto con confirmación y 44 px; entrega tardía hasta 7 días (constante en el contrato); orden por momento del día; «una vez al día» en las 7 tareas por evento; «—» en vez de 0 %. `check:pantalla` 0 nuevas · `check:templates-types --all` verde · contratos 102 ✓ · **sin validación visual**.
+- [x] **[MDT.3.2b]** ✅ 2026-11-14 (en prod, piloto) Editor del manual en el panel de `/tareas/manual`: hora límite, puntos, desde cuándo y motivo, como versión nueva; sólo `TAREAS_PUESTO_NORMA_GESTIONAR`. La hora límite pasa a la versión (enmienda de ADR-118): cambiarla no reescribe lo ya juzgado. Prueba contra base real §8b medida en el CI (dentro de los 50 ✓ del motor) · contratos 157 ✓ · barrido `check:pantalla` 0 nuevas · `check:templates-types --all` verde · **sin validación visual**.
 - [ ] **[MDT.C1]** ⬜ Corte de tareas del manual: reparto amplio de «entregar» y «ver equipo» + MDTask deja de recibir entregas de tareas, el mismo día. Después de validar en prod con el piloto.
 - [ ] **[MDT.C2]** ⬜ Corte del vale: rol propio de Mantenimiento, «levantar» a todos, carga de `eajd` con su folio y fin del talonario. Necesita el censo.
 - [x] **[MDT.0.3]** ✅ 2026-11-14 Cruce de promociones (código de los dos repos): la Suite **no tiene la captura** del formato (`/mkt/acuerdos` sólo lista), sus tablas están en 0 filas, la medición de MKT.6 no ve nada y el folio no se hereda. **D9b resuelta: MDTask conserva promociones** hasta que MKT tenga su captura; el retiro de MDTask las excluye.
-- [ ] **[MDT.1.5]** 🧪 2026-11-14 Vale de servicio: migración `20261114094841` (`platform.work_orders` + firmas + historial, folio corrido dentro de la transacción, invariantes en la base, llaves en PILOTO) + contrato `vale-servicio.contract.ts` (12 ✓). **No empujada**: se aplica coordinada con quien suelta.
-- [ ] **[MDT.2.3]** 🧪 2026-11-14 API `/work-orders` (levantar, tomar, asignar, trabajo, completar, cancelar, reabrir, firmas) · `work-orders.controller.spec.ts` 7 ✓ · `test-newdb-mdt-vales.js` escrita y registrada, **NO MEDIDA en local**.
-- [ ] **[MDT.3.4]** 🧪 2026-11-14 Pantallas `/vales/lista` y `/vales/ver/:id` (firmas con el dedo). Barrido `check:pantalla` 0 nuevas · `check:templates-types --all` verde · **sin validación visual**.
+- [x] **[MDT.1.5]** ✅ 2026-11-14 Vale de servicio: migración `20261114094841` (`platform.work_orders` + firmas + historial, folio corrido dentro de la transacción, invariantes en la base, llaves en PILOTO) **aplicada en prod** por quien suelta: 3 llaves en Dirección y RH, 4 tablas y 2 triggers. Contrato `vale-servicio.contract.ts` (12 ✓).
+- [ ] **[MDT.2.3]** 🔨 2026-11-14 API `/work-orders` (levantar, tomar, asignar, trabajo, completar, cancelar, reabrir, firmas) · `work-orders.controller.spec.ts` 7 ✓. **En prod con un defecto**: `test-newdb-mdt-vales.js`, en su primera corrida contra base real (CI), dio **8 ✓ · 1 ✗**: tomar, asignar y completar escribían `assignee_name`, columna que la tabla no tiene → 500 (se revierte, sin datos sucios). Arreglo: el nombre del asignado se deriva de `identity.users`; la migración no cambia. Pasa a ✅ cuando la suite corra completa en el CI y el arreglo esté en prod.
+- [ ] **[MDT.3.4]** 🔨 2026-11-14 Pantallas `/vales/lista` y `/vales/ver/:id` (firmas con el dedo), en prod para el piloto; tomar/asignar/completar dependen de `[MDT.2.3]`. Barrido `check:pantalla` 0 nuevas · `check:templates-types --all` verde · **sin validación visual**.
 - [ ] **[MDT.1.6]** ⚠️ 2026-11-14 Pagos de servicios: mapeo hecho (15 huecos). **D10b resuelta como «medir primero»**: nada se carga a `expense_obligations`; espera el censo `[MDT.0.1]`, que corre David.
 
 ### Fase IC (reabierta por un item) — Diferencias de inventario · 2026-11-10 · detalle en [`FASE_IC_RITMOS_Y_ABC`](FASES/FASE_IC_RITMOS_Y_ABC.md#ic25--diferencias-el-historial-de-existencia-de-un-producto-aunque-nunca-se-haya-contado---en-código-2026-11-10)
