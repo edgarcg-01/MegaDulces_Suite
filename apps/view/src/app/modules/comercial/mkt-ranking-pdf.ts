@@ -57,7 +57,9 @@ export function filasDetalle(p: ParticipanteRanking, conExistencia: boolean): st
 export function filasPromociones(r: RankingSemana): string[][] {
   return r.promos_ranking.map((x) => [
     x.lugar === null ? '-' : String(x.lugar),
-    [`${x.nombre} (${x.code})`, ...(x.productos.length ? [x.productos.join(' · ')] : [])].join(SALTO),
+    // [MKT.24] El proveedor (lo asigna Mercadotecnia) va bajo el nombre; sin asignar, se dice.
+    [`${x.nombre} (${x.code})`, `Proveedor: ${x.proveedor ? `${x.proveedor.code} · ${x.proveedor.name}${x.proveedor_fuente === 'producto' ? ' (del producto)' : ''}` : 'sin asignar'}`,
+      ...(x.productos.length ? [x.productos.join(' · ')] : [])].join(SALTO),
     x.puntaje === null ? 'Sin objetivos' : pct(x.puntaje),
     `${x.cumplidas} de ${x.con_objetivo}`,
     n0(x.venta_total),
@@ -222,7 +224,8 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
 
   y = dibujarNotas(doc, y + 4, [
     'Cubrimiento = venta / objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de las promociones CON objetivo; las que no tienen se cuentan aparte y no como cero.',
-    'Venta = veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. Existencia = regalos disponibles según Kepler.',
+    'Venta = veces que se aplicó el código de la promoción en Kepler, de lunes a domingo, en piezas (en Kepler la caja de un código de promoción es de 1 pieza). Existencia = regalos disponibles según Kepler.',
+    'Proveedor: el que asignó Mercadotecnia en Objetivos o, marcado «del producto», el del producto que activa la promoción (sólo si todos sus productos son de un mismo proveedor). Kepler registra el código de la promoción a nombre de «PROMOCIONES MKT».',
     'Bajo cada promoción, el producto que la activa y lo vendido de él en la semana (piezas y cajas). Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».',
     'Objetivo: el que fijó Mercadotecnia o, marcado «dinámico», el promedio de las 4 semanas anteriores dentro de la vigencia, recalculado cada semana.',
     'Por vendedora: Kepler no sabe quién vendió en el mostrador; lo escriben las cajeras en su arqueo. Cuenta sólo los tickets que tienen vendedora.',

@@ -3,6 +3,9 @@ import { Cron } from '@nestjs/schedule';
 import { CANAL_FUENTE_KEPLER, PgListenService } from '@megadulces/platform-core';
 import { FinancePaymentCalendarModule } from './finance-payment-calendar.module';
 import { PagosVencidosService } from './pagos-vencidos.service';
+import { PagosPorElBancoService } from './pagos-por-el-banco.service';
+import { KeplerPagoSinkAdapter } from './kepler-pago/kepler-pago-sink.adapter';
+import { CANAL_BANCOS } from '../bank/aviso-bancos';
 import { PaymentCalendarService } from './payment-calendar.service';
 
 /**
@@ -95,5 +98,64 @@ describe('[PGP.117] sólo el worker escucha, y se puede apagar', () => {
 
   it('con DISABLE_PAGOS_VENCIDOS=true no se suscribe ni en el worker', () => {
     con({ WORKER: 'true', DISABLE_PAGOS_VENCIDOS: 'true' }, (escuchar) => expect(escuchar).not.toHaveBeenCalled());
+  });
+});
+
+/**
+ * `[PGP.121]` El oyente del banco suma SEIS dependencias y un proveedor nuevo (el adaptador de Kepler). Lo mismo que
+ * arriba: que compile no es que arranque. ⚠️ NO MEDIDO aquí: la pasada contra una base real ni la escritura en Kepler
+ * (el adaptador ya se ensayó contra el Kepler vivo con ROLLBACK, `[PGP.106]`).
+ */
+describe('[PGP.121] el oyente del banco cierra el grafo del módulo', () => {
+  it('el constructor toma sus seis dependencias (si cambian, revisar el arranque)', () => {
+    expect(PagosPorElBancoService.length).toBe(6);
+  });
+
+  it('el oyente y el adaptador están entre los providers; el Calendario y PgListenService al alcance', () => {
+    const providers = meta<unknown>('providers', FinancePaymentCalendarModule);
+    expect(providers).toContain(PagosPorElBancoService);
+    expect(providers).toContain(KeplerPagoSinkAdapter);
+    const alcance = alcanceDe(FinancePaymentCalendarModule);
+    expect(alcance.has(PaymentCalendarService)).toBe(true);
+    expect(alcance.has(PgListenService)).toBe(true);
+  });
+
+  it('el adaptador no pide nada al inyector (un parámetro sin token tumbó la API en #414)', () => {
+    expect(KeplerPagoSinkAdapter.length).toBe(0);
+  });
+
+  it('sin reloj (Edgar: «ningún cron»)', () => {
+    const relojes = Object.getOwnPropertyNames(PagosPorElBancoService.prototype).flatMap((k) => {
+      const v = (PagosPorElBancoService.prototype as unknown as Record<string, unknown>)[k];
+      return typeof v === 'function' ? Reflect.getMetadataKeys(v).map(String).filter((x) => /SCHEDULE/.test(x)) : [];
+    });
+    expect(relojes).toEqual([]);
+  });
+
+  const con = (env: Record<string, string | undefined>, fn: (escuchar: ReturnType<typeof vi.fn>) => void) => {
+    const antes = { WORKER: process.env.WORKER, DISABLE_PAGOS_POR_EL_BANCO: process.env.DISABLE_PAGOS_POR_EL_BANCO };
+    for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    try {
+      const escuchar = vi.fn().mockReturnValue(() => undefined);
+      const svc = new PagosPorElBancoService({} as never, {} as never, {} as never, {} as never, {} as never, { escuchar } as never);
+      svc.correr = vi.fn().mockResolvedValue(undefined);
+      svc.onModuleInit();
+      fn(escuchar);
+      svc.onModuleDestroy();
+    } finally {
+      for (const [k, v] of Object.entries(antes)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  };
+
+  it('fuera del worker no se suscribe; apagado tampoco', () => {
+    con({ WORKER: 'false', DISABLE_PAGOS_POR_EL_BANCO: undefined }, (escuchar) => expect(escuchar).not.toHaveBeenCalled());
+    con({ WORKER: 'true', DISABLE_PAGOS_POR_EL_BANCO: 'true' }, (escuchar) => expect(escuchar).not.toHaveBeenCalled());
+  });
+
+  it('en el worker se suscribe UNA vez, al canal del banco', () => {
+    con({ WORKER: 'true', DISABLE_PAGOS_POR_EL_BANCO: undefined }, (escuchar) => {
+      expect(escuchar).toHaveBeenCalledTimes(1);
+      expect(escuchar.mock.calls[0][0]).toBe(CANAL_BANCOS);
+    });
   });
 });

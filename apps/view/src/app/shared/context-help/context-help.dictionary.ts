@@ -672,7 +672,9 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Las cifras',
         entries: [
-          { term: 'Venta', def: 'Las veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. En sucursales cuenta el mostrador; vecinal, rutas y televenta tienen su propio ranking.' },
+          { term: 'Venta (pz)', def: 'Las veces que se aplicó el código de la promoción en Kepler, de lunes a domingo, en piezas. En Kepler la caja de un código de promoción es de 1 pieza, así que en cajas da lo mismo; las cajas que sí cambian son las del producto que la activa, debajo de cada promoción cuando se identifica. En sucursales cuenta el mostrador; vecinal, rutas y televenta tienen su propio ranking.' },
+          { term: 'Proveedor', def: 'El que asignó Mercadotecnia en Objetivos o, si no asignó, el del producto que activa la promoción, marcado «del producto» (sólo cuando todos sus productos son de un mismo proveedor). El código de la promoción en Kepler no sirve: está a nombre de «PROMOCIONES MKT». Las que no tienen ninguno se cuentan y se filtran como «Sin proveedor asignado».' },
+          { term: 'Quién la vendió', def: 'En vecinal, rutas y televenta, el vendedor de Kepler. En el mostrador Kepler no lo sabe: lo escriben las cajeras en «Arqueo › Promociones vendidas», y el detalle de cada promoción dice cuánto de su venta ya tiene vendedora.' },
           { term: 'Objetivo', def: 'Cuántas veces debe aplicarse por semana. Si Mercadotecnia fija uno, gana el suyo; si no, va el dinámico.' },
           { term: 'Dinámico', def: 'El objetivo que se calcula solo cada semana: el promedio de lo aplicado en las 4 semanas anteriores (desde que la promoción empezó a venderse), hacia arriba y mínimo 1. Sin ninguna semana de historia no hay dinámico: la promoción queda sin objetivo.' },
           { term: 'Producto', def: 'El producto que activa la promoción y lo vendido de él en la semana. Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».' },

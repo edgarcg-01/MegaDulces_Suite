@@ -30,10 +30,13 @@ import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
   CANALES, CANAL_CORTO, CANAL_LARGO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
-  textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe, VendedoraEnRanking,
+  textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe, VendedoraEnRanking, SIN_PROVEEDOR, nombreProveedor,
 } from '../mkt-ranking.service';
 import { SUCURSALES_VENTA } from './mkt-ranking-promos.component';
 import { pdfRanking } from '../mkt-ranking-pdf';
+
+/** Los filtros que se ven como etiqueta quitable. */
+type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
 
 /**
  * `[MKT.11]` **Ranking de promociones** — reemplaza el Excel «RANKING SEMANA NN» de Mercadotecnia.
@@ -112,6 +115,10 @@ import { pdfRanking } from '../mkt-ranking-pdf';
                     class="rk-promo-sel" ariaLabel="Filtrar por promoción">
             <ng-template #item let-o><span>{{ o.mecanica }}</span> <span class="rk-tenue rk-inline">{{ o.code }}</span></ng-template>
           </p-select>
+          <!-- [MKT.24] El proveedor filtra como la promoción: el lugar se recalcula sólo con las suyas. -->
+          <p-select [options]="opcionesProveedor()" optionLabel="label" optionValue="value" [ngModel]="proveedor()" (ngModelChange)="elegirProveedor($event)"
+                    [filter]="true" filterBy="label" [showClear]="true" placeholder="Todos los proveedores" appendTo="body"
+                    class="rk-promo-sel" ariaLabel="Filtrar por proveedor"></p-select>
           <p-multiselect [options]="opcionesSucursal" optionLabel="label" optionValue="value" [ngModel]="sucursales()" (ngModelChange)="elegirSucursales($event)"
                          placeholder="Todas las sucursales" [showClear]="true" display="comma" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
                          appendTo="body" ariaLabel="Filtrar por sucursal"></p-multiselect>
@@ -136,6 +143,8 @@ import { pdfRanking } from '../mkt-ranking-pdf';
       }
       @if (datos()?.promo_filtrada; as pf) {
         <p class="rk-nota" role="status"><i class="pi pi-filter" aria-hidden="true"></i> El lugar se calcula sólo con «{{ nombrePromo(pf) }}».</p>
+      } @else if (datos()?.proveedor_filtrado; as pv) {
+        <p class="rk-nota" role="status"><i class="pi pi-filter" aria-hidden="true"></i> El lugar se calcula sólo con las promociones de {{ nombreProveedor(pv) }}.</p>
       }
 
       <!-- Mientras recarga se queda lo último, atenuado y dicho («Actualizando…»): nunca vuelve a cero. -->
@@ -193,7 +202,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
               <th>Promoción</th>
               <th class="rk-col-cub">Cubrimiento</th>
               <th class="comm-num">Cumplieron</th>
-              <th class="comm-num">Venta</th>
+              <th class="comm-num">Venta (pz)</th>
               @if (colSinVentaPromo()) { <th class="comm-num">Sin venta</th> }
             </tr>
           </ng-template>
@@ -203,6 +212,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
               <td data-label="Promoción">
                 <span class="rk-nombre">{{ x.nombre }}</span>
                 <span class="rk-tenue">{{ x.code }}@if (x.productos.length) { · {{ x.productos.join(' · ') }} }</span>
+                <span class="rk-tenue">{{ proveedorConFuente(x.proveedor, x.proveedor_fuente) }}</span>
               </td>
               <td class="rk-col-cub" data-label="Cubrimiento">
                 @if (x.puntaje !== null) {
@@ -301,12 +311,17 @@ import { pdfRanking } from '../mkt-ranking-pdf';
             } @else { Nadie tiene objetivo en esta promoción. }
             @if (x.sin_venta) { {{ x.sin_venta }} sin venta. }
           </p>
+          <p class="rk-peek-dato"><span class="rk-tenue rk-inline">Proveedor</span>
+            {{ x.proveedor ? x.proveedor.code + ' · ' + x.proveedor.name : 'Sin asignar' }}
+            @if (x.proveedor_fuente === 'producto') { <span class="rk-tenue rk-inline">· del producto que la activa</span> }
+            @if (!x.proveedor && puedeGestionar) { <a routerLink="/mkt/ranking/promociones" class="rk-liga">Asignarlo en Objetivos</a> }</p>
+          <h3 class="rk-peek-h">{{ canal() === 'mostrador' ? 'Por sucursal' : 'Quién la vendió' }}</h3>
           <p-table [value]="filasDePromo()" size="small" class="surf-table surf-table--plain">
             <ng-template #header>
               <tr>
                 <th>{{ canal() === 'mostrador' ? 'Sucursal' : 'Vendedor' }}</th>
                 <th class="comm-num">Objetivo</th>
-                <th class="comm-num">Venta</th>
+                <th class="comm-num">Venta (pz)</th>
                 <th class="comm-num">Cubrimiento</th>
               </tr>
             </ng-template>
@@ -324,6 +339,27 @@ import { pdfRanking } from '../mkt-ranking-pdf';
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="4" class="rk-tenue">Nadie coincide con los filtros.</td></tr></ng-template>
           </p-table>
+          <!-- [MKT.25] En el mostrador Kepler no sabe quién vendió: lo escriben las cajeras en el arqueo. -->
+          @if (canal() === 'mostrador') {
+            <h3 class="rk-peek-h">Quién la vendió</h3>
+            @if (vendedorasDePromo().length) {
+              <p-table [value]="vendedorasDePromo()" size="small" class="surf-table surf-table--plain">
+                <ng-template #header>
+                  <tr><th>Vendedora</th><th class="comm-num">Venta (pz)</th></tr>
+                </ng-template>
+                <ng-template #body let-v>
+                  <tr>
+                    <td><span class="rk-promo">{{ v.nombre }}</span><span class="rk-tenue">{{ v.warehouse_name }}</span></td>
+                    <td class="comm-num rk-pct">{{ v.cantidad | number:'1.0-2' }}</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+              <p class="rk-tenue rk-peek-pie">{{ textoAtribuido() }}</p>
+            } @else {
+              <p class="rk-tenue">Ninguna cajera ha escrito quién vendió esta promoción esta semana.
+                @if (puedeCapturar) { <a routerLink="/tienda/arqueo/promociones" class="rk-liga">Capturar en el arqueo</a> }</p>
+            }
+          }
         }
       </app-side-peek>
 
@@ -343,7 +379,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
               <tr>
                 <th>Promoción</th>
                 <th class="comm-num">Objetivo</th>
-                <th class="comm-num">Venta</th>
+                <th class="comm-num">Venta (pz)</th>
                 <th class="comm-num">Cubrimiento</th>
                 @if (canal() === 'mostrador') { <th class="comm-num">Regalos en existencia</th> }
               </tr>
@@ -425,6 +461,9 @@ import { pdfRanking } from '../mkt-ranking-pdf';
     .rk-pct { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .rk-metodo { color: var(--text-muted); font-size: var(--fs-xs); margin-top: var(--sp-3); max-width: 70rem; }
     .rk-peek-frase { margin: 0 0 var(--sp-4); }
+    .rk-peek-dato { margin: 0 0 var(--sp-3); }
+    .rk-peek-h { font-size: var(--fs-sm); font-weight: var(--fw-bold); margin: var(--sp-4) 0 var(--sp-2); }
+    .rk-peek-pie { margin-top: var(--sp-2); }
     .rk-promo { display: block; }
     .rk-aviso { display: flex; gap: var(--sp-1); align-items: flex-start; color: var(--warn-fg); font-size: var(--fs-xs); margin-top: var(--sp-1); }
     .rk-peek-acciones { margin-top: var(--sp-4); display: flex; justify-content: flex-end; }
@@ -441,6 +480,7 @@ export class MktRankingComponent {
   readonly pct = pct;
   readonly textoVentaProducto = textoVentaProducto;
   readonly textoProductos = textoProductos;
+  readonly proveedorConFuente = nombreProveedor;
   readonly puedeGestionar = this.perms.has(Permission.MKT_AGREEMENTS_GESTIONAR);
   /** Liga al arqueo, donde la cajera escribe quién vendió: sólo a quien puede capturar ahí. */
   readonly puedeCapturar = this.perms.has(Permission.STORE_ARQUEO_CAPTURAR);
@@ -459,6 +499,8 @@ export class MktRankingComponent {
   /** Sucursales: filtran filas aquí; el ranking de promociones lo recalcula el servidor con ellas. */
   readonly sucursales = signal<string[]>([]);
   readonly estado = signal<EstadoVenta>('todas');
+  /** [MKT.24] Proveedor del filtro: id, 'sin' (las que nadie asignó) o null = todos. Lo aplica el SERVIDOR. */
+  readonly proveedor = signal<string | null>(null);
   readonly abiertaPromo = signal<PromoEnRanking | null>(null);
   readonly abiertaVendedora = signal<VendedoraEnRanking | null>(null);
 
@@ -475,8 +517,8 @@ export class MktRankingComponent {
   ]);
 
   readonly res = rxResource({
-    params: () => ({ semana: this.semana(), canal: this.canal(), promo: this.promo(), sucursales: this.sucursales() }),
-    stream: ({ params }) => this.api.ranking(params.semana, params.canal, params.promo, params.sucursales),
+    params: () => ({ semana: this.semana(), canal: this.canal(), promo: this.promo(), sucursales: this.sucursales(), proveedor: this.proveedor() }),
+    stream: ({ params }) => this.api.ranking(params.semana, params.canal, params.promo, params.sucursales, params.proveedor),
   });
   /**
    * Lo último que llegó. Al cambiar semana, canal o filtro el recurso se vacía mientras carga; antes
@@ -507,7 +549,7 @@ export class MktRankingComponent {
     if (!d) return [];
     const q = this.busqueda();
     return d.promos_ranking.filter((x) =>
-      coincideBusqueda(q, x.nombre, x.code, ...x.productos)
+      coincideBusqueda(q, x.nombre, x.code, x.proveedor?.name ?? '', x.proveedor?.code ?? '', ...x.productos)
       && (this.estado() === 'todas' || this.renglonesDe(x.promo_id).some((f) => this.conEstado(f.renglon))));
   });
 
@@ -526,13 +568,50 @@ export class MktRankingComponent {
 
   promosVisibles(p: ParticipanteRanking): RenglonRanking[] { return p.promos.filter(this.conEstado); }
 
-  readonly hayFiltros = computed(() => !!this.promo() || this.sucursales().length > 0 || this.estado() !== 'todas' || !!this.busqueda());
+  /**
+   * [MKT.25] Quién vendió la promo abierta en el mostrador: las vendedoras que las cajeras
+   * escribieron en el arqueo, con sus piezas de ESA promo, respetando el filtro de sucursal.
+   */
+  readonly vendedorasDePromo = computed(() => {
+    const x = this.abiertaPromo();
+    if (!x) return [];
+    return (this.datos()?.vendedoras?.personas ?? [])
+      .filter((v) => this.enSucursal(v.warehouse_code))
+      .map((v) => ({ nombre: v.nombre, warehouse_name: v.warehouse_name, cantidad: v.promos.find((p) => p.code === x.code)?.cantidad ?? 0 }))
+      .filter((v) => v.cantidad > 0)
+      .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, 'es'));
+  });
+  /** [MKT.25] Cuánto de la venta de la promo tiene vendedora: lo atribuido no se presenta como el total. */
+  readonly textoAtribuido = computed(() => {
+    const x = this.abiertaPromo();
+    if (!x) return '';
+    const atrib = this.vendedorasDePromo().reduce((a, v) => a + v.cantidad, 0);
+    const total = this.filasDePromo().reduce((a, f) => a + f.renglon.venta, 0);
+    const fmt = (v: number) => v.toLocaleString('es-MX', { maximumFractionDigits: 2 });
+    return atrib >= total
+      ? 'Toda la venta de esta promoción tiene vendedora.'
+      : `Con vendedora: ${fmt(atrib)} de ${fmt(total)} piezas. El resto, la cajera aún no lo asigna en el arqueo.`;
+  });
+
+  /** [MKT.24] Las opciones del filtro: cada proveedor con cuántas promos tiene en este canal. */
+  readonly opcionesProveedor = computed(() => (this.datos()?.proveedores_lista ?? []).map((p) => ({
+    label: `${p.code ? p.code + ' · ' : ''}${p.name} (${p.promos})`, value: p.id ?? SIN_PROVEEDOR,
+  })));
+  nombreProveedor(id: string): string {
+    if (id === SIN_PROVEEDOR) return 'ningún proveedor asignado';
+    return this.datos()?.proveedores_lista.find((p) => p.id === id)?.name ?? 'el proveedor elegido';
+  }
+  elegirProveedor(id: string | null): void { this.cerrarDetalles(); this.promo.set(null); this.proveedor.set(id || null); }
+
+  readonly hayFiltros = computed(() => !!this.promo() || !!this.proveedor() || this.sucursales().length > 0 || this.estado() !== 'todas' || !!this.busqueda());
   /** Los filtros viven plegados; abren solos si llegas con uno puesto (nunca se filtra a escondidas: ver `chips`). */
   readonly filtrosAbiertos = signal(false);
 
   /** Lo filtrado, siempre a la vista como etiqueta quitable — aunque el panel esté cerrado. */
-  readonly chips = computed<Array<{ id: 'promo' | 'sucursales' | 'estado' | 'busqueda'; texto: string }>>(() => {
-    const c: Array<{ id: 'promo' | 'sucursales' | 'estado' | 'busqueda'; texto: string }> = [];
+  readonly chips = computed<Array<{ id: FiltroId; texto: string }>>(() => {
+    const c: Array<{ id: FiltroId; texto: string }> = [];
+    const pv = this.proveedor();
+    if (pv) c.push({ id: 'proveedor', texto: pv === SIN_PROVEEDOR ? 'Sin proveedor asignado' : this.nombreProveedor(pv) });
     const pr = this.promo();
     if (pr) c.push({ id: 'promo', texto: this.nombrePromo(pr) });
     const ss = this.sucursales();
@@ -543,8 +622,9 @@ export class MktRankingComponent {
     if (this.busqueda().trim()) c.push({ id: 'busqueda', texto: `«${this.busqueda().trim()}»` });
     return c;
   });
-  quitarFiltro(id: 'promo' | 'sucursales' | 'estado' | 'busqueda'): void {
-    if (id === 'promo') this.elegirPromo(null);
+  quitarFiltro(id: FiltroId): void {
+    if (id === 'proveedor') this.elegirProveedor(null);
+    else if (id === 'promo') this.elegirPromo(null);
     else if (id === 'sucursales') this.elegirSucursales([]);
     else if (id === 'estado') this.estado.set('todas');
     else this.busqueda.set('');
@@ -615,7 +695,7 @@ export class MktRankingComponent {
   abrirPromo(x: PromoEnRanking): void { this.abiertaPromo.set(x); }
   limpiarFiltros(): void {
     this.cerrarDetalles();
-    this.promo.set(null); this.sucursales.set([]); this.estado.set('todas'); this.busqueda.set('');
+    this.promo.set(null); this.proveedor.set(null); this.sucursales.set([]); this.estado.set('todas'); this.busqueda.set('');
   }
   private cerrarDetalles(): void { this.abierto.set(null); this.abiertaPromo.set(null); this.abiertaVendedora.set(null); }
 
@@ -739,6 +819,8 @@ export class MktRankingComponent {
    */
   readonly filtrosTexto = computed<string[]>(() => {
     const t = ['Canal: ' + CANAL_LARGO[this.canal()]];
+    const pv = this.proveedor();
+    if (pv) t.push('Proveedor: ' + (pv === SIN_PROVEEDOR ? 'sin asignar' : this.nombreProveedor(pv)));
     const pr = this.promo();
     if (pr) t.push('Promoción: ' + this.nombrePromo(pr));
     const ss = this.sucursales();
