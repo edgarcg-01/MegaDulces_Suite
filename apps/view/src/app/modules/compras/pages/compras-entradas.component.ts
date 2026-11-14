@@ -176,7 +176,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
              (dragover)="onDragOverBarra($event)" (dragleave)="onDragLeaveBarra($event)" (drop)="soltarEnBarra($event)">
           <label>Buscar</label>
           <div class="cb-dropzone-row">
-            <input pInputText [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
+            <!-- [RE.75] Enter busca desde la página 1: antes, parado en la 2, un término nuevo daba vacío. -->
+            <input pInputText [(ngModel)]="search" (keyup.enter)="buscarAhora()" (blur)="queue()"
                    placeholder="Últimos 4 del folio, proveedor, RFC u OC · o arrastra aquí la factura" />
             <button pButton type="button" class="cb-upload-big" (click)="openAttachPhotoFirst()"
                     title="Sube la factura (PDF o fotos): la IA la lee y busca su entrada">
@@ -202,7 +203,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
             <button pButton type="button" severity="success" (click)="abrirLote()"
                     [title]="'Aprobar las ' + loteObjetivo().length + ' que cuadran, de una'">
               <span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span>
-              <span class="p-button-label">Aprobar {{ loteObjetivo().length }}</span>
+              <!-- [RE.75] El lote es de la página cargada: con más páginas, se dice. -->
+              <span class="p-button-label">Aprobar {{ loteObjetivo().length }}{{ hayOtrasPaginas() ? ' de esta página' : '' }}</span>
             </button></div>
         }
         @if (newCount() > 0) {
@@ -301,6 +303,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                           [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
                     <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
                   </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
+                <!-- [RE.75] El folio solo no identifica la entrada: cada sucursal lleva su consecutivo (RE.70). -->
+                <div class="cb-sub">{{ branchName(c.sucursal) }}</div>
                 <!--
                   RE.26.1 — los DOS folios: arriba el de la entrada en Kepler, abajo el que trae
                   impreso nuestra hoja dentro del paquete. Se muestran siempre que se haya leído,
@@ -1204,8 +1208,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           </div>
           @if (explainsLoading()) {
             <p class="muted cb-explains-none"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando ajustes…</p>
+          } @else if (explainsError()) {
+            <!-- [RE.75] Antes un error caía en «sin devoluciones»: afirmaba que no había, sin haber leído. -->
+            <p class="cb-explains-none" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron consultar las devoluciones y notas de crédito. No quiere decir que no haya: vuelve a abrir la entrada.</p>
           } @else if (!explains().length) {
-            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito (X-D-40/55) de este proveedor en esta sucursal cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
+            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito de este proveedor en esta sucursal cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
           } @else {
             <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> en esta sucursal, ±15 días — pueden explicar por qué la factura difiere de lo recibido.</p>
             <ul class="cb-explains-list">
@@ -1311,6 +1318,9 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                         [attr.aria-label]="'Abrir la siguiente: entrada ' + s.folio">
                   <span class="p-button-label">Siguiente</span><span class="p-button-icon p-button-icon-right pi pi-angle-right" aria-hidden="true"></span>
                 </button>
+              } @else if (hayOtrasPaginas()) {
+                <!-- [RE.75] Última de la página: hay más, pero en la siguiente página de la lista. -->
+                <span class="muted xs">Última de esta página; hay más en la página siguiente.</span>
               }
               @if (c.deposit_id && canValidate() && c.deposit_status !== 'validado') {
                 <button pButton type="button" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="confirmarValidar(c)"
@@ -2254,6 +2264,8 @@ export class ComprasEntradasComponent {
   // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
   readonly explains = signal<AdjustmentForEntradaRow[]>([]);
   readonly explainsLoading = signal(false);
+  /** `[RE.75]` La búsqueda de ajustes falló: no se sabe si hay, y no se dice que no hay. */
+  readonly explainsError = signal(false);
   readonly explainsTotal = signal(0);
 
   constructor() {
@@ -2383,6 +2395,10 @@ export class ComprasEntradasComponent {
   }
 
   queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => { this.page.set(1); this.load(); }, 300); }
+  /** `[RE.75]` Enter en el buscador: un término nuevo se busca desde la página 1, igual que `queue()`. */
+  buscarAhora() { this.page.set(1); this.load(); }
+  /** `[RE.75]` Hay entradas fuera de esta página: «Aprobar N» y «Siguiente» sólo ven la página. */
+  readonly hayOtrasPaginas = computed(() => (this.report()?.total ?? 0) > this.rows().length);
 
   // ── RE.17.5: filtros que la pantalla decía tener y no mandaba ────────────────
   /**
@@ -3282,6 +3298,7 @@ export class ComprasEntradasComponent {
   private loadExplains(c: EntradaRow) {
     this.explains.set([]);
     this.explainsTotal.set(0);
+    this.explainsError.set(false);
     if (!c.proveedor_code && !c.folio) return;
     this.explainsLoading.set(true);
     // `[RE.70]` La sucursal es parte de la llave: el folio solo existe en cada sucursal.
@@ -3289,7 +3306,8 @@ export class ComprasEntradasComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => { if (this.detailTarget() !== c) return; this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
-        error: () => { if (this.detailTarget() !== c) return; this.explainsLoading.set(false); },
+        // `[RE.75]` Una lectura fallida NO es «sin ajustes»: se dice, para no dar por descartada la explicación.
+        error: () => { if (this.detailTarget() !== c) return; this.explainsError.set(true); this.explainsLoading.set(false); },
       });
   }
   adjDoctypeLabel(dt: string): string { return dt === 'XD40' ? 'Devolución' : 'Nota de crédito'; }
