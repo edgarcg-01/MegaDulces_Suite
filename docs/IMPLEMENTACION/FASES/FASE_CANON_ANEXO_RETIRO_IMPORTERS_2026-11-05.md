@@ -1031,3 +1031,40 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
   7 mutantes: 6 en rojo por su razón y 1 equivalente (quitar `t.product_id IS NULL` del árbitro no cambia nada: el
   `IS DISTINCT FROM` contra NULL ya cuenta la fila que falta). Vecinas en verde; API `tsc` exit 0, `db-health` 24 ✓.
   `test-newdb-price-coalesce` da 6 ✗ en local, igual antes de los commits de hoy y antes de 6.18: rojo previo, ajeno.
+
+**Lo que sigue de la lista, medido (2026-11-14).**
+- **`import-kepler-suppliers` se queda con PQ.** Es el paso 3 del plan de `[PQ.107]` («quitar el UPDATE … supplier_id del
+  importer», después de pasar los 35 lectores a `analytics.v_product_supplier`). La vista ya está en prod (migración
+  `20261110141158` aplicada) pero ningún lector la usa todavía (`supplier_id` aparece en 60 archivos `.ts`); hay una
+  sesión de PQ activa. Retirarlo desde CANON pisaría ese plan. Corre una vez por semana (sábados); `master_data_history`
+  no registra `supplier_id` ni `catalog.suppliers`, así que lo que escribe no se puede medir por ahí (su upsert de
+  proveedores reescribe `updated_at` de todos cada semana, sin guarda de cambio).
+- **Rotación** sigue esperando D4 (Edgar).
+- **Oleada 8b — C0 re-medido hoy:** `existencia-aux` corrió 2,016 veces en 7 días, 18.7 s de promedio (máx 299 s):
+  **~5,400 s de CPU al día**, igual que el 11-nov. Recalcular por llave, en prod (sólo lectura, lotes de 10/50/200 SKUs):
+  `v_product_box_factor` **3–10 ms** (no crece con el lote) · `v_warehouse_box_factor` **210–540 ms por lote** ·
+  `v_kepler_unit_cost` **~200 ms por lote** (el filtro no llega al `GROUP BY` de `kdik`); el precio falta (no tiene vista:
+  primero `v_price_truth_calc`). Ritmo: `kdm2` tocó **1,850 SKUs distintos** hoy hasta las 10:20. Con la cola drenada cada
+  ~30 s eso da ~1,000–2,000 s/día más el precio — el diseño firmado aguanta. `v_product_box_factor` lee la matview
+  `mv_kepler_bought_rung` y `v_warehouse_box_factor` lee `mv_kepler_sold_rung`: las dos las refresca de noche la API
+  (`analytics_refresh_*_rung`); en la primera etapa se quedan así (es el comportamiento de hoy: las cuatro matviews ya leen
+  esas dos nocturnas) y el recálculo completo del primer movimiento del día recoge su cambio.
+- **8b, el orden de construcción** (cada paso con su prueba contra base real y su medición antes de seguir):
+  1. `analytics.v_price_truth_calc`: la regla de `mv_price_truth` en una vista (identidad por definición); medir su costo
+     por llave.
+  2. Tablas por matview + `analytics.recalcular_existencia(skus)` (`SECURITY DEFINER`): `DELETE … WHERE sku = ANY` +
+     `INSERT … SELECT` desde las MISMAS vistas filtradas (el costo, filtrando `kdik` directo). La regla sigue viviendo en
+     las vistas.
+  3. Cola `analytics.llaves_sucias` + triggers por SENTENCIA que anotan los SKU de sus tablas de transición y avisan
+     (`NOTIFY`): `kdm2`, `kdm1` (vía `kdm2`), `kdii`, `kdik`, `kdpv_prod_util`, `kdpv_prov_prod`, `catalog.products`,
+     `product_label_prices`, `product_unit_overrides`, `analytics.product_box_factor`, `product_prices`,
+     `wincaja.articulos`; `commercial.warehouses` y `TRUNCATE` → todo. ⛔ Migración **fuera de horario** (toma candado en
+     tablas que la ingesta escribe cada 15 s).
+  4. El que drena: en la API, escucha el aviso, junta ~30 s y llama a la función (la cola persiste: un aviso perdido se
+     drena al arrancar); `MiradaAlAviso` gana su 3er consumidor y se muda a `libs/platform-core` (ADR-056). Recálculo
+     completo con el primer movimiento de cada día (lo único que mueve la fecha), que además CUENTA las diferencias contra
+     lo guardado antes de escribir: ése es el árbitro, sin reloj.
+  5. Las `mv_*` pasan a vistas sobre las tablas (renombre a `_congelada`, regla 5; ninguna pantalla cambia, ADR-104 §6).
+  6. Sale el renglón `existencia-aux` de `crontab.feeds` y su latido. Los dos peldaños nocturnos, en una segunda etapa.
+- De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
+  las 07:26 de hoy (latidos de la API).
