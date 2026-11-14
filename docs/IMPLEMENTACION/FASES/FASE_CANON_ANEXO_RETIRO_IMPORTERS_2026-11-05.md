@@ -930,3 +930,27 @@ la llave de `kdik` incluye el SKU `c2`, así que su borrado también recalcula).
   sin alertas): misma regla, no cuenta lo que frena la banda. Hoy **0**, ~380–500 ms.
 - Prueba en `test-newdb-arbitro-catalogo` (19 ✓): uno desfasado suma 1 en el árbitro y en la herramienta, el de fuera
   de la banda no, y corrido `normalizeCost` vuelve a la base. 2 mutantes en rojo. API: `tsc` exit 0, `db-health` 24 ✓.
+
+**Logística (2026-11-13, `[CANON.6.18]`): sale `import-logistics-dims` del nocturno.** Unidades, choferes y rutas de
+Kepler (`kdm_transporte` / `kdm_chofer` / `kdm_rutas`, que llegan por el espejo completo `ods-live-mirror` cada ~5 min)
+entran a `logistics.*` AL LLEGAR: `normalizeVehiclesFromOds` / `normalizeDriversFromOds` / `normalizeRoutesFromOds`,
+acotados a las claves que llegaron (`c1`; la de cruce va sin ceros, como en los resolvedores `v_kepler_*`).
+- **Medido antes de retirarlo:** el nocturno falló 21 noches seguidas (12-oct → 5-nov, H1) y desde el arreglo de
+  CANON.5.6 corrió 8 noches sin nada que hacer. En toda su vida dio de alta 17 rutas (17-sep → 9-oct) y **ninguna
+  unidad ni chofer**: ésos sólo los adopta (les pone la clave de Kepler a la fila que el GPS o una persona ya dio de
+  alta). Hoy pendientes: 0 unidades, 0 choferes, 0 rutas (ZAMORA CANINDO sigue borrada en la app, y se respeta).
+- La regla se MOVIÓ sin cambiarla a `services/feeds-ingest/logistics-dims.js`; la herramienta manual la llama sobre todo
+  el catálogo (sigue en el modo `logistics` de `run-prod-feeds.js`). Un solo cambio, declarado: **D3 también por
+  clave** — una unidad o un chofer cuya clave tiene una fila borrada en la app ya no vuelve a nacer (antes un chofer
+  dado de alta desde Kepler y borrado en la app renacía cada noche). Hoy afecta a 0 filas (0 choferes y 8 unidades
+  borradas con clave, ninguna pendiente). La adopción toma la fila de menor `id` si hay dos candidatas (antes, la que
+  devolviera Postgres).
+- Árbitro `logistica_dims_evento` (reloj del escáner; sólo alarma; retiro con 30 días sin el nocturno ni el modo
+  manual, y sin alertas): misma regla, no cuenta lo respetado. Hoy **0** de 240 filas vivas, 12–47 ms. `veredicto`
+  aprendió a nombrar otro universo que no sea `catalog.products`.
+- Prueba `test-newdb-logistica-por-evento` (15 ✓, por `applyRawUpsert`): negativa con la normalización apagada; alta con
+  clave larga; adopción de la placa del GPS sin pisarla; placa de una borrada (no revienta el lote); chofer adoptado por
+  nombre, nuevo, y el borrado por clave que no renace; rutas nueva / borrada / otra capitalización / acotado; sin churn;
+  y el árbitro cruzado contra los normalizadores. 7 mutantes en rojo, cada uno por su razón. Vecinas (árbitro, marcas,
+  códigos, presencia) en verde; API `tsc` exit 0, `db-health` 24 ✓.
+- Re-medido de paso (13-nov): el árbitro de nombres volvió a ~320 ms (el ~1 s fue de una sola corrida).
