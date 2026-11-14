@@ -94,6 +94,11 @@ spec:
           imagePullPolicy: IfNotPresent
           envFrom:
             - secretRef: { name: prod-env }
+            # `[PGP.121]` El pago que prueba el banco se escribe en Kepler DESDE EL WORKER (su oyente sólo corre
+            # aquí), así que el worker necesita las conexiones `KEPLER_PUSH_URL_NN` y el interruptor
+            # `KEPLER_PAGO_ESCRITURA` del mismo secreto que ya tiene el api (`[KR.14]`, runbook KEPLER_PUSH §9).
+            # `optional`: sin el secreto el worker arranca igual y la escritura queda apagada.
+            - secretRef: { name: kepler-push, optional: true }
           env:
             - { name: TZ,                     value: America/Mexico_City }
             - { name: NODE_ENV,               value: production }
