@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, type OcCancelacionDisponibleDto, type OcCancelacionDto, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, type OcCancelacionDisponibleDto, type OcCancelacionDto, OcSeguimiento, type RequisicionCancelacionDisponibleDto, type RequisicionCancelacionDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, type PedidoNegociacionDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -826,6 +826,11 @@ export interface RequisitionDetail extends RequisitionRow {
    * hecho a mano. Ausente = traspaso o sin folio de Kepler; `null` = esta base no tiene la réplica.
    */
   en_kepler?: { requisicion: DocKepler | null; ocs: DocKepler[] } | null;
+  /**
+   * `[KR.7]` Esta requisición se canceló EN KEPLER desde la Suite: cuándo, quién y por qué (D43). La réplica
+   * tarda en verla en C; con esto la ficha no dice «sigue viva» mientras tanto. `null` = no se canceló desde aquí.
+   */
+  kepler_cancelacion?: { en: string; por: string | null; motivo: string } | null;
   /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
   dias?: number;
   vigencia?: RequisitionVigencia | null;
@@ -1435,6 +1440,16 @@ export class ComprasService {
   ocCancelacion(sucursal: string, folio: string): Observable<OcCancelacionDisponibleDto> {
     return this.http.get<OcCancelacionDisponibleDto>(
       `${this.base}/open-purchase-orders/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/cancelacion`);
+  }
+
+  /** [KR.7] ¿Se puede ofrecer «Cancelar en Kepler» en la ficha de esta requisición? No escribe. */
+  requisicionCancelacion(id: string): Observable<RequisicionCancelacionDisponibleDto> {
+    return this.http.get<RequisicionCancelacionDisponibleDto>(`${this.base}/requisitions/${encodeURIComponent(id)}/kepler-cancellation`);
+  }
+
+  /** [KR.7] Cancela en Kepler la requisición de compra de esta ficha (D43: la de la Suite queda cancelada). */
+  cancelarRequisicionKepler(id: string, motivo: string): Observable<RequisicionCancelacionDto> {
+    return this.http.post<RequisicionCancelacionDto>(`${this.base}/requisitions/${encodeURIComponent(id)}/kepler-cancellation`, { motivo });
   }
 
   /** [PQ.110] Cancela la OC en Kepler (como Kepler). Devuelve cancelada | rechazada con el porqué. */

@@ -55,6 +55,12 @@ export interface OcCancelacionDisponibleDto {
  * `POST /commercial/replenishment/requisitions/:id/kepler-cancellation` cancela;
  * `GET` del mismo camino dice si se puede ofrecer el botón.
  */
+/**
+ * D43: el inicio fijo del `rejection_reason` de una requisición de la Suite que quedó cancelada porque la
+ * Suite la canceló en Kepler («<esto>: <motivo>»). Lo escribe el servidor y lo reconoce la ficha.
+ */
+export const REQUISICION_CANCELADA_EN_KEPLER = 'Cancelada en Kepler desde la Suite';
+
 export interface RequisicionCancelacionDto {
   /** La requisición de la Suite. */
   requisition_id: string;

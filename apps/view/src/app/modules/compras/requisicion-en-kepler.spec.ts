@@ -1,5 +1,6 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { bannerKepler, quienCuando } from './requisicion-en-kepler';
+import { bannerKepler, cancelacionEnFicha, fechaMx, quienCuando, type BannerKepler } from './requisicion-en-kepler';
+import type { RequisicionCancelacionDisponibleDto } from '@megadulces/contracts';
 import type { RequisitionDetail } from './compras.service';
 
 /**
@@ -103,5 +104,86 @@ describe('[KR.7] ficha de la requisición — lo que pasó en Kepler', () => {
     const src = readFileSync(join(__dirname, 'pages', 'compras-requisicion-detalle.component.ts'), 'utf8');
     expect(src).toContain('return bannerKepler(r, this.estadoLabel(r.estado));');
     expect(src).not.toContain('Todavía no se escribió en Kepler');
+  });
+});
+
+describe('[KR.7] C3 — después de cancelarla en Kepler desde la Suite (D43)', () => {
+  const KC = { en: '2026-11-14T18:30:00.000Z', por: 'gerente.compras', motivo: 'El proveedor ya no surte' };
+
+  it('la réplica todavía la ve viva: dice que se canceló desde la Suite, cuándo (hora de México), quién, por qué, y que Kepler no lo refleja aún', () => {
+    const b = bk({ estado: 'cancelled', kepler_cancelacion: KC, kepler_sucursal: '08', kepler_folio: '0000064',
+      en_kepler: { requisicion: doc('0000064', 'A'), ocs: [doc('0000390', 'C')] } } as Partial<RequisitionDetail>)!;
+    expect(b.texto).toBe('La requisición 0000064 de Morelia Abastos se canceló en Kepler desde la Suite el 14/11/26 12:30 por gerente.compras: «El proveedor ya no surte». Kepler todavía no lo refleja en su réplica.');
+    expect(b.pideCancelar).toBe(false);
+  });
+
+  it('NEGATIVA: recién cancelada desde aquí NUNCA dice «sigue viva, hay que cancelarla allá» (la réplica va atrasada)', () => {
+    const b = bk({ estado: 'cancelled', kepler_cancelacion: KC, en_kepler: { requisicion: doc('0003143', 'A'), ocs: [] } } as Partial<RequisitionDetail>)!;
+    expect(b.texto).not.toContain('sigue viva');
+    expect(b.icono).toBe('pi-ban');
+  });
+
+  it('la réplica ya la ve en C: sin la coletilla; sin réplica: lo declara', () => {
+    const ya = bk({ estado: 'cancelled', kepler_cancelacion: KC, en_kepler: { requisicion: doc('0003143', 'C', 'SUITE', '2026-11-14 12:30'), ocs: [] } } as Partial<RequisitionDetail>)!;
+    expect(ya.texto.endsWith('«El proveedor ya no surte».')).toBe(true);
+    const sin = bk({ estado: 'cancelled', kepler_cancelacion: KC, en_kepler: null } as Partial<RequisitionDetail>)!;
+    expect(sin.texto).toContain('Su estado en Kepler no se pudo leer.');
+  });
+
+  it('pideCancelar: sólo «sigue viva allá» y «volvió a pendiente»; nunca la normal ni la ya cancelada', () => {
+    expect(bk({ estado: 'cancelled', en_kepler: { requisicion: doc('1', 'F'), ocs: [doc('2', 'N')] } })!.pideCancelar).toBe(true);
+    expect(bk({ en_kepler: { requisicion: doc('1', 'A'), ocs: [doc('2', 'C')] } })!.pideCancelar).toBe(true);
+    expect(bk({ en_kepler: { requisicion: doc('1', 'F'), ocs: [doc('2', 'N')] } })!.pideCancelar).toBe(false);
+    expect(bk({ en_kepler: { requisicion: doc('1', 'C', '07', '2026-11-06 13:58'), ocs: [] } })!.pideCancelar).toBe(false);
+  });
+
+  it('fechaMx: dd/MM/aa HH:mm en hora de México (no la del navegador ni UTC)', () => {
+    expect(fechaMx('2026-11-15T02:05:00.000Z')).toBe('14/11/26 20:05');
+    expect(fechaMx('no-es-fecha')).toBe('no-es-fecha');
+  });
+});
+
+describe('[KR.7] C3 — el botón «Cancelar en Kepler», o por qué no', () => {
+  const pide: BannerKepler = { texto: '', icono: 'pi-ban', tenue: false, reintentable: false, pideCancelar: true };
+  const normal: BannerKepler = { ...pide, pideCancelar: false, tenue: true, icono: 'pi-check-circle' };
+  const info = (o: Partial<RequisicionCancelacionDisponibleDto>): RequisicionCancelacionDisponibleDto =>
+    ({ requisition_id: 'x', sucursal: '08', folio: '0000064', disponible: false, porque: null, ultima: null, ...o });
+
+  it('disponible → botón, en cualquier renglón (también una recién escrita, en N y sin OC)', () => {
+    expect(cancelacionEnFicha(info({ disponible: true }), false, pide)).toEqual({ boton: true, nota: null });
+    expect(cancelacionEnFicha(info({ disponible: true }), false, normal)).toEqual({ boton: true, nota: null });
+  });
+
+  it('NEGATIVA: sin «disponible» del servidor NUNCA hay botón (mientras no conteste, tampoco)', () => {
+    expect(cancelacionEnFicha(info({ porque: 'apagado' }), false, pide).boton).toBe(false);
+    expect(cancelacionEnFicha(null, false, pide).boton).toBe(false);
+  });
+
+  it('no se puede y el renglón pide cancelar: dice por qué (con punto final)', () => {
+    const n = cancelacionEnFicha(info({ porque: 'Cancelar la requisición en Kepler está apagado para Morelia Abastos: cancélala en Kepler a mano' }), false, pide);
+    expect(n).toEqual({ boton: false, nota: 'Cancelar la requisición en Kepler está apagado para Morelia Abastos: cancélala en Kepler a mano.' });
+  });
+
+  it('no se puede en una requisición normal (con su OC viva): no dice nada — sería ruido en 180 de 203', () => {
+    expect(cancelacionEnFicha(info({ porque: 'Tiene viva la orden de compra 0000393: primero se cancela la OC' }), false, normal)).toEqual({ boton: false, nota: null });
+  });
+
+  it('un intento anterior que Kepler rechazó se dice, para no repetir a ciegas', () => {
+    const ultima = { requisition_id: 'x', sucursal: '08', folio: '0000064', estado: 'rechazada' as const, rechazo: 'Alguien tiene esa requisición abierta en Kepler', suite_cancelada: null, cancelada_por: 'a', cancelada_en: '2026-11-14T00:00:00Z' };
+    expect(cancelacionEnFicha(info({ disponible: true, ultima }), false, pide).nota).toBe('Último intento desde la Suite, sin cambios en Kepler: Alguien tiene esa requisición abierta en Kepler');
+  });
+
+  it('el GET falló: sólo se dice donde el renglón pide cancelar', () => {
+    expect(cancelacionEnFicha(null, true, pide).nota).toBe('No se pudo revisar si se puede cancelar desde aquí.');
+    expect(cancelacionEnFicha(null, true, normal).nota).toBeNull();
+  });
+
+  it('el componente delega aquí y pregunta al servidor antes de ofrecer el botón', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'pages', 'compras-requisicion-detalle.component.ts'), 'utf8');
+    expect(src).toContain('return cancelacionEnFicha(this.rqCancInfo(), this.rqCancInfoError(), kb);');
+    expect(src).toContain('this.api.requisicionCancelacion(r.id)');
+    expect(src).toContain('Permission.COMPRAS_REQUISICION_CANCELAR');
   });
 });

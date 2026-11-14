@@ -36,6 +36,7 @@ const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
 
 let Servicio;
 let leerRequisicionEnReplica;
+let leerCancelacionKeplerDeRequisicion;
 let MOTIVO_CANCELADA_EN_KEPLER;
 process.env.JWT_SECRET = process.env.JWT_SECRET || `prueba-local-pq110-${'x'.repeat(40)}`;
 try {
@@ -45,7 +46,7 @@ try {
   const base = tsc.readConfigFile(path.join(RAIZ, 'tsconfig.base.json'), tsc.sys.readFile).config;
   require('tsconfig-paths').register({ baseUrl: RAIZ, paths: base.compilerOptions.paths });
   require('reflect-metadata');
-  ({ OcCancelacionService: Servicio } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/oc-cancelacion.service.ts')));
+  ({ OcCancelacionService: Servicio, leerCancelacionKeplerDeRequisicion } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/oc-cancelacion.service.ts')));
   ({ leerRequisicionEnReplica } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/kepler-requisicion-replica.ts')));
   ({ MOTIVO_CANCELADA_EN_KEPLER } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/kepler-req-cancelacion.ts')));
 } catch (e) {
@@ -242,6 +243,12 @@ const ORIGINAL = {
         ok(e4?.estado === 'cancelled' && e4?.rejection_reason === `${MOTIVO_CANCELADA_EN_KEPLER}: ${pantallaRq.motivo}` && e4?.rejected_by === ME,
           'D43: la requisición de la Suite queda cancelled, con el motivo (inicio fijo) y quién', e4);
 
+        // K4b. Lo que lee la ficha (C3): la cancelación desde la Suite, con el SQL real de getRequisition.
+        const lk1 = await leerCancelacionKeplerDeRequisicion(trx, T, R1);
+        ok(lk1?.motivo === pantallaRq.motivo && lk1?.por === 'prueba.pq110' && !Number.isNaN(Date.parse(lk1?.en)),
+          'C3: la ficha lee cuándo, quién y por qué se canceló en Kepler desde la Suite', lk1);
+        ok(await leerCancelacionKeplerDeRequisicion(trx, T, R3) === null, 'C3 NEGATIVA: una requisición que no se canceló desde aquí → null');
+
         // K5. Otra vez → 409.
         ok(await status(() => s.cancelarRequisicion(R1, pantallaRq)) === 409, 'KR.7: la misma requisición otra vez → 409');
 
@@ -262,6 +269,7 @@ const ORIGINAL = {
         const k7 = await s.cancelarRequisicion(R2, pantallaRq);
         ok(k7.estado === 'rechazada' && /0000393/.test(k7.rechazo || '') && k7.suite_cancelada === false, 'KR.7: Kepler rechaza → rechazada con el porqué', k7);
         ok((await est(R2))?.estado === 'ordered', 'KR.7: rechazada en Kepler → la de la Suite sigue como estaba');
+        ok(await leerCancelacionKeplerDeRequisicion(trx, T, R2) === null, 'C3 NEGATIVA: un intento RECHAZADO no se lee como cancelación');
 
         // K8. Ya cancelada en la Suite (la ficha avisaba «sigue viva en Kepler»): Kepler la cancela, la Suite conserva su motivo.
         doble.respuestaRq = () => ({ estado: 'cancelada', original: { ...ORIG_RQ, folio: 'KR7D' } });

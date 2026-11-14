@@ -24,6 +24,8 @@
 
 import { llave, TABLAS_KEPLER, type Sentencia, type Tablas } from './kepler-oc-cancelacion';
 import type { RequisicionEnReplica } from './kepler-requisicion-replica';
+// La ficha la reconoce: vive en contracts, como `OC_CANCELAR_MOTIVO_MIN`.
+import { REQUISICION_CANCELADA_EN_KEPLER } from '@megadulces/contracts';
 
 /** Lo que el adaptador lee de Kepler vivo, ya plano. */
 export interface RequisicionACancelar {
@@ -128,7 +130,7 @@ export function sentenciasCancelacionRequisicion(p: PlanCancelacionRequisicion, 
  * con el motivo y quién. Va en `rejection_reason`, con un inicio fijo como `MOTIVO_COMPRA_SIN_DOCUMENTO` y
  * `MOTIVO_TRASPASO_NO_EJECUTADO`: separa este cierre de un rechazo de quien autoriza.
  */
-export const MOTIVO_CANCELADA_EN_KEPLER = 'Cancelada en Kepler desde la Suite';
+export const MOTIVO_CANCELADA_EN_KEPLER = REQUISICION_CANCELADA_EN_KEPLER;
 
 export function motivoSuiteCancelada(motivo: string): string {
   return `${MOTIVO_CANCELADA_EN_KEPLER}: ${motivo.trim()}`.slice(0, 500);

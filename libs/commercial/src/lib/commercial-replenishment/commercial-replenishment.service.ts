@@ -31,6 +31,7 @@ import { limpiarComprasSinDocumento, INICIO_ENVIO_AUTOMATICO } from './compra-si
 import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
 import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
+import { leerCancelacionKeplerDeRequisicion } from './oc-cancelacion.service';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -5433,11 +5434,16 @@ export class CommercialReplenishmentService {
       if (header.kepler_folio && header.kepler_sucursal && header.source_type !== 'branch') {
         en_kepler = await leerRequisicionEnReplica(trx, String(header.kepler_sucursal).trim(), String(header.kepler_folio).trim());
       }
+      // `[KR.7]` Si esta requisición se canceló EN KEPLER desde la Suite: cuándo, quién y por qué. La réplica
+      // tarda uno o dos minutos en verla en C; sin esto, la ficha diría «en Kepler sigue viva» de algo que la
+      // Suite acaba de cancelar. Sin la migración 20261114120335 no hay columna, ni renglones que leer.
+      const kepler_cancelacion = await leerCancelacionKeplerDeRequisicion(trx, tenantId, id);
       return {
         ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
         purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
         oc_cancelada,
         en_kepler,
+        kepler_cancelacion,
       };
     });
   }

@@ -35,6 +35,26 @@ interface FilaCancelacion {
   created_by_username: string | null; created_at: string | Date;
 }
 
+/**
+ * `[KR.7]` C3: si esta requisición de la Suite se canceló EN KEPLER desde la Suite, cuándo, quién y por qué
+ * (D43). Lo lee la ficha (`getRequisition`): la réplica tarda uno o dos minutos en verla en C, y sin esto la
+ * ficha diría «en Kepler sigue viva» de algo que la Suite acaba de cancelar. `null` sin la migración
+ * `20261114120335` (no hay columna ni renglones) o si no se canceló desde aquí.
+ */
+export async function leerCancelacionKeplerDeRequisicion(
+  trx: Knex | Knex.Transaction, tenantId: string, id: string,
+): Promise<{ en: string; por: string | null; motivo: string } | null> {
+  const col = (await trx.raw(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'commercial' AND table_name = 'purchase_order_cancellations' AND column_name = 'requisition_id'`)).rows.length;
+  if (!col) return null;
+  const k = await trx(TABLA)
+    .where({ tenant_id: tenantId, requisition_id: id, document_type: 'requisicion', estado: 'cancelada' })
+    .whereNull('deleted_at')
+    .first<{ created_at: string | Date; created_by_username: string | null; motivo: string } | undefined>('created_at', 'created_by_username', 'motivo');
+  return k ? { en: new Date(k.created_at).toISOString(), por: k.created_by_username ?? null, motivo: k.motivo } : null;
+}
+
 /** La requisición de la Suite, con su llave de Kepler (`null` si nunca llegó allá). */
 interface RequisicionSuite { id: string; estado: string; source_type: string | null; sucursal: string | null; folio: string | null }
 

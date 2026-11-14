@@ -1,8 +1,13 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import type { Subscription } from 'rxjs';
+import {
+  OC_CANCELAR_MOTIVO_MIN, REQUISICION_CANCELADA_EN_KEPLER,
+  type RequisicionCancelacionDisponibleDto, type RequisicionCancelacionDto,
+} from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { bannerKepler, type BannerKepler } from '../requisicion-en-kepler';
+import { bannerKepler, cancelacionEnFicha, type BannerKepler, type CancelacionFicha } from '../requisicion-en-kepler';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -137,7 +142,20 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             @if (kb.reintentable && canManage) {
               <button pButton type="button" class="p-button-sm p-button-text" [loading]="pushing()" (click)="pushKepler()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
             }
+            <!-- [KR.7] C3: cancelarla en Kepler, junto al dato que dice que sigue viva (Q.4). Sólo si el
+                 servidor dice que se puede; destructiva, en p-button-danger y lejos de Aprobar. -->
+            @if (cancFicha(kb).boton) {
+              <button pButton type="button" class="p-button-sm p-button-text p-button-danger rd-canc-btn" (click)="abrirCancelarRq()">
+                <span class="p-button-icon p-button-icon-left pi pi-ban" aria-hidden="true"></span><span class="p-button-label">Cancelar en Kepler</span>
+              </button>
+            }
           </div>
+          @if (cancFicha(kb).nota; as nota) {
+            <div class="rd-ruta rd-ruta-tenue" role="status">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>{{ nota }}</span>
+            </div>
+          }
         }
         @if (r.lote; as l) {
           <div class="rd-ruta rd-ruta-tenue" role="status">
@@ -229,6 +247,55 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         </ng-template>
       </p-dialog>
 
+      <!-- [KR.7] C3: confirmar la cancelación en Kepler. Dice ANTES qué pasa allá y aquí (D43). -->
+      <p-dialog [visible]="rqCancAbierto()" (visibleChange)="$event ? null : cerrarCancelarRq()" [modal]="true"
+                [style]="{ width: '32rem' }" [breakpoints]="{ '40rem': '95vw' }"
+                [dismissableMask]="!rqCancEnviando()" [closable]="!rqCancEnviando()" [closeOnEscape]="!rqCancEnviando()"
+                [header]="'Cancelar en Kepler · requisición ' + (req()?.kepler_folio || '')">
+        @if (req(); as r) {
+          @if (rqCancResultado(); as k) {
+            @if (k.estado === 'cancelada') {
+              <p class="rd-canc-ok" role="status">
+                <span class="pi pi-check-circle" aria-hidden="true"></span>
+                <span>La requisición {{ k.folio }} de {{ k.sucursal | sucursal }} quedó cancelada en Kepler.
+                  @if (k.suite_cancelada) { En la Suite también quedó cancelada, con tu motivo. }
+                  @else if (r.estado === 'cancelled') { En la Suite ya estaba cancelada y conserva su motivo. }
+                  @else { En la Suite NO quedó cancelada: avísale a Sistemas. }</span>
+              </p>
+              <p class="rd-muted rd-canc-hint">Kepler la refleja en su réplica en uno o dos minutos.</p>
+            } @else {
+              <p class="rd-canc-err" role="alert">Kepler no la canceló: {{ k.rechazo }}</p>
+              <p class="rd-muted rd-canc-hint">No se escribió nada en Kepler. El intento quedó registrado con tu motivo.</p>
+            }
+          } @else {
+            <p class="rd-muted rd-oc-sub">{{ r.supplier_name || 'sin proveedor' }} · {{ r.kepler_sucursal | sucursal }} · {{ money(r.total_cost) }}</p>
+            <p class="rd-canc-que">
+              La requisición queda <strong>cancelada en Kepler</strong> y se borran sus renglones, igual que si la cancelaras allá.
+              @if (r.estado === 'cancelled') { En la Suite ya está cancelada y conserva su motivo. }
+              @else { En la Suite también queda cancelada, con tu motivo y tu nombre. }
+            </p>
+            <label class="rd-rech-lab" for="rd-canc-motivo">Por qué se cancela <span class="rd-muted">(obligatorio)</span></label>
+            <textarea pTextarea id="rd-canc-motivo" class="rd-rech-motivo" rows="3" maxlength="500" [disabled]="rqCancEnviando()"
+                      [ngModel]="rqCancMotivo()" (ngModelChange)="rqCancMotivo.set($event)"
+                      placeholder="Por ejemplo: el proveedor ya no surte y no se va a pedir."></textarea>
+            <p class="rd-muted rd-canc-hint">Al menos {{ motivoMin }} letras. Queda en la Suite junto a la requisición, con tu nombre.</p>
+            @if (rqCancError()) { <p class="rd-canc-err" role="alert">{{ rqCancError() }}</p> }
+          }
+        }
+        <ng-template #footer>
+          @if (rqCancResultado()) {
+            <button pButton type="button" class="p-button-sm" (click)="cerrarCancelarRq()"><span class="p-button-label">Cerrar</span></button>
+          } @else {
+            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [disabled]="rqCancEnviando()" (click)="cerrarCancelarRq()">
+              <span class="p-button-label">Volver</span>
+            </button>
+            <button pButton type="button" class="p-button-sm p-button-danger" [disabled]="rqCancEnviando() || !motivoRqOk()" (click)="confirmarCancelarRq()">
+              <span class="p-button-label">{{ rqCancEnviando() ? 'Cancelando en Kepler…' : 'Cancelar en Kepler' }}</span>
+            </button>
+          }
+        </ng-template>
+      </p-dialog>
+
       <!-- [PQ.16] D21 / RQ.15: el documento de Kepler se captura con sus DOS coordenadas (el folio
            se repite entre sucursales). Mismo diálogo que la bandeja. -->
       <p-dialog [visible]="ocVisible()" (visibleChange)="ocVisible.set($event)" [modal]="true" [style]="{ width: '28rem' }"
@@ -264,6 +331,13 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rd-rech-lab { display: block; margin-bottom: .25rem; font-size: var(--fs-sm); font-weight: 600; }
     .rd-rech-motivo { width: 100%; }
     .rd-muted { color: var(--text-muted); font-weight: 400; }
+    /* [KR.7] Cancelar en Kepler: destructiva (p-button-danger), nunca --action; empujada al final del renglón. */
+    .rd-canc-btn { margin-left: auto; flex-shrink: 0; }
+    .rd-canc-que { margin: 0 0 .6rem; font-size: var(--fs-sm); line-height: 1.5; }
+    .rd-canc-hint { margin: .35rem 0 0; font-size: var(--fs-xs); }
+    .rd-canc-ok { display: flex; gap: .45rem; align-items: flex-start; margin: 0; font-size: var(--fs-sm); line-height: 1.5; }
+    .rd-canc-ok .pi { color: var(--ok-fg); margin-top: .2rem; }
+    .rd-canc-err { margin: .35rem 0 0; color: var(--bad-fg); font-size: var(--fs-sm); line-height: 1.45; }
     :host { display: block; }
     .rd-back { margin-bottom: .25rem; margin-left: -.5rem; }
     .surf-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
@@ -332,7 +406,10 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
     ];
     if (r.notes) items.push({ label: 'Nota', value: r.notes, format: 'text' });
     // `[AB.32]` Por qué se rechazó, con la misma voz que la ve la sucursal.
-    if (r.rejection_reason) items.push({ label: 'Motivo del rechazo', value: r.rejection_reason, format: 'text', tone: 'bad' });
+    // `[KR.7]` Si se canceló en Kepler desde la Suite (D43), el renglón «En Kepler» ya dice cuándo, quién y por
+    // qué: aquí se diría otra vez, y como «rechazo», que no fue.
+    const canceladaAca = !!r.kepler_cancelacion && (r.rejection_reason ?? '').startsWith(REQUISICION_CANCELADA_EN_KEPLER);
+    if (r.rejection_reason && !canceladaAca) items.push({ label: 'Motivo del rechazo', value: r.rejection_reason, format: 'text', tone: 'bad' });
     return items;
   }
   loading = signal(true);
@@ -359,8 +436,85 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
   private load(): void {
     this.loading.set(true);
     this.api.getRequisition(this.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.req.set(r); this.loading.set(false); },
+      next: (r) => { this.req.set(r); this.loading.set(false); this.revisarCancelacionRq(r); },
       error: () => { this.loading.set(false); this.req.set(null); },
+    });
+  }
+
+  // ── [KR.7] C3: cancelar la requisición en Kepler ─────────────────────────────────────────
+  // La regla vive en el servidor (interruptor por sucursal, tope del día, regla de Kepler contra la réplica):
+  // la ficha PREGUNTA si se puede antes de ofrecer el botón.
+  readonly canCancelarRq = this.perms.has(Permission.COMPRAS_REQUISICION_CANCELAR);
+  readonly motivoMin = OC_CANCELAR_MOTIVO_MIN;
+  readonly rqCancInfo = signal<RequisicionCancelacionDisponibleDto | null>(null);
+  readonly rqCancInfoError = signal(false);
+  private rqCancInfoSub: Subscription | null = null;
+  readonly rqCancAbierto = signal(false);
+  readonly rqCancMotivo = signal('');
+  readonly rqCancError = signal<string | null>(null);
+  readonly rqCancEnviando = signal(false);
+  readonly rqCancResultado = signal<RequisicionCancelacionDto | null>(null);
+  /** La misma regla que el servidor (`motivoValido`): espacios colapsados, al menos N letras. */
+  readonly motivoRqOk = computed(() => this.rqCancMotivo().replace(/\s+/g, ' ').trim().length >= OC_CANCELAR_MOTIVO_MIN);
+
+  /** Botón o porqué, junto al renglón «En Kepler». La regla vive en `requisicion-en-kepler.ts` (pura). */
+  cancFicha(kb: BannerKepler): CancelacionFicha {
+    return cancelacionEnFicha(this.rqCancInfo(), this.rqCancInfoError(), kb);
+  }
+
+  private revisarCancelacionRq(r: RequisitionDetail): void {
+    this.rqCancInfo.set(null);
+    this.rqCancInfoError.set(false);
+    this.rqCancInfoSub?.unsubscribe();
+    // Sin llave, traspaso, sin folio de Kepler o ya cancelada desde aquí: no hay nada que preguntar.
+    if (!this.canCancelarRq || r.source_type === 'branch' || !r.kepler_folio || r.kepler_cancelacion) return;
+    this.rqCancInfoSub = this.api.requisicionCancelacion(r.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (info) => this.rqCancInfo.set(info),
+      error: () => this.rqCancInfoError.set(true),
+    });
+  }
+
+  abrirCancelarRq(): void {
+    if (!this.rqCancInfo()?.disponible) return;
+    this.rqCancMotivo.set('');
+    this.rqCancError.set(null);
+    this.rqCancResultado.set(null);
+    this.rqCancAbierto.set(true);
+    // Foco en el motivo: es lo único que falta para confirmar.
+    setTimeout(() => (document.getElementById('rd-canc-motivo') as HTMLTextAreaElement | null)?.focus(), 0);
+  }
+
+  /** Mientras se envía no se cierra: la respuesta tardía no tendría dónde decir qué pasó en Kepler. */
+  cerrarCancelarRq(): void {
+    if (this.rqCancEnviando()) return;
+    const cancelada = this.rqCancResultado()?.estado === 'cancelada';
+    this.rqCancAbierto.set(false);
+    this.rqCancResultado.set(null);
+    // El estado de la Suite cambió (D43) y el renglón ya puede decir cuándo y quién.
+    if (cancelada) this.load();
+  }
+
+  /** Ficha de la última petición: una respuesta vieja no pisa el diálogo actual. */
+  private rqCancReq = 0;
+  confirmarCancelarRq(): void {
+    const r = this.req();
+    if (!r || this.rqCancEnviando() || !this.motivoRqOk()) return;
+    this.rqCancEnviando.set(true); // en el mismo clic: el doble clic no manda dos
+    this.rqCancError.set(null);
+    const req = ++this.rqCancReq;
+    this.api.cancelarRequisicionKepler(r.id, this.rqCancMotivo()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (k) => {
+        if (req !== this.rqCancReq) return;
+        this.rqCancEnviando.set(false);
+        this.rqCancResultado.set(k);
+      },
+      error: (e) => {
+        if (req !== this.rqCancReq) return;
+        this.rqCancEnviando.set(false);
+        // Un 4xx/5xx del servidor trae su porqué. Sin respuesta NO se sabe si Kepler cambió: se dice así.
+        this.rqCancError.set(e?.error?.message
+          || 'No se pudo confirmar la cancelación. Vuelve a abrir la requisición para ver si quedó cancelada en Kepler.');
+      },
     });
   }
 

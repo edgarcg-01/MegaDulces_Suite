@@ -357,6 +357,42 @@ dice que su OC se canceló (cuándo, quién, motivo) sin cambiar de estado. (5) 
   también de una cancelada. La regla del banner es pura (`requisicion-en-kepler.ts`).
 - **Qué pasa en la Suite al cancelar:** pasa a «cancelled», con motivo y quién (D43, firmada).
 
+### KR.7 C3 — el botón en la ficha, antes de la plantilla (2026-11-14)
+
+**Lo medido (prod, sólo lectura, 2026-11-14):**
+- **Quién entra:** `GET requisitions/:id` (la ficha) 989 veces en 24 días: gerente_compras,
+  compras_operaciones, auxiliar_compras, dirección y superadmin. Dirección no recibe la llave: ve el
+  renglón, no el botón.
+- **El estado real:** de las 203 requisiciones de compra de la Suite con folio de Kepler, **21** están en
+  «Ordenada» aquí y en A allá **sin OC viva** (Morelia Madero y Morelia Abastos): son las que el botón
+  cierra. 1 está cancelada aquí con su OC viva allá (primero se cancela la OC, PQ.110). 1 está «Ordenada»
+  aquí y cancelada a mano allá (KR.7 no la toca: D43 es para lo que cancela la Suite). Las otras 180 están
+  normales (F, con su OC viva): no se les ofrece nada.
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve al entrar, y en qué orden? | Lo mismo que hoy. El botón vive en el renglón «En Kepler» del paso 1, que ya dice «volvió a pendiente» o «hay que cancelarla allá»: el dato que denuncia y la acción que lo arregla, juntos (Q.4). No va junto a Aprobar ni a Exportar. |
+| 2 | ¿Qué NO ve? | Sin la llave no hay botón ni llamada. Sin «disponible» del servidor no hay botón. El porqué sólo se dice donde el renglón pide cancelar (las 21 y la inversa); en las 180 normales, nada: sería ruido en casi todas las fichas. Nada técnico (`kdm2`, `c43`). |
+| 3 | ¿Qué accesibilidad necesita? | Ficha → «Cancelar en Kepler» (1) → confirmación con el motivo (2). Foco en el motivo, el envío se bloquea en el primer clic y el diálogo no se cierra mientras envía. Acción destructiva: `p-button-danger`, nunca `--action`. |
+| 4 | ¿Está ligada a otro proceso? | A la OC: si tiene una viva, el porqué lo dice («primero se cancela la OC», que vive en Abiertas en Kepler). Y a la Suite: el diálogo dice ANTES que aquí también queda cancelada con el motivo (D43) o que ya lo estaba. Después, el renglón dice cuándo, quién y por qué, aunque la réplica todavía no la vea en C. |
+| 5 | ¿Le toca a esta pantalla? | Sí: es la ficha de esa requisición, donde se ve que sigue viva allá. Sin pantalla nueva. |
+
+**Lo que C3 NO podía resolver sin tocar C2** (se dice primero): recién cancelada, la réplica tarda uno o
+dos minutos en verla en C, y el renglón diría «en la Suite está cancelada, pero en Kepler sigue viva» de algo
+que la Suite acaba de cancelar. **Resuelto el mismo día:** el detalle trae `kepler_cancelacion` (cuándo,
+quién y motivo, de la bitácora) y el renglón lo dice primero, con «Kepler todavía no lo refleja» mientras
+la réplica no la vea.
+
+**Con la pantalla terminada (2026-11-14), las cinco otra vez:** (1) igual que hoy; el botón sale al final del
+renglón «En Kepler», en rojo, y sólo con «disponible» del servidor. (2) Sin la llave no se pregunta nada; en
+las requisiciones normales no aparece ni botón ni porqué; el «Motivo del rechazo» del encabezado se calla
+cuando el renglón ya dice la cancelación desde la Suite (sería decirlo dos veces, y como «rechazo»).
+(3) Ficha → «Cancelar en Kepler» → confirmar: 2 clics; foco en el motivo; el envío se bloquea en el mismo
+clic y el diálogo no se cierra mientras envía. (4) El diálogo dice antes qué pasa allá y aquí (o que aquí ya
+estaba cancelada); después, si la Suite no la pudo marcar, lo dice («avísale a Sistemas») en vez de callarlo.
+(5) Sin pantalla nueva. 24 pruebas de la regla (5 mutantes en rojo, con la zona horaria forzada a UTC para
+que la de México cuente). **Sin validación visual** (sin backend local por regla; se ve en prod al soltar).
+
 ### PQ.111 — «saldar» una OC: Kepler no tiene ese acto
 
 1. **El único `X-A-90` de la historia no toca una OC.** CEDIS, 2026-01-07, `0TESORERIA`, $6,410.93, en N;
@@ -539,6 +575,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-14 | **KR.7 C3 en código:** las cinco preguntas antes y después (§3e). Botón «Cancelar en Kepler» al final del renglón «En Kepler» de la ficha, sólo con `disponible` del servidor; el porqué sólo donde el renglón pide cancelar (21 + la inversa; nada en las 180 normales). El detalle trae `kepler_cancelacion` (`leerCancelacionKeplerDeRequisicion`, ejercida en la prueba de base real) y el renglón dice la cancelación desde la Suite aunque la réplica vaya atrasada. Prefijo de D43 en contracts (`REQUISICION_CANCELADA_EN_KEPLER`). 24 pruebas de la regla, 5 mutantes en rojo; `check:pantalla` igual que antes (103 fallas, 9 nuevas ajenas); plantillas tipan. Sin validación visual. |
 | 2026-11-14 | **KR.7 C2 en código, sin aplicar:** migración `20261114120335`, que **extiende** la tabla de intentos de PQ.110 (`document_type` + `requisition_id`, `oc_folio` deja de ser obligatoria y un CHECK amarra cada tipo a sus columnas; regla 2), siembra el interruptor `cancela_requisicion` **apagado** en las 9 con tope 1 y reparte la llave `COMPRAS_REQUISICION_CANCELAR` a los mismos 6 roles que `COMPRAS_OC_CANCELAR` (medido: los 6 abren la ficha). `GET`/`POST /commercial/replenishment/requisitions/:id/kepler-cancellation` en el mismo servicio y controlador que PQ.110 (sin firma inyectada nueva). D43: si Kepler la cancela, la de la Suite queda `cancelled` con `rejection_reason` = «Cancelada en Kepler desde la Suite: …» y quién; si ya estaba cancelada aquí, conserva su motivo. El tope es **por documento** (una requisición no gasta el de las OC). Prueba de base real (11 casos, con la negativa del tope por documento y 4 negativas de la tabla) **NO MEDIDA** hasta el job `pruebas-db`: no hay base local. |
 | 2026-11-14 | **KR.7 C1:** regla y sentencias (`kepler-req-cancelacion.ts`: sin OC viva, sólo N o A; el `UPDATE` repite en su `WHERE` el estado leído y «ninguna OC viva»), `cancelarRequisicion` en el mismo adaptador que PQ.110 (mismo candado `FOR UPDATE NOWAIT`, mismos 10 permisos; el paso que escribe pasó a un helper común sin cambiar sus mensajes). Pruebas: 15 de la regla con 4 mutantes en rojo (espejo del scratchpad); 7 del paso que escribe con un cliente falso; **ensayo contra Kepler vivo de la 08** sin escribir: 0000064 y 0000077 quedan como el testigo, la negativa del candado da 0 filas, 0000087 (OC viva) rechazada, las 3 intactas. Falta C2 (tabla, interruptor, endpoint, prueba de base real) y C3 (botón en la ficha) | Claude |
 | 2026-11-14 | **D42 y D43 firmadas** (Edgar): la OC parcial se cierra sólo en la Suite; la requisición cancelada en Kepler desde la Suite pasa a «cancelled». **KR.7, paso 1 en código:** la ficha de la requisición lee la réplica (`leerRequisicionEnReplica`, 4 + 2 ms en prod) y el banner `[KR.8]` deja de poner la palomita «En Kepler como…» a una requisición cancelada allá o reabierta porque su OC se canceló a mano; dice qué pasó, quién y cuándo, y avisa el revés (cancelada aquí, viva allá). Pruebas: spec puro 12/12; mutación en un espejo del scratchpad (control 11/11 verde, 3 mutantes en rojo con las mismas 11); caso 7d en la prueba de base real (corre en `pruebas-db`, NO MEDIDO hasta el CI); `tsc` de `libs/commercial` limpio; `check:pantalla` idéntico a la línea base. **Sin validación visual** | Claude |
