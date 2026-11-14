@@ -278,7 +278,7 @@ proveedores. Si el PM lo quiere antes, se mueve y queda escrito por qué.
 | MDT.2.2 | Capturar y versionar la norma por puesto (`POST /checklists/norms/:id/versions`) — desde 2026-11-14 también la **hora límite**, versionada (enmienda de ADR-118) | 🧪 2026-11-14 | **sí** | misma prueba, §8 y §8b (vigencia hacia atrás 400; hora inválida o antes del inicio 400; una versión sin hora conserva la anterior; la entrega abierta conserva su hora; la derivada de hoy toma la nueva) — **NO MEDIDA en local** |
 | MDT.2.3 | Vale de servicio: levantar → tomar → completar → cancelar | ⬜ | **sí** | ⛔ obligatoria |
 | MDT.2.4 | Lecturas de control derivadas (`GET /checklists/team`, `mine`, `norms`) | 🧪 2026-11-13 | no | < 500 ms: **NO MEDIDO** (las tablas no están en prod) |
-| MDT.2.5 | Tres llaves (`TAREAS_PUESTO_ENTREGAR`/`_EQUIPO_VER`/`_NORMA_GESTIONAR`), repartidas en la migración (derivado de la cadena de mando, no a mano); el alcance lo calcula el servidor | 🧪 2026-11-13 — **repartidas sólo cuando se aplique la migración en prod** (regla 20) | — | `checklists.controller.spec.ts` (5 ✓, con negativa) · `test-newdb-permission-delivery` sólo da verde tras aplicar |
+| MDT.2.5 | Tres llaves (`TAREAS_PUESTO_ENTREGAR`/`_EQUIPO_VER`/`_NORMA_GESTIONAR`), repartidas en la migración (derivado de la cadena de mando, no a mano); el alcance lo calcula el servidor | 🧪 2026-11-14 — **PILOTO**: las tres llaves sólo a Dirección, RH y superadmin. Repartir «entregar» a todos mientras la gente entrega en MDTask haría que Mi trabajo les marque pendiente lo que sí entregaron; el reparto amplio es del corte (`MDT.C1`) | — | `checklists.controller.spec.ts` (5 ✓, con negativa) · `test-newdb-permission-delivery` sólo da verde tras aplicar |
 
 ### C3 · UI
 
@@ -298,6 +298,10 @@ proveedores. Si el PM lo quiere antes, se mueve y queda escrito por qué.
 componente de 5,614 líneas; no se copia su forma.
 
 ### Cortes (uno por dominio, método de RH §6)
+
+| # | Item | Estado |
+|---|---|---|
+| MDT.C1 | **Corte de tareas del manual:** migración que reparte `TAREAS_PUESTO_ENTREGAR` a todo rol con personas y `TAREAS_PUESTO_EQUIPO_VER` a los roles con puestos a cargo (derivado de la cadena de mando); el mismo día, MDTask deja de recibir entregas de tareas (lo hace David) y se avisa al personal | ⬜ — después de validar en prod con el piloto |
 
 1. Ventana corta fuera de horario; MDTask sigue vivo hasta el corte de cada dominio.
 2. Carga única idempotente contra destino seguro (`assert-safe-target`) con **reporte de cuadre**:

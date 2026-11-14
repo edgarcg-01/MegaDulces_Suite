@@ -40,12 +40,16 @@
  *  · una entrega por plantilla, persona y periodo.
  *
  * ── Llaves (regla 20: repartidas, no sólo declaradas) ───────────────────────────────────────
- *  · TAREAS_PUESTO_ENTREGAR       → todo rol con personas (mismas excepciones que DP/MS).
- *  · TAREAS_PUESTO_EQUIPO_VER     → los roles cuyo puesto TIENE puestos a cargo (derivado de
- *                                   `reports_to_position_code`, no elegido a mano) + Dirección. El
- *                                   servidor además limita a la gente de SU cadena de mando.
+ *  ⛔ PILOTO (2026-11-14): las tres llaves van SÓLO a Dirección, Recursos Humanos y superadmin.
+ *     Mientras la gente siga entregando en MDTask, repartir ENTREGAR a todos haría que Mi trabajo les
+ *     marque como PENDIENTE lo que sí entregaron (allá): un número falso para 87 personas. El reparto
+ *     amplio va en la migración del CORTE (`[MDT.C1]`), el día que MDTask deja de recibir entregas:
+ *       · ENTREGAR   → todo rol con personas (excepto customer_b2b, servicio, checador_kiosco,
+ *                      verificador_precios, etiquetas_anaquel, etiquetas_tienda, sin_acceso, auditor_externo).
+ *       · EQUIPO_VER → los roles cuyo puesto TIENE puestos a cargo (derivado de
+ *                      `reports_to_position_code`, no elegido a mano) + Dirección.
  *  · TAREAS_PUESTO_NORMA_GESTIONAR → Dirección y Recursos Humanos: el manual «se elabora en Capital
- *                                   Humano y lo autoriza Dirección» (catálogo de MDTask).
+ *                                   Humano y lo autoriza Dirección» (catálogo de MDTask). Ésta no cambia.
  *
  * La siembra va en ESTA migración (precedente DP): una que sólo inserta la clasifica NO_MEDIDO la
  * compuerta del despliegue. Aditiva e idempotente. RLS forzado. FKs compuestas `(tenant_id, …)`.
@@ -64,24 +68,15 @@ const AUDIT = `
   deleted_at timestamptz,
   deleted_by uuid`;
 
-const SIN_PERSONAS = [
-  'customer_b2b', 'servicio', 'checador_kiosco', 'verificador_precios',
-  'etiquetas_anaquel', 'etiquetas_tienda', 'sin_acceso', 'auditor_externo',
-];
 const marcas = (xs) => xs.map(() => '?').join(',');
 
-/** Roles con gente a cargo: el `default_role` de todo puesto al que otro le reporta. */
-const ROLES_CON_EQUIPO = `
-  SELECT DISTINCT p.default_role FROM identity.positions p
-   WHERE p.default_role IS NOT NULL AND p.deleted_at IS NULL
-     AND EXISTS (SELECT 1 FROM identity.positions c
-                  WHERE c.tenant_id = p.tenant_id AND c.reports_to_position_code = p.code
-                    AND c.deleted_at IS NULL)`;
+/** Piloto: quienes validan antes del corte (ver el encabezado). El reparto amplio es de `[MDT.C1]`. */
+const PILOTO = ['direccion', 'superadmin', 'recursos_humanos'];
 
 const LLAVES = {
-  TAREAS_PUESTO_ENTREGAR: { excepto: SIN_PERSONAS },
-  TAREAS_PUESTO_EQUIPO_VER: { derivado: ROLES_CON_EQUIPO, ademas: ['direccion', 'superadmin'] },
-  TAREAS_PUESTO_NORMA_GESTIONAR: { solo: ['direccion', 'superadmin', 'recursos_humanos'] },
+  TAREAS_PUESTO_ENTREGAR: { solo: PILOTO },
+  TAREAS_PUESTO_EQUIPO_VER: { solo: PILOTO },
+  TAREAS_PUESTO_NORMA_GESTIONAR: { solo: PILOTO },
 };
 
 async function proteger(knex, tabla, privilegios) {
