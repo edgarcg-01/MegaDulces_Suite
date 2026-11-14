@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { VisorEvidenciaComponent, type DocEvidencia } from './visor-evidencia.component';
 import { parseLocalDate } from '../../../core/utils/mx-date';
+import { puedeIncrustarPdf } from '../../../core/utils/pdf-inline';
 import {
   CLASIFICACION_LABEL, type DepartamentoDelVale, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
@@ -219,9 +220,14 @@ type DocDelExpediente = DocEvidencia;
             @for (d of docs(); track d.url; let i = $index) {
               <button type="button" class="vp-mini" (click)="verEvidencia(i)" [attr.aria-label]="'Ver ' + d.label + ' en grande'">
                 <span class="vp-mini-img">
-                  @if (d.isPdf) {
+                  @if (d.isPdf && d.incrustarPdf) {
                     <!-- La página entera, ajustada y sin barras. El iframe no recibe el clic: lo recibe el botón. -->
                     <iframe [src]="d.safeUrlVista" [title]="d.label" tabindex="-1" aria-hidden="true" loading="lazy"></iframe>
+                  }
+                  @else if (d.isPdf) {
+                    <!-- [GX.112] En táctil el WebView no incrusta PDF (el iframe queda en blanco): se
+                         muestra el tile y al tocarlo se abre en el visor nativo del equipo. -->
+                    <span class="vp-mini-doc"><i class="pi pi-file-pdf" aria-hidden="true"></i><em>PDF · toca para abrir</em></span>
                   }
                   @else if (d.esOtro || fallidos().has(d.url)) { <i class="pi pi-file" aria-hidden="true"></i> }
                   @else { <img [src]="d.url" alt="" loading="lazy" (error)="fallo(d.url)" /> }
@@ -375,6 +381,8 @@ type DocDelExpediente = DocEvidencia;
   .vp-mini:hover .vp-mini-ver { color: var(--action); border-color: var(--action); }
   .vp-mini-img .pi { font-size: 1.8rem; }
   .vp-mini-img em { font-style: normal; font-size: var(--fs-nano); }
+  /* [GX.112] El tile de un PDF que no se incrusta (táctil): ícono + «toca para abrir», apilados. */
+  .vp-mini-doc { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--fg-2); }
   .vp-mini-t { font-size: var(--fs-xs); }
   .vp-mini .vp-doc-nota { font-size: var(--fs-nano); line-height: 1.3; }
   .vp-mini-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--fg-3); }
@@ -522,6 +530,8 @@ export class ValeGastoPeekComponent {
         label: ARCHIVO_LABEL[role] ?? role ?? 'Archivo',
         url: f.url,
         isPdf,
+        // `[GX.112]` En táctil el WebView no incrusta PDF: se abre en el visor nativo del equipo.
+        incrustarPdf: isPdf ? puedeIncrustarPdf() : undefined,
         esOtro,
         safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
         // `[GX.99]` La vista del panel: la página entera ajustada, sin barras ni panel lateral del lector.
@@ -534,7 +544,20 @@ export class ValeGastoPeekComponent {
   /** `[GX.99]` El visor grande: abierto o no, y en qué archivo. Se cierra solo al cambiar de vale. */
   readonly visorAbierto = signal(false);
   readonly visorIndice = signal(0);
-  verEvidencia(i: number): void { this.visorIndice.set(i); this.visorAbierto.set(true); }
+  verEvidencia(i: number): void {
+    const d = this.docs()[i];
+    // `[GX.112]` En táctil un PDF no se incrusta ni en la miniatura ni en el visor grande (los dos
+    // son iframe): se abre en el visor nativo del equipo, no un recuadro en blanco. Las imágenes
+    // sí abren el visor de la app, que en celular funciona (acercar, girar, pasar).
+    if (d?.isPdf && d.incrustarPdf === false) { this.abrirAparte(d.url); return; }
+    this.visorIndice.set(i);
+    this.visorAbierto.set(true);
+  }
+
+  /** Abre el archivo en el visor nativo del equipo (otra pestaña/app). */
+  abrirAparte(url: string): void {
+    try { globalThis.open?.(url, '_blank', 'noopener'); } catch { /* bloqueado: queda «Abrir aparte» del visor */ }
+  }
 
   nombreDep(d: DepartamentoDelVale): string { return d.nombre ?? d.clave; }
 

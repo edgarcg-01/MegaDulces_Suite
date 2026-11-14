@@ -16,6 +16,12 @@ export interface DocEvidencia {
   label: string;
   url: string;
   isPdf: boolean;
+  /**
+   * `[GX.112]` ¿Este PDF se incrusta en un `<iframe>`? En táctil es `false`: el WebView no trae
+   * visor de PDF y el iframe queda en blanco, así que se abre en el visor nativo del equipo.
+   * Sólo aplica a PDFs; `undefined` = incrustar (compat con quien no lo setea).
+   */
+  incrustarPdf?: boolean;
   /** `[GX.33]` Ni imagen ni PDF: el navegador no lo pinta. Se ofrece abrirlo aparte. */
   esOtro: boolean;
   safeUrl: SafeResourceUrl | null;
@@ -87,7 +93,14 @@ const ZOOM_PASO = 0.25;
               </button>
             }
             <div class="ve-lienzo" [class.zoom]="zoom() > 1">
-              @if (d.isPdf) {
+              @if (d.isPdf && d.incrustarPdf === false) {
+                <!-- [GX.112] En táctil el WebView no incrusta PDF: un iframe quedaría en blanco.
+                     Se ofrece abrirlo en el visor nativo del equipo, no un recuadro mudo. -->
+                <a class="ve-otro" [href]="d.url" target="_blank" rel="noopener">
+                  <i class="pi pi-file-pdf" aria-hidden="true"></i>
+                  <span>Este PDF se abre en el visor de tu teléfono. Tócalo para verlo.</span>
+                </a>
+              } @else if (d.isPdf) {
                 <iframe [src]="d.safeUrl" [title]="d.label"></iframe>
               } @else if (d.esOtro) {
                 <!-- [GX.33] Un documento que el navegador no pinta: se dice y se ofrece abrirlo. -->

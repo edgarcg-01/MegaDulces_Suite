@@ -5940,6 +5940,19 @@ Detalle: `docs/MODULOS/finanzas-mis-gastos-v2.md`. Sale de una auditoría en pro
   (prod, 120 días: 263 solicitudes, una sola variante); no por la cuenta GN001, renombrada el 8-nov. Regla única
   en `faltaParaMandar` (pantalla + 400). Spec: 5 pruebas, con la negativa (fuera de nómina sigue exigiéndose).
   **Sin validación visual** ni prueba contra base real del `POST`.
+- [ ] **[GX.112]** 🧪 **La evidencia de un vale no se ve en celular: el PDF se abre en el visor nativo**
+  (lo vio Edgar en prod, en un teléfono, en `/finanzas/aprobacion-gastos`, vale 0000418: las tres tarjetas de
+  evidencia pintaban el recuadro gris con la carita triste).
+  **Causa, en el código:** la miniatura de un PDF se pintaba con `<iframe>` ([`vale-gasto-peek.component.ts:224`](../../apps/view/src/app/modules/finanzas/components/vale-gasto-peek.component.ts)) y el visor grande también ([`visor-evidencia.component.ts:91`](../../apps/view/src/app/modules/finanzas/components/visor-evidencia.component.ts)). **El WebView de Android / Chrome móvil no trae visor de PDF**, así que el iframe queda en blanco **y no dispara `error`** (por eso no caía al fallback del `<img>`). En escritorio el mismo iframe sí pinta el PDF — por eso nunca se vio desde la oficina. Y el aprobador tiene que decidir **Revisado/Rechazar**, que **autoriza el gasto en Kepler**, sin ver el comprobante (Ley 0).
+  **Hecho (2026-11-14, 🧪):**
+  - Helper compartido `core/utils/pdf-inline.ts` → `puedeIncrustarPdf()`: con puntero **fino** (escritorio) se incrusta; con puntero **grueso** (`pointer: coarse`, táctil) **no**. Sin `matchMedia` (SSR/jsdom) se asume escritorio.
+  - Miniatura: en táctil, un PDF se pinta como tile (`pi pi-file-pdf` + «PDF · toca para abrir») y al tocarlo se abre en el **visor nativo del equipo** (`window.open`), no un recuadro mudo. En escritorio sigue incrustado.
+  - Visor grande: un PDF en táctil ofrece «ábrelo en el visor de tu teléfono» en vez del iframe en blanco (se llega sólo navegando con flechas desde una imagen; las imágenes sí abren el visor de la app, que en celular funciona).
+  - ❌ Prueba negativa en `pdf-inline.spec.ts`: puntero grueso ⇒ `false` (no incrusta); puntero fino ⇒ `true`. Corrida y verde (4/4). Peek 45/45. `check:templates` verde, `check:pantalla -- aprobacion-gastos` **0 fallas NUEVAS** (tipa limpio), `tsc --noEmit` de `apps/view` limpio.
+  **¿Escribe?** no (sólo cambia cómo se muestra el archivo).
+  ⛔ **Sin validación en celular MEDIDA:** no se abrió la pantalla en un teléfono real ni en DevTools a 390 px tras el cambio — pendiente de ver el tile y el abrir-nativo en el dispositivo.
+  ⛔ **NO MEDIDO:** si los tres archivos del vale 0000418 son efectivamente PDF (lo delata que NO salía el mensaje «No se pudo mostrar» de la rama `<img>`), y si en escritorio se ven (confirmaría la causa).
+  **No incluye:** otros visores de PDF-en-iframe de la suite (p. ej. expedientes en otras pantallas) — misma trampa, quedan como deuda con nombre.
 - [ ] **[GX.91.x]** Declarado: **sin validación en prod** (sí en local con `database/scripts/dev-seed-gx91-mis-gastos.js`
   y en una maqueta con la pantalla real y datos de demo); sin medir modo claro, Alto Contraste y ancho de teléfono.
   Sin migraciones ni permisos nuevos → sin re-login. Pendiente del PM: relacionar el usuario de Kepler con el de la
