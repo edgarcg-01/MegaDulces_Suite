@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { candidatoDeEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
 
 // `[RE.70]` El caso real del 2026-11-13: la entrada 0000421 de Morelia Abastos (08, MERENGUE LA

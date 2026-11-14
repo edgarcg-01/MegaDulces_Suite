@@ -5413,10 +5413,10 @@ export class CommercialReplenishmentService {
       let oc_cancelada: { en: string; por: string | null; motivo: string; requisicion_reabierta: boolean } | null = null;
       if (header.oc_folio && header.oc_sucursal
           && (await trx.raw(`SELECT to_regclass('commercial.purchase_order_cancellations') AS t`)).rows[0]?.t) {
-        const c: any = await trx('commercial.purchase_order_cancellations')
+        const c = await trx('commercial.purchase_order_cancellations')
           .where({ tenant_id: tenantId, sucursal: header.oc_sucursal, oc_folio: header.oc_folio, estado: 'cancelada' })
           .whereNull('deleted_at')
-          .first('created_at', 'created_by_username', 'motivo', 'requisicion_reabierta');
+          .first<{ created_at: string | Date; created_by_username: string | null; motivo: string; requisicion_reabierta: boolean } | undefined>('created_at', 'created_by_username', 'motivo', 'requisicion_reabierta');
         if (c) {
           oc_cancelada = {
             en: new Date(c.created_at).toISOString(), por: c.created_by_username ?? null,

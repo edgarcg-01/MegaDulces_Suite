@@ -99,6 +99,26 @@ interface NotaProveedorFila { proveedor_code: string | null; desc_nota: string; 
 /** `[RE.67]` Compras por proveedor (sin la copia del CEDIS), tal como llegan del driver. */
 interface CompraProveedorFila { proveedor_code: string | null; nombre: string | null; compras: string }
 
+/**
+ * `[RE.21]` El veredicto de `forEntrada`: si el hueco de la entrada queda explicado por un
+ * ajuste, de qué naturaleza y con cuánta confianza. `null` cuando no se pidió `delta`.
+ */
+export interface ExplicacionDeHueco {
+  delta: number;
+  explicado: boolean;
+  grupo: string | null;
+  candidatos: number;
+  confianza: 'alta' | 'media' | 'ambigua' | 'ninguna';
+  dias_despues: number | null;
+}
+
+/** Lo que `forEntrada` entrega a la pantalla de recepción. */
+export interface AjustesDeEntrada {
+  rows: Array<Record<string, unknown> & { match: 'exacto' | 'monto' | 'proveedor+fecha' }>;
+  total_monto: number;
+  explicacion: ExplicacionDeHueco | null;
+}
+
 @Injectable()
 export class PurchaseAdjustmentsService {
   constructor(
@@ -247,11 +267,13 @@ export class PurchaseAdjustmentsService {
    * cada match como 'exacto' | 'proveedor+fecha' para ser honestos con la precisión.
    * `[RE.70]` El folio SOLO no es llave: cada sucursal lleva su consecutivo (`ajuste-entrada-liga.ts`).
    */
-  async forEntrada(p: { sucursal?: string; proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }) {
+  async forEntrada(p: { sucursal?: string; proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }): Promise<AjustesDeEntrada> {
     const tenantId = this.tenantCtx.requireTenantId();
     const win = Math.min(90, Math.max(0, Number(p.window_days) || 15));
     // `[RE.70]` Sin sucursal el folio no identifica la entrada: esa rama se apaga, no se adivina.
     const porFolio = !!(p.sucursal && p.entrada_folio);
+    // La fecha, ya estrechada: TypeScript no arrastra el guardia hasta dentro del callback de knex.
+    const fecha = p.date;
     if (!p.proveedor_code && !porFolio) return { rows: [], total_monto: 0, explicacion: null };
     // `[RE.21]` — el hueco a explicar y con cuánta holgura. Sin `delta` esto se comporta igual
     // que antes (lista de candidatos sin ranking), que es lo que piden los llamadores viejos.
@@ -260,21 +282,21 @@ export class PurchaseAdjustmentsService {
     return this.tk.run(async (trx) => {
       let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado');
       b = b.andWhere((w: any) => {
-        if (porFolio) w.orWhere((wf: any) => wf.where('sucursal', p.sucursal).andWhere('entrada_folio', p.entrada_folio));
+        if (porFolio) w.orWhere((wf: Knex.QueryBuilder) => wf.where('sucursal', p.sucursal).andWhere('entrada_folio', p.entrada_folio));
         // `[RE.71]` El candidato heurístico es de la MISMA sucursal y de un proveedor real: un ajuste
         // de otra sucursal no puede tocar esta recepción (de 1,488 ligas que Kepler sí hace, 0 cruzan
         // de sucursal) y una nota a CEDIS u otra sucursal (`proveedor_interno`) es un traspaso.
         // Medido oct-2026: 4,784 de 6,878 candidatos eran ajenos, en 370 de 1,073 entradas.
-        const candidato = (ww: any) => {
+        const candidato = (ww: Knex.QueryBuilder): Knex.QueryBuilder => {
           ww.where('proveedor_code', p.proveedor_code).andWhere('proveedor_interno', false);
           if (p.sucursal) ww.andWhere('sucursal', p.sucursal);
           return ww;
         };
-        if (p.proveedor_code && p.date) {
-          w.orWhere((ww: any) => candidato(ww)
-            .andWhereRaw(`adjustment_date BETWEEN ?::date - ?::int AND ?::date + ?::int`, [p.date, win, p.date, win]));
+        if (p.proveedor_code && fecha) {
+          w.orWhere((ww: Knex.QueryBuilder) => candidato(ww)
+            .andWhereRaw(`adjustment_date BETWEEN ?::date - ?::int AND ?::date + ?::int`, [fecha, win, fecha, win]));
         } else if (p.proveedor_code) {
-          w.orWhere((ww: any) => candidato(ww));
+          w.orWhere((ww: Knex.QueryBuilder) => candidato(ww));
         }
       });
       const rows: any[] = await b
@@ -318,7 +340,7 @@ export class PurchaseAdjustmentsService {
       // naturaleza es? Un descuadre explicado por un ajuste OPERATIVO (no llegó completo) es otra
       // cosa que uno explicado por uno COMERCIAL (beneficio negociado que llega después).
       const explican = out.filter((r) => r.explica);
-      const explicacion = delta == null ? null : {
+      const explicacion: ExplicacionDeHueco | null = delta == null ? null : {
         delta,
         explicado: explican.length > 0,
         // `grupoOf` ya separa negociado de problema; se reporta el del mejor candidato.
