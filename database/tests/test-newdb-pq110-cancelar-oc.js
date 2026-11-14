@@ -35,6 +35,7 @@ const ok = (c, m, extra) => { if (c) { pass++; console.log('  ✓', m); } else {
 const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
 
 let Servicio;
+let leerRequisicionEnReplica;
 process.env.JWT_SECRET = process.env.JWT_SECRET || `prueba-local-pq110-${'x'.repeat(40)}`;
 try {
   require('ts-node').register({ transpileOnly: true, skipProject: true,
@@ -44,6 +45,7 @@ try {
   require('tsconfig-paths').register({ baseUrl: RAIZ, paths: base.compilerOptions.paths });
   require('reflect-metadata');
   ({ OcCancelacionService: Servicio } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/oc-cancelacion.service.ts')));
+  ({ leerRequisicionEnReplica } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/kepler-requisicion-replica.ts')));
 } catch (e) {
   console.log(`  ·  NO MEDIDO — no se pudo cargar el servicio con ts-node: ${e.message}`);
   process.exit(2);
@@ -169,6 +171,13 @@ const ORIGINAL = {
       const real = await s.tk.run((k) => Servicio.prototype.leerReplica.call(s, k, SUC, 'PQ110NOEXISTE')).catch((e) => ({ error: e.message }));
       if (real === null) noMedido('la base no tiene kepler_ods.kdm1: el SQL de la réplica no se ejerció');
       else ok(real && real.coincidencias === 0 && real.oc === null && Array.isArray(real.vales_vivos), 'leerReplica contra la base real: folio inexistente → 0 coincidencias, sin error', real);
+
+      // 7d. `[KR.7]` El SQL del lector de la requisición en la réplica (la ficha y, después, la regla de KR.7),
+      // REAL: un folio que no existe → sin requisición y sin OC, sin error de columnas ni de tipos.
+      const rqReal = await s.tk.run((k) => leerRequisicionEnReplica(k, SUC, 'KR7NOEXISTE')).catch((e) => ({ error: e.message }));
+      if (rqReal === null) noMedido('la base no tiene kepler_ods.kdm1: el SQL del lector de KR.7 no se ejerció');
+      else ok(rqReal && rqReal.requisicion === null && Array.isArray(rqReal.ocs) && rqReal.ocs.length === 0,
+        'leerRequisicionEnReplica contra la base real: folio inexistente → sin requisición ni OC, sin error', rqReal);
 
       // 8. NEGATIVAS de la tabla.
       const base = { tenant_id: T, sucursal: SUC, motivo: pantalla.motivo, created_by: ME };

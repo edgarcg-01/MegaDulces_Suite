@@ -801,6 +801,14 @@ export interface RequisitionResumen {
   monto_sin_kepler?: number;
   dias_max_sin_kepler?: number;
 }
+/** `[KR.7]` Un documento de Kepler leído de la réplica. `cancelada` sólo en estado C (Kepler sobrescribe quién y cuándo). */
+export interface DocKepler {
+  folio: string;
+  /** N nueva · A pendiente · R parcial · F terminada · C cancelada. */
+  estado: string;
+  cancelada: { por: string | null; en: string } | null;
+}
+
 export interface RequisitionDetail extends RequisitionRow {
   lines: RequisitionLine[];
   purchase_order_id: string | null;   // RA.15 — OC generada desde esta requisición
@@ -813,6 +821,11 @@ export interface RequisitionDetail extends RequisitionRow {
    * esto lo dice (cuándo, quién, por qué). `null` = no se canceló desde la Suite.
    */
   oc_cancelada?: { en: string; por: string | null; motivo: string; requisicion_reabierta: boolean } | null;
+  /**
+   * `[KR.7]` La requisición y sus OC en Kepler, leídas de la réplica: lo que pasó allá aunque se haya
+   * hecho a mano. Ausente = traspaso o sin folio de Kepler; `null` = esta base no tiene la réplica.
+   */
+  en_kepler?: { requisicion: DocKepler | null; ocs: DocKepler[] } | null;
   /** `[RQ.2]` Días parada. Lo calcula el SERVIDOR, no el reloj del navegador (VP.0). */
   dias?: number;
   vigencia?: RequisitionVigencia | null;

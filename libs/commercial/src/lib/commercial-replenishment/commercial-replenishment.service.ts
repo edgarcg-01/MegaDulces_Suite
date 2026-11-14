@@ -30,6 +30,7 @@ import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento, INICIO_ENVIO_AUTOMATICO } from './compra-sin-documento';
 import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
+import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -5424,10 +5425,19 @@ export class CommercialReplenishmentService {
           };
         }
       }
+      // `[KR.7]` Lo que pasó EN KEPLER, leído de la réplica, no de lo que la Suite cree. Una persona puede
+      // cancelar la OC o la requisición a mano allá y la Suite no se entera: el 2026-11-14 había 21
+      // requisiciones de la Suite reabiertas en Kepler que aquí decían «ordered» (anexo K §3e). Sólo
+      // compras (`X-A-30`): el traspaso es otro documento. `null` = esta base no tiene la réplica.
+      let en_kepler: RequisicionEnReplica | null | undefined;
+      if (header.kepler_folio && header.kepler_sucursal && header.source_type !== 'branch') {
+        en_kepler = await leerRequisicionEnReplica(trx, String(header.kepler_sucursal).trim(), String(header.kepler_folio).trim());
+      }
       return {
         ...header, lines, dias, vigencia: vig, bajadas, origen, lote,
         purchase_order_id: po?.id ?? null, purchase_order_folio: po?.folio ?? null,
         oc_cancelada,
+        en_kepler,
       };
     });
   }

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
+import { bannerKepler, type BannerKepler } from '../requisicion-en-kepler';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -401,21 +402,9 @@ export class ComprasRequisicionDetalleComponent implements OnInit {
    * ⛔ Devuelve `null` mientras la requisición no esté aprobada: antes de eso no hay nada que
    * decir, y un cartel de "no salió" en una pendiente se leería como una falla.
    */
-  keplerBanner(r: RequisitionDetail): { texto: string; icono: string; tenue: boolean; reintentable: boolean } | null {
-    if (r.estado === 'pending_approval' || r.estado === 'draft' || r.estado === 'cancelled') return null;
-    // `[KR.10]` Compra y traspaso salen como DOCUMENTOS DISTINTOS, y decirlo importa: quien
-    // lo busque en Kepler tiene que saber si abre Requisición de compra o Pedido de traspaso.
-    const doc = r.source_type === 'branch' ? 'pedido de traspaso' : 'requisición';
-    if (r.kepler_folio) {
-      return { icono: 'pi-check-circle', tenue: true, reintentable: false,
-        texto: `En Kepler como ${doc} ${r.kepler_sucursal}/${r.kepler_folio}.` };
-    }
-    if (r.kepler_error) {
-      return { icono: 'pi-exclamation-triangle', tenue: false, reintentable: true,
-        texto: `No se pudo escribir en Kepler: ${r.kepler_error}` };
-    }
-    return { icono: 'pi-clock', tenue: false, reintentable: true,
-      texto: 'Todavía no se escribió en Kepler. Se aprobó en lote, o la integración está apagada en este despliegue.' };
+  keplerBanner(r: RequisitionDetail): BannerKepler | null {
+    // La regla vive en `requisicion-en-kepler.ts` (pura: se prueba y se muta sin el componente).
+    return bannerKepler(r, this.estadoLabel(r.estado));
   }
 
   /** `[KR.4]` Reintento manual. Idempotente del lado del servidor. */
