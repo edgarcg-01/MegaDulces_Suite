@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_ETIQUETAS_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -102,9 +102,10 @@ const APP_SOURCES: SourceCfg[] = [
   { key: 'reorder_policy',  label: 'Política de reorden',     table: 'commercial.reorder_policy',      tsCandidates: ['updated_at', 'computed_at'], warnH: 200, critH: 400, cadence: 'nightly / semanal' },
   { key: 'products',        label: 'Catálogo de productos',   table: 'catalog.products',               tsCandidates: ['updated_at', 'created_at'],  warnH: 360, critH: 720, cadence: 'semanal' },
   // Etiquetas de anaquel (precios pieza/paq/caja desde Kepler c90/91/92). CARA AL CLIENTE:
-  // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
-  // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
-  { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
+  // si la etiqueta se atrasa, el anaquel imprime precios viejos (bug ago-2026: quedó fuera del
+  // nightly → ~10% abajo del vigente, caja bajo costo). `[CANON.6.19]` Ya no la escribe un feed: la
+  // escribe el hop-2 al llegar kdii / kdpv_prod_util; que cada par cuadre lo dice `etiquetas_evento`.
+  { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'continuo (hop-2 al llegar kdii / kdpv_prod_util)' },
   // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/vl/docker-compose.yml`,
   // servicios ods-live-hot @15s + ods-live-mirror @300s), que lee los réplicas lógicos locales del
   // :5433 y empuja a kepler_ods.* por feeds-ingest. `last_push_at` la escribe el handler en cada batch
@@ -917,6 +918,11 @@ const APP_SOURCES: SourceCfg[] = [
     key: 'logistica_dims_evento', label: 'Logística por evento — unidades, choferes y rutas de Kepler (árbitro)', table: 'logistics.vehicles', tsCandidates: [],
     sql: ARBITRO_LOGISTICA_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdm_transporte / kdm_chofer / kdm_rutas) — debe dar 0',
   },
+  // `[CANON.6.19]` Etiqueta de anaquel y EAN del catálogo por evento (antes import-label-data, cada 30 min en `prices`).
+  {
+    key: 'etiquetas_evento', label: 'Etiquetas por evento — precio de pieza, código y EAN de Kepler (árbitro)', table: 'commercial.product_label_prices', tsCandidates: [],
+    sql: ARBITRO_ETIQUETAS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii / kdpv_prod_util) — debe dar 0',
+  },
   // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
   {
     key: 'hop2_fallas', label: 'Hop-2 de la ingesta — fallas definitivas (24 h)', table: 'analytics.hop2_fallas', tsCandidates: [],
@@ -1327,7 +1333,9 @@ export const CRON_JOBS: CronCfg[] = [
   // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
   // publica el precio de venta era el único sin forma de avisar. Es EL carril del incidente que
   // fundó la Fase OBS: seis días de precios viejos, uno 54 % bajo costo, encontrado por un humano.
-  { key: 'feed_prices',         label: 'Feed precios (etiqueta+venta)',     cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
+  // RETIRADO 2026-11-14 [CANON.6.19]: `feed_prices` — su último paso, `import-label-data`, salió del carril (la etiqueta y el
+  // EAN los escribe el hop-2 al llegar kdii / kdpv_prod_util; lo vigila `etiquetas_evento`). Sin entrada acá, su latido pasa a
+  // «retirado» a los 7 días sin latir (`esCarrilRetirado`, [TOR.4]).
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
   // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.8): el carril se retiró y sus
   // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron

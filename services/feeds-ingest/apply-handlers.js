@@ -647,6 +647,19 @@ const BARCODE_CASE = `CASE
   END`;
 
 /**
+ * `[CANON.6.19]` El EAN real de Kepler para un producto cuya ficha trae un marcador. Lo hacía `import-label-data`
+ * cada 30 min con `barcodeFormat` (8, 12 o 13 dígitos) y desde aquí lo hace el hop-2 al llegar el cambio. Kepler pone
+ * el SKU en `c7` (`095984`) y el EAN en `c95` (`739944008116`): el UPDATE de identidad escribe el marcador y el script
+ * lo cambiaba por el EAN 15–30 min después (19 productos en 45 días, medido en prod el 14-nov). La regla, sin cambios:
+ *   · sólo a un producto vivo cuyo código NO es EAN;
+ *   · el EAN sale de cada plaza como en la etiqueta (`c7` si es EAN, si no `c95`), con precio (`c90 > 0.05`), y gana el
+ *     de la plaza menor que NO tenga otro producto (vivo con otro SKU, o borrado): dos productos con el mismo EAN el
+ *     escáner no los distingue;
+ *   · dos del mismo lote con el mismo EAN libre: se lo queda el de SKU menor.
+ */
+const EAN_RE = `'^([0-9]{8}|[0-9]{12}|[0-9]{13})$'`;
+
+/**
  * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.products (identidad + política barcode)
  * (el precio lo lleva normalizeSalePrice). NO reactiva (activo=false es decisión aparte) ni borra (el
  * barrido reconcilia bajas). Idempotente y churn-free.
@@ -663,10 +676,25 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     // era CEDIS primero y los dos escritores se corregían uno al otro cada noche (H12).
     await client.query(`
       CREATE TEMP TABLE snap_p ON COMMIT DROP AS
-      SELECT i.sku, i.nombre, i.barcode, i.linea, NULL::uuid AS brand_id
+      SELECT i.sku, i.nombre, i.barcode, i.linea, NULL::uuid AS brand_id, NULL::text AS ean
         FROM (${identitySnapshotSql({ skuParam: '$1' })}) i`, [skus]);
     await client.query(`UPDATE snap_p s SET brand_id=b.id FROM catalog.brands b
                          WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=s.linea`, [tenantId]);
+    // `[CANON.6.19]` El EAN libre de la plaza menor (ver EAN_RE). «Libre» no cuenta al producto vivo del mismo SKU: es
+    // al que se le va a poner.
+    await client.query(`
+      UPDATE snap_p s SET ean = e.ean FROM (
+        SELECT DISTINCT ON (c.sku) c.sku, c.ean FROM (
+          SELECT btrim(k.c1) AS sku, btrim(k.sucursal) AS suc,
+                 CASE WHEN btrim(coalesce(k.c7, '')) ~ ${EAN_RE} THEN btrim(k.c7)
+                      WHEN btrim(coalesce(k.c95, '')) ~ ${EAN_RE} THEN btrim(k.c95) END AS ean
+            FROM kepler_ods.kdii k
+           WHERE btrim(k.c1) = ANY($1) AND k.c90::numeric > 0.05) c
+         WHERE c.ean IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM catalog.products x WHERE x.tenant_id = $2 AND btrim(coalesce(x.barcode, '')) = c.ean
+                             AND NOT (x.deleted_at IS NULL AND x.sku = c.sku))
+         ORDER BY c.sku, c.suc) e
+       WHERE e.sku = s.sku`, [skus, tenantId]);
     const fallback = (await client.query(
       `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' LIMIT 1`, [tenantId])).rows[0]?.id || null;
 
@@ -727,7 +755,11 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
                CASE WHEN btrim(upper(p.nombre)) <> btrim(upper(s.nombre)) THEN COALESCE(s.brand_id, p.brand_id)
                     WHEN p.brand_id = $2::uuid AND s.brand_id IS NOT NULL THEN s.brand_id
                     ELSE p.brand_id END AS marca,
-               ${BARCODE_CASE} AS cb,
+               -- [CANON.6.19] si la regla de arriba le quitaría el EAN que ya tiene y que Kepler sigue publicando
+               -- (s.ean), se lo deja: sin esto escribiría el marcador y el paso 3 le regresaría el EAN en cada evento.
+               CASE WHEN s.ean IS NOT NULL AND btrim(coalesce(p.barcode, '')) = s.ean
+                         AND btrim(coalesce(${BARCODE_CASE}, '')) !~ ${EAN_RE} THEN p.barcode
+                    ELSE ${BARCODE_CASE} END AS cb,
                -- cambia su llave única (marca, nombre): se renombra o sale de SIN-LINEA
                -- (coalesce: sin marca SIN-LINEA, $2 es NULL y un NULL aquí sacaría la fila de las DOS ramas de ok)
                (p.nombre IS DISTINCT FROM s.nombre OR coalesce(p.brand_id = $2::uuid AND s.brand_id IS NOT NULL, false)) AS mueve
@@ -745,13 +777,29 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
         AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
                           AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId, fallback])).rowCount;
 
+    // 3) `[CANON.6.19]` El EAN real (ver EAN_RE): después del alta y de la identidad, sobre lo que quedó. Va aparte y no
+    //    dentro del UPDATE de arriba porque ése se salta entera la fila que frena la unique (marca, nombre), y el EAN no
+    //    depende del nombre (el script tampoco lo hacía depender). La guarda se vuelve a mirar aquí: lo dado de alta en
+    //    este mismo lote ya cuenta como «tiene otro producto».
+    const ean = (await client.query(`
+      WITH cand AS (
+        SELECT p.id, s.sku, s.ean FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND s.ean IS NOT NULL
+           AND btrim(coalesce(p.barcode, '')) !~ ${EAN_RE}),
+      uno AS (SELECT DISTINCT ON (ean) id, ean FROM cand ORDER BY ean, sku)
+      UPDATE catalog.products p SET barcode = uno.ean, updated_at = now()
+        FROM uno
+       WHERE p.id = uno.id
+         AND NOT EXISTS (SELECT 1 FROM catalog.products x WHERE x.tenant_id = $1 AND x.id <> p.id
+                           AND btrim(coalesce(x.barcode, '')) = uno.ean)`, [tenantId])).rowCount;
+
     // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
     // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
     // ($15.25/$7.02/$8.48) sobre BASE-MXN. Pasó a `normalizeSalePrice` (ods-derived), que lee la
     // BITÁCORA con su unidad y valida contra lo cobrado / la escalera / el costo. Sigue siendo
     // al-momento: está registrado en ODS_NORMALIZERS para kdm2 (la venta), kdii y kdpv_prod_util.
     await client.query('COMMIT');
-    return react + ins + idn;
+    return react + ins + idn + ean;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
@@ -841,10 +889,10 @@ async function normalizeBrandsFromKdig(client, tenantId, codes) {
 /**
  * Normaliza SOLO estos SKUs desde kepler_ods.kdii + kdpv_prod_util → commercial.product_label_prices
  * (etiquetera Tienda). Hop-2 AL-MOMENTO: cuando un cambio de kdii/kdpv llega al ODS, la etiqueta de
- * anaquel se recomputa al instante (misma lógica que el importer nocturno, vía label-compute — single
- * source of truth). Churn-free (upsertLabels solo reescribe si algo cambió). NUNCA pisa source='manual'.
- * El barcode-fallback de productos SIN sku + el backfill de products.barcode los cubre el nightly.
- * Ver feedback_ods_derived_realtime_no_batch_lag.
+ * anaquel se recomputa al instante (misma lógica que la herramienta manual import-label-data, vía label-compute —
+ * single source of truth). Churn-free (upsertLabels solo reescribe si algo cambió). NUNCA pisa source='manual'.
+ * `[CANON.6.19]` Es el ÚNICO escritor de cada día: import-label-data salió del carril `prices` (cada 30 min). El
+ * fallback por barcode se quitó en CANON.6.7 y el EAN de products.barcode lo pone `normalizeProductsFromOds`.
  */
 async function normalizeLabelsFromOds(client, tenantId, skus) {
   assertTenant(tenantId);

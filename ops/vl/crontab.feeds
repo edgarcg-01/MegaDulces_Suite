@@ -87,10 +87,10 @@
 # ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
 5,20,35,50 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
 */30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"
-# [VL.4b] PRECIOS. Era una tarea suelta (`run-prices.cmd` llamaba a los dos importers fuera del
-# runner) y por eso no latía. Ahora es un modo del runner → hereda latido `feed_prices`, timeout por
-# paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
-2,32 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
+# [VL.4b] PRECIOS — RETIRADO 2026-11-14 [CANON.6.19]. Su último paso, import-label-data, salió: la etiqueta de anaquel
+# y el EAN del catálogo los escribe el hop-2 de la ingesta al llegar kdii / kdpv_prod_util, y lo vigila el árbitro
+# `etiquetas_evento` de db-health. El modo `prices` ya no existe en run-prod-feeds.js: un renglón aquí fallaría cada
+# 30 min con «Uso: …» y código 2 (el runner no conoce el modo).
 
 # [PUB.1] EL CATÁLOGO DEL ODS → LA TIENDA MAYORISTA (Railway, proyecto `faithful-contentment`).
 # Esa base leía `kepler_ods.*` por `postgres_fdw` contra `trolley.proxy.rlwy.net` = la prod VIEJA,
@@ -379,7 +379,7 @@
 # ✅ LOS TRES CARRILES MUDOS YA NO LO SON (VL.4b, 2026-09-11). Se les cableó el latido
 #   ANTES de mudarlos, en ese orden — que es el punto: mudar un carril mudo es
 #   renunciar a saber si funciona del otro lado.
-#     · prices     → modo del runner (arriba) ⇒ latido `feed_prices`
+#     · prices     → modo del runner (arriba) ⇒ latido `feed_prices`. RETIRADO 2026-11-14 [CANON.6.19]: lo hace el hop-2.
 #     · fleet-gps  → latido propio `fleet_gps`, ERROR con 0 objetos. ⚠️ El carril se
 #       RETIRÓ después (LT.9.2, ver arriba): lo escribe el poller del API, que resultó
 #       ser el que entregaba el 91.4% de las posiciones.

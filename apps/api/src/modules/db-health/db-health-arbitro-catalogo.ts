@@ -41,7 +41,8 @@
  * éstos: es la alarma del hop-2 mismo.
  *
  * Sin acentos graves en los SQL de abajo: viven en template literals. Costo medido en prod el 12-nov:
- * markup ~85 ms, promo ~150 ms, nombres ~300–380 ms; marcas ~200–450 ms y códigos ~400 ms (CANON.6.12/6.14).
+ * markup ~85 ms, promo ~150 ms, nombres ~300–380 ms; marcas ~200–450 ms y códigos ~400 ms (CANON.6.12/6.14); etiquetas
+ * 580–730 ms (CANON.6.19).
  */
 
 const T = `'00000000-0000-0000-0000-00000000d01c'`;
@@ -315,6 +316,43 @@ export const ARBITRO_LOGISTICA_SQL = `
     ['feed_nightly/import-logistics-dims.js', 'feed_logistics/import-logistics-dims.js'],
     'sin tomar de Kepler (unidades o choferes sin su clave, o rutas sin dar de alta)',
     { tabla: 'logistics.vehicles / drivers / routes', nombre: 'filas de logística' })}`;
+
+/**
+ * `[CANON.6.19]` Etiquetas: misma regla que `normalizeLabelsFromOds` (`services/feeds-ingest/label-compute.js`) y el EAN de
+ * `normalizeProductsFromOds` (`EAN_RE` en `apply-handlers.js`). Cuenta lo que el script `import-label-data` arreglaría HOY, y
+ * debe ser 0:
+ *   · pares (producto vivo, plaza) de `kdii` con precio (`c90 > 0.05`) sin su fila en `commercial.product_label_prices`, o con
+ *     el precio de pieza o el código distinto (`c7` si es EAN, si no `c95`); las filas `manual` no cuentan: la regla no las pisa;
+ *   · productos vivos cuyo código no es EAN y su SKU trae en Kepler un EAN que no tiene ningún otro producto.
+ * ⚠️ NO compara el mayoreo, la caja ni el gramaje: hacerlo contra `analytics.v_label_prices` (la misma lógica en SQL) cuesta
+ * ~9.5 s. Medido en prod el 14-nov: 0 de 79,042 pares difieren en las 14 columnas; esto cuesta 580–730 ms (el más caro de estos sensores). El universo es la tabla
+ * de etiquetas (con RLS FORCE: si el sensor no la ve, NO MEDIDO).
+ */
+const EAN_RE = `'^([0-9]{8}|[0-9]{12}|[0-9]{13})$'`;
+export const ARBITRO_ETIQUETAS_SQL = `
+  WITH sin_ean AS MATERIALIZED (
+    SELECT p.id, btrim(k.c7) AS c7, btrim(coalesce(k.c95, '')) AS c95
+      FROM catalog.products p JOIN kepler_ods.kdii k ON btrim(k.c1) = btrim(p.sku)
+     WHERE p.tenant_id = ${T} AND p.deleted_at IS NULL AND btrim(coalesce(p.barcode, '')) !~ ${EAN_RE} AND k.c90::numeric > 0.05),
+  c AS MATERIALIZED (
+    SELECT (SELECT count(*) FROM commercial.product_label_prices WHERE tenant_id = ${T}) AS vistos,
+           (SELECT count(*) FROM kepler_ods.kdii k
+              JOIN catalog.products p ON p.tenant_id = ${T} AND p.deleted_at IS NULL AND btrim(p.sku) = btrim(k.c1)
+              LEFT JOIN commercial.product_label_prices t ON t.tenant_id = ${T} AND t.product_id = p.id AND t.sucursal = btrim(k.sucursal)
+             WHERE btrim(coalesce(k.c1, '')) <> '' AND k.c90::numeric > 0.05
+               AND (t.id IS NULL OR (t.source <> 'manual'
+                    AND (t.piece_price IS DISTINCT FROM round(k.c90::numeric, 4)
+                         OR t.barcode IS DISTINCT FROM (CASE WHEN btrim(k.c7) ~ ${EAN_RE} THEN btrim(k.c7)
+                                                             WHEN btrim(coalesce(k.c95, '')) ~ ${EAN_RE} THEN btrim(k.c95) END)))))
+         + (SELECT count(DISTINCT e.id) FROM (
+              SELECT id, CASE WHEN c7 ~ ${EAN_RE} THEN c7 WHEN c95 ~ ${EAN_RE} THEN c95 END AS ean FROM sin_ean) e
+             WHERE e.ean IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM catalog.products x WHERE x.tenant_id = ${T} AND x.id <> e.id
+                                 AND btrim(coalesce(x.barcode, '')) = e.ean)) AS difieren)
+  ${veredicto('etiquetas_evento', 'etiqueta', 'Medir: node database/importers/kepler/import-label-data.js; cerrar: --apply', 'import-label-data.js',
+    ['feed_prices/import-label-data.js', 'feed_nightly/import-label-data.js'],
+    'sin tomar de Kepler (etiqueta faltante, con otro precio de pieza u otro código, o producto sin su EAN)',
+    { tabla: 'commercial.product_label_prices', nombre: 'etiquetas' })}`;
 
 /**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`

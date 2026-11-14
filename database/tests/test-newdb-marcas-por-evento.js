@@ -75,6 +75,8 @@ const art = (sucursal, c1, c2, c3) => ({ sucursal, c1, c2, c3, c7: null, c90: 10
       PRIMARY KEY (sucursal, c1))`);
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdii (sucursal text NOT NULL, c1 text NOT NULL, c2 text, c3 text, c7 text,
       c90 numeric, PRIMARY KEY (sucursal, c1))`);
+    // [CANON.6.19] normalizeProductsFromOds lee c95 (el EAN cuando c7 trae el SKU); en una base con kdii previo también.
+    await c.query('ALTER TABLE kepler_ods.kdii ADD COLUMN IF NOT EXISTS c95 text');
     await c.query(`CREATE TABLE IF NOT EXISTS catalog.brands (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
       nombre varchar NOT NULL, code varchar, deleted_at timestamptz, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
       CONSTRAINT brands_tenant_nombre_unique UNIQUE (tenant_id, nombre))`);

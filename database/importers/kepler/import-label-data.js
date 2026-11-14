@@ -2,17 +2,25 @@
 /**
  * Etiquetera — datos de etiqueta Kepler → commercial.product_label_prices (BULK, source='kepler').
  *
- * BACKSTOP RECONCILIADOR nocturno (full-catálogo). La frescura AL-MOMENTO la da el hop-2
- * `normalizeLabelsFromOds` en services/feeds-ingest/apply-handlers.js (se dispara al llegar un cambio
- * de kdii/kdpv al ODS). Ambos comparten la MISMA computación: services/feeds-ingest/label-compute
- * (single source of truth) → sin divergencia. Ver feedback_ods_derived_realtime_no_batch_lag.
+ * ⛔ RETIRADO del carril `prices` (cada 30 min) el 2026-11-14 [CANON.6.19]. HERRAMIENTA MANUAL.
+ * Lo de cada día lo hace el hop-2 de la ingesta AL LLEGAR el cambio de kdii / kdpv_prod_util:
+ * `normalizeLabelsFromOds` (la etiqueta, con la MISMA computación: services/feeds-ingest/label-compute) y
+ * `normalizeProductsFromOds` (el EAN de catalog.products.barcode cuando la ficha trae el SKU en c7). Medido antes de
+ * retirarlo: desde el 13-nov no escribía nada salvo DOS carreras en que pisó con el precio viejo lo que el hop-2 acababa
+ * de poner (el hop-2 lo regresó a los 3–6 s); 0 de 79,042 etiquetas difieren del ODS y 0 EAN pendientes. Lo vigila el
+ * árbitro `etiquetas_evento` de db-health.
+ *
+ *   sin --apply  mide: cuántas etiquetas cambiaría (las escribe en una transacción que se REVIERTE) y qué productos
+ *                esperan su EAN. Debe dar 0 y 0.
+ *   --apply      recalcula todas las etiquetas y pone los EAN pendientes con la regla del hop-2.
  *
  * Fuente (default `ods`): kepler_ods.kdii/kdpv_prod_util en el MISMO Postgres de prod (@min, CANON.1.2;
  * une las 6 sucursales por `sucursal`). Fallback `--source=kp`: KP_CONCENTRADA kp.* en .245 (@4h).
  * Reconciliación de precio de pieza = misma regla que BASE-MXN (excl CEDIS + moda retail; piso c90>0.05).
  * NUNCA pisa filas source='manual'. Churn-free (solo reescribe lo que cambió).
  *
- * Este script mapea sku→product_id y hace el backfill de public.products.barcode.
+ * Este script mapea sku→product_id. El EAN de catalog.products.barcode ya no lo escribe él: delega en
+ * `normalizeProductsFromOds` (acotado a los SKU que lo esperan), para que la regla viva en UN lugar.
  *
  * `[CANON.6.7]` (2026-11-11) — SIN fallback por barcode. Ese fallback amarraba un SKU de Kepler que no
  * está en el catálogo al producto que comparte su código de barras. Medido en prod: los 13 amarres eran
@@ -48,6 +56,7 @@ const { computeLabels, toStageTuple, upsertLabels, barcodeFormat, LABEL_STAGE_CO
  * corre**. La etiquetera tiene su banner de precio vivo desde TDA.1 y nunca se disparó.
  */
 const { notifyLabelPricesChanged } = require('../../../services/feeds-ingest/notify-store');
+const { normalizeProductsFromOds } = require('../../../services/feeds-ingest/apply-handlers');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -74,20 +83,19 @@ const APPLY = process.argv.includes('--apply');
     console.log(`\n=== Etiquetas Kepler → commercial.product_label_prices (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
     console.log(`  fuente: ${useOds ? 'kepler_ods (same-DB prod, @min)' : SRC.replace(/:[^:@/]+@/, ':***@')} · cómputo compartido con el hop-2 (label-compute)\n`);
 
-    // Catálogo: índices por SKU y por BARCODE (fallback para productos SIN sku). ORDER (deleted_at IS
-    // NULL) ASC → activos al final GANAN el skuToId.set (last-wins, no cuelga del borrado).
+    // Catálogo. `[CANON.6.19]` El sku → producto, sólo de los VIVOS, como el hop-2 (antes caía en un borrado cuando el
+    // SKU no tenía vivo; medido el 14-nov: 0 etiquetas así). Los EAN en uso, de TODOS (borrados incluidos): es la guarda
+    // del EAN (dos productos con el mismo código el escáner no los distingue).
     const prods = (await db.query(
-      `SELECT id, btrim(coalesce(sku,'')) AS sku, btrim(coalesce(barcode,'')) AS barcode
-         FROM public.products WHERE tenant_id=$1
-        ORDER BY (deleted_at IS NULL) ASC`, [M])).rows;
-    const skuToId = new Map(), bcToId = new Map(), curBarcodeById = new Map(), eansInUse = new Set();
+      `SELECT id, btrim(coalesce(sku,'')) AS sku, btrim(coalesce(barcode,'')) AS barcode, deleted_at IS NULL AS vivo
+         FROM catalog.products WHERE tenant_id=$1`, [M])).rows;
+    const skuToId = new Map(), curBarcodeById = new Map(), eansInUse = new Set();
     for (const p of prods) {
-      if (p.sku) skuToId.set(p.sku, p.id);
-      if (p.barcode && !bcToId.has(p.barcode)) bcToId.set(p.barcode, p.id);
+      if (p.sku && p.vivo) skuToId.set(p.sku, p.id);
       curBarcodeById.set(p.id, p.barcode);
       if (barcodeFormat(p.barcode)) eansInUse.add(p.barcode);
     }
-    console.log(`  catálogo: ${skuToId.size} con sku · ${bcToId.size} con barcode`);
+    console.log(`  catálogo: ${skuToId.size} vivos con sku`);
 
     // Cómputo COMPARTIDO (reconciliación moda + tiers kdpv + gramaje/unidades/barcode).
     const labels = await computeLabels(readSrc, { schema: KSCHEMA });
@@ -107,7 +115,7 @@ const APPLY = process.argv.includes('--apply');
     // `[NORM.3]` El dedupe era por `pid` a secas: se quedaba con una plaza y descartaba las otras
     // siete. Ahora cada tienda aporta su fila; el guard sólo protege de la misma plaza repetida.
     let matched = 0, unmatched = 0, noBarcode = 0, dupPid = 0;
-    const staged = [], barcodeFixes = [], claimedEan = new Set(), stagedPids = new Set();
+    const staged = [], stagedPids = new Set(), eanPendiente = new Set();
     // Un producto puede ser reclamado por más de un SKU (el fallback por barcode). El PRIMERO se
     // queda con TODAS sus plazas; los demás se saltan enteros. Se lleva explícito en vez de
     // confiar en que las filas vengan contiguas por SKU: hoy vienen así por el `ORDER BY` del
@@ -126,19 +134,18 @@ const APPLY = process.argv.includes('--apply');
       if (stagedPids.has(clave)) { dupPid++; continue; }
       stagedPids.add(clave);
       if (!lab.barcode_format) noBarcode++;
-      // Backfill products.barcode: actual NO-EAN + EAN real libre (sin colisión). Idempotente.
-      if (lab.barcode_format) {
-        const cur = curBarcodeById.get(pid) || '';
-        const ean = String(lab.barcode).trim();
-        if (cur !== ean && !barcodeFormat(cur) && !eansInUse.has(ean) && !claimedEan.has(ean)) {
-          barcodeFixes.push([pid, ean]); claimedEan.add(ean);
-        }
+      // `[CANON.6.19]` ¿Espera su EAN? Código actual que no es EAN, y Kepler trae en esta plaza un EAN que no tiene otro
+      // producto. Sólo se MIDE aquí; lo pone `normalizeProductsFromOds` (la regla del hop-2), abajo.
+      if (lab.barcode_format && !barcodeFormat(curBarcodeById.get(pid) || '') && !eansInUse.has(String(lab.barcode).trim())) {
+        eanPendiente.add(lab.sku);
       }
       staged.push(toStageTuple(lab, pid));
       matched++;
     }
     console.log(`  match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode} · pid duplicado saltado: ${dupPid}`);
-    console.log(`  backfill products.barcode (SKU/basura → EAN real, sin colisión): ${barcodeFixes.length}`);
+    const pendientes = [...eanPendiente].sort();
+    console.log(`  productos que esperan su EAN (código que no es EAN y Kepler trae uno libre): ${pendientes.length}`
+      + (pendientes.length ? ` — ${pendientes.slice(0, 12).join(', ')}${pendientes.length > 12 ? ', …' : ''}` : ''));
     // Los índices siguen a LABEL_STAGE_COLS: `sucursal` entró en la posición 1 y corrió todo lo
     // demás un lugar. Se leen por nombre para que el próximo cambio de columnas no los desalinee.
     const ix = (c) => LABEL_STAGE_COLS.indexOf(c);
@@ -148,8 +155,6 @@ const APPLY = process.argv.includes('--apply');
       may_pza: s[ix('wholesale_piece_price')], paq: s[ix('pack_price')], box: s[ix('box_price')],
     })));
 
-    if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply.'); return; }
-
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
     // `[TDA.8]` `cambiados` recoge los product_id que REALMENTE se escribieron. El UPSERT es
@@ -157,20 +162,16 @@ const APPLY = process.argv.includes('--apply');
     // diferencia entre avisar 9,000 veces por corrida y avisar lo que pasó.
     const cambiados = [];
     const changed = await upsertLabels(db, M, staged, 1000, cambiados); // churn-free, source<>'manual'
-    // Backfill products.barcode (casos seguros). Guard re-valida (idempotente + anti-carrera).
-    let bcFixed = 0;
-    for (const [pid, ean] of barcodeFixes) {
-      const res = await db.query(
-        `UPDATE public.products SET barcode=$2, updated_at=now()
-          WHERE id=$1 AND tenant_id=$3
-            AND btrim(coalesce(barcode,'')) !~ '^[0-9]{8}$|^[0-9]{12}$|^[0-9]{13}$'
-            AND NOT EXISTS (SELECT 1 FROM public.products x
-                             WHERE x.tenant_id=$3 AND x.id<>$1 AND btrim(coalesce(x.barcode,''))=$2)`,
-        [pid, ean, M]);
-      bcFixed += res.rowCount;
+    if (!APPLY) {
+      // `[CANON.6.19]` La medición: lo que escribiría, escrito y REVERTIDO. Con el hop-2 sano da 0 y 0.
+      await db.query('ROLLBACK');
+      console.log(`\n[EN SECO] ROLLBACK — ${changed} filas de etiqueta cambiarían · ${pendientes.length} productos esperan su EAN. Corré con --apply.`);
+      return;
     }
     await db.query('COMMIT');
-    console.log(`\n[APPLY] COMMIT — ${changed} filas de etiqueta cambiadas (churn-free) · ${bcFixed} barcodes backfilled.`);
+    // `[CANON.6.19]` El EAN con la regla del hop-2 (su propia transacción), acotada a los SKU que lo esperan.
+    const bcFixed = pendientes.length ? await normalizeProductsFromOds(db, M, pendientes) : 0;
+    console.log(`\n[APPLY] COMMIT — ${changed} filas de etiqueta cambiadas (churn-free) · ${bcFixed} escrituras al catálogo para ${pendientes.length} productos que esperaban su EAN (la identidad y el EAN, con la regla del hop-2).`);
 
     // `[TDA.8]` El aviso va DESPUÉS del COMMIT: es un aviso, no el dato. Si el API no contesta, el
     // precio ya quedó guardado y las pantallas lo verán al siguiente escaneo — el comportamiento

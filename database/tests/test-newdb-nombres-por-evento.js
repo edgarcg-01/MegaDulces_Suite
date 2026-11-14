@@ -56,6 +56,8 @@ const KDPV = { table: 'kdpv_prod_util', pk: ['c1', 'c2', 'c3'], columns: [['sucu
     for (const s of ['kepler_ods', 'catalog']) await c.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdii (sucursal text NOT NULL, c1 text NOT NULL, c2 text, c3 text, c7 text,
       c90 numeric, PRIMARY KEY (sucursal, c1))`);
+    // [CANON.6.19] normalizeProductsFromOds lee c95 (el EAN cuando c7 trae el SKU); en una base con kdii previo también.
+    await c.query('ALTER TABLE kepler_ods.kdii ADD COLUMN IF NOT EXISTS c95 text');
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdpv_prod_util (sucursal text NOT NULL, c1 text NOT NULL, c2 text NOT NULL,
       c3 numeric NOT NULL, c4 numeric, c5 numeric, c6 numeric, c7 numeric, PRIMARY KEY (sucursal, c1, c2, c3))`);
     await c.query(`CREATE TABLE IF NOT EXISTS catalog.brands (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,

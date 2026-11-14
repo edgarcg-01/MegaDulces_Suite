@@ -399,55 +399,14 @@ const STEPS = {
     // Ambos .js quedan como fallback manual histórico (y semilla de un futuro mayoreo real desde kdpv_prod_util).
     path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
   ],
-  // PRECIOS (cada 30 min) — [VL.4b] Existía como tarea suelta (`C:\KeplerRunner\run-prices.cmd`) y
-  // por eso era MUDO: los dos scripts se invocaban directo, fuera del runner, así que no escribían
-  // `analytics.cron_runs` y db-health no tenía nada que vigilar. Entra como modo para heredar la
-  // maquinaria que ya existe: latido `feed_prices`, timeout por paso y agregación de fallas.
-  //
-  // ⚠️ NO es un carril cualquiera: ÉSTE es el del incidente que fundó la Fase OBS — seis días
-  // publicando precios viejos, uno 54 % bajo costo, y lo encontró un humano corrigiendo un SKU a
-  // mano. El carril que publica el precio era justamente el único sin manera de avisar.
-  //
-  // `repoint-catalog-prices` va con `--sync` (precio de venta completo). En el `nightly` el mismo
-  // script corre con `--gap-fill-only`, que es otra cosa: ahí sólo rellena huecos.
-  prices: [
-    path.join(K, 'import-label-data.js'),                        // → commercial.product_label_prices (pieza/paq/caja)
-    // `[NORM.2]` Reconciliador de códigos de barra → `catalog.product_barcodes`. **No estaba en
-    // ningún carril**: medido en prod, la tabla no recibía un INSERT desde el 2026-08-25 (17 días)
-    // y la cobertura de los productos NUEVOS había caído de ~80 % a 13 %. La leen la etiquetera
-    // (`commercial-labels`) y el escáner de caducidades de bodega (`commercial-expiry-reviews`).
-    //
-    // ⚠️ **El hop-2 NO está roto** — lo verifiqué corriendo `computeBarcodes` acotado a los SKUs
-    // que faltaban y devuelve las filas correctas. Es que es *event-driven*: sólo recomputa los
-    // SKUs cuya fila de `kdii` shipeó, y una fila que no cambia no vuelve a shipear nunca. Un
-    // barcode que faltaba desde antes **no se puebla solo jamás**. Para exactamente eso existe un
-    // reconciliador full-catálogo; el error era no tenerlo agendado.
-    //
-    // Va acá y no en `nightly` por dos razones medidas: cuesta **4.5 s** el catálogo completo
-    // (12,412 filas / 11,556 SKUs), así que el argumento de costo no existe; y la etiquetera
-    // necesita **precio Y barcode juntos** para imprimir — salen de las mismas filas de `kdii`,
-    // y darle a uno 30 min y al otro 24 h es incoherente.
-    //
-    // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
-    // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
-    // RETIRADO 2026-11-12 [CANON.6.14]: import-product-barcodes.js — lo de Kepler lo mantiene el hop-2 al llegar
-    // Y al borrarse una fila de kdii; lo de Wincaja venía de una foto congelada (29-sep) y sólo revivía, como
-    // CJA, códigos que Kepler había retirado (102 vivos así). El .js queda como herramienta manual, Kepler solo.
-    // `[VPR.3]` 2026-10-05 — ESTE PASO YA NO ESCRIBE EL PRECIO. Pasaba `--sync` y competia con
-    // `services/feeds-ingest/ods-derived.js`, que escribe la MISMA columna con la politica
-    // contraria: este ponia lo que Kepler CONFIGURA (`kdii.c90`) y aquel lo que el PdV COBRA
-    // (moda de `kdm2.c12`). Medido en prod: **50,679 contra 50,270 cambios en 24 h** sobre
-    // ~1,070 filas -- el precio publicado dependia de quien escribio ultimo, y eso es lo que
-    // el campo reportaba como "desactualizacion".
-    //
-    // La politica ya estaba decidida (Edgar 2026-08-25): manda lo que el PdV cobra. Asi que
-    // el dueno del precio es `ods-derived` y este paso queda SOLO con `is_promo`, que es lo
-    // unico que nadie mas recalcula. Ver la cabecera de repoint-catalog-prices.js.
-    // RETIRADO 2026-11-12 [CANON.6.9]: repoint-catalog-prices.js --solo-promo — `is_promo` lo
-    // mantiene el hop-2 (`normalizePromo`, al llegar kdii/kdik) y lo recalculan los dos nocturnos que
-    // todavía escriben costo o nombre. Sus tres pases se peleaban en cada corrida (1,013 de 1,443 del
-    // mes: el pase 1 apagaba 13 productos y el pase 2 los volvía a encender).
-  ],
+  // RETIRADO 2026-11-14 [CANON.6.19]: el modo `prices` (cada 30 min, latido `feed_prices`). Nació en [VL.4b] para que el
+  // carril que publica el precio —el del incidente que fundó la Fase OBS— latiera. Sus pasos salieron uno por uno porque
+  // el hop-2 de la ingesta los hace AL LLEGAR el cambio de Kepler: repoint-catalog-prices (`is_promo`, CANON.6.9),
+  // import-product-barcodes (`catalog.product_barcodes`, CANON.6.14) y el último, import-label-data
+  // (`commercial.product_label_prices` y el EAN de `catalog.products.barcode`, CANON.6.19): desde el 13-nov no escribía
+  // nada salvo dos carreras en que pisó con un precio viejo lo que el hop-2 acababa de poner. Lo vigila el árbitro
+  // `etiquetas_evento` de db-health. Los tres .js quedan como herramienta manual; su renglón de `ops/vl/crontab.feeds` salió
+  // en el mismo cambio.
   // KV.8 — logística sola (on-demand): dims. Desde [CANON.6.18] es el ÚNICO lugar donde corre: lo de todos los días lo
   // hace el hop-2 al llegar el cambio. (import-erp-shipments RETIRADO 2026-08-20:
   // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000
@@ -519,7 +478,7 @@ const FEED_LABELS = {
   nightly: 'Feed nightly (batch nocturno)',
   catalog: 'Feed catálogo (semanal/diario)',
   contpaqi: 'Feed ContPAQi (pólizas+bancos @1min)',
-  prices: 'Feed precios (etiqueta+venta @30min)',
+  // prices: RETIRADO 2026-11-14 [CANON.6.19] (ver arriba).
   'contpaqi-slow': 'Feed ContPAQi lento (balanza+prov @2h)',
   finance: 'Feed finanzas (manual)',
   logistics: 'Feed logística (manual)',

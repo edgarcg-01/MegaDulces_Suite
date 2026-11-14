@@ -188,7 +188,7 @@ function cerrar(srv) {
     }
   }
 
-  console.log('\n── 5. El IMPORTER (el camino que corre hoy) también avisa, y SÍ lo espera ──');
+  console.log('\n── 5. El IMPORTER (herramienta manual desde CANON.6.19) también avisa, y SÍ lo espera ──');
   {
     // ⚠️ Aserciones sobre la FUENTE, y se dice: este camino es un CLI que corre en el servidor de
     // feeds contra la DB de prod. No hay forma de ejercitarlo en proceso sin una base y un

@@ -50,6 +50,8 @@ const art = (sucursal, c1, c2, x = {}) => ({ sucursal, c1, c2, c3: 'L616', c7: n
     for (const s of ['kepler_ods', 'catalog', 'analytics']) await c.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdii (sucursal text NOT NULL, c1 text NOT NULL, c2 text, c3 text, c7 text, c11 text,
       c84 numeric, c90 numeric, PRIMARY KEY (sucursal, c1))`);
+    // [CANON.6.19] normalizeProductsFromOds lee c95 (el EAN cuando c7 trae el SKU); en una base con kdii previo también.
+    await c.query('ALTER TABLE kepler_ods.kdii ADD COLUMN IF NOT EXISTS c95 text');
     for (const col of ['c11']) await c.query(`ALTER TABLE kepler_ods.kdii ADD COLUMN IF NOT EXISTS ${col} text`);
     await c.query(`ALTER TABLE kepler_ods.kdii ADD COLUMN IF NOT EXISTS c84 numeric`);
     await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdik (sucursal text NOT NULL, c1 text NOT NULL, c2 text, c16 numeric, PRIMARY KEY (sucursal, c1))`);
