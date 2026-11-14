@@ -311,6 +311,27 @@ componente de 5,614 líneas; no se copia su forma.
 4. `[MDT.9]` retiro: servicio de Railway, proyecto de Firebase, Cloudinary y el schema `eajd` (que es
    de otra base: se archiva, no se borra sin autorización).
 
+**El día del corte de tareas y vales, en orden** (2026-11-14; prioridad de Edgar: mudar para apagar
+MDTask). Nada de esto empieza sin el censo (`MDT.0.1`) ni con el piloto sin revisar en prod.
+
+| Paso | Qué | Quién | Cómo se sabe que salió |
+|---|---|---|---|
+| 0 | El piloto (Dirección, RH) revisa en prod `/tareas` y `/vales`, en celular y en computadora, y corrige la hora límite de cada tarea en el manual (hoy las 51 vencen a las 23:00) | Edgar / RH | Ninguna tarea con hora 23:00 que no deba tenerla; la revisión en nivel A (`MDT.3.5`, UI.13) escrita en este doc |
+| 1 | Fecha y hora del corte, fuera de horario, avisada al personal con un día de anticipación (el texto va abajo) | Edgar | El aviso enviado |
+| 2 | MDTask deja de recibir entregas de tareas y vales (pantallas en sólo lectura o fuera del menú) | David | Una entrega intentada en MDTask no se guarda |
+| 3 | Carga única de `eajd`: entregas del manual y vales con su folio, con reporte de cuadre (filas por tabla, por persona y día, folio mayor) | Claude + quien suelta | El reporte cuadra; si no, se detiene y MDTask vuelve a recibir |
+| 4 | Migración del corte: «entregar» y «levantar» a todo rol con personas, «ver equipo» derivado de la cadena de mando, rol propio de Mantenimiento con «atender» | Claude la escribe; la aplica quien suelta | Lo que imprime la migración, y la matriz de accesos regenerada |
+| 5 | La gente vuelve a entrar (el permiso viaja en la sesión) y entrega en la Suite | Personal | Primeras entregas del día en `platform.checklist_runs` |
+| 6 | MDTask queda dos semanas en sólo lectura como vuelta atrás; después se retira con el resto (`MDT.9`) | David | — |
+
+**Aviso al personal (borrador para el paso 1):**
+
+> A partir del **[día]** las tareas del manual de tu puesto y los vales de servicio se entregan en la
+> **Suite**, ya no en MDTask. Entra con tu usuario de la Suite; en **Mi trabajo** verás «Tareas del
+> manual de tu puesto» y, si te toca, «Vales de servicio a tu cargo». Cada punto se prueba con su foto o
+> con lo escrito, como hasta ahora. MDTask se queda dos semanas sólo para consulta. Si no puedes entrar
+> o no ves tus tareas, avisa a Sistemas.
+
 ---
 
 ## 8. Riesgos y bloqueos
