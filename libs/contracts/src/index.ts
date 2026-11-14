@@ -193,6 +193,8 @@ export * from './http/receipt-expediente.contract';
 export * from './http/lectura-escala';
 // [RE.73] Una sola tolerancia del cuadre (papel del proveedor ↔ entrada de Kepler) para servidor y pantalla.
 export * from './http/tolerancia-cuadre';
+// [RE.75] La categoría y el tipo de un ajuste de compra, en llano (el cajón mostraba la llave cruda).
+export * from './http/ajuste-compra-labels';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
 //   · forma-pago          = catálogo cerrado, atado a los códigos que Kepler ya usa (kdm1.c90).
 //   · aporte-solicitante  = la compuerta (qué falta para mandar), leída por el botón Y por el 400.

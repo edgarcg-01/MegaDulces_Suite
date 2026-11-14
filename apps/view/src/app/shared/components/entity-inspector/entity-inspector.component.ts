@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../side-peek/side-peek.component';
 import { EntityRefService, RefRelation, RefResult } from './entity-ref.service';
 import { money } from '../../util';
+import { fechasCortas } from './fecha-corta';
 
 /**
  * Inspector de registros — el panel que hace que TODO sea clickeable.
@@ -79,7 +80,7 @@ import { money } from '../../util';
                             [attr.aria-label]="'Abrir ' + r.label">
                       <span class="ei-rel-main">
                         <span class="ei-rel-label">{{ r.label }}</span>
-                        @if (r.sub) { <span class="ei-rel-sub">{{ r.sub }}</span> }
+                        @if (r.sub) { <span class="ei-rel-sub">{{ subFmt(r.sub) }}</span> }
                       </span>
                       @if (r.amount != null) { <span class="ei-rel-amt">{{ money(r.amount) }}</span> }
                       <i class="pi pi-angle-right" aria-hidden="true"></i>
@@ -268,8 +269,12 @@ export class EntityInspectorComponent {
     if (kind === 'money') return money(Number(v));
     if (kind === 'pct') return `${(Number(v) * 100).toFixed(2)}%`;
     if (kind === 'qty') return Number(v).toLocaleString('es-MX');
+    // `[RE.75]` La fecha como en las listas (dd/MM/yy), no ISO.
+    if (kind === 'date') return fechasCortas(String(v));
     return String(v);
   }
+  /** `[RE.75]` Los subtítulos de las relaciones traen fechas ISO dentro del texto. */
+  subFmt(s: string): string { return fechasCortas(s); }
 
   private kindLabel(ref: string): string {
     const k = ref.split(':')[0];
