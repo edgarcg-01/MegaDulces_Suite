@@ -1856,6 +1856,31 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[AU.14]` Las tres pantallas de la organización comparten un vocabulario que no
   // se explica en ningún otro lado, y del que depende entender por qué alguien ve
   // o no ve algo.
+  'tareas-puesto': {
+    title: 'Tareas del manual por puesto — guía',
+    intro:
+      'Cada puesto tiene un manual (los Manuales Corporativos de Operación 2026) que dice qué revisar cada día. Aquí se entrega lo que el manual pide, con su evidencia.',
+    groups: [
+      {
+        heading: 'Cómo se cuenta',
+        entries: [
+          { term: 'Hecho', def: 'Un punto está hecho cuando tiene su evidencia: al menos una foto subida, o el texto o la lista si el punto se prueba por escrito. Marcarlo no basta.' },
+          { term: 'Justificado', def: 'Al entregar con puntos sin evidencia hay que escribir por qué. Esos puntos quedan justificados, que NO es lo mismo que hechos: no suman al cumplimiento.' },
+          { term: 'Vencida', def: 'La tarea pasó su hora límite sin entregarse. Se puede entregar hasta 7 días después; queda marcada como entrega tarde.' },
+          { term: 'Sin empezar', def: 'La tarea que el manual te pide hoy y todavía no abres. Nadie la crea por ti: aparece porque tu puesto la tiene en su manual.' },
+        ],
+      },
+      {
+        heading: 'De dónde sale',
+        entries: [
+          { term: 'Tu puesto', def: 'Lo que te toca sale del puesto que tienes en el organigrama. Si no tienes puesto, no hay manual que aplicarte: pide que te lo asignen.' },
+          { term: 'Versión', def: 'Cuando el manual cambia se agrega una versión nueva con fecha y motivo. Cada entrega guarda la versión con la que se revisó, así que un cambio no mueve lo ya entregado.' },
+          { term: 'Tu equipo', def: 'Las personas cuyo puesto depende del tuyo en el organigrama, y de tu sucursal si tienes una. Ves su avance y sus entregas; no puedes entregar por ellas.' },
+          { term: 'Lo que todavía no sabe', def: 'Los días de descanso de cada persona son de Recursos Humanos y aún no están aquí: un día de descanso muestra las tareas como pendientes.' },
+        ],
+      },
+    ],
+  },
   'organizacion-personas': {
     title: 'Personas, puestos y responsabilidades — guía',
     intro:

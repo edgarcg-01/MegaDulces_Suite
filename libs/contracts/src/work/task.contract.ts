@@ -123,6 +123,8 @@ export const FUENTES_TAREA = [
   'servicedesk.requests',
   // `[DP.1.2]` Fase DP: una pregunta de negocio ES la tarea de quien tiene que contestarla.
   'platform.business_definitions',
+  // `[MDT.1.3]` Fase MDT: la entrega de una tarea del manual del puesto. La asigna la NORMA, no una persona.
+  'platform.checklist_runs',
 ] as const;
 export type FuenteTarea = (typeof FUENTES_TAREA)[number];
 
@@ -276,6 +278,25 @@ export const ADAPTADORES: readonly AdaptadorTarea[] = [
       'no admite `in_progress`: una pregunta está abierta o contestada, no hay «contestándose»',
       'una pregunta SIN dueño (`assigned_to` NULL) no aparece en ninguna bandeja: las 17 de Comisiones RD nacen así a propósito hasta que Edgar reparta (D4)',
       'quien contestó y con qué motivo viven en `business_definition_answers`, no en esta fila: `answered_by` es sólo la última respuesta',
+    ],
+  },
+  {
+    fuente: 'platform.checklist_runs',
+    col_asignado_a: 'assigned_to',
+    col_asignado_por: 'assigned_by',
+    asignado_por_es_uuid: true,
+    col_asignado_at: 'assigned_at',
+    col_vence: 'due_at',
+    col_estado: 'status',
+    // Los 3 estados del CHECK. `submitted` es `done` aunque traiga puntos sin evidencia: lo que falta
+    // queda `justificado` en el detalle, no reabre la entrega.
+    estados: { in_progress: 'in_progress', submitted: 'done', cancelled: 'cancelled' },
+    estado_fijo: null,
+    origen: 'derivada',
+    no_responde: [
+      'quién asignó: la asigna la NORMA del puesto, no una persona — `assigned_by` va NULL a propósito',
+      'la tarea del día que la persona todavía NO abrió no tiene fila (D3: ningún emisor la crea); Mi trabajo la DERIVA de la norma al contar, así que leer sólo esta tabla subcuenta lo pendiente',
+      'los descansos semanales por persona no existen en la Suite (son de RH): un día de descanso cuenta sus tareas como pendientes',
     ],
   },
 ];

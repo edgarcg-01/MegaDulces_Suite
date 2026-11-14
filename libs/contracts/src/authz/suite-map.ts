@@ -460,6 +460,15 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         project: 'rh',
         source: { status: 'propuesta', cite: 'Fase RH (ADR-084): migración de la asistencia de Mega Talento a la suite' },
       },
+      {
+        // `[MDT.3]` Tareas por puesto: el manual de cada puesto (lo elabora Capital Humano). Sólo aparece
+        // para jefaturas y RH: ENTREGAR no tiene destino a propósito (ver authz-tree) y quien sólo entrega
+        // llega desde Mi trabajo.
+        id: 'tareas',
+        kind: 'project',
+        project: 'tareas',
+        source: { status: 'propuesta', cite: 'Fase MDT: migración de MDTask (tareas del manual por puesto)' },
+      },
     ],
   },
   {

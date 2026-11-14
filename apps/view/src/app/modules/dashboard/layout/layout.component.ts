@@ -72,7 +72,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'mkt' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh' | 'sucursal';
+type LayoutProject = 'trademk' | 'mkt' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh' | 'sucursal' | 'tareas';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -95,6 +95,8 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   rh: 'rh',
   // `[AB.46]` Pendientes de sucursal: módulo propio.
   sucursal: 'sucursal',
+  // `[MDT.3]` Tareas por puesto (migración de MDTask): sin esta entrada caería al nav de Trade.
+  tareas: 'tareas',
   // `[MKT.20]` MKT es proyecto propio desde `[MKT.0]` (2026-09-28), pero aquí faltaba: caía al default
   // `trademk` y Mercadotecnia veía el menú de Auditoría en ruta (Dashboard, Captura Diaria, Mapas…).
   mkt: 'mkt',
@@ -884,6 +886,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
+  /** `[MDT.3]` Tareas por puesto. Cada item por la misma lista que su ruta. */
+  private tareasNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Tareas por puesto',
+      items: [
+        { label: 'Mis tareas', icon: 'pi pi-check-square', route: '/tareas/hoy', anyOf: [Permission.TAREAS_PUESTO_ENTREGAR] },
+        { label: 'Mi equipo', icon: 'pi pi-users', route: '/tareas/equipo', anyOf: [Permission.TAREAS_PUESTO_EQUIPO_VER] },
+        { label: 'Manual por puesto', icon: 'pi pi-book', route: '/tareas/manual', anyOf: [Permission.TAREAS_PUESTO_EQUIPO_VER, Permission.TAREAS_PUESTO_NORMA_GESTIONAR] },
+      ],
+    },
+  ];
+
   private servicioNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Mesa de Servicio',
@@ -1197,6 +1211,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'sucursal') {
       return this.dedupeByRoute(this.flatOf(this.sucursalNavGroups).filter((i) => this.hasPermFor(i)));
     }
+    if (this.currentProject() === 'tareas') {
+      return this.dedupeByRoute(this.flatOf(this.tareasNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     if (this.currentProject() === 'rh') {
       return this.dedupeByRoute(this.flatOf(this.rhNavGroups).filter((i) => this.hasPermFor(i)));
     }
@@ -1287,6 +1304,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'sucursal') {
       return this.mapGroups(this.sucursalNavGroups, true);
+    }
+    if (this.currentProject() === 'tareas') {
+      return this.mapGroups(this.tareasNavGroups, true);
     }
     if (this.currentProject() === 'rh') {
       return this.mapGroups(this.rhNavGroups, true);
