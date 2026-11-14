@@ -320,8 +320,8 @@ export class ComprasDescuentosComponent implements OnInit {
 
   grupoOpts = [
     { label: 'Descuentos y apoyos', value: 'comercial' },
-    { label: 'Faltantes / devoluciones', value: 'operacional' },
-    { label: 'Errores de captura', value: 'error' },
+    // `[RE.80]` Los grupos de la vista del ODS: «Errores de captura» no existe ahí (la categoría «Factura duplicada» sigue en el desglose).
+    { label: 'Faltantes / devoluciones', value: 'operativo' },
     { label: 'Sin clasificar', value: 'sin_clasificar' },
   ];
   doctypeOpts = [
@@ -332,10 +332,10 @@ export class ComprasDescuentosComponent implements OnInit {
   // `[RE.78]` Los nombres de categoría salen del catálogo compartido (`ajuste-compra-labels`), el mismo del cajón.
   private readonly CAT_LABEL = CATEGORIA_AJUSTE_LABEL;
   private readonly GRUPO_LABEL: Record<string, string> = {
-    comercial: 'Descuentos y apoyos', operacional: 'Faltantes / devoluciones', error: 'Errores de captura', sin_clasificar: 'Sin clasificar',
+    comercial: 'Descuentos y apoyos', operativo: 'Faltantes / devoluciones', sin_clasificar: 'Sin clasificar',
   };
   private readonly GRUPO_TONE: Record<string, MetricTone> = {
-    comercial: 'brand', error: 'bad', operacional: 'warn', sin_clasificar: 'default',
+    comercial: 'brand', operativo: 'warn', sin_clasificar: 'default',
   };
 
   /** Filas skeleton mientras carga el grid de ajustes. */
@@ -506,7 +506,7 @@ export class ComprasDescuentosComponent implements OnInit {
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
   grupoLabel(k: string) { return this.GRUPO_LABEL[k] || k; }
   catLabel(c: string | null) { return c ? (this.CAT_LABEL[c] || c) : 'Sin motivo'; }
-  grupoTag(g: string): Sev { return ({ comercial: 'success', error: 'danger', operacional: 'warn', sin_clasificar: 'secondary' } as Record<string, Sev>)[g] || 'secondary'; }
+  grupoTag(g: string): Sev { return ({ comercial: 'success', operativo: 'warn', sin_clasificar: 'secondary' } as Record<string, Sev>)[g] || 'secondary'; }
   canalLabel(c: string) { return ({ pago: 'Pago', nota: 'Nota', ambos: 'Ambos' } as Record<string, string>)[c] || c; }
   canalTag(c: string): Sev { return ({ pago: 'info', nota: 'warn', ambos: 'danger' } as Record<string, Sev>)[c] || 'secondary'; }
 }

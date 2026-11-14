@@ -43,14 +43,12 @@ export interface AdjustmentsQuery {
   pageSize?: number;
 }
 
-// Agrupación de categorías para el resumen (comercial vs operacional vs error de captura).
-const GRUPO: Record<string, string> = {
-  pronto_pago: 'comercial', apoyo_marca: 'comercial', descuento_comercial: 'comercial', saldo_favor: 'comercial',
-  faltante: 'operacional', no_solicitado: 'operacional', mal_estado: 'operacional', cambiada: 'operacional', devolucion_otra: 'operacional',
-  factura_duplicada: 'error', diferencia_monto: 'error',
-  otro: 'sin_clasificar',
-};
-const grupoOf = (cat: string | null): string => (cat ? (GRUPO[cat] || 'sin_clasificar') : 'sin_clasificar');
+// `[RE.80]` El grupo sale de la VISTA del ODS (`v_purchase_adjustments.grupo`, RE.68): comercial · operativo ·
+// sin_clasificar. Aquí había un segundo mapa (`grupoOf`, con «operacional» y «error») que contradecía al cajón
+// del ajuste en 171 ajustes ($8.08 M). Decisión de Edgar (2026-11-14): «todo debe salir del ODS».
+// Las llaves viejas de la URL se siguen entendiendo: «operacional» es «operativo», y «error» son las dos
+// categorías que antes formaban ese grupo.
+const GRUPO_LEGADO_ERROR = ['factura_duplicada', 'diferencia_monto'];
 
 /**
  * Categorías de ajuste que son BENEFICIO NEGOCIADO, no un problema de la recepción.
@@ -166,11 +164,8 @@ export class PurchaseAdjustmentsService {
       const s = `%${q.search.trim()}%`;
       b = b.where((w: any) => w.where('proveedor_nombre', 'ilike', s).orWhere('proveedor_code', 'ilike', s).orWhere('motivo', 'ilike', s));
     }
-    if (q.grupo) {
-      const cats = Object.entries(GRUPO).filter(([, g]) => g === q.grupo).map(([c]) => c);
-      if (q.grupo === 'sin_clasificar') b = b.where((w: any) => w.whereNull('categoria').orWhereIn('categoria', cats));
-      else b = b.whereIn('categoria', cats);
-    }
+    if (q.grupo === 'error') b = b.whereIn('categoria', GRUPO_LEGADO_ERROR);
+    else if (q.grupo) b = b.where('grupo', q.grupo === 'operacional' ? 'operativo' : q.grupo);
     return b;
   }
 
@@ -179,10 +174,10 @@ export class PurchaseAdjustmentsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const rows: any[] = await this.base(trx, tenantId, q)
-        .select('doctype', 'categoria')
+        .select('doctype', 'categoria', 'grupo')
         .count({ n: '*' })
         .sum({ monto: 'monto' })
-        .groupBy('doctype', 'categoria');
+        .groupBy('doctype', 'categoria', 'grupo');
 
       const byCat: Record<string, { n: number; monto: number }> = {};
       const byGrupo: Record<string, { n: number; monto: number }> = {};
@@ -191,7 +186,7 @@ export class PurchaseAdjustmentsService {
       for (const r of rows) {
         const n = Number(r.n) || 0, monto = Number(r.monto) || 0;
         const cat = (r.categoria as string) || 'sin_motivo';
-        const g = grupoOf(r.categoria as string);
+        const g = (r.grupo as string) || 'sin_clasificar';
         const acc = (o: any, k: string) => { o[k] = o[k] || { n: 0, monto: 0 }; o[k].n += n; o[k].monto += monto; };
         acc(byCat, cat); acc(byGrupo, g); acc(byDoctype, r.doctype as string);
         totalN += n; totalMonto += monto;
@@ -210,10 +205,10 @@ export class PurchaseAdjustmentsService {
       const b = this.base(trx, tenantId, q);
       const [{ count }]: any = await b.clone().count({ count: '*' });
       const rows: any[] = await b
-        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
+        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'grupo')
         .orderBy('adjustment_date', 'desc').orderBy('monto', 'desc')
         .limit(pageSize).offset((page - 1) * pageSize);
-      return { total: Number(count), page, pageSize, rows: rows.map((r) => ({ ...r, grupo: grupoOf(r.categoria) })) };
+      return { total: Number(count), page, pageSize, rows };
     });
   }
 
@@ -347,7 +342,7 @@ export class PurchaseAdjustmentsService {
       const explicacion: ExplicacionDeHueco | null = delta == null ? null : {
         delta,
         explicado: explican.length > 0,
-        // `grupoOf` ya separa negociado de problema; se reporta el del mejor candidato.
+        // El grupo de la vista separa negociado de problema; se reporta el del mejor candidato.
         grupo: explican[0]?.grupo ?? null,
         candidatos: explican.length,
         // Honestidad: si el que explica NO es el ligado por Kepler, es evidencia circunstancial.

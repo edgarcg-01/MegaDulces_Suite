@@ -1180,7 +1180,8 @@ export function saveXlsxResponse(resp: HttpResponse<Blob>, fallback = 'reporte.x
 
 // ── Fase RE.10 — Ajustes de compra (X-D-40 "Devolución" / X-D-55 "Nota crédito") ──
 export type AdjustmentDoctype = 'XD40' | 'XD55';
-export type AdjustmentGrupo = 'comercial' | 'operacional' | 'error' | 'sin_clasificar';
+/** `[RE.80]` El grupo de la vista del ODS (`v_purchase_adjustments`, RE.68), en todas las pantallas. */
+export type AdjustmentGrupo = 'comercial' | 'operativo' | 'sin_clasificar';
 export interface AdjustmentsBucket { key: string; n: number; monto: number; }
 export interface AdjustmentsSummary {
   total: { n: number; monto: number };
@@ -1218,7 +1219,7 @@ export interface DuplicatesResponse { window_days: number; groups: number; total
  */
 export type AdjustmentMatch = 'exacto' | 'monto' | 'proveedor+fecha';
 /** `[RE.74]` El grupo de la vista `v_purchase_adjustments` (RE.68): el mismo que pinta el cajón del ajuste. */
-export type AdjustmentGrupoVista = 'comercial' | 'operativo' | 'sin_clasificar';
+export type AdjustmentGrupoVista = AdjustmentGrupo;
 export interface AdjustmentForEntradaRow extends Omit<AdjustmentRow, 'grupo'> {
   grupo: AdjustmentGrupoVista;
   match: AdjustmentMatch;
