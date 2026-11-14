@@ -6,7 +6,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { Diagnostico, Concentrado, Balances } from '../../bank.service';
-import { cuadra } from './bancos-shared';
+import { cuadra, dmShort } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
@@ -25,10 +25,12 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="fb-diag-head" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
         @if (d.cuadra) {
           <i class="pi pi-check-circle"></i>
-          <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p></div>
+          <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p>
+            @if (hastaTexto(d); as h) { <p class="fb-diag-hasta">{{ h }}</p> }</div>
         } @else {
-          <i class="pi pi-exclamation-triangle"></i>
-          <div><h2>{{ d.items.length }} cosa(s) por resolver para que cuadre</h2><p>Ordenadas por impacto. Cada una salta al lugar exacto para arreglarla.</p></div>
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          <div><h2>{{ tituloPendientes(d.items.length) }}</h2><p>Ordenadas por impacto. Cada una salta al lugar exacto para arreglarla.</p>
+            @if (hastaTexto(d); as h) { <p class="fb-diag-hasta">{{ h }}</p> }</div>
         }
       </div>
 
@@ -94,6 +96,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-diag-head.bad i { color: var(--warn-fg); }
     .fb-diag-head h2 { font-size: var(--fs-h3); font-weight: 700; margin: 0; color: var(--text-main); }
     .fb-diag-head p { font-size: var(--fs-sm); color: var(--text-muted); margin: 2px 0 0; }
+    .fb-diag-head p.fb-diag-hasta { color: var(--text-main); }
     .fb-diag-list { display: flex; flex-direction: column; gap: var(--sp-2); }
     .fb-diag-item { padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); border-left-width: 3px; }
     .fb-diag-item.sev-bad { border-left-color: var(--bad-fg); }
@@ -150,13 +153,24 @@ export class BancosCierreComponent {
     if (tr) items.push({ label: 'Traspasos', value: tr.entra, format: 'currency', tone: cuadra(tr.delta) ? 'ok' : 'warn' });
     return items;
   }
+  /**
+   * `[CB.68]` Hasta dónde ve el cierre. Medido el 2026-11-13: el cierre de noviembre llegaba al 10/11 (último libro
+   * importado) mientras las descargas del banco ya iban al 13/11, y nada lo decía junto al veredicto.
+   */
+  hastaTexto(d: Pick<Diagnostico, 'movimientos_hasta'>): string | null {
+    return d.movimientos_hasta ? `Cuenta los movimientos cargados hasta el ${dmShort(d.movimientos_hasta)}.` : null;
+  }
+  tituloPendientes(n: number): string {
+    return n === 1 ? '1 pendiente para que cuadre' : `${n} pendientes para que cuadre`;
+  }
   actionLabel(it: { tipo?: string }): string {
     switch (it?.tipo) {
       case 'sin_clasificar': return 'Ver sin clasificar';
       case 'traspaso_descuadre': return 'Ver traspasos';
       case 'saldo_no_cuadra': return 'Ver cuenta';
       case 'kepler_pnl': return 'Ver conciliación';
-      case 'cuenta_sin_cargar': return 'Subir estado';
+      // [CB.68] El botón abre el selector del libro CUENTAS: decía «Subir estado» y la descarga del banco va en otra pestaña.
+      case 'cuenta_sin_cargar': return 'Subir libro';
       default: return 'Revisar';
     }
   }

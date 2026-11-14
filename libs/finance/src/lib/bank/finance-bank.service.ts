@@ -9,6 +9,7 @@ import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key'
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
+import { traspasosSinPareja, type MovimientoDeTraspaso } from './traspasos-sin-pareja';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -21,6 +22,12 @@ import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimient
  */
 
 const n = (v: any) => Number(v) || 0;
+
+/** `[CB.69]` Un TI/TE del periodo tal como lo lee `diagnostico` (knex devuelve `numeric` como string). */
+interface FilaTraspaso {
+  id: string | number; fecha: string; account_label: string | null; alias: string; concept: string | null;
+  entra: string | number; sale: string | number;
+}
 
 /**
  * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. Empareja
@@ -1221,9 +1228,11 @@ export class FinanceBankService {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
-        .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'))
+        .select(trx.raw('SUM(bm.amount_in)::numeric AS ingresos'), trx.raw('SUM(bm.amount_out)::numeric AS egresos'), trx.raw('COUNT(*)::int AS movs'),
+          // [CB.68] Hasta dónde ve el cierre: texto, no Date, para que la zona del servidor no lo corra un día.
+          trx.raw(`to_char(MAX(bm.movement_date), 'YYYY-MM-DD') AS hasta`))
         .first();
-      const sc = await trx('finance.bank_movements as bm')
+      const sc =await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.category_id').whereNull('bm.deleted_at')
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')).first();
@@ -1242,7 +1251,8 @@ export class FinanceBankService {
         .where('ba.active', true)
         .whereRaw(`coalesce(ba.kind,'bank') <> 'cash'`)
         .whereNotExists(function () { this.select(trx.raw('1')).from('finance.bank_statements as st').whereRaw('st.bank_account_id = ba.id AND st.period = ?', [period]); })
-        .select('ba.bank', 'ba.account_label', 'ba.kind');
+        // [CB.68] Con su alias («BB 3660»), el mismo nombre que usa el aviso de descargas y la hoja del libro.
+        .select('ba.bank', 'ba.account_label', 'ba.kind', trx.raw(`coalesce(ba.alias, ba.bank || ' ' || ba.account_label) AS alias`));
       // ¿Ya corrió la conciliación por-transacción? Si 0 casados, la evidencia dirá
       // "sin casar en Kepler" en TODO → engañoso (parece que falta en Kepler cuando
       // en realidad no se ha pareado). Avisamos que corra "Conciliar" primero.
@@ -1324,14 +1334,21 @@ export class FinanceBankService {
 
     // 1. Movimientos sin clasificar (+ evidencia: los grupos que más pesan = qué regla agregar).
     if (n((sinClas as any)?.n) > 0) {
-      const evidencia = (sinClasBuckets as any[]).map((b) => ({
-        label: `Cód ${b.code} · "${String(b.concepto || '').trim() || '(sin concepto)'}…"`,
-        count: Number(b.n), monto: n(b.monto),
-      }));
+      // [CB.70] Un renglón sin código ni concepto decía «Cód — · "(sin concepto)…"» (11 de 31 en nov-2026, $278,842).
+      const evidencia = (sinClasBuckets as Array<{ code: string; concepto: string | null; n: number | string; monto: number | string }>).map((b) => {
+        const concepto = String(b.concepto || '').trim();
+        return {
+          label: b.code === '—' && !concepto ? 'Sin código ni concepto en el libro'
+            : `${b.code === '—' ? 'Sin código' : `Código ${b.code}`} · «${concepto || 'sin concepto'}…»`,
+          count: Number(b.n), monto: n(b.monto),
+        };
+      });
       items.push({ tipo: 'sin_clasificar', severidad: 'warn', importe: n((sinClas as any)?.monto),
         titulo: `${(sinClas as any).n} movimientos sin clasificar`,
         detalle: `Hay ${money(n((sinClas as any)?.monto))} sin categoría asignada. No entran a ningún grupo del cuadre. Los grupos de abajo son los que más pesan.`,
-        accion: 'Por ahora la clasificación no se edita aquí. En Kepler, busca cada movimiento por monto + fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Si no está registrado, captúralo en la cuenta correcta.',
+        // [CB.70] Decía «la clasificación no se edita aquí… en Kepler»: corregir en Kepler no le pone categoría al
+        // movimiento. Ahora se categoriza en el detalle del movimiento, con la pieza y el permiso del puente (CP.8.80).
+        accion: 'Abre «Ver sin clasificar» y, en el detalle de cada egreso, usa «Categorizar»: con la casilla quedan también todos los que empiecen con el mismo nombre, ahora y en los próximos estados de cuenta. Lo hacen Tesorería, Finanzas y Contabilidad (permiso «Categorizar egresos en el Puente ContPAQi»). Si no sabes qué es, en Kepler búscalo por monto y fecha en el auxiliar del 102: la contracuenta te dice su naturaleza. Los depósitos todavía no se categorizan en la suite: se corrigen con su código en el libro CUENTAS.',
         evidencia });
     }
     // 2. Cuentas cuyo saldo no cuadra (+ evidencia: el renglón donde el saldo salta).
@@ -1345,9 +1362,13 @@ export class FinanceBankService {
     // 3. Cuentas sin estado de cuenta cargado (CAJA GENERAL, etc.).
     for (const c of cuentasSinEstado as any[]) {
       items.push({ tipo: 'cuenta_sin_cargar', severidad: 'warn', importe: 0,
-        titulo: `${c.bank} ${c.account_label}: sin cargar`,
-        detalle: `La cuenta existe en el catálogo pero no tiene estado de cuenta en ${period}.${c.kind === 'cash' ? ' (CAJA GENERAL tiene un layout de columnas distinto — pendiente de soportar.)' : ''}`,
-        accion: 'Sube su estado de cuenta del periodo, o desactívala en Admin si ya no aplica.' });
+        // [CB.68] La acción decía «Sube su estado de cuenta» y el botón abre el libro CUENTAS: volver a subir el
+        // mismo libro la vuelve a dejar fuera si su hoja se llama distinto. Así lleva BB 3660 de septiembre a
+        // noviembre de 2026 (la hoja es «BB 366», CB.60). Se dice la causa que más pasa y se nombra Configuración,
+        // que es como se llama en pantalla (decía «Admin»). La nota de CAJA GENERAL se fue: la consulta ya excluye la caja.
+        titulo: `${c.alias}: sin movimientos en ${period}`,
+        detalle: `La cuenta está activa pero no tiene movimientos cargados en ${period}: ni el libro CUENTAS ni la descarga del banco los metieron al cierre.`,
+        accion: `Si viene en el libro con otro nombre de hoja, renombra la hoja como «${c.alias}» y vuelve a subir el libro: si no, se vuelve a quedar fuera. Si ya tiene su descarga del banco, úsala con «Usar el banco» en Estados de cuenta. Si la cuenta ya no se usa, desactívala en Configuración (el engrane).` });
     }
     // 4. Traspasos internos que no netean (TI=TE).
     if (Math.abs(bal.traspasos.delta) >= 1000) {
@@ -1355,37 +1376,48 @@ export class FinanceBankService {
       // en abr-2026 son 42 patas por $8.7M y nadie iba a encontrarlas a mano entre 5,221
       // movimientos. Ahora nombra los huérfanos más grandes y, sobre todo, la causa dominante
       // medida: el estado de cuenta de la cuenta ORIGEN no está cargado ese mes.
-      const huerfanos = await this.tk.run(async (trx) => trx('finance.bank_movements as bm')
-        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
-        .where('st.period', period).andWhere('ba.kind', 'bank').whereNull('bm.deleted_at')
-        .whereIn('bm.raw_type', ['TI', 'TE'])
-        .whereNotExists(function () {
-          this.select(trx.raw('1')).from('finance.bank_movements as o')
-            .join('finance.bank_accounts as oa', 'oa.id', 'o.bank_account_id')
-            .whereNull('o.deleted_at').andWhere('oa.kind', 'bank')
-            .whereRaw('oa.account_label <> ba.account_label')
-            // El espejo de una entrada es una salida del mismo importe, y al revés.
-            .whereRaw('round((CASE WHEN bm.amount_in > 0 THEN o.amount_out ELSE o.amount_in END)::numeric, 2) = round((bm.amount_in + bm.amount_out)::numeric, 2)')
-            .whereRaw(`o.movement_date BETWEEN bm.movement_date - interval '3 days' AND bm.movement_date + interval '3 days'`);
-        })
-        .select('bm.movement_date', 'bm.concept', 'ba.account_label',
-          trx.raw('(bm.amount_in + bm.amount_out)::numeric AS importe'),
-          trx.raw(`CASE WHEN bm.amount_in > 0 THEN 'entró' ELSE 'salió' END AS sentido`))
-        .orderByRaw('(bm.amount_in + bm.amount_out) DESC').limit(6)).catch(() => []);
+      // [CB.69] Los huérfanos, emparejados 1 a 1 y en el MISMO universo que la diferencia (los TI/TE del periodo,
+      // igual que `balances().traspasos`). La consulta vieja dejaba reusar una salida como espejo de dos entradas y
+      // la buscaba entre cualquier movimiento: en nov-2026 la diferencia era $150,000 y nombraba $55,000.
+      let movsTraspaso: MovimientoDeTraspaso[] | null = null;
+      try {
+        movsTraspaso = await this.tk.run(async (trx) => (await trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .join('finance.bank_accounts as ba', 'ba.id', 'bm.bank_account_id')
+          .where('st.period', period).whereNull('bm.deleted_at').whereIn('bm.raw_type', ['TI', 'TE'])
+          .select('bm.id', trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`), 'ba.account_label', 'bm.concept',
+            trx.raw(`coalesce(ba.alias, ba.bank || ' ' || ba.account_label) AS alias`),
+            trx.raw('bm.amount_in::numeric AS entra'), trx.raw('bm.amount_out::numeric AS sale')))
+          .map((r: FilaTraspaso) => ({ id: String(r.id), fecha: r.fecha, cuenta: String(r.account_label ?? ''), alias: r.alias,
+            entra: n(r.entra), sale: n(r.sale), concepto: r.concept ?? null })));
+      } catch (e) {
+        this.logger.warn(`[CB.69] diagnostico ${period}: no se pudieron leer los traspasos: ${(e as Error).message}`);
+      }
+      const pares = movsTraspaso ? traspasosSinPareja(movsTraspaso) : null;
+      const TOPE = 8;
+      const evidencia = (pares?.sueltos ?? []).slice(0, TOPE).map((h) => ({
+        label: `${this.dm(h.fecha)} · ${h.alias} · ${h.entra > 0 ? 'entró' : 'salió'} · ${(h.concepto || '—').slice(0, 34)}`,
+        monto: h.entra + h.sale,
+      }));
+      const resto = (pares?.sueltos ?? []).slice(TOPE);
+      if (resto.length) evidencia.push({ label: `y ${resto.length} más`, monto: resto.reduce((t, h) => t + h.entra + h.sale, 0) });
+      const explicaTodo = !!pares && Math.abs(pares.explicado - bal.traspasos.delta) < 1;
       // Las cuentas sin estado de cuenta ya están calculadas arriba: si hay alguna, es la
       // explicación más probable y conviene decirla en la acción, no dejarla para adivinar.
-      const faltantes = (cuentasSinEstado as any[]).map((a) => a.account_label).filter(Boolean);
+      // [CB.68] Sólo cuentas de banco (FACTORAJE no explica un traspaso), por su alias.
+      const faltantes = (cuentasSinEstado as Array<{ kind: string | null; alias: string | null }>)
+        .filter((a) => (a.kind ?? 'bank') === 'bank').map((a) => a.alias).filter(Boolean);
+      const cuantos = pares?.sueltos.length ?? 0;
       items.push({ tipo: 'traspaso_descuadre', severidad: 'warn', importe: Math.abs(bal.traspasos.delta),
         titulo: 'Los traspasos internos no netean',
-        detalle: `Entra ${money(bal.traspasos.entra)} vs sale ${money(bal.traspasos.sale)} en traspasos entre cuentas propias (Δ ${money(bal.traspasos.delta)}). Deberían ser iguales: lo que sale de una cuenta nuestra entra en otra.`,
-        evidencia: (huerfanos as any[]).map((h) => ({
-          label: `${this.dm(h.movement_date)} · ${h.account_label} · ${h.sentido} · ${(h.concept || '—').slice(0, 34)}`,
-          monto: n(h.importe),
-        })),
+        detalle: `Entró ${money(bal.traspasos.entra)} y salió ${money(bal.traspasos.sale)} en traspasos entre cuentas propias: una diferencia de ${money(bal.traspasos.delta)}. Deberían ser iguales: lo que sale de una cuenta nuestra entra en otra. `
+          + (!pares ? 'No se pudieron leer los traspasos del periodo para decir cuáles son.'
+            : explicaTodo ? `${cuantos === 1 ? 'El movimiento de abajo no tiene' : `Los ${cuantos} movimientos de abajo no tienen`} su otra pata y ${cuantos === 1 ? 'es' : 'suman'} exactamente esa diferencia.`
+              : `Los ${cuantos} movimientos sin su otra pata suman ${money(pares.explicado)}; los otros ${money(bal.traspasos.delta - pares.explicado)} no se pudieron atribuir a un movimiento.`),
+        evidencia,
         accion: faltantes.length
-          ? `Los de arriba no tienen contraparte en ninguna cuenta cargada. Este periodo falta el estado de cuenta de ${faltantes.join(', ')} — cárgalo y vuelve a revisar: es la causa más común de que un traspaso quede con una sola pata.`
-          : 'Los de arriba no tienen contraparte. Todas las cuentas tienen su estado de cuenta cargado, así que el otro lado falta DENTRO del archivo: busca el movimiento por monto y fecha en la cuenta que menciona el concepto.' });
+          ? `En este periodo no está cargada ${faltantes.join(', ')}. Si el concepto nombra esa cuenta (el banco a veces la acorta: «366» por «BB 3660»), al cargarla el traspaso encuentra su pareja. Si nombra otra, búscalo por importe y fecha en esa cuenta: puede faltar en el libro o caer en otro mes.`
+          : 'Todas las cuentas están cargadas, así que la otra pata falta dentro del libro o cae en otro mes: búscala por importe y fecha en la cuenta que nombra el concepto.' });
     }
     // 5. Diferencias vs Kepler (P&L) — solo si hay balanza. Dirección + causa concreta.
     if (recon?.accounts?.length) {
@@ -1497,6 +1529,7 @@ export class FinanceBankService {
       period,
       ingresos, egresos, neto: Math.round((ingresos - egresos) * 100) / 100,
       movimientos: n((totales as any)?.movs),
+      movimientos_hasta: (totales as { hasta?: string | null } | undefined)?.hasta ?? null,
       cuadra,
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,

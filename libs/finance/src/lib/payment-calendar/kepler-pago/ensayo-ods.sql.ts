@@ -6,6 +6,7 @@ import { compararConCaptura, NO_CUBIERTO_POR_EL_ENSAYO, type CapturaKepler } fro
 import { SQL_CIERRE_KEPLER, armarCierres, type FilaCierreKepler } from '../cierre-kepler.sql';
 import { leerValidacionDelDia } from '../validacion-pago.sql';
 import { movimientosDePoliza, tablaPolizaDelMes } from '../../shared/kepler-contable';
+import type { EntregaPagoKepler } from './kepler-pago-sink.adapter';
 
 /**
  * `[PGP.105]` **El ensayo del `X-D-26`, leído de la réplica.** Lee de `kepler_ods` —no del Kepler
@@ -64,9 +65,27 @@ function compararPlanesConCapturas(planes: PlanPorConcepto[], capturas: CapturaK
   return { folio: capturas.map((c) => c.folio).join(', '), coincide: limpias.length === 0, diferencias: limpias };
 }
 
-export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantId: string, allocationId: string, hoy: string): Promise<PaymentCalendarEnsayoKepler | null> {
+/**
+ * `[PGP.121]` **Lo que se le entrega al adaptador, sólo si el ensayo dice «listo».** El ensayo ES la compuerta de
+ * la escritura: las mismas lecturas, la misma regla de la Suite y el mismo armador. Si dice `bloqueado`, sus
+ * motivos son los del rechazo. Sólo lectura (la réplica); el adaptador vuelve a leer todo en vivo antes de escribir.
+ */
+export async function leerEntregaPagoKepler(trx: Knex | Knex.Transaction, tenantId: string, allocationId: string, hoy: string): Promise<{ ok: true; entrega: EntregaPagoKepler } | { ok: false; motivos: string[] }> {
+  let entrega: EntregaPagoKepler | null = null;
+  const e = await leerEnsayoPagoKepler(trx, tenantId, allocationId, hoy, (x) => { entrega = x; });
+  if (!e) return { ok: false, motivos: ['Pago no encontrado'] };
+  if (e.estado !== 'listo' || !entrega) return { ok: false, motivos: e.motivos.length ? e.motivos : ['El ensayo no armó el documento'] };
+  return { ok: true, entrega };
+}
+
+export async function leerEnsayoPagoKepler(
+  trx: Knex | Knex.Transaction, tenantId: string, allocationId: string, hoy: string,
+  /** `[PGP.121]` Sólo con estado `listo`: lo que se le entregaría al adaptador (`leerEntregaPagoKepler`). */
+  alListo?: (entrega: EntregaPagoKepler) => void,
+): Promise<PaymentCalendarEnsayoKepler | null> {
   const a = (await trx.raw(`
     SELECT a.id::text AS id, a.status, a.payment_method, a.bank_account_id::text AS bank_account_id, a.kepler_payment_folio,
+           a.paid_bank_movement_id::text AS paid_bank_movement_id,
            a.destination_account_text, a.amount_assigned::float8 AS importe, coalesce(a.folio, left(a.id::text, 8)) AS referencia,
            to_char(a.paid_bank_date, 'YYYY-MM-DD') AS paid_bank_date, to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
            l.status AS lot_status, to_char(l.lot_date, 'YYYY-MM-DD') AS dia,
@@ -173,7 +192,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
   const validacion = (await leerValidacionDelDia(trx, tenantId, a.dia, hoy)).get(allocationId);
   motivos.push(...motivosParaNoEscribir({
     status: a.status, payment_method: a.payment_method, origen_kind: a.kind ?? null, kepler_payment_folio: a.kepler_payment_folio,
-    lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null,
+    lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null, probado_por_el_banco: !!a.paid_bank_movement_id,
     items: items.map(() => ({ obligation_source: 'kepler_payable', branch_code: servidor, kepler_saldada: false })),
   }));
   if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
@@ -192,6 +211,14 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
     ? [`Factura de gasto sin concepto: se paga con ${CONCEPTO_GASTOS_GENERALES} «Gastos generales», como lo hace Tesorería (pendiente de que Contabilidad lo confirme)`]
     : [];
   const facturaDe = new Map(facturas.map((f) => [`${f.tipo}-${f.subtipo}-${f.folio}`, f]));
+  if (!motivos.length && planes.length && alListo) {
+    alListo({
+      sucursal: servidor, fecha: a.paid_bank_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), acreedor,
+      importe: Number(a.importe), origen: { bank: String(a.bank ?? ''), account_label: String(a.account_label ?? '') },
+      destino: a.destination_account_text ?? null,
+      facturas: facturas.map((f) => ({ tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, aplicado: f.aplicado })),
+    });
+  }
   return {
     allocation_id: allocationId,
     estado: motivos.length ? 'bloqueado' : 'listo',

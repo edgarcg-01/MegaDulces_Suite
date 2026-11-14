@@ -178,6 +178,8 @@ export interface Diagnostico {
   sin_clasificar_n?: number; sin_clasificar_monto?: number;
   /** `null` = la conciliación nunca corrió en este periodo. */
   recon_estado?: ReconEstado | null;
+  /** `[CB.68]` Fecha del último movimiento cargado del periodo ('YYYY-MM-DD'): hasta dónde ve el cierre. `null` = sin movimientos. */
+  movimientos_hasta?: string | null;
 }
 
 /** CB.15.2 — Flujo de un movimiento (de dónde viene). */

@@ -1580,6 +1580,7 @@ cron con su umbral en `CRON_JOBS`.
 | P6 | **El concepto del `X-D-26` lo decide la factura** (`kdxe.c18`: carga la compra a la sucursal que la recibió) | `conceptoDeFactura` — era la regla del armador; ahora es decisión |
 | P7 | **Un pago con facturas de varias sucursales sale como un `X-D-26` por concepto**, para la misma transferencia | `armarPagosKepler` 🧪: cada documento con el importe de sus facturas y la misma referencia; si una parte no se arma, no se arma ninguna (mutante: rojo). ✅ 2026-11-13: el adaptador (`[PGP.106]`) ya escribe los varios documentos en UNA transacción |
 | P8 | **Factura de gasto (`10-1`) sin concepto → `007` «Gastos generales»**, como lo hace Tesorería (40 de 43) | `CONCEPTO_GASTOS_GENERALES` 🧪; el ensayo lo AVISA («pendiente de que Contabilidad lo confirme») sin detener |
+| P9 | **El banco dispara el pago** (Edgar, 2026-11-13, al pedir «hay que encenderla»): la salida en el estado de cuenta marca pagado y dispara la escritura en Kepler, sin autorizar el día, sin marcar pagado a mano y sin capturar la cuenta de origen (sale del movimiento). Reemplaza, para este disparador, a F2 (banco Y comprobante) y a la autorización de E3.3 | `[PGP.121]` 🧪 |
 | P3 | **La cuenta contable de cada proveedor de gasto la define la contadora, en el sistema** | El lugar ya existe: Contabilidad › Puente ContPAQi (firma de reglas `[CP.8.51]` y cuentas de proveedor por alias). ⬜ `[PGP.111b]`: la firma hoy es por CATEGORÍA del movimiento bancario, no por proveedor de gasto (0 de 51 renglones de gasto del Calendario con cuenta): falta la firma por proveedor en esa misma pantalla, y que el Calendario diga «falta la cuenta contable» con la liga ahí |
 
 **El ensayo después de P7/P8** (código real, prod, sólo lectura, 2026-11-10; 51 pagos que Tesorería capturó a mano):
@@ -1988,3 +1989,60 @@ mecánico; (3) conectar `entregar()` al momento «validado» del pago, con el re
 (4) el permiso del mes siguiente antes de cada cambio de mes.
 **NO MEDIDO:** los `INSERT`/`UPDATE` reales (el ensayo termina en ROLLBACK) y la foto de contadores de una captura de
 Tesorería, que confirmaría que no hay una novena tabla.
+
+### `[PGP.121]` El banco dispara el pago, y el pago se escribe en Kepler (🧪 2026-11-13)
+
+Edgar, 2026-11-13: *«hay que encenderla»*. Medido ese día en prod, encenderla tal cual no escribía **nada**: los 41
+días del Calendario seguían en borrador (nadie autorizó un día ni marcó un pago como pagado desde el 16-oct), 211 de 228
+pagos no traían cuenta de origen y Tesorería captura a mano en Kepler. Al preguntarle qué dispara la escritura, eligió
+**el banco** (P9).
+
+**C0 — la regla se puede (prod, sólo lectura, control placebo):**
+
+| Universo | Una sola cuenta | Cuenta correcta (testigo) | Placebo (+40 días) |
+|---|---|---|---|
+| `X-D-26` de Tesorería a proveedores `C…`, ago–nov, 00 (±1 día) | 442 de 459 | **439 de 442** (97.7 % del dinero) | 1 de 459 |
+| Pagos del Calendario de días pasados, con la fecha PLANEADA (±1 a ±10 días) | 86–89 de 183 | **60 de 60** con captura de Tesorería | 0 de 183 |
+
+⚠️ La primera corrida del segundo renglón dio 11 «mal»: era el testigo, no la regla — buscaba el folio de Tesorería en el
+servidor 00 cuando el pago se capturó en el de su sucursal (las capturas salían con fecha de enero). Corregido el testigo, 0.
+Tesorería captura el mismo día que el plan (p50 0 días, p90 1, máximo 3): ventana de 3 días.
+
+**C1 — `pago-por-el-banco.ts`** (pura): por importe ±$1 y ±3 días en TODAS las cuentas; `probado` sólo con una salida,
+una cuenta, uno a uno contra todos los pendientes. No adivina: `varias_cuentas`, `disputada`, `excluido` (cheque,
+efectivo), `sin_salida`. 8 pruebas; prueba negativa fuera del árbol: 4 mutaciones (ventana, uno a uno, adivinar la
+cuenta, reusar una salida ligada), las 4 en rojo.
+
+**C2:**
+- `PaymentCalendarService.pagarPorElBanco()`: marca `executed` con la evidencia (`paid_bank_*`), la cuenta del
+  movimiento y `transferencia` si nadie la preparó; una fila `pagado_por_el_banco` en `payment_allocation_history`.
+  Lo que pagar le hace a los renglones salió de `execute()` a `aplicarRenglonesPagados`: el banco hace exactamente lo
+  mismo. Un pago por transacción, con guarda de carrera.
+- `PagosPorElBancoService` (worker, sin reloj): escucha `bancos_movimientos` (cada carga del estado de cuenta) y una
+  vez al arrancar. Con `KEPLER_PAGO_ESCRITURA=encendida` escribe los probados que nadie ligó: **la compuerta es el
+  ensayo** (`leerEntregaPagoKepler`: si Tesorería ya lo capturó, si el acreedor no es de compra… no se escribe y la
+  bitácora lo dice una vez por motivo). En la compuerta de la Suite, `probado_por_el_banco` sustituye a «día
+  autorizado» y a «validado con comprobante».
+- **Para no escribir dos veces:** el pago se reclama antes (`kepler_payment_linked_by`) y sólo se suelta cuando Kepler,
+  leído en vivo (`foliosConReferencia`), dice que no hay un `X-D-26` de la Suite con esa referencia. Un «rechazado»
+  puede ser un `COMMIT` cuya respuesta se perdió: se pregunta antes de soltar. Si no se puede preguntar, queda
+  `kepler_incierto` y lo revisa una persona.
+- Se apaga entero con `DISABLE_PAGOS_POR_EL_BANCO=true`.
+
+**Con los datos de prod de hoy, el código real decide:** 79 de 183 pagos de días pasados probados ($10.47 M), 86 sin
+salida (el banco se carga unas tres veces por semana; lo último es del 10-nov), 14 cheque/efectivo, 2 con el importe en
+dos cuentas y 2 disputados. Los 56 probados que Tesorería capturó caen todos en la cuenta que ella capturó.
+
+**Pruebas:** la regla, el arranque del módulo (seis dependencias, el adaptador sin parámetros, sin reloj, sólo el worker
+escucha el canal del banco) y `database/tests/test-newdb-pgp121-pago-por-el-banco.js`: el servicio real contra Postgres,
+en una transacción revertida (lo corre el job `pruebas-db` del CI).
+
+**NO MEDIDO:** la escritura contra una base real fuera del CI (no hay base local; la laptop no apunta a prod) y la primera
+pasada en prod. Al desplegar, el worker marcará pagados los ~79 de arriba con la siguiente carga del banco (y una vez al
+arrancar). Se verifica en `payment_allocation_history` (`event = 'pagado_por_el_banco'`).
+
+**Para encender la escritura en Kepler (no está encendida):**
+1. `KEPLER_PAGO_ESCRITURA=encendida` y `KEPLER_PAGO_TEMPLATE_FOLIO_00` en el worker de prod (lo pone quien administra md).
+2. Que Tesorería deje de capturar a mano las transferencias a proveedores `C…` que la Suite escribe. Mientras las
+   capture, la Suite no las escribe (el ensayo las ve capturadas): no hay doble, pero tampoco ahorro.
+3. Antes de enero, el permiso sobre `kdc22701`.

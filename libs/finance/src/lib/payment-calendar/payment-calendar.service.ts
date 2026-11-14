@@ -25,6 +25,8 @@ import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts'
 import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
+import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
+import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
 export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
@@ -1859,6 +1861,70 @@ export class PaymentCalendarService {
   }
 
   /**
+   * `[PGP.121]` **El banco dispara el pago** (Edgar, 2026-11-13). Un pago pendiente cuya salida aparece en el estado
+   * de cuenta —por importe y fecha, en una sola cuenta, uno a uno (`decidirPagosPorElBanco`, pura, con sus pruebas)—
+   * queda pagado con esa evidencia: la cuenta de origen es la del movimiento, el método `transferencia` si nadie lo
+   * preparó. Sin autorizar ni marcar a mano. Cada uno queda en `finance.payment_allocation_history` con lo que se
+   * planeó y lo que el banco dijo.
+   *
+   * ⛔ Un pago por transacción, con guarda de carrera: sigue pendiente y nadie más tomó esa salida. Lo que el banco
+   * no decide (`sin_salida`, `varias_cuentas`, `disputada`, `excluido`) se cuenta y se dice; no se toca.
+   * Lo llama `PagosPorElBancoService` en el worker, con cada carga del banco, dentro del scope del tenant.
+   */
+  async pagarPorElBanco(hoy: string = todayMx(), autor = AUTOR_PAGO_POR_EL_BANCO): Promise<ResultadoPagoPorElBanco> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out: ResultadoPagoPorElBanco = {
+      hoy, revisados: 0, pagados: 0, monto: 0, ids_pagados: [], sin_decidir: { sin_salida: 0, varias_cuentas: 0, disputada: 0, excluido: 0 },
+    };
+    const leido = await this.tk.run(async (trx) => {
+      const pagos = (await trx.raw(SQL_PENDIENTES_POR_EL_BANCO, [tenantId, hoy, hoy])).rows as
+        { id: string; dia: string; importe: number; metodo: string | null; cuenta_planeada: string | null }[];
+      if (!pagos.length) return null;
+      const desde = pagos.map((p) => p.dia).reduce((a, b) => (b < a ? b : a));
+      const salidas = (await trx.raw(SQL_SALIDAS_POR_EL_BANCO, [tenantId, desde, hoy])).rows as SalidaBanco[];
+      const ligadas = new Set(((await trx.raw(SQL_SALIDAS_LIGADAS, [tenantId])).rows as { id: string }[]).map((r) => r.id));
+      return { pagos, decision: decidirPagosPorElBanco(pagos.map((p) => ({ ...p, importe: Number(p.importe) })),
+        salidas.map((x) => ({ ...x, importe: Number(x.importe) })), hoy, ligadas) };
+    });
+    if (!leido) return out;
+    out.revisados = leido.decision.size;
+    for (const p of leido.pagos) {
+      const d = leido.decision.get(p.id);
+      if (!d) continue;
+      if (d.estado !== 'probado') { out.sin_decidir[d.estado]++; continue; }
+      const hecho = await this.tk.run(async (trx) => {
+        const otra = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, paid_bank_movement_id: d.movimiento_id }).whereNot({ id: p.id }).whereNot({ status: 'cancelled' }).first('id');
+        if (otra) return false;
+        const n = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, id: p.id, status: 'pending' }).whereNull('paid_bank_movement_id')
+          .update({
+            status: 'executed', executed_at: trx.fn.now(), payment_method: trx.raw(`coalesce(payment_method, 'transferencia')`),
+            bank_account_id: d.cuenta_id, paid_bank_movement_id: d.movimiento_id, paid_bank_date: d.fecha, paid_bank_amount: d.importe,
+            paid_validated_at: trx.fn.now(), updated_by: autor, updated_at: trx.fn.now(),
+          });
+        if (!n) return false;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: p.id, event: EVENTO_PAGADO_POR_EL_BANCO, status_from: 'pending', status_to: 'executed',
+          created_by: autor,
+          detail: JSON.stringify({
+            regla: 'PGP.121', hoy,
+            planeado: { dia: p.dia, importe: Number(p.importe), metodo: p.metodo, cuenta: p.cuenta_planeada },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe },
+          }),
+        });
+        await this.aplicarRenglonesPagados(trx, tenantId, p.id, autor);
+        return true;
+      });
+      if (!hecho) continue;
+      out.pagados++;
+      out.monto = round2(out.monto + d.importe);
+      out.ids_pagados.push(p.id);
+    }
+    return out;
+  }
+
+  /**
    * `[PGP.97]` **Lo que salió del banco a un proveedor, contra Kepler y contra el programa.** La
    * guía del área de pagos: qué transferencias del workbook todavía no tienen su pago en Kepler, y
    * cuáles salieron sin pasar por el Calendario. Sólo lectura, sin tablas nuevas: la lectura vive
@@ -2504,6 +2570,16 @@ export class PaymentCalendarService {
       }
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now(), ...evidencia }).returning('*');
+      await this.aplicarRenglonesPagados(trx, tenantId, allocationId, username);
+      return updated;
+    });
+  }
+
+  /**
+   * Lo que pagar le hace a cada renglón: recalcula su obligación y, si es un gasto del presupuesto, mueve la
+   * partida. `[PGP.121]` Salió de `execute()` para que el pago que prueba el banco haga EXACTAMENTE lo mismo.
+   */
+  private async aplicarRenglonesPagados(trx: Knex.Transaction, tenantId: string, allocationId: string, username: string): Promise<void> {
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
       // `[NX.11]` 2026-09-21 — nota para quien siga acá: era `items as any[]` y
       // `scripts/lint-boundary-gate.js` lo rechaza en líneas nuevas (ADR-052). Se nombran sólo los
@@ -2530,8 +2606,6 @@ export class PaymentCalendarService {
           }
         }
       }
-      return updated;
-    });
   }
 
   /**

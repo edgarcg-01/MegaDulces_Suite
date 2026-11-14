@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequireAnyPermission, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type DictamenMes, type MovimientoVista, type PagoPorConfirmar,
   type PendienteProveedor, type PruebaPorProveedor, type ReglaVista, type ResumenLote, type ResumenMes, type CuentaGastoProveedor,
@@ -502,7 +502,8 @@ export class ContpaqiBridgeController {
 
   /** Las categorías que puede llevar un egreso. Sólo lectura. */
   @Get('categorias-egreso')
-  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  // [CB.70] Quien categoriza desde Bancos (tesoreria, finanzas_operativo) no ve el puente: con poder categorizar basta.
+  @RequireAnyPermission(Permission.FISCAL_CONTPAQI_BRIDGE_VER, Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR)
   @ApiOperation({ summary: 'Categorías de egreso de banco (para categorizar desde el puente).' })
   async categoriasEgreso(): Promise<CategoriaEgreso[]> {
     return this.categoria.categorias();
@@ -510,10 +511,10 @@ export class ContpaqiBridgeController {
 
   /**
    * Qué egresos sin categoría tomaría la regla «empieza con `texto`», antes de guardarla. Sólo lectura: lo
-   * puede ver quien ve el puente; guardar pide `_CATEGORIZAR`.
+   * puede ver quien ve el puente o quien puede categorizar (`[CB.70]`, desde Bancos); guardar pide `_CATEGORIZAR`.
    */
   @Get('movimientos/:movimiento/beneficiario')
-  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @RequireAnyPermission(Permission.FISCAL_CONTPAQI_BRIDGE_VER, Permission.FISCAL_CONTPAQI_BRIDGE_CATEGORIZAR)
   @ApiOperation({ summary: 'Vista previa de la regla por beneficiario: qué egresos sin categoría tomaría.' })
   async vistaPreviaBeneficiario(@Param('movimiento') movimiento: string, @Query('texto') texto?: string): Promise<VistaPreviaBeneficiario> {
     try {
