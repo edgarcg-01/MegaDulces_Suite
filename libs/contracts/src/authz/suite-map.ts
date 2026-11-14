@@ -497,6 +497,13 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         project: 'servicio',
         source: { status: 'propuesta', cite: 'Fase MS (ADR-081): tickets de servicio; es la parte «solicitudes» de P-10' },
       },
+      {
+        // `[MDT.3.4]` Vale de servicio (de MDTask): constancia firmada de un servicio. Independiente de la Mesa.
+        id: 'vales',
+        kind: 'project',
+        project: 'vales',
+        source: { status: 'propuesta', cite: 'Fase MDT: migración de MDTask (vale de servicio, D8/D8b)' },
+      },
     ],
   },
   {

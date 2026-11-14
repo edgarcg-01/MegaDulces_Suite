@@ -264,10 +264,10 @@ proveedores. Si el PM lo quiere antes, se mueve y queda escrito por qué.
 |---|---|---|---|
 | MDT.1.1 | **Elegir el motor de checklist** (D5): medir `trade` (visitas/capturas) y `logistics-checklists` contra lo que pide el manual (momento, frecuencia, hora límite, punto con foto obligatoria, evidencia escrita) | ✅ 2026-11-13 — motor genérico en `platform` (ADR-118). `trade.daily_captures` no es checklist (auditoría abierta, 1,331 filas, 40 archivos); `logistics.shipment_checklists` sirve de forma pero cuelga de embarque (0 filas) | Tabla de cobertura por requisito (10 requisitos × 3 candidatos) |
 | MDT.1.1b | **Deuda con nombre (ADR-056):** pasar `logistics.shipment_checklists` a este motor (0 filas; 8 archivos consumidores, capa de compatibilidad) | ⬜ | `http-logistics-j8-test.js` |
-| MDT.1.2 | **La norma como dato** (D4): `identity.positions` → puntos del manual, versionados; carga de los 391 puntos del catálogo actual | 🧪 2026-11-13 — migración `20261113175536` + seed `manual-puestos-mdtask.json` (20 manuales, 51 tareas, 391 puntos; `kileadora` entra a `identity.positions`). **No aplicada a prod** | Conteo del seed contra el catálogo (AST): 51/51, 391/391. La migración la ejerce el job `pruebas-db` (NO MEDIDO en local) |
+| MDT.1.2 | **La norma como dato** (D4): `identity.positions` → puntos del manual, versionados; carga de los 391 puntos del catálogo actual | 🧪 2026-11-13 — migración `20261113175536` + siembra dentro de la migración (20 manuales, 51 tareas, 391 puntos; `kileadora` entra a `identity.positions`). **No aplicada a prod** | Conteo del seed contra el catálogo (AST): 51/51, 391/391. La migración la ejerce el job `pruebas-db` (NO MEDIDO en local) |
 | MDT.1.3 | **La tarea del día derivada** (D3) + **adaptador en `FUENTES_TAREA`** para que aparezca en Mi trabajo › A tu nombre, sin una quinta tabla de tareas | 🧪 2026-11-13 — `tocaEnFecha` + `platform.checklist_runs` en el contrato de tarea (`assigned_by` NULL) + fuente de Mi trabajo que DERIVA lo pendiente | `checklist.contract.spec.ts` (23 ✓) · `test-newdb-mdt-checklists.js` §1 y §9 (NO MEDIDO en local) |
 | MDT.1.4 | **«Hecho» = con evidencia**: llevar las reglas puras de MDTask que ya tienen pruebas a `libs/` con sus specs | 🧪 2026-11-13 — portadas: hecho/justificado/no ejecutado, entregable, avance. **Sin portar** (pendiente): urgencia, productividad, cobertura | `checklist.contract.spec.ts` (23 ✓, con negativas) |
-| MDT.1.5 | **Vale de servicio** (D8): modelo con folio entero y borrado lógico; las firmas como evidencia | ⬜ 2026-11-14 — modelo propuesto (§4) y **D8b resuelta**: listo para construir | La prueba propuesta: dos altas simultáneas dan N y N+1 (el defecto de MDTask) |
+| MDT.1.5 | **Vale de servicio** (D8, D8b): `platform.work_orders` + firmas + historial, folio corrido por tenant asignado DENTRO de la transacción; nada se borra (se cancela) | 🧪 2026-11-14 — migración `20261114094841` con las invariantes en la base (CHECK de estados, trigger del folio, trigger «una firma no se quita de un vale completado»), llaves en PILOTO; contrato `vale-servicio.contract.ts` con `motivoNoPuede` (12 ✓). **No empujada**: espera coordinar quién la aplica en prod | `test-newdb-mdt-vales.js` — NO MEDIDA en local (corre en `pruebas-db`) |
 | MDT.1.6 | **Pagos de servicios → `expense_obligations`** (D10): el mapeo servicio-sucursal-proveedor-periodo | ⚠️ 2026-11-14 — mapeo hecho (15 huecos); **D10b: medir primero**, nada se carga a `expense_obligations`; espera el censo que corre David | Un periodo real de MDTask reproducido en el calendario |
 
 ### C2 · API
@@ -276,7 +276,7 @@ proveedores. Si el PM lo quiere antes, se mueve y queda escrito por qué.
 |---|---|---|---|---|
 | MDT.2.1 | Entregar la tarea del día con evidencia (`/checklists/runs…`: abrir, guardar punto, subir/retirar archivo, entregar) | 🧪 2026-11-13 | **sí** | `test-newdb-mdt-checklists.js` (registrada en `run-all-tests`, ~40 afirmaciones con negativas) — **NO MEDIDA en local** (no hay base segura; el `.env` apunta a prod): la corre el job `pruebas-db` |
 | MDT.2.2 | Capturar y versionar la norma por puesto (`POST /checklists/norms/:id/versions`) — desde 2026-11-14 también la **hora límite**, versionada (enmienda de ADR-118) | 🧪 2026-11-14 | **sí** | misma prueba, §8 y §8b (vigencia hacia atrás 400; hora inválida o antes del inicio 400; una versión sin hora conserva la anterior; la entrega abierta conserva su hora; la derivada de hoy toma la nueva) — **NO MEDIDA en local** |
-| MDT.2.3 | Vale de servicio: levantar → tomar → completar → cancelar | ⬜ | **sí** | ⛔ obligatoria |
+| MDT.2.3 | Vale de servicio: `/work-orders` — levantar, tomar, asignar, capturar el trabajo, completar, cancelar, reabrir, firmar y quitar firma; la regla de quién hace qué es la del contrato, con la fila bloqueada | 🧪 2026-11-14 | **sí** | `test-newdb-mdt-vales.js` (~35 afirmaciones con negativas) — **NO MEDIDA en local**; llaves por endpoint y arranque del módulo: `work-orders.controller.spec.ts` (7 ✓, con negativas) |
 | MDT.2.4 | Lecturas de control derivadas (`GET /checklists/team`, `mine`, `norms`) | 🧪 2026-11-13 | no | < 500 ms: **NO MEDIDO** (las tablas no están en prod) |
 | MDT.2.5 | Tres llaves (`TAREAS_PUESTO_ENTREGAR`/`_EQUIPO_VER`/`_NORMA_GESTIONAR`), repartidas en la migración (derivado de la cadena de mando, no a mano); el alcance lo calcula el servidor | 🧪 2026-11-14 — **PILOTO**: las tres llaves sólo a Dirección, RH y superadmin. Repartir «entregar» a todos mientras la gente entrega en MDTask haría que Mi trabajo les marque pendiente lo que sí entregaron; el reparto amplio es del corte (`MDT.C1`) | — | `checklists.controller.spec.ts` (5 ✓, con negativa) · `test-newdb-permission-delivery` sólo da verde tras aplicar |
 
@@ -288,7 +288,7 @@ proveedores. Si el PM lo quiere antes, se mueve y queda escrito por qué.
 | MDT.3.2 | `/tareas/manual` — lectura de la norma por puesto | 🧪 2026-11-13 (lectura) | 0 → 0 fallas. **Sin validación visual** |
 | MDT.3.2b | Editor de la norma en el panel lateral de `/tareas/manual`: hora límite, puntos (texto, bloque, evidencia, qué pide; agregar, quitar, mover), desde cuándo rige y motivo; sólo con `TAREAS_PUESTO_NORMA_GESTIONAR`; cerrar con cambios sin guardar pregunta | 🧪 2026-11-14 — **sin validación visual** | barrido completo: 0 fallas nuevas (el editor es pieza, vive en `components/`); `check:templates-types --all` verde |
 | MDT.3.3 | `/tareas/equipo` — avance de mi gente, por atraso, detalle en side-peek | 🧪 2026-11-13 | 0 → 0 fallas. **Sin validación visual** |
-| MDT.3.4 | Vale de servicio | ⬜ | |
+| MDT.3.4 | Vale de servicio: `/vales/lista` (míos · cola · todos, búsqueda en el servidor, tope declarado, «Levantar vale») y `/vales/ver/:id` (estado y acción que toca, el trabajo con «Guardar» y aviso de cambios sin guardar, tres firmas con el dedo, historial) | 🧪 2026-11-14 — **sin validación visual** | barrido completo 0 nuevas; `check:templates-types --all` verde |
 | MDT.3.5 | Observaciones de diseño UI — revisión del plan (`auditoria-diseno` §9) | ✅ 2026-11-14 (nivel C, tarde: debía ir antes del primer C3) — 13 observaciones, 3 🔴, al final de este doc | |
 | MDT.3.6 | Las 🔴 y 🟠 de la revisión en las pantallas: vencidas que no se pintan en verde y límites a la vista (UI.1, UI.2), lo no guardado dicho en su punto con «Reintentar» (UI.3, UI.4), fotos por punto sin congelar y conservadas al fallar (UI.5), quitar con confirmación y 44 px (UI.6), entrega tardía hasta 7 días (UI.7), orden por momento (UI.8), «una vez al día» en las 7 por evento (UI.9), «—» en vez de 0 % (UI.10), sucursal por nombre en la búsqueda y fecha legible (UI.12) | 🧪 2026-11-14 — **sin validación visual**; UI.11 espera a D11 y UI.13 es la revisión en nivel A | 0 → 0 fallas nuevas; `check:templates-types --all` verde |
 
@@ -302,6 +302,7 @@ componente de 5,614 líneas; no se copia su forma.
 | # | Item | Estado |
 |---|---|---|
 | MDT.C1 | **Corte de tareas del manual:** migración que reparte `TAREAS_PUESTO_ENTREGAR` a todo rol con personas y `TAREAS_PUESTO_EQUIPO_VER` a los roles con puestos a cargo (derivado de la cadena de mando); el mismo día, MDTask deja de recibir entregas de tareas (lo hace David) y se avisa al personal | ⬜ — después de validar en prod con el piloto |
+| MDT.C2 | **Corte del vale de servicio:** un rol propio de Mantenimiento con `VALE_SERVICIO_ATENDER` (hoy el jefe comparte `administrativo` con 7 puestos), `VALE_SERVICIO_LEVANTAR` a todo rol con personas, la carga única de `eajd` con su folio y el talonario de papel retirado ese día | ⬜ — necesita el censo (`MDT.0.1`) |
 
 1. Ventana corta fuera de horario; MDTask sigue vivo hasta el corte de cada dominio.
 2. Carga única idempotente contra destino seguro (`assert-safe-target`) con **reporte de cuadre**:
@@ -379,6 +380,19 @@ botón (sin arrastrar), 44 px con dedo; cerrar con cambios sin guardar pregunta.
 entregas: la versión nueva rige desde su fecha, y la tarea derivada de ese día toma su hora. **(5)** Sí,
 y sólo para `TAREAS_PUESTO_NORMA_GESTIONAR` (Dirección, RH, superadmin); las jefaturas lo leen.
 
+**El vale de servicio (`MDT.3.4`, 2026-11-14), las cinco preguntas.** Lista: *¿qué vales me tocan
+ahora?* · Vale: *¿qué falta para cerrar este vale?* **(1)** Lista: arriba cuántos hay en proceso, sin
+dueño y míos sin cerrar; la tabla con lo vivo primero (en proceso, abiertos) y el folio más nuevo
+arriba; «Levantar vale» como única acción principal. Vale: folio y estado, quién lo pidió y quién lo
+atiende; la acción que toca ahora (tomar, completar) arriba; después el trabajo, las tres firmas y el
+historial. **(2)** En la lista no van el detalle del trabajo ni las firmas (están en el vale); en el vale
+no van los vales de otros. **(3)** Se busca por folio sin ceros («513»), área, lo que se necesita o
+quién lo pidió; la fila abre el vale con el teclado; 44 px con dedo; firmar con el dedo en el
+celular. **(4)** Mi trabajo › «Vales de servicio a tu cargo» abre la lista en «míos»; cada fila abre su
+vale; el historial dice quién hizo cada cambio. **(5)** Quien levanta ve los suyos; quien atiende, además
+la cola; quien coordina, todos — lo decide el servidor, no la pantalla. **Niveles:** primario = el estado
+y la acción que toca · secundario = el trabajo · terciario = firmas e historial.
+
 **Niveles (§Q.5):** primario = cuántas tareas faltan hoy · secundario = la lista con su hora límite ·
 terciario = el documento del manual y el avance por puntos.
 
@@ -398,6 +412,8 @@ historial de MDTask (sin cargar: `MDT.0.1`); las versiones viejas de una tarea (
 | 2026-11-14 | **Revisión de diseño (`MDT.3.5`, tarde) y sus arreglos (`MDT.3.6`, 🧪):** 13 observaciones, 3 🔴 — las 51 tareas vencen a las 23:00 y el jefe veía «0 vencidas» todo el día; quien descansa salía con todo pendiente y el aviso estaba plegado; lo escrito que no se guardaba se seguía viendo. Corregidas en las pantallas, con la ventana de 7 días y el orden por momento en el contrato. **Investigación de tres frentes en el código de los dos repos** (sin base): D9 y D10 tenían premisas falsas (la captura de promociones no existe en la Suite; el pago de servicios contaría la CFE dos veces y lo paga la sucursal, no Tesorería) → **D9b, D10b**; el vale de servicio tiene modelo propuesto y espera **D8b** | Claude |
 | 2026-11-14 | **Editor del manual (`MDT.3.2b`, 🧪):** la hora límite pasa a ser parte de la VERSIÓN de la norma (enmienda de ADR-118), así el jefe pone las 10:00 a la apertura sin reescribir lo ya juzgado. Cambian la migración `20261113175536` (no aplicada en ningún lado), el servicio, la fuente de Mi trabajo (además usa la hora guardada en la entrega abierta) y la prueba (§8b) | Claude |
 | 2026-11-14 | **D8b, D9b y D10b resueltas** por Claude con delegación expresa de Edgar («resuelve esas dudas a tu consideración»), con un hecho medido en prod (sólo lectura): *Jefe de Mantenimiento* tiene 1 persona y ningún rol, *Sistemas* 3 con superadmin. Vale: atiende quien tenga la llave, reparto derivado del puesto; ninguna firma obligatoria. Promociones se quedan en MDTask. Pagos de servicios: medir primero y nada a `expense_obligations`. El censo lo corre David | Claude (por delegación) |
+| 2026-11-14 | **Entrega a `origin/main`** del núcleo (`9edf79e7f`): CI con build y secretos en verde y `ci-green` sellado; la prueba contra base real del motor de checklists corrió por primera vez en `pruebas-db`: **50 ✓ · 0 ✗ · 0 no medido**. Dos defectos encontrados al soltar, ya corregidos: la migración pedía el JSON de la siembra y el aplicador de prod sólo copia el `.js` (se metió la siembra adentro, `d88bfc45a`, con prueba negativa) · `tareas` no tenía su landing dinámico (`landing-guards.spec`). El rojo de `gastos-tabs.spec` es ajeno (`2861efa03`). La migración la aplica el carril de entrega (esta sesión no tiene acceso a md) | Claude |
+| 2026-11-14 | **Vale de servicio construido (🧪, no empujado)**: migración `20261114094841`, contrato, API `/work-orders`, prueba contra base real y dos pantallas. Medido en prod (sólo lectura): el jefe de mantenimiento comparte el rol `administrativo` con 7 puestos, así que «atender» va en piloto y el rol propio queda para el corte (`MDT.C2`) | Claude |
 
 ---
 
@@ -412,7 +428,7 @@ historial de MDTask (sin cargar: `MDT.0.1`); las versiones viejas de una tarea (
 > importa o perdería trabajo — **bloquea pasar C3 a 🚀** · 🟠 se resuelve dentro de la fase · 🟡
 > mejora; si no entra, deuda con nombre.
 
-**Lo medido para esta revisión** (siembra `manual-puestos-mdtask.json`, 2026-11-14): las **51 tareas
+**Lo medido para esta revisión** (siembra de la migración `20261113175536`, 2026-11-14): las **51 tareas
 vencen a las 23:00** (la ventana del día de MDTask, `06:00–23:00`; la hora real de cada sucursal vive
 en Mega Talento, R1) · de los **391 puntos, 383 piden foto**, 4 texto y 4 renglones · **7 tareas se
 llenan por evento y se entregan consolidadas una vez al día** (recepción, checado, liberación,

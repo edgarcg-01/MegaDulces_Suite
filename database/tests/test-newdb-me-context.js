@@ -225,7 +225,8 @@ const tieneDecoradorPermisos = (tramo) =>
   }));
   // `[DP.2.3]` 6: entró `platform.business_definitions` (las preguntas de negocio a tu nombre).
   // `[MDT.1.3]` 7: entró `platform.checklist_runs` (las tareas del manual de tu puesto, derivadas).
-  check('se leyeron las 7 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 7, fuentes.length);
+  // `[MDT.1.5]` 8: entró `platform.work_orders` (el vale de servicio, la tarea de quien lo atiende).
+  check('se leyeron las 8 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 8, fuentes.length);
   for (const f of fuentes) {
     const g = guardDe(f.ruta);
     check(`${f.fuente}: la ruta ${f.ruta} existe en app.routes.ts`, g.encontrada);

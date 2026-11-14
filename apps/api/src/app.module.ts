@@ -21,7 +21,7 @@ import { DailyCapturesModule } from '@megadulces/trade';
 import { PlanogramsModule } from '@megadulces/trade';
 import { CatalogsModule } from '@megadulces/trade';
 // Fase K — AI product match en captures wizard paso 5.
-import { AiProductMatcherModule, BusinessDefinitionsModule, ChecklistsModule } from '@megadulces/platform-core';
+import { AiProductMatcherModule, BusinessDefinitionsModule, ChecklistsModule, WorkOrdersModule } from '@megadulces/platform-core';
 // Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
 import { TicketExtractorModule } from '@megadulces/commercial';
 import { ScoringModule } from '@megadulces/trade';
@@ -485,6 +485,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     BusinessDefinitionsModule,
     // [MDT.2] Tareas por puesto (Fase MDT): /checklists — el manual de cada puesto, con evidencia.
     ChecklistsModule,
+    // [MDT.2.3] Vale de servicio (Fase MDT): /work-orders — la constancia firmada de un servicio.
+    WorkOrdersModule,
     TicketExtractorModule,
     CatalogsModule,
     ScoringModule,

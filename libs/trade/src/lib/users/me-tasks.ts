@@ -319,6 +319,32 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
     anyOf: [Permission.TAREAS_PUESTO_ENTREGAR],
     medir: (knex, tenantId, userId) => medirTareasDelManual(knex, tenantId, userId),
   },
+  {
+    /*
+     * `[MDT.1.5]` Fase MDT: el vale de servicio ES la tarea de quien lo atiende (D8). Sólo los que tiene a
+     * su nombre: el abierto sin responsable es la cola, no la tarea de nadie. Sin plazo (no se inventa).
+     */
+    fuente: 'platform.work_orders',
+    label: 'Vales de servicio a tu cargo',
+    detalle: 'vales que tomaste o te asignaron · se cierran escribiendo el trabajo hecho',
+    ruta: '/vales/lista',
+    queryParams: { scope: 'mine' },
+    icono: 'pi pi-file-edit',
+    anyOf: [Permission.VALE_SERVICIO_LEVANTAR, Permission.VALE_SERVICIO_ATENDER, Permission.VALE_SERVICIO_GESTIONAR],
+    medir: (knex, tenantId, userId) => {
+      const a = adaptadorDe('platform.work_orders');
+      return medirTareas(
+        knex,
+        knex('platform.work_orders')
+          .where({ tenant_id: tenantId })
+          .where(a.col_asignado_a, userId)
+          .whereNull('deleted_at')
+          .whereIn(a.col_estado as string, dialectosAbiertos(a)),
+        a.col_asignado_at,
+        a.col_vence,
+      );
+    },
+  },
 ];
 
 /**

@@ -125,6 +125,8 @@ export const FUENTES_TAREA = [
   'platform.business_definitions',
   // `[MDT.1.3]` Fase MDT: la entrega de una tarea del manual del puesto. La asigna la NORMA, no una persona.
   'platform.checklist_runs',
+  // `[MDT.1.5]` Fase MDT: el vale de servicio ES la tarea de quien lo atiende (D8: no es la Mesa de Servicio).
+  'platform.work_orders',
 ] as const;
 export type FuenteTarea = (typeof FUENTES_TAREA)[number];
 
@@ -297,6 +299,26 @@ export const ADAPTADORES: readonly AdaptadorTarea[] = [
       'quién asignó: la asigna la NORMA del puesto, no una persona — `assigned_by` va NULL a propósito',
       'la tarea del día que la persona todavía NO abrió no tiene fila (D3: ningún emisor la crea); Mi trabajo la DERIVA de la norma al contar, así que leer sólo esta tabla subcuenta lo pendiente',
       'los descansos semanales por persona no existen en la Suite (son de RH): un día de descanso cuenta sus tareas como pendientes',
+    ],
+  },
+  {
+    fuente: 'platform.work_orders',
+    col_asignado_a: 'assigned_to',
+    col_asignado_por: 'assigned_by',
+    asignado_por_es_uuid: true,
+    col_asignado_at: 'assigned_at',
+    // Un vale no tiene plazo (MDTask nunca lo tuvo): NULL no es «no vence», es «no se sabe».
+    col_vence: null,
+    col_estado: 'status',
+    // `open` no tiene responsable (CHECK): sólo cuenta como tarea desde que alguien lo toma o se le asigna.
+    estados: { open: 'pending', in_progress: 'in_progress', completed: 'done', cancelled: 'cancelled' },
+    estado_fijo: null,
+    origen: 'manual',
+    no_responde: [
+      'cuándo vence: el vale no tiene plazo (MDTask nunca lo tuvo); no se inventa uno',
+      'el vale abierto sin responsable es la cola de quien atiende, no la tarea de una persona',
+      'el responsable que sólo existe por nombre (cargado de MDTask o externo) no se une al padrón',
+      'la firma pendiente del supervisor no es tarea suya: la firma no es obligatoria para cerrar (D8b)',
     ],
   },
 ];

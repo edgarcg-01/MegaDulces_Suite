@@ -829,6 +829,14 @@ export enum Permission {
   TAREAS_PUESTO_ENTREGAR = 'TAREAS_PUESTO_ENTREGAR',
   TAREAS_PUESTO_EQUIPO_VER = 'TAREAS_PUESTO_EQUIPO_VER',
   TAREAS_PUESTO_NORMA_GESTIONAR = 'TAREAS_PUESTO_NORMA_GESTIONAR',
+  // `[MDT.2.3]` Vale de servicio (Fase MDT, D8/D8b): la constancia de un servicio que una persona atiende y
+  // firma. NO es la Mesa de Servicio. Quien tiene un vale ASIGNADO lo trabaja sin llave extra.
+  //  · LEVANTAR  — levantar un vale y ver los míos (los que pedí o me asignaron).
+  //  · ATENDER   — ver la cola de abiertos y tomar uno.
+  //  · GESTIONAR — asignar, reasignar, cancelar cualquiera y reabrir con motivo; ve todos.
+  VALE_SERVICIO_LEVANTAR = 'VALE_SERVICIO_LEVANTAR',
+  VALE_SERVICIO_ATENDER = 'VALE_SERVICIO_ATENDER',
+  VALE_SERVICIO_GESTIONAR = 'VALE_SERVICIO_GESTIONAR',
   // `[ALC]` Alta de clientes (/comercial/alta-clientes): desde la constancia del SAT o a mano.
   // Dos claves porque son dos oficios (decisión de Francisco, 2026-11-04):
   //  · ALTA_CLIENTES — capturar y ver solicitudes: caja, encargados, auxiliar de tienda,

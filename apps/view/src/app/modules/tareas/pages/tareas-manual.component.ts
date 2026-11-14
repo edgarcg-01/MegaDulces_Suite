@@ -64,7 +64,7 @@ import { etiquetaEvidencia, etiquetaFrecuencia, etiquetaMomento, fechaLarga } fr
 
       <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !visibles().length"
                       emptyIcon="pi-book" [emptyTitle]="busqueda() || puesto() ? 'Nada coincide' : 'El manual está vacío'" (retry)="res.reload()">
-        <p-table [value]="visibles()" dataKey="template_id" styleClass="p-datatable-sm surf-table surf-table--plain surf-table--sticky dt-stack"
+        <p-table [value]="visibles()" dataKey="template_id" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack"
                  [rowHover]="true" selectionMode="single" [selection]="elegida()" (onRowSelect)="elegir($event.data)">
           <ng-template #header>
             <tr>
