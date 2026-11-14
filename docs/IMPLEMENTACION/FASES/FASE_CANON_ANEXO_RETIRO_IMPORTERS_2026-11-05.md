@@ -997,3 +997,37 @@ computación de `label-compute`); el script era el reconciliador de cada 30 min 
   (las escribía el fallback por código de barras que quitó 6.7, y ya nadie las toca). NO MEDIDO quién las lee.
 - ⚠️ Sigue de Edgar: `STORE_NOTIFY_URL` / `STORE_INGEST_KEY`. Con el script fuera, el aviso de precio a las pantallas
   sale sólo del hop-2; si esas variables están en el pod de la ingesta es NO MEDIDO (no se puede leer el pod).
+
+**Precio de caja (2026-11-14, `[CANON.6.20]`): sale `import-box-price` del nocturno, y su «hueco» era una regla sin
+desempate.** El anexo lo había reclasificado como «E con hueco» porque el nocturno «corregía 47–270 precios cada noche».
+- **Medido:** las correcciones no eran huecos. `normalizeBoxPrice` tomaba el precio del umbral menor con
+  `(array_agg(c7 ORDER BY c4))[1]`, que ordena sólo por umbral; 208 SKUs con caja y 298 con paquete tienen ese umbral con
+  precios distintos entre plazas, y el ganador dependía del plan: el cálculo acotado del evento y el completo del nocturno
+  elegían distinto en **40 de 407** SKUs empatados. Cada noche el nocturno escribía uno y el siguiente evento el otro (37–77
+  por noche desde el 5-nov; 220–270 antes). Lo único que el evento de verdad no veía: un alta o reactivación por `kdii` con
+  el precio ya en el ODS, y un `factor_sale` nuevo (el respaldo PAQ × factor). Las escrituras de `factor_sale` sin actor
+  (03:25–03:29, hasta el 12-nov) eran el nocturno que retiró 6.16.
+- **Decisión (mía, anunciada; cambia un número):** el precio del umbral menor es la **moda** de los renglones de las plazas
+  (sin la 00), y si la moda empata, **el menor**. Es el precio de lista típico y el que menos mueve: cambia **27** precios
+  contra la tabla del 14-nov (mediana 1.7 %; pesan 0.4 % de la venta de 90 días; sus cajas del sell-out se mueven en la
+  proporción inversa). El peor caso estaba mal: 17053 ALTOS BOL PLANA guardaba 936.27 de una sola plaza contra 1,245.43 en
+  las otras siete. «El menor» cambiaría 147. Medido con la misma función: el acotado (de a 1 y de a 40) da lo mismo que el
+  completo en los 407 empates. Va en su propio commit (`6559e06f5`).
+- `normalizeBoxPrice` entra también en la cadena de `kdii`, después de `normalizeProductsFromOds` y `normalizeFactorSale`.
+  Lee columnas crudas de `kdpv_prod_util` (0 de 361,886 filas con relleno en `c1`, `c2` o `sucursal`): el cálculo acotado
+  va por la PK, 6–20 ms por 40 SKUs contra 150–200 ms con `btrim` (también abarata el hop-2 de `kdpv_prod_util` que ya
+  existía); comparado completo, idéntico. Devuelve escritas + borradas.
+- `import-box-price.js` queda manual: en seco mide en sólo lectura (cambian, faltan, sobran, de productos borrados) — antes
+  el dry-run no medía nada —; con `--apply` corre el catálogo entero. Medido en seco contra prod: 27 cambiarían, 0 faltan,
+  0 sobran. ⚠️ **Después de desplegar la ingesta, correr `--apply` UNA vez** (sin el nocturno, esos 27 esperarían a su
+  próximo evento).
+- Árbitro `caja_precio_evento` (reloj del escáner; sólo alarma; retiro con 30 días sin el nocturno y sin alertas): cuenta
+  productos vivos sin fila, con otro precio o fuente, y filas de productos vivos que la regla ya no da; las de productos
+  borrados no cuentan (inertes; la herramienta las limpia). Hoy **27** (los de la regla nueva, hasta el `--apply`),
+  ~700–780 ms: con el de etiquetas, los dos más caros.
+- Prueba `test-newdb-caja-por-evento` (16 ✓): negativa; moda; empate de moda → el menor; sólo el umbral menor; la 00 no vota;
+  respaldo PAQ × factor; el catálogo entero igual al evento; alta por `kdii` con el precio en el ODS; `factor_sale` nuevo +
+  `kdii`; borrado en Kepler; sin churn; y el árbitro (3 desfasados suman 3, lo de un borrado no cuenta, vuelve a la base).
+  7 mutantes: 6 en rojo por su razón y 1 equivalente (quitar `t.product_id IS NULL` del árbitro no cambia nada: el
+  `IS DISTINCT FROM` contra NULL ya cuenta la fila que falta). Vecinas en verde; API `tsc` exit 0, `db-health` 24 ✓.
+  `test-newdb-price-coalesce` da 6 ✗ en local, igual antes de los commits de hoy y antes de 6.18: rojo previo, ajeno.
