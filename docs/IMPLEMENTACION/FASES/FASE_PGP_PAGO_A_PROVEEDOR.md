@@ -1373,6 +1373,10 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   anticipo» sólo le llegaba a 4 de los 13 que pueden pedir (la pantalla la abre un permiso de
   Finanzas). Compras tiene su puerta en *Pago a proveedor › Anticipos* (`/compras/anticipos`), la misma
   pantalla. Detalle abajo.
+- `[PGP.124]` 🧪 (2026-11-14) C1–C3 — la alerta de D4: «Anticipos sin factura, con más de 90 días»
+  en «Mi trabajo» de Compras (comprador y Coordinación). Cuenta sólo los que no tienen factura contra
+  qué aplicarse (8, $1.20 M hoy). ⛔ Migración de catálogo y reparto, sólo INSERT: a prod antes de
+  mergear. Detalle abajo.
 
 **Árbitro (2026-11-13):** `a_favor` = `kdxe.c20` (el remanente que guarda Kepler) en **64 de 64**
 anticipos sin aplicar ($7,025,062 los dos lados); control negativo: los 144 `X-D-60` aplicados enteros
@@ -1536,7 +1540,7 @@ del código (el código inserta `nature`). Compatible con la API desplegada: DEF
 - **Sin validación visual. Arranque de la API no verificado** (cuatro rutas nuevas en un controlador).
 - ~~Un descuento sobre un anticipo programado~~ y ~~cancelar un pedido desde el submódulo~~: los
   cierra `[PGP.122]`, abajo.
-- La alerta a la bandeja de Compras/CxP de los +90 días (D4): sigue visible en el submódulo.
+- ~~La alerta a la bandeja de Compras/CxP de los +90 días (D4)~~: la cierra `[PGP.124]`, abajo.
 
 #### `[PGP.122]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🧪
 
@@ -1606,6 +1610,47 @@ limpias. **NO MEDIDO:** el mutante de la puerta no se corrió fuera del árbol (
 directamente `deCompras`, las pestañas y los grupos); sin validación visual; arranque de la API no
 verificado (cambia el decorador de permisos de tres rutas, no su firma). `MATRIZ_ACCESOS.md` no se
 regeneró (se genera desde prod, y ahí todavía no está la ruta).
+
+#### `[PGP.124]` El anticipo de +90 días sin factura llega a la bandeja de Compras (2026-11-14) — 🧪
+
+Es la alerta de D4. **Medido en prod:** en 12 meses Kepler aplicó **cero** anticipos de mercancía que
+ya tuvieran más de 90 días. Pasado ese plazo, el dinero se queda ahí. Hoy hay 21 así ($3.39 M):
+
+| +90 días, mercancía | Docs | Monto | De quién es el paso |
+|---|---:|---:|---|
+| Con factura abierta en su sucursal | 13 | $2.18 M | Se aplica al pagar esa factura (`[PGP.120]`) |
+| **Sin factura contra qué aplicarse** | **8** | **$1.20 M** | **Compras: pedir la factura o el reembolso** |
+
+Entran ~3 al mes. **D9 (decidida, reversible):** la bandeja cuenta sólo los 8, porque es el paso que
+nadie da. Un aviso que contara también los 13 mandaría a Compras a hacer algo que le toca a quien
+paga. No existe el dato «comprador por proveedor», así que va por puesto, como las demás:
+`comprador` y `gerente_compras` (3 personas; las 3 abren `/compras/anticipos`, cruzado contra prod).
+Los auxiliares de compras quedan fuera: su trabajo es la orden de entrada.
+
+**Cómo mide:** `medirCola` (el mismo de las demás colas) sobre una tabla derivada de `kepler_ods.kdxe`
+(`anticipos-sin-factura.sql.ts`). «Tiene factura abierta» se lee del saldo que Kepler guarda en la
+factura (`kdxe.c20`), no de la vista de deuda (~390 ms de piso, y esto corre en cada carga de «Mi
+trabajo»). **Árbitro:** coincide con la vista en **640 de 640** pares sucursal×acreedor (0
+desacuerdos) y da los mismos 8 documentos y $1.20 M que la pantalla. Primera versión: ~600 ms (un
+`EXISTS` por renglón). Con una sola pasada: **43–71 ms**. Umbral: 30 días desde que cumplió 90 (el
+más viejo los cumplió el 31-may: nace atrasada, y es cierto). `cierre: null`: un anticipo aplicado
+desaparece de la tabla y Kepler no guarda cuándo, así que «cuántas salieron» se declara no medible.
+Desglose por dinero (a qué proveedor llamar primero), con nota de monto, folio y sucursal por nombre.
+
+**Pruebas:** el código real de la bandeja (`medir` y `desglosar`, empaquetado con esbuild) ejercido
+contra prod en transacción de sólo lectura: 8, 71 ms; desglose 49 ms; otro tenant da 0. Smoke
+`test-newdb-me-context.js` (secciones estáticas): todo lo de la bandeja en verde (ruta y permiso,
+plazo, cierre, catálogo 23, colas 30, desglose permitido); sus 5 fallas previas son de Caja y salud de
+datos, no de aquí. Tres mutantes fuera del árbol en rojo: un `anyOf` que la ruta no acepta, la bandeja
+sin plazo, y la falta de la migración del catálogo.
+
+**⛔ La migración `20261114101514` sólo inserta filas** (catálogo + reparto): la compuerta del
+despliegue la clasifica NO_MEDIDO, así que **se aplica en prod ANTES de mergear**. Sin ella, la
+bandeja existe y no la ve nadie (`[SN.30]`).
+
+**NO MEDIDO:** «Mi trabajo» de punta a punta con la API (no hay API local); sin validación visual. Los
+remanentes chicos ($76 y $1 hoy) cuentan igual que los demás: son anticipos sin aplicar, y quedan al
+final del desglose.
 
 ---
 

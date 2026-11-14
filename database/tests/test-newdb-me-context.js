@@ -302,8 +302,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[PGP.3]` +1: entró «Pagos a proveedor por preparar y firmar» (`finanzas.pagos`). ⚠️ No se sumó
   //   aquí al entrar (2026-10-22): este chequeo quedó en 20 con 21 claves hasta que AB.32 lo vio.
   // `[AB.32]` +1: entró «Requisiciones de sucursal por aprobar» con su clave `compras.requisiciones_sucursal`.
+  // `[PGP.124]` +1: entró «Anticipos a proveedor sin factura» con su clave `compras.anticipos`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 22, catalogo);
+    catalogo.length === 23, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -363,8 +364,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // cambio, o sea que una cola anterior entró sin actualizar la cuenta — la misma nota que dejó
   // `[MS.3.8]` sobre su propio desfase. 26 + las dos de pagos = 28.
   // `[AB.32]` +1 cola y +1 clave: «Requisiciones de sucursal por aprobar» (`compras.requisiciones_sucursal`). 29.
-  check('cada cola declara su responsabilidad (19 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 29, declaradas);
+  // `[PGP.124]` +1 cola y +1 clave: «Anticipos sin factura, con más de 90 días» (`compras.anticipos`). 30.
+  check('cada cola declara su responsabilidad (20 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 30, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -946,7 +948,12 @@ const tieneDecoradorPermisos = (tramo) =>
      * Lo que el renglón dice es qué le falta a ESE ejercicio para poder firmarse, que es la única
      * información que cambia la decisión en el momento de firmar.
      */
-    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante', 'presupuesto-ejercicios'];
+    /*
+     * `[PGP.124]` +1: `anticipos-sin-factura`. Chica por naturaleza (8 el día que entró, ~3 nuevas al
+     * mes, como mucho los 21 anticipos de mercancía de más de 90 días) y el QUÉ decide: a qué
+     * proveedor pedirle la factura o el reembolso. Ordena por dinero, como la cartera.
+     */
+    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante', 'presupuesto-ejercicios', 'anticipos-sin-factura'];
     const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
     const deMas = conDesglose.filter((id) => !DESGLOSE_PERMITIDO.includes(id));
     check('⛔ [SN.33] sólo se desglosan las colas declaradas (una cola grande mudaría su pantalla a la portada)',

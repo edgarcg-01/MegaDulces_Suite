@@ -8,7 +8,9 @@ import {
   type MeDesgloseItem,
   type MeFlujo,
   type MeVeredicto,
+  warehouseName,
 } from '@megadulces/contracts';
+import { SQL_ANTICIPOS_MAS_DE_90 } from './anticipos-sin-factura.sql';
 import { branchKeySql, cajaColaDelLibroSql, ejercicioNoEsDePruebaSql, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
 
 /**
@@ -88,7 +90,9 @@ export type ResponsabilidadKey =
    */
   | 'finanzas.pagos'
   /** `[AB.32]` Lo que pidieron las sucursales desde Autoabasto, por aprobar (mig `20261026084306`). */
-  | 'compras.requisiciones_sucursal';
+  | 'compras.requisiciones_sucursal'
+  /** `[PGP.124]` Anticipos de mercancía con más de 90 días y sin factura contra qué aplicarse. */
+  | 'compras.anticipos';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -1595,6 +1599,73 @@ export const BANDEJAS: readonly BandejaDef[] = [
           args: [],
         },
       }),
+  },
+  /*
+   * `[PGP.124]` **El anticipo que pasó 90 días sin factura contra qué aplicarse.**
+   *
+   * Medido en prod el 2026-11-14: en 12 meses Kepler aplicó **cero** anticipos de mercancía que ya
+   * tuvieran más de 90 días. Pasado ese plazo el dinero se queda ahí. Hoy hay 21 así ($3.39 M):
+   * 13 tienen factura abierta en su sucursal y se aplican al pagarla (`[PGP.120]`, no son de esta
+   * cola); **8 no tienen contra qué** ($1.20 M, el más viejo del 2-mar-2026). Para esos alguien le
+   * tiene que pedir al proveedor la factura o el reembolso, y nadie lo hace.
+   *
+   * ⭐ Va a Compras (comprador y Coordinación de Compras, D9), que es quien trata con el proveedor. Va
+   * a su puerta (`/compras/anticipos`, `[PGP.123]`).
+   */
+  {
+    id: 'anticipos-sin-factura',
+    label: 'Anticipos sin factura, con más de 90 días',
+    detalle: 'el proveedor no tiene factura abierta en esa sucursal · pedirle la factura o el reembolso',
+    ruta: '/compras/anticipos',
+    icono: 'pi pi-wallet',
+    alcance: 'bandeja',
+    responsabilidad: 'compras.anticipos',
+    // Casi todos son de Matriz (los 8 de hoy) y lo pide Compras para toda la red.
+    acotablePorSucursal: false,
+    /*
+     * **30 días** contados desde que el anticipo cumplió 90. Es el tiempo razonable para que un
+     * proveedor mande la factura o devuelva el dinero después de que se le pide. Nace `atrasada`, y
+     * es correcto: el más viejo cumplió 90 días el 31-may-2026.
+     */
+    umbral_dias: 30,
+    /** El permiso del guard de `/compras/anticipos` (regla 1 de este registro). */
+    anyOf: [Permission.COMPRAS_OBLIGACIONES_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex.from(knex.raw(SQL_ANTICIPOS_MAS_DE_90, [tenantId])), {
+        estadoCol: 'estado',
+        estadoAbierto: 'sin_factura',
+        /* El día que cumplió 90 días: desde ahí es trabajo de alguien. */
+        fecha: 'entro',
+        /*
+         * ⛔ `cierre: null` porque la fuente no puede contestar cuántas salieron. Un anticipo que se
+         * aplica o se reembolsa deja de tener remanente y **desaparece** de la tabla derivada; Kepler
+         * no guarda cuándo. `null` viaja como «no se puede medir», nunca como 0.
+         */
+        cierre: null,
+      }),
+    /*
+     * El desglose: son pocos por naturaleza (8 hoy, ~3 nuevos al mes, como mucho los 21 de más de 90
+     * días) y lo que importa es **a qué proveedor llamar**. Por eso el orden es el dinero, como en la
+     * cartera. ⚠️ Entran también los remanentes chicos ($76 y $1 hoy): son anticipos sin aplicar
+     * igual que los demás, y quedan al final.
+     */
+    desglosar: async (knex, { tenantId }, tope) => {
+      const filas = await knex
+        .from(knex.raw(SQL_ANTICIPOS_MAS_DE_90, [tenantId]))
+        .joinRaw('LEFT JOIN catalog.suppliers s ON btrim(s.code) = anticipos.proveedor AND s.tenant_id = ?::uuid', [tenantId])
+        .where('anticipos.estado', 'sin_factura')
+        .orderBy('anticipos.a_favor', 'desc')
+        .limit(tope)
+        .select('anticipos.sucursal', 'anticipos.proveedor', 'anticipos.folio', 'anticipos.a_favor', 'anticipos.fecha', 's.name as nombre');
+      return filas.map((f: { sucursal: string; proveedor: string; folio: string; a_favor: string | number; fecha: Date | string | null; nombre: string | null }) => ({
+        id: `${f.sucursal}:${f.proveedor}:${f.folio}`,
+        label: f.nombre || f.proveedor,
+        // Kepler no declara gravedad del anticipo: no se inventa una (`MeDesgloseItem.nivel`).
+        nivel: null,
+        desde: f.fecha ? new Date(f.fecha).toISOString() : null,
+        nota: `${PESOS.format(Number(f.a_favor))} · anticipo ${f.folio} · ${warehouseName(f.sucursal)}`,
+      }));
+    },
   },
 ];
 
