@@ -23,3 +23,20 @@ export function ligadoAEntrada(
   if (!entrada.sucursal || !entrada.entrada_folio) return false;
   return ajuste.sucursal === entrada.sucursal && ajuste.entrada_folio === entrada.entrada_folio;
 }
+
+/**
+ * `[RE.71]` — ¿El ajuste puede figurar como CANDIDATO (proveedor + fecha) de esta entrada? Sólo si
+ * es de la misma sucursal y de un proveedor real. Testigo independiente (prod, 2026-11-14): de 1,488
+ * ajustes que Kepler liga a una entrada del mismo proveedor, los 1,488 están en la sucursal de la
+ * entrada y 0 en otra. Una nota a CEDIS u otra sucursal (`proveedor_interno`) es un traspaso, no
+ * algo que el proveedor devolvió. En oct-2026 la regla vieja traía 4,784 candidatos ajenos de
+ * 6,878, en 370 de 1,073 entradas. Sin sucursal de la entrada no se puede descartar: se deja pasar
+ * (contrato de los llamadores que no la mandan).
+ */
+export function candidatoDeEntrada(
+  ajuste: { sucursal?: string | null; proveedor_interno?: boolean | null },
+  entrada: { sucursal?: string | null },
+): boolean {
+  if (ajuste.proveedor_interno === true) return false;
+  return !entrada.sucursal || ajuste.sucursal === entrada.sucursal;
+}

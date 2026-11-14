@@ -3,7 +3,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
 import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
-import { ligadoAEntrada } from './ajuste-entrada-liga';
+import { candidatoDeEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -261,18 +261,30 @@ export class PurchaseAdjustmentsService {
       let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado');
       b = b.andWhere((w: any) => {
         if (porFolio) w.orWhere((wf: any) => wf.where('sucursal', p.sucursal).andWhere('entrada_folio', p.entrada_folio));
+        // `[RE.71]` El candidato heurístico es de la MISMA sucursal y de un proveedor real: un ajuste
+        // de otra sucursal no puede tocar esta recepción (de 1,488 ligas que Kepler sí hace, 0 cruzan
+        // de sucursal) y una nota a CEDIS u otra sucursal (`proveedor_interno`) es un traspaso.
+        // Medido oct-2026: 4,784 de 6,878 candidatos eran ajenos, en 370 de 1,073 entradas.
+        const candidato = (ww: any) => {
+          ww.where('proveedor_code', p.proveedor_code).andWhere('proveedor_interno', false);
+          if (p.sucursal) ww.andWhere('sucursal', p.sucursal);
+          return ww;
+        };
         if (p.proveedor_code && p.date) {
-          w.orWhere((ww: any) => ww.where('proveedor_code', p.proveedor_code)
+          w.orWhere((ww: any) => candidato(ww)
             .andWhereRaw(`adjustment_date BETWEEN ?::date - ?::int AND ?::date + ?::int`, [p.date, win, p.date, win]));
         } else if (p.proveedor_code) {
-          w.orWhere('proveedor_code', p.proveedor_code);
+          w.orWhere((ww: any) => candidato(ww));
         }
       });
       const rows: any[] = await b
-        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
+        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'proveedor_interno')
         .orderBy('adjustment_date', 'desc').limit(50);
 
-      const out = rows.map((r) => {
+      // `[RE.71]` La misma regla que el WHERE, en código puro y probado: lo que no está ligado por
+      // Kepler a esta entrada sólo queda si es candidato legítimo (misma sucursal, proveedor real).
+      const ent = { sucursal: p.sucursal, entrada_folio: p.entrada_folio };
+      const out = rows.filter((r) => ligadoAEntrada(r, ent) || candidatoDeEntrada(r, ent)).map((r) => {
         const monto = Math.abs(Number(r.monto || 0));
         // `[RE.21]` — **explica por MONTO, no por folio.** No hay llave estructural entre la nota
         // de crédito y la recepción: `entrada_folio` (c39) viene vacío en el 96% y en las X-D-55

@@ -1195,14 +1195,15 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           <div class="cb-explains-head">
             <!-- [RE.52] La pregunta sólo cuando no cuadra: sobre una factura que cuadra afirmaba un descuadre. -->
             <span><i class="pi pi-search-plus" aria-hidden="true"></i> {{ cuadre(d).tone === 'ok' ? 'Ajustes del proveedor' : '¿Por qué no cuadra? — ajustes del proveedor' }}</span>
-            @if (explains().length) { <span class="cb-explains-sum">{{ explains().length }} · {{ money(explainsTotal()) }}</span> }
+            <!-- [RE.71] Sin suma: sumar candidatos que no explican el hueco publicaba un monto que no es de esta entrada. -->
+            @if (explains().length) { <span class="cb-explains-sum">{{ explains().length }} {{ explains().length === 1 ? 'candidato' : 'candidatos' }}</span> }
           </div>
           @if (explainsLoading()) {
             <p class="muted cb-explains-none"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando ajustes…</p>
           } @else if (!explains().length) {
-            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito (X-D-40/55) de este proveedor cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
+            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito (X-D-40/55) de este proveedor en esta sucursal cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
           } @else {
-            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> ±15 días — pueden explicar por qué la factura difiere de lo recibido.</p>
+            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> en esta sucursal, ±15 días — pueden explicar por qué la factura difiere de lo recibido.</p>
             <ul class="cb-explains-list">
               @for (a of explains(); track a.doctype + a.folio) {
                 <li class="cb-explains-item">
