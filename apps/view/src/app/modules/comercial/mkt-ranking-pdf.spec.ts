@@ -44,13 +44,15 @@ const renglon = {
 const mostrador: RankingSemana = {
   semana: { lunes: '2026-11-02', domingo: '2026-11-08', numero: 45, hasta: '2026-11-08', en_curso: false },
   canal: 'mostrador', canal_texto: 'Sucursales', promos_vigentes: 1, promedio_general: 0.9,
-  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1' }], promo_filtrada: null,
+  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', proveedor_id: null }], promo_filtrada: null,
+  proveedores_lista: [], proveedor_filtrado: null,
   participantes: [{
     clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
     lugar: 1, puntaje: 0.9, con_objetivo: 1, sin_objetivo: 0, cumplidas: 0, sin_venta: 0, promos: [renglon],
   }],
   promos_ranking: [{
-    promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
+    promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', proveedor: { id: 'p1', code: 'CD015', name: 'DULCES DEMO SA' }, proveedor_fuente: 'asignado',
+    productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
     participantes: 2, venta_total: 18, objetivo_total: 20, lugar: 1, puntaje: 0.9, con_objetivo: 2, sin_objetivo: 0, cumplidas: 1, sin_venta: 0,
   }],
   vendedoras: {
@@ -87,6 +89,13 @@ describe('[MKT.16–18] PDF del ranking (dibujo real)', () => {
     const detalle = tablas[3].body ?? [];
     expect(detalle[0][2]).toContain('(dinámico)');
     expect(textos.join(' ')).toContain('no aplica los filtros de la pantalla');
+  });
+
+  it('[MKT.24] cada promoción dice su proveedor; sin asignar, lo dice (no lo deja en blanco)', async () => {
+    const { filasPromociones } = await import('./mkt-ranking-pdf');
+    expect(filasPromociones(mostrador)[0][1]).toContain('Proveedor: CD015 · DULCES DEMO SA');
+    const sin = { ...mostrador, promos_ranking: [{ ...mostrador.promos_ranking[0], proveedor: null }] };
+    expect(filasPromociones(sin)[0][1]).toContain('Proveedor: sin asignar');
   });
 
   it('fuera de mostrador no hay sección por vendedora', async () => {

@@ -83,8 +83,21 @@ export interface VendedorasSemana {
   por_sucursal: Array<{ warehouse_code: string; tickets_con_promo: number; tickets_con_vendedora: number }>;
 }
 
+/** [MKT.24] Un proveedor de catalog.suppliers (la promo lo trae si Mercadotecnia se lo asignó). */
+export interface ProveedorPromo { id: string; code: string; name: string }
+/** [MKT.24] Valor del filtro «sin proveedor asignado». */
+export const SIN_PROVEEDOR = 'sin';
+/** [MKT.24] De dónde salió el proveedor: asignado por Mercadotecnia o derivado del producto que activa la promo. */
+export type FuenteProveedor = 'asignado' | 'producto' | null;
+/** [MKT.24] «HERSHEY» o «HERSHEY (del producto)»: lo derivado nunca se lee como capturado. */
+export const nombreProveedor = (p: ProveedorPromo | null | undefined, fuente: FuenteProveedor | undefined): string =>
+  (p ? p.name + (fuente === 'producto' ? ' (del producto)' : '') : 'Sin proveedor asignado');
+
 export interface PromoEnRanking {
   promo_id: string; code: string; nombre: string;
+  /** [MKT.24] null = ni asignado ni derivable del producto. */
+  proveedor: ProveedorPromo | null;
+  proveedor_fuente: FuenteProveedor;
   productos: string[]; productos_metodo: MetodoProducto;
   participantes: number; venta_total: number; objetivo_total: number;
   lugar: number | null; puntaje: number | null;
@@ -105,8 +118,11 @@ export interface RankingSemana {
   canal_texto: string;
   promos_vigentes: number;
   /** [MKT.16] Todas las promos vigentes del canal, para el filtro. */
-  promos_lista: Array<{ id: string; code: string; mecanica: string }>;
+  promos_lista: Array<{ id: string; code: string; mecanica: string; proveedor_id: string | null }>;
   promo_filtrada: string | null;
+  /** [MKT.24] Proveedores de las promos del canal con cuántas tiene cada uno; id null = sin asignar (al final). */
+  proveedores_lista: Array<{ id: string | null; code: string | null; name: string; promos: number }>;
+  proveedor_filtrado: string | null;
   promedio_general: number | null;
   participantes: ParticipanteRanking[];
   /** [MKT.16] El ranking de promociones (misma regla que el de participantes). */
@@ -132,6 +148,9 @@ export interface PromoMkt {
   updated_at: string;
   updated_by_username: string | null;
   productos?: ProductosDePromo;
+  /** [MKT.24] El que asignó Mercadotecnia o, si no, el del producto que activa la promo (ver proveedor_fuente). */
+  proveedor?: ProveedorPromo | null;
+  proveedor_fuente?: FuenteProveedor;
 }
 
 export interface Objetivo {
@@ -222,16 +241,27 @@ export class MktRankingService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/mkt-ranking`;
 
-  ranking(semana: string | null, canal: Canal, promo: string | null = null, sucursales: string[] = []): Observable<RankingSemana> {
+  ranking(semana: string | null, canal: Canal, promo: string | null = null, sucursales: string[] = [], proveedor: string | null = null): Observable<RankingSemana> {
     let p = new HttpParams().set('canal', canal);
     if (semana) p = p.set('semana', semana);
     if (promo) p = p.set('promo', promo);
+    if (proveedor) p = p.set('proveedor', proveedor);
     if (sucursales.length) p = p.set('sucursales', sucursales.join(','));
     return this.http.get<RankingSemana>(this.base, { params: p });
   }
 
   promos(todas = false): Observable<PromoMkt[]> {
     return this.http.get<PromoMkt[]>(`${this.base}/promos`, { params: todas ? { todas: '1' } : {} });
+  }
+
+  /** [MKT.24] Los proveedores activos, para asignarle uno a una promo. */
+  proveedores(): Observable<ProveedorPromo[]> {
+    return this.http.get<ProveedorPromo[]>(`${this.base}/proveedores`);
+  }
+
+  /** [MKT.24] Asigna (o quita con null) el proveedor de una promo. */
+  asignarProveedor(id: string, supplierId: string | null): Observable<{ proveedor: ProveedorPromo | null }> {
+    return this.http.put<{ proveedor: ProveedorPromo | null }>(`${this.base}/promos/${id}/proveedor`, { supplier_id: supplierId });
   }
 
   objetivos(id: string): Observable<Objetivo[]> {

@@ -1,10 +1,11 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { MktRankingService, esIdPromo } from './mkt-ranking.service';
+import { MktRankingService, esIdPromo, SIN_PROVEEDOR } from './mkt-ranking.service';
 import type { PromoDto, ObjetivoDto, IncentivoDto, Quien } from './mkt-ranking.service';
 
 interface AuthedRequest { user?: { id?: string; username?: string } }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const quien = (req: AuthedRequest): Quien => ({ id: req?.user?.id, username: req?.user?.username });
 /** `[MKT.22]` El id de una promo: UUID de su renglón o `k-<código>` (promo de Kepler sin renglón todavía). */
 const idPromo = (id: string | undefined): string => {
@@ -36,11 +37,32 @@ export class MktRankingController {
   @Get()
   @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
   @ApiOperation({ summary: 'Ranking de la semana por canal (mostrador · preventa · ruta · mayoreo), en vivo desde Kepler' })
-  ranking(@Query('semana') semana?: string, @Query('canal') canal?: string, @Query('promo') promo?: string, @Query('sucursales') sucursales?: string): ReturnType<MktRankingService['ranking']> {
+  ranking(
+    @Query('semana') semana?: string, @Query('canal') canal?: string, @Query('promo') promo?: string,
+    @Query('sucursales') sucursales?: string, @Query('proveedor') proveedor?: string,
+  ): ReturnType<MktRankingService['ranking']> {
     // Un id que no es de promo no filtra nada: se rechaza en vez de devolver un ranking vacío que parezca real.
     if (promo) idPromo(promo);
+    // `[MKT.24]` Lo mismo con el proveedor: un UUID o «sin» (las que nadie ha asignado).
+    if (proveedor && proveedor !== SIN_PROVEEDOR && !UUID.test(proveedor)) throw new BadRequestException('El proveedor no es válido');
     const whs = String(sucursales ?? '').split(',').map((x) => x.trim()).filter((x) => /^\d{2}$/.test(x));
-    return this.service.ranking(semana, canal, promo || undefined, whs.length ? whs : undefined);
+    return this.service.ranking(semana, canal, promo || undefined, whs.length ? whs : undefined, proveedor || undefined);
+  }
+
+  // ─────────── proveedor de la promoción (`[MKT.24]`) ───────────
+
+  @Get('proveedores')
+  @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
+  @ApiOperation({ summary: 'Proveedores activos (catalog.suppliers) para asignar a una promoción' })
+  proveedores(): ReturnType<MktRankingService['proveedores']> {
+    return this.service.proveedores();
+  }
+
+  @Put('promos/:id/proveedor')
+  @RequirePermissions(Permission.MKT_AGREEMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna (o quita con null) el proveedor de una promoción: Kepler no lo trae' })
+  asignarProveedor(@Param('id') id: string, @Body() body: { supplier_id?: string | null }, @Req() req: AuthedRequest): ReturnType<MktRankingService['asignarProveedor']> {
+    return this.service.asignarProveedor(idPromo(id), body?.supplier_id ?? null, quien(req));
   }
 
   // ─────────── promociones ───────────

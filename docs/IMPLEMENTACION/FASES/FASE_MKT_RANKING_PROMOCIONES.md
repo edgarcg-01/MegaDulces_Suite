@@ -148,10 +148,50 @@ Auditoría en la pantalla viva (local, semilla): **13 controles y 533 px** antes
 
 **NO MEDIDO:** la vista con una cuenta de cajera (en local no hay contraseña conocida de una); tiempos en prod de punta a punta (local: arqueo 3.7–3.9 s, ranking 2.3 s, objetivos 1.0 s). Las primeras pruebas de esta sesión pegaron por error a un proceso viejo de la API (detener la tarea de `nx serve` no mata su `node`): no cuentan.
 
+## 6g. `[MKT.24]`–`[MKT.26]` — proveedor, piezas, quién vendió y tiempo de carga (2026-11-13)
+
+Pedido de David: «agregarle los proveedores (identificarlos si ya vienen, y un filtro), quiénes la vendieron, cuánto vendieron (piezas y cajas)».
+
+**`[MKT.24]` El proveedor — el código de la promo no lo trae; el producto que la activa sí, en la mitad (medido en prod, sólo lectura):**
+
+| Fuente | Lo que trae |
+|---|---|
+| Ficha (`catalog.products.supplier_id` = `kdii.c3`) | 356 códigos de promo: 207 «PROMOCIONES MKT» (cubeta), 123 sin proveedor. De las 69 vendidas: 66 cubeta, 3 sin |
+| Marca (`brand_id`) | «PROMOCIONES», «PRODUCTOS VARIOS», «POR CLASIFICAR»: no lleva al proveedor |
+| Compras (`X-A-20`, `kdm1.c10`) | 103 de 114 promos vendidas en 5 semanas entraron por compra, **las 103 a nombre del mismo acreedor** (cubeta interna) |
+| **Producto que la activa** (`[MKT.15]`, ticket + nombre) | de 108 promos de 5 semanas: **57 con un solo proveedor**, que el nombre confirma (VOLT → AJEMEX, Kisses → Hershey, Nutresa → Tresmontes Lucchetti, Barcel/Bimbo → Barcel); 5 con varios; 46 sin producto identificado |
+
+⚠️ **Corrección:** la primera medición de esta sesión decía «0 de 69» por el ticket. Era un error de instrumento: se miró un ticket que sólo traía la línea de la promo y se excluyeron mal los candidatos. Con la regla real de `[MKT.15]` (ticket + nombre) el producto se identifica en 40 de 61 (semana) y 60 de 108 (5 semanas).
+
+**Regla:** proveedor = el que **asignó** Mercadotecnia; si no asignó, el **del producto** (`proveedor_fuente = producto`), sólo si TODOS sus productos identificados tienen proveedor y es el MISMO, y nunca de `mismo_codigo` (el propio código de la promo, cuya ficha es la cubeta). Se deriva en vivo, no se guarda; en pantalla y PDF dice «del producto». En Objetivos el derivado es la **sugerencia** del selector, no su valor: elegirlo lo confirma. Adivinarlo por el nombre de la promo («3 PROD LA ROSA…») sigue prohibido (regla 10). **Opción A de David** para el resto: Mercadotecnia lo asigna **una vez por promo** en la celda (sin abrir panel: abrir uno por cada una era retrabajo). Columna nueva `commercial.mkt_ranking_promos.supplier_id` (nullable, FK `(tenant_id, supplier_id)` → `catalog.suppliers`, `ON DELETE SET NULL (supplier_id)`) — migración `20261113161815_mkt_ranking_promo_proveedor.js`. Asignarla a una promo `k-…` crea su renglón como el primer objetivo; quitarla a una sin renglón no crea nada.
+- **Ranking:** filtro por proveedor (incluye «Sin proveedor asignado»), aplicado en el SERVIDOR como el de promoción: el lugar se recalcula sólo con sus promos; etiqueta quitable, nota «El lugar se calcula sólo con…», portada del PDF filtrado. Cada promo dice su proveedor (fila, detalle y PDF).
+- **Objetivos:** KPI «Sin proveedor» con desglose al filtro; buscador por proveedor; quien sólo VE lo lee como texto.
+- **Seguro ante el orden del despliegue:** antes de aplicar la migración la lectura no truena (todas salen sin proveedor) y asignar responde **503 «Falta aplicar la migración…»**, no un 500 mudo. Igual: **la migración va ANTES de soltar.**
+
+**Cuánto vendieron — piezas y cajas:** en Kepler la caja de un código de promoción es de **1 pieza** (69 de 70 vendidos con `factor_caja = 1`, todos `PZA`): en cajas da lo mismo, por eso la columna dice «Venta (pz)» y no se agrega otra igual. Las cajas que sí cambian son las del **producto que activa** la promo (ya se muestran debajo de cada una cuando se identifica, `[MKT.15]`). Dicho en la ayuda, el criterio y el PDF.
+
+**`[MKT.25]` Quién la vendió, dentro de cada promoción:** el detalle de una promo trae su proveedor, la tabla por sucursal o vendedor (objetivo, venta, cubrimiento) y, en mostrador, **las vendedoras** que las cajeras escribieron en el arqueo con sus piezas de ESA promo, respetando el filtro de sucursal, y **cuánto de la venta ya tiene vendedora** («Con vendedora: 9 de 18 piezas…»): lo atribuido no se presenta como el total. Sin captura, lo dice y liga al arqueo. Sin endpoint nuevo: sale de lo que el ranking ya traía.
+
+**`[MKT.26]` Tiempo de carga — auditoría en prod con el código nuevo (sólo lectura, el servicio real en transacciones READ ONLY):**
+
+| Llamada | Antes | Ahora (1ª vez) | Ahora (con caché) |
+|---|---:|---:|---:|
+| Ranking · Sucursales (mostrador) | **17–20 s** | 2.6–2.8 s | 1.4–1.8 s |
+| Ranking · otros canales | 1.6–2.6 s | 2.1–3.7 s (carga del servidor) | 1.1–2.5 s |
+| Objetivos · lista | **28 s** | 1.7 s | — |
+
+Causas y arreglos: (1) en `productosDePromos` el planificador estimaba 1 fila para `co` (son ~27 mil) y la **recalculaba una vez por promoción** (61 × 255 ms) → `co AS MATERIALIZED`: 14.9 s → 1.4 s y 27.3 s → 1.4 s, **mismo resultado fila por fila** (948 y 1,203). Lo empeoró `[MKT.22]`: antes eran pocas promos dadas de alta, ahora son todas las de Kepler — **el #541 ya mergeado sale con los 17 s si se suelta sin esto**. (2) El ranking era UNA transacción con sus consultas en fila: ahora va en tramos cortos y en paralelo **sin anidar** (pool de 10: anidar podía trabar peticiones simultáneas), como `inventory-variance`; lo que no depende del proveedor se pide para todo el canal y se filtra en memoria. (3) Existencias desde el primer instante, para los 355 códigos como arreglo (0.8 s; como subconsulta `ANY(ARRAY(SELECT…))` el plan empeoraba a ~5 s — medido y descartado). (4) Caché del producto identificado con `TenantCacheService` (Redis, 10 min, ya existía en `libs/`). **Igualdad:** la salida del ranking antes/después en 9 casos (4 canales, filtros por proveedor, «sin», sucursales) es **idéntica** sin y con caché.
+
+**Probado:** dominio 60 pruebas (12 nuevas: proveedor resuelto, sin columna = null, lista del filtro, asignar con/sin renglón, quitar, 400/404, 503 sin migración, ranking filtrado por proveedor y por «sin», control sin filtro); pantalla 82 (13 nuevas: filtro al servidor, etiqueta y portada, «sin», vendedoras por promo y lo atribuido, negativa sin captura, KPI y desglose, guardar en la celda, doble clic = una escritura, mismo proveedor = nada, falla 503 vuelve a lo guardado, sólo lectura). Después: dominio **65** (+5 del proveedor derivado: uno/varios/ninguno, lo asignado gana, `mismo_codigo` no deriva) y pantalla **83** (+1: el derivado es sugerencia, cuenta como con proveedor, elegirlo escribe). **Prueba negativa:** 5 mutaciones del dominio y 4 de la pantalla → rojo, restauradas → verde. `check:pantalla` 2 de 2 sin falla, tipan. La migración corrió **dos veces** contra `platform_local` (idempotente; FK creada).
+
+**NO MEDIDO:** el arranque de la API con los decoradores y el constructor nuevos (`@Optional() TenantCacheService`, como margin-engine; no se levantó: lo mide el CI); los endpoints HTTP de punta a punta y la escritura del proveedor en prod (prohibido escribir en prod: probada en unitarias y la migración en local); la pantalla viva; el tiempo con varios usuarios a la vez; el peso de la respuesta en la red (mostrador ≈ 194 KB de JSON sin comprimir).
+
 ## 7. Pendiente / abierto
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.
 - Aplicar la migración en prod (una sola, aditiva) **antes** de soltar el código.
+- `[MKT.24]` Aplicar `20261113161815_mkt_ranking_promo_proveedor.js` (aditiva: una columna nullable + FK) **antes** de soltar; y que Mercadotecnia asigne el proveedor a las ~53 promos que no lo derivan del producto (de 108; el KPI «Sin proveedor» dice cuántas faltan). La alternativa para no capturarlo es que Compras dé de alta en Kepler cada promo con su proveedor real (hoy la cubeta «PROMOCIONES MKT»).
+- `[MKT.26]` **Soltar el arreglo de velocidad junto con el #541 o antes:** con sólo el #541 el ranking de Sucursales tarda 17–20 s y Objetivos 28 s.
 - **Revisar si se pagaron incentivos con la cifra mal calculada del Excel** (Winis MA, +$3,656.25, S31–S40) — fuera del sistema, con Finanzas.
 - Preguntas a Mercadotecnia: ¿«por cliente distinto» es por semana o por vigencia? ¿«por exhibidor colocado» lo captura Mercadotecnia o la ruta? ¿el ranking de vecinal/ruta lleva objetivo por vendedor o por ruta?
 - El alcance por sucursal (que el encargado vea sólo la suya) no está: hoy lo ve sólo quien tiene `MKT_AGREEMENTS_VER`.
