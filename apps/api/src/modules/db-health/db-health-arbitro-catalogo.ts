@@ -54,7 +54,8 @@ const TOPE_WARN = 50;
  * bitácora: +500 ms por sensor; con la llave exacta va por `ix_crl_job`).
  */
 function veredicto(clave: string, que: string, comoCerrar: string, paso: string, llaves: string[],
-                   difiere = `con ${que} distinto al de Kepler`): string {
+                   difiere = `con ${que} distinto al de Kepler`,
+                   universo: { tabla: string; nombre: string } = { tabla: 'catalog.products', nombre: 'productos' }): string {
   const corridas = `analytics.cron_run_log WHERE tenant_id = ${T}
                        AND job_key = ANY(ARRAY[${llaves.map((k) => `'${k}'`).join(', ')}])`;
   return `,
@@ -68,11 +69,11 @@ function veredicto(clave: string, que: string, comoCerrar: string, paso: string,
                 WHEN c.difieren = 0 THEN now()
                 WHEN c.difieren <= ${TOPE_WARN} THEN now() - interval '30 hours'
                 ELSE now() - interval '100 days' END AS last_update,
-           CASE WHEN c.vistos = 0 THEN 'NO MEDIDO: el sensor no ve catalog.products (sin tenant o sin permiso)'
+           CASE WHEN c.vistos = 0 THEN 'NO MEDIDO: el sensor no ve ${universo.tabla} (sin tenant o sin permiso)'
                 WHEN c.difieren = 0 AND ret.retirable
                   THEN 'CUMPLIÓ: 0 difieren, 30 días sin ${paso} y sin una alerta — retirar este sensor ([CANON.6.11])'
                 WHEN c.difieren = 0
-                  THEN '${que} al día con Kepler: 0 difieren de ' || c.vistos || ' productos · se retira con 30 días sin ${paso}'
+                  THEN '${que} al día con Kepler: 0 difieren de ' || c.vistos || ' ${universo.nombre} · se retira con 30 días sin ${paso}'
                        || coalesce(' (corrió por última vez el ' || to_char(ret.ultimo_nocturno AT TIME ZONE 'America/Mexico_City', 'DD/MM') || ')', '')
                        || ' y sin alertas'
                 ELSE c.difieren || ' ${difiere}: el hop-2 no tomó su cambio' ||
@@ -273,6 +274,47 @@ export const ARBITRO_COSTO_SQL = `
                AND (p.cost_base IS NULL OR (n.net BETWEEN p.cost_base::numeric / 3 AND p.cost_base::numeric * 3))) AS difieren)
   ${veredicto('catalogo_costo_evento', 'costo', 'Medir: node database/importers/kepler/repoint-catalog-cost.js; cerrar: --apply', 'repoint-catalog-cost.js',
     ['feed_nightly/repoint-catalog-cost.js'])}`;
+
+/**
+ * `[CANON.6.18]` Logística: misma regla que `services/feeds-ingest/logistics-dims.js` (`normalizeVehiclesFromOds` /
+ * `normalizeDriversFromOds` / `normalizeRoutesFromOds`). Cuenta lo que el hop-2 daría de alta o adoptaría HOY, y debe ser 0:
+ *   · unidades de Kepler (por su resolvedor) sin fila viva con su clave que la regla adoptaría (una viva sin clave con la
+ *     misma placa normalizada) o daría de alta (la placa no está en ninguna fila y su clave no se borró en la app);
+ *   · choferes, igual (adopta por nombre; no hay placa que ocupe);
+ *   · nombres de ruta de `kdm_rutas` sin ruta viva con ese nombre, salvo los borrados en la app.
+ * Lo que la regla respeta (borrado en la app, placa ocupada por otra clave) NO cuenta: es decisión (D3), no hueco. Las
+ * tablas son chicas (~300 / ~300 / ~760 filas en el ODS). Universo: las filas vivas de las tres tablas de logística.
+ */
+export const ARBITRO_LOGISTICA_SQL = `
+  WITH veh AS (
+    SELECT DISTINCT ON (clave_kepler) clave_kepler AS clave, placas AS valor
+      FROM analytics.v_kepler_transporte WHERE placas IS NOT NULL ORDER BY clave_kepler, sucursal),
+  chof AS (
+    SELECT DISTINCT ON (clave_kepler) clave_kepler AS clave, nombre AS valor
+      FROM analytics.v_kepler_chofer WHERE nombre IS NOT NULL ORDER BY clave_kepler, sucursal),
+  rut AS (
+    SELECT DISTINCT upper(btrim(c2)) AS valor FROM kepler_ods.kdm_rutas WHERE btrim(coalesce(c2, '')) <> ''),
+  c AS MATERIALIZED (
+    SELECT (SELECT count(*) FROM logistics.vehicles WHERE tenant_id = ${T} AND deleted_at IS NULL)
+         + (SELECT count(*) FROM logistics.drivers WHERE tenant_id = ${T} AND deleted_at IS NULL)
+         + (SELECT count(*) FROM logistics.routes WHERE tenant_id = ${T} AND deleted_at IS NULL) AS vistos,
+           (SELECT count(*) FROM veh
+             WHERE NOT EXISTS (SELECT 1 FROM logistics.vehicles v WHERE v.tenant_id = ${T} AND v.kepler_code = veh.clave AND v.deleted_at IS NULL)
+               AND (EXISTS (SELECT 1 FROM logistics.vehicles v WHERE v.tenant_id = ${T} AND v.kepler_code IS NULL AND v.deleted_at IS NULL
+                              AND regexp_replace(upper(btrim(v.plate)), '[^A-Z0-9]', '', 'g') = regexp_replace(upper(btrim(veh.valor)), '[^A-Z0-9]', '', 'g'))
+                    OR NOT EXISTS (SELECT 1 FROM logistics.vehicles v WHERE v.tenant_id = ${T} AND (v.plate = veh.valor OR v.kepler_code = veh.clave))))
+         + (SELECT count(*) FROM chof
+             WHERE NOT EXISTS (SELECT 1 FROM logistics.drivers d WHERE d.tenant_id = ${T} AND d.kepler_code = chof.clave AND d.deleted_at IS NULL)
+               AND (EXISTS (SELECT 1 FROM logistics.drivers d WHERE d.tenant_id = ${T} AND d.kepler_code IS NULL AND d.deleted_at IS NULL
+                              AND upper(btrim(d.full_name)) = upper(btrim(chof.valor)))
+                    OR NOT EXISTS (SELECT 1 FROM logistics.drivers d WHERE d.tenant_id = ${T} AND d.kepler_code = chof.clave)))
+         + (SELECT count(*) FROM rut
+             WHERE NOT EXISTS (SELECT 1 FROM logistics.routes r WHERE r.tenant_id = ${T} AND r.deleted_at IS NULL AND upper(btrim(r.name)) = rut.valor)
+               AND NOT EXISTS (SELECT 1 FROM logistics.routes r WHERE r.tenant_id = ${T} AND r.deleted_at IS NOT NULL AND r.name = rut.valor)) AS difieren)
+  ${veredicto('logistica_dims_evento', 'unidades, choferes y rutas', 'Medir: node database/importers/kepler/import-logistics-dims.js; cerrar: --apply', 'import-logistics-dims.js',
+    ['feed_nightly/import-logistics-dims.js', 'feed_logistics/import-logistics-dims.js'],
+    'sin tomar de Kepler (unidades o choferes sin su clave, o rutas sin dar de alta)',
+    { tabla: 'logistics.vehicles / drivers / routes', nombre: 'filas de logística' })}`;
 
 /**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`

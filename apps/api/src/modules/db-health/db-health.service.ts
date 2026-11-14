@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -911,6 +911,11 @@ const APP_SOURCES: SourceCfg[] = [
   {
     key: 'catalogo_costo_evento', label: 'Catálogo por evento — costo (árbitro)', table: 'catalog.products', tsCandidates: [],
     sql: ARBITRO_COSTO_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar o borrarse kdii / kdik) — debe dar 0',
+  },
+  // `[CANON.6.18]` Unidades, choferes y rutas de Kepler → logistics.* por evento (antes import-logistics-dims, nocturno).
+  {
+    key: 'logistica_dims_evento', label: 'Logística por evento — unidades, choferes y rutas de Kepler (árbitro)', table: 'logistics.vehicles', tsCandidates: [],
+    sql: ARBITRO_LOGISTICA_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdm_transporte / kdm_chofer / kdm_rutas) — debe dar 0',
   },
   // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
   {

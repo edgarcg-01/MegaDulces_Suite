@@ -2,152 +2,57 @@
 /**
  * EMB.2 (antes KV.8) — Dimensiones de logística de Kepler → `logistics.*`, IDEMPOTENTE y sin wipe.
  *
- * ── QUÉ CAMBIÓ Y POR QUÉ (2026-09-17) ────────────────────────────────────────────────────
- * 1. **Single-DB sobre `kepler_ods`.** Antes abría una segunda conexión a una réplica de
- *    sucursal (`LOGISTICS_DIMS_SRC`, por defecto md_03) y leía `md.kdm_*`. Ahora lee el ODS,
- *    que vive en la MISMA base destino: desaparece la conexión per-branch y —lo importante—
- *    el importer y las vistas de EMB.0 pasan a leer exactamente la misma fuente, así que no
- *    pueden discrepar. Es el patrón de [[feedback_per_branch_to_ods_single_db]].
- * 2. **Escribe `kepler_code` y upsertea POR ESA CLAVE.** Antes dedupeaba por nombre/placa y
- *    tiraba la clave (quedaba como texto suelto en `notes`: "Kepler unidad 00017"). Sin
- *    columna de cruce, resolver un embarque a su unidad obligaba a parsear una cadena. La
- *    clave es ahora la llave de identidad; el nombre/placa sólo se usa para ADOPTAR filas
- *    viejas que todavía no la tienen.
- * 3. **Lee los catálogos por los resolvedores** `analytics.v_kepler_transporte` /
- *    `v_kepler_chofer`, que ya colapsan las altas duplicadas de Kepler (la misma unidad dada
- *    de alta como `00018` y `018`). Leer `kdm_transporte` crudo re-introduciría esos dobles.
+ * ⛔ RETIRADO del carril nocturno 2026-11-13 `[CANON.6.18]`. Lo mantiene el hop-2 de la ingesta AL LLEGAR un cambio
+ * de `kdm_transporte` / `kdm_chofer` / `kdm_rutas` (`normalizeVehiclesFromOds` / `normalizeDriversFromOds` /
+ * `normalizeRoutesFromOds`), con la MISMA regla: vive en `services/feeds-ingest/logistics-dims.js` y esta herramienta
+ * la llama sobre el catálogo entero. Medido antes de retirarlo: 21 noches seguidas en error (12-oct → 5-nov, H1 del
+ * anexo CANON.5) y 8 noches sin nada que hacer desde el arreglo; en toda su vida, 17 rutas dadas de alta y ninguna
+ * unidad ni chofer (ésas sólo las adopta). El árbitro `logistica_dims_evento` de db-health vigila lo que el evento no vea.
  *
- * ⛔ **Las RUTAS no llevan clave y es a propósito** (medido, ver mig 20260917130000): 3 de las
- * 88 claves nombran cosas distintas según la sucursal (`R0001` = HUANIMARO en 7 ramas y
- * ZIROSTO en la 06; `R7` = MORELIA vs IRAPUATO). Sólo se vincula la biyección comprobada.
- *
- * `logistics.*` tiene RLS forzado → `SET LOCAL app.tenant_id` dentro de la transacción.
- *
- *   node database/importers/kepler/import-logistics-dims.js          # dry-run (ROLLBACK)
+ * Queda como herramienta MANUAL:
+ *   node database/importers/kepler/import-logistics-dims.js          # en seco (ROLLBACK): qué daría de alta o adoptaría
  *   node database/importers/kepler/import-logistics-dims.js --apply  # commit
+ * ⚠️ El modo en seco escribe dentro de una transacción que revierte: necesita un rol con INSERT en `logistics.*`
+ * (el de `feeds-cron`), no el de sólo lectura.
+ *
+ * Historia de la regla (2026-09-17): lee el ODS en la misma base (antes una réplica de sucursal), upsertea por la clave
+ * de Kepler (`kepler_code`) y lee los catálogos por los resolvedores `analytics.v_kepler_transporte` / `v_kepler_chofer`,
+ * que colapsan las altas duplicadas (`00018` y `018`). Las RUTAS no llevan clave a propósito (ver el módulo).
  */
 
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
+const { sincronizarUnidades, sincronizarChoferes, sincronizarRutas } = require('../../../services/feeds-ingest/logistics-dims');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
 
-/**
- * Sincroniza un catálogo contra `logistics.<tabla>`: adopta por atributo físico lo que ya
- * existe sin clave, actualiza lo que ya la tiene, e inserta lo nuevo. Nunca borra: una unidad
- * dada de baja en Kepler puede seguir teniendo viajes, costos y fotos colgando en la Suite.
- */
-async function sincronizar(db, { tabla, filas, campo, insertar, normaliza, unico }) {
-  // ⚠️ `normaliza` existe por un defecto REAL (EMB.5): comparar la placa literal creó 8 filas
-  // duplicadas — Kepler la escribe `GA-2027-C` y MagniTracking `GA2027C`, así que el importer
-  // no reconocía la unidad que el GPS ya había dado de alta y creaba un cascarón al lado. El
-  // rastreo quedaba colgando de una fila y la clave de Kepler de la otra: de 25 unidades que
-  // embarcan, sólo 3 tenían GPS alcanzable. Misma familia que los ceros a la izquierda de
-  // EMB.0.1 — la misma llave escrita de dos maneras.
-  const cmp = normaliza
-    ? (c) => `regexp_replace(upper(btrim(${c})),'[^A-Z0-9]','','g')`
-    : (c) => `upper(btrim(${c}))`;
-  let adoptados = 0, actualizados = 0, insertados = 0;
-  const respetadas = [];
-  for (const f of filas) {
-    // 1) ¿ya la tenemos por clave?
-    const porClave = await db.query(
-      `SELECT id FROM logistics.${tabla} WHERE tenant_id=$1 AND kepler_code=$2 AND deleted_at IS NULL`,
-      [M, f.clave]);
-    if (porClave.rowCount) {
-      // ⛔ NO se pisa el atributo: tras la fusión EMB.5 la fila viva es la del GPS y su placa
-      // (`GA2027C`) es la buena para el rastreo. Reescribirla con la forma de Kepler
-      // (`GA-2027-C`) desharía la fusión en la siguiente corrida.
-      actualizados++;
-      continue;
-    }
-    // 2) ¿existe sin clave, de antes de EMB.1 o dada de alta por el GPS? Se ADOPTA.
-    const porAtributo = await db.query(
-      `SELECT id FROM logistics.${tabla}
-        WHERE tenant_id=$1 AND kepler_code IS NULL AND deleted_at IS NULL
-          AND ${cmp(campo)}=${cmp('$2')}`,
-      [M, f.valor]);
-    if (porAtributo.rowCount) {
-      await db.query(
-        `UPDATE logistics.${tabla} SET kepler_code=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-        [M, porAtributo.rows[0].id, f.clave]);
-      adoptados++;
-      continue;
-    }
-    // 3) `[CANON.5.6]` Si el atributo ya existe tal cual en CUALQUIER fila (borrada en la app, o
-    //    viva con otra clave), no se inserta: el índice único `(tenant_id, <campo>)` cuenta también
-    //    las borradas, y un solo choque hacía ROLLBACK de unidades, choferes y rutas a la vez.
-    //    Lo que una persona borró en la app se queda borrado (D3, anexo CANON.5); se declara.
-    if (unico) {
-      const ocupado = await db.query(
-        `SELECT deleted_at IS NOT NULL AS borrada FROM logistics.${tabla} WHERE tenant_id=$1 AND ${campo}=$2 LIMIT 1`,
-        [M, f.valor]);
-      if (ocupado.rowCount) { respetadas.push(`${f.valor}${ocupado.rows[0].borrada ? ' (borrada en la app)' : ' (viva con otra clave)'}`); continue; }
-    }
-    // 4) nueva.
-    await insertar(db, f);
-    insertados++;
-  }
-  console.log(`  ${tabla}: +${insertados} nuevas · ${adoptados} adoptadas · ${actualizados} al día (${filas.length} en Kepler)`);
-  if (respetadas.length) console.log(`  ⓘ ${tabla}: ${respetadas.length} no se dan de alta porque el ${campo} ya existe: ${respetadas.join(' · ')}`);
-  return { insertados, adoptados, actualizados };
-}
+const reportar = (r) => {
+  console.log(`  ${r.tabla}: +${r.insertados} nuevas · ${r.adoptados} adoptadas · ${r.actualizados} al día (${r.enKepler} en Kepler)`);
+  if (r.respetadas.length) console.log(`  ⓘ ${r.tabla}: ${r.respetadas.length} no se dan de alta (borradas en la app u ocupadas): ${r.respetadas.join(' · ')}`);
+};
 
 async function main() {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  await declararActor(db, 'import-logistics-dims');
   try {
     const [{ db: dbname }] = (await db.query('SELECT current_database() AS db')).rows;
-    console.log(`\n=== Dims logística Kepler → logistics.* · ${dbname} · ${APPLY ? 'APPLY' : 'DRY-RUN'} ===\n`);
-
-    // El resolvedor es requisito: sin él se leería kdm_transporte crudo y volverían los dobles.
+    console.log(`\n=== Dims logística Kepler → logistics.* · ${dbname} · ${APPLY ? 'APPLY' : 'EN SECO'} ===\n`);
     const reg = await db.query(`SELECT to_regclass('analytics.v_kepler_transporte') AS t`);
     if (!reg.rows[0].t) throw new Error('falta analytics.v_kepler_transporte (migración 20260917120000 sin aplicar)');
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+    reportar(await sincronizarUnidades(db, M, null));
+    const ch = await sincronizarChoferes(db, M, null);
+    reportar(ch);
+    if (ch.ambiguos) console.log(`  ⚠ ${ch.ambiguos} claves de chofer son ambiguas en el catálogo de Kepler (el nombre difiere entre ramas) — se tomó la forma canónica; ver analytics.v_kepler_chofer.ambiguo`);
 
-    // ── Unidades ────────────────────────────────────────────────────────────────────────
-    // DISTINCT ON: la clave es la misma en las 8 ramas (verificado: 0 claves con dos placas).
-    const veh = (await db.query(`
-      SELECT DISTINCT ON (clave_kepler) clave_kepler AS clave, placas AS valor, descripcion, chofer_asignado
-        FROM analytics.v_kepler_transporte
-       WHERE placas IS NOT NULL
-       ORDER BY clave_kepler, sucursal`)).rows;
-    await sincronizar(db, {
-      tabla: 'vehicles', filas: veh, campo: 'plate', normaliza: true, unico: true,
-      insertar: (d, f) => d.query(
-        `INSERT INTO logistics.vehicles (tenant_id, plate, brand, model, status, active, kepler_code, notes)
-         VALUES ($1,$2,'',$3,'disponible',true,$4,$5)`,
-        [M, f.valor, f.descripcion || '', f.clave, `Alta desde Kepler (unidad ${f.clave})`]),
-    });
-
-    // ── Choferes ────────────────────────────────────────────────────────────────────────
-    const chof = (await db.query(`
-      SELECT DISTINCT ON (clave_kepler) clave_kepler AS clave, nombre AS valor, ambiguo
-        FROM analytics.v_kepler_chofer
-       WHERE nombre IS NOT NULL
-       ORDER BY clave_kepler, sucursal`)).rows;
-    const ambiguos = chof.filter((c) => c.ambiguo).length;
-    await sincronizar(db, {
-      tabla: 'drivers', filas: chof, campo: 'full_name',
-      insertar: (d, f) => d.query(
-        `INSERT INTO logistics.drivers (tenant_id, full_name, roles, employee_type, status, active, kepler_code, notes)
-         VALUES ($1,$2,ARRAY['chofer'],'interno','activo',true,$3,$4)`,
-        [M, f.valor, f.clave, `Alta desde Kepler (chofer ${f.clave})`]),
-    });
-    if (ambiguos) console.log(`  ⚠ ${ambiguos} claves de chofer son ambiguas en el catálogo de Kepler (el nombre difiere entre ramas) — se tomó la forma canónica; ver analytics.v_kepler_chofer.ambiguo`);
-
-    // ── Lo que NO se pudo dar de alta, DECLARADO (ADR-056) ──────────────────────────────
-    // Kepler tiene la misma persona dada de alta dos veces con nombres distintos ("ENRIQUE
-    // FUENTES" vs "ENRIQUE FUENTES MONTES"), bajo una clave corta local a la sucursal. Este
-    // importer dedupea por clave canónica, así que se queda con el nombre completo — correcto,
-    // porque lo contrario crearía 5 personas duplicadas. El costo es que una persona real que
-    // SÓLO existe bajo una clave corta no entra (medido: 1, BENJAMIN ALONZO ZARAGOZA, suc 05
-    // clave 09, cuya clave normalizada choca con el 00009 de MARIA CANDELARIA). No se
-    // auto-crea: son datos maestros de personal y el alta la decide un humano. Pero se
-    // imprime en cada corrida, que es la diferencia entre un hueco conocido y uno invisible.
+    // Lo que NO se da de alta, DECLARADO (ADR-056): Kepler tiene a la misma persona dos veces con nombres distintos
+    // («ENRIQUE FUENTES» vs «ENRIQUE FUENTES MONTES») bajo una clave corta local a la sucursal. Se dedupea por clave
+    // canónica (si no, serían personas duplicadas); el alta de quien SÓLO existe bajo la clave corta la decide un humano.
     const huerfanos = (await db.query(`
       SELECT DISTINCT upper(btrim(k.c2)) AS nombre,
              string_agg(DISTINCT btrim(k.sucursal)||':'||btrim(k.c1), ' ') AS claves
@@ -161,41 +66,10 @@ async function main() {
       console.log(`  ⓘ ${huerfanos.length} nombres de chofer del ODS sin fila propia en logistics.drivers (casi todos son la MISMA persona con el nombre abreviado):`);
       for (const h of huerfanos) console.log(`      · ${h.nombre}  [${h.claves}]`);
     }
-
-    // ── Rutas ───────────────────────────────────────────────────────────────────────────
-    // Sin clave (ver ⛔ arriba): la identidad sigue siendo el NOMBRE, y lo único que hace
-    // falta es que no falte ninguna. El vínculo con `kepler_code` lo puso la mig 20260917130000
-    // sólo donde la biyección está comprobada.
-    const rutas = (await db.query(`
-      SELECT DISTINCT upper(btrim(c2)) AS valor
-        FROM kepler_ods.kdm_rutas
-       WHERE btrim(coalesce(c2,'')) <> ''
-       ORDER BY 1`)).rows;
-    const existRt = new Set((await db.query(
-      `SELECT upper(btrim(name)) n FROM logistics.routes WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]
-    )).rows.map((r) => r.n));
-    // `[CANON.5.6]` El nombre de una ruta BORRADA en la app sigue ocupando el índice único
-    // `(tenant_id, name)`. Insertarla otra vez reventaba la transacción entera: «ZAMORA CANINDO»
-    // se borró el 2026-10-12 y desde esa noche no se actualizó ni una unidad ni un chofer.
-    // Se respeta el borrado (D3) y se declara.
-    const borradasRt = new Set((await db.query(
-      `SELECT name FROM logistics.routes WHERE tenant_id=$1 AND deleted_at IS NOT NULL`, [M]
-    )).rows.map((r) => r.name));
-    const rtRespetadas = [];
-    let rIns = 0;
-    for (const rt of rutas) {
-      if (existRt.has(rt.valor)) continue;
-      if (borradasRt.has(rt.valor)) { rtRespetadas.push(rt.valor); continue; }
-      await db.query(
-        `INSERT INTO logistics.routes (tenant_id, name, active, notes) VALUES ($1,$2,true,$3)`,
-        [M, rt.valor, 'Alta desde Kepler (catálogo de rutas)']);
-      existRt.add(rt.valor); rIns++;
-    }
-    console.log(`  routes: +${rIns} nuevas (${rutas.length} nombres distintos en Kepler)`);
-    if (rtRespetadas.length) console.log(`  ⓘ routes: ${rtRespetadas.length} borradas en la app que Kepler sigue trayendo — se respetan: ${rtRespetadas.join(' · ')}`);
+    reportar(await sincronizarRutas(db, M, null));
 
     if (APPLY) { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }
-    else { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); }
+    else { await db.query('ROLLBACK'); console.log('\n[EN SECO] ROLLBACK — nada cambió.'); }
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

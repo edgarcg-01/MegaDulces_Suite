@@ -277,7 +277,10 @@ const STEPS = {
     // RETIRADO 2026-08-20: import-erp-customers — analytics.erp_customers es VISTA derive-no-copy
     // sobre kepler_ods.kdud (mig 20260820150000). Correrlo pegaría INSERT contra la vista → error.
     path.join(K, 'import-customer-sales.js'),// KV.3 historial por cliente (lee consolidado) → analytics.customer_product_sales (fuente RFM de customer_360, CT-C.1b)
-    path.join(K, 'import-logistics-dims.js'),// KV.8 dims logística (rutas/choferes/flota)
+    // RETIRADO 2026-11-13 [CANON.6.18]: import-logistics-dims.js — unidades, choferes y rutas de Kepler los da de
+    // alta (o les pone la clave) el hop-2 AL LLEGAR su cambio (services/feeds-ingest/logistics-dims.js, misma regla).
+    // Falló 21 noches seguidas (12-oct → 5-nov) y desde el arreglo no tuvo nada que hacer. Queda en el modo manual
+    // `logistics` y la vigila el árbitro `logistica_dims_evento` de db-health.
     // RETIRADO 2026-08-20: import-erp-shipments — analytics.erp_shipments es VISTA derive-no-copy
     // sobre kepler_ods.kdpord (anti-réplica c19=sucursal, mig 20260820170000). No correr contra la vista.
     // ⛔ [AUD-DAT.10] EL ORDEN IMPORTA Y ANTES ESTABA AL REVÉS. La mensual dejó de leer
@@ -445,7 +448,8 @@ const STEPS = {
     // todavía escriben costo o nombre. Sus tres pases se peleaban en cada corrida (1,013 de 1,443 del
     // mes: el pase 1 apagaba 13 productos y el pase 2 los volvía a encender).
   ],
-  // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
+  // KV.8 — logística sola (on-demand): dims. Desde [CANON.6.18] es el ÚNICO lugar donde corre: lo de todos los días lo
+  // hace el hop-2 al llegar el cambio. (import-erp-shipments RETIRADO 2026-08-20:
   // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000
   // → correrlo pegaba INSERT/DEL contra la vista y fallaba. Se derivan en vivo del ODS.)
   logistics: [

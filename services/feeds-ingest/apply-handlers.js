@@ -22,6 +22,7 @@ const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
+const { normalizeVehiclesFromOds, normalizeDriversFromOds, normalizeRoutesFromOds } = require('./logistics-dims');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -1133,6 +1134,11 @@ const ODS_NORMALIZERS = {
   // precio recalcula al instante. Su SKU vive en c3 (el pk[0] es la sucursal).
   // Una VENTA nueva es un precio nuevo: el PdV es la fuente. Su SKU vive en c8.
   kdm2: { skuCol: 'c8', fns: [normalizeSalePrice] },
+  // `[CANON.6.18]` Unidades, choferes y rutas de Kepler → logistics.* AL LLEGAR (antes `import-logistics-dims.js` cada
+  // noche). Llegan por el espejo completo (`ods-live-mirror`, ~5 min); su llave es (sucursal, c1) y la clave va en c1.
+  kdm_transporte: { skuCol: 'c1', fns: [normalizeVehiclesFromOds] },
+  kdm_chofer: { skuCol: 'c1', fns: [normalizeDriversFromOds] },
+  kdm_rutas: { skuCol: 'c1', fns: [normalizeRoutesFromOds] },
 };
 
 // RETIRADOS 2026-09-03: los feeds 'erp-goods-receipts' y 'erp-purchase-docs'. Sus destinos
