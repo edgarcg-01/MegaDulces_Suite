@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService, Permission, branchName } from 
 import { EntityKind, RefField, RefRelation, RefResult, makeRef, parseRef } from './entity-ref.types';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago, PRONTO_PAGO_MIN_OBS } from '@megadulces/contracts/finance/pronto-pago-ventana';
-import { DISCOUNT_REASON_LABEL, type DiscountReason } from '@megadulces/contracts';
+import { DISCOUNT_REASON_LABEL, type DiscountReason, categoriaAjusteLabel, doctypeAjusteLabel } from '@megadulces/contracts';
 import { referenciaDelAjuste } from './referencia-ajuste';
 
 /**
@@ -285,7 +285,7 @@ export class EntityRefService {
       .where({ tenant_id: tenantId, sucursal, entrada_folio: folio }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
     for (const a of exactos) {
       relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes ligados',
-        label: a.categoria || (a.grupo === 'traslado' ? 'traslado al CEDIS' : null) || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
+        label: categoriaAjusteLabel(a.categoria) || (a.grupo === 'traslado' ? 'Traslado al CEDIS' : null) || a.motivo || doctypeAjusteLabel(a.doctype), sub: `${doctypeAjusteLabel(a.doctype)} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
     // Solo lo LIGADO por folio. Antes, cuando no había ninguno, se listaban hasta 20 ajustes
@@ -445,7 +445,7 @@ export class EntityRefService {
         { label: 'Fecha', value: a.adjustment_date, kind: 'date', source: 'kdm1.c9' },
         { label: 'Tipo', value: doctype === 'XD55' ? 'X-D-55 Nota de crédito' : 'X-D-40 Devolución de compra', kind: 'mono' },
         { label: 'Motivo', value: a.motivo, source: 'kdm1.c24' },
-        { label: 'Categoría', value: a.categoria, source: `clasificación ${a.categoria_source ?? 'n/d'}` },
+        { label: 'Categoría', value: categoriaAjusteLabel(a.categoria), source: `clasificación ${a.categoria_source ?? 'n/d'}` },
         { label: 'Monto', value: n(a.monto), kind: 'money' },
         { label: 'IVA', value: n(a.iva), kind: 'money' },
         // `[RE.74]` `kdm1.c11` es una referencia de TEXTO LIBRE, no el folio de una factura: en 429 de 2,154
@@ -902,7 +902,7 @@ export class EntityRefService {
     const ajsVista = recorta(ajs, 'Ajustes');
     for (const a of ajsVista) {
       relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes',
-        label: a.categoria || (a.grupo === 'traslado' ? 'traslado al CEDIS' : null) || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
+        label: categoriaAjusteLabel(a.categoria) || (a.grupo === 'traslado' ? 'Traslado al CEDIS' : null) || a.motivo || doctypeAjusteLabel(a.doctype), sub: `${doctypeAjusteLabel(a.doctype)} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
     const pays: any[] = await trx('analytics.erp_supplier_payments')
