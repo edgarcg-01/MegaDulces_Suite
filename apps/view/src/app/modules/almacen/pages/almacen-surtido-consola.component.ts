@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -59,10 +59,11 @@ const dmy = (v: string): string => {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule],
   template: `
-    <div class="surf-page in">
-      <header class="surf-page-head gp-head">
+    <!-- [GP.10.4b] Dentro del Tablero de pedidos (embebida) no es una página: sin su marco ni su título. -->
+    <div [class.surf-page]="!embebida()" [class.in]="!embebida()">
+      <header class="gp-head" [class.surf-page-head]="!embebida()" [class.gp-head-emb]="embebida()">
         <div class="gp-head-text">
-          <h1>Consola de surtido</h1>
+          @if (!embebida()) { <h1>Consola de surtido</h1> }
           @if (data(); as d) {
             <span class="gp-meta">{{ nombreAlmacen() }} · hoy {{ dmy(d.fecha) }} · actualizado {{ horaLeida() }}</span>
           }
@@ -263,6 +264,7 @@ const dmy = (v: string): string => {
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .gp-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     .gp-head { align-items:center; margin-bottom:.5rem; }
+    .gp-head-emb { display:flex; justify-content:space-between; flex-wrap:wrap; gap:.5rem 1rem; }
     .gp-head-text { display:flex; flex-wrap:wrap; align-items:baseline; gap:.35rem .75rem; min-width:0; }
     .gp-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
     .gp-meta { font-size:var(--fs-xs); color:var(--text-muted); }
@@ -345,6 +347,12 @@ const dmy = (v: string): string => {
   `],
 })
 export class AlmacenSurtidoConsolaComponent implements OnInit {
+  /**
+   * `[GP.10.4b]` D2: la consola es una vista del Tablero de pedidos (`/almacen/pedidos?vista=fila`). Ahí
+   * va sin su marco de página ni su título, que son los del Tablero. Es el mismo componente, no una copia:
+   * sola, en su ruta vieja, se ve como siempre hasta que GP.10.4c la retire.
+   */
+  readonly embebida = input(false);
   private readonly api = inject(PickingService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);

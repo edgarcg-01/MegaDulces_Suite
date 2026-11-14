@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
+import { ActivatedRoute } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -391,6 +392,12 @@ export class AlmacenPreventaComponent implements OnInit {
   private readonly api = inject(AlmacenPreventaService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  /**
+   * `[GP.10.4a]` El Tablero de pedidos abre aquí un `PD-` con `?pedido=<id>`: documento, cobro y
+   * recorrido viven en esta mesa y no se copian allá. Se abre una vez, con la primera lista.
+   */
+  private porAbrir: string | null = null;
 
   readonly skel = Array.from({ length: 8 });
   readonly skelDet = Array.from({ length: 6 });
@@ -481,8 +488,22 @@ export class AlmacenPreventaComponent implements OnInit {
   private listSub: Subscription | null = null;
 
   ngOnInit(): void {
+    this.porAbrir = this.route.snapshot.queryParamMap.get('pedido');
     this.reload();
     this.destroyRef.onDestroy(() => { this.cancelarPanel(); this.listSub?.unsubscribe(); });
+  }
+
+  /**
+   * `[GP.10.4a]` Abre el pedido que pidió el Tablero. Si no está en la lista (cerrado hace más de lo que
+   * se muestra), se abre igual desde su detalle: el panel no depende de la lista.
+   */
+  private abrirPedido(id: string, d: PresaleListResponse): void {
+    const fila = d.data.find((x) => x.id === id);
+    if (fila) { this.pick(fila); return; }
+    this.api.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => { if (!this.sel()) this.pick(x.order); },
+      error: () => this.err.set('No se pudo abrir el pedido que se pidió desde el Tablero.'),
+    });
   }
 
   pickCerrados(d: number): void { this.cerrados.set(d); this.reload(); }
@@ -520,6 +541,11 @@ export class AlmacenPreventaComponent implements OnInit {
               (nuevo.link?.folio_digital ?? null) !== (s.link?.folio_digital ?? null);
             if (cambio) this.cargarDetalle(nuevo.id);
           }
+        }
+        if (this.porAbrir) {
+          const id = this.porAbrir;
+          this.porAbrir = null;
+          this.abrirPedido(id, d);
         }
         this.loading.set(false);
       },
