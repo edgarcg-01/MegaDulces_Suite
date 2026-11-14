@@ -32,13 +32,16 @@
 import type {
   ExpedienteCfdi, ExpedienteCheck, ExpedienteCubo, ExpedienteDocTipo, ExpedienteLiga, ExpedienteLigaMetodo,
 } from '@megadulces/contracts';
+import { cuadraDentroDeTolerancia, TOLERANCIA_ABS, TOLERANCIA_PCT } from '@megadulces/contracts';
 import { folioNumero, parecidoNombre, rfcBienFormado, rfcComparable, UMBRAL_NOMBRE } from './receipt-match';
 
 /** La regla y su versión: sello de cada veredicto (ADR-085). Cambiar un umbral = subir la versión. */
 export const REGLA_EXPEDIENTE = 'R-v4';
-/** Cuadre: la diferencia tiene que ser MENOR a las dos (decisión de Francisco, 2026-10-06). */
-export const TOLERANCIA_PCT = 0.0025;
-export const TOLERANCIA_ABS = 200;
+/**
+ * Cuadre: la diferencia tiene que ser MENOR a las dos (decisión de Francisco, 2026-10-06). `[RE.73]` La
+ * regla vive en `@megadulces/contracts` (`tolerancia-cuadre`) para que el panel diga lo mismo.
+ */
+export { TOLERANCIA_ABS, TOLERANCIA_PCT };
 /** Un UUID leído con hasta 3 caracteres distintos se corrige si hay UN solo candidato (medido: 22 de 22 sin ambigüedad). */
 export const UUID_MAX_DIFERENCIAS = 3;
 /** Ventana para buscar candidatos por llave débil (importe), en días. */
@@ -555,8 +558,7 @@ const fmt = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigi
 
 /** ¿La diferencia cabe en la tolerancia? Las DOS condiciones. */
 export function cuadra(diferencia: number, monto: number): boolean {
-  const d = Math.abs(diferencia);
-  return d < TOLERANCIA_ABS && d < TOLERANCIA_PCT * Math.abs(monto);
+  return cuadraDentroDeTolerancia(diferencia, monto);
 }
 
 export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
