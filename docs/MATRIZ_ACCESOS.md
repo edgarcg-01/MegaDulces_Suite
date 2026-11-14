@@ -2,7 +2,7 @@
 
 > ⚙️ **Generado — no editar a mano.** Regenerar con `npm run docs:matriz-accesos` (lee prod en
 > sesión de sólo lectura + el árbol `libs/contracts/src/authz/authz-tree.ts`).
-> Generado el **2026-11-04** · última migración aplicada en prod: `20261103160517_ab46_pendientes_sucursal_permiso.js`.
+> Generado el **2026-11-14** · última migración aplicada en prod: `20261113172620_cb70_categorizar_egresos_tesoreria.js`.
 > El repo es público: aquí sólo hay **conteos** de personas, nunca nombres.
 
 **Para qué sirve:** antes de construir un módulo nuevo, ver qué puesto/rol debe verlo y quién debe
@@ -33,17 +33,17 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
 | Dirección General | direccion | direccion | — | 2 | direccion (2), superadmin (2) |
-| Gerencia de Zona | gerencia | supervisor_ventas | — | 3 | superadmin (3), encargado_tienda (1) |
+| Gerencia de Zona | gerencia | supervisor_ventas | — | 3 | superadmin (3), direccion (1), supervisor_ventas (1), encargado_tienda (1) |
 
 ### Tienda / Piso de Venta · alcance natural: `sucursal`
 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
 | Empaque | operativo | piso_tienda | — | — | — |
-| Promotora | operativo | piso_tienda | — | 3 | cajero (2), administrativo (1), analisis_ventas (1) |
-| Encargado(a) de Sucursal | coordinacion | encargado_tienda | — | 9 | encargado_tienda (9), auxiliar_tienda (1), cajero (1) |
+| Promotora | operativo | piso_tienda | — | 3 | cajero (2), encargado_tienda (2), administrativo (1), analisis_ventas (1) |
+| Encargado(a) de Sucursal | coordinacion | encargado_tienda | — | 9 | encargado_tienda (9), cajero (1), auxiliar_tienda (1) |
 | Anaquelista de Sucursal | operativo | piso_tienda | — | 7 | piso_tienda (6), repartidor (1) |
-| Auxiliar de Encargado | operativo | auxiliar_tienda | — | 6 | auxiliar_tienda (5), encargado_tienda (2), cajero (1) |
+| Auxiliar de Encargado | operativo | auxiliar_tienda | — | 6 | auxiliar_tienda (5), encargado_tienda (5), cajero (1) |
 | Coordinador de Piso de Ventas | coordinacion | ⚠️ sin definir | — | — | — |
 | Multifuncional | operativo | ⚠️ sin definir | — | 1 | superadmin (1), supervisor (1) |
 | Vendedora de Piso | operativo | piso_tienda | — | — | — |
@@ -56,7 +56,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Caja General | operativo | cajero | — | 1 | cajero (1) |
 | Practicante Administrativo de Caja General | practicante | ⚠️ sin definir | — | — | — |
 | Auxiliar de Caja General de Zona | operativo | ⚠️ sin definir | — | 1 | finanzas_operativo (1) |
-| Cajero(a) de Sucursal | operativo | cajero | — | 25 | cajero (24), auxiliar_tienda (1), etiquetas_anaquel (1) |
+| Cajero(a) de Sucursal | operativo | cajero | — | 26 | cajero (25), etiquetas_anaquel (3), auxiliar_tienda (1) |
 | Coordinador de Cajas | coordinacion | cajero | — | — | — |
 
 ### Ruta Directa (RD) · alcance natural: `ruta`
@@ -65,8 +65,8 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 |---|---|---|---|---|---|
 | Supervisor de Ventas Ruta Directa | supervision | supervisor_ventas | — | 2 | supervisor_ventas (2) |
 | Cajero Ruta Directa | operativo | ⚠️ sin definir | — | — | — |
-| Surtidor de Ventas | operativo | ⚠️ sin definir | — | 1 | surtidor (1) |
-| Vendedor Ruta Directa | operativo | vendedor_ruta | — | 26 | promotor_ruta (17), vendedor_ruta (9), supervisor_ventas (1) |
+| Surtidor de Ventas | operativo | ⚠️ sin definir | — | 6 | surtidor (6) |
+| Vendedor Ruta Directa | operativo | vendedor_ruta | — | 25 | promotor_ruta (17), vendedor_ruta (8), cajero (1), supervisor_ventas (1) |
 | Vendedor Suplente | operativo | vendedor_ruta | — | 2 | vendedor_ruta (2) |
 
 ### Ruta Vecinal (RV) · alcance natural: `ruta`
@@ -76,21 +76,21 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Supervisor de Ventas Vecinal | supervision | supervisor_ventas | — | 2 | supervisor_ventas (2) |
 | Cajero Vecinal | operativo | cajero | — | 2 | auxiliar_tienda (1), cajero (1) |
 | Repartidor Vecinal | operativo | ⚠️ sin definir | — | 1 | repartidor (1) |
-| Vendedor Vecinal | operativo | vendedor_ruta | — | 9 | vendedor_ruta (8), promotor_ruta (2), cajero (1) |
+| Vendedor Vecinal | operativo | vendedor_ruta | — | 10 | vendedor_ruta (9), promotor_ruta (2), cajero (1) |
 
 ### Telemarketing (TLMK) · alcance natural: `cartera`
 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
 | Coordinador de Telemarketing | — | telemarketing | — | 2 | telemarketing (2) |
-| Vendedor de Telemarketing | — | vendedor_telemarketing | — | 4 | vendedor_telemarketing (4), telemarketing (1) |
+| Vendedor de Telemarketing | — | vendedor_telemarketing | — | 5 | vendedor_telemarketing (5), telemarketing (1) |
 
 ### Mayoreo y Venta Local · alcance natural: `sucursal`
 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
 | Facturación CEDIS | operativo | facturacion | — | 1 | facturacion (1), auxiliar_compras (1) |
-| Facturación | operativo | facturacion | — | 2 | telemarketing (2) |
+| Facturación | operativo | facturacion | — | 2 | telemarketing (2), cajero (1) |
 | Vendedor Mayoreo | operativo | ⚠️ sin definir | — | — | — |
 
 ### Almacén y Recepción · alcance natural: `sucursal`
@@ -110,7 +110,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Almacenista de Sucursal | operativo | almacenista | — | 7 | almacenista (7) |
 | Bodeguero de Sucursal | operativo | almacenista | — | — | — |
 | Recepción de Mercancía de Sucursal | operativo | ⚠️ sin definir | — | 1 | administrativo (1) |
-| Surtidor de Sucursal | operativo | surtidor | — | 8 | surtidor (7), almacenista (1), piso_tienda (1) |
+| Surtidor de Sucursal | operativo | surtidor | — | 7 | surtidor (6), almacenista (1), piso_tienda (1) |
 | Checador de Pedidos | operativo | checador | — | — | — |
 
 ### Logística · alcance natural: `red`
@@ -120,7 +120,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Jefatura de CEDIS y Operaciones Logísticas | jefatura | ⚠️ sin definir | — | 1 | almacenista (1) |
 | Auxiliar de CEDIS | operativo | ⚠️ sin definir | — | — | — |
 | Coordinador de Logística | coordinacion | ⚠️ sin definir | — | — | — |
-| Auxiliar Administrativo de Logística | operativo | almacenista | — | 2 | almacenista (1), encargado_bodega (1), administrativo (1) |
+| Auxiliar Administrativo de Logística | operativo | almacenista | — | 2 | encargado_bodega (1), administrativo (1), almacenista (1) |
 | Auxiliar de Chofer | operativo | ⚠️ sin definir | — | — | — |
 | Auxiliar de Logística – Flotilla | operativo | ⚠️ sin definir | — | — | — |
 | Chofer | operativo | ⚠️ sin definir | — | — | — |
@@ -133,7 +133,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
-| Coordinador de Operaciones de Zona | coordinacion | compras_operaciones | — | 2 | administrativo (1), compras_operaciones (1) |
+| Coordinador de Operaciones de Zona | coordinacion | compras_operaciones | — | 2 | administrativo (1), encargado_tienda (1), cajero (1), compras_operaciones (1) |
 
 ### Compras · alcance natural: `red`
 
@@ -202,7 +202,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Practicante de Diseño Gráfico y Marca | practicante | ⚠️ sin definir | — | — | — |
 | Practicante de Producción Audiovisual | practicante | ⚠️ sin definir | — | — | — |
 | Trade Marketing | operativo | ⚠️ sin definir | — | — | — |
-| Auxiliar de Mercadotecnia de Zona | operativo | marketing | — | 5 | marketing (3), administrativo (2), analisis_ventas (2), etiquetas_anaquel (1), piso_tienda (1) |
+| Auxiliar de Mercadotecnia de Zona | operativo | marketing | — | 5 | marketing (3), administrativo (2), analisis_ventas (2), auxiliar_tienda (1), etiquetas_anaquel (1), piso_tienda (1), cajero (1) |
 | Ejecutivo de Trade Marketing | operativo | ⚠️ sin definir | — | — | — |
 
 ### Recursos Humanos · alcance natural: `red`
@@ -210,9 +210,9 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | Puesto | Nivel | Rol propuesto | Complementos | Personas | Roles reales (personas) |
 |---|---|---|---|---|---|
 | Jefatura de Capital Humano | jefatura | ⚠️ sin definir | — | — | — |
-| Reclutamiento y Onboarding | operativo | ⚠️ sin definir | — | 1 | administrativo (1) |
+| Reclutamiento y Onboarding | operativo | ⚠️ sin definir | — | 1 | administrativo (1), reclutamiento_asistencia (1) |
 | Practicante de Atracción de Talento y Selección | practicante | ⚠️ sin definir | — | — | — |
-| Servicios al Personal | operativo | ⚠️ sin definir | — | 1 | administrativo (1) |
+| Servicios al Personal | operativo | ⚠️ sin definir | — | 1 | administrativo (1), reclutamiento_asistencia (1) |
 | Practicante de Control Documental de RH | practicante | ⚠️ sin definir | — | — | — |
 
 ### Sistemas · alcance natural: `red`
@@ -237,47 +237,49 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 | Rol | Permisos | Personas (principal) | Personas (complemento) | Alcance (`role_scopes`) | Puestos que lo proponen |
 |---|---|---|---|---|---|
-| `administrativo` | 5 | 8 | 2 | brand:none/esc:none, customer:none/esc:none, expense_area:none/esc:none, route:none/esc:none, warehouse:all/esc:none, zone:all/esc:none | Auxiliar Administrativo de Zona |
-| `almacenista` | 17 | 9 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, warehouse:all, zone:own | Surtidor de Zona, Almacenista de Sucursal, Bodeguero de Sucursal, Auxiliar Administrativo de Logística |
-| `analisis_ventas` | 7 | 0 | 5 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:own | Auxiliar Administrativo de Zona |
-| `auditor_externo` | 23 | 0 | 1 | brand:all/esc:none, customer:all/esc:none, expense_area:all/esc:none, route:all/esc:none, warehouse:all/esc:none, zone:all/esc:none | — |
-| `auxiliar_compras` | 41 | 5 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Analista de Órdenes de Entrada |
-| `auxiliar_tienda` | 27 | 7 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Auxiliar de Encargado |
-| `cajero` | 12 | 28 | 4 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Caja General, Cajero(a) de Sucursal, Coordinador de Cajas, Cajero Vecinal |
-| `checador` | 5 | 0 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | Checador CEDIS, Checador de Pedidos |
+| `administrativo` | 6 | 8 | 2 | brand:none/esc:none, customer:none/esc:none, expense_area:none/esc:none, route:none/esc:none, warehouse:all/esc:none, zone:all/esc:none | Auxiliar Administrativo de Zona |
+| `almacenista` | 19 | 9 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, warehouse:all, zone:own | Surtidor de Zona, Almacenista de Sucursal, Bodeguero de Sucursal, Auxiliar Administrativo de Logística |
+| `analisis_ventas` | 8 | 0 | 5 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:own | Auxiliar Administrativo de Zona |
+| `auditor_externo` | 24 | 0 | 1 | brand:all/esc:none, customer:all/esc:none, expense_area:all/esc:none, route:all/esc:none, warehouse:all/esc:none, zone:all/esc:none | — |
+| `auxiliar_compras` | 44 | 5 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Analista de Órdenes de Entrada |
+| `auxiliar_tienda` | 29 | 7 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Auxiliar de Encargado |
+| `cajero` | 14 | 29 | 8 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Caja General, Cajero(a) de Sucursal, Coordinador de Cajas, Cajero Vecinal |
+| `checador` | 6 | 0 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | Checador CEDIS, Checador de Pedidos |
 | `checador_kiosco` | 1 | 2 | 2 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | — |
-| `compras` | 67 | 2 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Comprador |
-| `compras_operaciones` | 37 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinador de Operaciones de Zona |
-| `contabilidad` | 40 | 4 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Analista Contable |
-| `coordinador_embarques` | 12 | 1 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Embarques |
-| `credito_cobranza` | 73 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Crédito y Cobranza |
+| `chofer` | 1 | 0 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | — |
+| `compras` | 71 | 2 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Comprador |
+| `compras_operaciones` | 40 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinador de Operaciones de Zona |
+| `contabilidad` | 41 | 4 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Analista Contable |
+| `coordinador_embarques` | 14 | 1 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Embarques |
+| `credito_cobranza` | 76 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Crédito y Cobranza |
 | `customer_b2b` | 9 | 3 | 1 | brand:all, customer:own, expense_area:none, route:all, warehouse:none, zone:none | — |
-| `direccion` | 131 | 2 | 1 | brand:all/esc:none, customer:all/esc:none, expense_area:all/esc:none, route:all/esc:none, warehouse:all/esc:none, warehouse:all/esc:all, zone:all/esc:none | Dirección General |
-| `encargado_bodega` | 11 | 1 | 1 | warehouse:listed | — |
-| `encargado_tienda` | 100 | 10 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Encargado(a) de Sucursal |
-| `etiquetas_anaquel` | 4 | 8 | 3 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | — |
-| `facturacion` | 11 | 1 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Facturación, Facturación CEDIS |
-| `finanzas` | 101 | 1 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Gerencia Administrativa y Financiera |
-| `finanzas_operativo` | 19 | 8 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de finanzas |
-| `gerente_compras` | 127 | 2 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinación de Compras |
-| `jefe_marketing` | 55 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Jefe de Marketing |
-| `marketing` | 128 | 3 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de Mercadotecnia de Zona |
-| `piso_tienda` | 21 | 7 | 2 | brand:none/esc:none, customer:none/esc:none, expense_area:none/esc:none, route:none/esc:none, warehouse:own/esc:none, zone:own/esc:none | Empaque, Promotora, Anaquelista de Sucursal, Vendedora de Piso |
-| `prevencion` | 20 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinación de Auditoría Operativa y Prevención de Pérdidas |
-| `prevencion_auxiliar` | 19 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de Auditoría y Prevención |
-| `promotor_ruta` | 24 | 17 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | — |
-| `recursos_humanos` | 19 | 0 | 1 | brand:none, customer:none, expense_area:none, route:all, warehouse:all, zone:all | — |
-| `repartidor` | 33 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:own | Repartidor |
+| `direccion` | 140 | 3 | 1 | brand:all/esc:none, customer:all/esc:none, expense_area:all/esc:none, route:all/esc:none, warehouse:all/esc:none, warehouse:all/esc:all, zone:all/esc:none | Dirección General |
+| `encargado_bodega` | 13 | 1 | 1 | warehouse:listed | — |
+| `encargado_tienda` | 104 | 10 | 9 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Encargado(a) de Sucursal |
+| `etiquetas_anaquel` | 5 | 8 | 5 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | — |
+| `facturacion` | 13 | 1 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Facturación, Facturación CEDIS |
+| `finanzas` | 104 | 1 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Gerencia Administrativa y Financiera |
+| `finanzas_operativo` | 21 | 8 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de finanzas |
+| `gerente_compras` | 132 | 2 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinación de Compras |
+| `jefe_marketing` | 58 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Jefe de Marketing |
+| `marketing` | 131 | 3 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de Mercadotecnia de Zona |
+| `piso_tienda` | 22 | 7 | 2 | brand:none/esc:none, customer:none/esc:none, expense_area:none/esc:none, route:none/esc:none, warehouse:own/esc:none, zone:own/esc:none | Empaque, Promotora, Anaquelista de Sucursal, Vendedora de Piso |
+| `prevencion` | 21 | 1 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Coordinación de Auditoría Operativa y Prevención de Pérdidas |
+| `prevencion_auxiliar` | 20 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:all | Auxiliar de Auditoría y Prevención |
+| `promotor_ruta` | 26 | 17 | 3 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | — |
+| `reclutamiento_asistencia` | 8 | 0 | 2 | brand:none, customer:none, expense_area:none, route:none, warehouse:all, zone:all | — |
+| `recursos_humanos` | 20 | 0 | 1 | brand:none, customer:none, expense_area:none, route:all, warehouse:all, zone:all | — |
+| `repartidor` | 35 | 2 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:all, zone:own | Repartidor |
 | `servicio` | 0 | 2 | 1 | brand:none/esc:none, customer:none/esc:none, expense_area:none/esc:none, route:none/esc:none, warehouse:none/esc:none, zone:none/esc:none | — |
 | `sin_acceso` | 1 | 0 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:none, zone:none | — |
-| `superadmin` | TODOS (god-mode) | 8 | 2 | — (default) | Jefatura de Sistemas y Transformación Digital |
-| `supervisor` | 40 | 1 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Supervisor de inventarios |
-| `supervisor_ventas` | 36 | 5 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Gerencia de Zona, Supervisor de Ventas Ruta Directa, Supervisor de Ventas Vecinal |
-| `surtidor` | 6 | 8 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | Surtidor de Sucursal |
-| `telemarketing` | 45 | 5 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Coordinador de Telemarketing |
-| `tesoreria` | 52 | 1 | 1 | brand:all, customer:all, expense_area:all, route:all, warehouse:all, zone:all | Jefe de Tesorería |
-| `vendedor_ruta` | 32 | 19 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Vendedor Ruta Directa, Vendedor Suplente, Vendedor Vecinal |
-| `vendedor_telemarketing` | 13 | 4 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Vendedor de Telemarketing |
+| `superadmin` | TODOS (god-mode) | 7 | 3 | — (default) | Jefatura de Sistemas y Transformación Digital |
+| `supervisor` | 42 | 1 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Supervisor de inventarios |
+| `supervisor_ventas` | 39 | 5 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Gerencia de Zona, Supervisor de Ventas Ruta Directa, Supervisor de Ventas Vecinal |
+| `surtidor` | 7 | 12 | 0 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | Surtidor de Sucursal |
+| `telemarketing` | 47 | 5 | 2 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Coordinador de Telemarketing |
+| `tesoreria` | 54 | 1 | 1 | brand:all, customer:all, expense_area:all, route:all, warehouse:all, zone:all | Jefe de Tesorería |
+| `vendedor_ruta` | 34 | 19 | 1 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Vendedor Ruta Directa, Vendedor Suplente, Vendedor Vecinal |
+| `vendedor_telemarketing` | 15 | 5 | 0 | brand:all, customer:all, expense_area:none, route:all, warehouse:own, zone:own | Vendedor de Telemarketing |
 | `verificador_precios` | 4 | 3 | 1 | brand:none, customer:none, expense_area:none, route:none, warehouse:own, zone:own | — |
 
 ## 4. Matriz rol × módulo, por proyecto
@@ -289,17 +291,17 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 #### Configuración de la suite · `/admin`
 
-| Rol | Personas | Puestos | Responsabilidades | Roles y permisos |
-|---|---|---|---|---|
-| `direccion` | V | V | V | V |
-| `encargado_tienda` | V | V | V | V |
-| `jefe_marketing` | V | V | V |  |
-| `recursos_humanos` | G | G | G | V |
-| `supervisor_ventas` | V | V | V |  |
+| Rol | Personas | Puestos | Responsabilidades | Roles y permisos | Definiciones de negocio |
+|---|---|---|---|---|---|
+| `direccion` | V | V | V | V | G |
+| `encargado_tienda` | V | V | V | V |  |
+| `jefe_marketing` | V | V | V |  |  |
+| `recursos_humanos` | G | G | G | V |  |
+| `supervisor_ventas` | V | V | V |  |  |
 
 #### Venta al detalle · `/dashboard`
 
-| Rol | Captura y visitas | Reportes operativos | Seguimiento en ruta | Análisis de rutas | Mapa comercial y prospección | Supervisor AI (Horus) | Tiendas | Catálogos de captura | Scoring | Planogramas | Agenda de rutas | Salud de la plataforma | Áreas de gasto | Promotores de marca |
+| Rol | Captura y visitas | Reportes operativos | Seguimiento en ruta | Análisis de rutas | Mapa comercial y prospección | Supervisor AI (Horus) | Tiendas | Catálogos de captura | Scoring | Planogramas | Agenda de rutas | Torres de control (Sistemas y Desarrollo) | Áreas de gasto | Promotores de marca |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `direccion` | V | V | V | V | V | V | V |  | V |  | V |  |  |  |
 | `encargado_tienda` | V |  |  |  |  |  | G |  |  |  | V |  |  |  |
@@ -313,53 +315,56 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 #### Comercial / Ventas · `/comercial`
 
-| Rol | Pedidos | Analítica comercial | Rentabilidad | Sell-Out por empresa | Análisis (Sell-Out BI) | Salidas por producto | Ventas por ruta | Comisiones de ruta | Rentabilidad de Ruta Directa | Tickets de venta | Clientes 360 | Histórico de venta | Clientes | Cartera / asignación | Sucursal de surtido por ruta | Precios | Experimentos de precio | Motor de margen | Ventas de vendedor | Thot / IA comercial | Inteligencia (hallazgos / acciones / autonomía) | Control de ruta / tickets | Carga al camión |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `analisis_ventas` |  |  |  | V | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `auxiliar_compras` |  |  |  |  |  | V |  |  |  |  |  | V |  |  |  |  |  |  |  |  |  |  |  |
-| `compras` |  | V | V | V | G | V | V |  |  |  | V | V |  |  |  |  |  | V |  |  |  |  |  |
-| `compras_operaciones` |  |  |  | V | V | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `contabilidad` |  |  |  |  |  |  |  | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
-| `credito_cobranza` | G | V | V | V | G | V | V |  |  | V | V | V | G | G |  | G |  |  |  | G | V |  | G |
-| `customer_b2b` | G |  |  |  |  |  |  |  |  |  |  |  | V |  |  | V |  |  |  |  |  |  |  |
-| `direccion` | V | V | V | V | G | V | V | G | V | V | V | V | V | V |  | V | G | V | V | V | V | V | V |
-| `encargado_tienda` | G |  |  | V | V |  |  |  |  | V |  |  | G | V |  |  |  |  |  |  | V | V | G |
-| `facturacion` | V |  |  |  |  |  |  |  |  |  |  |  | V | V |  |  |  |  |  |  |  |  |  |
-| `finanzas` |  | V | V | V | G | V | V | G | V |  | V | V |  |  |  |  |  | V |  |  |  |  |  |
-| `gerente_compras` | G | V | V | V | G | V |  |  |  | V |  |  | G | G |  | G | G | V |  | G | V | G | G |
-| `jefe_marketing` | V | V | V | V | G | V | V |  |  | V | V | V | V | G |  | V | V | V |  |  | V |  | V |
-| `marketing` | G | V | V | V | G | V | V |  |  | V |  | V | G | V |  | G | G | V | V | G | V | G | G |
-| `promotor_ruta` | G |  |  |  |  |  |  |  |  |  |  |  | V | V |  | V |  |  |  |  | V |  |  |
-| `repartidor` | G | V | V | V | G | V | V |  |  | V | V | V | V | V |  | V |  |  |  |  | V | G | G |
-| `supervisor_ventas` | G |  |  |  |  |  |  |  |  | V |  |  |  | V | G |  |  |  |  |  | V |  |  |
-| `telemarketing` | G | V | V | V | G | V | V |  |  | V | V | V | G | G |  | G | V |  |  | G | V |  | G |
-| `vendedor_ruta` | G |  |  |  |  |  |  |  |  | V |  |  | G | G |  | V |  |  |  | G | V | G | G |
-| `vendedor_telemarketing` | G |  |  |  |  |  |  |  |  |  |  |  | V |  |  | V |  |  |  |  |  |  |  |
+| Rol | Pedidos | Analítica comercial | Rentabilidad | Sell-Out por empresa | Análisis (Sell-Out BI) | Salidas por producto | Ventas por ruta | Comisiones de ruta | Rentabilidad de Ruta Directa | Tickets de venta | Clientes 360 | Histórico de venta | Clientes | Alta de clientes | Cartera / asignación | Monitoreo vecinal | Sucursal de surtido por ruta | Precios | Experimentos de precio | Motor de margen | Ventas de vendedor | Thot / IA comercial | Inteligencia (hallazgos / acciones / autonomía) | Control de ruta / tickets | Carga al camión |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `analisis_ventas` |  |  |  | V | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `auxiliar_compras` |  |  |  |  |  | V |  |  |  |  |  | V |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `auxiliar_tienda` |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |  |  |  |  |  |  |  |  |  |
+| `cajero` |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |  |  |  |  |  |  |  |  |  |
+| `compras` |  | V | V | V | G | V | V |  |  |  | V | V |  |  |  |  |  |  |  | V |  |  |  |  |  |
+| `compras_operaciones` |  |  |  | V | V | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `contabilidad` |  |  |  |  |  |  |  | V | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
+| `credito_cobranza` | G | V | V | V | G | V | V |  |  | V | V | V | G | G | G |  |  | G |  |  |  | G | V |  | G |
+| `customer_b2b` | G |  |  |  |  |  |  |  |  |  |  |  | V |  |  |  |  | V |  |  |  |  |  |  |  |
+| `direccion` | V | V | V | V | G | V | V | G | V | V | V | V | V | G | V | V |  | V | G | V | V | V | V | V | V |
+| `encargado_bodega` |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |  |  |  |  |  |  |  |  |  |
+| `encargado_tienda` | G |  |  | V | V |  |  |  |  | V |  |  | G | V | V | V |  |  |  |  |  |  | V | V | G |
+| `facturacion` | V |  |  |  |  |  |  |  |  |  |  |  | V | V | V |  |  |  |  |  |  |  |  |  |  |
+| `finanzas` |  | V | V | V | G | V | V | G | V |  | V | V |  | G |  |  |  |  |  | V |  |  |  |  |  |
+| `gerente_compras` | G | V | V | V | G | V |  |  |  | V |  |  | G | V | G |  |  | G | G | V |  | G | V | G | G |
+| `jefe_marketing` | V | V | V | V | G | V | V |  |  | V | V | V | V |  | G |  |  | V | V | V |  |  | V |  | V |
+| `marketing` | G | V | V | V | G | V | V |  |  | V |  | V | G |  | V |  |  | G | G | V | V | G | V | G | G |
+| `promotor_ruta` | G |  |  |  |  |  |  |  |  |  |  |  | V | V | V |  |  | V |  |  |  |  | V |  |  |
+| `repartidor` | G | V | V | V | G | V | V |  |  | V | V | V | V |  | V |  |  | V |  |  |  |  | V | G | G |
+| `supervisor_ventas` | G |  |  |  |  |  |  |  |  | V |  |  |  | V | V | V | G |  |  |  |  |  | V |  |  |
+| `telemarketing` | G | V | V | V | G | V | V |  |  | V | V | V | G | V | G |  |  | G | V |  |  | G | V |  | G |
+| `vendedor_ruta` | G |  |  |  |  |  |  |  |  | V |  |  | G | V | G |  |  | V |  |  |  | G | V | G | G |
+| `vendedor_telemarketing` | G |  |  |  |  |  |  |  |  |  |  |  | V | V |  |  |  | V |  |  |  |  |  |  |  |
 
 #### MKT · `/mkt`
 
-| Rol | Promociones | Promos del ERP | Acuerdos con proveedor |
-|---|---|---|---|
-| `auxiliar_compras` |  |  | V |
-| `auxiliar_tienda` |  |  | V |
-| `cajero` |  |  | V |
-| `credito_cobranza` | G | V | V |
-| `customer_b2b` | V |  |  |
-| `direccion` | V | V | V |
-| `encargado_tienda` |  |  | V |
-| `jefe_marketing` | G | V | G |
-| `marketing` | G |  | G |
-| `piso_tienda` |  |  | V |
-| `supervisor` |  |  | V |
-| `telemarketing` | G | V | V |
-| `verificador_precios` |  |  | V |
+| Rol | Ranking de promociones | Objetivos del ranking | Incentivos de venta | Promociones | Promos del ERP | Acuerdos con proveedor |
+|---|---|---|---|---|---|---|
+| `auxiliar_compras` |  |  |  |  |  | V |
+| `auxiliar_tienda` |  |  |  |  |  | V |
+| `cajero` |  |  |  |  |  | V |
+| `credito_cobranza` | V | V | V | G | V | V |
+| `customer_b2b` |  |  |  | V |  |  |
+| `direccion` | V | V | V | V | V | V |
+| `encargado_tienda` |  |  |  |  |  | V |
+| `jefe_marketing` | G | G | G | G | V | G |
+| `marketing` | G | G | G | G |  | G |
+| `piso_tienda` |  |  |  |  |  | V |
+| `supervisor` |  |  |  |  |  | V |
+| `telemarketing` | V | V | V | G | V | V |
+| `verificador_precios` |  |  |  |  |  | V |
 
 #### Almacén · `/almacen`
 
 | Rol | Existencia | Ajustes de stock | Almacenes | Inventario físico | Recepción (caducidad) | Prevención de inventarios | Control de Caducidades | Stock muerto | Salud de inventario | Diario de movimientos | Pedidos | Guías de carga (preventa) | Revisión de pedidos (caja) | Llegadas al andén | Ubicaciones | Checar pedidos | Consola de surtido | Análisis BI | Autoabasto | Nivelación de inventarios | Catálogo interno (mostrador) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `administrativo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G |
-| `almacenista` |  | V |  | G | G |  |  |  |  |  | V |  |  |  | G | G |  | V | G |  |  |
+| `almacenista` |  | V |  | G | G |  |  |  |  |  | V |  |  | V | G | G |  | V | G |  |  |
 | `auxiliar_compras` | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G |  |  |
 | `auxiliar_tienda` |  |  |  |  |  |  |  |  |  |  | V | G | G |  | G |  |  |  |  |  |  |
 | `cajero` |  |  |  |  |  |  |  |  |  |  |  | G | G |  |  |  |  |  |  |  |  |
@@ -382,7 +387,7 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | `prevencion_auxiliar` | V | V | G |  |  | V |  |  |  | G | V |  |  |  | V |  |  | V | V |  |  |
 | `promotor_ruta` |  |  | V |  |  |  | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | `repartidor` |  |  |  |  |  |  |  | V | V |  |  |  |  |  |  |  |  |  |  |  |  |
-| `supervisor` | G | G | G | G | G |  |  | V | V | G | V |  |  |  | G |  | G | V | G |  |  |
+| `supervisor` | G | G | G | G | G |  |  | V | V | G | V |  |  | V | G |  | G | V | G |  |  |
 | `surtidor` |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |  |  |  |  |
 | `telemarketing` |  |  |  |  |  |  |  | V | V |  | V |  |  |  | V |  |  |  |  |  |  |
 | `tesoreria` | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G |  |  |
@@ -390,42 +395,43 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 #### Logística · `/logistica`
 
-| Rol | Embarques | Guías | Flotilla y personal | Gasto de flota (RD) | Costos | Liquidaciones / nómina | Pagos de viaje | Costo por unidad | Carta Porte | Traspasos | Configuración |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| `coordinador_embarques` | V |  |  |  |  |  | G | G |  |  |  |
-| `direccion` | V | V | V | V | V | V | V | V | V | V | G |
-| `encargado_bodega` |  |  |  |  |  |  | G | G |  |  |  |
-| `encargado_tienda` |  |  |  |  | V |  |  |  |  |  |  |
-| `finanzas` | G | G | G | G | G |  | V | V | G | V | G |
-| `jefe_marketing` |  |  |  |  |  |  |  |  |  | V |  |
-| `marketing` |  |  |  |  |  |  |  |  |  | V |  |
-| `repartidor` | V | G |  |  |  |  |  |  |  | V |  |
+| Rol | Embarques | Guía de reparto | Guías | Flotilla y personal | Gasto de flota (RD) | Costos | Liquidaciones / nómina | Pagos de viaje | Costo por unidad | Carta Porte | Traspasos | Configuración |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `chofer` |  | V |  |  |  |  |  |  |  |  |  |  |
+| `coordinador_embarques` | V | V |  |  |  |  |  | G | G |  |  |  |
+| `direccion` | V | V | V | V | V | V | V | V | V | V | V | G |
+| `encargado_bodega` |  |  |  |  |  |  |  | G | G |  |  |  |
+| `encargado_tienda` |  |  |  |  |  | V |  |  |  |  |  |  |
+| `finanzas` | G | V | G | G | G | G |  | V | V | G | V | G |
+| `jefe_marketing` |  |  |  |  |  |  |  |  |  |  | V |  |
+| `marketing` |  |  |  |  |  |  |  |  |  |  | V |  |
+| `repartidor` | V | V | G |  |  |  |  |  |  |  | V |  |
 
 #### Punto de Venta · `/tienda`
 
-| Rol | Tienda en Vivo | Etiquetas de anaquel | Arqueo ciego de caja | Control de Caducidades | Análisis de ventas | Verificador de precios | Caja (práctica) | Lista de faltantes | Retiros en caja | Checador de asistencia (kiosco) |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `auditor_externo` |  |  |  |  |  |  |  |  | V |  |
-| `auxiliar_compras` |  | G |  |  |  | V |  | G |  |  |
-| `auxiliar_tienda` | V | V | G |  | V | V | V | G | G |  |
-| `cajero` |  |  | G |  |  |  | V | G |  |  |
-| `checador_kiosco` |  |  |  |  |  |  |  |  |  | G |
-| `compras` |  |  |  |  |  |  |  |  | V |  |
-| `direccion` | V | V | V | V | V | V | V | G | G |  |
-| `encargado_tienda` | V | G | G | G | V | V | V | G | G |  |
-| `etiquetas_anaquel` |  | V |  |  |  |  |  |  |  |  |
-| `facturacion` |  |  |  |  |  | V |  |  |  |  |
-| `finanzas` |  |  | G |  |  |  |  |  |  |  |
-| `finanzas_operativo` |  |  | G |  |  |  |  |  |  |  |
-| `gerente_compras` |  |  |  |  |  |  |  |  | V |  |
-| `marketing` |  |  |  |  |  |  |  |  | V |  |
-| `piso_tienda` | V | V | G | G | V | V | V | G | G |  |
-| `prevencion` |  |  |  |  |  |  |  |  | V |  |
-| `prevencion_auxiliar` |  |  |  |  |  |  |  |  | V |  |
-| `promotor_ruta` |  |  |  | G |  |  |  |  |  |  |
-| `supervisor` |  | V |  |  |  | V |  | G | V |  |
-| `tesoreria` |  |  | G |  |  |  |  |  |  |  |
-| `verificador_precios` |  |  |  |  |  | V |  | G |  |  |
+| Rol | Tienda en Vivo | Etiquetas de anaquel | Promociones vendidas (quién vendió) | Arqueo ciego de caja | Control de Caducidades | Análisis de ventas | Verificador de precios | Caja (práctica) | Lista de faltantes | Retiros en caja | Checador de asistencia (kiosco) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `auditor_externo` |  |  |  |  |  |  |  |  |  | V |  |
+| `auxiliar_compras` |  | G |  |  |  |  | V |  | G |  |  |
+| `auxiliar_tienda` | V | V | G | G |  | V | V | V | G | G |  |
+| `cajero` |  |  | G | G |  |  |  | V | G |  |  |
+| `checador_kiosco` |  |  |  |  |  |  |  |  |  |  | G |
+| `compras` |  |  |  |  |  |  |  |  |  | V |  |
+| `direccion` | V | V |  | V | V | V | V | V | G | G |  |
+| `encargado_tienda` | V | G | G | G | G | V | V | V | G | G |  |
+| `etiquetas_anaquel` |  | V |  |  |  |  |  |  |  |  |  |
+| `facturacion` |  |  |  |  |  |  | V |  |  |  |  |
+| `finanzas` |  |  |  | G |  |  |  |  |  |  |  |
+| `finanzas_operativo` |  |  |  | G |  |  |  |  |  |  |  |
+| `gerente_compras` |  |  |  |  |  |  |  |  |  | V |  |
+| `marketing` |  |  |  |  |  |  |  |  |  | V |  |
+| `piso_tienda` | V | V | G | G | G | V | V | V | G | G |  |
+| `prevencion` |  |  |  |  |  |  |  |  |  | V |  |
+| `prevencion_auxiliar` |  |  |  |  |  |  |  |  |  | V |  |
+| `promotor_ruta` |  |  |  |  | G |  |  |  |  |  |  |
+| `supervisor` |  | V |  |  |  |  | V |  | G | V |  |
+| `tesoreria` |  |  |  | G |  |  |  |  |  |  |  |
+| `verificador_precios` |  |  |  |  |  |  | V |  | G |  |  |
 
 #### Telemarketing · `/telemarketing`
 
@@ -448,45 +454,44 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 
 #### Compras / Reabastecimiento · `/compras`
 
-| Rol | Existencia | Pedido | Red de abasto | Requisiciones | Órdenes de compra | Abiertas en Kepler | Órdenes de entrada | Revisión de facturas | Costo por proveedor | Costo estándar | Descuentos y apoyos | Hallazgos | Reclamos de recepción | Faltantes de piso | Proveedores | Categorías | Catálogo | Levantamiento de fichas | Catálogo digital | Obligaciones a proveedor |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `administrativo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `almacenista` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `analisis_ventas` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `auditor_externo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `auxiliar_compras` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | V | V |  | G |
-| `auxiliar_tienda` |  |  |  |  |  |  | G | V |  |  |  |  |  |  |  |  |  | V |  |  |
-| `cajero` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `checador` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `compras` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | V | V | G | G |
-| `compras_operaciones` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | V | V |  | G |
-| `contabilidad` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `coordinador_embarques` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `credito_cobranza` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
-| `direccion` | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V |  | G |
-| `encargado_bodega` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `encargado_tienda` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G |  | V |  | V |
-| `etiquetas_anaquel` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `facturacion` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V | V |  |  |
-| `finanzas` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G |  | V |  |  |
-| `finanzas_operativo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `gerente_compras` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | G | V | G | G |
-| `jefe_marketing` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
-| `marketing` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | G | V |  |  |
-| `piso_tienda` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `prevencion` | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `prevencion_auxiliar` | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `promotor_ruta` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `recursos_humanos` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `repartidor` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `sin_acceso` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `supervisor` | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `supervisor_ventas` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `surtidor` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `telemarketing` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
-| `tesoreria` | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G |  | V |  |  |
-| `vendedor_ruta` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
-| `vendedor_telemarketing` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| Rol | Existencia | Temporadas | Pedido | Red de abasto | Requisiciones | Órdenes de compra | Abiertas en Kepler | Órdenes de entrada | Revisión de facturas | Costo por proveedor | Costo estándar | Descuentos y apoyos | Hallazgos | Reclamos de recepción | Faltantes de piso | Proveedores | Categorías | Catálogo | Levantamiento de fichas | Catálogo digital | Obligaciones a proveedor |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `administrativo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `almacenista` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `analisis_ventas` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `auditor_externo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `auxiliar_compras` | G | V | G | G | G | G | G | G | V | V | V | G | G | G | G | G | G | V | V |  | G |
+| `auxiliar_tienda` |  |  |  |  |  |  |  | G | V |  |  |  |  |  |  |  |  |  | V |  |  |
+| `cajero` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `checador` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `compras` | G | G | G | G | G | G | G | G | V | V | V | G | G | G | G | G | G | V | V | G | G |
+| `compras_operaciones` | G | V | G | G | G | G | G | G | V | V | V | G | G | G | G | G | G | V | V |  | G |
+| `contabilidad` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `coordinador_embarques` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `credito_cobranza` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
+| `direccion` | V | G | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V | V |  | G |
+| `encargado_bodega` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `encargado_tienda` | G |  | G | G | G | G | G | G | V | V | V | G | G | G | G | G | G |  | V |  | V |
+| `etiquetas_anaquel` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `facturacion` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V | V |  |  |
+| `finanzas` | G |  | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G |  | V |  |  |
+| `finanzas_operativo` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `gerente_compras` | G | G | G | G | G | G | G | G | V | V | V | G | G | G | G | G | G | G | V | G | G |
+| `jefe_marketing` |  | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
+| `marketing` | G | G | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G | G | V |  |  |
+| `piso_tienda` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `prevencion` | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `prevencion_auxiliar` | V |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `promotor_ruta` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `recursos_humanos` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `repartidor` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `supervisor` | G |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `supervisor_ventas` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `surtidor` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `telemarketing` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | G | V |  |  |
+| `tesoreria` | G |  | G | G | G | G | V | G | V | V | V | G | G | G | G | G | G |  | V |  |  |
+| `vendedor_ruta` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
+| `vendedor_telemarketing` |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | V |  |  |
 
 #### Finanzas · `/finanzas`
 
@@ -531,8 +536,10 @@ personas activas en ese puesto (principal + complementos). Cuando no coinciden, 
 | `credito_cobranza` | G | V | G |  | G | V | V | G | G | G | V | G | V | G |
 | `direccion` | V | V | V | V | V | V | V | V | V | V | V | V | V |  |
 | `finanzas` | G | V | G | G | G | V | V | G | G | G | V | G | V | G |
+| `finanzas_operativo` |  |  |  | G |  |  |  |  |  |  |  |  |  |  |
 | `gerente_compras` | G | V | G |  | G | V | V | G | G | G | V | G | V | G |
 | `marketing` | G | V | G |  | G | V | V | G | G | G | V | G | V | G |
+| `tesoreria` |  |  |  | G |  |  |  |  |  |  |  |  |  |  |
 
 #### Reparto / Última Milla · `/reparto`
 
@@ -569,7 +576,12 @@ _Ningún rol (salvo superadmin) tiene acceso._
 | Rol | Asistencia | Incidencias y cierre semanal | Relojes checadores | Reclutamiento |
 |---|---|---|---|---|
 | `contabilidad` |  | V |  |  |
+| `reclutamiento_asistencia` | G | G | G | G |
 | `recursos_humanos` | G | G | G | G |
+
+#### Tareas por puesto · `/tareas`
+
+_Ningún rol (salvo superadmin) tiene acceso._
 
 #### Mesa de Servicio · `/servicio`
 
@@ -710,19 +722,19 @@ Acceso único `PORTAL_B2B_ACCESS` → `customer_b2b`
   Mientras `default_role` esté vacío, dar de alta a alguien en ese puesto **no le propone nada**.
 - **Personas cuyo rol no es el que propone su puesto:** 38.
 - **Personas activas sin puesto:** 17.
-- **Roles sin ninguna persona (ni principal ni complemento):** `checador`, `sin_acceso`.
-- **Ajustes por persona (`user_permissions`):** 417 que agregan, 108 que quitan.
+- **Roles sin ninguna persona (ni principal ni complemento):** `checador`, `chofer`, `sin_acceso`.
+- **Ajustes por persona (`user_permissions`):** 880 que agregan, 126 que quitan.
   Cada uno es una excepción que no se ve en la matriz de roles.
 
-- **Permisos que ningún rol tiene (sólo superadmin):** 13. Si el módulo ya está en prod, nadie más lo puede abrir:
+- **Permisos que ningún rol tiene (sólo superadmin):** 16. Si el módulo ya está en prod, nadie más lo puede abrir:
 
 | Permiso | Qué hace |
 |---|---|
-| `ALMACEN_LLEGADAS_VER` | Ver llegadas al andén (Almacén) |
 | `COMMERCIAL_MAP_PROSPECTS_GESTIONAR` | Gestionar Prospección |
 | `COMPRAS_REQUISICIONES_AUTORIZAR` | Autorizar Requisiciones |
 | `DEV_PROJECTS_GESTIONAR` | Dar de alta y editar proyectos de desarrollo |
 | `DEV_PROJECTS_VER` | Ver proyectos de desarrollo |
+| `FINANCE_CAJA_VENTANILLA` | Trabajar Caja General en la Ventanilla |
 | `FINANCE_EXPENSES_HISTORIAL_TODOS` | Ver el historial de gastos de TODOS |
 | `LOGISTICS_PAYROLL_GESTIONAR` | Gestionar Liquidaciones |
 | `NIVELACION_GESTIONAR` | Gestionar traspasos |
@@ -731,8 +743,11 @@ Acceso único `PORTAL_B2B_ACCESS` → `customer_b2b`
 | `SERVICIO_ATENDER` | Atender solicitudes de servicio |
 | `SERVICIO_COORDINAR` | Coordinar la Mesa de Servicio |
 | `SUPERVISOR_AI_APROBAR` | Aprobar acciones del Supervisor AI |
+| `TAREAS_PUESTO_ENTREGAR` | Entregar mis tareas del manual |
+| `TAREAS_PUESTO_EQUIPO_VER` | Ver las tareas de mi equipo |
+| `TAREAS_PUESTO_NORMA_GESTIONAR` | Editar el manual de tareas por puesto |
 
-- **Módulos a los que sólo entra superadmin:** Almacén › Llegadas al andén · Almacén › Nivelación de inventarios · Desarrolladores › Proyectos · Mesa de Servicio › Atención de solicitudes · Mesa de Servicio › Coordinación y configuración · Mesa de Servicio › Reportes de la mesa
+- **Módulos a los que sólo entra superadmin:** Almacén › Nivelación de inventarios · Desarrolladores › Proyectos · Tareas por puesto › Mis tareas del día · Tareas por puesto › Tareas de mi equipo · Tareas por puesto › Manual por puesto · Mesa de Servicio › Atención de solicitudes · Mesa de Servicio › Coordinación y configuración · Mesa de Servicio › Reportes de la mesa
 
 
 ## 6. Checklist para un módulo nuevo
