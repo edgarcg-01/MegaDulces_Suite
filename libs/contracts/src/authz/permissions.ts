@@ -851,4 +851,9 @@ export enum Permission {
   COMMERCIAL_ALTA_CLIENTES_KEPLER = 'COMMERCIAL_ALTA_CLIENTES_KEPLER',
   /** `[PQ.110]` Cancelar una OC (X-A-35) en Kepler desde /compras/oc-abiertas. Escribe en el ERP: aparte de GESTIONAR. */
   COMPRAS_OC_CANCELAR = 'COMPRAS_OC_CANCELAR',
+  /**
+   * `[KR.7]` Cancelar una requisición de compra (X-A-30) en Kepler desde su ficha. Escribe en el ERP. Los
+   * mismos seis roles que `COMPRAS_OC_CANCELAR`; llave aparte porque el rótulo de aquélla dice «OC».
+   */
+  COMPRAS_REQUISICION_CANCELAR = 'COMPRAS_REQUISICION_CANCELAR',
 }

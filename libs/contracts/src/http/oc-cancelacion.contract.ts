@@ -46,3 +46,49 @@ export interface OcCancelacionDisponibleDto {
   /** El último intento registrado desde la Suite para esta OC (cancelada o rechazada), si lo hay. */
   ultima: OcCancelacionDto | null;
 }
+
+/**
+ * `[KR.7]` Cancelar en Kepler una requisición de compra (`X-A-30`) desde su ficha
+ * (`/compras/requisiciones/:id`). Llave `COMPRAS_REQUISICION_CANCELAR`. Mismo cuerpo que la OC
+ * (`OcCancelarInputDto`: `{ motivo }`, mínimo `OC_CANCELAR_MOTIVO_MIN` letras).
+ *
+ * `POST /commercial/replenishment/requisitions/:id/kepler-cancellation` cancela;
+ * `GET` del mismo camino dice si se puede ofrecer el botón.
+ */
+export interface RequisicionCancelacionDto {
+  /** La requisición de la Suite. */
+  requisition_id: string;
+  /** Sucursal y folio de la requisición EN KEPLER. */
+  sucursal: string;
+  folio: string;
+  /** `cancelada` = Kepler ya la tiene cancelada. `rechazada` = NO se escribió nada en Kepler; `rechazo` dice por qué. */
+  estado: 'cancelada' | 'rechazada';
+  rechazo: string | null;
+  /**
+   * D43: si la requisición de la Suite quedó cancelada con este acto. `false` = ya estaba cancelada aquí, o
+   * Kepler la canceló pero la Suite no lo pudo registrar (queda en el log). `null` = no se sabe (un intento
+   * anterior, leído de la bitácora).
+   */
+  suite_cancelada: boolean | null;
+  cancelada_por: string | null;
+  cancelada_en: string;
+}
+
+/**
+ * `GET /commercial/replenishment/requisitions/:id/kepler-cancellation` — si la ficha puede OFRECER
+ * «Cancelar en Kepler», y si no, por qué (no se mandó a Kepler, apagado en la sucursal, tope del día, ya
+ * cancelada, con una OC viva).
+ *
+ * ⚠️ Como en la OC: la regla de Kepler se revisa aquí contra la RÉPLICA, que puede ir atrasada; al cancelar
+ * se revisa otra vez contra Kepler vivo. `disponible` es una promesa de intentar, no de que Kepler acepte.
+ */
+export interface RequisicionCancelacionDisponibleDto {
+  requisition_id: string;
+  /** `null` si la requisición nunca llegó a Kepler. */
+  sucursal: string | null;
+  folio: string | null;
+  disponible: boolean;
+  porque: string | null;
+  /** El último intento registrado desde la Suite para esta requisición (cancelada o rechazada), si lo hay. */
+  ultima: RequisicionCancelacionDto | null;
+}

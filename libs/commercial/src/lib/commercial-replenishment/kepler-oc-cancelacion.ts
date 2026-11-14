@@ -80,10 +80,14 @@ const ESTADO_OC: Record<string, string> = {
 /** Mínimo de letras del motivo: «ya no» no explica nada a quien lo lea después. */
 export const MOTIVO_MINIMO = OC_CANCELAR_MOTIVO_MIN;
 
-export function motivoValido(motivo: string | null | undefined): { ok: true; valor: string } | { ok: false; motivo: string } {
+export function motivoValido(
+  motivo: string | null | undefined,
+  /** `[KR.7]` A qué documento queda pegado el motivo, en el mensaje. */
+  documento = 'la OC',
+): { ok: true; valor: string } | { ok: false; motivo: string } {
   const v = (motivo ?? '').replace(/\s+/g, ' ').trim();
   if (v.length < MOTIVO_MINIMO) {
-    return { ok: false, motivo: `Escribe por qué se cancela (al menos ${MOTIVO_MINIMO} letras): queda en la Suite junto a la OC` };
+    return { ok: false, motivo: `Escribe por qué se cancela (al menos ${MOTIVO_MINIMO} letras): queda en la Suite junto a ${documento}` };
   }
   return { ok: true, valor: v.slice(0, 500) };
 }

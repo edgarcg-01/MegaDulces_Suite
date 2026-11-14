@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { OcCancelacionDisponibleDto, OcCancelacionDto, OcCancelarInputDto } from '@megadulces/contracts';
+import type {
+  OcCancelacionDisponibleDto, OcCancelacionDto, OcCancelarInputDto, RequisicionCancelacionDisponibleDto, RequisicionCancelacionDto,
+} from '@megadulces/contracts';
 
 import { OcCancelacionService } from './oc-cancelacion.service';
 
@@ -36,5 +38,27 @@ export class OcCancelacionController {
     @Param('folio') folio: string,
   ): Promise<OcCancelacionDisponibleDto> {
     return this.svc.disponible(sucursal, folio);
+  }
+
+  /**
+   * `[KR.7]` Mismo camino para preguntar (GET) y para cancelar (POST): la requisición de la Suite por su id.
+   * No choca con `requisitions/:id` del controlador grande (otro número de segmentos).
+   */
+  @Post('requisitions/:id/kepler-cancellation')
+  @RequirePermissions(Permission.COMPRAS_REQUISICION_CANCELAR)
+  @ApiOperation({ summary: 'KR.7 — Cancela en Kepler la requisición de compra (X-A-30) de esta requisición de la Suite, como Kepler: sólo si ya no tiene OC viva y está en N o A; renglones borrados. Motivo obligatorio. D43: la de la Suite queda cancelada con el motivo y quién. Apagado por sucursal en kepler_push_switch (tipo cancela_requisicion). Devuelve cancelada|rechazada con el porqué.' })
+  cancelarRequisicion(
+    @Param('id') id: string,
+    // Se valida adentro (motivoValido): el cuerpo llega sin garantías.
+    @Body() body: Partial<OcCancelarInputDto>,
+  ): Promise<RequisicionCancelacionDto> {
+    return this.svc.cancelarRequisicion(id, body ?? {});
+  }
+
+  @Get('requisitions/:id/kepler-cancellation')
+  @RequirePermissions(Permission.COMPRAS_REQUISICION_CANCELAR)
+  @ApiOperation({ summary: 'KR.7 — ¿Se puede ofrecer «Cancelar en Kepler» en la ficha de esta requisición? No escribe. Revisa que haya llegado a Kepler, el interruptor, el tope, si ya se canceló y la regla de Kepler contra la réplica (al cancelar se revisa otra vez contra Kepler vivo).' })
+  disponibleRequisicion(@Param('id') id: string): Promise<RequisicionCancelacionDisponibleDto> {
+    return this.svc.disponibleRequisicion(id);
   }
 }

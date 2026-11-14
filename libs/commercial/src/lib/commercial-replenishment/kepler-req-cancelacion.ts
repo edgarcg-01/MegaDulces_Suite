@@ -23,6 +23,7 @@
  */
 
 import { llave, TABLAS_KEPLER, type Sentencia, type Tablas } from './kepler-oc-cancelacion';
+import type { RequisicionEnReplica } from './kepler-requisicion-replica';
 
 /** Lo que el adaptador lee de Kepler vivo, ya plano. */
 export interface RequisicionACancelar {
@@ -120,4 +121,30 @@ export function sentenciasCancelacionRequisicion(p: PlanCancelacionRequisicion, 
       esperadas: p.requisicion.renglones,
     },
   ];
+}
+
+/**
+ * D43 (Edgar, 2026-11-14): cuando la Suite cancela la requisición en Kepler, la de la Suite queda `cancelled`
+ * con el motivo y quién. Va en `rejection_reason`, con un inicio fijo como `MOTIVO_COMPRA_SIN_DOCUMENTO` y
+ * `MOTIVO_TRASPASO_NO_EJECUTADO`: separa este cierre de un rechazo de quien autoriza.
+ */
+export const MOTIVO_CANCELADA_EN_KEPLER = 'Cancelada en Kepler desde la Suite';
+
+export function motivoSuiteCancelada(motivo: string): string {
+  return `${MOTIVO_CANCELADA_EN_KEPLER}: ${motivo.trim()}`.slice(0, 500);
+}
+
+/**
+ * La entrada de la regla leída de la RÉPLICA, para decidir si se OFRECE el botón. La réplica no trae serie,
+ * total, captura ni renglones (no deciden nada: los lee el adaptador en Kepler vivo, al cancelar), y lee UN
+ * folio: si hubiera dos series con el mismo folio, lo dice Kepler vivo al cancelar.
+ * Una OC con estado vacío o desconocido cuenta como VIVA (falla cerrado).
+ */
+export function entradaDesdeReplica(r: RequisicionEnReplica): EntradaCancelacionRequisicion {
+  const rq = r.requisicion;
+  return {
+    requisicion: rq ? { serie: '', folio: rq.folio, estado: rq.estado, total: 0, capturista: '', fecha_captura: '', hora_captura: '', renglones: 0 } : null,
+    coincidencias: rq ? 1 : 0,
+    oc_vivas: r.ocs.filter((o) => o.estado !== 'C').map((o) => o.folio),
+  };
 }

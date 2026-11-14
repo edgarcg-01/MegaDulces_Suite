@@ -36,6 +36,7 @@ const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
 
 let Servicio;
 let leerRequisicionEnReplica;
+let MOTIVO_CANCELADA_EN_KEPLER;
 process.env.JWT_SECRET = process.env.JWT_SECRET || `prueba-local-pq110-${'x'.repeat(40)}`;
 try {
   require('ts-node').register({ transpileOnly: true, skipProject: true,
@@ -46,6 +47,7 @@ try {
   require('reflect-metadata');
   ({ OcCancelacionService: Servicio } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/oc-cancelacion.service.ts')));
   ({ leerRequisicionEnReplica } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/kepler-requisicion-replica.ts')));
+  ({ MOTIVO_CANCELADA_EN_KEPLER } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-replenishment/kepler-req-cancelacion.ts')));
 } catch (e) {
   console.log(`  ·  NO MEDIDO — no se pudo cargar el servicio con ts-node: ${e.message}`);
   process.exit(2);
@@ -77,10 +79,15 @@ const ORIGINAL = {
     await knex.transaction(async (trx) => {
       await trx.raw('SET LOCAL ROLE app_runtime');
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
-      await trx.raw(`DELETE FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%'`).catch(nada);
+      await trx.raw(`DELETE FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%' OR requisicion_folio LIKE 'KR7%'`).catch(nada);
 
       const llamadas = [];
-      const doble = { respuesta: null, cancelar: async (e) => { llamadas.push(e); return doble.respuesta(e); } };
+      const llamadasRq = [];
+      const doble = {
+        respuesta: null, respuestaRq: null,
+        cancelar: async (e) => { llamadas.push(e); return doble.respuesta(e); },
+        cancelarRequisicion: async (e) => { llamadasRq.push(e); return doble.respuestaRq(e); },
+      };
       let alcance = null;
       const s = Object.create(Servicio.prototype);
       Object.assign(s, {
@@ -179,6 +186,131 @@ const ORIGINAL = {
       else ok(rqReal && rqReal.requisicion === null && Array.isArray(rqReal.ocs) && rqReal.ocs.length === 0,
         'leerRequisicionEnReplica contra la base real: folio inexistente → sin requisición ni OC, sin error', rqReal);
 
+      // ── `[KR.7]` Cancelar la REQUISICIÓN en Kepler desde su ficha: el mismo servicio, otro documento ──────
+      const kr7 = (await trx.raw(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'commercial'
+                                    AND table_name = 'purchase_order_cancellations' AND column_name = 'document_type') x`)).rows[0].x;
+      if (!kr7) noMedido('la base no tiene la migración 20261114120335 (KR.7): los casos de la requisición no se ejercieron');
+      else {
+        console.log('\n  [KR.7] la requisición');
+        // Las requisiciones de prueba se siembran como dueño (app_runtime no da de alta almacenes ni proveedores).
+        await trx.raw('RESET ROLE');
+        const [wh] = await trx('commercial.warehouses').insert({ tenant_id: T, code: 'PRBKR7', name: 'Prueba KR.7' }).returning('id');
+        const [sp] = await trx('catalog.suppliers').insert({ tenant_id: T, code: 'PRBKR7', name: 'PROVEEDOR PRUEBA KR7' }).returning('id');
+        const rq = async (o) => {
+          const [r] = await trx('commercial.purchase_requisitions').insert({
+            tenant_id: T, warehouse_id: wh.id || wh, supplier_id: sp.id || sp, source_type: o.source_type ?? 'supplier',
+            estado: o.estado ?? 'ordered', target_basis: 'max', folio: `RQ-KR7-${Math.random().toString(36).slice(2, 9)}`,
+            total_lines: 0, total_units: 0, total_cost: 0,
+            kepler_sucursal: o.folio ? SUC : null, kepler_folio: o.folio ?? null, ...(o.extra ?? {}),
+          }).returning('id');
+          return r.id || r;
+        };
+        const R1 = await rq({ folio: 'KR7A' });
+        const R2 = await rq({ folio: 'KR7B' });
+        const R3 = await rq({ folio: 'KR7C' });
+        const R4 = await rq({ folio: 'KR7D', estado: 'cancelled', extra: { rejection_reason: 'Rechazada antes por quien autoriza', rejected_at: new Date() } });
+        const R5 = await rq({ folio: null });
+        await trx.raw('SET LOCAL ROLE app_runtime');
+        const est = (id) => trx('commercial.purchase_requisitions').where({ id }).first('estado', 'rejection_reason', 'rejected_by');
+        const swRq = (cambios) => trx('commercial.kepler_push_switch').where({ tenant_id: T, sucursal: SUC, tipo: 'cancela_requisicion' }).update(cambios);
+        const pantallaRq = { motivo: 'El proveedor ya no surte este pedido' };
+        const ORIG_RQ = { serie: '1', folio: 'KR7A', estado: 'A', total: 36552.12, capturista: 'SUITE', fecha_captura: '2026-10-29', hora_captura: '12:40', renglones: 7 };
+
+        // K1-K3. Motivo, «no llegó a Kepler» e interruptor: ninguno llega a Kepler.
+        ok(await status(() => s.cancelarRequisicion(R1, { motivo: 'ya no' })) === 400, 'KR.7: motivo de menos de 10 letras → 400');
+        ok(await status(() => s.cancelarRequisicion(R5, pantallaRq)) === 409, 'KR.7: una requisición que no llegó a Kepler → 409');
+        const r5 = await s.disponibleRequisicion(R5);
+        ok(r5.disponible === false && /no llegó a Kepler/.test(r5.porque || '') && r5.folio === null, 'KR.7 disponible: no llegó a Kepler → no, y lo dice', r5);
+        const swSem = await trx('commercial.kepler_push_switch').where({ sucursal: SUC, tipo: 'cancela_requisicion' }).first();
+        ok(swSem?.encendida === false && Number(swSem?.tope_dia) === 1, 'KR.7: la migración siembra cancela_requisicion APAGADO con tope 1', swSem);
+        ok(await status(() => s.cancelarRequisicion(R1, pantallaRq)) === 503, 'KR.7: interruptor apagado → 503');
+        ok(llamadasRq.length === 0, 'KR.7: ni el motivo corto, ni la que no llegó, ni el apagado llegan a Kepler', llamadasRq);
+
+        // K4. Encendido: Kepler la cancela → bitácora + D43 (la de la Suite queda cancelada con motivo y quién).
+        await swRq({ encendida: true, tope_dia: null });
+        doble.respuestaRq = () => ({ estado: 'cancelada', original: ORIG_RQ });
+        const k4 = await s.cancelarRequisicion(R1, pantallaRq);
+        ok(k4.estado === 'cancelada' && k4.rechazo === null && k4.suite_cancelada === true && k4.folio === 'KR7A' && k4.cancelada_por === 'prueba.pq110',
+          'KR.7: cancelada → la respuesta dice que la Suite también la canceló, y quién', k4);
+        ok(llamadasRq[0]?.sucursal === SUC && llamadasRq[0]?.folio === 'KR7A' && llamadasRq[0]?.capturista === 'SUITE' && /^\d{2}:\d{2}$/.test(llamadasRq[0]?.hora),
+          'KR.7: a Kepler va la llave de Kepler de la requisición (no su id de la Suite) con capturista SUITE', llamadasRq[0]);
+        const f4 = await trx('commercial.purchase_order_cancellations').where({ requisicion_folio: 'KR7A' }).first();
+        ok(f4?.document_type === 'requisicion' && f4?.oc_folio === null && f4?.requisition_id === R1 && f4?.estado === 'cancelada'
+          && f4?.motivo === pantallaRq.motivo && f4?.kepler_original?.fecha_captura === '2026-10-29' && f4?.kepler_original?.hora_captura === '12:40',
+          'KR.7: la bitácora guarda documento, requisición de la Suite, motivo y lo que Kepler pierde', f4);
+        const e4 = await est(R1);
+        ok(e4?.estado === 'cancelled' && e4?.rejection_reason === `${MOTIVO_CANCELADA_EN_KEPLER}: ${pantallaRq.motivo}` && e4?.rejected_by === ME,
+          'D43: la requisición de la Suite queda cancelled, con el motivo (inicio fijo) y quién', e4);
+
+        // K5. Otra vez → 409.
+        ok(await status(() => s.cancelarRequisicion(R1, pantallaRq)) === 409, 'KR.7: la misma requisición otra vez → 409');
+
+        // K6. El tope es POR DOCUMENTO.
+        await swRq({ tope_dia: 1 });
+        const antesRq = llamadasRq.length;
+        ok(await status(() => s.cancelarRequisicion(R2, pantallaRq)) === 503 && llamadasRq.length === antesRq, 'KR.7: tope 1 por día → la segunda requisición 503 sin llegar a Kepler');
+        await sw({ tope_dia: 2 });
+        doble.respuesta = () => ({ estado: 'cancelada', original: { ...ORIGINAL, folio: 'PQ110H' } });
+        const h = await s.cancelar(SUC, 'PQ110H', pantalla).catch((e) => ({ error: e.message }));
+        ok(h.estado === 'cancelada',
+          'NEGATIVA del tope: la requisición cancelada hoy NO gasta el tope de las OC (1 OC + 1 requisición con tope 2 de OC → pasa)', h);
+        await sw({ tope_dia: null });
+        await swRq({ tope_dia: null });
+
+        // K7. Kepler rechaza → bitácora `rechazada`; la Suite NO cambia.
+        doble.respuestaRq = () => ({ estado: 'rechazada', motivo: 'Tiene viva la orden de compra 0000393: primero se cancela la OC (Kepler no cancela una requisición con OC viva)' });
+        const k7 = await s.cancelarRequisicion(R2, pantallaRq);
+        ok(k7.estado === 'rechazada' && /0000393/.test(k7.rechazo || '') && k7.suite_cancelada === false, 'KR.7: Kepler rechaza → rechazada con el porqué', k7);
+        ok((await est(R2))?.estado === 'ordered', 'KR.7: rechazada en Kepler → la de la Suite sigue como estaba');
+
+        // K8. Ya cancelada en la Suite (la ficha avisaba «sigue viva en Kepler»): Kepler la cancela, la Suite conserva su motivo.
+        doble.respuestaRq = () => ({ estado: 'cancelada', original: { ...ORIG_RQ, folio: 'KR7D' } });
+        const k8 = await s.cancelarRequisicion(R4, pantallaRq);
+        const e8 = await est(R4);
+        ok(k8.estado === 'cancelada' && k8.suite_cancelada === false && e8?.rejection_reason === 'Rechazada antes por quien autoriza',
+          'D43: ya cancelada en la Suite → no se pisa su motivo, y la respuesta lo dice (suite_cancelada false)', { k8, e8 });
+
+        // K9. Alcance por la sucursal de Kepler.
+        alcance = ['01'];
+        ok(await status(() => s.cancelarRequisicion(R3, pantallaRq)) === 404, 'KR.7: sucursal fuera del alcance → 404');
+        ok(await status(() => s.disponibleRequisicion(R3)) === 404, 'KR.7 disponible: fuera del alcance → 404 también');
+        alcance = null;
+
+        // K10. GET …/kepler-cancellation (no escribe). La réplica es un doble; su SQL ya se ejerció en 7d.
+        let replicaRq = null; let lecturasRq = 0;
+        s.leerRequisicionReplica = async () => { lecturasRq++; return replicaRq; };
+        const ya1 = await s.disponibleRequisicion(R1);
+        ok(ya1.disponible === false && /ya se canceló/.test(ya1.porque || '') && ya1.ultima?.estado === 'cancelada' && ya1.ultima?.suite_cancelada === null,
+          'KR.7 disponible: ya cancelada → no, con el último intento (suite_cancelada null: la bitácora no lo guarda)', ya1);
+        const doc = (folio, estado) => ({ folio, estado, cancelada: null });
+        replicaRq = { requisicion: doc('KR7C', 'A'), ocs: [doc('0000390', 'C')] };
+        const si3 = await s.disponibleRequisicion(R3);
+        ok(si3.disponible === true && si3.porque === null && si3.folio === 'KR7C', 'KR.7 disponible: reabierta con su OC cancelada → sí', si3);
+        replicaRq = { requisicion: doc('KR7C', 'F'), ocs: [doc('0000393', 'N')] };
+        const viva = await s.disponibleRequisicion(R3);
+        ok(viva.disponible === false && /0000393/.test(viva.porque || ''), 'KR.7 disponible: con OC viva → no, y dice cuál', viva);
+        replicaRq = null;
+        const sinRep = await s.disponibleRequisicion(R3);
+        ok(sinRep.disponible === false && /réplica/.test(sinRep.porque || ''), 'KR.7 disponible: sin réplica → no, y lo declara', sinRep);
+        const antesApRq = lecturasRq;
+        await swRq({ encendida: false });
+        const ap = await s.disponibleRequisicion(R3);
+        ok(ap.disponible === false && /apagado/.test(ap.porque || '') && !/\b08\b/.test(ap.porque || '') && lecturasRq === antesApRq,
+          'KR.7 disponible: apagado → no, nombra la sucursal y ni lee la réplica', ap);
+        delete s.leerRequisicionReplica;
+
+        // K11. NEGATIVAS de la tabla para el renglón de requisición.
+        const bRq = { tenant_id: T, sucursal: SUC, motivo: pantallaRq.motivo, created_by: ME, document_type: 'requisicion' };
+        ok(await status(() => s.tk.run((k) => k('commercial.purchase_order_cancellations').insert({ ...bRq, requisicion_folio: 'KR7E', estado: 'rechazada', rechazo: 'x' }))) === '23514',
+          'NEGATIVA: renglón de requisición sin requisition_id no entra (CHECK)');
+        ok(await status(() => s.tk.run((k) => k('commercial.purchase_order_cancellations').insert({ ...bRq, requisicion_folio: 'KR7E', requisition_id: R3, oc_folio: 'PQ110Z', estado: 'rechazada', rechazo: 'x' }))) === '23514',
+          'NEGATIVA: renglón de requisición con oc_folio no entra (CHECK)');
+        ok(await status(() => s.tk.run((k) => k('commercial.purchase_order_cancellations').insert({ ...bRq, requisicion_folio: 'KR7A', requisition_id: R1, estado: 'cancelada' }))) === '23505',
+          'NEGATIVA: la misma requisición cancelada dos veces no entra (índice único)');
+        ok(await status(() => s.tk.run((k) => k('commercial.purchase_order_cancellations').insert({ tenant_id: T, sucursal: SUC, motivo: pantalla.motivo, estado: 'rechazada', rechazo: 'x' }))) === '23514',
+          'NEGATIVA: renglón de OC sin oc_folio no entra (CHECK) — relajar el NOT NULL no lo abrió');
+      }
+
       // 8. NEGATIVAS de la tabla.
       const base = { tenant_id: T, sucursal: SUC, motivo: pantalla.motivo, created_by: ME };
       ok(await status(() => s.tk.run((k) => k('commercial.purchase_order_cancellations').insert({ ...base, oc_folio: 'PQ110E', estado: 'rechazada' }))) === '23514',
@@ -190,7 +322,7 @@ const ORIGINAL = {
 
       // 9. RLS.
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [OTRO_TENANT]);
-      const otro = (await trx.raw(`SELECT count(*)::int n FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%'`)).rows[0].n;
+      const otro = (await trx.raw(`SELECT count(*)::int n FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%' OR requisicion_folio LIKE 'KR7%'`)).rows[0].n;
       ok(otro === 0, 'RLS: otro tenant no ve ninguna cancelación', otro);
 
       throw Object.assign(new Error('rollback'), { esRollback: true });
@@ -198,7 +330,7 @@ const ORIGINAL = {
 
     const quedaron = await knex.transaction(async (t) => {
       await t.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
-      return (await t.raw(`SELECT count(*)::int n FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%'`)).rows[0].n;
+      return (await t.raw(`SELECT count(*)::int n FROM commercial.purchase_order_cancellations WHERE oc_folio LIKE 'PQ110%' OR requisicion_folio LIKE 'KR7%'`)).rows[0].n;
     });
     ok(quedaron === 0, 'ROLLBACK real: no quedó ninguna cancelación de la prueba');
   } catch (e) {

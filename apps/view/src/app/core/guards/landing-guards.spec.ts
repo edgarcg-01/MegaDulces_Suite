@@ -31,6 +31,9 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // `[PQ.110]` Cancelar una OC en Kepler es una ACCIÓN sobre la lista: sin verla no hay qué cancelar.
   // Medido en prod el 2026-11-13: los 6 roles con la llave también tienen COMPRAS_PEDIDO_VER.
   { perm: Permission.COMPRAS_OC_CANCELAR, url: '/compras/oc-abiertas', motivo: 'llave de acción, no de entrada: la ruta exige COMPRAS_PEDIDO_VER (los 6 roles con la llave la tienen)' },
+  // `[KR.7]` Cancelar una requisición en Kepler es una ACCIÓN de su ficha. Medido en prod el 2026-11-14:
+  // los 6 roles que la reciben tienen COMPRAS_REQUISICIONES_VER.
+  { perm: Permission.COMPRAS_REQUISICION_CANCELAR, url: '/compras/requisiciones', motivo: 'llave de acción, no de entrada: la ruta exige COMPRAS_REQUISICIONES_VER (los 6 roles con la llave la tienen)' },
   // comercial
   { perm: Permission.COMMERCIAL_INTELLIGENCE_VER, url: '/comercial/command-center', motivo: 'el módulo intelligence apunta a command-center, que exige ANALYTICS_VER; no hay ruta gateada por INTELLIGENCE_VER' },
   { perm: Permission.COMMERCIAL_CARGA_VER, url: '/comercial/orders', motivo: 'el módulo carga apunta a orders (ORDERS_VER)' },

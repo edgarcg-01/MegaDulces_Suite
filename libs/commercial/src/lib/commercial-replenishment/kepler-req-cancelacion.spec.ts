@@ -1,7 +1,7 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver transito.spec.ts).
 
 import {
-  decidirCancelacionRequisicion, sentenciasCancelacionRequisicion,
+  decidirCancelacionRequisicion, entradaDesdeReplica, MOTIVO_CANCELADA_EN_KEPLER, motivoSuiteCancelada, sentenciasCancelacionRequisicion,
   type EntradaCancelacionRequisicion, type RequisicionACancelar,
 } from './kepler-req-cancelacion';
 import { permisosNecesarios, sentenciasCancelacion } from './kepler-oc-cancelacion';
@@ -97,5 +97,39 @@ describe('[KR.7] sentenciasCancelacionRequisicion — lo que escribe Kepler, y s
     const columnasRq = cab.sql.match(/SET (.*?)\s+WHERE/s)![1].split(',').map((x) => x.trim().split(' ')[0]).sort();
     expect(columnasRq).toEqual(columnasOc);
     expect(permisosNecesarios(false)).toHaveLength(10);
+  });
+});
+
+describe('[KR.7] entradaDesdeReplica — la regla leída de la réplica, para OFRECER el botón', () => {
+  const doc = (folio: string, estado: string) => ({ folio, estado, cancelada: null });
+
+  it('reabierta con su OC cancelada: se ofrece', () => {
+    const e = entradaDesdeReplica({ requisicion: doc('0000064', 'A'), ocs: [doc('0000390', 'C')] });
+    expect(e).toMatchObject({ coincidencias: 1, oc_vivas: [] });
+    expect(decidirCancelacionRequisicion(e)).toEqual({ ok: true });
+  });
+
+  it('con su OC viva: no, y dice cuál', () => {
+    const d = decidirCancelacionRequisicion(entradaDesdeReplica({ requisicion: doc('0000087', 'F'), ocs: [doc('0000393', 'N')] }));
+    expect(d).toEqual({ ok: false, motivo: expect.stringContaining('0000393') });
+  });
+
+  it('NEGATIVA: una OC con estado vacío cuenta como VIVA (falla cerrado)', () => {
+    expect(entradaDesdeReplica({ requisicion: doc('1', 'A'), ocs: [doc('2', '')] }).oc_vivas).toEqual(['2']);
+  });
+
+  it('sin la requisición en la réplica: 0 coincidencias → «Kepler no tiene esa requisición»', () => {
+    const d = decidirCancelacionRequisicion(entradaDesdeReplica({ requisicion: null, ocs: [] }));
+    expect(d).toEqual({ ok: false, motivo: expect.stringContaining('no tiene esa requisición') });
+  });
+});
+
+describe('[KR.7] D43 — el motivo con que la Suite la deja cancelada', () => {
+  it('empieza fijo (se distingue de un rechazo de quien autoriza) y lleva el motivo de la persona', () => {
+    expect(motivoSuiteCancelada('  El proveedor ya no surte ')).toBe(`${MOTIVO_CANCELADA_EN_KEPLER}: El proveedor ya no surte`);
+  });
+
+  it('cabe en la columna (500)', () => {
+    expect(motivoSuiteCancelada('x'.repeat(600))).toHaveLength(500);
   });
 });
