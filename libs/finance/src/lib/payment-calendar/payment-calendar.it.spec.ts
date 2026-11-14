@@ -59,6 +59,8 @@ const MIGS = [
   // del motivo que admite `anticipo`.
   '../../../../../database/migrations-newdb/20261026173001_pgp17_creditos_de_proveedor_aplicados_y_no.js',
   '../../../../../database/migrations-newdb/20261113171713_pgp120_descuento_por_anticipo.js',
+  // `[PGP.122]` La naturaleza de la obligación (`factura` | `anticipo`, de `[PGP.119]`).
+  '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -124,6 +126,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[8], trx);   // `[PGP.113]` la autorización por pago (idempotente)
     await migUp(MIGS[9], trx);   // `[PGP.120]` la vista de créditos de proveedor (idempotente)
     await migUp(MIGS[10], trx);  // `[PGP.120]` el motivo `anticipo` en el CHECK (idempotente)
+    await migUp(MIGS[11], trx);  // `[PGP.122]` la naturaleza de la obligación (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1638,6 +1641,52 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     it('cancelar el pago libera lo apartado', async () => {
       await trx('finance.payment_allocations').where({ id: pF2 }).update({ status: 'cancelled' });
       expect(await delAnticipo()).toMatchObject({ apartado: 0 });
+    });
+  });
+
+  /**
+   * `[PGP.122]` **El pago de un anticipo pedido en la Suite (`[PGP.119]`) se paga completo.** Es
+   * `supplier_payable` de mercancía, así que la regla de `[PGP.91]` lo dejaba descontar; pero no es
+   * factura: no llegará nota de crédito y Kepler capturará el `X-D-60` por el importe entero. Se
+   * cubren los tres caminos que fijan un descuento (crear el pago, sumarlo a uno, fijarlo después).
+   */
+  describe('[PGP.122] el pago de un anticipo no lleva descuento', () => {
+    const DIA = '2030-05-13';
+    let anticipo = '', factura = '';
+
+    beforeAll(async () => {
+      const sup = (await trx('catalog.suppliers').where({ tenant_id: M, code: 'TPIT-GONAC' }).first('id')).id as string;
+      const nueva = async (nature: string, monto: number) => (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature, concept: `PGP122 ${nature}`, original_amount: monto, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: '08', kepler_doc_tipo: nature === 'anticipo' ? 60 : null,
+      }).returning('id'))[0].id as string;
+      anticipo = await nueva('anticipo', 5000);
+      factura = await nueva('factura', 3000);
+    });
+
+    const de = (id: string, applied: number, discount = 0) => ({
+      obligation_source: 'supplier_payable' as const, obligation_id: id, applied_amount: applied,
+      ...(discount ? { discount_amount: discount, discount_reason: 'volumen' as const } : {}),
+    });
+
+    it('⛔ NEGATIVA — crear el pago del anticipo con descuento se rechaza, y no queda nada programado', async () => {
+      await expect(cal.createAllocation({ date: DIA, items: [de(anticipo, 4900, 100)] }, USER)).rejects.toThrow(/se paga completo/);
+      expect(await trx('finance.payment_allocation_items').where({ obligation_id: anticipo })).toHaveLength(0);
+    });
+
+    it('⛔ NEGATIVA — fijarle un descuento al anticipo ya puesto en el pago se rechaza; la factura de al lado, sí', async () => {
+      const a = await cal.createAllocation({ date: DIA, items: [de(factura, 3000), de(anticipo, 5000)] }, USER);
+      const items = await trx('finance.payment_allocation_items').where({ allocation_id: a.id });
+      const iAnt = items.find((x) => x.obligation_id === anticipo)!.id;
+      const iFac = items.find((x) => x.obligation_id === factura)!.id;
+      await expect(cal.setItemDiscount(a.id, iAnt, { discount_amount: 100, discount_reason: 'volumen' }, USER)).rejects.toThrow(/se paga completo/);
+      // Control: la misma tabla, misma sucursal y mismo pago, pero factura: el descuento pasa.
+      const r = await cal.setItemDiscount(a.id, iFac, { discount_amount: 90, discount_reason: 'volumen' }, USER);
+      expect(r.discount_amount).toBe(90);
+      // El día dice cuál es el anticipo, para que la pantalla no le ofrezca el descuento.
+      const its = (await cal.listDayAllocations(DIA)).find((x) => x.id === a.id)!.items;
+      expect(its.find((x) => x.obligation_id === anticipo)?.es_anticipo).toBe(true);
+      expect(its.find((x) => x.obligation_id === factura)?.es_anticipo).toBe(false);
     });
   });
 

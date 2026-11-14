@@ -3727,10 +3727,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /**
    * `[PGP.91]` Sólo factura de mercancía (la que después recibe la nota de crédito) y que el ERP
    * todavía debe. El servidor exige lo mismo (`assertDescuentoPermitido`); aquí sólo no se ofrece
-   * lo que va a rechazar.
+   * lo que va a rechazar. `[PGP.122]` Tampoco el pago de un anticipo: se paga completo.
    */
   admiteDescuento(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): boolean {
-    return a.classification === 'proveedor_mercancia' && !it.kepler_saldada
+    return a.classification === 'proveedor_mercancia' && !it.kepler_saldada && it.es_anticipo !== true
       && (it.obligation_source === 'kepler_payable' || it.obligation_source === 'supplier_payable');
   }
   /** `[PGP.91]` El motivo dicho en llano: «Pronto pago 3 %», «Volumen», «Otro · apoyo de aniversario». */

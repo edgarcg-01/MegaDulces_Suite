@@ -107,6 +107,11 @@ export interface PaymentCalendarAllocationItem {
    */
   payee_code?: string | null;
   /**
+   * `[PGP.122]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): se paga completo, así que
+   * la pantalla no ofrece descuento (el servidor lo rechaza igual). Opcional: quien no lo mande dice «no».
+   */
+  es_anticipo?: boolean;
+  /**
    * `[PGP.58]` La llave del documento (`oblig:<sucursal>|<tipo>|<subtipo>|<folio>`): abre la ficha
    * y pide su evidencia (PDF o foto del comprobante). Sólo el origen derivado (`kepler_payable`)
    * la trae; null en los demás. Opcional para no romper a quien no la mande todavía.

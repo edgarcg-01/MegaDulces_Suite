@@ -6,7 +6,7 @@ import type {
 import { armarDeudaProgramable, NOMBRE_DOCUMENTO_CXP, type FilaDeudaCruda } from './deuda-programable.engine';
 // `[PGP.119]` El anticipo pedido en la Suite: la regla (contrato) y sus lecturas (SQL medido en prod).
 import {
-  etapaDeSolicitud, faltaSolicitudAnticipo, parearSolicitudes, warehouseName,
+  etapaDeSolicitud, faltaSolicitudAnticipo, MARCA_CANCELADO, parearSolicitudes, warehouseName,
   type AnticipoOcRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
 } from '@megadulces/contracts';
 import { SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS } from './anticipo-solicitado.sql';
@@ -349,13 +349,20 @@ export class SupplierPaymentObligationsService {
   async cancel(id: string, reason: string | undefined, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const row = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id }).first();
+      // `[PGP.122]` `forUpdate`: si el Calendario le está apartando un pago a la vez, se espera y se ve.
+      const row = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!row) throw new NotFoundException('Obligación a proveedor no encontrada');
+      // `[PGP.122]` El anticipo pedido en la Suite se cancela desde su submódulo: con razón (sus notas son
+      // su motivo y la razón queda junto a él) y una sola vez.
+      if (row.nature === 'anticipo') {
+        if (row.status === 'cancelled') throw new BadRequestException('El anticipo ya estaba cancelado.');
+        if (String(reason ?? '').trim().length < 3) throw new BadRequestException('Di por qué se cancela el anticipo (queda en su historia).');
+      }
       if (Number(row.reserved_amount) > 0 || Number(row.paid_amount) > 0) {
         throw new BadRequestException('No se puede cancelar: tiene pagos reservados o ejecutados. Reprograma/cancela esos pagos primero.');
       }
       const [updated] = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id })
-        .update({ status: 'cancelled', notes: reason ? `${row.notes ?? ''}\n[cancelado] ${reason}`.trim() : row.notes, updated_by: username, updated_at: trx.fn.now() })
+        .update({ status: 'cancelled', notes: reason ? `${row.notes ?? ''}\n${MARCA_CANCELADO}${String(reason).trim()}`.trim() : row.notes, updated_by: username, updated_at: trx.fn.now() })
         .returning('*');
       return updated;
     });

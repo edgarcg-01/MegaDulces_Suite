@@ -14,7 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import {
-  faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, tipoDeAcreedor, warehouseName,
+  faltaCancelarAnticipo, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, partirMotivo, tipoDeAcreedor, warehouseName,
   type AnticipoDeudaRow, type AnticipoGrupo, type AnticipoOcRow, type AnticipoProveedorRow, type AnticipoRow,
   type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type EtapaSolicitudAnticipo,
 } from '@megadulces/contracts';
@@ -168,7 +168,8 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
           <div class="dt-scope">
             <p-table [value]="solicitados()" size="small" class="dt-stack surf-table surf-table--plain an-table">
               <ng-template #header>
-                <tr><th>Etapa</th><th>Acreedor</th><th class="comm-num">Importe</th><th>Sucursal · OC</th><th>Detalle</th><th>Pedido</th></tr>
+                <tr><th>Etapa</th><th>Acreedor</th><th class="comm-num">Importe</th><th>Sucursal · OC</th><th>Detalle</th><th>Pedido</th>
+                  @if (puedePedir()) { <th><span class="sr-only">Acciones</span></th> }</tr>
               </ng-template>
               <ng-template #body let-s>
                 <tr>
@@ -177,7 +178,16 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
                   <td role="cell" data-label="Importe" class="comm-num an-strong">{{ money2(s.monto) }}</td>
                   <td role="cell" data-label="Sucursal · OC">{{ s.sucursal | sucursal }}@if (s.oc_folio) {<div class="an-muted">OC {{ s.oc_folio }}</div>}</td>
                   <td role="cell" data-label="Detalle">{{ detalleSolicitud(s) }}@if (s.posibles > 1) {<div class="an-muted">{{ s.posibles }} anticipos de Kepler podían ser: se tomó el de fecha más cercana.</div>}</td>
-                  <td role="cell" data-label="Pedido"><div>{{ fecha(s.creado) }}</div><div class="an-muted">{{ s.creado_por }}@if (s.motivo) { · {{ s.motivo }}}</div></td>
+                  <td role="cell" data-label="Pedido"><div>{{ fecha(s.creado) }}</div><div class="an-muted">{{ s.creado_por }}@if (motivoDe(s); as m) { · {{ m }}}</div></td>
+                  <!-- [PGP.122] Sólo lo que no tiene pago se cancela; lo demás dice en «Detalle» qué hacer. -->
+                  @if (puedePedir()) {
+                    <td role="cell" data-label="Acciones">
+                      @if (s.etapa === 'por_programar') {
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="abrirCancelar(s)"
+                                [attr.aria-label]="'Cancelar el anticipo de ' + s.proveedor_nombre + ' por ' + money2(s.monto)">Cancelar</button>
+                      }
+                    </td>
+                  }
                 </tr>
               </ng-template>
             </p-table>
@@ -237,6 +247,22 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
         <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarPedido()">Cancelar</button>
         <button pButton type="button" [disabled]="!!pedFalta() || pedGuardando()" [loading]="pedGuardando()" (click)="guardarPedido()">Pedir anticipo</button>
       </div>
+    </p-dialog>
+
+    <!-- [PGP.122] Cancelar un anticipo pedido que todavía no tiene pago. La razón queda junto a su motivo. -->
+    <p-dialog [visible]="!!cancelando()" (visibleChange)="$event || cerrarCancelar()" [modal]="true" header="Cancelar anticipo pedido" [style]="{ width: '30rem' }">
+      @if (cancelando(); as s) {
+        <p class="an-help"><b>{{ s.proveedor_nombre }}</b> · {{ money2(s.monto) }} · {{ s.sucursal | sucursal }}@if (s.oc_folio) { · OC {{ s.oc_folio }}}.
+          Sale del Calendario de pagos y, si iba atado a una OC, le devuelve ese saldo.</p>
+        <label class="an-label" for="an-canc">Por qué se cancela</label>
+        <input id="an-canc" pInputText type="text" autocomplete="off" class="an-full" [ngModel]="cancRazon()" (ngModelChange)="cancRazon.set($event)"
+               placeholder="Ej. el proveedor ya no pide anticipo" />
+        @if (cancFalta(); as f) { <p class="an-muted" aria-live="polite">{{ f }}</p> }
+        <div class="an-acciones">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarCancelar()">No cancelar</button>
+          <button pButton type="button" class="p-button-danger" [disabled]="!!cancFalta() || cancGuardando()" [loading]="cancGuardando()" (click)="confirmarCancelar()">Cancelar anticipo</button>
+        </div>
+      }
     </p-dialog>
   `,
   styles: [`
@@ -391,6 +417,35 @@ export class FinanzasAnticiposComponent implements OnInit {
     });
   }
 
+  // ── `[PGP.122]` Cancelar un pedido sin pago ──────────────────────────────────────────────
+  readonly cancelando = signal<AnticipoSolicitadoRow | null>(null);
+  readonly cancRazon = signal('');
+  readonly cancGuardando = signal(false);
+  /** La MISMA regla que el servidor: sólo «por programar», y con razón. */
+  readonly cancFalta = computed<string | null>(() => {
+    const s = this.cancelando(), razon = this.cancRazon();
+    return s ? faltaCancelarAnticipo(s, razon) : null;
+  });
+  abrirCancelar(s: AnticipoSolicitadoRow): void { this.cancRazon.set(''); this.cancelando.set(s); }
+  cerrarCancelar(): void { this.cancelando.set(null); }
+  confirmarCancelar(): void {
+    const s = this.cancelando();
+    if (!s || this.cancFalta() || this.cancGuardando()) return;
+    this.cancGuardando.set(true);
+    this.http.post(`${this.obligaciones}/${s.obligation_id}/cancelar`, { reason: this.cancRazon().trim() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.cancGuardando.set(false); this.cancelando.set(null); this.cargarSolicitados();
+        this.toast.add({ severity: 'success', summary: 'Anticipo cancelado', detail: `${s.proveedor_nombre}: ${this.money2(s.monto)}. Ya no está en el Calendario de pagos.` });
+      },
+      error: (e) => {
+        this.cancGuardando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se canceló el anticipo', detail: e?.error?.message || 'Intenta de nuevo en un momento.', life: 10000 });
+      },
+    });
+  }
+  /** El motivo del pedido, sin la razón de la cancelación (que va en «Detalle»). */
+  motivoDe(s: AnticipoSolicitadoRow): string | null { return partirMotivo(s.motivo).motivo; }
+
   etapaTexto(e: EtapaSolicitudAnticipo): string {
     return { por_programar: 'Por programar', programado: 'Programado', pagado: 'Pagado', en_kepler: 'En Kepler', aplicado: 'Aplicado', cancelado: 'Cancelado' }[e];
   }
@@ -400,11 +455,11 @@ export class FinanzasAnticiposComponent implements OnInit {
   detalleSolicitud(s: AnticipoSolicitadoRow): string {
     switch (s.etapa) {
       case 'por_programar': return 'Falta darle día en el Calendario de pagos.';
-      case 'programado': return `En el pago del ${s.programado_dia ? this.fecha(s.programado_dia) : '—'}.`;
+      case 'programado': return `En el pago del ${s.programado_dia ? this.fecha(s.programado_dia) : '—'}. Para cancelarlo, primero quítalo de ese pago.`;
       case 'pagado': return 'Pagado en la Suite; falta que Cuentas por pagar lo capture en Kepler.';
       case 'en_kepler': return `Anticipo ${s.kepler?.folio} en Kepler (${s.kepler ? this.fecha(s.kepler.fecha) : ''}); quedan ${this.money2(s.kepler?.remanente)} por aplicar a una factura.`;
       case 'aplicado': return `Anticipo ${s.kepler?.folio}: Kepler ya lo aplicó entero.`;
-      case 'cancelado': return 'Cancelado.';
+      case 'cancelado': { const c = partirMotivo(s.motivo).cancelacion; return c ? `Cancelado: ${c}.` : 'Cancelado.'; }
     }
   }
   private ymd(d: Date | null): string | null {

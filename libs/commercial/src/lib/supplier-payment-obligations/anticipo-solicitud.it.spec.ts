@@ -27,7 +27,7 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
   let knex: Knex;
   let trx: Knex.Transaction;
   let svc: SupplierPaymentObligationsService;
-  let prov = '', gasto = '', otro = '', oc = '', ocOtro = '', primero = '';
+  let prov = '', gasto = '', otro = '', oc = '', ocOtro = '', primero = '', segundo = '';
   const cuerpo = (p: Partial<AnticipoSolicitudBody> = {}): AnticipoSolicitudBody => ({
     supplier_id: prov, sucursal: '03', monto: 6000, motivo: 'apartar producto de temporada', purchase_order_id: oc, fecha: null, ...p,
   });
@@ -81,6 +81,7 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     await expect(svc.crearAnticipo(cuerpo({ monto: 4000.01 }), USER)).rejects.toThrow(/quedan \$4000\.00/);
     const r = await svc.crearAnticipo(cuerpo({ monto: 4000, sucursal: '00' }), USER);
     expect(r.monto).toBe(4000);
+    segundo = r.obligation_id;
   });
 
   it('⛔ NEGATIVA — a un acreedor de gasto no se le pide anticipo, y la OC de otro proveedor no se acepta', async () => {
@@ -106,5 +107,23 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect(await de()).toMatchObject({ etapa: 'en_kepler', kepler: { folio: 'IT119X60', importe: 6000, remanente: 6000 }, posibles: 1 });
     await trx.raw(`UPDATE kepler_ods.kdxe SET c20 = 0 WHERE sucursal = '03' AND btrim(c6) = 'IT119X60' AND c4::int = 60`);
     expect((await de()).etapa).toBe('aplicado');
+  });
+
+  // ── `[PGP.122]` Cancelar desde el submódulo: el mismo `POST :id/cancelar`, con el cuerpo de la pantalla ──
+  it('⛔ NEGATIVA [PGP.122] — cancelar un anticipo exige razón y no se repite; al cancelarlo, la OC recupera su saldo', async () => {
+    await expect(svc.cancel(segundo, '  ', USER)).rejects.toThrow(/por qué se cancela/);
+    const r = await svc.cancel(segundo, 'el proveedor ya no lo pide', USER);
+    expect(r).toMatchObject({ status: 'cancelled', notes: 'apartar producto de temporada\n[cancelado] el proveedor ya no lo pide', updated_by: USER });
+    await expect(svc.cancel(segundo, 'otra vez', USER)).rejects.toThrow(/ya estaba cancelado/);
+    expect((await svc.anticipoOcs(prov)).find((x) => x.id === oc)).toMatchObject({ anticipado: 6000 });
+  });
+
+  it('⛔ NEGATIVA [PGP.122] — el pedido cancelado no le quita su X-D-60 al vivo de mismo acreedor, sucursal e importe', async () => {
+    const vivo = (await svc.crearAnticipo(cuerpo({ monto: 4000, sucursal: '00', purchase_order_id: null }), USER)).obligation_id;
+    await trx.raw(`INSERT INTO kepler_ods.kdxe (sucursal, c1, c2, c3, c4, c5, c6, c7, c11, c20)
+                   VALUES ('00', '00', 'CIT119A', 'D', 60, 1, 'IT119X62', now()::date, 4000, 4000)`);
+    const filas = await svc.listAnticiposSolicitados();
+    expect(filas.find((s) => s.obligation_id === vivo)).toMatchObject({ etapa: 'en_kepler', kepler: { folio: 'IT119X62' } });
+    expect(filas.find((s) => s.obligation_id === segundo)).toMatchObject({ etapa: 'cancelado', kepler: null, posibles: 0 });
   });
 });

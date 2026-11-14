@@ -235,13 +235,16 @@ export function faltaSolicitudAnticipo(s: {
  * ⭐ Control negativo medido el 2026-11-13: de 143 `X-D-60` de 12 meses, sólo 4 tienen otro del mismo
  * acreedor + sucursal ±$1 en ±30 días; por eso el pareo es casi siempre único, y cuando no, se dice.
  */
-export function parearSolicitudes<T extends { obligation_id: string; proveedor: string; sucursal: string | null; creado: string; candidatos: CandidatoAnticipoKepler[] }>(
+export function parearSolicitudes<T extends { obligation_id: string; proveedor: string; sucursal: string | null; creado: string; candidatos: CandidatoAnticipoKepler[]; estado_obligacion?: string }>(
   sols: readonly T[],
 ): Map<string, { kepler: CandidatoAnticipoKepler | null; posibles: number }> {
   const usados = new Set<string>();
   const out = new Map<string, { kepler: CandidatoAnticipoKepler | null; posibles: number }>();
   const dia = (s: string) => new Date(`${s.slice(0, 10)}T12:00:00`).getTime();
   for (const s of [...sols].sort((a, b) => a.creado.localeCompare(b.creado) || a.obligation_id.localeCompare(b.obligation_id))) {
+    // `[PGP.122]` Un pedido cancelado no se pagó (cancelar se niega con pago reservado o hecho): no
+    // toma candidato. Si lo tomara, por ser más viejo le quitaría su `X-D-60` al pedido vivo de al lado.
+    if (s.estado_obligacion === 'cancelled') { out.set(s.obligation_id, { kepler: null, posibles: 0 }); continue; }
     const llave = (c: CandidatoAnticipoKepler) => `${llaveAnticipo(s.proveedor, s.sucursal)}|${c.folio}`;
     const libres = (s.candidatos ?? []).filter((c) => !usados.has(llave(c)))
       .sort((a, b) => Math.abs(dia(a.fecha) - dia(s.creado)) - Math.abs(dia(b.fecha) - dia(s.creado)) || a.folio.localeCompare(b.folio));
@@ -261,4 +264,30 @@ export function etapaDeSolicitud(s: {
   if (Number(s.pagado) >= Number(s.monto) - 0.005) return 'pagado';
   if (s.programado_dia) return 'programado';
   return 'por_programar';
+}
+
+/**
+ * `[PGP.122]` La marca con que el cancelar de obligaciones (`POST supplier-obligations/:id/cancelar`)
+ * agrega la razón a las notas. En un anticipo las notas son su motivo: la pantalla los separa.
+ */
+export const MARCA_CANCELADO = '[cancelado] ';
+
+/** `[PGP.122]` Separa el motivo del pedido y la razón de su cancelación (la última, si hubiera varias). */
+export function partirMotivo(notas: string | null | undefined): { motivo: string | null; cancelacion: string | null } {
+  const t = String(notas ?? '');
+  const i = t.lastIndexOf(MARCA_CANCELADO);
+  if (i < 0) return { motivo: t.trim() || null, cancelacion: null };
+  return { motivo: t.slice(0, i).trim() || null, cancelacion: t.slice(i + MARCA_CANCELADO.length).trim() || null };
+}
+
+/**
+ * `[PGP.122]` Por qué un pedido de anticipo todavía no se puede cancelar (null = se puede). Sólo se
+ * cancela lo que no tiene pago: con pago reservado en el Calendario el servidor lo niega igual.
+ */
+export function faltaCancelarAnticipo(s: { etapa: EtapaSolicitudAnticipo }, razon: string | null | undefined): string | null {
+  if (s.etapa === 'cancelado') return 'Ya está cancelado.';
+  if (s.etapa === 'programado') return 'Está en un pago del Calendario: quítalo primero de ese pago.';
+  if (s.etapa !== 'por_programar') return 'Ya se pagó: no se cancela; se pide el reembolso o se aplica contra una factura.';
+  if ((razon ?? '').trim().length < 3) return 'Di por qué se cancela (queda en su historia).';
+  return null;
 }

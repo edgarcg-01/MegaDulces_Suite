@@ -121,11 +121,20 @@ export const ORIGENES_CON_DESCUENTO: readonly string[] = ['supplier_payable', 'k
  * diálogo ofrecía descuento sobre un préstamo de $8,000,000. Por eso se exige además la
  * clasificación de mercancía, la misma que decide `classificationOf`.
  */
-export function assertDescuentoPermitido(source: string, classification: string, discountAmount: number): void {
+export function assertDescuentoPermitido(source: string, classification: string, discountAmount: number, nature?: string | null): void {
   if (discountAmount > 0 && (!ORIGENES_CON_DESCUENTO.includes(source) || classification !== 'proveedor_mercancia')) {
     throw new BadRequestException('El descuento al pagar sólo aplica a facturas de proveedor: en gastos y compromisos financieros no llega una nota de crédito que lo cierre.');
   }
+  // `[PGP.122]` Un anticipo pedido en la Suite (`[PGP.119]`) también es `supplier_payable` de
+  // mercancía, así que la regla de arriba lo dejaba pasar. Pero no es una factura: no habrá nota de
+  // crédito que cierre el descuento, y Kepler capturará el `X-D-60` por el importe completo. Un
+  // descuento aquí pagaría menos de lo que después se aplica contra facturas.
+  if (discountAmount > 0 && nature === 'anticipo') throw new BadRequestException(MSG_ANTICIPO_SIN_DESCUENTO);
 }
+
+/** `[PGP.122]` Lo que ve quien intenta descontar sobre el pago de un anticipo. */
+export const MSG_ANTICIPO_SIN_DESCUENTO =
+  'Un anticipo se paga completo: no lleva descuento al pagar. El descuento se pide en la factura contra la que después se aplique.';
 
 /** `3 %`, `2.5 %`: la tasa como se lee en pantalla (hasta 2 decimales, sin ceros de sobra). */
 export function pct(rate: number): string {

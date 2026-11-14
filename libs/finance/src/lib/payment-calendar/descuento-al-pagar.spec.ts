@@ -117,6 +117,14 @@ describe('[PGP.91] revisión — lo que la primera versión dejaba pasar', () =>
     expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300)).not.toThrow();
     expect(() => assertDescuentoPermitido('kepler_payable', 'compromiso_financiero', 0)).not.toThrow();
   });
+
+  it('⛔ NEGATIVA [PGP.122] — el pago de un anticipo pedido en la Suite no lleva descuento (no es factura)', () => {
+    expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300, 'anticipo')).toThrow(/se paga completo/);
+    // Control: la factura de la misma tabla sí, sin `nature` (fila de otro origen o antes de la migración) también, y sin descuento nada se toca.
+    expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300, 'factura')).not.toThrow();
+    expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300, undefined)).not.toThrow();
+    expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 0, 'anticipo')).not.toThrow();
+  });
 });
 
 describe('[PGP.91b] la vista «qué conviene pagar» usa LA MISMA llave que el Calendario', () => {

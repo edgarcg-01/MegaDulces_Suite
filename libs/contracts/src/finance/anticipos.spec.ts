@@ -4,7 +4,7 @@
  * Vectores SINTÉTICOS (el repo es público): reproducen la forma de los casos medidos en prod sin
  * nombres ni montos reales.
  */
-import { disponibleDeAnticipo, etapaDeSolicitud, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, parearSolicitudes, tipoDeAcreedor, tramoDeAnticipo } from './anticipos.contract';
+import { disponibleDeAnticipo, etapaDeSolicitud, faltaCancelarAnticipo, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, MARCA_CANCELADO, neteableHoy, parearSolicitudes, partirMotivo, tipoDeAcreedor, tramoDeAnticipo } from './anticipos.contract';
 
 describe('[PGP.118] tipoDeAcreedor', () => {
   it('C* es mercancía, G* gasto, TC* tarjeta', () => {
@@ -140,5 +140,31 @@ describe('[PGP.119] etapaDeSolicitud — Kepler manda sobre la Suite', () => {
   });
   it('cancelado gana a todo', () => {
     expect(etapaDeSolicitud({ ...base, estado_obligacion: 'cancelled', pagado: 1000 })).toBe('cancelado');
+  });
+});
+
+describe('[PGP.122] cancelar un pedido de anticipo', () => {
+  const cand = (folio: string, fecha: string) => ({ folio, fecha, importe: 5000, remanente: 5000 });
+  it('⛔ NEGATIVA — un pedido cancelado no toma candidato: el vivo, aunque sea más nuevo, se queda con su X-D-60', () => {
+    const cs = [cand('0000001', '2026-11-10')];
+    const m = parearSolicitudes([
+      { obligation_id: 'viejo', proveedor: 'CA001', sucursal: '00', creado: '2026-11-09', candidatos: cs, estado_obligacion: 'cancelled' },
+      { obligation_id: 'vivo', proveedor: 'CA001', sucursal: '00', creado: '2026-11-10', candidatos: cs, estado_obligacion: 'pending' },
+    ]);
+    expect(m.get('vivo')?.kepler?.folio).toBe('0000001');
+    expect(m.get('viejo')).toEqual({ kepler: null, posibles: 0 });
+  });
+  it('separa el motivo de la razón de la cancelación (la marca del servidor)', () => {
+    expect(partirMotivo('temporada')).toEqual({ motivo: 'temporada', cancelacion: null });
+    expect(partirMotivo(`temporada\n${MARCA_CANCELADO}ya no lo pide`)).toEqual({ motivo: 'temporada', cancelacion: 'ya no lo pide' });
+    expect(partirMotivo(MARCA_CANCELADO + 'sin motivo previo')).toEqual({ motivo: null, cancelacion: 'sin motivo previo' });
+    expect(partirMotivo(null)).toEqual({ motivo: null, cancelacion: null });
+  });
+  it('⛔ sólo se cancela lo que no tiene pago, y con razón', () => {
+    expect(faltaCancelarAnticipo({ etapa: 'por_programar' }, 'ya no se necesita')).toBeNull();
+    expect(faltaCancelarAnticipo({ etapa: 'por_programar' }, '  ')).toMatch(/por qué/);
+    expect(faltaCancelarAnticipo({ etapa: 'programado' }, 'ya no se necesita')).toMatch(/quítalo primero/);
+    for (const e of ['pagado', 'en_kepler', 'aplicado'] as const) expect(faltaCancelarAnticipo({ etapa: e }, 'ya no se necesita')).toMatch(/Ya se pagó/);
+    expect(faltaCancelarAnticipo({ etapa: 'cancelado' }, 'otra vez')).toMatch(/Ya está cancelado/);
   });
 });

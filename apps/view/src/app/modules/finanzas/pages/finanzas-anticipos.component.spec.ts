@@ -179,6 +179,32 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
 
+  it('⛔ NEGATIVA [PGP.122] — cancelar exige razón; la manda al cancelar de obligaciones y vuelve a leer el seguimiento', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    c.abrirCancelar(SOLICITADOS[0]);
+    expect(c.cancFalta()).toMatch(/por qué/);
+    c.confirmarCancelar();   // sin razón no sale nada (lo verifica afterEach)
+    c.cancRazon.set('el proveedor ya no lo pide');
+    expect(c.cancFalta()).toBeNull();
+    c.confirmarCancelar();
+    const req = http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/o1/cancelar') && r.method === 'POST');
+    expect(req.request.body).toEqual({ reason: 'el proveedor ya no lo pide' });
+    req.flush({});
+    expect(c.cancelando()).toBeNull();
+    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
+  });
+
+  it('[PGP.122] lo programado no se cancela aquí y lo dice; lo cancelado dice su razón y el motivo queda limpio', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    c.abrirCancelar({ ...SOLICITADOS[0], etapa: 'programado', programado_dia: '2026-11-14' });
+    expect(c.cancFalta()).toMatch(/quítalo primero/);
+    const canc: AnticipoSolicitadoRow = { ...SOLICITADOS[0], etapa: 'cancelado', estado_obligacion: 'cancelled', motivo: 'temporada\n[cancelado] ya no lo pide' };
+    expect(c.detalleSolicitud(canc)).toBe('Cancelado: ya no lo pide.');
+    expect(c.motivoDe(canc)).toBe('temporada');
+  });
+
   it('más de 90 días cuenta sólo mercancía', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);

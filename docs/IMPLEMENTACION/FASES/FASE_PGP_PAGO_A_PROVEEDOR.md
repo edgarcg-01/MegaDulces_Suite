@@ -1365,6 +1365,10 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   pendiente del CI) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
   (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
   cierre de `[PGP.94]` ya rotula el `X-D-60` como «Anticipo». Detalle abajo.
+- `[PGP.122]` 🧪 (2026-11-14, sin validación visual, pruebas con base real pendientes del CI) C1–C3 —
+  los huecos de `[PGP.119]`: el pago de un anticipo no admite descuento (servidor y pantalla), se
+  cancela un pedido sin pago desde el submódulo (con razón), y un pedido cancelado ya no le quita su
+  `X-D-60` al vivo. Sin migración. Detalle abajo.
 
 **Árbitro (2026-11-13):** `a_favor` = `kdxe.c20` (el remanente que guarda Kepler) en **64 de 64**
 anticipos sin aplicar ($7,025,062 los dos lados); control negativo: los 144 `X-D-60` aplicados enteros
@@ -1526,10 +1530,48 @@ del código (el código inserta `nature`). Compatible con la API desplegada: DEF
 **NO MEDIDO / NO incluye:**
 - La prueba contra base real no corrió aquí: corre en el job de integración del CI.
 - **Sin validación visual. Arranque de la API no verificado** (cuatro rutas nuevas en un controlador).
-- Un descuento sobre un anticipo programado: el servidor lo permitiría (el pago de un anticipo no
-  debería llevar descuento).
+- ~~Un descuento sobre un anticipo programado~~ y ~~cancelar un pedido desde el submódulo~~: los
+  cierra `[PGP.122]`, abajo.
 - La alerta a la bandeja de Compras/CxP de los +90 días (D4): sigue visible en el submódulo.
-- Cancelar un pedido desde el submódulo: hoy se cancela con la obligación (`POST :id/cancelar`).
+
+#### `[PGP.122]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🧪
+
+**1. El pago de un anticipo se paga completo.** Un anticipo pedido en la Suite es `supplier_payable`
+de mercancía, así que la regla del descuento al pagar (`[PGP.91]`, `assertDescuentoPermitido`) lo
+dejaba descontar. Pero no es factura: no llega nota de crédito que cierre el descuento, y Cuentas por
+pagar captura el `X-D-60` por el importe entero, así que se pagaría menos de lo que después se aplica
+contra facturas. Ahora la regla recibe la naturaleza de la obligación y lo rechaza en los **tres**
+caminos que fijan un descuento (crear el pago, sumarlo a uno, fijarlo después). El renglón del día
+trae `es_anticipo` y el Calendario no le ofrece el botón. La lectura usa `to_jsonb(o) ->> 'nature'`,
+no `o.nature`: si el código llegara antes que la migración `pgp119`, el día no se cae.
+
+**2. Cancelar un pedido sin pago, desde «Pedidos en la Suite».** Usa el `POST
+commercial/supplier-obligations/:id/cancelar` de siempre (`COMPRAS_OBLIGACIONES_GESTIONAR`, el mismo
+permiso de pedir). Las cinco preguntas: lo ve quien puede pedir, sólo en «Por programar» · no lo ve en
+las demás etapas («Programado» dice que primero se quite del pago; lo pagado no se cancela: se aplica
+o se pide reembolso) · diálogo con la razón obligatoria, sin `confirm()` nativo, botón con proveedor e
+importe en su nombre accesible · al cancelar sale del Calendario y la OC recupera su saldo · vive aquí
+porque aquí se pidió. El servidor, para un anticipo, exige razón (queda junto al motivo, con la marca
+`MARCA_CANCELADO` del contrato), no cancela dos veces, y lee la fila con `forUpdate`.
+
+**3. Un hueco que salió al hacerlo:** `parearSolicitudes` también pareaba los pedidos cancelados, y
+como recorre del más viejo al más nuevo, un cancelado le quitaba su `X-D-60` al pedido vivo de mismo
+acreedor, sucursal e importe. Ahora el cancelado no toma candidato.
+
+**Pruebas:** regla del descuento (45/45, +1 negativa) · contrato (28/28, +3) · pantalla (13/13, +2) ·
+tres mutantes fuera del árbol en rojo (quitar la regla del anticipo, volver a parear al cancelado,
+permitir cancelar lo programado). Contra base real (escritas, corren en el job de integración del CI):
+`payment-calendar.it.spec.ts` (crear el pago con descuento y fijarlo después: rechazo; la factura de
+al lado sí; `es_anticipo` en el día) y `anticipo-solicitud.it.spec.ts` (cancelar sin razón, dos veces,
+la OC recupera su saldo, el cancelado no le roba su `X-D-60` al vivo).
+
+**NO MEDIDO / NO incluye:**
+- Las dos pruebas contra base real no corrieron aquí (no hay Postgres local).
+- **Sin validación visual. Arranque de la API no verificado** (sin rutas ni decoradores nuevos).
+- Un pedido ya capturado en Kepler pero sin pago en la Suite (pagado por fuera) todavía se puede
+  cancelar desde el servidor: la pantalla no lo ofrece, pero el servidor no lee Kepler al cancelar.
+- La carrera inversa: el Calendario aparta un pago sin bloquear la fila de la obligación, así que un
+  cancelar y un «agregar al pago» en el mismo instante todavía pueden cruzarse.
 
 ---
 
