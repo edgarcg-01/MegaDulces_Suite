@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2557 KB, 14403 líneas, 77 secciones.
+> **Índice navegable** — 2559 KB, 14415 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -70,20 +70,20 @@
 | 13408 | 13449 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13450 | 13606 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 13607 | 13637 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13638 | 13756 | 21 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 13757 | 13821 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13822 | 13830 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 13831 | 13864 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 13871 | 13880 | 1 | 📝 Convenciones |
-| 13881 | 13918 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 13919 | 13937 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 13938 | 13990 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 13991 | 14362 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14363 | 14393 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14394 | 14415 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14416 | 14443 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14444 | 14472 | 15 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14473 | 14492 | 4 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13638 | 13768 | 23 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13769 | 13833 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13834 | 13842 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13843 | 13876 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13883 | 13892 | 1 | 📝 Convenciones |
+| 13893 | 13930 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13931 | 13949 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13950 | 14002 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14003 | 14374 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14375 | 14405 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14406 | 14427 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14428 | 14455 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14456 | 14484 | 15 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14485 | 14504 | 4 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13682,7 +13682,19 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - ❌ NEGATIVA: si el piso va adelante de Kepler (surtido en la Suite, AUTORIZADO en Kepler), se marca; no se esconde.
 >     - Verificado contra: `kdm1` + las tablas de olas + `presale_picks`. El conteo por etapa cuadra con la suma de las dos fuentes.
 >   - [ ] **[GP.10.2-deuda]** ⬜ Retirar las dos derivaciones de etapa de preventa (`etapaDe` de la Mesa de Control y el `state` de la bandeja de surtido, `presale-picking.service.ts`) a favor de `etapaDePedido`. Espera a que D9 deje tocar el proceso de preventa (ADR-056: deuda con nombre). Mientras tanto, el cruce del spec cuida que no se separen; el `state` de la bandeja todavía no se cruza, porque no es una función exportada.
->   - [ ] **[GP.10.3]** ⬜ **La consola lista los `U-D-40` y los `PD-` del periodo con filtros por origen, sucursal, etapa y texto, en menos de 500 ms.** Capa C2. Depende de GP.10.2.
+>   - [x] **[GP.10.3]** 🧪 (2026-11-13) **La consola lista los `U-D-40` y los `PD-` del periodo con filtros por origen, sucursal, etapa y texto, en menos de 500 ms.** Capa C2. Depende de GP.10.2.
+>     - **Cómo quedó:** `GET /warehouse/orders` acepta `presale=1` para incluir preventa (sin él, la respuesta es la de siempre), `stage=` para filtrar por etapa, y `origin=PREVENTA`. Cada fila trae `etapa`, `etapa_fuente`, `desfase` y `order_id`; la respuesta trae `conteos_etapa`.
+>     - Los hechos de preventa salen de las tablas de la Mesa de Control. `ENTREGADO_SQL` y `sucursalKeplerSql` ahora se exportan de allá, sin cambiar su comportamiento.
+>     - **Verificado con el servicio REAL contra prod** (sólo lectura; compilado con esbuild, Nest y la plataforma sustituidos por dobles):
+>       - Noviembre: 1,269 pedidos de Kepler y 588 de preventa.
+>       - La parte de Kepler sale idéntica con y sin `presale=1`. `stage=surtido` da 55, igual que su conteo. El detalle calcula la misma etapa que la lista.
+>       - Alcance: con sólo Morelia Madero llegan sólo sus pedidos (7 de Kepler y 179 de preventa); con una sucursal inexistente, ninguno.
+>     - **Tiempo:** con preventa, 254–362 ms. Sin preventa, ~200 ms, salvo la **primera llamada en frío, de 511 ms**: 9 de 10 corridas debajo de 500 ms.
+>     - **NO MEDIDO:**
+>       - 512 de los 588 pedidos de preventa quedan en «checado» (revisados en caja), porque después de eso la Suite no registra nada (la guía y la entrega están paradas desde el 17 de octubre). No se sabe si ya salieron, y la Mesa los muestra igual («en caja»).
+>       - El volumen de un pedido de preventa por presentación.
+>       - El arranque de la API con los parámetros nuevos del controlador no se verificó en local; lo prueba `boot-api` en el CI.
+>     - **Pruebas:** pedidos, preventa y picking 246/246, pantalla 11/11. `check:templates-types` en verde (api, portal, vendor, view) y `check:pantalla` sin fallas nuevas.
 >     - Dado noviembre y todas las sucursales, el total es igual a los `U-D-40` vigentes no cancelados más los `PD-` de `commercial.orders` del periodo, cuadrado por folio.
 >     - Dado un periodo sin pedidos, la lista viene vacía con conteos en 0 declarados, no con error.
 >     - Dado el ODS atrasado, se declara su edad.

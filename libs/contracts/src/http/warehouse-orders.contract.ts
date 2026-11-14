@@ -59,7 +59,10 @@ export interface WarehouseOrderRow {
   fecha: string;
   /** `HH:MM` de creación del ticket (`kdm1.c62`); `null` si Kepler no la trae. */
   hora: string | null;
-  /** `TELEMARK`, `SUCURSAL`, u otro valor crudo si Kepler trae algo nuevo. */
+  /**
+   * `TELEMARK`, `SUCURSAL`, u otro valor crudo si Kepler trae algo nuevo. `PREVENTA` = pedido de la
+   * Suite (`PD-`, `[GP.10.3]`): sólo viene si se pide `preventa=1`.
+   */
   origen: string | null;
   /**
    * Estatus VIGENTE: el de Kepler (`kdm1.c11`), o `CANCELADO` si el documento está cancelado
@@ -68,6 +71,15 @@ export interface WarehouseOrderRow {
   estatus: string | null;
   /** Estatus crudo de Kepler (`kdm1.c11`). En un cancelado es el que tenía al cancelarse. */
   estatus_kepler: string | null;
+  /**
+   * `[GP.10.3]` Etapa de ALMACÉN (`etapaDePedido`): la más avanzada entre Kepler y el piso, quién la
+   * sabe y si uno va adelante del otro. En preventa la sabe siempre el piso.
+   */
+  etapa: EtapaPedido;
+  etapa_fuente: FuenteEtapaPedido | null;
+  desfase: EtapaPedidoResultado['desfase'];
+  /** `[GP.10.3]` Preventa: id del pedido de la Suite (`commercial.orders`); `null` en los de Kepler. */
+  order_id: string | null;
   cliente_code: string | null;
   /** Nombre del destino tal como lo trae el pedido (`c32`). */
   destino_nombre: string | null;
@@ -90,7 +102,7 @@ export interface WarehouseOrderRow {
   resp_embarque: string | null;
   /**
    * Horas desde que se CREÓ el pedido (fecha + hora del ticket, hora de México). `null` si ya
-   * está `EMBARCADO` o `CANCELADO`, o si falta la hora. ⚠️ No es el tiempo en la etapa actual: Kepler no guarda
+   * está `EMBARCADO` o `CANCELADO`, si falta la hora, o en preventa (su `fecha` es la de ENTREGA). ⚠️ No es el tiempo en la etapa actual: Kepler no guarda
    * cuándo cambió de estatus (ERP_KEPLER §3.y.3), así que ese dato no existe.
    */
   horas_abierto: number | null;
@@ -105,13 +117,23 @@ export interface WarehouseOrdersAlcance {
 export interface WarehouseOrdersResponse {
   periodo: { from: string; to: string };
   alcance: WarehouseOrdersAlcance;
-  /** Filtros aplicados a `items` (el periodo y el alcance aplican a todo). */
-  filtros: { estatus: string[]; origen: string | null; sucursal: string | null; q: string | null };
   /**
-   * Pedidos por estatus en el periodo, con origen/sucursal aplicados pero SIN el filtro de
-   * estatus: son los números de los botones de filtro. Incluye `CANCELADO` si hay alguno.
+   * Filtros aplicados a `items` (el periodo y el alcance aplican a todo). `[GP.10.3]` `etapa` filtra por
+   * etapa de almacén; `preventa` = si se incluyeron los pedidos `PD-`.
+   */
+  filtros: { estatus: string[]; etapa: string[]; origen: string | null; sucursal: string | null; q: string | null; preventa: boolean };
+  /**
+   * Pedidos por estatus DE KEPLER en el periodo, con origen/sucursal aplicados pero SIN el filtro de
+   * estatus: son los números de los botones de filtro. Incluye `CANCELADO` si hay alguno. Los de
+   * preventa no entran: no tienen estatus de Kepler (van en `conteos_etapa`).
    */
   conteos: Array<{ estatus: string; pedidos: number; renglones: number; mas_antiguo_horas: number | null }>;
+  /**
+   * `[GP.10.3]` Pedidos por etapa de almacén (Kepler y preventa), con origen/sucursal/búsqueda
+   * aplicados pero SIN los filtros de estatus ni de etapa. `con_desfase` = cuántos llevan Kepler y el
+   * piso desfasados. En el orden de `ETAPAS_PEDIDO`, y al final `cancelado` y `sin_dato` si hay.
+   */
+  conteos_etapa: Array<{ etapa: EtapaPedido; pedidos: number; con_desfase: number }>;
   /**
    * `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`).
    * Sin filtro de estatus, los cancelados NO entran (ni aquí ni en `items`): se ven eligiéndolos.

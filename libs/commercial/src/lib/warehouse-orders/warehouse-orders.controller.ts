@@ -34,7 +34,7 @@ export class WarehouseOrdersController {
   @RequireAnyPermission(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({
     summary:
-      'Pedidos Kepler U-D-40 del periodo. Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), origin (TELEMARK|SUCURSAL), branch (sucursal, 2 dígitos), q.',
+      'Pedidos Kepler U-D-40 del periodo (y de preventa PD- con presale=1). Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), stage (etapa de almacén, separadas por coma), origin (TELEMARK|SUCURSAL|PREVENTA), branch (sucursal, 2 dígitos), q, presale (1 = incluir preventa).',
   })
   list(
     @Query('month') month?: string,
@@ -45,10 +45,12 @@ export class WarehouseOrdersController {
     @Query('branch') branch?: string,
     @Query('q') q?: string,
     @Req() req?: ReqUsuario,
+    @Query('stage') stage?: string,
+    @Query('presale') presale?: string,
   ): Promise<WarehouseOrdersResponse> {
     const ve = req?.user?.permissions?.[Permission.ALMACEN_PEDIDOS_VER] === true;
     return this.svc
-      .list({ month, from, to, estatus: status, origen: origin, sucursal: branch, q })
+      .list({ month, from, to, estatus: status, etapa: stage, origen: origin, sucursal: branch, q, preventa: presale })
       .then((r) => (ve ? r : sinImportes(r)));
   }
 

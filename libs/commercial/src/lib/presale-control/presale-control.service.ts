@@ -65,7 +65,7 @@ type Partes = { sucursal: string; doc_prefix: string; folio: string };
  * Kepler como `07` (confirmado por Francisco, 2026-10-08).
  */
 /** `[MCP.6]` Subconsulta: el pedido `o` tiene una entrega de conformidad registrada en una guía. */
-const ENTREGADO_SQL = `SELECT 1 FROM commercial.load_guide_orders e0
+export const ENTREGADO_SQL = `SELECT 1 FROM commercial.load_guide_orders e0
                          WHERE e0.order_id = o.id AND e0.tenant_id = o.tenant_id AND e0.status = 'entregado'`;
 
 /** `[MCP.7]` Veces que el pedido salió en una guía y volvió sin entregarse (cuenta para los reintentos). */
@@ -75,7 +75,7 @@ const FALLIDOS_SQL = `(SELECT count(*) FROM commercial.load_guide_orders f0
                            AND f0.status IN ('regreso', 'no_entregado') AND fg.status <> 'cancelada')::int`;
 
 /** `[MCP.3.13]` La misma sucursal Kepler, para otro alias de `commercial.warehouses`. */
-const sucursalKeplerSql = (alias: string): string =>
+export const sucursalKeplerSql = (alias: string): string =>
   `CASE WHEN ${alias}.kepler_code ~ '^[0-9]{2}$' THEN ${alias}.kepler_code ELSE ${branchKeySql(alias)} END`;
 const SUCURSAL_KEPLER_SQL = sucursalKeplerSql('w');
 

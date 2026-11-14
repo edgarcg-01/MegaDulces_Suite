@@ -1,6 +1,8 @@
 import {
+  ETAPAS_PEDIDO,
   WAREHOUSE_ORDER_CANCELADO,
   WAREHOUSE_ORDER_ESTATUS,
+  type EtapaPedido,
   type WarehouseOrderRow,
   type WarehouseOrdersAlcance,
   type WarehouseOrdersResponse,
@@ -78,10 +80,19 @@ export function ordenEstatus(a: string, b: string): number {
 
 export interface Filtros {
   estatus: string[];
+  /** `[GP.10.3]` Etapas de almacén (`EtapaPedido`). */
+  etapa: string[];
   origen: string | null;
   sucursal: string | null;
   q: string | null;
+  /** `[GP.10.3]` Si se incluyeron los pedidos de preventa (`PD-`). */
+  preventa: boolean;
 }
+
+/** `[GP.10.3]` Origen de los pedidos de preventa en la consola. */
+export const ORIGEN_PREVENTA = 'PREVENTA';
+
+const esCancelado = (r: WarehouseOrderRow): boolean => r.estatus === WAREHOUSE_ORDER_CANCELADO || r.etapa === 'cancelado';
 
 function coincideTexto(r: WarehouseOrderRow, q: string): boolean {
   const t = q.toLowerCase();
@@ -112,7 +123,8 @@ export function armarRespuesta(
 
   const porEstatus = new Map<string, { pedidos: number; renglones: number; mas_antiguo_horas: number | null }>();
   for (const e of WAREHOUSE_ORDER_ESTATUS) porEstatus.set(e, { pedidos: 0, renglones: 0, mas_antiguo_horas: null });
-  for (const r of base) {
+  // Preventa no tiene estatus de Kepler: va sólo en los conteos por etapa (no inventa un «sin estatus»).
+  for (const r of base.filter((x) => x.origen !== ORIGEN_PREVENTA)) {
     const k = r.estatus ?? 'SIN ESTATUS';
     const c = porEstatus.get(k) ?? { pedidos: 0, renglones: 0, mas_antiguo_horas: null };
     c.pedidos += 1;
@@ -126,9 +138,24 @@ export function armarRespuesta(
     .sort(([a], [b]) => ordenEstatus(a, b))
     .map(([estatus, c]) => ({ estatus, ...c }));
 
-  const filtrados = filtros.estatus.length
-    ? base.filter((r) => filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS'))
-    : base.filter((r) => r.estatus !== WAREHOUSE_ORDER_CANCELADO);
+  // [GP.10.3] Por etapa de almacén: el flujo en su orden (aunque esté en cero), y al final cancelado y
+  // sin_dato sólo si hay. Sin los filtros de estatus ni de etapa: son los números de sus botones.
+  const porEtapa = new Map<string, { pedidos: number; con_desfase: number }>();
+  for (const e of ETAPAS_PEDIDO) porEtapa.set(e, { pedidos: 0, con_desfase: 0 });
+  for (const r of base) {
+    const c = porEtapa.get(r.etapa) ?? { pedidos: 0, con_desfase: 0 };
+    c.pedidos += 1;
+    if (r.desfase) c.con_desfase += 1;
+    porEtapa.set(r.etapa, c);
+  }
+  const conteos_etapa = [...porEtapa.entries()].map(([etapa, c]) => ({ etapa: etapa as EtapaPedido, ...c }));
+
+  const filtrados = base.filter((r) =>
+    filtros.estatus.length || filtros.etapa.length
+      ? (!filtros.estatus.length || filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) &&
+        (!filtros.etapa.length || filtros.etapa.includes(r.etapa))
+      : !esCancelado(r),
+  );
   const totales = filtrados.reduce(
     (t, r) => ({ pedidos: t.pedidos + 1, renglones: t.renglones + r.renglones, importe: t.importe + (r.importe ?? 0) }),
     { pedidos: 0, renglones: 0, importe: 0 },
@@ -140,6 +167,7 @@ export function armarRespuesta(
     alcance,
     filtros,
     conteos,
+    conteos_etapa,
     totales,
     items: filtrados.slice(0, LIMITE_ITEMS),
     truncado: filtrados.length > LIMITE_ITEMS,

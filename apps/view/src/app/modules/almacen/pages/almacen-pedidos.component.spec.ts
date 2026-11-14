@@ -58,8 +58,9 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
   const RESP = (): WarehouseOrdersResponse => ({
     periodo: { from: '2026-09-19', to: '2026-10-19' },
     alcance: { todas: false, sucursales: [{ codigo: '02', nombre: 'La Piedad Abastos' }] },
-    filtros: { estatus: ['AUTORIZADO'], origen: null, sucursal: null, q: null },
+    filtros: { estatus: ['AUTORIZADO'], etapa: [], origen: null, sucursal: null, q: null, preventa: false },
     conteos: [{ estatus: 'AUTORIZADO', pedidos: 1, renglones: 3, mas_antiguo_horas: 2 }],
+    conteos_etapa: [{ etapa: 'autorizado', pedidos: 1, con_desfase: 0 }],
     totales: { pedidos: 1, renglones: 3, importe: null },
     items: [{
       clave: '02-1-0000900', sucursal: '02', sucursal_nombre: 'La Piedad Abastos', serie: 1, folio: '0000900',
@@ -67,6 +68,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
       estatus_kepler: 'AUTORIZADO', cliente_code: 'C001', destino_nombre: 'SUCURSAL ZAMORA CANINDO', destino_ciudad: 'ZAMORA', vendedor_code: null,
       vendedor_nombre: null, renglones: 3, volumen: [], importe: null, guia: null, transporte: null, chofer: null,
       resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 2,
+      etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null,
     }],
     truncado: false,
     generado_en: '2026-10-19T16:53:00.000Z',
@@ -147,7 +149,7 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
   const RESP = (): WarehouseOrdersResponse => ({
     periodo: { from: '2026-11-01', to: '2026-11-30' },
     alcance: { todas: true, sucursales: [] },
-    filtros: { estatus: [], origen: null, sucursal: null, q: null },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: false },
     conteos: [
       { estatus: 'CREADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
       { estatus: 'AUTORIZADO', pedidos: 2, renglones: 20, mas_antiguo_horas: 30 },
@@ -156,6 +158,7 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
       { estatus: 'EMBARCADO', pedidos: 0, renglones: 0, mas_antiguo_horas: null },
       { estatus: 'CANCELADO', pedidos: 3, renglones: 0, mas_antiguo_horas: null },
     ],
+    conteos_etapa: [],
     totales: { pedidos: 3, renglones: 32, importe: 9000 },
     items: [],
     truncado: false,

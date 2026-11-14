@@ -17,10 +17,10 @@ const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   cliente_code: 'RUTA 21', destino_nombre: 'R.D. 21 PH Urbano Olivares Victorino', destino_ciudad: 'Santa Ana Pacueco',
   vendedor_code: '00021', vendedor_nombre: null, renglones: 102, volumen: [{ unidad: 'PAQ', cantidad: 164 }], importe: 22591.35, guia: '0001644',
   transporte: '00013', chofer: '00014', resp_surtido: '06', resp_checado: '03', resp_embarque: '02',
-  horas_abierto: null, ...over,
+  horas_abierto: null, etapa: 'embarcado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...over,
 });
 const ALCANCE = { todas: true, sucursales: [] };
-const SIN_FILTRO = { estatus: [], origen: null, sucursal: null, q: null };
+const SIN_FILTRO = { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: false };
 
 describe('[GP.1] periodo', () => {
   it('sin nada = el mes en curso completo (hora de México)', () => {
@@ -146,6 +146,51 @@ describe('[GP.10.0] los cancelados no son trabajo pendiente', () => {
   it('sin cancelados en el periodo no aparece un botón vacío', () => {
     const r = armarRespuesta([vivo], SIN_FILTRO, per, ALCANCE, ahora);
     expect(r.conteos.some((c) => c.estatus === 'CANCELADO')).toBe(false);
+  });
+});
+
+/** `[GP.10.3]` La consola junta Kepler y preventa, y cuenta y filtra por ETAPA de almacén. */
+describe('[GP.10.3] etapa de almacén y preventa', () => {
+  const ahora = new Date('2026-11-13T22:00:00Z');
+  const per = { from: '2026-11-01', to: '2026-11-30' };
+  const k1 = fila({ clave: '01-1-0004001', folio: '0004001', estatus: 'AUTORIZADO', estatus_kepler: 'AUTORIZADO', etapa: 'surtido', etapa_fuente: 'piso', desfase: 'piso_adelante', renglones: 10, importe: 1000 });
+  const k2 = fila({ clave: '01-1-0004002', folio: '0004002', estatus: 'SURTIDO', estatus_kepler: 'SURTIDO', etapa: 'surtido', etapa_fuente: 'kepler', renglones: 5, importe: 500 });
+  const pv = fila({ clave: '01-PD-PD-000900', folio: 'PD-000900', documento: 'PD-000900', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'surtiendo', etapa_fuente: 'piso', order_id: 'o-900', renglones: 7, importe: 300 });
+  const pvCancelado = fila({ clave: '01-PD-PD-000901', folio: 'PD-000901', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'cancelado', etapa_fuente: 'piso', order_id: 'o-901', renglones: 0, importe: 0 });
+  const rows = [k1, k2, pv, pvCancelado];
+  const conPv = { ...SIN_FILTRO, preventa: true };
+
+  it('conteos por etapa: el flujo completo en orden, con cuántos van desfasados; cancelado al final', () => {
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    expect(r.conteos_etapa.map((c) => c.etapa)).toEqual(['creado', 'autorizado', 'en_cola', 'surtiendo', 'surtido', 'checando', 'checado', 'embarcado', 'cancelado']);
+    expect(r.conteos_etapa.find((c) => c.etapa === 'surtido')).toEqual({ etapa: 'surtido', pedidos: 2, con_desfase: 1 });
+    expect(r.conteos_etapa.find((c) => c.etapa === 'surtiendo')?.pedidos).toBe(1);
+  });
+
+  it('NEGATIVA: la preventa NO entra a los conteos por estatus de Kepler (no inventa un «sin estatus»)', () => {
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    expect(r.conteos.some((c) => c.estatus === 'SIN ESTATUS')).toBe(false);
+    expect(r.conteos.reduce((t, c) => t + c.pedidos, 0)).toBe(2);
+  });
+
+  it('«Todos» lista Kepler y preventa vivos; el preventa cancelado queda fuera', () => {
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    expect(r.items.map((i) => i.folio)).toEqual(['0004001', '0004002', 'PD-000900']);
+    expect(r.totales).toEqual({ pedidos: 3, renglones: 22, importe: 1800 });
+  });
+
+  it('filtrar por etapa cambia la lista pero no los conteos; se combina con el estatus', () => {
+    const todo = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    const surtido = armarRespuesta(rows, { ...conPv, etapa: ['surtido'] }, per, ALCANCE, ahora);
+    expect(surtido.items.map((i) => i.folio)).toEqual(['0004001', '0004002']);
+    expect(surtido.conteos_etapa).toEqual(todo.conteos_etapa);
+    const ambos = armarRespuesta(rows, { ...conPv, etapa: ['surtido'], estatus: ['AUTORIZADO'] }, per, ALCANCE, ahora);
+    expect(ambos.items.map((i) => i.folio)).toEqual(['0004001']);
+  });
+
+  it('el origen PREVENTA filtra sólo los PD-', () => {
+    const r = armarRespuesta(rows, { ...conPv, origen: 'PREVENTA' }, per, ALCANCE, ahora);
+    expect(r.items.map((i) => i.folio)).toEqual(['PD-000900']);
   });
 });
 
