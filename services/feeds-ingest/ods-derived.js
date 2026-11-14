@@ -200,12 +200,46 @@ async function normalizeFactorSale(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-/** BOX PRICE (RA-PRO.39) — kdpv CJA (list=min c4 tier), fallback PAQ×factor_sale → analytics.product_box_price. */
+/**
+ * BOX PRICE (RA-PRO.39) — el precio de LISTA de la caja por producto: CJA de `kdpv_prod_util` (sin la 00) en el umbral
+ * de menor volumen; si no hay CJA, PAQ × `factor_sale`. Es el denominador de las cajas del sell-out (venta / precio).
+ *
+ * `[CANON.6.20]` El precio de ESE umbral sale por MODA entre los renglones de las plazas, y si la moda empata, el menor.
+ * Antes era `(array_agg(c7 ORDER BY c4))[1]`, que ordena sólo por umbral: cuando las plazas tienen el mismo umbral con
+ * precios distintos (208 SKUs con caja y 298 con paquete, medido en prod el 14-nov) el ganador dependía del plan de la
+ * consulta, y el cálculo acotado (el del evento) y el completo (el del nocturno) elegían distinto en 40 de 407 SKUs: el
+ * nocturno «corregía» ~40 precios cada noche y el siguiente evento los regresaba. La moda es el precio de lista típico
+ * (17053 ALTOS: siete plazas a 1,245.43 y una a 936.27 → 1,245.43; la tabla tenía 936.27). Cambió 27 precios contra la
+ * tabla de ese día (mediana 1.7 %; pesan 0.4 % de la venta de 90 días).
+ *
+ * Parámetros: $1 = tenant; $2 = SKUs (sólo si `scoped`).
+ */
+function boxPriceSql(scoped) {
+  return `
+    WITH t AS (
+      SELECT btrim(c1) AS sku, c2 AS present, c4::numeric AS c4, c7::numeric AS c7
+        FROM kepler_ods.kdpv_prod_util
+       WHERE c2 IN ('CJA','PAQ') AND c7::numeric > 0 AND btrim(sucursal) <> '00' ${scoped ? 'AND btrim(c1) = ANY($2)' : ''}),
+    umbral AS (SELECT sku, present, min(c4) AS c4 FROM t GROUP BY sku, present),
+    votos AS (
+      SELECT t.sku, t.present, t.c7, count(*) AS n
+        FROM t JOIN umbral u ON u.sku = t.sku AND u.present = t.present AND u.c4 = t.c4
+       GROUP BY t.sku, t.present, t.c7),
+    pv AS (SELECT DISTINCT ON (sku, present) sku, present, c7 AS price FROM votos ORDER BY sku, present, n DESC, c7 ASC),
+    agg AS (SELECT sku, max(price) FILTER (WHERE present='CJA') AS cja, max(price) FILTER (WHERE present='PAQ') AS paq FROM pv GROUP BY sku)
+    SELECT p.id AS product_id,
+           CASE WHEN a.cja > 0 THEN a.cja
+                WHEN a.paq > 0 AND COALESCE(p.factor_sale,1) > 1 THEN a.paq * p.factor_sale END AS cja_price,
+           CASE WHEN a.cja > 0 THEN 'kepler_kdpv' ELSE 'derived_paq' END AS source
+      FROM agg a
+      JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=a.sku AND p.deleted_at IS NULL
+     WHERE (a.cja > 0) OR (a.paq > 0 AND COALESCE(p.factor_sale,1) > 1)`;
+}
+
 async function normalizeBoxPrice(client, tenantId, skus) {
   const s = clean(skus);
   const scoped = s.length > 0;
   const params = scoped ? [tenantId, s] : [tenantId];
-  const fk = scoped ? 'AND btrim(c1) = ANY($2)' : '';
   await client.query('BEGIN');
   try {
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
@@ -213,21 +247,7 @@ async function normalizeBoxPrice(client, tenantId, skus) {
       tenant_id uuid NOT NULL, product_id uuid NOT NULL, cja_price numeric NOT NULL,
       source text NOT NULL DEFAULT 'kepler_kdpv', updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (tenant_id, product_id))`);
-    await client.query(`
-      CREATE TEMP TABLE stg_bp ON COMMIT DROP AS
-      WITH pv AS (
-        SELECT btrim(c1) AS sku, c2 AS present, (array_agg(c7::numeric ORDER BY c4::numeric ASC))[1] AS price
-          FROM kepler_ods.kdpv_prod_util
-         WHERE c2 IN ('CJA','PAQ') AND c7::numeric > 0 AND btrim(sucursal) <> '00' ${fk}
-         GROUP BY btrim(c1), c2),
-      agg AS (SELECT sku, max(price) FILTER (WHERE present='CJA') AS cja, max(price) FILTER (WHERE present='PAQ') AS paq FROM pv GROUP BY sku)
-      SELECT p.id AS product_id,
-             CASE WHEN a.cja > 0 THEN a.cja
-                  WHEN a.paq > 0 AND COALESCE(p.factor_sale,1) > 1 THEN a.paq * p.factor_sale END AS cja_price,
-             CASE WHEN a.cja > 0 THEN 'kepler_kdpv' ELSE 'derived_paq' END AS source
-        FROM agg a
-        JOIN catalog.products p ON p.tenant_id=$1 AND p.sku=a.sku AND p.deleted_at IS NULL
-       WHERE (a.cja > 0) OR (a.paq > 0 AND COALESCE(p.factor_sale,1) > 1)`, params);
+    await client.query(`CREATE TEMP TABLE stg_bp ON COMMIT DROP AS ${boxPriceSql(scoped)}`, params);
     if (!scoped && !Number((await client.query(`SELECT count(*)::int c FROM stg_bp`)).rows[0].c)) { await client.query('COMMIT'); return 0; }
     const delScope = scoped
       ? `AND t.product_id IN (SELECT id FROM catalog.products WHERE tenant_id=$1 AND btrim(coalesce(sku,'')) = ANY($2))`
@@ -583,4 +603,4 @@ async function normalizeSalePrice(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-module.exports = { costoNetoCte, costoPendienteSql, normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };
+module.exports = { costoNetoCte, costoPendienteSql, normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, boxPriceSql, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };
