@@ -4,8 +4,12 @@ import { urlDeServidor, type Env } from '@megadulces/platform-core';
 
 import {
   decidirCancelacionOc, permisosNecesarios, sentenciasCancelacion, TABLAS_KEPLER,
-  type OcEnKepler, type PlanCancelacion, type RequisicionEnKepler, type Tablas,
+  type OcEnKepler, type PlanCancelacion, type RequisicionEnKepler, type Sentencia, type Tablas,
 } from './kepler-oc-cancelacion';
+import {
+  decidirCancelacionRequisicion, sentenciasCancelacionRequisicion,
+  type PlanCancelacionRequisicion, type RequisicionACancelar,
+} from './kepler-req-cancelacion';
 
 /** `[PQ.110]` Pedido de cancelación, ya validado del lado de la Suite (permiso, alcance, motivo). */
 export interface CancelacionOcEntrada {
@@ -29,6 +33,13 @@ export interface CancelacionOcResultado {
   original?: Pick<OcEnKepler, 'serie' | 'folio' | 'estado' | 'total' | 'capturista' | 'fecha_captura' | 'hora_captura' | 'renglones' | 'origen_tipo' | 'origen_folio'>;
   /** La requisición que Kepler reabre (y que se reabrió), si la OC salió de una. */
   requisicion?: { folio: string; total: number; renglones: number } | null;
+}
+
+/** `[KR.7]` Resultado de cancelar una requisición. `original` = lo que Kepler pierde (quién y cuándo la capturó). */
+export interface CancelacionRequisicionResultado {
+  estado: 'cancelada' | 'rechazada';
+  motivo?: string;
+  original?: RequisicionACancelar;
 }
 
 /** Fecha de Kepler (`date`, `timestamp` o texto) → `YYYY-MM-DD` sin mover el día. */
@@ -84,17 +95,30 @@ export class KeplerOcCancelAdapter implements OnModuleDestroy {
    * y aquí ejecute las MISMAS sentencias sobre copias temporales y haga ROLLBACK.
    */
   protected async confirmar(c: PoolClient, plan: PlanCancelacion, tablas: Tablas = TABLAS_KEPLER): Promise<string | null> {
+    return this.ejecutar(c, plan.sucursal, permisosNecesarios(!!plan.requisicion),
+      plan.requisicion ? 'reabrir la requisición' : 'cancelar', sentenciasCancelacion(plan, tablas));
+  }
+
+  /** `[KR.7]` El único paso que escribe al cancelar una requisición. Aparte por la misma razón que `confirmar`. */
+  protected async confirmarRequisicion(c: PoolClient, plan: PlanCancelacionRequisicion, tablas: Tablas = TABLAS_KEPLER): Promise<string | null> {
+    // Los mismos permisos que cancelar una OC sin requisición (anexo K §3e): ninguno nuevo.
+    return this.ejecutar(c, plan.sucursal, permisosNecesarios(false), 'cancelar la requisición',
+      sentenciasCancelacionRequisicion(plan, tablas));
+  }
+
+  /** Pregunta los permisos y corre las sentencias, todo o nada. `null` = confirmado (COMMIT). */
+  private async ejecutar(c: PoolClient, sucursal: string, permisos: string[], para: string, sentencias: Sentencia[]): Promise<string | null> {
     // Antes de tocar nada: ¿Kepler le da a `kepler_push` cada permiso? Sin esto, la falta de uno se
     // descubre a media transacción con un «permiso denegado» que no dice cuál ni para qué.
     const faltan: string[] = [];
-    for (const expr of permisosNecesarios(!!plan.requisicion)) {
+    for (const expr of permisos) {
       if ((await c.query(`SELECT (${expr}) ok`)).rows[0]?.ok !== true) faltan.push(expr.replace(/^has_\w+\(current_user, /, '').replace(/\)$/, ''));
     }
     if (faltan.length) {
       await c.query('ROLLBACK');
-      return `Kepler (sucursal ${plan.sucursal}) todavía no le da a la Suite el permiso para ${plan.requisicion ? 'reabrir la requisición' : 'cancelar'} (${faltan.join('; ')}); no se escribió nada`;
+      return `Kepler (sucursal ${sucursal}) todavía no le da a la Suite el permiso para ${para} (${faltan.join('; ')}); no se escribió nada`;
     }
-    for (const s of sentenciasCancelacion(plan, tablas)) {
+    for (const s of sentencias) {
       const r = await c.query(s.sql, s.params);
       if (r.rowCount !== s.esperadas) {
         await c.query('ROLLBACK');
@@ -196,6 +220,78 @@ export class KeplerOcCancelAdapter implements OnModuleDestroy {
       if (m.code === '55P03') return { estado: 'rechazada', motivo: 'Alguien tiene esa OC (o su requisición) abierta en Kepler en este momento; intenta de nuevo en un rato' };
       if (m.code === '42501') return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no le da permiso a la Suite para cancelar: ${m.message}` };
       this.logger.error(`[PQ.110] Cancelar OC ${e.sucursal}|${folio}: ${m.message}`);
+      return { estado: 'rechazada', motivo: `Kepler rechazó la cancelación: ${m.message}` };
+    } finally {
+      c.release();
+    }
+  }
+
+  /**
+   * `[KR.7]` — **Cancela una requisición de compra (`X-A-30`) en Kepler, todo o nada.** La regla vive en
+   * `kepler-req-cancelacion.ts` (sin OC viva, sólo N o A). Misma transacción, mismo candado `FOR UPDATE
+   * NOWAIT` y los mismos permisos que cancelar una OC. El `UPDATE` repite en su `WHERE` el estado leído y
+   * que no haya OC viva: si alguien la convirtió entre la lectura y la escritura, 0 filas y `ROLLBACK`.
+   * ⚠️ Una OC que alguien esté capturando en Kepler (sin confirmar) no se ve; Kepler tiene la misma carrera.
+   */
+  async cancelarRequisicion(e: CancelacionOcEntrada): Promise<CancelacionRequisicionResultado> {
+    const srv = urlDeServidor(e.sucursal, this.env);
+    if (!srv.ok) return { estado: 'rechazada', motivo: srv.motivo };
+    const folio = e.folio.trim();
+
+    let c: PoolClient;
+    try { c = await this.poolDe(srv.valor).connect(); }
+    catch (err) { return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no responde: ${(err as Error).message}` }; }
+
+    let abierta = false;
+    try {
+      await c.query('BEGIN');
+      abierta = true;
+      const rqs = await c.query(
+        `SELECT btrim(c5::text) serie, btrim(c6) folio, btrim(c43) estado, c16::float8 total, btrim(c67) capturista,
+                c68 fecha, btrim(c69) hora
+           FROM md.kdm1 WHERE ${DOC('30')} AND btrim(c6) = $2
+           FOR UPDATE NOWAIT`,
+        [e.sucursal, folio]);
+      const h = rqs.rows[0];
+      let rq: RequisicionACancelar | null = null;
+      if (h) {
+        const ren = await c.query(
+          `SELECT count(*)::int n FROM md.kdm2 WHERE ${DOC('30')} AND btrim(c5::text) = $2 AND btrim(c6) = $3`,
+          [e.sucursal, h.serie, folio]);
+        rq = {
+          serie: h.serie, folio: h.folio, estado: h.estado, total: Number(h.total) || 0,
+          capturista: h.capturista ?? '', fecha_captura: dia(h.fecha), hora_captura: h.hora ?? '', renglones: ren.rows[0].n,
+        };
+      }
+      const ocVivas = (await c.query(
+        `SELECT btrim(c6) folio FROM md.kdm1
+          WHERE ${DOC('35')} AND btrim(c37::text) = '30' AND btrim(c39) = $2 AND btrim(c43) <> 'C' ORDER BY 1`,
+        [e.sucursal, folio])).rows.map((x) => String(x.folio));
+
+      const original = rq ?? undefined;
+      const d = decidirCancelacionRequisicion({ requisicion: rq, coincidencias: rqs.rowCount ?? 0, oc_vivas: ocVivas });
+      if (!d.ok) {
+        await c.query('ROLLBACK');
+        abierta = false;
+        return { estado: 'rechazada', motivo: d.motivo, original };
+      }
+
+      const plan: PlanCancelacionRequisicion = {
+        sucursal: e.sucursal,
+        requisicion: { serie: rq!.serie, folio: rq!.folio, estado: rq!.estado, renglones: rq!.renglones },
+        capturista: e.capturista, fecha: e.fecha, hora: e.hora,
+      };
+      const falla = await this.confirmarRequisicion(c, plan);
+      abierta = false;
+      if (falla) return { estado: 'rechazada', motivo: falla, original };
+      this.logger.log(`[KR.7] Requisición ${e.sucursal}|${folio} cancelada en Kepler`);
+      return { estado: 'cancelada', original };
+    } catch (err) {
+      const m = (err as { code?: string; message?: string });
+      if (abierta) await c.query('ROLLBACK').catch(() => undefined);
+      if (m.code === '55P03') return { estado: 'rechazada', motivo: 'Alguien tiene esa requisición abierta en Kepler en este momento; intenta de nuevo en un rato' };
+      if (m.code === '42501') return { estado: 'rechazada', motivo: `Kepler (sucursal ${e.sucursal}) no le da permiso a la Suite para cancelar: ${m.message}` };
+      this.logger.error(`[KR.7] Cancelar requisición ${e.sucursal}|${folio}: ${m.message}`);
       return { estado: 'rechazada', motivo: `Kepler rechazó la cancelación: ${m.message}` };
     } finally {
       c.release();

@@ -23,6 +23,9 @@ import { KeplerOcCancelAdapter } from '../../../libs/commercial/src/lib/commerci
 import {
   permisosNecesarios, sentenciasCancelacion, type PlanCancelacion,
 } from '../../../libs/commercial/src/lib/commercial-replenishment/kepler-oc-cancelacion';
+import {
+  sentenciasCancelacionRequisicion, type PlanCancelacionRequisicion,
+} from '../../../libs/commercial/src/lib/commercial-replenishment/kepler-req-cancelacion';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -82,6 +85,59 @@ class AdaptadorEnsayo extends KeplerOcCancelAdapter {
     await c.query('ROLLBACK');
     return null;
   }
+
+  /**
+   * `[KR.7]` Igual que `confirmar`, para la requisición. A la copia de `kdm1` van también las OC que la
+   * referencian (canceladas o no): así el candado «ninguna OC viva» del `UPDATE` se ejerce de verdad.
+   */
+  protected override async confirmarRequisicion(c: PoolClient, plan: PlanCancelacionRequisicion): Promise<string | null> {
+    const no: string[] = [];
+    const p = [plan.sucursal, plan.requisicion.serie, plan.requisicion.folio];
+    await c.query('CREATE TEMP TABLE _k1 ON COMMIT DROP AS SELECT * FROM md.kdm1 WITH NO DATA');
+    await c.query('CREATE TEMP TABLE _k2 ON COMMIT DROP AS SELECT * FROM md.kdm2 WITH NO DATA');
+    await c.query(`INSERT INTO _k1 SELECT * FROM md.kdm1 WHERE ${llave('30')}`, p);
+    await c.query(`INSERT INTO _k2 SELECT * FROM md.kdm2 WHERE ${llave('30')}`, p);
+    const ocs = await c.query(
+      `INSERT INTO _k1 SELECT * FROM md.kdm1 WHERE btrim(c1) = $1 AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '35'
+          AND btrim(c37::text) = '30' AND btrim(c39) = $2`, [plan.sucursal, plan.requisicion.folio]);
+    const sentencias = sentenciasCancelacionRequisicion(plan, { kdm1: '_k1', kdm2: '_k2' });
+    // PRUEBA NEGATIVA del candado, en SQL y con el esquema real: si una de sus OC copiadas estuviera viva,
+    // la cabecera debe afectar 0 filas. Se revive la OC dentro de un savepoint y se deshace.
+    let candado: string = 'sin OC copiada: no se ejerció';
+    if ((ocs.rowCount ?? 0) > 0) {
+      await c.query('SAVEPOINT negativa');
+      await c.query(`UPDATE _k1 SET c43 = 'N' WHERE btrim(c4::text) = '35'`);
+      const neg = await c.query(sentencias[0].sql, sentencias[0].params);
+      await c.query('ROLLBACK TO SAVEPOINT negativa');
+      candado = neg.rowCount === 0 ? 'con una OC viva: 0 filas (bien)' : `con una OC viva afectó ${neg.rowCount} filas`;
+      if (neg.rowCount !== 0) no.push(`candado de OC viva: ${candado}`);
+    }
+    const afectadas: Record<string, number> = {};
+    for (const s of sentencias) {
+      const r = await c.query(s.sql, s.params);
+      afectadas[s.que] = r.rowCount ?? 0;
+      if (r.rowCount !== s.esperadas) no.push(`${s.que}: ${r.rowCount} filas, se esperaban ${s.esperadas}`);
+    }
+    const rq = (await c.query(`SELECT btrim(c43) c43, c13::text c13, c14::text c14, c15::text c15, c16::text c16, c42::text c42, btrim(c67) c67, c68::text c68, btrim(c69) c69 FROM _k1 WHERE ${llave('30')}`, p)).rows[0] ?? {};
+    const ren = (await c.query(`SELECT count(*)::int n FROM _k2 WHERE ${llave('30')}`, p)).rows[0].n;
+    // Contra el testigo (anexo K §3e, CEDIS 0003143): C, importes y saldo en 0, quién/cuándo, sin renglones.
+    if (rq.c43 !== 'C') no.push(`requisición c43 = ${rq.c43}`);
+    for (const k of ['c13', 'c14', 'c15', 'c16', 'c42']) if (Number(rq[k]) !== 0) no.push(`requisición ${k} = ${rq[k]}`);
+    if (rq.c67 !== plan.capturista) no.push(`requisición c67 = ${rq.c67}`);
+    if (!String(rq.c68).startsWith(plan.fecha)) no.push(`requisición c68 = ${rq.c68}`);
+    if (rq.c69 !== plan.hora) no.push(`requisición c69 = ${rq.c69}`);
+    if (ren !== 0) no.push(`requisición con ${ren} renglones`);
+    const permisos: Record<string, boolean> = {};
+    for (const expr of permisosNecesarios(false)) {
+      const ok = (await c.query(`SELECT (${expr}) ok`)).rows[0].ok === true;
+      permisos[expr.replace(/^has_\w+\(current_user, /, '').replace(/\)$/, '')] = ok;
+      if (!ok) no.push(`falta permiso: ${expr}`);
+    }
+    this.fallas = no;
+    this.revisado = { plan, afectadas, ocs_copiadas: ocs.rowCount, candado, requisicion_despues: rq, permisos };
+    await c.query('ROLLBACK');
+    return null;
+  }
 }
 
 async function main(): Promise<void> {
@@ -90,18 +146,30 @@ async function main(): Promise<void> {
   for await (const l of rl) lineas.push(l);
   const [url, json] = lineas;
   if (!url || !json) throw new Error('Faltan las dos líneas de entrada (URL y JSON)');
-  const p = JSON.parse(json) as { sucursal: string; folios: string[] };
+  const p = JSON.parse(json) as { sucursal: string; folios?: string[]; requisiciones?: string[] };
   const env: Env = { [`KEPLER_PUSH_URL_${p.sucursal}`]: url };
 
   const { Client } = await import('pg');
   const k = new Client({ connectionString: url });
   await k.connect();
-  const estado = async (f: string) => (await k.query(
-    `SELECT btrim(c43) e, c16::text c16 FROM md.kdm1 WHERE btrim(c1)=$1 AND c2='X' AND c3='A' AND btrim(c4::text)='35' AND btrim(c6)=$2`,
-    [p.sucursal, f])).rows[0] ?? null;
+  const estadoDe = (tipo: string) => async (f: string) => (await k.query(
+    `SELECT btrim(c43) e, c16::text c16, c42::text c42 FROM md.kdm1 WHERE btrim(c1)=$1 AND c2='X' AND c3='A' AND btrim(c4::text)=$3 AND btrim(c6)=$2`,
+    [p.sucursal, f, tipo])).rows[0] ?? null;
+  const estado = estadoDe('35');
 
   let malo = false;
-  for (const folio of p.folios) {
+  // `[KR.7]` Requisiciones: el mismo control — la real queda exactamente como estaba.
+  for (const folio of p.requisiciones ?? []) {
+    const antes = await estadoDe('30')(folio);
+    const ad = new AdaptadorEnsayo(env);
+    const r = await ad.cancelarRequisicion({ sucursal: p.sucursal, folio, capturista: 'SUITE', fecha: '2026-11-14', hora: '00:00' });
+    await ad.onModuleDestroy();
+    const despues = await estadoDe('30')(folio);
+    const intacta = JSON.stringify(antes) === JSON.stringify(despues);
+    if (!intacta || ad.fallas.length) malo = true;
+    console.log(JSON.stringify({ requisicion: folio, resultado: r, revisado: ad.revisado, fallas: ad.fallas, control: { antes, despues, intacta } }, null, 1));
+  }
+  for (const folio of p.folios ?? []) {
     const antes = await estado(folio);
     const ad = new AdaptadorEnsayo(env);
     const r = await ad.cancelar({ sucursal: p.sucursal, folio, capturista: 'SUITE', fecha: '2026-11-13', hora: '00:00' });

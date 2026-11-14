@@ -31,10 +31,13 @@ Cómo leer la salida:
   el control.**
 - Elige los casos en el ODS: una OC en N sin vale y con requisición, una sin requisición, y una con vale
   vivo (esta debe salir **rechazada**).
+- `[KR.7]` Para requisiciones, `{"sucursal":"08","requisiciones":["…"]}`: una en A o N sin OC viva (debe
+  quedar como el testigo y su `candado` decir «0 filas (bien)») y una con OC viva (debe salir **rechazada**).
 
 ## Resultado
 
 | Fecha | Servidor | Resultado |
 |---|---|---|
 | 2026-11-13 | 08 | **0000393** (con requisición 0000087, 4 renglones): las 4 sentencias afectan lo esperado, la OC queda como Kepler la deja y la requisición se reabre (A, `c42` = `c16`, `c24` = `c9`). **Falta `UPDATE (c24)` en `md.kdm2`**. **0000236** (sin requisición, 20 renglones): verde, con todos los permisos. **0000338** (con vale 0000533): rechazada con su motivo. Control: las 3 OC intactas. |
+| 2026-11-14 | 08 | **`[KR.7]` requisiciones** (`"requisiciones": [...]` en el JSON): **0000064** y **0000077** (reabiertas en A porque su OC se canceló a mano; 4 y 1 renglones) quedan en las copias como el testigo de CEDIS 0003143 (C, `c13`–`c16` y `c42` en 0, `c67`–`c69`, sin renglones); **prueba negativa del candado** —se revive su OC copiada en un savepoint—: la cabecera afecta **0 filas**; los 10 permisos en true. **0000087** (con su OC 0000393 viva): rechazada con su motivo. Control: las 3 intactas. El empaquetador necesitaba el alias de `@megadulces/contracts` (desde el 13 la regla importa `OC_CANCELAR_MOTIVO_MIN`). |
 | 2026-11-13 (tarde) | 08 | Después de aplicar `UPDATE (c24)` en los 6: los mismos 3 folios, **los 11 permisos en true**, `fallas: []` en los 3, 0000393 y 0000236 «cancelada» (sólo en el ensayo), 0000338 rechazada por su vale. Control: las 3 OC intactas (estado N y total idénticos antes y después). |

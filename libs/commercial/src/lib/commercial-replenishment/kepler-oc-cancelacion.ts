@@ -152,8 +152,11 @@ export interface Sentencia {
 export interface Tablas { kdm1: string; kdm2: string }
 export const TABLAS_KEPLER: Tablas = { kdm1: 'md.kdm1', kdm2: 'md.kdm2' };
 
-/** Llave de un documento de compra (`X-A-<tipo>`) — mismos `btrim` que las lecturas. */
-const llave = (tipo: '30' | '35', base: number) =>
+/**
+ * Llave de un documento de compra (`X-A-<tipo>`) — mismos `btrim` que las lecturas. Exportada para
+ * `[KR.7]` (`kepler-req-cancelacion.ts`): una sola forma de nombrar el documento, no dos.
+ */
+export const llave = (tipo: '30' | '35', base: number) =>
   `btrim(c1) = $${base} AND c2 = 'X' AND c3 = 'A' AND btrim(c4::text) = '${tipo}' AND btrim(c5::text) = $${base + 1} AND btrim(c6) = $${base + 2}`;
 
 /**
