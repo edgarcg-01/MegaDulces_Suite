@@ -280,11 +280,12 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
       'sistemas-servicios-mantenimiento',
       'configuracion-de-la-suite',
     ]);
-    // Diecisiete puertas primarias: los 18 proyectos menos WhatsApp, que no tiene ruta.
+    // Dieciocho puertas primarias: los 19 proyectos menos WhatsApp, que no tiene ruta.
     // (+1 Presupuestos, módulo propio desde Fase PU; +1 MKT, proyecto propio desde [MKT.0];
     //  +1 Desarrolladores, Fase DEV 2026-10-01; +1 Mesa de Servicio, [MS.3.1] 2026-10-02;
-    //  +1 Personal, [RH.1.7] 2026-10-07; +1 Pendientes de sucursal, [AB.46] 2026-11-03.)
-    expect(primaryDestinations(vis)).toHaveLength(17);
+    //  +1 Personal, [RH.1.7] 2026-10-07; +1 Pendientes de sucursal, [AB.46] 2026-11-03;
+    //  +1 Tareas por puesto, [MDT.3] 2026-11-13.)
+    expect(primaryDestinations(vis)).toHaveLength(18);
     expect(ids(vis)).not.toContain('whatsapp-bot');
   });
 

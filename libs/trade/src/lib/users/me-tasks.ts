@@ -3,7 +3,9 @@ import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
   ESTADOS_ABIERTOS,
   adaptadorDe,
+  tocaEnFecha,
   type AdaptadorTarea,
+  type FrecuenciaTarea,
   type FuenteTarea,
 } from '@megadulces/contracts';
 import type { ResponsabilidadKey } from './me-work';
@@ -302,7 +304,62 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
       );
     },
   },
+  {
+    /*
+     * `[MDT.1.3]` Fase MDT: las tareas del manual de MI puesto que hoy me tocan y no he entregado.
+     * ⚠️ NO se cuentan filas de `checklist_runs`: la tarea que todavía no abro no tiene fila (D3, nadie
+     * la emite). Se DERIVA: norma del puesto × `tocaEnFecha` × versión vigente, menos lo entregado o
+     * cancelado hoy. Es la única fuente que no se mide sólo con `medirTareas`.
+     */
+    fuente: 'platform.checklist_runs',
+    label: 'Tareas del manual de tu puesto',
+    detalle: 'lo que tu puesto pide hoy · se entrega con evidencia',
+    ruta: '/tareas/hoy',
+    icono: 'pi pi-check-square',
+    anyOf: [Permission.TAREAS_PUESTO_ENTREGAR],
+    medir: (knex, tenantId, userId) => medirTareasDelManual(knex, tenantId, userId),
+  },
 ];
+
+/**
+ * `[MDT.1.3]` Lo pendiente HOY de las tareas del manual, derivado de la norma (no de filas emitidas).
+ * `KNEX_CONNECTION` salta RLS: cada tabla filtra `tenant_id` a mano.
+ */
+async function medirTareasDelManual(knex: Knex, tenantId: string, userId: string): Promise<MedidaTarea> {
+  const { rows: [h] } = await knex.raw(`SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS hoy`);
+  const hoy = h.hoy as string;
+  const { rows } = await knex.raw(`
+    SELECT t.id, t.frequency, t.weekday, t.month_day,
+           ((?::date + t.start_time) AT TIME ZONE 'America/Mexico_City') AS desde,
+           -- La hora límite: la que quedó en la entrega si ya se abrió; si no, la de la versión que rige
+           -- hoy (MDT.3.2b) y, sin hora en la versión, la de la plantilla.
+           COALESCE(r.due_at, ((?::date + COALESCE(vv.due_time, t.due_time)) AT TIME ZONE 'America/Mexico_City')) AS vence,
+           r.status
+      FROM identity.users u
+      JOIN platform.checklist_template_positions tp ON tp.tenant_id = u.tenant_id AND tp.position_code = u.position_code
+      JOIN platform.checklist_templates t ON t.id = tp.template_id AND t.tenant_id = u.tenant_id
+                                         AND t.active AND t.deleted_at IS NULL
+      -- Sin versión que rija hoy la norma todavía no existía: el JOIN la descarta.
+      JOIN LATERAL (SELECT v.due_time FROM platform.checklist_template_versions v
+                     WHERE v.tenant_id = t.tenant_id AND v.template_id = t.id AND v.valid_from <= ?::date
+                     ORDER BY v.valid_from DESC, v.version DESC LIMIT 1) vv ON true
+      LEFT JOIN platform.checklist_runs r ON r.tenant_id = u.tenant_id AND r.template_id = t.id
+                                         AND r.assigned_to = u.id AND r.period_date = ?::date AND r.deleted_at IS NULL
+     WHERE u.tenant_id = ? AND u.id = ?`,
+  [hoy, hoy, hoy, hoy, tenantId, userId]);
+  const pendientes = (rows as { frequency: FrecuenciaTarea; weekday: number | null; month_day: number | null;
+    desde: Date; vence: Date; status: string | null }[])
+    .filter((t) => tocaEnFecha(t, hoy) && (t.status == null || t.status === 'in_progress'));
+  const ahora = Date.now();
+  const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
+  const minimo = (xs: Date[]) => xs.reduce<Date | null>((m, d) => (!m || new Date(d) < m ? new Date(d) : m), null);
+  return {
+    total: pendientes.length,
+    mas_viejo_at: iso(minimo(pendientes.map((p) => p.desde))),
+    vence_at: iso(minimo(pendientes.map((p) => p.vence))),
+    vencidas: pendientes.filter((p) => new Date(p.vence).getTime() < ahora).length,
+  };
+}
 
 /** ¿Esta persona puede ABRIR la pantalla que resuelve la tarea? God-mode sí; el resto por clave. */
 export function puedeAbrirTarea(

@@ -48,7 +48,10 @@ const DOCS = [
 
 const INICIO = '<!-- INDICE-AUTO:INICIO -->';
 const FIN = '<!-- INDICE-AUTO:FIN -->';
-const corto = (t) => t.slice(0, 110).replace(/\|/g, '\\|');
+// ⚠️ Cortar en 110 unidades UTF-16 puede partir un emoji a la mitad: la mitad suelta se guarda como
+// «�» y el índice no vuelve a coincidir nunca (2026-11-14, un título del log terminaba en 🧪 justo ahí).
+// Sólo se suelta esa mitad: en cualquier otro caso la salida es la de siempre.
+const corto = (t) => t.slice(0, 110).replace(/[\uD800-\uDBFF]$/, '').replace(/\|/g, '\\|');
 
 /** Genera el texto completo del documento con su bloque recalculado (LF). */
 function generar(texto, cfg) {

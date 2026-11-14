@@ -224,7 +224,8 @@ const tieneDecoradorPermisos = (tramo) =>
     anyOf: [...m[3].matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
   }));
   // `[DP.2.3]` 6: entró `platform.business_definitions` (las preguntas de negocio a tu nombre).
-  check('se leyeron las 6 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 6, fuentes.length);
+  // `[MDT.1.3]` 7: entró `platform.checklist_runs` (las tareas del manual de tu puesto, derivadas).
+  check('se leyeron las 7 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 7, fuentes.length);
   for (const f of fuentes) {
     const g = guardDe(f.ruta);
     check(`${f.fuente}: la ruta ${f.ruta} existe en app.routes.ts`, g.encontrada);

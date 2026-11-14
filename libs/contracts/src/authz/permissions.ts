@@ -820,6 +820,15 @@ export enum Permission {
   DEFINICIONES_VER = 'DEFINICIONES_VER',
   DEFINICIONES_GESTIONAR = 'DEFINICIONES_GESTIONAR',
   DEFINICIONES_CONTESTAR = 'DEFINICIONES_CONTESTAR',
+  // `[MDT.2.5]` Tareas por puesto (Fase MDT, migración de MDTask): el manual de cada puesto, como dato.
+  //  · ENTREGAR      — ver y entregar MIS tareas del día con su evidencia. A todo rol con personas
+  //                    (como SERVICIO_REPORTAR): la norma del puesto decide qué le toca a cada quien.
+  //  · EQUIPO_VER    — el avance de la gente a mi cargo. A los roles cuyo puesto tiene puestos a
+  //                    cargo (derivado de la cadena de mando); el servidor limita a SU cadena.
+  //  · NORMA_GESTIONAR — editar el manual (nueva versión de los puntos): Dirección y RH.
+  TAREAS_PUESTO_ENTREGAR = 'TAREAS_PUESTO_ENTREGAR',
+  TAREAS_PUESTO_EQUIPO_VER = 'TAREAS_PUESTO_EQUIPO_VER',
+  TAREAS_PUESTO_NORMA_GESTIONAR = 'TAREAS_PUESTO_NORMA_GESTIONAR',
   // `[ALC]` Alta de clientes (/comercial/alta-clientes): desde la constancia del SAT o a mano.
   // Dos claves porque son dos oficios (decisión de Francisco, 2026-11-04):
   //  · ALTA_CLIENTES — capturar y ver solicitudes: caja, encargados, auxiliar de tienda,

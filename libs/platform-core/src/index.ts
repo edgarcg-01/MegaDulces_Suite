@@ -73,6 +73,9 @@ export * from './lib/ai-product-matcher/ai-product-matcher.service';
 // [DP.2.1] Definiciones de negocio: la regla que falta se pregunta en el sistema (Fase DP).
 export * from './lib/definitions/business-definitions.module';
 export * from './lib/definitions/business-definitions.service';
+// [MDT.2] Motor de checklist / tareas por puesto (Fase MDT, migración de MDTask).
+export * from './lib/checklists/checklists.module';
+export * from './lib/checklists/checklists.service';
 
 // ── cloudinary ──
 export * from './lib/cloudinary/cloudinary.module';

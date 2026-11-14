@@ -619,6 +619,22 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         ],
       },
       {
+        // `[MDT.3]` Tareas por puesto (Fase MDT, migración de MDTask): el manual de cada puesto como dato.
+        // ⚠️ `tareas-mias` NO tiene ruta A PROPÓSITO (precedente `servicio-reportar`): ENTREGAR se reparte a
+        // todo rol con personas, y un destino en el mapa les quitaría a cajeras y almacenistas su entrada
+        // directa a `/projects`. Se llega desde Mi trabajo (fuente `platform.checklist_runs`), que enlaza a
+        // `/tareas/hoy`. Equipo y Manual SÍ tienen ruta: el espacio sólo aparece para jefaturas y RH.
+        id: 'tareas',
+        label: 'Tareas por puesto',
+        icon: 'pi pi-check-square',
+        route: '/tareas',
+        modules: [
+          { id: 'tareas-mias', label: 'Mis tareas del día', route: '', view: [Permission.TAREAS_PUESTO_ENTREGAR], manage: [] },
+          { id: 'tareas-equipo', label: 'Tareas de mi equipo', route: '/tareas/equipo', view: [Permission.TAREAS_PUESTO_EQUIPO_VER], manage: [] },
+          { id: 'tareas-manual', label: 'Manual por puesto', route: '/tareas/manual', view: [Permission.TAREAS_PUESTO_EQUIPO_VER], manage: [Permission.TAREAS_PUESTO_NORMA_GESTIONAR] },
+        ],
+      },
+      {
         // Fase MS (2026-10-02, ADR-081) — Mesa de Servicio: cualquier persona reporta un problema o
         // necesidad y el ticket es la tarea de quien lo atiende. Cola de TI primero, modelo multi-cola.
         // ⚠️ `servicio-reportar` NO tiene ruta A PROPÓSITO (mismo precedente que WhatsApp): la clave se

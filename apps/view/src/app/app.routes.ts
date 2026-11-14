@@ -1132,6 +1132,38 @@ export const routes: Routes = [
       },
     ]
   },
+  // ── Tareas por puesto (Fase MDT, migración de MDTask) ───────────────
+  // `hoy` y `entrega` son de CUALQUIER persona con puesto (`TAREAS_PUESTO_ENTREGAR`, repartido a todo rol con
+  // personas pero sin destino en el mapa: se llega desde Mi trabajo). `equipo` es de jefaturas; `manual`, de
+  // jefaturas y RH. La entrega la abre su dueño o un jefe de su cadena: el servidor decide cuál.
+  {
+    path: 'tareas',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'hoy' },
+      {
+        path: 'hoy',
+        loadComponent: () => import('./modules/tareas/pages/tareas-hoy.component').then(m => m.TareasHoyComponent),
+        canActivate: [permissionGuard(Permission.TAREAS_PUESTO_ENTREGAR)]
+      },
+      {
+        path: 'entrega/:id',
+        loadComponent: () => import('./modules/tareas/pages/tareas-entrega.component').then(m => m.TareasEntregaComponent),
+        canActivate: [anyPermissionGuard(Permission.TAREAS_PUESTO_ENTREGAR, Permission.TAREAS_PUESTO_EQUIPO_VER)]
+      },
+      {
+        path: 'equipo',
+        loadComponent: () => import('./modules/tareas/pages/tareas-equipo.component').then(m => m.TareasEquipoComponent),
+        canActivate: [permissionGuard(Permission.TAREAS_PUESTO_EQUIPO_VER)]
+      },
+      {
+        path: 'manual',
+        loadComponent: () => import('./modules/tareas/pages/tareas-manual.component').then(m => m.TareasManualComponent),
+        canActivate: [anyPermissionGuard(Permission.TAREAS_PUESTO_EQUIPO_VER, Permission.TAREAS_PUESTO_NORMA_GESTIONAR)]
+      },
+    ]
+  },
   // Tickets de servicio para toda la suite. `solicitudes` es la puerta de CUALQUIER persona
   // (`SERVICIO_REPORTAR`, repartido a todo rol con personas pero sin destino en el mapa: se llega
   // por el botón del header). `bandeja` es de quien atiende; `configuracion`, de la coordinación.
