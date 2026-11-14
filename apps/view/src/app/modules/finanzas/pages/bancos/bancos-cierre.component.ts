@@ -41,11 +41,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         <span>Incluir traspasos internos en ingresos/egresos</span>
         <span class="muted">— los traspasos (entre cuentas propias) netean a $0, así que NO cambian el neto; el toggle solo cambia el volumen bruto que ves.</span>
       </label>
-      <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> El <b>neto</b> es el flujo del mes (lo que entró − lo que salió) — <b>no tiene que ser $0</b>. Lo que debe <b>cuadrar</b> es el saldo de cada cuenta (pestaña Cuentas: inicial + depósitos − retiros = final) y los traspasos internos (TI=TE).</p>
-
-      @if (!d.tiene_balanza_kepler) {
-        <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> La balanza de Kepler no está cargada para {{ d.period }}, así que el cruce contable no se está evaluando (solo el cuadre interno de saldos y la clasificación).</p>
-      }
+      <p class="fb-diag-note muted"><i class="pi pi-info-circle"></i> El <b>neto</b> es el flujo del mes (lo que entró − lo que salió) — <b>no tiene que ser $0</b>. Lo que debe <b>cuadrar</b> es el saldo de cada cuenta (pestaña Cuentas: inicial + depósitos − retiros = final) y los traspasos internos (TI=TE). <b>Este cierre no compara contra Kepler</b>: eso se hace en Conciliación.</p>
 
       @if (d.items.length) {
         <h3 class="fb-card-title fb-cierre-h3">Qué falta <span class="muted">— por impacto</span></h3>
@@ -168,7 +164,6 @@ export class BancosCierreComponent {
       case 'sin_clasificar': return 'Ver sin clasificar';
       case 'traspaso_descuadre': return 'Ver traspasos';
       case 'saldo_no_cuadra': return 'Ver cuenta';
-      case 'kepler_pnl': return 'Ver conciliación';
       // [CB.68] El botón abre el selector del libro CUENTAS: decía «Subir estado» y la descarga del banco va en otra pestaña.
       case 'cuenta_sin_cargar': return 'Subir libro';
       default: return 'Revisar';
@@ -180,7 +175,6 @@ export class BancosCierreComponent {
       saldo_no_cuadra: 'bancos_saldo_no_cuadra',
       traspaso_descuadre: 'bancos_traspaso_descuadre',
       cuenta_sin_cargar: 'bancos_cuenta_sin_cargar',
-      kepler_pnl: 'bancos_caja',
     };
     return map[tipo] ?? null;
   }

@@ -1207,7 +1207,8 @@ export class FinanceBankService {
   /**
    * CB.9 — Diagnóstico "¿por qué no cuadra y qué falta?". Agregador legible que
    * consolida todas las fuentes de descuadre en una lista accionable (cada ítem:
-   * qué es, monto, y qué falta hacer). Reúsa balances + reconciliation + conteos;
+   * qué es, monto, y qué falta hacer). Reúsa balances + conteos (desde CB.71 ya no
+   * reconciliation: el Cierre no cruza contra Kepler, eso es Conciliación);
    * no lee data nueva. Es la pestaña que traduce lo técnico a "esto te falta".
    */
   /** Fecha (Date o 'YYYY-MM-DD') → 'DD/MM' con componentes locales (sin voltear a UTC). */
@@ -1326,8 +1327,10 @@ export class FinanceBankService {
     });
 
     const bal = await this.balances(period);
-    let recon: any = null;
-    try { recon = await this.reconciliation(period); } catch { recon = null; }
+    // [CB.71] Ya no se llama a `reconciliation()`: el diagnóstico sólo leía `recon.accounts`, vacío por diseño
+    // desde CB.13, y `recon.cash` para un aviso que daba a entender que el Cierre cruza contra Kepler (no lo hace:
+    // eso es la pestaña Conciliación). Costaba ~420 ms de SQL por carga (la vista de Caja General sola, 230–300 ms),
+    // medido en prod el 2026-11-14 sobre 2026-10 y 2026-11.
 
     const ingresos = n((totales as any)?.ingresos), egresos = n((totales as any)?.egresos);
     const items: any[] = [];
@@ -1419,25 +1422,11 @@ export class FinanceBankService {
           ? `En este periodo no está cargada ${faltantes.join(', ')}. Si el concepto nombra esa cuenta (el banco a veces la acorta: «366» por «BB 3660»), al cargarla el traspaso encuentra su pareja. Si nombra otra, búscalo por importe y fecha en esa cuenta: puede faltar en el libro o caer en otro mes.`
           : 'Todas las cuentas están cargadas, así que la otra pata falta dentro del libro o cae en otro mes: búscala por importe y fecha en la cuenta que nombra el concepto.' });
     }
-    // 5. Diferencias vs Kepler (P&L) — solo si hay balanza. Dirección + causa concreta.
-    if (recon?.accounts?.length) {
-      for (const a of recon.accounts.filter((x: any) => Math.abs(n(x.delta)) >= 10000)) {
-        const delta = n(a.delta), abs = Math.abs(delta);
-        const keplerMas = delta < 0; // book (mayor) > banco (pagado)
-        const detalle = keplerMas
-          ? `Kepler registra ${money(a.book)} de gasto en el mayor ${a.kepler_account} («${a.concept}»), pero por banco solo salieron ${money(a.bank)}: hay ${money(abs)} MÁS reconocido en Kepler que pagado por banco.`
-          : `Por banco salieron ${money(a.bank)} en «${a.concept}», pero Kepler solo registra ${money(a.book)} en el mayor ${a.kepler_account}: el banco pagó ${money(abs)} MÁS de lo que Kepler reconoce.`;
-        const accion = keplerMas
-          ? `Kepler YA reconoció este gasto; el banco todavía no lo paga. Normalmente NO se corrige en Kepler — es cuenta por pagar. Pasos: (1) en Kepler abre el auxiliar del mayor ${a.kepler_account} y saca las facturas SIN pago aplicado (esas explican el Δ); (2) confirma que el proveedor esté en cuentas por pagar; (3) si YA se pagó, busca el pago en otra cuenta de banco o en factoraje. El detalle de facturas por proveedor está en el módulo Egresos.`
-          : `Salió dinero del banco que Kepler no reconoce en el mayor ${a.kepler_account}. Cada renglón de abajo con «sin conciliar en Kepler» es un pago SIN póliza en el 102. Pasos en Kepler, uno por uno: (1) busca la póliza de egreso por beneficiario + monto + fecha; (2) si NO existe, captúrala en el mayor correcto; (3) si existe pero en otra cuenta, reclasifícala. Los renglones que ya muestran folio Kepler están conciliados —esos no se tocan.`;
-        items.push({ tipo: 'kepler_pnl', severidad: abs >= 100000 ? 'bad' : 'warn', importe: abs,
-          titulo: keplerMas ? `Kepler registra más que el banco: ${a.concept}` : `El banco pagó más que Kepler: ${a.concept}`,
-          detalle, accion, _mayor: a.kepler_account });
-      }
-    }
+    // [CB.71] Aquí vivía «5. Diferencias vs Kepler (P&L)» (`kepler_pnl`), atado a `recon.accounts`, que CB.13 vació
+    // a propósito: nunca emitió un renglón. El cruce contra Kepler es la pestaña Conciliación.
 
-    // Evidencia con folios/renglones concretos (saldo + Kepler). Un solo tk.run.
-    const needsEvidence = items.some((it) => it._statementId || it._mayor);
+    // Evidencia con renglones concretos (dónde salta el saldo). Un solo tk.run.
+    const needsEvidence = items.some((it) => it._statementId);
     if (needsEvidence) {
       await this.tk.run(async (trx) => {
         for (const it of items) {
@@ -1458,32 +1447,13 @@ export class FinanceBankService {
             breaks.sort((x, y) => Math.abs(y.monto) - Math.abs(x.monto));
             it.evidencia = breaks.slice(0, 3);
           }
-          // Kepler: los pagos del banco de ese mayor (con folio Kepler si están casados).
-          if (it._mayor) {
-            const rows = await trx('finance.bank_movements as bm')
-              .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-              .join('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-              .leftJoin('finance.bank_recon_matches as rm', 'rm.bank_movement_id', 'bm.id')
-              .where('st.period', period).where('bm.amount_out', '>', 0).whereNull('bm.deleted_at')
-              .whereRaw(`(regexp_split_to_array(mc.kepler_account, '[-/]'))[1] = ?`, [it._mayor])
-              .select('bm.movement_date', 'bm.concept', 'bm.amount_out', 'rm.kepler_doc_tipo', 'rm.kepler_doc_folio')
-              .orderBy('bm.amount_out', 'desc').limit(6);
-            it.evidencia = (rows as any[]).map((r) => ({
-              label: `${this.dm(r.movement_date)} · ${(r.concept || '—').slice(0, 40)}`,
-              monto: n(r.amount_out),
-              folio: r.kepler_doc_folio ? `Kepler ${r.kepler_doc_tipo || ''} ${r.kepler_doc_folio}`.trim() : 'sin conciliar en Kepler',
-            }));
-          }
         }
       });
     }
-    for (const it of items) { delete it._statementId; delete it._opening; delete it._mayor; }
+    for (const it of items) { delete it._statementId; delete it._opening; }
 
     items.sort((x, y) => (y.importe || 0) - (x.importe || 0));
-    const cuadra = items.length === 0; // real issues, antes de meter el aviso informativo
-    // Aviso al frente: la evidencia "sin casar en Kepler" solo es confiable si (a) están
-    // cargadas las pólizas del 102 de Kepler y (b) ya corrió el matching. Si no, todo
-    // sale "sin casar" y parecería que falta en Kepler cuando NO es cierto.
+    const cuadra = items.length === 0;
     const conciliacionCorrida = n(matchedCount) > 0;
     const sinPostingsKepler = n(keplerPostingsCount) === 0;
 
@@ -1508,22 +1478,8 @@ export class FinanceBankService {
       last_import_at: ultimoImportAt,
       stale: !!(ultimoMatch && ultimoImportAt && new Date(ultimoImportAt) > new Date(ultimoMatch)),
     };
-    if (sinPostingsKepler && !!recon?.accounts?.length) {
-      items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
-        titulo: 'Faltan las pólizas del 102 de Kepler (no se puede conciliar aún)',
-        detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin conciliar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
-        // Ya NO se "carga un feed": `analytics.bank_postings` es una MATERIALIZED VIEW derivada
-        // del ODS (mig 20260903130000) que refresca `AnalyticsRefreshService` cada 15 min. Decirle
-        // a alguien que corra `import-bank-postings` era mandarlo a un script que ya no existe.
-        // Si está vacío para el periodo hay dos causas reales, y conviene nombrarlas: el refresh
-        // aún no corrió, o el periodo cae fuera de la ventana rodante de 12 meses de la vista.
-        accion: 'Las pólizas del 102 se derivan del ODS y se refrescan solas cada ~15 min: si el periodo es reciente, espera ese ciclo o pide un refresh manual de analytics. Si es un periodo de más de 12 meses atrás, queda fuera de la ventana rodante de la vista y no habrá con qué cruzar. Cuando aparezcan, presiona «Conciliar» en la pestaña Conciliación.' });
-    } else if (!conciliacionCorrida && !!recon?.accounts?.length) {
-      items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
-        titulo: 'Corre «Conciliar» primero',
-        detalle: 'Las pólizas de Kepler están cargadas pero la conciliación por-transacción no se ha ejecutado este periodo, así que la evidencia de abajo marca todo como «sin conciliar en Kepler». Eso NO significa que falte en Kepler — significa que aún no se parean los pagos.',
-        accion: 'Ve a la pestaña Conciliación y presiona «Conciliar». Después, cada renglón mostrará su folio de Kepler cuando exista, y solo los que queden «sin conciliar» serán gaps reales que capturar.' });
-    }
+    // [CB.71] Aquí vivían dos avisos `aviso_conciliar` («faltan las pólizas del 102» / «corre Conciliar»), atados a
+    // `recon.accounts` (vacío desde CB.13): nunca se mostraron. Hablaban de la evidencia `kepler_pnl`, que tampoco existía.
     const totalDescuadre = bal.totals.descuadre;
     return {
       period,
@@ -1534,10 +1490,8 @@ export class FinanceBankService {
       cuentas_ok: bal.accounts.filter((a: any) => a.cuadra).length,
       cuentas_total: bal.accounts.length,
       total_descuadre: totalDescuadre,
-      // CB.13.1 — la balanza está "cargada" si el 102 de Kepler tiene datos (cargos/abonos),
-      // NO si recon.accounts tiene filas: ese array se vació a propósito al eliminar el P&L
-      // adivinado, así que atarlo ahí dejaba el banner "balanza no cargada" prendido siempre.
-      tiene_balanza_kepler: n(recon?.cash?.kepler_102_cargos) > 0 || n(recon?.cash?.kepler_102_abonos) > 0,
+      // [CB.71] Se fue `tiene_balanza_kepler`: sólo servía a la nota «sin balanza, el cruce contable no se evalúa»,
+      // que hacía creer que CON balanza el Cierre sí cruzaba contra Kepler. Nunca lo hizo (CB.13).
       conciliacion_corrida: conciliacionCorrida,
       kepler_postings_cargados: !sinPostingsKepler,
       // CB.46 — el conteo sin clasificar del MISMO universo que `movimientos` (incluye la caja).

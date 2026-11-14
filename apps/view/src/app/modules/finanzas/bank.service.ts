@@ -173,7 +173,7 @@ export interface ReconEstado {
 export interface Diagnostico {
   period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
   cuadra: boolean; cuentas_ok: number; cuentas_total: number; total_descuadre: number;
-  tiene_balanza_kepler: boolean; items: DiagnosticoItem[];
+  items: DiagnosticoItem[];
   /** Sin clasificar del MISMO universo que `movimientos` (incluye la caja general). */
   sin_clasificar_n?: number; sin_clasificar_monto?: number;
   /** `null` = la conciliación nunca corrió en este periodo. */

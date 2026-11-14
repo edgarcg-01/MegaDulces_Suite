@@ -52,7 +52,7 @@ function montar() {
 
 const DIAG: Diagnostico = {
   period: '2026-11', ingresos: 100, egresos: 50, neto: 50, movimientos: 1785, cuadra: false,
-  cuentas_ok: 16, cuentas_total: 17, total_descuadre: 0, tiene_balanza_kepler: true, items: [
+  cuentas_ok: 16, cuentas_total: 17, total_descuadre: 0, items: [
     { tipo: 'cuenta_sin_cargar', severidad: 'warn', importe: 0, titulo: 'BB 3660: sin movimientos en 2026-11', detalle: 'x', accion: 'y' },
   ],
   movimientos_hasta: '2026-11-10',
@@ -74,6 +74,19 @@ describe('[CB.68] el Cierre no dice «Sin datos» mientras carga', () => {
     expect(el.querySelector('.fb-diag-head h2')?.textContent).toBe('1 pendiente para que cuadre');
     expect(el.querySelector('.fb-diag-hasta')?.textContent).toBe('Cuenta los movimientos cargados hasta el 10/11.');
     expect(el.querySelector('.fb-diag-cta')?.textContent).toContain('Subir libro');
+  });
+});
+
+describe('[CB.71] el Cierre dice que no compara contra Kepler', () => {
+  it('[negativa] ya no promete un «cruce contable» que el Cierre nunca hizo', () => {
+    // Antes: sin `tiene_balanza_kepler` salía «La balanza de Kepler no está cargada…, así que el cruce contable no se
+    // está evaluando», que hacía creer que CON balanza sí se evaluaba. El diagnóstico no cruza contra Kepler (CB.13).
+    const { fx, diag$, el } = montar();
+    diag$.next(DIAG);
+    fx.detectChanges();
+    expect(el.textContent).toContain('Este cierre no compara contra Kepler: eso se hace en Conciliación.');
+    expect(el.textContent).not.toContain('La balanza de Kepler');
+    expect(el.textContent).not.toContain('cruce contable');
   });
 });
 

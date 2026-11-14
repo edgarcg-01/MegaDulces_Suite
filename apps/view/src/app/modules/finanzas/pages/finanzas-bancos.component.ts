@@ -942,7 +942,6 @@ export class FinanzasBancosComponent implements OnInit {
       case 'sin_clasificar': this.abrirMovimientos({ uncat: true }); break;
       case 'traspaso_descuadre': this.abrirMovimientos({ group: 'traspaso' }); break;
       case 'saldo_no_cuadra': this.view.set('cuentas'); break;
-      case 'kepler_pnl': this.view.set('conciliacion'); break;
       case 'cuenta_sin_cargar': this.fileInput?.nativeElement.click(); break;
       default: this.abrirMovimientos({});
     }
