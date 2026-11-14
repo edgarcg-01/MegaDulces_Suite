@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos › Cierre: no dice «Sin datos» mientras carga, explica completa la diferencia de traspasos y los egresos sin categoría se categorizan ahí (CB.68–CB.70 · 2026-11-13 · en prod)
+- Mientras carga, el Cierre muestra un esqueleto en lugar de «Sin datos», y al llegar dice hasta qué día ve movimientos. Una cuenta sin movimientos se nombra por su alias y dice cómo resolverla.
+- Los traspasos sin pareja se buscan uno a uno, y su suma ahora explica toda la diferencia entre lo que entra y lo que sale entre cuentas (en noviembre, $150,000; antes se nombraban $55,000).
+- En Bancos › Movimientos, un egreso sin categoría tiene el botón **Categorizar** (el mismo formulario del Puente ContPAQi, con la opción de recordar al beneficiario). Lo usan Tesorería, Finanzas y Contabilidad.
 ### Fixed — Pedidos del almacén: un pedido cancelado en Kepler ya no se cuenta como pendiente (GP.10.0 · 2026-11-13 · en código, sin soltar)
 - Kepler cancela un pedido dejándolo en $0 y sin renglones, pero conserva el estatus que tenía. El Tablero de `/almacen/pedidos` lo seguía contando como vivo: de los 54 pedidos «en Surtido» de noviembre, 34 estaban cancelados.
 - Ahora los cancelados tienen su propio botón, **Cancelado**, y salen de «Todos», de los totales y del «sin embarcar más antiguo». En el detalle se ve cuál era su último estatus.
