@@ -954,3 +954,46 @@ acotados a las claves que llegaron (`c1`; la de cruce va sin ceros, como en los 
   y el árbitro cruzado contra los normalizadores. 7 mutantes en rojo, cada uno por su razón. Vecinas (árbitro, marcas,
   códigos, presencia) en verde; API `tsc` exit 0, `db-health` 24 ✓.
 - Re-medido de paso (13-nov): el árbitro de nombres volvió a ~320 ms (el ~1 s fue de una sola corrida).
+
+**Etiquetas (2026-11-14, `[CANON.6.19]`): sale `import-label-data` del carril `prices`, y el carril con él.** La etiqueta
+de anaquel ya la escribía el hop-2 (`normalizeLabelsFromOds`, al llegar `kdii` / `kdpv_prod_util`, con la misma
+computación de `label-compute`); el script era el reconciliador de cada 30 min y su único aporte propio era el EAN de
+`catalog.products.barcode` cuando la ficha trae el SKU en `c7` (`095984`) y el EAN en `c95` (`739944008116`).
+- **Medido antes de retirarlo:** desde que llegó CANON.6.7 (12-nov 20:00) el script **no escribe nada**, salvo dos
+  carreras el 13-nov (GOMITAS PELABLES HUBIN en la 06, CHOC ORODIAMOND PINO en la 01): leyó Kepler segundos antes de un
+  cambio de mayoreo y escribió el precio viejo encima del que el hop-2 acababa de poner; el hop-2 lo regresó a los
+  3–6 s. Hasta el 12-nov sus «2 productos» de cada corrida eran los pleitos que cerró 6.7 (SUPER VELA, BLISTER FOAMY y el
+  EAN-8 de BOING). En 45 días rellenó el EAN de **19 productos** legítimamente (el hop-2 ponía el marcador y el script
+  el EAN 15–30 min después; 6 de ellos el 6-nov) y nada más. Hoy: **0 de 79,042** etiquetas difieren del ODS en sus 14
+  columnas (contra `analytics.v_label_prices`, la misma lógica en SQL) y **0** EAN pendientes.
+- **El EAN pasa al hop-2 de productos** (`normalizeProductsFromOds`), con la regla del script sin cambios: sólo a un
+  producto vivo cuyo código no es EAN (8, 12 o 13 dígitos); el EAN sale por plaza como en la etiqueta (`c7` si es EAN, si
+  no `c95`, con `c90 > 0.05`); gana el de la plaza menor que no tenga otro producto (vivo con otro SKU, o borrado); dos
+  del mismo lote con el mismo EAN, el de SKU menor. Va en un paso aparte (el UPDATE de identidad se salta la fila que
+  frena la unique de nombre, y el EAN no depende del nombre), y el UPDATE de identidad ya no le quita a un producto el
+  EAN que Kepler sigue publicando: sin esa guarda, con basura larga en `c7` escribiría la basura y el paso del EAN lo
+  regresaría en cada evento. **No cambia un número:** sobre los 9,027 productos vivos con identidad, la regla de antes y
+  la nueva escriben 0 cada una.
+- `run-prod-feeds.js` pierde el modo `prices` (vacío desde que salieron `repoint-catalog-prices` en 6.9 e
+  `import-product-barcodes` en 6.14) y `ops/vl/crontab.feeds` su renglón de :02/:32; db-health deja de declarar
+  `feed_prices` (su latido pasa a «retirado» a los 7 días sin latir). ⚠️ **API e ingesta van juntas:** si sale primero la
+  ingesta, `feed_prices` se pone rojo a las 6 h hasta que llegue la API; si sale primero la API, el latido se ve «sin
+  umbral» hasta que el carril deja de correr.
+- `import-label-data.js` queda como herramienta manual: sin `--apply` escribe y **revierte** para medir cuántas
+  etiquetas cambiarían y cuántos productos esperan su EAN (debe dar 0 y 0); con `--apply` recalcula y pone el EAN
+  llamando a `normalizeProductsFromOds` (la regla vive en un solo lugar). Mapea sólo productos vivos, como el hop-2
+  (antes caía en un borrado si el SKU no tenía vivo: 0 etiquetas así).
+- Árbitro `etiquetas_evento` (reloj del escáner; sólo alarma; retiro con 30 días sin el script y sin alertas): cuenta
+  etiquetas que faltan o con otro precio de pieza u otro código, y productos sin su EAN. **No compara mayoreo, caja ni
+  gramaje**: contra la vista cuesta ~9.5 s; esto cuesta **580–730 ms** (el más caro de los árbitros). Hoy **0** de 79,951.
+- Prueba `test-newdb-etiquetas-por-evento` (20 ✓): negativa con la normalización apagada; alta con EAN; código basura;
+  EAN ocupado por un vivo o por un borrado; dos en el lote; EAN-8 respetado; la guarda de la basura larga (0
+  escrituras); `c7` canónico que ya es EAN; la plaza menor libre; nombre frenado y EAN igual; un alta del lote que ocupa
+  el EAN; sin churn; el camino real con su etiqueta; y el árbitro (3 desfasados suman 3, la fila `manual` no cuenta,
+  vuelve a la base). 9 mutantes en rojo, cada uno por su razón. Las pruebas de árbitro, marcas, nombres y presencia
+  crean su `kdii` con `c95` (sin él, el hop-2 de productos truena: comprobado). Vecinas en verde; API `tsc` exit 0,
+  `db-health` 24 ✓; la herramienta, probada de punta a punta en una base local desechable (en seco → `--apply` → 0 y 0).
+- ⚠️ **Hallazgo aparte, previo a esto:** 54 etiquetas de **6 productos vivos sin SKU** están congeladas desde el 25-sep
+  (las escribía el fallback por código de barras que quitó 6.7, y ya nadie las toca). NO MEDIDO quién las lee.
+- ⚠️ Sigue de Edgar: `STORE_NOTIFY_URL` / `STORE_INGEST_KEY`. Con el script fuera, el aviso de precio a las pantallas
+  sale sólo del hop-2; si esas variables están en el pod de la ingesta es NO MEDIDO (no se puede leer el pod).
