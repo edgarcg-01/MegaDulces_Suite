@@ -1357,9 +1357,10 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   lista) y `GET …/anticipos/deuda` (la deuda viva de esos acreedores, en diferido); pestaña con tres
   grupos: «Aplicable hoy» (C* con deuda viva) · «Sin contra qué» (C* sin deuda) · «No es anticipo de
   mercancía» (G*/TC*). Sin migración.
-- `[PGP.119]` ⬜ C0–C3 — programar un anticipo nuevo: `nature` en
-  `commercial.supplier_payment_obligations` (regla 14: recorrer todos los caminos que insertan), pareo
-  con el `X-D-60` (±$1, ±5 días), cierre por `kdxf`, alerta +90 días a la bandeja. Con migración.
+- `[PGP.119]` 🧪 (2026-11-13, sin validación visual, arranque no verificado, prueba con base real
+  pendiente del CI) C0–C3 — pedir un anticipo en la Suite: obligación de naturaleza `anticipo` que se
+  paga por el Calendario y se liga sola con su `X-D-60`. Detalle abajo. Pendiente: la alerta +90 días
+  a la bandeja.
 - `[PGP.120]` 🧪 (2026-11-13, sin validación visual, arranque no verificado, prueba con base real
   pendiente del CI) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
   (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
@@ -1468,6 +1469,67 @@ montos sin que nadie lo viera. El botón con el monto, en la misma fila, es el a
 - Escribir en Kepler la aplicación del anticipo (`kdxf`): la hace Cuentas por pagar (D5).
 - Aplicar un anticipo a facturas capturadas a mano (`supplier_payable`): sólo facturas de Kepler.
 - El aviso del diálogo cuando la persona quita el anticipo y lo quiere volver a poner sin cerrar.
+
+#### `[PGP.119]` Pedir un anticipo en la Suite y pagarlo por el Calendario (2026-11-13) — 🧪
+
+> Edgar (2026-11-13): *«sigamos»*, con el frente de Anticipos. Es lo que quedaba: que el anticipo
+> deje de decidirse y pagarse por fuera.
+
+**Lo medido antes (prod, sólo lectura):**
+
+| Qué | Cifra |
+|---|---|
+| Anticipos por mes (12 meses) | 16 a 31, ~$1.5 M; un tercio sale de la cuenta de Caja General `0011` |
+| Obligaciones de pago hoy | 38, **todas** de entrega aceptada; 0 de alta manual, 0 con OC |
+| Referencia del `X-D-60` | 168 texto libre («ANT PH», «COT991», un código), 39 vacías: **ninguna cita una OC** |
+| Permiso para dar de alta obligaciones | `COMPRAS_OBLIGACIONES_GESTIONAR`: 5 roles, todos de Compras (regla 20 ya cumplida) |
+| Control negativo del pareo (acreedor + sucursal + ±$1 en ±30 días) | 4 de 143 `X-D-60` tienen un gemelo |
+| OC de la Suite con total (90 días) | 239 de 239 |
+| Seguimiento (simulado con los `X-D-60` de 60 días como si se hubieran pedido) | 247–282 ms; **17 de 17** se ligan a sí mismos; 1 con más de un posible |
+
+**D1 ajustada (por encargo del PM):** la OC es **opcional**, no obligatoria. Ningún anticipo de Kepler
+cita una OC: exigirla frenaría el pedido sin que el dato lo respalde. Cuando va atada, el tope (D6) es el
+saldo de la OC (total − lo ya anticipado), y la sucursal sale de la OC (`commercial.warehouses.code`).
+**D6:** constante `TOPE_ANTICIPO_SOBRE_OC = 1` en el contrato. Cambiarla es cambiar ese número: todavía no
+hay dónde configurarla sin código (`DP` está pausada).
+
+**Cómo funciona:**
+- **Pedir** (Compras, `COMPRAS_OBLIGACIONES_GESTIONAR`): botón «Pedir anticipo» en el submódulo. Pide
+  proveedor (sólo mercancía, búsqueda por nombre o código), OC opcional, sucursal de Kepler, importe,
+  día de pago y motivo.
+  - Nace una obligación de pago de naturaleza `anticipo`; el concepto dice «Anticipo · OC … ·
+    sucursal».
+  - El servidor revisa con la MISMA regla que la pantalla (`faltaSolicitudAnticipo`) y lee la OC
+    bloqueada: dos pedidos a la vez no pasan juntos del tope.
+- **Pagar:** entra al Calendario como cualquier obligación; se programa, Dirección autoriza el pago y
+  Tesorería paga. La escritura automática a Kepler ya frena los pagos con renglones que no son
+  facturas de Kepler (`pago-kepler.armador.ts:333`): un anticipo nunca se escribe como `X-D-26`.
+- **Seguir:** «Pedidos en la Suite» lleva cada pedido por sus etapas (por programar → programado →
+  pagado → en Kepler → aplicado). El `X-D-60` se liga al leer, sin copiarse: mismo acreedor, sucursal
+  e importe ±$1, de 5 días antes a 60 después del pedido, uno a uno por la fecha más cercana. Lo que
+  dice Kepler manda sobre lo que dice la Suite.
+- La sucursal donde se capturará el `X-D-60` va en `kepler_sucursal` con `kepler_folio` vacío. Un
+  CHECK lo impide de otro modo, porque los diez lectores de `kepler_*` tratan un folio lleno como una
+  factura.
+
+**Despliegue:** la migración `20261113175529_pgp119_anticipo_como_obligacion_de_pago` va a prod **antes**
+del código (el código inserta `nature`). Compatible con la API desplegada: DEFAULT `factura`.
+
+**Pruebas:**
+- 10 de contrato y 2 del componente, entre ellas «no sale sin proveedor, sin motivo, con importe
+  ambiguo o sobre el saldo de la OC».
+- 3 mutantes (tope, uno a uno, Kepler manda), los 3 en rojo.
+- Prueba contra base real `anticipo-solicitud.it.spec.ts`: pedir con OC; el tope; proveedor de gasto;
+  OC de otro proveedor; el CHECK de la base; el seguimiento hasta «En Kepler» con su control
+  negativo (el mismo importe en otra sucursal no se liga) y «Aplicado».
+
+**NO MEDIDO / NO incluye:**
+- La prueba contra base real no corrió aquí: corre en el job de integración del CI.
+- **Sin validación visual. Arranque de la API no verificado** (cuatro rutas nuevas en un controlador).
+- Un descuento sobre un anticipo programado: el servidor lo permitiría (el pago de un anticipo no
+  debería llevar descuento).
+- La alerta a la bandeja de Compras/CxP de los +90 días (D4): sigue visible en el submódulo.
+- Cancelar un pedido desde el submódulo: hoy se cancela con la obligación (`POST :id/cancelar`).
 
 ---
 

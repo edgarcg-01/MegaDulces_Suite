@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import { SupplierPaymentObligationsService, CreateSupplierObligationDto } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
 import type { DeudaProgramableResponse, ProgramarDocumentoResultado } from '@megadulces/contracts';
+import type { AnticipoOcRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -63,6 +64,41 @@ export class SupplierPaymentObligationsController {
   @ApiOperation({ summary: 'Búsqueda ligera de proveedores para el selector de la obligación nueva.' })
   searchSuppliers(@Query('search') search?: string) {
     return this.svc.searchSuppliers(search);
+  }
+
+  /**
+   * `[PGP.119]` El seguimiento de los anticipos pedidos en la Suite. ⛔ Va ANTES de `:id`: Nest resuelve
+   * en orden y `anticipos` entraría como si fuera un id. Mismo permiso que el submódulo de Anticipos.
+   */
+  @Get('anticipos')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.119 — anticipos pedidos en la Suite (180 días) con su pago del Calendario y el X-D-60 de Kepler con que se ligan (acreedor + sucursal + importe ±$1).' })
+  listAnticipos(): Promise<AnticipoSolicitadoRow[]> {
+    return this.svc.listAnticiposSolicitados();
+  }
+
+  /** `[PGP.119]` Proveedores que pueden recibir anticipo: de mercancía (código C…) y activos. */
+  @Get('anticipo/proveedores')
+  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.119 — proveedores de mercancía activos para pedirles anticipo; busca por nombre o código.' })
+  anticipoProveedores(@Query('search') search?: string): Promise<AnticipoProveedorRow[]> {
+    return this.svc.anticipoProveedores(search);
+  }
+
+  /** `[PGP.119]` Las OC abiertas de un proveedor con lo ya anticipado (el tope, D6). */
+  @Get('anticipo/ocs')
+  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.119 — OC abiertas (open/partial) de un proveedor, su sucursal, su total y lo ya pedido de anticipo sobre cada una.' })
+  anticipoOcs(@Query('supplier_id') supplierId?: string): Promise<AnticipoOcRow[]> {
+    return this.svc.anticipoOcs(String(supplierId ?? ''));
+  }
+
+  /** `[PGP.119]` Pide un anticipo: nace una obligación de naturaleza `anticipo` que entra al Calendario. */
+  @Post('anticipo')
+  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.119 — pide un anticipo a un proveedor de mercancía (opcional: atado a una OC, sin pasar de su saldo). Entra al Calendario como cualquier obligación; Dirección autoriza el pago.' })
+  crearAnticipo(@Body() dto: AnticipoSolicitudBody, @Req() req: AuthedRequest): Promise<{ obligation_id: string; monto: number; concepto: string }> {
+    return this.svc.crearAnticipo(dto, req.user?.username || 'sistema');
   }
 
   @Get(':id')

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { AnticipoDeudaRow, AnticipoRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { FinanzasAnticiposComponent } from './finanzas-anticipos.component';
 
 /**
@@ -31,6 +31,15 @@ const DEUDA: AnticipoDeudaRow[] = [
   { proveedor: 'CB002', sucursal: '03', facturas: 4, deuda: 9000, vence_primero: '2026-11-25' },
 ];
 
+const SOLICITADOS: AnticipoSolicitadoRow[] = [
+  { obligation_id: 'o1', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 5000, motivo: 'temporada', oc_folio: 'OC-9',
+    creado_por: 'compras1', creado: '2026-11-10', fecha_deseada: '2026-11-12', estado_obligacion: 'pending', pagado: 0,
+    programado_dia: null, allocation_id: null, kepler: null, posibles: 0, etapa: 'por_programar' },
+  { obligation_id: 'o2', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 3000, motivo: null, oc_folio: null,
+    creado_por: 'compras1', creado: '2026-11-01', fecha_deseada: null, estado_obligacion: 'pending', pagado: 0, programado_dia: '2026-11-03', allocation_id: 'a2',
+    kepler: { folio: '0000200', fecha: '2026-11-03', importe: 3000, remanente: 3000 }, posibles: 2, etapa: 'en_kepler' },
+];
+
 describe('[PGP.118] FinanzasAnticiposComponent', () => {
   let fixture: ComponentFixture<FinanzasAnticiposComponent>;
   let c: FinanzasAnticiposComponent;
@@ -45,6 +54,8 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     c = fixture.componentInstance;
     http = TestBed.inject(HttpTestingController);
     fixture.detectChanges();
+    // `[PGP.119]` El seguimiento de lo pedido en la Suite se pide aparte al cargar.
+    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
   afterEach(() => http.verify());
 
@@ -130,6 +141,42 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     pedidoDeuda().flush([]);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('ya apartado en el Calendario de pagos');
+  });
+
+  it('[PGP.119] el seguimiento dice la etapa de cada pedido y avisa los que esperan día en el Calendario', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    fixture.detectChanges();
+    const txt = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(txt).toContain('Pedidos en la Suite');
+    expect(txt).toContain('Por programar');
+    expect(txt).toContain('En Kepler');
+    expect(txt).toContain('1 anticipo pedido en la Suite espera su pago');
+    expect(c.detalleSolicitud(SOLICITADOS[1])).toContain('Anticipo 0000200');
+    expect(txt).toContain('2 anticipos de Kepler podían ser');
+  });
+
+  it('⛔ NEGATIVA [PGP.119] — el pedido no sale sin proveedor, sin motivo, con un importe ambiguo o sobre el saldo de la OC', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    c.abrirPedido();
+    expect(c.pedFalta()).toMatch(/proveedor/);
+    c.elegirProveedor({ id: '11111111-1111-1111-1111-111111111111', code: 'CA001', name: 'DULCES DEL NORTE' });
+    http.expectOne((r) => r.url.endsWith('/anticipo/ocs')).flush([{ id: 'oc1', folio: 'OC-9', sucursal: '03', estado: 'open', total: 10000, anticipado: 8000, creada: '2026-11-01' }]);
+    c.elegirOc('oc1');
+    expect(c.pedSuc()).toBe('03');   // la sucursal pasa a ser la de la OC
+    c.pedMonto.set('1166,40');
+    expect(c.pedFalta()).toMatch(/centavos con punto/);   // ambiguo: no se adivina
+    c.pedMonto.set('2,500.00');
+    c.pedMotivo.set('temporada');
+    expect(c.pedFalta()).toMatch(/quedan \$2000\.00/);    // OC de 10,000 con 8,000 ya anticipados
+    c.pedMonto.set('2000');
+    expect(c.pedFalta()).toBeNull();
+    c.guardarPedido();
+    const req = http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipo') && r.method === 'POST');
+    expect(req.request.body).toMatchObject({ supplier_id: '11111111-1111-1111-1111-111111111111', sucursal: '03', monto: 2000, motivo: 'temporada', purchase_order_id: 'oc1' });
+    req.flush({ obligation_id: 'n1', monto: 2000, concepto: 'Anticipo · OC OC-9 · 8 Esquinas' });
+    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
 
   it('más de 90 días cuenta sólo mercancía', () => {

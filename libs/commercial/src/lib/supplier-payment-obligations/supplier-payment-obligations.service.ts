@@ -4,6 +4,12 @@ import type {
   DeudaProgramableResponse, ProgramarDocumentoDto, ProgramarDocumentoResultado,
 } from '@megadulces/contracts';
 import { armarDeudaProgramable, NOMBRE_DOCUMENTO_CXP, type FilaDeudaCruda } from './deuda-programable.engine';
+// `[PGP.119]` El anticipo pedido en la Suite: la regla (contrato) y sus lecturas (SQL medido en prod).
+import {
+  etapaDeSolicitud, faltaSolicitudAnticipo, parearSolicitudes, warehouseName,
+  type AnticipoOcRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
+} from '@megadulces/contracts';
+import { SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS } from './anticipo-solicitado.sql';
 
 export interface CreateSupplierObligationDto {
   supplier_id: string;
@@ -249,6 +255,94 @@ export class SupplierPaymentObligationsService {
         created_by: username,
       }).returning('*');
       return row;
+    });
+  }
+
+  /**
+   * `[PGP.119]` Los proveedores que pueden recibir anticipo: de mercancía (código `C…`, D2) y activos.
+   * Busca por nombre o código con el motor único (`applySmartSearch`).
+   */
+  async anticipoProveedores(search?: string): Promise<AnticipoProveedorRow[]> {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const b = trx('catalog.suppliers as s').select('s.id', trx.raw('btrim(s.code) AS code'), 's.name')
+        .where('s.activo', true).whereRaw(`btrim(s.code) LIKE 'C%'`);
+      if (search?.trim()) applySmartSearch(b, search, { columns: ['s.name', 's.code'] });
+      return b.orderBy('s.name').limit(30);
+    });
+  }
+
+  /** `[PGP.119]` Las OC abiertas de un proveedor, con lo ya pedido de anticipo sobre cada una (para el tope, D6). */
+  async anticipoOcs(supplierId: string): Promise<AnticipoOcRow[]> {
+    if (!/^[0-9a-f-]{36}$/i.test(String(supplierId ?? ''))) throw new BadRequestException('supplier_id inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(SQL_ANTICIPO_OCS, [tenantId, supplierId])).rows);
+  }
+
+  /**
+   * `[PGP.119]` **Pedir un anticipo.** Nace una obligación de pago de naturaleza `anticipo`: entra al
+   * Calendario como cualquier otra y sale por el carril de siempre (Dirección autoriza el pago, D1).
+   * El servidor revisa con la MISMA regla que la pantalla (`faltaSolicitudAnticipo`) y lee la OC de la
+   * base —total y lo ya anticipado— dentro de la transacción, con la OC bloqueada: dos solicitudes a la
+   * vez sobre la misma OC no pasan juntas del tope.
+   */
+  async crearAnticipo(dto: AnticipoSolicitudBody, username: string): Promise<{ obligation_id: string; monto: number; concepto: string }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!/^[0-9a-f-]{36}$/i.test(String(dto?.supplier_id ?? ''))) throw new BadRequestException('Elige el proveedor.');
+    return this.tk.run(async (trx) => {
+      const supplier = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: dto.supplier_id }).first();
+      if (!supplier) throw new NotFoundException('Proveedor no encontrado');
+      if (!supplier.activo) throw new BadRequestException('El proveedor está inactivo.');
+      let oc: { id: string; folio: string; total: number; anticipado: number; sucursal: string | null } | null = null;
+      if (dto.purchase_order_id) {
+        const po = await trx('commercial.purchase_orders').where({ tenant_id: tenantId, id: dto.purchase_order_id }).forUpdate().first();
+        if (!po) throw new NotFoundException('La orden de compra no existe.');
+        if (po.supplier_id !== dto.supplier_id) throw new BadRequestException(`La OC ${po.folio} es de otro proveedor.`);
+        if (!['open', 'partial'].includes(po.estado)) throw new BadRequestException(`La OC ${po.folio} ya no está abierta (${po.estado}).`);
+        const { rows: [ya] } = await trx.raw(
+          `SELECT coalesce(sum(original_amount), 0)::float8 AS anticipado FROM commercial.supplier_payment_obligations
+            WHERE purchase_order_id = ? AND nature = 'anticipo' AND status <> 'cancelled'`, [po.id]);
+        oc = { id: po.id, folio: po.folio, total: Number(po.total_cost ?? 0), anticipado: Number(ya.anticipado), sucursal: null };
+      }
+      const code = String(supplier.code ?? '').trim();
+      const falta = faltaSolicitudAnticipo({
+        supplier_code: code, sucursal: dto.sucursal, monto: dto.monto, motivo: dto.motivo, fecha: dto.fecha ?? null, oc,
+      });
+      if (falta) throw new BadRequestException(falta);
+      const monto = Math.round(Number(dto.monto) * 100) / 100;
+      const sucursal = String(dto.sucursal).trim();
+      const motivo = String(dto.motivo).trim();
+      const concepto = `Anticipo${oc ? ` · OC ${oc.folio}` : ''} · ${warehouseName(sucursal)}`;
+      const [row] = await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: tenantId, supplier_id: dto.supplier_id, purchase_order_id: oc?.id ?? null,
+        nature: 'anticipo', concept: concepto, original_amount: monto,
+        original_due_date: dto.fecha || trx.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date`),
+        notes: motivo,
+        // Pedirlo es autorizar que se PROGRAME (ADR-064, como aceptar una entrega); el pago lo autoriza Dirección.
+        authorized_by: username, authorized_at: trx.fn.now(), created_by: username,
+        // El X-D-60 se capturará en esta sucursal; su folio se parea al leer (el CHECK exige folio vacío).
+        kepler_sucursal: sucursal, kepler_doc_tipo: 60, kepler_doc_sub: 1, kepler_folio: null,
+      }).returning(['id', 'original_amount']);
+      return { obligation_id: row.id, monto: Number(row.original_amount), concepto };
+    });
+  }
+
+  /**
+   * `[PGP.119]` **El seguimiento de los anticipos pedidos** (180 días): su pago del Calendario y el
+   * `X-D-60` de Kepler con que se ligan. La etapa la decide el contrato (`etapaDeSolicitud`): lo que dice
+   * Kepler manda sobre lo que dice la Suite.
+   */
+  async listAnticiposSolicitados(): Promise<AnticipoSolicitadoRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as (Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa'> & { candidatos: CandidatoAnticipoKepler[] })[];
+      const pareo = parearSolicitudes(rows);
+      return rows.map(({ candidatos, ...r }) => {
+        void candidatos;
+        const p = pareo.get(r.obligation_id) ?? { kepler: null, posibles: 0 };
+        const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), kepler: p.kepler, posibles: p.posibles };
+        return { ...fila, etapa: etapaDeSolicitud(fila) };
+      });
     });
   }
 
