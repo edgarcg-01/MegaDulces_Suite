@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_ETIQUETAS_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_CAJA_SQL, ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_ETIQUETAS_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -922,6 +922,11 @@ const APP_SOURCES: SourceCfg[] = [
   {
     key: 'etiquetas_evento', label: 'Etiquetas por evento — precio de pieza, código y EAN de Kepler (árbitro)', table: 'commercial.product_label_prices', tsCandidates: [],
     sql: ARBITRO_ETIQUETAS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii / kdpv_prod_util) — debe dar 0',
+  },
+  // `[CANON.6.20]` Precio de caja por evento (antes import-box-price, nocturno); la regla ya desempata plazas por moda.
+  {
+    key: 'caja_precio_evento', label: 'Precio de caja por evento — CJA de Kepler o PAQ × factor (árbitro)', table: 'analytics.product_box_price', tsCandidates: [],
+    sql: ARBITRO_CAJA_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdpv_prod_util / kdii) — debe dar 0',
   },
   // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
   {

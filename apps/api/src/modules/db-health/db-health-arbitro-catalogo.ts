@@ -355,6 +355,43 @@ export const ARBITRO_ETIQUETAS_SQL = `
     { tabla: 'commercial.product_label_prices', nombre: 'etiquetas' })}`;
 
 /**
+ * `[CANON.6.20]` Precio de caja: misma regla que `normalizeBoxPrice` (`boxPriceSql` en `services/feeds-ingest/ods-derived.js`):
+ * CJA de `kdpv_prod_util` (sin la 00) en el umbral menor, por MODA entre plazas (empate → el menor); si no hay CJA, PAQ ×
+ * `factor_sale`. Cuenta, y debe ser 0: productos vivos sin su fila, con otro precio u otra fuente, y filas de productos vivos
+ * que la regla ya no da. Las de productos BORRADOS no cuentan: son inertes (la venta se cruza por producto vivo) y ningún
+ * evento las limpiaría — la herramienta manual con `--apply` sí. Columnas crudas: `kdpv_prod_util` no trae relleno (medido el
+ * 14-nov). Costo medido en prod el 14-nov: ~700–800 ms.
+ */
+export const ARBITRO_CAJA_SQL = `
+  WITH umbral AS (
+    SELECT c1, c2, min(c4) AS c4 FROM kepler_ods.kdpv_prod_util
+     WHERE c2 IN ('CJA','PAQ') AND c7 > 0 AND sucursal <> '00' GROUP BY c1, c2),
+  votos AS (
+    SELECT k.c1, k.c2, k.c7, count(*) AS n
+      FROM kepler_ods.kdpv_prod_util k JOIN umbral u ON u.c1 = k.c1 AND u.c2 = k.c2 AND u.c4 = k.c4
+     WHERE k.c2 IN ('CJA','PAQ') AND k.c7 > 0 AND k.sucursal <> '00'
+     GROUP BY k.c1, k.c2, k.c7),
+  pv AS (SELECT DISTINCT ON (c1, c2) c1 AS sku, c2 AS present, c7 AS price FROM votos ORDER BY c1, c2, n DESC, c7 ASC),
+  agg AS (SELECT sku, max(price) FILTER (WHERE present = 'CJA') AS cja, max(price) FILTER (WHERE present = 'PAQ') AS paq FROM pv GROUP BY sku),
+  r AS MATERIALIZED (
+    SELECT p.id AS product_id,
+           CASE WHEN a.cja > 0 THEN a.cja WHEN a.paq > 0 AND COALESCE(p.factor_sale, 1) > 1 THEN a.paq * p.factor_sale END AS cja_price,
+           CASE WHEN a.cja > 0 THEN 'kepler_kdpv' ELSE 'derived_paq' END AS source
+      FROM agg a JOIN catalog.products p ON p.tenant_id = ${T} AND p.sku = a.sku AND p.deleted_at IS NULL
+     WHERE (a.cja > 0) OR (a.paq > 0 AND COALESCE(p.factor_sale, 1) > 1)),
+  c AS MATERIALIZED (
+    SELECT (SELECT count(*) FROM analytics.product_box_price WHERE tenant_id = ${T}) AS vistos,
+           (SELECT count(*) FROM r LEFT JOIN analytics.product_box_price t ON t.tenant_id = ${T} AND t.product_id = r.product_id
+             WHERE t.product_id IS NULL OR (t.cja_price, t.source) IS DISTINCT FROM (r.cja_price, r.source))
+         + (SELECT count(*) FROM analytics.product_box_price t
+              JOIN catalog.products p ON p.id = t.product_id AND p.deleted_at IS NULL
+             WHERE t.tenant_id = ${T} AND NOT EXISTS (SELECT 1 FROM r WHERE r.product_id = t.product_id)) AS difieren)
+  ${veredicto('caja_precio_evento', 'precio de caja', 'Medir: node database/importers/kepler/import-box-price.js; cerrar: --apply', 'import-box-price.js',
+    ['feed_nightly/import-box-price.js'],
+    'sin tomar de Kepler (precio de caja que falta, distinto o de más)',
+    { tabla: 'analytics.product_box_price', nombre: 'precios de caja' })}`;
+
+/**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`
  * cuando un normalizador siguió fallando después de reintentar por partes. No compara nada contra Kepler:
  * sólo lee el registro. Una falla en las últimas 24 h → warn (más de 50 → critical); se limpia sola a las

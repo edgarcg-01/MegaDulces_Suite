@@ -370,9 +370,11 @@ const STEPS = {
     path.join(K, 'import-demand-acceleration.js'), // RA-PRO.36 IAD por SKU (−2..+2) para la matriz — tras demanda (usa piece_price)
     // RETIRADO 2026-11-05 [CANON.5.7]: import-box-factor.js — `analytics.product_box_factor` la
     // mantiene el hop-2 (`normalizeBoxFactor`, al cambiar kdii): 516 filas escritas en 30 días fuera
-    // del nocturno, y el nocturno 32 de 33 noches en 0. Se queda `import-box-price`: depende de
-    // `catalog.products.factor_sale`, que no dispara el hop-2, y sí escribe de noche.
-    path.join(K, 'import-box-price.js'),           // RA-PRO.39 precio de CJA por producto (kdpv) — base de cajas money-anchored en sell-out
+    // del nocturno, y el nocturno 32 de 33 noches en 0.
+    // RETIRADO 2026-11-14 [CANON.6.20]: import-box-price.js — sus 37–77 «correcciones» por noche no eran huecos: la regla
+    // no desempataba plazas con el mismo umbral y el cálculo completo elegía otro precio que el acotado del evento (40 de
+    // 407 empates). Con la moda los dos dan lo mismo, y lo que sólo veía el nocturno (alta, reactivación, `factor_sale`) lo
+    // ve ahora el hop-2 de `kdii`. El .js queda como herramienta manual; lo vigila el árbitro `caja_precio_evento`.
     // RETIRADO del nightly 2026-11-05 [CANON.5.0]: import-label-data.js — corre cada 30 min en
     // `prices` con los mismos argumentos; acá escribía 0 etiquetas cambiadas.
     // RETIRADO 2026-11-05 [CANON.5.0]: wincaja/import-wincaja-caja-factor.js — su tabla

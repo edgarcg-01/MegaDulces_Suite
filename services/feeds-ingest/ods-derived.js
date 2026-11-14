@@ -212,20 +212,23 @@ async function normalizeFactorSale(client, tenantId, skus) {
  * (17053 ALTOS: siete plazas a 1,245.43 y una a 936.27 → 1,245.43; la tabla tenía 936.27). Cambió 27 precios contra la
  * tabla de ese día (mediana 1.7 %; pesan 0.4 % de la venta de 90 días).
  *
+ * `[CANON.6.20]` Columnas CRUDAS de `kdpv_prod_util` (sin `btrim`): ninguna de sus 361,886 filas trae relleno en `c1`,
+ * `c2` ni `sucursal` (medido el 14-nov; `v_label_prices` ya se apoya en lo mismo), y así el cálculo acotado del evento va
+ * por la PK (6–20 ms por 40 SKUs, contra 150–200 ms con `btrim`) y el completo baja de ~800 a ~700 ms. Mismo resultado:
+ * comparado completo en prod, idéntico.
+ *
  * Parámetros: $1 = tenant; $2 = SKUs (sólo si `scoped`).
  */
 function boxPriceSql(scoped) {
+  const f = (k) => `${k}c2 IN ('CJA','PAQ') AND ${k}c7 > 0 AND ${k}sucursal <> '00' ${scoped ? `AND ${k}c1 = ANY($2)` : ''}`;
   return `
-    WITH t AS (
-      SELECT btrim(c1) AS sku, c2 AS present, c4::numeric AS c4, c7::numeric AS c7
-        FROM kepler_ods.kdpv_prod_util
-       WHERE c2 IN ('CJA','PAQ') AND c7::numeric > 0 AND btrim(sucursal) <> '00' ${scoped ? 'AND btrim(c1) = ANY($2)' : ''}),
-    umbral AS (SELECT sku, present, min(c4) AS c4 FROM t GROUP BY sku, present),
+    WITH umbral AS (SELECT c1, c2, min(c4) AS c4 FROM kepler_ods.kdpv_prod_util WHERE ${f('')} GROUP BY c1, c2),
     votos AS (
-      SELECT t.sku, t.present, t.c7, count(*) AS n
-        FROM t JOIN umbral u ON u.sku = t.sku AND u.present = t.present AND u.c4 = t.c4
-       GROUP BY t.sku, t.present, t.c7),
-    pv AS (SELECT DISTINCT ON (sku, present) sku, present, c7 AS price FROM votos ORDER BY sku, present, n DESC, c7 ASC),
+      SELECT k.c1, k.c2, k.c7, count(*) AS n
+        FROM kepler_ods.kdpv_prod_util k JOIN umbral u ON u.c1 = k.c1 AND u.c2 = k.c2 AND u.c4 = k.c4
+       WHERE ${f('k.')}
+       GROUP BY k.c1, k.c2, k.c7),
+    pv AS (SELECT DISTINCT ON (c1, c2) c1 AS sku, c2 AS present, c7 AS price FROM votos ORDER BY c1, c2, n DESC, c7 ASC),
     agg AS (SELECT sku, max(price) FILTER (WHERE present='CJA') AS cja, max(price) FILTER (WHERE present='PAQ') AS paq FROM pv GROUP BY sku)
     SELECT p.id AS product_id,
            CASE WHEN a.cja > 0 THEN a.cja
@@ -236,6 +239,12 @@ function boxPriceSql(scoped) {
      WHERE (a.cja > 0) OR (a.paq > 0 AND COALESCE(p.factor_sale,1) > 1)`;
 }
 
+/**
+ * Hop-2 del precio de caja. Corre al llegar `kdpv_prod_util` (el precio) y, desde `[CANON.6.20]`, también al llegar `kdii`,
+ * DESPUÉS de `normalizeProductsFromOds` (un alta o una reactivación) y de `normalizeFactorSale` (el factor del respaldo
+ * PAQ × factor): eso era lo que sólo veía el nocturno `import-box-price`, que salió. `skus` null/[] = catálogo entero
+ * (la herramienta manual). Devuelve filas escritas + borradas.
+ */
 async function normalizeBoxPrice(client, tenantId, skus) {
   const s = clean(skus);
   const scoped = s.length > 0;
@@ -252,7 +261,8 @@ async function normalizeBoxPrice(client, tenantId, skus) {
     const delScope = scoped
       ? `AND t.product_id IN (SELECT id FROM catalog.products WHERE tenant_id=$1 AND btrim(coalesce(sku,'')) = ANY($2))`
       : '';
-    await client.query(`
+    // `[CANON.6.20]` Lo borrado también cuenta en lo que devuelve (antes sólo lo escrito): la herramienta lo usa al medir.
+    const del = await client.query(`
       DELETE FROM analytics.product_box_price t
        WHERE t.tenant_id=$1 ${delScope}
          AND NOT EXISTS (SELECT 1 FROM stg_bp s WHERE s.product_id=t.product_id)`, params);
@@ -262,7 +272,7 @@ async function normalizeBoxPrice(client, tenantId, skus) {
       ON CONFLICT (tenant_id, product_id) DO UPDATE SET cja_price=EXCLUDED.cja_price, source=EXCLUDED.source, updated_at=now()
        WHERE (t.cja_price, t.source) IS DISTINCT FROM (EXCLUDED.cja_price, EXCLUDED.source)`, [tenantId]);
     await client.query('COMMIT');
-    return up.rowCount;
+    return up.rowCount + del.rowCount;
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 

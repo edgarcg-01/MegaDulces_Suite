@@ -1172,7 +1172,8 @@ const ODS_NORMALIZERS = {
   // (`normalizeProductsFromOds`) y el costo (`normalizeCost`). Antes lo hacía `repoint-catalog-prices` cada 30 min.
   // `[CANON.6.16]` + normalizeFactorSale (el factor de caja vacío, antes en repoint-catalog-presence): DESPUÉS de
   // normalizeBoxFactor (alimenta al árbitro) y ANTES de normalizeCost (cost_per_case usa factor_sale).
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeBoxFactor, normalizeFactorSale, normalizeCost, normalizeReorder, normalizePromo] },
+  // [CANON.6.20] normalizeBoxPrice tras normalizeFactorSale: un alta o un factor nuevo recalculan el precio de caja (antes, el nocturno).
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeCost, normalizeReorder, normalizePromo] },
   kdik: { skuCol: 'c2', fns: [normalizeCost, normalizePromo] },  // costo: c16 es la fuente primaria; la promo depende del costo
   // `[CANON.6.12]` Una línea nueva de Kepler es una marca al llegar (antes `import-brands-lineas.js`, sábados).
   kdig: { skuCol: 'c1', fns: [normalizeBrandsFromKdig] },
