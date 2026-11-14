@@ -1,3 +1,4 @@
+import { CATEGORIA_AJUSTE_LABEL } from '@megadulces/contracts';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
@@ -328,12 +329,8 @@ export class ComprasDescuentosComponent implements OnInit {
     { label: 'Devolución de compra', value: 'XD40' },
   ];
 
-  private readonly CAT_LABEL: Record<string, string> = {
-    faltante: 'Faltante', no_solicitado: 'No solicitado', mal_estado: 'Mal estado', cambiada: 'Cambios/reposición',
-    devolucion_otra: 'Devolución', factura_duplicada: 'Factura duplicada', diferencia_monto: 'Diferencia de monto',
-    pronto_pago: 'Pronto pago', apoyo_marca: 'Apoyo de marca', descuento_comercial: 'Descuento comercial',
-    saldo_favor: 'Saldo a favor', otro: 'Otro',
-  };
+  // `[RE.78]` Los nombres de categoría salen del catálogo compartido (`ajuste-compra-labels`), el mismo del cajón.
+  private readonly CAT_LABEL = CATEGORIA_AJUSTE_LABEL;
   private readonly GRUPO_LABEL: Record<string, string> = {
     comercial: 'Descuentos y apoyos', operacional: 'Faltantes / devoluciones', error: 'Errores de captura', sin_clasificar: 'Sin clasificar',
   };
