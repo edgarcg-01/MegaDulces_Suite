@@ -478,17 +478,23 @@ pantalla).
 
 ## 6. Decisiones (sin firma)
 
-- **DK1 — «Autorización de documentos» no se replica en la Suite.** En Compras no frena nada: 10 OC
+> **2026-11-14 — DK1, DK2, DK3 y D39 decididas por encargo del PM** (regla del PM del 2026-10-31: las de
+> proceso y diseño las decide Claude con su cifra). DK1: medido en §3b punto 4 (9 OC en A, una por
+> capturista: nadie usa la autorización como regla); lo de `0GRC` en órdenes de entrada se le pregunta a esa
+> persona al abrir PQ.112. DK2: se sigue de ADR-056 (una pieza, no dos). DK3: proceso. D39: abajo.
+> **D37 y D38 no se deciden todavía:** frenan PQ.112 y PQ.114, que no han empezado; hoy nada espera por ellas.
+
+- ✅ **DK1 — «Autorización de documentos» no se replica en la Suite.** En Compras no frena nada: 10 OC
   autorizadas en 90 días y 154 recibidas sin autorizar (cifra provisional hasta PQ.124). ⚠️ Antes de
   firmar: ver si las pocas autorizadas (10 OC, 20 requisiciones, 36 órdenes de entrada) se concentran en
   una sucursal o un usuario; si sí, esa sucursal sí usa la autorización y hay que preguntarle por qué
   (va en PQ.124). La autorización que sí importa es la aprobación
   de la requisición en la Suite. **Recomendación: sí.** Si alguna sucursal resulta usar una regla (por
   ejemplo, de monto), se pone en la aprobación de la Suite, no en Kepler.
-- **DK2 — «Consulta de documentos» es una ficha por folio con la cadena completa**, la misma pieza que el
+- ✅ **DK2 — «Consulta de documentos» es una ficha por folio con la cadena completa**, la misma pieza que el
   anexo T construye para los traspasos. **Recomendación: sí.** Dos fichas distintas para dos cadenas
   serían el primitivo duplicado que prohíbe ADR-056.
-- **DK3 — Ningún reporte de Kepler se copia tal cual.** Cada uno se lleva a la pantalla que ya contesta
+- ✅ **DK3 — Ningún reporte de Kepler se copia tal cual.** Cada uno se lleva a la pantalla que ya contesta
   su pregunta, o se declara sin uso. **Recomendación: sí.** Un reporte sin una decisión detrás es carga,
   no información.
 - ✅ **D40 — firmada por Edgar el 2026-11-13: (a) sí se le da `DELETE` en `md.kdm2` a `kepler_push`**,
@@ -532,8 +538,12 @@ pantalla).
   de CEDIS, donde el interruptor está apagado); 4 en A no caben (Kepler no se ha visto cancelarlas).
   Anotarlas en el diálogo de folios queda **fuera por ahora**: se abrió 16 veces en 30 días (`GET
   in-transit/:productId`); no se gana su lugar.
-- Siguen sin firma, del plan base: **D37** (¿la Suite escribe documentos que mueven inventario?),
-  **D38** (¿escribe la aplicación?) y **D39** (Modifica = cancelar y reemitir).
+- ✅ **D39 — decidida por encargo del PM el 2026-11-14: «Modifica orden de compra» no se ofrece; se cancela y
+  se reemite.** Editar en su lugar borra el rastro (Kepler sobrescribe la fila; sólo `xmin` lo fecha), y las
+  dos mitades ya existen: cancelar (PQ.110, en prod) y reemitir (la requisición nueva que la Suite escribe al
+  aprobar). Cuánto se usa «Modifica» en Kepler sigue sin medir (§7); no cambia la decisión, sólo el tamaño.
+- Del plan base quedan **D37** (¿la Suite escribe documentos que mueven inventario?) y **D38** (¿escribe la
+  aplicación?): se deciden al abrir PQ.112 y PQ.114. Hoy nada espera por ellas.
 
 ## 7. Lo que NO se sabe todavía
 
@@ -599,6 +609,7 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
+| 2026-11-14 | **DK1, DK2, DK3 y D39 decididas por encargo del PM** (§6), cada una con su dato; D37 y D38 esperan a PQ.112 y PQ.114, que no han empezado. | Claude |
 | 2026-11-14 | **PQ.111 se declara «no se hace» (D44, por encargo del PM).** Al ir a construir D42 se midió que «En camino» ya excluye las parciales (R): 0 de 678; su saldo no está en ninguna cifra de la Suite. Se corrige §3b.6 (la premisa era mía y no estaba medida). El papel real de «En camino» son 42 OC en N/A marcadas «No surtida / cancelada» (≈ $4.8 M): se limpian en Kepler con PQ.110 (38 caben en su regla), no en el importer. | Claude |
 | 2026-11-14 | **KR.7 C3 en código:** las cinco preguntas antes y después (§3e). Botón «Cancelar en Kepler» al final del renglón «En Kepler» de la ficha, sólo con `disponible` del servidor; el porqué sólo donde el renglón pide cancelar (21 + la inversa; nada en las 180 normales). El detalle trae `kepler_cancelacion` (`leerCancelacionKeplerDeRequisicion`, ejercida en la prueba de base real) y el renglón dice la cancelación desde la Suite aunque la réplica vaya atrasada. Prefijo de D43 en contracts (`REQUISICION_CANCELADA_EN_KEPLER`). 24 pruebas de la regla, 5 mutantes en rojo; `check:pantalla` igual que antes (103 fallas, 9 nuevas ajenas); plantillas tipan. Sin validación visual. | Claude |
 | 2026-11-14 | **KR.7 C2 en código, sin aplicar:** migración `20261114120335`, que **extiende** la tabla de intentos de PQ.110 (`document_type` + `requisition_id`, `oc_folio` deja de ser obligatoria y un CHECK amarra cada tipo a sus columnas; regla 2), siembra el interruptor `cancela_requisicion` **apagado** en las 9 con tope 1 y reparte la llave `COMPRAS_REQUISICION_CANCELAR` a los mismos 6 roles que `COMPRAS_OC_CANCELAR` (medido: los 6 abren la ficha). `GET`/`POST /commercial/replenishment/requisitions/:id/kepler-cancellation` en el mismo servicio y controlador que PQ.110 (sin firma inyectada nueva). D43: si Kepler la cancela, la de la Suite queda `cancelled` con `rejection_reason` = «Cancelada en Kepler desde la Suite: …» y quién; si ya estaba cancelada aquí, conserva su motivo. El tope es **por documento** (una requisición no gasta el de las OC). Prueba de base real (11 casos, con la negativa del tope por documento y 4 negativas de la tabla) **NO MEDIDA** hasta el job `pruebas-db`: no hay base local. | Claude |

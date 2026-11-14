@@ -2646,7 +2646,9 @@ siete acciones en pantallas que ya existen.
 - **D38 — ¿La aplicación (`X-A-20`, cuenta por pagar) la escribe la Suite?** **Recomendación: no por
   ahora.** Es mecánica y del mismo día; se revisa cuando PQ.112 funcione. ContPAQi sigue siendo el
   sistema de registro contable (ADR-040).
-- **D39 — «Modifica orden de compra» se reemplaza por cancelar y reemitir.** **Recomendación: sí.**
+- ✅ **D39 — «Modifica orden de compra» se reemplaza por cancelar y reemitir.** **Recomendación: sí.**
+  **Decidida por encargo del PM el 2026-11-14** (anexo K §6): cancelar ya existe (PQ.110) y reemitir es la
+  requisición nueva que la Suite escribe al aprobar. D37 y D38 se deciden al abrir PQ.112 y PQ.114.
 
 ### 20.5 Lo que NO se sabe todavía
 
