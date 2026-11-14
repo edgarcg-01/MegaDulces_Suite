@@ -356,6 +356,31 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto
+
+**Origen.** Prevención no podía cuadrar una devolución que la pantalla le aplicaba a la entrada 0000421 de Morelia Abastos (MERENGUE LA MORENITA). Era la devolución de piñatas de 8 Esquinas: el folio de Kepler se repite en cada sucursal y un camino ligaba por el folio solo. Edgar pidió arreglarlo de raíz y auditar la interfaz completa. Ocho items, todos 🧪, sin empujar.
+
+**Qué se arregló** (cifras en prod, sólo lectura; el detalle está en cada item del tracker):
+- `[RE.70]` La liga ajuste↔entrada usa la llave `(sucursal, folio)`: había 1,595 entradas con un ajuste ajeno marcado «exacto».
+- `[RE.71]` «¿Por qué no cuadra?» sólo propone candidatos de la misma sucursal y de proveedores reales. En octubre, 4,784 de 6,878 candidatos eran ajenos.
+- `[RE.72]` La conciliación por renglón deja de afirmar «Difiere cantidad» cuando el importe cuadra por el factor (2,154 → 1,001).
+- `[RE.73]` Una sola tolerancia del cuadre, la de Francisco, compartida por el panel y el expediente: 40 contradicciones → 0.
+- `[RE.74]` La lista y el cajón del ajuste dicen lo mismo, y «Por revisar» deja de contar entradas ya validadas.
+- `[RE.75]` La sucursal se ve por nombre; se avisa cuando una lista se corta; un error de carga ya no se lee como «no hay».
+- `[RE.76]` Las facturas con renglones con y sin IVA se concilian sin pintar en rojo los renglones gravados.
+- `[RE.77]` El cajón usa el mismo formato de fecha que la lista y nombra el ajuste en llano.
+
+**Lecciones:**
+1. **Una premisa de mi propia auditoría era falsa.** Afirmé que la cantidad se comparaba contra cajas porque el 74 % de los renglones no son PZA. El árbitro del dinero lo desmintió: `kdm2.c9` ya está en unidad base, y lo que no es confiable es el rótulo de unidad del proveedor. Un hallazgo de auditoría también se mide antes de arreglarlo.
+2. **Un commit desde un índice temporal armado sobre un HEAD viejo revierte en silencio los commits ajenos.** `763a94891` (RE.73) deshizo GP.10.4a y lo restauró otra sesión (`9bed317ea`). Desde RE.75, el armado, la verificación de HEAD y el commit van en un solo script, y después se audita `git show --stat`.
+3. **Los votos de una regla por documento salen de candidatos, y los candidatos equivocados también votan.** El umbral se fija con la distribución medida, no con un número redondo: «2 votos» empeoraba dos facturas sin IVA.
+
+**Pendiente:**
+- Decisión de Edgar: `monto_match` del servidor sigue en $1 (chip «Cuadra» y aprobación en lote), con 37 entradas que la regla de Francisco sí da por cuadradas.
+- Deuda con nombre: `grupoOf` y `CAT_LABEL` siguen en `/compras/descuentos`.
+- No medido: la pantalla viva, y las evidencias con renglones del CFDI.
+
+
 ## 2026-11-14 — `[CB.68]`–`[CB.70]` Auditoría del Cierre de Bancos (nov-2026): cuatro hallazgos rojos, corregidos y en prod
 
 **Qué se hizo.** Auditoría de `/finanzas/bancos?view=cierre&period=2026-11` con `auditoria-diseno`, medida
