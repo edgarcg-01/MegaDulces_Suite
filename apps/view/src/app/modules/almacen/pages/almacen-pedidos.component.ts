@@ -85,7 +85,7 @@ const dmy = (v: string | null | undefined): string => {
     <div class="surf-page in">
       <header class="surf-page-head gp-head">
         <div class="gp-head-text">
-          <h1>{{ soloSurtidor() ? 'Pedidos por surtir' : 'Pedidos' }}</h1>
+          <h1>{{ soloSurtidor() && !enFila() ? 'Pedidos por surtir' : 'Pedidos' }}</h1>
           @if (data(); as d) {
             @if (!soloSurtidor() && !enFila()) {
               <span class="gp-meta">{{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }} · sólo lectura, el pedido se avanza en Kepler</span>
@@ -115,7 +115,7 @@ const dmy = (v: string | null | undefined): string => {
 
       <!-- [GP.10.4b] D2: la consola de surtido es una vista del Tablero, sólo para quien coordina. Ligas y no
            botones: la vista queda en la dirección (?vista=fila) y «Atrás» del navegador regresa. -->
-      @if (coordina() && !soloSurtidor()) {
+      @if (coordina() && hayPedidos()) {
         <nav class="gp-vistas" aria-label="Vista">
           <a routerLink="/almacen/pedidos" class="gp-vista" [class.on]="!enFila()" [attr.aria-current]="enFila() ? null : 'page'">Pedidos</a>
           <a routerLink="/almacen/pedidos" [queryParams]="{ vista: 'fila' }" class="gp-vista" [class.on]="enFila()" [attr.aria-current]="enFila() ? 'page' : null">Fila de surtido</a>
@@ -395,7 +395,10 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly coordina = this.perms.has$(Permission.ALMACEN_SURTIDO_COORDINAR);
   /** La vista que pide la dirección (`?vista=fila`); sin la clave de coordinar, siempre «Pedidos». */
   private readonly vista = signal<'pedidos' | 'fila'>('pedidos');
-  readonly enFila = computed(() => this.vista() === 'fila' && this.coordina() && !this.soloSurtidor());
+  /** `[GP.10.4c]` Hay vista «Pedidos» si ve el tablero o si surte (su lista reducida). */
+  readonly hayPedidos = computed(() => this.veTablero() || this.puedeSurtir());
+  /** Quien sólo coordina (sin tablero ni surtido; hoy nadie) cae directo en la fila: no tiene otra vista. */
+  readonly enFila = computed(() => this.coordina() && (this.vista() === 'fila' || !this.hayPedidos()));
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
   private readonly q$ = new Subject<string>();
@@ -470,9 +473,14 @@ export class AlmacenPedidosComponent implements OnInit {
     });
     // [GP.10.4b] La lista se pide sólo en la vista «Pedidos» (en la fila no se ve: serían 1.3 MB de
     // balde), y una sola vez al volver a ella; después la refresca el botón o un filtro.
+    // [GP.10.4c] `?origen=PREVENTA` llega de la ruta vieja de la Mesa de Control: el filtro ya puesto.
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((p) => {
       this.vista.set(p.get('vista') === 'fila' ? 'fila' : 'pedidos');
-      if (!this.enFila() && !this.data() && !this.loading()) this.reload();
+      const o = p.get('origen');
+      // Sólo un origen conocido (Object.hasOwn: «toString» también está «in» un objeto).
+      const cambia = !!o && Object.hasOwn(ORIGEN, o) && o !== this.origen();
+      if (cambia) this.origen.set(o);
+      if (!this.enFila() && (cambia || (!this.data() && !this.loading()))) this.reload();
     });
   }
 

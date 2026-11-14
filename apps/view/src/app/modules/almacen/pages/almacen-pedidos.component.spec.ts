@@ -395,6 +395,26 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     expect(list).toHaveBeenCalledTimes(1);
   });
 
+  it('[GP.10.4c] quien SÓLO coordina (sin tablero ni surtido; hoy nadie) cae directo en la fila, sin vistas ni lista', async () => {
+    const { vistas, list, el } = await abrir('/almacen/pedidos', { [Permission.ALMACEN_SURTIDO_COORDINAR]: true });
+    expect(vistas()).toEqual([]);
+    expect(list).not.toHaveBeenCalled();
+    expect(el.querySelector('app-almacen-surtido-consola')).not.toBeNull();
+    expect(Array.from(el.querySelectorAll('h1')).map((h) => h.textContent?.trim())).toEqual(['Pedidos']);
+  });
+
+  it('[GP.10.4c] ⭐ ?origen=PREVENTA (de la ruta vieja de la Mesa) llega con el filtro puesto', async () => {
+    const { list, harness } = await abrir('/almacen/pedidos?origen=PREVENTA', { [Permission.ALMACEN_PEDIDOS_VER]: true });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect((list.mock.calls[0] as unknown as [{ origen: string | null }])[0].origen).toBe('PREVENTA');
+    expect((harness.routeDebugElement?.componentInstance as AlmacenPedidosComponent).origen()).toBe('PREVENTA');
+  });
+
+  it('[GP.10.4c] NEGATIVA: un origen desconocido en la dirección no se aplica', async () => {
+    const { list } = await abrir('/almacen/pedidos?origen=toString', { [Permission.ALMACEN_PEDIDOS_VER]: true });
+    expect((list.mock.calls[0] as unknown as [{ origen: string | null }])[0].origen).toBeNull();
+  });
+
   it('NEGATIVA: sin la clave de coordinar no hay vistas, y ?vista=fila cae en «Pedidos»', async () => {
     const { vistas, list, consolaAlmacenes, el } = await abrir('/almacen/pedidos?vista=fila', { [Permission.ALMACEN_PEDIDOS_VER]: true });
     expect(vistas()).toEqual([]);

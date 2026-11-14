@@ -15,7 +15,7 @@
 - Si la Suite ya registró un pedido como surtido o checado y Kepler sigue atrás, la fila lo dice: «Kepler aún dice autorizado».
 - Un pedido de preventa abre su resumen. El botón «Documento, cobro y recorrido» lo abre en la Mesa de Control de Preventa, ya seleccionado.
 - (GP.10.4b) Quien coordina el surtido tiene en el Tablero una segunda vista, **Fila de surtido**: es la Consola de surtido (urgentes, hora de salida, armar y tanda), sin salir de la pantalla.
-- La pestaña Preventa y la Consola de surtido siguen por ahora; salen en GP.10.4c, con sus rutas redirigiendo.
+- (GP.10.4c) Salen las pestañas **Preventa** y **Consola de surtido**. Sus direcciones viejas llevan al Tablero: la consola, a la vista «Fila de surtido», y Preventa, al Tablero filtrado por preventa. La Mesa de Control se sigue abriendo completa desde cualquier pedido de preventa, y tiene un regreso al Tablero.
 
 ### Fixed — Pedidos del almacén: un pedido cancelado en Kepler ya no se cuenta como pendiente (GP.10.0 · 2026-11-13 · en código, sin soltar)
 - Kepler cancela un pedido dejándolo en $0 y sin renglones, pero conserva el estatus que tenía. El Tablero de `/almacen/pedidos` lo seguía contando como vivo: de los 54 pedidos «en Surtido» de noviembre, 34 estaban cancelados.

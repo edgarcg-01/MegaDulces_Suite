@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanMatchFn, Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
+import { aFilaDeSurtido, mesaSoloConPedido } from './modules/almacen/almacen-pedidos.redirecciones';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { aLaPantallaUnica } from './modules/rh/rh-una-pantalla.guard';
 import { Permission } from './core/constants/permissions';
@@ -1921,16 +1922,19 @@ export const routes: Routes = [
       },
       {
         // [MCP.2] Mesa de Control de Preventa: pedidos PD- del vendedor + su documento de Kepler.
+        // [GP.10.4c] D1: sin pestaña. Es el detalle de un PD- del Tablero (?pedido=<id>); sin pedido,
+        // lleva al Tablero filtrado por preventa.
         path: 'pedidos/preventa',
         loadComponent: () => import('./modules/almacen/pages/almacen-preventa.component').then(m => m.AlmacenPreventaComponent),
-        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER), mesaSoloConPedido]
       },
       {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
         // [MCP.3.2] El surtidor también entra, a una vista de sólo folio y cliente (sin dinero).
+        // [GP.10.4c] Y quien coordina el surtido, que tiene aquí su «Fila de surtido» (la ex consola).
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
-        canActivate: [anyPermissionGuard(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR, Permission.ALMACEN_SURTIDO_COORDINAR)]
       },
       {
         // [GP.3d] Entrega del surtido a Facturación: qué corregir en Kepler y si ya se pasó a
@@ -1940,11 +1944,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
       },
       {
-        // [GP.3c.2] Consola de surtido: el coordinador ordena la fila de "Tomar siguiente"
-        // (urgentes, hora de salida por destino, tanda). Permiso propio: el surtidor no se prioriza.
+        // [GP.3c.2] Consola de surtido: el coordinador ordena la fila de "Tomar siguiente".
+        // [GP.10.4c] D2: es la vista «Fila de surtido» del Tablero (?vista=fila), que exige la misma
+        // clave (ALMACEN_SURTIDO_COORDINAR). La ruta vieja queda como redirección: la usan la bandeja de
+        // pendientes de sucursal y el árbol de permisos.
         path: 'surtido-consola',
-        loadComponent: () => import('./modules/almacen/pages/almacen-surtido-consola.component').then(m => m.AlmacenSurtidoConsolaComponent),
-        canActivate: [permissionGuard(Permission.ALMACEN_SURTIDO_COORDINAR)]
+        redirectTo: aFilaDeSurtido
       },
       /**
        * `[RD.45]` ── **Ruta Directa dentro de Almacén** ────────────────────────────────────

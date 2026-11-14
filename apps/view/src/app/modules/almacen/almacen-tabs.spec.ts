@@ -209,9 +209,18 @@ describe('almacen-tabs · Consola de surtido (GP.3c)', () => {
     expect(primeraPara(new Set([Permission.ALMACEN_SURTIDO_COORDINAR]))).toBe('/almacen/surtido-consola');
   });
 
-  it('la consola es un tab con su propio permiso, no el del surtidor', () => {
-    const tab = salida.tabs.find((t) => t.route === '/almacen/surtido-consola');
-    expect(tab?.permission).toBe(Permission.ALMACEN_SURTIDO_COORDINAR);
+  it('[GP.10.4c] la consola ya no es pestaña (es la vista «Fila de surtido» del Tablero): queda como entrada, con su propio permiso', () => {
+    expect(salida.tabs.some((t) => t.route === '/almacen/surtido-consola')).toBe(false);
+    const entrada = (salida.focusEntries ?? []).find((t) => t.route === '/almacen/surtido-consola');
+    expect(entrada?.permission).toBe(Permission.ALMACEN_SURTIDO_COORDINAR);
+  });
+
+  it('[GP.10.4c] Preventa ya no es pestaña: es un origen del Tablero y la Mesa, el detalle de un PD-', () => {
+    expect(salida.tabs.some((t) => t.route === '/almacen/pedidos/preventa')).toBe(false);
+  });
+
+  it('[GP.10.4c] prueba negativa: quien ve el Tablero y coordina sigue entrando por el Tablero', () => {
+    expect(primeraPara(new Set([Permission.ALMACEN_PEDIDOS_VER, Permission.ALMACEN_SURTIDO_COORDINAR]))).toBe('/almacen/pedidos');
   });
 
   it('prueba negativa: quien sólo surte no entra a la consola', () => {

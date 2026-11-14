@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -91,7 +91,7 @@ const dmy = (v: string | null | undefined): string => {
   selector: 'app-almacen-preventa',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, InputTextModule, TagModule, DrawerModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, InputTextModule, TagModule, DrawerModule],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head mc-head">
@@ -102,6 +102,8 @@ const dmy = (v: string | null | undefined): string => {
           }
         </div>
         <div class="mc-actions">
+          <!-- [GP.10.4c] La Mesa ya no tiene pestaña: es el detalle de un PD- del Tablero, y de aquí se regresa allá. -->
+          <a routerLink="/almacen/pedidos" [queryParams]="{ origen: 'PREVENTA' }" class="mc-volver"><span class="pi pi-arrow-left" aria-hidden="true"></span><span>Tablero de pedidos</span></a>
           <div class="mc-seg" role="group" aria-label="Cerrados que se muestran">
             @for (c of cerradosOpts; track c.dias) {
               <button type="button" class="mc-seg-b" [class.on]="cerrados() === c.dias" [attr.aria-pressed]="cerrados() === c.dias" (click)="pickCerrados(c.dias)">{{ c.label }}</button>
@@ -324,6 +326,9 @@ const dmy = (v: string | null | undefined): string => {
     .mc-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
     .mc-meta { font-size:var(--fs-xs); color:var(--text-muted); }
     .mc-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    .mc-volver { display:inline-flex; align-items:center; gap:.35rem; min-height:var(--tap-min); padding:0 .25rem; color:var(--action); font-size:var(--fs-sm); text-decoration:none; }
+    .mc-volver:hover { text-decoration:underline; }
+    .mc-volver:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .mc-seg { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm); overflow:hidden; background:var(--card-bg); }
     .mc-seg-b { height:2.25rem; padding:0 .75rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
     .mc-seg-b:first-child { border-left:0; }

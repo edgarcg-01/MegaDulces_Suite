@@ -193,16 +193,15 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     match: ['/almacen/pedidos', '/almacen/pedidos-por-capturar', '/almacen/surtido-consola', '/almacen/surtir', '/almacen/surtir-preventa', '/almacen/clientes-nuevos', '/almacen/checar'],
     tabs: [
       { label: 'Tablero', icon: 'pi pi-list-check', route: '/almacen/pedidos', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
-      // [MCP.2] Los pedidos de preventa del vendedor (Suite) junto a los de Kepler. Mismo permiso del tablero.
-      { label: 'Preventa', icon: 'pi pi-mobile', route: '/almacen/pedidos/preventa', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
+      // [GP.10.4c] Sin pestañas «Preventa» ni «Consola de surtido»: el Tablero las absorbió (D1, D2). La
+      // preventa es un origen del Tablero y la Mesa de Control, el detalle de un PD-; la consola es su
+      // vista «Fila de surtido», con ALMACEN_SURTIDO_COORDINAR.
       // [GP.3d] Lo que Facturación tiene que cerrar en Kepler después del surtido.
       { label: 'Por capturar en Kepler', icon: 'pi pi-file-edit', route: '/almacen/pedidos-por-capturar', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
       // [MCP.5] La caja imprime aquí la guía de carga que firma el repartidor. Permiso propio.
       { label: 'Guías de carga', icon: 'pi pi-print', route: '/almacen/pedidos/guias', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
       // [MCP.10] Antes de cobrar, la caja revisa cada pedido de preventa surtido. Mismo permiso que las guías.
       { label: 'Revisión de pedidos', icon: 'pi pi-list-check', route: '/almacen/pedidos/revision', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
-      // [GP.3c.2] El coordinador ordena la fila que el surtidor toma con "Tomar siguiente".
-      { label: 'Consola de surtido', icon: 'pi pi-sliders-h', route: '/almacen/surtido-consola', permission: Permission.ALMACEN_SURTIDO_COORDINAR, exact: true },
     ],
     focusEntries: [
       // [GP.3b] Surtir desde el celular: foco, sin barra. Se entra directo (no hace falta elegir
@@ -215,6 +214,10 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       { label: 'Clientes nuevos (Kepler)', icon: 'pi pi-user-plus', route: '/almacen/clientes-nuevos', permission: Permission.COMMERCIAL_PICKING_GESTIONAR, exact: true },
       // [GP.4] Checar: foco, sin barra. Quien SÓLO checa (rol checador) aterriza aquí directo.
       { label: 'Checar', icon: 'pi pi-check-square', route: '/almacen/checar', permission: Permission.ALMACEN_CHECADO_GESTIONAR, exact: true },
+      // [GP.10.4c] La consola ya no es pestaña: es la vista «Fila de surtido» del Tablero. Su ruta vieja
+      // (que redirige allá) queda sólo como ENTRADA, para que quien coordina sin ver el Tablero siga
+      // teniendo a dónde aterrizar. Medido el 2026-11-14: hoy nadie está en ese caso.
+      { label: 'Fila de surtido', icon: 'pi pi-sliders-h', route: '/almacen/surtido-consola', permission: Permission.ALMACEN_SURTIDO_COORDINAR, exact: true },
     ],
   },
   {
