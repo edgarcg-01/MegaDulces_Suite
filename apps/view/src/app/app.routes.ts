@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanMatchFn, Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard, tareasHomeGuard, valesHomeGuard } from './core/guards/permission.guard';
 import { aLaPantallaUnica } from './modules/rh/rh-una-pantalla.guard';
 import { Permission } from './core/constants/permissions';
 import { PermissionsService } from './core/services/permissions.service';
@@ -1141,7 +1141,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'hoy' },
+      {
+        // El índice manda a la primera página que la persona ve (quien entrega, a lo suyo; la jefatura sin
+        // tareas propias, a su equipo). El componente nunca se carga: el guard siempre redirige o niega.
+        path: '',
+        pathMatch: 'full',
+        canActivate: [tareasHomeGuard],
+        loadComponent: () => import('./modules/tareas/pages/tareas-hoy.component').then(m => m.TareasHoyComponent),
+      },
       {
         path: 'hoy',
         loadComponent: () => import('./modules/tareas/pages/tareas-hoy.component').then(m => m.TareasHoyComponent),
@@ -1161,6 +1168,31 @@ export const routes: Routes = [
         path: 'manual',
         loadComponent: () => import('./modules/tareas/pages/tareas-manual.component').then(m => m.TareasManualComponent),
         canActivate: [anyPermissionGuard(Permission.TAREAS_PUESTO_EQUIPO_VER, Permission.TAREAS_PUESTO_NORMA_GESTIONAR)]
+      },
+    ]
+  },
+  // ── Vales de servicio (Fase MDT, D8/D8b: NO es la Mesa de Servicio) ───────────────
+  // Una lista y el vale. Las tres llaves abren las dos; qué ve y qué hace cada quien lo decide el servidor.
+  {
+    path: 'vales',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [valesHomeGuard],
+        loadComponent: () => import('./modules/vales/pages/vales-lista.component').then(m => m.ValesListaComponent),
+      },
+      {
+        path: 'lista',
+        loadComponent: () => import('./modules/vales/pages/vales-lista.component').then(m => m.ValesListaComponent),
+        canActivate: [anyPermissionGuard(Permission.VALE_SERVICIO_LEVANTAR, Permission.VALE_SERVICIO_ATENDER, Permission.VALE_SERVICIO_GESTIONAR)]
+      },
+      {
+        path: 'ver/:id',
+        loadComponent: () => import('./modules/vales/pages/vales-detalle.component').then(m => m.ValesDetalleComponent),
+        canActivate: [anyPermissionGuard(Permission.VALE_SERVICIO_LEVANTAR, Permission.VALE_SERVICIO_ATENDER, Permission.VALE_SERVICIO_GESTIONAR)]
       },
     ]
   },

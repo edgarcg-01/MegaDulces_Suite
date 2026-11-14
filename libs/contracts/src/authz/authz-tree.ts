@@ -635,6 +635,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         ],
       },
       {
+        // `[MDT.3.4]` Vale de servicio (Fase MDT, D8/D8b): la constancia de un servicio que una persona
+        // atiende y firma. NO es la Mesa de Servicio (Edgar, D8). Una sola pantalla de lista: lo mío para
+        // quien levanta, la cola para quien atiende, todo para quien coordina — lo decide el servidor.
+        id: 'vales',
+        label: 'Vales de servicio',
+        icon: 'pi pi-file-edit',
+        route: '/vales',
+        modules: [
+          { id: 'vales-lista', label: 'Vales de servicio', route: '/vales/lista', view: [Permission.VALE_SERVICIO_LEVANTAR, Permission.VALE_SERVICIO_ATENDER, Permission.VALE_SERVICIO_GESTIONAR], manage: [Permission.VALE_SERVICIO_GESTIONAR] },
+        ],
+      },
+      {
         // Fase MS (2026-10-02, ADR-081) — Mesa de Servicio: cualquier persona reporta un problema o
         // necesidad y el ticket es la tarea de quien lo atiende. Cola de TI primero, modelo multi-cola.
         // ⚠️ `servicio-reportar` NO tiene ruta A PROPÓSITO (mismo precedente que WhatsApp): la clave se

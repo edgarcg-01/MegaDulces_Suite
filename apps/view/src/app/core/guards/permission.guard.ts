@@ -459,9 +459,24 @@ export const servicioHomeGuard: CanActivateFn = landingRedirectGuard(SERVICIO_LA
 export const RH_LANDING: LandingCandidate[] = withTreeCandidates('rh', []);
 export const rhHomeGuard: CanActivateFn = landingRedirectGuard(RH_LANDING, '/rh/asistencia');
 
+/**
+ * `[MDT.3]` Fase MDT — `/tareas`. «Mis tareas» no tiene ruta en el árbol a propósito (ver authz-tree):
+ * se declara a mano. Quien entrega aterriza en lo suyo; la jefatura sin tareas propias, en su equipo.
+ */
+export const TAREAS_LANDING: LandingCandidate[] = withTreeCandidates('tareas', [
+  { perm: Permission.TAREAS_PUESTO_ENTREGAR, url: '/tareas/hoy' },
+]);
+export const tareasHomeGuard: CanActivateFn = landingRedirectGuard(TAREAS_LANDING, '/tareas/hoy');
+
+/** `[MDT.3.4]` Fase MDT — `/vales`: una sola lista; el alcance (míos, cola, todos) lo decide el servidor. */
+export const VALES_LANDING: LandingCandidate[] = withTreeCandidates('vales', []);
+export const valesHomeGuard: CanActivateFn = landingRedirectGuard(VALES_LANDING, '/vales/lista');
+
 /** Todos los landings dinámicos, por id de proyecto del árbol — para el spec de cobertura. */
 export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> = {
   desarrolladores: DESARROLLADORES_LANDING,
+  tareas: TAREAS_LANDING,
+  vales: VALES_LANDING,
   servicio: SERVICIO_LANDING,
   rh: RH_LANDING,
   comercial: COMERCIAL_LANDING,

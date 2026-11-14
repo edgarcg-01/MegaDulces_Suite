@@ -62,7 +62,7 @@ import { etiquetaEstado, fechaMx, horaComun, horaDe, severidadEstado } from '../
                       emptyIcon="pi-users" [emptyTitle]="busqueda() ? 'Nadie coincide con la búsqueda' : 'No hay gente a tu cargo con tareas del manual'"
                       [emptyHint]="busqueda() ? null : 'Tu equipo sale del organigrama: los puestos que dependen del tuyo (y tu sucursal, si tienes una).'"
                       (retry)="res.reload()">
-        <p-table [value]="visibles()" dataKey="user_id" styleClass="p-datatable-sm surf-table surf-table--plain surf-table--sticky dt-stack"
+        <p-table [value]="visibles()" dataKey="user_id" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack"
                  [rowHover]="true" selectionMode="single" [selection]="elegida()" (onRowSelect)="elegir($event.data)">
           <ng-template #header>
             <tr>

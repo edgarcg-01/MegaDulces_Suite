@@ -237,6 +237,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.TAREAS_PUESTO_ENTREGAR]: { label: 'Entregar mis tareas del manual', description: 'Ver las tareas que el manual de tu puesto te pide hoy y entregarlas con su evidencia (fotos, documento o lo escrito). Sólo las tuyas: un punto cuenta como hecho cuando tiene evidencia, no con la marca.', category: 'Recursos Humanos' },
   [Permission.TAREAS_PUESTO_EQUIPO_VER]: { label: 'Ver las tareas de mi equipo', description: 'Ver el avance del día de las personas cuyo puesto depende del tuyo en el organigrama (y de tu sucursal, si tienes una): qué entregaron, qué falta y qué venció. No entrega por ellas.', category: 'Recursos Humanos' },
   [Permission.TAREAS_PUESTO_NORMA_GESTIONAR]: { label: 'Editar el manual de tareas por puesto', description: 'Cambiar los puntos de control de una tarea del manual. No se pisa: queda una versión nueva con fecha y motivo, y cada entrega guarda la versión con la que se juzgó.', category: 'Recursos Humanos' },
+  [Permission.VALE_SERVICIO_LEVANTAR]: { label: 'Levantar vales de servicio', description: 'Levantar un vale de servicio (qué se necesita, dónde y para qué área) y ver los tuyos: los que pediste y los que te asignaron. Un vale asignado a ti lo puedes trabajar y cerrar.', category: 'Vales de servicio' },
+  [Permission.VALE_SERVICIO_ATENDER]: { label: 'Atender vales de servicio', description: 'Ver la cola de vales abiertos y tomar uno: queda a tu nombre y en proceso. Cerrar un vale exige escribir el trabajo que se hizo.', category: 'Vales de servicio' },
+  [Permission.VALE_SERVICIO_GESTIONAR]: { label: 'Coordinar vales de servicio', description: 'Ver todos los vales, asignarlos o reasignarlos, cancelar cualquiera y reabrir uno cerrado con su motivo. Todo queda en el historial del vale.', category: 'Vales de servicio' },
   [Permission.SERVICIO_COORDINAR]: { label: 'Coordinar la Mesa de Servicio', description: 'Mesa de Servicio: asignar y reasignar solicitudes, confirmar o cambiar la prioridad (solo aquí se fija Alta y Urgente), ver los reportes de cumplimiento y administrar colas, categorías y plazos del SLA.', category: 'Mesa de Servicio' },
   [Permission.FINANCE_RECON_ASIGNAR]: { label: 'Asignar tareas de conciliación', description: 'Repartir y reasignar a Finanzas los movimientos sin conciliar en Kepler (reparto automático + asignación manual). Ver/resolver la propia tarea usa los permisos de Bancos.', category: 'Finanzas' },
   [Permission.FINANCE_RECON_RECIBIR]: { label: 'Recibe tareas de conciliación (área Finanzas)', description: 'Marca al rol como parte del equipo de Finanzas al que el motor reparte tareas de conciliación. Quítalo y ese rol deja de recibir tareas.', category: 'Finanzas' },
@@ -396,6 +399,8 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   // `[MS.1.4]` Mesa de Servicio (Fase MS, ADR-081): sin esta línea sus 3 permisos NO se renderizan en
   // `admin-roles-grid` (arma sus grupos con `PERMISSION_CATEGORY_ORDER.filter()`) — mismo defecto de [AU.6].
   'Mesa de Servicio',
+  // `[MDT.2.3]` Vales de servicio (Fase MDT): sin esta línea sus 3 permisos no se pintan en `admin-roles-grid`.
+  'Vales de servicio',
   'Otros',
 ];
 

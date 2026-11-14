@@ -76,6 +76,9 @@ export * from './lib/definitions/business-definitions.service';
 // [MDT.2] Motor de checklist / tareas por puesto (Fase MDT, migración de MDTask).
 export * from './lib/checklists/checklists.module';
 export * from './lib/checklists/checklists.service';
+// [MDT.2.3] Vale de servicio (Fase MDT, D8/D8b).
+export * from './lib/work-orders/work-orders.module';
+export * from './lib/work-orders/work-orders.service';
 
 // ── cloudinary ──
 export * from './lib/cloudinary/cloudinary.module';

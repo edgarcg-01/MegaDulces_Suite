@@ -1881,6 +1881,30 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  'vales-servicio': {
+    title: 'Vales de servicio — guía',
+    intro:
+      'El vale es la constancia de un servicio: quién lo pidió, para qué área, quién lo atendió, qué se hizo y con qué. Es el mismo formato del talonario de papel y continúa su folio. No es la Mesa de Servicio.',
+    groups: [
+      {
+        heading: 'Cómo avanza',
+        entries: [
+          { term: 'Abierto', def: 'Se levantó y nadie lo atiende todavía. Quien atiende lo puede tomar; quien coordina lo puede asignar.' },
+          { term: 'En proceso', def: 'Ya tiene responsable. Sólo esa persona (o quien coordina) captura el trabajo y lo cierra.' },
+          { term: 'Completado', def: 'Se cerró escribiendo el trabajo que se hizo. Las firmas no son obligatorias, pero una firma puesta ya no se quita.' },
+          { term: 'Cancelado', def: 'No procedió. Siempre lleva su motivo, y quien coordina lo puede reabrir con otro motivo: nada se borra del historial.' },
+        ],
+      },
+      {
+        heading: 'Lo que ves',
+        entries: [
+          { term: 'Míos', def: 'Los vales que pediste o que tienes a tu cargo.' },
+          { term: 'Cola', def: 'Los vales abiertos que nadie ha tomado. Sólo la ve quien atiende.' },
+          { term: 'Folio', def: 'Seis dígitos, consecutivo, como el talonario. Se busca sin los ceros: «513» encuentra el 000513.' },
+        ],
+      },
+    ],
+  },
   'organizacion-personas': {
     title: 'Personas, puestos y responsabilidades — guía',
     intro:
