@@ -10,6 +10,7 @@ import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expedien
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
 import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
+import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
   HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
@@ -790,7 +791,8 @@ export class GoodsReceiptProofsService {
         .select(trx.raw(conMotivoCol
           ? `(array_agg(motivo_codigo ORDER BY ${PROOF_ORDER}))[1] AS last_motivo_codigo`
           : `NULL::text AS last_motivo_codigo`))
-        .select(trx.raw(`bool_or(monto_match) AS any_match`))
+        // `[RE.79]` Cuadra DERIVADO de lo guardado con la regla de Francisco (`sqlEvidenciaCuadra`), no el `monto_match` de ±$1.
+        .select(trx.raw(`bool_or(${sqlEvidenciaCuadra()}) AS any_match`))
         // `[RE.25]` Las señales del proveedor viajan con EL MISMO `PROOF_ORDER` que el resto:
         // si se ordenaran por su cuenta, la fila podría mostrar el importe de un comprobante y
         // el proveedor de otro. `bool_or` sería peor todavía — bastaría un intento viejo con el
@@ -2017,7 +2019,8 @@ export class GoodsReceiptProofsService {
       // Cuadra si el total O el subtotal de la remisión ≈ el valor Kepler (IVA
       // puede o no estar incluido según el producto — dulce a granel suele ser 0%).
       const cerca = (v: number | null, ref: number | null) =>
-        v != null && ref != null && Math.abs(v - ref) <= cfg.match_tolerance;
+        // `[RE.79]` La regla de Francisco (contracts), no ±`match_tolerance`: la misma que el panel y el expediente.
+        v != null && ref != null && cuadraDentroDeTolerancia(v - ref, ref);
       const hayLectura = ocrTotal != null || ocrSubtotal != null;
       const cuadraCanonica = hayLectura ? (cerca(ocrTotal, receiptMonto) || cerca(ocrSubtotal, receiptMonto)) : null;
       const cuadraGemela = hayLectura ? (cerca(ocrTotal, gemelaMonto) || cerca(ocrSubtotal, gemelaMonto)) : null;
@@ -2970,7 +2973,8 @@ export class GoodsReceiptProofsService {
         await this.tk.run(async (trx) => {
           const prev = await trx('finance.goods_receipt_proofs').where({ id })
             .first('id', 'status', 'created_by', 'sucursal', 'folio', 'monto_match',
-              trx.raw('discrepancy_amount::numeric AS discrepancy_amount'));
+              trx.raw('discrepancy_amount::numeric AS discrepancy_amount'),
+              trx.raw('ocr_monto::numeric AS ocr_monto'), trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('receipt_monto::numeric AS receipt_monto'));
           if (!prev) throw new BadRequestException('no existe');
           // RE.20.6 — el lote NO pasa por `validate()`: reimplementa la lógica acá, así que
           // también reimplementaba la ausencia del alcance. Es el peor caso de los cuatro —
@@ -2986,7 +2990,9 @@ export class GoodsReceiptProofsService {
           // `[RE.62]` Si cuadró descontando una nota de crédito, el historial la nombra: sin el UUID de la
           // nota, una aprobación con factura mayor que la entrada no se puede defender después.
           let notaAuto: { uuid: string; total: number } | null = null;
-          if (prev.monto_match !== true) {
+          // `[RE.79]` El lote usa la MISMA regla que la lista: la de Francisco, derivada de lo guardado.
+          const cuadraMonto = prev ? evidenciaCuadra(prev) : null;
+          if (cuadraMonto !== true) {
             // `[RE.35.6]` Primero el expediente: si pasa solo, el CFDI manda sobre el OCR. Sólo si ESTE
             // papel es el único vigente de la entrada: el expediente se arma con el papel más reciente, y
             // con dos se podría aprobar uno por el veredicto del otro.
@@ -2999,7 +3005,7 @@ export class GoodsReceiptProofsService {
               notaAuto = exp.veredicto.notaCredito ?? null;
             }
           }
-          if (prev.monto_match !== true && !cfdiAuto) {
+          if (cuadraMonto !== true && !cfdiAuto) {
             const cfgB = await this.settings(trx);
             ajuste = prev.discrepancy_amount != null
               ? await this.ajusteLigadoQueExplica(trx, {
@@ -3009,7 +3015,7 @@ export class GoodsReceiptProofsService {
               : null;
             if (!ajuste) {
               throw new BadRequestException(
-                prev.monto_match === null
+                cuadraMonto === null
                   ? 'sin lectura del documento — se revisa a mano'
                   : 'el total no cuadra y ningún ajuste ligado lo explica — se revisa a mano');
             }

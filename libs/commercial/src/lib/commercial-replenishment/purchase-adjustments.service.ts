@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
 import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
+import { sqlEvidenciaCuadra } from '@megadulces/contracts';
 import { candidatoDeEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
 
 /**
@@ -613,7 +614,8 @@ export class PurchaseAdjustmentsService {
       // del mismo request empatan en `created_at` y sin desempate el resultado es indefinido.
       // En empate gana la pendiente. Debe coincidir con el de `goods-receipt-proofs.service`.
       .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
-      .select(trx.raw(`(array_agg(monto_match ORDER BY ${PROOF_ORDER}))[1] AS any_match`))
+      // `[RE.79]` Derivado con la regla de Francisco, igual que la lista de entradas.
+      .select(trx.raw(`(array_agg(${sqlEvidenciaCuadra()} ORDER BY ${PROOF_ORDER}))[1] AS any_match`))
       // RE.13.4 — el lente de CUMPLIMIENTO necesita el descuadre y quién decidió, no sólo
       // si cuadra: la pregunta de esa vista es "¿en qué anda el proceso?", no "¿cuánto costó?".
       .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY ${PROOF_ORDER}))[1] AS last_disc`))
@@ -807,7 +809,7 @@ export class PurchaseAdjustmentsService {
         .orderBy('created_at', 'desc')
         .select('id', 'files', 'ocr_folio', 'ocr_fecha', 'ocr_proveedor', 'ocr_rfc',
           trx.raw('ocr_subtotal::numeric AS ocr_subtotal'), trx.raw('ocr_iva::numeric AS ocr_iva'),
-          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', 'monto_match',
+          trx.raw('ocr_monto::numeric AS ocr_monto'), 'ocr_status', trx.raw(`${sqlEvidenciaCuadra()} AS monto_match`),
           'discrepancy_kind', trx.raw('discrepancy_amount::numeric AS discrepancy_amount'), 'status',
           'comentarios', 'validated_by', 'validated_at', 'motivo_rechazo', 'created_by', 'created_at');
       const depSigned = await Promise.all(deposits.map(async (d: any) => {

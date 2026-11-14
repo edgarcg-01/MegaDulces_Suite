@@ -10,6 +10,7 @@ import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { TOLERANCIA_TEXTO } from '@megadulces/contracts';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
 import { EntradasService, ReceiptSettings } from '../entradas.service';
 
@@ -78,7 +79,9 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
             </label>
 
             <label class="ea-field">
-              <span class="ea-k">Tolerancia del cuadre</span>
+              <!-- [RE.79] Este valor ya NO decide si la factura cuadra: eso es la regla de Francisco, fija.
+                   Decide cuánto tiene que casar un ajuste con la diferencia para explicarla al aprobar en lote. -->
+              <span class="ea-k">Holgura de un ajuste que explica la diferencia</span>
               <span class="ea-inrow">
                 <em>$</em>
                 <input pInputText type="number" min="0" max="500" step="0.5"
@@ -86,9 +89,10 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
                        name="match_tolerance" class="ea-in mono" />
               </span>
               <span class="ea-why">
-                Diferencia máxima entre el total de la factura y el de Kepler para decir que
-                <b>cuadra</b>. Sirve para el redondeo de centavos; si se agranda, "cuadra" deja de
-                significar algo.
+                Al aprobar en lote, una factura que no cuadra pasa si una devolución o nota de crédito
+                ligada a la entrada tiene el tamaño de la diferencia, con esta holgura.
+                La factura <b>cuadra</b> con la regla de Francisco: diferencia {{ toleranciaTexto }}
+                contra el total de Kepler. Esa regla no se edita aquí.
               </span>
             </label>
 
@@ -188,6 +192,8 @@ import { EntradasService, ReceiptSettings } from '../entradas.service';
   `],
 })
 export class ComprasEntradasAjustesComponent {
+  /** `[RE.79]` La regla del cuadre, escrita: la misma que el panel, el expediente y el lote. */
+  readonly toleranciaTexto = TOLERANCIA_TEXTO;
   private readonly svc = inject(EntradasService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
