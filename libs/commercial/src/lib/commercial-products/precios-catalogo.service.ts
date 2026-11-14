@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { skusDeCodigoDeBarras } from '@megadulces/platform-core';
 import type {
   CampoSinClasificar,
   ConsultaListaPrecios,
@@ -227,6 +228,8 @@ export class PreciosCatalogoService {
         trx.from('kepler_ods._sync_status').where('table_name', 'kdii').first('last_push_at'),
       ]);
       const palabras = norm((c.q ?? '').trim()).split(/\s+/).filter(Boolean);
+      // `[BU.4.2]` Un código de barras buscado: sus claves (sin consulta si no tiene forma de código).
+      const porCodigo = new Set(await skusDeCodigoDeBarras(trx, c.q));
       const todas: FilaSinClasificar[] = ((crudo.rows ?? []) as Record<string, unknown>[]).map((r) => ({
         sku: String(r.sku),
         nombre: String(r.nombre ?? r.sku),
@@ -239,7 +242,7 @@ export class PreciosCatalogoService {
       const universo = todas.filter(
         (f) =>
           (!c.con_venta || f.venta_30d > 0) &&
-          (palabras.length === 0 || palabras.every((p) => norm(`${f.sku} ${f.nombre}`).includes(p))),
+          (palabras.length === 0 || porCodigo.has(f.sku) || palabras.every((p) => norm(`${f.sku} ${f.nombre}`).includes(p))),
       );
       const resumen = { linea: 0, tipo: 0, grupo: 0 } as Record<CampoSinClasificar, number>;
       for (const f of universo) for (const k of f.falta) resumen[k]++;

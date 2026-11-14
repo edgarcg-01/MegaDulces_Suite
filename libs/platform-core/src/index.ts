@@ -95,6 +95,8 @@ export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
 // [PGP.71] Qué conexión abre qué servidor Kepler: requisición (commercial) y pago (finance).
 export * from './lib/kepler/kepler-servidor';
+// [BU.4.2] Todo buscador de producto encuentra por código de barras (7 casillas de kdii).
+export * from './lib/kepler/codigo-de-barras';
 export * from './lib/phone/mx-phone';
 // `[ALC.1.1]`/`[ALC.1.2]` Identidad fiscal (RFC y CURP con verificador) y lector de la constancia del SAT.
 export * from './lib/sat/identidad-fiscal';

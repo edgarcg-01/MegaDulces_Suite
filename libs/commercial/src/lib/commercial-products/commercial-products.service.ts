@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import {
   PRICE_REPORT_LABEL_COLUMNS,
   PriceReportQuery,
@@ -109,7 +109,9 @@ export class CommercialProductsService {
             b.where('p.nombre', 'ilike', term)
               .orWhere('p.sku', 'ilike', term)
               .orWhere('p.barcode', 'ilike', term)
-              .orWhere('p.description', 'ilike', term),
+              .orWhere('p.description', 'ilike', term)
+              // [BU.4.2] Cualquier código de Kepler (7 casillas), no sólo catalog.products.barcode.
+              .orWhere((c) => { orPorCodigoDeBarras(c, 'p.sku', search); }),
           );
         }
         if (query.brand_id) {
@@ -269,7 +271,9 @@ export class CommercialProductsService {
           q = q.where((w) =>
             w.where('p.nombre', 'ilike', term)
               .orWhere('p.sku', 'ilike', term)
-              .orWhere('l.barcode', 'ilike', term),
+              .orWhere('l.barcode', 'ilike', term)
+              // [BU.4.2] Cualquier código de Kepler de la sucursal (o de todas), no sólo el de la etiqueta.
+              .orWhere((c) => { orPorCodigoDeBarras(c, 'p.sku', search, sucursal); }),
           );
         }
         return q;

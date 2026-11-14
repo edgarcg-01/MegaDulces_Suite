@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, sqlSkuPorCodigoDeBarras } from '@megadulces/platform-core';
 
 /**
  * Análisis SEMANAL (proyecto Tienda, /tienda/analisis-semanal).
@@ -1694,7 +1694,11 @@ export class WeeklyAnalyticsService {
     if (grupo) { filtros.push(`AND tx.grupo_code = ?`); fBind.push(grupo); }
     if (linea === SIN_LINEA) filtros.push(`AND pr.supplier_id IS NULL`);
     else if (linea) { filtros.push(`AND s.code = ?`); fBind.push(linea); }
-    if (texto) { filtros.push(`AND (pr.nombre ILIKE ? OR pr.sku ILIKE ?)`); fBind.push(`%${texto}%`, `%${texto}%`); }
+    if (texto) {
+      // [BU.4.2] + código de barras del producto.
+      const cb = sqlSkuPorCodigoDeBarras('pr.sku', texto);
+      filtros.push(`AND (pr.nombre ILIKE ? OR pr.sku ILIKE ?${cb ? ` OR ${cb.sql}` : ''})`); fBind.push(`%${texto}%`, `%${texto}%`, ...(cb?.bindings ?? []));
+    }
 
     /** Tope duro de filas servidas. El universo completo sigue viniendo en `universo`. */
     const LIMITE = 1500;

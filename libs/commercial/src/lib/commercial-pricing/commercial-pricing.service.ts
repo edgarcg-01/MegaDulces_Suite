@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { QuotePricingService, type Ladder } from '../commercial-quotes/quote-pricing.service';
 import { FotoSwr } from '../shared/foto-swr';
@@ -511,7 +511,9 @@ export class CommercialPricingService {
           q = q.where((b) =>
             b.where('p.nombre', 'ilike', term)
               .orWhere('p.sku', 'ilike', term)
-              .orWhere('p.barcode', 'ilike', term),
+              .orWhere('p.barcode', 'ilike', term)
+              // [BU.4.2] Cualquier código de Kepler (7 casillas), no sólo catalog.products.barcode.
+              .orWhere((c) => { orPorCodigoDeBarras(c, 'p.sku', search); }),
           );
         }
         return q;

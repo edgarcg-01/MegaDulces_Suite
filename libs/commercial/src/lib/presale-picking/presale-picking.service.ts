@@ -8,7 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { ScopeService, TenantContextService, TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import type {
   PresalePickDetail,
   PresalePickFinishRequest,
@@ -545,7 +545,8 @@ export class PresalePickingService {
       let filas: Fila[];
       if (busca) {
         filas = await base
-          .where((w) => { w.whereILike('p.nombre', `%${busca}%`).orWhere('p.sku', busca).orWhere('p.barcode', busca); })
+          // [BU.4.2] + cualquier código de Kepler (7 casillas), no sólo catalog.products.barcode.
+          .where((w) => { w.whereILike('p.nombre', `%${busca}%`).orWhere('p.sku', busca).orWhere('p.barcode', busca); orPorCodigoDeBarras(w, 'p.sku', busca); })
           .orderByRaw('p.sales_units_90d DESC NULLS LAST').limit(60)
           .select('p.id', 'p.sku', 'p.nombre', 'p.supplier_id');
       } else {

@@ -102,8 +102,27 @@ Sin cambios de dato. El motor opera sobre columnas existentes de cada consulta. 
 |---|---|---|---|
 | BU.4.0 | **Una regla de «qué es un código»** para navegador y API: `@megadulces/contracts/http/codigo-de-barras` (`pareceCodigoDeBarras`: 6–14 dígitos o `C`+5) | 🧪 | spec del vendedor: 7 sí / 8 no |
 | BU.4.1 | **Vendedor — Tomar pedido y Cotizar**: el código tecleado, pegado o de pistola (Enter) se traduce a su clave con `claveDeCodigo` (copia del teléfono, también sin señal; si no, en línea), igual que la cámara. Pieza `codigo-tecleado.ts`: Enter resuelve ya; tecleado a mano, al dejar de teclear (450 ms), una sola vez | 🧪 | 62/62 vitest; 7 casos nuevos por el DOM (input + Enter). **Mutante** (sin el cableado, en copia fuera del árbol): 5 rojas, las negativas siguen verdes. `check:pantalla` **NO MEDIDA** (no recorre `apps/vendor`). Sin validación en dispositivo |
-| BU.4.2 | **Servidor**: pieza `libs/commercial/src/lib/shared/skus-por-codigo-de-barras.ts` (`orPorCodigoDeBarras(g, 'p.sku', term, suc?)`) y cada buscador de producto la suma dentro del grupo de `applySmartSearch` | 🔨 | pieza medida contra prod con knex (EAN c7 → 00066 · sólo c102 → 08090 · C00066 → 00066 · inexistente → nada · «gomitas» → sin rama, 1 ms); spec 7/7 |
-| BU.4.3 | **Listas filtradas en el navegador** (`view`): la fila trae su código o la caja resuelve contra el servidor | ⬜ | censo pendiente |
+| BU.4.2 | **Servidor**: pieza `libs/platform-core/src/lib/kepler/codigo-de-barras.ts` (en `platform-core` porque la usan `commercial`, `trade`, `finance` y `reconciliation`, que no dependen entre sí): `applySmartSearchConCodigo` · `orPorCodigoDeBarras` · `sqlSkuPorCodigoDeBarras[Nombrado]` · `skusDeCodigoDeBarras`. Cableada en **31 consultas de 20 servicios** (abajo) | 🧪 | pieza medida contra prod con knex (EAN c7 → 00066 · sólo c102 → 08090 · C00066 → 00066 · inexistente → nada · «gomitas» → sin rama, 1 ms); spec 9/9 + `armarMatriz` 11/11; vitest commercial 2858 · finance 2835 · platform-core 138 · reconciliation 39 en verde; `api:typecheck` verde. ⚠️ **La consulta de CADA servicio con un código NO se ejerció contra base real** (sólo la pieza): NO MEDIDO por servicio |
+| BU.4.3 | **Listas filtradas en el navegador** (`view`, 15 cajas): la fila no trae código; hace falta resolver el código a claves antes de filtrar (como `CodigoTecleado`) | ⬜ | — |
+| BU.4.4 | **`c102` en la copia de precios y en `/kp/precio`** (`apps/api/src/modules/kp/kp.service.ts` `COLS_PRECIO`): hoy lee 6 casillas; 630 códigos viven sólo en `c102`. Lo usan el verificador de tienda, el checador y el traductor del vendedor | ⬜ | — |
+
+**Censo del 2026-11-14** (61 cajas de producto: 39 de servidor, 22 de navegador). Antes: 15 encontraban
+por código, 8 a medias (sólo `catalog.products.barcode`), 38 no.
+
+Cableado en BU.4.2 (servidor): `commercial-products` `list` (las 14 pantallas de `app-product-search`,
+incl. Salidas y Sell-out) y `priceReport` · `bi-almacen` `productSearch` · `warehouse-locations-assign`
+`products` (con la sucursal de Kepler) · `expiry-reviews` `searchProducts` y `listExpediente` ·
+`standard-cost` `universo`/`matriz`/`entreSucursales`/`contraUltimo` · `receiving-claims` `list` ·
+`replenishment` `workbook` (y sus 3 hermanas) · `postmortem` · `sobrante` · `deadStock` · `movements`
+`base` · `presale-picking` `substitutes` · `pricing` `listPrices` · `profitability` `breakdown` ·
+`revision` `publicadas` · `weekly-analytics` `topProducts` · `negative-stock` `list` y `existencia`
+`list` (filtro en memoria: claves resueltas antes) · `precios-catalogo` `sinClasificar` ·
+`reconciliation` `movements` · `commercial-map` `resolveProductsByText` · `customer-ledger`
+`buscarPorProducto` · `catalog-search` del portal (`listAllProducts`, `likeSearch`).
+
+Fuera, a propósito: la búsqueda por IA del portal (`search`, vectorial) y el kardex de Diferencias
+(caja de SKU exacto). `catalogo-buscador.ts` (`[COT.41]`) ya leía las 7 casillas y se deja: unificarlo
+con la pieza es deuda con nombre (misma regla, dos implementaciones).
 
 ---
 

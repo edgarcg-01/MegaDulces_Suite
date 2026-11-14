@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, sqlSkuPorCodigoDeBarras } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 
 /**
@@ -240,7 +240,11 @@ export class ReconciliationQueryService {
         .orderBy('sl.fecha', 'desc').orderByRaw('sl.importe DESC').limit(limit);
       if (q.clase_mov) b.where('sl.clase_mov', q.clase_mov);
       if (q.sucursal) b.where('sl.warehouse_code', q.sucursal);
-      if (q.sku) b.whereRaw('(sl.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${q.sku}%`, `%${q.sku}%`]);
+      if (q.sku) {
+        // `[BU.4.2]` + código de barras del producto.
+        const cb = sqlSkuPorCodigoDeBarras('sl.sku', q.sku);
+        b.whereRaw(`(sl.sku ILIKE ? OR p.nombre ILIKE ?${cb ? ` OR ${cb.sql}` : ''})`, [`%${q.sku}%`, `%${q.sku}%`, ...(cb?.bindings ?? [])]);
+      }
       if (q.from) b.where('sl.fecha', '>=', q.from);
       if (q.to) b.where('sl.fecha', '<=', q.to);
       const rows = await b;

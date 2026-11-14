@@ -119,6 +119,12 @@ describe('[EX-PERF.3] armarMatriz', () => {
     expect(armarMatriz(FOTO, F({ only_unverified: true })).rows.map((r) => r.sku)).toEqual(['200']);
   });
 
+  it('[BU.4.2] un código de barras encuentra el producto por sus claves ya resueltas; sin claves, nada', () => {
+    expect(armarMatriz(FOTO, F({ search: '7501079221165', skus_codigo: ['200'] })).rows.map((r) => r.sku)).toEqual(['200']);
+    expect(armarMatriz(FOTO, F({ search: '7501079221165', skus_codigo: [] })).rows).toEqual([]);
+    expect(armarMatriz(FOTO, F({ search: '7501079221165' })).rows).toEqual([]);
+  });
+
   it('el alias se pliega al canónico: una fila, suma de los dos', () => {
     const foto = [...FOTO, celda({ product_id: P1, sku: '101', nombre: 'MAZAPAN ALIAS', warehouse_code: '03', nat: 180, dbf: 180, cu: 2 })];
     const p1 = armarMatriz(foto, F()).rows.filter((r) => r.product_id === P1);

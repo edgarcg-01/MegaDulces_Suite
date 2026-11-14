@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService, applySmartSearch, applySmartSearchConCodigo, sqlSkuPorCodigoDeBarrasNombrado } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
@@ -1932,7 +1932,12 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.search && q.search.trim()) {
+        // [BU.4.2] + código de barras del producto.
+        const cb = sqlSkuPorCodigoDeBarrasNombrado('pr.sku', q.search, 'bu4');
+        filters.push(`(pr.sku ILIKE :s OR pr.nombre ILIKE :s${cb ? ` OR ${cb.sql}` : ''})`); binds.s = `%${q.search.trim()}%`;
+        if (cb) Object.assign(binds, cb.binds);
+      }
       // RA-PRO.23 — no listar los SKUs ALIAS (in-and-out); su demanda/existencia/velocidad
       // se pliega en el canónico (abajo, vía commercial.product_aliases).
       filters.push('NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)');
@@ -2182,7 +2187,12 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('pr.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(pr.sku ILIKE :s OR pr.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.search && q.search.trim()) {
+        // [BU.4.2] + código de barras del producto.
+        const cb = sqlSkuPorCodigoDeBarrasNombrado('pr.sku', q.search, 'bu4');
+        filters.push(`(pr.sku ILIKE :s OR pr.nombre ILIKE :s${cb ? ` OR ${cb.sql}` : ''})`); binds.s = `%${q.search.trim()}%`;
+        if (cb) Object.assign(binds, cb.binds);
+      }
       const where = filters.join(' AND ');
 
       // `[PQ.37]` LO AGOTADO NO DESAPARECE. La lista sale de `replenishment_plan` y deja fuera todo
@@ -3609,7 +3619,12 @@ export class CommercialReplenishmentService {
       }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('bd.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('bd.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(bd.sku ILIKE :s OR bd.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.search && q.search.trim()) {
+        // [BU.4.2] + código de barras del producto.
+        const cb = sqlSkuPorCodigoDeBarrasNombrado('bd.sku', q.search, 'bu4');
+        filters.push(`(bd.sku ILIKE :s OR bd.nombre ILIKE :s${cb ? ` OR ${cb.sql}` : ''})`); binds.s = `%${q.search.trim()}%`;
+        if (cb) Object.assign(binds, cb.binds);
+      }
       // Marca: el fact (replenishment_plan) no trae brand_id → acotamos el universo por product_id.
       let brandScope = '';
       if (q.brand_id && UUID_RX.test(q.brand_id)) { brandScope = ' AND rp.product_id IN (SELECT id FROM catalog.products WHERE tenant_id = :t AND brand_id = :bid)'; binds.bid = q.brand_id; }
@@ -3750,7 +3765,12 @@ export class CommercialReplenishmentService {
       }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('ov.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('ov.category_id = :cat'); binds.cat = q.category_id; }
-      if (q.search && q.search.trim()) { filters.push('(ov.sku ILIKE :s OR ov.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
+      if (q.search && q.search.trim()) {
+        // [BU.4.2] + código de barras del producto.
+        const cb = sqlSkuPorCodigoDeBarrasNombrado('ov.sku', q.search, 'bu4');
+        filters.push(`(ov.sku ILIKE :s OR ov.nombre ILIKE :s${cb ? ` OR ${cb.sql}` : ''})`); binds.s = `%${q.search.trim()}%`;
+        if (cb) Object.assign(binds, cb.binds);
+      }
       // Marca: el fact (replenishment_plan) no trae brand_id → acotamos el universo por product_id.
       let brandScope = '';
       if (q.brand_id && UUID_RX.test(q.brand_id)) { brandScope = ' AND rp.product_id IN (SELECT id FROM catalog.products WHERE tenant_id = :t AND brand_id = :bid)'; binds.bid = q.brand_id; }
@@ -4195,7 +4215,7 @@ export class CommercialReplenishmentService {
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.search && q.search.trim()) {
         // `[BU.2.7]` Motor único `applySmartSearch`: SKU o nombre, varias palabras. `fuzzy:false` (SKU exacto).
-        applySmartSearch(base, q.search, { columns: ['pr.sku', 'pr.nombre'], fuzzy: false });
+        applySmartSearchConCodigo(base, q.search, { columns: ['pr.sku', 'pr.nombre'], fuzzy: false }, 'pr.sku'); // [BU.4.2] + código de barras
       }
       // `[RA-UX.11]` UNA pasada, no tres. Acá había un `count(*)` y un `SUM()` sobre la MISMA base,
       // cada uno pagando entero el cruce producto×almacén y las tres vistas del ODS (existencia,
@@ -6472,7 +6492,12 @@ export class CommercialReplenishmentService {
     const binds: Record<string, unknown> = { t: tenantId };
     if (whIds?.length) { filtros.push('pm.warehouse_id = ANY(:wh)'); binds['wh'] = whIds; }
     if (q.supplier_id) { filtros.push('pm.supplier_id = :sup'); binds['sup'] = q.supplier_id; }
-    if (q.search?.trim()) { filtros.push('(pm.sku ILIKE :q OR pm.nombre ILIKE :q OR pm.proveedor ILIKE :q)'); binds['q'] = `%${q.search.trim()}%`; }
+    if (q.search?.trim()) {
+      // [BU.4.2] + código de barras del producto.
+      const cb = sqlSkuPorCodigoDeBarrasNombrado('pm.sku', q.search, 'bu4');
+      filtros.push(`(pm.sku ILIKE :q OR pm.nombre ILIKE :q OR pm.proveedor ILIKE :q${cb ? ` OR ${cb.sql}` : ''})`); binds['q'] = `%${q.search.trim()}%`;
+      if (cb) Object.assign(binds, cb.binds);
+    }
     // ⚠️ El default deja fuera los almacenes que NO venden: su "rindió" se mide contra la salida
     // (el traspaso), no contra la venta, y mezclarlos en una sola tabla haría que el CEDIS —por
     // donde entra la mayor parte de la compra— arrastre el veredicto de toda la red.
@@ -6631,7 +6656,12 @@ export class CommercialReplenishmentService {
     const binds: Record<string, unknown> = { t: tenantId, vent };
     if (whIds?.length) { filtros.push('rp.warehouse_id = ANY(:wh)'); binds['wh'] = whIds; }
     if (q.supplier_id) { filtros.push('pr.supplier_id = :sup'); binds['sup'] = q.supplier_id; }
-    if (q.search?.trim()) { filtros.push(`(pr.sku ILIKE :q OR pr.nombre ILIKE :q)`); binds['q'] = `%${q.search.trim()}%`; }
+    if (q.search?.trim()) {
+      // [BU.4.2] + código de barras del producto.
+      const cb = sqlSkuPorCodigoDeBarrasNombrado('pr.sku', q.search, 'bu4');
+      filtros.push(`(pr.sku ILIKE :q OR pr.nombre ILIKE :q${cb ? ` OR ${cb.sql}` : ''})`); binds['q'] = `%${q.search.trim()}%`;
+      if (cb) Object.assign(binds, cb.binds);
+    }
     const where = filtros.join(' AND ');
 
     // El CTE compartido por el resumen y el detalle. Que los dos salgan de la MISMA definicion es

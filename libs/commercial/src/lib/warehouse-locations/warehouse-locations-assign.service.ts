@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ScopeService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, applySmartSearchConCodigo } from '@megadulces/platform-core';
 import {
   ASSIGNMENT_ROLES,
   LOCATION_BULK_MAX,
@@ -194,7 +194,7 @@ export class WarehouseLocationsAssignService {
         const qb = trx('catalog.products as p')
           .whereNull('p.deleted_at')
           .whereRaw('EXISTS (SELECT 1 FROM kepler_ods.kdii k WHERE btrim(k.sucursal) = ? AND btrim(k.c1) = p.sku)', [wh.kepler_code]);
-        applySmartSearch(qb, q, { columns: ['p.nombre', 'p.sku'] });
+        applySmartSearchConCodigo(qb, q, { columns: ['p.nombre', 'p.sku'] }, 'p.sku', wh.kepler_code); // [BU.4.2] + código de barras de ESTA sucursal
         return qb;
       };
       // Un lugar fijo en una ubicación DADA DE BAJA no cuenta: el producto ya no tiene dónde surtirse.

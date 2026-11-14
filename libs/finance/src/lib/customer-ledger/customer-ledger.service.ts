@@ -6,6 +6,7 @@ import {
   evalInput,
   composeFreshness,
   FRESHNESS_UNKNOWN,
+  skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
 
@@ -1265,6 +1266,8 @@ export class CustomerLedgerService {
         .select('sku')
         .limit(25);
       for (const p of porNombre) if (p.sku != null) skus.add(String(p.sku).trim());
+      // `[BU.4.2]` Un código de barras: las claves de ese código (7 casillas de Kepler).
+      for (const sku of await skusDeCodigoDeBarras(trx, texto)) skus.add(sku);
 
       if (!skus.size) return vacio;
 

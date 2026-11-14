@@ -8,7 +8,7 @@ import {
 import {
   TenantKnexService,
   TenantContextService,
-  applySmartSearch,
+  applySmartSearchConCodigo,
 } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import { classifyReceivingOrigin, type ReceivingOrigin } from './receiving-origin';
@@ -396,10 +396,11 @@ export class ReceivingClaimsService {
         if (q.warehouse_id) b.where('c.warehouse_id', q.warehouse_id);
         if (q.date_from) b.where('c.opened_at', '>=', `${q.date_from} 00:00:00`);
         if (q.date_to) b.where('c.opened_at', '<=', `${q.date_to} 23:59:59`);
-        applySmartSearch(b, q.search, {
+        // [BU.4.2] + código de barras del producto del reclamo.
+        applySmartSearchConCodigo(b, q.search, {
           columns: ['c.folio', 'c.sku', 'c.product_name', 'c.responsible_label', 'c.responsible_code', 's.name'],
           numeric: ['c.amount'],
-        });
+        }, 'c.sku');
         return b;
       };
 

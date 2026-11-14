@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { skusDeCodigoDeBarras } from '@megadulces/platform-core';
+import { pareceCodigoDeBarras } from '@megadulces/contracts/http/codigo-de-barras';
 import { armarMatriz, ExistenciaCelda } from './existencia-agregado';
 
 /**
@@ -335,6 +337,10 @@ export class ExistenciaService {
     const codes = (q.warehouse_ids || '').split(',').map((c) => c.trim()).filter(Boolean);
 
     const foto = await this.foto(tenantId);
+    // `[BU.4.2]` Un código de barras buscado se resuelve a sus claves (sólo si tiene forma de código).
+    const skusCodigo = pareceCodigoDeBarras(q.search)
+      ? await this.tk.run(async (trx) => skusDeCodigoDeBarras(trx, q.search))
+      : [];
     // Los filtros van sobre el dataset COMPLETO, antes de paginar: si no, los totales mienten
     // (un footer que suma 50 de 9,860 no es un total).
     const m = armarMatriz(foto.celdas, {
@@ -342,6 +348,7 @@ export class ExistenciaService {
       brand_id: q.brand_id && UUID_RX.test(q.brand_id) ? q.brand_id : undefined,
       category_id: q.category_id && UUID_RX.test(q.category_id) ? q.category_id : undefined,
       search: q.search,
+      skus_codigo: skusCodigo,
       codes,
       bucket: q.bucket,
       only_unverified: q.only_unverified === '1',

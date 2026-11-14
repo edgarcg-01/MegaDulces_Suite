@@ -4,7 +4,7 @@ import type {
   CoberturaLevantamiento, FichaPublicada, FichasPublicadas, LevantamientoPeldano, RevisionBandeja, RevisionDecisionDto,
   RevisionDecisionRespuesta, RevisionFicha, RevisionMotivo, LevantamientoDetalleTipo,
 } from '@megadulces/contracts';
-import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { ObjectStorageService, TenantContextService, TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import { kdiiPorSku } from '../shared/kdii-lectura';
 import type { KdiiFila, Peldano } from '../shared/kdii-codigo';
 import { leerConfigLector } from './ia/lector.config';
@@ -277,6 +277,7 @@ export class RevisionService {
                 WHERE public.f_unaccent(lower(k.c2)) LIKE public.f_unaccent(lower(?)) ESCAPE '\\')`,
             [`%${escaparLike(term)}%`],
           );
+          orPorCodigoDeBarras(w, 'ps.sku', term); // [BU.4.2] + código de barras
         });
       }
       const [{ n }] = (await base.clone().count({ n: '*' })) as Array<{ n: string | number }>;

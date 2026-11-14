@@ -66,6 +66,8 @@ export interface ExistenciaFiltrosMem {
   brand_id?: string;
   category_id?: string;
   search?: string;
+  /** `[BU.4.2]` Las claves del código de barras buscado, ya resueltas (`skusDeCodigoDeBarras`). */
+  skus_codigo?: string[];
   codes: string[];
   bucket?: string;
   only_unverified: boolean;
@@ -131,12 +133,13 @@ export function armarMatriz(celdas: ExistenciaCelda[], f: ExistenciaFiltrosMem) 
   // ── PASO 1 — el WHERE del CTE src, sobre la foto.
   const q = f.search?.trim().toLowerCase();
   const codes = f.codes.length ? new Set(f.codes) : null;
+  const porCodigo = f.skus_codigo?.length ? new Set(f.skus_codigo) : null;
   const src = celdas.filter((c) =>
     (!f.supplier_id || c.supplier_id === f.supplier_id)
     && (!f.brand_id || c.brand_id === f.brand_id)
     && (!f.category_id || c.category_id === f.category_id)
     && (!codes || codes.has(c.warehouse_code))
-    && (!q || c.sku.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q)));
+    && (!q || c.sku.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q) || !!porCodigo?.has(c.sku)));
 
   // ── PASO 2 — agregado por producto.
   const porProducto = new Map<string, Agg>();

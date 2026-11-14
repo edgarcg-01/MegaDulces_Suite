@@ -1,5 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch, applySmartSearchConCodigo } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { EmbeddingsService } from '@megadulces/platform-core';
 import { RecommendationsService } from '../commercial-recommendations/recommendations.service';
@@ -294,7 +294,8 @@ export class CommercialCatalogSearchService {
       if (input.q && input.q.trim()) {
         // `[BU.2.3]` Motor único `applySmartSearch`: cada palabra en nombre de producto o marca,
         // cualquier orden. `fuzzy:false` como el resto del catálogo (el operador escribe exacto).
-        applySmartSearch(q, input.q, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false });
+        // `[BU.4.2]` + código de barras del producto (7 casillas de Kepler).
+        applySmartSearchConCodigo(q, input.q, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false }, 'p.sku');
       }
 
       if (input.brandId) {
@@ -818,7 +819,8 @@ export class CommercialCatalogSearchService {
         .whereNull('p.deleted_at');
       // `[BU.2.3]` Motor único `applySmartSearch` (antes era el fallback LIKE): varias palabras,
       // nombre de producto o marca, cualquier orden. `fuzzy:false` como el resto del catálogo.
-      applySmartSearch(qb, query, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false });
+      // `[BU.4.2]` + código de barras del producto (7 casillas de Kepler).
+      applySmartSearchConCodigo(qb, query, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false }, 'p.sku');
       const rows = await qb
         .orderBy('p.nombre', 'asc')
         .limit(limit)

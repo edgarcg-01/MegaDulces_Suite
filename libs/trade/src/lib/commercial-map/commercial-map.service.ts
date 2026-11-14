@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException, ForbiddenException, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
+import { orPorCodigoDeBarras } from '@megadulces/platform-core';
 import {
   KNEX_CONNECTION,
   TenantContextService,
@@ -563,7 +564,9 @@ export class CommercialMapService {
             inner
               .where('p.nombre', 'ilike', t)
               .orWhere('p.sku', 'ilike', t)
-              .orWhere('p.barcode', 'ilike', t),
+              .orWhere('p.barcode', 'ilike', t)
+              // `[BU.4.2]` Cualquier código de Kepler (7 casillas), no sólo products.barcode.
+              .orWhere((c: Knex.QueryBuilder) => { orPorCodigoDeBarras(c, 'p.sku', w); }),
           );
         }
       })

@@ -19,7 +19,7 @@ import {
   ScopeService,
   branchKeySql,
   branchKeyFilterSql,
-  applySmartSearch,
+  applySmartSearchConCodigo,
 } from '@megadulces/platform-core';
 
 /**
@@ -1153,10 +1153,11 @@ export class CommercialExpiryReviewsService {
       if (term) {
         // `[BU.2.4]` Motor único `applySmartSearch`: folio, nombre, SKU y los crudos del lote, en
         // cualquier orden. `fuzzy:false` (folio y código son exactos).
-        applySmartSearch(qb, term, {
+        // [BU.4.2] + cualquier código de Kepler del producto, no sólo el que se capturó en el lote.
+        applySmartSearchConCodigo(qb, term, {
           columns: ['l.folio', 'p.nombre', 'p.sku', 'l.product_name_raw', 'l.product_code_raw'],
           fuzzy: false,
-        });
+        }, 'p.sku');
       }
 
       const [{ count }] = await qb.clone().count<{ count: string }[]>('l.id as count');
@@ -1449,7 +1450,7 @@ export class CommercialExpiryReviewsService {
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
         .whereNull('p.deleted_at');
       // `[BU.2.4]` Motor único `applySmartSearch`: nombre o SKU, varias palabras. `fuzzy:false` (SKU exacto).
-      applySmartSearch(qb, term, { columns: ['p.nombre', 'p.sku'], fuzzy: false });
+      applySmartSearchConCodigo(qb, term, { columns: ['p.nombre', 'p.sku'], fuzzy: false }, 'p.sku'); // [BU.4.2] + código de barras
       if (brandIds.length) qb = qb.whereIn('p.brand_id', brandIds);
 
       const data = await qb

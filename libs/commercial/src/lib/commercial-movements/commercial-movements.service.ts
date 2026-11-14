@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearchConCodigo } from '@megadulces/platform-core';
 import {
   DOC_CODES_AJUSTE, DOC_CODES_COMPRA, DOC_CODES_TRASPASO, MOTIVOS_RESOLUCION_MOVIMIENTO, UNIDAD_IMPORTE_SALIDA,
   clasificarMovimiento, clasificarUnidadEntrada, compararRenglones, motivosPara, resumirDonde, sumarPorProducto, validarResolucion,
@@ -545,7 +545,7 @@ export class CommercialMovementsService {
       // `[BU.2.6]` Motor único `applySmartSearch` sobre el subselect de productos: nombre o SKU,
       // varias palabras. `fuzzy:false` (SKU exacto).
       const sub = trx('public.products').select('id').where('tenant_id', tenantId);
-      applySmartSearch(sub, q.search, { columns: ['nombre', 'sku'], fuzzy: false });
+      applySmartSearchConCodigo(sub, q.search, { columns: ['nombre', 'sku'], fuzzy: false }, 'sku'); // [BU.4.2] + código de barras
       b.whereIn('m.product_id', sub);
     }
     return b;

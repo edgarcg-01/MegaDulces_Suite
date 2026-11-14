@@ -1,6 +1,8 @@
 import type { Knex } from 'knex';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService, branchKeySql, todayMx } from '@megadulces/platform-core';
+import { skusDeCodigoDeBarras } from '@megadulces/platform-core';
+import { pareceCodigoDeBarras } from '@megadulces/contracts/http/codigo-de-barras';
 import {
   CAUSAS_ACTIVAS, DOCS_AGRUPADOS_POR_CAJA, analizarKardex, clasificarNegativo, describirNegativo, ordenarNegativos,
   reaperturaNegativo, recortarKardex, validarResolucionNegativo,
@@ -224,10 +226,14 @@ export class NegativeStockService {
     const causas = (q.causas ?? []).filter((c) => CAUSAS.includes(c));
     const filtroCausas = causas.length ? causas : CAUSAS_ACTIVAS;
     const s = (q.search ?? '').trim().toLowerCase();
+    // `[BU.4.2]` Un código de barras buscado se resuelve a sus claves (sólo si tiene forma de código).
+    const porCodigo = pareceCodigoDeBarras(q.search)
+      ? new Set(await this.tk.run(tenantId, async (trx) => skusDeCodigoDeBarras(trx, q.search)))
+      : null;
     const filtradas = ordenarNegativos(enSeleccion.filter((i) =>
       (estado === 'resueltas' ? resuelta(i) : !resuelta(i))
       && (estado === 'resueltas' || filtroCausas.includes(i.causa))
-      && (!s || i.sku.toLowerCase().includes(s) || (i.producto ?? '').toLowerCase().includes(s))));
+      && (!s || i.sku.toLowerCase().includes(s) || (i.producto ?? '').toLowerCase().includes(s) || !!porCodigo?.has(i.sku.trim()))));
 
     const pageSize = Math.min(Math.max(Number(q.pageSize) || 50, 1), 200);
     const page = Math.max(Number(q.page) || 1, 1);

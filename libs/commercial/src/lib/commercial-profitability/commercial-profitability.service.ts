@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import { resolveMarginTarget, MARGIN_TARGET_FALLBACK } from '../shared/margin-target';
 
 /**
@@ -1231,7 +1231,9 @@ export class CommercialProfitabilityService {
               .orWhere('p.sku', 'ilike', t)
               .orWhere('b.nombre', 'ilike', t)
               .orWhere('sup.name', 'ilike', t)
-              .orWhere('cat.name', 'ilike', t),
+              .orWhere('cat.name', 'ilike', t)
+              // [BU.4.2] + código de barras del producto.
+              .orWhere((c: any) => { orPorCodigoDeBarras(c, 'p.sku', search); }),
           );
         }
         return q;

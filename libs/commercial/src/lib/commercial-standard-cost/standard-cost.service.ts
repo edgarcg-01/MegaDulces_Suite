@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearchConCodigo } from '@megadulces/platform-core';
 import {
   CeldaSucursal,
   ORDEN_VEREDICTO_SUCURSALES,
@@ -692,7 +692,7 @@ export class StandardCostService {
           ) AS x`),
         )
         .select('x.sku', 'x.nombre', 'x.proveedor_id', 'x.proveedor', 'x.venta_30d', 'x.celdas');
-      applySmartSearch(qb, f.q, { columns: ['x.sku', 'x.nombre'] });
+      applySmartSearchConCodigo(qb, f.q, { columns: ['x.sku', 'x.nombre'] }, 'x.sku'); // [BU.4.2] + código de barras
       if (f.proveedor_id) qb.where('x.proveedor_id', f.proveedor_id);
 
       const [crudo, actividad, sucs] = await Promise.all([
@@ -875,7 +875,7 @@ export class StandardCostService {
               ),
             )
             .select('x.sku', 'x.nombre', 'x.proveedor_id', 'x.proveedor', 'x.venta_30d', 'x.celdas');
-          applySmartSearch(qb, f.q, { columns: ['x.sku', 'x.nombre'] });
+          applySmartSearchConCodigo(qb, f.q, { columns: ['x.sku', 'x.nombre'] }, 'x.sku'); // [BU.4.2] + código de barras
           if (f.proveedor_id) qb.where('x.proveedor_id', f.proveedor_id);
           return qb as unknown as Promise<FilaCrudaMatriz[]>;
         })(),
@@ -1032,7 +1032,7 @@ export class StandardCostService {
           'c.costo_promedio',
           trx.raw('COALESCE(a.venta_bruta, 0) AS venta_30d'),
         );
-      applySmartSearch(qb, f.q, { columns: ['c.sku', 'cp.nombre'] });
+      applySmartSearchConCodigo(qb, f.q, { columns: ['c.sku', 'cp.nombre'] }, 'c.sku'); // [BU.4.2] + código de barras
       if (f.proveedor_id) qb.where('cp.supplier_id', f.proveedor_id);
       if (f.sucursal) qb.where('c.sucursal', f.sucursal);
       if (soloConVenta) qb.where('a.venta_bruta', '>', 0);
@@ -1340,7 +1340,7 @@ export class StandardCostService {
   private universo(trx: Knex.Transaction, f: { sucursal?: string; q?: string }) {
     const q = trx.from('analytics.v_kepler_standard_cost');
     if (f.sucursal) q.where('sucursal', f.sucursal);
-    applySmartSearch(q, f.q, { columns: ['sku', 'nombre'] });
+    applySmartSearchConCodigo(q, f.q, { columns: ['sku', 'nombre'] }, 'sku'); // [BU.4.2] + código de barras
     return q;
   }
 }
