@@ -276,7 +276,16 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     if (Math.abs(q - 1) <= PRICE_TOL) a1++;
     else if (Math.abs(q / (1 + IVA) - 1) <= PRICE_TOL) aIva++;
   }
-  const base: BasePrecio = a1 + aIva === 0 ? 'sin_medir' : aIva > a1 ? 'con_iva' : 'sin_iva';
+  // `[RE.76]` Documento MIXTO: renglones exentos (×1.00) y gravados (×1.16) en la misma factura. Con
+  // mayoría simple, la base `sin_iva` pintaba «Difiere precio» en todos los gravados (08/0000543:
+  // caramelos a ×1.04 y chocolates a ×1.16). `con_iva` ya acepta los dos (el exento llega sin IVA).
+  // ⛔ Los votos salen de los CANDIDATOS, y un par equivocado vota ×1.16 por casualidad (RED COLA 12/1.5
+  // contra 8/3.0 da ×1.15): en facturas sin IVA eso llega al 12–25 % de los votos. Medido en prod
+  // (2026-11-14, 1,792 evidencias): las facturas mixtas reales tienen ×1.16 en el 40–50 % de los votos.
+  // Por eso: con_iva si gana, o si tiene al menos 2 votos y un TERCIO del total. Un voto solo nunca
+  // basta (un renglón cobrado 16 % de más en una factura sin IVA, la negativa de RE.53).
+  const mixto = aIva >= 2 && aIva * 3 >= a1 + aIva;
+  const base: BasePrecio = a1 + aIva === 0 ? 'sin_medir' : aIva > a1 || mixto ? 'con_iva' : 'sin_iva';
 
   // 3b) `[RE.56]` Pares por NÚMEROS: el nombre no llegó al mínimo, pero la cantidad cuadra y el
   //     importe también (o no se puede medir y esa cantidad es única en la entrada). En 0000276

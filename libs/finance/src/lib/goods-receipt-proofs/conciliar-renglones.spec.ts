@@ -263,3 +263,25 @@ describe('[RE.73] cuadra sólo con cantidad e importe', () => {
     expect(una(100).status).toBe('cuadra');
   });
 });
+
+// `[RE.76]` Factura MIXTA (renglones exentos y gravados): la base de IVA no se decide por mayoría simple.
+describe('[RE.76] factura con renglones con y sin IVA', () => {
+  const NOMBRES = ['GOMITA OSITO', 'PALETA PAYASO', 'CHICLE MENTA', 'MAZAPAN ROSA', 'CHOCOLATE AMARGO', 'BOMBON BLANCO', 'CACAHUATE JAPONES', 'TAMARINDO ENCHILADO'];
+  const doc = (factores: number[]) => {
+    const kepler: RenglonKepler[] = factores.map((_, i) => ({ linea: String(i + 1), sku: `S${i}`, nombre: NOMBRES[i], unidad: 'PZA', cantidad: 10, costo_unitario: 10, importe: 100 }));
+    const remision = factores.map((f, i) => rem(NOMBRES[i], 10, Math.round(100 * f * 100) / 100, 'PZA'));
+    return conciliarRenglones({ remision, kepler, aliases: new Map(), barcodes: new Map(), boxFactor: new Map() });
+  };
+
+  it('3 exentos y 3 gravados: la base es con IVA y los 6 cuadran (antes los gravados «difiere precio»)', () => {
+    const c = doc([1, 1, 1, 1.16, 1.16, 1.16]);
+    expect(c.base_precio).toBe('con_iva');
+    expect(c.lines.every((l) => l.status === 'cuadra')).toBe(true);
+  });
+
+  it('NEGATIVA: 6 sin IVA y 2 a ×1.16 (25 %, como el ruido de pares cruzados) sigue sin IVA y esos 2 difieren', () => {
+    const c = doc([1, 1, 1, 1, 1, 1, 1.16, 1.16]);
+    expect(c.base_precio).toBe('sin_iva');
+    expect(c.lines.filter((l) => l.status === 'difiere_precio')).toHaveLength(2);
+  });
+});
