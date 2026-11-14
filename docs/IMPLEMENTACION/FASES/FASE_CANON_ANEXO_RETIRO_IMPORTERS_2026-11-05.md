@@ -1066,5 +1066,13 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
      lo guardado antes de escribir: ése es el árbitro, sin reloj.
   5. Las `mv_*` pasan a vistas sobre las tablas (renombre a `_congelada`, regla 5; ninguna pantalla cambia, ADR-104 §6).
   6. Sale el renglón `existencia-aux` de `crontab.feeds` y su latido. Los dos peldaños nocturnos, en una segunda etapa.
+- **8b.1 medido (2026-11-14, prod sólo lectura, misma foto REPEATABLE READ):** la regla de `mv_price_truth` reescrita POR
+  LLAVE da **idéntico** a la original filtrada en lotes de 1, 10, 50, 200 y 1,000 SKUs, y en el catálogo entero
+  (78,885 filas). Lo que la hace barata: las líneas de venta de esos SKUs primero (`kdm2` por `ix_kdm2_sku_venta`,
+  materializadas) y su documento en `kdm1` por la PK con las mismas condiciones (tipo, 90 días, no cancelado); sin eso el
+  planeador entraba por la fecha de `kdm1` (30,475 documentos) y tardaba ~2–3 s aunque fueran 10 SKUs. Costo: **10 SKUs
+  58–158 ms · 50 ~360–520 ms · 200 ~0.8–1.1 s** (~5 ms por SKU; el diseño suponía ~90). El recálculo completo del día se
+  queda con la forma original (~7.5 s). Sigue: la función `analytics.price_truth_de(skus)` y las tablas (8b.2), con su
+  prueba contra base real.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
