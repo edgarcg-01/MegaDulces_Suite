@@ -1074,5 +1074,22 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
   58–158 ms · 50 ~360–520 ms · 200 ~0.8–1.1 s** (~5 ms por SKU; el diseño suponía ~90). El recálculo completo del día se
   queda con la forma original (~7.5 s). Sigue: la función `analytics.price_truth_de(skus)` y las tablas (8b.2), con su
   prueba contra base real.
+- **8b.2, el precio (2026-11-14):** migración `20261114124213_canon621_price_truth_por_llave` (sin aplicar; sólo crea
+  objetos nuevos y no toma candado sobre tablas de la ingesta, así que puede aplicarse en horario). Crea tres cosas:
+  `analytics.price_truth_de(skus)` — la regla en una función: con `NULL` es la consulta de la matview tal cual, con una
+  lista la misma regla acotada; las dos formas salen de UNA plantilla (`reglaPrecio`, exportada para la prueba y para
+  medir) · la tabla `analytics.price_truth` (llave y columnas de la matview; nace vacía y sin lectores hasta el paso 5) ·
+  `analytics.recalcular_existencia(skus)` (`SECURITY DEFINER`, la única que escribe la tabla; escribe sólo lo que cambió y
+  devuelve insertadas/actualizadas/borradas; serializada con candado consultivo; arriba de 800 SKUs pasa sola al cálculo
+  completo). Re-medido en prod con el SQL que genera la migración, contra la definición viva y en la misma foto: completo
+  idéntico (78,867 filas, 7.7 s) y por llave idéntico en lotes de 1 a 1,000. Dos hallazgos que cambiaron el diseño:
+  ⛔ con `jit` prendido —el default de prod— la forma por llave tarda 5 a 14 veces más (200 SKUs: 10.3 s contra 0.74 s), por
+  eso las dos funciones llevan `jit = off`; y el costo por llave crece con la HISTORIA de ventas del SKU (`kdm2` no tiene
+  fecha; la ventana de 90 días vive en `kdm1`): ~9 ms por SKU de los que se venden hoy, ~4 ms al azar. Techo del día: ayer
+  hubo 34,104 líneas de venta; aun recalculando una vez por línea serían ~5 min de CPU, contra ~37 min del refresco de
+  hoy. Si la historia llegara a pesar, el arreglo es un índice cubriente en `kdm2` o el histograma diario (segunda etapa).
+  Prueba `test-newdb-precio-por-llave`: 30 ✓; cruza la función contra la matview que crea su migración original (dos
+  implementaciones) y pasa por todas las ramas de la regla; 9 mutantes en rojo y 1 equivalente declarado. Sigue: los otros
+  tres materializados en la misma función (cierra 8b.2) y después la cola y los triggers (8b.3, fuera de horario).
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
