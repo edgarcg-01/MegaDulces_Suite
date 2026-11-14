@@ -39,7 +39,7 @@ import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
-import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupoVista } from '../compras.service';
 import { receiptVerdict, cfdiQueCuadra, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import {
@@ -3293,8 +3293,9 @@ export class ComprasEntradasComponent {
       });
   }
   adjDoctypeLabel(dt: string): string { return dt === 'XD40' ? 'Devolución' : 'Nota de crédito'; }
-  adjGrupoLabel(g: AdjustmentGrupo): string { return ({ comercial: 'Descuento/apoyo', operacional: 'Operativo', error: 'Error de captura', sin_clasificar: 'Sin clasificar' } as Record<string, string>)[g] || g; }
-  adjGrupoSev(g: AdjustmentGrupo): 'success' | 'warn' | 'danger' | 'secondary' { return ({ comercial: 'success', operacional: 'warn', error: 'danger', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[g] || 'secondary'; }
+  // `[RE.74]` Las mismas palabras que el cajón del ajuste (`entity-ref`, GRUPO_BADGE), sobre el grupo de la vista.
+  adjGrupoLabel(g: AdjustmentGrupoVista): string { return ({ comercial: 'Comercial', operativo: 'Operativo', sin_clasificar: 'Sin clasificar' } as Record<string, string>)[g] || 'Sin clasificar'; }
+  adjGrupoSev(g: AdjustmentGrupoVista): 'success' | 'warn' | 'secondary' { return ({ comercial: 'success', operativo: 'warn', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'secondary'>)[g] || 'secondary'; }
 
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
   lineasTotal(lineas: EntradaLinea[]): number { return lineasTotal(lineas); }

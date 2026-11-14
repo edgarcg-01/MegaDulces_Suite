@@ -1133,7 +1133,9 @@ export class GoodsReceiptProofsService {
         // `[RE.25]` El reparto del cuadre. `cuadran` es lo que NO necesita ojo humano, y por eso
         // es el número que dice si el motor está sirviendo de algo.
         trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'cuadra')::int AS cuadran`),
-        trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'revisar')::int AS por_revisar`),
+        // `[RE.74]` «Por revisar» es trabajo pendiente: lo que ya se validó no cuenta aunque su OCR no case
+        // (contaba 849 con 107 ya validadas, medido en prod el 2026-11-14).
+        trx.raw(`COUNT(*) FILTER (WHERE ${CUADRE_SQL} = 'revisar' AND d.last_status = 'recibido')::int AS por_revisar`),
         // Se cuenta aparte de `por_revisar` a propósito: no es un descuadre, es una hoja que no
         // se pudo leer. Se arregla re-escaneando, no revisando — y mezclarlos esconde un
         // problema de captura detrás de uno de conciliación.

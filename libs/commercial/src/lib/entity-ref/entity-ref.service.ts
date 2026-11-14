@@ -4,6 +4,7 @@ import { EntityKind, RefField, RefRelation, RefResult, makeRef, parseRef } from 
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago, PRONTO_PAGO_MIN_OBS } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import { DISCOUNT_REASON_LABEL, type DiscountReason } from '@megadulces/contracts';
+import { referenciaDelAjuste } from './referencia-ajuste';
 
 /**
  * Resolvedor universal de referencias — el backend de "todo es clickeable".
@@ -447,7 +448,9 @@ export class EntityRefService {
         { label: 'Categoría', value: a.categoria, source: `clasificación ${a.categoria_source ?? 'n/d'}` },
         { label: 'Monto', value: n(a.monto), kind: 'money' },
         { label: 'IVA', value: n(a.iva), kind: 'money' },
-        { label: 'Factura ref.', value: a.factura_ref, kind: 'mono' },
+        // `[RE.74]` `kdm1.c11` es una referencia de TEXTO LIBRE, no el folio de una factura: en 429 de 2,154
+        // ajustes trae el código del proveedor. Se rotula como lo que es y ese caso se dice.
+        { label: 'Referencia', value: referenciaDelAjuste(a.factura_ref, a.proveedor_code), kind: 'mono', source: 'kdm1.c11 (texto libre)' },
         { label: 'Entrada ligada', value: a.entrada_folio, kind: 'mono' },
       ],
       relations, notes,
