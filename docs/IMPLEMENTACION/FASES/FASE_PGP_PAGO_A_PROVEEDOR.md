@@ -2211,7 +2211,7 @@ mecánico; (3) conectar `entregar()` al momento «validado» del pago, con el re
 **NO MEDIDO:** los `INSERT`/`UPDATE` reales (el ensayo termina en ROLLBACK) y la foto de contadores de una captura de
 Tesorería, que confirmaría que no hay una novena tabla.
 
-### `[PGP.121]` El banco dispara el pago, y el pago se escribe en Kepler (🧪 2026-11-13)
+### `[PGP.121]` El banco dispara el pago, y el pago se escribe en Kepler (🚀 2026-11-13; escritura encendida 2026-11-14)
 
 Edgar, 2026-11-13: *«hay que encenderla»*. Medido ese día en prod, encenderla tal cual no escribía **nada**: los 41
 días del Calendario seguían en borrador (nadie autorizó un día ni marcó un pago como pagado desde el 16-oct), 211 de 228
@@ -2258,12 +2258,33 @@ dos cuentas y 2 disputados. Los 56 probados que Tesorería capturó caen todos e
 escucha el canal del banco) y `database/tests/test-newdb-pgp121-pago-por-el-banco.js`: el servicio real contra Postgres,
 en una transacción revertida (lo corre el job `pruebas-db` del CI).
 
-**NO MEDIDO:** la escritura contra una base real fuera del CI (no hay base local; la laptop no apunta a prod) y la primera
-pasada en prod. Al desplegar, el worker marcará pagados los ~79 de arriba con la siguiente carga del banco (y una vez al
-arrancar). Se verifica en `payment_allocation_history` (`event = 'pagado_por_el_banco'`).
+**Primera pasada en prod (2026-11-13 18:17):** 79 pagados por el banco ($10.47 M), lo mismo que se midió antes de
+desplegar. Cada uno con su fila `pagado_por_el_banco` en la bitácora.
 
-**Para encender la escritura en Kepler (no está encendida):**
-1. `KEPLER_PAGO_ESCRITURA=encendida` y `KEPLER_PAGO_TEMPLATE_FOLIO_00` en el worker de prod (lo pone quien administra md).
+**Encendida el 2026-11-14 a las 09:12** (Edgar, en md): `KEPLER_PAGO_ESCRITURA=encendida` y
+`KEPLER_PAGO_TEMPLATE_FOLIO_00` en el secreto `kepler-push`, y el secreto montado en el worker (antes sólo lo tenía
+la API, y el que escribe es el worker). El manifiesto `42-worker` lo lleva en el repo para que un despliegue no lo quite.
+
+⛔ **La primera pasada encendida escribió cero, y era un defecto de la fila.** Tomaba los 50 más viejos
+(`paid_bank_date` ascendente), y `soltar` regresa los rechazados a la fila: los 50 salieron rechazados (casi todos
+ya capturados por Tesorería) y los 29 más nuevos, con los 3 escribibles del servidor `00` (~$1.2 M), no se habrían
+intentado nunca. Arreglo: `SQL_PROBADOS_SIN_LIGAR` pone primero lo nunca intentado y, dentro de cada grupo, lo más
+nuevo. Contra prod, en sólo lectura, la siguiente pasada toma 3 de 3 (el orden viejo, 0 de 3). Lo prueba el caso 6 de
+`test-newdb-pgp121`, con el orden viejo como control en el mismo escenario.
+
+**Lo que la compuerta detuvo, bien:** un pago de la sucursal 06 pasó el ensayo y el adaptador lo rechazó por «Falta
+`KEPLER_PAGO_TEMPLATE_FOLIO_06`». Sólo `00` tiene plantilla elegida: de los 7 pagos escribibles, 4 (01, 06, 07 y 08)
+esperan la suya.
+
+**NO MEDIDO:** el primer `X-D-26` escrito por la Suite en Kepler. Llega con el arreglo de la fila desplegado y la
+siguiente carga del banco.
+
+**Pendiente:**
+1. La plantilla de pago de `01`–`08` (`KEPLER_PAGO_TEMPLATE_FOLIO_NN`), elegida leyendo entero un `X-D-26` de
+   Tesorería en el Kepler vivo de cada servidor.
 2. Que Tesorería deje de capturar a mano las transferencias a proveedores `C…` que la Suite escribe. Mientras las
    capture, la Suite no las escribe (el ensayo las ve capturadas): no hay doble, pero tampoco ahorro.
 3. Antes de enero, el permiso sobre `kdc22701`.
+4. Lo rechazado para siempre (ya capturado por Tesorería) se vuelve a revisar en cada pasada mientras esté entre los 50
+   más nuevos: es trabajo repetido, no riesgo. Y un rechazo pasajero (la plantilla que falta) que quede fuera de esos
+   50 ya no se reintenta solo. Ligar lo capturado al folio de Tesorería lo sacaría de la fila.

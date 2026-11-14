@@ -25,6 +25,27 @@ SELECT bm.id::text AS id, bm.bank_account_id::text AS cuenta_id, to_char(bm.move
  WHERE bm.tenant_id = ? AND bm.deleted_at IS NULL AND bm.amount_out > 0
    AND bm.movement_date BETWEEN ?::date - 3 AND ?::date`;
 
+/**
+ * Los pagos probados por el banco que nadie ligó a Kepler, en el ORDEN en que se intentan escribir: primero los que
+ * nunca se intentaron y, dentro de cada grupo, los más nuevos. Parámetros: `[tenant, desde, tope]`.
+ *
+ * ⛔ Por fecha ascendente había HAMBRE: un rechazo que no cambia (Tesorería ya lo capturó, acreedor que no es de
+ * compra) se suelta y vuelve a la fila, y los más viejos ocupaban los `tope` lugares de cada pasada. Medido en la
+ * primera pasada encendida (2026-11-14): tomó los 50 más viejos (20-oct a 6-nov), los 50 rechazados, y los 29 más
+ * nuevos —con los 3 escribibles del servidor 00— no se habrían intentado nunca.
+ */
+export const SQL_PROBADOS_SIN_LIGAR = `
+SELECT a.id::text AS id
+  FROM finance.payment_allocations a
+ WHERE a.tenant_id = ? AND a.status = 'executed'
+   AND a.paid_bank_movement_id IS NOT NULL AND a.kepler_payment_folio IS NULL AND a.kepler_payment_linked_by IS NULL
+   AND a.paid_bank_date >= ?::date
+ ORDER BY EXISTS (SELECT 1 FROM finance.payment_allocation_history h
+                   WHERE h.tenant_id = a.tenant_id AND h.allocation_id = a.id
+                     AND h.event IN ('kepler_no_escrito', 'kepler_incierto')),
+          a.paid_bank_date DESC, a.id
+ LIMIT ?`;
+
 /** Las salidas que ya son la prueba de un pago vigente. Parámetros: `[tenant]`. */
 export const SQL_SALIDAS_LIGADAS = `
 SELECT paid_bank_movement_id::text AS id
