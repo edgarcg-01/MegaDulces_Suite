@@ -53,6 +53,7 @@ import { DictarBusquedaComponent } from '../components/dictar-busqueda.component
 import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
 import { MOTIVOS_CANCELAR, type MotivoElegido } from '@megadulces/contracts';
 import { ChecadorPreciosService } from '../checador-precios.service';
+import { CodigoTecleado } from '../codigo-tecleado';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
 import { fechaEntregaPorOmision, todayIso } from '../../../core/date/biz-days';
 import {
@@ -250,6 +251,7 @@ import {
           <input pInputText type="search" [placeholder]="voz.escuchando() ? 'Escuchando… di el producto' : 'Buscar producto o código'"
             aria-label="Buscar producto o código"
             [ngModel]="searchTerm()" (ngModelChange)="alBuscar($event)"
+            (keydown.enter)="codigoTecleado.alConfirmar(searchTerm())"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
           <!-- [MCP.26] Buscar dictando: lo dicho se convierte («bombón rosa 1 k») y queda escrito en el campo. -->
@@ -1296,7 +1298,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.escaneoSeq++;
     this.searchTerm.set(v);
     if (this.avisoEscaneo()) this.avisoEscaneo.set(null);
+    this.codigoTecleado.alTeclear(v);
   }
+
+  /**
+   * `[BU.4.1]` Un código tecleado, pegado o de pistola se traduce a su clave por el MISMO camino que
+   * la cámara: el filtro del catálogo sólo mira nombre y SKU, y sin esto daba «sin resultados».
+   */
+  readonly codigoTecleado = new CodigoTecleado((codigo) => void this.alEscanear(codigo));
+  private readonly _cancelaCodigoTecleado = inject(DestroyRef).onDestroy(() => this.codigoTecleado.cancelar());
 
   /**
    * `[VTK.18]` La cámara leyó un código. El catálogo del pedido se busca por nombre y SKU (la clave de

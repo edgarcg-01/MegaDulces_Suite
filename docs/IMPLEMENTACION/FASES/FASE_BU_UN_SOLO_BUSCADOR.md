@@ -85,6 +85,26 @@ Sin cambios de dato. El motor opera sobre columnas existentes de cada consulta. 
 
 ⛔ Cargar la skill `diseno` antes de tocar el primer archivo. <500 ms por búsqueda.
 
+### Frente BU.4 · Código de barras en todo buscador de producto (Edgar, 2026-11-14)
+
+> *«Agreguémosle a todos los buscadores de productos que sirva con código de barras.»* — Edgar,
+> sobre la captura de *Tomar pedido* del vendedor («Buscar producto o código»).
+
+**Medido antes de escribir** (prod, sólo lectura, `system_identifier 7688376744939610156`):
+- Los códigos viven en 7 casillas de `kepler_ods.kdii` (ERP_KEPLER §3.y.4): 71,779 de 8–14 dígitos,
+  3,754 de 6–7. La etiqueta de caja `C`+clave **no** está guardada en ninguna casilla: Kepler la arma.
+- El índice GIN `ix_kdii_codigos_verificador` resuelve 6 casillas en ~2 ms; `c102` no está en él y
+  es la única casilla de **630** códigos → rama aparte, ~75 ms en las 9 sucursales, ~20 ms con una.
+- El vendedor: la **cámara** ya traducía el código (`[VTK.18]`), pero **tecleado, pegado o de pistola**
+  daba «sin resultados». *Cotizar* decía «Buscar producto o código» y no buscaba códigos (la ley 0).
+
+| # | Item | Estado | Prueba |
+|---|---|---|---|
+| BU.4.0 | **Una regla de «qué es un código»** para navegador y API: `@megadulces/contracts/http/codigo-de-barras` (`pareceCodigoDeBarras`: 6–14 dígitos o `C`+5) | 🧪 | spec del vendedor: 7 sí / 8 no |
+| BU.4.1 | **Vendedor — Tomar pedido y Cotizar**: el código tecleado, pegado o de pistola (Enter) se traduce a su clave con `claveDeCodigo` (copia del teléfono, también sin señal; si no, en línea), igual que la cámara. Pieza `codigo-tecleado.ts`: Enter resuelve ya; tecleado a mano, al dejar de teclear (450 ms), una sola vez | 🧪 | 62/62 vitest; 7 casos nuevos por el DOM (input + Enter). **Mutante** (sin el cableado, en copia fuera del árbol): 5 rojas, las negativas siguen verdes. `check:pantalla` **NO MEDIDA** (no recorre `apps/vendor`). Sin validación en dispositivo |
+| BU.4.2 | **Servidor**: pieza `libs/commercial/src/lib/shared/skus-por-codigo-de-barras.ts` (`orPorCodigoDeBarras(g, 'p.sku', term, suc?)`) y cada buscador de producto la suma dentro del grupo de `applySmartSearch` | 🔨 | pieza medida contra prod con knex (EAN c7 → 00066 · sólo c102 → 08090 · C00066 → 00066 · inexistente → nada · «gomitas» → sin rama, 1 ms); spec 7/7 |
+| BU.4.3 | **Listas filtradas en el navegador** (`view`): la fila trae su código o la caja resuelve contra el servidor | ⬜ | censo pendiente |
+
 ---
 
 ## 4. Decisiones (→ ADR)

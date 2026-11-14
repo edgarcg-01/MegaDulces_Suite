@@ -117,3 +117,48 @@ describe('Tomar pedido · buscar leyendo el código de barras [VTK.18]', () => {
     expect(el.querySelector('.cat-age .pi-camera')).toBeNull();
   });
 });
+
+// `[BU.4.1]` El mismo traductor, cuando el código se TECLEA, se pega o lo manda una pistola lectora
+// (que escribe el código y da Enter). Antes: «sin resultados», aunque la cámara sí lo encontraba.
+describe('Tomar pedido · código de barras tecleado o de pistola [BU.4.1]', () => {
+  afterEach(() => { TestBed.resetTestingModule(); vi.useRealTimers(); });
+
+  function teclear(el: HTMLElement, valor: string): HTMLInputElement {
+    const input = el.querySelector<HTMLInputElement>('.search input[type="search"]')!;
+    input.value = valor;
+    input.dispatchEvent(new Event('input'));
+    return input;
+  }
+
+  it('⭐ pistola: el código + Enter se traduce a su clave y la lista muestra ESE producto', async () => {
+    const { cmp, fixture, el, texto, checador } = montar(async () => ({ estado: 'hallado', clave: '14055', nombre: 'TAMARINDO PRUEBA 20P', ambiguo: false }));
+    const input = teclear(el, '7501056320011');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(checador.claveDeCodigo).toHaveBeenCalledTimes(1);
+    expect(checador.claveDeCodigo).toHaveBeenCalledWith('7501056320011', '02');
+    expect(cmp.searchTerm()).toBe('14055');
+    expect(cmp.displayed().map((p) => p.product_id)).toEqual(['b']);
+    expect(texto()).toContain('TAMARINDO PRUEBA 20P (clave 14055)');
+  });
+
+  it('tecleado a mano: se resuelve al dejar de teclear, una sola vez', async () => {
+    vi.useFakeTimers();
+    const { cmp, el, checador } = montar(async () => ({ estado: 'hallado', clave: '14055', nombre: 'TAMARINDO PRUEBA 20P', ambiguo: false }));
+    let v = '';
+    for (const d of '7501056320011') { v += d; teclear(el, v); vi.advanceTimersByTime(60); }
+    expect(checador.claveDeCodigo).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(checador.claveDeCodigo).toHaveBeenCalledTimes(1);
+    expect(cmp.searchTerm()).toBe('14055');
+  });
+
+  it('⛔ [negativa] un nombre o una clave de 5 dígitos con Enter NO van al traductor', () => {
+    const { cmp, el, checador } = montar(async () => ({ estado: 'no_se_pudo' }));
+    teclear(el, 'tamarindo').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    teclear(el, '14055').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(checador.claveDeCodigo).not.toHaveBeenCalled();
+    expect(cmp.displayed().map((p) => p.product_id)).toEqual(['b']);
+  });
+});

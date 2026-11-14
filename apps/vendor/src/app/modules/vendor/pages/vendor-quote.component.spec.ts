@@ -7,6 +7,7 @@ import { VendorService } from '../vendor.service';
 import { VendorQuoteService } from '../vendor-quote.service';
 import type { PriceRow } from '../../portal/portal.service';
 import type { CotizacionDetalle } from '../cotizacion';
+import { ChecadorPreciosService, type ClaveDeCodigo } from '../checador-precios.service';
 
 /**
  * `[MCP.12]` Cotizar en la app del vendedor, montada de verdad con los servidores simulados: el
@@ -26,7 +27,7 @@ const COT = (lineas: CotizacionDetalle['lines'] = []): CotizacionDetalle => ({
 const renPaleta = { id: 'l1', line_number: 1, product_id: 'p1', product_name: 'PALETA PAYASO GRANDE', product_sku: '30117', requested_text: null,
   quantity: 1, qty_unit: 'CJA', qty_factor: 24, unit_price: 228, line_total: 228, parent_line_number: null };
 
-function montar(o: { sucursal?: unknown } = {}) {
+function montar(o: { sucursal?: unknown; checador?: { claveDeCodigo: (c: string, s: string | null) => Promise<ClaveDeCodigo> } } = {}) {
   const vendor = {
     getCustomer: vi.fn(() => of({ id: 'c1', code: 'CLI-1', name: 'ABARROTES CARMELITA', phone: '443 123 4567' })),
     myStockSources: vi.fn(() => of({ sucursal: 'sucursal' in o ? o.sucursal : { id: 'w1', code: '01', name: 'Padre Hidalgo' }, camioneta: null })),
@@ -49,6 +50,7 @@ function montar(o: { sucursal?: unknown } = {}) {
       { provide: VendorService, useValue: vendor },
       { provide: VendorQuoteService, useValue: quotes },
       { provide: MessageService, useValue: toast },
+      ...(o.checador ? [{ provide: ChecadorPreciosService, useValue: o.checador }] : []),
       { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'c1' }), queryParamMap: convertToParamMap({}) } } },
     ],
   });
@@ -191,5 +193,57 @@ describe('[MCP.26] Cotización · buscar por palabras y dictando', () => {
     el.querySelector<HTMLButtonElement>('app-dictar-busqueda button')!.click();
     fix.detectChanges();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('no dio permiso para usar el micrófono');
+  });
+});
+
+// [BU.4.1] El rótulo dice «Buscar producto o código» y el filtro sólo miraba nombre y SKU: un código de
+// barras tecleado o de pistola daba cero resultados. Ahora se traduce a su clave como en Tomar pedido.
+describe('[BU.4.1] Cotización · código de barras tecleado o de pistola', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const nombres = (cmp: VendorQuoteComponent) => cmp.visibles().map((p) => p.product_name);
+  function conTraductor(r: ClaveDeCodigo) {
+    const checador = { claveDeCodigo: vi.fn(async () => r) };
+    return { ...montar({ checador }), checador };
+  }
+  function pistola(el: HTMLElement, valor: string): void {
+    const input = el.querySelector<HTMLInputElement>('.cq-search input[type="search"]')!;
+    input.value = valor;
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+  }
+
+  it('⭐ el código + Enter encuentra su producto y dice cuál es', async () => {
+    const { cmp, el, fix, texto, checador } = conTraductor({ estado: 'hallado', clave: '13205', nombre: 'MAZAPAN GIGANTE 50 G', ambiguo: false });
+    pistola(el, '7501000112233');
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(checador.claveDeCodigo).toHaveBeenCalledTimes(1);
+    expect(checador.claveDeCodigo).toHaveBeenCalledWith('7501000112233', '01');
+    expect(nombres(cmp)).toEqual(['MAZAPAN GIGANTE 50 G']);
+    expect(texto()).toContain('Código 7501000112233: MAZAPAN GIGANTE 50 G (clave 13205).');
+  });
+
+  it('⛔ [negativa] código que Kepler no tiene: cero resultados y se DICE por qué', async () => {
+    const { cmp, el, fix, texto } = conTraductor({ estado: 'no_esta' });
+    pistola(el, '7500000000000');
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(nombres(cmp)).toEqual([]);
+    expect(texto()).toContain('El código 7500000000000 no está en el catálogo de Kepler.');
+  });
+
+  it('⛔ [negativa] sin respuesta y sin copia: «no se pudo confirmar», no «no existe»', async () => {
+    const { el, fix, texto } = conTraductor({ estado: 'no_se_pudo' });
+    pistola(el, '7500000000000');
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(texto()).toContain('No se pudo confirmar de qué producto es 7500000000000');
+    expect(texto()).not.toContain('no está en el catálogo');
+  });
+
+  it('una palabra con Enter no va al traductor', () => {
+    const { el, checador } = conTraductor({ estado: 'no_se_pudo' });
+    pistola(el, 'mazapan');
+    expect(checador.claveDeCodigo).not.toHaveBeenCalled();
   });
 });

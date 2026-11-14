@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Injector, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -20,6 +20,8 @@ import {
 } from '../cotizacion';
 import { normalizarBusqueda, tokensDeBusqueda } from '@megadulces/ui-web';
 import { DictarBusquedaComponent } from '../components/dictar-busqueda.component';
+import { ChecadorPreciosService } from '../checador-precios.service';
+import { CodigoTecleado } from '../codigo-tecleado';
 
 const pesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 /** Sin buscar se muestran los más vendidos; buscando, hasta 60 resultados. */
@@ -60,12 +62,14 @@ const TOPE = 60;
         <p class="cq-note">No es un pedido: no aparta mercancía ni llega al surtidor. Los precios los calcula el sistema con Kepler.</p>
         <div class="cq-search">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input type="search" [placeholder]="voz.escuchando() ? 'Escuchando… di el producto' : 'Buscar producto o código'" [value]="busqueda()" (input)="busqueda.set($any($event.target).value)"
+          <input type="search" [placeholder]="voz.escuchando() ? 'Escuchando… di el producto' : 'Buscar producto o código'" [value]="busqueda()" (input)="alBuscar($any($event.target).value)" (keydown.enter)="codigoTecleado.alConfirmar(busqueda())"
             inputmode="search" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="Buscar producto" />
           <!-- [MCP.26] Buscar dictando. -->
-          <app-dictar-busqueda #voz (texto)="busqueda.set($event)" />
+          <app-dictar-busqueda #voz (texto)="alBuscar($event)" />
         </div>
         @if (voz.error(); as ve) { <p class="cq-err" role="alert">{{ ve }}</p> }
+        <!-- [BU.4.1] Qué pasó con el código de barras tecleado o de pistola. -->
+        @if (avisoCodigo(); as a) { <p [class]="a.warn ? 'cq-err' : 'cq-note'" role="status" aria-live="polite">{{ a.texto }}</p> }
         <div class="cq-lh"><b>{{ busqueda().trim() ? visibles().length + (topada() ? '+' : '') + ' resultado' + (visibles().length === 1 ? '' : 's') : 'Catálogo · más vendidos' }}</b><span>toca + para cotizar</span></div>
         <div class="cq-lista">
           @for (p of visibles(); track p.product_id) {
@@ -216,6 +220,18 @@ export class VendorQuoteComponent implements OnInit {
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   readonly busqueda = signal('');
+  /** `[BU.4.1]` Qué pasó con el último código de barras tecleado, pegado o de pistola. */
+  readonly avisoCodigo = signal<{ texto: string; warn: boolean } | null>(null);
+  private readonly injector = inject(Injector);
+  /** Cada código tiene su número: una resolución lenta no pisa lo que se tecleó después. */
+  private codigoSeq = 0;
+  /**
+   * `[BU.4.1]` El catálogo se filtra por nombre y SKU; un código de barras se traduce antes a su clave
+   * con el mismo traductor que la cámara de Tomar pedido (`[VTK.18]`): la copia de precios del
+   * teléfono, también sin señal, y si no, en línea. Si no se puede, se dice; no se inventa un producto.
+   */
+  readonly codigoTecleado = new CodigoTecleado((codigo) => void this.buscarCodigo(codigo));
+  private readonly _cancelaCodigoTecleado = inject(DestroyRef).onDestroy(() => this.codigoTecleado.cancelar());
   readonly vista = signal<'armar' | 'doc'>('armar');
   /** El producto cuyo renglón se está guardando (un toque a la vez por producto). */
   readonly ocupado = signal<string | null>(null);
@@ -264,6 +280,40 @@ export class VendorQuoteComponent implements OnInit {
     const cli = this.cliente();
     return linkWhatsApp(mensajeWhatsApp(c, c.recipient_name || cli?.name || 'Cliente', this.sucursal()?.name || 'tu sucursal'), numeroWhatsApp(cli?.whatsapp, cli?.phone));
   });
+
+  /** Teclear en el buscador: el aviso del último código ya no aplica. */
+  alBuscar(v: string): void {
+    this.codigoSeq++;
+    this.busqueda.set(v);
+    if (this.avisoCodigo()) this.avisoCodigo.set(null);
+    this.codigoTecleado.alTeclear(v);
+  }
+
+  async buscarCodigo(codigo: string): Promise<void> {
+    const seq = ++this.codigoSeq;
+    this.avisoCodigo.set({ texto: `Buscando el producto del código ${codigo}…`, warn: false });
+    const suc = this.sucursal()?.code;
+    const sucursal = suc && /^[0-9]{2}$/.test(suc) ? suc : null;
+    const r = await this.injector.get(ChecadorPreciosService).claveDeCodigo(codigo, sucursal)
+      .catch(() => ({ estado: 'no_se_pudo' as const }));
+    if (seq !== this.codigoSeq) return;
+    if (r.estado !== 'hallado') {
+      this.avisoCodigo.set({
+        texto: r.estado === 'no_esta'
+          ? `El código ${codigo} no está en el catálogo de Kepler.`
+          : `No se pudo confirmar de qué producto es ${codigo}: el servidor no contestó y no está en la copia de precios del teléfono.`,
+        warn: true,
+      });
+      return;
+    }
+    this.busqueda.set(r.clave);
+    this.avisoCodigo.set({
+      texto: r.ambiguo
+        ? `El código ${codigo} está en más de un producto; se busca la clave ${r.clave} (${r.nombre}). Confirma que sea el que tienes en la mano.`
+        : `Código ${codigo}: ${r.nombre} (clave ${r.clave}).`,
+      warn: r.ambiguo,
+    });
+  }
 
   ngOnInit(): void {
     this.customerId = this.route.snapshot.paramMap.get('id') ?? '';
