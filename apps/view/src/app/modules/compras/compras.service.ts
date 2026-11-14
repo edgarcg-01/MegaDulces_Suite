@@ -1217,7 +1217,10 @@ export interface DuplicatesResponse { window_days: number; groups: number; total
  * precisión.
  */
 export type AdjustmentMatch = 'exacto' | 'monto' | 'proveedor+fecha';
-export interface AdjustmentForEntradaRow extends AdjustmentRow {
+/** `[RE.74]` El grupo de la vista `v_purchase_adjustments` (RE.68): el mismo que pinta el cajón del ajuste. */
+export type AdjustmentGrupoVista = 'comercial' | 'operativo' | 'sin_clasificar';
+export interface AdjustmentForEntradaRow extends Omit<AdjustmentRow, 'grupo'> {
+  grupo: AdjustmentGrupoVista;
   match: AdjustmentMatch;
   /** `[RE.21]` — su magnitud casa con el hueco dentro de la tolerancia. */
   explica?: boolean;

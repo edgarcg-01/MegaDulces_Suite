@@ -300,7 +300,7 @@ export class PurchaseAdjustmentsService {
         }
       });
       const rows: any[] = await b
-        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'proveedor_interno')
+        .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'grupo', 'proveedor_interno')
         .orderBy('adjustment_date', 'desc').limit(50);
 
       // `[RE.71]` La misma regla que el WHERE, en código puro y probado: lo que no está ligado por
@@ -324,7 +324,10 @@ export class PurchaseAdjustmentsService {
           ? Math.round((new Date(r.adjustment_date).getTime() - new Date(p.date).getTime()) / 86400000)
           : null;
         return {
-          ...r, grupo: grupoOf(r.categoria), explica, dias_despues: diasDespues,
+          // `[RE.74]` El grupo de la VISTA (RE.68), el mismo que pinta el cajón del ajuste. `grupoOf` es otro
+          // mapa: a una devolución X-D-40 con motivo «otro» la llamaba «sin clasificar» y el cajón «operativo»
+          // (14 ajustes, $222 mil, en las entradas desde septiembre).
+          ...r, grupo: r.grupo || 'sin_clasificar', explica, dias_despues: diasDespues,
           // Tres niveles honestos en vez de dos: `exacto` es el 4% que Kepler sí liga; `monto`
           // es fuerte pero circunstancial; `proveedor+fecha` es un candidato que puede ser ruido.
           match: ligadoAEntrada(r, { sucursal: p.sucursal, entrada_folio: p.entrada_folio }) ? 'exacto'
