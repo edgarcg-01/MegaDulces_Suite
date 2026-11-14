@@ -191,6 +191,9 @@ mezcladas al recibir (caja contra pieza). Ahí no sirve de testigo, y es un hall
 tránsito no se resta, sólo se muestra en «En camino». El costo de las OC sin cerrar es otro, y es el
 que justifica PQ.111:
 
+- ⚠️ **Corregido el 2026-11-14 (§3e, PQ.111 punto 4): para las parciales (R) esto era FALSO.** «En camino»
+  excluye las OC en F, C y R (`oc_open` del fact y `inTransitDetail`): de 678 R del último año, 0 están ahí. El
+  papel que sí muestra son 42 OC en N o A que Compras ya marcó «No surtida / cancelada» (≈ $4.8 M). Texto original:
 - **La columna «En camino» muestra papel.** Las OC que nunca van a llegar aparecen como mercancía que
   viene; el comprador decide a ojo con ese dato.
 - **La compra doble conocida.** `transito.ts` documenta que, al ignorar el tránsito, el motor vuelve a
@@ -411,6 +414,18 @@ que la de México cuente). **Sin validación visual** (sin backend local por reg
 la Suite** —«el resto no llega», con motivo, desde `oc-abiertas`— y «En camino» deja de contar ese resto; en
 Kepler sigue en R y la pantalla lo dice.
 
+4. **Al ir a construirlo (2026-11-14, prod en sólo lectura y el código): el saldo de una parcial no está en
+   ninguna cifra de la Suite.** «En camino» excluye F, C y R por construcción (`oc_open` de
+   `import-replenishment-plan.js` y `inTransitDetail`: «el propio ERP ya la dio por cerrada»). De las 678 OC
+   en R del último año, **0** están en «En camino» y **3** en Abiertas, ninguna con saldo positivo; su saldo en
+   Kepler (`c42` > 0, ≈ $26.4 M) queda fuera de toda pantalla. La premisa de D42 («En camino» muestra ese
+   resto) la escribí yo en §3b.6 el 13-nov sin medirla, y es falsa para R.
+   **Lo que «En camino» sí muestra, y la Suite sabe que es papel:** de sus 151 OC (todas en N o A, ninguna con
+   vale vivo), **42 (≈ $4.8 M) Compras ya las marcó «No surtida / cancelada»** y se siguen contando como
+   mercancía que viene, porque «En camino» no lee el seguimiento. 77 están sin revisar (≈ $13.1 M, casi
+   todas de menos de 30 días) y 30 vigentes o detenidas por pago: tránsito real.
+   ⇒ **D44 (abajo).**
+
 ## 4. Opción por opción: a dónde va cada una
 
 | Módulo | Opción | Hoy en la Suite | Destino | Item |
@@ -508,6 +523,15 @@ pantalla).
   requisición de la Suite pasa a «cancelled»**, con motivo y quién. Es distinto de D41: allí se cancelaba la OC y la requisición seguía
   viva; aquí se cancela la requisición misma, y dejarla en «ordered» afirmaría algo falso.
   **Recomendación: sí.**
+- ✅ **D44 — decidida por encargo del PM el 2026-11-14 (§3e, PQ.111 punto 4): PQ.111 se declara «no se hace».**
+  D42 sigue siendo la regla si el saldo de una parcial llega a una cifra de la Suite; hoy no está en ninguna
+  (0 de 678 R en «En camino»), así que cerrarla aquí no cambiaría nada. El papel que «En camino» sí muestra
+  —42 OC marcadas «No surtida / cancelada»— **no se saca del número en la Suite**: la columna sale del fact
+  de `import-replenishment-plan.js`, y quitarlas ahí sería parchar un importer (regla: ninguno). Se limpia
+  **en la fuente**, cancelándolas en Kepler con PQ.110: 38 están en N sin vale (caben en su regla; casi todas
+  de CEDIS, donde el interruptor está apagado); 4 en A no caben (Kepler no se ha visto cancelarlas).
+  Anotarlas en el diálogo de folios queda **fuera por ahora**: se abrió 16 veces en 30 días (`GET
+  in-transit/:productId`); no se gana su lugar.
 - Siguen sin firma, del plan base: **D37** (¿la Suite escribe documentos que mueven inventario?),
   **D38** (¿escribe la aplicación?) y **D39** (Modifica = cancelar y reemitir).
 
@@ -575,8 +599,9 @@ pantalla).
 | 2026-11-12 | Anexo K: los 10 módulos del menú Compras de Kepler con sus submódulos (25 opciones). Medido: una de cada 8 OC se cancela; la autorización no frena nada (154 OC recibidas sin autorizar); «Saldar» es un documento de cuentas por pagar (corrige el §20). Nacen PQ.122–PQ.123 y DK1–DK3, sin firma | Claude |
 | 2026-11-13 | Revisión crítica, el anexo se vuelve implementable: la métrica principal pasa a ser el acto (OC canceladas desde la Suite, hoy 0 de 360); la liga OC → vale queda provisional hasta su control negativo; «saldar» se condiciona a medir la necesidad; PQ.123 mide cada liga antes de prometer la ficha. Nacen **PQ.124** (cancelaciones medidas) y **PQ.125** (necesidad de saldar), ambos C0 y primeros en el orden | PM + Claude |
 | 2026-11-13 | **PQ.124 y PQ.125 ✅** (§3b): la liga OC → vale pasa su placebo (98.4 % contra 18.1 % y 3.2 %); en N con vale son 143, no 154; las cancelaciones no son recapturas (15.2 % contra 16.6 % de azar): 249 OC sin vale y 112 recepciones anuladas enteras; la 01 cancela el 27 %; la autorización no es regla para nadie; la Suite ya escribe requisiciones y OC en 6 sucursales; 74 OC parciales viejas con ≈ $10.9 M. PQ.110 queda como «Cancelar OC sin vale» con motivo | Claude |
-| 2026-11-14 | **KR.7 C3 en código:** las cinco preguntas antes y después (§3e). Botón «Cancelar en Kepler» al final del renglón «En Kepler» de la ficha, sólo con `disponible` del servidor; el porqué sólo donde el renglón pide cancelar (21 + la inversa; nada en las 180 normales). El detalle trae `kepler_cancelacion` (`leerCancelacionKeplerDeRequisicion`, ejercida en la prueba de base real) y el renglón dice la cancelación desde la Suite aunque la réplica vaya atrasada. Prefijo de D43 en contracts (`REQUISICION_CANCELADA_EN_KEPLER`). 24 pruebas de la regla, 5 mutantes en rojo; `check:pantalla` igual que antes (103 fallas, 9 nuevas ajenas); plantillas tipan. Sin validación visual. |
-| 2026-11-14 | **KR.7 C2 en código, sin aplicar:** migración `20261114120335`, que **extiende** la tabla de intentos de PQ.110 (`document_type` + `requisition_id`, `oc_folio` deja de ser obligatoria y un CHECK amarra cada tipo a sus columnas; regla 2), siembra el interruptor `cancela_requisicion` **apagado** en las 9 con tope 1 y reparte la llave `COMPRAS_REQUISICION_CANCELAR` a los mismos 6 roles que `COMPRAS_OC_CANCELAR` (medido: los 6 abren la ficha). `GET`/`POST /commercial/replenishment/requisitions/:id/kepler-cancellation` en el mismo servicio y controlador que PQ.110 (sin firma inyectada nueva). D43: si Kepler la cancela, la de la Suite queda `cancelled` con `rejection_reason` = «Cancelada en Kepler desde la Suite: …» y quién; si ya estaba cancelada aquí, conserva su motivo. El tope es **por documento** (una requisición no gasta el de las OC). Prueba de base real (11 casos, con la negativa del tope por documento y 4 negativas de la tabla) **NO MEDIDA** hasta el job `pruebas-db`: no hay base local. |
+| 2026-11-14 | **PQ.111 se declara «no se hace» (D44, por encargo del PM).** Al ir a construir D42 se midió que «En camino» ya excluye las parciales (R): 0 de 678; su saldo no está en ninguna cifra de la Suite. Se corrige §3b.6 (la premisa era mía y no estaba medida). El papel real de «En camino» son 42 OC en N/A marcadas «No surtida / cancelada» (≈ $4.8 M): se limpian en Kepler con PQ.110 (38 caben en su regla), no en el importer. | Claude |
+| 2026-11-14 | **KR.7 C3 en código:** las cinco preguntas antes y después (§3e). Botón «Cancelar en Kepler» al final del renglón «En Kepler» de la ficha, sólo con `disponible` del servidor; el porqué sólo donde el renglón pide cancelar (21 + la inversa; nada en las 180 normales). El detalle trae `kepler_cancelacion` (`leerCancelacionKeplerDeRequisicion`, ejercida en la prueba de base real) y el renglón dice la cancelación desde la Suite aunque la réplica vaya atrasada. Prefijo de D43 en contracts (`REQUISICION_CANCELADA_EN_KEPLER`). 24 pruebas de la regla, 5 mutantes en rojo; `check:pantalla` igual que antes (103 fallas, 9 nuevas ajenas); plantillas tipan. Sin validación visual. | Claude |
+| 2026-11-14 | **KR.7 C2 en código, sin aplicar:** migración `20261114120335`, que **extiende** la tabla de intentos de PQ.110 (`document_type` + `requisition_id`, `oc_folio` deja de ser obligatoria y un CHECK amarra cada tipo a sus columnas; regla 2), siembra el interruptor `cancela_requisicion` **apagado** en las 9 con tope 1 y reparte la llave `COMPRAS_REQUISICION_CANCELAR` a los mismos 6 roles que `COMPRAS_OC_CANCELAR` (medido: los 6 abren la ficha). `GET`/`POST /commercial/replenishment/requisitions/:id/kepler-cancellation` en el mismo servicio y controlador que PQ.110 (sin firma inyectada nueva). D43: si Kepler la cancela, la de la Suite queda `cancelled` con `rejection_reason` = «Cancelada en Kepler desde la Suite: …» y quién; si ya estaba cancelada aquí, conserva su motivo. El tope es **por documento** (una requisición no gasta el de las OC). Prueba de base real (11 casos, con la negativa del tope por documento y 4 negativas de la tabla) **NO MEDIDA** hasta el job `pruebas-db`: no hay base local. | Claude |
 | 2026-11-14 | **KR.7 C1:** regla y sentencias (`kepler-req-cancelacion.ts`: sin OC viva, sólo N o A; el `UPDATE` repite en su `WHERE` el estado leído y «ninguna OC viva»), `cancelarRequisicion` en el mismo adaptador que PQ.110 (mismo candado `FOR UPDATE NOWAIT`, mismos 10 permisos; el paso que escribe pasó a un helper común sin cambiar sus mensajes). Pruebas: 15 de la regla con 4 mutantes en rojo (espejo del scratchpad); 7 del paso que escribe con un cliente falso; **ensayo contra Kepler vivo de la 08** sin escribir: 0000064 y 0000077 quedan como el testigo, la negativa del candado da 0 filas, 0000087 (OC viva) rechazada, las 3 intactas. Falta C2 (tabla, interruptor, endpoint, prueba de base real) y C3 (botón en la ficha) | Claude |
 | 2026-11-14 | **D42 y D43 firmadas** (Edgar): la OC parcial se cierra sólo en la Suite; la requisición cancelada en Kepler desde la Suite pasa a «cancelled». **KR.7, paso 1 en código:** la ficha de la requisición lee la réplica (`leerRequisicionEnReplica`, 4 + 2 ms en prod) y el banner `[KR.8]` deja de poner la palomita «En Kepler como…» a una requisición cancelada allá o reabierta porque su OC se canceló a mano; dice qué pasó, quién y cuándo, y avisa el revés (cancelada aquí, viva allá). Pruebas: spec puro 12/12; mutación en un espejo del scratchpad (control 11/11 verde, 3 mutantes en rojo con las mismas 11); caso 7d en la prueba de base real (corre en `pruebas-db`, NO MEDIDO hasta el CI); `tsc` de `libs/commercial` limpio; `check:pantalla` idéntico a la línea base. **Sin validación visual** | Claude |
 | 2026-11-14 | **C0 de KR.7 y de PQ.111** (§3e). KR.7: Kepler sólo cancela una requisición sin OC viva (100 de 100 en la historia), lo que explica el «documento referenciado» de `FASE_KR` §6; testigo completo de una requisición de la Suite cancelada a mano (CEDIS, 6-nov): escribe lo mismo que cancelar una OC, con los permisos de D40, así que KR.7 no pide permisos nuevos. 21 requisiciones de la Suite están reabiertas en Kepler (su OC se canceló a mano) y la Suite las sigue dando por «ordered»; corrige §3b.4. PQ.111: Kepler no tiene el acto de cerrar una OC parcial (el único `X-A-90` es de Tesorería sobre una aplicación; ninguna F de 365 días se cerró sin recibir), así que no hay testigo que copiar. Nacen D42 y D43, sin firma. Estado de prod: C2 de PQ.110 en prod con la 08 encendida y 0 cancelaciones; el botón y la ficha están en `origin/main` sin soltar | Claude |
