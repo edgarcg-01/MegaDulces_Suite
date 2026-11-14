@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, Permission } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, Permission, branchName } from '@megadulces/platform-core';
 import { EntityKind, RefField, RefRelation, RefResult, makeRef, parseRef } from './entity-ref.types';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago, PRONTO_PAGO_MIN_OBS } from '@megadulces/contracts/finance/pronto-pago-ventana';
@@ -335,7 +335,7 @@ export class EntityRefService {
     return {
       ref: '', kind: 'ent',
       title: `Entrada ${e.folio}`,
-      subtitle: `${e.sucursal} · ${e.proveedor_nombre || e.proveedor_code || 's/proveedor'}`,
+      subtitle: `${branchName(e.sucursal)} · ${e.proveedor_nombre || e.proveedor_code || 's/proveedor'}`,
       badges: [
         { text: e.doc_prefix, tone: 'muted', title: 'Tipo de documento en Kepler' },
         ...(e.dup_of_folio ? [{ text: 'Copia CEDIS', tone: 'warn' as const }] : []),
@@ -425,7 +425,7 @@ export class EntityRefService {
         .where({ tenant_id: tenantId, sucursal: a.sucursal, folio: a.entrada_folio }).limit(1);
       if (e) {
         relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Entrada ligada',
-          label: `Entrada ${e.folio}`, sub: `${e.sucursal} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto) });
+          label: `Entrada ${e.folio}`, sub: `${branchName(e.sucursal)} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto) });
       } else {
         notes.push(`El ajuste apunta a la entrada ${a.entrada_folio}, que no está en el feed de recepciones.`);
       }
@@ -436,7 +436,7 @@ export class EntityRefService {
     return {
       ref: '', kind: 'adj',
       title: `${doctype === 'XD55' ? 'Nota de crédito' : 'Devolución'} ${a.folio}`,
-      subtitle: `${a.sucursal} · ${a.proveedor_nombre || a.proveedor_code || ''}`,
+      subtitle: `${branchName(a.sucursal)} · ${a.proveedor_nombre || a.proveedor_code || ''}`,
       badges: [
         { text: doctype, tone: 'muted' },
         { text: badgeGrupo.text, tone: badgeGrupo.tone, title: badgeGrupo.title },
@@ -533,7 +533,7 @@ export class EntityRefService {
           .orderBy('receipt_date', 'desc').limit(REL_LIMIT);
         for (const e of ents) {
           relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Entradas candidatas (estimado)',
-            label: `Entrada ${e.folio}`, sub: `${e.sucursal} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto), date: e.receipt_date, heuristic: true });
+            label: `Entrada ${e.folio}`, sub: `${branchName(e.sucursal)} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto), date: e.receipt_date, heuristic: true });
         }
       }
     }
@@ -881,26 +881,34 @@ export class EntityRefService {
     notes.push('Tiempo de entrega y mínimo de pedido no se muestran acá: viven en el catálogo de compras, que usa otro código de proveedor (el de inventario) y todavía no tiene crosswalk con el código contable de los movimientos.');
 
     const relations: RefRelation[] = [];
-    const ents: any[] = await trx('analytics.erp_goods_receipts')
+    // `[RE.75]` Las tres listas se cortan en REL_LIMIT: se pide una fila de más para SABER si hay más y decirlo.
+    // Medido en prod (2026-11-14): 118 de 343 proveedores tienen más de 20 recepciones.
+    const recorta = <T>(rows: T[], que: string): T[] => {
+      if (rows.length <= REL_LIMIT) return rows;
+      notes.push(`${que}: se muestran sólo los ${REL_LIMIT} documentos más recientes; hay más.`);
+      return rows.slice(0, REL_LIMIT);
+    };
+    const ents: Array<{ sucursal: string; folio: string; doc_prefix: string; monto: Num; receipt_date: string | null }> = recorta(await trx('analytics.erp_goods_receipts')
       .select('sucursal', 'folio', 'doc_prefix', 'monto', trx.raw(`to_char(receipt_date,'YYYY-MM-DD') AS receipt_date`))
       .where({ tenant_id: tenantId, proveedor_code: code }).whereRaw('dup_of_folio IS NULL')
-      .orderBy('receipt_date', 'desc').limit(REL_LIMIT);
+      .orderBy('receipt_date', 'desc').limit(REL_LIMIT + 1), 'Recepciones');
     for (const e of ents) {
       relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Últimas recepciones',
-        label: `Entrada ${e.folio}`, sub: `${e.sucursal} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto), date: e.receipt_date });
+        label: `Entrada ${e.folio}`, sub: `${branchName(e.sucursal)} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto), date: e.receipt_date });
     }
     const ajs: FilaAjusteVista[] = await trx('analytics.v_purchase_adjustments')
       .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria', 'grupo', trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
-      .where({ tenant_id: tenantId, proveedor_code: code }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
-    for (const a of ajs) {
+      .where({ tenant_id: tenantId, proveedor_code: code }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT + 1);
+    const ajsVista = recorta(ajs, 'Ajustes');
+    for (const a of ajsVista) {
       relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes',
         label: a.categoria || (a.grupo === 'traslado' ? 'traslado al CEDIS' : null) || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
     const pays: any[] = await trx('analytics.erp_supplier_payments')
       .select('sucursal', 'folio', 'doc_prefix', 'monto', 'metodo_pago', trx.raw(`to_char(pago_date,'YYYY-MM-DD') AS pago_date`))
-      .where({ tenant_id: tenantId, proveedor_code: code }).orderBy('pago_date', 'desc').limit(REL_LIMIT);
-    for (const p of pays) {
+      .where({ tenant_id: tenantId, proveedor_code: code }).orderBy('pago_date', 'desc').limit(REL_LIMIT + 1);
+    for (const p of recorta(pays, 'Pagos')) {
       relations.push({ ref: makeRef('pay', p.sucursal, p.doc_prefix, p.folio), group: 'Pagos',
         label: `${p.metodo_pago ?? 'pago'} ${p.folio}`, sub: p.pago_date, amount: n(p.monto), date: p.pago_date });
     }
@@ -1017,7 +1025,7 @@ export class EntityRefService {
     return {
       ref: '', kind: 'pdoc',
       title: `${kindLabel} ${d.folio}`,
-      subtitle: `${d.sucursal} · ${d.proveedor_nombre || d.proveedor_code || 's/proveedor'}`,
+      subtitle: `${branchName(d.sucursal)} · ${d.proveedor_nombre || d.proveedor_code || 's/proveedor'}`,
       badges, fields, relations, notes,
     };
   }

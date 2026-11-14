@@ -19,7 +19,7 @@ function armar() {
   Object.assign(c, {
     showDetail: signal(false), detailLoading: signal(false), detailData: signal(null), detailTarget: signal(null),
     recon: signal(null), reconLoading: signal(false), verLineasKepler: signal(false), hojaIdx: signal(0),
-    explains: signal([]), explainsLoading: signal(false), explainsTotal: signal(0),
+    explains: signal([]), explainsLoading: signal(false), explainsTotal: signal(0), explainsError: signal(false),
     destroyRef: { onDestroy: () => () => undefined, destroyed: false },
     toast: { add: () => undefined },
     svc: { detail: () => nuevo(p.detail), reconcile: () => nuevo(p.recon) },
