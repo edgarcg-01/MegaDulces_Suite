@@ -1369,6 +1369,10 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   los huecos de `[PGP.119]`: el pago de un anticipo no admite descuento (servidor y pantalla), se
   cancela un pedido sin pago desde el submódulo (con razón), y un pedido cancelado ya no le quita su
   `X-D-60` al vivo. Sin migración. Detalle abajo.
+- `[PGP.123]` 🧪 (2026-11-14, sin validación visual) C2–C3 — **corrige `[PGP.119]`**: «Pedir
+  anticipo» sólo le llegaba a 4 de los 13 que pueden pedir (la pantalla la abre un permiso de
+  Finanzas). Compras tiene su puerta en *Pago a proveedor › Anticipos* (`/compras/anticipos`), la misma
+  pantalla. Detalle abajo.
 
 **Árbitro (2026-11-13):** `a_favor` = `kdxe.c20` (el remanente que guarda Kepler) en **64 de 64**
 anticipos sin aplicar ($7,025,062 los dos lados); control negativo: los 144 `X-D-60` aplicados enteros
@@ -1572,6 +1576,36 @@ la OC recupera su saldo, el cancelado no le roba su `X-D-60` al vivo).
   cancelar desde el servidor: la pantalla no lo ofrece, pero el servidor no lee Kepler al cancelar.
 - La carrera inversa: el Calendario aparta un pago sin bloquear la fila de la obligación, así que un
   cancelar y un «agregar al pago» en el mismo instante todavía pueden cruzarse.
+
+#### `[PGP.123]` La puerta de Compras a Anticipos — corrige `[PGP.119]` (2026-11-14) — 🧪
+
+**El defecto:** `[PGP.119]` midió el permiso de PEDIR (`COMPRAS_OBLIGACIONES_GESTIONAR`) y no lo cruzó
+con el de la PANTALLA: `/finanzas/anticipos` la abre `FINANCE_PAYMENTS_VER`, que Compras no tiene
+salvo Coordinación de Compras. Medido en prod (usuarios activos, rol principal y roles extra): **13
+pueden pedir, y sólo 4 abrían la pantalla**. D1 («pide Compras») estaba en el código pero no le llegaba
+a Compras. Es la trampa de `[SN.30]`: tener la llave de una acción no sirve si no se abre la puerta.
+
+**D8 (decidida, reversible):** Compras tiene su propia puerta, donde ya trabaja a diario: pestaña
+«Anticipos» en *Compras › Pago a proveedor* (`/compras/anticipos`, `COMPRAS_OBLIGACIONES_VER`).
+`/compras/obligaciones` es su pantalla diaria (`purchase-deliveries/pending`: 234 llamadas en 22 días,
+rol `auxiliar_compras`). Es la **misma pantalla** (una interfaz por flujo), que sabe por qué puerta
+entró: con las pestañas de Pago a proveedor y sin los `X-D-60` de gasto o tarjeta, que no son de
+Compras. Esos **se declaran** en «Lo que esta pantalla no dice», con cuántos son y cuánto suman: no se
+esconden en silencio. Las tres lecturas (`GET finance/payment-calendar/anticipos`, `…/anticipos/deuda`
+y `GET commercial/supplier-obligations/anticipos`) aceptan cualquiera de los dos permisos. Con esto
+pueden pedir los 13 de 13. Además, 26 personas con `COMPRAS_OBLIGACIONES_VER` empiezan a ver los
+anticipos de mercancía (ya veían las obligaciones a proveedor, que tienen la misma sensibilidad).
+
+**De paso, un rótulo que mentía:** el KPI «Mercancía con más de 90 días» decía «pedir factura o
+reembolso» de todos, y 13 de los 21 de hoy sí tienen factura abierta en su sucursal (se aplican al
+pagar, `[PGP.120]`). Ahora dice cuántos no tienen contra qué aplicarse.
+
+**Pruebas:** pantalla 15/15 (+2: la puerta de Finanzas igual que antes; la de Compras navegada de
+verdad con el router, con lo de gasto y tarjeta fuera de la vista y declarado). Compuertas de pantalla
+limpias. **NO MEDIDO:** el mutante de la puerta no se corrió fuera del árbol (la prueba afirma
+directamente `deCompras`, las pestañas y los grupos); sin validación visual; arranque de la API no
+verificado (cambia el decorador de permisos de tres rutas, no su firma). `MATRIZ_ACCESOS.md` no se
+regeneró (se genera desde prod, y ahí todavía no está la ruta).
 
 ---
 

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentObligationsService, CreateSupplierObligationDto } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
 import type { DeudaProgramableResponse, ProgramarDocumentoResultado } from '@megadulces/contracts';
@@ -71,7 +71,8 @@ export class SupplierPaymentObligationsController {
    * en orden y `anticipos` entraría como si fuera un id. Mismo permiso que el submódulo de Anticipos.
    */
   @Get('anticipos')
-  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  // `[PGP.123]` También Compras (su puerta `/compras/anticipos`): pide y sigue anticipos de mercancía.
+  @RequireAnyPermission(Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_VER)
   @ApiOperation({ summary: 'PGP.119 — anticipos pedidos en la Suite (180 días) con su pago del Calendario y el X-D-60 de Kepler con que se ligan (acreedor + sucursal + importe ±$1).' })
   listAnticipos(): Promise<AnticipoSolicitadoRow[]> {
     return this.svc.listAnticiposSolicitados();

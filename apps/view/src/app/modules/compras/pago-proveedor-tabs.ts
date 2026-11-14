@@ -30,6 +30,14 @@ export const PAGO_PROVEEDOR_TABS: PageTab[] = [
     icon: 'pi pi-calendar-clock',
     permission: Permission.COMPRAS_ENTRADAS_VER,
   },
+  {
+    // `[PGP.123]` Pedir un anticipo y seguirlo hasta que Kepler lo aplica. Misma pantalla que
+    // Finanzas › Deuda con proveedores › Anticipos, con estas pestañas.
+    label: 'Anticipos',
+    route: '/compras/anticipos',
+    icon: 'pi pi-wallet',
+    permission: Permission.COMPRAS_OBLIGACIONES_VER,
+  },
 ];
 
 // `[PGP.20]` «Cuentas de pago» SALIÓ de aquí el 2026-10-27 y vive en Finanzas › Pagos, pegada al

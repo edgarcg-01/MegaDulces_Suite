@@ -1523,6 +1523,15 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_GESTIONAR)]
       },
       {
+        // `[PGP.123]` La puerta de Compras a Anticipos: la MISMA pantalla que `/finanzas/anticipos`
+        // (una interfaz por flujo), con las pestañas de Pago a proveedor. Sin ella, «Pedir anticipo»
+        // sólo le llegaba a Coordinación de Compras: el resto de Compras no tiene FINANCE_PAYMENTS_VER.
+        path: 'anticipos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-anticipos.component').then(m => m.FinanzasAnticiposComponent),
+        data: { puerta: 'compras' },
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
         path: 'red',
         loadComponent: () => import('./modules/compras/pages/compras-red.component').then(m => m.ComprasRedComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]

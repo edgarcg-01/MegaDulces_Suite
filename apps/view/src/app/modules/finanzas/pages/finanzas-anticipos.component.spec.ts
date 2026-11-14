@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { RouterTestingHarness } from '@angular/router/testing';
 import type { AnticipoDeudaRow, AnticipoRow, AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { FinanzasAnticiposComponent } from './finanzas-anticipos.component';
 
@@ -210,5 +211,40 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     pedidoDeuda().flush(DEUDA);
     const viejos = c.kpis().find((k) => k.label === 'Mercancía con más de 90 días');
     expect(viejos?.value).toBe(2000);
+    // `[PGP.123]` Y no dice «pedir factura o reembolso» de todos: sólo de los que no tienen contra qué.
+    expect(viejos?.sub).toBe('1 documentos; 1 sin factura contra qué aplicarse');
+  });
+
+  it('[PGP.123] por la puerta de Finanzas: sus pestañas, y gasto y tarjeta a la vista', () => {
+    darLista();
+    pedidoDeuda().flush(DEUDA);
+    expect(c.deCompras).toBe(false);
+    expect(c.apartadoTabs.some((t) => t.route === '/finanzas/anticipos')).toBe(true);
+    expect(c.grupos().some((g) => g.key === 'no_mercancia')).toBe(true);
+  });
+});
+
+describe('[PGP.123] la puerta de Compras (/compras/anticipos)', () => {
+  it('⛔ NEGATIVA — pestañas de Pago a proveedor; gasto y tarjeta fuera de la vista pero DECLARADOS, nunca escondidos en silencio', async () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting(),
+        provideRouter([{ path: 'compras/anticipos', component: FinanzasAnticiposComponent, data: { puerta: 'compras' } }])],
+    });
+    const harness = await RouterTestingHarness.create();
+    const c = await harness.navigateByUrl('/compras/anticipos', FinanzasAnticiposComponent);
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
+    http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/anticipos')).flush(FILAS);
+    http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/anticipos/deuda')).flush(DEUDA);
+    harness.detectChanges();
+    expect(c.deCompras).toBe(true);
+    expect(c.apartadoTabs.map((t) => t.route)).toContain('/compras/anticipos');
+    expect(c.grupos().map((g) => g.key)).toEqual(['aplicable', 'sin_contra_que']);
+    expect(c.kpis().some((k) => k.label === 'No es de mercancía')).toBe(false);
+    expect(c.fueraDeCompras()).toEqual({ n: 2, monto: 1000 });
+    const txt = (harness.routeNativeElement as HTMLElement).textContent ?? '';
+    expect(txt).toContain('2 anticipos de gasto o tarjeta');
+    expect(txt).not.toContain('Además, 2 de gasto o tarjeta');
+    http.verify();
   });
 });

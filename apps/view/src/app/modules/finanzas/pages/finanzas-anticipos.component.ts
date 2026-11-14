@@ -29,6 +29,8 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { DEUDA_PROVEEDORES_TABS } from '../deuda-proveedores-tabs';
+import { PAGO_PROVEEDOR_TABS } from '../../compras/pago-proveedor-tabs';
+import { ActivatedRoute } from '@angular/router';
 
 /** Un anticipo con lo que la pantalla deriva de él. */
 interface Fila extends AnticipoRow { grupo: AnticipoGrupo }
@@ -149,8 +151,11 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
           }
 
           <details class="an-nomedido">
-            <summary>Lo que esta pantalla no dice (3)</summary>
+            <summary>Lo que esta pantalla no dice ({{ deCompras && fueraDeCompras().n ? 4 : 3 }})</summary>
             <ul>
+              @if (deCompras && fueraDeCompras().n) {
+                <li>{{ fueraDeCompras().n }} anticipos de gasto o tarjeta ({{ money(fueraDeCompras().monto) }}): no son de Compras; los ve Finanzas en Deuda con proveedores.</li>
+              }
               <li>De qué cuenta salió cada anticipo: la vista de Kepler que se lee no la trae.</li>
               <li>A qué orden de compra corresponde: en Kepler la referencia es texto libre.</li>
               <li>Las facturas abiertas una por una: se ven en el Calendario de pagos, en el acreedor.</li>
@@ -308,7 +313,12 @@ export class FinanzasAnticiposComponent implements OnInit {
   private peticion?: Subscription;
   private peticionDeuda?: Subscription;
 
-  readonly apartadoTabs = DEUDA_PROVEEDORES_TABS;
+  /**
+   * `[PGP.123]` Por qué puerta se entró. Compras (`/compras/anticipos`) pide y sigue anticipos de
+   * mercancía: ve las pestañas de Pago a proveedor y no ve los de gasto o tarjeta (se declaran).
+   */
+  readonly deCompras = inject(ActivatedRoute).snapshot.data?.['puerta'] === 'compras';
+  readonly apartadoTabs = this.deCompras ? PAGO_PROVEEDOR_TABS : DEUDA_PROVEEDORES_TABS;
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly filas = signal<AnticipoRow[]>([]);
@@ -509,9 +519,17 @@ export class FinanzasAnticiposComponent implements OnInit {
         ayuda: 'El acreedor no tiene ninguna factura abierta en la sucursal del anticipo (Kepler no lo aplica contra otra sucursal): hay que pedirle la factura o el reembolso. Los más viejos primero.' });
     }
     const nm = de('no_mercancia');
-    out.push({ key: 'no_mercancia', titulo: 'No es anticipo de mercancía', filas: porMonto(nm), monto: suma(nm),
-      ayuda: 'Gasto y tarjeta capturados en Kepler como anticipo (X-D-60). Se muestran para que el total cuadre con Kepler, pero no se aplican contra compras.' });
+    if (!this.deCompras) {
+      out.push({ key: 'no_mercancia', titulo: 'No es anticipo de mercancía', filas: porMonto(nm), monto: suma(nm),
+        ayuda: 'Gasto y tarjeta capturados en Kepler como anticipo (X-D-60). Se muestran para que el total cuadre con Kepler, pero no se aplican contra compras.' });
+    }
     return out;
+  });
+
+  /** `[PGP.123]` Lo que la puerta de Compras deja fuera (gasto y tarjeta), para declararlo. */
+  readonly fueraDeCompras = computed(() => {
+    const nm = this.conGrupo().filter((r) => r.grupo === 'no_mercancia');
+    return { n: nm.length, monto: nm.reduce((s, r) => s + r.a_favor, 0) };
   });
 
   private readonly mercancia = computed(() => this.conGrupo().filter((r) => r.grupo !== 'no_mercancia'));
@@ -539,7 +557,7 @@ export class FinanzasAnticiposComponent implements OnInit {
     const merc = this.mercancia();
     const otros = this.conGrupo().length - merc.length;
     const otrosMonto = this.conGrupo().filter((r) => r.grupo === 'no_mercancia').reduce((s, r) => s + r.a_favor, 0);
-    const cola = otros ? ` Además, ${otros} de gasto o tarjeta por ${this.money(otrosMonto)}.` : '';
+    const cola = otros && !this.deCompras ? ` Además, ${otros} de gasto o tarjeta por ${this.money(otrosMonto)}.` : '';
     const base = `${this.money(this.totalMercancia())} de anticipos de mercancía sin aplicar en ${merc.length} ${merc.length === 1 ? 'documento' : 'documentos'}`;
     const net = this.neteable();
     if (net === null) return `${base}; ${this.deudaError() ? 'no se pudo leer' : 'calculando'} contra qué se aplican.${cola}`;
@@ -557,16 +575,20 @@ export class FinanzasAnticiposComponent implements OnInit {
     const nm = this.conGrupo().filter((r) => r.grupo === 'no_mercancia');
     const suma = (xs: Fila[]) => xs.reduce((s, r) => s + r.a_favor, 0);
     const acreedores = (xs: Fila[]) => new Set(xs.map((r) => r.proveedor.trim())).size;
-    return [
+    // `[PGP.123]` No todos los viejos son «pedir factura o reembolso»: los que tienen factura abierta se aplican al pagar.
+    const viejosSin = viejos.filter((r) => r.grupo === 'sin_contra_que').length;
+    const subViejos = net === null ? `${viejos.length} documentos` : `${viejos.length} documentos; ${viejosSin} sin factura contra qué aplicarse`;
+    const items: MetricStripItem[] = [
       net === null
         ? { label: 'Se puede aplicar hoy', ...sinMedir }
         : { label: 'Se puede aplicar hoy', value: net, format: 'currency-short', tone: net > 0 ? 'brand' : 'default', sub: `de ${this.money(suma(ap))} a favor de ${acreedores(ap)} acreedores con facturas abiertas` },
       net === null
         ? { label: 'Sin contra qué', ...sinMedir }
         : { label: 'Sin contra qué', value: suma(sc), format: 'currency-short', tone: sc.length ? 'warn' : 'default', sub: `${acreedores(sc)} acreedores sin facturas abiertas` },
-      { label: 'Mercancía con más de 90 días', value: suma(viejos), format: 'currency-short', tone: viejos.length ? 'bad' : 'default', sub: `${viejos.length} documentos: pedir factura o reembolso` },
-      { label: 'No es de mercancía', value: suma(nm), format: 'currency-short', tone: 'muted', sub: `${nm.length} de gasto o tarjeta` },
+      { label: 'Mercancía con más de 90 días', value: suma(viejos), format: 'currency-short', tone: viejos.length ? 'bad' : 'default', sub: subViejos },
     ];
+    if (!this.deCompras) items.push({ label: 'No es de mercancía', value: suma(nm), format: 'currency-short', tone: 'muted', sub: `${nm.length} de gasto o tarjeta` });
+    return items;
   });
 
   ngOnInit(): void {
