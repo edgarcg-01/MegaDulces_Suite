@@ -39,6 +39,12 @@ const PERMITIDOS = {
     'la posición: lectura de respaldo mientras la vista única ([CGS.41]) no esté aplicada',
   'libs/finance/src/lib/caja/cash-cut.service.ts':
     'Arqueos: el segundo testigo y el último conteo de Control de los cortes anteriores al 2026-10-22',
+  // Declarados el 2026-11-15: los dos leen el histórico ANTERIOR a la jubilación, no el día de hoy,
+  // y los dos rotulan de dónde salió el dato (`fuente: arqueo_control` · «sin medir» si no se puede leer).
+  'libs/finance/src/lib/caja/caja-cuadre-huecos.query.ts':
+    'el arranque del balance cuando no hay corte previo: el último arqueo de Control ANTES de la ventana, declarado como fuente arqueo_control',
+  'libs/finance/src/lib/caja/hoja-gastos.service.ts':
+    'CGA-A.70: los retiros con que se pagaron las hojas EN PAPEL, de la época de Control; va en SAVEPOINT y dice «sin medir» si no se puede leer',
 };
 
 function sinComentarios(src) {

@@ -18,7 +18,18 @@ import { VendorChecadorPreciosComponent } from './vendor-checador-precios.compon
  */
 
 const HOY = new Date().toISOString();
-const AYER = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString();
+/**
+ * ⛔ «Ayer» es un día del CALENDARIO, no 30 horas hacia atrás. Restar 30 h cae en anteayer
+ * siempre que la prueba corra antes de las 06:00, y el CI corre a esa hora: la prueba se
+ * ponía roja por el reloj del runner, no por la pantalla. Se fija el día anterior a media
+ * tarde, que es ayer en cualquier huso donde corran juntos el fixture y la pantalla.
+ */
+const AYER = (() => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  d.setHours(15, 3, 0, 0);
+  return d.toISOString();
+})();
 
 const ficha = {
   clave: '00052', nombre: 'DULCE PRUEBA /12',

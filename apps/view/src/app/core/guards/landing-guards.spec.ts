@@ -34,6 +34,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // `[KR.7]` Cancelar una requisición en Kepler es una ACCIÓN de su ficha. Medido en prod el 2026-11-14:
   // los 6 roles que la reciben tienen COMPRAS_REQUISICIONES_VER.
   { perm: Permission.COMPRAS_REQUISICION_CANCELAR, url: '/compras/requisiciones', motivo: 'llave de acción, no de entrada: la ruta exige COMPRAS_REQUISICIONES_VER (los 6 roles con la llave la tienen)' },
+  // `[ALC]` Escribir la ficha del cliente en Kepler es una ACCIÓN sobre una solicitud ya lista:
+  // sin ver el alta no hay nada que escribir. Medido en prod el 2026-11-15: los 42 roles que
+  // tienen la llave tienen además una de las tres de entrada, así que NINGUNO rebota.
+  { perm: Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER, url: '/comercial/alta-clientes', motivo: 'llave de acción, no de entrada: la ruta exige ALTA_CLIENTES, _CREDITO o _VER (los 42 roles con la llave tienen una)' },
   // comercial
   { perm: Permission.COMMERCIAL_INTELLIGENCE_VER, url: '/comercial/command-center', motivo: 'el módulo intelligence apunta a command-center, que exige ANALYTICS_VER; no hay ruta gateada por INTELLIGENCE_VER' },
   { perm: Permission.COMMERCIAL_CARGA_VER, url: '/comercial/orders', motivo: 'el módulo carga apunta a orders (ORDERS_VER)' },
