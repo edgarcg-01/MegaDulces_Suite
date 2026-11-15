@@ -125,14 +125,14 @@ export function assertDescuentoPermitido(source: string, classification: string,
   if (discountAmount > 0 && (!ORIGENES_CON_DESCUENTO.includes(source) || classification !== 'proveedor_mercancia')) {
     throw new BadRequestException('El descuento al pagar sólo aplica a facturas de proveedor: en gastos y compromisos financieros no llega una nota de crédito que lo cierre.');
   }
-  // `[PGP.122]` Un anticipo pedido en la Suite (`[PGP.119]`) también es `supplier_payable` de
+  // `[PGP.126]` Un anticipo pedido en la Suite (`[PGP.119]`) también es `supplier_payable` de
   // mercancía, así que la regla de arriba lo dejaba pasar. Pero no es una factura: no habrá nota de
   // crédito que cierre el descuento, y Kepler capturará el `X-D-60` por el importe completo. Un
   // descuento aquí pagaría menos de lo que después se aplica contra facturas.
   if (discountAmount > 0 && nature === 'anticipo') throw new BadRequestException(MSG_ANTICIPO_SIN_DESCUENTO);
 }
 
-/** `[PGP.122]` Lo que ve quien intenta descontar sobre el pago de un anticipo. */
+/** `[PGP.126]` Lo que ve quien intenta descontar sobre el pago de un anticipo. */
 export const MSG_ANTICIPO_SIN_DESCUENTO =
   'Un anticipo se paga completo: no lleva descuento al pagar. El descuento se pide en la factura contra la que después se aplique.';
 

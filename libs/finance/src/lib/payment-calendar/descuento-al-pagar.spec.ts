@@ -118,7 +118,7 @@ describe('[PGP.91] revisión — lo que la primera versión dejaba pasar', () =>
     expect(() => assertDescuentoPermitido('kepler_payable', 'compromiso_financiero', 0)).not.toThrow();
   });
 
-  it('⛔ NEGATIVA [PGP.122] — el pago de un anticipo pedido en la Suite no lleva descuento (no es factura)', () => {
+  it('⛔ NEGATIVA [PGP.126] — el pago de un anticipo pedido en la Suite no lleva descuento (no es factura)', () => {
     expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300, 'anticipo')).toThrow(/se paga completo/);
     // Control: la factura de la misma tabla sí, sin `nature` (fila de otro origen o antes de la migración) también, y sin descuento nada se toca.
     expect(() => assertDescuentoPermitido('supplier_payable', 'proveedor_mercancia', 300, 'factura')).not.toThrow();

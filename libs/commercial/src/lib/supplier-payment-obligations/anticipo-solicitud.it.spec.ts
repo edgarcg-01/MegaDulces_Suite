@@ -109,8 +109,8 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect((await de()).etapa).toBe('aplicado');
   });
 
-  // ── `[PGP.122]` Cancelar desde el submódulo: el mismo `POST :id/cancelar`, con el cuerpo de la pantalla ──
-  it('⛔ NEGATIVA [PGP.122] — cancelar un anticipo exige razón y no se repite; al cancelarlo, la OC recupera su saldo', async () => {
+  // ── `[PGP.126]` Cancelar desde el submódulo: el mismo `POST :id/cancelar`, con el cuerpo de la pantalla ──
+  it('⛔ NEGATIVA [PGP.126] — cancelar un anticipo exige razón y no se repite; al cancelarlo, la OC recupera su saldo', async () => {
     await expect(svc.cancel(segundo, '  ', USER)).rejects.toThrow(/por qué se cancela/);
     const r = await svc.cancel(segundo, 'el proveedor ya no lo pide', USER);
     expect(r).toMatchObject({ status: 'cancelled', notes: 'apartar producto de temporada\n[cancelado] el proveedor ya no lo pide', updated_by: USER });
@@ -118,7 +118,7 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect((await svc.anticipoOcs(prov)).find((x) => x.id === oc)).toMatchObject({ anticipado: 6000 });
   });
 
-  it('⛔ NEGATIVA [PGP.122] — el pedido cancelado no le quita su X-D-60 al vivo de mismo acreedor, sucursal e importe', async () => {
+  it('⛔ NEGATIVA [PGP.126] — el pedido cancelado no le quita su X-D-60 al vivo de mismo acreedor, sucursal e importe', async () => {
     const vivo = (await svc.crearAnticipo(cuerpo({ monto: 4000, sucursal: '00', purchase_order_id: null }), USER)).obligation_id;
     await trx.raw(`INSERT INTO kepler_ods.kdxe (sucursal, c1, c2, c3, c4, c5, c6, c7, c11, c20)
                    VALUES ('00', '00', 'CIT119A', 'D', 60, 1, 'IT119X62', now()::date, 4000, 4000)`);

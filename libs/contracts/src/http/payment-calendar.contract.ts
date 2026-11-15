@@ -107,7 +107,7 @@ export interface PaymentCalendarAllocationItem {
    */
   payee_code?: string | null;
   /**
-   * `[PGP.122]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): se paga completo, así que
+   * `[PGP.126]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): se paga completo, así que
    * la pantalla no ofrece descuento (el servidor lo rechaza igual). Opcional: quien no lo mande dice «no».
    */
   es_anticipo?: boolean;

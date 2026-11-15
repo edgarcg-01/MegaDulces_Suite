@@ -59,7 +59,7 @@ const MIGS = [
   // del motivo que admite `anticipo`.
   '../../../../../database/migrations-newdb/20261026173001_pgp17_creditos_de_proveedor_aplicados_y_no.js',
   '../../../../../database/migrations-newdb/20261113171713_pgp120_descuento_por_anticipo.js',
-  // `[PGP.122]` La naturaleza de la obligación (`factura` | `anticipo`, de `[PGP.119]`).
+  // `[PGP.126]` La naturaleza de la obligación (`factura` | `anticipo`, de `[PGP.119]`).
   '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
 ];
 
@@ -126,7 +126,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[8], trx);   // `[PGP.113]` la autorización por pago (idempotente)
     await migUp(MIGS[9], trx);   // `[PGP.120]` la vista de créditos de proveedor (idempotente)
     await migUp(MIGS[10], trx);  // `[PGP.120]` el motivo `anticipo` en el CHECK (idempotente)
-    await migUp(MIGS[11], trx);  // `[PGP.122]` la naturaleza de la obligación (idempotente)
+    await migUp(MIGS[11], trx);  // `[PGP.126]` la naturaleza de la obligación (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1645,12 +1645,12 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   /**
-   * `[PGP.122]` **El pago de un anticipo pedido en la Suite (`[PGP.119]`) se paga completo.** Es
+   * `[PGP.126]` **El pago de un anticipo pedido en la Suite (`[PGP.119]`) se paga completo.** Es
    * `supplier_payable` de mercancía, así que la regla de `[PGP.91]` lo dejaba descontar; pero no es
    * factura: no llegará nota de crédito y Kepler capturará el `X-D-60` por el importe entero. Se
    * cubren los tres caminos que fijan un descuento (crear el pago, sumarlo a uno, fijarlo después).
    */
-  describe('[PGP.122] el pago de un anticipo no lleva descuento', () => {
+  describe('[PGP.126] el pago de un anticipo no lleva descuento', () => {
     const DIA = '2030-05-13';
     let anticipo = '', factura = '';
 

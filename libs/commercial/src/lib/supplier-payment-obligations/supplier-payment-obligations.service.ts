@@ -349,10 +349,10 @@ export class SupplierPaymentObligationsService {
   async cancel(id: string, reason: string | undefined, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      // `[PGP.122]` `forUpdate`: si el Calendario le está apartando un pago a la vez, se espera y se ve.
+      // `[PGP.126]` `forUpdate`: si el Calendario le está apartando un pago a la vez, se espera y se ve.
       const row = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!row) throw new NotFoundException('Obligación a proveedor no encontrada');
-      // `[PGP.122]` El anticipo pedido en la Suite se cancela desde su submódulo: con razón (sus notas son
+      // `[PGP.126]` El anticipo pedido en la Suite se cancela desde su submódulo: con razón (sus notas son
       // su motivo y la razón queda junto a él) y una sola vez.
       if (row.nature === 'anticipo') {
         if (row.status === 'cancelled') throw new BadRequestException('El anticipo ya estaba cancelado.');

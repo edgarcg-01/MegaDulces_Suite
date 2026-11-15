@@ -143,7 +143,7 @@ describe('[PGP.119] etapaDeSolicitud — Kepler manda sobre la Suite', () => {
   });
 });
 
-describe('[PGP.122] cancelar un pedido de anticipo', () => {
+describe('[PGP.126] cancelar un pedido de anticipo', () => {
   const cand = (folio: string, fecha: string) => ({ folio, fecha, importe: 5000, remanente: 5000 });
   it('⛔ NEGATIVA — un pedido cancelado no toma candidato: el vivo, aunque sea más nuevo, se queda con su X-D-60', () => {
     const cs = [cand('0000001', '2026-11-10')];

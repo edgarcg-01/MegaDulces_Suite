@@ -1298,7 +1298,7 @@ export class PaymentCalendarService {
         saldada?: boolean;
         pronto_fecha_limite?: string | null; pronto_tasa?: number | null;
         pronto_beneficio?: number | null; pronto_estado?: string | null;
-        /** `[PGP.122]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): no admite descuento. */
+        /** `[PGP.126]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): no admite descuento. */
         es_anticipo?: boolean;
       }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
@@ -1307,7 +1307,7 @@ export class PaymentCalendarService {
           const rows = await trx('commercial.supplier_payment_obligations as o')
             .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
             .whereIn('o.id', ids)
-            // `[PGP.122]` `to_jsonb(o) ->> 'nature'` en vez de `o.nature`: si el código llegara antes
+            // `[PGP.126]` `to_jsonb(o) ->> 'nature'` en vez de `o.nature`: si el código llegara antes
             // que la migración `pgp119`, el día entero no se cae por una columna que aún no existe.
             .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"), trx.raw("to_jsonb(o) ->> 'nature' as nature"));
           for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; nature: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, es_anticipo: r.nature === 'anticipo' });
@@ -2161,7 +2161,7 @@ export class PaymentCalendarService {
         // debe** (la vista sólo trae saldo > 0): no se programa, que es el mismo veredicto.
         if (!row) throw new NotFoundException(`Obligación ${it.obligation_id} no encontrada`);
         if (row.status === 'cancelled') throw new BadRequestException('La obligación está cancelada');
-        // `[PGP.122]` `nature` sólo existe en `supplier_payable` (el anticipo pedido en la Suite).
+        // `[PGP.126]` `nature` sólo existe en `supplier_payable` (el anticipo pedido en la Suite).
         assertDescuentoPermitido(it.obligation_source, classificationOf(it.obligation_source, row), it.discount_amount, row.nature);
         const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
         // `[PGP.91]` Contra el disponible y contra Kepler se mide lo CUBIERTO (neto + descuento):
@@ -2310,7 +2310,7 @@ export class PaymentCalendarService {
             const n = descuentoSobreCubierto(cubierto, body);
             return { ...n, lines: n.discount_amount > 0 ? [{ reason: n.discount_reason!, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note }] : [] };
           })();
-      // `[PGP.122]` El anticipo pedido en la Suite se paga completo. `.first()` sin columnas: lee
+      // `[PGP.126]` El anticipo pedido en la Suite se paga completo. `.first()` sin columnas: lee
       // `nature` sin nombrarla, así que no truena si la migración `pgp119` todavía no llegó.
       const nature = item.obligation_source === 'supplier_payable'
         ? (await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id: item.obligation_id }).first())?.nature

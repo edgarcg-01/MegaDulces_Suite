@@ -180,7 +180,7 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
 
-  it('⛔ NEGATIVA [PGP.122] — cancelar exige razón; la manda al cancelar de obligaciones y vuelve a leer el seguimiento', () => {
+  it('⛔ NEGATIVA [PGP.126] — cancelar exige razón; la manda al cancelar de obligaciones y vuelve a leer el seguimiento', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
     c.abrirCancelar(SOLICITADOS[0]);
@@ -196,7 +196,7 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
 
-  it('[PGP.122] lo programado no se cancela aquí y lo dice; lo cancelado dice su razón y el motivo queda limpio', () => {
+  it('[PGP.126] lo programado no se cancela aquí y lo dice; lo cancelado dice su razón y el motivo queda limpio', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
     c.abrirCancelar({ ...SOLICITADOS[0], etapa: 'programado', programado_dia: '2026-11-14' });

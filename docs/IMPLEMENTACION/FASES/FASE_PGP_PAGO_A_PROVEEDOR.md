@@ -1365,7 +1365,7 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   pendiente del CI) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
   (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
   cierre de `[PGP.94]` ya rotula el `X-D-60` como «Anticipo». Detalle abajo.
-- `[PGP.122]` 🧪 (2026-11-14, sin validación visual, pruebas con base real pendientes del CI) C1–C3 —
+- `[PGP.126]` 🧪 (2026-11-14, sin validación visual, pruebas con base real pendientes del CI) (publicado como `[PGP.122]` en `997827c9f`; renumerado el 2026-11-15: el 122 lo tomó en origin la solicitud de gasto, #546) C1–C3 —
   los huecos de `[PGP.119]`: el pago de un anticipo no admite descuento (servidor y pantalla), se
   cancela un pedido sin pago desde el submódulo (con razón), y un pedido cancelado ya no le quita su
   `X-D-60` al vivo. Sin migración. Detalle abajo.
@@ -1539,10 +1539,10 @@ del código (el código inserta `nature`). Compatible con la API desplegada: DEF
 - La prueba contra base real no corrió aquí: corre en el job de integración del CI.
 - **Sin validación visual. Arranque de la API no verificado** (cuatro rutas nuevas en un controlador).
 - ~~Un descuento sobre un anticipo programado~~ y ~~cancelar un pedido desde el submódulo~~: los
-  cierra `[PGP.122]`, abajo.
+  cierra `[PGP.126]`, abajo.
 - ~~La alerta a la bandeja de Compras/CxP de los +90 días (D4)~~: la cierra `[PGP.124]`, abajo.
 
-#### `[PGP.122]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🧪
+#### `[PGP.126]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🧪
 
 **1. El pago de un anticipo se paga completo.** Un anticipo pedido en la Suite es `supplier_payable`
 de mercancía, así que la regla del descuento al pagar (`[PGP.91]`, `assertDescuentoPermitido`) lo

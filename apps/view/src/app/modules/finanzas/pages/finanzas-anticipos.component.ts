@@ -184,7 +184,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
                   <td role="cell" data-label="Sucursal · OC">{{ s.sucursal | sucursal }}@if (s.oc_folio) {<div class="an-muted">OC {{ s.oc_folio }}</div>}</td>
                   <td role="cell" data-label="Detalle">{{ detalleSolicitud(s) }}@if (s.posibles > 1) {<div class="an-muted">{{ s.posibles }} anticipos de Kepler podían ser: se tomó el de fecha más cercana.</div>}</td>
                   <td role="cell" data-label="Pedido"><div>{{ fecha(s.creado) }}</div><div class="an-muted">{{ s.creado_por }}@if (motivoDe(s); as m) { · {{ m }}}</div></td>
-                  <!-- [PGP.122] Sólo lo que no tiene pago se cancela; lo demás dice en «Detalle» qué hacer. -->
+                  <!-- [PGP.126] Sólo lo que no tiene pago se cancela; lo demás dice en «Detalle» qué hacer. -->
                   @if (puedePedir()) {
                     <td role="cell" data-label="Acciones">
                       @if (s.etapa === 'por_programar') {
@@ -254,7 +254,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
       </div>
     </p-dialog>
 
-    <!-- [PGP.122] Cancelar un anticipo pedido que todavía no tiene pago. La razón queda junto a su motivo. -->
+    <!-- [PGP.126] Cancelar un anticipo pedido que todavía no tiene pago. La razón queda junto a su motivo. -->
     <p-dialog [visible]="!!cancelando()" (visibleChange)="$event || cerrarCancelar()" [modal]="true" header="Cancelar anticipo pedido" [style]="{ width: '30rem' }">
       @if (cancelando(); as s) {
         <p class="an-help"><b>{{ s.proveedor_nombre }}</b> · {{ money2(s.monto) }} · {{ s.sucursal | sucursal }}@if (s.oc_folio) { · OC {{ s.oc_folio }}}.
@@ -427,7 +427,7 @@ export class FinanzasAnticiposComponent implements OnInit {
     });
   }
 
-  // ── `[PGP.122]` Cancelar un pedido sin pago ──────────────────────────────────────────────
+  // ── `[PGP.126]` Cancelar un pedido sin pago ──────────────────────────────────────────────
   readonly cancelando = signal<AnticipoSolicitadoRow | null>(null);
   readonly cancRazon = signal('');
   readonly cancGuardando = signal(false);
