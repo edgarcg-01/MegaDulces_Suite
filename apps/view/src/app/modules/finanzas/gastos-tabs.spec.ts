@@ -94,7 +94,12 @@ describe('[GX.80] el menú lateral', () => {
   const layout = readFileSync(join(__dirname, '..', 'dashboard', 'layout', 'layout.component.ts'), 'utf8');
 
   it('tiene UNA entrada «Gastos» que lleva las pestañas', () => {
-    expect(layout).toContain("{ label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS }");
+    // `[MOV]` agregó `movil: 1` a este renglón y la comparación letra por letra se puso roja
+    // sin que el menú tuviera nada malo. Lo que GX.80 exige son las cuatro piezas —rótulo,
+    // ícono, destino y pestañas—, no el orden ni que no haya ningún campo más.
+    expect(layout).toMatch(
+      /\{ label: 'Gastos', icon: 'pi pi-wallet', route: '\/finanzas\/mis-gastos', tabs: GASTOS_TABS\s*[,}]/,
+    );
   });
 
   it('ya no repite las cuatro pantallas como renglones sueltos', () => {
