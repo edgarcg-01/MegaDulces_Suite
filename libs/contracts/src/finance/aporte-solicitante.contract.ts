@@ -67,6 +67,11 @@ export interface EstadoAporte {
    * beneficiario de la solicitud de Kepler; no lo marca quien captura.
    */
   es_nomina?: boolean;
+  /**
+   * `[PGP.122]` DS17: **la solicitud se paga después de pedirse** (la que nace en la Suite, «Registrar o
+   * pedir»): la referencia o el cheque llegan al pagar, como en la nómina (`detallePagoOpcional`).
+   */
+  se_paga_despues?: boolean;
 }
 
 /**
@@ -87,9 +92,16 @@ export function esSolicitudDeNomina(beneficiario: string | null | undefined): bo
 /** Formas cuyo dato llega hasta que se paga: en nómina no se exige al solicitar. */
 const DETALLE_LLEGA_AL_PAGAR: ReadonlySet<string> = new Set(['transferencia', 'cheque']);
 
-/** `[GX.111]` ¿El dato del pago es opcional para esta solicitud? */
-export function detallePagoOpcional(estado: Pick<EstadoAporte, 'forma_pago' | 'es_nomina'>): boolean {
-  return !!estado.es_nomina && DETALLE_LLEGA_AL_PAGAR.has(String(estado.forma_pago ?? ''));
+/**
+ * `[GX.111]` ¿El dato del pago es opcional para esta solicitud?
+ *
+ * `[PGP.122]` DS17: también cuando la solicitud **se paga después de pedirse** (`se_paga_despues`): al pedir,
+ * la referencia de la transferencia o el número de cheque todavía no existen —llegan con el pago (X-D-26)—.
+ * Medido en la prueba visual del 2026-11-15: con el campo obligatorio, quedó el folio del TICKET como
+ * «referencia del banco». Si se escribe, se sigue validando su forma (`detalleInvalido`).
+ */
+export function detallePagoOpcional(estado: Pick<EstadoAporte, 'forma_pago' | 'es_nomina' | 'se_paga_despues'>): boolean {
+  return (!!estado.es_nomina || !!estado.se_paga_despues) && DETALLE_LLEGA_AL_PAGAR.has(String(estado.forma_pago ?? ''));
 }
 
 /** Cada cosa que falta, con el texto que se le muestra a la persona. */

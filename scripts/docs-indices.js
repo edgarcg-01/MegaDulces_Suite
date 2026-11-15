@@ -44,6 +44,8 @@ const DOCS = [
   { archivo: 'docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md', niveles: 2,
     omitir: ['# Resumen de ADRs movido de CLAUDE.md (2026-10-14)'] },
   { archivo: 'docs/IMPLEMENTACION/03_LOG_REVISIONES.md', niveles: 2, omitir: ['## Plantilla de entrada'] },
+  // `[PGP.122]` El anexo S pasó de 40 KB al agregarle el avance de la construcción.
+  { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md', niveles: 2, omitir: [] },
 ];
 
 const INICIO = '<!-- INDICE-AUTO:INICIO -->';

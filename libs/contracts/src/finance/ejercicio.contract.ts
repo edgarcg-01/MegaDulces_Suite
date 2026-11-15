@@ -348,6 +348,51 @@ export interface KeplerDelVale {
   estado: EstadoKepler | null;
   /** Lo que la Suite intentó al firmar. `null` = no se intentó (firma anterior a PGP.79, o la escritura apagada). */
   suite: { resultado: ResultadoAutorizacionSuite; at: string | null; nota: string | null; firmo: string | null } | null;
+  /**
+   * `[PGP.122]` El vale NACIÓ en la Suite (`origen = 'solicitud'`): su solicitud no existe en Kepler hasta firmarlo, y
+   * aquí va cómo va su escritura (`kepler_request_status`). Ausente = el vale no nació en la Suite.
+   */
+  nace_en_la_suite?: { status: string | null; nota: string | null; siguiente: string | null; intentos: number } | null;
+}
+
+/**
+ * `[PGP.122]` La pastilla de la solicitud que nace en la Suite. Antes de firmarla no es «sin folio» (no le falta
+ * nada): al firmarla se escribe. Después, el estado de la escritura; si ya la ve la réplica, manda su estado.
+ */
+function lecturaDeLaSuite(k: KeplerDelVale, status: StatusVale | string): { texto: string; tono: TonoKepler } {
+  const n = k.nace_en_la_suite!;
+  if (status === 'recibida') return { texto: 'Nace en la Suite: al firmarla se escribe en Kepler', tono: 'neutro' };
+  if (k.estado === 'C') return { texto: 'Kepler: cancelada', tono: 'bad' };
+  switch (n.status) {
+    case 'written': case 'seen_in_ods': return { texto: 'Kepler: escrita por la Suite', tono: 'ok' };
+    case 'writing': return { texto: 'Kepler: escribiéndose', tono: 'neutro' };
+    case 'pending': return { texto: 'Kepler: por escribir', tono: 'warn' };
+    case 'retry': return { texto: 'Kepler: se reintenta sola', tono: 'warn' };
+    case 'in_doubt': return { texto: 'Kepler: en duda (se pregunta antes de reintentar)', tono: 'warn' };
+    case 'stuck': return { texto: 'Kepler: no se pudo escribir', tono: 'bad' };
+    case 'rejected_by_kepler': return { texto: 'Kepler: no la aceptó', tono: 'bad' };
+    case 'cancelled': return { texto: 'Kepler: no se escribirá (se rechazó aquí)', tono: 'neutro' };
+    default: return { texto: 'Kepler: sin medir', tono: 'neutro' };
+  }
+}
+
+/** `[PGP.122]` La explicación de la solicitud que nace en la Suite, para el detalle: qué pasó y qué hacer. */
+function explicacionDeLaSuite(k: KeplerDelVale, status: StatusVale | string): string {
+  const n = k.nace_en_la_suite!;
+  const nota = n.nota ? ` ${n.nota}.` : '';
+  if (status === 'recibida') return 'Esta solicitud nació en la Suite: todavía no existe en Kepler. Al firmarla, la Suite la escribe en Kepler ya autorizada, con su folio.';
+  if (k.estado === 'C') return `La Suite la escribió y en Kepler está CANCELADA (${k.solicitud ?? 'sin folio'}).`;
+  switch (n.status) {
+    case 'written': case 'seen_in_ods': return `La Suite la escribió en Kepler ya autorizada: ${k.solicitud ?? 'folio por confirmar'}${n.status === 'seen_in_ods' ? ', y la réplica ya la ve' : ''}.`;
+    case 'writing': return 'Se está escribiendo en Kepler en este momento.';
+    case 'pending': return `Firmada; todavía no se escribe en Kepler.${nota} Se escribe sola en cuanto el servidor de esa sucursal esté encendido.`;
+    case 'retry': return `Kepler no la recibió y se reintenta sola${n.siguiente ? ' (siguiente intento programado)' : ''}.${nota}`;
+    case 'in_doubt': return `No se sabe si llegó a Kepler: antes de reintentar se le pregunta por su marca, para no escribirla dos veces.${nota}`;
+    case 'stuck': return `No se pudo escribir después de ${n.intentos} intentos.${nota} Cuando se corrija, «Reintentar en Kepler».`;
+    case 'rejected_by_kepler': return `Kepler no la aceptó.${nota} Cuando se corrija (catálogo, acreedor), «Reintentar en Kepler».`;
+    case 'cancelled': return 'Se rechazó en la Suite antes de escribirse: no se escribirá en Kepler.';
+    default: return 'No se puede decir cómo va su escritura en Kepler.';
+  }
 }
 
 export type TonoKepler = 'ok' | 'warn' | 'bad' | 'neutro';
@@ -361,6 +406,7 @@ export type TonoKepler = 'ok' | 'warn' | 'bad' | 'neutro';
  *  · `C` es rojo: Kepler la canceló, y aprobarla aquí no la autoriza allá.
  */
 export function lecturaKepler(k: KeplerDelVale | null | undefined, status: StatusVale | string): { texto: string; tono: TonoKepler } {
+  if (k?.nace_en_la_suite) return lecturaDeLaSuite(k, status);
   if (!k || !k.solicitud) return { texto: 'Kepler: sin folio', tono: 'warn' };
   if (k.suite?.resultado === 'no_escrito' && k.estado !== 'A' && k.estado !== 'F') return { texto: 'Kepler: no se pudo autorizar', tono: 'bad' };
   switch (k.estado) {
@@ -379,6 +425,7 @@ export function lecturaKepler(k: KeplerDelVale | null | undefined, status: Statu
  * falta, qué hacer. `cuando` llega ya formateada (hora de México) por quien la pinta.
  */
 export function explicacionKepler(k: KeplerDelVale, status: StatusVale | string, cuando: string | null): string {
+  if (k.nace_en_la_suite) return explicacionDeLaSuite(k, status);
   const quien = k.suite?.firmo ? ` · firmó ${k.suite.firmo}` : '';
   const hora = cuando ? ` el ${cuando}` : '';
   if (k.suite?.resultado === 'no_escrito' && k.estado !== 'A' && k.estado !== 'F') {

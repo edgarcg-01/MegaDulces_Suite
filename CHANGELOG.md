@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Added — Gastos: la solicitud de gasto nace en la Suite y, al firmarla, se escribe en Kepler ya autorizada (PGP.122 · 2026-11-15 · en código, apagada hasta encenderla servidor por servidor)
+- En **Finanzas › Gastos**, la pestaña **Registrar o pedir** captura la solicitud (X-A-15) sin abrir Kepler: el acreedor del catálogo de esa sucursal, los renglones con concepto, proyecto y departamento (la cuenta sale del concepto), el IVA, el documento que ampara el gasto con su fecha y su foto, y la forma de pago. Hoy el 94.4 % de estas solicitudes se teclea dos veces (en Kepler y en el vale).
+- Alcance de esta versión (DS3): gasto operativo (`G…`). Nómina, comisiones bancarias, tarjetas, préstamos, compras y las cuentas de SUA e impuestos se siguen capturando en Kepler, y la pantalla dice por qué.
+- Lleva **dos fechas** (DS15): `c9` dice cuándo se pidió y `c25` qué documento lo ampara y de cuándo («AMPARA TICKET 1198 DEL 12/11/2026»); el folio del documento va a `c11`.
+- **Al firmarla** en Aprobación (nadie firma lo suyo), la Suite la escribe en Kepler **ya autorizada** (`A`), con el folio del contador de Kepler (`sqliov`). Si Kepler no responde, espera y reintenta; si el proceso se cae a la mitad, pregunta por su marca antes de escribir otra; hay un tope diario por servidor y el lazo con el ODS confirma que llegó.
+- Al **pedir**, la referencia de la transferencia o el número de cheque no se exigen: llegan al pagar (DS17).
+- Se abre **servidor por servidor**: la pestaña sólo aparece donde la escritura está encendida de punta a punta; mientras tanto, todo sigue como hoy.
+- Quien firma ve antes los renglones que se escribirán (cuenta, IVA y total) y puede reintentar la escritura. Una factura del SAT respalda un solo vale, y mandar la misma solicitud dos veces no la duplica.
+- ⚠️ Migración `20261115003547_pgp122_solicitud_gasto_nace_en_la_suite` en prod **antes** de soltar. La escritura nace apagada; encenderla son los pasos de `ops/prod/ensayo-solicitud-gasto/README.md`.
 ### Fixed — Bancos › Cierre: no dice «Sin datos» mientras carga, explica completa la diferencia de traspasos y los egresos sin categoría se categorizan ahí (CB.68–CB.70 · 2026-11-13 · en prod)
 - Mientras carga, el Cierre muestra un esqueleto en lugar de «Sin datos», y al llegar dice hasta qué día ve movimientos. Una cuenta sin movimientos se nombra por su alias y dice cómo resolverla.
 - Los traspasos sin pareja se buscan uno a uno, y su suma ahora explica toda la diferencia entre lo que entra y lo que sale entre cuentas (en noviembre, $150,000; antes se nombraban $55,000).

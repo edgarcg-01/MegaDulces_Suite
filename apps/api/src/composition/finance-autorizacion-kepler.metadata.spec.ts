@@ -34,10 +34,11 @@ describe('[PGP.79] FinanceExpenseProofsModule: el adaptador de autorización en 
     expect(Reflect.getMetadata('path', ctrl!)).toBe('finance/expenses/kepler-autorizacion');
   });
 
-  it('el servicio lo recibe por su CLASE, como última dependencia', () => {
+  it('el servicio lo recibe por su CLASE, en su lugar (el 8º; PGP.122 agrega el escritor de la solicitud al final)', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', ExpenseProofsService) as Clase[] | undefined;
-    expect(Array.isArray(tipos) && tipos.length === 8, `sin design:paramtypes esta prueba no mide nada (${tipos?.length})`).toBe(true);
+    expect(Array.isArray(tipos) && tipos.length === 9, `sin design:paramtypes esta prueba no mide nada (${tipos?.length})`).toBe(true);
     expect(tipos![7]).toBe(por('KeplerAutorizacionGastoAdapter'));
+    expect(tipos![8]).toBe(por('SolicitudGastoService'));
     expect(tipos!.slice(0, 5).every((t) => typeof t === 'function' && t !== Object), `paramtypes: ${tipos!.map((t) => t?.name).join(', ')}`).toBe(true);
   });
 });

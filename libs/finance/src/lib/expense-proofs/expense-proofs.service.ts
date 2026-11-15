@@ -82,6 +82,7 @@ import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, 
 // `[PGP.79]` Firmar autoriza la solicitud en Kepler (kdm1.c43 N→A). Apagado por default.
 import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-autorizacion-gasto.adapter';
 import type { ResultadoAutorizacionKepler } from './autorizacion-kepler/autorizacion-kepler';
+import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.service';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -137,6 +138,17 @@ export type ExpenseClasificacion = (typeof EXPENSE_CLASIFICACIONES)[number];
 export function requiereEvidencia(c?: string | null): boolean {
   return c === 'fiscal' || c === 'no_fiscal_comprobable';
 }
+/** La captura sin folio que se va a casar con una solicitud de Kepler (`match`), con su origen. */
+interface CapturaPorCasar {
+  id: string;
+  files: ProofFile[] | string | null;
+  clasificacion: string | null;
+  capture_meta: Record<string, unknown> | string | null;
+  sucursal: string | null;
+  importe: string | number | null;
+  /** `[PGP.122]` `'solicitud'` = nació en la Suite: su folio lo pone Kepler al firmarla. */
+  origen: string | null;
+}
 /** El archivo de evidencia que puede faltar (condicional a la clasificación). */
 const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
 /**
@@ -175,6 +187,20 @@ const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
  * exigir. Acá, con el expediente ya guardado, repetirlo dejaría sin aprobar lo que el
  * propio sistema aceptó — un gasto trabado para siempre, sin nadie que pueda destrabarlo.
  */
+/**
+ * `[PGP.122]` El índice único de los vales vivos por (sucursal, folio) —`ux_expense_proofs_un_vale_por_solicitud`—
+ * traducido: si otro vale vivo ya tiene ese folio, 409 con el motivo, no un 500 (al «Ligar» o al reactivar un rechazado).
+ */
+function conflictoDeFolio(folio: string | null | undefined) {
+  return (e: unknown): never => {
+    const err = e as { code?: string; constraint?: string; message?: string };
+    if (err?.code === '23505' && /ux_expense_proofs_un_vale_por_solicitud/.test(String(err.constraint ?? err.message ?? ''))) {
+      throw new ConflictException(`Ya hay otro vale vivo de la solicitud ${folio ?? ''}: revísalo antes de ligar o reactivar éste`);
+    }
+    throw e;
+  };
+}
+
 function tieneRespaldo(f: { role?: unknown; url?: unknown }): boolean {
   const role = String(f?.role || '');
   return !!f?.url && (
@@ -600,6 +626,11 @@ export class ExpenseProofsService {
      * binding la firma se guarda igual y Kepler no se toca — nunca al revés.
      */
     @Optional() private readonly autorizacionKepler?: KeplerAutorizacionGastoAdapter,
+    /**
+     * `[PGP.122]` Escribe en Kepler la solicitud que nació en la Suite, al firmarla. `@Optional` y al FINAL,
+     * como el de arriba: sin el binding la firma se guarda igual y Kepler no se toca.
+     */
+    @Optional() private readonly solicitudGasto?: SolicitudGastoService,
   ) {}
 
   /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
@@ -1203,10 +1234,13 @@ export class ExpenseProofsService {
 
     const finalClas = clasIn || (base.clasCol ? base.cur.clasificacion : null);
     const files: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
+    // `[PGP.122]` La solicitud que nació en la Suite: se lee aquí (la vista no trae sus columnas nuevas).
+    const solicitudSuite = await this.tk.run((trx) => this.solicitudDeLaSuite(trx, id));
     // `[GX.31]` Cualquiera de los DOS respaldos: la solicitud firmada de los expedientes
     // viejos, o la foto del vale autorizado de los nuevos. Exigir sólo el primero dejaba
     // sin aprobar todo lo que se levante desde GX.18 para adelante.
-    const hasRequest = files.some((f) => tieneRespaldo(f));
+    // `[PGP.122]` Y un tercero: la factura del SAT casada (UUID) de una solicitud de la Suite.
+    const hasRequest = files.some((f) => tieneRespaldo(f)) || solicitudSuite.cfdi;
     if (!hasRequest) throw new BadRequestException('no se puede aprobar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
 
     const lleva = requiereEvidencia(finalClas);
@@ -1327,9 +1361,58 @@ export class ExpenseProofsService {
       return { row, sucursal: (full?.sucursal ?? null) as string | null };
     });
 
+    // `[PGP.122]` La solicitud que nació en la Suite NO existe en Kepler: la firma la ESCRIBE, ya autorizada
+    // (DS2). Después del commit, igual que PGP.79: si Kepler falla, la firma ya quedó y el cron reintenta.
+    if (solicitudSuite.es) {
+      const solicitud_kepler = this.solicitudGasto ? await this.solicitudGasto.escribirAlFirmar(id, actor ?? null) : null;
+      return solicitud_kepler ? { ...firmado.row, solicitud_kepler } : firmado.row;
+    }
     // `[PGP.79]` DESPUÉS del commit de la firma: si Kepler falla, el vale ya quedó aprobado aquí.
     const kepler = await this.autorizarEnKepler(id, { sucursal: firmado.sucursal, folio_solicitud: base.cur.folio_solicitud });
     return kepler ? { ...firmado.row, kepler } : firmado.row;
+  }
+
+  /**
+   * `[PGP.122]` ¿El vale nació como solicitud en la Suite (`origen = 'solicitud'`)? ¿Trae su factura del SAT
+   * casada (UUID)? Con guarda de columna: el código puede llegar antes que la migración.
+   */
+  private async solicitudDeLaSuite(trx: Knex, id: string): Promise<{ es: boolean; cfdi: boolean }> {
+    const conUuid = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'cfdi_uuid');
+    const r = await trx('finance.expense_proofs').where({ id }).first('origen', ...(conUuid ? ['cfdi_uuid'] : [])) as { origen?: string; cfdi_uuid?: string | null } | undefined;
+    const es = r?.origen === 'solicitud';
+    const uuid = String(r?.cfdi_uuid ?? '').trim().toLowerCase();
+    if (!es || !uuid) return { es, cfdi: false };
+    // La factura respalda sólo si SIGUE siendo una recibida vigente del SAT (pudo cancelarse después de pedirla).
+    // En su SAVEPOINT: si la lectura falla, no respalda, y la transacción sigue viva (GOTCHAS §2).
+    const vigente = await trx.transaction(async (sp) => (await sp.raw(
+      `SELECT 1 FROM fiscal.cfdis WHERE lower(uuid) = ? AND rol = 'recibidas' AND tipo_comprobante = 'I'
+          AND coalesce(estatus_sat, '') NOT ILIKE 'cancel%' LIMIT 1`, [uuid])).rows.length > 0).catch(() => false);
+    return { es, cfdi: vigente };
+  }
+
+  /**
+   * `[PGP.122]` ¿Se puede rechazar esta solicitud nacida en la Suite, y qué se anota de su escritura en Kepler? DS8:
+   * en v1 la que YA está en Kepler la cancela Finanzas allá. Así que:
+   *  · se está escribiendo o quedó en duda → 409: hay que esperar a saber si quedó escrita;
+   *  · ya escrita → 409, salvo que el ODS ya la vea CANCELADA en Kepler (entonces sí se rechaza aquí);
+   *  · todavía no escrita → se rechaza y queda `cancelled`: el cron y «Reintentar» ya no la escriben.
+   * Un vale que no nació en la Suite: `null` (nada cambia).
+   */
+  private async rechazoDeSolicitudSuite(trx: Knex, id: string): Promise<Record<string, unknown> | null> {
+    if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status'))) return null;
+    const v = await trx('finance.expense_proofs').where({ id })
+      .first('origen', 'sucursal', 'folio_solicitud', 'kepler_request_status') as { origen?: string; sucursal?: string; folio_solicitud?: string | null; kepler_request_status?: string | null } | undefined;
+    if (!v || v.origen !== 'solicitud') return null;
+    const st = String(v.kepler_request_status ?? '');
+    if (st === 'writing' || st === 'in_doubt') {
+      throw new ConflictException('Esta solicitud se está escribiendo en Kepler (o no se sabe todavía si quedó escrita): espera unos minutos y vuelve a intentarlo');
+    }
+    if (st === 'written' || st === 'seen_in_ods') {
+      const enKepler = await trx('analytics.expense_requests').where({ sucursal: v.sucursal, folio: v.folio_solicitud }).first('estado');
+      if (String(enKepler?.estado ?? '') === 'C') return null; // Finanzas ya la canceló en Kepler: se rechaza aquí también
+      throw new ConflictException(`La solicitud ${v.sucursal}-${v.folio_solicitud} ya está autorizada en Kepler: cancélala allá primero. Cuando la cancelación se vea en la Suite, aquí se puede rechazar`);
+    }
+    return { kepler_request_status: 'cancelled', kepler_request_next_at: null, kepler_request_note: 'Se rechazó en la Suite antes de escribirse en Kepler: no se escribirá' };
   }
 
   /**
@@ -3565,7 +3648,7 @@ export class ExpenseProofsService {
    * cabecera; el formulario solo aporta la evidencia. Devuelve null si el feed todavía no
    * la trajo — en ese caso el DTO tiene que traer los datos.
    */
-  private async lookupSolicitud(folio: string, sucursal?: string) {
+  private async lookupSolicitud(folio: string, sucursal?: string | null) {
     const suc = String(sucursal || '').trim();
     return this.tk.run(async (trx) =>
       trx('analytics.expense_requests')
@@ -3603,8 +3686,8 @@ export class ExpenseProofsService {
       const files: any[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
       // `[GX.31]` El respaldo es obligatorio SIEMPRE (los 3 tipos): el gate del que cierra
       // debe ser el mismo que el de la captura, o un expediente sin respaldo se colaría
-      // por API. Vale cualquiera de los dos — ver `tieneRespaldo`.
-      const hasRequest = files.some((f) => tieneRespaldo(f));
+      // por API. Vale cualquiera de los dos — ver `tieneRespaldo`. `[PGP.122]` O la factura del SAT casada.
+      const hasRequest = files.some((f) => tieneRespaldo(f)) || (await this.solicitudDeLaSuite(trx, id)).cfdi;
       if (!hasRequest) {
         throw new BadRequestException('no se puede validar sin el respaldo de la autorización (la solicitud firmada o la foto del vale autorizado)');
       }
@@ -3624,7 +3707,9 @@ export class ExpenseProofsService {
           // Sonda: sin la migración de clasificación se valida igual, sin perder la acción.
           ...(clasCol ? { clasificacion: finalClas || null, comprobacion_nota: finalClas === 'no_comprobable' ? motivo : null } : {}),
         })
-        .returning(['id', 'status']);
+        .returning(['id', 'status'])
+        // `[PGP.122]` Reactivar un rechazado cuyo folio ya tiene otro vale vivo: 409 con el motivo, no un 500.
+        .catch(conflictoDeFolio(cur.folio_solicitud));
       if (!row) throw new BadRequestException('solicitud no encontrada o ya validada');
       const [full] = await trx('finance.v_expense_proofs').where({ id })
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal', 'proveedor', 'created_by');
@@ -3691,8 +3776,12 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       // `[GX.65.4a]` El dueño del vale tampoco se lo rechaza a sí mismo.
       await this.asegurarQueNoEsSuyo(trx, id, quien);
+      const kepler = await this.rechazoDeSolicitudSuite(trx, id);
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'aprobada', 'validada', 'revision'])
-        .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now() })
+        .update({
+          status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: (motivo || '').trim() || 'rechazada', updated_at: trx.fn.now(),
+          ...(kepler ?? {}),
+        })
         .returning(['id', 'status']);
       if (!row) throw new BadRequestException('solicitud no encontrada o ya rechazada');
       const [full] = await trx('finance.v_expense_proofs').where({ id })
@@ -3719,7 +3808,10 @@ export class ExpenseProofsService {
     const limit = Math.min(500, Math.max(1, Number(q?.limit) || 200));
     return this.tk.run(async (trx) => {
       const base = () => {
-        const b = trx('finance.expense_proofs as p').whereNull('p.folio_solicitud');
+        // `[PGP.122]` La solicitud que nació en la Suite tampoco tiene folio mientras espera firma, pero NO es una
+        // captura por ligar: su folio lo pone Kepler al firmarla. Ligarla a mano rompía su escritura.
+        const b = trx('finance.expense_proofs as p').whereNull('p.folio_solicitud')
+          .where((w) => w.whereNull('p.origen').orWhere('p.origen', '<>', 'solicitud'));
         if (q?.search?.trim()) {
           // `[BU.2.2]` Motor único: proveedor, solicitante y comentarios, palabra por palabra.
           applySmartSearch(b, q.search, { columns: ['p.proveedor', 'p.solicitante', 'p.comentarios'] });
@@ -3792,10 +3884,16 @@ export class ExpenseProofsService {
     const f = String(folio || '').trim();
     if (!f) throw new BadRequestException('folio requerido');
 
-    const cur: any = await this.tk.run(async (trx) =>
-      trx('finance.v_expense_proofs').where({ id }).whereNull('folio_solicitud')
-        .first('id', 'files', 'clasificacion', 'capture_meta', 'sucursal', trx.raw('importe::numeric AS importe')));
+    const cur = await this.tk.run(async (trx): Promise<CapturaPorCasar | undefined> => {
+      const c = await trx('finance.v_expense_proofs').where({ id }).whereNull('folio_solicitud')
+        .first('id', 'files', 'clasificacion', 'capture_meta', 'sucursal', trx.raw('importe::numeric AS importe'));
+      if (!c) return c;
+      const o = await trx('finance.expense_proofs').where({ id }).first('origen');
+      return { ...c, origen: o?.origen ?? null };
+    });
     if (!cur) throw new BadRequestException('esta captura no existe o ya fue casada');
+    // `[PGP.122]` Su folio lo pone la escritura en Kepler al firmarla: ligarla a otra solicitud la dejaba sin escribir.
+    if (cur.origen === 'solicitud') throw new ConflictException('Esta solicitud nació en la Suite: su folio lo pone Kepler al firmarla, no se liga a mano');
 
     // La sucursal sale de la captura: el trabajador la declaró al subir. Sin ella, el folio
     // podría resolver a la solicitud de otra plaza.
@@ -3817,6 +3915,7 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       const meta = typeof cur.capture_meta === 'string' ? JSON.parse(cur.capture_meta || '{}') : (cur.capture_meta || {});
       const [row] = await trx('finance.expense_proofs').where({ id }).whereNull('folio_solicitud')
+        .where((w) => w.whereNull('origen').orWhere('origen', '<>', 'solicitud'))
         .update({
           folio_solicitud: f,
           importe: real || declarado,
@@ -3831,7 +3930,8 @@ export class ExpenseProofsService {
           }),
           updated_at: trx.fn.now(),
         })
-        .returning(['id', 'folio_solicitud', 'status']);
+        .returning(['id', 'folio_solicitud', 'status'])
+        .catch(conflictoDeFolio(f));
       if (!row) throw new BadRequestException('esta captura no existe o ya fue casada');
 
       const brecha = real && Math.abs(real - declarado) > 0.5

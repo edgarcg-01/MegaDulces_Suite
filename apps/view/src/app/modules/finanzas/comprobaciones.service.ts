@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
-import type { AutorizacionKepler, EtapaEjercicio, KeplerDelVale, ValeAsignado } from '@megadulces/contracts';
+import type { AutorizacionKepler, EtapaEjercicio, EstadoKeplerDeLaSolicitud, KeplerDelVale, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
 import type { FiltroExpediente, RespuestaExpediente, TransferenciaGasto } from '@megadulces/contracts';
 
@@ -492,6 +492,8 @@ export interface RespuestaAprobacion {
   id: string;
   status: string;
   kepler?: { estado: 'escrito' } | { estado: 'ya_estaba'; kepler: 'A' | 'F' } | { estado: 'no_escrito'; motivo: string };
+  /** `[PGP.122]` La solicitud que nació en la Suite: al firmarla se ESCRIBE en Kepler. Cómo quedó. */
+  solicitud_kepler?: EstadoKeplerDeLaSolicitud;
 }
 
 export interface GastosDelDia {

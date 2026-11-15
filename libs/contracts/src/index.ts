@@ -279,3 +279,5 @@ export * from './finance/caja-lote-retiro.contract';
 export * from './finance/caja-reposicion.contract';
 // `[CGA-A.65]` La hoja de gastos de zona (el Excel «Formato de autorizacion de gastos», armado de Kepler).
 export * from './finance/hoja-gastos.contract';
+// `[PGP.122]` La solicitud de gasto nace en la Suite: alcance, fechas, AMPARA y la compuerta de «Pedir».
+export * from './finance/solicitud-gasto.contract';
