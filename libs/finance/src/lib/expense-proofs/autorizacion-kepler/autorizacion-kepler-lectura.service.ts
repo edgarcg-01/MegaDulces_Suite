@@ -34,10 +34,13 @@ export class AutorizacionKeplerLecturaService {
     if (!ids.length) return {};
     return this.tk.run(async (trx) => {
       const conSuite = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_authorization_status');
+      // `[PGP.122]` La solicitud que nació en la Suite: cómo va su escritura (con guarda: el código llega antes que la migración).
+      const conSolicitud = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status');
       const vales: Record<string, unknown>[] = await trx('finance.expense_proofs')
         .where({ tenant_id: tenantId }).whereIn('id', ids)
-        .select('id', 'sucursal', 'folio_solicitud', 'aprobado_por',
-          ...(conSuite ? ['kepler_authorization_status', 'kepler_authorization_at', 'kepler_authorization_note'] : []));
+        .select('id', 'sucursal', 'folio_solicitud', 'aprobado_por', 'origen',
+          ...(conSuite ? ['kepler_authorization_status', 'kepler_authorization_at', 'kepler_authorization_note'] : []),
+          ...(conSolicitud ? ['kepler_request_status', 'kepler_request_note', 'kepler_request_next_at', 'kepler_request_attempts'] : []));
 
       const porSucursal = new Map<string, Set<string>>();
       for (const v of vales) {
@@ -75,6 +78,14 @@ export class AutorizacionKeplerLecturaService {
             nota: (v['kepler_authorization_note'] as string | null) ?? null,
             firmo: (v['aprobado_por'] as string | null) ?? null,
           } : null,
+          ...(conSolicitud && v['origen'] === 'solicitud' ? {
+            nace_en_la_suite: {
+              status: (v['kepler_request_status'] as string | null) ?? null,
+              nota: (v['kepler_request_note'] as string | null) ?? null,
+              siguiente: v['kepler_request_next_at'] ? new Date(v['kepler_request_next_at'] as string).toISOString() : null,
+              intentos: Number(v['kepler_request_attempts'] ?? 0),
+            },
+          } : {}),
         };
       }
       return out;

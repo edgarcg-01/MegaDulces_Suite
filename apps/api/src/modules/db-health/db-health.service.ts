@@ -1274,6 +1274,8 @@ export const CRON_JOBS: CronCfg[] = [
   { key: 'bank_recon_aviso',    label: 'Bancos: la conciliación corre al llegar el dato (sin reloj)', cadence: 'por evento (NOTIFY caja_fuente y bancos_movimientos)', warnH: 30, critH: 72, maxRunH: 0.25 },
   // [GX.85] Cierra el vale cuando Kepler lo aplica (F). Sin este renglón un cron parado se pinta verde.
   { key: 'gastos_cierre_kepler', label: 'Gastos: cierre por Kepler (F)', cadence: 'cada 10 min', warnH: 1, critH: 6 },
+  // [PGP.122] La solicitud de gasto que nació en la Suite: reintentos, huérfanos y el lazo con el ODS.
+  { key: 'gastos_solicitud_kepler', label: 'Gastos: solicitudes de la Suite a Kepler (reintentos y lazo con el ODS)', cadence: 'cada 5 min', warnH: 1, critH: 6 },
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   // ── [NORM.3] EL CARRIL QUE ERA MUDO ─────────────────────────────────────────────────────────

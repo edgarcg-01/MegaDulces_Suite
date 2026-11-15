@@ -12,7 +12,7 @@ import {
 } from '../comprobaciones.service';
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 // `[PGP.79]` La misma lectura que el renglón de la bandeja: una regla, no dos.
-import { explicacionKepler, lecturaKepler, type KeplerDelVale } from '@megadulces/contracts';
+import { explicacionKepler, lecturaKepler, type DetalleDeLaSolicitud, type KeplerDelVale } from '@megadulces/contracts';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
 export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura'
@@ -149,12 +149,30 @@ type DocDelExpediente = DocEvidencia;
           <h3 class="vp-h">Solicitud en Kepler</h3>
           <div class="vp-kep">
             <div class="vp-aut-h">
-              <span class="vp-aut-doc vp-mono">{{ k.solicitud || 'sin folio' }}</span>
+              <span class="vp-aut-doc vp-mono">{{ k.solicitud || (k.nace_en_la_suite ? 'nace en la Suite' : 'sin folio') }}</span>
               @if (lecturaK(); as l) {
                 <span class="ap-chip" [class.ok]="l.tono === 'ok'" [class.warn]="l.tono === 'warn'" [class.bad]="l.tono === 'bad'">{{ l.texto }}</span>
               }
             </div>
             <p class="vp-kep-t" [class.bad]="lecturaK()?.tono === 'bad'">{{ explicacionK() }}</p>
+            <!-- [PGP.122] Lo que su firma escribe en Kepler (o escribió): quien firma lo ve ANTES del botón. -->
+            @if (solicitudSuite(); as d) {
+              <p class="vp-kep-t">{{ p.status === 'recibida' ? 'Al firmarla se escribe en Kepler así:' : 'En Kepler se escribe así:' }}</p>
+              <ul class="vp-ren" [attr.aria-label]="'Renglones de la solicitud: ' + d.renglones.length">
+                @for (r of d.renglones; track r.linea) {
+                  <li>
+                    <span class="vp-ren-c">{{ r.nombre || r.concepto }}</span>
+                    <span class="vp-mono vp-ren-d">{{ r.concepto }} · cuenta {{ r.cuenta || 'sin cuenta' }} · proy. {{ r.proyecto }} · depto. {{ r.departamento }}</span>
+                    <span class="vp-mono vp-ren-i">{{ money(r.importe) }}</span>
+                  </li>
+                }
+              </ul>
+              <p class="vp-kep-t">IVA {{ money(d.iva) }} · total {{ money(d.total) }}@if (d.documento.fecha) { · ampara {{ d.documento.tipo === 'cfdi' ? 'factura' : d.documento.tipo }} {{ d.documento.folio || 's/f' }} del {{ diaLocal(d.documento.fecha) | date: 'dd/MM/yy' }} }</p>
+            }
+            @if (puedeReintentar() && reintentable()) {
+              <p-button type="button" label="Reintentar en Kepler" icon="pi pi-refresh" size="small" [outlined]="true"
+                        [disabled]="ocupado()" (onClick)="reintentarKepler.emit(p.id)" />
+            }
           </div>
         }
 
@@ -321,6 +339,12 @@ type DocDelExpediente = DocEvidencia;
   .vp-kep { display: flex; flex-direction: column; gap: var(--sp-1); }
   .vp-kep-t { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
   .vp-kep-t.bad { color: var(--bad-fg); }
+  /* [PGP.122] Los renglones que se escriben en Kepler: una lista, no una rejilla (el visor es angosto). */
+  .vp-ren { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-1); }
+  .vp-ren li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); font-size: var(--fs-sm); }
+  .vp-ren-c { color: var(--fg-1); }
+  .vp-ren-d { grid-column: 1; color: var(--fg-2); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+  .vp-ren-i { grid-column: 2; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums; }
   /* [GX.48] La constancia de autorizacion. Enmarcada: es un documento, no un dato suelto. */
   .vp-aut { border: 1px solid var(--border); border-radius: var(--r-md);
     padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -448,6 +472,19 @@ export class ValeGastoPeekComponent {
       : null;
     return explicacionKepler(k, this.vale()?.status ?? '', cuando);
   });
+  /**
+   * `[PGP.122]` La solicitud que nació en la Suite: lo que se escribe (o escribió) en Kepler —renglones con su
+   * cuenta, IVA, total y el documento que la ampara—. `null` = no nació en la Suite, o todavía no llega.
+   */
+  readonly solicitudSuite = input<DetalleDeLaSolicitud | null>(null);
+  /** `[PGP.122]` La página ofrece «Reintentar en Kepler» (sólo donde se puede: Aprobación exige COMPROBAR). */
+  readonly puedeReintentar = input(false);
+  /** Sólo una solicitud de la Suite YA firmada cuya escritura se atoró, espera o Kepler rechazó. */
+  readonly reintentable = computed(() => {
+    const st = this.kepler()?.nace_en_la_suite?.status ?? '';
+    return ['stuck', 'rejected_by_kepler', 'pending', 'retry'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
+  });
+  readonly reintentarKepler = output<string>();
 
   /** `[GX.30]` Aprobar viaja con la marca: ver `AprobacionVale`. */
   readonly aprobar = output<AprobacionVale>();

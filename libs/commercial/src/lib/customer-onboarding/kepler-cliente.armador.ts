@@ -6,6 +6,7 @@ import {
   type SolicitudAlta,
   type UsoCfdiOpcion,
 } from '@megadulces/contracts';
+import { textoParaKepler } from '@megadulces/platform-core';
 
 /**
  * `[ALC.1.6]` — **La solicitud de alta en el idioma de Kepler, armada sin tocar Kepler** (D1-b).
@@ -124,30 +125,18 @@ export function llevaCredito(s: Pick<SolicitudAlta, 'credito'>): boolean {
 
 // ── El texto ─────────────────────────────────────────────────────────────────────────────
 
-const VOCALES: Readonly<Record<string, string>> = {
-  Á: 'A', À: 'A', Ä: 'A', Â: 'A', É: 'E', È: 'E', Ë: 'E', Ê: 'E', Í: 'I', Ì: 'I', Ï: 'I', Î: 'I',
-  Ó: 'O', Ò: 'O', Ö: 'O', Ô: 'O', Ú: 'U', Ù: 'U', Ü: 'U', Û: 'U',
-};
-
 /**
  * Como escribe Kepler (medido en `kdud` de la base 00, 2,468 fichas): MAYÚSCULAS, **sin acentos**
  * (`MICHOACAN` 1,599 contra `MICHOACÁN` 361) pero **con Ñ** (70 nombres), sin caracteres de control
  * (42 fichas traen un `\r` pegado, p. ej. `MICHOACAN\r`) y **sin comillas**: las formas de Kepler
  * arman sus comandos entre comillas simples (`6,'valor'`), y una comilla en el dato rompe la edición
  * posterior en la propia forma (hay 1 ficha con apóstrofo).
+ *
+ * `[PGP.122]` La regla se mudó a `platform-core` (`textoParaKepler`) porque también la usa la solicitud
+ * de gasto (finanzas no puede importar de aquí, ADR-028). Se re-exporta con su nombre de siempre: una
+ * sola regla, no dos copias que un día diverjan (ADR-056).
  */
-export function textoKepler(v: unknown): string {
-  return String(v ?? '')
-    .normalize('NFC')
-    .toUpperCase()
-    .replace(/[ÁÀÄÂÉÈËÊÍÌÏÎÓÒÖÔÚÙÜÛ]/g, (x) => VOCALES[x] ?? x)
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/['"`´‘’“”]/g, '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export const textoKepler: (v: unknown) => string = textoParaKepler;
 
 /** Teléfono: sólo dígitos (75 de 369 teléfonos de Kepler traen guiones, espacios o texto). */
 export const telefonoKepler = (v: unknown): string => String(v ?? '').replace(/\D/g, '');

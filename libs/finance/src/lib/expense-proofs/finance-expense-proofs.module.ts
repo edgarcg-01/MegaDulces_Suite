@@ -11,6 +11,9 @@ import { CierreKeplerService } from './cierre-kepler.service';
 import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-autorizacion-gasto.adapter';
 import { AutorizacionKeplerLecturaService } from './autorizacion-kepler/autorizacion-kepler-lectura.service';
 import { AutorizacionKeplerController } from './autorizacion-kepler/autorizacion-kepler.controller';
+import { KeplerSolicitudGastoSinkAdapter } from './solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
+import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.service';
+import { SolicitudGastoController } from './solicitud-kepler/solicitud-gasto.controller';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -28,10 +31,14 @@ import { AutorizacionKeplerController } from './autorizacion-kepler/autorizacion
     }),
   ],
   // `[PGP.79]` AutorizacionKeplerController: la solicitud de Kepler de los vales que la pantalla ya tiene.
-  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController, AutorizacionKeplerController],
+  // `[PGP.122]` SolicitudGastoController: la solicitud de gasto nace en la Suite (ruta propia).
+  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController, AutorizacionKeplerController, SolicitudGastoController],
   // `[GX.85]` CierreKeplerService: cierra el vale cuando Kepler lo aplica (F).
   // `[PGP.79]` KeplerAutorizacionGastoAdapter: firmar autoriza la solicitud en Kepler (apagado por default).
-  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService],
+  // `[PGP.122]` KeplerSolicitudGastoSinkAdapter + SolicitudGastoService: firmar ESCRIBE en Kepler la solicitud
+  // nacida en la Suite (apagado por default: bandera, plantilla por servidor, interruptor y GRANT).
+  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
+    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}
