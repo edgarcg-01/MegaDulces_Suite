@@ -296,12 +296,12 @@ describe('[CB.67] corte sin paralelo: el libro deja de existir', () => {
   it('[negativa] el libro termina antes de que empiece la descarga: se niega y dice qué falta bajar', () => {
     const c = corteSinParalelo('2026-08-31', [{ desde: '2026-11-03', hasta: '2026-11-06' }], HOY);
     expect(c.cubre).toBe(false);
-    expect(c.motivo).toBe('el libro llega al 2026-08-31 y la descarga empieza el 2026-11-03: falta bajar del 2026-08-31 al 2026-11-02');
+    expect(c.motivo).toBe('el libro llega al 31/08 y la descarga empieza el 03/11: baja un solo archivo del 31/08 a hoy');
   });
   it('[negativa] un hueco entre archivos después del corte: se niega y nombra los días', () => {
     const c = corteSinParalelo('2026-11-03', [{ desde: '2026-11-01', hasta: '2026-11-04' }, { desde: '2026-11-08', hasta: '2026-11-12' }], HOY);
     expect(c.cubre).toBe(false);
-    expect(c.motivo).toBe('a la descarga le faltan del 2026-11-05 al 2026-11-07');
+    expect(c.motivo).toBe('a la descarga le faltan del 05/11 al 07/11, o no tuvieron movimientos: baja un solo archivo del 04/11 a hoy');
   });
   it('[negativa] una fecha FUTURA del libro (capturada mal) no es su último día', () => {
     const c = corteSinParalelo('2027-08-06', [{ desde: '2026-10-31', hasta: '2026-11-12' }], HOY);
@@ -311,10 +311,71 @@ describe('[CB.67] corte sin paralelo: el libro deja de existir', () => {
   });
   it('sin libro manda desde el primer día de la descarga; sin descarga, no hay corte', () => {
     expect(corteSinParalelo(null, [{ desde: '2026-11-03', hasta: '2026-11-12' }], HOY).desde).toBe('2026-11-03');
-    expect(corteSinParalelo('2026-11-10', [], HOY)).toEqual({ desde: null, ultimo_del_libro: '2026-11-10', cubre: false, motivo: 'no hay ninguna descarga subida' });
+    expect(corteSinParalelo('2026-11-10', [], HOY)).toEqual({ desde: null, ultimo_del_libro: '2026-11-10', cubre: false, motivo: 'no hay ninguna descarga subida: baja un solo archivo del 10/11 a hoy' });
+    expect(corteSinParalelo(null, [], HOY).motivo).toBe('no hay ninguna descarga subida');
   });
   it('[negativa] la descarga termina antes del último día del libro', () => {
     expect(corteSinParalelo('2026-11-10', [{ desde: '2026-11-01', hasta: '2026-11-06' }], HOY).motivo)
-      .toBe('el libro llega al 2026-11-10 y la descarga termina el 2026-11-06: falta bajar del 2026-11-10 en adelante');
+      .toBe('el libro llega al 10/11 y la descarga termina el 06/11: baja un solo archivo del 10/11 a hoy');
+  });
+});
+
+/**
+ * `[CB.72]` El rango de un archivo es su primer y su último MOVIMIENTO: un día sin movimientos parece hueco. El motivo
+ * pide un solo archivo desde un día CON movimientos hasta hoy, que cruza el hueco sea quieto o no. Casos de prod del
+ * 2026-11-17 (sólo lectura): BB 506 (8–10 nov sin movimientos, el saldo sigue igual) y BB 854 (falta el 11 de verdad).
+ */
+describe('[CB.72] el motivo pide el archivo que cierra el hueco, no los días quietos', () => {
+  const HOY = '2026-11-17';
+  /**
+   * Lo que pasa cuando Tesorería baja desde el día que dice el motivo: el archivo trae los días CON movimientos desde
+   * ahí hasta hoy, y su rango va del primero al último de ellos (como `revisarEn`). Sin movimientos no hay archivo.
+   */
+  const bajarDesde = (dia: string, diasConMovimientos: readonly string[]) => {
+    const dias = diasConMovimientos.filter((d) => d >= dia && d <= HOY).sort();
+    return dias.length ? [{ desde: dias[0], hasta: dias[dias.length - 1] }] : [];
+  };
+  const diaDelMotivo = (motivo: string | null) => {
+    const m = /baja un solo archivo del (\d\d)\/(\d\d) a hoy/.exec(motivo ?? '');
+    if (!m) throw new Error(`el motivo no dice desde qué día bajar: ${motivo}`);
+    return `${HOY.slice(0, 4)}-${m[2]}-${m[1]}`;
+  };
+
+  it('[negativa] BB 506: subir lo nuevo abrió un hueco de días quietos, y seguir el motivo lo cierra', () => {
+    const conMovimientos = ['2026-11-03', '2026-11-05', '2026-11-07', '2026-11-11', '2026-11-12', '2026-11-13'];
+    const archivos = [{ desde: '2026-11-03', hasta: '2026-11-07' }];
+    expect(corteSinParalelo('2026-11-07', archivos, HOY).cubre).toBe(true);           // el 12-nov pasaba
+    const conLoNuevo = [...archivos, { desde: '2026-11-11', hasta: '2026-11-13' }];   // la descarga del 17 (11 al 13)
+    const c = corteSinParalelo('2026-11-07', conLoNuevo, HOY);
+    expect(c.cubre).toBe(false);
+    expect(c.motivo).toBe('a la descarga le faltan del 08/11 al 10/11, o no tuvieron movimientos: baja un solo archivo del 07/11 a hoy');
+    expect(corteSinParalelo('2026-11-07', [...conLoNuevo, ...bajarDesde(diaDelMotivo(c.motivo), conMovimientos)], HOY))
+      .toEqual({ desde: '2026-11-07', ultimo_del_libro: '2026-11-07', cubre: true, motivo: null });
+    // Control: lo que pedía el motivo de antes («faltan del 08 al 10») sale sin movimientos o empieza el 11; el hueco sigue.
+    expect(corteSinParalelo('2026-11-07', [...conLoNuevo, ...bajarDesde('2026-11-08', conMovimientos)], HOY).cubre).toBe(false);
+  });
+
+  it('[negativa] BB 854: un solo día faltante se nombra en singular y seguir el motivo lo cierra', () => {
+    const conMovimientos = ['2026-11-03', '2026-11-06', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-14'];
+    const archivos = [{ desde: '2026-11-03', hasta: '2026-11-09' }, { desde: '2026-11-10', hasta: '2026-11-10' }, { desde: '2026-11-12', hasta: '2026-11-14' }];
+    const c = corteSinParalelo('2026-11-09', archivos, HOY);
+    expect(c.motivo).toBe('a la descarga le falta el 11/11, o no tuvo movimientos: baja un solo archivo del 10/11 a hoy');
+    expect(corteSinParalelo('2026-11-09', [...archivos, ...bajarDesde(diaDelMotivo(c.motivo), conMovimientos)], HOY).cubre).toBe(true);
+  });
+
+  it('[negativa] STDR 1621: el libro llega antes de la descarga y seguir el motivo lo cierra', () => {
+    const conMovimientos = ['2026-11-03', '2026-11-10'];
+    const archivos = [{ desde: '2026-11-10', hasta: '2026-11-10' }];
+    const c = corteSinParalelo('2026-11-03', archivos, HOY);
+    expect(c.motivo).toBe('el libro llega al 03/11 y la descarga empieza el 10/11: baja un solo archivo del 03/11 a hoy');
+    expect(corteSinParalelo('2026-11-03', [...archivos, ...bajarDesde(diaDelMotivo(c.motivo), conMovimientos)], HOY))
+      .toEqual({ desde: '2026-11-03', ultimo_del_libro: '2026-11-03', cubre: true, motivo: null });
+    // Control: lo que pedía el motivo de antes («del 03 al 09») trae sólo el 03 y deja el hueco del 04 al 09.
+    expect(corteSinParalelo('2026-11-03', [...archivos, ...bajarDesde('2026-11-03', conMovimientos.filter((d) => d <= '2026-11-09'))], HOY).cubre).toBe(false);
+  });
+
+  it('una fecha de otro año lleva su año (dd/MM/aaaa)', () => {
+    expect(corteSinParalelo('2025-12-30', [{ desde: '2026-01-02', hasta: '2026-01-05' }], '2026-01-05').motivo)
+      .toBe('el libro llega al 30/12/2025 y la descarga empieza el 02/01: baja un solo archivo del 30/12/2025 a hoy');
   });
 });
