@@ -98,7 +98,8 @@ test.describe('1 · Tablero + fila de surtido + detalle de preventa (quien coord
     if (olas === 0 && (await selector.count())) {
       await rec.clic(selector, 'decide', 'abrir el selector de almacén (quien maneja varios)');
       const opcion = page.getByRole('option', { name: /Canindo/ }).first();
-      if (await opcion.count()) {
+      // El desplegable se pinta un instante después del clic: contarlo en seco falla a veces (2026-11-17).
+      if (await opcion.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false)) {
         await rec.clic(opcion, 'decide', 'elegir el almacén');
         await page.locator('#gp-fila-h, .gp-empty').first().waitFor({ timeout: 20_000 }).catch(() => undefined);
         await quieta(page);
@@ -158,6 +159,17 @@ test.describe('1 · Tablero + fila de surtido + detalle de preventa (quien coord
     pantallas['lista_preventa'] = { ...q, url: page.url(), ...(await medir(page)), atorado_a_la_vista: await avisosDeAtorado(page) };
     await foto(`${version}-3-lista-preventa`);
     const filaPd = page.locator('tbody tr').filter({ hasText: /PD-/ }).first();
+    // Con GP.10.4 la preventa vive en el Tablero, pero puede no estar en la primera página (la lista
+    // va por fecha): quien la busca elige el origen «Preventa». Esos clics se cuentan.
+    if (version === 'despues' && !(await filaPd.count())) {
+      await rec.clic(page.locator('p-select[arialabel="Origen"], p-select[ariaLabel="Origen"]').first(), 'decide', 'abrir el filtro de origen');
+      const pv = page.getByRole('option', { name: 'Preventa' }).first();
+      if (await pv.waitFor({ state: 'visible', timeout: 5_000 }).then(() => true, () => false)) {
+        await rec.clic(pv, 'decide', 'elegir «Preventa»');
+        await page.locator('tbody tr').filter({ hasText: /PD-/ }).first().waitFor({ timeout: 30_000 }).catch(() => undefined);
+        await quieta(page);
+      } else await page.keyboard.press('Escape');
+    }
     let detalle: Record<string, unknown> = { posible: false, motivo: 'ninguna fila con PD- a la vista' };
     if (await filaPd.count()) {
       t0 = Date.now();

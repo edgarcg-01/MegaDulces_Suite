@@ -280,12 +280,12 @@ Cada clic dice qué es:
 - **confirma:** repite una decisión ya tomada.
 - **abre:** despliega un detalle.
 
-| Tarea de quien coordina | Antes (medido en prod) | Con GP.10.4 + GP.RF.15 (se mide al desplegar) |
+| Tarea de quien coordina | Antes (medido en prod) | Con GP.10.4 + GP.RF.15 (lo previsto; lo medido de GP.10.4 está en §5.5) |
 |---|---|---|
 | Entrar y ver la fila | 1 navega (pestaña «Consola de surtido»). Quien maneja varios almacenes cae en el primero (CEDIS, fila vacía): **+2 decide** para elegir otro | 1 navega («Fila de surtido», dentro del Tablero); el selector, igual |
 | Priorizar un surtido | 1 decide («Marcar urgente») + motivo tecleado + 1 confirma | igual |
 | Armar surtidos | 1 decide. Casi nunca hace falta: el sistema ya los arma solo (§5.3) | igual |
-| Abrir un pedido de preventa | 1 navega (pestaña «Preventa») + 1 abre | **1 abre** desde el Tablero: la preventa ya está en la lista |
+| Abrir un pedido de preventa | 1 navega (pestaña «Preventa») + 1 abre | se previó 1 abre; **medido: 4 clics** (§5.5, GP.RF.21) |
 | Ver cuáles son los atorados | **imposible en la Suite** («revísalos en Kepler») | **1 abre** («velos en el Tablero») |
 
 | Pantalla (antes) | Quieta en | Accionables | Cifras | Marco hasta la 1.ª fila | Bajo AA | Lo que pesa |
@@ -363,7 +363,39 @@ Cada clic dice qué es:
 - **Costo:** esa consulta tarda 0.2 a 1.8 s, medida desde la laptop sobre rangos de hasta un año.
   Pasa el límite de 500 ms (GP.RF.19).
 
-### 5.5 Lo que queda del paso 1
+### 5.5 El «después» de GP.10.4, medido en prod (2026-11-17, `5b9d9af58`)
+
+GP.10.4 llegó a prod el 17-nov a las 09:22, dentro del lote de 57 commits que empujó otra sesión.
+GP.RF.15 todavía no está ahí. Se corrió el mismo `paso1.e2e.ts`, con la misma sesión, una hora
+después del «antes».
+
+**Lo que mejoró:**
+- Las pestañas del grupo Pedidos pasan de 7 a 5, y seguir un pedido ya no pide cambiar de pantalla.
+- Hay menos piezas en la primera pantalla del Tablero: 50 accionables contra 58, y 83 cifras contra
+  125.
+
+**Lo que empeoró, y se dice igual de claro:**
+
+| Medida | Antes (`7edf9508a`) | Después (`5b9d9af58`) | Por qué |
+|---|---:|---:|---|
+| Marco hasta la 1.ª fila del Tablero | 415 px | **507 px** de 768 (66 %) | se agregaron el renglón «Pedidos · Fila de surtido», más botones de etapa y el aviso «Se muestran los primeros 2000» |
+| Lo que baja la lista | 1.03 MB, 1,451 pedidos | **1.40 MB, 2,000** (de 2,224: **topada**) | la preventa entró a la lista del mes |
+| Quieta en (superadmin) | 4.0 s | **7.4 s** | el mismo peso |
+| Abrir un pedido de preventa | 2 clics (pestaña + abrir) | **4 clics** (volver a Pedidos + elegir el origen «Preventa» en dos clics + abrir) | la preventa ya no está en la primera página: la lista va por fecha. Por folio sigue siendo teclear y abrir |
+| Marco hasta la 1.ª fila de la fila de surtido | 462 px | **516 px** | la fila vive debajo de la cabecera del Tablero |
+
+**Sin cambio:** ver la fila (1 clic, más 2 si maneja varios almacenes), priorizar (2 clics y el
+motivo) y armar (1 clic). En la fila siguen 5 textos bajo AA, los «Cancelar surtido» (GP.RF.18).
+
+Lo que sigue en este paso, en orden, para que el «después» gane en todo y no sólo en pantallas:
+1. **GP.RF.20**, quitar el renglón propio de «Pedidos · Fila de surtido»: el cambio de vista va en
+   la cabecera, junto al periodo. Recupera unos 45 px.
+2. **GP.10.5**, la lista deja de toparse y de bajar 1.4 MB. Con eso también se va el aviso de los
+   2000.
+3. **GP.RF.21**, la preventa a un clic: un botón «Preventa» junto a los de etapa, con su conteo, en
+   lugar del filtro de origen en dos clics.
+
+### 5.6 Lo que queda del paso 1
 
 - **GP.RF.14, los surtidos abandonados en la fila:** es una regla del proceso y la decide Edgar
   (P-RF.4, §7).
@@ -381,7 +413,7 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 
 | Paso | Interfaz | La pregunta del paso | Qué se mide con Playwright |
 |---|---|---|---|
-| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» medido el 2026-11-17 (§5). 🧪 GP.RF.15 en código. Falta: el «después» al desplegar, el aviso en el Tablero (GP.RF.16) y la regla de los surtidos abandonados (P-RF.4) |
+| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» y el «después» de GP.10.4 medidos el 2026-11-17 (§5). 🧪 GP.RF.15 en código. Falta: GP.RF.20 (marco), GP.10.5 (tope y peso), GP.RF.21 (preventa a un clic), GP.RF.16 (aviso de atorados) y la regla de los surtidos abandonados (P-RF.4) |
 | **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | con el puesto de surtidor: toques por renglón; objetivos ≥44 px; qué pasa si se cae la red a medio surtido; la espera de superadmin (GP.RF.9) |
 | **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad»); el mensaje del rechazo |
 | **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? ¿Hace falta elegir almacén cada vez? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo |
@@ -415,7 +447,7 @@ Formato de cada hallazgo:
 | ID | Paso | Sev | Hallazgo | Nivel | Costo | Regla | Decisión | Estado |
 |---|---|---|---|---|---|---|---|---|
 | GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
-| GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
+| GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras. Con GP.10.4 en prod: 5 pestañas, 50 accionables, 83 cifras, pero **507 px** de marco (GP.RF.20) | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
 | GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén | ⬜ |
 | GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | ⬜ |
@@ -425,6 +457,8 @@ Formato de cada hallazgo:
 | GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | ⬜ |
 | GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens | ⬜ |
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
+| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera; el aviso de tope se va con GP.10.5 | ⬜ siguiente cambio |
+| GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
 
 ---
 
@@ -432,6 +466,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |
 | 2026-11-17 | **Paso 1 medido** en prod `7edf9508a` (el «antes») con la sesión de Edgar. Quien coordina no ve lo atorado sin clic: el Tablero no lo dice, la fila lo cuenta sin dejar abrirlo, y 25 de sus 27 surtidos son abandonados. Se hizo GP.RF.15, la cifra de atorados liga al Tablero (cuadra 393 de 393) 🧪. Nuevos: GP.RF.14–19 y P-RF.4 | Claude |
 | 2026-11-14 | Paso 0.3 medido con la sesión de Edgar (superadmin), en prod `d88bfc45a` (sin GP.10.4: es el «antes»). Separados por rol, cuatro de los siete hallazgos de base eran pruebas de Dirección o la vista de superadmin: se retiran o corrigen (§4.5). Nuevos: GP.RF.8–13 | Claude |
 | 2026-11-14 | Nace el documento, a pedido de Edgar. Paso 0: instrumento con control y negativa ✅, blindaje contra escrituras en prod ✅, inventario y uso medidos, línea base por pantalla NO MEDIDA (falta la sesión, P-RF.1). Alcance acotado por Edgar al plan GP y a lo trabajado en la sesión | Edgar, Claude |

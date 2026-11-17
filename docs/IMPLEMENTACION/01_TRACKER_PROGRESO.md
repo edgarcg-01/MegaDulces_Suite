@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2648 KB, 14585 líneas, 77 secciones.
+> **Índice navegable** — 2648 KB, 14588 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -70,20 +70,20 @@
 | 13510 | 13551 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13552 | 13708 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 13709 | 13739 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13740 | 13931 | 29 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 13932 | 13996 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13997 | 14005 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14006 | 14039 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14046 | 14055 | 1 | 📝 Convenciones |
-| 14056 | 14093 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14094 | 14112 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14113 | 14165 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14166 | 14538 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14539 | 14569 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14570 | 14591 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14592 | 14619 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14620 | 14651 | 20 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14652 | 14674 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13740 | 13934 | 29 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13935 | 13999 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14000 | 14008 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14009 | 14042 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14049 | 14058 | 1 | 📝 Convenciones |
+| 14059 | 14096 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14097 | 14115 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14116 | 14168 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14169 | 14541 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14542 | 14572 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14573 | 14594 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14595 | 14622 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14623 | 14654 | 20 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14655 | 14677 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13803,8 +13803,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Dado un error del servidor, se distingue de «vacío».
 >     - ❌ Sin `ALMACEN_PEDIDOS_VER`, 403.
 >     - El p95 se mide en prod y queda debajo de 500 ms.
->   - [x] **[GP.10.4]** 🧪 (2026-11-14) **El Tablero absorbe Preventa y la Consola de surtido, y las pestañas viejas redirigen.** Capa C3. Depende de GP.10.3. Se parte en tres pasos (diseño escrito en el plan, §3.1), para que nadie se quede sin acceso a medio camino: primero el Tablero muestra todo y después salen las pestañas.
->     - [x] **[GP.10.4a]** 🧪 (2026-11-14) **El Tablero lista Kepler y preventa, con botones por etapa de almacén.**
+>   - [x] **[GP.10.4]** ✅ (2026-11-17, en prod `5b9d9af58`; código del 2026-11-14) **El Tablero absorbe Preventa y la Consola de surtido, y las pestañas viejas redirigen.** Capa C3. Depende de GP.10.3. Se parte en tres pasos (diseño escrito en el plan, §3.1), para que nadie se quede sin acceso a medio camino: primero el Tablero muestra todo y después salen las pestañas.
+>     - [x] **[GP.10.4a]** ✅ (2026-11-17, en prod) **El Tablero lista Kepler y preventa, con botones por etapa de almacén.**
 >       - La fila avisa cuando Kepler va atrás de la Suite («Kepler aún dice autorizado»).
 >       - Un `PD-` abre su resumen, sin pedir el detalle de Kepler, y lleva a la Mesa de Control con el pedido ya abierto (`?pedido=<id>`; si ya no está en la lista, se abre desde su detalle). El documento y el cobro no se copian al Tablero.
 >       - **Uso medido antes de diseñar** (30 días):
@@ -13825,7 +13825,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types` en verde; `check:pantalla` sin fallas nuevas (antes y después).
 >       - **Sin validación visual** en el navegador.
 >       - La vista del surtidor no cambia.
->     - [x] **[GP.10.4b]** 🧪 (2026-11-14) **La fila de surtido es la segunda vista del Tablero (`/almacen/pedidos?vista=fila`), sólo con `ALMACEN_SURTIDO_COORDINAR`.**
+>     - [x] **[GP.10.4b]** ✅ (2026-11-17, en prod) **La fila de surtido es la segunda vista del Tablero (`/almacen/pedidos?vista=fila`), sólo con `ALMACEN_SURTIDO_COORDINAR`.**
 >       - Es el mismo componente de la consola, con su título apagado (entrada `embebida`), no una copia. La ruta vieja `/almacen/surtido-consola` se ve igual que antes hasta GP.10.4c.
 >       - Las vistas son ligas con `aria-current`, así que «Atrás» regresa a la anterior. En la fila no hay periodo ni se pide la lista (1.3 MB de balde); al volver a «Pedidos», la lista se pide una vez.
 >       - **Acceso medido en prod:** tienen la clave `coordinador_embarques` (1 persona), `encargado_tienda` (10) y `supervisor` (1). Los tres ya tienen `ALMACEN_PEDIDOS_VER`, así que nadie pierde la consola al moverla.
@@ -13835,7 +13835,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types --files` en verde para la consola, el Tablero y la Mesa; `check:pantalla` sin fallas nuevas en ambas.
 >       - **Sin validación visual** en el navegador.
 >       - La API de la consola no cambió.
->     - [x] **[GP.10.4c]** 🧪 (2026-11-14) **Salen las pestañas Preventa y Consola de surtido; sus rutas redirigen con la vista o el filtro puestos.**
+>     - [x] **[GP.10.4c]** ✅ (2026-11-17, en prod) **Salen las pestañas Preventa y Consola de surtido; sus rutas redirigen con la vista o el filtro puestos.**
 >       - `/almacen/surtido-consola` lleva a `/almacen/pedidos?vista=fila`.
 >       - `/almacen/pedidos/preventa` sin pedido lleva a `/almacen/pedidos?origen=PREVENTA`, y el Tablero llega con el filtro puesto. Con `?pedido=<id>` abre la Mesa, que es el detalle de un `PD-` y ahora tiene «← Tablero de pedidos».
 >       - **Aterrizaje:** la ruta vieja de la consola queda como entrada de foco (sólo decide a dónde cae quien abre el área). Quien sólo coordina —hoy nadie, medido— entra al Tablero, que lo acepta y le abre la fila sin pedir la lista.
@@ -13849,6 +13849,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types --files` en verde; `check:pantalla` sin fallas nuevas en las tres pantallas.
 >       - **Sin validación visual** en el navegador.
 >     - Las pantallas para seguir un pedido pasan de 3 a 1.
+>     - **«Después» medido en prod** (auditoría de interfaces §5.5, 2026-11-17). Salió en el lote de 57 commits que empujó otra sesión.
+>       - Mejoró: de 7 a 5 pestañas, y 50 accionables contra 58.
+>       - Empeoró: el marco del Tablero (415 → 507 px, GP.RF.20); la lista (1.40 MB, topada a 2,000, GP.10.5); abrir un pedido de preventa (2 → 4 clics, GP.RF.21).
 >     - Las 9 personas que usaron Preventa y las 9 que usaron la Consola en 30 días conservan el acceso (cruce con `MATRIZ_ACCESOS`).
 >     - Las acciones de coordinar sólo aparecen con `ALMACEN_SURTIDO_COORDINAR`. ❌ Sin la clave no se ven los botones y el endpoint da 403.
 >     - Las rutas viejas redirigen con el filtro puesto.
