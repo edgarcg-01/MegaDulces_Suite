@@ -1,5 +1,27 @@
 # Recursos Humanos › Asistencia — relojes y personas
 
+## RH.13.8 · El horario ya no se encima sobre las checadas (2026-11-17)
+
+**El problema.** En la tabla semanal de `/rh/asistencia`, a quien tiene varios horarios (mañana, tarde) y sábado, el
+texto de la columna Horario se salía de su celda y quedaba **encima de las checadas del jueves y el viernes**: no se
+leían ni el horario ni las checadas. Se vio en producción con una captura. Medido en Chrome con el CSS de la tabla:
+`10:00–19:00 / 07:30–16:00 / 12:30–21:00 · sáb 07:30–16:00` en una columna de 118 px se salía **208 px**; el control
+(un solo horario, `08:00–17:00`) cabía.
+
+**La causa.** La celda tenía `white-space: nowrap` (no puede partirse) y `max-width: 6rem` (no puede crecer). El texto
+no tenía a dónde ir y se desbordaba sobre las columnas de los días.
+
+**La solución.** Un turno por renglón y el sábado aparte, cada uno sin partirse: `horarioRenglones()` en
+`reporte-formato.ts` corta en « / » y « · », y la celda pinta un bloque por renglón. La fila con varios horarios crece
+de alto (40 → 73 px) en vez de taparle el dato a la de al lado; las de un solo horario y las deducidas quedan igual.
+El PDF y el Excel no cambian (usan `horarioDe`).
+
+**Cómo se probó.** El mismo instrumento antes y después (la tabla con el CSS real, en Chrome): 208 px → 0 a 1300, 1100 y
+900 px; a 700 la columna ya se ocultaba y el horario baja bajo el nombre. `rh-reporte-semanal.component.spec.ts` monta la
+tabla y exige un renglón por turno (prueba negativa: con la celda vieja, en rojo); `reporte-formato.spec.ts` cubre la
+partición (sábado sin horas, rotativo, deducido, vacío). Módulo RH 249/249; `ngc` 0 errores (con su control: un método
+inexistente en la plantilla sí lo marca). **Sin validación visual en producción** hasta el despliegue.
+
 ## RH.13.5 · Asistencia en una sola pantalla · RH.6.6 Visita fuera · RH.6.7 Pago de horas extras · RH.13.7 (2026-11-13)
 
 ### Problema

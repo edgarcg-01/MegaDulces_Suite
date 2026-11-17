@@ -1,5 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
+> **Índice navegable** — 2645 KB, 14568 líneas, 77 secciones.
 > **Índice navegable** — 2646 KB, 14568 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
@@ -10,6 +11,37 @@
 | 90 | 97 | 15 | Tracker de Progreso |
 | 98 | 196 | 283 | 📊 Estado global de fases |
 | 197 | 223 | 1 | 🚦 Estado por item (granular) |
+| 224 | 3890 | 570 | 🎯 EN PROGRESO |
+| 3907 | 3944 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3945 | 3978 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3979 | 4063 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4064 | 4167 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4168 | 4234 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4235 | 4338 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4339 | 4422 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 4423 | 4592 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 4593 | 4655 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 4656 | 4728 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4729 | 4780 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4781 | 5637 | 144 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 5638 | 5651 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 5652 | 5676 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 5677 | 5699 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 5700 | 5738 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 5739 | 6538 | 75 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 6539 | 6723 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 6724 | 6766 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 6767 | 6844 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 6845 | 6938 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 6939 | 7074 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7075 | 7091 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7092 | 7144 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7145 | 7212 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7213 | 7465 | 20 | Fase CH — Checadores / Control de asistencia |
+| 7466 | 7531 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 7532 | 7559 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 7560 | 7726 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 7727 | 8127 | 185 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
 | 224 | 3889 | 570 | 🎯 EN PROGRESO |
 | 3906 | 3943 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3944 | 3977 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
@@ -1020,6 +1052,7 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[RH.13.4]** ⬜ «Sin dato» en vez de «Falta» POR DÍA cuando el reloj de la plaza no entregó (C1). Toca el cálculo con paridad 0 contra Mega Talento (`[RH.6]`): medir cómo lo hace allá antes de cambiarlo. Mientras, con `[RH.13.1]` el aviso «un día sin dato no es una falta» ya sale cuando todos los relojes de la plaza están en rojo.
 - [ ] **[RH.13.5]** 🧪 2026-11-13 **Asistencia en UNA pantalla.** Checadas con Tolerancia y Faltas como modos (`?ver=`) e Incidencias y Relojes en su panel (`?panel=`); las rutas viejas llevan ahí con lo que traían en la URL (`aLaPantallaUnica`) y siguen siendo su página para quien NO ve Asistencia (Contabilidad audita incidencias así); el menú ya no repite Incidencias y Relojes a quien ve Asistencia (`exceptAnyOf`); la pestaña activa se marca por ruta, no por parámetros. «Personas» = plaza, departamentos enteros y personas sueltas. Sin párrafo bajo el título, buscador de todas las plazas en la cabecera, un renglón con modo + resumen + «PDF para firmar» (el Excel se retiró: confirmar con RH), D/C sólo si se pasó, «Extra» en vez de «HE», jornada «07:52–17:00», «+ Incidencia» por día en la ficha, un solo primario en Incidencias. Tablas «con cuadros» (rejilla visible); calendario para elegir la semana (empieza en jueves); la franja de Relojes sólo para quien administra relojes (`HR_DEVICES_GESTIONAR`; el chip «Sin señal» sigue para todos). Responsiva por el ancho de su contenedor (≤72rem la jornada en 2 renglones; ≤52rem el horario baja bajo el nombre; teléfono = pivote con Horas y Retardo; filtros tras «Filtros» en ≤48rem; Faltas y Tolerancia apiladas) y todo lo táctil con `--tap-min`. Medido con datos de prueba a 1440×900: la 1ª persona pasa del 76 % al 49 % del alto, la fila de 61 a 44 px, 7/7 personas visibles (antes 3); sin desbordes a 1440/1024/768/390/360. Pruebas sobre main: vista RH + menú + pestañas 294; asistencia 248. NO incluye `[RH.14.1]` (la baja en RH quita el acceso a la Suite: propuesta, espera a Edgar).
 - [ ] **[RH.13.7]** 🧪 2026-11-13 **«Corporativo Comida» se une a Corporativo** (migración `20261113082448_hr_corporativo_comida_fundida`). Medido en prod (sólo lectura): la fusión YA está en los datos —el reloj de comida está en `corporativo` y casi todas sus checadas caen en la misma persona— pero la plaza vieja quedó activa porque la carga única ignoró las plazas ocultas de Mega Talento. La migración sólo la DESACTIVA (no borra; marca la nota para que `down` revierta sólo lo suyo) y se niega si hay un reloj activo en esa plaza. Sólo UPDATE y el código no depende de ella, pero el vigía no despliega con una migración pendiente: se aplica en prod DESPUÉS del merge y ANTES de soltar (`aplicar-migracion.sh` exige el archivo en `origin/main`). Probada en una transacción local que se deshace.
+- [ ] **[RH.13.8]** 🧪 2026-11-17 **El horario ya no se encima sobre las checadas.** En la tabla semanal, con varios horarios y sábado, la columna Horario se salía **208 px** y tapaba las checadas del jueves y el viernes (visto en prod; medido en Chrome con el CSS real: `nowrap` + `max-width: 6rem`, la celda no crece y el texto no se parte). Ahora un turno por renglón y el sábado aparte (`horarioRenglones`): 0 px a 1300/1100/900, la fila crece 40 → 73 px; un solo horario y deducido quedan igual; PDF y Excel sin cambio. Pruebas: componente montado (negativa en rojo con la celda vieja) + partición; módulo RH 249/249; `ngc` 0 con control. Sin validación visual en prod.
 - [ ] **[RH.13.6]** ⬜ Reclutamiento: lista de Candidatos legible, Resumen con la respuesta en una frase, Vacantes con lo que le falta a cada una, Revisiones con fusión lado a lado.
 - [ ] **[RH.13.5]** ⬜ Asistencia en UNA pantalla: checadas + incidencias + relojes (una línea de estado y el detalle en panel), pestañas Checadas · Horas extra · Cruces · Bajas; el botón principal es «Capturar incidencia» en la semana en curso y «Cerrar semana» cuando ya terminó; las rutas viejas llevan ahí.
 - [ ] **[RH.13.6]** 🧪 2026-11-13 **Reclutamiento que se lee de un vistazo** (pantalla, más un campo del servidor). Cada pestaña contesta UNA pregunta y abre con la respuesta. **Candidatos:** la fila se lee de corrido (quién · qué busca y dónde · cuánto espera, con «Atrasado» · teléfono 3-3-4 que se copia entero · cuándo se postuló) y la fila entera abre la ficha, también con el teclado (Tab llega a la fila; Enter o Espacio la abre; `check:teclado` en verde); agrupada por **zona** = ciudad, con la MISMA regla `ciudadDe` del Resumen y del filtro (el servidor la manda en `HrCandidatoFilaDto.ciudad`; sin ese campo la lista va plana, no se inventa una regla en la pantalla); el menú «Ver» separa lo de trabajar (Postulados · Todos en proceso) del archivo (No recontratables · Spam · Papelera) y explica cada opción; el embudo de etapas con cifra grande, pasos numerados y el desenlace aparte. **Resumen — ¿dónde se atora?:** el veredicto en una frase («Donde más se atora: Filtro, con N fuera de su meta de 24 h»), el embudo con el reparto de cada paso (dentro de la meta · fuera de meta · sin moverse +30 días; siempre suma el total) en vez de la franja de 5 métricas, la matriz ciudad × paso con intensidad (el número siempre está; el color sólo ayuda) y **«¿Cuánto tarda cada paso?»**, mudado desde Revisiones (`contraMeta` pasa a `reclutamiento-formato.ts`). **Revisiones — ¿qué hay que corregir?:** cuántos arriba; quién regresó estando marcado (tarjeta con filo rojo, texto en tinta normal: la liga naranja sobre rojo daba 4.09:1) y los teléfonos con más de un registro en tabla (etapa, origen, fecha y CV de cada uno); cada lista falla por su cuenta y nunca dice «nada por revisar» si una no se leyó. **Vacantes:** publicadas y cerradas en grupos, área bajo el nombre, la fila abre la edición, «Nueva vacante» es la primaria, formulario en 4 bloques con título. En teléfono la matriz deshace la regla global que esconde de la 6ª columna en adelante de todo p-table (dejaba «Total» junto a «Filtro»). Pruebas sobre main: vista RH 204 + talento 238; negativas: lista plana sin `ciudad`, reparto topado, «nada por revisar» con una lista caída. `check:pantalla`: Q.1 del Resumen sellada con motivo (la regla busca `<app-metric-strip>`; abre con el veredicto y el embudo). Pendiente: «Por atender» (pide un conteo global al servidor) y cuántos se postularon a cada vacante (el candidato guarda el puesto como texto libre, sin liga a la vacante).

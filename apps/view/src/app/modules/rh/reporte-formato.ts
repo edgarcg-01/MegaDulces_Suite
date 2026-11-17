@@ -221,6 +221,15 @@ export function horarioPartes(p: HrPersonaAsistencia): { hora: string; nota: str
   return { hora: h.texto, nota: '', asignado: false };
 }
 
+/**
+ * `[RH.13.8]` El horario de la tabla en renglones: un turno por renglón y el sábado aparte, cada uno sin partirse.
+ * En un solo renglón sin cortes, «10:00–19:00 / 07:30–16:00 / 12:30–21:00 · sáb 07:30–16:00» se salía 208 px de su
+ * columna y quedaba ENCIMA de las checadas del jueves y el viernes (medido en Chrome con el CSS de la tabla).
+ */
+export function horarioRenglones(hora: string): string[] {
+  return String(hora || '').split(/ \/ | · /).map((r) => r.trim()).filter(Boolean);
+}
+
 // ── Irregularidades (las de la fila en rojo) ───────────────────────────────────────────────
 
 export type NivelIrregularidad = 'alta' | 'baja';
