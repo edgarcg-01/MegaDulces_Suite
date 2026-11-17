@@ -99,6 +99,19 @@ function opcional<T>(trx: Knex.Transaction, fn: (sp: Knex.Transaction) => Promis
 type FilaEstadoKepler = Pick<ValeParaKepler, 'folio_solicitud' | 'kepler_request_status' | 'kepler_request_note' | 'kepler_request_attempts' | 'kepler_request_next_at'> & { id: string };
 /** Ejecuta en una transacción con el tenant puesto (el de la petición, o el de mega_dulces en el cron). */
 type Ejecutor = <T>(fn: (trx: Knex.Transaction) => Promise<T>) => Promise<T>;
+/** Lo que hizo una pasada del cron: el latido y la prueba lo leen. */
+export interface ResultadoDelCiclo {
+  /** `writing` de más de 10 min pasados a `in_doubt`. */
+  huerfanos: number; intentados: number; vistos_en_ods: number; sin_ver_30min: number; en_duda: number;
+  /** R1: vales que en esta pasada se enteraron de que su solicitud se canceló en Kepler. */
+  canceladas_en_kepler: number;
+  /** R1: cuántos vales con la solicitud cancelada en Kepler siguen firmados (la alarma suena mientras haya). */
+  canceladas_firmadas: number;
+  /** R1: X-A-15 con la marca de la Suite que ningún vale reclama (tope de 20). */
+  sin_vale_en_kepler: number;
+  /** R1: sucursales abiertas con el contador de folios atrasado. */
+  contadores_atrasados: string[];
+}
 
 @Injectable()
 export class SolicitudGastoService {
@@ -744,10 +757,13 @@ export class SolicitudGastoService {
   }
 
   /** Una pasada. Público para la prueba. Devuelve qué hizo, para el latido y para medir. */
-  async ciclo(limite = 20): Promise<{ huerfanos: number; intentados: number; vistos_en_ods: number; sin_ver_30min: number; en_duda: number }> {
+  async ciclo(limite = 20): Promise<ResultadoDelCiclo> {
     this.corriendo = true;
     const t0 = Date.now();
-    const m = { huerfanos: 0, intentados: 0, vistos_en_ods: 0, sin_ver_30min: 0, en_duda: 0 };
+    const m: ResultadoDelCiclo = {
+      huerfanos: 0, intentados: 0, vistos_en_ods: 0, sin_ver_30min: 0, en_duda: 0,
+      canceladas_en_kepler: 0, canceladas_firmadas: 0, sin_vale_en_kepler: 0, contadores_atrasados: [],
+    };
     const fallas: string[] = [];
     // El cron no tiene petición: el tenant se fija a mano (RLS FORZADO en expense_proofs, como en CierreKeplerService).
     const run: Ejecutor = (fn) => this.tk.run(MEGA, fn);
@@ -790,17 +806,61 @@ export class SolicitudGastoService {
       });
       m.vistos_en_ods = lazo.vistos;
       m.sin_ver_30min = lazo.sinVer;
+
+      // ── R1 (anexo S §16): el lazo de DESPUÉS de escribir ─────────────────────────────────────
+      // 1. Cancelada en Kepler → el vale lo sabe (DS8 v1: Finanzas cancela allá). NO se rechaza sola: el vale pudo
+      //    pagarse ya en efectivo, y eso lo decide una persona. Queda `cancelled` con su nota y la alarma suena mientras
+      //    el vale siga firmado. Sin esto, `seen_in_ods` era para siempre (control en prod, 2026-11-17: la misma unión
+      //    sobre los vales de hoy encuentra los 43 validados con su solicitud cancelada).
+      const cancelacion = await run(async (trx) => {
+        const r = await trx.raw(
+          `UPDATE finance.expense_proofs p
+              SET kepler_request_status = 'cancelled', kepler_request_next_at = NULL, updated_at = now(),
+                  kepler_request_note = 'Se canceló en Kepler (folio ' || p.folio_solicitud || '): si el gasto ya no va, recházalo aquí'
+             FROM analytics.expense_requests r
+            WHERE p.tenant_id = ? AND p.origen = 'solicitud' AND p.kepler_request_status IN ('written', 'seen_in_ods')
+              AND p.folio_solicitud IS NOT NULL
+              AND r.tenant_id = p.tenant_id AND r.sucursal = p.sucursal AND r.folio = p.folio_solicitud AND r.estado = 'C'`, [MEGA]);
+        const firmadas = (await trx('finance.expense_proofs').where({ tenant_id: MEGA, origen: 'solicitud', kepler_request_status: 'cancelled' })
+          .whereNotNull('folio_solicitud').whereIn('status', FIRMADAS).count<{ n: string }[]>({ n: '*' }))[0]?.n;
+        return { nuevas: Number(r.rowCount ?? 0), firmadas: Number(firmadas ?? 0) };
+      });
+      m.canceladas_en_kepler = cancelacion.nuevas;
+      m.canceladas_firmadas = cancelacion.firmadas;
+      // 2. Huérfanas: una X-A-15 con la marca de la Suite (`c26 = SUITE SG-…`) que ningún vale reclama. Por la marca y
+      //    NO por `c67 = 'SUITE'`: Kepler reescribe `c67` al cancelar, y PGP.79 pone `c67 = 'SUITE'` en solicitudes
+      //    capturadas en Kepler. Deben ser 0 (medido en prod el 2026-11-17: 0, 12 ms).
+      const huerfanas = await run(async (trx) => (await trx.raw(
+        `SELECT k.sucursal::text AS sucursal, btrim(k.c6::text) AS folio, btrim(k.c26::text) AS marca
+           FROM kepler_ods.kdm1 k
+          WHERE k.c1 = k.sucursal AND k.c2 = 'X' AND k.c3 = 'A' AND k.c4 = 15 AND k.c5 = 1
+            AND btrim(k.c26::text) LIKE 'SUITE SG-%'
+            AND NOT EXISTS (SELECT 1 FROM finance.expense_proofs p
+                             WHERE p.tenant_id = ? AND p.origen = 'solicitud'
+                               AND p.sucursal = k.sucursal::text AND p.kepler_request_mark = btrim(k.c26::text))
+          ORDER BY 1, 2 LIMIT 20`, [MEGA])).rows as Array<{ sucursal: string; folio: string; marca: string }>);
+      m.sin_vale_en_kepler = huerfanas.length;
+      // 3. La compuerta del contador, en las sucursales abiertas (sólo ahí la Suite escribe y hay con qué preguntar).
+      for (const s of abiertas) {
+        const k = await this.sink!.revisarContador(s);
+        if (!k.ok) { fallas.push(`Contador de folios de Kepler ${s}: no se pudo revisar — ${k.motivo}`); continue; }
+        if (k.atrasado) { m.contadores_atrasados.push(s); fallas.push(`El contador de folios de la solicitud de gasto en Kepler ${s} está ATRASADO (sqliov.c4 = ${k.contador}, último folio ${k.maximo}): la próxima captura a mano chocaría`); }
+      }
+
       // Las alarmas SUENAN: con fallas, el latido sale en rojo en db-health (antes quedaba en verde).
       if (m.sin_ver_30min) fallas.push(`${m.sin_ver_30min} solicitud(es) escritas en Kepler hace más de 30 min no aparecen en el ODS: revisar la ingesta o la escritura`);
       if (m.en_duda) fallas.push(`${m.en_duda} solicitud(es) EN DUDA sin poder preguntarle a Kepler por su marca: no se reintentan hasta saber si quedaron escritas`);
+      if (m.canceladas_firmadas) fallas.push(`${m.canceladas_firmadas} solicitud(es) de la Suite CANCELADAS en Kepler con el vale todavía firmado: rechazarlas en la Suite o recapturarlas`);
+      if (huerfanas.length) fallas.push(`${huerfanas.length}${huerfanas.length === 20 ? '+' : ''} solicitud(es) en Kepler con la marca de la Suite y SIN vale: ${huerfanas.slice(0, 5).map((h) => `${h.sucursal}-${h.folio} (${h.marca})`).join(', ')}`);
     } catch (e) {
       fallas.push((e as Error).message);
     } finally {
       this.corriendo = false;
       await latirCron(this.knex, {
         jobKey: 'gastos_solicitud_kepler', label: 'Gastos: solicitudes de la Suite a Kepler', tenantId: MEGA,
-        durationMs: Date.now() - t0, rowsAffected: m.intentados + m.vistos_en_ods + m.huerfanos, fallas,
-        note: `${m.intentados} intentadas · ${m.vistos_en_ods} vistas en el ODS · ${m.huerfanos} huérfanas · ${m.sin_ver_30min} sin ver tras 30 min · ${m.en_duda} en duda`,
+        durationMs: Date.now() - t0, rowsAffected: m.intentados + m.vistos_en_ods + m.huerfanos + m.canceladas_en_kepler, fallas,
+        note: `${m.intentados} intentadas · ${m.vistos_en_ods} vistas en el ODS · ${m.huerfanos} huérfanas · ${m.sin_ver_30min} sin ver tras 30 min · ${m.en_duda} en duda`
+          + ` · ${m.canceladas_en_kepler} canceladas en Kepler (${m.canceladas_firmadas} con el vale firmado) · ${m.sin_vale_en_kepler} sin vale · ${m.contadores_atrasados.length} contadores atrasados`,
         ceroEsOk: 'sin solicitudes firmadas esperando a Kepler: la escritura sigue apagada o ya se escribió todo',
       }).catch(() => undefined);
     }
