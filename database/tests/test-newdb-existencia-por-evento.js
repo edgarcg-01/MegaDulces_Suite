@@ -248,6 +248,41 @@ const firma = (rows) => rows.map((r) => JSON.stringify(r)).sort().join('\n');
     ok(con < sin * 3 + 300, 'el disparador no multiplica el costo del lote', `${con} vs ${sin}`);
     await limpia();
 
+    console.log('L. El sensor de Salud BD, en cada estado');
+    let S = null;
+    try {
+      require('ts-node').register({ transpileOnly: true, skipProject: true,
+        compilerOptions: { module: 'commonjs', moduleResolution: 'node', target: 'es2021', ignoreDeprecations: '6.0' } });
+      S = require(path.resolve(__dirname, '..', '..', 'apps/api/src/modules/db-health/db-health-existencia-evento.ts'));
+    } catch (e) { noMedido(`no se pudo cargar el sensor con ts-node: ${e.message}`); }
+    if (S) {
+      // Lo mismo que hace db-health: la edad que devuelve el SQL, clasificada con warnH 24 / critH 48.
+      const sensor = async () => {
+        const r = (await q(S.EXISTENCIA_EVENTO_SQL))[0];
+        const h = (Date.now() - new Date(r.last_update).getTime()) / 3.6e6;
+        return { estado: h >= 48 ? 'critical' : h >= 24 ? 'warn' : 'ok', nota: r.note_extra };
+      };
+      const en = async (nombre, preparar, esperado, nota) => {
+        await c.query('SAVEPOINT l');
+        await preparar();
+        const s = await sensor();
+        await c.query('ROLLBACK TO SAVEPOINT l');
+        ok(s.estado === esperado && nota.test(s.nota || ''), `${nombre}: ${esperado}`, `${s.estado} — ${s.nota}`);
+      };
+      await en('encendido, cola vacía y completa de hoy', async () => undefined, 'ok', /árbitro: \d+ filas escritas/);
+      await en('apagado', () => c.query(`UPDATE analytics.existencia_por_evento SET encendida = false`), 'warn', /APAGADO/);
+      await en('un disparador no pudo anotar', () => c.query(`INSERT INTO analytics.llaves_sucias_errores (tabla, operacion, sqlstate, mensaje)
+        VALUES ('kepler_ods.kdii', 'UPDATE', '42P01', 'prueba')`), 'warn', /1 fallas de los disparadores en 24 h \(kepler_ods\.kdii:UPDATE\)/);
+      await en('la última corrida falló', () => c.query(`INSERT INTO analytics.existencia_corridas (modo, motivo, mensaje) VALUES ('error', 'cola', 'XX000 prueba')`),
+        'critical', /FALLÓ \(XX000 prueba\)/);
+      await en('una marca de hace 20 min en la cola', () => c.query(`INSERT INTO analytics.llaves_sucias (sku, fuente, created_at) VALUES ('F621A', 'prueba', now() - interval '20 minutes')`),
+        'critical', /1 marcas en la cola.*no está corriendo/);
+      await en('una marca de hace 1 min (el worker va a tiempo)', () => c.query(`INSERT INTO analytics.llaves_sucias (sku, fuente, created_at) VALUES ('F621A', 'prueba', now() - interval '1 minute')`),
+        'ok', /cola: 1 marcas/);
+      await en('sin completa en 30 h', () => c.query(`UPDATE analytics.existencia_corridas SET created_at = created_at - interval '2 days'`),
+        'warn', /sin recálculo completo en 30 h/);
+    }
+
     console.log('K. Idempotencia y down()');
     await cola.up(knexLike);
     const nTg2 = (await q(`SELECT count(*)::int n FROM pg_trigger WHERE tgname LIKE 'tg_exs_%' AND NOT tgisinternal`))[0].n;

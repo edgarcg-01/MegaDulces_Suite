@@ -1182,9 +1182,16 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
        Desde ahí cada escritura de las fuentes anota y se drena.
     5. Unos días de corridas en `analytics.existencia_corridas` con su árbitro.
     6. Recién entonces los pasos 5 (lectores a las tablas) y 6 (sale `existencia-aux`).
-  - **Deuda con nombre:** Salud BD (`db-health`) todavía no muestra la edad de la cola, los errores de los disparadores ni la
-    última corrida; hoy se leen en `analytics.llaves_sucias`, `analytics.llaves_sucias_errores` y
-    `analytics.existencia_corridas`. Se hace antes del paso 6, porque sin eso retirar el latido de `existencia-aux` deja el
-    carril sin sensor.
+  - **El sensor de Salud BD** (`existencia_evento`, `apps/api/src/modules/db-health/db-health-existencia-evento.ts`)
+    reemplaza al latido de `existencia-aux`. No compara nada: lee lo que la cadena dejó escrito.
+    - Apagado → warn: el estado objetivo no está alcanzado y encenderlo es del PM.
+    - Última corrida fallida → crítico.
+    - Una marca de más de 15 min en la cola → crítico: el worker no drena.
+    - Fallas de disparadores en 24 h → warn.
+    - 30 h sin recálculo completo → warn.
+    - Al día → ok, y la nota trae el árbitro de la última completa. Ese número incluye lo que la fecha movió.
+
+    Antes de aplicar la migración dice «tabla no existe», sin color. La prueba del paso 3 lo ejerce contra base real en
+    los siete estados (sección L, 55 ✓).
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).

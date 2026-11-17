@@ -9,6 +9,7 @@ import { Client } from 'pg';
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
 import { ARBITRO_CAJA_SQL, ARBITRO_CODIGOS_SQL, ARBITRO_COSTO_SQL, ARBITRO_ETIQUETAS_SQL, ARBITRO_LOGISTICA_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
+import { EXISTENCIA_EVENTO_SQL } from './db-health-existencia-evento';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -932,6 +933,11 @@ const APP_SOURCES: SourceCfg[] = [
   {
     key: 'hop2_fallas', label: 'Hop-2 de la ingesta — fallas definitivas (24 h)', table: 'analytics.hop2_fallas', tsCandidates: [],
     sql: HOP2_FALLAS_SQL, warnH: 24, critH: 48, cadence: 'por evento (el hop-2 escribe al fallar) — debe dar 0',
+  },
+  // `[CANON.6.21]` Precio, factores de caja y costo por evento (oleada 8b): reemplaza al latido de `existencia-aux`.
+  {
+    key: 'existencia_evento', label: 'Existencia por evento — precio, factores de caja y costo (cola, fallas y corridas)', table: 'analytics.existencia_corridas', tsCandidates: [],
+    sql: EXISTENCIA_EVENTO_SQL, warnH: 24, critH: 48, cadence: 'por evento (disparadores → cola → worker); completo con la primera corrida del día',
   },
 ];
 
