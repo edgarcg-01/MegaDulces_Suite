@@ -215,7 +215,7 @@
 #    Para ver qué haría sin escribir: el mismo comando SIN `--apply` (imprime y no toca nada).
 20 4 3 * * /app/ops/vl/run-feed.sh contpaqi-derivador "node /app/database/scripts/derivar-reglas-contpaqi.js --apply"
 
-# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — ⛔ APAGADA HASTA LA D15 ─────────────────
+# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — ENCENDIDA el 2026-11-17 (D15) ───────────
 #
 # Mantiene `contpaqi_ods`/`contpaqi_nom` al día comparando, en los dos lados, una huella por tramo de
 # la llave: sólo recopia lo que difiere. Medido en el pod el 2026-10-30: la contabilidad en menos de
@@ -224,6 +224,9 @@
 # ⛔ Apagada porque el replicador NO trae la contraseña embebida (a diferencia de los carriles de
 #    CFDIs de abajo): la lee de `CONTPAQI_SQL_PASSWORD`, y `/secrets/feeds.env` no la tiene. Es la
 #    D15 (§8.5), y la decide Edgar (regla 7).
+#
+# ✅ D15 resuelta por Edgar el 2026-11-17: `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env` (y en el maestro de md).
+#    ⚠️ Es el MISMO valor que hoy viaja embebido en los importers de CFDIs (repo público): está pendiente rotarlo.
 #
 # Para encenderla, las cuatro juntas (sin cualquiera, el carril miente):
 #   1. `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`.
@@ -236,8 +239,8 @@
 #
 # Un solo candado para las dos: si chocan, la segunda se salta la vuelta y lo deja dicho en el latido.
 # El resto va a los :42, fuera de los múltiplos de 5, para no chocar con la de cada 5 min.
-#*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
-#42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
+*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
+42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
 
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
