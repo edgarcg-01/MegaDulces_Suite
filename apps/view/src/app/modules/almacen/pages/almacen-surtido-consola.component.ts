@@ -343,7 +343,7 @@ const diaAnterior = (v: string): string => {
     .gp-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.45rem 0 0; }
     .gp-warn { color:var(--warn-soft-fg); }
     .gp-liga { color:inherit; font-weight:600; text-decoration:underline; text-underline-offset:2px; }
-    .gp-liga:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; border-radius:2px; }
+    .gp-liga:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:2px; }
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
