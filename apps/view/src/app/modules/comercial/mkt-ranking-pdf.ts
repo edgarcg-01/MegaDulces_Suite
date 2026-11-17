@@ -13,7 +13,7 @@ import {
   alinearTitulos,
 } from '../compras/compras-pdf-comun';
 import {
-  CANAL_LARGO, IncentivoConResultado, ParticipanteRanking, RankingSemana, Semana, pct, textoSemana,
+  CANAL_LARGO, IncentivoConResultado, ParticipanteRanking, PromoEnRanking, RankingSemana, Semana, pct, textoSemana,
   textoProductos, textoVentaProducto,
 } from './mkt-ranking.service';
 import { warehouseName } from '@megadulces/contracts';
@@ -34,13 +34,24 @@ export function filasRanking(r: RankingSemana): string[][] {
   ]);
 }
 
-/** Renglones del detalle de un participante: lo que el Excel tenía en cada hoja. */
-export function filasDetalle(p: ParticipanteRanking, conExistencia: boolean): string[][] {
+/** [MKT.24] El proveedor de una promo en el PDF; sin asignar, se dice. Una sola redacción para todas las tablas. */
+export function proveedorPdf(x: Pick<PromoEnRanking, 'proveedor' | 'proveedor_fuente'>): string {
+  const p = x.proveedor;
+  return 'Proveedor: ' + (p ? `${p.code} · ${p.name}${x.proveedor_fuente === 'producto' ? ' (del producto)' : ''}` : 'sin asignar');
+}
+
+/**
+ * Renglones del detalle de un participante: lo que el Excel tenía en cada hoja. [MKT.27] Con `proveedorDe`,
+ * cada promoción dice su proveedor (si alguien buscó por proveedor, la hoja dice por qué salió).
+ */
+export function filasDetalle(p: ParticipanteRanking, conExistencia: boolean, proveedorDe?: (promoId: string) => string | undefined): string[][] {
   return p.promos.map((x) => {
+    const prov = proveedorDe?.(x.promo_id);
     const fila = [
       x.code,
       [
         x.mecanica + (x.descripcion_distinta ? ' (el código cambió de promoción en Kepler)' : ''),
+        ...(prov ? [prov] : []),
         ...(x.productos.length ? x.productos.map(textoVentaProducto) : [textoProductos(x.productos_metodo, [])]),
       ].join(SALTO),
       // [MKT.17] El dinámico se dice: no es una meta que alguien fijó.
@@ -58,7 +69,7 @@ export function filasPromociones(r: RankingSemana): string[][] {
   return r.promos_ranking.map((x) => [
     x.lugar === null ? '-' : String(x.lugar),
     // [MKT.24] El proveedor (lo asigna Mercadotecnia) va bajo el nombre; sin asignar, se dice.
-    [`${x.nombre} (${x.code})`, `Proveedor: ${x.proveedor ? `${x.proveedor.code} · ${x.proveedor.name}${x.proveedor_fuente === 'producto' ? ' (del producto)' : ''}` : 'sin asignar'}`,
+    [`${x.nombre} (${x.code})`, proveedorPdf(x),
       ...(x.productos.length ? [x.productos.join(' · ')] : [])].join(SALTO),
     x.puntaje === null ? 'Sin objetivos' : pct(x.puntaje),
     `${x.cumplidas} de ${x.con_objetivo}`,
@@ -128,6 +139,12 @@ export interface DatosPdfRanking {
    * leería como el ranking completo: por eso van en la portada, en la nota y en el nombre del archivo.
    */
   filtros?: string[];
+  /**
+   * [MKT.27] Sólo el detalle de los participantes que trae (el reporte que se imprime desde el detalle de
+   * una sucursal o vendedor): sin las tablas de lugares, por promoción ni por vendedora, que son de toda la
+   * semana y no de lo que se filtró ahí.
+   */
+  soloDetalle?: boolean;
 }
 
 /** El reporte semanal: lugares por canal y, después, el detalle de cada participante. */
@@ -137,7 +154,7 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
   const emitido = new Date();
   const filtrado = !!d.filtros?.length;
   let y = dibujarEncabezado(doc, logo, {
-    titulo: filtrado ? 'Ranking de promociones (filtrado)' : 'Ranking de promociones',
+    titulo: d.soloDetalle ? 'Detalle de promociones (filtrado)' : filtrado ? 'Ranking de promociones (filtrado)' : 'Ranking de promociones',
     cajaTitulo: `SEMANA ${d.semana.numero}`,
     cajaLineas: [textoSemana(d.semana).replace(/^Semana \d+ · /, ''), `Emitido: ${fecha(emitido)}`, `Elaboró: ${d.elaboro}`],
   });
@@ -151,7 +168,7 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
     y += 24 + lineas.length * 11 + 8;
   }
 
-  for (const r of d.rankings) {
+  for (const r of d.soloDetalle ? [] : d.rankings) {
     const gen = r.promedio_general === null ? 'sin objetivos capturados'
       : `promedio general ${filtrado ? 'de la semana completa ' : ''}${pct(r.promedio_general)}`;
     y = titulo(doc, y, CANAL_LARGO[r.canal], `${r.promos_vigentes} promociones vigentes · ${gen}`);
@@ -202,6 +219,8 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
   }
 
   for (const r of d.rankings) {
+    // [MKT.27] El proveedor de cada promo sale del ranking por promoción del mismo canal.
+    const provDe = new Map(r.promos_ranking.map((x) => [x.promo_id, proveedorPdf(x)]));
     for (const p of r.participantes) {
       if (!p.promos.length) continue;
       const lugar = p.lugar === null ? 'sin lugar' : `lugar ${p.lugar}`;
@@ -212,7 +231,7 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
         ...tablaBase,
         startY: y,
         head: [['Código', 'Promoción', 'Objetivo', 'Venta', 'Cubrimiento', ...(conEx ? ['Existencia'] : [])]],
-        body: filasDetalle(p, conEx),
+        body: filasDetalle(p, conEx, (id) => provDe.get(id)),
         styles: { ...tablaBase.styles, fontSize: 7.5 },
         columnStyles: { 0: { cellWidth: 46 }, 2: { halign: 'right', cellWidth: 56 }, 3: { halign: 'right', cellWidth: 46 }, 4: { halign: 'right', cellWidth: 60 }, 5: { halign: 'right', cellWidth: 56 } },
         didParseCell: alinearTitulos([2, 3, 4, 5]),
@@ -228,13 +247,13 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
     'Proveedor: el que asignó Mercadotecnia en Objetivos o, marcado «del producto», el del producto que activa la promoción (sólo si todos sus productos son de un mismo proveedor). Kepler registra el código de la promoción a nombre de «PROMOCIONES MKT».',
     'Bajo cada promoción, el producto que la activa y lo vendido de él en la semana (piezas y cajas). Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».',
     'Objetivo: el que fijó Mercadotecnia o, marcado «dinámico», el promedio de las 4 semanas anteriores dentro de la vigencia, recalculado cada semana.',
-    'Por vendedora: Kepler no sabe quién vendió en el mostrador; lo escriben las cajeras en su arqueo. Cuenta sólo los tickets que tienen vendedora.',
+    ...(d.soloDetalle ? [] : ['Por vendedora: Kepler no sabe quién vendió en el mostrador; lo escriben las cajeras en su arqueo. Cuenta sólo los tickets que tienen vendedora.']),
     filtrado
       ? 'Reporte filtrado: trae sólo lo que coincide con los filtros de la portada. El lugar es el de la semana completa, por eso puede saltar números.'
       : 'Es el reporte completo de la semana: no aplica los filtros de la pantalla.',
   ]);
   dibujarPies(doc, `Ranking de promociones, semana ${d.semana.numero}`, d.consultado, 'Mercadotecnia > Ranking');
-  return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}${filtrado ? '-FILTRADO' : ''}-${fechaHoraArchivo(emitido)}.pdf` };
+  return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}${d.soloDetalle ? '-DETALLE' : ''}${filtrado ? '-FILTRADO' : ''}-${fechaHoraArchivo(emitido)}.pdf` };
 }
 
 export interface DatosPdfIncentivos {

@@ -354,4 +354,116 @@ describe('[MKT.11] MktRankingComponent', () => {
     expect(comp.vista()).toBe('participantes');
     expect(comp.opcionesVista().map((o) => o.value)).not.toContain('vendedoras');
   });
+
+  // ── [MKT.27] buscar DENTRO del detalle: promoción, código, producto, SKU, proveedor y código de barras ──
+  const dosPromos = (): ParticipanteRanking => p({
+    promos: [
+      p({}).promos[0],
+      { ...p({}).promos[0], promo_id: 'b', code: 'DM002', mecanica: '5 exh canels = gratis 1', descripcion_distinta: false,
+        productos: [{ sku: 'DM300', nombre: 'CANELS SURTIDO DISPLAY', unidades: 63, cajas: 1.58 }] },
+    ],
+  });
+  const conBarras = (over: Partial<RankingSemana> = {}) => ranking({
+    participantes: [dosPromos()],
+    codigos_barras: { DM201: ['7501234567890', '750123456789'] },
+    promos_ranking: [
+      ranking().promos_ranking[0],
+      { ...ranking().promos_ranking[0], promo_id: 'b', code: 'DM002', nombre: '5 exh canels = gratis 1', proveedor: null, proveedor_fuente: null },
+    ],
+    ...over,
+  });
+
+  it('⭐ [MKT.27] la pistola: el código de barras de un producto deja sólo SU promoción, y el campo dice «1 de 2»', async () => {
+    const { comp, fixture } = await montar(conBarras());
+    const part = comp.datos()!.participantes[0];
+    comp.abrir(part);
+    comp.buscaDetalle.set('7501234567890');
+    fixture.detectChanges();
+    expect(comp.promosDelDetalle(part).map((x) => x.code)).toEqual(['DM001']);
+    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
+    expect(texto).toContain('1 de 2');
+  });
+
+  it('[MKT.27] también por SKU, nombre del producto, código y mecánica de la promo, proveedor, y palabras en cualquier orden', async () => {
+    const { comp } = await montar(conBarras());
+    const part = comp.datos()!.participantes[0];
+    comp.abrir(part);
+    const busca = (q: string) => { comp.buscaDetalle.set(q); return comp.promosDelDetalle(part).map((x) => x.code); };
+    expect(busca('dm300')).toEqual(['DM002']);          // SKU
+    expect(busca('canels display')).toEqual(['DM002']); // producto, sin mayúsculas
+    expect(busca('DM001')).toEqual(['DM001']);          // código de la promo
+    expect(busca('dulces demo')).toEqual(['DM001']);    // proveedor asignado
+    expect(busca('leche 3')).toEqual(['DM001']);        // palabras en cualquier orden
+    expect(busca('')).toEqual(['DM001', 'DM002']);      // vacío = todas
+  });
+
+  it('[negativa MKT.27] lo que no coincide lo DICE (con lo buscado), no deja una tabla muda', async () => {
+    const { comp, fixture } = await montar(conBarras());
+    comp.abrir(comp.datos()!.participantes[0]);
+    comp.buscaDetalle.set('0000000000000');
+    fixture.detectChanges();
+    expect(comp.promosDelDetalle(comp.datos()!.participantes[0])).toEqual([]);
+    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
+    expect(texto).toContain('Ninguna promoción de Padre Hidalgo coincide con «0000000000000»');
+  });
+
+  it('[negativa MKT.27] si el servidor no pudo leer los códigos, se avisa: no se finge «ninguna coincide» como dato', async () => {
+    const { comp, fixture } = await montar(conBarras({ codigos_barras: null }));
+    comp.abrir(comp.datos()!.participantes[0]);
+    comp.buscaDetalle.set('7501234567890');
+    fixture.detectChanges();
+    expect(comp.sinCodigosBarras()).toBe(true);
+    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
+    expect(texto).toContain('No se pudieron leer los códigos de barras');
+    comp.buscaDetalle.set('dm201'); // por SKU sigue funcionando y el aviso se va
+    expect(comp.sinCodigosBarras()).toBe(false);
+    expect(comp.promosDelDetalle(comp.datos()!.participantes[0]).map((x) => x.code)).toEqual(['DM001']);
+  });
+
+  it('⭐ [MKT.27] imprimir desde el detalle lleva SÓLO lo que se ve, y la portada dice sucursal, lo buscado y cuántas de cuántas', async () => {
+    const { comp, fixture } = await montar(conBarras());
+    const part = comp.datos()!.participantes[0];
+    comp.abrir(part);
+    comp.buscaDetalle.set('7501234567890');
+    fixture.detectChanges();
+    const rep = comp.reporteDetalle(comp.datos()!, part)!;
+    expect(rep.ranking.participantes.map((x) => x.promos.map((y) => y.code))).toEqual([['DM001']]);
+    expect(rep.ranking.promos_ranking.map((x) => x.code)).toEqual(['DM001']); // el proveedor de lo impreso, nada más
+    expect(rep.ranking.vendedoras).toBeNull();
+    expect(rep.filtros).toEqual(['Canal: Sucursales (mostrador)', 'Sucursal: Padre Hidalgo', 'Buscado en el detalle: «7501234567890»', 'Promociones: 1 de 2']);
+    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
+    expect(texto).toContain('Imprimir lo filtrado');
+  });
+
+  it('[negativa MKT.27] si nada coincide no hay reporte (no se imprime una hoja vacía) y el botón se apaga', async () => {
+    const { comp, fixture } = await montar(conBarras());
+    const part = comp.datos()!.participantes[0];
+    comp.abrir(part);
+    comp.buscaDetalle.set('no-existe');
+    fixture.detectChanges();
+    expect(comp.reporteDetalle(comp.datos()!, part)).toBeNull();
+    const boton = [...(fixture.nativeElement as HTMLElement).ownerDocument.querySelectorAll('button')]
+      .find((b) => (b.textContent || '').includes('Imprimir lo filtrado')) as HTMLButtonElement | undefined;
+    expect(boton?.disabled).toBe(true);
+  });
+
+  it('[control MKT.27] sin buscar, imprime el detalle completo y dice «Imprimir este detalle»', async () => {
+    const { comp, fixture } = await montar(conBarras());
+    const part = comp.datos()!.participantes[0];
+    comp.abrir(part);
+    fixture.detectChanges();
+    const rep = comp.reporteDetalle(comp.datos()!, part)!;
+    expect(rep.ranking.participantes[0].promos.map((y) => y.code)).toEqual(['DM001', 'DM002']);
+    expect(rep.filtros.some((f) => f.startsWith('Buscado'))).toBe(false);
+    expect(rep.filtros).toContain('Promociones: 2 de 2');
+    expect((fixture.nativeElement as HTMLElement).ownerDocument.body.textContent).toContain('Imprimir este detalle');
+  });
+
+  it('[MKT.27] abrir otro participante vacía el buscador (no se arrastra lo buscado en otra sucursal)', async () => {
+    const { comp } = await montar(conBarras());
+    comp.abrir(comp.datos()!.participantes[0]);
+    comp.buscaDetalle.set('canels');
+    comp.abrir(comp.datos()!.participantes[0]);
+    expect(comp.buscaDetalle()).toBe('');
+  });
 });

@@ -1,6 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -129,8 +130,28 @@ export interface RankingSemana {
   promos_ranking: PromoEnRanking[];
   /** [MKT.18] Quién vendió en mostrador (lo escriben las cajeras en su arqueo); null en otros canales. */
   vendedoras: VendedorasSemana | null;
+  /**
+   * [MKT.27] Códigos de barras de cada producto de las promos (`sku → códigos`), para la pistola.
+   * null = el servidor no pudo leerlos; opcional porque una API anterior no lo manda.
+   */
+  codigos_barras?: Record<string, string[]> | null;
   criterio: string;
   consultado_at: string;
+}
+
+/**
+ * [MKT.27] ¿El renglón del detalle coincide con lo buscado? Por promoción (mecánica y código),
+ * producto (nombre y SKU), código de barras de sus productos (pistola o tecleado) y proveedor.
+ * Palabra por palabra, sin acentos ni mayúsculas (`coincideBusqueda`).
+ */
+export function coincideRenglon(
+  q: string,
+  x: Pick<RenglonRanking, 'code' | 'mecanica' | 'productos'>,
+  proveedor: string,
+  codigos: Record<string, string[]> | null | undefined,
+): boolean {
+  const deProductos = x.productos.flatMap((p) => [p.sku, p.nombre, ...(codigos?.[p.sku] ?? [])]);
+  return coincideBusqueda(q, x.mecanica, x.code, proveedor, ...deProductos);
 }
 
 export interface PromoMkt {
