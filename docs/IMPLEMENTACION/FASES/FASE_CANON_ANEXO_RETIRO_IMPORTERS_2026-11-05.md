@@ -487,11 +487,31 @@ pide aparte (regla 5).
 
 ### 8.4 Decisiones (firma Edgar)
 
-- **D4 (reabierta) — el push de las camionetas entra al ODS.** Con «ningún importer», dejarlo en el
+- ✅ **D4 — resuelta (Edgar, 2026-11-17: «sí, hagamos lo del ODS»).** El push de las camionetas se replica al ODS. Es la oleada 10 (venta: `sales_daily` y su cadena), talla XL: se planea antes de construir. Texto original:
+  **D4 (reabierta) — el push de las camionetas entra al ODS.** Con «ningún importer», dejarlo en el
   `mart` ya no es opción: `sales-fact`, `customer-sales` y las 4 rutas de X dependen de él.
   **Recomendación: replicarlo al ODS** como cualquier otra fuente.
+- ✅ **D15 — resuelta (Edgar, 2026-11-17: «asignémosla y guardémosla en el archivo maestro de md»).** El maestro es
+  `md:~/secrets/maestro.env.age` (cifrado con age; `rotar.sh <CLAVE>` pide el valor oculto y lo registra en
+  `ROTACIONES.md`). Medido ese día: el maestro NO tiene ninguna `CONTPAQI_SQL_*`, así que el valor lo teclea quien lo
+  conoce: `ssh -t superoot@192.168.0.222 '~/secrets/rotar.sh CONTPAQI_SQL_PASSWORD "D15"'`. Después se copia al
+  secreto `ingesta/feeds-envfile` y se enciende `contpaqi_ods`.
+  - ⛔ **Hallazgo de seguridad (2026-11-17):** `import-contpaqi-account-map.js`, `-bank-movements.js` y `-cfdis.js`
+    traen como valor por omisión `CONTPAQI_SQL_USER || 'platform_ro'` y `CONTPAQI_SQL_PASSWORD || '<una contraseña en
+    claro>'`, y el repo es PÚBLICO. Si es la real del SQL de ContPAQi (192.168.0.35\COMPAC), está expuesta. No se probó
+    contra el servidor. Recomendación: que quien administra ese SQL Server le asigne otra al usuario, guardarla con
+    `rotar.sh` y quitar el valor por omisión del código (sin variable, que falle).
+  Texto original:
 - **D15 — `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`** para encender `contpaqi_ods`. Es
   credencial: la pone Edgar (regla 7). Sin eso, la oleada 11 sólo cubre la parte de Kepler.
+- ✅ **El aviso de cambio de precio a las pantallas (Edgar, 2026-11-17: «lo que tú visualices mejor»).** El aviso lo
+  manda `notify-store.js` desde el hop-2, o sea desde `replicate-ods-live.js` (`ods-live-hot`, `-mirror`, `-caja`),
+  que lee el secreto `ingesta/ingest-env`; le faltaban `STORE_NOTIFY_URL` y `STORE_INGEST_KEY` (por eso «aviso NO
+  enviado»). Se agregaron con un `patch` (respaldo del secreto en `md:~/secrets`; ⚠️ ese secreto ya NO calca
+  `ingest.env`: tiene tres variables de CAOS que el archivo no trae, así que rehacerlo desde el archivo las borraría):
+  la URL interna de la API (`http://api.prod.svc.cluster.local:10000/api`) y la misma clave de la API (huella
+  comparada, nunca el valor). Reiniciados los cinco carriles del ODS. Probado desde `ods-live-hot`: HTTP 201 con la
+  clave, 401 con una falsa. Registrado en el maestro (`rotar.sh STORE_NOTIFY_URL`) y en `ROTACIONES.md`.
 - **Despliegue de la ingesta** (`sh ops/vl/deploy.sh` + `--k3s`). Además del OK, está frenado por
   trabajo sin commitear de otras sesiones en rutas que viajan en la imagen
   (`database/importers/kepler/route-push/armar-push-camioneta.js`, `ops/k3s/52-pg-prod.deployment.yaml`):

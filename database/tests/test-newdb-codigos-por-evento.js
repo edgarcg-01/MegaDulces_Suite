@@ -155,6 +155,61 @@ const borra = (sucursal, c1) => ({ sucursal, c1 });
     const [{ id: idKepler }] = await q(`SELECT id FROM catalog.product_barcodes WHERE tenant_id=$1 AND sku='T614-R1' AND barcode='7500000614301' AND deleted_at IS NULL`, [M]);
     ok(await retirarRevividos(db, M, [idKepler]) === 0 && !!(await vivo('T614-R1', '7500000614301')),
       'NEGATIVA: si le pasan una fila Kepler, la baja no la toca (sólo filas Wincaja)');
+
+    // ── S. Kepler deja la unidad SIN código: el código real se conserva (decisión de Edgar, 2026-11-17) ──────────
+    const unidadDe = async (sku, bc) => (await q(`SELECT unit FROM catalog.product_barcodes WHERE tenant_id=$1 AND sku=$2 AND barcode=$3 AND deleted_at IS NULL`, [M, sku, bc]))[0]?.unit;
+    for (const s of ['T614-S1', 'T614-S2', 'T614-S3']) await prod(s);
+    await callado(() => applyRawUpsert(db, M, [art('01', 'T614-S1', '7500000614400'),
+      art('01', 'T614-S2', '7500000614417', { c80: 'CJA', c82: '7500000614424' }), art('01', 'T614-S3', '7500000614431', { c80: 'PAQ', c82: '7500000614448' })], KDII));
+    ok(!!(await vivo('T614-S1', '7500000614400')) && !!(await vivo('T614-S2', '7500000614424')) && !!(await vivo('T614-S3', '7500000614448')), 'nacen sus códigos (control)');
+    const antesS = A && base && base.n != null ? (await arbitro()).n : null;
+    await callado(() => applyRawUpsert(db, M, [art('01', 'T614-S1', 'T614-S1')], KDII));
+    ok(!!(await vivo('T614-S1', '7500000614400')), '⭐ Kepler pone RELLENO (código = SKU) en la unidad: el código real se CONSERVA');
+    if (antesS == null) noMedido('árbitro con un código conservado: sin ts-node o sin base medible');
+    else ok((await arbitro()).n === antesS, 'el árbitro no cuenta como «sobra» un código conservado (las dos reglas coinciden)');
+    await callado(() => applyRawUpsert(db, M, [art('01', 'T614-S1', '7500000614455')], KDII));
+    ok(!(await vivo('T614-S1', '7500000614400')) && !!(await vivo('T614-S1', '7500000614455')), 'Kepler trae OTRO código real en esa unidad (reemplazo): el viejo se da de baja');
+    await callado(() => applyRawUpsert(db, M, [art('01', 'T614-S2', '7500000614417')], KDII));
+    ok(!(await vivo('T614-S2', '7500000614424')) && !!(await vivo('T614-S2', '7500000614417')), 'Kepler QUITA la unidad (sin c80): su código se da de baja');
+    await callado(() => applyRawUpsert(db, M, [art('01', 'T614-S3', '7500000614431', { c80: 'PAQ', c82: 'T614-S3' })], KDII));
+    ok(!!(await vivo('T614-S3', '7500000614448')) && await unidadDe('T614-S3', '7500000614448') === 'PAQ', 'relleno en la segunda unidad: su código se conserva, con su unidad');
+
+    // ── T. Los que ya se habían perdido así: se conservan con la unidad de Kepler (la herramienta) ───────────────
+    const { buscarConservables, conservar } = require('../importers/lib/codigos-revividos');
+    for (const s of ['T614-T1', 'T614-T2', 'T614-T3', 'T614-T4', 'T614-T5', 'T614-T5B']) await prod(s);
+    await c.query(`INSERT INTO catalog.products (tenant_id, brand_id, sku, nombre, deleted_at) VALUES ($1, $2, 'T614-T6', 'ART T614-T6', now())`, [M, B]);
+    await c.query(`INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c3, c7, c11, c80, c81, c82, c90) VALUES
+      ('01','T614-T1','A','L614','T614-T1','PZA','PAQ',6,'T614-T1',10),
+      ('01','T614-T2','A','L614','T614-T2','PZA','PAQ',6,'7500000614523',10),
+      ('01','T614-T3','A','L614','T614-T3','PZA',NULL,NULL,NULL,10),
+      ('01','T614-T4','A','L614','T614-T4','PZA','PAQ',6,'750000061454',10),
+      ('01','T614-T5','A','L614','T614-T5','PZA',NULL,NULL,NULL,10),
+      ('01','T614-T6','A','L614','T614-T6','PZA',NULL,NULL,NULL,10)`);
+    await c.query(`INSERT INTO catalog.product_barcodes (tenant_id, sku, barcode, unit, factor, source, deleted_at) VALUES
+      ($1,'T614-T1','7500000614516','PAQ',6,'kepler_u2', now()), ($1,'T614-T1','7500000614516','CJA',NULL,'wincaja', NULL),
+      ($1,'T614-T2','7500000614530','PAQ',6,'kepler_u2', now()), ($1,'T614-T2','7500000614530','CJA',NULL,'wincaja', NULL),
+      ($1,'T614-T3','7500000614547','PAQ',6,'kepler_u2', now()), ($1,'T614-T3','7500000614547','CJA',NULL,'wincaja', NULL),
+      ($1,'T614-T4','0750000061454','PZA',1,'kepler_base', now()), ($1,'T614-T4','0750000061454','CJA',NULL,'wincaja', NULL),
+      ($1,'T614-T5','7500000614561','PZA',1,'kepler_base', now()), ($1,'T614-T5','7500000614561','CJA',NULL,'wincaja', NULL),
+      ($1,'T614-T5B','7500000614561','PZA',1,'kepler_base', NULL),
+      ($1,'T614-T6','7500000614578','PZA',1,'kepler_base', now()), ($1,'T614-T6','7500000614578','CJA',NULL,'wincaja', NULL)`, [M]);
+    const cs = await buscarConservables(db, M);
+    const mios = (xs) => xs.filter((r) => String(r.sku).startsWith('T614-T')).map((r) => r.sku).sort().join(',');
+    ok(mios(cs.conservables) === 'T614-T1' && mios(cs.enOtroSku) === 'T614-T5',
+      'entra el que Kepler dejó sin código en una unidad que sigue; no: reemplazo en la unidad, unidad que ya no existe, mismo código sin el cero, producto dado de baja; el que vive en otro SKU se declara aparte',
+      `conservables ${mios(cs.conservables)} · en otro SKU ${mios(cs.enOtroSku)}`);
+    const n = await conservar(db, M, cs.conservables.filter((r) => String(r.sku).startsWith('T614-T')));
+    const t1 = await q(`SELECT source, unit, factor::float8 f FROM catalog.product_barcodes WHERE tenant_id=$1 AND sku='T614-T1' AND barcode='7500000614516' AND deleted_at IS NULL`, [M]);
+    ok(n === 1 && t1.length === 1 && t1[0].source === 'kepler_u2' && t1[0].unit === 'PAQ' && t1[0].f === 6,
+      '⭐ conservado: UNA fila viva, la de Kepler, con su unidad (PAQ, no la CJA de Wincaja) y su factor', JSON.stringify(t1));
+    ok(!!(await vivo('T614-T2', '7500000614530')) && !!(await vivo('T614-T5', '7500000614561')) && (await vivo('T614-T5', '7500000614561')).source === 'wincaja',
+      'los que no entran siguen como estaban');
+    await normalizeBarcodesFromOds(db, M, ['T614-T1']);
+    ok((await vivo('T614-T1', '7500000614516') || {}).source === 'kepler_u2', 'el hop-2 de ese SKU ya no lo da de baja (la regla nueva lo sostiene)');
+    ok(mios((await buscarConservables(db, M)).conservables) === '', 'segunda pasada: nada que conservar');
+    let rompio = null;
+    try { await conservar(db, M, [{ wincajaId: (await q(`SELECT id FROM catalog.product_barcodes WHERE sku='T614-T3' AND source='wincaja' AND deleted_at IS NULL`))[0].id, keplerId: '00000000-0000-0000-0000-000000000000', sku: 'T614-T3', barcode: '7500000614547' }]); } catch (e) { rompio = e.message; }
+    ok(!!rompio && !!(await vivo('T614-T3', '7500000614547')), 'NEGATIVA: si la fila Kepler no se puede revivir, se revierte todo (la Wincaja sigue viva: el código nunca queda sin fila)', rompio);
   } catch (e) {
     fail++; console.log('  ✗ error:', e.message);
   } finally {
