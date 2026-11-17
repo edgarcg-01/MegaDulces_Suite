@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 106 KB, 1280 líneas, 18 secciones.
+> **Índice navegable** — 107 KB, 1280 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -1302,8 +1302,8 @@ fuera son 28 documentos al mes de procesos que no son gasto operativo.
 
 | D | Pregunta | Recomendación |
 |---|---|---|
-| **DS38** | ¿Se confirma el orden F1 → F2 → F3/F4 → F5, y que lo de la última fila se queda en Kepler? | Sí. F1 es configurar lo que ya está construido y es el 60 % del dinero |
-| **DS39** | Nómina: ¿la escribe RH al cerrar la nómina, o Finanzas la registra como un gasto más? | **RH al cerrar la nómina**: es recurrente y de importe conocido, y RH ya está 🔨 con la migración de Mega Talento. Finanzas sólo firma |
-| **DS40** | Cancelar desde la Suite: ¿quién puede y hasta cuándo? | Quien tiene `COMPROBAR`, **sólo sin X-A-10 vivo** y con motivo; si ya hay gasto, en Kepler como hoy |
-| **DS41** | Comisiones bancarias: ¿nacen solas del estado de cuenta, sin captura? | Sí (CB.62), con el `GRANT` de 00 que falta |
-| **DS42** | Alta de acreedor: ¿la Suite escribe `kdxd`? | **No en v1**, como ALC con los clientes (D1-b): la Suite pide el alta con la constancia del SAT y Finanzas la da en Kepler. Se revisa cuando F1 esté en las 9 sucursales |
+| **DS38** ✅ | ¿Se confirma el orden F1 → F2 → F3/F4 → F5, y que lo de la última fila se queda en Kepler? | ✅ **Edgar, 2026-11-17: sí, ese orden.** F1 es configurar lo que ya está construido y es el 60 % del dinero |
+| **DS39** ✅ | Nómina: ¿la escribe RH al cerrar la nómina, o Finanzas la registra como un gasto más? | ✅ **Edgar, 2026-11-17: RH al cerrar la nómina**: es recurrente y de importe conocido, y RH ya está 🔨 con la migración de Mega Talento. Finanzas sólo firma |
+| **DS40** ✅ | Cancelar desde la Suite: ¿quién puede y hasta cuándo? | ✅ **Edgar, 2026-11-17:** quien tiene `COMPROBAR`, **sólo sin X-A-10 vivo** y con motivo; si ya hay gasto, en Kepler como hoy |
+| **DS41** | Comisiones bancarias: ¿nacen solas del estado de cuenta, sin captura? | (sin firmar) Sí (CB.62), con el `GRANT` de 00 que falta |
+| **DS42** ✅ | Alta de acreedor: ¿la Suite escribe `kdxd`? | ✅ **Edgar, 2026-11-17: SÍ, la Suite escribe `kdxd`** (contra la recomendación). Consecuencia: un escritor nuevo sobre el catálogo de acreedores, con firma de alta, su ADR y su captura de prueba (qué tablas y qué contador toca Kepler al dar de alta un acreedor: NO MEDIDO). La recomendación era: **No en v1**, como ALC con los clientes (D1-b): la Suite pide el alta con la constancia del SAT y Finanzas la da en Kepler. Se revisa cuando F1 esté en las 9 sucursales |
