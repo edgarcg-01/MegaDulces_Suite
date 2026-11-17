@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 113 KB, 1345 líneas, 18 secciones.
+> **Índice navegable** — 116 KB, 1382 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -24,7 +24,7 @@
 | 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
 | 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1251 | 1375 | 12 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1251 | 1412 | 14 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1372,3 +1372,40 @@ fuera son 28 documentos al mes de procesos que no son gasto operativo.
 | **DS43** | ¿Qué clases (prefijos) existen, qué significa cada una y cuál se ofrece a quién? | Que Finanzas dé la lista. La Suite la guarda como parámetro (ADR-114) y no la deduce | Finanzas |
 | **DS44** | ¿El alta va a los 9 servidores o sólo a donde se pide? | **A los 9**, como hoy: la misma clave significa el mismo acreedor en todos, y así ninguno queda en 7 | Edgar |
 | **DS45** | ¿Quién crea la fila de `kdxg` del primer documento de un acreedor nuevo? | El escritor del X-A-10 (`[PGP.123]`), clonando lo que escribe Kepler, después de medirlo | Francisco |
+
+### 17.6 Lo que se midió después (2026-11-17)
+
+**La nómina (F2): por qué ContPAQi Nóminas «dejó de sincronizar» el 30-oct.** No es una falla: **nunca estuvo
+programada.**
+- `contpaqi_nom` la llena `database/importers/contpaqi/replicate-contpaqi.js`. Se corrió a mano el 29 y 30 de octubre
+  (`[CP.9.2]`).
+- Sus dos renglones del crontab (`ops/vl/crontab.feeds`) están comentados, esperando la D15: la contraseña de SQL
+  Server de ContPAQi en `/secrets/feeds.env`, que es una credencial y la decide Edgar.
+- ⛔ Encenderla sería **un cron y un importer**, y la regla de Edgar del 2026-11-10 es «ningún cron y ningún
+  importer». **No se propone.**
+- La pregunta real es **DS46**: ¿de dónde llega la nómina a la Suite **por evento**? Sin esa respuesta, F2 no tiene
+  fuente ni árbitro.
+
+**DS45 (el `kdxg` del primer documento), lo que ya se sabe para `[PGP.123]`:**
+- *La fila que crea Kepler*, medida en 3 acreedores nuevos (GA031 y GM027 en 08, GR018 en 00): `c1 = PESOS`,
+  `c2` = sucursal, `c3` = acreedor, `c4` = `c6` = fecha del documento, `c7` = 1800-01-01, **`c21`** = **`c57`**
+  (cargo de noviembre) = importe del gasto. Las otras 50 columnas en cero.
+- ⚠️ *Lo que los escritores no mueven:* el del gasto suma sólo la columna del mes y las fechas (`c4`, `c6`); el del
+  pago, el abono del mes y `c4`/`c7`. **Ninguno toca `c21`.** En las 543 filas de acreedores de gasto, `c21` = cargos
+  − abonos del año en 277 (51 %), y en el resto ninguna columna la completa: **NO MEDIDO**.
+- Se cierra con una captura de prueba (foto de `kdxg` antes y después de que Kepler aplique un gasto). Hasta
+  entonces, cada documento que escribe la Suite puede dejar `c21` distinto de como lo dejaría Kepler.
+
+**Deuda con nombre, R1:**
+- El lazo de R1 (cancelada en Kepler → vale; huérfanas; contador) corre dentro del `@Cron` de 5 minutos de
+  `[PGP.122]`. **Es un reloj** (regla del 2026-11-10).
+- Las huérfanas y el contador son árbitros que deben encontrar 0. Detectar la cancelación, en cambio, actualiza el
+  vale.
+- *Su reemplazo por evento:* la cola de la réplica (`ods.cola`, `database/importers/lib/ods-cola.js`) cuando cambia
+  `kdm1.c43` de una X-A-15 con la marca de la Suite.
+- *Retiro:* el ciclo se retira cuando ese evento exista y lleve 30 días sin que el barrido encuentre algo que el
+  evento no vio.
+
+| D | Pregunta | De quién |
+|---|---|---|
+| **DS46** | ¿De dónde llega la nómina a la Suite, por evento (sin cron ni importer)? Hoy la única copia es una réplica manual del 30-oct | Edgar |
