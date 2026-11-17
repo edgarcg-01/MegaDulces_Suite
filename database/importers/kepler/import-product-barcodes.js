@@ -24,21 +24,43 @@
  * ⛔ Sólo DESPUÉS de desplegar la ingesta de `[CANON.6.14]`: el script viejo, cada 30 min, los volvería a revivir.
  *   node database/importers/kepler/import-product-barcodes.js --retirar-revividos           # cuáles
  *   node database/importers/kepler/import-product-barcodes.js --retirar-revividos --apply   # baja
+ *
+ * `--conservar-sin-codigo` (decisión de Edgar, 2026-11-17: «se conservan en el escáner, con la unidad de Kepler»): los
+ * códigos Wincaja vivos cuyo código Kepler se dio de baja cuando Kepler puso RELLENO en esa unidad. Baja la fila Wincaja
+ * y revive la Kepler (su unidad y su factor). Desde ese día el hop-2 ya no da de baja esos códigos (ver
+ * `normalizeBarcodesFromOds`). No toca los que viven en otro SKU: los declara.
+ *   node database/importers/kepler/import-product-barcodes.js --conservar-sin-codigo           # cuáles
+ *   node database/importers/kepler/import-product-barcodes.js --conservar-sin-codigo --apply   # conservar
  */
 const { Client } = require('pg');
-const { computeBarcodes } = require('../../../services/feeds-ingest/barcode-compute');
+const { computeBarcodesDetalle } = require('../../../services/feeds-ingest/barcode-compute');
 const { normalizeBarcodesFromOds } = require('../../../services/feeds-ingest/apply-handlers');
-const { buscarRevividosReemplazados, retirarRevividos } = require('../lib/codigos-revividos');
+const { buscarRevividosReemplazados, retirarRevividos, buscarConservables, conservar } = require('../lib/codigos-revividos');
 
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW'); })();
 const APPLY = process.argv.includes('--apply');
 const REVIVIDOS = process.argv.includes('--retirar-revividos');
+const CONSERVAR = process.argv.includes('--conservar-sin-codigo');
 
 (async () => {
   const c = new Client({ connectionString: DST, statement_timeout: 300000 });
   await c.connect();
   try {
+    if (CONSERVAR) {
+      console.log(`=== códigos que Kepler dejó SIN código: se conservan con la unidad de Kepler (${APPLY ? 'APPLY' : 'SÓLO LECTURA'}) ===`);
+      await c.query('BEGIN');
+      await c.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+      const { conservables, enOtroSku } = await buscarConservables(c, TENANT);
+      await c.query('ROLLBACK');
+      const cambia = conservables.filter((r) => String(r.unidadWincaja).toUpperCase() !== String(r.unidadKepler).toUpperCase()).length;
+      console.log(`  a conservar: ${conservables.length} (${cambia} cambian de unidad) · vivos en OTRO SKU, no se tocan: ${enOtroSku.length}`);
+      if (conservables.length) console.table(conservables.slice(0, 15).map(({ sku, barcode, unidadWincaja, unidadKepler }) => ({ sku, barcode, hoy: unidadWincaja, kepler: unidadKepler })));
+      if (!APPLY) { console.log('\n[SÓLO LECTURA] nada cambió.'); return; }
+      const n = await conservar(c, TENANT, conservables);
+      console.log(`\n[APPLY] COMMIT — ${n} códigos conservados como Kepler (con su unidad); sus filas Wincaja, de baja.`);
+      return;
+    }
     if (REVIVIDOS) {
       console.log(`=== códigos Wincaja revividos que Kepler ya reemplazó (${APPLY ? 'APPLY' : 'SÓLO LECTURA'}) ===`);
       await c.query('BEGIN');
@@ -55,7 +77,9 @@ const REVIVIDOS = process.argv.includes('--retirar-revividos');
     console.log(`=== códigos de barras Kepler (${APPLY ? 'APPLY' : 'SÓLO LECTURA'}) ===`);
     await c.query('BEGIN');
     await c.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
-    const kepler = await computeBarcodes(c, { schema: 'kepler_ods' });
+    const { codigos: kepler, unidades } = await computeBarcodesDetalle(c, { schema: 'kepler_ods' });
+    // [CANON.6.14] Una unidad que Kepler conserva SIN código real: su código Kepler se queda (misma regla del hop-2).
+    const sinCodigo = new Set(unidades.filter((u) => !u.con_codigo).map((u) => `${u.sku}|${u.unit}`));
     const vivos = (await c.query(`SELECT btrim(b.sku) sku, b.barcode, b.unit, b.factor::float8 factor, b.source, b.is_primary
         FROM catalog.product_barcodes b WHERE b.tenant_id=$1 AND b.deleted_at IS NULL`, [TENANT])).rows;
     const conProducto = new Set((await c.query(`SELECT btrim(sku) s FROM catalog.products WHERE tenant_id=$1 AND deleted_at IS NULL AND sku IS NOT NULL`, [TENANT])).rows.map((r) => r.s));
@@ -69,7 +93,9 @@ const REVIVIDOS = process.argv.includes('--retirar-revividos');
       if (!v) alta++;
       else if (v.source !== r.source || v.unit !== r.unit || v.is_primary !== r.is_primary || (v.factor == null ? null : Number(v.factor)) !== (r.factor == null ? null : Number(r.factor))) cambia++;
     }
-    for (const v of vivos) if (String(v.source).startsWith('kepler_') && !debe.has(k(v))) baja++;
+    for (const v of vivos) {
+      if (String(v.source).startsWith('kepler_') && !debe.has(k(v)) && !sinCodigo.has(`${v.sku}|${String(v.unit || '').trim().toUpperCase()}`)) baja++;
+    }
     console.log(`  Kepler: ${kepler.length} códigos · faltan ${alta} · distintos ${cambia} · de baja ${baja}`);
     if (!APPLY) { console.log('\n[SÓLO LECTURA] nada cambió.'); return; }
     // Todos los SKUs de kdii y los que tienen un código Kepler vivo (los que Kepler ya quitó también se bajan).

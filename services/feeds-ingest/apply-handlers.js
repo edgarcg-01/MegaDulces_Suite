@@ -19,7 +19,7 @@ const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
 // `[TDA.1]` Aviso a las pantallas de que un precio de etiqueta cambió. Fail-open por diseño.
 const { notifyLabelPricesChanged } = require('./notify-store');
-const { computeBarcodes } = require('./barcode-compute');
+const { computeBarcodesDetalle } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
 const { normalizeVehiclesFromOds, normalizeDriversFromOds, normalizeRoutesFromOds } = require('./logistics-dims');
@@ -965,7 +965,7 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
   await client.query('BEGIN');
   try {
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    const rows = await computeBarcodes(client, { schema: 'kepler_ods', skus: clean });
+    const { codigos: rows, unidades } = await computeBarcodesDetalle(client, { schema: 'kepler_ods', skus: clean });
     // stg_bc SIEMPRE (aunque vacía) para que el soft-delete de stale funcione uniforme.
     await client.query(`CREATE TEMP TABLE stg_bc (
       sku text, barcode text, unit text, factor numeric, source text, is_primary boolean) ON COMMIT DROP`);
@@ -979,6 +979,14 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
         params.push(r.sku, r.barcode, r.unit, r.factor, r.source, r.is_primary);
       });
       await client.query(`INSERT INTO stg_bc VALUES ${vals.join(',')}`, params);
+    }
+    // [CANON.6.14] Las unidades que Kepler declara para estos SKUs y si traen algún código real (ver abajo).
+    await client.query(`CREATE TEMP TABLE stg_u (sku text, unit text, con_codigo boolean) ON COMMIT DROP`);
+    for (let i = 0; i < unidades.length; i += BATCH) {
+      const chunk = unidades.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((u, ui) => { const b = ui * 3; vals.push(`($${b + 1},$${b + 2},$${b + 3})`); params.push(u.sku, u.unit, u.con_codigo); });
+      await client.query(`INSERT INTO stg_u VALUES ${vals.join(',')}`, params);
     }
     let changed = 0;
     if (rows.length) {
@@ -1004,11 +1012,16 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
       changed += up.rowCount;
     }
     // soft-delete de barcodes kepler_* que ya NO salen de Kepler para estos SKUs (no toca wincaja/manual).
+    // [CANON.6.14] Decisión de Edgar (2026-11-17): si Kepler conserva el producto y esa unidad pero la dejó SIN código
+    // real (relleno = SKU), el código real se CONSERVA, con la unidad de Kepler — como catalog.products.barcode desde el
+    // 2026-08-17. Se da de baja sólo si el SKU salió de kdii, si esa unidad ya no existe o si Kepler trae OTRO código
+    // real en ella. El árbitro ARBITRO_CODIGOS_SQL decide igual.
     const del = await client.query(`
       UPDATE catalog.product_barcodes p SET deleted_at=now(), updated_at=now()
        WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.source LIKE 'kepler\\_%'
          AND btrim(p.sku) = ANY($2)
-         AND NOT EXISTS (SELECT 1 FROM stg_bc s WHERE s.sku=btrim(p.sku) AND s.barcode=p.barcode)`,
+         AND NOT EXISTS (SELECT 1 FROM stg_bc s WHERE s.sku=btrim(p.sku) AND s.barcode=p.barcode)
+         AND NOT EXISTS (SELECT 1 FROM stg_u u WHERE u.sku=btrim(p.sku) AND u.unit=upper(btrim(p.unit)) AND NOT u.con_codigo)`,
       [tenantId, clean]);
     changed += del.rowCount;
     await client.query('COMMIT');

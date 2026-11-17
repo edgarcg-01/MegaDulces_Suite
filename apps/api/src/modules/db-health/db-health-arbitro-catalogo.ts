@@ -205,7 +205,8 @@ export const ARBITRO_MARCAS_SQL = `
  * Cuenta tres cosas que deben ser 0:
  *   · faltan  — Kepler trae el código, el producto vive, y no hay fila viva con ese (sku, código);
  *   · sobran  — fila viva `kepler_*` cuyo (sku, código) Kepler ya no trae (lo que se escapaba cuando Kepler BORRABA
- *               una fila de `kdii`, antes de `[CANON.6.14]`);
+ *               una fila de `kdii`, antes de `[CANON.6.14]`) — salvo que esa unidad siga en Kepler SIN ningún código
+ *               real: ese código se conserva (decisión de Edgar, 2026-11-17; misma regla de `normalizeBarcodesFromOds`);
  *   · como Wincaja — fila viva `wincaja` de un (sku, código) que Kepler sí trae (el hop-2 la vuelve `kepler_*`).
  * NO compara unidad ni factor: el mismo código con unidades distintas entre plazas se desempata en el orden en que
  * llegan las filas, y eso no es determinista entre el sensor y el hop-2. Las filas `wincaja` cuyo código Kepler ya
@@ -214,20 +215,24 @@ export const ARBITRO_MARCAS_SQL = `
 //  Para contar PRESENCIA no hace falta la precedencia entre unidades: basta el conjunto (sku, código). Un slot cuya
 //  unidad no existe (c80 / c83 vacíos) no aporta código, como en `computeBarcodes`. Cada código viene repetido en
 //  las 9 plazas: se deduplica ANTES de la regex (medido en prod: la regex sobre los ~430 mil valores crudos costaba
-//  ~500 ms; el sensor entero pasó de ~1.1 s a ~400 ms en prod, con el mismo resultado).
+//  ~500 ms; el sensor entero pasó de ~1.1 s a ~400 ms en prod, con el mismo resultado). `slot` deduplica por
+//  (sku, unidad, código) y de ahí salen `kep` (presencia) y `uni` (qué unidades existen y si traen código real).
 export const ARBITRO_CODIGOS_SQL = `
-  WITH kep AS MATERIALIZED (
-    SELECT sku, bc FROM (
-      SELECT DISTINCT btrim(k.c1) AS sku, btrim(v) AS bc
-        FROM kepler_ods.kdii k,
-             unnest(array_remove(ARRAY[k.c7, k.c93,
-               CASE WHEN btrim(coalesce(k.c80, '')) <> '' THEN k.c82 END,
-               CASE WHEN btrim(coalesce(k.c80, '')) <> '' THEN k.c95 END,
-               CASE WHEN btrim(coalesce(k.c83, '')) <> '' THEN k.c85 END], NULL)) AS v
-       WHERE btrim(coalesce(k.c1, '')) <> '') x
+  WITH slot AS MATERIALIZED (
+    SELECT DISTINCT btrim(k.c1) AS sku, upper(v.u) AS unit, btrim(v.bc) AS bc
+      FROM kepler_ods.kdii k
+      CROSS JOIN LATERAL (VALUES (k.c7, coalesce(nullif(btrim(k.c11), ''), 'PZA')), (k.c93, coalesce(nullif(btrim(k.c11), ''), 'PZA')),
+                                 (k.c82, nullif(btrim(k.c80), '')), (k.c95, nullif(btrim(k.c80), '')),
+                                 (k.c85, nullif(btrim(k.c83), ''))) AS v(bc, u)
+     WHERE btrim(coalesce(k.c1, '')) <> '' AND v.u IS NOT NULL),
+  kep AS MATERIALIZED (
+    SELECT DISTINCT sku, bc FROM slot
      WHERE length(bc) BETWEEN 8 AND 14 AND bc ~ '^[0-9]{8,14}$' AND bc !~ '^0+$' AND ltrim(bc, '0') <> ltrim(sku, '0')),
+  uni AS MATERIALIZED (
+    SELECT sku, unit, bool_or(coalesce(bc ~ '^[0-9]{8,14}$' AND bc !~ '^0+$' AND ltrim(bc, '0') <> ltrim(sku, '0'), false)) AS con_codigo
+      FROM slot GROUP BY sku, unit),
   pb AS MATERIALIZED (
-    SELECT btrim(sku) AS sku, barcode, source FROM catalog.product_barcodes
+    SELECT btrim(sku) AS sku, barcode, source, upper(btrim(unit)) AS unit FROM catalog.product_barcodes
      WHERE tenant_id = ${T} AND deleted_at IS NULL),
   c AS MATERIALIZED (
     SELECT ${VISTOS} AS vistos,
@@ -235,7 +240,10 @@ export const ARBITRO_CODIGOS_SQL = `
              WHERE EXISTS (SELECT 1 FROM catalog.products p WHERE p.tenant_id = ${T} AND btrim(p.sku) = kep.sku AND p.deleted_at IS NULL)
                AND NOT EXISTS (SELECT 1 FROM pb WHERE pb.sku = kep.sku AND pb.barcode = kep.bc))
          + (SELECT count(*) FROM pb WHERE pb.source LIKE 'kepler\\_%'
-               AND NOT EXISTS (SELECT 1 FROM kep WHERE kep.sku = pb.sku AND kep.bc = pb.barcode))
+               AND NOT EXISTS (SELECT 1 FROM kep WHERE kep.sku = pb.sku AND kep.bc = pb.barcode)
+               -- [CANON.6.14] Una unidad que Kepler conserva SIN código real: su código Kepler se queda (decisión de
+               -- Edgar, 2026-11-17; la misma regla de normalizeBarcodesFromOds).
+               AND NOT EXISTS (SELECT 1 FROM uni WHERE uni.sku = pb.sku AND uni.unit = pb.unit AND NOT uni.con_codigo))
          + (SELECT count(*) FROM pb WHERE pb.source = 'wincaja'
                AND EXISTS (SELECT 1 FROM kep WHERE kep.sku = pb.sku AND kep.bc = pb.barcode)) AS difieren)
   ${veredicto('catalogo_codigos_evento', 'código de barras', 'Medir: node database/importers/kepler/import-product-barcodes.js; cerrar: --apply', 'import-product-barcodes.js',
