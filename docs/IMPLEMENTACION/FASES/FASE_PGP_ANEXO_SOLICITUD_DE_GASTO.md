@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 107 KB, 1280 líneas, 18 secciones.
+> **Índice navegable** — 108 KB, 1290 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -24,7 +24,7 @@
 | 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
 | 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1251 | 1310 | 5 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1251 | 1320 | 6 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1295,6 +1295,16 @@ fuera son 28 documentos al mes de procesos que no son gasto operativo.
   → renglones por concepto, proyecto y departamento → la misma escritura, con la misma marca, candados e interruptor
   (`solicitud_gasto`). **Antes de escribir código:** medir de dónde sale hoy la nómina en la Suite (RH, `[MDT]`) y si
   su total casa con las `GN001` de Kepler. Sin ese árbitro no se construye (pm, regla 5).
+- ⛔ **F2, medido el 2026-11-17: todavía no tiene árbitro.**
+  - La Suite **no calcula nómina**: RH migra Mega Talento, pero no hay periodos ni recibos propios.
+  - La nómina timbrada se lee de ContPAQi (`contpaqi_nom.add_nomina`, unos 287 mil recibos), pero **se dejó de
+    sincronizar el 30-oct**: el último pago es del 23-oct.
+  - Además, sólo tiene índice por su llave: ninguna pantalla puede leerla por periodo sin una vista con índice
+    (regla de los 500 ms).
+  - Contra Kepler **no cuadra**: por semana, la `GN001` va del 67 % al 115 % del neto timbrado (sep–oct; Kepler unos
+    $590 mil por semana en las 9 sucursales).
+  - Antes de construir F2: (1) que vuelva la sincronización de ContPAQi Nóminas; (2) explicar la diferencia (desfase de
+    fechas, finiquitos, IMSS o retenciones); (3) recién entonces, la vista por periodo con su índice y el escritor.
 - **F3, sólo después de su ADR y de DS40.**
 - **F4 lo retoma CB.** Aquí sólo se registra como consumidor del mismo escritor.
 
