@@ -6,6 +6,7 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -1681,8 +1682,11 @@ export class FinanceBankService {
         .where('st.period', period).whereNull('bm.deleted_at')
         .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'factoraje'`)
         .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
-        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'ba.account_label'))
-        .map((b: any) => ({ id: b.id, date: b.movement_date, concept: b.concept, label: b.account_label,
+        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'ba.account_label', 'bm.recon_status')
+        // [CB.74] Orden FIJO: el motor es greedy y el que llega primero se queda con el documento. Sin `ORDER BY`
+        // el orden era el físico, que cambiaba justo porque cada corrida reescribía las filas.
+        .orderBy([{ column: 'bm.movement_date' }, { column: 'bm.id' }]))
+        .map((b: any) => ({ id: b.id, date: b.movement_date, concept: b.concept, label: b.account_label, estado: b.recon_status as string | null,
           dir: n(b.amount_out) > 0 ? 'out' : 'in', amount: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in) }));
 
       // [CB.51] Qué tenía casado la corrida anterior. Se lee ANTES de los pases porque el pase 7
@@ -1716,7 +1720,10 @@ export class FinanceBankService {
         .where('tenant_id', tenantId).whereNotNull('account_label')
         .andWhere('fecha_efectiva', '>=', iniWide).andWhere('fecha_efectiva', '<', finWide).whereRaw('signo <> 0')
         .select('sucursal', 'doc_tipo', 'folio', 'clave_banco', 'account_label', 'importe', 'signo',
-          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario'))
+          'fecha_efectiva', 'fecha_valor', 'fecha_pago_sat', 'fecha_captura', 'beneficiario')
+        // [CB.74] Orden fijo también del lado Kepler: en un empate (mismo importe, misma distancia) gana el primero.
+        .orderBy([{ column: 'fecha_efectiva' }, { column: 'sucursal' }, { column: 'doc_tipo' }, { column: 'folio' },
+          { column: 'clave_banco' }, { column: 'account_label' }, { column: 'importe' }, { column: 'signo' }]))
         .map((p: any) => {
           // Se mide cuánto aportó el complemento para poder mostrarlo en el resultado: un cambio
           // que mueve el número tiene que poder enseñarlo.
@@ -1992,7 +1999,21 @@ export class FinanceBankService {
       // no — si esa lista no está vacía, el cambio no entra.
       const perdidos = bankMovs.filter((m) => antesIds.has(m.id) && !matchedSet.has(m.id));
       const ganados = bankMovs.filter((m) => !antesIds.has(m.id) && matchedSet.has(m.id));
+      // [CB.74] Lo guardado hoy, para escribir sólo la diferencia (ver `recon-escritura.ts`).
+      const guardados: PareoFila[] = [];
+      for (let i = 0; i < periodMovIds.length; i += 5000) {
+        const filas = await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds.slice(i, i + 5000))
+          .select('id', 'bank_movement_id', 'kepler_sucursal', 'kepler_doc_tipo', 'kepler_doc_folio', 'kepler_cuenta',
+            'kepler_amount', 'match_type', 'match_confidence', 'matched_by');
+        for (const f of filas as PareoFila[]) guardados.push(f);
+      }
+      const plan = planEscritura(guardados, uniqMatches as PareoFila[], new Map(bankMovs.map((m) => [m.id, m.estado] as [string, string | null])), matchedSet);
       const diff = {
+        // [CB.74] Lo que esta corrida escribe (o escribiría en seco). Una corrida repetida sobre el mismo dato da ceros.
+        escrituras: {
+          borrar: plan.borrar.length, insertar: plan.insertar.length, a_matched: plan.aMatched.length,
+          a_unmatched: plan.aUnmatched.length, intactos: plan.intactos, huella: huellaPareos(uniqMatches as PareoFila[]),
+        },
         casados_antes: antesIds.size, casados_despues: matchedSet.size, rescatados: p7,
         ganados: ganados.length, perdidos: perdidos.length,
         monto_ganado: Math.round(ganados.reduce((s, m) => s + m.amount, 0) * 100) / 100,
@@ -2005,25 +2026,33 @@ export class FinanceBankService {
         perdidos_truncados: Math.max(0, perdidos.length - 50),
       };
       if (dryRun) {
-        this.logger.log(`match-tesoreria ${period} [EN SECO]: ${diff.casados_antes} → ${diff.casados_despues} (+${diff.ganados} / −${diff.perdidos}); no se escribió nada`);
-      } else if (periodMovIds.length) {
-        await trx('finance.bank_recon_matches').whereIn('bank_movement_id', periodMovIds).del();
-        // collapseMatches + el .del() previo garantizan unicidad → insert simple (sin
-        // onConflict, que en esta knex genera "default values" → fila NULL → RLS).
-        for (let i = 0; i < uniqMatches.length; i += 500) {
-          const chunk = uniqMatches.slice(i, i + 500);
+        this.logger.log(`match-tesoreria ${period} [EN SECO]: ${diff.casados_antes} → ${diff.casados_despues} (+${diff.ganados} / −${diff.perdidos}); escribiría −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados; no se escribió nada`);
+      } else {
+        // [CB.74] Sólo la diferencia. Primero se borra lo que ya no sale y después se inserta: el índice único es por
+        // movimiento × documento, y un pareo que cambió de importe o de pase ocupa la misma llave.
+        for (let i = 0; i < plan.borrar.length; i += 500) {
+          await trx('finance.bank_recon_matches').whereIn('id', plan.borrar.slice(i, i + 500)).del();
+        }
+        // collapseMatches garantiza unicidad → insert simple (sin onConflict, que en esta knex
+        // genera "default values" → fila NULL → RLS).
+        for (let i = 0; i < plan.insertar.length; i += 500) {
+          const chunk = plan.insertar.slice(i, i + 500);
           if (chunk.length) await trx('finance.bank_recon_matches').insert(chunk);
         }
-        await trx('finance.bank_movements').whereIn('id', periodMovIds).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
-        const matchedIds = Array.from(matchedSet);
-        for (let i = 0; i < matchedIds.length; i += 500) await trx('finance.bank_movements').whereIn('id', matchedIds.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+        // ⛔ `updated_at` sólo cambia en el movimiento cuyo estado cambió: es lo que mira la firma del aviso.
+        for (let i = 0; i < plan.aUnmatched.length; i += 500) {
+          await trx('finance.bank_movements').whereIn('id', plan.aUnmatched.slice(i, i + 500)).update({ recon_status: 'unmatched', updated_at: trx.fn.now() });
+        }
+        for (let i = 0; i < plan.aMatched.length; i += 500) {
+          await trx('finance.bank_movements').whereIn('id', plan.aMatched.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
+        }
       }
 
       const matchedBank = matchedSet.size;
       const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
-      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate)`);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate) · ${dryRun ? 'en seco' : `escribió −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados`}`);
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,
