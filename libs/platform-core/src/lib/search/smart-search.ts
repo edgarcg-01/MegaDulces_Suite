@@ -231,37 +231,71 @@ export function similitudTrigramas(a: string, b: string): number {
 }
 
 /**
- * `[BU.6.1]` «¿Quisiste decir…?»: corrige lo escrito contra el VOCABULARIO real del buscador (las
- * palabras de los nombres que puede encontrar, ya normalizadas), palabra por palabra:
- *   · la palabra existe tal cual → se queda;
- *   · si no, la del vocabulario más parecida (≥ umbral, 0.4): «gomtas» → «gomitas», «mazapna» → «mazapan»;
- *   · si no hay parecida y la palabra está pegada, se separa cuando sus dos mitades existen («elrey» →
- *     «el rey»). Va DESPUÉS de la parecida: un plural que no esté («mazapanes») no se parte en «mazapan es».
+ * `[BU.6.1]` Cuántos cambios separan dos palabras: quitar, poner o cambiar una letra, o VOLTEAR dos
+ * seguidas (Damerau–Levenshtein, alineación óptima). «marai» → «maria» es 1 (voltear); los trigramas
+ * castigan el volteo (0.33) y por eso no bastan solos. Se corta en `tope` + 1 para no gastar.
+ */
+export function distanciaEdicion(a: string, b: string, tope = 3): number {
+  if (Math.abs(a.length - b.length) > tope) return tope + 1;
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let minFila = Infinity;
+    for (let j = 1; j <= b.length; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      minFila = Math.min(minFila, d[i][j]);
+    }
+    if (minFila > tope) return tope + 1;
+  }
+  return d[a.length][b.length];
+}
+
+/** Cuántos cambios se le permiten a una palabra según su largo: 3 letras ninguno, 4–6 uno, 7+ dos. */
+const cambiosPermitidos = (n: number): number => (n <= 3 ? 0 : n <= 6 ? 1 : 2);
+
+/**
+ * `[BU.6.1]` «¿Quisiste decir…?»: corrige lo escrito contra el VOCABULARIO real del buscador (cada
+ * palabra de los nombres que puede encontrar, normalizada, con CUÁNTAS veces aparece), palabra por palabra:
+ *   · la palabra no existe → la candidata con menos cambios (según su largo) o, si no hay, la más
+ *     parecida por trigramas (≥ 0.4); en empate gana la MÁS COMÚN y luego la más parecida:
+ *     «gomtas» → «gomitas» (72 contra «gomas» 10), «marai» → «maria» (111 contra «mara» 1);
+ *   · la palabra existe pero es una variante RARA: si otra a un cambio aparece 10 veces más, se sugiere
+ *     esa («abarotes», 4 en el padrón → «abarrotes», 686);
+ *   · sin candidata y pegada: se separa si sus dos mitades existen («elrey» → «el rey»). Va al final:
+ *     un plural que no esté («mazapanes») no se parte en «mazapan es».
  * Números, códigos y palabras de menos de 3 letras no se tocan (un folio no se «corrige»).
  * Puro y en memoria: el vocabulario lo carga y guarda cada buscador (armarlo en cada consulta costaba
- * 420–900 ms en Canindo, 4,403 palabras). `null` = nada que corregir.
+ * 420–900 ms en Canindo). `null` = nada que corregir.
  */
 export function corregirConVocabulario(
   rawQuery: string | null | undefined,
-  vocabulario: ReadonlySet<string>,
+  vocabulario: ReadonlyMap<string, number>,
   umbral = 0.4,
 ): string | null {
   const todos = norm(rawQuery ?? '').split(/\s+/).filter(Boolean);
   if (!todos.some((t) => /^[a-z]{3,}$/.test(t))) return null;
   const salida = todos.map((t) => {
-    if (!/^[a-z]{3,}$/.test(t) || vocabulario.has(t)) return t;
-    // La más parecida; en empate, la más corta y luego la primera en orden alfabético (como el ORDER BY medido).
-    let mejor: string | null = null;
-    let sim = -1;
-    for (const w of vocabulario) {
-      const s = similitudTrigramas(w, t);
-      if (s < umbral) continue;
-      if (s > sim || (mejor !== null && s === sim && (w.length < mejor.length || (w.length === mejor.length && w < mejor)))) {
-        mejor = w;
-        sim = s;
+    if (!/^[a-z]{3,}$/.test(t)) return t;
+    const veces = vocabulario.get(t) ?? 0;
+    const tope = cambiosPermitidos(t.length);
+    let mejor: { w: string; dist: number; veces: number; sim: number } | null = null;
+    for (const [w, n] of vocabulario) {
+      if (w === t) continue;
+      const dist = distanciaEdicion(w, t, Math.max(tope, 1));
+      // La palabra existe: sólo la reemplaza una variante a UN cambio y 10 veces más común.
+      if (veces > 0 && !(dist <= 1 && tope >= 1 && n >= 10 * veces)) continue;
+      const sim = similitudTrigramas(w, t);
+      if (dist > tope && sim < umbral) continue;
+      const d = dist <= tope ? dist : tope + 1; // por distancia primero; lo que entró por trigramas va después
+      const c = { w, dist: d, veces: n, sim };
+      if (!mejor || c.dist < mejor.dist || (c.dist === mejor.dist && (c.veces > mejor.veces || (c.veces === mejor.veces && (c.sim > mejor.sim || (c.sim === mejor.sim && w < mejor.w)))))) {
+        mejor = c;
       }
     }
-    if (mejor) return mejor;
+    if (mejor) return mejor.w;
+    if (veces > 0) return t;
     const partida = particionesDePalabra(t).find(([a, b]) => vocabulario.has(a) && vocabulario.has(b));
     return partida ? partida.join(' ') : t;
   });

@@ -87,6 +87,21 @@ export class CommercialQuotesController {
     return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20, branch || null, all === '1' || all === 'true');
   }
 
+  /** `[BU.6.2]` «¿Quisiste decir…?» del buscador de clientes, cuando no trajo nada. */
+  @Get('wholesale-customers/suggest')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({ summary: 'Corrige lo escrito contra los nombres del padrón de la sucursal; sólo sugiere si con eso aparece un cliente.' })
+  @ApiQuery({ name: 'branch', required: true })
+  @ApiQuery({ name: 'search', required: true })
+  @ApiQuery({ name: 'all', required: false })
+  suggestWholesaleCustomers(
+    @Query('branch') branch: string,
+    @Query('search') search?: string,
+    @Query('all') all?: string,
+  ): Promise<{ suggestion: string | null }> {
+    return this.service.suggestWholesaleCustomers(branch, search ?? '', all === '1' || all === 'true');
+  }
+
   /**
    * ⚠️ Va **antes** de `@Get(':id')`. Nest resuelve por orden de declaración: abajo de la ruta
    * paramétrica, `catalog` entraría como si fuera un id de cotización y devolvería 404/500.

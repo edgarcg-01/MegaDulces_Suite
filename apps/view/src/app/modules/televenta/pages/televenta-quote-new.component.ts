@@ -284,6 +284,10 @@ const ORIGENES = ORIGENES_COTIZACION;
                       Nadie que haya comprado en {{ branchName(sucursal()) }} el último año coincide con «{{ terminoCliente }}».
                       Usa «Buscar en todo el padrón» si todavía no compra aquí.
                     }
+                    <!-- [BU.6.2] mousedown sin efecto: si no, el clic cierra la lista antes de llegar al botón. -->
+                    @if (sugerenciaCliente(); as s) {
+                      <span class="sugerencia">¿Quisiste decir <button type="button" class="link-sugerencia" (mousedown)="$event.preventDefault()" (click)="usarSugerenciaCliente(s)">{{ s }}</button>?</span>
+                    }
                   </ng-template>
                 </p-autocomplete>
               </p-iconfield>
@@ -1589,6 +1593,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   buscandoArticulo = signal(false);
   /** `[BU.6.1]` «¿Quisiste decir…?» de la última búsqueda sin resultados; null = nada que sugerir. */
   readonly sugerenciaArticulo = signal<string | null>(null);
+  /** `[BU.6.2]` «¿Quisiste decir…?» de la última búsqueda de clientes sin resultados. */
+  readonly sugerenciaCliente = signal<string | null>(null);
   catalogoAbierto = signal(false);
   resultadosArticulos = signal<QuoteCatalogRow[]>([]);
 
@@ -1776,7 +1782,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         switchMap((t) => {
           // [COT.22] Sin sucursal no se busca: los clientes son de UNA sucursal.
           const suc = this.sucursal();
-          if (!suc) return of([] as WholesaleCustomer[]);
+          if (!suc) return of({ t, rows: [] as WholesaleCustomer[] });
           return this.svc.searchWholesaleCustomers(t, 20, suc, this.padronCompleto()).pipe(
             catchError((err) => {
               this.toast.add({
@@ -1786,11 +1792,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
               });
               return of([] as WholesaleCustomer[]);
             }),
+            map((rows) => ({ t, rows })),
           );
         }),
       )
-      .subscribe((rows) => {
+      .subscribe(({ t, rows }) => {
         this.resultadosClientes.set(rows);
+        this.pedirSugerenciaCliente(t, rows.length);
       });
 
     // 2. Búsqueda de artículos en catálogo de la sucursal (ordenados alfabéticamente)
@@ -2057,6 +2065,25 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.svc.suggestCatalog(suc, termino).pipe(catchError(() => of({ suggestion: null }))).subscribe((r) => {
       if (this.terminoArticulo.trim() === termino) this.sugerenciaArticulo.set(r.suggestion);
     });
+  }
+
+  /** `[BU.6.2]` Lo mismo para el buscador de clientes, con el alcance que esté elegido. */
+  private pedirSugerenciaCliente(termino: string, resultados: number): void {
+    this.sugerenciaCliente.set(null);
+    const suc = this.sucursal();
+    if (resultados > 0 || !suc || termino.trim().length < 3) return;
+    this.svc.suggestWholesaleCustomers(suc, termino, this.padronCompleto())
+      .pipe(catchError(() => of({ suggestion: null })))
+      .subscribe((r) => {
+        if (this.terminoCliente.trim() === termino.trim()) this.sugerenciaCliente.set(r.suggestion);
+      });
+  }
+
+  /** `[BU.6.2]` Clic en la sugerencia de cliente: se busca eso (el autocompletar abre la lista nueva). */
+  usarSugerenciaCliente(s: string): void {
+    this.terminoCliente = s;
+    this.sugerenciaCliente.set(null);
+    this.onBuscarCliente(s);
   }
 
   /** `[BU.6.1]` Clic en la sugerencia: se busca eso, con el cursor en el buscador. */

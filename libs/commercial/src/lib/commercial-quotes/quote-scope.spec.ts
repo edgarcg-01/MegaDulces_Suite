@@ -158,14 +158,18 @@ describe('Clientes de mayoreo: sólo las condiciones de sus sucursales', () => {
   it('vendedor 08: el armado filtra las condiciones a la 08', async () => {
     const { calls, quotes } = servicios(VENDEDOR_08);
     await quotes.searchWholesaleCustomers('ortiz');
-    expect(calls[0].sql).toContain('v.sucursal = ANY(:scope_branches)');
-    expect(calls[0].binds['scope_branches']).toEqual(['08']);
+    // [BU.5.2] Antes del armado va el `raw` de la calificación de coincidencia: se busca el armado por su SQL.
+    const armado = calls.find((c) => c.sql.includes('WITH hit AS'))!;
+    expect(armado.sql).toContain('v.sucursal = ANY(:scope_branches)');
+    expect(armado.binds['scope_branches']).toEqual(['08']);
   });
 
   it('dirección: todas las sucursales del cliente', async () => {
     const { calls, quotes } = servicios(DIRECCION);
     await quotes.searchWholesaleCustomers('ortiz');
-    expect(calls[0].sql).not.toContain('scope_branches');
+    const armado = calls.find((c) => c.sql.includes('WITH hit AS'))!;
+    expect(armado.sql).toBeDefined();
+    expect(armado.sql).not.toContain('scope_branches');
   });
 });
 

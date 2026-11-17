@@ -15,6 +15,7 @@ import {
   applySmartSearch,
   isPlatformAdminRole,
   corregirConVocabulario,
+  smartSearchRank,
 } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
@@ -764,9 +765,13 @@ export class CommercialQuotesService {
       // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el código, el nombre
       // o el RFC, en cualquier orden ("ortiz vera" encuentra "GRUPO ORTIZ VERA"). Estricta, sin
       // trigramas: el operador escribe lo que ve en el padrón.
+      // [BU.5.2] Primero qué tan bien coincide (frase → palabras completas → inicio de palabra) y después
+      // la clave: antes era sólo por clave, y «ortiz» ponía a cualquier ORTIZ… por número, no al que más se parece.
+      const rank = smartSearchRank(term, { columns: ['customer_code', 'name', 'rfc'] });
       const hit = knex('analytics.v_erp_wholesale_customers')
-        .distinct('customer_code')
-        .orderBy('customer_code')
+        .column('customer_code', rank ? knex.raw(`min(${rank.sql}) AS match_rank`, rank.bindings) : knex.raw('0 AS match_rank'))
+        .groupBy('customer_code')
+        .orderByRaw('match_rank, customer_code')
         .limit(n);
       applySmartSearch(hit, term, { columns: ['customer_code', 'name', 'rfc'], fuzzy: false });
       // COT.19: sólo los clientes —y las condiciones— de las sucursales del usuario. Un cliente
@@ -831,7 +836,7 @@ export class CommercialQuotesService {
         JOIN hit ON hit.customer_code = v.customer_code
         ${filtroSuc}
         GROUP BY v.customer_code
-        ORDER BY v.customer_code
+        ORDER BY min(hit.match_rank), v.customer_code
         `,
         sucursales !== null ? { hit, scope_branches: sucursales, ...(suc ? { one_branch: suc } : {}) } : { hit },
       );
@@ -898,20 +903,43 @@ export class CommercialQuotesService {
   }
 
   /**
+   * `[BU.6.2]` «¿Quisiste decir…?» del buscador de clientes: el vocabulario son las palabras de los
+   * nombres del padrón de la sucursal (`kdud.c3`). Igual que en artículos, sólo se sugiere si con la
+   * corrección SÍ aparece algún cliente, con el mismo alcance (compradores o todo el padrón).
+   */
+  async suggestWholesaleCustomers(branch: string, search: string, all = false): Promise<{ suggestion: string | null }> {
+    const suc = (branch || '').trim();
+    if (!suc) throw new BadRequestException('Falta la sucursal.');
+    await this.assertLeeSucursal(suc);
+    const term = (search || '').trim().slice(0, 80);
+    const suggestion = corregirConVocabulario(term, await this.vocabularioDe(`kdud:${suc}`,
+      `SELECT public.f_unaccent(lower(t)) AS word, count(*)::int AS n
+         FROM kepler_ods.kdud d, regexp_split_to_table(d.c3, '[^A-Za-zÁÉÍÓÚÑÜáéíóúñü]+') t
+        WHERE d.sucursal = ? AND length(t) >= 2 GROUP BY 1`, [suc]));
+    if (!suggestion) return { suggestion: null };
+    const hay = await this.searchWholesaleCustomers(suggestion, 1, suc, all);
+    return { suggestion: hay.length ? suggestion : null };
+  }
+
+  /**
    * `[BU.6.1]` Las palabras de los nombres de los artículos de la sucursal (`kdii.c2`), normalizadas.
    * Se guardan en memoria 10 minutos: armarlas cuesta ~300 ms (4,403 palabras en Canindo) y cambian
    * cuando se da de alta un artículo. No es una copia en base ni un barrido: se arma al pedirla.
    */
-  private readonly vocabulario = new Map<string, { al: number; palabras: Set<string> }>();
-  private async vocabularioCatalogo(suc: string): Promise<Set<string>> {
-    const hay = this.vocabulario.get(suc);
-    if (hay && Date.now() - hay.al < 10 * 60_000) return hay.palabras;
-    const r = await this.tk.run((knex) => knex.raw(
-      `SELECT DISTINCT public.f_unaccent(lower(t)) AS word
+  private readonly vocabulario = new Map<string, { al: number; palabras: Map<string, number> }>();
+  private vocabularioCatalogo(suc: string): Promise<Map<string, number>> {
+    return this.vocabularioDe(`kdii:${suc}`,
+      `SELECT public.f_unaccent(lower(t)) AS word, count(*)::int AS n
          FROM kepler_ods.kdii k, regexp_split_to_table(k.c2, '[^A-Za-zÁÉÍÓÚÑÜáéíóúñü]+') t
-        WHERE k.sucursal = ? AND length(t) >= 2`, [suc]));
-    const palabras = new Set((r.rows as Array<{ word: string }>).map((x) => x.word));
-    this.vocabulario.set(suc, { al: Date.now(), palabras });
+        WHERE k.sucursal = ? AND length(t) >= 2 GROUP BY 1`, [suc]);
+  }
+  /** Un vocabulario (`word` y cuántas veces aparece, `n`), en memoria 10 minutos bajo su llave. */
+  private async vocabularioDe(llave: string, sql: string, bindings: string[]): Promise<Map<string, number>> {
+    const hay = this.vocabulario.get(llave);
+    if (hay && Date.now() - hay.al < 10 * 60_000) return hay.palabras;
+    const r = await this.tk.run((knex) => knex.raw(sql, bindings));
+    const palabras = new Map((r.rows as Array<{ word: string; n: number }>).map((x) => [x.word, Number(x.n)] as [string, number]));
+    this.vocabulario.set(llave, { al: Date.now(), palabras });
     return palabras;
   }
 
