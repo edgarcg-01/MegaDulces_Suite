@@ -110,17 +110,19 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   }
   const el = (f: { nativeElement: HTMLElement }) => f.nativeElement as HTMLElement;
 
-  it('1 · abre en «Cliente», ordenada por más vencido', () => {
-    crear();
+  it('1 · abre en «Cliente», ordenada por más vencido, y pide TODAS las cuentas del filtro', () => {
+    cartera = vi.fn(() => of(resp([cli('S', 'Mucho saldo', 900, 10), cli('V', 'Mucho vencido', 100, 100)])));
+    const f = crear();
     expect(cartera).toHaveBeenCalledTimes(1);
-    expect(cartera.mock.calls[0][0]).toMatchObject({ cuenta: 'cliente_final', sort: 'vencido' });
+    expect(cartera.mock.calls[0][0]).toMatchObject({ cuenta: 'cliente_final', limit: 5000 });
+    expect(f.componentInstance.visibles()[0].cliente_code).toBe('V');
   });
 
-  it('1b · un enlace ?cliente= abre en «Todas»: ese cliente puede ser una cuenta interna', () => {
+  it('1b · un enlace ?cliente= abre en «Todas» y deja la búsqueda puesta', () => {
     query = { cliente: 'C1', suc: '01' };
-    crear();
+    const f = crear();
     expect(cartera.mock.calls[0][0].cuenta).toBeUndefined();
-    expect(cartera.mock.calls[0][0].search).toBe('C1');
+    expect(f.componentInstance.busqueda()).toBe('C1');
   });
 
   it('2 · ⛔ una carga nueva cancela la anterior: la respuesta vieja no pinta encima', () => {
@@ -151,27 +153,115 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(el(f).textContent).toContain('Saldo · Cliente');
   });
 
-  it('4 · el tope se dice ARRIBA de la tabla', () => {
-    cartera = vi.fn(() => of(resp([cli('C1', 'Abarrotes Uno', 100, 100)], { total: 1455 })));
+  it('4 · la tabla pinta hasta 500 y el tope se dice ARRIBA de ella', () => {
+    const muchas = Array.from({ length: 620 }, (_, i) => cli(`C${i}`, `Cliente ${i}`, 1000 - i, 1000 - i));
+    cartera = vi.fn(() => of(resp(muchas)));
     const f = crear();
     const aviso = el(f).querySelector('.ct-more-top');
     const tabla = el(f).querySelector('.ct-table');
-    expect(aviso?.textContent).toContain('1,455');
+    expect(el(f).querySelectorAll('tr.ct-row').length).toBe(500);
+    expect(aviso?.textContent).toContain('620');
     expect(aviso && tabla && (aviso.compareDocumentPosition(tabla) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
   });
 
-  it('5 · el CSV pide TODAS las cuentas del filtro y avisa si aun así se corta', () => {
+  it('5 · el CSV sale de memoria con TODAS las cuentas de lo que ves, sin otra petición', () => {
+    const muchas = Array.from({ length: 620 }, (_, i) => cli(`C${i}`, `Cliente ${i}`, 1000 - i, 1000 - i));
+    cartera = vi.fn(() => of(resp(muchas)));
     const f = crear();
-    const crearUrl = vi.fn(() => 'blob:x');
+    // jsdom no trae Blob.text(): se lee con FileReader, y se ESPERA su onload (un setTimeout(0)
+    // no alcanza: la lectura es asíncrona y su duración varía).
+    let leido!: Promise<string>;
+    const crearUrl = vi.fn((b: Blob) => {
+      leido = new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.readAsText(b); });
+      return 'blob:x';
+    });
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = crearUrl;
     (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
-    cartera.mockReturnValueOnce(of(resp([cli('C1', 'Abarrotes Uno', 100, 100)], { total: 7000 })));
     f.componentInstance.exportCsv();
     f.detectChanges();
-    expect(cartera.mock.calls[1][0]).toMatchObject({ limit: 5000, cuenta: 'cliente_final', sort: 'vencido' });
+    expect(cartera).toHaveBeenCalledTimes(1);
     expect(crearUrl).toHaveBeenCalledTimes(1);
+    expect(f.componentInstance.csvAviso()?.texto).toContain('620 cuentas');
+    return leido.then((csv) => {
+      expect(csv.trim().split('\n').length).toBe(621); // encabezado + 620
+    });
+  });
+
+  it('5b · si el servidor se cortó (más de 5,000), el CSV lo dice', () => {
+    cartera = vi.fn(() => of(resp([cli('C1', 'Abarrotes Uno', 100, 100)], { total: 7000 })));
+    const f = crear();
+    (URL as unknown as { createObjectURL: unknown }).createObjectURL = vi.fn(() => 'blob:x');
+    (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn();
+    f.componentInstance.exportCsv();
+    f.detectChanges();
     expect(f.componentInstance.csvAviso()?.error).toBe(true);
     expect(el(f).querySelector('.ct-csv-aviso')?.textContent).toContain('7,000');
+  });
+
+  it('9 · la búsqueda es instantánea: sin Enter, sin otra petición, sin acentos y por varias palabras', () => {
+    cartera = vi.fn(() => of(resp([
+      cli('C1', 'Abarrotes Peña', 100, 100), cli('C2', 'Dulcería La Estrella', 50, 50, { rfc: 'DLE010101AAA' }),
+      cli('C3', 'Abarrotes Sol', 30, 30),
+    ])));
+    const f = crear();
+    const c = f.componentInstance;
+    c.busqueda.set('pena');
+    f.detectChanges();
+    expect(c.filtradas().map((x) => x.cliente_code)).toEqual(['C1']);
+    c.busqueda.set('abarrotes sol');
+    expect(c.filtradas().map((x) => x.cliente_code)).toEqual(['C3']);
+    c.busqueda.set('dle0101');
+    f.detectChanges();
+    expect(c.filtradas().map((x) => x.cliente_code)).toEqual(['C2']);
+    expect(el(f).textContent).toContain('Los totales de arriba son del filtro');
+    expect(cartera).toHaveBeenCalledTimes(1);
+  });
+
+  it('10 · el orden cambia al instante, sin otra petición', () => {
+    cartera = vi.fn(() => of(resp([cli('S', 'Mucho saldo', 900, 10), cli('V', 'Mucho vencido', 100, 100)])));
+    const f = crear();
+    f.componentInstance.orden.set('saldo');
+    f.detectChanges();
+    expect((el(f).querySelector('tr.ct-row') as HTMLElement).textContent).toContain('Mucho saldo');
+    expect(cartera).toHaveBeenCalledTimes(1);
+  });
+
+  it('11 · «Siguiente cliente» abre la ficha que ya se pidió por adelantado', () => {
+    cartera = vi.fn(() => of(resp([cli('A', 'Primero', 300, 300), cli('B', 'Segundo', 200, 200)])));
+    detalle = vi.fn((suc: string, code: string) => of({ ...DET, cliente: { ...DET.cliente, cliente_code: code, cliente_nombre: code === 'A' ? 'Primero' : 'Segundo' } }));
+    const f = crear();
+    const c = f.componentInstance;
+    c.openDetalle(c.visibles()[0]);
+    expect(detalle.mock.calls.map((a) => a[1])).toEqual(['A', 'B']); // la ficha y la precarga
+    c.irA(1);
+    f.detectChanges();
+    expect(detalle).toHaveBeenCalledTimes(2); // la segunda salió de la caché
+    expect(c.detalle()?.cliente.cliente_nombre).toBe('Segundo');
+    expect(c.posicion()).toEqual({ i: 1, n: 2 });
+  });
+
+  it('12 · la primera carga reserva su lugar con un esqueleto (no brinca) y no dibuja la tabla', () => {
+    const pendiente = new Subject<CarteraResp>();
+    cartera = vi.fn(() => pendiente);
+    const f = crear();
+    expect(el(f).querySelector('app-load-state .ls-sk')).toBeTruthy();
+    expect(el(f).querySelector('.ct-table')).toBeNull();
+    pendiente.next(resp([cli('C1', 'Abarrotes Uno', 100, 100)]));
+    f.detectChanges();
+    expect(el(f).querySelector('.ct-table')).toBeTruthy();
+  });
+
+  it('13 · mientras se aplica un filtro se ve «Actualizando…» y lo viejo queda atenuado', () => {
+    const segunda = new Subject<CarteraResp>();
+    cartera = vi.fn().mockReturnValueOnce(of(resp([cli('C1', 'Abarrotes Uno', 100, 100)]))).mockReturnValueOnce(segunda);
+    const f = crear();
+    f.componentInstance.load();
+    f.detectChanges();
+    expect(el(f).querySelector('.ct-actualizando')?.textContent).toContain('Actualizando');
+    expect(el(f).querySelector('.ct-cuerpo')?.classList.contains('ct-cargando')).toBe(true);
+    segunda.next(resp([cli('C2', 'Otro', 5, 5)]));
+    f.detectChanges();
+    expect(el(f).querySelector('.ct-actualizando')).toBeNull();
   });
 
   it('6 · el monto del compromiso acepta la forma y no adivina el significado', () => {
@@ -199,6 +289,42 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(c.promError()).toContain('No se guardó el compromiso');
     expect(c.promMontoTxt).toBe('500');
     expect(c.savingProm()).toBe(false);
+  });
+
+  it('14 · [CXC.43] el ACTO registra el contacto y la fila dice «hoy»', () => {
+    cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100)]), contactos_medidos: true }));
+    const ahora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: ahora }));
+    configurar();
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}) } });
+    const f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    const c = f.componentInstance;
+    c.registrarContacto(DET, 'whatsapp');
+    c.registrarContacto(DET, 'whatsapp'); // doble clic: no se repite
+    f.detectChanges();
+    expect(registrarContacto).toHaveBeenCalledTimes(1);
+    expect(registrarContacto).toHaveBeenCalledWith('01', 'C1', 'whatsapp');
+    expect(el(f).querySelector('.ct-contactado-hoy')?.textContent).toContain('hoy');
+    expect(c.contactoTexto(DET)?.texto).toContain('por WhatsApp');
+  });
+
+  it('15 · [CXC.43] sin la tabla de contactos, la ficha lo DECLARA y la fila no afirma nada', () => {
+    cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100, { ultimo_contacto: { at: new Date().toISOString(), canal: 'telefono', por: null } })]), contactos_medidos: false }));
+    const f = crear();
+    expect(el(f).querySelector('.ct-contactado')).toBeNull();
+    expect(f.componentInstance.contactoTexto(DET)?.texto).toContain('todavía no está activo');
+  });
+
+  it('16 · [CXC.43] un contacto que no quedó registrado SE DICE', () => {
+    cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100)]), contactos_medidos: true }));
+    configurar();
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}) } });
+    const f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    f.componentInstance.registrarContacto(DET, 'telefono');
+    expect(f.componentInstance.contactoTexto(DET)).toMatchObject({ error: true });
+    expect(f.componentInstance.contactoTexto(DET)?.texto).toContain('No quedó registrado');
   });
 
   it('8 · la fila se abre con Enter', () => {

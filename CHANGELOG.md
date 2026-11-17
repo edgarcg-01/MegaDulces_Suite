@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Crédito de clientes: buscar y ordenar al instante, «Siguiente cliente» y «contactado hoy» (CXC.42 · CXC.43 · 2026-11-17 · en código, sin soltar)
+- La búsqueda encuentra mientras escribes (sin Enter, sin acentos, por varias palabras) y el orden cambia al instante: ya no se recarga la cartera.
+- La pantalla ya no brinca al cargar, y mientras se aplica un filtro dice «Actualizando…».
+- En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
+- Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
+
 ### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
 - `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
 - Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.

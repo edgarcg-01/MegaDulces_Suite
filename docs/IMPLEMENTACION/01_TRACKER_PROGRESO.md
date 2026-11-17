@@ -1787,6 +1787,50 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         (o «Clientes» cuando el filtro es «Cliente»); el saldo dice de qué tipo es cuando hay filtro.
       · **NO MEDIDO:** la pantalla viva (nivel A): alturas, recorrido con teclado, oscuro y
         `forced-colors`, 390 px. **Lo que NO arregla:** la latencia, que es `[CXC.21]`.
+- [x] **[CXC.42]** 🧪 ⭐ **La fluidez de `/finanzas/cartera`: el trabajo de cobranza deja de esperar
+      al servidor en cada gesto.** Medido el 2026-11-17 (`ui_usage` por rol + telemetría del navegador
+      `portal_telemetry_events`, 144 sesiones de 5 personas): cobranza esperaba **10–17 min al día**
+      (4.3 s cada lista, 3.3 s cada ficha) y recargaba la lista **3.7 veces por ficha abierta**; la
+      pantalla **brincaba** al llegar los datos (CLS: 74 de 93 mediciones fuera de «bueno», varias en
+      0.47–0.53); el gesto en el navegador sí era fluido (INP p75 56 ms, mejor que la suite).
+      · **Búsqueda y orden instantáneos:** la lista llega completa (`limit=5000`: 1,455 cuentas =
+        75 KB comprimidos y el mismo tiempo que 500) y buscar u ordenar se resuelve en el navegador,
+        sin Enter y sin recargar. Multi-palabra y sin acentos («pena» encuentra «Peña»). ⚠️ La
+        búsqueda sólo UBICA: los totales siguen siendo del filtro, y la pantalla lo dice.
+      · **La tabla pinta hasta 500** y el tope se dice arriba; el CSV sale de memoria con TODAS las
+        cuentas de lo que ves (filtro + búsqueda), sin otra petición.
+      · **No brinca:** la primera carga reserva su lugar con `app-load-state` (paga la deuda §2 de
+        `check:pantalla`; quitada del sello a mano, sólo esa línea).
+      · **«Actualizando…»** mientras llega un filtro nuevo, y lo viejo se atenúa y no se puede abrir.
+      · **«Siguiente cliente» / «Anterior» en la ficha**, con la ficha siguiente pedida por adelantado
+        y en caché: abre sin la espera de 3.3 s. La caché se vacía al recargar la lista y al escribir
+        un compromiso.
+      · Spec: 13 pruebas nuevas (36 en total, 3 corridas sin intermitencia). Prueba negativa en una
+        copia FUERA del árbol compartido: el control y cada mutante (sin precarga, sin caché, con
+        acentos, orden fijo, sin esqueleto, sin atenuar, sin tope) tumban su prueba.
+      · **NO MEDIDO:** el CLS y el INP después del cambio (se verán en la telemetría al soltar).
+- [ ] **[CXC.43]** 🔨 ⭐ **«Contactado hoy»: el ACTO deja constancia, no un formulario.** Al retomar la
+      lista no había forma de saber a quién ya se le habló (los compromisos, 0 en su historia, eran
+      la única huella). Tocar «Llamar», «Enviar por WhatsApp» o «Estado de cuenta (PDF)» en la ficha
+      registra el contacto (`POST /finance/receivables/:suc/:cliente/contact`, tabla nueva
+      `finance.collection_contacts`, RLS forzado, `app_runtime` sólo SELECT/INSERT, mig
+      `20261117135602`). La fila dice «hoy 10:32» / «hace 3 días» y la ficha «Último contacto».
+      · **Si la tabla no existe** (migración sin aplicar), la API responde `contactos_medidos:false`
+        y la pantalla lo DECLARA en vez de pintar a todos como «sin contactar». Ejercido contra prod
+        con el SQL real del servicio: responde sin romperse y un canal inválido da 400.
+      · **Regla 13:** `test-newdb-cartera-contactos.js` ejerce el insert del servicio con los 3
+        canales de la pantalla como `app_runtime`, el CHECK contra `CANALES_CONTACTO` (leído del
+        código), las negativas (canal, NOT NULL, no editar ni borrar) y RLS, en una transacción que se
+        revierte. ⚠️ **NO MEDIDO local:** no hay base de pruebas en esta máquina (Docker caído) y la
+        prueba se NIEGA contra prod (control verificado). Corre en el job `pruebas-db` del CI.
+      · ⛔ **Para soltar:** aplicar la migración ANTES de desplegar la API (`auto-deploy` ya frena si
+        falta). Sin ella la pantalla funciona y declara el registro como inactivo.
+      · Arreglo de paso: `[CXC.41]` rompió dos pruebas de base (`tipo-cuenta`, `una-pasada`) que
+        evalúan el SQL del servicio con una sola variable; ahora reciben `filtrosSinCuenta`.
+        Re-corridas contra prod en sólo lectura: 14 ✔ y 15 ✔.
+      · Sobre `[CXC.21]`, medido el mismo día: la intercalación NO es la causa (con `COLLATE "C"` el
+        `DISTINCT ON` de `kdue` da el mismo md5 y el mismo ~1.1 s; el barrido solo, 26–97 ms). La vista
+        recalcula los ~62 mil documentos en cada consulta: el arreglo es de diseño, no un índice.
 - [x] **[CXC.22]** 🧪 ⭐ **Las TRES cifras del saldo no eran rivales: eran tres preguntas — y el
       puente cierra al centavo.** El item nació como *"un spread de $2.16M sin explicar"*. Medido
       contra el prod real (las cifras anteriores salían de Railway, la base equivocada), el

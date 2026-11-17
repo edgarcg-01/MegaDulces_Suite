@@ -34,7 +34,15 @@ export interface CarteraCliente {
   saldo_a_favor: number;
   /** Días promedio que tarda en pagar, medido sobre sus facturas ya saldadas. */
   dias_pago_prom: number | null; n_pagos: number;
+  /**
+   * `[CXC.43]` El último contacto de cobranza en 30 días (`null` = ninguno). Opcional mientras
+   * convive con una API anterior; si `CarteraResp.contactos_medidos` es false, no se afirma nada.
+   */
+  ultimo_contacto?: UltimoContacto | null;
 }
+/** `[CXC.43]` Por dónde se contactó a la cuenta: lo registra el acto en la ficha. */
+export type CanalContacto = 'telefono' | 'whatsapp' | 'estado_cuenta_pdf';
+export interface UltimoContacto { at: string; canal: CanalContacto; por: string | null }
 /**
  * ⭐ `[CXC.20]` Opciones de filtro **derivadas del servidor**. La pantalla ya NO trae su propia
  * lista de sucursales: la que tenía se quedó en `01`..`06` y dejaba fuera de todo filtro la `00`
@@ -89,6 +97,8 @@ export interface CarteraResp {
     por_tipo_universo?: PorTipoCuenta;
   };
   clientes: CarteraCliente[]; total_clientes: number;
+  /** `[CXC.43]` false si el registro de contactos todavía no existe en la base (migración pendiente). */
+  contactos_medidos?: boolean;
   /** `[CXC.20]` Viajan en la MISMA respuesta: una sola pasada, imposible que se contradigan. */
   resumen: CarteraResumen;
   filtros: CarteraFiltros;
@@ -311,5 +321,10 @@ export class CarteraService {
 
   resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada'): Observable<{ id: string; estado: string }> {
     return this.http.post<{ id: string; estado: string }>(`${this.base}/promise/${encodeURIComponent(id)}/resolve`, { estado });
+  }
+  /** `[CXC.43]` Deja constancia del contacto (llamar, WhatsApp, PDF). */
+  registrarContacto(sucursal: string, cliente: string, canal: CanalContacto): Observable<{ id: string; canal: CanalContacto; contacted_at: string }> {
+    return this.http.post<{ id: string; canal: CanalContacto; contacted_at: string }>(
+      `${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/contact`, { canal });
   }
 }
