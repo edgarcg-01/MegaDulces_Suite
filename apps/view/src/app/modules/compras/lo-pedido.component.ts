@@ -63,16 +63,40 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
             <section class="lp-sec">
               <div class="lp-sec-h">
                 <h3>Por aprobar · {{ dinero(totalPorAprobar()) }}</h3>
-                @if (puedeAutorizar) {
-                  <button pButton type="button" class="p-button-sm" [disabled]="ocupado()" (click)="aprobar(porAprobar())">
-                    <span class="p-button-label">Aprobar {{ porAprobar().length === 1 ? 'la' : 'las ' + porAprobar().length }} y enviar a Kepler</span>
-                  </button>
+                @if (puedeAutorizar && !rechazandoTodas()) {
+                  <span class="lp-sec-acc">
+                    <button pButton type="button" class="p-button-sm" [disabled]="ocupado()" (click)="aprobar(porAprobar())">
+                      <span class="p-button-label">Aprobar {{ porAprobar().length === 1 ? 'la' : 'las ' + porAprobar().length }} y enviar a Kepler</span>
+                    </button>
+                    <!-- [PQ.127] Rechazar TODAS de un golpe (pedido del PM, 2026-11-17: «borrar uno a uno los
+                         traspasos es muy tedioso»). Separada de «Aprobar» y en texto: es la destructiva. -->
+                    <button pButton type="button" class="p-button-sm p-button-text p-button-danger lp-rech-todas" [disabled]="ocupado()" (click)="pedirRechazarTodas()"
+                            [attr.aria-label]="'Rechazar las ' + porAprobar().length + ' por aprobar'">
+                      <span class="p-button-label">Rechazar {{ porAprobar().length === 1 ? 'la' : 'las ' + porAprobar().length }}</span>
+                    </button>
+                  </span>
                 }
               </div>
+              @if (puedeAutorizar && rechazandoTodas()) {
+                <!-- [PQ.127] Lo que pasa, dicho antes y en el mismo lugar (el panel ya es una ventana: sin modal encima). -->
+                <div class="lp-rech" role="group" aria-label="Rechazar todas las por aprobar">
+                  <p class="lp-rech-p">Vas a rechazar <strong>{{ porAprobar().length }}</strong>: {{ mezclaPorAprobar() }}. {{ notaKeplerPorAprobar() }}
+                    @if (deSucursalPorAprobar(); as k) { {{ k === 1 ? 'Una la pidió una sucursal y va' : k + ' las pidieron sucursales y van' }} a ver el motivo. }
+                    El motivo queda en cada una con tu nombre y la hora.</p>
+                  <div class="lp-rech-f">
+                    <input pInputText type="text" class="lp-motivo-todas" [(ngModel)]="motivoTodas" placeholder="Motivo (obligatorio)"
+                           aria-label="Motivo para rechazar todas" (keyup.enter)="rechazarTodas()" />
+                    <button pButton type="button" class="p-button-sm p-button-danger" [disabled]="ocupado() || !motivoTodas.trim()" (click)="rechazarTodas()">
+                      <span class="p-button-label">Sí, rechazar {{ porAprobar().length }}</span>
+                    </button>
+                    <button pButton type="button" class="p-button-sm p-button-text" [disabled]="ocupado()" (click)="rechazandoTodas.set(false)"><span class="p-button-label">Cancelar</span></button>
+                  </div>
+                </div>
+              }
               @if (!puedeAutorizar) { <p class="lp-muted">Las aprueba quien tiene permiso de autorizar compras.</p> }
               @if (totalPorAprobarN() > porAprobar().length) {
-                <!-- [PQ.31] El tope se dice: el botón aprueba las que se ven, no «todas». -->
-                <p class="lp-muted">Se ven {{ porAprobar().length }} de {{ totalPorAprobarN() | number }}; el botón aprueba las que se ven.</p>
+                <!-- [PQ.31] El tope se dice: los botones actúan sobre las que se ven, no sobre «todas». -->
+                <p class="lp-muted">Se ven {{ porAprobar().length }} de {{ totalPorAprobarN() | number }}; aprobar o rechazar todas actúa sobre las que se ven.</p>
               }
               <p-table [value]="porAprobar()" dataKey="id" size="small" class="surf-table surf-table--plain">
                 <ng-template #body let-r>
@@ -173,6 +197,14 @@ const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: '
     .lp { display: flex; flex-direction: column; gap: var(--sp-6, 1.5rem); }
     .lp-sec-h { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; }
     .lp-sec-h h3 { margin: 0; font-size: var(--fs-body); font-weight: 700; color: var(--fg-1); }
+    /* [PQ.127] Aprobar y rechazar todas: la destructiva separada (Von Restorff). */
+    .lp-sec-acc { display: inline-flex; align-items: center; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
+    .lp-rech-todas { margin-left: .75rem; }
+    .lp-rech { display: flex; flex-direction: column; gap: .4rem; padding: .6rem .75rem; margin-bottom: .5rem;
+               border: 1px solid var(--border); border-radius: var(--radius-md, 6px); }
+    .lp-rech-p { margin: 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--fg-1); }
+    .lp-rech-f { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+    .lp-motivo-todas { flex: 1 1 14rem; min-width: 0; }
     .lp-t { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
     .lp-t th { text-align: left; font-weight: 600; color: var(--fg-2); padding: .35rem .5rem; border-bottom: 1px solid var(--border); }
     .lp-t td { padding: .45rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--fg-1); }
@@ -214,6 +246,29 @@ export class LoPedidoComponent {
   readonly totalRecientes = signal(0);
   readonly rechazando = signal<string | null>(null);
   motivo = '';
+  /**
+   * `[PQ.127]` Rechazar TODAS las que se ven por aprobar (pedido del PM, 2026-11-17: «borrar uno a
+   * uno los traspasos es muy tedioso»). El motivo es obligatorio, como en «Rechazar lote» (PQ.126):
+   * la base sólo guarda quién y cuándo si hay motivo, y los 153 rechazos a mano de 30 días quedaron
+   * sin ninguno de los dos.
+   */
+  readonly rechazandoTodas = signal(false);
+  motivoTodas = '';
+  /** «22 traspasos» · «3 compras y 19 traspasos»: qué se va, dicho antes de mandarlo. */
+  readonly mezclaPorAprobar = computed<string>(() => {
+    const rs = this.porAprobar();
+    const tr = rs.filter((r) => r.source_type === 'branch').length;
+    const co = rs.length - tr;
+    const t = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+    return [co ? t(co, 'compra', 'compras') : '', tr ? t(tr, 'traspaso', 'traspasos') : ''].filter(Boolean).join(' y ');
+  });
+  /** Rechazar aquí no cancela allá: si alguna ya tiene folio en Kepler, se dice. */
+  readonly notaKeplerPorAprobar = computed<string>(() => {
+    const k = this.porAprobar().filter((r) => !!r.kepler_folio).length;
+    return k === 0 ? 'No toca Kepler: ninguna está allá todavía.'
+      : `${k} ya ${k === 1 ? 'tiene folio en Kepler y allá sigue viva' : 'tienen folio en Kepler y allá siguen vivas'}: rechazarla aquí no la cancela allá.`;
+  });
+  readonly deSucursalPorAprobar = computed<number>(() => this.porAprobar().filter((r) => r.requested_by_branch).length);
   readonly totalPorAprobar = computed(() => this.porAprobar().reduce((a, r) => a + (Number(r.total_cost) || 0), 0));
   /** `[PQ.31]` Cuántas esperan aprobación en TODO el universo (el listado trae a lo más 200). */
   readonly totalPorAprobarN = signal(0);
@@ -329,6 +384,35 @@ export class LoPedidoComponent {
       next: (x) => {
         this.ocupado.set(false); this.rechazando.set(null);
         if (x.fallas.length) this.toast.add({ severity: 'error', life: 12000, summary: `${r.folio} no se rechazó`, detail: x.fallas[0].motivo });
+        this.cargar();
+      },
+      error: (e) => { this.ocupado.set(false); this.toast.add({ severity: 'error', life: 12000, summary: 'No se rechazó', detail: e?.error?.message || 'error del servidor' }); },
+    });
+  }
+
+  /** `[PQ.127]` Abre la franja de «Rechazar todas»; nada se manda hasta confirmar con motivo. */
+  pedirRechazarTodas(): void {
+    if (!this.porAprobar().length || this.ocupado()) return;
+    this.motivoTodas = '';
+    this.rechazando.set(null);
+    this.rechazandoTodas.set(true);
+  }
+
+  /** `[PQ.127]` Rechaza TODAS las que se ven, en una llamada; lo que no pasa se dice por folio. */
+  rechazarTodas(): void {
+    const rs = this.porAprobar();
+    const m = this.motivoTodas.trim();
+    if (!rs.length || !m || this.ocupado()) return;
+    this.ocupado.set(true);
+    const folio = new Map(rs.map((r) => [r.id, r.folio] as const));
+    this.api.bulkRequisiciones(rs.map((r) => r.id), 'reject', m).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        this.ocupado.set(false); this.rechazandoTodas.set(false); this.motivoTodas = '';
+        this.toast.add({
+          severity: x.fallas.length ? 'warn' : 'success', life: x.fallas.length ? 15000 : 6000,
+          summary: x.hechas ? `${x.hechas} rechazada(s)` : 'Nada se rechazó',
+          detail: x.fallas.map((f) => `${folio.get(f.id) ?? f.id}: ${f.motivo}`).join(' · ') || undefined,
+        });
         this.cargar();
       },
       error: (e) => { this.ocupado.set(false); this.toast.add({ severity: 'error', life: 12000, summary: 'No se rechazó', detail: e?.error?.message || 'error del servidor' }); },

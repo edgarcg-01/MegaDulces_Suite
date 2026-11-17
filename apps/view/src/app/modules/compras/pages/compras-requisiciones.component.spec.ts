@@ -710,3 +710,117 @@ describe('[AB.32] rechazar lo que pidió una sucursal exige motivo', () => {
     expect(llamadas).toEqual([[[FILA.id], 'reject', null]]);
   });
 });
+
+describe('[PQ.126] rechazar lo pendiente de un lote desde su fila', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const LOTE = (over: Record<string, unknown> = {}) => ({
+    lote: '7a1b2c3d-0000-4000-8000-00000000000b', batch_folio: 'RQ-LOTE-2026-00150', documentos: 5, compras: 5, traspasos: 0,
+    almacenes: 1, proveedores: 2, renglones: 40, monto: 120000, created_at: '2026-11-16T15:00:00Z', dias: 1,
+    estado: 'mixto', pendientes: 3, autor: 'gerente', ...over,
+  });
+  const PEND = (i: number, over: Record<string, unknown> = {}) =>
+    ({ ...FILA, id: `9f3c1a2b-0000-4000-8000-0000000001${(10 + i).toString(16)}`, folio: `RQ-P${i}`, ...over });
+  type Llamada = { list?: Record<string, unknown>; bulk?: [string[], string, string | null] };
+  function montar(lote: Record<string, unknown>, pendientes: Array<Record<string, unknown>>, llamadas: Llamada[] = [], permiso = true) {
+    TestBed.configureTestingModule({
+      imports: [ComprasRequisicionesComponent],
+      providers: [provideRouter([]), { provide: ComprasService, useValue: apiFalsa({
+        listRequisitionBatches: () => of({ rows: [lote], total: 1, page: 1, pageSize: 25, disponible: true, con_lote: 1 }),
+        listRequisitions: (q: Record<string, unknown>) => { llamadas.push({ list: q }); return of({ rows: pendientes, total: pendientes.length, resumen: [] }); },
+        bulkRequisiciones: (ids: string[], accion: string, motivo: string | null) => { llamadas.push({ bulk: [ids, accion, motivo] }); return of({ pedidas: ids.length, hechas: ids.length, ok: ids, fallas: [] }); },
+      }) }],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.componentInstance.canAutorizar = permiso;
+    fix.detectChanges();
+    fix.componentInstance.vista.set('lote');
+    fix.detectChanges();
+    return fix;
+  }
+  const boton = (fix: { nativeElement: HTMLElement }, texto: RegExp) =>
+    Array.from(fix.nativeElement.querySelectorAll('button')).find((b) => texto.test(b.textContent || '')) as HTMLButtonElement | undefined;
+
+  it('el lote con pendientes ofrece «Rechazar lote (N)»; el clic lee SÓLO sus pendientes y abre el diálogo sin mandar nada', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), [PEND(0), PEND(1), PEND(2)], llamadas);
+    const b = boton(fix, /Rechazar lote \(3\)/);
+    expect(b).toBeDefined();
+    b!.click(); fix.detectChanges();
+    const list = llamadas.find((l) => l.list && l.list['batch_id'])!.list!;
+    expect(list['batch_id']).toBe('7a1b2c3d-0000-4000-8000-00000000000b');
+    expect(list['estado']).toBe('pending_approval');
+    expect(list['pageSize']).toBe(200);
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+    const c = fix.componentInstance;
+    expect(c.rechazoAbierto()).toBe(true);
+    expect(c.rechazoN()).toBe(3);
+    expect(c.rechazoLote()!.enKepler).toBe(0);
+  });
+
+  it('NEGATIVA: sin motivo no se manda (rechazar un lote siempre pide motivo, aunque ninguna sea de sucursal)', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), [PEND(0), PEND(1), PEND(2)], llamadas);
+    const c = fix.componentInstance;
+    c.rechazarLote(LOTE() as never);
+    expect(c.motivoObligatorio()).toBe(true);
+    c.confirmarRechazo();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+    c.motivoRechazo.set('   ');
+    c.confirmarRechazo();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+  });
+
+  it('con motivo manda reject con los ids del lote y el motivo limpio, y cierra el diálogo', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), [PEND(0), PEND(1, { requested_by_branch: true }), PEND(2)], llamadas);
+    const c = fix.componentInstance;
+    c.rechazarLote(LOTE() as never);
+    expect(c.rechazoLote()!.deSucursal).toBe(1);
+    c.motivoRechazo.set('  el proveedor no surte este mes  ');
+    c.confirmarRechazo();
+    const bulk = llamadas.find((l) => l.bulk)!.bulk!;
+    expect(bulk).toEqual([[PEND(0).id, PEND(1).id, PEND(2).id], 'reject', 'el proveedor no surte este mes']);
+    expect(c.rechazoAbierto()).toBe(false);
+    expect(c.rechazoLote()).toBeNull();
+  });
+
+  it('el diálogo dice si alguna ya tiene folio en Kepler (rechazar aquí no la cancela allá)', () => {
+    const fix = montar(LOTE(), [PEND(0), PEND(1, { kepler_folio: '0000123' })]);
+    const c = fix.componentInstance;
+    c.rechazarLote(LOTE() as never);
+    fix.detectChanges();
+    expect(c.rechazoLote()!.enKepler).toBe(1);
+    const txt = document.body.textContent || '';
+    expect(txt).toContain('ya tiene(n) folio en Kepler');
+    expect(txt).not.toContain('No toca Kepler');
+  });
+
+  it('NEGATIVA: sin pendientes o sin permiso no hay botón', () => {
+    expect(boton(montar(LOTE({ pendientes: 0, estado: 'approved' }), []), /Rechazar lote/)).toBeUndefined();
+    TestBed.resetTestingModule();
+    expect(boton(montar(LOTE(), [PEND(0)], [], false), /Rechazar lote/)).toBeUndefined();
+  });
+
+  it('NEGATIVA: un lote con más de 200 pendientes no lee ni manda nada (tope del servidor)', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE({ pendientes: 201, documentos: 201 }), [], llamadas);
+    fix.componentInstance.rechazarLote(LOTE({ pendientes: 201, documentos: 201 }) as never);
+    expect(llamadas.filter((l) => l.bulk || (l.list && l.list['batch_id']))).toEqual([]);
+    expect(fix.componentInstance.rechazoAbierto()).toBe(false);
+  });
+
+  it('Cancelar no manda nada, y el rechazo por casillas de después vuelve a ser el de siempre (motivo opcional)', () => {
+    const llamadas: Llamada[] = [];
+    const fix = montar(LOTE(), [PEND(0)], llamadas);
+    const c = fix.componentInstance;
+    c.rechazarLote(LOTE() as never);
+    c.cerrarRechazo();
+    expect(llamadas.filter((l) => l.bulk)).toEqual([]);
+    expect(c.rechazoLote()).toBeNull();
+    c.marcar(PEND(0).id, true);
+    c.abrirRechazo();
+    expect(c.motivoObligatorio()).toBe(false);
+    c.confirmarRechazo();
+    expect(llamadas.find((l) => l.bulk)!.bulk).toEqual([[PEND(0).id], 'reject', null]);
+  });
+});
