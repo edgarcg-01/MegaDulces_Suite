@@ -638,6 +638,10 @@ export class BankService {
 
 export interface ImportResult {
   period: string;
-  accounts: { sheet: string; movs?: number; deposits?: number; withdrawals?: number; sin_clasificar?: number; note?: string }[];
+  accounts: { sheet: string; movs?: number; deposits?: number; withdrawals?: number; sin_clasificar?: number; note?: string; fuera_del_periodo?: number }[];
   total: number; deposits: number; withdrawals: number; sin_clasificar: number;
+  /** [CB.77] Movimientos del periodo marcados borrados por no venir en el archivo (el reemplazo). */
+  swept?: number;
+  /** [CB.76] Renglones que no entraron por tener una fecha a más de 10 días del mes. */
+  fuera_del_periodo?: number;
 }

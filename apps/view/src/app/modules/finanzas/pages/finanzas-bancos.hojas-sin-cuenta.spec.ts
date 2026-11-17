@@ -1,4 +1,4 @@
-import { avisoCuentasDelBanco, avisoHojasSinCuenta } from './finanzas-bancos.component';
+import { avisoCuentasDelBanco, avisoFechasFueraDelPeriodo, avisoHojasSinCuenta } from './finanzas-bancos.component';
 
 describe('[CB.60] avisoHojasSinCuenta — la hoja del libro que no entró se nombra', () => {
   it('nombra la hoja cuyo nombre no es el de ninguna cuenta', () => {
@@ -33,5 +33,20 @@ describe('[CB.60b] avisoCuentasDelBanco — lo que el libro ya no mete en una cu
 
   it('[negativa] sin cuentas que usen el banco no hay aviso, ni por otra nota', () => {
     expect(avisoCuentasDelBanco({ accounts: [{ sheet: 'BB 366', note: 'cuenta no registrada — omitido' }, { sheet: 'BB 4166', movs: 10 }] })).toBeNull();
+  });
+});
+
+describe('[CB.76] avisoFechasFueraDelPeriodo — el renglón con fecha de otro periodo no entra y se dice', () => {
+  it('cuenta los renglones y nombra cada hoja con los suyos', () => {
+    const a = avisoFechasFueraDelPeriodo({ period: '2026-08', accounts: [
+      { sheet: 'BTE 7744', movs: 300, fuera_del_periodo: 17, note: 'fecha fuera del periodo: 17 renglón(es) no entraron (2027-08-06)' },
+      { sheet: 'BBVA 4176', movs: 40 },
+    ] });
+    expect(a?.summary).toBe('17 renglones con fecha fuera del periodo no entraron');
+    expect(a?.detail).toBe('«BTE 7744» 17: su fecha no es de 2026-08. Corrige la fecha en el libro y vuelve a subirlo.');
+  });
+
+  it('[negativa] sin renglones fuera del periodo no hay aviso', () => {
+    expect(avisoFechasFueraDelPeriodo({ period: '2026-08', accounts: [{ sheet: 'BBVA 4176', movs: 40 }, { sheet: 'X', fuera_del_periodo: 0 }] })).toBeNull();
   });
 });

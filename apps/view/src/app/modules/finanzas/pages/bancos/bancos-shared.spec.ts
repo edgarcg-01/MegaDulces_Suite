@@ -30,6 +30,11 @@ describe('[CB.59] barra de Bancos por proceso', () => {
     expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: 81 })).toEqual({ texto: '81%', aria: '81% conciliado por monto', aviso: false });
   });
 
+  it('[CB.77][negativa] mientras el estado no llega (o falló), la pestaña no dice «sin correr»: no lleva número', () => {
+    expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: null, conciliacionMedida: false })).toBeNull();
+    expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: null, conciliacionMedida: true })?.texto).toBe('sin correr');
+  });
+
   it('[CB.62] Comisiones: los cargos listos, informativo; sin propuesta o sin listos, sin número', () => {
     expect(WORK_VIEWS.find((v) => v.key === 'comisiones')?.grupo).toBe('kepler');
     expect(numeroDePestana('comisiones', { ...BASE, comisionesListas: 8 })).toEqual({ texto: '8', aria: '8 cargos de comisión listos para Kepler', aviso: false });

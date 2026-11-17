@@ -25,7 +25,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="fb-diag-head" [class.ok]="d.cuadra" [class.bad]="!d.cuadra">
         @if (d.cuadra) {
           <i class="pi pi-check-circle"></i>
-          <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y las {{ d.cuentas_total }} cuentas cierran su saldo.</p>
+          <div><h2>Todo cuadra</h2><p>Los {{ d.movimientos | number }} movimientos de {{ d.period }} están clasificados y {{ d.cuentas_ok === 1 ? 'la cuenta con saldo cierra' : 'las ' + d.cuentas_ok + ' cuentas con saldo cierran' }}.@if (d.cuentas_total > d.cuentas_ok) { {{ d.cuentas_total - d.cuentas_ok }} sin saldo (caja o factoraje) no se verifican aquí. }</p>
             @if (hastaTexto(d); as h) { <p class="fb-diag-hasta">{{ h }}</p> }</div>
         } @else {
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -166,6 +166,8 @@ export class BancosCierreComponent {
       case 'saldo_no_cuadra': return 'Ver cuenta';
       // [CB.68] El botón abre el selector del libro CUENTAS: decía «Subir estado» y la descarga del banco va en otra pestaña.
       case 'cuenta_sin_cargar': return 'Subir libro';
+      // [CB.77] La cuenta de banco sin saldo se verifica con su descarga, que trae el saldo de cada renglón.
+      case 'saldo_sin_verificar': return 'Ir a Estados de cuenta';
       default: return 'Revisar';
     }
   }

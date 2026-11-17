@@ -23,11 +23,13 @@ import { BANCOS_STYLES } from './bancos.styles';
         <h3 class="fb-card-title fb-pnl-title">Cuadre de saldos <span class="muted">— inicial + depósitos − retiros = final · clic en una cuenta para ver sus movimientos</span><button type="button" class="fb-xls" [disabled]="exporting()" (click)="exportXls()" title="Descarga el cuadre de saldos y los estados cargados"><i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel</button>
           @if (bal.cuentas_descuadradas > 0) { <span class="fb-bal-badge bad">{{ bal.cuentas_descuadradas }} sin cuadrar</span> }
           @else if (bal.cuentas_sin_saldo === bal.accounts.length) { <span class="fb-bal-badge warn">sin saldos</span> }
+          <!-- [CB.77] «todo cuadra» con cuentas sin saldo afirmaba lo que no se midió: lo que cuadra es lo que tiene saldo. -->
+          @else if (bal.cuentas_sin_saldo > 0) { <span class="fb-bal-badge warn">cuadran {{ bal.accounts.length - bal.cuentas_sin_saldo }} · {{ bal.cuentas_sin_saldo }} sin saldo</span> }
           @else { <span class="fb-bal-badge ok">todo cuadra</span> }
         </h3>
         <p-table [value]="bal.accounts" dataKey="statement_id" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
           <ng-template #header>
-            <tr><th class="col-w25"><span class="sr-only">Detalle</span></th><th pSortableColumn="bank">Cuenta <p-sorticon field="bank" /></th><th class="ta-r" pSortableColumn="opening">Inicial <p-sorticon field="opening" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="computed">Calculado <p-sorticon field="computed" /></th><th class="ta-r" pSortableColumn="closing">Final <p-sorticon field="closing" /></th><th class="ta-r" pSortableColumn="delta">Δ <p-sorticon field="delta" /></th><th class="col-w5 ta-c" pSortableColumn="cuadra">Estado <p-sorticon field="cuadra" /></th></tr>
+            <tr><th class="col-w25"><span class="sr-only">Detalle</span></th><th pSortableColumn="bank">Cuenta <p-sorticon field="bank" /></th><th class="ta-r" pSortableColumn="opening">Inicial <p-sorticon field="opening" /></th><th class="ta-r" pSortableColumn="total_in">Depósitos <p-sorticon field="total_in" /></th><th class="ta-r" pSortableColumn="total_out">Retiros <p-sorticon field="total_out" /></th><th class="ta-r" pSortableColumn="computed_closing">Calculado <p-sorticon field="computed_closing" /></th><th class="ta-r" pSortableColumn="closing">Final <p-sorticon field="closing" /></th><th class="ta-r" pSortableColumn="delta">Δ <p-sorticon field="delta" /></th><th class="col-w5 ta-c" pSortableColumn="cuadra">Estado <p-sorticon field="cuadra" /></th></tr>
           </ng-template>
           <ng-template #body let-a let-expanded="expanded">
             <tr class="fb-row-click" [class.fb-bal-sinsaldo]="a.sin_saldo" tabindex="0" role="button"
@@ -145,7 +147,7 @@ export class BancosCuentasComponent {
             { header: 'Inicial', get: (r: any) => r.opening, type: 'money' },
             { header: 'Depositos', get: (r: any) => r.total_in, type: 'money', total: true },
             { header: 'Retiros', get: (r: any) => r.total_out, type: 'money', total: true },
-            { header: 'Calculado', get: (r: any) => r.computed, type: 'money' },
+            { header: 'Calculado', get: (r: any) => r.computed_closing, type: 'money' },
             { header: 'Final', get: (r: any) => r.closing, type: 'money' },
             { header: 'Diferencia', get: (r: any) => r.delta, type: 'money', total: true },
             { header: 'Cuadra', get: (r: any) => (r.sin_saldo ? 'Sin saldo' : r.cuadra ? 'Si' : 'No'), width: 12 },
