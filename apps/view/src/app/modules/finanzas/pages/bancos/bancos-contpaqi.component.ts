@@ -29,7 +29,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="card-premium card-flat fb-kve">
         <div class="cpq-head">
           <h3 class="fb-card-title">Banco vs Contabilidad (ContPAQi) <span class="muted">— ¿los libros registran lo mismo que movió el banco en {{ c.period }}?</span></h3>
-          <button pButton type="button" class="p-button-sm p-button-text" [loading]="linking()" (click)="link.emit()" title="Auto-enlaza cada cuenta de banco con su cuenta contable 102xxx de ContPAQi"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Enlazar cuentas</span></button>
+          @if (puedeGestionar()) { <button pButton type="button" class="p-button-sm p-button-text" [loading]="linking()" (click)="link.emit()" title="Auto-enlaza cada cuenta de banco con su cuenta contable 102xxx de ContPAQi"><span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span><span class="p-button-label">Enlazar cuentas</span></button> }
         </div>
 
         <!-- Qué significa cada columna (comprehension-first: explicar antes de comparar). -->
@@ -70,7 +70,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         </div>
         <p class="fb-plain">{{ read(c) }}</p>
         @if (c.linked === 0) {
-          <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> Ninguna cuenta está enlazada a ContPAQi todavía. Presiona <b>Enlazar cuentas</b> para casar cada banco con su cuenta contable 102xxx.</p>
+          <p class="fb-recon-note muted"><i class="pi pi-exclamation-triangle"></i> Ninguna cuenta está enlazada a ContPAQi todavía.@if (puedeGestionar()) { Presiona <b>Enlazar cuentas</b> para casar cada banco con su cuenta contable 102xxx. } @else { Enlazarlas lo hace quien tiene el permiso de gestionar Bancos. }</p>
         } @else {
           <p class="fb-recon-note muted"><i class="pi pi-info-circle"></i> <b>{{ c.linked }}</b> de {{ c.rows.length }} cuentas enlazadas a ContPAQi. ContPAQi son tus <b>libros fiscales</b> (con folio de póliza), no un proxy — por eso el Δ vs banco es el que importa.</p>
           @if (c.linked < c.rows.length) {
@@ -109,7 +109,8 @@ import { BANCOS_STYLES } from './bancos.styles';
               <td class="ta-r mono">{{ r.contpaqi_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.delta_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="ta-c">
-                @if (!r.linked) {
+                @if (!r.linked && !puedeGestionar()) { <span class="cpq-tag muted-tag">sin enlazar</span> }
+                @else if (!r.linked) {
                   <p-select [options]="availOpts()" [ngModel]="null" (onChange)="onPick(r, $event.value)"
                             placeholder="Enlazar a…" appendTo="body" [filter]="true" filterBy="label"
                             styleClass="cpq-picker" [style]="{ minWidth: '15rem' }" scrollHeight="16rem"
@@ -331,6 +332,8 @@ export class BancosContpaqiComponent {
   readonly period = input<string>('');
   readonly available = input<ContpaqiBankAccount[]>([]);
   readonly factoraje = input<FactorajeCompare | null>(null);
+  /** [CB.77] Enlazar escribe (FINANCE_BANK_GESTIONAR): quien sólo ve ve «sin enlazar», no un selector que le dará 403. */
+  readonly puedeGestionar = input<boolean>(false);
   @Output() link = new EventEmitter<void>();
   @Output() manualLink = new EventEmitter<{ bankAccountId: string; cuenta: string | null }>();
 

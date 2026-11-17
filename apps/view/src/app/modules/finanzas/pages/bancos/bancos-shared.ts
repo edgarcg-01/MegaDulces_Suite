@@ -87,6 +87,12 @@ export interface DatosDePestanas {
   descuadradas?: number | null;
   conciliadoPct: number | null;
   conciliacionVieja: boolean;
+  /**
+   * [CB.77] `false` = el estado de la conciliación todavía no llega o no se pudo leer: la pestaña no lleva número.
+   * Antes decía «sin correr» mientras el diagnóstico cargaba o si fallaba: no medido no es lo mismo que no corrido.
+   * Sin el campo vale como medido (lo que había antes).
+   */
+  conciliacionMedida?: boolean;
   /** [CB.62] Cargos de comisión listos para Kepler; `null` = la propuesta no se cargó o no se pudo medir. */
   comisionesListas?: number | null;
 }
@@ -101,6 +107,7 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
     case 'cuentas':
       return d.descuadradas ? { texto: String(d.descuadradas), aria: `${d.descuadradas} sin cuadrar`, aviso: true } : null;
     case 'conciliacion': {
+      if (d.conciliacionMedida === false) return null;
       const p = d.conciliadoPct;
       if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'se volvió a importar el libro después de la última conciliación: córrela de nuevo', aviso: true };
       return p == null ? { texto: 'sin correr', aria: 'la conciliación no se ha corrido en este periodo', aviso: true }

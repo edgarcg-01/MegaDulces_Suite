@@ -14,7 +14,9 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
-import { MenuItem, MessageService } from 'primeng/api';
+import { ConfirmationService, MenuItem, MessageService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -73,6 +75,21 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
 }
 
 /**
+ * `[CB.76]` Un renglón del libro con una fecha que no es del periodo (a más de 10 días del mes) NO entra: el servidor lo
+ * cuenta por hoja (`fuera_del_periodo`) y aquí se dice, con la hoja, para que se corrija en el libro y no se pierda.
+ * Así entraron 2027-08-06 en agosto y el 01-ene en octubre.
+ */
+export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 'period'>): { summary: string; detail: string } | null {
+  const hojas = (res.accounts ?? []).filter((a) => (a.fuera_del_periodo ?? 0) > 0);
+  if (!hojas.length) return null;
+  const n = hojas.reduce((t, a) => t + (a.fuera_del_periodo ?? 0), 0);
+  return {
+    summary: n === 1 ? '1 renglón con fecha fuera del periodo no entró' : `${n} renglones con fecha fuera del periodo no entraron`,
+    detail: `${hojas.map((a) => `«${a.sheet}» ${a.fuera_del_periodo}`).join(', ')}: su fecha no es de ${res.period}. Corrige la fecha en el libro y vuelve a subirlo.`,
+  };
+}
+
+/**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
  * CONCENTRADO (pivote cuenta × grupo), grid de movimientos con reclasificación
  * inline, y lista de cuentas. Surface Operations (denso, quiet-luxury, dark-first).
@@ -80,12 +97,14 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe, ConfirmDialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in fb-page">
       <p-toast></p-toast>
+      <!-- [CB.77] Subir el libro BORRA lo del periodo que no venga en el archivo: se confirma, con el foco en Cancelar. -->
+      <p-confirmdialog key="subir-libro" defaultFocus="reject" [style]="{ width: 'min(34rem, 92vw)' }" />
 
       <header class="surf-page-head fb-head">
         <div class="surf-page-head-text">
@@ -164,6 +183,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
         @if (concError()) {
           <app-load-state [error]="concError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
+          @if (balError()) { <app-load-state [error]="balError()" (retry)="setPeriod(period())"></app-load-state> }
           @if (concentrado(); as c) {
             <bancos-concentrado [concentrado]="c" [balances]="balances()" [accountOpts]="accountOpts()" [period]="period()" />
           } @else {
@@ -180,6 +200,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
         } @else {
           <bancos-conciliacion [reconciliation]="reconciliation()" [matchResult]="matchResult()"
             [differences]="differences()" [matching]="matching()" [syncing]="syncing()" [period]="period()"
+            [reconEstado]="reconEstadoVista()" [puedeGestionar]="puedeGestionar()"
             (runMatch)="runMatch()" (syncFindings)="syncFindings()" />
         }
       }
@@ -192,7 +213,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
         } @else if (cpqLoading()) {
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
-          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
+          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [puedeGestionar]="puedeGestionar()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
         }
       }
 
@@ -229,10 +250,12 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
               @if (sheetCfg(); as sc) { Sheet {{ sc.active ? 'automático' : 'manual' }}@if (sc.last_synced_at) { , sincronizado el {{ sc.last_synced_at | date:'dd/MM HH:mm' }} }.
                 @if (sc.last_error) { <span class="fb-libro-err">Último error: {{ sc.last_error }}</span> } }</p>
           </div>
+          @if (puedeGestionar()) {
           <div class="fb-libro-acc">
             <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
             <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir libro CUENTAS</span></button>
           </div>
+          }
         </section>
       }
 
@@ -246,14 +269,19 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
               <span class="p-button-label">{{ n | number }} sin clasificar</span></button>
           }
         </div>
-        <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
-          [period]="period()" (openAccount)="verCuentaMovs($event)" />
+        <!-- [CB.77] Sin esto, un error de saldos caía a «sin saldos para verificar el cuadre»: un error leído como estado. -->
+        @if (balError()) {
+          <app-load-state [error]="balError()" (retry)="setPeriod(period())"></app-load-state>
+        } @else {
+          <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
+            [period]="period()" (openAccount)="verCuentaMovs($event)" />
+        }
       }
 
       <!-- ── ADMIN: catálogo real Kepler (read-only) + setup de cuentas de banco ── -->
       @if (view() === 'admin') {
         <bancos-admin [keplerAccounts]="keplerAccounts()" [accounts]="accounts()"
-          [kaSearch]="kaSearch()" [addingAcct]="addingAcct()"
+          [kaSearch]="kaSearch()" [addingAcct]="addingAcct()" [soloLectura]="!puedeGestionar()"
           (search)="onKaSearch($event)" (patchAccount)="patchAccount($event.a, $event.patch)"
           (addAccount)="addAccount($event)" />
       }
@@ -378,9 +406,25 @@ export class FinanzasBancosComponent implements OnInit {
     return numeroDePestana(v, {
       descargas: this.descargas()?.cuentas ?? null, sinClasificar: this.diagnostico()?.sin_clasificar_n,
       descuadradas: this.balances()?.cuentas_descuadradas, conciliadoPct: this.reconciledPct(), conciliacionVieja: this.reconStale(),
+      // [CB.77] Sin diagnóstico (cargando o falló) y sin corrida en esta sesión, la pestaña no dice «sin correr».
+      conciliacionMedida: !!this.diagnostico() || !!this.matchResult(),
       comisionesListas: com?.medido ? com.resumen.listos : null,
     });
   }
+
+  /**
+   * [CB.77] Escribir en Bancos (subir el libro, sincronizar, conciliar, enviar a hallazgos, enlazar, editar cuentas)
+   * pide FINANCE_BANK_GESTIONAR. Antes los botones salían a todos y quien sólo ve recibía un 403 con un aviso genérico.
+   */
+  readonly puedeGestionar = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
+  private readonly confirm = inject(ConfirmationService);
+  /** [CB.77] Los saldos no cargaron: Cuentas y Concentrado lo dicen en vez de caer a «sin saldos». */
+  readonly balError = signal<string | null>(null);
+  /** [CB.77] El estado guardado de la conciliación para la vista: `null` = nunca se concilió; `undefined` = no se pudo leer. */
+  readonly reconEstadoVista = computed(() => {
+    const d = this.diagnostico();
+    return d ? (d.recon_estado ?? null) : undefined;
+  });
 
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
@@ -656,7 +700,10 @@ export class FinanzasBancosComponent implements OnInit {
 
     if (ev.name === 'bank-import') {
       const res = ev.result as ImportResult;
-      this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
+      // [CB.77] Decía «N movimientos · M sin clasificar» y callaba cuántos BORRÓ el reemplazo.
+      this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.swept ?? 0} borrados por no venir en el archivo · ${res.sin_clasificar} sin clasificar`, life: 6000 });
+      const fuera = avisoFechasFueraDelPeriodo(res);
+      if (fuera) this.toast.add({ severity: 'warn', sticky: true, ...fuera });
       const aviso = avisoHojasSinCuenta(res);
       if (aviso) this.toast.add({ severity: 'warn', sticky: true, ...aviso });
       const delBanco = avisoCuentasDelBanco(res);
@@ -669,7 +716,7 @@ export class FinanzasBancosComponent implements OnInit {
       const mr = ev.result as MatchResult;
       this.matchResult.set(mr);
       this.toast.add({ severity: 'success', summary: `Conciliación ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros conciliados`, life: 3500 });
-      this.api.differences(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (df) => this.differences.set(df), error: () => this.differences.set(null) });
+      this.loadDifferences();
       this.refreshDiagnostico();
       this.reloadMovements();
       return;
@@ -749,6 +796,20 @@ export class FinanzasBancosComponent implements OnInit {
   private lazyForView(v: View): void {
     if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
     if (v === 'cuadre' && !this.threeWay() && !this.twLoading()) this.loadThreeWay();
+    if (v === 'conciliacion' && !this.differences()) this.loadDifferences();
+  }
+
+  /**
+   * [CB.77] Lo que no casó del periodo, al ABRIR Conciliación (es sólo lectura). Antes sólo se pedía después de
+   * correr el motor: la evidencia quedaba detrás de una escritura, aunque el periodo ya estuviera conciliado.
+   */
+  loadDifferences(): void {
+    const p = this.period();
+    if (!p) return;
+    this.api.differences(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (df) => { if (p === this.period()) this.differences.set(df); },
+      error: () => { if (p === this.period()) this.differences.set(null); },
+    });
   }
 
   /** CB.24 — carga el cuadre 3 vías del periodo (lazy). */
@@ -783,7 +844,8 @@ export class FinanzasBancosComponent implements OnInit {
       next: (c) => { this.contpaqiCompare.set(c); this.cpqLoading.set(false); },
       error: () => { this.cpqError.set('No se pudo cargar la comparación vs ContPAQi.'); this.cpqLoading.set(false); },
     });
-    if (!this.cpqAccounts().length) {
+    // [CB.77] El catálogo para enlazar pide GESTIONAR: quien sólo ve ya no lo pide para recibir un 403 que se callaba.
+    if (!this.cpqAccounts().length && this.puedeGestionar()) {
       this.api.contpaqiAccounts().pipe(takeUntilDestroyed(this.destroyRef))
         .subscribe({ next: (as) => this.cpqAccounts.set(as), error: () => { /* selector opcional */ } });
     }
@@ -828,21 +890,38 @@ export class FinanzasBancosComponent implements OnInit {
     this.threeWay.set(null);
     this.twError.set(null);
     const p = this.period();
+    // [CB.77] Una respuesta del periodo ANTERIOR que llega tarde no pisa a la de éste (se cambiaba de mes y quedaban
+    // saldos o el concentrado del mes de antes bajo el rótulo del nuevo).
+    const vigente = () => p === this.period();
+    this.balError.set(null);
+    // [CB.77] Se limpian: la píldora «libro importado» mostraba la fecha de otro mes si esta carga fallaba.
+    this.statements.set([]);
+    this.balances.set(null);
     if (this.view() === 'contpaqi') this.loadContpaqi();
     if (this.view() === 'cuadre') this.loadThreeWay();
+    if (this.view() === 'conciliacion') this.loadDifferences();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (c) => { this.concentrado.set(c); this.loading.set(false); },
-      error: () => { this.concError.set('No se pudo cargar el concentrado del periodo.'); this.loading.set(false); },
+      next: (c) => { if (!vigente()) return; this.concentrado.set(c); this.loading.set(false); },
+      error: () => { if (!vigente()) return; this.concError.set('No se pudo cargar el concentrado del periodo.'); this.loading.set(false); },
     });
-    this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((s) => this.statements.set(s));
-    this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => { this.reconciliation.set(null); this.reconError.set('No se pudo cargar la conciliación del periodo.'); } });
-    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => this.balances.set(null) });
+    this.api.statements(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => { if (vigente()) this.statements.set(s); },
+      error: () => { /* la píldora queda sin fecha: no se afirma una frescura que no se midió */ },
+    });
+    this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rc) => { if (vigente()) this.reconciliation.set(rc); },
+      error: () => { if (!vigente()) return; this.reconciliation.set(null); this.reconError.set('No se pudo cargar la conciliación del periodo.'); },
+    });
+    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (b) => { if (vigente()) this.balances.set(b); },
+      error: () => { if (!vigente()) return; this.balances.set(null); this.balError.set('No se pudieron cargar los saldos del periodo.'); },
+    });
     // [CB.68] Se limpia el del periodo anterior: mientras carga, el Cierre no muestra otro mes con el rótulo de éste.
     this.diagnostico.set(null);
     this.diagCargando.set(true);
     this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { this.diagnostico.set(d); this.diagCargando.set(false); },
-      error: () => { this.diagnostico.set(null); this.diagCargando.set(false); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); },
+      next: (d) => { if (!vigente()) return; this.diagnostico.set(d); this.diagCargando.set(false); },
+      error: () => { if (!vigente()) return; this.diagnostico.set(null); this.diagCargando.set(false); this.diagError.set('No se pudo cargar el diagnóstico del periodo.'); },
     });
     this.reloadMovements();
   }
@@ -879,6 +958,20 @@ export class FinanzasBancosComponent implements OnInit {
     const period = periodoDelArchivo(file.name, this.period());
     if (!period) { this.fail('No pude derivar el periodo del nombre; selecciona un periodo primero.'); input.value = ''; return; }
 
+    // [CB.77] Subir el libro REEMPLAZA: lo del periodo que no venga en el archivo se marca borrado (el barrido de
+    // CB.33). Así se vació noviembre el 5-nov. Se dice antes, con el periodo al que va, y el foco cae en Cancelar.
+    this.confirm.confirm({
+      key: 'subir-libro',
+      header: `Subir «${file.name}» a ${period}`,
+      message: `Reemplaza los movimientos del libro de ${period} en las cuentas que traiga el archivo: lo que ya estaba cargado de esas cuentas y no venga en este archivo se marca borrado. Las cuentas que ya usan el banco no se tocan.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Subir y reemplazar', rejectLabel: 'Cancelar',
+      accept: () => this.subirLibro(file, period, input),
+      reject: () => { input.value = ''; },
+    });
+  }
+
+  private subirLibro(file: File, period: string, input: HTMLInputElement): void {
     this.uploading.set(true);
     const reader = new FileReader();
     reader.onload = () => {
@@ -942,7 +1035,11 @@ export class FinanzasBancosComponent implements OnInit {
       case 'sin_clasificar': this.abrirMovimientos({ uncat: true }); break;
       case 'traspaso_descuadre': this.abrirMovimientos({ group: 'traspaso' }); break;
       case 'saldo_no_cuadra': this.view.set('cuentas'); break;
-      case 'cuenta_sin_cargar': this.fileInput?.nativeElement.click(); break;
+      case 'cuenta_sin_cargar':
+        if (this.puedeGestionar()) this.fileInput?.nativeElement.click();
+        else this.toast.add({ severity: 'info', summary: 'Subir el libro', detail: 'Lo hace quien tiene el permiso de gestionar Bancos (Tesorería).', life: 5000 });
+        break;
+      case 'saldo_sin_verificar': this.goView('estados'); break;
       default: this.abrirMovimientos({});
     }
   }

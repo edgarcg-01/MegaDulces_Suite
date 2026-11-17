@@ -54,7 +54,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 
     @if (tab() === 'cuentas') {
       <div class="fb-admin-bar">
-        <p class="fb-admin-note muted">Cuentas del catálogo (banco/caja/factoraje). Alias = nombre de la hoja en el Excel. Necesario para importar y cuadrar.</p>
+        <p class="fb-admin-note muted">Cuentas del catálogo (banco/caja/factoraje). Alias = nombre de la hoja en el Excel. Necesario para importar y cuadrar.@if (soloLectura()) { Sólo lectura: editarlas pide el permiso de gestionar Bancos. }</p>
       </div>
       <div class="card-premium card-flat fb-tablewrap">
         <p-table [value]="accounts()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="60vh">
@@ -65,21 +65,24 @@ import { BANCOS_STYLES } from './bancos.styles';
             <tr [class.fb-inactive]="!a.active">
               <td>{{ a.bank }}</td>
               <td class="mono">{{ a.account_label }}</td>
-              <td><input pInputText class="fb-pin mono" [ngModel]="a.alias" (change)="patchAccount.emit({ a, patch: { alias: $any($event.target).value } })" placeholder="—" /></td>
-              <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [ngModel]="a.kind" (ngModelChange)="patchAccount.emit({ a, patch: { kind: $event } })" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
-              <td><input pInputText class="fb-pin" [ngModel]="a.kepler_link" (change)="patchAccount.emit({ a, patch: { kepler_link: $any($event.target).value } })" placeholder="cómo mapea al 102" /></td>
-              <td class="ta-c"><p-checkbox [ngModel]="a.active" [binary]="true" (onChange)="patchAccount.emit({ a, patch: { active: $event.checked } })" /></td>
+              <td><input pInputText class="fb-pin mono" [ngModel]="a.alias" [disabled]="soloLectura()" (change)="patchAccount.emit({ a, patch: { alias: $any($event.target).value } })" placeholder="—" /></td>
+              <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [ngModel]="a.kind" [disabled]="soloLectura()" (ngModelChange)="patchAccount.emit({ a, patch: { kind: $event } })" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
+              <td><input pInputText class="fb-pin" [ngModel]="a.kepler_link" [disabled]="soloLectura()" (change)="patchAccount.emit({ a, patch: { kepler_link: $any($event.target).value } })" placeholder="cómo mapea al 102" /></td>
+              <td class="ta-c"><p-checkbox [ngModel]="a.active" [binary]="true" [disabled]="soloLectura()" (onChange)="patchAccount.emit({ a, patch: { active: $event.checked } })" /></td>
             </tr>
           </ng-template>
+          <!-- [CB.77] Quien sólo ve no recibe un formulario que el servidor le va a rechazar (403). -->
           <ng-template #footer>
+            @if (!soloLectura()) {
             <tr class="fb-newrow">
               <td><input pInputText class="fb-pin" [(ngModel)]="naBank" placeholder="BANCO" /></td>
               <td><input pInputText class="fb-pin mono" [(ngModel)]="naLabel" placeholder="0000" /></td>
               <td><input pInputText class="fb-pin mono" [(ngModel)]="naAlias" placeholder="hoja Excel" /></td>
               <td><p-select [options]="kindOpts" optionLabel="label" optionValue="value" [(ngModel)]="naKind" appendTo="body" styleClass="fb-sel sel-liquid" /></td>
               <td><input pInputText class="fb-pin" [(ngModel)]="naKepler" placeholder="opcional" /></td>
-              <td class="ta-c"><button pButton type="button" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span></button></td>
+              <td class="ta-c"><button pButton type="button" class="p-button-sm p-button-text" [disabled]="addingAcct()" (click)="emitAdd()" aria-label="Agregar cuenta"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span></button></td>
             </tr>
+            }
           </ng-template>
         </p-table>
       </div>
@@ -102,6 +105,8 @@ export class BancosAdminComponent {
   readonly accounts = input.required<BankAccount[]>();
   readonly kaSearch = input<string>('');
   readonly addingAcct = input<boolean>(false);
+  /** [CB.77] Sin FINANCE_BANK_GESTIONAR: se ve, no se edita (antes el cambio se pintaba y el servidor lo rechazaba). */
+  readonly soloLectura = input<boolean>(false);
   @Output() search = new EventEmitter<string>();
   @Output() patchAccount = new EventEmitter<{ a: BankAccount; patch: Partial<BankAccount> }>();
   @Output() addAccount = new EventEmitter<{ bank: string; account_label: string; alias: string; kind: string; kepler_link: string }>();

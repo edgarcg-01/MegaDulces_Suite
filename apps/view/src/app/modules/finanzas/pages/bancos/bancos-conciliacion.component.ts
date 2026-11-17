@@ -4,7 +4,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
-import { Reconciliation, MatchResult, Differences } from '../../bank.service';
+import { Reconciliation, MatchResult, Differences, ReconEstado } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
 import { amtPct, cuadra, money, dmy, groupLabel } from './bancos-shared';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
@@ -85,10 +85,13 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="card-premium card-flat fb-match">
         <div class="fb-match-head">
           <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
+          <!-- [CB.77] Los dos escriben (FINANCE_BANK_GESTIONAR): quien sólo ve no los recibe para toparse con un 403. -->
+          @if (puedeGestionar()) {
           <div class="fb-match-actions">
             <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings.emit()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Enviar a Hallazgos</span></button>
             <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch.emit()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Conciliar</span></button>
           </div>
+          }
         </div>
         @if (matchResult(); as mr) {
           <div class="fb-match-res">
@@ -97,7 +100,16 @@ import { BANCOS_STYLES } from './bancos.styles';
             <span class="muted">· {{ mr.unmatched_bank | number }} sin conciliar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin conciliar</span>
           </div>
           <p class="fb-plain">{{ matchRead(mr) }}</p>
-        } @else { <p class="fb-recon-note muted">Ejecuta la conciliación para vincular cada retiro con su pago en Kepler (monto + fecha).</p> }
+        } @else if (reconEstado(); as re) {
+          <!-- [CB.77] El estado GUARDADO: decía «Ejecuta la conciliación» con el periodo ya conciliado (la pestaña sí lo leía). -->
+          <div class="fb-match-res">
+            <span class="fb-match-rate mono" [class.ok]="re.pct >= 70" [class.warn]="re.pct < 70">{{ re.pct }}%</span>
+            <span class="muted"><b>del monto conciliado</b> — {{ re.matched_amount | currency:'MXN':'symbol-narrow':'1.2-2' }} de {{ re.bank_amount | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (re.last_match_at) { · última conciliación {{ re.last_match_at | date:'dd/MM HH:mm' }} }</span>
+          </div>
+          @if (re.stale) { <p class="fb-recon-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se cargaron movimientos después de esa conciliación: lo nuevo todavía no está conciliado.</p> }
+        } @else if (reconEstado() === null) {
+          <p class="fb-recon-note muted">Este periodo todavía no se ha conciliado.@if (puedeGestionar()) { «Conciliar» vincula cada retiro con su pago en Kepler (monto + fecha). }</p>
+        } @else { <p class="fb-recon-note muted">Sin el estado de la conciliación: no se pudo leer (ve el Cierre).</p> }
       </div>
 
       @if (differences(); as df) {
@@ -227,6 +239,10 @@ export class BancosConciliacionComponent {
   readonly matching = input<boolean>(false);
   readonly syncing = input<boolean>(false);
   readonly period = input<string>('');
+  /** [CB.77] El estado guardado del periodo (`diagnostico.recon_estado`): `null` = nunca se concilió; `undefined` = no se pudo leer. */
+  readonly reconEstado = input<ReconEstado | null | undefined>(undefined);
+  /** [CB.77] FINANCE_BANK_GESTIONAR: Conciliar y Enviar a Hallazgos escriben. */
+  readonly puedeGestionar = input<boolean>(false);
   @Output() runMatch = new EventEmitter<void>();
   @Output() syncFindings = new EventEmitter<void>();
 

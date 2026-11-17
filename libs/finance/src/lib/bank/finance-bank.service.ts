@@ -1364,6 +1364,16 @@ export class FinanceBankService {
         accion: 'Falta capturar un movimiento en esta cuenta, o el saldo está mal tecleado. Revisa el/los renglón(es) de abajo: ahí el saldo del estado de cuenta salta más de lo que explica el movimiento.',
         _statementId: a.statement_id, _opening: a.opening });
     }
+    // 2b. [CB.77] Cuentas de banco cuyo saldo NO se puede verificar (sin saldo inicial ni final). Antes no generaban
+    // pendiente y el Cierre decía «Todo cuadra: las N cuentas cierran su saldo» contándolas. Medido en prod el
+    // 2026-11-17: SANTANDER 5565 sin saldo de septiembre a noviembre, sin ninguna descarga. La caja no entra: su hoja
+    // nunca trae saldo y sería un pendiente que nadie puede cerrar.
+    for (const a of bal.accounts.filter((x: any) => x.sin_saldo && x.kind === 'bank')) {
+      items.push({ tipo: 'saldo_sin_verificar', severidad: 'warn', importe: 0,
+        titulo: `${a.bank} ${a.account_label}: no se puede verificar su saldo`,
+        detalle: `Su estado de cuenta de ${period} no trae saldo inicial ni final, así que no se sabe si cierra: no cuenta como cuadrada.`,
+        accion: 'Sube la descarga del banco de esta cuenta en Estados de cuenta: trae el saldo de cada renglón. Si viene en el libro, su hoja necesita la columna SALDO.' });
+    }
     // 3. Cuentas sin estado de cuenta cargado (CAJA GENERAL, etc.).
     for (const c of cuentasSinEstado as any[]) {
       items.push({ tipo: 'cuenta_sin_cargar', severidad: 'warn', importe: 0,
