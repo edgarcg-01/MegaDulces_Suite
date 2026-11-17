@@ -411,7 +411,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 } @else if (catalogoAbierto() && termino.trim().length > 0 && !buscando()) {
                   <p class="search-hint">
                     Ningún producto de {{ nombreSucursal(cot()?.source_branch ?? null) }} coincide con <strong>«{{ termino }}»</strong>.
-                    Puedes guardarlo como no casado para registrar la demanda rechazada.
+                    <!-- [BU.6.1] La corrección viene del vocabulario de la sucursal y sólo si con ella hay artículos. -->
+                    @if (sugerencia(); as s) {
+                      ¿Quisiste decir <button type="button" class="link-sugerencia" (click)="usarSugerencia(s)">{{ s }}</button>?
+                    } @else {
+                      Puedes guardarlo como no casado para registrar la demanda rechazada.
+                    }
                   </p>
                 }
               </div>
@@ -1036,6 +1041,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .cat-precio-val { font-weight: 700; font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
       .search-hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0.5rem 0 0; }
+      /* [BU.6.1] La sugerencia: enlace en el color del texto (el --action no da contraste de texto chico). */
+      .link-sugerencia {
+        background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--text);
+        text-decoration: underline; cursor: pointer;
+      }
+      .link-sugerencia:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 2px; }
 
       /* Tarjeta de producto descargado */
       /* COT.18: la tarjeta pasa de una columna alta a filas que se acomodan (unidad · cantidad ·
@@ -1307,6 +1318,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   readonly buscando = signal(false);
+  /** `[BU.6.1]` «¿Quisiste decir…?» de la última búsqueda sin resultados; null = nada que sugerir. */
+  readonly sugerencia = signal<string | null>(null);
   readonly catalogoAbierto = signal(false);
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
@@ -1492,13 +1505,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         }),
       )
       .subscribe((rows) => {
-        // Orden alfabético estricto por nombre del producto (solicitud PM)
-        const ordenados = [...rows].sort((a, b) => {
-          const nomA = (a.name || a.sku).trim();
-          const nomB = (b.name || b.sku).trim();
-          return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
-        });
+        // [BU.5.1] El ORDEN lo pone el servidor, como en el alta (COT.16): aciertos exactos, después qué
+        // tan bien coincide («el rey» antes que REYMA) y después lo más vendido. Aquí se re-ordenaba
+        // alfabético y eso deshacía las dos cosas.
+        const ordenados = rows;
         this.resultados.set(ordenados);
+        this.pedirSugerencia(this.termino.trim(), ordenados.length);
         this.resaltado.set(0);
         this.pedirExistenciaBusqueda(this.cot()?.source_branch, ordenados);
         this.buscando.set(false);
@@ -1562,6 +1574,26 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.elegido.set(null);
     this.previa.set(null);
     this.buscar$.next();
+  }
+
+  /**
+   * `[BU.6.1]` Sin resultados, se pregunta al servidor si hay una corrección («gomtas» → «gomitas»);
+   * él sólo la da si con ella SÍ hay artículos. Si mientras tanto se siguió tecleando, se descarta.
+   */
+  private pedirSugerencia(termino: string, resultados: number): void {
+    this.sugerencia.set(null);
+    const suc = this.cot()?.source_branch;
+    if (resultados > 0 || !suc || termino.length < 3) return;
+    this.svc.suggestCatalog(suc, termino).pipe(catchError(() => of({ suggestion: null }))).subscribe((r) => {
+      if (this.termino.trim() === termino) this.sugerencia.set(r.suggestion);
+    });
+  }
+
+  /** `[BU.6.1]` Clic en la sugerencia: se busca eso, con el cursor en el buscador. */
+  usarSugerencia(s: string): void {
+    this.termino = s;
+    this.onTermino(s);
+    this.buscadorArticulo()?.nativeElement.focus();
   }
 
   /** Entrar al campo NO abre la lista (E.29): se abre al teclear. */

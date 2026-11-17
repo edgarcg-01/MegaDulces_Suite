@@ -138,6 +138,29 @@ el rey», **0 de 12** (10 REYMA VASO arriba).
 |---|---|---|---|
 | BU.5.1 | **`smartSearchRank`** en `platform-core` (junto al filtro): 0 = la frase tal cual en palabras completas · 1 = todas las palabras completas · 2 = todas al inicio de palabra · 3 = el resto. Va después de los aciertos exactos (clave, código) y antes del orden de negocio. Cableado en `catalogo-buscador.ts` (cotizador y levantamiento) | 🧪 | Medido en prod con el SQL real de knex (Canindo): «el rey» **12 de 12** El Rey; «vaso el rey» los 3 vasos El Rey primero; «rey» ya no trae REYMA arriba; «reyma», «mazapan», «gomitas» iguales. Tiempo igual (antes 150–275 ms, después 135–292 ms). Spec 5/5 con mutante (la frase sin relleno → rojo) en copia fuera del árbol; vitest commercial 526 en verde |
 | BU.5.2 | Adoptar el orden en los demás buscadores: **50 llamadas a `applySmartSearch` en 34 archivos** ordenan cada una a su manera (clientes por clave, proveedores por nombre…) | ⬜ | por buscador: una búsqueda de frase con un falso amigo («rey» / REYMA) trae primero la frase |
+| BU.5.3 | El **detalle** de la cotización re-ordenaba los resultados ALFABÉTICO en el navegador (el alta ya no, COT.16): deshacía el orden del servidor. Quitado | 🧪 | `ngc` limpio; televenta 123/123 |
+
+### Frente BU.6 · El súper buscador (Edgar, 2026-11-17)
+
+> «Necesito que sea un súper buscador, que cubra todo tipo de necesidad, hasta por ejemplo *¿quisiste decir esto?*»
+
+Lo que «todo tipo de necesidad» quiere decir, y dónde está cada cosa:
+
+| Necesidad | Ejemplo | Dónde |
+|---|---|---|
+| Varias palabras en cualquier orden, sin acentos | «ortiz vera» | ✅ `applySmartSearch` |
+| Plural y diminutivo | «paletas», «payasitos» | ✅ `stem` |
+| Abreviaturas de Kepler | «paleta» → PAL | ✅ `synonyms` (catálogo) |
+| Código de barras / clave en cualquier casilla | 7500533001091 | ✅ BU.4 / COT.41 |
+| La frase primero, no el falso amigo | «el rey» antes que REYMA | 🧪 BU.5.1 (catálogo) |
+| **¿Quisiste decir…?** (errores de dedo, palabras pegadas) | «gomtas» → gomitas · «elrey» → el rey | 🧪 **BU.6.1** (catálogo del cotizador) |
+| Resaltar lo que pegó | GOM**ITAS** | ⬜ BU.3.2 |
+| Lo mismo en TODOS los buscadores | clientes, proveedores, folios | ⬜ BU.5.2 / BU.6.2 |
+
+| ID | Item | Estado | Criterio |
+|---|---|---|---|
+| BU.6.1 | **`corregirConVocabulario` + `similitudTrigramas`** en `platform-core` (puros): palabra existente se queda · si no, la más parecida del vocabulario (≥ 0.4, la fórmula de `similarity()` de pg_trgm) · si no hay parecida y está pegada, se separa. Endpoint `GET /commercial/quotes/catalog/suggest`: vocabulario = palabras de `kdii.c2` de la sucursal, en memoria 10 min (no tabla, no cron), y la sugerencia sólo sale si con ella SÍ hay artículos. Alta y detalle del cotizador la piden cuando no hay resultados: «¿Quisiste decir **gomitas**?» (clic = buscarla) | 🧪 | Hoy un error de dedo daba **0 resultados** (gomtas, mazapna, bubaloo, chamoyy, elrey). Con el vocabulario real de Canindo (4,510 palabras): gomtas→gomitas · mazapna→mazapan · elrey→el rey · bubaloo chamoyy→bubbaloo chamoy · mazapanes→mazapan; bien escrito, códigos y basura → nada; **9–17 ms** en memoria (la versión en SQL costaba 420–900 ms). Parecidos idénticos a pg_trgm (0.50 · 0.45 · 0.70 · 0.67). Spec 10/10 con mutante (partir antes que parecer → rojo). **Arranque de Nest no verificado** (ruta nueva con `@Query` string, mismo patrón que `catalog`). **Sin validación visual** |
+| BU.6.2 | La misma sugerencia en los demás buscadores: cada uno da su vocabulario (clientes, proveedores…) | ⬜ | por buscador: un error de dedo sugiere la palabra correcta |
 
 ---
 
@@ -181,3 +204,4 @@ el rey», **0 de 12** (10 REYMA VASO arriba).
 | 2026-11-06 | Doc creado. Medido: 22/47 services en `applySmartSearch`, 25 crudos (incl. calendario de pagos), 1 duplicado. Plan en 2 tramos: arreglo chico de calendario-pagos + fase BU. Pendientes D1–D3 de Edgar. | Claude (PM) |
 | 2026-11-06 | **BU.2.1 codificado**: calendario de pagos pasa a `applySmartSearch` (columns beneficiary/concept/doc_ref/payee_code/original_amount, numeric original_amount/available_amount). **BU.3.1 codificado**: placeholder «Proveedor, folio o monto — ej. delicias 396 248». Typecheck 0 err; `check:pantalla` 0 fallas nuevas. **Verificado contra prod (sólo lectura, system_identifier 7688376744939610156)**: «bolsas 303 1591» (proveedor+folio+monto) → 1 fila correcta (ACREEDOR BOLSAS DE LOS ALTOS, folio 0000303, $1,591,000); el ILIKE viejo de frase entera → 0. Edgar: aplicarlo a TODOS los buscadores. Rollout iniciado en 3 oleadas (finance / commercial / logistics+fiscal+hr+trade), ~23 services, a revisar diff antes de empujar. BU.3.2 (resaltado) declarado pendiente. | Claude |
 | 2026-11-17 | **BU.5.1** 🧪: el orden por coincidencia (`smartSearchRank`), cableado en el buscador del catálogo; «el rey» de 1 a 12 de 12 en Canindo. BU.5.2 (los otros 50 buscadores) pendiente. | Claude |
+| 2026-11-17 | **BU.6.1** 🧪: «¿Quisiste decir…?» en el buscador de artículos del cotizador (alta y detalle); pieza pura en `platform-core`, vocabulario por sucursal en memoria. **BU.5.3**: el detalle ya no re-ordena alfabético. BU.6.2 (los demás buscadores) pendiente. | Claude |

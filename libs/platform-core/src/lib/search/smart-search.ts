@@ -195,3 +195,76 @@ export function smartSearchRank(
   ];
   return { sql, bindings };
 }
+
+/**
+ * `[BU.6.1]` Las formas de partir una palabra pegada en dos que vale la pena probar («elrey» →
+ * «el rey», «e lrey»…): cada mitad de 2 letras o más. Puro, para probarlo sin base.
+ */
+export function particionesDePalabra(tok: string): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  if (!/^[a-z]{5,}$/.test(tok)) return out;
+  for (let i = 2; i <= tok.length - 2; i++) out.push([tok.slice(0, i), tok.slice(i)]);
+  return out;
+}
+
+/**
+ * `[BU.6.1]` Parecido por trigramas, la MISMA fórmula que `similarity()` de pg_trgm: cada palabra se
+ * rellena con dos espacios adelante y uno atrás, se sacan sus tercias de letras y el parecido es
+ * compartidas ÷ (todas las distintas). Valores medidos en prod (2026-11-17) que reproduce:
+ * gomitas/gomtas 0.50 · mazapan/mazapna 0.45 · bubbaloo/bubaloo 0.70 · chamoy/chamoyy 0.67.
+ */
+export function similitudTrigramas(a: string, b: string): number {
+  const tercias = (s: string): Set<string> => {
+    const out = new Set<string>();
+    for (const w of s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) {
+      const p = `  ${w} `;
+      for (let i = 0; i + 3 <= p.length; i++) out.add(p.slice(i, i + 3));
+    }
+    return out;
+  };
+  const A = tercias(a);
+  const B = tercias(b);
+  if (!A.size || !B.size) return 0;
+  let comun = 0;
+  for (const t of A) if (B.has(t)) comun++;
+  return comun / (A.size + B.size - comun);
+}
+
+/**
+ * `[BU.6.1]` «¿Quisiste decir…?»: corrige lo escrito contra el VOCABULARIO real del buscador (las
+ * palabras de los nombres que puede encontrar, ya normalizadas), palabra por palabra:
+ *   · la palabra existe tal cual → se queda;
+ *   · si no, la del vocabulario más parecida (≥ umbral, 0.4): «gomtas» → «gomitas», «mazapna» → «mazapan»;
+ *   · si no hay parecida y la palabra está pegada, se separa cuando sus dos mitades existen («elrey» →
+ *     «el rey»). Va DESPUÉS de la parecida: un plural que no esté («mazapanes») no se parte en «mazapan es».
+ * Números, códigos y palabras de menos de 3 letras no se tocan (un folio no se «corrige»).
+ * Puro y en memoria: el vocabulario lo carga y guarda cada buscador (armarlo en cada consulta costaba
+ * 420–900 ms en Canindo, 4,403 palabras). `null` = nada que corregir.
+ */
+export function corregirConVocabulario(
+  rawQuery: string | null | undefined,
+  vocabulario: ReadonlySet<string>,
+  umbral = 0.4,
+): string | null {
+  const todos = norm(rawQuery ?? '').split(/\s+/).filter(Boolean);
+  if (!todos.some((t) => /^[a-z]{3,}$/.test(t))) return null;
+  const salida = todos.map((t) => {
+    if (!/^[a-z]{3,}$/.test(t) || vocabulario.has(t)) return t;
+    // La más parecida; en empate, la más corta y luego la primera en orden alfabético (como el ORDER BY medido).
+    let mejor: string | null = null;
+    let sim = -1;
+    for (const w of vocabulario) {
+      const s = similitudTrigramas(w, t);
+      if (s < umbral) continue;
+      if (s > sim || (mejor !== null && s === sim && (w.length < mejor.length || (w.length === mejor.length && w < mejor)))) {
+        mejor = w;
+        sim = s;
+      }
+    }
+    if (mejor) return mejor;
+    const partida = particionesDePalabra(t).find(([a, b]) => vocabulario.has(a) && vocabulario.has(b));
+    return partida ? partida.join(' ') : t;
+  });
+  const sugerida = salida.join(' ');
+  return sugerida !== todos.join(' ') ? sugerida : null;
+}

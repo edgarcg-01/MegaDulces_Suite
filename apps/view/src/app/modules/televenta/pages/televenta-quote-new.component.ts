@@ -556,6 +556,10 @@ const ORIGENES = ORIGENES_COTIZACION;
                    (requested_text) y viaja con la cotización como demanda (COT.16). -->
               <div class="search-hint">
                 <span>Ningún artículo en {{ branchName(sucursal()) }} coincide con <strong>«{{ terminoArticulo }}»</strong>.</span>
+                <!-- [BU.6.1] La corrección viene del vocabulario de la sucursal y sólo si con ella hay artículos. -->
+                @if (sugerenciaArticulo(); as s) {
+                  <span class="sugerencia">¿Quisiste decir <button type="button" class="link-sugerencia" (click)="usarSugerencia(s)">{{ s }}</button>?</span>
+                }
                 <p-button
                   label="Anotar como no manejado"
                   icon="pi pi-plus"
@@ -1181,6 +1185,14 @@ const ORIGENES = ORIGENES_COTIZACION;
         border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem;
         box-shadow: 0 8px 24px rgba(0,0,0,0.12);
       }
+      /* [BU.6.1] «¿Quisiste decir…?»: la palabra es un enlace en el color del texto (el --action sobre
+         blanco no da el contraste de texto chico), subrayada y con foco visible. */
+      .sugerencia { color: var(--text); white-space: nowrap; }
+      .link-sugerencia {
+        background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--text);
+        text-decoration: underline; cursor: pointer;
+      }
+      .link-sugerencia:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 2px; }
 
       /* Tarjeta de producto descargado */
       .descargado-box {
@@ -1575,6 +1587,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   // ── Estado de Captura Manual de Artículos ───────────────────────────────────
   terminoArticulo = '';
   buscandoArticulo = signal(false);
+  /** `[BU.6.1]` «¿Quisiste decir…?» de la última búsqueda sin resultados; null = nada que sugerir. */
+  readonly sugerenciaArticulo = signal<string | null>(null);
   catalogoAbierto = signal(false);
   resultadosArticulos = signal<QuoteCatalogRow[]>([]);
 
@@ -1808,6 +1822,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         const ordenados = rows;
         this.terminoDeResultados = termino;
         this.resultadosArticulos.set(ordenados);
+        this.pedirSugerencia(termino, ordenados.length);
         this.pedirExistenciaBusqueda(this.sucursal(), ordenados);
         this.resaltado.set(0);
         this.buscandoArticulo.set(false);
@@ -2029,6 +2044,26 @@ export class TeleventaQuoteNewComponent implements OnInit {
   branchName(code: string): string {
     const b = SUCURSALES_8.find((item) => item.code === code);
     return b ? b.name : `Sucursal ${code}`;
+  }
+
+  /**
+   * `[BU.6.1]` Sin resultados, se pregunta al servidor si hay una corrección («gomtas» → «gomitas»);
+   * él sólo la da si con ella SÍ hay artículos. Si mientras tanto se siguió tecleando, se descarta.
+   */
+  private pedirSugerencia(termino: string, resultados: number): void {
+    this.sugerenciaArticulo.set(null);
+    const suc = this.sucursal();
+    if (resultados > 0 || !suc || termino.length < 3) return;
+    this.svc.suggestCatalog(suc, termino).pipe(catchError(() => of({ suggestion: null }))).subscribe((r) => {
+      if (this.terminoArticulo.trim() === termino) this.sugerenciaArticulo.set(r.suggestion);
+    });
+  }
+
+  /** `[BU.6.1]` Clic en la sugerencia: se busca eso, con el cursor en el buscador. */
+  usarSugerencia(s: string): void {
+    this.terminoArticulo = s;
+    this.onTerminoArticulo(s);
+    this.buscadorArticulo()?.nativeElement.focus();
   }
 
   // ── Acciones de Captura Manual ──────────────────────────────────────────────
