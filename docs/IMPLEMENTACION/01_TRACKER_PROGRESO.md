@@ -1739,6 +1739,37 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
         directo — reescribir una regex a través de tres capas de escape se pone verde por el
         motivo equivocado.
+- [ ] **[CC.20]** 🧪 ⭐ **El CLIENTE sube su ficha de depósito desde un enlace personal, sin usuario ni
+      contraseña** (Edgar, 2026-11-17: «lo más práctico y lo más fácil posible»; canal = enlace personal por WhatsApp y
+      QR en el estado de cuenta; lo recibe Cobranza y lo ve el vendedor). Medido ese día: 2,722 cobros / $48.5M en 30
+      días; la ficha capturada EN OFICINA (CC.2) tiene **0 filas en su historia**; el portal B2B, 3 sesiones en 30 días.
+      · **Datos (mig `20261117153156`, sin aplicar):** se EXTIENDE `finance.collection_deposits` (0 filas): `origen`
+        oficina|cliente, `folio` vacío mientras la ficha del cliente no se liga (un CHECK sostiene que la de oficina
+        siempre lo trae), `cuenta_sucursal` (la cuenta del cliente; `sucursal`/`folio` pasan a ser los del cobro al
+        ligarlo), lo que el cliente DECLARA (`reported_*`) aparte de lo que leyó el OCR. `finance.customer_deposit_links`:
+        sólo la versión vigente de cada cuenta (dar de baja = subir la versión) y el uso.
+      · **El enlace es un JWT sin estado** (sucursal, cliente, versión): va en el mensaje de WhatsApp y como QR en el PDF
+        sin escribir nada al abrir la ficha. Superficie pública `finance/deposito/:token` con límites propios: sólo lee y
+        escribe lo de SU cuenta, imagen o PDF ≤ 8 MB, nunca aplica un cobro. La lectura que se guarda sale del servidor.
+      · **Pantallas:** `/deposito/:token` (celular: foto → la Suite lee monto y fecha → enviar; sus fichas con su estado
+        y el motivo si se rechazó); en Cartera, el enlace dentro del WhatsApp, «Copiar enlace para depósitos» y las
+        fichas reportadas en la ficha del cliente; en Cobranza, la vista «Fichas de clientes» (por revisar → ligar al
+        cobro de Kepler con candidatos por monto, o rechazar con un motivo que el cliente lee), con aviso en vivo.
+      · **Probado:** la prueba de base `test-newdb-deposito-cliente.js` 8 ✔ como `app_runtime` (con sus negativas) y el
+        SERVICIO real de punta a punta contra una base desechable (21 ✔). Esa prueba cazó **dos defectos** antes de
+        soltar: (1) la referencia bancaria sola fundía dos depósitos distintos en uno — ahora exige el mismo monto;
+        (2) «rechazar» podía caer sobre una ficha ya ligada y desligarla — ahora sólo procede «por revisar». Specs: página
+        pública 6, bandeja 4, Cartera 2 nuevas, PDF con QR 1.
+      · **Arreglos de paso:** el resumen de cobranza de la ficha de Cartera filtraba `d.estado` (la columna es `status`):
+        fallaba SIEMPRE y, al dejar abortada la transacción, los compromisos nunca se mostraban y la frescura salía «no se
+        pudo medir» (915 fichas en 30 días). Cada lectura de mejor esfuerzo va ahora en su SAVEPOINT. `requestOrigin` subió
+        a `platform-core` al tercer uso (ADR-056).
+      · ⚠️ **NO HECHO — avisar al VENDEDOR:** no existe liga entre el código de vendedor de Kepler y su usuario de la Suite
+        (ninguna tabla), sólo 2 vendedores tienen notificaciones, y los vendedores no tienen acceso a Cartera. Hace falta
+        esa liga como parámetro configurable. **NO MEDIDO:** la migración y la pantalla viva en prod; el OCR real (en la
+        prueba es un doble).
+      · ⛔ **Para soltar:** aplicar la migración y desplegar. Sin ella, la ficha de Cartera sigue igual y el enlace
+        responde que no se puede usar.
 - [ ] **[CC.13.1]** ⬜ **Retirar la UNIQUE corta de `bank_recon_matches`**, sólo DESPUÉS de que el
       deploy lleve el código que usa el `ON CONFLICT` de 5 columnas. Hacerlo antes tira la
       conciliación en vivo.

@@ -426,6 +426,14 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                  [title]="'Abre el chat con el mensaje listo y descarga el PDF para adjuntarlo'">
                 <i class="pi pi-whatsapp" aria-hidden="true"></i> Enviar por WhatsApp</a>
             }
+            <!-- [CC.20] El enlace personal del cliente para subir su ficha de depósito (va también dentro del
+                 mensaje de WhatsApp y como QR en el PDF). Copiarlo sirve para mandarlo por otro medio. -->
+            @if (enlaceDeposito(); as url) {
+              <button type="button" class="ct-contact-btn" (click)="copiarEnlace(url)">
+                <i class="pi" [class.pi-link]="!enlaceCopiado()" [class.pi-check]="enlaceCopiado()" aria-hidden="true"></i>
+                {{ enlaceCopiado() ? 'Enlace copiado' : 'Copiar enlace para depósitos' }}
+              </button>
+            }
           </div>
           @if (contactoTexto(det); as ct) {
             <p class="ct-contacto-linea" [class.ct-pdf-err]="ct.error" role="status">
@@ -482,6 +490,23 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <span><b>{{ cc.n }}</b> cobros registrados ({{ money(cc.monto) }})@if (cc.ultimo) { · último {{ cc.ultimo }} }</span>
             <span class="ct-360-ev">· <b>{{ cc.con_ficha }}</b> con ficha · <b>{{ cc.validados }}</b> validados en banco</span>
             <a routerLink="/finanzas/cobranza" class="ct-360-link">Ver cobranza <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+          </div>
+        }
+        <!-- [CC.20] Las fichas que el CLIENTE subió desde su enlace: lo por revisar va primero y lleva a la bandeja. -->
+        @if (det.depositos_reportados?.length) {
+          <div class="ct-reportados">
+            <h4 class="ct-rs-h4"><i class="pi pi-upload" aria-hidden="true"></i> Fichas que subió el cliente</h4>
+            @for (r of det.depositos_reportados; track r.id) {
+              <div class="ct-rep-row">
+                <span class="ct-prom-monto">{{ money(r.monto ?? 0) }}</span>
+                <span>del {{ r.fecha || '—' }}@if (r.banco) { · {{ r.banco }} }</span>
+                @switch (r.status) {
+                  @case ('validado') { <span class="ct-tag-pag">Aplicada{{ r.folio ? ' · cobro ' + r.folio : '' }}</span> }
+                  @case ('rechazado') { <span class="ct-tag-venc" [title]="r.motivo_rechazo || ''">Rechazada</span> }
+                  @default { <a routerLink="/finanzas/cobranza" class="ct-rep-pend">Por revisar en Cobranza</a> }
+                }
+              </div>
+            }
           </div>
         }
         <!-- [CXC.41] Compromisos de pago. Medido el 2026-11-17: CERO registrados desde que existe
@@ -750,6 +775,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2); font-size: .82rem; }
     .ct-360 > i { color: var(--ok-fg); }
     .ct-360-ev { color: var(--text-muted); }
+    .ct-reportados { margin-top: .9rem; padding: .7rem; border: 1px solid var(--border-color); border-radius: 8px; }
+    .ct-rep-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .82rem; padding: .3rem 0; border-bottom: 1px dashed var(--border-color); }
+    .ct-rep-pend { margin-left: auto; color: var(--action); text-decoration: none; font-weight: 600; font-size: .8rem; }
     .ct-360-link { margin-left: auto; text-decoration: none; color: var(--action); font-size: .8rem; white-space: nowrap; }
     .ct-rs-proy { margin-bottom: 1rem; }
     .ct-proy-row { display: flex; flex-wrap: wrap; gap: .5rem; }
@@ -1095,7 +1123,7 @@ export class FinanzasCarteraComponent implements OnInit {
   waLink(det: CarteraDetalle): string {
     const tel = (det.cliente.telefono || '').replace(/\D/g, '');
     const num = tel.length === 10 ? `52${tel}` : tel;
-    return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det))}`;
+    return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det, this.enlaceDeposito()))}`;
   }
 
   // ── [CXC.40] Estado de cuenta en PDF ─────────────────────────────────────────
@@ -1147,7 +1175,26 @@ export class FinanzasCarteraComponent implements OnInit {
     this.limpiarFicha();
   }
   /** Lo que pertenece a UNA ficha y no debe pasar a la siguiente al recorrer la lista. */
+  // ── `[CC.20]` El enlace del cliente para subir su ficha de depósito ─────────────────────────────
+  /** La URL del enlace de la ficha abierta (para el mensaje de WhatsApp y el botón de copiar). */
+  readonly enlaceDeposito = signal<string | null>(null);
+  readonly enlaceCopiado = signal(false);
+  private enlaceSub?: Subscription;
+  /** Se pide al abrir la ficha; si falla, el mensaje sale como antes (sin enlace): es una comodidad, no un requisito. */
+  private pedirEnlace(sucursal: string, cliente: string) {
+    this.enlaceSub?.unsubscribe();
+    this.enlaceSub = this.svc.enlaceDeposito(sucursal, cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { if (this.detalleRef()?.cliente === cliente) this.enlaceDeposito.set(r.url); },
+      error: () => this.enlaceDeposito.set(null),
+    });
+  }
+  copiarEnlace(url: string) {
+    navigator.clipboard?.writeText(url).then(() => { this.enlaceCopiado.set(true); setTimeout(() => this.enlaceCopiado.set(false), 2500); },
+      () => window.prompt('Copia el enlace:', url));
+  }
+
   private limpiarFicha() {
+    this.enlaceDeposito.set(null); this.enlaceCopiado.set(false); this.enlaceSub?.unsubscribe();
     this.verSaldadas.set(false);
     this.pdfAviso.set(null);
     this.contactoError.set(null);
@@ -1254,6 +1301,7 @@ export class FinanzasCarteraComponent implements OnInit {
     if (enCache) {
       this.detalle.set(enCache); this.detalleLoading.set(false);
       this.precargarSiguiente();
+      this.pedirEnlace(sucursal, cliente);
       return;
     }
     this.detalle.set(null); this.detalleLoading.set(true);
@@ -1262,6 +1310,7 @@ export class FinanzasCarteraComponent implements OnInit {
         this.cacheDet.set(k, d);
         this.detalle.set(d); this.detalleLoading.set(false);
         this.precargarSiguiente();
+        this.pedirEnlace(sucursal, cliente);
       },
       error: (e) => { this.detalleError.set(e?.error?.message || e?.message || 'error'); this.detalleLoading.set(false); },
     });

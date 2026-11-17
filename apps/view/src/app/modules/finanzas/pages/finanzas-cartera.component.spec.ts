@@ -78,6 +78,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   let detalle: ReturnType<typeof vi.fn>;
   let createPromise: ReturnType<typeof vi.fn>;
   let query: Record<string, string>;
+  let enlaceDeposito: ReturnType<typeof vi.fn>;
 
   function configurar() {
     TestBed.configureTestingModule({
@@ -86,7 +87,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
-        { provide: CarteraService, useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}) } },
+        { provide: CarteraService, useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } },
         { provide: AuthService, useValue: { user: () => ({ permissions: {} }) } },
         { provide: PermissionsService, useValue: { isAdmin: () => true } },
       ],
@@ -98,6 +99,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     cartera = vi.fn(() => of(resp([cli('C1', 'Abarrotes Uno', 100, 100)])));
     detalle = vi.fn(() => of(DET));
     createPromise = vi.fn(() => of({ id: 'p1', estado: 'abierta' }));
+    enlaceDeposito = vi.fn(() => of({ url: 'https://suite.test/deposito/TOKEN' }));
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -296,7 +298,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const ahora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: ahora }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}) } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -319,12 +321,38 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   it('16 · [CXC.43] un contacto que no quedó registrado SE DICE', () => {
     cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100)]), contactos_medidos: true }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}) } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     f.componentInstance.registrarContacto(DET, 'telefono');
     expect(f.componentInstance.contactoTexto(DET)).toMatchObject({ error: true });
     expect(f.componentInstance.contactoTexto(DET)?.texto).toContain('No quedó registrado');
+  });
+
+  it('17 · [CC.20] el enlace de depósito del cliente va en el mensaje de WhatsApp', () => {
+    const f = crear();
+    const c = f.componentInstance;
+    c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    expect(enlaceDeposito).toHaveBeenCalledWith('01', 'C1');
+    const det = { ...DET, partidas: [], cliente: { ...DET.cliente, telefono: '3312345678' } } as CarteraDetalle;
+    expect(decodeURIComponent(c.waLink(det))).toContain('https://suite.test/deposito/TOKEN');
+    // Sin enlace, el mensaje sale como antes (pide compartir el comprobante).
+    c.enlaceDeposito.set(null);
+    expect(decodeURIComponent(c.waLink(det))).not.toContain('/deposito/');
+  });
+
+  it('18 · [CC.20] la ficha muestra las fichas que subió el cliente, y lo por revisar lleva a Cobranza', () => {
+    detalle = vi.fn(() => of({ ...DET, depositos_reportados: [
+      { id: 'r1', status: 'recibido', folio: null, motivo_rechazo: null, monto: 12500, fecha: '2026-11-15', banco: 'BBVA', reportado: '2026-11-15T10:00:00Z' },
+      { id: 'r2', status: 'validado', folio: '4820', motivo_rechazo: null, monto: 300, fecha: '2026-11-10', banco: null, reportado: '2026-11-10T10:00:00Z' },
+    ] }));
+    const f = crear();
+    f.componentInstance.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    const txt = (document.body.textContent || '');
+    expect(txt).toContain('Fichas que subió el cliente');
+    expect(txt).toContain('Por revisar en Cobranza');
+    expect(txt).toContain('Aplicada · cobro 4820');
   });
 
   it('8 · la fila se abre con Enter', () => {

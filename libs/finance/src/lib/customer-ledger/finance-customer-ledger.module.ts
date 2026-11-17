@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PgListenService } from '@megadulces/platform-core';
 import { CustomerLedgerService } from './customer-ledger.service';
 import { CarteraPorEventoService } from './cartera-por-evento.service';
+import { FinanceCollectionDepositsModule } from '../collection-deposits/finance-collection-deposits.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
@@ -17,6 +18,8 @@ import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
  * escucha, y el que drena sólo escucha en el worker.
  */
 @Module({
+  // [CC.20] El estado de cuenta imprime el QR del enlace de depósito del cliente (CustomerDepositsService).
+  imports: [FinanceCollectionDepositsModule],
   controllers: [CustomerLedgerController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
     PgListenService, CarteraPorEventoService],

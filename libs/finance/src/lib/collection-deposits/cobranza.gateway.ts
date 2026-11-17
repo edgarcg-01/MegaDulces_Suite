@@ -6,7 +6,8 @@ import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 
 /** Un cambio en un comprobante de cobranza (lo dispara una acción de un usuario). */
 export interface CollectionDepositEvent {
-  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched';
+  /** `[CC.20]` `reported` = un CLIENTE subió su ficha desde su enlace (todavía sin cobro: `folio` vacío). */
+  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched' | 'reported';
   sucursal: string;
   folio: string;
   status: string | null;      // estado del comprobante tras la acción (recibido/validado/rechazado)

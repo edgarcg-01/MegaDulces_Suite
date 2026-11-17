@@ -718,6 +718,23 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CC.20]` El cliente sube su ficha de depósito: un enlace, una foto y listo
+
+**Qué se hizo:** cada cliente tiene un enlace personal (en el WhatsApp del estado de cuenta y como QR en el PDF) donde
+sube la foto de su ficha o la captura de su transferencia sin usuario ni contraseña. La Suite lee monto y fecha, el
+cliente confirma, y la ficha llega en vivo a una bandeja de Cobranza para ligarla al cobro de Kepler o rechazarla con un
+motivo que el cliente lee en su enlace.
+
+**Lecciones:**
+- ⭐ **Medir quién hace el trabajo hoy decide el canal.** La captura en oficina tenía 0 filas en su historia y el portal
+  3 sesiones al mes: pedirle a la oficina o al portal habría construido una tercera pantalla vacía.
+- ⭐ **La prueba de punta a punta contra base real encontró lo que las pruebas unitarias no.** Con dobles por pantalla
+  todo pasaba; con el servicio real, una referencia repetida fundía dos depósitos y un rechazo desligaba una ficha ya
+  aplicada. Las dos se cerraron con su prueba negativa.
+- **Un `catch` que calla dentro de una transacción no es inofensivo:** una columna mal nombrada dejaba abortada la
+  transacción y apagaba en silencio todo lo que venía después en la ficha de Cartera. El remedio es el SAVEPOINT.
+- **Pendiente con nombre:** avisar al vendedor necesita la liga vendedor de Kepler → usuario de la Suite, que no existe.
+
 ## 2026-11-17 — `[CXC.21b]` La cartera por evento: de 4 s por consulta a recalcular sólo la cuenta que cambió
 
 **Qué se hizo:** la cartera se guarda ya calculada y se pone al día por cuenta cuando Kepler cambia algo, con el mismo

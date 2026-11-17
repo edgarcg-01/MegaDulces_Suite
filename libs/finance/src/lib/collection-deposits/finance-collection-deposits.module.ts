@@ -5,6 +5,8 @@ import { CollectionDepositsService } from './collection-deposits.service';
 import { CollectionDepositsController } from './collection-deposits.controller';
 import { CobranzaGateway } from './cobranza.gateway';
 import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
+import { CustomerDepositsService } from './customer-deposits.service';
+import { CustomerDepositPublicController, CustomerDepositsController } from './customer-deposits.controller';
 
 /**
  * Fase CC — Comprobantes de Cobranza. Adjunta el comprobante de depósito (imagen/PDF)
@@ -23,8 +25,9 @@ import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [CollectionDepositsController],
-  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService],
-  exports: [CollectionDepositsService],
+  // [CC.20] El depósito del cliente: su superficie pública (enlace sin sesión) y la bandeja de Cobranza.
+  controllers: [CollectionDepositsController, CustomerDepositsController, CustomerDepositPublicController],
+  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService, CustomerDepositsService],
+  exports: [CollectionDepositsService, CustomerDepositsService],
 })
 export class FinanceCollectionDepositsModule {}
