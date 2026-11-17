@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2646 KB, 14585 líneas, 77 secciones.
+> **Índice navegable** — 2647 KB, 14592 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -70,20 +70,20 @@
 | 13507 | 13548 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13549 | 13705 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 13706 | 13736 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13737 | 13931 | 29 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 13932 | 13996 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13997 | 14005 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14006 | 14039 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14046 | 14055 | 1 | 📝 Convenciones |
-| 14056 | 14093 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14094 | 14112 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14113 | 14165 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14166 | 14538 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14539 | 14569 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14570 | 14591 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14592 | 14619 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14620 | 14651 | 20 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14652 | 14674 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13737 | 13938 | 30 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13939 | 14003 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14004 | 14012 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14013 | 14046 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14053 | 14062 | 1 | 📝 Convenciones |
+| 14063 | 14100 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14101 | 14119 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14120 | 14172 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14173 | 14545 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14546 | 14576 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14577 | 14598 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14599 | 14626 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14627 | 14658 | 20 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14659 | 14681 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13870,6 +13870,13 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >       - la pantalla viva: prod no lo tiene; `paso1.e2e.ts` lo mide al desplegar;
 >       - la mutación: el árbol se comparte con otras sesiones.
 >     - Costo: 0.2–1.8 s con rangos largos (GP.RF.19).
+>   - [x] **[GP.RF.20]** 🧪 (2026-11-17) **El cambio de vista «Pedidos · Fila de surtido» sube a la cabecera del Tablero, junto al periodo.** Capa C3. Auditoría de interfaces, paso 1 (§5.5).
+>     - Con GP.10.4 el marco del Tablero creció de 415 a 507 px; el renglón propio del cambio de vista era parte de eso.
+>     - Medido con una maqueta sobre prod (`paso1-gprf20.e2e.ts`): la primera fila sube **50 px** a 1280, 1366 y 1920. La cabecera no crece ni se parte, y la prueba negativa lo comprueba.
+>     - Quien surte y coordina sin ver el Tablero conserva el cambio de vista.
+>     - Pruebas: 3 nuevas (1 negativa); 36/36 del Tablero. Plantillas tipan en las cuatro apps; `check:pantalla` y `check-estilos` sin fallas nuevas.
+>     - El foco del segmentado pasa a `--focus-ring`: el `--action-ring` de antes daba 1.56:1.
+>     - NO MEDIDO: la versión construida; se mide al desplegar con la misma prueba.
 >   - [ ] **[GP.10.5]** ⬜ **Correcciones de la consola.** Capa C3. Depende de GP.10.4.
 >     - El volumen deja de encimarse sobre el estatus.
 >     - Las unidades llevan leyenda.

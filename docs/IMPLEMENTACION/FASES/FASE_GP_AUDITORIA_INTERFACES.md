@@ -388,8 +388,22 @@ después del «antes».
 motivo) y armar (1 clic). En la fila siguen 5 textos bajo AA, los «Cancelar surtido» (GP.RF.18).
 
 Lo que sigue en este paso, en orden, para que el «después» gane en todo y no sólo en pantallas:
-1. **GP.RF.20**, quitar el renglón propio de «Pedidos · Fila de surtido»: el cambio de vista va en
-   la cabecera, junto al periodo. Recupera unos 45 px.
+1. **GP.RF.20** 🧪 (hecho el 2026-11-17), quitar el renglón propio de «Pedidos · Fila de surtido»:
+   el cambio de vista va en la cabecera, junto al periodo.
+   - **Medido con una maqueta sobre prod** (`paso1-gprf20.e2e.ts`). La maqueta abre el Tablero
+     real, hace en el DOM lo mismo que la plantilla nueva (borra las reglas viejas y agrega la nueva)
+     y vuelve a medir.
+   - **Resultado:** la primera fila sube **50 px** en los tres anchos (507 → 457 px a 1280 y a 1366;
+     428 → 378 px a 1920). La cabecera no crece y sus acciones siguen en un solo renglón. Las ligas
+     llevan a donde llevaban.
+   - **Prueba negativa:** si el cambio de vista ocupara su propio renglón, el instrumento lo cuenta.
+   - **La primera maqueta midió mal,** y se corrigió antes de citarla. Dejaba vivo el CSS viejo de
+     `.gp-vista`, con su alto de 44 px: la cabecera crecía 11 px y «Pedidos» salía negro sobre
+     negro.
+   - **Quien surte y coordina sin ver el Tablero** conserva el cambio de vista; antes vivía fuera de
+     la cabecera, que para ese puesto no se pinta. Tiene su prueba.
+   - **NO MEDIDO:** la versión construida. Al desplegar, la misma prueba detecta que prod ya lo trae
+     y mide la real.
 2. **GP.10.5**, la lista deja de toparse y de bajar 1.4 MB. Con eso también se va el aviso de los
    2000.
 3. **GP.RF.21**, la preventa a un clic: un botón «Preventa» junto a los de etapa, con su conteo, en
@@ -457,7 +471,7 @@ Formato de cada hallazgo:
 | GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | ⬜ |
 | GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens | ⬜ |
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
-| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera; el aviso de tope se va con GP.10.5 | ⬜ siguiente cambio |
+| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | 🧪 |
 | GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
 
 ---
@@ -466,6 +480,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **GP.RF.20 hecho** 🧪: el cambio de vista sube a la cabecera. En maqueta sobre prod, la primera fila sube 50 px en los tres anchos y la cabecera no se parte (con su prueba negativa). La primera maqueta medía mal (dejaba vivo el CSS viejo) y se corrigió antes de citarla | Claude |
 | 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |
 | 2026-11-17 | **Paso 1 medido** en prod `7edf9508a` (el «antes») con la sesión de Edgar. Quien coordina no ve lo atorado sin clic: el Tablero no lo dice, la fila lo cuenta sin dejar abrirlo, y 25 de sus 27 surtidos son abandonados. Se hizo GP.RF.15, la cifra de atorados liga al Tablero (cuadra 393 de 393) 🧪. Nuevos: GP.RF.14–19 y P-RF.4 | Claude |
 | 2026-11-14 | Paso 0.3 medido con la sesión de Edgar (superadmin), en prod `d88bfc45a` (sin GP.10.4: es el «antes»). Separados por rol, cuatro de los siete hallazgos de base eran pruebas de Dirección o la vista de superadmin: se retiran o corrigen (§4.5). Nuevos: GP.RF.8–13 | Claude |

@@ -97,15 +97,26 @@ const dmy = (v: string | null | undefined): string => {
             }
           }
         </div>
-        @if (!soloSurtidor()) {
+        <!-- [GP.RF.20] La cabecera también se pinta para quien surte y coordina sin ver el Tablero: antes
+             veía el cambio de vista en su propio renglón y no debe perderlo al subirlo aquí. -->
+        @if (!soloSurtidor() || (coordina() && hayPedidos())) {
         <div class="gp-actions">
-          @if (puedeSurtir()) {
+          @if (puedeSurtir() && !soloSurtidor()) {
             <a pButton routerLink="/almacen/surtir" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
           }
-          @if (puedeChecar()) {
+          @if (puedeChecar() && !soloSurtidor()) {
             <a pButton routerLink="/almacen/checar" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checar</span></a>
           }
-          @if (!enFila()) {
+          <!-- [GP.10.4b] D2: la consola de surtido es una vista del Tablero, sólo para quien coordina. Ligas y no
+               botones: la vista queda en la dirección (?vista=fila) y «Atrás» del navegador regresa.
+               [GP.RF.20] Va en la cabecera, junto al periodo: en su propio renglón le quitaba ~45 px a la lista. -->
+          @if (coordina() && hayPedidos()) {
+            <nav class="gp-seg gp-vistas" aria-label="Vista">
+              <a routerLink="/almacen/pedidos" class="gp-seg-b gp-vista" [class.on]="!enFila()" [attr.aria-current]="enFila() ? null : 'page'">Pedidos</a>
+              <a routerLink="/almacen/pedidos" [queryParams]="{ vista: 'fila' }" class="gp-seg-b gp-vista" [class.on]="enFila()" [attr.aria-current]="enFila() ? 'page' : null">Fila de surtido</a>
+            </nav>
+          }
+          @if (!enFila() && !soloSurtidor()) {
           <div class="gp-seg" role="group" aria-label="Periodo">
             @for (p of presets; track p.key) {
               <button type="button" class="gp-seg-b" [class.on]="preset() === p.key" [attr.aria-pressed]="preset() === p.key" (click)="pickPreset(p.key)">{{ p.label }}</button>
@@ -117,15 +128,6 @@ const dmy = (v: string | null | undefined): string => {
         </div>
         }
       </header>
-
-      <!-- [GP.10.4b] D2: la consola de surtido es una vista del Tablero, sólo para quien coordina. Ligas y no
-           botones: la vista queda en la dirección (?vista=fila) y «Atrás» del navegador regresa. -->
-      @if (coordina() && hayPedidos()) {
-        <nav class="gp-vistas" aria-label="Vista">
-          <a routerLink="/almacen/pedidos" class="gp-vista" [class.on]="!enFila()" [attr.aria-current]="enFila() ? null : 'page'">Pedidos</a>
-          <a routerLink="/almacen/pedidos" [queryParams]="{ vista: 'fila' }" class="gp-vista" [class.on]="enFila()" [attr.aria-current]="enFila() ? 'page' : null">Fila de surtido</a>
-        </nav>
-      }
 
       @if (enFila()) {
         @defer (on immediate) {
@@ -330,11 +332,9 @@ const dmy = (v: string | null | undefined): string => {
     .gp-seg-b { height:2.25rem; padding:0 .75rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
     .gp-seg-b:first-child { border-left:0; }
     .gp-seg-b.on { background:var(--text-main); color:var(--card-bg); }
-    .gp-seg-b:focus-visible, .gp-chip:focus-visible, .gp-vista:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
-    .gp-vistas { display:flex; gap:.25rem; margin:0 0 .75rem; border-bottom:1px solid var(--border-color); }
-    .gp-vista { display:inline-flex; align-items:center; min-height:var(--tap-min); padding:0 .85rem; margin-bottom:-1px; border-bottom:2px solid transparent; color:var(--text-muted); font-size:var(--fs-sm); font-weight:600; text-decoration:none; }
-    .gp-vista:hover { color:var(--text-main); }
-    .gp-vista.on { color:var(--text-main); border-bottom-color:var(--action); }
+    .gp-seg-b:focus-visible, .gp-chip:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+    /* [GP.RF.20] El cambio de vista es un segmentado más de la cabecera (ligas, no botones). */
+    a.gp-vista { display:inline-flex; align-items:center; text-decoration:none; font-weight:600; }
     .gp-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .gp-note .pi { color:var(--text-muted); margin-top:.15rem; }
     .gp-note-bad { border-left:3px solid var(--bad-fg); }

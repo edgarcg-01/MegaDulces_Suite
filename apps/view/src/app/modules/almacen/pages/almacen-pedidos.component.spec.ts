@@ -385,7 +385,28 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     const h1 = Array.from(el.querySelectorAll('h1')).map((h) => h.textContent?.trim());
     expect(h1).toEqual(['Pedidos']);
     // En la fila no hay periodo: la fila es «hoy, por almacén».
-    expect(el.querySelector('.gp-seg')).toBeNull();
+    expect(el.querySelector('.gp-seg[aria-label="Periodo"]')).toBeNull();
+  });
+
+  it('[GP.RF.20] ⭐ el cambio de vista vive en la cabecera, junto al periodo, y no en un renglón propio', async () => {
+    const { el } = await abrir('/almacen/pedidos', COORD);
+    expect(el.querySelectorAll('nav.gp-vistas')).toHaveLength(1);
+    const acciones = el.querySelector('header .gp-actions');
+    expect(acciones?.querySelector('nav.gp-vistas')).not.toBeNull();
+    expect(acciones?.querySelector('.gp-seg[aria-label="Periodo"]')).not.toBeNull();
+  });
+
+  it('[GP.RF.20] quien surte y coordina SIN ver el Tablero conserva el cambio de vista (y nada más del Tablero)', async () => {
+    const { vistas, el } = await abrir('/almacen/pedidos', { [Permission.COMMERCIAL_PICKING_GESTIONAR]: true, [Permission.ALMACEN_SURTIDO_COORDINAR]: true });
+    expect(vistas()).toEqual(['Pedidos*', 'Fila de surtido']);
+    expect(el.querySelector('.gp-seg[aria-label="Periodo"]')).toBeNull();
+    expect(el.querySelector('a.gp-surtir')).toBeNull();
+  });
+
+  it('[GP.RF.20] NEGATIVA: el surtidor que no coordina sigue sin cabecera de acciones', async () => {
+    const { vistas, el } = await abrir('/almacen/pedidos', { [Permission.COMMERCIAL_PICKING_GESTIONAR]: true });
+    expect(vistas()).toEqual([]);
+    expect(el.querySelector('.gp-actions')).toBeNull();
   });
 
   it('volver a «Pedidos» pide la lista una vez', async () => {
