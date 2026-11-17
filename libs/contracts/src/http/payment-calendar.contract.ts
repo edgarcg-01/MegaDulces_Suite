@@ -530,6 +530,20 @@ export interface SupplierPaymentHabit {
 }
 
 /**
+ * `[PGP.125]` **Si la Suite escribe sola el `X-D-26` en Kepler, y dónde.** Antes la pantalla lo decía fijo
+ * («la escritura automática está apagada») y desde el 2026-11-14 era falso. Sale de la misma llave que lee el
+ * worker que escribe (`KEPLER_PAGO_ESCRITURA`, mismo secreto en la API y en el worker) y de lo que ya escribió.
+ */
+export interface PaymentCalendarEscrituraKepler {
+  /** `KEPLER_PAGO_ESCRITURA=encendida` en el servidor. */
+  encendida: boolean;
+  /** Servidores de Kepler (`00`…`08`) con pago plantilla: ahí escribe. En los demás se captura a mano. */
+  servidores: string[];
+  /** El último `X-D-26` que escribió la Suite, o null si todavía ninguno. */
+  ultimo: { sucursal: string; folio: string; at: string } | null;
+}
+
+/**
  * `[PGP.105]` **El ensayo del pago en Kepler**: el `X-D-26` EXACTO que la Suite escribiría para este
  * pago (armado con el mismo código que escribe, `armarPagoKepler`, con lo que trae la réplica
  * `kepler_ods`), o por qué no se escribiría. No toca Kepler. Si Tesorería ya capturó ese pago a mano,

@@ -16,7 +16,11 @@ import {
  * `(sucursal, doc_prefix, folio)`. El pago vive en DOS doctypes según el método:
  * `XD2601` (transferencia) y `XD2501` (cheque) — el folio NO es único entre ambos, por
  * eso `doc_prefix` es parte de la clave. NO escribe a Kepler: los pagos se leen del
- * espejo `analytics.erp_supplier_payments`. Flujo `recibido → validado | rechazado`.
+ * espejo `analytics.erp_supplier_payments_servidores`. Flujo `recibido → validado | rechazado`.
+ *
+ * ⭐ `[PGP.125]` Lee los NUEVE servidores de Kepler (`_servidores`), no sólo CEDIS: el folio no es único entre
+ * servidores, por eso `sucursal` es parte de la llave. Antes leía `analytics.erp_supplier_payments` (sólo `00`) y
+ * un comprobante de un pago capturado en otra sucursal nunca empataba (33 de 65 en la prueba del 2026-11-14).
  */
 
 // `comprobante` = PDF del pago (SPEI/cheque, lo lee el OCR y liga el pago).
@@ -146,7 +150,7 @@ export class SupplierPaymentProofsService {
   }
 
   /**
-   * Lista los pagos a proveedor de Kepler (espejo `analytics.erp_supplier_payments`)
+   * Lista los pagos a proveedor de Kepler (espejo `analytics.erp_supplier_payments_servidores`)
    * con el estado de su comprobante adjunto (LEFT JOIN a `finance.supplier_payment_proofs`).
    */
   async listPayments(q: ListPaymentsQuery) {
@@ -234,7 +238,7 @@ export class SupplierPaymentProofsService {
             ).as('cal')
         : null;
 
-      const b = trx('analytics.erp_supplier_payments as c')
+      const b = trx('analytics.erp_supplier_payments_servidores as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .leftJoin(bank, joinBank)
         .modify((q) => {
@@ -305,7 +309,7 @@ export class SupplierPaymentProofsService {
         return { ...rest, monto: Number(r.monto), cuenta_ajena: cuentaAjena, ref_dup: refDup, alerta: cuentaAjena || refDup, origen_calendario: origen };
       });
 
-      const kpiBase = trx('analytics.erp_supplier_payments as c')
+      const kpiBase = trx('analytics.erp_supplier_payments_servidores as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .leftJoin(bank, joinBank)
         .where('c.tenant_id', tenantId);
@@ -400,7 +404,7 @@ export class SupplierPaymentProofsService {
 
     let ev: { sucursal: string; doc_prefix: string | null; folio: string; status: string; proveedor: string | null; monto: number; actor: string | null } | null = null;
     const out = await this.tk.run(async (trx) => {
-      const pagoQ = trx('analytics.erp_supplier_payments')
+      const pagoQ = trx('analytics.erp_supplier_payments_servidores')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal, folio });
       if (docPrefix) pagoQ.where('doc_prefix', docPrefix); // desambigua transferencia vs cheque (folio compartido)
       const pago = await pagoQ.first('doc_prefix', 'metodo_pago', 'proveedor_nombre', 'proveedor_rfc', 'pago_date', trx.raw('monto::numeric AS monto'));
@@ -525,7 +529,7 @@ export class SupplierPaymentProofsService {
 
   /** `[PC.6]` Lo que las cuatro coincidencias necesitan del pago: monto, día, proveedor y banco. */
   private async pagoParaCoincidir(trx: Knex, sucursal: string, docPrefix: string, folio: string): Promise<PagoParaCoincidir | null> {
-    const r = await trx('analytics.erp_supplier_payments as c')
+    const r = await trx('analytics.erp_supplier_payments_servidores as c')
       .joinRaw(LATERAL_BANCO_DEL_PAGO)
       .where({ 'c.tenant_id': this.tenantCtx.requireTenantId(), 'c.sucursal': sucursal, 'c.doc_prefix': docPrefix, 'c.folio': folio })
       .first(trx.raw('c.monto::numeric AS monto'), trx.raw(`to_char(c.pago_date, 'YYYY-MM-DD') AS pago_dia`),
@@ -544,7 +548,7 @@ export class SupplierPaymentProofsService {
   private async pagosParaCoincidir(trx: Knex, llaves: { sucursal: string; docPrefix: string; folio: string }[]): Promise<Map<string, PagoParaCoincidir>> {
     const out = new Map<string, PagoParaCoincidir>();
     if (!llaves.length) return out;
-    const rows: (PagoParaCoincidir & { sucursal: string; doc_prefix: string; folio: string })[] = await trx('analytics.erp_supplier_payments as c')
+    const rows: (PagoParaCoincidir & { sucursal: string; doc_prefix: string; folio: string })[] = await trx('analytics.erp_supplier_payments_servidores as c')
       .joinRaw(LATERAL_BANCO_DEL_PAGO)
       .where('c.tenant_id', this.tenantCtx.requireTenantId())
       .whereIn(['c.sucursal', 'c.doc_prefix', 'c.folio'], llaves.map((l) => [l.sucursal, l.docPrefix, l.folio]))
@@ -839,7 +843,7 @@ export class SupplierPaymentProofsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const dp = (docPrefix || '').trim();
     return this.tk.run(async (trx) => {
-      const pagoQ = trx('analytics.erp_supplier_payments')
+      const pagoQ = trx('analytics.erp_supplier_payments_servidores')
         .where({ tenant_id: tenantId, sucursal, folio });
       if (dp) pagoQ.where('doc_prefix', dp);
       const pago = await pagoQ
@@ -963,7 +967,7 @@ export class SupplierPaymentProofsService {
       const dep = trx('finance.supplier_payment_proofs')
         .select('sucursal', 'doc_prefix', 'folio').count('* as n')
         .groupBy('sucursal', 'doc_prefix', 'folio').as('d');
-      const b = trx('analytics.erp_supplier_payments as c')
+      const b = trx('analytics.erp_supplier_payments_servidores as c')
         .leftJoin(dep, (j) => { j.on('c.sucursal', 'd.sucursal').andOn('c.doc_prefix', 'd.doc_prefix').andOn('c.folio', 'd.folio'); })
         .joinRaw(LATERAL_BANCO_DEL_PAGO) // [PC.5] el banco del pago, para las cuatro coincidencias
         .where('c.tenant_id', tenantId)

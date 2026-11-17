@@ -1220,7 +1220,10 @@ export class LlmExtractorService implements OnModuleInit {
               type: 'object',
               properties: {
                 monto: { type: ['number', 'null'], description: 'Importe pagado en pesos (sin símbolo ni comas).' },
-                fecha: { type: ['string', 'null'], description: 'Fecha de la operación en ISO YYYY-MM-DD. Convierte cualquier formato. null si no se ve.' },
+                // [PGP.125] La fecha se COPIA, no se convierte: «Convierte cualquier formato» leyó «09/11/2026» (9 de
+                // noviembre) como 2026-09-11 (medido el 2026-11-14 con un comprobante BBVA). La convierte
+                // `parseTicketDate`, que lee DÍA/MES/AÑO como se escribe en México.
+                fecha: { type: ['string', 'null'], description: 'Fecha de la operación COPIADA TAL CUAL está impresa, sin convertirla ni reordenarla (ej. "09/11/2026", "06/Nov./2026", "04-Nov-2026", "12/11/2026 17:30:58", "2026-11-06 17:02:56"). En México la fecha numérica es DÍA/MES/AÑO. null si no se ve.' },
                 concepto: { type: ['string', 'null'], description: 'El campo "Concepto de pago" TAL CUAL. Suele ser el/los folio(s) de factura pagados (ej. "F 451", "F 906 907 908"). Copiar literal.' },
                 cuenta_origen: { type: ['string', 'null'], description: 'Cuenta de RETIRO / cargo (la nuestra, de donde SALE el dinero; campo "Cuenta Origen" o "Cuenta de cargo"). Copia el número COMPLETO tal como aparece, todos los dígitos y sin espacios; si viene enmascarado, cópialo con sus asteriscos (ej. "****1463"). NUNCA lo recortes a los últimos dígitos: en Banco del Bajío la cuenta se identifica por los dígitos del CENTRO ("245765060201" es la cuenta 6506) y los últimos 4 ("0201") se repiten en todas. null si no se ve.' },
                 cuenta_destino: { type: ['string', 'null'], description: 'Cuenta o CLABE de depósito del proveedor (destino). Copia el número COMPLETO tal como aparece, sin espacios (con asteriscos si viene enmascarado); no lo recortes. null si no se ve.' },
@@ -1573,8 +1576,9 @@ export class LlmExtractorService implements OnModuleInit {
     let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
     if (m) return iso(+m[1], +m[2], +m[3]);
 
-    // 2) Numérico DD/MM/YYYY (o - . como separador).
-    m = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+    // 2) Numérico DD/MM/YYYY (o - . como separador), con o sin la hora pegada («12/11/2026 17:30:58»,
+    //    «09/11/2026 5:17:36 PM»: así la imprimen Santander y BBVA; `[PGP.125]`).
+    m = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})(?=$|[\sT,])/);
     if (m) return iso(+m[3], +m[2], +m[1]);
 
     // 3) Con mes en español (abreviado o completo): "23/jun/2026", "23 de junio de 2026".

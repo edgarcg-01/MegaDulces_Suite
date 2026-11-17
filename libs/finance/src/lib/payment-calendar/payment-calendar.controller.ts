@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -242,6 +242,14 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[PGP.105] Ensayo del pago en Kepler: el X-D-26 exacto que la Suite escribiría (armado con el mismo código que escribe, con datos de kepler_ods) o por qué no; si Tesorería ya lo capturó a mano, la comparación campo por campo. No escribe nada.' })
   ensayoKepler(@Param('id') id: string): Promise<PaymentCalendarEnsayoKepler> {
     return this.svc.ensayoKepler(id);
+  }
+
+  /** `[PGP.125]` Si la Suite escribe sola el `X-D-26` en Kepler, en qué servidores, y el último que escribió. */
+  @Get('kepler-escritura')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.125] Estado de la escritura automática del pago en Kepler: la llave, los servidores con plantilla y el último X-D-26 que escribió la Suite. Sólo lectura.' })
+  escrituraKepler(): Promise<PaymentCalendarEscrituraKepler> {
+    return this.svc.escrituraKepler();
   }
 
   @Post('allocations/:id/reprogramar')

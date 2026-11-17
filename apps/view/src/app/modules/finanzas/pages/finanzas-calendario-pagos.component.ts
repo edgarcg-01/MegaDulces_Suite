@@ -43,7 +43,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { PaymentCalendarBandeja } from '@megadulces/contracts';
+import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
@@ -329,7 +329,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                  porque ahí el tope decide qué cabe. -->
             @if (!pagosPrimero()) { <ng-container *ngTemplateOutlet="topeYPaso; context: { $implicit: day }" /> }
             @if (isReleased()) {
-              <p class="pg-note"><i class="pi pi-info-circle" aria-hidden="true"></i><span><b>Kepler: cada pago (X-D-26) se sigue capturando a mano.</b> La escritura automática está apagada.</span></p>
+              <!-- [PGP.125] Lo que dice el servidor, no una frase fija: «apagada» dejó de ser cierto el 2026-11-14. -->
+              @if (notaEscrituraKepler(); as nk) {
+                <p class="pg-note"><i class="pi pi-info-circle" aria-hidden="true"></i><span><b>{{ nk.titulo }}</b> {{ nk.detalle }}</span></p>
+              }
             }
           </div>
 
@@ -2255,7 +2258,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           : { say: 'Ningún pago autorizado espera salir.', why: null };
       }
       case 'kepler': return k
-        ? { say: `${this.pagos(k)} pagados todavía sin su pago en Kepler (${$}).`, why: 'Tesorería los captura en Kepler a mano: la escritura automática está apagada. En cada desglose está cómo quedaría el X-D-26.' }
+        ? { say: `${this.pagos(k)} pagados todavía sin su pago en Kepler (${$}).`, why: (() => {
+            // [PGP.125] Lo dice el servidor; antes era fijo «apagada» y dejó de ser cierto.
+            const nk = this.notaEscrituraKepler();
+            return `${nk ? `${nk.titulo} ${nk.detalle} ` : ''}En cada desglose está cómo quedaría el X-D-26 y por qué todavía no está en Kepler.`;
+          })() }
         : { say: 'Todo lo pagado ya está en Kepler.', why: null };
       case 'pagado': {
         const porKepler = this.pagosBandeja().filter((a) => a.status === 'pending' && this.etapa(a) === 'pagado').length;
@@ -2306,8 +2313,34 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     void this.router.navigate([], { relativeTo: this.route, replaceUrl: true, queryParamsHandling: 'merge',
       queryParams: { vista: m === 'dia' ? 'dia' : null, etapa: m === 'etapa' ? this.etapaElegida() : null, fecha: m === 'dia' ? this.selectedDate() : null } });
   }
+  /**
+   * `[PGP.125]` Si la Suite escribe sola el X-D-26, dónde y el último que escribió — lo dice el servidor. Antes era una
+   * frase fija («la escritura automática está apagada») que desde el 2026-11-14 era falsa. null = cargando.
+   */
+  readonly escrituraKepler = signal<PaymentCalendarEscrituraKepler | 'error' | null>(null);
+  private cargarEscrituraKepler(): void {
+    if (this.escrituraKepler() !== null) return;
+    this.http.get<PaymentCalendarEscrituraKepler>(`${this.base}/kepler-escritura`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (e) => this.escrituraKepler.set(e),
+      error: () => this.escrituraKepler.set('error'),
+    });
+  }
+  /** `[PGP.125]` Lo que se dice de la escritura en Kepler. Sin respuesta del servidor no se afirma nada. */
+  notaEscrituraKepler(): { titulo: string; detalle: string } | null {
+    const e = this.escrituraKepler();
+    if (e === null) return null;
+    if (e === 'error') return { titulo: 'Kepler: no se pudo saber si la Suite escribe sola el X-D-26.', detalle: 'En cada desglose está si el pago ya está en Kepler.' };
+    if (!e.encendida || !e.servidores.length) return { titulo: 'Kepler: cada pago (X-D-26) se sigue capturando a mano.', detalle: 'La escritura automática está apagada.' };
+    const donde = e.servidores.map((s) => this.branchLabel(s)).join(', ');
+    const resto = e.servidores.length < 9 ? ' Los de las demás sucursales los captura Tesorería a mano.' : '';
+    const ultimo = e.ultimo
+      ? ` El último que escribió: X-D-26 ${e.ultimo.folio} (${this.branchLabel(e.ultimo.sucursal)}, ${new Date(e.ultimo.at).toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', day: 'numeric', month: 'short' })}).`
+      : ' Todavía no ha escrito ninguno.';
+    return { titulo: `Kepler: la Suite escribe sola el X-D-26 de ${donde} cuando el estado de cuenta muestra la salida.`, detalle: `${resto}${ultimo}`.trim() };
+  }
   private bandejaSeq = 0;
   loadBandeja(): void {
+    this.cargarEscrituraKepler();
     const seq = ++this.bandejaSeq;
     this.cargandoBandeja.set(true);
     this.bandejaError.set(null);
@@ -4077,6 +4110,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** Cada petición de semana lleva su número: dos clics rápidos no deben pintar la semana vieja. */
   private weekSeq = 0;
   loadWeek(): void {
+    this.cargarEscrituraKepler();
     const seq = ++this.weekSeq;
     this.loadingWeek.set(true);
     this.weekError.set(null);
