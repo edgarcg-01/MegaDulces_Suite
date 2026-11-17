@@ -15,7 +15,9 @@ import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
 import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
 import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
-import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
+import type { PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
+import { escrituraDePagoEncendida } from './kepler-pago/pago-kepler.armador';
+import { plantillaPagoDe } from './kepler-pago/kepler-pago-sink.adapter';
 import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados, type LineaDescuento } from './descuento-al-pagar';
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
@@ -2621,6 +2623,27 @@ export class PaymentCalendarService {
       if (!r) throw new NotFoundException('Pago no encontrado');
       return r;
     });
+  }
+
+  /**
+   * `[PGP.125]` Si la Suite escribe sola el `X-D-26` y en qué servidores: la misma llave y las mismas plantillas que
+   * lee el worker que escribe (`PagosPorElBancoService`), más el último que escribió. Es lo que la pantalla dice en
+   * vez de la frase fija que afirmaba «apagada». Sólo lectura.
+   */
+  async escrituraKepler(): Promise<PaymentCalendarEscrituraKepler> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const env = process.env;
+    const servidores = Array.from({ length: 9 }, (_, i) => `0${i}`).filter((nn) => plantillaPagoDe(nn, env).ok);
+    const ultimo = await this.tk.run(async (trx) => trx('finance.payment_allocations')
+      .where({ tenant_id: tenantId, kepler_payment_linked_by: AUTOR_PAGO_POR_EL_BANCO })
+      .whereNotNull('kepler_payment_folio')
+      .orderBy('kepler_payment_linked_at', 'desc')
+      .first('kepler_payment_sucursal', 'kepler_payment_folio', 'kepler_payment_linked_at'));
+    return {
+      encendida: escrituraDePagoEncendida(env),
+      servidores,
+      ultimo: ultimo ? { sucursal: String(ultimo.kepler_payment_sucursal), folio: String(ultimo.kepler_payment_folio), at: new Date(ultimo.kepler_payment_linked_at).toISOString() } : null,
+    };
   }
 
   /**
