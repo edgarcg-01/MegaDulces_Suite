@@ -49,3 +49,32 @@ describe('[PGP.79] lecturaKepler — lo que dice la pastilla del renglón', () =
     expect(lecturaKepler(null, 'recibida').texto).toBe('Kepler: sin folio');
   });
 });
+
+describe('[PGP.122] la solicitud que NACE en la Suite — su pastilla y su explicación', () => {
+  const nace = (status: string | null, estado: KeplerDelVale['estado'] = null, nota: string | null = null): KeplerDelVale =>
+    ({ solicitud: status === 'written' ? 'XA1501-0000081' : null, estado, suite: null, nace_en_la_suite: { status, nota, siguiente: null, intentos: 1 } });
+
+  it('antes de firmarla no es «sin folio»: se dice que al firmarla se escribe', () => {
+    expect(lecturaKepler(nace('pending'), 'recibida')).toEqual({ texto: 'Nace en la Suite: al firmarla se escribe en Kepler', tono: 'neutro' });
+    expect(explicacionKepler(nace('pending'), 'recibida', null)).toMatch(/todavía no existe en Kepler/);
+  });
+  it('firmada: el estado de su escritura, con el tono que pide atención', () => {
+    expect(lecturaKepler(nace('written'), 'validada')).toEqual({ texto: 'Kepler: escrita por la Suite', tono: 'ok' });
+    expect(lecturaKepler(nace('retry'), 'validada').tono).toBe('warn');
+    expect(lecturaKepler(nace('in_doubt'), 'validada').tono).toBe('warn');
+    expect(lecturaKepler(nace('stuck'), 'validada').tono).toBe('bad');
+    expect(lecturaKepler(nace('rejected_by_kepler'), 'validada')).toEqual({ texto: 'Kepler: no la aceptó', tono: 'bad' });
+    expect(lecturaKepler(nace('cancelled'), 'rechazada').tono).toBe('neutro');
+  });
+  it('la explicación dice qué hacer cuando no se pudo, con la nota del intento', () => {
+    expect(explicacionKepler(nace('rejected_by_kepler', null, 'el concepto 999 no tiene cuenta'), 'validada', null)).toMatch(/concepto 999.*Reintentar en Kepler/);
+    expect(explicacionKepler(nace('written'), 'validada', null)).toMatch(/XA1501-0000081/);
+  });
+  it('⛔ si Kepler la canceló, eso manda (rojo), aunque la Suite la haya escrito', () => {
+    expect(lecturaKepler(nace('written', 'C'), 'validada')).toEqual({ texto: 'Kepler: cancelada', tono: 'bad' });
+  });
+  it('⛔ un vale que NO nació en la Suite se lee como siempre', () => {
+    expect(lecturaKepler(k('A', suite('escrito')), 'validada').texto).toBe('Kepler: autorizada por la Suite');
+    expect(lecturaKepler(null, 'recibida').texto).toBe('Kepler: sin folio');
+  });
+});

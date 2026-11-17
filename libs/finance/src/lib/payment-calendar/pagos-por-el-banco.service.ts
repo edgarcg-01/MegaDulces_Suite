@@ -7,6 +7,7 @@ import { KeplerPagoSinkAdapter } from './kepler-pago/kepler-pago-sink.adapter';
 import { escrituraDePagoEncendida } from './kepler-pago/pago-kepler.armador';
 import { leerEntregaPagoKepler } from './kepler-pago/ensayo-ods.sql';
 import { AUTOR_PAGO_POR_EL_BANCO } from './pago-por-el-banco';
+import { SQL_PROBADOS_SIN_LIGAR } from './pago-por-el-banco.sql';
 
 /** Lo que se espera tras el primer aviso del banco antes de mirar: una carga trae varios avisos seguidos. */
 const ESPERA_MS = 60_000;
@@ -103,11 +104,9 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
   async escribirEnKepler(tenantId: string): Promise<{ escritos: number; no_escritos: number; inciertos: number }> {
     const out = { escritos: 0, no_escritos: 0, inciertos: 0 };
     const hoy = todayMx();
-    const ids: string[] = await this.tk.run(async (trx) => trx('finance.payment_allocations')
-      .where({ tenant_id: tenantId, status: 'executed' })
-      .whereNotNull('paid_bank_movement_id').whereNull('kepler_payment_folio').whereNull('kepler_payment_linked_by')
-      .where('paid_bank_date', '>=', `${hoy.slice(0, 4)}-01-01`)
-      .orderBy('paid_bank_date').limit(MAXIMO_POR_PASADA).pluck('id'));
+    // Nunca intentados primero, después los más nuevos: un rechazo que no cambia no le quita el lugar a nadie.
+    const ids: string[] = await this.tk.run(async (trx) => ((await trx.raw(SQL_PROBADOS_SIN_LIGAR,
+      [tenantId, `${hoy.slice(0, 4)}-01-01`, MAXIMO_POR_PASADA])).rows as { id: string }[]).map((r) => r.id));
     for (const id of ids) {
       const r = await this.escribirUno(tenantId, id, hoy);
       if (r === 'escrito') out.escritos++; else if (r === 'incierto') out.inciertos++; else if (r === 'no_escrito') out.no_escritos++;

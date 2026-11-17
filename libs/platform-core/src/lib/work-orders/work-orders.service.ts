@@ -149,7 +149,7 @@ export class WorkOrdersService {
     return this.accion(id, 'take', llaves, async (trx, v, userId) => {
       await trx('platform.work_orders').where({ id }).update({
         status: 'in_progress', assigned_to: userId, assigned_by: userId, assigned_at: trx.fn.now(),
-        assignee_name: await this.nombreDe(trx, userId), started_at: trx.fn.now(), updated_at: trx.fn.now(), updated_by: userId,
+        started_at: trx.fn.now(), updated_at: trx.fn.now(), updated_by: userId,
       });
       await this.evento(trx, id, 'taken', v.status, 'in_progress', null, userId);
     });
@@ -163,7 +163,7 @@ export class WorkOrdersService {
       if (!nombre) throw new BadRequestException('Esa persona no puede abrir los vales: no tiene ninguna llave de vales de servicio.');
       if (v.assigned_to === destino) return;
       await trx('platform.work_orders').where({ id }).update({
-        status: 'in_progress', assigned_to: destino, assigned_by: userId, assigned_at: trx.fn.now(), assignee_name: nombre,
+        status: 'in_progress', assigned_to: destino, assigned_by: userId, assigned_at: trx.fn.now(),
         started_at: trx.raw('COALESCE(started_at, now())'), updated_at: trx.fn.now(), updated_by: userId,
       });
       await this.evento(trx, id, 'assigned', v.status, 'in_progress', nombre, userId);
@@ -197,7 +197,7 @@ export class WorkOrdersService {
         ...cambios,
         ...(sinDueno ? {
           assigned_to: userId, assigned_by: userId, assigned_at: trx.fn.now(),
-          assignee_name: await this.nombreDe(trx, userId), started_at: trx.raw('COALESCE(started_at, now())'),
+          started_at: trx.raw('COALESCE(started_at, now())'),
         } : {}),
         status: 'completed', completed_at: trx.fn.now(), updated_at: trx.fn.now(), updated_by: userId,
       });
@@ -341,9 +341,19 @@ export class WorkOrdersService {
     return out;
   }
 
+  /**
+   * El nombre de quien atiende se DERIVA de `identity.users` (el asignado siempre es una persona de la
+   * Suite, FK), no se guarda: la tabla no tiene esa columna. `[MDT.2.3]` La primera versión lo escribía
+   * y tomar/asignar/completar daban 500 — lo cazó `test-newdb-mdt-vales.js` en el CI, contra base real.
+   */
   private consulta(trx: Knex.Transaction): Knex.QueryBuilder {
-    return trx('platform.work_orders as w').whereNull('w.deleted_at').select(
+    return trx('platform.work_orders as w').whereNull('w.deleted_at')
+      .leftJoin('identity.users as ua', function (this: Knex.JoinClause) {
+        this.on('ua.id', '=', 'w.assigned_to').andOn('ua.tenant_id', '=', 'w.tenant_id');
+      })
+      .select(
       'w.*',
+      trx.raw(`${NOMBRE('ua')} AS assignee_name`),
       trx.raw(`(SELECT count(*)::int FROM platform.work_order_signatures s WHERE s.work_order_id = w.id AND s.deleted_at IS NULL) AS firmas`),
       trx.raw(`to_char(w.service_date, 'YYYY-MM-DD') AS service_date`),
     );

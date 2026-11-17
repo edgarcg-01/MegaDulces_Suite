@@ -26,7 +26,8 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
 import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar, ETIQUETA_ESPERA_KEPLER, type EsperaKepler } from '@megadulces/contracts';
 // `[PGP.79]` Firmar autoriza en Kepler: la solicitud y su estado se leen con la MISMA regla en el renglón y en el detalle.
-import { lecturaKepler, solicitudKepler, type KeplerDelVale, type TonoKepler } from '@megadulces/contracts';
+import { lecturaKepler, solicitudKepler, type DetalleDeLaSolicitud, type KeplerDelVale, type TonoKepler } from '@megadulces/contracts';
+import { SolicitudGastoService } from '../solicitud-gasto.service';
 import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
@@ -492,6 +493,7 @@ const ESTADO_LABEL: Record<string, string> = {
            Dos visores serian dos lugares donde arreglar el mismo error. -->
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
                            [vale]="abierto()" [kepler]="keplerDelAbierto()" [acciones]="accionesDelVisor(abierto())"
+                           [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" (reintentarKepler)="reintentarKepler($event)"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
                            (rechazar)="rechazar($any($event))"
@@ -656,6 +658,7 @@ export class FinanzasAprobacionGastosComponent {
   /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
   readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
+  private readonly solicitudes = inject(SolicitudGastoService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -737,6 +740,18 @@ export class FinanzasAprobacionGastosComponent {
     this.leerDeLaUrl();
     this.cargar();
     effect(() => this.escribirEnLaUrl(this.pestana(), this.grupo()));
+    // `[PGP.122]` Al abrir una solicitud nacida en la Suite se pide lo que su firma escribe en Kepler (una vez por vale).
+    effect(() => {
+      const a = this.abierto();
+      const k = a ? this.kepler()[a.id] : null;
+      if (!a || !k?.nace_en_la_suite || this.detalleSuite()?.id === a.id || this.pidiendoDetalle === a.id) return;
+      this.pidiendoDetalle = a.id;
+      this.solicitudes.detalle(a.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.pidiendoDetalle = null; if (this.abierto()?.id === d.id) this.detalleSuite.set(d); },
+        // Si falla, no se vuelve a pedir en cada refresco (queda marcado); el visor sigue con el estado de Kepler.
+        error: () => undefined,
+      });
+    });
     // `[GX.73]` Se refresca sola mientras la pestaña se ve: los vales nuevos llegan sin recargar.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
   }
@@ -1090,6 +1105,32 @@ export class FinanzasAprobacionGastosComponent {
     return a ? (this.kepler()[a.id] ?? null) : null;
   });
 
+  /** `[PGP.122]` Lo que se escribe en Kepler al firmar la solicitud nacida en la Suite (se pide al abrirla). */
+  private readonly detalleSuite = signal<DetalleDeLaSolicitud | null>(null);
+  private pidiendoDetalle: string | null = null;
+  readonly detalleDelAbierto = computed(() => {
+    const a = this.abierto();
+    const d = this.detalleSuite();
+    return a && d?.id === a.id ? d : null;
+  });
+
+  /** `[PGP.122]` Reintenta escribir en Kepler la solicitud que se atoró, espera o Kepler rechazó (ya corregida). */
+  reintentarKepler(id: string): void {
+    this.actuando.set(id);
+    this.solicitudes.reintentarKepler(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => {
+        this.actuando.set(null);
+        if (s?.status === 'written' || s?.status === 'seen_in_ods') {
+          this.toast.add({ severity: 'success', summary: 'Escrita en Kepler', detail: `Nació autorizada: ${solicitudKepler(s.folio) ?? 'folio ' + s.folio}.` });
+        } else {
+          this.toast.add({ severity: 'warn', summary: 'Todavía no se escribe', life: 8000, detail: s?.nota ?? 'Kepler no la aceptó todavía.' });
+        }
+        this.pedirKepler([id]);
+      },
+      error: (e) => { this.actuando.set(null); this.falla('No se pudo reintentar en Kepler', e); },
+    });
+  }
+
   /** El `model` del panel avisa cuando se cierra (Escape, backdrop o la X). */
   cerrarSiHaceFalta(v: boolean): void {
     if (!v) this.abierto.set(null);
@@ -1190,10 +1231,12 @@ export class FinanzasAprobacionGastosComponent {
       next: (r) => {
         this.actuando.set(null);
         this.abierto.set(null);
+        // `[PGP.122]` La nacida en la Suite no tiene folio hasta escribirse: no se dice «Solicitud null».
+        const nombre = p.folio_solicitud ? `Solicitud ${p.folio_solicitud}` : 'Solicitud nacida en la Suite';
         this.toast.add(a.provisional
           ? { severity: 'warn', summary: 'Aprobado como provisional',
-              detail: `Solicitud ${p.folio_solicitud} — queda esperando el comprobante`, life: 6000 }
-          : { severity: 'success', summary: 'Aprobado', detail: `Solicitud ${p.folio_solicitud}` });
+              detail: `${nombre} — queda esperando el comprobante`, life: 6000 }
+          : { severity: 'success', summary: 'Aprobado', detail: nombre });
         // `[PGP.79]` El vale sale de la bandeja al aprobarlo: lo que pasó en Kepler se dice AQUÍ,
         // y el «no se pudo» se queda en pantalla hasta que alguien lo cierre.
         const k = r?.kepler;
@@ -1206,6 +1249,25 @@ export class FinanzasAprobacionGastosComponent {
           this.toast.add({ severity: 'error', summary: 'No se autorizó en Kepler', sticky: true,
             detail: `${doc}: ${k.motivo}. El vale sí quedó aprobado aquí; autorízala en Kepler o avisa a Sistemas.` });
         }
+        // `[PGP.122]` La solicitud que nació en la Suite no existía en Kepler: la firma la ESCRIBE, ya autorizada.
+        const s = r?.solicitud_kepler;
+        if (s?.status === 'written' || s?.status === 'seen_in_ods') {
+          this.toast.add({ severity: 'success', summary: 'Escrita en Kepler', detail: `Nació autorizada: ${solicitudKepler(s.folio) ?? 'folio ' + s.folio}.` });
+        } else if (s?.status === 'retry' || s?.status === 'pending') {
+          this.toast.add({ severity: 'warn', summary: 'Kepler todavía no la recibe', life: 8000,
+            detail: `${s.nota ?? 'Se reintenta sola.'} El vale sí quedó aprobado aquí.` });
+        } else if (s?.status === 'in_doubt') {
+          this.toast.add({ severity: 'warn', summary: 'Kepler no contestó', life: 8000,
+            detail: 'No se sabe si llegó: se le pregunta a Kepler antes de reintentar, para no escribirla dos veces.' });
+        } else if (s?.status === 'rejected_by_kepler' || s?.status === 'stuck') {
+          this.toast.add({ severity: 'error', summary: 'Kepler no la aceptó', sticky: true,
+            detail: `${s.nota ?? ''} El vale sí quedó aprobado aquí; cuando se corrija, ábrelo y usa «Reintentar en Kepler».` });
+        } else if (!s && this.kepler()[p.id]?.nace_en_la_suite) {
+          // La escritura no contestó (la firma sí quedó): el cron la revisa por su marca; no se calla.
+          this.toast.add({ severity: 'warn', summary: 'No se supo si llegó a Kepler', life: 8000,
+            detail: 'El vale quedó aprobado aquí. La Suite lo revisa sola en unos minutos, sin escribirla dos veces.' });
+        }
+        this.pedirKepler([p.id]);
         // `[GX.100]` Silenciosa: la lista no se vacía ni regresa al inicio.
         this.cargar(true);
       },

@@ -12,6 +12,9 @@
  *   3. ⛔ un cheque no lo dispara el banco;
  *   4. un pago de un día que no ha llegado no se toca;
  *   5. ⛔ correrlo otra vez no hace nada nuevo (la salida ya es prueba de un pago).
+ *   6. ⛔ la fila de Kepler (`SQL_PROBADOS_SIN_LIGAR`) pone primero lo nunca intentado y lo más nuevo: un rechazo que
+ *      no cambia no le quita el lugar a nadie. El orden viejo (fecha ascendente) se mide en el mismo escenario y debe
+ *      tomar los rechazados: es la prueba de que el escenario distingue.
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
@@ -108,6 +111,30 @@ function servicio(trx) {
       const r2 = await s.pagarPorElBanco(HOY, 'smoke_pgp121');
       const h2 = await trx('finance.payment_allocation_history').where({ allocation_id: unico.id });
       ok(r2.pagados === 0 && h2.length === 1, '5. correrlo otra vez no paga ni registra nada nuevo');
+
+      // 6. La fila de Kepler. Cuatro pagos probados por el banco y sin ligar: dos viejos (uno ya rechazado) y dos
+      //    recientes (uno ya rechazado). Más `unico`, del caso 1 (11-mar, nunca intentado).
+      const probado = async (fecha, monto, rechazado) => {
+        const m = await salida(bbva, eB, fecha, monto);
+        const a = await mk(l1, monto, { status: 'executed', executed_at: trx.fn.now(), payment_method: 'transferencia',
+          bank_account_id: bbva.id, paid_bank_movement_id: m.id, paid_bank_date: fecha, paid_bank_amount: monto });
+        if (rechazado) await trx('finance.payment_allocation_history').insert({ tenant_id: T, allocation_id: a.id, event: 'kepler_no_escrito',
+          status_from: 'executed', status_to: 'executed', created_by: 'smoke_pgp121', detail: JSON.stringify({ motivos: ['Tesorería ya lo capturó'] }) });
+        return a.id;
+      };
+      const viejoRech = await probado('2099-03-01', 101.01, true);
+      const viejoNuevo = await probado('2099-03-02', 202.02, false);
+      const recienteRech = await probado('2099-03-12', 303.03, true);
+      const reciente = await probado('2099-03-13', 404.04, false);
+      const { SQL_PROBADOS_SIN_LIGAR } = require(path.join(__dirname, '../../libs/finance/src/lib/payment-calendar/pago-por-el-banco.sql.ts'));
+      const nuestros = new Set([viejoRech, viejoNuevo, recienteRech, reciente, unico.id]);
+      const fila6 = (await trx.raw(SQL_PROBADOS_SIN_LIGAR, [T, '2099-01-01', 50])).rows.map((x) => x.id).filter((id) => nuestros.has(id));
+      ok(JSON.stringify(fila6) === JSON.stringify([reciente, unico.id, viejoNuevo, recienteRech, viejoRech]),
+        '6. la fila de Kepler: nunca intentados primero (13, 11, 2 de marzo), después los rechazados, los más nuevos antes');
+      const viejo = (await trx('finance.payment_allocations').where({ tenant_id: T, status: 'executed' })
+        .whereIn('id', [...nuestros]).orderBy('paid_bank_date').limit(2).pluck('id'));
+      ok(viejo.includes(viejoRech) && !viejo.includes(reciente),
+        '6. control: con el orden viejo (fecha ascendente, tope 2) el rechazado viejo ocupa un lugar y el reciente no entra');
       throw ROLLBACK;
     });
   } catch (e) {

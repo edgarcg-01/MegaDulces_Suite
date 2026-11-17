@@ -19,17 +19,14 @@ import { VendorChecadorPreciosComponent } from './vendor-checador-precios.compon
 
 const HOY = new Date().toISOString();
 /**
- * ⛔ «Ayer» es un día del CALENDARIO, no 30 horas hacia atrás. Restar 30 h cae en anteayer
- * siempre que la prueba corra antes de las 06:00, y el CI corre a esa hora: la prueba se
- * ponía roja por el reloj del runner, no por la pantalla. Se fija el día anterior a media
- * tarde, que es ayer en cualquier huso donde corran juntos el fixture y la pantalla.
+ * ⛔ «Ayer» lo decide el huso de la PANTALLA, no el del runner. `cuandoEs` compara por clave de
+ * día de México (`toMxDateKey`), así que un fixture armado con `setHours` local cae en el día
+ * equivocado en cuanto el runner corre en UTC: medido en el CI del 2026-11-17 a las 03:37Z, las
+ * 15:03 UTC del día anterior son las 09:03 de HOY en México, y la prueba se puso roja sin que la
+ * pantalla tuviera nada malo. Se usa la MISMA resta que la pantalla: 24 h exactas, que por
+ * construcción caen en la clave de ayer en cualquier huso.
  */
-const AYER = (() => {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  d.setHours(15, 3, 0, 0);
-  return d.toISOString();
-})();
+const AYER = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
 const ficha = {
   clave: '00052', nombre: 'DULCE PRUEBA /12',

@@ -461,3 +461,25 @@ describe('[GX.111] nómina: el dato del pago llega al pagar', () => {
     expect(faltaParaMandar(nomina('otro', '')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
   });
 });
+
+describe('[PGP.122] DS17: la solicitud que se paga después de pedirse — la misma regla que la nómina', () => {
+  const pedida = (forma: string, detalle: string | null): EstadoAporte =>
+    ({ ...completo(), forma_pago: forma, forma_pago_detalle: detalle, se_paga_despues: true });
+
+  it('transferencia y cheque sin su dato pasan: llegan al pagar', () => {
+    expect(detallePagoOpcional({ forma_pago: 'transferencia', se_paga_despues: true })).toBe(true);
+    expect(faltaParaMandar(pedida('transferencia', ''))).toEqual([]);
+    expect(faltaParaMandar(pedida('cheque', null))).toEqual([]);
+  });
+
+  it('⛔ NEGATIVA — sin la marca, el vale de hoy (gasto ya pagado) sigue exigiendo el dato', () => {
+    expect(faltaParaMandar({ ...pedida('transferencia', ''), se_paga_despues: false }).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    expect(faltaParaMandar({ ...pedida('cheque', ''), se_paga_despues: undefined }).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+  });
+
+  it('⛔ NEGATIVA — tarjeta y «otro» no se aflojan, y lo escrito se sigue validando', () => {
+    expect(detallePagoOpcional({ forma_pago: 'tarjeta', se_paga_despues: true })).toBe(false);
+    expect(faltaParaMandar(pedida('tarjeta', '')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+    expect(faltaParaMandar(pedida('cheque', 'AB-12')).map((f) => f.id)).toEqual(['forma_pago_detalle']);
+  });
+});

@@ -22,6 +22,13 @@
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
+/**
+ * `[PGP.122]` `kdm1.c67` («quién capturó») de todo documento que la Suite escribe en Kepler. Hasta hoy
+ * vivía copiado en cuatro escritores (requisición, cliente, pago, comisiones); lo nuevo lo toma de aquí y
+ * los cuatro quedan como deuda con nombre de adoptarlo (ADR-056) —son el mismo literal—.
+ */
+export const CAPTURISTA_SUITE = 'SUITE';
+
 export interface ConexionKepler {
   sucursal: string;
   url: string;
@@ -78,3 +85,12 @@ export function servidoresEncendidos(env: Env): ConexionKepler[] {
   }
   return out;
 }
+
+/**
+ * `[PGP.122.4]` El folio por el contador de Kepler (`md.sqliov`). Se re-exporta desde aquí porque los
+ * ensayos empaquetados y las pruebas de `database/tests` apuntan `@megadulces/platform-core` a ESTE
+ * archivo: así lo encuentran sin cambiar sus alias.
+ */
+export * from './kepler-folio';
+/** `[PGP.122]` Cómo escribe Kepler un texto (se mudó de ALC, ver el archivo). */
+export * from './kepler-texto';
