@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { applySmartSearch } from '@megadulces/platform-core';
+import { applySmartSearch, smartSearchRank } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from '../commercial-quotes/catalog-search-terms';
 
 /**
@@ -70,8 +70,12 @@ export function consultaBuscadorCatalogo(
     .whereNull('p.deleted_at')
     .groupByRaw('btrim(p.sku)');
 
+  // [BU.5.1] Qué tan bien coincide el nombre/SKU (frase → palabras completas → inicio de palabra → resto):
+  // va ANTES de lo más vendido. Sin esto «el rey» traía 10 REYMA antes que los productos El Rey.
+  const rank = smartSearchRank(term, { columns: ['v.name', 'v.sku'], ignore: PALABRAS_RELLENO });
   const inner = knex
     .select('v.sku', 'v.name', 'v.content', 'v.barcode', 'v.unit_base', 'v.piece_price', 'v.pack_size', 'v.box_size', 'v.box_price', 'v.sold_by_kg', 'dem.revenue')
+    .select(rank ? knex.raw(`${rank.sql} AS match_rank`, rank.bindings) : knex.raw('0 AS match_rank'))
     .from(opciones.incluirPrecioSimbolico ? knex.raw(`${FUENTE_PRECIOS_COTIZACION} AS v`) : 'analytics.v_label_prices as v')
     .leftJoin(demanda.as('dem'), 'dem.sku', 'v.sku')
     .where('v.sucursal', suc)
@@ -80,6 +84,7 @@ export function consultaBuscadorCatalogo(
             WHEN v.barcode = ?          THEN 1
             WHEN v.sku ILIKE ?          THEN 2
             ELSE 3 END,
+       match_rank,
        dem.revenue DESC NULLS LAST,
        v.name NULLS LAST,
        v.sku`,
@@ -128,6 +133,7 @@ export const ORDEN_BUSCADOR_CATALOGO = `
        WHEN v.barcode = :term          THEN 1
        WHEN v.sku ILIKE :pre           THEN 2
        ELSE 3 END,
+  v.match_rank,
   v.revenue DESC NULLS LAST,
   v.name NULLS LAST,
   v.sku`;

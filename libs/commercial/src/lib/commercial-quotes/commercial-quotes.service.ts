@@ -970,6 +970,7 @@ export class CommercialQuotesService {
                 WHEN v.barcode = :term          THEN 1
                 WHEN v.sku ILIKE :pre           THEN 2
                 ELSE 3 END,
+           v.match_rank,
            v.revenue DESC NULLS LAST,
            v.name NULLS LAST,
            v.sku

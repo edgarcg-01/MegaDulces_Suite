@@ -154,3 +154,44 @@ export function applySmartSearch(
     }
   });
 }
+
+/** Escapa una palabra normalizada para meterla en una regex de Postgres (va como binding). */
+const reEsc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * `[BU.5.1]` Qué TAN BIEN coincide cada fila con lo que se escribió, para ORDENAR (el filtro sigue
+ * siendo {@link applySmartSearch}). Devuelve una expresión SQL de 0 a 3, menor = mejor:
+ *   · 0 — la frase tal cual, en palabras completas («el rey» → «… / 15 EL REY»)
+ *   · 1 — todas las palabras útiles completas, en cualquier orden («vaso el rey» → «VASO FRUT … EL REY»)
+ *   · 2 — todas las palabras útiles al INICIO de una palabra («rey» → «REYMA»)
+ *   · 3 — el resto (dentro de otra palabra, sinónimo o trigramas)
+ * Por qué: el filtro busca por substring y el orden lo ponía cada buscador (en el catálogo, lo más
+ * vendido), así que «el rey» traía 10 REYMA antes que los productos El Rey (medido en Canindo el
+ * 2026-11-17: 1 de los 12 primeros). Kepler busca la frase dentro de la descripción.
+ * Va DESPUÉS de los aciertos exactos (clave, código de barras) y ANTES del orden de negocio del caller.
+ * `null` = sin texto que calificar (el caller ordena como siempre).
+ */
+export function smartSearchRank(
+  rawQuery: string | null | undefined,
+  opts: Pick<SmartSearchOptions, 'columns' | 'ignore'>,
+): { sql: string; bindings: string[] } | null {
+  const columns = (opts.columns || []).filter((c) => IDENT.test(c));
+  const todos = norm(rawQuery ?? '').split(/\s+/).filter(Boolean);
+  if (!columns.length || !todos.length) return null;
+  const ignorar = new Set((opts.ignore ?? []).map(norm));
+  const utiles = todos.filter((t) => !ignorar.has(t));
+  const tokens = utiles.length ? utiles : todos;
+  const hay = `public.f_unaccent(lower(concat_ws(' ', ${columns.join(', ')})))`;
+  // Una condición por palabra; los patrones (completa o al inicio) van en los bindings, en el mismo orden.
+  const todas = tokens.map(() => `${hay} ~ ?`).join(' AND ');
+  const sql = `(CASE WHEN ${hay} ~ ? THEN 0
+                     WHEN ${todas} THEN 1
+                     WHEN ${todas} THEN 2
+                     ELSE 3 END)`;
+  const bindings = [
+    `\\m${todos.map(reEsc).join('\\s+')}\\M`,
+    ...tokens.map((t) => `\\m${reEsc(t)}\\M`),
+    ...tokens.map((t) => `\\m${reEsc(t)}`),
+  ];
+  return { sql, bindings };
+}
