@@ -101,7 +101,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     almacenesSurtido: ReturnType<typeof vi.fn>;
   };
   let user: { warehouse_code?: string; sub?: string } | null;
-  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits', ReturnType<typeof vi.fn>>;
+  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits' | 'substitutes', ReturnType<typeof vi.fn>>;
   /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
   let cn: { resumen: ReturnType<typeof vi.fn> };
 
@@ -162,6 +162,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       routeStart: vi.fn(() => of({})),
       detail: vi.fn(() => of(DETALLE())),
       otherUnits: vi.fn(() => of({ for_line_id: '', product_id: '', product_name: '', ordered: 0, unit: 'PZA', factor: 1, units: [] })),
+      substitutes: vi.fn(() => of({ for_line_id: '', for_product_name: '', missing: 0, unit: 'PZA', data: [] })),
       start: vi.fn(() => of(DETALLE().order)),
       finish: vi.fn(() => of({
         order_id: 'o-rosy', outcome: 'con_faltantes',
@@ -706,6 +707,57 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     c.noHabia(c.pendientes()[0]);
     fix.detectChanges();
     expect(boton('Surtir en otra unidad')).toBeFalsy();
+    expect(boton('Cambiar por otro producto')).toBeFalsy();
+  });
+
+  // ── [GP.RF.31] Cambiar lo que faltó por otro producto (decisión de Edgar, 2026-11-17) ──────────
+  const VALENTINA = () => ({
+    for_line_id: 'pl2', for_product_name: 'SALSA MAGA', missing: 2, unit: 'CJA',
+    data: [{ product_id: 'p9', sku: 'SV1', product_name: 'SALSA VALENTINA', units: [{ unit: 'CJA', factor: 12, price: 200 }], stock_qty: 48, stock_state: 'con_existencia' as const, match: 'nombre' as const }],
+  });
+  const botonQueDice = (t: string): HTMLButtonElement | undefined =>
+    Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.includes(t)) as HTMLButtonElement | undefined;
+
+  it('[GP.RF.31] ⭐ lo que faltó se cambia por otro producto, y al servidor viajan sólo producto, unidad y cantidad', async () => {
+    pv['substitutes'] = vi.fn(() => of(VALENTINA()));
+    await sinSalsa();
+    clic('Cambiar por otro producto');
+    expect(pv['substitutes']).toHaveBeenCalledWith('o-rosy', 'pl2', '');
+    expect(texto()).toContain('Faltan 2 CJA');
+    botonQueDice('SALSA VALENTINA')!.click();
+    fix.detectChanges();
+    // Misma unidad que el renglón: propone lo que faltó.
+    expect(c.cambioCant()).toBe(2);
+    clic('Poner');
+    expect(texto()).toContain('En su lugar: 2 CJA de SALSA VALENTINA');
+    clic('Terminé de surtir');
+    expect(pv.finish).toHaveBeenCalledWith('o-rosy', { lines: [
+      { line_id: 'pl1', picked: 5 },
+      { line_id: 'pl2', picked: 0, substitute: { product_id: 'p9', unit: 'CJA', quantity: 2 }, reason: 'sin_existencia' },
+    ] });
+  });
+
+  it('[GP.RF.31] NEGATIVA: un producto que ya va en otro renglón se ofrece apagado (el servidor rechazaría el cierre)', async () => {
+    pv['substitutes'] = vi.fn(() => of(VALENTINA()));
+    await sinSalsa();
+    c.otraUnidad.set({ 'pl-otro': { product_id: 'p9', unit: 'CJA', quantity: 1, otro: true, product_name: 'SALSA VALENTINA' } });
+    clic('Cambiar por otro producto');
+    const b = botonQueDice('SALSA VALENTINA')!;
+    expect(b.disabled).toBe(true);
+    expect(b.textContent).toContain('ya va en otro renglón');
+    c.elegirCambio(c.ola()!.lines.find((l) => l.id === 'pl2')!, VALENTINA().data[0]);
+    expect(c.cambioElegido()).toBeNull();
+  });
+
+  it('[GP.RF.31] NEGATIVA: sin elegir producto o con cantidad 0, «Poner» queda apagado', async () => {
+    pv['substitutes'] = vi.fn(() => of(VALENTINA()));
+    await sinSalsa();
+    clic('Cambiar por otro producto');
+    expect(boton('Poner')?.disabled).toBe(true);
+    botonQueDice('SALSA VALENTINA')!.click();
+    c.cambioCant.set(0);
+    fix.detectChanges();
+    expect(boton('Poner')?.disabled).toBe(true);
   });
 
   // ── [MCP.3.15] Indicaciones del vendedor ───────────────────────────────────────────────

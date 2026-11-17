@@ -207,8 +207,6 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       // [GP.3b] Surtir desde el celular: foco, sin barra. Se entra directo (no hace falta elegir
       // nada antes: el sistema le da al surtidor su siguiente ola).
       { label: 'Surtir', icon: 'pi pi-shopping-bag', route: '/almacen/surtir', permission: Permission.COMMERCIAL_PICKING_GESTIONAR, exact: true },
-      // [MCP.3] Los pedidos de preventa de la sucursal, por día: llegan solos y el aviso abre el pedido.
-      { label: 'Preventa por surtir', icon: 'pi pi-inbox', route: '/almacen/surtir-preventa', permission: Permission.COMMERCIAL_PICKING_GESTIONAR, exact: true },
       // [MCP.3.8] Clientes que dio de alta el vendedor y aún no tienen clave de Kepler. GESTIONAR y no
       // _VER en el menú: con _VER solo, el foco sería su aterrizaje (y ése está protegido arriba).
       { label: 'Clientes nuevos (Kepler)', icon: 'pi pi-user-plus', route: '/almacen/clientes-nuevos', permission: Permission.COMMERCIAL_PICKING_GESTIONAR, exact: true },
