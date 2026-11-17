@@ -468,6 +468,14 @@ async function completo(urlAdmin, urlRuntime) {
       const cta = await admin('finance.bank_accounts').where({ id: BANCO }).first(admin.raw("to_char(statement_source_since,'YYYY-MM-DD') d"), 'statement_source_set_by');
       check(cta.d === '2026-10-01' && cta.statement_source_set_by === 'prueba', 'la cuenta dice desde cuándo manda el banco y quién lo decidió');
 
+      // [CB.75] El encabezado del periodo sale de los movimientos, no queda vacío: 12 días de +100 −2 desde 1,000.
+      const encabezado = () => admin('finance.bank_statements').where({ bank_account_id: BANCO, period: '2026-10' })
+        .first(admin.raw('opening_balance::float8 as ini'), admin.raw('closing_balance::float8 as fin'),
+          admin.raw('total_in::float8 as ent'), admin.raw('total_out::float8 as sal'));
+      const e12 = await encabezado();
+      check(e12.ini === 1000 && e12.fin === 2176 && e12.ent === 1200 && e12.sal === 24,
+        `⛔ [CB.75] al pasar al banco, el encabezado de oct = apertura, cierre y totales de los movimientos (${JSON.stringify(e12)})`);
+
       const otra = await svc.usarElBanco(BANCO, 'prueba', '2026-10-20');
       check(otra.ya_estaba === true && otra.metidos === 0, 'pulsar dos veces no hace nada dos veces');
       check((await recoger()).length === 0, '⛔ y no avisa: no entró nada');
@@ -528,6 +536,11 @@ async function completo(urlAdmin, urlRuntime) {
       check(Number(vivosLibro[0].n) === 0, `⛔ ningún renglón del libro vive desde el 01 (ni el borrado revivió): ${vivosLibro[0].n}`);
       const vivosBanco = await admin('finance.bank_movements').where({ bank_account_id: BANCO, sync_source: 'banco' }).whereNull('deleted_at').count('* as n');
       check(Number(vivosBanco[0].n) === 26, `los renglones del banco siguen intactos tras la carga del libro (${vivosBanco[0].n} de 26)`);
+      // [CB.75] La carga del libro escribe el encabezado con lo que trae la hoja (aquí: nada, todo es del banco). En una
+      // cuenta que usa el banco eso NO puede quedar: se re-deriva de los movimientos (13 días: cierra en 2,274).
+      const eLibro = await encabezado();
+      check(eLibro.ini === 1000 && eLibro.fin === 2274 && eLibro.ent === 1300 && eLibro.sal === 26,
+        `⛔ [CB.75] la carga del libro no pisa el encabezado de una cuenta que usa el banco (${JSON.stringify(eLibro)})`);
     }
   } finally {
     await limpiar(admin).catch(() => {});

@@ -10,6 +10,7 @@ import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
+import { refrescarEncabezadosDelBanco } from './estado-de-cuenta/encabezado-del-banco';
 import { traspasosSinPareja, type MovimientoDeTraspaso } from './traspasos-sin-pareja';
 
 /**
@@ -3814,8 +3815,13 @@ export class FinanceBankService {
 
       const perAccount: any[] = [];
       const byGroup: Record<string, { in: number; out: number; n: number }> = {};
-      let grandIn = 0, grandOut = 0, grandUncat = 0, grandRows = 0;
+      let grandIn = 0, grandOut = 0, grandUncat = 0, grandRows = 0, grandFuera = 0;
       const processedAcctIds = new Set<string>();
+      // [CB.76] La ventana de fechas que acepta el periodo: el mes ±10 días. Medido en prod el 2026-11-17: 47 renglones
+      // del libro caen a 1–7 días de su mes (el banco aplica en el mes vecino, legítimos), ninguno entre 8 y 31, y 32 a
+      // más de un mes (≈ $1.9 M: 2027-08-06 en agosto, 0206-02-25 en febrero, 01-ene en octubre: errores de captura).
+      const fechaMin = (() => { const d = new Date(`${period}-01T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 10); return d.toISOString().slice(0, 10); })();
+      const fechaMax = (() => { const d = new Date(`${period}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCDate(d.getUTCDate() + 10); return d.toISOString().slice(0, 10); })();
 
       for (const ws of sheets) {
         let hRow = 0; const col: Record<string, number> = {};
@@ -3849,12 +3855,17 @@ export class FinanceBankService {
 
         const rows: any[] = []; const seen = new Map<string, number>();
         let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null, delBanco = 0;
+        const fueraDelPeriodo: string[] = [];
         for (let r = hRow + 1; r <= ws.rowCount; r++) {
           const row = ws.getRow(r);
-          const date = excelDate(cellVal(row, ci.fecha));
-          if (!date) continue;
+          const crudo = cellVal(row, ci.fecha);
+          const date = excelDate(crudo);
           const amtIn = money(cellVal(row, ci.dep)), amtOut = money(cellVal(row, ci.ret));
+          if (!date && (crudo === null || crudo === undefined || String(crudo).trim() === '')) continue;
           if (amtIn === 0 && amtOut === 0) continue;
+          // [CB.76] Una fecha que no es de este periodo NO entra, y se DICE. Antes entraba (2027-08-06 en una hoja de
+          // agosto, 01-ene en una de octubre) o se descartaba en silencio (el año 0206 que `excelDate` ya rechaza).
+          if (!date || date < fechaMin || date >= fechaMax) { fueraDelPeriodo.push(date ?? String(crudo).slice(0, 20)); continue; }
           if (acct.banco_desde && date >= acct.banco_desde) { delBanco++; continue; }
           const M = String(cellVal(row, ci.m) ?? '').trim(), C = String(cellVal(row, ci.c) ?? '').trim(), S = String(cellVal(row, ci.s) ?? '').trim();
           const concept = String(cellVal(row, ci.prov) ?? '').replace(/\s+/g, ' ').trim();
@@ -3899,9 +3910,14 @@ export class FinanceBankService {
               'sync_source', 'deleted_at', 'updated_at']);
         }
 
-        grandIn += tin; grandOut += tout; grandUncat += uncat; grandRows += rows.length;
+        grandIn += tin; grandOut += tout; grandUncat += uncat; grandRows += rows.length; grandFuera += fueraDelPeriodo.length;
+        const notas = [
+          ...(delBanco ? [`usa el banco desde ${acct.banco_desde}: ${delBanco} renglón(es) del libro no entraron`] : []),
+          ...(fueraDelPeriodo.length ? [`fecha fuera del periodo: ${fueraDelPeriodo.length} renglón(es) no entraron (${Array.from(new Set(fueraDelPeriodo)).slice(0, 3).join(', ')})`] : []),
+        ];
         perAccount.push({ sheet: ws.name, movs: rows.length, deposits: Math.round(tin), withdrawals: Math.round(tout), sin_clasificar: uncat,
-          ...(delBanco ? { note: `usa el banco desde ${acct.banco_desde}: ${delBanco} renglón(es) del libro no entraron` } : {}) });
+          ...(fueraDelPeriodo.length ? { fuera_del_periodo: fueraDelPeriodo.length } : {}),
+          ...(notas.length ? { note: notas.join(' · ') } : {}) });
       }
 
       // CB.33 — Barrido soft-delete (upload Y sheet). Marca deleted_at las filas del MISMO
@@ -3922,10 +3938,19 @@ export class FinanceBankService {
           .update({ deleted_at: trx.fn.now(), recon_status: 'ignored', updated_at: trx.fn.now() });
       }
 
-      this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, por ${actor || '?'}`);
+      // [CB.75] En una cuenta que ya usa el banco en este periodo, el encabezado (saldos y totales) NO es el del Excel:
+      // la carga de arriba lo acaba de pisar con lo que trae la hoja (sólo los días antes del banco). Se re-deriva de los
+      // movimientos vivos, igual que al entrar una descarga.
+      const [pa, pm] = period.split('-').map(Number);
+      const finPeriodo = pm >= 12 ? `${pa + 1}-01-01` : `${pa}-${String(pm + 1).padStart(2, '0')}-01`;
+      for (const a of Array.from(acctMap.values())) {
+        if (processedAcctIds.has(a.id) && a.banco_desde && a.banco_desde < finPeriodo) await refrescarEncabezadosDelBanco(trx, a.id, [period]);
+      }
+
+      this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, ${grandFuera} fuera del periodo, por ${actor || '?'}`);
       // [CB.60b] Cierra el hueco de CB.53: la carga del libro también avisa, y la conciliación corre al confirmar.
       if (grandRows || swept) await avisarBancos(trx, { origen: 'libro', periodos: [period] });
-      return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept };
+      return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept, fuera_del_periodo: grandFuera };
     });
 
     // WS: avisa a /finanzas/bancos que el periodo cambió (feed/upload o sync del Sheet).

@@ -10,6 +10,7 @@ import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
 import { avisarBancos } from '../aviso-bancos';
+import { refrescarEncabezadosDelBanco } from './encabezado-del-banco';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -562,8 +563,14 @@ export class EstadoDeCuentaService {
       const r = await trx('finance.bank_movements').insert(filas.slice(i, i + 500)).onConflict(['tenant_id', 'client_uuid']).ignore().returning('id');
       res.metidos += r.length;
     }
+    // ⛔ Array.from, NO spread: webpack baja `[...map.keys()]` a `[iterador]` (feedback_webpack_set_spread_downlevel).
+    const periodos = Array.from(estados.keys());
+    // [CB.75] El encabezado del periodo (saldos y totales) se deriva de los movimientos: sin esto quedaba vacío y
+    // Cuentas, Cuadre 3 vías, ContPAQi y Conciliación leían cero. Se re-deriva aunque no haya entrado nada nuevo: al
+    // pasar la cuenta, el libro de esos días se acaba de borrar y los totales cambiaron igual.
+    await refrescarEncabezadosDelBanco(trx, cuentaId, periodos);
     // La conciliación con Kepler corre al llegar el dato (CB.53), no al apretar un botón: el aviso sale al confirmar.
-    if (res.metidos) await avisarBancos(trx, { origen: 'descarga', cuenta: cuentaId, periodos: [...estados.keys()] });
+    if (res.metidos) await avisarBancos(trx, { origen: 'descarga', cuenta: cuentaId, periodos });
     return res;
   }
 

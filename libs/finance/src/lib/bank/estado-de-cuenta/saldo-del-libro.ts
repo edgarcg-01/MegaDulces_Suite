@@ -25,3 +25,17 @@ export function cierreDelDia(renglones: readonly RenglonDelLibro[]): number | nu
   const cierres = conSaldo.filter((r) => !previos.has(centavos(r.running_balance)));
   return cierres.length === 1 ? centavos(cierres[0].running_balance) / 100 : null;
 }
+
+/**
+ * `[CB.75]` El saldo con que ABRIÓ un día: el espejo de `cierreDelDia`. Cada renglón dice de qué saldo viene
+ * (saldo − abono + cargo); la apertura es el único «saldo anterior» que no produjo ningún renglón del mismo día.
+ * Cero o más de uno = la cadena no se puede afirmar y se devuelve `null`.
+ */
+export function aperturaDelDia(renglones: readonly RenglonDelLibro[]): number | null {
+  const conSaldo = renglones.filter((r) => r.running_balance !== null && r.running_balance !== undefined);
+  if (!conSaldo.length) return null;
+  const saldos = new Set(conSaldo.map((r) => centavos(r.running_balance)));
+  const aperturas = new Set(conSaldo.map((r) => centavos(r.running_balance) - centavos(r.amount_in) + centavos(r.amount_out))
+    .filter((previo) => !saldos.has(previo)));
+  return aperturas.size === 1 ? Array.from(aperturas)[0] / 100 : null;
+}
