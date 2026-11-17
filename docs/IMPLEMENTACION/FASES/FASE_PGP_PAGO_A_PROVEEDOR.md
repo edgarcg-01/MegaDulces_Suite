@@ -1660,11 +1660,11 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 |---|---|---|---|
 | `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
 | `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
-| `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
+| `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ P1 ya decidida (2026-11-10, PUE al pagar): se puede empezar |
 | `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo). **2026-11-11:** ya no espera la D15 — el carril es la descarga del SAT (`fiscal.cfdi_payment_links`); su ingesta perdía 16,195 de 16,845 CFDI, arreglada en `[PGP.110b]` 🚀 (`857add821`, 2026-11-12); falta re-descargar y medir |
 | `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
 | `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
-| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS | 🧪 **2026-11-13**: el adaptador escribe las 8 (y varios documentos por pago, P7); ensayo contra el Kepler vivo en verde, con ROLLBACK. Ver «`[PGP.106]` Las 8 escrituras» abajo. **Sigue apagado** |
+| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS | 🚀 encendido 2026-11-14 (`[PGP.121]`): ese día escribió los primeros 3 en CEDIS. Antes, 🧪 **2026-11-13**: el adaptador escribe las 8 (y varios documentos por pago, P7); ensayo contra el Kepler vivo en verde, con ROLLBACK. Ver «`[PGP.106]` Las 8 escrituras» abajo. **Sigue apagado** |
 
 ### Decisiones (de Edgar y de la contadora)
 
@@ -2276,15 +2276,46 @@ nuevo. Contra prod, en sólo lectura, la siguiente pasada toma 3 de 3 (el orden 
 `KEPLER_PAGO_TEMPLATE_FOLIO_06`». Sólo `00` tiene plantilla elegida: de los 7 pagos escribibles, 4 (01, 06, 07 y 08)
 esperan la suya.
 
-**NO MEDIDO:** el primer `X-D-26` escrito por la Suite en Kepler. Llega con el arreglo de la fila desplegado y la
-siguiente carga del banco.
+**Medido 2026-11-17 (prod, sólo lectura): los primeros `X-D-26` de la Suite.** El 14-nov a las 09:50 escribió los 3 de
+CEDIS que la fila corregida tenía que tomar (`0024276`–`0024278`, ~$1.2 M). Los tres están en Kepler sin cancelar y
+sin gemelo (mismo acreedor, ±$1, ±7 días: cada uno se encuentra sólo a sí mismo). De los demás pagos probados por el
+banco, la bitácora dice por qué no se escribieron: unos 60 ya los había capturado Tesorería, 7 traían la factura ya
+saldada en Kepler, 6 son acreedores de gasto (fuera a propósito), 4 esperan la plantilla de su servidor y 3 pagan un
+importe distinto del saldo de la factura. ⭐ **El freno ya no es el código:** es que Tesorería sigue capturando las
+transferencias de CEDIS y que el estado de cuenta no se sube (lo último cargado es del 10-nov).
 
 **Pendiente:**
 1. La plantilla de pago de `01`–`08` (`KEPLER_PAGO_TEMPLATE_FOLIO_NN`), elegida leyendo entero un `X-D-26` de
-   Tesorería en el Kepler vivo de cada servidor.
+   Tesorería en el Kepler vivo de cada servidor. ⚠️ No alcanza sola: en `01`–`08` faltan los GRANT (ver `[PGP.125]`).
 2. Que Tesorería deje de capturar a mano las transferencias a proveedores `C…` que la Suite escribe. Mientras las
    capture, la Suite no las escribe (el ensayo las ve capturadas): no hay doble, pero tampoco ahorro.
 3. Antes de enero, el permiso sobre `kdc22701`.
 4. Lo rechazado para siempre (ya capturado por Tesorería) se vuelve a revisar en cada pasada mientras esté entre los 50
    más nuevos: es trabajo repetido, no riesgo. Y un rechazo pasajero (la plantilla que falta) que quede fuera de esos
    50 ya no se reintenta solo. Ligar lo capturado al folio de Tesorería lo sacaría de la fila.
+
+### `[PGP.125]` La prueba con los comprobantes de noviembre, desde la pantalla (🧪 2026-11-14)
+
+Edgar pidió probar el proceso completo con los pagos ya hechos (la carpeta de comprobantes de Finanzas: 101 PDF, del 3 al
+13 de noviembre). Se cruzó cada comprobante contra el estado de cuenta, el Calendario y Kepler (sólo lectura), se corrió el
+ensayo «Ver cómo quedaría en Kepler» desde la pantalla en 79 pagos y se probó la carga de comprobantes con 3 PDF.
+
+**Lo medido**
+- Tesorería captura el `X-D-26` el mismo día del pago (61 de 65). El estado de cuenta entra subiendo el libro de bancos y
+  el último llegaba al 10-nov: la Suite casi siempre llega tarde y su escritura se bloquea con razón (el saldo ya es 0).
+  Para que escriba, Tesorería deja de capturar las transferencias de CEDIS y el libro se sube a diario.
+- Ensayo contra lo capturado por Tesorería: de 34 pagos probados por el banco, 16 idénticos; la cuenta de banco siempre
+  bien. El grueso de las diferencias es el **concepto** (`c12`): cada servidor tiene su catálogo `kdxv`, la Suite usa el
+  de la factura y Tesorería el de «compra» de la sucursal (en Canindo la factura trae 012, «gastos financieros»; Tesorería
+  pone 013, «compra de mercancías»). **P10, abierta:** ¿qué concepto escribe la Suite fuera de CEDIS?
+- `kepler_push` tiene los 20 permisos de un pago sólo en `00`. En 01–08 tiene `kdm1` y nada más (en 04, ni `kdxd`):
+  faltan `kdm5`, `kdxe`, `kdxf`, `kdxg`, `kdc126`, `kdb1`, `kdxv` y las `kdc2AAMM`. Escribir fuera de CEDIS pide
+  esos GRANT, no sólo la plantilla.
+
+**Lo corregido** (`[PGP.125]`, en el tracker): la frase falsa de la pantalla, la fecha del OCR y el espejo de pagos de
+los nueve servidores para Comprobantes de pago (los otros ~20 consumidores de `analytics.erp_supplier_payments` siguen
+viendo sólo CEDIS, comprobado fila por fila).
+
+**Hallazgo al margen (2026-11-17):** 17 movimientos del estado de cuenta dicen 2027-08-06. Son de una sola cuenta y de
+una sola carga, del 12-ago-2026: casi seguro el año está mal tecleado (2026-08-06). No tocan el carril del banco (busca
+±3 días alrededor del pago), pero cualquier «último movimiento» que use `max(movement_date)` dice agosto de 2027.
