@@ -30,6 +30,22 @@ export interface SupplierUnappliedCreditRow {
   mas_vieja: string | null;
   /** `true` si además le debemos: eso es lo que se puede netear. */
   con_deuda_viva: boolean;
+  /**
+   * `[PGP.141]` El crédito de cada sucursal SIN anticipos (tienen su propio aviso, `[PGP.139]`), y si en ESA sucursal le
+   * debemos: una nota de crédito sólo se aplica contra facturas de su sucursal. Opcional para quien arme filas a mano.
+   */
+  por_sucursal?: CreditoPorSucursal[];
+}
+
+/** `[PGP.141]` Lo que un acreedor tiene a favor en UNA sucursal (sin anticipos). */
+export interface CreditoPorSucursal {
+  sucursal: string;
+  /** Las clases presentes en esa sucursal («Devolución de compra, Nota de crédito»). */
+  clases: string;
+  a_favor: number;
+  docs: number;
+  /** En esa sucursal le debemos: ahí se puede aplicar. */
+  con_deuda: boolean;
 }
 
 /** Un documento del desglose de UN acreedor, aplicado o no. */

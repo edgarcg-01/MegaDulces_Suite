@@ -36,6 +36,7 @@ import {
   SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
 } from './pago-por-comprobante';
 import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
+import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
 export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
@@ -603,39 +604,10 @@ export class PaymentCalendarService {
    */
   async listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.17]` el LEFT JOIN pre-agregado en vez del EXISTS correlacionado (882 → 394 ms, 2026-10-26); `[PGP.141]` agrega
+    // `por_sucursal`. La consulta vive en `creditos-a-favor.sql.ts` (la misma que se mide contra prod).
     return this.tk.run(async (trx) => {
-      /*
-       * ⛔ `[PGP.17]` **El `EXISTS` correlacionado costaba 882 ms; este `LEFT JOIN`, 394.**
-       *
-       * Medido contra prod el 2026-10-26, 4 corridas cada uno. La versión con `EXISTS (…)` dentro
-       * del `SELECT` lo evaluaba **una vez por acreedor** —73 veces— contra una vista derivada que
-       * no tiene índice que ayude. Pre-agregar los acreedores con deuda a un conjunto y unirlo lo
-       * deja en una sola pasada.
-       *
-       * ⚠️ 394 ms sigue siendo cerca del techo de 500. Se banca porque corre **una vez al abrir la
-       * pantalla** y en paralelo con las obligaciones, no por interacción. Si la deuda crece, el
-       * siguiente paso es materializar `ap` — no subir el techo.
-       */
-      const { rows } = await trx.raw(
-        `WITH deudores AS (
-           SELECT DISTINCT p.proveedor
-             FROM analytics.v_supplier_payables p
-            WHERE p.pendiente > 0 AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?
-         )
-         SELECT c.proveedor,
-                max(c.proveedor_nombre) AS proveedor_nombre,
-                sum(c.a_favor)::float8 AS a_favor,
-                count(*)::int AS docs,
-                string_agg(DISTINCT c.clase, ', ' ORDER BY c.clase) AS clases,
-                to_char(min(c.fecha), 'YYYY-MM-DD') AS mas_vieja,
-                bool_or(d.proveedor IS NOT NULL) AS con_deuda_viva
-           FROM analytics.v_supplier_credits c
-           LEFT JOIN deudores d ON d.proveedor = c.proveedor
-          WHERE c.tenant_id = ? AND c.pendiente
-          GROUP BY c.proveedor
-          ORDER BY sum(c.a_favor) DESC`,
-        [tenantId, tenantId],
-      );
+      const { rows } = await trx.raw(SQL_CREDITOS_A_FAVOR, [tenantId, tenantId]);
       return rows;
     });
   }
