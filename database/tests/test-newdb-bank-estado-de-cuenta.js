@@ -397,37 +397,55 @@ async function completo(urlAdmin, urlRuntime) {
       await niega(() => admin.transaction(async (trx) => { await avisarBancos(trx, { origen: 'descarga', periodos: ['2026-10'] }); throw new Error('rollback a propósito'); }));
       check((await recoger()).length === 0, '⛔ una transacción que se deshace NO avisa: el oyente nunca concilia un dato que no quedó');
 
-      // [CB.67] El libro deja de existir: sin el paralelo, el banco manda desde el ÚLTIMO día del libro si la descarga lo
-      // cubre sin hueco. ⛔ Con hueco se niega, dice qué falta bajar y no escribe nada.
+      // [CB.73] Lo que decide es el CUADRE de la descarga, no el libro (Edgar, 2026-11-17). Pasa si sigue de punta a punta
+      // por saldos y abre en el saldo con que la cuenta cerró antes; el banco manda desde el PRIMER día de la descarga.
+      // ⛔ ENTRADA: la descarga abre en otro saldo que el último conocido de la cuenta → se niega, dice qué bajar y no escribe.
       const HUECO = await cuenta('BBVA', '59003', `${ALIAS} HUECO`);
       const rH = renglonesDe(10, 12, 5000);
       await svc.confirmar({ file_base64: bbva(rH.map((x) => x.txt).reverse()), bank_account_id: HUECO, aceptar_sin_testigo: true }, 'prueba');
       const [stH] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: HUECO, period: '2026-10' }).returning('id');
       await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stH.id ?? stH, bank_account_id: HUECO, movement_date: '2026-10-05',
-        concept: 'PRUEBA LIBRO', amount_in: 50, amount_out: 0, running_balance: 5000, client_uuid: 'prueba-cb67-hueco' });
+        concept: 'PRUEBA LIBRO', amount_in: 50, amount_out: 0, running_balance: 4000, client_uuid: 'prueba-cb73-entrada' });
       const hueco = await niega(() => svc.usarElBanco(HUECO, 'prueba', '2026-10-20'));
-      check(/falta bajar del 2026-10-05 al 2026-10-09/.test(JSON.stringify(hueco?.response ?? hueco?.message ?? '')),
-        `⛔ [CB.67] el libro llega al 05 y la descarga empieza el 10: NO pasa y dice qué falta bajar (${JSON.stringify(hueco?.response?.motivos ?? hueco?.message)})`);
+      const motivoH = JSON.stringify(hueco?.response?.motivos ?? hueco?.message ?? '');
+      check(motivoH.includes('la descarga abre el 10/10 en $5,000.00 y la cuenta cerró el 05/10 en $4,000.00: baja un solo archivo del 05/10 a hoy'),
+        `⛔ [CB.73] la descarga abre en $5,000 y la cuenta cerró en $4,000: NO pasa y dice desde dónde bajar (${motivoH})`);
       const escritoH = await admin('finance.bank_movements').where({ bank_account_id: HUECO }).where((w) => w.where('sync_source', 'banco').orWhereNotNull('deleted_at')).count({ n: '*' });
       const ctaH = await admin('finance.bank_accounts').where({ id: HUECO }).first('statement_source_since');
-      check(Number(escritoH[0].n) === 0 && ctaH.statement_source_since === null, '⛔ [CB.67] y no escribe nada: ni borra el libro, ni mete del banco, ni fija el corte');
-      // Sin paralelo y sin hueco: el libro llega al 06 (a medias), la descarga trae del 05 al 07.
+      check(Number(escritoH[0].n) === 0 && ctaH.statement_source_since === null, '⛔ [CB.73] y no escribe nada: ni borra el libro, ni mete del banco, ni fija el corte');
+      // ⛔ ROTURA: el segundo archivo no abre donde cerró el primero (faltan movimientos en medio) → se niega y no escribe.
+      const ROTA = await cuenta('BBVA', '59005', `${ALIAS} ROTA`);
+      await svc.confirmar({ file_base64: bbva(renglonesDe(10, 11, 3000).map((x) => x.txt).reverse()), bank_account_id: ROTA, aceptar_sin_testigo: true }, 'prueba');
+      await svc.confirmar({ file_base64: bbva(renglonesDe(13, 13, 9000).map((x) => x.txt).reverse()), bank_account_id: ROTA, aceptar_sin_testigo: true }, 'prueba');
+      const rota = await niega(() => svc.usarElBanco(ROTA, 'prueba', '2026-10-20'));
+      const motivoR = JSON.stringify(rota?.response?.motivos ?? rota?.message ?? '');
+      check(motivoR.includes('el saldo no sigue entre el 11/10 y el 13/10 (cerró en $3,196.00 y abre en $9,000.00): baja un solo archivo del 11/10 a hoy'),
+        `⛔ [CB.73] el saldo no sigue entre dos descargas: NO pasa y lo dice (${motivoR})`);
+      const escritoR = await admin('finance.bank_movements').where({ bank_account_id: ROTA }).count({ n: '*' });
+      check(Number(escritoR[0].n) === 0, `⛔ [CB.73] y no mete nada del banco (${escritoR[0].n})`);
+      // Cuadra: el libro cierra el 04 en $7,000 y la descarga (05 al 07) abre en $7,000 → manda desde el 05, su primer día.
       const SINP = await cuenta('BBVA', '59004', `${ALIAS} SINP`);
       const rS = renglonesDe(5, 7, 7000);
       await svc.confirmar({ file_base64: bbva(rS.map((x) => x.txt).reverse()), bank_account_id: SINP, aceptar_sin_testigo: true }, 'prueba');
       const [stS] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: SINP, period: '2026-10' }).returning('id');
-      for (const [d, imp] of [[3, 10], [4, 20], [6, 30]]) {
+      for (const [d, imp, saldo] of [[3, 10, 6990], [4, 10, 7000], [6, 30, 7130]]) {
         await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP, movement_date: `2026-10-0${d}`,
-          concept: 'PRUEBA LIBRO', amount_in: imp, amount_out: 0, running_balance: 7000 + imp, client_uuid: `prueba-cb67-sinp-${d}` });
+          concept: 'PRUEBA LIBRO', amount_in: imp, amount_out: 0, running_balance: saldo, client_uuid: `prueba-cb73-sinp-${d}` });
       }
-      // ⛔ Una fecha FUTURA del libro (capturada mal) no es su último día.
+      // Una fecha FUTURA del libro (capturada mal): desde el primer día de la descarga se reemplaza también.
       await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP, movement_date: '2027-08-06',
         concept: 'PRUEBA FECHA MAL', amount_in: 1, amount_out: 0, running_balance: 1, client_uuid: 'prueba-cb67-futura' });
+      const enCuadre = (await svc.cuadre('2026-10-20')).cuentas;
+      const qS = enCuadre.find((c) => c.id === SINP)?.cuadre;
+      check(qS?.cuadra === true && qS?.desde === '2026-10-05' && qS?.entrada === 'cuadra' && qS?.testigo?.fecha === '2026-10-04',
+        `[CB.73] el cuadre: SINP cuadra desde el 05 y abre en el saldo con que la cuenta cerró el 04 (${JSON.stringify(qS)})`);
+      check(enCuadre.find((c) => c.id === ROTA)?.cuadre.cuadra === false && enCuadre.find((c) => c.id === HUECO)?.cuadre.entrada === 'no_cuadra',
+        '[CB.73] y en la misma lista ROTA no cuadra y HUECO no cuadra en la entrada');
       const uS = await svc.usarElBanco(SINP, 'prueba', '2026-10-20');
-      check(uS.desde === '2026-10-06', `[CB.67] sin paralelo manda desde el último día del libro, sin contar la fecha futura (${uS.desde})`);
-      check(uS.libro_borrados === 2 && uS.metidos === 4, `el 06 del libro (y la fecha futura) se reemplazan; entran el 06 y el 07 del banco (${uS.libro_borrados} borrados, ${uS.metidos} metidos)`);
+      check(uS.desde === '2026-10-05', `[CB.73] manda desde el primer día de la descarga (${uS.desde})`);
+      check(uS.libro_borrados === 2 && uS.metidos === 6, `el 06 del libro (y la fecha futura) se reemplazan; entran los 3 días del banco (${uS.libro_borrados} borrados, ${uS.metidos} metidos)`);
       const vivosS = await admin('finance.bank_movements').where({ bank_account_id: SINP }).whereNull('deleted_at').whereNot('sync_source', 'banco').count({ n: '*' });
-      check(Number(vivosS[0].n) === 2, `lo del libro antes del 06 no se toca (${vivosS[0].n} de 2)`);
+      check(Number(vivosS[0].n) === 2, `lo del libro antes del 05 no se toca (${vivosS[0].n} de 2)`);
       await recoger();
       const sinQuien = await niega(() => svc.usarElBanco(BANCO, undefined, '2026-10-20'));
       check(!!sinQuien, '⛔ sin una persona que lo decida, no se pasa');
@@ -437,18 +455,18 @@ async function completo(urlAdmin, urlRuntime) {
       const aU = await recoger();
       check(aU.length === 1 && aU[0].origen === 'descarga' && aU[0].cuenta === BANCO && aU[0].periodos.join() === '2026-10',
         `al pasar la cuenta, UN aviso a la conciliación con su periodo (${JSON.stringify(aU)})`);
-      check(u.desde === '2026-10-12' && u.ya_estaba === false, `manda el banco desde el día siguiente al último que cuadró (${u.desde})`);
-      check(u.libro_borrados === 1, `el renglón del libro del día a medias se marca borrado (${u.libro_borrados})`);
-      check(u.metidos === 2 && u.sin_sucursal === 0 && u.sin_categoria === 0, `los 2 renglones del banco del 12 entran con categoría y sucursal (${JSON.stringify(u)})`);
+      check(u.desde === '2026-10-01' && u.ya_estaba === false, `[CB.73] sin saldo anterior con que comparar, cuadra y manda desde el primer día de la descarga (${u.desde})`);
+      check(u.libro_borrados === 23, `los renglones del libro desde ese día se marcan borrados (${u.libro_borrados} de 23)`);
+      check(u.metidos === 24 && u.sin_sucursal === 0 && u.sin_categoria === 0, `los 24 renglones del banco entran con categoría y sucursal (${JSON.stringify(u)})`);
       const llaves = await admin('finance.bank_branch_keys').where({ bank_account_id: BANCO, active: true }).select('key_type', 'key_value', 'sucursal', 'confirmed_by');
       check(llaves.some((k) => k.key_type === 'terminal' && k.key_value === '100000009' && k.sucursal === '40' && k.confirmed_by === 'prueba'),
         `el catálogo guarda la terminal → sucursal 40, confirmada por quien pulsó (${llaves.length} llaves)`);
       const metidos = await admin('finance.bank_movements').where({ bank_account_id: BANCO, sync_source: 'banco' }).whereNull('deleted_at')
         .select('classified_by', 'sucursal', 'client_uuid');
-      check(metidos.length === 2 && metidos.every((m) => m.classified_by === 'banco' && m.sucursal === '40' && m.client_uuid.startsWith('banco:')),
+      check(metidos.length === 24 && metidos.every((m) => m.classified_by === 'banco' && m.sucursal === '40' && m.client_uuid.startsWith('banco:')),
         'en bank_movements: sync_source y classified_by = banco, con su sucursal y la llave del renglón');
       const cta = await admin('finance.bank_accounts').where({ id: BANCO }).first(admin.raw("to_char(statement_source_since,'YYYY-MM-DD') d"), 'statement_source_set_by');
-      check(cta.d === '2026-10-12' && cta.statement_source_set_by === 'prueba', 'la cuenta dice desde cuándo manda el banco y quién lo decidió');
+      check(cta.d === '2026-10-01' && cta.statement_source_set_by === 'prueba', 'la cuenta dice desde cuándo manda el banco y quién lo decidió');
 
       const otra = await svc.usarElBanco(BANCO, 'prueba', '2026-10-20');
       check(otra.ya_estaba === true && otra.metidos === 0, 'pulsar dos veces no hace nada dos veces');
@@ -461,15 +479,10 @@ async function completo(urlAdmin, urlRuntime) {
       const a13 = await recoger();
       check(a13.length === 1 && a13[0].origen === 'descarga', `y avisa a la conciliación (${JSON.stringify(a13)})`);
 
-      // ⛔ Desde que usa el banco, la cuenta ya no se juzga contra el libro: ni «cuadra» contra lo que metió el propio
-      // banco, ni «sin libro» para siempre. Sigue en la lista con su paralelo y su fecha.
-      const cl2 = await svc.contraElLibro(30, '2026-10-20');
-      const c2 = cl2.cuentas.find((c) => c.id === BANCO);
-      const ultimo = c2?.dias[c2.dias.length - 1];
-      check(c2?.banco_desde === '2026-10-12' && ultimo?.fecha === '2026-10-11' && ultimo?.veredicto === 'cuadra',
-        `⛔ desde el 12 no se juzga: el último día comparado es el 11 y cuadra (${ultimo?.fecha} ${ultimo?.veredicto}, banco_desde ${c2?.banco_desde})`);
-      check(c2?.resumen.sin_libro === 0 && c2?.resumen.abierto === 0 && c2?.listo_para_banco.cumple === true,
-        `la cuenta conserva su paralelo: ningún día «sin libro» ni abierto (${JSON.stringify(c2?.resumen)})`);
+      // [CB.73] La cuenta que ya usa el banco sigue en «Cuadre» con su fecha, y la descarga siguiente la mantiene cuadrando.
+      const qB = (await svc.cuadre('2026-10-20')).cuentas.find((x) => x.id === BANCO);
+      check(qB?.banco_desde === '2026-10-01' && qB?.cuadre.cuadra === true && qB?.cuadre.hasta === '2026-10-13',
+        `[CB.73] en el cuadre: usa el banco desde el 01 y su descarga sigue cuadrando hasta el 13 (${JSON.stringify(qB?.cuadre)})`);
 
       // La carga del libro: en esa cuenta, desde el 12, sus renglones NO entran (ni reviven el borrado) y lo dice.
       const ExcelJS = require('exceljs');
@@ -484,7 +497,7 @@ async function completo(urlAdmin, urlRuntime) {
       fbs.logger = { log() {}, warn() {}, error() {}, debug() {} };
       const imp = await fbs.importFromBuffer(Buffer.from(await wb.xlsx.writeBuffer()), '2026-10', 'prueba-cb60b.xlsx', 'prueba', 'upload');
       const hoja = imp.accounts.find((a) => a.sheet === `${ALIAS} BANCO`);
-      check(/usa el banco desde 2026-10-12: 1 renglón/.test(hoja?.note ?? ''), `la carga del libro declara lo que no entró (${hoja?.note})`);
+      check(/usa el banco desde 2026-10-01: 2 renglón/.test(hoja?.note ?? ''), `la carga del libro declara lo que no entró (${hoja?.note})`);
       const aLibro = await recoger();
       check(imp.total > 0 && aLibro.length === 1 && aLibro[0].origen === 'libro' && aLibro[0].periodos.join() === '2026-10',
         `la carga del libro también avisa a la conciliación: era el hueco declarado de CB.53 (${imp.total} renglón(es), ${JSON.stringify(aLibro)})`);
@@ -511,10 +524,10 @@ async function completo(urlAdmin, urlRuntime) {
       check(Number(esperado) > 0 && firma.bancoFilas === Number(esperado),
         `⛔ la firma del oyente ve el lado banco como app_runtime (RLS forzado): ${firma.bancoFilas} de ${esperado}`);
       const vivosLibro = await admin('finance.bank_movements').where({ bank_account_id: BANCO }).whereIn('sync_source', ['upload', 'sheet'])
-        .where('movement_date', '>=', '2026-10-12').whereNull('deleted_at').count('* as n');
-      check(Number(vivosLibro[0].n) === 0, `⛔ ningún renglón del libro vive desde el 12 (ni el borrado revivió): ${vivosLibro[0].n}`);
+        .where('movement_date', '>=', '2026-10-01').whereNull('deleted_at').count('* as n');
+      check(Number(vivosLibro[0].n) === 0, `⛔ ningún renglón del libro vive desde el 01 (ni el borrado revivió): ${vivosLibro[0].n}`);
       const vivosBanco = await admin('finance.bank_movements').where({ bank_account_id: BANCO, sync_source: 'banco' }).whereNull('deleted_at').count('* as n');
-      check(Number(vivosBanco[0].n) === 4, `los renglones del banco siguen intactos tras la carga del libro (${vivosBanco[0].n})`);
+      check(Number(vivosBanco[0].n) === 26, `los renglones del banco siguen intactos tras la carga del libro (${vivosBanco[0].n} de 26)`);
     }
   } finally {
     await limpiar(admin).catch(() => {});

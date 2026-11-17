@@ -253,51 +253,8 @@ export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanc
   return { dias_seguidos: n, requeridos: DIAS_PARA_USAR_EL_BANCO, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
 }
 
-/**
- * `[CB.67]` **El libro deja de existir** (Edgar, 2026-11-12: «el libro ya no va a existir» → opción 2: todas las
- * cuentas pasan al banco sin el paralelo de 10 días). Sin días que cuadren, el corte es el ÚLTIMO día del libro
- * (ese día se reemplaza: puede haberse capturado a medias), y sólo si la descarga lo cubre de ahí en adelante sin
- * hueco: si no, el banco dejaría días sin ningún renglón. Las fechas FUTURAS del libro (capturadas mal, p. ej.
- * 2027 en BTE 7744) no cuentan como su último día. Sin libro, manda desde el primer día de la descarga.
- *
- * `[CB.72]` **El motivo pide UN archivo que empiece en un día con movimientos.** El rango de cada archivo es su
- * primer y su último MOVIMIENTO (`revisarEn`), no el periodo que se pidió al banco: un día sin movimientos no deja
- * rastro y se ve igual que un día que falta. Medido en prod el 2026-11-17: BB 506 pasaba el 12-nov y la descarga
- * del 17 (11 al 13) la bloqueó por el 8–10, días sin movimientos (el saldo sigue igual). Decir «falta bajar del 8
- * al 10» mandaba a bajar justo esos días: el archivo sale vacío y el hueco sigue. Un solo archivo desde el último
- * día con movimientos (o desde el último del libro) hasta hoy cruza el hueco sea quieto o no. ⛔ El saldo NO basta
- * para dar el hueco por quieto: en una cuenta de paso una entrada y una salida iguales lo dejan igual.
- */
-export interface CorteSinParalelo { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null }
-
-export function corteSinParalelo(ultimoDelLibro: string | null, archivos: readonly { desde: string; hasta: string }[], hoy: string): CorteSinParalelo {
-  const ult = ultimoDelLibro && ultimoDelLibro <= hoy ? ultimoDelLibro : null;
-  // dd/MM (con el año sólo si no es el de hoy): lo lee Tesorería en la columna «Dejar el libro».
-  const dm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}${f.slice(0, 4) === hoy.slice(0, 4) ? '' : `/${f.slice(0, 4)}`}`;
-  const bajar = (f: string) => `baja un solo archivo del ${dm(f)} a hoy`;
-  const rangos: { desde: string; hasta: string }[] = [];
-  for (const a of [...archivos].sort((x, y) => x.desde.localeCompare(y.desde))) {
-    const u = rangos[rangos.length - 1];
-    if (u && a.desde <= sumarDias(u.hasta, 1)) { if (a.hasta > u.hasta) u.hasta = a.hasta; } else rangos.push({ desde: a.desde, hasta: a.hasta });
-  }
-  if (!rangos.length) return { desde: null, ultimo_del_libro: ult, cubre: false, motivo: ult ? `no hay ninguna descarga subida: ${bajar(ult)}` : 'no hay ninguna descarga subida' };
-  const desde = ult ?? rangos[0].desde;
-  const r = rangos.find((x) => x.desde <= desde && x.hasta >= desde);
-  if (!r) {
-    const sig = rangos.find((x) => x.desde > desde);
-    return { desde, ultimo_del_libro: ult, cubre: false, motivo: sig
-      ? `el libro llega al ${dm(desde)} y la descarga empieza el ${dm(sig.desde)}: ${bajar(desde)}`
-      : `el libro llega al ${dm(desde)} y la descarga termina el ${dm(rangos[rangos.length - 1].hasta)}: ${bajar(desde)}` };
-  }
-  const i = rangos.indexOf(r);
-  if (i < rangos.length - 1) {
-    const a = sumarDias(r.hasta, 1), b = sumarDias(rangos[i + 1].desde, -1);
-    const dias = a === b ? `el ${dm(a)}` : `del ${dm(a)} al ${dm(b)}`;
-    return { desde, ultimo_del_libro: ult, cubre: false,
-      motivo: `a la descarga le ${a === b ? 'falta' : 'faltan'} ${dias}, o no ${a === b ? 'tuvo' : 'tuvieron'} movimientos: ${bajar(r.hasta)}` };
-  }
-  return { desde, ultimo_del_libro: ult, cubre: true, motivo: null };
-}
+// [CB.67]/[CB.72] `corteSinParalelo` (el banco manda desde el último día del libro) se retiró en [CB.73]: lo que decide
+// si una cuenta puede usar el banco es el cuadre de su descarga (`cuadre-de-la-descarga.ts`), no el libro.
 
 /**
  * `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco).

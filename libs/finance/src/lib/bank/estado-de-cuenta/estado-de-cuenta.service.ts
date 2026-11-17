@@ -4,7 +4,8 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { describirArchivo, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
-import { compararContraElLibro, corteSinParalelo, type ClasificarSinLibro, type CorteSinParalelo, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable, type SucursalesContraElLibro } from './contra-el-libro';
+import { cuadreDeLaDescarga, type ArchivoParaCuadre, type CuadreDeLaDescarga, type SaldoDelBanco, type TestigoDeEntrada } from './cuadre-de-la-descarga';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
@@ -335,6 +336,69 @@ export class EstadoDeCuentaService {
     return d.toISOString().slice(0, 10);
   }
 
+  /**
+   * `[CB.73]` **El cuadre**: cada cuenta de banco activa con el cuadre de su descarga (ver `cuadre-de-la-descarga.ts`),
+   * desde cuándo usa el banco y, para la confirmación, la sucursal que se aprendió del historial del libro. Sólo lee.
+   * Reemplaza a «contra el libro» como lo que decide si una cuenta puede usar el banco (Edgar, 2026-11-17).
+   */
+  async cuadre(hoy = todayMx()): Promise<{ cuentas: CuentaEnCuadre[] }> {
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const conBanco = await this.conColumnaBanco(trx);
+      const activas: { id: string; alias: string; banco_desde: string | null }[] = await trx('finance.bank_accounts')
+        .where({ kind: 'bank', active: true })
+        .select('id', trx.raw('coalesce(alias, account_label) as alias'),
+          trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde'))
+        .orderByRaw('coalesce(alias, account_label)');
+      const cuadres = await this.cuadreDe(trx, activas.map((a) => a.id), hoy);
+      const comparadas = new Map((await this.compararEn(trx, this.ventana(45, hoy), undefined, undefined, hoy)).map((c) => [c.id, c]));
+      return {
+        cuentas: activas.map((a) => ({
+          id: a.id, alias: a.alias, banco_desde: a.banco_desde,
+          cuadre: cuadres.get(a.id) ?? cuadreDeLaDescarga([], [], null, hoy),
+          sucursales: comparadas.get(a.id)?.sucursales ?? null,
+        })),
+      };
+    });
+  }
+
+  /**
+   * `[CB.73]` El cuadre de la descarga por cuenta: sus archivos (con el saldo con que abre y cierra cada uno), los saldos
+   * de sus renglones y el testigo de la entrada = el cierre de la cuenta el último día ANTES de su primer renglón (lo
+   * que la cuenta traía, reconstruido por la cadena de saldos; sin contar lo que metió el propio banco).
+   */
+  private async cuadreDe(trx: Knex.Transaction, ids: readonly string[], hoy: string): Promise<Map<string, CuadreDeLaDescarga>> {
+    const out = new Map<string, CuadreDeLaDescarga>();
+    if (!ids.length) return out;
+    const archivos: (ArchivoParaCuadre & { bank_account_id: string })[] = await trx('finance.bank_statement_files').whereIn('bank_account_id', ids)
+      .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"),
+        'opening_balance as abre', 'closing_balance as cierra', trx.raw(`to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') as subido`));
+    const saldos: (SaldoDelBanco & { bank_account_id: string })[] = await trx('finance.bank_statement_lines').whereIn('bank_account_id', ids)
+      .select('bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance as saldo');
+    for (const id of ids) {
+      const deA = archivos.filter((a) => a.bank_account_id === id);
+      const deS = saldos.filter((s) => s.bank_account_id === id);
+      const inicio = [...deA.map((a) => a.desde), ...deS.map((s) => s.fecha)].sort()[0] ?? null;
+      out.set(id, cuadreDeLaDescarga(deA, deS, await this.testigoDeEntrada(trx, id, inicio ?? this.manana(hoy)), hoy));
+    }
+    return out;
+  }
+
+  /** El cierre de la cuenta el último día con saldo antes de `antesDe`, sin contar lo que metió el banco. `null` si no hay. */
+  private async testigoDeEntrada(trx: Knex.Transaction, cuentaId: string, antesDe: string): Promise<TestigoDeEntrada | null> {
+    const base = () => trx('finance.bank_movements').where({ bank_account_id: cuentaId }).whereNull('deleted_at').whereNot('sync_source', 'banco');
+    const ultimo = await base().whereNotNull('running_balance').andWhere('movement_date', '<', antesDe)
+      .first(trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as d"));
+    if (!ultimo?.d) return null;
+    const saldo = cierreDelDia(await base().where({ movement_date: ultimo.d }).select('amount_in', 'amount_out', 'running_balance'));
+    return saldo === null ? null : { fecha: ultimo.d, saldo };
+  }
+
+  private manana(hoy: string): string {
+    const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
   /** `[CB.60b]` ¿Existe ya la columna? La API puede desplegarse antes que la migración: sin columna, nada usa el banco. */
   private async conColumnaBanco(trx: Knex.Transaction): Promise<boolean> {
     return trx.schema.withSchema('finance').hasColumn('bank_accounts', 'statement_source_since');
@@ -389,20 +453,14 @@ export class EstadoDeCuentaService {
         trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde')))
       .map((a: { id: string; alias: string; banco_desde: string | null }) => [a.id, { alias: a.alias, banco_desde: a.banco_desde }]));
     const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
-    // [CB.67] Sin paralelo: el último día del libro (en TODA su historia, sin fechas futuras) y lo que cubren los archivos.
-    const ultimos = new Map<string, string>((await trx('finance.bank_movements').whereIn('bank_account_id', ids).whereNull('deleted_at')
-      .whereIn('sync_source', ['upload', 'sheet']).where('movement_date', '<=', hoy).groupBy('bank_account_id')
-      .select('bank_account_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as ultimo")))
-      .map((r: { bank_account_id: string; ultimo: string }) => [r.bank_account_id, r.ultimo]));
-    const archivos = await trx('finance.bank_statement_files').whereIn('bank_account_id', ids)
-      .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"));
     // [CB.60b] Una cuenta que ya usa el banco se compara sólo hasta el día anterior a `banco_desde`: desde ahí el
     // libro ya no entra, y juzgar esos días los pintaría «sin libro» para siempre. La cuenta sigue en la lista con su fecha.
+    // [CB.73] Esta comparación ya NO decide si la cuenta puede usar el banco (eso es el cuadre): queda para aprender la
+    // sucursal del historial del libro al pasarla.
     return ids.map((id) => {
       const bd = cuentas.get(id)?.banco_desde ?? null;
       return {
         id, alias: cuentas.get(id)?.alias ?? id, banco_desde: bd,
-        sin_paralelo: corteSinParalelo(ultimos.get(id) ?? null, archivos.filter((a: { bank_account_id: string }) => a.bank_account_id === id), hoy),
         ...compararContraElLibro(de(banco, id), de(libro, id), clasificar, id === soloCuenta ? mapa : undefined, bd),
       };
     }).sort((a, b) => a.alias.localeCompare(b.alias));
@@ -413,11 +471,13 @@ export class EstadoDeCuentaService {
   }
 
   /**
-   * `[CB.60b]` **Usar el banco** en una cuenta (decisiones firmadas por Edgar, 2026-11-11). Sólo si lleva
-   * `DIAS_PARA_USAR_EL_BANCO` días hábiles seguidos que cuadran — o, desde `[CB.67]` (el libro deja de existir), sin paralelo desde el último día del libro si la descarga lo cubre. En UNA transacción:
-   *  1. guarda el catálogo de llaves → sucursal aprendido del paralelo, confirmado por quien pulsa;
-   *  2. desde el día siguiente al último que cuadró, marca borrados los renglones del LIBRO de la cuenta
-   *     (los días que el libro no había cerrado; el banco los trae completos) — nada de lo ya cerrado se toca;
+   * `[CB.60b]` **Usar el banco** en una cuenta (decisiones firmadas por Edgar, 2026-11-11: la decide una persona).
+   * Desde `[CB.73]` (Edgar, 2026-11-17: «usar cuadre en vez del libro») sólo si **la descarga cuadra**: sigue de
+   * punta a punta por saldos y abre en el saldo con que la cuenta cerró antes. El banco manda desde el PRIMER día de
+   * la descarga. Ya no cuenta ni la racha de días contra el libro (CB.60b) ni el último día del libro (CB.67). En UNA transacción:
+   *  1. guarda el catálogo de llaves → sucursal aprendido del historial del libro, confirmado por quien pulsa;
+   *  2. desde el primer día de la descarga, marca borrados los renglones del LIBRO de la cuenta (el banco trae
+   *     esos días completos) — lo anterior no se toca;
    *  3. mete a `bank_movements` los renglones de la descarga desde ese día, con categoría y sucursal;
    *  4. fija `statement_source_since`: de ahí en adelante cada descarga guardada entra sola, y la carga del
    *     libro ignora esa cuenta desde esa fecha (y lo dice).
@@ -432,16 +492,15 @@ export class EstadoDeCuentaService {
         .first('id', trx.raw('coalesce(alias, account_label) as alias'), trx.raw("to_char(statement_source_since, 'YYYY-MM-DD') as desde"));
       if (!cuenta) throw new BadRequestException('la cuenta no existe o no es de banco');
       if (cuenta.desde) return { cuenta: cuenta.alias, desde: cuenta.desde, ya_estaba: true, llaves: 0, libro_borrados: 0, ...SIN_ALIMENTAR };
+      // La sucursal se aprende del historial del libro (la S de los renglones que casan con el banco).
       const mapa = new MapaDeSucursal();
-      const [c] = await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa, hoy);
-      const listo = c?.listo_para_banco;
-      // [CB.67] El libro deja de existir (Edgar, 2026-11-12, opción 2): con el paralelo cumplido manda el banco desde el día
-      // siguiente al último que cuadró; sin él, desde el último día del libro, siempre que la descarga lo cubra sin hueco.
-      const sin = c?.sin_paralelo;
-      const desde = listo?.cumple && listo.desde ? listo.desde : sin?.cubre ? sin.desde : null;
+      await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa, hoy);
+      // [CB.73] Lo que decide es el cuadre de la descarga, no el libro.
+      const cuadre = (await this.cuadreDe(trx, [cuentaId], hoy)).get(cuentaId);
+      const desde = cuadre?.cuadra ? cuadre.desde : null;
       if (!desde) {
         throw new BadRequestException({ message: `${cuenta.alias} todavía no puede usar el banco`,
-          motivos: [sin?.motivo ?? 'la cuenta no tiene descarga subida'] });
+          motivos: [cuadre?.motivo ?? 'la cuenta no tiene descarga subida'] });
       }
       const llaves = mapa.llavesPuras();
       for (let i = 0; i < llaves.length; i += 500) {
@@ -518,4 +577,12 @@ export interface UsoDelBanco extends Alimentado {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
 }
 
-export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null; sin_paralelo: CorteSinParalelo };
+export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null };
+
+/** `[CB.73]` Una cuenta en «Cuadre»: su descarga cuadra o no, desde cuándo usa el banco y lo aprendido de la sucursal. */
+export interface CuentaEnCuadre {
+  id: string; alias: string; banco_desde: string | null;
+  cuadre: CuadreDeLaDescarga;
+  /** La sucursal aprendida del historial del libro (para la confirmación); `null` si la cuenta no tiene con qué compararse. */
+  sucursales: SucursalesContraElLibro | null;
+}

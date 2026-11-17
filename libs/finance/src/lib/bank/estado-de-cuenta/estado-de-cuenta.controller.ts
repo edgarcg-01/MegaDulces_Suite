@@ -34,9 +34,16 @@ export class EstadoDeCuentaController {
     return this.svc.contraElLibro(dias ? Number(dias) : undefined);
   }
 
+  @Get('cuadre')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: '[CB.73] Cada cuenta de banco activa con el cuadre de su descarga: si sigue de punta a punta por saldos y abre en el saldo con que la cuenta cerró antes; si no, qué bajar. Es lo que decide «usar el banco». Sólo lee.' })
+  cuadre(): ReturnType<Svc['cuadre']> {
+    return this.svc.cuadre();
+  }
+
   @Post('usar-el-banco')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
-  @ApiOperation({ summary: '[CB.60b] La cuenta deja el libro: guarda el catálogo de sucursal aprendido, y desde el día siguiente al último que cuadró la descarga del banco alimenta los movimientos. Con 10 días hábiles seguidos que cuadran; o [CB.67], sin paralelo, desde el último día del libro si la descarga lo cubre sin hueco.' })
+  @ApiOperation({ summary: '[CB.60b][CB.73] La cuenta deja el libro: guarda el catálogo de sucursal aprendido, y desde el primer día de la descarga sus movimientos salen del banco. Sólo si la descarga cuadra (sigue por saldos de punta a punta y abre en el saldo con que la cuenta cerró antes).' })
   usarElBanco(@Body() body: { bank_account_id?: string }, @Req() req: AuthedRequest): ReturnType<Svc['usarElBanco']> {
     return this.svc.usarElBanco(String(body?.bank_account_id ?? ''), req?.user?.full_name || req?.user?.username);
   }

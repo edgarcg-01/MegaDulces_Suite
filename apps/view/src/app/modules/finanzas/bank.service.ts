@@ -436,16 +436,30 @@ export interface ListoParaBanco { dias_seguidos: number; requeridos: number; cum
 export interface CuentaContraElLibro {
   id: string; alias: string; desde: string | null; hasta: string | null; dias: DiaContraElLibro[];
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
-  /** [CB.60b] Opcionales: una API anterior a CB.60b no los manda, y entonces no se ofrece pasar al banco. */
+  /** [CB.60b] Opcionales: una API anterior a CB.60b no los manda. Desde CB.73 ya no deciden nada: decide el cuadre. */
   listo_para_banco?: ListoParaBanco;
-  /** [CB.67] El libro deja de existir: desde qué día mandaría el banco sin el paralelo, o por qué no se puede. */
-  sin_paralelo?: { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null };
   /** [CB.60b] Desde qué día la cuenta usa el banco (`null` = sigue con el libro). Sólo se compara lo anterior. */
   banco_desde?: string | null;
   /** [CB.61] La sucursal sin el libro contra la S del libro, en el paralelo. */
-  sucursales?: { con_sucursal_libro: number; deducidas: number; coinciden: number; sin_senal: number };
+  sucursales?: SucursalesAprendidas;
 }
 export interface ContraElLibro { desde: string; cuentas: CuentaContraElLibro[] }
+export interface SucursalesAprendidas { con_sucursal_libro: number; deducidas: number; coinciden: number; sin_senal: number }
+
+/**
+ * [CB.73] El cuadre de la descarga de una cuenta (`GET statement-files/cuadre`): si sigue de punta a punta por saldos y
+ * abre en el saldo con que la cuenta cerró antes. Es lo que decide «usar el banco». Espejo de `CuadreDeLaDescarga` en
+ * `libs/finance/.../estado-de-cuenta/cuadre-de-la-descarga.ts`: si cambia allá, cambia aquí.
+ */
+export interface CuadreDeLaDescarga {
+  desde: string | null; hasta: string | null; archivos: number;
+  entrada: 'cuadra' | 'no_cuadra' | 'sin_testigo' | null;
+  testigo: { fecha: string; saldo: number } | null; abre: number | null;
+  rotura: { despues_de: string; antes_de: string; cierra: number; abre: number } | null;
+  cuadra: boolean; motivo: string | null;
+}
+export interface CuentaEnCuadre { id: string; alias: string; banco_desde: string | null; cuadre: CuadreDeLaDescarga; sucursales: SucursalesAprendidas | null }
+export interface CuadreDeCuentas { cuentas: CuentaEnCuadre[] }
 /** [CB.60b] Lo que hizo «usar el banco» (`POST statement-files/usar-el-banco`). */
 export interface UsoDelBanco {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
@@ -580,7 +594,11 @@ export class BankService {
   contraElLibro(): Observable<ContraElLibro> {
     return this.http.get<ContraElLibro>(`${this.base}/statement-files/contra-libro`);
   }
-  /** [CB.60b] La cuenta deja el libro: desde el día siguiente al último que cuadró, sus movimientos salen de la descarga. */
+  /** [CB.73] Cada cuenta de banco activa con el cuadre de su descarga: lo que decide «usar el banco». Sólo lee. */
+  cuadre(): Observable<CuadreDeCuentas> {
+    return this.http.get<CuadreDeCuentas>(`${this.base}/statement-files/cuadre`);
+  }
+  /** [CB.60b][CB.73] La cuenta deja el libro: si su descarga cuadra, sus movimientos salen del banco desde el primer día de la descarga. */
   usarElBanco(bankAccountId: string): Observable<UsoDelBanco> {
     return this.http.post<UsoDelBanco>(`${this.base}/statement-files/usar-el-banco`, { bank_account_id: bankAccountId });
   }

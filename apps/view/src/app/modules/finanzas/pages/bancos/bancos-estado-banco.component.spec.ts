@@ -4,7 +4,7 @@ import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { BancosEstadoBancoComponent } from './bancos-estado-banco.component';
-import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ContraElLibro, CuentaContraElLibro, RevisionEstadoBanco, UsoDelBanco } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, CuadreDeCuentas, CuadreDeLaDescarga, CuentaEnCuadre, RevisionEstadoBanco, UsoDelBanco } from '../../bank.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 
@@ -35,17 +35,22 @@ function revision(p: Partial<RevisionEstadoBanco>): RevisionEstadoBanco {
 }
 const LISTO = (alias = 'BB 1111', id = 'a') => revision({ cuenta: { id, alias }, como_se_fijo: 'saldo_continuo', motivos_bloqueo: [], puede_confirmar: true });
 
-const resumenC = (p: Partial<CuentaContraElLibro['resumen']>) => ({ cuadra: 0, difiere: 0, sin_libro: 0, abierto: 1, solo_banco: 0, solo_libro: 0, monto_solo_banco: 0, monto_solo_libro: 0, ...p });
-const CONTRA: ContraElLibro = { desde: '2026-09-25', cuentas: [
-  { id: 'a', alias: 'BB 1111', desde: '2026-11-01', hasta: '2026-11-03', dias: [], resumen: resumenC({ cuadra: 2 }) },
-  { id: 'c', alias: 'BBVA 3333', desde: '2026-11-01', hasta: '2026-11-03', resumen: resumenC({ cuadra: 1, difiere: 1, solo_banco: 1 }), dias: [
-    { fecha: '2026-11-02', veredicto: 'difiere', movimientos_banco: 3, renglones_libro: 2, pareados: 2, fecha_distinta: 0, cierre_banco: 100, cierre_libro: 103.51,
-      solo_banco: [{ id: 'x', fecha: '2026-11-02', lado: 'sale', importe: 3.51, concepto: 'COMISION' }], solo_libro: [] }] },
-  { id: 'd', alias: 'BTE 4444', desde: '2026-11-03', hasta: '2026-11-03', dias: [], resumen: resumenC({}) },
+/** [CB.73] El cuadre de la descarga por cuenta, con la forma de los casos de prod del 2026-11-17 (importes inventados salvo BB 854). */
+const q = (p: Partial<CuadreDeLaDescarga> = {}): CuadreDeLaDescarga => ({ desde: '2026-11-03', hasta: '2026-11-13', archivos: 2, entrada: 'cuadra',
+  testigo: { fecha: '2026-10-31', saldo: 100 }, abre: 100, rotura: null, cuadra: true, motivo: null, ...p });
+const cuentaQ = (id: string, alias: string, cuadre: CuadreDeLaDescarga, p: Partial<CuentaEnCuadre> = {}): CuentaEnCuadre =>
+  ({ id, alias, banco_desde: null, cuadre, sucursales: null, ...p });
+const MOTIVO_854 = 'el saldo no sigue entre el 10/11 y el 12/11 (cerró en $54,067.52 y abre en $120,284.42): baja un solo archivo del 10/11 a hoy';
+const CUADRE: CuadreDeCuentas = { cuentas: [
+  cuentaQ('p', 'BB 4166', q(), { sucursales: { con_sucursal_libro: 100, deducidas: 80, coinciden: 79, sin_senal: 20 } }),
+  cuentaQ('r', 'BTE 3041', q(), { banco_desde: '2026-11-03' }),
+  cuentaQ('n', 'BB 854', q({ cuadra: false, motivo: MOTIVO_854, rotura: { despues_de: '2026-11-10', antes_de: '2026-11-12', cierra: 54067.52, abre: 120284.42 } })),
+  cuentaQ('z', 'STDR 5565', q({ desde: null, hasta: null, archivos: 0, entrada: null, abre: null, cuadra: false, motivo: 'no hay ninguna descarga subida: baja un solo archivo del 03/08 a hoy' })),
+  cuentaQ('t', 'STDR 1621', q({ desde: '2026-11-10', hasta: '2026-11-10', archivos: 1, entrada: 'sin_testigo', testigo: null })),
 ] };
 
 function montar(opts: {
-  contra?: ContraElLibro | Error;
+  cuadre?: CuadreDeCuentas | Error;
   datos?: ArchivosDelBanco;
   revisar?: (nombre: string, id?: string | null) => RevisionEstadoBanco;
   confirmar?: (nombre: string) => unknown;
@@ -58,7 +63,7 @@ function montar(opts: {
   let cargas = 0;
   const api = {
     archivosDelBanco: () => { cargas++; return of(opts.datos ?? DATOS); },
-    contraElLibro: () => (opts.contra instanceof Error ? throwError(() => opts.contra) : of(opts.contra ?? { desde: '2026-09-25', cuentas: [] })),
+    cuadre: () => (opts.cuadre instanceof Error ? throwError(() => opts.cuadre) : of(opts.cuadre ?? { cuentas: [] })),
     revisarEstadoBanco: (_b: string, n: string, id?: string | null) => { llamadas.push([n, id]); return of(opts.revisar!(n, id)); },
     confirmarEstadoBanco: (...args: unknown[]) => {
       guardados.push(args);
@@ -158,66 +163,32 @@ describe('BancosEstadoBancoComponent', () => {
     expect(cmp.listos().length).toBe(0);
   });
 
-  it('[CB.60] contra el libro: lo que difiere va primero, dice cuántas cuentas cuadran y nombra lo que sobra', () => {
-    const { cmp, fx, el } = montar({ contra: CONTRA });
-    expect(cmp.cuentasContra().map((c) => c.alias)).toEqual(['BBVA 3333', 'BB 1111', 'BTE 4444']);
-    expect(cmp.estadoContra(cmp.cuentasContra()[0]).texto).toBe('difiere en 1 día');
-    expect(cmp.estadoContra(cmp.cuentasContra()[2]).texto).toBe('sin días cerrados todavía');
-    const item = cmp.resumen().find((m) => m.label === 'Cuadran con el libro');
-    expect(item?.value).toBe('1 de 2'); // BTE 4444 no tiene días cerrados: no cuenta ni a favor ni en contra
-    expect(item?.sub).toContain('BBVA 3333');
-    const boton = el.querySelector('button[aria-label="Ver los días de BBVA 3333"]') as HTMLButtonElement | null;
-    expect(boton).not.toBeNull();
-    boton!.click();
-    fx.detectChanges();
-    expect(el.textContent).toContain('Sólo en el banco: sale');
-  });
-
-  it('el libro subido a medias y el cuadre por saldos se dicen en palabras, no como «difiere»', () => {
-    const { cmp } = montar({ contra: CONTRA });
-    const dia = (p: Partial<CuentaContraElLibro['dias'][number]>) => ({ fecha: '2026-11-09', veredicto: 'sin_libro' as const, movimientos_banco: 14, renglones_libro: 1, pareados: 1,
-      fecha_distinta: 0, cierre_banco: null, cierre_libro: null, solo_banco: [], solo_libro: [], ...p });
-    expect(cmp.diaTexto(dia({ libro_a_medias: true }))).toBe('el libro se subió antes de cerrar este día: tiene 1 de 14 (no se juzga hasta que traiga un día posterior)');
-    expect(cmp.diaTexto(dia({ libro_a_medias: false, renglones_libro: 0 }))).toBe('el libro no tiene ese día');
-    expect(cmp.diaTexto(dia({ veredicto: 'cuadra', cuadre_por: 'saldos' }))).toMatch(/^cuadra: todos los saldos son iguales/);
-    expect(cmp.diaTexto(dia({ veredicto: 'cuadra', cuadre_por: 'cierre' }))).toBe('cuadra');
-  });
-
-  it('[negativa] si la comparación no se pudo leer, se dice y no aparece ningún «cuadran»', () => {
-    const { cmp, el } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
-    expect(cmp.cuentasContra()).toEqual([]);
-    expect(cmp.resumen().some((m) => m.label === 'Cuadran con el libro')).toBe(false);
-    expect(cmp.contraError()).toBeTruthy();
-    expect(el.textContent).not.toContain('Contra el libro');
-  });
-
-  describe('[CB.60b] usar el banco, cuenta por cuenta', () => {
-    const listo = (n: number) => ({ dias_seguidos: n, requeridos: 10, cumple: n >= 10, ultimo_que_cuadra: n ? '2026-11-09' : null, desde: n ? '2026-11-10' : null });
-    const cuentaB = (id: string, alias: string, p: Partial<CuentaContraElLibro>): CuentaContraElLibro =>
-      ({ id, alias, desde: '2026-11-01', hasta: '2026-11-11', dias: [], resumen: resumenC({}), banco_desde: null, ...p });
-    const CONTRA_B: ContraElLibro = { desde: '2026-09-27', cuentas: [
-      cuentaB('p', 'BB 4166', { resumen: resumenC({ cuadra: 10 }), listo_para_banco: listo(10), sucursales: { con_sucursal_libro: 100, deducidas: 80, coinciden: 79, sin_senal: 20 } }),
-      cuentaB('q', 'BBVA 6721', { resumen: resumenC({ cuadra: 8 }), listo_para_banco: listo(8) }),
-      cuentaB('r', 'BTE 3041', { resumen: resumenC({ cuadra: 12, abierto: 0 }), listo_para_banco: listo(12), banco_desde: '2026-11-03' }),
-      cuentaB('s', 'BBVA 4176', { resumen: resumenC({ cuadra: 8, difiere: 1 }), listo_para_banco: listo(0) }),
-    ] };
-    const USO: UsoDelBanco = { cuenta: 'BB 4166', desde: '2026-11-10', ya_estaba: false, llaves: 5, libro_borrados: 2, metidos: 30, en_cero: 0, sin_categoria: 0, sin_sucursal: 3 };
+  describe('[CB.73] «Cuadre» en vez de «Contra el libro»: la descarga se juzga por sus saldos', () => {
+    const USO: UsoDelBanco = { cuenta: 'BB 4166', desde: '2026-11-03', ya_estaba: false, llaves: 5, libro_borrados: 2, metidos: 30, en_cero: 0, sin_categoria: 0, sin_sucursal: 3 };
     const boton = (el: HTMLElement, alias: string) => el.querySelector(`button[aria-label="Usar el banco en ${alias}"]`) as HTMLButtonElement | null;
 
-    it('la columna «Dejar el libro» en palabras, y el orden: difiere, lista, paralelo, ya usa el banco', () => {
-      const { cmp, el } = montar({ contra: CONTRA_B });
-      expect(cmp.cuentasContra().map((c) => c.alias)).toEqual(['BBVA 4176', 'BB 4166', 'BBVA 6721', 'BTE 3041']);
-      expect(cmp.cuentasContra().map((c) => cmp.dejar(c).texto)).toEqual(['lleva 0 de 10 días seguidos', 'puede usar el banco', 'lleva 8 de 10 días seguidos', 'usa el banco desde el 03/11']);
+    it('el orden y las palabras: lo que no cuadra, lo que no tiene descarga, lo que puede pasar y lo que ya usa el banco', () => {
+      const { cmp, el } = montar({ cuadre: CUADRE });
+      expect(cmp.cuentasCuadre().map((c) => c.alias)).toEqual(['BB 854', 'STDR 5565', 'BB 4166', 'STDR 1621', 'BTE 3041']);
+      expect(cmp.cuentasCuadre().map((c) => cmp.estadoCuadre(c).texto)).toEqual([
+        MOTIVO_854, 'no hay ninguna descarga subida: baja un solo archivo del 03/08 a hoy', 'cuadra',
+        'cuadra (no hay saldo anterior con que comparar la entrada)', 'cuadra']);
+      expect(cmp.cuentasCuadre().map((c) => cmp.usar(c).texto)).toEqual(['todavía no', 'todavía no', 'puede usar el banco', 'puede usar el banco', 'usa el banco desde el 03/11']);
       expect(boton(el, 'BB 4166')).not.toBeNull();
-      expect(boton(el, 'BBVA 6721')).toBeNull(); // [negativa] sin la racha no hay botón
-      expect(boton(el, 'BTE 3041')).toBeNull(); // [negativa] la que ya pasó no se ofrece otra vez
-      expect(cmp.textoAlimenta()).toBe('En BTE 3041 ya alimenta Movimientos; las demás cuentas se comparan contra el libro día por día.');
-      expect(cmp.resumen().find((m) => m.label === 'Cuadran con el libro')?.sub).toContain('BB 4166 ya puede usar el banco');
-      expect(el.querySelector('.eb-leyenda')?.textContent).toContain('con 10 días seguidos que cuadran');
+      expect(boton(el, 'STDR 1621')).not.toBeNull();
+      expect(boton(el, 'BB 854')).toBeNull();     // [negativa] lo que no cuadra no tiene botón
+      expect(boton(el, 'STDR 5565')).toBeNull();  // [negativa] sin descarga tampoco
+      expect(boton(el, 'BTE 3041')).toBeNull();   // [negativa] la que ya pasó no se ofrece otra vez
+      const item = cmp.resumen().find((m) => m.label === 'Cuadran');
+      expect(item?.value).toBe('3 de 4'); // STDR 5565 no tiene descarga: no cuenta ni a favor ni en contra
+      expect(item?.sub).toBe('no cuadran BB 854 · 2 pueden usar el banco');
+      expect(cmp.textoAlimenta()).toBe('En BTE 3041 ya alimenta Movimientos; las demás pasan cuando su descarga cuadra.');
+      expect(el.textContent).not.toContain('Contra el libro');
+      expect(el.textContent).not.toContain('Dejar el libro');
     });
 
-    it('pulsar pide confirmar; nada pasa antes. Al aceptar pasa la cuenta, lo dice con lo que quedó sin sucursal y recarga', () => {
-      const { cmp, fx, el, usados, confirmaciones, toasts, cargas } = montar({ contra: CONTRA_B, usar: () => USO });
+    it('pulsar pide confirmar; nada pasa antes. Al aceptar pasa la cuenta desde el primer día de su descarga, lo dice y recarga', () => {
+      const { cmp, fx, el, usados, confirmaciones, toasts, cargas } = montar({ cuadre: CUADRE, usar: () => USO });
       let emitidos = 0;
       cmp.guardado.subscribe(() => emitidos++);
       const antes = cargas();
@@ -225,19 +196,21 @@ describe('BancosEstadoBancoComponent', () => {
       fx.detectChanges();
       expect(confirmaciones.map((c) => c.header)).toEqual(['Usar el banco en BB 4166']);
       expect(usados).toEqual([]);
+      expect(cmp.textoEntrada(cmp.aConfirmar()!)).toBe('Su descarga cuadra del 03/11 al 13/11, y abre en el saldo con que la cuenta cerró el 31/10.');
       expect(cmp.textoSucursal(cmp.aConfirmar()!)).toContain('acertó 79 de 80');
+      expect(document.body.textContent).toContain('el primer día de su descarga');
       confirmaciones[0].accept!();
       expect(usados).toEqual(['p']);
-      const t = toasts.find((x) => x.summary === 'BB 4166 usa el banco desde el 10/11');
+      const t = toasts.find((x) => x.summary === 'BB 4166 usa el banco desde el 03/11');
       expect(t?.severity).toBe('warn');
-      expect(t?.detail).toBe('30 movimientos de la descarga entraron a Movimientos · 3 sin sucursal · 2 renglón(es) del libro de días sin cerrar quedaron reemplazados');
+      expect(t?.detail).toBe('30 movimientos de la descarga entraron a Movimientos · 3 sin sucursal · 2 renglón(es) del libro quedaron reemplazados por los del banco');
       expect(cargas()).toBe(antes + 1);
       expect(emitidos).toBe(1);
       expect(cmp.pasando()).toBeNull();
     });
 
     it('[negativa] cancelar no pasa nada', () => {
-      const { cmp, fx, el, usados, confirmaciones } = montar({ contra: CONTRA_B, usar: () => USO });
+      const { cmp, fx, el, usados, confirmaciones } = montar({ cuadre: CUADRE, usar: () => USO });
       boton(el, 'BB 4166')!.click();
       fx.detectChanges();
       confirmaciones[0].reject!();
@@ -245,58 +218,46 @@ describe('BancosEstadoBancoComponent', () => {
       expect(cmp.aConfirmar()).toBeNull();
     });
 
+    it('[negativa] una cuenta que no cuadra (o que ya pasó) no se puede pedir ni por código', () => {
+      const { cmp, confirmaciones } = montar({ cuadre: CUADRE, usar: () => USO });
+      cmp.pedirUsarElBanco(cmp.cuentasCuadre().find((c) => c.alias === 'BB 854')!);
+      cmp.pedirUsarElBanco(cmp.cuentasCuadre().find((c) => c.alias === 'BTE 3041')!);
+      expect(confirmaciones).toEqual([]);
+    });
+
     it('[negativa] si el servidor dice que no, se muestra su motivo y la cuenta sigue con el libro', () => {
-      const { cmp, toasts } = montar({ contra: CONTRA_B,
-        usar: () => Object.assign(new Error('400'), { error: { message: 'BB 4166 todavía no puede usar el banco', motivos: ['lleva 9 día(s) hábiles seguidos que cuadran con el libro; hacen falta 10'] } }) });
+      const { cmp, toasts } = montar({ cuadre: CUADRE,
+        usar: () => Object.assign(new Error('400'), { error: { message: 'BB 4166 todavía no puede usar el banco', motivos: [MOTIVO_854] } }) });
       let emitidos = 0;
       cmp.guardado.subscribe(() => emitidos++);
-      cmp.usarElBanco(cmp.cuentasContra()[1]);
+      cmp.usarElBanco(cmp.cuentasCuadre().find((c) => c.alias === 'BB 4166')!);
       const t = toasts.find((x) => x.severity === 'error');
       expect(t?.summary).toBe('BB 4166 sigue con el libro');
-      expect(t?.detail).toContain('hacen falta 10');
+      expect(t?.detail).toContain('el saldo no sigue entre el 10/11 y el 12/11');
       expect(emitidos).toBe(0);
       expect(cmp.pasando()).toBeNull();
     });
 
+    it('sin saldo anterior: cuadra y lo dice, y la confirmación no inventa un testigo', () => {
+      const { cmp } = montar({ cuadre: CUADRE });
+      const s1621 = cmp.cuentasCuadre().find((c) => c.alias === 'STDR 1621')!;
+      expect(cmp.textoEntrada(s1621)).toBe('Su descarga cuadra del 10/11 al 10/11; no hay un saldo anterior de la cuenta con que comparar dónde abre.');
+      expect(cmp.textoSucursal(s1621)).toBe('Del libro no se aprendió ninguna terminal ni tarjeta con su sucursal: los movimientos llegarán sin sucursal.');
+    });
+
     it('[negativa] sin permiso de gestionar no hay botón: el estado se lee igual', () => {
-      const { el } = montar({ contra: CONTRA_B, sinPermiso: true });
+      const { el } = montar({ cuadre: CUADRE, sinPermiso: true });
       expect(boton(el, 'BB 4166')).toBeNull();
       expect(el.textContent).toContain('puede usar el banco');
     });
 
-    it('[negativa] una API sin la racha (anterior a CB.60b) se declara «no medido»: ni «0 de 10» ni botón', () => {
-      const { cmp, el } = montar({ contra: CONTRA });
-      expect(cmp.dejar(cmp.cuentasContra()[1]).texto).toBe('no medido');
-      expect(el.querySelector('button[aria-label^="Usar el banco"]')).toBeNull();
-      expect(cmp.requeridos()).toBeNull();
-      expect(el.textContent).not.toContain('Dejar el libro:');
-    });
-
-    it('[CB.67] sin el paralelo: si la descarga cubre desde el último día del libro, puede; si no, dice qué falta y no hay botón', () => {
-      const sinP = (cubre: boolean, motivo: string | null) => ({ desde: '2026-11-10', ultimo_del_libro: '2026-11-10', cubre, motivo });
-      const contra: ContraElLibro = { desde: '2026-09-27', cuentas: [
-        cuentaB('q', 'BBVA 6721', { resumen: resumenC({ cuadra: 8 }), listo_para_banco: listo(8), sin_paralelo: sinP(true, null) }),
-        cuentaB('t', 'STDR 1621', { resumen: resumenC({ cuadra: 0 }), listo_para_banco: listo(0),
-          sin_paralelo: sinP(false, 'el libro llega al 03/11 y la descarga empieza el 10/11: baja un solo archivo del 03/11 a hoy') }),
-      ] };
-      const { cmp, fx, el, confirmaciones, usados } = montar({ contra, usar: () => USO });
-      const [b6721, s1621] = ['BBVA 6721', 'STDR 1621'].map((a) => cmp.cuentasContra().find((c) => c.alias === a)!);
-      expect(cmp.dejar(b6721)).toMatchObject({ texto: 'puede usar el banco', accion: true });
-      expect(cmp.dejar(s1621)).toMatchObject({ texto: 'no puede: el libro llega al 03/11 y la descarga empieza el 10/11: baja un solo archivo del 03/11 a hoy', accion: false });
-      expect(boton(el, 'STDR 1621')).toBeNull();
-      cmp.pedirUsarElBanco(s1621);
-      expect(confirmaciones).toEqual([]); // [negativa] ni por código se puede pedir
-      boton(el, 'BBVA 6721')!.click();
-      fx.detectChanges();
-      expect(cmp.desdeDe(b6721)).toBe('2026-11-10');
-      expect(document.body.textContent).toContain('Sin el paralelo de 10 días');
-      confirmaciones[0].accept!();
-      expect(usados).toEqual(['q']);
-    });
-
-    it('[negativa] sin la comparación no se afirma si la descarga alimenta o no Movimientos', () => {
-      const { cmp } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
+    it('[negativa] si el cuadre no se pudo leer, se dice y no aparece ningún «Cuadran» ni se afirma qué alimenta Movimientos', () => {
+      const { cmp, el } = montar({ cuadre: Object.assign(new Error('500'), { status: 500 }) });
+      expect(cmp.cuentasCuadre()).toEqual([]);
+      expect(cmp.resumen().some((m) => m.label === 'Cuadran')).toBe(false);
+      expect(cmp.cuadreError()).toBeTruthy();
       expect(cmp.textoAlimenta()).toBe('');
+      expect(el.querySelector('button[aria-label^="Usar el banco"]')).toBeNull();
     });
   });
 
