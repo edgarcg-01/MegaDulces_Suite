@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 95 KB, 1145 líneas, 17 secciones.
+> **Índice navegable** — 96 KB, 1155 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1174 | 11 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1184 | 12 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1117,12 +1117,22 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
 - Mientras tanto, una requisición capturada a mano en 00, 01, 06 u 08 puede chocar.
 - *Mejora:* soltarlo. Luego, con foto antes y después, revisar `KFXA3001` en esos 4 servidores. Anotarlo en
   §12 H1.
+- ⛔ **Pero NO antes del permiso (medido el 2026-11-17).** Con ese commit, los 4 carriles toman el candado de `md.sqliov`
+  (`SELECT … FOR UPDATE` y `UPDATE (c4)`). En prod, **`compra` y `telemarketing` están encendidos en las 9 sucursales**
+  (y `cancela_oc` en 08). Si sale antes de que `kepler_push` tenga `SELECT, UPDATE (c4) ON md.sqliov` en **los 9
+  servidores**, la requisición, la OC y el pedido TLMK dejan de escribirse en todos. El mensaje del commit dice «PGP.122 lo
+  dio para la solicitud», pero ese `GRANT` **no se ha aplicado en ningún servidor** (es el paso 5 de §16.3, sólo en 05).
+  Orden correcto: (1) aplicar las dos líneas de `sqliov` de `pgp122_solicitud_gasto.sql` en los 9 servidores; (2) verificar
+  el permiso servidor por servidor desde `md`; (3) recién entonces soltar `216245d60`.
 
 **R9 — `[PGP.123]` está usado dos veces.**
 - En el tracker es «Pedir anticipo» (🚀).
 - Este anexo (§14.13) y la descripción de #547 lo usan para la prueba visual y para el escritor del X-A-10.
-- *Mejora:* el escritor del X-A-10 toma el siguiente código libre y se corrige §14.13. Además, el escritor del
-  X-A-10 **no está en `main`**: no hay sink ni anexo G en el repo, y no hay PR abierto.
+- *Mejora:* el escritor del X-A-10 toma el siguiente código libre y se corrige §14.13.
+- *Actualizado más tarde el mismo 17-nov:* el escritor del X-A-10 **ya entró a `main`** (`40b4f55c2`, con su anexo
+  [`FASE_PGP_ANEXO_COMPROBACION_DE_GASTO`](FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md)), todavía como `[PGP.123]`. El
+  tracker tiene hoy **dos filas `[PGP.123]`**: «Pedir anticipo» (🚀) y la comprobación del gasto (⬜). El choque sigue: la
+  renumera su dueño (Francisco).
 
 **R10 — Falta el ADR que gobierna esta escritura.**
 - §8 promete un ADR que extiende ADR-092 a la X-A-15 y **enmienda su regla 2** (`sqliov`). No existe: el
@@ -1153,8 +1163,8 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
 |---|---|---|---|
 | 0 | Migraciones | — | ✅ aplicadas |
 | 1 | S.2-mínimo (R1): 🧪 en código el 2026-11-17; falta la sección N en `pruebas-db` y soltarlo | Francisco | el canario |
-| 2 | Soltar `[PGP.122.4]` (R8) | Edgar | — |
-| 3 | ADR de la X-A-15 (R10) | Francisco, lo ratifica Edgar | el canario |
+| 2 | Soltar `[PGP.122.4]` (R8), **sólo después** del `GRANT` de `sqliov` en los 9 servidores: con `compra` y `telemarketing` encendidos en los 9, soltarlo antes los detiene | Edgar | — |
+| 3 | ADR de la X-A-15 (R10): ADR-119, ⏳ propuesto el 2026-11-17 | lo ratifica Edgar | el canario |
 | 4 | Captura de prueba S.1 en 05 (`foto-contadores.js`) | Edgar + capturista de 05 | 5 |
 | 5 | GRANT en 05 | Edgar | 6 |
 | 6 | Ensayo con ROLLBACK: `fallas: []`, `control.intacto: true` | Edgar | 7 |
