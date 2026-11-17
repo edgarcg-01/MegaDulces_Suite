@@ -718,6 +718,25 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CC.21]` La ficha del cliente se valida contra el banco: el monto propone, el cliente decide
+
+**Qué se hizo:** cada ficha que sube un cliente se cruza, al abrir la bandeja, con el abono del estado de cuenta y con el
+cobro de Kepler que la conciliación ya le ligó a ese abono. Si es del mismo cliente, Cobranza la liga con un clic (o todas
+de una vez); si el dinero entró sin cobro en Kepler, marca el abono como de ese cliente; si no aparece, se dice sólo cuando
+el estado de cuenta ya cubre la fecha.
+
+**Lecciones:**
+- ⭐ **El monto solo no valida; el cliente sí.** Con 923 cobros reales, 8 % de los abonos «únicos» por monto eran de
+  otro cobro. Agregar «¿el cobro que la conciliación le ligó es del mismo cliente?» llevó el placebo de cliente
+  equivocado a 0 «aplicados» de 923. Sin el placebo, el 80 % de acierto se habría leído como validación.
+- ⭐ **«No aparece» depende de hasta dónde está cargado el banco.** El estado de cuenta se sube a mano cada 1 a 5 días:
+  afirmar ausencia sin mirar la fecha de carga habría pintado de rojo depósitos que sí entraron.
+- **La prueba de punta a punta encontró lo que la unitaria no podía:** la disputa (dos fichas, un abono) sólo existe
+  entre varias fichas, y «Marcar el abono» cruzaba una sola. También la prueba se equivocó una vez (eligió un abono
+  borrado) y el clasificador tenía razón: revisar el instrumento antes que el código.
+- **Una vista cómoda puede costar 60 ms por fila:** el cliente del cobro por `erp_collections` hacía 3.3 s para 20 fichas;
+  directo de `kdm1` por su índice, 110 ms.
+
 ## 2026-11-17 — `[CC.20]` El cliente sube su ficha de depósito: un enlace, una foto y listo
 
 **Qué se hizo:** cada cliente tiene un enlace personal (en el WhatsApp del estado de cuenta y como QR en el PDF) donde

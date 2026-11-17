@@ -6,6 +6,9 @@ import {
 } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CobranzaGateway } from './cobranza.gateway';
+import {
+  FichaEnBanco, FilaFichaEnBanco, clasificarFichaEnBanco, marcarDisputas, sqlFichaEnBanco,
+} from './ficha-en-banco';
 
 /**
  * `[CC.20]` **El cliente sube su ficha de depósito desde su enlace personal.** Edgar, 2026-11-17: «lo más práctico y
@@ -52,8 +55,15 @@ export interface FichaEnBandeja {
   nota: string | null; ocr_monto: number | null; ocr_fecha: string | null; ocr_banco: string | null;
   ocr_referencia: string | null; ocr_status: string | null; monto_match: boolean | null; motivo_rechazo: string | null;
   validated_by: string | null; validated_at: string | null; enviado: string;
+  /** `[CC.21]` ¿Entró al banco? Sólo para las que esperan revisión; `null` = no se pudo medir (se dice en pantalla). */
+  banco?: FichaEnBanco | null;
 }
-export interface BandejaResp { estado: string; por_estado: Record<string, number>; fichas: FichaEnBandeja[] }
+export interface BandejaResp {
+  estado: string; por_estado: Record<string, number>; fichas: FichaEnBandeja[];
+  /** `[CC.21]` false si la consulta al banco falló: la pantalla dice «no se pudo revisar el banco», no «no aparece». */
+  banco_medido: boolean;
+}
+export interface AbonoDeclaradoResp { ok: boolean; bank_movement_id: string; customer_code: string | null }
 export interface CobroCandidato { cliente_code: string | null; del_cliente: boolean; [k: string]: unknown }
 export interface CambioFichaResp { id: string; status: string }
 const mensajeDe = (e: unknown): string => (e as { message?: string } | null)?.message || String(e);
@@ -319,8 +329,77 @@ export class CustomerDepositsService {
       }
       const porEstado: Record<string, number> = { recibido: 0, validado: 0, rechazado: 0 };
       for (const c of conteo as Array<{ status: string; n: string | number }>) porEstado[c.status] = Number(c.n) || 0;
-      return { estado: estado || 'todas', por_estado: porEstado, fichas: rows };
+      // [CC.21] ¿Entró al banco? Sólo las que esperan revisión: las demás ya se decidieron.
+      const porRevisar = (rows as FichaEnBandeja[]).filter((r) => r.status === 'recibido').map((r) => r.id);
+      let bancoMedido = true;
+      if (porRevisar.length) {
+        try {
+          const mapa = await trx.transaction((sp) => this.bancoDe(sp, porRevisar)); // SAVEPOINT: un error no aborta la bandeja
+          for (const r of rows as FichaEnBandeja[]) if (mapa.has(r.id)) r.banco = mapa.get(r.id) || null;
+        } catch (e: unknown) {
+          bancoMedido = false;
+          this.logger.warn(`bandeja: no se pudo revisar el banco (${mensajeDe(e).split(' - ').pop()})`); // knex antepone el SQL entero
+        }
+      }
+      return { estado: estado || 'todas', por_estado: porEstado, fichas: rows, banco_medido: bancoMedido };
     });
+  }
+
+  /**
+   * `[CC.21]` El cruce de cada ficha con el estado de cuenta y con el cobro que la conciliación ya le ligó. Ver
+   * `ficha-en-banco.ts` (qué se cruza y lo medido). Se deriva al leer: cuando se sube el estado de cuenta, la siguiente
+   * lectura ya lo ve, sin proceso de por medio.
+   */
+  private async bancoDe(trx: Knex.Transaction, ids: string[]): Promise<Map<string, FichaEnBanco>> {
+    const fuente = `
+      SELECT d.id::text AS id, d.cliente_code, d.reported_monto::numeric AS monto, d.ocr_monto::numeric AS monto_alt,
+             COALESCE(d.reported_fecha, d.ocr_fecha)::date AS fecha, d.ocr_cuenta_dest AS cuenta_dest
+        FROM finance.collection_deposits d
+       WHERE d.origen = 'cliente' AND d.id = ANY(?::uuid[])`;
+    const r = await trx.raw(sqlFichaEnBanco(fuente), [ids]);
+    const datos = await trx('finance.collection_deposits').whereIn('id', ids)
+      .select('id', trx.raw('COALESCE(reported_fecha, ocr_fecha)::text AS fecha'), trx.raw('COALESCE(reported_monto, ocr_monto)::numeric AS monto'));
+    const porId = new Map((datos as Array<{ id: string; fecha: string | null; monto: string | null }>).map((d) => [d.id, d]));
+    const mapa = new Map<string, FichaEnBanco>();
+    for (const fila of r.rows as FilaFichaEnBanco[]) {
+      const d = porId.get(fila.id);
+      const abonos = (fila.abonos || []).map((a) => ({ ...a, monto: Number(a.monto) }));
+      mapa.set(fila.id, clasificarFichaEnBanco({ ...fila, abonos }, d?.fecha || null, d?.monto != null ? Number(d.monto) : null));
+    }
+    marcarDisputas(mapa);
+    return mapa;
+  }
+
+  /**
+   * `[CC.21]` El dinero entró al banco y Kepler todavía no tiene el cobro: se declara el abono como de ESTE cliente,
+   * por el camino que ya existe (`declararCliente`, «Depósitos sin cobro»), para que quien capture el cobro sepa de
+   * quién es. ⛔ El abono NO viene del navegador: se vuelve a cruzar aquí y tiene que ser el único de la ficha.
+   */
+  async declararAbono(id: string, actor?: string): Promise<AbonoDeclaradoResp> {
+    this.tenantCtx.requireTenantId();
+    const { ficha, banco } = await this.tk.run(async (trx) => {
+      const f = await trx('finance.collection_deposits').where({ id, origen: 'cliente' }).first('id', 'status', 'cliente_code');
+      if (!f) throw new BadRequestException('ficha no encontrada');
+      // Contra TODAS las que esperan revisión, no sólo ésta: la disputa (dos fichas, un abono) sólo se ve entre varias.
+      // Cazado en la prueba de punta a punta: con [id] solo, la segunda ficha declaraba el abono de la primera.
+      const pendientes: string[] = await trx('finance.collection_deposits')
+        .where({ origen: 'cliente', status: 'recibido' }).orderBy('created_at', 'desc').limit(500).pluck('id');
+      const mapa = await this.bancoDe(trx, pendientes.includes(id) ? pendientes : [id, ...pendientes]);
+      return { ficha: f as { id: string; status: string; cliente_code: string | null }, banco: mapa.get(id) || null };
+    });
+    if (ficha.status !== 'recibido') throw new BadRequestException('sólo una ficha por revisar');
+    if (!banco || banco.estado !== 'sin_aplicar' || banco.abonos.length !== 1) {
+      throw new BadRequestException('la ficha ya no tiene un único abono sin cobro: vuelve a cargar la bandeja');
+    }
+    if (banco.disputado_con) throw new BadRequestException('otra ficha apunta al mismo abono: revísalas juntas');
+    const abono = banco.abonos[0];
+    if (abono.declarado && abono.declarado !== ficha.cliente_code) {
+      throw new BadRequestException(`ese abono ya está declarado como del cliente ${abono.declarado}`);
+    }
+    const res = await this.deposits.declararCliente(abono.id, {
+      customer_code: ficha.cliente_code, nota: `Ficha que subió el cliente (${id})`,
+    }, actor);
+    return { ok: res.ok, bank_movement_id: res.bank_movement_id, customer_code: res.customer_code };
   }
 
   /** Cobros de Kepler que pueden ser esta ficha: mismo monto (±$1) alrededor de la fecha; los del cliente primero. */

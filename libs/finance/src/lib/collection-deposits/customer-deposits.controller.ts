@@ -6,10 +6,10 @@ import { CustomerDepositsService } from './customer-deposits.service';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo en la firma de un método decorado tiene
 // que entrar así o el compilador lo rechaza (TS1272).
 import type {
-  EnvioFichaDto, ContextoDepositoResp, ArchivoFicha, LecturaFichaResp, EnvioFichaResp, BandejaResp, CobroCandidato, CambioFichaResp,
+  EnvioFichaDto, ContextoDepositoResp, ArchivoFicha, LecturaFichaResp, EnvioFichaResp, BandejaResp, CobroCandidato, CambioFichaResp, AbonoDeclaradoResp,
 } from './customer-deposits.service';
 
-interface AuthedRequest extends RequestConCabeceras { user?: { username?: string } }
+interface AuthedRequest extends RequestConCabeceras { user?: { username?: string; full_name?: string } }
 const origenDe = (req?: AuthedRequest) => requestOrigin(req);
 
 /**
@@ -98,6 +98,14 @@ export class CustomerDepositsController {
   @ApiOperation({ summary: 'Liga la ficha del cliente al cobro que Cobranza registró en Kepler (queda validada).' })
   ligar(@Param('id') id: string, @Body() body: { sucursal?: string; folio?: string }, @Req() req: AuthedRequest): Promise<CambioFichaResp> {
     return this.svc.ligar(id, body || {}, req.user?.username);
+  }
+
+  /** `[CC.21]` El dinero ya entró al banco y Kepler no tiene el cobro: el abono se declara de este cliente. */
+  @Post(':id/abono')
+  @RequirePermissions(Permission.FINANCE_COLLECTIONS_GESTIONAR)
+  @ApiOperation({ summary: 'Declara el abono del banco que corresponde a la ficha como de ese cliente (sin cobro en Kepler).' })
+  declararAbono(@Param('id') id: string, @Req() req: AuthedRequest): Promise<AbonoDeclaradoResp> {
+    return this.svc.declararAbono(id, req.user?.full_name || req.user?.username);
   }
 
   @Post(':id/rechazar')
