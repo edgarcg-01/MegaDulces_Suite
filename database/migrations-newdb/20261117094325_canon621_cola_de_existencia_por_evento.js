@@ -39,9 +39,15 @@
  *     el de escritura a Kepler de PQ.20): apagado, no anotan nada y la escritura pasa igual. Lo prende el paso 4 junto
  *     con el que drena; sin él la cola sólo crecería. Apagarlo es la salida de emergencia, sin DDL ni despliegue.
  *
- * ⛔ FUERA DE HORARIO: crear un disparador toma un candado breve en tablas que la ingesta escribe cada 15 s
- *    (`lock_timeout` 5 s: si no lo obtiene, falla entera y no deja nada). Aplicarla antes del paso 4 no llena la cola
- *    (los disparadores nacen apagados).
+ * ⛔ FUERA DE HORARIO, y antes mirar que no haya una transacción vieja abierta (skill `entrega` §5): cada
+ *    `CREATE TRIGGER` toma SHARE ROW EXCLUSIVE sobre su tabla (frena las escrituras de la ingesta, NO las lecturas) y,
+ *    como knex corre la migración en UNA transacción, lo RETIENE hasta el COMMIT: los 13 candados se acumulan, y una
+ *    transacción vieja en cualquiera de las 13 tablas detiene al conjunto. `lock_timeout` 5 s por candado: si no lo
+ *    obtiene, falla entera y no deja nada. Para acortar lo retenido, los disparadores se crean AL FINAL (detrás sólo
+ *    queda el COMMIT) y de la tabla más quieta a la más escrita (`ORDEN_CANDADO`). Y con `CREATE OR REPLACE`, nunca
+ *    `DROP` + `CREATE`: medido el 2026-11-17, `DROP TRIGGER` de uno que ya existe toma ACCESS EXCLUSIVE, que frena
+ *    también las lecturas (la API) — al volver a correrla lo habría hecho en las 13. Aplicarla antes del paso 4 no llena
+ *    la cola (los disparadores nacen apagados).
  *
  * Idempotente.
  *
@@ -89,6 +95,14 @@ const FUENTES = [
     // Un almacén cambia la regla de todos: recalcular todo.
     skus: (x) => `SELECT '*'::text FROM ${x} r` },
 ];
+/**
+ * En qué orden se toman los candados al crear los disparadores: de la tabla que la ingesta escribe menos a la que
+ * escribe más (renglones cambiados por día, contadores de prod desde el 1-nov: almacenes, sustituciones y Wincaja 0,
+ * factor capturado ~20, precios de lista ~60, proveedores ~450, kdii ~1,100, etiquetas ~2,600, escalones ~3,100,
+ * kdm1 ~12 mil, kdik ~17 mil, catálogo ~18 mil, kdm2 ~85 mil). Una fuente nueva sin lugar aquí hace fallar el up().
+ */
+const ORDEN_CANDADO = ['warehouses', 'product_unit_overrides', 'articulos', 'product_box_factor', 'product_prices', 'kdpv_prov_prod',
+  'kdii', 'product_label_prices', 'kdpv_prod_util', 'kdm1', 'kdik', 'products', 'kdm2'];
 const OPS = [
   ['ins', 'INSERT', 'REFERENCING NEW TABLE AS new_rows'],
   ['upd', 'UPDATE', 'REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows'],
@@ -205,7 +219,8 @@ exports.up = async function up(knex) {
     '[CANON.6.21] Interruptor de los disparadores tg_existencia_*. Falla cerrada: apagado o sin renglón, no anotan nada '
     '(la escritura de la fuente pasa igual). Apagarlo es la salida de emergencia sin DDL; prenderlo sin quien drene sólo llena la cola.'`);
 
-  // ── Los disparadores ────────────────────────────────────────────────────────────────────────────────────────────
+  // ── Las funciones de los disparadores (todavía sin tocar ninguna tabla de la ingesta) ──────────────────────────
+  const presentes = [];
   for (const f of FUENTES) {
     const { rows: [r] } = await knex.raw(`SELECT to_regclass('${f.tabla}') IS NOT NULL AS hay`);
     if (!r.hay) { console.log(`[CANON.6.21] falta ${f.tabla} — sin disparador (entorno sin esa fuente).`); continue; }
@@ -216,11 +231,7 @@ exports.up = async function up(knex) {
     if (faltan.length) throw new Error(`[CANON.6.21] ${f.tabla} no tiene ${faltan.map((x) => x.c).join(', ')}: el disparador fallaría en cada escritura`);
     await knex.raw(funcionDisparador(f));
     await knex.raw(`REVOKE ALL ON FUNCTION analytics.tg_existencia_${f.corto}() FROM PUBLIC`);
-    for (const [sufijo, evento, ref] of OPS) {
-      await knex.raw(`DROP TRIGGER IF EXISTS tg_exs_${sufijo} ON ${f.tabla}`);
-      await knex.raw(`CREATE TRIGGER tg_exs_${sufijo} AFTER ${evento} ON ${f.tabla} ${ref}
-        FOR EACH STATEMENT EXECUTE FUNCTION analytics.tg_existencia_${f.corto}()`);
-    }
+    presentes.push(f);
   }
 
   // ── El que drena ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -310,6 +321,22 @@ exports.up = async function up(knex) {
              AND NOT has_table_privilege('app_runtime', 'analytics.existencia_por_evento', 'UPDATE')
            END AS ok`);
   if (!g.sin_rol && !g.ok) throw new Error('[CANON.6.21] los permisos de app_runtime no quedaron como se declara');
+
+  // ── Los disparadores: AL FINAL, de la tabla más quieta a la más escrita ────────────────────────────────────────
+  // ⛔ Cada CREATE TRIGGER toma SHARE ROW EXCLUSIVE sobre su tabla (frena las escrituras, no las lecturas) y lo
+  // RETIENE hasta el COMMIT: los candados se acumulan. Por eso van al final de todo (detrás sólo queda el COMMIT) y
+  // en este orden: la tabla que la ingesta escribe más (kdm2) queda tomada milisegundos. Y CREATE OR REPLACE, nunca
+  // DROP + CREATE: medido el 2026-11-17, `DROP TRIGGER` de uno que ya existe toma ACCESS EXCLUSIVE, que frena también
+  // las LECTURAS (la API) — al volver a correr la migración lo habría hecho en las 13.
+  const faltanEnOrden = presentes.filter((f) => !ORDEN_CANDADO.includes(f.corto));
+  if (faltanEnOrden.length) throw new Error(`[CANON.6.21] ${faltanEnOrden.map((f) => f.corto).join(', ')} sin lugar en ORDEN_CANDADO`);
+  const lugar = (f) => ORDEN_CANDADO.indexOf(f.corto);
+  for (const f of [...presentes].sort((a, b) => lugar(a) - lugar(b))) {
+    for (const [sufijo, evento, ref] of OPS) {
+      await knex.raw(`CREATE OR REPLACE TRIGGER tg_exs_${sufijo} AFTER ${evento} ON ${f.tabla} ${ref}
+        FOR EACH STATEMENT EXECUTE FUNCTION analytics.tg_existencia_${f.corto}()`);
+    }
+  }
 };
 
 /** Deshace EXACTAMENTE lo que hizo el `up`, ni una fila más. */

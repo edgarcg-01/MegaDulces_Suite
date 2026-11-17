@@ -29,7 +29,13 @@ async function montarExistencia(c) {
     await c.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
     await c.query(`GRANT USAGE ON SCHEMA ${s} TO app_runtime`);
   }
-  const cols = async (t, defs) => { for (const [col, ty] of defs) await c.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${col} ${ty}`); };
+  // Sólo altera si FALTA la columna: `ALTER TABLE … ADD COLUMN IF NOT EXISTS` toma ACCESS EXCLUSIVE aunque exista, y
+  // eso taparía los candados que la prueba del paso 3 mide sobre las fuentes.
+  const cols = async (t, defs) => {
+    const [s, n] = t.split('.');
+    const hay = new Set((await q(`SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`, [s, n])).map((r) => r.column_name));
+    for (const [col, ty] of defs) if (!hay.has(col)) await c.query(`ALTER TABLE ${t} ADD COLUMN ${col} ${ty}`);
+  };
   await c.query(`CREATE TABLE IF NOT EXISTS kepler_ods.kdii (sucursal text NOT NULL, c1 text NOT NULL, PRIMARY KEY (sucursal, c1))`);
   await cols('kepler_ods.kdii', [['c11', 'text'], ['c77', 'text'], ['c78', 'numeric'], ['c79', 'numeric'], ['c80', 'text'], ['c81', 'numeric'],
     ['c83', 'text'], ['c84', 'numeric'], ['c87', 'numeric'], ['c88', 'numeric'], ['c89', 'numeric'], ['c90', 'numeric'], ['c91', 'numeric'], ['c92', 'numeric'],
