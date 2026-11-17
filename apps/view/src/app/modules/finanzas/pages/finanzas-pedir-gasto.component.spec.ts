@@ -145,9 +145,9 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     fix.detectChanges();
   };
   /** Lo que pasa al abrir una base: la puerta, el catálogo, los frecuentes y la bandeja del SAT. */
-  const abrirBase = (s: string, facturas: FacturaPorRegistrar[] = []) => {
+  const abrirBase = (s: string, facturas: FacturaPorRegistrar[] = [], extra: object[] = []) => {
     pide('/disponibilidad').flush({ sucursal: s, disponible: true, motivos: [] });
-    pide('/catalogo').flush({ sucursal: s, conceptos: [{ codigo: 'GAS', nombre: 'GASOLINA', cuenta: '601-001', fuera_de_alcance: null }],
+    pide('/catalogo').flush({ sucursal: s, conceptos: [{ codigo: 'GAS', nombre: 'GASOLINA', cuenta: '601-001', fuera_de_alcance: null }, ...extra],
       proyectos: [{ codigo: 'P1', nombre: 'GENERAL' }], departamentos: [{ codigo: 'D1', nombre: 'ADMINISTRACION' }] });
     pide('/acreedores').flush([]);
     fix.detectChanges();
@@ -167,6 +167,22 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     fix.detectChanges();
   };
   const espera = () => new Promise((r) => setTimeout(r, 0));
+
+  it('R14 · el concepto que aquí va a otro rubro que en CEDIS no se ofrece, pero se DICE; y si es el de siempre del proveedor, se dice eso', () => {
+    const MOTIVO = 'CAPITAN DE MARCA (074) va a la cuenta 102 en el Kepler de esta sucursal y a 606-014 en CEDIS: no se puede pedir hasta que Contabilidad corrija el catálogo';
+    montar();
+    pide('/abiertas').flush({ sucursales: ['06'], alcance: 'una' });
+    abrirBase('06', [], [{ codigo: '074', nombre: 'CAPITAN DE MARCA.', cuenta: '102', fuera_de_alcance: null, distinto_de_cedis: MOTIVO }]);
+    expect(c.conceptos().map((x) => x.codigo)).toEqual(['GAS']);
+    expect(txt()).toContain(`No se ofrece: ${MOTIVO}`);
+    elegir(PRECARGA(null, {
+      conceptos: [{ codigo: '074', nombre: 'CAPITAN DE MARCA.', cuenta: '102', fuera_de_alcance: null, distinto_de_cedis: MOTIVO, usos: 5 }],
+      ultimo: { concepto: '074', proyecto: 'P1', departamento: 'D1', fecha: '2026-11-01' },
+    }));
+    expect(c.renglones()[0].concepto).toBeFalsy();
+    expect(txt()).toContain(`El concepto que usa este proveedor no se ofrece aquí: ${MOTIVO}`);
+    expect(txt()).not.toContain('No se ofrece: '); // un solo aviso, no dos
+  });
 
   it('DS27 · con un solo almacén la base es fija y no se pregunta', () => {
     abrir();

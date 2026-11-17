@@ -64,6 +64,44 @@ export function cuentaFueraDeAlcance(cuenta: string | null | undefined): string 
   return f ? `La cuenta ${c} es de ${f.que}, no de gasto: ese renglón se captura en Kepler` : null;
 }
 
+/** El nombre de un concepto de Kepler para compararlo entre servidores: mayúsculas, sin el punto final ni espacios de más. */
+function nombreDeConcepto(n: string | null | undefined): string {
+  return String(n ?? '').trim().toUpperCase().replace(/\.+$/, '').replace(/\s+/g, ' ');
+}
+
+/** El rubro de una cuenta contable: lo anterior al primer `-` (`606-014` → `606`; `102-0142` → `102`; `102` → `102`). */
+export function rubroDeCuenta(cuenta: string | null | undefined): string {
+  return String(cuenta ?? '').trim().split('-')[0];
+}
+
+/**
+ * `[PGP.122]` R14 (anexo S §16) — **La cuenta del concepto en ESTE servidor, contra la de CEDIS (00).** Hay nueve catálogos
+ * de conceptos (`kdco`), uno por servidor, y el escritor escribe la cuenta del servidor. Medido el 2026-11-17: el 074
+ * «Capitán de marca» va a 102 (caja y bancos) en 01, 06, 07 y 08 y a 606-014 (gasto) en 00, y desde el 2-oct mandó
+ * $25,900 fuera de resultados.
+ *
+ * Devuelve el motivo si el concepto NO se puede pedir aquí, o `null`:
+ *  · otro RUBRO que el de 00 → bloquea: el gasto cambia de naturaleza (caja en vez de gasto). Lo corrige Contabilidad;
+ *  · el mismo rubro con otra subcuenta (`102-0142` contra `102-0042`, la caja propia de una sucursal) → entra;
+ *  · el mismo CÓDIGO con otro NOMBRE es otro concepto, no el mismo mal configurado → entra. Medido: el 246 es «TRASPASO
+ *    SALIDA» (515-002) en 00 y «DEGUSTACION A CLIENTES» (606-006) en 02, 04 y 05; compararlos por código bloqueaba de más;
+ *  · 00 no tiene ese concepto, o le falta la cuenta, o es la propia 00 → no hay contra qué comparar: entra.
+ */
+export function conceptoDistintoDeCedis(
+  c: { codigo: string; nombre?: string | null; cuenta: string | null | undefined },
+  enCedis: { nombre?: string | null; cuenta: string | null | undefined } | null | undefined,
+  sucursal: string,
+): string | null {
+  const aqui = String(c.cuenta ?? '').trim();
+  const cedis = String(enCedis?.cuenta ?? '').trim();
+  if (sucursal === '00' || !aqui || !cedis) return null;
+  if (nombreDeConcepto(c.nombre) !== nombreDeConcepto(enCedis?.nombre)) return null;
+  if (rubroDeCuenta(aqui) === rubroDeCuenta(cedis)) return null;
+  const nombre = String(c.nombre ?? '').trim().replace(/\.$/, '');
+  return `${nombre ? `${nombre} (${c.codigo})` : `El concepto ${c.codigo}`} va a la cuenta ${aqui} en el Kepler de esta sucursal y a ${cedis} en CEDIS: `
+    + `no se puede pedir hasta que Contabilidad corrija el catálogo`;
+}
+
 // ── Lo que se captura ───────────────────────────────────────────────────────────────────────
 
 /** Qué papel ampara el gasto. La cotización ampara el «Pedir» (antes de gastar). */
@@ -533,6 +571,11 @@ export interface ConceptoDeGasto {
   cuenta: string;
   /** `null` si entra; el motivo si la cuenta es de SUA, impuestos, activo o capital. */
   fuera_de_alcance: string | null;
+  /**
+   * R14: `null` si entra; el motivo si en este servidor la cuenta es de OTRO rubro que en CEDIS (`conceptoDistintoDeCedis`).
+   * La pantalla lo muestra (no lo esconde) y el servidor rechaza pedir con él. Opcional: un servidor viejo no lo manda.
+   */
+  distinto_de_cedis?: string | null;
 }
 
 /** `GET /finance/expenses/solicitudes/catalogo?sucursal=` — lo que la pantalla ofrece para elegir. */

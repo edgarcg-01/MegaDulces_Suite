@@ -249,6 +249,14 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
               <!-- H1: cada campo con SU origen («de la factura» era sólo el importe; el concepto salió del hábito). -->
               @if (origenRenglon(i); as o) { <small class="pg-fuente">{{ o }}</small> }
             }
+            <!-- R14: el concepto que va a otro rubro que en CEDIS no se ofrece, pero se dice por qué (no se esconde). -->
+            @if (habitoBloqueado(); as hb) {
+              <p class="pg-nota-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El concepto que usa este proveedor no se ofrece aquí: {{ hb }}.</p>
+            } @else {
+              @for (cb of conceptosBloqueados(); track cb.codigo) {
+                <p class="pg-nota-aviso"><i class="pi pi-info-circle" aria-hidden="true"></i> No se ofrece: {{ cb.distinto_de_cedis }}.</p>
+              }
+            }
             @if (renglones().length < maxRenglones) {
               <p-button type="button" icon="pi pi-plus" label="Agregar renglón" [text]="true" size="small" (onClick)="agregarRenglon()" />
             }
@@ -522,7 +530,15 @@ export class FinanzasPedirGastoComponent {
   readonly catalogoLeidoEn = signal<Date | null>(null);
   readonly frecuentes = signal<AcreedorDeGasto[]>([]);
 
-  readonly conceptos = computed(() => (this.catalogo()?.conceptos ?? []).filter((c) => !c.fuera_de_alcance).map((c) => ({ ...c, etiqueta: `${c.nombre} · ${c.codigo}` })));
+  readonly conceptos = computed(() => (this.catalogo()?.conceptos ?? []).filter((c) => !c.fuera_de_alcance && !c.distinto_de_cedis).map((c) => ({ ...c, etiqueta: `${c.nombre} · ${c.codigo}` })));
+  /**
+   * R14 (anexo S §16): conceptos que en el Kepler de esta sucursal van a OTRO rubro que en CEDIS (el 074 «Capitán de
+   * marca» a caja y bancos). No se ofrecen —el servidor los rechaza—, pero se DICEN: esconderlos sin explicar dejaba a
+   * la persona buscando un concepto que no aparece.
+   */
+  readonly conceptosBloqueados = computed(() => (this.catalogo()?.conceptos ?? []).filter((c) => !c.fuera_de_alcance && !!c.distinto_de_cedis));
+  /** R14: el concepto de siempre de este proveedor está bloqueado aquí: se dice en vez de dejar el campo vacío sin razón. */
+  readonly habitoBloqueado = signal<string | null>(null);
   readonly proyectos = computed(() => (this.catalogo()?.proyectos ?? []).map((p) => ({ ...p, etiqueta: `${p.nombre || p.codigo} · ${p.codigo}` })));
   readonly departamentos = computed(() => (this.catalogo()?.departamentos ?? []).map((d) => ({ ...d, etiqueta: `${d.nombre || d.codigo} · ${d.codigo}` })));
 
@@ -1005,7 +1021,9 @@ export class FinanzasPedirGastoComponent {
         if (rs.length === 1) {
           const r0 = { ...rs[0] };
           let puso = false;
-          const concepto = ofrecido(this.conceptos(), p.ultimo?.concepto ?? p.conceptos[0]?.codigo);
+          const propuesto = p.ultimo?.concepto ?? p.conceptos[0]?.codigo;
+          this.habitoBloqueado.set(this.conceptosBloqueados().find((c) => c.codigo === propuesto)?.distinto_de_cedis ?? null);
+          const concepto = ofrecido(this.conceptos(), propuesto);
           if (yo['concepto_1'] !== 'persona' && concepto) { r0.concepto = concepto; this.poner('concepto_1', 'habito'); puso = true; }
           const proyecto = ofrecido(this.proyectos(), p.ultimo?.proyecto);
           if (yo['proyecto_1'] !== 'persona' && proyecto) { r0.proyecto = proyecto; this.poner('proyecto_1', 'habito'); puso = true; }
@@ -1037,6 +1055,7 @@ export class FinanzasPedirGastoComponent {
 
   /** Quita lo que llenó el hábito o el catálogo (es del acreedor anterior): vuelve a quedar vacío y sin rótulo. */
   private limpiarHabito(): void {
+    this.habitoBloqueado.set(null);
     const yo = this.fuentes();
     const delAnterior = (campo: string) => yo[campo] === 'habito' || yo[campo] === 'catalogo';
     const rs = this.renglones();

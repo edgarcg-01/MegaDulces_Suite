@@ -642,6 +642,27 @@ async function main() {
       await k.query(`UPDATE md.sqliov SET c4 = $2 WHERE c1 = $1 AND c2 = 0 AND c3 = 0`, [`KFXA1501.${SUC}`, c4Antes]);
     }
     check(await contador() === c4Antes, 'el contador del Kepler de prueba quedó como estaba', await contador());
+
+    // d) R14: el concepto que aquí va a OTRO rubro que en CEDIS (el 074 a caja en 01/06/07/08) no se pide; el mismo
+    //    código con otro nombre es otro concepto (el 246) y sí entra
+    const C_RUBRO = '9R4'; const C_HOMONIMO = '9R5';
+    await sembrar('kdco', [
+      { sucursal: SUC, c1: C_RUBRO, c2: 'CAPITAN DE PRUEBA R14.', c3: '102' },
+      { sucursal: '00', c1: C_RUBRO, c2: 'CAPITAN DE PRUEBA R14.', c3: '606-014' },
+      { sucursal: SUC, c1: C_HOMONIMO, c2: 'DEGUSTACION PRUEBA R14', c3: '606-006' },
+      { sucursal: '00', c1: C_HOMONIMO, c2: 'TRASPASO PRUEBA R14', c3: '515-002' },
+    ]);
+    await k.query(`INSERT INTO md.kdco (c1, c2, c3) VALUES ($1, 'CAPITAN DE PRUEBA R14.', '102'), ($2, 'DEGUSTACION PRUEBA R14', '606-006')`, [C_RUBRO, C_HOMONIMO]);
+    const catR = await svc.catalogo(SUC);
+    const cR14 = catR.conceptos.find((x) => x.codigo === C_RUBRO);
+    const cHom = catR.conceptos.find((x) => x.codigo === C_HOMONIMO);
+    check(/102/.test(cR14?.distinto_de_cedis || '') && /606-014/.test(cR14?.distinto_de_cedis || '') && /Contabilidad/.test(cR14?.distinto_de_cedis || ''),
+      'R14: el catálogo marca el concepto que aquí va a caja (102) y en CEDIS a gasto (606-014), con las dos cuentas y quién lo corrige', cR14);
+    check(cHom && !cHom.distinto_de_cedis, 'R14: el mismo código con OTRO nombre en CEDIS es otro concepto: no se marca', cHom);
+    await no({ renglones: [{ concepto: C_RUBRO, proyecto: PROYECTO, departamento: DEPTO, importe: 100 }] }, /CEDIS/, '⛔ R14: pedir con el concepto que va a otro rubro que en CEDIS → 400');
+    const cHomOk = await pedir({ renglones: [{ concepto: C_HOMONIMO, proyecto: PROYECTO, departamento: DEPTO, importe: 100 }] });
+    check(!!cHomOk.id, 'R14: con el homónimo (otro concepto) sí se pide', cHomOk.id);
+    await k.query(`DELETE FROM md.kdco WHERE c1 = ANY($1::text[])`, [[C_RUBRO, C_HOMONIMO]]);
   } finally {
     // ── Limpieza: exactamente lo que se creó ─────────────────────────────────────────────────────
     if (cfdisSembrados.length) await knex('fiscal.cfdis').where({ tenant_id: T }).whereIn('uuid', cfdisSembrados).del().catch((e) => console.log(`  ! limpieza: ${e.message}`));
