@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
+import { reservarFolioKepler } from '@megadulces/platform-core';
 
 import {
   MARCA_COTIZACION, plantillaTlmkDe, urlDeServidor,
@@ -254,15 +255,19 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       }
 
       const hora = horaMx();
+      // El folio sale del CONTADOR de Kepler (`greatest(c4, MAX+1)`, con el candado de `sqliov` que lo
+      // avanza) — [PGP.122.4]. Antes era `MAX+1` dentro del UPDATE: no tocaba el contador y lo dejaba
+      // atrasado, y el próximo U-D-40 capturado directo en Kepler pedía un folio ya usado.
+      const reserva = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: DOC.genero, naturaleza: DOC.naturaleza, tipo: Number(DOC.grupo), serie: Number(tmpl.serie) });
+      if (!reserva.ok) { await c.query('ROLLBACK'); return { estado: 'rechazado', motivo: `Folio Kepler U-D-40 (${e.sucursal}): ${reserva.motivo}` }; }
       await c.query(
         `UPDATE _h SET
-            c6  = lpad(((SELECT max(c6::int) FROM md.kdm1
-                          WHERE c1 = $1 AND c2 = $2 AND c3 = $3 AND btrim(c4::text) = $4 AND btrim(c5::text) = $5) + 1)::text, 7, '0'),
-            c9 = $6, c18 = $6, c68 = $6, c62 = $7, c69 = $7, c67 = $8,
-            c10 = $9, c12 = $10, c11 = $11, c27 = $12, c24 = $13,
-            c22 = $14, c32 = $15, c33 = $16, c34 = $17, c35 = $18, c30 = $19,
-            c43 = 'N', c85 = $20, c115 = $21`,
-        [e.sucursal, DOC.genero, DOC.naturaleza, DOC.grupo, tmpl.serie,
+            c6  = $1,
+            c9 = $2, c18 = $2, c68 = $2, c62 = $3, c69 = $3, c67 = $4,
+            c10 = $5, c12 = $6, c11 = $7, c27 = $8, c24 = $9,
+            c22 = $10, c32 = $11, c33 = $12, c34 = $13, c35 = $14, c30 = $15,
+            c43 = 'N', c85 = $16, c115 = $17`,
+        [reserva.valor.folio,
           e.fecha, hora, CAPTURISTA_SUITE,
           e.cliente.trim(), e.vendedor.trim(), DOC.estado, DOC.origen, e.folio_suite,
           cli.rfc, cli.nombre, prev.c33, prev.c34, prev.c35, prev.c30,
@@ -274,7 +279,7 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       for (const col of LIMPIAR) await c.query(`UPDATE _h SET ${col} = ''`);
       // COT.28: siempre se escriben, también vacíos: así no se hereda el comentario de la plantilla.
       await c.query('UPDATE _h SET c25 = $1, c26 = $2', obs);
-      const folio: string = (await c.query('SELECT c6 FROM _h')).rows[0].c6;
+      const folio: string = reserva.valor.folio;
 
       const n = renglones.length;
       const l = await c.query(
@@ -309,7 +314,7 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       }
 
       await this.confirmar(c);
-      this.logger.log(`Cotización ${e.folio_suite} → Pedido TELEMARK Kepler ${e.sucursal}/${folio} (${n} renglones, $${cabecera.c16})`);
+      this.logger.log(`Cotización ${e.folio_suite} → Pedido TELEMARK Kepler ${e.sucursal}/${folio} (${n} renglones, $${cabecera.c16}; contador ${reserva.valor.llave} ${reserva.valor.contadorAntes} → ${reserva.valor.contadorNuevo}${reserva.valor.contadorAtrasado ? ', VENÍA ATRASADO' : ''})`);
       return { estado: 'entregado', kepler: { sucursal: e.sucursal, folio, renglones: n, total: cabecera.c16 } };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);

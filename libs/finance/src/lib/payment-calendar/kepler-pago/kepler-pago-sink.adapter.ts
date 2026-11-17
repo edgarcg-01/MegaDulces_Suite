@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
-import { normalizarSucursal, urlDeServidor, valorDeEnv, type Env, type Resolucion } from '@megadulces/platform-core';
+import { normalizarSucursal, reservarFolioKepler, urlDeServidor, valorDeEnv, type Env, type FolioReservado, type Resolucion } from '@megadulces/platform-core';
 
 import { armarPagosKepler, escrituraDePagoEncendida, type FacturaAPagar, type PlanPagoKepler, type ProveedorKepler } from './pago-kepler.armador';
 import { columnaAbonoKdxg, columnasKdc126, tablaPolizaDelMes } from '../../shared/kepler-contable';
@@ -334,15 +334,21 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       await c.query('CREATE TEMP TABLE _m5 (LIKE md.kdm5) ON COMMIT DROP');
       await c.query(`CREATE TEMP TABLE _p (LIKE md.${tablaPoliza}) ON COMMIT DROP`);
 
-      // ── Folio y número de póliza: MAX+1, uno por documento ─────────────────────────────────
-      const maxFolio = Number((await c.query(
-        `SELECT coalesce(max(c6::int), 0) m FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)=$2`,
-        [e.sucursal, serie])).rows[0].m);
+      // ── Número de póliza: MAX+1 del mes. No es folio de documento (Kepler no lleva contador de póliza). ──
       const maxPoliza = Number((await c.query(`SELECT coalesce(max(c1), 0)::int m FROM md.${tablaPoliza} WHERE c8='E'`)).rows[0].m);
 
+      // ── Folio: del CONTADOR de Kepler, `greatest(c4, MAX+1)`, uno por documento. [PGP.122.4] ──────
+      // Cada `reservarFolioKepler` toma el candado de `md.sqliov` y lo AVANZA, así que N documentos salen
+      // con folios consecutivos y el contador queda en folioN+1 — igual que la solicitud de gasto. Antes
+      // era `MAX+1` pelón sin tocar el contador: lo dejaba atrasado y el próximo X-D-26 capturado directo
+      // en Kepler pedía un folio ya usado.
       const documentos: EscrituraPagoKepler['documentos'] = [];
+      const reservas: FolioReservado[] = [];
       for (const [i, { plan }] of armado.planes.entries()) {
-        const folio = String(maxFolio + 1 + i).padStart(7, '0');
+        const reserva = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: 'X', naturaleza: 'D', tipo: 26, serie: Number(serie) });
+        if (!reserva.ok) { await c.query('ROLLBACK'); return { estado: 'rechazado', motivo: `Folio Kepler X-D-26 (${e.sucursal}): ${reserva.motivo}` }; }
+        const folio = reserva.valor.folio;
+        reservas.push(reserva.valor);
         const poliza = maxPoliza + 1 + i;
         await clonarFila(c, '_h0', '_h', { ...plan.kdm1, c6: folio });
         await clonarFila(c, '_e0', '_e', { ...plan.kdxe, c6: folio });
@@ -356,7 +362,7 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
 
       await this.confirmar(c, { sucursal: e.sucursal, tablaPoliza, documentos });
       const folios = documentos.map((x) => x.folio);
-      this.logger.log(`Pago ${e.referencia} → Kepler ${e.sucursal}/X-D-26/${folios.join(', ')} (${e.facturas.length} facturas, póliza ${tablaPoliza} E ${documentos.map((x) => x.poliza).join(', ')})`);
+      this.logger.log(`Pago ${e.referencia} → Kepler ${e.sucursal}/X-D-26/${folios.join(', ')} (${e.facturas.length} facturas, póliza ${tablaPoliza} E ${documentos.map((x) => x.poliza).join(', ')}; contador ${reservas[0].llave} ${reservas[0].contadorAntes} → ${reservas[reservas.length - 1].contadorNuevo}${reservas.some((r) => r.contadorAtrasado) ? ', VENÍA ATRASADO' : ''})`);
       return { estado: 'escrito', kepler: { sucursal: e.sucursal, folios, facturas: e.facturas.length, serie: String(serie) } };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);

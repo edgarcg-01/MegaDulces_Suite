@@ -6,6 +6,8 @@ import type {
   KeplerRequisitionResultado,
 } from '@megadulces/contracts';
 
+import { reservarFolioKepler } from '@megadulces/platform-core';
+
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 import { piezasEnteras } from './fraccion-caja';
@@ -357,17 +359,21 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
         return { estado: 'rechazada', motivo: `No existe el documento plantilla ${coordenada(tipo)} ${e.sucursal}/${tmpl.serie}/${tmpl.folio} en Kepler` };
       }
 
-      // El folio se calcula DENTRO del UPDATE para que no haya ventana entre leerlo y usarlo.
-      // `c11` y la marca cambian según el tipo: en la compra `c11` ES la referencia; en el
-      // traspaso es el ESTADO del flujo y la referencia se va a `c24`.
+      // El folio sale del CONTADOR de Kepler (`greatest(c4, MAX+1)`, con el candado de `sqliov` que
+      // serializa con la pantalla de Kepler y avanza el contador) — [PGP.122.4]. Antes era `MAX+1`
+      // dentro del UPDATE: no tocaba el contador y lo dejaba atrasado (medido en 00/01/06/08), y el
+      // próximo folio capturado directo en Kepler chocaba.
+      // `c11` y la marca cambian según el tipo: en la compra `c11` ES la referencia; en el traspaso es
+      // el ESTADO del flujo y la referencia se va a `c24`.
+      const reserva = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: d.genero as 'X' | 'U' | 'N', naturaleza: d.naturaleza as 'A' | 'D', tipo: Number(d.grupo), serie: Number(tmpl.serie) });
+      if (!reserva.ok) { await c.query('ROLLBACK'); return { estado: 'rechazada', motivo: `Folio Kepler ${coordenada(tipo)} (${e.sucursal}): ${reserva.motivo}` }; }
       await c.query(
         `UPDATE _h SET
-            c6  = lpad(((SELECT max(c6::int) FROM md.kdm1
-                          WHERE c1=$1 AND c2=$2 AND c3=$3 AND btrim(c4::text)=$4 AND btrim(c5::text)=$5) + 1)::text, 7, '0'),
-            c9  = $6, c68 = $6, c43 = 'N',
-            c10 = $7, c32 = $8, c16 = $9,
-            c11 = $10, c24 = $11`,
-        [e.sucursal, d.genero, d.naturaleza, d.grupo, tmpl.serie,
+            c6  = $1,
+            c9  = $2, c68 = $2, c43 = 'N',
+            c10 = $3, c32 = $4, c16 = $5,
+            c11 = $6, c24 = $7`,
+        [reserva.valor.folio,
           e.fecha, c10, c32, e.total,
           d.c11 === 'referencia' ? e.folio_suite : d.c11,
           d.marca === 'c24' ? e.folio_suite : '']);
@@ -392,7 +398,7 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       // de los nuevos.
       for (const col of d.limpiar) await c.query(`UPDATE _h SET ${col} = ''`);
 
-      const folio: string = (await c.query('SELECT c6 FROM _h')).rows[0].c6;
+      const folio: string = reserva.valor.folio;
 
       const n = e.lineas.length;
       const l = await c.query(
@@ -491,16 +497,17 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
       if (!esTraspaso && e.generar_orden) {
         await c.query('CREATE TEMP TABLE _oh ON COMMIT DROP AS SELECT * FROM _h');
         await c.query('CREATE TEMP TABLE _ol ON COMMIT DROP AS SELECT * FROM _l');
+        // El folio de la OC también sale del contador de Kepler (X-A-35), reservado con su candado. [PGP.122.4]
+        const reservaOc = await reservarFolioKepler(c, { sucursal: e.sucursal, grupo: 'X', naturaleza: 'A', tipo: 35, serie: Number(tmpl.serie) });
+        if (!reservaOc.ok) { await c.query('ROLLBACK'); return { estado: 'rechazada', motivo: `Folio Kepler OC X-A-35 (${e.sucursal}): ${reservaOc.motivo}` }; }
+        ordenFolio = reservaOc.valor.folio;
         await c.query(
           `UPDATE _oh SET
               c4  = $1,
-              c6  = lpad(((SELECT max(c6::int) FROM md.kdm1
-                            WHERE c1=$2 AND c2='X' AND c3='A' AND btrim(c4::text)='35' AND btrim(c5::text)=$3) + 1)::text, 7, '0'),
-              c31 = 'Ord', c63 = 'XA3501-', c36 = 'A', c37 = $4, c38 = $6, c39 = $5`,
-          // ⛔ `c38` es numeric y `$3` ya es texto por el `btrim(c5::text)`: cada uno con su
-          // parámetro (`[KR.16]`; lo cazó el ensayo contra 01/06/07 el 2026-10-28).
-          ['35', e.sucursal, tmpl.serie, '30', folio, tmpl.serie]);
-        ordenFolio = (await c.query('SELECT c6 FROM _oh')).rows[0].c6 as string;
+              c6  = $2,
+              c31 = 'Ord', c63 = 'XA3501-', c36 = 'A', c37 = $3, c38 = $4, c39 = $5`,
+          // `c38` (serie) es numeric; `c39` es el folio de la requisición de origen. [KR.16]
+          ['35', ordenFolio, '30', tmpl.serie, folio]);
         await c.query(
           `UPDATE _ol SET c4 = $1, c6 = $2, c19 = 'A', c20 = $3, c21 = $4, c22 = $5, c23 = c7, c31 = c9`,
           ['35', ordenFolio, '30', tmpl.serie, folio]);
@@ -510,7 +517,7 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
 
       await this.confirmar(c, !!ordenFolio);
 
-      this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)${ordenFolio ? ` + OC ${ordenFolio}` : ''}`);
+      this.logger.log(`Requisición ${e.folio_suite} → Kepler ${e.sucursal}/${folio} (${n} renglones)${ordenFolio ? ` + OC ${ordenFolio}` : ''}; contador ${reserva.valor.llave} ${reserva.valor.contadorAntes} → ${reserva.valor.contadorNuevo}${reserva.valor.contadorAtrasado ? ', VENÍA ATRASADO' : ''}`);
       return {
         estado: 'entregada', kepler: { sucursal: e.sucursal, folio, renglones: n }, lineas: resueltas,
         ...(ordenFolio ? { orden: { folio: ordenFolio } } : {}),

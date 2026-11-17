@@ -21,10 +21,15 @@ export async function revisarEscrituraPago(c: PoolClient, w: EscrituraPagoKepler
   const m5 = (await c.query(`SELECT c6, c7::int c7, c12::text c12, c13::text c13, btrim(c14) c14 FROM _m5 ORDER BY c6, c7`)).rows;
   const p = (await c.query(`SELECT c1::int c1, btrim(c3) c3, btrim(c4) c4, c5::numeric c5, btrim(c19) c19, to_char(c2, 'YYYY-MM-DD') c2 FROM _p ORDER BY c1, c10`)).rows;
 
-  // ── kdm1 / kdxe: un documento por plan, folios MAX+1… seguidos ─────────────────────────────────
+  // ── kdm1 / kdxe: un documento por plan. Folios del CONTADOR de Kepler ([PGP.122.4]): sin choque
+  // (todos > el MAX existente), consecutivos, y `sqliov.c4` quedó avanzado a folio_final+1 (lo que
+  // distingue este arreglo del viejo `MAX+1` pelón, que no tocaba el contador). ──────────────────────
   const max = Number((await c.query(`SELECT coalesce(max(c6::int), 0) m FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c5::text)='1'`, [w.sucursal])).rows[0].m);
   if (h.length !== n || e.length !== n) no.push(`_h ${h.length} / _e ${e.length} filas para ${n} documentos`);
-  folios.forEach((fo, i) => { if (Number(fo) !== max + 1 + i) no.push(`folio ${fo} ≠ MAX+${1 + i} (${max + 1 + i})`); });
+  if (n && Number(folios[0]) <= max) no.push(`folio inicial ${folios[0]} ≤ MAX existente (${max}): chocaría con un folio ya usado`);
+  folios.forEach((fo, i) => { if (i && Number(fo) !== Number(folios[0]) + i) no.push(`folio ${fo} no es consecutivo (esperado ${Number(folios[0]) + i})`); });
+  const cont = (await c.query(`SELECT c4::text c4 FROM md.sqliov WHERE c1=$1 AND c2=0 AND c3=0`, [`KFXD2601.${w.sucursal}`])).rows[0];
+  if (n && (!cont || Number(cont.c4) !== Number(folios[n - 1]) + 1)) no.push(`sqliov.c4 (KFXD2601.${w.sucursal}) = ${cont?.c4} ≠ folio final+1 (${Number(folios[n - 1]) + 1}): el contador no avanzó`);
   w.documentos.forEach((d, i) => {
     const H = h[i] ?? {}, E = e[i] ?? {};
     if (H.c6 !== d.folio || E.c6 !== d.folio) no.push(`documento ${i + 1}: kdm1.c6 ${H.c6} · kdxe.c6 ${E.c6} ≠ ${d.folio}`);
@@ -75,6 +80,7 @@ export async function revisarEscrituraPago(c: PoolClient, w: EscrituraPagoKepler
   const pide: [string, string, string | null][] = [
     ['md.kdm1', 'INSERT', null], ['md.kdm5', 'INSERT', null], ['md.kdxe', 'INSERT', null], ['md.kdxf', 'INSERT', null],
     [`md.${w.tablaPoliza}`, 'INSERT', null], ['md.kdxe', 'UPDATE', 'c20'],
+    ['md.sqliov', 'SELECT', null], ['md.sqliov', 'UPDATE', 'c4'],   // [PGP.122.4] el contador del folio
     ['md.kdxg', 'UPDATE', colG], ['md.kdxg', 'UPDATE', 'c4'], ['md.kdxg', 'UPDATE', 'c7'],
     ...[...k.cargo, ...k.abono].map((col): [string, string, string] => ['md.kdc126', 'UPDATE', col]),
   ];
