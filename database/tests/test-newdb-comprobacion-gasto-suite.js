@@ -125,9 +125,15 @@ const PANTALLA = { clasificacion: 'fiscal' };
 
 let ok = 0;
 let fail = 0;
+let sinMedir = 0;
 const check = (cond, label, detalle) => {
   if (cond) { ok++; console.log(`  ✓ ${label}`); } else { fail++; console.log(`  ✗ ${label}${detalle === undefined ? '' : ` → ${JSON.stringify(detalle)}`}`); }
 };
+// Un bloque que depende de los datos de ESTE destino (la base del CI no trae padrón ni canceladas reales) se declara y la
+// suite SIGUE. `noMedido()` termina el proceso: a media suite dejaba sin correr todo lo que venía después (en el CI, las
+// secciones I a N, medido el 2026-11-17 en el PR #550) y, como sale dentro del try, sin la limpieza del finally.
+// `noMedido()` queda sólo para el arranque, cuando falta el rol o la migración y no hay nada que medir.
+const bloqueNoMedido = (motivo) => { sinMedir++; console.log(`  ◻ NO MEDIDO — ${motivo}`); };
 const vacio = (c) => /char|text/.test(c.type) ? '' : /timestamp|date/.test(c.type) ? '1800-01-01 00:00:00' : 0;
 
 function urlCon(base, usuario, clave) {
@@ -389,12 +395,12 @@ async function main() {
     const malNombre = cola.vales.filter((x) => (x.capturo_nombre ?? null) !== delPadron(x.created_by) || (x.reviso_nombre ?? null) !== delPadron(x.validated_by)).length;
     const conNombre = cola.vales.filter((x) => x.capturo_nombre || x.reviso_nombre).length;
     check(malNombre === 0, `G.UI.8: quien capturó y quien revisó, con el nombre del padrón en los ${cola.vales.length} vales (${conNombre} con nombre)`, malNombre);
-    if (!conNombre) noMedido('G.UI.8: ningún vale de la cola local trae un usuario del padrón');
+    if (!conNombre) bloqueNoMedido('G.UI.8: ningún vale de la cola local trae un usuario del padrón');
     // La base cerrada (DG7): otra sucursal que no es 02/04/05/07 lo dice en llano y con su detalle.
     const conDg7 = cola.vales.find((x) => x.gasto_kepler && !['02', '04', '05', '07'].includes(String(x.sucursal)));
     if (conDg7) check(conDg7.gasto_kepler.escritura.abierta === false && /contador que falta medir/.test(conDg7.gasto_kepler.escritura.motivo ?? '') && /^DG7/.test(conDg7.gasto_kepler.escritura.detalle ?? ''),
       `DG7: en ${conDg7.sucursal} la cola dice que la Suite todavía no escribe, con el detalle para Sistemas`, conDg7.gasto_kepler.escritura);
-    else noMedido('DG7 en la cola: la base local no trae vales autorizados sin gasto fuera de 02/04/05/07');
+    else bloqueNoMedido('DG7 en la cola: la base local no trae vales autorizados sin gasto fuera de 02/04/05/07');
 
     // «Reintentar»: con el motivo vigente, dice por qué y no escribe; sobre un vale sin validar, 409; un id roto, 400.
     const rr = await proofs.reintentarGasto(d, QUIEN.full_name);
@@ -426,7 +432,7 @@ async function main() {
     if (canceladas.length) {
       check(malDicho === 0, `⛔ las ${canceladas.length} canceladas sin gasto ligado (${conGasto} con gasto generado) se dicen canceladas, no «Falta el gasto en Kepler»`, malDicho);
       check(malMonto === 0, 'su monto es lo capturado, no el 0 que dejó Kepler', malMonto);
-    } else noMedido('G.UI.1b: la base local no trae vales validados con la solicitud cancelada');
+    } else bloqueNoMedido('G.UI.1b: la base local no trae vales validados con la solicitud cancelada');
     const faltaGasto = valesExp.filter((v) => v.falta_en_kepler === 'falta_generar_gasto').length;
     check(faltaGasto > 0, `«Falta el gasto en Kepler» queda para las autorizadas sin gasto (${faltaGasto})`, faltaGasto);
     // G.UI.1c: la cola trae TODAS las canceladas (con gasto y sin él) para «Canceladas en Kepler». Antes descartaba las
@@ -442,7 +448,7 @@ async function main() {
     const sinGastoC = todasC.filter((x) => x.aplicada !== true);
     const faltan = todasC.filter((x) => !enCola.has(x.id) || String(enCola.get(x.id).kepler_estado ?? '').trim() !== 'C').length;
     if (sinGastoC.length) check(faltan === 0, `⛔ la cola trae las ${todasC.length} canceladas sin gasto ligado, también las ${sinGastoC.length} que no tenían gasto (antes se descartaban)`, faltan);
-    else noMedido('G.UI.1c: la base local no trae canceladas sin gasto');
+    else bloqueNoMedido('G.UI.1c: la base local no trae canceladas sin gasto');
 
     // ── J ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     console.log('\n— J. G.UI.1d: la pista de cada cancelada (el dinero y la recaptura), contra un control independiente');
@@ -626,7 +632,7 @@ async function main() {
     await admin.end().catch(() => undefined);
     await knex.destroy();
   }
-  console.log(`\n  ${ok} ✓ · ${fail} ✗`);
+  console.log(`\n  ${ok} ✓ · ${fail} ✗${sinMedir ? ` · ${sinMedir} bloque(s) NO MEDIDO(S) en este destino (arriba, con su motivo)` : ''}`);
   if (fail) process.exitCode = 1;
 }
 
