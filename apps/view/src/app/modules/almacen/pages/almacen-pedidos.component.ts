@@ -11,7 +11,7 @@ import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
-import { CheckboxModule } from 'primeng/checkbox';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { DrawerModule } from 'primeng/drawer';
 import { ETAPAS_PEDIDO, WAREHOUSE_ORDER_CANCELADO, type EtapaPedido, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
@@ -52,15 +52,15 @@ const ETAPA: Record<EtapaPedido, { label: string; sev: Sev }> = {
 };
 const ORIGEN: Record<string, string> = { TELEMARK: 'Telemarketing', SUCURSAL: 'Sucursal', PREVENTA: 'Preventa' };
 const ORIGEN_PREVENTA = 'PREVENTA';
-/** Lo que ya le toca al almacén: toda etapa menos Creado, que aún no está autorizado. */
-const ETAPAS_DE_ALMACEN: string[] = ETAPAS_PEDIDO.filter((e) => e !== 'creado');
+/**
+ * `[GP.RF.22]` «Por hacer»: lo que sigue en el almacén, de autorizado a checado. Sin Creado (aún no
+ * autorizado), Embarcado (ya salió) ni Cancelado. Es lo que abre el Tablero (decisión de Edgar,
+ * 2026-11-17): de 2,389 pedidos del mes, 1,396 ya estaban embarcados y abrían la lista.
+ */
+const ETAPAS_POR_HACER: string[] = ETAPAS_PEDIDO.filter((e) => e !== 'creado' && e !== 'embarcado');
+type EtapaElegida = EtapaPedido | 'por_hacer' | null;
 /** Orden de las unidades en el volumen: de la más grande a la más chica; las demás al final. */
 const ORDEN_UNIDADES = ['CJA', 'BULTO', 'BTO', 'CUB', 'PAQ', 'PZA', 'KG', '500', '400', '250'];
-/**
- * `[GP.10.5]` La leyenda del volumen, con las palabras que ya usa la suite (Catálogo digital, Checar).
- * Lo que no está aquí se nombra tal cual y se dice que así viene de Kepler: no se adivina.
- */
-const PALABRA_UNIDAD: Record<string, string> = { CJA: 'caja', BTO: 'bulto', BULTO: 'bulto', CUB: 'cubeta', PAQ: 'paquete', PZA: 'pieza', KG: 'kilo' };
 /** Kepler a veces guarda el GRAMAJE en la unidad (`500`, `250`): no es un nombre de unidad (UNIDADES_DE_MEDIDA §3). */
 const ES_GRAMAJE = /^[\d.]+$/;
 const ordenUnidad = (u: string): number => { const i = ORDEN_UNIDADES.indexOf(u); return i < 0 ? 99 : i; };
@@ -98,7 +98,7 @@ const dmy = (v: string | null | undefined): string => {
   selector: 'app-almacen-pedidos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, DrawerModule, SucursalPipe, AlmacenSurtidoConsolaComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, ContextHelpComponent, DrawerModule, SucursalPipe, AlmacenSurtidoConsolaComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head gp-head">
@@ -106,7 +106,9 @@ const dmy = (v: string | null | undefined): string => {
           <h1>{{ soloSurtidor() && !enFila() ? 'Pedidos por surtir' : 'Pedidos' }}</h1>
           @if (data(); as d) {
             @if (!soloSurtidor() && !enFila()) {
-              <span class="gp-meta">{{ dmy(d.periodo.from) }} – {{ dmy(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }} · sólo lectura, el pedido se avanza en Kepler</span>
+              <!-- [GP.RF.22] Lo que se leía como párrafo (sólo lectura, qué es cada etapa, unidades, importe) va al «?». -->
+              <span class="gp-meta">{{ dm(d.periodo.from) }} – {{ dm(d.periodo.to) }} · Kepler leído {{ hora(d.generado_en) }}</span>
+              <app-context-help topic="almacen-pedidos" />
             }
           }
         </div>
@@ -114,11 +116,13 @@ const dmy = (v: string | null | undefined): string => {
              veía el cambio de vista en su propio renglón y no debe perderlo al subirlo aquí. -->
         @if (!soloSurtidor() || (coordina() && hayPedidos())) {
         <div class="gp-actions">
+          <!-- [GP.RF.22] Puertas a pantallas de foco, no la acción de este Tablero (que es de lectura): de
+               contorno. Antes eran dos rellenos naranjas compitiendo por ser «lo principal». -->
           @if (puedeSurtir() && !soloSurtidor()) {
-            <a pButton routerLink="/almacen/surtir" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
+            <a pButton routerLink="/almacen/surtir" class="p-button-sm p-button-outlined gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
           }
           @if (puedeChecar() && !soloSurtidor()) {
-            <a pButton routerLink="/almacen/checar" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checar</span></a>
+            <a pButton routerLink="/almacen/checar" class="p-button-sm p-button-outlined gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checar</span></a>
           }
           <!-- [GP.10.4b] D2: la consola de surtido es una vista del Tablero, sólo para quien coordina. Ligas y no
                botones: la vista queda en la dirección (?vista=fila) y «Atrás» del navegador regresa.
@@ -130,12 +134,10 @@ const dmy = (v: string | null | undefined): string => {
             </nav>
           }
           @if (!enFila() && !soloSurtidor()) {
-          <div class="gp-seg" role="group" aria-label="Periodo">
-            @for (p of presets; track p.key) {
-              <button type="button" class="gp-seg-b" [class.on]="preset() === p.key" [attr.aria-pressed]="preset() === p.key" (click)="pickPreset(p.key)">{{ p.label }}</button>
-            }
-          </div>
-          <p-datepicker inputId="gp-rango" [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" placeholder="Rango" (onClose)="onRange()" ariaLabel="Rango de fechas" />
+          <p-select [options]="periodoOpts" optionLabel="label" optionValue="value" [ngModel]="periodoSel()" (onChange)="pickPeriodo($event.value)" ariaLabel="Periodo" appendTo="body" class="gp-sel gp-periodo" />
+          @if (periodoSel() === 'rango') {
+            <p-datepicker inputId="gp-rango" [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" placeholder="Del … al …" (onClose)="onRange()" ariaLabel="Rango de fechas" />
+          }
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="refrescar()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
           }
         </div>
@@ -173,16 +175,14 @@ const dmy = (v: string | null | undefined): string => {
             @if (!soloSurtidor()) {
             <div class="gp-bh">
               <div class="gp-chips" role="group" aria-label="Etapa en el almacén">
-                <button type="button" class="gp-chip" [class.on]="!etapa()" [attr.aria-pressed]="!etapa()" (click)="pickEtapa(null)">Todos <span class="num">{{ totalConteos(d) }}</span></button>
+                <!-- [GP.RF.22] Entra en «Por hacer» (lo que sigue en el almacén); «Todos» y cada etapa, a un clic. -->
+                <button type="button" class="gp-chip gp-chip-main" [class.on]="etapa() === 'por_hacer'" [attr.aria-pressed]="etapa() === 'por_hacer'" (click)="pickEtapa('por_hacer')">Por hacer <span class="num">{{ totalPorHacer(d).toLocaleString('es-MX') }}</span></button>
+                <button type="button" class="gp-chip" [class.on]="etapa() === null" [attr.aria-pressed]="etapa() === null" (click)="pickEtapa(null)">Todos <span class="num">{{ totalConteos(d).toLocaleString('es-MX') }}</span></button>
                 @for (c of chipsEtapa(d); track c.etapa) {
-                  <button type="button" class="gp-chip" [class.on]="etapa() === c.etapa" [attr.aria-pressed]="etapa() === c.etapa" (click)="pickEtapa(c.etapa)">{{ etapaLabel(c.etapa) }} <span class="num">{{ c.pedidos }}</span></button>
+                  <button type="button" class="gp-chip" [class.on]="etapa() === c.etapa" [attr.aria-pressed]="etapa() === c.etapa" (click)="pickEtapa(c.etapa)">{{ etapaLabel(c.etapa) }} <span class="num">{{ c.pedidos.toLocaleString('es-MX') }}</span></button>
                 }
               </div>
               <div class="gp-filters">
-                <label class="gp-check" title="Esconde los pedidos Creado: todavía no están autorizados para el almacén">
-                  <p-checkbox [binary]="true" inputId="gp-autorizados" [ngModel]="soloAutorizados()" (ngModelChange)="toggleAutorizados($event)" />
-                  <span>Sólo autorizados en adelante</span>
-                </label>
                 <p-select [options]="origenOpts" optionLabel="label" optionValue="value" [ngModel]="origen()" (onChange)="pickOrigen($event.value)" ariaLabel="Origen" appendTo="body" class="gp-sel" />
                 @if (sucursalOpts().length > 2) {
                   <p-select [options]="sucursalOpts()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (onChange)="pickSucursal($event.value)" ariaLabel="Sucursal" appendTo="body" class="gp-sel" />
@@ -217,30 +217,26 @@ const dmy = (v: string | null | undefined): string => {
               <ng-template #header>
                 <tr>
                   <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Cliente / destino</th>
-                  <th class="ta-r" title="Renglones del pedido y volumen sumado por unidad">Reng. · volumen</th><th>Etapa</th>
-                  <th class="ta-r" title="Horas desde que se creó el pedido. Kepler no guarda cuándo cambió de estatus.">Abierto</th>
-                  <th>Guía</th><th class="ta-r">Importe</th>
+                  <th class="ta-r">Reng. · volumen</th><th>Etapa</th><th class="ta-r">Importe</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr [pSelectableRow]="r">
                   <td role="cell" data-label="Pedido"><span class="mono">{{ r.documento }}</span><span class="muted gp-sub">{{ origenLabel(r.origen) }}</span></td>
-                  <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span>@if (esPreventa(r)) { <span class="muted gp-sub">entrega</span> }</td>
+                  <!-- [GP.RF.22] «Abierto» deja su columna (casi siempre «—»): va debajo de la fecha, y sólo si sigue abierto. -->
+                  <td class="mono" role="cell" data-label="Fecha">{{ dm(r.fecha) }} <span class="muted">{{ r.hora || '' }}</span>@if (esPreventa(r)) { <span class="muted gp-sub">entrega</span> } @else if (r.horas_abierto !== null) { <span class="muted gp-sub">hace {{ horas(r.horas_abierto) }}</span> }</td>
                   @if (multiSucursal(d)) { <td class="mono muted" role="cell" data-label="Suc">{{ r.sucursal | sucursal }}</td> }
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
-                  <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol num">{{ volumenTexto(r.volumen) }}</span></td>
-                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" styleClass="gp-tag" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }</td>
-                  <td class="ta-r num" role="cell" data-label="Abierto">{{ horas(r.horas_abierto) }}</td>
-                  <td class="mono" role="cell" data-label="Guía" [class.muted]="!r.guia">{{ r.guia || '—' }}</td>
+                  <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol">{{ volumenTexto(r.volumen) }}</span></td>
+                  <!-- [GP.RF.22] La guía deja su columna (casi siempre «—»): va debajo de la etapa cuando existe. -->
+                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" styleClass="gp-tag" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }@if (r.guia) { <span class="muted gp-sub mono">guía {{ r.guia }}</span> }</td>
                   <td class="ta-r num" role="cell" data-label="Importe">{{ r.importe === null ? '—' : money(r.importe) }}</td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td [attr.colspan]="multiSucursal(d) ? 9 : 8"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}.</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
+                <tr><td [attr.colspan]="multiSucursal(d) ? 7 : 6"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>@if (etapa() === 'por_hacer' && !hayFiltros()) { Nada pendiente en el almacén entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}. } @else { Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}. }</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
               </ng-template>
             </p-table>
-            <!-- [GP.10.5] Qué quiere decir cada unidad del volumen: sólo las que aparecen en la página. -->
-            @if (leyendaUnidades(); as ley) { <p class="gp-hint gp-pad gp-leyenda">Volumen: {{ ley }}.</p> }
             <div class="gp-foot" aria-label="Totales de lo filtrado">
               <span><b class="num">{{ d.totales.pedidos.toLocaleString('es-MX') }}</b> pedidos</span>
               <span><b class="num">{{ d.totales.renglones.toLocaleString('es-MX') }}</b> renglones</span>
@@ -370,7 +366,7 @@ const dmy = (v: string | null | undefined): string => {
     .gp-chip { height:2rem; padding:0 .65rem; border:1px solid var(--border-color); border-radius:999px; background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-xs); display:inline-flex; align-items:center; gap:.35rem; cursor:pointer; }
     .gp-chip.on { background:var(--text-main); border-color:var(--text-main); color:var(--card-bg); }
     .gp-filters { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }
-    .gp-check { display:inline-flex; align-items:center; gap:.45rem; height:2.25rem; padding:0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); font-size:var(--fs-sm); cursor:pointer; white-space:nowrap; }
+    .gp-chip-main { font-weight:600; }
     :host ::ng-deep .gp-sel { min-width:9.5rem; }
     .gp-q { min-width:14rem; height:2.25rem; }
     :host ::ng-deep .gp-lines .p-datatable-tbody > tr > td, :host ::ng-deep .gp-lines .p-datatable-thead > tr > th { padding:.3rem .4rem; font-size:var(--fs-xs); }
@@ -386,7 +382,9 @@ const dmy = (v: string | null | undefined): string => {
     .gp-trunc { display:block; max-width:22rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .gp-sub { display:block; font-size:var(--fs-xs); }
     .gp-ubic { color:var(--text-muted); font-weight:400; }
-    .gp-vol { white-space:normal; max-width:11rem; margin-left:auto; line-height:1.25; }
+    /* [GP.RF.22] Sin la clase .num: su nowrap ganaba (va después) y el texto se salía de los 11rem hasta
+       encimarse sobre la etapa. Aquí se parte en renglones dentro de su celda, con números tabulares. */
+    .gp-vol { white-space:normal; max-width:11rem; margin-left:auto; line-height:1.25; text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
     .gp-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.5rem 0 0; }
     .gp-pad { padding:.5rem .85rem; }
     .gp-warn { color:var(--warn-soft-fg); font-weight:600; }
@@ -443,11 +441,13 @@ export class AlmacenPedidosComponent implements OnInit {
   /** Fecha corta para la tabla: el año ya está en el periodo de arriba. */
   dm(v: string | null): string { return v ? dmy(v).slice(0, 5) : '—'; }
 
-  readonly presets: { key: Exclude<Preset, 'rango'>; label: string }[] = [
-    { key: 'hoy', label: 'Hoy' },
-    { key: 'semana', label: 'Semana' },
-    { key: 'mes', label: 'Mes en curso' },
-    { key: 'mes_anterior', label: 'Mes anterior' },
+  /** `[GP.RF.22]` El periodo es UN desplegable (antes, 4 botones y un calendario siempre a la vista). */
+  readonly periodoOpts: { value: Preset; label: string }[] = [
+    { value: 'hoy', label: 'Hoy' },
+    { value: 'semana', label: 'Semana' },
+    { value: 'mes', label: 'Mes en curso' },
+    { value: 'mes_anterior', label: 'Mes anterior' },
+    { value: 'rango', label: 'Otro rango…' },
   ];
   readonly origenOpts = [
     { label: 'Todos los orígenes', value: null },
@@ -459,11 +459,14 @@ export class AlmacenPedidosComponent implements OnInit {
 
   readonly preset = signal<Preset>('mes');
   rangeDates: Date[] | null = null;
-  /** `[GP.10.4a]` Botón de etapa elegido (antes era el estatus de Kepler: la preventa no tiene). */
-  readonly etapa = signal<EtapaPedido | null>(null);
+  /**
+   * `[GP.10.4a]` Botón de etapa elegido (antes era el estatus de Kepler: la preventa no tiene).
+   * `[GP.RF.22]` Arranca en «Por hacer»; `null` es «Todos». Sustituye a la casilla «Sólo autorizados en
+   * adelante», que con «Por hacer» ya no decía nada nuevo.
+   */
+  readonly etapa = signal<EtapaElegida>('por_hacer');
   readonly origen = signal<string | null>(null);
   readonly sucursal = signal<string | null>(null);
-  readonly soloAutorizados = signal(false);
   readonly q = signal('');
   /**
    * `[GP.RF.15]` Filtro por el estatus de KEPLER (no por etapa): llega de la liga de los atorados de
@@ -534,7 +537,15 @@ export class AlmacenPedidosComponent implements OnInit {
     });
   }
 
-  pickPreset(p: Exclude<Preset, 'rango'>): void {
+  /**
+   * `[GP.RF.22]` Lo que muestra el desplegable del periodo. «Otro rango…» abre el calendario y NO consulta
+   * hasta que haya las dos fechas: mientras, la lista sigue siendo la del periodo anterior.
+   */
+  readonly eligiendoRango = signal(false);
+  readonly periodoSel = computed<Preset>(() => (this.eligiendoRango() ? 'rango' : this.preset()));
+  pickPeriodo(p: Preset): void {
+    if (p === 'rango') { this.eligiendoRango.set(true); return; }
+    this.eligiendoRango.set(false);
     this.preset.set(p);
     this.rangeDates = null;
     this.reload();
@@ -543,24 +554,25 @@ export class AlmacenPedidosComponent implements OnInit {
   onRange(): void {
     const [a, b] = this.rangeDates || [];
     if (!a || !b) return; // rango a medio elegir: no se consulta todavía
+    this.eligiendoRango.set(false);
     this.preset.set('rango');
     this.reload();
   }
 
-  pickEtapa(e: EtapaPedido | null): void { this.etapa.set(this.etapa() === e ? null : e); this.reload(); }
-  /** Con la casilla puesta, elegir "Creado" no tiene sentido: se quita ese filtro en vez de dejar la lista vacía. */
-  toggleAutorizados(v: boolean): void {
-    this.soloAutorizados.set(v);
-    if (v && this.etapa() && !ETAPAS_DE_ALMACEN.includes(this.etapa() as string)) this.etapa.set(null);
+  /** Los botones de etapa son excluyentes: tocar el elegido no cambia nada. */
+  pickEtapa(e: EtapaElegida): void {
+    if (this.etapa() === e) return;
+    this.etapa.set(e);
     this.reload();
   }
   pickOrigen(o: string | null): void { this.origen.set(o); this.reload(); }
   pickSucursal(s: string | null): void { this.sucursal.set(s); this.reload(); }
   onQ(v: string): void { this.q$.next(v); }
 
-  hayFiltros(): boolean { return !!(this.etapa() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados() || this.estatusKepler()); }
+  /** «Por hacer» es la entrada, no un filtro: «Quitar filtros» regresa a ella. */
+  hayFiltros(): boolean { return !!(this.etapa() !== 'por_hacer' || this.origen() || this.sucursal() || this.q() || this.estatusKepler()); }
   limpiar(): void {
-    this.etapa.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false); this.estatusKepler.set(null);
+    this.etapa.set('por_hacer'); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.estatusKepler.set(null);
     this.reload();
   }
   quitarKepler(): void { this.estatusKepler.set(null); this.reload(); }
@@ -583,16 +595,18 @@ export class AlmacenPedidosComponent implements OnInit {
     this.ligaAplicada = llave;
     this.estatusKepler.set(st);
     this.sucursal.set(suc);
-    this.etapa.set(null); this.soloAutorizados.set(false); this.origen.set(null); this.q.set('');
+    // «Todos» y no «Por hacer»: la cifra de la fila es por estatus de Kepler, y por etapa no cuadraría.
+    this.etapa.set(null); this.origen.set(null); this.q.set('');
     this.rangeDates = [fechaLocal(desde), fechaLocal(hasta)];
+    this.eligiendoRango.set(false);
     this.preset.set('rango');
     return true;
   }
 
   private filtro(): AlmacenPedidosFiltro {
     const f: AlmacenPedidosFiltro = {
-      // Un botón de etapa elegido manda; si no, la casilla limita a las etapas de almacén.
-      etapa: this.etapa() ? [this.etapa() as string] : this.soloAutorizados() ? [...ETAPAS_DE_ALMACEN] : [],
+      // [GP.RF.22] «Por hacer» pide las etapas de autorizado a checado; «Todos» (null), ninguna.
+      etapa: this.etapa() === 'por_hacer' ? [...ETAPAS_POR_HACER] : this.etapa() ? [this.etapa() as string] : [],
       // [GP.10.4a] D1: el tablero trae también la preventa (`PD-`) del periodo, por su fecha de entrega.
       preventa: true,
       origen: this.origen(),
@@ -691,6 +705,10 @@ export class AlmacenPedidosComponent implements OnInit {
   totalConteos(d: WarehouseOrdersResponse): number {
     return d.conteos_etapa.reduce((t, c) => (c.etapa === 'cancelado' ? t : t + c.pedidos), 0);
   }
+  /** `[GP.RF.22]` El número de «Por hacer»: la suma de sus etapas, igual que lo que lista. */
+  totalPorHacer(d: WarehouseOrdersResponse): number {
+    return d.conteos_etapa.reduce((t, c) => (ETAPAS_POR_HACER.includes(c.etapa) ? t + c.pedidos : t), 0);
+  }
   /** Botones de etapa: las que tienen pedidos, en el orden del flujo, y la elegida aunque quede en cero. */
   chipsEtapa(d: WarehouseOrdersResponse): WarehouseOrdersResponse['conteos_etapa'] {
     return d.conteos_etapa.filter((c) => c.pedidos > 0 || c.etapa === this.etapa());
@@ -739,31 +757,10 @@ export class AlmacenPedidosComponent implements OnInit {
     return [...v]
       .sort((a, b) => ordenUnidad(a.unidad) - ordenUnidad(b.unidad) || b.cantidad - a.cantidad)
       // [GP.10.5] «6 500» se leía como un número; con el gramaje como unidad va «6 de 500».
-      .map((x) => `${x.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${ES_GRAMAJE.test(x.unidad) ? `de ${x.unidad}` : x.unidad}`)
+      // [GP.RF.22] Espacios que no se parten: al bajar de renglón, «20 PZA» no queda cortado en dos.
+      .map((x) => `${x.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${ES_GRAMAJE.test(x.unidad) ? `de ${x.unidad}` : x.unidad}`)
       .join(' · ');
   }
-
-  /**
-   * `[GP.10.5]` La leyenda de las unidades que aparecen en la página («CJA caja · PAQ paquete · …»).
-   * `null` si no hay volumen que explicar.
-   */
-  readonly leyendaUnidades = computed<string | null>(() => {
-    const d = this.data();
-    if (!d || this.soloSurtidor()) return null;
-    const vistas = new Set<string>();
-    for (const r of d.items) for (const x of r.volumen ?? []) vistas.add(x.unidad);
-    if (!vistas.size) return null;
-    const ordenadas = [...vistas].sort((a, b) => ordenUnidad(a) - ordenUnidad(b) || a.localeCompare(b));
-    const nombres = ordenadas.filter((u) => PALABRA_UNIDAD[u]).map((u) => `${u} ${PALABRA_UNIDAD[u]}`);
-    const gramajes = ordenadas.filter((u) => ES_GRAMAJE.test(u));
-    // «SIN UNIDAD» lo pone la consulta cuando el renglón de Kepler no trae unidad (kdm2.c55 vacío).
-    const otras = ordenadas.filter((u) => !PALABRA_UNIDAD[u] && !ES_GRAMAJE.test(u) && u !== 'SIN UNIDAD');
-    const partes = [...nombres];
-    if (gramajes.length) partes.push(`${gramajes.map((g) => `«de ${g}»`).join(', ')}: Kepler guarda el gramaje en lugar de la unidad`);
-    if (otras.length) partes.push(`${otras.join(', ')}: así viene de Kepler`);
-    if (vistas.has('SIN UNIDAD')) partes.push('SIN UNIDAD: el renglón no la trae en Kepler');
-    return partes.join(' · ');
-  });
 
   /** `[GP.10.5]` D4: las partes del total que no están en cero, en orden fijo. Sin ninguna, «a clientes» en cero. */
   partesImporte(p: { clientes: number; traspaso_sucursal: number; carga_ruta: number }): { k: string; v: number; label: string }[] {

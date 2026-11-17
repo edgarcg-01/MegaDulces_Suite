@@ -733,6 +733,45 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[GP.RF.22]` El Tablero de pedidos del almacén (/almacen/pedidos). Lo que antes iba en la pantalla
+  // como párrafo, leyenda o `title` (sólo lectura, qué es cada etapa, unidades, importe), va aquí.
+  'almacen-pedidos': {
+    title: 'Pedidos del almacén — cómo leer el Tablero',
+    intro: 'Los pedidos de Kepler (telemarketing y sucursal) y los de preventa del periodo, con la etapa en que va cada uno dentro del almacén. Es de sólo lectura: el pedido se avanza en Kepler. Abre en «Por hacer», lo que sigue en el almacén; «Todos» y cada etapa están a un clic.',
+    groups: [
+      {
+        heading: 'Etapas',
+        entries: [
+          { term: 'Por hacer', def: 'Lo que sigue dentro del almacén: de autorizado a checado. No incluye lo creado (aún no autorizado), lo embarcado ni lo cancelado.' },
+          { term: 'Todos', def: 'Todos los pedidos del periodo menos los cancelados, que tienen su propio botón.' },
+          { term: 'Creado', def: 'Capturado en Kepler pero todavía no autorizado: el almacén aún no lo trabaja.' },
+          { term: 'Autorizado', def: 'Kepler lo autorizó y nadie lo ha empezado a surtir.' },
+          { term: 'En cola y Surtiendo', def: 'Ya está en una ola de surtido de la Suite: esperando surtidor, o con alguien surtiéndolo. Kepler no tiene estas etapas.' },
+          { term: 'Surtido, Checando y Checado', def: 'Lo que registró Kepler o el piso en la Suite, lo que vaya más adelante. Si uno va atrás del otro, la fila lo dice abajo de la etapa («Kepler aún dice…»).' },
+          { term: 'Embarcado', def: 'Ya salió del almacén. En preventa: cobrado en Kepler, en una guía de carga impresa o entregado.' },
+        ],
+      },
+      {
+        heading: 'Columnas',
+        entries: [
+          { term: 'Fecha', def: 'Día y hora en que se creó el pedido en Kepler; en preventa, el día de entrega. Abajo, «hace…» cuenta desde que se creó, no desde su última etapa: Kepler no guarda cuándo cambió de estatus.' },
+          { term: 'Reng. · volumen', def: 'Cuántos renglones tiene el pedido y, abajo, las cantidades sumadas por unidad de presentación.' },
+          { term: 'CJA, BTO, CUB, PAQ, PZA, KG', def: 'Caja, bulto, cubeta, paquete, pieza y kilo, como vienen en el renglón de Kepler.' },
+          { term: '«de 500», «de 250»', def: 'Kepler guarda el gramaje de la bolsa en lugar del nombre de la unidad: «6 de 500» son seis unidades de 500.' },
+          { term: 'SIN UNIDAD', def: 'El renglón de Kepler no trae unidad de presentación; la cantidad se suma aparte para no mezclarla.' },
+          { term: 'Guía', def: 'Aparece abajo de la etapa cuando Kepler ya tiene el número de guía de carga del pedido.' },
+        ],
+      },
+      {
+        heading: 'Importe (al pie de la lista)',
+        entries: [
+          { term: 'A clientes', def: 'Telemarketing, preventa y mostrador: lo que se le va a cobrar a un cliente.' },
+          { term: 'Traspaso a sucursales', def: 'Pedidos cuyo cliente en Kepler es otra sucursal (TI001, TI004…). No se factura: es mercancía que cambia de lugar, no venta.' },
+          { term: 'Carga a ruta', def: 'Pedidos cuyo cliente es un camión de ruta (RD 502, RUTA 21…). La venta ocurre después, en la ruta.' },
+        ],
+      },
+    ],
+  },
   'almacen-existencia-negativa': {
     title: 'Existencia negativa — guía',
     intro: 'Productos que Kepler tiene en negativo hoy en una sucursal: salió más de lo que entró. Kepler deja vender sin existencia y la pantalla de Existencia lo muestra como 0, así que aquí es donde se ve. Se corrige en Kepler; aquí se registra qué pasó.',

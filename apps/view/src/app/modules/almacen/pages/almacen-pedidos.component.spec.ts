@@ -193,7 +193,8 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
 
   it('⭐ «Todos» cuenta los vivos (3), igual que la lista y los totales', async () => {
     const { chips } = await montar();
-    expect(chips()[0]).toBe('Todos 3');
+    // [GP.RF.22] «Por hacer» va primero (autorizado 2 + surtido 1); «Todos», segundo.
+    expect(chips().slice(0, 2)).toEqual(['Por hacer 3', 'Todos 3']);
   });
 
   it('NEGATIVA: «Todos» NO suma los cancelados (no dice 6)', async () => {
@@ -282,7 +283,7 @@ describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
 
   it('⭐ los botones son por etapa y «Todos» cuadra con la lista (incluye el PD-)', async () => {
     const { chips } = await montar();
-    expect(chips()).toEqual(['Todos 3', 'Autorizado 1', 'Surtiendo 1', 'Surtido 1']);
+    expect(chips()).toEqual(['Por hacer 3', 'Todos 3', 'Autorizado 1', 'Surtiendo 1', 'Surtido 1']);
   });
 
   it('NEGATIVA: no hay botón para una etapa sin pedidos (Creado 0, En cola 0)', async () => {
@@ -297,10 +298,33 @@ describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
     expect(ultimoFiltro()['estatus']).toBeUndefined();
   });
 
-  it('«Sólo autorizados en adelante» pide toda etapa menos Creado', async () => {
+  // [GP.RF.22] El Tablero abre en «Por hacer» (decisión de Edgar, 2026-11-17); sustituye a la casilla
+  // «Sólo autorizados en adelante».
+  it('⭐ al entrar pide «Por hacer»: de autorizado a checado, sin creado ni embarcado', async () => {
+    const { el, ultimoFiltro } = await montar();
+    expect(ultimoFiltro()['etapa']).toEqual(['autorizado', 'en_cola', 'surtiendo', 'surtido', 'checando', 'checado']);
+    expect(el.querySelector('.gp-chip.on')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Por hacer 3');
+    expect(el.querySelector('p-checkbox')).toBeNull();
+  });
+
+  it('NEGATIVA: «Todos» no manda etapas (incluye creado y embarcado), y tocar el botón elegido no vuelve a pedir', async () => {
+    const { fix, list, ultimoFiltro } = await montar();
+    fix.componentInstance.pickEtapa(null);
+    expect(ultimoFiltro()['etapa']).toEqual([]);
+    const n = list.mock.calls.length;
+    fix.componentInstance.pickEtapa(null);
+    expect(list.mock.calls.length).toBe(n);
+  });
+
+  it('«Quitar filtros» regresa a «Por hacer», que no cuenta como filtro', async () => {
     const { fix, ultimoFiltro } = await montar();
-    fix.componentInstance.toggleAutorizados(true);
-    expect(ultimoFiltro()['etapa']).toEqual(['autorizado', 'en_cola', 'surtiendo', 'surtido', 'checando', 'checado', 'embarcado']);
+    const c = fix.componentInstance;
+    expect(c.hayFiltros()).toBe(false);
+    c.pickEtapa('surtido');
+    expect(c.hayFiltros()).toBe(true);
+    c.limpiar();
+    expect(c.etapa()).toBe('por_hacer');
+    expect(ultimoFiltro()['etapa']).toHaveLength(6);
   });
 
   it('⭐ si la Suite va adelante, la fila dice lo que Kepler aún tiene', async () => {
@@ -385,7 +409,7 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     const h1 = Array.from(el.querySelectorAll('h1')).map((h) => h.textContent?.trim());
     expect(h1).toEqual(['Pedidos']);
     // En la fila no hay periodo: la fila es «hoy, por almacén».
-    expect(el.querySelector('.gp-seg[aria-label="Periodo"]')).toBeNull();
+    expect(el.querySelector('p-select.gp-periodo')).toBeNull();
   });
 
   it('[GP.RF.20] ⭐ el cambio de vista vive en la cabecera, junto al periodo, y no en un renglón propio', async () => {
@@ -393,13 +417,13 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     expect(el.querySelectorAll('nav.gp-vistas')).toHaveLength(1);
     const acciones = el.querySelector('header .gp-actions');
     expect(acciones?.querySelector('nav.gp-vistas')).not.toBeNull();
-    expect(acciones?.querySelector('.gp-seg[aria-label="Periodo"]')).not.toBeNull();
+    expect(acciones?.querySelector('p-select.gp-periodo')).not.toBeNull();
   });
 
   it('[GP.RF.20] quien surte y coordina SIN ver el Tablero conserva el cambio de vista (y nada más del Tablero)', async () => {
     const { vistas, el } = await abrir('/almacen/pedidos', { [Permission.COMMERCIAL_PICKING_GESTIONAR]: true, [Permission.ALMACEN_SURTIDO_COORDINAR]: true });
     expect(vistas()).toEqual(['Pedidos*', 'Fila de surtido']);
-    expect(el.querySelector('.gp-seg[aria-label="Periodo"]')).toBeNull();
+    expect(el.querySelector('p-select.gp-periodo')).toBeNull();
     expect(el.querySelector('a.gp-surtir')).toBeNull();
   });
 
@@ -673,18 +697,43 @@ describe('AlmacenPedidosComponent · importe por destino y leyenda (GP.10.5)', (
     expect(pie()).toContain('500');
   });
 
-  it('⭐ la leyenda explica sólo las unidades de la página, y el gramaje no se lee como número', async () => {
+  // [GP.RF.22] La leyenda deja de ser un renglón bajo la lista: va al «?» de la cabecera (tema
+  // `almacen-pedidos` del diccionario), con las etapas, las columnas y el importe.
+  it('⭐ el gramaje no se lee como número, y cantidad y unidad no se parten al bajar de renglón', async () => {
     const { el, c } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', VOL)]));
-    const ley = el.querySelector('.gp-leyenda')?.textContent?.replace(/\s+/g, ' ') ?? '';
-    expect(ley).toContain('CJA caja');
-    expect(ley).toContain('PAQ paquete');
-    expect(ley).toContain('«de 500»: Kepler guarda el gramaje');
-    expect(ley).not.toContain('PZA');
-    expect(c.volumenTexto(VOL)).toBe('16 CJA · 58 PAQ · 6 de 500');
+    expect(c.volumenTexto(VOL)).toBe('16 CJA · 58 PAQ · 6 de 500');
+    expect(el.querySelector('.gp-leyenda')).toBeNull();
+    expect(el.querySelector('app-context-help[topic="almacen-pedidos"]')).not.toBeNull();
   });
 
-  it('NEGATIVA: una unidad que la suite no conoce se nombra tal cual, sin inventarle significado', async () => {
-    const { c } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', [{ unidad: 'SER', cantidad: 1 }, { unidad: 'SIN UNIDAD', cantidad: 2 }])]));
-    expect(c.leyendaUnidades()).toBe('SER: así viene de Kepler · SIN UNIDAD: el renglón no la trae en Kepler');
+  it('NEGATIVA: el volumen ya no lleva la clase que le impedía partirse (y lo encimaba sobre la etapa)', async () => {
+    const { el } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', VOL)]));
+    const vol = el.querySelector('.gp-vol');
+    expect(vol).not.toBeNull();
+    expect(vol?.classList.contains('num')).toBe(false);
+  });
+
+  it('las columnas son 6 (Abierto va bajo la fecha y la guía bajo la etapa)', async () => {
+    const fila = { ...FILA('0000001', VOL), guia: '0002066' };
+    const { el } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [fila]));
+    expect(Array.from(el.querySelectorAll('th')).map((t) => t.textContent?.trim())).toEqual(['Pedido', 'Fecha', 'Cliente / destino', 'Reng. · volumen', 'Etapa', 'Importe']);
+    const texto = el.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(texto).toContain('hace 5 h');
+    expect(texto).toContain('guía 0002066');
+  });
+});
+
+/** `[GP.RF.22]` El tema del «?» existe y dice lo que la pantalla hace. */
+describe('AlmacenPedidosComponent · ayuda «almacen-pedidos» (GP.RF.22)', () => {
+  it('existe, con las etapas, las unidades y las tres partes del importe', async () => {
+    const { CONTEXT_HELP } = await import('../../../shared/context-help/context-help.dictionary');
+    const t = CONTEXT_HELP['almacen-pedidos'];
+    expect(t).toBeDefined();
+    const terminos = (t.groups ?? []).flatMap((g) => g.entries.map((e) => e.term));
+    for (const x of ['Por hacer', 'Todos', 'CJA, BTO, CUB, PAQ, PZA, KG', '«de 500», «de 250»', 'A clientes', 'Traspaso a sucursales', 'Carga a ruta']) {
+      expect(terminos).toContain(x);
+    }
+    expect(new Set(terminos).size).toBe(terminos.length);
+    expect(t.intro).toMatch(/sólo lectura/);
   });
 });
