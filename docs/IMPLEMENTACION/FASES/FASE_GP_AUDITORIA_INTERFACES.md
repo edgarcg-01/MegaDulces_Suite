@@ -417,11 +417,19 @@ Lo que sigue en este paso, en orden, para que el «después» gane en todo y no 
    - **D4:** el pie separa lo que va **a clientes**, el **traspaso a sucursales** (cliente `TI###`)
      y la **carga a ruta** (`RD`/`RUTA`). Es la misma partición de `ERP_KEPLER.md`. En noviembre,
      **$22.1 M de los $35.3 M** de Kepler eran traspasos que el pie sumaba como si fueran venta.
-   - **La leyenda del volumen** explica sólo las unidades de la página. El gramaje que Kepler guarda
-     como unidad se lee «6 de 500», ya no «6 500».
-   - **«El volumen se encima sobre el estatus» ya no ocurre:** 0 de 200 filas en los tres anchos. El
-     control negativo (correr el volumen hacia la columna Etapa) cuenta 200 de 200, así que el cero
-     es del instrumento que sí ve el defecto. No hubo que cambiar código.
+   - **La leyenda del volumen**: el gramaje que Kepler guarda como unidad se lee «6 de 500», ya no
+     «6 500». La leyenda misma pasó al «?» de la cabecera con GP.RF.22 (§5.7).
+   - ⛔ **Corrección. «El volumen se encima sobre el estatus» SÍ ocurre: 36 de 200 filas.** Aquí se
+     había escrito que no ocurría (0 de 200, con control negativo de 200). Edgar lo vio en su pantalla
+     (SUCURSAL YURECUARO: «1 CJA · 1 BTO · 20 PZA · 40 KG» sobre «Surtido»).
+     - **Por qué el instrumento falló:** medía la caja del elemento, no el texto. Con
+       `white-space: nowrap` el texto se sale de sus 11rem y la caja no.
+     - **Por qué el control no lo delató:** el control movía la caja entera, así que medía lo mismo
+       que el instrumento.
+     - **El instrumento corregido** mide los renglones del texto pintado y encuentra **36 de 200** en
+       los tres anchos, YURECUARO incluida.
+     - **El arreglo va en GP.RF.22.** Con su maqueta sobre prod (quitar la clase que impide partir el
+       texto), las encimadas bajan de **36 a 0**.
    - **NO MEDIDO:** el «después» en la pantalla viva; se mide con la misma prueba al desplegar.
 3. **GP.RF.21**, la preventa a un clic: un botón «Preventa» junto a los de etapa, con su conteo, en
    lugar del filtro de origen en dos clics.
@@ -443,6 +451,55 @@ Lo que sigue en este paso, en orden, para que el «después» gane en todo y no 
   atorados del alcance de la persona, porque el Tablero es por mes y los atorados son de meses
   anteriores. Es el siguiente cambio de este paso.
 - **GP.RF.17 a GP.RF.19:** en el registro (§8).
+
+### 5.7 GP.RF.22 — el Tablero con menos cosas (2026-11-17) 🧪
+
+Edgar, viendo el Tablero ya con GP.10.5: *«esta interfaz no me convence, existen demasiadas cosas.
+Hay que rediseñar un poco»*. Antes de tocar la plantilla se contestaron las preguntas de `diseno`
+§0a/§0b.
+
+1. **Propósito, en una frase:** ¿qué pedidos siguen en el almacén y en qué etapa va cada uno?
+2. **Quién entra (30 días, `analytics.ui_usage`):**
+   - Quien coordina embarques: 158 cargas de la lista y 23 aperturas de detalle.
+   - Encargado de tienda: 130 cargas; auxiliar de tienda: 101.
+   - El surtidor (109) tiene su vista reducida, que no cambia.
+   - En total, **793 cargas de la lista contra 59 aperturas de detalle**: la pantalla se usa para
+     ver el estado, casi no para abrir pedidos.
+3. **El estado real:** de 2,389 pedidos del mes, **1,396 ya estaban embarcados** (58 %) y abrían la
+   lista. El trabajo del almacén eran 983 (autorizado 136, surtiendo 6, surtido 65, checado 776).
+4. **Qué ve al entrar (decisión de Edgar, entre dos maquetas):** «Por hacer», lo que sigue en el
+   almacén. «Todos» y cada etapa quedan a un clic.
+5. **Qué deja de ver, y por qué:**
+
+| Pieza de antes | Decisión | Por qué |
+|---|---|---|
+| Lista de entrada «Todos», con los embarcados | **«Por hacer»** | el 58 % de lo que se veía ya había salido |
+| Casilla «Sólo autorizados en adelante» | sale | «Por hacer» ya es eso |
+| Periodo: 4 botones y un calendario siempre visibles | **un desplegable**; el calendario sólo con «Otro rango…» | 5 controles para una decisión que casi no cambia |
+| Surtir y Checar en naranja relleno | **de contorno** | son puertas a otras pantallas; dos rellenos competían por ser «lo principal» de una pantalla que es de lectura |
+| Columna «Abierto» | **bajo la fecha**, como «hace 6 min», sólo si sigue abierto | en los embarcados siempre decía «—» |
+| Columna «Guía» | **bajo la etapa**, como «guía 0002066», sólo si existe | casi siempre decía «—» |
+| Texto «sólo lectura, el pedido se avanza en Kepler», las definiciones en `title` y la leyenda de unidades | **al «?»** de la cabecera (tema `almacen-pedidos` del diccionario) | eran párrafos que se leían una vez; además el `title` no existe sin mouse (regla P) |
+| Volumen encimado sobre la etapa (36 de 200 filas) | **se parte en renglones** dentro de su celda, sin cortar «20 PZA» | ver §5.5 |
+
+6. **Cifras y desglose:** cada botón de etapa filtra la lista. El pie separa a clientes, el
+   traspaso y la carga a ruta (D4). El pedido se abre en el panel lateral, igual que antes.
+7. **Lo que se conserva:** el cambio de vista Pedidos / Fila de surtido, los filtros de origen y
+   sucursal, el buscador, el panel lateral, la liga de los atorados y la vista del surtidor. La liga
+   de los atorados entra a «Todos», no a «Por hacer»: su cifra es por estatus de Kepler, y por etapa
+   no cuadraría.
+8. **Conteo, sin las 5 pestañas del grupo:**
+   - Antes de la primera fila: de 22 a 19 controles.
+   - Columnas: de 9 a 6, o 7 con la de sucursal.
+   - Rellenos naranjas en la cabecera: de 2 a 0.
+   - ⚠️ **Al pedirle a Edgar la decisión se le dijo «~15 en vez de 27». Era una estimación y se
+     corrige:** con las pestañas son 24 contra 27. Lo que más baja no es el número de controles sino
+     lo que se lee: la lista de entrada (2,389 → 983), el texto de la cabecera y dos columnas.
+9. **NO MEDIDO:**
+   - La pantalla viva con el cambio: se mide con `paso1-gp105.e2e.ts` al desplegar.
+   - Los 390 px.
+   - Si quien coordina extraña algo de lo que salió: eso se pregunta a quienes la usan después de
+     una semana.
 
 ---
 
@@ -551,6 +608,7 @@ Formato de cada hallazgo:
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
 | GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | ✅ en prod `4d99357f7`: 507 → 457 px medido |
 | GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
+| GP.RF.22 | 1 | 🟠 | «Existen demasiadas cosas» (Edgar). El Tablero abría en «Todos», con 1,396 de 2,389 pedidos ya embarcados; tenía 22 controles antes de la primera fila, dos rellenos naranjas que competían, 9 columnas (dos casi siempre en «—»), párrafos de ayuda en la cabecera y el volumen encimado sobre la etapa en 36 de 200 filas | A + B | lo que se lee antes de encontrar el trabajo; 58 % de la lista ya había salido | Carga visual; Hick; Von Restorff (una primaria); regla P | abre en «Por hacer» (decisión de Edgar); periodo en un desplegable; Surtir y Checar de contorno; Abierto y Guía bajo fecha y etapa; ayuda al «?»; volumen partido (§5.7) | 🧪 |
 
 ---
 
@@ -558,7 +616,8 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
-| 2026-11-17 | **Desplegado** `4d99357f7` (GP.RF.15, GP.RF.20, UB.RF, UB.3b.1, UB.RF.10) y medido en prod con Playwright: GP.RF.20 real da los 50 px de la maqueta; el escaneo arma la asignación correcta; los carteles se dibujan. El recorrido encontró que la nota de los atorados decía 1,885 con 58 filas (defecto de GP.RF.15). **GP.10.5 en código** 🧪: lista por páginas (antes 1.40 MB, 2,000 de 2,358, 348 preventas invisibles), total por destino (D4: $22.1 M de traspasos se leían como venta), leyenda del volumen, y la nota corregida. El volumen encimado ya no ocurre (0/200, control 200/200). | Claude, a pedido de Edgar |
+| 2026-11-17 | **GP.RF.22 en código** 🧪, a pedido de Edgar («existen demasiadas cosas»). Entre dos maquetas eligió abrir en «Por hacer» (983 de 2,389). Además: periodo en un desplegable, Surtir y Checar de contorno, Abierto y Guía bajo fecha y etapa, ayuda al «?», y el volumen partido en renglones. **Corrige** lo dicho de GP.10.5: el volumen sí se encimaba (36 de 200; con el arreglo, 0). | Edgar, Claude |
+| 2026-11-17 | **Desplegado** `4d99357f7` (GP.RF.15, GP.RF.20, UB.RF, UB.3b.1, UB.RF.10) y medido en prod con Playwright: GP.RF.20 real da los 50 px de la maqueta; el escaneo arma la asignación correcta; los carteles se dibujan. El recorrido encontró que la nota de los atorados decía 1,885 con 58 filas (defecto de GP.RF.15). **GP.10.5 en código** 🧪: lista por páginas (antes 1.40 MB, 2,000 de 2,358, 348 preventas invisibles), total por destino (D4: $22.1 M de traspasos se leían como venta), leyenda del volumen, y la nota corregida. (Corregido el mismo día: el volumen SÍ se encimaba, 36 de 200; el instrumento medía la caja y no el texto. Ver §5.5.) | Claude, a pedido de Edgar |
 | 2026-11-17 | **Ubicaciones adelantado** a pedido de Edgar (§5b). El piloto no tiene ninguna ubicación; las 375 de CEDIS parecen una prueba en zona Tienda (UB.RF.2, decisión de Edgar). Arreglados en código: la cifra animada que se quedaba en el valor anterior (UB.RF.1, afecta a toda la suite), «no hay capturas» mientras lee, el texto falso del mapa, la zona en la que abre y un `ngModel` sin `name` | Claude |
 | 2026-11-17 | **GP.RF.20 hecho** 🧪: el cambio de vista sube a la cabecera. En maqueta sobre prod, la primera fila sube 50 px en los tres anchos y la cabecera no se parte (con su prueba negativa). La primera maqueta medía mal (dejaba vivo el CSS viejo) y se corrigió antes de citarla | Claude |
 | 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |

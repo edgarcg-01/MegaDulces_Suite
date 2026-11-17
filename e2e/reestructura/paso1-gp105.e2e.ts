@@ -29,7 +29,16 @@ async function encimados(page: Page) {
       if (!vol || !vol.textContent?.trim()) continue;
       medidas++;
       for (const m of vol.textContent.matchAll(/\d[\d,.]*\s+(?:de\s+)?([A-Z0-9]+)/g)) unidades.add(m[1]);
-      const v = vol.getBoundingClientRect();
+      // ⛔ Se mide el TEXTO pintado (sus rectángulos de línea), no la caja del elemento. La primera
+      // versión medía la caja: con `white-space: nowrap` el texto se salía de sus 11rem y la caja no,
+      // así que contó 0 de 200 mientras Edgar veía el encimado en su pantalla (2026-11-17).
+      const rg = document.createRange();
+      rg.selectNodeContents(vol);
+      const lineas = Array.from(rg.getClientRects()).filter((r) => r.width > 0);
+      const v = lineas.reduce(
+        (a, r) => ({ left: Math.min(a.left, r.left), right: Math.max(a.right, r.right), top: Math.min(a.top, r.top), bottom: Math.max(a.bottom, r.bottom) }),
+        { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity },
+      );
       const td = (vol.closest('td') as HTMLElement).getBoundingClientRect();
       const t = tag?.getBoundingClientRect();
       const choca = !!t && v.left < t.right && v.right > t.left && v.top < t.bottom && v.bottom > t.top;
@@ -75,11 +84,19 @@ test.describe('[GP.10.5] la lista del Tablero', () => {
       const reporte = (await page.locator('.p-paginator-current').first().textContent().catch(() => null))?.trim() ?? null;
       const leyenda = (await page.locator('.gp-leyenda').first().textContent().catch(() => null))?.replace(/\s+/g, ' ').trim() ?? null;
       await page.screenshot({ path: path.join(RES, `gp105-${ancho}.png`) });
+      // [GP.RF.22] MAQUETA del arreglo mientras prod no lo trae: lo mismo que hace la plantilla nueva
+      // (el volumen sin la clase `.num`, cuyo nowrap ganaba). Si prod ya lo trae, no cambia nada.
+      const conNum = await page.evaluate(() => {
+        const v = Array.from(document.querySelectorAll('.gp-vol.num'));
+        v.forEach((e) => e.classList.remove('num'));
+        return v.length;
+      });
+      const arreglo = await encimados(page);
       // CONTROL NEGATIVO del instrumento: corrido a propósito hacia la columna Etapa, el volumen
       // TIENE que contarse como encimado. Si el instrumento da cero aquí, su cero de arriba no vale.
       await page.addStyleTag({ content: '.gp-vol { position: relative !important; left: 9rem !important; }' });
       const control = await encimados(page);
-      salida.push({ ancho, lista, quieta_ms: q.ms, seguia_cargando: q.seguia_cargando, ...e, control_encimadas: control.encimadas, paginador, reporte, leyenda });
+      salida.push({ ancho, lista, quieta_ms: q.ms, seguia_cargando: q.seguia_cargando, ...e, maqueta_aplicada_a: conNum, encimadas_con_arreglo: arreglo.encimadas, control_encimadas: control.encimadas, paginador, reporte, leyenda });
       await ctx.close();
     }
     const modo = salida.some((x) => (x['lista'] as { pagina: unknown } | null)?.pagina) ? 'despues' : 'antes';
