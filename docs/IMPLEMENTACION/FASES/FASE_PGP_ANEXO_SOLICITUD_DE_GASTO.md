@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 98 KB, 1169 líneas, 17 secciones.
+> **Índice navegable** — 98 KB, 1179 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1198 | 14 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1208 | 15 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1138,6 +1138,16 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
     Probado contra un Kepler de prueba con los tipos reales: 11 ✓; un mutante sin la guarda baja un contador adelantado → 2 ✗.
   - ⚠️ Mientras la Suite siga escribiendo con `MAX+1`, cada documento suyo vuelve a dejar el contador 1 atrás. El arreglo
     permanente es soltar `216245d60` (después del `GRANT`). Si se suelta después de este arreglo, hay que correrlo otra vez.
+  - ✅ **Hecho el 2026-11-17** (autorizó Edgar):
+    - **Soltado:** `[PGP.122.4]` salió a prod como `44e07aff5` (`/api/health`).
+    - **Antes del arreglo** (diagnóstico de sólo lectura en el Kepler vivo, como `kepler_push` desde `md`):
+      - el permiso `SELECT`/`UPDATE(c4)` de `sqliov` estaba en los 9;
+      - quedaban **6 atrasados**: requisición en 00 (27), 02 (1) y 08 (76); OC en 02 (1); pedido TLMK en 05 (el de la
+        captura, 1149) y en 06 (1).
+    - **El arreglo:** el SQL corrió en una transacción por servidor, con la comprobación dentro, como `kepler_push`. El
+      permiso ya alcanzaba, así que no hizo falta superusuario; la conexión salió del secreto `kepler-push` y no se
+      imprimió.
+    - **Después:** 0 atrasados en los 9, y `KFUD4001.05` = 1150.
 
 **R9 — `[PGP.123]` está usado dos veces.**
 - En el tracker es «Pedir anticipo» (🚀).
