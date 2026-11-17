@@ -1252,5 +1252,16 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
     - `test-newdb-existencia-por-evento` sigue en 57 ✓ con el sensor nuevo, y la spec del servicio en 17 ✓.
   - **NO MEDIDO:** cuánto baja el costo en prod. Se mide al aplicar, con un día de `existencia_corridas` (suma de
     `ms`) contra el de hoy.
+  - **En prod (2026-11-17).** El commit viajó a `origin/main` en el push de otra sesión, que aplicó la migración
+    (lote 1198, 14:18) y desplegó `805a86ba4`. Medido en sus primeras 13 corridas (14:35–14:58):
+    - Corre una vez cada ~2 min, como se quería, y cada corrida guarda su estimado y su referencia.
+    - ⚠️ **El costo no bajó todavía:** ~5 s de base por minuto, lo mismo que con 30 s. El modelo SOBREESTIMA: la
+      mediana del estimado contra lo real es 1.8×. Ajustado con 30 corridas reales, el costo es 335 ms + 40 ms por SKU
+      + 0.027 ms por línea (r² 0.54, con la carga de `md` metiendo ruido). Por eso 4 de las 13 se fueron a completo
+      (13–18 s) cuando por llave habrían costado más o menos la mitad.
+    - **El ahorro de verdad es retirar `existencia-aux`** (pasos 5 y 6): hoy corre encima. El evento cuesta en horario
+      hábil lo mismo que `existencia-aux` en promedio, y de noche casi nada; `existencia-aux` cuesta lo mismo las 24 h.
+    - Recalibrar el modelo con estas cifras es el siguiente ajuste. Conviene que las tres constantes vivan como dato (en
+      `analytics.existencia_por_evento`) y no en la función, para calibrarlas sin migración.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
