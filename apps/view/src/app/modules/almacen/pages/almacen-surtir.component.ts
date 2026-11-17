@@ -10,6 +10,7 @@ import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import type {
   KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
@@ -96,7 +97,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, MotivoChipsComponent, JustificantesComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, SelectModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -147,16 +148,26 @@ function plural(n: number, uno: string, varios: string): string {
 
       <!-- ─────────── ELEGIR ALMACÉN / LISTO PARA TOMAR ─────────── -->
       @if (fase() === 'listo') {
+        <!-- [GP.RF.27] Lo de Telemarketing que quedó a medias se AVISA; antes se retomaba solo al abrir. -->
+        @if (olaAMedias(); as o) {
+          <section class="sr-banda sr-banda-warn sr-medias" role="status">
+            <i class="pi pi-history" aria-hidden="true"></i>
+            <span class="sr-banda-txt">Tienes un surtido de Telemarketing a medias: <b>{{ o.code }}</b>@if (o.pedidos.length) { · {{ o.pedidos.join(', ') }} }</span>
+            <button pButton type="button" class="sr-tap" (click)="continuarOla(o)">Continuar</button>
+          </section>
+        }
         <!-- [MCP.3.8] Clientes nuevos sin clave de Kepler: se nota aquí y lleva a la bandeja para ligarlos. -->
         <app-clientes-nuevos-aviso (sinClave)="sinClave.set($event)"></app-clientes-nuevos-aviso>
         <section class="sr-card">
-          <label class="sr-l" for="sr-alm">Almacén donde surtes</label>
-          <select id="sr-alm" class="sr-select" [ngModel]="almacenId()" (ngModelChange)="elegirAlmacen($event)">
-            <option value="">— Elige —</option>
-            @for (a of almacenes(); track a.id) {
-              <option [value]="a.id">{{ a.code }} · {{ a.name }}</option>
-            }
-          </select>
+          <!-- [GP.RF.28] El almacén por su NOMBRE (antes «06 · Canindo» en un select nativo). Con uno solo no hay nada que elegir. -->
+          @if (almacenes().length === 1) {
+            <span class="sr-l">Almacén donde surtes</span>
+            <strong class="sr-alm-uno">{{ almacenes()[0].name }}</strong>
+          } @else {
+            <label class="sr-l" for="sr-alm">Almacén donde surtes</label>
+            <p-select inputId="sr-alm" [options]="almacenes()" optionLabel="name" optionValue="id" [ngModel]="almacenId() || null"
+                      (ngModelChange)="elegirAlmacen($event ?? '')" placeholder="Elige tu almacén" appendTo="body" styleClass="sr-select" />
+          }
 
           <span class="sr-l" id="sr-origen-l">Pedidos de</span>
           <div class="sr-chips" role="radiogroup" aria-labelledby="sr-origen-l">
@@ -645,9 +656,8 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-card { background: var(--surface-card); border: 1px solid var(--surface-border);
       border-radius: var(--radius-lg); padding: 1.25rem; display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1rem; }
     .sr-l { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-    .sr-select { min-height: var(--tap-min); padding: .4rem .6rem; border: 1px solid var(--surface-border);
-      border-radius: var(--r-sm); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); }
-    .sr-select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    :host ::ng-deep .sr-select { width: 100%; min-height: var(--tap-min); }
+    .sr-alm-uno { font-size: var(--fs-body); }
 
     .sr-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
     .sr-chip { min-height: var(--tap-min); padding: .35rem .9rem; border-radius: var(--r-pill); cursor: pointer;
@@ -928,6 +938,8 @@ export class AlmacenSurtirComponent implements OnInit {
   /** `[MCP.23]` La existencia del sistema de cada renglón del pedido de Sucursal abierto (`PresalePickLine.stock`). */
   readonly stockPedido = signal<Record<string, PresaleReviewStock | null | undefined>>({});
   readonly ola = signal<PickerWave | null>(null);
+  /** `[GP.RF.27]` El surtido de Telemarketing que quedó a medias: se avisa, no se retoma solo. */
+  readonly olaAMedias = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);
   /** Surtidos armados a mano que no se pudieron abrir (se liberaron): hay que avisar al supervisor. */
   readonly atoradas = signal<ReadonlyArray<{ code: string; motivo: string }>>([]);
@@ -1398,27 +1410,22 @@ export class AlmacenSurtirComponent implements OnInit {
         const def =
           suc.find((w) => w.id === guardado) ?? (delUsuario ? suc.find((w) => w.code === delUsuario) : undefined);
         this.almacenId.set(def?.id ?? '');
+        // [GP.RF.27] Abrir NO escribe ni espera a Telemarketing (decisión de Edgar, 2026-11-17). Antes se
+        // pedía «mis surtidos» y, si había uno a medias, se retomaba SOLO con «tomar siguiente» (una
+        // escritura de hasta 21 s); la lista de preventa, que es lo que el surtidor vino a ver, esperaba
+        // detrás. Ahora la lista sale de inmediato y lo de Telemarketing a medias es un aviso con
+        // «Continuar» (un toque, `continuarOla`).
+        if (pedido) {
+          this.surtirPedido(pedido);
+          this.cargarSucursal(true);
+        } else {
+          this.fase.set('listo');
+          if (this.origen() === 'SUCURSAL') this.cargarSucursal();
+        }
         this.api.misOlas().subscribe({
-          next: (olas) => {
-            if (olas.length) {
-              // Se retoma con "tomar siguiente" y NO pintando la ola tal cual: una ola asignada por
-              // la consola puede venir sin arrancar (sin renglones) y "0 pendientes" habilitaba
-              // cerrarla sin surtir nada. tomarSiguiente la arranca y devuelve sus renglones.
-              this.almacenId.set(olas[0].warehouse_id);
-              this.tomar();
-            } else if (pedido) {
-              this.surtirPedido(pedido);
-              this.cargarSucursal(true);
-            } else {
-              this.fase.set('listo');
-              if (this.origen() === 'SUCURSAL') this.cargarSucursal();
-            }
-          },
-          error: () => {
-            this.error.set('No se pudo revisar si ya traías un surtido.');
-            this.fase.set('listo');
-            if (this.origen() === 'SUCURSAL') this.cargarSucursal();
-          },
+          next: (olas) => this.olaAMedias.set(olas[0] ?? null),
+          // Sin poder revisarlo no se inventa un «no traes nada»: se dice, sin frenar la pantalla.
+          error: () => this.error.set('No se pudo revisar si traías un surtido de Telemarketing a medias.'),
         });
       },
       error: () => {
@@ -1448,6 +1455,18 @@ export class AlmacenSurtirComponent implements OnInit {
     this.almacenId.set(id);
     this.guardar(PREF_ALMACEN, id);
     this.sinTrabajo.set(null);
+  }
+
+  /**
+   * `[GP.RF.27]` Retoma el surtido de Telemarketing que quedó a medias (el aviso de arriba). Se retoma
+   * con «tomar siguiente» y NO pintando la ola tal cual: una ola asignada por la consola puede venir
+   * sin arrancar (sin renglones) y «0 pendientes» habilitaba cerrarla sin surtir nada.
+   */
+  continuarOla(o: PickerWave): void {
+    this.almacenId.set(o.warehouse_id);
+    this.origen.set('TELEMARK');
+    this.olaAMedias.set(null);
+    this.tomar();
   }
 
   elegirOrigen(v: Origen): void {

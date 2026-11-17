@@ -1,7 +1,7 @@
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree } from '@angular/router';
-import { of, Subject, throwError } from 'rxjs';
+import { NEVER, of, Subject, throwError } from 'rxjs';
 import type {
   PickerTakeNextResponse, PickerWave, PickerWaveLine, PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow,
 } from '@megadulces/contracts';
@@ -208,18 +208,33 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(boton('Tomar siguiente')?.disabled).toBe(true);
   });
 
-  it('⭐ si ya traía una ola, la RETOMA con tomarSiguiente (que la arranca), no pintándola tal cual', async () => {
+  // [GP.RF.27] Decisión de Edgar (2026-11-17): lo de Telemarketing a medias se AVISA, no se retoma solo.
+  // Antes abrir la pantalla escribía (`waves/next`, hasta 21 s) y la lista de preventa esperaba detrás.
+  it('⭐ si ya traía una ola, NO la retoma sola: avisa, y «Continuar» la retoma con tomarSiguiente (que la arranca)', async () => {
     api.misOlas = vi.fn(() => of([OLA()]));
     api.tomarSiguiente = vi.fn(() => of(ASIGNADA(OLA(), { ya_era_tuya: true })));
     await montar();
+    expect(api.tomarSiguiente).not.toHaveBeenCalled();
+    expect(c.fase()).toBe('listo');
+    expect(texto()).toContain('Tienes un surtido de Telemarketing a medias');
+    clic('Continuar');
     expect(api.tomarSiguiente).toHaveBeenCalledWith({ warehouse_id: 'w-ph', origen: 'TELEMARK' });
     expect(c.fase()).toBe('surtiendo');
+  });
+
+  it('[GP.RF.27] NEGATIVA: la lista de preventa no espera a «mis surtidos» de Telemarketing', async () => {
+    api.misOlas = vi.fn(() => NEVER);
+    await montar();
+    expect(c.fase()).toBe('listo');
+    expect(pv.inbox).toHaveBeenCalled();
+    expect(api.tomarSiguiente).not.toHaveBeenCalled();
   });
 
   it('⭐ si al RETOMAR falla la red, no se queda cargando para siempre: vuelve a "listo" con el error', async () => {
     api.misOlas = vi.fn(() => of([OLA()]));
     api.tomarSiguiente = vi.fn(() => throwError(() => ({ status: 0, error: { message: 'sin conexión' } })));
     await montar();
+    clic('Continuar');
     expect(c.fase()).toBe('listo');
     expect(texto()).not.toContain('Cargando');
     expect(texto()).toContain('sin conexión');
@@ -230,7 +245,9 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await montar();
     expect(api.almacenesSurtido).toHaveBeenCalled();
     expect(c.almacenId()).toBe('w-ph');
-    expect(texto()).toContain('01 · Padre Hidalgo');
+    // [GP.RF.28] La sucursal por su nombre, nunca «01 · Padre Hidalgo».
+    expect(texto()).toContain('Padre Hidalgo');
+    expect(texto()).not.toContain('01 · ');
   });
 
   it('si no puede leer los almacenes, lo dice y ofrece reintentar', async () => {
@@ -812,11 +829,15 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(c.fase()).toBe('surtiendo');
   });
 
-  it('con un surtido de Telemarketing a medias, el aviso no lo abandona: primero lo retoma', async () => {
+  // [GP.RF.27] Antes, con un surtido de Telemarketing a medias, el aviso de la campana lo retomaba
+  // primero y el pedido avisado no se abría. Ahora se abre el pedido, y lo de Telemarketing no se
+  // pierde: queda en el aviso de la lista.
+  it('[GP.RF.27] con un surtido de Telemarketing a medias, el aviso de la campana abre su pedido y lo otro queda avisado', async () => {
     api.misOlas = vi.fn(() => of([OLA()]));
     await montar({ pedido: 'o-rosy' });
-    expect(pv.start).not.toHaveBeenCalled();
-    expect(api.tomarSiguiente).toHaveBeenCalled();
+    expect(pv.start).toHaveBeenCalledWith('o-rosy');
+    expect(api.tomarSiguiente).not.toHaveBeenCalled();
+    expect(c.olaAMedias()?.code).toBe(OLA().code);
   });
 
   it('⭐ con la ola tomada, la cantidad sale en la presentación de la hoja y la base debajo', async () => {
