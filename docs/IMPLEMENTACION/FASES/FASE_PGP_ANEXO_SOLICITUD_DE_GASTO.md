@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 98 KB, 1179 líneas, 17 secciones.
+> **Índice navegable** — 100 KB, 1197 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1208 | 15 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1226 | 16 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1180,6 +1180,24 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
 - En 30 días firmaron 5 personas distintas, así que el mínimo de DS5 (2 activos) se cumple.
 - Pero 6 de 7 días firmó una sola persona, y con DS2 nada llega a Kepler sin firma.
 - *Mejora:* poner la mediana vale → firma de la sucursal encendida como métrica de guardia del piloto.
+
+**R14 ⛔ — El concepto 074 «Capitán de marca» manda el gasto a caja y bancos en 4 sucursales, y la Suite lo copiaría
+sin avisar (2026-11-17).**
+- *El caso:* la póliza del gasto `01-XA1001-0000151` (Padre Hidalgo, 17-nov, acreedor `GNFC003`, $1,400) carga 4 × $350 a
+  la cuenta **102** (caja y bancos) y abona 201. El gasto **nunca llega a resultados**: se carga a un activo y, al pagarse,
+  se cancela contra el mismo activo.
+- *Medido (ODS, sólo lectura):*
+  - en el catálogo `kdco`, el 074 apunta a **102** en 01, 06, 07 y 08, y a **606-014** en 00, 02, 03, 04 y 05;
+  - desde el 2-oct, cuando esas cuatro sucursales estrenaron servidor propio, **todo** gasto 074 de ellas fue a 102: 73
+    renglones por $25,900 (01: 27 · 06: 14 · 07: 7 · 08: 25). En 00, 02 y 03 va a 606-014.
+- *Por qué toca a la Suite:* el escritor de la solicitud (y el del X-A-10, `[PGP.123]` de Francisco) escriben la cuenta
+  que dice el catálogo del servidor (`kdco.c3`). DS11 prometía «levantar un hallazgo si difiere del de 00»; **eso no está
+  en el código**.
+- *Mejora:*
+  1. **Contabilidad** corrige el 074 en el catálogo de 01, 06, 07 y 08 (a la cuenta que use 00) y decide la
+     reclasificación de los $25,900 ya posteados. Es de Contabilidad, no de la Suite (ADR-040).
+  2. **En código:** el catálogo de la solicitud marca el concepto cuya cuenta difiere de la de 00, y no se puede pedir
+     un gasto con él hasta que Contabilidad lo resuelva o lo acepte. Va antes del piloto en 07 y 08 (DS11).
 
 ### 16.3 Lista única para encender 05 (hoy repartida entre §13, el README del ensayo y #547)
 
