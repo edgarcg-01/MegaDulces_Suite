@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, type ParamMap, RouterLink } from '@angular/router';
 import { Subject, debounceTime } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -59,6 +59,11 @@ const ORDEN_UNIDADES = ['CJA', 'BULTO', 'BTO', 'CUB', 'PAQ', 'PZA', 'KG', '500',
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** `YYYY-MM-DD` → fecha local (la que usa el selector de rango), sin pasar por UTC. */
+const fechaLocal = (v: string): Date => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d); };
+/** `[GP.RF.15]` Los estatus de Kepler que una liga puede traer en `kepler_status`: sólo los que alguien manda. */
+const ESTATUS_KEPLER_LIGA: readonly string[] = ['AUTORIZADO'];
 const dmy = (v: string | null | undefined): string => {
   if (!v) return '—';
   const [y, m, d] = v.slice(0, 10).split('-');
@@ -140,6 +145,10 @@ const dmy = (v: string | null | undefined): string => {
           } @else if (!d.alcance.sucursales.length) {
             <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
           }
+        }
+        <!-- [GP.RF.15] Llegó de «velos en el Tablero» de la fila: se dice qué filtro trae y se quita con un clic. -->
+        @if (estatusKepler() && !soloSurtidor()) {
+          <div class="gp-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Pedidos que Kepler sigue teniendo como <b>autorizados</b>, del {{ dmy(d.periodo.from) }} al {{ dmy(d.periodo.to) }}@if (sucursal()) {, sucursal <b>{{ sucursalNombre(d, sucursal()!) }}</b>}: <b>{{ totalConteos(d) }}</b>. Ninguno entra a la fila de surtido: ciérralos en Kepler.</span><button type="button" class="gp-link" (click)="quitarKepler()">Quitar este filtro</button></div>
         }
 
         <div class="gp-list">
@@ -432,6 +441,13 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly sucursal = signal<string | null>(null);
   readonly soloAutorizados = signal(false);
   readonly q = signal('');
+  /**
+   * `[GP.RF.15]` Filtro por el estatus de KEPLER (no por etapa): llega de la liga de los atorados de
+   * la fila (`?kepler_status=AUTORIZADO&branch=..&date_from=..&date_to=..`). Con él la lista cuadra
+   * con la cuenta de la fila; por etapa no cuadraría.
+   */
+  readonly estatusKepler = signal<string | null>(null);
+  private ligaAplicada = '';
 
   readonly loading = signal(false);
   readonly err = signal<string | null>(null);
@@ -480,7 +496,8 @@ export class AlmacenPedidosComponent implements OnInit {
       // Sólo un origen conocido (Object.hasOwn: «toString» también está «in» un objeto).
       const cambia = !!o && Object.hasOwn(ORIGEN, o) && o !== this.origen();
       if (cambia) this.origen.set(o);
-      if (!this.enFila() && (cambia || (!this.data() && !this.loading()))) this.reload();
+      const liga = this.aplicarLiga(p);
+      if (!this.enFila() && (cambia || liga || (!this.data() && !this.loading()))) this.reload();
     });
   }
 
@@ -508,10 +525,35 @@ export class AlmacenPedidosComponent implements OnInit {
   pickSucursal(s: string | null): void { this.sucursal.set(s); this.reload(); }
   onQ(v: string): void { this.q$.next(v); }
 
-  hayFiltros(): boolean { return !!(this.etapa() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados()); }
+  hayFiltros(): boolean { return !!(this.etapa() || this.origen() || this.sucursal() || this.q() || this.soloAutorizados() || this.estatusKepler()); }
   limpiar(): void {
-    this.etapa.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false);
+    this.etapa.set(null); this.origen.set(null); this.sucursal.set(null); this.q.set(''); this.soloAutorizados.set(false); this.estatusKepler.set(null);
     this.reload();
+  }
+  quitarKepler(): void { this.estatusKepler.set(null); this.reload(); }
+
+  /**
+   * `[GP.RF.15]` Aplica la liga de los atorados (una vez por liga distinta). Todo o nada: con un
+   * estatus fuera de la lista, fechas inválidas o una sucursal mal escrita no se aplica NADA —un
+   * filtro a medias mostraría otra cosa que la cifra de la que se vino—. Devuelve si cambió algo.
+   */
+  private aplicarLiga(p: ParamMap): boolean {
+    const st = p.get('kepler_status');
+    const desde = p.get('date_from') ?? '';
+    const hasta = p.get('date_to') ?? '';
+    const suc = p.get('branch');
+    if (!st || !ESTATUS_KEPLER_LIGA.includes(st)) return false;
+    if (!ISO_RE.test(desde) || !ISO_RE.test(hasta) || desde > hasta) return false;
+    if (suc != null && !/^\d{2}$/.test(suc)) return false;
+    const llave = [st, desde, hasta, suc ?? ''].join('|');
+    if (llave === this.ligaAplicada) return false;
+    this.ligaAplicada = llave;
+    this.estatusKepler.set(st);
+    this.sucursal.set(suc);
+    this.etapa.set(null); this.soloAutorizados.set(false); this.origen.set(null); this.q.set('');
+    this.rangeDates = [fechaLocal(desde), fechaLocal(hasta)];
+    this.preset.set('rango');
+    return true;
   }
 
   private filtro(): AlmacenPedidosFiltro {
@@ -524,6 +566,8 @@ export class AlmacenPedidosComponent implements OnInit {
       sucursal: this.sucursal(),
       q: this.q() || null,
     };
+    const st = this.estatusKepler();
+    if (st) f.estatus = [st];
     const hoy = new Date();
     if (this.soloSurtidor()) {
       // [MCP.3.2] Lo que le toca: AUTORIZADO (ya se puede surtir y nadie lo ha surtido). Ventana de
@@ -615,6 +659,11 @@ export class AlmacenPedidosComponent implements OnInit {
     if (r.desfase === 'piso_adelante') return 'atrás de lo registrado en la Suite';
     if (r.desfase === 'kepler_adelante') return 'adelante de lo registrado en la Suite';
     return null;
+  }
+  /** La sucursal por su NOMBRE (nunca sólo «06»): del alcance o de las filas que llegaron. */
+  sucursalNombre(d: WarehouseOrdersResponse, codigo: string): string {
+    const n = d.alcance.sucursales.find((x) => x.codigo === codigo)?.nombre ?? d.items.find((x) => x.sucursal === codigo)?.sucursal_nombre;
+    return n ? `${codigo} ${n}` : codigo;
   }
   sucursalesTexto(d: WarehouseOrdersResponse): string { return d.alcance.sucursales.map((x) => `${x.codigo} ${x.nombre}`).join(', '); }
   estatusLabel(e: string | null): string { return e ? ESTATUS[e]?.label ?? e : 'Sin estatus'; }

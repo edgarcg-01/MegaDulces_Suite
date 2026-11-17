@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Subject, of, throwError } from 'rxjs';
 import type { ConsolaSurtidoOla, ConsolaSurtidoResponse } from '@megadulces/contracts';
 import { AlmacenSurtidoConsolaComponent } from './almacen-surtido-consola.component';
+import { provideRouter } from '@angular/router';
 import { PickingService } from '../../reparto/picking.service';
 
 /**
@@ -81,7 +82,7 @@ describe('AlmacenSurtidoConsolaComponent · la consola del coordinador (GP.3c)',
     try { localStorage.clear(); } catch { /* sin almacenamiento */ }
     await TestBed.configureTestingModule({
       imports: [AlmacenSurtidoConsolaComponent],
-      providers: [{ provide: PickingService, useValue: api }],
+      providers: [provideRouter([]), { provide: PickingService, useValue: api }],
     }).compileComponents();
     fix = TestBed.createComponent(AlmacenSurtidoConsolaComponent);
     c = fix.componentInstance;
@@ -226,7 +227,7 @@ describe('AlmacenSurtidoConsolaComponent · la consola del coordinador (GP.3c)',
     };
     await TestBed.configureTestingModule({
       imports: [AlmacenSurtidoConsolaComponent],
-      providers: [{ provide: PickingService, useValue: api }],
+      providers: [provideRouter([]), { provide: PickingService, useValue: api }],
     }).compileComponents();
     fix = TestBed.createComponent(AlmacenSurtidoConsolaComponent);
     c = fix.componentInstance;
@@ -336,5 +337,32 @@ describe('AlmacenSurtidoConsolaComponent · la consola del coordinador (GP.3c)',
   it('fila vacía: lo dice en lugar de pintar una tabla sin renglones', async () => {
     await montar(undefined, RESP({ olas: [] }));
     expect(texto()).toContain('No hay surtidos en la fila.');
+  });
+
+  // [GP.RF.15] «58 pedidos siguen autorizados en Kepler… revísalos en Kepler» era una cifra que no se
+  // podía recorrer en la Suite. Ahora liga al Tablero con la MISMA frontera con la que se cuenta.
+  const ATORADOS = (ventana?: string) => RESP({
+    por_armar: { pedidos: 4, tanda: 3, individual: 1, bloqueados: 0, atorados: { count: 58, desde: '2026-08-15' }, ...(ventana ? { ventana_desde: ventana } : {}) },
+  });
+  const ligaAtorados = (): HTMLAnchorElement | null => el().querySelector('section[aria-labelledby="gp-arm-h"] a.gp-liga');
+
+  it('[GP.RF.15] ⭐ los atorados ligan al Tablero: estatus de Kepler, su sucursal y hasta el día ANTES de la ventana', async () => {
+    await montar(undefined, ATORADOS('2026-11-10'));
+    const a = ligaAtorados();
+    expect(a?.textContent?.trim()).toBe('velos en el Tablero');
+    const u = new URL(a?.getAttribute('href') ?? '', 'http://x');
+    expect(u.pathname).toBe('/almacen/pedidos');
+    expect(Object.fromEntries(u.searchParams)).toEqual({ kepler_status: 'AUTORIZADO', branch: '08', date_from: '2026-08-15', date_to: '2026-11-09' });
+  });
+
+  it('[GP.RF.15] la frontera se resta en calendario: ventana el 1 de marzo → hasta el 28 de febrero', async () => {
+    await montar(undefined, ATORADOS('2026-03-01'));
+    expect(new URL(ligaAtorados()?.getAttribute('href') ?? '', 'http://x').searchParams.get('date_to')).toBe('2026-02-28');
+  });
+
+  it('[GP.RF.15] NEGATIVA: una API anterior (sin ventana_desde) no inventa la frontera: no hay liga', async () => {
+    await montar(undefined, ATORADOS());
+    expect(ligaAtorados()).toBeNull();
+    expect(texto()).toContain('revísalos en Kepler');
   });
 });

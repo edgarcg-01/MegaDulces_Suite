@@ -415,6 +415,47 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     expect((list.mock.calls[0] as unknown as [{ origen: string | null }])[0].origen).toBeNull();
   });
 
+  // [GP.RF.15] La liga «velos en el Tablero» de los atorados de la fila.
+  type Filtro = { estatus?: string[]; etapa?: string[]; sucursal?: string | null; from?: string; to?: string; month?: string; origen?: string | null };
+  const LIGA = '/almacen/pedidos?kepler_status=AUTORIZADO&branch=06&date_from=2026-08-15&date_to=2026-11-09';
+
+  it('[GP.RF.15] ⭐ la liga de los atorados llega con el filtro de KEPLER, la sucursal y el rango puestos', async () => {
+    const { list, el } = await abrir(LIGA, { [Permission.ALMACEN_PEDIDOS_VER]: true });
+    expect(list).toHaveBeenCalledTimes(1);
+    const f = (list.mock.calls[0] as unknown as [Filtro])[0];
+    expect(f.estatus).toEqual(['AUTORIZADO']);
+    expect(f.etapa).toEqual([]);
+    expect(f.sucursal).toBe('06');
+    expect([f.from, f.to, f.month]).toEqual(['2026-08-15', '2026-11-09', undefined]);
+    expect(f.origen).toBeNull();
+    // Dice qué filtro trae y se puede quitar.
+    expect(el.textContent).toContain('Kepler sigue teniendo como autorizados');
+    expect(el.querySelector('.gp-note button.gp-link')?.textContent?.trim()).toBe('Quitar este filtro');
+  });
+
+  it('[GP.RF.15] «Quitar este filtro» vuelve a pedir sin el estatus de Kepler', async () => {
+    const { list, harness, el } = await abrir(LIGA, { [Permission.ALMACEN_PEDIDOS_VER]: true });
+    (el.querySelector('.gp-note button.gp-link') as HTMLButtonElement).click();
+    harness.detectChanges();
+    expect(list).toHaveBeenCalledTimes(2);
+    expect((list.mock.calls[1] as unknown as [Filtro])[0].estatus).toBeUndefined();
+    expect(el.textContent).not.toContain('Kepler sigue teniendo como autorizados');
+  });
+
+  it.each([
+    ['un estatus que la liga no manda', '/almacen/pedidos?kepler_status=CANCELADO&branch=06&date_from=2026-08-15&date_to=2026-11-09'],
+    ['fechas invertidas', '/almacen/pedidos?kepler_status=AUTORIZADO&branch=06&date_from=2026-11-09&date_to=2026-08-15'],
+    ['una fecha que no es fecha', '/almacen/pedidos?kepler_status=AUTORIZADO&branch=06&date_from=ayer&date_to=2026-11-09'],
+    ['una sucursal mal escrita', '/almacen/pedidos?kepler_status=AUTORIZADO&branch=6x&date_from=2026-08-15&date_to=2026-11-09'],
+  ])('[GP.RF.15] NEGATIVA: con %s no se aplica NADA de la liga (ni a medias)', async (_caso, url) => {
+    const { list, el } = await abrir(url, { [Permission.ALMACEN_PEDIDOS_VER]: true });
+    const f = (list.mock.calls[0] as unknown as [Filtro])[0];
+    expect(f.estatus).toBeUndefined();
+    expect(f.sucursal).toBeNull();
+    expect(f.from).toBeUndefined();
+    expect(el.textContent).not.toContain('Kepler sigue teniendo como autorizados');
+  });
+
   it('NEGATIVA: sin la clave de coordinar no hay vistas, y ?vista=fila cae en «Pedidos»', async () => {
     const { vistas, list, consolaAlmacenes, el } = await abrir('/almacen/pedidos?vista=fila', { [Permission.ALMACEN_PEDIDOS_VER]: true });
     expect(vistas()).toEqual([]);

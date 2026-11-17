@@ -16,6 +16,7 @@
 - Un pedido de preventa abre su resumen. El botón «Documento, cobro y recorrido» lo abre en la Mesa de Control de Preventa, ya seleccionado.
 - (GP.10.4b) Quien coordina el surtido tiene en el Tablero una segunda vista, **Fila de surtido**: es la Consola de surtido (urgentes, hora de salida, armar y tanda), sin salir de la pantalla.
 - (GP.10.4c) Salen las pestañas **Preventa** y **Consola de surtido**. Sus direcciones viejas llevan al Tablero: la consola, a la vista «Fila de surtido», y Preventa, al Tablero filtrado por preventa. La Mesa de Control se sigue abriendo completa desde cualquier pedido de preventa, y tiene un regreso al Tablero.
+- (GP.RF.15) En la fila de surtido, los pedidos que Kepler sigue teniendo como autorizados desde hace más de una semana ya se pueden ver en la Suite: «velos en el Tablero» abre la lista con ese filtro puesto y se quita con un clic. Antes decía «revísalos en Kepler».
 
 ### Changed — Gastos: «Registrar o pedir» en el orden de quien lo pide: base, proveedor y sus facturas del SAT, y al final cómo se paga (PGP.122 S.17 · 2026-11-16 · en código)
 - **Primero la base.** Quien tiene un solo almacén la ve fija; quien maneja varios la elige (sin preselección); quien no tiene almacén en su ficha ve que Sistemas se lo asigna. El servidor no deja pedir en una base que no es de la persona.

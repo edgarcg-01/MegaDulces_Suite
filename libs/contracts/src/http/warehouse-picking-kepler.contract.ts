@@ -215,6 +215,13 @@ export interface ConsolaSurtidoResponse {
     individual: number;
     bloqueados: number;
     atorados: { count: number; desde: string | null };
+    /**
+     * `[GP.RF.15]` Primer día (`YYYY-MM-DD`, MX) de la ventana de la fila: lo que siga AUTORIZADO
+     * en Kepler con fecha ANTERIOR cuenta en `atorados`. Con él la consola liga los atorados al
+     * Tablero (`kepler_status=AUTORIZADO`, hasta el día anterior). Opcional: una API anterior no
+     * lo manda y la consola entonces no pinta la liga.
+     */
+    ventana_desde?: string;
   };
   destinos: ConsolaSurtidoDestino[];
 }

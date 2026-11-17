@@ -195,6 +195,8 @@ export class PickingConsolaService {
           individual: elegibles.filter((p) => p.lines > umbral).length,
           bloqueados: pool.data.filter((p) => p.sin_catalogo > 0).length,
           atorados: pool.atorados,
+          // [GP.RF.15] Para que la consola ligue los atorados al Tablero con la misma frontera.
+          ventana_desde: pool.desde,
         },
         // Primero los que tienen hora (por hora), después los que la esperan (por nombre).
         destinos: [...destinos.values()].sort(
