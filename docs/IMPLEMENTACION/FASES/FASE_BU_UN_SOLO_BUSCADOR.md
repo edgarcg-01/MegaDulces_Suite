@@ -124,6 +124,21 @@ Fuera, a propósito: la búsqueda por IA del portal (`search`, vectorial) y el k
 (caja de SKU exacto). `catalogo-buscador.ts` (`[COT.41]`) ya leía las 7 casillas y se deja: unificarlo
 con la pieza es deuda con nombre (misma regla, dos implementaciones).
 
+### Frente BU.5 · El orden por coincidencia (Edgar, 2026-11-17)
+
+> «En Kepler, cuando busca *el rey* te arroja los productos El Rey; hoy nosotros ponemos *rey* y sale
+> REYMA o REYHER antes. ¿Cómo podemos mejorar todos nuestros buscadores?»
+
+`applySmartSearch` sólo FILTRA (cada palabra como substring, «el» descartada como relleno) y el orden
+lo pone cada buscador: en el catálogo, lo más vendido. Así «rey» casa con «REYMA» y gana por venta.
+Medido en Canindo (sólo lectura): «el rey» traía **1 de 12** productos El Rey entre los primeros; «vaso
+el rey», **0 de 12** (10 REYMA VASO arriba).
+
+| ID | Item | Estado | Criterio |
+|---|---|---|---|
+| BU.5.1 | **`smartSearchRank`** en `platform-core` (junto al filtro): 0 = la frase tal cual en palabras completas · 1 = todas las palabras completas · 2 = todas al inicio de palabra · 3 = el resto. Va después de los aciertos exactos (clave, código) y antes del orden de negocio. Cableado en `catalogo-buscador.ts` (cotizador y levantamiento) | 🧪 | Medido en prod con el SQL real de knex (Canindo): «el rey» **12 de 12** El Rey; «vaso el rey» los 3 vasos El Rey primero; «rey» ya no trae REYMA arriba; «reyma», «mazapan», «gomitas» iguales. Tiempo igual (antes 150–275 ms, después 135–292 ms). Spec 5/5 con mutante (la frase sin relleno → rojo) en copia fuera del árbol; vitest commercial 526 en verde |
+| BU.5.2 | Adoptar el orden en los demás buscadores: **50 llamadas a `applySmartSearch` en 34 archivos** ordenan cada una a su manera (clientes por clave, proveedores por nombre…) | ⬜ | por buscador: una búsqueda de frase con un falso amigo («rey» / REYMA) trae primero la frase |
+
 ---
 
 ## 4. Decisiones (→ ADR)
@@ -165,3 +180,4 @@ con la pieza es deuda con nombre (misma regla, dos implementaciones).
 |---|---|---|
 | 2026-11-06 | Doc creado. Medido: 22/47 services en `applySmartSearch`, 25 crudos (incl. calendario de pagos), 1 duplicado. Plan en 2 tramos: arreglo chico de calendario-pagos + fase BU. Pendientes D1–D3 de Edgar. | Claude (PM) |
 | 2026-11-06 | **BU.2.1 codificado**: calendario de pagos pasa a `applySmartSearch` (columns beneficiary/concept/doc_ref/payee_code/original_amount, numeric original_amount/available_amount). **BU.3.1 codificado**: placeholder «Proveedor, folio o monto — ej. delicias 396 248». Typecheck 0 err; `check:pantalla` 0 fallas nuevas. **Verificado contra prod (sólo lectura, system_identifier 7688376744939610156)**: «bolsas 303 1591» (proveedor+folio+monto) → 1 fila correcta (ACREEDOR BOLSAS DE LOS ALTOS, folio 0000303, $1,591,000); el ILIKE viejo de frase entera → 0. Edgar: aplicarlo a TODOS los buscadores. Rollout iniciado en 3 oleadas (finance / commercial / logistics+fiscal+hr+trade), ~23 services, a revisar diff antes de empujar. BU.3.2 (resaltado) declarado pendiente. | Claude |
+| 2026-11-17 | **BU.5.1** 🧪: el orden por coincidencia (`smartSearchRank`), cableado en el buscador del catálogo; «el rey» de 1 a 12 de 12 en Canindo. BU.5.2 (los otros 50 buscadores) pendiente. | Claude |
