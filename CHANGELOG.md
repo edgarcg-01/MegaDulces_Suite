@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en código, sin soltar)
+- Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
+- Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
+
 ### Added — La ficha del cliente se valida contra el banco (CC.21 · 2026-11-17 · en código, sin soltar)
 - En **Cobranza › Fichas de clientes**, cada ficha dice si el depósito ya entró al banco: lo busca en el estado de cuenta (mismo monto, fecha cercana) y revisa que el cobro que Kepler le aplicó sea de ese mismo cliente.
 - Las que el banco confirma se ligan a su cobro con un clic, o todas de una vez. Si el dinero entró y Kepler todavía no tiene el cobro, el abono se marca como de ese cliente para que se capture.

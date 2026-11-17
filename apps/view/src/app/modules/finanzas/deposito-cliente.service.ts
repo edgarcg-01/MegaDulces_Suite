@@ -58,7 +58,7 @@ export interface FichaClienteBandeja {
 }
 /** `[CC.21]` Un abono del estado de cuenta que puede ser la ficha. */
 export interface AbonoBanco {
-  id: string; fecha: string; monto: number; banco: string; cuenta: string; declarado: string | null;
+  id: string; fecha: string; monto: number; banco: string; cuenta: string; declarado: string | null; en_cuenta?: boolean;
   cobros: { sucursal: string; folio: string; tipo: string; cliente_code: string | null; cliente_nombre: string | null }[] | null;
 }
 export type EstadoBanco = 'aplicado' | 'sin_aplicar' | 'de_otro_cliente' | 'varios' | 'no_aparece' | 'banco_sin_cargar' | 'sin_dato';

@@ -7,7 +7,7 @@ import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 /** Un cambio en un comprobante de cobranza (lo dispara una acción de un usuario). */
 export interface CollectionDepositEvent {
   /** `[CC.20]` `reported` = un CLIENTE subió su ficha desde su enlace (todavía sin cobro: `folio` vacío). */
-  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched' | 'reported';
+  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched' | 'reported' | 'bank_loaded';
   sucursal: string;
   folio: string;
   status: string | null;      // estado del comprobante tras la acción (recibido/validado/rechazado)
@@ -77,6 +77,22 @@ export class CobranzaGateway implements OnGatewayConnection, OnGatewayDisconnect
     const full: CollectionDepositEvent = { ...ev, emitted_at: new Date().toISOString() };
     this.server.to(`tenant:${tenantId}`).emit('collection_deposit_changed', full);
     this.logger.debug(`${ev.action} ${ev.sucursal}/${ev.folio} → tenant:${tenantId}`);
+  }
+
+  /**
+   * `[CC.21]` Un aviso SIN datos («volvé a cargar») a las bandejas conectadas a ESTE proceso. Para lo que avisa la base
+   * (`bancos_movimientos` no dice de qué tenant es): como no lleva cifras ni nombres, no importa a quién llega, y cada
+   * pantalla recarga lo suyo con su propio permiso. `local`: con varios pods del API escuchando el mismo aviso, cada
+   * uno avisa a sus sockets y nadie lo recibe dos veces por el adaptador de Redis.
+   */
+  avisarATodosLocal(action: 'bank_loaded', detalle: string): number {
+    if (!this.server) return 0;
+    const full: CollectionDepositEvent = {
+      action, sucursal: '', folio: '', status: null, cliente: null, monto: null, actor: detalle, emitted_at: new Date().toISOString(),
+    };
+    this.server.local.emit('collection_deposit_changed', full);
+    let n = 0; for (const s of this.tenantSockets.values()) n += s.size;
+    return n;
   }
 
   private extractToken(client: Socket): string | null {
