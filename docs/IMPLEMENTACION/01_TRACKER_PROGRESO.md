@@ -1739,6 +1739,20 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
         directo — reescribir una regex a través de tres capas de escape se pone verde por el
         motivo equivocado.
+- [ ] **[CXC.44]** 🧪 **Cartera: UN solo botón entrega el estado de cuenta** (Edgar, 2026-11-17, sobre la ficha del
+      cliente: «todo esto lo podemos hacer en uno solo»). Teléfono, «Estado de cuenta (PDF)», «Enviar por WhatsApp» y
+      «Copiar enlace para depósitos» eran cuatro botones de UN acto. Ahora «Enviar estado de cuenta» (color de acción):
+      descarga el PDF para adjuntarlo (wa.me sólo lleva texto), abre el chat de ESE teléfono —o, sin teléfono, WhatsApp
+      para elegir a quién; antes el botón desaparecía— con el mensaje que ya trae el enlace para depósitos (CC.20), y
+      registra el contacto (CXC.43). El subtítulo dice el destino y si va con enlace. «Ver PDF» queda a un clic en la
+      línea de aviso después de enviar. Un doble clic no pide el PDF dos veces.
+      · **Probado:** spec de Cartera 22 (2 nuevas: un solo botón con su href, PDF una vez y contacto; sin teléfono abre
+        WhatsApp para elegir); mutante (quitar la guarda del doble clic) la pone roja. Contraste de la tinta sobre el
+        color de acción: 5.00:1 claro, 5.23:1 oscuro. De paso: `fichas-clientes` usaba `--action-fg`, que no existe
+        (caía a blanco: 3.39:1 en oscuro) → `--action-ink`.
+      · **Sin validación visual** (no medí la pantalla viva). Ya no hay acceso directo a «llamar» ni a «copiar enlace»:
+        el teléfono va como destino del botón y el enlace dentro del mensaje.
+      · Va DESPUÉS de CC.20 (usa su enlace): sale con esa serie.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
         libro y la descarga (CB.60b). `FichasAvisoBancoService` lo escucha en el API (no en el worker: ahí no están los

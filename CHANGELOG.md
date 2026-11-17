@@ -19,6 +19,9 @@
 - (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
 - (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
 - (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
+- En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
+
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en código, sin soltar)
 - Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
 - Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
@@ -41,6 +44,7 @@
 - El periodo se elige en un desplegable; Surtir y Checar dejan de ser botones naranjas.
 - «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
 - Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
+
 ### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en código, sin aplicar)
 - La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
 - La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).

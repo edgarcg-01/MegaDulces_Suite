@@ -718,6 +718,18 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CXC.44]` Cartera: cuatro botones de un mismo acto, uno solo
+
+**Qué se hizo:** la ficha del cliente tenía teléfono, PDF, WhatsApp y «copiar enlace» lado a lado; los cuatro eran partes
+de entregarle su estado de cuenta. Quedó «Enviar estado de cuenta», que hace las cuatro cosas en un clic.
+
+**Lecciones:**
+- ⭐ **Contar los botones por ACTO, no por función.** Cada botón tenía su razón (CXC.40, CXC.43, CC.20), y se fueron
+  sumando uno por fase; nadie preguntó cuántos actos había detrás. Uno.
+- **Lo que se quita se dice:** ya no hay «llamar» ni «copiar enlace» sueltos; si hacen falta, vuelven como secundarios.
+- **Una compuerta en verde también enseña:** `check:tokens` listaba `--action-fg` como token inexistente sin frenar; con
+  su respaldo `#fff`, el botón de la bandeja quedaba a 3.39:1 en oscuro.
+
 ## 2026-11-17 — `[CC.21.1]` Lo que le faltaba al cruce con el banco: aviso en vivo, lectura real y la prueba en el CI
 
 **Qué se hizo:** la bandeja de fichas se refresca sola cuando llega el estado de cuenta (escuchando el aviso que Bancos

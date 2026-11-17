@@ -207,7 +207,7 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFich
     .fc-acc { white-space: nowrap; text-align: right; }
     .fc-btn { min-height: 32px; padding: 0 var(--sp-3); border-radius: var(--r-md, 8px); border: 1px solid var(--border-color); background: transparent; color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; margin-left: var(--sp-2); }
     .fc-btn:focus-visible, .fc-campo input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .fc-btn-main { background: var(--action); color: var(--action-fg, #fff); border-color: var(--action); }
+    .fc-btn-main { background: var(--action); color: var(--action-ink); border-color: var(--action); }
     .fc-btn-bad { color: var(--bad-fg); border-color: var(--bad-border); }
     .fc-btn[disabled] { opacity: .55; cursor: default; }
     .fc-panel td { background: var(--surface-2); }
