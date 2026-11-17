@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Ubicaciones: las cifras dicen el último dato, y la captura ya no dice «no hay» cuando no sabe (UB.RF · 2026-11-17 · en código, sin soltar)
+- Las cifras grandes que se animan (la tira de arriba de muchas pantallas) se quedaban a veces con el valor anterior: en Asignación, al buscar «mazapan» decía 9,045 productos cuando eran 46. Ahora siempre terminan en el último dato que llegó.
+- «Últimas capturas» dice «Leyendo…» mientras carga y avisa si no pudo leer (con Reintentar). Antes decía «Todavía no hay capturas» en los dos casos.
+- El mapa abre en la zona que tiene ubicaciones (Bodega o Tienda), y el mapa vacío ya no dice que la captura masiva «llega en la siguiente entrega»: está en el botón «Captura masiva».
+
 ### Changed — Pedidos del almacén: el Tablero muestra también la preventa, por etapa (GP.10.4a · 2026-11-14 · en código, sin soltar)
 - `/almacen/pedidos` lista ahora, junto a los pedidos de Kepler, los de **preventa** del vendedor, por su fecha de entrega. También se pueden filtrar con el origen «Preventa».
 - Los botones de arriba ya no son el estatus de Kepler, sino la **etapa en el almacén**: Autorizado, En cola, Surtiendo, Surtido, Checando, Checado y Embarcado. Así «Todos» cuenta lo mismo que la lista, incluida la preventa.

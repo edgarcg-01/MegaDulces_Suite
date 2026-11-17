@@ -1,5 +1,5 @@
 import type { WarehouseLocationRow } from '@megadulces/contracts';
-import { estadoDeRack } from './almacen-ubicaciones-mapa.component';
+import { estadoDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -31,5 +31,19 @@ describe('[UB.1] mapa · estado de un rack', () => {
 
   it('todo dado de alta y vacío = activo', () => {
     expect(estadoDeRack([nivel({}), nivel({ nivel: 2 })])).toBe('activa');
+  });
+});
+
+/** `[UB.RF.5]` CEDIS abría en «Bodega (0)» con sus 375 en Tienda (medido 2026-11-17). */
+describe('[UB.RF.5] mapa · zona en la que abre', () => {
+  it('⭐ si la elegida está vacía y la otra no, abre en la otra', () => {
+    expect(zonaConUbicaciones('B', 0, 375)).toBe('T');
+    expect(zonaConUbicaciones('T', 12, 0)).toBe('B');
+  });
+  it('NEGATIVA: con ubicaciones en la elegida, no se mueve (aunque la otra tenga más)', () => {
+    expect(zonaConUbicaciones('B', 1, 375)).toBe('B');
+  });
+  it('NEGATIVA: un almacén sin ninguna, se queda donde está', () => {
+    expect(zonaConUbicaciones('B', 0, 0)).toBe('B');
   });
 });

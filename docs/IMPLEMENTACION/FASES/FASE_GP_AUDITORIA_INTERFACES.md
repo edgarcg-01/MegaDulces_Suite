@@ -420,6 +420,56 @@ Lo que sigue en este paso, en orden, para que el «después» gane en todo y no 
 
 ---
 
+## 5b. Ubicaciones: capturar (2026-11-17, adelantado por Edgar: «el primer paso es capturar las ubicaciones»)
+
+**Cómo se midió.** `ubicaciones.e2e.ts` recorre las pantallas de punta a punta en prod (`8a48dc0a7`),
+como superadmin:
+- **Mapa:** alta suelta con 8 códigos, buenos y malos.
+- **Captura masiva:** un rango de 180 ubicaciones y un Excel de 8 renglones.
+- **Lotes:** el «Deshacer».
+- **Asignación:** a mano y por Excel.
+- **Contenido.**
+
+Pasan las lecturas y las dos vistas previas, que sólo planifican: se revisó en el código. Se
+detuvieron dos escrituras (alta y «Crear 180»), y quedó registrado lo que habrían mandado.
+
+**El estado (nivel B):**
+- **Padre Hidalgo, el piloto, no tiene ninguna ubicación.**
+- **Ningún producto tiene lugar fijo,** en ningún almacén. En CEDIS son 0 de 9,045.
+- **CEDIS tiene 375 que parecen prueba:** salieron de una sola captura del 8-oct, el día en que se
+  construyó la captura masiva. Usan la zona **T · Tienda** (un CEDIS no tiene tienda), pasillos A–C,
+  racks 01–25 y niveles 1–5, con tipo «Tienda · piso». Además estorban: un lugar fijo de surtido exige
+  bodega (B), así que **en CEDIS no se le puede asignar ninguno a un producto**.
+
+| ID | Sev | Hallazgo | Nivel | Estado |
+|---|---|---|---|---|
+| UB.RF.1 | 🔴 | **Una cifra que se anima se quedaba con el valor anterior.** Al buscar «mazapan», la API dijo 46 y la tira pintó 9,045; al borrar la búsqueda, al revés. Causa: `count-up.directive.ts` no cortaba la primera animación y ésta tapaba el valor nuevo. Afecta a **toda** tira de cifras que cambie en su primer segundo | A + API | 🧪 arreglado, con 3 pruebas (la prueba salió roja antes del arreglo) |
+| UB.RF.2 | 🔴 | Las 375 de prueba en CEDIS, en zona Tienda | B | ⬜ **decisión de Edgar:** deshacer el lote (se puede: 0 en uso) |
+| UB.RF.3 | 🟠 | El mapa vacío decía «la captura masiva por rango llega en la siguiente entrega», y ya existe | A | 🧪 el texto ahora manda a «Captura masiva» |
+| UB.RF.4 | 🟠 | «Últimas capturas» decía «Todavía no hay» mientras leía y también si fallaba (CEDIS sí tenía una) | A + API | 🧪 dice «Leyendo…», el error con «Reintentar», o «no hay» sólo si no hay. La respuesta de otro almacén ya no tapa la del nuevo. 5 pruebas |
+| UB.RF.5 | 🟡 | El mapa abre en «Bodega (0)» aunque todo esté en Tienda | A | 🧪 abre en la zona que tiene ubicaciones. 3 pruebas |
+| UB.RF.6 | 🟡 | En el formulario por rango, el selector de Tipo usa `ngModel` sin `name` (NG01352): rompe en modo desarrollo | A (prueba) | 🧪 `name="tipo"` |
+| UB.RF.7 | 🟡 | Cada pantalla (Mapa, Asignación, Contenido) pide el almacén otra vez, y Contenido abre vacío | A | ⬜ |
+| UB.RF.8 | 🟡 | «0» de «Con lugar fijo» en verde, a 3.0:1 (bajo AA) | A | ⬜ (mismo token que GP.RF.13) |
+| UB.RF.9 | 🟡 | «Se crea 180 de 180» (es «Se crean») | A | ⬜ |
+
+**Lo que funciona bien y se conserva:**
+- Cada regla del código dice su motivo («sin Ñ: el código de barras no la lee», «el nivel va del 1
+  al 6»), y acepta minúsculas.
+- Hay una vista previa antes de crear. El Excel da el motivo por renglón y marca los repetidos.
+- «Deshacer» por lote, con confirmación.
+- El mapa se recorre con las flechas.
+- La asignación sólo ofrece las presentaciones que Kepler tiene en esa sucursal, y dice por qué
+  rechaza las demás.
+
+**NO MEDIDO:**
+- las escrituras reales y los mensajes del servidor al guardar;
+- el celular;
+- el uso desde el puesto que captura (encargado o almacenista);
+- Contenido con mercancía (hay 0 ubicaciones con mercancía).
+
+---
+
 ## 6. Los pasos que siguen
 
 Cada paso arranca con la línea base de su pantalla (Playwright), recorre el proceso **completo**
@@ -434,7 +484,7 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 | **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy |
 | **5** | Revisión + Guías (caja) | ¿Cuántas pantallas y clics le toma a la caja cerrar un pedido de preventa? | clics por pedido; frecuencia de encuesta (GP.RF.6). D9: sólo se audita |
 | **6** | Clientes nuevos | ¿Es una pantalla, o es un aviso dentro de Surtir o del Tablero? | qué hace la persona ahí y cuántas veces |
-| **7** | Ubicaciones (fase UB) | ¿Mapa y contenido son una sola tarea? | recorrido de acomodar un producto; los errores de alta (GP.RF.5) |
+| **7** | Ubicaciones (fase UB) | ¿Mapa y contenido son una sola tarea? | ✅ adelantado: §5b (captura de punta a punta, 2026-11-17). Falta: medir con el puesto que captura y en celular |
 
 ---
 
@@ -480,6 +530,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **Ubicaciones adelantado** a pedido de Edgar (§5b). El piloto no tiene ninguna ubicación; las 375 de CEDIS parecen una prueba en zona Tienda (UB.RF.2, decisión de Edgar). Arreglados en código: la cifra animada que se quedaba en el valor anterior (UB.RF.1, afecta a toda la suite), «no hay capturas» mientras lee, el texto falso del mapa, la zona en la que abre y un `ngModel` sin `name` | Claude |
 | 2026-11-17 | **GP.RF.20 hecho** 🧪: el cambio de vista sube a la cabecera. En maqueta sobre prod, la primera fila sube 50 px en los tres anchos y la cabecera no se parte (con su prueba negativa). La primera maqueta medía mal (dejaba vivo el CSS viejo) y se corrigió antes de citarla | Claude |
 | 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |
 | 2026-11-17 | **Paso 1 medido** en prod `7edf9508a` (el «antes») con la sesión de Edgar. Quien coordina no ve lo atorado sin clic: el Tablero no lo dice, la fila lo cuenta sin dejar abrirlo, y 25 de sus 27 surtidos son abandonados. Se hizo GP.RF.15, la cifra de atorados liga al Tablero (cuadra 393 de 393) 🧪. Nuevos: GP.RF.14–19 y P-RF.4 | Claude |

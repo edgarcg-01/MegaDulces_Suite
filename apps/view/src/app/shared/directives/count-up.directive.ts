@@ -37,6 +37,10 @@ export class CountUpDirective implements OnInit, OnDestroy {
     if (this.done) {
       // Ya animó una vez. Live (J17): re-anima el cambio (número que "rueda").
       // Default (refresh normal): valor final instantáneo.
+      // [GP.RF.UB] Antes, si la primera animación (0 → viejo) seguía corriendo, el valor nuevo se pintaba y
+      // la animación lo volvía a tapar con el viejo: Asignación de ubicaciones pintaba 9,045 cuando la API
+      // decía 46 (medido en prod 2026-11-17). Se corta la animación en curso antes de pintar.
+      cancelAnimationFrame(this.raf);
       if (this.appCountUpLive && !this.reduce() && !this.countUpOff) this.tween(this.current, this.target, 600);
       else this.render(this.target);
     } else {

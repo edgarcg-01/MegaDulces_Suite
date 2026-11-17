@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2653 KB, 14595 líneas, 77 secciones.
+> **Índice navegable** — 2654 KB, 14608 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -73,17 +73,17 @@
 | 13740 | 13941 | 30 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
 | 13942 | 14006 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
 | 14007 | 14015 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14016 | 14049 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14056 | 14065 | 1 | 📝 Convenciones |
-| 14066 | 14103 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14104 | 14122 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14123 | 14175 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14176 | 14548 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14549 | 14579 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14580 | 14601 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14602 | 14629 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14630 | 14661 | 21 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14662 | 14684 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14016 | 14062 | 7 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14069 | 14078 | 1 | 📝 Convenciones |
+| 14079 | 14116 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14117 | 14135 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14136 | 14188 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14189 | 14561 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14562 | 14592 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14593 | 14614 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14615 | 14642 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14643 | 14674 | 21 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14675 | 14697 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14022,6 +14022,19 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[UB.2]** 🧪 (2026-10-08 · mig `20261008040747` probada up()+rollback con freno por mercancía y CHECKs del lote; API `bulk/preview`, `bulk`, `batches`, `batches/:id/undo`; vista `/almacen/ubicaciones?vista=captura` con rango, Excel/CSV + plantilla, carteles del Andén e historial con deshacer. El Excel da de alta UBICACIONES; producto→ubicación entra con UB.3. Falta: validación visual + mig a prod) Captura masiva: generar por rango con vista previa + Excel/CSV producto→ubicación→papel + etiquetas por lote + deshacer por `batch_id`.
 - [ ] **[UB.3a]** 🧪 (2026-10-10 · mig `20261010030108` probada up()+rollback con 13 casos; API `products`, `products/:id`, `assignments` CRUD + `assignments/bulk`; pantalla `/almacen/ubicaciones/asignacion` + Excel. Escalera por sucursal de `v_kepler_unit_ladder` + códigos de `kdii`, medida en prod: 4–12 ms por producto (con join desde products eran ~4 s), lista 20–56 ms; fantasmas sin factor que repiten rótulo se ocultan (2,661 de 9,656 en PH), 17 reales sin factor se ofrecen marcados. Falta: validación visual + mig a prod) Asignación por presentación.
   - 2026-11-13 · revisión adversarial antes del PR: escalera de VARIAS claves en una consulta (1 clave 12–19 ms · 500 claves 53–61 ms · 2,000 claves 123–134 ms; el Excel hacía hasta 2,000 consultas en serie) · lista con EXISTS (9,039 productos de PH en 26 ms; 0 fichas kdii duplicadas medidas) · un lugar fijo en ubicación dada de baja ya no cuenta · Excel con mín/máx vacíos CONSERVA los que había · altas por lotes de 500 y choque 23505 → 409 · FK compuesta (tenant, almacén, ubicación) · el lote de captura cuenta «en uso» también con productos asignados · asignaciones a un peldaño que Kepler ya no ofrece se ven y se quitan · alta suelta de UB.1 con el validador común de alcance. Prueba de INTEGRACIÓN `warehouse-locations-assign.it.spec.ts` (19 casos, servicio real contra Postgres en el CI, transacción revertida; con su negativa de alcance 403). Sin validación visual.
+- [x] **[UB.RF]** 🧪 (2026-11-17) **Captura de ubicaciones recorrida de punta a punta en prod con Playwright, y sus defectos arreglados** (auditoría de interfaces §5b, a pedido de Edgar).
+  - Recorrido (`e2e/reestructura/ubicaciones.e2e.ts`): mapa, alta suelta, captura por rango y por Excel, lotes y deshacer, asignación a mano y por Excel, contenido. Sin escribir en prod: pasan sólo lecturas y las dos vistas previas; las escrituras se detienen y se registra lo que habrían mandado.
+  - Estado medido:
+    - Padre Hidalgo (piloto): 0 ubicaciones.
+    - Ningún producto con lugar fijo.
+    - CEDIS: 375 de una captura de prueba del 8-oct, en zona Tienda. Deshacer el lote es decisión de Edgar (UB.RF.2).
+  - UB.RF.1: `count-up.directive.ts` dejaba la cifra en el valor ANTERIOR si llegaba uno nuevo a media animación (Asignación pintaba 9,045 con la API en 46). Afecta a toda tira de cifras. 3 pruebas; la prueba salió roja antes del arreglo.
+  - UB.RF.3: el texto falso del mapa vacío («la captura masiva llega en la siguiente entrega»).
+  - UB.RF.4: «Últimas capturas» distingue leyendo, falló (con Reintentar) y vacío; la respuesta de otro almacén ya no tapa la del nuevo. 5 pruebas.
+  - UB.RF.5: el mapa abre en la zona que tiene ubicaciones. 3 pruebas.
+  - UB.RF.6: `ngModel` sin `name` en el formulario por rango (NG01352).
+  - Plantillas tipan en las cuatro apps; `check:pantalla` y `check-estilos` sin fallas nuevas.
+  - NO MEDIDO: escrituras reales y sus mensajes del servidor, celular, el puesto que captura.
 - [ ] **[UB.3b]** ⬜ Medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.3-orig]** ↪️ partido en UB.3a/UB.3b · `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.

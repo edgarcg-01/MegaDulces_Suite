@@ -133,7 +133,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                 </div>
                 <p class="ub-hint">Cada cuadro es un rack: el número es cuántos niveles tiene dados de alta; el ícono marca si alguno está bloqueado o tiene mercancía. Tócalo para ver sus niveles.</p>
               } @else {
-                <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha; la captura masiva por rango llega en la siguiente entrega.</span> }</div>
+                <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha, o muchas a la vez con «Captura masiva» (por rango o desde Excel).</span> }</div>
               }
             </section>
 
@@ -358,6 +358,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         if (folio !== this.consulta) return;
         this.data.set(d);
         if (!this.warehouseId() && d.warehouse) this.warehouseId.set(d.warehouse.id);
+        // [UB.RF.5] Si la zona elegida está vacía y la otra no, se abre en la que tiene ubicaciones: CEDIS
+        // abría en «Bodega (0)» con sus 375 en Tienda, y la persona leía «no hay» (medido 2026-11-17).
+        const z = zonaConUbicaciones(this.zona(), this.cuentaZona('B'), this.cuentaZona('T'));
+        if (z !== this.zona()) this.pickZona(z);
         this.refrescarSel();
         this.foco.set({ fi: 0, ci: 0 });
         this.loading.set(false);
@@ -477,6 +481,16 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 }
 
 /** El estado más urgente de los niveles de un rack (bloqueada > con mercancía > activa > baja > vacío). */
+/**
+ * `[UB.RF.5]` La zona en la que abre el mapa: la elegida, salvo que esté vacía y la otra no. Un almacén
+ * con todas sus ubicaciones en Tienda no debe abrir diciendo «no hay» en Bodega.
+ */
+export function zonaConUbicaciones(actual: LocationZone, enBodega: number, enTienda: number): LocationZone {
+  const deActual = actual === 'B' ? enBodega : enTienda;
+  const deOtra = actual === 'B' ? enTienda : enBodega;
+  return deActual === 0 && deOtra > 0 ? (actual === 'B' ? 'T' : 'B') : actual;
+}
+
 export function estadoDeRack(niveles: WarehouseLocationRow[]): EstadoRack {
   if (!niveles.length) return 'vacio';
   if (niveles.some((n) => n.estado === 'bloqueada')) return 'bloqueada';

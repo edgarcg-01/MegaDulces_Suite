@@ -82,7 +82,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
             <label class="uc-mini"><span class="sr-only">Nivel hasta</span><input pInputText type="number" class="mono" name="nh" min="1" max="6" [ngModel]="rango().nivel_hasta" (ngModelChange)="setRango('nivel_hasta', $event)" /></label>
           </div>
           <label class="uc-field" for="uc-tipo-r"><span class="uc-l">Tipo</span>
-            <p-select inputId="uc-tipo-r" [options]="tipos" optionLabel="label" optionValue="key" [ngModel]="tipo()" (onChange)="tipo.set($event.value); limpiarPrevia()" appendTo="body" placeholder="Sin tipo" [showClear]="true" />
+            <p-select inputId="uc-tipo-r" name="tipo" [options]="tipos" optionLabel="label" optionValue="key" [ngModel]="tipo()" (onChange)="tipo.set($event.value); limpiarPrevia()" appendTo="body" placeholder="Sin tipo" [showClear]="true" />
           </label>
           <p class="uc-cuenta" [class.uc-bad]="!cuenta().ok" aria-live="polite">{{ cuentaTxt() }}</p>
           <button pButton type="submit" class="p-button-sm p-button-outlined" [disabled]="!cuenta().ok || cargando()" [loading]="cargando() && !aplicando()"><span class="p-button-label">Revisar</span></button>
@@ -149,9 +149,15 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
 
       <div class="uc-step">
         <h3>Últimas capturas en {{ warehouse().name }}</h3>
-        @if (lotes().length) {
+        <!-- [UB.RF.4] Cargando, falló y vacío son tres cosas: antes las tres decían «Todavía no hay
+             capturas», y CEDIS sí tenía una (medido 2026-11-17). -->
+        @if (lotesErr(); as e) {
+          <p class="uc-sub uc-bad" role="alert">{{ e }} <button type="button" class="uc-link" (click)="cargarLotes()">Reintentar</button></p>
+        } @else if (lotes() === null) {
+          <p class="uc-sub" aria-busy="true">Leyendo las capturas de {{ warehouse().name }}…</p>
+        } @else if (lotes()!.length) {
           <ul class="uc-lotes">
-            @for (l of lotes(); track l.id) {
+            @for (l of lotes()!; track l.id) {
               <li class="uc-lote">
                 <span class="uc-lote-d">{{ l.descripcion }}</span>
                 <span class="uc-sub">{{ fecha(l.created_at) }} · {{ l.created_by_name || 'sin usuario' }} · <b class="num">{{ l.created_count }}</b> creadas</span>
@@ -204,6 +210,8 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
     .uc-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .uc-sub { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
     .uc-sub.uc-bad, .uc-cuenta.uc-bad, .uc-step.uc-bad { color:var(--bad-fg); }
+    .uc-link { background:none; border:0; padding:0; color:var(--action); font:inherit; text-decoration:underline; cursor:pointer; }
+    .uc-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .uc-ok { margin:0; font-size:var(--fs-sm); color:var(--ok-fg); }
     .uc-lotes { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
     .uc-lote { display:grid; grid-template-columns:1fr auto; gap:.15rem .75rem; align-items:center; padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
@@ -249,7 +257,11 @@ export class UbicacionesCapturaComponent {
   readonly previa = signal<BulkLocationsPreview | null>(null);
   readonly resultado = signal<BulkLocationsResult | null>(null);
   readonly carteles = signal<CartelUbicacion[]>([]);
-  readonly lotes = signal<LocationCaptureBatch[]>([]);
+  /** [UB.RF.4] null = todavía leyendo (no es «no hay»). */
+  readonly lotes = signal<LocationCaptureBatch[] | null>(null);
+  readonly lotesErr = signal<string | null>(null);
+  /** Folio de la lectura vigente: la respuesta del almacén anterior no pisa la del nuevo. */
+  private folioLotes = 0;
   readonly confirmar = signal<string | null>(null);
   readonly deshaciendo = signal(false);
 
@@ -269,7 +281,7 @@ export class UbicacionesCapturaComponent {
         this.carteles.set([]);
         this.confirmar.set(null);
         this.err.set(null);
-        this.lotes.set([]);
+        this.lotes.set(null);
         this.cargarLotes();
       });
     });
@@ -391,9 +403,11 @@ export class UbicacionesCapturaComponent {
   }
 
   cargarLotes(): void {
+    const folio = ++this.folioLotes;
+    this.lotesErr.set(null);
     this.api.batches(this.warehouse().id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (l) => this.lotes.set(l),
-      error: () => this.lotes.set([]),
+      next: (l) => { if (folio === this.folioLotes) this.lotes.set(l); },
+      error: (e: HttpErrorResponse) => { if (folio === this.folioLotes) this.lotesErr.set(mensaje(e, 'No se pudieron leer las capturas.')); },
     });
   }
 
