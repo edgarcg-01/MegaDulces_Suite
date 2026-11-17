@@ -617,6 +617,8 @@ núcleo; estados de cuenta, comisiones y capturas; frontend) cruzada con prod en
 | **CB.76** 🔨 | C0–C1 | **Fechas fuera del periodo.** La carga del libro acepta el mes ±10 días; lo demás no entra y se dice por hoja (`fuera_del_periodo`, aviso en pantalla). Migración de datos `20261117133104_cb76_fechas_del_libro_fuera_del_periodo` corrige las 32 que ya entraron, por id. Commits `ac5998629` (código) y `ae79abc7f` (migración). | Medido: 47 renglones del libro a 1–7 días de su mes (legítimos), **0 entre 8 y 31, 32 a más de un mes (≈ $1.9 M)**: 0206-02-25 → 2026-02-25 (6), 2027-08-06 → 2026-08-06 (17), 01-ene en octubre → 2026-10-01 (9). Fecha real con dos testigos que coinciden: la cadena de saldos (día anterior y siguiente) y el documento de Kepler casado. ✅ **Migración aplicada en prod el 2026-11-17** (lote 1196, 14:17): verificadas por id las 32 (6 al 25-feb, 17 al 6-ago, 9 al 1-oct) y 0 renglones a más de un mes de su periodo. El guardia de la carga va con CB.75 (local) |
 | **CB.77** 🚀 2026-11-17 | C2–C3 | **Bancos deja de afirmar lo que no midió.** Cierre: «Todo cuadra» ya no cuenta cuentas sin saldo (pendiente nuevo `saldo_sin_verificar`, sólo cuentas de banco). Conciliación: lee el estado guardado (`recon_estado`) en vez de «Ejecuta la conciliación», y lo que no casó se carga al abrir. La pestaña no dice «sin correr» mientras carga. Un error de saldos ya no se lee como «sin saldos»; respuestas de otro periodo no pisan al nuevo. Escrituras sólo con `FINANCE_BANK_GESTIONAR`. Subir el libro confirma y dice cuántos borró. Commit `fd334d1cf`. | **SANTANDER 5565 sin saldo de septiembre a noviembre** (sin ninguna descarga) y el Cierre la contaba entre «las cuentas que cierran». `check:pantalla finanzas-bancos`: 0 fallas nuevas antes y después; `check:templates(-types)` en verde. **Sin validación visual** |
 
+| **CB.78** 🔨 (local `801b7654c`) | C2–C3 | **Las interfaces de Bancos, de 13 a 12** (Edgar: «sí, hazlo»). Sale **Capturas WhatsApp** de la barra (se borran su vista y su cliente; la ingesta del backend no se toca). **Factoraje** queda sólo con factoraje a proveedores, con su veredicto arriba y el error dicho: la parte banco ↔ ContPAQi eran las mismas cifras del Cuadre 3 vías. El **enlace cuenta de banco ↔ 102xxx** se muda a Configuración › Cuentas de banco (`accounts()` lo devuelve). El engrane y los ordenamientos de Configuración dejan de prometer lo que no hay. | 30 días: Capturas 1 consulta y 0 capturas en su vida; Factoraje 3 consultas, 0 al detalle, 0 enlaces. `check:pantalla` 317 pantallas, 0 nuevas; `ngc` 0 errores; specs 77/77. Sin validación visual. ⚠️ Desde septiembre el libro no trae movimientos de factoraje, así que la pestaña sale vacía hoy: es candidata a salir también cuando el libro se retire |
+
 **Corrección de la auditoría:** «cheques en tránsito lento (2.4 s)» era falso. Ese promedio de 30 días lo inflaban
 los días 18–26 de octubre (6–7 s). Desde el 28-oct tarda ≈ 70 ms (consultas: 70 ms y 40 ms con `EXPLAIN ANALYZE`).
 Quedan arriba de 500 ms (últimos 7 días): `comisiones-kepler` 570 ms, `ingresos-control` 660 ms, `diagnostico`
@@ -624,14 +626,16 @@ Quedan arriba de 500 ms (últimos 7 días): `comisiones-kepler` 570 ms, `ingreso
 
 **Para decidir (Edgar), sin código todavía:**
 
-- **Capturas de WhatsApp (CBW):** cero filas en toda su vida; su «Validar» crearía el depósito dos veces (WhatsApp +
-  banco). Recomendación: quitar la pestaña de Bancos › Más hasta que haya remitentes reales.
-- **Tareas de conciliación:** 15 pendientes por ≈ $6 M, asignadas y sin tocar desde el 5-ago; la pantalla abre en
-  enero de 2026. Recomendación: cerrarlas como «no aplica» o reasignarlas, y que la pantalla abra en el mes actual.
+- **Capturas de WhatsApp (CBW):** hecho en CB.78 (salió de la barra). El backend sigue montado; su «Validar» crearía
+  el depósito dos veces (WhatsApp + banco) si alguien lo llama por la API.
+- **Tareas de conciliación — corregido el 2026-11-17:** el «0 llamadas en 30 días» de la auditoría midió otra ruta
+  (`/finance/recon-tasks`); la pantalla llama a `/finance/maat/recon-tasks`: **17 aperturas, Contabilidad 10 en 4
+  días**, la última el 14-nov. Sus 15 pendientes son de enero (corrida del 24-jul) y **14 siguen sin casar en Kepler**
+  (22 de 25 retiros, ≈ $5.7 M): trabajo real, no se cierran. Queda para Edgar: 4 están asignadas a cuentas de prueba
+  (`superoot`, `superuser`, `rep_prueba`, `prueba`).
 - **Subir libro / Sincronizar del Sheet:** el libro dejó de cargarse el 10-nov y el Sheet está inactivo. Se retiran
   cuando las cuentas pasen al banco (CB.73); antes no, porque hoy el libro es la única fuente de `bank_movements`.
-- **Factoraje:** abre con banco ↔ ContPAQi (lo mismo que la columna del Cuadre 3 vías); el bloque de factoraje va
-  tercero. Recomendación: que la pestaña sea sólo factoraje.
+- **Factoraje:** hecho en CB.78.
 
 ---
 
