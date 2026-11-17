@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1184 | 12 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1184 | 13 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1163,7 +1163,7 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
 |---|---|---|---|
 | 0 | Migraciones | — | ✅ aplicadas |
 | 1 | S.2-mínimo (R1): 🧪 en código el 2026-11-17; falta la sección N en `pruebas-db` y soltarlo | Francisco | el canario |
-| 2 | Soltar `[PGP.122.4]` (R8), **sólo después** del `GRANT` de `sqliov` en los 9 servidores: con `compra` y `telemarketing` encendidos en los 9, soltarlo antes los detiene | Edgar | — |
+| 2 | Soltar `[PGP.122.4]` (R8), **sólo después** del `GRANT` de `sqliov` en los 9 servidores (`ops/prod/kepler-grants/pgp1224_contador_sqliov.sql`: sólo el contador, sin `kdm6`): con `compra` y `telemarketing` encendidos en los 9, soltarlo antes los detiene | Edgar | — |
 | 3 | ADR de la X-A-15 (R10): ADR-119, ⏳ propuesto el 2026-11-17 | lo ratifica Edgar | el canario |
 | 4 | Captura de prueba S.1 en 05 (`foto-contadores.js`) | Edgar + capturista de 05 | 5 |
 | 5 | GRANT en 05 | Edgar | 6 |
