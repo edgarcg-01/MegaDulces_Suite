@@ -1148,8 +1148,17 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
     el de escritura a Kepler de PQ.20. Hoy los commits de este checkout viajan en el push de otras sesiones, y esas
     sesiones aplican las migraciones pendientes al soltar. Si ésta sale antes que el paso 4, sólo instala disparadores
     inertes y la cola no crece. El paso 4 lo prende junto con el que drena, y apagarlo es la salida de emergencia, sin DDL.
-    Sigue yendo **fuera de horario** por el candado breve de crear los disparadores (`lock_timeout` 5 s: si no lo
-    obtiene, falla entera).
+    Sigue yendo **fuera de horario**, y antes hay que mirar que no haya una transacción vieja abierta.
+  - **Los candados, medidos el 2026-11-17** (la otra sesión del carril de entrega señaló que se acumulan):
+    - Cada `CREATE TRIGGER` toma SHARE ROW EXCLUSIVE sobre su tabla. Frena las escrituras de la ingesta, no las
+      lecturas, y lo retiene hasta el `COMMIT`: los 13 se acumulan en la transacción de knex. Con `lock_timeout` de 5 s
+      por candado, si no los obtiene falla entera.
+    - ⛔ `DROP TRIGGER` de un disparador que ya existe toma ACCESS EXCLUSIVE, que frena también las lecturas (la API).
+      Al volver a correr la migración lo habría hecho en las 13.
+    - Corregido: `CREATE OR REPLACE TRIGGER`, nunca `DROP`. Los disparadores van al final de todo, de la tabla más quieta
+      a la más escrita (`ORDEN_CANDADO`), así que `kdm2` queda tomada milisegundos.
+    - La prueba lo mide (sección 0): en la base tipo CI, SHARE ROW EXCLUSIVE en las 13 y ACCESS EXCLUSIVE en ninguna, la
+      primera vez y al repetirla. Volver a `DROP` + `CREATE` la pone en rojo.
   - **Prueba** `test-newdb-existencia-por-evento`: 48 ✓ en una base mínima y en una tipo CI. Escribe cada fuente como la
     ingesta (o como la API) y comprueba qué anota. Un cambio en una columna que ninguna regla lee no anota nada. Tras
     drenar, las cuatro tablas son iguales a sus vistas. También ejerce todos los modos del que drena y una cola rota que

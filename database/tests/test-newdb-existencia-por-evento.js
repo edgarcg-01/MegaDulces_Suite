@@ -6,6 +6,8 @@
  * 20261117085622 factores y costo, 20261117094325 la cola), dentro de una transacción que se revierte, sobre el
  * escenario compartido de la oleada (`_lib/existencia-escenario.js`).
  *
+ *   0. ⭐ Los candados que el up() retiene hasta el COMMIT sobre las fuentes: SHARE ROW EXCLUSIVE (frena escrituras,
+ *      no lecturas) en las 13 y ACCESS EXCLUSIVE en ninguna, la primera vez y al volver a correrla.
  *   A. Instalado: cuatro disparadores por fuente; la cola SIN llave única por SKU (la ingesta no espera al que drena);
  *      ⭐ el interruptor nace APAGADO (una escritura pasa y no anota nada) — la prueba lo prende para lo demás.
  *   B. La primera corrida del día recalcula todo; la siguiente sin marcas no hace nada.
@@ -29,7 +31,9 @@
  * Wincaja con el histórico, TRUNCATE sin marca, la cola con llave única, el que drena sin atrapar la falla, el umbral
  * sin decirlo, el que drena sin respetar al que ya recalcula, el almacén sin marca total y el interruptor ignorado.
  * Equivalente en una sola sesión (declarado): tomar la cola sin el tope de `id` — sólo cambia con escrituras
- * concurrentes, y esta prueba corre en una transacción.
+ * concurrentes, y esta prueba corre en una transacción. M17 (volver a DROP + CREATE: ACCESS EXCLUSIVE al repetir el
+ * up()) muere en una base que ya trae las fuentes (la de CI) y queda NO MEDIDO en una base vacía, donde el andamio crea
+ * las fuentes en la misma transacción y su candado tapa el del up() (sección 0).
  *
  * NO MEDIDO aquí: que el NOTIFY llegue (los avisos sólo salen al confirmar, y esta prueba siempre revierte) — lo prueba
  * el paso 4, el que escucha.
@@ -109,6 +113,41 @@ const firma = (rows) => rows.map((r) => JSON.stringify(r)).sort().join('\n');
       `${d.modo}/${d.motivo} distintas: ${malas.join(',') || '—'}`);
     return d;
   };
+
+  // ── 0. Los candados que el up() retiene (hasta el COMMIT) sobre las fuentes ────────────────────────────────────
+  // Antes de la transacción principal y en una propia (que se revierte), para ver sólo los suyos. Nunca ACCESS
+  // EXCLUSIVE (frenaría también las lecturas de la API), ni la primera vez ni al volver a correrla.
+  console.log('0. Candados del up()');
+  // Los modos que esta sesión tiene sobre cada fuente; lo que el up() agrega = después menos antes.
+  // Por OID y con el esquema escrito a mano: regclass::text omite el esquema si está en el search_path (en la base
+  // de CI, catalog y commercial lo están) y cinco fuentes no casaban.
+  const modos = async () => Object.fromEntries((await q(`SELECT n.nspname || '.' || c.relname AS t, array_agg(DISTINCT l.mode) AS m FROM pg_locks l
+    JOIN pg_class c ON c.oid = l.relation JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE l.pid = pg_backend_pid() AND n.nspname || '.' || c.relname = ANY ($1) GROUP BY 1`,
+  [cola.FUENTES.map((f) => f.tabla)])).map((r) => [r.t, new Set(r.m)]));
+  for (const veces of [1, 2]) {
+    await c.query('BEGIN');
+    let antes = {}, despues = {};
+    try {
+      await montarExistencia(c); await precio.up(knexLike); await factores.up(knexLike);
+      for (let i = 1; i < veces; i++) await cola.up(knexLike);
+      antes = await modos();
+      await cola.up(knexLike);
+      despues = await modos();
+    } finally { await c.query('ROLLBACK'); }
+    const que = veces === 1 ? 'la primera vez' : 'al volver a correrla';
+    const tapadas = Object.entries(antes).filter(([, m]) => m.has('AccessExclusiveLock')).map(([t]) => t);
+    if (tapadas.length) {
+      noMedido(`candados del up() ${que}: el andamio crea ${tapadas.length} fuentes en esta misma transacción y su ACCESS EXCLUSIVE tapa lo que agrega el up() (se mide en una base que ya las trae)`);
+      continue;
+    }
+    const nuevos = Object.fromEntries(Object.entries(despues).map(([t, m]) => [t, [...m].filter((x) => !(antes[t] || new Set()).has(x))]));
+    const exclusivos = Object.entries(nuevos).filter(([, m]) => m.includes('AccessExclusiveLock')).map(([t]) => t);
+    const conTrigger = Object.values(despues).filter((m) => m.has('ShareRowExclusiveLock')).length;
+    ok(exclusivos.length === 0 && conTrigger === cola.FUENTES.length,
+      `up() ${que}: SHARE ROW EXCLUSIVE en las ${cola.FUENTES.length} fuentes (frena escrituras, no lecturas) y ACCESS EXCLUSIVE en ninguna`,
+      `exclusivos nuevos: ${exclusivos.join(', ') || '—'} · con candado de disparador: ${conTrigger}`);
+  }
 
   await c.query('BEGIN');
   try {
