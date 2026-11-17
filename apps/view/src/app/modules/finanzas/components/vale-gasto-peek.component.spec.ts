@@ -4,6 +4,7 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { ValeGastoPeekComponent, notaAdicional, type AprobacionVale } from './vale-gasto-peek.component';
 import type { ValeGasto } from '../comprobaciones.service';
+import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 
 /**
  * `[GX.27]` Candado del **visor del vale**, el panel que comparten Aprobación y el Historial.
@@ -560,6 +561,68 @@ describe('ValeGastoPeekComponent', () => {
       fix.componentRef.setInput('vale', V({ departamentos: null }));
       fix.detectChanges();
       expect(texto()).toContain('sin leer en Kepler');
+    });
+  });
+
+  /**
+   * `[PGP.123]` G.UI.5 — El eslabón del gasto (X-A-10). Antes la cadena se cortaba en «Solicitud · Kepler: autorizada»
+   * y remataba «no hay nada que decidir», aunque el gasto seguía pendiente.
+   */
+  describe('[PGP.123] G.UI.5 el gasto en Kepler', () => {
+    const texto = () => fix.nativeElement.textContent as string;
+    const CERRADA = { abierta: false, motivo: 'La escritura de gastos a Kepler todavía está apagada en esta base', detalle: 'interruptor' };
+    const ABIERTA = { abierta: true, motivo: null, detalle: null };
+    const GASTO = { id: 'v1', status: null, folio: null, poliza: null, fecha: null, nota: null, intentos: 0, siguiente: null };
+    const conGasto = (g: ComprobacionEnLaCola | null | undefined, puede = false) => {
+      montar(V({ status: 'validada' }));
+      fix.componentRef.setInput('gastoKepler', g);
+      fix.componentRef.setInput('puedeReintentarGasto', puede);
+      fix.detectChanges();
+    };
+    const boton = () => [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => /el gasto/.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+
+    it('sin el dato (el vale no espera su gasto) el eslabón no se pinta', () => {
+      conGasto(undefined);
+      expect(texto()).not.toContain('Gasto en Kepler (X-A-10)');
+    });
+
+    it('⛔ esperando, pero sin calcular: lo dice; no se calla ni dice «nada que decidir» a secas', () => {
+      conGasto(null);
+      expect(texto()).toContain('Gasto en Kepler (X-A-10)');
+      expect(texto()).toContain('No se pudo calcular si se comprueba sola: revísalo en Kepler');
+    });
+
+    it('escrito por la Suite: folio, póliza como se busca en Kepler y fecha del gasto', () => {
+      conGasto({ comprobacion: { listo: true, fecha: '2026-11-10' }, escritura: ABIERTA,
+        gasto: { ...GASTO, status: 'written', folio: '0000123', poliza: 'kdc22611/D/4', fecha: '2026-11-10' } }, true);
+      expect(texto()).toContain('Escrito por la Suite: X-A-10 0000123 · póliza D 4 (nov 2026)');
+      expect(texto()).toContain('Fecha del gasto en Kepler: 10/11/26');
+      expect(boton()).toBeUndefined();
+    });
+
+    it('con motivo: el motivo y a quién le toca, sin botón', () => {
+      conGasto({ comprobacion: { listo: false, motivo: 'total_distinto', quien: 'sucursal', texto: 'El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler' },
+        escritura: CERRADA, gasto: null }, true);
+      expect(texto()).toContain('El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler');
+      expect(texto()).toContain('Le toca a la sucursal, en Kepler.');
+      expect(boton()).toBeUndefined();
+    });
+
+    it('listo en una base que escribe: «Escribir el gasto ahora»; atorado: «Reintentar el gasto»; sólo si la página lo ofrece', () => {
+      conGasto({ comprobacion: { listo: true, fecha: '2026-11-10' }, escritura: ABIERTA, gasto: null }, true);
+      const emitido: string[] = [];
+      c.reintentarGasto.subscribe((id) => emitido.push(id));
+      expect(boton()?.textContent).toContain('Escribir el gasto ahora');
+      boton()!.click();
+      expect(emitido).toEqual(['v1']);
+      fix.componentRef.setInput('gastoKepler', { comprobacion: { listo: true, fecha: '2026-11-10' }, escritura: ABIERTA,
+        gasto: { ...GASTO, status: 'stuck', nota: 'Kepler no contestó (3 intentos: lo reintenta una persona)' } });
+      fix.detectChanges();
+      expect(texto()).toContain('No se pudo escribir: Kepler no contestó');
+      expect(boton()?.textContent).toContain('Reintentar el gasto');
+      fix.componentRef.setInput('puedeReintentarGasto', false);
+      fix.detectChanges();
+      expect(boton()).toBeUndefined();
     });
   });
 });

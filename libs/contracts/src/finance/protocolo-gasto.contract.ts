@@ -1,4 +1,5 @@
 import type { TransferenciaGasto } from './transferencia-gasto.contract';
+import type { FaltaEnKepler } from './ejercicio.contract';
 
 /**
  * `[GX.59]` — **¿Este vale completó el protocolo?**
@@ -206,7 +207,15 @@ export interface ValeExpediente {
   proveedor: string | null;
   clasificacion: string | null;
   status: string;
+  /** `[PGP.123]` G.UI.2 — Con la solicitud cancelada en Kepler, lo capturado (`importeDelVale`). */
   importe: number;
+  /** `[PGP.123]` G.UI.2 — Lo que dice Kepler cuando no es lo que se muestra (su 0 al cancelar). `null` = coincide. */
+  importe_kepler?: number | null;
+  /**
+   * `[PGP.123]` G.UI.1b — Qué le falta en Kepler a un vale validado sin gasto ligado (`faltaEnKepler`). `null` = no
+   * aplica; `undefined` = no se midió (sin la vista de Kepler, o un servidor anterior).
+   */
+  falta_en_kepler?: FaltaEnKepler | null;
   /** Se aprobó debiendo el comprobante (fue cotización o prefactura). */
   provisional: boolean;
   fecha_gasto: string | null;
@@ -305,6 +314,17 @@ export interface OpcionDepartamentoExpediente {
   /** El texto tal cual viene en el vale; `null` = vales sin departamento. */
   departamento: string | null;
   vales: number;
+}
+
+/**
+ * `[PGP.123]` G.UI.9 — Cuántos vales trae el filtro del Expediente, DERIVADO de sus departamentos (que el servidor ya
+ * cuenta con las mismas fechas): para decir «se muestran 2,000 de 2,027» cuando la lista se topa, no sólo «hay más».
+ */
+export function valesDelFiltro(r: Pick<RespuestaExpediente, 'filtro' | 'departamentos'>): number {
+  const d = r.filtro.departamento;
+  if (d === null) return r.departamentos.reduce((s, o) => s + (Number(o.vales) || 0), 0);
+  const o = r.departamentos.find((x) => (d === DEPARTAMENTO_SIN ? x.departamento === null : x.departamento === d));
+  return Number(o?.vales) || 0;
 }
 
 export interface RespuestaExpediente {

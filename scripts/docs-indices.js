@@ -46,6 +46,8 @@ const DOCS = [
   { archivo: 'docs/IMPLEMENTACION/03_LOG_REVISIONES.md', niveles: 2, omitir: ['## Plantilla de entrada'] },
   // `[PGP.122]` El anexo S pasó de 40 KB al agregarle el avance de la construcción.
   { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md', niveles: 2, omitir: [] },
+  // `[PGP.123]` El anexo G pasó de 40 KB con la prueba visual de la interfaz (§14).
+  { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md', niveles: 2, omitir: [] },
 ];
 
 const INICIO = '<!-- INDICE-AUTO:INICIO -->';

@@ -1,4 +1,4 @@
-import { Inject, Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, ConflictException, ForbiddenException, NotFoundException, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { valeDuplicadoMensaje } from './vale-duplicado';
 import { agruparPorDepartamento, repartirPorDepartamento, type DepartamentoDelVale, type RenglonesDeDepartamento } from './departamentos-del-vale';
@@ -9,6 +9,11 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, esSolicitudDeNomina, type EstadoAporte } from '@megadulces/contracts';
 import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional, faltaParaEvidenciaAdicional, ROL_EVIDENCIA_ADICIONAL } from '@megadulces/contracts';
+// `[PGP.123]` G.9: lo que la cola dice del gasto (X-A-10) de cada vale.
+import type { ComprobacionEnLaCola, EstadoKeplerDelGasto, PistaCancelada, CanceladaResuelta, RevisionDeCancelada } from '@megadulces/contracts';
+import { faltaEnLaNotaDeRevision } from '@megadulces/contracts';
+// `[PGP.123]` G.UI.1d — La pista de cada cancelada (el dinero y la recaptura), en lote.
+import { pistasDeCanceladas } from './pista-cancelada';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente, type GrupoAprobacion } from './aprobacion-agrupar';
@@ -29,7 +34,9 @@ import {
   ETIQUETA_ETAPA, EXPLICACION_ETAPA, etapaDeEjercicio,
   type EstadoKepler, type EtapaEjercicio,
   // `[GX.96]` A qué espera un revisado, y el hallazgo: la MISMA regla que pinta «Mis gastos».
-  esperaDeKepler, esHallazgoCanceladaConGasto, type EsperaKepler,
+  esperaDeKepler, esHallazgoCanceladaConGasto, solicitudCanceladaEnKepler, type EsperaKepler,
+  // `[PGP.123]` G.UI.1b–G.UI.2: qué le falta en Kepler a un vale del Expediente y su monto, con la regla de la cola.
+  faltaEnKepler, importeDelVale,
 } from '@megadulces/contracts';
 // `[GX.41]` A quien le toca un vale de Kepler lo decide UNA funcion, compartida con el
 // frontend: la caja «Solicita» trae un username nuestro y tiene que casar exacto.
@@ -83,6 +90,7 @@ import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, 
 import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-autorizacion-gasto.adapter';
 import type { ResultadoAutorizacionKepler } from './autorizacion-kepler/autorizacion-kepler';
 import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.service';
+import { ComprobacionGastoService } from './comprobacion-kepler/comprobacion-gasto.service';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -156,7 +164,7 @@ const EVIDENCE_ROLE: ProofFileRole = 'comprobante_1';
  * comprobante. Se DECLARA en vez de callar: un expediente sin aviso se lee como «lo
  * miraron y estaba bien», y acá nadie lo miró.
  */
-const AVISO_ILEGIBLE = 'No se pudo leer el comprobante automáticamente — revíselo a mano.';
+const AVISO_ILEGIBLE = 'No se pudo leer el comprobante automáticamente — revísalo a mano.';
 
 const money = (v: number | null) => (v == null ? '—'
   : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -331,8 +339,19 @@ export interface ValeEsperaKepler {
   sucursal: string | null;
   proveedor: string | null;
   importe: number;
+  /**
+   * `[PGP.123]` G.UI.2 — Lo que se capturó en el vale. `importe` sale de `finance.v_expense_proofs`, que antepone el
+   * saldo de Kepler a lo capturado: en una cancelada ese saldo es 0, y la cola preguntaba «¿salió dinero?» junto a
+   * «$0.00» (medido el 2026-11-15: vales de $712.43, $1,500 y $4,600). `null` = no se capturó importe.
+   */
+  importe_capturado: number | null;
+  /** De dónde salió `importe`: `gasto_kepler` · `solicitud_kepler` · `capturado` (la vista lo dice). */
+  importe_fuente: string | null;
   created_by: string | null;
   validated_by: string | null;
+  /** `[PGP.123]` G.UI.8 — El nombre de quien capturó y de quien revisó, del padrón (`null` = no es un usuario). */
+  capturo_nombre: string | null;
+  reviso_nombre: string | null;
   /** Cuándo se revisó: desde ahí se cuenta la espera. */
   revisado_at: string | null;
   /** Días desde que se revisó. `null` = la fecha no se pudo leer (no «0»). */
@@ -342,6 +361,21 @@ export interface ValeEsperaKepler {
   /** Cancelada en Kepler DESPUÉS de generar su gasto: alguien confirma si salió dinero. */
   hallazgo: boolean;
   kepler_estado: string | null;
+  /**
+   * `[PGP.123]` G.9 — Sólo en los autorizados sin gasto: si la Suite lo comprueba sola (G.5) o el motivo y a quién le
+   * toca, cómo va su X-A-10 y si en esa base la escritura está abierta. `null` = no se pudo calcular (se dice).
+   */
+  gasto_kepler?: ComprobacionEnLaCola | null;
+  /**
+   * `[PGP.123]` G.UI.1d — Sólo en las canceladas: los pagos de Kepler, la forma de pago del vale y la recaptura
+   * (`lecturaDeLaCancelada` la dice en llano). `null` = no se pudo calcular (se dice).
+   */
+  pista_cancelada?: PistaCancelada | null;
+  /**
+   * `[PGP.123]` G.UI.1e — Sólo en las canceladas: quién cerró el caso, cuándo y qué escribió. `null` = nadie todavía;
+   * `undefined` = el servidor no puede guardarlo (falta la migración): la pantalla no ofrece cerrarlo.
+   */
+  cancelada_revisada?: RevisionDeCancelada | null;
 }
 
 export interface RespuestaEsperanKepler {
@@ -353,9 +387,12 @@ export interface RespuestaEsperanKepler {
 
 interface FilaEsperaKepler {
   id: string; folio_solicitud: string | null; sucursal: string | null; proveedor: string | null;
-  importe: string | number | null; created_by: string | null; validated_by: string | null;
+  importe: string | number | null; importe_capturado: string | number | null; importe_fuente: string | null;
+  created_by: string | null; validated_by: string | null;
   validated_at: string | Date | null; created_at: string | Date | null;
   tiene_gasto: boolean; kepler_estado: string | null; kepler_aplicada: boolean | null;
+  capturo_nombre: string | null; reviso_nombre: string | null;
+  forma_pago: string | null; kepler_acreedor: string | null; kepler_fecha: string | null;
 }
 
 export interface ResultadoBusquedaGastos {
@@ -631,6 +668,11 @@ export class ExpenseProofsService {
      * como el de arriba: sin el binding la firma se guarda igual y Kepler no se toca.
      */
     @Optional() private readonly solicitudGasto?: SolicitudGastoService,
+    /**
+     * `[PGP.123]` Comprueba en Kepler el gasto (X-A-10) del vale que queda validado. `@Optional` y al FINAL, como los
+     * de arriba: sin el binding el vale se valida igual y Kepler no se toca.
+     */
+    @Optional() private readonly comprobacionGasto?: ComprobacionGastoService,
   ) {}
 
   /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
@@ -961,7 +1003,7 @@ export class ExpenseProofsService {
       if (candidatos.some((v) => Math.abs(v - esperado) <= tol)) return null;  // cuadra: sin ruido
       const usado = candidatos[0] ?? null;
       return `⚠ El comprobante dice ${money(usado)} y la solicitud ${money(esperado)}`
-        + ` (difieren ${money(Math.abs((usado ?? 0) - esperado))}). Reviselo antes de autorizar.`;
+        + ` (difieren ${money(Math.abs((usado ?? 0) - esperado))}). Revísalo antes de autorizar.`;
     } catch (e) {
       // ⛔ Que la visión falle NO puede impedir levantar un gasto. Se declara y sigue.
       this.logger.warn(`visión falló (el gasto sigue): ${(e as Error)?.message || e}`);
@@ -1365,11 +1407,22 @@ export class ExpenseProofsService {
     // (DS2). Después del commit, igual que PGP.79: si Kepler falla, la firma ya quedó y el cron reintenta.
     if (solicitudSuite.es) {
       const solicitud_kepler = this.solicitudGasto ? await this.solicitudGasto.escribirAlFirmar(id, actor ?? null) : null;
-      return solicitud_kepler ? { ...firmado.row, solicitud_kepler } : firmado.row;
+      const gasto_kepler = await this.gastoAlValidar(id, firmado.row, actor, 'firma');
+      return { ...firmado.row, ...(solicitud_kepler ? { solicitud_kepler } : {}), ...(gasto_kepler ? { gasto_kepler } : {}) };
     }
     // `[PGP.79]` DESPUÉS del commit de la firma: si Kepler falla, el vale ya quedó aprobado aquí.
     const kepler = await this.autorizarEnKepler(id, { sucursal: firmado.sucursal, folio_solicitud: base.cur.folio_solicitud });
-    return kepler ? { ...firmado.row, kepler } : firmado.row;
+    const gasto_kepler = await this.gastoAlValidar(id, firmado.row, actor, 'firma');
+    return { ...firmado.row, ...(kepler ? { kepler } : {}), ...(gasto_kepler ? { gasto_kepler } : {}) };
+  }
+
+  /**
+   * `[PGP.123]` G.8 — Si el vale quedó `validada`, su gasto (X-A-10) se comprueba en Kepler DESPUÉS del commit (DG8).
+   * Nunca lanza: la firma o la validación ya quedaron guardadas, y lo que pase en Kepler se anota en el vale.
+   */
+  private async gastoAlValidar(id: string, row: { status?: string } | null | undefined, actor: string | undefined, disparo: 'firma' | 'validacion') {
+    if (!this.comprobacionGasto || row?.status !== 'validada') return null;
+    return this.comprobacionGasto.escribirAlValidar(id, actor ?? null, disparo);
   }
 
   /**
@@ -1388,6 +1441,28 @@ export class ExpenseProofsService {
       `SELECT 1 FROM fiscal.cfdis WHERE lower(uuid) = ? AND rol = 'recibidas' AND tipo_comprobante = 'I'
           AND coalesce(estatus_sat, '') NOT ILIKE 'cancel%' LIMIT 1`, [uuid])).rows.length > 0).catch(() => false);
     return { es, cfdi: vigente };
+  }
+
+  /**
+   * `[PGP.123]` **No se rechaza un vale cuyo gasto (X-A-10) la Suite está escribiendo o ya escribió** (revisión
+   * independiente, 2026-11-17), como la solicitud de PGP.122:
+   *  · se está escribiendo o quedó en duda → 409: hay que esperar a saber si quedó escrito;
+   *  · la Suite lo escribió (trae póliza) y sigue vivo → 409: se cancela en Kepler primero; cuando el lazo lo ve
+   *    cancelado, suelta el folio y aquí se puede rechazar.
+   * El que capturó una persona en Kepler no se toca (lo de siempre). Con candado de fila: el reclamo del escritor espera
+   * al rechazo y, si el vale ya no está validado, no lo reclama.
+   */
+  private async rechazoConGastoDeLaSuite(trx: Knex, id: string): Promise<void> {
+    if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_expense_status'))) return;
+    const v = await trx('finance.expense_proofs').where({ id }).forUpdate()
+      .first('kepler_expense_status', 'kepler_expense_folio', 'kepler_expense_policy') as { kepler_expense_status?: string | null; kepler_expense_folio?: string | null; kepler_expense_policy?: string | null } | undefined;
+    const st = String(v?.kepler_expense_status ?? '');
+    if (st === 'writing' || st === 'in_doubt') {
+      throw new ConflictException('Su gasto se está escribiendo en Kepler (o no se sabe todavía si quedó escrito): espera unos minutos y vuelve a intentarlo');
+    }
+    if ((st === 'written' || st === 'seen_in_ods') && v?.kepler_expense_policy) {
+      throw new ConflictException(`La Suite ya escribió su gasto en Kepler (X-A-10 ${v.kepler_expense_folio ?? '?'}): cancélalo allá primero. Cuando la cancelación se vea en la Suite, aquí se puede rechazar`);
+    }
   }
 
   /**
@@ -1713,6 +1788,27 @@ export class ExpenseProofsService {
    * (= `c39`) + sucursal. Donde la vista no existe devuelve vacío — y cada fila dice «sin gasto
    * aplicado», que es lo que se puede afirmar sin ODS.
    */
+  /**
+   * `[PGP.123]` G.UI.1b — El estado de la solicitud en Kepler (`c43`) y si ya tiene gasto, para los vales que lo
+   * necesitan: UN viaje, por la MISMA vista que «Esperan a Kepler» (`analytics.expense_requests`), por índice.
+   * `null` = sin la vista: no se mide (y la pantalla no afirma nada).
+   */
+  private async solicitudesEnKepler(
+    trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
+  ): Promise<Map<string, { estado: string | null; aplicada: boolean | null }> | null> {
+    const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') t`);
+    if (!reg.rows[0]?.t) return null;
+    const pares = filas.filter((x) => String(x.sucursal ?? '').trim() && String(x.folio_solicitud ?? '').trim());
+    if (!pares.length) return new Map();
+    const rows = (await trx.raw(
+      `SELECT r.sucursal, r.folio, r.estado, r.aplicada
+         FROM unnest(?::text[], ?::text[]) AS p(suc, fol)
+         JOIN analytics.expense_requests r ON r.tenant_id = ? AND r.sucursal = p.suc AND r.folio = p.fol`,
+      [pares.map((x) => String(x.sucursal).trim()), pares.map((x) => String(x.folio_solicitud).trim()), this.tenantCtx.requireTenantId()],
+    )).rows as { sucursal: string; folio: string; estado: string | null; aplicada: boolean | null }[];
+    return new Map(rows.map((x) => [`${x.sucursal}|${x.folio}`, { estado: x.estado, aplicada: x.aplicada }]));
+  }
+
   private async gastosPorSolicitud(
     trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
   ): Promise<Map<string, string[]>> {
@@ -3114,16 +3210,31 @@ export class ExpenseProofsService {
 
       const filas = (await trx.raw(`
         WITH v AS (
-          SELECT id, folio_solicitud, sucursal, proveedor, importe::numeric AS importe, created_by,
-                 validated_by, validated_at, created_at
+          SELECT id, folio_solicitud, sucursal, proveedor, importe::numeric AS importe,
+                 importe_capturado::numeric AS importe_capturado, importe_fuente, created_by,
+                 validated_by, validated_at, created_at, forma_pago
             FROM finance.v_expense_proofs
            WHERE tenant_id = :t AND status = 'validada'),
         g AS (
-          SELECT DISTINCT sucursal, solicitud_folio
-            FROM analytics.expense_documents
-           WHERE tenant_id = :t AND doc_tipo = 'XA1001'
-             AND solicitud_folio IN (SELECT folio_solicitud FROM v))
-        SELECT v.*, (g.solicitud_folio IS NOT NULL) AS tiene_gasto, r.estado AS kepler_estado, r.aplicada AS kepler_aplicada
+          -- [PGP.123] Sólo los gastos VIVOS: analytics.expense_documents trae también los cancelados, y un vale cuyo gasto
+          -- canceló Kepler salía de la cola como si lo tuviera (revisión independiente, 2026-11-17: 2 en prod ese día).
+          SELECT DISTINCT d.sucursal, btrim(d.c39) AS solicitud_folio
+            FROM kepler_ods.kdm1 d
+           WHERE d.c2 = 'X' AND d.c3 = 'A' AND d.c4 = 10 AND d.c5 = 1 AND btrim(d.c43) <> 'C'
+             AND btrim(d.c39) IN (SELECT folio_solicitud FROM v))
+        SELECT v.*, (g.solicitud_folio IS NOT NULL) AS tiene_gasto, r.estado AS kepler_estado,
+               -- [PGP.123] «Aplicada», para la etapa: en la cancelada, cualquier gasto (la pregunta de si salió dinero, de
+               -- GX.96); en las demás, sólo uno VIVO: con su gasto cancelado, la solicitud espera otro.
+               CASE WHEN r.folio IS NULL THEN NULL
+                    WHEN btrim(coalesce(r.estado, '')) = 'C' THEN r.aplicada
+                    ELSE EXISTS (SELECT 1 FROM kepler_ods.kdm1 x
+                                  WHERE x.sucursal = r.sucursal AND x.c2 = 'X' AND x.c3 = 'A' AND x.c4 = 10 AND x.c5 = 1
+                                    AND btrim(x.c39) = r.folio AND btrim(x.c43) <> 'C') END AS kepler_aplicada,
+               -- [PGP.123] G.UI.1d: el acreedor y la fecha de la solicitud, para buscar su recaptura si se canceló.
+               r.cuenta_clave AS kepler_acreedor, to_char(r.fecha, 'YYYY-MM-DD') AS kepler_fecha,
+               -- [PGP.123] G.UI.8: el nombre del padrón (la cola decía la clave de usuario).
+               (SELECT nullif(btrim(u.nombre), '') FROM identity.users u WHERE u.tenant_id = :t AND lower(u.username) = lower(v.created_by) LIMIT 1) AS capturo_nombre,
+               (SELECT nullif(btrim(u.nombre), '') FROM identity.users u WHERE u.tenant_id = :t AND lower(u.username) = lower(v.validated_by) LIMIT 1) AS reviso_nombre
           FROM v
           LEFT JOIN g ON g.sucursal = v.sucursal AND g.solicitud_folio = v.folio_solicitud
           LEFT JOIN analytics.expense_requests r
@@ -3137,22 +3248,199 @@ export class ExpenseProofsService {
         const etapa = etapaDeEjercicio({ status: 'validada', kepler_aplicada: f.kepler_aplicada ?? null, kepler_estado: f.kepler_estado ?? null });
         const espera = esperaDeKepler({ status: 'validada', etapa, gasto_folios: f.tiene_gasto ? ['ligado'] : [] });
         const hallazgo = esHallazgoCanceladaConGasto(f.kepler_estado, f.kepler_aplicada);
-        if (!espera && !hallazgo) continue; // cerrado y sin nada que revisar
+        // `[PGP.123]` G.UI.1c — La cancelada SIN gasto también viaja: va a «Canceladas en Kepler». Antes se descartaba
+        // aquí y no salía en ninguna lista (prod, 2026-11-16: 14 vales validados, $267,457.05 capturados).
+        if (!espera && !hallazgo && !solicitudCanceladaEnKepler(f.kepler_estado)) continue; // cerrado y sin nada que revisar
         const revisado = f.validated_at ?? f.created_at;
         const t = revisado ? new Date(revisado).getTime() : NaN;
         vales.push({
           id: f.id, folio_solicitud: f.folio_solicitud, sucursal: f.sucursal, proveedor: f.proveedor,
-          importe: Number(f.importe) || 0, created_by: f.created_by, validated_by: f.validated_by,
+          importe: Number(f.importe) || 0,
+          importe_capturado: f.importe_capturado == null ? null : Number(f.importe_capturado),
+          importe_fuente: f.importe_fuente ?? null,
+          created_by: f.created_by, validated_by: f.validated_by,
+          capturo_nombre: f.capturo_nombre ?? null, reviso_nombre: f.reviso_nombre ?? null,
           revisado_at: revisado ? new Date(revisado).toISOString() : null,
           // `null` si la fecha no se puede leer: «0 días» afirmaría que es de hoy.
           dias: Number.isFinite(t) ? Math.max(0, Math.floor((hoy - t) / 86_400_000)) : null,
           espera, hallazgo, kepler_estado: f.kepler_estado ? String(f.kepler_estado).trim() : null,
         });
       }
+      /**
+       * `[PGP.123]` G.UI.1d — La pista de cada cancelada, en lote y en su propio punto de guardado: si falla, la lista
+       * sigue y cada cancelada dice que no se pudo averiguar (`null`), en vez de tumbar la cola.
+       */
+      const canceladas = new Set(vales.filter((v) => solicitudCanceladaEnKepler(v.kepler_estado)).map((v) => v.id));
+      if (canceladas.size) {
+        const paraPista = filas.filter((f) => canceladas.has(f.id)).map((f) => ({
+          id: f.id, sucursal: f.sucursal, folio_solicitud: f.folio_solicitud, forma_pago: f.forma_pago ?? null,
+          importe_capturado: f.importe_capturado, kepler_acreedor: f.kepler_acreedor ?? null, kepler_fecha: f.kepler_fecha ?? null,
+        }));
+        const pistas = await trx.transaction(async (sp) => pistasDeCanceladas(sp, tenantId, paraPista)).catch((e) => {
+          this.logger.warn(`[PGP.123] la pista de las canceladas no se pudo calcular: ${(e as Error)?.message ?? e}`);
+          return null;
+        });
+        for (const v of vales) if (canceladas.has(v.id)) v.pista_cancelada = pistas ? (pistas.get(v.id) ?? null) : null;
+        // `[PGP.123]` G.UI.1e — Quién ya cerró el caso de cada una (si la migración ya está; sin ella, `undefined`).
+        if (await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_cancel_reviewed_at')) {
+          const revs = await trx('finance.expense_proofs').whereIn('id', [...canceladas]).whereNotNull('kepler_cancel_reviewed_at')
+            .select('id', 'kepler_cancel_reviewed_at', 'kepler_cancel_reviewed_by', 'kepler_cancel_note') as
+            { id: string; kepler_cancel_reviewed_at: string | Date; kepler_cancel_reviewed_by: string | null; kepler_cancel_note: string | null }[];
+          const rev = new Map(revs.map((r) => [r.id, r]));
+          for (const v of vales) {
+            if (!canceladas.has(v.id)) continue;
+            const r = rev.get(v.id);
+            v.cancelada_revisada = r ? { por: r.kepler_cancel_reviewed_by ?? null, at: new Date(r.kepler_cancel_reviewed_at).toISOString(), nota: r.kepler_cancel_note ?? '' } : null;
+          }
+        }
+      }
       // Lo raro primero; después, lo que más lleva esperando.
       vales.sort((a, b) => Number(b.hallazgo) - Number(a.hallazgo) || (b.dias ?? -1) - (a.dias ?? -1));
       return { vales: vales.slice(0, tope), truncado: vales.length > tope, medido: true };
+    }).then(async (r) => {
+      // `[PGP.123]` G.9: fuera de la transacción de la lista (el servicio abre la suya). Si falla, cada vale lo dice.
+      const porComprobar = r.vales.filter((v) => v.espera === 'falta_generar_gasto');
+      if (!porComprobar.length || !this.comprobacionGasto) return r;
+      const mapa = await this.comprobacionGasto.enLaCola(porComprobar.map((v) => v.id)).catch((e) => {
+        this.logger.warn(`esperan a Kepler: no se pudo calcular la comprobación de ${porComprobar.length} vales: ${(e as Error).message}`);
+        return null;
+      });
+      for (const v of porComprobar) v.gasto_kepler = mapa?.get(v.id) ?? null;
+      return r;
     });
+  }
+
+  /**
+   * `[PGP.123]` G.9 — «Reintentar» el gasto (X-A-10) de un vale validado: también los atorados, los que Kepler rechazó
+   * y los cancelados. Lo decide la misma regla G.5; si está apagado o no toca, dice por qué (no lanza por eso).
+   */
+  async reintentarGasto(id: string, actor: string | null | undefined): Promise<EstadoKeplerDelGasto | null> {
+    const limpio = String(id ?? '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(limpio)) throw new BadRequestException('Identificador de vale inválido');
+    if (!this.comprobacionGasto) throw new ServiceUnavailableException('La comprobación del gasto en Kepler no está cargada en este servidor');
+    const v = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id: limpio }).first('status'));
+    if (!v) throw new NotFoundException('El vale no existe');
+    if (v.status !== 'validada') throw new ConflictException('Sólo un vale validado tiene gasto que comprobar en Kepler');
+    return this.comprobacionGasto.reintentar(limpio, String(actor ?? '').trim() || 'sistema');
+  }
+
+  /**
+   * `[PGP.123]` G.UI.1e — **«Ya lo revisé»: cerrar el caso de una cancelada** con lo que se hizo o por qué se queda así
+   * (pedido de Francisco, 2026-11-16). Sólo un vale validado cuya solicitud Kepler canceló, una vez; quien lo capturó no
+   * cierra el suyo (GX.65.4a). Sale de «Canceladas en Kepler» y queda dicho quién y cuándo.
+   */
+  async revisarCancelada(id: string, nota: unknown, quien: IdentidadQueDecide): Promise<CanceladaResuelta> {
+    const limpio = this.idDeVale(id);
+    const falta = faltaEnLaNotaDeRevision(nota);
+    if (falta) throw new BadRequestException(falta);
+    const texto = String(nota).trim();
+    return this.tk.run(async (trx) => {
+      if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_cancel_reviewed_at'))) {
+        throw new ServiceUnavailableException('Falta la migración 20261117005015_pgp123_canceladas_revisadas: todavía no se puede guardar la revisión');
+      }
+      await this.asegurarQueNoEsSuyo(trx, limpio, quien);
+      const v = await this.canceladaPorCerrar(trx, limpio);
+      if (v.revisada) throw new ConflictException('Este caso ya se revisó');
+      const yo = await this.identidadConNombre(trx, quien);
+      const por = yo.full_name || yo.username || null;
+      await trx('finance.expense_proofs').where({ id: limpio }).whereNull('kepler_cancel_reviewed_at')
+        .update({ kepler_cancel_reviewed_at: trx.fn.now(), kepler_cancel_reviewed_by: por, kepler_cancel_note: texto, updated_at: trx.fn.now() });
+      this.logger.log(`cancelada ${limpio} (${v.sucursal}-${v.folio_solicitud}) revisada por ${por ?? '?'}`);
+      return { id: limpio, resultado: 'revisada', folio_solicitud: v.folio_solicitud, por, nota: texto };
+    });
+  }
+
+  /**
+   * `[PGP.123]` G.UI.1e — **Ligar la cancelada a su recaptura.** Sólo a la que propone la pista (una sola solicitud viva
+   * de la misma sucursal y acreedor, con el mismo total y sin vale): no se liga a cualquier folio. Como el casamiento de
+   * GX.9, es un UPDATE del folio del MISMO vale; la auditoría va en `capture_meta.religado` (de qué folio, a cuál, quién,
+   * cuándo). Una solicitud nacida en la Suite no se liga a mano (su folio lo pone Kepler, PGP.122).
+   */
+  async ligarCancelada(id: string, folio: unknown, quien: IdentidadQueDecide): Promise<CanceladaResuelta> {
+    const limpio = this.idDeVale(id);
+    const f = String(folio ?? '').trim();
+    if (!/^\d{7}$/.test(f)) throw new BadRequestException('El folio de la solicitud es de 7 dígitos');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await this.asegurarQueNoEsSuyo(trx, limpio, quien);
+      const v = await this.canceladaPorCerrar(trx, limpio);
+      // Un caso cerrado no se reabre ligándolo (la pantalla no lo ofrece; la API tampoco lo deja).
+      if (v.revisada) throw new ConflictException('Este caso ya se revisó: no se liga');
+      if (v.origen === 'solicitud') throw new ConflictException('Esta solicitud nació en la Suite: su folio lo pone Kepler, no se liga a mano');
+      // Dos «Ligar» a la misma recaptura a la vez: el segundo espera aquí y la vuelve a ver ya con su vale.
+      await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`pgp123:ligar:${tenantId}:${v.sucursal}:${f}`]);
+      const pistas = await pistasDeCanceladas(trx, tenantId, [{
+        id: limpio, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud, forma_pago: v.forma_pago,
+        importe_capturado: v.importe_capturado, kepler_acreedor: v.acreedor, kepler_fecha: v.fecha,
+      }]);
+      const pista = pistas.get(limpio);
+      if (pista?.gasto_vivo !== null) {
+        throw new ConflictException(pista?.gasto_vivo
+          ? `La solicitud cancelada tiene su gasto vivo en Kepler (X-A-10 ${pista.gasto_vivo}): ligar el vale a otra duplicaría el gasto. Resuélvelo en Kepler o cierra el caso con «Ya lo revisé»`
+          : 'No se pudo saber si la solicitud cancelada tiene su gasto vivo en Kepler: no se liga a ciegas');
+      }
+      const libres = (pista?.recapturas ?? []).filter((r) => !r.con_vale);
+      if (!(libres.length === 1 && libres[0].folio === f)) {
+        throw new ConflictException(`La solicitud ${f} no es la recaptura que encontró la Suite (una sola, del mismo acreedor y total, sin vale): revísalo en Kepler`);
+      }
+      const yo = await this.identidadConNombre(trx, quien);
+      const por = yo.full_name || yo.username || null;
+      const meta = typeof v.capture_meta === 'string' ? JSON.parse(v.capture_meta || '{}') : (v.capture_meta || {});
+      // El gasto de la solicitud vieja no es el de la nueva: su estado se limpia (queda en la auditoría). Antes se
+      // arrastraba, y la cola decía que la recaptura ya tenía su gasto (revisión independiente, 2026-11-17).
+      const conG6 = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_expense_status');
+      const gastoViejo = conG6 ? await trx('finance.expense_proofs').where({ id: limpio })
+        .first('kepler_expense_status', 'kepler_expense_folio', 'kepler_expense_policy') : null;
+      const limpiarGasto = conG6 ? {
+        kepler_expense_status: null, kepler_expense_folio: null, kepler_expense_policy: null, kepler_expense_date: null,
+        kepler_expense_note: null, kepler_expense_next_at: null, kepler_expense_attempts: 0,
+      } : {};
+      const anterior = gastoViejo?.kepler_expense_status
+        ? { status: gastoViejo.kepler_expense_status, folio: gastoViejo.kepler_expense_folio ?? null, poliza: gastoViejo.kepler_expense_policy ?? null }
+        : null;
+      const [row] = await trx('finance.expense_proofs').where({ id: limpio, folio_solicitud: v.folio_solicitud })
+        .update({
+          folio_solicitud: f,
+          capture_meta: JSON.stringify({ ...meta, religado: { de: v.folio_solicitud, a: f, por, at: new Date().toISOString(), ...(anterior ? { gasto_anterior: anterior } : {}) } }),
+          ...limpiarGasto,
+          updated_at: trx.fn.now(),
+        })
+        .returning(['id', 'folio_solicitud'])
+        .catch(conflictoDeFolio(f));
+      if (!row) throw new ConflictException('El vale cambió mientras tanto: vuelve a cargar la lista');
+      this.logger.log(`cancelada ${limpio}: ligada de ${v.sucursal}-${v.folio_solicitud} a ${f} por ${por ?? '?'}`);
+      return { id: limpio, resultado: 'ligada', folio_solicitud: f, por, nota: null };
+    });
+  }
+
+  private idDeVale(id: string): string {
+    const limpio = String(id ?? '').trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(limpio)) throw new BadRequestException('Identificador de vale inválido');
+    return limpio;
+  }
+
+  /** El vale de una cancelada por cerrar, re-leído con candado: validado y con su solicitud cancelada en Kepler. */
+  private async canceladaPorCerrar(trx: Knex, id: string): Promise<{
+    sucursal: string; folio_solicitud: string; origen: string | null; forma_pago: string | null; capture_meta: unknown;
+    importe_capturado: string | number | null; acreedor: string | null; fecha: string | null; revisada: boolean;
+  }> {
+    const conRevision = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_cancel_reviewed_at');
+    const v = await trx('finance.expense_proofs').where({ id }).forUpdate()
+      .first('status', 'sucursal', 'folio_solicitud', 'origen', 'forma_pago', 'capture_meta',
+        ...(conRevision ? ['kepler_cancel_reviewed_at'] : []));
+    if (!v) throw new NotFoundException('El vale no existe');
+    // Lo capturado, de la vista (`[GX.69]`: el importe nunca se lee de la tabla).
+    const cap = await trx('finance.v_expense_proofs').where({ id }).first(trx.raw('importe_capturado::numeric AS importe_capturado'));
+    if (v.status !== 'validada') throw new ConflictException('Sólo se cierra el caso de un vale comprobado');
+    const sol = await trx('analytics.expense_requests')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: v.sucursal, folio: String(v.folio_solicitud ?? '').trim() })
+      .first('estado', 'cuenta_clave', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`));
+    if (!solicitudCanceladaEnKepler(sol?.estado)) throw new ConflictException('Su solicitud no está cancelada en Kepler: no hay caso que cerrar');
+    return {
+      sucursal: v.sucursal, folio_solicitud: String(v.folio_solicitud).trim(), origen: v.origen ?? null, forma_pago: v.forma_pago ?? null,
+      capture_meta: v.capture_meta, importe_capturado: cap?.importe_capturado ?? null, acreedor: sol?.cuenta_clave ?? null, fecha: sol?.fecha ?? null,
+      revisada: !!(v as { kepler_cancel_reviewed_at?: unknown }).kepler_cancel_reviewed_at,
+    };
   }
 
   async buscarGastos(texto: string, limit = 30): Promise<ResultadoBusquedaGastos> {
@@ -3348,6 +3636,7 @@ export class ExpenseProofsService {
         motivo_rechazo: string | null; validated_by: string | null; created_by: string | null;
         comprobaciones?: number | string | null; comprobacion_folio?: string | null;
         gasto_folios?: string[] | null;
+        importe_capturado?: string | number | null;
       }
 
       const q = trx('finance.v_expense_proofs as p')
@@ -3359,6 +3648,8 @@ export class ExpenseProofsService {
           'p.proveedor', 'p.clasificacion', 'p.status', 'p.provisional', 'p.files',
           'p.motivo_rechazo', 'p.validated_by', 'p.created_by',
           trx.raw('p.importe::numeric AS importe'),
+          // [PGP.123] G.UI.2: lo capturado, para la cancelada (Kepler deja su total en 0 al cancelar).
+          trx.raw('p.importe_capturado::numeric AS importe_capturado'),
           trx.raw(`to_char(p.fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
           trx.raw(`to_char(p.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`));
 
@@ -3409,6 +3700,13 @@ export class ExpenseProofsService {
       for (const f of filas) {
         f.gasto_folios = datosKeplerDeLaFila(undefined, gastos, f.folio_solicitud, f.sucursal).gasto_folios;
       }
+      /**
+       * `[PGP.123]` G.UI.1b — Sin gasto ligado, ¿qué le falta en Kepler? Sólo los validados (lo demás todavía depende de
+       * la Suite). Antes el Expediente decía «Falta el gasto en Kepler» a todos, y en 38 la solicitud ya estaba
+       * cancelada (medido el 2026-11-16 en la copia local).
+       */
+      const sinGasto = filas.filter((f) => f.status === 'validada' && !(Array.isArray(f.gasto_folios) && f.gasto_folios.length));
+      const enKepler = await this.solicitudesEnKepler(trx, sinGasto);
 
       /**
        * `[GX.75]` El tercer número: la transferencia `XD2601` que pagó cada gasto. UN viaje
@@ -3446,6 +3744,10 @@ export class ExpenseProofsService {
         });
 
         const gastoFolios = Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [];
+        // [PGP.123] G.UI.1b–G.UI.2: lo que dice Kepler de la solicitud, sólo donde se midió (validado y sin gasto).
+        const medidoEnKepler = enKepler !== null && f.status === 'validada' && !gastoFolios.length;
+        const sol = medidoEnKepler ? enKepler.get(`${String(f.sucursal ?? '').trim()}|${String(f.folio_solicitud ?? '').trim()}`) : undefined;
+        const monto = importeDelVale({ importe: f.importe, importe_capturado: f.importe_capturado, kepler_estado: sol?.estado ?? null });
         const vale: ValeExpediente = {
           id: f.id,
           folio_solicitud: f.folio_solicitud,
@@ -3454,7 +3756,9 @@ export class ExpenseProofsService {
           proveedor: f.proveedor,
           clasificacion: f.clasificacion,
           status: f.status,
-          importe: Math.round((Number(f.importe) || 0) * 100) / 100,
+          importe: monto.importe,
+          ...(monto.kepler !== null ? { importe_kepler: monto.kepler } : {}),
+          ...(medidoEnKepler ? { falta_en_kepler: faltaEnKepler({ status: f.status, kepler_estado: sol?.estado ?? null, kepler_aplicada: sol?.aplicada ?? null }) } : {}),
           provisional: f.provisional === true,
           fecha_gasto: f.fecha_gasto,
           created_dia: f.created_dia,
@@ -3674,7 +3978,7 @@ export class ExpenseProofsService {
       throw new BadRequestException('clasificación inválida');
     }
     const notaIn = (dto?.comprobacion_nota || '').trim();
-    return this.tk.run(async (trx) => {
+    const validado = await this.tk.run(async (trx) => {
       // `[GX.65.4a]` El dueño del vale no lo valida.
       await this.asegurarQueNoEsSuyo(trx, id, quien);
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
@@ -3718,6 +4022,9 @@ export class ExpenseProofsService {
       if (full) this.avisarAlSolicitante('aprobado', full);
       return row;
     });
+    // `[PGP.123]` G.8 — validado: su gasto (X-A-10) se comprueba en Kepler, DESPUÉS del commit (DG8).
+    const gasto_kepler = await this.gastoAlValidar(id, validado, actor, 'validacion');
+    return gasto_kepler ? { ...validado, gasto_kepler } : validado;
   }
 
   /** Rechaza (con motivo). */
@@ -3776,6 +4083,7 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       // `[GX.65.4a]` El dueño del vale tampoco se lo rechaza a sí mismo.
       await this.asegurarQueNoEsSuyo(trx, id, quien);
+      await this.rechazoConGastoDeLaSuite(trx, id);
       const kepler = await this.rechazoDeSolicitudSuite(trx, id);
       const [row] = await trx('finance.expense_proofs').where({ id }).whereIn('status', ['recibida', 'aprobada', 'validada', 'revision'])
         .update({

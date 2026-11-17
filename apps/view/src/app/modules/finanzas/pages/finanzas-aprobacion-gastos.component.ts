@@ -20,6 +20,7 @@ import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '..
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
+import { CierreCanceladaDialogComponent, type CierreHecho, type ModoCierre } from '../components/cierre-cancelada-dialog.component';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFIRMAR_MS, REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
@@ -27,6 +28,10 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
 import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar, ETIQUETA_ESPERA_KEPLER, type EsperaKepler } from '@megadulces/contracts';
 // `[PGP.79]` Firmar autoriza en Kepler: la solicitud y su estado se leen con la MISMA regla en el renglón y en el detalle.
 import { lecturaKepler, solicitudKepler, type DetalleDeLaSolicitud, type KeplerDelVale, type TonoKepler } from '@megadulces/contracts';
+// `[PGP.123]` G.9 — La cola de comprobación: qué le falta a cada gasto autorizado, con las reglas puras de la cola.
+import type { ComprobacionEnLaCola } from '@megadulces/contracts';
+import { ETIQUETA_FALTA_EN_KEPLER, importeDelVale, lecturaDeLaCancelada } from '@megadulces/contracts';
+import { colaDeKepler, esCanceladaEnKepler, lineaDelGasto, partirCanceladas, polizaCorta, quienTexto } from './esperan-kepler.ayudas';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
 import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
@@ -35,7 +40,7 @@ import { AuthService, type JwtPayload } from '../../../core/services/auth.servic
  * `[GX.88]` Las pestañas de ESTA pantalla. La bandeja es lo de hoy; «Atrasados», lo de otro día
  * que sigue abierto. (`PestanaGasto` del servicio sigue siendo la partición del servidor.)
  */
-export type PestanaAprobacion = 'entrada' | 'atrasados' | 'kepler';
+export type PestanaAprobacion = 'entrada' | 'atrasados' | 'kepler' | 'canceladas';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
@@ -122,7 +127,7 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, BuscadorGastosComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, CierreCanceladaDialogComponent, BuscadorGastosComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -210,7 +215,7 @@ const ESTADO_LABEL: Record<string, string> = {
         <ng-template #opcionLista let-t>
           <span class="ap-op">
             <span class="ap-op-t">{{ t.label }}</span>
-            @if (t.id === 'kepler' && !keplerMedido()) {
+            @if ((t.id === 'kepler' || t.id === 'canceladas') && !keplerMedido()) {
               <span class="ap-op-n vacio">—</span>
               <span class="ap-op-m">{{ keplerError() || esperanKepler() ? 'sin medir' : 'cargando' }}</span>
             } @else if (t.id === 'atrasados' && !atrasadosMedidos()) {
@@ -279,28 +284,69 @@ const ESTADO_LABEL: Record<string, string> = {
               <div class="ap-muted">Cargando lo que espera a Kepler…</div>
             }
           } @else {
-            @if (keplerHallazgos().length) {
-              <h2 class="ap-kep-h">Canceladas en Kepler después de generar su gasto</h2>
-              <div class="ap-aviso warn">
-                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                <span>El vale ya cerró, pero <strong>alguien tiene que confirmar si salió dinero</strong>.</span>
-              </div>
-              <div class="ap-kep-lista">
-                @for (v of keplerHallazgos(); track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
-              </div>
-            }
-            <h2 class="ap-kep-h">Revisados que esperan a Kepler</h2>
-            @if (keplerEsperando().length) {
-              <div class="ap-aviso">
-                <i class="pi pi-clock" aria-hidden="true"></i>
-                <span>Ya los revisaron aquí; falta que los <strong>autoricen o generen su gasto en Kepler</strong>.
-                  Del que más lleva esperando al más nuevo. Quien los capturó no puede moverlos.</span>
-              </div>
-              <div class="ap-kep-lista">
-                @for (v of keplerEsperando(); track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
-              </div>
-            } @else {
+            <!-- [PGP.123] G.UI.3: la cola de comprobación. La pregunta: «¿qué le falta a cada gasto autorizado para quedar
+                 comprobado en Kepler?». Primero lo que se comprueba —lo que necesita a una persona, por quién lo mueve, y
+                 lo que escribe la Suite—; lo que espera otra cosa, plegado con su conteo. Cada vale cae en UNA sección:
+                 las secciones suman lo que dice la pestaña. -->
+            @if (!conteo('kepler').n) {
               <div class="ap-muted">{{ vacioDe('kepler') }}</div>
+            } @else {
+              @let q = cola();
+              <div class="ap-kep-cab">
+                @if (q.porComprobar.length) {
+                  <h2 class="ap-kep-tot">{{ q.porComprobar.length | number }} por comprobar · {{ money(montoDe(q.porComprobar)) }}</h2>
+                  <span class="ap-kep-rep">la Suite las escribe: {{ q.laSuite.length | number }} · con motivo: {{ conMotivoN() | number }}@if (sinCalcularN()) { · sin calcular: {{ sinCalcularN() | number }}}</span>
+                } @else {
+                  <h2 class="ap-kep-tot">Ningún gasto autorizado espera su comprobación</h2>
+                }
+              </div>
+              @for (g of q.conMotivo; track g.clave) {
+                <section class="ap-kep-sec" [attr.aria-labelledby]="'kep-' + g.clave">
+                  <h3 class="ap-kep-h" [id]="'kep-' + g.clave">{{ g.titulo }}
+                    <span class="ap-kep-n">{{ g.vales.length | number }} · {{ money(montoDe(g.vales)) }}</span></h3>
+                  <div class="ap-kep-lista">
+                    @for (v of g.vales; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </section>
+              }
+              @if (q.laSuite.length) {
+                <section class="ap-kep-sec" aria-labelledby="kep-la-suite">
+                  <h3 class="ap-kep-h" id="kep-la-suite">La Suite las escribe
+                    <span class="ap-kep-n">{{ q.laSuite.length | number }} · {{ money(montoDe(q.laSuite)) }}</span></h3>
+                  <div class="ap-kep-lista">
+                    @for (v of q.laSuite; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </section>
+              }
+              <!-- Lo que espera otra cosa: a un clic, con su conteo, sin empujar la cola. -->
+              @if (q.porAutorizar.length) {
+                <details class="ap-kep-pleg">
+                  <summary>Falta que las autoricen en Kepler
+                    <span class="ap-kep-n">{{ q.porAutorizar.length | number }} · {{ money(montoDe(q.porAutorizar)) }}</span></summary>
+                  <div class="ap-kep-lista">
+                    @for (v of q.porAutorizar; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </details>
+              }
+              <!-- [PGP.123] G.UI.1c: las canceladas ya no se pliegan aquí: no esperan nada de Kepler. Tienen su lista. -->
+              @if (q.aplicadaSinLigar.length) {
+                <details class="ap-kep-pleg">
+                  <summary>Kepler dice aplicada, pero el gasto no aparece
+                    <span class="ap-kep-n">{{ q.aplicadaSinLigar.length | number }} · {{ money(montoDe(q.aplicadaSinLigar)) }}</span></summary>
+                  <div class="ap-kep-lista">
+                    @for (v of q.aplicadaSinLigar; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </details>
+              }
+              @if (q.sinMedir.length) {
+                <details class="ap-kep-pleg">
+                  <summary>No se pudo leer su estado en Kepler
+                    <span class="ap-kep-n">{{ q.sinMedir.length | number }} · {{ money(montoDe(q.sinMedir)) }}</span></summary>
+                  <div class="ap-kep-lista">
+                    @for (v of q.sinMedir; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </details>
+              }
             }
             @if (esperanKepler()?.truncado) {
               <div class="ap-aviso warn">
@@ -308,6 +354,69 @@ const ESTADO_LABEL: Record<string, string> = {
                 <span>La lista llegó al tope: <strong>hay más</strong> de los que se muestran.</span>
               </div>
             }
+          }
+        } @else if (pestana() === 'canceladas') {
+          <!-- [PGP.123] G.UI.1c — «Canceladas en Kepler» (pedido de Francisco, 2026-11-16). La pregunta: «¿qué vales
+               comprobados se quedaron con su solicitud cancelada en Kepler?». Primero las que ya tenían gasto (¿salió
+               dinero?), después las que no (¿dónde quedó el gasto?). Antes las primeras iban plegadas en «Esperan a
+               Kepler» y las segundas no salían en ninguna lista. -->
+          @if (!keplerMedido()) {
+            @if (keplerError() || esperanKepler()) {
+              <div class="ap-aviso warn">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>No se pudo leer el estado de Kepler, así que <strong>no se puede saber qué se canceló</strong>. Vuelve a actualizar.</span>
+              </div>
+            } @else {
+              <div class="ap-muted">Cargando lo que Kepler canceló…</div>
+            }
+          } @else if (!conteo('canceladas').n && !canceladas().revisadas.length) {
+            <div class="ap-muted">{{ vacioDe('canceladas') }}</div>
+          } @else {
+            @let cc = canceladas();
+            <div class="ap-kep-cab">
+              <h2 class="ap-kep-tot">{{ conteo('canceladas').n | number }} canceladas por revisar · {{ money(conteo('canceladas').monto) }}</h2>
+              <span class="ap-kep-rep">con su gasto ya generado: {{ cc.conGasto.length | number }} · sin gasto: {{ cc.sinGasto.length | number }}@if (cc.revisadas.length) { · revisadas: {{ cc.revisadas.length | number }}}</span>
+            </div>
+            @if (cierreDisponible()) {
+              <p class="ap-kep-expl">Se comprobaron aquí, pero Kepler canceló su solicitud. Cada una dice lo que la Suite averiguó: ciérrala
+                ligándola a su recaptura, rechazando el vale si está repetido, o con «Ya lo revisé» y lo que se hizo.</p>
+            } @else {
+              <p class="ap-kep-expl">Se comprobaron aquí, pero Kepler canceló su solicitud. Todavía no hay cómo darlas por revisadas:
+                siguen en esta lista hasta que se decida qué cierra cada caso.</p>
+            }
+            @if (cc.conGasto.length) {
+              <section class="ap-kep-sec" aria-labelledby="kep-can-gasto">
+                <h3 class="ap-kep-h" id="kep-can-gasto"><span class="ap-kep-punto" aria-hidden="true"></span>Con su gasto ya generado: ¿salió dinero?
+                  <span class="ap-kep-n">{{ cc.conGasto.length | number }} · {{ money(montoDe(cc.conGasto)) }}</span></h3>
+                <div class="ap-kep-lista">
+                  @for (v of cc.conGasto; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v, enCanceladas: true }" /> }
+                </div>
+              </section>
+            }
+            @if (cc.sinGasto.length) {
+              <section class="ap-kep-sec" aria-labelledby="kep-can-sin">
+                <h3 class="ap-kep-h" id="kep-can-sin">Sin gasto: ¿se volvió a capturar con otro folio?
+                  <span class="ap-kep-n">{{ cc.sinGasto.length | number }} · {{ money(montoDe(cc.sinGasto)) }}</span></h3>
+                <div class="ap-kep-lista">
+                  @for (v of cc.sinGasto; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v, enCanceladas: true }" /> }
+                </div>
+              </section>
+            }
+            <!-- [PGP.123] G.UI.1e: lo ya revisado, plegado, con quién, cuándo y qué. -->
+            @if (cc.revisadas.length) {
+              <details class="ap-kep-pleg">
+                <summary>Revisadas <span class="ap-kep-n">{{ cc.revisadas.length | number }} · {{ money(montoDe(cc.revisadas)) }}</span></summary>
+                <div class="ap-kep-lista">
+                  @for (v of cc.revisadas; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v, enCanceladas: true }" /> }
+                </div>
+              </details>
+            }
+          }
+          @if (keplerMedido() && esperanKepler()?.truncado) {
+            <div class="ap-aviso warn">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <span>La lista de Kepler llegó al tope: <strong>puede haber más</strong> de las que se muestran.</span>
+            </div>
           }
         } @else if (!conteo(pestana()).n && !(pestana() === 'atrasados' && !atrasadosMedidos())) {
           <div class="ap-vacio">
@@ -366,22 +475,62 @@ const ESTADO_LABEL: Record<string, string> = {
         }
       }
 
-      <!-- [GX.96] El renglón de la cola de Kepler. El folio busca el vale arriba (un solo visor). -->
-      <ng-template #filaKepler let-v>
-        <div class="ap-kep">
-          @if (busqueda) {
-            <button type="button" class="ap-kep-folio" (click)="verEnBuscador(v.folio_solicitud)"
-                    [attr.aria-label]="'Ver el vale ' + v.folio_solicitud">{{ v.folio_solicitud || 'sin folio' }}</button>
+      <!-- [GX.96] El renglón de la cola de Kepler. [PGP.123] G.UI.4: el folio abre el vale en el panel SIN tocar la
+           cola (antes la reemplazaba por una búsqueda y se perdía el lugar); al cerrarlo, el foco vuelve aquí.
+           G.UI.6: en un autorizado sin gasto, la línea dice qué le falta. G.UI.7: la cancelada lleva un marcador, no el
+           renglón en rojo; el folio es un enlace neutro. G.UI.8: las personas, por su nombre. -->
+      <ng-template #filaKepler let-v let-enCanceladas="enCanceladas">
+        <div class="ap-kep" [class.hallazgo]="v.hallazgo">
+          @if (v.folio_solicitud) {
+            <button type="button" class="ap-kep-folio" (click)="abrirDesdeCola(v, $event)" [disabled]="abriendoDeCola() === v.id"
+                    [attr.aria-label]="'Abrir el vale ' + v.folio_solicitud">{{ v.folio_solicitud }}</button>
           } @else {
-            <span class="ap-kep-folio-txt">{{ v.folio_solicitud || 'sin folio' }}</span>
+            <span class="ap-kep-folio-txt">sin folio</span>
           }
           <span class="ap-suc">{{ v.sucursal ? branchLabel(v.sucursal) : '' }}</span>
           <span class="ap-kep-prov">{{ v.proveedor || '—' }}</span>
           <span class="ap-kep-dias" [class.atorado]="(v.dias ?? 0) > 30">{{ diasTexto(v.dias) }}</span>
-          <span class="ap-imp">{{ money(v.importe) }}</span>
-          <div class="ap-kep-que" [class.hallazgo]="v.hallazgo">
-            {{ v.hallazgo ? 'Se canceló en Kepler con su gasto ya generado: ¿salió dinero?' : esperaTexto(v.espera) }}
-            · capturó {{ v.created_by || '—' }} · revisó {{ v.validated_by || '—' }}
+          <span class="ap-imp">{{ money(importeEnCola(v)) }}</span>
+          <div class="ap-kep-que">
+            @if (enCanceladas) {
+              <!-- [PGP.123] G.UI.1c–1d: en su lista, el título de la sección ya dice qué pasó; el renglón dice lo que la Suite
+                   averiguó sola (el dinero y la recaptura) y, abajo, lo de Kepler y quién. -->
+              @let pc = pistaDe(v);
+              <span class="ap-kep-gasto" [class.warn]="pc.tono === 'warn'" [class.bad]="pc.tono === 'bad'">{{ pc.dinero }}</span>
+              @if (pc.recaptura) { · <span class="ap-kep-recap">{{ pc.recaptura }}</span> }
+              <div class="ap-kep-pie">@if (notaImporteKepler(v); as nota) { {{ nota }} · }capturó {{ quienTexto(v.capturo_nombre, v.created_by) }} · revisó {{ quienTexto(v.reviso_nombre, v.validated_by) }}</div>
+              @if (v.cancelada_revisada; as r) {
+                <!-- [PGP.123] G.UI.1e: el caso ya se cerró: quién, cuándo y qué escribió. -->
+                <div class="ap-kep-rev"><i class="pi pi-check" aria-hidden="true"></i> Revisó {{ r.por || '—' }} el {{ r.at | date: 'dd/MM/yy' }}: {{ r.nota }}</div>
+              } @else if (v.cancelada_revisada === null) {
+                <!-- [PGP.123] G.UI.1e: cerrar el caso. Ligar, sólo a la recaptura que propone la pista; rechazar, sólo si está repetido. -->
+                <div class="ap-kep-acc">
+                  @if (pc.accion?.tipo === 'ligar') {
+                    <button pButton type="button" size="small" [outlined]="true" (click)="abrirCierre(v, 'ligar', pc.accion!.folio)">
+                      <span class="p-button-label">Ligar a XA1501-{{ pc.accion!.folio }}</span></button>
+                  }
+                  @if (pc.accion?.tipo === 'repetido') {
+                    <button pButton type="button" size="small" [outlined]="true" severity="danger" (click)="abrirCierre(v, 'repetido', pc.accion!.folio)">
+                      <span class="p-button-label">Rechazar por repetido</span></button>
+                  }
+                  <button pButton type="button" size="small" [text]="true" severity="secondary" (click)="abrirCierre(v, 'revisar', null)">
+                    <span class="p-button-label">Ya lo revisé</span></button>
+                </div>
+              }
+            } @else {
+            @if (v.hallazgo) {
+              {{ textoHallazgo }}
+            } @else if (esCanceladaEnKepler(v)) {
+              {{ textoCancelada }}
+            } @else if (v.espera === 'falta_generar_gasto') {
+              @let l = lineaGasto(v);
+              <span class="ap-kep-gasto" [class.ok]="l.tono === 'ok'" [class.warn]="l.tono === 'warn'" [class.bad]="l.tono === 'bad'">{{ l.texto }}</span>
+            } @else {
+              {{ esperaTexto(v.espera) }}
+            }
+            @if (notaImporteKepler(v); as nota) { · {{ nota }} }
+            <span class="ap-kep-quien"> · capturó {{ quienTexto(v.capturo_nombre, v.created_by) }} · revisó {{ quienTexto(v.reviso_nombre, v.validated_by) }}</span>
+            }
           </div>
         </div>
       </ng-template>
@@ -494,10 +643,15 @@ const ESTADO_LABEL: Record<string, string> = {
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
                            [vale]="abierto()" [kepler]="keplerDelAbierto()" [acciones]="accionesDelVisor(abierto())"
                            [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" (reintentarKepler)="reintentarKepler($event)"
+                           [gastoKepler]="gastoDelAbierto()" [puedeReintentarGasto]="true" (reintentarGasto)="reintentarGasto($event)"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
                            (rechazar)="rechazar($any($event))"
                            (agregarEvidencia)="paraEvidencia.set($any($event))" />
+      <!-- [PGP.123] G.UI.1e — Cerrar el caso de una cancelada. -->
+      <app-cierre-cancelada-dialog [open]="cierre() !== null" (openChange)="$event || cierre.set(null)"
+                                   [vale]="cierre()?.vale ?? null" [modo]="cierre()?.modo ?? 'revisar'" [folio]="cierre()?.folio ?? null"
+                                   (hecho)="alCerrarCancelada($event)" />
       <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
                                       [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
@@ -541,16 +695,52 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-kep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: baseline;
       gap: var(--sp-1) var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color);
       border-radius: var(--r-sm); background: var(--card-bg); }
+    /* [PGP.123] G.UI.7: el folio es un enlace NEUTRO (el color de acción tiene un solo papel, el botón principal). */
     .ap-kep-folio { border: 0; background: transparent; padding: 0; font-family: var(--font-mono); font-weight: var(--fw-bold);
-      color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+      color: var(--fg-1); cursor: pointer; text-decoration: underline; text-decoration-color: var(--fg-3); text-underline-offset: 2px; }
+    .ap-kep-folio:hover { text-decoration-color: currentColor; }
+    .ap-kep-folio:disabled { cursor: progress; color: var(--fg-2); }
     .ap-kep-folio:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ap-kep-folio-txt { font-family: var(--font-mono); font-weight: var(--fw-bold); }
     .ap-kep-prov { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ap-kep-dias { font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
     .ap-kep-dias.atorado { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
-    .ap-kep-que { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--fg-2); }
-    .ap-kep-que.hallazgo { color: var(--bad-fg); font-weight: var(--fw-bold); }
+    .ap-kep-que { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--fg-1); }
+    /* [PGP.123] G.UI.6: la línea del gasto; el tono va además del texto, nunca solo (los -soft-fg pasan AA como texto). */
+    .ap-kep-gasto.ok { color: var(--ok-soft-fg); }
+    .ap-kep-gasto.warn { color: var(--warn-soft-fg); }
+    .ap-kep-gasto.bad { color: var(--bad-soft-fg); font-weight: var(--fw-bold); }
+    /* G.UI.8: quién capturó y quién revisó, el tercer nivel, al final de la línea del motivo. */
+    .ap-kep-quien { font-size: var(--fs-xs); color: var(--fg-3); }
+    /* [PGP.123] G.UI.1d: en «Canceladas en Kepler», lo de Kepler y quién, debajo de la pista. */
+    .ap-kep-pie { font-size: var(--fs-xs); color: var(--fg-3); margin-top: 2px; }
+    /* [PGP.123] G.UI.1e: las acciones para cerrar el caso, y lo ya revisado. */
+    .ap-kep-acc { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
+    .ap-kep-rev { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--fg-2); margin-top: var(--sp-1); }
+    .ap-kep-rev .pi { color: var(--ok-soft-fg); }
+    /* G.UI.7: la cancelada con gasto lleva un marcador rojo; su texto se queda neutro. */
+    .ap-kep.hallazgo { box-shadow: inset 3px 0 0 var(--bad-fg); }
     .ap-kep-h { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+    /* G.UI.3: el encabezado de la cola (primario), sus secciones y lo plegado. */
+    .ap-kep-cab { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); margin-top: var(--sp-2); }
+    .ap-kep-tot { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
+    .ap-kep-rep { font-size: var(--fs-sm); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+    .ap-kep-sec { display: flex; flex-direction: column; }
+    .ap-kep-n { margin-left: var(--sp-2); font-weight: var(--fw-normal, 400); color: var(--fg-2); font-variant-numeric: tabular-nums; }
+    .ap-kep-pleg { border-top: 1px solid var(--border-color); margin-top: var(--sp-2); padding-top: var(--sp-1); }
+    .ap-kep-pleg > summary { cursor: pointer; padding: var(--sp-2) 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+    .ap-kep-pleg > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .ap-kep-punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); margin-right: var(--sp-2); }
+    .ap-kep-expl { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--fg-2); }
+    @media (pointer: coarse) {
+      .ap-kep-pleg > summary { min-height: 44px; }
+      .ap-kep-folio { min-height: 44px; min-width: 44px; }
+    }
+    /* En angosto el proveedor se cortaba a tres letras («GAST…»): baja a su propia línea, completo. */
+    @media (max-width: 40rem) {
+      .ap-kep { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+      .ap-kep-prov { grid-column: 1 / -1; grid-row: 2; white-space: normal; }
+    }
 
     /* [GX.29] Lo que te piden reabrir. Borde de aviso: es dinero ya firmado que
        alguien quiere volver a tocar, no un renglón más de la lista. */
@@ -692,8 +882,16 @@ export class FinanzasAprobacionGastosComponent {
    */
   readonly esperanKepler = signal<RespuestaEsperanKepler | null>(null);
   readonly keplerError = signal(false);
-  readonly keplerHallazgos = computed<ValeEsperaKepler[]>(() => (this.esperanKepler()?.vales ?? []).filter((v) => v.hallazgo));
-  readonly keplerEsperando = computed<ValeEsperaKepler[]>(() => (this.esperanKepler()?.vales ?? []).filter((v) => !v.hallazgo));
+  /** `[PGP.123]` G.UI.3 — La cola partida en sus secciones (`colaDeKepler`): cada vale en exactamente una. */
+  readonly cola = computed(() => colaDeKepler(this.esperanKepler()?.vales ?? []));
+  /** Los que necesitan a una persona, sin contar los que no se pudieron calcular (ésos se dicen aparte). */
+  readonly conMotivoN = computed(() => this.cola().conMotivo.filter((g) => g.clave !== 'sin_calcular').reduce((a, g) => a + g.vales.length, 0));
+  readonly sinCalcularN = computed(() => this.cola().conMotivo.find((g) => g.clave === 'sin_calcular')?.vales.length ?? 0);
+  readonly quienTexto = quienTexto;
+  /** El vale que se está abriendo desde la cola (su botón se apaga: un doble clic no abre dos veces). */
+  readonly abriendoDeCola = signal<string | null>(null);
+  /** G.UI.4 — El botón de la cola que abrió el panel: al cerrarlo, el foco vuelve ahí. */
+  private regresoDelPanel: HTMLElement | null = null;
   /** Se midió: hay respuesta y el servidor pudo leer Kepler. */
   readonly keplerMedido = computed(() => !this.keplerError() && this.esperanKepler()?.medido === true);
   /**
@@ -732,6 +930,8 @@ export class FinanzasAprobacionGastosComponent {
     { id: 'atrasados', label: 'Atrasados' },
     // `[GX.96]` Lo revisado que espera a Kepler: antes sólo lo veía quien capturó, que no puede moverlo.
     { id: 'kepler', label: 'Esperan a Kepler' },
+    // `[PGP.123]` G.UI.1c — Lo que Kepler canceló de lo ya comprobado (pedido de Francisco, 2026-11-16).
+    { id: 'canceladas', label: 'Canceladas en Kepler' },
   ];
 
   constructor() {
@@ -858,13 +1058,7 @@ export class FinanzasAprobacionGastosComponent {
       });
     // `[GX.96]` La cola de Kepler va en su propio viaje y su error no tumba la pantalla: se DICE
     // en su pestaña. Sólo al cargar (no en el refresco de cada minuto): es la consulta más cara.
-    this.keplerError.set(false);
-    this.svc.esperanKepler()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => this.esperanKepler.set(r),
-        error: () => { this.esperanKepler.set(null); this.keplerError.set(true); },
-      });
+    this.pedirCola();
     // `[GX.88]` Si hay una búsqueda abierta, también se pone al día: después de firmar un vale
     // desde la búsqueda, su renglón tiene que decir el estado nuevo, no el de hace un momento.
     this.busqueda?.rebuscar();
@@ -875,7 +1069,7 @@ export class FinanzasAprobacionGastosComponent {
     const q = this.ruta?.snapshot?.queryParamMap;
     if (!q) return;
     const p = q.get('pestana');
-    if (p === 'atrasados' || p === 'kepler') this.pestana.set(p);
+    if (p === 'atrasados' || p === 'kepler' || p === 'canceladas') this.pestana.set(p);
     const g = q.get('depto');
     if (g) this.grupo.set(g);
   }
@@ -970,15 +1164,88 @@ export class FinanzasAprobacionGastosComponent {
    * que no se reconoce**, y por eso los tres contadores suman el día completo — si no, la
    * pantalla tendría expedientes que no aparecen en ninguna cuenta.
    */
+  /**
+   * `[PGP.123]` G.UI.2 — El monto de una fila de «Esperan a Kepler». En una cancelada con gasto, `importe` es el saldo
+   * de Kepler (0 al cancelarse) y la fila pregunta «¿salió dinero?»: el monto que importa es el que se capturó.
+   * Medido el 2026-11-15 en la cola con los vales reales: vales de $712.43, $1,500 y $4,600 salían como «$0.00».
+   */
+  importeEnCola(v: ValeEsperaKepler): number {
+    // `[PGP.123]` G.UI.1b: la MISMA regla que el Expediente (`importeDelVale`, en el contrato).
+    return importeDelVale({ importe: v.importe, importe_capturado: v.importe_capturado, kepler_estado: v.hallazgo ? 'C' : v.kepler_estado }).importe;
+  }
+
+  /** La frase de la cancelada con gasto: la del contrato, la misma que dice el Expediente. */
+  readonly textoHallazgo = ETIQUETA_FALTA_EN_KEPLER.cancelada_con_gasto;
+  /** `[PGP.123]` G.UI.1c — La cancelada sin gasto: la frase del contrato, la del Expediente. */
+  readonly textoCancelada = ETIQUETA_FALTA_EN_KEPLER.cancelada;
+  readonly esCanceladaEnKepler = esCanceladaEnKepler;
+  /** `[PGP.123]` G.UI.1d — Lo que la Suite averiguó de una cancelada (el dinero y la recaptura), con la regla del contrato. */
+  pistaDe(v: ValeEsperaKepler): ReturnType<typeof lecturaDeLaCancelada> {
+    return lecturaDeLaCancelada(v.pista_cancelada);
+  }
+
+  /** `[PGP.123]` G.UI.1e — El caso que se está cerrando (`null` = el diálogo está cerrado). */
+  readonly cierre = signal<{ vale: ValeEsperaKepler; modo: ModoCierre; folio: string | null } | null>(null);
+  /** El servidor puede guardar la revisión (su migración ya está): manda `cancelada_revisada` en las canceladas. */
+  readonly cierreDisponible = computed(() => this.cola().canceladas.some((v) => v.cancelada_revisada !== undefined));
+
+  abrirCierre(v: ValeEsperaKepler, modo: ModoCierre, folio: string | null): void {
+    this.cierre.set({ vale: v, modo, folio });
+  }
+
+  /** Cerró el caso: lo dice, y la cola se vuelve a pedir (el vale cambia de lista o sale). */
+  alCerrarCancelada(e: CierreHecho): void {
+    this.cierre.set(null);
+    const detail = e.modo === 'ligar' ? `El vale ahora es de la solicitud XA1501-${e.folio}.`
+      : e.modo === 'repetido' ? 'El vale se rechazó por repetido; se le avisa a quien lo capturó.' : 'El caso quedó cerrado con tu nota.';
+    this.toast.add({ severity: 'success', summary: e.modo === 'ligar' ? 'Ligado' : e.modo === 'repetido' ? 'Rechazado' : 'Revisada', detail });
+    this.pedirCola();
+    if (e.modo === 'repetido') this.cargar(true);
+  }
+
+  /** `[PGP.123]` G.UI.1c — «Canceladas en Kepler», partida en con gasto (¿salió dinero?) y sin gasto. */
+  readonly canceladas = computed(() => partirCanceladas(this.cola().canceladas));
+
+  /** Lo que dice Kepler cuando no es lo que se muestra (en una cancelada, su cero), para que no se esconda. */
+  notaImporteKepler(v: ValeEsperaKepler): string | null {
+    const m = importeDelVale({ importe: v.importe, importe_capturado: v.importe_capturado, kepler_estado: v.hallazgo ? 'C' : v.kepler_estado });
+    return m.kepler === null ? null : `en Kepler quedó en ${this.money(m.kepler)}`;
+  }
+
+  /** `[GX.96]` La cola de Kepler. Su error se DICE en su pestaña (no es «nada espera»). */
+  private pedirCola(): void {
+    this.keplerError.set(false);
+    this.svc.esperanKepler()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.esperanKepler.set(r),
+        error: () => { this.esperanKepler.set(null); this.keplerError.set(true); },
+      });
+  }
+
+  /** La suma de una sección, con la MISMA regla que cada fila (`importeEnCola`): encabezado y filas cuadran. */
+  montoDe(vs: readonly ValeEsperaKepler[]): number {
+    return Math.round(vs.reduce((a, v) => a + this.importeEnCola(v), 0) * 100) / 100;
+  }
+
+  /** G.UI.6 — Lo que le falta al gasto de un autorizado (la misma línea que el panel). */
+  lineaGasto(v: ValeEsperaKepler): ReturnType<typeof lineaDelGasto> {
+    return lineaDelGasto(v.gasto_kepler);
+  }
+
   conteo(p: PestanaAprobacion): { n: number; monto: number } {
     const d = this.datos();
     if (!d) return { n: 0, monto: 0 };
     // `[GX.88]` El total REAL de atrasados, no sólo los que llegaron: si la lista se cortó, el
     // contador no puede decir menos de lo que hay.
     if (p === 'atrasados') return d.atrasados_total ?? { n: 0, monto: 0 };
-    if (p === 'kepler') {
-      const vs = this.esperanKepler()?.vales ?? [];
-      return { n: vs.length, monto: Math.round(vs.reduce((a, v) => a + (Number(v.importe) || 0), 0) * 100) / 100 };
+    if (p === 'kepler' || p === 'canceladas') {
+      // `[PGP.123]` G.UI.1c: las canceladas son su propia lista; las dos suman lo que trae la cola, sin repetir un vale.
+      const todos = this.esperanKepler()?.vales ?? [];
+      // `[PGP.123]` G.UI.1e: en «Canceladas en Kepler» cuenta lo que falta revisar (lo revisado va plegado, con su número).
+      const vs = p === 'canceladas' ? this.cola().canceladas.filter((v) => !v.cancelada_revisada) : todos.filter((v) => !esCanceladaEnKepler(v));
+      // El total suma lo mismo que pinta cada fila (`importeEnCola`): si no, encabezado y filas no cuadran.
+      return { n: vs.length, monto: this.montoDe(vs) };
     }
     const e = d.etapas.entrada ?? { n: 0, monto: 0 };
     const raro = d.etapas.sin_etapa ?? { n: 0, monto: 0 };
@@ -989,17 +1256,63 @@ export class FinanzasAprobacionGastosComponent {
   esperaTexto(e: EsperaKepler | null): string { return e ? ETIQUETA_ESPERA_KEPLER[e] : ''; }
 
   /**
-   * `[GX.96]` «Ver» en la cola busca el folio en el buscador de arriba (`[GX.88]`), que abre el vale
-   * aquí con lo que esta pantalla ofrece. La cola no trae el vale completo: así no hay dos visores.
+   * `[PGP.123]` G.UI.4 — El folio de la cola abre el vale en el panel SIN tocar la cola. Antes buscaba el folio arriba,
+   * la búsqueda reemplazaba la lista y al cerrar se perdía el lugar (con 126 vales, ~2 acciones extra por vale). La
+   * cola no trae el vale completo: se pide a la misma búsqueda del servidor, sin pasar por el buscador de la pantalla.
    */
-  verEnBuscador(folio: string | null): void {
-    if (!folio || !this.busqueda) return;
-    this.busqueda.escribir(folio);
-    this.busqueda.buscarYa();
+  abrirDesdeCola(v: ValeEsperaKepler, ev?: Event): void {
+    const folio = String(v.folio_solicitud ?? '').trim();
+    if (!folio || this.abriendoDeCola()) return;
+    const origen = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
+    this.abriendoDeCola.set(v.id);
+    this.svc.buscarGastos(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.abriendoDeCola.set(null);
+        const vale = (r?.vales ?? []).find((x) => x.id === v.id);
+        if (!vale) {
+          this.toast.add({ severity: 'warn', summary: 'No se pudo abrir el vale', life: 8000,
+            detail: `La búsqueda del folio ${folio} no lo trajo: búscalo arriba.` });
+          return;
+        }
+        this.abrir(vale);
+        this.regresoDelPanel = origen;
+      },
+      error: (e) => { this.abriendoDeCola.set(null); this.falla('No se pudo abrir el vale', e); },
+    });
+  }
+
+  /**
+   * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale abierto, si está en la cola de comprobación. `undefined` = no espera
+   * su gasto (el eslabón no se pinta); `null` = espera, pero el servidor no pudo calcular qué le falta (se dice).
+   */
+  readonly gastoDelAbierto = computed<ComprobacionEnLaCola | null | undefined>(() => {
+    const a = this.abierto();
+    if (!a) return undefined;
+    const v = (this.esperanKepler()?.vales ?? []).find((x) => x.id === a.id);
+    return v?.espera === 'falta_generar_gasto' && !v.hallazgo ? (v.gasto_kepler ?? null) : undefined;
+  });
+
+  /** `[PGP.123]` G.9 — Escribe (o reintenta) el gasto del vale en Kepler ahora, sin esperar el ciclo; dice cómo quedó. */
+  reintentarGasto(id: string): void {
+    this.actuando.set(id);
+    this.svc.reintentarGasto(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (e) => {
+        this.actuando.set(null);
+        if (e?.folio && (e.status === 'written' || e.status === 'seen_in_ods')) {
+          this.toast.add({ severity: 'success', summary: 'Gasto escrito en Kepler',
+            detail: `X-A-10 ${e.folio}${e.poliza ? ' · póliza ' + polizaCorta(e.poliza) : ''}.` });
+        } else {
+          this.toast.add({ severity: 'warn', summary: 'Todavía no se escribe', life: 8000, detail: e?.nota ?? 'La Suite no pudo escribirlo todavía.' });
+        }
+        this.pedirCola();
+      },
+      error: (e) => { this.actuando.set(null); this.falla('No se pudo escribir el gasto', e); },
+    });
   }
 
   vacioDe(p: PestanaAprobacion): string {
     if (p === 'kepler') return 'Ningún vale revisado espera a Kepler.';
+    if (p === 'canceladas') return 'Ningún vale comprobado tiene su solicitud cancelada en Kepler.';
     if (p === 'atrasados') {
       // Sin datos del servidor no se afirma que no haya: se dice que no se midió.
       return this.atrasadosMedidos() ? 'No se quedó nada atrasado.' : 'No se puede saber: el servidor no mandó los atrasados.';
@@ -1047,6 +1360,7 @@ export class FinanzasAprobacionGastosComponent {
    * Si la fila ya tiene sus años (o vino del buscador), se piden firmados de nuevo.
    */
   abrir(p: ExpedienteDelDia): void {
+    this.regresoDelPanel = null;
     this.abierto.set(p);
     const d = this.datos();
     const deLaLista = !!d && [...d.filas, ...(d.atrasados ?? [])].includes(p);
@@ -1133,7 +1447,12 @@ export class FinanzasAprobacionGastosComponent {
 
   /** El `model` del panel avisa cuando se cierra (Escape, backdrop o la X). */
   cerrarSiHaceFalta(v: boolean): void {
-    if (!v) this.abierto.set(null);
+    if (v) return;
+    this.abierto.set(null);
+    // `[PGP.123]` G.UI.4: abierto desde la cola, el foco vuelve a su renglón (la cola sigue donde estaba).
+    const r = this.regresoDelPanel;
+    this.regresoDelPanel = null;
+    if (r?.isConnected) setTimeout(() => r.focus(), 0);
   }
 
   /**

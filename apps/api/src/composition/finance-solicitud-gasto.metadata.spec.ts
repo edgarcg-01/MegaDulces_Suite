@@ -41,9 +41,10 @@ describe('[PGP.122] FinanceExpenseProofsModule: la solicitud de gasto que nace e
     ]);
   });
 
-  it('ExpenseProofsService recibe el servicio de la solicitud por CLASE, como su última dependencia', () => {
+  it('ExpenseProofsService recibe el servicio de la solicitud por CLASE, en su lugar (el 9º)', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', ExpenseProofsService) as Clase[] | undefined;
-    expect(Array.isArray(tipos) && tipos.length === 9, `sin design:paramtypes esta prueba no mide nada (${tipos?.length})`).toBe(true);
+    // `[PGP.123]` agregó el 10º (la comprobación del gasto): ver finance-comprobacion-gasto.metadata.spec.ts.
+    expect(Array.isArray(tipos) && tipos.length === 10, `sin design:paramtypes esta prueba no mide nada (${tipos?.length})`).toBe(true);
     expect(tipos![8]).toBe(por('SolicitudGastoService'));
   });
 
