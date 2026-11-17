@@ -88,6 +88,13 @@ export class SolicitudGastoController {
     return this.svc.crear(dto, { nombre: req?.user?.full_name || req?.user?.username || '', usuario: req?.user?.username || '' });
   }
 
+  @Post(':id/cancelar-en-kepler')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.122] F3 (DS40): cancela en Kepler la solicitud que escribió la Suite (sin gasto X-A-10 vivo, con motivo) y cierra el vale.' })
+  cancelarEnKepler(@Param('id') id: string, @Body() body: { motivo?: unknown }, @Req() req: AuthedRequest): Promise<EstadoKeplerDeLaSolicitud> {
+    return this.svc.cancelarEnKepler(id, body?.motivo, req?.user?.full_name || req?.user?.username || '');
+  }
+
   @Post(':id/reintentar-kepler')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
   @ApiOperation({ summary: '[PGP.122] Reintenta escribir en Kepler una solicitud firmada (también las atoradas o rechazadas, una vez corregido el motivo).' })

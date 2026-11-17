@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 108 KB, 1290 líneas, 18 secciones.
+> **Índice navegable** — 108 KB, 1299 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -24,7 +24,7 @@
 | 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
 | 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1251 | 1320 | 6 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1251 | 1329 | 7 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1305,7 +1305,16 @@ fuera son 28 documentos al mes de procesos que no son gasto operativo.
     $590 mil por semana en las 9 sucursales).
   - Antes de construir F2: (1) que vuelva la sincronización de ContPAQi Nóminas; (2) explicar la diferencia (desfase de
     fechas, finiquitos, IMSS o retenciones); (3) recién entonces, la vista por periodo con su índice y el escritor.
-- **F3, sólo después de su ADR y de DS40.**
+- 🧪 **F3, cancelar desde la Suite: hecho en código el 2026-11-17 (ADR-121).**
+  - *Igual que Kepler*, medido sobre 156 canceladas: `c43 = C`; IVA, total y saldo en 0; quién y cuándo; los renglones
+    se conservan. No hay GRANT nuevo.
+  - *Fail-closed:* sólo con la marca de este vale, en A o N y **sin X-A-10 vivo** (DS40). Esas mismas condiciones van
+    en el `WHERE` como candado.
+  - *El vale* queda rechazado con el motivo y quién; se exige `COMPROBAR` y un motivo de al menos 10 caracteres.
+  - *Dónde:* el botón «Cancelar en Kepler…» del panel del vale, en Aprobación (`POST …/:id/cancelar-en-kepler`).
+  - *Prueba:* regla 8 ✓; el escritor real contra un Kepler de prueba local, 12 ✓; un mutante sin DS40 → 1 ✗; panel
+    52 ✓; AOT limpio.
+  - **NO MEDIDO:** contra el Kepler vivo (necesita el canario) y la validación visual.
 - **F4 lo retoma CB.** Aquí sólo se registra como consumidor del mismo escritor.
 
 ### 17.4 Decisiones (de Edgar)

@@ -21,6 +21,7 @@ import {
   type EntregaSolicitudKepler, type ResultadoEscrituraSolicitud,
 } from './kepler-solicitud-gasto-sink.adapter';
 import { marcaDeLaSolicitud } from './solicitud-kepler.armador';
+import { SOLICITUD_CANCELADA_DESDE_LA_SUITE, SOLICITUD_CANCELAR_MOTIVO_MIN } from './solicitud-kepler.cancelacion';
 
 /**
  * `[PGP.122.8]`–`[PGP.122.12]` C2 — **La solicitud de gasto nace en la Suite, y al firmarla se escribe en
@@ -599,6 +600,52 @@ export class SolicitudGastoService {
       this.logger.error(`vale ${id}: la firma quedó guardada, pero la escritura en Kepler no terminó: ${(e as Error).message}. Si alcanzó a reclamarse, el cron la revisa por su marca en ${WRITING_HUERFANO_MIN} min`);
       return null;
     }
+  }
+
+  /**
+   * `[PGP.122]` F3 (DS40, Edgar 2026-11-17) — **Cancela en Kepler la solicitud que escribió la Suite, y cierra el vale.**
+   * Sólo con `COMPROBAR` (lo exige el controlador), sólo sin gasto X-A-10 vivo (lo decide Kepler vivo, con candado) y
+   * con motivo. Ya cancelada en Kepler (Finanzas lo hizo allá): no se escribe nada y el vale se cierra igual.
+   * No exige «que no sea suyo» como el rechazo: cancelar no saca dinero, deshace; quién canceló queda en el vale.
+   */
+  async cancelarEnKepler(id: string, motivo: unknown, actor: string): Promise<EstadoKeplerDeLaSolicitud> {
+    const m = String(motivo ?? '').trim().replace(/\s+/g, ' ');
+    if (m.length < SOLICITUD_CANCELAR_MOTIVO_MIN) throw new BadRequestException(`Escribe por qué se cancela (al menos ${SOLICITUD_CANCELAR_MOTIVO_MIN} caracteres): lo lee quien revise el gasto después`);
+    if (!UUID.test(String(id))) throw new BadRequestException('Vale inválido');
+    const v = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id }).first(
+      'id', 'status', 'origen', 'sucursal', 'folio_solicitud', 'kepler_request_status', 'kepler_request_mark', 'kepler_request_note',
+      'kepler_request_attempts', 'kepler_request_next_at')) as (ValeParaKepler & { id: string }) | undefined;
+    if (!v) throw new NotFoundException('No existe ese vale');
+    if (v.origen !== 'solicitud') throw new ConflictException('Este vale no nació en la Suite: su solicitud se cancela en Kepler');
+    if (!FIRMADAS.includes(v.status)) throw new ConflictException('Sólo se cancela una solicitud firmada; una por firmar se rechaza');
+    if (!v.folio_solicitud || !['written', 'seen_in_ods'].includes(String(v.kepler_request_status))) {
+      throw new ConflictException('Esta solicitud todavía no está escrita en Kepler: se rechaza aquí y Kepler nunca se entera');
+    }
+    const s = this.sucursal(v.sucursal);
+    await this.base(s);
+    const sw = await this.tk.run(async (trx) => opcional(trx, (sp) => sp('commercial.kepler_push_switch').where({ sucursal: s, tipo: TIPO_INTERRUPTOR })
+      .first<{ encendida: boolean } | undefined>('encendida'), undefined));
+    if (!sw?.encendida) throw new ConflictException(`La escritura de solicitudes en Kepler de esta sucursal está apagada: cancélala en Kepler`);
+    if (!this.sink) throw new ServiceUnavailableException('El escritor de Kepler no está disponible');
+    const r = await this.sink.cancelar({ sucursal: s, folio: String(v.folio_solicitud), marca: String(v.kepler_request_mark ?? ''), fecha: todayMx(), hora: horaMx() });
+    if (r.estado === 'apagado') throw new ConflictException(r.motivo);
+    if (r.estado === 'rechazado') throw new ConflictException(r.reintentable ? `${r.motivo}. Intenta de nuevo en un momento` : r.motivo);
+    const nota = r.estado === 'ya_estaba'
+      ? `Ya estaba cancelada en Kepler (folio ${r.folio}); ${actor} la cerró en la Suite: ${m}`
+      : `${SOLICITUD_CANCELADA_DESDE_LA_SUITE} por ${actor} (folio ${r.folio}): ${m}`;
+    const [fila] = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id }).whereIn('status', FIRMADAS)
+      .update({
+        status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: `${SOLICITUD_CANCELADA_DESDE_LA_SUITE}: ${m}`.slice(0, 500),
+        kepler_request_status: 'cancelled', kepler_request_next_at: null, kepler_request_note: nota.slice(0, 500), updated_at: trx.fn.now(),
+      })
+      .returning(['id', 'kepler_request_status', 'folio_solicitud', 'kepler_request_note', 'kepler_request_attempts', 'kepler_request_next_at']));
+    if (!fila) {
+      // Kepler ya quedó cancelado y el vale cambió entre tanto (alguien lo rechazó): se dice, no se pierde.
+      this.logger.error(`vale ${id}: la solicitud ${s}-${r.folio} quedó cancelada en Kepler, pero el vale ya no estaba firmado al cerrarlo: revisarlo a mano`);
+      throw new ConflictException(`La solicitud quedó cancelada en Kepler (folio ${r.folio}), pero el vale cambió mientras tanto: revísalo`);
+    }
+    this.logger.log(`vale ${id}: ${nota}`);
+    return this.estadoDe(fila as FilaEstadoKepler);
   }
 
   /** «Reintentar» de una persona con `COMPROBAR`: también los atorados y los que Kepler rechazó (ya corregidos). */

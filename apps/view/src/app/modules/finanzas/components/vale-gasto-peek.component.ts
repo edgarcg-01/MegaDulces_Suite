@@ -3,6 +3,7 @@ import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { DomSanitizer } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
+import { TextareaModule } from 'primeng/textarea';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { VisorEvidenciaComponent, type DocEvidencia } from './visor-evidencia.component';
 import { parseLocalDate } from '../../../core/utils/mx-date';
@@ -87,7 +88,7 @@ type DocDelExpediente = DocEvidencia;
 @Component({
   selector: 'app-vale-gasto-peek',
   standalone: true,
-  imports: [CommonModule, ButtonModule, SidePeekComponent, VisorEvidenciaComponent],
+  imports: [CommonModule, ButtonModule, TextareaModule, SidePeekComponent, VisorEvidenciaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <!-- ── El vale, completo ──────────────────────────────────────────────────── -->
@@ -175,6 +176,25 @@ type DocDelExpediente = DocEvidencia;
             @if (puedeReintentar() && reintentable()) {
               <p-button type="button" label="Reintentar en Kepler" icon="pi pi-refresh" size="small" [outlined]="true"
                         [disabled]="ocupado()" (onClick)="reintentarKepler.emit(p.id)" />
+            }
+            <!-- [PGP.122] F3 (DS40): la solicitud ya escrita se cancela en Kepler desde aquí. Destructiva: en rojo, aparte, con motivo. -->
+            @if (puedeReintentar() && cancelable()) {
+              @if (cancelandoId() !== p.id) {
+                <p-button type="button" label="Cancelar en Kepler…" icon="pi pi-ban" size="small" [text]="true" severity="danger"
+                          styleClass="vp-cancelar" [disabled]="ocupado()" (onClick)="abrirCancelar(p.id)" />
+              } @else {
+                <div class="vp-cancelar-f" role="group" aria-labelledby="vp-cancelar-l">
+                  <label id="vp-cancelar-l" for="vp-cancelar-m" class="vp-kep-t">Por qué se cancela. Se cancela en Kepler y el vale queda rechazado con este motivo. Si ya tiene el gasto aplicado, Kepler no lo deja y te lo dice.</label>
+                  <textarea pTextarea id="vp-cancelar-m" rows="2" maxlength="300" [value]="motivoCancelar()"
+                            (input)="motivoCancelar.set($any($event.target).value)"></textarea>
+                  <div class="vp-cancelar-b">
+                    <p-button type="button" label="Cancelar en Kepler" icon="pi pi-ban" size="small" severity="danger"
+                              [disabled]="ocupado() || motivoCancelar().trim().length < motivoMin" (onClick)="confirmarCancelar(p.id)" />
+                    <p-button type="button" label="No" size="small" [text]="true" (onClick)="cancelandoId.set(null)" />
+                    @if (motivoCancelar().trim().length < motivoMin) { <small class="vp-kep-t">Al menos {{ motivoMin }} caracteres.</small> }
+                  </div>
+                </div>
+              }
             }
           </div>
         }
@@ -363,6 +383,8 @@ type DocDelExpediente = DocEvidencia;
   .vp-kep { display: flex; flex-direction: column; gap: var(--sp-1); }
   .vp-kep-t { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
   .vp-kep-t.bad { color: var(--bad-fg); }
+  .vp-cancelar-f { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .vp-cancelar-b { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
   /* [PGP.123] G.UI.5: el tono del gasto, además de su texto (los -soft-fg pasan AA como texto). */
   .vp-kep-t.ok { color: var(--ok-soft-fg); }
   .vp-kep-t.warn { color: var(--warn-soft-fg); }
@@ -513,6 +535,27 @@ export class ValeGastoPeekComponent {
     return ['stuck', 'rejected_by_kepler', 'pending', 'retry'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
   });
   readonly reintentarKepler = output<string>();
+  /** `[PGP.122]` F3 (DS40): solicitud de la Suite ya escrita en Kepler, con el vale firmado: se puede cancelar allá. */
+  readonly cancelable = computed(() => {
+    const st = this.kepler()?.nace_en_la_suite?.status ?? '';
+    return ['written', 'seen_in_ods'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
+  });
+  readonly cancelarKepler = output<{ id: string; motivo: string }>();
+  /** El vale cuyo motivo de cancelación está abierto: al abrir otro vale, el formulario no lo sigue. */
+  readonly cancelandoId = signal<string | null>(null);
+  readonly motivoCancelar = signal('');
+  readonly motivoMin = 10;
+  abrirCancelar(id: string): void {
+    this.motivoCancelar.set('');
+    this.cancelandoId.set(id);
+    setTimeout(() => (document.getElementById('vp-cancelar-m') as HTMLTextAreaElement | null)?.focus(), 0);
+  }
+  confirmarCancelar(id: string): void {
+    const motivo = this.motivoCancelar().trim();
+    if (motivo.length < this.motivoMin) return;
+    this.cancelandoId.set(null);
+    this.cancelarKepler.emit({ id, motivo });
+  }
   /**
    * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale, de la cola de comprobación. `undefined` = la página no lo tiene
    * (el vale no espera su gasto): el eslabón no se pinta. `null` = espera su gasto, pero no se pudo calcular qué le
