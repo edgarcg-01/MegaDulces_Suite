@@ -1849,6 +1849,45 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · Sobre `[CXC.21]`, medido el mismo día: la intercalación NO es la causa (con `COLLATE "C"` el
         `DISTINCT ON` de `kdue` da el mismo md5 y el mismo ~1.1 s; el barrido solo, 26–97 ms). La vista
         recalcula los ~62 mil documentos en cada consulta: el arreglo es de diseño, no un índice.
+- [ ] **[CXC.21b]** 🧪 ⭐ **La cartera por EVENTO (opción A de Edgar, 2026-11-17): la tabla
+      `analytics.customer_receivables_current` se pone al día por CUENTA al llegar el cambio.** Migración
+      `20261117144732` (sin aplicar) + `CarteraPorEventoService` (worker) + la API lee la tabla cuando está lista.
+      · **Diseño (patrón de `[CANON.6.21]`):** disparadores por sentencia en `kdud`, `kdm5`, `kdue` y `kdm1` (nacen
+        APAGADOS, interruptor `analytics.receivables_by_event`) anotan cuentas en `receivables_dirty_accounts` y avisan
+        `cartera_sucia`; el worker junta avisos 30 s y llama `drain_customer_receivables()`: por cuenta, o completo
+        (contra la vista) con tabla vacía, marca total, >400 cuentas o la primera corrida del día. El completo es el
+        **árbitro**: la cartera no depende de la fecha, así que debe encontrar 0 diferencias; otro número = evento
+        perdido, escrito en `receivables_refresh_runs`.
+      · **Una sola lógica:** `customer_receivables_for(sucursales, clientes)` se ARMA en la migración desde
+        `pg_get_viewdef` de las dos vistas, con empalmes que fallan si el texto cambió. Los abonos se buscan en `kdue`
+        por índice (12.3 s → 228 ms la cuenta más pesada en prod).
+      · **Medido en prod (sólo lectura):** el armado por cuenta, corrido para las 1,820 cuentas, da **las mismas 62,530
+        filas** que la vista con desempate (0/0, REPEATABLE READ). Una cuenta: 20–36 ms; la más pesada: 228 ms.
+      · **Hallazgo y arreglo:** la vista NO era determinista — `kdud` está replicada en 9 sucursales con valores
+        distintos (332 clientes con zona distinta) y `kd` desempataba al azar: **8,170 filas** cambiaban zona, grupo o
+        teléfono entre lecturas. Se desempata por sucursal (sigue ganando el límite mayor). ⚠️ **Pregunta para Edgar:**
+        ¿qué réplica debe mandar para la zona/límite/teléfono de un cliente? (la de la sucursal del documento existe en
+        1,815 de 1,820 cuentas). Cambiarla movería cifras: va aparte.
+      · **Probado en un clúster DESECHABLE** (PG 18 local, puerto 55432, con 41 cuentas reales de prod = 20,593
+        filas; la fixture coincide con prod al renglón): `test-newdb-cartera-por-evento.js` 18 ✔ — paridad, llenado,
+        un evento por cada fuente, interruptor apagado (negativa), árbitro con su negativa (fila corrompida a mano),
+        `ocupado`, y la ingesta no se frena con el disparador roto. Mutante «kdm1 mudo»: 2 ✘ (y el árbitro lo delata).
+        Mutante «abono sólo de la cuenta»: VIVO — en prod hay 0 aplicaciones con abono de otra cuenta (de 37,194), y
+        el costo que evita no se reproduce en la base de prueba; queda declarado.
+      · **La API, de punta a punta en la base de prueba:** `cartera()`, `cartera(filtrada)`, `porDia()` y 4 fichas dan
+        la MISMA respuesta leyendo la tabla que la vista; lista 873 → 72 ms, ficha 0.94–1.9 s → 0.09–0.16 s. Si una
+        marca espera >10 min (el worker caído), vuelve sola a la vista; la frescura suma «Cartera recalculada por evento».
+      · **Dos defectos encontrados midiendo antes de soltar:** (1) el disparador costaba **7.2 s por lote de 500**
+        renglones de `kdue` dentro de la ingesta (el planificador usaba el índice equivocado de `kdm5`): con
+        `ix_kdm5_abono` y sin la condición sobre `c8`, **34 ms** (sin disparador, 29 ms); `kdm1` 4.6 s → ~110 ms.
+        (2) El completo tardaba 15.8 s por un nested loop contra la temporal: con índice y ANALYZE, ~1.1 s.
+      · ⛔ **Para soltar:** aplicar la migración FUERA DE HORARIO (toma candados de escritura en las 4 fuentes; ver su
+        encabezado), desplegar la API (el worker trae `CarteraPorEventoService`), y DESPUÉS prender:
+        `UPDATE analytics.receivables_by_event SET enabled = true`. La primera corrida llena la tabla (completo). Hasta
+        prenderlo, todo lee la vista como hoy.
+      · **NO MEDIDO:** la migración en prod; el árbitro en prod (se ve en `receivables_refresh_runs` al día siguiente);
+        el arranque real del worker. `[AX.9]` (paridad con la definición de septiembre) ya está ROJA en prod antes de
+        este cambio (134 filas, $150 mil en saldo_ajustado: es anterior a `kepler_kdm5_vigente`): no es de aquí.
 - [x] **[CXC.22]** 🧪 ⭐ **Las TRES cifras del saldo no eran rivales: eran tres preguntas — y el
       puente cierra al centavo.** El item nació como *"un spread de $2.16M sin explicar"*. Medido
       contra el prod real (las cifras anteriores salían de Railway, la base equivocada), el

@@ -27,6 +27,10 @@
 - El periodo se elige en un desplegable; Surtir y Checar dejan de ser botones naranjas.
 - «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
 - Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
+### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en código, sin aplicar)
+- La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
+- La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
+- Requiere aplicar su migración fuera de horario y prender el interruptor; hasta entonces todo funciona como hoy.
 
 ### Changed — Pedidos del almacén: la lista del Tablero por páginas, el total por destino y la leyenda del volumen (GP.10.5 · 2026-11-17 · en código, sin soltar)
 - La lista ya no se corta en 2,000 pedidos: llega por páginas de 200 y el paginador alcanza todos (el mes tenía 2,358 y bajaban 1.4 MB). La preventa ya no queda al final: va por su fecha, junto a los de Kepler.

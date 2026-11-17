@@ -718,6 +718,24 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CXC.21b]` La cartera por evento: de 4 s por consulta a recalcular sólo la cuenta que cambió
+
+**Qué se hizo:** la cartera se guarda ya calculada y se pone al día por cuenta cuando Kepler cambia algo, con el mismo
+patrón que la existencia (`[CANON.6.21]`). La API la lee cuando está lista y, si el que la mantiene se cae, vuelve sola
+a la vista. Sin aplicar todavía: la migración va fuera de horario y el interruptor se prende después.
+
+**Lecciones:**
+- ⭐ **Una vista que no es determinista no se puede materializar.** La paridad falló en 239 filas sólo por la zona, y
+  la causa estaba en la vista: elegía al azar entre réplicas de `kdud` que no coinciden. Comparar dos lecturas de la
+  misma vista lo habría mostrado antes que cualquier prototipo.
+- ⭐ **Un disparador se mide DENTRO de la ingesta antes de prenderlo.** Su consulta sola tardaba 3 ms; dentro del
+  disparador, con el índice que eligió el planificador, 7 s por lote. Una condición de más (`c8 = 'D'`) bastaba para que
+  ganara el índice equivocado.
+- **Generar la función desde la definición viva de la vista** evita una segunda copia de la lógica; el empalme que
+  falla en voz alta es lo que avisa cuando la vista cambie.
+- **Un clúster desechable con una muestra real de prod** (41 cuentas, verificada al renglón) es la base de prueba que no
+  existía en esta máquina: ahí se probó la migración, los disparadores, el drenado y la API completa sin tocar prod.
+
 ## 2026-11-17 — `[CXC.42]`–`[CXC.43]` La fluidez de Cartera: dejar de esperar en cada gesto, y saber a quién ya se le habló
 
 **Qué se midió:** cobranza esperaba de 10 a 17 minutos al día al servidor y recargaba la lista casi
