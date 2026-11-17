@@ -1126,5 +1126,37 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
     que asertan datos del ERP: ahí la prueba monta las vistas con la plantilla). Los 14 mutantes mueren.
   - **Hallazgo para el paso 3:** un cambio de clave deja viva la fila vieja del costo si sólo se anota la clave nueva (la
     prueba lo muestra). El disparador de `catalog.products` anota las dos.
+- **8b.3, el evento (2026-11-17).** Migración `20261117094325_canon621_cola_de_existencia_por_evento` (sin aplicar).
+  - **Cómo escribe la ingesta, medido en el código y en prod:** `kepler_ods` se escribe por LOTE, un `INSERT … ON CONFLICT
+    DO UPDATE … WHERE IS DISTINCT FROM` y un `DELETE … USING` por lote, sin replicación lógica en pg-prod. Un disparador
+    por sentencia corre una vez por lote y sólo ve lo que cambió. Precedentes del mismo patrón: ADR-104 en `kdm1` y PQ.59
+    en `kdii`. Renglones que cambian al día: `kdm2` ~85 mil, `kdik` ~17 mil (casi todos en la existencia, no en el costo),
+    `kdm1` ~12 mil, `catalog.products` ~18 mil (casi nunca en lo que las reglas leen).
+  - **Lo que crea:**
+    - `analytics.llaves_sucias`, la cola. Sólo admite altas, sin llave única por SKU. ⛔ Con llave única
+      (`ON CONFLICT DO NOTHING`), el disparador esperaría a que el que drena confirme el borrado de esa llave: la ingesta
+      quedaría detrás de un recálculo completo de ~20 s.
+    - Disparadores por sentencia en las 13 fuentes. Anotan sólo si cambió una columna que alguna regla lee (la lista va
+      por fuente). De un cambio de clave anotan la vieja y la nueva. Un almacén o un `TRUNCATE` anotan `'*'`.
+    - `analytics.drenar_existencia()`. Recalcula todo si hay `'*'`, si pasa del umbral o en la primera corrida del día;
+      contesta `ocupado` sin esperar si otro recalcula; si falla, la cola queda intacta.
+    - `analytics.existencia_corridas`, una fila por corrida. La de cada mañana es el árbitro; su conteo incluye lo que la
+      fecha movió.
+  - **Nunca frena la ingesta:** el disparador atrapa su error y lo deja en `analytics.llaves_sucias_errores`, como pide
+    ADR-104 §4.
+  - **Interruptor apagado.** Los disparadores nacen sin anotar nada: `analytics.existencia_por_evento` falla cerrado, como
+    el de escritura a Kepler de PQ.20. Hoy los commits de este checkout viajan en el push de otras sesiones, y esas
+    sesiones aplican las migraciones pendientes al soltar. Si ésta sale antes que el paso 4, sólo instala disparadores
+    inertes y la cola no crece. El paso 4 lo prende junto con el que drena, y apagarlo es la salida de emergencia, sin DDL.
+    Sigue yendo **fuera de horario** por el candado breve de crear los disparadores (`lock_timeout` 5 s: si no lo
+    obtiene, falla entera).
+  - **Prueba** `test-newdb-existencia-por-evento`: 48 ✓ en una base mínima y en una tipo CI. Escribe cada fuente como la
+    ingesta (o como la API) y comprueba qué anota. Un cambio en una columna que ninguna regla lee no anota nada. Tras
+    drenar, las cuatro tablas son iguales a sus vistas. También ejerce todos los modos del que drena y una cola rota que
+    no frena la escritura. Los 16 mutantes mueren.
+  - **Costo para la ingesta:** 50–85 ms más en un lote de 2,000 renglones de `kdm2`, incluido armar el lote. Son unos
+    pocos segundos al día.
+  - **NO MEDIDO:** que el `NOTIFY` llegue, porque los avisos sólo salen al confirmar; lo prueba el paso 4. El andamio y el
+    escenario de las dos pruebas de la oleada se movieron a `database/tests/_lib/existencia-escenario.js`.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
