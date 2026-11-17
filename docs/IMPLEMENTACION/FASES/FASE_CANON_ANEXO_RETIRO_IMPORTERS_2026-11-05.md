@@ -1044,7 +1044,10 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
   **~5,400 s de CPU al día**, igual que el 11-nov. Recalcular por llave, en prod (sólo lectura, lotes de 10/50/200 SKUs):
   `v_product_box_factor` **3–10 ms** (no crece con el lote) · `v_warehouse_box_factor` **210–540 ms por lote** ·
   `v_kepler_unit_cost` **~200 ms por lote** (el filtro no llega al `GROUP BY` de `kdik`); el precio falta (no tiene vista:
-  primero `v_price_truth_calc`). Ritmo: `kdm2` tocó **1,850 SKUs distintos** hoy hasta las 10:20. Con la cola drenada cada
+  primero `v_price_truth_calc`). ⛔ **Corregido el 2026-11-17: los dos primeros números están mal.** Se midieron con
+  `SELECT count(*)`, y con `count(*)` el planeador quita los `LEFT JOIN` que no aportan columnas, que son justo las piezas
+  caras. Con las columnas de verdad, la vista filtrada cuesta lo mismo sea 1 SKU o 800: factor por producto ~400 ms,
+  factor por almacén 3–4.7 s (12–18 s con `jit`). Por eso el paso 2 usa una plantilla (ver «8b.2, el cierre»). Ritmo: `kdm2` tocó **1,850 SKUs distintos** hoy hasta las 10:20. Con la cola drenada cada
   ~30 s eso da ~1,000–2,000 s/día más el precio — el diseño firmado aguanta. `v_product_box_factor` lee la matview
   `mv_kepler_bought_rung` y `v_warehouse_box_factor` lee `mv_kepler_sold_rung`: las dos las refresca de noche la API
   (`analytics_refresh_*_rung`); en la primera etapa se quedan así (es el comportamiento de hoy: las cuatro matviews ya leen
@@ -1091,5 +1094,37 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
   Prueba `test-newdb-precio-por-llave`: 30 ✓; cruza la función contra la matview que crea su migración original (dos
   implementaciones) y pasa por todas las ramas de la regla; 9 mutantes en rojo y 1 equivalente declarado. Sigue: los otros
   tres materializados en la misma función (cierra 8b.2) y después la cola y los triggers (8b.3, fuera de horario).
+- **8b.2, el cierre: factores y costo (2026-11-17).** Migración `20261117085622_canon621_factores_y_costo_por_llave` (sin
+  aplicar; sólo crea objetos nuevos y reemplaza `recalcular_existencia`, que nadie llama todavía; puede ir en horario).
+  - **Por qué no basta filtrar la vista:** filtrar `v_product_box_factor`, `v_warehouse_box_factor` o `v_kepler_unit_cost`
+    por SKU cuesta lo mismo que la vista entera. La llave se une por `JOIN` a sus piezas agrupadas y no les llega: la
+    escalera de Kepler por sucursal, la de costo por proveedor, la moda de las etiquetas y el `GROUP BY` de `kdik`.
+    Evaluarla producto por producto (`LATERAL … OFFSET 0`) tampoco sirve: 2.2 s por producto en el factor por almacén.
+  - **La forma: una plantilla por vista.** Con `k = null` su texto es IDÉNTICO, letra por letra, a
+    `pg_get_viewdef(vista, false)` de prod (verificado para las cuatro: las tres reglas y la escalera de costo por
+    proveedor que el factor por almacén lleva dentro). Con `k`, la llave entra en cada pieza agrupada, siempre por la
+    columna con que agrupa, así se quitan grupos enteros y ninguno se parte.
+  - **La regla sigue viviendo en la vista:** con `NULL`, las `*_de` leen la vista misma. El `up()` compara la plantilla
+    con la definición viva y se niega si difieren (probado contra prod en sólo lectura: pasa; con un carácter cambiado,
+    frena). La prueba también revisa que ninguna migración posterior cambie una de esas vistas sin traer su plantilla.
+  - **Medido en prod** contra la vista completa, en la misma foto, lotes de 1/10/50/200/800 SKUs vendidos ayer y al azar,
+    con `jit = off`: **idéntico en los 60 casos**.
+
+    | Materializado | Por llave, hasta 200 SKUs | 800 SKUs | Completo |
+    |---|---|---|---|
+    | Factor por almacén | 0.2–0.4 s | ~1 s | 9.5 s (20 s con `jit`) |
+    | Factor por producto | 80–150 ms | 0.2–0.25 s | ~0.55 s |
+    | Costo unitario | 15–60 ms | 0.12–0.23 s | 0.6–1 s |
+
+    Ninguno de los tres lee `kdm1`/`kdm2` salvo por los dos peldaños nocturnos. Sus fuentes cambian ~1,000 veces al día
+    (`kdii`) y ~2,600 (etiquetas); `catalog.products` cambia ~18,500 veces, casi siempre en columnas que estas reglas no
+    leen, así que los disparadores del paso 3 deben filtrar por columna.
+  - **Lo que crea:** las tablas `analytics.resolved_product_box_factor`, `warehouse_box_factor` y `kepler_unit_cost`
+    (vacías y sin lectores hasta el paso 5). La primera no se llama `product_box_factor` porque ese nombre ya es una de
+    sus fuentes. También crea las tres `*_de(skus)` y `recalcular_existencia`, que ahora devuelve una fila por tabla.
+  - **Prueba** `test-newdb-factores-por-llave`: 39 ✓, en una base mínima y en una tipo CI (la que salta las migraciones
+    que asertan datos del ERP: ahí la prueba monta las vistas con la plantilla). Los 14 mutantes mueren.
+  - **Hallazgo para el paso 3:** un cambio de clave deja viva la fila vieja del costo si sólo se anota la clave nueva (la
+    prueba lo muestra). El disparador de `catalog.products` anota las dos.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
