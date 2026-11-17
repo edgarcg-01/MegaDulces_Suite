@@ -317,6 +317,11 @@ export interface PagoSuite {
    * ya no necesita el día autorizado ni la validación con comprobante: la salida del banco es el hecho.
    */
   probado_por_el_banco?: boolean;
+  /**
+   * `[PGP.130]` Edgar, 2026-11-17 (D1): **el comprobante dispara**. Un pago que su comprobante probó (`paid_proof_id`)
+   * cuenta como probado igual que por el banco. La autorización se exige antes, al casarlo (`casarComprobantesConPagos`).
+   */
+  probado_por_comprobante?: boolean;
 }
 
 const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
@@ -328,9 +333,10 @@ const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
  */
 export function motivosParaNoEscribir(p: PagoSuite): string[] {
   const m: string[] = [];
-  if (!p.probado_por_el_banco && !LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
+  const probado = !!p.probado_por_el_banco || !!p.probado_por_comprobante;
+  if (!probado && !LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
   if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
-  if (!p.probado_por_el_banco && p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
+  if (!probado && p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
   if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias (D1)');
   if (p.origen_kind !== 'bank') m.push('La cuenta de origen no es una cuenta bancaria');
   if (p.kepler_payment_folio) m.push(`Ya está ligado al pago ${p.kepler_payment_folio} de Kepler: escribirlo otra vez lo duplicaría`);

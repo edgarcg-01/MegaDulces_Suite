@@ -8,6 +8,7 @@ import { escrituraDePagoEncendida } from './kepler-pago/pago-kepler.armador';
 import { leerEntregaPagoKepler } from './kepler-pago/ensayo-ods.sql';
 import { AUTOR_PAGO_POR_EL_BANCO } from './pago-por-el-banco';
 import { SQL_PROBADOS_SIN_LIGAR } from './pago-por-el-banco.sql';
+import { CANAL_COMPROBANTES, moverComprobanteAKepler } from './pago-por-comprobante';
 
 /** Lo que se espera tras el primer aviso del banco antes de mirar: una carga trae varios avisos seguidos. */
 const ESPERA_MS = 60_000;
@@ -40,6 +41,11 @@ export const EVENTO_KEPLER_INCIERTO = 'kepler_incierto';
  * reclamado (`kepler_incierto`) y lo mira una persona: es preferible un pago sin escribir a uno escrito dos veces.
  *
  * Sólo escucha en el worker (`WORKER=true`). Se apaga entero con `DISABLE_PAGOS_POR_EL_BANCO=true`.
+ *
+ * ── `[PGP.130]` El comprobante dispara primero ─────────────────────────────────────────────────────
+ * Edgar, 2026-11-17 (D1): Tesorería sube el comprobante el mismo día y el banco llega días después. El worker
+ * escucha también `pagos_comprobantes` y, en cada pasada, aplica antes los comprobantes que ya casaron con su pago
+ * (`pagarPorComprobante`): así el `X-D-26` se escribe el día del pago, no el de la carga del banco.
  */
 @Injectable()
 export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
@@ -67,12 +73,17 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
       async (cambio) => { if (cambio) await this.correr(); },
       (e) => this.logger.error(`pagos por el banco: la pasada falló: ${(e as Error)?.message}`),
     );
-    try {
-      this.dejarDeEscuchar = this.listen.escuchar(CANAL_BANCOS, () => { this.avisos++; this.mirada?.avisar(); });
-      this.logger.log(`escuchando ${CANAL_BANCOS} (sin reloj): paga lo que el banco prueba · escritura en Kepler ${escrituraDePagoEncendida(process.env) ? 'ENCENDIDA' : 'apagada'}`);
-    } catch (e: unknown) {
-      this.logger.error(`no se pudo escuchar ${CANAL_BANCOS}: ${(e as Error)?.message} — los pagos NO se van a marcar solos`);
+    const avisar = () => { this.avisos++; this.mirada?.avisar(); };
+    const bajas: (() => void)[] = [];
+    for (const canal of [CANAL_BANCOS, CANAL_COMPROBANTES]) {
+      try {
+        bajas.push(this.listen.escuchar(canal, avisar));
+      } catch (e: unknown) {
+        this.logger.error(`no se pudo escuchar ${canal}: ${(e as Error)?.message} — los pagos NO se van a marcar solos con ese aviso`);
+      }
     }
+    this.dejarDeEscuchar = () => bajas.forEach((b) => b());
+    this.logger.log(`escuchando ${CANAL_BANCOS} y ${CANAL_COMPROBANTES} (sin reloj): paga lo que prueban el comprobante y el banco · escritura en Kepler ${escrituraDePagoEncendida(process.env) ? 'ENCENDIDA' : 'apagada'}`);
     this.mirada.avisar();
   }
 
@@ -88,6 +99,8 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
     for (const tenantId of tenants) {
       try {
         await this.tenantCtx.run({ tenantId, roleName: 'system' }, async () => {
+          const c = await this.calendario.pagarPorComprobante();
+          if (c.revisados) this.logger.log(`pagos por comprobante: ${c.revisados} por aplicar · ${c.pagados} pagados · ${c.ligados} ligados a un pago que el banco ya había probado`);
           const r = await this.calendario.pagarPorElBanco();
           const n = r.sin_decidir;
           this.logger.log(`pagos por el banco ${r.hoy}: ${r.revisados} pendientes de días pasados · ${r.pagados} pagados ($${r.monto.toFixed(2)})`
@@ -159,6 +172,8 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
         kepler_payment_sucursal: sucursal, kepler_payment_doc_prefix: prefijo, kepler_payment_folio: folios[0],
         kepler_payment_linked_by: AUTOR_PAGO_POR_EL_BANCO, kepler_payment_linked_at: trx.fn.now(), updated_at: trx.fn.now(),
       });
+      // `[PGP.130]` Su comprobante, si llegó antes que Kepler, ahora apunta al X-D-26 (aparece en Comprobantes de pago).
+      await moverComprobanteAKepler(trx, tenantId, id, { sucursal, doc_prefix: prefijo, folio: folios[0] });
       await this.historialEn(trx, tenantId, id, EVENTO_ESCRITO_EN_KEPLER, { sucursal, prefijo, folios, nota });
     });
     return 'escrito';

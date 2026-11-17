@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentProofsService, ListPaymentsQuery, AttachPaymentDto } from './supplier-payment-proofs.service';
+import type { ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 /** Lo único que se usa de la respuesta HTTP: poner un encabezado. */
@@ -122,6 +123,18 @@ export class SupplierPaymentProofsController {
   @ApiOperation({ summary: 'Sube el comprobante (imagen/PDF) a Cloudinary y devuelve su referencia.' })
   upload(@Body() body: { file_base64?: string; role?: string }) {
     return this.svc.uploadFile(body?.file_base64 || '', body?.role || 'comprobante');
+  }
+
+  /**
+   * `[PGP.130]` El comprobante de una transferencia del Calendario: el servidor lo lee, lo casa con su pago y, si casa
+   * solo, lo da por pagado y la Suite escribe el `X-D-26` en Kepler (D1, Edgar 2026-11-17). Marca un pago como
+   * pagado, por eso pide el mismo permiso que marcarlo a mano (`execute` del Calendario).
+   */
+  @Post('calendario')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Sube el comprobante de una transferencia del Calendario: lo lee, lo casa con su pago y, si casa solo, lo da por pagado y lo registra en Kepler.' })
+  calendario(@Body() body: { file_base64?: string }, @Req() req: AuthedRequest): Promise<ResultadoComprobanteCalendario> {
+    return this.svc.comprobanteDelCalendario(body?.file_base64 || '', req?.user?.full_name || req?.user?.username);
   }
 
   @Post('attach')

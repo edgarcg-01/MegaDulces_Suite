@@ -8,6 +8,11 @@ import {
   hojaRelegible, motivoDeHoja, tipoLeible, base64De, lecturaSirve, camposQueCambiaron, pasadaVacia,
   type ResultadoRelectura,
 } from './relectura.engine';
+import { casarComprobantesConPagos, type PagoPorComprobante, type ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
+import { cuentaDeOrigen } from '../payment-calendar/validacion-pago.sql';
+import {
+  AUTOR_PAGO_POR_COMPROBANTE, PREFIJO_CALENDARIO, SQL_CUENTAS_DE_BANCO, SQL_PAGOS_PARA_COMPROBANTE, avisarComprobante,
+} from '../payment-calendar/pago-por-comprobante';
 
 /**
  * Fase CC (extensión) — Comprobantes de PAGO A PROVEEDOR. Adjunta el comprobante
@@ -950,6 +955,71 @@ export class SupplierPaymentProofsService {
    * pago de Kepler que le corresponde. El `concepto` (folio de factura "F 451") casa
    * contra el `concepto` del pago; el monto es la señal fuerte. Prioriza sin comprobante.
    */
+  /**
+   * `[PGP.130]` **El comprobante de una transferencia del Calendario dispara el pago** (D1/D2, Edgar 2026-11-17).
+   *
+   * El servidor lee el PDF (la lectura es suya, no del request), resuelve la cuenta de origen contra las cuentas
+   * propias de banco y lo casa con los pagos del Calendario con `casarComprobantesConPagos` (misma cuenta, ±$1,
+   * ±5 días, uno a uno, sólo autorizados). **Sólo se guarda lo que casa**: la fila queda `validado` apuntando al
+   * pago (`doc_prefix = 'CAL'`, `folio` = id del pago) y avisa al worker, que lo da por pagado y escribe el
+   * `X-D-26` (`PaymentCalendarService.pagarPorComprobante` + `PagosPorElBancoService`). Lo que no casa vuelve con su
+   * motivo y no deja rastro.
+   *
+   * ⛔ Dos cargas del mismo pago a la vez no se cruzan: la fila del pago se bloquea (`FOR UPDATE`) antes de mirar si
+   * ya tiene comprobante. ⛔ La misma clave de rastreo en otro comprobante vivo no se guarda dos veces.
+   */
+  async comprobanteDelCalendario(dataUri: string, actor?: string): Promise<ResultadoComprobanteCalendario> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const leido = await this.runOcr(dataUri, 'comprobante');
+    const importe = leido.monto != null ? Number(leido.monto) : null;
+    const lectura = {
+      importe, fecha: leido.fecha ?? null, cuenta_origen: leido.cuenta_origen ?? null, beneficiario: leido.beneficiario ?? null, ocr_status: leido.ocr_status,
+    };
+    const no = (estado: ResultadoComprobanteCalendario['estado'], motivo: string, pago_id: string | null = null): ResultadoComprobanteCalendario =>
+      ({ estado, pago_id, comprobante_id: null, motivo, lectura });
+    if (leido.ocr_status !== 'ok') return no('sin_lectura', 'No se pudo leer el comprobante: súbelo en PDF legible.');
+
+    const { cuentaId, pagos } = await this.tk.run(async (trx) => {
+      const cuentas = (await trx.raw(SQL_CUENTAS_DE_BANCO, [tenantId])).rows as { cuenta_id: string; account_label: string | null }[];
+      const cuenta = cuentaDeOrigen(String(leido.cuenta_origen ?? '').replace(/\D/g, ''), cuentas);
+      const filas = lectura.fecha ? (await trx.raw(SQL_PAGOS_PARA_COMPROBANTE, [tenantId, lectura.fecha, lectura.fecha])).rows as PagoPorComprobante[] : [];
+      return { cuentaId: cuenta, pagos: filas.map((p) => ({ ...p, importe: Number(p.importe) })) };
+    });
+    const d = casarComprobantesConPagos([{ id: 'nuevo', cuenta_id: cuentaId, fecha: lectura.fecha, importe: importe ?? 0 }], pagos).get('nuevo');
+    if (!d || d.estado !== 'casa' || !d.pago_id) return no(d?.estado ?? 'sin_pago', d?.motivo ?? 'No casó con ningún pago.', d?.pago_id ?? null);
+    const pagoId = d.pago_id;
+
+    const ref = normRef(leido.clave_rastreo);
+    const archivo = await this.uploadFile(dataUri, 'comprobante');
+    const r = await this.tk.run(async (trx) => {
+      const a = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: pagoId }).forUpdate()
+        .first('id', 'status', 'paid_proof_id', trx.raw('amount_assigned::float8 AS importe'));
+      if (!a || a.paid_proof_id || !['pending', 'executed'].includes(a.status)) return no('ya_tiene', 'El pago cambió mientras se leía el comprobante: vuelve a cargar la pantalla.', pagoId);
+      const otro = await trx('finance.supplier_payment_proofs')
+        .where({ tenant_id: tenantId, doc_prefix: PREFIJO_CALENDARIO, folio: pagoId }).whereNot('status', 'rechazado').first('id');
+      if (otro) return no('ya_tiene', 'Ese pago ya tiene su comprobante.', pagoId);
+      if (ref) {
+        const dup = await trx('finance.supplier_payment_proofs').where({ tenant_id: tenantId, ref_norm: ref }).whereNot('status', 'rechazado').first('id');
+        if (dup) return no('repetido', 'Ese comprobante (misma clave de rastreo) ya está en la Suite.', pagoId);
+      }
+      const [row] = await trx('finance.supplier_payment_proofs').insert({
+        tenant_id: tenantId, sucursal: PREFIJO_CALENDARIO, doc_prefix: PREFIJO_CALENDARIO, folio: pagoId,
+        metodo_pago: 'transferencia', proveedor_nombre: lectura.beneficiario, pago_date: lectura.fecha, pago_monto: Number(a.importe),
+        files: JSON.stringify([{ ...archivo, sha256: leido.sha256 }]),
+        ocr_monto: importe, ocr_fecha: lectura.fecha, ocr_banco: leido.banco_destino || null, ocr_cuenta_dest: leido.cuenta_destino || null,
+        ocr_cuenta_origen: leido.cuenta_origen || null, ocr_concepto: leido.concepto || null, ocr_referencia: leido.clave_rastreo || null,
+        ocr_ordenante: leido.beneficiario || null, ocr_metodo: leido.metodo || null, ocr_raw: JSON.stringify(leido), ocr_status: 'ok',
+        monto_match: true, cuenta_propia: true, ref_norm: ref, lectura_verificada: true, auto_validado: true,
+        status: 'validado', validated_by: AUTOR_PAGO_POR_COMPROBANTE, validated_at: trx.fn.now(), created_by: actor || null,
+        comentarios: `[PGP.130] Casó solo con el pago ${pagoId} del Calendario: misma cuenta de origen, importe (±$1) y fecha (±5 días).`,
+      }).returning(['id']);
+      await avisarComprobante(trx, row.id);
+      return { estado: 'casa' as const, pago_id: pagoId, comprobante_id: row.id as string, motivo: null, lectura };
+    });
+    this.logger.log(`[PGP.130] comprobante ${r.estado} · pago ${r.pago_id ?? '-'} · $${importe ?? '?'} ${lectura.fecha ?? '?'} · por ${actor || '?'}`);
+    return r;
+  }
+
   /**
    * `[PC.5]` Cada candidato trae también su BANCO (`clave_banco`, `banco_nombre`, `account_label`)
    * para que la pantalla compare banco · fecha · monto · proveedor contra lo que leyó la IA. La

@@ -31,6 +31,7 @@ import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
 import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
+import { AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_PAGADO_POR_COMPROBANTE, SQL_COMPROBANTES_POR_APLICAR, moverComprobanteAKepler } from './pago-por-comprobante';
 import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
@@ -2020,6 +2021,53 @@ export class PaymentCalendarService {
       out.pagados++;
       out.monto = round2(out.monto + d.importe);
       out.ids_pagados.push(p.id);
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.130]` **El comprobante dispara el pago** (D1, Edgar 2026-11-17). Aplica los comprobantes que ya casaron
+   * con su pago al subirse (`SupplierPaymentProofsService.comprobanteDelCalendario`, regla
+   * `casarComprobantesConPagos`): un pago pendiente queda pagado con esa evidencia (`paid_proof_id`) y sus facturas
+   * aplicadas; uno que el banco ya había pagado sólo gana su comprobante. Si el pago ya tiene su `X-D-26`, el
+   * comprobante pasa a apuntar a ese documento.
+   *
+   * ⛔ Un pago por transacción, con guarda de carrera (sigue sin comprobante y en el mismo estado). Lo llama
+   * `PagosPorElBancoService` en el worker, al aviso de un comprobante nuevo y en cada pasada del banco.
+   */
+  async pagarPorComprobante(autor = AUTOR_PAGO_POR_COMPROBANTE): Promise<{ revisados: number; pagados: number; ligados: number; ids_pagados: string[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out = { revisados: 0, pagados: 0, ligados: 0, ids_pagados: [] as string[] };
+    const filas = await this.tk.run(async (trx) => (await trx.raw(SQL_COMPROBANTES_POR_APLICAR, [tenantId])).rows as {
+      comprobante_id: string; id: string; status: string; fecha: string | null; importe: number | null; rastreo: string | null;
+      kepler_payment_sucursal: string | null; kepler_payment_doc_prefix: string | null; kepler_payment_folio: string | null;
+    }[]);
+    out.revisados = filas.length;
+    for (const f of filas) {
+      const hecho = await this.tk.run(async (trx) => {
+        const pendiente = f.status === 'pending';
+        const n = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, id: f.id, status: f.status }).whereNull('paid_proof_id')
+          .update(pendiente
+            ? {
+              status: 'executed', executed_at: trx.fn.now(), payment_method: trx.raw(`coalesce(payment_method, 'transferencia')`),
+              paid_proof_id: f.comprobante_id, paid_validated_at: trx.fn.now(), updated_by: autor, updated_at: trx.fn.now(),
+            }
+            : { paid_proof_id: f.comprobante_id, updated_at: trx.fn.now() });
+        if (!n) return null;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: f.id, event: pendiente ? EVENTO_PAGADO_POR_COMPROBANTE : EVENTO_COMPROBANTE_LIGADO,
+          status_from: f.status, status_to: 'executed', created_by: autor,
+          detail: JSON.stringify({ regla: 'PGP.130', comprobante: { id: f.comprobante_id, fecha: f.fecha, importe: f.importe, rastreo: f.rastreo } }),
+        });
+        if (pendiente) await this.aplicarRenglonesPagados(trx, tenantId, f.id, autor);
+        if (f.kepler_payment_folio && f.kepler_payment_sucursal && f.kepler_payment_doc_prefix) {
+          await moverComprobanteAKepler(trx, tenantId, f.id,
+            { sucursal: f.kepler_payment_sucursal, doc_prefix: f.kepler_payment_doc_prefix, folio: f.kepler_payment_folio });
+        }
+        return pendiente ? 'pagado' : 'ligado';
+      });
+      if (hecho === 'pagado') { out.pagados++; out.ids_pagados.push(f.id); } else if (hecho === 'ligado') out.ligados++;
     }
     return out;
   }

@@ -87,7 +87,8 @@ export async function leerEnsayoPagoKepler(
     SELECT a.id::text AS id, a.status, a.payment_method, a.bank_account_id::text AS bank_account_id, a.kepler_payment_folio,
            a.paid_bank_movement_id::text AS paid_bank_movement_id,
            a.destination_account_text, a.amount_assigned::float8 AS importe, coalesce(a.folio, left(a.id::text, 8)) AS referencia,
-           to_char(a.paid_bank_date, 'YYYY-MM-DD') AS paid_bank_date, to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
+           to_char(a.paid_bank_date, 'YYYY-MM-DD') AS paid_bank_date, a.paid_proof_id::text AS paid_proof_id,
+           (SELECT to_char(coalesce(p.ocr_fecha, p.pago_date), 'YYYY-MM-DD') FROM finance.supplier_payment_proofs p WHERE p.id = a.paid_proof_id) AS paid_proof_date, to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
            l.status AS lot_status, to_char(l.lot_date, 'YYYY-MM-DD') AS dia,
            b.bank, b.account_label, b.kind
       FROM finance.payment_allocations a
@@ -192,7 +193,7 @@ export async function leerEnsayoPagoKepler(
   const validacion = (await leerValidacionDelDia(trx, tenantId, a.dia, hoy)).get(allocationId);
   motivos.push(...motivosParaNoEscribir({
     status: a.status, payment_method: a.payment_method, origen_kind: a.kind ?? null, kepler_payment_folio: a.kepler_payment_folio,
-    lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null, probado_por_el_banco: !!a.paid_bank_movement_id,
+    lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null, probado_por_el_banco: !!a.paid_bank_movement_id, probado_por_comprobante: !!a.paid_proof_id,
     items: items.map(() => ({ obligation_source: 'kepler_payable', branch_code: servidor, kepler_saldada: false })),
   }));
   if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
@@ -201,7 +202,7 @@ export async function leerEnsayoPagoKepler(
   // que la Suite no la sabía queda como diferencia (no se esconde).
   const cuentaSuite = cuentas.length === 1 ? cuentas[0].code : '';
   const armado = armarPagosKepler({
-    sucursal: servidor, fecha: a.paid_bank_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), importe: Number(a.importe),
+    sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), importe: Number(a.importe),
     cuentaTesoreria: cuentaSuite || capturas[0]?.cuenta || '', destino: a.destination_account_text ?? null, proveedor, facturas,
   });
   if (!armado.ok) motivos.push(...armado.motivos.filter((m) => !motivos.includes(m)));
@@ -213,7 +214,7 @@ export async function leerEnsayoPagoKepler(
   const facturaDe = new Map(facturas.map((f) => [`${f.tipo}-${f.subtipo}-${f.folio}`, f]));
   if (!motivos.length && planes.length && alListo) {
     alListo({
-      sucursal: servidor, fecha: a.paid_bank_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), acreedor,
+      sucursal: servidor, fecha: a.paid_bank_date ?? a.paid_proof_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), acreedor,
       importe: Number(a.importe), origen: { bank: String(a.bank ?? ''), account_label: String(a.account_label ?? '') },
       destino: a.destination_account_text ?? null,
       facturas: facturas.map((f) => ({ tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, aplicado: f.aplicado })),
