@@ -97,7 +97,7 @@ function leerCsv(texto) {
   const filas = [];
   let fila = [], campo = '', comillas = false, linea = 1, inicio = 1;
   const cerrar = () => { fila.push(campo); campo = ''; if (fila.some((x) => x.trim() !== '')) filas.push({ inicio, celdas: fila }); fila = []; };
-  const t = texto.replace(/^﻿/, '');
+  const t = texto.replace(/^\uFEFF/, '');
   for (let i = 0; i < t.length; i++) {
     const c = t[i];
     if (comillas) {
