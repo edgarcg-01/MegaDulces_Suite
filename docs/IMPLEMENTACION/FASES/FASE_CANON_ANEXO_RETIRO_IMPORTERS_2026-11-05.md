@@ -1158,5 +1158,33 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
     pocos segundos al día.
   - **NO MEDIDO:** que el `NOTIFY` llegue, porque los avisos sólo salen al confirmar; lo prueba el paso 4. El andamio y el
     escenario de las dos pruebas de la oleada se movieron a `database/tests/_lib/existencia-escenario.js`.
+- **8b.4, el que escucha (2026-11-17).** `ExistenciaPorEventoService`, en
+  `libs/commercial/src/lib/commercial-analytics/existencia-por-evento.service.ts`, registrado en `CommercialAnalyticsModule`.
+  - **El patrón:** el de los oyentes que ya corren (pagos por el banco, la revisión TM). Escucha `existencia_sucia` sólo en
+    el worker (`WORKER=true`) y se apaga con `DISABLE_EXISTENCIA_POR_EVENTO=true`.
+  - **Cuándo drena:** junta los avisos con `MiradaAlAviso` (una pasada por cada 30 s de espera) y llama a
+    `analytics.drenar_existencia()`; la base decide todo lo demás. También mira al arrancar y cada vez que el `LISTEN`
+    vuelve: `NOTIFY` no se guarda, la cola sí.
+  - **Cómo responde a cada caso:** con `ocupado` vuelve a agendar la mirada sola. Con `error` lo escribe como error (la cola
+    quedó intacta en la base). Si su migración todavía no está aplicada (código `42883`), lo dice como aviso y no reintenta.
+  - **Ya no se muda nada:** `MiradaAlAviso` ya vivía en `libs/platform-core` (lo mudó `[AX.22]`). El módulo provee su
+    propio `PgListenService`, como `CommercialSalesDocumentsModule`; la conexión `LISTEN` sólo se abre si alguien escucha.
+  - `app_runtime` tiene `statement_timeout` de 120 s y el recálculo completo cuesta ~20 s.
+  - **Prueba** `existencia-por-evento.arranque.spec.ts`: 17 ✓. Cubre el grafo del módulo (#414: que compile no es que
+    arranque), quién escucha, que una ráfaga sea una pasada, la reconexión, `ocupado`, `vacio` sin reloj escondido, `error`,
+    «no instalado» contra otra falla y el apagado. Tipos sin errores en estos archivos; lint limpio.
+  - **Lo que falta para encenderlo**, en este orden y decisión del PM:
+    1. Aplicar `20261117085622` (puede ir en horario).
+    2. Aplicar `20261117094325` fuera de horario.
+    3. Desplegar la API: al arrancar, el worker hace el primer recálculo completo y llena las tablas.
+    4. Prender el interruptor:
+       `UPDATE analytics.existencia_por_evento SET encendida = true, nota = '…', updated_at = now();`
+       Desde ahí cada escritura de las fuentes anota y se drena.
+    5. Unos días de corridas en `analytics.existencia_corridas` con su árbitro.
+    6. Recién entonces los pasos 5 (lectores a las tablas) y 6 (sale `existencia-aux`).
+  - **Deuda con nombre:** Salud BD (`db-health`) todavía no muestra la edad de la cola, los errores de los disparadores ni la
+    última corrida; hoy se leen en `analytics.llaves_sucias`, `analytics.llaves_sucias_errores` y
+    `analytics.existencia_corridas`. Se hace antes del paso 6, porque sin eso retirar el latido de `existencia-aux` deja el
+    carril sin sensor.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
