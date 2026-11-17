@@ -157,6 +157,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   } @else {
                     <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="busy()" (click)="loteAConfirmar.set(g)"
                             [attr.aria-label]="'Aprobar completo el lote ' + (g.batch_folio || 'sin folio') + ': ' + g.pendientes + ' pendiente(s)'"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Aprobar lote ({{ g.pendientes }})</span></button>
+                    <!-- [PQ.126] Rechazar lo pendiente del lote desde su fila (pedido del PM, 2026-11-17).
+                         Medido: en 30 días se rechazaron a mano 153 de 47 lotes, una por una desde
+                         la ficha. Separado de «Aprobar» y en texto: es la destructiva. -->
+                    <button pButton type="button" class="p-button-sm p-button-text p-button-danger rq-lote-rech" [disabled]="busy()" (click)="rechazarLote(g)"
+                            [attr.aria-label]="'Rechazar las ' + g.pendientes + ' pendiente(s) del lote ' + (g.batch_folio || 'sin folio')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar lote ({{ g.pendientes }})</span></button>
                   }
                 }
                 <i class="pi pi-angle-right rq-muted" aria-hidden="true"></i>
@@ -495,23 +500,34 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       }
 
       <!-- [AB.32] Rechazar en lote: una requisición que pidió una sucursal no se rechaza sin decirle por qué. -->
-      <p-dialog [visible]="rechazoAbierto()" (visibleChange)="rechazoAbierto.set($event)" [modal]="true" [style]="{ width: '32rem' }"
-                [breakpoints]="{ '40rem': '95vw' }" header="Rechazar requisiciones" [dismissableMask]="!busy()">
-        <p class="rq-rech-p">Vas a rechazar <strong>{{ sel().size }}</strong> requisición(es).
-          @if (marcadasDeSucursal(); as k) { <strong>{{ k }}</strong> {{ k === 1 ? 'la pidió una sucursal' : 'las pidieron sucursales' }}: el motivo es obligatorio y la sucursal lo va a ver. }
-        </p>
-        <label class="rq-rech-lab" for="rq-rech-motivo">Motivo @if (!marcadasDeSucursal()) { <span class="rq-muted">(opcional)</span> }</label>
+      <p-dialog [visible]="rechazoAbierto()" (visibleChange)="$event ? rechazoAbierto.set(true) : cerrarRechazo()" [modal]="true" [style]="{ width: '32rem' }"
+                [breakpoints]="{ '40rem': '95vw' }" [header]="rechazoLote() ? 'Rechazar el lote' : 'Rechazar requisiciones'" [dismissableMask]="!busy()">
+        @if (rechazoLote(); as rl) {
+          <!-- [PQ.126] Lo que pasa, dicho antes: cuántas, de qué lote, qué no se toca y que Kepler no se entera. -->
+          <p class="rq-rech-p">Vas a rechazar las <strong>{{ rl.ids.length }}</strong> requisición(es) pendientes del lote <strong>{{ rl.g.batch_folio || 'sin folio' }}</strong>.
+            @if (rl.g.documentos > rl.ids.length) { Las otras {{ rl.g.documentos - rl.ids.length }} del lote ya se decidieron y no se tocan. }
+            @if (rl.enKepler === 0) { No toca Kepler: ninguna está allá todavía. }
+            @else { <strong>{{ rl.enKepler }}</strong> ya tiene(n) folio en Kepler y allá sigue(n) viva(s): se cancela(n) desde su ficha. }
+            @if (rl.deSucursal; as k) { <strong>{{ k }}</strong> {{ k === 1 ? 'la pidió una sucursal y va' : 'las pidieron sucursales y van' }} a ver el motivo. }
+            El motivo queda en cada una con tu nombre y la hora.
+          </p>
+        } @else {
+          <p class="rq-rech-p">Vas a rechazar <strong>{{ sel().size }}</strong> requisición(es).
+            @if (marcadasDeSucursal(); as k) { <strong>{{ k }}</strong> {{ k === 1 ? 'la pidió una sucursal' : 'las pidieron sucursales' }}: el motivo es obligatorio y la sucursal lo va a ver. }
+          </p>
+        }
+        <label class="rq-rech-lab" for="rq-rech-motivo">Motivo @if (!motivoObligatorio()) { <span class="rq-muted">(opcional)</span> }</label>
         <textarea pTextarea id="rq-rech-motivo" class="rq-rech-motivo" rows="3" maxlength="500"
                   [ngModel]="motivoRechazo()" (ngModelChange)="motivoRechazo.set($event)"
                   placeholder="Por ejemplo: la matriz no tiene existencia; se compra directo la otra semana"></textarea>
         <ng-template #footer>
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="rechazoAbierto.set(false)" [disabled]="busy()">
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="cerrarRechazo()" [disabled]="busy()">
             <span class="p-button-label">Cancelar</span>
           </button>
           <button pButton type="button" class="p-button-sm p-button-danger" (click)="confirmarRechazo()"
-                  [disabled]="busy() || (marcadasDeSucursal() > 0 && !motivoRechazo().trim())">
+                  [disabled]="busy() || (motivoObligatorio() && !motivoRechazo().trim())">
             <span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span>
-            <span class="p-button-label">Rechazar</span>
+            <span class="p-button-label">Rechazar {{ rechazoN() }}</span>
           </button>
         </ng-template>
       </p-dialog>
@@ -542,6 +558,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .rq-lote-que { display: flex; gap: .3rem; flex-wrap: wrap; }
     /* [PQ.15] Aprobar el lote desde su fila: los botones no abren el lote al hacer clic. */
     .rq-lote-acc { white-space: nowrap; display: flex; align-items: center; justify-content: flex-end; gap: .3rem; }
+    /* [PQ.126] La destructiva, separada de «Aprobar lote» (Von Restorff). */
+    .rq-lote-rech { margin-left: .75rem; }
     .rq-pill { font-size: var(--fs-micro); font-weight: 700; padding: .1rem .4rem; border-radius: 999px;
                border: 1px solid var(--surface-border); }
     .rq-pill-buy { color: var(--action); border-color: var(--action); }
@@ -901,17 +919,79 @@ export class ComprasRequisicionesComponent implements OnInit {
     return this.rows().filter((r) => sel.has(r.id) && r.requested_by_branch).length;
   });
 
+  /**
+   * `[PQ.126]` El lote cuyas pendientes se van a rechazar de golpe; `null` = el rechazo es de las
+   * marcadas con casilla (AB.32). Trae lo que el diálogo tiene que decir ANTES: cuántas, cuántas
+   * pidió una sucursal y cuántas ya tienen folio en Kepler (rechazar aquí no las cancela allá).
+   */
+  readonly rechazoLote = signal<{ g: RequisitionBatchRow; ids: string[]; folios: Map<string, string>; deSucursal: number; enKepler: number } | null>(null);
+  readonly rechazoN = computed<number>(() => this.rechazoLote()?.ids.length ?? this.sel().size);
+  /**
+   * `[PQ.126]` Rechazar un LOTE exige motivo siempre: la base sólo guarda quién y cuándo si hay
+   * motivo (`purchase_req_rechazo_con_motivo_chk`), y medido el 2026-11-17 los 153 rechazos a mano
+   * de 30 días quedaron sin ninguno de los dos. Hasta 200 de un clic no se rechazan sin rastro.
+   */
+  readonly motivoObligatorio = computed<boolean>(() => !!this.rechazoLote() || this.marcadasDeSucursal() > 0);
+
   abrirRechazo(): void {
     if (!this.sel().size) return;
+    this.rechazoLote.set(null);
     this.motivoRechazo.set('');
     this.rechazoAbierto.set(true);
   }
 
+  cerrarRechazo(): void {
+    this.rechazoAbierto.set(false);
+    this.rechazoLote.set(null);
+  }
+
   confirmarRechazo(): void {
     const motivo = this.motivoRechazo().trim();
-    if (this.marcadasDeSucursal() > 0 && !motivo) return;
-    this.rechazoAbierto.set(false);
+    if (this.motivoObligatorio() && !motivo) return;
+    const rl = this.rechazoLote();
+    this.cerrarRechazo();
+    if (rl) { this.aplicarLote(rl.ids, 'reject', motivo, rl.g.batch_folio || undefined, rl.folios); return; }
     this.lote('reject', motivo || null);
+  }
+
+  /**
+   * `[PQ.126]` Rechazar lo PENDIENTE de un lote desde su fila — el espejo de `aprobarLote`.
+   * Se piden al servidor sus pendientes (mismo tope de 200 del bulk) y se abre el diálogo con lo
+   * que va a pasar; nada se manda hasta confirmar con motivo. Las ya decididas no se tocan: el
+   * servidor sólo rechaza desde `pending_approval`.
+   */
+  rechazarLote(g: RequisitionBatchRow): void {
+    if (!g || g.pendientes <= 0 || this.busy()) return;
+    if (g.pendientes > ComprasRequisicionesComponent.TOPE_LOTE) {
+      this.toast.add({ severity: 'warn', summary: `El lote tiene ${g.pendientes} pendientes`, life: 10000,
+        detail: `El servidor acepta hasta ${ComprasRequisicionesComponent.TOPE_LOTE} por llamada. Abrí el lote y rechazalo por páginas.` });
+      return;
+    }
+    this.busy.set(true);
+    this.api.listRequisitions({ batch_id: g.lote, estado: 'pending_approval', pageSize: ComprasRequisicionesComponent.TOPE_LOTE })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.busy.set(false);
+          const rows = r.rows || [];
+          if (!rows.length) {
+            this.toast.add({ severity: 'info', summary: 'Nada que rechazar', detail: 'El lote ya no tiene documentos pendientes.', life: 6000 });
+            this.reload();
+            return;
+          }
+          this.loteAConfirmar.set(null);
+          this.motivoRechazo.set('');
+          this.rechazoLote.set({
+            g, ids: rows.map((x) => x.id), folios: new Map(rows.map((x) => [x.id, x.folio])),
+            deSucursal: rows.filter((x) => x.requested_by_branch).length,
+            enKepler: rows.filter((x) => !!x.kepler_folio).length,
+          });
+          this.rechazoAbierto.set(true);
+        },
+        error: (e) => {
+          this.busy.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo leer el lote', detail: e?.error?.message || 'Intenta de nuevo.' });
+        },
+      });
   }
   /**
    * Tres etiquetas para tres ausencias que no son la misma (ADR-056): salió · salió mal · nunca
@@ -1031,7 +1111,7 @@ export class ComprasRequisicionesComponent implements OnInit {
       });
   }
 
-  private aplicarLote(ids: string[], accion: 'approve' | 'reject', motivo: string | null, loteFolio?: string): void {
+  private aplicarLote(ids: string[], accion: 'approve' | 'reject', motivo: string | null, loteFolio?: string, foliosDelLote?: Map<string, string>): void {
     this.busy.set(true);
     this.api.bulkRequisiciones(ids, accion, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
@@ -1044,7 +1124,8 @@ export class ComprasRequisicionesComponent implements OnInit {
           detail: accion === 'approve' ? 'Quedan «sin empujar a Kepler»: el lote no escribe en el ERP; se empuja desde cada requisición cuando la escritura esté encendida.' : undefined,
         });
         if (r.fallas.length) {
-          const folios = new Map(this.rows().map((x) => [x.id, x.folio]));
+          // `[PQ.126]` Desde la vista de lotes las filas a la vista no son los documentos: el folio viene del lote.
+          const folios = foliosDelLote ?? new Map(this.rows().map((x) => [x.id, x.folio]));
           const det = r.fallas.slice(0, 3).map((f) => `${folios.get(f.id) || f.id.slice(0, 8)}: ${f.motivo}`).join(' · ');
           this.toast.add({
             severity: 'warn', summary: `${r.fallas.length} no se pudo(ieron)`, life: 15000,
