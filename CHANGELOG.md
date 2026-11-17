@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — El cliente sube su ficha de depósito desde su celular (CC.20 · 2026-11-17 · en código, sin soltar)
+- Cada cliente tiene un enlace personal, sin usuario ni contraseña: va en el mensaje de WhatsApp del estado de cuenta y como código QR impreso en el PDF. Ahí toma la foto de su ficha (o la captura de su transferencia), la Suite lee el monto y la fecha, y la envía.
+- Cobranza la recibe al momento en **Cobranza › Fichas de clientes**: la liga al cobro de Kepler (con los cobros del mismo monto como sugerencia) o la rechaza con un motivo que el cliente ve en su enlace.
+- En Cartera, la ficha del cliente muestra las fichas que subió y permite copiar su enlace.
+- Corregido: el resumen de cobranza dentro de la ficha de Cartera nunca aparecía, y por la misma falla tampoco los compromisos de pago.
+
 ### Changed — Pedidos del almacén: el Tablero abre en lo pendiente y con menos piezas (GP.RF.22 · 2026-11-17 · en código, sin soltar)
 - Al entrar se ve «Por hacer»: lo que sigue en el almacén, de autorizado a checado. Los embarcados y «Todos» quedan a un clic.
 - El periodo se elige en un desplegable; Surtir y Checar dejan de ser botones naranjas.

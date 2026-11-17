@@ -318,6 +318,8 @@ async function bootstrap() {
   // juntos) hasta 20MB → ~27MB en base64 → 32mb. (nginx client_max_body_size=32m aparte.)
   app.use('/api/finance/goods-receipts', json({ limit: '32mb' }));
   app.use('/api/finance/collections', json({ limit: '16mb' }));
+  // `[CC.20]` La ficha de depósito que sube el CLIENTE desde su enlace (pública): foto o PDF en base64, tope 8 MB.
+  app.use('/api/finance/deposito', json({ limit: '16mb' }));
   // CBW — captura bancaria por WhatsApp/web: sube la foto del depósito en base64.
   // Era el único módulo de evidencia SIN override → con el global de 2mb tiraba 413
   // (no 504) en cualquier foto de celular. Mismo techo que sus hermanos.

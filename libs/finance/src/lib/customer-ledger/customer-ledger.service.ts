@@ -111,6 +111,23 @@ export interface FuenteCartera { rel: string; porEvento: boolean; alDia: string 
  * base (`test-newdb-cartera-*`) leen ese bloque del código y lo corren tal cual. Si el texto no aparece UNA vez, falla en
  * voz alta: leer la vista en silencio mientras se cree leer la tabla sería el peor de los dos mundos.
  */
+/**
+ * `[CC.20]` Una lectura de MEJOR ESFUERZO dentro de una transacción. En Postgres un error deja la transacción
+ * abortada y todo lo que sigue falla; un `try/catch` solo NO alcanza. Aquí va en su SAVEPOINT: si falla, se vuelve
+ * a él y devuelve `null` (no se pudo saber), y el resto de la respuesta sigue funcionando.
+ */
+async function intentar<T>(trx: Knex.Transaction, nombre: string, fn: () => Promise<T>): Promise<T | null> {
+  await trx.raw(`SAVEPOINT ${nombre}`);
+  try {
+    const r = await fn();
+    await trx.raw(`RELEASE SAVEPOINT ${nombre}`);
+    return r;
+  } catch {
+    await trx.raw(`ROLLBACK TO SAVEPOINT ${nombre}`);
+    return null;
+  }
+}
+
 function conFuente(sql: string, rel: string): string {
   if (rel === 'analytics.customer_receivables') return sql;
   const de = 'FROM analytics.customer_receivables r\n';
@@ -316,7 +333,7 @@ export class CustomerLedgerService {
    * No es decorativo: el 2026-09-24 los dos carriles llevaban ~26 h sin latir y la pantalla
    * igual rotulaba «saldos al 2026-09-24» — que era el reloj de Postgres, no la edad del dato.
    */
-  private async freshness(trx: any, fuente?: FuenteCartera): Promise<Freshness> {
+  private async freshness(trx: Knex.Transaction, fuente?: FuenteCartera): Promise<Freshness> {
     try {
       const inputs = [
         evalInput('ods_live_hot', 'Saldos y cobros (kdue/kdm5)', await laneAt(trx, 'ods_live_hot'), 6),
@@ -338,7 +355,7 @@ export class CustomerLedgerService {
    * que drena se cayó, la tabla se queda vieja: se vuelve a la vista sin que nadie tenga que darse cuenta).
    * Sin la migración (tabla inexistente) es la vista, como siempre.
    */
-  private async fuenteCartera(trx: any): Promise<FuenteCartera> {
+  private async fuenteCartera(trx: Knex.Transaction): Promise<FuenteCartera> {
     const VISTA: FuenteCartera = { rel: 'analytics.customer_receivables', porEvento: false, alDia: null };
     const hay = (await trx.raw(`SELECT to_regclass('analytics.customer_receivables_current') IS NOT NULL AS ok`)).rows[0]?.ok;
     if (!hay) return VISTA;
@@ -397,7 +414,7 @@ export class CustomerLedgerService {
    * éste. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
    * drill** y la lista paga en cada request.
    */
-  private async agregado(trx: any, tenantId: string, q: CarteraQuery, fuente?: FuenteCartera) {
+  private async agregado(trx: Knex.Transaction, tenantId: string, q: CarteraQuery, fuente?: FuenteCartera): Promise<Record<string, any>> { // eslint-disable-line @typescript-eslint/no-explicit-any -- fila cruda del SQL; ya era any
     const rel = (fuente ?? (await this.fuenteCartera(trx))).rel;
     // Dos juegos de filtros: el de la pantalla y el MISMO sin el tipo de cuenta. El segundo
     // alimenta `por_tipo_universo` (ver abajo); sus binds se repiten en su lugar del SQL.
@@ -1354,28 +1371,41 @@ export class CustomerLedgerService {
       // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
       // Puente por cliente_code (los cobros de la suc '00' — Oficinas, no el CEDIS: ERP_KEPLER
       // §2.3 — traen el código del cliente). Best-effort.
+      //
+      // ⛔ `[CC.20]` Filtraba `d.estado`, y la columna se llama `status`: la consulta fallaba SIEMPRE (medido en prod
+      // el 2026-11-17) y el `catch` lo callaba. Peor: dentro de la transacción, la falla la dejaba ABORTADA, así que
+      // lo que venía después también fallaba en silencio — los compromisos nunca se mostraban y la frescura salía
+      // «no se pudo medir». Cada lectura de mejor esfuerzo va ahora en su SAVEPOINT (`intentar`).
       let cobranza: any = null;
-      try {
-        const cc = (await trx.raw(
-          `SELECT count(*)::int n, COALESCE(sum(e.monto), 0)::numeric monto, max(e.cobro_date)::text ultimo,
-                  count(d.id)::int con_ficha, count(*) FILTER (WHERE d.estado = 'validado')::int validados
-             FROM analytics.erp_collections e
-             LEFT JOIN finance.collection_deposits d
-               ON d.tenant_id = e.tenant_id AND d.sucursal = e.sucursal AND d.folio = e.folio
-            WHERE e.tenant_id = ? AND e.cliente_code = ?`,
-          [tenantId, cliente])).rows[0];
-        if (cc && cc.n > 0) {
-          cobranza = { n: cc.n, monto: M2(cc.monto), ultimo: cc.ultimo, con_ficha: cc.con_ficha, validados: cc.validados };
-        }
-      } catch { /* CC no disponible → sin puente */ }
+      const cc = await intentar(trx, 'cc_cobranza', async () => (await trx.raw(
+        `SELECT count(*)::int n, COALESCE(sum(e.monto), 0)::numeric monto, max(e.cobro_date)::text ultimo,
+                count(d.id)::int con_ficha, count(*) FILTER (WHERE d.status = 'validado')::int validados
+           FROM analytics.erp_collections e
+           LEFT JOIN finance.collection_deposits d
+             ON d.tenant_id = e.tenant_id AND d.sucursal = e.sucursal AND d.folio = e.folio
+          WHERE e.tenant_id = ? AND e.cliente_code = ?`,
+        [tenantId, cliente])).rows[0]);
+      if (cc && cc.n > 0) {
+        cobranza = { n: cc.n, monto: M2(cc.monto), ultimo: cc.ultimo, con_ficha: cc.con_ficha, validados: cc.validados };
+      }
 
-      let compromisos: any[] = [];
-      try { compromisos = await this.promisesOf(trx, tenantId, sucursal, cliente); } catch { /* tabla no migrada aún */ }
+      const compromisos = (await intentar(trx, 'cc_compromisos', () => this.promisesOf(trx, tenantId, sucursal, cliente))) ?? [];
+
+      // `[CC.20]` Las fichas que el CLIENTE subió desde su enlace (por revisar, ligadas o rechazadas). Sin la migración
+      // 20261117153156 (columna `origen`) no hay ninguna: `null` = no se puede saber, no «cero».
+      const depositosReportados = await intentar(trx, 'cc_reportados', async () => (await trx.raw(
+        `SELECT id, status, folio, motivo_rechazo, reported_monto::numeric AS monto, reported_fecha::text AS fecha,
+                ocr_banco AS banco, created_at::text AS reportado
+           FROM finance.collection_deposits
+          WHERE tenant_id = ? AND origen = 'cliente' AND cuenta_sucursal = ? AND cliente_code = ?
+          ORDER BY created_at DESC LIMIT 20`, [tenantId, sucursal, cliente])).rows
+        .map((r: { monto: string | number | null }) => ({ ...r, monto: r.monto != null ? M2(r.monto) : null })));
 
       return {
         hoy,
         cobranza,
         compromisos,
+        depositos_reportados: depositosReportados,
         freshness: await this.freshness(trx, fuente),
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,

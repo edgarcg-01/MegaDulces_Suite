@@ -223,6 +223,12 @@ export interface Partida {
   saldada: boolean; pagada_el: string | null; dias_pago: number | null;
   aplicaciones: Aplicacion[];
 }
+/** `[CC.20]` Una ficha que el cliente subió desde su enlace, vista desde Cartera. */
+export interface DepositoReportado {
+  id: string; status: 'recibido' | 'validado' | 'rechazado'; folio: string | null; motivo_rechazo: string | null;
+  monto: number | null; fecha: string | null; banco: string | null; reportado: string;
+}
+
 export interface CarteraDetalle {
   hoy: string;
   freshness: Freshness;
@@ -233,6 +239,11 @@ export interface CarteraDetalle {
   abonos: { doc_label: string; folio: string; fecha: string | null; importe: number }[];
   cobranza: { n: number; monto: number; ultimo: string | null; con_ficha: number; validados: number } | null;
   compromisos: Compromiso[];
+  /**
+   * `[CC.20]` Las fichas de depósito que el CLIENTE subió desde su enlace. `null` = no se puede saber (sin la
+   * migración de CC.20), que no es lo mismo que «ninguna».
+   */
+  depositos_reportados?: DepositoReportado[] | null;
 }
 export interface Compromiso { id: string; monto_prometido: number; fecha_promesa: string; estado: string; nota: string | null; created_by: string | null; created_at: string }
 
@@ -323,6 +334,10 @@ export class CarteraService {
     return this.http.post<{ id: string; estado: string }>(`${this.base}/promise/${encodeURIComponent(id)}/resolve`, { estado });
   }
   /** `[CXC.43]` Deja constancia del contacto (llamar, WhatsApp, PDF). */
+  /** `[CC.20]` La URL del enlace personal de la cuenta para subir su ficha de depósito (no escribe nada). */
+  enlaceDeposito(sucursal: string, cliente: string): Observable<{ url: string | null }> {
+    return this.http.post<{ url: string | null }>(`${environment.apiUrl}/finance/collections/clientes/enlace`, { sucursal, cliente });
+  }
   registrarContacto(sucursal: string, cliente: string, canal: CanalContacto): Observable<{ id: string; canal: CanalContacto; contacted_at: string }> {
     return this.http.post<{ id: string; canal: CanalContacto; contacted_at: string }>(
       `${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/contact`, { canal });

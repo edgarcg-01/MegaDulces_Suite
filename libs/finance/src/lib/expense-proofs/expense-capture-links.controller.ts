@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, requestOrigin } from '@megadulces/platform-core';
 import { ExpenseCaptureLinksService, IssueLinkDto } from './expense-capture-links.service';
 
 interface AuthedRequest {
@@ -9,23 +9,7 @@ interface AuthedRequest {
   protocol?: string;
 }
 
-/**
- * El origen público desde el que se sirve la app, leído de la petición que emite el link.
- *
- * Detrás de nginx/Railway el backend se ve a sí mismo en `127.0.0.1`, así que las cabeceras
- * `x-forwarded-*` son las que traen el dominio real que el trabajador va a abrir. Se toma el
- * PRIMER valor porque una cadena de proxies las acumula separadas por coma.
- */
-function requestOrigin(req?: AuthedRequest): string | undefined {
-  const first = (v: string | string[] | undefined): string | undefined => {
-    const s = Array.isArray(v) ? v[0] : v;
-    return s ? String(s).split(',')[0].trim() || undefined : undefined;
-  };
-  const host = first(req?.headers?.['x-forwarded-host']) ?? first(req?.headers?.['host']);
-  if (!host) return undefined;
-  const proto = first(req?.headers?.['x-forwarded-proto']) ?? req?.protocol ?? 'http';
-  return `${proto}://${host}`;
-}
+// El origen público de la petición: `requestOrigin` de platform-core (subió ahí en `[CC.20]`, al tercer uso).
 
 /**
  * GX.9 — administración de los links de captura de gasto (lado interno, con sesión).

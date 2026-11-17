@@ -92,6 +92,13 @@ export const routes: Routes = [
     path: 'captura/:token',
     loadComponent: () => import('./modules/finanzas/pages/captura-gasto-link.component').then(m => m.CapturaGastoLinkComponent),
   },
+  // `[CC.20]` El CLIENTE sube su ficha de depósito desde su enlace personal (WhatsApp o el QR del estado de cuenta).
+  // Mismo molde que `captura/:token`: al tope, fuera del layout y sin guard; la autoridad es el token, que el backend
+  // revalida contra la versión vigente del enlace de esa cuenta en cada uso.
+  {
+    path: 'deposito/:token',
+    loadComponent: () => import('./modules/finanzas/pages/deposito-cliente.component').then(m => m.DepositoClienteComponent),
+  },
   // ⭐⭐ `[CG.84]` **FIRMAR SIN INICIAR SESIÓN.** Edgar, 2026-10-13: *"el no password para
   // firmar"*.
   //
