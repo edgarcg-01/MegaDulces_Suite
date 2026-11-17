@@ -23,6 +23,10 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+// [MKT.27] La barra única del Andén (pistola + cámara + tecleado, filtra una lista local). Ya la usa
+// Ubicaciones fuera del Andén; deuda con nombre: moverla a shared/ (ADR-056), no se mueve aquí para
+// no tocar los archivos del Andén en este cambio.
+import { ScanFieldComponent } from '../../almacen/anden/components/scan-field.component';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -31,6 +35,7 @@ import { PROMOS_TABS } from '../promos-tabs';
 import {
   CANALES, CANAL_CORTO, CANAL_LARGO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
   textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe, VendedoraEnRanking, SIN_PROVEEDOR, nombreProveedor,
+  coincideRenglon,
 } from '../mkt-ranking.service';
 import { SUCURSALES_VENTA } from './mkt-ranking-promos.component';
 import { pdfRanking } from '../mkt-ranking-pdf';
@@ -56,7 +61,8 @@ type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
   selector: 'app-mkt-ranking',
   standalone: true,
   imports: [CommonModule, FormsModule, RouterLink, TableModule, TagModule, ButtonModule, InputTextModule, SelectModule, MultiSelectModule, PopoverModule, DatePickerModule, ToastModule,
-    PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent],
+    PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent,
+    ScanFieldComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -374,7 +380,25 @@ type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
             }
             @if (p.sin_objetivo) { {{ p.sin_objetivo }} sin objetivo no cuentan. }
           </p>
-          <p-table [value]="promosVisibles(p)" size="small" class="surf-table surf-table--plain">
+          <!-- [MKT.27] Buscar dentro: promoción, código, producto, SKU, proveedor o código de barras (pistola o cámara). -->
+          <div class="rk-peek-buscar">
+            <app-scan-field [valor]="buscaDetalle()" (valorChange)="buscaDetalle.set($event)" (enter)="refocoDetalle.set(refocoDetalle() + 1)"
+                            [refocoTick]="refocoDetalle()" [visibles]="promosDelDetalle(p).length" [total]="promosVisibles(p).length"
+                            etiqueta="Buscar en las promociones de este detalle"
+                            placeholder="Escanea o busca: promoción, producto, SKU, proveedor"></app-scan-field>
+            @if (sinCodigosBarras()) {
+              <p class="rk-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los códigos de barras: busca por SKU o por nombre.</p>
+            }
+            <div class="rk-peek-reporte">
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="pdfDetalle(p)"
+                      [disabled]="generando() || actualizando() || !promosDelDetalle(p).length" [loading]="generando()"
+                      [attr.aria-label]="buscaDetalle().trim() ? 'Imprimir sólo las promociones que coinciden con lo buscado' : 'Imprimir el detalle de ' + p.nombre">
+                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+                <span class="p-button-label">{{ buscaDetalle().trim() ? 'Imprimir lo filtrado' : 'Imprimir este detalle' }}</span>
+              </button>
+            </div>
+          </div>
+          <p-table [value]="promosDelDetalle(p)" size="small" class="surf-table surf-table--plain">
             <ng-template #header>
               <tr>
                 <th>Promoción</th>
@@ -388,7 +412,7 @@ type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
               <tr>
                 <td>
                   <span class="rk-promo">{{ x.mecanica }}</span>
-                  <span class="rk-tenue">{{ x.code }}</span>
+                  <span class="rk-tenue">{{ x.code }}@if (proveedorPorPromo().get(x.promo_id); as pv) { · {{ pv }} }</span>
                   @for (pr of x.productos; track pr.sku) {
                     <span class="rk-producto">{{ textoVentaProducto(pr) }}</span>
                   } @empty {
@@ -408,6 +432,11 @@ type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
                 <td class="comm-num rk-pct">{{ pct(x.cubrimiento) }}</td>
                 @if (canal() === 'mostrador') { <td class="comm-num">{{ x.existencia === null ? '—' : (x.existencia | number:'1.0-2') }}</td> }
               </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td [attr.colspan]="canal() === 'mostrador' ? 5 : 4" class="rk-tenue">
+                @if (buscaDetalle().trim()) { Ninguna promoción de {{ p.nombre }} coincide con «{{ buscaDetalle().trim() }}». } @else { Ninguna promoción coincide con el filtro de venta. }
+              </td></tr>
             </ng-template>
           </p-table>
           @if (puedeGestionar) {
@@ -461,6 +490,8 @@ type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
     .rk-pct { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .rk-metodo { color: var(--text-muted); font-size: var(--fs-xs); margin-top: var(--sp-3); max-width: 70rem; }
     .rk-peek-frase { margin: 0 0 var(--sp-4); }
+    .rk-peek-buscar { margin: 0 0 var(--sp-3); }
+    .rk-peek-reporte { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
     .rk-peek-dato { margin: 0 0 var(--sp-3); }
     .rk-peek-h { font-size: var(--fs-sm); font-weight: var(--fw-bold); margin: var(--sp-4) 0 var(--sp-2); }
     .rk-peek-pie { margin-top: var(--sp-2); }
@@ -490,6 +521,10 @@ export class MktRankingComponent {
   readonly canal = signal<Canal>('mostrador');
   readonly busqueda = signal('');
   readonly abierto = signal<ParticipanteRanking | null>(null);
+  /** [MKT.27] El buscador DENTRO del detalle de un participante (pistola o tecleado); se vacía al abrir otro. */
+  readonly buscaDetalle = signal('');
+  /** [MKT.27] Tras cada Enter de la pistola el campo se reenfoca y selecciona: la siguiente lectura pisa la anterior. */
+  readonly refocoDetalle = signal(0);
   readonly generando = signal(false);
 
   // ── `[MKT.16]` filtros ──
@@ -567,6 +602,18 @@ export class MktRankingComponent {
   }
 
   promosVisibles(p: ParticipanteRanking): RenglonRanking[] { return p.promos.filter(this.conEstado); }
+
+  /** [MKT.27] El proveedor de cada promo del ranking, con su fuente («del producto» nunca se lee como asignado). */
+  readonly proveedorPorPromo = computed(() => new Map((this.datos()?.promos_ranking ?? []).map((x) => [x.promo_id, x.proveedor ? nombreProveedor(x.proveedor, x.proveedor_fuente) : ''])));
+  /** [MKT.27] Las promos del detalle que coinciden con el buscador de adentro (además del filtro de venta). */
+  promosDelDetalle(p: ParticipanteRanking): RenglonRanking[] {
+    const q = this.buscaDetalle();
+    const prov = this.proveedorPorPromo();
+    const codigos = this.datos()?.codigos_barras;
+    return this.promosVisibles(p).filter((x) => coincideRenglon(q, x, prov.get(x.promo_id) ?? '', codigos));
+  }
+  /** [MKT.27] Si el servidor no pudo leer los códigos de barras y lo buscado parece uno, se dice (no es «ninguna coincide»). */
+  readonly sinCodigosBarras = computed(() => this.datos()?.codigos_barras === null && /^\d{8,14}$/.test(this.buscaDetalle().trim()));
 
   /**
    * [MKT.25] Quién vendió la promo abierta en el mostrador: las vendedoras que las cajeras
@@ -804,7 +851,7 @@ export class MktRankingComponent {
     this.canal.set(v as Canal);
   }
 
-  abrir(p: ParticipanteRanking): void { this.abierto.set(p); }
+  abrir(p: ParticipanteRanking): void { this.buscaDetalle.set(''); this.abierto.set(p); }
 
   drill(id: string): void {
     if (id === 'objetivos' || id === 'promos') this.irAObjetivos();
@@ -897,12 +944,55 @@ export class MktRankingComponent {
       this.toast.add({ severity: 'info', summary: 'Nada que reportar', detail: 'Ningún renglón coincide con tus filtros. Cámbialos o quítalos.' });
       return;
     }
+    await this.imprimirFiltrado(d, r, this.filtrosTexto(), false, 'Preparando el reporte filtrado…');
+  }
+
+  /**
+   * [MKT.27] El PDF de lo que se ve DENTRO del detalle de un participante: sólo sus promociones que
+   * coinciden con el buscador (y el filtro de venta), y en la portada cada filtro, la sucursal o el
+   * vendedor y lo buscado. Sin las tablas de toda la semana: no es lo que se filtró.
+   */
+  async pdfDetalle(p: ParticipanteRanking): Promise<void> {
+    const d = this.datos();
+    if (!d || this.generando() || this.actualizando()) return;
+    const rep = this.reporteDetalle(d, p);
+    if (!rep) {
+      this.toast.add({ severity: 'info', summary: 'Nada que imprimir', detail: 'Ninguna promoción coincide con lo que buscaste. Cámbialo o bórralo.' });
+      return;
+    }
+    await this.imprimirFiltrado(d, rep.ranking, rep.filtros, true, 'Preparando el reporte del detalle…');
+  }
+
+  /** [MKT.27] Lo que lleva el reporte del detalle: las MISMAS promociones que se ven (`promosDelDetalle`). null = nada. */
+  reporteDetalle(d: RankingSemana, p: ParticipanteRanking): { ranking: RankingSemana; filtros: string[] } | null {
+    const promos = this.promosDelDetalle(p);
+    if (!promos.length) return null;
+    const ids = new Set(promos.map((x) => x.promo_id));
+    const q = this.buscaDetalle().trim();
+    return {
+      ranking: {
+        ...d,
+        participantes: [{ ...p, promos }],
+        promos_ranking: d.promos_ranking.filter((x) => ids.has(x.promo_id)),
+        vendedoras: null,
+      },
+      filtros: [
+        ...this.filtrosTexto(),
+        (this.canal() === 'mostrador' ? 'Sucursal: ' : 'Vendedor: ') + p.nombre,
+        ...(q ? ['Buscado en el detalle: «' + q + '»'] : []),
+        `Promociones: ${promos.length} de ${this.promosVisibles(p).length}`,
+      ],
+    };
+  }
+
+  /** Arma y entrega un PDF filtrado (uno solo a la vez); si falla, lo dice y cierra la pestaña. */
+  private async imprimirFiltrado(d: RankingSemana, r: RankingSemana, filtros: string[], soloDetalle: boolean, preparando: string): Promise<void> {
     this.generando.set(true);
-    const win = abrirPestanaParaPdf('Preparando el reporte filtrado…');
+    const win = abrirPestanaParaPdf(preparando);
     try {
       const { blob, archivo } = await pdfRanking({
         semana: d.semana, rankings: [r], elaboro: this.auth.user()?.username ?? 'Mercadotecnia',
-        consultado: new Date(d.consultado_at), filtros: this.filtrosTexto(),
+        consultado: new Date(d.consultado_at), filtros, soloDetalle,
       });
       const donde = entregarPdf(win, blob, archivo);
       if (donde === 'descarga') this.toast.add({ severity: 'success', summary: 'Reporte descargado', detail: archivo });

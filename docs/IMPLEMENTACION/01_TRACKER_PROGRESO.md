@@ -72,6 +72,50 @@
 | 7465 | 7530 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 7531 | 7558 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 7559 | 7725 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 7726 | 8126 | 185 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8127 | 8189 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8190 | 8319 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 8320 | 8382 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 8383 | 8543 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 8544 | 8614 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 8615 | 8663 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8664 | 8696 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8697 | 9253 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9254 | 9385 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 9386 | 9439 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 9440 | 9479 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 9480 | 9532 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 9533 | 9599 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 9600 | 9762 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9763 | 10046 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10047 | 10214 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10215 | 12645 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 12646 | 12654 | 1 | Fase RR — Ventas por ruta |
+| 12655 | 12950 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12951 | 12961 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12962 | 12982 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12983 | 12993 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12994 | 13005 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13006 | 13065 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13066 | 13493 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 13494 | 13508 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 13509 | 13550 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 13551 | 13707 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 13708 | 13738 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13739 | 13913 | 27 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13914 | 13978 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13979 | 13987 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13988 | 14021 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14028 | 14037 | 1 | 📝 Convenciones |
+| 14038 | 14075 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14076 | 14094 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14095 | 14147 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14148 | 14520 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14521 | 14551 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14552 | 14573 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14574 | 14601 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14602 | 14633 | 19 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14634 | 14657 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 | 7726 | 8127 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
 | 8128 | 8190 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
 | 8191 | 8320 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
@@ -14687,3 +14731,4 @@ Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace
 - [ ] 🧪 `[MKT.24]` Proveedor de cada promoción: el código de la promo en Kepler no lo trae (ficha = cubeta «PROMOCIONES MKT»; marca y compras tampoco), pero el **producto que la activa** sí: se deriva en vivo, marcado «del producto», sólo si todos sus productos son de un mismo proveedor (57 de 108 en prod, confirmado por el nombre). El resto lo asigna Mercadotecnia en Objetivos, en la celda (el derivado es la sugerencia); KPI «Sin proveedor» con desglose. Ranking: filtro por proveedor (incluye «sin asignar») en el servidor; proveedor en fila, detalle y PDF. **Migración** `20261113161815_mkt_ranking_promo_proveedor.js` (columna nullable + FK) **antes de soltar**; sin ella leer no truena y asignar da 503. «Venta (pz)»: en Kepler la caja de una promo es de 1 pieza (69 de 70).
 - [ ] 🧪 `[MKT.25]` Quién vendió cada promoción: el detalle trae proveedor, la tabla por sucursal o vendedor y, en mostrador, las vendedoras del arqueo con sus piezas de esa promo y cuánto de la venta ya tiene vendedora (lo atribuido no se presenta como el total). Sin endpoint nuevo.
 - [ ] 🧪 `[MKT.26]` Tiempo de carga, auditado en prod (sólo lectura, el servicio real): ranking de Sucursales 17–20 s → 2.6 s (1.4–1.8 s con caché) y Objetivos 28 s → 1.7 s. `co AS MATERIALIZED` (se recalculaba una vez por promo), tramos en paralelo sin anidar, existencias desde el inicio y caché del producto (`TenantCacheService`, 10 min). Salida idéntica antes/después en 9 casos. ⚠️ Con sólo el #541 el ranking sale con los 17 s. Pruebas: dominio 65, pantalla 83; 9 mutaciones → rojo. NO MEDIDO: arranque de la API, HTTP de punta a punta, pantalla viva, carga concurrente.
+- [ ] 🧪 `[MKT.27]` Buscador DENTRO del detalle de cada sucursal/vendedor del ranking (pedido de Mercadotecnia, 2026-11-17): promoción (mecánica y código), producto, SKU, proveedor y **código de barras con pistola o cámara** (reusa `app-scan-field` del Andén, «N de M»). El backend manda una vez por respuesta `codigos_barras` (`sku → códigos`, de `catalog.product_barcodes`, principal + secundarios); si no se puede leer llega `null` y la pantalla lo avisa. Medido en prod (sólo lectura): 5 de 5 productos de control con código; los códigos de promo no tienen; 148 códigos apuntan a más de un SKU. **Imprimir lo filtrado** desde el mismo detalle: PDF sólo con las promociones que se ven (sin las tablas de toda la semana), portada con filtros, sucursal, lo buscado y «N de M», y el proveedor en cada renglón del detalle (también en el reporte de la semana). Precio: fuera, pendiente de investigar su fuente en Kepler. Pruebas: dominio 68 (+3), componente 33 (+8) y PDF 9 (+2); 4 mutaciones → rojo. Deuda: mover `scan-field` a `shared/` (ADR-056). NO MEDIDO: pantalla viva, arranque de la API.

@@ -115,6 +115,28 @@ it('[MKT.21] filtrado: la portada dice que NO es el ranking completo y con qué 
     expect(todo).not.toContain('Es el reporte completo de la semana');
   });
 
+  it('⭐ [MKT.27] el reporte del detalle trae SÓLO el detalle (sin lugares, por promoción ni por vendedora) y cada promo dice su proveedor', async () => {
+    const { pdfRanking } = await import('./mkt-ranking-pdf');
+    tablas.length = 0; textos.length = 0;
+    const { archivo } = await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date(),
+      filtros: ['Canal: Sucursales (mostrador)', 'Sucursal: Padre Hidalgo', 'Buscado en el detalle: «leche»', 'Promociones: 1 de 3'], soloDetalle: true });
+    expect(tablas.map((t) => t.head?.[0]?.[0])).toEqual(['Código']);
+    expect(tablas[0].body?.[0]?.[1]).toContain('Proveedor: CD015 · DULCES DEMO SA');
+    const todo = textos.join(' ');
+    expect(todo).toContain('Detalle de promociones (filtrado)');
+    expect(todo).toContain('Buscado en el detalle: «leche»');
+    expect(todo).not.toContain('Por vendedora: Kepler');
+    expect(archivo).toMatch(/^RANKING-PROMOCIONES-S45-DETALLE-FILTRADO-/);
+  });
+
+  it('[control MKT.27] el reporte de la semana conserva sus 4 tablas y su nota por vendedora', async () => {
+    const { pdfRanking } = await import('./mkt-ranking-pdf');
+    tablas.length = 0; textos.length = 0;
+    await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date() });
+    expect(tablas.map((t) => t.head?.[0]?.[0])).toEqual(['Lugar', 'Lugar', 'Lugar', 'Código']);
+    expect(textos.join(' ')).toContain('Por vendedora: Kepler');
+  });
+
   it('sin filtros sigue siendo el reporte completo (control)', async () => {
     const { pdfRanking } = await import('./mkt-ranking-pdf');
     const { archivo } = await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date(), filtros: [] });
