@@ -217,6 +217,15 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
              (Edgar, 2026-11-17: «usar cuadre en vez de usar el libro»). Primero lo que no cuadra: es lo que hay que bajar. -->
         @if (cuentasCuadre().length) {
           <h4 class="eb-sec">Cuadre <span class="muted">· la descarga de cada cuenta, por sus saldos</span></h4>
+          <!-- [CB.80] Edgar: «botón Usar el banco en las que cuadran». Una persona decide (D3), con UNA confirmación que nombra
+               cada cuenta; se pasan una por una por el mismo endpoint y un fallo no detiene a las demás. -->
+          @if (puedeSubir() && listasParaUsar().length) {
+            <div class="eb-todas">
+              <button pButton type="button" class="p-button-sm" [disabled]="pasando() !== null" [loading]="pasando() === 'todas'"
+                      (click)="pedirUsarTodas()"><span class="p-button-label">{{ pasando() === 'todas' ? avanceTodas() : 'Usar el banco en ' + (listasParaUsar().length === 1 ? 'la que cuadra' : 'las ' + listasParaUsar().length + ' que cuadran') }}</span></button>
+              <span class="muted">{{ textoListas() }}</span>
+            </div>
+          }
           <p-table [value]="cuentasCuadre()" dataKey="id" size="small" class="surf-table surf-table--plain">
             <ng-template #header>
               <tr><th>Cuenta</th><th>Descarga</th><th>Cuadre</th><th>Usar el banco</th></tr>
@@ -243,6 +252,19 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
           <p class="eb-leyenda"><b>cuadra</b>: cada descarga abre en el saldo con que la cuenta ya iba, y la primera en el saldo con que cerró antes de bajarla;
             los días sin movimientos no lo rompen porque el saldo no se mueve. No ve renglones que falten y se anulen entre sí (una entrada y una salida iguales).
             <b>Usar el banco</b>: desde el primer día de su descarga, los movimientos de la cuenta salen del banco y no del libro.</p>
+          <p-confirmdialog key="usar-el-banco-todas" defaultFocus="reject" [style]="{ width: 'min(36rem, 92vw)' }">
+            <ng-template #message>
+              <div class="eb-confirma">
+                <p>Estas cuentas cuadran por saldos. Desde el primer día de su descarga, sus movimientos salen del banco y no del libro:</p>
+                <ul>
+                  @for (c of listasParaUsar(); track c.id) { <li><b>{{ c.alias }}</b> desde el {{ c.cuadre.desde | date:'dd/MM/yy' }}</li> }
+                </ul>
+                <p>En cada una: lo del libro antes de esa fecha no se toca; lo que el libro trae desde esa fecha lo reemplaza el banco; la
+                  carga del libro deja de meter renglones de esa cuenta. Queda registrado que lo decidiste tú y no hay botón para regresar.</p>
+                @if (listasNoCuadran().length) { <p class="muted">No entran (todavía no cuadran): {{ listasNoCuadran().join(', ') }}.</p> }
+              </div>
+            </ng-template>
+          </p-confirmdialog>
           <p-confirmdialog key="usar-el-banco" defaultFocus="reject" [style]="{ width: 'min(34rem, 92vw)' }">
             <ng-template #message>
               @if (aConfirmar(); as c) {
@@ -342,6 +364,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-acepto { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); font-size: var(--fs-xs); color: var(--text-main); cursor: pointer; }
     .eb-leyenda { margin: 0; padding: var(--sp-2) var(--sp-3) 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .eb-sec { margin: var(--sp-3) 0 var(--sp-1); padding: 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .eb-todas { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-xs); }
     .eb-dejar { min-width: 11rem; white-space: nowrap; }
     .eb-confirma { font-size: var(--fs-sm); color: var(--text-main); }
     .eb-confirma p { margin: 0 0 var(--sp-2); }
@@ -395,6 +418,15 @@ export class BancosEstadoBancoComponent implements OnInit {
   });
   /** [CB.60b] La cuenta que se está pasando al banco (una a la vez) y la que espera confirmación. */
   readonly pasando = signal<string | null>(null);
+  /** [CB.80] Las cuentas que cuadran y todavía no usan el banco: las que pasa el botón masivo. */
+  readonly listasParaUsar = computed(() => this.cuentasCuadre().filter((c) => this.usar(c).accion));
+  /** [CB.80] Las que no cuadran ni usan el banco: se nombran en la confirmación para que no se lean como olvidadas. */
+  readonly listasNoCuadran = computed(() => this.cuentasCuadre().filter((c) => !c.banco_desde && !this.usar(c).accion).map((c) => c.alias));
+  readonly textoListas = computed(() => {
+    const n = this.listasParaUsar().length, no = this.listasNoCuadran().length;
+    return no ? `${no} todavía no cuadran: se quedan con el libro hasta que se baje lo que les falta.` : (n === 1 ? 'Es la única que falta.' : 'Son todas las que faltan.');
+  });
+  readonly avanceTodas = signal('');
   readonly aConfirmar = signal<CuentaEnCuadre | null>(null);
 
   readonly lote = signal<ArchivoEnLote[]>([]);
@@ -560,6 +592,49 @@ export class BancosEstadoBancoComponent implements OnInit {
       accept: () => { this.aConfirmar.set(null); this.usarElBanco(c); },
       reject: () => this.aConfirmar.set(null),
     });
+  }
+
+  /** [CB.80] Una sola confirmación para todas las que cuadran (D3: la decide una persona, esta vez para varias). */
+  pedirUsarTodas(): void {
+    if (!this.listasParaUsar().length || this.pasando() !== null) return;
+    this.confirm.confirm({
+      key: 'usar-el-banco-todas', header: `Usar el banco en ${this.listasParaUsar().length} cuentas`,
+      acceptLabel: 'Usar el banco en todas', rejectLabel: 'Cancelar', rejectButtonStyleClass: 'p-button-text',
+      accept: () => { void this.usarTodas(); },
+    });
+  }
+
+  /**
+   * [CB.80] Las pasa UNA POR UNA por el mismo endpoint que el botón de cada fila (probado contra base real en
+   * `test-newdb-bank-estado-de-cuenta`): cada cuenta en su transacción. Un fallo se dice con su motivo y no detiene a las
+   * demás (fallos parciales, nunca un «falló todo» binario); las que fallan siguen con su botón.
+   */
+  async usarTodas(): Promise<void> {
+    const cuentas = this.listasParaUsar().slice();
+    if (!cuentas.length || this.pasando() !== null) return;
+    this.pasando.set('todas');
+    const ok: string[] = [], mal: string[] = [];
+    let metidos = 0;
+    for (let i = 0; i < cuentas.length; i++) {
+      const c = cuentas[i];
+      this.avanceTodas.set(`Pasando ${i + 1} de ${cuentas.length}: ${c.alias}…`);
+      try {
+        const r = await firstValueFrom(this.api.usarElBanco(c.id));
+        ok.push(c.alias); metidos += r.metidos ?? 0;
+      } catch (e) {
+        const err = e as HttpErrorResponse;
+        const motivos: string[] | undefined = err?.error?.motivos;
+        mal.push(`${c.alias} (${motivos?.length ? motivos.join('; ') : this.mensaje(err, 'no se pudo')})`);
+      }
+    }
+    this.pasando.set(null);
+    this.avanceTodas.set('');
+    if (ok.length) this.toast.add({ severity: mal.length ? 'warn' : 'success', life: 10000,
+      summary: `${ok.length} de ${cuentas.length} cuentas ya usan el banco`,
+      detail: `${ok.join(', ')}: ${metidos} movimientos de la descarga entraron a Movimientos.` });
+    if (mal.length) this.toast.add({ severity: 'error', sticky: true, summary: `${mal.length} siguen con el libro`, detail: mal.join(' · ') });
+    this.cargar();
+    this.guardado.emit();
   }
 
   usarElBanco(c: CuentaEnCuadre): void {
