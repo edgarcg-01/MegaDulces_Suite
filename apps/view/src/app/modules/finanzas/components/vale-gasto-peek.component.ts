@@ -13,6 +13,9 @@ import {
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 // `[PGP.79]` La misma lectura que el renglón de la bandeja: una regla, no dos.
 import { explicacionKepler, lecturaKepler, type DetalleDeLaSolicitud, type KeplerDelVale } from '@megadulces/contracts';
+// `[PGP.123]` G.UI.5 — La misma línea del gasto que la cola «Esperan a Kepler»: una regla, no dos.
+import type { ComprobacionEnLaCola } from '@megadulces/contracts';
+import { lineaDelGasto, puedeEscribirseYa } from '../pages/esperan-kepler.ayudas';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
 export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura'
@@ -177,6 +180,24 @@ type DocDelExpediente = DocEvidencia;
         }
 
         <!--
+          [PGP.123] G.UI.5 — El eslabón que faltaba: el gasto (X-A-10). Antes la cadena se cortaba en «Solicitud ·
+          Kepler: autorizada» y remataba «no hay nada que decidir», aunque el gasto seguía pendiente. Dice si falta (el
+          motivo y a quién le toca), si lo escribió la Suite (folio, póliza, fecha) o si ya está en Kepler.
+        -->
+        @if (lineaG(); as l) {
+          <h3 class="vp-h">Gasto en Kepler (X-A-10)</h3>
+          <div class="vp-kep">
+            <p class="vp-kep-t" [class.ok]="l.tono === 'ok'" [class.warn]="l.tono === 'warn'" [class.bad]="l.tono === 'bad'">{{ l.texto }}</p>
+            @if (l.quien) { <p class="vp-kep-t">Le toca a {{ l.quien }}.</p> }
+            @if (gastoKepler()?.gasto?.fecha; as fg) { <p class="vp-kep-t">Fecha del gasto en Kepler: {{ diaLocal(fg) | date: 'dd/MM/yy' }}</p> }
+            @if (puedeReintentarGasto() && escribibleG()) {
+              <p-button type="button" [label]="gastoKepler()?.gasto?.status ? 'Reintentar el gasto' : 'Escribir el gasto ahora'"
+                        icon="pi pi-refresh" size="small" [outlined]="true" [disabled]="ocupado()" (onClick)="reintentarGasto.emit(p.id)" />
+            }
+          </div>
+        }
+
+        <!--
           [GX.48] La CONSTANCIA de autorizacion de Kepler. Va ANTES de la evidencia porque es
           el permiso, no el comprobante: primero por que se pudo gastar, despues en que.
 
@@ -324,7 +345,10 @@ type DocDelExpediente = DocEvidencia;
             }
           </div>
         } @else {
-          <p class="ap-faint vp-cerrado">Este vale ya se resolvió: no hay nada que decidir.</p>
+          <!-- [PGP.123] G.UI.1: la frase se acota a la Suite. Un vale validado puede seguir esperando su gasto en
+               Kepler (la cola «Esperan a Kepler» de esta misma pantalla), y «no hay nada que decidir» se leía como
+               trámite terminado. -->
+          <p class="ap-faint vp-cerrado">En la Suite ya se resolvió: aquí no hay nada que decidir.</p>
         }
         </div>
       </div>
@@ -339,6 +363,9 @@ type DocDelExpediente = DocEvidencia;
   .vp-kep { display: flex; flex-direction: column; gap: var(--sp-1); }
   .vp-kep-t { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
   .vp-kep-t.bad { color: var(--bad-fg); }
+  /* [PGP.123] G.UI.5: el tono del gasto, además de su texto (los -soft-fg pasan AA como texto). */
+  .vp-kep-t.ok { color: var(--ok-soft-fg); }
+  .vp-kep-t.warn { color: var(--warn-soft-fg); }
   /* [PGP.122] Los renglones que se escriben en Kepler: una lista, no una rejilla (el visor es angosto). */
   .vp-ren { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-1); }
   .vp-ren li { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); font-size: var(--fs-sm); }
@@ -377,7 +404,8 @@ type DocDelExpediente = DocEvidencia;
   .vp-datos dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
   .vp-mono { font-family: var(--font-mono); }
   .vp-nota { font-size: var(--fs-sm); color: var(--fg-2); font-style: italic; margin: 0; }
-  .vp-nota.warn { color: var(--warn-fg); font-style: normal; }
+  /* [PGP.123] G.UI.8: --warn-fg como texto sobre blanco da 2.15:1; el -soft-fg pasa AA. */
+  .vp-nota.warn { color: var(--warn-soft-fg); font-style: normal; }
   .vp-nota.bad { color: var(--bad-fg); font-style: normal; }
   .vp-h-row { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
     margin: var(--sp-2) 0 0; }
@@ -485,6 +513,21 @@ export class ValeGastoPeekComponent {
     return ['stuck', 'rejected_by_kepler', 'pending', 'retry'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
   });
   readonly reintentarKepler = output<string>();
+  /**
+   * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale, de la cola de comprobación. `undefined` = la página no lo tiene
+   * (el vale no espera su gasto): el eslabón no se pinta. `null` = espera su gasto, pero no se pudo calcular qué le
+   * falta: se DICE, no se calla.
+   */
+  readonly gastoKepler = input<ComprobacionEnLaCola | null | undefined>(undefined);
+  /** La página ofrece «Escribir / Reintentar el gasto» (Aprobación, que exige COMPROBAR, igual que el servidor). */
+  readonly puedeReintentarGasto = input(false);
+  readonly reintentarGasto = output<string>();
+  readonly lineaG = computed(() => {
+    const g = this.gastoKepler();
+    return g === undefined ? null : lineaDelGasto(g);
+  });
+  /** Sólo si la Suite lo escribiría (listo, base abierta) y no hay gasto escrito: si no, el botón repetiría el motivo. */
+  readonly escribibleG = computed(() => puedeEscribirseYa(this.gastoKepler()));
 
   /** `[GX.30]` Aprobar viaja con la marca: ver `AprobacionVale`. */
   readonly aprobar = output<AprobacionVale>();

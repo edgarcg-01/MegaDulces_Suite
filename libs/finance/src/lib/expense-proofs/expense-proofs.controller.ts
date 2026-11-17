@@ -9,7 +9,7 @@ import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, ty
 // `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
-import type { ValeAsignado } from '@megadulces/contracts';
+import type { CanceladaResuelta, EstadoKeplerDelGasto, ValeAsignado } from '@megadulces/contracts';
 // `[GX.71]` Quién ve el historial de TODOS: una regla, la misma que usa la pantalla.
 import { leerFiltroHistorial, puedeVerHistorialDeTodos } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
@@ -410,6 +410,31 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Valida el expediente de gasto (con reclasificación opcional). Auditado.' })
   validate(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body, quienDecide(req));
+  }
+
+  // `[PGP.123]` G.9 — «Reintentar» el gasto (X-A-10) de un vale validado en Kepler: la misma persona que valida.
+  // Si no toca (apagado, otro mes, otro importe…) contesta el estado con su motivo; no es un error.
+  @Post(':id/reintentar-gasto')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.123] G.9 Reintenta comprobar el gasto (X-A-10) de un vale validado en Kepler; devuelve cómo quedó, con su motivo si no tocaba.' })
+  reintentarGasto(@Param('id') id: string, @Req() req: AuthedRequest): Promise<EstadoKeplerDelGasto | null> {
+    return this.svc.reintentarGasto(id, req?.user?.full_name || req?.user?.username);
+  }
+
+  // `[PGP.123]` G.UI.1e — Cerrar el caso de una cancelada en Kepler: «Ya lo revisé» (con nota) o ligarla a su recaptura.
+  // El mismo permiso que firmar; quien capturó el vale no cierra el suyo.
+  @Post(':id/cancelada/revisar')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.123] G.UI.1e «Ya lo revisé»: cierra el caso de un vale cuya solicitud Kepler canceló, con lo que se hizo.' })
+  revisarCancelada(@Param('id') id: string, @Body() body: { nota?: string }, @Req() req: AuthedRequest): Promise<CanceladaResuelta> {
+    return this.svc.revisarCancelada(id, body?.nota, quienDecide(req));
+  }
+
+  @Post(':id/cancelada/ligar')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.123] G.UI.1e Liga el vale de una solicitud cancelada a su recaptura (la que propone la pista).' })
+  ligarCancelada(@Param('id') id: string, @Body() body: { folio?: string }, @Req() req: AuthedRequest): Promise<CanceladaResuelta> {
+    return this.svc.ligarCancelada(id, body?.folio, quienDecide(req));
   }
 
   // GX.9 — ligar una captura de campo con su solicitud Kepler. Mismo permiso que aprobar:

@@ -324,7 +324,144 @@ export const ETIQUETA_ESPERA_KEPLER: Record<EsperaKepler, string> = {
  * que Kepler pagó: lo raro se mira, no se tapa solo. Medido: 24 casos el 2026-11-05.
  */
 export function esHallazgoCanceladaConGasto(kepler_estado: string | null | undefined, kepler_aplicada: boolean | null | undefined): boolean {
-  return String(kepler_estado ?? '').trim() === 'C' && kepler_aplicada === true;
+  return solicitudCanceladaEnKepler(kepler_estado) && kepler_aplicada === true;
+}
+
+/**
+ * `[PGP.123]` G.UI.1c — ¿Kepler canceló la solicitud del vale (`c43` = C)? Con su gasto generado o sin él: las dos van
+ * a «Canceladas en Kepler» (pedido de Francisco, 2026-11-16), no a la cola de lo que espera a Kepler.
+ */
+export function solicitudCanceladaEnKepler(kepler_estado: string | null | undefined): boolean {
+  return String(kepler_estado ?? '').trim() === 'C';
+}
+
+/**
+ * `[PGP.123]` G.UI.1d — **La pista de una cancelada**: lo que la Suite averigua sola para que una persona sólo decida
+ * (pedido de Francisco, 2026-11-16: «la Suite lo contesta sola y una persona lo confirma»). La calcula el servidor, en lote.
+ *
+ * Medido en prod el 2026-11-16 (43 canceladas): de las 29 con gasto, 14 se pagaron en efectivo según el vale y sólo 1
+ * tiene un pago aplicado en Kepler; de las 14 sin gasto, 2 tienen una recaptura clara, 1 varias iguales (un gasto que
+ * se repite) y 11 ninguna; en 2 con gasto la recaptura ya tiene su propio vale (el viejo puede estar repetido).
+ */
+export interface PistaCancelada {
+  /** La forma de pago que declaró el vale (`efectivo`, `transferencia`…). */
+  forma_pago: string | null;
+  /** Los pagos (`X-D-26`, `kdm5`) aplicados a los gastos de esa solicitud, aunque estén cancelados. `null` = no se midió. */
+  pagos: { folio: string; gasto_folio: string; aplicado: number; fecha: string | null; cancelado: boolean }[] | null;
+  /**
+   * Solicitudes vivas de la misma sucursal y acreedor, con el mismo total al centavo y fecha cercana, que pueden ser su
+   * recaptura. `con_vale` = ya tienen su propio vale en la Suite. `null` = no se midió.
+   */
+  recapturas: { folio: string; estado: string; fecha: string | null; con_vale: boolean }[] | null;
+  /**
+   * El gasto (`X-A-10`) que SIGUE vivo sobre la solicitud cancelada. `null` = ninguno vivo; ausente = no se sabe (un
+   * servidor anterior). ⛔ Con un gasto vivo no se liga el vale a otra solicitud: el gasto ya está en Kepler y la
+   * recaptura tendría el suyo (revisión independiente, 2026-11-17).
+   */
+  gasto_vivo?: string | null;
+}
+
+export type TonoDeLaPista = 'neutro' | 'warn' | 'bad';
+/** Lo que se le ofrece a la persona: ligar el vale a su recaptura, o rechazarlo por repetido. `null` = sólo revisar. */
+export type AccionDeLaCancelada = { tipo: 'ligar'; folio: string } | { tipo: 'repetido'; folio: string } | null;
+
+/** Dónde buscar un pago que Kepler no tiene, según la forma de pago que declaró el vale. */
+const SIN_PAGO_SEGUN_FORMA: Readonly<Record<string, string>> = {
+  transferencia: 'Sin pago en Kepler; el vale dice transferencia: búscala en el banco',
+  cheque: 'Sin pago en Kepler; el vale dice cheque: búscalo en el banco',
+  tarjeta: 'Sin pago en Kepler; el vale dice tarjeta: búscalo en su estado de cuenta',
+};
+
+const pesos2 = (n: number): string => `$${(Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const diaCorto = (f: string | null): string => (f && /^\d{4}-\d{2}-\d{2}/.test(f) ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(2, 4)}` : 's/f');
+
+/**
+ * Las palabras de la pista, en llano, y lo que se ofrece. Primero el dinero (lo que pregunta la lista), después la
+ * recaptura. ⛔ «Sin pago en Kepler» no es «no salió dinero»: un vale en efectivo salió de caja aunque Kepler no tenga el
+ * pago, y uno por transferencia hay que buscarlo en el banco.
+ */
+export function lecturaDeLaCancelada(p: PistaCancelada | null | undefined): { dinero: string; recaptura: string | null; tono: TonoDeLaPista; accion: AccionDeLaCancelada } {
+  if (!p) return { dinero: 'No se pudo averiguar qué pasó con el dinero: revísalo en Kepler', recaptura: null, tono: 'warn', accion: null };
+  const vivos = (p.pagos ?? []).filter((x) => !x.cancelado);
+  const forma = String(p.forma_pago ?? '').trim().toLowerCase();
+  let dinero: string;
+  let tono: TonoDeLaPista = 'neutro';
+  if (vivos.length) {
+    const x = vivos[0];
+    const mas = vivos.length > 1 ? ` (y ${vivos.length - 1} pago${vivos.length > 2 ? 's' : ''} más)` : '';
+    dinero = `Kepler lo pagó: XD2601-${x.folio} · ${pesos2(x.aplicado)} · ${diaCorto(x.fecha)}${mas}`;
+    tono = 'bad';
+  } else if (p.pagos === null) {
+    dinero = 'No se pudieron leer los pagos de Kepler';
+    tono = 'warn';
+  } else if (forma === 'efectivo') {
+    dinero = 'Pagado en efectivo según el vale: salió de caja, y Kepler no tiene el pago';
+  } else {
+    dinero = SIN_PAGO_SEGUN_FORMA[forma] ?? 'Sin pago en Kepler, y el vale no dice cómo se pagó: revísalo';
+    tono = 'warn';
+  }
+  const rs = p.recapturas;
+  if (!rs || !rs.length) return { dinero, recaptura: rs === null ? null : 'Sin recaptura con el mismo acreedor y total', tono, accion: null };
+  const libres = rs.filter((r) => !r.con_vale);
+  if (libres.length === 1) {
+    const r = libres[0];
+    const recaptura = `Posible recaptura: XA1501-${r.folio} (${r.estado === 'N' ? 'sin autorizar' : r.estado === 'A' ? 'autorizada' : 'aplicada'}, ${diaCorto(r.fecha)}), mismo acreedor y total`;
+    // ⛔ Sólo se ofrece ligar si se SABE que la cancelada ya no tiene gasto vivo: con uno vivo, el gasto quedaría dos
+    // veces en Kepler. Sin el dato (un servidor anterior), tampoco.
+    if (p.gasto_vivo) {
+      return { dinero, recaptura: `${recaptura}; pero su gasto sigue vivo en Kepler (X-A-10 ${p.gasto_vivo}): ligarla duplicaría el gasto`, tono: tono === 'bad' ? 'bad' : 'warn', accion: null };
+    }
+    return { dinero, recaptura, tono, accion: p.gasto_vivo === null ? { tipo: 'ligar', folio: r.folio } : null };
+  }
+  if (libres.length > 1) return { dinero, recaptura: `${libres.length} solicitudes del mismo acreedor y total: no se sabe cuál la reemplaza`, tono, accion: null };
+  const r = rs[0];
+  return { dinero, recaptura: `La recaptura XA1501-${r.folio} ya tiene su vale: éste puede estar repetido`, tono: tono === 'bad' ? 'bad' : 'warn', accion: { tipo: 'repetido', folio: r.folio } };
+}
+
+/**
+ * `[PGP.123]` G.UI.1b — **Qué le falta en Kepler a un vale ya resuelto en la Suite que no tiene su gasto ligado**, con
+ * las MISMAS reglas que «Esperan a Kepler» (`esperaDeKepler`, `esHallazgoCanceladaConGasto`): el Expediente y la cola
+ * dicen lo mismo del mismo vale.
+ *
+ * ⛔ Una solicitud cancelada NO «espera su gasto». Medido el 2026-11-16 (copia local): el Expediente decía «Falta el
+ * gasto en Kepler» en 38 vales cuya solicitud Kepler ya había cancelado (25 con su gasto generado, la pregunta de
+ * GX.96; 13 sin él). `null` = no aplica: el vale no está validado.
+ */
+export type FaltaEnKepler = EsperaKepler | 'cancelada_con_gasto' | 'cancelada';
+
+export function faltaEnKepler(e: EstadoEjercicio): FaltaEnKepler | null {
+  if (e.status !== 'validada') return null;
+  if (esHallazgoCanceladaConGasto(e.kepler_estado, e.kepler_aplicada)) return 'cancelada_con_gasto';
+  const etapa = etapaDeEjercicio(e);
+  if (etapa === 'cancelado_kepler') return 'cancelada';
+  return esperaDeKepler({ status: 'validada', etapa, gasto_folios: [] });
+}
+
+/** Las palabras de cada caso. Las esperas son las de la cola; «el gasto» se dice corto, como lo dice el Expediente. */
+export const ETIQUETA_FALTA_EN_KEPLER: Readonly<Record<FaltaEnKepler, string>> = {
+  falta_generar_gasto: 'Falta el gasto en Kepler',
+  falta_autorizar: ETIQUETA_ESPERA_KEPLER.falta_autorizar,
+  aplicada_sin_ligar: ETIQUETA_ESPERA_KEPLER.aplicada_sin_ligar,
+  sin_medir: ETIQUETA_ESPERA_KEPLER.sin_medir,
+  cancelada_con_gasto: 'Se canceló en Kepler con su gasto ya generado: ¿salió dinero?',
+  cancelada: 'Solicitud cancelada en Kepler',
+};
+
+/**
+ * `[PGP.123]` G.UI.2 — **El monto de un vale cuya solicitud Kepler canceló.** `finance.v_expense_proofs.importe`
+ * antepone el total de la solicitud de Kepler, y Kepler lo deja en 0 al cancelarla: el vale salía en «$0.00». Su monto es
+ * el capturado; lo de Kepler va como nota (`kepler`, `null` si coincide). Sin lo capturado, se queda lo de Kepler: no
+ * se inventa. Medido el 2026-11-16 (copia local): 38 vales, $332,537.10 capturados, salían en $0.00.
+ */
+export function importeDelVale(v: {
+  importe: number | string | null;
+  importe_capturado?: number | string | null;
+  kepler_estado?: string | null;
+}): { importe: number; kepler: number | null } {
+  const kepler = Math.round((Number(v.importe) || 0) * 100) / 100;
+  const capturado = v.importe_capturado == null ? NaN : Math.round(Number(v.importe_capturado) * 100) / 100;
+  if (String(v.kepler_estado ?? '').trim() !== 'C' || !Number.isFinite(capturado)) return { importe: kepler, kepler: null };
+  return { importe: capturado, kepler: capturado === kepler ? null : kepler };
 }
 
 /**
@@ -447,4 +584,40 @@ export function explicacionKepler(k: KeplerDelVale, status: StatusVale | string,
     case 'F': return 'Kepler ya la aplicó: el dinero salió.';
     default: return '';
   }
+}
+
+/**
+ * `[PGP.123]` G.UI.1e — **Cerrar el caso de una cancelada** (pedido de Francisco, 2026-11-16: «una persona lo confirma»).
+ * Tres salidas: ligar el vale a su recaptura (la que propone la pista, una sola y libre), rechazarlo por repetido (el
+ * rechazo de siempre, con su motivo) o «Ya lo revisé», con lo que se hizo o por qué se queda así.
+ */
+export const NOTA_REVISION_MIN = 3;
+export const NOTA_REVISION_MAX = 500;
+
+/** La nota de «Ya lo revisé»: lo que se hizo o por qué se queda así. `null` = válida; si no, por qué no. */
+export function faltaEnLaNotaDeRevision(nota: unknown): string | null {
+  // Por CARACTERES, como el CHECK de la base (`char_length`): `.length` cuenta unidades UTF-16 y «👍👍» medía 4, pasaba
+  // aquí y la base la rechazaba con un 500 (revisión independiente, 2026-11-17).
+  const n = [...String(nota ?? '').trim()].length;
+  if (n < NOTA_REVISION_MIN) return 'Escribe qué se hizo o por qué se queda así';
+  if (n > NOTA_REVISION_MAX) return `La nota es de hasta ${NOTA_REVISION_MAX} letras`;
+  return null;
+}
+
+/** Quién cerró el caso de una cancelada, cuándo y qué escribió. Lo trae la cola en las canceladas ya revisadas. */
+export interface RevisionDeCancelada {
+  por: string | null;
+  /** ISO. */
+  at: string;
+  nota: string;
+}
+
+/** Lo que contestan `POST …/:id/cancelada/revisar` y `POST …/:id/cancelada/ligar`. */
+export interface CanceladaResuelta {
+  id: string;
+  /** `revisada` = «Ya lo revisé»; `ligada` = el vale quedó ligado a su recaptura (`folio_solicitud`). */
+  resultado: 'revisada' | 'ligada';
+  folio_solicitud: string | null;
+  por: string | null;
+  nota: string | null;
 }

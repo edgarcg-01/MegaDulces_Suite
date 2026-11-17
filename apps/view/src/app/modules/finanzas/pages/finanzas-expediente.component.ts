@@ -11,9 +11,10 @@ import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
-  DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO, resumenTransferencias,
+  DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO, resumenTransferencias, valesDelFiltro,
   type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ResumenTransferencias,
   type TransferenciaGasto, type ValeExpediente, aceptaEvidenciaAdicional,
+  ETIQUETA_FALTA_EN_KEPLER, type FaltaEnKepler,
 } from '@megadulces/contracts';
 import { ComprobacionesService, type ExpedienteDelDia } from '../comprobaciones.service';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
@@ -144,7 +145,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
         }
 
         @if (d.truncado) {
-          <p class="exp-trunc">Se llegó al tope de filas: hay más vales de los que se muestran.</p>
+          <!-- [PGP.123] G.UI.9: la cifra se puede recorrer: cuántos se ven de cuántos hay, y cómo ver los demás. -->
+          <p class="exp-trunc">Se muestran {{ d.total.vales | number }} de {{ valesEnElFiltro() | number }} vales, los más recientes.
+            Acota las fechas o el departamento para ver los demás.</p>
         }
         <!--
           Se DICE cuantas personas no estan ligadas a un usuario. Mostrar 12 huecos y dejar
@@ -221,7 +224,28 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                     @for (g of v.gasto_folios; track g) {
                       <span class="exp-folio gasto">XA1001-{{ g }}</span>
                     } @empty {
-                      <span class="exp-sin-gasto">sin gasto aplicado</span>
+                      <!--
+                        [PGP.123] G.UI.1 — El protocolo de la Suite no incluye el gasto de Kepler (GX.65.2, decisión
+                        del usuario: se respeta). Lo que se corrige es cómo se ve: con el protocolo completo, el paso
+                        que falta era un susurro gris junto a «Protocolo completo» en verde, y el vale se leía como
+                        terminado (medido el 2026-11-15 con el vale 0010124, de la cola «Esperan a Kepler»).
+                      -->
+                      <!-- [PGP.123] G.UI.1b — Qué le falta en Kepler, con la regla de «Esperan a Kepler» (faltaEnKepler):
+                           una solicitud cancelada no «espera su gasto» (38 vales decían «Falta el gasto en Kepler» con la
+                           solicitud cancelada, medido el 2026-11-16). Sin medir, lo literal: «sin gasto aplicado». -->
+                      @if (v.falta_en_kepler; as f) {
+                        <span class="exp-falta-gasto">
+                          @if (f === 'cancelada_con_gasto') {
+                            <span class="exp-punto" aria-hidden="true"></span>
+                          } @else {
+                            <i class="pi" [class.pi-clock]="f === 'falta_generar_gasto' || f === 'falta_autorizar'"
+                               [class.pi-ban]="f === 'cancelada'"
+                               [class.pi-question-circle]="f === 'aplicada_sin_ligar' || f === 'sin_medir'" aria-hidden="true"></i>
+                          }
+                          {{ faltaTexto(f) }}</span>
+                      } @else {
+                        <span class="exp-sin-gasto">sin gasto aplicado</span>
+                      }
                     }
                     @if (v.gasto_folios.length) {
                       <!-- [GX.75] '== null' y no '=== null': un servidor anterior a GX.75 no manda el
@@ -240,6 +264,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                     <span class="exp-suc">{{ branchLabel(v.sucursal) || '—' }}</span>
                     <span class="exp-prov">{{ v.proveedor || 'sin proveedor' }}</span>
                     <span class="exp-monto">{{ money(v.importe) }}</span>
+                    <!-- [PGP.123] G.UI.2: con la solicitud cancelada, lo capturado; lo que dejó Kepler, al lado. -->
+                    @if (v.importe_kepler != null) { <span class="exp-monto-kep">en Kepler quedó en {{ money(v.importe_kepler) }}</span> }
                     <span class="exp-etapa" [attr.data-e]="v.protocolo.etapa">{{ etapaLabel(v.protocolo.etapa) }}</span>
                   </header>
 
@@ -401,6 +427,11 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp-folio.pago { color: var(--fg-1); }
     .exp-folio.pago.cancelada { color: var(--bad-soft-fg); text-decoration: line-through; }
     .exp-sin-gasto { font-size: var(--fs-xs); color: var(--fg-3); font-style: italic; }
+    /* [PGP.123] G.UI.1b–G.UI.2: el marcador de la cancelada con gasto (el texto se queda neutro) y la nota del monto. */
+    .exp-punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); }
+    .exp-monto-kep { font-size: var(--fs-xs); color: var(--fg-3); }
+    /* [PGP.123] G.UI.1: el paso pendiente pesa lo mismo que el folio, con icono y palabras (no sólo color). */
+    .exp-falta-gasto { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); }
     .exp-suc, .exp-prov { color: var(--fg-2); }
     .exp-prov { flex: 1 1 auto; }
     .exp-monto { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; font-size: var(--fs-h3); }
@@ -480,6 +511,11 @@ export class FinanzasExpedienteComponent {
   /** SENAL, no campo plano: la lee un `computed` y como propiedad quedaria congelado. */
   readonly filtro = signal('');
   readonly seleccion = signal<string | null>(null);
+
+  /** `[PGP.123]` G.UI.1b — Las palabras de lo que le falta en Kepler: las del contrato, las mismas de la cola. */
+  faltaTexto(f: FaltaEnKepler): string {
+    return ETIQUETA_FALTA_EN_KEPLER[f];
+  }
 
   readonly money = (n: number) =>
     '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -623,6 +659,12 @@ export class FinanzasExpedienteComponent {
    * El rótulo de lo que se contó, armado con el filtro que DEVOLVIÓ el servidor (no con el que
    * la pantalla cree haber mandado). `null` = sin filtro: no hay nada que aclarar.
    */
+  /** `[PGP.123]` G.UI.9 — Cuántos vales trae el filtro (derivado de los departamentos que ya cuenta el servidor). */
+  readonly valesEnElFiltro = computed(() => {
+    const d = this.datos();
+    return d ? valesDelFiltro(d) : 0;
+  });
+
   readonly resumenFiltro = computed<string | null>(() => {
     const f = this.datos()?.filtro;
     if (!f || !(f.desde || f.hasta || f.departamento)) return null;

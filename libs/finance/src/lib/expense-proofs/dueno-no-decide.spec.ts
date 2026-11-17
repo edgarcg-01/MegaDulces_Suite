@@ -83,8 +83,9 @@ describe('[GX.65.4a] la guarda lee el nombre del padrón', () => {
    */
   it('⭐ la resolución del padrón vive en UN solo lugar', () => {
     expect((SERVICIO.match(/\.first\('nombre'\)/g) || []).length).toBe(1);
-    // Tres que la USAN (no la copian): ésta, el alcance del expediente y `[GX.87]` quién puede
-    // sumar evidencia adicional. Uno nuevo se agrega acá a propósito, no de arrastre.
-    expect((SERVICIO.match(/this\.identidadConNombre\(/g) || []).length).toBe(3);
+    // Cinco que la USAN (no la copian): ésta, el alcance del expediente, `[GX.87]` quién puede
+    // sumar evidencia adicional y `[PGP.123]` G.UI.1e quién cierra el caso de una cancelada
+    // (revisarla y ligarla). Uno nuevo se agrega acá a propósito, no de arrastre.
+    expect((SERVICIO.match(/this\.identidadConNombre\(/g) || []).length).toBe(5);
   });
 });

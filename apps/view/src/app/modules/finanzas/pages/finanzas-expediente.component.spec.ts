@@ -262,6 +262,70 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
     });
 
     /**
+     * `[PGP.123]` G.UI.1 — Con el protocolo de la Suite completo (GX.65.2) y sin gasto en Kepler, el paso que falta se
+     * dice con el mismo peso. Antes era un susurro gris junto a «Protocolo completo» en verde y el vale se leía
+     * terminado (medido el 2026-11-15 con un vale de la cola «Esperan a Kepler»). La regla del protocolo no cambia.
+     */
+    it('⛔ protocolo completo y sin gasto: «Falta el gasto en Kepler» con peso, no el susurro', () => {
+      montar(REPORTE({
+        personas: [{
+          clave: 'x', username: 'x', nombre: 'X', areas: [],
+          total: 1, monto: 1, completos: 1, incompletos: 0, en_captura: 0, sin_medir: 0,
+          vales: [VALE({ gasto_folios: [], protocolo: veredicto('completo'), falta_en_kepler: 'falta_generar_gasto' })],
+        }],
+      }));
+      const marca = fix.nativeElement.querySelector('.exp-falta-gasto') as HTMLElement | null;
+      expect(marca?.textContent).toContain('Falta el gasto en Kepler');
+      expect(txt()).not.toContain('sin gasto aplicado');
+      expect(txt()).toContain('Protocolo completo');
+    });
+
+    /**
+     * `[PGP.123]` G.UI.1b — ⛔ Una solicitud cancelada en Kepler no «espera su gasto». Medido el 2026-11-16 en la copia
+     * local: 38 vales decían «Falta el gasto en Kepler» con la solicitud cancelada, y salían en $0.00 ($332,537.10
+     * capturados). La frase y el monto salen del contrato, los mismos de «Esperan a Kepler».
+     */
+    const uno = (v: Partial<ValeExpediente>) => REPORTE({
+      personas: [{
+        clave: 'x', username: 'x', nombre: 'X', areas: [],
+        total: 1, monto: 1, completos: 1, incompletos: 0, en_captura: 0, sin_medir: 0,
+        vales: [VALE({ gasto_folios: [], protocolo: veredicto('completo'), ...v })],
+      }],
+    });
+
+    it('⛔ cancelada en Kepler: lo dice, y no «Falta el gasto en Kepler»', () => {
+      montar(uno({ falta_en_kepler: 'cancelada' }));
+      expect(txt()).toContain('Solicitud cancelada en Kepler');
+      expect(txt()).not.toContain('Falta el gasto en Kepler');
+    });
+
+    it('⛔ cancelada con su gasto ya generado: la pregunta, con su marcador, y lo capturado con el 0 de Kepler al lado', () => {
+      montar(uno({ falta_en_kepler: 'cancelada_con_gasto', importe: 3215, importe_kepler: 0 }));
+      expect(txt()).toContain('Se canceló en Kepler con su gasto ya generado: ¿salió dinero?');
+      expect(fix.nativeElement.querySelector('.exp-falta-gasto .exp-punto')).not.toBeNull();
+      expect(txt()).toContain('$3,215.00');
+      expect(txt()).toContain('en Kepler quedó en $0.00');
+    });
+
+    it('sin medir en Kepler (undefined) no afirma nada: lo literal', () => {
+      montar(uno({}));
+      expect(txt()).toContain('sin gasto aplicado');
+      expect(fix.nativeElement.querySelector('.exp-falta-gasto')).toBeNull();
+    });
+
+    it('sin folio de solicitud no se afirma que falte el gasto (no hay contra qué buscarlo)', () => {
+      montar(REPORTE({
+        personas: [{
+          clave: 'x', username: 'x', nombre: 'X', areas: [],
+          total: 1, monto: 1, completos: 1, incompletos: 0, en_captura: 0, sin_medir: 0,
+          vales: [VALE({ folio_solicitud: null, gasto_folios: [], protocolo: veredicto('completo') })],
+        }],
+      }));
+      expect(fix.nativeElement.querySelector('.exp-falta-gasto')).toBeNull();
+      expect(txt()).toContain('sin gasto aplicado');
+    });
+
+    /**
      * `[GX.75]` **El tercer número: la transferencia `XD2601`** que pagó el gasto (Kepler `kdm5`).
      * Lo que puede mentir: sumar una cancelada como pagado, o pintar «sin transferencia» cuando
      * no se pudo medir.
@@ -460,9 +524,14 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       expect(txt()).not.toContain('Esperan firma');
     });
 
-    it('avisa cuando la lista viene cortada', () => {
+    /**
+     * `[PGP.123]` G.UI.9 — La lista cortada dice cuántos se ven de cuántos hay (antes: «hay más vales de los que se
+     * muestran», sin cifra). El total sale de los departamentos que el servidor ya cuenta con las mismas fechas.
+     */
+    it('avisa cuando la lista viene cortada: cuántos se ven de cuántos hay', () => {
       montar(REPORTE({ truncado: true }));
-      expect(txt()).toContain('tope de filas');
+      expect(txt()).toContain('Se muestran 3 de 4 vales, los más recientes');
+      expect(txt()).toContain('Acota las fechas o el departamento');
     });
 
     /** Un servidor caído no puede dejar la pantalla cargando para siempre. */
