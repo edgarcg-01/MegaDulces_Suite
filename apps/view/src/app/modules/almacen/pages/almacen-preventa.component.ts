@@ -115,7 +115,7 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (err(); as e) { <div class="mc-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="mc-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
 
-      @if (loading() && !data()) { <div class="mc-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="mc-skel-row"></div> }</div> }
+      @if (loading() && !data()) { <div class="mc-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="mc-skel-row"></div> }</div> }
       @else if (data(); as d) {
         @if (d.scope === 'ninguno') {
           <div class="mc-note mc-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
@@ -190,7 +190,7 @@ const dmy = (v: string | null | undefined): string => {
           <section class="mc-detail" aria-labelledby="mc-h-det">
             <h2 id="mc-h-det" class="sr-only">Detalle del pedido {{ sel()?.code }}</h2>
             @if (detLoading()) {
-              <div class="mc-skeleton mc-pad" aria-busy="true">@for (i of skelDet; track i) { <div class="mc-skel-row"></div> }</div>
+              <div class="mc-skeleton mc-pad" aria-busy="true">@for (i of skelDet; track $index) { <div class="mc-skel-row"></div> }</div>
             } @else if (det(); as x) {
               <div class="mc-det-head">
                 <p-tag [value]="etapaLabel(x.order.stage)" [severity]="etapaSev(x.order.stage)" class="mc-tag" />
@@ -328,12 +328,12 @@ const dmy = (v: string | null | undefined): string => {
     .mc-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     .mc-volver { display:inline-flex; align-items:center; gap:.35rem; min-height:var(--tap-min); padding:0 .25rem; color:var(--action); font-size:var(--fs-sm); text-decoration:none; }
     .mc-volver:hover { text-decoration:underline; }
-    .mc-volver:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .mc-volver:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .mc-seg { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm); overflow:hidden; background:var(--card-bg); }
     .mc-seg-b { height:2.25rem; padding:0 .75rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
     .mc-seg-b:first-child { border-left:0; }
     .mc-seg-b.on { background:var(--text-main); color:var(--card-bg); }
-    .mc-seg-b:focus-visible, .mc-chip:focus-visible, .mc-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .mc-seg-b:focus-visible, .mc-chip:focus-visible, .mc-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .mc-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .mc-note .pi { color:var(--text-muted); margin-top:.15rem; }
     .mc-note-bad { border-left:3px solid var(--bad-fg); }

@@ -1233,7 +1233,7 @@ export class CommercialProfitabilityService {
               .orWhere('sup.name', 'ilike', t)
               .orWhere('cat.name', 'ilike', t)
               // [BU.4.2] + código de barras del producto.
-              .orWhere((c: any) => { orPorCodigoDeBarras(c, 'p.sku', search); }),
+              .orWhere((c: Knex.QueryBuilder) => { orPorCodigoDeBarras(c, 'p.sku', search); }),
           );
         }
         return q;

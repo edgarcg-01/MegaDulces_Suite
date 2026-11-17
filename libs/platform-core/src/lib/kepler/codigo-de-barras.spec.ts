@@ -1,5 +1,4 @@
 import knexFactory from 'knex';
-import { describe, expect, it } from 'vitest';
 import { orPorCodigoDeBarras, sqlSkuPorCodigoDeBarras } from './codigo-de-barras';
 
 // `[BU.4.2]` La forma del SQL. Que ENCUENTRA se midió contra prod en sólo lectura (2026-11-14,
