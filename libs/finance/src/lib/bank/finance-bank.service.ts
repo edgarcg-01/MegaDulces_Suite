@@ -193,7 +193,9 @@ export class FinanceBankService {
     return this.tk.run(async (trx) => {
       return trx('finance.bank_accounts')
         .whereRaw(`coalesce(kind,'bank') <> 'cash'`)
-        .select('id', 'bank', 'account_label', 'alias', 'kind', 'kepler_link', 'active')
+        // [CB.78] El enlace con ContPAQi viaja con la cuenta: se edita en Configuración › Cuentas de banco (vivía
+        // escondido en la pestaña Factoraje, que ahora es sólo factoraje).
+        .select('id', 'bank', 'account_label', 'alias', 'kind', 'kepler_link', 'active', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre')
         .orderBy([{ column: 'kind' }, { column: 'bank' }, { column: 'account_label' }]);
     });
   }
