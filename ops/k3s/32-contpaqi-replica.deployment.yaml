@@ -1,0 +1,81 @@
+# ═══ LA RÉPLICA DE ContPAQi AL ODS, EN CICLO ═══  [CP.9.2] · D15 (Edgar, 2026-11-17)
+#
+# Mantiene `contpaqi_ods` / `contpaqi_nom` al día comparando, en los dos lados, una huella por tramo de la llave:
+# sólo recopia lo que difiere (ADR-111; el plan, `FASE_CP9_COBERTURA_TOTAL.md` §8.9).
+#
+# ⭐ Por qué un carril en ciclo y no dos renglones del crontab: la regla de Edgar del 10-nov es «ningún cron». El
+#    17-nov la réplica se encendió primero como dos renglones de `ops/vl/crontab.feeds` (excepción firmada) y el
+#    mismo día Edgar pidió llevarla a la forma de los carriles en ciclo, como `feeds-livefast`: un proceso que vive.
+#    ContPAQi corre en SQL Server 2022 EXPRESS (medido ese día): sin SQL Server Agent no hay CDC ni replicación
+#    transaccional, así que el «evento» de verdad sólo puede venir de Change Tracking, que sí existe en Express
+#    (paso 2, con quien administra ese servidor).
+#
+# ⛔ UN proceso que LLAMA al script, y no dos con `--watch`: el script toma su candado de Postgres
+#    (`pg_try_advisory_lock`, de SESIÓN) al arrancar y lo suelta al salir. Con `--watch` el de la contabilidad lo
+#    tendría para siempre y el otro saldría en cada arranque (exit 3) → reinicios en bucle. Y un solo cliente de
+#    Postgres de por vida no se recupera si la base se reinicia. Llamándolo, cada vuelta abre su conexión, toma el
+#    candado y lo suelta: lo mismo que hacía el cron, sin cron.
+#
+# Medido en prod el 17-nov: la contabilidad ya al día, ~31 s por vuelta (7 de 1,266 tramos recopiados); lo demás, la
+# primera vez, 316 s (124 de 1,468 tramos). Por eso las mismas cadencias que tenía el cron: la contabilidad cada ~5 min
+# (5 min de espera tras cada vuelta) y lo demás una vez por hora. Al reiniciar el pod, lo demás corre de entrada.
+#
+# La contraseña viene de `feeds-env` (CONTPAQI_SQL_PASSWORD, en el maestro de md); el script NO trae una por omisión.
+# ⚠️ Es el mismo valor que viaja embebido en los importers de CFDIs (repo público): pendiente rotarlo.
+#
+# La sonda (`health-lane.sh`) mira que el latido de la contabilidad sea reciente, no que salga verde: con ContPAQi caído
+# el latido queda en `error` con el motivo (Salud BD lo pinta con sus umbrales de `CRON_JOBS`), y reiniciar el pod no
+# lo arregla.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: contpaqi-replica
+  namespace: ingesta
+  labels:
+    carril: contpaqi-replica
+    singleton: "true"
+    migracion: migrado
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: contpaqi-replica
+  template:
+    metadata:
+      labels:
+        carril: contpaqi-replica
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: replica
+          image: localhost:5000/trade-ingest:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - 'R=database/importers/contpaqi/replicate-contpaqi.js; resto=0; while :; do node $R --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct; ahora=$(date +%s); if [ $((ahora - resto)) -ge 3600 ]; then node $R --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto; resto=$ahora; fi; echo "[$(date "+%F %T %Z")] vuelta de la replica lista, la siguiente en 5 min"; sleep 300; done'
+          envFrom:
+            - secretRef:
+                name: feeds-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            - name: ODS_HB_KEY
+              value: contpaqi_replica_ct
+            - name: ODS_HB_MAX_MIN
+              value: "30"
+            - name: ODS_HB_IGNORE_ERROR
+              value: "1"
+          livenessProbe:
+            exec:
+              command: ["/app/ops/ingest/health-lane.sh"]
+            initialDelaySeconds: 900
+            periodSeconds: 120
+            timeoutSeconds: 20
+            failureThreshold: 5
+          resources:
+            requests: { memory: "128Mi", cpu: "100m" }
+            limits:   { memory: "1Gi" }

@@ -505,6 +505,25 @@ pide aparte (regla 5).
     renglones de `ops/vl/crontab.feeds` sin `#` (cada 5 min la contabilidad, cada hora a los :42 lo demás) y los
     umbrales de `contpaqi_replica_ct` (warn 0.5 h · crit 2 h) y `contpaqi_replica_resto` (warn 3 h · crit 12 h) en
     `CRON_JOBS`. Llega con el siguiente despliegue de la ingesta.
+  - **En prod el 17-nov (`a2ec4043c`):** la primera vuelta de la contabilidad (17:35) tardó 41 s y recopió 65 de 1,266
+    tramos, que eran los 18 días de atraso; la segunda, 31 s y 7 tramos. Lo demás (17:42) tardó 316 s: 347 tablas, 124
+    de 1,468 tramos, 21 sin carril.
+  - **Mudada a un carril en ciclo el mismo día (Edgar: «hazlo»), sin cron:** `ops/k3s/32-contpaqi-replica.deployment.yaml`,
+    un proceso que llama al script en ciclo, como `feeds-livefast`: la contabilidad cada ~5 min y lo demás una vez por
+    hora. Los dos renglones del crontab vuelven a quedar comentados.
+    - **No son dos procesos con `--watch`:** el script toma su candado de Postgres de SESIÓN al arrancar. Con `--watch`
+      uno lo tendría para siempre y el otro saldría en bucle; además, un cliente de Postgres de por vida no se recupera
+      si la base se reinicia.
+    - La contraseña también se copió a `ingesta/feeds-env`, la forma `envFrom` del mismo secreto. El manifiesto de
+      `feeds-cron` pide rehacer los dos juntos.
+  - **Paso 2, el evento de verdad (con quien administra el SQL Server de ContPAQi):** medido el 17-nov, ContPAQi corre en
+    SQL Server 2022 EXPRESS, sin CDC ni Change Tracking encendidos.
+    - Sin SQL Server Agent no hay CDC ni replicación transaccional (la única salida sería pagar licencia Standard).
+    - Change Tracking sí existe en Express: la réplica leería sólo las llaves que cambiaron, borrados incluidos, y
+      podría correr cada pocos segundos. La huella quedaría como árbitro diario.
+    - Necesita permisos de administrador sobre las bases de ContPAQi (el usuario de la réplica es de sólo lectura). Una
+      actualización de ContPAQi puede apagarlo en una tabla sin avisar, así que la réplica tendría que detectarlo y
+      volver a la huella. Se prueba antes en una copia.
   - ⛔ **Hallazgo de seguridad (2026-11-17):** `import-contpaqi-account-map.js`, `-bank-movements.js` y `-cfdis.js`
     traen como valor por omisión `CONTPAQI_SQL_USER || 'platform_ro'` y `CONTPAQI_SQL_PASSWORD || '<una contraseña en
     claro>'`, y el repo es PÚBLICO. Si es la real del SQL de ContPAQi (192.168.0.35\COMPAC), está expuesta. No se probó
