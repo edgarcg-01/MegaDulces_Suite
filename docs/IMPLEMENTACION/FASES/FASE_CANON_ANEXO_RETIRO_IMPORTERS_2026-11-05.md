@@ -500,10 +500,11 @@ pide aparte (regla 5).
     `ingesta/feeds-envfile`, que lo calca (misma huella el archivo y el secreto). El pod lo ve, y la réplica en seco
     funciona: 388 tablas planeadas, lecturas de prueba bien. `contpaqi_ods` ya tiene datos (~20 millones de filas, de
     la prueba del 30-oct), así que la primera vuelta sólo pone al día lo que difiere.
-  - **Falta encenderla:** quitar el `#` de sus dos renglones en `ops/vl/crontab.feeds` y poner los umbrales de
-    `contpaqi_replica_ct` y `contpaqi_replica_resto` en `CRON_JOBS`. Está armado como parche y NO se commitea: son
-    dos renglones de cron y la regla de Edgar del 10-nov es «ningún cron». ContPAQi es un SQL Server que no avisa, y
-    la réplica por huella estaba aprobada (ADR-111), pero esa excepción la decide Edgar.
+  - **Encendida (Edgar, 2026-11-17: «hagámoslo»), como EXCEPCIÓN firmada a su regla del 10-nov («ningún cron»):**
+    ContPAQi es un SQL Server que no avisa de sus cambios, y la réplica por huella estaba aprobada (ADR-111). Sus dos
+    renglones de `ops/vl/crontab.feeds` sin `#` (cada 5 min la contabilidad, cada hora a los :42 lo demás) y los
+    umbrales de `contpaqi_replica_ct` (warn 0.5 h · crit 2 h) y `contpaqi_replica_resto` (warn 3 h · crit 12 h) en
+    `CRON_JOBS`. Llega con el siguiente despliegue de la ingesta.
   - ⛔ **Hallazgo de seguridad (2026-11-17):** `import-contpaqi-account-map.js`, `-bank-movements.js` y `-cfdis.js`
     traen como valor por omisión `CONTPAQI_SQL_USER || 'platform_ro'` y `CONTPAQI_SQL_PASSWORD || '<una contraseña en
     claro>'`, y el repo es PÚBLICO. Si es la real del SQL de ContPAQi (192.168.0.35\COMPAC), está expuesta. No se probó
