@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanMatchFn, Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { aFilaDeSurtido, mesaSoloConPedido } from './modules/almacen/almacen-pedidos.redirecciones';
+import { aFilaDeSurtido, aSurtirPreventa, mesaSoloConPedido } from './modules/almacen/almacen-pedidos.redirecciones';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard, tareasHomeGuard, valesHomeGuard } from './core/guards/permission.guard';
 import { aLaPantallaUnica } from './modules/rh/rh-una-pantalla.guard';
 import { Permission } from './core/constants/permissions';
@@ -1799,13 +1799,12 @@ export const routes: Routes = [
       },
       {
         /**
-         * `[MCP.3]` **Pedidos de preventa por surtir** de la sucursal, por día (Hoy / Mañana /
-         * Próximos), y su surtido pedido por pedido. Foco, como Surtir. Ver es `COMMERCIAL_PICKING_VER`;
-         * empezar y cerrar exige `GESTIONAR` en el servidor. El aviso de la campana trae `?pedido=`.
+         * `[GP.RF.32]` **Retirada** (decisión de Edgar, 2026-11-17): la preventa se surte en Surtir ›
+         * Sucursal. Quien surte llega ahí con su `?pedido=`; quien sólo la ve, al Tablero filtrado por
+         * preventa. La dirección sigue viva por los enlaces viejos (la campana, la bandeja de pendientes).
          */
         path: 'surtir-preventa',
-        loadComponent: () => import('./modules/almacen/pages/almacen-surtir-preventa.component').then(m => m.AlmacenSurtirPreventaComponent),
-        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)]
+        redirectTo: aSurtirPreventa
       },
       {
         /**
