@@ -53,8 +53,25 @@ export interface FichaClienteBandeja {
   ocr_monto: number | null; ocr_fecha: string | null; ocr_banco: string | null; ocr_referencia: string | null;
   ocr_status: string | null; monto_match: boolean | null; motivo_rechazo: string | null;
   validated_by: string | null; validated_at: string | null; enviado: string;
+  /** `[CC.21]` ¿Entró al banco? Sólo en las que esperan revisión. */
+  banco?: FichaEnBanco | null;
 }
-export interface BandejaFichas { estado: string; por_estado: Record<string, number>; fichas: FichaClienteBandeja[] }
+/** `[CC.21]` Un abono del estado de cuenta que puede ser la ficha. */
+export interface AbonoBanco {
+  id: string; fecha: string; monto: number; banco: string; cuenta: string; declarado: string | null;
+  cobros: { sucursal: string; folio: string; tipo: string; cliente_code: string | null; cliente_nombre: string | null }[] | null;
+}
+export type EstadoBanco = 'aplicado' | 'sin_aplicar' | 'de_otro_cliente' | 'varios' | 'no_aparece' | 'banco_sin_cargar' | 'sin_dato';
+export interface FichaEnBanco {
+  estado: EstadoBanco; cargado_hasta: string | null; abonos: AbonoBanco[];
+  cobro: { sucursal: string; folio: string; cliente_code: string | null; cliente_nombre: string | null } | null;
+  disputado_con: string | null;
+}
+export interface BandejaFichas {
+  estado: string; por_estado: Record<string, number>; fichas: FichaClienteBandeja[];
+  /** false = la consulta al banco falló (no es «no aparece»). */
+  banco_medido?: boolean;
+}
 export interface CobroCandidato {
   sucursal: string; folio: string; cobro_date: string | null; cliente_code: string | null; cliente_nombre: string | null;
   forma_pago: string | null; monto: number; deposits: number; del_cliente: boolean;
@@ -77,5 +94,9 @@ export class FichasClientesService {
   }
   rechazar(id: string, motivo: string): Observable<{ id: string; status: string }> {
     return this.http.post<{ id: string; status: string }>(`${this.base}/${encodeURIComponent(id)}/rechazar`, { motivo });
+  }
+  /** `[CC.21]` Declara el abono (que el servidor vuelve a cruzar) como de este cliente. */
+  declararAbono(id: string): Observable<{ ok: boolean; bank_movement_id: string; customer_code: string | null }> {
+    return this.http.post<{ ok: boolean; bank_movement_id: string; customer_code: string | null }>(`${this.base}/${encodeURIComponent(id)}/abono`, {});
   }
 }

@@ -1,10 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { from, of } from 'rxjs';
+import { catchError, concatMap, map, toArray } from 'rxjs/operators';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../deposito-cliente.service';
+import { FichasClientesService, FichaClienteBandeja, CobroCandidato, BandejaFichas } from '../deposito-cliente.service';
 
 /**
  * `[CC.20]` **La bandeja de Cobranza: las fichas de depósito que subieron los clientes desde su enlace.**
@@ -17,6 +19,18 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../d
  *     cliente primero) y «Rechazar» (con un motivo que el cliente va a leer). La foto abre en otra pestaña.
  *  4. **Ligado a:** el cobro de Kepler (folio) al ligar, y la ficha del cliente en Cartera y en su enlace (estado).
  *  5. **¿Le toca?** Sí: es el trabajo de Cobranza; la Suite no registra cobros en Kepler, sólo los liga.
+ *
+ * `[CC.21]` **La columna «Banco»: ¿la ficha entró al banco?** (Edgar: «validar ese monto que haya entrado a movimientos
+ * de bancos»). Se cruza la ficha con el estado de cuenta y con el cobro que la conciliación ya le ligó a ese abono:
+ *  1. **Qué ve primero:** arriba, cuántas ya entraron y Kepler ya las aplicó a ESE cliente (un botón las liga todas), y
+ *     cuántas entraron sin cobro en Kepler (el dinero que nadie ha aplicado). En la fila, el veredicto en una palabra y
+ *     el abono (banco, cuenta, día, monto).
+ *  2. **Qué no ve:** el estado de cuenta completo ni la conciliación (están en Bancos).
+ *  3. **Accesibilidad:** la acción que corresponde al veredicto va en la fila («Ligar a 0001234», «Marcar el abono como
+ *     suyo»); el veredicto lleva palabra además del color.
+ *  4. **Ligado a:** el abono del banco y el cobro de Kepler (folio) que la conciliación le ligó.
+ *  5. **¿Le toca?** Sí: es la evidencia con la que Cobranza decide. ⚠️ El estado de cuenta se sube a mano cada 1 a 5
+ *     días (medido): «no aparece» sólo se dice si ya está cargado después del depósito; si no, se dice hasta cuándo.
  */
 @Component({
   selector: 'app-fichas-clientes',
@@ -33,12 +47,32 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../d
                     (retry)="cargar()">
       @if (datos(); as d) {
         @if (error()) { <p class="fc-err" role="alert">{{ error() }}</p> }
+        @if (estado() === 'recibido' && d.fichas.length) {
+          <div class="fc-resumen">
+            @if (d.banco_medido === false) {
+              <span class="fc-muted">No se pudo revisar el banco ahora: las fichas se ven sin ese cruce.</span>
+            } @else {
+              <span>
+                <b>{{ resumen().aplicadas.length }}</b> ya entraron al banco y Kepler las aplicó a ese cliente
+                · <b>{{ resumen().sinAplicar }}</b> entraron sin cobro en Kepler
+                · <b>{{ resumen().noAparecen }}</b> no aparecen en el banco
+                @if (resumen().sinCargar) { · <b>{{ resumen().sinCargar }}</b> esperan el siguiente estado de cuenta }
+              </span>
+              @if (resumen().aplicadas.length) {
+                <button type="button" class="fc-btn fc-btn-main" [disabled]="!!trabajando()" (click)="ligarConfirmadas()">
+                  Ligar las {{ resumen().aplicadas.length }} que el banco confirma
+                </button>
+              }
+            }
+          </div>
+        }
         <table class="surf-table surf-table--plain fc-tabla">
           <thead>
             <tr>
               <th scope="col">Cliente</th>
               <th scope="col" class="comm-num">Declaró</th>
               <th scope="col">La foto dice</th>
+              @if (estado() === 'recibido') { <th scope="col">Banco</th> }
               <th scope="col">Enviada</th>
               <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
@@ -65,20 +99,62 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../d
                     <a [href]="a.url" target="_blank" rel="noopener" class="fc-link">Ver {{ a.kind === 'pdf' ? 'PDF' : 'foto' }}{{ f.files.length > 1 ? ' ' + (i + 1) : '' }}</a>
                   }
                 </td>
+                @if (estado() === 'recibido') {
+                  <td class="fc-banco">
+                    @if (f.banco; as b) {
+                      @switch (b.estado) {
+                        @case ('aplicado') {
+                          <span class="fc-ok">Entró al banco</span>
+                          <span class="fc-muted">Kepler la aplicó a este cliente: cobro {{ b.cobro?.folio }} · {{ b.cobro?.sucursal | sucursal }}</span>
+                        }
+                        @case ('sin_aplicar') {
+                          <span class="fc-warn">Entró al banco, sin cobro en Kepler</span>
+                          @if (b.abonos[0]?.declarado === f.cliente_code) { <span class="fc-muted">El abono ya está marcado como de este cliente.</span> }
+                        }
+                        @case ('de_otro_cliente') {
+                          <span class="fc-bad">El abono es de otro cliente</span>
+                          <span class="fc-muted">Kepler lo aplicó a {{ b.abonos[0]?.cobros?.[0]?.cliente_nombre || b.abonos[0]?.cobros?.[0]?.cliente_code }}</span>
+                        }
+                        @case ('varios') { <span class="fc-neutro">{{ b.abonos.length }} abonos de ese monto</span> }
+                        @case ('no_aparece') {
+                          <span class="fc-bad">No aparece en el banco</span>
+                          <span class="fc-muted">El estado de cuenta ya llega al {{ b.cargado_hasta }}</span>
+                        }
+                        @case ('banco_sin_cargar') {
+                          <span class="fc-neutro">Aún no se puede revisar</span>
+                          <span class="fc-muted">El estado de cuenta llega hasta el {{ b.cargado_hasta || '—' }}</span>
+                        }
+                        @default { <span class="fc-muted">Sin monto o fecha para buscar</span> }
+                      }
+                      @for (a of b.abonos.slice(0, 3); track a.id) {
+                        <span class="fc-muted">{{ a.banco }} {{ a.cuenta }} · {{ a.fecha }} · {{ money(a.monto) }}</span>
+                      }
+                      @if (b.disputado_con) { <span class="fc-bad">Otra ficha apunta al mismo abono</span> }
+                    } @else {
+                      <span class="fc-muted">No se pudo revisar</span>
+                    }
+                  </td>
+                }
                 <td><span class="fc-muted">{{ cuando(f.enviado) }}</span></td>
                 <td class="fc-acc">
                   @switch (f.status) {
                     @case ('validado') { <span class="fc-ok">Ligada al cobro {{ f.folio }}</span> }
                     @case ('rechazado') { <span class="fc-bad" [title]="f.motivo_rechazo || ''">Rechazada</span> }
                     @default {
-                      <button type="button" class="fc-btn fc-btn-main" [disabled]="trabajando() === f.id" (click)="abrirLigar(f)">Ligar al cobro</button>
+                      @if (f.banco?.estado === 'aplicado' && f.banco?.cobro && !f.banco?.disputado_con) {
+                        <button type="button" class="fc-btn fc-btn-main" [disabled]="trabajando() === f.id" (click)="ligarAlCobroDelBanco(f)">Ligar a {{ f.banco?.cobro?.folio }}</button>
+                      }
+                      @if (f.banco?.estado === 'sin_aplicar' && !f.banco?.disputado_con && f.banco?.abonos?.[0]?.declarado !== f.cliente_code) {
+                        <button type="button" class="fc-btn fc-btn-main" [disabled]="trabajando() === f.id" (click)="declararAbono(f)">Marcar el abono como suyo</button>
+                      }
+                      <button type="button" class="fc-btn" [class.fc-btn-main]="!botonDelBanco(f)" [disabled]="trabajando() === f.id" (click)="abrirLigar(f)">{{ botonDelBanco(f) ? 'Otro cobro' : 'Ligar al cobro' }}</button>
                       <button type="button" class="fc-btn" [disabled]="trabajando() === f.id" (click)="abrirRechazo(f)">Rechazar</button>
                     }
                   }
                 </td>
               </tr>
               @if (abierta() === f.id && modo() === 'ligar') {
-                <tr class="fc-panel"><td colspan="5">
+                <tr class="fc-panel"><td [attr.colspan]="estado() === 'recibido' ? 6 : 5">
                   @if (candidatos(); as cs) {
                     @if (cs.length) {
                       <p class="fc-muted">Cobros de Kepler por el mismo monto (±$1) cerca de la fecha. Los del cliente van primero.</p>
@@ -99,7 +175,7 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../d
                 </td></tr>
               }
               @if (abierta() === f.id && modo() === 'rechazar') {
-                <tr class="fc-panel"><td colspan="5">
+                <tr class="fc-panel"><td [attr.colspan]="estado() === 'recibido' ? 6 : 5">
                   <label class="fc-campo"><span>¿Por qué? El cliente lo va a leer en su enlace.</span>
                     <input type="text" [(ngModel)]="motivo" maxlength="200" placeholder="Por ejemplo: la foto no se lee, súbela otra vez" aria-label="Motivo del rechazo" />
                   </label>
@@ -122,6 +198,11 @@ import { FichasClientesService, FichaClienteBandeja, CobroCandidato } from '../d
     .fc-tabla td { vertical-align: top; }
     .fc-ok { display: inline-block; color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-radius: var(--r-pill, 999px); padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; margin-left: 4px; }
     .fc-bad { display: inline-block; color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-radius: var(--r-pill, 999px); padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; margin-left: 4px; }
+    .fc-warn { display: inline-block; color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: var(--r-pill, 999px); padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; }
+    .fc-neutro { display: inline-block; color: var(--text-main); background: var(--surface-2); border-radius: var(--r-pill, 999px); padding: 0 8px; font-size: var(--fs-xs); font-weight: 600; }
+    .fc-banco .fc-ok, .fc-banco .fc-bad { margin-left: 0; }
+    .fc-resumen { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); font-size: var(--fs-sm); }
+    .fc-resumen .fc-btn { margin-left: 0; }
     .fc-link { display: inline-block; margin-right: var(--sp-2); color: var(--action); font-size: var(--fs-sm); }
     .fc-acc { white-space: nowrap; text-align: right; }
     .fc-btn { min-height: 32px; padding: 0 var(--sp-3); border-radius: var(--r-md, 8px); border: 1px solid var(--border-color); background: transparent; color: var(--text-main); font: inherit; font-size: var(--fs-sm); cursor: pointer; margin-left: var(--sp-2); }
@@ -143,7 +224,7 @@ export class FichasClientesComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly estado = signal('recibido');
-  readonly datos = signal<{ por_estado: Record<string, number>; fichas: FichaClienteBandeja[] } | null>(null);
+  readonly datos = signal<BandejaFichas | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly abierta = signal<string | null>(null);
@@ -157,7 +238,68 @@ export class FichasClientesComponent {
   ]);
   readonly vacioTitulo = (): string => ({ recibido: 'No hay fichas por revisar', validado: 'Todavía no hay fichas ligadas', rechazado: 'No hay fichas rechazadas' } as Record<string, string>)[this.estado()] || 'Sin fichas';
 
+  /** `[CC.21]` Lo que dice el banco de las fichas por revisar, para el renglón de arriba. */
+  readonly resumen = computed(() => {
+    const fs = (this.datos()?.fichas || []).filter((f) => f.status === 'recibido');
+    const cuenta = (e: string): number => fs.filter((f) => f.banco?.estado === e).length;
+    return {
+      aplicadas: fs.filter((f) => f.banco?.estado === 'aplicado' && !!f.banco.cobro && !f.banco.disputado_con),
+      sinAplicar: cuenta('sin_aplicar'), noAparecen: cuenta('no_aparece'), sinCargar: cuenta('banco_sin_cargar'),
+    };
+  });
+
   constructor() { this.cargar(); }
+
+  /** ¿La fila ya tiene una acción que propuso el banco? Entonces «Ligar al cobro» pasa a ser «Otro cobro». */
+  botonDelBanco(f: FichaClienteBandeja): boolean {
+    const b = f.banco;
+    if (!b || b.disputado_con) return false;
+    return (b.estado === 'aplicado' && !!b.cobro) || (b.estado === 'sin_aplicar' && b.abonos[0]?.declarado !== f.cliente_code);
+  }
+
+  /** `[CC.21]` Liga al cobro que la conciliación ya le puso al abono (del mismo cliente). */
+  ligarAlCobroDelBanco(f: FichaClienteBandeja): void {
+    const c = f.banco?.cobro;
+    if (!c || this.trabajando()) return;
+    this.trabajando.set(f.id); this.error.set(null);
+    this.svc.ligar(f.id, c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.trabajando.set(null); this.cargar(); },
+      error: (e) => { this.trabajando.set(null); this.error.set(e?.error?.message || 'No se pudo ligar la ficha.'); },
+    });
+  }
+
+  /**
+   * `[CC.21]` Liga de una vez todas las que el banco confirma. De a una (el endpoint ya probado) y sin detenerse en la
+   * primera falla: al final dice cuántas se ligaron y cuáles no, para reintentar sólo ésas.
+   */
+  ligarConfirmadas(): void {
+    const lista = this.resumen().aplicadas;
+    if (!lista.length || this.trabajando()) return;
+    this.trabajando.set('lote'); this.error.set(null);
+    from(lista).pipe(
+      concatMap((f) => this.svc.ligar(f.id, f.banco!.cobro!.sucursal, f.banco!.cobro!.folio).pipe(
+        map(() => null as string | null),
+        catchError(() => of(f.cliente_nombre || f.cliente_code || f.id)),
+      )),
+      toArray(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((fallas) => {
+      const malas = fallas.filter((x): x is string => !!x);
+      this.trabajando.set(null);
+      this.cargar(); // primero: `cargar()` limpia el error al empezar
+      if (malas.length) this.error.set(`Se ligaron ${lista.length - malas.length} de ${lista.length}. No se pudo: ${malas.join(', ')}.`);
+    });
+  }
+
+  /** `[CC.21]` El dinero entró y Kepler no tiene el cobro: el abono queda declarado como de este cliente. */
+  declararAbono(f: FichaClienteBandeja): void {
+    if (this.trabajando()) return;
+    this.trabajando.set(f.id); this.error.set(null);
+    this.svc.declararAbono(f.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.trabajando.set(null); this.cargar(); },
+      error: (e) => { this.trabajando.set(null); this.error.set(e?.error?.message || 'No se pudo marcar el abono.'); },
+    });
+  }
 
   /** Público: la pantalla de Cobranza lo llama cuando llega el aviso en vivo de una ficha nueva. */
   cargar(): void {

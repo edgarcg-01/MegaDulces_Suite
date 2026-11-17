@@ -1729,6 +1729,35 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
         directo — reescribir una regex a través de tres capas de escape se pone verde por el
         motivo equivocado.
+- [ ] **[CC.21]** 🧪 ⭐ **¿La ficha del cliente ENTRÓ al banco? — la bandeja lo dice sola** (Edgar, 2026-11-17: «leerlo
+      con OCR o Claude Vision y validar ese monto que haya entrado a movimientos de bancos»). La lectura ya era Claude
+      Vision (CC.2/CC.20); lo nuevo es el cruce: ficha (monto y fecha leídos de la foto) → abono del estado de cuenta (±$1,
+      del día anterior a 3 después, en la cuenta destino si la foto la trae) → cobro de Kepler que la conciliación (CB) ya
+      le ligó → ¿es del MISMO cliente? Se DERIVA al leer (`ficha-en-banco.ts`): cuando se sube el estado de cuenta, la
+      siguiente lectura ya lo ve; sin migración, sin proceso.
+      · **Medido en prod (2026-11-17), con los 923 cobros de depósito/transferencia de octubre tomados como fichas:**
+        «entró y Kepler ya lo aplicó a ese cliente» en 737; el cobro propuesto es el exacto en 682 y otro del MISMO
+        cliente en 55. Placebos: con el cliente equivocado, 0 de 923 salen «aplicado» (743 «de otro cliente»); con el
+        monto +$7.13, 12. ⇒ el monto solo NO valida (8 % de los abonos únicos son de otro cobro): valida el cliente.
+      · **El banco llega tarde y a mano:** el estado de cuenta se sube (`sync_source='upload'`) cada 1 a 5 días; un abono
+        tarda 3 días en llegar (p90 8). «No aparece» sólo se afirma si la cuenta ya está cargada después del depósito; si
+        no, «aún no se puede revisar» con la fecha de carga. Sin cuenta destino se toma la cuenta más atrasada de las que
+        reciben depósitos (≥10 días con abono en 60; SANTANDER 1621, con 1, la habría detenido toda).
+      · **Pantalla (Cobranza › Fichas de clientes):** columna «Banco» con el veredicto en palabra y el abono; arriba
+        cuántas ya entraron y Kepler las aplicó (botón «Ligar las N que el banco confirma», de a una y diciendo cuáles
+        fallaron), cuántas entraron sin cobro en Kepler, cuántas no aparecen. En la fila: «Ligar a 0001234» (el cobro que
+        la conciliación ya le puso) o «Marcar el abono como suyo» (`POST clientes/:id/abono` → `declararCliente` de CC.11,
+        el abono se vuelve a cruzar en el servidor). Dos fichas sobre un mismo abono se marcan y no se declaran.
+      · **Probado:** unitarias del clasificador 12 (una rompe a propósito la regla «mismo cliente» y se pone roja); pantalla
+        10 (una rompe el filtro de disputadas y se pone roja); SERVICIO real de punta a punta como `app_runtime` contra
+        base desechable con 3,651 abonos, 2,461 conciliaciones y 2,057 documentos de Kepler copiados de prod: 14 ✔. Esa
+        prueba cazó **un defecto**: «Marcar el abono» cruzaba sólo esa ficha y no veía la disputa — ahora cruza todas las
+        que esperan revisión. Bandeja de 6 fichas en 31–48 ms; 20 fichas contra prod en 110 ms (por la vista de cobros
+        eran 3.3 s: el cliente sale de `kdm1` por su índice).
+      · **NO MEDIDO:** con fichas reales de clientes (la tabla no existe en prod hasta aplicar CC.20); el OCR real; la
+        prueba de punta a punta no corre en el CI. **No hay aviso en vivo** cuando se sube el estado de cuenta: el
+        veredicto cambia al recargar la bandeja.
+      · ⛔ **Para soltar:** lo mismo que CC.20 (su migración `20261117153156`); CC.21 no agrega migración.
 - [ ] **[CC.20]** 🧪 ⭐ **El CLIENTE sube su ficha de depósito desde un enlace personal, sin usuario ni
       contraseña** (Edgar, 2026-11-17: «lo más práctico y lo más fácil posible»; canal = enlace personal por WhatsApp y
       QR en el estado de cuenta; lo recibe Cobranza y lo ve el vendedor). Medido ese día: 2,722 cobros / $48.5M en 30

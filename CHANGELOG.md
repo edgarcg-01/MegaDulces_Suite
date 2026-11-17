@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — La ficha del cliente se valida contra el banco (CC.21 · 2026-11-17 · en código, sin soltar)
+- En **Cobranza › Fichas de clientes**, cada ficha dice si el depósito ya entró al banco: lo busca en el estado de cuenta (mismo monto, fecha cercana) y revisa que el cobro que Kepler le aplicó sea de ese mismo cliente.
+- Las que el banco confirma se ligan a su cobro con un clic, o todas de una vez. Si el dinero entró y Kepler todavía no tiene el cobro, el abono se marca como de ese cliente para que se capture.
+- «No aparece en el banco» sólo se dice cuando el estado de cuenta ya está cargado después del depósito; si no, se indica hasta qué día está cargado.
+
 ### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
 - Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
 
