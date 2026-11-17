@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
+- En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
+
 ### Changed — Almacén: Surtir con lo que el surtidor necesita (GP.RF.27–34 · 2026-11-17 · en código, sin soltar)
 - Abrir Surtir ya no toma trabajo solo ni espera a Telemarketing: la lista de preventa sale de inmediato, y si quedó un surtido de Telemarketing a medias se avisa con «Continuar».
 - Cada producto dice dónde está (su ubicación) y los productos van en el orden del recorrido del almacén.

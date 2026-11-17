@@ -410,30 +410,20 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               </button>
             }
           </div>
-          <!-- [CXC.40] El estado de cuenta se ENTREGA: PDF del mismo auxiliar de abajo, y por WhatsApp
-               el mensaje armado + el PDF descargado para adjuntarlo (wa.me no adjunta archivos). -->
-          <!-- [CXC.43] Cada uno de estos tres deja constancia del contacto: lo registra el acto, no un
-               formulario. La lista muestra después «contactado hoy». -->
+          <!-- [CXC.44] Edgar, 2026-11-17: «todo esto lo podemos hacer en uno solo». Teléfono, PDF, WhatsApp y el
+               enlace para depósitos eran CUATRO botones de UN acto: entregarle al cliente su estado de cuenta. Un botón:
+               descarga el PDF (para adjuntarlo: wa.me sólo lleva texto), abre el chat de ESE teléfono —o, sin teléfono,
+               WhatsApp para elegir a quién— con el mensaje que ya trae el enlace para depósitos (CC.20), y deja
+               constancia del contacto (CXC.43). Después de enviarlo, «Ver PDF» queda a un clic en la línea de aviso. -->
           <div class="ct-det-contact">
-            @if (det.cliente.telefono) {
-              <a [href]="'tel:' + det.cliente.telefono" class="ct-contact-btn" (click)="registrarContacto(det, 'telefono')"><i class="pi pi-phone" aria-hidden="true"></i> {{ det.cliente.telefono }}</a>
-            }
-            <button type="button" class="ct-contact-btn" [disabled]="pdfBusy()" (click)="verEstadoCuenta(det); registrarContacto(det, 'estado_cuenta_pdf')">
-              <i class="pi" [class.pi-file-pdf]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i> Estado de cuenta (PDF)
-            </button>
-            @if (det.cliente.telefono) {
-              <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-contact-btn ct-wa" (click)="descargarParaWhatsApp(det); registrarContacto(det, 'whatsapp')"
-                 [title]="'Abre el chat con el mensaje listo y descarga el PDF para adjuntarlo'">
-                <i class="pi pi-whatsapp" aria-hidden="true"></i> Enviar por WhatsApp</a>
-            }
-            <!-- [CC.20] El enlace personal del cliente para subir su ficha de depósito (va también dentro del
-                 mensaje de WhatsApp y como QR en el PDF). Copiarlo sirve para mandarlo por otro medio. -->
-            @if (enlaceDeposito(); as url) {
-              <button type="button" class="ct-contact-btn" (click)="copiarEnlace(url)">
-                <i class="pi" [class.pi-link]="!enlaceCopiado()" [class.pi-check]="enlaceCopiado()" aria-hidden="true"></i>
-                {{ enlaceCopiado() ? 'Enlace copiado' : 'Copiar enlace para depósitos' }}
-              </button>
-            }
+            <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-send" (click)="enviarEstadoCuenta(det)"
+               [attr.aria-busy]="pdfBusy()" data-testid="enviar-estado-cuenta">
+              <i class="pi" [class.pi-whatsapp]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i>
+              <span class="ct-send-txt">
+                <b>Enviar estado de cuenta</b>
+                <small>WhatsApp · {{ det.cliente.telefono || 'eliges a quién' }}{{ enlaceDeposito() ? ' · con enlace para depósitos' : '' }}</small>
+              </span>
+            </a>
           </div>
           @if (contactoTexto(det); as ct) {
             <p class="ct-contacto-linea" [class.ct-pdf-err]="ct.error" role="status">
@@ -441,7 +431,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             </p>
           }
           @if (pdfAviso(); as av) {
-            <p class="ct-pdf-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}</p>
+            <p class="ct-pdf-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}
+              @if (!av.error) { <button type="button" class="ct-link-btn" [disabled]="pdfBusy()" (click)="verEstadoCuenta(det)">Ver PDF</button> }
+            </p>
           }
         </div>
         <table class="ct-det-table">
@@ -764,12 +756,16 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-rs-table th, .ct-rs-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); text-align: left; }
     .ct-rs-table th { color: var(--text-muted); font-weight: 600; }
     .ct-det-contact { display: flex; gap: .6rem; flex-basis: 100%; margin-top: .5rem; }
-    .ct-contact-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; text-decoration: none; padding: .3rem .7rem; border-radius: 6px; border: 1px solid var(--border-color); color: inherit; }
-    .ct-contact-btn:hover { background: var(--surface-hover); }
-    /* El verde de WhatsApp sólo en el icono: como color de texto daba 4.14:1. */
-    .ct-wa .pi-whatsapp { color: var(--ok-fg); }
-    button.ct-contact-btn { background: transparent; cursor: pointer; font: inherit; font-size: .82rem; }
-    button.ct-contact-btn:disabled { opacity: .6; cursor: progress; }
+    /* [CXC.44] El único botón de entrega: es la acción primaria de la ficha, así que lleva el color de acción. */
+    .ct-send { display: inline-flex; align-items: center; gap: .55rem; min-height: 40px; padding: .35rem .9rem; border-radius: 8px;
+      border: 1px solid var(--action); background: var(--action); color: var(--action-ink); text-decoration: none; font-size: .82rem; }
+    .ct-send:hover { background: var(--action-hover); border-color: var(--action-hover); }
+    .ct-send:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .ct-send[aria-busy="true"] { cursor: progress; }
+    .ct-send .pi { font-size: 1.1rem; }
+    .ct-send-txt { display: flex; flex-direction: column; line-height: 1.2; }
+    .ct-send-txt small { font-size: var(--fs-xs, .72rem); } /* sin opacidad: tinta sobre acción da 5.00:1 (claro) y 5.23:1 (oscuro) */
+    @media (pointer: coarse) { .ct-send { min-height: 44px; } }
     .ct-pdf-aviso { flex-basis: 100%; margin: .4rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-muted); display: flex; gap: .35rem; align-items: center; }
     .ct-pdf-err { color: var(--bad-fg, var(--text-main)); }
     .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2); font-size: .82rem; }
@@ -1119,20 +1115,37 @@ export class FinanzasCarteraComponent implements OnInit {
     a.click(); URL.revokeObjectURL(url);
   }
 
-  /** Estado de cuenta por WhatsApp, prellenado (el operador lo revisa antes de enviar). */
+  /**
+   * Estado de cuenta por WhatsApp, prellenado (el operador lo revisa antes de enviar). `[CXC.44]` Sin teléfono, el
+   * enlace abre WhatsApp para ELEGIR a quién (wa.me sin número): antes el botón desaparecía y el estado de cuenta no se
+   * podía mandar por ahí.
+   */
   waLink(det: CarteraDetalle): string {
     const tel = (det.cliente.telefono || '').replace(/\D/g, '');
     const num = tel.length === 10 ? `52${tel}` : tel;
     return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det, this.enlaceDeposito()))}`;
   }
 
+  /**
+   * `[CXC.44]` El único botón de entrega: el `<a>` abre el chat (dentro del clic, el navegador no lo bloquea) y aquí se
+   * descarga el PDF para adjuntarlo y queda el contacto. Un segundo clic mientras se genera el PDF no lo pide dos veces.
+   */
+  enviarEstadoCuenta(det: CarteraDetalle): void {
+    if (!this.pdfBusy()) this.descargarParaWhatsApp(det);
+    this.registrarContacto(det, 'whatsapp');
+  }
+
   // ── [CXC.40] Estado de cuenta en PDF ─────────────────────────────────────────
   readonly pdfBusy = signal(false);
   readonly pdfAviso = signal<{ texto: string; error: boolean } | null>(null);
 
-  /** Abre el PDF en su pestaña. La pestaña se abre YA, dentro del clic, o el navegador la bloquea. */
+  /**
+   * Abre el PDF en su pestaña. La pestaña se abre YA, dentro del clic, o el navegador la bloquea. `[CXC.44]` Se llama
+   * desde la línea de aviso que dejó el envío: el aviso se conserva para que «Ver PDF» siga a la mano.
+   */
   verEstadoCuenta(det: CarteraDetalle): void {
-    this.pedirPdf(det, abrirPestanaParaPdf('Preparando el estado de cuenta…'), null);
+    const previo = this.pdfAviso();
+    this.pedirPdf(det, abrirPestanaParaPdf('Preparando el estado de cuenta…'), previo && !previo.error ? previo.texto : null);
   }
 
   /**
@@ -1176,9 +1189,8 @@ export class FinanzasCarteraComponent implements OnInit {
   }
   /** Lo que pertenece a UNA ficha y no debe pasar a la siguiente al recorrer la lista. */
   // ── `[CC.20]` El enlace del cliente para subir su ficha de depósito ─────────────────────────────
-  /** La URL del enlace de la ficha abierta (para el mensaje de WhatsApp y el botón de copiar). */
+  /** La URL del enlace de la ficha abierta: va dentro del mensaje de WhatsApp (y como QR en el PDF). */
   readonly enlaceDeposito = signal<string | null>(null);
-  readonly enlaceCopiado = signal(false);
   private enlaceSub?: Subscription;
   /** Se pide al abrir la ficha; si falla, el mensaje sale como antes (sin enlace): es una comodidad, no un requisito. */
   private pedirEnlace(sucursal: string, cliente: string) {
@@ -1188,13 +1200,8 @@ export class FinanzasCarteraComponent implements OnInit {
       error: () => this.enlaceDeposito.set(null),
     });
   }
-  copiarEnlace(url: string) {
-    navigator.clipboard?.writeText(url).then(() => { this.enlaceCopiado.set(true); setTimeout(() => this.enlaceCopiado.set(false), 2500); },
-      () => window.prompt('Copia el enlace:', url));
-  }
-
   private limpiarFicha() {
-    this.enlaceDeposito.set(null); this.enlaceCopiado.set(false); this.enlaceSub?.unsubscribe();
+    this.enlaceDeposito.set(null); this.enlaceSub?.unsubscribe();
     this.verSaldadas.set(false);
     this.pdfAviso.set(null);
     this.contactoError.set(null);

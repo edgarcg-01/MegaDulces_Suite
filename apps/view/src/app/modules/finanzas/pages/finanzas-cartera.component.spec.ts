@@ -18,7 +18,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, ActivatedRoute, convertToParamMap } from '@angular/router';
 import { provideZonelessChangeDetection } from '@angular/core';
-import { of, Subject, throwError } from 'rxjs';
+import { NEVER, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 
 import { FinanzasCarteraComponent } from './finanzas-cartera.component';
@@ -353,6 +353,46 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(txt).toContain('Fichas que subió el cliente');
     expect(txt).toContain('Por revisar en Cobranza');
     expect(txt).toContain('Aplicada · cobro 4820');
+  });
+
+  it('19 · [CXC.44] UN solo botón entrega el estado de cuenta: chat del teléfono + PDF + contacto, con el enlace adentro', () => {
+    const conTel = { ...DET, cliente: { ...DET.cliente, telefono: '3314855906' } } as CarteraDetalle;
+    detalle = vi.fn(() => of(conTel));
+    const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
+    const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
+    configurar();
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    const f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    const c = f.componentInstance;
+    c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    const botones = document.body.querySelectorAll('[data-testid="enviar-estado-cuenta"]');
+    expect(botones.length).toBe(1);
+    // Los cuatro de antes ya no están.
+    const txt = document.body.textContent || '';
+    expect(txt).not.toContain('Copiar enlace para depósitos');
+    expect(txt).not.toContain('Estado de cuenta (PDF)');
+    expect(txt).toContain('3314855906');
+    expect(txt).toContain('con enlace para depósitos');
+    const href = decodeURIComponent((botones[0] as HTMLAnchorElement).href);
+    expect(href).toMatch(/^https:\/\/wa\.me\/523314855906\?text=/);
+    expect(href).toContain('https://suite.test/deposito/TOKEN');
+    c.enviarEstadoCuenta(conTel);
+    c.enviarEstadoCuenta(conTel); // doble clic
+    expect(estadoCuentaPdf).toHaveBeenCalledTimes(1);
+    expect(registrarContacto).toHaveBeenCalledWith('01', 'C1', 'whatsapp');
+  });
+
+  it('20 · [CXC.44] sin teléfono el botón sigue: WhatsApp abre para elegir a quién', () => {
+    const f = crear();
+    const c = f.componentInstance;
+    c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    const a = document.body.querySelector('[data-testid="enviar-estado-cuenta"]') as HTMLAnchorElement;
+    expect(a).toBeTruthy();
+    expect(a.href).toMatch(/^https:\/\/wa\.me\/\?text=/);
+    expect(document.body.textContent).toContain('eliges a quién');
   });
 
   it('8 · la fila se abre con Enter', () => {
