@@ -7,7 +7,7 @@ import {
   todayMx, urlDeServidor,
 } from '@megadulces/platform-core';
 import {
-  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
   exigeDetalle, faltaParaPedir, fechaReal, formaPago, hayInformacionDePago, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
   totalesDeLaSolicitud, unirDetallesDePago, type AlmacenesDeQuienPide, type InformacionDePago,
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
@@ -146,12 +146,28 @@ export class SolicitudGastoService {
            FROM kepler_ods.kdco WHERE sucursal = ? AND btrim(c3) <> '' ORDER BY btrim(c1), c2`, [s])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
       const proyectos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdcp WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const departamentos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdc3 WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
+      const cedis = await this.cuentasDeCedis(trx, s);
       return {
         sucursal: s,
-        conceptos: conceptos.map((c): ConceptoDeGasto => ({ ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) })),
+        conceptos: conceptos.map((c): ConceptoDeGasto => ({
+          ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s),
+        })),
         proyectos, departamentos,
       };
     });
+  }
+
+  /**
+   * R14 (anexo S §16): la cuenta de cada concepto en el catálogo de CEDIS (00), para compararla con la del servidor
+   * (`conceptoDistintoDeCedis`). En 00 no hay contra qué comparar: mapa vacío. Opcionalmente, sólo esos códigos.
+   */
+  private async cuentasDeCedis(trx: Trx, sucursal: string, codigos?: string[]): Promise<Map<string, { nombre: string; cuenta: string }>> {
+    if (sucursal === '00' || (codigos && !codigos.length)) return new Map();
+    const filas = (await trx.raw(
+      `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
+        WHERE sucursal = '00' AND btrim(c3) <> '' ${codigos ? 'AND btrim(c1) = ANY(?::text[])' : ''} ORDER BY btrim(c1), c2`,
+      codigos ? [codigos] : [])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
+    return new Map(filas.map((f) => [f.codigo, { nombre: f.nombre, cuenta: f.cuenta }]));
   }
 
   /** Acreedores de gasto del alcance v1 (DS3) en ESE servidor, los frecuentes primero, con el buscador compartido. */
@@ -195,6 +211,7 @@ export class SolicitudGastoService {
         `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
           WHERE sucursal = ? AND btrim(c1) = ANY(?::text[]) ORDER BY btrim(c1), c2`, [s, top.map((t) => t.codigo)])).rows as Array<{ codigo: string; nombre: string; cuenta: string }> : [];
       const porCodigo = new Map(cat.map((c) => [c.codigo, c]));
+      const cedis = await this.cuentasDeCedis(trx, s, top.map((t) => t.codigo));
       const ultimo = (await trx.raw(
         `SELECT btrim(l.c12) AS concepto, btrim(l.c13) AS proyecto, btrim(l.c16) AS departamento, to_char(h.c68, 'YYYY-MM-DD') AS fecha
           ${renglones} ORDER BY h.c68 DESC, h.c69 DESC, h.c6 DESC, l.c7 LIMIT 1`, [s, a])).rows[0] ?? null;
@@ -245,7 +262,7 @@ export class SolicitudGastoService {
         alcance,
         conceptos: top.filter((t) => porCodigo.has(t.codigo)).map((t) => {
           const c = porCodigo.get(t.codigo)!;
-          return { ...c, usos: t.usos, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) };
+          return { ...c, usos: t.usos, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s) };
         }),
         ultimo,
         forma_pago: formaPago(fp) ? fp : null,
@@ -492,10 +509,15 @@ export class SolicitudGastoService {
         `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS c, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
           WHERE sucursal = ? AND btrim(c1) = ANY(?::text[]) AND btrim(c3) <> '' ORDER BY btrim(c1), c2`, [s, codigos('concepto')])).rows as Array<{ c: string; nombre: string; cuenta: string }>)
         .map((r) => [r.c, { nombre: r.nombre, cuenta: r.cuenta }]));
+      const cedis = await this.cuentasDeCedis(trx, s, codigos('concepto'));
       for (const c of codigos('concepto')) {
         const k = conceptos.get(c);
         if (!k) no.push(`el concepto ${c} no está en el catálogo de ${s} o no tiene cuenta`);
-        else { const fuera = cuentaFueraDeAlcance(k.cuenta); if (fuera) no.push(fuera); }
+        else {
+          const fuera = cuentaFueraDeAlcance(k.cuenta); if (fuera) no.push(fuera);
+          // R14: en este servidor el concepto va a otro rubro que en CEDIS (el 074 a caja): no se escribe así en Kepler.
+          const distinto = conceptoDistintoDeCedis({ codigo: c, nombre: k.nombre, cuenta: k.cuenta }, cedis.get(c), s); if (distinto) no.push(distinto);
+        }
       }
       for (const [k, tabla, que] of [['proyecto', 'kdcp', 'proyecto'], ['departamento', 'kdc3', 'departamento']] as const) {
         const hay = new Set(((await trx.raw(`SELECT DISTINCT btrim(c1) AS c FROM kepler_ods.${tabla} WHERE sucursal = ? AND btrim(c1) = ANY(?::text[])`, [s, codigos(k)])).rows as Array<{ c: string }>).map((r) => r.c));

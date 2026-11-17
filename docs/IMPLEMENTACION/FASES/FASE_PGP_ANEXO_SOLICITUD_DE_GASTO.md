@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 100 KB, 1197 líneas, 17 secciones.
+> **Índice navegable** — 101 KB, 1220 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1226 | 16 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1249 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1198,6 +1198,29 @@ sin avisar (2026-11-17).**
      reclasificación de los $25,900 ya posteados. Es de Contabilidad, no de la Suite (ADR-040).
   2. **En código:** el catálogo de la solicitud marca el concepto cuya cuenta difiere de la de 00, y no se puede pedir
      un gasto con él hasta que Contabilidad lo resuelva o lo acepte. Va antes del piloto en 07 y 08 (DS11).
+- 🧪 **Punto 2 hecho en código (2026-11-17).**
+  - *La regla* (`conceptoDistintoDeCedis`, en `libs/contracts`): bloquea si **el mismo concepto** va aquí a **otro rubro**
+    que en CEDIS.
+    - Es el mismo concepto cuando coincide el nombre, sin importar el punto final, los espacios o las mayúsculas.
+    - El rubro es lo que va antes del primer `-` de la cuenta.
+    - Una subcuenta distinta del mismo rubro entra (la caja de La Piedad: `102-0142` contra `102-0042`).
+    - El mismo código con otro nombre es otro concepto y entra. Primero se comparó sólo por código, y eso bloqueaba el
+      246, que es «Traspaso salida» en 00 y «Degustación a clientes» en 02, 04 y 05.
+  - *Dónde se aplica:*
+    - el catálogo y la precarga dicen `distinto_de_cedis`;
+    - `crear` contesta 400 con el motivo;
+    - la pantalla **no ofrece** el concepto, pero **dice por qué**. Si era el concepto de siempre del proveedor, lo dice
+      así, en vez de dejar el campo vacío sin razón.
+  - *Medido:*
+    - la regla con el SQL exacto del servicio, contra el catálogo real de prod (sólo lectura): bloquea **exactamente el
+      074** en 01, 06, 07 y 08, y nada más (de 267 a 382 conceptos por sucursal); la consulta a CEDIS tarda 21 ms;
+    - spec del contrato: 47 ✓; un mutante que compara la cuenta entera en vez del rubro → 1 ✗;
+    - spec de la pantalla: 20 ✓; `check:pantalla` de la pantalla: cumple las 10 reglas y tipa;
+    - typecheck de `libs/finance`: sin errores nuevos.
+  - **NO MEDIDO:**
+    - el mutante del componente, porque mutar dentro del árbol compartido frena el push de otras sesiones;
+    - la sección N (d) de la suite contra Postgres real, porque Docker local no arrancó; corre en `pruebas-db`;
+    - la validación visual.
 
 ### 16.3 Lista única para encender 05 (hoy repartida entre §13, el README del ensayo y #547)
 
