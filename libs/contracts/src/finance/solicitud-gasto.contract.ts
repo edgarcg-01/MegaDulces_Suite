@@ -23,6 +23,7 @@
  */
 
 import { faltaParaMandar, type EvidenciaAdjunta } from './aporte-solicitante.contract';
+import { clabeValida } from './clabe.contract';
 
 /** `finance.expense_proofs.origen` del vale que nació como solicitud en la Suite (sin folio de Kepler). */
 export const ORIGEN_SOLICITUD_SUITE = 'solicitud' as const;
@@ -112,6 +113,8 @@ export interface EstadoSolicitudGasto {
   archivos?: readonly EvidenciaAdjunta[] | null;
   /** Obligatorio sólo cuando la fecha del documento lo pide (`avisoDeFechas`). */
   motivo_fecha?: string | null;
+  /** S.17 (DS31): opcional; si viene, se valida su forma (la CLABE con su dígito de control, el correo). */
+  pago?: InformacionDePago | null;
 }
 
 // ── Montos ──────────────────────────────────────────────────────────────────────────────────
@@ -175,6 +178,112 @@ export function avisoDeFechas(fechaDocumento: string | null | undefined, fechaSo
   return { ok: true, retroactiva: atras > 0 };
 }
 
+// ── S.17 · La base: en qué servidor de Kepler se pide (DS27) ─────────────────────────────────
+
+/** Cómo quedó decidida la base de quien pide, para decirlo en pantalla. */
+export type AlcanceDeLaBase = 'todas' | 'varias' | 'una' | 'sin_almacen' | 'ninguna';
+
+/** El alcance de almacén de quien pide, como lo resuelve el servidor (ScopeService, área `finanzas`, ADR-050). */
+export interface AlmacenesDeQuienPide {
+  modo: 'all' | 'listed' | 'own' | 'none';
+  valores: readonly string[];
+  /** `false` = su alcance es «el suyo» y su ficha no dice cuál: no se puede resolver. */
+  resoluble: boolean;
+}
+
+/**
+ * `[PGP.122]` S.17 (DS27, Francisco 2026-11-16) — **En qué bases puede pedir esta persona:** las abiertas que son
+ * suyas. Con UNA, la base queda fija y no se pregunta; con varias o todas, se elige (sin preselección: a quien maneja
+ * dos, proponerle la última es la forma de pedir en la equivocada).
+ *
+ * ⛔ Sin almacén en su ficha (alcance «el suyo» sin valor) o sin alcance, **ninguna**: no se abren todas. La bandeja
+ * del SAT ya le contesta 403 con la misma regla, y abrir las nueve sería ver y pedir de más. Medido 2026-11-16: 2
+ * personas que piden gastos están así; las arregla Sistemas asignándoles sus almacenes.
+ */
+export function basesDeQuienPide(abiertas: readonly string[], a: AlmacenesDeQuienPide | null | undefined): { bases: string[]; alcance: AlcanceDeLaBase } {
+  const ab = [...new Set(abiertas.map((s) => String(s ?? '').trim()).filter(Boolean))].sort();
+  if (!a || a.modo === 'none') return { bases: [], alcance: 'ninguna' };
+  if (a.modo === 'all') return { bases: ab, alcance: 'todas' };
+  if (!a.resoluble) return { bases: [], alcance: 'sin_almacen' };
+  const mios = new Set(a.valores.map((v) => String(v ?? '').trim()).filter(Boolean));
+  if (!mios.size) return { bases: [], alcance: 'sin_almacen' };
+  return { bases: ab.filter((s) => mios.has(s)), alcance: mios.size > 1 ? 'varias' : 'una' };
+}
+
+// ── S.17 · El plazo (DS30) ───────────────────────────────────────────────────────────────────
+
+/**
+ * Los plazos a un toque, en días; `0` = de contado. Medido 2026-11-16 en 4,413 X-A-15 desde agosto: el 88.0 % se
+ * pide para el mismo día, el 7.3 % a 1–7 días y el 1.5 % a 8–30.
+ */
+export const PLAZOS_DE_PAGO: readonly number[] = [0, 7, 15, 30];
+/** Un plazo más largo que esto se pide con «Otra fecha» (y se revisa). */
+export const PLAZO_MAXIMO_DIAS = 120;
+
+const masDias = (iso: string, n: number): string => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * La fecha de pago (`kdm1.c18`, que el X-A-10 vuelve el vencimiento de la CxP) para un plazo. De contado = hoy. Con
+ * días, desde la fecha del documento si se da (una factura a 30 días vence 30 días después de emitida) y si no, desde
+ * hoy. Si ya venció, la fecha es HOY y `vencio` dice cuándo: el servidor descarta una fecha pasada (la deja en la de
+ * solicitud) y la pantalla lo dice en vez de esconderlo.
+ */
+export function fechaDePago(p: { dias: number; desde?: string | null; hoy: string }): { fecha: string; vencio: string | null; desde: 'documento' | 'hoy' } {
+  const d = Math.max(0, Math.min(PLAZO_MAXIMO_DIAS, Math.round(Number(p.dias) || 0)));
+  if (d === 0) return { fecha: p.hoy, vencio: null, desde: 'hoy' };
+  const conDocumento = fechaReal(p.desde);
+  const fecha = masDias(conDocumento ? String(p.desde) : p.hoy, d);
+  return fecha < p.hoy
+    ? { fecha: p.hoy, vencio: fecha, desde: conDocumento ? 'documento' : 'hoy' }
+    : { fecha, vencio: null, desde: conDocumento ? 'documento' : 'hoy' };
+}
+
+// ── S.17 · La información de pago (DS31) ─────────────────────────────────────────────────────
+
+/**
+ * A dónde se paga y a quién se le manda el comprobante. Opcional: se agrega con «(+) Agregar información de pago».
+ * Medido 2026-11-16: ningún catálogo tiene la CLABE de los acreedores de gasto (ni Kepler ni la Suite); el correo,
+ * Kepler lo tiene en 16 de 342 (`kdxd.c11`).
+ */
+export interface InformacionDePago {
+  /** CLABE (18), tarjeta (16 o 19) o número de cuenta; se guarda sólo con dígitos. */
+  cuenta?: string | null;
+  banco?: string | null;
+  /** A dónde se manda el comprobante del pago. */
+  correo?: string | null;
+}
+
+export type TipoDeCuenta = 'clabe' | 'tarjeta' | 'cuenta';
+export const LARGO_BANCO = 40;
+export const LARGO_CORREO = 120;
+
+/**
+ * La cuenta limpia (sólo dígitos) y su tipo, o por qué no es una cuenta; `null` si viene vacía. Se aceptan espacios y
+ * guiones al teclearla. La CLABE se revisa con su dígito de control (Banxico): caza el error de dedo, no el de
+ * persona. No se exige un largo por banco (Azteca usa 14): de 10 a 19 dígitos.
+ */
+export function cuentaDePago(texto: string | null | undefined): { ok: true; cuenta: string; tipo: TipoDeCuenta } | { ok: false; motivo: string } | null {
+  const t = String(texto ?? '').replace(/[\s-]/g, '');
+  if (!t) return null;
+  if (!/^\d+$/.test(t)) return { ok: false, motivo: 'La cuenta lleva sólo números: una CLABE de 18, una tarjeta de 16 o el número de cuenta' };
+  if (t.length < 10 || t.length > 19) return { ok: false, motivo: `La cuenta tiene ${t.length} dígitos: una CLABE lleva 18, una tarjeta 16 y una cuenta de 10 a 14` };
+  if (t.length === 18) return clabeValida(t) ? { ok: true, cuenta: t, tipo: 'clabe' } : { ok: false, motivo: 'La CLABE no cuadra con su dígito de control: revisa los 18 dígitos' };
+  return { ok: true, cuenta: t, tipo: t.length === 16 || t.length === 19 ? 'tarjeta' : 'cuenta' };
+}
+
+const CORREO = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;.]{2,}$/;
+
+/** ¿Tiene forma de correo? (una sola dirección: con varias, ¿a cuál se manda?) */
+export function correoValido(texto: string | null | undefined): boolean {
+  const t = String(texto ?? '').trim();
+  return t.length <= LARGO_CORREO && CORREO.test(t);
+}
+
+/** ¿Trae algo la información de pago? (lo que viene vacío no se guarda) */
+export function hayInformacionDePago(p: InformacionDePago | null | undefined): boolean {
+  return !!(String(p?.cuenta ?? '').trim() || String(p?.banco ?? '').trim() || String(p?.correo ?? '').trim());
+}
+
 // ── Cómo queda en Kepler (DS10, DS15) ────────────────────────────────────────────────────────
 
 /** `kdm1.c25`, 60 caracteres: el renglón de comentario donde va la fecha del documento. */
@@ -223,7 +332,8 @@ export function comentarioDeLaSolicitud(p: { concepto?: string | null; del?: str
 export type FaltanteSolicitudId =
   | 'acreedor' | 'alcance' | 'renglones' | 'renglon' | 'importe' | 'iva'
   | 'comprobante' | 'fecha_documento' | 'motivo_fecha'
-  | 'forma_pago' | 'forma_pago_detalle' | 'evidencia';
+  | 'forma_pago' | 'forma_pago_detalle' | 'evidencia'
+  | 'pago_cuenta' | 'pago_banco' | 'pago_correo';
 
 export interface FaltanteSolicitud {
   id: FaltanteSolicitudId;
@@ -326,6 +436,16 @@ export function faltaParaPedir(e: EstadoSolicitudGasto): FaltanteSolicitud[] {
   })) {
     if (f.id === 'forma_pago' || f.id === 'forma_pago_detalle' || f.id === 'evidencia') no.push({ id: f.id, label: f.label, motivo: f.motivo });
   }
+
+  // S.17 (DS31): la información de pago es opcional; lo que se escribió tiene que tener forma (va al banco).
+  const p = e.pago;
+  if (p) {
+    const c = cuentaDePago(p.cuenta);
+    if (c && !c.ok) no.push({ id: 'pago_cuenta', label: 'La cuenta', motivo: c.motivo });
+    if (String(p.banco ?? '').trim().length > LARGO_BANCO) no.push({ id: 'pago_banco', label: 'El banco', motivo: `El nombre del banco pasa de ${LARGO_BANCO} letras` });
+    const correo = String(p.correo ?? '').trim();
+    if (correo && !correoValido(correo)) no.push({ id: 'pago_correo', label: 'El correo', motivo: `«${correo.slice(0, 60)}» no es un correo: escribe una sola dirección, con @ y su dominio` });
+  }
   return no;
 }
 
@@ -336,8 +456,11 @@ export function puedePedir(e: EstadoSolicitudGasto): boolean {
 
 // ── La API (`/finance/expenses/solicitudes`) ─────────────────────────────────────────────────
 
-/** De dónde salió un dato prellenado. Se guarda para medir la automatización (anexo, métrica 2). */
-export type FuenteDelDato = 'cfdi' | 'ticket' | 'habito' | 'sesion' | 'persona';
+/**
+ * De dónde salió un dato prellenado. Se guarda para medir la automatización (anexo, métrica 2). `catalogo` = del
+ * catálogo de acreedores de Kepler (`kdxd`: los días de crédito y el correo, S.17).
+ */
+export type FuenteDelDato = 'cfdi' | 'ticket' | 'habito' | 'catalogo' | 'sesion' | 'persona';
 
 /** Un archivo ya subido (`POST /finance/expenses/proofs/upload`), como lo guarda el vale. */
 export interface ArchivoDeLaSolicitud {
@@ -364,9 +487,11 @@ export interface CrearSolicitudGastoDto {
   periodo_del?: string | null;
   periodo_al?: string | null;
   unidad?: string | null;
-  /** `YYYY-MM-DD`: la fecha de pago (`c18`). */
+  /** `YYYY-MM-DD`: la fecha de pago (`c18`). S.17: la calcula el plazo (`fechaDePago`). */
   necesita_para?: string | null;
   motivo_fecha?: string | null;
+  /** S.17 (DS31): a dónde se paga y a quién se manda el comprobante. Opcional. */
+  pago?: InformacionDePago | null;
   /** Procedencia de cada dato prellenado, por campo (`acreedor`, `concepto`, `importe`, …). */
   fuentes?: Record<string, FuenteDelDato>;
 }
@@ -428,6 +553,17 @@ export interface PrecargaDeLaSolicitud {
   ultimo: { concepto: string; proyecto: string; departamento: string; fecha: string } | null;
   /** La forma de pago del último vale a ese acreedor. */
   forma_pago: string | null;
+  /**
+   * S.17 (DS30): el plazo propuesto en días (0 = de contado): `catalogo` = los días de crédito del acreedor en Kepler
+   * (`kdxd.c16`, sólo 12 de 223 lo tienen); `habito` = el de su última solicitud en la sucursal. `null` = sin dato.
+   */
+  plazo?: { dias: number; fuente: 'catalogo' | 'habito' } | null;
+  /**
+   * S.17 (DS31): la información de pago propuesta, cada dato con su origen: el correo de Kepler (`kdxd.c11`) o el de
+   * la última solicitud de la Suite; la cuenta y el banco, sólo de la última solicitud de la Suite (ningún catálogo
+   * tiene la CLABE). `null` = nada que proponer.
+   */
+  pago?: { cuenta: string | null; banco: string | null; correo: string | null; fuente_cuenta: 'habito' | null; fuente_correo: 'catalogo' | 'habito' | null } | null;
 }
 
 /**
@@ -481,9 +617,14 @@ export interface EstadoKeplerDeLaSolicitud {
   siguiente: string | null;
 }
 
-/** `GET …/solicitudes/abiertas` — las sucursales donde hoy se puede pedir (la puerta, la misma regla que `disponibilidad`). */
+/**
+ * `GET …/solicitudes/abiertas` — las bases donde ESTA persona puede pedir hoy: las abiertas (la misma regla que
+ * `disponibilidad`) que son suyas (S.17, `basesDeQuienPide`).
+ */
 export interface SucursalesAbiertasDeLaSolicitud {
   sucursales: string[];
+  /** Cómo se decidió, para decirlo cuando no hay ninguna (S.17). Un servidor anterior no lo manda. */
+  alcance?: AlcanceDeLaBase;
 }
 
 /** `GET …/solicitudes/:id/detalle` — lo que se escribe en Kepler al firmarla, para que quien firma lo vea antes. */
@@ -496,4 +637,8 @@ export interface DetalleDeLaSolicitud {
   total: number;
   documento: { tipo: string | null; folio: string | null; fecha: string | null; uuid: string | null };
   fecha_solicitud: string | null;
+  /** S.17: la fecha de pago pedida (`c18`); `null` = de contado (la de solicitud). */
+  necesita_para?: string | null;
+  /** S.17 (DS31): a dónde se paga y a quién se manda el comprobante; `null` si no se capturó. */
+  pago?: InformacionDePago | null;
 }

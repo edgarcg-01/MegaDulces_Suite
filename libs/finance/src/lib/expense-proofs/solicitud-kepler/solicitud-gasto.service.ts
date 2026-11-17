@@ -1,14 +1,15 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Knex } from 'knex';
 import {
-  KNEX_NEW_DB, LlmExtractorService, ObjectStorageService, TenantContextService, TenantKnexService, applySmartSearch, latirCron,
+  KNEX_NEW_DB, LlmExtractorService, ObjectStorageService, ScopeService, TenantContextService, TenantKnexService, applySmartSearch, latirCron,
   todayMx, urlDeServidor,
 } from '@megadulces/platform-core';
 import {
-  alcanceDelAcreedor, avisoDeFechas, comentarioDeLaSolicitud, cuentaFueraDeAlcance, detallesDePago, exigeDetalle,
-  faltaParaPedir, fechaReal, formaPago, quedaDebiendoComprobante, rfcCompatible, totalesDeLaSolicitud, unirDetallesDePago,
+  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  exigeDetalle, faltaParaPedir, fechaReal, formaPago, hayInformacionDePago, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
+  totalesDeLaSolicitud, unirDetallesDePago, type AlmacenesDeQuienPide, type InformacionDePago,
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
   type DisponibilidadDeLaSolicitud, type DuplicadoProbable, type EstadoKeplerDeLaSolicitud, type LecturaDelComprobante,
   type PrecargaDeLaSolicitud, type SolicitudGastoCreada, type DetalleDeLaSolicitud, type SucursalesAbiertasDeLaSolicitud,
@@ -108,6 +109,11 @@ export class SolicitudGastoService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
+    /**
+     * S.17 (DS27): en qué bases puede pedir quien pide (ADR-050, área `finanzas`, la misma que la bandeja del SAT).
+     * Obligatorio: sin él no hay a quién preguntarle, y abrir todas sería pedir de más.
+     */
+    private readonly scope: ScopeService,
     /** `@Optional` y al final: sin el escritor la solicitud se guarda igual y Kepler no se toca — nunca al revés. */
     @Optional() private readonly sink?: KeplerSolicitudGastoSinkAdapter,
     @Optional() private readonly gateway?: ExpenseProofsGateway,
@@ -120,7 +126,7 @@ export class SolicitudGastoService {
 
   /** Conceptos (con su cuenta y si entran), proyectos y departamentos del catálogo de ESE servidor. */
   async catalogo(sucursal: string): Promise<CatalogoDeLaSolicitud> {
-    const s = this.sucursal(sucursal);
+    const s = await this.base(sucursal);
     return this.tk.run(async (trx) => {
       const conceptos = (await trx.raw(
         `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta
@@ -137,7 +143,7 @@ export class SolicitudGastoService {
 
   /** Acreedores de gasto del alcance v1 (DS3) en ESE servidor, los frecuentes primero, con el buscador compartido. */
   async buscarAcreedores(sucursal: string, texto?: string, limite = 20): Promise<AcreedorDeGasto[]> {
-    const s = this.sucursal(sucursal);
+    const s = await this.base(sucursal);
     const lim = Math.min(50, Math.max(1, Number(limite) || 20));
     return this.tk.run(async (trx) => {
       const usos = trx('kepler_ods.kdm1')
@@ -158,13 +164,14 @@ export class SolicitudGastoService {
 
   /** «Como la última vez»: los conceptos más usados con ese acreedor, su último proyecto y depto, y su forma de pago. */
   async precarga(sucursal: string, acreedor: string): Promise<PrecargaDeLaSolicitud> {
-    const s = this.sucursal(sucursal);
+    const s = await this.base(sucursal);
     const a = String(acreedor ?? '').trim().toUpperCase();
     const alcance = alcanceDelAcreedor(a);
     return this.tk.run(async (trx) => {
       const d = (await trx.raw(
-        `SELECT btrim(c2) AS clave, btrim(c3) AS nombre, nullif(btrim(c10), '') AS rfc FROM kepler_ods.kdxd WHERE sucursal = ? AND btrim(c2) = ? ORDER BY c1 LIMIT 1`, [s, a])).rows[0];
-      if (!d) return { acreedor: null, alcance, conceptos: [], ultimo: null, forma_pago: null };
+        `SELECT btrim(c2) AS clave, btrim(c3) AS nombre, nullif(btrim(c10), '') AS rfc, nullif(btrim(c11), '') AS correo, c16::text AS dias
+           FROM kepler_ods.kdxd WHERE sucursal = ? AND btrim(c2) = ? ORDER BY c1 LIMIT 1`, [s, a])).rows[0];
+      if (!d) return { acreedor: null, alcance, conceptos: [], ultimo: null, forma_pago: null, plazo: null, pago: null };
       const renglones = `FROM kepler_ods.kdm6 l
           JOIN kepler_ods.kdm1 h ON h.sucursal = l.sucursal AND h.c1 = l.c1 AND h.c2 = l.c2 AND h.c3 = l.c3 AND h.c4 = l.c4 AND h.c5 = l.c5 AND h.c6 = l.c6
          WHERE l.sucursal = ? AND l.c1 = l.sucursal AND l.c2 = 'X' AND l.c3 = 'A' AND l.c4 = 15 AND l.c5 = 1
@@ -194,6 +201,32 @@ export class SolicitudGastoService {
              JOIN kepler_ods.kdm1 k ON k.sucursal = p.sucursal AND k.c1 = p.sucursal AND btrim(k.c6) = p.folio_solicitud AND k.c2 = 'X' AND k.c3 = 'A' AND k.c4 = 15 AND k.c5 = 1
             WHERE p.sucursal = ? AND btrim(k.c10) = ? AND p.forma_pago IS NOT NULL AND p.status <> 'rechazada'
          ) x ORDER BY created_at DESC LIMIT 1`, conClave ? [s, a, s, a] : [s, a])).rows[0]?.forma_pago ?? null;
+      // S.17 (DS30): el plazo. Primero los días de crédito del catálogo de Kepler (`kdxd.c16`: 12 de 223 lo tienen); si
+      // no, el de su última solicitud aquí (fecha de pago − fecha; el 88 % es el mismo día). Sin historia, sin dato.
+      let plazo: PrecargaDeLaSolicitud['plazo'] = null;
+      const diasKepler = Math.round(Number(d.dias));
+      if (Number.isFinite(diasKepler) && diasKepler > 0) plazo = { dias: Math.min(PLAZO_MAXIMO_DIAS, diasKepler), fuente: 'catalogo' };
+      else {
+        const u = (await trx.raw(
+          `SELECT (h.c18::date - h.c9::date) AS d FROM kepler_ods.kdm1 h
+            WHERE h.sucursal = ? AND h.c1 = h.sucursal AND h.c2 = 'X' AND h.c3 = 'A' AND h.c4 = 15 AND h.c5 = 1 AND h.c43 <> 'C'
+              AND btrim(h.c10) = ? AND h.c68 >= now() - interval '180 days'
+            ORDER BY h.c68 DESC, h.c69 DESC, h.c6 DESC LIMIT 1`, [s, a])).rows[0] as { d: number | null } | undefined;
+        if (u && u.d != null && Number.isFinite(Number(u.d))) plazo = { dias: Math.max(0, Math.min(PLAZO_MAXIMO_DIAS, Math.round(Number(u.d)))), fuente: 'habito' };
+      }
+      // S.17 (DS31): la información de pago. La cuenta y el banco, sólo de la última solicitud de la Suite a este acreedor
+      // (ningún catálogo tiene la CLABE); el correo, de ahí o del catálogo de Kepler (`kdxd.c11`: 16 de 342 lo tienen).
+      const conPago = conClave && await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'payee_account');
+      const previa = conPago ? (await trx.raw(
+        `SELECT payee_account AS cuenta, payee_bank AS banco, payee_email AS correo FROM finance.expense_proofs
+          WHERE sucursal = ? AND creditor_code = ? AND status <> 'rechazada' AND (payee_account IS NOT NULL OR payee_email IS NOT NULL)
+          ORDER BY created_at DESC LIMIT 1`, [s, a])).rows[0] as { cuenta: string | null; banco: string | null; correo: string | null } | undefined : undefined;
+      const correoKepler = correoValido(d.correo) ? String(d.correo).trim() : null;
+      const correo = previa?.correo ?? correoKepler;
+      const pago: PrecargaDeLaSolicitud['pago'] = previa?.cuenta || correo ? {
+        cuenta: previa?.cuenta ?? null, banco: previa?.cuenta ? previa.banco ?? null : null, correo,
+        fuente_cuenta: previa?.cuenta ? 'habito' : null, fuente_correo: previa?.correo ? 'habito' : correoKepler ? 'catalogo' : null,
+      } : null;
       return {
         acreedor: { clave: d.clave, nombre: d.nombre, rfc: d.rfc, usos: top.reduce((n, t) => n + t.usos, 0) },
         alcance,
@@ -203,6 +236,8 @@ export class SolicitudGastoService {
         }),
         ultimo,
         forma_pago: formaPago(fp) ? fp : null,
+        plazo,
+        pago,
       };
     });
   }
@@ -212,7 +247,7 @@ export class SolicitudGastoService {
    * con sólo acreedor + importe el ruido medido es del 50 % (395 pares contra 197 de un placebo).
    */
   async duplicados(sucursal: string, acreedor: string, total: number, fecha: string, sinId?: string): Promise<DuplicadoProbable[]> {
-    const s = this.sucursal(sucursal);
+    const s = await this.base(sucursal);
     const a = String(acreedor ?? '').trim().toUpperCase();
     if (!(Number(total) > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return [];
     return this.tk.run(async (trx) => {
@@ -243,7 +278,11 @@ export class SolicitudGastoService {
    * servidor, conforme se enciende (los candados son los del escritor, más la migración).
    */
   async disponibilidad(sucursal: string): Promise<DisponibilidadDeLaSolicitud> {
-    const s = this.sucursal(sucursal);
+    return this.puerta(await this.base(sucursal));
+  }
+
+  /** La puerta de ESA sucursal, sin preguntar el alcance (lo hacen `disponibilidad`, `abiertas` y `crear`). */
+  private async puerta(s: string): Promise<DisponibilidadDeLaSolicitud> {
     const motivos: string[] = [];
     const env = process.env;
     if (!this.sink) motivos.push('El escritor de solicitudes a Kepler no está cargado en este servidor');
@@ -265,12 +304,17 @@ export class SolicitudGastoService {
   }
 
   /**
-   * Las sucursales donde hoy se puede pedir: la misma regla que `disponibilidad`, para las nueve. La pantalla sólo
-   * muestra la pestaña donde hay algo que abrir (sin esto, el día del despliegue todos veían una pestaña cerrada).
+   * Las bases donde ESTA persona puede pedir hoy: las abiertas (la misma regla que `disponibilidad`) que son suyas
+   * (S.17, DS27). La pantalla sólo muestra la pestaña donde hay algo que abrir (sin esto, el día del despliegue todos
+   * veían una pestaña cerrada); con una sola base, no pregunta.
    */
   async abiertas(): Promise<SucursalesAbiertasDeLaSolicitud> {
-    const todas = await Promise.all(SUCURSALES.map(async (s) => ((await this.disponibilidad(s)).disponible ? s : null)));
-    return { sucursales: todas.filter((s): s is string => !!s) };
+    const a = await this.misAlmacenes();
+    // Sólo se pregunta la puerta de las que podrían ser suyas: con «una», es una consulta y no nueve.
+    const candidatas = a.modo === 'all' ? SUCURSALES : SUCURSALES.filter((s) => a.valores.includes(s));
+    const abiertas = await Promise.all(candidatas.map(async (s) => ((await this.puerta(s)).disponible ? s : null)));
+    const r = basesDeQuienPide(abiertas.filter((s): s is string => !!s), a);
+    return { sucursales: r.bases, alcance: r.alcance };
   }
 
   /** Lo que se escribirá en Kepler al firmarla (o lo que se escribió): para que quien firma lo vea ANTES de firmar. */
@@ -279,10 +323,12 @@ export class SolicitudGastoService {
     if (!UUID.test(limpio)) throw new BadRequestException('Identificador de solicitud inválido');
     return this.tk.run(async (trx) => {
       if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status'))) throw new NotFoundException('La solicitud de gasto en la Suite todavía no está habilitada en esta base');
+      const conPago = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'payee_account');
       const v = await trx('finance.expense_proofs').where({ id: limpio, origen: 'solicitud' }).first(
         'id', 'sucursal', 'creditor_code', 'proveedor', 'document_type', 'document_folio', 'cfdi_uuid',
         trx.raw(`to_char(document_date, 'YYYY-MM-DD') AS document_date`), trx.raw(`to_char(requested_on, 'YYYY-MM-DD') AS requested_on`),
-        trx.raw('vat_amount::float8 AS iva'), trx.raw('importe::float8 AS total'));
+        trx.raw(`to_char(needed_by, 'YYYY-MM-DD') AS needed_by`), trx.raw('vat_amount::float8 AS iva'), trx.raw('importe::float8 AS total'),
+        ...(conPago ? ['payee_account', 'payee_bank', 'payee_email'] : []));
       if (!v) throw new NotFoundException('No es una solicitud nacida en la Suite');
       const lineas = await trx('finance.expense_proof_lines').where({ proof_id: limpio }).orderBy('line_no').select(
         'line_no', 'concept_code', 'concept_name', 'account', 'project_code', 'department_code', trx.raw('amount::float8 AS amount'));
@@ -295,6 +341,9 @@ export class SolicitudGastoService {
         iva: Number(v.iva ?? 0), total: Number(v.total ?? 0),
         documento: { tipo: v.document_type ?? null, folio: v.document_folio ?? null, fecha: v.document_date ?? null, uuid: v.cfdi_uuid ?? null },
         fecha_solicitud: v.requested_on ?? null,
+        necesita_para: v.needed_by ?? null,
+        pago: v.payee_account || v.payee_bank || v.payee_email
+          ? { cuenta: v.payee_account ?? null, banco: v.payee_bank ?? null, correo: v.payee_email ?? null } : null,
       };
     });
   }
@@ -307,7 +356,7 @@ export class SolicitudGastoService {
    * GX.32/GX.33). Medido: el lector sacó un importe en 292 de 406 vales con comprobante (72 %) en noviembre.
    */
   async leerComprobante(sucursal: string, archivo: { public_id?: string | null; url?: string | null; kind?: string | null }): Promise<LecturaDelComprobante> {
-    const s = this.sucursal(sucursal);
+    const s = await this.base(sucursal);
     const vacio = (motivo: string): LecturaDelComprobante => ({ legible: false, motivo, leido: null, acreedor: null, cfdi: null });
     if (!this.ocr || !this.storage) return vacio('El lector de comprobantes no está disponible en este servidor');
     if (archivo?.kind && archivo.kind !== 'image' && archivo.kind !== 'pdf') return vacio('Sólo se leen imágenes y PDF');
@@ -357,10 +406,11 @@ export class SolicitudGastoService {
     const actor = String(quien?.nombre ?? "").trim() || String(quien?.usuario ?? "").trim();
     if (!actor) throw new BadRequestException("No se sabe quién pide: la sesión no trae usuario");
     const nombre = actor;
-    const s = this.sucursal(dto?.sucursal);
+    // S.17 (DS27): sólo en una base de quien pide. Sin esto, por API se pedía en la sucursal de otro (anexo §14.8 b).
+    const s = await this.base(dto?.sucursal);
     // La puerta: la MISMA regla que abre la pestaña. Sin esto, por API se pedían solicitudes en sucursales donde la
     // escritura nunca se configuró, y quedaban firmadas sin X-A-15 por meses.
-    const puerta = await this.disponibilidad(s);
+    const puerta = await this.puerta(s);
     if (!puerta.disponible) throw new ConflictException(`La solicitud de gasto todavía no está abierta en la sucursal ${s}: ${puerta.motivos.join('; ')}`);
     const hoy = todayMx();
     const files = Array.isArray(dto.files) ? dto.files.filter((f) => f && f.url && f.role) : [];
@@ -373,8 +423,12 @@ export class SolicitudGastoService {
     const faltan = faltaParaPedir({
       sucursal: s, acreedor, renglones, iva: Number(dto.iva ?? 0), fecha_solicitud: hoy, comprobante: dto.comprobante,
       forma_pago: dto.forma_pago, forma_pago_detalle: formaPagoDetalle, archivos: files, motivo_fecha: dto.motivo_fecha,
+      pago: dto.pago ?? null,
     });
     if (faltan.length) throw new BadRequestException(faltan.map((f) => f.motivo).join('; '));
+    // S.17 (DS31): lo que viene vacío no se guarda; lo que viene ya pasó la compuerta (la CLABE con su dígito de control).
+    const pago: InformacionDePago | null = hayInformacionDePago(dto.pago) ? (dto.pago as InformacionDePago) : null;
+    const cuentaPago = pago ? cuentaDePago(pago.cuenta) : null;
     const fechas = avisoDeFechas(dto.comprobante?.fecha, hoy);
     const necesitaPara = fechaReal(dto.necesita_para) && String(dto.necesita_para) >= hoy ? String(dto.necesita_para) : null;
 
@@ -390,6 +444,10 @@ export class SolicitudGastoService {
       creada = await this.tk.run(async (trx) => {
       if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status'))) {
         throw new ServiceUnavailableException('La solicitud de gasto en la Suite todavía no está habilitada en esta base (falta la migración de [PGP.122])');
+      }
+      if (pago && !(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'payee_account'))) {
+        // Nunca se tira en silencio lo que la persona escribió: se dice y se decide.
+        throw new ServiceUnavailableException('La información de pago todavía no se puede guardar en esta base (falta la migración de [PGP.122] S.17): quítala y mándala sin ella');
       }
       // Idempotencia: la misma solicitud otra vez (la respuesta anterior se perdió) devuelve la que ya está.
       const previa = await trx('finance.expense_proofs').where({ id }).first('created_by', 'origen');
@@ -454,6 +512,11 @@ export class SolicitudGastoService {
         cfdi_uuid: uuidPedido || null, requested_on: hoy, needed_by: necesitaPara,
         is_retroactive: fechas.ok ? fechas.retroactiva : true, date_reason: String(dto.motivo_fecha ?? '').trim() || null,
         kepler_request_status: 'pending', kepler_request_mark: marca, kepler_request_attempts: 0,
+        ...(pago ? {
+          payee_account: cuentaPago?.ok ? cuentaPago.cuenta : null,
+          payee_bank: String(pago.banco ?? '').trim() || null,
+          payee_email: String(pago.correo ?? '').trim() || null,
+        } : {}),
       });
       await trx('finance.expense_proof_lines').insert(renglones.map((r, i) => ({
         tenant_id: trx.raw('public.current_tenant_id()'), proof_id: id, line_no: i + 1,
@@ -748,6 +811,26 @@ export class SolicitudGastoService {
     const v = String(s ?? '').trim();
     if (!SUC.test(v)) throw new BadRequestException(`Sucursal inválida «${v}»: se esperan dos dígitos (00…08)`);
     return v;
+  }
+
+  /** S.17 (DS27): el alcance de almacén de quien pide, en el área `finanzas` (el mismo de la bandeja del SAT). */
+  private async misAlmacenes(): Promise<AlmacenesDeQuienPide> {
+    const d = (await this.scope.current('finanzas')).dims.warehouse;
+    return { modo: d.mode, valores: d.values, resoluble: d.resolvable !== false };
+  }
+
+  /**
+   * La sucursal pedida, si es una base de quien pide (`basesDeQuienPide`, la misma regla que `abiertas`). Si no, 403
+   * con lo que la persona puede hacer: sin almacén en su ficha, que Sistemas se lo asigne.
+   */
+  private async base(sucursal: unknown): Promise<string> {
+    const s = this.sucursal(sucursal);
+    const a = await this.misAlmacenes();
+    const r = basesDeQuienPide([s], a);
+    if (r.bases.includes(s)) return s;
+    if (r.alcance === 'sin_almacen') throw new ForbiddenException('Tu ficha no tiene almacén asignado: pídele a Sistemas que te asigne los tuyos para pedir gastos en la Suite');
+    if (r.alcance === 'ninguna') throw new ForbiddenException('Tu usuario no tiene almacenes para pedir gastos');
+    throw new ForbiddenException(`No puedes pedir gastos en la base ${s}: ${a.valores.length > 1 ? 'tus almacenes son' : 'tu almacén es'} ${a.valores.join(', ')}`);
   }
 }
 

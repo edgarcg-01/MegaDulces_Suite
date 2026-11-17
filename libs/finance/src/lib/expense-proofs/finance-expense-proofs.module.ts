@@ -14,6 +14,8 @@ import { AutorizacionKeplerController } from './autorizacion-kepler/autorizacion
 import { KeplerSolicitudGastoSinkAdapter } from './solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
 import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.service';
 import { SolicitudGastoController } from './solicitud-kepler/solicitud-gasto.controller';
+import { FacturasSatService } from './solicitud-kepler/facturas-sat.service';
+import { FacturasSatController } from './solicitud-kepler/facturas-sat.controller';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -32,13 +34,14 @@ import { SolicitudGastoController } from './solicitud-kepler/solicitud-gasto.con
   ],
   // `[PGP.79]` AutorizacionKeplerController: la solicitud de Kepler de los vales que la pantalla ya tiene.
   // `[PGP.122]` SolicitudGastoController: la solicitud de gasto nace en la Suite (ruta propia).
-  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController, AutorizacionKeplerController, SolicitudGastoController],
+  // `[PGP.122]` S.13 FacturasSatController: la bandeja de facturas del SAT por registrar (debajo de la de la solicitud).
+  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController, AutorizacionKeplerController, SolicitudGastoController, FacturasSatController],
   // `[GX.85]` CierreKeplerService: cierra el vale cuando Kepler lo aplica (F).
   // `[PGP.79]` KeplerAutorizacionGastoAdapter: firmar autoriza la solicitud en Kepler (apagado por default).
   // `[PGP.122]` KeplerSolicitudGastoSinkAdapter + SolicitudGastoService: firmar ESCRIBE en Kepler la solicitud
   // nacida en la Suite (apagado por default: bandera, plantilla por servidor, interruptor y GRANT).
   providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
-    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService],
+    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}

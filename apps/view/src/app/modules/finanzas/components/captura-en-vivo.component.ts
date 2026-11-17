@@ -27,13 +27,15 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inj
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (estado() === 'idle') {
-      <button type="button" class="cv-abrir" (click)="abrir()">
+      <button type="button" class="cv-abrir" [class.is-sec]="secundario()" (click)="abrir()">
         <i class="pi pi-camera" aria-hidden="true"></i> {{ etiqueta() }}
       </button>
-      <p class="cv-nota">
-        <i class="pi pi-lock" aria-hidden="true"></i>
-        Se toma en el momento, y queda con sello de cámara.
-      </p>
+      @if (!secundario()) {
+        <p class="cv-nota">
+          <i class="pi pi-lock" aria-hidden="true"></i>
+          Se toma en el momento, y queda con sello de cámara.
+        </p>
+      }
     }
 
     @if (estado() === 'pidiendo') {
@@ -87,6 +89,9 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inj
       border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-body); font-weight: 600; cursor: pointer;
     }
     .cv-abrir:hover { background: var(--action-hover); border-color: var(--action-hover); }
+    /* [PGP.123] S.13 (H20): cuando la foto sobra (factura casada al SAT) el botón no compite con la acción principal. */
+    .cv-abrir.is-sec { background: transparent; border-color: var(--border-color); color: var(--text-main); font-weight: 500; }
+    .cv-abrir.is-sec:hover { background: var(--hover-bg, transparent); border-color: var(--text-muted); }
     .cv-abrir:focus-visible, .cv-cancel:focus-visible, .cv-disparar:focus-visible, .cv-reintentar:focus-visible {
       outline: 2px solid var(--action); outline-offset: 2px;
     }
@@ -154,6 +159,8 @@ export class CapturaEnVivoComponent {
 
   /** Texto del botón que abre la cámara. */
   readonly etiqueta = input('Capturar evidencia');
+  /** La foto es opcional aquí (p. ej. la factura ya está casada al SAT): botón secundario y sin la nota del sello. */
+  readonly secundario = input(false);
 
   /** La foto tomada: data URI JPEG + el momento exacto en que se disparó. */
   readonly capturada = output<{ dataUrl: string; capturedAt: string }>();

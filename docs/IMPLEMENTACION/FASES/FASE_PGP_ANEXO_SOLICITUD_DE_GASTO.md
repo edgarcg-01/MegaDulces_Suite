@@ -1,26 +1,28 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 47 KB, 588 líneas, 14 secciones.
+> **Índice navegable** — 83 KB, 964 líneas, 16 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 26 | 59 | 2 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
-| 60 | 72 | 1 | 1. El pedido, literal |
-| 73 | 88 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
-| 89 | 170 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
-| 171 | 189 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
-| 190 | 332 | 9 | 5. El escritor (C1–C2) |
-| 333 | 346 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
-| 347 | 426 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
-| 427 | 488 | 4 | 8. Plan por capas y orden de entrega |
-| 489 | 516 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 517 | 544 | 4 | 10. Decisiones |
-| 545 | 560 | 1 | 11. Riesgos y NO MEDIDO |
-| 561 | 589 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
-| 590 | 614 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 28 | 61 | 2 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
+| 62 | 74 | 1 | 1. El pedido, literal |
+| 75 | 90 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
+| 91 | 172 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
+| 173 | 191 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
+| 192 | 334 | 9 | 5. El escritor (C1–C2) |
+| 335 | 348 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
+| 349 | 428 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
+| 429 | 490 | 4 | 8. Plan por capas y orden de entrega |
+| 491 | 518 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 519 | 546 | 4 | 10. Decisiones |
+| 547 | 562 | 1 | 11. Riesgos y NO MEDIDO |
+| 563 | 591 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
+| 592 | 617 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 618 | 856 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
+| 857 | 992 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -603,7 +605,8 @@ servidor». Estado al 2026-11-15:
 | S.1, S.10 | ⬜ Edgar | captura de prueba, permisos, ensayo, plantillas, encender: `ops/prod/ensayo-solicitud-gasto/README.md` | — |
 | S.9 UI | 🧪 | `/finanzas/gastos` → «Registrar o pedir» (`finanzas-pedir-gasto.component.ts`). Sólo se abre donde la escritura está encendida de punta a punta (`…/disponibilidad`): si no, todo sigue como hoy. Franja con el total, cuánto llenó la Suite y qué falta; barra con la acción pegada abajo (103 persona-días en celular en 30 días). Aprobación avisa cómo quedó en Kepler, muestra los renglones antes de firmar (`…/:id/detalle`) y deja reintentar; la pestaña sólo aparece donde hay algo que abrir (`…/abiertas`) | `check:pantalla` 10 de 10 y tipos ✓ · la vista compila (AOT) · specs de finanzas en la vista 1,554 ✓ (1 ✗ heredado de `origin/main`: `gastos-tabs.spec.ts`) · **validada por Francisco en local** (2026-11-15, escritorio; Docker + Kepler de prueba con el catálogo real de la 05): pidió una persona, firmó otra, quedó UNA solicitud en `A` con folio 0000081, `c9`/`c25`/`c11`, el nombre y RFC del catálogo, forma 03 y su renglón; contador a 82; la API sin errores. Celular (390 px) y el lector: NO MEDIDO |
 | S.15 lector por comprobante | 🔨 | `POST …/leer-comprobante`: el lector propone importe, IVA, fecha y folio; busca al acreedor por RFC y la factura recibida en el SAT (RFC + total ±$1 + fecha ±5 días). Nada que la persona escribió se pisa | contra comprobantes reales: NO MEDIDO · el UUID del código QR queda pendiente (es tocar el prompt del lector en platform-core) |
-| S.13 bandeja · S.14 hábito · S.16 recurrentes | ⬜ | la bandeja de facturas del SAT sin registrar, el hábito como vista con su acierto medido, y los recurrentes del periodo | — |
+| S.13 bandeja de facturas del SAT | 🧪 | §14: contrato puro, servicio en pasos con el alcance por sucursal del servidor, API propia, migración de descartes (dos alcances), la sección en «Registrar o pedir» con su panel lateral; revisión independiente (§14.12) | spec del contrato 38 ✓ (5 mutantes → todos en rojo) · `test-newdb-facturas-sat-bandeja.js` 65 ✓ contra Postgres real (2 mutantes → rojos) · migración 15 ✓ en local · spec de la vista 12 ✓ · metadata de arranque 4 ✓ · medido en prod (§14.11) · visual: NO MEDIDO |
+| S.14 hábito · S.16 recurrentes | ⬜ | el hábito como vista con su acierto medido, y los recurrentes del periodo | — |
 | S.2 lazo general | ⬜ | que el vale de HOY se entere de la C de Kepler (43 validados con la solicitud cancelada) | — |
 
 **Lo que configura Edgar, en orden** (`ops/prod/ensayo-solicitud-gasto/README.md`): (0) aplicar la
@@ -611,3 +614,378 @@ migración `20261115003547` en prod **antes** de soltar el código (es aditiva y
 apagado); (1) captura de prueba en 05 con `foto-contadores.js`; (2) el `GRANT` en 05; (3) el ensayo con
 ROLLBACK; (4) `KEPLER_GASTO_SOLICITUD=encendida` y `KEPLER_SOLGASTO_TEMPLATE_FOLIO_05` en el secreto; (5) el
 renglón `solicitud_gasto` de 05 encendido (es un `UPDATE`); (6) el canario. Ninguno enciende nada solo.
+
+## 14. S.13 — La bandeja de facturas del SAT por registrar
+
+> Diseño del 2026-11-15, antes de la primera línea de código (`diseno` §0a). Todas las cifras son de prod en
+> sólo lectura, ventana 15-ago → 13-nov salvo que se diga otra; las consultas viven fuera del repo (traen
+> nombres reales). Es la entrada #1 de §7.1: la más automática.
+
+### 14.1 Para qué existe (la prueba de la frase)
+
+**«¿Qué facturas de gasto llegaron del SAT para esta sucursal y nadie las ha registrado?»** Una pregunta, sin
+«y». El acto que cierra es **registrarla**: un toque llena «Registrar o pedir» con la factura (acreedor, folio,
+fecha, total, IVA y el UUID ya verificado) y la persona valida el concepto y el área.
+
+**Quién entra:** las ~115 personas con `FINANCE_EXPENSES_CAPTURAR` que dan de alta gastos. Desde el corte del
+1-oct cada sucursal captura lo suyo (en octubre: 00 500 solicitudes, 08 265, 06 206, 01 133, 07 110…), y 00
+sigue registrando gasto de logística de las sucursales (casetas, cargas de combustible del CEDIS).
+
+### 14.2 El estado real
+
+| Qué | Medido |
+|---|---|
+| Facturas recibidas (tipo I, vigentes) de acreedores de gasto `G*`, con el RFC reparado | **1,633 · $6.68 M · 114 emisores** en 90 días (~18 al día) |
+| Las que sólo se reconocen con la escalera del RFC (§3.z.4 de ERP_KEPLER) | **650 (39.8 %)**; una sola gasolinera aporta 555: su RFC en `kdxd` tiene dos letras cambiadas |
+| Ya registradas (cascada de §14.4) | **1,329 (81.4 %)** |
+| **Sin registro** | **304 · $2.70 M**; 187 de ellas sí están asociadas en ContPAQi (otra contabilidad, no Kepler) |
+| Combustible | 63 % del universo, de 13 gasolineras, casi todo de menos de $2 mil |
+| Cuándo llegan a la Suite | mediana **20 h** después de emitidas; 67.5 % en 24 h, 96.3 % en 48 h: la bandeja es «del día siguiente» |
+| ¿El CFDI dice la sucursal? | **No**: el domicilio del receptor es el mismo en 983 de 983, el uso es G03 en 964 y los conceptos nombran una sucursal en 2 de 277 |
+| ¿Kepler guarda el UUID? | **No**: 0 de 9,127 X-A-10/15 de agosto a noviembre, ni en sus 22,992 renglones. La gente teclea en `c11`/`c24` la cola del UUID o el folio (665 facturas, 40.7 %) |
+
+### 14.3 Decisiones de diseño (de Claude, anunciadas; las de negocio quedan abiertas en §14.9)
+
+| | Decisión | Por qué, medido |
+|---|---|---|
+| **DS18** | **Universo:** recibidas tipo I, vigentes, en MXN, sin retenciones, uso distinto de G01 (mercancía) e I01–I08 (activo), de un emisor que casa con un acreedor `G*` (sin `GB*` ni `GN001`) por la escalera de `resolverRfcAcreedor` (CP.8.71), que no sea también proveedor de compras (`C*`) ni el RFC propio, **desde el corte del 1-oct** | Antes del corte todo se capturaba en 00 y ya está en ContPAQi. Quitar G01, I0x y retenciones saca 13 + 6 + 1 de 1,650; la retención la rechaza v1 (§6) |
+| **DS19** | **«Ya registrada» = la primera señal que se cumpla**, cada una con su documento: (0) un vale vivo de la Suite con ese UUID —y su gasto de Kepler ya no cubre otra factura—; (0b) un vale de la Suite **sin la factura ligada** (capturado con el ticket antes de que llegara el CFDI), mismo acreedor y total, de −5 a +15 días; (1) **por referencia**: un X-A-10/15 vivo del mismo acreedor cuyo `c11` o `c24` trae la cola del UUID (5+ caracteres, o 4 si el total cuadra ±$1) o el folio como número (4+ dígitos; de 3, con el total), de −30 a +120 días; (1b) la referencia **fuerte** (cola de 5+, o folio de 4+ con el total) en el gasto de **otro acreedor** —un reembolso—; (2) **difusa**: mismo acreedor, total ±$1, documento de 0 a +15 días; (3) **pagada**: un X-D-26 del acreedor, ±$1, de 0 a +7 días, que **no** explique un gasto ya usado → «pagada contra un gasto agrupado», no se ofrece | Placebos: (1) 2 falsos en 665 (99.7 %); (2) 3 y 76 en 382 (99.2 % por importe, 80.1 % por fecha); (3) 6 y 13 en 270. Sin el uno a uno, el placebo de fecha casa 331 de 1,085: escondería 1 de cada 3 casetas o recibos fijos |
+| **DS20** | **El uno a uno asigna por cercanía y con cardinalidad máxima** (el documento más próximo a la factura; si dos facturas pueden quedar cubiertas, quedan las dos), no exige candidato único como PGP.108 | Con «único», cada importe repetido (casetas, recibos fijos) quedaría «sin registro» y la bandeja invitaría a duplicar el gasto. El codicioso puro dejaba fuera una factura que sí tenía gasto. Es otro primitivo: vive en `libs/contracts` (ADR-056), no en el servicio |
+| **DS21** | **Sucursal (regla B):** la líder de las X-A-15/X-A-10 vivas del acreedor **desde el corte**, con 3+ documentos y 80 %+; si no, se pregunta ofreciendo primero las 2 de su historia. Cada sucursal ve las suyas y las que no tienen propuesta pero la tienen entre sus 2; **00 ve todas**. ⛔ El alcance de quien consulta lo decide **el servidor** (ScopeService, ADR-050): quien sólo ve su sucursal no lee la bandeja de otra ni de 00 (403) | Propone en 47.3 % y acierta 93.1 % (98 % en noviembre); el placebo, 27.4 %. Al preguntar, la correcta está entre las 2 en 80.8 %. La historia de 180 días acierta 36.5 %, igual que el placebo. La guarda por departamento (96.7 %) necesita un mapa departamento → sucursal que hoy sólo existe escrito a mano: **queda fuera de v1** |
+| **DS22** | **Se agrupa por emisor** (renglón con cuántas, cuánto y la más antigua; al abrirlo, sus facturas) | 63 % son tickets de 13 gasolineras: sin agrupar es una lista de cientos |
+| **DS23** | **«No es de aquí» en dos alcances**, y los dos se deshacen: **«No es de esta sucursal»** (sólo sale de ésta; la siguen viendo su otra sucursal de historia y 00, con el aviso) y **«Sacar para todas»** con motivo (sale de todas y queda en «Descartadas» de CADA sucursal que la veía, la dueña incluida). Es una decisión humana (HITL), en una tabla propia `finance.expense_sat_invoice_dismissals` con `tenant_id` y auditoría; una factura sacada para todas no compite por gastos ni pagos | `fiscal.cfdi_assignments` liga una factura con UN documento (exige `doc_tipo` y `doc_folio`): usarla para «no es gasto» sería forzar su significado (regla 2) |
+| **DS24** | **Se calcula al leer**, en pasos (como PGP.108), no como vista: la regla vive en el contrato y el servicio sólo junta sus fuentes | El uno a uno es entre filas; en una sola consulta la cascada tardó de 0.7 a 21 s. En pasos: 341 acreedores, 719 emisores, ~1,760 facturas y ~14 mil documentos desde septiembre |
+
+### 14.4 Qué ve, en qué orden (nivel 0) y qué no
+
+> ⚠️ **Reemplazado por S.17 (§15, 2026-11-16):** la bandeja ya no va arriba del formulario. Vive en el paso
+> «Proveedor»: sin proveedor, como la fila de proveedores con facturas sin gasto; con proveedor, como SUS facturas, con
+> «Usar esta factura». Lo de abajo queda como el diseño original de S.13.
+
+Dentro de «Registrar o pedir», arriba del formulario, para la sucursal elegida:
+
+```
+Facturas del SAT por registrar en 06 · 9 · $4,820.10                 SAT al 15-nov 05:52 (ayer)
+  ESTACIÓN DE SERVICIO …   5   $2,310.00   la más antigua 06-nov            ▸
+  RECIBO DE LUZ …          1   $1,240.00   12-nov                           ▸
+  …
+  Ya registradas: 41 en Kepler · 3 en la Suite · 5 pagadas con un gasto agrupado   ▸
+  Sin sucursal clara: 4 (las tiene entre sus 2 opciones)                           ▸
+```
+
+- Al abrir un emisor: sus facturas (fecha, serie-folio, total, días desde emitida) con **[Registrar]** y **[No es de
+  aquí]**. Registrar llena el formulario de abajo y lleva el foco a «Qué es y cuánto» (si había una captura en curso,
+  primero pregunta). Sólo se ofrece si «Mandar a firma» lo aceptaría (el RFC de Kepler compatible); si no, dice qué
+  corregir. Lo que podría ser la factura a nombre de otro acreedor se avisa en la fila.
+- **No ve:** las ya registradas (sólo su conteo, desglosable), compras (`C*`), nómina y bancos, canceladas, G01 e
+  I0x, las que traen retención (v1 las rechaza al pedir) ni lo anterior al corte.
+- **Frescura:** «SAT al …» con la última factura recibida que llegó a la Suite; si pasa de 48 h, se dice.
+
+### 14.5 Mapa de desglose
+
+| Cifra | Dónde se abre | Qué trae | De dónde |
+|---|---|---|---|
+| «9 por registrar» | la lista, agrupada por emisor | emisor, cuántas, total, la más antigua | `GET …/solicitudes/facturas-sat?sucursal=` |
+| una factura | panel lateral | conceptos del XML, RFC del emisor y el acreedor de Kepler con la vía (tal cual, parecido, por nombre), forma y método de pago, IVA, **por qué está aquí** («no hay X-A-15/X-A-10 de GXX por $X entre el dd y el dd, ni su folio o UUID en la referencia») y la sucursal propuesta con su origen | `GET …/facturas-sat/:uuid` |
+| «41 en Kepler» | la lista de esas facturas | el documento que la cubre (tipo, folio, fecha) y la señal (referencia, difusa, pago) | la misma lectura |
+| el XML | descarga | el comprobante tal cual | `GET …/facturas-sat/:uuid/xml` (con el permiso de la bandeja; sólo de emisores de gasto) |
+
+### 14.6 Accesibilidad, ligas y si le toca a esta pantalla
+
+- **El documento fuente:** el XML está en 444 de 444 facturas sin registrar; se ve desde la fila sin el permiso
+  `FISCAL_CFDI_VER` (94 de 116 personas que registran gastos no lo tienen), acotado a emisores de gasto.
+- **Ligas:** viene del SAT (descarga de ContPAQi → `fiscal.cfdis`); va a la solicitud (X-A-15, al firmar) y, en la
+  siguiente fase, a la comprobación (X-A-10). La factura ya registrada dice qué documento la cubre.
+- **¿Le toca?** Sí: es la puerta de entrada del gasto. No reemplaza `/fiscal/cfdi` ni el «CFDI sin póliza» de
+  Contabilidad (FISCAL.5.2): ése mide otro universo (632 contra 444, con 195 que sobran) y se declara así.
+
+### 14.7 Criterios de aceptación
+
+- La bandeja de una sucursal responde en menos de 2 s (p95) con el universo desde el corte, medido en prod.
+- Ninguna factura de compras, cancelada, G01, I0x o con retención aparece.
+- Cada «por registrar» dice por qué; cada «ya registrada», con qué documento y qué señal.
+- «Registrar» llena acreedor, documento CFDI con su UUID, fecha, folio, total e IVA (del CFDI: `iva_trasladado`,
+  renglón = total − IVA, con descuento); al crear la solicitud con ese UUID, la factura sale sola de la bandeja.
+- «No es de esta sucursal» la quita sólo de ésta; «Sacar para todas» pide motivo y la deja en «Descartadas» de cada
+  sucursal que la veía; las dos se deshacen. Probado contra Postgres real con el payload de la pantalla (regla 13).
+- Quien sólo ve su sucursal recibe 403 al pedir otra, y 404 al abrir, descargar o sacar una factura que no ve.
+
+### 14.8 Lo que la interfaz no puede resolver
+
+- **3 RFC mal capturados en `kdxd`** (la gasolinera de las 555 y dos más): la escalera los repara al leer, pero
+  corregirlos en Kepler es de Finanzas.
+- **La frescura es la de la descarga de ContPAQi** (1 a 3 oleadas al día). Para el gasto del mismo día el camino
+  es el lector del comprobante (S.15), que la casa con la factura cuando llegue.
+- **Facturas agrupadas** (varios tickets en una solicitud): la regla «suma del día» agrega 0.7 % y no entra en
+  v1; la línea de teléfono de cada sucursal no viene en el CFDI.
+- **Quien no tiene sucursal en su ficha y su alcance es «own»** (medido: ~35 personas, casi todas vendedores y
+  promotores de ruta) no ve la bandeja: el servidor no le deja leer facturas de ninguna sucursal. Registra con su
+  comprobante, como hoy.
+- **Fuera de S.13, con dueño:** (a) `cfdi-factura.sql.ts` (PGP.108) lee la fecha del CFDI en hora de México: corre un día
+  las de ContPAQi de 00:00 a 05:59 (en su ventana de ±45 días casi no cambia el casado) — PGP; (b) las rutas de PGP.122
+  (`catalogo`, `acreedores`, `precarga`, `duplicados`, `leer-comprobante` y el `POST` que crea la solicitud) no validan en el
+  servidor la sucursal de quien pide: por API se pide para otra sucursal — PGP.122, siguiente paso.
+- **Recall sin verdad de campo:** las 304 «sin registro» no se revisaron una por una; 219 casan con OTRO
+  acreedor (contra 88 del placebo), por ejemplo un reembolso a un empleado.
+
+### 14.9 Abierto (de Edgar o Francisco)
+
+- **DS25** — Las facturas asociadas en ContPAQi pero sin documento en Kepler (187 de 304): **v1 las muestra con
+  el aviso «ya contabilizada en ContPAQi»**; ¿deben salir de la bandeja?
+- **DS26** — ¿Corregir en Kepler los 3 RFC mal capturados? (Finanzas.)
+
+### 14.10 Construcción
+
+- **S.13.1** Contrato puro (`libs/contracts/src/finance/factura-sat.contract.ts`): universo, señal por referencia,
+  uno a uno por cercanía, cascada y sucursal propuesta; spec con sus placebos (UUID falso, importe +$7, fecha −120 días).
+- **S.13.2** Lectura en pasos (`facturas-sat.service.ts`): acreedores y padrón → RFC reparado → facturas → documentos
+  X-A-10/15 y X-D-26 → vales de la Suite y descartes.
+- **S.13.3** API: `GET facturas-sat`, `GET facturas-sat/:uuid`, `GET facturas-sat/:uuid/xml`, `POST …/descartar`,
+  `POST …/restaurar`, con `FINANCE_EXPENSES_VER/CAPTURAR`.
+- **S.13.4** Migración generada: `finance.expense_sat_invoice_dismissals` (RLS, `tenant_id`, auditoría).
+- **S.13.5** Pantalla: la sección de §14.4 en «Registrar o pedir» y el panel lateral.
+- **S.13.6** Pruebas: spec del contrato; `pruebas-db` con facturas, catálogo y documentos sembrados, y el descarte
+  con el payload de la pantalla.
+- **S.13.7** Medición en prod (sólo lectura): tamaño de la bandeja por sucursal y tiempo de respuesta.
+
+### 14.11 Medido en prod con el servicio real (2026-11-15, sólo lectura)
+
+| Qué | Medido |
+|---|---|
+| Tiempo de la bandeja, en frío (sin la lectura guardada) | **1.1 a 1.8 s** (criterio < 2 s ✓, con poco margen: ahora lee los documentos de TODOS los acreedores); con la lectura guardada, 0.4 s |
+| Universo desde el corte (1-oct → 15-nov) | **825 facturas** de acreedores de gasto |
+| Ya registradas | **649**: 319 por la referencia, 4 por la referencia en el gasto de OTRO acreedor (reembolsos), 180 difusa, 146 pagadas con un gasto agrupado (las señales de la Suite empiezan en 0: la migración de PGP.122 no está en prod) |
+| **Por registrar** | **176 · $919,373 · 50 emisores**; 68 ya asociadas en ContPAQi (DS25), 54 de más de 30 días |
+| Avisos | 44 con un documento de OTRO acreedor por el mismo importe (no se esconden: se avisa) · 4 con el gasto del mismo importe cubriendo otra factura más cercana (el motivo lo dice) · 2 sin acreedor registrable (Kepler tiene el RFC de otra razón social) |
+| RFC del acreedor | 131 tal cual, 30 «parecido» (error de captura en Kepler), 22 por el nombre |
+| Con sucursal propuesta | 73 de 176 (41 %); las demás las ven sus 2 sucursales de historia y 00 |
+| Por sucursal (por registrar) | 01: 15 · 02: 4 · 03: 9 · 04: 7 · 05: 11 · 06: 23 · 07: 10 · 08: 36 |
+| Acreedor fuera del catálogo de la sucursal que la ve | 0 |
+| Fechas | `fiscal.cfdis.fecha` tiene dos convenciones: la descarga de ContPAQi guarda la hora LOCAL como UTC y la descarga masiva el instante real. Leída por origen, coincide con el atributo `Fecha` del XML en 2,005 de 2,005; leerla siempre en hora de México corría un día 106 de 1,770 |
+
+⚠️ Una factura sin sucursal clara aparece en dos bandejas: si las dos la registran, la segunda choca con el índice
+único del UUID (`ux_expense_proofs_cfdi_uuid`) y el servidor contesta que ya respalda otro vale.
+
+### 14.12 Lo que encontró la revisión independiente (2026-11-15)
+
+Cuatro revisores (cascada y lecturas, API y seguridad, pantalla, pruebas y documentos) reportaron 34 hallazgos; 5 se
+verificaron con un segundo agente y los demás los verifiqué contra el código y prod (los verificadores se cortaron por
+límite de uso). Todos se corrigieron, con prueba:
+
+- **Ofrecía registrar facturas YA registradas** (invitaba a duplicar el gasto): la referencia en el gasto de otro
+  acreedor (4 en prod), el folio de 3 dígitos, el vale de la Suite capturado con ticket, y el pago X-D-26 que ya
+  explicaba otro gasto. Y el uno a uno codicioso podía dejar fuera una factura que sí tenía gasto (ahora es de
+  cardinalidad máxima).
+- **Escondía facturas NO registradas:** el gasto que escribió un vale de la Suite «cubría» otra factura del mismo
+  importe, y una factura descartada competía por el gasto de una real.
+- **Afirmaba de más:** «no hay gasto» cuando sí lo había (cubriendo otra factura), el día de la factura corrido uno
+  (las dos convenciones de fecha), «sin IVA» cuando el SAT lo traía en el nodo crudo, y «Kepler no tiene su RFC»
+  cuando lo tenía de otra razón social —con lo que «Mandar a firma» fallaba siempre—.
+- **Alcance:** con `?sucursal=00` cualquiera veía la bandeja de toda la empresa; un descarte desde una sucursal
+  borraba la factura de la dueña sin dejarle rastro.
+- **Pantalla:** «Registrar» borraba sin preguntar una captura en curso y podía pisar un envío en vuelo; el diálogo
+  dejaba de abrir si se cerraba mientras enviaba; el detalle tardío se pintaba en el panel de otra factura; el foco no
+  seguía al formulario; el nombre accesible tapaba la fecha; el XML bajaba con el UUID por nombre.
+- **Migración y pruebas:** el `down` borraba decisiones humanas; un motivo con emoji daba 500; la RLS y los CHECK de
+  la tabla no tenían prueba versionada; una prueba de «al instante» usaba una instancia sin la lectura guardada.
+
+### 14.13 La prueba visual en la pantalla viva, y lo que se corrigió (`[PGP.123]`, 2026-11-15)
+
+Nivel A (skill `auditoria-diseno`): la pantalla corriendo en local contra la copia de la 05 en Docker, en claro,
+oscuro, escritorio de 1,440 px y celular de 390 px. Veredicto de la primera vuelta: 🔴 por un rótulo que afirmaba
+algo falso. Francisco pidió corregir todo antes del PR, con la recomendación de H5. Cada arreglo tiene prueba y su
+mutante se pone rojo; la segunda vuelta se midió con el mismo instrumento.
+
+| # | Lo que estaba mal | Cómo quedó (medido en la segunda vuelta) |
+|---|---|---|
+| H1 🔴 | El renglón entero decía «de la factura del SAT», pero el concepto, el proyecto y el área salían de «como la última vez»: el rótulo le decía a la persona que no revisara justo lo que tenía que revisar | Cada campo dice su origen, en una línea: «Concepto, proyecto y departamento: como la última vez · importe: de la factura del SAT». Lo que escribe la persona no se rotula (`pedir-gasto.ayudas.ts`) |
+| H2 | Las cifras del resumen contaban desde 0 al cargar | `[instant]="true"`: nacen con su valor |
+| H3 | Diez botones con el color de acción: cada «Registrar» relleno de naranja y el «9» del resumen del mismo color | «Registrar» con contorno neutro (variante *plain* de Aura, texto 9.50:1) y el conteo sin tono. El único botón de acción de la pantalla es «Mandar a firma» |
+| H4 | Jerarquía invertida: el título a 14 px y el emisor, el folio y el monto a 16 px | Título 16 px › emisor y folio 14 px › fecha y días 13 px atenuados |
+| H5 | La bandeja empujaba el formulario y separaba su franja («Falta 8») de sus campos | Abre con las 3 facturas más antiguas, cada una con su emisor, y «Ver las N, por emisor»; con 3 o menos se ven todas. La franja de la solicitud va pegada al bloque 1. El bloque 1 empieza a **735 px** en escritorio (1,209 con la lista completa) y a **1,190 px** en el celular (2,057) |
+| H6 | Al cerrar el panel o el diálogo el foco caía en la página | Vuelve a la fila que lo abrió; si la factura ya salió de la lista, al título de la sección. Verificado con teclado (Enter → Esc, y «No es de aquí» → Cancelar) |
+| H7 | «¿Reemplazo tu captura?» nacía con el foco en «Sí», la opción que borra | Nace en «No, sigo con la mía» y «Sí» va sin color de acción. Un Enter distraído conserva la captura (medido) |
+| H8 | Sucursales por clave («sólo sale de 05; la siguen viendo 07, 00») | Por nombre: «sólo sale de 05 Zamora Centro. La siguen viendo 07 Morelia Madero, 00 CEDIS» |
+| H9 | «No es de aquí» a 4.40:1 | 18.10:1 en claro, 19.90:1 en oscuro |
+| H10 | Botones de 28 px que ninguna regla táctil agrandaba | Con puntero grueso (emulado): «Registrar», «No es de aquí» y «Ver las…» miden 44 px. Con un dedo real: **NO MEDIDO** |
+| H11 | El aviso «puede estar registrada como reembolso» sonaba por importes iguales en OTRAS sucursales y con jerga | Sólo cuenta documentos de las sucursales que ven la factura y de la 00 (`sucursalesQueLaVen`), dicho en llano. Medición abajo |
+| H12 | En el celular se cortaba el nombre del emisor | Se envuelve; sin desplazamiento horizontal a 390 px |
+| H13 | Más de 500 ms por petición; en la 00 viajaban 359 KB | Viajan 49.4 KB (la API ya comprime: el problema no era el peso). El costo era recalcular el registro en cada petición: medición abajo |
+
+Menores, también corregidos: el doble paréntesis de la sucursal; el «por qué está aquí» en llano y con el formato de
+la pantalla («$1,234.50», «8-oct»); «sucursal sin confirmar» una vez por emisor (2 veces contra 9); los plegables
+con su flecha; un nombre accesible por botón («Registrar la factura A-501 de …»); el diálogo de reemplazo nombra sólo
+lo capturado («el folio, el acreedor y el renglón», sin «la foto» cuando no hay foto); con la factura casada al SAT
+«Tomar foto (opcional)» deja de ser el botón principal; y después de «Registrar» el foco espera al hábito del
+acreedor y va al primer dato que falta en el orden de la pantalla (en la prueba, el motivo por tener 38 días), no a
+«Qué es y cuánto» ya lleno.
+
+**H11, medido en prod en sólo lectura** (el servicio real, 176 facturas sin registro; control: la regla del script
+da lo mismo que el contrato en las 176):
+
+| Regla | Facturas con aviso | Avisos en pantalla | Placebo de importe ×1.07 | Placebo de fecha −30 días |
+|---|---:|---:|---:|---:|
+| Antes: cualquier sucursal | 44 | 107 | 19 | 59 |
+| Sólo la sucursal que la ve | 20 | 48 | 9 | 35 |
+| **Ésa y la 00 (la regla)** | **28** | **67** | **10** | **48** |
+
+Los dos placebos tiran en sentidos opuestos (el de fecha cae en septiembre, antes del corte, con más documentos
+libres; el de importe subestima los montos redondos), así que la señal sigue débil: se avisa, no se decide. La parte
+que se quita es la más ruidosa. La medición original (219 de 304 contra 88) era de antes de que las reglas de
+registro absorbieran los reembolsos con referencia; el texto de «lo que esta lista todavía no ve» ya no lleva cifras
+fijas.
+
+**H13, medido en local** (816 facturas, 6,288 documentos): de cada petición, el registro se llevaba 356–388 ms
+(el 95 %), aunque fuera la bandeja de una sucursal con 9 facturas; leer lo fresco, 8–14 ms; el JSON, 1 ms. Ahora el
+registro se guarda por lectura (que ya se guardaba un minuto) con la firma de lo fresco que lo alimenta: vales con y
+sin factura, y lo sacado para todas. Primera petición 405 ms; las siguientes **9–27 ms**. Las 9 bandejas salen
+idénticas con y sin el registro guardado. Un vale nuevo o un descarte para todas cambian la firma; la prueba contra
+Postgres real lo comprueba con un caso nuevo (una factura sacada antes de la lectura vuelve a competir por su gasto
+al regresarla) y los tres mutantes de la firma se ponen rojos.
+
+**Contraste, con controles** (negro/blanco 21.00, #777/blanco 4.48): en claro lo más bajo es «Facturas que llegaron
+del SAT», 4.80:1; en oscuro, 5.89:1.
+
+⚠️ **Hallazgo del sistema, no de S.13 (para Edgar):** el botón `secondary` con contorno de Aura pone el texto en
+zinc-500, y sobre el fondo zinc-100 de Operations da **4.40:1**, bajo el mínimo de 4.5 (sobre blanco, 4.81). Hay al
+menos 9 en la vista con ese patrón. Arreglarlo es tocar el preset (`operations-preset.ts`, color de
+`button.outlined.secondary`), que pide aprobación; la bandeja ya usa la variante *plain*.
+
+**NO MEDIDO:** alto contraste de Windows (`forced-colors`), celular con dedo real, lector de pantalla, 320 px con
+zoom al 400 % y la bandeja de la 00 en pantalla (en local no está abierta).
+
+## 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga
+
+> Pedido de Francisco el 2026-11-16, literal: *«La lógica, antes de cualquier cosa, es seleccionar en qué base se
+> va a solicitar el gasto. Los usuarios con restricción de un solo almacén no hay tema; los que manejan varios sí
+> tendrían que seleccionar. Luego el proveedor: si ya tiene timbrada la factura, se extraen los documentos del SAT
+> de ese proveedor sin asociar a ningún gasto. Y al final la forma de pago, el plazo y, en caso, la información de
+> pago: un (+) «Agregar información de pago» para la cuenta y el correo a enviar.»* Reemplaza el orden de §7.4 y
+> la colocación de la bandeja de §14.4. Cifras de prod en sólo lectura del 2026-11-16; las consultas viven fuera
+> del repo.
+
+### 15.1 Para qué, y la prueba de la frase
+
+**«¿A quién se le paga, desde qué base, con qué papel y cómo?»**. No es una pregunta con «y»: es el orden en que la
+persona ya la piensa. El acto que cierra sigue siendo **mandar a firma una solicitud ya llena**. Lo que cambia es el
+orden: primero se fija lo que decide el catálogo (la base), luego a quién (el proveedor) y, con eso, la Suite ya
+sabe qué facturas del SAT le corresponden. El documento deja de ser la puerta de entrada y pasa a ser
+consecuencia del proveedor.
+
+### 15.2 El estado real (medido)
+
+| Qué | Medido |
+|---|---|
+| Quién pide gastos (`FINANCE_EXPENSES_CAPTURAR`), por su alcance de almacén en el área `finanzas` (el mismo que usa la bandeja del SAT) | **46** con un solo almacén (cajeros, encargados, auxiliares de tienda) · **16** con varios (promotores de ruta, supervisores) · **37** con todos (oficinas) · **2** con alcance «el suyo» y **sin almacén en su ficha** |
+| Los 2 sin almacén en su ficha | un cajero que capturó **179 vales en 60 días en 07 y 08**, y un supervisor con 52 en 07: manejan almacenes que su ficha no dice |
+| Con un solo almacén que capturaron en otra sucursal (60 días) | 4 de 15 activos, pocos vales y a inicios de octubre (en 00 o en 05) |
+| Plazo de hoy en la X-A-15 (`c18 − c9`), 4,413 desde agosto | **88.0 % el mismo día** · 7.3 % de 1 a 7 días · 1.0 % de 8 a 15 · 0.5 % más · 3.1 % con la fecha de pago antes de la fecha |
+| Días de crédito del acreedor en Kepler (`kdxd.c16`) | **12 de 223** acreedores de gasto; coincide con el plazo usado en 54 de 94 solicitudes |
+| Correo del acreedor en Kepler (`kdxd.c11`) | **16 de 342** acreedores de gasto (124 filas, todas con forma de correo) |
+| CLABE o cuenta del acreedor | **en ningún lado**: ni en `kdxd` (0 columnas con 18 dígitos) ni en el catálogo de cuentas de proveedor de la Suite (`commercial.supplier_payment_accounts`: **0 filas** en prod) |
+| Forma de pago de la X-A-15, 90 días (3,875) | 56.9 % sin capturar · 23.7 % efectivo · **9.3 % transferencia (361, 75 acreedores)** · 6.0 % `07` · el resto, menos de 2 % cada una |
+
+### 15.3 Decisiones (de Claude, anunciadas; las de negocio quedan en §15.8)
+
+| | Decisión | Por qué |
+|---|---|---|
+| **DS27** | **La base sale de los almacenes de la persona** (ScopeService, área `finanzas`, ADR-050), intersectados con las bases abiertas. **Una** → fija, sin pregunta. **Varias o todas** → se elige, **sin preselección**. **Sin almacén en su ficha** o sin alcance → no se abre: se dice por qué y que Sistemas lo arregla; mientras, «Tengo un folio de Kepler». El servidor exige la misma regla al pedir y al leer el catálogo, los acreedores y el hábito | Es el pedido literal. Preseleccionar la última base a quien maneja dos es la manera de pedir en la equivocada (el cajero de 07 y 08). Abrir todas a quien no tiene almacén en su ficha sería ver de más: la bandeja ya le contesta 403 (S.13) y la solicitud de la Suite todavía no está en prod, así que nadie pierde lo que hoy usa. Cierra §14.8 (b) |
+| **DS28** | **El proveedor va antes que el documento.** Al elegirlo, debajo aparecen **sus** facturas del SAT sin gasto en esa base (la misma lectura de S.13, filtrada por el acreedor: por su clave o por su RFC). Sin proveedor elegido, la bandeja se vuelve una fila de **proveedores con facturas sin gasto**, la más antigua primero, junto a los frecuentes | La bandeja arriba del formulario decía «registra esta factura» antes de saber a quién se le paga. Así, la entrada más automática de §7.1 sigue a un toque (el proveedor desde su factura) y respeta el orden |
+| **DS29** | **«Usar esta factura» no borra al proveedor ni lo que puso su hábito.** Sólo llena el comprobante (UUID, folio, fecha, IVA, importe) y pregunta antes si va a reemplazar un comprobante ya capturado (foto, folio u otra factura) | Con el nuevo orden, elegir al proveedor y luego su factura es el camino normal: preguntar «¿borro tu captura?» por haber elegido al proveedor sería un clic que sólo confirma |
+| **DS30** | **Plazo** a un toque: de contado, 7, 15 o 30 días, u otra fecha. La fecha de pago (`c18`, que el X-A-10 vuelve vencimiento de la CxP) = fecha de la factura + días, o hoy + días sin factura; si ya venció, se pide para hoy y se dice. Se precarga de `kdxd.c16` si lo tiene, si no de su última solicitud, y si no, de contado. Viaja en `necesita_para`, que ya existe: **sin columna nueva** | Es lo que Kepler hace con el plazo. El servidor ya descarta una fecha pasada y deja la de hoy: la pantalla lo dice en vez de esconderlo |
+| **DS31** | **Información de pago opcional, con (+)**: cuenta o CLABE (la CLABE con su dígito de control), banco (opcional) y el correo donde se manda el comprobante. Se guarda **en el vale** (`payee_account`, `payee_bank`, `payee_email`, columnas nuevas de `finance.expense_proofs`) y la ven quien firma y quien paga. El correo se precarga de `kdxd.c11`; la cuenta, de la última que se capturó en la Suite para ese acreedor. Si ya hay datos, el bloque nace abierto con su origen | La CLABE no existe en ningún catálogo. Escribirla en el catálogo de cuentas de proveedor (PGP, con su firma de alta) es otra decisión (DS32): guardar la de ESTE pago no la toma por nadie |
+
+### 15.4 Qué ve, en qué orden (nivel 0), y qué no
+
+```
+Registrar o pedir un gasto
+ 1 Base       [07 Morelia Madero] [08 …]        ← una: «Base: 05 Zamora Centro», sin pregunta
+              Catálogo de Kepler de esta base · leído hace 1 min
+ [Total · Llenó la Suite · Falta]
+ 2 Proveedor  [Nombre, clave o RFC          ▾]
+              Con facturas del SAT sin gasto: [GASOLINERA · 4] [LUZ · 1] …   Frecuentes: [A] [B] [C]
+              ── al elegirlo ──
+              Facturas de GASOLINERA en el SAT sin gasto (4 · $1,920.00)        SAT al 16-nov 05:52
+                02-nov  A-501  $480.00   [Usar esta factura] [No es de aquí]
+ 3 Comprobante   [Ticket o nota | Factura | Cotización]  [Tomar foto] [Subir archivo]  Folio · Fecha
+ 4 Qué es y cuánto   renglones · IVA · total
+ 5 Cómo se paga   Forma de pago [Efectivo|Tarjeta|Transferencia|…]
+                  Plazo [De contado|7 días|15 días|30 días|Otra fecha]   Se paga el lun 1-dic
+                  (+) Agregar información de pago → Cuenta o CLABE · Banco · Correo para el comprobante
+ Más datos (opcional): periodo, unidad, nota
+ [barra: total · Faltan N · Mandar a firma]
+```
+
+**No ve:** la bandeja completa arriba del formulario (sus facturas aparecen con su proveedor); «Se necesita pagar
+el» dentro de «Más datos» (ahora es el plazo); el catálogo de cuentas de proveedor de PGP.
+
+### 15.5 Accesibilidad, ligas y si le toca a esta pantalla
+
+- **Sin mouse:** la base y el plazo son botones segmentados (flechas y Tab); con más de 5 bases, un desplegable con
+  búsqueda. Al usar una factura, el foco va al primer dato que falta (como en S.13).
+- **El documento fuente:** cada factura del proveedor se abre en el panel lateral con su XML, igual que en S.13.
+- **Ligas:** la información de pago viaja con el vale a Aprobación (quien firma la ve antes de firmar) y al detalle
+  de la solicitud; llevarla al Calendario de pagos y a «Salidas del banco» es el siguiente paso (§15.8).
+- **¿Le toca?** Sí: es la misma puerta. El alta de una cuenta en el catálogo de proveedores sigue en PGP.
+
+### 15.6 Criterios de aceptación
+
+- Con un solo almacén, la base aparece fija y el formulario abre sin preguntar; con varios, nada aparece hasta
+  elegirla; sin almacén en la ficha, se dice por qué y no se ofrece ninguna.
+- Por API, pedir en una base fuera de los almacenes de la persona contesta 403 (prueba contra Postgres real).
+- Al elegir un proveedor con facturas sin gasto se ven sólo las suyas; «Usar esta factura» deja al proveedor, su
+  concepto, área y forma de pago, y llena UUID, folio, fecha, IVA e importe.
+- El plazo calcula la fecha de pago y la dice; un plazo vencido se pide para hoy y lo dice.
+- La información de pago rechaza una CLABE con el dígito de control mal y un correo sin forma de correo, en la
+  pantalla y en el servidor; quien firma la ve en el detalle.
+- `check:pantalla` sin fallas nuevas; prueba visual en claro, oscuro, 1,440 y 390 px.
+
+### 15.7 Lo que la interfaz no puede resolver
+
+- **Los 2 sin almacén en su ficha** (el cajero de 07 y 08, el supervisor de 07): Sistemas les asigna sus almacenes
+  (alcance «listado» en `finanzas`). Hasta entonces capturan con «Tengo un folio de Kepler».
+- **CLABE:** nadie la tiene hoy; la primera vez se teclea. El banco no se deduce de la CLABE: no hay catálogo de
+  bancos en el repo y no se inventa uno.
+- **El correo de Kepler** sólo está en 16 acreedores.
+
+### 15.8 Abierto (de Edgar o Francisco)
+
+- **DS32** — ¿La cuenta que se captura en una solicitud se propone al catálogo de cuentas de proveedor de PGP (con
+  su firma de alta), para que el siguiente pago ya la traiga? Hoy ese catálogo tiene 0 filas.
+- **DS33** — ¿Los 4 encargados con un solo almacén que capturaron en otra sucursal necesitan alcance de varias?
+- **DS34** — ¿La información de pago se muestra en el Calendario de pagos y en «Salidas del banco»? (PGP.97/98).
+
+### 15.9 Construcción y prueba (2026-11-16)
+
+| Pieza | Dónde | Probado |
+|---|---|---|
+| Las reglas: `basesDeQuienPide`, `fechaDePago` y `PLAZOS_DE_PAGO`, `cuentaDePago` (CLABE con su dígito de control), `correoValido`, y la compuerta con `pago_cuenta` / `pago_banco` / `pago_correo` | `libs/contracts/src/finance/solicitud-gasto.contract.ts` | spec 41 ✓; romper «sin almacén → ninguna» la pone roja |
+| El servidor: `abiertas` devuelve las bases de quien pide; `crear`, `disponibilidad`, `catalogo`, `acreedores`, `precarga`, `duplicados` y `leer-comprobante` contestan 403 fuera de sus almacenes; la precarga trae el plazo (`kdxd.c16` o la última solicitud) y la información de pago (`kdxd.c11` o la última de la Suite); `crear` guarda la información de pago limpia; el detalle la muestra a quien firma | `solicitud-gasto.service.ts` (gana `ScopeService`, 4º y obligatorio) | contra Postgres real con el payload de la pantalla: **102 ✓** (sección M nueva, 19 casos); romper la regla de la base pone 3 en rojo. Arranque de Nest por `design:paramtypes`: 54 ✓ |
+| La migración `20261116200205`: `payee_account`, `payee_bank`, `payee_email` con sus CHECK | `database/migrations-newdb/` | `up()` real dos veces y `down()` en la base local: 15 ✓, con 9 negativas. **Sin aplicar en prod** |
+| La pantalla: el orden nuevo; la bandeja en dos modos (proveedores con facturas / sus facturas); plazo; «+ Agregar información de pago» | `finanzas-pedir-gasto.component.ts`, `facturas-sat-bandeja.component.ts`, `pedir-gasto.ayudas.ts` | 19 ✓ y 21 ✓; romper «Usar esta factura» (que cuente al proveedor) pone 6 en rojo. Finanzas completo: 1,598 ✓ y 1 rojo ajeno (`gastos-tabs.spec.ts`, el menú lateral) |
+
+**La prueba visual** (nivel A, en local contra la base Docker, en claro y oscuro, a 1,440 px con mouse y a 390 px con
+puntero táctil) encontró y se corrigió:
+
+| Lo que estaba mal | Cómo quedó |
+|---|---|
+| Con una sola base abierta decía «· tu almacén» aunque la persona viera todas | «tu almacén» sólo con alcance de uno; si no, «la única base abierta hoy» |
+| Los «Frecuentes» con el color de acción, junto a los proveedores con facturas en neutro | neutros los dos (texto 9.50:1); el único botón de acción es «Mandar a firma» |
+| A 390 px, la forma de pago cortaba sus etiquetas («Transferenc») y el plazo partía cada botón en dos renglones | el grupo se envuelve; ninguna etiqueta cortada |
+| Con el dedo, los botones de forma de pago, plazo y base medían 35 px y «Quitar» 28 | 44 px |
+| La opción no elegida de un grupo de botones, a 4.40:1 en claro (en la base, sin preselección, todas) | 7.03:1 en claro y 7.76:1 en oscuro |
+| La franja contaba desde 0 («7 FALTA» con la barra en «Faltan 8») | nace con su valor |
+| La cuenta y el correo mal escritos sólo se decían en texto | además se marcan como inválidos |
+
+Medido después: sin desplazamiento horizontal en ninguno de los dos tamaños; con dos bases abiertas no se
+preselecciona ninguna y nada se abre hasta elegir; «Usar esta factura» deja al proveedor y su hábito, la fila dice «En
+esta solicitud» y el foco va a lo que falta; una CLABE con el dígito de control mal y un correo sin dominio apagan
+«Mandar a firma» y lo dicen; un plazo de 15 días sobre una factura del 29-oct dice «Venció el vie 13 de nov … se pide
+para hoy». Contraste más bajo de lo nuevo: 4.80:1 en claro.
+
+⚠️ **Hallazgo del sistema (para Edgar), la misma causa que el botón secundario de §14.13:** la opción no elegida de
+`p-selectbutton` va en zinc-500 y sobre el fondo de Operations da 4.40:1. Aquí se corrigió para esta pantalla; el
+arreglo de fondo es el preset (`operations-preset.ts`).
+
+**NO MEDIDO:** con un dedo real, lector de pantalla, `forced-colors`, y el selector de base con más de 5 bases (el
+desplegable). La 07 se abrió sólo en la base local para ver el selector con dos opciones y se regresó como estaba.
