@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
@@ -37,9 +37,8 @@ import { BancosDescargasAvisoComponent } from '../components/bancos-descargas-av
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
-import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
+import { BancosFactorajeComponent } from './bancos/bancos-factoraje.component';
 import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
-import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
 import { BancosComisionesComponent } from './bancos/bancos-comisiones.component';
 import { BANCOS_STYLES } from './bancos/bancos.styles';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
@@ -97,7 +96,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe, ConfirmDialogModule],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosFactorajeComponent, BancosThreeWayComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe, ConfirmDialogModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -151,7 +150,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
           }
         }
         <button role="radio" class="fb-seg-config" [attr.aria-checked]="view()==='admin'" [class.active]="view()==='admin'"
-                (click)="openAdmin()" aria-label="Configuración: reglas, categorías y cuentas" title="Configuración: reglas, categorías y cuentas"><i class="pi pi-cog" aria-hidden="true"></i></button>
+                (click)="openAdmin()" aria-label="Configuración: catálogo Kepler y cuentas de banco" title="Configuración: catálogo Kepler y cuentas de banco"><i class="pi pi-cog" aria-hidden="true"></i></button>
       </nav>
       <p-menu #menuMas [model]="menuMasItems()" [popup]="true" appendTo="body" />
 
@@ -209,11 +208,12 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
       <!-- ── vs ContPAQi: banco (Excel) contra los LIBROS reales de contabilidad ── -->
       @if (view() === 'contpaqi') {
         @if (cpqError()) {
-          <app-load-state [error]="cpqError()" (retry)="loadContpaqi()"></app-load-state>
+          <app-load-state [error]="cpqError()" (retry)="loadFactoraje()"></app-load-state>
         } @else if (cpqLoading()) {
           <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
         } @else {
-          <bancos-contpaqi [compare]="contpaqiCompare()" [linking]="cpqLinking()" [puedeGestionar]="puedeGestionar()" [period]="period()" [available]="cpqAccounts()" [factoraje]="factorajeCompare()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)" />
+          <!-- [CB.78] Sólo factoraje: banco ↔ ContPAQi vive en Cuadre 3 vías y el enlace en Configuración. -->
+          <bancos-factoraje [factoraje]="factorajeCompare()" [period]="period()" [error]="cpqError()" (reintentar)="loadFactoraje()" />
         }
       }
 
@@ -233,10 +233,6 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
         <bancos-comisiones [data]="comisiones()" [loading]="comLoading()" [error]="comError()" (reintentar)="cargarComisiones()" />
       }
 
-      <!-- ── CAPTURAS WHATSAPP: bandeja de depósitos recibidos por WhatsApp (CBW.4) ── -->
-      @if (view() === 'capturas') {
-        <bancos-capturas />
-      }
 
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
@@ -283,6 +279,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
         <bancos-admin [keplerAccounts]="keplerAccounts()" [accounts]="accounts()"
           [kaSearch]="kaSearch()" [addingAcct]="addingAcct()" [soloLectura]="!puedeGestionar()"
           (search)="onKaSearch($event)" (patchAccount)="patchAccount($event.a, $event.patch)"
+          [cpqAccounts]="cpqAccounts()" [linking]="cpqLinking()" (link)="linkContpaqi()" (manualLink)="manualLinkContpaqi($event)"
           (addAccount)="addAccount($event)" />
       }
       }
@@ -449,7 +446,6 @@ export class FinanzasBancosComponent implements OnInit {
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
   // CP.2 — comparación vs LIBROS ContPAQi (lazy: se carga al abrir la pestaña).
-  readonly contpaqiCompare = signal<ContpaqiCompare | null>(null);
   readonly cpqLoading = signal(false);
   readonly cpqError = signal<string | null>(null);
   readonly cpqLinking = signal(false);
@@ -777,7 +773,7 @@ export class FinanzasBancosComponent implements OnInit {
     const v = this.view();
     if (v === 'conciliacion') this.api.reconciliation(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (rc) => this.reconciliation.set(rc), error: () => { /* silencioso */ } });
     if (v === 'cuadre') this.loadThreeWay();
-    if (v === 'contpaqi') this.loadContpaqi();
+    if (v === 'contpaqi') this.loadFactoraje();
   }
 
   setPeriod(p: string): void { this.period.set(p); this.loadPeriod(); }
@@ -794,7 +790,8 @@ export class FinanzasBancosComponent implements OnInit {
    * dejaba la pestaña vacía hasta que el usuario cambiaba de vista y regresaba.
    */
   private lazyForView(v: View): void {
-    if (v === 'contpaqi' && !this.contpaqiCompare() && !this.cpqLoading()) this.loadContpaqi();
+    if (v === 'contpaqi' && !this.factorajeCompare() && !this.cpqLoading()) this.loadFactoraje();
+    if (v === 'admin' && !this.cpqAccounts().length) this.cargarCpqAccounts();
     if (v === 'cuadre' && !this.threeWay() && !this.twLoading()) this.loadThreeWay();
     if (v === 'conciliacion' && !this.differences()) this.loadDifferences();
   }
@@ -834,34 +831,46 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
 
-  /** CP.2 — carga la comparación banco vs libros ContPAQi del periodo (lazy). */
-  loadContpaqi(): void {
+  /**
+   * [CB.78] Factoraje: sólo las compras con factoraje contra el proveedor en ContPAQi (lazy). Ya no pide la
+   * comparación banco ↔ ContPAQi (vive en Cuadre 3 vías) ni el catálogo para enlazar (vive en Configuración).
+   * El error ya no se calla: antes el bloque simplemente no aparecía.
+   */
+  loadFactoraje(): void {
     const p = this.period();
     if (!p) return;
     this.cpqLoading.set(true);
     this.cpqError.set(null);
-    this.api.contpaqiCompare(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (c) => { this.contpaqiCompare.set(c); this.cpqLoading.set(false); },
-      error: () => { this.cpqError.set('No se pudo cargar la comparación vs ContPAQi.'); this.cpqLoading.set(false); },
+    this.api.factorajeCompare(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f) => { if (p !== this.period()) return; this.factorajeCompare.set(f); this.cpqLoading.set(false); },
+      error: () => { if (p !== this.period()) return; this.cpqError.set('No se pudo cargar el factoraje del periodo.'); this.cpqLoading.set(false); },
     });
-    // [CB.77] El catálogo para enlazar pide GESTIONAR: quien sólo ve ya no lo pide para recibir un 403 que se callaba.
-    if (!this.cpqAccounts().length && this.puedeGestionar()) {
-      this.api.contpaqiAccounts().pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: (as) => this.cpqAccounts.set(as), error: () => { /* selector opcional */ } });
-    }
-    this.api.factorajeCompare(p).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (f) => this.factorajeCompare.set(f), error: () => { /* factoraje opcional */ } });
   }
 
-  /** CP.2 — enlace manual de una cuenta (Santander 1604/1621) a su cuenta contable ContPAQi. */
+  /** [CB.78] El catálogo 102xxx de ContPAQi para enlazar, en Configuración. Pide GESTIONAR (como el endpoint). */
+  private cargarCpqAccounts(): void {
+    if (!this.puedeGestionar()) return;
+    this.api.contpaqiAccounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (as) => this.cpqAccounts.set(as),
+      error: () => this.fail('No se pudo leer el catálogo de cuentas de ContPAQi: el enlace queda sólo de lectura.'),
+    });
+  }
+
+  /** Tras enlazar: la lista de cuentas (trae el enlace) y el catálogo (qué cuentas 102xxx quedan libres). */
+  private recargarEnlaces(): void {
+    this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((as) => this.accounts.set(as));
+    this.cargarCpqAccounts();
+    this.threeWay.set(null);
+  }
+
+  /** CP.2 — enlace manual de una cuenta (Santander 1604/1621) a su cuenta contable ContPAQi; `null` desenlaza. */
   manualLinkContpaqi(e: { bankAccountId: string; cuenta: string | null }): void {
     this.api.manualLinkContpaqi(e.bankAccountId, e.cuenta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
-        this.toast.add({ severity: 'success', summary: 'Cuenta enlazada', detail: 'Se guardó el enlace manual a ContPAQi', life: 2500 });
-        this.cpqAccounts.set([]);
-        this.loadContpaqi();
+        this.toast.add({ severity: 'success', summary: e.cuenta ? 'Cuenta enlazada' : 'Enlace quitado', detail: e.cuenta ? `Libro ContPAQi ${e.cuenta}` : 'La cuenta ya no se compara contra ContPAQi', life: 2500 });
+        this.recargarEnlaces();
       },
-      error: () => this.fail('No se pudo enlazar la cuenta con ContPAQi.'),
+      error: () => { this.fail('No se pudo guardar el enlace con ContPAQi.'); this.recargarEnlaces(); },
     });
   }
 
@@ -871,8 +880,8 @@ export class FinanzasBancosComponent implements OnInit {
     this.api.linkContpaqi().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.cpqLinking.set(false);
-        this.toast.add({ severity: 'success', summary: `${r.linked} de ${r.total} cuentas enlazadas`, detail: 'Comparando contra los libros de ContPAQi', life: 3000 });
-        this.loadContpaqi();
+        this.toast.add({ severity: 'success', summary: `${r.linked} de ${r.total} cuentas enlazadas`, detail: 'El Cuadre 3 vías las compara contra esos libros', life: 3000 });
+        this.recargarEnlaces();
       },
       error: () => { this.cpqLinking.set(false); this.fail('No se pudieron enlazar las cuentas con ContPAQi.'); },
     });
@@ -884,7 +893,6 @@ export class FinanzasBancosComponent implements OnInit {
     this.concError.set(null);
     this.reconError.set(null);
     this.diagError.set(null);
-    this.contpaqiCompare.set(null);
     this.factorajeCompare.set(null);
     this.cpqError.set(null);
     this.threeWay.set(null);
@@ -897,7 +905,7 @@ export class FinanzasBancosComponent implements OnInit {
     // [CB.77] Se limpian: la píldora «libro importado» mostraba la fecha de otro mes si esta carga fallaba.
     this.statements.set([]);
     this.balances.set(null);
-    if (this.view() === 'contpaqi') this.loadContpaqi();
+    if (this.view() === 'contpaqi') this.loadFactoraje();
     if (this.view() === 'cuadre') this.loadThreeWay();
     if (this.view() === 'conciliacion') this.loadDifferences();
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -1075,7 +1083,7 @@ export class FinanzasBancosComponent implements OnInit {
   }
 
   // ── Admin ──
-  openAdmin(): void { this.view.set('admin'); }
+  openAdmin(): void { this.goView('admin'); }
 
   private ok(summary: string): void { this.toast.add({ severity: 'success', summary, life: 1500 }); }
 
