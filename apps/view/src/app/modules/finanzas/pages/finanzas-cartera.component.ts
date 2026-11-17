@@ -15,7 +15,23 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraQuery, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+
+/** `[CXC.43]` Fecha en México (AAAA-MM-DD) de un instante ISO: «hoy» es el día de la sucursal. */
+const diaMx = (iso: string | Date): string =>
+  new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+/** Días de calendario (en México) entre el contacto y hoy. */
+const diasDesde = (iso: string): number =>
+  Math.round((Date.parse(diaMx(new Date())) - Date.parse(diaMx(iso))) / 86_400_000);
+const horaMx = (iso: string): string =>
+  new Date(iso).toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit' });
+const fechaMx = (iso: string): string =>
+  new Date(iso).toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City', day: 'numeric', month: 'short' });
+
+/** Minúsculas y sin acentos: «Peña» se encuentra escribiendo «pena». */
+const normalizar = (s: string | null | undefined): string =>
+  (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -35,7 +51,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent, SucursalPipe],
+  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent, LoadStateComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
@@ -51,9 +67,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <span class="p-button-label">Buscar por producto</span>
           </button>
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showResumen()" (click)="toggleResumen()"><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span><span class="p-button-label">Resumen</span></button>
-          <!-- [CXC.41] El CSV pide al servidor TODAS las cuentas del filtro, no las 500 que pinta
-               la tabla: antes bajaba 500 de 1,455 sin decirlo. -->
-          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!data()?.clientes?.length || csvBusy()" [loading]="csvBusy()" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
+          <!-- [CXC.41] El CSV trae TODAS las cuentas de lo que ves (filtro + búsqueda), no las 500
+               que pinta la tabla: antes bajaba 500 de 1,455 sin decirlo. Ya están en memoria. -->
+          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!filtradas().length" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
@@ -73,11 +89,21 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         <!-- El filtro por vendedor existía en la API desde CXC y no tenía control: la pantalla
              pedía sus 61 códigos en cada carga y los tiraba. -->
         <p-select [options]="vendedorOpts()" [(ngModel)]="vendedor" (onChange)="load()" optionLabel="label" optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" styleClass="ct-sel ct-sel-vend" ariaLabel="Vendedor" />
+        <!-- [CXC.42] Búsqueda y orden INSTANTÁNEOS: se resuelven sobre las cuentas ya cargadas,
+             sin Enter y sin volver a pedir. Medido el 2026-11-17: cobranza recargaba la lista 3.7
+             veces por cada ficha que abría, a 4.3 s cada una. -->
         <span class="p-input-icon-left ct-search">
-          <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" placeholder="Cliente, código o RFC…" aria-label="Buscar cliente" />
+          <input pInputText type="search" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+                 enterkeyhint="search" autocomplete="off"
+                 placeholder="Buscar cliente, código o RFC" aria-label="Buscar cliente, código o RFC" />
         </span>
-        <p-select [options]="sortOpts" [(ngModel)]="sort" (onChange)="load()" optionLabel="label" optionValue="value" ariaLabel="Ordenar por" styleClass="ct-sel" />
+        <p-select [options]="sortOpts" [ngModel]="orden()" (ngModelChange)="orden.set($event)" optionLabel="label" optionValue="value" ariaLabel="Ordenar por" styleClass="ct-sel" />
         <label class="ct-toggle"><p-toggleswitch [(ngModel)]="incluirSaldados" (onChange)="load()" /> <span>Incluir saldados</span></label>
+        <!-- [CXC.42] Un filtro que se está aplicando SE VE: antes la tabla vieja se quedaba igual
+             ~4 s y sólo giraba el botón «Actualizar». -->
+        @if (loading() && data()) {
+          <span class="ct-actualizando" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Actualizando…</span>
+        }
         <!-- [CXC.20] Antes decía «saldos al {{ '{{' }} hoy }}» con la fecha del reloj de Postgres.
              Ahora la píldora mide el DATO: la edad de los carriles del ODS que traen kdue/kdm5 y
              los catálogos. ADR-056 — no poder medir se declara, no se pinta como fresco. -->
@@ -104,9 +130,15 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         <p class="ct-csv-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}</p>
       }
 
-      @if (error()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo cargar la cartera. {{ error() }}</div> }
+      @if (error() && data()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo actualizar la cartera: lo que ves es la carga anterior. {{ error() }}</div> }
 
+      <!-- [CXC.42] La primera carga reserva su lugar con un esqueleto del alto de lo que viene:
+           antes la pantalla brincaba al llegar los datos (CLS medido: 74 de 93 sesiones fuera de
+           «bueno», varias en 0.47–0.53). Un error sin datos previos sale con «Reintentar». -->
+      <app-load-state [loading]="!data() && !error()" [error]="data() ? null : error()" [skeletonRows]="14"
+                      errorTitle="No se pudo cargar la cartera" (retry)="load()">
       @if (data(); as d) {
+        <div class="ct-cuerpo" [class.ct-cargando]="loading()" [attr.aria-busy]="loading()">
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de cartera" />
 
         <!-- [CXC.25] El total, REPARTIDO por a quién le cobrás. No es una decoración: sin esta
@@ -246,13 +278,27 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         </section>
 
         <section class="card-premium card-flat ct-tablewrap">
-          <!-- [CXC.41] El tope se dice ARRIBA. Al pie de 500 filas nadie lo veía: medido el
-               2026-11-17, 1,455 cuentas con saldo y 955 fuera de la lista ($2.82M). -->
-          @if (d.total_clientes > d.clientes.length) {
+          <!-- [CXC.41] El tope se dice ARRIBA. Al pie de 500 filas nadie lo veía.
+               [CXC.42] Ya llegan todas las cuentas del filtro; la tabla pinta hasta 500 para no
+               cargar el navegador, y la búsqueda alcanza a las demás al instante. -->
+          @if (busqueda().trim()) {
+            <p class="ct-more ct-more-top" role="status">
+              <i class="pi pi-search" aria-hidden="true"></i>
+              <b>{{ filtradas().length | number }}</b> {{ filtradas().length === 1 ? 'cuenta coincide' : 'cuentas coinciden' }} con «{{ busqueda().trim() }}».
+              <span class="muted">Los totales de arriba son del filtro; la búsqueda sólo ubica cuentas.</span>
+            </p>
+          }
+          @if (filtradas().length > visibles().length) {
             <p class="ct-more ct-more-top" role="status">
               <i class="pi pi-info-circle" aria-hidden="true"></i>
-              Se ven las primeras <b>{{ d.clientes.length | number }}</b> de <b>{{ d.total_clientes | number }}</b> cuentas
-              ({{ sort === 'vencido' ? 'las de más vencido' : 'las de mayor saldo' }}). Afina el filtro para ver el resto, o baja el CSV, que trae todas.
+              Se ven las primeras <b>{{ visibles().length | number }}</b> de <b>{{ filtradas().length | number }}</b> cuentas
+              ({{ orden() === 'vencido' ? 'las de más vencido' : 'las de mayor saldo' }}). Escribe en la búsqueda para ubicar las demás, o baja el CSV, que trae todas.
+            </p>
+          }
+          @if (d.total_clientes > d.clientes.length) {
+            <p class="ct-more ct-more-top ct-more-corte" role="status">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              El servidor mandó <b>{{ d.clientes.length | number }}</b> de <b>{{ d.total_clientes | number }}</b> cuentas: la búsqueda y el CSV no alcanzan a las demás. Afina el filtro.
             </p>
           }
           <table class="ct-table">
@@ -264,7 +310,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               </tr>
             </thead>
             <tbody>
-              @for (c of d.clientes; track c.sucursal + c.cliente_code) {
+              @for (c of visibles(); track c.sucursal + c.cliente_code) {
                 <!-- [CXC.41] La fila se abre también con teclado (Tab + Enter o Espacio): antes
                      sólo con mouse, y ningún cliente era alcanzable sin él. -->
                 <tr (click)="openDetalle(c)" (keydown.enter)="openDetalle(c)"
@@ -272,6 +318,12 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                     class="ct-row" [class.ct-row-venc]="c.vencido > 0">
                   <td>
                     <b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span>
+                    <!-- [CXC.43] A quién ya se le habló: al retomar la lista se sabe dónde ibas. -->
+                    @if (contactoCorto(c); as cc) {
+                      <span class="ct-contactado" [class.ct-contactado-hoy]="cc.hoy">
+                        <i class="pi pi-check" aria-hidden="true"></i> {{ cc.texto }}
+                      </span>
+                    }
                     <!-- La etiqueta de tipo sale sólo con «Todas las cuentas» y sólo en lo que NO
                          es cliente: filtrada a «Cliente» repetiría la misma palabra en cada fila. -->
                     @if (!cuenta && c.cuenta_kind !== 'cliente_final') {
@@ -297,18 +349,36 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
               } @empty {
-                <tr><td colspan="10" class="ct-empty">Sin cartera para el filtro. Ajusta sucursal o búsqueda.</td></tr>
+                <tr><td colspan="10" class="ct-empty">
+                  @if (busqueda().trim()) { Ninguna cuenta del filtro coincide con «{{ busqueda().trim() }}». Revisa el texto o cambia el filtro de arriba. }
+                  @else { Sin cartera para el filtro. Ajusta tipo de cuenta o sucursal. }
+                </td></tr>
               }
             </tbody>
           </table>
-          @if (d.total_clientes > d.clientes.length) {
-            <p class="ct-more muted">Fin de la lista: {{ d.clientes.length | number }} de {{ d.total_clientes | number }} cuentas. Afina el filtro para ver el resto, o baja el CSV.</p>
+          @if (filtradas().length > visibles().length) {
+            <p class="ct-more muted">Fin de la lista: {{ visibles().length | number }} de {{ filtradas().length | number }} cuentas. Escribe en la búsqueda para ubicar las demás, o baja el CSV.</p>
           }
         </section>
+        </div>
       }
+      </app-load-state>
     </div>
 
     <p-dialog [visible]="detalleOpen()" (visibleChange)="!$event && closeDetalle()" [modal]="true" [dismissableMask]="true" [style]="{ width: '820px', maxWidth: '96vw' }" [header]="detalle()?.cliente?.cliente_nombre || detalleRef()?.nombre || 'Auxiliar del cliente'">
+      <!-- [CXC.42] Se trabaja la lista de arriba abajo sin cerrar la ficha. La siguiente ya viene
+           pedida por adelantado mientras lees ésta, así que abre sin la espera de ~3.3 s. -->
+      @if (posicion(); as pos) {
+        <nav class="ct-det-nav" aria-label="Recorrer la lista">
+          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="pos.i === 0" (click)="irA(-1)">
+            <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
+          </button>
+          <span class="ct-det-pos muted">{{ pos.i + 1 | number }} de {{ pos.n | number }}</span>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="pos.i >= pos.n - 1" (click)="irA(1)">
+            <span class="p-button-label">Siguiente cliente</span><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span>
+          </button>
+        </nav>
+      }
       @if (detalleLoading()) {
         <div class="ct-det-state"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Cargando el auxiliar…</div>
       } @else if (detalleError(); as err) {
@@ -342,19 +412,26 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
           </div>
           <!-- [CXC.40] El estado de cuenta se ENTREGA: PDF del mismo auxiliar de abajo, y por WhatsApp
                el mensaje armado + el PDF descargado para adjuntarlo (wa.me no adjunta archivos). -->
+          <!-- [CXC.43] Cada uno de estos tres deja constancia del contacto: lo registra el acto, no un
+               formulario. La lista muestra después «contactado hoy». -->
           <div class="ct-det-contact">
             @if (det.cliente.telefono) {
-              <a [href]="'tel:' + det.cliente.telefono" class="ct-contact-btn"><i class="pi pi-phone" aria-hidden="true"></i> {{ det.cliente.telefono }}</a>
+              <a [href]="'tel:' + det.cliente.telefono" class="ct-contact-btn" (click)="registrarContacto(det, 'telefono')"><i class="pi pi-phone" aria-hidden="true"></i> {{ det.cliente.telefono }}</a>
             }
-            <button type="button" class="ct-contact-btn" [disabled]="pdfBusy()" (click)="verEstadoCuenta(det)">
+            <button type="button" class="ct-contact-btn" [disabled]="pdfBusy()" (click)="verEstadoCuenta(det); registrarContacto(det, 'estado_cuenta_pdf')">
               <i class="pi" [class.pi-file-pdf]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i> Estado de cuenta (PDF)
             </button>
             @if (det.cliente.telefono) {
-              <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-contact-btn ct-wa" (click)="descargarParaWhatsApp(det)"
+              <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-contact-btn ct-wa" (click)="descargarParaWhatsApp(det); registrarContacto(det, 'whatsapp')"
                  [title]="'Abre el chat con el mensaje listo y descarga el PDF para adjuntarlo'">
                 <i class="pi pi-whatsapp" aria-hidden="true"></i> Enviar por WhatsApp</a>
             }
           </div>
+          @if (contactoTexto(det); as ct) {
+            <p class="ct-contacto-linea" [class.ct-pdf-err]="ct.error" role="status">
+              <i class="pi" [class.pi-check-circle]="!ct.error" [class.pi-exclamation-triangle]="ct.error" aria-hidden="true"></i> {{ ct.texto }}
+            </p>
+          }
           @if (pdfAviso(); as av) {
             <p class="ct-pdf-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}</p>
           }
@@ -621,6 +698,19 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-empty { text-align: center; color: var(--text-muted); padding: 1.5rem !important; }
     .ct-more { padding: .6rem .7rem; margin: 0; font-size: .8rem; }
     .ct-more-top { display: flex; gap: .4rem; align-items: baseline; color: var(--text-main); border-bottom: 1px solid var(--border-color); }
+    .ct-more-corte { color: var(--warn-soft-fg); }
+    .ct-contactado { display: inline-flex; align-items: center; gap: .2rem; margin-left: .4rem; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+    .ct-contactado .pi { font-size: .65rem; }
+    .ct-contactado-hoy { color: var(--ok-soft-fg); font-weight: 600; }
+    .ct-contacto-linea { flex-basis: 100%; margin: .4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); display: flex; gap: .35rem; align-items: center; }
+    .ct-actualizando { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [CXC.42] Mientras llega el filtro nuevo, lo viejo se atenúa y no se puede abrir: así nadie
+       trabaja sobre una lista que ya no es la que eligió. */
+    .ct-cuerpo { transition: opacity 150ms ease-out; }
+    .ct-cuerpo.ct-cargando { opacity: .5; pointer-events: none; }
+    @media (prefers-reduced-motion: reduce) { .ct-cuerpo { transition: none; } }
+    .ct-det-nav { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 0 0 .6rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border-color); }
+    .ct-det-pos { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
     .ct-csv-aviso { display: flex; gap: .35rem; align-items: center; margin: 0 0 .75rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .ct-det-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .85rem; margin-bottom: .8rem; }
     .ct-det-saldos { display: flex; gap: 1rem; }
@@ -787,10 +877,55 @@ export class FinanzasCarteraComponent implements OnInit {
    * (`?cliente=`) abre en «Todas»: ese cliente puede ser una cuenta interna.
    */
   cuenta: string | null = 'cliente_final';
-  search = '';
   incluirSaldados = false;
-  sort: 'saldo' | 'vencido' = 'vencido';
   readonly sortOpts = [{ label: 'Mayor saldo', value: 'saldo' }, { label: 'Más vencido (cobrar)', value: 'vencido' }];
+
+  // ── `[CXC.42]` Búsqueda y orden en el navegador ─────────────────────────────────
+  /**
+   * La lista llega COMPLETA (todas las cuentas del filtro, `limit=5000`: medido el 2026-11-17,
+   * 1,455 cuentas = 75 KB comprimidos y el mismo tiempo de respuesta que 500). Buscar y ordenar
+   * ya no vuelven al servidor: antes cada búsqueda pedía Enter y costaba 4.3 s, y cobranza
+   * recargaba la lista 3.7 veces por cada ficha que abría.
+   *
+   * ⚠️ La búsqueda sólo UBICA cuentas: los totales de arriba siguen siendo del filtro. Se dice en
+   * pantalla mientras hay texto escrito.
+   */
+  readonly busqueda = signal('');
+  readonly orden = signal<'saldo' | 'vencido'>('vencido');
+  /** Tope de filas pintadas: la tabla no es virtual y 1,455 filas de 10 celdas pesan al navegador. */
+  static readonly FILAS_VISIBLES = 500;
+
+  readonly filtradas = computed<CarteraCliente[]>(() => {
+    const rows = this.data()?.clientes ?? [];
+    const tokens = normalizar(this.busqueda()).split(/\s+/).filter(Boolean);
+    const hits = tokens.length
+      ? rows.filter((c) => {
+          const hay = normalizar(`${c.cliente_nombre} ${c.cliente_code} ${c.rfc ?? ''}`);
+          return tokens.every((t) => hay.includes(t));
+        })
+      : rows.slice();
+    return this.orden() === 'vencido'
+      ? hits.sort((x, y) => y.vencido - x.vencido || y.saldo - x.saldo)
+      : hits.sort((x, y) => y.saldo - x.saldo);
+  });
+  readonly visibles = computed(() => this.filtradas().slice(0, FinanzasCarteraComponent.FILAS_VISIBLES));
+
+  // ── `[CXC.42]` Recorrer la lista desde la ficha ─────────────────────────────────
+  /** Dónde está la ficha abierta dentro de lo que se ve, para «Anterior» / «Siguiente cliente». */
+  readonly posicion = computed<{ i: number; n: number } | null>(() => {
+    const ref = this.detalleRef();
+    const lista = this.visibles();
+    if (!ref) return null;
+    const i = lista.findIndex((c) => c.sucursal === ref.sucursal && c.cliente_code === ref.cliente);
+    return i < 0 ? null : { i, n: lista.length };
+  });
+  /**
+   * Fichas ya traídas (y la siguiente, pedida por adelantado). Se vacía en cada carga de la lista
+   * y al registrar o resolver un compromiso de ese cliente.
+   */
+  private readonly cacheDet = new Map<string, CarteraDetalle>();
+  private prefetchSub?: Subscription;
+  private detSub?: Subscription;
   readonly tendencia = signal<CarteraTendencia[]>([]);
   readonly tendenciaCargada = signal(false);
   /** Texto tal cual lo teclean: «1,250.00» o «$1250» se entienden (Postel). Ver `montoPromesa()`. */
@@ -816,7 +951,6 @@ export class FinanzasCarteraComponent implements OnInit {
   private loadSub?: Subscription;
   private tendSub?: Subscription;
 
-  readonly csvBusy = signal(false);
   readonly csvAviso = signal<{ texto: string; error: boolean } | null>(null);
 
   readonly filtros = signal<CarteraFiltros | null>(null);
@@ -866,7 +1000,7 @@ export class FinanzasCarteraComponent implements OnInit {
   ngOnInit() {
     const qp = this.route.snapshot.queryParamMap;
     const cliente = qp.get('cliente'); const suc = qp.get('suc');
-    if (cliente) { this.search = cliente; this.cuenta = null; }
+    if (cliente) { this.busqueda.set(cliente); this.cuenta = null; }
     this.load();
     if (cliente && suc) {
       this.detalleRef.set({ sucursal: suc, cliente, nombre: qp.get('nombre') || cliente });
@@ -883,9 +1017,9 @@ export class FinanzasCarteraComponent implements OnInit {
       zona: this.zona || undefined,
       vendedor: this.vendedor || undefined,
       cuenta: this.cuenta || undefined,
-      search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
-      sort: this.sort,
+      // `[CXC.42]` Todas las cuentas del filtro: la búsqueda y el orden se resuelven aquí.
+      limit: 5000,
     };
   }
 
@@ -894,7 +1028,9 @@ export class FinanzasCarteraComponent implements OnInit {
     // `[CXC.20]` UNA llamada: tabla + KPIs + resumen + opciones de filtro. Eran tres, y cada una
     // reconstruía la misma pirámide de CTEs (6.0 s + 11.3 s + 3.7 s medidos en prod).
     this.loadSub?.unsubscribe();
-    this.loadSub = this.svc.cartera(this.consulta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // Las fichas en caché son de la lista anterior: con datos nuevos, se vuelven a pedir.
+    this.cacheDet.clear();
+    this.loadSub =this.svc.cartera(this.consulta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.data.set(d); this.filtros.set(d.filtros); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
     });
@@ -924,28 +1060,22 @@ export class FinanzasCarteraComponent implements OnInit {
   }
 
   /**
-   * `[CXC.41]` Exporta a CSV **todas** las cuentas del filtro, no las que pinta la tabla.
+   * `[CXC.41]` Exporta a CSV **todas** las cuentas de lo que ves, no las que pinta la tabla.
    *
    * Antes salía `data().clientes`: las 500 del tope, sin aviso (medido el 2026-11-17: 500 de
-   * 1,455, con $2.82M fuera). Ahora pide la misma consulta con el tope máximo del servidor
-   * (5,000) y, si aun así se corta, lo dice — no entrega un archivo parcial como si fuera todo.
+   * 1,455, con $2.82M fuera). `[CXC.42]` La lista ya llega completa, así que sale de memoria, al
+   * instante, con el filtro y la búsqueda aplicados. Si el servidor se cortó (más de 5,000), lo dice
+   * — no entrega un archivo parcial como si fuera todo.
    */
   exportCsv() {
-    if (!this.data()?.clientes?.length || this.csvBusy()) return;
-    this.csvBusy.set(true); this.csvAviso.set(null);
-    this.svc.cartera({ ...this.consulta(), limit: 5000 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => {
-        this.csvBusy.set(false);
-        this.descargarCsv(d.clientes, d.hoy);
-        this.csvAviso.set(d.total_clientes > d.clientes.length
-          ? { texto: `El CSV trae ${d.clientes.length.toLocaleString('es-MX')} de ${d.total_clientes.toLocaleString('es-MX')} cuentas: el servidor corta en 5,000. Afina el filtro para bajar el resto.`, error: true }
-          : { texto: `CSV descargado: ${d.clientes.length.toLocaleString('es-MX')} cuentas, todas las del filtro.`, error: false });
-      },
-      error: (e) => {
-        this.csvBusy.set(false);
-        this.csvAviso.set({ texto: `No se pudo armar el CSV. ${e?.error?.message || e?.message || ''}`.trim(), error: true });
-      },
-    });
+    const d = this.data();
+    const rows = this.filtradas();
+    if (!d || !rows.length) return;
+    this.descargarCsv(rows, d.hoy);
+    const n = rows.length.toLocaleString('es-MX');
+    this.csvAviso.set(d.total_clientes > d.clientes.length
+      ? { texto: `El CSV trae ${n} cuentas, pero el filtro tiene ${d.total_clientes.toLocaleString('es-MX')}: el servidor corta en 5,000. Afina el filtro para bajar el resto.`, error: true }
+      : { texto: `CSV descargado: ${n} cuentas${this.busqueda().trim() ? ', las que coinciden con la búsqueda' : ', todas las del filtro'}.`, error: false });
   }
 
   private descargarCsv(rows: CarteraCliente[], hoy: string | undefined) {
@@ -1005,6 +1135,7 @@ export class FinanzasCarteraComponent implements OnInit {
   }
 
   openDetalle(c: CarteraCliente) {
+    this.limpiarFicha();
     this.detalleRef.set({ sucursal: c.sucursal, cliente: c.cliente_code, nombre: c.cliente_nombre });
     this.detalleOpen.set(true);
     this.fetchDetalle(c.sucursal, c.cliente_code);
@@ -1012,11 +1143,81 @@ export class FinanzasCarteraComponent implements OnInit {
   closeDetalle() {
     this.detalleOpen.set(false); this.detalle.set(null);
     this.detalleError.set(null); this.detalleLoading.set(false); this.detalleRef.set(null);
+    this.detSub?.unsubscribe();
+    this.limpiarFicha();
+  }
+  /** Lo que pertenece a UNA ficha y no debe pasar a la siguiente al recorrer la lista. */
+  private limpiarFicha() {
     this.verSaldadas.set(false);
     this.pdfAviso.set(null);
+    this.contactoError.set(null);
     this.promFormAbierto.set(false); this.promError.set(null);
     this.cancelando.set(null); this.resolviendo.set(null);
     this.promMontoTxt = ''; this.promFecha = null; this.promNota = '';
+  }
+
+  // ── `[CXC.43]` Contactos de cobranza ────────────────────────────────────────────
+  /** Un registro de contacto que falló SE DICE: si no, la lista afirmaría «sin contactar». */
+  readonly contactoError = signal<string | null>(null);
+
+  /**
+   * Deja constancia del contacto. Lo dispara el acto (llamar, WhatsApp, PDF), sin formulario.
+   * El mismo canal con la misma cuenta dentro de un minuto no se repite (doble clic).
+   */
+  registrarContacto(det: CarteraDetalle, canal: CanalContacto) {
+    const { sucursal, cliente_code } = det.cliente;
+    const fila = this.data()?.clientes.find((c) => c.sucursal === sucursal && c.cliente_code === cliente_code);
+    const previo = fila?.ultimo_contacto;
+    if (previo && previo.canal === canal && Date.now() - new Date(previo.at).getTime() < 60_000) return;
+    this.contactoError.set(null);
+    this.svc.registrarContacto(sucursal, cliente_code, canal).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        const d = this.data();
+        if (!d) return;
+        const yo = this.auth.user()?.username ?? null;
+        this.data.set({
+          ...d,
+          contactos_medidos: true,
+          clientes: d.clientes.map((c) => c.sucursal === sucursal && c.cliente_code === cliente_code
+            ? { ...c, ultimo_contacto: { at: r.contacted_at, canal: r.canal, por: yo } }
+            : c),
+        });
+      },
+      error: (e) => this.contactoError.set(`No quedó registrado el contacto. ${e?.error?.message || e?.message || ''}`.trim()),
+    });
+  }
+
+  /** «hoy 10:32» o «hace 3 días» para la fila; null si no hay contacto o no se puede medir. */
+  contactoCorto(c: CarteraCliente): { texto: string; hoy: boolean } | null {
+    if (!this.data()?.contactos_medidos || !c.ultimo_contacto) return null;
+    const dias = diasDesde(c.ultimo_contacto.at);
+    if (dias === 0) return { texto: `hoy ${horaMx(c.ultimo_contacto.at)}`, hoy: true };
+    return { texto: dias === 1 ? 'ayer' : `hace ${dias} días`, hoy: false };
+  }
+
+  /** La línea de la ficha: último contacto, o por qué no se puede decir. */
+  contactoTexto(det: CarteraDetalle): { texto: string; error: boolean } | null {
+    const err = this.contactoError();
+    if (err) return { texto: err, error: true };
+    const d = this.data();
+    if (!d) return null;
+    if (!d.contactos_medidos) {
+      return { texto: 'El registro de contactos todavía no está activo: no se puede decir a quién ya se contactó.', error: false };
+    }
+    const fila = d.clientes.find((c) => c.sucursal === det.cliente.sucursal && c.cliente_code === det.cliente.cliente_code);
+    const uc = fila?.ultimo_contacto;
+    if (!uc) return { texto: 'Sin contacto registrado en los últimos 30 días.', error: false };
+    const canal = ({ telefono: 'por teléfono', whatsapp: 'por WhatsApp', estado_cuenta_pdf: 'con el estado de cuenta en PDF' } as Record<CanalContacto, string>)[uc.canal];
+    const cuando = diasDesde(uc.at) === 0 ? `hoy a las ${horaMx(uc.at)}` : `el ${fechaMx(uc.at)}`;
+    return { texto: `Último contacto: ${cuando}, ${canal}${uc.por ? ` (${uc.por})` : ''}.`, error: false };
+  }
+
+  /** `[CXC.42]` Anterior / siguiente cliente de lo que se ve, sin cerrar la ficha. */
+  irA(delta: number) {
+    const pos = this.posicion();
+    if (!pos) return;
+    const destino = this.visibles()[pos.i + delta];
+    if (destino) this.openDetalle(destino);
   }
 
   /**
@@ -1040,15 +1241,51 @@ export class FinanzasCarteraComponent implements OnInit {
     if (ref) this.fetchDetalle(ref.sucursal, ref.cliente);
   }
 
-  private fetchDetalle(sucursal: string, cliente: string) {
-    this.detalle.set(null); this.detalleError.set(null); this.detalleLoading.set(true);
-    this.svc.detalle(sucursal, cliente).subscribe({
-      next: (d) => { this.detalle.set(d); this.detalleLoading.set(false); },
+  /**
+   * `[CXC.42]` Trae la ficha (de la caché si ya vino) y, al tenerla, pide por adelantado la
+   * SIGUIENTE de la lista: así «Siguiente cliente» abre sin la espera de ~3.3 s.
+   * Una ficha que llega tarde de un cliente que ya no es el abierto se descarta.
+   */
+  private fetchDetalle(sucursal: string, cliente: string, usarCache = true) {
+    const k = `${sucursal}|${cliente}`;
+    this.detSub?.unsubscribe();
+    this.detalleError.set(null);
+    const enCache = usarCache ? this.cacheDet.get(k) : undefined;
+    if (enCache) {
+      this.detalle.set(enCache); this.detalleLoading.set(false);
+      this.precargarSiguiente();
+      return;
+    }
+    this.detalle.set(null); this.detalleLoading.set(true);
+    this.detSub = this.svc.detalle(sucursal, cliente).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.cacheDet.set(k, d);
+        this.detalle.set(d); this.detalleLoading.set(false);
+        this.precargarSiguiente();
+      },
       error: (e) => { this.detalleError.set(e?.error?.message || e?.message || 'error'); this.detalleLoading.set(false); },
     });
   }
 
-  private reloadDetalle(sucursal: string, cliente: string) { this.fetchDetalle(sucursal, cliente); }
+  private precargarSiguiente() {
+    const pos = this.posicion();
+    const sig = pos ? this.visibles()[pos.i + 1] : undefined;
+    if (!sig) return;
+    const k = `${sig.sucursal}|${sig.cliente_code}`;
+    if (this.cacheDet.has(k)) return;
+    this.prefetchSub?.unsubscribe();
+    this.prefetchSub = this.svc.detalle(sig.sucursal, sig.cliente_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => this.cacheDet.set(k, d),
+      // Una precarga que falla no avisa: al abrir esa ficha se vuelve a pedir y ahí sí se dice.
+      error: () => undefined,
+    });
+  }
+
+  /** Después de escribir (compromiso), la ficha se vuelve a pedir: la de la caché ya es vieja. */
+  private reloadDetalle(sucursal: string, cliente: string) {
+    this.cacheDet.delete(`${sucursal}|${cliente}`);
+    this.fetchDetalle(sucursal, cliente, false);
+  }
 
   /**
    * `[CXC.41]` El monto como número, aceptando la forma en que se teclea: «1,250.00», «$1250»,

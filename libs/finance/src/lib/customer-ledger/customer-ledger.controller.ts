@@ -5,7 +5,7 @@ import { RolesGuard, RequirePermissions, Permission, TenantContextService } from
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
 // un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
-import type { PorDiaResp } from './customer-ledger.service';
+import type { PorDiaResp, ContactoRegistrado } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 
@@ -132,6 +132,21 @@ export class CustomerLedgerController {
     @Body() body: { monto: number; fecha: string; nota?: string }, @Req() req: AuthedRequest,
   ) {
     return this.svc.createPromise(sucursal, cliente, body, req.user?.username);
+  }
+
+  /**
+   * `[CXC.43]` Deja constancia de que se contactó a la cuenta. Lo llama la pantalla al tocar
+   * «Llamar», «Enviar por WhatsApp» o «Estado de cuenta (PDF)»: lo registra el acto, no un
+   * formulario. Tabla propia; nunca escribe a Kepler.
+   */
+  @Post(':sucursal/:cliente/contact')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Registra un contacto de cobranza con la cuenta: telefono | whatsapp | estado_cuenta_pdf.' })
+  registrarContacto(
+    @Param('sucursal') sucursal: string, @Param('cliente') cliente: string,
+    @Body('canal') canal: string, @Req() req: AuthedRequest,
+  ): Promise<ContactoRegistrado> {
+    return this.svc.registrarContacto(sucursal, cliente, canal, req.user?.username);
   }
 
   /**

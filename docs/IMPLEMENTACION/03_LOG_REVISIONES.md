@@ -718,6 +718,29 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CXC.42]`–`[CXC.43]` La fluidez de Cartera: dejar de esperar en cada gesto, y saber a quién ya se le habló
+
+**Qué se midió:** cobranza esperaba de 10 a 17 minutos al día al servidor y recargaba la lista casi
+cuatro veces por cada cliente que revisaba. La pantalla brincaba al cargar. El clic en sí era rápido.
+
+**Qué se hizo:** la lista llega completa y buscar u ordenar ya no vuelve al servidor; la pantalla
+reserva su lugar al cargar y avisa cuando está aplicando un filtro; la ficha tiene «Siguiente
+cliente» con la siguiente ya pedida; y llamar, mandar WhatsApp o el PDF dejan constancia del contacto.
+
+**Lecciones:**
+- ⭐ **La telemetría del navegador ya existía y separa las dos lentitudes.** INP bueno y CLS malo dicen
+  que el problema no era el clic sino la espera y el brinco. LCP «bueno» engaña aquí: mide cuándo se
+  pinta el encabezado, no cuándo llegan los datos.
+- ⭐ **Traer todo puede costar lo mismo que traer una página.** 1,455 cuentas pesan 75 KB comprimidos y
+  tardan lo mismo que 500, porque el costo está en calcular la cartera, no en mandarla.
+- **Un instrumento de mutación también se valida con su control.** Mutar en memoria con un plugin de
+  vite no sirvió (Analog compila desde el disco): el control pasó en verde. Se descartó y se mutó en
+  una copia fuera del árbol compartido.
+- **Una prueba que evalúa el SQL del servicio se rompe en silencio cuando el SQL cambia de forma**
+  (`[CXC.41]` agregó una variable). Corre en un job informativo: se encontró leyendo, no por un rojo.
+- **Una hipótesis de rendimiento se descarta con el mismo rigor:** la intercalación parecía la causa y
+  no lo era (mismo resultado, mismo tiempo).
+
 ## 2026-11-17 — `[CXC.41]` Auditoría de `/finanzas/cartera`: lo que cobranza veía primero no era lo suyo
 
 **Qué se encontró** (prod en sólo lectura + código; sin pantalla viva):

@@ -9,6 +9,7 @@ import {
   skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
+import type { Knex } from 'knex';
 
 /**
  * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.
@@ -100,14 +101,42 @@ const emptyPorTipo = (): PorTipoCuenta => ({
   interno: { saldo: 0, vencido: 0, clientes: 0 },
   ruta: { saldo: 0, vencido: 0, clientes: 0 },
 });
+/** `[CXC.43]` Por dónde se contactó a la cuenta. Lo registra el acto en la ficha. */
+export type CanalContacto = 'telefono' | 'whatsapp' | 'estado_cuenta_pdf';
+export const CANALES_CONTACTO: CanalContacto[] = ['telefono', 'whatsapp', 'estado_cuenta_pdf'];
+export interface UltimoContacto { at: string; canal: CanalContacto; por: string | null }
+
+/** Lo que devuelve `registrarContacto`: el renglón recién insertado, tal como lo da `returning`. */
+export interface ContactoRegistrado { id: string; canal: string; contacted_at: string }
+
+/**
+ * Una fila cruda del agregado por tipo de cuenta. Postgres devuelve los `numeric` como
+ * **string** por JSON, así que los importes se declaran como vienen y se convierten acá;
+ * tiparlos `number` mentiría sobre lo que llega.
+ */
+type FilaPorTipo = {
+  kind?: string | null;
+  saldo?: string | number | null;
+  vencido?: string | number | null;
+  clientes?: string | number | null;
+};
+
+/**
+ * ¿Este `kind` crudo del SQL es uno de los tres que conocemos? Es un *type guard* y no un
+ * `includes` suelto a propósito: `includes` devuelve `boolean` y no estrecha el tipo, así que
+ * el valor seguía siendo `string | null` y sólo un `any` escondía la diferencia.
+ */
+const esCuentaKind = (k: string | null | undefined): k is CuentaKind =>
+  !!k && (CUENTA_KINDS as readonly string[]).includes(k);
+
 /**
  * `[CXC.41]` Filas `{kind, saldo, vencido, clientes}` del SQL → `PorTipoCuenta`. Un `kind`
  * desconocido o vacío cae en `cliente_final`, la misma regla que aplica la tabla.
  */
-const porTipoDe = (rows: any[] | null | undefined): PorTipoCuenta => {
+const porTipoDe = (rows: FilaPorTipo[] | null | undefined): PorTipoCuenta => {
   const t = emptyPorTipo();
   for (const r of rows || []) {
-    const k: CuentaKind = CUENTA_KINDS.includes(r?.kind) ? r.kind : 'cliente_final';
+    const k: CuentaKind = esCuentaKind(r?.kind) ? r.kind : 'cliente_final';
     t[k].saldo = Math.round((t[k].saldo + (Number(r.saldo) || 0)) * 100) / 100;
     t[k].vencido = Math.round((t[k].vencido + (Number(r.vencido) || 0)) * 100) / 100;
     t[k].clientes += Number(r.clientes) || 0;
@@ -320,10 +349,10 @@ export class CustomerLedgerService {
     // Dos juegos de filtros: el de la pantalla y el MISMO sin el tipo de cuenta. El segundo
     // alimenta `por_tipo_universo` (ver abajo); sus binds se repiten en su lugar del SQL.
     const cond: string[] = [];
-    const bindFiltros: any[] = [];
+    const bindFiltros: Knex.Value[] = [];
     const condSinCuenta: string[] = [];
-    const bindSinCuenta: any[] = [];
-    const add = (sql: string, ...v: any[]) => {
+    const bindSinCuenta: Knex.Value[] = [];
+    const add = (sql: string, ...v: Knex.Value[]) => {
       cond.push(sql); bindFiltros.push(...v);
       condSinCuenta.push(sql); bindSinCuenta.push(...v);
     };
@@ -515,6 +544,7 @@ export class CustomerLedgerService {
     return this.tk.run(async (trx) => {
       const a = await this.agregado(trx, tenantId, q);
       const freshness = await this.freshness(trx);
+      const contactos = await this.ultimosContactos(trx, tenantId);
       const hoy: string = a.hoy;
 
       const clientes: any[] = [];
@@ -571,6 +601,9 @@ export class CustomerLedgerService {
           dias_pago_prom: g.dias_pago_prom != null ? Number(g.dias_pago_prom) : null,
           n_pagos: Number(g.n_pagos) || 0,
           aging,
+          // `[CXC.43]` null = sin contacto en 30 días; si la tabla no existe, `contactos_medidos`
+          // va en false y la pantalla no afirma nada.
+          ultimo_contacto: contactos?.get(`${g.sucursal}|${g.cliente_code}`) ?? null,
         });
 
         kpi.total_saldo += saldo; kpi.total_vencido += r2(g.vencido);
@@ -653,6 +686,7 @@ export class CustomerLedgerService {
         kpi,
         clientes: clientes.slice(0, limit),
         total_clientes: clientes.length,
+        contactos_medidos: contactos != null,
         resumen,
         filtros: this.opciones(a),
       };
@@ -1124,6 +1158,43 @@ export class CustomerLedgerService {
       }).returning(['id', 'estado']);
       return row;
     });
+  }
+
+  /**
+   * `[CXC.43]` Registra que se contactó a la cuenta. Lo dispara el ACTO en la ficha (llamar,
+   * WhatsApp, PDF), no un formulario. Tabla propia, nunca Kepler.
+   */
+  async registrarContacto(sucursal: string, cliente: string, canal: string, username?: string): Promise<ContactoRegistrado> {
+    if (!CANALES_CONTACTO.includes(canal as CanalContacto)) throw new BadRequestException('canal inválido');
+    if (!sucursal?.trim() || !cliente?.trim()) throw new BadRequestException('cuenta requerida');
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.collection_contacts').insert({
+        tenant_id: trx.raw('current_tenant_id()'),
+        sucursal: sucursal.trim(), cliente_code: cliente.trim(), canal,
+        created_by: username || null, updated_by: username || null,
+      }).returning(['id', 'canal', trx.raw(`to_char(contacted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as contacted_at`)]);
+      return row;
+    });
+  }
+
+  /**
+   * `[CXC.43]` El último contacto de cada cuenta en los últimos 30 días, por (sucursal, código).
+   * Devuelve `null` si la tabla todavía no existe (la migración no se ha aplicado): la pantalla
+   * lo DECLARA como no medido en vez de pintar a todos como «sin contactar» (ADR-056).
+   */
+  private async ultimosContactos(trx: Knex.Transaction, tenantId: string): Promise<Map<string, UltimoContacto> | null> {
+    const existe = (await trx.raw(`SELECT to_regclass('finance.collection_contacts') IS NOT NULL AS ok`)).rows[0]?.ok;
+    if (!existe) return null;
+    const r = await trx.raw(`
+      SELECT DISTINCT ON (sucursal, cliente_code)
+             sucursal, cliente_code, canal, to_char(contacted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at, created_by AS por
+        FROM finance.collection_contacts
+       WHERE tenant_id = ? AND contacted_at >= now() - interval '30 days'
+       ORDER BY sucursal, cliente_code, contacted_at DESC`, [tenantId]);
+    const m = new Map<string, UltimoContacto>();
+    for (const x of r.rows) m.set(`${x.sucursal}|${x.cliente_code}`, { at: x.at, canal: x.canal, por: x.por || null });
+    return m;
   }
 
   /** Resuelve un compromiso: cumplida | incumplida | cancelada. */
