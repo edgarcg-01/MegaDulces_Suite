@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 108 KB, 1299 líneas, 18 secciones.
+> **Índice navegable** — 113 KB, 1345 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -24,7 +24,7 @@
 | 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
 | 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1251 | 1329 | 7 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1251 | 1375 | 12 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1326,3 +1326,49 @@ fuera son 28 documentos al mes de procesos que no son gasto operativo.
 | **DS40** ✅ | Cancelar desde la Suite: ¿quién puede y hasta cuándo? | ✅ **Edgar, 2026-11-17:** quien tiene `COMPROBAR`, **sólo sin X-A-10 vivo** y con motivo; si ya hay gasto, en Kepler como hoy |
 | **DS41** | Comisiones bancarias: ¿nacen solas del estado de cuenta, sin captura? | (sin firmar) Sí (CB.62), con el `GRANT` de 00 que falta |
 | **DS42** ✅ | Alta de acreedor: ¿la Suite escribe `kdxd`? | ✅ **Edgar, 2026-11-17: SÍ, la Suite escribe `kdxd`** (contra la recomendación). Consecuencia: un escritor nuevo sobre el catálogo de acreedores, con firma de alta, su ADR y su captura de prueba (qué tablas y qué contador toca Kepler al dar de alta un acreedor: NO MEDIDO). La recomendación era: **No en v1**, como ALC con los clientes (D1-b): la Suite pide el alta con la constancia del SAT y Finanzas la da en Kepler. Se revisa cuando F1 esté en las 9 sucursales |
+
+### 17.5 F5 — El alta de acreedor la escribe la Suite en `kdxd` (DS42): lo medido y el plan (2026-11-17)
+
+**Lo medido** (ODS, sólo lectura):
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Un catálogo o nueve? | **Nueve**, uno por servidor. 256 claves de gasto están en los 9 (la base común) y cada servidor suma las suyas (00: 91 más; los demás, de 17 a 28) |
+| ¿La misma clave es el mismo acreedor en todos? | Sí: de 288 claves compartidas, sólo 2 cambian de nombre, y es variación de captura (`CANACO SARVYTUR MORELIA` / `… AC`) |
+| ¿Dónde se dan de alta los nuevos? | **En 7 a 9 servidores, aunque se usen en uno solo.** Los 14 acreedores de gasto que estrenaron documento en 30 días están en 7, 8 o 9 servidores. Finanzas los crea a mano, servidor por servidor, y a veces le faltan |
+| ¿Cómo se forma la clave? | Prefijo de clase de gasto + consecutivo de 3 dígitos (`GA031`, `GS029`, `GFS007`, `GNFC003`). `c2` admite **7 caracteres** |
+| ¿Hay contador? | **No.** En `sqliov` sólo hay rangos de cuentas (`CUENTAS`) y mensajes (`FMENSAJE`): quien da el alta elige el siguiente número |
+| ¿Qué columnas se llenan? | Las de la constancia de situación fiscal: `c3` nombre (100 %) · `c4` calle y número · `c5` colonia · `c6` ciudad y estado (~70 %) · `c27` código postal (65 %) · `c10` RFC (56 %) · `c7`/`c8` teléfonos · `c11` correo · `c24` giro. Casi siempre vacíos: `c12` agente, `c13` grupo, `c14` zona, `c15` límite, `c16` días de crédito, `c17`–`c23` y `c25`–`c36` |
+| ¿El alta escribe en otra tabla? | **No, sólo `kdxd`** (con la evidencia disponible). La fila de acumulados (`kdxg`, llave `c1 = PESOS`, `c2` = sucursal, `c3` = acreedor) **la crea el primer documento**, en el servidor donde se usa: 0 de los acreedores sin documentos tienen `kdxg` (salvo 12 en 03, historia replicada); `GA031` está en los 9 y sólo tiene `kdxg` en 08, donde se usó. `kdxj`, `kdxk` y `kdxv` son catálogos chicos (1, 4 y 28 filas), no por acreedor. La póliza abona la 201 sin subcuenta por acreedor: no hace falta cuenta contable |
+
+**⚠️ Un hueco de la cadena que esto destapa** (dueño: `[PGP.123]`, Francisco):
+- El escritor del gasto X-A-10 **se niega** si el acreedor no tiene su fila de `kdxg` en esa sucursal («se captura a mano»).
+- Con un acreedor nuevo, **el primer gasto en cada sucursal tendría que capturarse en Kepler**, salvo que ese escritor cree la fila como la crea Kepler. Hay que medir qué escribe Kepler en esa fila nueva.
+- Asimetría: el escritor del **pago** ubica `kdxg` sólo por `c3` (acreedor), y el del gasto por `c2` + `c3`. Los dos fallan cerrado, pero el del pago rechazaría de más si en un servidor hubiera filas de dos sucursales.
+
+**El plan** (en este orden, cada paso con su prueba negativa):
+1. **Captura de prueba** (como S.1): una persona da de alta un acreedor de prueba en Kepler de **una** sucursal, con
+   `foto-contadores.js` antes y después. Confirma que sólo cambia `kdxd`. Si aparece otra tabla, entra al plan.
+2. **Las clases (los prefijos) y su significado**, de Finanzas (DS43): `GA`, `GS`, `GG`, `GM`, `GJ`, `GC`, `GR`, `GT`,
+   `GV`, `GL`, `GF`, `GP`, `GD`, `GFS`, `GO`, `GH`, `GNF`… Sin eso, la persona no puede elegir la clase y la Suite no
+   debe adivinarla.
+3. **La pantalla:** en «Registrar o pedir», cuando el buscador no encuentra al proveedor, «Dar de alta» con la
+   **constancia del SAT** (el lector de ALC: nombre, RFC, domicilio, CP). La persona elige la clase y agrega teléfono,
+   correo y giro si los tiene. **Finanzas firma el alta** (DS42).
+4. **El escritor:**
+   - clave = prefijo + (el mayor consecutivo de ese prefijo en **los 9** Kepler vivos) + 1;
+   - se escribe en **los 9**, como hoy, con la misma clave;
+   - idempotente por clave + RFC: si la clave ya está con el mismo RFC, «ya estaba»; con otro, se toma la siguiente;
+   - no son 9 transacciones atómicas: cada servidor queda con su propio estado (escrito / reintentar), y el acreedor
+     se puede usar en una sucursal en cuanto está en la suya;
+   - candados: bandera, interruptor `alta_acreedor` y `GRANT INSERT ON md.kdxd` en los 9 (un archivo nuevo, aparte).
+5. **Migración** (generada): la tabla del alta y su estado por servidor (`tenant_id` + auditoría), y el CHECK del
+   interruptor extendido.
+
+**Decisiones:**
+
+| D | Pregunta | Recomendación | De quién |
+|---|---|---|---|
+| **DS43** | ¿Qué clases (prefijos) existen, qué significa cada una y cuál se ofrece a quién? | Que Finanzas dé la lista. La Suite la guarda como parámetro (ADR-114) y no la deduce | Finanzas |
+| **DS44** | ¿El alta va a los 9 servidores o sólo a donde se pide? | **A los 9**, como hoy: la misma clave significa el mismo acreedor en todos, y así ninguno queda en 7 | Edgar |
+| **DS45** | ¿Quién crea la fila de `kdxg` del primer documento de un acreedor nuevo? | El escritor del X-A-10 (`[PGP.123]`), clonando lo que escribe Kepler, después de medirlo | Francisco |
