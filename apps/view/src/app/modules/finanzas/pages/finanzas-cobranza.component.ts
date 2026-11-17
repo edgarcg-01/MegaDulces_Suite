@@ -767,6 +767,7 @@ export class FinanzasCobranzaComponent {
     bank_matched: 'concilió un cobro con el banco',
     bank_unmatched: 'deshizo una conciliación',
     reported: 'subió su ficha de depósito',
+    bank_loaded: 'cargó el estado de cuenta',
   };
 
   /**
@@ -775,6 +776,17 @@ export class FinanzasCobranzaComponent {
    * emite un evento por cada uno).
    */
   private onWsChange(ev: CollectionDepositEvent): void {
+    if (ev.action === 'bank_loaded') {
+      // [CC.21] Llegó el estado de cuenta (o la conciliación ya lo ligó): el veredicto «¿entró al banco?» de las fichas
+      // y los depósitos sin cobro se derivan al leer, así que basta recargar la vista que depende del banco. Sin aviso
+      // emergente: no lo hizo una persona, y la vista cambia sola.
+      if (this.wsTimer) clearTimeout(this.wsTimer);
+      this.wsTimer = setTimeout(() => {
+        if (this.mode() === 'clientes') this.fichasClientes()?.cargar();
+        else if (this.mode() === 'banco') this.loadBanco();
+      }, 400);
+      return;
+    }
     const me: any = this.auth.user();
     const mine = !!ev.actor && (ev.actor === me?.full_name || ev.actor === me?.username);
     if (ev.action === 'reported') {

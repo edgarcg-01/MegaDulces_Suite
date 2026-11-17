@@ -5,8 +5,8 @@
  * cobro de Kepler que la conciliación bancaria (CB) ya ligó a ese abono dice a QUÉ CLIENTE se aplicó. Las tres juntas
  * contestan lo que Cobranza tiene que decidir sin abrir el banco:
  *
- *   ficha (monto y fecha leídos de la foto) → abono del banco (±$1, del día anterior a 3 días después, en la cuenta
- *   destino si la foto la trae) → cobro de Kepler que CB ya le ligó → ¿es del MISMO cliente?
+ *   ficha (monto y fecha leídos de la foto) → abono del banco (±$1, del día anterior a 3 días después, en cualquier
+ *   cuenta; la cuenta destino que lee la foto sólo DESEMPATA) → cobro de Kepler que CB ya le ligó → ¿es del MISMO cliente?
  *
  * Medido en prod el 2026-11-17, usando los 923 cobros de depósito/transferencia de octubre como si fueran fichas:
  *  · el monto solo da un abono único en 738; de ésos, CB dice que es OTRO cobro en 59 (8 %), y el placebo (monto
@@ -32,6 +32,8 @@ export interface CobroLigado {
 export interface AbonoCandidato {
   id: string; fecha: string; monto: number; banco: string; cuenta: string;
   cobros: CobroLigado[] | null; declarado: string | null;
+  /** ¿Está en la cuenta destino que leyó la foto? (false si la foto no trae cuenta o no se reconoció). */
+  en_cuenta?: boolean;
 }
 /** Lo que sale de la consulta, por ficha. */
 export interface FilaFichaEnBanco {
@@ -50,7 +52,7 @@ export type EstadoBanco =
 
 export interface FichaEnBanco {
   estado: EstadoBanco;
-  /** Hasta qué día está cargado el estado de cuenta que se miró (de la cuenta destino, o el más atrasado). */
+  /** Hasta qué día está cargado el banco: el más atrasado entre la cuenta leída y las que reciben depósitos. */
   cargado_hasta: string | null;
   abonos: AbonoCandidato[];
   /** El cobro de Kepler al que se puede ligar la ficha (sólo en `aplicado`). */
@@ -64,9 +66,14 @@ const mismo = (a: string | null | undefined, b: string | null | undefined): bool
 
 /** Clasifica UNA ficha a partir de su fila. Pura: la prueba no necesita base. */
 export function clasificarFichaEnBanco(f: FilaFichaEnBanco, diaDeposito: string | null, monto: number | null): FichaEnBanco {
-  const base = { cargado_hasta: f.cargado_hasta, abonos: f.abonos || [], cobro: null, disputado_con: null };
+  // La cuenta que leyó la foto DESEMPATA, no filtra: si hay abonos en ella, se miran sólo ésos; si no hay ninguno, se
+  // miran todos. Medido con la lectura real (2026-11-17): de una CLABE salió «7133 4» — una cuenta mal leída que
+  // filtrara diría «no aparece» de un depósito que sí entró.
+  const todos = f.abonos || [];
+  const enCuenta = todos.filter((a) => a.en_cuenta);
+  const abonos = enCuenta.length ? enCuenta : todos;
+  const base = { cargado_hasta: f.cargado_hasta, abonos, cobro: null, disputado_con: null };
   if (!diaDeposito || monto == null || !(monto > 0)) return { ...base, estado: 'sin_dato' };
-  const abonos = f.abonos || [];
   if (abonos.length > 1) return { ...base, estado: 'varios' };
   if (abonos.length === 1) {
     const cobros = abonos[0].cobros || [];
@@ -103,7 +110,7 @@ export function sumarDias(iso: string, dias: number): string {
  * en la Suite son las fichas de `finance.collection_deposits` (`monto` = lo que declaró el cliente, `monto_alt` = lo que
  * leyó la foto: si difieren, el banco desempata), y en la medición, cobros de Kepler tomados como fichas.
  *
- * ⚠️ «Cargado hasta» de una ficha SIN cuenta destino reconocida es el estado de cuenta MÁS ATRASADO de las cuentas que
+ * ⚠️ «Cargado hasta» es el estado de cuenta MÁS ATRASADO entre la cuenta leída (si se reconoció) y las cuentas que
  * reciben depósitos (abonos en `DIAS_CUENTA_VIVA` = 10 días distintos de los últimos 60): si se tomara el más nuevo, una
  * cuenta sin subir haría decir «no aparece» a un depósito que sí entró. Las cuentas casi sin abonos no cuentan para esto
  * (medido el 2026-11-17: SANTANDER 1621, con 1 abono en 30 días, cargada al 3-nov, habría detenido todos los veredictos);
@@ -121,23 +128,26 @@ export function sqlFichaEnBanco(fuente: string): string {
        GROUP BY a.id, a.bank, a.account_label
       HAVING max(m.movement_date) >= current_date - 60
     ),
+    fd AS (SELECT f.*, regexp_replace(COALESCE(f.cuenta_dest, ''), '\\D', '', 'g') AS dig FROM f),
     fa AS (
-      SELECT f.*, (
+      -- La cuenta leída: los dígitos terminan en la etiqueta, o la etiqueta + UN dígito (el verificador de una CLABE leída
+      -- a medias: «7133 4»). La exacta gana; luego la etiqueta más larga.
+      SELECT fd.*, (
         SELECT a.id FROM acc a
-         WHERE a.account_label ~ '^[0-9]{3,}$'
-           AND regexp_replace(COALESCE(f.cuenta_dest, ''), '\\D', '', 'g') <> ''
-           AND regexp_replace(COALESCE(f.cuenta_dest, ''), '\\D', '', 'g') LIKE '%' || a.account_label
-         ORDER BY length(a.account_label) DESC LIMIT 1) AS cuenta_id
-        FROM f
+         WHERE a.account_label ~ '^[0-9]{3,}$' AND fd.dig <> ''
+           AND (fd.dig LIKE '%' || a.account_label OR fd.dig LIKE '%' || a.account_label || '_')
+         ORDER BY (fd.dig LIKE '%' || a.account_label) DESC, length(a.account_label) DESC LIMIT 1) AS cuenta_id
+        FROM fd
     )
     SELECT fa.id, fa.cliente_code, fa.cuenta_id,
-      (CASE WHEN fa.cuenta_id IS NOT NULL THEN (SELECT hasta FROM acc WHERE acc.id = fa.cuenta_id)
-            ELSE COALESCE((SELECT min(hasta) FROM acc WHERE dias_con_abono >= ${DIAS_CUENTA_VIVA}), (SELECT min(hasta) FROM acc))
-       END)::text AS cargado_hasta,
+      -- Conservador: la cuenta leída Y la más atrasada de las que reciben depósitos (la lectura puede estar mal).
+      LEAST((SELECT hasta FROM acc WHERE acc.id = fa.cuenta_id),
+            COALESCE((SELECT min(hasta) FROM acc WHERE dias_con_abono >= ${DIAS_CUENTA_VIVA}), (SELECT min(hasta) FROM acc)))::text AS cargado_hasta,
       COALESCE((
         SELECT jsonb_agg(jsonb_build_object(
                  'id', m.id, 'fecha', m.movement_date::text, 'monto', m.amount_in, 'banco', a.bank,
                  'cuenta', a.account_label, 'declarado', m.customer_code,
+                 'en_cuenta', (fa.cuenta_id IS NOT NULL AND m.bank_account_id = fa.cuenta_id),
                  'cobros', (SELECT jsonb_agg(jsonb_build_object(
                                 'sucursal', r.kepler_sucursal, 'folio', r.kepler_doc_folio, 'tipo', r.kepler_doc_tipo,
                                 'cliente_code', ec.cliente_code, 'cliente_nombre', ec.cliente_nombre))
@@ -161,7 +171,6 @@ export function sqlFichaEnBanco(fuente: string): string {
            AND (m.amount_in BETWEEN fa.monto - ${BANCO_TOL} AND fa.monto + ${BANCO_TOL}
                 OR m.amount_in BETWEEN fa.monto_alt - ${BANCO_TOL} AND fa.monto_alt + ${BANCO_TOL})
            AND m.movement_date BETWEEN fa.fecha - ${BANCO_DIAS_ANTES} AND fa.fecha + ${BANCO_DIAS_DESPUES}
-           AND (fa.cuenta_id IS NULL OR m.bank_account_id = fa.cuenta_id)
       ), '[]'::jsonb) AS abonos
       FROM fa`;
 }

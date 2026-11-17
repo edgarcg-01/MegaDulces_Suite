@@ -718,6 +718,25 @@ Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos
 - **Una verificación bajo RLS ve lo mismo que el UPDATE.** La migración de datos comprobaba «quedan 0 con la fecha mala», que también da 0 si el RLS esconde las filas. El control se hace contando primero las filas por id.
 - **Un estado sin dato no es un cero.** Una cuenta sin saldo contaba como cuadrada, y una conciliación sin cargar se pintaba «sin correr».
 
+## 2026-11-17 — `[CC.21.1]` Lo que le faltaba al cruce con el banco: aviso en vivo, lectura real y la prueba en el CI
+
+**Qué se hizo:** la bandeja de fichas se refresca sola cuando llega el estado de cuenta (escuchando el aviso que Bancos
+ya emitía), la lectura de Claude Vision se probó con fichas sintéticas, y el cruce quedó en una prueba del CI con el
+servicio real.
+
+**Lecciones:**
+- ⭐ **Antes de crear un disparador, buscar el aviso que ya existe.** `bancos_movimientos` llevaba seis días emitiéndose
+  desde la carga del libro; bastó escucharlo. Y la tabla que parecía la obvia para escuchar (la conciliación) se
+  reescribe entera en cada corrida: un disparador ahí habría avisado miles de veces por nada.
+- ⭐ **La lectura real encontró lo que el doble no podía:** de una CLABE salió «7133 4». Con el filtro por cuenta de
+  antes, esa ficha habría dicho «no aparece». Un dato leído por un modelo desempata; no filtra.
+- **Una prueba que pasa con el mutante no prueba nada:** el caso «cuenta mal leída» pasaba también con el filtro puesto,
+  porque los dígitos no eran de ninguna cuenta. Se endureció (la cuenta mal leída es OTRA cuenta propia) y entonces sí
+  se puso roja.
+- **Una comparación laxa infla el acierto:** la referencia de la SPEI «pasaba» porque los dígitos de la clave de
+  rastreo contenían la referencia. Con igualdad estricta, 3 de 4.
+- **El aviso al vendedor no es código, es dato:** la liga vendedor→usuario existe y está vacía (3 de 34).
+
 ## 2026-11-17 — `[CC.21]` La ficha del cliente se valida contra el banco: el monto propone, el cliente decide
 
 **Qué se hizo:** cada ficha que sube un cliente se cruza, al abrir la bandeja, con el abono del estado de cuenta y con el

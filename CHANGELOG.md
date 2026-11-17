@@ -19,6 +19,10 @@
 - (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
 - (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
 - (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
+### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en código, sin soltar)
+- Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
+- Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
+
 ### Added — La ficha del cliente se valida contra el banco (CC.21 · 2026-11-17 · en código, sin soltar)
 - En **Cobranza › Fichas de clientes**, cada ficha dice si el depósito ya entró al banco: lo busca en el estado de cuenta (mismo monto, fecha cercana) y revisa que el cobro que Kepler le aplicó sea de ese mismo cliente.
 - Las que el banco confirma se ligan a su cobro con un clic, o todas de una vez. Si el dinero entró y Kepler todavía no tiene el cobro, el abono se marca como de ese cliente para que se capture.

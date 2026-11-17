@@ -49,6 +49,17 @@ describe('[CC.21] clasificarFichaEnBanco', () => {
     expect(clasificarFichaEnBanco(fila([], null as unknown as string), '2026-11-10', 5000).estado).toBe('banco_sin_cargar');
   });
 
+  it('la cuenta leída DESEMPATA: de dos abonos, el de esa cuenta', () => {
+    const b = clasificarFichaEnBanco(fila([abono('m1', [cobro('C-1')]), { ...abono('m2'), en_cuenta: true }]), '2026-11-10', 5000);
+    expect(b.estado).toBe('sin_aplicar');
+    expect(b.abonos.map((a) => a.id)).toEqual(['m2']);
+  });
+
+  it('la cuenta leída NO filtra: si no hay abono en ella (lectura mal hecha), se miran todos', () => {
+    const b = clasificarFichaEnBanco(fila([abono('m1', [cobro('C-1')])]), '2026-11-10', 5000);
+    expect(b.estado).toBe('aplicado');
+  });
+
   it('sin monto o sin fecha → sin_dato', () => {
     expect(clasificarFichaEnBanco(fila([abono('m1')]), null, 5000).estado).toBe('sin_dato');
     expect(clasificarFichaEnBanco(fila([abono('m1')]), '2026-11-10', null).estado).toBe('sin_dato');

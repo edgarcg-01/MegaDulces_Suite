@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
+import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions, PgListenService } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CollectionDepositsController } from './collection-deposits.controller';
 import { CobranzaGateway } from './cobranza.gateway';
 import { CobranzaGapScannerService } from './cobranza-gap-scanner.service';
 import { CustomerDepositsService } from './customer-deposits.service';
+import { FichasAvisoBancoService } from './fichas-aviso-banco.service';
 import { CustomerDepositPublicController, CustomerDepositsController } from './customer-deposits.controller';
 
 /**
@@ -27,7 +28,9 @@ import { CustomerDepositPublicController, CustomerDepositsController } from './c
   ],
   // [CC.20] El depósito del cliente: su superficie pública (enlace sin sesión) y la bandeja de Cobranza.
   controllers: [CollectionDepositsController, CustomerDepositsController, CustomerDepositPublicController],
-  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService, CustomerDepositsService],
+  // [CC.21] El aviso de Bancos (bancos_movimientos) refresca la bandeja de fichas. PgListenService NO es global: cada
+  // módulo que escucha lo provee (conexión dedicada, sólo se abre si alguien escucha).
+  providers: [CollectionDepositsService, CobranzaGateway, CobranzaGapScannerService, CustomerDepositsService, PgListenService, FichasAvisoBancoService],
   exports: [CollectionDepositsService, CustomerDepositsService],
 })
 export class FinanceCollectionDepositsModule {}

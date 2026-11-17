@@ -1739,6 +1739,31 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
         directo — reescribir una regex a través de tres capas de escape se pone verde por el
         motivo equivocado.
+- [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
+      · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
+        libro y la descarga (CB.60b). `FichasAvisoBancoService` lo escucha en el API (no en el worker: ahí no están los
+        navegadores ni hay Redis) y manda «recarga» por el socket de Cobranza a las conexiones de ESE proceso
+        (`avisarATodosLocal`): UNA al llegar (ráfaga colapsada en 2 s) y otra cuando la conciliación ya debió correr
+        (`BANK_RECON_AVISO_QUIET_S` + 30 s), que es la que convierte «sin cobro en Kepler» en «aplicado». No se escucha
+        `bank_recon_matches`: medido, la conciliación la reescribe entera (29,400 altas en el día para 51 mil vivas).
+        Se apaga con `DISABLE_FICHAS_AVISO_BANCO=true`.
+      · **La cuenta leída DESEMPATA, no filtra:** la lectura real dio «7133 4» de una CLABE (cuenta + verificador). Con el
+        filtro de antes, una cuenta mal leída decía «no aparece» de un depósito que sí entró. Ahora se buscan abonos en
+        todas las cuentas y, si alguno está en la cuenta leída, se miran sólo ésos; la cuenta se reconoce también con el
+        dígito verificador; «cargado hasta» es el más atrasado entre la cuenta leída y las que reciben depósitos.
+      · **Lectura REAL con Claude Vision** (Haiku 4.5, el extractor de prod) sobre 4 fichas sintéticas (ventanilla, SPEI
+        en celular, foto chueca y borrosa, hoja con dos montos): monto, fecha y cuenta 4 de 4; referencia 3 de 4 (en la
+        SPEI tomó la clave de rastreo — el cruce con el banco no usa la referencia).
+      · **En el CI:** `database/tests/test-newdb-ficha-en-banco.js` (servicio real como `app_runtime`, datos sintéticos
+        en una transacción que se revierte, y el aviso con LISTEN/NOTIFY real): 14 ✔ en base desechable; dos mutantes
+        (regla «mismo cliente», filtro por cuenta) la ponen roja. Unitarias del oyente 8 (con su mutante) y del
+        clasificador 14. Medición en prod repetida con la consulta final: mismo resultado, 20 fichas en 99 ms.
+      · **NO HECHO — aviso al VENDEDOR, con números:** la liga existe como tabla (`analytics.vendor_identity.user_id`)
+        pero tiene usuario en 3 de 34 renglones; alcanza 134 de 1,551 cuentas con saldo (83 vendedores con cartera). Y no
+        hay canal: `order_notifications` es de pedidos y hay 5 suscripciones de push en total. Falta decidir quién llena
+        la liga y por dónde le llega al vendedor.
+      · **NO MEDIDO:** fichas reales de clientes (hasta soltar CC.20); la pantalla de Cobranza no tiene spec propia (el
+        manejo de `bank_loaded` se cubre con `ngc`, no con una prueba).
 - [ ] **[CC.21]** 🧪 ⭐ **¿La ficha del cliente ENTRÓ al banco? — la bandeja lo dice sola** (Edgar, 2026-11-17: «leerlo
       con OCR o Claude Vision y validar ese monto que haya entrado a movimientos de bancos»). La lectura ya era Claude
       Vision (CC.2/CC.20); lo nuevo es el cruce: ficha (monto y fecha leídos de la foto) → abono del estado de cuenta (±$1,
