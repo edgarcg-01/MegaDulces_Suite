@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 96 KB, 1155 líneas, 17 secciones.
+> **Índice navegable** — 98 KB, 1169 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -23,7 +23,7 @@
 | 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
 | 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
 | 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1184 | 13 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 996 | 1198 | 14 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1124,6 +1124,20 @@ Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no 
   dio para la solicitud», pero ese `GRANT` **no se ha aplicado en ningún servidor** (es el paso 5 de §16.3, sólo en 05).
   Orden correcto: (1) aplicar las dos líneas de `sqliov` de `pgp122_solicitud_gasto.sql` en los 9 servidores; (2) verificar
   el permiso servidor por servidor desde `md`; (3) recién entonces soltar `216245d60`.
+- ⛔⛔ **H1 ya le pega a la gente, y no sólo en la requisición (2026-11-17).**
+  - *El caso:* en Zamora Centro, una persona abrió un pedido TELEMARK nuevo y Kepler le propuso `UD4001-0001149`. Ese folio
+    ya existe: lo escribió la Suite (`c24 = COT-2026-00412`) con `MAX+1`, después se canceló en Kepler (así `c67` dejó de
+    decir `SUITE`), y el contador `KFUD4001.05` se quedó en 1149. Al grabar, choca.
+  - *Medido en el ODS, 16 contadores atrasados:*
+    - pedido TLMK U-D-40 en 01, 05, 06 y 08 (hasta 6 folios atrás);
+    - requisición X-A-30 en 00, 01, 02, 04, 05, 06 y 08 (en 08, 76 atrás);
+    - OC X-A-35 en 00, 02, 05 y 06;
+    - pago X-D-26 en 01.
+  - *Arreglo inmediato:* `ops/prod/kepler-contadores/avanzar-contadores-atrasados.sql`. En cada servidor recalcula contra su
+    Kepler vivo y sube a `MAX+1` sólo sus propios contadores atrasados; nunca baja uno, y si algo queda atrás, revierte.
+    Probado contra un Kepler de prueba con los tipos reales: 11 ✓; un mutante sin la guarda baja un contador adelantado → 2 ✗.
+  - ⚠️ Mientras la Suite siga escribiendo con `MAX+1`, cada documento suyo vuelve a dejar el contador 1 atrás. El arreglo
+    permanente es soltar `216245d60` (después del `GRANT`). Si se suelta después de este arreglo, hay que correrlo otra vez.
 
 **R9 — `[PGP.123]` está usado dos veces.**
 - En el tracker es «Pedir anticipo» (🚀).
