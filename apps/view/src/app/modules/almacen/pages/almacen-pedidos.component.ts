@@ -6,7 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, type ParamMap, RouterLink } from '@angular/router';
 import { Subject, debounceTime } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
-import { TableModule } from 'primeng/table';
+import { TableModule, type TableLazyLoadEvent } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
@@ -56,6 +56,14 @@ const ORIGEN_PREVENTA = 'PREVENTA';
 const ETAPAS_DE_ALMACEN: string[] = ETAPAS_PEDIDO.filter((e) => e !== 'creado');
 /** Orden de las unidades en el volumen: de la más grande a la más chica; las demás al final. */
 const ORDEN_UNIDADES = ['CJA', 'BULTO', 'BTO', 'CUB', 'PAQ', 'PZA', 'KG', '500', '400', '250'];
+/**
+ * `[GP.10.5]` La leyenda del volumen, con las palabras que ya usa la suite (Catálogo digital, Checar).
+ * Lo que no está aquí se nombra tal cual y se dice que así viene de Kepler: no se adivina.
+ */
+const PALABRA_UNIDAD: Record<string, string> = { CJA: 'caja', BTO: 'bulto', BULTO: 'bulto', CUB: 'cubeta', PAQ: 'paquete', PZA: 'pieza', KG: 'kilo' };
+/** Kepler a veces guarda el GRAMAJE en la unidad (`500`, `250`): no es un nombre de unidad (UNIDADES_DE_MEDIDA §3). */
+const ES_GRAMAJE = /^[\d.]+$/;
+const ordenUnidad = (u: string): number => { const i = ORDEN_UNIDADES.indexOf(u); return i < 0 ? 99 : i; };
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -64,6 +72,11 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 const fechaLocal = (v: string): Date => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d); };
 /** `[GP.RF.15]` Los estatus de Kepler que una liga puede traer en `kepler_status`: sólo los que alguien manda. */
 const ESTATUS_KEPLER_LIGA: readonly string[] = ['AUTORIZADO'];
+/**
+ * `[GP.10.5]` Pedidos por página. El servidor manda sólo la página que se ve (antes mandaba hasta
+ * 2,000, 1.40 MB, y aun así dejaba fuera 348 del mes); los conteos y totales siguen siendo de todo.
+ */
+export const PAGINA_PEDIDOS = 200;
 const dmy = (v: string | null | undefined): string => {
   if (!v) return '—';
   const [y, m, d] = v.slice(0, 10).split('-');
@@ -123,7 +136,7 @@ const dmy = (v: string | null | undefined): string => {
             }
           </div>
           <p-datepicker inputId="gp-rango" [(ngModel)]="rangeDates" selectionMode="range" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" placeholder="Rango" (onClose)="onRange()" ariaLabel="Rango de fechas" />
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="refrescar()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
           }
         </div>
         }
@@ -137,7 +150,7 @@ const dmy = (v: string | null | undefined): string => {
         }
       } @else {
 
-      @if (err(); as e) { <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
+      @if (err(); as e) { <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="refrescar()"><span class="p-button-label">Reintentar</span></button></div> }
 
       @if (loading() && !data()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="gp-skel-row"></div> }</div> }
       @else if (data(); as d) {
@@ -150,7 +163,7 @@ const dmy = (v: string | null | undefined): string => {
         }
         <!-- [GP.RF.15] Llegó de «velos en el Tablero» de la fila: se dice qué filtro trae y se quita con un clic. -->
         @if (estatusKepler() && !soloSurtidor()) {
-          <div class="gp-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Pedidos que Kepler sigue teniendo como <b>autorizados</b>, del {{ dmy(d.periodo.from) }} al {{ dmy(d.periodo.to) }}@if (sucursal()) {, sucursal <b>{{ sucursalNombre(d, sucursal()!) }}</b>}: <b>{{ totalConteos(d) }}</b>. Ninguno entra a la fila de surtido: ciérralos en Kepler.</span><button type="button" class="gp-link" (click)="quitarKepler()">Quitar este filtro</button></div>
+          <div class="gp-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Pedidos que Kepler sigue teniendo como <b>autorizados</b>, del {{ dmy(d.periodo.from) }} al {{ dmy(d.periodo.to) }}@if (sucursal()) {, sucursal <b>{{ sucursalNombre(d, sucursal()!) }}</b>}: <b>{{ d.totales.pedidos.toLocaleString('es-MX') }}</b>. Ninguno entra a la fila de surtido: ciérralos en Kepler.</span><button type="button" class="gp-link" (click)="quitarKepler()">Quitar este filtro</button></div>
         }
 
         <div class="gp-list">
@@ -178,10 +191,12 @@ const dmy = (v: string | null | undefined): string => {
               </div>
             </div>
             }
+            <!-- Sólo con una API anterior a GP.10.5 (sin página): con página ningún pedido queda fuera. -->
             @if (d.truncado && !soloSurtidor()) { <p class="gp-hint gp-pad">Se muestran los primeros {{ d.items.length }}; los conteos y totales sí incluyen todos. Acota el periodo o filtra por etapa u origen.</p> }
             @if (soloSurtidor()) {
               <!-- [MCP.3.2] Vista del surtidor: sólo el pedido y para quién es. Sin detalle (es del tablero). -->
-              <p-table [value]="d.items" size="small" class="surf-table dt-stack" [scrollable]="true" scrollHeight="calc(100vh - 14rem)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
+              <p-table [value]="d.items" size="small" class="surf-table dt-stack" [scrollable]="true" scrollHeight="calc(100vh - 14rem)" dataKey="clave"
+                [lazy]="true" (onLazyLoad)="onPagina($event)" [paginator]="totalLista(d) > pagina" [rows]="pagina" [totalRecords]="totalLista(d)" [first]="offset()" [loading]="loading()">
                 <ng-template #header>
                   <tr><th>Pedido</th><th>Cliente / destino</th></tr>
                 </ng-template>
@@ -196,7 +211,9 @@ const dmy = (v: string | null | undefined): string => {
                 </ng-template>
               </p-table>
             } @else {
-            <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="calc(100vh - 25rem)" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave" [paginator]="d.items.length > 200" [rows]="200">
+            <p-table [value]="d.items" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="calc(100vh - 25rem)" selectionMode="single" [selection]="sel()" (selectionChange)="pick($event)" dataKey="clave"
+              [lazy]="true" (onLazyLoad)="onPagina($event)" [paginator]="totalLista(d) > pagina" [rows]="pagina" [totalRecords]="totalLista(d)" [first]="offset()" [loading]="loading()"
+              [showCurrentPageReport]="true" currentPageReportTemplate="{first}–{last} de {totalRecords}">
               <ng-template #header>
                 <tr>
                   <th>Pedido</th><th>Fecha</th>@if (multiSucursal(d)) { <th>Suc</th> }<th>Cliente / destino</th>
@@ -222,10 +239,17 @@ const dmy = (v: string | null | undefined): string => {
                 <tr><td [attr.colspan]="multiSucursal(d) ? 9 : 8"><div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún pedido con estos filtros entre {{ dmy(d.periodo.from) }} y {{ dmy(d.periodo.to) }}.</span>@if (hayFiltros()) { <button type="button" class="gp-link" (click)="limpiar()">Quitar filtros</button> }</div></td></tr>
               </ng-template>
             </p-table>
+            <!-- [GP.10.5] Qué quiere decir cada unidad del volumen: sólo las que aparecen en la página. -->
+            @if (leyendaUnidades(); as ley) { <p class="gp-hint gp-pad gp-leyenda">Volumen: {{ ley }}.</p> }
             <div class="gp-foot" aria-label="Totales de lo filtrado">
               <span><b class="num">{{ d.totales.pedidos.toLocaleString('es-MX') }}</b> pedidos</span>
               <span><b class="num">{{ d.totales.renglones.toLocaleString('es-MX') }}</b> renglones</span>
-              <span><b class="num">{{ d.totales.importe === null ? '—' : money(d.totales.importe) }}</b></span>
+              <!-- [GP.10.5] D4: el traspaso a sucursal y la carga a ruta no son venta; van aparte. -->
+              @if (d.totales.importe_por_destino; as p) {
+                @for (x of partesImporte(p); track x.k) { <span><b class="num">{{ money(x.v) }}</b> {{ x.label }}</span> }
+              } @else {
+                <span><b class="num">{{ d.totales.importe === null ? '—' : money(d.totales.importe) }}</b></span>
+              }
               @if (masAntiguo(); as h) { <span class="gp-foot-warn">sin embarcar más antiguo: <b class="num">{{ horas(h) }}</b></span> }
             </div>
             }
@@ -452,6 +476,11 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly loading = signal(false);
   readonly err = signal<string | null>(null);
   readonly data = signal<WarehouseOrdersResponse | null>(null);
+  /** `[GP.10.5]` Página de la lista: el primer pedido que se ve (0, 200, 400…). */
+  readonly pagina = PAGINA_PEDIDOS;
+  readonly offset = signal(0);
+  /** La respuesta de una consulta vieja (filtro o página anterior) no pisa la de la nueva. */
+  private folioLista = 0;
   readonly sel = signal<WarehouseOrderRow | null>(null);
   readonly det = signal<WarehouseOrderDetail | null>(null);
   readonly detLoading = signal(false);
@@ -465,6 +494,8 @@ export class AlmacenPedidosComponent implements OnInit {
   readonly masAntiguo = computed<number | null>(() => {
     const d = this.data();
     if (!d) return null;
+    // [GP.10.5] Con página, el servidor lo calcula sobre TODO lo filtrado; la página no alcanza.
+    if (d.totales.mas_antiguo_horas !== undefined) return d.totales.mas_antiguo_horas;
     return d.items.reduce<number | null>((m, r) => (r.horas_abierto != null && (m == null || r.horas_abierto > m) ? r.horas_abierto : m), null);
   });
 
@@ -474,7 +505,9 @@ export class AlmacenPedidosComponent implements OnInit {
     const out: { label: string; value: string | null }[] = [{ label: 'Todas las sucursales', value: null }];
     if (!d) return out;
     const vistas = new Map<string, string>();
-    if (d.alcance.todas) for (const r of d.items) vistas.set(r.sucursal, r.sucursal_nombre);
+    // [GP.10.5] Las del periodo antes de filtrar (las de la página no son todas).
+    if (d.alcance.todas && d.sucursales_periodo) for (const s of d.sucursales_periodo) vistas.set(s.codigo, s.nombre);
+    else if (d.alcance.todas) for (const r of d.items) vistas.set(r.sucursal, r.sucursal_nombre);
     else for (const s of d.alcance.sucursales) vistas.set(s.codigo, s.nombre);
     const sel = this.sucursal();
     if (sel && !vistas.has(sel)) vistas.set(sel, sel);
@@ -569,12 +602,14 @@ export class AlmacenPedidosComponent implements OnInit {
     const st = this.estatusKepler();
     if (st) f.estatus = [st];
     const hoy = new Date();
+    const pagina = { limit: PAGINA_PEDIDOS, offset: this.offset() };
     if (this.soloSurtidor()) {
       // [MCP.3.2] Lo que le toca: AUTORIZADO (ya se puede surtir y nadie lo ha surtido). Ventana de
       // 30 días y no "el mes": el día 1 no deben desaparecer los autorizados del mes anterior.
       const desde = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 30);
-      return { estatus: ['AUTORIZADO'], origen: null, sucursal: null, q: null, from: iso(desde), to: iso(hoy) };
+      return { estatus: ['AUTORIZADO'], origen: null, sucursal: null, q: null, from: iso(desde), to: iso(hoy), ...pagina };
     }
+    Object.assign(f, pagina);
     switch (this.preset()) {
       case 'hoy': f.from = f.to = iso(hoy); break;
       case 'semana': {
@@ -595,17 +630,39 @@ export class AlmacenPedidosComponent implements OnInit {
     return f;
   }
 
+  /** Cambió un filtro o el periodo: vuelve a la primera página. */
   reload(): void {
+    this.offset.set(0);
+    this.cargar(true);
+  }
+  /** «Actualizar» y «Reintentar»: la misma página, con los datos de ahora. */
+  refrescar(): void { this.cargar(true); }
+  /** `[GP.10.5]` Otra página: el pedido abierto en el panel se queda abierto aunque no esté en ella. */
+  onPagina(ev: TableLazyLoadEvent): void {
+    const o = ev.first ?? 0;
+    if (o === this.offset()) return; // la tabla lo dispara también al nacer, con la página que ya está
+    this.offset.set(o);
+    this.cargar(false);
+  }
+
+  /** `soltarAjeno`: si el pedido abierto ya no está en lo que llegó, se cierra (un filtro lo sacó). */
+  private cargar(soltarAjeno: boolean): void {
+    const folio = ++this.folioLista;
     this.loading.set(true);
     this.err.set(null);
     this.api.list(this.filtro()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
+        if (folio !== this.folioLista) return;
         this.data.set(d);
         const s = this.sel();
-        if (s && !d.items.some((x) => x.clave === s.clave)) { this.sel.set(null); this.det.set(null); }
+        if (soltarAjeno && s && !d.items.some((x) => x.clave === s.clave)) { this.sel.set(null); this.det.set(null); }
         this.loading.set(false);
       },
-      error: () => { this.loading.set(false); this.err.set('No se pudieron cargar los pedidos.'); },
+      error: () => {
+        if (folio !== this.folioLista) return;
+        this.loading.set(false);
+        this.err.set('No se pudieron cargar los pedidos.');
+      },
     });
   }
 
@@ -625,6 +682,8 @@ export class AlmacenPedidosComponent implements OnInit {
   }
 
   multiSucursal(d: WarehouseOrdersResponse): boolean { return !this.sucursal() && (d.alcance.todas || d.alcance.sucursales.length > 1); }
+  /** `[GP.10.5]` Cuántos pedidos tiene la lista con los filtros (todas las páginas). */
+  totalLista(d: WarehouseOrdersResponse): number { return d.pagina?.total ?? d.items.length; }
   /**
    * El número de «Todos»: los mismos que lista sin filtro, o sea SIN cancelados (`[GP.10.0]`). Se suma
    * por ETAPA (`[GP.10.4a]`): por estatus de Kepler dejaría fuera la preventa, que sí está en la lista.
@@ -662,7 +721,10 @@ export class AlmacenPedidosComponent implements OnInit {
   }
   /** La sucursal por su NOMBRE (nunca sólo «06»): del alcance o de las filas que llegaron. */
   sucursalNombre(d: WarehouseOrdersResponse, codigo: string): string {
-    const n = d.alcance.sucursales.find((x) => x.codigo === codigo)?.nombre ?? d.items.find((x) => x.sucursal === codigo)?.sucursal_nombre;
+    const n =
+      d.alcance.sucursales.find((x) => x.codigo === codigo)?.nombre ??
+      d.sucursales_periodo?.find((x) => x.codigo === codigo)?.nombre ??
+      d.items.find((x) => x.sucursal === codigo)?.sucursal_nombre;
     return n ? `${codigo} ${n}` : codigo;
   }
   sucursalesTexto(d: WarehouseOrdersResponse): string { return d.alcance.sucursales.map((x) => `${x.codigo} ${x.nombre}`).join(', '); }
@@ -674,11 +736,44 @@ export class AlmacenPedidosComponent implements OnInit {
   difiere(a: number | null, b: number | null): boolean { return a != null && b != null && Math.abs(a - b) > 0.0001; }
   volumenTexto(v: { unidad: string; cantidad: number }[] | null | undefined): string {
     if (!v?.length) return '';
-    const orden = (u: string) => { const i = ORDEN_UNIDADES.indexOf(u); return i < 0 ? 99 : i; };
     return [...v]
-      .sort((a, b) => orden(a.unidad) - orden(b.unidad) || b.cantidad - a.cantidad)
-      .map((x) => `${x.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${x.unidad}`)
+      .sort((a, b) => ordenUnidad(a.unidad) - ordenUnidad(b.unidad) || b.cantidad - a.cantidad)
+      // [GP.10.5] «6 500» se leía como un número; con el gramaje como unidad va «6 de 500».
+      .map((x) => `${x.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })} ${ES_GRAMAJE.test(x.unidad) ? `de ${x.unidad}` : x.unidad}`)
       .join(' · ');
+  }
+
+  /**
+   * `[GP.10.5]` La leyenda de las unidades que aparecen en la página («CJA caja · PAQ paquete · …»).
+   * `null` si no hay volumen que explicar.
+   */
+  readonly leyendaUnidades = computed<string | null>(() => {
+    const d = this.data();
+    if (!d || this.soloSurtidor()) return null;
+    const vistas = new Set<string>();
+    for (const r of d.items) for (const x of r.volumen ?? []) vistas.add(x.unidad);
+    if (!vistas.size) return null;
+    const ordenadas = [...vistas].sort((a, b) => ordenUnidad(a) - ordenUnidad(b) || a.localeCompare(b));
+    const nombres = ordenadas.filter((u) => PALABRA_UNIDAD[u]).map((u) => `${u} ${PALABRA_UNIDAD[u]}`);
+    const gramajes = ordenadas.filter((u) => ES_GRAMAJE.test(u));
+    // «SIN UNIDAD» lo pone la consulta cuando el renglón de Kepler no trae unidad (kdm2.c55 vacío).
+    const otras = ordenadas.filter((u) => !PALABRA_UNIDAD[u] && !ES_GRAMAJE.test(u) && u !== 'SIN UNIDAD');
+    const partes = [...nombres];
+    if (gramajes.length) partes.push(`${gramajes.map((g) => `«de ${g}»`).join(', ')}: Kepler guarda el gramaje en lugar de la unidad`);
+    if (otras.length) partes.push(`${otras.join(', ')}: así viene de Kepler`);
+    if (vistas.has('SIN UNIDAD')) partes.push('SIN UNIDAD: el renglón no la trae en Kepler');
+    return partes.join(' · ');
+  });
+
+  /** `[GP.10.5]` D4: las partes del total que no están en cero, en orden fijo. Sin ninguna, «a clientes» en cero. */
+  partesImporte(p: { clientes: number; traspaso_sucursal: number; carga_ruta: number }): { k: string; v: number; label: string }[] {
+    const todas = [
+      { k: 'clientes', v: p.clientes, label: 'a clientes' },
+      { k: 'traspaso', v: p.traspaso_sucursal, label: 'traspaso a sucursales' },
+      { k: 'ruta', v: p.carga_ruta, label: 'carga a ruta' },
+    ];
+    const con = todas.filter((x) => x.v !== 0);
+    return con.length ? con : [todas[0]];
   }
   cant(v: number | null): string { return v == null ? '—' : v.toLocaleString('es-MX', { maximumFractionDigits: 3 }); }
   horas(h: number | null): string {

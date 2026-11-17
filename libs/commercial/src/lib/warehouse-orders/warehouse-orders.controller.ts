@@ -34,7 +34,7 @@ export class WarehouseOrdersController {
   @RequireAnyPermission(Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({
     summary:
-      'Pedidos Kepler U-D-40 del periodo (y de preventa PD- con presale=1). Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), stage (etapa de almacén, separadas por coma), origin (TELEMARK|SUCURSAL|PREVENTA), branch (sucursal, 2 dígitos), q, presale (1 = incluir preventa).',
+      'Pedidos Kepler U-D-40 del periodo (y de preventa PD- con presale=1). Filtros: month (AAAA-MM, default mes en curso) o from+to; status (estatus Kepler, separados por coma), stage (etapa de almacén, separadas por coma), origin (TELEMARK|SUCURSAL|PREVENTA), branch (sucursal, 2 dígitos), q, presale (1 = incluir preventa); limit (1-500) + offset = una página, sin tope (pagina.total); sin limit, hasta 2000 con truncado.',
   })
   list(
     @Query('month') month?: string,
@@ -47,10 +47,12 @@ export class WarehouseOrdersController {
     @Req() req?: ReqUsuario,
     @Query('stage') stage?: string,
     @Query('presale') presale?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string,
   ): Promise<WarehouseOrdersResponse> {
     const ve = req?.user?.permissions?.[Permission.ALMACEN_PEDIDOS_VER] === true;
     return this.svc
-      .list({ month, from, to, estatus: status, etapa: stage, origen: origin, sucursal: branch, q, preventa: presale })
+      .list({ month, from, to, estatus: status, etapa: stage, origen: origin, sucursal: branch, q, preventa: presale, offset, limit })
       .then((r) => (ve ? r : sinImportes(r)));
   }
 

@@ -12,7 +12,7 @@ import type { Knex } from 'knex';
 import { ESTATUS_VIGENTE_SQL } from '../commercial-picking/kepler-origen';
 import { ENTREGADO_SQL, sucursalKeplerSql } from '../presale-control/presale-control.service';
 import { etapaDePedido } from './etapa-pedido';
-import { armarRespuesta, horasAbierto, ORIGEN_PREVENTA, periodo, PeriodoInvalido, relojMx, type Filtros } from './warehouse-orders.engine';
+import { armarRespuesta, horasAbierto, ORIGEN_PREVENTA, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, type Filtros, type Pagina } from './warehouse-orders.engine';
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén — lectura pura sobre el ODS, sin importer
@@ -150,6 +150,12 @@ export interface WarehouseOrdersQuery {
   q?: string;
   /** `[GP.10.3]` `1` = incluir los pedidos de preventa (`PD-`). Sin él, la respuesta es la de siempre. */
   preventa?: string;
+  /**
+   * `[GP.10.5]` Página: `limit` (1–`PAGINA_MAX`) y `offset` (desde 0). Sin `limit`, la respuesta de
+   * siempre (topada a `LIMITE_ITEMS`). `offset` sin `limit` no significa nada y se rechaza.
+   */
+  offset?: string;
+  limit?: string;
 }
 
 /**
@@ -355,10 +361,13 @@ export class WarehouseOrdersService {
     const ahora = new Date();
     const reloj = relojMx(ahora);
     let per: { from: string; to: string };
+    // Se valida antes de tocar la base: una página mal pedida es un 400, no una consulta de balde.
+    let pagina: Pagina | null;
     try {
       per = periodo(q, reloj.fecha);
+      pagina = paginaDe(q);
     } catch (e) {
-      if (e instanceof PeriodoInvalido) throw new BadRequestException(e.message);
+      if (e instanceof PeriodoInvalido || e instanceof PaginaInvalida) throw new BadRequestException(e.message);
       throw e;
     }
     const filtros: Filtros = {
@@ -371,7 +380,7 @@ export class WarehouseOrdersService {
     };
     const alcance = await this.alcance();
     // Sin sucursal asignada no hay nada que consultar: se declara en `alcance`, no se pinta vacío a secas.
-    if (!alcance.todas && alcance.sucursales.length === 0) return armarRespuesta([], filtros, per, alcance, ahora);
+    if (!alcance.todas && alcance.sucursales.length === 0) return armarRespuesta([], filtros, per, alcance, ahora, pagina);
     const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
@@ -382,7 +391,7 @@ export class WarehouseOrdersService {
         const pv = await trx.raw(PREVENTA_SQL, [per.from, per.to, alcance.todas, codigos]);
         filas.push(...(pv.rows as PreventaCruda[]).map((x) => this.aFilaPreventa(x)));
       }
-      const resp = armarRespuesta(filas, filtros, per, alcance, ahora);
+      const resp = armarRespuesta(filas, filtros, per, alcance, ahora, pagina);
       this.logger.debug(`pedidos ${per.from}..${per.to}: ${filas.length} en ${Date.now() - t0} ms`);
       return resp;
     });

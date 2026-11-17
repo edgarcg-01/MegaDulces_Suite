@@ -18,8 +18,78 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const MES = /^\d{4}-\d{2}$/;
 export const MX_TZ = 'America/Mexico_City';
 
-/** Tope de renglones del listado. Los conteos y totales se calculan sobre todo el periodo. */
+/**
+ * Tope de renglones del listado cuando NO se pide página (quien no manda `limit`: la respuesta de
+ * siempre). Los conteos y totales se calculan sobre todo el periodo.
+ */
 export const LIMITE_ITEMS = 2000;
+
+/**
+ * `[GP.10.5]` Página más grande que se acepta. Con página, la lista ya no se topa: cada pedido del
+ * periodo cae en alguna página, y viaja sólo la que se ve (medido 2026-11-17: 700 bytes por pedido;
+ * 2,000 pedidos eran 1.40 MB y aun así quedaban 348 fuera).
+ */
+export const PAGINA_MAX = 500;
+
+export interface Pagina {
+  offset: number;
+  limit: number;
+}
+
+export class PaginaInvalida extends Error {}
+
+/**
+ * `[GP.10.5]` D4: a dónde va el importe del pedido, por su cliente en Kepler (`kdm1.c10`).
+ *  · `TI###`            → traspaso a otra sucursal: no se factura (CEDIS, 615 embarques, 0 facturas).
+ *  · `RD ###`/`RUTA ##` → carga al camión de ruta: la venta ocurre después, en la ruta.
+ *  · lo demás           → a clientes (telemarketing, preventa, mostrador).
+ * Es la misma partición que ERP_KEPLER.md (el reparto entre sucursales: 804 traspasos `TI` y 265
+ * cargas a ruta en 30 días, «y nada más»). Formas medidas en prod el 2026-11-17 sobre oct–nov:
+ * `TI###` 1,995 · `RUTA ##` 246 · `RD ###` 198; ninguna otra empieza así.
+ */
+export type DestinoImporte = 'clientes' | 'traspaso_sucursal' | 'carga_ruta';
+export function destinoDe(clienteCode: string | null): DestinoImporte {
+  const c = (clienteCode ?? '').trim().toUpperCase();
+  if (/^TI\d{3}$/.test(c)) return 'traspaso_sucursal';
+  if (/^(RUTA|RD)\s+\d+$/.test(c)) return 'carga_ruta';
+  return 'clientes';
+}
+
+const ENTERO = /^\d{1,7}$/;
+
+/**
+ * `[GP.10.5]` La página pedida (`limit` 1–`PAGINA_MAX`, `offset` desde 0), o `null` si no se pidió.
+ * Un valor mal escrito es un error, no un default silencioso: devolver la página 1 a quien pidió la 3
+ * pintaría pedidos repetidos como si fueran otros.
+ */
+export function paginaDe(q: { offset?: string; limit?: string }): Pagina | null {
+  const tieneLimit = q.limit != null && q.limit !== '';
+  const tieneOffset = q.offset != null && q.offset !== '';
+  if (!tieneLimit) {
+    if (tieneOffset) throw new PaginaInvalida('"offset" necesita "limit".');
+    return null;
+  }
+  if (!ENTERO.test(q.limit as string) || (tieneOffset && !ENTERO.test(q.offset as string))) {
+    throw new PaginaInvalida('"limit" y "offset" son enteros sin signo.');
+  }
+  const limit = Number(q.limit);
+  if (limit < 1 || limit > PAGINA_MAX) throw new PaginaInvalida(`"limit" va de 1 a ${PAGINA_MAX}.`);
+  return { offset: tieneOffset ? Number(q.offset) : 0, limit };
+}
+
+/**
+ * `[GP.10.5]` El orden de la lista: lo más nuevo primero, por la fecha que la tabla PINTA (la de
+ * creación en Kepler; la de entrega en preventa). Antes la preventa se pegaba al final de los de
+ * Kepler sin importar su fecha: con el tope de 2,000, las 348 más nuevas del mes no se veían.
+ * Sort estable: dentro del mismo día y hora se respeta el orden de la consulta.
+ */
+export function ordenLista(a: WarehouseOrderRow, b: WarehouseOrderRow): number {
+  if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
+  if (a.hora === b.hora) return 0;
+  if (a.hora == null) return 1;
+  if (b.hora == null) return -1;
+  return a.hora < b.hora ? 1 : -1;
+}
 
 export class PeriodoInvalido extends Error {}
 
@@ -113,7 +183,12 @@ export function armarRespuesta(
   per: { from: string; to: string },
   alcance: WarehouseOrdersAlcance,
   generadoEn: Date,
+  pagina: Pagina | null = null,
 ): WarehouseOrdersResponse {
+  // [GP.10.5] Las sucursales del periodo, antes de cualquier filtro: son las opciones del selector
+  // (antes salían de las filas que llegaban, y elegir una dejaba sólo ésa en la lista de opciones).
+  const sucursalesPeriodo = new Map<string, string>();
+  for (const r of rows) if (r.sucursal && !sucursalesPeriodo.has(r.sucursal)) sucursalesPeriodo.set(r.sucursal, r.sucursal_nombre);
   const base = rows.filter(
     (r) =>
       (!filtros.origen || r.origen === filtros.origen) &&
@@ -150,27 +225,49 @@ export function armarRespuesta(
   }
   const conteos_etapa = [...porEtapa.entries()].map(([etapa, c]) => ({ etapa: etapa as EtapaPedido, ...c }));
 
-  const filtrados = base.filter((r) =>
-    filtros.estatus.length || filtros.etapa.length
-      ? (!filtros.estatus.length || filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) &&
-        (!filtros.etapa.length || filtros.etapa.includes(r.etapa))
-      : !esCancelado(r),
-  );
+  const filtrados = base
+    .filter((r) =>
+      filtros.estatus.length || filtros.etapa.length
+        ? (!filtros.estatus.length || filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) &&
+          (!filtros.etapa.length || filtros.etapa.includes(r.etapa))
+        : !esCancelado(r),
+    )
+    .sort(ordenLista);
   const totales = filtrados.reduce(
-    (t, r) => ({ pedidos: t.pedidos + 1, renglones: t.renglones + r.renglones, importe: t.importe + (r.importe ?? 0) }),
-    { pedidos: 0, renglones: 0, importe: 0 },
+    (t, r) => ({
+      pedidos: t.pedidos + 1,
+      renglones: t.renglones + r.renglones,
+      importe: t.importe + (r.importe ?? 0),
+      // [GP.10.5] El más antiguo sin embarcar de TODO lo filtrado: con página, la pantalla ya no lo
+      // puede sacar de lo que le llega.
+      mas_antiguo_horas:
+        r.horas_abierto != null && (t.mas_antiguo_horas == null || r.horas_abierto > t.mas_antiguo_horas)
+          ? r.horas_abierto
+          : t.mas_antiguo_horas,
+    }),
+    { pedidos: 0, renglones: 0, importe: 0, mas_antiguo_horas: null as number | null },
   );
   totales.importe = Math.round(totales.importe * 100) / 100;
+  // [GP.10.5] D4: el total separado por destino. Sumar el traspaso como venta la inflaba (noviembre:
+  // $22.1 M de $35.3 M de Kepler eran traspasos a sucursal).
+  const porDestino: Record<DestinoImporte, number> = { clientes: 0, traspaso_sucursal: 0, carga_ruta: 0 };
+  for (const r of filtrados) porDestino[destinoDe(r.cliente_code)] += r.importe ?? 0;
+  for (const k of Object.keys(porDestino) as DestinoImporte[]) porDestino[k] = Math.round(porDestino[k] * 100) / 100;
 
+  const desde = pagina ? pagina.offset : 0;
+  const hasta = pagina ? pagina.offset + pagina.limit : LIMITE_ITEMS;
   return {
     periodo: per,
     alcance,
     filtros,
     conteos,
     conteos_etapa,
-    totales,
-    items: filtrados.slice(0, LIMITE_ITEMS),
-    truncado: filtrados.length > LIMITE_ITEMS,
+    totales: { ...totales, importe_por_destino: porDestino },
+    items: filtrados.slice(desde, hasta),
+    // Con página no hay tope: cada pedido está en alguna página y `pagina.total` dice cuántos son.
+    truncado: !pagina && filtrados.length > LIMITE_ITEMS,
+    pagina: pagina ? { offset: pagina.offset, limit: pagina.limit, total: filtrados.length } : undefined,
+    sucursales_periodo: [...sucursalesPeriodo.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([codigo, nombre]) => ({ codigo, nombre })),
     generado_en: generadoEn.toISOString(),
   };
 }
@@ -183,7 +280,7 @@ export function armarRespuesta(
 export function sinImportes(r: WarehouseOrdersResponse): WarehouseOrdersResponse {
   return {
     ...r,
-    totales: { ...r.totales, importe: null },
+    totales: { ...r.totales, importe: null, importe_por_destino: null },
     items: r.items.map((x) => ({ ...x, importe: null })),
   };
 }

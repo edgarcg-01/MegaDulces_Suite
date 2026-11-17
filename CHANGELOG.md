@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Changed — Pedidos del almacén: la lista del Tablero por páginas, el total por destino y la leyenda del volumen (GP.10.5 · 2026-11-17 · en código, sin soltar)
+- La lista ya no se corta en 2,000 pedidos: llega por páginas de 200 y el paginador alcanza todos (el mes tenía 2,358 y bajaban 1.4 MB). La preventa ya no queda al final: va por su fecha, junto a los de Kepler.
+- El total del pie se separa en lo que va a clientes, el traspaso a sucursales y la carga a ruta. Antes lo sumaba todo como si fuera venta.
+- Debajo de la lista, una leyenda dice qué es cada unidad del volumen (CJA caja, PAQ paquete…), y «6 500» ahora se lee «6 de 500».
+- Arreglo: al llegar desde los pedidos atorados de la fila de surtido, la nota decía 1,885 cuando la lista traía 58. Ahora dice cuántos trae la lista.
+- Ya en producción (`4d99357f7`): escanear para asignar ubicaciones, imprimir carteles, los arreglos de Ubicaciones, la liga de los atorados y el cambio de vista en la cabecera del Tablero.
+
 ### Changed — Crédito de clientes: buscar y ordenar al instante, «Siguiente cliente» y «contactado hoy» (CXC.42 · CXC.43 · 2026-11-17 · en código, sin soltar)
 - La búsqueda encuentra mientras escribes (sin Enter, sin acentos, por varias palabras) y el orden cambia al instante: ya no se recarga la cartera.
 - La pantalla ya no brinca al cargar, y mientras se aplica un filtro dice «Actualizando…».
