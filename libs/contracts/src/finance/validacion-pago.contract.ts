@@ -292,4 +292,17 @@ export interface ResultadoComprobanteCalendario {
   motivo: string | null;
   /** Lo que leyó el servidor del PDF, para que la persona vea por qué casó o no. */
   lectura: { importe: number | null; fecha: string | null; cuenta_origen: string | null; beneficiario: string | null; ocr_status: string };
+  /**
+   * La lectura completa (la que el servidor guardó con su huella `sha256`). Si no casa con el Calendario, la pantalla
+   * sigue con el carril de Kepler (`match-pago` → `attach`) con ESTA lectura: el PDF no se manda a leer otra vez y
+   * `attach` la recupera del servidor por su huella, no le cree al navegador.
+   */
+  ocr: LecturaComprobante;
+}
+
+/** `[PGP.130]` La lectura de un comprobante de transferencia, como la devuelve el servidor. */
+export interface LecturaComprobante {
+  monto: number | null; fecha: string | null; concepto: string | null; cuenta_origen: string | null; cuenta_destino: string | null;
+  beneficiario: string | null; clave_rastreo: string | null; banco_destino: string | null; metodo: string | null;
+  ocr_status: string; sha256?: string;
 }

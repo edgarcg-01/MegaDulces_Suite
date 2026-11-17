@@ -708,7 +708,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                    botón en un apartado pequeño»). Es el componente compartido en modo compacto: un botón al que
                    se le suelta el PDF; lee cada uno, busca su pago en Kepler y deja pre-marcado el que coincide.
                    Guardar sigue siendo UN clic (PC.3: la IA propone, la persona confirma). -->
-              <app-pagos-captura-lote [compacto]="true" (verDiferencias)="verComprobantesConDiferencias()" />
+              <!-- [PGP.130] Modo Calendario: el comprobante casa primero con su pago de aquí y lo da por pagado (D1). -->
+              <app-pagos-captura-lote [compacto]="true" [calendario]="true" (pagadosCalendario)="alPagarPorComprobante()" (verDiferencias)="verComprobantesConDiferencias()" />
             </div>
 
             <!-- [PGP.114] A los que faltan de lo que se ve (la etapa o el día), salvo los de días que ya pasaron: ésos se mueven. -->
@@ -2178,6 +2179,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 
   readonly canAuthorize = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] === true);
+
+  // ── `[PGP.130]` El comprobante dispara el pago ──────────────────────────────────────────────
+  private recargaPorComprobante?: ReturnType<typeof setTimeout>;
+  /**
+   * Un comprobante casó con su pago: el worker lo da por pagado al aviso (espera ~60 s para juntar los de una tanda) y
+   * después lo escribe en Kepler. El día se vuelve a leer al pasar ese tiempo, una sola vez por tanda.
+   */
+  alPagarPorComprobante(): void {
+    if (this.recargaPorComprobante === undefined) this.destroyRef.onDestroy(() => clearTimeout(this.recargaPorComprobante));
+    clearTimeout(this.recargaPorComprobante);
+    this.recargaPorComprobante = setTimeout(() => { this.invalidarDeuda(); this.recargarPagos(); }, 75_000);
+  }
 
   // ── `[PGP.138]` Programar un anticipo desde el Calendario ────────────────────────────────────
   /**
