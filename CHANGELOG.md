@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
+- Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
+
 ### Added — El cliente sube su ficha de depósito desde su celular (CC.20 · 2026-11-17 · en código, sin soltar)
 - Cada cliente tiene un enlace personal, sin usuario ni contraseña: va en el mensaje de WhatsApp del estado de cuenta y como código QR impreso en el PDF. Ahí toma la foto de su ficha (o la captura de su transferencia), la Suite lee el monto y la fecha, y la envía.
 - Cobranza la recibe al momento en **Cobranza › Fichas de clientes**: la liga al cobro de Kepler (con los cobros del mismo monto como sugerencia) o la rechaza con un motivo que el cliente ve en su enlace.

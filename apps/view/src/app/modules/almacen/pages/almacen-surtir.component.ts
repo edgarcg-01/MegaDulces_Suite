@@ -5,6 +5,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
@@ -808,6 +810,9 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  /** `[GP.RF.30]` De dónde se llegó, leído al crear la pantalla (después ya no se sabe). */
+  private readonly previa = urlPrevia(this.router);
+  private readonly perms = inject(PermissionsService);
   private readonly ruta = inject(ActivatedRoute);
   private readonly preventa = inject(PresalePickingService);
   private readonly toast = inject(MessageService);
@@ -1574,11 +1579,13 @@ export class AlmacenSurtirComponent implements OnInit {
   }
 
   /**
-   * A `/almacen` y no al tablero de pedidos: el almacenista NO tiene `ALMACEN_PEDIDOS_VER` y el
-   * guard lo rebotaría. `/almacen` lo manda a la primera pantalla que sí puede abrir.
+   * `[GP.RF.30]` Regresa a la pantalla de donde se llegó (el Tablero, el Andén…). Antes iba a
+   * `/almacen`, que brinca a la primera pantalla del área: Inventario para superadmin, y para el
+   * surtidor Surtir misma, o sea que «Salir» no hacía nada. Sin pantalla anterior, va al Tablero:
+   * su ruta también la abre quien surte (`COMMERCIAL_PICKING_GESTIONAR`), que es quien entra aquí.
    */
   salir(): void {
-    irConservandoPanel(this.router, '/almacen');
+    irConservandoPanel(this.router, destinoDeSalida(this.previa, puedeAbrirTablero(this.perms)));
   }
 
   // ── Cantidades ──────────────────────────────────────────────────────────────────────────
