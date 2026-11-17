@@ -81,6 +81,12 @@ export interface CarteraResp {
     sin_documento: SinDocumento;
     /** `[CXC.25]` El total partido por a quién le cobrás. Suma EXACTO `total_saldo`. */
     por_tipo: PorTipoCuenta;
+    /**
+     * `[CXC.41]` El mismo reparto SIN el filtro de tipo de cuenta: con «Cliente» elegido sigue
+     * diciendo cuánto hay en cuentas internas y rutas. Opcional mientras convive con una API
+     * anterior al cambio.
+     */
+    por_tipo_universo?: PorTipoCuenta;
   };
   clientes: CarteraCliente[]; total_clientes: number;
   /** `[CXC.20]` Viajan en la MISMA respuesta: una sola pasada, imposible que se contradigan. */

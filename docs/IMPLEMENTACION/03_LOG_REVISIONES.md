@@ -698,6 +698,26 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-17 — `[CXC.41]` Auditoría de `/finanzas/cartera`: lo que cobranza veía primero no era lo suyo
+
+**Qué se encontró** (prod en sólo lectura + código; sin pantalla viva):
+- El 98 % del uso es de `credito_cobranza`, y la pantalla abría con las cuentas internas arriba.
+- Cada filtro lanzaba una carga de 4 a 29 s sin cancelar la anterior: dos filtros seguidos podían
+  dejar en pantalla los datos del primero.
+- La tabla pinta 500 de 1,455 cuentas con el aviso al pie, y el CSV bajaba esas 500 sin decirlo.
+- Los compromisos de pago nunca se usaron (0 en su historia) y un guardado fallido se callaba.
+- Cuatro tokens que no existen dejaban el texto secundario en 3.45:1 y el encabezado blanco en oscuro.
+
+**Lecciones:**
+- ⭐ **Un temor de diseño se resuelve en el dato, no en el default.** `[CXC.25]` abría en «Todas»
+  para no esconder dinero, y el precio era que la persona que más usa la pantalla empezara cada día
+  saltándose $24.2M de cuentas internas. Con el reparto calculado sin el filtro de tipo, se puede
+  abrir filtrado y seguir mostrando el total.
+- ⭐ **Una hipótesis de costo escrita en el tracker se re-mide antes de heredarla.** `[CXC.21]`
+  culpaba al `jsonb_agg` de `aplicaciones`; medido hoy, la vista base tarda lo mismo con o sin él.
+- **Cero filas no es desuso hasta descartar el defecto:** antes de concluir que nadie usa los
+  compromisos se comprobó que `ui_usage` sí registra POST y que no hubo ningún envío.
+
 ## 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto
 
 **Origen.** Prevención no podía cuadrar una devolución que la pantalla le aplicaba a la entrada 0000421 de Morelia Abastos (MERENGUE LA MORENITA). Era la devolución de piñatas de 8 Esquinas: el folio de Kepler se repite en cada sucursal y un camino ligaba por el folio solo. Edgar pidió arreglarlo de raíz y auditar la interfaz completa. Ocho items, todos 🧪, sin empujar.

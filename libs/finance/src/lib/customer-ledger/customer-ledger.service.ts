@@ -100,6 +100,20 @@ const emptyPorTipo = (): PorTipoCuenta => ({
   interno: { saldo: 0, vencido: 0, clientes: 0 },
   ruta: { saldo: 0, vencido: 0, clientes: 0 },
 });
+/**
+ * `[CXC.41]` Filas `{kind, saldo, vencido, clientes}` del SQL → `PorTipoCuenta`. Un `kind`
+ * desconocido o vacío cae en `cliente_final`, la misma regla que aplica la tabla.
+ */
+const porTipoDe = (rows: any[] | null | undefined): PorTipoCuenta => {
+  const t = emptyPorTipo();
+  for (const r of rows || []) {
+    const k: CuentaKind = CUENTA_KINDS.includes(r?.kind) ? r.kind : 'cliente_final';
+    t[k].saldo = Math.round((t[k].saldo + (Number(r.saldo) || 0)) * 100) / 100;
+    t[k].vencido = Math.round((t[k].vencido + (Number(r.vencido) || 0)) * 100) / 100;
+    t[k].clientes += Number(r.clientes) || 0;
+  }
+  return t;
+};
 
 /* ── `[CXC.26]` Cartera por DÍA ──────────────────────────────────────────────────────────── */
 
@@ -303,14 +317,21 @@ export class CustomerLedgerService {
    * drill** y la lista paga en cada request.
    */
   private async agregado(trx: any, tenantId: string, q: CarteraQuery) {
+    // Dos juegos de filtros: el de la pantalla y el MISMO sin el tipo de cuenta. El segundo
+    // alimenta `por_tipo_universo` (ver abajo); sus binds se repiten en su lugar del SQL.
     const cond: string[] = [];
-    const bind: any[] = [tenantId];
-    const add = (sql: string, ...v: any[]) => { cond.push(sql); bind.push(...v); };
+    const bindFiltros: any[] = [];
+    const condSinCuenta: string[] = [];
+    const bindSinCuenta: any[] = [];
+    const add = (sql: string, ...v: any[]) => {
+      cond.push(sql); bindFiltros.push(...v);
+      condSinCuenta.push(sql); bindSinCuenta.push(...v);
+    };
     if (q.sucursal) add('d.sucursal = ?', q.sucursal);
     if (q.vendedor) add(`NULLIF(btrim(d.vendedor), '') = ?`, q.vendedor);
     if (q.grupo) add('d.grupo = ?', q.grupo);
     if (q.zona) add('d.zona = ?', q.zona);
-    if (q.cuenta) add('d.cuenta_kind = ?', q.cuenta);
+    if (q.cuenta) { cond.push('d.cuenta_kind = ?'); bindFiltros.push(q.cuenta); }
     if (q.cliente) add('d.cliente_code = ?', q.cliente);
     if (q.from) add('d.fecha >= ?::date', q.from);
     if (q.to) add('d.fecha <= ?::date', q.to);
@@ -319,6 +340,7 @@ export class CustomerLedgerService {
       add('(d.cliente_code ILIKE ? OR d.cliente_nombre ILIKE ? OR d.rfc ILIKE ?)', s, s, s);
     }
     const filtros = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+    const filtrosSinCuenta = condSinCuenta.length ? `WHERE ${condSinCuenta.join(' AND ')}` : '';
 
     // `res` = residual del documento, ya clampeado: la partida saldada vale 0 y no resta.
     const VIVA = 'd.res > 0.005';
@@ -367,6 +389,17 @@ export class CustomerLedgerService {
          WHERE btrim(COALESCE(c2, '')) <> '' ORDER BY 1, 2
       ),
       sel AS (SELECT d.* FROM doc d ${filtros}),
+      -- [CXC.41] El reparto por tipo de cuenta se calcula SIN el filtro de tipo. Así la pantalla
+      -- puede abrir en «Cliente» (lo que cobranza trabaja) y seguir mostrando el total completo
+      -- repartido: filtrar el tipo ya no esconde las cuentas internas ni las rutas. Mismo saldo
+      -- canónico por cuenta que \`cli\` (max de saldo_cliente, sin negativos).
+      tcli AS (
+        SELECT max(d.cuenta_kind) AS kind,
+               GREATEST(COALESCE(max(d.saldo_cliente), 0), 0) AS saldo,
+               ${bucket('d.vencimiento < h.d')} AS vencido
+          FROM doc d CROSS JOIN h ${filtrosSinCuenta}
+         GROUP BY d.sucursal, d.cliente_code
+      ),
       cli AS (
         SELECT d.sucursal, d.cliente_code,
           max(d.cliente_nombre) AS cliente_nombre, max(d.rfc) AS rfc,
@@ -435,6 +468,11 @@ export class CustomerLedgerService {
         COALESCE((SELECT jsonb_agg(jsonb_build_object(
             'zona', COALESCE(z.zona, '—'), 'saldo', z.saldo, 'vencido', z.vencido))
           FROM zon z WHERE z.saldo > 0.005), '[]'::jsonb) AS por_zona,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'kind', t.kind, 'saldo', t.saldo, 'vencido', t.vencido, 'clientes', t.n))
+          FROM (SELECT kind, round(sum(saldo), 2) AS saldo, round(sum(vencido), 2) AS vencido,
+                       count(*)::int AS n
+                  FROM tcli WHERE saldo > 0.005 GROUP BY kind) t), '[]'::jsonb) AS por_tipo_universo,
         jsonb_build_object(
           -- ⭐ Las opciones salen del DATO, no de una lista escrita a mano. Ver \`filtros()\`.
           'sucursales', COALESCE((SELECT jsonb_agg(DISTINCT d.sucursal) FROM doc d WHERE d.sucursal IS NOT NULL), '[]'::jsonb),
@@ -457,7 +495,9 @@ export class CustomerLedgerService {
          WHERE w.tenant_id = ? AND w.deleted_at IS NULL AND w.code ~ '^[0-9]{2}$'), '[]'::jsonb)
           AS almacenes`;
 
-    const r = await trx.raw(sql, [...bind, tenantId]);
+    // Orden de los `?` en el texto: doc (tenant) · sel (filtros) · tcli (filtros sin cuenta) ·
+    // almacenes (tenant).
+    const r = await trx.raw(sql, [tenantId, ...bindFiltros, ...bindSinCuenta, tenantId]);
     return r.rows[0];
   }
 
@@ -484,6 +524,10 @@ export class CustomerLedgerService {
         sin_documento: { monto: 0, clientes: 0 } as Sindocumento,
         // `[CXC.25]` El total partido por a quién le cobrás. Suma EXACTO `total_saldo`.
         por_tipo: emptyPorTipo(),
+        // `[CXC.41]` El mismo reparto SIN el filtro de tipo de cuenta: con «Cliente» elegido,
+        // la tira sigue diciendo cuánto hay en cuentas internas y rutas. Sin filtro de tipo
+        // coincide con `por_tipo` (salvo «incluir saldados», que aquí no cuenta las de saldo 0).
+        por_tipo_universo: porTipoDe(a.por_tipo_universo),
       };
       const porCliente: { cliente_code: string; saldo: number }[] = [];
       let ventas90 = 0;

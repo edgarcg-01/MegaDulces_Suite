@@ -12,9 +12,10 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subscription } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraQuery, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -50,7 +51,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <span class="p-button-label">Buscar por producto</span>
           </button>
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!showResumen()" (click)="toggleResumen()"><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span><span class="p-button-label">Resumen</span></button>
-          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!data()?.clientes?.length" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
+          <!-- [CXC.41] El CSV pide al servidor TODAS las cuentas del filtro, no las 500 que pinta
+               la tabla: antes bajaba 500 de 1,455 sin decirlo. -->
+          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="!data()?.clientes?.length || csvBusy()" [loading]="csvBusy()" (click)="exportCsv()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">CSV</span></button>
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
@@ -97,6 +100,10 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         }
       }
 
+      @if (csvAviso(); as av) {
+        <p class="ct-csv-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}</p>
+      }
+
       @if (error()) { <div class="ct-error"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo cargar la cartera. {{ error() }}</div> }
 
       @if (data(); as d) {
@@ -104,7 +111,10 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
         <!-- [CXC.25] El total, REPARTIDO por a quién le cobrás. No es una decoración: sin esta
              tira, «$57.78M de cartera» se lee como $57.78M de clientes, y 46% son plazas
-             propias. Las tres barras suman el KPI de arriba, exacto. -->
+             propias.
+             [CXC.41] La tira sale del universo SIN el filtro de tipo: la pantalla abre en
+             «Cliente» (lo que cobranza trabaja) y la tira sigue mostrando el total completo,
+             con el tipo elegido marcado. Así abrir filtrado ya no esconde dinero. -->
         @if (kpiPorTipo(d).length > 1) {
           <section class="ct-tipos" aria-label="Cartera por tipo de cuenta">
             @for (t of kpiPorTipo(d); track t.key) {
@@ -115,7 +125,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                 <span class="ct-tipo-h">{{ t.label }} <span class="muted">{{ t.pct }}%</span></span>
                 <span class="ct-tipo-n">{{ money(t.saldo) }}</span>
                 <span class="ct-tipo-sub muted">{{ t.clientes }} cuentas · {{ money(t.vencido) }} vencido</span>
-                <span class="ct-tipo-bar"><span [class]="'ct-tipo-fill ct-tipo-' + t.key" [style.width.%]="t.pct"></span></span>
+                <span class="ct-tipo-bar"><span class="ct-tipo-fill" [style.width.%]="t.pct"></span></span>
               </button>
             }
           </section>
@@ -236,21 +246,34 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         </section>
 
         <section class="card-premium card-flat ct-tablewrap">
+          <!-- [CXC.41] El tope se dice ARRIBA. Al pie de 500 filas nadie lo veía: medido el
+               2026-11-17, 1,455 cuentas con saldo y 955 fuera de la lista ($2.82M). -->
+          @if (d.total_clientes > d.clientes.length) {
+            <p class="ct-more ct-more-top" role="status">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Se ven las primeras <b>{{ d.clientes.length | number }}</b> de <b>{{ d.total_clientes | number }}</b> cuentas
+              ({{ sort === 'vencido' ? 'las de más vencido' : 'las de mayor saldo' }}). Afina el filtro para ver el resto, o baja el CSV, que trae todas.
+            </p>
+          }
           <table class="ct-table">
             <thead>
               <tr>
                 <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
-                <!-- La columna existe sólo cuando hay más de un tipo a la vista: filtrada a
-                     «Cliente» repetiría la misma palabra 1,186 veces. -->
                 <th class="ta-r">Paga a</th>
                 <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody>
               @for (c of d.clientes; track c.sucursal + c.cliente_code) {
-                <tr (click)="openDetalle(c)" class="ct-row" [class.ct-row-venc]="c.vencido > 0">
+                <!-- [CXC.41] La fila se abre también con teclado (Tab + Enter o Espacio): antes
+                     sólo con mouse, y ningún cliente era alcanzable sin él. -->
+                <tr (click)="openDetalle(c)" (keydown.enter)="openDetalle(c)"
+                    (keydown.space)="$event.preventDefault(); openDetalle(c)" tabindex="0"
+                    class="ct-row" [class.ct-row-venc]="c.vencido > 0">
                   <td>
                     <b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span>
+                    <!-- La etiqueta de tipo sale sólo con «Todas las cuentas» y sólo en lo que NO
+                         es cliente: filtrada a «Cliente» repetiría la misma palabra en cada fila. -->
                     @if (!cuenta && c.cuenta_kind !== 'cliente_final') {
                       <span class="ct-kind" [class]="'ct-kind-' + c.cuenta_kind"
                             [title]="kindTitle(c)">{{ kindLabel(c.cuenta_kind) }}</span>
@@ -279,7 +302,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             </tbody>
           </table>
           @if (d.total_clientes > d.clientes.length) {
-            <p class="ct-more muted">Mostrando {{ d.clientes.length }} de {{ d.total_clientes }} clientes. Afina el filtro para ver el resto.</p>
+            <p class="ct-more muted">Fin de la lista: {{ d.clientes.length | number }} de {{ d.total_clientes | number }} cuentas. Afina el filtro para ver el resto, o baja el CSV.</p>
           }
         </section>
       }
@@ -384,9 +407,19 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <a routerLink="/finanzas/cobranza" class="ct-360-link">Ver cobranza <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
           </div>
         }
+        <!-- [CXC.41] Compromisos de pago. Medido el 2026-11-17: CERO registrados desde que existe
+             la tabla (0 inserciones, 0 envíos en ui_usage), contra 910 fichas abiertas en 30 días.
+             El formulario ya no ocupa cada ficha: queda a un clic, con su conteo. Lo abierto o
+             incumplido se sigue viendo siempre. -->
         <div class="ct-promesas">
           <div class="ct-prom-head">
-            <h4 class="ct-rs-h4"><i class="pi pi-handshake" aria-hidden="true"></i> Compromisos de pago</h4>
+            <h4 class="ct-rs-h4"><i class="pi pi-handshake" aria-hidden="true"></i> Compromisos de pago
+              <span class="muted">{{ det.compromisos.length ? det.compromisos.length + ' abiertos' : 'ninguno abierto' }}</span></h4>
+            @if (!promFormAbierto()) {
+              <button type="button" class="ct-link-btn ct-prom-abrir" (click)="promFormAbierto.set(true)">
+                <i class="pi pi-plus" aria-hidden="true"></i> Registrar compromiso
+              </button>
+            }
           </div>
           @for (p of det.compromisos; track p.id) {
             <div class="ct-prom-row" [class.ct-prom-inc]="p.estado === 'incumplida'">
@@ -395,17 +428,33 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               @if (p.estado === 'incumplida') { <span class="ct-sobre">incumplida</span> }
               @if (p.nota) { <span class="muted ct-prom-nota">· {{ p.nota }}</span> }
               <span class="ct-prom-btns">
-                <button pButton type="button" class="p-button-xs p-button-text p-button-success" (click)="resolvePromise(p.id, 'cumplida')" title="Cumplida"><i class="pi pi-check" aria-hidden="true"></i></button>
-                <button pButton type="button" class="p-button-xs p-button-text p-button-danger" (click)="resolvePromise(p.id, 'cancelada')" title="Cancelar"><i class="pi pi-times" aria-hidden="true"></i></button>
+                @if (cancelando() === p.id) {
+                  <span class="ct-prom-confirma">¿Cancelar este compromiso?</span>
+                  <button pButton type="button" class="p-button-xs p-button-danger" label="Sí, cancelar" [disabled]="resolviendo() === p.id" (click)="resolvePromise(p.id, 'cancelada')"></button>
+                  <button pButton type="button" class="p-button-xs p-button-text" label="No" (click)="cancelando.set(null)"></button>
+                } @else {
+                  <button pButton type="button" class="p-button-xs p-button-outlined" [disabled]="resolviendo() === p.id" (click)="resolvePromise(p.id, 'cumplida')">
+                    <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cumplida</span>
+                  </button>
+                  <button pButton type="button" class="p-button-xs p-button-text p-button-danger ct-prom-cancel" [disabled]="resolviendo() === p.id" (click)="cancelando.set(p.id)">
+                    <span class="p-button-label">Cancelar</span>
+                  </button>
+                }
               </span>
             </div>
-          } @empty { <p class="muted ct-prom-empty">Sin compromisos abiertos.</p> }
-          <div class="ct-prom-form">
-            <input pInputText type="number" [(ngModel)]="promMonto" placeholder="Monto" class="ct-prom-in" aria-label="Monto prometido" />
-            <p-datepicker [(ngModel)]="promFecha" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Fecha" styleClass="ct-prom-dp" ariaLabel="Fecha de promesa" />
-            <input pInputText type="text" [(ngModel)]="promNota" placeholder="Nota (opcional)" class="ct-prom-in ct-prom-nota-in" aria-label="Nota" />
-            <button pButton type="button" class="p-button-sm" label="Registrar" [disabled]="!promMonto || !promFecha || savingProm()" (click)="savePromise(det)"></button>
-          </div>
+          }
+          @if (promFormAbierto()) {
+            <div class="ct-prom-form">
+              <input pInputText type="text" inputmode="decimal" [(ngModel)]="promMontoTxt" placeholder="Monto" class="ct-prom-in" aria-label="Monto prometido" />
+              <p-datepicker [(ngModel)]="promFecha" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Fecha" styleClass="ct-prom-dp" ariaLabel="Fecha de promesa" />
+              <input pInputText type="text" [(ngModel)]="promNota" placeholder="Nota (opcional)" class="ct-prom-in ct-prom-nota-in" aria-label="Nota" />
+              <button pButton type="button" class="p-button-sm" label="Registrar" [loading]="savingProm()" [disabled]="!montoPromesa() || !promFecha || savingProm()" (click)="savePromise(det)"></button>
+              <button pButton type="button" class="p-button-sm p-button-text" label="Cerrar" [disabled]="savingProm()" (click)="promFormAbierto.set(false)"></button>
+            </div>
+          }
+          @if (promError(); as pe) {
+            <p class="ct-pdf-aviso ct-pdf-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ pe }}</p>
+          }
         </div>
         @if (det.abonos.length) {
           <details class="ct-abonos"><summary>{{ det.abonos.length }} cobros / notas aplicados</summary>
@@ -504,7 +553,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-bp-resumen { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
     .ct-bp-abono { color: var(--bad-fg); }
     .ct-bp-nota { margin: 0 0 var(--sp-2); font-size: var(--fs-xs); color: var(--text-faint); }
-    .ct-bp-excluye { color: var(--warn-fg); }
+    .ct-bp-excluye { color: var(--warn-soft-fg); }
     .ct-bp-scroll { max-height: 26rem; overflow: auto; }
     .ct-bp-tag { font-size: var(--fs-micro); font-weight: 600; color: var(--bad-fg); }
     tr.ct-bp-r-abono td { background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
@@ -517,40 +566,42 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     /* [CXC.20] Aviso de rezago del dato: tono de advertencia, no de error — el número sirve,
        sólo que es de hace N. Lo rojo es para lo que no se puede usar. */
     .ct-stale { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .82rem;
-      color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent);
-      border: 1px solid color-mix(in srgb, var(--warn-fg) 24%, transparent);
+      color: var(--warn-soft-fg); background: var(--warn-soft-bg);
+      border: 1px solid var(--warn-border);
       border-radius: var(--r-md, 8px); padding: .5rem .75rem; margin: 0 0 1rem; }
     /* [CXC.25] El total repartido. Botones y no tarjetas: cada uno filtra. */
     .ct-tipos { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .6rem; margin: 0 0 1rem; }
     .ct-tipo { display: flex; flex-direction: column; gap: .15rem; text-align: left; cursor: pointer;
-      background: var(--surface-1, #fff); border: 1px solid var(--border, #e5e2dc);
+      background: var(--surface-card); border: 1px solid var(--border-color);
       border-radius: var(--r-md, 8px); padding: .6rem .75rem; font: inherit; color: inherit; }
-    .ct-tipo:hover { border-color: var(--action, #c2410c); }
-    .ct-tipo.on { border-color: var(--action, #c2410c); box-shadow: inset 0 0 0 1px var(--action, #c2410c); }
+    .ct-tipo:hover { border-color: var(--action); }
+    .ct-tipo.on { border-color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
+    .ct-tipo:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ct-tipo-h { font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; }
     .ct-tipo-n { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .ct-tipo-sub { font-size: .7rem; }
-    .ct-tipo-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-2, #f0efec); margin-top: .35rem; overflow: hidden; }
-    .ct-tipo-fill { display: block; height: 100%; }
-    .ct-tipo-cliente_final { background: #6b8f71; }
-    .ct-tipo-interno { background: #7c6f9f; }
-    .ct-tipo-ruta { background: #c9a227; }
+    .ct-tipo-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: .35rem; overflow: hidden; }
+    /* [CXC.41] Un solo tono neutro: la palabra dice el tipo. El color no codificaba nada que el
+       rótulo no dijera y repetía los colores de la antigüedad con otro significado. */
+    .ct-tipo-fill { display: block; height: 100%; background: var(--fg-3); }
+    .ct-tipo.on .ct-tipo-fill { background: var(--action); }
     /* La etiqueta en la fila: sólo aparece cuando NO es un cliente, que es la excepción. */
     .ct-kind { display: inline-block; margin-left: .4rem; font-size: .65rem; padding: .05rem .35rem;
       border-radius: var(--r-pill, 999px); border: 1px solid currentColor; cursor: help; white-space: nowrap; }
-    .ct-kind-interno { color: #7c6f9f; }
-    .ct-kind-ruta { color: #9a7b10; }
-    .ct-error { color: var(--danger, #b42318); display: flex; gap: .5rem; align-items: center; padding: .75rem 0; }
+    .ct-kind { color: var(--text-muted); }
+    .ct-error { color: var(--bad-fg); display: flex; gap: .5rem; align-items: center; padding: .75rem 0; }
     .ct-card-title { display: flex; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .6rem; }
     .ct-aging { padding: 1rem; margin-bottom: 1rem; }
-    .ct-aging-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2, #f0efec); }
+    .ct-aging-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2); }
     .ct-seg { display: block; }
-    .ct-seg-por_vencer { background: #6b8f71; } .ct-seg-d0_30 { background: #c9a227; }
-    .ct-seg-d31_60 { background: #d98324; } .ct-seg-d61_90 { background: #c2410c; } .ct-seg-d90_plus { background: #b42318; }
+    /* [CXC.41] La rampa de antigüedad con tokens que voltean por tema (eran hex fijos). */
+    .ct-seg-por_vencer { background: var(--ok-fg); } .ct-seg-d0_30 { background: var(--warn-fg); }
+    .ct-seg-d31_60 { background: var(--chart-1); } .ct-seg-d61_90 { background: var(--bad-fg); }
+    .ct-seg-d90_plus { background: color-mix(in srgb, var(--bad-fg) 65%, var(--text-main)); }
     /* El hueco no es un tramo de antigüedad: va rayado, para que se lea como "esto no tiene
        fecha" y no como un quinto nivel de morosidad. */
     .ct-seg-sin_documento { background: repeating-linear-gradient(45deg,
-      var(--text-faint, #8a8579) 0 4px, transparent 4px 8px); }
+      var(--text-faint) 0 4px, transparent 4px 8px); }
     .ct-leg-nodoc { color: var(--text-faint); }
     .ct-leg-nodoc .pi-info-circle { font-size: .72rem; cursor: help; }
     .ct-aging-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; margin: .7rem 0 0; padding: 0; font-size: .82rem; }
@@ -559,87 +610,95 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
     .ct-tablewrap { padding: 0; overflow-x: auto; }
     .ct-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-    .ct-table th, .ct-table td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid var(--surface-border, #e7e5e0); white-space: nowrap; }
-    .ct-table th { font-weight: 600; color: var(--text-2, #6b6b6b); position: sticky; top: 0; background: var(--surface-0, #fff); }
-    .ct-row { cursor: pointer; } .ct-row:hover { background: var(--surface-hover, #faf9f7); }
-    .ct-row-venc { background: rgba(180,35,24,.04); }
-    .ct-venc-num { color: #b42318; }
+    .ct-table th, .ct-table td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+    .ct-table th { font-weight: 600; color: var(--text-muted); position: sticky; top: 0; background: var(--surface-card); }
+    .ct-row { cursor: pointer; } .ct-row:hover { background: var(--surface-hover); }
+    .ct-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .ct-row-venc { background: color-mix(in srgb, var(--bad-fg) 4%, transparent); }
+    .ct-venc-num { color: var(--bad-fg); }
     .ta-r { text-align: right !important; }
-    .muted { color: var(--text-2, #8a8a8a); font-weight: 400; }
-    .ct-empty { text-align: center; color: var(--text-2, #8a8a8a); padding: 1.5rem !important; }
+    .muted { color: var(--text-muted); font-weight: 400; }
+    .ct-empty { text-align: center; color: var(--text-muted); padding: 1.5rem !important; }
     .ct-more { padding: .6rem .7rem; margin: 0; font-size: .8rem; }
+    .ct-more-top { display: flex; gap: .4rem; align-items: baseline; color: var(--text-main); border-bottom: 1px solid var(--border-color); }
+    .ct-csv-aviso { display: flex; gap: .35rem; align-items: center; margin: 0 0 .75rem; font-size: var(--fs-xs); color: var(--text-muted); }
     .ct-det-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; font-size: .85rem; margin-bottom: .8rem; }
     .ct-det-saldos { display: flex; gap: 1rem; }
     .ct-det-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-    .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--surface-border, #eee); white-space: nowrap; }
-    .ct-det-table th { color: var(--text-2, #6b6b6b); font-weight: 600; }
+    .ct-det-table th, .ct-det-table td { padding: .4rem .6rem; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+    .ct-det-table th { color: var(--text-muted); font-weight: 600; }
     .ct-mono { font-family: ui-monospace, monospace; font-size: .78rem; }
-    .ct-tag-venc { background: rgba(180,35,24,.1); color: #b42318; border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; }
+    .ct-tag-venc { background: var(--bad-soft-bg); color: var(--bad-soft-fg); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; }
     .ct-app td { border-bottom: none; padding-top: .1rem; padding-bottom: .1rem; }
-    .ct-app-cell { padding-left: 1.6rem !important; font-size: .78rem; color: #6b8f71; }
+    .ct-app-cell { padding-left: 1.6rem !important; font-size: .78rem; color: var(--text-muted); }
     .ct-app-cell i { font-size: .7rem; opacity: .6; }
-    .ct-app-cell b { color: var(--text-2, #6b6b6b); }
+    .ct-app-cell b { color: var(--text-main); }
     .ct-abonos { margin-top: .8rem; font-size: .82rem; } .ct-abonos ul { margin: .4rem 0 0; padding-left: 1.1rem; }
     .ct-det-note { font-size: .78rem; margin-top: .8rem; }
     .ct-head-actions { display: flex; gap: .5rem; }
-    .ct-sobre { color: #b42318; font-weight: 600; }
+    .ct-sobre { color: var(--bad-fg); font-weight: 600; }
     .ct-resumen { padding: 1rem; margin-bottom: 1rem; }
     .ct-rs-kpis { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: .3rem 0 1rem; }
     .ct-rs-kpi { display: flex; flex-direction: column; }
     .ct-rs-num { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
-    .ct-rs-lbl { font-size: .76rem; color: var(--text-2, #8a8a8a); }
+    .ct-rs-lbl { font-size: .76rem; color: var(--text-muted); }
     .ct-rs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
     @media (max-width: 45rem) { .ct-rs-grid { grid-template-columns: 1fr; } }
-    .ct-rs-h4 { font-size: .82rem; margin: 0 0 .4rem; color: var(--text-2, #6b6b6b); }
+    .ct-rs-h4 { font-size: .82rem; margin: 0 0 .4rem; color: var(--text-muted); }
     .ct-rs-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-    .ct-rs-table th, .ct-rs-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--surface-border, #eee); text-align: left; }
-    .ct-rs-table th { color: var(--text-2, #8a8a8a); font-weight: 600; }
+    .ct-rs-table th, .ct-rs-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); text-align: left; }
+    .ct-rs-table th { color: var(--text-muted); font-weight: 600; }
     .ct-det-contact { display: flex; gap: .6rem; flex-basis: 100%; margin-top: .5rem; }
-    .ct-contact-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; text-decoration: none; padding: .3rem .7rem; border-radius: 6px; border: 1px solid var(--surface-border, #ddd); color: inherit; }
-    .ct-contact-btn:hover { background: var(--surface-hover, #faf9f7); }
-    .ct-wa { color: #128c7e; border-color: rgba(18,140,126,.3); }
+    .ct-contact-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; text-decoration: none; padding: .3rem .7rem; border-radius: 6px; border: 1px solid var(--border-color); color: inherit; }
+    .ct-contact-btn:hover { background: var(--surface-hover); }
+    /* El verde de WhatsApp sólo en el icono: como color de texto daba 4.14:1. */
+    .ct-wa .pi-whatsapp { color: var(--ok-fg); }
     button.ct-contact-btn { background: transparent; cursor: pointer; font: inherit; font-size: .82rem; }
     button.ct-contact-btn:disabled { opacity: .6; cursor: progress; }
     .ct-pdf-aviso { flex-basis: 100%; margin: .4rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-muted); display: flex; gap: .35rem; align-items: center; }
     .ct-pdf-err { color: var(--bad-fg, var(--text-main)); }
-    .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: rgba(107,143,113,.08); font-size: .82rem; }
-    .ct-360 > i { color: #6b8f71; }
-    .ct-360-ev { color: var(--text-2, #6b6b6b); }
-    .ct-360-link { margin-left: auto; text-decoration: none; color: var(--action, #c2410c); font-size: .8rem; white-space: nowrap; }
+    .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2); font-size: .82rem; }
+    .ct-360 > i { color: var(--ok-fg); }
+    .ct-360-ev { color: var(--text-muted); }
+    .ct-360-link { margin-left: auto; text-decoration: none; color: var(--action); font-size: .8rem; white-space: nowrap; }
     .ct-rs-proy { margin-bottom: 1rem; }
     .ct-proy-row { display: flex; flex-wrap: wrap; gap: .5rem; }
-    .ct-proy-cell { flex: 1; min-width: 120px; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2, #f6f5f2); display: flex; flex-direction: column; }
-    .ct-proy-venc { background: rgba(180,35,24,.08); }
+    .ct-proy-cell { flex: 1; min-width: 120px; padding: .5rem .7rem; border-radius: 6px; background: var(--surface-2); display: flex; flex-direction: column; }
+    .ct-proy-venc { background: var(--bad-soft-bg); }
     .ct-proy-num { font-weight: 700; font-size: 1rem; }
-    .ct-proy-lbl { font-size: .74rem; color: var(--text-2, #8a8a8a); }
+    .ct-proy-lbl { font-size: .74rem; color: var(--text-muted); }
     .ct-rs-trend { margin-bottom: 1rem; }
     .ct-trend-bars { display: flex; align-items: flex-end; gap: 2px; height: 60px; }
     .ct-trend-col { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-    .ct-trend-bar { width: 100%; background: #6b8f71; border-radius: 2px 2px 0 0; position: relative; min-height: 2px; display: flex; align-items: flex-end; }
-    .ct-trend-venc { width: 100%; background: #b42318; border-radius: 2px 2px 0 0; }
+    .ct-trend-bar { width: 100%; background: var(--chart-8); border-radius: 2px 2px 0 0; position: relative; min-height: 2px; display: flex; align-items: flex-end; }
+    .ct-trend-venc { width: 100%; background: var(--bad-fg); border-radius: 2px 2px 0 0; }
     .ct-rs-trend-empty { font-size: .78rem; margin: .2rem 0 1rem; display: flex; gap: .4rem; align-items: baseline; }
     .ct-rs-nota { font-size: .78rem; margin: .6rem 0 0; display: flex; gap: .4rem; align-items: baseline; }
-    .ct-promesas { margin-top: .9rem; padding: .7rem; border: 1px solid var(--surface-border, #e7e5e0); border-radius: 8px; }
-    .ct-prom-head { display: flex; align-items: center; }
+    .ct-promesas { margin-top: .9rem; padding: .7rem; border: 1px solid var(--border-color); border-radius: 8px; }
+    .ct-prom-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .ct-prom-abrir { white-space: nowrap; }
+    .ct-prom-confirma { font-size: .8rem; color: var(--text-main); }
+    /* Cancelar va separado de Cumplida (Von Restorff): no se aprieta por error. */
+    .ct-prom-cancel { margin-left: .75rem; }
     .ct-prom-head .ct-rs-h4 { margin: 0; display: flex; align-items: center; gap: .4rem; }
     .ct-prom-row { display: flex; align-items: center; gap: .5rem; font-size: .82rem; padding: .3rem 0; border-bottom: 1px dashed var(--surface-border, #eee); }
-    .ct-prom-inc { background: rgba(180,35,24,.05); }
+    .ct-prom-inc { background: var(--bad-soft-bg); }
     .ct-prom-monto { font-weight: 700; }
     .ct-prom-nota { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ct-prom-btns { margin-left: auto; display: flex; gap: .2rem; }
+    .ct-prom-btns { margin-left: auto; display: flex; gap: .3rem; align-items: center; }
     .ct-prom-empty { font-size: .8rem; margin: .3rem 0; }
     .ct-prom-form { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .6rem; align-items: center; }
     .ct-prom-in { width: 110px; } .ct-prom-nota-in { flex: 1; min-width: 140px; width: auto; }
-    .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-2, #6b6b6b); }
-    .ct-det-err { color: var(--danger, #b42318); }
+    .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-muted); }
+    .ct-det-err { color: var(--bad-fg); }
     .ct-row-pagada td { opacity: .6; }
-    .ct-tag-pag { background: rgba(107,143,113,.14); color: #4f6b54; border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
-    .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action, #c2410c); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+    .ct-tag-pag { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+    .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
     .ct-link-btn:hover { text-decoration: underline; }
     .ct-nodoc { font-size: .7rem; opacity: .45; }
-    .ct-lento { color: #c2410c; font-weight: 600; }
-    .ct-favor { color: #4f6b54; }
-    .ct-sin-doc { display: flex; align-items: flex-start; gap: .4rem; color: #8a6d1f; background: rgba(201,162,39,.08); padding: .5rem .7rem; border-radius: 6px; }
+    .ct-lento { color: var(--warn-soft-fg); font-weight: 600; }
+    .ct-favor { color: var(--ok-soft-fg); }
+    .ct-sin-doc { display: flex; align-items: flex-start; gap: .4rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: .5rem .7rem; border-radius: 6px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   `],
 })
@@ -717,17 +776,48 @@ export class FinanzasCarteraComponent implements OnInit {
    * Pero eso sería repetir el bug que `[CXC.20.3]` acaba de arreglar: **abrir escondiendo
    * dinero**. La pantalla muestra el total completo y lo REPARTE a la vista; filtrar es un clic.
    */
-  cuenta: string | null = null;
+  /**
+   * ⭐ `[CXC.41]` Abre en **«Cliente», ordenada por vencido** — lo que cobranza trabaja.
+   *
+   * Medido el 2026-11-17: 98 % de las 3,532 aperturas en 30 días son de `credito_cobranza`, y con
+   * «Todas» por saldo la lista arrancaba con las cuentas internas (`30-73`, `50-75`, `10-00`…,
+   * $24.2M) que nadie cobra por teléfono. El temor de `[CXC.25]` —abrir escondiendo dinero— ya no
+   * aplica: la tira por tipo sale del universo SIN este filtro (`por_tipo_universo`) y sigue
+   * mostrando internas y rutas con su monto, a un clic. Un enlace profundo a un cliente
+   * (`?cliente=`) abre en «Todas»: ese cliente puede ser una cuenta interna.
+   */
+  cuenta: string | null = 'cliente_final';
   search = '';
   incluirSaldados = false;
-  sort: 'saldo' | 'vencido' = 'saldo';
+  sort: 'saldo' | 'vencido' = 'vencido';
   readonly sortOpts = [{ label: 'Mayor saldo', value: 'saldo' }, { label: 'Más vencido (cobrar)', value: 'vencido' }];
   readonly tendencia = signal<CarteraTendencia[]>([]);
   readonly tendenciaCargada = signal(false);
-  promMonto: number | null = null;
+  /** Texto tal cual lo teclean: «1,250.00» o «$1250» se entienden (Postel). Ver `montoPromesa()`. */
+  promMontoTxt = '';
   promFecha: Date | null = null;
   promNota = '';
   readonly savingProm = signal(false);
+  /** `[CXC.41]` El formulario de compromiso queda a un clic: 0 compromisos registrados en su historia. */
+  readonly promFormAbierto = signal(false);
+  /** Un guardado o una resolución que falla SE DICE (antes se callaba y el usuario creía que quedó). */
+  readonly promError = signal<string | null>(null);
+  /** Id del compromiso que pide confirmar su cancelación (paso intermedio, no se cancela de un clic). */
+  readonly cancelando = signal<string | null>(null);
+  /** Id del compromiso en vuelo: sus botones se apagan en el primer clic (sin doble envío). */
+  readonly resolviendo = signal<string | null>(null);
+
+  // ── `[CXC.41]` Carga sin carreras ─────────────────────────────────────────────
+  /**
+   * La petición en vuelo. Una carga nueva CANCELA la anterior: con 4 a 29 s por respuesta, dos
+   * filtros seguidos podían terminar al revés y pintar los datos del primero con el segundo
+   * elegido en el selector.
+   */
+  private loadSub?: Subscription;
+  private tendSub?: Subscription;
+
+  readonly csvBusy = signal(false);
+  readonly csvAviso = signal<{ texto: string; error: boolean } | null>(null);
 
   readonly filtros = signal<CarteraFiltros | null>(null);
   readonly grupoOpts = computed(() => (this.filtros()?.grupos || []).map((g) => ({ label: g, value: g })));
@@ -776,7 +866,7 @@ export class FinanzasCarteraComponent implements OnInit {
   ngOnInit() {
     const qp = this.route.snapshot.queryParamMap;
     const cliente = qp.get('cliente'); const suc = qp.get('suc');
-    if (cliente) this.search = cliente;
+    if (cliente) { this.search = cliente; this.cuenta = null; }
     this.load();
     if (cliente && suc) {
       this.detalleRef.set({ sucursal: suc, cliente, nombre: qp.get('nombre') || cliente });
@@ -785,11 +875,9 @@ export class FinanzasCarteraComponent implements OnInit {
     }
   }
 
-  load() {
-    this.loading.set(true); this.error.set(null);
-    // `[CXC.20]` UNA llamada: tabla + KPIs + resumen + opciones de filtro. Eran tres, y cada una
-    // reconstruía la misma pirámide de CTEs (6.0 s + 11.3 s + 3.7 s medidos en prod).
-    this.svc.cartera({
+  /** Los filtros de la pantalla, tal como viajan. Lo usan la carga y el CSV: el mismo universo. */
+  private consulta(): CarteraQuery {
+    return {
       sucursal: this.sucursal || undefined,
       grupo: this.grupo || undefined,
       zona: this.zona || undefined,
@@ -798,7 +886,15 @@ export class FinanzasCarteraComponent implements OnInit {
       search: this.search.trim() || undefined,
       incluir_saldados: this.incluirSaldados ? '1' : undefined,
       sort: this.sort,
-    }).subscribe({
+    };
+  }
+
+  load() {
+    this.loading.set(true); this.error.set(null);
+    // `[CXC.20]` UNA llamada: tabla + KPIs + resumen + opciones de filtro. Eran tres, y cada una
+    // reconstruía la misma pirámide de CTEs (6.0 s + 11.3 s + 3.7 s medidos en prod).
+    this.loadSub?.unsubscribe();
+    this.loadSub = this.svc.cartera(this.consulta()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.data.set(d); this.filtros.set(d.filtros); this.loading.set(false); },
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'error'); this.loading.set(false); },
     });
@@ -813,7 +909,9 @@ export class FinanzasCarteraComponent implements OnInit {
     if (next && !this.tendenciaCargada()) this.loadTendencia();
   }
   private loadTendencia() {
-    this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
+    this.tendSub?.unsubscribe();
+    this.tendSub = this.svc.tendencia({ sucursal: this.sucursal || undefined, dias: 90 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (t) => { this.tendencia.set(t); this.tendenciaCargada.set(true); },
         error: () => { this.tendencia.set([]); this.tendenciaCargada.set(true); },
@@ -825,9 +923,32 @@ export class FinanzasCarteraComponent implements OnInit {
     return Math.round((saldo / max) * 100);
   }
 
-  /** Exporta la cartera visible a CSV (el navegador lo descarga). */
+  /**
+   * `[CXC.41]` Exporta a CSV **todas** las cuentas del filtro, no las que pinta la tabla.
+   *
+   * Antes salía `data().clientes`: las 500 del tope, sin aviso (medido el 2026-11-17: 500 de
+   * 1,455, con $2.82M fuera). Ahora pide la misma consulta con el tope máximo del servidor
+   * (5,000) y, si aun así se corta, lo dice — no entrega un archivo parcial como si fuera todo.
+   */
   exportCsv() {
-    const rows = this.data()?.clientes || [];
+    if (!this.data()?.clientes?.length || this.csvBusy()) return;
+    this.csvBusy.set(true); this.csvAviso.set(null);
+    this.svc.cartera({ ...this.consulta(), limit: 5000 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.csvBusy.set(false);
+        this.descargarCsv(d.clientes, d.hoy);
+        this.csvAviso.set(d.total_clientes > d.clientes.length
+          ? { texto: `El CSV trae ${d.clientes.length.toLocaleString('es-MX')} de ${d.total_clientes.toLocaleString('es-MX')} cuentas: el servidor corta en 5,000. Afina el filtro para bajar el resto.`, error: true }
+          : { texto: `CSV descargado: ${d.clientes.length.toLocaleString('es-MX')} cuentas, todas las del filtro.`, error: false });
+      },
+      error: (e) => {
+        this.csvBusy.set(false);
+        this.csvAviso.set({ texto: `No se pudo armar el CSV. ${e?.error?.message || e?.message || ''}`.trim(), error: true });
+      },
+    });
+  }
+
+  private descargarCsv(rows: CarteraCliente[], hoy: string | undefined) {
     if (!rows.length) return;
     const head = ['Sucursal', 'Codigo', 'Cliente', 'RFC', 'Grupo', 'Zona', 'Vendedor', 'Vendedor_nombre', 'Telefono', 'Limite', 'Uso_%', 'Sobre_linea', 'Partidas', 'Dias_pago_prom', 'Vencido', 'Saldo', 'Sin_documento', 'Saldo_a_favor'];
     const esc = (v: any) => { const s = String(v ?? ''); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -836,7 +957,7 @@ export class FinanzasCarteraComponent implements OnInit {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `cartera_${this.sucursal || 'todas'}_${this.data()?.hoy || 'hoy'}.csv`;
+    a.href = url; a.download = `cartera_${this.sucursal || 'todas'}_${hoy || 'hoy'}.csv`;
     a.click(); URL.revokeObjectURL(url);
   }
 
@@ -893,6 +1014,9 @@ export class FinanzasCarteraComponent implements OnInit {
     this.detalleError.set(null); this.detalleLoading.set(false); this.detalleRef.set(null);
     this.verSaldadas.set(false);
     this.pdfAviso.set(null);
+    this.promFormAbierto.set(false); this.promError.set(null);
+    this.cancelando.set(null); this.resolviendo.set(null);
+    this.promMontoTxt = ''; this.promFecha = null; this.promNota = '';
   }
 
   /**
@@ -926,30 +1050,67 @@ export class FinanzasCarteraComponent implements OnInit {
 
   private reloadDetalle(sucursal: string, cliente: string) { this.fetchDetalle(sucursal, cliente); }
 
+  /**
+   * `[CXC.41]` El monto como número, aceptando la forma en que se teclea: «1,250.00», «$1250»,
+   * « 1250 ». Liberal en la FORMA, nunca en el significado: algo que no es un número positivo
+   * devuelve null y el botón no se enciende.
+   */
+  montoPromesa(): number | null {
+    const limpio = (this.promMontoTxt || '').replace(/[$,\s]/g, '');
+    if (!/^\d+(\.\d{1,2})?$/.test(limpio)) return null;
+    const n = Number(limpio);
+    return n > 0 ? n : null;
+  }
+
   savePromise(det: CarteraDetalle) {
-    if (!this.promMonto || !this.promFecha) return;
+    const monto = this.montoPromesa();
+    if (!monto || !this.promFecha || this.savingProm()) return;
     const f = this.promFecha;
     const fecha = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}-${String(f.getDate()).padStart(2, '0')}`;
-    this.savingProm.set(true);
-    this.svc.createPromise(det.cliente.sucursal, det.cliente.cliente_code, { monto: this.promMonto, fecha, nota: this.promNota.trim() || undefined })
+    this.savingProm.set(true); this.promError.set(null);
+    this.svc.createPromise(det.cliente.sucursal, det.cliente.cliente_code, { monto, fecha, nota: this.promNota.trim() || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: () => { this.promMonto = null; this.promFecha = null; this.promNota = ''; this.savingProm.set(false); this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code); },
-        error: () => this.savingProm.set(false),
+        next: () => {
+          this.promMontoTxt = ''; this.promFecha = null; this.promNota = '';
+          this.savingProm.set(false); this.promFormAbierto.set(false);
+          this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code);
+        },
+        // Lo tecleado se QUEDA en el formulario para reintentar; antes se callaba la falla.
+        error: (e) => {
+          this.savingProm.set(false);
+          this.promError.set(`No se guardó el compromiso. ${e?.error?.message || e?.message || ''}`.trim());
+        },
       });
   }
 
   resolvePromise(id: string, estado: 'cumplida' | 'incumplida' | 'cancelada') {
+    if (this.resolviendo()) return;
     const det = this.detalle();
-    this.svc.resolvePromise(id, estado).subscribe({ next: () => { if (det) this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code); } });
+    this.resolviendo.set(id); this.promError.set(null);
+    this.svc.resolvePromise(id, estado).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.resolviendo.set(null); this.cancelando.set(null);
+        if (det) this.reloadDetalle(det.cliente.sucursal, det.cliente.cliente_code);
+      },
+      error: (e) => {
+        this.resolviendo.set(null);
+        this.promError.set(`No se pudo marcar el compromiso. ${e?.error?.message || e?.message || ''}`.trim());
+      },
+    });
   }
 
   money(v: number) { return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }); }
 
   kpiItems(d: CarteraResp): MetricStripItem[] {
+    // `[CXC.41]` Los rótulos dicen QUÉ universo suman: con un tipo elegido, el saldo es el de ese
+    // tipo (el total completo está en la tira de abajo), y «clientes» sólo cuando sólo hay clientes
+    // — sin filtro, el conteo incluye cuentas internas y rutas.
+    const tipo = this.cuenta ? this.kindLabel(this.cuenta as CuentaKind) : null;
     return [
-      { label: 'Saldo total', value: this.money(d.kpi.total_saldo) },
+      { label: tipo ? `Saldo · ${tipo}` : 'Saldo total', value: this.money(d.kpi.total_saldo) },
       { label: 'Vencido', value: this.money(d.kpi.total_vencido), tone: d.kpi.total_vencido > 0 ? 'warn' : undefined },
-      { label: 'Clientes con saldo', value: String(d.kpi.n_clientes) },
+      { label: this.cuenta === 'cliente_final' ? 'Clientes con saldo' : 'Cuentas con saldo', value: String(d.kpi.n_clientes) },
       { label: 'Sobre su línea', value: String(d.kpi.n_sobre_linea), tone: d.kpi.n_sobre_linea > 0 ? 'bad' : undefined },
       { label: 'Partidas vivas', value: String(d.kpi.n_partidas) },
       ...(d.kpi.total_a_favor > 0
@@ -983,8 +1144,10 @@ export class FinanzasCarteraComponent implements OnInit {
    * 100%, que no informa nada.
    */
   kpiPorTipo(d: CarteraResp) {
-    const t = d.kpi.por_tipo;
-    const total = d.kpi.total_saldo || 1;
+    // `[CXC.41]` Del universo SIN el filtro de tipo, para que elegir «Cliente» no esconda el resto.
+    // Si la API todavía no lo manda (versión anterior), cae al reparto de lo filtrado.
+    const t = d.kpi.por_tipo_universo ?? d.kpi.por_tipo;
+    const total = (['cliente_final', 'interno', 'ruta'] as CuentaKind[]).reduce((s, k) => s + t[k].saldo, 0) || 1;
     return (['cliente_final', 'interno', 'ruta'] as CuentaKind[])
       .map((key) => ({
         key,

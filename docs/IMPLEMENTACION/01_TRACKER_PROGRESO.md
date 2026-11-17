@@ -1822,6 +1822,45 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       paridad de `[AX.9]` (`test-newdb-receivable-core-parity.js`) y eso es un cambio medible
       aparte. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
       drill** y la lista paga en cada request. El drill por cliente sigue en ~3.6 s por lo mismo.
+      · **Re-medido el 2026-11-17** (`ui_usage`, 30 días): `GET /finance/receivables` **4.3 s de
+        promedio y 29 s de máximo** en 3,532 llamadas; la ficha del cliente, 3.3 s en 910. ⚠️ Y
+        contradice la hipótesis de arriba: `analytics.erp_receivable_documents` **sola** tarda 2.5–3.2 s
+        **pida o no** `aplicaciones` (dos corridas, prod en sólo lectura). Lo caro es la vista base,
+        no el `jsonb_agg`. El arreglo sigue siendo éste, con su migración y su contrato de paridad.
+- [x] **[CXC.41]** 🧪 ⭐ **Auditoría de `/finanzas/cartera` (2026-11-17): la pantalla abre en lo
+      que cobranza trabaja, sin esconder dinero, y deja de afirmar lo que no es.** El 98 % del uso es
+      de `credito_cobranza` (3,459 de 3,532 aperturas en 30 días).
+      · **Carreras:** cada filtro lanzaba una carga de 4 a 29 s **sin cancelar la anterior**; dos
+        filtros seguidos podían pintar los datos del primero con el segundo elegido. Ahora una carga
+        nueva cancela la que estaba en vuelo (la tendencia también).
+      · **Abre en «Cliente», por más vencido.** Con «Todas» por saldo la lista arrancaba con las
+        cuentas internas (`30-73`, `50-75`, `10-00`…, $24.2M) que nadie cobra por teléfono. El temor
+        de `[CXC.25]` (abrir escondiendo dinero) se resuelve en el servidor: nuevo
+        `kpi.por_tipo_universo`, el reparto por tipo **sin** el filtro de tipo, así que la tira
+        sigue mostrando internas y rutas con su monto. Ejercido contra prod con el SQL real del
+        service: sin filtro, `por_tipo_universo` = `por_tipo` al centavo ($67,722,569.82); con
+        «Cliente», la tira conserva el total. Un enlace `?cliente=` abre en «Todas».
+      · **El tope se dice arriba y el CSV trae todo.** 1,455 cuentas con saldo y la tabla pinta 500:
+        955 fuera ($2.82M), con el aviso al pie de 500 filas. El aviso sube encima de la tabla. El CSV
+        bajaba esas mismas 500 sin decirlo; ahora pide la consulta con `limit=5000` y avisa si aun
+        así se corta.
+      · **Compromisos de pago:** **0 registrados en su historia** (0 inserciones en
+        `finance.collection_promises`, 0 envíos en `ui_usage`; controles: la tabla de hallazgos sí
+        tiene inserciones y `ui_usage` sí registra POST). El formulario pasa a un clic. Un guardado
+        que falla **se dice** (antes se callaba), «Cancelar» pide confirmación y va separado de
+        «Cumplida», los botones se apagan en el primer clic, y el monto acepta «1,250.00» o «$1250».
+        ⚠️ El endpoint que escribe sigue **sin prueba contra una base real** (regla 13).
+      · **Teclado:** la fila se abre con Enter o Espacio (antes sólo con mouse).
+      · **Color y contraste:** usaba 4 tokens que no existen (`--text-2`, `--surface-0`,
+        `--surface-1`, `--danger`) y caía siempre al respaldo: `.muted` en `#8a8a8a` (3.45:1) y el
+        encabezado fijo de la tabla en blanco aun en oscuro. 45 hex escritos a mano (`#b42318`: 2.69:1
+        en oscuro) y `--warn-fg` como texto (2.15:1) pasan a tokens que voltean por tema. Las barras
+        por tipo usan un solo tono neutro; antes repetían los colores de la antigüedad con otro
+        significado.
+      · **Rótulos:** «Clientes con saldo» contaba también internas y rutas → «Cuentas con saldo»
+        (o «Clientes» cuando el filtro es «Cliente»); el saldo dice de qué tipo es cuando hay filtro.
+      · **NO MEDIDO:** la pantalla viva (nivel A): alturas, recorrido con teclado, oscuro y
+        `forced-colors`, 390 px. **Lo que NO arregla:** la latencia, que es `[CXC.21]`.
 - [x] **[CXC.22]** 🧪 ⭐ **Las TRES cifras del saldo no eran rivales: eran tres preguntas — y el
       puente cierra al centavo.** El item nació como *"un spread de $2.16M sin explicar"*. Medido
       contra el prod real (las cifras anteriores salían de Railway, la base equivocada), el

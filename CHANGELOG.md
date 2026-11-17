@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
+- `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
+- Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.
+- El aviso «se ven 500 de N cuentas» va arriba de la tabla, y el **CSV trae todas las cuentas del filtro**, no sólo las 500 que se ven.
+- Compromisos de pago: el formulario queda a un clic, un guardado que falla se avisa, cancelar pide confirmación y el monto acepta «1,250.00».
+- La fila del cliente se abre con Enter. Colores con tokens del sistema: mejor contraste y modo oscuro correcto.
+
 ### Added — Ubicaciones: asignar con el lector de código de barras, y carteles de uno o de muchos (UB.3b.1 · UB.RF.10 · 2026-11-17 · en código, sin soltar)
 - **Asignación › Escanear**: se escanea el cartel de la ubicación y después cada producto que está ahí. La Suite sabe si es caja, paquete o pieza por su código de barras, y si va como lugar fijo, reserva o exhibición por la ubicación: no se teclea nada más. Si la ubicación no existe, se da de alta en ese momento; si el producto ya tenía lugar fijo en otra, ofrece moverlo.
 - En el buscador de Asignación, escanear el código de barras abre el producto y su asignación con el campo de ubicación listo.
