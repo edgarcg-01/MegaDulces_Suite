@@ -4,7 +4,7 @@ import { TenantKnexService, TenantContextService, ObjectStorageService, applySma
 import { composeFreshness, evalInput } from '../shared/freshness';
 import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
 import { sqlEvidenciaCuadra } from '@megadulces/contracts';
-import { candidatoDeEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
+import { candidatoDeEntrada, deOtraEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -116,6 +116,11 @@ export interface AjustesDeEntrada {
   rows: Array<Record<string, unknown> & { match: 'exacto' | 'monto' | 'proveedor+fecha' }>;
   total_monto: number;
   explicacion: ExplicacionDeHueco | null;
+  /**
+   * `[RE.81]` Las del mismo proveedor, sucursal y ventana que Kepler ya ligó a OTRA entrada: no son
+   * candidatas (tienen dueño) y no cuentan, pero se entregan para que la pantalla diga dónde están.
+   */
+  de_otras_entradas: Array<Record<string, unknown>>;
 }
 
 @Injectable()
@@ -270,7 +275,7 @@ export class PurchaseAdjustmentsService {
     const porFolio = !!(p.sucursal && p.entrada_folio);
     // La fecha, ya estrechada: TypeScript no arrastra el guardia hasta dentro del callback de knex.
     const fecha = p.date;
-    if (!p.proveedor_code && !porFolio) return { rows: [], total_monto: 0, explicacion: null };
+    if (!p.proveedor_code && !porFolio) return { rows: [], total_monto: 0, explicacion: null, de_otras_entradas: [] };
     // `[RE.21]` — el hueco a explicar y con cuánta holgura. Sin `delta` esto se comporta igual
     // que antes (lista de candidatos sin ranking), que es lo que piden los llamadores viejos.
     const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
@@ -297,11 +302,18 @@ export class PurchaseAdjustmentsService {
       });
       const rows: any[] = await b
         .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'grupo', 'proveedor_interno')
-        .orderBy('adjustment_date', 'desc').limit(50);
+        // `[RE.81]` 100 y no 50: las ligadas a otras entradas también llegan aquí (se apartan abajo) y no
+        // deben desplazar a las candidatas. Medido: la ventana más poblada desde octubre trae 21.
+        .orderBy('adjustment_date', 'desc').limit(100);
 
       // `[RE.71]` La misma regla que el WHERE, en código puro y probado: lo que no está ligado por
       // Kepler a esta entrada sólo queda si es candidato legítimo (misma sucursal, proveedor real).
+      // `[RE.81]` Y no es candidato si Kepler ya lo ligó a OTRA entrada (`candidatoDeEntrada` lo excluye):
+      // se aparta en `de_otras_entradas`, que no cuenta ni explica nada de ésta.
       const ent = { sucursal: p.sucursal, entrada_folio: p.entrada_folio };
+      const deOtras = rows.filter((r) => r.proveedor_interno !== true && deOtraEntrada(r, ent))
+        .map((r) => ({ doctype: r.doctype, sucursal: r.sucursal, folio: r.folio, adjustment_date: r.adjustment_date,
+          entrada_folio: r.entrada_folio, monto: r.monto, motivo: r.motivo, categoria: r.categoria, grupo: r.grupo || 'sin_clasificar' }));
       const out = rows.filter((r) => ligadoAEntrada(r, ent) || candidatoDeEntrada(r, ent)).map((r) => {
         const monto = Math.abs(Number(r.monto || 0));
         // `[RE.21]` — **explica por MONTO, no por folio.** No hay llave estructural entre la nota
@@ -332,8 +344,10 @@ export class PurchaseAdjustmentsService {
       });
       // Lo que explica el hueco primero; después lo ligado; después por fecha.
       const peso = (m: string) => (m === 'exacto' ? 0 : m === 'monto' ? 1 : 2);
-      out.sort((a, b2) => peso(a.match) - peso(b2.match)
-        || String(b2.adjustment_date).localeCompare(String(a.adjustment_date)));
+      // `[RE.81]` Por FECHA, no por su texto: `String(Date)` empieza con el día de la semana y la
+      // lista salía ordenada «Wed, Tue, Thu…» (la 0000545 ponía el 28/10 antes que el 12/11).
+      const ms = (d: unknown) => (d ? new Date(d as string | Date).getTime() || 0 : 0);
+      out.sort((a, b2) => peso(a.match) - peso(b2.match) || ms(b2.adjustment_date) - ms(a.adjustment_date));
 
       // El veredicto para la pantalla: ¿hay UNO que explique el hueco al peso, y de qué
       // naturaleza es? Un descuadre explicado por un ajuste OPERATIVO (no llegó completo) es otra
@@ -353,7 +367,8 @@ export class PurchaseAdjustmentsService {
         // existía", y hoy el revisor no tiene con qué distinguirlas.
         dias_despues: explican[0]?.dias_despues ?? null,
       };
-      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0), explicacion };
+      deOtras.sort((a, b2) => ms(b2.adjustment_date) - ms(a.adjustment_date));
+      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0), explicacion, de_otras_entradas: deOtras };
     });
   }
 

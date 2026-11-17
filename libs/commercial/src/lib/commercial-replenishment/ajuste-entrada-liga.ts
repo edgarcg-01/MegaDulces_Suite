@@ -34,9 +34,27 @@ export function ligadoAEntrada(
  * (contrato de los llamadores que no la mandan).
  */
 export function candidatoDeEntrada(
-  ajuste: { sucursal?: string | null; proveedor_interno?: boolean | null },
-  entrada: { sucursal?: string | null },
+  ajuste: { sucursal?: string | null; proveedor_interno?: boolean | null; entrada_folio?: string | null },
+  entrada: { sucursal?: string | null; entrada_folio?: string | null },
 ): boolean {
   if (ajuste.proveedor_interno === true) return false;
+  if (deOtraEntrada(ajuste, entrada)) return false;
   return !entrada.sucursal || ajuste.sucursal === entrada.sucursal;
+}
+
+/**
+ * `[RE.81]` — ¿Kepler ya ligó el ajuste a OTRA entrada? Entonces no es candidato de ésta: tiene
+ * dueño. Testigo (prod, 2026-11-17): de las 354 notas ligadas desde octubre, las 354 son del
+ * proveedor de su entrada y ninguna pasa de su monto — la liga no se contradice. Sin esto, la
+ * entrada 0000545 de Morelia Abastos (DULCES LAS DELICIAS) listaba 21 candidatos y 19 eran de
+ * otras entradas; desde el 1-oct, 2,372 de 3,212 filas candidatas (74 %) en 408 entradas.
+ * Se compara en la sucursal de la ENTRADA: el folio de entrada sólo es llave con su sucursal (RE.70).
+ */
+export function deOtraEntrada(
+  ajuste: { sucursal?: string | null; entrada_folio?: string | null },
+  entrada: LigaEntrada,
+): boolean {
+  if (!ajuste.entrada_folio) return false;
+  if (!entrada.sucursal || !entrada.entrada_folio) return false;
+  return ajuste.sucursal === entrada.sucursal && ajuste.entrada_folio !== entrada.entrada_folio;
 }
