@@ -80,7 +80,9 @@ export class SupplierPaymentObligationsController {
 
   /** `[PGP.119]` Proveedores que pueden recibir anticipo: de mercancía (código C…) y activos. */
   @Get('anticipo/proveedores')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
+  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
   @ApiOperation({ summary: 'PGP.119 — proveedores de mercancía activos para pedirles anticipo; busca por nombre o código.' })
   anticipoProveedores(@Query('search') search?: string): Promise<AnticipoProveedorRow[]> {
     return this.svc.anticipoProveedores(search);
@@ -88,7 +90,9 @@ export class SupplierPaymentObligationsController {
 
   /** `[PGP.119]` Las OC abiertas de un proveedor con lo ya anticipado (el tope, D6). */
   @Get('anticipo/ocs')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
+  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
   @ApiOperation({ summary: 'PGP.119 — OC abiertas (open/partial) de un proveedor, su sucursal, su total y lo ya pedido de anticipo sobre cada una.' })
   anticipoOcs(@Query('supplier_id') supplierId?: string): Promise<AnticipoOcRow[]> {
     return this.svc.anticipoOcs(String(supplierId ?? ''));
@@ -96,7 +100,9 @@ export class SupplierPaymentObligationsController {
 
   /** `[PGP.119]` Pide un anticipo: nace una obligación de naturaleza `anticipo` que entra al Calendario. */
   @Post('anticipo')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
+  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
   @ApiOperation({ summary: 'PGP.119 — pide un anticipo a un proveedor de mercancía (opcional: atado a una OC, sin pasar de su saldo). Entra al Calendario como cualquier obligación; Dirección autoriza el pago.' })
   crearAnticipo(@Body() dto: AnticipoSolicitudBody, @Req() req: AuthedRequest): Promise<{ obligation_id: string; monto: number; concepto: string }> {
     return this.svc.crearAnticipo(dto, req.user?.username || 'sistema');

@@ -42,6 +42,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
+import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
@@ -188,7 +189,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -196,6 +197,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     <div class="surf-page in cal-page">
       <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
+      <!-- [PGP.138] Pedir anticipo desde el Calendario: el diálogo compartido con Anticipos (una sola interfaz del flujo). -->
+      @if (puedeProgramarAnticipo()) {
+        <app-pedir-anticipo-dialog modo="programar" [(visible)]="anticipoVisible" [fechaInicial]="fechaDelDia()" (pedido)="anticipoPedido($event)" />
+      }
       <!-- ⛔ [PGP.52] REDISEÑO: una columna y un paso a la vez. Edgar (2026-11-03), tras tres rondas de
            parches: «sigue siendo un asco, necesito un rediseño a una más simple». Medido en su captura:
            ~70 controles y ~60 cifras en la primera pantalla, CINCO preguntas contestadas a la vez (la
@@ -469,6 +474,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   }
                   @if (obligacionesEnRevision().length) {
                     <button type="button" class="pg-link" (click)="verLista.set(true); verRevision.set(true)"><i class="pi pi-lock" aria-hidden="true"></i>{{ obligacionesEnRevision().length }} por confirmar</button>
+                  }
+                  <!-- [PGP.138] Programar un anticipo en este día: sólo Dirección (Edgar, 2026-11-17), y nunca en un día que ya pasó. -->
+                  @if (puedeProgramarAnticipo() && !diaPasado()) {
+                    <button type="button" class="pg-link" aria-haspopup="dialog" (click)="anticipoVisible.set(true)"><i class="pi pi-wallet" aria-hidden="true"></i>Programar un anticipo en este día</button>
                   }
                 </p>
               } @else {
@@ -2150,6 +2159,44 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 
   readonly canAuthorize = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] === true);
+
+  // ── `[PGP.138]` Programar un anticipo desde el Calendario ────────────────────────────────────
+  /**
+   * Edgar, 2026-11-17: **sólo Dirección**, o sea quien autoriza el Calendario (la misma condición que el botón de
+   * autorizar). El servidor acepta esa llave en los endpoints del anticipo. Tesorería, Finanzas y Contabilidad no:
+   * «Tesorería paga, Compras registra la deuda» (`[TP.13]`, ADR-064). Compras lo sigue pidiendo en su submódulo.
+   */
+  readonly puedeProgramarAnticipo = computed(() => this.canAuthorize());
+  readonly anticipoVisible = signal(false);
+  /** El día que se está viendo (a mediodía: un cambio de horario no lo mueve de día). */
+  readonly fechaDelDia = computed(() => new Date(`${this.selectedDate()}T12:00:00`));
+  /**
+   * El diálogo ya creó la obligación (paso 1). Paso 2: queda como un pago PROPIO en el día que se ve, con el mismo
+   * alta de pagos que usa «Agregar facturas» (no se suma al pago de facturas del proveedor: el anticipo es otro
+   * documento en Kepler). Si el paso 2 falla, se dice que el anticipo SÍ quedó pedido y dónde está: no se pierde ni
+   * se duplica (volver a programarlo crearía otro).
+   */
+  async anticipoPedido(r: AnticipoPedido): Promise<void> {
+    const fecha = this.selectedDate();
+    this.avisoAlta.set(null);
+    this.saving.set(true);
+    try {
+      const creado = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations`, {
+        date: fecha, notes: r.concepto,
+        items: [{ obligation_source: 'supplier_payable', obligation_id: r.obligation_id, applied_amount: r.monto }],
+      }));
+      await this.ordenarNuevos(fecha, creado?.id ? [creado.id] : []);
+      this.avisoAlta.set(`${this.dayLong(fecha)}: anticipo a ${r.proveedor} por ${PESOS.format(r.monto)} programado; está en «Preparar».`);
+    } catch (e) {
+      this.toast.add({ severity: 'error', summary: 'El anticipo quedó pedido, pero no entró al día', life: 12000,
+        detail: `${r.proveedor} por ${PESOS.format(r.monto)}: ${this.errMsg(e, 'no se pudo poner en el día')}. Ya está en las facturas por pagar: búscalo y agrégalo con «+» (no lo vuelvas a programar).` });
+    } finally {
+      this.saving.set(false);
+      this.invalidarDeuda();
+      this.recargarPagos();
+      this.loadObligations({ silencioso: true });
+    }
+  }
   readonly todayIso = this.today();
   printing = signal(false);
   reprogramReasonOpts = REPROGRAM_REASON_OPTS;
