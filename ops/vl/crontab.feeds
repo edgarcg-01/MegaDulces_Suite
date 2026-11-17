@@ -215,7 +215,11 @@
 #    Para ver qué haría sin escribir: el mismo comando SIN `--apply` (imprime y no toca nada).
 20 4 3 * * /app/ops/vl/run-feed.sh contpaqi-derivador "node /app/database/scripts/derivar-reglas-contpaqi.js --apply"
 
-# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — ENCENDIDA el 2026-11-17 (D15) ───────────
+# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — SE MUDÓ a un carril en ciclo ──────────────
+#
+# ⭐ Desde el 2026-11-17 (Edgar: «ningún cron») corre como un Deployment que lo llama en ciclo, en la forma de los carriles
+#    del ODS: `ops/k3s/32-contpaqi-replica.deployment.yaml` (contabilidad cada ~5 min, lo demás cada hora). Los dos
+#    renglones de abajo quedan comentados para que NO corra dos veces; lo de este bloque es la historia.
 #
 # Mantiene `contpaqi_ods`/`contpaqi_nom` al día comparando, en los dos lados, una huella por tramo de
 # la llave: sólo recopia lo que difiere. Medido en el pod el 2026-10-30: la contabilidad en menos de
@@ -239,8 +243,8 @@
 #
 # Un solo candado para las dos: si chocan, la segunda se salta la vuelta y lo deja dicho en el latido.
 # El resto va a los :42, fuera de los múltiplos de 5, para no chocar con la de cada 5 min.
-*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
-42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
+#*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
+#42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
 
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
