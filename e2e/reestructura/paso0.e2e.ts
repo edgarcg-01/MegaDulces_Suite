@@ -1,7 +1,8 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { medir } from './medir';
+import { blindar } from './comun';
 
 /**
  * `[GP.RF.0]` Paso 0 de la auditoría de interfaces de la Fase GP
@@ -29,17 +30,6 @@ export const ALCANCE: { id: string; ruta: string; quien: string; movil?: boolean
   { id: 'ubicaciones-mapa', ruta: '/almacen/ubicaciones', quien: 'almacén (fase UB, paso 1)' },
   { id: 'ubicaciones-contenido', ruta: '/almacen/inventory/ubicaciones', quien: 'almacén (fase UB, paso 2)' },
 ];
-
-/** Sólo GET sale a la API; todo lo demás (incluida la telemetría de uso) se aborta y se cuenta. */
-async function blindar(page: Page): Promise<{ abortadas: string[] }> {
-  const abortadas: string[] = [];
-  await page.route('**/api/**', (r) => {
-    if (r.request().method() === 'GET') return r.continue();
-    abortadas.push(`${r.request().method()} ${new URL(r.request().url()).pathname}`);
-    return r.abort('blockedbyclient');
-  });
-  return { abortadas };
-}
 
 test.describe('0.1 · control del instrumento', () => {
   test('acierta una página cuyas respuestas se conocen', async ({ page }) => {

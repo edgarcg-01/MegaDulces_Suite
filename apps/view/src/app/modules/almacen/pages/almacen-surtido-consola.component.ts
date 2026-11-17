@@ -13,6 +13,7 @@ import type {
   ConsolaSurtidoResponse,
   KeplerWavesAutoResponse,
 } from '@megadulces/contracts';
+import { RouterLink } from '@angular/router';
 import { PickingService } from '../../reparto/picking.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 
@@ -37,6 +38,13 @@ const dmy = (v: string): string => {
   return `${d}/${m}/${y}`;
 };
 
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** El día anterior de una fecha `YYYY-MM-DD`, en calendario (sin zona horaria de por medio). */
+const diaAnterior = (v: string): string => {
+  const [y, m, d] = v.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+};
+
 /**
  * `[GP.3c.2]` **Consola de surtido** — quién prioriza la fila (`FASE_GP` §8.3).
  *
@@ -57,7 +65,7 @@ const dmy = (v: string): string => {
   selector: 'app-almacen-surtido-consola',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SelectModule, InputTextModule],
   template: `
     <!-- [GP.10.4b] Dentro del Tablero de pedidos (embebida) no es una página: sin su marco ni su título. -->
     <div [class.surf-page]="!embebida()" [class.in]="!embebida()">
@@ -232,7 +240,9 @@ const dmy = (v: string): string => {
                 <p class="gp-p gp-warn">{{ d.por_armar.bloqueados === 1 ? '1 pedido no puede armarse: trae' : d.por_armar.bloqueados + ' pedidos no pueden armarse: traen' }} productos que no están dados de alta en la Suite.</p>
               }
               @if (d.por_armar.atorados.count) {
-                <p class="gp-p gp-warn">{{ d.por_armar.atorados.count === 1 ? '1 pedido sigue autorizado' : d.por_armar.atorados.count + ' pedidos siguen autorizados' }} en Kepler desde {{ d.por_armar.atorados.desde ? dmy(d.por_armar.atorados.desde) : 'antes' }} y {{ d.por_armar.atorados.count === 1 ? 'queda' : 'quedan' }} fuera de la fila: revísalos en Kepler.</p>
+                <!-- [GP.RF.15] La cifra se recorre: liga al Tablero con la MISMA frontera que la cuenta. -->
+                <p class="gp-p gp-warn">{{ d.por_armar.atorados.count === 1 ? '1 pedido sigue autorizado' : d.por_armar.atorados.count + ' pedidos siguen autorizados' }} en Kepler desde {{ d.por_armar.atorados.desde ? dmy(d.por_armar.atorados.desde) : 'antes' }} y {{ d.por_armar.atorados.count === 1 ? 'queda' : 'quedan' }} fuera de la fila:
+                  @if (ligaAtorados(); as q) { <a class="gp-liga" routerLink="/almacen/pedidos" [queryParams]="q">{{ d.por_armar.atorados.count === 1 ? 'velo en el Tablero' : 'velos en el Tablero' }}</a> y ciérralos en Kepler. } @else { revísalos en Kepler. }</p>
               }
               <div class="gp-inline">
                 <label for="gp-origen" class="gp-lbl">Armar pedidos de</label>
@@ -332,6 +342,8 @@ const dmy = (v: string): string => {
     .gp-sub { display:block; font-size:var(--fs-xs); }
     .gp-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.45rem 0 0; }
     .gp-warn { color:var(--warn-soft-fg); }
+    .gp-liga { color:inherit; font-weight:600; text-decoration:underline; text-underline-offset:2px; }
+    .gp-liga:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:2px; }
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
@@ -406,6 +418,20 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   });
   readonly enSurtido = computed(() => (this.data()?.olas ?? []).filter((o) => !!o.assigned_to).length);
   readonly urgentes = computed(() => (this.data()?.olas ?? []).filter((o) => o.prioridad === 1).length);
+  /**
+   * `[GP.RF.15]` Los atorados se cuentan por el estatus de KEPLER (siguen `AUTORIZADO`) con fecha
+   * anterior a la ventana de la fila; el Tablero los lista con ese mismo filtro y la misma frontera
+   * (medido 2026-11-17: cuadra exacto en las 8 sucursales con atorados, 393 pedidos). Por etapa NO
+   * cuadraría: los que están en un surtido de la Suite ya no dicen «autorizado». Sin `ventana_desde`
+   * (una API anterior) no hay liga: no se inventa la frontera aquí.
+   */
+  readonly ligaAtorados = computed<Record<string, string> | null>(() => {
+    const d = this.data();
+    const a = d?.por_armar.atorados;
+    const v = d?.por_armar.ventana_desde;
+    if (!d || !a?.count || !a.desde || !v || !ISO_RE.test(v) || !ISO_RE.test(a.desde)) return null;
+    return { kepler_status: 'AUTORIZADO', branch: d.sucursal, date_from: a.desde, date_to: diaAnterior(v) };
+  });
   readonly nombreAlmacen = computed(() => {
     const a = this.almacenes().find((x) => x.id === this.almacen());
     return a ? a.etiqueta : '';

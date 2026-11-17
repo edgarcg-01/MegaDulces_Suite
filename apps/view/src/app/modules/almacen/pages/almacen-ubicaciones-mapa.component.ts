@@ -25,6 +25,7 @@ import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalo
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
+import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -62,7 +63,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
   selector: 'app-almacen-ubicaciones-mapa',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent, UbicacionesCapturaComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent, UbicacionesCapturaComponent, AndenCartelComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head ub-head">
@@ -73,6 +74,10 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
         <div class="ub-actions">
           @if (almacenOpts().length > 1) {
             <p-select [options]="almacenOpts()" optionLabel="label" optionValue="value" [ngModel]="warehouseId()" (onChange)="pickAlmacen($event.value)" ariaLabel="Almacén" appendTo="body" class="ub-sel" />
+          }
+          @if (data()?.warehouse && !enCaptura()) {
+            <!-- [UB.RF.10] Carteles para pegar en el rack: uno, un rack, un pasillo o toda la zona. -->
+            <button pButton type="button" class="p-button-sm p-button-outlined" [attr.aria-pressed]="imprimirAbierto()" (click)="abrirImpresion()"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir carteles</span></button>
           }
           @if (puedeGestionar() && data()?.warehouse) {
             @if (enCaptura()) {
@@ -93,6 +98,26 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           <div class="ub-note ub-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene un almacén asignado, así que no hay ubicaciones que mostrarte. Pide que te lo asignen en <b>Administración › Personas</b>.</span></div>
         } @else {
           <app-metric-strip [items]="kpis()" ariaLabel="Resumen de ubicaciones" />
+
+          @if (carteles().length) {
+            <section class="ub-block ub-carteles" aria-label="Carteles para imprimir">
+              <app-anden-cartel [ubicaciones]="carteles()" (cerrar)="cerrarImpresion()" />
+            </section>
+          } @else if (imprimirAbierto() && !enCaptura()) {
+            <section class="ub-block ub-step ub-imprimir" aria-labelledby="ub-h-imp">
+              <h3 id="ub-h-imp">Imprimir carteles · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
+              @if (pasillosCartel().length) {
+                <app-segmented [options]="pasillosCartel()" [value]="pasilloCartel()" (valueChange)="pasilloCartel.set($any($event))" ariaLabel="Pasillo" />
+                <p class="ub-hint">Salen dos por hoja carta; se recorta por la línea punteada. Para uno solo o un rack, tócalo en el mapa.</p>
+                <div class="ub-acts">
+                  <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarImpresion()"><span class="p-button-label">Cancelar</span></button>
+                  <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ cuentaCartel() === 1 ? 'cartel' : 'carteles' }}</span></button>
+                </div>
+              } @else {
+                <p class="ub-hint">No hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} dadas de alta: no hay carteles que imprimir.</p>
+              }
+            </section>
+          }
 
           @if (enCaptura()) {
             <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
@@ -133,7 +158,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                 </div>
                 <p class="ub-hint">Cada cuadro es un rack: el número es cuántos niveles tiene dados de alta; el ícono marca si alguno está bloqueado o tiene mercancía. Tócalo para ver sus niveles.</p>
               } @else {
-                <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha; la captura masiva por rango llega en la siguiente entrega.</span> }</div>
+                <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha, o muchas a la vez con «Captura masiva» (por rango o desde Excel).</span> }</div>
               }
             </section>
 
@@ -148,10 +173,14 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                           <span class="ub-code mono">{{ n.code }}</span>
                           <span class="ub-level-txt">Nivel {{ n.nivel }} · {{ tipoLabel(n.tipo) }}@if (n.renglones_con_cantidad) { · <b>{{ n.renglones_con_cantidad }} con mercancía</b> }</span>
                           <span class="ub-chip ub-chip-{{ n.estado }}">{{ estadoTxt(n.estado) }}</span>
+                          @if (n.estado !== 'baja') {
+                            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'Imprimir el cartel de ' + n.code" (click)="verCarteles({ code: n.code })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button>
+                          }
                           @if (n.motivo_estado) { <span class="ub-sub">{{ n.motivo_estado }}</span> }
                         </li>
                       }
                     </ul>
+                    <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir los carteles de este rack</span></button>
                   } @else {
                     <p class="ub-hint">Este rack no tiene niveles dados de alta.</p>
                   }
@@ -229,7 +258,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-side > .ub-step:first-child { border-top:0; }
     .ub-step h3 { font-size:var(--fs-sm); font-weight:700; margin:0; }
     .ub-levels { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
-    .ub-level { display:grid; grid-template-columns:auto 1fr auto; gap:.15rem .6rem; align-items:center; padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
+    .ub-level { display:grid; grid-template-columns:auto 1fr auto auto; gap:.15rem .6rem; align-items:center; padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .ub-level .ub-sub { grid-column:1 / -1; }
     .ub-code { font-size:var(--fs-lg); font-weight:600; }
     .ub-level-txt { font-size:var(--fs-xs); color:var(--text-muted); min-width:0; }
@@ -245,6 +274,11 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-sub.ub-ok { color:var(--ok-fg); }
     .ub-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0; padding:0 .85rem .7rem; }
     .ub-step .ub-hint { padding:0; }
+    /* [UB.RF.10] Imprimir carteles: el panel de alcance y la vista previa ocupan todo el ancho. */
+    .ub-imprimir, .ub-carteles { flex:1 1 100%; margin-bottom:.75rem; }
+    .ub-carteles { padding:.75rem .85rem; }
+    .ub-imprimir { border-top:1px solid var(--border-color); }
+    .ub-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .ub-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
@@ -272,6 +306,27 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   /** `?vista=captura` — en la URL, para que el enlace se pueda compartir y el botón Atrás funcione. */
   private readonly vista = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('vista'))), { initialValue: null });
   readonly enCaptura = computed(() => this.vista() === 'captura' && this.puedeGestionar());
+
+  // ── [UB.RF.10] Carteles: uno, un rack, un pasillo o toda la zona ────────────────────────────────
+  readonly imprimirAbierto = signal(false);
+  readonly carteles = signal<CartelUbicacion[]>([]);
+  /** Pasillo elegido para imprimir; '*' = todos los de la zona. */
+  readonly pasilloCartel = signal<string>('*');
+  readonly pasillosCartel = computed<SegOption[]>(() => {
+    const deZona = this.conFormato().filter((u) => u.zona === this.zona() && u.estado !== 'baja');
+    if (!deZona.length) return [];
+    const porPasillo = new Map<string, number>();
+    for (const u of deZona) if (u.pasillo) porPasillo.set(u.pasillo, (porPasillo.get(u.pasillo) ?? 0) + 1);
+    const pasillos = [...porPasillo.keys()].sort((a, b) => aisleOrder(a) - aisleOrder(b));
+    return [{ label: 'Todos', value: '*', count: deZona.length }, ...pasillos.map((p) => ({ label: 'Pasillo ' + p, value: p, count: porPasillo.get(p) }))];
+  });
+  readonly cuentaCartel = computed(() => this.pasillosCartel().find((o) => o.value === this.pasilloCartel())?.count ?? 0);
+
+  abrirImpresion(): void { this.imprimirAbierto.update((v) => !v); this.pasilloCartel.set('*'); this.carteles.set([]); }
+  cerrarImpresion(): void { this.imprimirAbierto.set(false); this.carteles.set([]); }
+  verCarteles(f: { pasillo?: string | null; rack?: number | null; code?: string }): void {
+    this.carteles.set(cartelesDe(this.conFormato(), { zona: this.zona(), ...f }, this.data()?.warehouse?.code ?? null));
+  }
 
   readonly skel = Array.from({ length: 6 });
   readonly tipos = [...LOCATION_KINDS];
@@ -358,6 +413,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         if (folio !== this.consulta) return;
         this.data.set(d);
         if (!this.warehouseId() && d.warehouse) this.warehouseId.set(d.warehouse.id);
+        // [UB.RF.5] Si la zona elegida está vacía y la otra no, se abre en la que tiene ubicaciones: CEDIS
+        // abría en «Bodega (0)» con sus 375 en Tienda, y la persona leía «no hay» (medido 2026-11-17).
+        const z = zonaConUbicaciones(this.zona(), this.cuentaZona('B'), this.cuentaZona('T'));
+        if (z !== this.zona()) this.pickZona(z);
         this.refrescarSel();
         this.foco.set({ fi: 0, ci: 0 });
         this.loading.set(false);
@@ -477,6 +536,35 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 }
 
 /** El estado más urgente de los niveles de un rack (bloqueada > con mercancía > activa > baja > vacío). */
+/**
+ * `[UB.RF.10]` Los carteles a imprimir: los de la zona (y, si se pide, de un pasillo, un rack o un solo
+ * código), sin los dados de baja, en el orden en que se recorre el almacén. El rótulo es corto a
+ * propósito: el código ya dice pasillo y rack, y en el cartel cabe una línea.
+ */
+export function cartelesDe(
+  ubicaciones: WarehouseLocationRow[],
+  f: { zona: LocationZone; pasillo?: string | null; rack?: number | null; code?: string },
+  almacen: string | null,
+): CartelUbicacion[] {
+  return ubicaciones
+    .filter((u) => u.estado !== 'baja' && u.zona === f.zona)
+    .filter((u) => (f.code ? u.code === f.code : true))
+    .filter((u) => (f.pasillo ? u.pasillo === f.pasillo : true))
+    .filter((u) => (f.rack != null ? u.rack === f.rack : true))
+    .sort((a, b) => aisleOrder(a.pasillo ?? '') - aisleOrder(b.pasillo ?? '') || (a.rack ?? 0) - (b.rack ?? 0) || (a.nivel ?? 0) - (b.nivel ?? 0))
+    .map((u) => ({ code: u.code, label: `${u.zona === 'T' ? 'Tienda' : 'Bodega'} · nivel ${u.nivel ?? '—'}`, almacen }));
+}
+
+/**
+ * `[UB.RF.5]` La zona en la que abre el mapa: la elegida, salvo que esté vacía y la otra no. Un almacén
+ * con todas sus ubicaciones en Tienda no debe abrir diciendo «no hay» en Bodega.
+ */
+export function zonaConUbicaciones(actual: LocationZone, enBodega: number, enTienda: number): LocationZone {
+  const deActual = actual === 'B' ? enBodega : enTienda;
+  const deOtra = actual === 'B' ? enTienda : enBodega;
+  return deActual === 0 && deOtra > 0 ? (actual === 'B' ? 'T' : 'B') : actual;
+}
+
 export function estadoDeRack(niveles: WarehouseLocationRow[]): EstadoRack {
   if (!niveles.length) return 'vacio';
   if (niveles.some((n) => n.estado === 'bloqueada')) return 'bloqueada';

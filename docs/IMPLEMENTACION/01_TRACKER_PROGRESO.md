@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2665 KB, 14597 líneas, 77 secciones.
+> **Índice navegable** — 2670 KB, 14644 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -70,20 +70,20 @@
 | 13538 | 13579 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13580 | 13736 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 13737 | 13767 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13768 | 13942 | 27 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 13943 | 14007 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14008 | 14016 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14017 | 14050 | 6 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14057 | 14066 | 1 | 📝 Convenciones |
-| 14067 | 14104 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14105 | 14123 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14124 | 14176 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14177 | 14549 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14550 | 14580 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14581 | 14602 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14603 | 14630 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14631 | 14662 | 22 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14663 | 14686 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13768 | 13969 | 30 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 13970 | 14034 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14035 | 14043 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14044 | 14097 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14104 | 14113 | 1 | 📝 Convenciones |
+| 14114 | 14151 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14152 | 14170 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14171 | 14223 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14224 | 14596 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14597 | 14627 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14628 | 14649 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14650 | 14677 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14678 | 14709 | 22 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14710 | 14733 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13831,8 +13831,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Dado un error del servidor, se distingue de «vacío».
 >     - ❌ Sin `ALMACEN_PEDIDOS_VER`, 403.
 >     - El p95 se mide en prod y queda debajo de 500 ms.
->   - [x] **[GP.10.4]** 🧪 (2026-11-14) **El Tablero absorbe Preventa y la Consola de surtido, y las pestañas viejas redirigen.** Capa C3. Depende de GP.10.3. Se parte en tres pasos (diseño escrito en el plan, §3.1), para que nadie se quede sin acceso a medio camino: primero el Tablero muestra todo y después salen las pestañas.
->     - [x] **[GP.10.4a]** 🧪 (2026-11-14) **El Tablero lista Kepler y preventa, con botones por etapa de almacén.**
+>   - [x] **[GP.10.4]** ✅ (2026-11-17, en prod `5b9d9af58`; código del 2026-11-14) **El Tablero absorbe Preventa y la Consola de surtido, y las pestañas viejas redirigen.** Capa C3. Depende de GP.10.3. Se parte en tres pasos (diseño escrito en el plan, §3.1), para que nadie se quede sin acceso a medio camino: primero el Tablero muestra todo y después salen las pestañas.
+>     - [x] **[GP.10.4a]** ✅ (2026-11-17, en prod) **El Tablero lista Kepler y preventa, con botones por etapa de almacén.**
 >       - La fila avisa cuando Kepler va atrás de la Suite («Kepler aún dice autorizado»).
 >       - Un `PD-` abre su resumen, sin pedir el detalle de Kepler, y lleva a la Mesa de Control con el pedido ya abierto (`?pedido=<id>`; si ya no está en la lista, se abre desde su detalle). El documento y el cobro no se copian al Tablero.
 >       - **Uso medido antes de diseñar** (30 días):
@@ -13853,7 +13853,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types` en verde; `check:pantalla` sin fallas nuevas (antes y después).
 >       - **Sin validación visual** en el navegador.
 >       - La vista del surtidor no cambia.
->     - [x] **[GP.10.4b]** 🧪 (2026-11-14) **La fila de surtido es la segunda vista del Tablero (`/almacen/pedidos?vista=fila`), sólo con `ALMACEN_SURTIDO_COORDINAR`.**
+>     - [x] **[GP.10.4b]** ✅ (2026-11-17, en prod) **La fila de surtido es la segunda vista del Tablero (`/almacen/pedidos?vista=fila`), sólo con `ALMACEN_SURTIDO_COORDINAR`.**
 >       - Es el mismo componente de la consola, con su título apagado (entrada `embebida`), no una copia. La ruta vieja `/almacen/surtido-consola` se ve igual que antes hasta GP.10.4c.
 >       - Las vistas son ligas con `aria-current`, así que «Atrás» regresa a la anterior. En la fila no hay periodo ni se pide la lista (1.3 MB de balde); al volver a «Pedidos», la lista se pide una vez.
 >       - **Acceso medido en prod:** tienen la clave `coordinador_embarques` (1 persona), `encargado_tienda` (10) y `supervisor` (1). Los tres ya tienen `ALMACEN_PEDIDOS_VER`, así que nadie pierde la consola al moverla.
@@ -13863,7 +13863,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types --files` en verde para la consola, el Tablero y la Mesa; `check:pantalla` sin fallas nuevas en ambas.
 >       - **Sin validación visual** en el navegador.
 >       - La API de la consola no cambió.
->     - [x] **[GP.10.4c]** 🧪 (2026-11-14) **Salen las pestañas Preventa y Consola de surtido; sus rutas redirigen con la vista o el filtro puestos.**
+>     - [x] **[GP.10.4c]** ✅ (2026-11-17, en prod) **Salen las pestañas Preventa y Consola de surtido; sus rutas redirigen con la vista o el filtro puestos.**
 >       - `/almacen/surtido-consola` lleva a `/almacen/pedidos?vista=fila`.
 >       - `/almacen/pedidos/preventa` sin pedido lleva a `/almacen/pedidos?origen=PREVENTA`, y el Tablero llega con el filtro puesto. Con `?pedido=<id>` abre la Mesa, que es el detalle de un `PD-` y ahora tiene «← Tablero de pedidos».
 >       - **Aterrizaje:** la ruta vieja de la consola queda como entrada de foco (sólo decide a dónde cae quien abre el área). Quien sólo coordina —hoy nadie, medido— entra al Tablero, que lo acepta y le abre la fila sin pedir la lista.
@@ -13877,10 +13877,37 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >         - `check:templates-types --files` en verde; `check:pantalla` sin fallas nuevas en las tres pantallas.
 >       - **Sin validación visual** en el navegador.
 >     - Las pantallas para seguir un pedido pasan de 3 a 1.
+>     - **«Después» medido en prod** (auditoría de interfaces §5.5, 2026-11-17). Salió en el lote de 57 commits que empujó otra sesión.
+>       - Mejoró: de 7 a 5 pestañas, y 50 accionables contra 58.
+>       - Empeoró: el marco del Tablero (415 → 507 px, GP.RF.20); la lista (1.40 MB, topada a 2,000, GP.10.5); abrir un pedido de preventa (2 → 4 clics, GP.RF.21).
 >     - Las 9 personas que usaron Preventa y las 9 que usaron la Consola en 30 días conservan el acceso (cruce con `MATRIZ_ACCESOS`).
 >     - Las acciones de coordinar sólo aparecen con `ALMACEN_SURTIDO_COORDINAR`. ❌ Sin la clave no se ven los botones y el endpoint da 403.
 >     - Las rutas viejas redirigen con el filtro puesto.
 >     - Tiene su entrada en el sidebar. `check:pantalla` sin fallas nuevas.
+>   - [x] **[GP.RF.15]** 🧪 (2026-11-17) **La cifra de atorados de la fila de surtido se abre en el Tablero.** Capa C2 + C3. Auditoría de interfaces, paso 1 (`FASE_GP_AUDITORIA_INTERFACES.md` §5).
+>     - Antes decía «58 pedidos siguen autorizados en Kepler… revísalos en Kepler» y no había forma de verlos en la Suite.
+>     - Ahora «velos en el Tablero» abre la lista filtrada por:
+>       - el estatus de Kepler AUTORIZADO;
+>       - la sucursal;
+>       - del primer atorado al día anterior a la ventana de la fila.
+>     - Una nota arriba de la lista dice qué filtro trae, y «Quitar este filtro» lo quita.
+>     - API: `por_armar.ventana_desde`, opcional. Sin ese campo no hay liga: la consola no inventa la frontera.
+>     - Cruce con el servicio real contra prod: cuadra en las 8 sucursales, **393 de 393**. Por etapa no cuadraría (Canindo, 52 de 58).
+>     - Pruebas:
+>       - Tablero: 6 nuevas, 4 de ellas negativas.
+>       - Consola: 3 nuevas, 1 de ellas negativa.
+>       - 58/58 en total. Las plantillas tipan en las cuatro apps; `check:pantalla` sin fallas nuevas.
+>     - **NO MEDIDO:**
+>       - la pantalla viva: prod no lo tiene; `paso1.e2e.ts` lo mide al desplegar;
+>       - la mutación: el árbol se comparte con otras sesiones.
+>     - Costo: 0.2–1.8 s con rangos largos (GP.RF.19).
+>   - [x] **[GP.RF.20]** 🧪 (2026-11-17) **El cambio de vista «Pedidos · Fila de surtido» sube a la cabecera del Tablero, junto al periodo.** Capa C3. Auditoría de interfaces, paso 1 (§5.5).
+>     - Con GP.10.4 el marco del Tablero creció de 415 a 507 px; el renglón propio del cambio de vista era parte de eso.
+>     - Medido con una maqueta sobre prod (`paso1-gprf20.e2e.ts`): la primera fila sube **50 px** a 1280, 1366 y 1920. La cabecera no crece ni se parte, y la prueba negativa lo comprueba.
+>     - Quien surte y coordina sin ver el Tablero conserva el cambio de vista.
+>     - Pruebas: 3 nuevas (1 negativa); 36/36 del Tablero. Plantillas tipan en las cuatro apps; `check:pantalla` y `check-estilos` sin fallas nuevas.
+>     - El foco del segmentado pasa a `--focus-ring`: el `--action-ring` de antes daba 1.56:1.
+>     - NO MEDIDO: la versión construida; se mide al desplegar con la misma prueba.
 >   - [ ] **[GP.10.5]** ⬜ **Correcciones de la consola.** Capa C3. Depende de GP.10.4.
 >     - El volumen deja de encimarse sobre el estatus.
 >     - Las unidades llevan leyenda.
@@ -14023,7 +14050,27 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[UB.2]** 🧪 (2026-10-08 · mig `20261008040747` probada up()+rollback con freno por mercancía y CHECKs del lote; API `bulk/preview`, `bulk`, `batches`, `batches/:id/undo`; vista `/almacen/ubicaciones?vista=captura` con rango, Excel/CSV + plantilla, carteles del Andén e historial con deshacer. El Excel da de alta UBICACIONES; producto→ubicación entra con UB.3. Falta: validación visual + mig a prod) Captura masiva: generar por rango con vista previa + Excel/CSV producto→ubicación→papel + etiquetas por lote + deshacer por `batch_id`.
 - [ ] **[UB.3a]** 🧪 (2026-10-10 · mig `20261010030108` probada up()+rollback con 13 casos; API `products`, `products/:id`, `assignments` CRUD + `assignments/bulk`; pantalla `/almacen/ubicaciones/asignacion` + Excel. Escalera por sucursal de `v_kepler_unit_ladder` + códigos de `kdii`, medida en prod: 4–12 ms por producto (con join desde products eran ~4 s), lista 20–56 ms; fantasmas sin factor que repiten rótulo se ocultan (2,661 de 9,656 en PH), 17 reales sin factor se ofrecen marcados. Falta: validación visual + mig a prod) Asignación por presentación.
   - 2026-11-13 · revisión adversarial antes del PR: escalera de VARIAS claves en una consulta (1 clave 12–19 ms · 500 claves 53–61 ms · 2,000 claves 123–134 ms; el Excel hacía hasta 2,000 consultas en serie) · lista con EXISTS (9,039 productos de PH en 26 ms; 0 fichas kdii duplicadas medidas) · un lugar fijo en ubicación dada de baja ya no cuenta · Excel con mín/máx vacíos CONSERVA los que había · altas por lotes de 500 y choque 23505 → 409 · FK compuesta (tenant, almacén, ubicación) · el lote de captura cuenta «en uso» también con productos asignados · asignaciones a un peldaño que Kepler ya no ofrece se ven y se quitan · alta suelta de UB.1 con el validador común de alcance. Prueba de INTEGRACIÓN `warehouse-locations-assign.it.spec.ts` (19 casos, servicio real contra Postgres en el CI, transacción revertida; con su negativa de alcance 403). Sin validación visual.
+- [x] **[UB.RF]** 🧪 (2026-11-17) **Captura de ubicaciones recorrida de punta a punta en prod con Playwright, y sus defectos arreglados** (auditoría de interfaces §5b, a pedido de Edgar).
+  - Recorrido (`e2e/reestructura/ubicaciones.e2e.ts`): mapa, alta suelta, captura por rango y por Excel, lotes y deshacer, asignación a mano y por Excel, contenido. Sin escribir en prod: pasan sólo lecturas y las dos vistas previas; las escrituras se detienen y se registra lo que habrían mandado.
+  - Estado medido:
+    - Padre Hidalgo (piloto): 0 ubicaciones.
+    - Ningún producto con lugar fijo.
+    - CEDIS: 375 de una captura de prueba del 8-oct, en zona Tienda. Deshacer el lote es decisión de Edgar (UB.RF.2).
+  - UB.RF.1: `count-up.directive.ts` dejaba la cifra en el valor ANTERIOR si llegaba uno nuevo a media animación (Asignación pintaba 9,045 con la API en 46). Afecta a toda tira de cifras. 3 pruebas; la prueba salió roja antes del arreglo.
+  - UB.RF.3: el texto falso del mapa vacío («la captura masiva llega en la siguiente entrega»).
+  - UB.RF.4: «Últimas capturas» distingue leyendo, falló (con Reintentar) y vacío; la respuesta de otro almacén ya no tapa la del nuevo. 5 pruebas.
+  - UB.RF.5: el mapa abre en la zona que tiene ubicaciones. 3 pruebas.
+  - UB.RF.6: `ngModel` sin `name` en el formulario por rango (NG01352).
+  - Plantillas tipan en las cuatro apps; `check:pantalla` y `check-estilos` sin fallas nuevas.
+  - NO MEDIDO: escrituras reales y sus mensajes del servidor, celular, el puesto que captura.
 - [ ] **[UB.3b]** ⬜ Medición de la propuesta Wincaja PH (§2.1) + censo en celular.
+  - [x] **[UB.3b.1]** 🧪 (2026-11-17) **Censo con lector: escanear la ubicación y después cada producto** (pedido de Edgar). Asignación › Escanear (`?vista=escanear`).
+    - La presentación sale del código de barras de Kepler (medido en prod: paquete 7502212930012 y caja C07302 del mismo producto) y el papel, de la ubicación.
+    - Una ubicación nueva se da de alta en el acto. Si ya hay lugar fijo en otra ubicación, ofrece moverlo. Las lecturas rápidas esperan en fila.
+    - El buscador abre solo un resultado único; con un código de barras, abre la asignación de esa presentación con el campo de ubicación listo.
+    - Sin endpoints nuevos. 23 pruebas (logica 15 + flujo 8, con 4 negativas). Módulo de almacén: 791/791. Plantillas tipan; `check:pantalla` y `check-estilos` sin fallas nuevas.
+    - NO MEDIDO: la pantalla viva (`ubicaciones-escaneo.e2e.ts` se salta hasta que prod lo traiga) y el celular con cámara.
+  - [x] **[UB.RF.10]** 🧪 (2026-11-17) **Imprimir carteles desde el Mapa: uno, un rack, un pasillo o toda la zona** (pedido de Edgar). Reutiliza `anden-cartel` (dos por hoja carta, código de barras). 3 pruebas. NO MEDIDO en la pantalla viva hasta desplegar.
 - [ ] **[UB.3-orig]** ↪️ partido en UB.3a/UB.3b · `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.
 - [ ] **[UB.5]** ⬜ Cantidad sólo en reservas + `entered_at` + acomodo en celular + pantalla Excedente.

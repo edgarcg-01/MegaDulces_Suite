@@ -49,7 +49,7 @@ número falso ya hizo daño. El veredicto se da por criterio.
 3. **Decidir**: qué se fusiona, qué se quita, qué se automatiza. Lo que es de Edgar (personas,
    dinero, proceso) se le pregunta; lo de diseño y herramienta se decide y se anuncia.
 4. **Cambiar**, con la skill `diseno` y sus cinco preguntas por escrito.
-5. **Medir después, igual que antes**, y registrar la diferencia en §5.
+5. **Medir después, igual que antes**, y registrar la diferencia en la sección del paso.
 
 **El kit** (`e2e/reestructura/`):
 
@@ -73,7 +73,7 @@ Los resultados (JSON y capturas) caen en `e2e/reestructura/.resultados/`, fuera 
 
 Uso de 30 días al 2026-11-14, prod, sólo lectura.
 - **Entradas** son persona-días en que alguien entró o salió de la app por esa ruta. Es una **cota
-  inferior**: la telemetría no registra la navegación interna (ver §6, P-RF.2).
+  inferior**: la telemetría no registra la navegación interna (ver §7, P-RF.2).
 - **API, por quién opera** son las llamadas del endpoint principal, separadas por rol
   (`analytics.ui_usage`). ⛔ Se separan por rol **siempre**: sin separar, las pruebas de Dirección
   y la vista de superadmin se leían como problemas de la operación (§4.5).
@@ -247,35 +247,261 @@ vista de superadmin. Desde aquí, todo hallazgo de base se publica **por rol**.
 
 ---
 
-## 5. Los pasos que siguen
+## 5. Paso 1 — Tablero, fila de surtido y detalle de preventa (2026-11-17)
+
+**La pregunta:** ¿quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin
+dar un clic?
+
+**La respuesta medida en la versión de hoy: no.**
+- **El Tablero no dice nada de pedidos atorados** en su primera pantalla (cero avisos), aunque hay
+  **393 pedidos** que Kepler sigue teniendo como autorizados desde hace más de una semana.
+- **La fila de surtido sí lo dice, pero no se puede abrir:** «58 pedidos siguen autorizados en Kepler
+  desde 15/08/2026 y quedan fuera de la fila: revísalos en Kepler». Para ver cuáles, hay que salir de
+  la Suite.
+- **La fila muestra trabajo que nadie va a hacer.** En Canindo hay 11 surtidos «sin terminar», todos
+  «Esperando hace 12 días». En la pantalla se leen igual que el trabajo de hoy.
+
+### 5.1 Cómo se midió
+
+- `paso1.e2e.ts`, el 2026-11-17, contra prod `7edf9508a`. Esa versión no trae GP.10.4, así que es el
+  **«antes»**. Sesión de Edgar (superadmin), con los dos límites del paso 0 (§4.3).
+- **Nivel A**, la pantalla viva: los clics y la carga.
+- **Nivel B**, la base en sólo lectura: el uso por rol y los surtidos.
+- **El cruce de cifras** se hizo con el servicio real del Tablero ejecutado contra prod, igual que
+  en GP.10.4.
+- **Escrituras:** el recorrido intentó dos, «marcar urgente» y «armar». Las dos se abortaron en el
+  navegador; ninguna llegó a prod.
+
+### 5.2 El recorrido, contado
+
+Cada clic dice qué es:
+- **navega:** sólo cambia de pantalla.
+- **decide:** algo que el sistema no puede saber.
+- **confirma:** repite una decisión ya tomada.
+- **abre:** despliega un detalle.
+
+| Tarea de quien coordina | Antes (medido en prod) | Con GP.10.4 + GP.RF.15 (lo previsto; lo medido de GP.10.4 está en §5.5) |
+|---|---|---|
+| Entrar y ver la fila | 1 navega (pestaña «Consola de surtido»). Quien maneja varios almacenes cae en el primero (CEDIS, fila vacía): **+2 decide** para elegir otro | 1 navega («Fila de surtido», dentro del Tablero); el selector, igual |
+| Priorizar un surtido | 1 decide («Marcar urgente») + motivo tecleado + 1 confirma | igual |
+| Armar surtidos | 1 decide. Casi nunca hace falta: el sistema ya los arma solo (§5.3) | igual |
+| Abrir un pedido de preventa | 1 navega (pestaña «Preventa») + 1 abre | se previó 1 abre; **medido: 4 clics** (§5.5, GP.RF.21) |
+| Ver cuáles son los atorados | **imposible en la Suite** («revísalos en Kepler») | **1 abre** («velos en el Tablero») |
+
+| Pantalla (antes) | Quieta en | Accionables | Cifras | Marco hasta la 1.ª fila | Bajo AA | Lo que pesa |
+|---|---:|---:|---:|---:|---:|---|
+| Tablero | 4.0 s | 58 | 125 | 415 px de 768 | 0 | la lista baja **1.03 MB** con 1,451 pedidos (sin preventa) |
+| Fila de surtido (Canindo) | 1.1 s | 44 | 67 | 462 px | **6** | «Cancelar surtido» en rojo a 3.76:1, una vez por renglón (GP.RF.18) |
+| Preventa | 2.8 s | 42 | 81 | 451 px | 0 | — |
+
+### 5.3 Lo que dice la base (nivel B, 30 días, por rol)
+
+- **Quien coordina vive en el Tablero, no en la fila.** El coordinador de embarques:
+  - abrió la lista del Tablero 158 veces, en 14 de los 30 días, y el detalle de un pedido 23 veces;
+  - abrió la fila 15 veces, en 5 días;
+  - armó surtidos a mano 1 vez;
+  - no marcó ningún urgente y no liberó ni canceló ningún surtido;
+  - no puso ninguna hora de salida (las puso un supervisor, 9 en un solo día).
+- **El sistema ya arma solo.** En 30 días hubo 17 surtidos y los 17 los armó el sistema, al pedir
+  trabajo un surtidor («Tomar siguiente»). Sólo 5 se terminaron. Ninguno se marcó urgente ni se
+  liberó.
+- **La fila de hoy son surtidos abandonados.** Hay 27 sin terminar:
+  - Morelia Abastos: 14 abiertos desde el 8-oct;
+  - Canindo: 10 abiertos y 1 en surtido, desde el 4-nov;
+  - Padre Hidalgo: 2 en surtido, desde el 8-oct y el 3-nov.
+- **Los atorados son 393:** pedidos que Kepler sigue teniendo como autorizados, con fecha de hace
+  más de 7 días.
+
+  | Sucursal | Pedidos | Desde |
+  |---|---:|---|
+  | Zamora Centro | 288 | 19-mar |
+  | Canindo | 58 | 15-ago |
+  | Morelia Abastos | 26 | 21-sep |
+  | La Piedad Abastos | 9 | 29-nov-2025 |
+  | CEDIS | 8 | 20-abr |
+  | Padre Hidalgo | 2 | 7-sep |
+  | 8 Esquinas | 1 | 5-mar |
+  | Morelia Madero | 1 | 26-oct |
+
+  Nadie los va a surtir: hay que cerrarlos en Kepler.
+
+### 5.4 El cambio: la cifra de atorados se abre (GP.RF.15) 🧪
+
+- **Qué cambia en pantalla.** La fila ahora dice: «58 pedidos siguen autorizados en Kepler desde
+  15/08/2026 y quedan fuera de la fila: **velos en el Tablero** y ciérralos en Kepler».
+- **A dónde lleva la liga.** Al Tablero filtrado por:
+  - el estatus de Kepler AUTORIZADO;
+  - la sucursal;
+  - del primer atorado al día anterior a la ventana de la fila.
+- **Qué ve al llegar.** Una nota arriba de la lista dice qué filtro trae, y «Quitar este filtro» lo
+  quita en un clic.
+- **Por qué por estatus de Kepler y no por etapa:** por etapa no cuadra. En Canindo daría 52 de 58,
+  porque 6 están dentro de surtidos abandonados de la Suite y su etapa ya no dice «autorizado». Por
+  estatus de Kepler la lista que pide la pantalla da **exactamente** la cifra de la fila en las 8
+  sucursales: **393 de 393**, ninguno de preventa. Se midió con el servicio real contra prod.
+- **API.** `por_armar.ventana_desde` es opcional. Una API anterior no lo manda, y entonces la
+  consola no pinta la liga: no inventa la frontera.
+- **Pruebas.**
+  - Tablero, 6 nuevas:
+    - la liga llega con su filtro puesto;
+    - «Quitar este filtro» pide la lista sin él;
+    - 4 negativas, en las que no se aplica NADA de la liga, ni a medias: un estatus que la liga no
+      manda, fechas invertidas, una fecha que no es fecha y una sucursal mal escrita.
+  - Consola, 3 nuevas:
+    - la liga lleva su frontera exacta;
+    - la resta del día es de calendario (1-mar → 28-feb);
+    - negativa: con la API anterior no hay liga.
+  - Resultado: 58 de 58 junto con las existentes. Las plantillas tipan en las cuatro apps y
+    `check:pantalla` no tiene fallas nuevas.
+  - NO MEDIDO: una sucursal válida que la persona no tiene en su alcance. El servidor la filtra por
+    alcance; no hay prueba de cómo se ve.
+- **NO MEDIDO:**
+  - **La pantalla viva con el cambio:** prod no lo tiene. `paso1.e2e.ts` ya trae la tarea «veo los
+    atorados» y compara la cifra de la fila contra la de la lista; se corre al desplegar.
+  - **La mutación:** el árbol se comparte con otras sesiones vivas. Las negativas cubren cada rama de
+    rechazo.
+- **Costo:** esa consulta tarda 0.2 a 1.8 s, medida desde la laptop sobre rangos de hasta un año.
+  Pasa el límite de 500 ms (GP.RF.19).
+
+### 5.5 El «después» de GP.10.4, medido en prod (2026-11-17, `5b9d9af58`)
+
+GP.10.4 llegó a prod el 17-nov a las 09:22, dentro del lote de 57 commits que empujó otra sesión.
+GP.RF.15 todavía no está ahí. Se corrió el mismo `paso1.e2e.ts`, con la misma sesión, una hora
+después del «antes».
+
+**Lo que mejoró:**
+- Las pestañas del grupo Pedidos pasan de 7 a 5, y seguir un pedido ya no pide cambiar de pantalla.
+- Hay menos piezas en la primera pantalla del Tablero: 50 accionables contra 58, y 83 cifras contra
+  125.
+
+**Lo que empeoró, y se dice igual de claro:**
+
+| Medida | Antes (`7edf9508a`) | Después (`5b9d9af58`) | Por qué |
+|---|---:|---:|---|
+| Marco hasta la 1.ª fila del Tablero | 415 px | **507 px** de 768 (66 %) | se agregaron el renglón «Pedidos · Fila de surtido», más botones de etapa y el aviso «Se muestran los primeros 2000» |
+| Lo que baja la lista | 1.03 MB, 1,451 pedidos | **1.40 MB, 2,000** (de 2,224: **topada**) | la preventa entró a la lista del mes |
+| Quieta en (superadmin) | 4.0 s | **7.4 s** | el mismo peso |
+| Abrir un pedido de preventa | 2 clics (pestaña + abrir) | **4 clics** (volver a Pedidos + elegir el origen «Preventa» en dos clics + abrir) | la preventa ya no está en la primera página: la lista va por fecha. Por folio sigue siendo teclear y abrir |
+| Marco hasta la 1.ª fila de la fila de surtido | 462 px | **516 px** | la fila vive debajo de la cabecera del Tablero |
+
+**Sin cambio:** ver la fila (1 clic, más 2 si maneja varios almacenes), priorizar (2 clics y el
+motivo) y armar (1 clic). En la fila siguen 5 textos bajo AA, los «Cancelar surtido» (GP.RF.18).
+
+Lo que sigue en este paso, en orden, para que el «después» gane en todo y no sólo en pantallas:
+1. **GP.RF.20** 🧪 (hecho el 2026-11-17), quitar el renglón propio de «Pedidos · Fila de surtido»:
+   el cambio de vista va en la cabecera, junto al periodo.
+   - **Medido con una maqueta sobre prod** (`paso1-gprf20.e2e.ts`). La maqueta abre el Tablero
+     real, hace en el DOM lo mismo que la plantilla nueva (borra las reglas viejas y agrega la nueva)
+     y vuelve a medir.
+   - **Resultado:** la primera fila sube **50 px** en los tres anchos (507 → 457 px a 1280 y a 1366;
+     428 → 378 px a 1920). La cabecera no crece y sus acciones siguen en un solo renglón. Las ligas
+     llevan a donde llevaban.
+   - **Prueba negativa:** si el cambio de vista ocupara su propio renglón, el instrumento lo cuenta.
+   - **La primera maqueta midió mal,** y se corrigió antes de citarla. Dejaba vivo el CSS viejo de
+     `.gp-vista`, con su alto de 44 px: la cabecera crecía 11 px y «Pedidos» salía negro sobre
+     negro.
+   - **Quien surte y coordina sin ver el Tablero** conserva el cambio de vista; antes vivía fuera de
+     la cabecera, que para ese puesto no se pinta. Tiene su prueba.
+   - **NO MEDIDO:** la versión construida. Al desplegar, la misma prueba detecta que prod ya lo trae
+     y mide la real.
+2. **GP.10.5**, la lista deja de toparse y de bajar 1.4 MB. Con eso también se va el aviso de los
+   2000.
+3. **GP.RF.21**, la preventa a un clic: un botón «Preventa» junto a los de etapa, con su conteo, en
+   lugar del filtro de origen en dos clics.
+
+### 5.6 Lo que queda del paso 1
+
+- **GP.RF.14, los surtidos abandonados en la fila:** es una regla del proceso y la decide Edgar
+  (P-RF.4, §7).
+- **GP.RF.16, el aviso de atorados en la primera pantalla del Tablero:** pide que la API cuente los
+  atorados del alcance de la persona, porque el Tablero es por mes y los atorados son de meses
+  anteriores. Es el siguiente cambio de este paso.
+- **GP.RF.17 a GP.RF.19:** en el registro (§8).
+
+---
+
+## 5b. Ubicaciones: capturar (2026-11-17, adelantado por Edgar: «el primer paso es capturar las ubicaciones»)
+
+**Cómo se midió.** `ubicaciones.e2e.ts` recorre las pantallas de punta a punta en prod (`8a48dc0a7`),
+como superadmin:
+- **Mapa:** alta suelta con 8 códigos, buenos y malos.
+- **Captura masiva:** un rango de 180 ubicaciones y un Excel de 8 renglones.
+- **Lotes:** el «Deshacer».
+- **Asignación:** a mano y por Excel.
+- **Contenido.**
+
+Pasan las lecturas y las dos vistas previas, que sólo planifican: se revisó en el código. Se
+detuvieron dos escrituras (alta y «Crear 180»), y quedó registrado lo que habrían mandado.
+
+**El estado (nivel B):**
+- **Padre Hidalgo, el piloto, no tiene ninguna ubicación.**
+- **Ningún producto tiene lugar fijo,** en ningún almacén. En CEDIS son 0 de 9,045.
+- **CEDIS tiene 375 que parecen prueba:** salieron de una sola captura del 8-oct, el día en que se
+  construyó la captura masiva. Usan la zona **T · Tienda** (un CEDIS no tiene tienda), pasillos A–C,
+  racks 01–25 y niveles 1–5, con tipo «Tienda · piso». Además estorban: un lugar fijo de surtido exige
+  bodega (B), así que **en CEDIS no se le puede asignar ninguno a un producto**.
+
+| ID | Sev | Hallazgo | Nivel | Estado |
+|---|---|---|---|---|
+| UB.RF.1 | 🔴 | **Una cifra que se anima se quedaba con el valor anterior.** Al buscar «mazapan», la API dijo 46 y la tira pintó 9,045; al borrar la búsqueda, al revés. Causa: `count-up.directive.ts` no cortaba la primera animación y ésta tapaba el valor nuevo. Afecta a **toda** tira de cifras que cambie en su primer segundo | A + API | 🧪 arreglado, con 3 pruebas (la prueba salió roja antes del arreglo) |
+| UB.RF.2 | 🔴 | Las 375 de prueba en CEDIS, en zona Tienda | B | ⬜ **decisión de Edgar:** deshacer el lote (se puede: 0 en uso) |
+| UB.RF.3 | 🟠 | El mapa vacío decía «la captura masiva por rango llega en la siguiente entrega», y ya existe | A | 🧪 el texto ahora manda a «Captura masiva» |
+| UB.RF.4 | 🟠 | «Últimas capturas» decía «Todavía no hay» mientras leía y también si fallaba (CEDIS sí tenía una) | A + API | 🧪 dice «Leyendo…», el error con «Reintentar», o «no hay» sólo si no hay. La respuesta de otro almacén ya no tapa la del nuevo. 5 pruebas |
+| UB.RF.5 | 🟡 | El mapa abre en «Bodega (0)» aunque todo esté en Tienda | A | 🧪 abre en la zona que tiene ubicaciones. 3 pruebas |
+| UB.RF.6 | 🟡 | En el formulario por rango, el selector de Tipo usa `ngModel` sin `name` (NG01352): rompe en modo desarrollo | A (prueba) | 🧪 `name="tipo"` |
+| UB.RF.7 | 🟡 | Cada pantalla (Mapa, Asignación, Contenido) pide el almacén otra vez, y Contenido abre vacío | A | ⬜ |
+| UB.RF.8 | 🟡 | «0» de «Con lugar fijo» en verde, a 3.0:1 (bajo AA) | A | ⬜ (mismo token que GP.RF.13) |
+| UB.RF.9 | 🟡 | «Se crea 180 de 180» (es «Se crean») | A | ⬜ |
+| UB.3b.1 | ⭐ | **Pedido de Edgar:** asignar con lector de código de barras, y que capturar la ubicación sea también asignar lo que está ahí. **Hecho como modo «Escanear» en Asignación:** se escanea el cartel y después cada producto. La presentación sale del código de barras (medido en prod: el del paquete y el de la caja de un mismo producto llevan a su presentación) y el papel, de la ubicación. Una ubicación que no existe se da de alta en el acto; si el producto ya tiene lugar fijo en otra, ofrece moverlo. Las lecturas rápidas esperan en fila. En el buscador normal, una búsqueda que deja un solo producto lo abre, y si fue su código de barras, abre la asignación de esa presentación con el campo de ubicación listo | C (23 pruebas) | 🧪 sin escribir en prod; `ubicaciones-escaneo.e2e.ts` lo mide al desplegar (hoy se salta: NO MEDIDO) |
+| UB.RF.10 | ⭐ | **Pedido de Edgar:** imprimir uno o muchos carteles con el código. «Imprimir carteles» en el Mapa, por zona o por pasillo, y en cada rack para sus niveles o uno solo. Usa el cartel que ya existía (código grande, código de barras, almacén, dos por hoja carta) | C (3 pruebas) | 🧪 se mide al desplegar, con la misma prueba |
+
+**Lo que funciona bien y se conserva:**
+- Cada regla del código dice su motivo («sin Ñ: el código de barras no la lee», «el nivel va del 1
+  al 6»), y acepta minúsculas.
+- Hay una vista previa antes de crear. El Excel da el motivo por renglón y marca los repetidos.
+- «Deshacer» por lote, con confirmación.
+- El mapa se recorre con las flechas.
+- La asignación sólo ofrece las presentaciones que Kepler tiene en esa sucursal, y dice por qué
+  rechaza las demás.
+
+**NO MEDIDO:**
+- las escrituras reales y los mensajes del servidor al guardar;
+- el celular;
+- el uso desde el puesto que captura (encargado o almacenista);
+- Contenido con mercancía (hay 0 ubicaciones con mercancía).
+
+---
+
+## 6. Los pasos que siguen
 
 Cada paso arranca con la línea base de su pantalla (Playwright), recorre el proceso **completo**
 con datos reales y termina con la medición de después. El orden sigue el recorrido del pedido.
 
 | Paso | Interfaz | La pregunta del paso | Qué se mide con Playwright |
 |---|---|---|---|
-| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | clics de «entro» a «prioricé» y a «armé»; carga de la primera pantalla; el volumen encimado y las unidades sin leyenda (GP.10.5); la lista topada a 2,000 |
+| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» y el «después» de GP.10.4 medidos el 2026-11-17 (§5). 🧪 GP.RF.15 en código. Falta: GP.RF.20 (marco), GP.10.5 (tope y peso), GP.RF.21 (preventa a un clic), GP.RF.16 (aviso de atorados) y la regla de los surtidos abandonados (P-RF.4) |
 | **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | con el puesto de surtidor: toques por renglón; objetivos ≥44 px; qué pasa si se cae la red a medio surtido; la espera de superadmin (GP.RF.9) |
 | **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad»); el mensaje del rechazo |
 | **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? ¿Hace falta elegir almacén cada vez? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo |
 | **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy |
 | **5** | Revisión + Guías (caja) | ¿Cuántas pantallas y clics le toma a la caja cerrar un pedido de preventa? | clics por pedido; frecuencia de encuesta (GP.RF.6). D9: sólo se audita |
 | **6** | Clientes nuevos | ¿Es una pantalla, o es un aviso dentro de Surtir o del Tablero? | qué hace la persona ahí y cuántas veces |
-| **7** | Ubicaciones (fase UB) | ¿Mapa y contenido son una sola tarea? | recorrido de acomodar un producto; los errores de alta (GP.RF.5) |
+| **7** | Ubicaciones (fase UB) | ¿Mapa y contenido son una sola tarea? | ✅ adelantado: §5b (captura de punta a punta, 2026-11-17). Falta: medir con el puesto que captura y en celular |
 
 ---
 
-## 6. Decisiones pendientes de Edgar
+## 7. Decisiones pendientes de Edgar
 
 | # | Pregunta | Recomendación |
 |---|---|---|
 | **P-RF.1** | ✅ en parte: Edgar inició sesión (superadmin) con `iniciar-sesion.js`. Falta medir **como cada puesto**: el paso 0 probó que superadmin no ve lo que vive el surtidor (14 ms contra más de 11 s) | Una sesión por puesto para los pasos 1–3: coordinador de embarques, surtidor, checador y caja. La persona entra con `iniciar-sesion.js`; nadie comparte su contraseña |
 | **P-RF.2** | Hoy la Suite registra en qué pantalla entra o sale la persona, no por dónde navega. Lo dejó prometido por escrito: *«el evento es el clic en un enlace de navegación, no el recorrido dentro de cada módulo»* (SN.12). Sin el recorrido no se puede contar cuántos clics da la gente de verdad, ni afirmar que una pantalla no se usa | Registrar sólo la **ruta** al cambiar de pantalla (nada del contenido), y analizarla por puesto, nunca por persona. Es tu decisión porque cambia lo que se prometió |
+| **P-RF.4** | Hay **25 surtidos** que el sistema armó solo, que nadie tomó y que siguen en la fila: 12 a 40 días. Se ven como trabajo de hoy, y «Tomar siguiente» le daría al surtidor primero el más viejo. ¿Qué pasa con un surtido que el sistema armó y nadie tomó? (GP.RF.14) | Que **se deshaga solo** al día siguiente: sus pedidos regresan a «por armar» y, si Kepler ya no los tiene autorizados, salen. Los que armó una persona no se tocan. Cero clics para el coordinador. Es tu decisión porque fija cuándo un pedido se da por abandonado |
 | **P-RF.3** | ¿Se extiende después a toda la suite? (356 pantallas en `view`; el 80 % del uso en 22) | Primero cerrar este alcance; el inventario de §4.4 queda listo para cuando se decida |
 
 ---
 
-## 7. Registro de hallazgos
+## 8. Registro de hallazgos
 
 Formato de cada hallazgo:
 - **Qué está mal**, desde la silla de quien usa la pantalla.
@@ -287,16 +513,28 @@ Formato de cada hallazgo:
 | ID | Paso | Sev | Hallazgo | Nivel | Costo | Regla | Decisión | Estado |
 |---|---|---|---|---|---|---|---|---|
 | GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
-| GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el paso 1 mide el después | 🔨 |
+| GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras. Con GP.10.4 en prod: 5 pestañas, 50 accionables, 83 cifras, pero **507 px** de marco (GP.RF.20) | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
 | GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén | ⬜ |
 | GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | ⬜ |
+| GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
+| GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | 🧪 |
+| GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | ⬜ siguiente cambio |
+| GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | ⬜ |
+| GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens | ⬜ |
+| GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
+| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | 🧪 |
+| GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
 
 ---
 
-## 8. Bitácora
+## 9. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **Ubicaciones adelantado** a pedido de Edgar (§5b). El piloto no tiene ninguna ubicación; las 375 de CEDIS parecen una prueba en zona Tienda (UB.RF.2, decisión de Edgar). Arreglados en código: la cifra animada que se quedaba en el valor anterior (UB.RF.1, afecta a toda la suite), «no hay capturas» mientras lee, el texto falso del mapa, la zona en la que abre y un `ngModel` sin `name` | Claude |
+| 2026-11-17 | **GP.RF.20 hecho** 🧪: el cambio de vista sube a la cabecera. En maqueta sobre prod, la primera fila sube 50 px en los tres anchos y la cabecera no se parte (con su prueba negativa). La primera maqueta medía mal (dejaba vivo el CSS viejo) y se corrigió antes de citarla | Claude |
+| 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |
+| 2026-11-17 | **Paso 1 medido** en prod `7edf9508a` (el «antes») con la sesión de Edgar. Quien coordina no ve lo atorado sin clic: el Tablero no lo dice, la fila lo cuenta sin dejar abrirlo, y 25 de sus 27 surtidos son abandonados. Se hizo GP.RF.15, la cifra de atorados liga al Tablero (cuadra 393 de 393) 🧪. Nuevos: GP.RF.14–19 y P-RF.4 | Claude |
 | 2026-11-14 | Paso 0.3 medido con la sesión de Edgar (superadmin), en prod `d88bfc45a` (sin GP.10.4: es el «antes»). Separados por rol, cuatro de los siete hallazgos de base eran pruebas de Dirección o la vista de superadmin: se retiran o corrigen (§4.5). Nuevos: GP.RF.8–13 | Claude |
 | 2026-11-14 | Nace el documento, a pedido de Edgar. Paso 0: instrumento con control y negativa ✅, blindaje contra escrituras en prod ✅, inventario y uso medidos, línea base por pantalla NO MEDIDA (falta la sesión, P-RF.1). Alcance acotado por Edgar al plan GP y a lo trabajado en la sesión | Edgar, Claude |

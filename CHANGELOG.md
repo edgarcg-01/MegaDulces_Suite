@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — Ubicaciones: asignar con el lector de código de barras, y carteles de uno o de muchos (UB.3b.1 · UB.RF.10 · 2026-11-17 · en código, sin soltar)
+- **Asignación › Escanear**: se escanea el cartel de la ubicación y después cada producto que está ahí. La Suite sabe si es caja, paquete o pieza por su código de barras, y si va como lugar fijo, reserva o exhibición por la ubicación: no se teclea nada más. Si la ubicación no existe, se da de alta en ese momento; si el producto ya tenía lugar fijo en otra, ofrece moverlo.
+- En el buscador de Asignación, escanear el código de barras abre el producto y su asignación con el campo de ubicación listo.
+- **Mapa › Imprimir carteles**: los carteles con el código grande y su código de barras, de un nivel, de un rack, de un pasillo o de toda la zona (dos por hoja carta).
+
+### Fixed — Ubicaciones: las cifras dicen el último dato, y la captura ya no dice «no hay» cuando no sabe (UB.RF · 2026-11-17 · en código, sin soltar)
+- Las cifras grandes que se animan (la tira de arriba de muchas pantallas) se quedaban a veces con el valor anterior: en Asignación, al buscar «mazapan» decía 9,045 productos cuando eran 46. Ahora siempre terminan en el último dato que llegó.
+- «Últimas capturas» dice «Leyendo…» mientras carga y avisa si no pudo leer (con Reintentar). Antes decía «Todavía no hay capturas» en los dos casos.
+- El mapa abre en la zona que tiene ubicaciones (Bodega o Tienda), y el mapa vacío ya no dice que la captura masiva «llega en la siguiente entrega»: está en el botón «Captura masiva».
+
 ### Changed — Pedidos del almacén: el Tablero muestra también la preventa, por etapa (GP.10.4a · 2026-11-14 · en código, sin soltar)
 - `/almacen/pedidos` lista ahora, junto a los pedidos de Kepler, los de **preventa** del vendedor, por su fecha de entrega. También se pueden filtrar con el origen «Preventa».
 - Los botones de arriba ya no son el estatus de Kepler, sino la **etapa en el almacén**: Autorizado, En cola, Surtiendo, Surtido, Checando, Checado y Embarcado. Así «Todos» cuenta lo mismo que la lista, incluida la preventa.
@@ -16,6 +26,8 @@
 - Un pedido de preventa abre su resumen. El botón «Documento, cobro y recorrido» lo abre en la Mesa de Control de Preventa, ya seleccionado.
 - (GP.10.4b) Quien coordina el surtido tiene en el Tablero una segunda vista, **Fila de surtido**: es la Consola de surtido (urgentes, hora de salida, armar y tanda), sin salir de la pantalla.
 - (GP.10.4c) Salen las pestañas **Preventa** y **Consola de surtido**. Sus direcciones viejas llevan al Tablero: la consola, a la vista «Fila de surtido», y Preventa, al Tablero filtrado por preventa. La Mesa de Control se sigue abriendo completa desde cualquier pedido de preventa, y tiene un regreso al Tablero.
+- (GP.RF.15) En la fila de surtido, los pedidos que Kepler sigue teniendo como autorizados desde hace más de una semana ya se pueden ver en la Suite: «velos en el Tablero» abre la lista con ese filtro puesto y se quita con un clic. Antes decía «revísalos en Kepler».
+- (GP.RF.20) El cambio de vista «Pedidos · Fila de surtido» pasa a la cabecera, junto al periodo: la lista empieza 50 px más arriba.
 
 ### Fixed — La comprobación del gasto: lo que encontró la revisión independiente antes de abrir el PR (PGP.123 · 2026-11-17 · en código)
 - La Suite ya no da un gasto por «listo» si el vale trae factura y no la pudo leer, y el escritor no escribe si la solicitud que encuentra en Kepler no es la misma (total, acreedor y fecha) que revisó la regla.
