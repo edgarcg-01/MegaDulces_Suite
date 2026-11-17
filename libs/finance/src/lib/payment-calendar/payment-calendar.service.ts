@@ -31,7 +31,10 @@ import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
 import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
-import { AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_PAGADO_POR_COMPROBANTE, SQL_COMPROBANTES_POR_APLICAR, moverComprobanteAKepler } from './pago-por-comprobante';
+import {
+  AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO, EVENTO_PAGADO_POR_COMPROBANTE,
+  SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
+} from './pago-por-comprobante';
 import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
@@ -2068,6 +2071,57 @@ export class PaymentCalendarService {
         return pendiente ? 'pagado' : 'ligado';
       });
       if (hecho === 'pagado') { out.pagados++; out.ids_pagados.push(f.id); } else if (hecho === 'ligado') out.ligados++;
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.130b]` **El banco confirma lo que pagó el comprobante.** El comprobante dispara el pago el mismo día (D1); el
+   * estado de cuenta llega días después y aquí liga su salida al pago (`paid_bank_*`), sin cambiar su estado. Es lo que
+   * permite, después, avisar del pago cuyo dinero no aparece (rebote).
+   *
+   * La regla es la del banco (`decidirPagosPorElBanco`: ±$1, ±3 días de la fecha del COMPROBANTE, uno a uno) medida
+   * junto con los pagos pendientes, para que una salida no la reclamen dos. Y además tiene que salir de la MISMA cuenta
+   * que leyó el comprobante: si sale de otra, no se liga (`otra_cuenta`). Corre antes que `pagarPorElBanco`.
+   */
+  async confirmarPorElBanco(hoy: string = todayMx(), autor = AUTOR_PAGO_POR_EL_BANCO): Promise<{ revisados: number; confirmados: number; otra_cuenta: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out = { revisados: 0, confirmados: 0, otra_cuenta: 0 };
+    type Fila = { id: string; dia: string; importe: number; metodo: string | null; cuenta_planeada: string | null };
+    const leido = await this.tk.run(async (trx) => {
+      const porConfirmar = (await trx.raw(SQL_POR_CONFIRMAR_EN_EL_BANCO, [tenantId, hoy, hoy])).rows as Fila[];
+      if (!porConfirmar.length) return null;
+      const pendientes = (await trx.raw(SQL_PENDIENTES_POR_EL_BANCO, [tenantId, hoy, hoy])).rows as Fila[];
+      const todos = [...porConfirmar, ...pendientes];
+      const desde = todos.map((p) => p.dia).reduce((a, b) => (b < a ? b : a));
+      const salidas = (await trx.raw(SQL_SALIDAS_POR_EL_BANCO, [tenantId, desde, hoy])).rows as SalidaBanco[];
+      const ligadas = new Set(((await trx.raw(SQL_SALIDAS_LIGADAS, [tenantId])).rows as { id: string }[]).map((r) => r.id));
+      return { porConfirmar, decision: decidirPagosPorElBanco(todos.map((p) => ({ ...p, importe: Number(p.importe) })),
+        salidas.map((x) => ({ ...x, importe: Number(x.importe) })), hoy, ligadas) };
+    });
+    if (!leido) return out;
+    out.revisados = leido.porConfirmar.length;
+    for (const p of leido.porConfirmar) {
+      const d = leido.decision.get(p.id);
+      if (!d || d.estado !== 'probado') continue;
+      if (p.cuenta_planeada && d.cuenta_id !== p.cuenta_planeada) { out.otra_cuenta++; continue; }
+      const hecho = await this.tk.run(async (trx) => {
+        const otra = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, paid_bank_movement_id: d.movimiento_id }).whereNot({ id: p.id }).whereNot({ status: 'cancelled' }).first('id');
+        if (otra) return false;
+        const n = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, id: p.id, status: 'executed' }).whereNull('paid_bank_movement_id').whereNotNull('paid_proof_id')
+          .update({ paid_bank_movement_id: d.movimiento_id, paid_bank_date: d.fecha, paid_bank_amount: d.importe, updated_at: trx.fn.now() });
+        if (!n) return false;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: p.id, event: EVENTO_CONFIRMADO_POR_EL_BANCO, status_from: 'executed', status_to: 'executed',
+          created_by: autor,
+          detail: JSON.stringify({ regla: 'PGP.130b', hoy, comprobante: { dia: p.dia, importe: Number(p.importe) },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe } }),
+        });
+        return true;
+      });
+      if (hecho) out.confirmados++;
     }
     return out;
   }

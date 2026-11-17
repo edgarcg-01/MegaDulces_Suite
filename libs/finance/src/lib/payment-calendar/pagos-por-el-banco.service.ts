@@ -101,6 +101,9 @@ export class PagosPorElBancoService implements OnModuleInit, OnModuleDestroy {
         await this.tenantCtx.run({ tenantId, roleName: 'system' }, async () => {
           const c = await this.calendario.pagarPorComprobante();
           if (c.revisados) this.logger.log(`pagos por comprobante: ${c.revisados} por aplicar · ${c.pagados} pagados · ${c.ligados} ligados a un pago que el banco ya había probado`);
+          // [PGP.130b] Antes que pagar por el banco: lo que ya pagó el comprobante se confirma con su salida.
+          const cb = await this.calendario.confirmarPorElBanco();
+          if (cb.revisados) this.logger.log(`confirmados por el banco: ${cb.confirmados} de ${cb.revisados} pagados por comprobante · ${cb.otra_cuenta} con la salida en otra cuenta (no se ligan)`);
           const r = await this.calendario.pagarPorElBanco();
           const n = r.sin_decidir;
           this.logger.log(`pagos por el banco ${r.hoy}: ${r.revisados} pendientes de días pasados · ${r.pagados} pagados ($${r.monto.toFixed(2)})`
