@@ -1,8 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2685 KB, 14716 líneas, 78 secciones.
-> **Índice navegable** — 2683 KB, 14758 líneas, 78 secciones.
-> **Índice navegable** — 2696 KB, 14811 líneas, 78 secciones.
+> **Índice navegable** — 2688 KB, 14728 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -73,170 +71,20 @@
 | 13610 | 13651 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13652 | 13808 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 13809 | 13839 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13840 | 14041 | 30 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14042 | 14106 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14107 | 14115 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14116 | 14169 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14176 | 14185 | 1 | 📝 Convenciones |
-| 14186 | 14223 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14224 | 14242 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14243 | 14295 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14296 | 14669 | 58 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14670 | 14700 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14701 | 14722 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14723 | 14750 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14751 | 14782 | 23 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14783 | 14806 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
-| 225 | 3995 | 587 | 🎯 EN PROGRESO |
-| 4012 | 4049 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4050 | 4083 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4084 | 4168 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4169 | 4272 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4273 | 4339 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4340 | 4443 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4444 | 4527 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4528 | 4697 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 4698 | 4760 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 4761 | 4833 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 4834 | 4885 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4886 | 5745 | 148 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 5746 | 5759 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 5760 | 5784 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 5785 | 5807 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 5808 | 5846 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 5847 | 6646 | 75 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 6647 | 6831 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 6832 | 6874 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 6875 | 6952 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 6953 | 7046 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7047 | 7182 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7183 | 7199 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7200 | 7252 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7253 | 7320 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7321 | 7573 | 20 | Fase CH — Checadores / Control de asistencia |
-| 7574 | 7639 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 7640 | 7667 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 7668 | 7834 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 7835 | 7862 | 3 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 7863 | 8264 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8265 | 8327 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8328 | 8457 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8458 | 8520 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 8521 | 8681 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 8682 | 8752 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 8753 | 8801 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 8802 | 8834 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 8835 | 9391 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9392 | 9523 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 9524 | 9577 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 9578 | 9617 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 9618 | 9670 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 9671 | 9737 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 9738 | 9900 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 9901 | 10184 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10185 | 10352 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10353 | 12783 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 12784 | 12792 | 1 | Fase RR — Ventas por ruta |
-| 12793 | 13088 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13089 | 13099 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13100 | 13120 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13121 | 13131 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13132 | 13143 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13144 | 13203 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13204 | 13631 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 13632 | 13646 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 13647 | 13688 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 13689 | 13845 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 13846 | 13876 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13877 | 14083 | 32 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14084 | 14148 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14149 | 14157 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14158 | 14211 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14218 | 14227 | 1 | 📝 Convenciones |
-| 14228 | 14265 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14266 | 14284 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14285 | 14337 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14338 | 14711 | 58 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14712 | 14742 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14743 | 14764 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14765 | 14792 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14793 | 14824 | 23 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14825 | 14848 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
-| 225 | 4041 | 598 | 🎯 EN PROGRESO |
-| 4058 | 4095 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 4096 | 4129 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 4130 | 4214 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 4215 | 4318 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 4319 | 4385 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 4386 | 4489 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 4490 | 4573 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 4574 | 4743 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 4744 | 4806 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 4807 | 4879 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 4880 | 4931 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4932 | 5791 | 148 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 5792 | 5805 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 5806 | 5830 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 5831 | 5853 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 5854 | 5892 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 5893 | 6692 | 75 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 6693 | 6877 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 6878 | 6920 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 6921 | 6998 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 6999 | 7092 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 7093 | 7228 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 7229 | 7245 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 7246 | 7298 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 7299 | 7366 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 7367 | 7619 | 20 | Fase CH — Checadores / Control de asistencia |
-| 7620 | 7685 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 7686 | 7713 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 7714 | 7880 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 7881 | 7908 | 3 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
-| 7909 | 8310 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 8311 | 8373 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 8374 | 8503 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 8504 | 8566 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 8567 | 8727 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 8728 | 8798 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 8799 | 8847 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 8848 | 8880 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 8881 | 9437 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 9438 | 9569 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 9570 | 9623 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 9624 | 9663 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 9664 | 9716 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 9717 | 9783 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 9784 | 9946 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 9947 | 10230 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 10231 | 10398 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 10399 | 12829 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 12830 | 12838 | 1 | Fase RR — Ventas por ruta |
-| 12839 | 13134 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13135 | 13145 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13146 | 13166 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13167 | 13177 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13178 | 13189 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13190 | 13249 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13250 | 13677 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 13678 | 13692 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 13693 | 13734 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 13735 | 13891 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 13892 | 13922 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13923 | 14136 | 33 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14137 | 14201 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14202 | 14210 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14211 | 14264 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14271 | 14280 | 1 | 📝 Convenciones |
-| 14281 | 14318 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14319 | 14337 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14338 | 14390 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14391 | 14764 | 58 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14765 | 14795 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14796 | 14817 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14818 | 14845 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14846 | 14877 | 23 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14878 | 14901 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13840 | 14053 | 33 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14054 | 14118 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14119 | 14127 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14128 | 14181 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14188 | 14197 | 1 | 📝 Convenciones |
+| 14198 | 14235 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14236 | 14254 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14255 | 14307 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14308 | 14681 | 58 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14682 | 14712 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14713 | 14734 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14735 | 14762 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14763 | 14794 | 24 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14795 | 14818 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14941,7 +14789,7 @@ Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace
 - [ ] 🧪 `[CANON.6.18]` **Logística por evento — sale `import-logistics-dims` del nocturno.** Unidades, choferes y rutas de Kepler (`kdm_transporte` / `kdm_chofer` / `kdm_rutas`, por el espejo completo cada ~5 min) entran a `logistics.*` al llegar: `normalizeVehiclesFromOds` / `normalizeDriversFromOds` / `normalizeRoutesFromOds`, acotados a las claves que llegaron. El nocturno falló 21 noches (12-oct → 5-nov) y desde el arreglo no tuvo nada que hacer; en su vida dio de alta 17 rutas y ninguna unidad ni chofer (ésos sólo los adopta). La regla se movió sin cambiarla a `services/feeds-ingest/logistics-dims.js` (la herramienta manual la usa); un cambio declarado: lo borrado en la app tampoco renace por su clave (hoy 0 filas). Árbitro `logistica_dims_evento` (con fecha de retiro): 0 en prod, 12–47 ms. Prueba `test-newdb-logistica-por-evento` 15 ✓, 7 mutantes en rojo; vecinas en verde; API `tsc` 0, `db-health` 24 ✓. Falta: empujar, soltar la API y desplegar la ingesta. Anexo CANON §8.8. (2026-11-13)
 - [ ] 🧪 `[CANON.6.19]` **Etiquetas por evento — sale `import-label-data` del carril `prices`, y el carril con él.** La etiqueta de anaquel ya la escribía el hop-2 (`normalizeLabelsFromOds`, al llegar `kdii` / `kdpv_prod_util`); desde CANON.6.7 el script no escribía nada salvo dos carreras (13-nov) en que pisó con el precio viejo lo que el hop-2 acababa de poner. Su único aporte propio —el EAN de `c95` cuando `c7` trae el SKU, 19 productos en 45 días— pasa a `normalizeProductsFromOds` con la misma regla (paso aparte, plaza menor libre, sin duplicar EAN) y una guarda para no quitar el EAN que Kepler sigue publicando; no cambia un número (0 de 9,027 escriben antes y después). Sale el modo `prices` de `run-prod-feeds.js`, su renglón de `crontab.feeds` y `feed_prices` de db-health; la herramienta manual mide en seco (escribe y revierte) y con `--apply` delega el EAN al hop-2. Árbitro `etiquetas_evento` (con fecha de retiro): 0 de 79,951 en prod, 580–730 ms (no compara mayoreo: contra `v_label_prices` costaría ~9.5 s; ahí también 0 de 79,042). Prueba `test-newdb-etiquetas-por-evento` 20 ✓, 9 mutantes en rojo; vecinas en verde; API `tsc` 0, `db-health` 24 ✓. Hallazgo: 54 etiquetas de 6 productos sin SKU congeladas desde el 25-sep. Falta: empujar, soltar la API y desplegar la ingesta JUNTAS. Anexo CANON §8.8. (2026-11-14)
 - [ ] 🧪 `[CANON.6.20]` **Precio de caja por evento — sale `import-box-price` del nocturno; su «hueco» era una regla sin desempate.** Las «37–77 correcciones por noche» no eran huecos: el precio del umbral menor se tomaba sin desempatar plazas con distinto precio y el cálculo acotado del evento y el completo del nocturno elegían distinto (40 de 407 empates). Decisión (anunciada; cambia un número): moda entre plazas, y si empata, el menor — 27 precios cambian (mediana 1.7 %, 0.4 % de la venta de 90 días; ALTOS BOL PLANA guardaba el precio de una sola plaza), commit propio. Lo que sólo veía el nocturno (alta por `kdii`, `factor_sale` nuevo) lo ve ahora `normalizeBoxPrice` en la cadena de `kdii`; columnas crudas (0 relleno): el acotado va por la PK, 6–20 ms por 40 SKUs. Herramienta manual que mide en seco; árbitro `caja_precio_evento` (con fecha de retiro): hoy 27 hasta correr `--apply` una vez tras desplegar, ~700–780 ms. Prueba `test-newdb-caja-por-evento` 16 ✓, 6 mutantes en rojo + 1 equivalente; vecinas en verde; API `tsc` 0, `db-health` 24 ✓. Falta: empujar, soltar la API, desplegar la ingesta y correr `import-box-price.js --apply`. Anexo CANON §8.8. (2026-11-14)
-- [ ] 🔨 `[CANON.6.21]` **Oleada 8b abierta: `existencia-aux` (cada 5 min, ~5,400 s de CPU al día) → tablas mantenidas por llave (ADR-104).** C0 re-medido hoy: 2,016 corridas en 7 días, 18.7 s de promedio; recalcular por llave cuesta ~~3–10 ms (factor por producto), 210–540 ms por lote (factor por almacén)~~ (⛔ corregido el 2026-11-17: medido con `count(*)`, que quita los `LEFT JOIN` caros; con las columnas de verdad la vista filtrada cuesta lo mismo que entera, ~400 ms y 3–4.7 s), ~200 ms por lote (costo); `kdm2` tocó 1,850 SKUs hasta las 10:20 → ~1,000–2,000 s/día con la cola drenada cada ~30 s, más el precio, medido el mismo día: la regla de `mv_price_truth` reescrita por llave da idéntico a la original (lotes de 1 a 1,000 y el catálogo entero) y cuesta ~5 ms por SKU (10 SKUs 58–158 ms, 200 ~0.8–1.1 s). Orden: 1 la regla del precio por llave ✓ · 2 🔨 el precio hecho: migración `20261114124213` (sin aplicar; sólo objetos nuevos) con `price_truth_de(skus)` (las dos formas de una plantilla), la tabla `price_truth` (vacía, sin lectores) y `recalcular_existencia(skus)` (escribe sólo lo que cambió; >800 SKUs → completo); re-medido en prod contra la definición viva: idéntico completo y por llave; ⛔ con `jit` prendido la forma por llave tarda 5–14× (las funciones llevan `jit = off`); ~9 ms por SKU vendido (crece con la historia: `kdm2` no tiene fecha), techo ~5 min/día contra ~37 de hoy; prueba `test-newdb-precio-por-llave` 30 ✓, 9 mutantes + 1 equivalente · 2 ✅ (aplicada en prod el 2026-11-17, lote 1192) los otros tres: migración `20261117085622` con `resolved_product_box_factor_de`, `warehouse_box_factor_de` y `kepler_unit_cost_de(skus)` (con `NULL` leen la vista; por llave, una PLANTILLA por vista idéntica letra por letra a `pg_get_viewdef` de prod, con la llave en cada pieza agrupada; el `up()` se niega si la vista cambió), sus tres tablas y `recalcular_existencia` con los cuatro objetos; medido en prod: idéntico en 60 lotes, factor por almacén 0.2–0.4 s hasta 200 SKUs (completo 9.5 s), factor por producto 80–150 ms, costo 15–60 ms; prueba `test-newdb-factores-por-llave` 39 ✓ (base mínima y tipo CI), 14 mutantes muertos · 3 ✅ (aplicada en prod el 2026-11-17, lote 1193, en horario hábil: 2.9 s sin transacciones viejas) el evento: migración `20261117094325` — cola `analytics.llaves_sucias` SÓLO ALTAS (con llave única la ingesta esperaría al que drena), disparadores por sentencia en las 13 fuentes que anotan sólo si cambió algo que la regla lee (clave vieja y nueva; almacén/TRUNCATE = todo), que nunca frenan la ingesta (errores a `llaves_sucias_errores`), y nacen APAGADOS (interruptor `analytics.existencia_por_evento`: si viaja antes del paso 4 no llena la cola); `drenar_existencia()` (completo con `'*'`, umbral o primera corrida del día; `ocupado` sin esperar; si falla la cola queda intacta) y `existencia_corridas` (el árbitro); prueba `test-newdb-existencia-por-evento` 48 ✓ (base mínima y tipo CI), 16 mutantes muertos; +50–85 ms por lote de 2,000 renglones de `kdm2`; FUERA de horario por el candado de crear disparadores · 4 ✅ (en prod: `6a5b77ff6` desplegado 13:07, interruptor prendido 13:28 por Edgar) el que escucha: `ExistenciaPorEventoService` (`libs/commercial/.../commercial-analytics`) escucha `existencia_sucia` sólo en el worker, junta avisos con `MiradaAlAviso` (30 s) y llama a `drenar_existencia()`; mira al arrancar y al volver el LISTEN; `ocupado` → vuelve a mirar, `error` → error en el log, sin migración (42883) → aviso; `existencia-por-evento.arranque.spec.ts` 17 ✓ (grafo del módulo, #414). Encendido el 2026-11-17: el completo inicial (21 s) llenó las cuatro tablas idénticas a sus vistas y a las `mv_*`; 18 min apagado dejaron ~330 filas atrás → completo forzado con `'*'` (15 s); árbitro a los 10 min: las cuatro idénticas a su regla fuera de los SKUs en cola, cero fallas de disparadores. ⛔ Hallazgo: el precio por llave cuesta según la historia de venta del SKU (los 10 más vendidos ~0.9 s c/u, diez medianos 25 ms c/u) → corridas de hasta 21 y 33 s, ~9 % de un núcleo en 25 min con `existencia-aux` todavía encima, en `md` con carga 10 sobre 8 núcleos. Antes del paso 5: más espera entre corridas y completo por costo, no por número de SKUs → ✅ en prod el 2026-11-17 (`805a86ba4`; la migración `20261117140515`, lote 1198, la aplicó otra sesión al viajar el commit en su push) — medido en sus primeras 13 corridas: una cada ~2 min como se quería, pero el costo NO bajó todavía (~5 s de base por minuto en horario hábil, lo mismo que con 30 s) porque el modelo SOBREESTIMA ~1.8× (ajuste con 30 corridas reales: 335 ms + 40 ms por SKU + 0.027 ms por línea, r² 0.54) y 4 de 13 se fueron a completo sin necesidad; el ahorro de verdad es retirar `existencia-aux`, que sigue corriendo encima (pasos 5 y 6). Lo construido: `drenar_existencia` estima la corrida por llave (1,000 ms + 12 ms por SKU + 0.1 ms por línea de `price_truth.lineas_pos`, calibrado con 34 SKUs medidos uno por uno en prod) y si pasa lo que tardó el último completo recalcula todo (motivo `costo`); cada corrida guarda `estimado_ms` y `referencia_ms` para calibrar; la espera del worker pasa de 30 s a 2 min; el árbitro del sensor lee sólo el completo `primero_del_dia`; el `down()` restaura la función de prod letra por letra (md5 igual al `prosrc` de prod); prueba `test-newdb-drenar-por-costo` 18 ✓ (base mínima y tipo CI), 12 mutantes muertos · Salud BD: sensor `existencia_evento` (apagado → warn; falla o cola atorada >15 min → crítico; fallas de disparadores o 30 h sin completo → warn; al día → ok con el árbitro), ejercido en sus 7 estados contra base real · 5 `mv_*` a vistas sobre las tablas · 6 sale el renglón y su latido. `import-kepler-suppliers` se queda con `[PQ.107]` (es su paso 3; la vista ya está en prod, sin lectores todavía). Anexo CANON §8.8. (2026-11-14)
+- [ ] 🔨 `[CANON.6.21]` **Oleada 8b abierta: `existencia-aux` (cada 5 min, ~5,400 s de CPU al día) → tablas mantenidas por llave (ADR-104).** C0 re-medido hoy: 2,016 corridas en 7 días, 18.7 s de promedio; recalcular por llave cuesta ~~3–10 ms (factor por producto), 210–540 ms por lote (factor por almacén)~~ (⛔ corregido el 2026-11-17: medido con `count(*)`, que quita los `LEFT JOIN` caros; con las columnas de verdad la vista filtrada cuesta lo mismo que entera, ~400 ms y 3–4.7 s), ~200 ms por lote (costo); `kdm2` tocó 1,850 SKUs hasta las 10:20 → ~1,000–2,000 s/día con la cola drenada cada ~30 s, más el precio, medido el mismo día: la regla de `mv_price_truth` reescrita por llave da idéntico a la original (lotes de 1 a 1,000 y el catálogo entero) y cuesta ~5 ms por SKU (10 SKUs 58–158 ms, 200 ~0.8–1.1 s). Orden: 1 la regla del precio por llave ✓ · 2 🔨 el precio hecho: migración `20261114124213` (sin aplicar; sólo objetos nuevos) con `price_truth_de(skus)` (las dos formas de una plantilla), la tabla `price_truth` (vacía, sin lectores) y `recalcular_existencia(skus)` (escribe sólo lo que cambió; >800 SKUs → completo); re-medido en prod contra la definición viva: idéntico completo y por llave; ⛔ con `jit` prendido la forma por llave tarda 5–14× (las funciones llevan `jit = off`); ~9 ms por SKU vendido (crece con la historia: `kdm2` no tiene fecha), techo ~5 min/día contra ~37 de hoy; prueba `test-newdb-precio-por-llave` 30 ✓, 9 mutantes + 1 equivalente · 2 ✅ (aplicada en prod el 2026-11-17, lote 1192) los otros tres: migración `20261117085622` con `resolved_product_box_factor_de`, `warehouse_box_factor_de` y `kepler_unit_cost_de(skus)` (con `NULL` leen la vista; por llave, una PLANTILLA por vista idéntica letra por letra a `pg_get_viewdef` de prod, con la llave en cada pieza agrupada; el `up()` se niega si la vista cambió), sus tres tablas y `recalcular_existencia` con los cuatro objetos; medido en prod: idéntico en 60 lotes, factor por almacén 0.2–0.4 s hasta 200 SKUs (completo 9.5 s), factor por producto 80–150 ms, costo 15–60 ms; prueba `test-newdb-factores-por-llave` 39 ✓ (base mínima y tipo CI), 14 mutantes muertos · 3 ✅ (aplicada en prod el 2026-11-17, lote 1193, en horario hábil: 2.9 s sin transacciones viejas) el evento: migración `20261117094325` — cola `analytics.llaves_sucias` SÓLO ALTAS (con llave única la ingesta esperaría al que drena), disparadores por sentencia en las 13 fuentes que anotan sólo si cambió algo que la regla lee (clave vieja y nueva; almacén/TRUNCATE = todo), que nunca frenan la ingesta (errores a `llaves_sucias_errores`), y nacen APAGADOS (interruptor `analytics.existencia_por_evento`: si viaja antes del paso 4 no llena la cola); `drenar_existencia()` (completo con `'*'`, umbral o primera corrida del día; `ocupado` sin esperar; si falla la cola queda intacta) y `existencia_corridas` (el árbitro); prueba `test-newdb-existencia-por-evento` 48 ✓ (base mínima y tipo CI), 16 mutantes muertos; +50–85 ms por lote de 2,000 renglones de `kdm2`; FUERA de horario por el candado de crear disparadores · 4 ✅ (en prod: `6a5b77ff6` desplegado 13:07, interruptor prendido 13:28 por Edgar) el que escucha: `ExistenciaPorEventoService` (`libs/commercial/.../commercial-analytics`) escucha `existencia_sucia` sólo en el worker, junta avisos con `MiradaAlAviso` (30 s) y llama a `drenar_existencia()`; mira al arrancar y al volver el LISTEN; `ocupado` → vuelve a mirar, `error` → error en el log, sin migración (42883) → aviso; `existencia-por-evento.arranque.spec.ts` 17 ✓ (grafo del módulo, #414). Encendido el 2026-11-17: el completo inicial (21 s) llenó las cuatro tablas idénticas a sus vistas y a las `mv_*`; 18 min apagado dejaron ~330 filas atrás → completo forzado con `'*'` (15 s); árbitro a los 10 min: las cuatro idénticas a su regla fuera de los SKUs en cola, cero fallas de disparadores. ⛔ Hallazgo: el precio por llave cuesta según la historia de venta del SKU (los 10 más vendidos ~0.9 s c/u, diez medianos 25 ms c/u) → corridas de hasta 21 y 33 s, ~9 % de un núcleo en 25 min con `existencia-aux` todavía encima, en `md` con carga 10 sobre 8 núcleos. Antes del paso 5: más espera entre corridas y completo por costo, no por número de SKUs → ✅ en prod el 2026-11-17 (`805a86ba4`; la migración `20261117140515`, lote 1198, la aplicó otra sesión al viajar el commit en su push) — medido en sus primeras 13 corridas: una cada ~2 min como se quería, pero el costo NO bajó todavía (~5 s de base por minuto en horario hábil, lo mismo que con 30 s) porque el modelo SOBREESTIMA ~1.8× (ajuste con 30 corridas reales: 335 ms + 40 ms por SKU + 0.027 ms por línea, r² 0.54) y 4 de 13 se fueron a completo sin necesidad; el ahorro de verdad es retirar `existencia-aux`, que sigue corriendo encima (pasos 5 y 6). Recalibrado como DATO: migración `20261117160520`, tabla `analytics.existencia_costo` (un renglón: 335 ms + 40 por SKU + 0.027 por línea, 20 s sin referencia; se recalibra con un UPDATE, sin migración; sin renglón la función usa esos valores y no falla); tabla nueva y no columnas en `existencia_por_evento` porque ésa la leen los disparadores en cada escritura; prueba `test-newdb-costo-como-dato` 12 ✓ (base mínima y tipo CI), 7 mutantes muertos. Lo construido: `drenar_existencia` estima la corrida por llave (1,000 ms + 12 ms por SKU + 0.1 ms por línea de `price_truth.lineas_pos`, calibrado con 34 SKUs medidos uno por uno en prod) y si pasa lo que tardó el último completo recalcula todo (motivo `costo`); cada corrida guarda `estimado_ms` y `referencia_ms` para calibrar; la espera del worker pasa de 30 s a 2 min; el árbitro del sensor lee sólo el completo `primero_del_dia`; el `down()` restaura la función de prod letra por letra (md5 igual al `prosrc` de prod); prueba `test-newdb-drenar-por-costo` 18 ✓ (base mínima y tipo CI), 12 mutantes muertos · Salud BD: sensor `existencia_evento` (apagado → warn; falla o cola atorada >15 min → crítico; fallas de disparadores o 30 h sin completo → warn; al día → ok con el árbitro), ejercido en sus 7 estados contra base real · 5 `mv_*` a vistas sobre las tablas · 6 sale el renglón y su latido. `import-kepler-suppliers` se queda con `[PQ.107]` (es su paso 3; la vista ya está en prod, sin lectores todavía). Anexo CANON §8.8. (2026-11-14)
 - [ ] ⚠️ D2 (tablas sin escritor), D5 (procedencia de los parámetros de proveedor), D6 (`transfers_monthly` inflada) — firma Edgar.
 
 ## MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-promociones.md)
