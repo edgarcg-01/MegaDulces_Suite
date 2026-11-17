@@ -94,3 +94,24 @@ export function decidirCorrida(ctx: {
   }
   return { correr: true, motivo: 'cambio', detalle: `firma ${ctx.ultimaFirma || '(ninguna)'} → ${nueva}` };
 }
+
+/**
+ * `[CB.79]` **Los periodos que nombra un aviso de Bancos** (`bancos_movimientos`: una descarga o una carga del libro).
+ *
+ * Hasta CB.79 el oyente descartaba el contenido del aviso y sólo revisaba la ventana de `periodosAEvaluar` (el mes en
+ * curso y, hasta el día 20, el anterior). Un periodo más viejo que recibía datos —un libro de septiembre vuelto a
+ * subir, una descarga que cubre días de hace dos meses— nunca se conciliaba solo: para eso existía el botón
+ * «Conciliar» (15 usos en 60 días, 12 de `superadmin`). Ahora esos periodos se suman a la ventana.
+ *
+ * Tolerante con lo que llega (Postel): un aviso sin JSON, sin `periodos` o con basura no rompe nada, sólo no suma
+ * periodos. Estricto con lo que deja pasar: `YYYY-MM` con mes 01–12, sin repetidos, a lo más 24.
+ */
+export function periodosDelAviso(payload: string | null | undefined): string[] {
+  if (!payload) return [];
+  let crudo: unknown;
+  try { crudo = JSON.parse(payload); } catch { return []; }
+  const lista = (crudo as { periodos?: unknown } | null)?.periodos;
+  if (!Array.isArray(lista)) return [];
+  const validos = lista.filter((p): p is string => typeof p === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(p));
+  return Array.from(new Set(validos)).slice(0, 24);
+}

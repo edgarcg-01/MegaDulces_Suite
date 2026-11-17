@@ -1,4 +1,4 @@
-import { decidirCorrida, firmaVacia, periodosAEvaluar, textoFirma, type FirmaPeriodo } from './bank-recon-aviso.engine';
+import { decidirCorrida, firmaVacia, periodosAEvaluar, periodosDelAviso, textoFirma, type FirmaPeriodo } from './bank-recon-aviso.engine';
 
 /**
  * `[CB.53]` — Candado del disparador por aviso.
@@ -108,5 +108,17 @@ describe('[CB.53] cuándo merece correr', () => {
     expect(decidirCorrida(sinDebounce).correr).toBe(true);
     // …y con la firma ya registrada, el MISMO aviso repetido no vuelve a correr.
     expect(decidirCorrida({ ...sinDebounce, ultimaFirma: textoFirma(f) }).correr).toBe(false);
+  });
+});
+
+describe('[CB.79] periodosDelAviso: lo que nombra un aviso de Bancos', () => {
+  it('lee los periodos del aviso, sin repetir', () => {
+    expect(periodosDelAviso(JSON.stringify({ origen: 'libro', periodos: ['2026-08', '2026-09', '2026-08'] }))).toEqual(['2026-08', '2026-09']);
+  });
+  it('[negativa] basura no suma periodos ni truena', () => {
+    expect(periodosDelAviso('no es json')).toEqual([]);
+    expect(periodosDelAviso(JSON.stringify({ origen: 'libro' }))).toEqual([]);
+    expect(periodosDelAviso(JSON.stringify({ periodos: ['2026-13', '26-08', 7, null, '2026-8'] }))).toEqual([]);
+    expect(periodosDelAviso(undefined)).toEqual([]);
   });
 });

@@ -170,7 +170,9 @@ export interface DiagnosticoItem {
  */
 export interface ReconEstado {
   matched_amount: number; bank_amount: number; pct: number;
-  last_match_at: string | null; last_import_at: string | null; stale: boolean;
+  last_match_at: string | null; last_import_at: string | null;
+  /** [CB.79] Hay movimientos que el motor todavía no evaluó; `sin_evaluar` dice cuántos (el aviso los concilia solo). */
+  stale: boolean; sin_evaluar?: number;
 }
 export interface Diagnostico {
   period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
