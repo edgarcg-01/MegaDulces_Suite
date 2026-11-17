@@ -90,9 +90,13 @@ exports.up = async function up(knex) {
   }
 };
 
-/** Deshace EXACTAMENTE lo que hizo el `up`, ni una fila más. */
+/**
+ * Deshace lo que hizo el `up`. La clave `compras.anticipos` nació en esta migración: sus filas de
+ * los dos puestos son suyas. No se filtra por `created_by` — es uuid y el `up` lo deja NULL; filtrar
+ * por 'PGP.124' reventaba el rollback con «invalid input syntax for type uuid».
+ */
 exports.down = async function down(knex) {
-  await knex('identity.position_responsibilities').where({ responsibility_key: KEY, created_by: 'PGP.124' }).whereIn('position_code', PUESTOS).del();
+  await knex('identity.position_responsibilities').where({ responsibility_key: KEY }).whereIn('position_code', PUESTOS).del();
   const quedan = await knex('identity.position_responsibilities').where({ responsibility_key: KEY }).count({ n: '*' }).first();
   const personas = await knex('identity.user_responsibilities').where({ responsibility_key: KEY }).count({ n: '*' }).first();
   if (Number(quedan?.n ?? 0) === 0 && Number(personas?.n ?? 0) === 0) await knex('identity.responsibilities').where({ key: KEY }).del();

@@ -48,8 +48,10 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     otro = await sup('CIT119C', 'CIT119 OTRO PROVEEDOR');
     const wh = (await trx('commercial.warehouses').where({ tenant_id: M }).first('id'))?.id
       ?? (await trx('commercial.warehouses').insert({ tenant_id: M, code: 'IT9', name: 'IT119 ALMACÉN DE PRUEBA' }).returning('id'))[0].id;
+    // Sin `created_by`: en `purchase_orders` es uuid (acepta NULL, sin FK). Con el nombre de usuario,
+    // el beforeAll reventaba con «invalid input syntax for type uuid» y el CI SALTABA los 8 casos.
     const po = async (folio: string, supplierId: string) => (await trx('commercial.purchase_orders').insert({
-      tenant_id: M, folio, warehouse_id: wh, supplier_id: supplierId, total_cost: 10000, estado: 'open', created_by: USER,
+      tenant_id: M, folio, warehouse_id: wh, supplier_id: supplierId, total_cost: 10000, estado: 'open',
     }).returning('id'))[0].id as string;
     oc = await po('IT119-OC1', prov);
     ocOtro = await po('IT119-OC2', otro);

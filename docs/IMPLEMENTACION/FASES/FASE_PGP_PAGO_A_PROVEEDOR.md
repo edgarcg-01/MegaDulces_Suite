@@ -1353,27 +1353,29 @@ saldo a favor por acreedor, el Calendario el aviso «trae $X a favor»— pero n
 todos los anticipos con su antigüedad y contra qué se aplican; el submódulo enlaza a las dos.
 
 **Items:**
-- `[PGP.118]` 🧪 (2026-11-13, sin validación visual, arranque no verificado) C2+C3 — el submódulo, sólo lectura: `GET finance/payment-calendar/anticipos` (la
+- `[PGP.118]` 🚀 en prod (comprobado 2026-11-17; sin validación visual) C2+C3 — el submódulo, sólo lectura: `GET finance/payment-calendar/anticipos` (la
   lista) y `GET …/anticipos/deuda` (la deuda viva de esos acreedores, en diferido); pestaña con tres
   grupos: «Aplicable hoy» (C* con deuda viva) · «Sin contra qué» (C* sin deuda) · «No es anticipo de
   mercancía» (G*/TC*). Sin migración.
-- `[PGP.119]` 🧪 (2026-11-13, sin validación visual, arranque no verificado, prueba con base real
-  pendiente del CI) C0–C3 — pedir un anticipo en la Suite: obligación de naturaleza `anticipo` que se
+- `[PGP.119]` 🚀 en prod (comprobado 2026-11-17; sin validación visual; su prueba con base real
+  nunca corrió —el CI la saltaba por un uuid en el `beforeAll`—, corregida el 2026-11-17) C0–C3 — pedir un anticipo en la Suite: obligación de naturaleza `anticipo` que se
   paga por el Calendario y se liga sola con su `X-D-60`. Detalle abajo. Pendiente: la alerta +90 días
   a la bandeja.
-- `[PGP.120]` 🧪 (2026-11-13, sin validación visual, arranque no verificado, prueba con base real
-  pendiente del CI) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
+- `[PGP.120]` 🚀 en prod (comprobado 2026-11-17; sin validación visual; prueba con base real verde en
+  el CI de `5b9d9af58`) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
   (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
   cierre de `[PGP.94]` ya rotula el `X-D-60` como «Anticipo». Detalle abajo.
-- `[PGP.126]` 🧪 (2026-11-14, sin validación visual, pruebas con base real pendientes del CI) (publicado como `[PGP.122]` en `997827c9f`; renumerado el 2026-11-15: el 122 lo tomó en origin la solicitud de gasto, #546) C1–C3 —
+- `[PGP.126]` 🚀 en prod (comprobado 2026-11-17; sin validación visual; las negativas del descuento,
+  verdes con base real en el CI; las de cancelar se saltaban con las de `[PGP.119]`) (publicado como `[PGP.122]` en `997827c9f`; renumerado el 2026-11-15: el 122 lo tomó en origin la solicitud de gasto, #546) C1–C3 —
   los huecos de `[PGP.119]`: el pago de un anticipo no admite descuento (servidor y pantalla), se
   cancela un pedido sin pago desde el submódulo (con razón), y un pedido cancelado ya no le quita su
   `X-D-60` al vivo. Sin migración. Detalle abajo.
-- `[PGP.123]` 🧪 (2026-11-14, sin validación visual) C2–C3 — **corrige `[PGP.119]`**: «Pedir
+- `[PGP.123]` 🚀 en prod (comprobado 2026-11-17; sin validación visual) C2–C3 — **corrige `[PGP.119]`**: «Pedir
   anticipo» sólo le llegaba a 4 de los 13 que pueden pedir (la pantalla la abre un permiso de
   Finanzas). Compras tiene su puerta en *Pago a proveedor › Anticipos* (`/compras/anticipos`), la misma
   pantalla. Detalle abajo.
-- `[PGP.124]` 🧪 (2026-11-14) C1–C3 — la alerta de D4: «Anticipos sin factura, con más de 90 días»
+- `[PGP.124]` 🚀 en prod (comprobado 2026-11-17; migración aplicada, batch 1188; el principal lo
+  corrige `20261117093004`, a prod antes de mergear) C1–C3 — la alerta de D4: «Anticipos sin factura, con más de 90 días»
   en «Mi trabajo» de Compras (comprador y Coordinación). Cuenta sólo los que no tienen factura contra
   qué aplicarse (8, $1.20 M hoy). ⛔ Migración de catálogo y reparto, sólo INSERT: a prod antes de
   mergear. Detalle abajo.
@@ -1417,7 +1419,7 @@ Sin contra qué (7)        — lo más viejo primero
 No es anticipo de mercancía (22) — gasto y tarjeta capturados como X-D-60
 ```
 
-#### `[PGP.120]` El anticipo se aplica desde la programación de pagos (2026-11-13) — 🧪
+#### `[PGP.120]` El anticipo se aplica desde la programación de pagos (2026-11-13) — 🚀 en prod
 
 > Pedido de Edgar (2026-11-13), sobre el grupo «Aplicable hoy»: *«estos que se puedan aplicar
 > directamente en la programación de pagos»*.
@@ -1482,7 +1484,7 @@ montos sin que nadie lo viera. El botón con el monto, en la misma fila, es el a
 - Aplicar un anticipo a facturas capturadas a mano (`supplier_payable`): sólo facturas de Kepler.
 - El aviso del diálogo cuando la persona quita el anticipo y lo quiere volver a poner sin cerrar.
 
-#### `[PGP.119]` Pedir un anticipo en la Suite y pagarlo por el Calendario (2026-11-13) — 🧪
+#### `[PGP.119]` Pedir un anticipo en la Suite y pagarlo por el Calendario (2026-11-13) — 🚀 en prod
 
 > Edgar (2026-11-13): *«sigamos»*, con el frente de Anticipos. Es lo que quedaba: que el anticipo
 > deje de decidirse y pagarse por fuera.
@@ -1542,7 +1544,7 @@ del código (el código inserta `nature`). Compatible con la API desplegada: DEF
   cierra `[PGP.126]`, abajo.
 - ~~La alerta a la bandeja de Compras/CxP de los +90 días (D4)~~: la cierra `[PGP.124]`, abajo.
 
-#### `[PGP.126]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🧪
+#### `[PGP.126]` Los huecos de `[PGP.119]`: el anticipo no lleva descuento, y se cancela desde el submódulo (2026-11-14) — 🚀 en prod
 
 **1. El pago de un anticipo se paga completo.** Un anticipo pedido en la Suite es `supplier_payable`
 de mercancía, así que la regla del descuento al pagar (`[PGP.91]`, `assertDescuentoPermitido`) lo
@@ -1581,7 +1583,7 @@ la OC recupera su saldo, el cancelado no le roba su `X-D-60` al vivo).
 - La carrera inversa: el Calendario aparta un pago sin bloquear la fila de la obligación, así que un
   cancelar y un «agregar al pago» en el mismo instante todavía pueden cruzarse.
 
-#### `[PGP.123]` La puerta de Compras a Anticipos — corrige `[PGP.119]` (2026-11-14) — 🧪
+#### `[PGP.123]` La puerta de Compras a Anticipos — corrige `[PGP.119]` (2026-11-14) — 🚀 en prod
 
 **El defecto:** `[PGP.119]` midió el permiso de PEDIR (`COMPRAS_OBLIGACIONES_GESTIONAR`) y no lo cruzó
 con el de la PANTALLA: `/finanzas/anticipos` la abre `FINANCE_PAYMENTS_VER`, que Compras no tiene
@@ -1611,7 +1613,7 @@ directamente `deCompras`, las pestañas y los grupos); sin validación visual; a
 verificado (cambia el decorador de permisos de tres rutas, no su firma). `MATRIZ_ACCESOS.md` no se
 regeneró (se genera desde prod, y ahí todavía no está la ruta).
 
-#### `[PGP.124]` El anticipo de +90 días sin factura llega a la bandeja de Compras (2026-11-14) — 🧪
+#### `[PGP.124]` El anticipo de +90 días sin factura llega a la bandeja de Compras (2026-11-14) — 🚀 en prod
 
 Es la alerta de D4. **Medido en prod:** en 12 meses Kepler aplicó **cero** anticipos de mercancía que
 ya tuvieran más de 90 días. Pasado ese plazo, el dinero se queda ahí. Hoy hay 21 así ($3.39 M):
@@ -1651,6 +1653,29 @@ bandeja existe y no la ve nadie (`[SN.30]`).
 **NO MEDIDO:** «Mi trabajo» de punta a punta con la API (no hay API local); sin validación visual. Los
 remanentes chicos ($76 y $1 hoy) cuentan igual que los demás: son anticipos sin aplicar, y quedan al
 final del desglose.
+
+**En prod (2026-11-17), y lo que costó llegar:** prod sirve `5b9d9af58`, que trae `[PGP.123]`, `[PGP.124]`
+y `[PGP.126]`. La bandeja mide en prod con el archivo desplegado: **8 anticipos, $1,202,551, 68 ms**
+(22 de más de 90 días; los otros 14 tienen factura). Tres defectos del frente que el CI de base real cazó
+y que **ninguna prueba local podía ver**, porque se ejercieron el SQL y el servicio pero no la migración
+ni el `beforeAll`:
+- **La migración no aplicaba**: escribía `'PGP.124'` en `position_responsibilities.created_by`, que es
+  `uuid`. La corrigió otra sesión (`0a21642e2`) y la aplicó: batch 1188. El `down` traía el mismo
+  filtro y habría reventado el rollback; corregido (por clave: `compras.anticipos` nació aquí). Control:
+  `EXPLAIN` del `down` viejo en prod da `invalid input syntax for type uuid`, el nuevo pasa el tipado.
+- **La bandeja quedó sin principal** (los dos puestos como secundarios): `test-newdb-organigrama.js`
+  «toda responsabilidad tiene responsable». `20261117093004` hace principal a `gerente_compras`
+  (patrón de `compras.reabasto`; un solo principal, como exige `org.service.ts`). Medido: toca 1 fila
+  en prod, 0 en el control. ⛔ Sólo UPDATE: **a prod antes de mergear**.
+- **La prueba de integración de `[PGP.119]`/`[PGP.126]` nunca corrió**: su `beforeAll` metía el nombre
+  de usuario en `purchase_orders.created_by` (`uuid`) y el CI **saltaba los 8 casos** (no es rojo ni
+  verde: es NO MEDIDO). Corregido; correrá en el próximo CI. Las de `[PGP.120]` y las negativas del
+  descuento sí corren y pasan.
+
+Declarado, no corregido: `test-newdb-organigrama.js` cuenta 18 colas sin eje de ruteo contra una base
+de 7 (`compras.anticipos` es una; sin dimensión por decisión: Compras la pide para toda la red), y
+`test-newdb-authz-coherencia.js` marca `comprador|compras.anticipos` en la base del CI, donde el rol
+`compras` no trae `COMPRAS_OBLIGACIONES_VER`; **en prod esa vista da 0 filas** para anticipos.
 
 ---
 
