@@ -394,8 +394,12 @@ async function main() {
     const delPadron = (u) => (u ? padron.get(String(u).toLowerCase()) ?? null : null);
     const malNombre = cola.vales.filter((x) => (x.capturo_nombre ?? null) !== delPadron(x.created_by) || (x.reviso_nombre ?? null) !== delPadron(x.validated_by)).length;
     const conNombre = cola.vales.filter((x) => x.capturo_nombre || x.reviso_nombre).length;
-    check(malNombre === 0, `G.UI.8: quien capturó y quien revisó, con el nombre del padrón en los ${cola.vales.length} vales (${conNombre} con nombre)`, malNombre);
-    if (!conNombre) bloqueNoMedido('G.UI.8: ningún vale de la cola local trae un usuario del padrón');
+    // Si el padrón (la lectura independiente) no tiene nombre para nadie de la cola, las dos columnas salen null de los dos
+    // lados y el ✓ no mediría nada (en el CI pasaba así, «0 con nombre»): se declara. Si lo tiene, se compara, y una cola
+    // que perdiera los nombres sale en rojo.
+    const esperados = cola.vales.filter((x) => delPadron(x.created_by) || delPadron(x.validated_by)).length;
+    if (!esperados) bloqueNoMedido('G.UI.8: ningún vale de la cola trae un usuario con nombre en el padrón');
+    else check(malNombre === 0, `G.UI.8: quien capturó y quien revisó, con el nombre del padrón en los ${cola.vales.length} vales (${conNombre} con nombre, ${esperados} esperados)`, malNombre);
     // La base cerrada (DG7): otra sucursal que no es 02/04/05/07 lo dice en llano y con su detalle.
     const conDg7 = cola.vales.find((x) => x.gasto_kepler && !['02', '04', '05', '07'].includes(String(x.sucursal)));
     if (conDg7) check(conDg7.gasto_kepler.escritura.abierta === false && /contador que falta medir/.test(conDg7.gasto_kepler.escritura.motivo ?? '') && /^DG7/.test(conDg7.gasto_kepler.escritura.detalle ?? ''),
@@ -453,32 +457,37 @@ async function main() {
     // ── J ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     console.log('\n— J. G.UI.1d: la pista de cada cancelada (el dinero y la recaptura), contra un control independiente');
     const canc = colaH.vales.filter((v) => String(v.kepler_estado ?? '').trim() === 'C');
-    check(canc.length > 0 && canc.every((v) => v.pista_cancelada !== undefined), `las ${canc.length} canceladas traen su pista (o el «no se pudo» declarado)`, canc.filter((v) => v.pista_cancelada === undefined).length);
-    // Control de pagos: X-A-10 de la solicitud (cualquier estado) → transferencias X-D-26 vivas aplicadas (kdm5).
-    const conPagoControl = new Set((await knex.raw(`
-      SELECT v.id FROM finance.v_expense_proofs v
-        JOIN kepler_ods.kdm1 g ON g.sucursal = v.sucursal AND g.c2 = 'X' AND g.c3 = 'A' AND g.c4 = 10 AND g.c5 = 1 AND btrim(g.c39) = btrim(v.folio_solicitud)
-        JOIN kepler_ods.kdm5 m ON m.sucursal = g.sucursal AND btrim(m.c1) = m.sucursal AND m.c2 = 'X' AND m.c3 = 'D' AND m.c4 = 26 AND m.c5 = 1
-                              AND m.c8 = 'A' AND m.c9 = 10 AND m.c10 = 1 AND btrim(m.c11) = btrim(g.c6)
-        JOIN kepler_ods.kdm1 h ON h.sucursal = m.sucursal AND h.c2 = 'X' AND h.c3 = 'D' AND h.c4 = 26 AND h.c5 = 1 AND h.c6 = m.c6 AND btrim(h.c43) <> 'C'
-       WHERE v.tenant_id = ? AND v.id = ANY(?::uuid[])`, [T, canc.map((v) => v.id)])).rows.map((x) => x.id));
-    const conPagoPista = new Set(canc.filter((v) => (v.pista_cancelada?.pagos ?? []).some((p) => !p.cancelado)).map((v) => v.id));
-    const difPagos = [...conPagoControl].filter((id) => !conPagoPista.has(id)).length + [...conPagoPista].filter((id) => !conPagoControl.has(id)).length;
-    check(difPagos === 0, `los vales con un pago vivo en Kepler son los mismos que dice el control (${conPagoControl.size})`, difPagos);
-    // Control de recapturas: la misma regla escrita aparte (sucursal, acreedor, total y ventana de fechas; sin vale vivo).
-    const libresControl = new Map((await knex.raw(`
-      SELECT v.id, count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM finance.expense_proofs e WHERE e.tenant_id = v.tenant_id AND e.sucursal = v.sucursal
-                                              AND btrim(e.folio_solicitud) = btrim(s.c6) AND e.status <> 'rechazada'))::int AS libres
-        FROM finance.v_expense_proofs v
-        JOIN analytics.expense_requests r ON r.tenant_id = v.tenant_id AND r.sucursal = v.sucursal AND r.folio = v.folio_solicitud
-        JOIN kepler_ods.kdm1 s ON s.sucursal = v.sucursal AND s.c2 = 'X' AND s.c3 = 'A' AND s.c4 = 15 AND s.c5 = 1 AND btrim(s.c10) = r.cuenta_clave
-                              AND btrim(s.c6) <> btrim(v.folio_solicitud) AND btrim(s.c43) IN ('A', 'F', 'N')
-                              AND round(s.c16::numeric, 2) = round(v.importe_capturado::numeric, 2) AND s.c9::date BETWEEN r.fecha - 15 AND r.fecha + 45
-       WHERE v.tenant_id = ? AND v.id = ANY(?::uuid[])
-       GROUP BY v.id`, [T, canc.map((v) => v.id)])).rows.map((x) => [x.id, x.libres]));
-    const difRecap = canc.filter((v) => (v.pista_cancelada?.recapturas ?? []).filter((r) => !r.con_vale).length !== (libresControl.get(v.id) ?? 0)).length;
-    const unaLibre = canc.filter((v) => (libresControl.get(v.id) ?? 0) === 1).length;
-    check(difRecap === 0, `las recapturas libres de cada cancelada coinciden con el control (${unaLibre} con una sola: se ofrece ligar)`, difRecap);
+    // Sin canceladas en este destino (la base del CI sólo trae lo sembrado) la primera comparación fallaba y las otras dos
+    // pasaban EN VACÍO (dos conjuntos vacíos son iguales). Se declara; la pista se mide en K con canceladas sembradas.
+    if (!canc.length) bloqueNoMedido('J: la base no trae canceladas: la pista contra el control independiente no se mide aquí (K la mide con las sembradas)');
+    else {
+      check(canc.every((v) => v.pista_cancelada !== undefined), `las ${canc.length} canceladas traen su pista (o el «no se pudo» declarado)`, canc.filter((v) => v.pista_cancelada === undefined).length);
+      // Control de pagos: X-A-10 de la solicitud (cualquier estado) → transferencias X-D-26 vivas aplicadas (kdm5).
+      const conPagoControl = new Set((await knex.raw(`
+        SELECT v.id FROM finance.v_expense_proofs v
+          JOIN kepler_ods.kdm1 g ON g.sucursal = v.sucursal AND g.c2 = 'X' AND g.c3 = 'A' AND g.c4 = 10 AND g.c5 = 1 AND btrim(g.c39) = btrim(v.folio_solicitud)
+          JOIN kepler_ods.kdm5 m ON m.sucursal = g.sucursal AND btrim(m.c1) = m.sucursal AND m.c2 = 'X' AND m.c3 = 'D' AND m.c4 = 26 AND m.c5 = 1
+                                AND m.c8 = 'A' AND m.c9 = 10 AND m.c10 = 1 AND btrim(m.c11) = btrim(g.c6)
+          JOIN kepler_ods.kdm1 h ON h.sucursal = m.sucursal AND h.c2 = 'X' AND h.c3 = 'D' AND h.c4 = 26 AND h.c5 = 1 AND h.c6 = m.c6 AND btrim(h.c43) <> 'C'
+         WHERE v.tenant_id = ? AND v.id = ANY(?::uuid[])`, [T, canc.map((v) => v.id)])).rows.map((x) => x.id));
+      const conPagoPista = new Set(canc.filter((v) => (v.pista_cancelada?.pagos ?? []).some((p) => !p.cancelado)).map((v) => v.id));
+      const difPagos = [...conPagoControl].filter((id) => !conPagoPista.has(id)).length + [...conPagoPista].filter((id) => !conPagoControl.has(id)).length;
+      check(difPagos === 0, `los vales con un pago vivo en Kepler son los mismos que dice el control (${conPagoControl.size})`, difPagos);
+      // Control de recapturas: la misma regla escrita aparte (sucursal, acreedor, total y ventana de fechas; sin vale vivo).
+      const libresControl = new Map((await knex.raw(`
+        SELECT v.id, count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM finance.expense_proofs e WHERE e.tenant_id = v.tenant_id AND e.sucursal = v.sucursal
+                                                AND btrim(e.folio_solicitud) = btrim(s.c6) AND e.status <> 'rechazada'))::int AS libres
+          FROM finance.v_expense_proofs v
+          JOIN analytics.expense_requests r ON r.tenant_id = v.tenant_id AND r.sucursal = v.sucursal AND r.folio = v.folio_solicitud
+          JOIN kepler_ods.kdm1 s ON s.sucursal = v.sucursal AND s.c2 = 'X' AND s.c3 = 'A' AND s.c4 = 15 AND s.c5 = 1 AND btrim(s.c10) = r.cuenta_clave
+                                AND btrim(s.c6) <> btrim(v.folio_solicitud) AND btrim(s.c43) IN ('A', 'F', 'N')
+                                AND round(s.c16::numeric, 2) = round(v.importe_capturado::numeric, 2) AND s.c9::date BETWEEN r.fecha - 15 AND r.fecha + 45
+         WHERE v.tenant_id = ? AND v.id = ANY(?::uuid[])
+         GROUP BY v.id`, [T, canc.map((v) => v.id)])).rows.map((x) => [x.id, x.libres]));
+      const difRecap = canc.filter((v) => (v.pista_cancelada?.recapturas ?? []).filter((r) => !r.con_vale).length !== (libresControl.get(v.id) ?? 0)).length;
+      const unaLibre = canc.filter((v) => (libresControl.get(v.id) ?? 0) === 1).length;
+      check(difRecap === 0, `las recapturas libres de cada cancelada coinciden con el control (${unaLibre} con una sola: se ofrece ligar)`, difRecap);
+    }
     const suma = Math.round(valesExp.reduce((s, v) => s + v.importe, 0) * 100) / 100;
     check(Math.round(exp.total.monto * 100) === Math.round(suma * 100), `el total del Expediente suma lo mismo que sus vales ($${suma.toFixed(2)})`, { total: exp.total.monto, suma });
 
