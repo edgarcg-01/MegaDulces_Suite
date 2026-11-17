@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén: Surtir con lo que el surtidor necesita (GP.RF.27–34 · 2026-11-17 · en código, sin soltar)
+- Abrir Surtir ya no toma trabajo solo ni espera a Telemarketing: la lista de preventa sale de inmediato, y si quedó un surtido de Telemarketing a medias se avisa con «Continuar».
+- Cada producto dice dónde está (su ubicación) y los productos van en el orden del recorrido del almacén.
+- Escanear el producto en la presentación pedida lo marca Completo; si es otra presentación (la caja cuando se pidieron paquetes), avisa.
+- Lo que faltó se puede cambiar por otro producto con existencia, además de surtirlo en otra unidad.
+- La pantalla «Preventa por surtir» se retira: todo vive en Surtir. Sus enlaces viejos llevan a Surtir o al Tablero.
+- El almacén se elige por su nombre.
+
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en código, sin soltar)
 - Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
 - Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.

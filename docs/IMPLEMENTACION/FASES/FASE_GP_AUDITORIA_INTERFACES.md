@@ -642,6 +642,37 @@ Lo que dicen:
 - **Tres caminos para surtir preventa:** Surtir preventa, Surtir › Sucursal (por ruta) y la consola.
   Saber si se funden (paso 2b) pide recorrer los tres con el surtidor.
 
+### 5c.5 Surtir, rehecho con lo que el surtidor necesita (2026-11-17) 🧪
+
+Edgar: *«arreglemos y volvamos a generar la interfaz de surtir con toda la información o herramientas
+necesarias»*. Las tres decisiones se las preguntamos y las tomó él: avisar en lugar de retomar, las
+cuatro herramientas del renglón y retirar la pantalla duplicada.
+
+**Lo que el surtidor no tenía, leyendo la pantalla que sí usa (Surtir › Sucursal):**
+- Al abrir, la pantalla escribía y esperaba a Telemarketing antes de mostrar la preventa.
+- Los renglones de preventa no decían dónde está el producto (la ubicación iba vacía a propósito).
+- No había «cambiar por otro producto»: sólo existía en `/almacen/surtir-preventa`, que nadie usa.
+- Escanear sólo buscaba el producto; no lo marcaba.
+
+**Lo que cambia, por fase (cada una con su commit local):**
+
+| ID | Cambio | Pruebas |
+|---|---|---|
+| **GP.RF.27** | Abrir no escribe ni espera a Telemarketing: la lista de preventa sale de inmediato, y un surtido de Telemarketing a medias se avisa con «Continuar» | 2 negativas nuevas; las 3 de «retomar» se reescribieron a la decisión |
+| **GP.RF.28** | El almacén por su nombre en un `p-select` (antes `<select>` nativo con «06 · Canindo»); con uno solo, sólo el nombre | la de almacenes ahora exige el nombre y prohíbe el número |
+| **GP.RF.31** | «Cambiar por otro producto» en el renglón con faltante, junto a «Surtir en otra unidad»: sugerencias con existencia, buscar, unidad y cantidad. Un producto que ya va en otro renglón se ofrece apagado, porque el servidor rechazaría el cierre (posible parte de los 84 rechazos, GP.RF.23) | 3 (2 negativas) |
+| **GP.RF.32** | `/almacen/surtir-preventa` se retira: quien surte llega a Surtir con su `?pedido=`; quien sólo ve la preventa (4 puestos, medidos en prod), al Tablero filtrado. Sale del menú | 3 de la redirección (1 negativa) |
+| **GP.RF.33** | Escanear el código de la presentación pedida marca Completo y deja el campo listo para el siguiente. Si es otra presentación (la caja cuando se pidieron paquetes), avisa y no marca. El servidor manda los códigos de cada presentación de Kepler | 6 de la regla + 2 de pantalla (3 negativas) |
+| **GP.RF.34** | Cada renglón dice su ubicación (Ubicaciones: lugar fijo, luego tienda, luego reserva) y los renglones van en el orden del recorrido. Sin el dato del servidor, no se afirma «sin ubicación» | 6 del servidor + 2 de pantalla (2 negativas) |
+
+**NO MEDIDO:**
+- Todo esto en prod: está en commits locales, sin desplegar.
+- El celular real: hace falta la sesión de un surtidor.
+- La ubicación y el recorrido en Padre Hidalgo: tiene **0 ubicaciones**, así que dirá «sin
+  ubicación» en todos los renglones hasta que se capturen.
+- Si los códigos de Kepler de cada presentación están completos: un producto sin código en su
+  presentación no se puede marcar escaneando, y la pantalla hace lo de antes.
+
 ---
 
 ## 6. Los pasos que siguen
