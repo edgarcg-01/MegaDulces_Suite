@@ -9,6 +9,19 @@
 ---
 
 ## [Unreleased]
+### Changed — Gastos: «Registrar o pedir» en el orden de quien lo pide: base, proveedor y sus facturas del SAT, y al final cómo se paga (PGP.122 S.17 · 2026-11-16 · en código)
+- **Primero la base.** Quien tiene un solo almacén la ve fija; quien maneja varios la elige (sin preselección); quien no tiene almacén en su ficha ve que Sistemas se lo asigna. El servidor no deja pedir en una base que no es de la persona.
+- **Luego el proveedor, y abajo SUS facturas del SAT sin gasto**, con «Usar esta factura»: llena el comprobante (folio, fecha, IVA e importe) y deja al proveedor y lo que ya se sabía de él. Sin proveedor elegido, se ven los proveedores con facturas sin gasto (el más antiguo primero) y se eligen de un toque.
+- **Al final, cómo se paga:** la forma de pago, el **plazo** (de contado, 7, 15 o 30 días, u otra fecha; calcula la fecha de pago desde el documento y dice si ya venció) y **«+ Agregar información de pago»**: la cuenta o CLABE (revisada con su dígito de control), el banco y el correo para mandar el comprobante. Quien firma la ve. El plazo y el correo se proponen del catálogo de Kepler cuando los tiene.
+- ⚠️ Migración `20261116200205_pgp122_s17_informacion_de_pago` en prod **antes** de soltar.
+### Added — Gastos: la bandeja de facturas del SAT por registrar (PGP.122 S.13 · 2026-11-15 · en código, se ve donde la solicitud está abierta)
+- En **Registrar o pedir** aparecen las facturas de gasto que llegaron del SAT y nadie ha registrado (desde S.17 viven en el paso «Proveedor»: ver la entrada de arriba). Cada una dice por qué está ahí y avisa si en una sucursal que la ve hay un gasto de otro acreedor por el mismo importe (un posible reembolso); las ya registradas dicen con qué documento.
+- **Registrar** llena la solicitud con la factura (folio, fecha, IVA, total y el acreedor de esa sucursal con su concepto habitual) y cada campo dice de dónde salió: «de la factura del SAT» o «como la última vez». El cursor va al primer dato que falta. Si había una captura a medias, primero pregunta, nombrando lo que se perdería, y la respuesta por omisión es conservarla. Sólo se ofrece cuando la solicitud pasaría al mandarla a firma; si no, dice qué corregir en Kepler.
+- **No es de aquí**: «No es de esta sucursal» la quita sólo de ésa (la siguen viendo su otra sucursal y 00); «Sacar para todas» pide motivo. Las dos se pueden regresar desde «Descartadas».
+- Reconoce una factura ya registrada aunque esté a nombre de otro acreedor (un reembolso) con su folio o su UUID, aunque el folio sea de 3 dígitos, o aunque el vale de la Suite se haya capturado con el ticket antes de que llegara la factura.
+- Cada quien ve sólo las sucursales que le tocan, y eso lo valida el servidor.
+- Medido hoy en prod: 176 facturas por registrar ($919,373) de 825 desde el corte.
+- ⚠️ Migración `20261115045210_pgp122_s13_descartes_de_la_bandeja_sat` en prod **antes** de soltar.
 ### Added — Gastos: la solicitud de gasto nace en la Suite y, al firmarla, se escribe en Kepler ya autorizada (PGP.122 · 2026-11-15 · en código, apagada hasta encenderla servidor por servidor)
 - En **Finanzas › Gastos**, la pestaña **Registrar o pedir** captura la solicitud (X-A-15) sin abrir Kepler: el acreedor del catálogo de esa sucursal, los renglones con concepto, proyecto y departamento (la cuenta sale del concepto), el IVA, el documento que ampara el gasto con su fecha y su foto, y la forma de pago. Hoy el 94.4 % de estas solicitudes se teclea dos veces (en Kepler y en el vale).
 - Alcance de esta versión (DS3): gasto operativo (`G…`). Nómina, comisiones bancarias, tarjetas, préstamos, compras y las cuentas de SUA e impuestos se siguen capturando en Kepler, y la pantalla dice por qué.

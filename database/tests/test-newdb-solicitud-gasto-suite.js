@@ -163,7 +163,12 @@ async function main() {
   delete process.env.ANTHROPIC_API_KEY;
 
   const sink = new KeplerSolicitudGastoSinkAdapter();
-  const svc = new SolicitudGastoService(tk, ctx, knex, sink, undefined, lector, almacen);
+  // S.17 (DS27): el alcance de quien pide, como lo contesta ScopeService (área `finanzas`). Cada caso lo cambia.
+  const alcance = {
+    dim: { mode: 'all', values: [], resolvable: true },
+    async current(area) { if (area !== 'finanzas') throw new Error(`el alcance se pregunta en el área finanzas, no en «${area}»`); return { dims: { warehouse: this.dim } }; },
+  };
+  const svc = new SolicitudGastoService(tk, ctx, knex, alcance, sink, undefined, lector, almacen);
   const proofs = new ExpenseProofsService(tk, ctx, {}, almacen, lector, undefined, undefined, undefined, svc);
 
   const ids = [];
@@ -522,6 +527,67 @@ async function main() {
     await knex('finance.expense_proofs').where({ id: cL.id }).update({ kepler_request_next_at: knex.raw(`now() - interval '1 minute'`) });
     await svc.ciclo();
     check((await vale(cL.id)).kepler_request_status === 'written', 'de vuelta Kepler: pregunta por la marca (no está) y la escribe');
+
+    // ── M ───────────────────────────────────────────────────────────────────────────────────────
+    console.log('\n— M. S.17: la base sale de los almacenes de quien pide; el plazo y la información de pago');
+    await interruptor(true);
+    // a) la base (DS27): una → esa; otra que no es suya → 403 al pedir Y al leer; sin almacén en su ficha → ninguna
+    alcance.dim = { mode: 'own', values: [SUC], resolvable: true };
+    const ab1 = await svc.abiertas();
+    check(ab1.sucursales.length === 1 && ab1.sucursales[0] === SUC && ab1.alcance === 'una', 'con un solo almacén: «abiertas» da sólo el suyo, y dice «una»', ab1);
+    const cBase = await pedir();
+    check(cBase.status === 'recibida', 'con un solo almacén, pedir en el suyo pasa');
+    alcance.dim = { mode: 'listed', values: ['03', '07'], resolvable: true };
+    check(await estatusDe(() => svc.crear(pantalla(), PIDE)) === 403, '⛔ pedir en una base que no es de sus almacenes → 403 (por API también)');
+    check(await estatusDe(() => svc.catalogo(SUC)) === 403 && await estatusDe(() => svc.precarga(SUC, ACR)) === 403 && await estatusDe(() => svc.disponibilidad(SUC)) === 403,
+      '⛔ … y leer el catálogo, el hábito o la puerta de esa base → 403');
+    const ab2 = await svc.abiertas();
+    check(!ab2.sucursales.includes(SUC) && ab2.alcance === 'varias', 'con varios almacenes: «abiertas» no ofrece una base ajena', ab2);
+    alcance.dim = { mode: 'own', values: [], resolvable: false };
+    const ab3 = await svc.abiertas();
+    let msg = '';
+    try { await svc.crear(pantalla(), PIDE); } catch (e) { msg = String(e.message); }
+    check(ab3.sucursales.length === 0 && ab3.alcance === 'sin_almacen' && /Sistemas/.test(msg), '⛔ sin almacén en su ficha: ninguna base (nunca las nueve) y el 403 dice que lo arregla Sistemas', { ab3, msg });
+    alcance.dim = { mode: 'all', values: [], resolvable: true };
+    const ab4 = await svc.abiertas();
+    check(ab4.sucursales.includes(SUC) && ab4.alcance === 'todas', 'con todas: la base abierta se ofrece', ab4);
+
+    // b) el plazo (DS30): de los días de crédito de Kepler; si no tiene, de su última solicitud; viaja como fecha de pago
+    const ACR_D = 'GZPRU2';
+    const ACR_H = 'GZPRU3';
+    await sembrar('kdxd', [
+      { sucursal: SUC, c1: SUC, c2: ACR_D, c3: 'ACREEDOR A CREDITO PGP122', c10: 'XAXX010101000', c11: 'pagos@acreedor-prueba.com.mx', c16: 15 },
+      { sucursal: SUC, c1: SUC, c2: ACR_H, c3: 'ACREEDOR DE HABITO PGP122', c10: 'XAXX010101000', c11: 'no es un correo' },
+    ]);
+    const hace20 = diasDesde(hoy, -20);
+    await sembrar('kdm1', [{ sucursal: SUC, c1: SUC, c2: 'X', c3: 'A', c4: 15, c5: 1, c6: '0989998', c9: hace20, c18: diasDesde(hace20, 7), c10: ACR_H, c16: 70, c43: 'A', c48: 'ANA', c67: '01ANA', c68: hace20, c69: '10:00' }]);
+    const preD = await svc.precarga(SUC, ACR_D);
+    check(preD.plazo?.dias === 15 && preD.plazo.fuente === 'catalogo', 'plazo: los 15 días de crédito del catálogo de Kepler (kdxd.c16)', preD.plazo);
+    check(preD.pago?.correo === 'pagos@acreedor-prueba.com.mx' && preD.pago.fuente_correo === 'catalogo' && preD.pago.cuenta === null,
+      'información de pago: el correo del catálogo de Kepler (kdxd.c11); la cuenta, ninguna (no está en ningún catálogo)', preD.pago);
+    const preH = await svc.precarga(SUC, ACR_H);
+    check(preH.plazo?.dias === 7 && preH.plazo.fuente === 'habito', 'plazo: sin días en Kepler, el de su última solicitud (fecha de pago − fecha = 7)', preH.plazo);
+    check(preH.pago === null, '⛔ un «correo» de Kepler que no tiene forma de correo no se propone', preH.pago);
+    const enQuince = diasDesde(hoy, 15);
+    const cPlazo = await pedir({ necesita_para: enQuince });
+    check((await vale(cPlazo.id)).needed_by != null && (await svc.detalle(cPlazo.id)).necesita_para === enQuince, 'la fecha de pago del plazo se guarda y quien firma la ve', enQuince);
+
+    // c) la información de pago (DS31): se valida su forma, se guarda limpia y la ve quien firma; la siguiente la propone
+    const CLABE = '012180001234567899';
+    const cPago = await pedir({ pago: { cuenta: '0121 8000 1234 5678 99', banco: ' BBVA ', correo: ' pagos@acreedor-prueba.com.mx ' } });
+    const vPago = await vale(cPago.id);
+    check(vPago.payee_account === CLABE && vPago.payee_bank === 'BBVA' && vPago.payee_email === 'pagos@acreedor-prueba.com.mx',
+      'la CLABE se guarda sólo con dígitos, y el banco y el correo sin espacios', { a: vPago.payee_account, b: vPago.payee_bank, c: vPago.payee_email });
+    const dPago = await svc.detalle(cPago.id);
+    check(dPago.pago?.cuenta === CLABE && dPago.pago?.correo === 'pagos@acreedor-prueba.com.mx', 'quien firma ve a dónde se paga y a quién se manda el comprobante', dPago.pago);
+    const preP = await svc.precarga(SUC, ACR);
+    check(preP.pago?.cuenta === CLABE && preP.pago.fuente_cuenta === 'habito' && preP.pago.fuente_correo === 'habito', 'la siguiente solicitud al mismo acreedor la propone «como la última vez»', preP.pago);
+    const cVacio = await pedir({ pago: { cuenta: ' ', banco: '', correo: '' } });
+    const vVacio = await vale(cVacio.id);
+    check(vVacio.payee_account === null && vVacio.payee_bank === null && vVacio.payee_email === null, 'una información de pago vacía no guarda nada (ni cadenas vacías)');
+    await no({ pago: { cuenta: '012180001234567890' } }, /dígito de control/, '⛔ una CLABE con el dígito de control mal → 400');
+    await no({ pago: { correo: 'pagos@acreedor' } }, /no es un correo/, '⛔ un correo sin dominio → 400');
+    await no({ pago: { cuenta: '12345' } }, /dígitos/, '⛔ una cuenta de 5 dígitos → 400');
   } finally {
     // ── Limpieza: exactamente lo que se creó ─────────────────────────────────────────────────────
     if (cfdisSembrados.length) await knex('fiscal.cfdis').where({ tenant_id: T }).whereIn('uuid', cfdisSembrados).del().catch((e) => console.log(`  ! limpieza: ${e.message}`));

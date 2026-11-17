@@ -35,7 +35,8 @@ describe('[PGP.122] FinanceExpenseProofsModule: la solicitud de gasto que nace e
   it('el servicio recibe cada dependencia por su CLASE (el knex, por su token)', () => {
     const ts = Reflect.getMetadata('design:paramtypes', por('SolicitudGastoService')!) as Clase[] | undefined;
     expect(ts?.map((t) => t?.name)).toEqual([
-      'TenantKnexService', 'TenantContextService', 'Object', 'KeplerSolicitudGastoSinkAdapter', 'ExpenseProofsGateway',
+      // S.17 (DS27): el alcance de quien pide, 4º y obligatorio (sin él no hay a quién preguntarle la base).
+      'TenantKnexService', 'TenantContextService', 'Object', 'ScopeService', 'KeplerSolicitudGastoSinkAdapter', 'ExpenseProofsGateway',
       'LlmExtractorService', 'ObjectStorageService',
     ]);
   });

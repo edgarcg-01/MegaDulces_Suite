@@ -3,8 +3,9 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type {
-  AcreedorDeGasto, CatalogoDeLaSolicitud, CrearSolicitudGastoDto, DetalleDeLaSolicitud, DisponibilidadDeLaSolicitud, DuplicadoProbable,
-  EstadoKeplerDeLaSolicitud, LecturaDelComprobante, PrecargaDeLaSolicitud, SolicitudGastoCreada, SucursalesAbiertasDeLaSolicitud,
+  AcreedorDeGasto, BandejaDeFacturasSat, CatalogoDeLaSolicitud, CrearSolicitudGastoDto, DescartarFacturaSatDto, DetalleDeFacturaSat,
+  DetalleDeLaSolicitud, DisponibilidadDeLaSolicitud, DuplicadoProbable, EstadoKeplerDeLaSolicitud, FacturaDescartada, LecturaDelComprobante,
+  PrecargaDeLaSolicitud, SolicitudGastoCreada, SucursalesAbiertasDeLaSolicitud,
 } from '@megadulces/contracts';
 
 /**
@@ -58,5 +59,27 @@ export class SolicitudGastoService {
 
   reintentarKepler(id: string): Observable<EstadoKeplerDeLaSolicitud | null> {
     return this.http.post<EstadoKeplerDeLaSolicitud | null>(`${this.base}/${id}/reintentar-kepler`, {});
+  }
+
+  // ── S.13 · La bandeja de facturas del SAT por registrar ─────────────────────────────────────────
+  facturasSat(sucursal: string): Observable<BandejaDeFacturasSat> {
+    return this.http.get<BandejaDeFacturasSat>(`${this.base}/facturas-sat`, { params: new HttpParams().set('sucursal', sucursal) });
+  }
+
+  facturaSat(uuid: string, sucursal: string): Observable<DetalleDeFacturaSat> {
+    return this.http.get<DetalleDeFacturaSat>(`${this.base}/facturas-sat/${encodeURIComponent(uuid)}`, { params: new HttpParams().set('sucursal', sucursal) });
+  }
+
+  /** El XML tal cual (se descarga con el permiso de la bandeja de ESA sucursal, no con el de `/fiscal/cfdi`). */
+  xmlDeFacturaSat(uuid: string, sucursal: string): Observable<Blob> {
+    return this.http.get(`${this.base}/facturas-sat/${encodeURIComponent(uuid)}/xml`, { params: new HttpParams().set('sucursal', sucursal), responseType: 'blob' });
+  }
+
+  descartarFacturaSat(uuid: string, dto: DescartarFacturaSatDto): Observable<FacturaDescartada> {
+    return this.http.post<FacturaDescartada>(`${this.base}/facturas-sat/${encodeURIComponent(uuid)}/descartar`, dto);
+  }
+
+  restaurarFacturaSat(uuid: string, sucursal: string): Observable<{ uuid: string; restaurada: true }> {
+    return this.http.post<{ uuid: string; restaurada: true }>(`${this.base}/facturas-sat/${encodeURIComponent(uuid)}/restaurar`, { sucursal });
   }
 }

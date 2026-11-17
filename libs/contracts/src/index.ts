@@ -281,3 +281,5 @@ export * from './finance/caja-reposicion.contract';
 export * from './finance/hoja-gastos.contract';
 // `[PGP.122]` La solicitud de gasto nace en la Suite: alcance, fechas, AMPARA y la compuerta de «Pedir».
 export * from './finance/solicitud-gasto.contract';
+// `[PGP.122]` S.13 — la bandeja de facturas del SAT por registrar: universo, «ya registrada», uno a uno por cercanía y sucursal.
+export * from './finance/factura-sat.contract';

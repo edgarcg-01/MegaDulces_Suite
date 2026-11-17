@@ -6,7 +6,6 @@ import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.compon
 import { FinanzasPedirGastoComponent } from './finanzas-pedir-gasto.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { AuthService } from '../../../core/services/auth.service';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
 
 /**
@@ -58,7 +57,6 @@ import { SolicitudGastoService } from '../solicitud-gasto.service';
 })
 export class FinanzasGastosComponent {
   private readonly route = inject(ActivatedRoute);
-  private readonly auth = inject(AuthService);
   private readonly solicitudes = inject(SolicitudGastoService);
 
   readonly modos: SegOption[] = [
@@ -79,12 +77,13 @@ export class FinanzasGastosComponent {
       : this.solicitudes.abiertas().pipe(map((r) => r.sucursales ?? []), catchError(() => of([] as string[])))) as Observable<string[] | null>,
     { initialValue: null },
   );
-  /** ¿Hay algo que abrir para esta persona? `null` mientras se pregunta. */
+  /**
+   * ¿Hay algo que abrir para esta persona? `null` mientras se pregunta. S.17 (DS27): el servidor ya devuelve sólo las
+   * bases abiertas que son de sus almacenes (el mismo alcance de la bandeja del SAT), así que basta con que haya una.
+   */
   readonly hayPuerta = computed(() => {
     const a = this.abiertas();
-    if (a === null) return null;
-    const suc = String(this.auth.user()?.warehouse_code ?? '').trim();
-    return /^\d{2}$/.test(suc) ? a.includes(suc) : a.length > 0;
+    return a === null ? null : a.length > 0;
   });
   /** Lo que la persona eligió a mano manda sobre el defecto. */
   private readonly aMano = signal(null as 'pedir' | 'folio' | null);

@@ -13,14 +13,14 @@ import { SelectButtonModule } from 'primeng/selectbutton';
 import { TagModule } from 'primeng/tag';
 import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
-import { MessageService } from 'primeng/api';
+import { ConfirmationService, MessageService } from 'primeng/api';
 import {
-  FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, avisoDeFechas, cfdiCuadra, detallePagoOpcional, exigeDetalle, faltaParaPedir,
-  totalesDeLaSolicitud, type AcreedorDeGasto, type CatalogoDeLaSolicitud, type DuplicadoProbable, type FuenteDelDato,
-  type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante,
+  FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
+  detallePagoOpcional, exigeDetalle, faltaParaPedir, fechaDePago, hayInformacionDePago, totalesDeLaSolicitud,
+  type AcreedorDeGasto, type AlcanceDeLaBase, type CatalogoDeLaSolicitud, type DuplicadoProbable, type FacturaPorRegistrar, type FuenteDelDato,
+  type InformacionDePago, type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante,
 } from '@megadulces/contracts';
 
-import { AuthService } from '../../../core/services/auth.service';
 import { STORE_BRANCHES, branchLabel } from '../../../core/constants/store-branches';
 import { ComprobacionesService, type ProofFile, type ProofFileRole } from '../comprobaciones.service';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
@@ -29,13 +29,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-
-/** Un renglón en captura (lo que va a kdm6), con de dónde salió cada valor. */
-interface RenglonEnCaptura { concepto: string | null; proyecto: string | null; departamento: string | null; importe: number | null }
-
-const FUENTE_TEXTO: Record<FuenteDelDato, string> = {
-  cfdi: 'de la factura del SAT', ticket: 'leído del comprobante', habito: 'como la última vez', sesion: 'de tu sesión', persona: 'lo escribiste tú',
-};
+import { FacturasSatBandejaComponent, type ProveedorDeLaBandeja } from '../components/facturas-sat-bandeja.component';
+import { FUENTE_TEXTO, campoQueFalta, enLista, loQueReemplaza, origenDelRenglon, sinBaseTexto, textoDelPlazo, type RenglonEnCaptura } from './pedir-gasto.ayudas';
 
 /** `YYYY-MM-DD` de un Date en la hora local (la del navegador, que en la flota es la de México). */
 const iso = (d: Date | null | undefined): string | null =>
@@ -63,10 +58,12 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
  * El propósito en una frase: «dar de alta UN gasto, ya lleno, para que lo firmen». Al firmarse, la Suite lo
  * escribe en Kepler ya autorizado: nadie lo vuelve a teclear (hoy se teclea dos veces en el 94.4 %).
  *
- * Qué ve y en qué orden: (1) el documento que ampara el gasto —la foto se LEE sola y, si es factura, se busca
- * en el SAT—, (2) a quién se le paga —por RFC, o sus frecuentes—, (3) qué y cuánto —«como la última vez»—,
- * (4) cómo se pagó; y en la barra de abajo, el total, lo que falta y UN botón. Cada dato dice de dónde salió;
- * lo que ninguna fuente contestó es lo único que se pregunta. La lectura propone y nunca decide (GX.32/33).
+ * Qué ve y en qué orden (S.17, Francisco 2026-11-16, anexo S §15): (1) la BASE —con un solo almacén, fija; con
+ * varios, se elige, sin preselección—, (2) el PROVEEDOR —y debajo, sus facturas del SAT sin gasto—, (3) el
+ * comprobante —la factura del SAT, o la foto que se LEE sola—, (4) qué y cuánto —«como la última vez»—, (5) cómo se
+ * paga: la forma, el plazo y, si hace falta, la información de pago (cuenta y correo); y en la barra de abajo, el
+ * total, lo que falta y UN botón. Cada dato dice de dónde salió; lo que ninguna fuente contestó es lo único que se
+ * pregunta. La lectura propone y nunca decide (GX.32/33).
  *
  * Qué no ve: cuenta contable, RFC, moneda, paridad, «autoriza»: los pone el catálogo del servidor.
  * Celular: 103 persona-días en 30 días (14 personas, cajeros, encargados, ruta): barra con la acción
@@ -81,7 +78,7 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
   imports: [
     FormsModule, RouterLink, AutoCompleteModule, ButtonModule, DatePickerModule, InputNumberModule, InputTextModule, SelectModule,
     SelectButtonModule, TagModule, TextareaModule, ToastModule, CapturaEnVivoComponent, LoadStateComponent, SegmentedComponent,
-    MetricStripComponent, FreshnessPillComponent,
+    MetricStripComponent, FreshnessPillComponent, FacturasSatBandejaComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -93,25 +90,30 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
         <p class="pg-sub">La Suite llena lo que ya sabe; tú revisas y lo mandas a firma. Al firmarse se escribe en Kepler: no se vuelve a teclear.</p>
       </header>
 
-      @if (sucursales().length > 1) {
-        <div class="pg-campo pg-suc">
-          <label for="pg-sucursal">Sucursal</label>
-          <p-select inputId="pg-sucursal" appendTo="body" [options]="sucursales()" optionLabel="name" optionValue="code"
-            [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)" [fluid]="true" placeholder="Elige la sucursal" />
-        </div>
-      } @else if (sucursal()) {
-        <p class="pg-suc-fija"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ nombreSucursal() }}</p>
-      }
-      @if (disponible()) {
-        <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Cómo va la solicitud" />
-        <p class="pg-catalogo">Catálogo de Kepler de esta sucursal <app-freshness-pill measures="fetch" [since]="catalogoLeidoEn()" label="leído" /></p>
-      }
-
+      <!-- 1 · La base: en qué servidor de Kepler se pide (DS27). Una → fija; varias → se elige, sin preselección. -->
+      <fieldset class="pg-bloque" id="pg-base">
+        <legend class="pg-legend" id="pg-base-t" tabindex="-1"><span class="pg-num">1</span> Base</legend>
+        @if (sucursales().length > 1) {
+          @if (sucursales().length <= 5) {
+            <p-selectbutton [options]="opcionesBase()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
+              [allowEmpty]="false" ariaLabelledBy="pg-base-t" />
+          } @else {
+            <p-select inputId="pg-sucursal" appendTo="body" [options]="opcionesBase()" optionLabel="label" optionValue="value" ariaLabelledBy="pg-base-t"
+              [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)" [fluid]="true" placeholder="Elige la base" />
+          }
+        } @else if (sucursal()) {
+          <!-- «tu almacén» sólo si de verdad es el único suyo; con varias o todas, es la única ABIERTA (no se afirma de más). -->
+          <p class="pg-suc-fija"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ nombreSucursal() }} <span class="pg-fuente">· {{ porQueUnaBase() }}</span></p>
+        }
+        @if (disponible()) {
+          <p class="pg-catalogo">Catálogo de Kepler de esta base <app-freshness-pill measures="fetch" [since]="catalogoLeidoEn()" label="leído" /></p>
+        }
+      </fieldset>
       <app-load-state [loading]="cargando()" [error]="errorCarga()" (retry)="reintentarCarga()" [skeletonRows]="5"
         errorTitle="No se pudo abrir la solicitud">
         @if (!sucursal()) {
           <p class="pg-elige" role="status"><i class="pi pi-map-marker" aria-hidden="true"></i>
-            {{ sucursales().length ? 'Elige la sucursal para empezar.' : 'La solicitud en la Suite todavía no está abierta en ninguna de tus sucursales.' }}</p>
+            {{ sucursales().length ? 'Elige la base para empezar.' : textoSinBase() }}</p>
         } @else if (consultada() && !disponible()) {
           <div class="pg-cerrado" role="status">
             <i class="pi pi-lock" aria-hidden="true"></i>
@@ -126,13 +128,49 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             </div>
           </div>
         } @else if (disponible()) {
-          <!-- 1 · El documento -->
+          <!-- S.17: la cifra nace con su valor (contaba desde 0: la franja decía «7 FALTA» con la barra en «Faltan 8», como S.13 H2). -->
+          <app-metric-strip [items]="resumen()" density="compact" [instant]="true" ariaLabel="Cómo va la solicitud" />
+
+          <!-- 2 · El proveedor, y debajo SUS facturas del SAT sin gasto (DS28) -->
           <fieldset class="pg-bloque">
-            <legend class="pg-legend"><span class="pg-num">1</span> El documento que ampara el gasto</legend>
+            <legend class="pg-legend" id="pg-prov-t"><span class="pg-num">2</span> Proveedor</legend>
+            <div class="pg-campo">
+              <label for="pg-acreedor">Proveedor (acreedor de Kepler)</label>
+              <p-autocomplete inputId="pg-acreedor" [ngModel]="acreedorSel()" (ngModelChange)="acreedorTecleado($event)" [suggestions]="acreedoresSug()"
+                (completeMethod)="buscarAcreedor($event.query)" (onSelect)="elegirAcreedor($event.value)" optionLabel="nombre"
+                [forceSelection]="true" [dropdown]="true" [showClear]="true" appendTo="body" [fluid]="true"
+                placeholder="Nombre, clave o RFC" [emptyMessage]="buscarFallo() ? 'No se pudo buscar: intenta otra vez' : 'Sin acreedores de gasto con eso en esta base'">
+                <ng-template let-a #item>
+                  <div class="pg-ac-op"><span class="pg-ac-n">{{ a.nombre }}</span><span class="pg-ac-c">{{ a.clave }}@if (a.usos) { · {{ a.usos }} en 6 meses }</span></div>
+                </ng-template>
+              </p-autocomplete>
+              @if (fuente('acreedor'); as f) { <small class="pg-fuente">{{ f }}</small> }
+              @if (buscarFallo()) { <small class="pg-nota-aviso" role="status">No se pudo buscar acreedores: revisa tu conexión e intenta otra vez.</small> }
+              @if (avisoAcreedor(); as aa) { <small class="pg-nota-aviso" role="status">{{ aa }}</small> }
+            </div>
+            <!-- S.13 + S.17: sin proveedor, los que tienen facturas sin gasto; con proveedor, SUS facturas. -->
+            <app-facturas-sat-bandeja [sucursal]="sucursal()" [acreedor]="proveedorDeLaBandeja()" [enUso]="cfdiUuid()" [refrescar]="bandejaVersion()"
+              [bloqueado]="enviando()" (registrar)="usarFactura($event)" (elegirProveedor)="elegirDesdeFactura($event)" />
+            @if (!acreedorSel() && frecuentes().length) {
+              <!-- comm-actions: con el dedo, 44 px (la regla global de toque). -->
+              <div class="pg-chips comm-actions" role="group" aria-labelledby="pg-frec-t">
+                <span class="pg-chips-t" id="pg-frec-t">Frecuentes</span>
+                @for (a of frecuentes(); track a.clave) {
+                  <!-- Neutros, como los de «Con facturas del SAT»: el color de acción es sólo de «Mandar a firma» (S.13 H3). -->
+                  <button pButton type="button" size="small" [outlined]="true" [plain]="true" (click)="elegirAcreedor(a)">{{ a.nombre }}</button>
+                }
+              </div>
+            }
+          </fieldset>
+
+          <!-- 3 · El comprobante -->
+          <fieldset class="pg-bloque" id="pg-documento">
+            <legend class="pg-legend" id="pg-doc-t" tabindex="-1"><span class="pg-num">3</span> El comprobante</legend>
             <app-segmented [options]="tiposDoc" [value]="tipo()" (valueChange)="setTipo($event)" ariaLabel="Qué documento ampara el gasto" />
             <div class="pg-arch">
               @if (tipo() !== 'cotizacion') {
-                <md-captura-en-vivo etiqueta="Tomar foto" (capturada)="alCapturar($event)" />
+                <!-- H20: con la factura casada al SAT la foto sobra: el botón deja de ser el principal y lo dice. -->
+                <md-captura-en-vivo [etiqueta]="cfdiUuid() ? 'Tomar foto (opcional)' : 'Tomar foto'" [secundario]="!!cfdiUuid()" (capturada)="alCapturar($event)" />
               }
               <label class="pg-subir">
                 <i class="pi pi-upload" aria-hidden="true"></i>
@@ -179,35 +217,9 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             }
           </fieldset>
 
-          <!-- 2 · A quién -->
+          <!-- 4 · Qué y cuánto -->
           <fieldset class="pg-bloque">
-            <legend class="pg-legend"><span class="pg-num">2</span> A quién se le paga</legend>
-            <div class="pg-campo">
-              <label for="pg-acreedor">Acreedor</label>
-              <p-autocomplete inputId="pg-acreedor" [ngModel]="acreedorSel()" (ngModelChange)="acreedorTecleado($event)" [suggestions]="acreedoresSug()"
-                (completeMethod)="buscarAcreedor($event.query)" (onSelect)="elegirAcreedor($event.value)" optionLabel="nombre"
-                [forceSelection]="true" [dropdown]="true" [showClear]="true" appendTo="body" [fluid]="true"
-                placeholder="Nombre, clave o RFC" [emptyMessage]="buscarFallo() ? 'No se pudo buscar: intenta otra vez' : 'Sin acreedores de gasto con eso en esta sucursal'">
-                <ng-template let-a #item>
-                  <div class="pg-ac-op"><span class="pg-ac-n">{{ a.nombre }}</span><span class="pg-ac-c">{{ a.clave }}@if (a.usos) { · {{ a.usos }} en 6 meses }</span></div>
-                </ng-template>
-              </p-autocomplete>
-              @if (fuente('acreedor'); as f) { <small class="pg-fuente">{{ f }}</small> }
-              @if (buscarFallo()) { <small class="pg-nota-aviso" role="status">No se pudo buscar acreedores: revisa tu conexión e intenta otra vez.</small> }
-              @if (avisoAcreedor(); as aa) { <small class="pg-nota-aviso" role="status">{{ aa }}</small> }
-            </div>
-            @if (!acreedorSel() && frecuentes().length) {
-              <div class="pg-chips" role="group" aria-label="Acreedores frecuentes">
-                @for (a of frecuentes(); track a.clave) {
-                  <button pButton type="button" class="p-button-sm p-button-outlined" (click)="elegirAcreedor(a)">{{ a.nombre }}</button>
-                }
-              </div>
-            }
-          </fieldset>
-
-          <!-- 3 · Qué y cuánto -->
-          <fieldset class="pg-bloque">
-            <legend class="pg-legend"><span class="pg-num">3</span> Qué es y cuánto</legend>
+            <legend class="pg-legend" id="pg-que" tabindex="-1"><span class="pg-num">4</span> Qué es y cuánto</legend>
             @for (r of renglones(); track $index; let i = $index) {
               <div class="pg-renglon" role="group" [attr.aria-label]="'Renglón ' + (i + 1)">
                 <div class="pg-campo pg-ren-concepto">
@@ -234,7 +246,8 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                   <p-button type="button" styleClass="pg-quitar" icon="pi pi-times" [text]="true" size="small" [ariaLabel]="'Quitar el renglón ' + (i + 1)" (onClick)="quitarRenglon(i)" />
                 }
               </div>
-              @if (fuente('renglon_' + (i + 1)); as f) { <small class="pg-fuente">{{ f }}</small> }
+              <!-- H1: cada campo con SU origen («de la factura» era sólo el importe; el concepto salió del hábito). -->
+              @if (origenRenglon(i); as o) { <small class="pg-fuente">{{ o }}</small> }
             }
             @if (renglones().length < maxRenglones) {
               <p-button type="button" icon="pi pi-plus" label="Agregar renglón" [text]="true" size="small" (onClick)="agregarRenglon()" />
@@ -253,12 +266,15 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             </div>
           </fieldset>
 
-          <!-- 4 · Cómo se pagó -->
+          <!-- 5 · Cómo se paga: la forma, el plazo (DS30) y, si hace falta, la información de pago (DS31) -->
           <fieldset class="pg-bloque">
-            <legend class="pg-legend"><span class="pg-num">4</span> {{ tipo() === 'cotizacion' ? 'Cómo se va a pagar' : 'Cómo se pagó' }}</legend>
-            <p-selectbutton [options]="formasPago" optionLabel="label" optionValue="id" [ngModel]="formaPago()" (ngModelChange)="formaPago.set($event); marcar('forma_pago')"
-              [allowEmpty]="false" />
-            @if (fuente('forma_pago'); as f) { <small class="pg-fuente">{{ f }}</small> }
+            <legend class="pg-legend" id="pg-como" tabindex="-1"><span class="pg-num">5</span> {{ tipo() === 'cotizacion' ? 'Cómo se va a pagar' : 'Cómo se paga' }}</legend>
+            <div class="pg-campo">
+              <span class="pg-label" id="pg-forma-t">Forma de pago</span>
+              <p-selectbutton [options]="formasPago" optionLabel="label" optionValue="id" [ngModel]="formaPago()" (ngModelChange)="formaPago.set($event); marcar('forma_pago')"
+                [allowEmpty]="false" ariaLabelledBy="pg-forma-t" />
+              @if (fuente('forma_pago'); as f) { <small class="pg-fuente">{{ f }}</small> }
+            </div>
             @if (detalleLabel(); as dl) {
               <div class="pg-campo">
                 <label for="pg-detalle">{{ dl }}{{ detalleOpcional() ? ' (opcional)' : '' }}</label>
@@ -270,10 +286,56 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                 }
               </div>
             }
+            <div class="pg-campo">
+              <span class="pg-label" id="pg-plazo-t">Plazo</span>
+              <p-selectbutton [options]="plazos" optionLabel="label" optionValue="id" [ngModel]="plazoSel()" (ngModelChange)="elegirPlazo($event)"
+                [allowEmpty]="false" ariaLabelledBy="pg-plazo-t" />
+              @if (plazoSel() === 'otra') {
+                <div class="pg-campo pg-otra">
+                  <label for="pg-fecha-pago">Fecha de pago</label>
+                  <p-datepicker inputId="pg-fecha-pago" [ngModel]="fechaOtra()" (ngModelChange)="fechaOtra.set($event); marcar('plazo')" dateFormat="dd/mm/yy"
+                    [showIcon]="true" appendTo="body" [minDate]="hoyDate()" [fluid]="true" />
+                </div>
+              }
+              <small class="pg-fuente" aria-live="polite">{{ textoPlazo() }}@if (fuente('plazo'); as f) { · {{ f }} }</small>
+            </div>
+            @if (!pagoAbierto()) {
+              <span class="pg-mas-pago comm-actions">
+                <p-button type="button" icon="pi pi-plus" label="Agregar información de pago" [text]="true" size="small" (onClick)="abrirPago()" />
+              </span>
+            } @else {
+              <div class="pg-pago" role="group" aria-labelledby="pg-pago-t">
+                <div class="pg-pago-head">
+                  <span class="pg-label" id="pg-pago-t">Información de pago</span>
+                  <span class="comm-actions">
+                    <p-button type="button" label="Quitar" [text]="true" size="small" severity="secondary" ariaLabel="Quitar la información de pago" (onClick)="quitarPago()" />
+                  </span>
+                </div>
+                <div class="pg-grid">
+                  <div class="pg-campo">
+                    <label for="pg-cuenta">Cuenta o CLABE</label>
+                    <input pInputText id="pg-cuenta" [ngModel]="pagoCuenta()" (ngModelChange)="pagoCuenta.set($event); marcar('pago_cuenta')" autocomplete="off"
+                      inputmode="numeric" maxlength="30" [invalid]="cuentaMal()" [attr.aria-invalid]="cuentaMal() ? true : null" aria-describedby="pg-cuenta-ayuda" />
+                    <small id="pg-cuenta-ayuda" class="pg-fuente" [class.pg-mal]="cuentaMal()">{{ textoCuenta() }}</small>
+                  </div>
+                  <div class="pg-campo">
+                    <label for="pg-banco">Banco (opcional)</label>
+                    <input pInputText id="pg-banco" [ngModel]="pagoBanco()" (ngModelChange)="pagoBanco.set($event); marcar('pago_banco')" autocomplete="off" maxlength="40" />
+                    @if (fuente('pago_banco'); as f) { <small class="pg-fuente">{{ f }}</small> }
+                  </div>
+                </div>
+                <div class="pg-campo">
+                  <label for="pg-correo">Correo para mandar el comprobante del pago</label>
+                  <input pInputText id="pg-correo" type="email" [ngModel]="pagoCorreo()" (ngModelChange)="pagoCorreo.set($event); marcar('pago_correo')" autocomplete="off"
+                    inputmode="email" maxlength="120" [invalid]="correoMal()" [attr.aria-invalid]="correoMal() ? true : null" aria-describedby="pg-correo-ayuda" />
+                  <small id="pg-correo-ayuda" class="pg-fuente" [class.pg-mal]="correoMal()">{{ correoMal() ? 'Escribe una sola dirección, con @ y su dominio.' : (fuente('pago_correo') ?? 'Una sola dirección.') }}</small>
+                </div>
+              </div>
+            }
           </fieldset>
 
           <details class="pg-mas">
-            <summary>Más datos (opcional): periodo, unidad, nota, para cuándo</summary>
+            <summary>Más datos (opcional): periodo, unidad, nota</summary>
             <div class="pg-grid">
               <div class="pg-campo"><label for="pg-del">Periodo del</label>
                 <p-datepicker inputId="pg-del" [ngModel]="periodoDel()" (ngModelChange)="periodoDel.set($event)" dateFormat="dd/mm/yy" appendTo="body" [fluid]="true" /></div>
@@ -281,8 +343,6 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                 <p-datepicker inputId="pg-al" [ngModel]="periodoAl()" (ngModelChange)="periodoAl.set($event)" dateFormat="dd/mm/yy" appendTo="body" [fluid]="true" /></div>
               <div class="pg-campo"><label for="pg-unidad">Unidad o placa</label>
                 <input pInputText id="pg-unidad" [ngModel]="unidad()" (ngModelChange)="unidad.set($event)" maxlength="20" autocomplete="off" /></div>
-              <div class="pg-campo"><label for="pg-necesita">Se necesita pagar el</label>
-                <p-datepicker inputId="pg-necesita" [ngModel]="necesitaPara()" (ngModelChange)="necesitaPara.set($event)" dateFormat="dd/mm/yy" appendTo="body" [minDate]="hoyDate()" [fluid]="true" /></div>
             </div>
             <div class="pg-campo"><label for="pg-nota">Nota para Kepler (si no, se arma del concepto, el periodo y la unidad)</label>
               <input pInputText id="pg-nota" [ngModel]="nota()" (ngModelChange)="nota.set($event)" maxlength="60" autocomplete="off" /></div>
@@ -357,7 +417,27 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
     .pg-leido { margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-3); font-size: var(--fs-sm); }
     .pg-leido-t { color: var(--text-muted); }
     .pg-sat { margin: 0; font-size: var(--fs-sm); color: var(--text-main); display: flex; gap: var(--sp-2); align-items: center; overflow-wrap: anywhere; }
-    .pg-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    .pg-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; justify-content: flex-start; }
+    .pg-chips-t { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin-right: var(--sp-1); }
+    .pg-mas-pago { justify-content: flex-start; }
+    .pg-pago { display: flex; flex-direction: column; gap: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
+    .pg-pago-head { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); }
+    .pg-otra { max-width: 16rem; }
+    /*
+     * S.17 (prueba visual a 390 px): la forma de pago cortaba sus etiquetas («Transferenc», «Efectivc») y el plazo partía
+     * cada botón en dos renglones. El grupo se envuelve y cada botón conserva su etiqueta completa.
+     */
+    :host ::ng-deep .pg-bloque .p-selectbutton { display: flex; flex-wrap: wrap; max-width: 100%; }
+    :host ::ng-deep .pg-bloque .p-selectbutton .p-togglebutton { flex: 0 0 auto; white-space: nowrap; }
+    /*
+     * Contraste (medido): la opción NO elegida de Aura va en zinc-500 y sobre el fondo zinc-100 de Operations da 4.40:1,
+     * bajo el 4.5 de AA. En la base, sin preselección, TODAS están así y hay que leerlas para elegir: van en el texto
+     * atenuado de la Suite (--text-muted). La causa es del preset (operations-preset.ts): hallazgo de sistema para Edgar.
+     */
+    :host ::ng-deep .pg-bloque .p-selectbutton .p-togglebutton:not(.p-togglebutton-checked) { color: var(--text-muted); }
+    /* Con el dedo, 44 px (la regla global de toque no alcanza a los botones de un p-selectbutton: medían 35). */
+    @media (pointer: coarse) { :host ::ng-deep .pg-bloque .p-selectbutton .p-togglebutton { min-height: var(--tap-min); } }
+    .pg-mal { color: var(--bad-soft-fg); }
     .pg-ac-op { display: flex; flex-direction: column; }
     .pg-ac-n { color: var(--text-main); }
     .pg-ac-c { color: var(--text-faint); font-size: var(--fs-xs); }
@@ -392,8 +472,9 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
 export class FinanzasPedirGastoComponent {
   private readonly api = inject(SolicitudGastoService);
   private readonly archivos = inject(ComprobacionesService);
-  private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
+  /** El diálogo de confirmación vive en la raíz (`app.component`); su servicio es global. */
+  private readonly confirmar = inject(ConfirmationService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly maxRenglones = MAX_RENGLONES;
@@ -409,18 +490,26 @@ export class FinanzasPedirGastoComponent {
     { label: 'Cotización (antes de gastar)', value: 'cotizacion' },
   ];
 
-  /** Las sucursales donde hoy se puede pedir (`null` = todavía no contesta). */
+  /**
+   * S.17 (DS27): las bases donde ESTA persona puede pedir hoy — las abiertas que son de sus almacenes. Las decide el
+   * servidor (el mismo alcance de la bandeja del SAT, ADR-050), no la sesión: `null` = todavía no contesta.
+   */
   readonly abiertas = signal<string[] | null>(null);
-  /** La sucursal de la sesión; sin ella (oficinas, plataforma) se elige entre las nueve, por nombre. Sólo las ABIERTAS. */
-  private readonly sucursalDeSesion = computed(() => String(this.auth.user()?.warehouse_code ?? '').trim());
+  /** Cómo se decidió (una, varias, todas, sin almacén en su ficha…): para decir por qué no hay ninguna. */
+  readonly alcanceBase = signal<AlcanceDeLaBase | null>(null);
   readonly sucursales = computed(() => {
     const abiertas = this.abiertas() ?? [];
-    const s = this.sucursalDeSesion();
-    const base = s ? STORE_BRANCHES.filter((b) => b.code === s) : STORE_BRANCHES.filter((b) => /^\d{2}$/.test(b.code) && Number(b.code) <= 8);
-    return base.filter((b) => abiertas.includes(b.code));
+    return STORE_BRANCHES.filter((b) => abiertas.includes(b.code));
+  });
+  readonly opcionesBase = computed(() => this.sucursales().map((b) => ({ label: branchLabel(b.code), value: b.code })));
+  readonly textoSinBase = computed(() => sinBaseTexto(this.alcanceBase()));
+  /** Por qué la base está fija: sólo con UN almacén es «el tuyo»; con varias o todas, es la única abierta hoy. */
+  readonly porQueUnaBase = computed(() => {
+    const a = this.alcanceBase();
+    return a === 'una' ? 'tu almacén' : a === 'varias' ? 'la única de tus almacenes abierta hoy' : 'la única base abierta hoy';
   });
   readonly sucursal = signal<string>('');
-  readonly nombreSucursal = computed(() => branchLabel(this.sucursal()) || 'esta sucursal');
+  readonly nombreSucursal = computed(() => branchLabel(this.sucursal()) || 'esta base');
 
   readonly cargando = signal(false);
   readonly errorCarga = signal<string | null>(null);
@@ -462,11 +551,20 @@ export class FinanzasPedirGastoComponent {
   readonly periodoAl = signal<Date | null>(null);
   readonly unidad = signal('');
   readonly nota = signal('');
-  readonly necesitaPara = signal<Date | null>(null);
+  /** S.17 (DS30): el plazo elegido: '0' de contado, '7' / '15' / '30' días, u 'otra' fecha. */
+  readonly plazoSel = signal<string>('0');
+  readonly fechaOtra = signal<Date | null>(null);
+  /** S.17 (DS31): la información de pago (cuenta y correo), opcional; nace cerrada salvo que el acreedor ya la traiga. */
+  readonly pagoAbierto = signal(false);
+  readonly pagoCuenta = signal('');
+  readonly pagoBanco = signal('');
+  readonly pagoCorreo = signal('');
   readonly duplicados = signal<DuplicadoProbable[]>([]);
   readonly duplicadosFallo = signal(false);
   readonly enviando = signal(false);
   readonly creada = signal<SolicitudGastoCreada | null>(null);
+  /** Sube al mandar una solicitud: la bandeja del SAT se vuelve a leer (la factura registrada sale sola). */
+  readonly bandejaVersion = signal(0);
   /**
    * De dónde salió cada dato (campo → fuente). Lo que la persona cambia pasa a «persona». Los del renglón van por
    * número (`concepto_1`, `importe_2`…) y `renglon_N` es lo que se guarda como origen del renglón.
@@ -476,6 +574,48 @@ export class FinanzasPedirGastoComponent {
   private idCliente = nuevoId();
 
   readonly totales = computed(() => totalesDeLaSolicitud(this.renglones().map((r) => ({ importe: Number(r.importe ?? 0) })), this.iva()));
+
+  // ── S.17 · El plazo (DS30) ─────────────────────────────────────────────────────────────────
+  /** Copia mutable para `p-selectbutton` (el catálogo del contrato es `readonly`, TS4104). */
+  readonly plazos = [...PLAZOS_DE_PAGO.map((d) => ({ id: String(d), label: d === 0 ? 'De contado' : `${d} días` })), { id: 'otra', label: 'Otra fecha' }];
+  /** El plazo corre desde la fecha del documento (factura o ticket); una cotización todavía no se gasta: desde hoy. */
+  private readonly desdePlazo = computed(() => (this.tipo() === 'cotizacion' ? null : iso(this.fechaDoc())));
+  readonly pagoCalculado = computed(() => {
+    const p = this.plazoSel();
+    if (p === 'otra') return { fecha: iso(this.fechaOtra()), vencio: null, desde: 'hoy' as const, dias: null as number | null };
+    const r = fechaDePago({ dias: Number(p), desde: this.desdePlazo(), hoy: this.hoy() });
+    return { ...r, dias: Number(p) as number | null };
+  });
+  /** Lo que viaja como fecha de pago (`c18`): de contado no manda nada (Kepler pone la de solicitud, como hoy). */
+  readonly necesitaParaIso = computed(() => (this.plazoSel() === '0' ? null : this.pagoCalculado().fecha));
+  readonly textoPlazo = computed(() => {
+    const c = this.pagoCalculado();
+    return textoDelPlazo({ dias: c.dias, fecha: c.fecha, vencio: c.vencio, desde: c.desde, fechaLarga: (d) => this.fechaLarga(d) });
+  });
+
+  // ── S.17 · La información de pago (DS31) ───────────────────────────────────────────────────
+  readonly cuentaLeida = computed(() => cuentaDePago(this.pagoCuenta()));
+  readonly cuentaMal = computed(() => this.cuentaLeida()?.ok === false);
+  readonly correoMal = computed(() => !!this.pagoCorreo().trim() && !correoValido(this.pagoCorreo()));
+  readonly textoCuenta = computed(() => {
+    const c = this.cuentaLeida();
+    if (!c) return this.fuente('pago_cuenta') ?? 'CLABE de 18 dígitos, tarjeta de 16 o número de cuenta.';
+    if (!c.ok) return c.motivo;
+    const que = c.tipo === 'clabe' ? 'CLABE con su dígito de control correcto' : c.tipo === 'tarjeta' ? 'Tarjeta' : 'Cuenta';
+    const f = this.fuente('pago_cuenta');
+    return f ? `${que} · ${f}` : que;
+  });
+  /** Lo que se manda: sólo si el bloque está abierto y trae algo (vacío no se guarda). */
+  readonly pagoDto = computed((): InformacionDePago | null => {
+    if (!this.pagoAbierto()) return null;
+    const p = { cuenta: this.pagoCuenta(), banco: this.pagoBanco(), correo: this.pagoCorreo() };
+    return hayInformacionDePago(p) ? p : null;
+  });
+  /** Para la bandeja del SAT: con el proveedor elegido, muestra sus facturas (S.17, DS28). */
+  readonly proveedorDeLaBandeja = computed((): ProveedorDeLaBandeja | null => {
+    const a = this.acreedorSel();
+    return a ? { clave: a.clave, nombre: a.nombre, rfc: a.rfc } : null;
+  });
   readonly detalleLabel = computed(() => (exigeDetalle(this.formaPago()) ? FORMAS_PAGO.find((f) => f.id === this.formaPago())?.detalle_label ?? null : null));
   /** DS17: al pedir, la referencia o el cheque llegan al pagar (la misma regla que lee `faltaParaPedir`). */
   readonly detalleOpcional = computed(() => detallePagoOpcional({ forma_pago: this.formaPago(), se_paga_despues: true }));
@@ -514,6 +654,7 @@ export class FinanzasPedirGastoComponent {
     forma_pago: this.formaPago(), forma_pago_detalle: this.detalle(),
     archivos: this.archivo() ? [{ role: this.rolDelArchivo(), live: this.archivo()!.live ?? null }] : [],
     motivo_fecha: this.motivoFecha(),
+    pago: this.pagoDto(),
   }));
 
   /** Los datos que cuentan para «la Suite llena» (la métrica de automatización del anexo). */
@@ -569,6 +710,7 @@ export class FinanzasPedirGastoComponent {
     this.api.abiertas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.abiertas.set(r.sucursales ?? []);
+        this.alcanceBase.set(r.alcance ?? null);
         this.cargando.set(false);
         const s = this.sucursales();
         if (s.length === 1) { this.sucursal.set(s[0].code); this.cargar(); }
@@ -588,6 +730,10 @@ export class FinanzasPedirGastoComponent {
     return f && f !== 'persona' ? FUENTE_TEXTO[f] : null;
   }
 
+  origenRenglon(i: number): string | null {
+    return origenDelRenglon(this.fuentes(), i + 1);
+  }
+
   marcar(campo: string): void {
     this.fuentes.update((m) => ({ ...m, [campo]: 'persona' }));
   }
@@ -598,6 +744,12 @@ export class FinanzasPedirGastoComponent {
 
   dinero(n: number | null | undefined): string {
     return Number(n ?? 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  /** «lun 1 dic»: la fecha de pago, como la lee la gente. */
+  fechaLarga(isoFecha: string): string {
+    const d = deIso(isoFecha);
+    return d ? d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' }) : isoFecha;
   }
 
   cambiarSucursal(s: string): void {
@@ -737,6 +889,89 @@ export class FinanzasPedirGastoComponent {
     if (this.fuentes()['renglon_1'] !== 'persona') this.poner('renglon_1', f);
   }
 
+  /**
+   * S.17 (DS28) — El proveedor elegido desde sus facturas del SAT sin gasto: queda en «Proveedor» (de la factura del SAT)
+   * y la bandeja muestra sus facturas para usar una.
+   */
+  elegirDesdeFactura(p: ProveedorDeLaBandeja): void {
+    if (this.enviando()) return;
+    this.elegirAcreedor({ clave: p.clave, nombre: p.nombre, rfc: p.rfc, usos: 0 });
+    this.poner('acreedor', 'cfdi');
+  }
+
+  /**
+   * S.17 (DS29) — «Usar esta factura»: el COMPROBANTE se llena con ella (el UUID ya verificado, folio, fecha, IVA del
+   * CFDI y el renglón = total − IVA, que cuadra al centavo). El proveedor y lo que puso su hábito (concepto, área, forma
+   * de pago, plazo) se quedan: elegir al proveedor y luego su factura es el camino normal. Sólo se pregunta si reemplaza
+   * un comprobante ya capturado (foto, folio u otra factura), con el foco en «No».
+   */
+  usarFactura(f: FacturaPorRegistrar): void {
+    if (this.enviando()) return;
+    const a = f.acreedores.find((x) => x.en_la_sucursal && x.registrable);
+    if (!a) {
+      this.toast.add({ severity: 'warn', summary: 'No se puede usar en esta base', life: 8000,
+        detail: f.acreedores.find((x) => x.en_la_sucursal)?.por_que_no
+          ?? `${f.emisor_nombre || f.emisor_rfc} no está en el catálogo de Kepler de ${this.nombreSucursal()}: pídele a Finanzas que lo dé de alta.` });
+      return;
+    }
+    const reemplaza = loQueReemplaza({ archivo: this.archivo(), folio: this.folioDoc(), uuid: this.cfdiUuid(), fuentes: this.fuentes() }, f.uuid);
+    if (!reemplaza.length) { this.llenarConFactura(f, a); return; }
+    this.confirmar.confirm({
+      header: 'Ya hay un comprobante capturado',
+      message: `Usar la factura ${f.serie_folio || 'sin folio'} (${this.dinero(f.total)}) reemplaza ${enLista(reemplaza)}. El proveedor y lo demás se quedan. ¿Sigues?`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, usar la factura', rejectLabel: 'No, dejo el mío',
+      // H7: el foco nace en «No» y «Sí» no lleva el color de acción: un Enter distraído no reemplaza lo capturado.
+      defaultFocus: 'reject',
+      acceptButtonStyleClass: 'p-button-sm p-button-secondary p-button-outlined', rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => this.llenarConFactura(f, a),
+    });
+  }
+
+  private llenarConFactura(f: FacturaPorRegistrar, a: FacturaPorRegistrar['acreedores'][number]): void {
+    // Sólo lo del comprobante; quien eligió reemplazarlo ya no es «lo escribiste tú» para el importe y el IVA.
+    this.archivo.set(null); this.lectura.set(null); this.cfdiPropuesto.set(null); this.avisoCfdi.set(null); this.motivoFecha.set('');
+    this.fuentes.update((m) => Object.fromEntries(Object.entries(m).filter(([k, v]) => !(v === 'persona' && ['importe_1', 'iva', 'folio', 'fecha'].includes(k)))) as Record<string, FuenteDelDato>);
+    this.tipo.set('cfdi');
+    this.poner('tipo', 'cfdi');
+    this.cfdiUuid.set(f.uuid);
+    this.folioDoc.set(f.serie_folio ?? '');
+    if (f.serie_folio) this.poner('folio', 'cfdi');
+    this.fechaDoc.set(deIso(f.fecha));
+    this.poner('fecha', 'cfdi');
+    if (f.iva !== null) {
+      // El IVA del CFDI y el renglón = total − IVA (el IEPS, si lo hay, va en el renglón): cuadra al centavo.
+      const iva = Math.round(Number(f.iva) * 100) / 100;
+      this.iva.set(iva);
+      this.poner('iva', 'cfdi');
+      this.llenarImporte(Math.round((Number(f.total) - iva) * 100) / 100, 'cfdi');
+    }
+    const otro = this.acreedorSel()?.clave !== a.clave;
+    if (otro) {
+      // Desde la factura de otro proveedor (o sin proveedor): el de la factura, con su hábito; el foco espera al hábito.
+      this.elegirAcreedor({ clave: a.clave, nombre: a.nombre || f.emisor_nombre || a.clave, rfc: f.emisor_rfc, usos: 0 }, () => this.enfocarLoQueFalta());
+      this.poner('acreedor', 'cfdi');
+    } else {
+      this.enfocarLoQueFalta();
+    }
+    this.toast.add({ severity: 'info', summary: 'Factura del SAT en la solicitud',
+      detail: f.iva === null
+        ? `${f.serie_folio || 'Sin folio'} · ${this.dinero(f.total)}: el SAT no trae su IVA desglosado; captura el importe y el IVA.`
+        : `${f.serie_folio || 'Sin folio'} · ${this.dinero(f.total)}: revisa el concepto y el área, y mándala a firma.` });
+  }
+
+  /**
+   * El foco al primer dato que falta, en el orden de la pantalla. Si no falta nada, a «Qué es y cuánto»: el concepto
+   * y el área los puso el hábito y son lo que la persona revisa. El siguiente Tab ya no regresa a la bandeja.
+   */
+  private enfocarLoQueFalta(): void {
+    setTimeout(() => {
+      const destino = document.getElementById(campoQueFalta(this.faltan(), this.renglones()) ?? 'pg-que');
+      destino?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      destino?.focus({ preventScroll: true });
+    }, 0);
+  }
+
   // ── A quién: búsqueda y «como la última vez» ───────────────────────────────────────────────────
   buscarAcreedor(q: string): void {
     const s = this.sucursal();
@@ -753,12 +988,14 @@ export class FinanzasPedirGastoComponent {
     }
   }
 
-  elegirAcreedor(a: AcreedorDeGasto): void {
+  /** `alLlegar`: lo que sigue cuando el hábito ya llenó lo suyo (o no pudo); no corre si en tanto se eligió otro. */
+  elegirAcreedor(a: AcreedorDeGasto, alLlegar?: () => void): void {
     this.acreedorSel.set(a);
     this.marcar('acreedor');
     // Lo que puso el hábito del acreedor ANTERIOR ya no aplica.
     this.limpiarHabito();
     this.api.precarga(this.sucursal(), a.clave).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      error: () => { if (this.acreedorSel()?.clave === a.clave) alLlegar?.(); },
       next: (p) => {
         if (this.acreedorSel()?.clave !== a.clave) return;
         const yo = this.fuentes();
@@ -778,13 +1015,30 @@ export class FinanzasPedirGastoComponent {
           if (puso && !yo['renglon_1']) this.poner('renglon_1', 'habito');
         }
         if (yo['forma_pago'] !== 'persona' && p.forma_pago) { this.formaPago.set(p.forma_pago); this.poner('forma_pago', 'habito'); }
+        // S.17 (DS30): el plazo de Kepler (días de crédito) o el de su última solicitud; uno que no está a un toque, como fecha.
+        if (yo['plazo'] !== 'persona' && p.plazo) {
+          const d = p.plazo.dias;
+          if (PLAZOS_DE_PAGO.includes(d)) this.plazoSel.set(String(d));
+          else { this.plazoSel.set('otra'); this.fechaOtra.set(deIso(fechaDePago({ dias: d, desde: this.desdePlazo(), hoy: this.hoy() }).fecha)); }
+          this.poner('plazo', p.plazo.fuente);
+        }
+        // S.17 (DS31): la información de pago que ya se conoce nace abierta, cada dato con su origen.
+        if (p.pago && yo['pago'] !== 'persona') {
+          let puso = false;
+          if (yo['pago_cuenta'] !== 'persona' && p.pago.cuenta) { this.pagoCuenta.set(p.pago.cuenta); this.poner('pago_cuenta', p.pago.fuente_cuenta ?? 'habito'); puso = true; }
+          if (yo['pago_banco'] !== 'persona' && p.pago.banco) { this.pagoBanco.set(p.pago.banco); this.poner('pago_banco', p.pago.fuente_cuenta ?? 'habito'); puso = true; }
+          if (yo['pago_correo'] !== 'persona' && p.pago.correo) { this.pagoCorreo.set(p.pago.correo); this.poner('pago_correo', p.pago.fuente_correo ?? 'habito'); puso = true; }
+          if (puso) this.pagoAbierto.set(true);
+        }
+        alLlegar?.();
       },
     });
   }
 
-  /** Quita lo que llenó el hábito (es del acreedor anterior): vuelve a quedar vacío y sin rótulo. */
+  /** Quita lo que llenó el hábito o el catálogo (es del acreedor anterior): vuelve a quedar vacío y sin rótulo. */
   private limpiarHabito(): void {
     const yo = this.fuentes();
+    const delAnterior = (campo: string) => yo[campo] === 'habito' || yo[campo] === 'catalogo';
     const rs = this.renglones();
     if (rs.length) {
       const r0 = { ...rs[0] };
@@ -792,7 +1046,32 @@ export class FinanzasPedirGastoComponent {
       this.renglones.set([r0, ...rs.slice(1)]);
     }
     if (yo['forma_pago'] === 'habito') this.formaPago.set('');
-    this.fuentes.update((m) => Object.fromEntries(Object.entries(m).filter(([, f]) => f !== 'habito')) as Record<string, FuenteDelDato>);
+    if (delAnterior('plazo')) { this.plazoSel.set('0'); this.fechaOtra.set(null); }
+    if (delAnterior('pago_cuenta')) this.pagoCuenta.set('');
+    if (delAnterior('pago_banco')) this.pagoBanco.set('');
+    if (delAnterior('pago_correo')) this.pagoCorreo.set('');
+    if (['pago_cuenta', 'pago_banco', 'pago_correo'].some(delAnterior) && !this.pagoCuenta() && !this.pagoBanco() && !this.pagoCorreo()) this.pagoAbierto.set(false);
+    this.fuentes.update((m) => Object.fromEntries(Object.entries(m).filter(([, f]) => f !== 'habito' && f !== 'catalogo')) as Record<string, FuenteDelDato>);
+  }
+
+  // ── S.17 · El plazo y la información de pago ───────────────────────────────────────────────
+  elegirPlazo(v: string): void {
+    this.plazoSel.set(v);
+    this.marcar('plazo');
+    if (v === 'otra') setTimeout(() => document.getElementById('pg-fecha-pago')?.focus(), 0);
+  }
+
+  abrirPago(): void {
+    this.pagoAbierto.set(true);
+    setTimeout(() => document.getElementById('pg-cuenta')?.focus(), 0);
+  }
+
+  /** «Quitar»: se vacía y no vuelve sola con el siguiente hábito (la persona decidió que no va). */
+  quitarPago(): void {
+    this.pagoCuenta.set(''); this.pagoBanco.set(''); this.pagoCorreo.set('');
+    this.pagoAbierto.set(false);
+    this.fuentes.update((m) => ({ ...Object.fromEntries(Object.entries(m).filter(([k]) => !k.startsWith('pago_'))), pago: 'persona' }) as Record<string, FuenteDelDato>);
+    setTimeout(() => document.querySelector<HTMLElement>('.pg-mas-pago button')?.focus(), 0);
   }
 
   // ── Renglones ──────────────────────────────────────────────────────────────────────────────────
@@ -838,13 +1117,14 @@ export class FinanzasPedirGastoComponent {
       forma_pago: this.formaPago(), forma_pago_detalle: this.detalle() || null,
       files: a ? [{ ...a, role: this.rolDelArchivo() }] : [], comentario: this.nota() || null,
       periodo_del: iso(this.periodoDel()), periodo_al: iso(this.periodoAl()), unidad: this.unidad() || null,
-      necesita_para: iso(this.necesitaPara()), motivo_fecha: this.motivoFecha() || null, fuentes: this.fuentes(),
+      necesita_para: this.necesitaParaIso(), motivo_fecha: this.motivoFecha() || null, pago: this.pagoDto(), fuentes: this.fuentes(),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => {
         this.enviando.set(false);
         this.creada.set(c);
         this.toast.add({ severity: 'success', summary: 'Mandado a firma', detail: `${this.dinero(c.total)} · al firmarse se escribe en Kepler` });
         this.reiniciar(false);
+        this.bandejaVersion.update((v) => v + 1);
       },
       error: (e) => {
         this.enviando.set(false);
@@ -864,7 +1144,9 @@ export class FinanzasPedirGastoComponent {
     this.cfdiPropuesto.set(null); this.avisoCfdi.set(null); this.buscarFallo.set(false);
     this.acreedorSel.set(null); this.renglones.set([{ concepto: null, proyecto: null, departamento: null, importe: null }]); this.iva.set(0);
     this.formaPago.set(''); this.detalle.set(''); this.periodoDel.set(null); this.periodoAl.set(null); this.unidad.set(''); this.nota.set('');
-    this.necesitaPara.set(null); this.duplicados.set([]); this.duplicadosFallo.set(false); this.fuentes.set({}); this.tipo.set('ticket');
+    this.plazoSel.set('0'); this.fechaOtra.set(null);
+    this.pagoAbierto.set(false); this.pagoCuenta.set(''); this.pagoBanco.set(''); this.pagoCorreo.set('');
+    this.duplicados.set([]); this.duplicadosFallo.set(false); this.fuentes.set({}); this.tipo.set('ticket');
     this.idCliente = nuevoId();
     if (borrarCreada) this.creada.set(null);
   }

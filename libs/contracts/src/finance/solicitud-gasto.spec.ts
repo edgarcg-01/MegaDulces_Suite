@@ -1,6 +1,7 @@
 import {
   alcanceDelAcreedor, avisoDeFechas, comentarioDeLaSolicitud, cuentaFueraDeAlcance, evidenciaEsElSat, faltaParaPedir, fechaReal, rfcCompatible,
   lineaAmpara, puedePedir, referenciaDelComprobante, totalesDeLaSolicitud, type EstadoSolicitudGasto,
+  basesDeQuienPide, correoValido, cuentaDePago, fechaDePago, hayInformacionDePago, PLAZOS_DE_PAGO,
 } from './solicitud-gasto.contract';
 
 /** Una solicitud completa y válida: la base de cada caso, que después se rompe en UNA cosa. */
@@ -165,5 +166,83 @@ describe('[PGP.122] faltaParaPedir — la compuerta que leen el botón y el 400'
   });
   it('una cotización (Pedir antes de gastar) alcanza como archivo', () => {
     expect(faltaParaPedir({ ...buena(), comprobante: { tipo: 'cotizacion', folio: null, fecha: '2026-11-13' }, archivos: [{ role: 'cotizacion_1' }] })).toEqual([]);
+  });
+});
+
+// ── S.17 (Francisco, 2026-11-16): base, plazo e información de pago ─────────────────────────────
+
+
+/** Una CLABE con su dígito de control bien (calculado con la regla de Banxico) y la misma con el último dígito mal. */
+const CLABE_BUENA = '012180001234567899';
+const CLABE_MALA = '012180001234567890';
+const ABIERTAS = ['05', '07', '08', '00', '07'];
+
+describe('[PGP.122] S.17 basesDeQuienPide — DS27: la base sale de los almacenes de quien pide', () => {
+  it('con todas: las abiertas, ordenadas y sin repetir', () => {
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'all', valores: [], resoluble: true })).toEqual({ bases: ['00', '05', '07', '08'], alcance: 'todas' });
+  });
+  it('con varias: sólo las suyas que estén abiertas (el cajero de 07 y 08)', () => {
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'listed', valores: ['07', '08', '03'], resoluble: true })).toEqual({ bases: ['07', '08'], alcance: 'varias' });
+  });
+  it('con una: esa, fija (se dice «una» aunque no esté abierta: la pantalla explica que no se ha abierto)', () => {
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'own', valores: ['05'], resoluble: true })).toEqual({ bases: ['05'], alcance: 'una' });
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'own', valores: ['03'], resoluble: true })).toEqual({ bases: [], alcance: 'una' });
+  });
+  it('⛔ NEGATIVA — sin almacén en su ficha o sin alcance: ninguna, NUNCA las nueve (sería pedir de más)', () => {
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'own', valores: [], resoluble: false })).toEqual({ bases: [], alcance: 'sin_almacen' });
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'listed', valores: [], resoluble: true })).toEqual({ bases: [], alcance: 'sin_almacen' });
+    expect(basesDeQuienPide(ABIERTAS, { modo: 'none', valores: [], resoluble: true })).toEqual({ bases: [], alcance: 'ninguna' });
+    expect(basesDeQuienPide(ABIERTAS, null)).toEqual({ bases: [], alcance: 'ninguna' });
+  });
+});
+
+describe('[PGP.122] S.17 fechaDePago — DS30: el plazo vuelve fecha de pago (c18)', () => {
+  const hoy = '2026-11-16';
+  it('los plazos a un toque empiezan de contado', () => {
+    expect(PLAZOS_DE_PAGO[0]).toBe(0);
+  });
+  it('de contado es hoy, aunque la factura sea vieja (no se dice «venció»)', () => {
+    expect(fechaDePago({ dias: 0, desde: '2026-10-02', hoy })).toEqual({ fecha: hoy, vencio: null, desde: 'hoy' });
+  });
+  it('con días, desde la fecha de la factura; sin documento, desde hoy', () => {
+    expect(fechaDePago({ dias: 30, desde: '2026-11-10', hoy })).toEqual({ fecha: '2026-12-10', vencio: null, desde: 'documento' });
+    expect(fechaDePago({ dias: 15, desde: null, hoy })).toEqual({ fecha: '2026-12-01', vencio: null, desde: 'hoy' });
+  });
+  it('⛔ NEGATIVA — ya vencido: se pide para hoy y se dice cuándo venció (el servidor descarta una fecha pasada)', () => {
+    expect(fechaDePago({ dias: 7, desde: '2026-10-20', hoy })).toEqual({ fecha: hoy, vencio: '2026-10-27', desde: 'documento' });
+  });
+  it('⛔ NEGATIVA — un plazo absurdo se acota (0 a 120) y una fecha imposible cuenta desde hoy', () => {
+    expect(fechaDePago({ dias: -5, desde: '2026-11-10', hoy }).fecha).toBe(hoy);
+    expect(fechaDePago({ dias: 9999, desde: null, hoy }).fecha).toBe('2027-03-16');
+    expect(fechaDePago({ dias: 7, desde: '2026-02-30', hoy })).toEqual({ fecha: '2026-11-23', vencio: null, desde: 'hoy' });
+  });
+});
+
+describe('[PGP.122] S.17 cuentaDePago y correoValido — DS31: lo que va al banco tiene forma', () => {
+  it('la CLABE con su dígito de control, con espacios o guiones al teclearla', () => {
+    expect(cuentaDePago('0121 8000 1234 5678 99')).toEqual({ ok: true, cuenta: CLABE_BUENA, tipo: 'clabe' });
+    expect(cuentaDePago('4152-3134-0000-1234')).toEqual({ ok: true, cuenta: '4152313400001234', tipo: 'tarjeta' });
+    expect(cuentaDePago('12345678901234')).toEqual({ ok: true, cuenta: '12345678901234', tipo: 'cuenta' });
+    expect(cuentaDePago('   ')).toBeNull();
+  });
+  it('⛔ NEGATIVA — el error de dedo en la CLABE, letras o un largo que no es cuenta', () => {
+    expect(cuentaDePago(CLABE_MALA)).toMatchObject({ ok: false });
+    expect(cuentaDePago('BBVA 0121800012')).toMatchObject({ ok: false });
+    expect(cuentaDePago('123456789')).toMatchObject({ ok: false });
+    expect(cuentaDePago('12345678901234567890')).toMatchObject({ ok: false });
+  });
+  it('el correo: una sola dirección con su dominio', () => {
+    expect(correoValido('pagos@proveedor.com.mx')).toBe(true);
+    for (const malo of ['pagos@proveedor', 'pagosproveedor.com', 'a@b.c', 'uno@a.com, dos@b.com', 'con espacio@a.com', '']) expect(correoValido(malo)).toBe(false);
+  });
+  it('la compuerta: vacía no estorba; mal escrita bloquea y dice qué corregir', () => {
+    expect(faltaParaPedir({ ...buena(), pago: { cuenta: '', banco: '', correo: '' } })).toEqual([]);
+    expect(faltaParaPedir({ ...buena(), pago: { cuenta: CLABE_BUENA, banco: 'BBVA', correo: 'pagos@proveedor.com.mx' } })).toEqual([]);
+    expect(hayInformacionDePago({ cuenta: ' ', correo: null })).toBe(false);
+    expect(hayInformacionDePago({ correo: 'pagos@proveedor.com.mx' })).toBe(true);
+  });
+  it('⛔ NEGATIVA — la compuerta nombra cada dato mal escrito', () => {
+    const ids = faltaParaPedir({ ...buena(), pago: { cuenta: CLABE_MALA, banco: 'X'.repeat(41), correo: 'pagos@' } }).map((x) => x.id);
+    expect(ids).toEqual(['pago_cuenta', 'pago_banco', 'pago_correo']);
   });
 });
