@@ -120,6 +120,10 @@ const comunes = (trx) => ({
       leer({ monto: 333333.33, cuenta_origen: '0000 1111 2222 3333', clave_rastreo: 'PGP130RASTREO4' });
       const r4 = await comp.comprobanteDelCalendario('data:application/pdf;base64,AAAA', 'prueba_pgp130');
       ok(r4.estado === 'sin_lectura' && (await filasCal(otroPago.id)).length === 0, `4. ⛔ una cuenta de origen que no es nuestra no casa (${r4.estado})`);
+      // La pantalla sigue con el carril de Kepler con ESTA lectura (sin mandar el PDF a leer otra vez).
+      ok(r4.ocr && Number(r4.ocr.monto) === 333333.33 && !!r4.ocr.sha256 && r4.ocr.clave_rastreo === 'PGP130RASTREO4',
+        '4. aunque no case, devuelve la lectura completa con su huella (para buscar el pago en Kepler)');
+      ok(r1.ocr && !!r1.ocr.sha256, '1. al casar también devuelve la lectura con su huella');
 
       // 5. clave de rastreo repetida (la del caso 1, ahora para otro pago)
       leer({ monto: 333333.33, clave_rastreo: 'PGP130-RASTREO1' });
