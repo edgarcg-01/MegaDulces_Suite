@@ -347,6 +347,23 @@ describe('[RA-PEND.2] el lote se frena ANTES del clic, no después de perder el 
     expect(c.planBloqueos()).toEqual([]);
   });
 
+  it('[PQ.128] ⛔ piezas enteras de un producto MARCADO que no está en la página visible no se frenan', () => {
+    // El caso (aide_piceno, 2026-11-17): buscó «15114» para capturarlo y el plan frenó 6 renglones de
+    // OTROS productos de la requisición (15125, 15112…) capturados en piezas enteras. El factor de caja
+    // salía SÓLO de la página visible: fuera de ella valía 0 y toda fracción parecía «no entera».
+    const c = montar(VACIO).componentInstance;
+    const fuera = { product_id: 'p-fuera', sku: '15125', nombre: 'FUERA', supplier_id: 's-1', supplier_name: 'DEMO', uxc: 40, caja_cost: 954, cells: {}, signals: null };
+    const visible = { ...fuera, product_id: 'p-vis', sku: '15114', nombre: 'VISIBLE' };
+    (c as unknown as { rowCache: { set(m: Map<string, unknown>): void } }).rowCache.set(new Map([[fuera.product_id, fuera]]));
+    c.wbRows.set([visible] as never);
+    const linea = (pid: string, cajas: number) => ({ product_id: pid, supplier_id: 's-1', source_type: 'supplier', final_qty: cajas, unit_cost: 954 });
+    c.plan.set([doc({ lines: [linea('p-vis', 15 / 40), linea('p-fuera', 15 / 40)] })]);   // 15 pz cada uno
+    expect(c.planBloqueos()).toEqual([]);
+    // NEGATIVA: media pieza sigue frenando, esté o no en la página (13.5 pz).
+    c.plan.set([doc({ lines: [linea('p-fuera', 13.5 / 40)] })]);
+    expect(c.planBloqueos()[0]).toContain('no son cajas enteras ni piezas enteras');
+  });
+
   it('⛔ pasarse del tope del lote se dice acá, no en un 400 después de armar todo', () => {
     const c = montar(VACIO).componentInstance;
     c.plan.set(Array.from({ length: 301 }, () => doc()));

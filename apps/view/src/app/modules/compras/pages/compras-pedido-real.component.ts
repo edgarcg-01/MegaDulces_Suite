@@ -3931,9 +3931,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
   unitRefOf(pid: string): PurchaseSuggestionRow | null { return this.unitRefMap().get(pid) ?? null; }
   // RA-PRO.33 — unidades: pz/caja (uxc) + paquete (solo multipacks). Map product_id → {uxc, pack, packs}.
+  // `[PQ.128]` De TODO lo conocido (página abierta + marcados de otras páginas o filtros), no sólo de
+  // la página: el freno de fracciones del plan lee de aquí y, fuera de la página, el factor valía 0 —
+  // aide_piceno (2026-11-17) buscó «15114» y el lote se frenó por 6 renglones de otros productos
+  // capturados en piezas enteras. La página abierta sigue mandando (`knownRows`).
   private readonly packByProduct = computed(() => {
     const m = new Map<string, { uxc: number; pack: number | null; packs: number | null }>();
-    for (const r of this.wbRows()) m.set(r.product_id, { uxc: Number(r.uxc) || 1, pack: r.pack_size ?? null, packs: r.packs_per_box ?? null });
+    for (const r of this.knownRows().values()) m.set(r.product_id, { uxc: Number(r.uxc) || 1, pack: r.pack_size ?? null, packs: r.packs_per_box ?? null });
     return m;
   });
   packOf(pid: string): { uxc: number; pack: number | null; packs: number | null } | null { return this.packByProduct().get(pid) ?? null; }
