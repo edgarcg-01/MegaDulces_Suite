@@ -1404,6 +1404,9 @@ export class ExpenseProofsService {
       .first('origen', 'sucursal', 'folio_solicitud', 'kepler_request_status') as { origen?: string; sucursal?: string; folio_solicitud?: string | null; kepler_request_status?: string | null } | undefined;
     if (!v || v.origen !== 'solicitud') return null;
     const st = String(v.kepler_request_status ?? '');
+    // R1 (anexo S §16): el cron ya vio que se canceló en Kepler: se rechaza aquí sin reescribir su nota (no es «antes
+    // de escribirse»; Kepler la tuvo con folio y la canceló Finanzas allá).
+    if (st === 'cancelled' && v.folio_solicitud) return null;
     if (st === 'writing' || st === 'in_doubt') {
       throw new ConflictException('Esta solicitud se está escribiendo en Kepler (o no se sabe todavía si quedó escrita): espera unos minutos y vuelve a intentarlo');
     }

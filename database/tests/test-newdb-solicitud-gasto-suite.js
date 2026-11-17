@@ -588,6 +588,60 @@ async function main() {
     await no({ pago: { cuenta: '012180001234567890' } }, /dígito de control/, '⛔ una CLABE con el dígito de control mal → 400');
     await no({ pago: { correo: 'pagos@acreedor' } }, /no es un correo/, '⛔ un correo sin dominio → 400');
     await no({ pago: { cuenta: '12345' } }, /dígitos/, '⛔ una cuenta de 5 dígitos → 400');
+
+    // ── N ───────────────────────────────────────────────────────────────────────────────────────
+    console.log('\n— N. R1 (anexo S §16): el lazo DESPUÉS de escribir — cancelada en Kepler, huérfanas y el contador');
+    alcance.dim = { mode: 'all', values: [], resolvable: true };
+    await interruptor(true);
+    const latidoError = async () => (await knex('analytics.cron_runs').where({ tenant_id: T, job_key: JOB }).first('status', 'error')) || {};
+    // a) cancelada en Kepler → el vale lo sabe, la alarma suena mientras siga firmado, y rechazarlo la apaga
+    const cN = await pedir();
+    const rN = await firmar(cN.id);
+    const vN = await vale(cN.id);
+    check(rN.solicitud_kepler?.status === 'written' && !!vN.folio_solicitud, 'una solicitud firmada y escrita en Kepler, con su folio', rN.solicitud_kepler);
+    const mN0 = await svc.ciclo();
+    check((await vale(cN.id)).kepler_request_status === 'written' && mN0.canceladas_en_kepler === 0, 'mientras el ODS no la ve cancelada, nada cambia', mN0);
+    // Kepler, al cancelar, pone c43 = C, c16 = c42 = 0 y REESCRIBE c67 con el usuario que cancela (ya no dice SUITE)
+    await sembrar('kdm1', [{ sucursal: SUC, c1: SUC, c2: 'X', c3: 'A', c4: 15, c5: 1, c6: vN.folio_solicitud, c9: hoy, c10: ACR, c16: 0, c26: vN.kepler_request_mark, c43: 'C', c48: 'APRUEBA', c67: '05FINANZAS', c68: hoy, c69: '11:00' }]);
+    const mN1 = await svc.ciclo();
+    const vN1 = await vale(cN.id);
+    check(mN1.canceladas_en_kepler === 1 && vN1.kepler_request_status === 'cancelled' && /Se canceló en Kepler/.test(vN1.kepler_request_note || '') && vN1.status === 'validada',
+      'el cron ve la C: el vale queda «cancelled» con su nota y SIGUE firmado (no se rechaza solo: pudo pagarse ya)', { m: mN1.canceladas_en_kepler, st: vN1.kepler_request_status, nota: vN1.kepler_request_note, status: vN1.status });
+    const latN1 = await latidoError();
+    check(mN1.canceladas_firmadas >= 1 && latN1.status === 'error' && /CANCELADAS en Kepler/.test(latN1.error || ''), 'la alarma suena: latido en ROJO mientras el vale siga firmado', { m: mN1.canceladas_firmadas, latN1 });
+    const mN2 = await svc.ciclo();
+    check(mN2.canceladas_en_kepler === 0 && mN2.canceladas_firmadas === mN1.canceladas_firmadas, 'la siguiente pasada no la vuelve a contar como nueva, pero la alarma sigue', mN2);
+    await proofs.reject(cN.id, FIRMA.full_name, 'se canceló en Kepler', FIRMA);
+    const vN3 = await vale(cN.id);
+    check(vN3.status === 'rechazada' && vN3.kepler_request_status === 'cancelled' && /Se canceló en Kepler/.test(vN3.kepler_request_note || ''),
+      'rechazarla en la Suite ya se puede (no 409) y no le reescribe la nota a «antes de escribirse»', { status: vN3.status, nota: vN3.kepler_request_note });
+    const mN3 = await svc.ciclo();
+    check(mN3.canceladas_firmadas === mN1.canceladas_firmadas - 1, 'rechazada, deja de sonar por ella', { antes: mN1.canceladas_firmadas, ahora: mN3.canceladas_firmadas });
+    // b) huérfana: una X-A-15 con la marca de la Suite que ningún vale reclama; PGP.79 (c67 SUITE, sin marca) no cuenta
+    const sinVale0 = mN3.sin_vale_en_kepler;
+    await sembrar('kdm1', [{ sucursal: SUC, c1: SUC, c2: 'X', c3: 'A', c4: 15, c5: 1, c6: '0989990', c9: hoy, c10: ACR, c16: 50, c26: '', c43: 'A', c48: 'ANA', c67: 'SUITE', c68: hoy, c69: '09:00' }]);
+    const mN4 = await svc.ciclo();
+    check(mN4.sin_vale_en_kepler === sinVale0, 'una autorizada por PGP.79 (c67 = SUITE, sin la marca SG) NO es huérfana', { antes: sinVale0, ahora: mN4.sin_vale_en_kepler });
+    const MARCA_H = 'SUITE SG-0F0F0F0F';
+    await sembrar('kdm1', [{ sucursal: SUC, c1: SUC, c2: 'X', c3: 'A', c4: 15, c5: 1, c6: '0989991', c9: hoy, c10: ACR, c16: 50, c26: MARCA_H, c43: 'C', c48: 'ANA', c67: '05FINANZAS', c68: hoy, c69: '09:30' }]);
+    const mN5 = await svc.ciclo();
+    const latN5 = await latidoError();
+    check(mN5.sin_vale_en_kepler === sinVale0 + 1 && latN5.status === 'error' && (latN5.error || '').includes(MARCA_H),
+      'una con la marca SG y sin vale (aunque Kepler ya le reescribió c67 al cancelarla) → latido en ROJO con su marca', { antes: sinVale0, ahora: mN5.sin_vale_en_kepler, latN5 });
+    // c) el contador: atrasado (c4 ≤ último folio) → ROJO; de vuelta → no suena
+    const c4Antes = await contador();
+    const maxK = Number((await k.query(`SELECT max(c6::int)::int AS m FROM md.kdm1 WHERE c1 = $1 AND c2 = 'X' AND c3 = 'A' AND c4 = 15 AND c5 = 1 AND c6 ~ '^[0-9]+$'`, [SUC])).rows[0].m);
+    const mN6 = await svc.ciclo();
+    check(!mN6.contadores_atrasados.includes(SUC), `con el contador sano (c4 ${c4Antes}, último ${maxK}) no suena`, mN6.contadores_atrasados);
+    try {
+      await k.query(`UPDATE md.sqliov SET c4 = $2 WHERE c1 = $1 AND c2 = 0 AND c3 = 0`, [`KFXA1501.${SUC}`, String(maxK)]);
+      const mN7 = await svc.ciclo();
+      const latN7 = await latidoError();
+      check(mN7.contadores_atrasados.includes(SUC) && /ATRASADO/.test(latN7.error || ''), `contador atrasado (c4 = ${maxK} = último folio) → latido en ROJO`, { m: mN7.contadores_atrasados, latN7 });
+    } finally {
+      await k.query(`UPDATE md.sqliov SET c4 = $2 WHERE c1 = $1 AND c2 = 0 AND c3 = 0`, [`KFXA1501.${SUC}`, c4Antes]);
+    }
+    check(await contador() === c4Antes, 'el contador del Kepler de prueba quedó como estaba', await contador());
   } finally {
     // ── Limpieza: exactamente lo que se creó ─────────────────────────────────────────────────────
     if (cfdisSembrados.length) await knex('fiscal.cfdis').where({ tenant_id: T }).whereIn('uuid', cfdisSembrados).del().catch((e) => console.log(`  ! limpieza: ${e.message}`));

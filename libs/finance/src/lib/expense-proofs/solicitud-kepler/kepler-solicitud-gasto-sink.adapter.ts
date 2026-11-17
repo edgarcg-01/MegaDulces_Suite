@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import {
-  normalizarSucursal, reservarFolioKepler, urlDeServidor, valorDeEnv, type Env, type FolioReservado, type Resolucion,
+  contadorAtrasado, leerContador, llaveDelContador, normalizarSucursal, reservarFolioKepler, urlDeServidor, valorDeEnv, type Env,
+  type FolioReservado, type Resolucion,
 } from '@megadulces/platform-core';
 
 import { armarSolicitudKepler, COLUMNAS_QUE_VARIAN, CONSTANTES_DE_LA_PLANTILLA, type DatosSolicitudKepler, type PlanSolicitudKepler } from './solicitud-kepler.armador';
@@ -83,6 +84,13 @@ export type ResultadoEscrituraSolicitud =
   | { estado: 'en_duda'; motivo: string };
 
 export type MarcaEnKepler = { ok: true; encontrada: { folio: string; kepler: string; total: string } | null } | { ok: false; motivo: string };
+
+/**
+ * `[PGP.122]` R1 — La compuerta del contador (§5.6): el `c4` de `KFXA1501.NN` tiene que apuntar al siguiente folio
+ * libre. `atrasado` = `c4 ≤ MAX(c6)` (o un `c4` que no es número): la próxima solicitud capturada A MANO en Kepler
+ * pediría un folio que ya existe.
+ */
+export type ContadorEnKepler = { ok: true; atrasado: boolean; contador: string; maximo: number } | { ok: false; motivo: string };
 
 /**
  * Errores que se arreglan solos esperando: conexión, candado ocupado, folio ganado por otro, tiempo agotado, y
@@ -187,6 +195,36 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
       return { ok: true, encontrada: await this.porMarca(c, sucursal, marca) };
     } catch (err) {
       return { ok: false, motivo: `No se pudo preguntar a Kepler ${sucursal} por la marca ${marca}: ${(err as Error).message}` };
+    } finally {
+      c?.release();
+    }
+  }
+
+  /**
+   * `[PGP.122]` R1 — **¿El contador de folios de la solicitud de gasto está atrasado?** Sólo lectura, en el Kepler
+   * vivo (`sqliov` no viaja al ODS), sin candado: `c4` y `MAX(c6)` salen de UNA sentencia, así que son la misma foto.
+   * Si no se puede preguntar, `ok: false`: quien llama lo dice, no lo da por bueno.
+   */
+  async revisarContador(sucursal: string): Promise<ContadorEnKepler> {
+    const srv = urlDeServidor(sucursal, this.env);
+    if (!srv.ok) return { ok: false, motivo: srv.motivo };
+    const llave = llaveDelContador({ sucursal, grupo: 'X', naturaleza: 'A', tipo: 15, serie: 1 });
+    if (!llave.ok) return { ok: false, motivo: llave.motivo };
+    let c: PoolClient | null = null;
+    try {
+      c = await this.poolDe(srv.valor).connect();
+      const r = await c.query(
+        `SELECT (SELECT c4::text FROM md.sqliov WHERE c1 = $1 AND c2 = 0 AND c3 = 0) AS c4,
+                (SELECT count(*)::int FROM md.sqliov WHERE c1 = $1 AND c2 = 0 AND c3 = 0) AS filas,
+                (SELECT coalesce(max(c6::int), 0)::int FROM md.kdm1 WHERE c1 = $2 AND ${LLAVE_XA15} AND c6 ~ '^[0-9]+$') AS m`,
+        [llave.valor, sucursal]);
+      const f = r.rows[0] as { c4: string | null; filas: number; m: number };
+      if (Number(f.filas) !== 1) return { ok: false, motivo: `Kepler ${sucursal} tiene ${f.filas} filas del contador ${llave.valor} en sqliov: se esperaba una` };
+      const contador = String(f.c4 ?? '').trim();
+      const maximo = Number(f.m ?? 0);
+      return { ok: true, atrasado: contadorAtrasado(leerContador(contador), maximo), contador, maximo };
+    } catch (err) {
+      return { ok: false, motivo: `No se pudo leer el contador ${llave.valor} de Kepler ${sucursal}: ${(err as Error).message}` };
     } finally {
       c?.release();
     }

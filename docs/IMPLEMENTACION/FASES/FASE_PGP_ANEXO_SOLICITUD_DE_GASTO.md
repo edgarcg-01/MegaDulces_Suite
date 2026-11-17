@@ -1,28 +1,29 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 83 KB, 964 líneas, 16 secciones.
+> **Índice navegable** — 95 KB, 1145 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 28 | 61 | 2 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
-| 62 | 74 | 1 | 1. El pedido, literal |
-| 75 | 90 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
-| 91 | 172 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
-| 173 | 191 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
-| 192 | 334 | 9 | 5. El escritor (C1–C2) |
-| 335 | 348 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
-| 349 | 428 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
-| 429 | 490 | 4 | 8. Plan por capas y orden de entrega |
-| 491 | 518 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 519 | 546 | 4 | 10. Decisiones |
-| 547 | 562 | 1 | 11. Riesgos y NO MEDIDO |
-| 563 | 591 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
-| 592 | 617 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 618 | 856 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
-| 857 | 992 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
+| 29 | 64 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
+| 65 | 77 | 1 | 1. El pedido, literal |
+| 78 | 93 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
+| 94 | 175 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
+| 176 | 194 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
+| 195 | 337 | 9 | 5. El escritor (C1–C2) |
+| 338 | 351 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
+| 352 | 431 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
+| 432 | 493 | 4 | 8. Plan por capas y orden de entrega |
+| 494 | 521 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 522 | 549 | 4 | 10. Decisiones |
+| 550 | 565 | 1 | 11. Riesgos y NO MEDIDO |
+| 566 | 594 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
+| 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
+| 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
+| 996 | 1174 | 11 | 16. Revisión del plan antes de encender (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -57,6 +58,8 @@ ESTADO:    ⬜ plan — no abre fase (6 fases 🔨 contra un cupo de 4). El MVP-
            de automatización. Encomienda de Edgar a Francisco (2026-11-14): se construye todo hasta
            escribir en Kepler y Edgar hace la configuración final de cada servidor (§13).
            🔨 2026-11-15: escritor, servicio, API, migración y pruebas EN CÓDIGO (§13); falta la UI.
+           🚀 2026-11-17: código (#546, #547) y migraciones EN PROD, los 9 interruptores APAGADOS. Antes
+           de encender, leer la revisión de §16: el lazo de la cancelación (R1) no existe en el código.
 ```
 
 ## 1. El pedido, literal
@@ -989,3 +992,182 @@ arreglo de fondo es el preset (`operations-preset.ts`).
 
 **NO MEDIDO:** con un dedo real, lector de pantalla, `forced-colors`, y el selector de base con más de 5 bases (el
 desplegable). La 07 se abrió sólo en la base local para ver el selector con dos opciones y se regresó como estaba.
+
+## 16. Revisión del plan antes de encender (2026-11-17)
+
+> Revisión crítica de §1–§15 contra el código en `main` y contra prod en sólo lectura (sid
+> `7688376744939610156`), hecha **antes** de los pasos de Edgar (§13). Objetivo: que lo que falta para encender
+> esté completo y en un solo lugar, y que el plan no prometa algo que el código no hace.
+
+### 16.1 El estado real hoy (corrige la cabecera, §13 y §15.9)
+
+| Qué | Medido el 2026-11-17 |
+|---|---|
+| Código de #546 y #547 | **en prod**: los dos están dentro del commit que sirve `/api/health` (`8a48dc0a7`) |
+| Migraciones `20261115003547`, `…045210`, `…200205` | **aplicadas** (15-nov y 17-nov). §13 (S.6) y §15.9 dicen «sin aplicar»: rancio |
+| Interruptores `solicitud_gasto` | 9 de 9 **apagados**, tope 1 por día |
+| Uso | 0 vales con `origen = 'solicitud'`, 0 intentos, 0 descartes de la bandeja |
+| Ciclo de 5 min | corre (`gastos_solicitud_kepler` en `ok`, sin trabajo) |
+| Permisos en Kepler, secreto `kepler-push`, plantilla | **NO MEDIDO** desde aquí (sólo se ven desde `md`) |
+
+Así que **PGP.122 está 🚀 apagado**, no 🔨. Lo que falta para encender no es código, salvo lo que dicen R1 y R6.
+
+### 16.2 Hallazgos y mejora propuesta (de más grave a menos)
+
+**R1 ⛔ — El lazo que exige DS8 v1 no existe en el código, y el canario lo va a destapar.**
+- *Lo que dice el plan:* §5.6 pide, **antes de escribir nada**: «cancelada en Kepler → el vale lo sabe»,
+  huérfanas (`c67 = 'SUITE'` sin vale) y la compuerta del contador (`sqliov.c4 ≤ MAX(c6)`). DS8 v1 confía en
+  esto: «Finanzas cancela en Kepler y el lazo anula el vale».
+- *Lo que hace el código:* `SolicitudGastoService.ciclo` sólo pasa `written → seen_in_ods`. Después de eso
+  **nunca vuelve a mirar**: una X-A-15 de la Suite que se cancela en Kepler deja al vale en `seen_in_ods` para
+  siempre. Los «huérfanos» del ciclo son otra cosa (`writing` de más de 10 min). Ni las huérfanas de §5.6 ni
+  la alarma del contador están en el ciclo. S.2 sigue en ⬜.
+- *Consecuencia:* el canario S.10 pide justamente **cancelar una desde Kepler**. Con el código de hoy, el
+  vale no se entera, y el canario fallaría su propio criterio.
+- *Mejora:* un **S.2-mínimo**, sólo para lo que escribe la Suite, que es **condición del canario**:
+  1. `seen_in_ods` con `c43 = 'C'` en el ODS → el vale pasa a cancelado y se avisa a quien pidió;
+  2. una X-A-15 con `c67 = 'SUITE'` y marca sin vale → latido rojo;
+  3. `sqliov.c4 ≤ MAX(c6)` en `KFXA1501` de una sucursal encendida → latido rojo.
+
+  Cada uno con su prueba negativa en `test-newdb-solicitud-gasto-suite.js`. El S.2 general (los 43 vales de
+  hoy) sigue aparte.
+- 🧪 **Hecho en código (2026-11-17).** Decisiones de ingeniería:
+  - **sin migración**: se reusa `cancelled`, que ya está en el CHECK; su nota dice «Se canceló en Kepler (folio …)», y la
+    pastilla ya decía «Kepler: cancelada» porque lee la C del ODS;
+  - **el vale no se rechaza solo**: queda firmado y la alarma suena hasta que una persona lo rechace (puede que ya se haya
+    pagado en efectivo). Rechazarlo ya no reescribe la nota a «antes de escribirse»;
+  - **las huérfanas se buscan por la marca, no por `c67`**;
+  - **el contador se lee del Kepler vivo, sólo en sucursales abiertas**, con una sola sentencia (`revisarContador`).
+
+  Medido:
+  - `revisarContador` real contra un Kepler de prueba: 7 ✓; un mutante que nunca da «atrasado» → 3 ✗;
+  - el SQL exacto del servicio, contra el esquema de prod en `READ ONLY`: válido y sin escribir (el control con una
+    columna inventada sí falla);
+  - control positivo: la misma unión sobre los vales de hoy encuentra los 43;
+  - la sección N de la suite contra Postgres real (15 casos): **NO MEDIDO** aquí, porque Docker local no arrancó. Corre en
+    `pruebas-db`.
+
+**R2 ⛔ — La CLABE que teclea quien pide es el vector de fraude de pago más común.**
+- *Hoy:* DS31 guarda `payee_account` en el vale y se lo muestra a quien firma. DS34 propone llevarlo al
+  Calendario de pagos y a «Salidas del banco». DS32 propone pasarlo al catálogo de cuentas de proveedor.
+- *Riesgo:* cambiar la cuenta destino es el fraude de pago más común. Nadie la verifica: el banco no se deduce
+  y el catálogo tiene 0 filas.
+- *Mejora (para DS32 y DS34):*
+  1. La cuenta de una solicitud **nunca es una instrucción de pago**: se muestra como «la escribió X, sin
+     verificar».
+  2. Se paga sólo a una cuenta dada de alta en el catálogo de PGP, **con su firma y su evidencia** (estado de
+     cuenta o carta del proveedor). Nunca se copia sola desde la solicitud.
+  3. Si la cuenta difiere de la última pagada a ese acreedor, sale en rojo ante quien firma y ante quien
+     paga.
+
+  Hasta decidir DS32 y DS34, la cuenta queda **sólo** en el detalle, como hoy.
+
+**R3 — El tope de 1 por día no alcanza más allá del canario.**
+- *Medido:* X-A-15 vivas por día en los últimos 30 días, todas las clases de acreedor:
+
+  | Sucursal | Mediana | p95 | Máximo |
+  |---|---:|---:|---:|
+  | 05 | 1 | 3 | 5 |
+  | 07 | 4 | 6 | 7 |
+  | 08 | 8.5 | 12.6 | 14 |
+
+  Con tope 1, en 08 se juntan ~7 por día que esperan «mañana 07:00».
+- *Mejora:* que DS14 fije el **tope por etapa**: 1 en el canario; en el piloto, el p95 diario de esa sucursal
+  más un margen (07 → 8, 08 → 15). Que diga quién lo sube y con qué evidencia (canario verde y 0 alarmas
+  de R1).
+
+**R4 — El calendario aprieta: quedan cuatro semanas antes de la veda.**
+- Hoy es 17-nov y la veda empieza el 15-dic.
+- H6 (cómo cierra Kepler 2026) sigue sin confirmar.
+- El escritor exige que el proyecto sea **del año de `c9`**. En enero, mientras Contabilidad no dé de alta
+  los proyectos `-27-`, toda solicitud saldría `rejected_by_kepler` (ya pasó en enero de 2026 con 305
+  renglones a mano).
+- *Mejora:* fechas compromiso en DS14. Por ejemplo: canario en 05 antes del 28-nov y 07 y 08 antes del
+  12-dic, o declarar de una vez que el piloto arranca después del 15-ene. Antes de salir de la veda: H6
+  confirmado con Sistemas y los proyectos 2027 dados de alta en los 9 servidores.
+
+**R5 — No están escritos los criterios para APAGAR.**
+- El plan dice cómo encender, pero no cuándo apagar.
+- *Mejora:* se apaga el interruptor de la sucursal ante cualquiera de estos:
+  - una huérfana (R1);
+  - un duplicado confirmado Suite + Kepler;
+  - la alarma del contador;
+  - más de 2 `rejected_by_kepler` en un día;
+  - una solicitud sin ver en el ODS en dos ciclos seguidos.
+
+  El latido ya sale en rojo en db-health. Falta **nombrar a la persona que lo mira cada día** del piloto.
+
+**R6 — La métrica de automatización no se puede medir como está definida.**
+- *Definida como:* campos que la Suite llenó y la persona aceptó sin cambiarlos.
+- *Lo que se guarda:* `expense_proof_lines.prefill_source` dice **de dónde** salió el dato, no **si la
+  persona lo cambió**.
+- *Mejora:* guardar al crear lo que la precarga propuso (o un «aceptado sin cambio» por campo). Mientras no se
+  haga, esa métrica se declara **NO MEDIDA**, no 0 %.
+
+**R7 — Dos puertas sin fecha de cierre.**
+- «Tengo un folio de Kepler» sigue viva, y la meta (≥ 80 %) no dice qué pasa con el otro 20 %.
+- *Mejora:* medir **por capturista** quién sigue tecleando X-A-15 de alcance v1 en Kepler en una sucursal
+  encendida.
+- *Decisión (Edgar y Francisco):* cuándo se retira la puerta vieja en esa sucursal. Por ejemplo, después de
+  30 días seguidos ≥ 80 %.
+
+**R8 — H1 (el contador de la requisición) tiene arreglo, pero no ha salido.**
+- El commit `216245d60` `[PGP.122.4]` («los 4 carriles de escritura a Kepler sacan el folio del CONTADOR»)
+  existe en el `main` local y **no está en `origin` ni en prod**.
+- Mientras tanto, una requisición capturada a mano en 00, 01, 06 u 08 puede chocar.
+- *Mejora:* soltarlo. Luego, con foto antes y después, revisar `KFXA3001` en esos 4 servidores. Anotarlo en
+  §12 H1.
+
+**R9 — `[PGP.123]` está usado dos veces.**
+- En el tracker es «Pedir anticipo» (🚀).
+- Este anexo (§14.13) y la descripción de #547 lo usan para la prueba visual y para el escritor del X-A-10.
+- *Mejora:* el escritor del X-A-10 toma el siguiente código libre y se corrige §14.13. Además, el escritor del
+  X-A-10 **no está en `main`**: no hay sink ni anexo G en el repo, y no hay PR abierto.
+
+**R10 — Falta el ADR que gobierna esta escritura.**
+- §8 promete un ADR que extiende ADR-092 a la X-A-15 y **enmienda su regla 2** (`sqliov`). No existe: el
+  último es ADR-118, y ADR-092 sigue «propuesto».
+- *Mejora:* redactarlo antes del canario. Es lo que alguien leerá cuando Kepler rechace un folio.
+
+**R11 — Dueño y estado.**
+- DS1 sigue «a firmar», aunque de hecho el dueño es Francisco (la encomienda del 14-nov).
+- *Mejora:* nombrarlo y pasar `[PGP.122]` a 🚀 (apagado) en el tracker.
+
+**R12 — El plazo (DS30) mueve fechas de pago que hoy se piden para el mismo día.**
+- `c18` es el vencimiento que lee el Calendario. Hoy, el 88 % se pide para el mismo día.
+- Precargar `kdxd.c16` (12 acreedores) o la última solicitud cambia cuándo se paga, y eso es una decisión de
+  Tesorería, no de forma.
+- En un gasto **ya pagado** (retroactivo, DS6), «vencido → hoy» registra como fecha de pago el día de la
+  captura, no el día en que salió el dinero.
+- *Mejora:* en un retroactivo, `c18` = fecha en que se pagó. En el canario, contar cuántas solicitudes cambiaron
+  de plazo respecto a la práctica de hoy.
+
+**R13 — La firma: el mínimo se cumple, la concentración no se resuelve.**
+- En 30 días firmaron 5 personas distintas, así que el mínimo de DS5 (2 activos) se cumple.
+- Pero 6 de 7 días firmó una sola persona, y con DS2 nada llega a Kepler sin firma.
+- *Mejora:* poner la mediana vale → firma de la sucursal encendida como métrica de guardia del piloto.
+
+### 16.3 Lista única para encender 05 (hoy repartida entre §13, el README del ensayo y #547)
+
+| # | Paso | Dueño | Bloquea |
+|---|---|---|---|
+| 0 | Migraciones | — | ✅ aplicadas |
+| 1 | S.2-mínimo (R1): 🧪 en código el 2026-11-17; falta la sección N en `pruebas-db` y soltarlo | Francisco | el canario |
+| 2 | Soltar `[PGP.122.4]` (R8) | Edgar | — |
+| 3 | ADR de la X-A-15 (R10) | Francisco, lo ratifica Edgar | el canario |
+| 4 | Captura de prueba S.1 en 05 (`foto-contadores.js`) | Edgar + capturista de 05 | 5 |
+| 5 | GRANT en 05 | Edgar | 6 |
+| 6 | Ensayo con ROLLBACK: `fallas: []`, `control.intacto: true` | Edgar | 7 |
+| 7 | Secreto: `KEPLER_GASTO_SOLICITUD`, `KEPLER_SOLGASTO_TEMPLATE_FOLIO_05` | Edgar | 8 |
+| 8 | Interruptor de 05, tope 1 | Edgar | — |
+| 9 | Canario: una se aplica (X-A-10) y otra se cancela en Kepler, y el vale se entera | Edgar + Finanzas | el piloto |
+| 10 | Antes de 07 y 08: almacenes de las 2 personas sin ficha, catálogo 074→102 (DS11), tope por etapa (R3), criterios de apagado y quién mira (R5) | Sistemas, Contabilidad, Edgar | 07 y 08 |
+
+### 16.4 Decisiones nuevas que salen de esta revisión
+
+| D | Pregunta | Recomendación | De quién |
+|---|---|---|---|
+| **DS35** | ¿Tope diario por etapa? | 1 en el canario; en el piloto, el p95 diario de la sucursal más un margen; lo sube Edgar con el canario verde | Edgar |
+| **DS36** | ¿Se arranca antes de la veda o después del 15-ene? | Canario en 05 antes del 28-nov; 07 y 08 sólo si el canario cierra limpio antes del 5-dic; si no, después del 15-ene con H6 y los proyectos 2027 listos | Edgar y Francisco |
+| **DS37** | ¿Cuándo se cierra la puerta «Tengo un folio de Kepler» en una sucursal encendida? | Después de 30 días seguidos ≥ 80 %; antes, sólo se mide por capturista | Edgar y Francisco |
+| **DS32 / DS34** (precisadas) | Cuenta de pago | Sólo informativa hasta que exista el alta verificada en el catálogo de PGP (R2) | Edgar |
