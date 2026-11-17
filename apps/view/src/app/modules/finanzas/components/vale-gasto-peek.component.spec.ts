@@ -625,4 +625,49 @@ describe('ValeGastoPeekComponent', () => {
       expect(boton()).toBeUndefined();
     });
   });
+
+  describe('[PGP.122] F3 · «Cancelar en Kepler…» (DS40)', () => {
+    const K = (status: string) => ({ estado: 'A', solicitud: '0000082', nace_en_la_suite: { status, nota: null, siguiente: null, intentos: 1 } }) as never;
+    const botones = () => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('button')) as HTMLButtonElement[];
+    const abrir = () => botones().find((b) => (b.textContent ?? '').includes('Cancelar en Kepler…'));
+    const final = () => botones().find((b) => (b.textContent ?? '').trim() === 'Cancelar en Kepler');
+
+    it('sólo con la solicitud ya escrita y el vale firmado; pide motivo (mínimo 10) y lo emite', () => {
+      montar(V({ status: 'validada' }));
+      fix.componentRef.setInput('puedeReintentar', true);
+      fix.componentRef.setInput('kepler', K('pending'));
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // todavía no está en Kepler: se rechaza aquí, no se cancela allá
+      fix.componentRef.setInput('kepler', K('seen_in_ods'));
+      fix.detectChanges();
+      abrir()!.click();
+      fix.detectChanges();
+      const ta = (fix.nativeElement as HTMLElement).querySelector('#vp-cancelar-m') as HTMLTextAreaElement;
+      expect(ta).toBeTruthy();
+      expect(final()!.disabled).toBe(true);
+      const emitido: unknown[] = [];
+      c.cancelarKepler.subscribe((e) => emitido.push(e));
+      ta.value = 'corto';
+      ta.dispatchEvent(new Event('input'));
+      fix.detectChanges();
+      expect(final()!.disabled).toBe(true);
+      ta.value = 'Se capturó dos veces';
+      ta.dispatchEvent(new Event('input'));
+      fix.detectChanges();
+      expect(final()!.disabled).toBe(false);
+      final()!.click();
+      expect(emitido).toEqual([{ id: 'v1', motivo: 'Se capturó dos veces' }]);
+    });
+
+    it('⛔ sin el permiso de la página o con el vale por firmar no se ofrece', () => {
+      montar(V({ status: 'validada' }));
+      fix.componentRef.setInput('kepler', K('written'));
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // la página no dio COMPROBAR
+      fix.componentRef.setInput('puedeReintentar', true);
+      fix.componentRef.setInput('vale', V({ status: 'recibida' }));
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined();
+    });
+  });
 });

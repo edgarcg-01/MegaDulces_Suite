@@ -61,6 +61,11 @@ export class SolicitudGastoService {
     return this.http.post<EstadoKeplerDeLaSolicitud | null>(`${this.base}/${id}/reintentar-kepler`, {});
   }
 
+  /** `[PGP.122]` F3 (DS40): cancela en Kepler la solicitud que escribió la Suite y cierra el vale. */
+  cancelarEnKepler(id: string, motivo: string): Observable<EstadoKeplerDeLaSolicitud> {
+    return this.http.post<EstadoKeplerDeLaSolicitud>(`${this.base}/${id}/cancelar-en-kepler`, { motivo });
+  }
+
   // ── S.13 · La bandeja de facturas del SAT por registrar ─────────────────────────────────────────
   facturasSat(sucursal: string): Observable<BandejaDeFacturasSat> {
     return this.http.get<BandejaDeFacturasSat>(`${this.base}/facturas-sat`, { params: new HttpParams().set('sucursal', sucursal) });
