@@ -18,8 +18,10 @@
  * Si las tablas no existen todavía (la migración 20261117094325 sin aplicar), `db-health` lo dice solo: «tabla
  * no existe», sin color.
  *
- * El árbitro de la nota (filas escritas por la última corrida completa) INCLUYE lo que la fecha movió: precios que
- * salen de la ventana de 90 días cada medianoche. No es un conteo de eventos perdidos.
+ * El árbitro de la nota son las filas escritas por la PRIMERA corrida completa del día (`primero_del_dia`), no por la
+ * última: una completa por `costo` o `marca_total` (migración 20261117140515) cuenta también lo que estaba en la cola,
+ * que no es un hueco del evento. Aun así INCLUYE lo que la fecha movió: precios que salen de la ventana de 90 días cada
+ * medianoche. No es un conteo de eventos perdidos.
  *
  * Sin acentos graves en el SQL: vive en un template literal. La prueba que lo ejerce contra base real, en cada
  * estado: `database/tests/test-newdb-existencia-por-evento.js` (sección L).
@@ -35,7 +37,8 @@ export const EXISTENCIA_EVENTO_SQL = `
            (SELECT modo FROM analytics.existencia_corridas ORDER BY id DESC LIMIT 1) AS ultimo_modo,
            (SELECT mensaje FROM analytics.existencia_corridas ORDER BY id DESC LIMIT 1) AS ultimo_mensaje,
            (SELECT max(created_at) FROM analytics.existencia_corridas WHERE modo = 'completo') AS ultimo_completo,
-           (SELECT resultado FROM analytics.existencia_corridas WHERE modo = 'completo' ORDER BY id DESC LIMIT 1) AS arbitro,
+           (SELECT resultado FROM analytics.existencia_corridas WHERE modo = 'completo' AND motivo = 'primero_del_dia' ORDER BY id DESC LIMIT 1) AS arbitro,
+           (SELECT created_at FROM analytics.existencia_corridas WHERE modo = 'completo' AND motivo = 'primero_del_dia' ORDER BY id DESC LIMIT 1) AS arbitro_at,
            (SELECT count(*) FROM analytics.existencia_corridas WHERE modo = 'llave' AND created_at > now() - interval '24 hours')::int AS por_llave,
            (SELECT count(*) FROM analytics.existencia_corridas WHERE modo = 'completo' AND created_at > now() - interval '24 hours')::int AS completas),
   e AS (
@@ -66,6 +69,8 @@ export const EXISTENCIA_EVENTO_SQL = `
                                || '): el que drena no ha corrido'
            ELSE e.por_llave || ' corridas por llave y ' || e.completas || ' completas en 24 h · cola: ' || e.marcas || ' marcas · última completa '
                 || to_char(e.ultimo_completo AT TIME ZONE 'America/Mexico_City', 'DD/MM HH24:MI') || ', árbitro: ' || a.dif
-                || ' filas escritas (' || coalesce(a.por_tabla, '—') || '; incluye lo que la fecha movió)'
+                || ' filas escritas por la primera del día ('
+                || coalesce(to_char(e.arbitro_at AT TIME ZONE 'America/Mexico_City', 'DD/MM HH24:MI'), 'ninguna todavía') || ': '
+                || coalesce(a.por_tabla, '—') || '; incluye lo que la fecha movió)'
          END AS note_extra
     FROM e, a`;

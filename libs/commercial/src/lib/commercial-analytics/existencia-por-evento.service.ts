@@ -4,8 +4,15 @@ import { KNEX_NEW_DB, MiradaAlAviso, PgListenService } from '@megadulces/platfor
 
 /** El canal que avisan los disparadores `tg_existencia_*` (migración 20261117094325). */
 export const CANAL_EXISTENCIA = 'existencia_sucia';
-/** Lo que se espera tras el primer aviso antes de drenar: la ingesta escribe en lotes cada ~15 s y se juntan. */
-export const ESPERA_EXISTENCIA_MS = 30_000;
+/**
+ * Lo que se espera tras el primer aviso antes de drenar: se juntan los lotes de la ingesta en una sola corrida.
+ * Medido en prod el 2026-11-17 con 30 s: los SKUs más vendidos entran en casi cada corrida y cada uno cuesta ~1 s
+ * (el precio lee toda su historia de venta), así que el costo crece con el NÚMERO de corridas, no con el de cambios
+ * (~9 % de un núcleo). Con 2 min se recalculan hasta cuatro veces menos y la existencia sigue más fresca que los
+ * 5 min de `existencia-aux`. Si una corrida aun así costaría más que todo, `drenar_existencia` recalcula todo (motivo
+ * `costo`, migración 20261117140515).
+ */
+export const ESPERA_EXISTENCIA_MS = 120_000;
 
 /** Un renglón de `analytics.drenar_existencia()`: uno por tabla recalculada, o uno solo (vacio/ocupado/error). */
 export interface RenglonDrenado {
@@ -26,7 +33,8 @@ export interface RenglonDrenado {
  * Los disparadores de las 13 fuentes (paso 3) anotan qué SKUs tocó cada escritura en `analytics.llaves_sucias` y
  * avisan `existencia_sucia`. Este servicio junta los avisos (`MiradaAlAviso`, a lo más una pasada por espera) y llama
  * a `analytics.drenar_existencia()`, que hace todo en la base: toma la cola, quita repetidos y recalcula por llave —
- * o todo, con la marca total, arriba del umbral o en la primera corrida del día (hora de México). La cola PERSISTE:
+ * o todo, con la marca total, arriba del umbral, cuando por llave costaría más que todo, o en la primera corrida del
+ * día (hora de México). La cola PERSISTE:
  * un aviso perdido no pierde nada, lo toma la siguiente pasada. Por eso mira al arrancar y cada vez que el `LISTEN`
  * vuelve (`alConectar`): `NOTIFY` no se guarda.
  *

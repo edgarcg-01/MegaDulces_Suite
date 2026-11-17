@@ -1225,5 +1225,32 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
       1. Juntar más avisos por corrida: la espera de 30 s a ~2 min, así los más vendidos se recalculan cuatro veces menos.
       2. Que `drenar_existencia` elija el completo cuando la llave cueste más que él. Hoy decide por el número de SKUs
          (800), que no ve el costo; tiene que decidir por las líneas de venta de esos SKUs.
+- **8b.4b, el costo (2026-11-17, en código, sin aplicar).** Los dos cambios de arriba.
+  - **Migración `20261117140515`.** `drenar_existencia()` estima lo que costaría la corrida por llave, después del
+    umbral y antes de decidir. La estimación es 1,000 ms fijos + 12 ms por SKU + 0.1 ms por línea de `lineas_pos` de esos
+    SKUs en `analytics.price_truth`. Si pasa lo que tardó el último recálculo completo (20 s si nunca hubo uno),
+    recalcula todo con motivo `costo`. El umbral, la marca total y el primero del día siguen mandando antes, sin
+    estimar.
+    - El modelo sale de 34 SKUs medidos uno por uno en prod (sólo lectura). Los 12 más vendidos cuestan 0.4–2.2 s;
+      ocho de la posición ~200, 80–190 ms; ocho de la ~1,500, 17–41 ms; uno sin ventas, ~12 ms. Queda dentro de ~2× en
+      los 34.
+    - Contar las líneas en `kdm2` con su índice costó hasta 1.5 s por SKU, tan caro como el trabajo. Por eso se usa
+      `lineas_pos`, que ya está guardado y se lee por índice.
+    - `existencia_corridas` gana `estimado_ms` y `referencia_ms`. Comparar `estimado_ms` con `ms` en las corridas
+      de `cola` es la calibración del modelo, con datos de prod.
+    - El `down()` restaura la función de `20261117094325` letra por letra: su `prosrc` tiene el mismo md5 que el de
+      prod.
+  - **La espera del worker** (`ESPERA_EXISTENCIA_MS`) pasa de 30 s a 2 min. Los más vendidos se recalculan hasta cuatro
+    veces menos, y la existencia sigue más fresca que los 5 min de `existencia-aux`.
+  - **El árbitro del sensor de Salud BD** lee sólo el completo `primero_del_dia`. Uno por `costo` o por `marca_total`
+    cuenta también lo que estaba en la cola, que no es un hueco del evento.
+  - **Prueba** `test-newdb-drenar-por-costo`: 18 ✓ en una base mínima y en una tipo CI. Las constantes del modelo
+    están escritas en la prueba, no importadas. Ejerce la referencia alta, igual y uno menos (es «más que»), las líneas
+    de un SKU muy vendido, que otro SKU fuera de la cola no cuente, la falta de referencia, y que el umbral, la marca y
+    el primero del día manden. También el árbitro del sensor, la idempotencia y el `down()`.
+    - Los 12 mutantes mueren.
+    - `test-newdb-existencia-por-evento` sigue en 57 ✓ con el sensor nuevo, y la spec del servicio en 17 ✓.
+  - **NO MEDIDO:** cuánto baja el costo en prod. Se mide al aplicar, con un día de `existencia_corridas` (suma de
+    `ms`) contra el de hoy.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
