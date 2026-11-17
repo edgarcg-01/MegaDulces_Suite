@@ -10,6 +10,8 @@ import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { ClientesNuevosService } from '../clientes-nuevos.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /** [MCP.3.1] Un pedido de Sucursal (app de vendor) en la lista del surtidor. */
 const PV = (p: Partial<PresalePickInboxRow> = {}): PresalePickInboxRow => ({
@@ -1157,17 +1159,29 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(c.cerrando()).toBe(false);
   });
 
-  it('Salir va a /almacen y NO al tablero (el almacenista no tiene permiso de verlo: lo rebotaría)', async () => {
+  // `[GP.RF.30]` Antes iba a /almacen, que brinca a la primera pantalla del área (para el surtidor,
+  // Surtir misma: «Salir» no hacía nada). Abierta directo, sin pantalla anterior, va al Tablero: su
+  // ruta la abre quien surte (`COMMERCIAL_PICKING_GESTIONAR`), que es quien entra aquí. El regreso a
+  // la pantalla anterior se prueba con un router de verdad en `salida-de-foco.spec.ts`.
+  it('[GP.RF.30] abierta directo, Salir va al Tablero (lo abre quien surte), no a /almacen', async () => {
     await montar();
+    TestBed.inject(PermissionsService).load({ [Permission.COMMERCIAL_PICKING_GESTIONAR]: true }, 'surtidor');
     const router = TestBed.inject(Router);
     const nav = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
     clic('Salir');
     // `[MT.5.4]` Se afirma sobre el DESTINO, no sobre el mecanismo: desde que
     // «Salir» pasa por `irConservandoPanel` (para no tirar la pantalla partida)
-    // el argumento es un `UrlTree`, no el texto. Fijar el texto habría hecho
-    // fallar un cambio que no mueve a dónde va el botón.
+    // el argumento es un `UrlTree`, no el texto.
     expect(nav).toHaveBeenCalledTimes(1);
-    expect(router.serializeUrl(nav.mock.calls[0][0] as UrlTree)).toBe('/almacen');
+    expect(router.serializeUrl(nav.mock.calls[0][0] as UrlTree)).toBe('/almacen/pedidos');
+  });
+
+  it('[GP.RF.30] NEGATIVA: sin permiso del Tablero no lo manda a «sin acceso»: va a «Mi trabajo»', async () => {
+    await montar();
+    const router = TestBed.inject(Router);
+    const nav = vi.spyOn(router, 'navigateByUrl').mockResolvedValue(true);
+    clic('Salir');
+    expect(router.serializeUrl(nav.mock.calls[0][0] as UrlTree)).toBe('/projects');
   });
 
   // ── [MCP.3.6] Rutas de hoy arriba de los sueltos ─────────────────────────────────────────
