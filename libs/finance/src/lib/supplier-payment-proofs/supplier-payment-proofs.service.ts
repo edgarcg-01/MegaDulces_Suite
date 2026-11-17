@@ -1009,7 +1009,8 @@ export class SupplierPaymentProofsService {
         ocr_monto: importe, ocr_fecha: lectura.fecha, ocr_banco: leido.banco_destino || null, ocr_cuenta_dest: leido.cuenta_destino || null,
         ocr_cuenta_origen: leido.cuenta_origen || null, ocr_concepto: leido.concepto || null, ocr_referencia: leido.clave_rastreo || null,
         ocr_ordenante: leido.beneficiario || null, ocr_metodo: leido.metodo || null, ocr_raw: JSON.stringify(leido), ocr_status: 'ok',
-        monto_match: true, cuenta_propia: true, ref_norm: ref, lectura_verificada: true, auto_validado: true,
+        // `ref_norm` NO se escribe: es GENERATED de `ocr_referencia` con la misma regla que `normRef`.
+        monto_match: true, cuenta_propia: true, lectura_verificada: true, auto_validado: true,
         status: 'validado', validated_by: AUTOR_PAGO_POR_COMPROBANTE, validated_at: trx.fn.now(), created_by: actor || null,
         comentarios: `[PGP.130] Casó solo con el pago ${pagoId} del Calendario: misma cuenta de origen, importe (±$1) y fecha (±5 días).`,
       }).returning(['id']);

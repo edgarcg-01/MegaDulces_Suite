@@ -50,7 +50,8 @@ try {
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-pgp130-comprobante-dispara');
 
-const silencio = { log() {}, warn() {}, error() {}, debug() {} };
+const nada = () => undefined;
+const silencio = { log: nada, warn: nada, error: nada, debug: nada };
 const comunes = (trx) => ({
   logger: silencio,
   tenantCtx: { requireTenantId: () => T, get: () => ({ tenantId: T, userId: null }) },
