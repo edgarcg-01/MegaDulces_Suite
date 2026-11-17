@@ -452,6 +452,8 @@ detuvieron dos escrituras (alta y «Crear 180»), y quedó registrado lo que hab
 | UB.RF.7 | 🟡 | Cada pantalla (Mapa, Asignación, Contenido) pide el almacén otra vez, y Contenido abre vacío | A | ⬜ |
 | UB.RF.8 | 🟡 | «0» de «Con lugar fijo» en verde, a 3.0:1 (bajo AA) | A | ⬜ (mismo token que GP.RF.13) |
 | UB.RF.9 | 🟡 | «Se crea 180 de 180» (es «Se crean») | A | ⬜ |
+| UB.3b.1 | ⭐ | **Pedido de Edgar:** asignar con lector de código de barras, y que capturar la ubicación sea también asignar lo que está ahí. **Hecho como modo «Escanear» en Asignación:** se escanea el cartel y después cada producto. La presentación sale del código de barras (medido en prod: el del paquete y el de la caja de un mismo producto llevan a su presentación) y el papel, de la ubicación. Una ubicación que no existe se da de alta en el acto; si el producto ya tiene lugar fijo en otra, ofrece moverlo. Las lecturas rápidas esperan en fila. En el buscador normal, una búsqueda que deja un solo producto lo abre, y si fue su código de barras, abre la asignación de esa presentación con el campo de ubicación listo | C (23 pruebas) | 🧪 sin escribir en prod; `ubicaciones-escaneo.e2e.ts` lo mide al desplegar (hoy se salta: NO MEDIDO) |
+| UB.RF.10 | ⭐ | **Pedido de Edgar:** imprimir uno o muchos carteles con el código. «Imprimir carteles» en el Mapa, por zona o por pasillo, y en cada rack para sus niveles o uno solo. Usa el cartel que ya existía (código grande, código de barras, almacén, dos por hoja carta) | C (3 pruebas) | 🧪 se mide al desplegar, con la misma prueba |
 
 **Lo que funciona bien y se conserva:**
 - Cada regla del código dice su motivo («sin Ñ: el código de barras no la lee», «el nivel va del 1

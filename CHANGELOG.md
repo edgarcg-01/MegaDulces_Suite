@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Ubicaciones: asignar con el lector de código de barras, y carteles de uno o de muchos (UB.3b.1 · UB.RF.10 · 2026-11-17 · en código, sin soltar)
+- **Asignación › Escanear**: se escanea el cartel de la ubicación y después cada producto que está ahí. La Suite sabe si es caja, paquete o pieza por su código de barras, y si va como lugar fijo, reserva o exhibición por la ubicación: no se teclea nada más. Si la ubicación no existe, se da de alta en ese momento; si el producto ya tenía lugar fijo en otra, ofrece moverlo.
+- En el buscador de Asignación, escanear el código de barras abre el producto y su asignación con el campo de ubicación listo.
+- **Mapa › Imprimir carteles**: los carteles con el código grande y su código de barras, de un nivel, de un rack, de un pasillo o de toda la zona (dos por hoja carta).
+
 ### Fixed — Ubicaciones: las cifras dicen el último dato, y la captura ya no dice «no hay» cuando no sabe (UB.RF · 2026-11-17 · en código, sin soltar)
 - Las cifras grandes que se animan (la tira de arriba de muchas pantallas) se quedaban a veces con el valor anterior: en Asignación, al buscar «mazapan» decía 9,045 productos cuando eran 46. Ahora siempre terminan en el último dato que llegó.
 - «Últimas capturas» dice «Leyendo…» mientras carga y avisa si no pudo leer (con Reintentar). Antes decía «Todavía no hay capturas» en los dos casos.

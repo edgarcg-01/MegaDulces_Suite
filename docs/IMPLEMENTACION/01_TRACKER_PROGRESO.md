@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2655 KB, 14608 líneas, 77 secciones.
+> **Índice navegable** — 2656 KB, 14615 líneas, 77 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -73,17 +73,17 @@
 | 13740 | 13941 | 30 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
 | 13942 | 14006 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
 | 14007 | 14015 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14016 | 14062 | 7 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14069 | 14078 | 1 | 📝 Convenciones |
-| 14079 | 14116 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14117 | 14135 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14136 | 14188 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14189 | 14561 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14562 | 14592 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14593 | 14614 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14615 | 14642 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14643 | 14674 | 22 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 14675 | 14697 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14016 | 14069 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14076 | 14085 | 1 | 📝 Convenciones |
+| 14086 | 14123 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14124 | 14142 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14143 | 14195 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14196 | 14568 | 56 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14569 | 14599 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14600 | 14621 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14622 | 14649 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14650 | 14681 | 22 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 14682 | 14704 | 6 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14036,6 +14036,13 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
   - Plantillas tipan en las cuatro apps; `check:pantalla` y `check-estilos` sin fallas nuevas.
   - NO MEDIDO: escrituras reales y sus mensajes del servidor, celular, el puesto que captura.
 - [ ] **[UB.3b]** ⬜ Medición de la propuesta Wincaja PH (§2.1) + censo en celular.
+  - [x] **[UB.3b.1]** 🧪 (2026-11-17) **Censo con lector: escanear la ubicación y después cada producto** (pedido de Edgar). Asignación › Escanear (`?vista=escanear`).
+    - La presentación sale del código de barras de Kepler (medido en prod: paquete 7502212930012 y caja C07302 del mismo producto) y el papel, de la ubicación.
+    - Una ubicación nueva se da de alta en el acto. Si ya hay lugar fijo en otra ubicación, ofrece moverlo. Las lecturas rápidas esperan en fila.
+    - El buscador abre solo un resultado único; con un código de barras, abre la asignación de esa presentación con el campo de ubicación listo.
+    - Sin endpoints nuevos. 23 pruebas (logica 15 + flujo 8, con 4 negativas). Módulo de almacén: 791/791. Plantillas tipan; `check:pantalla` y `check-estilos` sin fallas nuevas.
+    - NO MEDIDO: la pantalla viva (`ubicaciones-escaneo.e2e.ts` se salta hasta que prod lo traiga) y el celular con cámara.
+  - [x] **[UB.RF.10]** 🧪 (2026-11-17) **Imprimir carteles desde el Mapa: uno, un rack, un pasillo o toda la zona** (pedido de Edgar). Reutiliza `anden-cartel` (dos por hoja carta, código de barras). 3 pruebas. NO MEDIDO en la pantalla viva hasta desplegar.
 - [ ] **[UB.3-orig]** ↪️ partido en UB.3a/UB.3b · `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.
 - [ ] **[UB.5]** ⬜ Cantidad sólo en reservas + `entered_at` + acomodo en celular + pantalla Excedente.

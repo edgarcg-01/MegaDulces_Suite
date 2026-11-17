@@ -27,6 +27,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesAsignacionExcelComponent } from '../components/ubicaciones-asignacion-excel.component';
+import { UbicacionesCensoComponent } from '../components/ubicaciones-censo.component';
+import { presentacionDeLectura } from '../components/ubicaciones-censo.logica';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -65,7 +67,7 @@ interface Alta {
   selector: 'app-almacen-ubicaciones-asignacion',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TableModule, TagModule, SegmentedComponent, UbicacionesAsignacionExcelComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TableModule, TagModule, SegmentedComponent, UbicacionesAsignacionExcelComponent, UbicacionesCensoComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head as-head">
@@ -80,10 +82,12 @@ interface Alta {
             <p-select [options]="almacenOpts()" optionLabel="label" optionValue="value" [ngModel]="warehouseId()" (onChange)="pickAlmacen($event.value)" ariaLabel="Almacén" appendTo="body" class="as-sel" />
           }
           @if (puedeGestionar() && almacen()) {
-            @if (enExcel()) {
-              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verExcel(false)"><span class="p-button-icon pi pi-list" aria-hidden="true"></span><span class="p-button-label">Volver a la lista</span></button>
+            @if (enExcel() || enEscaneo()) {
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verVista(null)"><span class="p-button-icon pi pi-list" aria-hidden="true"></span><span class="p-button-label">Volver a la lista</span></button>
             } @else {
-              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verExcel(true)"><span class="p-button-icon pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Asignar desde Excel</span></button>
+              <!-- [UB.3b] El lector: ubicación y después cada producto, sin teclear presentación ni papel. -->
+              <button pButton type="button" class="p-button-sm" (click)="verVista('escanear')"><span class="p-button-icon pi pi-barcode" aria-hidden="true"></span><span class="p-button-label">Escanear</span></button>
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verVista('excel')"><span class="p-button-icon pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Asignar desde Excel</span></button>
             }
           }
         </div>
@@ -93,6 +97,8 @@ interface Alta {
         <div class="as-note as-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene un almacén asignado. Pide que te lo asignen en <b>Administración › Personas</b>.</span></div>
       } @else if (enExcel() && almacen()) {
         <app-ubicaciones-asignacion-excel [warehouse]="almacen()!" (cambio)="cargarLista()" />
+      } @else if (enEscaneo() && almacen()) {
+        <app-ubicaciones-censo [warehouse]="almacen()!" (cambio)="cargarLista()" />
       } @else {
         <app-load-state [loading]="!lista() && !err()" [error]="err()" errorTitle="No se pudo cargar la asignación" [isEmpty]="false" (retry)="reintentar()">
         @if (lista(); as l) {
@@ -106,7 +112,7 @@ interface Alta {
               <div class="as-bh">
                 <h2 id="as-h-lista" class="sr-only">Productos</h2>
                 <label class="as-q"><span class="sr-only">Buscar producto</span>
-                  <input pInputText type="search" [ngModel]="q()" (ngModelChange)="onQ($event)" placeholder="Clave o nombre" aria-label="Buscar producto por clave o nombre" />
+                  <input pInputText type="search" [ngModel]="q()" (ngModelChange)="onQ($event)" placeholder="Clave, nombre o código de barras" aria-label="Buscar producto por clave, nombre o código de barras (se puede escanear)" />
                 </label>
                 <app-segmented [options]="filtros()" [value]="filtro()" (valueChange)="pickFiltro($any($event))" ariaLabel="Filtro" />
               </div>
@@ -191,7 +197,7 @@ interface Alta {
                           <label class="as-f" for="as-papel-{{ p.peldano }}"><span class="as-l">Papel</span>
                             <p-select [inputId]="'as-papel-' + p.peldano" name="papel" [options]="papelesPara(d, p.peldano)" optionLabel="label" optionValue="key" [ngModel]="alta()!.papel" (onChange)="setAlta('papel', $event.value)" appendTo="body" />
                           </label>
-                          <label class="as-f"><span class="as-l">Ubicación</span><input pInputText class="mono" name="code" [ngModel]="alta()!.code" (ngModelChange)="setAlta('code', $event)" [placeholder]="placeholderCodigo()" maxlength="8" /></label>
+                          <label class="as-f"><span class="as-l">Ubicación</span><input pInputText class="mono" id="as-alta-code" name="code" [ngModel]="alta()!.code" (ngModelChange)="setAlta('code', $event)" [placeholder]="placeholderCodigo()" maxlength="8" /></label>
                           <label class="as-f"><span class="as-l">Mín ({{ p.rotulo }})</span><input pInputText type="number" min="0" class="mono" name="min" [ngModel]="alta()!.min" (ngModelChange)="setAlta('min', $event)" /></label>
                           <label class="as-f"><span class="as-l">Máx ({{ p.rotulo }})</span><input pInputText type="number" min="0" class="mono" name="max" [ngModel]="alta()!.max" (ngModelChange)="setAlta('max', $event)" /></label>
                           <span class="as-sub as-full" [class.as-bad]="!!ayudaAlta()?.mal" aria-live="polite">{{ ayudaAlta()?.txt }}</span>
@@ -334,6 +340,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   private readonly vista = toSignal(this.route.queryParamMap.pipe(map((m) => m.get('vista'))), { initialValue: null });
   readonly puedeGestionar = computed(() => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.ALMACEN_UBICACIONES_GESTIONAR]);
   readonly enExcel = computed(() => this.vista() === 'excel' && this.puedeGestionar());
+  readonly enEscaneo = computed(() => this.vista() === 'escanear' && this.puedeGestionar());
   readonly almacen = computed(() => this.almacenes().find((w) => w.id === this.warehouseId()) ?? null);
   readonly almacenOpts = computed(() => this.almacenes().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
   readonly filtros = computed<SegOption[]>(() => [
@@ -387,8 +394,10 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     });
   }
 
-  verExcel(si: boolean): void {
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: si ? 'excel' : null }, queryParamsHandling: 'merge' });
+  verExcel(si: boolean): void { this.verVista(si ? 'excel' : null); }
+  /** La vista queda en la dirección (`?vista=excel|escanear`): «Atrás» regresa y se puede ligar. */
+  verVista(v: 'excel' | 'escanear' | null): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: v }, queryParamsHandling: 'merge' });
   }
 
   pickAlmacen(id: string): void {
@@ -422,7 +431,15 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     this.cargandoLista.set(true);
     this.err.set(null);
     this.api.products(w, { q: this.q(), filtro: this.filtro(), limit: PAGINA, offset: this.offset() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (l) => { if (folio !== this.folioLista) return; this.lista.set(l); this.cargadoEn.set(new Date()); this.cargandoLista.set(false); },
+      next: (l) => {
+        if (folio !== this.folioLista) return;
+        this.lista.set(l);
+        this.cargadoEn.set(new Date());
+        this.cargandoLista.set(false);
+        // [UB.3b] Una búsqueda (o un código escaneado) que deja UN solo producto lo abre: un clic menos por producto.
+        const unico = this.q() && l.total === 1 && l.filas.length === 1 ? l.filas[0] : null;
+        if (unico && this.selFila()?.product_id !== unico.product_id) this.pickProducto(unico);
+      },
       error: (e: HttpErrorResponse) => { if (folio !== this.folioLista) return; this.cargandoLista.set(false); this.err.set(mensaje(e, 'No se pudieron cargar los productos.')); },
     });
   }
@@ -444,7 +461,20 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     this.cargandoDet.set(true);
     this.errDet.set(null);
     this.api.productDetail(w, productId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => { if (folio !== this.folioDet) return; this.det.set(d); this.cargandoDet.set(false); },
+      next: (d) => {
+        if (folio !== this.folioDet) return;
+        this.det.set(d);
+        this.cargandoDet.set(false);
+        // [UB.3b] Si lo buscado es el código de barras de una presentación, se abre su alta con el campo de
+        // ubicación listo: escanear el producto y luego el cartel de la ubicación, y Enter.
+        const q = this.q();
+        const p = q ? presentacionDeLectura(d, q) : null;
+        const porCodigo = p && 'peldano' in p && d.presentaciones.some((x) => x.codigos.some((c) => c.toUpperCase() === q.trim().toUpperCase()));
+        if (porCodigo && this.papelesPara(d, p.peldano).length) {
+          this.nuevaAlta(d, p.peldano);
+          setTimeout(() => document.getElementById('as-alta-code')?.focus());
+        }
+      },
       error: (e: HttpErrorResponse) => { if (folio !== this.folioDet) return; this.cargandoDet.set(false); this.det.set(null); this.errDet.set(mensaje(e, 'No se pudo cargar el producto.')); },
     });
   }

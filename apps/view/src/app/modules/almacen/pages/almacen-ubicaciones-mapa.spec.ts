@@ -1,5 +1,5 @@
 import type { WarehouseLocationRow } from '@megadulces/contracts';
-import { estadoDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
+import { cartelesDe, estadoDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -45,5 +45,27 @@ describe('[UB.RF.5] mapa · zona en la que abre', () => {
   });
   it('NEGATIVA: un almacén sin ninguna, se queda donde está', () => {
     expect(zonaConUbicaciones('B', 0, 0)).toBe('B');
+  });
+});
+
+/** `[UB.RF.10]` Carteles: uno, un rack, un pasillo o toda la zona; sin los dados de baja y en orden de recorrido. */
+describe('[UB.RF.10] mapa · carteles a imprimir', () => {
+  const ubs = [
+    nivel({ code: 'BB012', pasillo: 'B', rack: 1, nivel: 2 }),
+    nivel({ code: 'BA051', pasillo: 'A', rack: 5, nivel: 1 }),
+    nivel({ code: 'BA011', pasillo: 'A', rack: 1, nivel: 1 }),
+    nivel({ code: 'BA052', pasillo: 'A', rack: 5, nivel: 2, estado: 'baja', motivo_estado: 'x' }),
+    nivel({ code: 'TA011', zona: 'T', pasillo: 'A', rack: 1, nivel: 1 }),
+  ];
+  it('⭐ toda la zona, en orden de recorrido y sin los dados de baja', () => {
+    expect(cartelesDe(ubs, { zona: 'B' }, '01').map((c) => c.code)).toEqual(['BA011', 'BA051', 'BB012']);
+  });
+  it('un pasillo, un rack y uno solo', () => {
+    expect(cartelesDe(ubs, { zona: 'B', pasillo: 'A' }, '01').map((c) => c.code)).toEqual(['BA011', 'BA051']);
+    expect(cartelesDe(ubs, { zona: 'B', pasillo: 'A', rack: 5 }, '01').map((c) => c.code)).toEqual(['BA051']);
+    expect(cartelesDe(ubs, { zona: 'B', code: 'BB012' }, '01')).toEqual([{ code: 'BB012', label: 'Bodega · nivel 2', almacen: '01' }]);
+  });
+  it('NEGATIVA: la zona de tienda no se cuela en los de bodega (y viceversa)', () => {
+    expect(cartelesDe(ubs, { zona: 'T' }, '01').map((c) => c.code)).toEqual(['TA011']);
   });
 });

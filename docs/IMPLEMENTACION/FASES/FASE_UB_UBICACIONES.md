@@ -235,6 +235,33 @@ Toda acción queda en `bin_history` con valor anterior → nuevo y motivo. Las b
 
 ---
 
+### 8.1 Censo con lector y carteles (2026-11-17, pedido de Edgar) 🧪
+
+Lo pidió Edgar al recorrer la captura con él: *«que se pueda leer con el código de barras»* y *«a la
+hora de capturar la ubicación, también asignar ya el producto que está ahí»*, y *«que se puedan
+imprimir una o muchas hojas con el código»*. Es el camino 3 de §5, primero en escritorio con lector.
+
+- **Asignación › Escanear** (`?vista=escanear`). Hay un solo campo, y lo que tiene forma de ubicación
+  cambia la ubicación de trabajo. Lo demás se busca como producto, por código de barras, clave o
+  nombre.
+  - La **presentación** sale del código de barras de la ficha de Kepler de la sucursal (D10). Si no
+    se puede saber, se pregunta con un botón por presentación.
+  - El **papel** sale de la ubicación: bodega de surtido → lugar fijo; bodega de reserva → reserva
+    preferida; tienda → exhibición. Recepción, cuarentena y merma no reciben productos.
+  - Una ubicación que no existe **se da de alta en el acto**: bodega como surtido, tienda como piso.
+  - Si el producto ya tiene lugar fijo o reserva en otra ubicación, se ofrece **moverlo**; no se crea
+    un segundo.
+  - Las lecturas rápidas esperan en fila.
+- **El buscador de Asignación** abre solo un resultado único. Si lo buscado fue el código de barras
+  de una presentación, abre su asignación con el campo de ubicación listo.
+- **Carteles** (Mapa › «Imprimir carteles»): por zona o pasillo, y desde cada rack para sus niveles o
+  uno solo. Es el cartel que ya existía (`anden-cartel`): dos por hoja carta. Cubre la parte de
+  «reimprimir etiqueta» de UB.4.
+- **No usa endpoints nuevos.** Sólo los que ya existían: lista de ubicaciones, búsqueda (que encuentra
+  por código de barras desde [BU.4.2]), detalle, asignar, mover, quitar y dar de alta.
+- **Pendiente de UB.3b:** el censo **en celular con la cámara** (hoy es con lector o teclado) y la
+  medición de la propuesta de Wincaja (§2.1).
+
 ## 9. Preguntas abiertas
 
 | Clave | Pregunta | Bloquea |
