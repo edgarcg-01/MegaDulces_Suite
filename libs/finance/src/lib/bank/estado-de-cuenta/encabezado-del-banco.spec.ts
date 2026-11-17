@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { armarEncabezado } from './encabezado-del-banco';
 import { aperturaDelDia } from './saldo-del-libro';
 

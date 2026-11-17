@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { huellaPareos, llavePareo, planEscritura, type PareoFila } from './recon-escritura';
 
 const p = (mov: string, folio: string, extra: Partial<PareoFila> = {}): PareoFila => ({
