@@ -463,6 +463,12 @@ export class QuotesService {
    * `[COT.1c]` Qué se puede cotizar en esa sucursal. La sucursal es obligatoria: el precio vive
    * por `(sucursal, sku)`, así que un catálogo sin plaza ofrecería cosas que no se pueden preciar.
    */
+  /** `[BU.6.1]` «¿Quisiste decir…?» cuando la búsqueda de artículos no trajo nada. null = nada que sugerir. */
+  suggestCatalog(branch: string, search: string): Observable<{ suggestion: string | null }> {
+    const params = new HttpParams().set('branch', branch).set('search', search);
+    return this.http.get<{ suggestion: string | null }>(`${this.base}/catalog/suggest`, { params });
+  }
+
   searchCatalog(branch: string, search: string, limit = 30): Observable<QuoteCatalogRow[]> {
     const params = new HttpParams()
       .set('branch', branch)

@@ -14,6 +14,7 @@ import {
   ScopeService,
   applySmartSearch,
   isPlatformAdminRole,
+  corregirConVocabulario,
 } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
@@ -879,6 +880,41 @@ export class CommercialQuotesService {
    * con los mismos datos pueden devolver filas distintas y no hay forma de demostrar que un
    * cambio no movió nada.
    */
+  /**
+   * `[BU.6.1]` «¿Quisiste decir…?» del buscador de artículos: la pantalla lo pide cuando la búsqueda no
+   * trajo nada. El vocabulario son las palabras de los nombres de los artículos de ESA sucursal en
+   * Kepler (`kdii.c2`). La sugerencia se devuelve sólo si con ella SÍ hay artículos: una sugerencia que
+   * tampoco encuentra nada sería afirmar algo que no es.
+   */
+  async suggestCatalog(branch: string, search: string): Promise<{ suggestion: string | null }> {
+    const suc = (branch || '').trim();
+    if (!suc) throw new BadRequestException('Falta la sucursal.');
+    await this.assertLeeSucursal(suc);
+    const term = (search || '').trim().slice(0, 80);
+    const suggestion = corregirConVocabulario(term, await this.vocabularioCatalogo(suc));
+    if (!suggestion) return { suggestion: null };
+    const hay = await this.searchCatalog(suc, suggestion, 1);
+    return { suggestion: hay.length ? suggestion : null };
+  }
+
+  /**
+   * `[BU.6.1]` Las palabras de los nombres de los artículos de la sucursal (`kdii.c2`), normalizadas.
+   * Se guardan en memoria 10 minutos: armarlas cuesta ~300 ms (4,403 palabras en Canindo) y cambian
+   * cuando se da de alta un artículo. No es una copia en base ni un barrido: se arma al pedirla.
+   */
+  private readonly vocabulario = new Map<string, { al: number; palabras: Set<string> }>();
+  private async vocabularioCatalogo(suc: string): Promise<Set<string>> {
+    const hay = this.vocabulario.get(suc);
+    if (hay && Date.now() - hay.al < 10 * 60_000) return hay.palabras;
+    const r = await this.tk.run((knex) => knex.raw(
+      `SELECT DISTINCT public.f_unaccent(lower(t)) AS word
+         FROM kepler_ods.kdii k, regexp_split_to_table(k.c2, '[^A-Za-zÁÉÍÓÚÑÜáéíóúñü]+') t
+        WHERE k.sucursal = ? AND length(t) >= 2`, [suc]));
+    const palabras = new Set((r.rows as Array<{ word: string }>).map((x) => x.word));
+    this.vocabulario.set(suc, { al: Date.now(), palabras });
+    return palabras;
+  }
+
   async searchCatalog(branch: string, search: string, limit = 30): Promise<QuoteCatalogRow[]> {
     const suc = (branch || '').trim();
     if (!suc) throw new BadRequestException('Falta la sucursal: un producto sólo es cotizable en una plaza concreta.');

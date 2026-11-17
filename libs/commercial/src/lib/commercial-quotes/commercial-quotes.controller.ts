@@ -109,6 +109,16 @@ export class CommercialQuotesController {
     return this.service.searchCatalog(branch, search ?? '', limit ? Number(limit) : 30);
   }
 
+  /** `[BU.6.1]` «¿Quisiste decir…?» cuando la búsqueda no trajo nada. Antes de `@Get(':id')`, como `catalog`. */
+  @Get('catalog/suggest')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
+  @ApiOperation({ summary: 'Corrige lo escrito contra las palabras de los artículos de la sucursal; sólo sugiere si con eso hay artículos.' })
+  @ApiQuery({ name: 'branch', required: true })
+  @ApiQuery({ name: 'search', required: true })
+  suggestCatalog(@Query('branch') branch: string, @Query('search') search?: string): Promise<{ suggestion: string | null }> {
+    return this.service.suggestCatalog(branch, search ?? '');
+  }
+
   @Get('salespersons')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({

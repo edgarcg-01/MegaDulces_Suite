@@ -1,4 +1,4 @@
-import { smartSearchRank } from './smart-search';
+import { corregirConVocabulario, particionesDePalabra, similitudTrigramas, smartSearchRank } from './smart-search';
 
 /**
  * `[BU.5.1]` La calificación de coincidencia para ORDENAR. ⚠️ Prueba de forma: la regex se ejerció contra
@@ -32,5 +32,37 @@ describe('[BU.5.1] smartSearchRank', () => {
   it('sólo palabras de relleno: no se quedan sin palabras, se califican con ellas', () => {
     const r = smartSearchRank('el', opts)!;
     expect(r.bindings).toEqual(['\\mel\\M', '\\mel\\M', '\\mel']);
+  });
+});
+
+/**
+ * `[BU.6.1]` «¿Quisiste decir…?». Los parecidos son los que dio `similarity()` de pg_trgm en prod (2026-11-17);
+ * con el vocabulario real de Canindo (4,510 palabras) la corrección tardó 9–17 ms en memoria.
+ */
+describe('[BU.6.1] corregirConVocabulario', () => {
+  it('el parecido reproduce a pg_trgm', () => {
+    expect(similitudTrigramas('gomitas', 'gomtas').toFixed(2)).toBe('0.50');
+    expect(similitudTrigramas('mazapan', 'mazapna').toFixed(2)).toBe('0.45');
+    expect(similitudTrigramas('bubbaloo', 'bubaloo').toFixed(2)).toBe('0.70');
+    expect(similitudTrigramas('chamoy', 'chamoyy').toFixed(2)).toBe('0.67');
+  });
+  const vocab = new Set(['gomitas', 'gomas', 'mazapan', 'mazapantito', 'bubbaloo', 'chamoy', 'el', 'rey', 'reyma', 'vaso', 'es', 'galleta', 'marias']);
+  it('corrige cada palabra mal escrita con la más parecida del vocabulario', () => {
+    expect(corregirConVocabulario('Gomtas', vocab)).toBe('gomitas');
+    expect(corregirConVocabulario('bubaloo chamoyy', vocab)).toBe('bubbaloo chamoy');
+  });
+  it('separa lo pegado sólo si no hay parecida («elrey» → «el rey»), y un plural no se parte', () => {
+    expect(corregirConVocabulario('elrey', vocab)).toBe('el rey');
+    expect(corregirConVocabulario('mazapanes', vocab)).toBe('mazapan');
+  });
+  it('lo que ya existe, los códigos y lo que no se parece a nada: null', () => {
+    expect(corregirConVocabulario('vaso el rey', vocab)).toBeNull();
+    expect(corregirConVocabulario('7500533001091', vocab)).toBeNull();
+    expect(corregirConVocabulario('xyzqw', vocab)).toBeNull();
+    expect(corregirConVocabulario('', vocab)).toBeNull();
+  });
+  it('particiones: mitades de 2 letras o más, sólo en palabras de 5 letras o más', () => {
+    expect(particionesDePalabra('elrey')).toEqual([['el', 'rey'], ['elr', 'ey']]);
+    expect(particionesDePalabra('rey')).toEqual([]);
   });
 });
