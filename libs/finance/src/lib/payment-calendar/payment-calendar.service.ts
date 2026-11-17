@@ -31,8 +31,13 @@ import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
 import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
-import { AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_PAGADO_POR_COMPROBANTE, SQL_COMPROBANTES_POR_APLICAR, moverComprobanteAKepler } from './pago-por-comprobante';
+import {
+  AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO, EVENTO_PAGADO_POR_COMPROBANTE,
+  SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
+} from './pago-por-comprobante';
 import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
+import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
+import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
 /** `[PGP.117]` Quién libera un pago vencido: queda en `updated_by` y en la bitácora. */
 export const AUTOR_PAGOS_VENCIDOS = 'sistema:pagos-vencidos';
@@ -600,39 +605,10 @@ export class PaymentCalendarService {
    */
   async listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.17]` el LEFT JOIN pre-agregado en vez del EXISTS correlacionado (882 → 394 ms, 2026-10-26); `[PGP.141]` agrega
+    // `por_sucursal`. La consulta vive en `creditos-a-favor.sql.ts` (la misma que se mide contra prod).
     return this.tk.run(async (trx) => {
-      /*
-       * ⛔ `[PGP.17]` **El `EXISTS` correlacionado costaba 882 ms; este `LEFT JOIN`, 394.**
-       *
-       * Medido contra prod el 2026-10-26, 4 corridas cada uno. La versión con `EXISTS (…)` dentro
-       * del `SELECT` lo evaluaba **una vez por acreedor** —73 veces— contra una vista derivada que
-       * no tiene índice que ayude. Pre-agregar los acreedores con deuda a un conjunto y unirlo lo
-       * deja en una sola pasada.
-       *
-       * ⚠️ 394 ms sigue siendo cerca del techo de 500. Se banca porque corre **una vez al abrir la
-       * pantalla** y en paralelo con las obligaciones, no por interacción. Si la deuda crece, el
-       * siguiente paso es materializar `ap` — no subir el techo.
-       */
-      const { rows } = await trx.raw(
-        `WITH deudores AS (
-           SELECT DISTINCT p.proveedor
-             FROM analytics.v_supplier_payables p
-            WHERE p.pendiente > 0 AND p.proveedor NOT LIKE 'TI%' AND p.tenant_id = ?
-         )
-         SELECT c.proveedor,
-                max(c.proveedor_nombre) AS proveedor_nombre,
-                sum(c.a_favor)::float8 AS a_favor,
-                count(*)::int AS docs,
-                string_agg(DISTINCT c.clase, ', ' ORDER BY c.clase) AS clases,
-                to_char(min(c.fecha), 'YYYY-MM-DD') AS mas_vieja,
-                bool_or(d.proveedor IS NOT NULL) AS con_deuda_viva
-           FROM analytics.v_supplier_credits c
-           LEFT JOIN deudores d ON d.proveedor = c.proveedor
-          WHERE c.tenant_id = ? AND c.pendiente
-          GROUP BY c.proveedor
-          ORDER BY sum(c.a_favor) DESC`,
-        [tenantId, tenantId],
-      );
+      const { rows } = await trx.raw(SQL_CREDITOS_A_FAVOR, [tenantId, tenantId]);
       return rows;
     });
   }
@@ -2068,6 +2044,122 @@ export class PaymentCalendarService {
         return pendiente ? 'pagado' : 'ligado';
       });
       if (hecho === 'pagado') { out.pagados++; out.ids_pagados.push(f.id); } else if (hecho === 'ligado') out.ligados++;
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.130b]` **El banco confirma lo que pagó el comprobante.** El comprobante dispara el pago el mismo día (D1); el
+   * estado de cuenta llega días después y aquí liga su salida al pago (`paid_bank_*`), sin cambiar su estado. Es lo que
+   * permite, después, avisar del pago cuyo dinero no aparece (rebote).
+   *
+   * La regla es la del banco (`decidirPagosPorElBanco`: ±$1, ±3 días de la fecha del COMPROBANTE, uno a uno) medida
+   * junto con los pagos pendientes, para que una salida no la reclamen dos. Y además tiene que salir de la MISMA cuenta
+   * que leyó el comprobante: si sale de otra, no se liga (`otra_cuenta`). Corre antes que `pagarPorElBanco`.
+   */
+  async confirmarPorElBanco(hoy: string = todayMx(), autor = AUTOR_PAGO_POR_EL_BANCO): Promise<{ revisados: number; confirmados: number; otra_cuenta: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out = { revisados: 0, confirmados: 0, otra_cuenta: 0 };
+    type Fila = { id: string; dia: string; importe: number; metodo: string | null; cuenta_planeada: string | null };
+    const leido = await this.tk.run(async (trx) => {
+      const porConfirmar = (await trx.raw(SQL_POR_CONFIRMAR_EN_EL_BANCO, [tenantId, hoy, hoy])).rows as Fila[];
+      if (!porConfirmar.length) return null;
+      const pendientes = (await trx.raw(SQL_PENDIENTES_POR_EL_BANCO, [tenantId, hoy, hoy])).rows as Fila[];
+      const todos = [...porConfirmar, ...pendientes];
+      const desde = todos.map((p) => p.dia).reduce((a, b) => (b < a ? b : a));
+      const salidas = (await trx.raw(SQL_SALIDAS_POR_EL_BANCO, [tenantId, desde, hoy])).rows as SalidaBanco[];
+      const ligadas = new Set(((await trx.raw(SQL_SALIDAS_LIGADAS, [tenantId])).rows as { id: string }[]).map((r) => r.id));
+      return { porConfirmar, decision: decidirPagosPorElBanco(todos.map((p) => ({ ...p, importe: Number(p.importe) })),
+        salidas.map((x) => ({ ...x, importe: Number(x.importe) })), hoy, ligadas) };
+    });
+    if (!leido) return out;
+    out.revisados = leido.porConfirmar.length;
+    for (const p of leido.porConfirmar) {
+      const d = leido.decision.get(p.id);
+      if (!d || d.estado !== 'probado') continue;
+      if (p.cuenta_planeada && d.cuenta_id !== p.cuenta_planeada) { out.otra_cuenta++; continue; }
+      const hecho = await this.tk.run(async (trx) => {
+        const otra = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, paid_bank_movement_id: d.movimiento_id }).whereNot({ id: p.id }).whereNot({ status: 'cancelled' }).first('id');
+        if (otra) return false;
+        const n = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, id: p.id, status: 'executed' }).whereNull('paid_bank_movement_id').whereNotNull('paid_proof_id')
+          .update({ paid_bank_movement_id: d.movimiento_id, paid_bank_date: d.fecha, paid_bank_amount: d.importe, updated_at: trx.fn.now() });
+        if (!n) return false;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: p.id, event: EVENTO_CONFIRMADO_POR_EL_BANCO, status_from: 'executed', status_to: 'executed',
+          created_by: autor,
+          detail: JSON.stringify({ regla: 'PGP.130b', hoy, comprobante: { dia: p.dia, importe: Number(p.importe) },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe } }),
+        });
+        return true;
+      });
+      if (hecho) out.confirmados++;
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.132]` **Lo que Kepler ya pagó, pagado en la Suite** (reporte de Contabilidad, 2026-11-17). Un pago pendiente
+   * cuyas facturas Tesorería ya pagó en Kepler (`decidirPagoEnKepler`: el cierre de `[PGP.94]` completo, con dinero)
+   * queda `executed`, ligado a ese documento y con sus facturas aplicadas; uno que ya pagó el banco o el comprobante
+   * sólo se liga (sale de la fila del escritor de `X-D-26`, que lo rechazaba en cada pasada). Medido ese día: 48 pagos
+   * ($10.5 M) pagados en Kepler seguían «pendientes».
+   *
+   * ⛔ Un pago por transacción, con guarda de carrera (mismo estado y todavía sin ligar). Si la Suite no lo había
+   * autorizado, se paga igual (el dinero ya salió, D6) y la bitácora lo dice (`autorizado_en_la_suite: false`).
+   * Lo llama `PagosVencidosService` en el worker, con cada aviso de Kepler.
+   */
+  async pagarPorKepler(hoy: string = todayMx(), autor = AUTOR_PAGO_EN_KEPLER): Promise<{ revisados: number; pagados: number; ligados: number; monto: number; sin_autorizar: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const out = { revisados: 0, pagados: 0, ligados: 0, monto: 0, sin_autorizar: 0 };
+    type Fila = { id: string; status: string; dia: string; alta: string; importe: number; autorizado: boolean };
+    const leido = await this.tk.run(async (trx) => {
+      // Los pendientes sólo si su día ya llegó (lo mismo que pinta la pantalla, `pagadoPorKepler`).
+      const filas = ((await trx.raw(SQL_POR_LIGAR_A_KEPLER, [tenantId, hoy, hoy])).rows as Fila[]);
+      if (!filas.length) return null;
+      const items = (await trx('finance.payment_allocation_items').where({ tenant_id: tenantId })
+        .whereIn('allocation_id', filas.map((f) => f.id)).select('allocation_id', 'obligation_source', 'obligation_id')) as ItemParaCierre[];
+      const cierres = await this.cierresKepler(trx, filas.map((f) => ({ id: f.id, lotDate: f.dia, alta: f.alta })), items);
+      return { filas, cierres };
+    });
+    if (!leido) return out;
+    out.revisados = leido.filas.length;
+    for (const f of leido.filas) {
+      const d = decidirPagoEnKepler(leido.cierres.get(f.id));
+      if (!d) continue;
+      const pendiente = f.status === 'pending';
+      const hecho = await this.tk.run(async (trx) => {
+        const liga = {
+          kepler_payment_sucursal: d.doc.sucursal, kepler_payment_doc_prefix: d.doc.doc_prefix, kepler_payment_folio: d.doc.folio,
+          kepler_payment_linked_by: autor, kepler_payment_linked_at: trx.fn.now(), updated_at: trx.fn.now(),
+        };
+        const n = await trx('finance.payment_allocations')
+          .where({ tenant_id: tenantId, id: f.id, status: f.status }).whereNull('kepler_payment_folio').whereNull('kepler_payment_linked_by')
+          .update(pendiente
+            ? { ...liga, status: 'executed', executed_at: trx.fn.now(), updated_by: autor,
+              ...(d.metodo ? { payment_method: trx.raw('coalesce(payment_method, ?)', [d.metodo]) } : {}) }
+            : liga);
+        if (!n) return false;
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: f.id, event: pendiente ? EVENTO_PAGADO_EN_KEPLER : EVENTO_LIGADO_A_KEPLER,
+          status_from: f.status, status_to: 'executed', created_by: autor,
+          detail: JSON.stringify({
+            regla: 'PGP.132', hoy, autorizado_en_la_suite: f.autorizado,
+            kepler: { sucursal: d.doc.sucursal, doc: `${d.doc.doc_prefix}-${d.doc.folio}`, tipo: d.doc.tipo, fecha: d.doc.fecha, aplicado: d.doc.aplicado },
+          }),
+        });
+        if (pendiente) await this.aplicarRenglonesPagados(trx, tenantId, f.id, autor);
+        // Su comprobante del Calendario, si llegó, pasa a apuntar al documento de Kepler.
+        await moverComprobanteAKepler(trx, tenantId, f.id, { sucursal: d.doc.sucursal, doc_prefix: d.doc.doc_prefix, folio: d.doc.folio });
+        return true;
+      });
+      if (!hecho) continue;
+      if (pendiente) {
+        out.pagados++;
+        out.monto = round2(out.monto + Number(f.importe));
+        if (!f.autorizado) out.sin_autorizar++;
+      } else out.ligados++;
     }
     return out;
   }

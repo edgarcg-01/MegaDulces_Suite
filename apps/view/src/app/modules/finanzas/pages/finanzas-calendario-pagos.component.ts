@@ -24,7 +24,7 @@ import { textoCfdi, textoMetodo } from '@megadulces/contracts/finance/cfdi-factu
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
-import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { CreditoPorSucursal, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { anteriorAlCorte, bloqueadaPorCorte, type CorteSueltaRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -44,6 +44,7 @@ import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
+import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
@@ -840,6 +841,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                     [attr.aria-label]="'Aplicar el anticipo sin aplicar de ' + allocationTitle(a) + ' en ' + an.sucursal + ': ' + money(an.libre)"
                                     (click)="aplicarAnticipo(a, an.it)">Aplicar</button>
                           }
+                        </span>
+                      }
+                      <!-- [PGP.141] Notas de crédito aplicables de este proveedor en esta sucursal: «Ver» abre su desglose. -->
+                      @if (notasDelPago(a); as nc) {
+                        <span class="pg-sub pg-sub-2"><i class="pi pi-replay" aria-hidden="true"></i> {{ nc.texto }}
+                          <button type="button" class="pg-saldada-btn" (click)="abrirCreditos(nc.code, allocationTitle(a))"
+                                  [attr.aria-label]="'Ver las notas de crédito de ' + allocationTitle(a)">Ver</button>
                         </span>
                       }
                     </td>
@@ -2841,7 +2849,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       const ant = this.anticipoLibreDe(o.payee_code, o.branch_code, o.obligation_source);
       return {
         o, pronto,
-        credito: cr ? `trae ${this.money(cr.a_favor)} a favor sin aplicar (${cr.clases.toLowerCase()})` : null,
+        // [PGP.141] Sólo lo aplicable a ESTA factura: su sucursal y sin anticipos (que tienen su línea). Antes sumaba todas
+        // las sucursales del acreedor, y un crédito de otra sucursal no se puede aplicar aquí.
+        credito: this.textoNotaDeFactura(cr, o.branch_code),
         anticipo: ant > 0.005 ? `tiene ${this.money(ant)} de anticipo sin aplicar en ${this.branchLabel(o.branch_code)}: se descuenta al pagarla` : null,
         // [PGP.16] El costo de adelantar el pago. Pedido de Edgar: «hay que hacer los pagos lo
         // mas cercano a la fecha de vencimiento».
@@ -2904,8 +2914,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * ⚠️ Es un PISO, no un dictamen: `kdxf` sobre-cuenta lo aplicado (el control de cheques da
    * 105 %), y sobre-contar lo aplicado sub-cuenta lo pendiente.
    */
-  readonly creditos = signal<ReadonlyMap<string, { a_favor: number; docs: number; clases: string }>>(new Map());
-  creditoDe(o: Obligation | { payee_code?: string | null }): { a_favor: number; docs: number; clases: string } | null {
+  readonly creditos = signal<ReadonlyMap<string, { a_favor: number; docs: number; clases: string; por_sucursal: CreditoPorSucursal[] }>>(new Map());
+  creditoDe(o: Obligation | { payee_code?: string | null }): { a_favor: number; docs: number; clases: string; por_sucursal: CreditoPorSucursal[] } | null {
     const code = (o.payee_code ?? '').trim();
     return code ? this.creditos().get(code) ?? null : null;
   }
@@ -3126,6 +3136,23 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       });
   }
 
+  /** `[PGP.141]` «Esta factura tiene notas de crédito aplicables…»: lo de SU sucursal, o nada. */
+  textoNotaDeFactura(cr: { por_sucursal: CreditoPorSucursal[] } | null, sucursal: string | null | undefined): string | null {
+    const n = notaAplicable(cr?.por_sucursal, sucursal);
+    return n ? `Esta factura tiene notas de crédito aplicables: ${this.money(n.a_favor)} (${n.clases}) en ${this.branchLabel(sucursal)}` : null;
+  }
+  /**
+   * `[PGP.141]` «Este proveedor tiene notas de crédito aplicables…» en la fila del pago, sin desplegarlo: donde se decide
+   * cuánto se transfiere. «Ver» abre el desglose de `[PGP.17]`. Aplicarlas se hace en Kepler (la Suite todavía no escribe
+   * ese movimiento); el aviso es para no pagar de más.
+   */
+  notasDelPago(a: PaymentCalendarAllocation): { texto: string; code: string } | null {
+    if (a.status !== 'pending') return null;
+    const it = a.items.find((x) => x.payee_code && x.branch_code);
+    if (!it?.payee_code) return null;
+    const n = notaAplicable(this.creditos().get(it.payee_code.trim())?.por_sucursal, it.branch_code);
+    return n ? { texto: `Este proveedor tiene notas de crédito aplicables en ${this.branchLabel(it.branch_code)}: ${this.money(n.a_favor)} (${n.clases})`, code: it.payee_code } : null;
+  }
   /** `[PGP.48]` Un mapa vacío por falla no es un mapa vacío por dato: se dice junto al buscador. */
   readonly creditosError = signal(false);
   private loadCreditos(): void {
@@ -3133,7 +3160,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
           this.creditos.set(new Map((rows ?? []).filter((r) => r.con_deuda_viva)
-            .map((r) => [r.proveedor, { a_favor: Number(r.a_favor), docs: r.docs, clases: r.clases }])));
+            .map((r) => [r.proveedor, { a_favor: Number(r.a_favor), docs: r.docs, clases: r.clases, por_sucursal: r.por_sucursal ?? [] }])));
           this.creditosError.set(false);
         },
         // ⛔ Que falle esto NO puede tumbar la pantalla: es un aviso, no el dato con el que se paga.
