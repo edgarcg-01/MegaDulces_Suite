@@ -1745,7 +1745,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         navegadores ni hay Redis) y manda «recarga» por el socket de Cobranza a las conexiones de ESE proceso
         (`avisarATodosLocal`): UNA al llegar (ráfaga colapsada en 2 s) y otra cuando la conciliación ya debió correr
         (`BANK_RECON_AVISO_QUIET_S` + 30 s), que es la que convierte «sin cobro en Kepler» en «aplicado». No se escucha
-        `bank_recon_matches`: medido, la conciliación la reescribe entera (29,400 altas en el día para 51 mil vivas).
+        `bank_recon_matches`: escribe en ráfagas ajenas a la llegada del banco (29,400 altas en 9 min, ninguna de un abono recién cargado).
         Se apaga con `DISABLE_FICHAS_AVISO_BANCO=true`.
       · **La cuenta leída DESEMPATA, no filtra:** la lectura real dio «7133 4» de una CLABE (cuenta + verificador). Con el
         filtro de antes, una cuenta mal leída decía «no aparece» de un depósito que sí entró. Ahora se buscan abonos en

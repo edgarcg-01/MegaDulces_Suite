@@ -22,8 +22,10 @@ export const FICHAS_AVISO_MARGEN_MS = 30_000;
  *  2. **Cuando la conciliación ya debió correr** (su espera, `BANK_RECON_AVISO_QUIET_S`, más un margen): la
  *     conciliación corre en el worker 60 s después del MISMO aviso y es la que liga el abono a su cobro de Kepler; ahí
  *     una ficha pasa de «sin cobro en Kepler» a «Kepler ya la aplicó».
- * ⛔ No se escucha la tabla de la conciliación: se reescribe entera en cada corrida (medido el 2026-11-17: 29,400
- * altas en el día para 51 mil filas vivas), y un aviso por cada corrida sería ruido.
+ * ⛔ No se escucha la tabla de la conciliación: escribe en ráfagas que no tienen que ver con la llegada del banco
+ * (medido el 2026-11-17: 29,400 altas en 9 minutos, a las 14 y 16 h, NINGUNA de un abono recién cargado — ese día no
+ * entró estado de cuenta; y 0 altas en 3 minutos sin dato nuevo, que es el control de CB.74). Avisaría por
+ * re-evaluaciones de periodos viejos, no por depósitos nuevos.
  *
  * ── Dónde escucha ───────────────────────────────────────────────────────────────────────────────────────────────
  * En el **API**, no en el worker: los navegadores están conectados al API, y el worker no tiene adaptador de Redis
