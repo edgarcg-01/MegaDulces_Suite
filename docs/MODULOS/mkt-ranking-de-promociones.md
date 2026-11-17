@@ -12,6 +12,8 @@ Tres pantallas en Promociones MKT:
 - **Objetivos** (`/mkt/ranking/promociones`): dar de alta las promociones (código de Kepler, vigencia, canales, sucursales) y fijar su objetivo semanal con un sugerido.
 - **Incentivos** (`/mkt/incentivos`): la regla de pago se captura una vez y el pago de cada vendedor sale de la venta. PDF de pago con firmas.
 
+**Buscar dentro del detalle (`[MKT.27]`, 2026-11-17).** El detalle de una sucursal o vendedor trae un buscador: promoción, código, producto, SKU, proveedor o **código de barras** (pistola, cámara o tecleado). Los códigos salen de `catalog.product_barcodes` y viajan una sola vez por respuesta (`codigos_barras`); si no se pueden leer, la pantalla lo avisa. El precio queda pendiente hasta verificar su fuente en Kepler.
+
 ## Cómo se implementó
 
 - Venta: `analytics.v_kepler_sales_lines` (ranking semanal) y `analytics.mv_kepler_sales_daily` (incentivos y sugerido, ventanas largas). Nada se copia.

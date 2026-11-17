@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { createHash } from 'crypto';
 import type { Knex } from 'knex';
 import { TenantCacheService, TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
@@ -187,6 +187,13 @@ export interface RankingSemana {
   promos_ranking: PromoEnRanking[];
   /** `[MKT.18]` Quién vendió en el mostrador (lo escriben las cajeras); NULL en los otros canales. */
   vendedoras: VendedorasSemana | null;
+  /**
+   * `[MKT.27]` Los códigos de barras de cada producto que activa una promo (`sku → códigos`), para
+   * buscar con la pistola dentro del detalle. Una sola vez por respuesta, no por renglón. Sale de
+   * `catalog.product_barcodes` (principal + secundarios, Kepler y Wincaja). NULL = no se pudo leer:
+   * la pantalla lo declara, no lo pinta como «ninguna coincide».
+   */
+  codigos_barras: Record<string, string[]> | null;
   criterio: string;
   consultado_at: string;
 }
@@ -313,6 +320,8 @@ const normal = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').
 
 @Injectable()
 export class MktRankingService {
+  private readonly logger = new Logger(MktRankingService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -1093,7 +1102,7 @@ export class MktRankingService {
         promo_filtrada: promoId ? (promos[0]?.id ?? null) : null,
         proveedores_lista: listaProveedores(todas),
         proveedor_filtrado: proveedor ?? null,
-        promedio_general: null, participantes: [], promos_ranking: [], vendedoras: null,
+        promedio_general: null, participantes: [], promos_ranking: [], vendedoras: null, codigos_barras: {},
         criterio: 'Objetivo = el que fijó Mercadotecnia o, si no fijó, el DINÁMICO: el promedio de las 4 semanas anteriores '
           + 'dentro de la vigencia, recalculado cada semana. '
           + 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
@@ -1138,6 +1147,17 @@ export class MktRankingService {
       // la línea (no la matview: ésa pide el producto en el catálogo) y la caja sale de la ficha de
       // Kepler de cada sucursal, en consulta aparte (unirla dentro tardaba 31 s, ver incentivos).
       const skusProducto = [...new Set([...identificados.values()].flatMap((x) => x.productos.map((p) => p.sku)))];
+      // `[MKT.27]` Sus códigos de barras, en paralelo y sin tumbar el ranking si fallan (NULL = no medido).
+      const codigosP: Promise<Record<string, string[]> | null> = skusProducto.length
+        ? this.tk.run((trx) => trx.raw(
+          `SELECT sku, array_agg(DISTINCT btrim(barcode) ORDER BY btrim(barcode)) codigos
+             FROM catalog.product_barcodes
+            WHERE sku = ANY(?::text[]) AND deleted_at IS NULL AND btrim(barcode) <> ''
+            GROUP BY sku`,
+          [skusProducto]) as unknown as Promise<Filas>)
+          .then((r) => Object.fromEntries((r.rows as Array<Record<string, unknown>>).map((x) => [String(x['sku']), (x['codigos'] as string[]) ?? []])))
+          .catch((e: unknown) => { this.logger.warn(`[MKT.27] códigos de barras no leídos: ${e instanceof Error ? e.message : String(e)}`); return null; })
+        : Promise.resolve({});
       const [ventaProd, factores] = skusProducto.length
         ? await Promise.all([
           this.tk.run((trx) => trx.raw(
@@ -1233,8 +1253,8 @@ export class MktRankingService {
           ...pt,
         };
       }));
-      const vendedoras = await vendedorasP;
-      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking, vendedoras };
+      const [vendedoras, codigos_barras] = await Promise.all([vendedorasP, codigosP]);
+      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking, vendedoras, codigos_barras };
     }
   }
 

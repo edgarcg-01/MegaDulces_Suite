@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
 import {
   type ColumnaDia, type GrupoDepartamento, type Irregularidad, celdaDe, cuentaIrregular, departamentoDe, diasPorFecha, difHorario,
-  firmaHoras, horarioPartes, horasTexto, saldoHorasTexto,
+  firmaHoras, horarioPartes, horarioRenglones, horasTexto, saldoHorasTexto,
 } from '../reporte-formato';
 
 /**
@@ -61,7 +61,7 @@ import {
                     </button>
                   </div>
                 </td>
-                <td class="rs-hor" [class.ded]="!f.horario.asignado">{{ f.horario.hora }}@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
+                <td class="rs-hor" [class.ded]="!f.horario.asignado">@for (r of f.horarioRenglones; track $index) { <span class="rs-hor-r">{{ r }}</span> }@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
                 @for (c of f.celdas; track $index) {
                   <td class="rs-celda" [attr.data-t]="c.tipo" [class.tarde]="c.tarde" [title]="c.titulo">
                     <span class="j">@if (c.partes; as pt) { {{ pt[0] }}–<span class="antes">{{ pt[1] }}</span> } @else { {{ rango(c) }} }</span>
@@ -157,7 +157,10 @@ import {
     .rs-pill.baja { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .rs-inc { display: inline-block; margin-left: 4px; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 4px; border-radius: var(--r-sm);
       background: var(--info-soft-bg); color: var(--info-soft-fg); vertical-align: 1px; }
-    .rs-hor { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 3.8rem; max-width: 6rem; line-height: 1.3; }
+    /* [RH.13.8] Un turno por renglón (sin partirse) y el sábado aparte. Con el horario entero en un renglón sin cortes,
+       el texto se salía de la columna y quedaba ENCIMA de las checadas del jueves: con max-width, la celda no crece. */
+    .rs-hor { font-variant-numeric: tabular-nums; min-width: 3.8rem; max-width: 7rem; line-height: 1.3; }
+    .rs-hor-r { display: block; white-space: nowrap; }
     .rs-hor.ded { color: var(--text-muted); }
     .rs-hor small { display: block; font: 400 var(--fs-micro)/1.2 var(--font-body); color: var(--text-faint); }
     th.rs-dia { text-align: center; }
@@ -289,6 +292,7 @@ export class RhReporteSemanalComponent {
               return { ...x, partes: x.salioAntes ? x.jornada.split(' - ') : null };
             }),
             horario: horarioPartes(p),
+            horarioRenglones: horarioRenglones(horarioPartes(p).hora),
             alta: cuentaIrregular(lista, 'alta'),
             baja: cuentaIrregular(lista, 'baja'),
             incs: [...incs.entries()].map(([codigo, etiqueta]) => ({ codigo, etiqueta })),
