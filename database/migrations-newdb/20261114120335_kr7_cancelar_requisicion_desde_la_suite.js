@@ -65,8 +65,13 @@ exports.up = async function up(knex) {
 
   // ── 2. El interruptor ────────────────────────────────────────────────────────────────────
   await knex.raw(`ALTER TABLE commercial.kepler_push_switch DROP CONSTRAINT IF EXISTS kepler_push_switch_tipo_ck`);
+  // La lista se DERIVA de lo que la tabla tiene hoy, no de una constante escrita en noviembre:
+  // `[PGP.122]` agregó 'solicitud_gasto' el 2026-11-16 y un CHECK con la lista vieja ya no aplica
+  // («is violated by some row»). Se conserva todo lo vivo y se suma el tipo nuevo.
+  const { rows: tiposHoy } = await knex.raw(`SELECT DISTINCT tipo FROM commercial.kepler_push_switch`);
+  const TIPOS = [...new Set([...TIPOS_ANTES, ...tiposHoy.map((r) => r.tipo), 'cancela_requisicion'])].sort();
   await knex.raw(`ALTER TABLE commercial.kepler_push_switch ADD CONSTRAINT kepler_push_switch_tipo_ck
-                    CHECK (tipo IN (${lista([...TIPOS_ANTES, 'cancela_requisicion'])}))`);
+                    CHECK (tipo IN (${lista(TIPOS)}))`);
   await knex.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
   await knex('commercial.kepler_push_switch')
     .insert(SUCURSALES.map((s) => ({
@@ -113,7 +118,9 @@ exports.down = async function down(knex) {
   await knex.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
   await knex('commercial.kepler_push_switch').where({ tipo: 'cancela_requisicion' }).del();
   await knex.raw(`ALTER TABLE commercial.kepler_push_switch DROP CONSTRAINT IF EXISTS kepler_push_switch_tipo_ck`);
-  await knex.raw(`ALTER TABLE commercial.kepler_push_switch ADD CONSTRAINT kepler_push_switch_tipo_ck CHECK (tipo IN (${lista(TIPOS_ANTES)}))`);
+  const { rows: quedan } = await knex.raw(`SELECT DISTINCT tipo FROM commercial.kepler_push_switch`);
+  const TIPOS_DOWN = [...new Set([...TIPOS_ANTES, ...quedan.map((r) => r.tipo)])].filter((t) => t !== 'cancela_requisicion').sort();
+  await knex.raw(`ALTER TABLE commercial.kepler_push_switch ADD CONSTRAINT kepler_push_switch_tipo_ck CHECK (tipo IN (${lista(TIPOS_DOWN)}))`);
   if (!(await knex.schema.withSchema('commercial').hasTable(TABLA))) return;
   const { rows: [n] } = await knex.raw(`SELECT count(*) FILTER (WHERE document_type = 'requisicion')::int n FROM commercial.${TABLA}`)
     .catch(() => ({ rows: [{ n: 0 }] }));
