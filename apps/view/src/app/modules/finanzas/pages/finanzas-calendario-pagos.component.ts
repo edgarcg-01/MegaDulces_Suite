@@ -43,6 +43,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
+import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
@@ -460,6 +461,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               @if (avisoAlta(); as av) {
                 <p class="pg-alta" role="status"><i class="pi pi-check" aria-hidden="true"></i>{{ av }}</p>
               }
+              @if (anticiposError()) {
+                <!-- [PGP.139] Sin esta lectura no aparece el aviso de anticipo: se dice, no se calla. -->
+                <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los anticipos sin aplicar: el aviso de anticipo de cada proveedor no aparece. No es que no haya.
+                  <button type="button" class="pg-link" (click)="loadAnticipos()">Reintentar</button></p>
+              }
               @if (creditosError()) {
                 <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo leer el crédito a favor de los acreedores: los avisos de «a favor sin aplicar» no aparecen. No es que no haya.</p>
               }
@@ -558,7 +564,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 }
                               }
                             </span>
-                            @if (f.pronto || f.credito || f.adelanto || f.suelta) {
+                            @if (f.pronto || f.credito || f.anticipo || f.adelanto || f.suelta) {
                               <span class="pg-sub pg-sub-2">
                                 <!-- [PGP.113] Por qué se puede programar aunque sea de antes del corte. -->
                                 @if (f.suelta; as s) { <span class="pg-pronto-no"><i class="pi pi-lock-open" aria-hidden="true"></i>{{ s }}</span> }
@@ -569,6 +575,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                     <i class="pi pi-replay" aria-hidden="true"></i>{{ c }}<i class="pi pi-angle-right" aria-hidden="true"></i>
                                   </button>
                                 }
+                                <!-- [PGP.139] El anticipo de ESTA sucursal (el crédito de arriba suma todas): se aplica en el pago. -->
+                                @if (f.anticipo; as an) { <span class="pg-pronto-no"><i class="pi pi-wallet" aria-hidden="true"></i>{{ an }}</span> }
                                 <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. -->
                                 @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
                               </span>
@@ -822,6 +830,16 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <!-- [PGP.60] La línea de corte: desde este pago, lo acumulado ya no cabe en el tope. -->
                       @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
+                      <!-- [PGP.139] El anticipo sin aplicar de este proveedor en esta sucursal, sin desplegar el pago: se aplica aquí. -->
+                      @if (anticipoDelPago(a); as an) {
+                        <span class="pg-ant"><i class="pi pi-wallet" aria-hidden="true"></i>{{ an.texto }}
+                          @if (an.it) {
+                            <button type="button" class="pg-saldada-btn" [disabled]="saving() || loadingWeek()"
+                                    [attr.aria-label]="'Aplicar el anticipo sin aplicar de ' + allocationTitle(a) + ' en ' + an.sucursal + ': ' + money(an.libre)"
+                                    (click)="aplicarAnticipo(a, an.it)">Aplicar</button>
+                          }
+                        </span>
+                      }
                     </td>
                     <!-- [PGP.74] El importe va al lado de a quién: a 2,135 px quedaba a ~1,700 px del nombre y el ojo
                          cruzaba la pantalla para leer cada pago (auditoría externa, 2026-11-04). -->
@@ -1979,6 +1997,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.35] Lo que no se puede pagar se ve distinto de lo que falta preparar: esto no es
        trabajo pendiente, es un renglon que hay que sacar del dia. */
     .pg-saldada { display:flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); flex-wrap:wrap; }
+    /* [PGP.139] El anticipo sin aplicar: una oportunidad, no un error. Sin tono, con palabra e icono. */
+    .pg-ant { display:flex; align-items:center; gap:var(--sp-1); color:var(--text-muted); font-size:var(--fs-xs); flex-wrap:wrap; margin-top:2px; }
     /* [PGP.48] La accion que hace verdad «se puede pagar el resto». */
     .pg-saldada-btn { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-xs);
                       font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
@@ -2804,9 +2824,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.14] El credito a favor se precalcula aca, como todo lo demas de este renglon: son
       // ~1,000 filas y formatear en cada ciclo es lo que congelaba la pantalla 15.9 s.
       const cr = this.creditoDe(o);
+      // [PGP.139] El anticipo que se le puede aplicar a ESTA factura (mismo acreedor y SU sucursal): no se paga
+      // en efectivo lo que el anticipo ya cubre. Medido: en 90 días, $1.6 M pudieron netearse y no se netearon.
+      const ant = this.anticipoLibreDe(o.payee_code, o.branch_code, o.obligation_source);
       return {
         o, pronto,
         credito: cr ? `trae ${this.money(cr.a_favor)} a favor sin aplicar (${cr.clases.toLowerCase()})` : null,
+        anticipo: ant > 0.005 ? `tiene ${this.money(ant)} de anticipo sin aplicar en ${this.branchLabel(o.branch_code)}: se descuenta al pagarla` : null,
         // [PGP.16] El costo de adelantar el pago. Pedido de Edgar: «hay que hacer los pagos lo
         // mas cercano a la fecha de vencimiento».
         adelanto: this.adelantoDe(o),
@@ -3837,7 +3861,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * ⛔ Si falla, el botón «Aplicar anticipo» no aparece: su ausencia no afirma que no haya anticipos.
    */
   readonly anticipos = signal<ReadonlyMap<string, AnticipoRow[]>>(new Map());
-  private loadAnticipos(): void {
+  /** `[PGP.139]` La lectura falló: se DICE (si no, la falta del aviso se leería como «no hay anticipos»). */
+  readonly anticiposError = signal(false);
+  loadAnticipos(): void {
+    this.anticiposError.set(false);
     this.http.get<AnticipoRow[]>(`${this.base}/anticipos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
         const m = new Map<string, AnticipoRow[]>();
@@ -3848,7 +3875,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         }
         this.anticipos.set(m);
       },
-      error: () => this.anticipos.set(new Map()),
+      error: () => { this.anticipos.set(new Map()); this.anticiposError.set(true); },
     });
   }
   /**
@@ -3868,6 +3895,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[PGP.120]` Lo que el acreedor tiene libre en anticipos de esa sucursal (lo que el botón ofrece). */
   anticipoLibre(it: PaymentCalendarAllocationItem): number {
     return round2(this.anticiposOfrecidos(it).reduce((s, d) => s + d.disponible, 0));
+  }
+  /**
+   * `[PGP.139]` Lo libre en anticipos de un acreedor en UNA sucursal, para una factura que todavía no está en un pago
+   * (la lista de «Agregar facturas»). Sólo facturas de Kepler: el anticipo se aplica contra ellas.
+   */
+  anticipoLibreDe(payee: string | null | undefined, branch: string | null | undefined, source: string): number {
+    if (source !== 'kepler_payable' || !payee || !branch) return 0;
+    const docs = this.anticipos().get(llaveAnticipo(payee, branch)) ?? [];
+    return round2(docs.reduce((s, d) => s + Math.max(disponibleDeAnticipo(d), 0), 0));
+  }
+  /**
+   * `[PGP.139]` **El anticipo, a la vista del pago** (sin desplegarlo). Edgar, 2026-11-17: «hagamos todo». El botón
+   * «Aplicar anticipo» de `[PGP.120]` vivía dentro del desglose de cada factura y se usó **cero** veces; medido en
+   * prod: en 90 días salieron 86 pagos a proveedores con un anticipo sin aplicar en esa sucursal, y el anticipo pudo
+   * cubrir $1.6 M. Aquí se dice en la fila del pago, donde se decide cuánto se transfiere.
+   * Un pago autorizado está congelado (`[PGP.113]`): se dice, sin botón.
+   */
+  anticipoDelPago(a: PaymentCalendarAllocation): { texto: string; libre: number; sucursal: string; it: PaymentCalendarAllocationItem | null } | null {
+    if (a.status !== 'pending') return null;   // sin calcular lo libre de cada factura en los pagos ya cerrados
+    const v = avisoAnticipoDelPago(a.status, this.autorizadoFila(a),
+      a.items.map((it) => ({ it, libre: this.anticipoLibre(it), yaTiene: this.tieneAnticipo(it) })));
+    if (!v) return null;
+    const sucursal = this.branchLabel((v.it ?? a.items.find((x) => this.anticipoLibre(x) > 0.005))?.branch_code);
+    return v.autorizado
+      ? { texto: `Tiene ${this.money(v.libre)} de anticipo sin aplicar en ${sucursal}; para aplicarlo, quítale la autorización`, libre: v.libre, sucursal, it: null }
+      : { texto: `Tiene ${this.money(v.libre)} de anticipo sin aplicar en ${sucursal}`, libre: v.libre, sucursal, it: v.it };
   }
   /** `[PGP.120]` Por qué no se propuso aplicar el anticipo (alcanza para toda la factura). */
   readonly descAnticipoAviso = signal<string | null>(null);

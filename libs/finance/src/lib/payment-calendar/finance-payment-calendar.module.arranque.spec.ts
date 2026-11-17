@@ -6,6 +6,7 @@ import { PagosVencidosService } from './pagos-vencidos.service';
 import { PagosPorElBancoService } from './pagos-por-el-banco.service';
 import { KeplerPagoSinkAdapter } from './kepler-pago/kepler-pago-sink.adapter';
 import { CANAL_BANCOS } from '../bank/aviso-bancos';
+import { CANAL_COMPROBANTES } from './pago-por-comprobante';
 import { PaymentCalendarService } from './payment-calendar.service';
 
 /**
@@ -152,10 +153,10 @@ describe('[PGP.121] el oyente del banco cierra el grafo del módulo', () => {
     con({ WORKER: 'true', DISABLE_PAGOS_POR_EL_BANCO: 'true' }, (escuchar) => expect(escuchar).not.toHaveBeenCalled());
   });
 
-  it('en el worker se suscribe UNA vez, al canal del banco', () => {
+  // `[PGP.130]` El comprobante dispara el pago: el worker escucha también `pagos_comprobantes`. Una vez a cada canal.
+  it('en el worker se suscribe UNA vez a cada canal: el del banco y el de los comprobantes', () => {
     con({ WORKER: 'true', DISABLE_PAGOS_POR_EL_BANCO: undefined }, (escuchar) => {
-      expect(escuchar).toHaveBeenCalledTimes(1);
-      expect(escuchar.mock.calls[0][0]).toBe(CANAL_BANCOS);
+      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_BANCOS, CANAL_COMPROBANTES]);
     });
   });
 });
