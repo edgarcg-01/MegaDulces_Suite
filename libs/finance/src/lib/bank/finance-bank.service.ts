@@ -1229,7 +1229,7 @@ export class FinanceBankService {
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
-      reconAmt, cobertura, ultimoImport } = await this.tk.run(async (trx) => {
+      reconAmt, cobertura, ultimoImport, sinEvaluar } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1324,10 +1324,20 @@ export class FinanceBankService {
       // Medido en prod: los 9 periodos se re-importaron DESPUÉS de su último match.
       const ultimoImport: any = await trx('finance.bank_statements')
         .where('period', period).select(trx.raw('MAX(imported_at) AS ultimo')).first();
+      // [CB.79] Movimientos que el motor todavía no evaluó (siguen en `pending`): el mismo universo que el motor, sin
+      // factoraje ni renglones en cero. Reemplaza a «último import > último pareo» para decir si la conciliación está
+      // al día: desde CB.74 una corrida que no encuentra nada nuevo ya no crea pareos, y la fecha dejaba de moverse.
+      const sinEv = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('st.period', period).whereNull('bm.deleted_at').where('bm.recon_status', 'pending')
+        .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'factoraje'`)
+        .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
+        .count({ n: '*' }).first() as { n: string | number } | undefined;
 
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
         matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
-        reconAmt, cobertura, ultimoImport };
+        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n) };
     });
 
     const bal = await this.balances(period);
@@ -1490,7 +1500,10 @@ export class FinanceBankService {
       pct: reconBankAmount ? Math.round((reconBankMatched / reconBankAmount) * 100) : 0,
       last_match_at: ultimoMatch,
       last_import_at: ultimoImportAt,
-      stale: !!(ultimoMatch && ultimoImportAt && new Date(ultimoImportAt) > new Date(ultimoMatch)),
+      // [CB.79] Al día = el motor ya evaluó todo lo que hay. Lo que falta lo concilia solo el aviso (también los
+      // periodos viejos con movimientos sin evaluar), así que esto se resuelve sin que nadie apriete nada.
+      stale: sinEvaluar > 0,
+      sin_evaluar: sinEvaluar,
     };
     // [CB.71] Aquí vivían dos avisos `aviso_conciliar` («faltan las pólizas del 102» / «corre Conciliar»), atados a
     // `recon.accounts` (vacío desde CB.13): nunca se mostraron. Hablaban de la evidencia `kepler_pnl`, que tampoco existía.

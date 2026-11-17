@@ -1,19 +1,19 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Output, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
-import { Reconciliation, MatchResult, Differences, ReconEstado } from '../../bank.service';
+import { Reconciliation, Differences, ReconEstado } from '../../bank.service';
 import { CajaIngresoRefComponent } from './caja-ingreso-ref.component';
-import { amtPct, cuadra, money, dmy, groupLabel } from './bancos-shared';
+import { cuadra, money, dmy, groupLabel } from './bancos-shared';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 
 /**
  * CB.14 — Vista CONCILIACIÓN (matching por-transacción + caja vs 102 + diferencias).
- * Presentacional: recibe recon/match/differences + flags de carga; emite runMatch y
- * syncFindings para que el shell ejecute las acciones.
+ * Presentacional: recibe recon/differences y el estado guardado de la conciliación. Desde [CB.79] no dispara
+ * nada: la conciliación corre sola por aviso.
  */
 @Component({
   selector: 'bancos-conciliacion',
@@ -85,30 +85,19 @@ import { BANCOS_STYLES } from './bancos.styles';
       <div class="card-premium card-flat fb-match">
         <div class="fb-match-head">
           <h3 class="fb-card-title">Conciliación por transacción <span class="muted">— retiros del banco ↔ pagos del 102 en Kepler</span></h3>
-          <!-- [CB.77] Los dos escriben (FINANCE_BANK_GESTIONAR): quien sólo ve no los recibe para toparse con un 403. -->
-          @if (puedeGestionar()) {
-          <div class="fb-match-actions">
-            <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncing()" (click)="syncFindings.emit()" title="Empuja las diferencias a la bandeja de /finanzas/hallazgos"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Enviar a Hallazgos</span></button>
-            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="matching()" (click)="runMatch.emit()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Conciliar</span></button>
-          </div>
-          }
+          <!-- [CB.79] Sin «Conciliar» ni «Enviar a Hallazgos»: el motor corre solo al llegar un movimiento del banco o un
+               documento de Kepler (CB.53/CB.79) y al terminar empuja los hallazgos. 15 usos en 60 días, 12 de superadmin. -->
+          <span class="muted fb-match-auto"><i class="pi pi-sync" aria-hidden="true"></i> se concilia sola al llegar el dato</span>
         </div>
-        @if (matchResult(); as mr) {
-          <div class="fb-match-res">
-            <span class="fb-match-rate mono" [class.ok]="pct(mr) >= 70" [class.warn]="pct(mr) < 70">{{ pct(mr) }}%</span>
-            <span class="muted"><b>del monto conciliado</b> — {{ mr.matched_amount | currency:'MXN':'symbol-narrow':'1.2-2' }} de {{ mr.bank_amount | currency:'MXN':'symbol-narrow':'1.2-2' }} · {{ mr.matched | number }} de {{ mr.bank_movements | number }} retiros ({{ mr.match_rate }}% por conteo)</span>
-            <span class="muted">· {{ mr.unmatched_bank | number }} sin conciliar en banco · {{ mr.unmatched_kepler | number }} pagos Kepler sin conciliar</span>
-          </div>
-          <p class="fb-plain">{{ matchRead(mr) }}</p>
-        } @else if (reconEstado(); as re) {
+        @if (reconEstado(); as re) {
           <!-- [CB.77] El estado GUARDADO: decía «Ejecuta la conciliación» con el periodo ya conciliado (la pestaña sí lo leía). -->
           <div class="fb-match-res">
             <span class="fb-match-rate mono" [class.ok]="re.pct >= 70" [class.warn]="re.pct < 70">{{ re.pct }}%</span>
-            <span class="muted"><b>del monto conciliado</b> — {{ re.matched_amount | currency:'MXN':'symbol-narrow':'1.2-2' }} de {{ re.bank_amount | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (re.last_match_at) { · última conciliación {{ re.last_match_at | date:'dd/MM HH:mm' }} }</span>
+            <span class="muted"><b>del monto conciliado</b> — {{ re.matched_amount | currency:'MXN':'symbol-narrow':'1.2-2' }} de {{ re.bank_amount | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (re.last_match_at) { · último pareo nuevo {{ re.last_match_at | date:'dd/MM HH:mm' }} }</span>
           </div>
-          @if (re.stale) { <p class="fb-recon-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se cargaron movimientos después de esa conciliación: lo nuevo todavía no está conciliado.</p> }
+          @if (re.stale) { <p class="fb-recon-note warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ re.sin_evaluar === 1 ? '1 movimiento todavía no lo revisa' : (re.sin_evaluar ?? 'Hay') + ' movimientos todavía no los revisa' }} el motor: los concilia solo en alrededor de un minuto.</p> }
         } @else if (reconEstado() === null) {
-          <p class="fb-recon-note muted">Este periodo todavía no se ha conciliado.@if (puedeGestionar()) { «Conciliar» vincula cada retiro con su pago en Kepler (monto + fecha). }</p>
+          <p class="fb-recon-note muted">Este periodo todavía no se ha conciliado: se concilia solo cuando le llegan movimientos del banco o documentos de Kepler.</p>
         } @else { <p class="fb-recon-note muted">Sin el estado de la conciliación: no se pudo leer (ve el Cierre).</p> }
       </div>
 
@@ -172,7 +161,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 
     .fb-match { margin-bottom: var(--sp-3); }
     .fb-match-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
-    .fb-match-actions { display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+    .fb-match-auto { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); }
     .fb-match-res { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin-top: var(--sp-2); font-size: var(--fs-sm); }
     .fb-match-rate { font-size: var(--fs-lg); font-weight: 700; }
     .fb-match-rate.warn { color: var(--warn-fg); } .fb-match-rate.ok { color: var(--ok-fg); }
@@ -234,20 +223,12 @@ export class BancosConciliacionComponent {
   }
 
   readonly reconciliation = input.required<Reconciliation | null>();
-  readonly matchResult = input.required<MatchResult | null>();
   readonly differences = input.required<Differences | null>();
-  readonly matching = input<boolean>(false);
-  readonly syncing = input<boolean>(false);
   readonly period = input<string>('');
   /** [CB.77] El estado guardado del periodo (`diagnostico.recon_estado`): `null` = nunca se concilió; `undefined` = no se pudo leer. */
   readonly reconEstado = input<ReconEstado | null | undefined>(undefined);
-  /** [CB.77] FINANCE_BANK_GESTIONAR: Conciliar y Enviar a Hallazgos escriben. */
-  readonly puedeGestionar = input<boolean>(false);
-  @Output() runMatch = new EventEmitter<void>();
-  @Output() syncFindings = new EventEmitter<void>();
 
   cuadra = cuadra;
-  pct(mr: { matched_amount: number; bank_amount: number }): number { return amtPct(mr); }
   dm(v: any): string { return dmy(v); }
 
   /** Detalle del renglón clicado (dialog). El doc real vive en Kepler. */
@@ -281,11 +262,6 @@ export class BancosConciliacionComponent {
     });
   }
 
-  matchRead(mr: MatchResult): string {
-    if (mr.unmatched_bank === 0) return `Todos los retiros del banco ya tienen su pago en Kepler (100%).`;
-    const ap = amtPct(mr);
-    return `Ya concilió el ${ap}% del dinero (${money(mr.matched_amount)} de ${money(mr.bank_amount)}). Los ${mr.unmatched_bank} retiros sin conciliar son en su mayoría comisiones y nómina chicas que Kepler agrupa (no concilian 1 a 1) — por eso el % por conteo (${mr.match_rate}%) se ve más bajo que el % por monto.`;
-  }
   cajaRead(rc: Reconciliation): string {
     const dOut = Math.abs(rc.cash.delta_out);
     const salida = cuadra(rc.cash.delta_out)

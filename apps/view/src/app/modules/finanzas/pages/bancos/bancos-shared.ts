@@ -110,7 +110,7 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
     case 'conciliacion': {
       if (d.conciliacionMedida === false) return null;
       const p = d.conciliadoPct;
-      if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'se volvió a importar el libro después de la última conciliación: córrela de nuevo', aviso: true };
+      if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'hay movimientos que el motor todavía no revisa; los concilia solo', aviso: true };
       return p == null ? { texto: 'sin correr', aria: 'la conciliación no se ha corrido en este periodo', aviso: true }
         : { texto: `${p}%`, aria: `${p}% conciliado por monto`, aviso: p < 80 };
     }

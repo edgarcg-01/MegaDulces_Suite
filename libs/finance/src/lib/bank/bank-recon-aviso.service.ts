@@ -5,7 +5,7 @@ import { CANAL_FUENTE_KEPLER } from '../goods-receipt-proofs/entradas-por-aviso'
 import { CANAL_BANCOS } from './aviso-bancos';
 import { FinanceBankService } from './finance-bank.service';
 import {
-  decidirCorrida, firmaVacia, periodosAEvaluar, textoFirma,
+  decidirCorrida, firmaVacia, periodosAEvaluar, periodosDelAviso, textoFirma,
   type FirmaPeriodo,
 } from './bank-recon-aviso.engine';
 
@@ -74,6 +74,11 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
   /** Firma del último periodo procesado, por periodo. Vacío = todavía no corrió ninguno. */
   private readonly ultimaFirma = new Map<string, string>();
   private pendiente: NodeJS.Timeout | null = null;
+  /**
+   * `[CB.79]` Periodos que nombró un aviso de Bancos y todavía no se miran. Se suman a la ventana en la siguiente
+   * mirada: un periodo viejo que recibe datos se concilia solo, sin el botón «Conciliar».
+   */
+  private readonly avisados = new Set<string>();
 
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
@@ -121,7 +126,14 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       // Kepler (los documentos) y Bancos (la descarga y el libro): cualquiera de los dos lados mueve la firma.
-      this.dejarDeEscuchar = [CANAL_FUENTE_KEPLER, CANAL_BANCOS].map((canal) => this.listen.escuchar(canal, () => { this.programar(); }));
+      // [CB.79] El aviso de Bancos dice QUÉ periodos cambiaron: se anotan para mirarlos aunque estén fuera de la ventana.
+      this.dejarDeEscuchar = [
+        this.listen.escuchar(CANAL_FUENTE_KEPLER, () => { this.programar(); }),
+        this.listen.escuchar(CANAL_BANCOS, (payload) => {
+          for (const p of periodosDelAviso(payload)) this.avisados.add(p);
+          this.programar();
+        }),
+      ];
       this.logger.log(
         `escuchando ${CANAL_FUENTE_KEPLER} y ${CANAL_BANCOS} (sin reloj) · ${this.habilitado ? `ACTIVO, mira a los ${this.quietMs / 1000}s del primer aviso` : 'APAGADO: no va a conciliar'}`,
       );
@@ -164,12 +176,48 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
   /** Expuesto para el candado y para un disparo a mano; no hay endpoint nuevo. */
   async correr(hoyMxOverride?: string): Promise<void> {
     const hoy = hoyMxOverride ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
-    for (const period of periodosAEvaluar(hoy)) {
-      await this.correrPeriodo(period);
+    // [CB.79] La ventana, más lo que nombraron los avisos de Bancos desde la última mirada (se toman y se vacían),
+    // más los periodos con movimientos que el motor todavía no evaluó (el atraso que dejaba el botón «Conciliar»).
+    const avisados = Array.from(this.avisados);
+    this.avisados.clear();
+    const atrasados = this.habilitado ? await this.periodosConPendientes() : [];
+    const periodos = Array.from(new Set(periodosAEvaluar(hoy).concat(avisados, atrasados)));
+    for (const period of periodos) {
+      const motivo = await this.correrPeriodo(period);
+      // Un avisado que no se miró porque había otra corrida en curso no se pierde: vuelve a la lista.
+      if (motivo === 'ya_corriendo' && avisados.includes(period)) this.avisados.add(period);
     }
   }
 
-  private async correrPeriodo(period: string): Promise<void> {
+  /**
+   * `[CB.79]` Periodos de los últimos 12 meses con movimientos que el motor nunca evaluó: siguen en `pending` (el motor
+   * deja todo lo que evalúa en `matched` o `unmatched`). Mismo universo que el motor: sin factoraje y sin renglones en
+   * cero. Medido en prod el 2026-11-17: mayo y junio enteros (11,022, nunca se conciliaron) y 105 de agosto; octubre y
+   * noviembre en 0, que es el control (el aviso los acababa de revisar). A lo más 6 por mirada, del más nuevo al más viejo.
+   */
+  private async periodosConPendientes(): Promise<string[]> {
+    try {
+      const filas = await this.knex.transaction(async (trx) => {
+        await trx.raw("select set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+          .where('bm.tenant_id', MEGA).whereNull('bm.deleted_at').where('bm.recon_status', 'pending')
+          .whereRaw(`COALESCE(mc.group_key,'sin_clasificar') <> 'factoraje'`)
+          .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
+          .whereRaw("st.period >= to_char(current_date - interval '12 months', 'YYYY-MM')")
+          .distinct('st.period').orderBy('st.period', 'desc').limit(6) as Promise<{ period: string }[]>;
+      });
+      return filas.map((f) => f.period);
+    } catch (e: unknown) {
+      // Si no se pudo medir el atraso, la ventana y los avisos siguen funcionando: se dice y se sigue.
+      this.logger.warn(`no pude leer los periodos con movimientos sin evaluar: ${(e as Error)?.message}`);
+      return [];
+    }
+  }
+
+  /** Devuelve `'corrio'` o el motivo por el que no corrió. */
+  private async correrPeriodo(period: string): Promise<string> {
     const t0 = Date.now();
     const firma = await this.firmaDe(period);
     const decision = decidirCorrida({
@@ -180,7 +228,7 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
     });
     if (!decision.correr) {
       this.logger.log(`${period}: no corro — ${decision.motivo}: ${decision.detalle}`);
-      return;
+      return decision.motivo;
     }
 
     this.corriendo = true;
@@ -215,6 +263,7 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
         ceroEsOk: 'dato nuevo sin pareja todavía: el lado Kepler se captura días después',
       });
       this.logger.log(`${period}: listo en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return 'corrio';
     } finally {
       this.corriendo = false;
     }

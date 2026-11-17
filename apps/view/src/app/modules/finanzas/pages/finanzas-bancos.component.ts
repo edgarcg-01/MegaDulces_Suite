@@ -21,7 +21,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
@@ -197,10 +197,9 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
         @if (reconError()) {
           <app-load-state [error]="reconError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
-          <bancos-conciliacion [reconciliation]="reconciliation()" [matchResult]="matchResult()"
-            [differences]="differences()" [matching]="matching()" [syncing]="syncing()" [period]="period()"
-            [reconEstado]="reconEstadoVista()" [puedeGestionar]="puedeGestionar()"
-            (runMatch)="runMatch()" (syncFindings)="syncFindings()" />
+          <!-- [CB.79] Sin botones: la conciliación corre sola por aviso (y pone al día los periodos atrasados). -->
+          <bancos-conciliacion [reconciliation]="reconciliation()" [differences]="differences()" [period]="period()"
+            [reconEstado]="reconEstadoVista()" />
         }
       }
 
@@ -404,7 +403,7 @@ export class FinanzasBancosComponent implements OnInit {
       descargas: this.descargas()?.cuentas ?? null, sinClasificar: this.diagnostico()?.sin_clasificar_n,
       descuadradas: this.balances()?.cuentas_descuadradas, conciliadoPct: this.reconciledPct(), conciliacionVieja: this.reconStale(),
       // [CB.77] Sin diagnóstico (cargando o falló) y sin corrida en esta sesión, la pestaña no dice «sin correr».
-      conciliacionMedida: !!this.diagnostico() || !!this.matchResult(),
+      conciliacionMedida: !!this.diagnostico(),
       comisionesListas: com?.medido ? com.resumen.listos : null,
     });
   }
@@ -436,13 +435,10 @@ export class FinanzasBancosComponent implements OnInit {
   readonly reconciliation = signal<Reconciliation | null>(null);
   readonly balances = signal<Balances | null>(null);
   readonly diagnostico = signal<Diagnostico | null>(null);
-  readonly matchResult = signal<MatchResult | null>(null);
   readonly differences = signal<Differences | null>(null);
   /** COMM-P0 — trabajos largos disparados desde ESTA pantalla (job_id → name). */
   private readonly pendingJobs = new Map<string, string>();
   private readonly jobsClient = inject(FinanceJobsClient);
-  readonly matching = signal(false);
-  readonly syncing = signal(false);
   readonly movements = signal<BankMovement[]>([]);
   readonly movTotal = signal(0);
   // CP.2 — comparación vs LIBROS ContPAQi (lazy: se carga al abrir la pestaña).
@@ -541,32 +537,10 @@ export class FinanzasBancosComponent implements OnInit {
     if (!d || !d.movimientos || d.sin_clasificar_n == null) return null;
     return Math.max(0, Math.round(((d.movimientos - d.sin_clasificar_n) / d.movimientos) * 100));
   });
-  // % por MONTO (no por conteo): es el que importa — el dinero grande casa, las
-  // comisiones/nómina chiquitas que Kepler agrupa no, y subvenden el conteo.
-  amtPct(mr: { matched_amount: number; bank_amount: number }): number {
-    return mr?.bank_amount ? Math.round((mr.matched_amount / mr.bank_amount) * 100) : 0;
-  }
-  /**
-   * CB.46 — Primero el resultado de la corrida de esta sesión; si no hubo, el estado
-   * PERSISTIDO que trae `diagnostico`.
-   *
-   * `matchResult` es un signal en memoria que sólo llena el POST /match y que se resetea al
-   * cambiar de periodo, así que al abrir la pantalla el chip decía "sin correr" aunque la DB
-   * tuviera el periodo conciliado (ago-2026: 1,467 movimientos casados en prod) — e invitaba a
-   * re-disparar una escritura que no hacía falta.
-   */
-  readonly reconciledPct = computed(() => {
-    const mr = this.matchResult(); if (mr) return this.amtPct(mr);
-    return this.diagnostico()?.recon_estado?.pct ?? null;
-  });
-  /**
-   * El match guardado quedó ANTES del último import: describe un universo que ya cambió.
-   * Medido en prod: los 9 periodos se re-importaron después de su último match, y los
-   * movimientos nuevos entran como `pending` sin que nadie vuelva a conciliar. Sólo aplica al
-   * dato persistido — lo que se acaba de correr en esta sesión está al día por definición.
-   */
-  readonly reconStale = computed(() =>
-    !this.matchResult() && !!this.diagnostico()?.recon_estado?.stale);
+  /** CB.46 — El % conciliado (por monto) del estado GUARDADO. [CB.79] Ya no hay corrida «de esta sesión»: no hay botón. */
+  readonly reconciledPct = computed(() => this.diagnostico()?.recon_estado?.pct ?? null);
+  /** [CB.79] Hay movimientos que el motor todavía no evaluó (el aviso los concilia solo). */
+  readonly reconStale = computed(() => !!this.diagnostico()?.recon_estado?.stale);
 
   /**
    * §Ing.UI 9 — la vista y el periodo viven en la URL (`?view=cuadre&period=2026-01`).
@@ -687,8 +661,6 @@ export class FinanzasBancosComponent implements OnInit {
 
     switch (ev.name) {
       case 'bank-import': this.uploading.set(false); break;
-      case 'bank-match': this.matching.set(false); break;
-      case 'bank-findings-sync': this.syncing.set(false); break;
       case 'bank-sheet-sync': this.syncingSheet.set(false); break;
     }
 
@@ -706,20 +678,6 @@ export class FinanzasBancosComponent implements OnInit {
       if (delBanco) this.toast.add({ severity: 'info', life: 10000, ...delBanco });
       if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
       this.setPeriod(res.period);
-      return;
-    }
-    if (ev.name === 'bank-match') {
-      const mr = ev.result as MatchResult;
-      this.matchResult.set(mr);
-      this.toast.add({ severity: 'success', summary: `Conciliación ${mr.match_rate}%`, detail: `${mr.matched} de ${mr.bank_movements} retiros conciliados`, life: 3500 });
-      this.loadDifferences();
-      this.refreshDiagnostico();
-      this.reloadMovements();
-      return;
-    }
-    if (ev.name === 'bank-findings-sync') {
-      const r = ev.result as SyncFindingsResult;
-      this.toast.add({ severity: 'success', summary: `${r.pushed} diferencias enviadas`, detail: `${r.inserted} nuevas en /finanzas/hallazgos · ${r.skipped} omitidas`, life: 4000 });
       return;
     }
     if (ev.name === 'bank-sheet-sync') {
@@ -888,7 +846,6 @@ export class FinanzasBancosComponent implements OnInit {
   }
   private loadPeriod(): void {
     this.loading.set(true);
-    this.matchResult.set(null);
     this.differences.set(null);
     this.concError.set(null);
     this.reconError.set(null);
@@ -995,34 +952,6 @@ export class FinanzasBancosComponent implements OnInit {
     };
     reader.onerror = () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo leer el archivo.'); };
     reader.readAsDataURL(file);
-  }
-
-  /** Corre el matching por-transacción del periodo y recarga los movimientos (recon_status). */
-  runMatch(): void {
-    if (!this.period()) return;
-    this.matching.set(true);
-    this.api.runMatch(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (job) => this.track(job),
-      error: () => { this.matching.set(false); this.fail('No se pudo correr la conciliación.'); },
-    });
-  }
-
-  /** CB.7 — Empuja las diferencias del periodo a la bandeja de hallazgos de Maat. */
-  syncFindings(): void {
-    if (!this.period()) return;
-    this.syncing.set(true);
-    this.api.syncFindings(this.period()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (job) => this.track(job),
-      error: () => { this.syncing.set(false); this.fail('No se pudieron enviar las diferencias a Hallazgos.'); },
-    });
-  }
-
-  /** Refresca el diagnóstico + balances del periodo (tras reclasificar / conciliar). */
-  private refreshDiagnostico(): void {
-    const p = this.period();
-    if (!p) return;
-    this.api.diagnostico(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (d) => this.diagnostico.set(d), error: () => {} });
-    this.api.balances(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (b) => this.balances.set(b), error: () => {} });
   }
 
   /** Cambio de filtro emitido por <bancos-movimientos>: setea el signal y recarga. */
