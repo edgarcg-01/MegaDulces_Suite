@@ -12,7 +12,7 @@ function armar() {
   const adj: Subject<unknown>[] = [];
   const c = Object.create(ComprasEntradasComponent.prototype) as ComprasEntradasComponent & Record<string, unknown>;
   Object.assign(c, {
-    detailTarget: signal(null), explains: signal([]), explainsLoading: signal(false), explainsTotal: signal(0), explainsError: signal(false),
+    detailTarget: signal(null), explains: signal([]), explainsLoading: signal(false), explainsTotal: signal(0), explainsOtras: signal([]), explainsError: signal(false),
     destroyRef: { onDestroy: () => () => undefined, destroyed: false },
     compras: { adjustmentsForEntrada: () => { const s = new Subject<unknown>(); adj.push(s); return s; } },
   });

@@ -1282,10 +1282,18 @@ export interface AdjustmentLinesResponse {
   categoria?: string | null;
   nota: string | null;
 }
+/** `[RE.81]` Una nota del mismo proveedor, sucursal y ventana que Kepler ya ligó a OTRA entrada. */
+export interface AdjustmentDeOtraEntrada {
+  doctype: AdjustmentDoctype; sucursal: string; folio: string; adjustment_date: string;
+  entrada_folio: string; monto: number; motivo: string | null;
+  categoria: string | null; grupo: AdjustmentGrupoVista;
+}
 export interface AdjustmentsForEntradaResponse {
   rows: AdjustmentForEntradaRow[];
   total_monto: number;
   explicacion: AdjustmentExplicacion | null;
+  /** `[RE.81]` No son candidatas (tienen dueño): se listan aparte, plegadas. Opcional: API vieja. */
+  de_otras_entradas?: AdjustmentDeOtraEntrada[];
 }
 
 /** RE.10 — reconciliación de los 2 canales de descuento de proveedor (pago c84 vs nota X-D-55). */
