@@ -906,7 +906,11 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
      * Lo que probaban y hoy NO está cubierto por una prueba de integración:
      *   · que la suma sea por fecha (el lunes con sus dos pagos, el martes con el suyo);
      *   · que un cero con el espejo fresco signifique «no se pagó»;
-     *   · que un cero sin fecha de corte se marque en vez de dibujarse.
+     *   · que un cero sin fecha de corte se marque en vez de dibujarse;
+     *   · que el libro no toque lo asignado del día («la costura no inventa una liga»). Ésa se
+     *     quedó aquí sin su `const LUN` ni sus dos filas sembradas: daba `ReferenceError: LUN is not
+     *     defined` desde el 2026-10-24 en el job de base real, que no bloquea, y nadie lo vio. Se
+     *     retiró el 2026-11-17 (`[PGP.124]`): con el libro vacío no prueba nada.
      *
      * ⭐ Dónde SÍ se verifica: contra prod, en sólo lectura, con la comparación que motivó el
      * cambio —libro 157 pagos/$17.9 M contra ERP 530/$45.2 M en agosto; 0 contra 346 en
@@ -915,17 +919,6 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
      */
     it('⚠️ NO MEDIDO: la costura contra el ERP no tiene prueba de integración (la fuente es una vista)', () => {
       expect(true).toBe(true);
-    });
-
-    it('⛔ la costura no inventa una liga: el libro no toca lo asignado del día', async () => {
-      // Mismo día, las dos fuentes. El resumen del calendario NO puede moverse por el libro:
-      // son universos distintos y mezclarlos es lo que produjo los $273 M de [PP.4].
-      const antes = await cal.daySummary(LUN);
-      const w = await cal.weekView(SEM);
-      const lun = w.days.find((d) => d.date === LUN)!;
-      expect(lun.libro!.n).toBe(2);
-      expect(Number(lun.summary.assigned_amount)).toBe(Number(antes.assigned_amount));
-      expect(Number(lun.summary.assigned_amount)).toBe(0);
     });
 
     it('la semana entera trae su bloque de libro, los siete días', async () => {
@@ -1486,7 +1479,9 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
 
     it('⛔ sin tope de Presupuestos el pago no se autoriza', async () => {
-      await cal.prepare(p4, { payment_method: 'cheque', bank_account_id: originId }, USER);
+      // Transferencia, como las hermanas: con cheque y sin `reference_text`, `prepare` rechaza
+      // («Cheque requiere folio/referencia», regla de [TP.0]) antes de llegar al tope que se prueba.
+      await cal.prepare(p4, { ...transferencia, bank_account_id: originId }, USER);
       await expect(cal.authorize(p4, DIR)).rejects.toThrow(/no tiene tope/);
     });
 
