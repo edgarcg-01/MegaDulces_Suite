@@ -1202,5 +1202,28 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
 
     Antes de aplicar la migración dice «tabla no existe», sin color. La prueba del paso 3 lo ejerce contra base real en
     los siete estados (sección L, 55 ✓).
+  - **En producción (2026-11-17).** Edgar aplicó `20261117085622` (lote 1192) y `20261117094325` (lote 1193), desplegó
+    `6a5b77ff6` a las 13:07 y prendió el interruptor a las 13:28. La segunda migración se aplicó en horario hábil (yo
+    había leído la hora en UTC): tardó 2.9 s y no había transacciones viejas abiertas.
+    - **Primera corrida completa** (13:10, 21 s): el worker llenó las cuatro tablas, idénticas a sus vistas y a las
+      `mv_*` (precio 78,768 filas, factor por producto 11,388, factor por almacén 250,536, costo 35,435).
+    - ⚠️ **El hueco del encendido.** Entre esa completa y el encendido pasaron 18 min con el interruptor apagado, y nada
+      anotó: ~330 filas se quedaron atrás (casi todas el conteo de líneas de venta del POS y costos de la sucursal 05).
+      Se forzó otra completa con una marca `'*'` (13:43, 15 s). La lección: el interruptor se prende antes del
+      despliegue, o se fuerza una completa justo después de prenderlo. Si no, el árbitro del día siguiente mezcla ese
+      hueco con lo que el evento haya dejado escapar.
+    - **Árbitro a los 10 min** (13:54, sólo lectura): las cuatro tablas son idénticas a su regla fuera de los SKUs que
+      estaban en la cola (142). Cero fallas de disparadores.
+    - **Ritmo:** una corrida cada 30–40 s mientras llega ingesta, con pausas de ~2.5 min. Cada corrida recalcula de 3 a
+      160 SKUs y casi todas tardan de 1 a 4 s.
+    - ⛔ **Hallazgo: el precio por llave cuesta según la historia de venta del SKU.** Medido en sólo lectura: los 10 SKUs
+      más vendidos cuestan 8.7 s juntos (~0.9 s cada uno), contra 0.25 s de diez SKUs medianos. Los más vendidos entran
+      en casi cada corrida, y la causa probable de las corridas de 21 y 33 s (más que el completo, de 15–21 s) son ellos
+      más la carga de `md` (10 sobre 8 núcleos). En 25 min el evento usó ~136 s de base, ~9 % de un núcleo, y
+      `existencia-aux` sigue corriendo encima (sale en el paso 6): hoy esto SUMA, no reemplaza.
+    - **Antes del paso 5**, dos cambios:
+      1. Juntar más avisos por corrida: la espera de 30 s a ~2 min, así los más vendidos se recalculan cuatro veces menos.
+      2. Que `drenar_existencia` elija el completo cuando la llave cueste más que él. Hoy decide por el número de SKUs
+         (800), que no ve el costo; tiene que decidir por las líneas de venta de esos SKUs.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
