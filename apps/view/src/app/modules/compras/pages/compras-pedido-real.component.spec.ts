@@ -1023,10 +1023,12 @@ describe('[RA-UX.10] la interacción general: lo que decide, a la vista', () => 
   it('⛔ las columnas van en orden de decisión: Σ Ped., $ Pedido y Exist. red pegadas a Producto', () => {
     const f = montar(VACIO);
     const ths = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-wb-scroll table thead th')].map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
-    expect(ths.length).toBe(16);
+    expect(ths.length).toBe(17);
     expect(ths[1]).toMatch(/Σ Ped/);
     expect(ths[2]).toMatch(/\$ Pedido/);
-    expect(ths[3]).toMatch(/Exist/);
+    // [PQ.129] El traspaso, junto a lo que se pide (pedido del PM, 2026-11-17).
+    expect(ths[3]).toBe('Traspaso');
+    expect(ths[4]).toMatch(/Exist/);
   });
 
   it('⛔ en celular se esconden por CLASE y quedan justo las que deciden (la lista por posición escondía Σ Ped. y $ Pedido)', () => {
@@ -1143,7 +1145,8 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
   };
   const fila = () => FILA as never;
   const sucOf = (c: ComprasPedidoRealComponent, code: string) => c.branchBuys(fila()).find((b) => b.code === code)!;
-  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso', 'Pedir ✎', 'Queda', 'Valor'];
+  // [PQ.129] «Traspaso ✎»: el traspaso se cambia en el renglón, junto a «Pedir».
+  const COLS = ['Sucursal', 'Vende 30 d', 'Exist.', 'Hoy dura', 'Traspaso ✎', 'Pedir ✎', 'Queda', 'Valor'];
 
   it('la lista va en el orden en que se decide: la que menos aguanta HOY, arriba', () => {
     const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
@@ -1719,5 +1722,115 @@ describe('[PQ.80] con el peldaño en contra no hay sugerido, pero SÍ se puede p
     const c = montar({ ...VACIO, total: 1, rows: [R] }).componentInstance;
     const b = c.branchBuys(R as never)[0];
     expect(c.branchFlags(b)).toEqual(['sin sugerido · pide a mano']);
+  });
+});
+
+describe('[PQ.129] el traspaso junto a lo que se pide: en la lista y en el renglón de «Pedir»', () => {
+  // Pedido del PM (2026-11-17): «la accesibilidad a los traspasos es muy complicada, necesito verlo en la
+  // interfaz principal junto a lo que pediré». Antes: abrir el producto y pulsar «Traspasos (n)» —otra
+  // tabla, en otra unidad— para ver o cambiar un traspaso.
+  const FILA = {
+    product_id: 'p-tr', sku: '70056', nombre: 'MAZAPAN /16', supplier_id: 's-1', supplier_name: 'LA ROSA',
+    uxc: 16, caja_cost: 100, transito_cajas: '0', fill_rate: null, signals: null,
+    cells: {
+      '01': { vta: 100, exis: 80, ped: 10, cc: 100 },
+      '04': { vta: 3, exis: 1, ped: 1, cc: 100 },
+      '03': { vta: 20, exis: 19, ped: 2, cc: 100 },
+    },
+  };
+  const WB = { ...VACIO, total: 1, rows: [FILA] };
+  const tras = (to: string, from: string, cajas: number) => ({
+    product_id: 'p-tr', sku: '70056', nombre: 'x', to_code: to, from_code: from, uxc: 16, unit_cost: 100, transfer_cajas: cajas, deficit_cajas: cajas,
+  });
+  const TRAS = { rows: [tras('04', '01', 1), tras('03', '01', 1)], total_valor: 200 };
+  const fila = () => FILA as never;
+  const sucOf = (c: ComprasPedidoRealComponent, code: string) => c.branchBuys(fila()).find((b) => b.code === code)!;
+  const limpiar = () => { try { localStorage.clear(); } catch { /* jsdom */ } };
+
+  it('la lista dice cuánto llega por traspaso, en la columna que sigue a «$ Pedido» (sin abrir nada)', () => {
+    limpiar();
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    const ths = [...el.querySelectorAll('.pr-wb-tbl thead th')].map((t) => (t.textContent || '').replace(/\s+/g, ' ').trim());
+    expect(ths[ths.indexOf('$ Pedido') + 1]).toBe('Traspaso');
+    expect(f.componentInstance.trasFilaEstado(fila())).toBe('hay');
+    expect((el.querySelector('.pr-tra-col')?.textContent || '').replace(/\s+/g, ' ').trim()).toBe('+2 cj');
+    expect(f.componentInstance.trasFilaTitle(fila())).toContain('Yurécuaro recibe 1 cj de Padre Hidalgo');
+  });
+
+  it('sin traspaso sugerido, «—»; ⛔ con la lista de traspasos caída, «no medido» y no «—»', () => {
+    limpiar();
+    expect(montar(WB, undefined, 'u1', { transferSuggestion: () => of({ rows: [], total_valor: 0 }) }).componentInstance.trasFilaEstado(fila())).toBe('nada');
+    const caida = montar(WB, undefined, 'u1', { transferSuggestion: () => throwError(() => new Error('500')) });
+    caida.detectChanges();
+    expect(caida.componentInstance.trasFilaEstado(fila())).toBe('sin-medir');
+    expect((caida.nativeElement as HTMLElement).querySelector('.pr-tra-col')?.textContent?.trim()).toBe('no medido');
+  });
+
+  it('se cambia en el renglón, en la unidad de «Pedir»: 8 piezas de una caja de 16 = media caja, y marca el producto', () => {
+    limpiar();
+    const c = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance;
+    const b = sucOf(c, '04');
+    const u = c.trasDe(fila(), '04')!;
+    c.setUnitBranch(fila(), b, 1);                       // «Pedir» de Yurécuaro en piezas
+    expect(c.trasDispOf(fila(), b, u)).toBe(16);         // 1 caja = 16 pz, en la misma unidad
+    c.clearSel();
+    c.setTrasDispOf(fila(), b, u, 8);
+    expect(u.qty).toBe(0.5);                             // vive en CAJAS
+    expect(c.prodTrCajas('p-tr')).toBe(1.5);             // la lista se mueve con lo editado
+    expect(c.isSel(fila())).toBe(true);
+    c.setTrasDispOf(fila(), b, u, 0);
+    expect(u.qty).toBe(0);                               // 0 = no traspasar
+  });
+
+  it('la tabla aparte queda sólo para lo que no cabe en el renglón (sucursal fuera del desglose o dos orígenes)', () => {
+    limpiar();
+    expect(montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) }).componentInstance.trasFueraDeTabla(fila())).toBe(0);
+    const fuera = montar(WB, undefined, 'u1', { transferSuggestion: () => of({ rows: [...TRAS.rows, tras('09', '01', 2)], total_valor: 400 }) }).componentInstance;
+    expect(fuera.trasFueraDeTabla(fila())).toBe(1);
+    const dos = montar(WB, undefined, 'u1', { transferSuggestion: () => of({ rows: [tras('04', '01', 1), tras('04', '03', 1)], total_valor: 200 }) }).componentInstance;
+    expect(dos.trasDe(fila(), '04')).toBeNull();          // dos orígenes: no hay UN número que editar
+    expect(dos.trasFueraDeTabla(fila())).toBe(2);
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of({ rows: [...TRAS.rows, tras('09', '01', 2)], total_valor: 400 }) });
+    f.componentInstance.toggleRow(fila());
+    f.detectChanges();
+    const ligas = [...(f.nativeElement as HTMLElement).querySelectorAll('.pr-dx-pie .pr-zlink')].map((x) => (x.textContent || '').trim());
+    expect(ligas).toContain('Ver 1 traspaso más');
+    expect(ligas.some((t) => t.startsWith('Traspasos ('))).toBe(false);
+  });
+
+  it('un producto que sólo lleva traspaso se puede marcar desde la lista', () => {
+    limpiar();
+    const SIN = { ...FILA, cells: { '01': { vta: 100, exis: 80, ped: 0, cc: 100 }, '04': { vta: 3, exis: 1, ped: 0, cc: 100 }, '03': { vta: 20, exis: 19, ped: 0, cc: 100 } } };
+    const f = montar({ ...VACIO, total: 1, rows: [SIN] }, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+    f.detectChanges();
+    expect(f.componentInstance.sumCajas(SIN as never)).toBe(0);
+    const chk = (f.nativeElement as HTMLElement).querySelector('tr.pr-wb-row input.pr-chk') as HTMLInputElement;
+    expect(chk.disabled).toBe(false);
+  });
+
+  it('⛔ Enter en un traspaso va al traspaso de abajo, y en «Pedir» al «Pedir» de abajo: no se mezclan', () => {
+    limpiar();
+    const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get() { return (this as HTMLElement).parentNode; } });
+    try {
+      const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+      f.componentInstance.toggleRow(fila());
+      f.detectChanges();
+      document.body.appendChild(f.nativeElement);
+      const el = f.nativeElement as HTMLElement;
+      const tr = [...el.querySelectorAll<HTMLInputElement>('input.pr-qty-tr')];
+      const ped = [...el.querySelectorAll<HTMLInputElement>('.pr-dx-tbl input.pr-qty')];
+      expect(tr.length).toBe(2);
+      expect(ped.length).toBe(3);
+      tr[0].focus(); tr[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(document.activeElement).toBe(tr[1]);
+      ped[0].focus(); ped[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(document.activeElement).toBe(ped[1]);
+      f.nativeElement.remove();
+    } finally {
+      if (orig) Object.defineProperty(HTMLElement.prototype, 'offsetParent', orig);
+    }
   });
 });

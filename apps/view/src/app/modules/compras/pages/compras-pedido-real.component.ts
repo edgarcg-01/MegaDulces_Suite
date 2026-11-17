@@ -72,6 +72,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
 
 /** `[RA-PERF.7]` La ausencia, con una sola identidad. Ver `trasRows()`. */
 const SIN_FILAS: URow[] = [];
+/** `[PQ.129]` Una cantidad con un decimal, como la pinta la tabla (`number:'1.0-1'`), para los rótulos. */
+const uno = (n: number | string | null | undefined): string => (Math.round((Number(n) || 0) * 10) / 10).toLocaleString('es-MX');
 /**
  * `[RA-PERF.8]` Lo que se publica cuando el servidor NO mandó frescura (backend viejo, error de
  * red, o el latido del importer todavía sin estrenar): se **declara sin medir**, no se esconde la
@@ -449,6 +451,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   </th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en la unidad de compra de cada producto (la que dice la celda: cj, kg, bto…). Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>a pedir</th>
                   <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
+                  <!-- [PQ.129] El traspaso, JUNTO a lo que se pide (pedido del PM, 2026-11-17: «la accesibilidad a los
+                       traspasos es muy complicada, necesito verlo en la interfaz principal junto a lo que pediré»).
+                       Antes no estaba en la lista: había que abrir el producto y pulsar «Traspasos (n)». -->
+                  <th class="pr-c-m pr-r" title="Lo que este producto RECIBE por traspaso entre sucursales, en cajas (la suma de las sucursales). Sale del sugerido; se cambia al abrir el producto, junto a «Pedir». No es compra: al armar, cada uno genera una requisición de sucursal.">Traspaso</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-c-m pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
                   <th class="pr-c-m pr-r" title="Unidades del artículo según Kepler (1, 2 o 3): cuánto trae la unidad mayor en la base, y el paquete del medio si existe.">Unidad</th>
@@ -467,9 +473,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <ng-template #body let-r>
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" [class.pr-wb-noncom]="esContable(r)" (click)="toggleRow(r)" tabindex="0" (keydown)="onRowKey($event, r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
+                  <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0 && prodTrCajas(r.product_id) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
-                           [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
+                           [title]="(sumCajas(r) > 0 || prodTrCajas(r.product_id) > 0) ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido ni traspaso: no hay nada que requerir'"
                            [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
@@ -482,6 +488,16 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     }
                   </td>
                   <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ pedidoSinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
+                  <!-- [PQ.129] Se mueve al editar el desglose. Sin la lista de traspasos se DECLARA: «…» mientras
+                       llega y «no medido» si no respondió; nunca un «—» que se lee como «no hay traspaso». -->
+                  <td class="pr-c-m pr-r pr-tra-col" [title]="trasFilaTitle(r)">
+                    @switch (trasFilaEstado(r)) {
+                      @case ('hay') { <span class="pr-tra-in">+{{ prodTrCajas(r.product_id) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span></span> }
+                      @case ('cargando') { <span class="pr-muted">…</span> }
+                      @case ('sin-medir') { <span class="pr-muted">no medido</span> }
+                      @default { <span class="pr-muted">—</span> }
+                    }
+                  </td>
                   <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
                        Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
                        porque un total mas chico se lee como "hay menos inventario". -->
@@ -625,7 +641,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal ÷ su MÁXIMO (política de reorden), en CAJAS. Clic en la cifra para la venta por mes.">Vende 30 d</th>
                                       <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
                                       <th class="pr-r" title="Cuántos días aguanta HOY lo que hay: existencia ÷ (venta 30 d ÷ 30.4). Es lo que decide: rojo menos de 15, ámbar menos de 30. Ordena la lista.">Hoy dura</th>
-                                      <th class="pr-r" title="Traspasos sugeridos para este producto: lo que LE LLEGA (desde dónde) o lo que MANDA a otras sucursales, en CAJAS. Se editan en «Traspasos».">Traspaso</th>
+                                      <th class="pr-r" title="Lo que LE LLEGA por traspaso a la sucursal (se cambia aquí, en la misma unidad que «Pedir», y dice desde dónde) o lo que MANDA a otras. Entra en «Queda». No es compra: al armar genera una requisición de sucursal. Teclado: ↑ ↓ o Enter pasan al traspaso anterior/siguiente.">Traspaso ✎</th>
                                       <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia), sólo si la sucursal está en o bajo su punto de reorden; arriba del reorden arranca en 0. NO resta lo que viene en camino ni lo que llega por traspaso: para restarlo, «descontar» arriba. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente · ← → restan o suman uno · escribe para reemplazar.">Pedir ✎</th>
                                       @if (verDetalle(r.product_id)) { <th class="pr-r" title="En qué unidad estás capturando ESTE renglón.">Unidad</th> }
                                       <th class="pr-r" title="Cuántos días queda con lo que pidas y el traspaso: (existencia + pedido + lo que llega − lo que manda) ÷ (venta 30 d ÷ 30.4).">Queda</th>
@@ -666,11 +682,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                 </span>
                                               } @else { <span class="pr-muted" title="Sin venta en 30 días: no hay cuánto aguanta que medir.">—</span> }
                                             </td>
+                                            <!-- [PQ.129] El traspaso se cambia AQUÍ, en la unidad del renglón (la misma de «Pedir»):
+                                                 antes había que cambiar a la tabla «Traspasos (n)» y volver. Con dos orígenes para la
+                                                 misma sucursal no hay un solo número que editar: se lee aquí y se cambia en la tabla aparte. -->
                                             <td class="pr-r pr-dx-c-tra">
+                                              @if (trasDe(r, b.code); as u) {
+                                                <span class="pr-step pr-tra-ed">
+                                                  <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty-tr pr-qty-sm"
+                                                         aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                         [ngModel]="trasDispOf(r, b, u)" (ngModelChange)="setTrasDispOf(r, b, u, $event)"
+                                                         (keydown)="onQtyKey($event)" [title]="trasCeldaTitle(r, b, u)"
+                                                         [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(b.code) + ' desde ' + sucNom(u.from_code) + ' en ' + unitLabelBranch(r, b)" />
+                                                  <span class="pr-dx-u">{{ unitLabelBranch(r, b) }} de {{ sucNom(u.from_code) }}</span>
+                                                </span>
+                                              }
                                               @if (trasSuc(r, b.code); as t) {
-                                                @if (t.entra > 0) { <span class="pr-tra-in" [title]="'Le llegan ' + (t.entra | number:'1.0-1') + ' cajas por traspaso desde ' + t.de">+{{ t.entra | number:'1.0-1' }} de {{ t.de }}</span> }
+                                                @if (t.entra > 0 && !trasDe(r, b.code)) { <span class="pr-tra-in" [title]="'Le llegan ' + (t.entra | number:'1.0-1') + ' cajas por traspaso desde ' + t.de">+{{ t.entra | number:'1.0-1' }} de {{ t.de }}</span> }
                                                 @if (t.sale > 0) { <span class="pr-tra-out" [title]="'Manda ' + (t.sale | number:'1.0-1') + ' cajas a ' + t.a">manda {{ t.sale | number:'1.0-1' }}</span> }
-                                              } @else { <span class="pr-muted">—</span> }
+                                              } @else if (!trasDe(r, b.code)) { <span class="pr-muted">—</span> }
                                             </td>
                                           }
                                           <td class="pr-r pr-dx-c-ped">
@@ -835,8 +864,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         title="Muestra la unidad y la entrega de cada sucursal, para elegirlas una por una">{{ verDetalle(r.product_id) ? 'Ocultar por sucursal' : 'Por sucursal' }}</button>
                               }
                               @if (tabOf(r.product_id) === 'buy') {
-                                @if (trasRows(r.product_id).length) {
-                                  <button type="button" class="pr-zlink" (click)="setTab(r.product_id, 'tr')">Traspasos ({{ trasRows(r.product_id).length }})</button>
+                                <!-- [PQ.129] La tabla aparte queda SÓLO para lo que no se puede cambiar en la de arriba
+                                     (sucursal fuera del desglose, sin calcular o con dos orígenes): todo traspaso se alcanza. -->
+                                @if (trasFueraDeTabla(r); as n) {
+                                  <button type="button" class="pr-zlink" (click)="setTab(r.product_id, 'tr')"
+                                          title="Traspasos de este producto que no se pueden cambiar en la tabla de arriba: la sucursal no está en el desglose, no se pudo calcular o le llega de dos lugares.">Ver {{ n === 1 ? '1 traspaso más' : n + ' traspasos más' }}</button>
                                 }
                               } @else {
                                 <button type="button" class="pr-zlink" (click)="setTab(r.product_id, 'buy')">← Volver al pedido</button>
@@ -1841,10 +1873,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-over-val { color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-row-over td { color: var(--text-muted); }
     /* input de cantidad — estilo propio (ya no depende de pInputText; ver primeng#12522). */
-    .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
+    .pr-qty, .pr-qty-tr { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
       color: var(--text-main); font-size: var(--fs-body); font-family: inherit; }
-    .pr-qty:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
+    .pr-qty:focus, .pr-qty-tr:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
     /* El spinner nativo se retira para TODA la suite desde libs/ui-web/src/number-input.css
        (D.5), así que la regla que vivía acá se fue con él. Las flechas del TECLADO siguen siendo
        del input, no del spinner — y en esta pantalla onQtyKey las reasigna a moverse entre
@@ -2553,7 +2585,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    *  · Máx · Σ Ped. · Σ Piezas · $ Pedido · Valor venta · Valor exist.
    *  ⚠️ Se cuenta a mano y hay que moverlo al agregar una columna: con el número corto, la fila
    *  del acordeón y el vacío dejan de abarcar la tabla y se ve un corte. */
-  readonly wbColCount = 16;
+  readonly wbColCount = 17;   // [PQ.129] +«Traspaso»
 
 
   // ── RA-PRO.47 — DESGLOSE POR SUCURSAL (el acordeón) ──────────────────
@@ -4160,6 +4192,65 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   prodTrCajas(pid: string): number { return this.trasRows(pid).reduce((s, u) => s + (Number(u.qty) || 0), 0); }
 
+  // ── [PQ.129] EL TRASPASO JUNTO A LO QUE SE PIDE ─────────────────────────────────────────────
+  // Pedido del PM (2026-11-17): «la accesibilidad a los traspasos es muy complicada, necesito verlo en
+  // la interfaz principal junto a lo que pediré». Antes, para ver un traspaso había que abrir el
+  // producto; para cambiarlo, además, pulsar «Traspasos (n)» —otra tabla, en otra unidad— y volver.
+  // Ahora: la lista dice cuánto llega por traspaso al lado de «$ Pedido» (0 clics) y el desglose lo
+  // cambia en el mismo renglón que «Pedir», en la misma unidad (1 clic: abrir el producto).
+
+  /** Productos de la página cuya lista de traspasos va en camino, y los que no respondió. */
+  private readonly trasPend = signal<ReadonlySet<string>>(new Set());
+  private readonly trasFallo = signal<ReadonlySet<string>>(new Set());
+
+  /** Qué dice la columna «Traspaso» de la lista. ⛔ «nada» sólo con la lista medida: sin ella, «—» mentiría. */
+  trasFilaEstado(r: WorkbookRow): 'hay' | 'nada' | 'cargando' | 'sin-medir' {
+    const pid = r.product_id;
+    if (this.trasFallo().has(pid)) return 'sin-medir';
+    if (!this.detailReady() || this.trasPend().has(pid)) return 'cargando';
+    if (this.trTotal() === null) return 'sin-medir';   // la lista de traspasos no respondió al cargar
+    return this.prodTrCajas(pid) > 0 ? 'hay' : 'nada';
+  }
+  trasFilaTitle(r: WorkbookRow): string {
+    switch (this.trasFilaEstado(r)) {
+      case 'cargando': return 'Leyendo los traspasos de este producto…';
+      case 'sin-medir': return 'La lista de traspasos no respondió: no se sabe si este producto tiene traspaso. Vuelve a cargar la página.';
+      case 'nada': return 'Sin traspaso sugerido para este producto.';
+    }
+    const cj = this.etOf(r).mayor;
+    const partes = this.trasRows(r.product_id).filter((u) => (Number(u.qty) || 0) > 0)
+      .map((u) => `${this.sucNom(u.warehouse_code)} recibe ${uno(u.qty)} ${cj} de ${this.sucNom(u.from_code)}`);
+    return `${partes.join(' · ')} · ${this.money(this.prodTr(r.product_id))}. Abre el producto para cambiarlo, junto a «Pedir».`;
+  }
+  /** El traspaso que le llega a esa sucursal, si viene de UN solo origen: ése se cambia en el renglón. */
+  trasDe(r: WorkbookRow, code: string): URow | null {
+    const filas = this.trasRows(r.product_id).filter((u) => u.warehouse_code === code && !!u.from_code);
+    return filas.length === 1 ? filas[0] : null;
+  }
+  /** El traspaso en la unidad del renglón (la de «Pedir»); `u.qty` vive en CAJAS. */
+  trasDispOf(r: WorkbookRow, b: BranchBuy, u: URow): number { return (Number(u.qty) || 0) * this.bFactor(r, b); }
+  setTrasDispOf(r: WorkbookRow, b: BranchBuy, u: URow, v: number | string): void {
+    u.qty = Math.max(0, Number(v) || 0) / (this.bFactor(r, b) || 1);
+    // `[RA-UX.3]` Igual que «Pedir»: escribir un traspaso marca el producto para el armado.
+    if (u.qty > 0) this.marcarAlEditar(r);
+    this.onQtyEdit();
+  }
+  trasCeldaTitle(r: WorkbookRow, b: BranchBuy, u: URow): string {
+    const cajas = Number(u.qty) || 0;
+    return `Le llegan ${uno(cajas)} ${this.etOf(r).mayor} desde ${this.sucNom(u.from_code)} (${this.money(cajas * u.unit_cost)}). `
+      + `Se cambia en ${this.unitLabelBranch(r, b)}, la misma unidad que «Pedir». 0 = no traspasar.`;
+  }
+  /**
+   * Traspasos que NO se pueden cambiar en el renglón de su sucursal: la sucursal no está en el desglose,
+   * no se pudo calcular (peldaño en contra) o le llega de dos orígenes. Para ésos queda la tabla aparte:
+   * todo traspaso se alcanza.
+   */
+  trasFueraDeTabla(r: WorkbookRow): number {
+    const enRenglon = new Set(this.filasDesglose(r).filter((b) => !b.rung).map((b) => b.code));
+    return this.trasRows(r.product_id)
+      .filter((u) => !(enRenglon.has(u.warehouse_code) && this.trasDe(r, u.warehouse_code) === u)).length;
+  }
+
   /** Cuántos días aguanta HOY lo que hay (sin pedido ni traspaso): lo que DECIDE y ordena la lista. */
   diasHoyDe(b: BranchBuy): number | null { return this.diasHoy(b); }
   durCls(d: number): string { return d < 15 ? 'pr-dur-bad' : d < 30 ? 'pr-dur-warn' : 'pr-dur-ok'; }
@@ -4811,6 +4902,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (reloadEnrichment) {
       this.detailReady.set(false);
       this.trTotal.set(undefined); this.ovTotal.set(undefined);
+      this.trasPend.set(new Set()); this.trasFallo.set(new Set());
       // `[RA-BORR.1]` ⛔ **ACÁ SE BORRABA EL PEDIDO, Y ÉSE ERA EL ACCIDENTE.**
       //
       // Vivían un `buyQty.set({})` + `buyUnit` + `buyDeliver` + `resetSel()` + `dirty.set(false)`,
@@ -4856,8 +4948,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (!reloadEnrichment) {
           const faltan = [...new Set(r.rows.map((x) => x.product_id))].filter((p) => !this.enriquecidos.has(p));
           if (faltan.length) {
+            // `[PQ.129]` Mientras viaja, la columna «Traspaso» dice «…», no «—» (que se lee «no hay traspaso»).
+            this.trasPend.update((s) => new Set([...s, ...faltan]));
             this.fetchConsolidated(true, faltan).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
-              if (gen !== this.reqGen || !res.buy || !res.tr || !res.ov) return;
+              if (gen !== this.reqGen) return;
+              this.trasPend.update((s) => { const n = new Set(s); faltan.forEach((p) => n.delete(p)); return n; });
+              if (!res.buy || !res.tr || !res.ov) { this.trasFallo.update((s) => new Set([...s, ...faltan])); return; }
               this.agregarEnriquecimiento(res.buy.rows, res.tr.rows, res.ov.rows);
               faltan.forEach((p) => this.enriquecidos.add(p));
             });
@@ -5181,7 +5277,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!up && !down && !enter) return;
 
     const fields = Array.from(
-      document.querySelectorAll<HTMLInputElement>('.pr-qty:not([disabled]):not([readonly])'),
+      // [PQ.129] Cada columna es su propia cadena: Enter en «Pedir» va al «Pedir» de abajo, y en un traspaso,
+      // al traspaso de abajo. Mezclarlas metía un traspaso en medio de la captura del pedido.
+      document.querySelectorAll<HTMLInputElement>((el.classList.contains('pr-qty-tr') ? '.pr-qty-tr' : '.pr-qty') + ':not([disabled]):not([readonly])'),
     ).filter((n) => n.offsetParent !== null);       // sólo los visibles (hay tabs colapsadas)
     const i = fields.indexOf(el);
     if (i < 0) return;
