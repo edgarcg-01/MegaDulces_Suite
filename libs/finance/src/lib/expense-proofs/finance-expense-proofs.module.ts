@@ -16,6 +16,8 @@ import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.servic
 import { SolicitudGastoController } from './solicitud-kepler/solicitud-gasto.controller';
 import { FacturasSatService } from './solicitud-kepler/facturas-sat.service';
 import { FacturasSatController } from './solicitud-kepler/facturas-sat.controller';
+import { KeplerGastoSinkAdapter } from './comprobacion-kepler/kepler-gasto-sink.adapter';
+import { ComprobacionGastoService } from './comprobacion-kepler/comprobacion-gasto.service';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -40,8 +42,10 @@ import { FacturasSatController } from './solicitud-kepler/facturas-sat.controlle
   // `[PGP.79]` KeplerAutorizacionGastoAdapter: firmar autoriza la solicitud en Kepler (apagado por default).
   // `[PGP.122]` KeplerSolicitudGastoSinkAdapter + SolicitudGastoService: firmar ESCRIBE en Kepler la solicitud
   // nacida en la Suite (apagado por default: bandera, plantilla por servidor, interruptor y GRANT).
+  // `[PGP.123]` KeplerGastoSinkAdapter + ComprobacionGastoService: validar el vale COMPRUEBA su gasto en Kepler (X-A-10
+  // con su póliza; apagado por default: bandera, DG7, interruptor y GRANT).
   providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
-    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService],
+    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService, KeplerGastoSinkAdapter, ComprobacionGastoService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}

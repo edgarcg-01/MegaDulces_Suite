@@ -26,8 +26,9 @@ SELECT bm.id::text AS id, bm.bank_account_id::text AS cuenta_id, to_char(bm.move
    AND bm.movement_date BETWEEN ?::date - 3 AND ?::date`;
 
 /**
- * Los pagos probados por el banco que nadie ligó a Kepler, en el ORDEN en que se intentan escribir: primero los que
- * nunca se intentaron y, dentro de cada grupo, los más nuevos. Parámetros: `[tenant, desde, tope]`.
+ * Los pagos probados por el banco —o, desde `[PGP.130]`, por su comprobante— que nadie ligó a Kepler, en el ORDEN en
+ * que se intentan escribir: primero los que nunca se intentaron y, dentro de cada grupo, los más nuevos (la fecha del
+ * banco o, si sólo hay comprobante, el día en que quedó pagado). Parámetros: `[tenant, desde, tope]`.
  *
  * ⛔ Por fecha ascendente había HAMBRE: un rechazo que no cambia (Tesorería ya lo capturó, acreedor que no es de
  * compra) se suelta y vuelve a la fila, y los más viejos ocupaban los `tope` lugares de cada pasada. Medido en la
@@ -38,12 +39,13 @@ export const SQL_PROBADOS_SIN_LIGAR = `
 SELECT a.id::text AS id
   FROM finance.payment_allocations a
  WHERE a.tenant_id = ? AND a.status = 'executed'
-   AND a.paid_bank_movement_id IS NOT NULL AND a.kepler_payment_folio IS NULL AND a.kepler_payment_linked_by IS NULL
-   AND a.paid_bank_date >= ?::date
+   AND (a.paid_bank_movement_id IS NOT NULL OR a.paid_proof_id IS NOT NULL)
+   AND a.kepler_payment_folio IS NULL AND a.kepler_payment_linked_by IS NULL
+   AND coalesce(a.paid_bank_date, (a.executed_at AT TIME ZONE 'America/Mexico_City')::date) >= ?::date
  ORDER BY EXISTS (SELECT 1 FROM finance.payment_allocation_history h
                    WHERE h.tenant_id = a.tenant_id AND h.allocation_id = a.id
                      AND h.event IN ('kepler_no_escrito', 'kepler_incierto')),
-          a.paid_bank_date DESC, a.id
+          coalesce(a.paid_bank_date, (a.executed_at AT TIME ZONE 'America/Mexico_City')::date) DESC, a.id
  LIMIT ?`;
 
 /** Las salidas que ya son la prueba de un pago vigente. Parámetros: `[tenant]`. */

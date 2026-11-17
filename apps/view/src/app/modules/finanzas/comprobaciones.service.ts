@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
-import type { AutorizacionKepler, EtapaEjercicio, EstadoKeplerDeLaSolicitud, KeplerDelVale, ValeAsignado } from '@megadulces/contracts';
+import type { AutorizacionKepler, ComprobacionEnLaCola, PistaCancelada, RevisionDeCancelada, CanceladaResuelta, EstadoKeplerDelGasto, EtapaEjercicio, EstadoKeplerDeLaSolicitud, KeplerDelVale, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
 import type { FiltroExpediente, RespuestaExpediente, TransferenciaGasto } from '@megadulces/contracts';
 
@@ -191,8 +191,18 @@ export interface ValeEsperaKepler {
   sucursal: string | null;
   proveedor: string | null;
   importe: number;
+  /**
+   * `[PGP.123]` G.UI.2 — Lo capturado en el vale. `importe` puede ser el saldo de Kepler, que en una cancelada es 0.
+   * `undefined` = un servidor anterior que no lo manda.
+   */
+  importe_capturado?: number | null;
+  /** De dónde salió `importe`: `gasto_kepler` · `solicitud_kepler` · `capturado`. */
+  importe_fuente?: string | null;
   created_by: string | null;
   validated_by: string | null;
+  /** `[PGP.123]` G.UI.8 — El nombre del padrón de quien capturó y de quien revisó. `undefined` = servidor anterior. */
+  capturo_nombre?: string | null;
+  reviso_nombre?: string | null;
   revisado_at: string | null;
   /** `null` = la fecha no se pudo leer (no es «hoy»). */
   dias: number | null;
@@ -200,6 +210,21 @@ export interface ValeEsperaKepler {
   /** Cancelada en Kepler DESPUÉS de generar su gasto: confirmar si salió dinero. */
   hallazgo: boolean;
   kepler_estado: string | null;
+  /**
+   * `[PGP.123]` G.9 — Sólo en los autorizados sin gasto: si se comprueba sola (G.5) o el motivo y a quién le toca, cómo va
+   * su X-A-10 y si la base escribe. `null` = el servidor no lo pudo calcular; `undefined` = servidor anterior.
+   */
+  gasto_kepler?: ComprobacionEnLaCola | null;
+  /**
+   * `[PGP.123]` G.UI.1d — Sólo en las canceladas: los pagos de Kepler, la forma de pago del vale y la recaptura.
+   * `null` = no se pudo calcular; `undefined` = servidor anterior.
+   */
+  pista_cancelada?: PistaCancelada | null;
+  /**
+   * `[PGP.123]` G.UI.1e — Sólo en las canceladas: quién cerró el caso, cuándo y qué escribió. `null` = nadie todavía;
+   * `undefined` = el servidor todavía no puede guardarlo (falta su migración): no se ofrece cerrarlo.
+   */
+  cancelada_revisada?: RevisionDeCancelada | null;
 }
 
 export interface RespuestaEsperanKepler {
@@ -600,6 +625,21 @@ export class ComprobacionesService {
   /** `[GX.96]` Lo revisado que espera a Kepler, y los hallazgos. Sólo quien aprueba. */
   esperanKepler(): Observable<RespuestaEsperanKepler> {
     return this.http.get<RespuestaEsperanKepler>(`${this.base}/esperan-kepler`);
+  }
+
+  /** `[PGP.123]` G.9 — Reintentar el gasto (X-A-10) de un vale validado: devuelve cómo quedó, con su motivo si no tocaba. */
+  /** `[PGP.123]` G.UI.1e — «Ya lo revisé»: cierra el caso de una cancelada con lo que se hizo. */
+  revisarCancelada(id: string, nota: string): Observable<CanceladaResuelta> {
+    return this.http.post<CanceladaResuelta>(`${this.base}/${encodeURIComponent(id)}/cancelada/revisar`, { nota });
+  }
+
+  /** `[PGP.123]` G.UI.1e — Liga el vale de una cancelada a su recaptura (la que propone la pista). */
+  ligarCancelada(id: string, folio: string): Observable<CanceladaResuelta> {
+    return this.http.post<CanceladaResuelta>(`${this.base}/${encodeURIComponent(id)}/cancelada/ligar`, { folio });
+  }
+
+  reintentarGasto(id: string): Observable<EstadoKeplerDelGasto | null> {
+    return this.http.post<EstadoKeplerDelGasto | null>(`${this.base}/${encodeURIComponent(id)}/reintentar-gasto`, {});
   }
 
   delDia(fecha?: string, limit = 500): Observable<GastosDelDia> {

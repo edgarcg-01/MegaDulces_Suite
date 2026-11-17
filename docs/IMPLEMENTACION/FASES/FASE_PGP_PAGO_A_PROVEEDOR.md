@@ -2465,3 +2465,7 @@ viendo sólo CEDIS, comprobado fila por fila).
 **Hallazgo al margen (2026-11-17):** 17 movimientos del estado de cuenta dicen 2027-08-06. Son de una sola cuenta y de
 una sola carga, del 12-ago-2026: casi seguro el año está mal tecleado (2026-08-06). No tocan el carril del banco (busca
 ±3 días alrededor del pago), pero cualquier «último movimiento» que use `max(movement_date)` dice agosto de 2027.
+
+**Siguiente (2026-11-17): [Anexo C — que ningún pago se capture a mano](FASE_PGP_ANEXO_CERO_CAPTURA.md).** Lo de esta
+prueba lo volvió plan: el banco llega tarde como disparador, así que el registro en Kepler lo dispara el comprobante el
+mismo día (`[PGP.130]`) y el banco confirma después. Edgar firmó sus siete decisiones el 2026-11-17.

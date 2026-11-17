@@ -1,6 +1,6 @@
 import { asistencia, dia, persona } from '../../../testing/rh.fixture';
 import {
-  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horarioPartes, horasTexto,
+  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horarioPartes, horarioRenglones, horasTexto,
   irregularidadesDe, pausasDelDia, porDepartamento, rebasados, tramosDe,
 } from './reporte-formato';
 
@@ -111,6 +111,21 @@ describe('[RH.1.7c] pausas, horas y horario', () => {
     expect(horarioPartes(persona({ horario: '08:30', turnos: ['08:30'] }))).toEqual({ hora: '8:30 am', nota: 'deducido', asignado: false });
     expect(horarioPartes(persona({ turnos: ['09:00', '13:00'] }))).toEqual({ hora: '09:00 / 13:00', nota: 'rota', asignado: false });
     expect(horarioPartes(persona({ horario: '', turnos: [] }))).toEqual({ hora: '—', nota: '', asignado: false });
+  });
+
+  it('[RH.13.8] el horario de la tabla, un turno por renglón y el sábado aparte (en un renglón se encimaba sobre el jueves)', () => {
+    const varios = persona({ horarioAsignado: {
+      entrada: '10:00', salida: '19:00', comidaMin: 60, sabado: true, sabadoEntrada: '07:30', sabadoSalida: '16:00', asignadoPor: null, actualizadoEn: null,
+      horarios: [{ entrada: '10:00', salida: '19:00', comidaMin: 60 }, { entrada: '07:30', salida: '16:00', comidaMin: 60 }, { entrada: '12:30', salida: '21:00', comidaMin: 60 }],
+    } });
+    expect(horarioRenglones(horarioPartes(varios).hora)).toEqual(['10:00–19:00', '07:30–16:00', '12:30–21:00', 'sáb 07:30–16:00']);
+    // Sábado sin horas: queda «sáb» como su propio renglón.
+    expect(horarioRenglones('08:00–17:00 · sáb')).toEqual(['08:00–17:00', 'sáb']);
+    // Rotativo y deducido no cambian de forma; lo que no hay no se inventa.
+    expect(horarioRenglones(horarioPartes(persona({ turnos: ['09:00', '13:00'] })).hora)).toEqual(['09:00', '13:00']);
+    expect(horarioRenglones('8:30 am')).toEqual(['8:30 am']);
+    expect(horarioRenglones('—')).toEqual(['—']);
+    expect(horarioRenglones('')).toEqual([]);
   });
 
   it('una columna por día, con hoy marcado', () => {

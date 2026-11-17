@@ -186,7 +186,51 @@ Causas y arreglos: (1) en `productosDePromos` el planificador estimaba 1 fila pa
 
 **NO MEDIDO:** el arranque de la API con los decoradores y el constructor nuevos (`@Optional() TenantCacheService`, como margin-engine; no se levantó: lo mide el CI); los endpoints HTTP de punta a punta y la escritura del proveedor en prod (prohibido escribir en prod: probada en unitarias y la migración en local); la pantalla viva; el tiempo con varios usuarios a la vez; el peso de la respuesta en la red (mostrador ≈ 194 KB de JSON sin comprimir).
 
+## 6h. `[MKT.27]` — buscar dentro del detalle, también con pistola (2026-11-17)
+
+**Pedido (Mercadotecnia):** dentro del detalle de una sucursal (35 promociones en 8 Esquinas, semana 46) no había cómo encontrar una: «proveedor, producto, promoción, SKU, precio, todo en un buscador» y «que se pueda con lector de código de barras».
+
+**Las cinco preguntas (diseño §0b):**
+1. *Qué ve y en qué orden:* la frase del cumplimiento, el buscador y la tabla. El buscador arranca vacío y la tabla completa, en el orden del servidor (de más a menos cubrimiento).
+2. *Qué no ve:* no se agregó otra barra de filtros. El filtro de venta de arriba ya llega al detalle; el buscador es uno solo.
+3. *Accesibilidad:* encuentra por palabras en cualquier orden, sin acentos ni mayúsculas. Con la pistola, el Enter selecciona lo leído y la siguiente lectura lo reemplaza. «N de M» dice cuánto se ve, y si nada coincide lo dice con lo buscado.
+4. *Ligas:* el proveedor (asignado o «del producto») se ve ahora en la fila, junto al código, para que una coincidencia por proveedor se entienda.
+5. *¿Le toca a esta pantalla?* Sí. Es buscar dentro de lo que ya se muestra, sin datos nuevos de otra área.
+
+**Cómo:**
+- El backend manda **una vez por respuesta** `codigos_barras: { sku → códigos }`, de `catalog.product_barcodes` (principal y secundarios; Kepler y Wincaja), para los SKU que activan alguna promoción. Se lee en paralelo.
+- Si esa lectura falla, el ranking sale igual con `codigos_barras: null`. La pantalla avisa «No se pudieron leer los códigos de barras» en vez de decir que no hay coincidencias.
+- La pantalla reusa `app-scan-field` (la barra del Andén: pistola, cámara y tecleado; ya la usa Ubicaciones).
+- Deuda con nombre: moverla a `shared/` (ADR-056). No se movió para no tocar los archivos del Andén en este cambio.
+
+**Medido en prod (sólo lectura, `system_identifier` verificado):**
+- Los 5 productos de la captura (control) tienen código; 2 traen también el de Wincaja.
+- Los códigos de promoción no tienen código de barras: se encuentra la promoción por el producto que la activa, que es lo que se escanea en la tienda.
+- **148 códigos de barras apuntan a más de un SKU**: escanear uno de ésos muestra todas las promociones que coinciden.
+- En total: 9,083 códigos activos para 8,038 SKU.
+
+**Imprimir lo filtrado (pedido el mismo día).** Junto al buscador, «Imprimir este detalle» (sin buscar) o «Imprimir lo filtrado». Es el PDF de siempre (`pdfRanking`) en modo `soloDetalle`:
+- trae sólo la tabla del detalle con las MISMAS promociones que se ven (`reporteDetalle` usa `promosDelDetalle`);
+- no trae las tablas de lugares, por promoción ni por vendedora, que son de toda la semana;
+- la portada dice «Reporte filtrado», cada filtro de la pantalla, la sucursal o el vendedor, lo buscado y «Promociones: N de M»;
+- el archivo se llama `RANKING-PROMOCIONES-S<n>-DETALLE-FILTRADO-…`.
+
+Si nada coincide, el botón se apaga: no se imprime una hoja vacía. Cada renglón del detalle impreso dice ahora su proveedor (`proveedorPdf`, la misma redacción que la tabla por promoción), para que una búsqueda por proveedor se entienda en papel. Eso también agrega la línea al reporte de la semana.
+
+**Precio: fuera de este cambio.** Ni la promoción ni el producto traen precio en el ranking, y no se ha verificado en Kepler de dónde sale el precio de una promoción (regla 10). Va aparte, después de investigarlo.
+
+**Pruebas:**
+- Dominio: 68 (+3: los códigos viajan una sola vez; si la lectura truena → `null` y el ranking sale; sin productos no consulta).
+- Componente: 33 (+8: la pistola deja sólo su promoción y «1 de 2»; SKU, producto, código, proveedor y palabras en cualquier orden; lo que no coincide se dice; sin códigos se avisa; abrir otra sucursal vacía el buscador; el reporte lleva sólo lo que se ve y su portada; si nada coincide no hay reporte y el botón se apaga; sin buscar imprime el detalle completo).
+- PDF: 9 (+2: el modo detalle trae una sola tabla con el proveedor por renglón y sin la nota de vendedoras; el reporte de la semana conserva sus 4 tablas).
+- Pruebas negativas: devolver `{}` en vez de `null`; quitar los códigos de la búsqueda; imprimir las tablas de la semana en el modo detalle; armar el reporte con todas las promociones en vez de las filtradas → rojo; restaurado → verde.
+- Compuertas: `check:pantalla` 2 de 2 sin fallas (tipa); lint con 0 errores.
+
+**NO MEDIDO:** la pantalla viva (sin validación visual); la pistola y la cámara en un equipo real; el arranque de la API (`Logger` nuevo como campo, el constructor no cambió; lo mide el CI); el peso que agregan los códigos a la respuesta.
+
 ## 7. Pendiente / abierto
+
+- `[MKT.27]` **Buscar por precio:** investigar en Kepler el precio de una promoción (o el de lista del producto), contrastarlo contra lo cobrado y, si se valida, agregarlo al buscador.
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.
 - Aplicar la migración en prod (una sola, aditiva) **antes** de soltar el código.

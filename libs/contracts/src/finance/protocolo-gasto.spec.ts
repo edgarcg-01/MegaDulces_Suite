@@ -1,5 +1,5 @@
 import {
-  ORDEN_ETAPA_PROTOCOLO, protocoloCompleto, protocoloDelVale,
+  DEPARTAMENTO_SIN, ORDEN_ETAPA_PROTOCOLO, protocoloCompleto, protocoloDelVale, valesDelFiltro,
   type EstadoProtocolo, type EtapaProtocolo,
 } from './protocolo-gasto.contract';
 
@@ -202,5 +202,28 @@ describe('[GX.59] el protocolo del vale', () => {
     };
     expect(protocoloDelVale(comoEstanHoy).etapa).toBe('completo');
     expect(ids(comoEstanHoy)).toEqual([]);
+  });
+});
+
+/**
+ * `[PGP.123]` G.UI.9 — Cuántos vales trae el filtro del Expediente, para decir «se muestran 2,000 de 2,027» cuando la
+ * lista se topa (antes: «hay más vales de los que se muestran», sin cifra). Se deriva de los departamentos que el
+ * servidor ya cuenta con las mismas fechas.
+ */
+describe('[PGP.123] G.UI.9 cuántos vales trae el filtro', () => {
+  const deps = [{ departamento: 'LOGISTICA', vales: 1500 }, { departamento: 'COMPRAS', vales: 500 }, { departamento: null, vales: 27 }];
+  const r = (departamento: string | null) => ({ filtro: { desde: '2026-10-01', hasta: null, departamento }, departamentos: deps });
+
+  it('sin departamento elegido: todos, incluidos los que no traen departamento', () => {
+    expect(valesDelFiltro(r(null))).toBe(2027);
+  });
+
+  it('con uno elegido: sólo ése; «sin departamento» son los que no lo traen', () => {
+    expect(valesDelFiltro(r('COMPRAS'))).toBe(500);
+    expect(valesDelFiltro(r(DEPARTAMENTO_SIN))).toBe(27);
+  });
+
+  it('un departamento que ya no aparece en el periodo cuenta 0, no el total', () => {
+    expect(valesDelFiltro(r('SISTEMAS'))).toBe(0);
   });
 });

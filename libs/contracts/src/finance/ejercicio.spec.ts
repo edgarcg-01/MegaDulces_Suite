@@ -2,6 +2,8 @@ import {
   ETAPAS_VISIBLES, ETIQUETA_ETAPA, EXPLICACION_ETAPA,
   NO_CONSTA_EN_KEPLER, constanciaDeAutorizacion, documentoKepler, etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
   ETIQUETA_CIERRE, ETIQUETA_ESPERA_KEPLER, cicloCerrado, esHallazgoCanceladaConGasto, esperaDeKepler, motivoDeCierre,
+  ETIQUETA_FALTA_EN_KEPLER, faltaEnKepler, importeDelVale, solicitudCanceladaEnKepler,
+  lecturaDeLaCancelada, faltaEnLaNotaDeRevision, type PistaCancelada,
 } from './ejercicio.contract';
 
 /**
@@ -298,5 +300,128 @@ describe('[GX.92] el ciclo de un vale revisado', () => {
     expect(esHallazgoCanceladaConGasto('C', false)).toBe(false);
     expect(esHallazgoCanceladaConGasto('A', true)).toBe(false);
     expect(esHallazgoCanceladaConGasto(null, null)).toBe(false);
+  });
+});
+
+/**
+ * `[PGP.123]` G.UI.1b — Qué le falta en Kepler a un vale validado sin gasto ligado, con las reglas de la cola. ⛔ Lo que
+ * cuida: que una solicitud cancelada no se lea «Falta el gasto en Kepler» (38 vales así en la copia local, 2026-11-16).
+ */
+describe('[PGP.123] G.UI.1b qué le falta en Kepler', () => {
+  const v = (kepler_estado: string | null, kepler_aplicada: boolean | null, status = 'validada') => faltaEnKepler({ status, kepler_estado, kepler_aplicada });
+
+  it('autorizada sin gasto: falta el gasto; sin autorizar: falta que la autoricen', () => {
+    expect(v('A', false)).toBe('falta_generar_gasto');
+    expect(ETIQUETA_FALTA_EN_KEPLER.falta_generar_gasto).toBe('Falta el gasto en Kepler');
+    expect(v('N', false)).toBe('falta_autorizar');
+  });
+
+  it('⛔ cancelada: no «espera su gasto»; con el gasto ya generado, la pregunta de GX.96', () => {
+    expect(v('C', false)).toBe('cancelada');
+    expect(v('C', true)).toBe('cancelada_con_gasto');
+    expect(ETIQUETA_FALTA_EN_KEPLER.cancelada).toBe('Solicitud cancelada en Kepler');
+    expect(ETIQUETA_FALTA_EN_KEPLER.cancelada_con_gasto).toContain('¿salió dinero?');
+  });
+
+  it('aplicada sin el gasto ligado y lo que no se pudo leer, con las palabras de la cola', () => {
+    expect(v('F', true)).toBe('aplicada_sin_ligar');
+    expect(ETIQUETA_FALTA_EN_KEPLER.aplicada_sin_ligar).toBe(ETIQUETA_ESPERA_KEPLER.aplicada_sin_ligar);
+    expect(v(null, null)).toBe('sin_medir');
+  });
+
+  it('G.UI.1c: cancelada en Kepler es la C de c43, venga con espacios o no; nada más lo es', () => {
+    expect(solicitudCanceladaEnKepler('C')).toBe(true);
+    expect(solicitudCanceladaEnKepler(' C ')).toBe(true);
+    expect(solicitudCanceladaEnKepler('A')).toBe(false);
+    expect(solicitudCanceladaEnKepler(null)).toBe(false);
+  });
+
+  it('un vale que no está validado no espera nada de Kepler', () => {
+    expect(v('A', false, 'aprobada')).toBeNull();
+    expect(v('C', true, 'rechazada')).toBeNull();
+  });
+});
+
+/** `[PGP.123]` G.UI.2 — El monto de un vale cuya solicitud Kepler canceló: lo capturado, con lo de Kepler como nota. */
+describe('[PGP.123] G.UI.2 el monto del vale', () => {
+  it('⛔ cancelada: lo capturado, y el 0 de Kepler como nota', () => {
+    expect(importeDelVale({ importe: 0, importe_capturado: 3215, kepler_estado: 'C' })).toEqual({ importe: 3215, kepler: 0 });
+    expect(importeDelVale({ importe: '0.00', importe_capturado: '712.43', kepler_estado: ' C ' })).toEqual({ importe: 712.43, kepler: 0 });
+  });
+
+  it('viva, o sin lo capturado: lo de Kepler, sin nota (no se inventa)', () => {
+    expect(importeDelVale({ importe: 518, importe_capturado: 347.59, kepler_estado: 'A' })).toEqual({ importe: 518, kepler: null });
+    expect(importeDelVale({ importe: 0, importe_capturado: null, kepler_estado: 'C' })).toEqual({ importe: 0, kepler: null });
+    expect(importeDelVale({ importe: 100, importe_capturado: 100, kepler_estado: 'C' })).toEqual({ importe: 100, kepler: null });
+  });
+});
+
+/**
+ * `[PGP.123]` G.UI.1d — La pista de una cancelada: lo que la Suite averigua sola (pagos en Kepler, la forma de pago del
+ * vale y la recaptura) para que una persona sólo decida. Cada caso es uno medido en prod el 2026-11-16.
+ */
+describe('[PGP.123] G.UI.1d la pista de una cancelada', () => {
+  const P = (over: Partial<PistaCancelada> = {}): PistaCancelada => ({ forma_pago: 'efectivo', pagos: [], recapturas: [], gasto_vivo: null, ...over });
+  const pago = (over = {}) => ({ folio: '0000123', gasto_folio: '0000050', aplicado: 712.43, fecha: '2026-10-12', cancelado: false, ...over });
+  const rec = (over = {}) => ({ folio: '0010181', estado: 'N', fecha: '2026-10-07', con_vale: false, ...over });
+
+  it('⛔ Kepler lo pagó: el pago con su folio, monto y fecha, en rojo (salió dinero por un documento cancelado)', () => {
+    const l = lecturaDeLaCancelada(P({ forma_pago: 'transferencia', pagos: [pago()] }));
+    expect(l.dinero).toBe('Kepler lo pagó: XD2601-0000123 · $712.43 · 12/10/26');
+    expect(l.tono).toBe('bad');
+  });
+
+  it('⛔ en efectivo salió de caja aunque Kepler no tenga el pago (no se dice «no salió dinero»)', () => {
+    const l = lecturaDeLaCancelada(P({ pagos: [pago({ cancelado: true })] }));
+    expect(l.dinero).toBe('Pagado en efectivo según el vale: salió de caja, y Kepler no tiene el pago');
+  });
+
+  it('sin pago en Kepler: dónde buscarlo según la forma de pago; sin poder leer los pagos, se dice', () => {
+    expect(lecturaDeLaCancelada(P({ forma_pago: 'transferencia' })).dinero).toBe('Sin pago en Kepler; el vale dice transferencia: búscala en el banco');
+    expect(lecturaDeLaCancelada(P({ forma_pago: 'tarjeta' })).dinero).toBe('Sin pago en Kepler; el vale dice tarjeta: búscalo en su estado de cuenta');
+    expect(lecturaDeLaCancelada(P({ forma_pago: 'otro' })).dinero).toBe('Sin pago en Kepler, y el vale no dice cómo se pagó: revísalo');
+    expect(lecturaDeLaCancelada(P({ pagos: null })).dinero).toBe('No se pudieron leer los pagos de Kepler');
+    expect(lecturaDeLaCancelada(null).tono).toBe('warn');
+  });
+
+  it('una sola recaptura libre: se ofrece ligar el vale a ella', () => {
+    const l = lecturaDeLaCancelada(P({ recapturas: [rec()] }));
+    expect(l.recaptura).toBe('Posible recaptura: XA1501-0010181 (sin autorizar, 07/10/26), mismo acreedor y total');
+    expect(l.accion).toEqual({ tipo: 'ligar', folio: '0010181' });
+  });
+
+  it('⛔ con su gasto vivo en Kepler no se ofrece ligar (el gasto quedaría dos veces); sin el dato, tampoco', () => {
+    const l = lecturaDeLaCancelada(P({ recapturas: [rec()], gasto_vivo: '0000050' }));
+    expect(l.recaptura).toBe('Posible recaptura: XA1501-0010181 (sin autorizar, 07/10/26), mismo acreedor y total; pero su gasto sigue vivo en Kepler (X-A-10 0000050): ligarla duplicaría el gasto');
+    expect(l.accion).toBeNull();
+    expect(l.tono).toBe('warn');
+    const { gasto_vivo: _sinDato, ...anterior } = P({ recapturas: [rec()] });
+    expect(lecturaDeLaCancelada(anterior).accion).toBeNull();
+  });
+
+  it('⛔ varias iguales (un gasto que se repite): no se adivina cuál; ninguna, se dice', () => {
+    const l = lecturaDeLaCancelada(P({ recapturas: [rec(), rec({ folio: '0010190' })] }));
+    expect(l.recaptura).toBe('2 solicitudes del mismo acreedor y total: no se sabe cuál la reemplaza');
+    expect(l.accion).toBeNull();
+    expect(lecturaDeLaCancelada(P()).recaptura).toBe('Sin recaptura con el mismo acreedor y total');
+    expect(lecturaDeLaCancelada(P({ recapturas: null })).recaptura).toBeNull();
+  });
+
+  it('la recaptura ya tiene su vale: éste puede estar repetido (y el rojo del pago manda)', () => {
+    const l = lecturaDeLaCancelada(P({ recapturas: [rec({ con_vale: true })] }));
+    expect(l.recaptura).toBe('La recaptura XA1501-0010181 ya tiene su vale: éste puede estar repetido');
+    expect(l.accion).toEqual({ tipo: 'repetido', folio: '0010181' });
+    expect(l.tono).toBe('warn');
+    expect(lecturaDeLaCancelada(P({ pagos: [pago()], recapturas: [rec({ con_vale: true })] })).tono).toBe('bad');
+  });
+});
+
+describe('[PGP.123] G.UI.1e la nota de «Ya lo revisé»', () => {
+  it('⛔ cuenta caracteres como la base (char_length), no unidades UTF-16: dos emojis no son una nota', () => {
+    expect(faltaEnLaNotaDeRevision('👍👍')).not.toBeNull();
+    expect(faltaEnLaNotaDeRevision('👍👍👍')).toBeNull();
+    expect(faltaEnLaNotaDeRevision('  ok ')).not.toBeNull();
+    expect(faltaEnLaNotaDeRevision('😀'.repeat(500))).toBeNull();
+    expect(faltaEnLaNotaDeRevision('😀'.repeat(501))).not.toBeNull();
   });
 });

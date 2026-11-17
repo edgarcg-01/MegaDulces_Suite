@@ -113,6 +113,15 @@ describe('[PGP.71] E3.3 motivosParaNoEscribir', () => {
   it('⛔ un día sin autorizar NO se escribe', () => {
     expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep' }))).toContain('El día no está autorizado');
   });
+  // `[PGP.130]` D1: el comprobante prueba el pago igual que el banco (su autorización se exigió al casarlo).
+  it('[PGP.130] probado por su comprobante: se escribe aunque el día no esté firmado y sin la validación con el banco', () => {
+    expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep', validacion_estado: null, probado_por_comprobante: true }))).toEqual([]);
+  });
+  it('⛔ [PGP.130] el comprobante no salta lo demás: sin marcar pagado, ya ligado o en efectivo, no', () => {
+    expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, status: 'pending' }))).toContain('El pago no está marcado como pagado');
+    expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, kepler_payment_folio: '0024276' })).join(' ')).toMatch(/duplicaría/);
+    expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, payment_method: 'efectivo' })).length).toBeGreaterThan(0);
+  });
   it('⛔ uno ya ligado a un X-D-26 no se vuelve a escribir (sería un pago doble)', () => {
     expect(motivosParaNoEscribir(pago({ kepler_payment_folio: '0023969' })).join(' ')).toMatch(/duplicaría/);
   });

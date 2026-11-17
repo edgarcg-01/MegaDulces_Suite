@@ -10,11 +10,16 @@
  *    por mes y tipo), `c2` fecha, `c3` cuenta, `c4` `C`/`A`, `c5` importe (y `c9`, el mismo con 4 decimales),
  *    `c6` nombre, `c7` referencia, `c8` tipo de póliza, `c10` renglón, `c14` sucursal, `c15`–`c19` el documento.
  *  - **`kdc126`**, una fila por cuenta: cargos del mes en `c27`–`c38` y abonos en `c63`–`c74`, con un segundo juego
- *    (`c51`–`c62` / `c75`–`c86`) que suma lo mismo salvo los renglones con `c23` vacío (las notas de crédito
- *    `X-D-55`: octubre, $1,451,411.81 al centavo). Los asientos de un pago traen `c23 = '0'`: van a los DOS.
- *    Cuadra al centavo en `102` y `201`, octubre y noviembre.
- *  - **`kdxg`**, una fila por acreedor: abonos del mes en `c35`–`c46`; `c4` la fecha del último movimiento
- *    (324 de 324) y `c7` la del último pago `X-D-25`/`26` (317 de 324). `c5` NO se deriva (casa en 42 %): no se toca.
+ *    (`c51`–`c62` / `c75`–`c86`) que suma lo mismo salvo los renglones de las notas de crédito `X-D-55` y de las
+ *    pólizas manuales con `c23` vacío. Los asientos de un pago (`c23 = '0'`) y los de un gasto `X-A-10` van a los
+ *    DOS, **aunque su `c23` esté vacío** (`[PGP.123]`, re-medido el 2026-11-15: 117 de 117 cuentas con gastos de
+ *    referencia vacía; la regla anterior, «excluye todo `c23` vacío», acertaba 259 de 429 renglones de octubre).
+ *    La subcuenta (`611-003`) suma además a su mayor (`611`): ver `filasKdc126`.
+ *  - **`kdxg`**, una fila por acreedor: abonos del mes en `c35`–`c46` y cargos (los gastos) en `c47`–`c58`; `c4` la
+ *    fecha del último movimiento (324 de 324), `c6` la del último cargo (283 de 285) y `c7` la del último pago
+ *    `X-D-25`/`26` (317 de 324). `c5` NO se deriva (casa en 42 %): no se toca.
+ *  - **`kdcn26`**, el ejercido por centro de costo (`[PGP.123]`): `c7 += cargo − abono` por (concepto, departamento,
+ *    proyecto, `AAMM`), con sumas `*` y los departamentos padre que existen en `kdc3`. Ver `movimientosKdcn26`.
  */
 
 type Valor = string | number;
@@ -63,4 +68,90 @@ export function columnasKdc126(mes: number): { cargo: [string, string]; abono: [
 /** La columna de `kdxg` con los abonos (pagos) del acreedor en ese mes. */
 export function columnaAbonoKdxg(mes: number): string {
   return `c${34 + mesValido(mes)}`;
+}
+
+/** La columna de `kdxg` con los cargos (los gastos `X-A-10`) del acreedor en ese mes: `c47`–`c58`. */
+export function columnaCargoKdxg(mes: number): string {
+  return `c${46 + mesValido(mes)}`;
+}
+
+/**
+ * Las filas de `kdc126` que mueve un asiento a esa cuenta: la cuenta y, si es subcuenta (`611-003`), su mayor
+ * (el primer segmento: `611`). Una cuenta sin guion (`201`) se asienta directo y no lleva mayor aparte. La póliza
+ * nunca asienta al mayor: lo suma quien escribe. Medido (oct–nov 2026, las 9 réplicas): mayor = Σ de sus subcuentas
+ * en 280 de 293; fallan la `102` (recibe también asientos directos) y la `114`.
+ */
+export function filasKdc126(cuenta: string): string[] {
+  const c = String(cuenta ?? '').trim();
+  if (!c) return [];
+  const mayor = c.split('-')[0];
+  return mayor && mayor !== c ? [c, mayor] : [c];
+}
+
+/** Lo que una póliza suma a `kdc126`, por fila (la cuenta y su mayor), a centavos. Los dos juegos llevan lo mismo. */
+export function movimientosKdc126(p: PolizaKepler): MovimientoCuenta[] {
+  const por = new Map<string, { cargo: number; abono: number }>();
+  for (const m of movimientosDePoliza(p)) {
+    for (const fila of filasKdc126(m.cuenta)) {
+      const t = por.get(fila) ?? { cargo: 0, abono: 0 };
+      t.cargo += Math.round(m.cargo * 100);
+      t.abono += Math.round(m.abono * 100);
+      por.set(fila, t);
+    }
+  }
+  return [...por.entries()].map(([cuenta, t]) => ({ cuenta, cargo: t.cargo / 100, abono: t.abono / 100 }))
+    .sort((a, b) => (a.cuenta < b.cuenta ? -1 : a.cuenta > b.cuenta ? 1 : 0));
+}
+
+/** El periodo de `kdcn26` (`c4`, `AAMM`) de esa fecha: `2026-11-13` → `2611`. `null` si no es `YYYY-MM-DD`. */
+export function periodoKdcn26(fecha: string): string | null {
+  const t = tablaPolizaDelMes(fecha);
+  return t ? t.slice(4) : null;
+}
+
+/**
+ * Los departamentos padre que acumulan en `kdcn26`: cada prefijo por segmentos del departamento (`1-02` de
+ * `1-02-32`) que EXISTE en `kdc3` del servidor. Medido (X-A-10 de oct–nov): 194 de 194 prefijos que están en
+ * `kdc3` tienen su fila; 0 de 3,238 que no están.
+ */
+export function padresDelDepartamento(departamento: string, kdc3: ReadonlySet<string>): string[] {
+  const seg = String(departamento ?? '').trim().split('-');
+  const padres: string[] = [];
+  for (let i = 1; i < seg.length; i++) {
+    const p = seg.slice(0, i).join('-');
+    if (p && kdc3.has(p)) padres.push(p);
+  }
+  return padres;
+}
+
+/** Una celda de `kdcn26`: lo que sube su `c7` (cargo − abono). */
+export interface MovimientoCentroDeCosto { concepto: string; departamento: string; proyecto: string; periodo: string; importe: number }
+
+/**
+ * Lo que una póliza suma a `kdcn26` (`c7 += cargo − abono`). Cada renglón va a (concepto `c20`; departamento `c13`,
+ * sus padres en `kdc3` y `*`; proyecto `c21` y `*`): `(2 + padres) × 2` celdas. Un renglón sin segmentos (el abono
+ * al acreedor, el IVA) va igual, a (`''`; `''` y `*`; `''` y `*`): medido en 00, 05 y 07, noviembre, las 4 celdas
+ * traen el mismo importe, que es el de TODOS los renglones sin segmentos del mes (de cualquier documento).
+ */
+export function movimientosKdcn26(p: PolizaKepler, kdc3: ReadonlySet<string>): MovimientoCentroDeCosto[] {
+  const periodo = periodoKdcn26(p.fecha);
+  if (!periodo) throw new Error(`Fecha de póliza inválida: ${p.fecha}`);
+  const por = new Map<string, number>();
+  for (const r of p.renglones) {
+    const importe = Math.round(Number(r['c5'] ?? 0) * 100) * (r['c4'] === 'C' ? 1 : r['c4'] === 'A' ? -1 : 0);
+    if (!importe) continue;
+    const concepto = String(r['c20'] ?? '').trim();
+    const depto = String(r['c13'] ?? '').trim();
+    const proyecto = String(r['c21'] ?? '').trim();
+    for (const d of [depto, ...padresDelDepartamento(depto, kdc3), '*']) {
+      for (const pr of [proyecto, '*']) {
+        const k = `${concepto}\u0000${d}\u0000${pr}`;
+        por.set(k, (por.get(k) ?? 0) + importe);
+      }
+    }
+  }
+  return [...por.entries()].map(([k, c]) => {
+    const [concepto, departamento, proyecto] = k.split('\u0000');
+    return { concepto, departamento, proyecto, periodo, importe: c / 100 };
+  }).sort((a, b) => (`${a.concepto}|${a.departamento}|${a.proyecto}` < `${b.concepto}|${b.departamento}|${b.proyecto}` ? -1 : 1));
 }

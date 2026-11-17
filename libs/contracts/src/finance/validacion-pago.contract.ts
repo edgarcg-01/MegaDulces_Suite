@@ -193,3 +193,103 @@ export function textoValidacion(e: EstadoValidacion): string { return TEXTO[e]; 
 export function validadoParaKepler(v: ValidacionPago | null | undefined): boolean {
   return !!v && v.estado === 'validado';
 }
+
+// ───────────────────────────── [PGP.130] El comprobante dispara el pago ─────────────────────────────
+
+/**
+ * `[PGP.130]` Un pago del Calendario visto por su comprobante: lo que hace falta para casarlos sin el banco.
+ * Edgar, 2026-11-17 (D1 del anexo «cero captura»): el comprobante validado dispara el registro en Kepler el
+ * mismo día; el estado de cuenta lo confirma después.
+ */
+export interface PagoPorComprobante {
+  id: string;
+  /** Día al que está programado (`YYYY-MM-DD`). */
+  dia: string;
+  importe: number;
+  /** La cuenta de origen preparada; sin ella no se casa (el placebo sube sin la cuenta, `[PGP.102]`). */
+  cuenta_id: string | null;
+  metodo: string | null;
+  /** Autorizado por Dirección (el pago, `[PGP.113]`, o su día entero). */
+  autorizado: boolean;
+  /** Ya tiene un comprobante (ligado o esperando a ligarse). */
+  con_comprobante: boolean;
+}
+
+export type EstadoComprobante = 'casa' | 'sin_lectura' | 'sin_pago' | 'varios' | 'disputado' | 'ya_tiene' | 'sin_autorizar';
+
+export interface CasaComprobante {
+  estado: EstadoComprobante;
+  pago_id: string | null;
+  /** En palabras; null si casa. */
+  motivo: string | null;
+}
+
+/** Métodos que nunca salen como transferencia: su comprobante no es un SPEI. */
+const NO_TRANSFERENCIA = new Set(['efectivo', 'cheque']);
+
+/**
+ * `[PGP.130]` **Cada comprobante, contra los pagos del Calendario, sin pasar por el banco.** Pura.
+ *
+ * La regla es la de `validarPagos` (misma cuenta de origen, ±$1, ±5 días del día programado) aplicada
+ * directo comprobante ↔ pago. Medido en prod el 2026-11-17 con los 101 comprobantes de transferencia del
+ * 3 al 13 de noviembre: de los 47 con pago del Calendario que se podían leer, **46 casan solos con su pago
+ * y ninguno con otro**; con las fechas corridas −35, −60 y +35 días (placebo) casan **0 de 99**.
+ *
+ * ⛔ Uno a uno: si dos comprobantes reclaman el mismo pago, ninguno casa (`disputado`); si un comprobante
+ * tiene dos pagos posibles, no se adivina (`varios`). ⛔ Un pago sin autorizar no lo paga un comprobante:
+ * un PDF lo sube una persona, a diferencia del banco; ese pago espera al estado de cuenta (D6).
+ */
+export function casarComprobantesConPagos(
+  comprobantes: readonly ComprobanteBanco[], pagos: readonly PagoPorComprobante[],
+): Map<string, CasaComprobante> {
+  const out = new Map<string, CasaComprobante>();
+  const r = (estado: EstadoComprobante, motivo: string | null, pago_id: string | null = null): CasaComprobante => ({ estado, pago_id, motivo });
+  const candidatos = new Map<string, PagoPorComprobante[]>();
+  const reclamos = new Map<string, number>();
+  for (const c of comprobantes) {
+    if (!c.cuenta_id || !c.fecha || !(c.importe > 0)) continue;
+    const cand = pagos.filter((p) => !NO_TRANSFERENCIA.has(String(p.metodo ?? '')) && p.cuenta_id === c.cuenta_id
+      && casa(c.importe, p.importe, c.fecha as string, p.dia));
+    candidatos.set(c.id, cand);
+    if (cand.length === 1) reclamos.set(cand[0].id, (reclamos.get(cand[0].id) ?? 0) + 1);
+  }
+  for (const c of comprobantes) {
+    if (!c.cuenta_id || !c.fecha || !(c.importe > 0)) {
+      out.set(c.id, r('sin_lectura', !c.cuenta_id
+        ? 'No se leyó una cuenta de origen nuestra en el comprobante: sin ella no se casa con ningún pago.'
+        : 'El comprobante no trae fecha o importe legibles.'));
+      continue;
+    }
+    const cand = candidatos.get(c.id) ?? [];
+    if (!cand.length) {
+      out.set(c.id, r('sin_pago', 'Ningún pago del Calendario sale de esa cuenta por ese importe (±$1) cerca de esa fecha (±5 días).'));
+      continue;
+    }
+    if (cand.length > 1) {
+      out.set(c.id, r('varios', `Casa con ${cand.length} pagos del Calendario: no se adivina cuál es.`));
+      continue;
+    }
+    const p = cand[0];
+    if ((reclamos.get(p.id) ?? 0) > 1) { out.set(c.id, r('disputado', 'Otro comprobante casa con el mismo pago: deja uno.', p.id)); continue; }
+    if (p.con_comprobante) { out.set(c.id, r('ya_tiene', 'Ese pago ya tiene su comprobante.', p.id)); continue; }
+    if (!p.autorizado) {
+      out.set(c.id, r('sin_autorizar', 'Ese pago no está autorizado: el comprobante no lo da por pagado. Lo marcará el estado de cuenta cuando aparezca la salida.', p.id));
+      continue;
+    }
+    out.set(c.id, r('casa', null, p.id));
+  }
+  return out;
+}
+
+/** `[PGP.130]` La respuesta de `POST finance/supplier-payments/calendario`: un comprobante, leído y casado (o no). */
+export interface ResultadoComprobanteCalendario {
+  /** `repetido` = la misma clave de rastreo ya está en otro comprobante vivo. */
+  estado: EstadoComprobante | 'repetido';
+  /** El pago del Calendario con el que casó (o el que lo impidió); null si no hay uno. */
+  pago_id: string | null;
+  /** El comprobante guardado; null si no se guardó (sólo se guarda lo que casa). */
+  comprobante_id: string | null;
+  motivo: string | null;
+  /** Lo que leyó el servidor del PDF, para que la persona vea por qué casó o no. */
+  lectura: { importe: number | null; fecha: string | null; cuenta_origen: string | null; beneficiario: string | null; ocr_status: string };
+}

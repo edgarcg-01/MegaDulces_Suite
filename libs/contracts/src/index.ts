@@ -283,3 +283,5 @@ export * from './finance/hoja-gastos.contract';
 export * from './finance/solicitud-gasto.contract';
 // `[PGP.122]` S.13 — la bandeja de facturas del SAT por registrar: universo, «ya registrada», uno a uno por cercanía y sucursal.
 export * from './finance/factura-sat.contract';
+// `[PGP.123]` G.5 — cuándo la Suite comprueba un gasto en Kepler (escribe su X-A-10), o por qué no.
+export * from './finance/comprobacion-gasto.contract';

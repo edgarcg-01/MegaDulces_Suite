@@ -6,6 +6,7 @@ import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { FinanzasAprobacionGastosComponent } from './finanzas-aprobacion-gastos.component';
 import type { ExpedienteAtrasado, ExpedienteDelDia, GastosDelDia, RespuestaEsperanKepler, ResultadoBusquedaGastos, ValeEsperaKepler } from '../comprobaciones.service';
+import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
@@ -155,7 +156,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     const tabs = c.tabs.map((t) => t.label);
     // `[GX.60]` Lo aprobado y lo rechazado DESAPARECEN de esta pantalla (se mudaron al
     // Expediente). `[GX.88]` Se suma «Atrasados»: lo de días anteriores que sigue abierto.
-    expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados', 'Esperan a Kepler']);
+    // `[PGP.123]` G.UI.1c: «Canceladas en Kepler», su propia lista (pedido de Francisco, 2026-11-16).
+    expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados', 'Esperan a Kepler', 'Canceladas en Kepler']);
   });
 
   describe('[GX.88] las dos pestañas: hoy y atrasados', () => {
@@ -1066,20 +1068,93 @@ describe('FinanzasAprobacionGastosComponent', () => {
       montar();
       colaKepler().flush(RESP());
       expect(c.tabs.map((t) => t.id)).toContain('kepler');
-      expect(c.conteo('kepler')).toEqual({ n: 3, monto: 3000 });
+      // La cancelada va a su lista: las dos suman lo que trae la cola, sin repetir un vale.
+      expect(c.conteo('kepler')).toEqual({ n: 2, monto: 2000 });
+      expect(c.conteo('canceladas')).toEqual({ n: 1, monto: 1000 });
     });
 
-    it('lo raro primero: los hallazgos, con su pregunta; después lo que espera, con a qué', () => {
+    /**
+     * `[PGP.123]` G.UI.3 — La cola es de comprobación: primero lo que se comprueba; lo que espera otra cosa (por
+     * autorizar, canceladas con gasto) se pliega con su conteo. Antes iba todo en una lista por días y las canceladas
+     * primero: quien comprueba buscaba sus 126 entre 18 por autorizar y 29 canceladas.
+     */
+    it('primero lo que se comprueba; lo que falta autorizar, plegado con su conteo; las canceladas, en su lista', () => {
       montar();
       colaKepler().flush(RESP());
       c.verPestana('kepler');
       fix.detectChanges();
       const t = txt();
-      expect(t).toContain('Canceladas en Kepler después de generar su gasto');
-      expect(t).toContain('¿salió dinero?');
-      expect(t).toContain('Autorizada: falta generar el gasto en Kepler');
-      expect(t).toContain('Falta que la autoricen en Kepler');
-      expect(t.indexOf('0000503')).toBeLessThan(t.indexOf('0000501'));
+      expect(t).toContain('1 por comprobar · $1,000.00');
+      // Sin el cálculo del servidor (versión anterior) no se finge que se comprueba sola: se dice.
+      expect(t).toContain('No se pudo calcular si se comprueban solas');
+      expect(t).toContain('Falta que las autoricen en Kepler');
+      const plegados = [...fix.nativeElement.querySelectorAll('details.ap-kep-pleg')] as HTMLDetailsElement[];
+      expect(plegados.length).toBe(1);
+      expect(plegados.every((d) => !d.open)).toBe(true);
+      // `[PGP.123]` G.UI.1c: la cancelada ya no se pliega aquí (no espera nada de Kepler).
+      expect(t).not.toContain('0000503');
+      expect(t).not.toContain('¿salió dinero?');
+    });
+
+    /** El G.5 que calcula el servidor (G.9a), por vale. */
+    const LISTO_CERRADA: ComprobacionEnLaCola = {
+      comprobacion: { listo: true, fecha: '2026-11-10' }, gasto: null,
+      escritura: { abierta: false, motivo: 'La escritura de gastos a Kepler todavía está apagada en esta base', detalle: 'interruptor' },
+    };
+    const LISTO_ABIERTA: ComprobacionEnLaCola = { ...LISTO_CERRADA, escritura: { abierta: true, motivo: null, detalle: null } };
+    const DIFIEREN: ComprobacionEnLaCola = {
+      ...LISTO_CERRADA,
+      comprobacion: { listo: false, motivo: 'total_distinto', quien: 'sucursal', texto: 'El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler' },
+    };
+
+    /**
+     * ⛔ G.UI.3 — «La Suite las escribe» cuenta SÓLO lo que la Suite va a escribir. Lo listo en una base donde la
+     * escritura está cerrada (hoy, todas) lo sigue capturando una persona: contarlo como de la Suite haría que nadie lo
+     * comprobara.
+     */
+    it('⛔ los autorizados se parten por quién los mueve, y lo listo en una base cerrada NO es «la Suite las escribe»', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [
+        K({ id: 'a1', folio_solicitud: '0000601', gasto_kepler: LISTO_CERRADA }),
+        K({ id: 'a2', folio_solicitud: '0000602', importe: 518, gasto_kepler: DIFIEREN }),
+        K({ id: 'a3', folio_solicitud: '0000603', sucursal: '02', importe: 250, gasto_kepler: LISTO_ABIERTA }),
+      ] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const t = txt();
+      expect(t).toContain('3 por comprobar · $1,768.00');
+      expect(t).toContain('la Suite las escribe: 1 · con motivo: 2');
+      // Primero lo que necesita una decisión, después lo rutinario, al final lo que hace la Suite.
+      const titulos = [...fix.nativeElement.querySelectorAll('.ap-kep-h')].map((h: Element) => (h.textContent ?? '').trim());
+      expect(titulos[0]).toContain('Las comprueba la sucursal, en Kepler');
+      expect(titulos[1]).toContain('Se comprobarían solas, pero en su base la Suite todavía no escribe');
+      expect(titulos[2]).toContain('La Suite las escribe');
+      // G.UI.6: el renglón dice qué le falta, con su consecuencia.
+      expect(t).toContain('El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler');
+      expect(t).toContain('Se comprobaría sola, pero la escritura de gastos a Kepler todavía está apagada en esta base');
+      expect(t).toContain('Se comprueba sola: la Suite la escribe en el siguiente ciclo (cada 5 min)');
+    });
+
+    /** G.UI.7 — La cancelada lleva un marcador; su texto es neutro. El folio es un enlace neutro (no el color de acción). */
+    it('la cancelada con gasto lleva un marcador, no el renglón en rojo', () => {
+      montar();
+      colaKepler().flush(RESP());
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.ap-kep.hallazgo').length).toBe(1);
+      expect(fix.nativeElement.querySelector('.ap-kep-que.hallazgo')).toBeNull();
+    });
+
+    /** G.UI.8 — Las personas por su nombre; un actor del sistema, sin el código del tracker. */
+    it('quién capturó y quién revisó, por su nombre', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ capturo_nombre: 'Nombre Demo', reviso_nombre: null, validated_by: 'cierre GX.82 (aprobado con cotización)' })] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const t = txt();
+      expect(t).toContain('capturó Nombre Demo');
+      expect(t).toContain('revisó el cierre automático (aprobado con cotización)');
+      expect(t).not.toContain('GX.82');
     });
 
     it('lo que lleva más de 30 días se marca atorado', () => {
@@ -1087,7 +1162,39 @@ describe('FinanzasAprobacionGastosComponent', () => {
       colaKepler().flush(RESP());
       c.verPestana('kepler');
       fix.detectChanges();
-      expect(fix.nativeElement.querySelectorAll('.ap-kep-dias.atorado').length).toBe(2); // 36 días: k1 y el hallazgo
+      expect(fix.nativeElement.querySelectorAll('.ap-kep-dias.atorado').length).toBe(1); // 36 días: k1
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.ap-kep-dias.atorado').length).toBe(1); // el hallazgo, en su lista
+    });
+
+    /**
+     * `[PGP.123]` G.UI.2 — La cancelada con gasto pregunta «¿salió dinero?»: su monto es el capturado, no el 0 que dejó
+     * Kepler al cancelar (medido el 2026-11-15: vales de $712.43, $1,500 y $4,600 salían como «$0.00»).
+     */
+    it('⛔ una cancelada con gasto muestra lo capturado, dice el cero de Kepler y el total suma lo mismo', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [
+        K(),
+        K({ id: 'h2', folio_solicitud: '0000504', espera: null, hallazgo: true, kepler_estado: 'C',
+          importe: 0, importe_capturado: 712.43, importe_fuente: 'solicitud_kepler' }),
+      ] }));
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      const t = txt();
+      expect(t).toContain('$712.43');
+      expect(t).toContain('en Kepler quedó en $0.00');
+      expect(c.conteo('canceladas')).toEqual({ n: 1, monto: 712.43 });
+      expect(c.conteo('kepler')).toEqual({ n: 1, monto: 1000 });
+    });
+
+    it('si el servidor no manda lo capturado (versión anterior), la fila queda como antes', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ id: 'h3', espera: null, hallazgo: true, kepler_estado: 'C', importe: 0 })] }));
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(txt()).not.toContain('en Kepler quedó en');
+      expect(c.conteo('canceladas')).toEqual({ n: 1, monto: 0 });
     });
 
     /** ⛔ No se pudo leer ≠ «nada espera»: el contador no dice 0 y la pestaña lo dice. */
@@ -1125,15 +1232,197 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(txt()).toContain('hay más');
     });
 
-    /** El folio busca el vale en el buscador de arriba: un solo visor, con lo que esta pantalla ofrece. */
-    it('«Ver» busca el folio arriba', () => {
-      TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+    const buscar = (q: string) => http.expectOne((r) => r.url.includes('/finance/expenses/proofs/buscar') && r.params.get('q') === q);
+    const HALLADO = (vales: ExpedienteDelDia[]): ResultadoBusquedaGastos =>
+      ({ q: '0000501', vales, vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null });
+
+    /**
+     * `[PGP.123]` G.UI.4 — El folio abre el vale en el panel SIN tocar la cola. Antes lo buscaba arriba: la búsqueda
+     * reemplazaba la lista y al cerrar se perdía el lugar (~2 acciones extra por vale). Al cerrar, el foco vuelve a su renglón.
+     */
+    it('el folio abre el vale en el panel sin tocar la cola ni el buscador, y al cerrar el foco vuelve a su renglón', async () => {
       montar();
       colaKepler().flush(RESP());
-      c.verEnBuscador('0000501');
-      http.expectOne((r) => r.url.includes('/finance/expenses/proofs/buscar')).flush(
-        { q: '0000501', vales: [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null });
-      expect(TestBed.inject(BuscadorGastosEstado).busqueda()).toBe('0000501');
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const boton = [...fix.nativeElement.querySelectorAll('.ap-kep-folio')].find((b: Element) => b.textContent?.trim() === '0000501') as HTMLButtonElement;
+      boton.click();
+      boton.click(); // un doble clic no abre dos veces
+      buscar('0000501').flush(HALLADO([F({ id: 'k1', folio_solicitud: '0000501', status: 'validada' })]));
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('k1');
+      expect(TestBed.inject(BuscadorGastosEstado).busqueda()).toBe('');
+      expect(c.pestana()).toBe('kepler');
+      expect(fix.nativeElement.querySelectorAll('.ap-kep').length).toBe(2); // la cancelada vive en su lista
+      c.cerrarSiHaceFalta(false);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(document.activeElement).toBe(boton);
+    });
+
+    it('si la búsqueda no trae el vale, lo dice y no abre otro', () => {
+      montar();
+      colaKepler().flush(RESP());
+      const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+      c.abrirDesdeCola(K());
+      buscar('0000501').flush(HALLADO([F({ id: 'otro', folio_solicitud: '0000501' })]));
+      expect(c.abierto()).toBeNull();
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'warn', summary: 'No se pudo abrir el vale' }));
+    });
+
+    /** G.UI.5 — El panel recibe el gasto del vale, si el vale espera su gasto; si no, el eslabón no se pinta. */
+    it('el panel recibe el gasto (X-A-10) del vale abierto, sólo si espera su gasto', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: DIFIEREN }), K({ id: 'k2', espera: 'falta_autorizar', kepler_estado: 'N' })] }));
+      c.abrir(F({ id: 'k1', folio_solicitud: '0000501', status: 'validada' }));
+      fix.detectChanges();
+      expect(c.gastoDelAbierto()).toEqual(DIFIEREN);
+      expect(document.body.textContent).toContain('Gasto en Kepler (X-A-10)');
+      c.abrir(F({ id: 'k2', folio_solicitud: '0000502', status: 'validada' }));
+      expect(c.gastoDelAbierto()).toBeUndefined();
+      c.abrir(F({ id: 'fuera', status: 'validada' }));
+      expect(c.gastoDelAbierto()).toBeUndefined();
+    });
+
+    /** G.9 — «Escribir el gasto ahora»: el POST, lo que quedó dicho en llano, y la cola se vuelve a pedir. */
+    it('escribir el gasto ahora: dice cómo quedó y vuelve a pedir la cola', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: LISTO_ABIERTA })] }));
+      const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+      c.reintentarGasto('k1');
+      const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/k1/reintentar-gasto'));
+      req.flush({ id: 'k1', status: 'written', folio: '0000123', poliza: 'kdc22611/D/4', fecha: '2026-11-10', nota: null, intentos: 1, siguiente: null });
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success', detail: 'X-A-10 0000123 · póliza D 4 (nov 2026).' }));
+      colaKepler().flush(RESP({ vales: [] }));
+      expect(c.actuando()).toBeNull();
+    });
+
+    it('si no se escribe, dice el motivo del servidor (no un «listo» falso)', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ gasto_kepler: LISTO_ABIERTA })] }));
+      const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+      c.reintentarGasto('k1');
+      http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/k1/reintentar-gasto'))
+        .flush({ id: 'k1', status: 'pending', folio: null, poliza: null, fecha: null, nota: 'La escritura de gastos a Kepler todavía está apagada en esta base', intentos: 0, siguiente: null });
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'warn', detail: 'La escritura de gastos a Kepler todavía está apagada en esta base' }));
+      colaKepler().flush(RESP());
+    });
+  });
+
+  /**
+   * `[PGP.123]` G.UI.1c — **«Canceladas en Kepler»**, su propia lista (pedido de Francisco, 2026-11-16). Las canceladas
+   * no esperan nada de Kepler: antes las que tenían gasto iban plegadas en la cola y las que no, en ninguna lista
+   * (en prod: 14 vales, $267,457.05 capturados).
+   */
+  describe('[PGP.123] G.UI.1c la lista «Canceladas en Kepler»', () => {
+    const K = (over: Partial<ValeEsperaKepler> = {}): ValeEsperaKepler => ({
+      id: 'k1', folio_solicitud: '0000501', sucursal: '00', proveedor: 'PROVEEDOR DEMO', importe: 1000,
+      created_by: 'demo.capturista', validated_by: 'demo.revisor', revisado_at: '2026-10-01T10:00:00.000Z',
+      dias: 36, espera: 'falta_generar_gasto', hallazgo: false, kepler_estado: 'A', ...over,
+    });
+    const VALES = [
+      K(),
+      K({ id: 'h1', folio_solicitud: '0000503', espera: null, hallazgo: true, kepler_estado: 'C', importe: 0, importe_capturado: 712.43 }),
+      K({ id: 's1', folio_solicitud: '0000505', espera: null, hallazgo: false, kepler_estado: 'C', importe: 0, importe_capturado: 5000 }),
+    ];
+    const colaKepler = () => http.expectOne((r) => r.url.includes('/finance/expenses/proofs/esperan-kepler'));
+    const txt = () => fix.nativeElement.textContent as string;
+
+    it('⛔ la cancelada SIN gasto también se ve, con lo capturado y su frase; partida de la que sí tenía gasto', () => {
+      montar();
+      colaKepler().flush({ vales: VALES, truncado: false, medido: true });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      const t = txt();
+      expect(t).toContain('2 canceladas por revisar · $5,712.43');
+      expect(t).toContain('con su gasto ya generado: 1 · sin gasto: 1');
+      expect(t).toContain('Con su gasto ya generado: ¿salió dinero?');
+      expect(t).toContain('Sin gasto: ¿se volvió a capturar con otro folio?');
+      // El renglón no repite el título de su sección: dice lo que dejó Kepler y quién capturó y revisó.
+      expect((t.match(/¿salió dinero\?/g) ?? []).length).toBe(1);
+      expect(t).toContain('$5,000.00');
+      expect(t).toContain('en Kepler quedó en $0.00 · capturó');
+      // Lo que no tiene: todavía no hay cómo darlas por revisadas, y se dice.
+      expect(t).toContain('Todavía no hay cómo darlas por revisadas');
+      expect(t).not.toContain('0000501');
+    });
+
+    it('ningún vale está en dos listas: las dos suman lo que trae la cola', () => {
+      montar();
+      colaKepler().flush({ vales: VALES, truncado: false, medido: true });
+      const k = c.conteo('kepler'), x = c.conteo('canceladas');
+      expect(k.n + x.n).toBe(VALES.length);
+      expect(k).toEqual({ n: 1, monto: 1000 });
+      expect(x).toEqual({ n: 2, monto: 5712.43 });
+    });
+
+    it('⛔ sin leer Kepler no afirma que no hay canceladas', () => {
+      montar();
+      colaKepler().flush('boom', { status: 500, statusText: 'Server Error' });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(txt()).toContain('no se puede saber qué se canceló');
+      expect(txt()).not.toContain('Ningún vale comprobado tiene su solicitud cancelada');
+    });
+
+    it('vacía y medida, lo dice', () => {
+      montar();
+      colaKepler().flush({ vales: [K()], truncado: false, medido: true });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(txt()).toContain('Ningún vale comprobado tiene su solicitud cancelada en Kepler.');
+    });
+
+    /**
+     * `[PGP.123]` G.UI.1e — Cerrar el caso: cada renglón ofrece lo que su pista permite (ligar, sólo a una recaptura libre;
+     * rechazar, sólo si la recaptura ya tiene su vale) y siempre «Ya lo revisé». Lo revisado va plegado, con quién y qué.
+     */
+    const PISTA = (recapturas: { folio: string; estado: string; fecha: string | null; con_vale: boolean }[]) =>
+      ({ forma_pago: 'efectivo', pagos: [], recapturas, gasto_vivo: null });
+    const CERRABLES = [
+      K({ id: 'l1', folio_solicitud: '0010142', espera: null, kepler_estado: 'C', importe: 0, importe_capturado: 5000, cancelada_revisada: null,
+        pista_cancelada: PISTA([{ folio: '0010181', estado: 'N', fecha: '2026-10-07', con_vale: false }]) }),
+      K({ id: 'r1', folio_solicitud: '0000503', espera: null, hallazgo: true, kepler_estado: 'C', importe: 0, importe_capturado: 712.43, cancelada_revisada: null,
+        pista_cancelada: PISTA([{ folio: '0000600', estado: 'A', fecha: '2026-10-08', con_vale: true }]) }),
+      K({ id: 'ok', folio_solicitud: '0000504', espera: null, hallazgo: true, kepler_estado: 'C', importe: 0, importe_capturado: 100,
+        cancelada_revisada: { por: 'Nombre Demo', at: '2026-11-16T18:00:00.000Z', nota: 'Se capturó otra vez a mano' }, pista_cancelada: PISTA([]) }),
+    ];
+    const botones = () => [...fix.nativeElement.querySelectorAll('.ap-kep-acc button')].map((b: Element) => b.textContent?.trim());
+
+    it('G.UI.1e: lo pendiente se cierra con lo que permite su pista; lo revisado va plegado, con quién y qué', () => {
+      montar();
+      colaKepler().flush({ vales: CERRABLES, truncado: false, medido: true });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(botones()).toEqual(['Rechazar por repetido', 'Ya lo revisé', 'Ligar a XA1501-0010181', 'Ya lo revisé']);
+      expect(c.conteo('canceladas')).toEqual({ n: 2, monto: 5712.43 });
+      expect(txt()).toContain('2 canceladas por revisar · $5,712.43');
+      expect(txt()).toContain('revisadas: 1');
+      expect(txt()).toContain('Revisó Nombre Demo el 16/11/26: Se capturó otra vez a mano');
+      expect(txt()).toContain('ciérrala');
+    });
+
+    it('⛔ sin la migración (el servidor no manda la revisión) no ofrece cerrar, y lo dice', () => {
+      montar();
+      colaKepler().flush({ vales: CERRABLES.slice(0, 1).map((v) => ({ ...v, cancelada_revisada: undefined })), truncado: false, medido: true });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      expect(botones()).toEqual([]);
+      expect(txt()).toContain('Todavía no hay cómo darlas por revisadas');
+    });
+
+    it('abrir el cierre lleva el modo y el folio; al terminar, avisa y vuelve a pedir la cola', () => {
+      montar();
+      colaKepler().flush({ vales: CERRABLES, truncado: false, medido: true });
+      c.verPestana('canceladas');
+      fix.detectChanges();
+      const ligar = [...fix.nativeElement.querySelectorAll('.ap-kep-acc button')].find((b: Element) => b.textContent?.includes('Ligar')) as HTMLButtonElement;
+      ligar.click();
+      expect(c.cierre()).toEqual({ vale: CERRABLES[0], modo: 'ligar', folio: '0010181' });
+      const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+      c.alCerrarCancelada({ modo: 'ligar', id: 'l1', folio: '0010181' });
+      expect(c.cierre()).toBeNull();
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'success', detail: 'El vale ahora es de la solicitud XA1501-0010181.' }));
+      colaKepler().flush({ vales: [], truncado: false, medido: true });
     });
   });
 
