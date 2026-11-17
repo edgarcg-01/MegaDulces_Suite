@@ -1263,5 +1263,16 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
       hábil lo mismo que `existencia-aux` en promedio, y de noche casi nada; `existencia-aux` cuesta lo mismo las 24 h.
     - Recalibrar el modelo con estas cifras es el siguiente ajuste. Conviene que las tres constantes vivan como dato (en
       `analytics.existencia_por_evento`) y no en la función, para calibrarlas sin migración.
+  - **Recalibrado como dato (2026-11-17, migración `20261117160520`).** La tabla `analytics.existencia_costo` tiene UN
+    renglón con las cuatro constantes, sembrado con el ajuste de prod: 335 ms + 40 ms por SKU + 0.027 ms por línea, y
+    20 s de referencia si nunca hubo un completo. `drenar_existencia` lo lee en cada corrida.
+    - **Recalibrar es un UPDATE**, comparando `estimado_ms` con `ms` en `existencia_corridas`. Sin renglón, la
+      función usa los valores sembrados: la falta de calibración nunca hace fallar al que drena.
+    - **Va en una tabla nueva y no como columnas de `existencia_por_evento`** (lo que decía arriba): ésa la leen los
+      disparadores en cada escritura de la ingesta, y un `ALTER` sobre ella esperaría a sus transacciones y frenaría
+      las siguientes. Una tabla nueva no toma candado sobre nada que exista, así que puede ir en horario.
+    - El resto de la función es letra por letra el de `20261117140515`: se arma reemplazando sólo la estimación, y el
+      md5 de esa función es igual al de la que corre en prod.
+    - **Prueba** `test-newdb-costo-como-dato`: 12 ✓ en una base mínima y en una tipo CI, con los 7 mutantes muertos.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).
