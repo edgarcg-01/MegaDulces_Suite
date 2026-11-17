@@ -727,7 +727,8 @@ servicio real.
 **Lecciones:**
 - ⭐ **Antes de crear un disparador, buscar el aviso que ya existe.** `bancos_movimientos` llevaba seis días emitiéndose
   desde la carga del libro; bastó escucharlo. Y la tabla que parecía la obvia para escuchar (la conciliación) se
-  reescribe entera en cada corrida: un disparador ahí habría avisado miles de veces por nada.
+  escribe en ráfagas ajenas a la llegada del banco (29,400 altas en 9 minutos, ninguna de un abono recién cargado): un
+  disparador ahí avisaría por re-evaluaciones de periodos viejos, no por depósitos nuevos.
 - ⭐ **La lectura real encontró lo que el doble no podía:** de una CLABE salió «7133 4». Con el filtro por cuenta de
   antes, esa ficha habría dicho «no aparece». Un dato leído por un modelo desempata; no filtra.
 - **Una prueba que pasa con el mutante no prueba nada:** el caso «cuenta mal leída» pasaba también con el filtro puesto,
