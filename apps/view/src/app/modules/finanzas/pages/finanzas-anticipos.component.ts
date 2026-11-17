@@ -8,19 +8,16 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
-import { SelectModule } from 'primeng/select';
-import { DatePickerModule } from 'primeng/datepicker';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import {
-  faltaCancelarAnticipo, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, partirMotivo, tipoDeAcreedor, warehouseName,
-  type AnticipoDeudaRow, type AnticipoGrupo, type AnticipoOcRow, type AnticipoProveedorRow, type AnticipoRow,
-  type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type EtapaSolicitudAnticipo,
+  faltaCancelarAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, partirMotivo, tipoDeAcreedor, warehouseName,
+  type AnticipoDeudaRow, type AnticipoGrupo, type AnticipoRow,
+  type AnticipoSolicitadoRow, type EtapaSolicitudAnticipo,
 } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { leerPesos } from './calendario-pagos-descuento';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -31,6 +28,7 @@ import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { DEUDA_PROVEEDORES_TABS } from '../deuda-proveedores-tabs';
 import { PAGO_PROVEEDOR_TABS } from '../../compras/pago-proveedor-tabs';
 import { ActivatedRoute } from '@angular/router';
+import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 
 /** Un anticipo con lo que la pantalla deriva de él. */
 interface Fila extends AnticipoRow { grupo: AnticipoGrupo }
@@ -54,7 +52,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
 @Component({
   selector: 'app-finanzas-anticipos',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, DialogModule, SelectModule, DatePickerModule, ToastModule,
+  imports: [FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, DialogModule, ToastModule, PedirAnticipoDialogComponent,
     MetricStripComponent, LoadStateComponent, FreshnessPillComponent, PageTabsComponent, ContextHelpComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -202,57 +200,8 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
     </div>
 
     <!-- [PGP.119] Pedir un anticipo. La misma regla que el servidor apaga el botón y dice por qué. -->
-    <p-dialog [visible]="pedidoVisible()" (visibleChange)="$event || cerrarPedido()" [modal]="true" header="Pedir anticipo a proveedor" [style]="{ width: '34rem' }">
-      <p class="an-help">Entra al Calendario de pagos como cualquier pago: se programa, Dirección lo autoriza y Tesorería lo paga. El anticipo sólo se puede aplicar después contra facturas de la sucursal que elijas.</p>
-      <label class="an-label" for="an-prov">Proveedor (de mercancía)</label>
-      @if (pedProv(); as p) {
-        <div class="an-elegido"><span><b>{{ p.name }}</b> <span class="an-muted">{{ p.code }}</span></span>
-          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="quitarProveedor()" [attr.aria-label]="'Cambiar el proveedor ' + p.name">Cambiar</button></div>
-      } @else {
-        <input id="an-prov" pInputText type="search" autocomplete="off" enterkeyhint="search" class="an-full" placeholder="Nombre o código del proveedor"
-               [ngModel]="pedBusca()" (ngModelChange)="buscarProveedor($event)" />
-        @if (pedOpciones().length) {
-          <ul class="an-opciones" role="listbox" aria-label="Proveedores encontrados">
-            @for (o of pedOpciones(); track o.id) {
-              <li><button type="button" class="an-opcion" role="option" (click)="elegirProveedor(o)">{{ o.name }} <span class="an-muted">{{ o.code }}</span></button></li>
-            }
-          </ul>
-        }
-      }
-      @if (pedProv()) {
-        <label class="an-label" for="an-oc">Orden de compra (opcional)</label>
-        <p-select inputId="an-oc" appendTo="body" [options]="ocOpciones()" optionLabel="label" optionValue="value" [ngModel]="pedOc()" (ngModelChange)="elegirOc($event)"
-                  [showClear]="true" placeholder="Sin OC" [fluid]="true" [loading]="pedOcsCargando()" />
-        @if (ocElegida(); as oc) {
-          <p class="an-muted">OC de {{ money2(oc.total) }}; ya tiene {{ money2(oc.anticipado) }} en anticipos. El anticipo no pasa de lo que queda.</p>
-        }
-      }
-      <div class="an-campos">
-        <div>
-          <label class="an-label" for="an-suc">Sucursal en Kepler</label>
-          <p-select inputId="an-suc" appendTo="body" [options]="sucursales" optionLabel="label" optionValue="value" [ngModel]="pedSuc()" (ngModelChange)="pedSuc.set($event)" placeholder="Elige" [fluid]="true" />
-        </div>
-        <div>
-          <label class="an-label" for="an-monto">Importe</label>
-          <input id="an-monto" pInputText type="text" inputmode="decimal" autocomplete="off" class="an-full comm-num" [ngModel]="pedMonto()" (ngModelChange)="pedMonto.set($event)" />
-        </div>
-      </div>
-      <div class="an-campos">
-        <div>
-          <label class="an-label" for="an-fecha">Pagar el</label>
-          <p-datepicker inputId="an-fecha" [ngModel]="pedFecha()" (ngModelChange)="pedFecha.set($event)" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" [minDate]="hoy" [fluid]="true" />
-        </div>
-        <div>
-          <label class="an-label" for="an-motivo">Para qué es</label>
-          <input id="an-motivo" pInputText type="text" autocomplete="off" class="an-full" [ngModel]="pedMotivo()" (ngModelChange)="pedMotivo.set($event)" placeholder="Ej. apartar producto de temporada" />
-        </div>
-      </div>
-      @if (pedFalta(); as f) { <p class="an-muted" aria-live="polite">{{ f }}</p> }
-      <div class="an-acciones">
-        <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarPedido()">Cancelar</button>
-        <button pButton type="button" [disabled]="!!pedFalta() || pedGuardando()" [loading]="pedGuardando()" (click)="guardarPedido()">Pedir anticipo</button>
-      </div>
-    </p-dialog>
+    <!-- [PGP.119]/[PGP.138] El diálogo es compartido con el Calendario de pagos: una sola interfaz del flujo. -->
+    <app-pedir-anticipo-dialog [(visible)]="pedidoVisible" (pedido)="alPedir($event)" />
 
     <!-- [PGP.126] Cancelar un anticipo pedido que todavía no tiene pago. La razón queda junto a su motivo. -->
     <p-dialog [visible]="!!cancelando()" (visibleChange)="$event || cerrarCancelar()" [modal]="true" header="Cancelar anticipo pedido" [style]="{ width: '30rem' }">
@@ -295,15 +244,8 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .an-label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: var(--sp-3) 0 var(--sp-1); }
     .an-full { width: 100%; }
-    .an-campos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
-    .an-elegido { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-    .an-opciones { list-style: none; margin: var(--sp-1) 0 0; padding: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); max-height: 14rem; overflow-y: auto; }
-    .an-opcion { display: block; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); background: none; border: 0; color: var(--text-main); font: inherit; cursor: pointer; }
-    .an-opcion:hover { background: var(--overlay-hover); }
-    .an-opcion:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .an-acciones { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4); }
     @container (max-width: 48rem) { .an-body { padding: var(--sp-2) 1rem var(--sp-6); } }
-    @media (max-width: 40rem) { .an-campos { grid-template-columns: 1fr; } }
   `],
 })
 export class FinanzasAnticiposComponent implements OnInit {
@@ -332,40 +274,12 @@ export class FinanzasAnticiposComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly obligaciones = `${environment.apiUrl}/commercial/supplier-obligations`;
-  private buscaTimer?: ReturnType<typeof setTimeout>;
   /** Pide quien da de alta obligaciones de pago: los 5 roles de Compras (D1; medido 2026-11-13). */
   readonly puedePedir = computed(() => this.perms.has(Permission.COMPRAS_OBLIGACIONES_GESTIONAR));
   readonly solicitados = signal<AnticipoSolicitadoRow[]>([]);
   readonly solicitadosError = signal(false);
   readonly porProgramar = computed(() => this.solicitados().filter((s) => s.etapa === 'por_programar'));
-  readonly sucursales = ['00', '01', '02', '03', '04', '05', '06', '07', '08'].map((c) => ({ label: warehouseName(c), value: c }));
-  readonly hoy = new Date();
   readonly pedidoVisible = signal(false);
-  readonly pedBusca = signal('');
-  readonly pedOpciones = signal<AnticipoProveedorRow[]>([]);
-  readonly pedProv = signal<AnticipoProveedorRow | null>(null);
-  readonly pedOcs = signal<AnticipoOcRow[]>([]);
-  readonly pedOcsCargando = signal(false);
-  readonly pedOc = signal<string | null>(null);
-  readonly pedSuc = signal<string | null>(null);
-  readonly pedMonto = signal('');
-  readonly pedFecha = signal<Date | null>(null);
-  readonly pedMotivo = signal('');
-  readonly pedGuardando = signal(false);
-  readonly ocOpciones = computed(() => this.pedOcs().map((o) => ({
-    label: `OC ${o.folio} · ${warehouseName(o.sucursal)} · ${this.money(o.total)}${o.anticipado > 0 ? ` (ya ${this.money(o.anticipado)} en anticipos)` : ''}`, value: o.id,
-  })));
-  readonly ocElegida = computed(() => { const id = this.pedOc(); return this.pedOcs().find((o) => o.id === id) ?? null; });
-  /** Por qué todavía no se puede pedir: la MISMA regla que el servidor (`faltaSolicitudAnticipo`). */
-  readonly pedFalta = computed<string | null>(() => {
-    // Todas las señales se leen siempre (sin cortocircuito): el computed no se queda sin dependencias.
-    const prov = this.pedProv(), suc = this.pedSuc(), leido = leerPesos(this.pedMonto()), motivo = this.pedMotivo(), fecha = this.pedFecha(), oc = this.ocElegida();
-    if (leido.error) return leido.error;
-    return faltaSolicitudAnticipo({
-      supplier_code: prov?.code ?? null, sucursal: suc, monto: leido.pesos ?? 0, motivo, fecha: this.ymd(fecha),
-      oc: oc ? { total: oc.total, anticipado: oc.anticipado, folio: oc.folio } : null,
-    });
-  });
 
   sumaMonto(xs: readonly { monto: number }[]): number { return xs.reduce((s, x) => s + Number(x.monto), 0); }
 
@@ -377,54 +291,11 @@ export class FinanzasAnticiposComponent implements OnInit {
     });
   }
 
-  abrirPedido(): void {
-    this.pedBusca.set(''); this.pedOpciones.set([]); this.pedProv.set(null); this.pedOcs.set([]); this.pedOc.set(null);
-    this.pedSuc.set(null); this.pedMonto.set(''); this.pedFecha.set(new Date()); this.pedMotivo.set('');
-    this.pedidoVisible.set(true);
-  }
-  cerrarPedido(): void { this.pedidoVisible.set(false); }
-  buscarProveedor(t: string): void {
-    this.pedBusca.set(t);
-    clearTimeout(this.buscaTimer);
-    if (!t.trim()) { this.pedOpciones.set([]); return; }
-    this.buscaTimer = setTimeout(() => {
-      this.http.get<AnticipoProveedorRow[]>(`${this.obligaciones}/anticipo/proveedores`, { params: { search: t } }).pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({ next: (r) => this.pedOpciones.set(r ?? []), error: () => this.pedOpciones.set([]) });
-    }, 250);
-  }
-  elegirProveedor(p: AnticipoProveedorRow): void {
-    this.pedProv.set(p); this.pedOpciones.set([]); this.pedOc.set(null); this.pedOcs.set([]); this.pedOcsCargando.set(true);
-    this.http.get<AnticipoOcRow[]>(`${this.obligaciones}/anticipo/ocs`, { params: { supplier_id: p.id } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.pedOcs.set((r ?? []).map((o) => ({ ...o, total: Number(o.total), anticipado: Number(o.anticipado) }))); this.pedOcsCargando.set(false); },
-      error: () => { this.pedOcs.set([]); this.pedOcsCargando.set(false); },
-    });
-  }
-  quitarProveedor(): void { this.pedProv.set(null); this.pedOcs.set([]); this.pedOc.set(null); }
-  /** Al elegir la OC, la sucursal pasa a ser la de la OC (ahí llegarán sus facturas); se puede cambiar. */
-  elegirOc(id: string | null): void {
-    this.pedOc.set(id);
-    const oc = this.pedOcs().find((o) => o.id === id);
-    if (oc?.sucursal) this.pedSuc.set(oc.sucursal);
-  }
-  /** El botón se apaga en el primer clic; el servidor vuelve a revisar la OC y el tope. */
-  guardarPedido(): void {
-    if (this.pedFalta() || this.pedGuardando()) return;
-    const prov = this.pedProv()!;
-    const body: AnticipoSolicitudBody = {
-      supplier_id: prov.id, sucursal: this.pedSuc()!, monto: leerPesos(this.pedMonto()).pesos!, motivo: this.pedMotivo().trim(),
-      purchase_order_id: this.pedOc(), fecha: this.ymd(this.pedFecha()),
-    };
-    this.pedGuardando.set(true);
-    this.http.post<{ obligation_id: string; monto: number; concepto: string }>(`${this.obligaciones}/anticipo`, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.pedGuardando.set(false); this.pedidoVisible.set(false); this.cargarSolicitados();
-        this.toast.add({ severity: 'success', summary: 'Anticipo pedido', detail: `${prov.name}: ${this.money2(r.monto)} (${r.concepto}). Ya está en el Calendario de pagos, por programar.` });
-      },
-      error: (e) => {
-        this.pedGuardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pidió el anticipo', detail: e?.error?.message || 'Intenta de nuevo en un momento.', life: 10000 });
-      },
-    });
+  abrirPedido(): void { this.pedidoVisible.set(true); }
+  /** El diálogo ya creó la obligación: se avisa y se vuelve a leer el seguimiento. */
+  alPedir(r: AnticipoPedido): void {
+    this.cargarSolicitados();
+    this.toast.add({ severity: 'success', summary: 'Anticipo pedido', detail: `${r.proveedor}: ${this.money2(r.monto)} (${r.concepto}). Ya está en el Calendario de pagos, por programar.` });
   }
 
   // ── `[PGP.126]` Cancelar un pedido sin pago ──────────────────────────────────────────────
@@ -471,10 +342,6 @@ export class FinanzasAnticiposComponent implements OnInit {
       case 'aplicado': return `Anticipo ${s.kepler?.folio}: Kepler ya lo aplicó entero.`;
       case 'cancelado': { const c = partirMotivo(s.motivo).cancelacion; return c ? `Cancelado: ${c}.` : 'Cancelado.'; }
     }
-  }
-  private ymd(d: Date | null): string | null {
-    if (!d || Number.isNaN(d.getTime())) return null;
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   /**
@@ -592,7 +459,6 @@ export class FinanzasAnticiposComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => clearTimeout(this.buscaTimer));
     this.cargar();
   }
 

@@ -92,6 +92,7 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 | 7 | **Anticipos** (`X-D-60`) | `[PGP.136]` | Medio · $0.9 M | M | 3 | El anticipo ya nace en la Suite (`[PGP.119]`); falta escribir su documento al pagarlo |
 | 8 | **Póliza de ContPAQi** | `[PGP.112]` (ya existe) | Alto | L | 2 | La Suite arma el TXT; Contabilidad lo importa con un clic (ADR-040: la Suite no escribe directo en ContPAQi) |
 | 9 | **Archivo de dispersión del banco** (D1-c) | `[PGP.137]` | Alto | L | 2 | Que la Suite arme el lote para el portal del banco. Requiere el catálogo de cuentas destino (O6/O7 de la fase) |
+| 10 | **Aplicar el anticipo** (agregado 2026-11-17) | `[PGP.139]` 🧪 · `[PGP.140]` | Alto · $2.0 M aplicables hoy, $3.6 M de +90 días | S (aviso) · M (escritura) | **1** | El aviso en la fila del pago ya está en código; la escritura en Kepler (`kdxf` + saldos) espera leer una aplicación entera en el Kepler vivo |
 
 ⭐ **Con los frentes 1 y 2, el 75 % del dinero `C…` deja de teclearse.** Con 4 y 6, el 96 %; con los anticipos, el 98 %.
 
@@ -147,6 +148,7 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 
 - **2026-11-17** — Plan. Universo medido; D1–D7 esperando a Edgar.
 - **2026-11-17** — Edgar firma D1–D7 como se recomendaban («si, firmo»). Empieza `[PGP.130]`.
+- **2026-11-17** — Frente 10, aplicar el anticipo: en 90 días salieron $1.6 M en efectivo que un anticipo sin aplicar ya cubría. `[PGP.139]` lo avisa en la fila del pago; `[PGP.140]` (la escritura en Kepler) queda con su C0 medido.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado

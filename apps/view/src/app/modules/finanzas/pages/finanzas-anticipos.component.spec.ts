@@ -157,26 +157,15 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     expect(txt).toContain('2 anticipos de Kepler podían ser');
   });
 
-  it('⛔ NEGATIVA [PGP.119] — el pedido no sale sin proveedor, sin motivo, con un importe ambiguo o sobre el saldo de la OC', () => {
+  // `[PGP.138]` El formulario vive en `PedirAnticipoDialogComponent` (compartido con el Calendario); su regla se
+  // prueba en su propio spec. Aquí: la página lo abre y, al pedir, vuelve a leer el seguimiento.
+  it('[PGP.119] «Pedir anticipo» abre el diálogo compartido y, al pedir, vuelve a leer lo pedido en la Suite', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
+    expect(c.pedidoVisible()).toBe(false);
     c.abrirPedido();
-    expect(c.pedFalta()).toMatch(/proveedor/);
-    c.elegirProveedor({ id: '11111111-1111-1111-1111-111111111111', code: 'CA001', name: 'DULCES DEL NORTE' });
-    http.expectOne((r) => r.url.endsWith('/anticipo/ocs')).flush([{ id: 'oc1', folio: 'OC-9', sucursal: '03', estado: 'open', total: 10000, anticipado: 8000, creada: '2026-11-01' }]);
-    c.elegirOc('oc1');
-    expect(c.pedSuc()).toBe('03');   // la sucursal pasa a ser la de la OC
-    c.pedMonto.set('1166,40');
-    expect(c.pedFalta()).toMatch(/centavos con punto/);   // ambiguo: no se adivina
-    c.pedMonto.set('2,500.00');
-    c.pedMotivo.set('temporada');
-    expect(c.pedFalta()).toMatch(/quedan \$2000\.00/);    // OC de 10,000 con 8,000 ya anticipados
-    c.pedMonto.set('2000');
-    expect(c.pedFalta()).toBeNull();
-    c.guardarPedido();
-    const req = http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipo') && r.method === 'POST');
-    expect(req.request.body).toMatchObject({ supplier_id: '11111111-1111-1111-1111-111111111111', sucursal: '03', monto: 2000, motivo: 'temporada', purchase_order_id: 'oc1' });
-    req.flush({ obligation_id: 'n1', monto: 2000, concepto: 'Anticipo · OC OC-9 · 8 Esquinas' });
+    expect(c.pedidoVisible()).toBe(true);
+    c.alPedir({ obligation_id: 'n1', monto: 2000, concepto: 'Anticipo · OC OC-9', proveedor: 'DULCES DEL NORTE', fecha: '2026-11-20' });
     http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
 

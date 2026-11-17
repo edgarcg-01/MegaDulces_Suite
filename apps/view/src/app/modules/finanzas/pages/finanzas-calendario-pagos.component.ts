@@ -42,6 +42,8 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
+import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
+import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
@@ -188,7 +190,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -196,6 +198,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     <div class="surf-page in cal-page">
       <app-entity-inspector [(ref)]="inspect" />
       <p-toast></p-toast>
+      <!-- [PGP.138] Pedir anticipo desde el Calendario: el diálogo compartido con Anticipos (una sola interfaz del flujo). -->
+      @if (puedeProgramarAnticipo()) {
+        <app-pedir-anticipo-dialog modo="programar" [(visible)]="anticipoVisible" [fechaInicial]="fechaDelDia()" (pedido)="anticipoPedido($event)" />
+      }
       <!-- ⛔ [PGP.52] REDISEÑO: una columna y un paso a la vez. Edgar (2026-11-03), tras tres rondas de
            parches: «sigue siendo un asco, necesito un rediseño a una más simple». Medido en su captura:
            ~70 controles y ~60 cifras en la primera pantalla, CINCO preguntas contestadas a la vez (la
@@ -455,6 +461,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               @if (avisoAlta(); as av) {
                 <p class="pg-alta" role="status"><i class="pi pi-check" aria-hidden="true"></i>{{ av }}</p>
               }
+              @if (anticiposError()) {
+                <!-- [PGP.139] Sin esta lectura no aparece el aviso de anticipo: se dice, no se calla. -->
+                <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los anticipos sin aplicar: el aviso de anticipo de cada proveedor no aparece. No es que no haya.
+                  <button type="button" class="pg-link" (click)="loadAnticipos()">Reintentar</button></p>
+              }
               @if (creditosError()) {
                 <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo leer el crédito a favor de los acreedores: los avisos de «a favor sin aplicar» no aparecen. No es que no haya.</p>
               }
@@ -469,6 +480,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   }
                   @if (obligacionesEnRevision().length) {
                     <button type="button" class="pg-link" (click)="verLista.set(true); verRevision.set(true)"><i class="pi pi-lock" aria-hidden="true"></i>{{ obligacionesEnRevision().length }} por confirmar</button>
+                  }
+                  <!-- [PGP.138] Programar un anticipo en este día: sólo Dirección (Edgar, 2026-11-17), y nunca en un día que ya pasó. -->
+                  @if (puedeProgramarAnticipo() && !diaPasado()) {
+                    <button type="button" class="pg-link" aria-haspopup="dialog" (click)="anticipoVisible.set(true)"><i class="pi pi-wallet" aria-hidden="true"></i>Programar un anticipo en este día</button>
                   }
                 </p>
               } @else {
@@ -549,7 +564,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 }
                               }
                             </span>
-                            @if (f.pronto || f.credito || f.adelanto || f.suelta) {
+                            @if (f.pronto || f.credito || f.anticipo || f.adelanto || f.suelta) {
                               <span class="pg-sub pg-sub-2">
                                 <!-- [PGP.113] Por qué se puede programar aunque sea de antes del corte. -->
                                 @if (f.suelta; as s) { <span class="pg-pronto-no"><i class="pi pi-lock-open" aria-hidden="true"></i>{{ s }}</span> }
@@ -560,6 +575,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                     <i class="pi pi-replay" aria-hidden="true"></i>{{ c }}<i class="pi pi-angle-right" aria-hidden="true"></i>
                                   </button>
                                 }
+                                <!-- [PGP.139] El anticipo de ESTA sucursal (el crédito de arriba suma todas): se aplica en el pago. -->
+                                @if (f.anticipo; as an) { <span class="pg-pronto-no"><i class="pi pi-wallet" aria-hidden="true"></i>{{ an }}</span> }
                                 <!-- [PGP.16] Lo que cuesta pagarla antes de su vencimiento. -->
                                 @if (f.adelanto; as a) { <span class="pg-pronto-no"><i class="pi pi-clock" aria-hidden="true"></i>{{ a }}</span> }
                               </span>
@@ -813,6 +830,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <!-- [PGP.60] La línea de corte: desde este pago, lo acumulado ya no cabe en el tope. -->
                       @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
+                      <!-- [PGP.139] El anticipo sin aplicar de este proveedor en esta sucursal, sin desplegar el pago: se aplica aquí. -->
+                      @if (anticipoDelPago(a); as an) {
+                        <!-- Sin regla CSS nueva: el bloque de estilos de esta pantalla está en su tope (34 kB). -->
+                        <span class="pg-sub pg-sub-2"><i class="pi pi-wallet" aria-hidden="true"></i> {{ an.texto }}
+                          @if (an.it) {
+                            <button type="button" class="pg-saldada-btn" [disabled]="saving() || loadingWeek()"
+                                    [attr.aria-label]="'Aplicar el anticipo sin aplicar de ' + allocationTitle(a) + ' en ' + an.sucursal + ': ' + money(an.libre)"
+                                    (click)="aplicarAnticipo(a, an.it)">Aplicar</button>
+                          }
+                        </span>
+                      }
                     </td>
                     <!-- [PGP.74] El importe va al lado de a quién: a 2,135 px quedaba a ~1,700 px del nombre y el ojo
                          cruzaba la pantalla para leer cada pago (auditoría externa, 2026-11-04). -->
@@ -2150,6 +2178,44 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 
   readonly canAuthorize = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] === true);
+
+  // ── `[PGP.138]` Programar un anticipo desde el Calendario ────────────────────────────────────
+  /**
+   * Edgar, 2026-11-17: **sólo Dirección**, o sea quien autoriza el Calendario (la misma condición que el botón de
+   * autorizar). El servidor acepta esa llave en los endpoints del anticipo. Tesorería, Finanzas y Contabilidad no:
+   * «Tesorería paga, Compras registra la deuda» (`[TP.13]`, ADR-064). Compras lo sigue pidiendo en su submódulo.
+   */
+  readonly puedeProgramarAnticipo = computed(() => this.canAuthorize());
+  readonly anticipoVisible = signal(false);
+  /** El día que se está viendo (a mediodía: un cambio de horario no lo mueve de día). */
+  readonly fechaDelDia = computed(() => new Date(`${this.selectedDate()}T12:00:00`));
+  /**
+   * El diálogo ya creó la obligación (paso 1). Paso 2: queda como un pago PROPIO en el día que se ve, con el mismo
+   * alta de pagos que usa «Agregar facturas» (no se suma al pago de facturas del proveedor: el anticipo es otro
+   * documento en Kepler). Si el paso 2 falla, se dice que el anticipo SÍ quedó pedido y dónde está: no se pierde ni
+   * se duplica (volver a programarlo crearía otro).
+   */
+  async anticipoPedido(r: AnticipoPedido): Promise<void> {
+    const fecha = this.selectedDate();
+    this.avisoAlta.set(null);
+    this.saving.set(true);
+    try {
+      const creado = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations`, {
+        date: fecha, notes: r.concepto,
+        items: [{ obligation_source: 'supplier_payable', obligation_id: r.obligation_id, applied_amount: r.monto }],
+      }));
+      await this.ordenarNuevos(fecha, creado?.id ? [creado.id] : []);
+      this.avisoAlta.set(`${this.dayLong(fecha)}: anticipo a ${r.proveedor} por ${PESOS.format(r.monto)} programado; está en «Preparar».`);
+    } catch (e) {
+      this.toast.add({ severity: 'error', summary: 'El anticipo quedó pedido, pero no entró al día', life: 12000,
+        detail: `${r.proveedor} por ${PESOS.format(r.monto)}: ${this.errMsg(e, 'no se pudo poner en el día')}. Ya está en las facturas por pagar: búscalo y agrégalo con «+» (no lo vuelvas a programar).` });
+    } finally {
+      this.saving.set(false);
+      this.invalidarDeuda();
+      this.recargarPagos();
+      this.loadObligations({ silencioso: true });
+    }
+  }
   readonly todayIso = this.today();
   printing = signal(false);
   reprogramReasonOpts = REPROGRAM_REASON_OPTS;
@@ -2757,9 +2823,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.14] El credito a favor se precalcula aca, como todo lo demas de este renglon: son
       // ~1,000 filas y formatear en cada ciclo es lo que congelaba la pantalla 15.9 s.
       const cr = this.creditoDe(o);
+      // [PGP.139] El anticipo que se le puede aplicar a ESTA factura (mismo acreedor y SU sucursal): no se paga
+      // en efectivo lo que el anticipo ya cubre. Medido: en 90 días, $1.6 M pudieron netearse y no se netearon.
+      const ant = this.anticipoLibreDe(o.payee_code, o.branch_code, o.obligation_source);
       return {
         o, pronto,
         credito: cr ? `trae ${this.money(cr.a_favor)} a favor sin aplicar (${cr.clases.toLowerCase()})` : null,
+        anticipo: ant > 0.005 ? `tiene ${this.money(ant)} de anticipo sin aplicar en ${this.branchLabel(o.branch_code)}: se descuenta al pagarla` : null,
         // [PGP.16] El costo de adelantar el pago. Pedido de Edgar: «hay que hacer los pagos lo
         // mas cercano a la fecha de vencimiento».
         adelanto: this.adelantoDe(o),
@@ -3790,7 +3860,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * ⛔ Si falla, el botón «Aplicar anticipo» no aparece: su ausencia no afirma que no haya anticipos.
    */
   readonly anticipos = signal<ReadonlyMap<string, AnticipoRow[]>>(new Map());
-  private loadAnticipos(): void {
+  /** `[PGP.139]` La lectura falló: se DICE (si no, la falta del aviso se leería como «no hay anticipos»). */
+  readonly anticiposError = signal(false);
+  loadAnticipos(): void {
+    this.anticiposError.set(false);
     this.http.get<AnticipoRow[]>(`${this.base}/anticipos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
         const m = new Map<string, AnticipoRow[]>();
@@ -3801,7 +3874,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         }
         this.anticipos.set(m);
       },
-      error: () => this.anticipos.set(new Map()),
+      error: () => { this.anticipos.set(new Map()); this.anticiposError.set(true); },
     });
   }
   /**
@@ -3821,6 +3894,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[PGP.120]` Lo que el acreedor tiene libre en anticipos de esa sucursal (lo que el botón ofrece). */
   anticipoLibre(it: PaymentCalendarAllocationItem): number {
     return round2(this.anticiposOfrecidos(it).reduce((s, d) => s + d.disponible, 0));
+  }
+  /**
+   * `[PGP.139]` Lo libre en anticipos de un acreedor en UNA sucursal, para una factura que todavía no está en un pago
+   * (la lista de «Agregar facturas»). Sólo facturas de Kepler: el anticipo se aplica contra ellas.
+   */
+  anticipoLibreDe(payee: string | null | undefined, branch: string | null | undefined, source: string): number {
+    if (source !== 'kepler_payable' || !payee || !branch) return 0;
+    const docs = this.anticipos().get(llaveAnticipo(payee, branch)) ?? [];
+    return round2(docs.reduce((s, d) => s + Math.max(disponibleDeAnticipo(d), 0), 0));
+  }
+  /**
+   * `[PGP.139]` **El anticipo, a la vista del pago** (sin desplegarlo). Edgar, 2026-11-17: «hagamos todo». El botón
+   * «Aplicar anticipo» de `[PGP.120]` vivía dentro del desglose de cada factura y se usó **cero** veces; medido en
+   * prod: en 90 días salieron 86 pagos a proveedores con un anticipo sin aplicar en esa sucursal, y el anticipo pudo
+   * cubrir $1.6 M. Aquí se dice en la fila del pago, donde se decide cuánto se transfiere.
+   * Un pago autorizado está congelado (`[PGP.113]`): se dice, sin botón.
+   */
+  anticipoDelPago(a: PaymentCalendarAllocation): { texto: string; libre: number; sucursal: string; it: PaymentCalendarAllocationItem | null } | null {
+    if (a.status !== 'pending') return null;   // sin calcular lo libre de cada factura en los pagos ya cerrados
+    const v = avisoAnticipoDelPago(a.status, this.autorizadoFila(a),
+      a.items.map((it) => ({ it, libre: this.anticipoLibre(it), yaTiene: this.tieneAnticipo(it) })));
+    if (!v) return null;
+    const sucursal = this.branchLabel((v.it ?? a.items.find((x) => this.anticipoLibre(x) > 0.005))?.branch_code);
+    return v.autorizado
+      ? { texto: `Tiene ${this.money(v.libre)} de anticipo sin aplicar en ${sucursal}; para aplicarlo, quítale la autorización`, libre: v.libre, sucursal, it: null }
+      : { texto: `Tiene ${this.money(v.libre)} de anticipo sin aplicar en ${sucursal}`, libre: v.libre, sucursal, it: v.it };
   }
   /** `[PGP.120]` Por qué no se propuso aplicar el anticipo (alcanza para toda la factura). */
   readonly descAnticipoAviso = signal<string | null>(null);
