@@ -169,3 +169,72 @@ describe('[PQ.28] Lo pedido', () => {
     expect(api.listRequisitions).not.toHaveBeenCalled();
   });
 });
+
+describe('[PQ.127] rechazar TODAS las por aprobar de un golpe', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const pend = () => [
+    fila({ id: 'a', folio: 'RQ-1', estado: 'pending_approval', source_type: 'branch' }),
+    fila({ id: 'b', folio: 'RQ-2', estado: 'pending_approval', source_type: 'branch', requested_by_branch: true }),
+    fila({ id: 'c', folio: 'RQ-3', estado: 'pending_approval', source_type: 'supplier' }),
+  ];
+  const boton = (texto: RegExp) =>
+    Array.from(document.body.querySelectorAll('button')).find((b) => texto.test(b.textContent || '')) as HTMLButtonElement | undefined;
+
+  it('con permiso, «Rechazar las N» abre la franja SIN mandar nada, y la franja dice qué se va', () => {
+    const { f, c, api } = montar({ autorizar: true, pend: pend() });
+    c.abrir(); f.detectChanges();
+    const b = boton(/Rechazar las 3/);
+    expect(b).toBeDefined();
+    b!.click(); f.detectChanges();
+    expect(api.bulkRequisiciones).not.toHaveBeenCalled();
+    expect(c.rechazandoTodas()).toBe(true);
+    const txt = document.body.textContent ?? '';
+    expect(txt).toContain('1 compra y 2 traspasos');
+    expect(txt).toContain('No toca Kepler');
+    expect(txt).toContain('Una la pidió una sucursal');
+    expect(boton(/y enviar a Kepler/)).toBeUndefined();            // mientras se confirma, aprobar no compite
+  });
+
+  it('NEGATIVA: sin motivo no se manda (siempre lo pide, aunque ninguna sea de sucursal)', () => {
+    const { c, api } = montar({ autorizar: true, pend: [fila({ id: 'a', estado: 'pending_approval', source_type: 'branch' })] });
+    c.pedirRechazarTodas();
+    c.motivoTodas = '   ';
+    c.rechazarTodas();
+    expect(api.bulkRequisiciones).not.toHaveBeenCalled();
+  });
+
+  it('con motivo manda reject con TODAS las que se ven y el motivo limpio, y cierra la franja', () => {
+    const { c, api } = montar({ autorizar: true, pend: pend() });
+    c.pedirRechazarTodas();
+    c.motivoTodas = '  la escritura de traspasos sigue apagada  ';
+    c.rechazarTodas();
+    expect(api.bulkRequisiciones).toHaveBeenCalledWith(['a', 'b', 'c'], 'reject', 'la escritura de traspasos sigue apagada');
+    expect(c.rechazandoTodas()).toBe(false);
+  });
+
+  it('si alguna ya tiene folio en Kepler, la franja lo dice (rechazar aquí no la cancela allá)', () => {
+    const { c } = montar({ autorizar: true, pend: [fila({ id: 'a', estado: 'pending_approval', kepler_folio: '0000123' }), fila({ id: 'b', estado: 'pending_approval' })] });
+    expect(c.notaKeplerPorAprobar()).toContain('1 ya tiene folio en Kepler');
+    expect(c.notaKeplerPorAprobar()).not.toContain('No toca Kepler');
+  });
+
+  it('NEGATIVA: sin permiso de autorizar no hay «Rechazar las N» (control: con permiso, sí)', () => {
+    const sin = montar({ autorizar: false, pend: pend() });
+    sin.c.abrir(); sin.f.detectChanges();
+    expect(boton(/Rechazar las 3/)).toBeUndefined();
+    sin.f.destroy(); TestBed.resetTestingModule();
+    const con = montar({ autorizar: true, pend: pend() });
+    con.c.abrir(); con.f.detectChanges();
+    expect(boton(/Rechazar las 3/)).toBeDefined();
+  });
+
+  it('Cancelar no manda nada y devuelve los dos botones', () => {
+    const { f, c, api } = montar({ autorizar: true, pend: pend() });
+    c.abrir(); f.detectChanges();
+    c.pedirRechazarTodas(); f.detectChanges();
+    boton(/^\s*Cancelar\s*$/)!.click(); f.detectChanges();
+    expect(api.bulkRequisiciones).not.toHaveBeenCalled();
+    expect(boton(/Rechazar las 3/)).toBeDefined();
+    expect(boton(/y enviar a Kepler/)).toBeDefined();
+  });
+});
