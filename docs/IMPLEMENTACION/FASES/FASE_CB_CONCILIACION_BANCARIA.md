@@ -641,6 +641,35 @@ Quedan arriba de 500 ms (últimos 7 días): `comisiones-kepler` 570 ms, `ingreso
 
 ---
 
+## 11. `[CB.80–CB.81]` El Cuadre con la descarga del banco, y «Generar en Kepler / póliza» por tipo (2026-11-17)
+
+Edgar: *«/finanzas/bancos?view=cuadre debe funcionar con los movimientos de view=estados y tener un botón: generar en
+Kepler y/o generar póliza»* → *«todas»* (todos los tipos de movimiento).
+
+**El Cuadre con la descarga — `[CB.80]` 🔨 (local `32e8f5e2b`).** El Cuadre 3 vías lee `bank_statements` /
+`bank_movements`; la descarga entra ahí sólo cuando la cuenta «usa el banco» (CB.60b/CB.73). Medido el 2026-11-17:
+**0 de 18 cuentas** la usan, y el libro dejó de cargarse el 10-nov. Botón en Estados de cuenta: «Usar el banco en las
+que cuadran», una confirmación, una por una, fallo parcial dicho. Requiere CB.75 en prod (encabezado derivado).
+
+**«Generar» por tipo — `[CB.81]` ⬜ plan.** Un botón genérico **duplicaría dinero**: medido en octubre (el último mes
+completo del libro), lo que no casó con Kepler es sobre todo lo que Kepler ya tiene de otra forma.
+
+| Tipo (octubre, sin casar) | Movs · monto | Qué sería «generar en Kepler» | Carril que ya existe | Lo que falta | Póliza ContPAQi |
+|---|---:|---|---|---|---|
+| Cobranza (venta cobrada) | 361 · $8.6 M | **No se genera**: Kepler la registra por corte de sucursal (`U-A-5`), no por depósito | — | Declararlo en la fila («Kepler la tiene agrupada por corte») | La de la venta |
+| Traspaso entre cuentas | 21 · $14.0 M | Traspaso de tesorería entre las dos cuentas propias | — | Medir primero cuántos son el otro lado en otra cuenta (CB.69) y cuántos faltan de verdad | — |
+| Compra de mercancía (pago a proveedor) | 12 · $1.83 M | El pago `X-D-26` | **PGP.130** (escribe el `X-D-26` al casar el comprobante) | Desde el retiro: casar con el pago del Calendario y disparar ese carril | La del pago |
+| Comisión bancaria + IVA | 73 · $14 mil | Gasto + pago de la comisión de terminal | **CB.62** (armador y vista; botón apagado) | CB.62.3 (captura real de un alta) y CB.62.4 (escritor apagado, `GRANT` 01–08, ensayo desde `md`, 3 candados) | **CP.8.91** banco × mes; falta la firma de Contabilidad de 5200650000 |
+| Nómina, servicios | 10 · $0.20 M | La solicitud de gasto | **PGP.122** (se escribe en Kepler al firmar) | Crear la solicitud desde el retiro | La del gasto |
+| Pago de crédito (capital) | 7 · $0.23 M | — | — | Sin carril: definir el documento con Finanzas | — |
+| Devoluciones SPEI | 5 · $0.67 M | — | — | Sin carril | — |
+| Sin clasificar | 9 · $2.1 M | — | — | Categorizar primero (CB.70) | — |
+
+**Orden propuesto:** (1) en el detalle del Cuadre, cada movimiento del banco sin Kepler dice su carril y lleva a él (o
+dice por qué no se genera) — sin escribir nada; (2) comisiones (CB.62.3–62.4: necesita un día que Finanzas no toque,
+para capturar un alta real); (3) pagos a proveedor por PGP.130; (4) gastos por PGP.122; (5) traspasos, crédito y
+devoluciones, que no tienen carril. Cada escritor sale apagado, con su ensayo desde `md` y su prueba negativa.
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
