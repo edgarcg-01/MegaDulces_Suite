@@ -710,6 +710,60 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(boton('Cambiar por otro producto')).toBeFalsy();
   });
 
+  // ── [GP.RF.33][GP.RF.34] Escanear marca Completo; ubicación y recorrido (decisión de Edgar, 2026-11-17) ──
+  const CON_APOYO = (): PresalePickDetail => {
+    const d = DETALLE();
+    d.lines[0] = { ...d.lines[0], presentaciones: [{ unit: 'PAQ', codigos: ['7500000000012'] }, { unit: 'CJA', codigos: ['C70012'] }], ubicacion: { code: 'BC011', orden: 30 } };
+    d.lines[1] = { ...d.lines[1], presentaciones: [{ unit: 'CJA', codigos: ['C99124'] }], ubicacion: { code: 'BA053', orden: 5 } };
+    return d;
+  };
+  const escanear = (codigo: string): void => {
+    const i = el().querySelector('#sr-buscar') as HTMLInputElement;
+    i.value = codigo;
+    i.dispatchEvent(new Event('input'));
+    i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    fix.detectChanges();
+  };
+
+  it('[GP.RF.33] ⭐ escanear el paquete de un renglón pedido en paquetes lo marca Completo y deja el campo listo', async () => {
+    pv.detail = vi.fn(() => of(CON_APOYO()));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    escanear('7500000000012');
+    const bombon = c.ola()!.lines.find((l) => l.id === 'pl1')!;
+    expect(bombon.status).toBe('surtido');
+    expect(c.busqueda()).toBe('');
+  });
+
+  it('[GP.RF.33] NEGATIVA: escanear la caja de un renglón pedido en paquetes avisa y no marca', async () => {
+    pv.detail = vi.fn(() => of(CON_APOYO()));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    escanear('C70012');
+    expect(c.ola()!.lines.find((l) => l.id === 'pl1')!.status).toBe('pendiente');
+    expect(texto()).toContain('Escaneaste CJA; el pedido pide PAQ');
+  });
+
+  it('[GP.RF.34] ⭐ cada renglón dice su ubicación y van en el orden del recorrido', async () => {
+    pv.detail = vi.fn(() => of(CON_APOYO()));
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    expect(c.ola()!.lines.map((l) => l.id)).toEqual(['pl2', 'pl1']);
+    expect(texto()).toContain('Ubicación BA053');
+    expect(texto()).toContain('Ubicación BC011');
+  });
+
+  it('[GP.RF.34] NEGATIVA: si el servidor no mandó el dato, no se afirma «sin ubicación»', async () => {
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    expect(texto()).not.toContain('Sin ubicación dada de alta');
+    expect(texto()).not.toContain('Ubicación ');
+  });
+
   // ── [GP.RF.31] Cambiar lo que faltó por otro producto (decisión de Edgar, 2026-11-17) ──────────
   const VALENTINA = () => ({
     for_line_id: 'pl2', for_product_name: 'SALSA MAGA', missing: 2, unit: 'CJA',

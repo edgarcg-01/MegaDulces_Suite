@@ -25,6 +25,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 import { textoParte } from '../surtir-ruta/ruta-surtido.util';
+import { leerEscaneo, ordenarPorRecorrido } from '../escaneo-surtido';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { deVendedor, etiquetaDia, pendientesDeOtrosDias, vendedoresDe } from '../pedidos-por-dia';
 import { avisoBuscarEnBodega, sistemaSinProducto, textoSistema } from '../existencia-surtido';
@@ -381,13 +382,15 @@ function plural(n: number, uno: string, varios: string): string {
 
         <section class="sr-buscar">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input id="sr-buscar" class="sr-buscar-input" type="text" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+          <input id="sr-buscar" class="sr-buscar-input" type="text" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event); avisoEscaneo.set(null)"
                  (keydown.enter)="enterBuscar()" autocomplete="off" aria-label="Buscar producto"
                  placeholder="Escanea la etiqueta o escribe el nombre" />
           @if (busqueda()) {
             <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="limpiarBusqueda()">Limpiar</button>
           }
         </section>
+        <!-- [GP.RF.33] Lo escaneado no se pudo marcar solo: por qué. -->
+        @if (avisoEscaneo(); as a) { <p class="sr-tip sr-tip-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ a }}</p> }
 
         <div class="sr-filtro">
           <h3 class="sr-h3">
@@ -435,9 +438,15 @@ function plural(n: number, uno: string, varios: string): string {
               } @else {
                 <!-- [MCP.23] En un pedido de Sucursal, la existencia que trae el servidor por renglón. Sin ella
                      (servidor anterior) no se pinta nada; si no se pudo leer, dice «sin dato», nunca cero. -->
-                @if (sistemaDe(l); as h) {
+                <!-- [GP.RF.34] Dónde está (Ubicaciones). Sólo si el servidor lo mandó: sin el dato no se dice «sin ubicación». -->
+                @if (sistemaDe(l) || l.presentaciones) {
                   <div class="sr-datos">
-                    <span class="sr-dato sr-sistema" [class.sr-sistema-no]="sinProductoDe(l)"><i class="pi pi-box" aria-hidden="true"></i>{{ h }}</span>
+                    @if (l.presentaciones) {
+                      <span class="sr-dato sr-ubic"><i class="pi pi-map-marker" aria-hidden="true"></i>{{ l.bin_code ? 'Ubicación ' + l.bin_code : 'Sin ubicación dada de alta' }}</span>
+                    }
+                    @if (sistemaDe(l); as h) {
+                      <span class="sr-dato sr-sistema" [class.sr-sistema-no]="sinProductoDe(l)"><i class="pi pi-box" aria-hidden="true"></i>{{ h }}</span>
+                    }
                   </div>
                 }
               }
@@ -1221,7 +1230,11 @@ export class AlmacenSurtirComponent implements OnInit {
           unidad_presentacion: null,
           qty_picked: marcada ?? null,
           status: marcada == null ? 'pendiente' : this.estadoDe(marcada, l.qty),
-          bin_code: null,
+          // [GP.RF.34] El lugar del producto (Ubicaciones) y su orden de recorrido; antes iba siempre vacío.
+          bin_code: l.ubicacion?.code ?? null,
+          orden_recorrido: l.ubicacion?.orden ?? null,
+          // [GP.RF.33] Los códigos de cada presentación: con ellos escanear marca Completo.
+          ...(l.presentaciones ? { presentaciones: l.presentaciones } : {}),
           note: null,
           existencia: null,
           existencia_unidad: null,
@@ -1238,7 +1251,8 @@ export class AlmacenSurtirComponent implements OnInit {
     this.stockPedido.set(Object.fromEntries(d.lines.map((l) => [l.line_id, l.stock])));
     this.pedidoSucursal.set(d.order);
     this.indicacionesOk.set(false);
-    this.ola.set(ola);
+    // [GP.RF.34] En el orden del recorrido del almacén (lo que no tiene ubicación, al final, como venía).
+    this.ola.set({ ...ola, lines: ordenarPorRecorrido(ola.lines) });
     this.busqueda.set('');
     this.editando.set(null);
     // [MCP.17] Lo que ya se había puesto en otra unidad, si se cerró la app a medio surtir.
@@ -1740,7 +1754,34 @@ export class AlmacenSurtirComponent implements OnInit {
    * Enter en el buscador (el escáner manda el código y un Enter): con UNA coincidencia pendiente,
    * el foco va a su "Completo". No lo marca solo: escanear la etiqueta no es haber contado.
    */
+  /** `[GP.RF.33]` Lo que dijo el último escaneo que no se pudo marcar solo (otra presentación, ya marcado). */
+  readonly avisoEscaneo = signal<string | null>(null);
+
+  /**
+   * Enter en el campo de búsqueda (el lector de código de barras manda Enter). `[GP.RF.33]` Si lo
+   * escaneado es la presentación pedida de UN renglón pendiente, se marca Completo y el campo queda listo
+   * para el siguiente. Si es otra presentación, se avisa y no se marca. Sin saberlo, lo de antes: deja el
+   * foco en «Completo» del único renglón que coincide.
+   */
   enterBuscar(): void {
+    this.avisoEscaneo.set(null);
+    const r = leerEscaneo(this.busqueda(), this.ola()?.lines ?? []);
+    if (r?.tipo === 'completo') {
+      const nombre = r.linea.product_name || r.linea.sku;
+      this.completo(r.linea);
+      this.busqueda.set('');
+      this.anuncio.set(`${nombre}: completo.`);
+      setTimeout(() => (document.getElementById('sr-buscar') as HTMLInputElement | null)?.focus());
+      return;
+    }
+    if (r?.tipo === 'otra_presentacion') {
+      this.avisoEscaneo.set(`Escaneaste ${r.escaneada}; el pedido pide ${r.pedida}. Cuenta en ${r.pedida} y marca a mano.`);
+      return;
+    }
+    if (r?.tipo === 'ya_marcado') {
+      this.avisoEscaneo.set(`${r.linea.product_name || r.linea.sku} ya está marcado. Para cambiarlo, toca «Corregir».`);
+      return;
+    }
     const p = this.pendientes();
     if (p.length === 1) {
       (document.getElementById('sr-ok-' + p[0].id) as HTMLButtonElement | null)?.focus();

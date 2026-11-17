@@ -94,6 +94,13 @@ export interface PickerWaveLine {
   qty_picked: number | null;
   status: 'pendiente' | 'surtido' | 'faltante' | 'agotado' | 'danado';
   bin_code: string | null;
+  /**
+   * `[GP.RF.33]` Las presentaciones del producto con sus códigos de Kepler, para saber qué se escaneó.
+   * Hoy sólo las trae un pedido de preventa (Surtir › Sucursal); ausente = no se sabe.
+   */
+  presentaciones?: Array<{ unit: string; codigos: string[] }>;
+  /** `[GP.RF.34]` Orden de la ubicación en el recorrido del almacén; ausente o null = sin ubicación. */
+  orden_recorrido?: number | null;
   note: string | null;
   /**
    * [GP.3c] Existencia en sistema en el almacén de la ola (Kepler, unidad BASE). null = no se pudo
