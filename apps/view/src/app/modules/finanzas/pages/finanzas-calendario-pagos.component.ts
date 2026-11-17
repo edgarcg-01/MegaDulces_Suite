@@ -832,7 +832,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
                       <!-- [PGP.139] El anticipo sin aplicar de este proveedor en esta sucursal, sin desplegar el pago: se aplica aquí. -->
                       @if (anticipoDelPago(a); as an) {
-                        <span class="pg-ant"><i class="pi pi-wallet" aria-hidden="true"></i>{{ an.texto }}
+                        <!-- Sin regla CSS nueva: el bloque de estilos de esta pantalla está en su tope (34 kB). -->
+                        <span class="pg-sub pg-sub-2"><i class="pi pi-wallet" aria-hidden="true"></i> {{ an.texto }}
                           @if (an.it) {
                             <button type="button" class="pg-saldada-btn" [disabled]="saving() || loadingWeek()"
                                     [attr.aria-label]="'Aplicar el anticipo sin aplicar de ' + allocationTitle(a) + ' en ' + an.sucursal + ': ' + money(an.libre)"
@@ -1997,8 +1998,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.35] Lo que no se puede pagar se ve distinto de lo que falta preparar: esto no es
        trabajo pendiente, es un renglon que hay que sacar del dia. */
     .pg-saldada { display:flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); flex-wrap:wrap; }
-    /* [PGP.139] El anticipo sin aplicar: una oportunidad, no un error. Sin tono, con palabra e icono. */
-    .pg-ant { display:flex; align-items:center; gap:var(--sp-1); color:var(--text-muted); font-size:var(--fs-xs); flex-wrap:wrap; margin-top:2px; }
     /* [PGP.48] La accion que hace verdad «se puede pagar el resto». */
     .pg-saldada-btn { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-xs);
                       font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
