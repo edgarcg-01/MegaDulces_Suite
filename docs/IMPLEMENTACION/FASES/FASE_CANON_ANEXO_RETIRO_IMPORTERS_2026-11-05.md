@@ -493,9 +493,17 @@ pide aparte (regla 5).
   **Recomendación: replicarlo al ODS** como cualquier otra fuente.
 - ✅ **D15 — resuelta (Edgar, 2026-11-17: «asignémosla y guardémosla en el archivo maestro de md»).** El maestro es
   `md:~/secrets/maestro.env.age` (cifrado con age; `rotar.sh <CLAVE>` pide el valor oculto y lo registra en
-  `ROTACIONES.md`). Medido ese día: el maestro NO tiene ninguna `CONTPAQI_SQL_*`, así que el valor lo teclea quien lo
-  conoce: `ssh -t superoot@192.168.0.222 '~/secrets/rotar.sh CONTPAQI_SQL_PASSWORD "D15"'`. Después se copia al
-  secreto `ingesta/feeds-envfile` y se enciende `contpaqi_ods`.
+  `ROTACIONES.md`). El maestro no tenía ninguna `CONTPAQI_SQL_*`, pero la contraseña SÍ existía: la que traen
+  embebida los importers de CFDIs, con la que esos carriles corren cada minuto (el crontab lo documenta).
+  - **Hecho el 2026-11-17 (Edgar: «sí, hazlo»):** ese mismo valor, sacado del código sin imprimirlo, quedó en el
+    maestro (`rotar.sh CONTPAQI_SQL_PASSWORD`), en `md:~/secrets/feeds.env` (con respaldo) y en el secreto
+    `ingesta/feeds-envfile`, que lo calca (misma huella el archivo y el secreto). El pod lo ve, y la réplica en seco
+    funciona: 388 tablas planeadas, lecturas de prueba bien. `contpaqi_ods` ya tiene datos (~20 millones de filas, de
+    la prueba del 30-oct), así que la primera vuelta sólo pone al día lo que difiere.
+  - **Falta encenderla:** quitar el `#` de sus dos renglones en `ops/vl/crontab.feeds` y poner los umbrales de
+    `contpaqi_replica_ct` y `contpaqi_replica_resto` en `CRON_JOBS`. Está armado como parche y NO se commitea: son
+    dos renglones de cron y la regla de Edgar del 10-nov es «ningún cron». ContPAQi es un SQL Server que no avisa, y
+    la réplica por huella estaba aprobada (ADR-111), pero esa excepción la decide Edgar.
   - ⛔ **Hallazgo de seguridad (2026-11-17):** `import-contpaqi-account-map.js`, `-bank-movements.js` y `-cfdis.js`
     traen como valor por omisión `CONTPAQI_SQL_USER || 'platform_ro'` y `CONTPAQI_SQL_PASSWORD || '<una contraseña en
     claro>'`, y el repo es PÚBLICO. Si es la real del SQL de ContPAQi (192.168.0.35\COMPAC), está expuesta. No se probó
