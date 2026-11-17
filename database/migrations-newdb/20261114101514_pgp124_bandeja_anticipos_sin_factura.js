@@ -65,7 +65,9 @@ exports.up = async function up(knex) {
         .first('id');
       if (!ya) {
         await knex('identity.position_responsibilities').insert({
-          tenant_id, position_code: PUESTO, responsibility_key: KEY, es_principal: false, created_by: 'PGP.124',
+          // `created_by` es uuid y acepta NULL: escribirle el código de la fase reventaba la migración
+          // con «invalid input syntax for type uuid». Las demás siembras de esta tabla tampoco lo llenan.
+          tenant_id, position_code: PUESTO, responsibility_key: KEY, es_principal: false,
         });
       }
       // Quién la ve DE VERDAD: responsabilidad ∧ permiso de la ruta (rol principal o rol extra).
