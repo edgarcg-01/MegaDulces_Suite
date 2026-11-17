@@ -17,6 +17,9 @@ export interface AlmacenPedidosFiltro {
   origen?: string | null;
   sucursal?: string | null;
   q?: string | null;
+  /** `[GP.10.5]` Página: sin `limit`, el servidor manda hasta 2,000 y avisa el tope. */
+  limit?: number;
+  offset?: number;
 }
 
 /** `[GP.1]` Cliente del tablero de pedidos del almacén (`/almacen/pedidos`, sólo lectura). */
@@ -35,6 +38,7 @@ export class AlmacenPedidosService {
     if (f.origen) p = p.set('origin', f.origen);
     if (f.sucursal) p = p.set('branch', f.sucursal);
     if (f.q) p = p.set('q', f.q);
+    if (f.limit) p = p.set('limit', String(f.limit)).set('offset', String(f.offset ?? 0));
     return this.http.get<WarehouseOrdersResponse>(this.base, { params: p });
   }
 

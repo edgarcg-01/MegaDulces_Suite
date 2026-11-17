@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { NEVER, of } from 'rxjs';
+import { NEVER, Subject, of } from 'rxjs';
 import type { WarehouseOrdersResponse } from '@megadulces/contracts';
 import { AlmacenPedidosComponent } from './almacen-pedidos.component';
 import { AlmacenPedidosService } from '../almacen-pedidos.service';
@@ -346,10 +346,10 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     items: [], truncado: false, generado_en: '2026-11-14T16:00:00.000Z',
   });
 
-  async function abrir(url: string, permisos: Record<string, boolean>) {
+  async function abrir(url: string, permisos: Record<string, boolean>, resp: WarehouseOrdersResponse = VACIA()) {
     const perms = new PermissionsService();
     perms.load(permisos, 'encargado_tienda');
-    const list = vi.fn(() => of(VACIA()));
+    const list = vi.fn(() => of(resp));
     const consolaAlmacenes = vi.fn(() => NEVER);
     TestBed.configureTestingModule({
       providers: [
@@ -454,6 +454,21 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     expect(el.querySelector('.gp-note button.gp-link')?.textContent?.trim()).toBe('Quitar este filtro');
   });
 
+  // Lo encontró el recorrido en prod (2026-11-17): la lista pintaba 58 y la nota decía 1,885, porque
+  // sumaba los conteos de los botones de etapa, que a propósito NO llevan el filtro de estatus.
+  it('[GP.RF.15] NEGATIVA: la nota dice cuántos pedidos trae la lista (58), no los conteos de los botones (1,885)', async () => {
+    const resp: WarehouseOrdersResponse = {
+      ...VACIA(),
+      totales: { pedidos: 58, renglones: 300, importe: 1000 },
+      conteos_etapa: [{ etapa: 'autorizado', pedidos: 1500, con_desfase: 0 }, { etapa: 'embarcado', pedidos: 385, con_desfase: 0 }],
+    };
+    const { el } = await abrir(LIGA, { [Permission.ALMACEN_PEDIDOS_VER]: true }, resp);
+    const nota = el.querySelector('.gp-note')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(nota).toContain(': 58.');
+    expect(nota).not.toContain('1885');
+    expect(nota).not.toContain('1,885');
+  });
+
   it('[GP.RF.15] «Quitar este filtro» vuelve a pedir sin el estatus de Kepler', async () => {
     const { list, harness, el } = await abrir(LIGA, { [Permission.ALMACEN_PEDIDOS_VER]: true });
     (el.querySelector('.gp-note button.gp-link') as HTMLButtonElement).click();
@@ -483,5 +498,193 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     expect(list).toHaveBeenCalledTimes(1);
     expect(el.querySelector('app-almacen-surtido-consola')).toBeNull();
     expect(consolaAlmacenes).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `[GP.10.5]` La lista por páginas. Medido en prod el 2026-11-17: el mes en curso tenía 2,348 pedidos
+ * y la respuesta se topaba en 2,000 (1.40 MB); 348 de preventa no se podían ver. Ahora viaja sólo la
+ * página que se ve y el paginador llega a todos.
+ */
+describe('AlmacenPedidosComponent · lista por páginas (GP.10.5)', () => {
+  type Fila = WarehouseOrdersResponse['items'][number];
+  const FILA = (folio: string, extra: Partial<Fila> = {}): Fila => ({
+    clave: `01-1-${folio}`, sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio,
+    documento: `UD4001-${folio}`, fecha: '2026-11-17', hora: '09:00', origen: 'TELEMARK', estatus: 'AUTORIZADO',
+    estatus_kepler: 'AUTORIZADO', cliente_code: 'C9', destino_nombre: 'ABARROTES LUPITA', destino_ciudad: 'ZAMORA',
+    vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen: [], importe: 1200, guia: null, transporte: null,
+    chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...extra,
+  });
+  const RESP = (offset: number, extra: Partial<WarehouseOrdersResponse> = {}): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: true, sucursales: [] },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: true },
+    conteos: [{ estatus: 'AUTORIZADO', pedidos: 2348, renglones: 9000, mas_antiguo_horas: 390 }],
+    conteos_etapa: [{ etapa: 'autorizado', pedidos: 2348, con_desfase: 0 }],
+    totales: { pedidos: 2348, renglones: 9000, importe: 100000, mas_antiguo_horas: 390 },
+    items: [FILA(String(offset + 1).padStart(7, '0')), FILA(String(offset + 2).padStart(7, '0'))],
+    truncado: false,
+    pagina: { offset, limit: 200, total: 2348 },
+    sucursales_periodo: [{ codigo: '01', nombre: 'Padre Hidalgo' }, { codigo: '08', nombre: 'Morelia Madero' }],
+    generado_en: '2026-11-17T20:00:00.000Z',
+    ...extra,
+  });
+  type Filtro = { limit?: number; offset?: number; etapa?: string[] };
+
+  async function montar(list = vi.fn((f: Filtro) => of(RESP(f.offset ?? 0)))) {
+    const perms = new PermissionsService();
+    perms.load({ [Permission.ALMACEN_PEDIDOS_VER]: true }, 'coordinador_embarques');
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER) } },
+        { provide: PermissionsService, useValue: perms },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    const ultimo = () => (list.mock.calls.at(-1) as unknown as [Filtro])[0];
+    return { fix, el, list, ultimo, c: fix.componentInstance };
+  }
+
+  it('⭐ pide la primera página de 200 y el paginador cuenta TODOS los del periodo, sin aviso de tope', async () => {
+    const { el, ultimo, fix } = await montar();
+    expect(ultimo()).toMatchObject({ limit: 200, offset: 0 });
+    fix.detectChanges();
+    expect(el.querySelector('.p-paginator')).not.toBeNull();
+    expect(el.textContent).toContain('de 2348');
+    expect(el.textContent).not.toContain('Se muestran los primeros');
+  });
+
+  it('otra página pide ese tramo y deja abierto el pedido del panel', async () => {
+    const { c, ultimo, list } = await montar();
+    const abierto = RESP(0).items[0];
+    c.sel.set(abierto);
+    c.onPagina({ first: 200, rows: 200 });
+    expect(ultimo()).toMatchObject({ limit: 200, offset: 200 });
+    expect(c.data()?.items[0].folio).toBe('0000201');
+    expect(c.sel()).toBe(abierto);
+    // La tabla avisa la página en que ya está (al nacer): no se vuelve a pedir.
+    const n = list.mock.calls.length;
+    c.onPagina({ first: 200, rows: 200 });
+    expect(list.mock.calls.length).toBe(n);
+  });
+
+  it('NEGATIVA: cambiar un filtro regresa a la primera página (la 3 de otro filtro sería otra cosa)', async () => {
+    const { c, ultimo } = await montar();
+    c.onPagina({ first: 400, rows: 200 });
+    expect(ultimo().offset).toBe(400);
+    c.pickEtapa('autorizado');
+    expect(ultimo()).toMatchObject({ offset: 0, etapa: ['autorizado'] });
+  });
+
+  it('«Actualizar» se queda en la misma página', async () => {
+    const { c, ultimo } = await montar();
+    c.onPagina({ first: 400, rows: 200 });
+    c.refrescar();
+    expect(ultimo().offset).toBe(400);
+  });
+
+  it('el más antiguo sin embarcar es el de TODO el filtro (del servidor), no el de la página', async () => {
+    const { c } = await montar();
+    expect(c.masAntiguo()).toBe(390);
+  });
+
+  it('NEGATIVA: con una API sin el campo, sale de lo que llegó (no de un cero inventado)', async () => {
+    const { c } = await montar(vi.fn(() => of(RESP(0, { totales: { pedidos: 2, renglones: 8, importe: 2400 }, pagina: undefined }))));
+    expect(c.masAntiguo()).toBe(5);
+    expect(c.totalLista(c.data()!)).toBe(2);
+  });
+
+  it('las sucursales del selector son las del periodo, no sólo las de la página', async () => {
+    const { c } = await montar();
+    expect(c.sucursalOpts().map((o) => o.value)).toEqual([null, '01', '08']);
+  });
+
+  it('NEGATIVA: una respuesta vieja no pisa a la nueva', async () => {
+    const pendientes: Array<Subject<WarehouseOrdersResponse>> = [];
+    const list = vi.fn(() => { const s = new Subject<WarehouseOrdersResponse>(); pendientes.push(s); return s.asObservable(); });
+    const { c } = await montar(list);
+    c.onPagina({ first: 200, rows: 200 });
+    pendientes[1].next(RESP(200));
+    pendientes[0].next(RESP(0)); // la de la página 1 llega tarde
+    expect(c.data()?.pagina?.offset).toBe(200);
+  });
+});
+
+/** `[GP.10.5]` D4 en el pie y la leyenda del volumen. */
+describe('AlmacenPedidosComponent · importe por destino y leyenda (GP.10.5)', () => {
+  type Fila = WarehouseOrdersResponse['items'][number];
+  const FILA = (folio: string, volumen: Fila['volumen']): Fila => ({
+    clave: `01-1-${folio}`, sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio,
+    documento: `UD4001-${folio}`, fecha: '2026-11-17', hora: '09:00', origen: 'SUCURSAL', estatus: 'AUTORIZADO',
+    estatus_kepler: 'AUTORIZADO', cliente_code: 'TI004', destino_nombre: 'TRASPASO MORELIA ABASTOS', destino_ciudad: null,
+    vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen, importe: 1200, guia: null, transporte: null,
+    chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null,
+  });
+  const RESP = (totales: WarehouseOrdersResponse['totales'], items: Fila[]): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: false, sucursales: [{ codigo: '01', nombre: 'Padre Hidalgo' }] },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: true },
+    conteos: [], conteos_etapa: [{ etapa: 'autorizado', pedidos: items.length, con_desfase: 0 }],
+    totales, items, truncado: false, pagina: { offset: 0, limit: 200, total: items.length },
+    generado_en: '2026-11-17T20:00:00.000Z',
+  });
+  async function montar(resp: WarehouseOrdersResponse) {
+    const perms = new PermissionsService();
+    perms.load({ [Permission.ALMACEN_PEDIDOS_VER]: true }, 'coordinador_embarques');
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(resp)), detail: vi.fn(() => NEVER) } },
+        { provide: PermissionsService, useValue: perms },
+      ],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    return { el, pie: () => el.querySelector('.gp-foot')?.textContent?.replace(/\s+/g, ' ').trim() ?? '', c: fix.componentInstance };
+  }
+  const VOL: Fila['volumen'] = [{ unidad: 'CJA', cantidad: 16 }, { unidad: '500', cantidad: 6 }, { unidad: 'PAQ', cantidad: 58 }];
+
+  it('⭐ D4: el pie separa lo que va a clientes, el traspaso a sucursales y la carga a ruta', async () => {
+    const { pie } = await montar(RESP({ pedidos: 3, renglones: 12, importe: 35300000, importe_por_destino: { clientes: 11150000, traspaso_sucursal: 22100000, carga_ruta: 2050000 } }, [FILA('0000001', VOL)]));
+    expect(pie()).toContain('a clientes');
+    expect(pie()).toContain('traspaso a sucursales');
+    expect(pie()).toContain('carga a ruta');
+    // El total junto ya no aparece como una sola cifra (35.3 M «de venta»).
+    expect(pie()).not.toMatch(/35,300,000/);
+  });
+
+  it('una parte en cero no se pinta', async () => {
+    const { pie } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500, importe_por_destino: { clientes: 500, traspaso_sucursal: 0, carga_ruta: 0 } }, [FILA('0000001', VOL)]));
+    expect(pie()).toContain('a clientes');
+    expect(pie()).not.toContain('traspaso a sucursales');
+  });
+
+  it('NEGATIVA: con una API sin las partes, el pie sigue con el total de siempre', async () => {
+    const { pie } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', VOL)]));
+    expect(pie()).not.toContain('a clientes');
+    expect(pie()).toContain('500');
+  });
+
+  it('⭐ la leyenda explica sólo las unidades de la página, y el gramaje no se lee como número', async () => {
+    const { el, c } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', VOL)]));
+    const ley = el.querySelector('.gp-leyenda')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(ley).toContain('CJA caja');
+    expect(ley).toContain('PAQ paquete');
+    expect(ley).toContain('«de 500»: Kepler guarda el gramaje');
+    expect(ley).not.toContain('PZA');
+    expect(c.volumenTexto(VOL)).toBe('16 CJA · 58 PAQ · 6 de 500');
+  });
+
+  it('NEGATIVA: una unidad que la suite no conoce se nombra tal cual, sin inventarle significado', async () => {
+    const { c } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', [{ unidad: 'SER', cantidad: 1 }, { unidad: 'SIN UNIDAD', cantidad: 2 }])]));
+    expect(c.leyendaUnidades()).toBe('SER: así viene de Kepler · SIN UNIDAD: el renglón no la trae en Kepler');
   });
 });

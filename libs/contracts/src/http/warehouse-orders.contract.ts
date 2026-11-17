@@ -138,10 +138,36 @@ export interface WarehouseOrdersResponse {
    * `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`).
    * Sin filtro de estatus, los cancelados NO entran (ni aquí ni en `items`): se ven eligiéndolos.
    */
-  totales: { pedidos: number; renglones: number; importe: number | null };
+  totales: {
+    pedidos: number;
+    renglones: number;
+    importe: number | null;
+    /**
+     * `[GP.10.5]` Horas del pedido sin embarcar más antiguo de TODO lo filtrado (no de la página).
+     * `null` si ninguno trae hora. Opcional: una API anterior no lo manda.
+     */
+    mas_antiguo_horas?: number | null;
+    /**
+     * `[GP.10.5]` D4: `importe` partido por destino del pedido (cliente de Kepler): a clientes,
+     * traspaso a sucursal (`TI###`, no se factura) y carga a camión de ruta (`RD`/`RUTA`). Suman
+     * `importe`. `null` = quien consulta no ve dinero. Opcional: una API anterior no lo manda.
+     */
+    importe_por_destino?: { clientes: number; traspaso_sucursal: number; carga_ruta: number } | null;
+  };
+  /**
+   * Los pedidos a pintar, lo más nuevo primero por la fecha de la tabla (`[GP.10.5]`: la preventa
+   * intercalada por su fecha de entrega). Con `pagina`, sólo los de esa página.
+   */
   items: WarehouseOrderRow[];
-  /** `true` si `items` se recortó al tope; los conteos y totales NO se recortan. */
+  /**
+   * `true` si `items` se recortó al tope (sólo SIN página); los conteos y totales NO se recortan.
+   * Con página siempre es `false`: ningún pedido queda fuera de todas las páginas.
+   */
   truncado: boolean;
+  /** `[GP.10.5]` Presente si se pidió página (`limit`): qué tramo es y cuántos hay en total con los filtros. */
+  pagina?: { offset: number; limit: number; total: number };
+  /** `[GP.10.5]` Sucursales con pedidos en el periodo, antes de los filtros: las opciones del selector. */
+  sucursales_periodo?: Array<{ codigo: string; nombre: string }>;
   generado_en: string;
 }
 
