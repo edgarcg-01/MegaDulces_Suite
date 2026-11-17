@@ -39,7 +39,8 @@ import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
-import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupoVista } from '../compras.service';
+import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupoVista, AdjustmentDeOtraEntrada } from '../compras.service';
+import { explainsResumen } from '../explains-resumen';
 import { receiptVerdict, cfdiQueCuadra, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import {
@@ -1204,7 +1205,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
             <!-- [RE.52] La pregunta sólo cuando no cuadra: sobre una factura que cuadra afirmaba un descuadre. -->
             <span><i class="pi pi-search-plus" aria-hidden="true"></i> {{ cuadre(d).tone === 'ok' ? 'Ajustes del proveedor' : '¿Por qué no cuadra? — ajustes del proveedor' }}</span>
             <!-- [RE.71] Sin suma: sumar candidatos que no explican el hueco publicaba un monto que no es de esta entrada. -->
-            @if (explains().length) { <span class="cb-explains-sum">{{ explains().length }} {{ explains().length === 1 ? 'candidato' : 'candidatos' }}</span> }
+            <!-- [RE.81] Lo ligado a ESTA entrada y lo candidato se cuentan aparte: «21 candidatos» mezclaba la nota exacta con ruido. -->
+            @if (explains().length) { <span class="cb-explains-sum">{{ explainsResumen() }}</span> }
           </div>
           @if (explainsLoading()) {
             <p class="muted cb-explains-none"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando ajustes…</p>
@@ -1212,9 +1214,13 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
             <!-- [RE.75] Antes un error caía en «sin devoluciones»: afirmaba que no había, sin haber leído. -->
             <p class="cb-explains-none" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron consultar las devoluciones y notas de crédito. No quiere decir que no haya: vuelve a abrir la entrada.</p>
           } @else if (!explains().length) {
-            <p class="muted cb-explains-none">Sin devoluciones ni notas de crédito de este proveedor en esta sucursal cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.</p>
+            <!-- [RE.81] Si las que hay ya son de otras entradas, «sin devoluciones» sería falso: se dice cuál es el caso. -->
+            <p class="muted cb-explains-none">{{ explainsOtras().length
+              ? 'Ninguna devolución ni nota de este proveedor en esta sucursal cerca de la fecha está libre: las que hay ya son de otras entradas. Si la factura no cuadra, la diferencia suele ser IVA o captura.'
+              : 'Sin devoluciones ni notas de crédito de este proveedor en esta sucursal cerca de la fecha. Si la factura no cuadra, la diferencia suele ser IVA o captura.' }}</p>
           } @else {
-            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> en esta sucursal, ±15 días — pueden explicar por qué la factura difiere de lo recibido.</p>
+            <!-- [RE.81] Sobre una factura que cuadra no se afirma una diferencia: se listan para consulta. -->
+            <p class="cb-explains-hint muted">Devoluciones y notas de crédito de <strong>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</strong> en esta sucursal, ±15 días{{ cuadre(d).tone === 'ok' ? '. La factura ya cuadra: se listan para consulta.' : ' — pueden explicar por qué la factura difiere de lo recibido.' }}</p>
             <ul class="cb-explains-list">
               @for (a of explains(); track a.doctype + a.folio) {
                 <li class="cb-explains-item">
@@ -1230,6 +1236,28 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 </li>
               }
             </ul>
+          }
+          <!-- [RE.81] Las que Kepler ya ligó a OTRA entrada: no son candidatas ni cuentan, pero no se esconden —
+               plegadas, cada una con la entrada a la que pertenece. -->
+          @if (!explainsLoading() && !explainsError() && explainsOtras().length) {
+            <details class="cb-explains-otras">
+              <summary>{{ explainsOtras().length }} {{ explainsOtras().length === 1 ? 'nota de este proveedor ya es de otra entrada' : 'notas de este proveedor ya son de otras entradas' }}</summary>
+              <ul class="cb-explains-list">
+                @for (o of explainsOtras(); track o.doctype + o.folio) {
+                  <li class="cb-explains-item">
+                    <p-tag [value]="adjDoctypeLabel(o.doctype)" [severity]="o.doctype === 'XD40' ? 'warn' : 'info'" />
+                    <button type="button" class="cb-explains-folio cb-reflink mono" (click)="inspect.set(refAdj(o))"
+                            [attr.aria-label]="'Abrir el ajuste ' + o.doctype + ' ' + o.folio">{{ o.folio }}</button>
+                    <span class="cb-explains-fecha muted">{{ o.adjustment_date | date:'dd/MM/yy' }}</span>
+                    <span class="cb-explains-motivo" [title]="o.motivo || ''">{{ o.motivo || '—' }}</span>
+                    <span class="cb-explains-heur">de la entrada
+                      <button type="button" class="cb-reflink mono" (click)="inspect.set(refEnt(o.sucursal, o.entrada_folio))"
+                              [attr.aria-label]="'Abrir la entrada ' + o.entrada_folio">{{ o.entrada_folio }}</button></span>
+                    <span class="cb-explains-monto">{{ money(o.monto) }}</span>
+                  </li>
+                }
+              </ul>
+            </details>
           }
         </div>
 
@@ -1781,6 +1809,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-explains-exact { font-size: .72rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap; }
     .cb-explains-heur { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
     .cb-explains-monto { font-family: var(--font-mono); white-space: nowrap; }
+    /* [RE.81] Las de otras entradas: plegadas, con su conteo en el resumen. */
+    .cb-explains-otras > summary { cursor: pointer; font-size: .78rem; color: var(--text-muted); padding: .2rem 0; }
+    .cb-explains-otras > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .cb-explains-otras[open] > summary { margin-bottom: .35rem; }
     /* RE.11 — conciliación por línea */
     .cb-recon-load { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); font-size: .82rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .5rem; }
     .cb-recon { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .6rem; }
@@ -2225,7 +2257,7 @@ export class ComprasEntradasComponent {
   }
   refLin(sucursal: string, folio: string, linea: string): string { return entityRef('lin', sucursal, folio, linea); }
   refSku(sku: string): string { return entityRef('sku', sku); }
-  refAdj(a: AdjustmentForEntradaRow): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
+  refAdj(a: Pick<AdjustmentForEntradaRow, 'doctype' | 'sucursal' | 'folio'>): string { return entityRef('adj', a.doctype, a.sucursal, a.folio); }
   refOc(sucursal: string, folio: string): string { return entityRef('pdoc', 'XA3501', sucursal, folio); }
   refVale(sucursal: string, folio: string): string { return entityRef('pdoc', 'XA3701', sucursal, folio); }
 
@@ -2267,6 +2299,10 @@ export class ComprasEntradasComponent {
   /** `[RE.75]` La búsqueda de ajustes falló: no se sabe si hay, y no se dice que no hay. */
   readonly explainsError = signal(false);
   readonly explainsTotal = signal(0);
+  /** `[RE.81]` Del mismo proveedor, sucursal y ventana, pero Kepler ya las ligó a OTRA entrada. */
+  readonly explainsOtras = signal<AdjustmentDeOtraEntrada[]>([]);
+  /** `[RE.81]` «1 exacto · 1 candidato»: lo ligado a esta entrada no se cuenta como candidato. */
+  readonly explainsResumen = computed(() => explainsResumen(this.explains()));
 
   constructor() {
     // RE.17.5 — deep-link desde el Centro de control ("ver todo" de una sucursal). Se lee ANTES
@@ -3298,6 +3334,7 @@ export class ComprasEntradasComponent {
   private loadExplains(c: EntradaRow) {
     this.explains.set([]);
     this.explainsTotal.set(0);
+    this.explainsOtras.set([]);
     this.explainsError.set(false);
     if (!c.proveedor_code && !c.folio) return;
     this.explainsLoading.set(true);
@@ -3305,7 +3342,7 @@ export class ComprasEntradasComponent {
     this.compras.adjustmentsForEntrada({ sucursal: c.sucursal, proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { if (this.detailTarget() !== c) return; this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
+        next: (r) => { if (this.detailTarget() !== c) return; this.explains.set(r.rows || []); this.explainsOtras.set(r.de_otras_entradas || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
         // `[RE.75]` Una lectura fallida NO es «sin ajustes»: se dice, para no dar por descartada la explicación.
         error: () => { if (this.detailTarget() !== c) return; this.explainsError.set(true); this.explainsLoading.set(false); },
       });

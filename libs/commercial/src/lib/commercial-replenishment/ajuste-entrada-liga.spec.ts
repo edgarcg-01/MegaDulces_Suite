@@ -1,4 +1,4 @@
-import { candidatoDeEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
+import { candidatoDeEntrada, deOtraEntrada, ligadoAEntrada } from './ajuste-entrada-liga';
 
 // `[RE.70]` El caso real del 2026-11-13: la entrada 0000421 de Morelia Abastos (08, MERENGUE LA
 // MORENITA) recibía como «exacto» la devolución 0000003 de 8 Esquinas (03, PIÑATAS TOÑO), que
@@ -42,5 +42,34 @@ describe('candidatoDeEntrada — sin ajustes de otra sucursal ni traspasos', () 
 
   it('sin sucursal de la entrada no se descarta por sucursal (contrato viejo)', () => {
     expect(candidatoDeEntrada({ sucursal: '03', proveedor_interno: false }, {})).toBe(true);
+  });
+});
+
+// `[RE.81]` El caso real del 2026-11-17: entrada 0000545 de Morelia Abastos (08, DULCES LAS
+// DELICIAS). La nota 0000118 es suya; la 0000122 Kepler la liga a la entrada 0000541; la 0000090
+// no trae entrada.
+describe('deOtraEntrada / candidatoDeEntrada — una nota con dueño no es candidata', () => {
+  const entrada0545 = { sucursal: '08', entrada_folio: '0000545' };
+
+  it('una nota que Kepler liga a OTRA entrada de la misma sucursal no es candidata', () => {
+    const nc0122 = { sucursal: '08', entrada_folio: '0000541', proveedor_interno: false };
+    expect(deOtraEntrada(nc0122, entrada0545)).toBe(true);
+    expect(candidatoDeEntrada(nc0122, entrada0545)).toBe(false);
+  });
+
+  it('una nota sin entrada en Kepler sigue siendo candidata', () => {
+    const nc0090 = { sucursal: '08', entrada_folio: null, proveedor_interno: false };
+    expect(deOtraEntrada(nc0090, entrada0545)).toBe(false);
+    expect(candidatoDeEntrada(nc0090, entrada0545)).toBe(true);
+  });
+
+  it('la nota de ESTA entrada no es «de otra»', () => {
+    const nc0118 = { sucursal: '08', entrada_folio: '0000545', proveedor_interno: false };
+    expect(deOtraEntrada(nc0118, entrada0545)).toBe(false);
+    expect(ligadoAEntrada(nc0118, entrada0545)).toBe(true);
+  });
+
+  it('sin folio de la entrada no se puede afirmar que sea de otra', () => {
+    expect(deOtraEntrada({ sucursal: '08', entrada_folio: '0000541' }, { sucursal: '08' })).toBe(false);
   });
 });
