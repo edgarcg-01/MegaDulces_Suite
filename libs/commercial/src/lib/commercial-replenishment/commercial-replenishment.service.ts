@@ -32,6 +32,7 @@ import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } 
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
 import { leerRequisicionEnReplica, type RequisicionEnReplica } from './kepler-requisicion-replica';
 import { leerCancelacionKeplerDeRequisicion } from './oc-cancelacion.service';
+import { lectorColumnaOpcional, RQ_COLUMNAS_OPCIONALES, type RqColumnaOpcional } from './rq-columnas-opcionales';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -4925,6 +4926,8 @@ export class CommercialReplenishmentService {
       // lleva la bandeja entera.
       const vigCols = await this.vigenciaColsListas(trx);
       const loteCols = await this.loteColsListas(trx);
+      // `[PQ.130]` Las columnas que pueden faltar (RQ.15) se leen una por una, no con `to_jsonb(r)`.
+      const opc = await this.rqColumnaOpcional(trx);
       const base = trx('commercial.purchase_requisitions as r')
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'r.tenant_id').andOn('w.id', 'r.warehouse_id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'r.tenant_id').andOn('sup.id', 'r.supplier_id'))
@@ -4937,9 +4940,9 @@ export class CommercialReplenishmentService {
       // `[RQ.8]` Los documentos de UN lote. Es lo que abre la fila de la bandeja agrupada.
       if (q.batch_id && UUID_RX.test(q.batch_id)) base.andWhere('r.batch_id', q.batch_id);
       // `[AB.32]` Sólo lo que pidieron las sucursales (D15: Compras lo atiende aquí, no en otra bandeja).
-      // Por `to_jsonb` por lo mismo que la OC de abajo: sin la migración la marca no existe y no hay ninguna.
+      // Por `opc` por lo mismo que la OC de abajo: sin la migración la marca no existe y no hay ninguna.
       if (q.de_sucursal === '1' || q.de_sucursal === 'true') {
-        base.andWhereRaw(`(to_jsonb(r) ->> 'requested_by_branch') = 'true'`);
+        base.andWhereRaw(`(${opc('requested_by_branch')}) = 'true'`);
       }
       // `[RQ.9]` Buscar por folio o por proveedor. Hasta acá el ÚNICO filtro de la pantalla era
       // el estado: con 670 requisiciones y 50 por página, encontrar un folio eran 14 páginas.
@@ -4968,11 +4971,11 @@ export class CommercialReplenishmentService {
       if (q.estado) base.andWhere('r.estado', q.estado);
       // `[PQ.1]` Las aprobadas que NO tienen documento en Kepler: es el drill de la casilla del
       // tablero (regla Q.4: el número que denuncia lleva a su lugar de arreglo con el filtro
-      // puesto). Mismo `to_jsonb` que el SELECT: la columna puede faltar si el deploy llega
+      // puesto). Mismo `opc` que el SELECT: la columna puede faltar si el deploy llega
       // antes que su migración. Sólo tiene sentido sobre `approved`: en los demás estados el
       // documento del ERP es otro (la OC) y no se mide acá.
       if (q.kepler === 'sin_documento') {
-        base.andWhere('r.estado', 'approved').andWhereRaw(`to_jsonb(r) ->> 'kepler_folio' IS NULL`);
+        base.andWhere('r.estado', 'approved').andWhereRaw(`${opc('kepler_folio')} IS NULL`);
       }
 
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
@@ -4987,21 +4990,20 @@ export class CommercialReplenishmentService {
           ...(loteCols ? ['r.batch_id', 'r.batch_folio', 'r.origin_requisition_id'] : []),
           trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
           trx.raw('sup.name AS supplier_name'),
-          // `[RQ.15]` La orden de compra de Kepler. ⚠️ Se piden con `to_jsonb(r) ->> …` y no como
-          // columnas directas para que la lista NO se caiga con un 42703 si el código llega a
-          // prod antes que su migración — el deploy y las migraciones viajan por caminos
-          // distintos y ya llegaron desordenados antes en este repo.
-          trx.raw(`to_jsonb(r) ->> 'oc_sucursal' AS oc_sucursal`),
-          trx.raw(`to_jsonb(r) ->> 'oc_folio'    AS oc_folio`),
+          // `[RQ.15]` La orden de compra de Kepler. ⚠️ Columnas que pueden faltar si el código llega a
+          // prod antes que su migración (el deploy y las migraciones viajan por caminos distintos):
+          // `opc` las lee si existen y da NULL si no, para que la lista NO se caiga con un 42703.
+          trx.raw(`${opc('oc_sucursal')} AS oc_sucursal`),
+          trx.raw(`${opc('oc_folio')} AS oc_folio`),
           // `[KR.8]` La REQUISICIÓN que esta Suite escribió en Kepler — otro documento que la OC
-          // de arriba, que la captura una persona. Mismo `to_jsonb` por el mismo motivo.
-          trx.raw(`to_jsonb(r) ->> 'kepler_sucursal' AS kepler_sucursal`),
-          trx.raw(`to_jsonb(r) ->> 'kepler_folio'    AS kepler_folio`),
-          trx.raw(`to_jsonb(r) ->> 'kepler_error'    AS kepler_error`),
-          // `[AB.29]` / `[AB.32]` Pedida por sucursal y, si se rechazó, por qué. Mismo `to_jsonb`.
-          trx.raw(`COALESCE((to_jsonb(r) ->> 'requested_by_branch')::boolean, false) AS requested_by_branch`),
-          trx.raw(`to_jsonb(r) ->> 'rejection_reason' AS rejection_reason`),
-          trx.raw(`to_jsonb(r) ->> 'rejected_at'      AS rejected_at`),
+          // de arriba, que la captura una persona.
+          trx.raw(`${opc('kepler_sucursal')} AS kepler_sucursal`),
+          trx.raw(`${opc('kepler_folio')} AS kepler_folio`),
+          trx.raw(`${opc('kepler_error')} AS kepler_error`),
+          // `[AB.29]` / `[AB.32]` Pedida por sucursal y, si se rechazó, por qué.
+          trx.raw(`COALESCE((${opc('requested_by_branch')})::boolean, false) AS requested_by_branch`),
+          trx.raw(`${opc('rejection_reason')} AS rejection_reason`),
+          trx.raw(`${opc('rejected_at')} AS rejected_at`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           trx.raw(`COALESCE(NULLIF(btrim(cu.nombre), ''), cu.username) AS created_by_name`),
           trx.raw('cuw.name AS created_by_warehouse_name'),
@@ -5038,15 +5040,15 @@ export class CommercialReplenishmentService {
           trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE r.created_at < now() - interval '30 days'), 0) AS monto_mas_30`),
           // `[PQ.1]` ¿Salió a Kepler? Tres ausencias que no son la misma. Se cuentan dentro de
           // CADA estado; la pantalla las lee sólo en `approved`, donde la salida es el `X-A-30`
-          // / `U-D-40` que escribe la Suite. Con `to_jsonb` por la misma razón que el SELECT.
-          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NOT NULL)::int AS n_kepler`),
-          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NOT NULL)::int AS n_kepler_error`),
-          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' IS NULL)::int AS n_sin_empujar`),
+          // / `U-D-40` que escribe la Suite. Con `opc` por la misma razón que el SELECT.
+          trx.raw(`count(*) FILTER (WHERE ${opc('kepler_folio')} IS NOT NULL)::int AS n_kepler`),
+          trx.raw(`count(*) FILTER (WHERE ${opc('kepler_folio')} IS NULL AND ${opc('kepler_error')} IS NOT NULL)::int AS n_kepler_error`),
+          trx.raw(`count(*) FILTER (WHERE ${opc('kepler_folio')} IS NULL AND ${opc('kepler_error')} IS NULL)::int AS n_sin_empujar`),
           // `[PQ.14]` El apagado (KR) se separa de la falla real: mismo texto que escribe
           // `pushToKepler` cuando no hay KEPLER_PUSH_URL / KEPLER_PUSH_URL_NN.
-          trx.raw(`count(*) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL AND to_jsonb(r) ->> 'kepler_error' ~* '(apagad|sin configurar)')::int AS n_kepler_apagado`),
-          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0) AS monto_sin_kepler`),
-          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE to_jsonb(r) ->> 'kepler_folio' IS NULL), 0)::int AS dias_max_sin_kepler`));
+          trx.raw(`count(*) FILTER (WHERE ${opc('kepler_folio')} IS NULL AND ${opc('kepler_error')} ~* '(apagad|sin configurar)')::int AS n_kepler_apagado`),
+          trx.raw(`COALESCE(sum(r.total_cost) FILTER (WHERE ${opc('kepler_folio')} IS NULL), 0) AS monto_sin_kepler`),
+          trx.raw(`COALESCE(max(floor(extract(epoch FROM now() - r.created_at) / 86400)) FILTER (WHERE ${opc('kepler_folio')} IS NULL), 0)::int AS dias_max_sin_kepler`));
       const resumen = (resumenRows as any[]).map((x) => ({
         estado: String(x.estado), n: Number(x.n) || 0, monto: Number(x.monto) || 0,
         dias_prom: Number(x.dias_prom) || 0, dias_max: Number(x.dias_max) || 0,
@@ -5087,6 +5089,29 @@ export class CommercialReplenishmentService {
    * materializada del workbook.
    */
   private rqVigenciaCols: boolean | null = null;
+  /**
+   * `[PQ.130]` Qué columnas opcionales de la requisición existen ya (ver `rq-columnas-opcionales.ts`).
+   * Una sola consulta. Se guarda SÓLO cuando están todas: mientras falte alguna se vuelve a preguntar
+   * en cada lectura (unos ms), así que la columna aparece en cuanto su migración se aplica, sin
+   * reiniciar. Si la consulta falla, se lee como «ninguna» y no se guarda.
+   */
+  private rqColsOpcionales: ReadonlySet<string> | null = null;
+  private async rqColumnaOpcional(trx: Knex.Transaction): Promise<(col: RqColumnaOpcional) => string> {
+    if (this.rqColsOpcionales) return lectorColumnaOpcional(this.rqColsOpcionales);
+    let existen: ReadonlySet<string> = new Set();
+    try {
+      const r = await trx.raw(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'commercial' AND table_name = 'purchase_requisitions' AND column_name = ANY(?)`,
+        [[...RQ_COLUMNAS_OPCIONALES]]);
+      existen = new Set((r.rows ?? []).map((x: { column_name: string }) => x.column_name));
+      if (existen.size === RQ_COLUMNAS_OPCIONALES.length) this.rqColsOpcionales = existen;
+      else this.logger.warn(`[PQ.130] faltan columnas de purchase_requisitions (${RQ_COLUMNAS_OPCIONALES.filter((c) => !existen.has(c)).join(', ')}): se leen como NULL hasta su migración.`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.130] no se pudo preguntar qué columnas existen: ${(e as Error)?.message}`);
+    }
+    return lectorColumnaOpcional(existen);
+  }
   /**
    * `[RA-FIX.1]` ¿Existe ya `purchase_requisition_lines.destination_warehouse_id`?
    *
