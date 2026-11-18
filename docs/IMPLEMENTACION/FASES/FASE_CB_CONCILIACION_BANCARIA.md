@@ -692,8 +692,8 @@ Kepler y ContPAQi tenían y el banco no. El Δ Banco − Kepler del total era �
 - ⛔ **D2 REFUTADA en su mitad ContPAQi el 2026-11-18** ([`VERDAD_ABSOLUTA` §38.5-3](../../VERDAD_ABSOLUTA.md)): contra una
   respuesta conocida (meses cerrados con el banco recortado a propósito), en depósitos tiene más del doble de error que cortar
   por fecha, porque ContPAQi fecha el depósito antes que el abono y la regla da por buenas todas las pólizas anteriores al
-  corte. La mitad Kepler se sostiene. Además, la columna «Banco» es el libro, no la descarga (§38.1). **CB.82 no se suelta
-  así**: va con ContPAQi por pareo y lo no pareado aparte (§38.6).
+  corte. La mitad Kepler se sostiene. Además, la columna «Banco» es el libro, no la descarga (§38.1). **Reemplazada
+  por `[CB.85]`** (§13): ContPAQi por pareo y lo no pareado aparte.
 - **D2 · Kepler se corta por fecha; ContPAQi por fecha salvo lo que casa.** `fecha_efectiva` de Kepler ya es la del banco
   (CB.49). ContPAQi no: sus pólizas agrupan y se fechan después (los 136 depósitos de 6721, «VENTAS TLMKT», van al 11-nov).
   La póliza posterior al corte se queda si casa por importe exacto con un movimiento del banco de su cuenta que nadie haya
@@ -746,6 +746,46 @@ tarda 78 ms en noviembre y 208 ms en un mes cerrado, y prod suma un costo fijo d
 **Lo que CB.82 agrega** (antes `815e5892b` contra después, intercalados, 5 corridas, mediana; el viaje laptop→prod es 1 ms):
 `three-way` nov 115 → 147 ms (17 → 23 consultas), oct 165 → 180 ms; `three-way-detail` +5 a +10 ms (10 → 14 consultas).
 NO MEDIDO: a qué se deben los máximos de un día arriba de 500 ms (`ui_usage` guarda sólo el máximo diario, no el reparto).
+
+## 13. `[CB.85]` 🧪 El Cuadre 3 vías usa el banco de verdad y ContPAQi entra por pareja (2026-11-18)
+
+**De dónde sale.** [`VERDAD_ABSOLUTA` §38](../../VERDAD_ABSOLUTA.md): la columna «Banco» era el libro CUENTAS (a mano), el
+banco de verdad es la descarga (`bank_statement_lines`), y ContPAQi no tiene fecha de banco pero sí mes. La regla de
+`[CB.82]` para ContPAQi quedó refutada (§38.5-3). Edgar: «sí, hazlo».
+
+**Las reglas (D1–D3, de Claude, con su porqué).**
+- **D1 · «Banco» = la descarga donde su cuadre va de punta a punta.** El juicio es el de `[CB.73]` (mismo primitivo, ahora en
+  `cuadre-de-cuentas.query.ts`). El «Banco» de la cuenta es el libro del mes menos lo que la descarga no trae, más lo que sólo
+  trae la descarga: la partición de `[CB.64]`, así lo que el libro tiene y el banco confirma conserva su id, su categoría y su
+  conciliación. Sin descarga que cuadre, el libro de siempre (las cifras no cambian) con el porqué en la fila.
+- **D2 · ContPAQi por pareja mientras el banco no cubre el mes.** Mes en curso siempre (ContPAQi fecha el depósito hasta ~9
+  días antes que el abono); mes cerrado sólo si su banco va atrasado (≥3 días). Entra lo que casa 1:1 (exacto, luego ±$1) con
+  el banco cargado; lo demás va a `contpaqi_sin_pareja` y se publica. Mes cerrado al día: el mes contable entero, como antes.
+- **D3 · El detalle lee lo mismo que la fila.** Mismo banco (`leerBancoDelCuadre`, acotado a la cuenta), mismo pareo
+  (`parearPorImporte`) y mismo orden (fecha, id): la cifra de la fila se recorre en su detalle.
+
+**Medido (código real, sólo lectura contra prod, 2026-11-18).**
+
+| Control | Resultado |
+|---|---|
+| Octubre (banco al día): totales y cada cuenta contra la versión anterior | idéntico al centavo |
+| Noviembre: fuente del «Banco» | 15 cuentas con descarga (llega al 18-nov); 3 con libro: 1604 (rota del 3 al 10), 3660 (la entrada no cuadra), 5565 (sin descarga) |
+| Noviembre: Σ del detalle = fila (banco y ContPAQi pareado) | 18 de 18 cuentas |
+| Testigo de entrada en lote contra el original | 90 de 90 casos iguales (18 `null`) |
+| Pareo rápido contra la implementación original | 3,000 casos aleatorios iguales |
+
+**Pruebas.** `banco-del-cuadre.spec.ts` 7/7, rojo al romper el desempate y al dejar entrar lo que no casa; `libs/finance`
+bank 215/215; front bancos 64/64 (`three-way-explain.spec.ts` con el campo nuevo); `tsc` de `libs/finance` sin errores
+nuevos (39 TS1272 previos); `ngc` 0 en estos archivos (4 ajenos sin commitear). `test-newdb-bank-threeway-cobertura.js` 14 ✓ /
+2 ✗, las mismas de antes de CB.82 (comparan el % casado de CP.8.89, que sigue midiendo contra el libro). **Sin validación visual.**
+
+**Latencia.** `three-way` de noviembre: mediana 128 → ~400–450 ms desde la laptop (viaje a prod 1 ms; prod suma ~30 ms):
+bajo la regla de 500 ms, con poco margen. Lo que cuesta es leer la descarga y el libro por rango de fecha (~90 ms de SQL);
+bajarlo pide un índice (migración, aparte). Ya recortado: el testigo en una consulta con `LATERAL` (16 ms contra 80 con
+`max()`, mismas filas), el pareo con búsqueda binaria y el detalle acotado a su cuenta (100–225 ms según la carga).
+
+**Pendiente.** El % casado de ContPAQi (`SQL_CONTPAQI_CASADO`, CP.8.89) sigue contra el libro: medirlo contra la descarga.
+`analytics.contpaqi_bank_movements` → vista sobre `contpaqi_ods` (regla 1). Paridad registrada del Cuadre (R7).
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 

@@ -140,6 +140,7 @@ export function explainMovements(dd: ThreeWayDetail, row: TwRow, pair: TwPair, l
   const orphanFalta = pair === 'kc' ? 'el banco' : 'Workbook';
   // [CB.82] Lo posterior al último día del banco queda fuera del cuadre (el reparto por cuenta ya no
   // lo suma): listarlo como «falta en Workbook» sería acusar al banco de un día que no ha cargado.
+  // [CB.85] Lo mismo la póliza sin pareja en el banco cargado: mientras el banco no cubre el mes, no entra al cuadre.
   if (pair !== 'wc') {
     for (const k of dd.kepler_only) {
       if (k.dir !== dir || k.motivo === 'despues_del_banco') continue;
@@ -148,7 +149,7 @@ export function explainMovements(dd: ThreeWayDetail, row: TwRow, pair: TwPair, l
   }
   if (pair !== 'wk') {
     for (const c of dd.contpaqi_only) {
-      if (c.dir !== dir || c.despues_del_banco) continue;
+      if (c.dir !== dir || c.sin_banco_cargado) continue;
       out.push({ fuente: 'ContPAQi', fecha: c.fecha, importe: c.importe, concepto: c.concepto || c.poliza, falta_en: orphanFalta });
     }
   }

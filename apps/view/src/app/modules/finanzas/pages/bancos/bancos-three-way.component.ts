@@ -44,16 +44,24 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                después del último día del banco se leía como descuadre. -->
           @if (ventanaDe(d); as v) {
             <p class="tw-ventana">
-              @if (v.hasta) {
+              <!-- [CB.85] El «Banco» es la descarga del banco donde su cuadre por saldos va de punta a punta; si no, el libro. -->
+              @if (v.nDescarga) {
+                Banco: la descarga del banco en {{ v.nDescarga }} {{ v.nDescarga === 1 ? 'cuenta' : 'cuentas' }}@if (v.nLibro) {; el libro de Tesorería en {{ v.nLibro }}{{ v.nLibroMotivo ? ' (' + v.nLibroMotivo + ' porque su descarga no cuadra)' : '' }}}.
+              }
+              @if (v.n && v.hasta) {
                 Se compara del {{ dmShort(v.desde) }} al {{ dmShort(v.hasta) }}: el estado de cuenta del banco llega hasta ese día
                 ({{ v.dias_atras }} días antes de lo esperado).
-              } @else {
-                {{ v.n }} cuentas se comparan sólo hasta el último día que trae su estado de cuenta; la más atrasada llega al {{ dmShort(v.corte_min) }}.
+              } @else if (v.n) {
+                {{ v.n }} {{ v.n === 1 ? 'cuenta se compara' : 'cuentas se comparan' }} sólo hasta el último día que trae su banco; la más atrasada llega al {{ dmShort(v.corte_min) }}.
               }
               @if (v.dia_parcial) { Ese último día se cargó el mismo día y puede venir incompleto. }
               @if (v.fuera; as f) {
-                Fuera de la comparación, por ser posterior: Kepler {{ f.kepler.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de entradas y {{ f.kepler.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de salidas;
-                ContPAQi {{ f.contpaqi.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de depósitos y {{ f.contpaqi.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de retiros.
+                @if (f.kepler.movs) {
+                  Fuera de la comparación, por ser posterior al último día del banco: Kepler {{ f.kepler.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de entradas y {{ f.kepler.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de salidas.
+                }
+                @if (f.contpaqi.movs) {
+                  ContPAQi sin pareja en el banco cargado, fuera del cuadre: {{ f.contpaqi.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de depósitos y {{ f.contpaqi.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de retiros{{ v.mesCerrado ? '' : ' (el mes no ha cerrado: su abono puede llegar después)' }}.
+                }
               }
             </p>
           }
@@ -189,10 +197,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                     title="Banco − ContPAQi">Diferencia <p-sorticon field="worst_abs" /></th>
               </tr>
               <tr>
-                <th class="ta-r" pSortableColumn="wb_in" title="Estado de cuenta del banco">Banco <p-sorticon field="wb_in" /></th>
+                <th class="ta-r" pSortableColumn="wb_in" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_in" /></th>
                 <th class="ta-r tw-kep" pSortableColumn="kep_in" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_in" /></th>
                 <th class="ta-r" pSortableColumn="cp_in" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_in" /></th>
-                <th class="ta-r" pSortableColumn="wb_out" title="Estado de cuenta del banco">Banco <p-sorticon field="wb_out" /></th>
+                <th class="ta-r" pSortableColumn="wb_out" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_out" /></th>
                 <th class="ta-r tw-kep" pSortableColumn="kep_out" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_out" /></th>
                 <th class="ta-r" pSortableColumn="cp_out" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_out" /></th>
               </tr>
@@ -203,6 +211,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   [attr.aria-label]="'Abrir el detalle de ' + r.bank + ' ' + r.account_label">
                 <td><span class="tw-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
+                  @if (fuenteExcepcion(d, r); as fx) { <span class="tw-tag muted-tag" [attr.title]="fx.porque">{{ fx.txt }}</span><span class="sr-only"> — {{ fx.porque }}</span> }
                   <i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono tw-kep" [class.warn]="r.kep_has && !cuad(r.delta_wk_in)" title="Kepler tesorería (informativo — parcial, no incluye ventas de tienda del 102)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
@@ -491,11 +500,11 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <button type="button" class="tw-grp-head" (click)="contpaqiDespuesAbierto.set(!contpaqiDespuesAbierto())"
                           [attr.aria-expanded]="contpaqiDespuesAbierto()">
                     <i class="pi" [class.pi-chevron-down]="contpaqiDespuesAbierto()" [class.pi-chevron-right]="!contpaqiDespuesAbierto()" aria-hidden="true"></i>
-                    <span class="tw-grp-tit">En ContPAQi, posterior al último día del banco</span>
+                    <span class="tw-grp-tit">En ContPAQi, sin pareja en el banco cargado</span>
                     <span class="tw-grp-n mono">{{ cd.length }}</span>
                     <span class="tw-grp-monto mono">{{ orphanTotal(cd) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   </button>
-                  <p class="tw-grp-sub muted">El banco todavía no carga esos días: quedan fuera del cuadre, no son pólizas sin banco.</p>
+                  <p class="tw-grp-sub muted">El banco de esta cuenta todavía no cubre el mes y ContPAQi fecha el depósito antes que el abono: su pareja puede llegar después. Quedan fuera del cuadre; todavía no son pólizas sin banco.</p>
                   @if (contpaqiDespuesAbierto()) {
                     <table class="tw-tbl"><tbody>
                       @for (c of cd; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
@@ -865,9 +874,9 @@ export class BancosThreeWayComponent {
     return { grupos, total: rows.length, totalMonto: this.grupoTotal(rows) };
   });
   /** [CB.82] ContPAQi sin banco DENTRO de la ventana: los únicos que son «sin banco» de verdad. */
-  readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !c.despues_del_banco));
+  readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !c.sin_banco_cargado));
   /** [CB.82] Los posteriores al último día del banco: se cuentan aparte y se pueden abrir. */
-  readonly contpaqiDespues = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !!c.despues_del_banco));
+  readonly contpaqiDespues = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !!c.sin_banco_cargado));
   readonly contpaqiDespuesAbierto = signal(false);
 
   constructor() {
@@ -1148,8 +1157,35 @@ export class BancosThreeWayComponent {
   ventanaDe(d: ThreeWay) {
     const v = d.ventana;
     const n = v ? Object.keys(v.cortes || {}).length : 0;
-    if (!v || !n) return null;
-    return { desde: v.desde, hasta: v.hasta, corte_min: v.corte_min, dias_atras: v.dias_atras, fuera: v.fuera, dia_parcial: !!v.dia_parcial, n };
+    // [CB.85] Cuántas cuentas toman la descarga y cuántas el libro (de las que tienen movimientos este mes).
+    const conDatos = d.por_cuenta.filter((r) => r.wb_in || r.wb_out || r.cp_in || r.cp_out || r.kep_in || r.kep_out);
+    const nDescarga = conDatos.filter((r) => r.banco_fuente === 'descarga').length;
+    const nLibro = nDescarga ? conDatos.length - nDescarga : 0;
+    const nLibroMotivo = nDescarga ? conDatos.filter((r) => r.banco_fuente !== 'descarga' && r.banco_motivo).length : 0;
+    if (!v || (!n && !nDescarga && !v.fuera)) return null;
+    return { desde: v.desde, hasta: v.hasta, corte_min: v.corte_min, dias_atras: v.dias_atras, fuera: v.fuera, dia_parcial: !!v.dia_parcial, n,
+      nDescarga, nLibro, nLibroMotivo, mesCerrado: !!v.mes_cerrado };
+  }
+
+  /**
+   * [CB.85] La fuente del «Banco» de la fila, sólo cuando es la EXCEPCIÓN del periodo (la minoritaria): marcar las 18
+   * filas con lo mismo no le dice nada a nadie. El porqué viaja en texto (title + sr-only), no sólo en el tono.
+   */
+  fuenteExcepcion(d: ThreeWay, r: ThreeWayAccount): { txt: string; porque: string } | null {
+    if (!r.banco_fuente) return null;
+    const conFuente = d.por_cuenta.filter((x) => x.banco_fuente);
+    const nDesc = conFuente.filter((x) => x.banco_fuente === 'descarga').length;
+    if (!nDesc) return null;
+    const mayoriaDescarga = nDesc * 2 >= conFuente.length;
+    if (mayoriaDescarga && r.banco_fuente === 'libro') {
+      return { txt: 'libro', porque: r.banco_motivo
+        ? `El banco de esta cuenta sale del libro de Tesorería: ${r.banco_motivo}.`
+        : 'El banco de esta cuenta sale del libro de Tesorería: no hay descarga del banco este mes.' };
+    }
+    if (!mayoriaDescarga && r.banco_fuente === 'descarga') {
+      return { txt: 'descarga', porque: `El banco de esta cuenta sale de la descarga del banco${r.banco_desde ? ' desde el ' + dmShort(r.banco_desde) : ''}.` };
+    }
+    return null;
   }
 
   /** El rango del título de los totales: «del 01/11 al 10/11» si hubo un corte común; si no, el periodo. */
