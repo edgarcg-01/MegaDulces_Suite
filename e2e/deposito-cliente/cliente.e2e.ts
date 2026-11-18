@@ -12,7 +12,8 @@ import { test, expect, type Page, type Route } from '@playwright/test';
  * ⛔ La API es toda de la prueba: lo que no se contesta se aborta y se reclama en `afterEach`.
  */
 
-const TOKEN = 'eyJ0ZXN0IjoxfQ.e2e.firma';
+// Un enlace de prueba a la vista: no es un JWT (gitleaks marcó como secreto el anterior, con forma de JWT).
+const TOKEN = 'enlace-de-prueba-e2e';
 const CTX = {
   cliente: 'BOLSAS DE PRUEBA', sucursal: 'Padre Hidalgo',
   fichas: [{ id: 'f2', status: 'validado', motivo_rechazo: null, monto: 1500, fecha: '2026-11-08', enviado: '2026-11-08T10:00:00Z', aplicado: true }],
