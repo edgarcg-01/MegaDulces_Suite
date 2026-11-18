@@ -328,6 +328,19 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-18** — 🧪 **[COT.45] Bultos y cajas con decimales** (Edgar: «que podamos administrar decimales en el bulto»).
+  Kepler guarda factores con decimales en 8 artículos por sucursal (95579 BTO ×19.75 · 97235 CJA ×10.80 · 99136 BTO ×22.7
+  · 95438 BTO ×6.84 · los chocolates Palmer KG ×2.5), y `v_label_presentations` / `v_label_prices` los truncan con
+  `floor(…)::integer`, igual que el buscador del cotizador: el bulto de 19.75 se cotizaba como de 19 con el precio del bulto
+  completo, y el pedido rebotaba en Kepler (19 contra 19.75). Ahora el motor de precios, el buscador y el escaneo leen el
+  factor exacto de la ficha (`c81`/`c84`) con `factorExactoDeFicha` — sólo cuando el entero de la ficha es el de la vista
+  (prueba de que la vista lo truncó); las vistas NO se tocan (las usan las etiquetas). El redondeo ya era el de Kepler
+  (precio base a centavos × unidades base): verificado en ventas reales de 95320 (KG ×2.5): c13 = c12 × c9 con c9 = c51 × c58
+  (1.5 × 2.5 = 3.75 → $221.55). Pruebas: 3 de la regla con las fichas reales, con mutante (devolver la vista → rojo); 211/211
+  del cotizador. **NO MEDIDO:** el primer pedido con bulto fraccionario escrito en Kepler. **Aparte, en Kepler de Padre
+  Hidalgo:** el 95579 quedó hoy con base $9.66 y Unidad Dos PAQ ×1 $70.82 (CEDIS: $91.25 las dos) — captura a medias que
+  corrige Compras en Kepler.
+
 - **2026-11-18** — 🧪 **[COT.44] El mismo producto en dos presentaciones ya se escribe en Kepler.** COT-2026-00472 (Padre
   Hidalgo) rebotó con «95579: la presentación PAQ trae 1 en la cotización y 20 en la ficha de Kepler». La ficha estaba bien
   (base PAQ, BTO ×20): el adaptador guardaba UNA ficha por SKU y le calculaba el factor con el PRIMER renglón de ese SKU (el
