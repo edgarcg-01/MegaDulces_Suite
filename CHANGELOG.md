@@ -19,6 +19,11 @@
 - (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
 - (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
 - (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
+### Changed — El estado de cuenta en PDF se descarga desde el enlace del cliente (CC.20.2 · 2026-11-18)
+- El mensaje de WhatsApp no puede llevar archivos, así que el PDF ya no hay que adjuntarlo a mano: el cliente lo descarga desde su enlace personal, el mismo donde sube su ficha de depósito.
+- El mensaje lo dice así, y sólo menciona «le adjuntamos el PDF» cuando el cliente no tiene enlace.
+- En Cartera, «Enviar estado de cuenta» ya no descarga el PDF cuando hay enlace; «Ver PDF» sigue a un clic.
+
 ### Fixed — El enlace para subir depósitos abre desde el celular del cliente (CC.20.1 · 2026-11-18)
 - El enlace del mensaje de WhatsApp, de la ficha de Cartera y del código QR del PDF salía con la dirección interna de la oficina y no abría desde fuera. Ahora usa megadulcessuite.com.
 - El mensaje ya no dice «le avisamos cuando quede aplicado»: dice que en ese mismo enlace verá cuando quede aplicado.

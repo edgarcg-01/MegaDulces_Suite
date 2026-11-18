@@ -1807,6 +1807,17 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         prueba de punta a punta no corre en el CI. **No hay aviso en vivo** cuando se sube el estado de cuenta: el
         veredicto cambia al recargar la bandeja.
       · ⛔ **Para soltar:** lo mismo que CC.20 (su migración `20261117153156`); CC.21 no agrega migración.
+- [x] **[CC.20.2]** 🧪 **El PDF del estado de cuenta va EN el enlace del cliente** (Edgar, 2026-11-18, opción A: «no
+      se adjunta el PDF»). `wa.me` sólo lleva texto: el PDF se descargaba en la computadora de Cobranza y había que
+      arrastrarlo al chat, y el mensaje decía «Le adjuntamos el PDF» aunque no viajara. Ahora:
+      `GET /finance/deposito/:token/estado-de-cuenta.pdf` (pública, autorizada por el token vía
+      `conCuentaDelEnlace`, 6 por minuto) sirve el MISMO documento que imprime Cobranza; la página del enlace tiene
+      «Descargar mi estado de cuenta (PDF)» debajo del botón de subir; el mensaje dice que el PDF está en su enlace y
+      sólo dice «le adjuntamos» cuando no hay enlace; el botón de Cartera ya no descarga el PDF si hay enlace (lo dice
+      en su línea de aviso; «Ver PDF» sigue a un clic). Decisión de Edgar: quien tenga el enlace ve el saldo de esa
+      cuenta. Pruebas: controlador (cuenta del token, ⛔ token inválido sin PDF, `@Public`, grafo del módulo), página
+      (enlace con su token, debajo de subir), Cartera (con enlace no descarga; sin enlace descarga una vez con doble
+      clic); mutante «siempre descarga» → rojo. NO MEDIDO: el PDF abierto en un celular real.
 - [x] **[CC.20.1]** 🧪 **El enlace de depósito salía con la IP de la oficina** (Edgar, 2026-11-18, con el primer
       mensaje real: `http://192.168.0.222:8080/deposito/…`). Causa: en prod `APP_PUBLIC_URL` vale esa IP
       (`make-prod-env.js` la puso para el correo de Salud BD) y pisa el origen de la petición; quien emite desde la

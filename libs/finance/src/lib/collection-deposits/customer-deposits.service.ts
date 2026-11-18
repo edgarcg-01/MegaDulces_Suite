@@ -155,6 +155,16 @@ export class CustomerDepositsService {
     return { tenantId: p.tenant_id, sucursal: p.s, cliente: p.c };
   }
 
+  /**
+   * `[CC.20.2]` Corre `fn` con la cuenta del enlace (token revalidado contra la versión vigente) y en su tenant. Lo usa el
+   * PDF del estado de cuenta que el cliente descarga desde su enlace: vive en `customer-ledger`, que ya importa este
+   * módulo, así que la autorización se queda aquí y el documento no sabe de tokens.
+   */
+  async conCuentaDelEnlace<T>(token: string, fn: (sucursal: string, cliente: string) => Promise<T>): Promise<T> {
+    const cta = await this.resolver(token);
+    return this.enCuenta(cta, () => fn(cta.sucursal, cta.cliente));
+  }
+
   private enCuenta<T>(cta: CuentaDeposito, fn: () => Promise<T>): Promise<T> {
     return this.tenantCtx.run({ tenantId: cta.tenantId, username: `cliente:${cta.sucursal}/${cta.cliente}` }, fn);
   }

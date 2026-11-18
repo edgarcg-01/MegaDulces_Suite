@@ -421,7 +421,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <i class="pi" [class.pi-whatsapp]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i>
               <span class="ct-send-txt">
                 <b>Enviar estado de cuenta</b>
-                <small>WhatsApp · {{ det.cliente.telefono || 'eliges a quién' }}{{ enlaceDeposito() ? ' · con enlace para depósitos' : '' }}</small>
+                <small>WhatsApp · {{ det.cliente.telefono || 'eliges a quién' }}{{ enlaceDeposito() ? ' · PDF y depósitos en su enlace' : ' · con el PDF para adjuntar' }}</small>
               </span>
             </a>
           </div>
@@ -1131,7 +1131,10 @@ export class FinanzasCarteraComponent implements OnInit {
    * descarga el PDF para adjuntarlo y queda el contacto. Un segundo clic mientras se genera el PDF no lo pide dos veces.
    */
   enviarEstadoCuenta(det: CarteraDetalle): void {
-    if (!this.pdfBusy()) this.descargarParaWhatsApp(det);
+    // `[CC.20.2]` Con enlace, el PDF viaja EN el enlace (el cliente lo descarga ahí): no hay nada que adjuntar, y
+    // descargarlo aquí sólo dejaría un archivo de más. Sin enlace, como antes: se descarga para adjuntarlo a mano.
+    if (this.enlaceDeposito()) this.pdfAviso.set({ texto: 'El estado de cuenta en PDF va en su enlace: el cliente lo descarga desde ahí.', error: false });
+    else if (!this.pdfBusy()) this.descargarParaWhatsApp(det);
     this.registrarContacto(det, 'whatsapp');
   }
 
