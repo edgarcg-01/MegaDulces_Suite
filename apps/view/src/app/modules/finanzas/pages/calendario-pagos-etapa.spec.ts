@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CierreKeplerPago } from '@megadulces/contracts';
-import { diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago, type PagoParaEtapa } from './calendario-pagos-etapa';
+import { diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago, type PagoParaEtapa } from './calendario-pagos-etapa';
 
 const cierre = (estado: CierreKeplerPago['estado'], sin_medir = 0): CierreKeplerPago =>
   ({ estado, desfase_dias: null, pagado: 0, facturas: { total: 1, pagada: estado === 'pagado' ? 1 : 0, en_parte: 0, sin_pagar: 0, sin_medir, saldada_sin_dinero: 0 }, pagos: [] } as unknown as CierreKeplerPago);
@@ -52,6 +52,21 @@ describe('[PGP.114] la etapa de cada pago', () => {
 
   it('rebotado: rebotó', () => {
     expect(etapaDelPago({ ...listo, status: 'failed' }, HOY)).toBe('rebote');
+  });
+
+  it('[PGP.146] pendiente que la descarga del banco ya muestra salido: por registrar en Kepler, aunque no esté preparado', () => {
+    const salio = { estado: 'salio' as const, fecha: '2026-11-13', cuenta_id: 'b1', cuenta: 'BBVA 4176', importe: 469071.93 };
+    expect(etapaDelPago({ ...base, banco_descarga: salio }, HOY)).toBe('kepler');
+    expect(etapaDelPago({ ...listo, autorizado: true, authorized_at: '2026-11-10T10:00:00Z', banco_descarga: salio }, HOY)).toBe('kepler');
+    expect(salioDelBanco({ status: 'pending', banco_descarga: salio })).toBe(salio);
+    // Kepler ya lo saldó: eso gana (está pagado y registrado).
+    expect(etapaDelPago({ ...base, banco_descarga: salio, kepler_cierre: cierre('pagado') }, HOY)).toBe('pagado');
+    // NEGATIVAS: sin salida, el banco no lo decide, o respuesta vieja → sigue su camino.
+    expect(etapaDelPago({ ...base, banco_descarga: { estado: 'sin_salida', revisadas: 3, sin_cubrir: [] } }, HOY)).toBe('preparar');
+    expect(etapaDelPago({ ...listo, banco_descarga: { estado: 'no_decide', motivo: 'dos salidas' } }, HOY)).toBe('autorizar');
+    expect(etapaDelPago({ ...base, banco_descarga: undefined }, HOY)).toBe('preparar');
+    // Ya marcado pagado en la Suite: manda su estado, no la descarga.
+    expect(salioDelBanco({ status: 'executed', banco_descarga: salio })).toBeNull();
   });
 });
 

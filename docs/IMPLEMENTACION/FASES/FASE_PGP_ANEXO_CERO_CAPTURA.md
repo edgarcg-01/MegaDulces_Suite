@@ -145,6 +145,25 @@ hecho (el saldo de Kepler), y en un pago sin autorizar nadie ha comprometido nad
 Tesorería ya cargó la transferencia en el portal, y ahí cambiarlo en silencio haría que la Suite y el banco digan cosas
 distintas. **✅ Firmada (b) por Edgar el 2026-11-18** («si»).
 
+### 4b-bis. C3 de `[PGP.146]` y `[PGP.147]`: lo que dice la fila (diseño, 2026-11-18)
+
+Las cinco preguntas de `diseno` §0b, contestadas antes de la plantilla:
+1. **Qué ve y en qué orden.** El pago pendiente que ya salió del banco deja de ser trabajo de «preparar/mover»: pasa a
+   «Por registrar en Kepler» y en «Cómo sale» dice **«Salió del banco el vie 13 nov · cuenta · importe»** con lo que
+   le falta. El pago que lleva más de lo que se debe lo dice **en rojo bajo «A quién»**, con el documento de Kepler
+   que bajó el saldo, en todas las etapas (antes de autorizar, sobre todo). El atrasado sin salida dice si **no salió**
+   o **qué descarga falta** para saberlo.
+2. **Qué no ve.** «No lo decide el banco» (cheque, dos salidas iguales) va sólo al desglose: en la fila es ruido.
+   Un pago de HOY sin salida no dice nada (todavía puede salir).
+3. **Accesibilidad.** Texto + icono, nunca sólo color; el desglose lista cada abono (clase, folio, fecha, monto) por
+   factura; la frase de la etapa cuenta cuántos y cuánto.
+4. **Ligas.** La salida nombra su cuenta y su fecha (se busca en el estado de cuenta); el abono, su folio de Kepler.
+5. **¿Le toca a esta pantalla?** Sí: es la que decide pagar. Ajustar el importe es `[PGP.148]` (otra acción).
+
+⛔ **Seguridad, no presentación:** un pago que ya salió no ofrece «Mover» ni «Quitar» (lo volvería a programar), ni
+entra en «Mover los N de días pasados». Y el diálogo de autorizar repite el aviso de «lleva de más».
+**Lo que la interfaz no resuelve:** que la cuenta «use el banco» (persona, en Bancos) y bajar el importe (`[PGP.148]`).
+
 ### 4c. ⛔ La liberación a la semana soltó pagos que sí salieron del banco (2026-11-18)
 
 **El hallazgo** (al construir la pantalla de §4a). `[PGP.117]` libera, a la semana, el pago que «nadie pagó»: lo pasa a
@@ -241,6 +260,9 @@ del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pag
 - **2026-11-18** — ⛔ Frente 0 (`[PGP.149]`): la liberación a la semana soltó el 17-nov 7 pagos que sí habían salido del
   banco ($1.89 M), porque su testigo leía sólo el libro parado. Ahora lee también la descarga, no afirma «no salió» sin
   cobertura y regresa sola lo que soltó por error (§4c). Prueba con base real escrita, corre en el CI.
+- **2026-11-18** — C3 de `[PGP.146]` y `[PGP.147]` (§4b-bis): la fila dice que salió del banco o qué descarga falta,
+  y lo que lleva de más con el documento que bajó el saldo (también en el diálogo de autorizar y en el Preliminar). Lo
+  que ya salió no se mueve ni se quita. Sin validación visual.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado

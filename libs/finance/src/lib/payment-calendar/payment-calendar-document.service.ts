@@ -3,6 +3,16 @@ import * as puppeteer from 'puppeteer';
 import { warehouseName } from '@megadulces/contracts';
 import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
 import { lineasDeDescuento, rotuloDescuentos } from './descuento-al-pagar';
+import { facturasQueDebenMenos } from './debe-menos';
+
+/**
+ * `[PGP.147]` La línea de Kepler que hoy debe MENOS de lo que este pago le lleva (una nota de crédito, una devolución
+ * o un pago la bajó después de programar; caso Mondelez). La MISMA regla que la pantalla (`facturasQueDebenMenos`).
+ */
+export function lineaDebeMenos(l: Pick<ExpedienteLinea, 'obligation_source' | 'se_paga' | 'pendiente' | 'saldada'>): boolean {
+  if (l.obligation_source !== 'kepler_payable') return false;
+  return facturasQueDebenMenos([{ id: '', applied_amount: l.se_paga, kepler_debe: l.pendiente, kepler_saldada: l.saldada, entity_ref: null, payee_code: null }]).length > 0;
+}
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor de mercancía',
@@ -321,7 +331,7 @@ export class PaymentCalendarDocumentService {
           ? lineas.map((l) => `<tr class="doc-row">
               <td></td>
               <td>${esc(warehouseName(l.sucursal) || '—')}</td>
-              <td>${esc(l.folio_interno || '—')}${l.saldada ? ' <b>· YA SALDADA EN EL ERP</b>' : ''}</td>
+              <td>${esc(l.folio_interno || '—')}${l.saldada ? ' <b>· YA SALDADA EN EL ERP</b>' : lineaDebeMenos(l) ? ` <b>· HOY DEBE ${money(l.pendiente)}</b>` : ''}</td>
               <td>${esc(l.folio_externo || '—')}</td>
               <td class="c">${esc(l.folio_externo ? FUENTE[l.folio_externo_fuente ?? 'ninguna'] : '—')}</td>
               <td class="c">${esc(fechaCorta(l.fecha))}</td>
@@ -353,6 +363,8 @@ export class PaymentCalendarDocumentService {
     const conPapel = detalle.filter((d) => d.papel !== 'no_aplica');
     const n = (p: string) => conPapel.filter((d) => d.papel === p).length;
     const saldadas = detalle.filter((d) => d.saldada).length;
+    // [PGP.147] Lo que se paga de más contra lo que el ERP debe hoy.
+    const deMas = detalle.filter(lineaDebeMenos).length;
     const sinExterno = conPapel.filter((d) => !d.folio_externo).length;
     const porOcr = conPapel.filter((d) => d.folio_externo_fuente === 'ocr').length;
     const porErp = conPapel.filter((d) => d.folio_externo_fuente === 'erp').length;
@@ -388,6 +400,7 @@ export class PaymentCalendarDocumentService {
         ${conDescuento ? fila('Con descuento al pagar', conDescuento, 'la nota de crédito la emite el proveedor después en Kepler') : ''}
         ${discrepa ? fila('ATENCIÓN — el CFDI dice otro importe', discrepa, 'revisar cuál es el bueno antes de pagar') : ''}
         ${saldadas ? fila('ATENCIÓN — el ERP ya no debe este documento', saldadas, 'no se puede pagar: revisar antes de autorizar') : ''}
+        ${deMas ? fila('ATENCIÓN — se paga más de lo que el ERP debe hoy', deMas, 'una nota de crédito, devolución o pago bajó su saldo: ajustar antes de autorizar') : ''}
       </table>`;
   }
 
