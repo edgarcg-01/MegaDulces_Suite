@@ -68,6 +68,70 @@ FROM bn LEFT JOIN q USING (cta, dir, c)`;
 /** [CP.8.89] Debajo de este % del dinero del banco con póliza, ContPAQi va atrasado (captura pendiente). */
 const CASADO_MIN_PCT = 99;
 
+/** Días de atraso a partir de los cuales la captura de una fuente se marca pendiente (CB.32). */
+const ATRASO_DIAS = 3;
+
+/**
+ * [CB.82] Hasta qué día se puede comparar cada cuenta del cuadre.
+ *
+ * El estado de cuenta entra por cargas (el libro CUENTAS, o la descarga del banco de una cuenta que
+ * «usa el banco») y Kepler y ContPAQi capturan todos los días. Comparar el mes entero de cada una
+ * enfrenta días que el banco todavía no cargó contra días que las otras sí tienen, y esa diferencia
+ * se pintaba como descuadre. Medido en prod el 2026-11-17 sobre nov-2026: el libro llegaba al 10-nov
+ * (una sola carga, ese día), ContPAQi al 13 y Kepler al 17; $9.8 M de ContPAQi y $10.1 M de Kepler
+ * eran posteriores al 10. BBVA 6721 salía con −$2,165,287 «vs ContPAQi»: cuatro pagos a proveedores
+ * del 10 y 11-nov que el banco no traía.
+ *
+ * ⭐ El corte es POR CUENTA, y el día de una cuenta es el último de su LOTE de carga (el mismo
+ * archivo): todas las cuentas del libro comparten el 10-nov aunque una de poco movimiento termine
+ * el 6, y una cuenta que pase a la descarga diaria (CB.80) tiene su propio día. Un corte global
+ * tomaría el máximo y volvería a comparar el libro contra días que no trae.
+ *
+ * Sólo se recorta cuando el lote va ATRASADO (≥ ATRASO_DIAS contra el día esperado). Un mes cerrado
+ * cuyo último movimiento cae el 30 porque el 31 fue domingo no se recorta: ahí las pólizas de fin
+ * de mes de ContPAQi (que agrupan) quedarían fuera sin razón. Agosto, septiembre y octubre de 2026
+ * llegan al último día del mes: no cambian.
+ */
+export interface VentanaCuadre {
+  desde: string;
+  /** Día hasta el que se espera captura: hoy en el mes en curso, fin de mes en uno cerrado. */
+  esperado: string;
+  /** account_label → último día comparado. Sólo las cuentas cuyo banco va atrasado; el resto, mes entero. */
+  cortes: Record<string, string>;
+  /** El día de corte si todas las cuentas recortadas comparten uno (una sola carga); si no, `null`. */
+  hasta: string | null;
+  /** El corte más viejo y sus días de atraso: lo peor que hay que cargar. */
+  corte_min: string | null;
+  dias_atras: number | null;
+  /**
+   * El día de corte se cargó ESE MISMO día, así que puede venir incompleto (nov-2026: el libro se
+   * importó el 10-nov a las 14:09 y BBVA 6721 no trae dos pagos de ese día que Kepler y ContPAQi sí).
+   * No se recorta un día más porque el lado del banco es el total del estado de cuenta: se declara.
+   */
+  dia_parcial: boolean;
+}
+
+/** [CB.82] ¿La fecha cae después del último día que trae el banco para esa cuenta? */
+function despuesDelCorte(cortes: Record<string, string>, accountLabel: string | null | undefined, fecha: unknown): boolean {
+  const c = accountLabel ? cortes[accountLabel] : undefined;
+  return !!c && ymdLocal(fecha) > c;
+}
+
+/** [CB.82] Lo que queda fuera de la comparación por ser posterior al último día del banco. */
+export interface FueraDeVentana { in: number; out: number; movs: number }
+
+/**
+ * `YYYY-MM-DD` de una columna `date`. node-postgres la entrega como `Date` armada en la hora
+ * LOCAL del proceso: se lee por componentes locales, nunca con `toISOString()` (voltea el día en MX).
+ */
+function ymdLocal(v: unknown): string {
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const p2 = (x: number) => String(x).padStart(2, '0');
+    return `${v.getFullYear()}-${p2(v.getMonth() + 1)}-${p2(v.getDate())}`;
+  }
+  return String(v ?? '').slice(0, 10);
+}
+
 /**
  * CB.46 — Cuántos meses separan la fecha del movimiento del periodo de SU estado de cuenta.
  * Requiere `bm` y `st` en el FROM. Se calcula en meses y no en días porque el error que hay
@@ -309,7 +373,16 @@ export class FinanceBankService {
    * ContPAQi (analytics.contpaqi_bank_movements) — la 3ª columna de verdad (contabilidad, no
    * proxy). Ancla en todas las cuentas; Excel = 0 si no hay estado de cuenta. Requiere linkContpaqi.
    */
+  /**
+   * [CB.82] `cortes` sólo lo manda el cuadre 3 vías: recorta ContPAQi de cada cuenta al último día
+   * que trae su banco (ver `VentanaCuadre`). La ruta `/contpaqi-compare` sigue comparando el mes entero.
+   */
   async contpaqiCompare(period?: string) {
+    return this.compararContpaqi(period, {});
+  }
+
+  /** [CB.82] El cuerpo de `contpaqiCompare`, con los cortes por cuenta que sólo pasa el cuadre 3 vías. */
+  private async compararContpaqi(period: string | undefined, cortes: Record<string, string>) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     return this.tk.run(async (trx) => {
@@ -322,18 +395,72 @@ export class FinanceBankService {
       const stmts = await trx('finance.bank_statements').where('period', period)
         .select('bank_account_id', 'total_in', 'total_out');
       const stByAcct = new Map(stmts.map((s: any) => [s.bank_account_id, s]));
-      const cpq = await trx('analytics.contpaqi_bank_movements')
-        .where('tenant_id', tenantId).andWhere('anio_mes', period).select('cuenta')
-        .select(trx.raw(`SUM(importe) FILTER (WHERE flujo='deposito') AS dep`))
-        .select(trx.raw(`SUM(importe) FILTER (WHERE flujo='retiro') AS ret`))
-        .count('* as movs').groupBy('cuenta');
-      const cpqByCuenta = new Map(cpq.map((c: any) => [c.cuenta, c]));
+      // [CB.82] El corte de ContPAQi NO es sólo por fecha: sus pólizas agrupan y se fechan después
+      // (nov-2026: los 136 depósitos de BBVA 6721, «VENTAS TLMKT», van todos al 11-nov aunque el banco
+      // los tiene antes). Regla: una póliza posterior al último día del banco sigue DENTRO si casa por
+      // importe exacto con un movimiento del banco de su cuenta (que no haya casado ya otra); si no casa,
+      // es de un día que el banco no cargó y va a `fuera_de_corte`. Medido el 2026-11-17: de 401
+      // posteriores al 10-nov, 66.8 % casan con su cuenta; contra OTRA cuenta (placebo) 0.5–1.2 %.
+      const acum = new Map<string, { cuenta: string; dep: number; ret: number; movs: number }>();
+      const fuera = { in: 0, out: 0, movs: 0 };
+      const suma = (cuenta: string, flujo: string, importe: number, movs: number) => {
+        const a = acum.get(cuenta) ?? { cuenta, dep: 0, ret: 0, movs: 0 };
+        if (flujo === 'deposito') a.dep += importe; else if (flujo === 'retiro') a.ret += importe;
+        a.movs += movs; acum.set(cuenta, a);
+      };
+      const corteDeCuenta = new Map<string, string>();
+      for (const a of accounts as { account_label: string | null; contpaqi_cuenta: string | null }[]) if (a.account_label && a.contpaqi_cuenta && cortes[a.account_label]) corteDeCuenta.set(a.contpaqi_cuenta, cortes[a.account_label]);
+      // Sin cortes, la suma de siempre (la ruta /contpaqi-compare y los meses al día no cambian).
+      const agregado = await trx('analytics.contpaqi_bank_movements')
+        .where('tenant_id', tenantId).andWhere('anio_mes', period)
+        .modify((q: Knex.QueryBuilder) => { if (corteDeCuenta.size) q.whereNotIn('cuenta', Array.from(corteDeCuenta.keys())); })
+        .groupBy('cuenta').select('cuenta')
+        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE flujo='deposito'),0) AS dep`))
+        .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE flujo='retiro'),0) AS ret`))
+        .select(trx.raw('COUNT(*)::int AS movs')) as { cuenta: string; dep: string; ret: string; movs: number }[];
+      for (const r of agregado) { suma(r.cuenta, 'deposito', n(r.dep), Number(r.movs) || 0); suma(r.cuenta, 'retiro', n(r.ret), 0); }
+      if (corteDeCuenta.size) {
+        const ctas = Array.from(corteDeCuenta.keys());
+        const polizas = await trx('analytics.contpaqi_bank_movements')
+          .where('tenant_id', tenantId).andWhere('anio_mes', period).whereIn('cuenta', ctas)
+          .select('cuenta', 'flujo', 'importe', trx.raw('fecha::text AS dia'))
+          .orderBy([{ column: 'fecha' }, { column: 'id_movimiento' }]) as { cuenta: string; flujo: string; importe: string; dia: string }[];
+        const banco = await trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .join('finance.bank_accounts as a', 'a.id', 'bm.bank_account_id')
+          .where('st.period', period).whereNull('bm.deleted_at').whereIn('a.contpaqi_cuenta', ctas)
+          .select('a.contpaqi_cuenta as cuenta', 'bm.amount_in', 'bm.amount_out') as { cuenta: string; amount_in: string | null; amount_out: string | null }[];
+        const llave = (cuenta: string, dir: string, importe: number) => `${cuenta}|${dir}|${Math.round(importe * 100)}`;
+        const libres = new Map<string, number>();
+        for (const b of banco) {
+          const dir = n(b.amount_in) > 0 ? 'deposito' : 'retiro';
+          const imp = n(b.amount_in) > 0 ? n(b.amount_in) : n(b.amount_out);
+          if (imp > 0) libres.set(llave(b.cuenta, dir, imp), (libres.get(llave(b.cuenta, dir, imp)) ?? 0) + 1);
+        }
+        const toma = (k: string) => { const v = libres.get(k) ?? 0; if (v > 0) { libres.set(k, v - 1); return true; } return false; };
+        // Primero las de la ventana (se quedan siempre; sólo reservan su movimiento del banco)…
+        const despues: typeof polizas = [];
+        for (const p of polizas) {
+          if (p.dia > corteDeCuenta.get(p.cuenta)!) { despues.push(p); continue; }
+          toma(llave(p.cuenta, p.flujo, n(p.importe)));
+          suma(p.cuenta, p.flujo, n(p.importe), 1);
+        }
+        // …y luego las posteriores: dentro si casan con lo que el banco dejó libre, fuera si no.
+        for (const p of despues) {
+          if (toma(llave(p.cuenta, p.flujo, n(p.importe)))) { suma(p.cuenta, p.flujo, n(p.importe), 1); continue; }
+          if (p.flujo === 'deposito') fuera.in += n(p.importe); else if (p.flujo === 'retiro') fuera.out += n(p.importe);
+          fuera.movs++;
+        }
+      }
+      const cpq = Array.from(acum.values());
+      const cpqByCuenta = new Map(cpq.map((c) => [c.cuenta, c]));
       const r2 = (v: number) => Math.round(v * 100) / 100;
       const rows = accounts.map((a: any) => {
         const st: any = stByAcct.get(a.id);
         const c: any = a.contpaqi_cuenta ? cpqByCuenta.get(a.contpaqi_cuenta) : null;
         const exIn = n(st?.total_in), exOut = n(st?.total_out);
-        const cpIn = c ? n(c.dep) : 0, cpOut = c ? n(c.ret) : 0;
+        // r2: la suma por día se acumula en JS y arrastraría ruido de coma flotante.
+        const cpIn = c ? r2(c.dep) : 0, cpOut = c ? r2(c.ret) : 0;
         return {
           id: a.id, bank: a.bank, account_label: a.account_label, alias: a.alias, kind: a.kind,
           contpaqi_cuenta: a.contpaqi_cuenta, contpaqi_cuenta_nombre: a.contpaqi_cuenta_nombre, linked: !!a.contpaqi_cuenta,
@@ -348,6 +475,8 @@ export class FinanceBankService {
       return {
         period, linked: rows.filter((r: any) => r.linked).length, rows,
         totals: { ...tot, delta_in: r2(tot.excel_in - tot.contpaqi_in), delta_out: r2(tot.excel_out - tot.contpaqi_out) },
+        /** [CB.82] ContPAQi de cuentas enlazadas posterior al corte de su banco: fuera de la comparación. */
+        fuera_de_corte: { in: r2(fuera.in), out: r2(fuera.out), movs: fuera.movs },
       };
     });
   }
@@ -2987,13 +3116,55 @@ export class FinanceBankService {
    * feed), así que Kepler solo aparece en el control-total. Reusa contpaqiCompare
    * (Workbook + ContPAQi, mismo universo kind='bank') + el total del 102 de bank_postings.
    */
+  /**
+   * [CB.82] La ventana del cuadre, por cuenta (ver `VentanaCuadre`). La comparten el cuadre y su
+   * detalle por cuenta, para que los dos cuenten los mismos días.
+   */
+  async ventanaDelBanco(period: string): Promise<VentanaCuadre> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [yy, mm] = period.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const desde = `${period}-01`;
+    const finMes = `${period}-${String(lastDay).padStart(2, '0')}`;
+    const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .format(new Date());
+    const esperado = hoy < finMes ? hoy : finMes;
+    const vacia: VentanaCuadre = { desde, esperado, cortes: {}, hasta: null, corte_min: null, dias_atras: null, dia_parcial: false };
+    // Un periodo futuro no tiene nada que comparar todavía: no se recorta.
+    if (esperado < desde) return vacia;
+    // El último día de cada LOTE de carga (mismo archivo); sin archivo, cada estado es su propio lote.
+    const filas = await this.tk.run(async (trx) => (await trx.raw(`
+      WITH s AS (
+        SELECT a.account_label, COALESCE(st.source_file, st.id::text) AS lote,
+               (st.imported_at AT TIME ZONE 'America/Mexico_City')::date AS cargado,
+               (SELECT MAX(bm.movement_date) FROM finance.bank_movements bm
+                 WHERE bm.statement_id = st.id AND bm.deleted_at IS NULL AND bm.movement_date <= ?::date) AS ult
+        FROM finance.bank_statements st JOIN finance.bank_accounts a ON a.id = st.bank_account_id
+        WHERE st.period = ? AND st.tenant_id = ? AND a.kind = 'bank' AND a.account_label IS NOT NULL)
+      SELECT account_label, (MAX(ult) OVER (PARTITION BY lote))::text AS ultimo,
+             (MAX(cargado) OVER (PARTITION BY lote))::text AS cargado FROM s`, [esperado, period, tenantId])).rows) as { account_label: string; ultimo: string | null; cargado: string | null }[];
+    const ultimoDe = new Map<string, string>();
+    for (const r of filas) if (r.ultimo && (!ultimoDe.has(r.account_label) || r.ultimo > ultimoDe.get(r.account_label)!)) ultimoDe.set(r.account_label, r.ultimo);
+    const dias = (ymd: string) => Math.round((Date.parse(esperado) - Date.parse(ymd)) / 86_400_000);
+    const cortes: Record<string, string> = {};
+    for (const [label, ult] of ultimoDe) if (dias(ult) >= ATRASO_DIAS) cortes[label] = ult;
+    const unicos = Array.from(new Set(Object.values(cortes))).sort();
+    const corteMin = unicos[0] ?? null;
+    const diaParcial = filas.some((r) => !!r.ultimo && cortes[r.account_label] === r.ultimo && r.cargado === r.ultimo);
+    return { ...vacia, cortes, hasta: unicos.length === 1 ? unicos[0] : null, corte_min: corteMin, dias_atras: corteMin ? dias(corteMin) : null, dia_parcial: diaParcial };
+  }
+
   async threeWay(period?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
     const r2 = (v: number) => Math.round(v * 100) / 100;
     const TOL = 1000; // ±$1,000 se considera cuadrado (misma tolerancia que el resto del módulo)
 
-    const cpq = await this.contpaqiCompare(period); // Workbook(excel) + ContPAQi + filas por cuenta
+    // [CB.82] Las tres fuentes se comparan sobre los MISMOS días: si el banco de una cuenta va
+    // atrasado, hasta su último día. Lo que Kepler y ContPAQi traen después va aparte (`ventana.fuera`).
+    const ventana = await this.ventanaDelBanco(period);
+    const cortes = ventana.cortes;
+    const cpq = await this.compararContpaqi(period, cortes); // Workbook(excel) + ContPAQi + filas por cuenta
 
     const [yy, mm] = period.split('-').map(Number);
     const ini = `${period}-01`;
@@ -3003,7 +3174,7 @@ export class FinanceBankService {
     // contable estaba lumped; la tesorería sí desglosa por banco (c45). deposito=signo>0
     // (entrada/traspaso-destino), retiro=signo<0 (salida/traspaso-origen). account_label
     // = crosswalk a finance.bank_accounts (excluye puente/caja-chica sin cuenta nuestra).
-    const kepRows = await this.tk.run(async (trx) =>
+    const kepDias = await this.tk.run(async (trx) =>
       trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
         // Excluir cuentas de CAJA (kind='cash', p.ej. CG): el cuadre es contra un estado de
@@ -3013,14 +3184,30 @@ export class FinanceBankService {
         .whereNotIn('account_label', trx('finance.bank_accounts')
           .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
         .andWhere('fecha_efectiva', '>=', ini).andWhere('fecha_efectiva', '<', fin)
-        .groupBy('account_label')
-        .select('account_label',
+        // [CB.82] Por día, para cortar cada cuenta en el último día de su banco.
+        .groupBy('account_label', 'fecha_efectiva')
+        .select('account_label', trx.raw('fecha_efectiva::text AS dia'),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS dep`),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS ret`),
-          trx.raw(`COUNT(*)::int AS movs`)));
+          trx.raw(`COUNT(*)::int AS movs`))) as { account_label: string; dia: string; dep: string; ret: string; movs: number }[];
+    const kepAcum = new Map<string, { account_label: string; dep: number; ret: number; movs: number }>();
+    const kepFuera = { in: 0, out: 0, movs: 0 };
+    for (const d of kepDias) {
+      const corte = cortes[d.account_label];
+      if (corte && d.dia > corte) { kepFuera.in += n(d.dep); kepFuera.out += n(d.ret); kepFuera.movs += Number(d.movs) || 0; continue; }
+      const a = kepAcum.get(d.account_label) ?? { account_label: d.account_label, dep: 0, ret: 0, movs: 0 };
+      a.dep += n(d.dep); a.ret += n(d.ret); a.movs += Number(d.movs) || 0;
+      kepAcum.set(d.account_label, a);
+    }
+    const kepRows = Array.from(kepAcum.values());
+    // [CB.82] Lo que quedó fuera de la comparación, por fuente: se publica para que el recorte no
+    // esconda dinero. Mismo universo que lo comparado (Kepler sin caja; ContPAQi de cuentas enlazadas).
+    const fuera: { kepler: FueraDeVentana; contpaqi: FueraDeVentana } | null = Object.keys(cortes).length
+      ? { kepler: { in: r2(kepFuera.in), out: r2(kepFuera.out), movs: kepFuera.movs }, contpaqi: cpq.fuera_de_corte }
+      : null;
     const kmap = new Map<string, { in: number; out: number; movs: number }>(
-      (kepRows as any[]).map((r) => [r.account_label, { in: r2(n(r.dep)), out: r2(n(r.ret)), movs: Number(r.movs) || 0 }]));
-    const kepHasData = (kepRows as any[]).length > 0;
+      kepRows.map((r) => [r.account_label, { in: r2(r.dep), out: r2(r.ret), movs: r.movs }]));
+    const kepHasData = kepRows.length > 0;
 
     // Total Kepler: suma del feed de tesorería si hay datos; si no, fallback al 102 de bank_postings.
     let kep: { in: number; out: number; movs: number };
@@ -3123,7 +3310,7 @@ export class FinanceBankService {
     const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
     const targetDay = period === curYm ? Math.min(Number(curYmd.slice(8, 10)) || lastDay, lastDay) : lastDay;
     /** Días de atraso a partir de los cuales la captura de una fuente se marca pendiente. */
-    const STALE_LAG = 3;
+    const STALE_LAG = ATRASO_DIAS;
     // node-postgres devuelve las columnas `date` como Date de JS: se leen por componentes
     // locales, nunca con toISOString() (voltea el día en TZ MX).
     const ymdOf = (v: any): string => {
@@ -3174,7 +3361,10 @@ export class FinanceBankService {
       kepler: { ...src(ck, cov.kp?.last), sin_datos: ck === 0 },
       contpaqi,
     };
-    const anyStale = coverage.kepler.stale || coverage.contpaqi.stale || coverage.kepler.sin_datos || coverage.contpaqi.sin_datos;
+    // [CB.82] El banco también cuenta: antes sólo Kepler y ContPAQi podían «ir atrasadas», así que un
+    // estado de cuenta sin cargar se leía como descuadre y la nota afirmaba que el banco iba al día.
+    const anyStale = coverage.workbook.stale || coverage.kepler.stale || coverage.contpaqi.stale
+      || coverage.kepler.sin_datos || coverage.contpaqi.sin_datos;
     const pesos = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
     const notaContpaqi = contpaqi.stale && contpaqi.sin_poliza
       ? `ContPAQi tiene póliza para el ${casadoPct} % del dinero del banco de ${period}: faltan ${pesos(contpaqi.sin_poliza.monto)} `
@@ -3186,9 +3376,11 @@ export class FinanceBankService {
       period, tolerance: TOL,
       cuadra: total.ingresos.cuadra && total.egresos.cuadra,
       total, por_cuenta, coverage,
+      // [CB.82] Qué días se compararon y qué quedó fuera por ser posterior al último día del banco.
+      ventana: { ...ventana, fuera },
       kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: kepHasData,
       nota: notaContpaqi ?? (anyStale
-        ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día. El banco (Workbook) es el que va al día.'
+        ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día.' + (coverage.workbook.stale ? '' : ' El banco (Workbook) va al día.')
         : (kepHasData
           ? 'Kepler se desglosa por banco desde tesorería (kdm1), no del 102 contable. Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo capturado (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
           : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo; Kepler va solo en el control-total (102 contable).')),
@@ -3280,6 +3472,10 @@ export class FinanceBankService {
     const [yy, mm] = period.split('-').map(Number);
     const ini = `${period}-01`;
     const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    // [CB.82] La misma ventana que el cuadre: lo que Kepler o ContPAQi registran después del último
+    // día del banco de ESTA cuenta no es «sin banco», es un día que el banco todavía no cargó.
+    const ventana = await this.ventanaDelBanco(period);
+    const despuesDelBanco = (fecha: unknown): boolean => despuesDelCorte(ventana.cortes, accountLabel, fecha);
     return this.tk.run(async (trx) => {
       const acct = await trx('finance.bank_accounts').where('account_label', accountLabel)
         .first('id', 'bank', 'account_label', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre');
@@ -3511,10 +3707,13 @@ export class FinanceBankService {
           sin_importe_en_banco: sinImporteEnBanco,
           // El motivo, resuelto acá y no en la pantalla, para que las tres vistas que lean esto
           // cuenten lo mismo. Prioridad: lo explicado primero, la excepción real al final.
-          motivo: c ? 'otro_periodo' : (sinImporteEnBanco ? 'banco_agrupa' : 'sin_casar'),
+          // [CB.82] `despues_del_banco`: posterior al último día que trae el estado de cuenta.
+          motivo: c ? 'otro_periodo' : despuesDelBanco(x.fecha) ? 'despues_del_banco'
+            : (sinImporteEnBanco ? 'banco_agrupa' : 'sin_casar'),
         };
       });
-      const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
+      const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto,
+        despues_del_banco: despuesDelBanco(x.fecha) }));
 
       const sum = (a: any[]) => r2(a.reduce((s, r) => s + r.importe, 0));
 
@@ -3528,9 +3727,11 @@ export class FinanceBankService {
       // Agregado por cuenta: banco vs tesorería Kepler por dirección — la red de seguridad "considerar
       // todo". Si la cuenta cuadra en agregado, `partido` (bulto-vs-partido) está justificado; el
       // residuo real es `sin_match`.
+      // [CB.82] Kepler sólo hasta el último día del banco: el mismo universo que la fila de la cuenta.
+      const kepVentana = kepler.filter((x) => !despuesDelBanco(x.fecha));
       const agg = {
-        bank_in: sum(excel.filter((e: any) => e.dir === 'in')), kepler_in: r2(kepler.filter((x: any) => x.dir === 'in').reduce((s: number, x: any) => s + x.importe, 0)),
-        bank_out: sum(excel.filter((e: any) => e.dir === 'out')), kepler_out: r2(kepler.filter((x: any) => x.dir === 'out').reduce((s: number, x: any) => s + x.importe, 0)),
+        bank_in: sum(excel.filter((e) => e.dir === 'in')), kepler_in: r2(kepVentana.filter((x) => x.dir === 'in').reduce((s: number, x) => s + x.importe, 0)),
+        bank_out: sum(excel.filter((e) => e.dir === 'out')), kepler_out: r2(kepVentana.filter((x) => x.dir === 'out').reduce((s: number, x) => s + x.importe, 0)),
       };
 
       return {
@@ -3560,7 +3761,14 @@ export class FinanceBankService {
           kepler_only_sin_casar_n: keplerOnly.filter((x: any) => x.motivo === 'sin_casar').length,
           kepler_only_sin_casar_monto: sum(keplerOnly.filter((x: any) => x.motivo === 'sin_casar')),
           contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
+          // [CB.82] Cuántos de los «sin banco» son de días que el banco todavía no cargó.
+          kepler_only_despues_n: keplerOnly.filter((x) => x.motivo === 'despues_del_banco').length,
+          kepler_only_despues_monto: sum(keplerOnly.filter((x) => x.motivo === 'despues_del_banco')),
+          contpaqi_only_despues_n: contpaqiOnly.filter((x) => x.despues_del_banco).length,
+          contpaqi_only_despues_monto: sum(contpaqiOnly.filter((x) => x.despues_del_banco)),
         },
+        /** [CB.82] El último día comparado de esta cuenta (`null` = el mes entero). */
+        banco_hasta: ventana.cortes[accountLabel] ?? null,
       };
     });
   }

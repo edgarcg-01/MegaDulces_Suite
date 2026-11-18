@@ -702,6 +702,25 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-17 — `[CB.82]` El Cuadre 3 vías compara los mismos días
+
+**Qué pasó.** Edgar pidió auditar `/finanzas/bancos?view=cuadre&period=2026-11`. Con la base de prod (sin pantalla viva:
+el navegador lo tenía otra sesión) salió que las tres fuentes llegaban a días distintos —banco 10-nov, ContPAQi 13, Kepler
+17— y la pantalla comparaba el mes entero de cada una. Lo posterior al banco se leía como descuadre.
+
+**Qué se hizo.** Corte por cuenta al último día de su lote de carga cuando el banco va atrasado; ContPAQi conserva la póliza
+posterior que casa por importe con el banco (sus pólizas agrupan y se fechan después); lo que queda fuera se publica; el
+atraso del banco cuenta como atraso; rótulos, contraste, teclado y jerga.
+
+**Lecciones.**
+- ⭐ **El primer diseño (un corte global) habría vuelto a fallar en días**: otra sesión (CB.80) está pasando cuentas a la
+  descarga diaria, y un corte global toma el máximo. El corte va por LOTE de carga, no por cuenta suelta (una cuenta de poco
+  movimiento termina antes que su libro) ni global.
+- ⭐ **Cortar ContPAQi por fecha también mentía**: BBVA 6721 pasó de −$2.17 M en retiros a +$1.89 M en depósitos, porque sus
+  136 depósitos van en pólizas fechadas el 11. La regla buena salió de medir: 66.8 % de lo posterior casa por importe con su
+  cuenta, 0.5–1.2 % con otra (placebo).
+- Una cifra que «mejora» no se cree sola: octubre, con el banco al día, sirvió de control y salió idéntico al centavo.
+
 ## 2026-11-17 — `[CB.74]`–`[CB.77]` Auditoría de `/finanzas/bancos`: el motor que se reescribía solo y lo que la pantalla afirmaba sin medir
 
 Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos problemas»*. Tres revisiones de código en paralelo (backend núcleo; estados de cuenta, comisiones y capturas; frontend) cruzadas con prod en sólo lectura. Cuatro ítems, commits locales sin empujar; detalle en [FASE_CB §10](FASES/FASE_CB_CONCILIACION_BANCARIA.md).

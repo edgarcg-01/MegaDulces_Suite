@@ -138,15 +138,17 @@ export function explainMovements(dd: ThreeWayDetail, row: TwRow, pair: TwPair, l
   // establecen. Para ese par la evidencia dura son las filas de arriba, donde las
   // dos fuentes se comparan contra el mismo movimiento bancario.
   const orphanFalta = pair === 'kc' ? 'el banco' : 'Workbook';
+  // [CB.82] Lo posterior al último día del banco queda fuera del cuadre (el reparto por cuenta ya no
+  // lo suma): listarlo como «falta en Workbook» sería acusar al banco de un día que no ha cargado.
   if (pair !== 'wc') {
     for (const k of dd.kepler_only) {
-      if (k.dir !== dir) continue;
+      if (k.dir !== dir || k.motivo === 'despues_del_banco') continue;
       out.push({ fuente: 'Kepler', fecha: k.fecha, importe: k.importe, concepto: k.concepto || k.doc, falta_en: orphanFalta });
     }
   }
   if (pair !== 'wk') {
     for (const c of dd.contpaqi_only) {
-      if (c.dir !== dir) continue;
+      if (c.dir !== dir || c.despues_del_banco) continue;
       out.push({ fuente: 'ContPAQi', fecha: c.fecha, importe: c.importe, concepto: c.concepto || c.poliza, falta_en: orphanFalta });
     }
   }
