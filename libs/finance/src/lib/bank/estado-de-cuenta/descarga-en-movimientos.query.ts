@@ -40,8 +40,6 @@ export interface DescargaDelPeriodo {
   no_trae: Set<string>;
   /** Del mes y de las cuentas a la vista (no de la búsqueda ni los demás filtros). */
   resumen: { solo_descarga: number; no_trae: number; trae: number };
-  /** `[CB.85]` Los renglones de `solo`, ya leídos: el Cuadre 3 vías los suma sin volver a pedirlos. */
-  renglones_solo: Map<string, RenglonComparable & { bank_account_id: string }>;
 }
 
 const sumarDias = (f: string, n: number) => new Date(Date.parse(`${f}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
@@ -82,9 +80,9 @@ export async function leerDescargaDelPeriodo(trx: Knex.Transaction, periodo: str
     .where('date_from', '<=', hasta).where('date_to', '>=', desde)
     .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"));
 
-  const res: DescargaDelPeriodo = { solo: new Map(), categoria: new Map(), trae: new Set(), no_trae: new Set(), resumen: { solo_descarga: 0, no_trae: 0, trae: 0 }, renglones_solo: new Map() };
+  const res: DescargaDelPeriodo = { solo: new Map(), categoria: new Map(), trae: new Set(), no_trae: new Set(), resumen: { solo_descarga: 0, no_trae: 0, trae: 0 } };
   const fechaDe = new Map<string, string>(banco.map((r) => [r.id, r.fecha]));
-  const renglon = new Map<string, RenglonComparable & { bank_account_id: string }>(banco.map((r) => [r.id, r]));
+  const renglon = new Map<string, RenglonComparable>(banco.map((r) => [r.id, r]));
   for (const id of ids) {
     const d = descargaEnMovimientos(
       banco.filter((b) => b.bank_account_id === id), libro.filter((l) => l.bank_account_id === id),
@@ -101,7 +99,6 @@ export async function leerDescargaDelPeriodo(trx: Knex.Transaction, periodo: str
       res.categoria.set(id, { codigo: c.categoria, por: c.por });
     }
   }
-  for (const id of res.solo.keys()) res.renglones_solo.set(id, renglon.get(id)!);
   res.resumen = {
     solo_descarga: res.solo.size,
     trae: Array.from(res.trae).filter((x) => delPeriodo.has(x)).length,

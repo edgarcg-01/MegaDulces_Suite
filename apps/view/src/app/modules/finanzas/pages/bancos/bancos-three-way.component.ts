@@ -262,7 +262,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <table class="tw-tbl tw-chq-tbl">
                   <thead><tr><th>Cuenta</th><th>Doc</th><th>Beneficiario</th><th class="ta-r">Importe</th><th>Emitido</th></tr></thead>
                   <tbody>
-                    @for (q of transito(ch); track q.folio) {
+                    @for (q of transito(ch); track q.account_label + q.doc_tipo + q.folio) {
                       <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
                         <td class="tw-concept">{{ q.beneficiario || '—' }}</td>
                         <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -271,6 +271,12 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   </tbody>
                 </table>
               </div>
+              <!-- [CB.86] La lista llega a los N del encabezado: antes se cortaba en 50 sin decirlo (Cruce 1). -->
+              @if (ch.total.en_transito_n > CHEQUES_VISIBLES && !chequesTodos()) {
+                <button type=button class=tw-exp-go (click)="chequesTodos.set(true)">
+                  Ver los {{ ch.total.en_transito_n - CHEQUES_VISIBLES }} restantes (se muestran los {{ CHEQUES_VISIBLES }} de mayor importe)
+                </button>
+              }
             }
           </div>
         }
@@ -875,7 +881,7 @@ export class BancosThreeWayComponent {
   });
   /** [CB.82] ContPAQi sin banco DENTRO de la ventana: los únicos que son «sin banco» de verdad. */
   readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !c.sin_banco_cargado));
-  /** [CB.82] Los posteriores al último día del banco: se cuentan aparte y se pueden abrir. */
+  /** [CB.85] Las pólizas sin pareja en el banco cargado (el banco no cubre el mes): aparte, y se pueden abrir. */
   readonly contpaqiDespues = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !!c.sin_banco_cargado));
   readonly contpaqiDespuesAbierto = signal(false);
 
@@ -883,6 +889,7 @@ export class BancosThreeWayComponent {
     effect(() => {
       const d = this.data();
       this.cheques.set(null);
+      this.chequesTodos.set(false);
       this.covToggled.set(null);   // periodo nuevo → la cobertura vuelve a decidir sola
       if (d?.period) {
         this.api.chequesTransito(d.period).pipe(takeUntilDestroyed(this.destroyRef))
@@ -1005,7 +1012,13 @@ export class BancosThreeWayComponent {
     setTimeout(() => this.hlAcct.set(null), 4000);
   }
 
-  transito(ch: ChequesTransito) { return ch.cheques.filter((q) => !q.cobrado).slice(0, 50); }
+  /** [CB.86] Cuántos cheques en tránsito se ven antes de pedir el resto (vienen de mayor a menor importe). */
+  readonly CHEQUES_VISIBLES = 50;
+  readonly chequesTodos = signal(false);
+  transito(ch: ChequesTransito) {
+    const t = ch.cheques.filter((q) => !q.cobrado);
+    return this.chequesTodos() ? t : t.slice(0, this.CHEQUES_VISIBLES);
+  }
 
   // -- Export ---------------------------------------------------------------
   // Se exporta LO QUE SE VE: `drillRows()` ya trae filtros + orden aplicados.

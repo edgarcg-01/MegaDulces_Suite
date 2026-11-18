@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 401 KB, 5906 líneas, 41 secciones.
+> **Índice navegable** — 402 KB, 5911 líneas, 41 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -47,7 +47,7 @@
 | 5341 | 5437 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 | 5438 | 5796 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
 | 5797 | 5861 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
-| 5862 | 5959 | 7 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
+| 5862 | 5964 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5880,6 +5880,10 @@ fuera del repo (scratchpad de la sesión).
   `bank_movement_legs_errors` vacío (2026-11-18).
 - ⛔ **ContPAQi viola la regla 1:** la réplica `contpaqi_ods.ct_movimientospoliza` ya existe y el dato se sigue
   **copiando** con un importer. Deuda con nombre: volverla vista sobre la réplica.
+- ⭐ **Y la copia está rancia** (medido en `[CB.86]`): la réplica reproduce la tabla en 167,569/167,569 filas sin una
+  diferencia de importe, fecha ni póliza, pero el **concepto** difiere en 1,761 y la que está mal es la tabla —Contabilidad
+  corrigió conceptos después de cargarlos y el importer, incremental por movimiento, no ve el cambio del encabezado—. Como
+  vista tarda 188 ms por mes contra 2 ms: falta un índice `(ejercicio, periodo)` en la réplica.
 
 ### 38.2 Qué fecha trae cada fuente — contra la descarga del banco
 
@@ -5919,13 +5923,11 @@ intercalan mal; el instrumento correcto es el del servicio, no una consulta orde
 | **Banco − ContPAQi** | la descarga | **mes**, o pareo 1:1 | ⛔ **nunca por fecha**. Pareo hasta el 10-nov: **52 %** del dinero del banco |
 | % casado de ContPAQi | pareo 1:1 contra el banco | mes | ✅ el instrumento de `[CP.8.89]`; contra la descarga y no contra el libro, pendiente |
 
-⛔ **NO MEDIDO:** qué es el ~23 % del dinero del banco (1–10 nov) que no tiene pareja 1:1 en Kepler. Es una mezcla, sin
-separar:
-- de **grano**: Kepler registra en una partida varios depósitos en efectivo o de terminal;
-- de **flujos** que Kepler no lleva: pago de capital, crédito, compras con tarjeta;
-- y **pagos SPEI grandes** sin pareja.
-
-Hasta separarlo, no se publica como «falta en Kepler».
+**Medido en `[CB.86]`:** el ~23 % del banco (1–10 nov) sin pareja 1:1 en Kepler se descompone con los estados de `[CB.41]`
+del detalle del cuadre: 79.2 % casado 1:1 · 5.2 % venta que Kepler parte · 3.6 % sólo en ContPAQi · 3.4 % traspasos ·
+2.0 % factoraje · **6.5 % sin explicación**, todo retiros: dos transferencias que sólo trae la descarga (no están ni en el
+libro ni en Kepler), pagos a proveedor sin documento 1:1 y crédito/capital/intereses. Sólo ese 6.5 % es candidato a «falta
+en Kepler», y todavía no se publica así: no se revisó caso por caso.
 
 ### 38.5 Hipótesis refutadas — no las reconstruyas
 
@@ -5950,7 +5952,10 @@ Hasta separarlo, no se publica como «falta en Kepler».
 - ✅ **Hecho en `[CB.85]`** (2026-11-18, en código): el Cuadre toma **la descarga** como «Banco» en las cuentas cuyo cuadre
   por saldos va de punta a punta, y el libro sólo donde no, con el porqué en la fila; ContPAQi entra por **pareo** mientras
   el banco no cubre el mes, con lo no pareado aparte. Octubre idéntico al centavo; noviembre recorrible en 18 de 18 cuentas.
-- El % casado de ContPAQi (CP.8.89) todavía se mide contra el libro.
+- ✅ **Hecho en `[CB.86]`:** el % casado de ContPAQi sale del mismo pareo que el cuadre (contra la descarga, ±$1), y la
+  **paridad R7** quedó registrada en `test-newdb-bank-threeway-cobertura.js`: el «Banco» publicado contra una suma SQL
+  independiente de la descarga + el libro previo, por cuenta. En su primera corrida encontró que STDR 2169 perdía $2,187.80
+  (el pareo de CB.64 cruzaba el primer día de la descarga); corregido.
 - `analytics.contpaqi_bank_movements` → vista sobre `contpaqi_ods` (regla 1).
 - **R7:** el Cuadre no tiene paridad registrada; esta sección no la sustituye.
 
