@@ -1739,7 +1739,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         negativa que **reproducía** la regex rota se reemplazó por la que afirma el defecto
         directo — reescribir una regex a través de tres capas de escape se pone verde por el
         motivo equivocado.
-- [ ] **[CXC.44]** 🧪 **Cartera: UN solo botón entrega el estado de cuenta** (Edgar, 2026-11-17, sobre la ficha del
+- [x] **[CXC.44]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Cartera: UN solo botón entrega el estado de cuenta** (Edgar, 2026-11-17, sobre la ficha del
       cliente: «todo esto lo podemos hacer en uno solo»). Teléfono, «Estado de cuenta (PDF)», «Enviar por WhatsApp» y
       «Copiar enlace para depósitos» eran cuatro botones de UN acto. Ahora «Enviar estado de cuenta» (color de acción):
       descarga el PDF para adjuntarlo (wa.me sólo lleva texto), abre el chat de ESE teléfono —o, sin teléfono, WhatsApp
@@ -1753,7 +1753,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · **Sin validación visual** (no medí la pantalla viva). Ya no hay acceso directo a «llamar» ni a «copiar enlace»:
         el teléfono va como destino del botón y el enlace dentro del mensaje.
       · Va DESPUÉS de CC.20 (usa su enlace): sale con esa serie.
-- [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
+- [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
         libro y la descarga (CB.60b). `FichasAvisoBancoService` lo escucha en el API (no en el worker: ahí no están los
         navegadores ni hay Redis) y manda «recarga» por el socket de Cobranza a las conexiones de ESE proceso
@@ -1778,7 +1778,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         la liga y por dónde le llega al vendedor.
       · **NO MEDIDO:** fichas reales de clientes (hasta soltar CC.20); la pantalla de Cobranza no tiene spec propia (el
         manejo de `bank_loaded` se cubre con `ngc`, no con una prueba).
-- [ ] **[CC.21]** 🧪 ⭐ **¿La ficha del cliente ENTRÓ al banco? — la bandeja lo dice sola** (Edgar, 2026-11-17: «leerlo
+- [x] **[CC.21]** ✅ (en prod el 2026-11-18, `bbd1d0131`) ⭐ **¿La ficha del cliente ENTRÓ al banco? — la bandeja lo dice sola** (Edgar, 2026-11-17: «leerlo
       con OCR o Claude Vision y validar ese monto que haya entrado a movimientos de bancos»). La lectura ya era Claude
       Vision (CC.2/CC.20); lo nuevo es el cruce: ficha (monto y fecha leídos de la foto) → abono del estado de cuenta (±$1,
       del día anterior a 3 después, en la cuenta destino si la foto la trae) → cobro de Kepler que la conciliación (CB) ya
@@ -1807,7 +1807,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         prueba de punta a punta no corre en el CI. **No hay aviso en vivo** cuando se sube el estado de cuenta: el
         veredicto cambia al recargar la bandeja.
       · ⛔ **Para soltar:** lo mismo que CC.20 (su migración `20261117153156`); CC.21 no agrega migración.
-- [ ] **[CC.20]** 🧪 ⭐ **El CLIENTE sube su ficha de depósito desde un enlace personal, sin usuario ni
+- [x] **[CC.20]** ✅ (en prod el 2026-11-18, `bbd1d0131`) ⭐ **El CLIENTE sube su ficha de depósito desde un enlace personal, sin usuario ni
       contraseña** (Edgar, 2026-11-17: «lo más práctico y lo más fácil posible»; canal = enlace personal por WhatsApp y
       QR en el estado de cuenta; lo recibe Cobranza y lo ve el vendedor). Medido ese día: 2,722 cobros / $48.5M en 30
       días; la ficha capturada EN OFICINA (CC.2) tiene **0 filas en su historia**; el portal B2B, 3 sesiones en 30 días.
@@ -1870,7 +1870,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         contradice la hipótesis de arriba: `analytics.erp_receivable_documents` **sola** tarda 2.5–3.2 s
         **pida o no** `aplicaciones` (dos corridas, prod en sólo lectura). Lo caro es la vista base,
         no el `jsonb_agg`. El arreglo sigue siendo éste, con su migración y su contrato de paridad.
-- [x] **[CXC.41]** 🧪 ⭐ **Auditoría de `/finanzas/cartera` (2026-11-17): la pantalla abre en lo
+- [x] **[CXC.41]** ✅ (en prod el 2026-11-18, `bbd1d0131`) ⭐ **Auditoría de `/finanzas/cartera` (2026-11-17): la pantalla abre en lo
       que cobranza trabaja, sin esconder dinero, y deja de afirmar lo que no es.** El 98 % del uso es
       de `credito_cobranza` (3,459 de 3,532 aperturas en 30 días).
       · **Carreras:** cada filtro lanzaba una carga de 4 a 29 s **sin cancelar la anterior**; dos
@@ -1904,7 +1904,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         (o «Clientes» cuando el filtro es «Cliente»); el saldo dice de qué tipo es cuando hay filtro.
       · **NO MEDIDO:** la pantalla viva (nivel A): alturas, recorrido con teclado, oscuro y
         `forced-colors`, 390 px. **Lo que NO arregla:** la latencia, que es `[CXC.21]`.
-- [x] **[CXC.42]** 🧪 ⭐ **La fluidez de `/finanzas/cartera`: el trabajo de cobranza deja de esperar
+- [x] **[CXC.42]** ✅ (en prod el 2026-11-18, `bbd1d0131`) ⭐ **La fluidez de `/finanzas/cartera`: el trabajo de cobranza deja de esperar
       al servidor en cada gesto.** Medido el 2026-11-17 (`ui_usage` por rol + telemetría del navegador
       `portal_telemetry_events`, 144 sesiones de 5 personas): cobranza esperaba **10–17 min al día**
       (4.3 s cada lista, 3.3 s cada ficha) y recargaba la lista **3.7 veces por ficha abierta**; la
@@ -1948,9 +1948,9 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · Sobre `[CXC.21]`, medido el mismo día: la intercalación NO es la causa (con `COLLATE "C"` el
         `DISTINCT ON` de `kdue` da el mismo md5 y el mismo ~1.1 s; el barrido solo, 26–97 ms). La vista
         recalcula los ~62 mil documentos en cada consulta: el arreglo es de diseño, no un índice.
-- [ ] **[CXC.21b]** 🧪 ⭐ **La cartera por EVENTO (opción A de Edgar, 2026-11-17): la tabla
+- [x] **[CXC.21b]** ✅ (en prod el 2026-11-18, `bbd1d0131`; migración lote 1204, interruptor prendido) ⭐ **La cartera por EVENTO (opción A de Edgar, 2026-11-17): la tabla
       `analytics.customer_receivables_current` se pone al día por CUENTA al llegar el cambio.** Migración
-      `20261117144732` (sin aplicar) + `CarteraPorEventoService` (worker) + la API lee la tabla cuando está lista.
+      `20261117144732` (aplicada el 2026-11-18, lote 1204, 0.4 s) + `CarteraPorEventoService` (worker) + la API lee la tabla cuando está lista.
       · **Diseño (patrón de `[CANON.6.21]`):** disparadores por sentencia en `kdud`, `kdm5`, `kdue` y `kdm1` (nacen
         APAGADOS, interruptor `analytics.receivables_by_event`) anotan cuentas en `receivables_dirty_accounts` y avisan
         `cartera_sucia`; el worker junta avisos 30 s y llama `drain_customer_receivables()`: por cuenta, o completo
