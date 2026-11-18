@@ -1428,8 +1428,10 @@ programada.**
     `down()` y tres mutantes muertos: «el UPDATE avisa siempre», «nunca avisa» y «sin filtrar por `c4`».
   - `solicitud-por-evento.arranque.spec.ts`: 10 ✔, con dos mutantes muertos (canal distinto, módulo sin
     `PgListenService`).
-- *Lo que falta:* aplicar la migración (Edgar, fuera de horario) y desplegar. Con la escritura apagada en las 9, el
-  aviso no tiene nada que avisar.
+- *Migración:* ✅ aplicada el 2026-11-18 (lote 1201, 0.1 s). Se aplicó en horario hábil con el sí de Edgar, porque el candado
+  dura milisegundos y no aplicarla detenía cualquier soltar del día. Los dos disparadores quedaron en prod y la ingesta
+  siguió escribiendo `kdm1`. *Falta:* desplegar el worker. Con la escritura apagada en las 9, el aviso no tiene nada
+  que avisar.
 - *Retiro del lazo del ciclo:* 30 días con «0 las encontró el ciclo» y con escrituras reales.
 
 | D | Pregunta | De quién |

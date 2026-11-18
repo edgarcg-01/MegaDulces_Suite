@@ -355,7 +355,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(txt).toContain('Aplicada · cobro 4820');
   });
 
-  it('19 · [CXC.44] UN solo botón entrega el estado de cuenta: chat del teléfono + PDF + contacto, con el enlace adentro', () => {
+  it('19 · [CXC.44] UN solo botón entrega el estado de cuenta: chat del teléfono + contacto, con el enlace adentro (y el PDF va EN el enlace: [CC.20.2])', () => {
     const conTel = { ...DET, cliente: { ...DET.cliente, telefono: '3314855906' } } as CarteraDetalle;
     detalle = vi.fn(() => of(conTel));
     const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
@@ -374,14 +374,38 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(txt).not.toContain('Copiar enlace para depósitos');
     expect(txt).not.toContain('Estado de cuenta (PDF)');
     expect(txt).toContain('3314855906');
-    expect(txt).toContain('con enlace para depósitos');
+    expect(txt).toContain('PDF y depósitos en su enlace');
     const href = decodeURIComponent((botones[0] as HTMLAnchorElement).href);
     expect(href).toMatch(/^https:\/\/wa\.me\/523314855906\?text=/);
     expect(href).toContain('https://suite.test/deposito/TOKEN');
+    expect(href).toContain('puede descargar el PDF');
+    expect(href).not.toContain('Le adjuntamos');
+    c.enviarEstadoCuenta(conTel);
+    // [CC.20.2] Con enlace no se descarga nada: el cliente baja el PDF desde su enlace, y se dice.
+    expect(estadoCuentaPdf).not.toHaveBeenCalled();
+    expect(c.pdfAviso()?.texto).toContain('va en su enlace');
+    expect(registrarContacto).toHaveBeenCalledWith('01', 'C1', 'whatsapp');
+  });
+
+  it('19b · [CC.20.2] SIN enlace el PDF se descarga para adjuntarlo, y un doble clic no lo pide dos veces', () => {
+    const conTel = { ...DET, cliente: { ...DET.cliente, telefono: '3314855906' } } as CarteraDetalle;
+    detalle = vi.fn(() => of(conTel));
+    enlaceDeposito = vi.fn(() => throwError(() => ({ status: 500 })));
+    const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
+    const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
+    configurar();
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    const f = TestBed.createComponent(FinanzasCarteraComponent);
+    f.detectChanges();
+    const c = f.componentInstance;
+    c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    expect(document.body.textContent).toContain('con el PDF para adjuntar');
+    const href = decodeURIComponent((document.body.querySelector('[data-testid="enviar-estado-cuenta"]') as HTMLAnchorElement).href);
+    expect(href).toContain('Le adjuntamos el PDF');
     c.enviarEstadoCuenta(conTel);
     c.enviarEstadoCuenta(conTel); // doble clic
     expect(estadoCuentaPdf).toHaveBeenCalledTimes(1);
-    expect(registrarContacto).toHaveBeenCalledWith('01', 'C1', 'whatsapp');
   });
 
   it('20 · [CXC.44] sin teléfono el botón sigue: WhatsApp abre para elegir a quién', () => {
