@@ -90,6 +90,19 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
       } catch (e: unknown) {
         this.logger.error(`pagos por Kepler (tenant ${tenantId}): la pasada falló: ${(e as Error)?.message}`);
       }
+      // [PGP.148] D19 (b): con el mismo aviso de Kepler (una nota, devolución o pago nuevo), el pago SIN autorizar de un
+      // día por venir baja solo a lo que su factura debe hoy. Se apaga con DISABLE_AJUSTE_AL_SALDO=true.
+      if (process.env.DISABLE_AJUSTE_AL_SALDO !== 'true') {
+        try {
+          const a = await this.tenantCtx.run({ tenantId, roleName: 'system' }, () => this.calendario.ajustarLosQueDebenMenos());
+          if (a.ajustados.length || a.fallidos) {
+            this.logger.log(`ajuste al saldo de Kepler: ${a.revisados} pagos revisados · ${a.ajustados.length} ajustados ($${a.monto.toFixed(2)} menos)`
+              + ` · ${a.omitidas} facturas para una persona · ${a.fallidos} fallidos${a.ajustados.length ? ` · ${a.ajustados.join(', ')}` : ''}`);
+          }
+        } catch (e: unknown) {
+          this.logger.error(`ajuste al saldo de Kepler (tenant ${tenantId}): la pasada falló, no se ajustó nada: ${(e as Error)?.message}`);
+        }
+      }
     }
     return pagados;
   }

@@ -101,3 +101,66 @@ SELECT k.suc || '|' || k.tipo || '|' || k.sub || '|' || k.folio AS llave,
  WHERE coalesce(m.c43, '') <> 'C'
  GROUP BY 1, 2, 3
  ORDER BY 1, 4 DESC`;
+
+// ── [PGP.148] Ajustar el pago al saldo de Kepler ───────────────────────────────────────────────────────────────
+/**
+ * `[PGP.148]` **Bajar el pago a lo que la factura debe hoy.** D19 firmada (b) por Edgar el 2026-11-18: el pago SIN
+ * autorizar se ajusta solo; en el autorizado sólo se avisa (Tesorería pudo haber cargado ya la transferencia). Nunca
+ * sube. Lo hace una persona con un clic (`POST allocations/:id/ajustar-al-saldo`) o el worker con cada aviso de Kepler.
+ */
+export const EVENTO_AJUSTADO_AL_SALDO = 'ajustado_al_saldo';
+export const AUTOR_AJUSTE_AL_SALDO = 'sistema:ajuste-al-saldo';
+
+/** Abonos que son DINERO: cheque (25), transferencia (26), anticipo (60). */
+export const TIPOS_ABONO_DINERO: ReadonlySet<number> = new Set([25, 26, 60]);
+
+/** `55-0001512` → 55. El folio del abono lo arma `debeMenosDelPago` como `${tipo}-${folio}`. */
+export const tipoDeAbono = (doc: string): number => Number(String(doc).split('-')[0]);
+
+/**
+ * ¿El worker lo ajusta SOLO? Sólo si (1) entre lo que bajó el saldo hay alguna nota, devolución, bonificación o ajuste
+ * —no paga nada— y (2) desde que se armó el pago (`armadoEl`, AAAA-MM-DD) no entró DINERO a la factura (cheque,
+ * transferencia, anticipo): ése puede ser ESTE mismo pago capturado a mano en Kepler, y ahí lo decide una persona.
+ * Un abono sin fecha no se puede ubicar: cuenta como dinero. ⭐ La nota puede ser ANTERIOR a armarlo: medido en prod
+ * el 2026-11-18, un pago reprogramado nace con el importe viejo (el de `d0bc010a`, $1.22 M, dos notas del 10-nov).
+ * Bajar a lo que Kepler debe nunca paga de más; lo que se protege es no esconder un pago ya hecho.
+ */
+export function seAjustaSolo(abonos: readonly AbonoQueBajoElSaldo[], armadoEl: string): boolean {
+  const dinero = (a: AbonoQueBajoElSaldo) => TIPOS_ABONO_DINERO.has(tipoDeAbono(a.doc));
+  const dineroDespues = abonos.some((a) => !a.fecha || (a.fecha >= armadoEl && dinero(a)));
+  return !dineroDespues && abonos.some((a) => !dinero(a));
+}
+
+/**
+ * ¿Ya salió del banco un importe igual al del pago (±$1) desde 3 días antes de su día hasta hoy, en el libro o en la
+ * descarga? Si sí, el pago NO se ajusta: lo que salió, salió, y bajarlo dejaría a la salida sin su pago (el banco ya
+ * no casaría por importe). Mismo criterio que `[PGP.149]`: el ruido sólo conserva. Parámetros:
+ * `[tenant, monto, día, hoy, tenant, monto, día, hoy]`.
+ */
+export const SQL_YA_SALIO_DEL_BANCO = `
+SELECT EXISTS (
+         SELECT 1 FROM finance.bank_movements b
+          WHERE b.tenant_id = ? AND b.deleted_at IS NULL AND abs(coalesce(b.amount_out, 0) - ?::numeric) < 1
+            AND b.movement_date BETWEEN ?::date - 3 AND ?::date
+       ) OR EXISTS (
+         SELECT 1 FROM finance.bank_statement_lines s
+           JOIN finance.bank_accounts ba ON ba.id = s.bank_account_id AND ba.kind = 'bank'
+          WHERE s.tenant_id = ? AND abs(coalesce(s.amount_out, 0) - ?::numeric) < 1
+            AND s.movement_date BETWEEN ?::date - 3 AND ?::date
+       ) AS salio`;
+
+/**
+ * Los pagos que el worker revisa: pendientes, sin autorizar, de un día POR VENIR (el de hoy o uno pasado pudo ya
+ * salir del banco), en un día sin autorizar completo, con alguna factura de Kepler. Parámetros: `[tenant, hoy]`.
+ */
+export const SQL_CANDIDATOS_AJUSTE = `
+SELECT a.id::text AS id, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.amount_assigned::float8 AS monto,
+       i.id::text AS item_id, i.obligation_id::text AS obligation_id, i.applied_amount::float8 AS applied_amount,
+       coalesce(i.discount_amount, 0)::float8 AS discount_amount
+  FROM finance.payment_allocations a
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+  JOIN finance.payment_allocation_items i ON i.allocation_id = a.id AND i.obligation_source = 'kepler_payable'
+ WHERE a.tenant_id = ? AND a.status = 'pending' AND a.authorized_at IS NULL
+   AND coalesce(l.status, '') NOT IN ('released', 'executing', 'closed')
+   AND l.lot_date > ?::date
+ ORDER BY l.lot_date, a.id`;

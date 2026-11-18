@@ -1,4 +1,4 @@
-import { cargoDeLaFactura, debeMenosDelPago, facturasQueDebenMenos, type FacturaParaDebeMenos } from './debe-menos';
+import { cargoDeLaFactura, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo, tipoDeAbono, type FacturaParaDebeMenos } from './debe-menos';
 
 /**
  * `[PGP.147]` La factura ya debe menos de lo que el pago le lleva. Forma tomada del caso real (Mondelez, 13-nov):
@@ -42,5 +42,37 @@ describe('[PGP.147] la factura ya debe menos de lo que el pago le lleva', () => 
   it('la llave del cargo sale de la llave natural de la factura y el acreedor', () => {
     expect(cargoDeLaFactura(f())).toEqual({ llave: '00|20|1|0010007', sucursal: '00', acreedor: 'CM009', tipo: 20, sub: 1, folio: '0010007' });
     expect(cargoDeLaFactura(f({ payee_code: null }))).toBeNull();
+  });
+});
+
+describe('[PGP.148] cuándo el pago se ajusta SOLO (D19 b)', () => {
+  const nc = (fecha: string | null, doc = '55-0001512') => ({ doc, clase: 'Nota de crédito', fecha, monto: 120000 });
+  const pago = (fecha: string | null) => ({ doc: '26-0000377', clase: 'Transferencia', fecha, monto: 111036.87 });
+
+  it('el caso Mondelez: sólo notas de crédito después de armarlo → se ajusta solo', () => {
+    expect(seAjustaSolo([nc('2026-11-12'), nc('2026-11-12', '55-0001513')], '2026-10-26')).toBe(true);
+  });
+
+  it('⛔ un pago (transferencia, cheque, anticipo) después de armarlo: puede ser ESTE pago → lo decide una persona', () => {
+    expect(seAjustaSolo([pago('2026-10-30')], '2026-10-26')).toBe(false);
+    expect(seAjustaSolo([nc('2026-11-12'), pago('2026-11-13')], '2026-10-26')).toBe(false);
+    expect(seAjustaSolo([{ doc: '25-0000010', clase: 'Cheque', fecha: '2026-11-01', monto: 1 }], '2026-10-26')).toBe(false);
+    expect(seAjustaSolo([{ doc: '60-0000004', clase: 'Anticipo', fecha: '2026-11-01', monto: 1 }], '2026-10-26')).toBe(false);
+  });
+
+  it('⛔ sin nada que no sea dinero que lo explique, o con un abono sin fecha: no se ajusta solo', () => {
+    expect(seAjustaSolo([], '2026-10-26')).toBe(false);
+    expect(seAjustaSolo([nc(null)], '2026-10-26')).toBe(false);
+    // Sólo dinero, aunque sea anterior a armarlo: no hay nota que lo explique.
+    expect(seAjustaSolo([pago('2026-09-01')], '2026-10-26')).toBe(false);
+  });
+
+  it('⭐ la nota ANTERIOR a armarlo también cuenta: un pago reprogramado nace con el importe viejo (d0bc010a, prod 2026-11-18)', () => {
+    expect(seAjustaSolo([nc('2026-11-10'), nc('2026-11-10', '55-0001507')], '2026-11-14')).toBe(true);
+  });
+
+  it('un pago viejo, anterior a armarlo, no estorba a la nota nueva', () => {
+    expect(seAjustaSolo([pago('2026-09-01'), nc('2026-11-12')], '2026-10-26')).toBe(true);
+    expect(tipoDeAbono('55-0001512')).toBe(55);
   });
 });
