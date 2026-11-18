@@ -69,9 +69,15 @@ export interface NewCustomersInboxResponse {
 /** Para el aviso de la pantalla Surtir: cuántos faltan y qué pedidos son de un cliente sin clave. */
 export interface NewCustomersSummary {
   scope: 'todos' | 'propios' | 'ninguno';
+  /** Clientes por ligar. Con `truncated`, es el TOPE de la lista (500), no el total: el aviso dice «más de». */
   customers: number;
   /** Pedidos pendientes de clientes sin clave de Kepler (para marcarlos en la lista). */
   order_ids: string[];
+  /**
+   * `[GP.RF.29]` true = la lista se topó y `customers` no es el total. Opcional: un servidor anterior no
+   * lo manda (y su `customers` puede ser el tope sin decirlo).
+   */
+  truncated?: boolean;
 }
 
 /** Lo que tiene Kepler con esa clave en la sucursal del cliente. */

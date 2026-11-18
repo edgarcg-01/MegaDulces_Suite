@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
+- La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
+- Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.
+- El aviso de clientes nuevos va al final y dice «Más de 500» cuando la lista se topó.
+- La lista ya no salta al cargar «Rutas de hoy», y los textos en ámbar y verde se leen (contraste AA).
+
 ### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
 - Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
 - El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.

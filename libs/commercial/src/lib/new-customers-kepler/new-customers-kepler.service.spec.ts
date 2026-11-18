@@ -190,7 +190,13 @@ describe('NewCustomersKeplerService · bandeja y aviso', () => {
 
   it('el aviso cuenta clientes y junta los pedidos sin clave', async () => {
     const { svc } = armar({ bandeja: [fila, { ...fila, id: 'c2', orders: null }] });
-    await expect(svc.summary()).resolves.toEqual({ scope: 'propios', customers: 2, order_ids: ['o1'] });
+    await expect(svc.summary()).resolves.toEqual({ scope: 'propios', customers: 2, order_ids: ['o1'], truncated: false });
+  });
+
+  it('[GP.RF.29] el aviso declara cuando la lista se topó: 500 no es el total', async () => {
+    const muchas = Array.from({ length: 501 }, (_, i) => ({ ...fila, id: `c${i}`, orders: [] }));
+    const { svc } = armar({ bandeja: muchas });
+    await expect(svc.summary()).resolves.toMatchObject({ customers: 500, truncated: true });
   });
 
   it('si la lista se topa, lo declara', async () => {

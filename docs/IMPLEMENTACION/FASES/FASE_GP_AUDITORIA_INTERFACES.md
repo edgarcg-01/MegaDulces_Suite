@@ -673,6 +673,81 @@ cuatro herramientas del renglón y retirar la pantalla duplicada.
 - Si los códigos de Kepler de cada presentación están completos: un producto sin código en su
   presentación no se puede marcar escaneando, y la pantalla hace lo de antes.
 
+### 5c.6 La estructura de Surtir, rehecha (GP.RF.35, 2026-11-17) 🧪
+
+Al ver la pantalla después de 5c.5, Edgar dijo: *«eso quiere decir que no reestructuraste la
+interfaz»*. Tenía razón: 5c.5 agregó herramientas sobre la misma estructura. Se le propuso una
+maqueta de la lista y del pedido abierto, y la aprobó («Así, hazlo»).
+
+**Las cinco preguntas (`diseno` §0b), contestadas antes de tocar la plantilla:**
+
+1. **Qué ve primero.**
+   - En la lista: los pedidos de hoy, con lo que ya está surtiendo arriba.
+   - En el pedido: dónde está cada producto y cuánto llevar.
+2. **Qué no ve.**
+   - El aviso de clientes nuevos arriba de todo: no es su tarea, va al final.
+   - Un botón naranja por pedido: la tarjeta entera se toca.
+   - La lista de folios de lo de Telemarketing a medias: basta el folio y cuántos pedidos son.
+3. **Accesibilidad.**
+   - Botones de 44 px o más con el dedo.
+   - El texto ámbar y verde pasa AA (antes 2.15:1 y 3.30:1).
+   - El escáner queda fijo arriba al desplazarse.
+4. **Ligas.**
+   - «← Pedidos» regresa a la lista sin cerrar el pedido; lo marcado sigue en el celular.
+   - El aviso de clientes lleva a ligarlos.
+5. **¿Le toca a esta pantalla?** Sí: es la única donde se surte la preventa (§5c.1).
+
+**Lo que cambia:**
+
+| ID | Cambio |
+|---|---|
+| **GP.RF.35** | **Lista:** almacén y origen en un renglón; el origen «Sucursal» se rotula «Preventa». Los días atrasados van en un renglón que se desliza (antes se envolvían en 5). Cada pedido es una tarjeta que se toca entera; el naranja queda sólo en «Continuar» de lo propio. El pedido que surte otra persona no se puede tocar y dice quién. El aviso de clientes va al final. La lista dice cuándo se cargó. Lo de Telemarketing a medias ocupa un renglón. **Pedido:** el encabezado es el pedido (cliente, folio y vendedor) con «← Pedidos». El escáner y el avance quedan fijos arriba. Cada producto empieza por su ubicación y lleva nombre y cantidad en un renglón; el botón dice «Faltó». Abrir un pedido, o volver, empieza arriba |
+| **GP.RF.29** | El aviso de clientes nuevos dice «Más de 500» cuando la lista se topó: el resumen ahora declara `truncated`. Antes decía «500», que parecía exacto |
+| **GP.RF.36** | «Rutas de hoy» ya no pinta su esqueleto de 181 px en la primera carga. Sin rutas (lo común por la tarde: 0 de 9 sucursales a las 18 h del 2026-11-17), el bloque aparecía y se iba, y la lista saltaba. Con rutas (171 en 25 de los últimos 30 días), entran una vez, como antes entraba el esqueleto |
+| **GP.RF.37** | Dos defectos de la misma hoja de estilos: la nota «búscalo en bodega» compartía la clase `.sr-buscar` con el escáner y le ponía su borde ámbar; y 10 reglas usaban `--warn-fg`/`--ok-fg` como color de texto. Ahora usan `--warn-soft-fg`/`--ok-soft-fg`: 7.09:1 y 7.13:1 sobre blanco, 12.3:1 y 12.6:1 en oscuro, con sus controles de 21.00 y 4.48 |
+
+**Medido con Playwright (nivel A)**, 390 × 844 táctil, sesión de Edgar, en La Piedad Abastos (el
+almacén con más preventa ese día: 41 pedidos). Lado nuevo: el frontend de este árbol con las
+lecturas pedidas a prod desde Playwright. «Empezar a surtir» se contesta en la prueba sin llegar a
+ningún servidor y toda otra escritura se aborta. Instrumento:
+[`surtir-rehecho.e2e.ts`](../../../e2e/reestructura/surtir-rehecho.e2e.ts).
+
+| | Primera medición del árbol | Final |
+|---|---|---|
+| Dónde empieza la primera tarjeta | 1,001 px (abajo del pliegue de 844) | **504 px** |
+| Al volver con «← Pedidos» | 685 px (el esqueleto de rutas) | **504 px**, sin escrituras |
+| Primer renglón del pedido al abrirlo | −1,381 px (abría a media lista) | **281 px** |
+| Escáner al desplazar | no se pudo probar (pedido de 1 renglón) | **fijo**: 170 → 102 px, en un pedido de 11 |
+| Tarjetas con texto encimado | 1, falso positivo del instrumento (comparaba las dos líneas de un mismo nombre) | **0** |
+| Botones de 44 px o más | el selector de almacén medía 35 | todos, salvo la flecha interna del selector (14 px, dentro de un control de 44) |
+| CLS de la carga | — | 0.06 (una medición; el aviso de Telemarketing a medias llega aparte y empuja la lista) |
+
+Controles del instrumento:
+- Ninguna petición `/api` ni `/socket.io` llegó al backend local. La negativa: al dejar sin anotar
+  una lectura, el detector la reporta.
+- Con la cantidad montada encima del nombre a propósito, el detector de encimado cuenta las 13
+  tarjetas.
+- Producción, todavía sin desplegar, se reconoce como la versión vieja.
+
+El «antes» en prod no se pudo comparar tarjeta por tarjeta. La pantalla vieja intenta tomar trabajo
+al abrir; esa escritura se aborta, y con el mismo almacén mostró «Hoy · 0». La comparación contra lo
+viejo es la captura de Edgar y la línea base de §5c.
+
+**Pruebas:**
+- Surtir: 109, de ellas 8 nuevas de GP.RF.35 y GP.RF.29 (3 negativas).
+- Rutas de hoy: 2 nuevas (1 negativa).
+- Resumen de clientes nuevos en el servidor: 1 nueva.
+- Almacén completo: 815 en verde; `ngc --noEmit` sobre el árbol, 0 errores.
+
+**NO MEDIDO:**
+- **La ubicación arriba de cada producto en el navegador.** Prod todavía no manda los códigos por
+  presentación (GP.RF.33/34 sin desplegar). Sin ellos la pantalla no afirma «sin ubicación», así que
+  hoy no la pinta. Sólo está cubierta por pruebas unitarias.
+- El celular real y el puesto de surtidor.
+- Cuánto baja el CLS de 0.23 en campo: se verá en `portal_telemetry_events` después de desplegar.
+- El desplegable de almacén con un solo almacén (el surtidor típico): se probó en unidad, no en
+  navegador.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -730,6 +805,9 @@ Formato de cada hallazgo:
 | GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
 | GP.RF.22 | 1 | 🟠 | «Existen demasiadas cosas» (Edgar). El Tablero abría en «Todos», con 1,396 de 2,389 pedidos ya embarcados; tenía 22 controles antes de la primera fila, dos rellenos naranjas que competían, 9 columnas (dos casi siempre en «—»), párrafos de ayuda en la cabecera y el volumen encimado sobre la etapa en 36 de 200 filas | A + B | lo que se lee antes de encontrar el trabajo; 58 % de la lista ya había salido | Carga visual; Hick; Von Restorff (una primaria); regla P | abre en «Por hacer» (decisión de Edgar); periodo en un desplegable; Surtir y Checar de contorno; Abierto y Guía bajo fecha y etapa; ayuda al «?»; volumen partido (§5.7) | 🧪 |
 | GP.RF.23–29 | 2 | 🔴/🟠/🟡 | Surtir en el celular: 1 de cada 11 cierres rechazado sin motivo guardado (23), primer pedido a 958 px (24), «Hoy · 39» contra 115 en la lista (25), sin «No hubo» (26), Surtir (Kepler) escribe al abrirse (27), 17.6 s y select nativo con código (28), «500 clientes nuevos» topado sin aviso (29) | A + B + C | ver §5c.2 | ver §5c.2 | se proponen en §5c; los de renglón esperan la sesión de surtidor | ⬜ |
+| GP.RF.35 | 2 | 🟠 | «No reestructuraste la interfaz» (Edgar). La primera tarjeta empezaba a 1,001 px a 390 de ancho, cada pedido traía su botón naranja, el aviso de clientes iba arriba de todo, y al abrir un pedido de abajo la vista quedaba a media lista | A (Playwright, árbol con lecturas de prod) | el trabajo fuera de la primera pantalla; un desplazamiento para encontrar el primer producto | Carga visual; Fitts; Von Restorff | lista y pedido rehechos con la maqueta aprobada (§5c.6): 1,001 → 504 px; el pedido abre arriba; el escáner queda fijo | 🧪 |
+| GP.RF.36 | 2 | 🟡 | «Rutas de hoy» pintaba un esqueleto de 181 px y, sin rutas, desaparecía: la lista saltaba | A | posible fuente del CLS 0.23 de §5c.3; un toque que cae en otra tarjeta | Doherty; estabilidad (CLS) | sin esqueleto en la primera carga (§5c.6) | 🧪 |
+| GP.RF.37 | 2 | 🟡 | El escáner salía con borde ámbar (clase compartida con un aviso) y 10 textos en `--warn-fg`/`--ok-fg` (2.15:1 y 3.30:1) | C + A | ilegible a pleno sol; el escáner parece un aviso | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg`/`--ok-soft-fg` (7.1:1) y clase propia | 🧪 |
 | GP.RF.30 | 2 | 🟠 | «Salir» de Surtir (y de Checar) no regresa a donde estabas: iba fijo a /almacen, que brinca a la primera pantalla del área. Del Tablero a Surtir, «Salir» dejaba en Inventario; para el surtidor, en Surtir misma (no hacía nada). Lo encontró Edgar | A (reproducido en prod con salir-foco.e2e.ts) | un viaje entero para volver a donde se estaba | Jakob (Atrás vuelve a donde estabas) | regresa a la pantalla anterior; sin ella, al Tablero, o a «Mi trabajo» si el puesto no lo abre | 🧪 |
 
 ---
@@ -738,6 +816,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **Surtir reestructurado** 🧪 (GP.RF.35–37 y GP.RF.29), con la maqueta que aprobó Edgar después de decir «no reestructuraste la interfaz». Medido con Playwright, con su control y su negativa: a 390 px la primera tarjeta pasa de 1,001 a 504 px, el pedido abre arriba (antes a −1,381 px) y el escáner queda fijo. De paso salieron: el esqueleto de «Rutas de hoy» que hacía saltar la lista, el escáner con borde de aviso, 10 textos bajo AA y el «500 clientes» topado. Primero salió un encimado que era falso positivo del instrumento: se corrigió y se probó el detector con una maqueta rota (§5c.6). | Edgar (maqueta), Claude |
 | 2026-11-17 | **GP.RF.30 en código** 🧪: «Salir» de Surtir y Checar regresa a la pantalla de donde se llegó. Reproducido en prod antes del arreglo: del Tablero a Surtir, «Salir» dejaba en Inventario. | Edgar (lo encontró), Claude |
 | 2026-11-17 | **Paso 2 (Surtir) arrancado: línea base** (§5c). La preventa se surte en Surtir › Sucursal (925 cierres en 30 días, 84 rechazados sin motivo guardado; se corrigió el mismo día la atribución a `/almacen/surtir-preventa`, que no tiene uso medido). Telemarketing casi no se usa, escribe al abrirse y es lo lento (tomar siguiente: 2.7 s de promedio, hasta 21 s). En el celular, Surtir tarda 4.5 s en pintarse el 75 % de las veces y la pantalla se mueve (CLS 0.23). Falta la sesión de un surtidor para medir los renglones. | Claude, a pedido de Edgar |
 | 2026-11-17 | **GP.RF.22 en código** 🧪, a pedido de Edgar («existen demasiadas cosas»). Entre dos maquetas eligió abrir en «Por hacer» (983 de 2,389). Además: periodo en un desplegable, Surtir y Checar de contorno, Abierto y Guía bajo fecha y etapa, ayuda al «?», y el volumen partido en renglones. **Corrige** lo dicho de GP.10.5: el volumen sí se encimaba (36 de 200; con el arreglo, 0). | Edgar, Claude |

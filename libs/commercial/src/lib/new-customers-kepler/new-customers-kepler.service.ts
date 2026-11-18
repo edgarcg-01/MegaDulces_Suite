@@ -204,8 +204,12 @@ export class NewCustomersKeplerService {
     const r = await this.inbox(query);
     return {
       scope: r.scope,
+      // [GP.RF.29] Con la lista topada, `customers` es el tope (500), no el total: se declara para que el
+      // aviso diga «más de 500» y no un 500 que parece exacto. (Los pedidos sí van completos mientras los
+      // clientes CON pedido no pasen de 500: la bandeja los ordena primero.)
       customers: r.data.length,
       order_ids: r.data.flatMap((c) => c.orders.map((o) => o.order_id)),
+      truncated: r.truncated,
     };
   }
 

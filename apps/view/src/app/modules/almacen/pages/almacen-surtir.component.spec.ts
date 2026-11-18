@@ -217,7 +217,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await montar();
     expect(api.tomarSiguiente).not.toHaveBeenCalled();
     expect(c.fase()).toBe('listo');
-    expect(texto()).toContain('Tienes un surtido de Telemarketing a medias');
+    // [GP.RF.35] En un renglón: el folio y cuántos pedidos, no la lista de folios (medido: 12 folios, ~240 px).
+    expect(el().querySelector('.sr-medias')?.textContent?.replace(/\s+/g, ' ')).toMatch(/Telemarketing a medias: \S+ · \d+ pedidos?/);
     clic('Continuar');
     expect(api.tomarSiguiente).toHaveBeenCalledWith({ warehouse_id: 'w-ph', origen: 'TELEMARK' });
     expect(c.fase()).toBe('surtiendo');
@@ -278,10 +279,11 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   // ── [MCP.3.1] Sucursal: los pedidos de la app, en esta misma pantalla ─────────────────
 
-  it('⭐ sólo dos orígenes, Sucursal primero (ya no hay "Todos", que mezclaba)', async () => {
+  it('⭐ sólo dos orígenes, Preventa primero (ya no hay "Todos", que mezclaba)', async () => {
     await montar();
-    const chips = Array.from(el().querySelectorAll('.sr-chip')).map((b) => b.textContent?.trim());
-    expect(chips).toEqual(['Sucursal', 'Telemarketing']);
+    // [GP.RF.35] «Sucursal» pasó a «Preventa»: es lo que levantan vendedoras y preventa.
+    const chips = Array.from(el().querySelectorAll('.sr-origen .sr-chip')).map((b) => b.textContent?.trim());
+    expect(chips).toEqual(['Preventa', 'Telemarketing']);
   });
 
   it('[MCP.3.2] en Telemarketing hay "Ver la lista de pedidos" y lleva al tablero (vista del surtidor)', async () => {
@@ -309,7 +311,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('⭐ Sucursal lista AQUÍ los pedidos de la app de hoy, sin "Tomar siguiente" ni otra pantalla', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(pv.inbox).toHaveBeenCalled();
     expect(boton('Tomar siguiente')).toBeFalsy();
     expect(texto()).toContain('ABARROTES ROSY');
@@ -319,7 +321,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('⭐ [MCP.24] Hoy no mezcla lo atrasado: va en un aviso, por día, y tocar el día lo abre', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('Hoy · 1');
     expect(texto()).not.toContain('VERO VASCO');
     expect(texto()).toContain('1 pedido pendiente de días anteriores');
@@ -341,7 +343,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       PV({ order_id: 'o-ayer', code: 'PD-2026-00072', customer_name: 'DE AYER', days_late: 1, requested_delivery_date: '2026-10-18' }),
     ])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('2 pedidos pendientes de días anteriores');
     const dias = Array.from(el().querySelectorAll('.sr-atras .sr-chip')).map((n) => (n.textContent ?? '').trim());
     expect(dias).toEqual(['Ayer · 1', 'sáb 17 oct · 1']); // el más reciente primero
@@ -358,7 +360,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       PV({ order_id: 'o-vero', code: 'PD-2026-00070', customer_name: 'VERO VASCO', days_late: 2, requested_delivery_date: '2026-10-17' }),
     ])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const grupos = Array.from(el().querySelectorAll('.sr-grupo')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim());
     expect(grupos[0]).toBe('Los que estás surtiendo · 1 pedido');
     expect(texto()).toContain('ATRASADO MIO');
@@ -378,7 +380,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       PV({ order_id: 'm1', code: 'PD-2026-00110', customer_name: 'CLIENTE MANANA', seller_name: 'Vendedora Dos', bucket: 'manana', requested_delivery_date: '2026-10-20' }),
     ])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const chips = Array.from(el().querySelectorAll('[aria-label="Vendedor"] .sr-chip')).map((n) => (n.textContent ?? '').trim());
     expect(chips).toEqual(['Todos · 4', 'Vendedor Uno · 2', 'Vendedora Dos · 2']);
     clic('Vendedora Dos · 2');
@@ -398,14 +400,14 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[MCP.24] prueba negativa: con un solo vendedor en el día no hay chips de vendedor', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(el().querySelector('[aria-label="Vendedor"]')).toBeNull();
   });
 
   it('[MCP.3.8] avisa de los clientes nuevos sin clave de Kepler y marca SÓLO sus pedidos', async () => {
     cn.resumen.mockReturnValue(of({ scope: 'propios', customers: 2, order_ids: ['o-vero'] }));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('2 clientes nuevos sin clave de Kepler');
     expect(texto()).toContain('1 pedido suyo espera');
     const tarjetas = (): string[] => Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
@@ -431,7 +433,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       PV({ order_id: 'o-suelto', code: 'PD-2026-00091', customer_name: 'SUELTO', group_code: null, group_parts: null, group_other_warehouses: [] }),
     ])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
     expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).toContain('Parte de P-10482 · también surte LPA');
     // El principal del grupo no dice «Parte de» sí mismo.
@@ -444,7 +446,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('separa Hoy / Mañana / Próximos y cuenta sólo lo pendiente de MI almacén', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('Hoy · 1'); // ni el de otra sucursal, ni el ya surtido, ni el atrasado ([MCP.24])
     expect(texto()).toContain('Mañana · 1');
     expect(texto()).toContain('Próximos · 0');
@@ -465,7 +467,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         started: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-10-19T18:00:00.000Z' } }),
     ])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const grupos = Array.from(el().querySelectorAll('.sr-grupo')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim());
     expect(grupos).toEqual(['Los que estás surtiendo · 1 pedido', 'Vendedor A · 2 pedidos', 'Vendedor B · 1 pedido', 'Sin vendedor · 1 pedido']);
     const clientes = Array.from(el().querySelectorAll('.sr-ped-cli')).map((n) => n.textContent?.trim());
@@ -481,7 +483,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('⭐ "Surtir este" empieza el pedido (queda quién y a qué hora) y lo abre con los MISMOS renglones', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este'); // [MCP.24] el único de hoy: ABARROTES ROSY (VERO VASCO está atrasado, en su aviso)
     expect(pv.start).toHaveBeenCalledWith('o-rosy');
     expect(pv.detail).toHaveBeenCalledWith('o-rosy');
@@ -490,14 +492,14 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(cantidades()).toContain('Surtir 5 PAQ');
     expect(cantidades()).toContain('Surtir 2 CJA');
     expect(boton('Completo')).toBeTruthy();
-    expect(boton('Faltante')).toBeTruthy();
+    expect(boton('Faltó')).toBeTruthy();
     // No es una ola: no se guarda renglón por renglón en el servidor de olas.
     expect(texto()).not.toContain('Existencia');
   });
 
   it('el escáner encuentra el renglón del pedido de sucursal por su código de barras', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     c.busqueda.set('7500000000012');
     fix.detectChanges();
@@ -515,14 +517,16 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('⭐ [MCP.23] al surtir un pedido de Sucursal, cada renglón dice lo que tiene el sistema', async () => {
     pv.detail = vi.fn(() => of(conExistencia()));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     const sistema = Array.from(el().querySelectorAll('.sr-sistema')).map((n) => n.textContent?.trim());
     expect(sistema).toEqual(['Sistema: hay 15 PAQ', 'Sistema: no hay']);
     expect(el().querySelector('.sr-sistema-no')?.textContent).toContain('no hay');
     // Arriba del pedido no van notas de explicación (las quitó David, 2026-11-13): sólo el cliente y el vendedor.
-    const arriba = el().querySelector('.sr-ola')?.textContent?.replace(/\s+/g, ' ') ?? '';
-    expect(arriba).toContain('ABARROTES ROSY · Vendedora Prueba');
+    expect(el().querySelector('.sr-ola')).toBeNull();
+    const arriba = el().querySelector('.sr-top')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(arriba).toContain('ABARROTES ROSY');
+    expect(arriba).toContain('· Vendedora Prueba');
     expect(arriba).not.toContain('celular');
     expect(arriba).not.toContain('«Sistema»');
   });
@@ -530,9 +534,9 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('⭐ [MCP.23] faltante de algo que el sistema dice que hay: pide buscarlo en bodega, sin bloquear', async () => {
     pv.detail = vi.fn(() => of(conExistencia()));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
-    clic('Faltante'); // BOMBON GRANDE: 5 PAQ, el sistema dice 15
+    clic('Faltó'); // BOMBON GRANDE: 5 PAQ, el sistema dice 15
     expect(texto()).toContain('El sistema dice que hay 15 PAQ: búscalo en bodega antes de quitarlo.');
     c.borrador.set(5);
     fix.detectChanges();
@@ -552,7 +556,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[MCP.23] prueba negativa: sin existencia del servidor no pinta nada; si no se pudo leer dice «sin dato», nunca cero', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este'); // DETALLE sin `stock`: servidor anterior
     expect(el().querySelector('.sr-sistema')).toBeNull();
     expect(texto()).not.toContain('«Sistema»');
@@ -561,14 +565,14 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     d.lines[0].stock = null;
     pv.detail = vi.fn(() => of(d));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     expect(el().querySelector('.sr-sistema')?.textContent).toContain('Sistema: sin dato');
   });
 
   it('⭐ marcar en Sucursal NO llama al guardado de olas; se cierra con lo que hubo y muestra el reporte', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     clic('Completo'); // BOMBON GRANDE
     c.noHabia(c.pendientes()[0]); // SALSA MAGA
@@ -593,7 +597,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   });
   const sinSalsa = async (): Promise<void> => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     clic('Completo'); // BOMBON GRANDE
     c.noHabia(c.pendientes()[0]); // SALSA MAGA: no hubo las 2 CJA
@@ -637,7 +641,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         { actor: 'picker', action: 'removed', by_name: 'Otro Surtidor', at: '2026-11-10T15:30:00.000Z', product_name: 'CHICLE', detail: '1 PAQ', reason: null },
       ] }));
       await montar();
-      clic('Sucursal');
+      clic('Preventa');
       clic('Surtir este');
       expect(texto()).toContain('Por qué cambió este pedido');
       expect(texto()).toContain('Corrigió el pedido. Motivo: El cliente quiere agregar productos');
@@ -728,7 +732,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[GP.RF.33] ⭐ escanear el paquete de un renglón pedido en paquetes lo marca Completo y deja el campo listo', async () => {
     pv.detail = vi.fn(() => of(CON_APOYO()));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     escanear('7500000000012');
     const bombon = c.ola()!.lines.find((l) => l.id === 'pl1')!;
@@ -739,7 +743,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[GP.RF.33] NEGATIVA: escanear la caja de un renglón pedido en paquetes avisa y no marca', async () => {
     pv.detail = vi.fn(() => of(CON_APOYO()));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     escanear('C70012');
     expect(c.ola()!.lines.find((l) => l.id === 'pl1')!.status).toBe('pendiente');
@@ -749,7 +753,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[GP.RF.34] ⭐ cada renglón dice su ubicación y van en el orden del recorrido', async () => {
     pv.detail = vi.fn(() => of(CON_APOYO()));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     expect(c.ola()!.lines.map((l) => l.id)).toEqual(['pl2', 'pl1']);
     expect(texto()).toContain('Ubicación BA053');
@@ -758,10 +762,94 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[GP.RF.34] NEGATIVA: si el servidor no mandó el dato, no se afirma «sin ubicación»', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     expect(texto()).not.toContain('Sin ubicación dada de alta');
     expect(texto()).not.toContain('Ubicación ');
+  });
+
+  // ── [GP.RF.35] Surtir rehecho: la lista y el pedido (maqueta aprobada por Edgar, 2026-11-17) ──────────
+
+  it('[GP.RF.35] ⭐ cada pedido es UNA tarjeta que se toca entera, sin un botón naranja adentro', async () => {
+    await montar();
+    clic('Preventa');
+    const tarjetas = Array.from(el().querySelectorAll('button.sr-ped')) as HTMLButtonElement[];
+    expect(tarjetas.length).toBeGreaterThan(0);
+    expect(el().querySelectorAll('.sr-btn-ped, button.sr-ped button').length).toBe(0);
+    for (const t of tarjetas) expect(t.querySelectorAll('.sr-ped-go').length).toBe(1);
+    const rosy = tarjetas.find((t) => t.textContent?.includes('ABARROTES ROSY'))!;
+    expect(rosy.textContent).toContain('Surtir este');
+    rosy.click();
+    fix.detectChanges();
+    expect(pv.start).toHaveBeenCalledWith('o-rosy');
+  });
+
+  it('[GP.RF.35] NEGATIVA: el pedido que surte otra persona no se puede tocar: dice quién', async () => {
+    pv.inbox = vi.fn(() => of(BANDEJA([PV({ state: 'surtiendo', started: { user_id: 'otro', name: 'Félix Herrera', at: '2026-10-19T19:00:00.000Z' } })])));
+    await montar();
+    clic('Preventa');
+    expect(el().querySelectorAll('button.sr-ped').length).toBe(0);
+    expect(el().querySelector('.sr-ped-otro')?.textContent).toContain('Lo está surtiendo Félix Herrera');
+  });
+
+  it('[GP.RF.35] ⭐ «← Pedidos» regresa a la lista SIN cerrar el pedido, y lo marcado sigue al reabrirlo', async () => {
+    await montar();
+    clic('Preventa');
+    clic('Surtir este');
+    expect(boton('Salir')).toBeUndefined();
+    clic('Completo');
+    const marcado = c.ola()!.lines.find((l) => l.status !== 'pendiente')!.id;
+    clic('Pedidos');
+    expect(c.fase()).toBe('listo');
+    expect(c.ola()).toBeNull();
+    expect(pv.finish).not.toHaveBeenCalled();
+    expect(boton('Salir')).toBeTruthy();
+    clic('Surtir este');
+    expect(c.ola()!.lines.find((l) => l.id === marcado)!.status).toBe('surtido');
+  });
+
+  it('[GP.RF.35] la tarjeta del producto empieza por DÓNDE está; nombre y cantidad van en un renglón', async () => {
+    pv.detail = vi.fn(() => of(CON_APOYO()));
+    await montar();
+    clic('Preventa');
+    clic('Surtir este');
+    const ren = el().querySelector('.sr-ren')!;
+    expect(ren.firstElementChild?.classList.contains('sr-lugar')).toBe(true);
+    expect(ren.querySelector('.sr-lugar-code')?.textContent?.trim()).toBe('BA053');
+    expect(ren.querySelector('.sr-ren-cab .sr-ren-prod + .sr-cant')).toBeTruthy();
+  });
+
+  it('[GP.RF.35] el aviso de clientes nuevos va DESPUÉS de los pedidos, y la lista dice cuándo se cargó', async () => {
+    await montar();
+    clic('Preventa');
+    const aviso = el().querySelector('app-clientes-nuevos-aviso')!;
+    const pedido = el().querySelector('.sr-ped')!;
+    expect(pedido.compareDocumentPosition(aviso) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(c.sucursalAl()).not.toBeNull();
+    expect(el().querySelector('.sr-dias app-freshness-pill')).toBeTruthy();
+  });
+
+  it('[GP.RF.29] ⭐ con la lista de clientes nuevos topada, el aviso dice «Más de 500», no un 500 que parece exacto', async () => {
+    cn.resumen = vi.fn(() => of({ scope: 'propios', customers: 500, order_ids: [], truncated: true }));
+    await montar();
+    expect(texto()).toContain('Más de 500 clientes nuevos sin clave de Kepler');
+  });
+
+  it('[GP.RF.29] NEGATIVA: sin tope (o servidor anterior, sin el campo) dice la cifra tal cual', async () => {
+    cn.resumen = vi.fn(() => of({ scope: 'propios', customers: 12, order_ids: [] }));
+    await montar();
+    expect(texto()).toContain('12 clientes nuevos sin clave de Kepler');
+    expect(texto()).not.toContain('Más de');
+  });
+
+  it('[GP.RF.35] NEGATIVA: el escáner ya no comparte clase con la nota «búscalo en bodega» (le ponía borde ámbar)', async () => {
+    await montar();
+    clic('Preventa');
+    clic('Surtir este');
+    const buscar = el().querySelectorAll('.sr-buscar');
+    expect(buscar.length).toBe(1);
+    expect(buscar[0].querySelector('#sr-buscar')).toBeTruthy();
+    expect(buscar[0].closest('.sr-fijo')).toBeTruthy();
   });
 
   // ── [GP.RF.31] Cambiar lo que faltó por otro producto (decisión de Edgar, 2026-11-17) ──────────
@@ -824,7 +912,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[MCP.3.15] en la bandeja, el pedido con indicaciones lo dice; el que no trae, no', async () => {
     conIndicaciones();
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
     expect(tarjetas.find((t) => t.includes('ABARROTES ROSY'))).toContain('Con indicaciones del vendedor');
     expect(tarjetas.find((t) => t.includes('VERO VASCO'))).not.toContain('Con indicaciones');
@@ -833,7 +921,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[MCP.3.15] al surtir, las indicaciones salen completas en el recuadro de arriba de la lista', async () => {
     conIndicaciones();
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     const caja = el().querySelector('.sr-ind');
     expect(caja).toBeTruthy();
@@ -847,7 +935,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[MCP.3.15] con indicaciones, «Terminé de surtir» espera a «Cumplí las indicaciones»', async () => {
     conIndicaciones();
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     clic('Completo');
     clic('Completo');
@@ -864,7 +952,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[MCP.3.15] prueba negativa: sin indicaciones no hay recuadro ni marca que pedir', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     expect(el().querySelector('.sr-ind')).toBeNull();
     clic('Completo');
@@ -876,7 +964,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('[MCP.3.15] la marca no se arrastra al siguiente pedido', async () => {
     conIndicaciones();
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     el().querySelector<HTMLInputElement>('#sr-ind-ok')!.click();
     fix.detectChanges();
@@ -889,7 +977,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('prueba negativa: no deja cerrar con renglones sin tocar', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     clic('Completo');
     expect(boton('Terminé de surtir')?.disabled).toBe(true);
@@ -898,7 +986,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('lo marcado se queda en el celular: si se cierra la app, al continuar sigue marcado', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     clic('Surtir este');
     clic('Completo');
     TestBed.resetTestingModule();
@@ -913,7 +1001,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('un pedido que surte OTRA persona se ve, pero no se puede tomar', async () => {
     pv.inbox = vi.fn(() => of(BANDEJA([PV({ state: 'surtiendo', started: { user_id: 'otro', name: 'Félix Herrera', at: '2026-10-19T19:00:00.000Z' } })])));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('Lo está surtiendo Félix Herrera');
     expect(boton('Surtir este')).toBeFalsy();
     expect(boton('Continuar')).toBeFalsy();
@@ -1025,7 +1113,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('⭐ Faltante se captura en la presentación (2 BTO) y se guarda convertido a la base (50 KG)', async () => {
     await surtiendo();
-    clic('Faltante');
+    clic('Faltó');
     expect(texto()).toContain('¿Cuánto levantaste? (BTO)');
     c.borrador.set(2);
     fix.detectChanges();
@@ -1048,7 +1136,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await surtiendo([CANINDO]);
     expect(texto()).toContain('Cuenta 400 PAQ, no cajas.');
     expect(c.cantidadPrincipal(c.pendientes()[0])).toBe('400 PAQ');
-    clic('Faltante');
+    clic('Faltó');
     expect(texto()).toContain('¿Cuánto levantaste? (PAQ)');
     c.borrador.set(250);
     fix.detectChanges();
@@ -1061,7 +1149,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     await surtiendo([L({ aviso_caja: { tipo: 'transicion', unidad: 'BTO', factor_antes: 20, factor_hoy: 25, desde: '2026-11-10T16:00:00.000Z',
       texto: 'La BTO cambió de 20 a 25 el 10 nov: revisa cuántas piezas trae antes de contarla por caja.' } })]);
     expect(texto()).toContain('La BTO cambió de 20 a 25 el 10 nov');
-    clic('Faltante');
+    clic('Faltó');
     expect(texto()).toContain('¿Cuánto levantaste? (BTO)');
   });
 
@@ -1072,7 +1160,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('no deja guardar más de lo pedido (4 BTO de 3) ni el campo vacío (prueba negativa)', async () => {
     await surtiendo();
-    clic('Faltante');
+    clic('Faltó');
     c.borrador.set(4);
     fix.detectChanges();
     expect(boton('Guardar')?.disabled).toBe(true);
@@ -1083,7 +1171,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('capturar la presentación completa guarda lo pedido EXACTO (sin 74.99999 por la división)', async () => {
     await surtiendo([L({ qty_requested: 61.74, qty_presentacion: 3 })]);
-    clic('Faltante');
+    clic('Faltó');
     c.borrador.set(3);
     fix.detectChanges();
     clic('Guardar');
@@ -1092,7 +1180,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('No había manda 0 con causa "agotado"', async () => {
     await surtiendo();
-    clic('Faltante');
+    clic('Faltó');
     clic('No había');
     expect(api.pick).toHaveBeenCalledWith('ola-1', 'l1', { qty_picked: 0, status: 'agotado' });
     expect(texto()).toContain('No había');
@@ -1162,7 +1250,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('el faltante dice el máximo, y explica por qué no deja guardar si se pasa', async () => {
     await surtiendo();
-    clic('Faltante');
+    clic('Faltó');
     expect(texto()).toContain('Entre 0 y 3 BTO');
     c.borrador.set(5);
     fix.detectChanges();
@@ -1316,7 +1404,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   it('⭐ [MCP.3.6] si las rutas no cargan, lo dice con Reintentar y los pedidos sueltos SIGUEN', async () => {
     pv.routes = vi.fn(() => throwError(() => ({ status: 500 })));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).toContain('No se pudieron cargar las rutas');
     // Los sueltos de siempre, intactos y tomables.
     expect(texto()).toContain('ABARROTES ROSY');
@@ -1331,7 +1419,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       pick_started: null, pick_finished: null,
     }] }));
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     const t = texto();
     expect(t).toContain('Ruta de Vendedora Prueba');
     expect(t).toContain('Pedidos sueltos');
@@ -1340,7 +1428,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[MCP.3.6] sin rutas hoy no se pinta nada de rutas (ni «Pedidos sueltos»)', async () => {
     await montar();
-    clic('Sucursal');
+    clic('Preventa');
     expect(texto()).not.toContain('Rutas de hoy');
     expect(texto()).not.toContain('Pedidos sueltos');
     expect(texto()).toContain('ABARROTES ROSY');
