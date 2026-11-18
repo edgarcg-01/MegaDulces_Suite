@@ -14,6 +14,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { CheckboxModule } from 'primeng/checkbox';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import {
   ComercialService,
@@ -45,9 +46,8 @@ import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
-import { agruparPorSemana, etiquetaSemana, PeriodoConsultado, VentaPorSemana } from './ventas-por-semana';
 
-type DetailTab = 'productos' | 'unidades' | 'dias' | 'calendario' | 'clientes' | 'tickets' | 'deposito';
+type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
 
 /**
  * `[VEC.12.2]` Un día de la ruta contra el dinero que se contó.
@@ -109,6 +109,20 @@ const MES: Record<string, string> = {
   '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
 };
 
+/** `YYYY-MM-DD` de una fecha LOCAL (la del calendario), sin correrla de día por la zona horaria. */
+const isoLocal = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** `YYYY-MM-DD` → `Date` local. */
+const fechaLocal = (iso: string): Date => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+/** Corre un `YYYY-MM-DD` n días (aritmética en UTC: no depende de la zona del navegador). */
+const correrDias = (iso: string, n: number): string =>
+  new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * 864e5).toISOString().slice(0, 10);
+/** `2026-11-03` → `03/11/2026`, el mismo formato que muestra el calendario. */
+const fechaCorta = (iso: string): string => iso.split('-').reverse().join('/');
+
 /** RR — Ventas por Ruta (venta mensual por sucursal×ruta, serie de folio Kepler). */
 @Component({
   selector: 'app-comercial-ventas-por-ruta',
@@ -117,7 +131,7 @@ const MES: Record<string, string> = {
     FreshnessPillComponent,
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, TagModule, InputTextModule, InputNumberModule, CheckboxModule,
-    IconFieldModule, InputIconModule,
+    IconFieldModule, InputIconModule, DatePickerModule,
     LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
     SegmentedComponent,
   ],
@@ -395,10 +409,17 @@ const MES: Record<string, string> = {
                Sin esto, "todo clickeable" se vuelve un laberinto sin salida. -->
           <div class="rr-chips" role="group" aria-label="Filtros del desglose">
             <span class="rr-chip rr-chip-fixed">Ruta {{ d.route_no }}</span>
-            <button type="button" class="rr-chip" (click)="toggleFullYear()"
-                    [attr.aria-label]="'Periodo: ' + scopeLabel() + '. Cambiar'">
-              <i class="pi pi-calendar" aria-hidden="true"></i> {{ scopeLabel() }}
-            </button>
+            <!-- [VEC.44] El periodo del desglose es un CALENDARIO de rango: se eligen dos fechas (o una: ese
+                 día) y al cerrar se aplica a todas las pestañas. Siempre muestra las fechas que se están viendo. -->
+            <p-datepicker [ngModel]="rangoCal()" (ngModelChange)="rangoCal.set($event)" selectionMode="range" dateFormat="dd/mm/yy"
+                          [minDate]="calLimites().min" [maxDate]="calLimites().max" [readonlyInput]="true" [showIcon]="true"
+                          [showButtonBar]="true" appendTo="body" placeholder="Desde – hasta" styleClass="rr-periodo"
+                          [ariaLabel]="'Periodo del desglose: ' + scopeLabel() + '. Elige desde y hasta'"
+                          (onClose)="aplicarRango()" (onClearClick)="limpiarRango()" />
+            @if (!fullYear()) {
+              <button type="button" class="rr-chip" (click)="verAnioCompleto()"
+                      [attr.aria-label]="'Ver todo ' + year + ' en el desglose'">Todo {{ year }}</button>
+            }
             @if (dSku(); as s) {
               <button type="button" class="rr-chip rr-chip-on" (click)="dSku.set(null); reloadDetail()">
                 SKU {{ s }} <i class="pi pi-times" aria-hidden="true"></i>
@@ -412,11 +433,6 @@ const MES: Record<string, string> = {
             @if (dUnit(); as u) {
               <button type="button" class="rr-chip rr-chip-on" (click)="dUnit.set(null); reloadDetail()">
                 Unidad {{ u }} <i class="pi pi-times" aria-hidden="true"></i>
-              </button>
-            }
-            @if (dWeekLabel(); as w) {
-              <button type="button" class="rr-chip rr-chip-on" (click)="dWeek.set(null); reloadDetail()">
-                {{ w }} <i class="pi pi-times" aria-hidden="true"></i>
               </button>
             }
             @if (dDay(); as day) {
@@ -433,7 +449,6 @@ const MES: Record<string, string> = {
             <button type="button" role="radio" [class.on]="tab()==='productos'" [attr.aria-checked]="tab()==='productos'" (click)="setTab('productos')">Productos</button>
             <button type="button" role="radio" [class.on]="tab()==='unidades'" [attr.aria-checked]="tab()==='unidades'" (click)="setTab('unidades')">Unidades</button>
             <button type="button" role="radio" [class.on]="tab()==='dias'" [attr.aria-checked]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
-            <button type="button" role="radio" [class.on]="tab()==='calendario'" [attr.aria-checked]="tab()==='calendario'" (click)="setTab('calendario')">Calendario</button>
             <button type="button" role="radio" [class.on]="tab()==='clientes'" [attr.aria-checked]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
             <button type="button" role="radio" [class.on]="tab()==='tickets'" [attr.aria-checked]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
             <button type="button" role="radio" [class.on]="tab()==='deposito'" [attr.aria-checked]="tab()==='deposito'" (click)="setTab('deposito')">Depósito</button>
@@ -553,99 +568,6 @@ const MES: Record<string, string> = {
                 }
               }
             }
-            @case ('calendario') {
-              <!-- [VEC.43] Calendario de la venta (reemplaza a la tabla «Por semana» de [VEC.42]): una fila por semana (lunes a domingo), un cuadro por
-                   día y el total de la semana. Sale de los mismos días de «Por día». Sin depósito a
-                   propósito: ése es de Caja General y se sigue viendo día por día en «Por día». -->
-              <p-table [value]="porSemana().semanas" dataKey="lunes" size="small" class="surf-table rr-cal-tabla" [scrollable]="true" scrollHeight="56vh">
-                <ng-template #header><tr>
-                  <th scope="col">Semana</th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Lunes">Lun</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Martes">Mar</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Miércoles">Mié</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Jueves">Jue</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Viernes">Vie</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Sábado">Sáb</abbr></th>
-                  <th scope="col" class="rr-cal-th"><abbr title="Domingo">Dom</abbr></th>
-                  <th scope="col" class="comm-num">Total de la semana</th></tr>
-                </ng-template>
-                <ng-template #body let-s>
-                  <tr>
-                    <td>
-                      <span class="rr-sem-cell">
-                        <button type="button" class="rr-link" (click)="drillWeek(s.lunes)"
-                                [attr.aria-label]="'Ver los tickets de la semana ' + s.etiqueta">{{ s.etiqueta }}</button>
-                        @if (s.estado === 'en_curso') {
-                          <p-tag value="en curso" severity="secondary" />
-                        } @else if (s.estado === 'incompleta') {
-                          <p-tag [value]="'sólo ' + s.cubre" severity="secondary" />
-                        }
-                      </span>
-                    </td>
-                    @for (c of s.celdas; track c.fecha) {
-                      <td class="rr-cal-td">
-                        @switch (c.estado) {
-                          @case ('venta') {
-                            <button type="button" class="rr-cal" [attr.data-nivel]="c.nivel" (click)="drillDay(c.fecha)"
-                                    [title]="'Ver los tickets del ' + c.nombre"
-                                    [attr.aria-label]="c.nombre + ': ' + (c.revenue | currency:'MXN':'symbol-narrow':'1.0-0') + ', ' + c.tickets + (c.tickets === 1 ? ' ticket' : ' tickets') + '. Ver sus tickets'">
-                              <span class="rr-cal-dia" aria-hidden="true">{{ c.dia }}</span>
-                              <span class="rr-cal-venta" aria-hidden="true">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                              <span class="rr-cal-sub" aria-hidden="true">{{ c.tickets | number }} {{ c.tickets === 1 ? 'ticket' : 'tickets' }}</span>
-                            </button>
-                          }
-                          @case ('sin_venta') {
-                            <div class="rr-cal rr-cal-vacio" [title]="c.nombre + ': sin venta'">
-                              <span class="rr-cal-dia">{{ c.dia }}</span>
-                              <span aria-hidden="true">—</span><span class="sr-only">sin venta</span>
-                            </div>
-                          }
-                          @default {
-                            <div class="rr-cal rr-cal-fuera" [title]="c.nombre + (c.estado === 'futuro' ? ': su venta todavía no llega' : ': fuera del periodo')">
-                              <span class="rr-cal-dia">{{ c.dia }}</span>
-                              <span aria-hidden="true">·</span><span class="sr-only">{{ c.estado === 'futuro' ? 'su venta todavía no llega' : 'fuera del periodo' }}</span>
-                            </div>
-                          }
-                        }
-                      </td>
-                    }
-                    <td class="comm-num">
-                      @if (s.dias) {
-                        <div class="rr-strong">{{ s.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
-                        <div class="rr-cal-sub">{{ s.tickets | number }} {{ s.tickets === 1 ? 'ticket' : 'tickets' }} · {{ s.dias }} {{ s.dias === 1 ? 'día' : 'días' }}</div>
-                        <div class="rr-cal-sub">{{ s.promedioDia | currency:'MXN':'symbol-narrow':'1.0-0' }} por día</div>
-                      } @else {
-                        <span class="comm-muted">Sin venta registrada</span>
-                      }
-                    </td>
-                  </tr>
-                </ng-template>
-                <ng-template #emptymessage>
-                  <tr><td colspan="9" class="comm-muted">Sin venta en el periodo.</td></tr>
-                </ng-template>
-              </p-table>
-              @if (porSemana().mejorDia; as m) {
-                <p class="rr-note rr-cal-leyenda">
-                  <span class="rr-cal-escala" aria-hidden="true">
-                    menos
-                    <span class="rr-cal-muestra" data-nivel="1"></span><span class="rr-cal-muestra" data-nivel="2"></span><span class="rr-cal-muestra" data-nivel="3"></span><span class="rr-cal-muestra" data-nivel="4"></span>
-                    más venta
-                  </span>
-                  El tono más intenso es el mejor día del periodo: el {{ m.nombre }}, con
-                  <strong>{{ m.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>.
-                  «—» es un día que ya pasó sin venta; «·», uno fuera del periodo o cuya venta todavía no llega (la de hoy se ve mañana).
-                </p>
-              }
-              <p class="rr-note">
-                Semana de lunes a domingo, con los mismos días de «Por día»: las semanas suman la venta
-                del encabezado. Clic en un día para ver sus tickets; en la semana, los de toda la semana.
-                Una semana <strong>en curso</strong> o que el periodo corta (<strong>«sólo …»</strong>)
-                tiene menos días: para compararla con las demás usa su <strong>promedio por día</strong>.
-                @if (porSemana().sinFecha) {
-                  {{ porSemana().sinFecha }} días sin fecha válida no se pudieron poner en el calendario.
-                }
-              </p>
-            }
             @case ('clientes') {
               <p-table [value]="detail()!.clients" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
@@ -717,7 +639,19 @@ const MES: Record<string, string> = {
                     <td class="comm-num rr-strong">{{ l.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                     <td class="comm-num comm-muted">{{ l.margin_pct != null ? (l.margin_pct | number:'1.0-1') + '%' : '—' }}</td></tr>
                   </ng-template>
+                  <!-- [VEC.44] El total al pie: la suma de lo que se vendió, junto a los renglones. -->
+                  <ng-template #footer><tr>
+                    <td colspan="4">Total del ticket</td>
+                    <td class="comm-num rr-strong">{{ ticketTotal().renglones | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td></td></tr>
+                  </ng-template>
                 </p-table>
+                @if (ticketTotal().diferencia; as dif) {
+                  <p class="rr-note rr-warn" role="status">
+                    Los renglones suman {{ ticketTotal().renglones | currency:'MXN':'symbol-narrow':'1.2-2' }} y el importe del ticket es
+                    {{ t.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}: no cuadran por {{ dif | currency:'MXN':'symbol-narrow':'1.2-2' }}.
+                  </p>
+                }
                 <p class="rr-note">
                   {{ t.lines | number }} renglones · {{ t.skus | number }} SKUs.
                   La equivalencia en cajas se imprime sólo con factor de empaque real y compra ≥ 1 caja.
@@ -1279,28 +1213,6 @@ const MES: Record<string, string> = {
     .rr-note { margin:.5rem 0 0; font-size:.68rem; color:var(--text-muted); }
     .rr-barcol { width:80px; }
     .rr-bar { display:block; height:8px; border-radius:4px; background:var(--action); opacity:.55; }
-    .rr-sem-cell { display:inline-flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
-    /* [VEC.43] Calendario: el tono codifica la venta (data-viz), siempre con la cifra al lado. */
-    .rr-cal-th { text-align:center; }
-    .rr-cal-th abbr { text-decoration:none; }
-    .rr-cal-td { padding:var(--sp-1); }
-    .rr-cal { display:flex; flex-direction:column; align-items:flex-end; gap:2px; width:100%; min-width:84px; min-height:58px;
-              padding:var(--sp-1) var(--sp-2); border:1px solid transparent; border-radius:var(--radius-sm);
-              background:transparent; font:inherit; color:var(--fg-1); text-align:right; font-variant-numeric:tabular-nums; }
-    button.rr-cal { cursor:pointer; }
-    button.rr-cal:hover { border-color:var(--action); }
-    button.rr-cal:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
-    .rr-cal[data-nivel="1"], .rr-cal-muestra[data-nivel="1"] { background:color-mix(in srgb, var(--chart-1) 10%, transparent); }
-    .rr-cal[data-nivel="2"], .rr-cal-muestra[data-nivel="2"] { background:color-mix(in srgb, var(--chart-1) 20%, transparent); }
-    .rr-cal[data-nivel="3"], .rr-cal-muestra[data-nivel="3"] { background:color-mix(in srgb, var(--chart-1) 32%, transparent); }
-    .rr-cal[data-nivel="4"], .rr-cal-muestra[data-nivel="4"] { background:color-mix(in srgb, var(--chart-1) 46%, transparent); }
-    .rr-cal-dia { align-self:flex-start; font-size:var(--fs-xs); color:var(--fg-3); }
-    .rr-cal-venta { font-weight:700; }
-    .rr-cal-sub { font-size:var(--fs-xs); color:var(--fg-2); }
-    .rr-cal-vacio { color:var(--fg-2); }
-    .rr-cal-fuera { color:var(--fg-3); }
-    .rr-cal-escala { display:inline-flex; align-items:center; gap:var(--sp-1); margin-right:var(--sp-2); color:var(--fg-2); }
-    .rr-cal-muestra { display:inline-block; width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--border-color); }
     /* RR2 — margen con cobertura + desglose por ticket */
     .rr-dkpi-wide { grid-column:1 / -1; }
     .rr-dkpi em { display:block; font-style:normal; font-size:.62rem; color:var(--text-muted); margin-top:.1rem; }
@@ -1336,6 +1248,8 @@ const MES: Record<string, string> = {
     .rr-chip:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .rr-chip i { font-size:.62rem; }
     .rr-chip-fixed { cursor:default; background:transparent; }
+    /* [VEC.44] El calendario del periodo vive entre los chips: mismo alto y letra que ellos. */
+    :host ::ng-deep .rr-periodo .p-datepicker-input { width:13.5rem; font-size:var(--fs-sm); padding-block:var(--sp-1); }
     .rr-chip-fixed:hover { color:var(--text-muted); }
     .rr-chip-on { background:var(--action); color:#fff; border-color:transparent; }
     .rr-chip-on:hover { color:#fff; opacity:.9; }
@@ -1536,7 +1450,8 @@ export class ComercialVentasPorRutaComponent {
     if (!d) return null;
     const chofer = this.peekRow()?.driver_name;
     const parts = [chofer ? `Ruta ${d.route_no} · ${chofer}` : `Ruta ${d.route_no}`, String(d.year)];
-    if (this.periodLabel()) parts.push(this.periodLabel());
+    const alcance = this.scopeLabel();
+    if (!alcance.endsWith('completo')) parts.push(alcance);
     if (this.fProduct() || this.fClient()) parts.push('filtrado');
     return parts.join(' · ');
   });
@@ -1891,6 +1806,18 @@ export class ComercialVentasPorRutaComponent {
   tkDir = signal<'asc' | 'desc'>('desc');
   tkOffset = signal(0);
   ticket = signal<SalesByRouteTicketDetail | null>(null);
+  /**
+   * `[VEC.44]` El total al pie del ticket: la suma de sus renglones. El servidor saca el importe y los
+   * renglones de las mismas filas, así que deben ser iguales; si un día no lo son, se DICE la
+   * diferencia (`null` = cuadran, al centavo) en vez de pintar dos cifras distintas sin aviso.
+   * `Number()` porque un `numeric` de Postgres puede llegar como texto.
+   */
+  readonly ticketTotal = computed(() => {
+    const t = this.ticket();
+    const renglones = Math.round((t?.lines_detail ?? []).reduce((a, l) => a + (Number(l.importe) || 0), 0) * 100) / 100;
+    const dif = Math.round(Math.abs(renglones - (Number(t?.revenue) || 0)) * 100) / 100;
+    return { renglones, diferencia: t && dif >= 0.01 ? dif : null };
+  });
 
   /** Unidades para el filtro: las que REALMENTE aparecen en el periodo de esta ruta. */
   readonly tkUnitOpts = computed(() =>
@@ -1906,28 +1833,37 @@ export class ComercialVentasPorRutaComponent {
   dClientName = signal<string | null>(null);
   dUnit = signal<string | null>(null);
   dDay = signal<string | null>(null);
-  /** `[VEC.42]` Lunes de la semana elegida en el «Calendario» (YYYY-MM-DD); null = sin semana. */
-  dWeek = signal<string | null>(null);
-  readonly dWeekLabel = computed(() => {
-    const l = this.dWeek();
-    return l ? etiquetaSemana(l) : null;
-  });
+  /**
+   * `[VEC.44]` El rango elegido en el calendario del desglose (`to` EXCLUSIVO, como los demás límites);
+   * null = el periodo de por omisión. Gana sobre el mes y sobre el año completo.
+   */
+  dRango = signal<{ from: string; to: string } | null>(null);
+  /** El mes con que abrió la ruta: a donde regresa «Limpiar» del calendario. */
+  private dMonthApertura: string | null = null;
+  /** El modelo del calendario. Sigue al periodo vigente; mientras se elige, lleva la selección a medias. */
+  readonly rangoCal = signal<(Date | null)[] | null>(null);
   /** Mes al que está acotado el panel (`MM`); null = todo el periodo visible. */
   dMonth = signal<string | null>(null);
   /** Escape explícito al año completo (el caro: 7.1 s medidos). */
   fullYear = signal(false);
 
   readonly hasDrill = computed(() =>
-    !!this.dSku() || !!this.dClient() || !!this.dUnit() || !!this.dWeek() || !!this.dDay());
+    !!this.dSku() || !!this.dClient() || !!this.dUnit() || !!this.dDay());
 
   readonly scopeLabel = computed(() => {
+    if (this.dRango()) {
+      const v = this.periodoVigente();
+      return v.desde === v.hasta ? fechaCorta(v.desde) : `${fechaCorta(v.desde)} al ${fechaCorta(v.hasta)}`;
+    }
     if (this.dMonth()) return this.mes(this.dMonth() as string);
     if (this.fullYear()) return `${this.year} completo`;
     return this.periodLabel() || `${this.year} completo`;
   });
 
-  /** Un solo lugar decide el alcance temporal del panel: mes > año completo > periodo de la vista. */
+  /** Un solo lugar decide el alcance temporal del panel: rango del calendario > mes > año completo > periodo de la vista. */
   private detailBounds(): { from?: string; to?: string } {
+    const r = this.dRango();
+    if (r) return { from: r.from, to: r.to };
     const y = this.year;
     const m = this.dMonth();
     if (m) {
@@ -1956,29 +1892,85 @@ export class ComercialVentasPorRutaComponent {
   }
 
   /**
-   * `[VEC.42]` La semana acota from/to a sus siete días, RECORTADOS al periodo del panel: con el
-   * panel en noviembre, la S44 (26 oct–1 nov) trae sólo el 1 nov. Sin el recorte, los tickets de
-   * la semana incluirían octubre y no sumarían lo que dice su renglón.
+   * `[VEC.44]` Las fechas que el desglose está mostrando, INCLUSIVAS (las del calendario y las del rótulo).
+   * El tope es hoy: la venta de días que no han pasado no existe, y pintarlos en el rango diría que sí.
    */
-  private weekBounds(): { from?: string; to?: string } | null {
-    const l = this.dWeek();
-    if (!l || !/^\d{4}-\d{2}-\d{2}$/.test(l)) return null;
-    const p = this.detailBounds();
-    const pFrom = p.from ?? `${this.year}-01-01`;
-    const pTo = p.to ?? `${this.year + 1}-01-01`;
-    const next = new Date(new Date(`${l}T00:00:00Z`).getTime() + 7 * 864e5).toISOString().slice(0, 10);
-    return { from: l > pFrom ? l : pFrom, to: next < pTo ? next : pTo };
+  private periodoVigente(): { desde: string; hasta: string } {
+    const b = this.detailBounds();
+    const finAnio = `${this.year}-12-31`;
+    const hoy = isoLocal(new Date());
+    const tope = hoy < finAnio ? hoy : finAnio;
+    const desde = b.from ?? `${this.year}-01-01`;
+    let hasta = b.to ? correrDias(b.to, -1) : tope;
+    if (hasta > tope) hasta = tope;
+    return { desde, hasta: hasta < desde ? desde : hasta };
   }
 
-  toggleFullYear() {
-    if (this.dMonth()) { this.dMonth.set(null); this.fullYear.set(true); }
-    else this.fullYear.update((v) => !v);
+  /** Lo que se puede elegir en el calendario: el año del reporte, hasta hoy. Se guarda por año (un `Date` nuevo en cada ciclo sería un cambio en cada ciclo). */
+  private limites: { year: number; min: Date; max: Date } | null = null;
+  calLimites(): { min: Date; max: Date } {
+    if (this.limites?.year !== this.year) {
+      const hoy = new Date();
+      const fin = new Date(this.year, 11, 31);
+      this.limites = { year: this.year, min: new Date(this.year, 0, 1), max: hoy < fin ? hoy : fin };
+    }
+    return this.limites;
+  }
+
+  /** El calendario vuelve a mostrar el periodo vigente (al abrir, al recargar o si la selección no cambió nada). */
+  private mostrarVigente() {
+    const v = this.periodoVigente();
+    this.rangoCal.set([fechaLocal(v.desde), fechaLocal(v.hasta)]);
+  }
+
+  /** Al cerrar el calendario: con una fecha, ese día; con dos, el rango. Sin fechas, o las mismas de ahora, no pide nada. */
+  aplicarRango() {
+    const [a, b] = this.rangoCal() ?? [];
+    if (!a) { this.mostrarVigente(); return; }
+    const desde = isoLocal(a);
+    const hasta = isoLocal(b ?? a);
+    const v = this.periodoVigente();
+    if (v.desde === desde && v.hasta === hasta) { this.mostrarVigente(); return; }
+    this.dRango.set({ from: desde, to: correrDias(hasta, 1) });
+    this.dMonth.set(null);
+    this.fullYear.set(false);
+    this.cambiarPeriodo();
+  }
+
+  /** «Limpiar»: regresa al periodo con que abrió la ruta. */
+  limpiarRango() {
+    if (!this.dRango() && !this.fullYear()) { this.mostrarVigente(); return; }
+    this.dRango.set(null);
+    this.fullYear.set(false);
+    this.dMonth.set(this.dMonthApertura);
+    this.cambiarPeriodo();
+  }
+
+  /** El año completo sigue a un clic explícito: es el caro (7.1 s medidos contra 1.2 s de un mes). */
+  verAnioCompleto() {
+    this.dRango.set(null);
+    this.dMonth.set(null);
+    this.fullYear.set(true);
+    this.cambiarPeriodo();
+  }
+
+  /**
+   * Otro periodo suelta el día elegido (puede quedar fuera del rango) y tira lo que se pidió con el
+   * anterior: el arqueo y el crédito de la vecinal se piden con el periodo del panel, y dejarlos
+   * pintaría otro rango bajo las fechas nuevas.
+   */
+  private cambiarPeriodo() {
+    this.dDay.set(null);
+    this.tkOffset.set(0);
+    this.arqData.set(null); this.arqError.set(null); this.arqCargando.set(false);
+    this.creditoData.set(null); this.creditoError.set(null);
     this.reloadDetail();
+    if (this.tab() === 'deposito' && this.esRutaVecinal()) this.cargarArqueo();
   }
 
   clearDrill() {
     this.dSku.set(null); this.dClient.set(null); this.dClientName.set(null);
-    this.dUnit.set(null); this.dWeek.set(null); this.dDay.set(null);
+    this.dUnit.set(null); this.dDay.set(null);
     this.reloadDetail();
   }
 
@@ -1994,13 +1986,6 @@ export class ComercialVentasPorRutaComponent {
   drillSku(sku: string) { if (!sku) return; this.dSku.set(sku); this.applyFacet(); }
   drillUnit(unit: string | null) { if (!unit) return; this.dUnit.set(unit); this.applyFacet(); }
   drillDay(date: string) { if (!date) return; this.dDay.set(date); this.applyFacet(); }
-  /** `[VEC.42]` Un día de otra semana contradiría a la semana elegida: elegir semana suelta el día. */
-  drillWeek(lunes: string) {
-    if (!lunes) return;
-    this.dDay.set(null);
-    this.dWeek.set(lunes);
-    this.applyFacet();
-  }
   drillClient(code: string, name?: string) {
     if (!code || code === '—') return;
     this.dClient.set(code); this.dClientName.set(name || null); this.applyFacet();
@@ -2074,7 +2059,10 @@ export class ComercialVentasPorRutaComponent {
      * ruta que la pantalla tiene ABIERTA en ese momento.
      */
     const rutaPedida = this.rutaAbierta();
-    const sigueSiendoMia = () => this.rutaAbierta() === rutaPedida;
+    // `[VEC.44]` Y el periodo: con el calendario, cambiar de rango con el arqueo en vuelo es un clic.
+    const clavePeriodo = () => { const x = this.detailBounds(); return `${x.from ?? ''}|${x.to ?? ''}`; };
+    const periodoPedido = clavePeriodo();
+    const sigueSiendoMia = () => this.rutaAbierta() === rutaPedida && clavePeriodo() === periodoPedido;
     /**
      * `[VEC.21]` La venta a CRÉDITO de la misma ruta y el mismo rango, en paralelo.
      *
@@ -2152,7 +2140,7 @@ export class ComercialVentasPorRutaComponent {
   }
 
   private ticketParams(): SalesByRouteTicketsParams {
-    const b = this.dayBounds() ?? this.weekBounds() ?? this.detailBounds();
+    const b = this.dayBounds() ?? this.detailBounds();
     return {
       route: this.detail()?.route_code || '',
       year: this.year,
@@ -2396,7 +2384,7 @@ export class ComercialVentasPorRutaComponent {
     this.ticket.set(null);
     this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
     this.tkOffset.set(0); this.tkSort.set('date'); this.tkDir.set('desc');
-    this.dUnit.set(null); this.dWeek.set(null); this.dDay.set(null);
+    this.dUnit.set(null); this.dDay.set(null); this.dRango.set(null);
     // Las facetas de producto/cliente se siembran del filtro de página: lo que el
     // usuario ya eligió arriba sigue valiendo adentro, y queda visible como chip.
     this.dSku.set(this.fProduct() || null);
@@ -2404,6 +2392,7 @@ export class ComercialVentasPorRutaComponent {
     this.dClientName.set(null);
     this.fullYear.set(false);
     this.dMonth.set(month ?? (this.fMonthFrom() || this.fMonthTo() ? null : this.lastMonthWithSales(row)));
+    this.dMonthApertura = this.dMonth();
     this.fetchDetail(row.route_code);
   }
 
@@ -2416,13 +2405,8 @@ export class ComercialVentasPorRutaComponent {
   }
 
   private fetchDetail(routeCode: string) {
-    const b = this.dayBounds() ?? this.weekBounds() ?? this.detailBounds();
-    // `[VEC.42]` El periodo que se PIDE viaja con la respuesta: el «Calendario» decide con él qué
-    // semana quedó cortada. Leerlo de los filtros al pintar describiría la petición siguiente.
-    const rango: PeriodoConsultado = {
-      desde: b.from ?? `${this.year}-01-01`,
-      hasta: b.to ?? `${this.year + 1}-01-01`,
-    };
+    const b = this.dayBounds() ?? this.detailBounds();
+    this.mostrarVigente();
     this.detailLoading.set(true);
     const turno = ++this.turnoDetalle;
     this.svc.salesByRouteDetail(routeCode, this.year, {
@@ -2436,7 +2420,6 @@ export class ComercialVentasPorRutaComponent {
         next: (d) => {
           if (turno !== this.turnoDetalle) return;
           this.dailyMax = Math.max(1, ...d.daily.map((x) => x.revenue));
-          this.detailRango.set(rango);
           this.detail.set(d);
           this.detailLoading.set(false);
         },
@@ -2450,19 +2433,6 @@ export class ComercialVentasPorRutaComponent {
   }
 
   barPct(v: number): number { return this.dailyMax > 0 ? Math.round((v / this.dailyMax) * 100) : 0; }
-
-  // ── `[VEC.42]` «Calendario»: la venta diaria en semanas de lunes a domingo ──────────────────
-  /** El periodo con que se pidió el desglose que está en pantalla (ver `fetchDetail`). */
-  readonly detailRango = signal<PeriodoConsultado | null>(null);
-
-  readonly porSemana = computed<VentaPorSemana>(() => {
-    const d = this.detail();
-    const r = this.detailRango();
-    if (!d || !r) return { semanas: [], mejorDia: null, sinFecha: 0 };
-    // Hoy en México: la misma cuenta que usa el resto del archivo (UTC−6).
-    const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
-    return agruparPorSemana(d.daily ?? [], r, hoy);
-  });
 
   mes(m: string): string { return MES[m] ?? m; }
   cell(row: SalesByRouteRow, m: string) { return row.monthly[m]; }
