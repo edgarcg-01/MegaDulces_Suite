@@ -268,7 +268,7 @@ export class FinanzasAnticiposSolicitadosComponent implements OnInit {
   /** Por qué puerta se entró: Compras ve las pestañas de Pago a proveedor; Finanzas, las de Pagos. */
   readonly deCompras = this.route.snapshot.data?.['puerta'] === 'compras';
   readonly tabsCompras = PAGO_PROVEEDOR_TABS;
-  /** Pide (y cancela lo pedido) Compras o quien programa pagos (D14): la MISMA lista que el servidor. */
+  /** Pide (y cancela lo pedido) Compras o Dirección (ADR-120): la MISMA lista que el servidor. Finanzas ve el embudo. */
   readonly puedePedir = computed(() => this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO));
 
   readonly loading = signal(true);

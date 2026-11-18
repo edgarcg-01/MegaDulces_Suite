@@ -1813,7 +1813,7 @@ O sea: un botón en el Calendario con el permiso de antes lo habrían visto sól
 
 | # | Decisión | Por qué |
 |---|---|---|
-| D14 ✅ (Francisco, «Finanzas y Compras») | **El botón «Pedir anticipo» va en el Calendario** y lo usa Compras o quien programa pagos (`PERMISOS_PEDIR_ANTICIPO` = `COMPRAS_OBLIGACIONES_GESTIONAR` ∨ `FINANCE_PAYMENTS_GESTIONAR`). Compras conserva su puerta en *Compras › Anticipos* para los 8 que no entran al Calendario. Es **el mismo formulario** en las dos puertas | Ninguna repartición de permisos en prod; los 8 de Compras no pasan a ver todos los pagos de la empresa. Rechazadas: dar el Calendario a Compras (verían todos los pagos; decisión de Edgar) y quitarle a Compras su puerta |
+| D14 ~~✅~~ **sustituida el 2026-11-18 por el ADR-120** (ver «Fusión con [PGP.138]»: piden Compras y Dirección, Finanzas no) — (Francisco, «Finanzas y Compras») | **El botón «Pedir anticipo» va en el Calendario** y lo usa Compras o quien programa pagos (`PERMISOS_PEDIR_ANTICIPO` = `COMPRAS_OBLIGACIONES_GESTIONAR` ∨ `FINANCE_PAYMENTS_GESTIONAR`). Compras conserva su puerta en *Compras › Anticipos* para los 8 que no entran al Calendario. Es **el mismo formulario** en las dos puertas | Ninguna repartición de permisos en prod; los 8 de Compras no pasan a ver todos los pagos de la empresa. Rechazadas: dar el Calendario a Compras (verían todos los pagos; decisión de Edgar) y quitarle a Compras su puerta |
 
 **Item:**
 - `[PGP.142]` 🧪 C2–C3 — (1) el formulario sale de la pantalla de Anticipos a un componente compartido,
@@ -2017,7 +2017,7 @@ factura que termina en la sucursal no se recorta, ni un anticipo de otra sucursa
 agregarla toca la consulta de cuatro patas que alimenta todo el Calendario. Va como item propio, no de paso.
 **→ Arreglado en la revisión del PR** (ver «Fusión con [PGP.138]», #1): la propuesta ya no ofrece los anticipos pedidos.
 
-#### Fusión con `[PGP.138]` de Edgar (2026-11-17) — ⚠️ D14 contra ADR-120, lo decide Edgar
+#### Fusión con `[PGP.138]` de Edgar (2026-11-17) — D14 sustituida por el ADR-120 (Francisco, 2026-11-18)
 
 Estos items se escribieron el 17-nov como `[PGP.130]`–`[PGP.133]`. Al traer `origin/main` antes del PR (104
 commits nuevos) resultó que Edgar, ese mismo día, había usado `[PGP.130]`–`[PGP.141]` y subido su propio botón de
@@ -2026,8 +2026,8 @@ anticipos en el Calendario (`[PGP.138]`, ADR-120), con un diálogo del mismo nom
 
 | Pieza | Cómo quedó | Por qué |
 |---|---|---|
-| **Quién pide** | `PERMISOS_PEDIR_ANTICIPO` = Compras + **Dirección** (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`, ADR-120) + **quien programa pagos** (`FINANCE_PAYMENTS_GESTIONAR`, D14) | ⚠️ El ADR-120 rechaza por escrito a Tesorería, Finanzas y Contabilidad; D14 los incluye. **Francisco decidió mantener D14 y que Edgar decida en el PR.** Si se queda el ADR-120: se quita esa llave de la lista (servidor y botones la leen) y se invierte una prueba |
-| **El Calendario** | Dirección ve SÓLO «Programar un anticipo en este día» (`[PGP.138]`, dentro de «Agregar facturas»); Compras y quien programa pagos ven SÓLO «Pedir anticipo» en la barra (`[PGP.142]`) | Cada quien una entrada, no dos. Son actos distintos: *programar* lo pone ya en el día como pago propio; *pedir* lo deja en la franja de su día para que Finanzas lo agregue |
+| **Quién pide** | `PERMISOS_PEDIR_ANTICIPO` = **Compras** (`COMPRAS_OBLIGACIONES_GESTIONAR`) + **Dirección** (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`). Tesorería, Finanzas y Contabilidad (`FINANCE_PAYMENTS_GESTIONAR`) **no**: ven el embudo y agregan al día lo que Compras pidió, pero no registran deuda | El ADR-120 rechaza por escrito a Tesorería/Finanzas/Contabilidad («Tesorería paga, Compras registra la deuda», `[TP.13]`). El #553 se fusionó con D14; **el 2026-11-18 Francisco se alineó al ADR-120** y D14 quedó sustituida (PR de seguimiento). Pruebas: las negativas de Finanzas en servidor, Calendario, Anticipos y el embudo |
+| **El Calendario** | Dirección ve SÓLO «Programar un anticipo en este día» (`[PGP.138]`, dentro de «Agregar facturas»); Compras (el gerente que entra al Calendario) ve SÓLO «Pedir anticipo» en la barra (`[PGP.142]`); Finanzas, ninguno | Cada quien una entrada, no dos. Son actos distintos: *programar* lo pone ya en el día como pago propio; *pedir* lo deja en la franja de su día para que Finanzas lo agregue |
 | **El diálogo** | UNO (`app-pedir-anticipo-dialog`): los papeles de `[PGP.127]` (OC de Kepler, cotización, cuenta) + lo de la auditoría de Edgar: modo `programar` con `[(visible)]`/`fechaInicial`; la búsqueda distingue buscando, sin coincidencias y falló (con Reintentar); un error de OC no deja pedir y no se lee como «sin OC»; cerrar con algo capturado pregunta; sin `listbox` falso; lo que falta se lee al enfocar el botón; el error del servidor se dice DENTRO del diálogo | El servidor que queda es el de `[PGP.127]` (OC de Kepler obligatoria, D11): la OC de la Suite que elegía el diálogo de `[PGP.138]` ya no existe (la Suite dejó de hacer OC el 26-oct). `abrir()`/`abrirParaOc()` conviven con `[(visible)]`: abrirlo con contexto no se borra al mostrarse |
 | **Avisos** | En `pedir`, el diálogo avisa «Anticipo pedido»; en `programar`, sólo si la CLABE quedó pedida de alta (la pantalla de Edgar ya dice dónde quedó) | Un aviso por hecho, no dos |
 
@@ -2050,6 +2050,8 @@ medio, 7 menores y 2 pruebas débiles. **Todos corregidos, cada uno con su prueb
 | 7 | El aviso «Sobre la orden de compra X» seguía después de «Cambiar» de proveedor | «Cambiar» lo quita |
 | 8 | «En Kepler sin solicitud» pareaba por sucursal + folio, sin el acreedor: el pareado de un proveedor escondía el `X-D-60` de otro con el mismo folio | La llave lleva al acreedor (prueba con base real) |
 | — | Dos pruebas que pasarían con la función rota: la de *Anticipos* llamaba a `cargarSolicitados()` directo; la de Dirección usaba «admin» | Ahora van por el evento `(pedido)` y por la llave real `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` |
+
+**El build del #553:** la primera corrida del CI dio rojo en `Build & typecheck` (los estilos del Calendario pasaban el tope de 34 kB por 776 bytes, lo que agregó la franja) y en `Lint & test` (un NBSP literal en una prueba). Edgar lo arregló en la rama antes de fusionar (`55eefb042`): podó 43 reglas `pg-*` muertas del Calendario (4,575 bytes, muertas también en `main`) y escapó el NBSP. Medido con esbuild después (da exacto lo del CI): el Calendario con la franja queda holgado bajo el tope.
 
 Pruebas después de la revisión: diálogo 18 ✓ · Calendario 11 ✓ · obligaciones con Postgres real 39 ✓ · vista
 finanzas+compras+ayuda+layout 2,719 ✓ · contrato 670 ✓ · `ngc` 0 · compuertas del push: 0 rojas en archivos de este trabajo.

@@ -226,11 +226,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <div class="pg-modo">
         <app-segmented [options]="MODOS" [value]="modo()" (valueChange)="cambiarModo($event)" ariaLabel="Ver los pagos por etapa o por día" />
         @if (modo() === 'etapa') { <app-context-help topic="calendario-de-pagos" /> }
-        <!-- [PGP.142] D14 (Francisco, 2026-11-17): el anticipo VIVE en el Calendario. Se pide aquí con sus papeles
-             (OC de Kepler, cotización, cuenta) para el día que se está viendo, y aparece en la franja de ese día.
-             Lo ven Compras y quien programa pagos: la misma lista de permisos que exige el servidor.
-             [PGP.142] Quien autoriza (Dirección) no lo ve aquí: tiene «Programar un anticipo en este día» de
-             [PGP.138] (ADR-120). Cada quien, UNA entrada al anticipo en el Calendario, no dos. -->
+        <!-- [PGP.142] El anticipo vive en el Calendario: Compras lo pide aquí con sus papeles (OC de Kepler, cotización,
+             cuenta) para el día que se está viendo, y aparece en la franja de ese día. Quién pide es la lista del
+             servidor (ADR-120: Compras y Dirección; Tesorería y Finanzas no registran deuda). Dirección no lo ve aquí:
+             tiene «Programar un anticipo en este día» de [PGP.138]. Cada quien, UNA entrada, no dos. -->
         @if (puedePedirAnticipo() && !puedeProgramarAnticipo()) {
           <button pButton type="button" class="pg-pedir-ant p-button-sm p-button-outlined p-button-secondary" (click)="pedirAnt.abrir(diaParaAnticipo())">
             <span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Pedir anticipo
@@ -4283,7 +4282,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       error: () => { if (seq !== this.anticiposSeq) return; this.anticiposPedidos.set([]); this.anticiposPedidosError.set(true); },
     });
   }
-  /** `[PGP.142]` D14 — pide Compras o quien programa pagos: la MISMA lista que el servidor (no se ofrece un botón que rechace). */
+  /** `[PGP.142]` Pide Compras o Dirección (ADR-120): la MISMA lista que el servidor (no se ofrece un botón que rechace). */
   readonly puedePedirAnticipo = computed(() => this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO));
   /** El día que se está viendo en «Por día» (si no pasó); en «Por etapa», hoy. */
   diaParaAnticipo(): string { return diaInicialDelAnticipo(this.modo() === 'dia' ? this.selectedDate() : null, this.todayIso); }

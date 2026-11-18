@@ -92,11 +92,11 @@ export class SupplierPaymentObligationsController {
 
   /**
    * `[PGP.119]` Proveedores que pueden recibir anticipo: de mercancía (código C…) y activos.
-   * `[PGP.142]` D14: pedir —y lo que el formulario lee para pedir— lo puede Compras o quien programa pagos.
+   * `[PGP.142]` Pedir —y lo que el formulario lee para pedir— lo pueden Compras o Dirección (ADR-120).
    */
   @Get('anticipo/proveedores')
-  // `[PGP.138]`/`[PGP.142]` Pide Compras, Dirección (ADR-120, Edgar) y quien programa pagos (D14, Francisco — contradice
-  // el ADR-120; lo decide Edgar en el PR). UNA lista en el contrato, la misma que los botones.
+  // `[PGP.138]`/`[PGP.142]` Pide Compras o Dirección (ADR-120); Tesorería y Finanzas no registran deuda (`[TP.13]`).
+  // UNA lista en el contrato, la misma que los botones.
   @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
   @ApiOperation({ summary: 'PGP.119 — proveedores de mercancía activos para pedirles anticipo; busca por nombre o código.' })
   anticipoProveedores(@Query('search') search?: string): Promise<AnticipoProveedorRow[]> {

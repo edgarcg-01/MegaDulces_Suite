@@ -174,7 +174,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
     </div>
 
     <!-- [PGP.119]/[PGP.127] Pedir un anticipo con sus papeles. [PGP.142] Es el MISMO formulario que abre el Calendario
-         de pagos (D14: ahí vive el anticipo); aquí queda para Compras, que no entra al Calendario. -->
+         de pagos; aquí queda para Compras, que no entra al Calendario. -->
     <app-pedir-anticipo-dialog #pedir (pedido)="cargarSolicitados()" />
   `,
   styles: [`
@@ -230,7 +230,7 @@ export class FinanzasAnticiposComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly obligaciones = `${environment.apiUrl}/commercial/supplier-obligations`;
   /**
-   * Pide (y cancela lo pedido) Compras o quien programa pagos (`[PGP.142]` D14): la MISMA lista que el servidor.
+   * Pide (y cancela lo pedido) Compras o Dirección (ADR-120, `[PGP.142]`): la MISMA lista que el servidor.
    * El formulario es `app-pedir-anticipo-dialog`, compartido con el Calendario de pagos (`[PGP.138]`).
    */
   readonly puedePedir = computed(() => this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO));

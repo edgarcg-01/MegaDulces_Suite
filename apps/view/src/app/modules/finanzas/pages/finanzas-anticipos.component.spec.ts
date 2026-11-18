@@ -225,7 +225,7 @@ describe('[PGP.123] la puerta de Compras (/compras/anticipos)', () => {
 });
 
 // `[PGP.144]` «Cancelar» se mudó con la lista al embudo (D17): aquí queda «Pedir anticipo».
-describe('[PGP.142] D14 — quién ve «Pedir anticipo» en esta pantalla', () => {
+describe('[PGP.142] ADR-120 — quién ve «Pedir anticipo» en esta pantalla', () => {
   const montar = (llaves: string[]) => {
     TestBed.configureTestingModule({
       imports: [FinanzasAnticiposComponent],
@@ -244,10 +244,12 @@ describe('[PGP.142] D14 — quién ve «Pedir anticipo» en esta pantalla', () =
     return botones;
   };
 
-  it('quien programa pagos (Finanzas) pide aquí también; cancelar ya no vive aquí (embudo)', () => {
-    const b = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
-    expect(b).toContain('Pedir anticipo');
-    expect(b).not.toContain('Cancelar');
+  it('⛔ NEGATIVA [ADR-120] — quien sólo programa pagos (Finanzas) no pide aquí; Dirección sí; cancelar ya no vive aquí (embudo)', () => {
+    const fin = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
+    expect(fin).not.toContain('Pedir anticipo');
+    expect(fin).not.toContain('Cancelar');
+    TestBed.resetTestingModule();
+    expect(montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR])).toContain('Pedir anticipo');
   });
 
   it('Compras, igual que antes', () => {

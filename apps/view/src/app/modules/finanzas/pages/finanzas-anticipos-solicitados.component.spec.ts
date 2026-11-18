@@ -157,6 +157,13 @@ describe('[PGP.144] Anticipos solicitados — el embudo', () => {
     expect(c.cancelando()).toBeNull();
   });
 
+  it('⛔ NEGATIVA [ADR-120] — quien sólo programa pagos (Finanzas) ve el embudo pero no recibe «Pedir anticipo» ni «Cancelar»', () => {
+    const { el } = montar(FINANZAS);
+    const botones = [...el.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim());
+    expect(botones).not.toContain('Pedir anticipo');
+    expect(botones).not.toContain('Cancelar');
+  });
+
   it('⛔ NEGATIVA — quien sólo VE no recibe «Pedir anticipo» ni «Cancelar»', () => {
     const { el } = montar([Permission.FINANCE_PAYMENTS_VER]);
     const botones = [...el.querySelectorAll('button')].map((b) => (b.textContent ?? '').trim());

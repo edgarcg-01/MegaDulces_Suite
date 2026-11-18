@@ -938,7 +938,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
   private readonly http = inject(HttpClient);
   /** Lo leen Compras y Finanzas (medido 2026-11-17: todos los roles que entran aquí tienen una de las dos). */
   readonly puedeVerAnticipos = this.perms.hasAny(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER);
-  /** Pide quien puede pedir en el Calendario (D14): la MISMA lista que el servidor. */
+  /** Pide Compras o Dirección (ADR-120): la MISMA lista que el servidor. */
   readonly puedePedirAnticipo = this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO);
   readonly anticipos = signal<AnticipoSolicitadoRow[]>([]);
   readonly anticiposListos = signal(false);

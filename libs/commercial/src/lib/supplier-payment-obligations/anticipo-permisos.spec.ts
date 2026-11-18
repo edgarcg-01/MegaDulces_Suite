@@ -8,9 +8,8 @@ import { SupplierPaymentObligationsController } from './supplier-payment-obligat
  * abre UNA lista, `PERMISOS_PEDIR_ANTICIPO`, la misma que los botones:
  *  - Compras (`COMPRAS_OBLIGACIONES_GESTIONAR`), como desde `[PGP.119]`;
  *  - Dirección (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`) — ADR-120, Edgar, 2026-11-17;
- *  - quien programa pagos (`FINANCE_PAYMENTS_GESTIONAR`) — D14, Francisco, 2026-11-17. ⚠️ **Contradice el
- *    ADR-120** («Tesorería, Finanzas y Contabilidad no»): queda para que Edgar decida en el PR. Si se queda el
- *    ADR-120, se quita esa llave de la lista y la prueba «quien programa pagos pide» se invierte.
+ *  - ⛔ quien sólo programa pagos (`FINANCE_PAYMENTS_GESTIONAR`: Tesorería, Finanzas, Contabilidad) NO — ADR-120;
+ *    Francisco se alineó el 2026-11-18 (D14, que los incluía, quedó sustituida).
  * Lo demás de obligaciones sigue siendo de Compras: abrir el anticipo NO abre capturar ni cancelar cualquier
  * obligación.
  *
@@ -61,9 +60,10 @@ describe('[PGP.138][PGP.142] obligaciones a proveedor: cada ruta pide su llave',
     for (const m of PEDIR) expect(direccion, m).toContain(m);
   });
 
-  it('[D14 — contra el ADR-120, lo decide Edgar] quien programa pagos pide, ve el seguimiento y la cotización, y cancela SÓLO anticipos', () => {
+  it('⛔ NEGATIVA [ADR-120] — quien sólo programa pagos (Tesorería, Finanzas, Contabilidad) NO pide ni cancela anticipos; sí ve el seguimiento y la cotización', () => {
     const finanzas = alcanza([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
-    for (const m of [...PEDIR, 'listAnticipos', 'cotizacion']) expect(finanzas, m).toContain(m);
+    for (const m of PEDIR) expect(finanzas, m).not.toContain(m);
+    for (const m of ['listAnticipos', 'cotizacion']) expect(finanzas, m).toContain(m);
   });
 
   it('⛔ NEGATIVA — quien programa pagos o autoriza NO captura ni cancela obligaciones de Compras por la puerta genérica', () => {

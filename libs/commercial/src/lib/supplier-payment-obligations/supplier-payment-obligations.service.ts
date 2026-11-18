@@ -514,7 +514,7 @@ export class SupplierPaymentObligationsService {
   }
 
   /**
-   * `[PGP.142]` La cancelación que pueden usar Finanzas y Compras (D14): la MISMA de abajo, pero sólo acepta
+   * `[PGP.142]` La cancelación de quien pide anticipos (Compras o Dirección, ADR-120): la MISMA de abajo, pero sólo acepta
    * anticipos. Con un id de otra obligación responde «no encontrado», como si no existiera: esa puerta no
    * cancela facturas ni obligaciones de Compras.
    */

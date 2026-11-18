@@ -21,22 +21,17 @@ import { clabeValida } from './clabe.contract';
 import { Permission } from '../authz/permissions';
 
 /**
- * `[PGP.142]` D14 (Francisco, 2026-11-17) — **quién pide un anticipo**: Compras, que lo negocia con el proveedor
- * (`COMPRAS_OBLIGACIONES_GESTIONAR`), y quien programa pagos en el Calendario, donde vive el anticipo
- * (`FINANCE_PAYMENTS_GESTIONAR`: Finanzas, Tesorería, Contabilidad). Basta UNA. La MISMA lista para el
- * servidor (`@RequireAnyPermission` de pedir, sus lecturas y su cancelación) y para la pantalla (el botón):
- * así ninguna de las dos puertas ofrece un botón que el servidor rechaza.
+ * `[PGP.138]` ADR-120 + `[PGP.142]` — **quién pide un anticipo**: Compras, que lo negocia con el proveedor
+ * (`COMPRAS_OBLIGACIONES_GESTIONAR`), y Dirección, que autoriza el Calendario (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`).
+ * Basta UNA. **Tesorería, Finanzas y Contabilidad (`FINANCE_PAYMENTS_GESTIONAR`) no**: «Tesorería paga, Compras
+ * registra la deuda» (`[TP.13]`, ADR-064). La MISMA lista para el servidor (`@RequireAnyPermission` de pedir, sus
+ * lecturas y su cancelación) y para las pantallas (los botones): ninguna puerta ofrece un botón que el servidor rechaza.
  *
- * Medido en prod ese día: pedían 10 personas (Compras) y sólo los 2 gerentes de compras entraban también al
- * Calendario; los 16 que programan pagos no podían pedir.
- *
- * `[PGP.138]` ADR-120 (Edgar, el mismo día): **Dirección** (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`) programa
- * anticipos desde el Calendario — está en la lista. ⚠️ El ADR-120 rechaza a «Tesorería, Finanzas y
- * Contabilidad», o sea `FINANCE_PAYMENTS_GESTIONAR`: D14 lo contradice y **lo decide Edgar en el PR**
- * (`[PGP.142]`). Si se queda el ADR-120, se quita esa llave de aquí y nada más: servidor y botones leen esta lista.
+ * Historia: el 2026-11-17 Francisco había decidido D14 («Finanzas y Compras»: también quien programa pagos) y Edgar,
+ * el mismo día, el ADR-120 («sólo Dirección»). El 2026-11-18 Francisco se alineó al ADR-120: D14 queda sustituida.
  */
 export const PERMISOS_PEDIR_ANTICIPO = [
-  Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR, Permission.FINANCE_PAYMENTS_GESTIONAR,
+  Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR,
 ] as const;
 
 /**

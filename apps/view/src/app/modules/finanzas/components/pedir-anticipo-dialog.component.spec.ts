@@ -60,9 +60,9 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
     c.clabe.set(CLABE); c.banco.set('BBVA');
   };
 
-  it('quién lo pide: Compras, quien programa pagos (D14, Francisco) o Dirección (ADR-120, Edgar) — la lista que comparten pantalla y servidor', () => {
+  it('quién lo pide: Compras o Dirección (ADR-120; Francisco se alineó el 2026-11-18) — la lista que comparten pantalla y servidor', () => {
     expect([...PERMISOS_PEDIR_ANTICIPO].sort()).toEqual([
-      Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR,
+      Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR,
     ].sort());
   });
 
@@ -273,8 +273,10 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
   it('⛔ NEGATIVA (revisión) — la cotización que subía cuando se descartó el pedido no aparece en el siguiente', async () => {
     c.abrir();
     c.elegirCotizacion({ target: { files: [new File(['%PDF-1.4'], 'vieja.pdf', { type: 'application/pdf' })], value: '' } } as unknown as Event);
-    await new Promise((r) => setTimeout(r, 20));               // el FileReader termina y sale el POST
-    const subida = http.expectOne((r) => r.url.endsWith('/anticipo/cotizacion'));
+    // El FileReader termina cuando termina (bajo carga, más de 20 ms): se espera a que salga la subida.
+    let subida: ReturnType<HttpTestingController['expectOne']> | undefined;
+    for (let i = 0; i < 100 && !subida; i++) { await new Promise((r) => setTimeout(r, 20)); subida = http.match((r) => r.url.endsWith('/anticipo/cotizacion'))[0]; }
+    if (!subida) throw new Error('la cotización no salió');
     c.cerrar();
     c.abrir();
     subida.flush({ key: 'commercial/t/anticipos/vieja.pdf', kind: 'pdf' });

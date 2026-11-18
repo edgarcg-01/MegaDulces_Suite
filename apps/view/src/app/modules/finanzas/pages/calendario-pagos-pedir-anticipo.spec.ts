@@ -9,7 +9,7 @@ import { FinanzasCalendarioPagosComponent } from './finanzas-calendario-pagos.co
 import { PedirAnticipoDialogComponent } from '../components/pedir-anticipo-dialog.component';
 
 /**
- * `[PGP.142]` D14 (Francisco, 2026-11-17): **el anticipo vive en el Calendario de pagos.** Monta la pantalla
+ * `[PGP.142]` **El anticipo vive en el Calendario de pagos** (pide Compras; Dirección programa, ADR-120). Monta la pantalla
  * entera (compila su plantilla) y cuida tres cosas: que el botón lo vea quien puede pedir —y sólo él—, que el
  * diálogo abra en el día que se está viendo, y que al pedir lleve a SU día, donde aparece en la franja.
  *
@@ -37,16 +37,16 @@ const botonPedir = (el: HTMLElement) => [...el.querySelectorAll('.pg-modo button
 const ymdLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 describe('[PGP.142] el Calendario de pagos pide anticipos', () => {
-  it('quien programa pagos ve «Pedir anticipo» junto a la vista; el formulario compartido está en la pantalla', () => {
+  it('⛔ NEGATIVA [ADR-120] — quien sólo programa pagos (Tesorería, Finanzas) NO ve «Pedir anticipo»: no registra deuda', () => {
     const { fixture } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
+    expect(botonPedir(fixture.nativeElement as HTMLElement)).toBeUndefined();
+  });
+
+  it('Compras que entra al Calendario (gerente de compras) ve «Pedir anticipo» junto a la vista; el formulario compartido está en la pantalla', () => {
+    const { fixture } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_GESTIONAR]);
     const el = fixture.nativeElement as HTMLElement;
     expect(botonPedir(el)).toBeDefined();
     expect(el.querySelector('app-pedir-anticipo-dialog')).not.toBeNull();
-  });
-
-  it('Compras que entra al Calendario (gerente de compras) también lo ve', () => {
-    const { fixture } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_GESTIONAR]);
-    expect(botonPedir(fixture.nativeElement as HTMLElement)).toBeDefined();
   });
 
   it('⛔ NEGATIVA [PGP.142] — quien autoriza (Dirección) no ve «Pedir anticipo»: tiene «Programar un anticipo en este día» de [PGP.138], una sola entrada', () => {
@@ -62,7 +62,7 @@ describe('[PGP.142] el Calendario de pagos pide anticipos', () => {
   });
 
   it('el diálogo abre en el día que se ve en «Por día»; en «Por etapa» o en un día pasado, en hoy', () => {
-    const { fixture, c } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
+    const { fixture, c } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_GESTIONAR]);
     const hoy = c.todayIso;
     const futuro = ymdLocal(new Date(Date.now() + 3 * 86_400_000));
     expect(c.modo()).toBe('etapa');
