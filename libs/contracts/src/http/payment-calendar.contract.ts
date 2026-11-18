@@ -77,6 +77,19 @@ export interface PaymentCalendarItemDiscountResult {
   amount_assigned: number;
 }
 
+/**
+ * `[PGP.148]` `POST allocations/:id/ajustar-al-saldo` — baja cada factura del pago a lo que debe HOY en Kepler (nunca
+ * sube). Sólo en un pago pendiente, sin autorizar, que no haya salido del banco. Lo que no se ajusta dice por qué.
+ */
+export interface PaymentCalendarAjusteAlSaldo {
+  allocation_id: string;
+  /** El total del pago antes y después. */
+  antes: number;
+  amount_assigned: number;
+  ajustadas: { item_id: string; factura: string; antes: number; despues: number }[];
+  omitidas: { item_id: string; factura: string; motivo: string }[];
+}
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */

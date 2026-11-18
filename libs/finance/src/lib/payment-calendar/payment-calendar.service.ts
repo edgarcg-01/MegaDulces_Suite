@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
@@ -46,7 +46,8 @@ import {
   SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO,
 } from './pago-por-el-banco.sql';
 import {
-  SQL_ABONOS_DE_LAS_FACTURAS, cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos,
+  AUTOR_AJUSTE_AL_SALDO, EVENTO_AJUSTADO_AL_SALDO, SQL_ABONOS_DE_LAS_FACTURAS, SQL_CANDIDATOS_AJUSTE, SQL_YA_SALIO_DEL_BANCO,
+  cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo,
   type CargoKepler, type FacturaParaDebeMenos,
 } from './debe-menos';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
@@ -2014,6 +2015,120 @@ export class PaymentCalendarService {
       ids.push(f.id);
     }
     return { ids, reprogramados };
+  }
+
+  /**
+   * `[PGP.148]` **Ajustar el pago al saldo de Kepler** (un clic): cada factura de Kepler que hoy debe menos de lo que
+   * el pago le lleva baja a lo que debe. Caso Mondelez: una nota de crédito de $120,000 aplicada el 12-nov y el pago
+   * del 13 salió completo. Sólo en un pago pendiente, sin autorizar (D19 b) y que no haya salido ya del banco.
+   */
+  async ajustarAlSaldo(allocationId: string, username: string, hoy: string = todayMx()): Promise<PaymentCalendarAjusteAlSaldo> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => this.ajustarAlSaldoEn(trx, tenantId, allocationId, username, 'manual', hoy));
+  }
+
+  /**
+   * `[PGP.148]` D19 (b): **el pago sin autorizar se ajusta solo** cuando Kepler baja el saldo de su factura. Lo llama el
+   * worker con cada aviso de Kepler (`PagosVencidosService`, sin reloj). Sólo días POR VENIR (el de hoy o uno pasado
+   * pudo ya salir del banco) y sólo si lo que bajó el saldo no es dinero (`seAjustaSolo`). Cada pago en su propio
+   * punto de guardado: uno que falla no detiene a los demás. Escribe la bitácora de cada ajuste.
+   */
+  async ajustarLosQueDebenMenos(hoy: string = todayMx(), autor = AUTOR_AJUSTE_AL_SALDO): Promise<{ revisados: number; ajustados: string[]; monto: number; omitidas: number; fallidos: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const filas = (await trx.raw(SQL_CANDIDATOS_AJUSTE, [tenantId, hoy])).rows as
+        { id: string; dia: string; monto: number; item_id: string; obligation_id: string; applied_amount: number; discount_amount: number }[];
+      const out = { revisados: new Set(filas.map((f) => f.id)).size, ajustados: [] as string[], monto: 0, omitidas: 0, fallidos: 0 };
+      if (!filas.length) return out;
+      const saldos = await this.saldosDeKepler(trx, filas.map((f) => f.obligation_id));
+      const conDeMas = new Set(filas.filter((f) => {
+        const s = saldos.get(f.obligation_id);
+        return f.discount_amount <= 0 && !!s && facturasQueDebenMenos([{ id: f.item_id, applied_amount: f.applied_amount, kepler_debe: s.debe, kepler_saldada: false, entity_ref: null, payee_code: null }]).length > 0;
+      }).map((f) => f.id));
+      for (const id of conDeMas) {
+        try {
+          const r = await trx.transaction((sp) => this.ajustarAlSaldoEn(sp, tenantId, id, autor, 'automatico', hoy));
+          out.omitidas += r.omitidas.length;
+          if (r.ajustadas.length) { out.ajustados.push(id); out.monto = round2(out.monto + r.antes - r.amount_assigned); }
+        } catch (e: unknown) {
+          out.fallidos++;
+          this.logger.warn(`[PGP.148] no se ajustó el pago ${id}: ${(e as Error)?.message}`);
+        }
+      }
+      return out;
+    });
+  }
+
+  /** `[PGP.148]` El saldo de HOY de facturas de Kepler, por su llave de obligación (la misma consulta que la etiqueta). */
+  private async saldosDeKepler(trx: Knex.Transaction, obligationIds: string[]): Promise<Map<string, { debe: number; entity_ref: string; payee_code: string | null }>> {
+    const ids = [...new Set(obligationIds)];
+    if (!ids.length) return new Map();
+    const rows = (await trx('analytics.v_supplier_payables as v')
+      .whereRaw(`${KEPLER_PAYABLE_ID} = ANY(?::uuid[])`, [ids])
+      .select(
+        trx.raw(`(${KEPLER_PAYABLE_ID})::text AS id`), trx.raw('v.pendiente::float8 AS debe'),
+        trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) AS entity_ref`),
+        trx.raw('btrim(v.proveedor) AS payee_code'),
+      )) as { id: string; debe: number | string; entity_ref: string; payee_code: string | null }[];
+    return new Map(rows.map((r) => [String(r.id), { debe: Number(r.debe), entity_ref: r.entity_ref, payee_code: r.payee_code }]));
+  }
+
+  /** `[PGP.148]` El ajuste, dentro de una transacción. `automatico` = el worker (sólo lo que `seAjustaSolo` permite). */
+  private async ajustarAlSaldoEn(
+    trx: Knex.Transaction, tenantId: string, allocationId: string, username: string, modo: 'manual' | 'automatico', hoy: string,
+  ): Promise<PaymentCalendarAjusteAlSaldo> {
+    const a = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
+    if (!a) throw new NotFoundException('Pago no encontrado');
+    if (a.status !== 'pending') throw new BadRequestException('Sólo se ajusta un pago pendiente.');
+    assertSinAutorizar(a);
+    // El día como texto: un `date` leído como Date puede correrse un día por la zona del proceso.
+    const lot = await trx('finance.payment_calendar_lots').where({ id: a.lot_id }).first('status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { status: string; dia: string } | undefined;
+    if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le puede cambiar el importe a sus pagos.');
+    const dia = lot?.dia ?? hoy;
+    // ⛔ Lo que ya salió del banco por su importe no se ajusta: la salida se quedaría sin pago que la reclame.
+    const [{ salio }] = (await trx.raw(SQL_YA_SALIO_DEL_BANCO, [tenantId, Number(a.amount_assigned), dia, hoy, tenantId, Number(a.amount_assigned), dia, hoy])).rows as { salio: boolean }[];
+    if (salio) {
+      throw new BadRequestException('Este pago ya salió del banco por su importe: no se ajusta (lo pagado de más se recupera con el proveedor o se aplica a su siguiente factura en Kepler).');
+    }
+    const items = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocationId }).forUpdate()
+      .select('id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount');
+    const kp = items.filter((i) => i.obligation_source === 'kepler_payable');
+    const saldos = await this.saldosDeKepler(trx, kp.map((i) => String(i.obligation_id)));
+    const facturas: FacturaParaDebeMenos[] = kp.map((i) => {
+      const s = saldos.get(String(i.obligation_id));
+      return { id: String(i.id), applied_amount: Number(i.applied_amount), kepler_debe: s ? s.debe : null, kepler_saldada: !s, entity_ref: s?.entity_ref ?? null, payee_code: s?.payee_code ?? null };
+    });
+    const malas = facturasQueDebenMenos(facturas);
+    const abonos = malas.length ? await this.abonosDeLasFacturas(trx, malas) : new Map<string, AbonoQueBajoElSaldo[]>();
+    const armadoEl = toMxDateKey(a.created_at);
+    const ajustadas: (PaymentCalendarAjusteAlSaldo['ajustadas'][number] & { abonos: AbonoQueBajoElSaldo[] })[] = [];
+    const omitidas: PaymentCalendarAjusteAlSaldo['omitidas'] = [];
+    for (const f of malas) {
+      const it = kp.find((i) => String(i.id) === f.id)!;
+      const c = cargoDeLaFactura(f);
+      const factura = c ? `${c.tipo}-${c.sub}-${c.folio}` : (f.entity_ref ?? '—');
+      const ab = c ? abonos.get(c.llave) ?? [] : [];
+      if (Number(it.discount_amount ?? 0) > 0) { omitidas.push({ item_id: f.id, factura, motivo: 'lleva descuento al pagar: ajústala a mano' }); continue; }
+      if (modo === 'automatico' && !seAjustaSolo(ab, armadoEl)) {
+        omitidas.push({ item_id: f.id, factura, motivo: 'un pago en Kepler bajó su saldo (puede ser este mismo pago): lo decide una persona' });
+        continue;
+      }
+      const despues = round2(f.kepler_debe as number);
+      await trx('finance.payment_allocation_items').where({ id: f.id }).update({ applied_amount: despues });
+      await this.recalcObligation(trx, it.obligation_source as ObligationSource, it.obligation_id);
+      ajustadas.push({ item_id: f.id, factura, antes: f.applied_amount, despues, abonos: ab });
+    }
+    const antes = Number(a.amount_assigned);
+    if (!ajustadas.length) return { allocation_id: allocationId, antes, amount_assigned: antes, ajustadas: [], omitidas };
+    await this.recalcAllocationTotal(trx, allocationId);
+    const [b] = await trx('finance.payment_allocations').where({ id: allocationId })
+      .update({ updated_by: username, updated_at: trx.fn.now() }).returning(['amount_assigned']);
+    const despues = Number(b.amount_assigned);
+    await trx('finance.payment_allocation_history').insert({
+      tenant_id: tenantId, allocation_id: allocationId, event: EVENTO_AJUSTADO_AL_SALDO, status_from: 'pending', status_to: 'pending', created_by: username,
+      detail: JSON.stringify({ regla: 'PGP.148', modo, hoy, antes, despues, facturas: ajustadas, omitidas }),
+    });
+    return { allocation_id: allocationId, antes, amount_assigned: despues, ajustadas: ajustadas.map((x) => ({ item_id: x.item_id, factura: x.factura, antes: x.antes, despues: x.despues })), omitidas };
   }
 
   /** `[PGP.147]` Los abonos vivos que Kepler aplicó a las facturas que deben menos, por llave de cargo. */

@@ -49,7 +49,7 @@ import { SegmentedComponent, type SegOption } from '../../../shared/components/s
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
+import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
@@ -901,6 +901,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                            documento de Kepler que bajó el saldo; el detalle por factura, en el desglose. Sin regla CSS nueva. -->
                       @if (deMas(a); as dm) {
                         <span class="pg-sub pg-sub-2 pg-it-sald"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ textoDeMas(dm) }}
+                          <!-- [PGP.148] Bajarlo a lo que se debe: sólo sin autorizar y sin salida del banco (el servidor lo vuelve a revisar). -->
+                          @if (facturasEditables(a)) {
+                            <button type="button" class="pg-saldada-btn" [disabled]="saving()" (click)="ajustarAlSaldo(a)"
+                                    [attr.aria-label]="'Bajar el pago de ' + allocationTitle(a) + ' a lo que sus facturas deben hoy en Kepler: ' + money(numero(a.amount_assigned) - dm.de_mas)">Bajar a {{ money(numero(a.amount_assigned) - dm.de_mas) }}</button>
+                          }
                           <button type="button" class="pg-saldada-btn" (click)="toggleAbierto(a.id)" [attr.aria-expanded]="!!abiertos()[a.id]"
                                   [attr.aria-label]="'Ver qué bajó el saldo de las facturas del pago de ' + allocationTitle(a)">Ver</button>
                         </span>
@@ -5781,6 +5786,31 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
     if (ok) this.toast.add({ severity: 'success', summary: 'Facturas quitadas', detail: `${ok === 1 ? 'Se quitó 1 factura' : `Se quitaron ${ok} facturas`} del pago de ${this.allocationTitle(a)}. El resto ya se puede pagar.` });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se quitaron`, detail: fallas.join(' · '), life: 10000 });
+  }
+
+  /**
+   * `[PGP.148]` **Baja el pago a lo que sus facturas deben hoy en Kepler** (caso Mondelez). El servidor vuelve a medir
+   * el saldo, nunca sube, y se niega si el pago está autorizado o ya salió del banco; lo que no ajusta dice por qué.
+   */
+  async ajustarAlSaldo(a: PaymentCalendarAllocation): Promise<void> {
+    if (this.saving()) return;
+    this.saving.set(true);
+    try {
+      const r = await firstValueFrom(this.http.post<PaymentCalendarAjusteAlSaldo>(`${this.base}/allocations/${a.id}/ajustar-al-saldo`, {}));
+      if (r.ajustadas.length) {
+        this.toast.add({ severity: 'success', summary: 'Pago ajustado al saldo de Kepler',
+          detail: `El pago de ${this.allocationTitle(a)} baja de ${this.money(r.antes)} a ${this.money(r.amount_assigned)}.${r.omitidas.length ? ` ${r.omitidas.map((o) => `${o.factura}: ${o.motivo}`).join(' · ')}.` : ''}` });
+      } else {
+        this.toast.add({ severity: 'info', summary: 'No hubo nada que ajustar',
+          detail: r.omitidas.length ? r.omitidas.map((o) => `${o.factura}: ${o.motivo}`).join(' · ') : 'Sus facturas ya no deben menos de lo que lleva el pago.', life: 8000 });
+      }
+    } catch (e) {
+      this.toast.add({ severity: 'error', summary: 'No se ajustó', detail: this.errMsg(e, 'No se pudo ajustar el pago.'), life: 10000 });
+    } finally {
+      this.saving.set(false);
+      this.invalidarDeuda();
+      this.reload();
+    }
   }
   /** El siguiente día hábil después del día abierto (o de hoy, si el abierto ya pasó). */
   private siguienteHabil(): string {

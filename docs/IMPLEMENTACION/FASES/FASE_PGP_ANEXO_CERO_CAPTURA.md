@@ -263,6 +263,13 @@ del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pag
 - **2026-11-18** — C3 de `[PGP.146]` y `[PGP.147]` (§4b-bis): la fila dice que salió del banco o qué descarga falta,
   y lo que lleva de más con el documento que bajó el saldo (también en el diálogo de autorizar y en el Preliminar). Lo
   que ya salió no se mueve ni se quita. Sin validación visual.
+- **2026-11-18** — `[PGP.148]` en código: «Bajar a $X» en la fila (pago sin autorizar que no ha salido del banco) y,
+  por D19 (b), el worker ajusta solo con cada aviso de Kepler los pagos sin autorizar **de días por venir** cuya
+  diferencia explica una nota, devolución o bonificación y en los que no entró dinero desde que se armaron (un pago
+  en Kepler puede ser este mismo pago: ése lo decide una persona). ⛔ Nada que ya haya salido del banco por su importe
+  se ajusta: la salida se quedaría sin su pago. Ensayo en seco contra prod: de 4 pagos que llevan de más, el worker
+  ajustaría 1 (el del 28-dic, $111 mil que ya había pagado una transferencia); el `d0bc010a` de hoy ($1.22 M, $44.6 mil
+  de más por dos notas) queda para el botón; 2 se rechazan por haber salido ya del banco.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado
