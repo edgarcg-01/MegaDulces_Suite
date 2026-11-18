@@ -50,7 +50,7 @@ import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente,
 import { pideSinDepartamento } from './expediente-filtro';
 import { leerBusqueda, sqlDelMonto, sqlFolioExactoPrimero, TOPE_RECIENTES } from './busqueda-de-gastos';
 // `[GX.107]` La fecha del documento de Kepler se muestra; no decide si una solicitud aparece.
-import { candidatosDeFolio, desdeOFolioExacto, entraDesde, folioExactoDesde, SQL_DESDE_SU_SUCURSAL, SQL_MAS_RECIENTE_PRIMERO } from './frontera-solicitudes';
+import { candidatosDeFolio, desdeOFolioExacto, desdeSuSucursal, entraDesde, folioExactoDesde, sinValeEnLaSuite, SQL_MAS_RECIENTE_PRIMERO } from './frontera-solicitudes';
 // `[GX.108]` La solicitud le llega a quien la pidió también por su nombre exacto (si nadie más se llama igual).
 import { nombreLigable, solicitaDe, SQL_MI_NOMBRE_LIGABLE } from './solicita-por-nombre';
 import { leerTransferenciasDelGasto, transferenciasDelVale } from './transferencias-del-gasto';
@@ -2308,7 +2308,8 @@ export class ExpenseProofsService {
          * capturada después del arranque con la fecha de una póliza vieja SÍ le llega; su fecha sólo
          * se muestra. Lo fechado Y capturado antes del arranque sigue fuera.
          */
-        .whereRaw(SQL_DESDE_SU_SUCURSAL)
+        // `[GX.114]` Como unión a un agregado por sucursal (antes, subconsulta por fila: 1.55 s).
+        .modify(desdeSuSucursal, tenantId)
         // `[GX.95]` La caja de búsqueda de «Mis gastos» también filtra lo asignado: antes lo
         // asignado salía siempre, coincidiera o no con lo que se buscaba.
         .modify((qb) => {
@@ -2317,12 +2318,8 @@ export class ExpenseProofsService {
           const like = `%${t}%`;
           qb.where((w) => w.whereILike('r.folio', like).orWhereILike('r.beneficiario', like).orWhereILike('r.concepto', like));
         })
-        .whereNotExists(function () {
-          this.select(trx.raw('1')).from('finance.expense_proofs as p')
-            .whereRaw('p.tenant_id = r.tenant_id')
-            .whereRaw('p.folio_solicitud = r.folio')
-            .whereRaw('p.sucursal = r.sucursal');
-        })
+        // `[GX.114]` Sin vale en la Suite, como anti-unión (antes `NOT EXISTS` por fila: 0.37 s).
+        .modify(sinValeEnLaSuite)
         /**
          * ⚠️ **Dos criterios, no uno.** Con `fecha` sola el orden es arbitrario entre los del
          * mismo dia —que es el caso normal, porque se levantan de a tandas— y la lista se
