@@ -164,6 +164,44 @@ Las cinco preguntas de `diseno` §0b, contestadas antes de la plantilla:
 entra en «Mover los N de días pasados». Y el diálogo de autorizar repite el aviso de «lleva de más».
 **Lo que la interfaz no resuelve:** que la cuenta «use el banco» (persona, en Bancos) y bajar el importe (`[PGP.148]`).
 
+### 4b-ter. Auditoría de diseño de la C3 de `[PGP.146]`–`[PGP.148]` (2026-11-18, `[PGP.150]`)
+
+**Evidencia:** nivel **B** (prod, sólo lectura, con el código real del servicio) + **C** (fuente). **Sin nivel A**: los
+cambios no están desplegados y el backend local está prohibido; todo lo visual va como **sin validación visual**.
+Instrumentos con su control: contraste WCAG (21.00 / 4.48), APCA (106.0 / −107.9), `ngc --noEmit` (TS2339 sembrado).
+Guía externa: Modern Web Guidance (`accessibility`, `color`, `persistent-toast-notifications`, `form-factor-adaptation`).
+
+**La frase:** «¿En qué etapa está cada pago y qué le falta para cerrarse?» (una pregunta).
+
+| # | Sev | Hallazgo y costo | Ley | Estado |
+|---|---|---|---|---|
+| PGP.UI.1 | 🔴 | El aviso de atrasados (vista por día) contaba **65** pagos «que siguen en días que ya pasaron» y **20** ya habían salido del banco; la bandeja y el veredicto del día los separaban: dos vistas, dos universos. Invitaba a mover lo ya pagado | STD §1.5 (Cruce 5) | ✅ arreglado: el servidor los cuenta aparte (`salidos`) y el aviso dice «45 … · otros 20 ya salieron del banco» (medido en prod) |
+| PGP.UI.2 | 🔴 | La frase de «Por registrar en Kepler» prometía que lo que muestra la descarga «se marca pagado (y va a Kepler)»; el `X-D-26` sólo se escribe donde la escritura está encendida y el ensayo pasa | STD §1.1 | ✅ arreglado: dice lo que pasa y remite a la nota de escritura |
+| PGP.UI.3 | 🟠 | «Bajar a $X»: su nombre accesible no contenía el texto visible (control por voz no lo encuentra) | WCAG 2.5.3 | ✅ arreglado |
+| PGP.UI.4 | 🟠 | «No se sabe si salió» en **36 de 36** atrasados sin salida (ninguno dice «No salió»); nombraba la primera cuenta sin cubrir en el orden de la consulta (15 veces una que sólo iba un día atrás) | STD §3 comprensión | ✅ parcial: nombra la más atrasada y cuántas faltan. ⚠️ Mientras `STDR 5565` no tenga descarga (o no se dé de baja), ningún pago sin preparar podrá decir «No salió» |
+| PGP.UI.5 | 🟠 | Lo que dice «salió del banco» o «falta la descarga» no llevaba a donde se resuelve | DS Q.4 · STD §4.7 | ✅ un acceso a «Estados de cuenta» por vista (no por renglón) |
+| PGP.UI.6 | 🟠 | Un pago «Por autorizar» que lleva de más juntaba 6 controles en su renglón, y «Autorizar» seguía al lado del aviso rojo | VALORES §11 (≤ 3) · DS §10 poka-yoke | ✅ parcial: se quitó el «Ver» repetido (5); el diálogo de autorizar pone el aviso primero y ofrece «Bajar a $X» antes |
+| PGP.UI.7 | 🟠 | «Bajar a» y los demás botones `.pg-saldada-btn`: ~20 px de alto (estimado), sin regla `pointer: coarse` → < 24 px con mouse y < 44 en táctil; borde 1.27:1 (claro) / 1.19:1 (oscuro) contra 3:1 | WCAG 2.5.8 · 1.4.11 | ⬜ deuda de la CLASE (15+ usos). No se arregló: el bloque de estilos está en su tope de 34 kB y medir el compilado exige compilar |
+| PGP.UI.8 | 🟠 | Texto rojo de 13 px: WCAG pasa (4.83 / 6.40) pero **APCA Lc 71.6 claro y 48 oscuro** contra 75; `--text-muted` en oscuro, Lc 50.6 (token de toda la suite) | VALORES §2 (APCA manda ≤ 14 px) | ⬜ deuda de tokens |
+| PGP.UI.9 | 🟠 | Tras «Bajar a» (y «Quitar» saldadas) la tabla se recarga y el foco cae al documento | WCAG 2.4.3 | ⬜ deuda de la pantalla (todas las acciones de fila) |
+| PGP.UI.10 | 🟠 | **La bandeja tarda ~3 s en prod** (Dirección, 209 cargas hoy, prom 3.1 s, máx 16 s): escalón del 13-nov (~1 s) al 14-nov (~2.8 s), anterior a estos cambios; viajan **1.1 MB** por carga (facturas 611 kB). Lo de hoy suma ~25 ms y 27 kB (2 %) | VALORES §15 (< 500 ms) · Cruce 6 | ⬜ item aparte: medir el escalón del 14-nov |
+| PGP.UI.11 | 🟡 | El icono verde de «Salió del banco» y la pastilla ámbar «falta…» dan tono a «bien» y «falta» (mismo patrón que `[PGP.96]`/`[PGP.100]`) | STD §3.10 | ⬜ patrón de la pantalla |
+| PGP.UI.12 | 🟡 | Lo que «Bajar a» no ajustó (y por qué) vive sólo en el toast | MWG toasts: «identified by other means» | ⬜ la bitácora lo guarda; la pantalla no la muestra |
+| PGP.UI.13 | 🟡 | Texto: «N llevan … está en rojo» | — | ✅ «están» |
+
+**Ficha §3c.** *Carga:* hasta 5 controles por renglón (antes 6); la frase de la etapa suma una oración cuando hay pagos
+con de más. *Comprensión:* «descarga del banco» y «usar el banco» sin definir en la ayuda de la pantalla (NO MEDIDO si
+están en el diccionario). *Accesibilidad:* texto ≥ 4.5:1 en claro y oscuro (rojo 4.83 / 6.40, ámbar 6.37–12.29); color
+nunca solo (icono + palabra); un anuncio de la región viva por recarga. *Retrabajo:* doble clic protegido (guarda
+síncrona + `disabled`); nada que ya salió se puede mover ni quitar; «Bajar a» no pide confirmación porque lleva al hecho
+(el saldo de Kepler) y nunca sube.
+
+**NO MEDIDO (pide nivel A):** píxeles reales, foco tapado, recorrido con teclado, lector de pantalla (anuncios reales del
+toast y de la frase), `forced-colors`, reflujo a 320 px, INP, y claro/oscuro/celular en vivo.
+
+**Veredicto por capa:** antes de los arreglos, 🔴 **No pasa** (PGP.UI.1 y .2, Veracidad). Con ellos: **🟠 pasa con
+deuda** (accesibilidad .7–.9, rendimiento .10). Se revisa en nivel A al desplegar.
+
 ### 4c. ⛔ La liberación a la semana soltó pagos que sí salieron del banco (2026-11-18)
 
 **El hallazgo** (al construir la pantalla de §4a). `[PGP.117]` libera, a la semana, el pago que «nadie pagó»: lo pasa a
