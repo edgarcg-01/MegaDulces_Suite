@@ -1,5 +1,5 @@
 import * as ExcelJS from 'exceljs';
-import { aCentavos, controlarSaldo, describirArchivo, detectarBanco, leerEstadoDeCuenta, type MovimientoBanco } from './lectores';
+import { aCentavos, controlarSaldo, describirArchivo, describirNoLeidos, detectarBanco, leerEstadoDeCuenta, type MovimientoBanco } from './lectores';
 
 /**
  * `[CB.57]` — Los cuatro formatos de banco, con archivos FABRICADOS.
@@ -64,6 +64,19 @@ describe('[CB.57] Santander (CSV con apóstrofos, trae la cuenta)', () => {
     expect(r?.no_leidos[0]).toMatchObject({ linea: 3 });
     expect(r?.no_leidos[0].motivo).toMatch(/columnas/);
     expect(r?.control?.cuadra).toBe(false);
+    // [CB.83] y el bloqueo lo dice: qué renglón (el de Excel) y por qué, no sólo cuántos.
+    expect(describirNoLeidos(r!.no_leidos)).toBe('1 renglón del archivo no se pudo leer (renglón 3: trae 22 columnas y el encabezado 21)');
+  });
+});
+
+describe('[CB.83] el bloqueo nombra el renglón y la causa', () => {
+  it('sin renglones malos no hay motivo (no bloquea)', () => {
+    expect(describirNoLeidos([])).toBeNull();
+  });
+  it('nombra hasta 3 y cuenta el resto; el renglón 0 (sin encabezado) sólo da la causa', () => {
+    const cinco = [2, 5, 9, 11, 14].map((linea) => ({ linea, motivo: 'fecha, importe, saldo o signo ilegible' }));
+    expect(describirNoLeidos(cinco)).toBe('5 renglones del archivo no se pudieron leer (renglón 2: fecha, importe, saldo o signo ilegible; renglón 5: fecha, importe, saldo o signo ilegible; renglón 9: fecha, importe, saldo o signo ilegible; y 2 más)');
+    expect(describirNoLeidos([{ linea: 0, motivo: 'no se encontró el encabezado «Fecha Movimiento»' }])).toBe('1 renglón del archivo no se pudo leer (no se encontró el encabezado «Fecha Movimiento»)');
   });
 });
 

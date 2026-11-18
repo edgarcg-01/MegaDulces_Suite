@@ -53,6 +53,20 @@ export interface RenglonNoLeido {
   texto: string;
 }
 
+/**
+ * `[CB.83]` El bloqueo dice QUÉ renglón y POR QUÉ. «1 renglón(es) no se pudieron leer» no deja hacer
+ * nada: quien sube no sabe dónde mirar y quien lo arregla no puede reproducirlo sin el archivo
+ * (2026-11-18, STDR 2169, descarga del 17/11). `linea` es el renglón del archivo contando el
+ * encabezado: el mismo número que muestra Excel al abrirlo. Se nombran hasta 3; el resto, contado.
+ */
+export function describirNoLeidos(no: { linea: number; motivo: string }[]): string | null {
+  if (!no.length) return null;
+  const uno = (x: { linea: number; motivo: string }) => (x.linea > 0 ? `renglón ${x.linea}: ${x.motivo}` : x.motivo);
+  const nombrados = no.slice(0, 3).map(uno).join('; ');
+  const resto = no.length > 3 ? `; y ${no.length - 3} más` : '';
+  return `${no.length === 1 ? '1 renglón del archivo no se pudo leer' : `${no.length} renglones del archivo no se pudieron leer`} (${nombrados}${resto})`;
+}
+
 export interface ControlDeSaldo {
   /** Orden en que venía el archivo; `movimientos` siempre sale del más viejo al más nuevo. */
   orden_original: 'viejo_a_nuevo' | 'nuevo_a_viejo';
