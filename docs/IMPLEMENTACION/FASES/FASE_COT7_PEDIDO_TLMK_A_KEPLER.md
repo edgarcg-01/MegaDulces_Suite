@@ -328,6 +328,15 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-18** — 🧪 **[COT.44] El mismo producto en dos presentaciones ya se escribe en Kepler.** COT-2026-00472 (Padre
+  Hidalgo) rebotó con «95579: la presentación PAQ trae 1 en la cotización y 20 en la ficha de Kepler». La ficha estaba bien
+  (base PAQ, BTO ×20): el adaptador guardaba UNA ficha por SKU y le calculaba el factor con el PRIMER renglón de ese SKU (el
+  BTO, 20), así que el renglón en PAQ se comparaba contra 20 y el pedido entero se rechazaba. Ahora `fichasPorRenglon` arma
+  una ficha por renglón (SKU + presentación, `claveFicha`) y el armado la busca así (y por SKU si sólo hay una). Pruebas: el
+  caso real con la ficha de `kdii` de 01 medida hoy (BTO → 20, PAQ → 1, el pedido se arma) y el control negativo con una
+  ficha por SKU, que reproduce el rechazo; 17/17. **NO MEDIDO:** el ensayo contra Kepler real; el primer pedido con dos
+  presentaciones del mismo SKU.
+
 - **2026-11-12** — 🧪 **[COT.43] El precio por unidad con todos los descuentos** (solicitud de Televenta del 10-nov: «mostrar
   el descuento total ya aplicado por unidad paquete»). Debajo del precio de Kepler y su desglose, cuando hay % de cliente:
   «Con −3 %: **$257.30** CJA · $42.88 PAQ» = importe neto del renglón ÷ cantidad, repartido en las unidades menores con la

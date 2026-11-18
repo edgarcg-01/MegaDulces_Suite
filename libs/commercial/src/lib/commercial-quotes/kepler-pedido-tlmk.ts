@@ -93,6 +93,12 @@ export type PedidoArmado =
 
 const norm = (v: string | null | undefined): string => String(v ?? '').trim().toUpperCase();
 
+/**
+ * `[COT.44]` La llave de la ficha de un renglón: SKU + presentación. El mismo producto puede ir dos
+ * veces en presentaciones distintas (BTO y PAQ) y cada una se compara con SU factor en la ficha.
+ */
+export const claveFicha = (sku: string, presentacion: string | null | undefined): string => `${sku}|${norm(presentacion)}`;
+
 export function armarPedidoTlmk(
   renglones: RenglonCotizacion[],
   fichas: ReadonlyMap<string, FichaTlmk>,
@@ -103,7 +109,8 @@ export function armarPedidoTlmk(
   const out: RenglonPedidoKepler[] = [];
 
   for (const r of renglones) {
-    const f = fichas.get(r.sku);
+    // Por renglón (SKU + presentación); el mapa sólo por SKU sigue valiendo para un producto en una sola presentación.
+    const f = fichas.get(claveFicha(r.sku, r.presentacion)) ?? fichas.get(r.sku);
     if (!f) { motivos.push(`${r.sku}: Kepler no tiene la ficha del producto en esta sucursal`); continue; }
     const pres = norm(r.presentacion) || norm(f.unidad_base);
     const factor = r.factor && r.factor > 0 ? r.factor : 1;
