@@ -852,6 +852,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(buscar[0].closest('.sr-fijo')).toBeTruthy();
   });
 
+=======
   // ── [GP.RF.31] Cambiar lo que faltó por otro producto (decisión de Edgar, 2026-11-17) ──────────
   const VALENTINA = () => ({
     for_line_id: 'pl2', for_product_name: 'SALSA MAGA', missing: 2, unit: 'CJA',

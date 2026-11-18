@@ -48,6 +48,9 @@
 - En Cartera, la ficha del cliente muestra las fichas que subió y permite copiar su enlace.
 - Corregido: el resumen de cobranza dentro de la ficha de Cartera nunca aparecía, y por la misma falla tampoco los compromisos de pago.
 
+### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
+- Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
+
 ### Changed — Pedidos del almacén: el Tablero abre en lo pendiente y con menos piezas (GP.RF.22 · 2026-11-17 · en código, sin soltar)
 - Al entrar se ve «Por hacer»: lo que sigue en el almacén, de autorizado a checado. Los embarcados y «Todos» quedan a un clic.
 - El periodo se elige en un desplegable; Surtir y Checar dejan de ser botones naranjas.
