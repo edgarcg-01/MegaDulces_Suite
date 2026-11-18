@@ -239,7 +239,7 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
     c.abrir();
     elegirConOcs([OCS[0]], []);
     fixture.detectChanges();
-    const t = (document.querySelector('.pa-elegido')?.textContent ?? '').replace(/ /g, ' ');
+    const t = (document.querySelector('.pa-elegido')?.textContent ?? '').replace(/\u00a0/g, ' ');
     expect(t).toContain('DULCES DEL NORTE CA001');
   });
 

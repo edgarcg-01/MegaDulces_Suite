@@ -1687,7 +1687,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-pdf:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
-    .pg-ev-src { color:var(--fg-3); }
     /* [PGP.32] La disputa NO se atenúa como la deducción: una contradicción entre el ERP y el
        SAT es trabajo de alguien, no una nota al pie. Sin fondo ni borde: pesa por color y peso,
        que es lo que §Q.5 pide, y no agrega una caja más al renglón. */
@@ -1725,8 +1724,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-week { display:flex; align-items:center; gap:var(--sp-1) var(--sp-3); flex-wrap:wrap; min-width:0; }
     .pg-week-nav { display:flex; align-items:center; gap:2px; }
     .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; padding:0 2px; }
-    .pg-week-f { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; padding-left:var(--sp-1); }
-    .pg-week-f b { color:var(--text-main); font-weight:700; }
     :host ::ng-deep .pg-ico.p-button { padding:var(--sp-1); min-width:auto; }
     :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); }
     .pg-days-ls { display:block; min-width:0; }
@@ -1754,8 +1751,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        acción principal y para lo que está mal. Eran 4 pastillas ámbar en la tira de la semana. */
     .pg-day-b b.cal-warn-txt { color:var(--text-main); background:none; padding:0; }
     .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
-    /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
-    .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
     .pg-dot.is-work { background:var(--text-main); }
     .pg-dot.is-free { background:transparent; border:1px solid var(--text-muted); }
     .pg-rev-u { font-weight:400; color:var(--text-muted); }
@@ -1767,10 +1762,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.77] Lo que está mal lo marca SÓLO el icono rojo junto a la frase: la barra lateral roja más
        el botón de color eran dos llamadas de atención para un mismo aviso («me desconcentra»). */
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-1); font-size:var(--fs-body); }
-    .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
-    .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
-    .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
     /* [PGP.77] Frase y explicacion en UN renglon cuando caben (Edgar, 2026-11-05: «necesita demasiado
        espacio»); si no caben, la explicacion baja sola. */
@@ -1782,33 +1773,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
       margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color); }
     @media (max-width: 90rem) { .pg-vd-row2 { grid-template-columns:minmax(0, 1fr); } }
-    .pg-cap { display:grid; gap:4px; min-width:0; }
-    /* El tope en UNA linea de texto (era una tira de cifras de 20 px que ocupaba dos renglones). */
-    .pg-cap-line { display:flex; flex-wrap:wrap; gap:2px var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
-    .pg-cap-line b { color:var(--text-main); font-weight:700; }
     .pg-cap-line b.cal-neg { color:var(--bad-soft-fg); }
-    .pg-cap-pct { font-size:var(--fs-sm); }
     .pg-cap-say { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); }
-    .pg-cap-bar { display:block; height:4px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
-    .pg-cap-fill { display:block; height:100%; background:var(--text-muted); border-radius:inherit; }
     .pg-cap-fill.is-over { background:var(--bad-fg); }
-
-    /* [PGP.15] El avance: cinco etapas en una linea, sin clic. Hecho = palomita; ahora = numero
-       invertido y nombre en negro; pendiente = apagado. Ningun tono. */
-    .pg-prog { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
-    .pg-pe { display:flex; align-items:flex-start; gap:6px; min-width:0; color:var(--text-muted); }
-    .pg-pe-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:var(--r-pill); border:1.5px solid var(--border-color);
-      font-family:var(--font-mono); font-size:var(--fs-micro); font-weight:700; flex-shrink:0; }
     .pg-pe.is-done .pg-pe-n { border-color:var(--ok-soft-fg); color:var(--ok-soft-fg); }
     .pg-pe.is-now .pg-pe-n { border-color:var(--text-main); background:var(--text-main); color:var(--card-bg); }
-    /* Cada paso en UNA linea: nombre y lo que dice. */
-    .pg-pe { align-items:center; }
-    .pg-pe-t { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; min-width:0; font-size:var(--fs-sm); line-height:1.3; }
-    .pg-pe-t b { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .pg-pe.is-now .pg-pe-t b { font-weight:700; }
     .pg-pe:not(.is-done):not(.is-now) .pg-pe-t b { color:var(--text-muted); font-weight:600; }
-    .pg-pe-who { font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-pe-say { color:var(--text-muted); overflow-wrap:anywhere; }
     .pg-pe.is-now .pg-pe-say { color:var(--text-main); }
     .pg-note { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-1) 0 0; padding:6px var(--sp-3);
       border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1836,7 +1807,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-add > :not(.pg-add-bar):not(.pg-add-links) { grid-column:1 / -1; }
     @media (max-width: 47.5rem) { .pg-add { grid-template-columns:minmax(0, 1fr); } }
     .pg-add-bar { display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; }
-    .pg-add-t { margin:0; font-size:var(--fs-h3); font-weight:600; color:var(--text-main); white-space:nowrap; }
     .pg-add-n { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-add-links { display:flex; align-items:center; gap:var(--sp-1) var(--sp-4); flex-wrap:wrap; margin:0; font-size:var(--fs-sm); }
     .pg-add-nm { color:var(--warn-soft-fg); }
@@ -1858,9 +1828,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-how .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); }
     td.pg-c-how .pg-how-t { color:var(--text-main); }
     td.pg-c-how .pg-st { margin-top:0; }
-    /* Las flechas de orden: al pasar el cursor o con el foco del teclado (el numero se ve siempre). */
-    /* [PGP.76] El asa se ve siempre (atenuada); se enciende al pasar el cursor o con el foco. */
-    .pg-ord-h { font-size:var(--fs-xs); color:var(--text-muted); }
     :host ::ng-deep .pg-prep tr:hover .pg-ord-h, .pg-ord:focus-visible .pg-ord-h { color:var(--text-main); }
     /* El desglose junta lo que antes llenaba el renglon. */
     .pg-x-info { display:grid; gap:4px; margin:0 0 var(--sp-2); }
@@ -1880,13 +1847,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
     .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; margin-left:auto; }
-    .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
-    .pg-sec-tg:hover { text-decoration:underline; }
-    .pg-sec-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
-
-    /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
-    .pg-add-h { gap:var(--sp-2) var(--sp-3); }
     .pg-buscar { position:relative; display:flex; align-items:center; flex:1 1 22rem; min-width:14rem; max-width:36rem; }
     .pg-buscar > .pi-search { position:absolute; left:var(--sp-3); color:var(--text-muted); pointer-events:none; }
     :host ::ng-deep .pg-buscar-in.p-inputtext { width:100%; padding-left:2.25rem; padding-right:2.25rem; font-size:var(--fs-body); }
@@ -1895,7 +1856,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-buscar:focus-within .pg-kbd { display:none; }
     /* [PGP.66] En el botón el atajo va EN LÍNEA: con el absolute del buscador se encimaba sobre «facturas». */
     .pg-sec-acts .pg-kbd { position:static; margin-left:var(--sp-1); }
-    .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
     /* Los proveedores encontrados: cada uno es un pago y se agrega entero. */
@@ -1936,7 +1896,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-aa-lb { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-aa-f { display:flex; align-items:center; gap:6px; }
     .pg-aa-f > label { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
-    .pg-aa-note { flex-basis:100%; font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.15] En el encabezado del panel: sin fondo propio ni renglon aparte. */
     .pg-sec-h > .pg-applyall { flex:1 1 auto; padding:0; background:none; border-bottom:0; gap:var(--sp-1) var(--sp-2); }
     :host ::ng-deep .pg-sec-h > .pg-applyall .cal-sel { width:8.5rem; }
@@ -2000,9 +1959,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry:hover { background:var(--overlay-hover); }
     .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
-    .pg-ord { display:inline-flex; align-items:center; gap:var(--sp-2); padding:var(--sp-1) var(--sp-2); border-radius:var(--radius-sm); cursor:grab; user-select:none; }
-    .pg-ord:active { cursor:grabbing; }
-    .pg-ord:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
@@ -2026,11 +1982,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
-
-    /* La deuda */
-    .pg-drawer { overflow:hidden; }
     .pg-drawer-h { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; padding:6px var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
-    .pg-grow { flex:1; min-width:11rem; }
     .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-sm); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-drawer-n b { color:var(--text-main); }
     .pg-drawer-b { max-height:22rem; overflow:auto; }
@@ -2129,13 +2081,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-razon.is-urge  { color:var(--text-main); font-weight:700; }
     .pg-razon.is-tarde { color:var(--warn-soft-fg); }
     .pg-razon.is-mudo  { color:var(--fg-3); font-weight:500; font-style:italic; }
-    .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
     /* [PGP.53] Pronto pago: su propia seccion, sin caja ni color. Grupo = dia en que cierra; las
        cifras en columnas fijas para que el grupo y sus renglones se lean en la misma vertical. */
     .pg-pp { margin:0 0 var(--sp-4); }
-    .pg-pp-tot { font-size:var(--fs-sm); color:var(--fg-2); }
     .pg-pp-why { margin:var(--sp-1) 0 var(--sp-2); font-size:var(--fs-sm); max-width:72ch; }
-    .pg-pp-src { display:block; margin-top:2px; font-size:var(--fs-xs); color:var(--fg-3); }
     .pg-pp-gr { border-top:1px solid var(--border-color); }
     /* [PGP.61] La línea de «N días más»: neutra, con su cuenta, del ancho de un grupo. */
     .pg-pp-mas { all:unset; box-sizing:border-box; cursor:pointer; display:flex; align-items:center; gap:var(--sp-2); width:100%;
@@ -2171,11 +2120,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       .pg-pp-go .pg-pp-i { display:none; }
       .pg-pp-x { padding-left:var(--sp-2); }
     }
-    .pg-prop-not { color:var(--warn-soft-fg); }
     .pg-qp-nm { margin:0 0 var(--sp-3); font-size:var(--fs-xs); color:var(--warn-soft-fg);
                 border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); }
-    .pg-sec-pronto-k { color:var(--fg-3); }
-    .pg-gana { color:var(--ok-soft-fg); } .pg-tarde { color:var(--warn-soft-fg); } .pg-sep { color:var(--fg-3); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
