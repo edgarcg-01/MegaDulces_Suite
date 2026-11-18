@@ -272,7 +272,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-field input { font-size:var(--fs-body); height:2.5rem; }
     .ub-sub { font-size:var(--fs-xs); color:var(--text-muted); }
     .ub-sub.ub-bad { color:var(--bad-fg); }
-    .ub-sub.ub-ok { color:var(--ok-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .ub-sub.ub-ok { color:var(--ok-soft-fg); }
     .ub-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0; padding:0 .85rem .7rem; }
     .ub-step .ub-hint { padding:0; }
     /* [UB.RF.10] Imprimir carteles: el panel de alcance y la vista previa ocupan todo el ancho. */

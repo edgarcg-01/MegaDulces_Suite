@@ -1067,7 +1067,10 @@ Lo encontró `[CE.1.7]` al barrer las fuentes de «Por vencer».
 
 ## Addendum — `AUD-UI.1`: en el celular, toda tabla de PrimeNG esconde columnas sin decirlo (2026-11-18)
 
-**Estado: ABIERTO para las tablas que no usan `.dt-stack`; CORREGIDO para las que sí (`[GP.RF.12]`).**
+**Estado: CORREGIDO en código (2026-11-18), sin soltar.** Primero para las tablas `.dt-stack` (`[GP.RF.12]`)
+y después para las demás: el bloque ya no esconde ni corta, la tabla se desplaza a lo ancho con la última
+columna fija, letra mínima 12 px (medido en `e2e/reestructura/tabla-celular.e2e.ts`, auditoría de GP §5c.9
+bloque 5). Pendiente de diseño, no de defecto: las tablas de REGISTROS lucen mejor como `.dt-stack`.
 Lo encontró la auditoría de interfaces de la Fase GP (§5c.9) al medir la letra del Tablero en un
 celular.
 

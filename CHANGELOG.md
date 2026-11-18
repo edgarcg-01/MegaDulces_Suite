@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Toda la Suite en el celular: ninguna tabla esconde columnas (AUD-UI.1 · GP.RF.12–13 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que no se apilan ya no esconden columnas ni cortan el texto: se desplazan a lo ancho con la última columna fija.
+- Revisión en caja con menos tamaños de letra, y los avisos en ámbar o verde de Almacén se leen.
+
 ### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
 - El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
 - La lista de cheques en tránsito ya no se corta en 50 sin avisar.
