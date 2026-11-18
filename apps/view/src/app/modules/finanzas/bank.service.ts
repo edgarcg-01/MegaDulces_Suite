@@ -290,6 +290,21 @@ export interface ThreeWay {
   por_cuenta: ThreeWayAccount[];
   coverage: ThreeWayCoverage;
   kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
+  /** [CB.82] Qué días se compararon. Ausente si el API todavía no lo manda: se trata como mes entero. */
+  ventana?: ThreeWayVentana;
+}
+
+/**
+ * [CB.82] La ventana del cuadre, por cuenta. Si el estado de cuenta de una cuenta va atrasado, sus tres
+ * fuentes se comparan sólo hasta su último día (`cortes[cuenta]`) y lo posterior de Kepler y ContPAQi va
+ * en `fuera`. `hasta` es el día común cuando todas las recortadas comparten uno (una sola carga).
+ */
+export interface ThreeWayVentana {
+  desde: string; esperado: string; cortes: Record<string, string>;
+  hasta: string | null; corte_min: string | null; dias_atras: number | null;
+  /** El día de corte se cargó ese mismo día: puede venir incompleto. */
+  dia_parcial?: boolean;
+  fuera: { kepler: { in: number; out: number; movs: number }; contpaqi: { in: number; out: number; movs: number } } | null;
 }
 
 /** CB.30 — Cheques en tránsito (gap de timing banco↔Kepler). */
@@ -328,8 +343,10 @@ export interface ThreeWayDetail {
      * CB.50 — por qué no casó, resuelto en el backend para que todas las vistas cuenten lo mismo.
      * `otro_periodo` y `banco_agrupa` están EXPLICADOS; sólo `sin_casar` es excepción a investigar.
      */
-    motivo?: 'otro_periodo' | 'banco_agrupa' | 'sin_casar' }[];
-  contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
+    motivo?: 'otro_periodo' | 'despues_del_banco' | 'banco_agrupa' | 'sin_casar' }[];
+  contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null;
+    /** [CB.82] Posterior al último día del estado de cuenta: el banco no lo ha cargado, no es «sin banco». */
+    despues_del_banco?: boolean }[];
   recon_totals: Record<ReconStatus, { n: number; monto: number }>;
   agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
   totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
@@ -339,7 +356,11 @@ export interface ThreeWayDetail {
     /** CB.50 — partición de `kepler_only`: los tres n suman `kepler_only_n`. */
     kepler_only_banco_agrupa_n?: number; kepler_only_banco_agrupa_monto?: number;
     kepler_only_sin_casar_n?: number; kepler_only_sin_casar_monto?: number;
-    contpaqi_only_n: number; contpaqi_only_monto: number };
+    contpaqi_only_n: number; contpaqi_only_monto: number;
+    kepler_only_despues_n?: number; kepler_only_despues_monto?: number;
+    contpaqi_only_despues_n?: number; contpaqi_only_despues_monto?: number };
+  /** [CB.82] Último día comparado de esta cuenta; `null` = el mes entero. */
+  banco_hasta?: string | null;
 }
 
 export interface ThreeWayDailyRow {

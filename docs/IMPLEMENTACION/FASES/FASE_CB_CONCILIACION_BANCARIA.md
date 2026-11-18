@@ -670,6 +670,57 @@ dice por qué no se genera) — sin escribir nada; (2) comisiones (CB.62.3–62.
 para capturar un alta real); (3) pagos a proveedor por PGP.130; (4) gastos por PGP.122; (5) traspasos, crédito y
 devoluciones, que no tienen carril. Cada escritor sale apagado, con su ensayo desde `md` y su prueba negativa.
 
+## 12. `[CB.82]` 🧪 El Cuadre 3 vías compara los mismos días (2026-11-17)
+
+**De dónde sale.** Auditoría de `/finanzas/bancos?view=cuadre&period=2026-11` (nivel B + C: base de prod en sólo lectura y
+código; sin pantalla viva). Las tres fuentes llegaban a días distintos y la pantalla comparaba el mes entero de cada una:
+
+| Fuente | Último día (nov-2026) | Posterior al 10-nov |
+|---|---|---|
+| Banco (libro CUENTAS, una carga el 10-nov a las 14:09) | 10-nov | — |
+| ContPAQi | 13-nov | $5.78 M dep · $4.01 M ret |
+| Kepler (tesorería) | 17-nov | $4.38 M ent · $5.76 M sal |
+
+BBVA 6721 salía con **−$2,165,287 «vs ContPAQi»** en rojo: cuatro pagos a proveedores (Effem, Mondelez…) del 10 y 11-nov que
+Kepler y ContPAQi tenían y el banco no. El Δ Banco − Kepler del total era −$3.54 M / −$4.09 M por la misma razón.
+
+**Las reglas (D1–D3, de Claude, con su porqué).**
+- **D1 · Corte por LOTE de carga, sólo si el banco va atrasado (≥3 días).** El día de una cuenta es el último de su lote (mismo
+  archivo; sin archivo, su propio estado de cuenta): todas las cuentas del libro comparten el 10-nov aunque una de poco
+  movimiento termine el 6, y una cuenta que pase a la descarga diaria (CB.80) tiene el suyo. Un corte global tomaría el máximo.
+  Un mes cerrado no se recorta (agosto–octubre llegan al último día; si el 31 cae domingo, el 30 no es atraso).
+- **D2 · Kepler se corta por fecha; ContPAQi por fecha salvo lo que casa.** `fecha_efectiva` de Kepler ya es la del banco
+  (CB.49). ContPAQi no: sus pólizas agrupan y se fechan después (los 136 depósitos de 6721, «VENTAS TLMKT», van al 11-nov).
+  La póliza posterior al corte se queda si casa por importe exacto con un movimiento del banco de su cuenta que nadie haya
+  tomado. Medido: 66.8 % de las 401 posteriores casan con su cuenta; contra otra cuenta (placebo) 0.5–1.2 %.
+- **D3 · Lo que queda fuera se publica, y el día parcial se declara.** `ventana.fuera` por fuente; si el último día se cargó
+  ese mismo día, la pantalla dice que puede venir incompleto (no se recorta un día más: el lado del banco es el total del estado).
+
+**Además, de la misma auditoría.** El atraso del banco cuenta como atraso (antes `anyStale` sólo miraba Kepler y ContPAQi, y la
+nota afirmaba «el banco va al día»); «sin comparar» dice su motivo (SANTANDER 1621 sí estaba enlazada y con estado; lo que faltaba
+eran movimientos en ContPAQi); texto de estado con `-soft-fg` (de 2.15:1 / 3.30:1 a 7.09:1 / 7.13:1 en claro); la diferencia
+contra Kepler, cheques en tránsito y «retiros» dejan el ámbar; filas que se abren con Enter; estado con palabra; encabezados
+en llano y sin `kdm1`, `102` ni «falta redeploy».
+
+**Medido (el `threeWay` real, sólo lectura contra prod, 2026-11-17).**
+
+| | Antes | Después |
+|---|---:|---:|
+| nov · Banco − Kepler (ingresos / egresos) | −$3.54 M / −$4.09 M | +$0.81 M / +$2.15 M |
+| nov · Banco − ContPAQi | +$8.70 M / +$7.05 M (días mezclados) | +$9.91 M / +$10.23 M (ContPAQi con 51 % del dinero del banco casado: captura pendiente, ya dicho) |
+| nov · BBVA 6721 diferencia | −$2,165,287 | −$592,247 (dos pagos del 10-nov, el día parcial) |
+| oct (control: banco al día) | — | idéntico al centavo, sin corte |
+
+**Pruebas.** `three-way-explain.spec.ts` 3/3, rojo al quitar el filtro (2 ✗). `ngc --noEmit` 0 errores, con control
+(`TS2339` visto). `check:pantalla` sin fallas nuevas; `boundary`, `templates`, `estilos` en verde.
+`test-newdb-bank-threeway-cobertura.js` (sólo lectura, prod): 14 ✓ / 2 ✗; los dos ✗ son de noviembre, comparan el % casado
+(consulta exacta) contra el drill por cuenta (±$1) — ninguno de los dos se tocó: **anterior a CB.82**, queda para revisar.
+**Sin validación visual.**
+
+**Pendiente de la misma auditoría.** Latencia: cuadre 815 ms y cheques en tránsito 2.4 s de promedio (hasta 10 s) para
+`finanzas_operativo`, contra la regla de 500 ms. La lista de cheques se topa en 50 sin aviso (hoy 19). La vista por día no
+recorta (muestra los días posteriores con banco en cero, que es lo que son).
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

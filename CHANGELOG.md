@@ -29,6 +29,11 @@
 - El mensaje ya no dice «le avisamos cuando quede aplicado»: dice que en ese mismo enlace verá cuando quede aplicado.
 
 ### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en prod desde el 2026-11-18)
+### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
+- Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
+- El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
+
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
 - En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
 
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en prod desde el 2026-11-18)
