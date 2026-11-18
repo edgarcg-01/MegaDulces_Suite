@@ -12,6 +12,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, piezasDeCajas, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { moverEnRenglon } from '../../../shared/util/captura-teclado.util';
 import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -692,7 +693,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                               @if (trasDe(r, b.code); as u) {
                                                 <span class="pr-step pr-tra-ed">
                                                   <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty-tr pr-qty-sm"
-                                                         aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                         aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Control+ArrowRight"
                                                          [ngModel]="trasDispOf(r, b, u)" (ngModelChange)="setTrasDispOf(r, b, u, $event)"
                                                          (keydown)="onQtyKey($event)" [title]="trasCeldaTitle(r, b, u)"
                                                          [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(b.code) + ' desde ' + sucNom(u.from_code) + ' en ' + unitLabelBranch(r, b)" />
@@ -712,7 +713,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                         (pointerdown)="stepStart(r, b, -1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
                                                         (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">−</button>
                                                 <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty pr-qty-sm"
-                                                       aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                       [attr.aria-keyshortcuts]="trasEditable(r, b) ? 'ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Control+ArrowLeft' : 'ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown'"
                                                        [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                        (keydown)="onQtyKey($event)"
                                                        [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + sucNom(b.code) + ' en ' + unitLabelBranch(r, b)" [title]="qtyTxt(r, b)" />
@@ -777,6 +778,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                     </tr></tfoot>
                                   </table>
                                 </div>
+                                <!-- [PQ.129.2] Con dos cajas por renglón, las teclas se dicen: ← → suman y ↑ ↓ / Enter se quedan
+                                     en su columna, así que cruzar de Traspaso a Pedir no se adivina (Edgar no lo encontró). -->
+                                @if (hayTrasEditable(r)) {
+                                  <p class="pr-teclas"><kbd>Ctrl</kbd>+<kbd>→</kbd> / <kbd>Ctrl</kbd>+<kbd>←</kbd> o <kbd>Tab</kbd>: entre Traspaso y Pedir · <kbd>Enter</kbd>: baja en la misma columna · <kbd>←</kbd> <kbd>→</kbd>: resta o suma uno</p>
+                                }
                                 <ng-container *ngTemplateOutlet="addBranchTpl; context: { $implicit: r }"></ng-container>
                                 <!-- ACUSE — sólo cuando algo se consolida: con todo directo repetiría la tabla. -->
                                 @if (hayConsolidado(r)) {
@@ -1886,6 +1892,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* [PQ.129.1] Foco con outline sólido (3:1 o más), no el halo --action-ring (1.56:1): en una
        columna de cajas que se recorre con Enter, la que tiene el foco se tiene que ver sin buscarla. */
     .pr-qty:focus-visible, .pr-qty-tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-color: var(--action); }
+    /* [PQ.129.2] Las teclas de la captura, en gris y chico: se lee una vez. En táctil no hay teclado. */
+    .pr-teclas { margin: .35rem 0 0; color: var(--text-faint); font-size: var(--fs-micro); line-height: 1.6; }
+    .pr-teclas kbd { font-family: var(--font-mono, ui-monospace, monospace); font-size: inherit; padding: 0 .3rem;
+      border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); color: var(--text-muted); }
+    @media (hover: none) and (pointer: coarse) { .pr-teclas { display: none; } }
     /* El spinner nativo se retira para TODA la suite desde libs/ui-web/src/number-input.css
        (D.5), así que la regla que vivía acá se fue con él. Las flechas del TECLADO siguen siendo
        del input, no del spinner — y en esta pantalla onQtyKey las reasigna a moverse entre
@@ -4266,6 +4277,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * no se pudo calcular (peldaño en contra) o le llega de dos orígenes. Para ésos queda la tabla aparte:
    * todo traspaso se alcanza.
    */
+  /** `[PQ.129.2]` ¿El renglón tiene caja de traspaso junto a «Pedir»? (con el peldaño en contra no la hay). */
+  trasEditable(r: WorkbookRow, b: BranchBuy): boolean { return !b.rung && !!this.trasDe(r, b.code); }
+  /** `[PQ.129.2]` ¿Algún renglón del desglose tiene las dos cajas? Sólo entonces se dice cómo cruzar. */
+  hayTrasEditable(r: WorkbookRow): boolean { return this.filasDesglose(r).some((b) => this.trasEditable(r, b)); }
   trasFueraDeTabla(r: WorkbookRow): number {
     const enRenglon = new Set(this.filasDesglose(r).filter((b) => !b.rung).map((b) => b.code));
     return this.trasRows(r.product_id)
@@ -5281,6 +5296,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * el mismo orden en que se ven.
    */
   onQtyKey(ev: KeyboardEvent): void {
+    // [PQ.129.2] Ctrl + ← → cambia a la caja de al lado del mismo renglón (Traspaso ↔ Pedir). Va primero:
+    // con Ctrl, `pasoPorTecla` no da paso, así que no compiten.
+    if (moverEnRenglon(ev, '.pr-qty, .pr-qty-tr')) return;
     const el = ev.target as HTMLInputElement;
     const up = ev.key === 'ArrowUp';
     const down = ev.key === 'ArrowDown';

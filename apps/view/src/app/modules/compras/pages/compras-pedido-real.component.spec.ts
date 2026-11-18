@@ -1833,4 +1833,44 @@ describe('[PQ.129] el traspaso junto a lo que se pide: en la lista y en el rengl
       if (orig) Object.defineProperty(HTMLElement.prototype, 'offsetParent', orig);
     }
   });
+
+  it('[PQ.129.2] Ctrl+→ cruza del traspaso al «Pedir» de SU renglón, Ctrl+← regresa, y → solo sigue sumando', () => {
+    limpiar();
+    const orig = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get() { return (this as HTMLElement).parentNode; } });
+    try {
+      const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of(TRAS) });
+      f.componentInstance.toggleRow(fila());
+      f.detectChanges();
+      document.body.appendChild(f.nativeElement);
+      const el = f.nativeElement as HTMLElement;
+      const tra = el.querySelector<HTMLInputElement>('input.pr-qty-tr')!;
+      const suPedir = tra.closest('tr')!.querySelector<HTMLInputElement>('input.pr-qty')!;
+      expect(suPedir).toBeTruthy();
+      tra.focus(); tra.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', ctrlKey: true, bubbles: true }));
+      expect(document.activeElement).toBe(suPedir);
+      suPedir.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', ctrlKey: true, bubbles: true }));
+      expect(document.activeElement).toBe(tra);
+      const antes = Number(tra.value);
+      tra.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(document.activeElement).toBe(tra);                    // → solo no se mueve:
+      expect(Number(tra.value)).toBe(Math.floor(antes) + 1);       // suma uno (RA-PRO.57)
+      // Y la pantalla lo dice: el renglón de teclas sale sólo porque hay cajas de traspaso.
+      expect(el.querySelector('.pr-teclas')?.textContent).toContain('entre Traspaso y Pedir');
+      f.nativeElement.remove();
+    } finally {
+      if (orig) Object.defineProperty(HTMLElement.prototype, 'offsetParent', orig);
+    }
+  });
+
+  it('[PQ.129.2] sin traspaso en el renglón no se ofrece la tecla (ni el aviso)', () => {
+    limpiar();
+    const f = montar(WB, undefined, 'u1', { transferSuggestion: () => of({ rows: [], total_valor: 0 }) });
+    f.componentInstance.toggleRow(fila());
+    f.detectChanges();
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelector('.pr-teclas')).toBeNull();
+    const ped = el.querySelector<HTMLInputElement>('.pr-dx-tbl input.pr-qty')!;
+    expect(ped.getAttribute('aria-keyshortcuts')).not.toContain('Control');
+  });
 });
