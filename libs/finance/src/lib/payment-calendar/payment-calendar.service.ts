@@ -29,7 +29,10 @@ import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-prog
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
-import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
+import {
+  EVENTO_REABIERTO, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco,
+  testigoDelBanco, type FilaLiberadoQueSalio, type FilaPendienteVencido,
+} from './pagos-vencidos.sql';
 import {
   AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, segunLaDescarga,
   type CoberturaDeLaDescarga, type ReclamanteDeLaDescarga, type ResultadoPagoPorElBanco, type SalidaBanco,
@@ -1926,6 +1929,11 @@ export class PaymentCalendarService {
         ligado: 0, kepler_sin_medir: 0, kepler_pagado: 0, kepler_en_parte: 0, banco: 0, banco_sin_medir: 0,
       };
       const out: ResultadoPagosVencidos = { hoy, revisados: 0, liberados: 0, monto_liberado: 0, ids_liberados: [], conservados };
+      // `[PGP.149]` Primero se regresa lo que una pasada anterior soltó habiendo salido del banco.
+      const regreso = await this.regresarLosQueSalieron(trx, tenantId, hoy, autor);
+      out.regresados = regreso.ids.length;
+      out.ids_regresados = regreso.ids;
+      out.reprogramados_tras_liberar = regreso.reprogramados;
       const pend = (await trx.raw(SQL_PENDIENTES_VENCIDOS, [tenantId, hoy])).rows as FilaPendienteVencido[];
       out.revisados = pend.length;
       if (!pend.length) return out;
@@ -1934,13 +1942,14 @@ export class PaymentCalendarService {
         .select('allocation_id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount')) as
         (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
       const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.lot_date, alta: p.alta })), items);
-      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, [tenantId, hoy, ids, pend.map((p) => p.monto), pend.map((p) => p.lot_date)]))
-        .rows as { id: string; salio: boolean }[];
-      const banco = new Map(salidas.map((s) => [s.id, !!s.salio]));
+      // `[PGP.149]` El banco: el libro O la descarga; «no salió» sólo con la descarga cubriendo esos días.
+      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, paramsSalidaDeBanco(tenantId, hoy, pend)))
+        .rows as { id: string; salio: boolean; cubierto: boolean }[];
+      const banco = new Map(salidas.map((s) => [s.id, testigoDelBanco(s)]));
 
       for (const p of pend) {
         const cierre = cierres.get(p.id) ?? null;
-        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.get(p.id) ?? null, ligado: !!p.ligado }, hoy);
+        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.has(p.id) ? banco.get(p.id) ?? null : null, ligado: !!p.ligado }, hoy);
         if (d.accion === 'esperar') continue;
         if (d.accion === 'conservar') { conservados[d.motivo]++; continue; }
         const nota = notaLiberado(hoy, d.dias);
@@ -1973,6 +1982,38 @@ export class PaymentCalendarService {
       }
       return out;
     });
+  }
+
+  /**
+   * `[PGP.149]` **Lo que la liberación soltó habiendo salido del banco, vuelve.** El 17-nov se liberaron 7 pagos del
+   * 10-nov que la descarga del banco muestra salidos ($1,893,556.02): el testigo leía sólo el libro, parado desde el
+   * 10-nov. Kepler todavía debía sus facturas, así que se ofrecían otra vez para pagar. Aquí cada uno regresa a
+   * `pending` (el estado que tenía antes del error), con su nota y una fila `reabierto_salio_del_banco` en la bitácora
+   * con la salida que lo prueba; `[PGP.146]` lo pone entonces en «Por registrar en Kepler».
+   * ⛔ Si sus facturas ya están en otro pago vivo (alguien las volvió a programar) NO se toca: dos pagos de las mismas
+   * facturas es justo lo que esto evita; se cuenta aparte para que una persona lo revise.
+   */
+  private async regresarLosQueSalieron(trx: Knex.Transaction, tenantId: string, hoy: string, autor: string): Promise<{ ids: string[]; reprogramados: string[] }> {
+    const filas = (await trx.raw(SQL_LIBERADOS_QUE_SALIERON, [tenantId])).rows as FilaLiberadoQueSalio[];
+    const ids: string[] = [];
+    const reprogramados: string[] = [];
+    for (const f of filas) {
+      if (f.reprogramado) { reprogramados.push(f.id); continue; }
+      const nota = notaReabierto(hoy, { ...f, importe: Number(f.importe) });
+      const n = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: f.id, status: 'cancelled' }).update({
+        status: 'pending', notes: `${f.notes ?? ''}\n${nota}`.trim(), updated_by: autor, updated_at: trx.fn.now(),
+      });
+      if (!n) continue;
+      await trx('finance.payment_allocation_history').insert({
+        tenant_id: tenantId, allocation_id: f.id, event: EVENTO_REABIERTO, status_from: 'cancelled', status_to: 'pending', created_by: autor,
+        detail: JSON.stringify({ regla: 'PGP.149', hoy, nota, liberado: f.liberado, dia: f.lot_date, monto: Number(f.monto),
+          salida: { fecha: f.fecha, cuenta: f.cuenta, importe: Number(f.importe) } }),
+      });
+      const renglones = await trx('finance.payment_allocation_items').where({ allocation_id: f.id }).select('obligation_source', 'obligation_id');
+      for (const r of renglones) await this.recalcObligation(trx, r.obligation_source as ObligationSource, r.obligation_id);
+      ids.push(f.id);
+    }
+    return { ids, reprogramados };
   }
 
   /** `[PGP.147]` Los abonos vivos que Kepler aplicó a las facturas que deben menos, por llave de cargo. */

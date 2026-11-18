@@ -93,9 +93,9 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 | 8 | **Póliza de ContPAQi** | `[PGP.112]` (ya existe) | Alto | L | 2 | La Suite arma el TXT; Contabilidad lo importa con un clic (ADR-040: la Suite no escribe directo en ContPAQi) |
 | 9 | **Archivo de dispersión del banco** (D1-c) | `[PGP.137]` | Alto | L | 2 | Que la Suite arme el lote para el portal del banco. Requiere el catálogo de cuentas destino (O6/O7 de la fase) |
 | 10 | **Aplicar el anticipo** (agregado 2026-11-17) | `[PGP.139]` 🧪 · `[PGP.140]` | Alto · $2.0 M aplicables hoy, $3.6 M de +90 días | S (aviso) · M (escritura) | **1** | El aviso en la fila del pago ya está en código; la escritura en Kepler (`kdxf` + saldos) espera leer una aplicación entera en el Kepler vivo |
-
 | 11 | **El pago atrasado dice qué dice el banco** (agregado 2026-11-18) | `[PGP.146]` 🔨 | Medio · $3.0 M ya salidos que se veían «por preparar» | S | **1** | Sólo lectura de la descarga del banco; sin esto Contabilidad lee «atrasado» lo que ya se pagó. Ver §4a |
 | 12 | **El pago lleva más de lo que la factura debe** (agregado 2026-11-18, caso Mondelez) | `[PGP.147]` 🔨 · `[PGP.148]` | Alto · $0.41 M hoy en 5 pagos pendientes; $122 mil ya pagados de más | S (aviso) · M (ajuste) | **1** | Una nota de crédito, una devolución o un pago parcial bajan el saldo después de programar y nada lo volvía a comparar. Ver §4b |
+| 0 | ⛔ **La liberación a la semana soltó pagos que sí salieron del banco** (agregado 2026-11-18) | `[PGP.149]` 🔨 | **Crítico** · $1.89 M liberados por error el 17-nov; $1.8 M el 20-nov y $5.9 M al 24-nov con la regla vieja | S | **0** | Doble pago: las facturas de un pago que ya salió vuelven a ofrecerse. Va antes que todo. Ver §4c |
 
 ⭐ **Con los frentes 1 y 2, el 75 % del dinero `C…` deja de teclearse.** Con 4 y 6, el 96 %; con los anticipos, el 98 %.
 
@@ -143,7 +143,35 @@ Tesorería por el neto).
 pagos **sin autorizar** y avisar en los autorizados · (c) ajustar siempre. **Recomiendo (b)**: el importe correcto es un
 hecho (el saldo de Kepler), y en un pago sin autorizar nadie ha comprometido nada; en uno autorizado puede que
 Tesorería ya cargó la transferencia en el portal, y ahí cambiarlo en silencio haría que la Suite y el banco digan cosas
-distintas.
+distintas. **✅ Firmada (b) por Edgar el 2026-11-18** («si»).
+
+### 4c. ⛔ La liberación a la semana soltó pagos que sí salieron del banco (2026-11-18)
+
+**El hallazgo** (al construir la pantalla de §4a). `[PGP.117]` libera, a la semana, el pago que «nadie pagó»: lo pasa a
+`cancelled` y sus facturas vuelven a ofrecerse para programar. Su testigo del banco leía **sólo el libro**
+(`bank_movements`), que se quedó en el 10-nov (§4a), y tomaba «no está en el libro» como «no salió». **El 17-nov liberó
+así 7 pagos del 10-nov que la descarga del banco muestra salidos el 10 y 11-nov: $1,893,556.02** (placebo +$100: 0 de
+16 liberados). Kepler todavía debía esas facturas ($1,894,520.07): estaban otra vez a un clic de pagarse dos veces.
+Ninguna se había vuelto a programar al medirlo. Con la regla vieja, el **20-nov** se liberaban 30 más ($1.8 M) y al
+**24-nov** 54 ($5.9 M).
+
+**El arreglo** (`[PGP.149]`):
+1. **El testigo del banco son dos: el libro o la descarga.** Y «no salió» sólo se afirma si la descarga cubre esos días
+   (la cuenta preparada, o todas las de banco activas si nadie la preparó); si no, el pago se conserva como
+   `banco_sin_medir`. Es la regla que `[PGP.117]` ya declaraba («ante la duda, se queda»), que el libro parado rompía.
+2. **Lo que soltó por error vuelve, solo.** En la misma pasada diaria, cada liberado con una salida por su importe
+   (±$1, desde 3 días antes de su día hasta el día en que se liberó) regresa a `pending`, con su nota y una fila
+   `reabierto_salio_del_banco` en la bitácora; `[PGP.146]` lo pone en «Por registrar en Kepler». Si sus facturas ya
+   están en otro pago vivo, no se toca y el log lo nombra para que una persona lo revise.
+
+**Medido con el código real contra prod (ensayo en seco, sólo lectura):** regresan **los 7**; con la regla nueva el
+20-nov y el 24-nov se liberan **0** (el 24: 26 se conservan porque salieron, 29 porque falta descarga). La consecuencia
+se declara: **mientras alguna cuenta activa no tenga descarga de esos días, un pago sin preparar no se libera**
+(`STDR 5565` nunca se ha subido; `STDR 1621` y `STDR 2169` llegan al 10 y 11-nov). Para que la liberación vuelva a
+soltar lo que de verdad no se pagó, hay que subir esas descargas o dar de baja la cuenta que no se usa.
+
+**Acción para personas, hoy:** que nadie vuelva a programar las facturas de esos 7 pagos hasta que el arreglo esté en
+prod; y, para cortar la liberación de inmediato, apagarla en el worker (`DISABLE_PAGOS_VENCIDOS=true`) hasta desplegar.
 
 **Acción para personas (no es código):** los $122,142.69 de Mondelez. Recomendado: al capturar en Kepler el `X-D-26`
 del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pago del **19-nov** (`0010025` y
@@ -208,6 +236,11 @@ del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pag
 - **2026-11-18** — Frente 12 (`[PGP.147]`), pedido de Edgar con el caso Mondelez: una nota de crédito de $120,000
   aplicada el 12-nov y el pago del 13 salió completo, $122,142.69 de más (§4b). 5 pagos pendientes llevan $414,800.53
   más de lo que deben. C1+C2 en código; D19 para Edgar.
+- **2026-11-18** — Edgar firma D19 (b): el pago sin autorizar se ajusta solo al saldo de Kepler; en el autorizado sólo
+  se avisa.
+- **2026-11-18** — ⛔ Frente 0 (`[PGP.149]`): la liberación a la semana soltó el 17-nov 7 pagos que sí habían salido del
+  banco ($1.89 M), porque su testigo leía sólo el libro parado. Ahora lee también la descarga, no afirma «no salió» sin
+  cobertura y regresa sola lo que soltó por error (§4c). Prueba con base real escrita, corre en el CI.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado
