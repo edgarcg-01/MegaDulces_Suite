@@ -6,7 +6,8 @@ import { AuthService } from '../../core/services/auth.service';
 
 /** Un cambio en un comprobante de cobranza (lo emite el backend al mutar). */
 export interface CollectionDepositEvent {
-  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched';
+  /** `[CC.20]` `reported` = un CLIENTE subió su ficha desde su enlace (sin cobro todavía: `folio` vacío). */
+  action: 'attached' | 'validated' | 'rejected' | 'bank_matched' | 'bank_unmatched' | 'reported' | 'bank_loaded';
   sucursal: string;
   folio: string;
   status: string | null;

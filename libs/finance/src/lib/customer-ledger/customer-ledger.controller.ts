@@ -1,15 +1,16 @@
 import { Controller, Get, Header, Post, Param, Query, Body, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, TenantContextService, requestOrigin } from '@megadulces/platform-core';
+import type { RequestConCabeceras } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
 // un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
-import type { PorDiaResp } from './customer-ledger.service';
+import type { PorDiaResp, ContactoRegistrado } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 
-interface AuthedRequest { user?: { username?: string } }
+interface AuthedRequest extends RequestConCabeceras { user?: { username?: string } }
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Estado de cuenta
@@ -135,6 +136,21 @@ export class CustomerLedgerController {
   }
 
   /**
+   * `[CXC.43]` Deja constancia de que se contactó a la cuenta. Lo llama la pantalla al tocar
+   * «Llamar», «Enviar por WhatsApp» o «Estado de cuenta (PDF)»: lo registra el acto, no un
+   * formulario. Tabla propia; nunca escribe a Kepler.
+   */
+  @Post(':sucursal/:cliente/contact')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Registra un contacto de cobranza con la cuenta: telefono | whatsapp | estado_cuenta_pdf.' })
+  registrarContacto(
+    @Param('sucursal') sucursal: string, @Param('cliente') cliente: string,
+    @Body('canal') canal: string, @Req() req: AuthedRequest,
+  ): Promise<ContactoRegistrado> {
+    return this.svc.registrarContacto(sucursal, cliente, canal, req.user?.username);
+  }
+
+  /**
    * `[CXC.SKU.1]` Buscar por SKU o descripción: qué facturas Y qué notas de crédito o
    * devoluciones tocaron ese producto.
    *
@@ -161,8 +177,10 @@ export class CustomerLedgerController {
     @Param('sucursal') sucursal: string,
     @Param('cliente') cliente: string,
     @Res() res: Response,
+    @Req() req: AuthedRequest,
   ): Promise<void> {
-    const { pdf, nombre } = await this.estadoCuenta.render(sucursal, cliente);
+    // `[CC.20]` El origen público va para el QR del enlace de depósito que se imprime en el PDF.
+    const { pdf, nombre } = await this.estadoCuenta.render(sucursal, cliente, requestOrigin(req));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
     res.send(pdf);

@@ -1232,8 +1232,8 @@ sin avisar (2026-11-17).**
 | 2 | Soltar `[PGP.122.4]` (R8), **sólo después** del `GRANT` de `sqliov` en los 9 servidores (`ops/prod/kepler-grants/pgp1224_contador_sqliov.sql`: sólo el contador, sin `kdm6`): con `compra` y `telemarketing` encendidos en los 9, soltarlo antes los detiene | Edgar | — |
 | 3 | ADR de la X-A-15 (R10): ADR-119, ⏳ propuesto el 2026-11-17 | lo ratifica Edgar | el canario |
 | 4 | Captura de prueba S.1 en 05 (`foto-contadores.js`) | Edgar + capturista de 05 | 5 |
-| 5 | GRANT en 05 | Edgar | 6 |
-| 6 | Ensayo con ROLLBACK: `fallas: []`, `control.intacto: true` | Edgar | 7 |
+| 5 | GRANT en 05 — ✅ 2026-11-18: lo aplicó Edgar desde `md` (`~/grants-pgp122/aplicar-05.sh`, una transacción, COMMIT sólo con la verificación del archivo en true) | Edgar | 6 |
+| 6 | Ensayo con ROLLBACK — ✅ 2026-11-18: `estado: escrito`, `fallas: []`, `avisos: []`, los 9 permisos en true, `control.intacto: true` (contador `KFXA1501.05` 82 antes y después; el ensayo habría tomado el folio `0000082`) | Edgar | 7 |
 | 7 | Secreto: `KEPLER_GASTO_SOLICITUD`, `KEPLER_SOLGASTO_TEMPLATE_FOLIO_05` | Edgar | 8 |
 | 8 | Interruptor de 05, tope 1 | Edgar | — |
 | 9 | Canario: una se aplica (X-A-10) y otra se cancela en Kepler, y el vale se entera | Edgar + Finanzas | el piloto |
@@ -1385,6 +1385,11 @@ programada.**
   importer». **No se propone.**
 - La pregunta real es **DS46**: ¿de dónde llega la nómina a la Suite **por evento**? Sin esa respuesta, F2 no tiene
   fuente ni árbitro.
+- ✅ **Actualización 2026-11-18: DS46 la resolvió Edgar con la D15** (`1d5cf3b96`, `[CANON.6.21]`). La réplica pasó del
+  cron a un proceso en ciclo (`ops/k3s/32-contpaqi-replica.deployment.yaml`). En `md`, `contpaqi-replica` lleva 15 h
+  arriba y `contpaqi_nom` ya trae el pago del **13-nov**: 630 CFDI de nómina desde el 24-oct. **F2 ya tiene fuente.**
+  Le falta el árbitro: GN001 contra el neto pagado no cuadraba (67–115 %), y hay que volver a medirlo con los pagos de
+  noviembre. El evento de verdad sería Change Tracking de SQL Server, con quien administra ese servidor.
 
 **DS45 (el `kdxg` del primer documento), lo que ya se sabe para `[PGP.123]`:**
 - *La fila que crea Kepler*, medida en 3 acreedores nuevos (GA031 y GM027 en 08, GR018 en 00): `c1 = PESOS`,
@@ -1406,6 +1411,29 @@ programada.**
 - *Retiro:* el ciclo se retira cuando ese evento exista y lleve 30 días sin que el barrido encuentre algo que el
   evento no vio.
 
+**R1 por evento — hecho en código (2026-11-18), apagado hasta su migración:**
+- *La base avisa:* `tg_solicitud_suite_ins` / `_upd` en `kepler_ods.kdm1`, por sentencia (como `tg_bml_*` y
+  `tg_exs_*`, que ya viven ahí). Avisan `solicitud_gasto_kepler` cuando llega una X-A-15 serie 1 con la marca de la
+  Suite, o le cambia `c43` o `c26`. **Sólo avisan, no escriben**, y si fallan dejan pasar la escritura
+  (`RAISE WARNING`). Migración `20261118085331`: ⛔ **fuera de horario**, porque toma SHARE ROW EXCLUSIVE sobre
+  `kdm1` hasta su COMMIT.
+- *El worker escucha:* `SolicitudPorEventoService` junta los avisos 5 s y corre `SolicitudGastoService.lazo()`, que
+  ahora es un método aparte. Ese lazo marca lo escrito como visto en el ODS, pasa la cancelación de Kepler al vale y
+  busca huérfanas. **No hay cola:** el lazo lee el estado de verdad, así que un aviso perdido no pierde nada. Mira
+  también al arrancar y cuando el `LISTEN` vuelve.
+- *El ciclo de 5 min se queda de árbitro*, y además reintenta escrituras y revisa contadores. Su latido ahora dice
+  «N las encontró el ciclo y no el aviso». ⚠️ Puede contar de más por una carrera de segundos con la espera de 5 s.
+- *Pruebas:*
+  - `test-newdb-solicitud-por-evento.js`: 10 ✔ contra un Postgres 18 local (no prod). Incluye la negativa con
+    `down()` y tres mutantes muertos: «el UPDATE avisa siempre», «nunca avisa» y «sin filtrar por `c4`».
+  - `solicitud-por-evento.arranque.spec.ts`: 10 ✔, con dos mutantes muertos (canal distinto, módulo sin
+    `PgListenService`).
+- *Migración:* ✅ aplicada el 2026-11-18 (lote 1201, 0.1 s). Se aplicó en horario hábil con el sí de Edgar, porque el candado
+  dura milisegundos y no aplicarla detenía cualquier soltar del día. Los dos disparadores quedaron en prod y la ingesta
+  siguió escribiendo `kdm1`. *Falta:* desplegar el worker. Con la escritura apagada en las 9, el aviso no tiene nada
+  que avisar.
+- *Retiro del lazo del ciclo:* 30 días con «0 las encontró el ciclo» y con escrituras reales.
+
 | D | Pregunta | De quién |
 |---|---|---|
-| **DS46** | ¿De dónde llega la nómina a la Suite, por evento (sin cron ni importer)? Hoy la única copia es una réplica manual del 30-oct | Edgar |
+| ~~DS46~~ | ✅ Resuelta por Edgar con la D15 (2026-11-17): la réplica de ContPAQi corre en ciclo en `md` y la nómina llega fresca (pago del 13-nov) | Edgar |

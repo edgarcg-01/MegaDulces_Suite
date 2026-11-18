@@ -19,8 +19,25 @@
 - (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
 - (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
 - (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en prod desde el 2026-11-18)
+- En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
+
+### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en prod desde el 2026-11-18)
+- Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
+- Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
+
+### Added — La ficha del cliente se valida contra el banco (CC.21 · 2026-11-17 · en prod desde el 2026-11-18)
+- En **Cobranza › Fichas de clientes**, cada ficha dice si el depósito ya entró al banco: lo busca en el estado de cuenta (mismo monto, fecha cercana) y revisa que el cobro que Kepler le aplicó sea de ese mismo cliente.
+- Las que el banco confirma se ligan a su cobro con un clic, o todas de una vez. Si el dinero entró y Kepler todavía no tiene el cobro, el abono se marca como de ese cliente para que se capture.
+- «No aparece en el banco» sólo se dice cuando el estado de cuenta ya está cargado después del depósito; si no, se indica hasta qué día está cargado.
+
 ### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
 - Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
+### Added — El cliente sube su ficha de depósito desde su celular (CC.20 · 2026-11-17 · en prod desde el 2026-11-18)
+- Cada cliente tiene un enlace personal, sin usuario ni contraseña: va en el mensaje de WhatsApp del estado de cuenta y como código QR impreso en el PDF. Ahí toma la foto de su ficha (o la captura de su transferencia), la Suite lee el monto y la fecha, y la envía.
+- Cobranza la recibe al momento en **Cobranza › Fichas de clientes**: la liga al cobro de Kepler (con los cobros del mismo monto como sugerencia) o la rechaza con un motivo que el cliente ve en su enlace.
+- En Cartera, la ficha del cliente muestra las fichas que subió y permite copiar su enlace.
+- Corregido: el resumen de cobranza dentro de la ficha de Cartera nunca aparecía, y por la misma falla tampoco los compromisos de pago.
 
 ### Changed — Pedidos del almacén: el Tablero abre en lo pendiente y con menos piezas (GP.RF.22 · 2026-11-17 · en código, sin soltar)
 - Al entrar se ve «Por hacer»: lo que sigue en el almacén, de autorizado a checado. Los embarcados y «Todos» quedan a un clic.
@@ -28,14 +45,23 @@
 - «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
 - Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
 
+### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en prod desde el 2026-11-18)
+- La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
+- La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
+
 ### Changed — Pedidos del almacén: la lista del Tablero por páginas, el total por destino y la leyenda del volumen (GP.10.5 · 2026-11-17 · en código, sin soltar)
 - La lista ya no se corta en 2,000 pedidos: llega por páginas de 200 y el paginador alcanza todos (el mes tenía 2,358 y bajaban 1.4 MB). La preventa ya no queda al final: va por su fecha, junto a los de Kepler.
 - El total del pie se separa en lo que va a clientes, el traspaso a sucursales y la carga a ruta. Antes lo sumaba todo como si fuera venta.
 - Debajo de la lista, una leyenda dice qué es cada unidad del volumen (CJA caja, PAQ paquete…), y «6 500» ahora se lee «6 de 500».
 - Arreglo: al llegar desde los pedidos atorados de la fila de surtido, la nota decía 1,885 cuando la lista traía 58. Ahora dice cuántos trae la lista.
 - Ya en producción (`4d99357f7`): escanear para asignar ubicaciones, imprimir carteles, los arreglos de Ubicaciones, la liga de los atorados y el cambio de vista en la cabecera del Tablero.
+### Changed — Crédito de clientes: buscar y ordenar al instante, «Siguiente cliente» y «contactado hoy» (CXC.42 · CXC.43 · 2026-11-17 · en prod desde el 2026-11-18)
+- La búsqueda encuentra mientras escribes (sin Enter, sin acentos, por varias palabras) y el orden cambia al instante: ya no se recarga la cartera.
+- La pantalla ya no brinca al cargar, y mientras se aplica un filtro dice «Actualizando…».
+- En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
+- Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
 
-### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
+### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en prod desde el 2026-11-18)
 - `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
 - Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.
 - El aviso «se ven 500 de N cuentas» va arriba de la tabla, y el **CSV trae todas las cuentas del filtro**, no sólo las 500 que se ven.

@@ -121,3 +121,26 @@ export function factorPresentacionFicha(f: FilaFichaKepler, rotuloPres: string |
   if (p === rotulo(f.c83)) return efectivo(numero(f.c84), numero(f.c79), c1);
   return null;
 }
+
+/**
+ * `[COT.45]` El factor EXACTO de una presentación cuando la vista lo dejó entero. `v_label_presentations`
+ * y `v_label_prices` hacen `floor(c81)` / `floor(c84)::integer`, y Kepler sí guarda decimales en 8
+ * artículos por sucursal (medido el 2026-11-18): el bulto 95579 trae 19.75 PAQ y la vista dice 19, la
+ * caja 97235 trae 10.80 KG y la vista dice 10, pero el PRECIO es el de la presentación completa. Con 19
+ * el cotizador repartía el precio entre menos unidades y el pedido rebotaba en Kepler (19 contra 19.75).
+ *
+ * Se usa la ficha (`c81` de la Unidad Dos si el rótulo es `c80`, `c84` de la Tres si es `c83`) SÓLO si
+ * el entero de la ficha es el número de la vista: eso prueba que la vista lo truncó. Si no coinciden,
+ * se queda el de la vista (no se mezcla el factor de una presentación con el de otra).
+ */
+export function factorExactoDeFicha(
+  vista: number | null,
+  rotuloPres: string | null | undefined,
+  f: { u2?: unknown; f2?: unknown; u3?: unknown; f3?: unknown } | null | undefined,
+): number | null {
+  const p = rotulo(rotuloPres);
+  if (vista === null || p === null || !f) return vista;
+  const exacto = p === rotulo(f.u3) ? Number(f.f3) : p === rotulo(f.u2) ? Number(f.f2) : NaN;
+  if (!Number.isFinite(exacto) || exacto <= 1 || exacto === vista) return vista;
+  return Math.floor(exacto) === Math.floor(vista) ? exacto : vista;
+}
