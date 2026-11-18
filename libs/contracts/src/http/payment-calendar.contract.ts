@@ -254,6 +254,12 @@ export interface PagosAtrasadosDia {
   /** `[PGP.95]` Los pendientes que Kepler ya saldó por completo: no faltan, se dicen aparte. */
   conciliados: number;
   conciliados_monto: number;
+  /**
+   * `[PGP.146]` Los pendientes que la descarga del banco ya muestra salidos (y Kepler todavía no salda): tampoco
+   * «siguen» por pagar. Auditoría del 2026-11-18: el aviso contaba 65 y 20 ya habían salido. Ausente = API anterior.
+   */
+  salidos?: number;
+  salidos_monto?: number;
 }
 
 /**

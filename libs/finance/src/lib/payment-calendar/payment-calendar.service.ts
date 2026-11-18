@@ -1894,10 +1894,14 @@ export class PaymentCalendarService {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', pend.map((p) => p.id))
         .select('allocation_id', 'obligation_source', 'obligation_id');
       const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.date, alta: p.alta })), items);
+      // `[PGP.146]` Lo que la descarga del banco ya muestra salido tampoco «sigue» por pagar (auditoría del 2026-11-18:
+      // el aviso contaba 65 y 20 ya habían salido, mientras la bandeja y el veredicto del día los separaban).
+      const descarga = await this.segunLaDescarga(trx, tenantId, todayMx());
       const porDia = new Map<string, PagosAtrasadosDia>();
       for (const p of pend) {
-        const d = porDia.get(p.date) ?? { date: p.date, pagos: 0, monto: 0, conciliados: 0, conciliados_monto: 0 };
+        const d = porDia.get(p.date) ?? { date: p.date, pagos: 0, monto: 0, conciliados: 0, conciliados_monto: 0, salidos: 0, salidos_monto: 0 };
         if (cierreCompleto(cierres.get(p.id))) { d.conciliados += 1; d.conciliados_monto = round2(d.conciliados_monto + Number(p.monto)); }
+        else if (descarga.get(p.id)?.estado === 'salio') { d.salidos = (d.salidos ?? 0) + 1; d.salidos_monto = round2((d.salidos_monto ?? 0) + Number(p.monto)); }
         else { d.pagos += 1; d.monto = round2(d.monto + Number(p.monto)); }
         porDia.set(p.date, d);
       }
