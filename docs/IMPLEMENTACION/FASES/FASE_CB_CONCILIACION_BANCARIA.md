@@ -717,9 +717,30 @@ en llano y sin `kdm1`, `102` ni «falta redeploy».
 (consulta exacta) contra el drill por cuenta (±$1) — ninguno de los dos se tocó: **anterior a CB.82**, queda para revisar.
 **Sin validación visual.**
 
-**Pendiente de la misma auditoría.** Latencia: cuadre 815 ms y cheques en tránsito 2.4 s de promedio (hasta 10 s) para
-`finanzas_operativo`, contra la regla de 500 ms. La lista de cheques se topa en 50 sin aviso (hoy 19). La vista por día no
-recorta (muestra los días posteriores con banco en cero, que es lo que son).
+**Pendiente de la misma auditoría.** La lista de cheques se topa en 50 sin aviso (hoy 19). La vista por día no recorta
+(muestra los días posteriores con banco en cero, que es lo que son).
+
+**⛔ Corregido el 2026-11-18: la «latencia» de la auditoría NO existe hoy.** La auditoría citó «cuadre 815 ms, cheques en
+tránsito 2.4 s (hasta 10 s)»: era el promedio de 30 días de `analytics.ui_usage`, que mezcla dos regímenes. La serie por día
+(`finanzas_operativo`) tiene un escalón el **28-oct**: cheques 6.5 s → 70 ms, cuadre 2.1 s → 190 ms, detalle 2.0 s → 150 ms.
+No fue toda la API (Comercial y Logística no bajan ese día): es `1fd46ce06` (27-oct), «Bancos lee la tabla del trigger, fuera
+el REFRESH de cada minuto». `ui_usage` mide dentro del servidor (interceptor de Nest), así que el túnel no entra.
+
+| Endpoint (últimos 7 días, todos los roles) | Promedio | Máximo de un día |
+|---|---:|---:|
+| `three-way` | 207 ms | 513 ms |
+| `three-way-detail` | 183 ms | 661 ms |
+| `cheques-transito` | 73 ms | 168 ms |
+| `diagnostico` (lo pide la carcasa de Bancos en cada vista, no el Cuadre) | 306–310 ms (17 y 18-nov) | ~890 ms |
+
+`diagnostico` bajó de ~1,000–1,300 ms a 438 el 14-nov y ~306 desde el 17: es `[CB.71]` (`7bb8aec9a`), que dejó «NO MEDIDO:
+latencia tras desplegar»; queda medido aquí. El resto cuadra con el código: con el servicio real en sólo lectura, `diagnostico`
+tarda 78 ms en noviembre y 208 ms en un mes cerrado, y prod suma un costo fijo de ~30 ms por petición (`balances` 8 → 42 ms,
+`statements` 5 → 33 ms). Las 6 llamadas de la carga en ráfaga no se estorban (diagnóstico 78 → 108 ms).
+
+**Lo que CB.82 agrega** (antes `815e5892b` contra después, intercalados, 5 corridas, mediana; el viaje laptop→prod es 1 ms):
+`three-way` nov 115 → 147 ms (17 → 23 consultas), oct 165 → 180 ms; `three-way-detail` +5 a +10 ms (10 → 14 consultas).
+NO MEDIDO: a qué se deben los máximos de un día arriba de 500 ms (`ui_usage` guarda sólo el máximo diario, no el reparto).
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
