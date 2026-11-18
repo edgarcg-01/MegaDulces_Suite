@@ -2986,6 +2986,32 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // `[PGP.144]` El embudo de los anticipos que pide Compras (Francisco, 2026-11-17). Palabra llana.
+  'embudo-anticipos': {
+    title: 'Anticipos solicitados — de la solicitud de Compras al anticipo aplicado',
+    intro:
+      'Cada anticipo que pide Compras (con su orden de compra de Kepler, la cotización del proveedor y la cuenta) recorre cinco pasos. El embudo dice cuántos llegaron a cada paso y cuántos siguen ahí: donde se juntan, ahí se atora el proceso. Antes no había rastro: Compras pedía la cotización, conseguía la firma de Finanzas y esperaba a que alguien lo agregara a mano.',
+    groups: [
+      {
+        heading: 'Los pasos',
+        entries: [
+          { term: 'Solicitado', def: 'Compras lo pidió y todavía no tiene día en el Calendario de pagos. Los días cuentan desde que se pidió.' },
+          { term: 'Programado', def: 'Ya está en un pago del Calendario. Sólo cuenta como atorado si su día ya pasó y no se pagó.' },
+          { term: 'Cubierto', def: 'El programa de pagos ya lo pagó. Falta que Cuentas por pagar capture su anticipo (X-D-60) en Kepler; los días cuentan desde que se pagó.' },
+          { term: 'En Kepler', def: 'Kepler ya tiene su anticipo: mismo proveedor, misma sucursal e importe (±$1). Falta que se aplique a la factura cuando llegue la mercancía.' },
+          { term: 'Aplicado', def: 'Kepler ya lo aplicó entero a una factura: el anticipo terminó.' },
+        ],
+      },
+      {
+        heading: 'Fuera del embudo',
+        entries: [
+          { term: 'En Kepler sin solicitud', def: 'Anticipos de mercancía que están en Kepler y que nadie pidió en la Suite: se pagaron por fuera del proceso. Gasto y tarjeta no entran (no se piden aquí).' },
+          { term: 'Cancelado', def: 'Se pidió y se canceló antes de pagarse. No cuenta en ningún paso.' },
+        ],
+      },
+    ],
+  },
+
   // `[PGP.97]` Salidas del banco: la guía de quien elabora el pago en Kepler. Palabra llana.
   'salidas-del-banco': {
     title: 'Salidas del banco — lo que salió, contra Kepler y contra el programa',

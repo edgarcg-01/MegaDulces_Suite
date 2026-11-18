@@ -9,13 +9,19 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import { HttpClient } from '@angular/common/http';
 import { Subscription } from 'rxjs';
 import {
   CLASES_OC, CLASE_OC_ACCION, CLASE_OC_LABEL, ClaseOc, clasificarOc,
   OC_NOTA_MAX, OC_SEGUIMIENTO_ESTATUS, OC_SEGUIMIENTO_LABEL, OC_SIN_REVISAR, OcSeguimientoEstatus,
   notaObligatoria, validarSeguimiento,
   OC_CANCELAR_MOTIVO_MIN, type OcCancelacionDisponibleDto, type OcCancelacionDto,
+  anticiposDeOc, ETAPA_ANTICIPO_TEXTO, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow, type EtapaSolicitudAnticipo,
 } from '@megadulces/contracts';
+import { PedirAnticipoDialogComponent } from '../../finanzas/components/pedir-anticipo-dialog.component';
+import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -52,9 +58,15 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 @Component({
   selector: 'app-compras-oc-abiertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, SidePeekComponent, PageTabsComponent, SucursalPipe, RouterLink],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, ToastModule, SidePeekComponent, PageTabsComponent, SucursalPipe, RouterLink,
+    PedirAnticipoDialogComponent],
+  // [PGP.143] El formulario de anticipo avisa con el MessageService de la pantalla que lo contiene.
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast />
+    <!-- [PGP.143] El MISMO formulario que el Calendario de pagos y Anticipos; aquí se abre con la orden ya elegida. -->
+    <app-pedir-anticipo-dialog #pedirAnt (pedido)="cargarAnticipos()" />
     <div class="surf-page in oa-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -239,7 +251,10 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
             <td class="oa-muted" role="cell" data-label="Fecha">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
             <td class="comm-num dt-num" role="cell" data-label="Abierta"><span [class.oa-edad-bad]="o.dias > 30">{{ o.dias }} d</span></td>
             <td role="cell" data-label="Estado">{{ estadoTexto(o) }}</td>
-            <td class="comm-num dt-num is-strong" role="cell" data-label="Total">{{ money(o.valor) }}</td>
+            <td class="comm-num dt-num is-strong" role="cell" data-label="Total">{{ money(o.valor) }}
+              <!-- [PGP.143] Si ya se pidió anticipo sobre esta orden, se ve en la lista (una línea; el desglose, en su detalle). -->
+              @if (anticipoPorOc().get(o.almacen + '|' + o.folio); as t) { <div class="oa-ant">anticipo {{ money(t) }}</div> }
+            </td>
             <!-- [PQ.31] El seguimiento vuelve a la fila, a UN clic: medido 2026-10-29, 365 órdenes
                  recibieron seguimiento en 30 días (~12 al día). Mandarlo al panel lo hacía de dos. -->
             <td role="cell" data-label="Seguimiento">
@@ -402,6 +417,42 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
               }
             </ul>
           } @else { <p class="oa-pk-msg oa-muted">Todavía no llegó nada contra esta orden.</p> }
+
+          <!-- [PGP.143] Lo que ya se adelantó al proveedor sobre esta orden, y pedir un anticipo desde ella
+               (Francisco, 2026-11-17: «que se conecte con una orden de compra del departamento de compras»).
+               La etapa sale del seguimiento de anticipos; no se recalcula aquí. -->
+          @if (puedeVerAnticipos) {
+            <h3 class="oa-pk-h">Anticipos <span class="oa-muted">({{ anticiposPeek()?.filas?.length ?? 0 }})</span></h3>
+            @if (anticiposError()) {
+              <p class="oa-pk-msg oa-muted" role="status">No se pudieron leer los anticipos: no se sabe si esta orden tiene.
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="cargarAnticipos()"><span class="p-button-label">Reintentar</span></button></p>
+            } @else if (!anticiposListos()) {
+              <p class="oa-pk-msg oa-muted" aria-live="polite">Leyendo sus anticipos…</p>
+            } @else if (anticiposPeek()?.filas?.length) {
+              <ul class="oa-pk-list">
+                @for (f of anticiposPeek()!.filas; track f.anticipo.obligation_id) {
+                  <li>
+                    <span>{{ etapaAnticipo(f.anticipo.etapa) }}</span>
+                    <span class="oa-muted">pidió {{ f.anticipo.creado_por || 'sin nombre' }} el {{ f.anticipo.creado | date:'dd/MM/yy' }}@if (f.anticipo.fecha_deseada) { · para el {{ f.anticipo.fecha_deseada | date:'dd/MM/yy' }}}@if (f.otras.length) { · junto con la OC {{ f.otras.join(', ') }}}</span>
+                    <b class="comm-num">{{ money(f.anticipo.monto) }}</b>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="oa-pk-msg oa-muted">Esta orden no tiene anticipos pedidos.</p>
+            }
+            @if (puedePedirAnticipo) {
+              @if (aceptaAnticipo(peekOrden()!)) {
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary oa-pk-ant-btn" (click)="pedirAnticipo(peekOrden()!, pedirAnt)"
+                        [attr.aria-label]="'Pedir anticipo sobre la orden ' + peekOrden()!.folio">
+                  <span class="p-button-icon p-button-icon-left pi pi-wallet" aria-hidden="true"></span>
+                  <span class="p-button-label">Pedir anticipo</span>
+                </button>
+              } @else {
+                <p class="oa-pk-msg oa-muted">Sólo se pide anticipo sobre una orden pendiente o recibida en parte en Kepler.</p>
+              }
+            }
+          }
 
           <!-- La historia del seguimiento: quien la toco y cuando. -->
           @if (d.historia.length) {
@@ -638,6 +689,9 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-pk-list li { display: flex; align-items: center; gap: .6rem; font-size: .8rem;
                      padding: .35rem 0; border-bottom: 1px solid var(--border-color); }
     .oa-pk-list li b { margin-left: auto; }
+    /* [PGP.143] El anticipo de la orden: una línea tenue bajo el total (no compite con él) y el botón en su detalle. */
+    .oa-ant { font-size: .7rem; font-weight: 400; color: var(--text-muted); }
+    .oa-pk-ant-btn { margin-top: .5rem; }
     .oa-pk-hist li { font-size: .8rem; padding: .4rem 0; border-bottom: 1px solid var(--border-color);
                      display: flex; flex-wrap: wrap; gap: .45rem; align-items: baseline; }
     .oa-pk-nota { flex-basis: 100%; margin: .2rem 0 0; color: var(--text-muted); line-height: 1.45; }
@@ -877,6 +931,51 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly peekError = signal<string | null>(null);
   private peekSub: Subscription | null = null;
 
+  // ── `[PGP.143]` Los anticipos de cada orden, y pedir uno desde ella ───────────────────────────
+  // El seguimiento de anticipos (`GET supplier-obligations/anticipos`, 180 días) ya trae la etapa y sus OC
+  // de Kepler: se lee UNA vez y se cruza por sucursal + folio (`anticiposDeOc`, del contrato). Las órdenes
+  // de esta pantalla son de 120 días: sus anticipos caben en esa ventana.
+  private readonly http = inject(HttpClient);
+  /** Lo leen Compras y Finanzas (medido 2026-11-17: todos los roles que entran aquí tienen una de las dos). */
+  readonly puedeVerAnticipos = this.perms.hasAny(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER);
+  /** Pide quien puede pedir en el Calendario (D14): la MISMA lista que el servidor. */
+  readonly puedePedirAnticipo = this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO);
+  readonly anticipos = signal<AnticipoSolicitadoRow[]>([]);
+  readonly anticiposListos = signal(false);
+  readonly anticiposError = signal(false);
+  private anticiposSeq = 0;
+  cargarAnticipos(): void {
+    if (!this.puedeVerAnticipos) return;
+    const seq = ++this.anticiposSeq;
+    this.anticiposError.set(false);
+    this.http.get<AnticipoSolicitadoRow[]>(`${environment.apiUrl}/commercial/supplier-obligations/anticipos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { if (seq !== this.anticiposSeq) return; this.anticipos.set(r ?? []); this.anticiposListos.set(true); },
+      // Sin poder leerlos se DICE en el detalle; en la lista no se pinta «sin anticipo».
+      error: () => { if (seq !== this.anticiposSeq) return; this.anticipos.set([]); this.anticiposError.set(true); },
+    });
+  }
+  /** Por orden (sucursal|folio): el total de sus anticipos vivos. Sólo las que tienen. */
+  readonly anticipoPorOc = computed(() => {
+    const m = new Map<string, number>();
+    const ants = this.anticipos();
+    if (!ants.length) return m;
+    for (const o of this.rows()) {
+      const { total } = anticiposDeOc(ants, o.almacen, o.folio);
+      if (total > 0) m.set(`${o.almacen}|${o.folio}`, total);
+    }
+    return m;
+  });
+  readonly anticiposPeek = computed(() => {
+    const o = this.peekOrden();
+    return o ? anticiposDeOc(this.anticipos(), o.almacen, o.folio) : null;
+  });
+  etapaAnticipo(e: EtapaSolicitudAnticipo): string { return ETAPA_ANTICIPO_TEXTO[e]; }
+  /** Kepler `c43`: sólo pendiente (N) o recibida en parte (R) acepta anticipo (la misma regla del formulario). */
+  aceptaAnticipo(o: { estatus: string }): boolean { return ['N', 'R'].includes(String(o.estatus ?? '').trim()); }
+  pedirAnticipo(o: FilaOc, dlg: PedirAnticipoDialogComponent): void {
+    dlg.abrirParaOc({ sucursal: o.almacen, folio: o.folio, codigo: o.proveedor_codigo ?? null, nombre: o.proveedor });
+  }
+
   abrirDetalle(o: FilaOc): void {
     this.peekOrden.set(o);
     this.peekData.set(null);
@@ -1084,6 +1183,8 @@ export class ComprasOcAbiertasComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // [PGP.143] Los anticipos van aparte (~250 ms) y no detienen la lista.
+    this.cargarAnticipos();
     // [RA-PRO.69] Estado en URL: rehidratar antes del primer reload (F5 y deep-link).
     const q = this.route.snapshot.queryParamMap;
     const suc = q.get('suc');

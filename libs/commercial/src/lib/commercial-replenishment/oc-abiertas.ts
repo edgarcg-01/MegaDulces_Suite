@@ -27,6 +27,8 @@ export interface OcAbierta {
   folio: string;
   fecha_oc: unknown;
   proveedor: string | null;
+  /** `[PGP.143]` El código del acreedor en Kepler (`C…`): con él se pide el anticipo de esta orden. */
+  proveedor_codigo?: string | null;
   estatus: string;
   dias: number;
   lineas: number;

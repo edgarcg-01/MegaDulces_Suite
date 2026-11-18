@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CloudinaryModule } from '@megadulces/platform-core';
 import { SupplierPaymentObligationsService } from './supplier-payment-obligations.service';
 import { SupplierPaymentObligationsController } from './supplier-payment-obligations.controller';
 import { SupplierCreditTermsService } from './supplier-credit-terms.service';
@@ -17,6 +18,8 @@ import { PurchaseDeliveriesController } from './purchase-deliveries.controller';
  * `[RE.32]` — y la entrega de compras recibidas a Finanzas (folio, quién entrega, quién recibe).
  */
 @Module({
+  // `[PGP.127]` `ObjectStorageService` (la cotización del anticipo) lo exporta `CloudinaryModule`.
+  imports: [CloudinaryModule],
   controllers: [SupplierPaymentObligationsController, SupplierCreditTermsController, PurchaseDeliveriesController],
   providers: [SupplierPaymentObligationsService, SupplierCreditTermsService, PurchaseDeliveriesService],
   exports: [SupplierPaymentObligationsService, SupplierCreditTermsService, PurchaseDeliveriesService],

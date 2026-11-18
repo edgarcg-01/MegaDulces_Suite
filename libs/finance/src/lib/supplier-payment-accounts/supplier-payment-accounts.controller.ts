@@ -94,6 +94,18 @@ export class SupplierPaymentAccountsController {
     return this.svc.listRequests(status, supplierId);
   }
 
+  /**
+   * `[PGP.128]` **El respaldo de una solicitud** (la cotización de un anticipo, o la carátula que se adjuntó),
+   * con URL firmada de 10 min. Quien aprueba la CLABE tiene que ver de dónde salió: aprobarla a ciegas es
+   * aprobar justo la CLABE cambiada que el flujo existe para atajar. Los mismos permisos que la bandeja.
+   */
+  @Get('solicitudes/:id/adjunto')
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.128 — URL firmada (10 min) del respaldo de una solicitud de cuenta.' })
+  requestAttachment(@Param('id') id: string): Promise<{ url: string; kind: string | null }> {
+    return this.svc.requestAttachmentUrl(id);
+  }
+
   @Post('adjunto')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
   @ApiOperation({ summary: 'Sube el JPG/PDF de la solicitud de pago (evita errores de captura contra la factura/recibo).' })

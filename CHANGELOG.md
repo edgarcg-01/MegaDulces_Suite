@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — El anticipo a proveedor se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (PGP.127–129 y PGP.142–145 · 2026-11-17 · en código)
+- En *Compras › Pago a proveedor › Anticipos*, «Pedir anticipo» pide los papeles en el orden en que se tienen: el proveedor, **su orden de compra de Kepler** (pendiente o recibida en parte; una o varias de la misma sucursal), el importe (dice cuánto queda en esas órdenes), **la cotización** (PDF o foto, obligatoria) y **a qué cuenta se paga**: la cuenta aprobada del proveedor, la CLABE de la cotización o efectivo.
+- Una CLABE nueva queda **pedida de alta** con la cotización como respaldo; Dirección la aprueba en *Cuentas de pago* con «Ver respaldo» a la mano. El pago de un anticipo sólo se puede preparar por transferencia a esa cuenta aprobada: en «Preparar» ya no se escribe la CLABE a mano.
+- En el Calendario de pagos, la vista **Día** muestra «Anticipos pedidos para este día», con su OC, su cuenta y su cotización, y un botón «Agregar». En el día de hoy salen también los que se pidieron para un día que ya pasó y nadie programó.
+- La lista «Pedidos en la Suite» dice la OC de Kepler, en qué va la cuenta (aprobada, espera a Dirección, rechazada o efectivo) y abre la cotización.
+- Migración `20261117121939`: va a prod antes del código.
+- (PGP.142) **El anticipo vive en el Calendario de pagos**: arriba, junto a «Por etapa / Por día», está «Pedir anticipo». Abre en el día que estás viendo y, al pedirlo, el Calendario te lleva a ese día, donde aparece en «Anticipos pedidos para este día». Lo pueden pedir Compras y quien programa pagos (Finanzas, Tesorería, Contabilidad); Compras conserva su botón en *Compras › Anticipos*, con el mismo formulario. Quien pide también puede cancelar lo que pidió mientras no tenga pago.
+- (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
+- (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
+- (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
 ### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
 - Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
 

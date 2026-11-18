@@ -1361,6 +1361,18 @@ todos los anticipos con su antigüedad y contra qué se aplican; el submódulo e
   nunca corrió —el CI la saltaba por un uuid en el `beforeAll`—, corregida el 2026-11-17) C0–C3 — pedir un anticipo en la Suite: obligación de naturaleza `anticipo` que se
   paga por el Calendario y se liga sola con su `X-D-60`. Detalle abajo. Pendiente: la alerta +90 días
   a la bandeja.
+- `[PGP.127]`–`[PGP.129]` 🧪 (2026-11-17, Francisco; sin validación visual, arranque no verificado) — el pedido lleva su **cotización** y su **OC de
+  Kepler** (obligatorias), la **CLABE** de la cotización pasa por la aprobación de Dirección antes de
+  pagar, y el anticipo **aparece en su día** del Calendario. Detalle abajo.
+- `[PGP.142]` 🧪 (2026-11-17, Francisco; sin validación visual) — D14: **el anticipo vive en el Calendario**:
+  «Pedir anticipo» ahí, para Compras o quien programa pagos, con el mismo formulario que Compras › Anticipos.
+- `[PGP.143]` 🧪 (2026-11-17, Francisco; sin validación visual) — D16: la **orden de compra** de Compras (*OC abiertas*)
+  dice sus anticipos y desde su detalle se pide uno, con el proveedor y esa orden ya elegidos.
+- `[PGP.144]` 🧪 (2026-11-17, Francisco; validado en escritorio con Salsa Maga) — D17/D18: **«Anticipos solicitados»**,
+  el embudo de lo que pide Compras (Solicitado → Programado → Cubierto → En Kepler → Aplicado) y lo que Kepler tiene
+  sin solicitud; la lista sale de Deuda › Anticipos.
+- `[PGP.145]` 🧪 (2026-11-17, Francisco; visto en escritorio) — el pago de un anticipo dice «1 anticipo» (no
+  «1 factura») en Autorizar y en su desglose, y su renglón ya no repite la sucursal.
 - `[PGP.120]` 🚀 en prod (comprobado 2026-11-17; sin validación visual; prueba con base real verde en
   el CI de `5b9d9af58`) C0–C3 — el anticipo se aplica desde la factura del pago con «Aplicar anticipo»
   (un renglón más de `[PGP.101]`), verificado contra Kepler y apartado para no usarse dos veces. El
@@ -1676,6 +1688,371 @@ Declarado, no corregido: `test-newdb-organigrama.js` cuenta 18 colas sin eje de 
 de 7 (`compras.anticipos` es una; sin dimensión por decisión: Compras la pide para toda la red), y
 `test-newdb-authz-coherencia.js` marca `comprador|compras.anticipos` en la base del CI, donde el rol
 `compras` no trae `COMPRAS_OBLIGACIONES_VER`; **en prod esa vista da 0 filas** para anticipos.
+#### `[PGP.127]`–`[PGP.129]` El anticipo se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (2026-11-17) — 🧪
+
+> Francisco (2026-11-17): *«en Kepler no hay nada para solicitar anticipos y se registra hasta que se
+> pagó… que se elija el proveedor, se anexe la cotización con sus datos bancarios, su orden de compra,
+> para que se puedan agendar en el calendario de pagos por día»*.
+
+**Lo que ya existía:** «Pedir anticipo» (`[PGP.119]`, con `[PGP.123]` y `[PGP.126]`) en *Compras › Pago
+a proveedor › Anticipos*: proveedor, OC de la Suite opcional, sucursal, importe, día y motivo → una
+obligación que entra al Calendario. Lo que esto agrega es lo que el pedido no traía.
+
+**Lo medido (prod, sólo lectura, 2026-11-17, `system_identifier` verificado):**
+
+| Qué | Cifra |
+|---|---|
+| Anticipos pedidos en la Suite desde que `[PGP.119]` está en prod | **0** |
+| `X-D-60` capturados en Kepler del 13 al 17-nov | 4, $127,680 (uno de $100,000) |
+| `X-D-60` por mes, may–oct | 13 a 21, de $0.88 M a $1.84 M |
+| Cuentas de proveedor en el catálogo · solicitudes de alta | **0 · 0** |
+| OC de la Suite | congeladas desde el 26-oct (D21 de PQ): la OC real es la `X-A-35` de Kepler, y está en la réplica |
+| `X-D-60` `C*` de 120 días con una `X-A-35` viva del mismo acreedor y sucursal en los 45 días previos | **44 de 49**; una sola OC alcanza el importe en 34, la suma de las del periodo en 40 |
+| Control placebo: las mismas fechas, 200 días antes | 38 de 49 — los proveedores compran seguido, así que tener una OC cerca **no prueba** de cuál es el anticipo: la elige quien pide, no se adivina |
+| `X-D-60` `C*` desde octubre con OC de la Suite del mismo proveedor | 8 de 17 |
+
+**Decisiones de Francisco (2026-11-17), todas las recomendadas:**
+
+| # | Decisión | Por qué |
+|---|---|---|
+| D10 ✅ | **La cotización (PDF o foto) es obligatoria** | Es el respaldo de qué se paga y de dónde sale la CLABE |
+| D11 ✅ | **La OC es obligatoria**: una o varias `X-A-35` de Kepler del proveedor, pendientes o parciales, de la MISMA sucursal. La sucursal del anticipo sale de la OC. Tope (D6) = suma de sus totales − lo ya pedido sobre ellas | 44 de 49 ya la tenían. ⚠️ Francisco eligió «de la Suite o de Kepler (archivo + folio)»; al medir salió que la Suite dejó de hacer OC el 26-oct y que Kepler las tiene en la réplica: se eligen de una lista, sin archivo ni folio tecleado (un folio tecleado no se puede verificar; uno de la lista sí) |
+| D12 ✅ | **La CLABE la aprueba Dirección antes de pagar.** Si el proveedor tiene cuenta aprobada, se elige; si no, se captura al pedir y nace la solicitud de alta de siempre (`[TP.7]`/`[PGP.46]`) con la cotización como respaldo. Preparar por transferencia el pago de un anticipo exige la cuenta APROBADA con esa CLABE. Si se paga en efectivo se dice al pedir y no lleva cuenta | Una cotización con la CLABE cambiada es el fraude más común; el catálogo está en 0 y así se llena con el trabajo que ya ocurre |
+| D13 ✅ | **El anticipo aparece en el día pedido** del Calendario y Finanzas lo agrega con un clic | Respeta el tope del día y los días ya autorizados; caer solo en el pago no los respetaría |
+
+**Items:**
+- `[PGP.127]` 🧪 C0–C3 — el pedido: cotización obligatoria (sube a S3 con `ObjectStorageService`), OC de
+  Kepler obligatoria (`kdm1` X-A-35) con la sucursal y el tope de la OC, y la cuenta (elegir la
+  aprobada · capturar CLABE → solicitud de alta con la cotización · efectivo). Migración
+  `pgp127_anticipo_cotizacion_oc_y_cuenta`: `quote_file_key`, `quote_file_kind`, `kepler_ocs`
+  (jsonb), `payee_clabe` + CHECK de forma. Regla 14: sólo `crearAnticipo` inserta anticipos (los
+  otros tres caminos no mandan `nature`); las columnas son nulas para las facturas.
+- `[PGP.128]` 🧪 C2–C3 — la cuenta: `prepare()` rechaza la transferencia de un anticipo sin la cuenta
+  aprobada de su CLABE, y el diálogo «Preparar» lo dice antes; Dirección abre la cotización desde la
+  solicitud de alta.
+- `[PGP.129]` 🧪 C2–C3 — el día: «Anticipos pedidos para este día» en la vista Día, con proveedor,
+  sucursal, importe, OC, cuenta (aprobada / espera aprobación / efectivo), «Ver cotización» y
+  «Agregar» (el mismo camino de «Agregar facturas»).
+
+**Diseño — las cinco preguntas (skill `diseno` §0b), antes de la plantilla.**
+
+*Pedir anticipo (diálogo de Compras):*
+1. **Qué ve y en qué orden:** proveedor → sus OC de Kepler (cada una con sucursal por nombre, total y
+   lo ya pedido) → importe (con lo que queda) → cotización → cuenta → día de pago y motivo. Es el orden
+   de los papeles: el proveedor y su OC fijan sucursal y tope; la cotización trae la CLABE.
+2. **Qué no ve:** el selector de sucursal (sale de la OC), las OC de la Suite (congeladas), las OC
+   canceladas o surtidas.
+3. **Accesibilidad:** el botón dice por qué no sale (la misma regla que el servidor); la CLABE se valida
+   con su dígito de control al teclear; la cotización elegida se ve por nombre antes de enviar.
+4. **Ligas:** la OC (sucursal + folio) viaja en el concepto y se ve en el Calendario; la cotización queda
+   en la obligación y como respaldo de la solicitud de cuenta; el seguimiento a `X-D-60` no cambia.
+5. **¿Le toca?** A Compras (`COMPRAS_OBLIGACIONES_GESTIONAR`, 13 personas). Finanzas no pide: programa.
+   ⚠️ **Cambiado ese mismo día por D14** (`[PGP.142]`, abajo): el anticipo vive en el Calendario y también lo
+   pide quien programa pagos; el diálogo es uno solo para las dos puertas.
+
+*La franja del día (Calendario, Finanzas):*
+1. **Qué ve:** antes de agregar facturas, «Anticipos pedidos para este día (N · $X)»; una fila por
+   anticipo: proveedor · sucursal · importe · OC · cuenta · «Ver cotización» · «Agregar».
+2. **Qué no ve:** los ya programados (viven en su pago), los de otros días — salvo en HOY, donde también
+   salen los pedidos para un día que ya pasó y nadie programó, marcados «pedido para el …».
+3. **Accesibilidad:** la cotización a un clic; agregar a un clic; con teclado.
+4. **Ligas:** Compras pide → esta franja → pago del día → Dirección autoriza → Tesorería paga →
+   `X-D-60` en Kepler (seguimiento de `[PGP.119]`).
+5. **¿Le toca?** Sí: el día es donde Finanzas arma (D13).
+
+**Lo que esto NO resuelve:** escribir el `X-D-60` en Kepler (lo captura CxP, D5); que alguien elija una
+OC que no corresponde (la placebo dice que no se puede adivinar: queda a quien pide, con su nombre).
+
+**Estado de construcción (2026-11-17) — 🧪 los tres, sin commit de PR todavía:**
+
+| Capa | Qué quedó | Dónde |
+|---|---|---|
+| C0 | Migración `20261117121939_pgp127_anticipo_cotizacion_oc_y_cuenta` (4 columnas nulas + 2 CHECK de forma). Real contra Postgres local: up ×2 idempotente, down limpio, up otra vez | `database/migrations-newdb/` |
+| C1 | `topeDeOcs`, `faltaCuentaAnticipo`, `estadoCuentaAnticipo`, `anticiposDelDia`, `faltaCuentaParaTransferirAnticipo`; `faltaSolicitudAnticipo` exige OC, cotización y cuenta | `libs/contracts/src/finance/anticipos.contract.ts` |
+| C2 | `GET anticipo/ocs` lee las `X-A-35` de Kepler (`SQL_ANTICIPO_OCS_KEPLER`, 88 ms en prod); `POST anticipo/cotizacion`; `POST anticipo` verifica OC (con candado por OC), cotización (llave de la carpeta del tenant) y cuenta (la CLABE nueva queda pedida, idempotente); `GET anticipos/:id/cotizacion`; el seguimiento deriva la cuenta. `prepare()` exige la cuenta aprobada de la CLABE. `GET finance/supplier-payment-accounts/solicitudes/:id/adjunto` | `supplier-payment-obligations.*`, `anticipo-solicitado.sql.ts`, `payment-calendar.service.ts`, `supplier-payment-accounts.*` |
+| C3 | Diálogo «Pedir anticipo» en el orden de los papeles; «Pedidos en la Suite» con OC, cuenta y cotización; franja del día en el Calendario; aviso y sin CLABE a mano en «Preparar» de un anticipo; «Ver respaldo» en Cuentas de pago | `finanzas-anticipos`, `finanzas-calendario-pagos`, `finanzas-cuentas-pago` |
+
+**Pruebas:** contrato 42 ✓ (1,491 en la librería) · componente de Anticipos 17 ✓ · vista de finanzas y compras
+2,625 ✓ · base real (Docker local, transacción revertida): anticipo 13 ✓, Calendario `[PGP.128]` 3 ✓ · grafo
+del módulo 4 ✓ (con su negativa) · mutantes en rojo: el candado de `prepare()` (2 de 3) y la llave de la
+cotización. `ngc` 0 errores · `check:pantalla` 0 nuevas en el barrido · `lint:boundary`, `spec-vivo`,
+`mig-colisiones` limpios.
+
+**Hallazgo de paso:** la prueba con base real de `[PGP.119]` nunca corrió un caso: su siembra metía un
+nombre de usuario en `purchase_orders.created_by`, que es UUID en prod y en la base de prueba, y el
+`beforeAll` caía. Corregido en la misma prueba.
+
+**NO MEDIDO:**
+- Validación visual de las tres pantallas (no hay API local con escritura y almacenamiento a la mano).
+- El arranque de la API: el servicio de obligaciones recibe un tercer parámetro (`ObjectStorageService`,
+  de `CloudinaryModule`); se probó el grafo del módulo, no la app levantada.
+- La prueba completa de `payment-calendar.it.spec.ts` en la base local: cae en cascada desde
+  `[PGP.94]` porque a esa base le falta `analytics.v_supplier_rfc` (ajeno a esto); el bloque `[PGP.128]` se
+  corrió solo. En el CI corre entera.
+- El celular a 390 px.
+
+**Despliegue:** la migración `20261117121939` va a prod **antes** del código (el código escribe y lee las
+columnas nuevas; `prepare()` las lee con `to_jsonb` y no truena sin ellas, el pedido sí).
+
+#### `[PGP.142]` El anticipo vive en el Calendario: se pide desde ahí (2026-11-17) — 🧪
+
+> Francisco (2026-11-17), al ver `[PGP.127]`–`[PGP.129]`: *«el lugar donde va a vivir anticipos va a ser en
+> calendario de pagos, ahí hay que poner el botón de anticipos»*.
+
+**Lo medido (prod, sólo lectura, 2026-11-17, por el VALOR de la llave en `identity.role_permissions`; contar
+la llave presente daba cajeros y vendedores, que la tienen en `false`):**
+
+| Quién | Personas activas | Pide anticipo (`COMPRAS_OBLIGACIONES_GESTIONAR`) | Entra al Calendario (`FINANCE_PAYMENTS_VER`) | Programa pagos (`FINANCE_PAYMENTS_GESTIONAR`) |
+|---|---:|:-:|:-:|:-:|
+| auxiliar_compras · compras · compras_operaciones | 5 · 2 · 1 | ✓ | — | — |
+| gerente_compras | 2 | ✓ | ✓ | ✓ |
+| finanzas_operativo · contabilidad · finanzas · tesorería | 8 · 4 · 1 · 1 | — | ✓ | ✓ |
+| dirección | 3 | — | ✓ | — (autoriza) |
+
+O sea: un botón en el Calendario con el permiso de antes lo habrían visto sólo los 2 gerentes de compras.
+
+| # | Decisión | Por qué |
+|---|---|---|
+| D14 ✅ (Francisco, «Finanzas y Compras») | **El botón «Pedir anticipo» va en el Calendario** y lo usa Compras o quien programa pagos (`PERMISOS_PEDIR_ANTICIPO` = `COMPRAS_OBLIGACIONES_GESTIONAR` ∨ `FINANCE_PAYMENTS_GESTIONAR`). Compras conserva su puerta en *Compras › Anticipos* para los 8 que no entran al Calendario. Es **el mismo formulario** en las dos puertas | Ninguna repartición de permisos en prod; los 8 de Compras no pasan a ver todos los pagos de la empresa. Rechazadas: dar el Calendario a Compras (verían todos los pagos; decisión de Edgar) y quitarle a Compras su puerta |
+
+**Item:**
+- `[PGP.142]` 🧪 C2–C3 — (1) el formulario sale de la pantalla de Anticipos a un componente compartido,
+  `app-pedir-anticipo` (ADR-056: no se copia); (2) el Calendario lo abre desde «Pedir anticipo», junto a
+  «Por etapa / Por día», en el día que se está viendo (o hoy), y al pedir lleva a SU día en «Por día», donde
+  aparece en la franja de `[PGP.129]`; (3) `PERMISOS_PEDIR_ANTICIPO` vive en el contrato y lo usan el
+  servidor (`@RequireAnyPermission` de pedir, sus lecturas y su cancelación) y la pantalla (el botón): ninguna
+  puerta ofrece un botón que el servidor rechace; (4) `POST anticipos/:id/cancelar` cancela **sólo**
+  anticipos (con el id de otra obligación responde «no encontrado»): el `:id/cancelar` genérico sigue siendo
+  sólo de Compras.
+
+**Diseño — las cinco preguntas (skill `diseno` §0b), antes de la plantilla:**
+1. **Qué ve y en qué orden:** en la barra de arriba del Calendario, a la derecha de «Por etapa / Por día»,
+   «Pedir anticipo» (contorno, no compite con el botón del veredicto). Abre el mismo diálogo de siempre en
+   el día que se está viendo; al pedir, el Calendario va a ese día y el anticipo está en su franja (el
+   resultado se ve donde vive, no sólo en un aviso).
+2. **Qué no ve:** quien sólo VE el Calendario (`FINANCE_PAYMENTS_VER`) no ve el botón; el diálogo no cambia.
+3. **Accesibilidad:** un clic desde las dos vistas, con texto (no sólo ícono) y con teclado; un día ya
+   pasado no se ofrece (abre en hoy).
+4. **Ligas:** pedir → franja del día → «Agregar» → pago del día → Dirección → Tesorería → `X-D-60`. La
+   pantalla de Anticipos ve los mismos pedidos (mismo seguimiento).
+5. **¿Le toca?** Sí (D14). Lo que no le toca al Calendario sigue en Anticipos: el saldo de Kepler, aplicar.
+
+**Pruebas:** formulario compartido 6 ✓ (negativas: sin papeles no sale; el servidor lo rechaza → queda
+abierto y no avisa «pedido»; un día pasado abre en hoy) · pantalla de Anticipos 19 ✓ (3 de D14: Finanzas y
+Compras ven pedir y cancelar, quien sólo ve, no) · **el Calendario montado entero** 5 ✓ (primera prueba que
+lo monta: el botón por permiso, el día con que abre, el salto a su día) · permisos del controlador 6 ✓ (cada
+ruta con su llave; Finanzas no entra al `cancel` ni al `create` genéricos) · base real (Docker local,
+transacción revertida) 14 ✓, nueva: `cancelAnticipo` no cancela una factura · contrato 42 ✓ · vista de
+`finanzas` y `compras` 2,615 ✓ en 137 archivos (`npx vitest run src/app/modules/finanzas src/app/modules/compras`).
+**Mutantes, todos en rojo:** botón siempre visible + sin salto al día (2 de 5) · pedir sólo de Compras +
+cancelar genérico abierto a Finanzas (3 de 6) · `cancelAnticipo` sin el candado de «sólo anticipos» (1 de
+14). `tsc` sin errores en los archivos tocados · la vista recompiló sin errores · `check:pantalla` como lo
+corre el push: 0 nuevas (en modo módulo el diálogo sale con Q.1/§2/§9, reglas de pantalla completa; el push
+no lo cuenta como pantalla).
+
+**NO MEDIDO:**
+- Validación visual (montada en Docker local: vista :4202 → API :3337; falta levantar la API con este código).
+- El arranque de la API: la ruta nueva va en el mismo controlador y el grafo del módulo no cambió; no se
+  levantó.
+- **La edad de la lista de OC** en el diálogo: sale de la réplica (`kepler_ods.kdm1`) y no dice de cuándo
+  es. Una OC recién capturada en Kepler puede no aparecer todavía; no se midió el retraso.
+- El celular a 390 px.
+
+**Despliegue:** sin migración propia (la de `[PGP.127]` va antes, como siempre).
+
+#### `[PGP.143]` La orden de compra de Compras dice sus anticipos, y desde ella se pide uno (2026-11-17) — 🧪
+
+> Francisco (2026-11-17), después de `[PGP.142]`: *«falta que se conecte con una orden de compra del
+> departamento de compras»*.
+
+**Qué es «la orden de compra de Compras» — medido (prod, sólo lectura, 2026-11-17):**
+
+| Qué | Cifra |
+|---|---|
+| Requisiciones de la Suite, 45 días | 297 aprobadas ($6.6 M) · 322 pedidas al proveedor (149 con el folio de su OC de Kepler) · 144 recibidas |
+| OC de Kepler vivas de 45 días que salieron de una requisición de la Suite | 205 de 328 |
+| Los 49 `X-D-60` `C*` de 120 días: con requisición de la Suite del mismo proveedor en los 30 días previos | **7** |
+| … con OC de Kepler del mismo proveedor y sucursal en los 30 días previos | **41** (34 con una en los 30 días después) |
+| `analytics.erp_purchase_orders.proveedor_code` contra el acreedor de la OC en Kepler (`kdm1.c10`), 60 OC recientes | 60 de 60 iguales, todas `C*` |
+
+O sea: la orden de compra del departamento de Compras es la `X-A-35` de Kepler (D21 de PQ), la misma que el
+formulario ya exigía. Lo que faltaba era **la conexión desde la orden**: *Compras › OC abiertas* no decía qué se
+le había adelantado al proveedor ni dejaba pedirlo ahí.
+
+| # | Decisión | Por qué |
+|---|---|---|
+| D16 ✅ (Francisco, «Pedirlo desde la OC») | En *OC abiertas*, la fila dice «anticipo $X» bajo su total si lo tiene, y el **detalle de la orden** lista sus anticipos (etapa, quién lo pidió, para qué día, importe) y ofrece **«Pedir anticipo»**, que abre el MISMO formulario con el proveedor (por su código exacto) y esa orden ya elegidos | Rechazadas: atarlo a la requisición de la Suite (7 de 49) y dejarlo como estaba. (D15 es otra: la contraseña de ContPAQi) |
+
+**Item:**
+- `[PGP.143]` 🧪 C2–C3 — (1) `open-purchase-orders` devuelve `proveedor_codigo` (`analytics.erp_purchase_orders.proveedor_code`);
+  (2) `anticiposDeOc` y `ETAPA_ANTICIPO_TEXTO` en el contrato (la etapa es la del seguimiento: no se recalcula; un
+  anticipo sobre dos OC sale en las dos con su importe entero y dice con cuál más va); (3) el formulario compartido
+  gana `abrirParaOc`: busca al proveedor por su código EXACTO (un código parecido no se toma) y marca esa OC; si el
+  proveedor no es de mercancía activo o la orden no está entre las que aceptan anticipo (pendientes o recibidas en
+  parte de 180 días), lo DICE y no marca otra; (4) *OC abiertas*: la línea en la fila y la sección «Anticipos» en el
+  detalle, con el botón sólo si la orden es `N` o `R` en Kepler.
+
+**Diseño — las cinco preguntas (skill `diseno` §0b), antes de la plantilla:**
+1. **Qué ve y en qué orden:** en la lista, nada nuevo salvo «anticipo $X» tenue bajo el total de la orden que lo
+   tiene (PQ.28: la fila no gana piezas). En el detalle (side-peek), después de «Recepciones» —lo que llegó— va
+   «Anticipos» —lo que se adelantó—, y al final de esa sección «Pedir anticipo».
+2. **Qué no ve:** la cuenta y la cotización del anticipo (viven en el Calendario y en Anticipos); quien no puede
+   ver pagos ni obligaciones no ve la sección; quien no puede pedir no ve el botón; una orden finalizada en
+   Kepler no lo ofrece y dice por qué.
+3. **Accesibilidad:** de la lista al anticipo, un clic (la fila abre el detalle); pedir no pide teclear proveedor
+   ni orden. Si los anticipos no se pudieron leer, el detalle lo dice («no se sabe si esta orden tiene») y la
+   fila no pinta nada: nunca «sin anticipo» por una lectura que falló.
+4. **Ligas:** OC (Compras) → anticipo pedido → franja de su día en el Calendario → pago → `X-D-60`. De vuelta,
+   la franja y Anticipos dicen la OC.
+5. **¿Le toca?** Sí: es la pantalla donde Compras sigue la orden; el anticipo es dinero de esa orden.
+
+**Medido quién entra a *OC abiertas* (`COMPRAS_PEDIDO_VER`):** los 10 roles tienen `COMPRAS_OBLIGACIONES_VER` o
+`FINANCE_PAYMENTS_VER` (ven la sección); piden los de Compras, gerente de compras, finanzas y tesorería.
+
+**Pruebas:** contrato 47 ✓ (5 de `anticiposDeOc`, 1 negativa: el mismo folio en otra sucursal no es esa OC y el
+cancelado no cuenta) · *OC abiertas* montada entera 9 ✓ (6 negativas: orden que no acepta anticipo, proveedor que
+no es de mercancía, orden finalizada, quien ve y no pide, sin permiso, lectura que falla) · vista de `finanzas` y
+`compras` 2,624 ✓ en 138 archivos · librería de Compras 441 ✓. **Mutantes, en rojo (3 de 9):** código parecido en vez
+del exacto · marcar «la única» cuando la pedida no está · botón en cualquier orden. `tsc` sin errores en los
+archivos tocados · `boundary` ✓ · `check:pantalla` 0 nuevas · la vista recompiló sin errores.
+
+**NO MEDIDO:**
+- La consulta completa de *OC abiertas* con la columna nueva no se corrió (la columna sí: 60 de 60 en prod); se
+  ve en la prueba visual (la base local ya tiene 271 OC abiertas de los 8 proveedores copiados).
+- Validación visual y arranque de la API. *(Medidos después, en el recorrido con Salsa Maga del 17-nov: ver
+  `[PGP.144]`.)*
+
+#### `[PGP.144]` «Anticipos solicitados»: el embudo de lo que pide Compras (2026-11-17) — 🧪
+
+> Francisco (2026-11-17): *«hoy no hay trazabilidad: Compras hace la orden de compra, le solicita la cotización al
+> proveedor, lanza una firma de Finanzas y espera que lo agreguen manualmente; todo lo que hemos avanzado el día de
+> hoy sustituye ese proceso»* · *«es para encontrar un funnel de anticipos solicitados por el departamento de
+> compras»* · *«que una vez que se cumpla el programa de pagos pasen a estatus de cubiertos, vs el anticipo de
+> Kepler»*.
+
+**Lo medido (prod, sólo lectura):** `X-D-60` de mercancía (`C*`) en Kepler: 83 ($7.6 M) en 180 días, 38 en 90; la
+lectura tarda 33 ms. Anticipos pedidos en la Suite en prod: 0 (PGP.127–129, 142 y 143 sin soltar). El pago del Calendario ya
+guarda cuándo se pagó (`payment_allocations.executed_at`): «cubierto el» se deriva, no se copia.
+
+| # | Decisión | Por qué |
+|---|---|---|
+| D17 ✅ (Francisco, «En Pagos, y se muda») | Pestaña **«Anticipos solicitados»** en la barra de Pagos (al final: recorre el ciclo; «Cuentas de pago» sigue pegada al Calendario, `[PGP.20]`) y en *Pago a proveedor* de Compras. La lista «Pedidos en la Suite» **sale** de *Deuda › Anticipos* (queda el saldo de Kepler con un aviso y el enlace) | Una lista, un lugar (§0b-5). Rechazada: dejarla también en Deuda |
+| D18 ✅ (Francisco, «Solicitud y también lo de Kepler») | Cada solicitud recorre **Solicitado → Programado → Cubierto → En Kepler → Aplicado**; un cubierto sin `X-D-60` lo dice con sus días. Y **fuera del embudo**: los `X-D-60` de mercancía que Kepler tiene sin solicitud (se pagaron por fuera) | Es el control de que el proceso nuevo sustituye al de antes. Rechazada: sólo las solicitudes |
+| — (palabras) | «Por programar» → **Solicitado** y «Pagado» → **Cubierto** (`ETAPA_ANTICIPO_TEXTO`), en todas las pantallas | Son las palabras de Francisco |
+
+**Item:**
+- `[PGP.144]` 🧪 C1–C3 — (1) contrato: `embudoAnticipos` (cuántos LLEGARON a cada paso y cuántos siguen AHÍ, con el
+  más viejo; los cancelados salen del embudo), `diasEnEtapa` (cada etapa cuenta desde el hecho que la abrió; un
+  programado sólo cuenta si su día ya pasó), `AnticipoKeplerSinSolicitudRow`, `cubierto_el`; (2) API: el
+  seguimiento trae `cubierto_el` (día de México en que su pago se dio por pagado) y `GET anticipos/kepler-sin-solicitud?dias=30|90|180`
+  (los `X-D-60` `C*` sin pareo con una solicitud, con la MISMA regla del seguimiento); (3) pantalla
+  `finanzas-anticipos-solicitados` (puertas `/finanzas/…` y `/compras/…`): veredicto, el embudo con `app-metric-strip`
+  en modo barra (cada paso filtra a los que están ahí), periodo 30/90/180, búsqueda, «Por fecha / Por proveedor»,
+  la lista con su cuenta, motivo, cotización y cancelar (mudados de Deuda), y la sección «En Kepler sin solicitud».
+
+**Diseño — las cinco preguntas (skill `diseno` §0b), antes de la plantilla:**
+1. **Qué ve y en qué orden:** el veredicto (cuántos se pidieron, cuántos se cubrieron y dónde se juntan) → el
+   embudo (5 pasos: llegaron · barra de qué parte de lo solicitado · cuántos siguen ahí y el más viejo) → fuera del
+   embudo (en Kepler sin solicitud · cancelados) → la lista → lo de Kepler sin solicitud.
+2. **Qué no ve:** gasto y tarjeta (no se piden aquí, D2); lo de fuera del periodo; el saldo de Kepler por acreedor
+   (vive en Deuda › Anticipos).
+3. **Accesibilidad:** cada paso es un botón con su conteo y filtra (otra vez, lo quita); el estado va en la URL;
+   búsqueda por proveedor, OC o folio de Kepler; por proveedor con lo solicitado y lo cubierto de cada uno.
+4. **Ligas:** la OC (Compras › OC abiertas) → la solicitud → su pago del Calendario → «cubierto el» → su `X-D-60`
+   (folio, importe, por aplicar). La cotización, a un clic.
+5. **¿Le toca?** Sí (D17): es la trazabilidad del anticipo, que vive en el Calendario (D14). El saldo y «contra qué
+   se aplica» siguen en Deuda › Anticipos.
+
+**Recorrido visual (17-nov, Docker local, chrome-devtools; capturas en `.playwright-mcp/pgp131-*` y `pgp132-*`):** con
+Salsa Maga (CS001, OC 0007287 de CEDIS, $57,326.50): pedido desde la OC con proveedor y OC ya elegidos → cotización
+subida → CLABE pedida de alta → «Ver respaldo» en Cuentas de pago y aprobada → franja del día en el Calendario →
+«Agregar» → preparar (sólo ofrece la cuenta aprobada) → autorizar → *(simulado en la base local: el banco confirmó el
+pago)* → **Cubierto, sin anticipo en Kepler** → *(simulado: CxP captura el `X-D-60` PRUEBA01 por el mismo importe)* →
+**En Kepler**, y «En Kepler sin solicitud» siguió en 38 (el pareado no cuenta). La API arrancó (21 s) con el
+`ObjectStorageService` nuevo: lo que estaba NO MEDIDO de `[PGP.127]` quedó medido en escritorio.
+
+**Lo que encontró el recorrido (y se arregló aquí):** «Preparar» decía «Si escribes una CLABE…» sin campo para
+escribirla en un anticipo · el nombre y el código del proveedor salían pegados («SALSA MAGA SA DE CVCS001», y en
+los grupos del embudo) — Angular quita el espacio entre etiquetas · el veredicto decía «el más viejo de 0 días» de
+un programado cuyo día no llega.
+**Encontrado y NO arreglado aquí** (Autorizar y «CEDIS» se arreglaron en `[PGP.145]`)**:** la propuesta del día y el diálogo «Autorizar» llaman «1 factura» a un anticipo (es
+falso: no lo es) · «CEDIS» sale dos veces en el renglón del pago · el aviso «Instalar Mega Dulces» se come el primer
+clic (ajeno).
+
+**Pruebas:** contrato 53 ✓ (6 del embudo: 4 negativas) · el embudo montado entero 11 ✓ (5 negativas: el periodo
+filtra, lo de Kepler que falla no se pinta «0», un programado no es «atorado», cancelar exige razón, quien sólo ve no
+pide) · Anticipos (Deuda) 16 ✓ (la lista ya no está, el enlace sí) · formulario 7 ✓ (nombre y código separados) ·
+base real 38 ✓ (nuevas: «cubierto el» y la negativa de un pago hecho sin abono; lo de Kepler sin solicitud sin
+pareados, sin gasto y dentro del periodo) · vista de `finanzas`, `compras`, `context-help` y `layout` 2,654 ✓ en 140 archivos ·
+librería de Compras 461 ✓. **Mutantes en rojo:** el periodo no filtra + el paso no filtra (2 de 10) · nombre y
+código pegados (1 de 7). `boundary` ✓ · `tsc` sin errores en lo tocado · `check:pantalla`: la pantalla nueva
+cumple las 10 reglas; 0 nuevas en el barrido · compuertas del push: 0 rojas en mis archivos (3 ajenas:
+`mig-colisiones` pide prod, `sd-confid`, `sidebar-tabs` de Contabilidad).
+
+**NO MEDIDO:** el celular a 390 px · el modo oscuro · la consulta de Kepler sin solicitud con los datos de prod
+dentro de la API (sí en SQL, 33 ms) · «cubierto» con el flujo real del banco (se simuló en local; el paso lo cubre la
+prueba de base real).
+
+**Despliegue:** sin migración propia (la de `[PGP.127]` va antes).
+
+#### `[PGP.145]` El pago de un anticipo se dice anticipo (2026-11-17) — 🧪
+
+Lo que el recorrido de `[PGP.144]` dejó anotado y Francisco pidió corregir antes del PR («perfecto, prepara el PR»):
+
+- **«1 factura» → «1 anticipo».** `documentos(items)` cuenta por lo que es cada documento del pago
+  (`es_anticipo`, que el servidor ya mandaba desde `[PGP.126]`): «1 anticipo», «2 facturas y 1 anticipo». Se usa
+  en «Autorizar el pago», en el pie del desglose y en el resumen del renglón.
+- **«CEDIS» dos veces.** El concepto del anticipo trae su sucursal («Anticipo · OC 0001041 · CEDIS») y el renglón
+  la dice antes: salía «CEDIS · Anticipo · OC 0001041 · CEDIS». El renglón la recorta sólo si es un anticipo y
+  termina en SU sucursal; el concepto guardado no cambia (lo leen otras pantallas que no dicen la sucursal).
+
+**Pruebas:** 3 nuevas en `calendario-pagos-pedir-anticipo.spec.ts` (el conteo; el recorte con dos negativas: una
+factura que termina en la sucursal no se recorta, ni un anticipo de otra sucursal; y «Autorizar» renderizado dice
+«1 anticipo» y no «factura»): 8 ✓. **Mutante en rojo:** volver a `facturas(n)` y quitar el recorte → 3 de 8 rojas.
+**Visto en la pantalla viva** (Docker local, Gonac, OC 0001041): «Padre Hidalgo · Anticipo · OC 0001041» y
+«Efectivo · xd55 · sale el miércoles 18 de nov · 1 anticipo.»
+
+**Encontrado y NO arreglado:** la *propuesta del día* (la que arma el día con lo vencido) sigue diciendo
+«1 factura» a un anticipo: la lista de deuda del Calendario no trae de qué naturaleza es cada obligación, y
+agregarla toca la consulta de cuatro patas que alimenta todo el Calendario. Va como item propio, no de paso.
+**→ Arreglado en la revisión del PR** (ver «Fusión con [PGP.138]», #1): la propuesta ya no ofrece los anticipos pedidos.
+
+#### Fusión con `[PGP.138]` de Edgar (2026-11-17) — ⚠️ D14 contra ADR-120, lo decide Edgar
+
+Estos items se escribieron el 17-nov como `[PGP.130]`–`[PGP.133]`. Al traer `origin/main` antes del PR (104
+commits nuevos) resultó que Edgar, ese mismo día, había usado `[PGP.130]`–`[PGP.141]` y subido su propio botón de
+anticipos en el Calendario (`[PGP.138]`, ADR-120), con un diálogo del mismo nombre. **Se renumeraron** a
+`[PGP.142]`–`[PGP.145]` (`[PGP.127]`–`[PGP.129]` seguían libres) y se fusionó así:
+
+| Pieza | Cómo quedó | Por qué |
+|---|---|---|
+| **Quién pide** | `PERMISOS_PEDIR_ANTICIPO` = Compras + **Dirección** (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`, ADR-120) + **quien programa pagos** (`FINANCE_PAYMENTS_GESTIONAR`, D14) | ⚠️ El ADR-120 rechaza por escrito a Tesorería, Finanzas y Contabilidad; D14 los incluye. **Francisco decidió mantener D14 y que Edgar decida en el PR.** Si se queda el ADR-120: se quita esa llave de la lista (servidor y botones la leen) y se invierte una prueba |
+| **El Calendario** | Dirección ve SÓLO «Programar un anticipo en este día» (`[PGP.138]`, dentro de «Agregar facturas»); Compras y quien programa pagos ven SÓLO «Pedir anticipo» en la barra (`[PGP.142]`) | Cada quien una entrada, no dos. Son actos distintos: *programar* lo pone ya en el día como pago propio; *pedir* lo deja en la franja de su día para que Finanzas lo agregue |
+| **El diálogo** | UNO (`app-pedir-anticipo-dialog`): los papeles de `[PGP.127]` (OC de Kepler, cotización, cuenta) + lo de la auditoría de Edgar: modo `programar` con `[(visible)]`/`fechaInicial`; la búsqueda distingue buscando, sin coincidencias y falló (con Reintentar); un error de OC no deja pedir y no se lee como «sin OC»; cerrar con algo capturado pregunta; sin `listbox` falso; lo que falta se lee al enfocar el botón; el error del servidor se dice DENTRO del diálogo | El servidor que queda es el de `[PGP.127]` (OC de Kepler obligatoria, D11): la OC de la Suite que elegía el diálogo de `[PGP.138]` ya no existe (la Suite dejó de hacer OC el 26-oct). `abrir()`/`abrirParaOc()` conviven con `[(visible)]`: abrirlo con contexto no se borra al mostrarse |
+| **Avisos** | En `pedir`, el diálogo avisa «Anticipo pedido»; en `programar`, sólo si la CLABE quedó pedida de alta (la pantalla de Edgar ya dice dónde quedó) | Un aviso por hecho, no dos |
+
+**Pruebas de la fusión:** diálogo 13 ✓ (sus 6 de la auditoría adaptadas a la OC de Kepler + las 7 nuestras + una
+negativa nueva: abrirlo con su contexto no se borra al mostrarse) · Calendario 9 ✓ (negativa nueva: Dirección no ve
+«Pedir anticipo» y tiene los dos diálogos, `pedir` y `programar`) · permisos del servidor 7 ✓ (las de Edgar:
+Dirección entra con su llave sola, sin llave nadie; la de D14 marcada «contra el ADR-120») · `ngc` 0 errores.
+
+**Revisión independiente antes del PR** (un agente sin el contexto de la fusión, sobre el árbol del PR): 1 defecto
+medio, 7 menores y 2 pruebas débiles. **Todos corregidos, cada uno con su prueba y su mutante en rojo:**
+
+| # | Lo que encontró | Cómo quedó |
+|---|---|---|
+| 1 🟠 | «Agregar» en la franja (`[PGP.129]`) metía el anticipo en el pago **de facturas** abierto del mismo proveedor y sucursal (iba por `assign`): las facturas quedaban atadas a la CLABE de la cotización (`prepare()` de `[PGP.128]` aplica al pago entero) y en Kepler salían mezcladas | Nace su **pago propio**, como el de `[PGP.138]`. Y por la misma razón la **propuesta del día** y la lista de «Agregar facturas» ya no ofrecen los anticipos pedidos (se leen con la deuda; si esa lectura falla, no se propone nada). Eso también quita el «1 factura» de la propuesta que quedaba pendiente en `[PGP.145]` |
+| 2 | Una búsqueda de proveedor que llegaba después de cerrar y reabrir pintaba resultados bajo un buscador vacío | Cada apertura es una *sesión*; lo de una sesión vieja se descarta |
+| 3 | La cotización que subía cuando se descartó el pedido aparecía en el siguiente | Turno propio de la cotización |
+| 4 | «Cambiar» de proveedor dejaba la cotización del anterior: la CLABE nueva iría a Dirección respaldada por el documento de otro | «Cambiar» la suelta |
+| 5 | La respuesta tardía de las cuentas pasaba a «Cuenta aprobada» aunque ya se hubiera elegido «Efectivo» o empezado a escribir la CLABE | Sólo propone la aprobada si no se ha tocado nada |
+| 6 | Abierto desde una OC, la búsqueda vieja de otra OC con el mismo folio en otra sucursal elegía al proveedor equivocado | Se compara la sesión, no el folio |
+| 7 | El aviso «Sobre la orden de compra X» seguía después de «Cambiar» de proveedor | «Cambiar» lo quita |
+| 8 | «En Kepler sin solicitud» pareaba por sucursal + folio, sin el acreedor: el pareado de un proveedor escondía el `X-D-60` de otro con el mismo folio | La llave lleva al acreedor (prueba con base real) |
+| — | Dos pruebas que pasarían con la función rota: la de *Anticipos* llamaba a `cargarSolicitados()` directo; la de Dirección usaba «admin» | Ahora van por el evento `(pedido)` y por la llave real `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` |
+
+Pruebas después de la revisión: diálogo 18 ✓ · Calendario 11 ✓ · obligaciones con Postgres real 39 ✓ · vista
+finanzas+compras+ayuda+layout 2,719 ✓ · contrato 670 ✓ · `ngc` 0 · compuertas del push: 0 rojas en archivos de este trabajo.
 
 ---
 

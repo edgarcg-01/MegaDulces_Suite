@@ -1,15 +1,26 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import type {
   DeudaProgramableResponse, ProgramarDocumentoDto, ProgramarDocumentoResultado,
 } from '@megadulces/contracts';
 import { armarDeudaProgramable, NOMBRE_DOCUMENTO_CXP, type FilaDeudaCruda } from './deuda-programable.engine';
 // `[PGP.119]` El anticipo pedido en la Suite: la regla (contrato) y sus lecturas (SQL medido en prod).
 import {
-  etapaDeSolicitud, faltaSolicitudAnticipo, MARCA_CANCELADO, parearSolicitudes, warehouseName,
-  type AnticipoOcRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
+  digitosClabe, estadoCuentaAnticipo, etapaDeSolicitud, faltaSolicitudAnticipo, llaveOcKepler, MARCA_CANCELADO, parearSolicitudes, tipoDeAcreedor, warehouseName,
+  type AnticipoOcKeplerRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
+  type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada, type RefOcKepler,
 } from '@megadulces/contracts';
-import { SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS } from './anticipo-solicitado.sql';
+import { SQL_ANTICIPOS_KEPLER_MERCANCIA, SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS_KEPLER } from './anticipo-solicitado.sql';
+
+/** `[PGP.127]` La cotización: PDF o foto, hasta 10 MB (la ruta tiene su parser de 16 MB en `main.ts`). */
+const TIPOS_COTIZACION = /^data:(application\/pdf|image\/(png|jpe?g|webp|heic|heif))[;,]/i;
+const MAX_COTIZACION_BYTES = 10 * 1024 * 1024;
+/** `[PGP.127]` Dónde viven las cotizaciones: una carpeta por tenant. La llave que manda el cliente tiene que ser de aquí. */
+const carpetaCotizaciones = (tenantId: string) => `commercial/${tenantId}/anticipos`;
+
+/** `[PGP.127]` Lo que el pedido hizo con la cuenta, para que la pantalla lo diga sin adivinar. */
+export type ResultadoCuentaAnticipo = 'aprobada' | 'pedida' | 'ya_pedida' | 'efectivo';
 
 export interface CreateSupplierObligationDto {
   supplier_id: string;
@@ -88,6 +99,8 @@ export class SupplierPaymentObligationsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // `[PGP.127]` La cotización del anticipo (bucket privado; se abre con URL firmada). Viene de `CloudinaryModule`.
+    private readonly storage: ObjectStorageService,
   ) {}
 
   /**
@@ -272,11 +285,58 @@ export class SupplierPaymentObligationsService {
     });
   }
 
-  /** `[PGP.119]` Las OC abiertas de un proveedor, con lo ya pedido de anticipo sobre cada una (para el tope, D6). */
-  async anticipoOcs(supplierId: string): Promise<AnticipoOcRow[]> {
+  /**
+   * `[PGP.127]` D11 — **Las OC de Kepler (`X-A-35`) del proveedor**, pendientes o recibidas en parte, con los
+   * anticipos ya pedidos sobre cada una (el tope, D6). Antes eran las OC de la Suite, que dejaron de nacer
+   * el 26-oct (D21 de PQ).
+   */
+  async anticipoOcs(supplierId: string): Promise<AnticipoOcKeplerRow[]> {
     if (!/^[0-9a-f-]{36}$/i.test(String(supplierId ?? ''))) throw new BadRequestException('supplier_id inválido');
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => (await trx.raw(SQL_ANTICIPO_OCS, [tenantId, supplierId])).rows);
+    return this.tk.run(async (trx) => {
+      const sup = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).first('code');
+      if (!sup) throw new NotFoundException('Proveedor no encontrado');
+      return this.leerOcsKepler(trx, tenantId, String(sup.code ?? '').trim(), null);
+    });
+  }
+
+  /** `[PGP.127]` La MISMA lectura para la lista y para verificar al pedir (`llaves` = sólo ésas). */
+  private async leerOcsKepler(trx: Knex.Transaction, tenantId: string, codigo: string, llaves: string[] | null): Promise<AnticipoOcKeplerRow[]> {
+    const json = llaves ? JSON.stringify(llaves) : null;
+    const { rows } = await trx.raw(SQL_ANTICIPO_OCS_KEPLER, [codigo, json, json, tenantId]);
+    return (rows as AnticipoOcKeplerRow[]).map((r) => ({ ...r, total: Number(r.total), pedidos: (r.pedidos ?? []).map((p) => ({ id: p.id, monto: Number(p.monto) })) }));
+  }
+
+  /**
+   * `[PGP.127]` D10 — **sube la cotización** al almacenamiento privado y devuelve su llave. El pedido la
+   * cita después; el servidor sólo acepta llaves de la carpeta de anticipos de ESTE tenant.
+   */
+  async subirCotizacion(dataUri: string): Promise<{ key: string; kind: 'pdf' | 'image' }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const raw = String(dataUri ?? '');
+    if (!raw) throw new BadRequestException('Falta el archivo de la cotización.');
+    if (!TIPOS_COTIZACION.test(raw)) throw new BadRequestException('La cotización tiene que ser PDF o foto (JPG, PNG, WEBP o HEIC).');
+    const bytes = Math.floor((raw.length - raw.indexOf(',') - 1) * 3 / 4);
+    if (bytes > MAX_COTIZACION_BYTES) throw new BadRequestException('La cotización pesa más de 10 MB: escanéala más ligera o mándala en foto.');
+    try {
+      return await this.storage.putFile(raw, carpetaCotizaciones(tenantId));
+    } catch (e: unknown) {
+      if ((e as { status?: number } | null)?.status === 400) throw e;
+      throw new BadRequestException('No se pudo guardar la cotización. Intenta de nuevo.');
+    }
+  }
+
+  /** `[PGP.127]` La cotización de un anticipo, con URL firmada de 10 minutos (Compras y el Calendario). */
+  async cotizacionUrl(obligationId: string): Promise<{ url: string; kind: string | null }> {
+    if (!/^[0-9a-f-]{36}$/i.test(String(obligationId ?? ''))) throw new BadRequestException('id inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    const row = await this.tk.run((trx) => trx('commercial.supplier_payment_obligations')
+      .where({ tenant_id: tenantId, id: obligationId, nature: 'anticipo' }).first('quote_file_key', 'quote_file_kind'));
+    if (!row) throw new NotFoundException('Anticipo no encontrado.');
+    if (!row.quote_file_key) throw new NotFoundException('Este anticipo se pidió sin cotización (antes de que se exigiera).');
+    const url = await this.storage.signedUrl(row.quote_file_key);
+    if (!url) throw new BadRequestException('El almacenamiento de archivos no está disponible: no se puede abrir la cotización.');
+    return { url, kind: row.quote_file_kind ?? null };
   }
 
   /**
@@ -286,13 +346,36 @@ export class SupplierPaymentObligationsService {
    * base —total y lo ya anticipado— dentro de la transacción, con la OC bloqueada: dos solicitudes a la
    * vez sobre la misma OC no pasan juntas del tope.
    */
-  async crearAnticipo(dto: AnticipoSolicitudBody, username: string): Promise<{ obligation_id: string; monto: number; concepto: string }> {
+  async crearAnticipo(dto: AnticipoSolicitudBody, username: string): Promise<{ obligation_id: string; monto: number; concepto: string; cuenta: ResultadoCuentaAnticipo }> {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!/^[0-9a-f-]{36}$/i.test(String(dto?.supplier_id ?? ''))) throw new BadRequestException('Elige el proveedor.');
+    // `[PGP.127]` La cotización tiene que ser una llave que subió ESTE tenant a la carpeta de anticipos:
+    // con una llave ajena, la URL firmada abriría el documento de otro.
+    const cot = dto.cotizacion ?? null;
+    if (cot && (!String(cot.key ?? '').startsWith(`${carpetaCotizaciones(tenantId)}/`) || String(cot.key).includes('..') || !['pdf', 'image'].includes(String(cot.kind)))) {
+      throw new BadRequestException('La cotización no es válida: súbela otra vez.');
+    }
+    // `[PGP.127]` Las OC llegan como referencia; se vuelven a leer de Kepler (no se le cree al cliente).
+    const refs: RefOcKepler[] = (Array.isArray(dto.kepler_ocs) ? dto.kepler_ocs : [])
+      .map((o) => ({ sucursal: String(o?.sucursal ?? '').trim(), serie: String(o?.serie ?? '').trim(), folio: String(o?.folio ?? '').trim() }));
+    if (refs.length > 20) throw new BadRequestException('Son demasiadas órdenes para un anticipo (máximo 20).');
+    const llaves = [...new Set(refs.map(llaveOcKepler))].sort();
     return this.tk.run(async (trx) => {
       const supplier = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: dto.supplier_id }).first();
       if (!supplier) throw new NotFoundException('Proveedor no encontrado');
       if (!supplier.activo) throw new BadRequestException('El proveedor está inactivo.');
+      // Gasto o tarjeta se dicen ANTES de buscar sus OC: si no, el aviso sería «la OC no es de este proveedor».
+      if (tipoDeAcreedor(String(supplier.code ?? '').trim()) !== 'mercancia') {
+        throw new BadRequestException(faltaSolicitudAnticipo({ supplier_code: String(supplier.code ?? '').trim(), sucursal: null, monto: 0, motivo: null, ocs: [], cotizacion: false, cuenta: null }) ?? 'Sólo se da anticipo a proveedores de mercancía.');
+      }
+      // `[PGP.127]` Un candado por OC, en orden: dos pedidos a la vez sobre la misma OC no pasan juntos del tope.
+      for (const k of llaves) await trx.raw('SELECT pg_advisory_xact_lock(hashtext(?))', [`pgp127:oc:${tenantId}:${k}`]);
+      const ocs = llaves.length ? await this.leerOcsKepler(trx, tenantId, String(supplier.code ?? '').trim(), llaves) : [];
+      if (ocs.length !== llaves.length) {
+        const vistas = new Set(ocs.map(llaveOcKepler));
+        const falta = llaves.filter((k) => !vistas.has(k)).map((k) => k.split('|')[2]).join(', ');
+        throw new BadRequestException(`La OC ${falta} no es de este proveedor o ya no está pendiente en Kepler: vuelve a elegirla.`);
+      }
       let oc: { id: string; folio: string; total: number; anticipado: number; sucursal: string | null } | null = null;
       if (dto.purchase_order_id) {
         const po = await trx('commercial.purchase_orders').where({ tenant_id: tenantId, id: dto.purchase_order_id }).forUpdate().first();
@@ -305,14 +388,18 @@ export class SupplierPaymentObligationsService {
         oc = { id: po.id, folio: po.folio, total: Number(po.total_cost ?? 0), anticipado: Number(ya.anticipado), sucursal: null };
       }
       const code = String(supplier.code ?? '').trim();
+      // `[PGP.127]` La MISMA regla que la pantalla, ahora con las OC leídas de Kepler, la cotización y la cuenta.
       const falta = faltaSolicitudAnticipo({
         supplier_code: code, sucursal: dto.sucursal, monto: dto.monto, motivo: dto.motivo, fecha: dto.fecha ?? null, oc,
+        ocs, cotizacion: !!cot, cuenta: dto.cuenta ?? null,
       });
       if (falta) throw new BadRequestException(falta);
       const monto = Math.round(Number(dto.monto) * 100) / 100;
       const sucursal = String(dto.sucursal).trim();
       const motivo = String(dto.motivo).trim();
-      const concepto = `Anticipo${oc ? ` · OC ${oc.folio}` : ''} · ${warehouseName(sucursal)}`;
+      const { clabe, resultado } = await this.cuentaDelAnticipo(trx, tenantId, supplier, dto, cot!, username);
+      const folios = ocs.map((o) => o.folio).join(', ');
+      const concepto = `Anticipo · OC ${folios}${oc ? ` · OC Suite ${oc.folio}` : ''} · ${warehouseName(sucursal)}`;
       const [row] = await trx('commercial.supplier_payment_obligations').insert({
         tenant_id: tenantId, supplier_id: dto.supplier_id, purchase_order_id: oc?.id ?? null,
         nature: 'anticipo', concept: concepto, original_amount: monto,
@@ -322,9 +409,53 @@ export class SupplierPaymentObligationsService {
         authorized_by: username, authorized_at: trx.fn.now(), created_by: username,
         // El X-D-60 se capturará en esta sucursal; su folio se parea al leer (el CHECK exige folio vacío).
         kepler_sucursal: sucursal, kepler_doc_tipo: 60, kepler_doc_sub: 1, kepler_folio: null,
+        // `[PGP.127]` Los papeles del pedido: la cotización, sus OC de Kepler y la CLABE a la que se paga.
+        quote_file_key: cot!.key, quote_file_kind: cot!.kind,
+        kepler_ocs: JSON.stringify(ocs.map((o) => ({ sucursal: o.sucursal, serie: o.serie, folio: o.folio }))),
+        payee_clabe: clabe,
       }).returning(['id', 'original_amount']);
-      return { obligation_id: row.id, monto: Number(row.original_amount), concepto };
+      return { obligation_id: row.id, monto: Number(row.original_amount), concepto, cuenta: resultado };
     });
+  }
+
+  /**
+   * `[PGP.127]` D12 — **la cuenta a la que se paga el anticipo.** Es el mismo flujo de alta de cuentas
+   * (`[TP.7]`, ADR-064): la CLABE que no está aprobada queda PEDIDA y la aprueba Dirección
+   * (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`); este método nunca da de alta una cuenta. La cotización viaja
+   * como su respaldo, para que quien aprueba vea de dónde salió la CLABE.
+   *
+   * ⚠️ Es el gemelo de `registrarDesdePago` (`[PGP.46]`, libs/finance): la misma idempotencia —una CLABE
+   * ya activa no se pide; una ya pedida no se pide dos veces—. Vive aquí porque `commercial` no puede
+   * importar `finance` (lint:boundary) y porque tiene que ir en la MISMA transacción que el anticipo.
+   */
+  private async cuentaDelAnticipo(
+    trx: Knex.Transaction, tenantId: string, supplier: { id: string; name: string },
+    dto: AnticipoSolicitudBody, cot: { key: string; kind: string }, username: string,
+  ): Promise<{ clabe: string | null; resultado: ResultadoCuentaAnticipo }> {
+    const c = dto.cuenta!;
+    if (c.tipo === 'efectivo') return { clabe: null, resultado: 'efectivo' };
+    if (c.tipo === 'aprobada') {
+      const acc = await trx('commercial.supplier_payment_accounts')
+        .where({ tenant_id: tenantId, id: c.account_id, supplier_id: supplier.id, status: 'activa' }).first('clabe');
+      if (!acc) throw new BadRequestException('La cuenta elegida no es de este proveedor o ya no está activa: vuelve a elegirla.');
+      const clabe = digitosClabe(acc.clabe);
+      if (clabe.length !== 18) throw new BadRequestException('Esa cuenta no tiene CLABE: captura la de la cotización.');
+      return { clabe, resultado: 'aprobada' };
+    }
+    const clabe = digitosClabe(c.clabe);
+    const activa = await trx('commercial.supplier_payment_accounts')
+      .where({ tenant_id: tenantId, supplier_id: supplier.id, clabe, status: 'activa' }).first('id');
+    if (activa) return { clabe, resultado: 'aprobada' };
+    const pedida = await trx('commercial.supplier_payment_account_change_requests')
+      .where({ tenant_id: tenantId, supplier_id: supplier.id, proposed_clabe: clabe, status: 'pending_approval' }).first('id');
+    if (pedida) return { clabe, resultado: 'ya_pedida' };
+    await trx('commercial.supplier_payment_account_change_requests').insert({
+      tenant_id: tenantId, supplier_id: supplier.id, account_id: null, deactivate: false,
+      proposed_bank_name: String(c.banco).trim(), proposed_account_number: null, proposed_clabe: clabe, proposed_alias: null,
+      proposed_attachment_url: cot.key, proposed_attachment_kind: cot.kind, proposed_es_favorita: false,
+      reason: `Anticipo a ${supplier.name}: CLABE de su cotización, capturada al pedir el anticipo.`, requested_by: username,
+    });
+    return { clabe, resultado: 'pedida' };
   }
 
   /**
@@ -335,23 +466,70 @@ export class SupplierPaymentObligationsService {
   async listAnticiposSolicitados(): Promise<AnticipoSolicitadoRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as (Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa'> & { candidatos: CandidatoAnticipoKepler[] })[];
+      type Cruda = Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa' | 'cuenta'> & {
+        candidatos: CandidatoAnticipoKepler[]; tenant_id?: string;
+        payee_clabe: string | null; banco_aprobada: string | null; solicitud_estado: string | null; solicitud_banco: string | null;
+      };
+      const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as Cruda[];
       const pareo = parearSolicitudes(rows);
-      return rows.map(({ candidatos, ...r }) => {
-        void candidatos;
+      return rows.map(({ candidatos, tenant_id, payee_clabe, banco_aprobada, solicitud_estado, solicitud_banco, ...r }) => {
+        void candidatos; void tenant_id;
         const p = pareo.get(r.obligation_id) ?? { kepler: null, posibles: 0 };
-        const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), kepler: p.kepler, posibles: p.posibles };
-        return { ...fila, etapa: etapaDeSolicitud(fila) };
+        const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), disponible: Number(r.disponible), kepler: p.kepler, posibles: p.posibles };
+        // `[PGP.127]` La cuenta se deriva aquí, con la regla del contrato: nunca se guarda su estado.
+        const cuenta = {
+          estado: estadoCuentaAnticipo({ payee_clabe, tiene_cotizacion: !!r.tiene_cotizacion, banco_aprobada, solicitud_estado }),
+          clabe: payee_clabe, banco: banco_aprobada ?? solicitud_banco ?? null,
+        };
+        return { ...fila, cubierto_el: r.cubierto_el ?? null, ocs: r.ocs ?? [], cuenta, etapa: etapaDeSolicitud(fila) };
       });
     });
   }
 
-  async cancel(id: string, reason: string | undefined, username: string) {
+  /**
+   * `[PGP.144]` **Lo que Kepler tiene sin solicitud en la Suite**: los `X-D-60` de mercancía de `dias` atrás (30,
+   * 90 o 180) que no están pareados con ninguna solicitud. Es el otro lado del embudo: anticipos que se pagaron
+   * fuera de él. El pareo es el MISMO del seguimiento (`parearSolicitudes`): un `X-D-60` ligado a una solicitud
+   * cancelada sí cuenta como sin solicitud.
+   */
+  async anticiposKeplerSinSolicitud(dias?: number | string): Promise<AnticipoKeplerSinSolicitudRow[]> {
+    const d = [30, 90, 180].includes(Number(dias)) ? Number(dias) : 90;
+    const tenantId = this.tenantCtx.requireTenantId();
+    // La llave lleva al ACREEDOR, como el pareo (acreedor + sucursal): sin él, el pareado de un proveedor
+    // escondía el X-D-60 de otro con el mismo folio en esa sucursal (revisión del PR).
+    const llave = (sucursal: string, acreedor: string, folio: string) => `${sucursal}|${String(acreedor ?? '').trim().toUpperCase()}|${String(folio ?? '').trim()}`;
+    const pareados = new Set((await this.listAnticiposSolicitados())
+      .filter((s) => s.kepler && s.sucursal).map((s) => llave(s.sucursal!, s.proveedor, s.kepler!.folio)));
+    return this.tk.run(async (trx) => {
+      const { rows: [c] } = await trx.raw(`SELECT ((now() AT TIME ZONE 'America/Mexico_City')::date - ?::int)::text AS desde`, [d]);
+      const { rows } = await trx.raw(SQL_ANTICIPOS_KEPLER_MERCANCIA, [tenantId, c.desde]);
+      return (rows as AnticipoKeplerSinSolicitudRow[])
+        .filter((k) => !pareados.has(llave(k.sucursal, k.proveedor, k.folio)))
+        .map((k) => ({ ...k, importe: Number(k.importe), remanente: Number(k.remanente) }));
+    });
+  }
+
+  cancel(id: string, reason: string | undefined, username: string): Promise<ObligacionCancelada> {
+    return this.cancelar(id, reason, username, false);
+  }
+
+  /**
+   * `[PGP.142]` La cancelación que pueden usar Finanzas y Compras (D14): la MISMA de abajo, pero sólo acepta
+   * anticipos. Con un id de otra obligación responde «no encontrado», como si no existiera: esa puerta no
+   * cancela facturas ni obligaciones de Compras.
+   */
+  async cancelAnticipo(id: string, reason: string | undefined, username: string): Promise<ObligacionCancelada> {
+    if (!/^[0-9a-f-]{36}$/i.test(String(id ?? ''))) throw new BadRequestException('id de anticipo inválido');
+    return this.cancelar(id, reason, username, true);
+  }
+
+  private async cancelar(id: string, reason: string | undefined, username: string, soloAnticipo: boolean): Promise<ObligacionCancelada> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       // `[PGP.126]` `forUpdate`: si el Calendario le está apartando un pago a la vez, se espera y se ve.
       const row = await trx('commercial.supplier_payment_obligations').where({ tenant_id: tenantId, id }).forUpdate().first();
       if (!row) throw new NotFoundException('Obligación a proveedor no encontrada');
+      if (soloAnticipo && row.nature !== 'anticipo') throw new NotFoundException('Anticipo no encontrado');
       // `[PGP.126]` El anticipo pedido en la Suite se cancela desde su submódulo: con razón (sus notas son
       // su motivo y la razón queda junto a él) y una sola vez.
       if (row.nature === 'anticipo') {

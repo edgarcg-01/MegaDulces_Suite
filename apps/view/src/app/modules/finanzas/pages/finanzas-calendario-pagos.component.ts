@@ -36,13 +36,16 @@ import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, proponerAnticipos, round2, type AnticipoOfrecido, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
 import { disponibleDeAnticipo, llaveAnticipo, tipoDeAcreedor, type AnticipoRow } from '@megadulces/contracts';
+// `[PGP.129]` Los anticipos que Compras pidió para el día (D13) y la cotización a un clic.
+import { anticiposDelDia, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow } from '@megadulces/contracts';
+import { PedirAnticipoDialogComponent, diaInicialDelAnticipo, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
+import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
-import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
@@ -223,7 +226,18 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <div class="pg-modo">
         <app-segmented [options]="MODOS" [value]="modo()" (valueChange)="cambiarModo($event)" ariaLabel="Ver los pagos por etapa o por día" />
         @if (modo() === 'etapa') { <app-context-help topic="calendario-de-pagos" /> }
+        <!-- [PGP.142] D14 (Francisco, 2026-11-17): el anticipo VIVE en el Calendario. Se pide aquí con sus papeles
+             (OC de Kepler, cotización, cuenta) para el día que se está viendo, y aparece en la franja de ese día.
+             Lo ven Compras y quien programa pagos: la misma lista de permisos que exige el servidor.
+             [PGP.142] Quien autoriza (Dirección) no lo ve aquí: tiene «Programar un anticipo en este día» de
+             [PGP.138] (ADR-120). Cada quien, UNA entrada al anticipo en el Calendario, no dos. -->
+        @if (puedePedirAnticipo() && !puedeProgramarAnticipo()) {
+          <button pButton type="button" class="pg-pedir-ant p-button-sm p-button-outlined p-button-secondary" (click)="pedirAnt.abrir(diaParaAnticipo())">
+            <span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Pedir anticipo
+          </button>
+        }
       </div>
+      <app-pedir-anticipo-dialog #pedirAnt (pedido)="alPedirAnticipo($event)" />
 
       @if (modo() === 'etapa') {
         <section class="pg-bandeja" aria-labelledby="pg-bandeja-h">
@@ -713,6 +727,39 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               <app-pagos-captura-lote [compacto]="true" [calendario]="true" (pagadosCalendario)="alPagarPorComprobante()" (verDiferencias)="verComprobantesConDiferencias()" />
             </div>
 
+            <!-- [PGP.129] D13: los anticipos que Compras pidió para ESTE día (en hoy, también los de días pasados que nadie
+                 programó), con sus papeles: OC de Kepler, cuenta y cotización. Finanzas los agrega con un clic, por el
+                 mismo camino que «Agregar facturas» (respeta el tope y el día autorizado). -->
+            @if (day && anticiposDelDiaSel().length) {
+              <div class="pg-ant" role="group" aria-labelledby="pg-ant-h">
+                <p class="pg-ant-h" id="pg-ant-h"><i class="pi pi-wallet" aria-hidden="true"></i> Anticipos pedidos para este día
+                  <span class="pg-sec-n">{{ anticiposDelDiaSel().length }} · <span class="comm-num">{{ money(totalAnticiposDia()) }}</span></span></p>
+                @for (s of anticiposDelDiaSel(); track s.obligation_id) {
+                  <div class="pg-prop-row pg-ant-row">
+                    <span class="pg-prop-main">
+                      <span class="cal-benef">{{ s.proveedor_nombre }}</span>
+                      <span class="pg-sub"><span class="cal-suc">{{ branchLabel(s.sucursal) }}</span> {{ ocsDeAnticipo(s) }} ·
+                        <span [class.pg-ant-warn]="cuentaPendiente(s)">{{ cuentaDeAnticipo(s) }}</span>@if (s.atrasado) { · <b>pedido para el {{ shortDate(s.fecha_deseada) }}</b> } · pidió {{ s.creado_por }}</span>
+                    </span>
+                    <span class="pg-prop-amt comm-num">{{ money(s.disponible) }}</span>
+                    <span class="pg-ant-acts">
+                      @if (s.tiene_cotizacion) {
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="verCotizacionAnticipo(s)"
+                                [attr.aria-label]="'Ver la cotización del anticipo de ' + s.proveedor_nombre"><i class="pi pi-file" aria-hidden="true"></i>&nbsp;Cotización</button>
+                      }
+                      @if (puedeAgregar()) {
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving() || agregando().has(s.obligation_id)"
+                                (click)="agregarAnticipo(s)" [attr.aria-label]="'Agregar al ' + dayShort(day.date) + ' el anticipo de ' + s.proveedor_nombre + ' por ' + money(s.disponible)">Agregar</button>
+                      }
+                    </span>
+                  </div>
+                }
+              </div>
+            } @else if (day && anticiposPedidosError()) {
+              <p class="pg-ant-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los anticipos pedidos para este día.
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="cargarAnticiposPedidos()">Reintentar</button></p>
+            }
+
             <!-- [PGP.114] A los que faltan de lo que se ve (la etapa o el día), salvo los de días que ya pasaron: ésos se mueven. -->
             @if (porPrepararAplicables().length > 0 && (!day || etapaSel() === 'preparar' || modo() === 'dia')) {
               <!-- [PGP.13][PGP.15][PGP.49] Método y origen a los que faltan, de una vez; el destino sale de la
@@ -1112,7 +1159,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}@if (numero(a.discount_total) > 0) {<span class="pg-dsc-pie"> · cubren {{ money(numero(a.amount_assigned) + numero(a.discount_total)) }} con {{ money(a.discount_total) }} de descuento</span>}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (a.status === 'pending' && !autorizadoFila(a)) { <td></td> }</tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ documentos(a.items) }}@if (numero(a.discount_total) > 0) {<span class="pg-dsc-pie"> · cubren {{ money(numero(a.amount_assigned) + numero(a.discount_total)) }} con {{ money(a.discount_total) }} de descuento</span>}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (a.status === 'pending' && !autorizadoFila(a)) { <td></td> }</tr></tfoot>
                       </table>
                     </td>
                   </tr>
@@ -1273,6 +1320,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p-select appendTo="body" inputId="cal-prep-origin" [options]="originOpts()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
       }
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico') {
+        <!-- [PGP.128] D12: un anticipo se transfiere sólo a la cuenta APROBADA de su cotización; la CLABE a mano no se acepta. -->
+        @if (prepAllocation && esPagoDeAnticipo(prepAllocation)) {
+          <p class="cal-dlg-hint cal-habito"><i class="pi pi-lock" aria-hidden="true"></i> <b>Este pago es un anticipo:</b> se transfiere sólo a una cuenta aprobada por Dirección, la de su cotización. Elígela del catálogo; si no aparece, su alta todavía espera aprobación en «Cuentas de pago».</p>
+        }
         @if (prepAccounts().length) {
           <label class="cal-dlg-label" for="cal-prep-dest">Cuenta destino del catálogo del proveedor</label>
           <p-select appendTo="body" inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" [fluid]="true" class="cal-dlg-sel" />
@@ -1288,13 +1339,18 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         } @else if (prepSupplierId) {
           <p class="cal-dlg-hint">Este proveedor no tiene cuentas en el catálogo. Captura la CLABE abajo; queda <b>pedida de alta sola</b> para que no haya que teclearla otra vez. La aprueba Dirección desde «Cuentas de pago»; mientras tanto, el pago sale igual.</p>
         }
+        @if (!(prepAllocation && esPagoDeAnticipo(prepAllocation))) {
         <label class="cal-dlg-label" for="cal-prep-clabe">Cuenta destino — banco y CLABE (si no está en el catálogo)</label>
         <input id="cal-prep-clabe" pInputText type="text" [(ngModel)]="prepDestination" [disabled]="!!prepAccountId" placeholder="Ej. BBVA · CLABE 012180001234567891" class="cal-dlg-full" />
+        }
         @if (prepDestHistorial && prepDestination === prepDestHistorial && prepAllocation) {
           <!-- [PGP.75] Un valor puesto solo, sin decir con qué, es una orden disfrazada (PGP.30): se dice de dónde salió. -->
           <p class="cal-dlg-hint cal-habito"><i class="pi pi-history" aria-hidden="true"></i> Precargada de sus comprobantes de pago: {{ sugerencias().get(prepAllocation.id)?.porque }}. Revísala antes de pagar; al guardar queda pedida de alta en el catálogo.</p>
         }
-        <p class="cal-dlg-hint">Si escribes una CLABE de 18 dígitos se valida su dígito de control.</p>
+        <!-- [PGP.143] Sin campo de CLABE a mano (anticipo) no se habla de escribirla: lo encontró el recorrido visual. -->
+        @if (!(prepAllocation && esPagoDeAnticipo(prepAllocation))) {
+          <p class="cal-dlg-hint">Si escribes una CLABE de 18 dígitos se valida su dígito de control.</p>
+        }
       }
       @if (prepMethod === 'cheque') {
         <label class="cal-dlg-label" for="cal-prep-ref">Folio del cheque</label>
@@ -1366,7 +1422,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     <p-dialog [visible]="!!autorizarObjetivo()" (visibleChange)="$event || autorizarObjetivo.set(null)" [modal]="true" header="Autorizar el pago" [style]="{ width: '32rem' }">
       @if (autorizarObjetivo(); as a) {
         <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · <span class="comm-num">{{ money(a.amount_assigned) }}</span></p>
-        <p class="cal-dlg-hint">{{ comoSale(a).texto || methodLabel(a.payment_method || '') }} · sale el {{ dayLong(diaDe(a)) }} · {{ facturas(a.items.length) }}@if (numero(a.discount_total) > 0) { · con {{ money(a.discount_total) }} de descuento }.</p>
+        <p class="cal-dlg-hint">{{ comoSale(a).texto || methodLabel(a.payment_method || '') }} · sale el {{ dayLong(diaDe(a)) }} · {{ documentos(a.items) }}@if (numero(a.discount_total) > 0) { · con {{ money(a.discount_total) }} de descuento }.</p>
         @if (a.created_by) {
           <p class="cal-dlg-hint">Lo armó {{ a.created_by }}. Debe autorizarlo alguien distinto de quien lo armó o preparó; la Suite todavía no lo impide.</p>
         }
@@ -1631,7 +1687,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-pdf:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
-    .pg-ev-src { color:var(--fg-3); }
     /* [PGP.32] La disputa NO se atenúa como la deducción: una contradicción entre el ERP y el
        SAT es trabajo de alguien, no una nota al pie. Sin fondo ni borde: pesa por color y peso,
        que es lo que §Q.5 pide, y no agrega una caja más al renglón. */
@@ -1669,8 +1724,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-week { display:flex; align-items:center; gap:var(--sp-1) var(--sp-3); flex-wrap:wrap; min-width:0; }
     .pg-week-nav { display:flex; align-items:center; gap:2px; }
     .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; padding:0 2px; }
-    .pg-week-f { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; padding-left:var(--sp-1); }
-    .pg-week-f b { color:var(--text-main); font-weight:700; }
     :host ::ng-deep .pg-ico.p-button { padding:var(--sp-1); min-width:auto; }
     :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); }
     .pg-days-ls { display:block; min-width:0; }
@@ -1698,8 +1751,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        acción principal y para lo que está mal. Eran 4 pastillas ámbar en la tira de la semana. */
     .pg-day-b b.cal-warn-txt { color:var(--text-main); background:none; padding:0; }
     .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
-    /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
-    .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
     .pg-dot.is-work { background:var(--text-main); }
     .pg-dot.is-free { background:transparent; border:1px solid var(--text-muted); }
     .pg-rev-u { font-weight:400; color:var(--text-muted); }
@@ -1711,10 +1762,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.77] Lo que está mal lo marca SÓLO el icono rojo junto a la frase: la barra lateral roja más
        el botón de color eran dos llamadas de atención para un mismo aviso («me desconcentra»). */
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-1); font-size:var(--fs-body); }
-    .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
-    .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
-    .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
     /* [PGP.77] Frase y explicacion en UN renglon cuando caben (Edgar, 2026-11-05: «necesita demasiado
        espacio»); si no caben, la explicacion baja sola. */
@@ -1726,33 +1773,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
       margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color); }
     @media (max-width: 90rem) { .pg-vd-row2 { grid-template-columns:minmax(0, 1fr); } }
-    .pg-cap { display:grid; gap:4px; min-width:0; }
-    /* El tope en UNA linea de texto (era una tira de cifras de 20 px que ocupaba dos renglones). */
-    .pg-cap-line { display:flex; flex-wrap:wrap; gap:2px var(--sp-4); font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
-    .pg-cap-line b { color:var(--text-main); font-weight:700; }
     .pg-cap-line b.cal-neg { color:var(--bad-soft-fg); }
-    .pg-cap-pct { font-size:var(--fs-sm); }
     .pg-cap-say { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); }
-    .pg-cap-bar { display:block; height:4px; border-radius:var(--r-pill); background:var(--border-color); overflow:hidden; }
-    .pg-cap-fill { display:block; height:100%; background:var(--text-muted); border-radius:inherit; }
     .pg-cap-fill.is-over { background:var(--bad-fg); }
-
-    /* [PGP.15] El avance: cinco etapas en una linea, sin clic. Hecho = palomita; ahora = numero
-       invertido y nombre en negro; pendiente = apagado. Ningun tono. */
-    .pg-prog { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
-    .pg-pe { display:flex; align-items:flex-start; gap:6px; min-width:0; color:var(--text-muted); }
-    .pg-pe-n { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:var(--r-pill); border:1.5px solid var(--border-color);
-      font-family:var(--font-mono); font-size:var(--fs-micro); font-weight:700; flex-shrink:0; }
     .pg-pe.is-done .pg-pe-n { border-color:var(--ok-soft-fg); color:var(--ok-soft-fg); }
     .pg-pe.is-now .pg-pe-n { border-color:var(--text-main); background:var(--text-main); color:var(--card-bg); }
-    /* Cada paso en UNA linea: nombre y lo que dice. */
-    .pg-pe { align-items:center; }
-    .pg-pe-t { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; min-width:0; font-size:var(--fs-sm); line-height:1.3; }
-    .pg-pe-t b { font-size:var(--fs-sm); color:var(--text-main); font-weight:600; }
     .pg-pe.is-now .pg-pe-t b { font-weight:700; }
     .pg-pe:not(.is-done):not(.is-now) .pg-pe-t b { color:var(--text-muted); font-weight:600; }
-    .pg-pe-who { font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-pe-say { color:var(--text-muted); overflow-wrap:anywhere; }
     .pg-pe.is-now .pg-pe-say { color:var(--text-main); }
     .pg-note { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-1) 0 0; padding:6px var(--sp-3);
       border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1763,6 +1790,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-paso { font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.114] La bandeja: arriba la vista (por etapa / por día), luego la tira de etapas, la frase y la tabla. */
     .pg-modo { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-2); }
+    .pg-pedir-ant { margin-left:auto; }
     .pg-bandeja { display:grid; gap:var(--sp-2); }
     .pg-etapas { display:block; }
     .pg-vd-etapa { border-top:0; }
@@ -1779,7 +1807,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-add > :not(.pg-add-bar):not(.pg-add-links) { grid-column:1 / -1; }
     @media (max-width: 47.5rem) { .pg-add { grid-template-columns:minmax(0, 1fr); } }
     .pg-add-bar { display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; }
-    .pg-add-t { margin:0; font-size:var(--fs-h3); font-weight:600; color:var(--text-main); white-space:nowrap; }
     .pg-add-n { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-add-links { display:flex; align-items:center; gap:var(--sp-1) var(--sp-4); flex-wrap:wrap; margin:0; font-size:var(--fs-sm); }
     .pg-add-nm { color:var(--warn-soft-fg); }
@@ -1801,9 +1828,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-how .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); }
     td.pg-c-how .pg-how-t { color:var(--text-main); }
     td.pg-c-how .pg-st { margin-top:0; }
-    /* Las flechas de orden: al pasar el cursor o con el foco del teclado (el numero se ve siempre). */
-    /* [PGP.76] El asa se ve siempre (atenuada); se enciende al pasar el cursor o con el foco. */
-    .pg-ord-h { font-size:var(--fs-xs); color:var(--text-muted); }
     :host ::ng-deep .pg-prep tr:hover .pg-ord-h, .pg-ord:focus-visible .pg-ord-h { color:var(--text-main); }
     /* El desglose junta lo que antes llenaba el renglon. */
     .pg-x-info { display:grid; gap:4px; margin:0 0 var(--sp-2); }
@@ -1823,13 +1847,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
     .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; margin-left:auto; }
-    .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
-    .pg-sec-tg:hover { text-decoration:underline; }
-    .pg-sec-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
-
-    /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
-    .pg-add-h { gap:var(--sp-2) var(--sp-3); }
     .pg-buscar { position:relative; display:flex; align-items:center; flex:1 1 22rem; min-width:14rem; max-width:36rem; }
     .pg-buscar > .pi-search { position:absolute; left:var(--sp-3); color:var(--text-muted); pointer-events:none; }
     :host ::ng-deep .pg-buscar-in.p-inputtext { width:100%; padding-left:2.25rem; padding-right:2.25rem; font-size:var(--fs-body); }
@@ -1838,7 +1856,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-buscar:focus-within .pg-kbd { display:none; }
     /* [PGP.66] En el botón el atajo va EN LÍNEA: con el absolute del buscador se encimaba sobre «facturas». */
     .pg-sec-acts .pg-kbd { position:static; margin-left:var(--sp-1); }
-    .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
     /* Los proveedores encontrados: cada uno es un pago y se agrega entero. */
@@ -1857,6 +1874,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-prop-row.is-off { opacity:.7; cursor:default; }
     .pg-prop-main { display:flex; flex-direction:column; min-width:0; }
     .pg-prop-amt { font-weight:700; font-size:var(--fs-sm); white-space:nowrap; color:var(--text-main); }
+    /* [PGP.129] Los anticipos pedidos para el día: la misma fila que la propuesta, con sus dos acciones. */
+    .pg-ant { display:grid; gap:4px; margin:var(--sp-3); padding:var(--sp-2); border:1px dashed var(--text-faint); border-radius:var(--r-md); }
+    .pg-ant-h { margin:0 0 var(--sp-1); font-size:var(--fs-sm); font-weight:600; color:var(--text-main); display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .pg-ant-row { grid-template-columns:minmax(0, 1fr) auto auto; cursor:default; }
+    .pg-ant-acts { display:flex; gap:var(--sp-1); align-items:center; }
+    /* --warn-soft-fg y no --warn-fg: el ámbar puro sobre blanco no llega a 3:1 como texto. */
+    .pg-ant-warn { color:var(--warn-soft-fg); font-weight:600; }
+    .pg-ant-err { margin:var(--sp-2) var(--sp-3); font-size:var(--fs-sm); color:var(--text-muted); display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    @media (max-width: 40rem) { .pg-ant-row { grid-template-columns:minmax(0, 1fr) auto; } .pg-ant-acts { grid-column:1 / -1; justify-content:flex-end; } }
     /* [PGP.15] Una casilla marcada no es la accion principal: con 30 marcadas, el naranja de PrimeNG
        pintaba 30 cuadros de «hazme clic» (medido: rgb(242,116,78) en cada uno). Marcada = color del
        texto; la palomita lleva la forma. */
@@ -1870,7 +1896,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-aa-lb { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-aa-f { display:flex; align-items:center; gap:6px; }
     .pg-aa-f > label { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
-    .pg-aa-note { flex-basis:100%; font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.15] En el encabezado del panel: sin fondo propio ni renglon aparte. */
     .pg-sec-h > .pg-applyall { flex:1 1 auto; padding:0; background:none; border-bottom:0; gap:var(--sp-1) var(--sp-2); }
     :host ::ng-deep .pg-sec-h > .pg-applyall .cal-sel { width:8.5rem; }
@@ -1934,9 +1959,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry:hover { background:var(--overlay-hover); }
     .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
-    .pg-ord { display:inline-flex; align-items:center; gap:var(--sp-2); padding:var(--sp-1) var(--sp-2); border-radius:var(--radius-sm); cursor:grab; user-select:none; }
-    .pg-ord:active { cursor:grabbing; }
-    .pg-ord:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
@@ -1960,11 +1982,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
-
-    /* La deuda */
-    .pg-drawer { overflow:hidden; }
     .pg-drawer-h { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; padding:6px var(--sp-3); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
-    .pg-grow { flex:1; min-width:11rem; }
     .pg-drawer-n { margin:0; padding:4px var(--sp-3); font-size:var(--fs-sm); color:var(--text-muted); background:var(--surface-2); border-bottom:1px solid var(--border-color); }
     .pg-drawer-n b { color:var(--text-main); }
     .pg-drawer-b { max-height:22rem; overflow:auto; }
@@ -2063,13 +2081,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-razon.is-urge  { color:var(--text-main); font-weight:700; }
     .pg-razon.is-tarde { color:var(--warn-soft-fg); }
     .pg-razon.is-mudo  { color:var(--fg-3); font-weight:500; font-style:italic; }
-    .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
     /* [PGP.53] Pronto pago: su propia seccion, sin caja ni color. Grupo = dia en que cierra; las
        cifras en columnas fijas para que el grupo y sus renglones se lean en la misma vertical. */
     .pg-pp { margin:0 0 var(--sp-4); }
-    .pg-pp-tot { font-size:var(--fs-sm); color:var(--fg-2); }
     .pg-pp-why { margin:var(--sp-1) 0 var(--sp-2); font-size:var(--fs-sm); max-width:72ch; }
-    .pg-pp-src { display:block; margin-top:2px; font-size:var(--fs-xs); color:var(--fg-3); }
     .pg-pp-gr { border-top:1px solid var(--border-color); }
     /* [PGP.61] La línea de «N días más»: neutra, con su cuenta, del ancho de un grupo. */
     .pg-pp-mas { all:unset; box-sizing:border-box; cursor:pointer; display:flex; align-items:center; gap:var(--sp-2); width:100%;
@@ -2105,11 +2120,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       .pg-pp-go .pg-pp-i { display:none; }
       .pg-pp-x { padding-left:var(--sp-2); }
     }
-    .pg-prop-not { color:var(--warn-soft-fg); }
     .pg-qp-nm { margin:0 0 var(--sp-3); font-size:var(--fs-xs); color:var(--warn-soft-fg);
                 border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); }
-    .pg-sec-pronto-k { color:var(--fg-3); }
-    .pg-gana { color:var(--ok-soft-fg); } .pg-tarde { color:var(--warn-soft-fg); } .pg-sep { color:var(--fg-3); }
     .cal-dlg-full { width:100%; margin-bottom:var(--sp-2); }
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
@@ -2827,7 +2839,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return this.obligations().filter((o) => anteriorAlCorte(o) && !bloqueadaPorCorte(o, s)).length;
   });
   readonly obligacionesEnRevision = computed(() => { const s = this.corteSueltas(); return this.obligations().filter((o) => bloqueadaPorCorte(o, s)); });
-  readonly obligacionesProgramables = computed(() => { const s = this.corteSueltas(); return this.obligations().filter((o) => !bloqueadaPorCorte(o, s)); });
+  /**
+   * `[PGP.129]` Lo que se puede agregar a mano. ⛔ Sin los anticipos pedidos: se agregan desde su franja (o
+   * «Programar») como pago PROPIO; por aquí se sumaban al pago de facturas del mismo proveedor y sucursal.
+   */
+  readonly obligacionesProgramables = computed(() => {
+    const s = this.corteSueltas();
+    const ant = new Set(this.anticiposPedidos().map((a) => a.obligation_id));
+    return this.obligations().filter((o) => !bloqueadaPorCorte(o, s) && !(o.obligation_source === 'supplier_payable' && ant.has(o.obligation_id)));
+  });
   /**
    * `[PGP.15]` **Cada renglón del cajón, con sus textos ya calculados.** El cajón tiene ~1,000
    * renglones y antes cada uno formateaba fecha, importe, sucursal y dos `aria-label` en CADA
@@ -4244,6 +4264,100 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.loadBandeja();
     this.loadObligations();
     this.loadAtrasados();
+    this.cargarAnticiposPedidos();
+  }
+
+  // ── `[PGP.129]` D13: los anticipos que Compras pidió para el día ─────────────────────────────
+  /**
+   * El seguimiento de `[PGP.119]` (`GET commercial/supplier-obligations/anticipos`, ~250 ms, 180 días): ya trae
+   * el día pedido, la etapa, lo que falta programar, sus OC, la cotización y la cuenta. No hace falta otra
+   * lectura. Si falla, la franja lo DICE (no se calla como «no hay anticipos»).
+   */
+  readonly anticiposPedidos = signal<AnticipoSolicitadoRow[]>([]);
+  readonly anticiposPedidosError = signal(false);
+  private anticiposSeq = 0;
+  cargarAnticiposPedidos(): void {
+    const seq = ++this.anticiposSeq;
+    this.http.get<AnticipoSolicitadoRow[]>(`${environment.apiUrl}/commercial/supplier-obligations/anticipos`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { if (seq !== this.anticiposSeq) return; this.anticiposPedidos.set(r ?? []); this.anticiposPedidosError.set(false); },
+      error: () => { if (seq !== this.anticiposSeq) return; this.anticiposPedidos.set([]); this.anticiposPedidosError.set(true); },
+    });
+  }
+  /** `[PGP.142]` D14 — pide Compras o quien programa pagos: la MISMA lista que el servidor (no se ofrece un botón que rechace). */
+  readonly puedePedirAnticipo = computed(() => this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO));
+  /** El día que se está viendo en «Por día» (si no pasó); en «Por etapa», hoy. */
+  diaParaAnticipo(): string { return diaInicialDelAnticipo(this.modo() === 'dia' ? this.selectedDate() : null, this.todayIso); }
+  /**
+   * Pedido el anticipo, se va a SU día en «Por día»: ahí aparece en la franja y ahí se agrega. Ver el resultado
+   * donde vive confirma lo que se hizo (si ya se estaba en ese día, sólo se relee la franja).
+   */
+  alPedirAnticipo(p: AnticipoPedido): void {
+    if (this.modo() === 'dia' && this.selectedDate() === p.fecha) { this.cargarAnticiposPedidos(); return; }
+    this.modo.set('dia');
+    this.abiertos.set({});
+    this.irAlDia(p.fecha);
+    this.ponerEnUrl();
+  }
+  /** Los del día elegido; en HOY también los de días pasados que nadie programó (regla del contrato). */
+  readonly anticiposDelDiaSel = computed(() => anticiposDelDia(this.anticiposPedidos(), this.selectedDate(), this.todayIso));
+  readonly totalAnticiposDia = computed(() => this.anticiposDelDiaSel().reduce((s, a) => s + Number(a.disponible), 0));
+  ocsDeAnticipo(s: AnticipoSolicitadoRow): string {
+    const f = (s.ocs ?? []).map((o) => o.folio);
+    return f.length ? `OC ${f.join(', ')}` : s.oc_folio ? `OC ${s.oc_folio}` : 'sin OC (pedido antes de exigirla)';
+  }
+  /** La cuenta en llano: a dónde va el dinero y si Dirección ya la aprobó. */
+  cuentaDeAnticipo(s: AnticipoSolicitadoRow): string {
+    const c = s.cuenta;
+    const fin = c?.clabe ? `${c.banco ? c.banco + ' ' : ''}···${c.clabe.slice(-4)}` : '';
+    switch (c?.estado) {
+      case 'aprobada': return `a ${fin}, aprobada`;
+      case 'en_aprobacion': return `a ${fin}, espera aprobación de Dirección`;
+      case 'rechazada': return `CLABE ${fin} rechazada: pedir otra cuenta`;
+      case 'sin_cuenta': return `CLABE ${fin} sin cuenta aprobada`;
+      case 'efectivo': return 'en efectivo';
+      default: return 'sin cuenta capturada';
+    }
+  }
+  cuentaPendiente(s: AnticipoSolicitadoRow): boolean { return !!s.cuenta && ['en_aprobacion', 'rechazada', 'sin_cuenta'].includes(s.cuenta.estado); }
+  /**
+   * `[PGP.129]` El anticipo entra al día como **su PROPIO pago**, igual que el que programa Dirección (`[PGP.138]`,
+   * `anticipoPedido`). ⛔ Antes iba por «Agregar facturas» (`assign`), que lo SUMABA al pago abierto del mismo
+   * proveedor y sucursal (la llave es la misma): las facturas de ese pago quedaban atadas a la CLABE de la
+   * cotización (`prepare()` de `[PGP.128]` aplica al pago entero) y en Kepler salían mezcladas con un documento
+   * distinto. Lo encontró la revisión independiente del PR.
+   */
+  async agregarAnticipo(s: AnticipoSolicitadoRow): Promise<void> {
+    const fecha = this.selectedDate();
+    const monto = Number(s.disponible);
+    this.avisoAlta.set(null);
+    this.saving.set(true);
+    this.agregando.set(new Set([...this.agregando(), s.obligation_id]));
+    try {
+      const creado = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations`, {
+        date: fecha, notes: `Anticipo · ${this.ocsDeAnticipo(s)}`,
+        items: [{ obligation_source: 'supplier_payable', obligation_id: s.obligation_id, applied_amount: monto }],
+      }));
+      await this.ordenarNuevos(fecha, creado?.id ? [creado.id] : []);
+      this.avisoAlta.set(`${this.dayLong(fecha)}: anticipo a ${s.proveedor_nombre} por ${PESOS.format(monto)} agregado como pago propio; está en «Preparar».`);
+    } catch (e) {
+      this.toast.add({ severity: 'error', summary: 'No se agregó el anticipo', life: 10000,
+        detail: `${s.proveedor_nombre} por ${PESOS.format(monto)}: ${this.errMsg(e, 'no se pudo poner en el día')}.` });
+    } finally {
+      const sin = new Set(this.agregando()); sin.delete(s.obligation_id); this.agregando.set(sin);
+      this.saving.set(false);
+      this.invalidarDeuda();
+      this.recargarPagos();
+      this.loadObligations({ silencioso: true });
+      this.cargarAnticiposPedidos();
+    }
+  }
+  /** La cotización: la pestaña se abre dentro del clic y recibe la URL firmada. */
+  verCotizacionAnticipo(s: AnticipoSolicitadoRow): void {
+    const win = abrirPestanaParaPdf('Abriendo la cotización…');
+    this.http.get<{ url: string }>(`${environment.apiUrl}/commercial/supplier-obligations/anticipos/${s.obligation_id}/cotizacion`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => entregarUrl(win, r.url),
+      error: (e) => { cerrarPestanaDePdf(win); this.toast.add({ severity: 'error', summary: 'No se abrió la cotización', detail: this.errMsg(e, 'Intenta de nuevo.') }); },
+    });
   }
 
   /** Cada petición de semana lleva su número: dos clics rápidos no deben pintar la semana vieja. */
@@ -4412,6 +4526,17 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   pagos(n: number): string { return `${n} ${n === 1 ? 'pago' : 'pagos'}`; }
   dias(n: number): string { return `${n} ${n === 1 ? 'día' : 'días'}`; }
   facturas(n: number): string { return `${n} ${n === 1 ? 'factura' : 'facturas'}`; }
+  /**
+   * `[PGP.145]` Los documentos de un pago, por lo que son: un anticipo no es «1 factura». Visto en el
+   * recorrido de `[PGP.144]`: el pago de un anticipo decía «1 factura» en Autorizar y en su desglose.
+   */
+  documentos(items: readonly { es_anticipo?: boolean }[]): string {
+    const ant = items.filter((i) => i.es_anticipo === true).length;
+    const fac = items.length - ant;
+    if (!ant) return this.facturas(fac);
+    const a = `${ant} ${ant === 1 ? 'anticipo' : 'anticipos'}`;
+    return fac ? `${this.facturas(fac)} y ${a}` : a;
+  }
   /**
    * El tope del día en la tira de métricas compartida (`DESIGN.md` Q.1): comprometido, libre y tope.
    * El libre en negativo se pinta `bad`; lo demás no juzga.
@@ -4619,7 +4744,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * día escondían folios. Ahora el detalle completo está en el desglose del pago (la flecha).
    */
   itemsResumen(a: PaymentCalendarAllocation): string {
-    return a.items.length > 1 ? this.facturas(a.items.length) : (a.items[0]?.concept ?? '');
+    if (a.items.length > 1) return this.documentos(a.items);
+    const it = a.items[0];
+    if (!it) return '';
+    // `[PGP.145]` El concepto del anticipo trae su sucursal («Anticipo · OC 0001041 · CEDIS») y la fila ya
+    // la dice antes (`itemsBranches`): salía «CEDIS · Anticipo · OC 0001041 · CEDIS».
+    const suc = ` · ${this.branchLabel(it.branch_code)}`;
+    return it.es_anticipo === true && it.concept.endsWith(suc) ? it.concept.slice(0, -suc.length) : it.concept;
   }
 
   /**
@@ -4726,6 +4857,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * las columnas que el armado usa); mientras tanto, se lee una vez y se invalida tras cada escritura.
    */
   private deudaCompleta: Obligation[] | null = null;
+  /** `[PGP.129]` Los anticipos pedidos en la Suite, leídos con la deuda: la propuesta no los arma (ver abajo). */
+  private anticiposDeLaDeuda: ReadonlySet<string> = new Set();
   private invalidarDeuda(): void { this.deudaCompleta = null; }
   /**
    * `[PGP.15]` **La propuesta ya está hecha al entrar a un día vacío.** Antes había que apretar
@@ -4756,7 +4889,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       if (!this.deudaCompleta) {
         this.armadoCargando.set(true);
         // [TP.17.2] Techo alto a proposito: con la primera pagina propondria sobre las 1,000 mas viejas.
-        const page = await firstValueFrom(this.http.get<ObligationPage>(`${this.base}/obligations?limit=5000`));
+        // `[PGP.129]` Con la deuda, los anticipos pedidos: si esa lectura falla, no se propone nada (se dice), en vez de
+        // proponer un anticipo sumado al pago de facturas de su proveedor.
+        const [page, ants] = await Promise.all([
+          firstValueFrom(this.http.get<ObligationPage>(`${this.base}/obligations?limit=5000`)),
+          firstValueFrom(this.http.get<AnticipoSolicitadoRow[]>(`${environment.apiUrl}/commercial/supplier-obligations/anticipos`)),
+        ]);
+        this.anticiposDeLaDeuda = new Set((ants ?? []).map((a) => a.obligation_id));
         this.deudaCompleta = page.rows;
         this.armadoUniverso.set(page.total > page.rows.length
           ? `Ojo: se propuso sobre ${page.rows.length.toLocaleString('es-MX')} de ${page.total.toLocaleString('es-MX')} facturas.` : null);
@@ -4764,7 +4903,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       if (this.selectedDate() !== fecha) return; // se cambió de día mientras se leía
       // [PGP.113] ⛔ La propuesta sigue SIN las de antes del corte, aunque se hayan soltado: ésas se
       // agregan a mano, una por una, viendo su renglón. Soltarlas no es pedir que se paguen solas.
-      const programables = this.deudaCompleta.filter((o) => !anteriorAlCorte(o));
+      // `[PGP.129]` ⛔ Ni los anticipos pedidos: la propuesta agrupa por proveedor y sucursal, y los sumaba al pago
+      // de facturas (las ataba a la CLABE de la cotización, `[PGP.128]`) diciendo «1 factura». Entran como pago propio.
+      const ant = this.anticiposDeLaDeuda;
+      const programables = this.deudaCompleta.filter((o) => !anteriorAlCorte(o) && !(o.obligation_source === 'supplier_payable' && ant.has(o.obligation_id)));
       /**
        * `[PGP.42]` Sin tope no se puede decir qué CABE, así que no se dibuja un «cabe» que
        * nadie midió (ADR-056). Se propone igual —que es lo que faltaba— y se declara.
@@ -5222,6 +5364,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     } finally { this.saving.set(false); this.invalidarDeuda(); this.reload(); }
   }
 
+  /** `[PGP.128]` El pago lleva un anticipo pedido en la Suite: se transfiere sólo a una cuenta aprobada (el servidor lo exige igual). */
+  esPagoDeAnticipo(a: PaymentCalendarAllocation): boolean { return (a.items ?? []).some((it) => it.es_anticipo === true); }
+
   // ── Preparar UN pago (origen + destino: lo que pide el layout) ─────────────
   openPrepare(a: PaymentCalendarAllocation): void {
     this.prepAllocation = a; this.prepMethod = a.payment_method; this.prepDestination = a.supplier_payment_account_id ? '' : (a.destination_account_text || '');
@@ -5299,7 +5444,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.http.post(`${this.base}/allocations/${this.prepAllocation.id}/preparar`, {
       payment_method: this.prepMethod,
       bank_account_id: usesOrigin ? this.prepOriginId || undefined : undefined,
-      destination_account_text: usesDest && !this.prepAccountId ? (this.prepDestination || undefined) : undefined,
+      // `[PGP.128]` En un anticipo no viaja CLABE a mano (no hay campo): sin cuenta del catálogo, el servidor dice por qué.
+      destination_account_text: usesDest && !this.prepAccountId && !this.esPagoDeAnticipo(this.prepAllocation) ? (this.prepDestination || undefined) : undefined,
       reference_text: this.prepMethod === 'cheque' ? this.prepReference || undefined : undefined,
       cash_register_text: this.prepMethod === 'efectivo' ? this.prepCash || undefined : undefined,
       supplier_payment_account_id: usesDest ? this.prepAccountId || undefined : undefined,

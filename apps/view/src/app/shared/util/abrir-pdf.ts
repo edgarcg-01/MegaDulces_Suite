@@ -104,3 +104,24 @@ export function entregarPdf(
 export function cerrarPestanaDePdf(win: Window | null): void {
   try { win?.close(); } catch { /* ya la cerró la persona */ }
 }
+
+/**
+ * `[PGP.127]` Pone en la pestaña que abrió el clic un documento que vive en el almacenamiento privado y
+ * llega como **URL firmada** (no como blob): la cotización de un anticipo, el respaldo de una cuenta. Mismo
+ * remedio de dos tiempos que `entregarPdf`. Sin pestaña, se abre con un enlace (`target=_blank` sale de un
+ * clic sintético; si el navegador también lo niega, la persona ve el aviso de quien llama).
+ */
+export function entregarUrl(win: Window | null, url: string): EntregaPdf {
+  if (win && !win.closed) {
+    win.location.href = url;
+    return 'pestana';
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return 'descarga';
+}

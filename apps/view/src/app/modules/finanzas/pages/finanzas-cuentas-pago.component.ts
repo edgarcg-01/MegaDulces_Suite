@@ -21,6 +21,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
 import { PagosTabsComponent } from '../pagos-tabs.component';
+import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 
 interface SupplierOpt { id: string; name: string; code: string }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; payment_reference: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
@@ -29,6 +30,8 @@ interface ChangeRequest {
   proposed_bank_name: string | null; proposed_account_number: string | null; proposed_clabe: string | null;
   proposed_alias: string | null; proposed_payment_reference: string | null; proposed_es_favorita: boolean; reason: string; status: string;
   requested_by: string; requested_at: string; decided_by: string | null; decision_notes: string | null;
+  /** `[PGP.128]` La llave del respaldo (no una URL): se abre con `GET solicitudes/:id/adjunto`. */
+  proposed_attachment_url?: string | null;
 }
 
 /**
@@ -201,7 +204,12 @@ interface ChangeRequest {
               <td><p-tag [value]="tipoLabel(r)" severity="info" styleClass="cta-tag" /></td>
               <td>{{ r.proposed_bank_name || '—' }} @if (r.proposed_clabe) { <span class="cta-muted"> · {{ r.proposed_clabe }}</span> }
                 <!-- [PGP.90] Quien autoriza ve la referencia que va a quedar fija: se firma junto con la CLABE. -->
-                @if (r.proposed_payment_reference) { <span class="cta-muted"> · Ref {{ r.proposed_payment_reference }}</span> }</td>
+                @if (r.proposed_payment_reference) { <span class="cta-muted"> · Ref {{ r.proposed_payment_reference }}</span> }
+                <!-- [PGP.128] Quien aprueba ve de dónde salió la CLABE (la cotización del anticipo o la carátula). -->
+                @if (r.proposed_attachment_url) {
+                  <div><button pButton type="button" class="p-button-sm p-button-text" (click)="verRespaldo(r)"
+                               [attr.aria-label]="'Ver el respaldo de la cuenta propuesta para ' + r.supplier_name"><i class="pi pi-file" aria-hidden="true"></i>&nbsp;Ver respaldo</button></div>
+                } @else if (r.proposed_clabe) { <div class="cta-muted">Sin respaldo adjunto: confirma la CLABE con el proveedor.</div> }</td>
               <td class="cta-reason">{{ r.reason }}</td>
               <td class="cta-muted">{{ r.requested_by }}</td>
               <td>
@@ -588,6 +596,15 @@ export class FinanzasCuentasPagoComponent implements OnInit {
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.saving.set(false); this.requestVisible = false; this.loadRequests(); this.toast.add({ severity: 'success', summary: 'Enviado', detail: 'La solicitud quedó pendiente de autorización.' }); },
       error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo enviar.' }); },
+    });
+  }
+
+  /** `[PGP.128]` La pestaña se abre dentro del clic (si no, el navegador la bloquea) y recibe la URL firmada. */
+  verRespaldo(r: ChangeRequest): void {
+    const win = abrirPestanaParaPdf('Abriendo el respaldo…');
+    this.http.get<{ url: string }>(`${this.base}/solicitudes/${r.id}/adjunto`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => entregarUrl(win, x.url),
+      error: (e) => { cerrarPestanaDePdf(win); this.toast.add({ severity: 'error', summary: 'No se abrió el respaldo', detail: e?.error?.message || 'Intenta de nuevo.' }); },
     });
   }
 
