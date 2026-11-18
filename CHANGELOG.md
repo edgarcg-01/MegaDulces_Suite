@@ -56,8 +56,6 @@
 - Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
 - El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
 
-### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
-- En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
 
 ### Changed — Almacén: Surtir con lo que el surtidor necesita (GP.RF.27–34 · 2026-11-17 · en código, sin soltar)
 - Abrir Surtir ya no toma trabajo solo ni espera a Telemarketing: la lista de preventa sale de inmediato, y si quedó un surtido de Telemarketing a medias se avisa con «Continuar».
@@ -66,24 +64,6 @@
 - Lo que faltó se puede cambiar por otro producto con existencia, además de surtirlo en otra unidad.
 - La pantalla «Preventa por surtir» se retira: todo vive en Surtir. Sus enlaces viejos llevan a Surtir o al Tablero.
 - El almacén se elige por su nombre.
-
-### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en código, sin soltar)
-- Cuando se carga el estado de cuenta, la vista **Cobranza › Fichas de clientes** vuelve a revisar el banco sola, y otra vez cuando la conciliación termina de ligar los abonos a sus cobros.
-- Si la foto se lee con la cuenta equivocada, el depósito se sigue encontrando: la cuenta sólo sirve para elegir entre dos depósitos iguales.
-
-### Added — La ficha del cliente se valida contra el banco (CC.21 · 2026-11-17 · en código, sin soltar)
-- En **Cobranza › Fichas de clientes**, cada ficha dice si el depósito ya entró al banco: lo busca en el estado de cuenta (mismo monto, fecha cercana) y revisa que el cobro que Kepler le aplicó sea de ese mismo cliente.
-- Las que el banco confirma se ligan a su cobro con un clic, o todas de una vez. Si el dinero entró y Kepler todavía no tiene el cobro, el abono se marca como de ese cliente para que se capture.
-- «No aparece en el banco» sólo se dice cuando el estado de cuenta ya está cargado después del depósito; si no, se indica hasta qué día está cargado.
-
-### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
-- Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
-
-### Added — El cliente sube su ficha de depósito desde su celular (CC.20 · 2026-11-17 · en código, sin soltar)
-- Cada cliente tiene un enlace personal, sin usuario ni contraseña: va en el mensaje de WhatsApp del estado de cuenta y como código QR impreso en el PDF. Ahí toma la foto de su ficha (o la captura de su transferencia), la Suite lee el monto y la fecha, y la envía.
-- Cobranza la recibe al momento en **Cobranza › Fichas de clientes**: la liga al cobro de Kepler (con los cobros del mismo monto como sugerencia) o la rechaza con un motivo que el cliente ve en su enlace.
-- En Cartera, la ficha del cliente muestra las fichas que subió y permite copiar su enlace.
-- Corregido: el resumen de cobranza dentro de la ficha de Cartera nunca aparecía, y por la misma falla tampoco los compromisos de pago.
 
 ### Added — El anticipo a proveedor se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (PGP.127–129 y PGP.142–145 · 2026-11-17 · en código)
 - En *Compras › Pago a proveedor › Anticipos*, «Pedir anticipo» pide los papeles en el orden en que se tienen: el proveedor, **su orden de compra de Kepler** (pendiente o recibida en parte; una o varias de la misma sucursal), el importe (dice cuánto queda en esas órdenes), **la cotización** (PDF o foto, obligatoria) y **a qué cuenta se paga**: la cuenta aprobada del proveedor, la CLABE de la cotización o efectivo.
