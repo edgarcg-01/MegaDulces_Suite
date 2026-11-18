@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
@@ -42,6 +42,10 @@ import {
   SQL_COBERTURA_DE_LA_DESCARGA, SQL_PENDIENTES_POR_EL_BANCO, SQL_RECLAMANTES_DE_LA_DESCARGA, SQL_SALIDAS_DE_LA_DESCARGA,
   SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO,
 } from './pago-por-el-banco.sql';
+import {
+  SQL_ABONOS_DE_LAS_FACTURAS, cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos,
+  type CargoKepler, type FacturaParaDebeMenos,
+} from './debe-menos';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -298,6 +302,8 @@ interface VentanaRow {
   entity_ref: string | null; doc_ref: string | null;
   /** `[PGP.120]` El código del acreedor en Kepler: con la sucursal, casa la factura con sus anticipos. */
   payee_code: string | null;
+  /** `[PGP.147]` Lo que la factura debe hoy en Kepler. */
+  kepler_debe: number | string | null;
 }
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
@@ -1285,6 +1291,8 @@ export class PaymentCalendarService {
         pronto_beneficio?: number | null; pronto_estado?: string | null;
         /** `[PGP.126]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): no admite descuento. */
         es_anticipo?: boolean;
+        /** `[PGP.147]` Lo que la factura debe hoy en Kepler (sólo las vivas de `v_supplier_payables`). */
+        kepler_debe?: number | null;
       }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
@@ -1332,6 +1340,8 @@ export class PaymentCalendarService {
               trx.raw(`nullif(btrim(v.referencia), '') AS doc_ref`),
               // `[PGP.120]` El acreedor en Kepler: con la sucursal, es la llave de sus anticipos sin aplicar.
               trx.raw('btrim(v.proveedor) AS payee_code'),
+              // `[PGP.147]` Lo que debe HOY: el pago se armó con otro saldo y una nota de crédito pudo bajarlo.
+              trx.raw('v.pendiente::float8 AS kepler_debe'),
             );
           for (const r of rows as VentanaRow[]) {
             labels.set(`${source}:${r.id}`, {
@@ -1339,6 +1349,7 @@ export class PaymentCalendarService {
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
               entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
               payee_code: r.payee_code ?? null,
+              kepler_debe: r.kepler_debe === null || r.kepler_debe === undefined ? null : Number(r.kepler_debe),
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1431,6 +1442,8 @@ export class PaymentCalendarService {
           payee_code: label?.payee_code ?? null,
           es_anticipo: label?.es_anticipo === true,
           kepler_saldada: saldada,
+          // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler).
+          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : label?.kepler_debe ?? null) : null,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
           pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
@@ -1469,6 +1482,18 @@ export class PaymentCalendarService {
       const hoyMx = todayMx();
       const descarga = allocations.some((a) => a.status === 'pending' && a.lot_date <= hoyMx)
         ? await this.segunLaDescarga(trx, tenantId, hoyMx) : new Map<string, SalidaSegunLaDescarga>();
+      // `[PGP.147]` La factura que hoy debe MENOS de lo que el pago le lleva (Mondelez, 13-nov: una nota de crédito de
+      // $120,000 aplicada el 12 y el pago salió completo). Sólo pendientes; los abonos se leen sólo si hay alguna.
+      const paraDebeMenos = new Map<string, FacturaParaDebeMenos[]>();
+      for (const a of allocations) {
+        if (a.status !== 'pending') continue;
+        const fs = (itemsByAllocation.get(a.id) ?? []).map((it) => ({
+          id: String(it['id']), applied_amount: Number(it['applied_amount']), kepler_debe: (it['kepler_debe'] ?? null) as number | null,
+          kepler_saldada: it['kepler_saldada'] === true, entity_ref: (it['entity_ref'] ?? null) as string | null, payee_code: (it['payee_code'] ?? null) as string | null,
+        }));
+        if (facturasQueDebenMenos(fs).length) paraDebeMenos.set(a.id, fs);
+      }
+      const abonosDebeMenos = paraDebeMenos.size ? await this.abonosDeLasFacturas(trx, [...paraDebeMenos.values()].flat()) : new Map<string, AbonoQueBajoElSaldo[]>();
       // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
       // Sólo en un día que ya llegó; uno por venir no se ha pagado. `[PGP.113]` Uno por cada día pedido.
       const validaciones = new Map<string, ValidacionPago>();
@@ -1551,6 +1576,7 @@ export class PaymentCalendarService {
           autorizado: !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? ''),
           validacion: validaciones.get(a.id) ?? null,
           banco_descarga: a.status === 'pending' && a.lot_date <= hoyMx ? descarga.get(a.id) ?? null : null,
+          debe_menos: paraDebeMenos.has(a.id) ? debeMenosDelPago(paraDebeMenos.get(a.id) ?? [], abonosDebeMenos) : null,
           cuenta_gasto: cuentaGastoDe(a.id),
           poliza: a.status === 'executed' ? (() => {
             const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
@@ -1947,6 +1973,22 @@ export class PaymentCalendarService {
       }
       return out;
     });
+  }
+
+  /** `[PGP.147]` Los abonos vivos que Kepler aplicó a las facturas que deben menos, por llave de cargo. */
+  private async abonosDeLasFacturas(trx: Knex.Transaction, facturas: FacturaParaDebeMenos[]): Promise<Map<string, AbonoQueBajoElSaldo[]>> {
+    const cargos = [...new Map(facturasQueDebenMenos(facturas).map((f) => cargoDeLaFactura(f))
+      .filter((c): c is CargoKepler => !!c).map((c) => [c.llave, c] as const)).values()];
+    const out = new Map<string, AbonoQueBajoElSaldo[]>();
+    if (!cargos.length) return out;
+    const filas = (await trx.raw(SQL_ABONOS_DE_LAS_FACTURAS, [cargos.map((c) => c.sucursal), cargos.map((c) => c.acreedor),
+      cargos.map((c) => c.tipo), cargos.map((c) => c.sub), cargos.map((c) => c.folio)])).rows as { llave: string; tipo: number; folio: string; fecha: string | null; monto: number }[];
+    for (const r of filas) {
+      const arr = out.get(r.llave) ?? [];
+      arr.push({ doc: `${r.tipo}-${r.folio}`, clase: claseDeAbono(Number(r.tipo)), fecha: r.fecha, monto: Number(r.monto) });
+      out.set(r.llave, arr);
+    }
+    return out;
   }
 
   /**

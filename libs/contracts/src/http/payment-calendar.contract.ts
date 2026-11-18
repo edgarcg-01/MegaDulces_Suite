@@ -133,6 +133,11 @@ export interface PaymentCalendarAllocationItem {
    * La pantalla NO debe leer ese «—» como «beneficiario desconocido».
    */
   kepler_saldada: boolean;
+  /**
+   * `[PGP.147]` Lo que la factura debe HOY en Kepler (`v_supplier_payables.pendiente`). 0 si está saldada; null si
+   * no es factura de Kepler o la API es anterior (NO MEDIDO).
+   */
+  kepler_debe?: number | null;
 
   /**
    * `[PGP.36]` **Por qué esta factura está en el día**, con la ventana de pronto pago que ya
@@ -253,6 +258,36 @@ export type SalidaSegunLaDescarga =
   | { estado: 'sin_salida'; revisadas: number; sin_cubrir: { cuenta: string; hasta: string | null }[] }
   | { estado: 'no_decide'; motivo: string };
 
+/** `[PGP.147]` Un abono que Kepler aplicó a la factura: pago, nota de crédito, devolución o anticipo. */
+export interface AbonoQueBajoElSaldo {
+  /** `55-0001512`: tipo y folio en Kepler. */
+  doc: string;
+  clase: string;
+  fecha: string | null;
+  monto: number;
+}
+
+/** `[PGP.147]` Una factura del pago que hoy debe MENOS de lo que el pago le lleva. */
+export interface FacturaQueDebeMenos {
+  item_id: string;
+  factura: string;
+  programado: number;
+  debe: number;
+  de_mas: number;
+  /** Lo que Kepler le aplicó, el más nuevo primero: lo que explica por qué debe menos. */
+  abonos: AbonoQueBajoElSaldo[];
+}
+
+/**
+ * `[PGP.147]` **El pago lleva más de lo que se debe** (caso Mondelez, 13-nov: una nota de crédito de $120,000
+ * aplicada el 12 y el pago salió completo). Sólo en pagos pendientes; la factura saldada por completo va aparte
+ * (`kepler_saldadas`).
+ */
+export interface DebeMenosDelPago {
+  de_mas: number;
+  facturas: FacturaQueDebeMenos[];
+}
+
 export interface PaymentCalendarAllocation {
   id: string;
   classification: string;
@@ -317,6 +352,8 @@ export interface PaymentCalendarAllocation {
    * demás; ausente = API anterior (NO MEDIDO, no «sin salida»).
    */
   banco_descarga?: SalidaSegunLaDescarga | null;
+  /** `[PGP.147]` Sólo en un pago PENDIENTE: lo que lleva de más contra el saldo de hoy en Kepler. Null = nada; ausente = API anterior. */
+  debe_menos?: DebeMenosDelPago | null;
   /** `[PGP.107]` La evidencia guardada al marcar Pagado (null = sin marcar, efectivo, o anterior a PGP.107). */
   paid_bank_movement_id?: string | null;
   paid_proof_id?: string | null;
