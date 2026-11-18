@@ -243,6 +243,12 @@ const COMPUERTAS = [
   // el 2026-10-03, que es lo que las mete en los DOS runners de una.
   { nombre: 'motion', script: 'check-motion.js', que: 'ninguna animación de Operations pasa el techo de 350ms (DESIGN §Motion)', push: true, ms: 376 },
   { nombre: 'estilos', script: 'check-estilos.js', que: 'escala --fs-*, hex crudo, breakpoints en px, foco sin anillo y anillo hecho con el halo --action-ring (DESIGN pre-vuelo 2/6/12c y §R)', push: true, ms: 3106 },
+  // `[OPS]` La cascada de DESIGN.md §S/§R, medida. El doc marca BINDING que `!important` y
+  // `::ng-deep` no suban y que la cascada viva en `@layer`; medido sin instrumento tres veces, las
+  // tres cifras empeoraron (::ng-deep 317→370→580, !important 971→961→1092, @layer 0→0→0). Es un
+  // RATCHET con el conteo de hoy sellado: frena si CRECEN. `@layer=0` es aviso, no corta (nace roja
+  // = se apaga). El propio §S lo pedía: «una métrica declarada sin instrumento es una intención».
+  { nombre: 'cascada', script: 'check-cascada.js', que: '::ng-deep y !important no crecen; la cascada de §S va en @layer (DESIGN §S/§R)', push: true, ms: 787 },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
