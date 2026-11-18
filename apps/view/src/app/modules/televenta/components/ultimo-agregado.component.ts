@@ -22,14 +22,20 @@ export function textoAgregado(cantidad: number, unidad: string | null | undefine
 }
 
 /**
- * `[COT.46]` Baja al renglón (la tabla le pone `id="renglon-<id>"`), al centro de la vista. Sin
+ * `[COT.46]`/`[COT.47]` Baja al renglón (la tabla le pone `id="renglon-<id>"`), al centro de la vista,
+ * y deja el cursor en su cantidad para seguir trabajando AHÍ (quien pidió verlo navegó a él).
+ * Espera un cuadro (la tabla pudo tener que quitar un filtro para mostrarlo) y espera a que el
+ * desplazamiento TERMINE antes de enfocar: `scrollIntoView` devuelve una promesa donde el navegador
+ * la soporta, y donde no, `await undefined` sigue de inmediato (degrada sin romper). Sin
  * desplazamiento suave si la persona pidió reducir el movimiento en su sistema.
  */
-export function verRenglonEnLista(id: string): void {
+export async function verRenglonEnLista(id: string): Promise<void> {
+  await new Promise<void>((r) => requestAnimationFrame(() => r()));
   const el = document.getElementById('renglon-' + id);
   if (!el) return;
   const quieto = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  el.scrollIntoView({ block: 'center', behavior: quieto ? 'auto' : 'smooth' });
+  await (el.scrollIntoView({ block: 'center', behavior: quieto ? 'auto' : 'smooth' }) as unknown as Promise<void> | undefined);
+  el.querySelector<HTMLInputElement>('input.qty-inline')?.focus({ preventScroll: true });
 }
 
 /**
@@ -37,8 +43,9 @@ export function verRenglonEnLista(id: string): void {
  * buscador. En una lista larga el renglón nuevo cae al final de la tabla, fuera de la pantalla, y la
  * única señal era un aviso en la esquina que se iba solo: quien dicta no veía qué entró (ceguera al
  * cambio) y tenía que bajar a revisar, perdiendo el hilo. La línea se queda hasta el siguiente
- * agregado y se anuncia al lector de pantalla; «Ver en la lista» baja al renglón sin mover el foco.
- * La página NO se desplaza sola: el buscador se quedaría fuera de la vista a media captura.
+ * agregado y se anuncia al lector de pantalla; «Ver en la lista» baja al renglón y deja el cursor en su
+ * cantidad (quien lo pide navega a él). Al AGREGAR la página NO se desplaza sola: el buscador se quedaría
+ * fuera de la vista a media captura.
  */
 @Component({
   selector: 'app-ultimo-agregado',

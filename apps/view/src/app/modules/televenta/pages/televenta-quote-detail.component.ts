@@ -711,6 +711,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               [renglones]="renglonesVista()"
               [bloqueado]="guardando()"
               [clientePct]="num(q.terms_discount_pct) || null"
+              [titulo]="'Renglones de la cotización ' + q.code"
               [marcado]="ultimoAgregado()?.id ?? null"
               [destello]="destelloRenglon()"
               (cantidad)="onCantidadTabla($event)"
@@ -1907,12 +1908,17 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.ultimoAgregado.set({ id: nuevo?.id ?? null, numero: nuevo?.line_number ?? null, nombre: p.nombre, detalle: p.detalle, sumado: false });
   }
 
-  /** `[COT.46]` «Ver en la lista»: baja al renglón y lo resalta un momento; el foco no se mueve. */
-  verRenglon(id: string): void {
+  /**
+   * `[COT.46]`/`[COT.47]` «Ver en la lista»: resalta el renglón, baja a él y deja el cursor en su
+   * cantidad. El resaltado dura 1.5 s DESPUÉS de llegar; el contador evita que dos clics seguidos se pisen.
+   */
+  async verRenglon(id: string): Promise<void> {
+    const vez = ++this.vecesVer;
     this.destelloRenglon.set(id);
-    verRenglonEnLista(id);
-    setTimeout(() => { if (this.destelloRenglon() === id) this.destelloRenglon.set(null); }, 1500);
+    await verRenglonEnLista(id);
+    setTimeout(() => { if (this.vecesVer === vez) this.destelloRenglon.set(null); }, 1500);
   }
+  private vecesVer = 0;
 
   agregar(): void {
     if (this.guardando() || !this.elegido()) return;

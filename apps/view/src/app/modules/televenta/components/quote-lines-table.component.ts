@@ -1,4 +1,6 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { coincideBusqueda } from '@megadulces/ui-web';
+import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -62,6 +64,41 @@ export interface RenglonTabla {
   enPedido?: string | null;
 }
 
+/** `[COT.47]` Los filtros de una lista larga de renglones. */
+export type FiltroRenglones = 'todos' | 'faltan' | 'promo';
+export type OrdenRenglones = 'captura' | 'importe' | 'nombre';
+
+/**
+ * `[COT.47]` Desde cuántos renglones aparece la barra de buscar y filtrar. Medido en prod (30 días,
+ * 410 cotizaciones): la mediana trae 9 renglones y una de cada diez 40 o más; con menos de 10 la
+ * barra sería ruido (todo cabe a la vista).
+ */
+export const RENGLONES_PARA_FILTRAR = 10;
+
+const esPromo = (r: RenglonTabla): boolean => r.fuente === 'promo_qty' || r.fuente === 'promo_amount';
+const falta = (r: RenglonTabla): boolean => typeof r.existencia === 'object' && r.existencia !== null && r.existencia.faltan > 0;
+const nombres = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+
+/** `[COT.47]` Cuántos renglones hay detrás de cada filtro (el número va en el botón). */
+export function cuentasRenglones(renglones: RenglonTabla[]): Record<FiltroRenglones, number> {
+  return { todos: renglones.length, faltan: renglones.filter(falta).length, promo: renglones.filter(esPromo).length };
+}
+
+/**
+ * `[COT.47]` Qué renglones se ven y en qué orden. Buscar por nombre o SKU con la misma regla que el
+ * resto de la suite (palabras en cualquier orden, sin acentos); el filtro y el orden NO cambian el
+ * número de renglón (es el del pedido en Kepler) ni los totales, que se calculan sobre todos.
+ */
+export function renglonesVisibles(
+  renglones: RenglonTabla[], busqueda: string, filtro: FiltroRenglones, orden: OrdenRenglones,
+): RenglonTabla[] {
+  const out = renglones.filter((r) =>
+    (filtro === 'todos' || (filtro === 'faltan' ? falta(r) : esPromo(r))) && coincideBusqueda(busqueda, r.nombre, r.sku));
+  if (orden === 'importe') return [...out].sort((a, b) => (b.neto ?? b.importe ?? -1) - (a.neto ?? a.importe ?? -1));
+  if (orden === 'nombre') return [...out].sort((a, b) => nombres.compare(a.nombre, b.nombre));
+  return out;
+}
+
 export interface CambioCantidad {
   id: string;
   valor: string;
@@ -71,7 +108,7 @@ export interface CambioCantidad {
 @Component({
   selector: 'app-quote-lines-table',
   standalone: true,
-  imports: [CommonModule, TableModule, TagModule, ButtonModule, InputTextModule],
+  imports: [CommonModule, TableModule, TagModule, ButtonModule, InputTextModule, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // `[E.29]` El contenedor de la consulta se declara con la clase CANÓNICA, no a mano.
   // El `:host` de abajo ya ponía `container-type`/`container-name: densetable`, así que el
@@ -83,19 +120,40 @@ export interface CambioCantidad {
     <!-- [COT.35] Sin ancho mínimo: la tabla cabe en su espacio (medido: 1,326 px fijos contra 901 px
          disponibles a 1366 de ancho; ahora mide lo que su contenedor a 1280, 1366 y 1600). Sin la
          columna «Lista»: repetía lo que «De dónde sale» ya dice (lista → volumen, o el redondeo). -->
-    <p-table class="dt-stack" [value]="renglones()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ width: '100%' }">
+    <!-- [COT.47] En una lista larga, buscar y filtrar sin bajar a leer. Los totales y los números de
+         renglón son siempre los de TODA la cotización; el filtro sólo cambia qué se ve, y lo dice. -->
+    @if (renglones().length >= umbralFiltros) {
+      <div class="filtros" role="search" aria-label="Buscar y filtrar renglones">
+        <input pInputText pSize="small" type="search" class="filtro-buscar" [value]="busqueda()"
+               (input)="busqueda.set($any($event.target).value)" (keydown.escape)="busqueda.set('')"
+               placeholder="Buscar en los renglones: nombre o SKU" aria-label="Buscar en los renglones"
+               [attr.aria-describedby]="filtrando() ? 'renglones-mostrando' : null" enterkeyhint="search" autocomplete="off" />
+        <app-segmented [options]="opcionesFiltro()" [value]="filtro()" (valueChange)="filtro.set($any($event))" ariaLabel="Qué renglones ver" />
+        <app-segmented [options]="opcionesOrden" [value]="orden()" (valueChange)="orden.set($any($event))" ariaLabel="Ordenar renglones" />
+        @if (filtrando()) {
+          <span id="renglones-mostrando" class="mostrando">Mostrando {{ visibles().length }} de {{ renglones().length }} ·
+            <button type="button" class="quitar-filtro" (click)="quitarFiltros()">Quitar filtro</button></span>
+        }
+      </div>
+    }
+    <!-- [COT.47] Encabezado fijo al bajar (surf-table--sticky): en 40 renglones «Precio», «De dónde sale» e
+         «Importe» son tres columnas de pesos y sin el encabezado no se sabe cuál es cuál. -->
+    <p-table class="dt-stack surf-table--sticky" [value]="visibles()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ width: '100%' }">
       <ng-template #header>
         <tr>
-          <th class="num fijo fijo-num">#</th>
-          <th class="fijo fijo-prod">Producto</th>
-          <th>Presentación</th>
-          <th class="num">Cantidad</th>
-          <th class="num">Existencia hoy</th>
-          <th class="num">Precio</th>
-          <th class="col-fuente">De dónde sale</th>
-          <th class="num">Importe</th>
-          <th><span class="sr-only">Acciones</span></th>
+          <th scope="col" class="num fijo fijo-num">#</th>
+          <th scope="col" class="fijo fijo-prod">Producto</th>
+          <th scope="col">Presentación</th>
+          <th scope="col" class="num">Cantidad</th>
+          <th scope="col" class="num">Existencia hoy</th>
+          <th scope="col" class="num">Precio</th>
+          <th scope="col" class="col-fuente">De dónde sale</th>
+          <th scope="col" class="num">Importe</th>
+          <th scope="col"><span class="sr-only">Acciones</span></th>
         </tr>
+      </ng-template>
+      <ng-template #emptymessage>
+        <tr><td colspan="9" class="t-none">Ningún renglón coincide con el filtro. <button type="button" class="quitar-filtro" (click)="quitarFiltros()">Quitar filtro</button></td></tr>
       </ng-template>
       <ng-template #body let-r>
         <!-- [COT.46] id para «Ver en la lista»; el último agregado lleva una franja (y texto en la
@@ -105,7 +163,8 @@ export interface CambioCantidad {
           <!-- [COT.31] # y Producto quedan fijos al desplazar a la derecha: al quitar (la X está al
                final) se ve QUÉ renglón se quita. Antes la tabla se corría y el nombre salía de vista. -->
           <td class="num mono dt-num fijo fijo-num" role="cell" data-label="Renglón">{{ r.numero }}</td>
-          <td class="dt-id fijo fijo-prod" role="cell">
+          <!-- [COT.47] El producto es el encabezado de su fila: el lector anuncia de qué renglón es cada importe. -->
+          <td class="dt-id fijo fijo-prod" role="rowheader">
             @if (r.regaloDe !== null) {
               <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ r.regaloDe }}</span>
             }
@@ -246,6 +305,19 @@ export interface CambioCantidad {
       .mono { font-family: var(--font-mono, monospace); }
       .muted { color: var(--text-muted); }
       .row-gift { background: var(--surface-ground); }
+      /* [COT.47] La esquina fija (encabezado de # y Producto) por encima de las celdas fijas que pasan debajo. */
+      th.fijo { z-index: 3; }
+      .filtros {
+        display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3);
+        padding: var(--sp-2) 0 var(--sp-3);
+      }
+      .filtro-buscar { flex: 1 1 14rem; min-width: 0; max-width: 24rem; }
+      .mostrando { font-size: var(--fs-sm); color: var(--text-muted); }
+      .quitar-filtro {
+        background: none; border: 0; padding: 0; font: inherit; color: var(--text-main);
+        text-decoration: underline; cursor: pointer;
+      }
+      .quitar-filtro:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: 2px; }
       /* [COT.46] El último agregado: franja en el número. Al pedir verlo, una capa sobre el fondo de CADA
          celda (las fijas traen el suyo y taparían un fondo de fila); se quita sola, sin animación. */
       .row-ultimo > td.fijo-num { box-shadow: inset 3px 0 0 var(--action); }
@@ -303,6 +375,48 @@ export class QuoteLinesTableComponent {
   readonly marcado = input<string | null>(null);
   /** `[COT.46]` Id del renglón resaltado un momento por «Ver en la lista». */
   readonly destello = input<string | null>(null);
+  /** `[COT.47]` Nombre accesible de la tabla («Renglones de la cotización COT-2026-00472»). */
+  readonly titulo = input<string>('Renglones de la cotización');
+
+  // ── [COT.47] Buscar, filtrar y ordenar una lista larga ──────────────────────────────────────
+  readonly umbralFiltros = RENGLONES_PARA_FILTRAR;
+  readonly busqueda = signal('');
+  readonly filtro = signal<FiltroRenglones>('todos');
+  readonly orden = signal<OrdenRenglones>('captura');
+  readonly visibles = computed(() => renglonesVisibles(this.renglones(), this.busqueda(), this.filtro(), this.orden()));
+  readonly filtrando = computed(() => this.busqueda().trim() !== '' || this.filtro() !== 'todos');
+  readonly opcionesFiltro = computed<SegOption[]>(() => {
+    const n = cuentasRenglones(this.renglones());
+    return [
+      { label: 'Todos', value: 'todos', count: n.todos },
+      { label: 'Faltan existencias', value: 'faltan', count: n.faltan },
+      { label: 'Con promoción', value: 'promo', count: n.promo },
+    ];
+  });
+  /** El de captura va primero: el número de renglón es el del pedido en Kepler. */
+  readonly opcionesOrden: SegOption[] = [
+    { label: 'Como se capturó', value: 'captura' },
+    { label: 'Importe mayor', value: 'importe' },
+    { label: 'Nombre', value: 'nombre' },
+  ];
+  quitarFiltros(): void {
+    this.busqueda.set('');
+    this.filtro.set('todos');
+  }
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  constructor() {
+    // PrimeNG no deja nombrar su <table>: se le pone el nombre accesible ya pintada.
+    afterRenderEffect(() => {
+      const t = this.host.nativeElement.querySelector('table');
+      if (t) t.setAttribute('aria-label', this.titulo());
+    });
+    // «Ver en la lista» de un renglón que el filtro esconde: se quita el filtro para poder llegar a él.
+    effect(() => {
+      const d = this.destello();
+      if (d && !this.visibles().some((r) => r.id === d)) untracked(() => this.quitarFiltros());
+    });
+  }
   readonly cantidad = output<CambioCantidad>();
   readonly quitar = output<string>();
 

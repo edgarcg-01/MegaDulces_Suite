@@ -328,6 +328,23 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-18** — 🧪 **[COT.47] Auditoría de la tabla de renglones (Modern Web Guidance) y filtros para listas largas.**
+  Medido en prod (30 días, 410 cotizaciones): mediana 9 renglones, p90 40, máximo 195; 118 con 20 o más; de 6,646
+  renglones, 120 con promoción y 3,032 con precio por volumen. Hecho, en la tabla compartida (alta y detalle): **encabezado
+  fijo al bajar** (`surf-table--sticky`; la esquina fija encima de las celdas fijas); **semántica**: `scope="col"` en los
+  encabezados, el producto como `rowheader` (el lector dice de qué renglón es cada importe) y nombre accesible de la tabla
+  («Renglones de la cotización COT-…», PrimeNG no lo expone y se pone ya pintada); **«Ver en la lista»** espera a que
+  termine el desplazamiento (promesa de `scrollIntoView`, degrada a `await undefined`) y deja el cursor en la cantidad del
+  renglón; **barra de buscar y filtrar desde 10 renglones**: buscar por nombre o SKU con `coincideBusqueda` (palabras en
+  cualquier orden, sin acentos), «Todos / Faltan existencias / Con promoción» con su cuenta, orden «Como se capturó /
+  Importe mayor / Nombre»; con filtro dice «Mostrando X de Y · Quitar filtro», los números de renglón y los totales no
+  cambian, y «Ver en la lista» de un renglón escondido quita el filtro. «Con precio por volumen» NO es filtro (46 % de los
+  renglones: no separa nada). Pruebas: 7 nuevas (búsqueda, cuentas, orden sin renumerar, umbral de 10, «Mostrando», semántica,
+  filtro que se quita); 138/138 de televenta; `ngc` limpio; `check:pantalla --todas` 0 nuevas (la tabla mejora en D.7);
+  `check:busqueda` y `check:estilos` en verde. **NO MEDIDO:** INP con 195 renglones (pide trazo en navegador); cuántos
+  renglones tienen faltantes hoy (la existencia es en vivo). **Pendiente:** el filtro «Cambió de precio» del detalle (la fila
+  de la tabla no trae la revisión de precio). **Sin validación visual.**
+
 - **2026-11-18** — 🧪 **[COT.46] Ver lo que se acaba de agregar en una lista larga** (Edgar: «al ir agregando productos en una
   lista larga no se va mostrando lo que se agrega»). El renglón nuevo cae al final de la tabla, fuera de la pantalla, y la
   única señal era un aviso en la esquina que se iba solo: quien dicta mira el buscador y no percibe el cambio lejos de su
