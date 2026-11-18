@@ -185,7 +185,7 @@ function reducir(dataUri: string, maxLado = 1600): Promise<string> {
     .dc-chip { font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill, 999px); background: var(--surface-2); color: var(--text-main); white-space: nowrap; }
     .dc-chip-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .dc-chip-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-    .dc-ec { margin-top: var(--sp-4); text-decoration: none; }
+    .dc-ec { margin-bottom: var(--sp-6); text-decoration: none; }
     .dc-ec:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .dc-pie { margin-top: var(--sp-6); font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }
   `],
