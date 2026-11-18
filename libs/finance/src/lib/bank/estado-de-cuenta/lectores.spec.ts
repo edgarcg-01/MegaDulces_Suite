@@ -14,8 +14,8 @@ import { aCentavos, controlarSaldo, describirArchivo, describirNoLeidos, detecta
  */
 
 const SANTANDER_ENC = 'Cuenta,Fecha,Hora,Sucursal,Descripcion,Cargo/Abono,Importe,Saldo,Referencia,Concepto,Banco Participante,Clabe Beneficiario,Nombre Beneficiario,Cta Ordenante,Nombre Ordenante,Codigo Devolucion,Causa Devolucion,RFC Beneficiario,RFC Ordenante,Clave de Rastreo,Descripcion Larga';
-const santanderRenglon = (o: { hora: string; desc: string; signo: '+' | '-'; imp: string; saldo: string; ref?: string; ctaOrd?: string; nomOrd?: string; rfcOrd?: string; rastreo?: string }) =>
-  [`'11112222333'`, `'03112026'`, o.hora, `'0560'`, o.desc.padEnd(40), o.signo, o.imp, o.saldo, (o.ref ?? '').padEnd(15), ' '.repeat(20), ''.padEnd(40),
+const santanderRenglon = (o: { hora: string; desc: string; signo: '+' | '-'; imp: string; saldo: string; ref?: string; ctaOrd?: string; nomOrd?: string; rfcOrd?: string; rastreo?: string; concepto?: string }) =>
+  [`'11112222333'`, `'03112026'`, o.hora, `'0560'`, o.desc.padEnd(40), o.signo, o.imp, o.saldo, (o.ref ?? '').padEnd(15), o.concepto ?? ' '.repeat(20), ''.padEnd(40),
     `'${''.padEnd(20)}'`, ''.padEnd(40), `'${(o.ctaOrd ?? '').padEnd(20)}'`, (o.nomOrd ?? '').padEnd(40), '  ', ''.padEnd(30), ''.padEnd(15),
     (o.rfcOrd ?? '').padEnd(15), (o.rastreo ?? '').padEnd(30), o.desc.padEnd(130)].join(',');
 
@@ -54,6 +54,28 @@ describe('[CB.57] Santander (CSV con apóstrofos, trae la cuenta)', () => {
     expect(r?.no_leidos).toEqual([]);
     expect(r?.movimientos[1]).toMatchObject({ abono_centavos: 125050, saldo_centavos: 1075050, contraparte_nombre: 'CLIENTE,DE PRUEBA SA DE CV', clave_rastreo: 'PRUEBA0000000001' });
     expect(r?.control?.cuadra).toBe(true);
+  });
+
+  // [CB.84] La descarga del 17-nov (STDR 2169) SÍ encerró en comillas el concepto con comas de una
+  // domiciliación, y sin rellenarlo a su ancho: el reacomodo por ancho no lo explicaba.
+  const DOMIC = santanderRenglon({ hora: '20:30', desc: 'DOMICILIACION PAGO SERVICIO', signo: '-', imp: '500.00', saldo: '13250.50',
+    concepto: `"'0000000     RFC XAXX010101000          0,000,000.00A0000 0000000"` });
+
+  it('[CB.84] un texto entre comillas dobles con comas adentro se lee en su columna, aunque no traiga su ancho', async () => {
+    const r = await leerEstadoDeCuenta(santander([S1, S2, S3, DOMIC]));
+    expect(r?.no_leidos).toEqual([]);
+    expect(r?.movimientos).toHaveLength(4);
+    expect(r?.movimientos[3]).toMatchObject({ linea: 5, cargo_centavos: 50000, abono_centavos: 0, saldo_centavos: 1325050, concepto: 'DOMICILIACION PAGO SERVICIO', referencia: null });
+    expect(r?.control).toMatchObject({ saldo_final_centavos: 1325050, cuadra: true });
+  });
+
+  it('[CB.84] NEGATIVA: una comilla que no cierra no se adivina: el renglón se REPORTA', async () => {
+    const suelta = DOMIC.replace(`0000000"`, '0000000');
+    expect(suelta).not.toBe(DOMIC);
+    const r = await leerEstadoDeCuenta(santander([S1, S2, S3, suelta]));
+    expect(r?.movimientos).toHaveLength(3);
+    expect(r?.no_leidos).toHaveLength(1);
+    expect(r?.no_leidos[0]).toMatchObject({ linea: 5 });
   });
 
   it('NEGATIVA: una coma dentro del texto corre las columnas → se REPORTA, no se tira ni se adivina', async () => {
