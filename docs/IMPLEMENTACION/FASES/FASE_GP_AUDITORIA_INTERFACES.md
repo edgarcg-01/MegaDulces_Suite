@@ -1072,9 +1072,16 @@ sección, con su motivo.
   - Quedan 40 px (el número que se cuenta), 20 (título y producto), 18 (encabezados, estados, cliente
     y cantidad) y 14 (el texto).
   - 16 subió a 18 y 13 subió a 14: casi no se distinguían y diluían la jerarquía. Nada se achicó.
-  - **NO MEDIDO en el navegador:** el servidor de desarrollo se apagó (rechaza la conexión) y la
-    regla 3 no permite levantarlo aquí. El instrumento está listo: `revision-letra.e2e.ts`, con la
-    API sintética que ya contesta Revisión.
+  - **Medido en el navegador** cuando volvió el servidor (`revision-letra.e2e.ts`, API sintética,
+    390 px).
+    - Dentro de un pedido: 4 tamaños, 20, 18 y 14 más el 13 de las pestañas del marco, que no es de
+      Revisión.
+    - En la lista: 20, 18 y 14 propios, más los del resumen de métricas y la pastilla.
+  - La misma medición encontró dos textos bajo AA, ya corregidos y vueltos a medir (0 bajo AA):
+    - «▶ REVISANDO»: `--info-fg` sobre el azul claro de la tarjeta, 4.24:1; ahora `--info-soft-fg`,
+      7.15.
+    - «Está bien», el botón principal: blanco sobre `--ok-fg`, 3.30:1; ahora fondo `--ok-soft-fg`,
+      7.13.
 
 ---
 
