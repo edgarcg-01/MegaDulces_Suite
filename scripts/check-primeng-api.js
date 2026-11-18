@@ -278,14 +278,19 @@ const TECHO = {
   // ⚠️ NO es cosmetico: v22 IGNORA styleClass, asi que esas dos tablas venian renderizando
   //    en densidad default y SIN surf-table. Convertir no cambia el codigo, cambia lo que
   //    llega al DOM: ahora si se aplican la densidad compacta y el tema que pedian.
-  'styleClass p-table': 304,
+  // [PQ.129.1] 2026-11-18: -2 (304 -> 302), -8 en p-select (272 -> 264) y -1 en p-multiselect
+  //    (43 -> 42): /compras/pedido. Su tabla principal llevaba la clase en styleClass, asi que TODO
+  //    su CSS .pr-wb era letra muerta: encabezado a 16 px partido en 4 renglones (113 px de alto) y
+  //    sin la columna Producto fija. Medido en el navegador. (p-tag tampoco tiene styleClass en v22
+  //    y NO esta en SIN_STYLECLASS: 150 usos en HEAD el 2026-11-18, sin techo medido todavia.)
+  'styleClass p-table': 302,
   // ⚠️ 269 y no 268: la fusion de `integra` trae el filtro `medio` de Pagos a proveedor, que es
   //    un <p-select> mas en `finanzas-pagos-comprobantes.component.ts`. Escrito IGUAL que sus
   //    cuatro hermanos del mismo bloque (`styleClass="cb-sel"`): convertir solo el nuevo dejaria
   //    el archivo con dos formas de decir lo mismo. Los CINCO son deuda -- `styleClass` en
   //    <p-select> lo retiro PrimeNG 22 -- y se arreglan juntos, con la pantalla a la vista.
-  'styleClass p-select': 272,
-  'styleClass p-multiselect': 43,
+  'styleClass p-select': 264,
+  'styleClass p-multiselect': 42,
   'styleClass p-inputnumber': 13,
   'styleClass p-autocomplete': 6,
   'styleClass p-message': 1,
