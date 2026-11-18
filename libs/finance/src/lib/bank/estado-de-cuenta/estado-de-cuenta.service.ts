@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
-import { describirArchivo, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
+import { describirArchivo, describirNoLeidos, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable, type SucursalesContraElLibro } from './contra-el-libro';
 import { cuadreDeLaDescarga, type ArchivoParaCuadre, type CuadreDeLaDescarga, type SaldoDelBanco, type TestigoDeEntrada } from './cuadre-de-la-descarga';
@@ -187,7 +187,8 @@ export class EstadoDeCuentaService {
     }
 
     if (!leido.movimientos.length) motivos.push('el archivo no trae movimientos');
-    if (leido.no_leidos.length) motivos.push(`${leido.no_leidos.length} renglón(es) no se pudieron leer`);
+    const noLeidos = describirNoLeidos(leido.no_leidos);
+    if (noLeidos) motivos.push(noLeidos);
     if (ctl && !ctl.cuadra) motivos.push(`el saldo no encadena en ${ctl.eslabones_rotos.length} renglón(es): falta o sobra algo en la descarga`);
     if (leido.declarado?.coinciden === false) motivos.push('los totales que declara el banco no coinciden con los movimientos leídos');
     const hoy = todayMx();
