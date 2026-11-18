@@ -4,6 +4,7 @@ import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
 import { totalesCotizacion } from '@megadulces/contracts';
 import { FUENTE_PRECIOS_COTIZACION } from '../shared/catalogo-buscador';
+import { factorExactoDeFicha } from '../commercial-replenishment/ficha-kepler';
 
 /**
  * `[COT.1]` — El motor de precio de una cotización.
@@ -570,6 +571,16 @@ export class QuotePricingService {
       return (l && tramosAplicables(l)) || undefined;
     };
 
+    // `[COT.45]` Los factores EXACTOS de la ficha (la vista los trunca a entero: 19.75 → 19).
+    const exactosQ = await knex.raw(
+      'SELECT btrim(k.c1) AS sku, upper(btrim(k.c80)) AS u2, k.c81::numeric AS f2, upper(btrim(k.c83)) AS u3, k.c84::numeric AS f3'
+        + ' FROM kepler_ods.kdii k WHERE btrim(k.sucursal) = ?' + inSkus('btrim(k.c1)'),
+      [branch, ...args],
+    );
+    const fichaExacta = new Map<string, { u2: string; f2: string; u3: string; f3: string }>(
+      (exactosQ.rows as Array<{ sku: string; u2: string; f2: string; u3: string; f3: string }>).map((r) => [r.sku, r]),
+    );
+
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
     const volumeOf = (minQty: unknown, price: unknown) =>
       minQty !== null && minQty !== undefined && price !== null && price !== undefined
@@ -611,6 +622,7 @@ export class QuotePricingService {
       }
 
       const boxLabelFinal = boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null);
+      boxSize = factorExactoDeFicha(boxSize, boxLabelFinal, fichaExacta.get(sku));
       const medio = num(p.pack_size) === null
         ? unidadIntermedia(presPorSku.get(sku) ?? [], p.unit_base ?? null, { label: boxLabelFinal, size: boxSize })
         : null;
@@ -633,7 +645,7 @@ export class QuotePricingService {
             rung: 'pack',
             label: medio.unidad,
             price: num(medio.precio_lista),
-            size: num(medio.factor),
+            size: factorExactoDeFicha(num(medio.factor), medio.unidad, fichaExacta.get(sku)),
             volume: volumeOf(medio.mayoreo_desde, medio.mayoreo_precio),
             tiers: tiersDe(sku, medio.unidad),
           } : {
