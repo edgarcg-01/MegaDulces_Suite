@@ -494,6 +494,22 @@ Después, en Kepler: generar la OC desde la requisición. Si ya no se quieren, l
 - ✅ 2026-10-28 tarde: GRANT dado en **01, 06 y 07** (usuario `postgres`, desde desarrollo; los demás rechazan esta máquina). Antes:
   **01, 06 y 07 sin `SELECT` en `kdxd`** (toda compra ahí rebota); 00 sí; 02–05
   y 08 no se pudieron medir desde desarrollo (`pg_hba`). `node database/scripts/kepler-push-ops.js revisar` lo dice por servidor.
+- ⛔ **2026-11-11: en 8 Esquinas (03) y Yurécuaro (04) nunca se dio.** Medido por lo que rebota en
+  prod: 03 «permiso denegado a la tabla kdii» (3 compras, RQ-2026-02443 entre ellas) y 04 «… kdxd»
+  (RQ-2026-02441); ninguna de las dos ha escrito una compra. Zamora Centro (05) no ha tenido
+  intentos. El archivo es [`kepler-grants/pq22_orden_compra.sql`](../../../ops/prod/kepler-grants/pq22_orden_compra.sql)
+  (idempotente, con su `-- verificar:`), **desde md con `sa`** (§14.2, bloque «Desde md»):
+  primero sin `--aplicar`, después `--servidores 03,04,05 --aplicar`. Lo rechazado sale solo en
+  ≤ 30 min (PQ.26).
+- ✅ **2026-11-18: aplicado y comprobado en 8 Esquinas (03) y Yurécuaro (04)**, desde md dentro del pod
+  `api`, como `sa` (pedido de Edgar: «córrelo desde md»; `[PQ.67]`). Seis compras aprobadas llevaban
+  hasta 13 días rebotando (4 de 03 por `kdii`, 2 de 04 por `kdxd`, ~$58 mil). Un servidor por corrida,
+  clave por stdin: revisar → «entra como sa (superusuario) · ya aplicado: no» en los dos; `--aplicar` →
+  «aplicado y comprobado»; revisar otra vez → «ya aplicado: sí». Los archivos temporales se borraron del
+  pod y de md. Zamora Centro (05) y La Piedad Abastos (02) no hicieron falta: ya escriben compras.
+  **Las seis salieron solas 12 min después** (reintento de PQ.26, al leer la bandeja), a las 15:14, con su
+  OC: 8 Esquinas `0000368`–`0000371`, Yurécuaro `0000122`–`0000123`; el freno contra el duplicado no
+  encontró ninguna hecha a mano.
 - Antes de encenderla en una sucursal: canario de una requisición, ver en Kepler la OC ligada a la
   requisición (`X-A-35` con `c39` = folio de la requisición) y probar la baja de los dos documentos.
 
@@ -509,6 +525,9 @@ máquina de desarrollo.
 |---|---|---|
 | md (`192.168.0.222`, el pod `api`) | ✅ en los nueve: es la IP que su `pg_hba` acepta | ❌ en 00, 02, 03, 04, 05, 08: «no hay una línea en pg_hba.conf» |
 | esta PC de desarrollo (`192.168.0.115`) | ❌ (su `pg_hba` es sólo para md) | ✅ en **01, 06 y 07**; ❌ en los otros seis, igual que md |
+
+⭐ **2026-11-18:** desde md (pod `api`), `sa` **sí** entra ya en **03 y 04** (alguien abrió su `pg_hba`
+después del 06-nov): medido al aplicar `pq22_orden_compra.sql`. Los demás de la columna no se re-midieron.
 
 Ningún servidor acepta conexión cifrada (`--ssl` responde «The server does not support SSL connections»):
 el rechazo de los seis es de `pg_hba`, antes de revisar la contraseña. Para abrirlos, quien administra
