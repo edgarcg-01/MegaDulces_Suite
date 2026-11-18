@@ -799,12 +799,25 @@ export class PaymentCalendarService {
       .slice(0, 200);
     if (!llaves.length) return [];
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
+    const COLS = `e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
-                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa
+                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa`;
+    return this.tk.run(async (trx) => {
+      /*
+       * `[PGP.152]` La evidencia se calcula SÓLO para estas facturas (`analytics.payable_evidence(p_llaves)`, el MISMO
+       * cuerpo que la vista con el filtro dentro): la vista cruzaba las ~3,200 facturas abiertas contra 172 mil CFDI y
+       * filtraba al final. Medido en prod: 3.7–4.6 s → ~2 s, 196 de 196 filas idénticas. Sin la migración aplicada
+       * (42883), la consulta de siempre: la API no exige lo que la base todavía no tiene.
+       */
+      try {
+        return (await trx.transaction(async (sp) => (await sp.raw(
+          `SELECT ${COLS} FROM analytics.payable_evidence(?::text[]) e WHERE e.tenant_id = ?`, [llaves, tenantId])).rows));
+      } catch (e: unknown) {
+        if ((e as { code?: string })?.code !== '42883') throw e;
+      }
+      const { rows } = await trx.raw(
+        `SELECT ${COLS}
            FROM analytics.v_payable_evidence e
           WHERE e.tenant_id = ?
             AND (e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio)) = ANY(?)`,
