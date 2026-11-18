@@ -5,6 +5,9 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import type { AnticipoDeudaRow, AnticipoRow, AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { FinanzasAnticiposComponent } from './finanzas-anticipos.component';
+import { PedirAnticipoDialogComponent } from '../components/pedir-anticipo-dialog.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * `[PGP.118]` Candado del submódulo de Anticipos. Monta el componente (compila la plantilla) y cuida
@@ -32,13 +35,20 @@ const DEUDA: AnticipoDeudaRow[] = [
   { proveedor: 'CB002', sucursal: '03', facturas: 4, deuda: 9000, vence_primero: '2026-11-25' },
 ];
 
+const SUP = '11111111-1111-1111-1111-111111111111';
+const CLABE = '012180001234567899';   // sintética, con su dígito de control bien
 const SOLICITADOS: AnticipoSolicitadoRow[] = [
-  { obligation_id: 'o1', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 5000, motivo: 'temporada', oc_folio: 'OC-9',
+  { obligation_id: 'o1', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 5000, motivo: 'temporada', oc_folio: null,
     creado_por: 'compras1', creado: '2026-11-10', fecha_deseada: '2026-11-12', estado_obligacion: 'pending', pagado: 0,
-    programado_dia: null, allocation_id: null, kepler: null, posibles: 0, etapa: 'por_programar' },
-  { obligation_id: 'o2', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 3000, motivo: null, oc_folio: null,
+    programado_dia: null, allocation_id: null, kepler: null, posibles: 0, etapa: 'por_programar',
+    // `[PGP.127]` Pedido con sus papeles: OC de Kepler, cotización y una CLABE que espera a Dirección.
+    supplier_id: SUP, disponible: 5000, ocs: [{ sucursal: '00', serie: '1', folio: '0000101' }], tiene_cotizacion: true,
+    cuenta: { estado: 'en_aprobacion', clabe: CLABE, banco: 'BBVA' } },
+  { obligation_id: 'o2', proveedor: 'CA001', proveedor_nombre: 'DULCES DEL NORTE', sucursal: '00', monto: 3000, motivo: null, oc_folio: 'OC-9',
     creado_por: 'compras1', creado: '2026-11-01', fecha_deseada: null, estado_obligacion: 'pending', pagado: 0, programado_dia: '2026-11-03', allocation_id: 'a2',
-    kepler: { folio: '0000200', fecha: '2026-11-03', importe: 3000, remanente: 3000 }, posibles: 2, etapa: 'en_kepler' },
+    kepler: { folio: '0000200', fecha: '2026-11-03', importe: 3000, remanente: 3000 }, posibles: 2, etapa: 'en_kepler',
+    // Pedido de antes de PGP.127: sin cotización ni cuenta (no se inventa una).
+    supplier_id: SUP, disponible: 0, ocs: [], tiene_cotizacion: false, cuenta: { estado: 'sin_dato', clabe: null, banco: null } },
 ];
 
 describe('[PGP.118] FinanzasAnticiposComponent', () => {
@@ -144,57 +154,33 @@ describe('[PGP.118] FinanzasAnticiposComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('ya apartado en el Calendario de pagos');
   });
 
-  it('[PGP.119] el seguimiento dice la etapa de cada pedido y avisa los que esperan día en el Calendario', () => {
+  // `[PGP.144]` D17: la lista de solicitados (con su cuenta, su cotización y cancelar) se mudó al embudo de
+  // «Anticipos solicitados» (`finanzas-anticipos-solicitados.component.spec.ts`). Aquí queda el saldo de Kepler.
+  it('[PGP.144] los solicitados ya no se listan aquí: un aviso con su cuenta y el enlace al embudo', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
     fixture.detectChanges();
-    const txt = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(txt).toContain('Pedidos en la Suite');
-    expect(txt).toContain('Por programar');
-    expect(txt).toContain('En Kepler');
-    expect(txt).toContain('1 anticipo pedido en la Suite espera su pago');
-    expect(c.detalleSolicitud(SOLICITADOS[1])).toContain('Anticipo 0000200');
-    expect(txt).toContain('2 anticipos de Kepler podían ser');
+    const el = fixture.nativeElement as HTMLElement;
+    const txt = el.textContent ?? '';
+    expect(txt).not.toContain('Pedidos en la Suite');
+    expect(txt).toContain('1 anticipo solicitado en la Suite espera su pago');
+    expect(txt).toContain('2 anticipos solicitados en la Suite en 180 días');
+    const ligas = [...el.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(ligas).toContain('/finanzas/anticipos-solicitados');
+    expect(c.rutaEmbudo).toBe('/finanzas/anticipos-solicitados');
   });
 
-  // `[PGP.138]` El formulario vive en `PedirAnticipoDialogComponent` (compartido con el Calendario); su regla se
-  // prueba en su propio spec. Aquí: la página lo abre y, al pedir, vuelve a leer el seguimiento.
-  it('[PGP.119] «Pedir anticipo» abre el diálogo compartido y, al pedir, vuelve a leer lo pedido en la Suite', () => {
+  // `[PGP.127]` El formulario de pedir (OC de Kepler, cotización, cuenta) se prueba en su componente compartido,
+  // `pedir-anticipo-dialog.component.spec.ts` (`[PGP.142]`). Aquí: que la pantalla lo contiene y relee al pedir.
+  it('[PGP.142] el formulario compartido vive en la pantalla; al pedir, relee los solicitados', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
-    expect(c.pedidoVisible()).toBe(false);
-    c.abrirPedido();
-    expect(c.pedidoVisible()).toBe(true);
-    c.alPedir({ obligation_id: 'n1', monto: 2000, concepto: 'Anticipo · OC OC-9', proveedor: 'DULCES DEL NORTE', fecha: '2026-11-20' });
+    const dlg = fixture.debugElement.query((d) => d.componentInstance instanceof PedirAnticipoDialogComponent);
+    expect(dlg).not.toBeNull();
+    // Por el evento del diálogo, como en la pantalla (revisión del PR: llamar a cargarSolicitados() directo no prueba el enlace).
+    (dlg.componentInstance as PedirAnticipoDialogComponent).pedido.emit({ obligation_id: 'n1', monto: 100, concepto: 'Anticipo · OC 1', cuenta: 'aprobada', proveedor: 'X', fecha: '2026-11-20' });
     http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
   });
-
-  it('⛔ NEGATIVA [PGP.126] — cancelar exige razón; la manda al cancelar de obligaciones y vuelve a leer el seguimiento', () => {
-    darLista();
-    pedidoDeuda().flush(DEUDA);
-    c.abrirCancelar(SOLICITADOS[0]);
-    expect(c.cancFalta()).toMatch(/por qué/);
-    c.confirmarCancelar();   // sin razón no sale nada (lo verifica afterEach)
-    c.cancRazon.set('el proveedor ya no lo pide');
-    expect(c.cancFalta()).toBeNull();
-    c.confirmarCancelar();
-    const req = http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/o1/cancelar') && r.method === 'POST');
-    expect(req.request.body).toEqual({ reason: 'el proveedor ya no lo pide' });
-    req.flush({});
-    expect(c.cancelando()).toBeNull();
-    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
-  });
-
-  it('[PGP.126] lo programado no se cancela aquí y lo dice; lo cancelado dice su razón y el motivo queda limpio', () => {
-    darLista();
-    pedidoDeuda().flush(DEUDA);
-    c.abrirCancelar({ ...SOLICITADOS[0], etapa: 'programado', programado_dia: '2026-11-14' });
-    expect(c.cancFalta()).toMatch(/quítalo primero/);
-    const canc: AnticipoSolicitadoRow = { ...SOLICITADOS[0], etapa: 'cancelado', estado_obligacion: 'cancelled', motivo: 'temporada\n[cancelado] ya no lo pide' };
-    expect(c.detalleSolicitud(canc)).toBe('Cancelado: ya no lo pide.');
-    expect(c.motivoDe(canc)).toBe('temporada');
-  });
-
   it('más de 90 días cuenta sólo mercancía', () => {
     darLista();
     pedidoDeuda().flush(DEUDA);
@@ -235,5 +221,43 @@ describe('[PGP.123] la puerta de Compras (/compras/anticipos)', () => {
     expect(txt).toContain('2 anticipos de gasto o tarjeta');
     expect(txt).not.toContain('Además, 2 de gasto o tarjeta');
     http.verify();
+  });
+});
+
+// `[PGP.144]` «Cancelar» se mudó con la lista al embudo (D17): aquí queda «Pedir anticipo».
+describe('[PGP.142] D14 — quién ve «Pedir anticipo» en esta pantalla', () => {
+  const montar = (llaves: string[]) => {
+    TestBed.configureTestingModule({
+      imports: [FinanzasAnticiposComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: (k: string) => llaves.includes(k), hasAny: (...ks: string[]) => ks.some((k) => llaves.includes(k)) } }],
+    });
+    const fixture = TestBed.createComponent(FinanzasAnticiposComponent);
+    const http = TestBed.inject(HttpTestingController);
+    fixture.detectChanges();
+    http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipos')).flush(SOLICITADOS);
+    http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/anticipos')).flush(FILAS);
+    http.expectOne((r) => r.url.endsWith('/finance/payment-calendar/anticipos/deuda')).flush(DEUDA);
+    fixture.detectChanges();
+    const botones = [...(fixture.nativeElement as HTMLElement).querySelectorAll('button')].map((b) => (b.textContent ?? '').trim());
+    http.verify();
+    return botones;
+  };
+
+  it('quien programa pagos (Finanzas) pide aquí también; cancelar ya no vive aquí (embudo)', () => {
+    const b = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
+    expect(b).toContain('Pedir anticipo');
+    expect(b).not.toContain('Cancelar');
+  });
+
+  it('Compras, igual que antes', () => {
+    const b = montar([Permission.COMPRAS_OBLIGACIONES_VER, Permission.COMPRAS_OBLIGACIONES_GESTIONAR]);
+    expect(b).toContain('Pedir anticipo');
+  });
+
+  it('⛔ NEGATIVA — quien sólo VE pagos no recibe un botón que el servidor le rechazaría', () => {
+    const b = montar([Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_VER]);
+    expect(b).not.toContain('Pedir anticipo');
+    expect(b).not.toContain('Cancelar');
   });
 });

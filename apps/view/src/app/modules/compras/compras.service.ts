@@ -241,6 +241,8 @@ export interface InTransitResponse {
 export interface OpenOcRow {
   almacen: string; folio: string; fecha_oc: string;
   proveedor: string | null;
+  /** `[PGP.143]` El código del acreedor en Kepler: con él se pide el anticipo de esta orden. */
+  proveedor_codigo?: string | null;
   estatus: string;                      // c43 en Kepler: N pendiente · F finalizada · C cancelada · R recibida
   dias: number; lineas: number; valor: number;
   prob: number | null;                  // % histórico de que una OC de esa edad termine llegando

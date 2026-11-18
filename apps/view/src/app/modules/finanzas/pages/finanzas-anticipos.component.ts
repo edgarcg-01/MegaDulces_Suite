@@ -7,18 +7,17 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
-import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import {
-  faltaCancelarAnticipo, grupoDeAnticipo, llaveAnticipo, neteableHoy, partirMotivo, tipoDeAcreedor, warehouseName,
+  grupoDeAnticipo, llaveAnticipo, neteableHoy, PERMISOS_PEDIR_ANTICIPO, tipoDeAcreedor, warehouseName,
   type AnticipoDeudaRow, type AnticipoGrupo, type AnticipoRow,
-  type AnticipoSolicitadoRow, type EtapaSolicitudAnticipo,
+  type AnticipoSolicitadoRow,
 } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 import { environment } from '../../../../environments/environment';
+import { PedirAnticipoDialogComponent } from '../components/pedir-anticipo-dialog.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -27,8 +26,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { DEUDA_PROVEEDORES_TABS } from '../deuda-proveedores-tabs';
 import { PAGO_PROVEEDOR_TABS } from '../../compras/pago-proveedor-tabs';
-import { ActivatedRoute } from '@angular/router';
-import { PedirAnticipoDialogComponent, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 /** Un anticipo con lo que la pantalla deriva de él. */
 interface Fila extends AnticipoRow { grupo: AnticipoGrupo }
@@ -52,8 +50,8 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
 @Component({
   selector: 'app-finanzas-anticipos',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, DialogModule, ToastModule, PedirAnticipoDialogComponent,
-    MetricStripComponent, LoadStateComponent, FreshnessPillComponent, PageTabsComponent, ContextHelpComponent, SucursalPipe],
+  imports: [FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, ToastModule, RouterLink,
+    MetricStripComponent, LoadStateComponent, FreshnessPillComponent, PageTabsComponent, ContextHelpComponent, SucursalPipe, PedirAnticipoDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -65,9 +63,9 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
           <p class="surf-page-sub">El dinero adelantado a proveedores que Kepler todavía no aplica a una factura: cuál se puede aplicar hoy y cuál no tiene contra qué.</p>
         </div>
         <div class="an-head-actions">
-          <!-- [PGP.119] Compras pide el anticipo aquí; entra al Calendario como cualquier pago (D1). -->
+          <!-- [PGP.119] Compras pide el anticipo aquí; entra al Calendario como cualquier pago (D1). [PGP.142] También desde el Calendario. -->
           @if (puedePedir()) {
-            <button pButton type="button" class="p-button-sm" (click)="abrirPedido()"><span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Pedir anticipo</button>
+            <button pButton type="button" class="p-button-sm" (click)="pedir.abrir()"><span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Pedir anticipo</button>
           }
           <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="cargar()" aria-label="Volver a leer">
@@ -86,7 +84,8 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
           <p class="an-veredicto">{{ veredicto() }}</p>
           @if (porProgramar().length) {
             <p class="an-aviso" role="status"><i class="pi pi-calendar" aria-hidden="true"></i>
-              {{ porProgramar().length }} {{ porProgramar().length === 1 ? 'anticipo pedido en la Suite espera' : 'anticipos pedidos en la Suite esperan' }} su pago en el Calendario de pagos ({{ money(sumaMonto(porProgramar())) }}): abajo, «Pedidos en la Suite».</p>
+              {{ porProgramar().length }} {{ porProgramar().length === 1 ? 'anticipo solicitado en la Suite espera' : 'anticipos solicitados en la Suite esperan' }} su pago en el Calendario de pagos ({{ money(sumaMonto(porProgramar())) }}):
+              <a [routerLink]="rutaEmbudo">ver «Anticipos solicitados»</a>.</p>
           }
           @if (deudaError()) {
             <p class="an-aviso" role="status">
@@ -161,63 +160,22 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
           </details>
         }
 
-        <!-- [PGP.119] Los anticipos pedidos en la Suite: del pedido al pago del Calendario y al X-D-60 de Kepler. -->
+        <!-- [PGP.119] Los anticipos pedidos en la Suite. [PGP.144] D17: su lista se mudó al embudo de «Anticipos
+             solicitados» (en Pagos y en Pago a proveedor); aquí queda el saldo de Kepler y el enlace. -->
         @if (solicitadosError()) {
-          <p class="an-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los anticipos pedidos en la Suite.
+          <p class="an-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los anticipos solicitados en la Suite.
             <button pButton type="button" class="p-button-sm p-button-text" (click)="cargarSolicitados()">Reintentar</button></p>
         } @else if (solicitados().length) {
-          <h2 class="an-h2" id="an-pedidos">Pedidos en la Suite <span class="an-count">{{ solicitados().length }} · últimos 180 días</span></h2>
-          <p class="an-help">Compras lo pide; entra al Calendario de pagos como cualquier pago y Dirección lo autoriza. Cuando Cuentas por pagar lo captura en Kepler se liga solo (mismo acreedor, sucursal e importe ±$1) y se cierra cuando Kepler lo aplica a una factura.</p>
-          <div class="dt-scope">
-            <p-table [value]="solicitados()" size="small" class="dt-stack surf-table surf-table--plain an-table">
-              <ng-template #header>
-                <tr><th>Etapa</th><th>Acreedor</th><th class="comm-num">Importe</th><th>Sucursal · OC</th><th>Detalle</th><th>Pedido</th>
-                  @if (puedePedir()) { <th><span class="sr-only">Acciones</span></th> }</tr>
-              </ng-template>
-              <ng-template #body let-s>
-                <tr>
-                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaTexto(s.etapa)" [severity]="etapaTono(s.etapa)" /></td>
-                  <td role="cell" data-label="Acreedor"><div class="an-strong">{{ s.proveedor_nombre }}</div><div class="an-muted">{{ s.proveedor }}</div></td>
-                  <td role="cell" data-label="Importe" class="comm-num an-strong">{{ money2(s.monto) }}</td>
-                  <td role="cell" data-label="Sucursal · OC">{{ s.sucursal | sucursal }}@if (s.oc_folio) {<div class="an-muted">OC {{ s.oc_folio }}</div>}</td>
-                  <td role="cell" data-label="Detalle">{{ detalleSolicitud(s) }}@if (s.posibles > 1) {<div class="an-muted">{{ s.posibles }} anticipos de Kepler podían ser: se tomó el de fecha más cercana.</div>}</td>
-                  <td role="cell" data-label="Pedido"><div>{{ fecha(s.creado) }}</div><div class="an-muted">{{ s.creado_por }}@if (motivoDe(s); as m) { · {{ m }}}</div></td>
-                  <!-- [PGP.126] Sólo lo que no tiene pago se cancela; lo demás dice en «Detalle» qué hacer. -->
-                  @if (puedePedir()) {
-                    <td role="cell" data-label="Acciones">
-                      @if (s.etapa === 'por_programar') {
-                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger" (click)="abrirCancelar(s)"
-                                [attr.aria-label]="'Cancelar el anticipo de ' + s.proveedor_nombre + ' por ' + money2(s.monto)">Cancelar</button>
-                      }
-                    </td>
-                  }
-                </tr>
-              </ng-template>
-            </p-table>
-          </div>
+          <p class="an-help an-embudo"><i class="pi pi-filter" aria-hidden="true"></i>
+            {{ solicitados().length }} {{ solicitados().length === 1 ? 'anticipo solicitado' : 'anticipos solicitados' }} en la Suite en 180 días: su seguimiento, de la solicitud al anticipo aplicado en Kepler, está en
+            <a [routerLink]="rutaEmbudo">«Anticipos solicitados»</a>.</p>
         }
       </section>
     </div>
 
-    <!-- [PGP.119] Pedir un anticipo. La misma regla que el servidor apaga el botón y dice por qué. -->
-    <!-- [PGP.119]/[PGP.138] El diálogo es compartido con el Calendario de pagos: una sola interfaz del flujo. -->
-    <app-pedir-anticipo-dialog [(visible)]="pedidoVisible" (pedido)="alPedir($event)" />
-
-    <!-- [PGP.126] Cancelar un anticipo pedido que todavía no tiene pago. La razón queda junto a su motivo. -->
-    <p-dialog [visible]="!!cancelando()" (visibleChange)="$event || cerrarCancelar()" [modal]="true" header="Cancelar anticipo pedido" [style]="{ width: '30rem' }">
-      @if (cancelando(); as s) {
-        <p class="an-help"><b>{{ s.proveedor_nombre }}</b> · {{ money2(s.monto) }} · {{ s.sucursal | sucursal }}@if (s.oc_folio) { · OC {{ s.oc_folio }}}.
-          Sale del Calendario de pagos y, si iba atado a una OC, le devuelve ese saldo.</p>
-        <label class="an-label" for="an-canc">Por qué se cancela</label>
-        <input id="an-canc" pInputText type="text" autocomplete="off" class="an-full" [ngModel]="cancRazon()" (ngModelChange)="cancRazon.set($event)"
-               placeholder="Ej. el proveedor ya no pide anticipo" />
-        @if (cancFalta(); as f) { <p class="an-muted" aria-live="polite">{{ f }}</p> }
-        <div class="an-acciones">
-          <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarCancelar()">No cancelar</button>
-          <button pButton type="button" class="p-button-danger" [disabled]="!!cancFalta() || cancGuardando()" [loading]="cancGuardando()" (click)="confirmarCancelar()">Cancelar anticipo</button>
-        </div>
-      }
-    </p-dialog>
+    <!-- [PGP.119]/[PGP.127] Pedir un anticipo con sus papeles. [PGP.142] Es el MISMO formulario que abre el Calendario
+         de pagos (D14: ahí vive el anticipo); aquí queda para Compras, que no entra al Calendario. -->
+    <app-pedir-anticipo-dialog #pedir (pedido)="cargarSolicitados()" />
   `,
   styles: [`
     :host { display: block; }
@@ -242,9 +200,7 @@ interface Grupo { key: AnticipoGrupo; titulo: string; ayuda: string; filas: Fila
     .an-nomedido summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .an-nomedido ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); }
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    .an-label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); margin: var(--sp-3) 0 var(--sp-1); }
-    .an-full { width: 100%; }
-    .an-acciones { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4); }
+    .an-embudo { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-top: var(--sp-6); }
     @container (max-width: 48rem) { .an-body { padding: var(--sp-2) 1rem var(--sp-6); } }
   `],
 })
@@ -270,16 +226,17 @@ export class FinanzasAnticiposComponent implements OnInit {
   readonly cargadoEn = signal<Date | null>(null);
   readonly q = signal('');
 
-  // ── `[PGP.119]` Pedir un anticipo y seguirlo ─────────────────────────────────────────────
+  // ── `[PGP.119]` Pedir un anticipo (el seguimiento se mudó a «Anticipos solicitados», `[PGP.144]`) ──
   private readonly perms = inject(PermissionsService);
-  private readonly toast = inject(MessageService);
   private readonly obligaciones = `${environment.apiUrl}/commercial/supplier-obligations`;
-  /** Pide quien da de alta obligaciones de pago: los 5 roles de Compras (D1; medido 2026-11-13). */
-  readonly puedePedir = computed(() => this.perms.has(Permission.COMPRAS_OBLIGACIONES_GESTIONAR));
+  /**
+   * Pide (y cancela lo pedido) Compras o quien programa pagos (`[PGP.142]` D14): la MISMA lista que el servidor.
+   * El formulario es `app-pedir-anticipo-dialog`, compartido con el Calendario de pagos (`[PGP.138]`).
+   */
+  readonly puedePedir = computed(() => this.perms.hasAny(...PERMISOS_PEDIR_ANTICIPO));
   readonly solicitados = signal<AnticipoSolicitadoRow[]>([]);
   readonly solicitadosError = signal(false);
   readonly porProgramar = computed(() => this.solicitados().filter((s) => s.etapa === 'por_programar'));
-  readonly pedidoVisible = signal(false);
 
   sumaMonto(xs: readonly { monto: number }[]): number { return xs.reduce((s, x) => s + Number(x.monto), 0); }
 
@@ -291,58 +248,8 @@ export class FinanzasAnticiposComponent implements OnInit {
     });
   }
 
-  abrirPedido(): void { this.pedidoVisible.set(true); }
-  /** El diálogo ya creó la obligación: se avisa y se vuelve a leer el seguimiento. */
-  alPedir(r: AnticipoPedido): void {
-    this.cargarSolicitados();
-    this.toast.add({ severity: 'success', summary: 'Anticipo pedido', detail: `${r.proveedor}: ${this.money2(r.monto)} (${r.concepto}). Ya está en el Calendario de pagos, por programar.` });
-  }
-
-  // ── `[PGP.126]` Cancelar un pedido sin pago ──────────────────────────────────────────────
-  readonly cancelando = signal<AnticipoSolicitadoRow | null>(null);
-  readonly cancRazon = signal('');
-  readonly cancGuardando = signal(false);
-  /** La MISMA regla que el servidor: sólo «por programar», y con razón. */
-  readonly cancFalta = computed<string | null>(() => {
-    const s = this.cancelando(), razon = this.cancRazon();
-    return s ? faltaCancelarAnticipo(s, razon) : null;
-  });
-  abrirCancelar(s: AnticipoSolicitadoRow): void { this.cancRazon.set(''); this.cancelando.set(s); }
-  cerrarCancelar(): void { this.cancelando.set(null); }
-  confirmarCancelar(): void {
-    const s = this.cancelando();
-    if (!s || this.cancFalta() || this.cancGuardando()) return;
-    this.cancGuardando.set(true);
-    this.http.post(`${this.obligaciones}/${s.obligation_id}/cancelar`, { reason: this.cancRazon().trim() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.cancGuardando.set(false); this.cancelando.set(null); this.cargarSolicitados();
-        this.toast.add({ severity: 'success', summary: 'Anticipo cancelado', detail: `${s.proveedor_nombre}: ${this.money2(s.monto)}. Ya no está en el Calendario de pagos.` });
-      },
-      error: (e) => {
-        this.cancGuardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se canceló el anticipo', detail: e?.error?.message || 'Intenta de nuevo en un momento.', life: 10000 });
-      },
-    });
-  }
-  /** El motivo del pedido, sin la razón de la cancelación (que va en «Detalle»). */
-  motivoDe(s: AnticipoSolicitadoRow): string | null { return partirMotivo(s.motivo).motivo; }
-
-  etapaTexto(e: EtapaSolicitudAnticipo): string {
-    return { por_programar: 'Por programar', programado: 'Programado', pagado: 'Pagado', en_kepler: 'En Kepler', aplicado: 'Aplicado', cancelado: 'Cancelado' }[e];
-  }
-  etapaTono(e: EtapaSolicitudAnticipo): 'warn' | 'info' | 'success' | 'secondary' {
-    return e === 'por_programar' ? 'warn' : e === 'aplicado' ? 'success' : e === 'cancelado' ? 'secondary' : 'info';
-  }
-  detalleSolicitud(s: AnticipoSolicitadoRow): string {
-    switch (s.etapa) {
-      case 'por_programar': return 'Falta darle día en el Calendario de pagos.';
-      case 'programado': return `En el pago del ${s.programado_dia ? this.fecha(s.programado_dia) : '—'}. Para cancelarlo, primero quítalo de ese pago.`;
-      case 'pagado': return 'Pagado en la Suite; falta que Cuentas por pagar lo capture en Kepler.';
-      case 'en_kepler': return `Anticipo ${s.kepler?.folio} en Kepler (${s.kepler ? this.fecha(s.kepler.fecha) : ''}); quedan ${this.money2(s.kepler?.remanente)} por aplicar a una factura.`;
-      case 'aplicado': return `Anticipo ${s.kepler?.folio}: Kepler ya lo aplicó entero.`;
-      case 'cancelado': { const c = partirMotivo(s.motivo).cancelacion; return c ? `Cancelado: ${c}.` : 'Cancelado.'; }
-    }
-  }
+  /** `[PGP.144]` A dónde se mudó la lista de solicitados (D17): el embudo, por la misma puerta por la que se entró. */
+  readonly rutaEmbudo = this.deCompras ? '/compras/anticipos-solicitados' : '/finanzas/anticipos-solicitados';
 
   /**
    * La deuda viva de un acreedor EN LA SUCURSAL del anticipo; `null` mientras no se sabe. `[PGP.120]` Un

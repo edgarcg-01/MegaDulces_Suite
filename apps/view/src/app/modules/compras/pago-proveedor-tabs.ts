@@ -38,6 +38,13 @@ export const PAGO_PROVEEDOR_TABS: PageTab[] = [
     icon: 'pi pi-wallet',
     permission: Permission.COMPRAS_OBLIGACIONES_VER,
   },
+  {
+    // `[PGP.144]` El embudo de los anticipos que pidió Compras: dónde se atora cada uno (D17).
+    label: 'Anticipos solicitados',
+    route: '/compras/anticipos-solicitados',
+    icon: 'pi pi-filter',
+    permission: Permission.COMPRAS_OBLIGACIONES_VER,
+  },
 ];
 
 // `[PGP.20]` «Cuentas de pago» SALIÓ de aquí el 2026-10-27 y vive en Finanzas › Pagos, pegada al

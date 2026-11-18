@@ -91,4 +91,14 @@ export const PAGOS_TABS: readonly PageTab[] = [
     icon: 'pi pi-send',
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
+  {
+    // `[PGP.144]` El embudo de los anticipos que pide Compras (D17, Francisco 2026-11-17): de la solicitud
+    // al anticipo aplicado en Kepler. Entra por ser la trazabilidad de un paso del ciclo (el anticipo vive
+    // en el Calendario, D14), no por tema: no es deuda (el saldo de Kepler sigue en Deuda › Anticipos). Va
+    // al final porque recorre el ciclo entero, y «Cuentas de pago» sigue pegada al Calendario (`[PGP.20]`).
+    label: 'Anticipos solicitados',
+    route: '/finanzas/anticipos-solicitados',
+    icon: 'pi pi-filter',
+    permission: Permission.FINANCE_PAYMENTS_VER,
+  },
 ];

@@ -325,6 +325,8 @@ async function bootstrap() {
   // (no 504) en cualquier foto de celular. Mismo techo que sus hermanos.
   app.use('/api/finance/bank-captures', json({ limit: '16mb' }));
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
+  // `[PGP.127]` La cotización del anticipo (PDF o foto, hasta 10 MB → ~14 MB en base64). Sólo la ruta de subida.
+  app.use('/api/commercial/supplier-obligations/anticipo/cotizacion', json({ limit: '16mb' }));
   // MS — Mesa de Servicio: capturas de pantalla/PDF como base64 en la solicitud y en cada comentario.
   app.use('/api/service-desk', json({ limit: '32mb' }));
   // `[RH.2.2]` Expediente de reclutamiento: un documento (foto de celular o PDF escaneado) hasta 10 MB

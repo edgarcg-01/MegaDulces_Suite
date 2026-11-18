@@ -705,6 +705,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // `[PGP.144]` Anticipos solicitados: el embudo de lo que pide Compras (D17: vive en Pagos). Mismo
+        // permiso que el Calendario de pagos (ya repartido: no cambia el acceso de nadie).
+        path: 'anticipos-solicitados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-anticipos-solicitados.component').then(m => m.FinanzasAnticiposSolicitadosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
         path: 'programa-pagos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
@@ -1567,6 +1574,14 @@ export const routes: Routes = [
         // sólo le llegaba a Coordinación de Compras: el resto de Compras no tiene FINANCE_PAYMENTS_VER.
         path: 'anticipos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-anticipos.component').then(m => m.FinanzasAnticiposComponent),
+        data: { puerta: 'compras' },
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
+        // `[PGP.144]` La puerta de Compras al embudo de sus anticipos solicitados: la MISMA pantalla que
+        // `/finanzas/anticipos-solicitados`, con las pestañas de Pago a proveedor (8 de Compras no entran a Pagos).
+        path: 'anticipos-solicitados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-anticipos-solicitados.component').then(m => m.FinanzasAnticiposSolicitadosComponent),
         data: { puerta: 'compras' },
         canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
       },

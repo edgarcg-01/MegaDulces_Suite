@@ -3224,6 +3224,8 @@ export class CommercialReplenishmentService {
         WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
         oc AS MATERIALIZED (
           SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor, monto AS monto_doc,
+                 -- [PGP.143] El código del acreedor: con él «Pedir anticipo» ubica al proveedor sin adivinar por nombre.
+                 btrim(proveedor_code) AS proveedor_codigo,
                  estatus, dias_abierta AS dias,
                  -- [RA-PRO.67] Los dos testigos del estado real. Se leen por to_jsonb(o.*)->> y no
                  -- la columna directa porque la vista puede NO tenerlas todavía (la migración
@@ -3245,7 +3247,7 @@ export class CommercialReplenishmentService {
              -- expande knex un arreglo en un raw con nombres. Vacía nunca llega (se corta antes).
              AND (:todas::boolean OR sucursal = ANY(string_to_array(:codigos::text, ',')))
         )
-        SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
+        SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.proveedor_codigo, oc.estatus, oc.dias,
                -- [PQ.34] El valor es el TOTAL del documento de Kepler (c16, con IVA e IEPS), el mismo
                -- que muestra Kepler como «IMPORTE» y el PDF como «Total». Antes era la suma de
                -- renglones sin impuestos: OC 00/0007265 decía $72,053 en la lista y $77,817.04 en
@@ -3293,6 +3295,7 @@ export class CommercialReplenishmentService {
         folio: String(r.folio ?? '').trim(),
         fecha_oc: r.fecha_oc,
         proveedor: (r.proveedor as string) || null,
+        proveedor_codigo: (r.proveedor_codigo as string) || null,
         estatus: String(r.estatus ?? 'N'),
         dias: Number(r.dias) || 0,
         lineas: Number(r.lineas) || 0,
