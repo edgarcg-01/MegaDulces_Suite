@@ -94,7 +94,60 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 | 9 | **Archivo de dispersión del banco** (D1-c) | `[PGP.137]` | Alto | L | 2 | Que la Suite arme el lote para el portal del banco. Requiere el catálogo de cuentas destino (O6/O7 de la fase) |
 | 10 | **Aplicar el anticipo** (agregado 2026-11-17) | `[PGP.139]` 🧪 · `[PGP.140]` | Alto · $2.0 M aplicables hoy, $3.6 M de +90 días | S (aviso) · M (escritura) | **1** | El aviso en la fila del pago ya está en código; la escritura en Kepler (`kdxf` + saldos) espera leer una aplicación entera en el Kepler vivo |
 
+| 11 | **El pago atrasado dice qué dice el banco** (agregado 2026-11-18) | `[PGP.146]` 🔨 | Medio · $3.0 M ya salidos que se veían «por preparar» | S | **1** | Sólo lectura de la descarga del banco; sin esto Contabilidad lee «atrasado» lo que ya se pagó. Ver §4a |
+| 12 | **El pago lleva más de lo que la factura debe** (agregado 2026-11-18, caso Mondelez) | `[PGP.147]` 🔨 · `[PGP.148]` | Alto · $0.41 M hoy en 5 pagos pendientes; $122 mil ya pagados de más | S (aviso) · M (ajuste) | **1** | Una nota de crédito, una devolución o un pago parcial bajan el saldo después de programar y nada lo volvía a comparar. Ver §4b |
+
 ⭐ **Con los frentes 1 y 2, el 75 % del dinero `C…` deja de teclearse.** Con 4 y 6, el 96 %; con los anticipos, el 98 %.
+
+### 4a. El pago atrasado que ya salió (2026-11-18)
+
+Contabilidad se queja de pagos «atrasados». Medido ese día: **71 pendientes de días pasados ($10.9 M)**. El estado de
+cuenta del Calendario (`finance.bank_movements`) se quedó en el 10-nov porque **ninguna cuenta «usa el banco»** —el
+Excel de Tesorería dejó de subirse y el interruptor de `/finanzas/bancos` no se ha encendido—, así que las cinco
+lecturas del Calendario que dependen de él (pagar por el banco, validación, vencidos, salidas del banco) no ven nada
+desde entonces. La **descarga** del propio banco sí se sube a diario. Leída con la regla de `[PGP.121]`: **23 de los 71
+ya salieron ($2,964,539)**; placebo (los mismos pagos 20 días después) 0 de 79. `[PGP.146]` lo dice en cada pago, sin
+escribir nada. Lo que lo vuelve permanente es **encender «Usar el banco»** en las cuentas que cuadran (14 de 18).
+
+### 4b. El pago se programa una vez y el saldo de la factura cambia (caso Mondelez, 2026-11-18)
+
+**El caso.** Mondelez (`CM009`), factura `20-1-0010007` de CEDIS por **$469,071.93**, programada el **26-oct** para
+pagarse el **13-nov**. El **12-nov** se capturaron en Kepler dos notas de crédito aplicadas a esa misma factura
+(`55-0001512` por **$120,000**, referencia DMKT, y `55-0001513` por $2,142.69): su saldo bajó a **$346,929.24**. El
+pago del Calendario siguió en $469,071.93 y **así salió del banco el 13-nov** (BBVA 4176, SPEI a Citi). **Se le pagaron
+$122,142.69 de más.** En Kepler todavía no hay `X-D-26` de ese pago.
+
+**Por qué pasa.** El importe de cada factura se fija al armar el pago y **nada lo vuelve a comparar con lo que la
+factura debe**. `createAllocation` revisa el saldo al armar; después, una nota de crédito, una devolución, un anticipo
+aplicado o un pago parcial capturado en Kepler bajan el saldo y el pago no se entera. `[PGP.35]` sólo avisa cuando la
+factura queda **saldada por completo**; `[PGP.141]` avisa de notas **sin aplicar** — ésta ya estaba aplicada. Quien
+paga en el portal del banco teclea el importe del Calendario.
+
+**Qué tan seguido** (medido 2026-11-18 con el código de `[PGP.147]`, sólo lectura): **5 pagos pendientes llevan
+$414,800.53 más de lo que sus facturas deben hoy**. Dos por notas de crédito (Mondelez, ya pagado; `CE012` del 17-nov,
+$44,569.87, todavía sin salir) y tres porque Kepler ya registró una transferencia que el Calendario no ligó (uno
+programado para el **28-dic** por $117,161.87 cuya factura debe $6,125: se pagaría dos veces). Entre los ya pagados del
+Calendario hay 4 con $161,744 sobre la deuda, pero **lo que salió de verdad por ellos NO está MEDIDO** (pudo pagarlos
+Tesorería por el neto).
+
+**La solución, por capas.**
+1. `[PGP.147]` C1+C2 (en código): cada pago pendiente trae `debe_menos` — por factura, lo programado, lo que debe hoy
+   y **los documentos de Kepler que lo bajaron** (nota, devolución, pago). El saldo llega en la misma consulta de la
+   etiqueta (cero viajes nuevos); los abonos, una consulta de 91 ms sólo si hay alguna. C3: decirlo en la fila, en
+   rojo, antes de «Por pagar», y en la orden que se imprime.
+2. `[PGP.148]` **Ajustar el pago al saldo de Kepler** (un clic, con bitácora y el folio de la nota) — y, si se firma
+   D19, **solo, por evento**: cuando el ODS ve un abono aplicado a una factura que está en un pago pendiente, el pago
+   baja a lo que se debe y queda escrito por qué. Nunca sube solo.
+
+**D19 · ¿El pago se ajusta solo cuando Kepler baja el saldo de su factura?** (a) sólo avisar · (b) ajustar solo los
+pagos **sin autorizar** y avisar en los autorizados · (c) ajustar siempre. **Recomiendo (b)**: el importe correcto es un
+hecho (el saldo de Kepler), y en un pago sin autorizar nadie ha comprometido nada; en uno autorizado puede que
+Tesorería ya cargó la transferencia en el portal, y ahí cambiarlo en silencio haría que la Suite y el banco digan cosas
+distintas.
+
+**Acción para personas (no es código):** los $122,142.69 de Mondelez. Recomendado: al capturar en Kepler el `X-D-26`
+del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pago del **19-nov** (`0010025` y
+`0010027`, $191,580.99), y bajar ese pago a **$69,438.30**. Alternativa: pedir el reembolso a Mondelez.
 
 ---
 
@@ -150,6 +203,11 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 - **2026-11-17** — Edgar firma D1–D7 como se recomendaban («si, firmo»). Empieza `[PGP.130]`.
 - **2026-11-17** — `[PGP.130]` C3: el botón «Comprobantes PDF» del Calendario casa primero con el pago de aquí; si no casa, sigue con Kepler con la misma lectura. Prueba con base real 13/13 en el CI.
 - **2026-11-17** — Frente 10, aplicar el anticipo: en 90 días salieron $1.6 M en efectivo que un anticipo sin aplicar ya cubría. `[PGP.139]` lo avisa en la fila del pago; `[PGP.140]` (la escritura en Kepler) queda con su C0 medido.
+- **2026-11-18** — Frente 11 (`[PGP.146]`): 23 de 71 pagos «atrasados» ya habían salido según la descarga del banco;
+  el Calendario no lo veía porque ninguna cuenta usa el banco (§4a). C1+C2 en código.
+- **2026-11-18** — Frente 12 (`[PGP.147]`), pedido de Edgar con el caso Mondelez: una nota de crédito de $120,000
+  aplicada el 12-nov y el pago del 13 salió completo, $122,142.69 de más (§4b). 5 pagos pendientes llevan $414,800.53
+  más de lo que deben. C1+C2 en código; D19 para Edgar.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado
