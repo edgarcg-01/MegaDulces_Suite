@@ -1872,6 +1872,15 @@ export class ExpenseProofsService {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     return this.tk.run(async (trx) => {
+      /*
+       * `[GX.113]` **Sin JIT.** «Mis gastos» (`GET proofs/mine`) tardaba ~2.8 s en prod (1,988 llamadas en 7 días, la
+       * ruta que más tiempo de servidor consumía) y casi todo era COMPILAR la consulta: Postgres estima la vista
+       * `v_expense_proofs` en ~580 mil de costo (sus dos búsquedas en Kepler por fila) y arriba de 100 mil enciende JIT,
+       * que gastaba ~1.6 s en la lista y ~0.8 s en el conteo por estado para consultas que corren en 20–60 ms.
+       * Medido con el servicio real, sólo lectura: 3.8–4.7 s → 0.16–0.22 s. Sólo en esta transacción (`SET LOCAL`):
+       * las otras listas del módulo no cambian con o sin JIT (medidas el mismo día).
+       */
+      await trx.raw('SET LOCAL jit = off');
       const b = trx('finance.v_expense_proofs')
         .select('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'fecha_gasto', 'folio_solicitud', 'proveedor',
