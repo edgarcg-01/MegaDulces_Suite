@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Vendedor — pulido del diseño actual</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --font-body:'Hanken Grotesk',system-ui,sans-serif;--font-mono:'Geist Mono',ui-monospace,monospace;
+  --action:#F05A28;--action-strong:#C8401A;--brand-400:#FDE707;--brand-700:#F05A28;--brand-900:#8C2308;
+  --ember-soft:rgba(248,180,0,.16);--ember-border:rgba(248,180,0,.45);
+  --ok-fg:#16A34A;--ok-soft-bg:#DCFCE7;--ok-soft-fg:#166534;--ok-border:#BBF7D0;
+  --warn-fg:#F59E0B;--warn-soft-bg:#FEF3C7;--warn-soft-fg:#92400E;--warn-border:#FDE68A;
+  --bad-fg:#DC2626;--bad-soft-bg:#FEE2E2;--info-soft-bg:#DBEAFE;--info-soft-fg:#1E40AF;--info-border:#BFDBFE;
+  --layout-bg:#F4F4F5;--card-bg:#FFFFFF;--surface-ground:#FAFAFA;--border-color:#E4E4E7;
+  --text-main:#09090B;--text-muted:#52525B;--text-faint:#6B6B74;--neutral-400:#A1A1AA;--neutral-900:#18181B;
+  --r-sm:10px;--r-md:14px;--r-lg:18px;--r-2xl:26px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E7E4;font-family:var(--font-body);color:var(--text-main)}
+button{font-family:inherit;color:inherit}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding:32px 20px 80px}
+.top h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+.top p{margin:0;color:#44403C;font-size:16px;max-width:760px;line-height:1.5}
+.nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 8px;position:sticky;top:0;z-index:20;background:#E9E7E4;padding:10px 0}
+.nav a{height:40px;display:inline-flex;align-items:center;padding:0 16px;border-radius:999px;background:#fff;color:#1C1917;text-decoration:none;font-weight:700;font-size:14px;border:1px solid #D6D3D1}
+.sec{margin-top:40px}
+.sec h2{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+.sec .sub{color:#57534E;margin:0 0 18px;font-size:15px}
+.row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center}
+.tag{font-size:13px;font-weight:800;letter-spacing:.06em;padding:5px 12px;border-radius:999px}
+.tag.a{background:#fff;color:#57534E;border:1px solid #D6D3D1}
+.tag.d{background:#1C1917;color:#fff}
+.phone{width:390px;height:844px;border-radius:34px;overflow:hidden;position:relative;background:var(--layout-bg);box-shadow:0 0 0 8px #0C0A09,0 30px 60px -30px rgba(0,0,0,.5);font-size:14px;margin:8px}
+.notes{flex:1 1 300px;min-width:280px;background:#fff;border-radius:18px;padding:18px 20px;align-self:stretch}
+.notes h3{margin:0 0 10px;font-size:16px}
+.notes ol{margin:0;padding-left:20px;font-size:14.5px;line-height:1.5;color:#292524}
+.notes li{margin-bottom:10px}
+.notes code{font-family:var(--font-mono);font-size:11.5px;background:#F5F5F4;padding:1px 5px;border-radius:5px;color:#57534E;white-space:normal;word-break:break-word;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.notes .fr{display:block;margin-top:2px}
+svg.i{display:inline-block;vertical-align:middle;flex-shrink:0}
+
+/* ---------- SHELL (común) ---------- */
+.hdr{display:flex;align-items:center;gap:8px;padding:12px 16px 12px;background:var(--card-bg);border-bottom:1px solid var(--border-color)}
+.hdr .brand{color:var(--brand-700);display:grid;place-items:center}
+.hdr .ck{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:36px;padding:0 10px;border:1px solid var(--border-color);border-radius:999px;background:var(--surface-ground);color:var(--text-muted);font-size:12.5px;white-space:nowrap;overflow:hidden}
+.hdr .ib{width:32px;height:32px;border:0;background:none;border-radius:10px;display:grid;place-items:center;color:var(--text-muted);flex-shrink:0}
+.hdr .cot{height:32px;padding:0 9px;border:1px solid var(--border-color);border-radius:999px;background:var(--card-bg);font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;color:var(--text-main);flex-shrink:0}
+.bnav{position:absolute;left:0;right:0;bottom:0;background:var(--layout-bg);border-top:1px solid var(--border-color);display:flex;justify-content:space-around;padding-bottom:14px;box-shadow:0 -2px 8px rgba(0,0,0,.04);z-index:10}
+.bnav a{flex:1;max-width:110px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9.6px 4px;font-size:11.5px;color:var(--text-muted);position:relative}
+.bnav a.on{color:var(--brand-700);font-weight:600}
+.bnav .bdg{position:absolute;top:5px;left:50%;margin-left:6px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--warn-fg);color:#fff;font-size:10px;font-weight:800;display:grid;place-items:center}
+/* después */
+.d .hdr{padding:10px 12px;gap:6px}
+.d .hdr .ck{height:44px;font-size:14px;border-radius:14px;padding:0 12px;gap:8px;color:var(--text-faint);background:var(--surface-ground)}
+.d .hdr .ib{width:44px;height:44px;border-radius:14px;color:var(--text-main);position:relative}
+.d .hdr .cot{height:44px;padding:0 12px;border-radius:14px;font-size:14px}
+.d .hdr .dot{position:absolute;top:9px;right:10px;width:9px;height:9px;border-radius:50%;background:var(--action);box-shadow:0 0 0 2px #fff}
+.d .bnav{background:var(--card-bg)}
+.d .bnav a{font-size:12.5px;padding:8px 4px 6px;gap:4px}
+.d .bnav a .pill{width:56px;height:30px;border-radius:999px;display:grid;place-items:center}
+.d .bnav a.on .pill{background:#FFF1EA}
+.d .bnav a.on{color:var(--action-strong);font-weight:800}
+.d .bnav .bdg{top:4px;margin-left:10px;min-width:19px;height:19px;font-size:11px;background:var(--action-strong)}
+
+/* ---------- MI RUTA ---------- */
+.main{padding:16px;height:calc(100% - 61px);overflow:hidden;position:relative}
+.hero{margin:-16px -16px 0;padding:21px 16px 22px;background:var(--card-bg);border-bottom:1px solid var(--border-color);position:relative}
+.hero .rf{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:50%;border:1px solid var(--border-color);background:#fff;display:grid;place-items:center;color:var(--text-muted)}
+.hero-main{display:flex;align-items:center;gap:16px}
+.ring{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--action) 37.5%,var(--border-color) 0)}
+.ring .in{width:54px;height:54px;border-radius:50%;background:#fff;display:grid;place-items:center;font-family:var(--font-mono);font-weight:700;line-height:1}
+.ring b{font-size:19px}.ring span{font-size:11.5px;color:var(--text-muted)}
+.ey{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
+.hero h1{margin:2px 0 0;font-size:27px;font-weight:800;letter-spacing:-.025em;line-height:1.04}
+.hero .sb{font-size:12.8px;color:var(--text-muted);margin-top:2px}
+.chg{display:inline-flex;align-items:center;gap:5px;margin-top:7px;min-height:32px;padding:4px 11px;border-radius:999px;border:1px solid var(--border-color);font-size:12px;font-weight:700;color:var(--action)}
+.kpis{display:flex;margin-top:19px;padding-top:15px;border-top:1px solid var(--border-color)}
+.kpi{flex:1;text-align:center;position:relative}
+.kpi+.kpi:before{content:'';position:absolute;left:0;top:20%;height:56%;width:1px;background:var(--border-color)}
+.kpi .v{font-family:var(--font-mono);font-weight:700;font-size:17.6px}
+.kpi.hl .v{font-size:20.5px}
+.kpi .l{font-size:9.3px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-muted);margin-top:3px}
+.rdl{display:flex;align-items:center;gap:8px;margin:14px 0;padding:8px 12px;border-radius:var(--r-md);background:var(--ok-soft-bg);border:1px solid var(--ok-border);color:var(--ok-soft-fg);font-size:13px}
+.rdl .dt{width:9px;height:9px;border-radius:50%;background:var(--ok-fg)}
+.arr{background:#fff;border:1px solid var(--border-color);border-radius:var(--r-lg);padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.arr .t{flex:1;font-size:13px}.arr b{display:block;font-size:15px}
+.arr .go{height:38px;padding:0 12px;border-radius:999px;border:0;background:var(--action);color:#fff;font-weight:700;font-size:13px}
+.geo{display:flex;align-items:center;gap:7px;margin-bottom:14px;padding:9px 11px;border-radius:var(--r-md);background:var(--surface-ground);border:1px dashed var(--border-color);color:var(--text-muted);font-size:12.5px}
+.sbar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.sbar .in{flex:1;height:40px;border-radius:999px;border:1px solid var(--border-color);background:#fff;display:flex;align-items:center;gap:8px;padding:0 14px;color:var(--text-faint);font-size:14px}
+.sbar .add{width:46px;height:46px;border-radius:999px;border:0;background:var(--action);color:#fff;display:grid;place-items:center}
+.lst{display:flex;flex-direction:column;gap:8px}
+.cl{position:relative;display:flex;align-items:center;gap:13px;border:1px solid var(--border-color);border-radius:var(--r-lg);background:#fff;padding:13px 14px 13px 17px;overflow:hidden;box-shadow:0 1px 2px rgba(16,13,9,.05)}
+.cl:before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--border-color)}
+.cl.ped:before{background:var(--ok-fg)}.cl.pre:before{background:var(--warn-fg)}
+.seq{width:34px;height:34px;border-radius:14px;display:grid;place-items:center;background:var(--surface-ground);color:var(--text-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;flex-shrink:0}
+.seq.sv{background:transparent;border:1.5px solid var(--border-color)}
+.seq.ok{background:var(--ok-soft-bg);color:var(--ok-soft-fg)}
+.cb{flex:1;min-width:0}
+.nm{display:block;font-weight:700;font-size:15.2px;letter-spacing:-.01em;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chs{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;align-items:center}
+.est{font-size:11.5px;font-weight:600;color:var(--text-muted)}
+.est.ok{color:var(--ok-soft-fg);font-weight:700}
+.chp{font-size:10.9px;font-weight:600;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px}
+.chp.pre{background:var(--warn-soft-bg);color:var(--warn-soft-fg)}.chp.pend{background:var(--info-soft-bg);color:var(--info-soft-fg)}
+.more{color:var(--text-faint)}
+.dock{position:absolute;left:16px;right:16px;bottom:92px;display:flex;gap:8px;z-index:9}
+.fin{flex:1;height:52px;border-radius:999px;border:1px solid var(--border-color);background:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 6px 18px -8px rgba(16,13,9,.35)}
+.fab{height:52px;padding:0 22px;border:0;border-radius:999px;background:var(--brand-400);color:#000;font-weight:700;font-size:15.2px;display:flex;align-items:center;gap:9px;box-shadow:0 8px 22px -6px rgba(199,150,15,.5)}
+/* después — ruta */
+.d .hero{padding:18px 16px 16px}
+.d .hero .rf{width:44px;height:44px;top:12px;right:12px;border-radius:14px}
+.d .ey{font-size:12px;letter-spacing:.06em}
+.d .hero .sb{font-size:14px;color:var(--text-main);margin-top:4px;display:flex;align-items:center;gap:6px}
+.d .hero .sb .lv{width:8px;height:8px;border-radius:50%;background:var(--ok-fg)}
+.d .chg{min-height:36px;font-size:13px}
+.d .kpis{margin-top:16px;padding-top:12px}
+.d .kpi .l{font-size:12px;letter-spacing:.02em;text-transform:none;font-weight:600}
+.d .arr{border:1.5px solid var(--ok-border);background:#F7FDF9;padding:12px;gap:12px;margin-top:14px}
+.d .arr .t{font-size:13px;color:var(--ok-soft-fg);font-weight:700}
+.d .arr b{color:var(--text-main);font-size:16px;font-weight:800}
+.d .arr .go{height:44px;padding:0 16px;border-radius:12px;background:var(--action-strong);font-size:15px}
+.d .sbar .in{height:44px;font-size:15px}
+.d .sbar .loc{width:44px;height:44px;border-radius:999px;border:1px solid var(--border-color);background:#fff;display:grid;place-items:center;color:var(--ok-fg)}
+.d .sbar .add{width:44px;height:44px}
+.d .cl{padding:12px 12px 12px 16px;min-height:68px}
+.d .nm{font-size:16px}
+.d .est{font-size:13px}
+.d .chp{font-size:12.5px;padding:2px 9px}
+.d .dock{bottom:96px}
+.d .fin{height:56px;font-size:15px}
+.d .fab{height:56px;padding:0 18px 0 16px;flex-direction:row;font-size:15px;text-align:left;line-height:1.1;background:var(--brand-400)}
+.d .fab small{display:block;font-size:12px;font-weight:600;opacity:.75}
+
+/* ---------- TOMAR PEDIDO ---------- */
+.to-head{display:flex;align-items:center;gap:11px;margin:-16px -16px 12px;padding:11px 16px;background:#fff;border-bottom:1px solid var(--border-color)}
+.to-head .bk{width:36px;height:36px;border-radius:14px;border:0;background:var(--surface-ground);display:grid;place-items:center}
+.to-head .av{width:38px;height:38px;border-radius:14px;background:var(--brand-400);display:grid;place-items:center;font-weight:800}
+.to-head .ci{flex:1;min-width:0}.to-head .n{font-weight:700;font-size:15.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.to-head .cd{font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted)}
+.to-head .mode{display:inline-flex;align-items:center;gap:5px;font-size:11.2px;font-weight:700;color:var(--info-soft-fg);background:var(--info-soft-bg);border:1px solid var(--info-border);padding:4px 9px;border-radius:999px}
+.to-head .mr{width:32px;height:36px;border:0;background:none;display:grid;place-items:center;color:var(--text-muted)}
+.cbar{display:flex;gap:6px;overflow:hidden;margin:0 -16px 12px;padding:0 16px}
+.cbar .c{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border:1px solid var(--border-color);border-radius:999px;background:#fff;font-size:12.2px;font-weight:700;white-space:nowrap}
+.cbar .c.w{background:var(--warn-soft-bg);border-color:var(--warn-fg)}
+.cbar .c.on{border-color:var(--action);background:var(--ember-soft);color:var(--brand-900)}
+.cbar .c .x{padding-left:8px;margin-left:4px;border-left:1px solid var(--border-color);color:var(--text-muted);display:grid;place-items:center;height:34px}
+.srch{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--border-color);border-radius:999px;padding:1.6px 6px 1.6px 15px;margin-bottom:10px;box-shadow:0 2px 6px rgba(16,13,9,.06)}
+.srch .t{flex:1;height:38px;display:flex;align-items:center;color:var(--text-faint);font-size:14px}
+.srch .sb{width:34px;height:34px;border:0;border-radius:999px;background:none;display:grid;place-items:center;color:var(--text-muted)}
+.age{font-size:11.5px;color:var(--text-muted);margin:-2px 0 6px;display:flex;align-items:center;gap:5px}
+.lh{display:flex;align-items:baseline;justify-content:space-between;margin:10px 0 9px}
+.lh .t{font-weight:800;font-size:15.2px;display:flex;align-items:center;gap:6px}.lh .t svg{color:var(--action)}
+.lh .s{font-size:11.5px;color:var(--text-muted)}
+.cat{display:flex;flex-direction:column;gap:8px}
+.prod{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border-color);border-radius:var(--r-md);padding:7px 10px}
+.prod.in{border-color:var(--action);box-shadow:inset 3px 0 0 var(--action)}
+.pb{flex:1;min-width:0}
+.pn{font-weight:600;font-size:14.4px;line-height:1.2}
+.sku{font-family:var(--font-mono);font-size:11px;color:var(--text-muted)}
+.pm{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--text-muted);margin-top:2px}
+.pr{font-family:var(--font-mono);font-weight:700;color:var(--action)}
+.us{display:inline-flex;gap:4px}
+.us b{min-height:44px;min-width:52px;display:grid;place-items:center;padding:0 13px;border-radius:999px;border:1.5px solid var(--border-color);background:var(--surface-ground);color:var(--text-muted);font-size:14px;font-weight:800}
+.us b.on{border-color:var(--action);background:var(--ember-soft);color:var(--brand-900)}
+.stk{font-weight:600}.stk.ok{color:var(--ok-fg)}.stk.w{color:var(--warn-fg)}
+.zs{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:5px;font-size:11.5px;color:var(--text-muted)}
+.zc{display:inline-flex;align-items:baseline;padding:1px 6px;border:1px solid var(--border-color);border-radius:999px;background:var(--surface-ground);color:var(--text-main);font-weight:600}
+.zc b{font-family:var(--font-mono);margin-left:3px}
+.zc.mine{border-color:var(--text-muted)}.zc.on{border-color:var(--action);background:var(--ember-soft)}.zc.z{color:var(--text-muted);border-style:dashed;font-weight:500}
+.may{font-size:12px;color:var(--text-muted);margin-top:2px}.may b{font-family:var(--font-mono);color:var(--text-main)}
+.rs{display:flex;flex-direction:column;align-items:center;gap:2px}
+.rs .r{display:flex;align-items:center;border:1px solid var(--text-main);border-radius:999px;overflow:hidden}
+.rs.e .r{border-color:var(--border-color)}
+.rs .r button{width:37px;height:41px;border:0;background:none;font-size:19px;font-weight:800}
+.rs .r .q{width:43px;text-align:center;font-family:var(--font-mono);font-weight:800;font-size:15px}
+.rs .r .q.ph{color:var(--text-faint);font-weight:600}
+.rs .u{font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--text-muted)}
+.cart{position:absolute;left:16px;right:16px;bottom:90px;height:58px;border-radius:var(--r-lg);background:var(--neutral-900);color:#fff;display:flex;gap:8px;padding:7px;z-index:9;box-shadow:0 14px 32px -6px rgba(0,0,0,.5)}
+.cart .o{flex:1;display:flex;align-items:center;gap:9px;padding:0 3px 0 6px}
+.cart .n{width:30px;height:30px;border-radius:999px;background:var(--action);display:grid;place-items:center;font-weight:800;font-size:13.6px}
+.cart .inf{flex:1;min-width:0}.cart .inf b{display:block;font-family:var(--font-mono);font-size:16.8px}
+.cart .inf span{font-size:10.7px;color:var(--neutral-400);white-space:nowrap}
+.cart .go{padding:0 18px;border:0;border-radius:var(--r-md);background:var(--action);color:#fff;font-weight:700;font-size:14.7px;display:flex;align-items:center;gap:7px}
+/* después — pedido */
+.d .to-head{gap:8px;padding:8px 12px 8px 8px}
+.d .to-head .bk{width:44px;height:44px;background:none}
+.d .to-head .n{font-size:16px;font-weight:800}
+.d .to-head .cd{font-size:12.5px}
+.d .to-head .mr{width:44px;height:44px;color:var(--text-main)}
+.d .cbar{gap:8px}
+.d .cbar .c{min-height:44px;font-size:13.5px;padding:0 14px}
+.d .cbar .c.fecha{border-color:var(--text-main)}
+.d .cbar .c .x{height:44px;padding:0 4px 0 10px}
+.d .srch{border-radius:14px;padding:0 4px 0 14px;border-width:1.5px}
+.d .srch .t{height:44px;font-size:15px}
+.d .srch .sb{width:44px;height:44px;border-radius:12px;color:var(--text-main)}
+.d .srch .sb.sc{background:var(--text-main);color:#fff;width:40px;height:40px;border-radius:10px}
+.d .age{font-size:12.5px;margin:0 0 4px}
+.d .lh .s{font-size:12.5px}
+.d .prod{padding:10px 10px 10px 12px;align-items:flex-start;flex-wrap:wrap;row-gap:8px}
+.d .pn{font-size:15.5px;font-weight:700}
+.d .sku{font-size:12px;margin-top:1px}
+.d .pm{font-size:13.5px;margin-top:5px;gap:10px}
+.d .pr{font-size:15px;color:var(--text-main)}
+.d .may{font-size:13px}
+.d .zs{width:100%;font-size:13px;gap:6px;margin-top:0;padding-top:8px;border-top:1px solid #F4F4F5}
+.d .zs .lb{font-weight:700;color:var(--text-main);margin-right:2px}
+.d .zc{min-height:40px;padding:0 12px;align-items:center;font-size:13px;border-radius:12px;border-width:1.5px}
+.d .zc b{font-size:14px;margin-left:5px}
+.d .rs .r button{width:44px;height:44px}
+.d .rs .r .q{width:40px;font-size:16px}
+.d .rs .u{font-size:12px;letter-spacing:.02em}
+.d .cart{height:64px;padding:8px;bottom:94px}
+.d .cart .o{gap:11px}
+.d .cart .n{width:34px;height:34px;font-size:15px}
+.d .cart .inf b{font-size:18px}
+.d .cart .inf span{font-size:12.5px;color:#D4D4D8}
+.d .cart .go{font-size:16px;font-weight:800;background:var(--action-strong);padding:0 16px}
+
+/* ---------- MIS PEDIDOS ---------- */
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin-bottom:12px;background:#fff;border:1px solid var(--border-color);border-radius:var(--r-md)}
+.seg b{min-height:36px;display:grid;place-items:center;border-radius:var(--r-sm);color:var(--text-muted);font-size:14px;font-weight:700}
+.seg b.on{background:var(--layout-bg);color:var(--text-main)}
+.mph{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.mph h1{margin:0;font-size:22px;font-weight:800}.mph small{font-size:12px;color:var(--text-muted)}
+.mph .rf{width:36px;height:36px;border-radius:50%;border:1px solid var(--border-color);background:#fff;display:grid;place-items:center;color:var(--text-muted)}
+.dias{display:flex;gap:6px;overflow:hidden;margin-bottom:12px}
+.f{min-height:36px;padding:0 12px;border:1px solid var(--border-color);border-radius:999px;background:#fff;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;color:var(--text-muted)}
+.f.on{border-color:var(--action);color:var(--brand-700)}
+.rec{background:#fff;border:1px solid var(--border-color);border-radius:var(--r-lg);padding:12px 14px;margin-bottom:12px}
+.rec .lev{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin:0}
+.rec .lev b{font-family:var(--font-mono);font-size:17px}
+.rec p{margin:4px 0 0;font-size:12.5px;color:var(--text-muted)}
+.rec .mas{margin-top:6px;font-size:12.5px;font-weight:700;color:var(--action);display:flex;align-items:center;gap:4px}
+.acc{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.acc a{min-height:44px;border:1px solid var(--border-color);border-radius:var(--r-md);background:#fff;display:flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--text-main)}
+.mph2{font-size:15px;font-weight:800;margin:6px 0 8px}
+.flt{display:flex;gap:6px;margin-bottom:10px}
+.card{background:#fff;border:1px solid var(--border-color);border-radius:var(--r-lg);overflow:hidden;margin-bottom:8px}
+.card .h{padding:11px 13px 9px}
+.card .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card .r1 strong{font-size:15px}
+.chip{font-size:12px;font-weight:700;padding:4px 8px;border-radius:999px;white-space:nowrap}
+.chip.info{background:var(--info-soft-bg);color:var(--info-soft-fg)}.chip.ok{background:var(--ok-soft-bg);color:var(--ok-soft-fg)}.chip.warn{background:var(--warn-soft-bg);color:var(--warn-soft-fg)}
+.card .r2{display:flex;gap:10px;font-size:12.5px;color:var(--text-muted);margin-top:4px}
+.card .r2 .fo{font-family:var(--font-mono)}.card .r2 .tt{margin-left:auto;font-family:var(--font-mono);font-weight:700;color:var(--text-main)}
+.card .ac{display:flex;gap:6px;padding:0 13px 11px}
+.card .ac b{min-height:34px;padding:0 11px;border:1px solid var(--border-color);border-radius:999px;font-size:12.5px;font-weight:700;display:inline-flex;align-items:center;gap:5px}
+.card .ac b.x{color:var(--bad-fg)}
+/* después — pedidos */
+.d .seg b{min-height:44px;font-size:15px}
+.d .mph h1{font-size:24px}.d .mph small{font-size:13px}
+.d .mph .rf{width:44px;height:44px;border-radius:14px}
+.d .f{min-height:44px;padding:0 14px;font-size:14px}
+.d .f.on{background:#FFF1EA;border-color:var(--action-strong);color:var(--brand-900)}
+.d .rec{padding:14px}
+.d .rec .lev{font-size:15px}.d .rec .lev b{font-size:20px}
+.d .rec .bar{display:flex;height:8px;border-radius:999px;overflow:hidden;margin:10px 0 6px;background:#F4F4F5}
+.d .rec .leg{display:flex;gap:12px;font-size:13px;color:var(--text-muted);flex-wrap:wrap}
+.d .rec .leg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;font-style:normal}
+.d .rec .mas{font-size:14px;min-height:36px}
+.d .acc a{min-height:48px;font-size:14.5px}
+.d .acc a.pri{background:var(--text-main);color:#fff;border-color:var(--text-main)}
+.d .card .h{padding:12px 14px 10px}
+.d .card .r1 strong{font-size:16px}
+.d .chip{font-size:13px;padding:4px 10px}
+.d .card .r2{font-size:13.5px}
+.d .card .r2 .tt{font-size:15px}
+.d .card .ac{padding:0 14px 12px;gap:8px}
+.d .card .ac b{min-height:44px;flex:1;justify-content:center;border-radius:12px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top">
+<h1>App Vendedor — pulido del diseño actual</h1>
+<p>Mismo diseño, mismas pantallas y mismas funciones. Solo se ajusta lo que estorba en campo: tamaños de toque, letra chica, avisos repetidos y elementos que compiten entre sí. A la izquierda la pantalla como está hoy (reproducida del código), a la derecha pulida.</p>
+</div>
+<nav class="nav" aria-label="Secciones"><a href="#encabezado">Encabezado y barra</a><a href="#ruta">Mi ruta</a><a href="#pedido">Tomar pedido</a><a href="#pedidos">Mis pedidos</a></nav>
+<div id="out"></div>
+</div>
+<script>
+const P={
+ back:'<path d="M15 6l-6 6 6 6"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',bell:'<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+ cog:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+ brief:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',tag:'<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
+ file:'<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/>',map:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/>',list:'<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/>',
+ truck:'<path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>',dots:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
+ vdots:'<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>',refresh:'<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+ arrows:'<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',plus:'<path d="M12 5v14M5 12h14"/>',useradd:'<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/>',
+ check:'<path d="M5 12l5 5L20 7"/>',pin:'<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+ flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',chev:'<path d="M9 6l6 6-6 6"/>',chevu:'<path d="M6 15l6-6 6 6"/>',chevd:'<path d="M6 9l6 6 6-6"/>',
+ cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',warn:'<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',box:'<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+ mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',scan:'<path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/>',
+ hist:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',bld:'<path d="M4 21V5l8-2v18M12 9l8 2v10M8 9h.01M8 13h.01M8 17h.01M16 15h.01M16 18h.01"/>',
+ pencil:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',inbox:'<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>',cart:'<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 12h12L22 7H6"/>'
+};
+const ic=(n,s=18,w=2)=>`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+/* ---------- encabezado + barra ---------- */
+function hdrA(){return `<header class="hdr"><span class="brand">${ic('brief',20)}</span>
+<span class="ck">${ic('tag',14)} Precio: escribe o escanea</span>
+<span class="cot">${ic('file',13)} Cotizar</span>
+<button class="ib">${ic('search',17)}</button><button class="ib">${ic('bell',17)}</button><button class="ib">${ic('cog',17)}</button></header>`}
+function hdrD(){return `<header class="hdr">
+<span class="ck">${ic('tag',18)} Checar precio o escanear</span>
+<button class="cot">${ic('file',16)} Cotizar</button>
+<button class="ib" aria-label="Notificaciones">${ic('bell',22)}<span class="dot"></span></button></header>`}
+function navA(active){const it=[['map','Mi ruta'],['list','Pedidos',3],['truck','Carga'],['dots','Más']];
+ return `<nav class="bnav">${it.map((x,i)=>`<a class="${i===active?'on':''}">${ic(x[0],22)}${x[2]?`<span class="bdg">${x[2]}</span>`:''}<span>${x[1]}</span></a>`).join('')}</nav>`}
+function navD(active){const it=[['map','Mi ruta'],['list','Pedidos',3],['truck','Carga'],['dots','Más']];
+ return `<nav class="bnav">${it.map((x,i)=>`<a class="${i===active?'on':''}"><span class="pill">${ic(x[0],22,i===active?2.3:2)}</span>${x[2]?`<span class="bdg">${x[2]}</span>`:''}<span>${x[1]}</span></a>`).join('')}</nav>`}
+
+/* ---------- Mi ruta ---------- */
+const CL=[['1','Abarrotes Lupita','ped','Pedido',0,0,'$2,310'],['2','Miscelánea El Güero','nop','No pidió'],['3','Tienda San José','ped','Pedido',0,0,'$980'],['4','Dulcería La Piñata','pre','Sin visita','Preventa $1,250.00','1 anterior por entregar'],['5','Abarrotes La Esperanza','sv','Sin visita'],['6','Tienda Don Chuy','sv','Sin visita'],['7','Cremería Los Altos','sv','Sin visita']];
+function rowsA(){return CL.map(c=>{const ok=c[2]==='ped';return `<div class="cl ${ok?'ped':''} ${c[2]==='pre'?'pre':''}"><span class="seq ${ok?'ok':(c[2]==='sv'||c[2]==='pre'?'sv':'')}">${ok?ic('check',15,2.6):(c[2]==='nop'?ic('x',14):c[0])}</span>
+<span class="cb"><span class="nm">${c[1]}</span><span class="chs"><span class="est ${ok?'ok':''}">${c[3]}</span>${c[4]?`<span class="chp pre">${ic('inbox',10)} ${c[4]}</span>`:''}${c[5]?`<span class="chp pend">${c[5]}</span>`:''}</span></span><span class="more">${ic('vdots',16)}</span></div>`}).join('')}
+function rowsD(){return CL.map(c=>{const ok=c[2]==='ped';return `<div class="cl ${ok?'ped':''} ${c[2]==='pre'?'pre':''}"><span class="seq ${ok?'ok':(c[2]==='sv'||c[2]==='pre'?'sv':'')}">${ok?ic('check',16,2.6):(c[2]==='nop'?ic('x',15):c[0])}</span>
+<span class="cb"><span class="nm">${c[1]}</span><span class="chs"><span class="est ${ok?'ok':''}">${ok?'Pedido · '+c[6]:c[3]}</span>${c[4]?`<span class="chp pre">Preventa $1,250</span>`:''}${c[5]?`<span class="chp pend">1 por entregar</span>`:''}</span></span><span class="more">${ic('chev',18)}</span></div>`}).join('')}
+function rutaA(){return `<div class="phone">${hdrA()}<div class="main">
+<section class="hero"><button class="rf">${ic('refresh',14)}</button><div class="hero-main"><div class="ring"><div class="in"><b>3</b><span>/8</span></div></div>
+<div><div class="ey">Hoy · mar 17 nov</div><h1>Ruta 12</h1><div class="sb">5 por visitar</div><span class="chg">${ic('arrows',12)} Cambiar ruta</span></div></div>
+<div class="kpis"><div class="kpi"><div class="v">2</div><div class="l">Pedidos</div></div><div class="kpi hl"><div class="v">$3,290</div><div class="l">Vendido</div></div><div class="kpi"><div class="v">1</div><div class="l">Entregar</div></div></div></section>
+<div class="rdl"><span class="dt"></span>En curso desde <b class="mono">8:12</b></div>
+<div class="arr"><span class="t">Estás en<b>Dulcería La Piñata</b></span><button class="go">Abrir cliente</button></div>
+<div class="sbar"><span class="in">${ic('search',16)} Filtrar mi ruta</span><button class="add">${ic('useradd',19)}</button></div>
+<div class="lst">${rowsA()}</div></div>
+<div class="dock"><button class="fin">${ic('flag',16)} Finalizar ruta</button><button class="fab">${ic('plus',16,2.6)} Pedido</button></div>${navA(0)}</div>`}
+function rutaD(){return `<div class="phone d">${hdrD()}<div class="main">
+<section class="hero"><button class="rf" aria-label="Actualizar">${ic('refresh',18)}</button><div class="hero-main"><div class="ring"><div class="in"><b>3</b><span>/8</span></div></div>
+<div><div class="ey">Martes 17 nov</div><h1>Ruta 12</h1><div class="sb"><span class="lv"></span>En ruta desde 8:12 · 5 por visitar</div><span class="chg">${ic('arrows',14)} Cambiar ruta</span></div></div>
+<div class="kpis"><div class="kpi"><div class="v">2</div><div class="l">Pedidos</div></div><div class="kpi hl"><div class="v">$3,290</div><div class="l">Vendido</div></div><div class="kpi"><div class="v">1</div><div class="l">Por entregar</div></div></div></section>
+<div class="arr"><span class="t">${ic('pin',14,2.4)} Estás aquí<b>Dulcería La Piñata</b></span><button class="go">Abrir</button></div>
+<div class="sbar"><span class="in">${ic('search',18)} Buscar en mi ruta</span><button class="loc" aria-label="Ubicación activa">${ic('pin',20)}</button><button class="add" aria-label="Agregar cliente">${ic('useradd',20)}</button></div>
+<div class="lst">${rowsD()}</div></div>
+<div class="dock"><button class="fin">${ic('flag',18)} Finalizar ruta</button><button class="fab">${ic('plus',20,2.6)}<span>Pedido<small>Siguiente: La Esperanza</small></span></button></div>${navD(0)}</div>`}
+
+/* ---------- Tomar pedido ---------- */
+const PR=[
+ {n:'Bombón rosa 1 kg',sku:'10231',p:'$780.00',stk:'86',sc:'ok',units:['PZA','CJA'],u:1,q:'2',in:1,may:'Mayoreo (5+): <b>$744.00</b> c/u',z:[['TEPA','86',1,1],['ARA','40'],['SMI','12']],ul:'CJA'},
+ {n:'Gomita enchilada 1 kg',sku:'10418',p:'$74.00',stk:'8',sc:'w',units:['PZA','CJA'],u:0,q:'',may:'Mayoreo (5+): <b>$67.00</b> c/u',z:[['TEPA','8',1,1],['ARA','52'],['SMI','0',0,0,1]],ul:'PZA'},
+ {n:'Cacahuate japonés 1 kg',sku:'41120',p:'$58.00',stk:'120',sc:'ok',units:['PZA','CJA'],u:0,q:'',z:[['TEPA','120',1,1],['ARA','75'],['SMI','40']],ul:'PZA'}
+];
+function prodA(x){return `<div class="prod ${x.in?'in':''}"><div class="pb"><div class="pn">${x.n}</div><div class="sku">SKU ${x.sku}</div>
+<div class="pm"><span class="pr">${x.p}<span style="font-weight:500;color:var(--text-muted)"> c/u</span></span><span class="us">${x.units.map((u,i)=>`<b class="${i===x.u?'on':''}">${u}</b>`).join('')}</span><span class="stk ${x.sc}">${x.stk} disp.</span></div>
+<div class="zs">${ic('bld',12)} ${x.z.map(z=>`<span class="zc ${z[2]?'mine':''} ${z[3]?'on':''} ${z[4]?'z':''}">${z[0]}<b>${z[1]}</b></span>`).join('')}</div>
+${x.may?`<div class="may">${x.may}</div>`:''}</div>
+<div class="rs ${x.q?'':'e'}"><div class="r"><button>−</button><span class="q ${x.q?'':'ph'}">${x.q||'0'}</span><button>+</button></div><span class="u">${x.ul}</span></div></div>`}
+function prodD(x){return `<div class="prod ${x.in?'in':''}"><div class="pb"><div class="pn">${x.n}</div><div class="sku">SKU ${x.sku}</div>
+<div class="pm"><span class="pr">${x.p}<span style="font-weight:500;color:var(--text-muted);font-family:var(--font-body)"> c/u</span></span><span class="stk ${x.sc}">● ${x.stk} disp.</span></div>
+${x.may?`<div class="may">${x.may}</div>`:''}</div>
+<div class="rs ${x.q?'':'e'}"><div class="r"><button>−</button><span class="q ${x.q?'':'ph'}">${x.q||'0'}</span><button>+</button></div><span class="us" style="margin-top:6px">${x.units.map((u,i)=>`<b class="${i===x.u?'on':''}" style="min-height:36px;min-width:52px;font-size:13px">${u}</b>`).join('')}</span></div>
+<div class="zs"><span class="lb">Surte</span>${x.z.map(z=>`<span class="zc ${z[2]?'mine':''} ${z[3]?'on':''} ${z[4]?'z':''}">${z[0]}<b>${z[1]}</b></span>`).join('')}</div></div>`}
+function pedA(){return `<div class="phone">${hdrA()}<div class="main">
+<header class="to-head"><button class="bk">${ic('back',18)}</button><span class="av">DP</span><div class="ci"><div class="n">Dulcería La Piñata</div><div class="cd">CL-00412</div></div><span class="mode">${ic('cal',11)} Preventa</span><button class="mr">${ic('vdots',16)}</button></header>
+<div class="cbar"><span class="c w">${ic('warn',12)} Preventa $1,250.00 · Ver<span class="x">${ic('x',11)}</span></span><span class="c">${ic('bolt',12)} Sugerido (6) · Cargar<span class="x">${ic('x',11)}</span></span><span class="c">${ic('file',12)} Cotizar</span><span class="c">${ic('cal',12)} Entrega 19/11</span><span class="c on">${ic('box',12)} Tepa Centro</span></div>
+<div class="srch"><span>${ic('search',16)}</span><span class="t">Buscar producto o código</span><button class="sb">${ic('mic',17)}</button><button class="sb">${ic('scan',17)}</button></div>
+<p class="age">${ic('clock',12)} Catálogo guardado de hace 14 min · actualizando…</p>
+<p class="age">${ic('bld',12)} Existencia de la zona al corte de las 7:00</p>
+<div class="lh"><span class="t">${ic('hist',15)} Lo que suele pedir</span><span class="s">3 · escribe cantidades</span></div>
+<div class="cat">${PR.map(prodA).join('')}</div></div>
+<div class="cart"><div class="o"><span class="n">1</span><span class="inf"><b>$1,560.00</b><span>24 u · 1 SKU · ver pedido</span></span>${ic('chevu',13)}</div><button class="go">Agendar ${ic('chev',15,2.4)}</button></div>${navA(1)}</div>`}
+function pedD(){return `<div class="phone d">${hdrD()}<div class="main">
+<header class="to-head"><button class="bk" aria-label="Volver">${ic('back',22,2.3)}</button><span class="av">DP</span><div class="ci"><div class="n">Dulcería La Piñata</div><div class="cd">CL-00412 · preventa</div></div><button class="mr" aria-label="Más acciones">${ic('vdots',20)}</button></header>
+<div class="cbar"><span class="c fecha">${ic('cal',15)} Entrega jue 19</span><span class="c on">${ic('box',15)} Tepa Centro</span><span class="c w">${ic('warn',15)} Preventa $1,250<span class="x">${ic('x',14)}</span></span></div>
+<div class="srch"><span>${ic('search',19)}</span><span class="t">Buscar producto o código</span><button class="sb" aria-label="Dictar">${ic('mic',20)}</button><button class="sb sc" aria-label="Escanear">${ic('scan',20)}</button></div>
+<p class="age">${ic('clock',14)} Catálogo de hace 14 min · existencias de las 7:00</p>
+<div class="lh"><span class="t">${ic('hist',17)} Lo que suele pedir</span><span class="s">3 productos</span></div>
+<div class="cat">${PR.slice(0,2).map(prodD).join('')}</div></div>
+<div class="cart"><div class="o"><span class="n">1</span><span class="inf"><b>$1,560.00</b><span>2 cajas · 24 piezas</span></span></div><button class="go">Ver pedido ${ic('chevu',17,2.4)}</button></div>${navD(1)}</div>`}
+
+/* ---------- Mis pedidos ---------- */
+const PD=[['Dulcería La Piñata','PV-0418','jue 19','$1,560.00','Agendado','info',1],['Tienda San José','PV-0411','jue 19','$980.00','Surtiendo','warn',0],['Abarrotes Lupita','PV-0402','mié 18','$2,310.00','Surtido','ok',0]];
+function cardA(p){return `<div class="card"><div class="h"><div class="r1"><strong>${p[0]}</strong><span class="chip ${p[5]}">${p[4]}</span></div><div class="r2"><span class="fo">${p[1]}</span><span>entrega ${p[2]}</span><span class="tt">${p[3]}</span></div></div>${p[6]?`<div class="ac"><b>${ic('pencil',12)} Modificar</b><b class="x">${ic('x',12)} Cancelar</b></div>`:''}</div>`}
+function pedsA(){return `<div class="phone">${hdrA()}<div class="main">
+<div class="seg"><b class="on">Pedidos</b><b>Cotizaciones</b></div>
+<div class="mph"><div><h1>Mis pedidos</h1><small>Se actualiza solo · 11:42</small></div><button class="rf">${ic('refresh',14)}</button></div>
+<div class="dias"><span class="f on">Hoy</span><span class="f">Ayer</span><span class="f">Lun</span><span class="f">Dom</span><span class="f">${ic('cal',13)} Otro día</span></div>
+<div class="rec"><p class="lev" style="margin:0"><span>Levantaste 3 pedidos</span><b>$4,850.00</b></p><p>1 surtido completo · 1 surtiendo · 1 sin empezar</p><p>Visitas: 3 de 8 · 1 sin pedido</p><span class="mas">Ver detalle ${ic('chevd',13)}</span></div>
+<div class="acc"><a>${ic('flag',15)} Terminar mi día</a><a>${ic('truck',15)} Llevar pedidos</a></div>
+<div class="mph2">Pedidos que levantaste hoy</div>
+<div class="flt"><span class="f on">Todos 3</span><span class="f">Por surtir 2</span><span class="f">Surtidos 1</span></div>
+${PD.map(cardA).join('')}</div>${navA(1)}</div>`}
+function cardD(p){return `<div class="card"><div class="h"><div class="r1"><strong>${p[0]}</strong><span class="chip ${p[5]}">${p[4]}</span></div><div class="r2"><span class="fo">${p[1]}</span><span>entrega ${p[2]}</span><span class="tt">${p[3]}</span></div></div>${p[6]?`<div class="ac"><b>${ic('pencil',16)} Modificar</b><b class="x">${ic('x',16)} Cancelar</b></div>`:''}</div>`}
+function pedsD(){return `<div class="phone d">${hdrD()}<div class="main">
+<div class="seg"><b class="on">Pedidos</b><b>Cotizaciones</b></div>
+<div class="mph"><div><h1>Mis pedidos</h1><small>Actualizado 11:42</small></div><button class="rf" aria-label="Actualizar">${ic('refresh',18)}</button></div>
+<div class="dias"><span class="f on">Hoy</span><span class="f">Ayer</span><span class="f">Lun 16</span><span class="f">${ic('cal',16)} Otro día</span></div>
+<div class="rec"><p class="lev"><span>3 pedidos hoy</span><b>$4,850.00</b></p>
+<div class="bar"><span style="width:33%;background:var(--ok-fg)"></span><span style="width:33%;background:var(--warn-fg)"></span><span style="width:34%;background:#D4D4D8"></span></div>
+<div class="leg"><span><i style="background:var(--ok-fg)"></i>1 surtido</span><span><i style="background:var(--warn-fg)"></i>1 surtiendo</span><span><i style="background:#D4D4D8"></i>1 sin empezar</span></div>
+<span class="mas">Ver detalle ${ic('chevd',16)}</span></div>
+<div class="acc"><a class="pri">${ic('flag',18)} Terminar mi día</a><a>${ic('truck',18)} Llevar pedidos</a></div>
+<div class="flt"><span class="f on">Todos 3</span><span class="f">Por surtir 2</span><span class="f">Surtidos 1</span></div>
+${PD.slice(0,2).map(cardD).join('')}</div>${navD(1)}</div>`}
+
+function stripA(){return `<div class="phone" style="height:230px">${hdrA()}<div style="padding:20px 16px;color:#A1A1AA;font-size:13px;text-align:center">… contenido de la pantalla …</div>${navA(0)}</div>`}
+function stripD(){return `<div class="phone d" style="height:230px">${hdrD()}<div style="padding:20px 16px;color:#A1A1AA;font-size:13px;text-align:center">… contenido de la pantalla …</div>${navD(0)}</div>`}
+const SEC=[
+ {id:'encabezado',t:'Encabezado y barra de abajo',s:'Se ven en todas las pantallas.',a:stripA,d:stripD,notes:[
+  ['El checador de precios y «Cotizar» se quedan en el encabezado, como se pidió (VTK.17, MCP.16), pero ahora son de 44 px y el checador gana el ancho.','vendor-shell.component.ts · .vendor-header, .hdr-precios'],
+  ['Salen del encabezado «Buscar cliente» (Mi ruta ya tiene su buscador) y «Configuración» (pasa al menú «Más»). Quedan 3 controles en vez de 6.','vendor-shell.component.ts · .vendor-user'],
+  ['La campana lleva un punto cuando hay avisos nuevos.',''],
+  ['Barra de abajo: fondo blanco, la pestaña activa con una pastilla detrás del ícono y etiqueta de 12.5 px (hoy 11.5 px). El globito de «Pedidos» toma el naranja de la marca.','vendor-shell.component.ts · .vendor-bottom-nav'],
+  ['Se quita el ícono de maletín: en el celular ya no llevaba texto y solo quitaba espacio.','']]},
+ {id:'ruta',t:'Mi ruta',s:'La pantalla de inicio del vendedor.',a:rutaA,d:rutaD,notes:[
+  ['«En curso desde 8:12» deja de ser una barra aparte y pasa a la línea de abajo del nombre de la ruta, con su punto verde.','vendor-route-home.component.ts · .rd-line → .hero .sub'],
+  ['Las etiquetas de los indicadores dejan las MAYÚSCULAS de 9 px y quedan en 12 px normales («Por entregar» en vez de «ENTREGAR»).','.kpi .l, .hero-h .ey'],
+  ['La tarjeta de llegada se pinta en verde suave para que se distinga de la lista; el botón dice «Abrir» y mide 44 px.','app-vendor-arrival-card'],
+  ['El aviso punteado de ubicación («Buscando tu ubicación…») se vuelve un botón de 44 px junto al buscador: verde si hay GPS, gris si falta permiso.','.geo-hint → .search-bar'],
+  ['En cada cliente: el estado sube de 11.5 a 13 px, los chips de 11 a 12.5 px y el ícono «⋮» se cambia por «›», porque al tocar se abre la hoja del cliente, no un menú.','.estado, .chip, .more'],
+  ['El botón amarillo «Pedido» dice para qué cliente es: «Siguiente: La Esperanza». Botones del dock de 56 px.','.fab, .finish-btn'],
+  ['Se quita la animación de brillo de fondo del encabezado: gasta batería y no informa nada.','.hero::before']]},
+ {id:'pedido',t:'Tomar pedido',s:'La pantalla donde más tiempo pasa el vendedor.',a:pedA,d:pedD,notes:[
+  ['Se quita la pastilla «Preventa» del encabezado: todos los pedidos son preventa, así que no distingue nada. Queda como texto junto al código. Botones de volver y «⋮» a 44 px.','vendor-take-order.component.ts · .to-head .mode'],
+  ['La tira de chips se ordena por importancia: primero la fecha de entrega (con borde marcado), luego la sucursal y el aviso de preventa. «Sugerido» y «Cotizar» pasan al menú «⋮», que ya existe. Chips de 44 px (hoy 34 px).','.chipbar'],
+  ['Las 2 a 4 líneas de aviso bajo el buscador (edad del catálogo, existencia de la zona) se juntan en una sola.','.cat-age (catalogoAviso, zonaAviso)'],
+  ['Botón de escanear relleno en negro para encontrarlo al primer vistazo.','app-lector-codigo'],
+  ['En la fila: nombre a 15.5 px, precio en negro (el naranja queda para lo que se toca), selector PZA/CJA bajo el contador para que no empuje el precio.','.prod .pn, .pr, .unit-sel'],
+  ['Los botones de sucursal pasan de ≈20 px a 40 px de alto, con la etiqueta «Surte» y su propio renglón: son los que cambian de dónde sale el producto.','.prod .zs-c'],
+  ['Botones − / + de 44 × 44 (hoy 37 × 41). Unidad bajo el contador a 12 px (hoy 10 px).','.row-stepper button, .rs-u'],
+  ['Barra del carrito: «Agendar» abría lo mismo que tocar el total y hacía creer que ya se enviaba. Ahora dice «Ver pedido», y el resumen se lee en cajas y piezas (12.5 px, hoy 10.7 px).','.cartbar .cb-go, .cb-info span']]},
+ {id:'pedidos',t:'Mis pedidos',s:'El avance de lo levantado y el cierre del día.',a:pedsA,d:pedsD,notes:[
+  ['Los días se vuelven botones de 44 px y el elegido se rellena (hoy solo cambia el borde).','vendor-mis-pedidos.component.ts · .mp-f, .mp-dia'],
+  ['El recuento muestra cómo va lo levantado con una barra de colores (surtido · surtiendo · sin empezar) con su texto. Se lee de un vistazo sin «Ver detalle».','recuento-dia.component.ts (modo compacto)'],
+  ['«Terminar mi día» queda relleno en negro: es la acción principal del cierre. «Llevar pedidos» queda secundario.','.mp-acciones, .mp-fin'],
+  ['Se quita el subtítulo «Pedidos que levantaste hoy»: repite lo que ya dicen el botón «Hoy» y el recuento.','.mp-h2'],
+  ['En cada tarjeta, «Modificar» y «Cancelar» pasan de 34 a 44 px y se reparten el ancho, para no tocar uno por el otro.','.mp-acc-b'],
+  ['Estado, folio y total a 13–15 px (hoy 12 px).','.chip, .mp-r2']]}
+];
+document.getElementById('out').innerHTML=SEC.map(s=>`<section class="sec" id="${s.id}"><h2>${s.t}</h2><p class="sub">${s.s}</p><div class="row">
+<div class="col"><span class="tag a">HOY</span>${s.a()}</div><div class="col"><span class="tag d">PULIDO</span>${s.d()}</div>
+<div class="notes"><h3>Qué cambia</h3><ol>${s.notes.map(n=>`<li>${n[0]}${n[1]?`<span class="fr"><code>${n[1]}</code></span>`:''}</li>`).join('')}</ol></div></div></section>`).join('');
+</script>
+</body>
+</html>
