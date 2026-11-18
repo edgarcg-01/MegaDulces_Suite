@@ -49,8 +49,8 @@ import { SegmentedComponent, type SegOption } from '../../../shared/components/s
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
-import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, type EtapaPago } from './calendario-pagos-etapa';
+import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
+import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -897,6 +897,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   [attr.aria-label]="'Ver las notas de crédito de ' + allocationTitle(a)">Ver</button>
                         </span>
                       }
+                      <!-- [PGP.147] La factura ya debe menos de lo que el pago le lleva (caso Mondelez): en rojo, con el
+                           documento de Kepler que bajó el saldo; el detalle por factura, en el desglose. Sin regla CSS nueva. -->
+                      @if (deMas(a); as dm) {
+                        <span class="pg-sub pg-sub-2 pg-it-sald"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ textoDeMas(dm) }}
+                          <button type="button" class="pg-saldada-btn" (click)="toggleAbierto(a.id)" [attr.aria-expanded]="!!abiertos()[a.id]"
+                                  [attr.aria-label]="'Ver qué bajó el saldo de las facturas del pago de ' + allocationTitle(a)">Ver</button>
+                        </span>
+                      }
                     </td>
                     <!-- [PGP.74] El importe va al lado de a quién: a 2,135 px quedaba a ~1,700 px del nombre y el ojo
                          cruzaba la pantalla para leer cada pago (auditoría externa, 2026-11-04). -->
@@ -920,6 +928,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           }
                           <!-- [PGP.100] Lo que le falta para cerrarse, con su nombre: no es lo mismo que falte el PDF que el pago en Kepler. -->
                           @if (faltaCierre(a); as fc) { @if (!fc.sin_medir) { <span class="pg-falta"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>{{ fc.texto }}</span> } }
+                        </span>
+                      } @else if (salida(a); as s) {
+                        <!-- [PGP.146] La descarga del banco ya muestra su salida (uno a uno): el dinero salió; falta marcarlo y su
+                             pago en Kepler. Se marca solo cuando la cuenta «usa el banco». -->
+                        <span class="pg-cierre">
+                          <i class="pi pi-check-circle" aria-hidden="true"></i>
+                          <span>Salió del banco el {{ dayShortMes(s.fecha) }}</span>
+                          <span class="pg-cierre-d">· {{ s.cuenta }} · <span class="comm-num">{{ money(s.importe) }}</span></span>
+                          <span class="pg-falta"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>falta marcarlo y su pago en Kepler</span>
                         </span>
                       } @else if (a.kepler_saldadas > 0) {
                         <!-- [PGP.35][PGP.48] Lo que el ERP ya no debe, dicho corto; el porqué está en el desglose. -->
@@ -953,13 +970,18 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           @if (a.poliza; as po) {
                             <span class="pg-val" [class.is-ok]="po.estado === 'lista'"><i class="pi" [class.pi-file-check]="po.estado === 'lista'" [class.pi-hourglass]="po.estado !== 'lista'" aria-hidden="true"></i>{{ textoPolizaEgreso(po.estado) }}</span>
                           }
+                          <!-- [PGP.146] El atrasado sin salida: no salió, o qué descarga falta para saberlo. -->
+                          @if (sinSalida(a); as ss) {
+                            <span class="pg-val"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>{{ ss }}</span>
+                          }
                         </span>
                       }
                     </td>
                     <td class="pg-c-act">
                       <!-- [PGP.96] Lo que Kepler ya pagó no se mueve ni se quita: ya está hecho.
                            [PGP.114] La acción es la de SU etapa: preparar, autorizar (sólo quien puede), pagado. -->
-                      @if (pagadoEnKepler(a)) {
+                      <!-- [PGP.146] Lo que ya salió del banco tampoco: moverlo o quitarlo lo volvería a programar (doble pago). -->
+                      @if (pagadoEnKepler(a) || salida(a)) {
                       } @else if (a.status === 'pending' && !autorizadoFila(a)) {
                         @if (pasado(a)) {
                           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
@@ -1076,7 +1098,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <p class="pg-x-d" aria-live="polite">Armando el X-D-26…</p>
                         } @else if (ensayoEstado()[a.id] === 'error') {
                           <p class="pg-x-d pg-ens-err" aria-live="polite">No se pudo armar el ensayo. <button type="button" class="pg-saldada-btn" (click)="verEnsayo(a)">Reintentar</button></p>
-                        } @else if (a.status !== 'cancelled' && (autorizadoFila(a) || a.status === 'executed' || !!pagadoEnKepler(a))) {
+                        } @else if (a.status !== 'cancelled' && (autorizadoFila(a) || a.status === 'executed' || !!pagadoEnKepler(a) || !!salida(a))) {
                           <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ens-btn" (click)="verEnsayo(a)"
                                   [attr.aria-label]="'Ver cómo quedaría en Kepler el pago de ' + allocationTitle(a)"><span class="pi pi-eye" aria-hidden="true"></span>&nbsp;Ver cómo quedaría en Kepler</button>
                         }
@@ -1086,7 +1108,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
                         <!-- [PGP.58] Cada factura se UBICA (folio de Kepler, que abre su ficha, y la referencia
                              del proveedor) y se VE (su archivo, PDF o foto del comprobante) sin salir del pago. -->
-                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th>@if (a.status === 'pending' && !autorizadoFila(a)) { <th class="pg-it-acc"><span class="sr-only">Acciones</span></th> }</tr></thead>
+                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th>@if (facturasEditables(a)) { <th class="pg-it-acc"><span class="sr-only">Acciones</span></th> }</tr></thead>
                         <tbody>
                           @for (it of a.items; track it.id) {
                             <tr>
@@ -1095,7 +1117,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 @if (it.entity_ref) {
                                   <button type="button" class="cal-reflink comm-num" (click)="inspect.set(it.entity_ref!)" [attr.aria-label]="'Abrir la ficha del documento ' + it.concept + ' de ' + it.beneficiary">{{ it.concept }}</button>
                                 } @else { <span class="comm-num">{{ it.concept }}</span> }
-                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }
+                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }@else if (debeMenosDe(a, it.id); as dmf) { · <span class="pg-it-sald">hoy debe {{ money(dmf.debe) }}: lleva {{ money(dmf.de_mas) }} de más</span> }
                               </td>
                               <td class="comm-num">{{ it.doc_ref || '—' }}</td>
                               <td>
@@ -1131,7 +1153,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   <span class="pg-dsc">de {{ money(cubiertoDe(it)) }} − descuento {{ money(it.discount_amount) }} · {{ motivosDe(it) }}</span>
                                 }
                               </td>
-                              @if (a.status === 'pending' && !autorizadoFila(a)) {
+                              @if (facturasEditables(a)) {
                                 <td class="pg-it-acc">
                                   @if (admiteDescuento(a, it)) {
                                     <button pButton type="button" class="p-button-sm p-button-text p-button-secondary"
@@ -1159,8 +1181,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="4">{{ documentos(a.items) }}@if (numero(a.discount_total) > 0) {<span class="pg-dsc-pie"> · cubren {{ money(numero(a.amount_assigned) + numero(a.discount_total)) }} con {{ money(a.discount_total) }} de descuento</span>}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (a.status === 'pending' && !autorizadoFila(a)) { <td></td> }</tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ documentos(a.items) }}@if (numero(a.discount_total) > 0) {<span class="pg-dsc-pie"> · cubren {{ money(numero(a.amount_assigned) + numero(a.discount_total)) }} con {{ money(a.discount_total) }} de descuento</span>}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (facturasEditables(a)) { <td></td> }</tr></tfoot>
                       </table>
+                      <!-- [PGP.147] Qué bajó el saldo de cada factura que debe menos: clase, folio de Kepler, fecha y monto. -->
+                      @if (deMas(a); as dm) {
+                        @for (f of dm.facturas; track f.item_id) {
+                          <p class="pg-x-d pg-it-sald"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ f.factura }}: se programó {{ money(f.programado) }} y hoy debe {{ money(f.debe) }} ({{ money(f.de_mas) }} de más).@if (f.abonos.length) { <span> Kepler le aplicó:</span> @for (ab of f.abonos; track ab.doc; let last = $last) { <span>{{ ab.clase }} <span class="comm-num">{{ ab.doc }}</span>@if (ab.fecha) { <span> ({{ dayShortMes(ab.fecha) }})</span> } {{ money(ab.monto) }}{{ last ? '.' : ';' }}</span> } }</p>
+                        }
+                        <p class="pg-x-d">Antes de autorizar, baja el pago a lo que se debe; si ya está autorizado, quítale la autorización o avisa a Tesorería antes de que salga.</p>
+                      }
+                      <!-- [PGP.146] Por qué el banco no decide solo este pago (en la fila sería ruido). -->
+                      @if (noDecide(a); as nd) { <p class="pg-x-d"><i class="pi pi-info-circle" aria-hidden="true"></i> El banco no decide solo si salió: {{ nd }}.</p> }
                     </td>
                   </tr>
                 </ng-template>
@@ -1427,6 +1458,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <p class="cal-dlg-hint">Lo armó {{ a.created_by }}. Debe autorizarlo alguien distinto de quien lo armó o preparó; la Suite todavía no lo impide.</p>
         }
         <p class="cal-dlg-hint">Autorizado, ya no cambia: para corregirlo se le quita la autorización. Tiene que caber en el tope de su día.</p>
+        <!-- [PGP.147] Antes de autorizar, lo que lleva de más (caso Mondelez: salió completo con una nota ya aplicada). -->
+        @if (deMas(a); as dm) {
+          <p class="cal-dlg-hint pg-it-sald"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ textoDeMas(dm) }}. Autorizado así, sale por {{ money(a.amount_assigned) }}; lo que se debe hoy es {{ money(numero(a.amount_assigned) - dm.de_mas) }}.</p>
+        }
         <div class="cal-dlg-actions">
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="autorizarObjetivo.set(null)">Cancelar</button>
           <button pButton type="button" [disabled]="saving()" [loading]="saving()" (click)="autorizar()"><span class="pi pi-verified" aria-hidden="true"></span>&nbsp;Autorizar este pago</button>
@@ -2299,12 +2334,20 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const n = { preparar: 0, autorizar: 0, pagar: 0, kepler: 0, pagado: 0, rebote: 0 } as Record<EtapaPago, number>;
     const monto = { preparar: 0, autorizar: 0, pagar: 0, kepler: 0, pagado: 0, rebote: 0 } as Record<EtapaPago, number>;
     const atrasados = { preparar: 0, autorizar: 0, pagar: 0, kepler: 0, pagado: 0, rebote: 0 } as Record<EtapaPago, number>;
+    // [PGP.147] Los que llevan más de lo que se debe, por etapa (la frase lo dice antes de autorizar y de pagar).
+    const deMas = { preparar: 0, autorizar: 0, pagar: 0, kepler: 0, pagado: 0, rebote: 0 } as Record<EtapaPago, number>;
+    const deMasMonto = { preparar: 0, autorizar: 0, pagar: 0, kepler: 0, pagado: 0, rebote: 0 } as Record<EtapaPago, number>;
+    let salidos = 0;
     for (const a of this.pagosBandeja()) {
       const e = this.etapa(a);
       n[e]++; monto[e] += Number(a.amount_assigned || 0);
-      if (a.status === 'pending' && (a.lot_date ?? '') < this.todayIso) atrasados[e]++;
+      // [PGP.146] El que ya salió del banco no es atraso que se mueva: se dice aparte.
+      if (salioDelBanco(a)) salidos++;
+      else if (a.status === 'pending' && (a.lot_date ?? '') < this.todayIso) atrasados[e]++;
+      const dm = this.deMas(a);
+      if (dm) { deMas[e]++; deMasMonto[e] += dm.de_mas; }
     }
-    return { n, monto, atrasados };
+    return { n, monto, atrasados, deMas, deMasMonto, salidos };
   });
   readonly etapaSel = computed<EtapaPago>(() => {
     const elegida = this.etapaElegida();
@@ -2336,9 +2379,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[PGP.114]` La frase de la etapa (Q.1): qué pasa en ella y qué se hace, sin abrir nada. */
   readonly fraseEtapa = computed<{ say: string; why: string | null }>(() => {
     const e = this.etapaSel();
-    const { n, monto, atrasados } = this.conteoEtapas();
+    const { n, monto, atrasados, deMas, deMasMonto, salidos } = this.conteoEtapas();
     const k = n[e], $ = this.money(monto[e]), atr = atrasados[e];
-    const tarde = atr ? ` ${atr === k ? (k === 1 ? 'Es' : 'Todos son') : atr === 1 ? '1 es' : `${atr} son`} de días que ya pasaron: muévelos a otro día${e === 'preparar' ? ' antes de prepararlos' : ''}.` : '';
+    // [PGP.147] Lo que lleva más de lo que se debe, dicho antes de autorizar y de pagar (caso Mondelez).
+    const dm = deMas[e];
+    const tarde = (atr ? ` ${atr === k ? (k === 1 ? 'Es' : 'Todos son') : atr === 1 ? '1 es' : `${atr} son`} de días que ya pasaron: muévelos a otro día${e === 'preparar' ? ' antes de prepararlos' : ''}.` : '')
+      + (dm ? ` ${dm === 1 ? '1 lleva' : `${dm} llevan`} ${this.money(deMasMonto[e])} más de lo que sus facturas deben hoy en Kepler: está en rojo en su fila.` : '');
     if (!this.bandeja()) return { say: '', why: null };
     switch (e) {
       case 'preparar': return k
@@ -2352,15 +2398,17 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       case 'pagar': {
         const listos = this.porMarcar().length;
         return k
-          ? { say: `${this.pagos(k)} autorizados por pagar (${$}).${listos ? ` ${listos === 1 ? '1 ya salió' : `${listos} ya salieron`} del banco con su comprobante: ${listos === 1 ? 'márcalo' : 'márcalos'} pagado${listos === 1 ? '' : 's'}.` : ''}`,
+          ? { say: `${this.pagos(k)} autorizados por pagar (${$}).${listos ? ` ${listos === 1 ? '1 ya salió' : `${listos} ya salieron`} del banco con su comprobante: ${listos === 1 ? 'márcalo' : 'márcalos'} pagado${listos === 1 ? '' : 's'}.` : ''}${tarde}`,
               why: '«Pagado» se habilita cuando el estado de cuenta muestra la salida y está su comprobante; si uno rebota, márcalo en su fila.' }
           : { say: 'Ningún pago autorizado espera salir.', why: null };
       }
       case 'kepler': return k
-        ? { say: `${this.pagos(k)} pagados todavía sin su pago en Kepler (${$}).`, why: (() => {
+        ? { say: `${this.pagos(k)} pagados todavía sin su pago en Kepler (${$}).${salidos ? ` ${salidos === 1 ? '1 salió' : `${salidos} salieron`} del banco sin marcarse en la Suite (según la descarga del banco).` : ''}`, why: (() => {
             // [PGP.125] Lo dice el servidor; antes era fijo «apagada» y dejó de ser cierto.
             const nk = this.notaEscrituraKepler();
-            return `${nk ? `${nk.titulo} ${nk.detalle} ` : ''}En cada desglose está cómo quedaría el X-D-26 y por qué todavía no está en Kepler.`;
+            // [PGP.146] Los que sólo prueba la descarga se marcan solos cuando su cuenta «usa el banco».
+            const porDescarga = salidos ? ' Los que sólo muestra la descarga del banco se marcan pagados (y van a Kepler) en cuanto su cuenta «use el banco» en Bancos › Estados de cuenta; mientras, no se mueven ni se quitan.' : '';
+            return `${nk ? `${nk.titulo} ${nk.detalle} ` : ''}En cada desglose está cómo quedaría el X-D-26 y por qué todavía no está en Kepler.${porDescarga}`;
           })() }
         : { say: 'Todo lo pagado ya está en Kepler.', why: null };
       case 'pagado': {
@@ -2463,7 +2511,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[PGP.114]` Los pendientes de la etapa cuyo día ya pasó (sin los que Kepler ya pagó: moverlos los volvería a programar). */
   readonly atrasadosDeEtapa = computed(() => {
     const enEtapa = this.modo() === 'etapa';
-    const filas = this.allocations().filter((a) => a.status === 'pending' && this.pasado(a) && !this.pagadoEnKepler(a));
+    // [PGP.146] Ni los que salieron del banco: moverlos los volvería a programar.
+    const filas = this.allocations().filter((a) => a.status === 'pending' && this.pasado(a) && !this.pagadoEnKepler(a) && !salioDelBanco(a));
     return enEtapa ? filas : [];
   });
   moverAtrasados(): void { this.abrirMover(this.atrasadosDeEtapa()); }
@@ -3254,14 +3303,20 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       const pend = this.pendientesSinPagar();
       const conc = this.conciliadosDelDia();
       const totalConc = this.conciliadosTotal();
+      // [PGP.146] Los que la descarga del banco muestra salidos: no «no se pagaron», les falta Kepler.
+      const sal = this.salidosDelDia();
+      const totalSal = sal.reduce((t, a) => t + Number(a.amount_assigned || 0), 0);
+      const salTxt = sal.length ? `${sal.length === 1 ? '1 salió' : `${sal.length} salieron`} del banco (${this.money(totalSal)}) y falta su pago en Kepler. ` : '';
       if (!pend.length) {
-        return { tone: 'ok',
-          say: `Este día ya pasó y Kepler registra ${conc.length === 1 ? 'su pago' : `sus ${conc.length} pagos`} (${this.money(totalConc)}).`,
-          why: 'En «Cómo sale» de cada pago está el documento de Kepler que lo saldó: folio, día y cuenta. No hay nada que mover.',
+        return { tone: sal.length ? 'muted' : 'ok',
+          say: conc.length
+            ? `Este día ya pasó y Kepler registra ${conc.length === 1 ? 'su pago' : `${sal.length ? '' : 'sus '}${conc.length} pagos`} (${this.money(totalConc)}).${sal.length ? ` ${salTxt.trim()}` : ''}`
+            : `Este día ya pasó: ${salTxt.trim()}`,
+          why: `En «Cómo sale» de cada pago está el documento de Kepler que lo saldó o la salida del banco. No hay nada que mover.${sal.length ? ' Lo que salió del banco se marca solo cuando su cuenta «use el banco».' : ''}`,
           action: null };
       }
       const total = pend.reduce((t, a) => t + Number(a.amount_assigned || 0), 0);
-      const yaPagados = conc.length ? `${conc.length === 1 ? 'Otro ya lo pagó' : `Otros ${conc.length} ya los pagó`} Kepler (${this.money(totalConc)}). ` : '';
+      const yaPagados = (conc.length ? `${conc.length === 1 ? 'Otro ya lo pagó' : `Otros ${conc.length} ya los pagó`} Kepler (${this.money(totalConc)}). ` : '') + salTxt;
       return { tone: 'bad',
         say: `Este día ya pasó y ${pend.length === 1 ? (conc.length ? 'un pago no se pagó' : 'su pago no se pagó') : `${conc.length ? '' : 'sus '}${pend.length} pagos no se pagaron`} (${this.money(total)}).`,
         why: `${yaPagados}Mientras sigan aquí apartan el saldo de sus facturas: no salen en «Agregar facturas» ni en la propuesta. Muévelos a otro día, o quita con la X los que ya no van.`,
@@ -3660,11 +3715,62 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return this.allocations().filter((a) => a.status === 'pending' && this.diaDe(a) <= hoy && cierreCompleto(a.kepler_cierre));
   });
   readonly conciliadosTotal = computed(() => this.conciliadosDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
-  /** `[PGP.96]` Los pendientes que de verdad faltan: lo que un día pasado tiene que mover. */
+  /**
+   * `[PGP.96]` Los pendientes que de verdad faltan: lo que un día pasado tiene que mover.
+   * `[PGP.146]` Sin los que la descarga del banco muestra salidos: moverlos los volvería a programar (doble pago).
+   */
   readonly pendientesSinPagar = computed(() => {
     const ya = new Set(this.conciliadosDelDia().map((a) => a.id));
-    return this.allocations().filter((a) => a.status === 'pending' && !ya.has(a.id));
+    return this.allocations().filter((a) => a.status === 'pending' && !ya.has(a.id) && !salioDelBanco(a));
   });
+  /** `[PGP.146]` Los pendientes de un día ya llegado que salieron del banco y Kepler todavía no salda. */
+  readonly salidosDelDia = computed(() => {
+    const ya = new Set(this.conciliadosDelDia().map((a) => a.id));
+    return this.allocations().filter((a) => !ya.has(a.id) && !!salioDelBanco(a));
+  });
+  /** `[PGP.146]` La salida del banco de un pendiente (null si no salió o no se sabe). */
+  salida(a: PaymentCalendarAllocation) { return salioDelBanco(a); }
+  /**
+   * Las facturas del pago se pueden quitar o descontar: pendiente y sin autorizar. `[PGP.146]` Y que no haya salido
+   * ya del banco: quitarle una factura la volvería a ofrecer para pagar.
+   */
+  facturasEditables(a: PaymentCalendarAllocation): boolean {
+    return a.status === 'pending' && !this.autorizadoFila(a) && !salioDelBanco(a);
+  }
+  /**
+   * `[PGP.146]` En un pendiente de un día que YA PASÓ: si la descarga dice que no salió, o qué descarga falta para
+   * saberlo. Hoy no se dice nada (todavía puede salir); «no lo decide el banco» va al desglose.
+   */
+  sinSalida(a: PaymentCalendarAllocation): string | null {
+    const d = a.banco_descarga;
+    if (a.status !== 'pending' || !this.pasado(a) || d?.estado !== 'sin_salida') return null;
+    if (!d.sin_cubrir.length) return 'No salió del banco';
+    const c = d.sin_cubrir[0];
+    const falta = c.hasta ? `${c.cuenta} llega al ${this.dayShortMes(c.hasta)}` : `${c.cuenta} nunca se ha subido`;
+    return `No se sabe si salió: la descarga de ${falta}${d.sin_cubrir.length > 1 ? ` (y ${d.sin_cubrir.length - 1} cuenta${d.sin_cubrir.length > 2 ? 's' : ''} más)` : ''}`;
+  }
+  /** `[PGP.146]` Por qué el banco no decide solo este pago (sólo para el desglose). */
+  noDecide(a: PaymentCalendarAllocation): string | null {
+    const d = a.banco_descarga;
+    return a.status === 'pending' && d?.estado === 'no_decide' ? d.motivo : null;
+  }
+  /** `[PGP.147]` Lo que un pago PENDIENTE lleva de más contra lo que sus facturas deben hoy en Kepler. */
+  deMas(a: PaymentCalendarAllocation): DebeMenosDelPago | null {
+    return a.status === 'pending' && a.debe_menos?.facturas?.length ? a.debe_menos : null;
+  }
+  /** «Lleva $122,142.69 de más: Kepler ya le aplicó Nota de crédito 55-0001512 (12 nov) y 1 más». */
+  textoDeMas(dm: DebeMenosDelPago): string {
+    const abonos = dm.facturas.flatMap((f) => f.abonos).sort((x, y) => (y.fecha ?? '').localeCompare(x.fecha ?? ''));
+    const a0 = abonos[0];
+    const porque = a0
+      ? `: Kepler ya le aplicó ${a0.clase.toLowerCase()} ${a0.doc}${a0.fecha ? ` (${this.dayShortMes(a0.fecha)})` : ''}${abonos.length > 1 ? ` y ${abonos.length - 1} más` : ''}`
+      : ': Kepler hoy debe menos';
+    return `Lleva ${this.money(dm.de_mas)} de más${porque}`;
+  }
+  /** `[PGP.147]` La factura del pago que debe menos, por renglón (para el desglose). */
+  debeMenosDe(a: PaymentCalendarAllocation, itemId: string): FacturaQueDebeMenos | null {
+    return this.deMas(a)?.facturas.find((f) => f.item_id === itemId) ?? null;
+  }
   /** `[PGP.96]` El cierre de Kepler del pago, si Kepler ya lo saldó en un día pasado; null si no. */
   pagadoEnKepler(a: PaymentCalendarAllocation): CierreKeplerPago | null {
     return this.conciliadosDelDia().some((x) => x.id === a.id) ? a.kepler_cierre : null;
