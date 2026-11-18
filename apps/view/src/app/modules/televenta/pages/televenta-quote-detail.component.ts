@@ -59,6 +59,7 @@ import { totalesCotizacion } from '@megadulces/contracts';
 import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
+import { UltimoAgregadoComponent, textoAgregado, verRenglonEnLista, type UltimoAgregado } from '../components/ultimo-agregado.component';
 import { QuoteTrackingComponent, marcaRenglon } from '../components/quote-tracking.component';
 import type { CambioContraCotizacion, SeguimientoCotizacion } from '../quotes.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -114,6 +115,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     InputTextModule,
     FreshnessPillComponent,
     QuoteLinesTableComponent,
+    UltimoAgregadoComponent,
     QuoteTrackingComponent,
     ContextHelpComponent,
   ],
@@ -675,6 +677,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                   </div>
                 }
               }
+              <!-- [COT.46] Lo que acaba de entrar, donde está la vista (el renglón cae al final de la lista). -->
+              <app-ultimo-agregado [info]="ultimoAgregado()" (ver)="verRenglon($event)" />
               <!-- [COT.33] Agregar sin mouse; los atajos se escriben, no se adivinan. -->
               <p class="atajos">
                 Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
@@ -707,6 +711,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               [renglones]="renglonesVista()"
               [bloqueado]="guardando()"
               [clientePct]="num(q.terms_discount_pct) || null"
+              [marcado]="ultimoAgregado()?.id ?? null"
+              [destello]="destelloRenglon()"
               (cantidad)="onCantidadTabla($event)"
               (quitar)="onQuitarTabla($event)"
             />
@@ -1544,6 +1550,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.svc.getOne(this.id).subscribe({
       next: (q) => {
         this.cot.set(q);
+        this.resolverAgregado(q);
         this.error.set(null);
         this.revisar();
         this.cargarDirecciones(q);
@@ -1880,22 +1887,47 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     );
   }
 
+  /** `[COT.46]` Lo último que entró a la lista (la confirmación bajo el buscador y la franja del renglón). */
+  readonly ultimoAgregado = signal<UltimoAgregado | null>(null);
+  /** `[COT.46]` El renglón resaltado un momento por «Ver en la lista». */
+  readonly destelloRenglon = signal<string | null>(null);
+  /** `[COT.46]` Lo agregado, esperando la recarga para saber qué renglón es (el que no estaba antes). */
+  private pendienteAgregado: { antes: Set<string>; nombre: string; detalle: string } | null = null;
+
+  private idsRenglones(): Set<string> {
+    return new Set((this.cot()?.lines ?? []).map((l) => l.id));
+  }
+
+  /** `[COT.46]` Con la cotización recargada: el renglón nuevo es el que no estaba (y no es regalo). */
+  private resolverAgregado(q: { lines: QuoteLine[] }): void {
+    const p = this.pendienteAgregado;
+    if (!p) return;
+    this.pendienteAgregado = null;
+    const nuevo = q.lines.find((l) => !p.antes.has(l.id) && l.parent_line_number === null);
+    this.ultimoAgregado.set({ id: nuevo?.id ?? null, numero: nuevo?.line_number ?? null, nombre: p.nombre, detalle: p.detalle, sumado: false });
+  }
+
+  /** `[COT.46]` «Ver en la lista»: baja al renglón y lo resalta un momento; el foco no se mueve. */
+  verRenglon(id: string): void {
+    this.destelloRenglon.set(id);
+    verRenglonEnLista(id);
+    setTimeout(() => { if (this.destelloRenglon() === id) this.destelloRenglon.set(null); }, 1500);
+  }
+
   agregar(): void {
     if (this.guardando() || !this.elegido()) return;
     this.guardando.set(true);
     const itemNom = this.elegido()?.name || this.elegido()?.sku || 'Artículo';
     const unidadNom = this.labelUnidadActiva();
     const qty = Number(this.cantidad);
+    const antes = this.idsRenglones();
 
     this.svc
       .addLine(this.id, { sku: this.elegido()!.sku, quantity: qty, rung: this.rung() })
       .subscribe({
-        next: () => {
-          this.toast.add({
-            severity: 'success',
-            summary: 'Renglón agregado',
-            detail: `${qty} ${unidadNom}${qty > 1 ? 's' : ''} de ${itemNom}`,
-          });
+        next: (res) => {
+          // [COT.46] La confirmación va bajo el buscador; su número sale de la recarga (el renglón nuevo).
+          this.pendienteAgregado = { antes, nombre: itemNom, detalle: textoAgregado(qty, unidadNom, res?.priced?.line_total ?? null) };
           this.limpiarAlta();
           this.recargar(true);
           this.guardando.set(false);
@@ -1908,15 +1940,13 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   agregarSinCasar(): void {
     if (this.guardando()) return;
     this.guardando.set(true);
+    const antes = this.idsRenglones();
+    const texto = this.termino.trim();
     this.svc
-      .addLine(this.id, { requested_text: this.termino.trim(), quantity: Number(this.cantidad) })
+      .addLine(this.id, { requested_text: texto, quantity: Number(this.cantidad) })
       .subscribe({
         next: () => {
-          this.toast.add({
-            severity: 'info',
-            summary: 'Demanda registrada',
-            detail: `${this.termino.trim()} guardado como no casado.`,
-          });
+          this.pendienteAgregado = { antes, nombre: texto, detalle: 'sin precio: queda como demanda que no manejamos' };
           this.limpiarAlta();
           this.recargar(true);
           this.guardando.set(false);
@@ -1974,6 +2004,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.svc.removeLine(this.id, l.id).subscribe({
       next: () => {
         this.guardando.set(false);
+        // [COT.46] Quitado un renglón, la confirmación del último agregado ya no es confiable.
+        this.ultimoAgregado.set(null);
         this.toast.add({
           severity: 'info',
           summary: 'Renglón quitado',
