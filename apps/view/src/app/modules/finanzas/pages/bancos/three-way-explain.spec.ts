@@ -17,8 +17,8 @@ function detalle(): ThreeWayDetail {
       { source: 'kepler', key: 'k2', doc: 'X-D-26 2', fecha: '2026-11-05', importe: 1000, dir: 'out', concepto: 'DENTRO', metodo: 'Tra', casado_otro_periodo: null, motivo: 'sin_casar' },
     ],
     contpaqi_only: [
-      { source: 'contpaqi', key: 'c1', poliza: 'E 1', fecha: '2026-11-11', importe: 668239.2, dir: 'out', concepto: 'MONDELEZ', despues_del_banco: true },
-      { source: 'contpaqi', key: 'c2', poliza: 'E 2', fecha: '2026-11-04', importe: 500, dir: 'out', concepto: 'DENTRO', despues_del_banco: false },
+      { source: 'contpaqi', key: 'c1', poliza: 'E 1', fecha: '2026-11-11', importe: 668239.2, dir: 'out', concepto: 'MONDELEZ', sin_banco_cargado: true },
+      { source: 'contpaqi', key: 'c2', poliza: 'E 2', fecha: '2026-11-04', importe: 500, dir: 'out', concepto: 'DENTRO', sin_banco_cargado: false },
     ],
     recon_totals: {} as ThreeWayDetail['recon_totals'],
     agg: { bank_in: 0, kepler_in: 0, bank_out: 0, kepler_out: 0, delta_in: 0, delta_out: 0 },
@@ -43,7 +43,7 @@ describe('[CB.82] explainMovements y la ventana del banco', () => {
   it('control: sin la marca, lo posterior SÍ aparece (el filtro es la marca, no la fecha)', () => {
     const d = detalle();
     d.kepler_only[0].motivo = 'sin_casar';
-    d.contpaqi_only[0].despues_del_banco = false;
+    d.contpaqi_only[0].sin_banco_cargado = false;
     expect(explainMovements(d, 'egresos', 'kc').map((x) => x.concepto)).toEqual(['EFFEM', 'MONDELEZ', 'DENTRO', 'DENTRO']);
   });
 });

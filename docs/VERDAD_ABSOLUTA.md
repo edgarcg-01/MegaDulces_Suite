@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 401 KB, 5905 líneas, 41 secciones.
+> **Índice navegable** — 401 KB, 5906 líneas, 41 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -47,7 +47,7 @@
 | 5341 | 5437 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 | 5438 | 5796 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
 | 5797 | 5861 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
-| 5862 | 5958 | 7 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
+| 5862 | 5959 | 7 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5945,11 +5945,12 @@ Hasta separarlo, no se publica como «falta en Kepler».
    coincide con el día del banco **menos** que `fecha` (retiros: 0 % contra 55.6 % donde difieren).
 5. **«La conciliación bancaria de ContPAQi sirve de testigo.»** `esconciliado` = **0 %** desde junio: Contabilidad no la usa.
 
-### 38.6 Lo que sigue (sin código todavía)
+### 38.6 Lo que sigue
 
-- Que el Cuadre tome **la descarga** como «Banco» en las cuentas cuyo cuadre por saldos va de punta a punta, y el libro
-  sólo donde no, rotulado.
-- Que ContPAQi entre por **pareo** cuando el banco no cubre el mes, con lo no pareado aparte (§38.5-3).
+- ✅ **Hecho en `[CB.85]`** (2026-11-18, en código): el Cuadre toma **la descarga** como «Banco» en las cuentas cuyo cuadre
+  por saldos va de punta a punta, y el libro sólo donde no, con el porqué en la fila; ContPAQi entra por **pareo** mientras
+  el banco no cubre el mes, con lo no pareado aparte. Octubre idéntico al centavo; noviembre recorrible en 18 de 18 cuentas.
+- El % casado de ContPAQi (CP.8.89) todavía se mide contra el libro.
 - `analytics.contpaqi_bank_movements` → vista sobre `contpaqi_ods` (regla 1).
 - **R7:** el Cuadre no tiene paridad registrada; esta sección no la sustituye.
 

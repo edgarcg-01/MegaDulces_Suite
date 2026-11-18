@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
+- La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
+- Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.
+
 ### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
 - El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
 - «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
