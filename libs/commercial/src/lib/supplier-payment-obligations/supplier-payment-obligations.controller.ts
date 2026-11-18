@@ -1,10 +1,11 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import { SupplierPaymentObligationsService, CreateSupplierObligationDto } from './supplier-payment-obligations.service';
+import { SupplierPaymentObligationsService, CreateSupplierObligationDto, type ResultadoCuentaAnticipo } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
 import type { DeudaProgramableResponse, ProgramarDocumentoResultado } from '@megadulces/contracts';
-import type { AnticipoOcRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody } from '@megadulces/contracts';
+import type { AnticipoOcKeplerRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody } from '@megadulces/contracts';
+import { PERMISOS_PEDIR_ANTICIPO, type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -78,34 +79,75 @@ export class SupplierPaymentObligationsController {
     return this.svc.listAnticiposSolicitados();
   }
 
-  /** `[PGP.119]` Proveedores que pueden recibir anticipo: de mercancía (código C…) y activos. */
+  /**
+   * `[PGP.144]` El otro lado del embudo: los `X-D-60` de mercancía que Kepler tiene sin solicitud en la Suite
+   * (`?dias=30|90|180`, 90 por omisión). Mismo permiso que el seguimiento. ⛔ Va ANTES de `:id`.
+   */
+  @Get('anticipos/kepler-sin-solicitud')
+  @RequireAnyPermission(Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_VER)
+  @ApiOperation({ summary: 'PGP.144 — X-D-60 de mercancía de Kepler (30/90/180 días) que no están pareados con ninguna solicitud de anticipo de la Suite.' })
+  keplerSinSolicitud(@Query('dias') dias?: string): Promise<AnticipoKeplerSinSolicitudRow[]> {
+    return this.svc.anticiposKeplerSinSolicitud(dias);
+  }
+
+  /**
+   * `[PGP.119]` Proveedores que pueden recibir anticipo: de mercancía (código C…) y activos.
+   * `[PGP.142]` D14: pedir —y lo que el formulario lee para pedir— lo puede Compras o quien programa pagos.
+   */
   @Get('anticipo/proveedores')
-  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
-  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
-  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
+  // `[PGP.138]`/`[PGP.142]` Pide Compras, Dirección (ADR-120, Edgar) y quien programa pagos (D14, Francisco — contradice
+  // el ADR-120; lo decide Edgar en el PR). UNA lista en el contrato, la misma que los botones.
+  @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
   @ApiOperation({ summary: 'PGP.119 — proveedores de mercancía activos para pedirles anticipo; busca por nombre o código.' })
   anticipoProveedores(@Query('search') search?: string): Promise<AnticipoProveedorRow[]> {
     return this.svc.anticipoProveedores(search);
   }
 
-  /** `[PGP.119]` Las OC abiertas de un proveedor con lo ya anticipado (el tope, D6). */
+  /** `[PGP.127]` Las OC de Kepler (`X-A-35`) del proveedor, pendientes o parciales, con lo ya anticipado (el tope, D6). */
   @Get('anticipo/ocs')
-  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
-  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
-  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
-  @ApiOperation({ summary: 'PGP.119 — OC abiertas (open/partial) de un proveedor, su sucursal, su total y lo ya pedido de anticipo sobre cada una.' })
-  anticipoOcs(@Query('supplier_id') supplierId?: string): Promise<AnticipoOcRow[]> {
+  @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
+  @ApiOperation({ summary: 'PGP.127 — OC de Kepler (X-A-35) pendientes o parciales de un proveedor (180 días), su sucursal, su total y los anticipos ya pedidos sobre cada una.' })
+  anticipoOcs(@Query('supplier_id') supplierId?: string): Promise<AnticipoOcKeplerRow[]> {
     return this.svc.anticipoOcs(String(supplierId ?? ''));
+  }
+
+  /** `[PGP.127]` Sube la cotización del anticipo (PDF o foto, base64, hasta 10 MB) y devuelve su llave. */
+  @Post('anticipo/cotizacion')
+  @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
+  @ApiOperation({ summary: 'PGP.127 — sube la cotización (PDF o foto) al almacenamiento privado; el pedido la cita por su llave.' })
+  subirCotizacion(@Body() body: { file_base64?: string }): Promise<{ key: string; kind: 'pdf' | 'image' }> {
+    return this.svc.subirCotizacion(String(body?.file_base64 ?? ''));
   }
 
   /** `[PGP.119]` Pide un anticipo: nace una obligación de naturaleza `anticipo` que entra al Calendario. */
   @Post('anticipo')
-  // `[PGP.138]` Edgar, 2026-11-17: además de Compras, **Dirección** (quien autoriza el Calendario) programa anticipos
-  // desde el Calendario de pagos. Sólo Dirección: Tesorería paga y no registra deuda (`[TP.13]`, ADR-064).
-  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
-  @ApiOperation({ summary: 'PGP.119 — pide un anticipo a un proveedor de mercancía (opcional: atado a una OC, sin pasar de su saldo). Entra al Calendario como cualquier obligación; Dirección autoriza el pago.' })
-  crearAnticipo(@Body() dto: AnticipoSolicitudBody, @Req() req: AuthedRequest): Promise<{ obligation_id: string; monto: number; concepto: string }> {
+  @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
+  @ApiOperation({ summary: 'PGP.119/127 — pide un anticipo a un proveedor de mercancía con su cotización, su OC de Kepler (sin pasar de su saldo) y la cuenta a la que se paga (la CLABE nueva queda pedida de alta). Entra al Calendario; Dirección autoriza el pago.' })
+  crearAnticipo(@Body() dto: AnticipoSolicitudBody, @Req() req: AuthedRequest): Promise<{ obligation_id: string; monto: number; concepto: string; cuenta: ResultadoCuentaAnticipo }> {
     return this.svc.crearAnticipo(dto, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[PGP.127]` La cotización de un anticipo (URL firmada, 10 min). La abren Compras y el Calendario: los mismos
+   * dos permisos que el seguimiento. ⛔ Va ANTES de `:id`.
+   */
+  @Get('anticipos/:id/cotizacion')
+  @RequireAnyPermission(Permission.FINANCE_PAYMENTS_VER, Permission.COMPRAS_OBLIGACIONES_VER)
+  @ApiOperation({ summary: 'PGP.127 — URL firmada (10 min) de la cotización de un anticipo pedido en la Suite.' })
+  cotizacion(@Param('id') id: string): Promise<{ url: string; kind: string | null }> {
+    return this.svc.cotizacionUrl(id);
+  }
+
+  /**
+   * `[PGP.142]` Cancela un anticipo PEDIDO (y sólo eso): quien puede pedirlo, puede deshacerlo. El cancelar
+   * genérico (`:id/cancelar`) sigue siendo sólo de Compras: cancela cualquier obligación a proveedor.
+   * ⛔ Va ANTES de `:id`.
+   */
+  @Post('anticipos/:id/cancelar')
+  @RequireAnyPermission(...PERMISOS_PEDIR_ANTICIPO)
+  @ApiOperation({ summary: 'PGP.142 — cancela un anticipo pedido en la Suite que todavía no tiene pago (con razón). Sólo anticipos.' })
+  cancelarAnticipo(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest): Promise<ObligacionCancelada> {
+    return this.svc.cancelAnticipo(id, body?.reason, req.user?.username || 'sistema');
   }
 
   @Get(':id')

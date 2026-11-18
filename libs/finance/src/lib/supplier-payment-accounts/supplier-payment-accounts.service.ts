@@ -233,6 +233,22 @@ export class SupplierPaymentAccountsService {
     });
   }
 
+  /**
+   * `[PGP.128]` El respaldo de una solicitud con URL firmada. La llave sale de la base, nunca del cliente.
+   * ⚠️ Una solicitud sin respaldo responde 404 con el motivo: «no hay archivo» no es un error del sistema.
+   */
+  async requestAttachmentUrl(id: string): Promise<{ url: string; kind: string | null }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!/^[0-9a-f-]{36}$/i.test(String(id ?? ''))) throw new BadRequestException('id inválido');
+    const req = await this.tk.run((trx) => trx('commercial.supplier_payment_account_change_requests')
+      .where({ tenant_id: tenantId, id }).first('proposed_attachment_url', 'proposed_attachment_kind'));
+    if (!req) throw new NotFoundException('Solicitud no encontrada');
+    if (!req.proposed_attachment_url) throw new NotFoundException('Esta solicitud no trae respaldo adjunto.');
+    const url = await this.storage.signedUrl(req.proposed_attachment_url);
+    if (!url) throw new BadRequestException('El almacenamiento de archivos no está disponible: no se puede abrir el respaldo.');
+    return { url, kind: req.proposed_attachment_kind ?? null };
+  }
+
   /** Sube el JPG/PDF de la solicitud de pago (evita errores de captura contra la factura/recibo). */
   async uploadAttachment(dataUri: string): Promise<{ url: string; kind: string }> {
     const tenantId = this.tenantCtx.requireTenantId();

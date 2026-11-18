@@ -108,6 +108,9 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       // cierra el pago (salió del banco y quedó asentado). Va antes del expediente.
       '/finanzas/salidas-banco',
       '/finanzas/pagos-comprobantes',
+      // `[PGP.144]` (2026-11-17, D17 de Francisco) el embudo de los anticipos que pide Compras: la
+      // trazabilidad de un paso del ciclo (el anticipo vive en el Calendario), no deuda. Va al final.
+      '/finanzas/anticipos-solicitados',
     ] as const;
 
     /**
@@ -170,6 +173,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
         '/finanzas/cuentas-pago': 'finanzas-cuentas-pago.component.ts',
         '/finanzas/salidas-banco': 'finanzas-salidas-banco.component.ts',
         '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
+        '/finanzas/anticipos-solicitados': 'finanzas-anticipos-solicitados.component.ts',
       };
       for (const ruta of DE_PAGOS) {
         const base = ARCHIVOS[ruta];

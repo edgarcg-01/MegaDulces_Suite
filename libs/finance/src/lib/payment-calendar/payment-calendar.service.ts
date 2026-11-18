@@ -22,7 +22,7 @@ import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pa
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados, type LineaDescuento } from './descuento-al-pagar';
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
 import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
-import { tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
+import { faltaCuentaParaTransferirAnticipo, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -2554,9 +2554,11 @@ export class PaymentCalendarService {
       const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
       let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
       const accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
+      let cuentaElegida: { clabe: string | null } | null = null;
       if (accountId) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
         if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
+        cuentaElegida = { clabe: acc.clabe ? String(acc.clabe).replace(/\D/g, '') : null };
         // [PGP.90] La referencia fija viaja en el snapshot: es lo que imprime la instrucción a Caja
         // General y lo que el banco tiene que llevar, o el proveedor no reconoce el depósito.
         destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.payment_reference ? ' · Ref ' + acc.payment_reference : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
@@ -2571,6 +2573,25 @@ export class PaymentCalendarService {
         // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
         const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
         if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
+      }
+      /**
+       * `[PGP.128]` D12 — **el anticipo se transfiere sólo a la cuenta APROBADA de su cotización.** Una CLABE
+       * tecleada aquí quedaría pedida de alta (`[PGP.46]`) pero el dinero ya habría salido a una cuenta que
+       * nadie revisó: justo el fraude de la cotización con la CLABE cambiada. `to_jsonb(o)`: no truena si la
+       * migración `pgp127` todavía no llegó (sin `payee_clabe`, pide igual una cuenta aprobada). Va ANTES del
+       * «Transferencia requiere la cuenta destino» genérico: en un anticipo, el aviso dice cuál cuenta.
+       */
+      if (usesDestination) {
+        const { rows: ants } = await trx.raw(
+          `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe
+             FROM finance.payment_allocation_items i
+             JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
+            WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
+          [tenantId, allocationId]);
+        const falta = faltaCuentaParaTransferirAnticipo({
+          clabesDeAnticipos: (ants as { clabe: string | null }[]).map((r) => r.clabe ?? null), cuentaElegida,
+        });
+        if (falta) throw new BadRequestException(falta);
       }
       if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
         throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');

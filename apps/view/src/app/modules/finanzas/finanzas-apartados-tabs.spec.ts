@@ -66,11 +66,14 @@ describe('[NAV.7] apartados del sidebar de Finanzas', () => {
     // Lo que `[PGP.7]` prohíbe sigue prohibido, y es lo que de verdad vigila esta prueba.
     // `[PGP.97]` (2026-11-07) sumó «Salidas del banco»: el paso que cierra el pago (salió del banco
     // y quedó asentado en Kepler). Es del ciclo, no de la deuda: la guarda de abajo sigue igual.
+    // `[PGP.144]` (2026-11-17) sumó «Anticipos solicitados»: el embudo de lo que pide Compras, de la
+    // solicitud al anticipo aplicado. Trazabilidad del ciclo, no deuda (el saldo sigue en Deuda › Anticipos).
     expect(PAGOS_TABS.map((t) => t.route)).toEqual([
       '/finanzas/calendario-pagos',
       '/finanzas/cuentas-pago',
       '/finanzas/salidas-banco',
       '/finanzas/pagos-comprobantes',
+      '/finanzas/anticipos-solicitados',
     ]);
     // ⛔ La guarda que no se puede aflojar: ninguna pantalla de DEUDA entra a esta barra.
     for (const t of DEUDA_PROVEEDORES_TABS) {

@@ -61,6 +61,8 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261113171713_pgp120_descuento_por_anticipo.js',
   // `[PGP.126]` La naturaleza de la obligación (`factura` | `anticipo`, de `[PGP.119]`).
   '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
+  // `[PGP.128]` La CLABE de la cotización del anticipo (`payee_clabe`), de `[PGP.127]`.
+  '../../../../../database/migrations-newdb/20261117121939_pgp127_anticipo_cotizacion_oc_y_cuenta.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -127,6 +129,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[9], trx);   // `[PGP.120]` la vista de créditos de proveedor (idempotente)
     await migUp(MIGS[10], trx);  // `[PGP.120]` el motivo `anticipo` en el CHECK (idempotente)
     await migUp(MIGS[11], trx);  // `[PGP.126]` la naturaleza de la obligación (idempotente)
+    await migUp(MIGS[12], trx);  // `[PGP.128]` la CLABE de la cotización del anticipo (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1682,6 +1685,52 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const its = (await cal.listDayAllocations(DIA)).find((x) => x.id === a.id)!.items;
       expect(its.find((x) => x.obligation_id === anticipo)?.es_anticipo).toBe(true);
       expect(its.find((x) => x.obligation_id === factura)?.es_anticipo).toBe(false);
+    });
+  });
+
+  /**
+   * `[PGP.128]` D12 — **el anticipo se transfiere sólo a la cuenta APROBADA de su cotización.** Es el mismo
+   * `POST allocations/:id/preparar` con el cuerpo que manda el diálogo «Preparar». El control es la prueba
+   * de `[TP.16]` de arriba: una FACTURA sí se prepara con la CLABE tecleada a mano.
+   */
+  describe('[PGP.128] el anticipo se transfiere sólo a la cuenta aprobada de su cotización', () => {
+    const DIA = '2030-05-20';
+    const CLABE = '012180001234567899', OTRA = '072180009999999993';   // sintéticas, dígito de control bien
+    let sup = '', alloc = '', cuentaOtra = '';
+    const cuenta = async (clabe: string, banco: string) => (await trx('commercial.supplier_payment_accounts').insert({
+      tenant_id: M, supplier_id: sup, bank_name: banco, clabe, status: 'activa', es_favorita: false, created_by: USER,
+    }).returning('id'))[0].id as string;
+
+    beforeAll(async () => {
+      sup = (await trx('catalog.suppliers').where({ tenant_id: M, code: 'TPIT-GONAC' }).first('id')).id as string;
+      const ant = (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature: 'anticipo', concept: 'PGP128 anticipo', original_amount: 2000, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: '08', kepler_doc_tipo: 60,
+        payee_clabe: CLABE, quote_file_key: `commercial/${M}/anticipos/pgp128.pdf`, quote_file_kind: 'pdf',
+      }).returning('id'))[0].id as string;
+      alloc = (await cal.createAllocation({ date: DIA, items: [{ obligation_source: 'supplier_payable', obligation_id: ant, applied_amount: 2000 }] }, USER)).id;
+      cuentaOtra = await cuenta(OTRA, 'BANORTE');
+    });
+
+    it('⛔ NEGATIVA — con la CLABE tecleada a mano (aunque sea la buena) no se prepara: no está aprobada', async () => {
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: `BBVA · CLABE ${CLABE}` }, USER))
+        .rejects.toThrow(/cuenta aprobada por Dirección \(la de su cotización, CLABE terminación 7899\)/);
+      // Sin destino tampoco: el aviso dice CUÁL cuenta, no el genérico «requiere la cuenta destino».
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId }, USER)).rejects.toThrow(/terminación 7899/);
+    });
+
+    it('⛔ NEGATIVA — con una cuenta aprobada que NO es la de la cotización, tampoco', async () => {
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: cuentaOtra }, USER))
+        .rejects.toThrow(/no es la de la cotización/);
+    });
+
+    it('con la cuenta aprobada de su CLABE, sí; y en efectivo no pide cuenta', async () => {
+      const buena = await cuenta(CLABE, 'BBVA');
+      const p = await cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: buena }, USER);
+      expect(p).toMatchObject({ payment_method: 'transferencia', supplier_payment_account_id: buena });
+      expect(String(p.destination_account_text)).toContain(CLABE);
+      const e = await cal.prepare(alloc, { payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' }, USER);
+      expect(e.payment_method).toBe('efectivo');
     });
   });
 
