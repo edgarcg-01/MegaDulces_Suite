@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
@@ -30,12 +30,18 @@ import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts'
 import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
-import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
+import {
+  AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, segunLaDescarga,
+  type CoberturaDeLaDescarga, type ReclamanteDeLaDescarga, type ResultadoPagoPorElBanco, type SalidaBanco,
+} from './pago-por-el-banco';
 import {
   AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO, EVENTO_PAGADO_POR_COMPROBANTE,
   SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
 } from './pago-por-comprobante';
-import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
+import {
+  SQL_COBERTURA_DE_LA_DESCARGA, SQL_PENDIENTES_POR_EL_BANCO, SQL_RECLAMANTES_DE_LA_DESCARGA, SQL_SALIDAS_DE_LA_DESCARGA,
+  SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO,
+} from './pago-por-el-banco.sql';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -1458,6 +1464,11 @@ export class PaymentCalendarService {
         allocations.map((a) => ({ id: a.id, lotDate: a.lot_date, alta: toMxDateKey(a['created_at'] as Date | string | null) || a.lot_date })),
         items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
       );
+      // `[PGP.146]` Lo que dice la DESCARGA del banco de cada pendiente cuyo día ya llegó. Sólo lee (~45 ms
+      // medido en prod el 2026-11-18); no marca pagado. Sin esto, un pago que ya salió se veía «por preparar».
+      const hoyMx = todayMx();
+      const descarga = allocations.some((a) => a.status === 'pending' && a.lot_date <= hoyMx)
+        ? await this.segunLaDescarga(trx, tenantId, hoyMx) : new Map<string, SalidaSegunLaDescarga>();
       // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
       // Sólo en un día que ya llegó; uno por venir no se ha pagado. `[PGP.113]` Uno por cada día pedido.
       const validaciones = new Map<string, ValidacionPago>();
@@ -1539,6 +1550,7 @@ export class PaymentCalendarService {
           // `[PGP.113]` Autorizado por sí mismo, o porque su día se autorizó completo (regla vieja).
           autorizado: !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? ''),
           validacion: validaciones.get(a.id) ?? null,
+          banco_descarga: a.status === 'pending' && a.lot_date <= hoyMx ? descarga.get(a.id) ?? null : null,
           cuenta_gasto: cuentaGastoDe(a.id),
           poliza: a.status === 'executed' ? (() => {
             const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
@@ -1935,6 +1947,18 @@ export class PaymentCalendarService {
       }
       return out;
     });
+  }
+
+  /**
+   * `[PGP.146]` Qué dice la DESCARGA del banco de los pendientes cuyo día ya llegó (`segunLaDescarga`, pura). Tres
+   * lecturas dentro de la transacción de quien llama; no escribe nada.
+   */
+  private async segunLaDescarga(trx: Knex.Transaction, tenantId: string, hoy: string): Promise<Map<string, SalidaSegunLaDescarga>> {
+    const reclamantes = (await trx.raw(SQL_RECLAMANTES_DE_LA_DESCARGA, [tenantId, hoy, hoy])).rows as ReclamanteDeLaDescarga[];
+    if (!reclamantes.some((r) => r.status === 'pending')) return new Map();
+    const salidas = (await trx.raw(SQL_SALIDAS_DE_LA_DESCARGA, [tenantId, hoy, hoy])).rows as SalidaBanco[];
+    const cobertura = (await trx.raw(SQL_COBERTURA_DE_LA_DESCARGA, [tenantId])).rows as CoberturaDeLaDescarga[];
+    return segunLaDescarga(reclamantes, salidas, cobertura, hoy);
   }
 
   /**
