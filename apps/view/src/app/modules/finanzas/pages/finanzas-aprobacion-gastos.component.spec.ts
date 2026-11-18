@@ -160,6 +160,22 @@ describe('FinanzasAprobacionGastosComponent', () => {
     expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados', 'Esperan a Kepler', 'Canceladas en Kepler']);
   });
 
+  /**
+   * `[PGP.122]` El `aria-label` del renglón reemplaza todo su contenido: la solicitud nacida en la Suite (sin folio
+   * hasta escribirse en Kepler) se anunciaba «Ver el vale null» — medido con Playwright el 2026-11-18
+   * (`e2e/solicitud-gasto`, rojo contra el frontend de entonces).
+   */
+  it('[PGP.122] el renglón se anuncia con el folio que se ve, y sin folio dice de quién y cuánto (nunca «null»)', () => {
+    montar();
+    expect(c.etiquetaDelVale({ folio_solicitud: '0000083', proveedor: 'Plomería Prueba', importe: 116 })).toBe('Ver el vale XA1501-0000083');
+    const sinFolio = c.etiquetaDelVale({ folio_solicitud: null as unknown as string, proveedor: 'Plomería Prueba', importe: 116 });
+    expect(sinFolio).toBe('Ver el vale sin folio de Plomería Prueba por $116.00');
+    expect(c.etiquetaDelVale({ folio_solicitud: '', proveedor: null, importe: 50 })).toBe('Ver el vale sin folio por $50.00');
+    for (const el of Array.from(fix.nativeElement.querySelectorAll('article.ap-item')) as HTMLElement[]) {
+      expect(el.getAttribute('aria-label')).not.toMatch(/null|undefined/);
+    }
+  });
+
   describe('[GX.88] las dos pestañas: hoy y atrasados', () => {
     it('cada pestaña cuenta lo suyo', () => {
       montar();

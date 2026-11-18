@@ -25,11 +25,12 @@ async function captura(page: Page, nombre: string): Promise<void> {
 }
 
 /**
- * Los textos con contenido propio cuyo borde derecho cae fuera de la ventana (se cortan y no se pueden leer). Se MIDE
- * y se declara en `informe.json`; no frena. Medido el 2026-11-18: con el vale de la Suite que espera firma salen 12
- * textos (de 9 a 21 px), y con la misma solicitud ya escrita, ninguno; el instrumento distingue los dos casos.
+ * Los textos con contenido propio cuyo borde derecho cae fuera de la ventana (se cortan y no se pueden leer), medidos
+ * con la pantalla QUIETA. ⛔ Sin esperar a las animaciones el panel lateral se mide a medio deslizar: el 2026-11-18 eso
+ * dio 31 elementos «cortados» que un segundo después eran 0 (y se reportó como defecto; no lo era).
  */
 async function fueraDeLaPantalla(page: Page): Promise<string[]> {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'), undefined, { timeout: 5_000 });
   return page.evaluate(() => {
     const ancho = window.innerWidth;
     const out: string[] = [];
@@ -102,6 +103,8 @@ test('[PGP.122] pedir → firmar → cancelar en Kepler, desde la interfaz (API 
     const fila = page.locator('article.ap-item').first();
     await expect(fila).toBeVisible({ timeout: 30_000 });
     etiquetaFila = await fila.getAttribute('aria-label');
+    // Sin folio todavía (nace en la Suite): se anuncia de quién y cuánto, no «Ver el vale null».
+    expect(etiquetaFila).toBe('Ver el vale sin folio de Plomería Prueba por $116.00');
     await captura(page, '2a-bandeja');
     await fila.click();
     // ANTES del botón, quien firma ve lo que se escribe en Kepler.
@@ -110,6 +113,7 @@ test('[PGP.122] pedir → firmar → cancelar en Kepler, desde la interfaz (API 
     await expect(page.locator('.vp-ren')).toContainText('603-008');
     await captura(page, '2b-vale-abierto');
     cortadoAlFirmar = await fueraDeLaPantalla(page);
+    expect(cortadoAlFirmar).toEqual([]);
     await page.getByRole('button', { name: 'Revisado', exact: true }).click();
     await expect(page.getByText(/Nació autorizada/)).toBeVisible({ timeout: 15_000 });
     await captura(page, '2c-firmada');
@@ -130,6 +134,7 @@ test('[PGP.122] pedir → firmar → cancelar en Kepler, desde la interfaz (API 
     await page.locator('#vp-cancelar-m').fill(motivo);
     await captura(page, '3a-motivo');
     cortadoAlCancelar = await fueraDeLaPantalla(page);
+    expect(cortadoAlCancelar).toEqual([]);
     await confirmar.click();
     await expect(page.getByText('Cancelada en Kepler').first()).toBeVisible({ timeout: 15_000 });
     await captura(page, '3b-cancelada');
