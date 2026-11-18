@@ -5228,24 +5228,7 @@ export class CommercialReplenishmentService {
               AND kepler_folio IS NOT NULL AND oc_folio IS NULL`,
           [tenantId]);
         if (t.rowCount) this.logger.log(`[PQ.26] ${t.rowCount} traspaso(s) ordenados por su folio de Kepler`);
-
-        // `[PQ.26]` **La recepción la dice Kepler.** Una OC (X-A-35) se recibe cuando su vale
-        // (X-A-37) tiene orden de entrada (X-A-40): es el `cerrada` de `analytics.erp_purchase_orders`,
-        // el mismo decode que usa «Órdenes de compra (Kepler)», no uno nuevo. Medido el 2026-10-29:
-        // 13 requisiciones con OC, ninguna cerrada todavía (OC del 28-oct); control: 4 de 4 OC
-        // viejas de CEDIS salen cerradas. ~30 ms. Antes no había NINGUNA pantalla que marcara
-        // «recibida» (markReceived existe y nadie lo llama). Los renglones no llevan cantidad
-        // recibida: Kepler cierra la OC con la primera entrada y esa es su regla, no la nuestra.
-        const rec = await trx.raw(
-          `UPDATE commercial.purchase_requisitions r
-              SET estado = 'received', received_at = now(), updated_at = now()
-             FROM analytics.erp_purchase_orders o
-            WHERE r.tenant_id = ? AND r.estado = 'ordered' AND r.source_type = 'supplier'
-              AND r.oc_folio IS NOT NULL
-              AND o.tenant_id = r.tenant_id AND o.sucursal = r.oc_sucursal AND o.folio = r.oc_folio
-              AND o.cerrada`,
-          [tenantId]);
-        if (rec.rowCount) this.logger.log(`[PQ.26] ${rec.rowCount} requisición(es) recibidas según Kepler`);
+        // `[PQ.131]` La recepción (`[PQ.26]`) ya no va aquí: ver `marcarRecibidasSegunKepler`.
       });
     } catch (e: unknown) {
       this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
@@ -5258,6 +5241,7 @@ export class CommercialReplenishmentService {
     } catch (e: unknown) {
       this.logger.warn(`[PQ.50] No se pudieron cerrar los traspasos sin ejecutar: ${(e as Error)?.message}`);
     }
+    void this.marcarRecibidasSegunKepler(tenantId);
     void this.reintentarKepler(tenantId);
     void this.limpiarComprasSinDocumento(tenantId);
   }
@@ -5288,6 +5272,43 @@ export class CommercialReplenishmentService {
    * Ver `compra-sin-documento.ts`. Fuera de la petición y a lo más cada 30 min por tenant: las dos
    * consultas suman ~420 ms (medido 2026-11-04) y la bandeja no las espera.
    */
+  /**
+   * `[PQ.26]` **La recepción la dice Kepler.** Una OC (X-A-35) se recibe cuando su vale (X-A-37) tiene
+   * orden de entrada (X-A-40): es el `cerrada` de `analytics.erp_purchase_orders`, el mismo decode que
+   * usa «Órdenes de compra (Kepler)», no uno nuevo. Medido el 2026-10-29: 13 requisiciones con OC,
+   * ninguna cerrada todavía (OC del 28-oct); control: 4 de 4 OC viejas de CEDIS salen cerradas. Antes
+   * no había NINGUNA pantalla que marcara «recibida» (markReceived existe y nadie lo llama). Los
+   * renglones no llevan cantidad recibida: Kepler cierra la OC con la primera entrada y esa es su
+   * regla, no la nuestra.
+   *
+   * `[PQ.131]` **Fuera de la petición y a lo más cada 5 min por tenant.** Corría DENTRO de cada lectura
+   * de la bandeja y de la ficha: medido el 2026-11-18 en prod, 5,505 corridas a 455 ms de promedio
+   * (los «~30 ms» de arriba eran con 13 candidatas; hoy son 155 y la vista compara `btrim(c6)`, así
+   * que el plan recorre ~2,800 OC de Kepler por cada una) para cambiar 119 filas en total. Una OC
+   * tarda días en recibirse: 5 minutos de atraso no los nota nadie, medio segundo en cada lectura sí.
+   * Sigue corriendo al leer, sin reloj: si nadie mira, no corre.
+   */
+  private readonly ultimaRecepcion = new Map<string, number>();
+  private async marcarRecibidasSegunKepler(tenantId: string): Promise<void> {
+    const ahora = Date.now();
+    if (ahora - (this.ultimaRecepcion.get(tenantId) ?? 0) < 5 * 60_000) return;
+    this.ultimaRecepcion.set(tenantId, ahora);
+    try {
+      const rec = await this.tk.run((trx) => trx.raw(
+        `UPDATE commercial.purchase_requisitions r
+            SET estado = 'received', received_at = now(), updated_at = now()
+           FROM analytics.erp_purchase_orders o
+          WHERE r.tenant_id = ? AND r.estado = 'ordered' AND r.source_type = 'supplier'
+            AND r.oc_folio IS NOT NULL
+            AND o.tenant_id = r.tenant_id AND o.sucursal = r.oc_sucursal AND o.folio = r.oc_folio
+            AND o.cerrada`,
+        [tenantId]));
+      if (rec.rowCount) this.logger.log(`[PQ.26] ${rec.rowCount} requisición(es) recibidas según Kepler`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.26] No se pudo marcar la recepción según Kepler: ${(e as Error)?.message}`);
+    }
+  }
+
   private readonly ultimaLimpiezaCompras = new Map<string, number>();
   private async limpiarComprasSinDocumento(tenantId: string): Promise<void> {
     const ahora = Date.now();
