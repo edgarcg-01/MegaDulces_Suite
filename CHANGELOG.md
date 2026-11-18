@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Catálogo › Mantenimiento: el precio por volumen ya no marca «se sale» a una sucursal con los mismos tramos (CAT-PRECIO.1.2 · 2026-11-18 · en código, sin soltar)
+- Kepler guarda la cantidad «desde» como `3` en unas sucursales y `3.00` en otras. La pantalla comparaba el texto y marcaba como distinta a la que traía decimales (p. ej. 97363 en la 07 y la 08). Ahora compara los números: «Precio por volumen» baja de 485 a 439 productos (46 eran este falso aviso).
+
 ### Added — El anticipo a proveedor se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (PGP.127–129 y PGP.142–145 · 2026-11-17 · en código)
 - En *Compras › Pago a proveedor › Anticipos*, «Pedir anticipo» pide los papeles en el orden en que se tienen: el proveedor, **su orden de compra de Kepler** (pendiente o recibida en parte; una o varias de la misma sucursal), el importe (dice cuánto queda en esas órdenes), **la cotización** (PDF o foto, obligatoria) y **a qué cuenta se paga**: la cuenta aprobada del proveedor, la CLABE de la cotización o efectivo.
 - Una CLABE nueva queda **pedida de alta** con la cotización como respaldo; Dirección la aprueba en *Cuentas de pago* con «Ver respaldo» a la mano. El pago de un anticipo sólo se puede preparar por transferencia a esa cuenta aprobada: en «Preparar» ya no se escribe la CLABE a mano.
