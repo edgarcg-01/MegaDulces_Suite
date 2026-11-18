@@ -151,7 +151,7 @@ export function describirArchivo(buf: Buffer): string {
 
 const lineas = (texto: string) => texto.split(/\r\n|\r|\n/);
 
-/** Coma con comillas dobles (Banorte). */
+/** Coma con comillas dobles (Banorte; Santander cuando el texto trae comas). */
 function partirCsv(linea: string): string[] {
   const out: string[] = [];
   let cur = '';
@@ -223,7 +223,12 @@ function leerSantander(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
   for (let i = 1; i < L.length; i++) {
     const texto = L[i];
     if (texto.trim() === '') continue;
-    let v = texto.split(',');
+    // [CB.84] A veces Santander SÍ encierra en comillas dobles el texto que trae comas, y ese campo ya
+    // no viene relleno a su ancho (STDR 2169, 17-nov: el concepto «"'0171126 … 0,000,000.00A3394 …"»
+    // de una domiciliación). Si partir respetando las comillas da justo las columnas del encabezado,
+    // ésa es la lectura; si no (una comilla suelta), sigue el camino sin comillas de abajo.
+    const conComillas = texto.includes('"') ? partirCsv(texto) : null;
+    let v = conComillas?.length === enc.length ? conComillas : texto.split(',');
     // Sin comillas: una coma dentro de un texto corre todas las columnas. Se reacomoda por ancho
     // (arriba); si el ancho no lo explica exacto, se reporta, no se adivina.
     if (v.length > enc.length) v = reacomodarPorAncho(v, ancho) ?? v;
