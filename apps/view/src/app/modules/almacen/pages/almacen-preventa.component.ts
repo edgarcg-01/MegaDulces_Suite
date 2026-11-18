@@ -376,7 +376,7 @@ const dmy = (v: string | null | undefined): string => {
     .mc-pad { padding:.5rem .85rem; }
     .mc-bad { color:var(--bad-fg); font-weight:600; }
     .mc-warn { color:var(--warn-soft-fg); font-weight:600; }
-    .mc-ok { color:var(--ok-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .mc-ok { color:var(--ok-soft-fg); }
     .mc-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; font-size:var(--fs-sm); text-decoration:underline; }
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }

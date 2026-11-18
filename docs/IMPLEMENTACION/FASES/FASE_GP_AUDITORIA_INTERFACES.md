@@ -1044,6 +1044,38 @@ sección, con su motivo.
 - **NO MEDIDO en el navegador:** la pastilla, las etiquetas de 11 px y la separación de «Cancelar»,
   porque el servidor de desarrollo dejó de recompilar; lo cubren las pruebas de componente.
 
+**Bloque 5: lo que seguía mal (Edgar: «resolvamos lo que sigue mal»).**
+- **Tablas sin `.dt-stack` en el celular (`AUD-UI.1`, 153 archivos).**
+  - El bloque global ya no esconde columnas ni corta celdas con «…».
+  - La tabla conserva todas sus columnas y se desplaza a lo ancho dentro de su caja, con la última
+    columna fija. Sin `[scrollable]`, PrimeNG no desplazaba, y el `overflow-x: hidden` del `body` la
+    habría recortado.
+  - Letra mínima de 12 px.
+  - Medido con `e2e/reestructura/tabla-celular.e2e.ts`: la hoja real que sirve la app y una tabla de
+    PrimeNG de 8 columnas a 390 px.
+    - Antes (el bloque del commit previo): 4 columnas escondidas (Cliente, Renglones, Etapa y
+      Vendedor), «Vendedor» inalcanzable y 11.2 px.
+    - Ahora: 0 escondidas, se llega a todas desplazando, 12 px y la página no se desborda.
+    - Controles: el «antes» tiene que esconder; la tabla `.dt-stack` sigue completa.
+- **Pastilla de frescura, en el navegador:** 12 px, el texto que avanza ya no es región viva y la
+  región viva está vacía mientras el dato está al día.
+- ⛔ **Corrección del bloque 4.** Las reglas `.gp-tag`, `.uc-tag`, `.as-tag` y `.ax-tag` nunca
+  aplicaron: en PrimeNG 22 `p-tag` no tiene `styleClass`. Esas etiquetas miden 12 px por el tema
+  (medido), nunca midieron 10, y el cambio a 11 px no les hizo nada.
+  - Se quitaron esas 4 reglas muertas y sus 10 `styleClass`; no cambia nada de lo que se ve.
+  - Sí eran de 10 px, y ahora son de 11, los chips y rótulos del Mapa, los rótulos de Asignación y
+    Contenido, las etiquetas `.mc-tag` y `.gc-tag` (van con `class`) y el «URGENTE» de la consola.
+- **Más texto en ámbar o verde de relleno (resto de GP.RF.13):** 14 textos en Revisión (8), Checar,
+  la consola, Preventa, Mapa, Asignación y Captura pasan a su tono para texto (de 2.15 o 3.30 a unos
+  7.1:1). Los íconos y bordes quedan en el de relleno.
+- **Revisión: de 6 tamaños propios a 4 niveles (resto de GP.RF.12).**
+  - Quedan 40 px (el número que se cuenta), 20 (título y producto), 18 (encabezados, estados, cliente
+    y cantidad) y 14 (el texto).
+  - 16 subió a 18 y 13 subió a 14: casi no se distinguían y diluían la jerarquía. Nada se achicó.
+  - **NO MEDIDO en el navegador:** el servidor de desarrollo se apagó (rechaza la conexión) y la
+    regla 3 no permite levantarlo aquí. El instrumento está listo: `revision-letra.e2e.ts`, con la
+    API sintética que ya contesta Revisión.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -1089,8 +1121,8 @@ Formato de cada hallazgo:
 | GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
 | GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras. Con GP.10.4 en prod: 5 pestañas, 50 accionables, 83 cifras, pero **507 px** de marco (GP.RF.20) | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
 | GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén. Medido en el código: ya preseleccionaba (el guardado, el suyo o el único) | 🧪 2026-11-18: `p-select` por nombre con rótulo visible; ya no se ve «06 · Canindo» (§5c.9) |
-| GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | 🧪 2026-11-18 en parte: nada bajo 11 px en las pantallas del alcance; la pastilla a 12; el Tablero en celular de 11.2 a 14 px con sus 35 celdas (§5c.9). Quedan los 9 niveles de Revisión |
-| GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | 🧪 2026-11-18: el «1» a 7.09:1; «Salir» y todo botón sin relleno pasan AA desde el tema (§5c.9) |
+| GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | 🧪 2026-11-18: nada bajo 11 px en las pantallas del alcance; la pastilla a 12; el Tablero en celular de 11.2 a 14 px con sus 35 celdas; las tablas sin `.dt-stack` a 12 px y sin columnas escondidas; Revisión de 6 tamaños a 4 niveles (sin medir en el navegador) (§5c.9) |
+| GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | 🧪 2026-11-18: el «1» a 7.09:1; «Salir» y todo botón sin relleno pasan AA desde el tema; otros 14 textos ámbar o verde de las pantallas del alcance a su tono para texto (§5c.9) |
 | GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
 | GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | ✅ en prod `4d99357f7` (la cifra de su nota, corregida en GP.10.5 🧪) |
 | GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | 🧪 2026-11-18: `GET warehouse/orders/atorados` (sólo lectura, 60–170 ms en prod; 396 en 8 sucursales, cuadra sucursal por sucursal con la cuenta de la fila) y el aviso con «Velos» (§5c.9) |

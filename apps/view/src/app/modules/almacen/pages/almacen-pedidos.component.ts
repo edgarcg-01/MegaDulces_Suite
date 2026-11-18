@@ -245,7 +245,7 @@ const dmy = (v: string | null | undefined): string => {
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
                   <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol">{{ volumenTexto(r.volumen) }}</span></td>
                   <!-- [GP.RF.22] La guía deja su columna (casi siempre «—»): va debajo de la etapa cuando existe. -->
-                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" styleClass="gp-tag" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }@if (r.guia) { <span class="muted gp-sub mono">guía {{ r.guia }}</span> }</td>
+                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }@if (r.guia) { <span class="muted gp-sub mono">guía {{ r.guia }}</span> }</td>
                   <td class="ta-r num" role="cell" data-label="Importe">{{ r.importe === null ? '—' : money(r.importe) }}</td>
                 </tr>
               </ng-template>
@@ -278,7 +278,7 @@ const dmy = (v: string | null | undefined): string => {
                    (documento de Kepler, comparación, ligar, recorrido) se abre en la Mesa de Control, sin copiarlo. -->
               <div class="gp-det-head">
                 <h2 id="gp-h-det" class="sr-only">Pedido de preventa {{ p.documento }}</h2>
-                <p-tag [value]="etapaLabel(p.etapa)" [severity]="etapaSev(p.etapa)" styleClass="gp-tag" />
+                <p-tag [value]="etapaLabel(p.etapa)" [severity]="etapaSev(p.etapa)" />
                 <span class="muted">{{ p.renglones }} renglones · {{ p.importe === null ? '—' : money(p.importe) }}</span>
               </div>
               <div class="gp-step">
@@ -298,7 +298,7 @@ const dmy = (v: string | null | undefined): string => {
             } @else if (det(); as x) {
               <div class="gp-det-head">
                 <h2 id="gp-h-det" class="sr-only">Detalle del pedido {{ x.pedido.documento }}</h2>
-                <p-tag [value]="etapaLabel(x.pedido.etapa)" [severity]="etapaSev(x.pedido.etapa)" styleClass="gp-tag" />
+                <p-tag [value]="etapaLabel(x.pedido.etapa)" [severity]="etapaSev(x.pedido.etapa)" />
                 @if (x.pedido.estatus === cancelado) {
                   <span class="muted">Cancelado en Kepler · su último estatus fue {{ estatusLabel(x.pedido.estatus_kepler).toLowerCase() }}</span>
                 } @else {
@@ -411,7 +411,7 @@ const dmy = (v: string | null | undefined): string => {
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
-    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .gp-tag { font-size:var(--fs-micro); }
+    /* [GP.RF.12] Aqui habia ":host ::ng-deep .gp-tag { font-size }": regla MUERTA (p-tag en PrimeNG 22 no recibe styleClass); la etiqueta mide 12 px por el tema. Se quitó junto con sus styleClass. */
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .gp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .gp-errbox .pi { color:var(--bad-fg); } .gp-errbox-txt { flex:1; font-size:var(--fs-sm); }
