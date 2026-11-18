@@ -748,6 +748,112 @@ viejo es la captura de Edgar y la línea base de §5c.
 - El desplegable de almacén con un solo almacén (el surtidor típico): se probó en unidad, no en
   navegador.
 
+### 5c.7 Re-auditoría con Modern Web Guidance (GP.RF.38–40, 2026-11-18) 🧪
+
+Edgar pidió *«usa la skill Modern Web Guidance para volver a auditar lo auditado»*. Se consultaron
+12 guías de `modern-web-guidance` (GoogleChrome, versión 2026_11_10):
+- `card`, `accessibility`, `color`, `forms`;
+- `state-aware-sticky-headers`, `scrollability-affordance-hints`, `form-factor-adaptation`;
+- `performance`, `natural-interactions`, `content-first-noise-reduction`;
+- `stack-drill-down`, `visually-stable-font-fallbacks`.
+
+Se midió lo que esas guías piden y que §5c.6 no había medido.
+
+**Cómo se midió.**
+- La sesión de producción venció (la API contestó 401) y no se pidió otra.
+- Se midió con Playwright sobre el frontend de este árbol, a 390 × 844 táctil, con una **API
+  sintética** (`e2e/reestructura/sintetico.ts`):
+  - la sucursal, las vendedoras y los clientes son inventados, con la forma de los contratos;
+  - ninguna petición sale del navegador (el control lo cuenta: 0).
+- Instrumento: `e2e/reestructura/surtir-mwg.e2e.ts`.
+- El «antes» se tomó antes de tocar el código, con el mismo instrumento.
+
+| Qué pide la guía | Antes | Después |
+|---|---|---|
+| El gesto «atrás» del celular con un pedido abierto regresa a la lista (`stack-drill-down`) | **salía de Surtir** a «Mi trabajo» (`/projects`) | regresa a la lista sin cerrar el pedido. El pedido abierto queda en la URL (`?pedido=`, la misma del aviso de la campana): una recarga lo vuelve a abrir |
+| El foco al abrir un pedido (`accessibility` §5) | se quedaba en `<body>` | va al encabezado del pedido (el h1 con el cliente) |
+| El foco al volver a la lista | `<body>` | la tarjeta del pedido que se dejó, sin mover la vista |
+| Un encabezado principal y niveles en orden (`accessibility` §1) | 0 h1; los grupos en h3 | h1 «Surtir» en la lista y h1 con el cliente en el pedido; los grupos en h2 |
+| Las flechas eligen en «Pedidos de», el día y el vendedor (el rol `radio` las promete) | **no elegían** (defecto global, GP.RF.39) | eligen; una sola parada de Tab por grupo |
+| El renglón que se desliza dice que hay más (`scrollability-affordance-hints`) | barra oculta y ninguna pista: 3 de 6 vendedores fuera de la vista sin que nada lo dijera | el borde que tiene más se desvanece (24 px) y el desplazamiento se detiene en cada chip. Sin soporte de animaciones por desplazamiento, la barra se queda visible |
+| El anillo de foco de esos chips | cortado 4 px arriba, 2 abajo y 4 a la izquierda | 0 |
+| En alto contraste de Windows se ve cuál está elegida (`color`) | sólo por la negrita | contorno del sistema (`Highlight`) además de la negrita |
+| Ningún control enfocado queda tapado por el escáner o el pie fijos (WCAG 2.4.11) | 0 de 28 | 0 de 28: no hacía falta cambiar nada |
+| CLS de la carga | 0.056 | 0.057: no cambia, la causa es global (GP.RF.40) |
+
+**Controles del instrumento:**
+- Ninguna petición a la API salió sin pasar por el instrumento.
+- **Foco tapado:** un botón puesto a propósito bajo el escáner fijo sale tapado (0 de 5 puntos visibles).
+- **Alto contraste:** se mide sin foco. Una primera corrida lo midió con foco y el anillo contaminó
+  la comparación; se corrigió antes de citarla.
+
+**Pruebas:**
+- **Surtir:** 114 pasan, 5 de ellas nuevas (2 negativas):
+  - atrás regresa a la lista;
+  - «← Pedidos» saca su entrada del historial;
+  - abierto desde la campana no empuja otra entrada;
+  - un «atrás» sin pedido abierto no toca nada;
+  - el foco va al h1 y regresa a la tarjeta.
+- **`radio-group-nav`:** 6 nuevas. Las 3 del defecto salieron **rojas** con el código anterior; la
+  negativa comprueba que no toca un grupo que se administra solo.
+- **Totales:** almacén 820, `ui-web` 165, `ngc --noEmit` 0 errores.
+- **Compuertas:** check:pantalla, check:estilos, check:cifra y check:cascada sin fallas nuevas.
+
+**GP.RF.39: las flechas de todos los `role="radio"` sin teclado propio.**
+- **Qué falla.** `installRadioGroupNav` (`libs/ui-web`) da el teclado a los grupos que no lo traen.
+  Cada cambio de foco se escribe con `el.tabIndex`, y eso pone el atributo `tabindex`. Su propio
+  criterio de «este grupo se administra solo» —que alguna opción traiga `tabindex`— lo tomaba desde
+  ese momento como ajeno. Resultado: la flecha no hacía nada en ningún grupo que el listener ya
+  hubiera tocado. Además, tras elegir con el dedo, el tabulador seguía entrando por la opción vieja.
+- **Arreglo.** Una marca propia (`data-radio-nav="auto"`) y el repaso cuando cambia `aria-checked`.
+- **Alcance.**
+  - 25 archivos de `apps/view` usan `role="radio"` sin `tabindex` propio, entre ellos Surtir.
+  - El portal y el vendedor instalan el mismo listener.
+  - ⚠️ En esos grupos la flecha ahora **elige**, como manda el patrón y como lo diseñó TAB.3. Donde
+    elegir recarga datos, cada flecha recarga igual que un clic.
+- **Lo que no se probó:** esas pantallas, una por una.
+
+**GP.RF.40: el CLS de la carga es el cambio de fuente, y es de toda la Suite.**
+- **El empuje medido.** La segunda línea de la primera tarjeta pasa de 21 a 44 px con el mismo
+  ancho (324 px) y el mismo texto: cambió el ancho de las letras.
+- **La causa.** Hanken Grotesk llega de Google Fonts con `display=swap`: se pinta primero con la
+  fuente de respaldo y, al llegar la definitiva, el renglón se parte en dos.
+- **Un segundo empuje.** La etiqueta «Cliente nuevo · sin clave de Kepler» llega después de la
+  lista y alarga otra tarjeta 22 px.
+- **Propuesta (sin hacer).** Una fuente de respaldo con métricas ajustadas
+  (`visually-stable-font-fallbacks`: `font-size-adjust: from-font`, o `size-adjust` en un
+  `@font-face` de respaldo).
+  - ⚠️ `font-size-adjust` iguala la altura de las minúsculas, no el ancho, que es lo que parte el
+    renglón: hay que medirlo.
+  - Toca `index.html`, así que es un item aparte, medido en varias pantallas.
+
+**Lo que no se cambió, y por qué:**
+- **El selector de almacén no tiene rótulo visible**, sólo un nombre para el lector de pantalla.
+  - `accessibility` §7 pide rótulo visible.
+  - La maqueta aprobada lo quitó para que almacén y origen quepan en un renglón: si se agrega, lo
+    decide Edgar.
+- **Las barras fijas:** el escáner mide 80 px y el pie 94 px, cada una bajo el 12 % del alto que
+  pide `content-first-noise-reduction`.
+  - Con el encabezado y la barra inferior de la Suite, el marco ocupa el 38 % del alto mientras se
+    surte.
+  - Lo que excede es del marco de la Suite, no de Surtir.
+- **El lector de código de barras** escribe en el buscador sólo si éste tiene el foco.
+  - Al abrir un pedido el foco va al encabezado, no al buscador: en el celular eso abriría el
+    teclado en pantalla.
+  - Si el lector es de tipo teclado, el primer escaneo después de abrir se pierde. **NO MEDIDO:** no
+    sabemos qué lector usan.
+- **La pastilla de frescura** («cargado ahora») es una región viva del primitivo compartido: el
+  lector de pantalla la lee cada vez que cambia su texto. No se midió cuántas veces pasa en una
+  jornada.
+- **El nombre accesible de la tarjeta** mide hasta 104 caracteres: cliente, productos, folio,
+  total, vendedor y «Surtir este». El cliente va primero; se deja así.
+
+**NO MEDIDO:**
+- Con datos de prod: la sesión venció, así que todo lo de arriba es comportamiento con datos
+  inventados.
+- El celular real y su gesto «atrás» (se midió con `goBack` del navegador).
+- Las otras 24 pantallas que cambian con GP.RF.39.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -808,6 +914,9 @@ Formato de cada hallazgo:
 | GP.RF.35 | 2 | 🟠 | «No reestructuraste la interfaz» (Edgar). La primera tarjeta empezaba a 1,001 px a 390 de ancho, cada pedido traía su botón naranja, el aviso de clientes iba arriba de todo, y al abrir un pedido de abajo la vista quedaba a media lista | A (Playwright, árbol con lecturas de prod) | el trabajo fuera de la primera pantalla; un desplazamiento para encontrar el primer producto | Carga visual; Fitts; Von Restorff | lista y pedido rehechos con la maqueta aprobada (§5c.6): 1,001 → 504 px; el pedido abre arriba; el escáner queda fijo | 🧪 |
 | GP.RF.36 | 2 | 🟡 | «Rutas de hoy» pintaba un esqueleto de 181 px y, sin rutas, desaparecía: la lista saltaba | A | posible fuente del CLS 0.23 de §5c.3; un toque que cae en otra tarjeta | Doherty; estabilidad (CLS) | sin esqueleto en la primera carga (§5c.6) | 🧪 |
 | GP.RF.37 | 2 | 🟡 | El escáner salía con borde ámbar (clase compartida con un aviso) y 10 textos en `--warn-fg`/`--ok-fg` (2.15:1 y 3.30:1) | C + A | ilegible a pleno sol; el escáner parece un aviso | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg`/`--ok-soft-fg` (7.1:1) y clase propia | 🧪 |
+| GP.RF.38 | 2 | 🟠 | Con un pedido abierto, el «atrás» del celular sacaba de Surtir; el foco caía en `<body>` al abrir y al volver; la página no tenía h1; el renglón de vendedores escondía su barra sin pista (3 de 6 fuera de vista) y cortaba el anillo de foco; en alto contraste la opción elegida sólo se distinguía por la negrita | A (Playwright, API sintética) | un viaje entero para regresar al pedido; un toque al buscador antes de escanear; vendedores que no se ven | `stack-drill-down`, `accessibility`, `scrollability-affordance-hints`, `color` (Modern Web Guidance) | historial con `?pedido=`, foco al h1 y a la tarjeta, h1/h2, desvanecido y anillo completo, contorno `Highlight` (§5c.7) | 🧪 |
+| GP.RF.39 | 2 | 🟠 | Las flechas no elegían en NINGÚN `role="radio"` que dependiera del listener global: el listener se desconocía a sí mismo al escribir `tabindex` | A + prueba | el patrón que el lector de pantalla anuncia no funciona; el Tab entraba por la opción vieja | `accessibility` §2 (el rol promete su teclado); D.4 de `DESIGN.md` | marca propia y repaso con `aria-checked`, con 6 pruebas (3 rojas antes) (§5c.7) | 🧪 |
+| GP.RF.40 | 2 | 🟡 | El CLS de la carga (0.056) es el cambio de fuente: la tarjeta se re-parte en dos renglones cuando llega Hanken Grotesk (`display=swap`) | A | la lista brinca 22 px al cargar; un toque puede caer en otra tarjeta | `visually-stable-font-fallbacks`; Doherty | propuesta: respaldo con métricas ajustadas, global y medido aparte | ⬜ |
 | GP.RF.30 | 2 | 🟠 | «Salir» de Surtir (y de Checar) no regresa a donde estabas: iba fijo a /almacen, que brinca a la primera pantalla del área. Del Tablero a Surtir, «Salir» dejaba en Inventario; para el surtidor, en Surtir misma (no hacía nada). Lo encontró Edgar | A (reproducido en prod con salir-foco.e2e.ts) | un viaje entero para volver a donde se estaba | Jakob (Atrás vuelve a donde estabas) | regresa a la pantalla anterior; sin ella, al Tablero, o a «Mi trabajo» si el puesto no lo abre | 🧪 |
 
 ---
@@ -816,6 +925,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-18 | **Surtir re-auditado con Modern Web Guidance** 🧪 (GP.RF.38–40), a pedido de Edgar, con 12 guías y Playwright sobre una API sintética (la sesión de prod venció). Con un pedido abierto, el «atrás» del celular ya no saca de Surtir; el foco va al pedido y regresa a su tarjeta; hay h1; el renglón de vendedores dice que hay más y no corta el anillo de foco. Salió un defecto global: las flechas no elegían en ningún `role="radio"` sin teclado propio (GP.RF.39, arreglado en `libs/ui-web` con su prueba roja antes). El CLS es el cambio de fuente de toda la Suite (GP.RF.40, propuesto). De paso: el merge `223e12668` de otra sesión había dejado una línea `=======` en el spec de Surtir y el archivo no compilaba; se quitó (§5c.7). | Edgar (pedido), Claude |
 | 2026-11-17 | **Surtir reestructurado** 🧪 (GP.RF.35–37 y GP.RF.29), con la maqueta que aprobó Edgar después de decir «no reestructuraste la interfaz». Medido con Playwright, con su control y su negativa: a 390 px la primera tarjeta pasa de 1,001 a 504 px, el pedido abre arriba (antes a −1,381 px) y el escáner queda fijo. De paso salieron: el esqueleto de «Rutas de hoy» que hacía saltar la lista, el escáner con borde de aviso, 10 textos bajo AA y el «500 clientes» topado. Primero salió un encimado que era falso positivo del instrumento: se corrigió y se probó el detector con una maqueta rota (§5c.6). | Edgar (maqueta), Claude |
 | 2026-11-17 | **GP.RF.30 en código** 🧪: «Salir» de Surtir y Checar regresa a la pantalla de donde se llegó. Reproducido en prod antes del arreglo: del Tablero a Surtir, «Salir» dejaba en Inventario. | Edgar (lo encontró), Claude |
 | 2026-11-17 | **Paso 2 (Surtir) arrancado: línea base** (§5c). La preventa se surte en Surtir › Sucursal (925 cierres en 30 días, 84 rechazados sin motivo guardado; se corrigió el mismo día la atribución a `/almacen/surtir-preventa`, que no tiene uso medido). Telemarketing casi no se usa, escribe al abrirse y es lo lento (tomar siguiente: 2.7 s de promedio, hasta 21 s). En el celular, Surtir tarda 4.5 s en pintarse el 75 % de las veces y la pantalla se mueve (CLS 0.23). Falta la sesión de un surtidor para medir los renglones. | Claude, a pedido de Edgar |

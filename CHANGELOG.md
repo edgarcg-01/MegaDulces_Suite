@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
+- Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
+- Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.
+- Los renglones que se deslizan (vendedores, días atrasados) avisan que hay más y no cortan el anillo de foco.
+- En toda la Suite, las flechas del teclado vuelven a elegir en los selectores de una opción (estaban sin efecto).
+
 ### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
 - La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
 - Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.

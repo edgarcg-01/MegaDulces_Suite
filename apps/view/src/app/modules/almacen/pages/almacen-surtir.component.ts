@@ -1,9 +1,11 @@
 import {
   ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, Location } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { skip } from 'rxjs';
 import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
@@ -120,11 +122,12 @@ function plural(n: number, uno: string, varios: string): string {
         <!-- [GP.RF.35] Con un pedido de preventa abierto, el encabezado ES el pedido: «← Pedidos» regresa a la
              lista (lo marcado sigue en el celular y el pedido queda en «Los que estás surtiendo»). -->
         @if (fase() === 'surtiendo' && pedidoSucursal(); as p) {
-          <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="volverAPedidos()">
+          <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="irAPedidos()">
             <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span> Pedidos
           </button>
           <div class="sr-top-mid">
-            <strong class="sr-top-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
+            <!-- [GP.RF.38] El encabezado de la vista (h1): recibe el foco al abrir el pedido. -->
+            <h1 class="sr-top-cli" id="sr-titulo" tabindex="-1">{{ p.customer_name || 'Cliente sin nombre' }}</h1>
             <span class="sr-top-sub">{{ p.code }} · {{ p.seller_name || 'Sin vendedor' }}</span>
             <!-- [MCP.3.13] Parte de un pedido agrupado. -->
             @if (textoParte(p); as tp) { <span class="sr-top-sub">{{ tp }}</span> }
@@ -134,7 +137,7 @@ function plural(n: number, uno: string, varios: string): string {
             <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span> Salir
           </button>
           <div class="sr-top-mid">
-            <strong>Surtir</strong>
+            <h1 id="sr-titulo-lista" tabindex="-1">Surtir</h1>
             @if (almacenNombre()) { <span class="sr-top-sub">{{ almacenNombre() }}</span> }
           </div>
         }
@@ -222,7 +225,8 @@ function plural(n: number, uno: string, varios: string): string {
         @if (origen() === 'SUCURSAL' && almacenId()) {
           <!-- [MCP.3.6] Las rutas de hoy van arriba; los pedidos sueltos de siempre, debajo. -->
           <app-almacen-rutas-hoy (hayRutas)="rutasHoy.set($event)"></app-almacen-rutas-hoy>
-          @if (rutasHoy() > 0) { <h3 class="sr-h3">Pedidos sueltos</h3> }
+          <!-- [GP.RF.38] h1 Surtir › h2 «Rutas de hoy» / «Pedidos sueltos» › h3 por vendedor; sin rutas, h2 por vendedor. -->
+          @if (rutasHoy() > 0) { <h2 class="sr-h3">Pedidos sueltos</h2> }
           @if (sucursalError()) {
             <div class="sr-banda sr-banda-bad" role="alert">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -279,15 +283,15 @@ function plural(n: number, uno: string, varios: string): string {
             <!-- [MCP.14] Lo que ya empezó esta persona, primero; lo demás separado por vendedor y en orden de
                  folio (la pantalla del PDF de rutas vecinales: «separar los pedidos x vendedor»). -->
             @if (misEnCurso().length) {
-              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-play" aria-hidden="true"></i> Los que estás surtiendo
-                <span class="sr-grupo-n">· {{ plural(misEnCurso().length, 'pedido', 'pedidos') }}</span></h3>
+              <h2 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 3 : null"><i class="pi pi-play" aria-hidden="true"></i> Los que estás surtiendo
+                <span class="sr-grupo-n">· {{ plural(misEnCurso().length, 'pedido', 'pedidos') }}</span></h2>
               @for (p of misEnCurso(); track p.order_id) {
                 <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: true }"></ng-container>
               }
             }
             @for (g of gruposDelDia(); track g.vendedor) {
-              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
-                <span class="sr-grupo-n">· {{ plural(g.pedidos.length, 'pedido', 'pedidos') }}</span></h3>
+              <h2 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 3 : null"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
+                <span class="sr-grupo-n">· {{ plural(g.pedidos.length, 'pedido', 'pedidos') }}</span></h2>
               @for (p of g.pedidos; track p.order_id) {
                 <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: false }"></ng-container>
               }
@@ -296,14 +300,14 @@ function plural(n: number, uno: string, varios: string): string {
                  eran 30 llamados a la vez). El naranja queda sólo en «Continuar» de lo que ya estás surtiendo. -->
             <ng-template #tarjetaPedido let-p let-conVendedor="conVendedor">
               @if (p.state === 'surtiendo' && !esMio(p)) {
-                <article class="sr-ped sr-ped-otro" [class.sr-ped-tarde]="p.days_late > 0">
+                <article class="sr-ped sr-ped-otro" [class.sr-ped-tarde]="p.days_late > 0" [attr.data-pedido]="p.order_id">
                   <span class="sr-ped-r1"><strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
                     <span class="sr-ped-n">{{ plural(p.lines, 'producto', 'productos') }}</span></span>
                   <span class="sr-ped-r2"><span class="sr-ola-code">{{ p.code }}</span></span>
                   <span class="sr-ped-go">Lo está surtiendo {{ p.started?.name }}.</span>
                 </article>
               } @else {
-                <button type="button" class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0" [class.sr-ped-mio]="p.state === 'surtiendo'"
+                <button type="button" class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0" [class.sr-ped-mio]="p.state === 'surtiendo'" [attr.data-pedido]="p.order_id"
                         [disabled]="tomando()" (click)="surtirPedido(p.order_id)">
                   <span class="sr-ped-r1"><strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
                     <span class="sr-ped-n">{{ plural(p.lines, 'producto', 'productos') }}</span></span>
@@ -417,10 +421,10 @@ function plural(n: number, uno: string, varios: string): string {
         </div>
 
         <div class="sr-filtro">
-          <h3 class="sr-h3">
+          <h2 class="sr-h3">
             @if (busqueda()) { {{ plural(visibles().length, 'coincidencia', 'coincidencias') }} }
             @else { Por surtir <span class="sr-n">{{ pendientesTotal() }} de {{ o.lines.length }}</span> }
-          </h3>
+          </h2>
           @if (hechos() && !busqueda()) {
             <button type="button" class="sr-chip" [attr.aria-pressed]="ocultarHechos()" [class.sr-chip-on]="ocultarHechos()"
                     (click)="ocultarHechos.set(!ocultarHechos())">Ocultar los ya surtidos</button>
@@ -743,8 +747,10 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-top { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
     .sr-top-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .sr-top-mid strong { font-size: var(--fs-h3); }
+    /* [GP.RF.38] El título de la vista es un h1 (antes un <strong>: la pantalla no tenía encabezado principal).
+       Se ve igual que antes; el nombre del cliente ya no se corta con «…»: un encabezado se lee entero. */
+    .sr-top-mid h1 { margin: 0; font-size: var(--fs-h3); font-weight: 700; line-height: 1.25; text-wrap: balance; overflow-wrap: break-word; }
     .sr-top-sub { font-size: var(--fs-xs); color: var(--text-muted); }
-    .sr-top-cli { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* [GP.RF.35] Almacén y origen en un renglón. */
     /* Un solo renglón a 390 px (medido: con wrap, almacén y origen ocupaban dos). El nombre del almacén ya
        está en el encabezado: el selector puede cortarse con «…». */
@@ -783,9 +789,34 @@ function plural(n: number, uno: string, varios: string): string {
       border: 1px solid var(--surface-border); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); }
     .sr-chip-on { border-color: var(--action); background: var(--surface-hover); font-weight: 700; }
     .sr-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    /* [GP.RF.35] Renglón que se desliza (días atrasados, vendedores): con .sr-chips para ganarle a su wrap. */
-    .sr-chips.sr-desliza { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-    .sr-chips.sr-desliza .sr-chip { flex: none; }
+    /* [GP.RF.38] En alto contraste (forced-colors) el sistema pone fondo y borde: la elegida sólo se distinguía
+       por la negrita (medido). Contorno Highlight hacia adentro, como app-segmented: no mueve nada. */
+    @media (forced-colors: active) { .sr-chip-on { outline: 2px solid Highlight; outline-offset: -2px; } }
+    /* [GP.RF.35] Renglón que se desliza (días atrasados, vendedores): con .sr-chips para ganarle a su wrap.
+       [GP.RF.38] (Modern Web Guidance, «scrollability-affordance-hints» y «natural-interactions»). Medido antes:
+       barra oculta y ninguna pista —3 de 6 vendedores fuera de la vista sin que nada lo dijera— y el anillo de
+       foco cortado 4 px (el desplazamiento recorta lo que sale de su caja). Ahora: 4 px de aire para el anillo
+       (compensados con margen), se detiene en cada chip, y el borde que tiene más se desvanece. Sin soporte de
+       animaciones por desplazamiento, la barra se queda visible: es la pista. */
+    .sr-chips.sr-desliza { flex-wrap: nowrap; overflow-x: auto; padding: 4px; margin: -4px; scrollbar-width: thin;
+      scroll-snap-type: x mandatory; scroll-padding-inline: 1.5rem; }
+    .sr-chips.sr-desliza > * { flex: none; scroll-snap-align: start; }
+    @supports (animation-timeline: scroll()) and (mask: linear-gradient(black, black)) {
+      .sr-chips.sr-desliza {
+        scrollbar-width: none;
+        mask:
+          linear-gradient(black, black) no-clip subtract,
+          linear-gradient(to right, black, transparent) 0 0 / var(--sr-fade-ini) 100% no-repeat no-clip,
+          linear-gradient(to right, transparent, black) 100% 0 / var(--sr-fade-fin) 100% no-repeat no-clip;
+        animation: sr-fade-ini linear both, sr-fade-fin linear both;
+        animation-timeline: scroll(self inline);
+        animation-range: 0 1.5rem, calc(100% - 1.5rem) 100%;
+      }
+    }
+    @property --sr-fade-ini { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @property --sr-fade-fin { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @keyframes sr-fade-ini { to { --sr-fade-ini: 1.5rem; } }
+    @keyframes sr-fade-fin { from { --sr-fade-fin: 1.5rem; } }
 
     /* Botones del pulgar: igual que la pantalla hermana (contar camión) — ícono arriba, texto abajo. */
     /* [GP.4] Más bajos (5.5 → 4.25rem) para que la tarjeta completa quepa sobre el pie fijo. */
@@ -976,6 +1007,12 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly location = inject(Location);
+  /**
+   * `[GP.RF.38]` true = el pedido abierto dejó su propia entrada en el historial (se abrió desde la lista).
+   * Con eso «atrás» —el gesto del celular o «← Pedidos»— regresa a la lista en vez de salir de Surtir.
+   */
+  private pedidoEnHistorial = false;
 
   readonly plural = plural;
   /** [MCP.3.13] «Parte de P-10482 · también surte PH»; suelto → null. */
@@ -1182,6 +1219,15 @@ export class AlmacenSurtirComponent implements OnInit {
       }
     }, SUCURSAL_CADA_MS);
     this.destroyRef.onDestroy(() => clearInterval(reloj));
+    // [GP.RF.38] El gesto «atrás» del celular con un pedido abierto (Modern Web Guidance, «stack-drill-down»):
+    // el historial quita `?pedido=` y aquí se regresa a la lista. Medido antes: «atrás» sacaba de Surtir
+    // (a /projects) con el pedido a medias. `skip(1)`: la primera emisión es la del arranque (la atiende `iniciar`).
+    this.ruta.queryParamMap?.pipe(skip(1), takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      if (!q.get('pedido') && this.pedidoSucursal() && this.fase() === 'surtiendo') {
+        this.pedidoEnHistorial = false;
+        this.volverAPedidos();
+      }
+    });
     this.iniciar();
   }
 
@@ -1336,6 +1382,29 @@ export class AlmacenSurtirComponent implements OnInit {
     this.fase.set('surtiendo');
     this.alInicio();
     this.anuncio.set(`Pedido ${d.order.code}: ${plural(ola.lines.length, 'renglón', 'renglones')}.`);
+    // [GP.RF.38] Abierto desde la lista, el pedido deja su entrada en el historial (`?pedido=`, la misma que
+    // abre el aviso de la campana): «atrás» regresa a la lista y una recarga lo vuelve a abrir. Abierto desde
+    // la URL, la entrada ya existe.
+    if (this.ruta.snapshot.queryParamMap.get('pedido') !== d.order.order_id) {
+      this.pedidoEnHistorial = true;
+      this.router.navigate([], { relativeTo: this.ruta, queryParams: { pedido: d.order.order_id }, queryParamsHandling: 'merge' })
+        .catch(() => false);
+    }
+    // [GP.RF.38] El foco va al pedido (su encabezado), no se queda en <body>. No al buscador: en el celular
+    // eso abre el teclado en pantalla encima de la lista.
+    this.enfocarLuego(() => this.host.nativeElement.querySelector<HTMLElement>('#sr-titulo'));
+  }
+
+  /** `[GP.RF.38]` Mueve el foco en cuanto la vista nueva está pintada, sin desplazar la página. */
+  private enfocarLuego(cual: () => HTMLElement | null): void {
+    setTimeout(() => cual()?.focus({ preventScroll: true }));
+  }
+
+  /** `[GP.RF.38]` Quita `?pedido=` de la URL sin dejar otra entrada en el historial. */
+  private quitarPedidoDeLaUrl(): void {
+    if (!this.ruta.snapshot.queryParamMap.get('pedido')) return;
+    this.router.navigate([], { relativeTo: this.ruta, queryParams: { pedido: null }, queryParamsHandling: 'merge', replaceUrl: true })
+      .catch(() => false);
   }
 
   // ── [MCP.17] Surtir en otra unidad del mismo producto ──────────────────────────────────────
@@ -1624,6 +1693,9 @@ export class AlmacenSurtirComponent implements OnInit {
         this.pedidoSucursal.set(null);
         this.fase.set('cerrada');
         this.anuncio.set('Pedido surtido.');
+        // [GP.RF.38] Cerrado, la URL ya no lo nombra: una recarga no intenta abrir un pedido terminado.
+        this.pedidoEnHistorial = false;
+        this.quitarPedidoDeLaUrl();
       },
       error: (e) => {
         this.cerrando.set(false);
@@ -1649,6 +1721,7 @@ export class AlmacenSurtirComponent implements OnInit {
    * reaparece en «Los que estás surtiendo» con «Continuar».
    */
   volverAPedidos(): void {
+    const id = this.pedidoSucursal()?.order_id ?? null;
     this.editando.set(null);
     this.otraAbierta.set(null);
     this.cerrarCambio();
@@ -1658,6 +1731,23 @@ export class AlmacenSurtirComponent implements OnInit {
     this.pedidoSucursal.set(null);
     this.volverALista();
     this.alInicio();
+    // [GP.RF.38] El foco regresa a la tarjeta del pedido que se dejó (queda en «Los que estás surtiendo»),
+    // sin mover la vista: la lista sigue empezando arriba.
+    this.enfocarLuego(() =>
+      (id ? this.host.nativeElement.querySelector<HTMLElement>(`[data-pedido="${id}"]`) : null)
+      ?? this.host.nativeElement.querySelector<HTMLElement>('#sr-titulo-lista'));
+  }
+
+  /**
+   * `[GP.RF.38]` «← Pedidos». La vista cambia al instante; si el pedido dejó su entrada en el historial,
+   * además se saca (`back`), para que el siguiente «atrás» no vuelva a abrir el pedido que se acaba de dejar.
+   */
+  irAPedidos(): void {
+    const enHistorial = this.pedidoEnHistorial;
+    this.pedidoEnHistorial = false;
+    this.volverAPedidos();
+    if (enHistorial) this.location.back();
+    else this.quitarPedidoDeLaUrl();
   }
 
   /**

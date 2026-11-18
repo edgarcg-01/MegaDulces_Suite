@@ -47,7 +47,8 @@ function plural(n: number, uno: string, varios: string): string {
     @if ((cargando() && cargadoAl() !== null) || error() || rutas().length) {
       <section class="rh" aria-labelledby="rh-titulo">
         <div class="rh-head">
-          <h3 class="rh-h3" id="rh-titulo">Rutas de hoy</h3>
+          <!-- [GP.RF.38] h2: cuelga del h1 «Surtir» (antes h3 sin h1 ni h2 arriba). -->
+          <h2 class="rh-h3" id="rh-titulo">Rutas de hoy</h2>
           <app-freshness-pill measures="fetch" [since]="cargadoAl()"></app-freshness-pill>
         </div>
         <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="false" [skeletonRows]="2"

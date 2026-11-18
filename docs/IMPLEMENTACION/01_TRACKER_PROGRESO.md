@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2740 KB, 14948 líneas, 78 secciones.
+> **Índice navegable** — 2741 KB, 14954 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13807 | 13848 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13849 | 14005 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14006 | 14036 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14037 | 14269 | 37 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14270 | 14334 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14335 | 14343 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14344 | 14397 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14404 | 14413 | 1 | 📝 Convenciones |
-| 14414 | 14451 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14452 | 14470 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14471 | 14523 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14524 | 14901 | 64 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14902 | 14932 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14933 | 14954 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14955 | 14982 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14983 | 15014 | 25 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15015 | 15038 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14037 | 14275 | 39 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14276 | 14340 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14341 | 14349 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14350 | 14403 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14410 | 14419 | 1 | 📝 Convenciones |
+| 14420 | 14457 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14458 | 14476 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14477 | 14529 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14530 | 14907 | 64 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14908 | 14938 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14939 | 14960 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14961 | 14988 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14989 | 15020 | 25 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15021 | 15044 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14213,6 +14213,12 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Medido con Playwright (390 × 844, árbol con lecturas de prod, sin escrituras ni backend local, con control y negativa): primera tarjeta 1,001 → 504 px; al volver 504 px; el pedido abre en 281 px (antes −1,381); escáner fijo; 0 textos encimados; CLS de la carga 0.06.
 >     - Pruebas: almacén 815 en verde (10 nuevas, 4 negativas), resumen de clientes nuevos 1 nueva; `ngc --noEmit` 0 errores; check:pantalla, check:estilos y check:cifra sin fallas nuevas.
 >     - NO MEDIDO: la ubicación arriba de cada producto en el navegador (prod aún no manda los códigos por presentación), el celular real y el puesto de surtidor, y el CLS de campo (se verá en telemetría al desplegar).
+>   - [x] **[GP.RF.38]–[GP.RF.40]** 🧪 (2026-11-18) **Surtir re-auditado con Modern Web Guidance** (Edgar: «usa la skill Modern Web Guidance para volver a auditar lo auditado»; 12 guías de GoogleChrome). Auditoría de interfaces §5c.7.
+>     - GP.RF.38: con un pedido abierto, el «atrás» del celular regresa a la lista (antes salía de Surtir a «Mi trabajo»); el pedido queda en la URL (`?pedido=`); el foco va al h1 del pedido al abrir y a su tarjeta al volver (antes `<body>`); h1/h2 en la lista y el pedido; el renglón que se desliza se desvanece donde hay más y no corta el anillo de foco (antes barra oculta sin pista, 3 de 6 vendedores fuera de vista); en alto contraste la opción elegida lleva contorno `Highlight`.
+>     - GP.RF.39: `installRadioGroupNav` (`libs/ui-web`) se desconocía a sí mismo al escribir `tabindex`: las flechas no elegían en ningún `role="radio"` sin teclado propio (25 archivos de apps/view) y el Tab no seguía a la opción elegida. Marca propia (`data-radio-nav`) y repaso con `aria-checked`; 6 pruebas, 3 rojas con el código anterior.
+>     - GP.RF.40 ⬜: el CLS de la carga (0.056) es el cambio de fuente de toda la Suite (Hanken Grotesk con `display=swap` re-parte la tarjeta en dos renglones). Propuesta medida aparte: respaldo con métricas ajustadas.
+>     - Medido con Playwright sobre una API sintética (datos inventados, ninguna petición fuera del navegador; la sesión de prod venció), con control de foco tapado. Pruebas: Surtir 114 (5 nuevas, 2 negativas), almacén 820, `ui-web` 165; `ngc --noEmit` 0 errores; check:pantalla/estilos/cifra/cascada sin fallas nuevas. De paso: se quitó la línea `=======` que el merge `223e12668` dejó en el spec de Surtir (no compilaba).
+>     - NO MEDIDO: con datos de prod, el celular real y su gesto «atrás», y las otras 24 pantallas que cambian con GP.RF.39.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.

@@ -1,7 +1,8 @@
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree } from '@angular/router';
-import { NEVER, of, Subject, throwError } from 'rxjs';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree, type ParamMap } from '@angular/router';
+import { Location } from '@angular/common';
+import { BehaviorSubject, NEVER, of, Subject, throwError } from 'rxjs';
 import type {
   PickerTakeNextResponse, PickerWave, PickerWaveLine, PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow,
 } from '@megadulces/contracts';
@@ -104,6 +105,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits' | 'substitutes', ReturnType<typeof vi.fn>>;
   /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
   let cn: { resumen: ReturnType<typeof vi.fn> };
+  let qp$: BehaviorSubject<ParamMap>;
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const texto = (): string => el().textContent?.replace(/\s+/g, ' ') ?? '';
@@ -126,11 +128,13 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
    * (Telemarketing) lo eligen como lo haría el surtidor; `'abre'` deja la pestaña con la que abre.
    */
   async function montar(query: Record<string, string> = {}, origen: 'TELEMARK' | 'abre' = 'TELEMARK'): Promise<void> {
+    // [GP.RF.38] El historial: `qp$.next(...)` hace lo que el router cuando el celular va «atrás».
+    qp$ = new BehaviorSubject<ParamMap>(convertToParamMap(query));
     await TestBed.configureTestingModule({
       imports: [AlmacenSurtirComponent],
       providers: [
         provideRouter([]),
-        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) }, queryParamMap: qp$ } },
         { provide: PickingService, useValue: api },
         { provide: PresalePickingService, useValue: pv },
         { provide: AuthService, useValue: { user: () => user } },
@@ -808,6 +812,69 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(c.ola()!.lines.find((l) => l.id === marcado)!.status).toBe('surtido');
   });
 
+  // ── [GP.RF.38] Re-auditoría con Modern Web Guidance: historial, foco y encabezados ──────────
+
+  it('[GP.RF.38] ⭐ el gesto «atrás» del celular regresa a la lista sin cerrar el pedido (antes: salía de Surtir)', async () => {
+    await montar();
+    clic('Preventa');
+    const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    clic('Surtir este');
+    // Abierto desde la lista, deja su entrada en el historial (la misma URL que abre la campana).
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { pedido: 'o-rosy' }, queryParamsHandling: 'merge' }));
+    clic('Completo');
+    qp$.next(convertToParamMap({})); // lo que hace el router al ir «atrás»: la URL ya no trae ?pedido=
+    fix.detectChanges();
+    expect(c.fase()).toBe('listo');
+    expect(c.ola()).toBeNull();
+    expect(pv.finish).not.toHaveBeenCalled();
+  });
+
+  it('[GP.RF.38] «← Pedidos» saca su entrada del historial (back), para que el siguiente «atrás» no reabra el pedido', async () => {
+    await montar();
+    clic('Preventa');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const back = vi.spyOn(TestBed.inject(Location), 'back').mockImplementation(() => undefined);
+    clic('Surtir este');
+    clic('Pedidos');
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(c.fase()).toBe('listo');
+  });
+
+  it('[GP.RF.38] NEGATIVA: abierto desde la campana (?pedido=) no se empuja otra entrada; «← Pedidos» sólo limpia la URL', async () => {
+    await montar({ pedido: 'o-rosy' });
+    const nav = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const back = vi.spyOn(TestBed.inject(Location), 'back').mockImplementation(() => undefined);
+    expect(c.fase()).toBe('surtiendo');
+    clic('Pedidos');
+    expect(back).not.toHaveBeenCalled();
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { pedido: null }, replaceUrl: true }));
+  });
+
+  it('[GP.RF.38] NEGATIVA: un «atrás» sin pedido abierto no toca nada', async () => {
+    await montar();
+    clic('Preventa');
+    const recargas = pv.inbox.mock.calls.length;
+    qp$.next(convertToParamMap({}));
+    fix.detectChanges();
+    expect(c.fase()).toBe('listo');
+    expect(pv.inbox.mock.calls.length).toBe(recargas);
+  });
+
+  it('[GP.RF.38] ⭐ el foco va al pedido al abrirlo (su h1, no <body>) y regresa a su tarjeta al volver', async () => {
+    await montar();
+    clic('Preventa');
+    expect(el().querySelectorAll('h1').length).toBe(1);
+    expect(el().querySelector('h1')?.textContent?.trim()).toBe('Surtir');
+    clic('Surtir este');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el().querySelectorAll('h1').length).toBe(1);
+    expect(document.activeElement?.id).toBe('sr-titulo');
+    expect(document.activeElement?.textContent).toContain('ABARROTES ROSY');
+    clic('Pedidos');
+    await new Promise((r) => setTimeout(r, 0));
+    expect((document.activeElement as HTMLElement | null)?.getAttribute('data-pedido')).toBe('o-rosy');
+  });
+
   it('[GP.RF.35] la tarjeta del producto empieza por DÓNDE está; nombre y cantidad van en un renglón', async () => {
     pv.detail = vi.fn(() => of(CON_APOYO()));
     await montar();
@@ -852,7 +919,6 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(buscar[0].closest('.sr-fijo')).toBeTruthy();
   });
 
-=======
   // ── [GP.RF.31] Cambiar lo que faltó por otro producto (decisión de Edgar, 2026-11-17) ──────────
   const VALENTINA = () => ({
     for_line_id: 'pl2', for_product_name: 'SALSA MAGA', missing: 2, unit: 'CJA',
