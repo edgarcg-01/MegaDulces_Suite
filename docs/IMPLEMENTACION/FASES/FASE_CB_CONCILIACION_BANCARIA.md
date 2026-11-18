@@ -780,12 +780,54 @@ nuevos (39 TS1272 previos); `ngc` 0 en estos archivos (4 ajenos sin commitear). 
 2 ✗, las mismas de antes de CB.82 (comparan el % casado de CP.8.89, que sigue midiendo contra el libro). **Sin validación visual.**
 
 **Latencia.** `three-way` de noviembre: mediana 128 → ~400–450 ms desde la laptop (viaje a prod 1 ms; prod suma ~30 ms):
-bajo la regla de 500 ms, con poco margen. Lo que cuesta es leer la descarga y el libro por rango de fecha (~90 ms de SQL);
-bajarlo pide un índice (migración, aparte). Ya recortado: el testigo en una consulta con `LATERAL` (16 ms contra 80 con
+bajo la regla de 500 ms, con poco margen. Lo que se ve desde la laptop es el traslado de las filas: la consulta de la descarga
+tarda 10 ms en la base y ya tiene índice (§14 corrige lo que decía aquí). Ya recortado: el testigo en una consulta con `LATERAL` (16 ms contra 80 con
 `max()`, mismas filas), el pareo con búsqueda binaria y el detalle acotado a su cuenta (100–225 ms según la carga).
 
-**Pendiente.** El % casado de ContPAQi (`SQL_CONTPAQI_CASADO`, CP.8.89) sigue contra el libro: medirlo contra la descarga.
-`analytics.contpaqi_bank_movements` → vista sobre `contpaqi_ods` (regla 1). Paridad registrada del Cuadre (R7).
+**Pendiente.** Resuelto o medido en §14 (`[CB.86]`).
+
+## 14. `[CB.86]` 🧪 Lo pendiente del Cuadre: el % casado del mismo pareo, la paridad R7 y la lista de cheques (2026-11-18)
+
+**Hecho.**
+- **% casado (CP.8.89) del mismo pareo que el cuadre.** `compararContpaqi` parea una vez todas las cuentas enlazadas contra
+  su banco (la descarga donde cuadra) con `parearPorImporte` (±$1) y de ahí salen lo que entra al cuadre y el % casado. Se
+  retira `SQL_CONTPAQI_CASADO` (al centavo, contra el libro). Las 2 ✗ de `test-newdb-bank-threeway-cobertura` eran esa
+  diferencia de tolerancia; el cruce pasa a ser contra el detalle del cuadre (`threeWayDetail`, una lectura por cuenta).
+- **Paridad registrada (R7, VERDAD §38).** La misma prueba compara, en cada cuenta con descarga, el «Banco» publicado contra
+  una suma SQL independiente: la descarga sin renglones repetidos desde su primer día + el libro de antes. Umbral $1.
+- **Error de CB.85 que encontró esa paridad.** El pareo de CB.64 (`descargaEnMovimientos`) usa ±3 días de margen; con todo el
+  libro, una salida que el banco cobró el 11-nov (STDR 2169, $2,187.80) se pareaba con otra igual que el libro tenía el 9 —
+  antes de la descarga— y el «Banco» se quedaba con una. Son dos: la descarga abre el 10 en el saldo con que el libro cerró
+  el 9, con la del 9 ya restada. Arreglo en `leerBancoDelCuadre`: el pareo sólo usa el libro desde el primer día de la
+  descarga (llama directo a `descargaEnMovimientos`; el campo que CB.85 había agregado a `leerDescargaDelPeriodo` se retira).
+- **Cheques en tránsito.** La lista llega a los N del encabezado: 50 de mayor importe y «Ver los N restantes».
+
+**Medido (sólo lectura contra prod, 2026-11-18).**
+
+| | |
+|---|---|
+| Prueba de cobertura | 32 ✓ / 0 ✗ (antes 14 ✓ / 2 ✗); 16 paridades por cuenta, todas al centavo |
+| Octubre contra la versión anterior | idéntico |
+| Noviembre | 18/18 recorribles; 2169 recupera $2,187.80 en salidas; 40.6 % casado |
+| Latencia (misma tanda, prod cargado) | nov −41 ms (sin la consulta aparte); oct +100 ms (parea en JS lo que hacía SQL) |
+
+**Medido, sin cambio de código.**
+- **El ~23 % del banco «sin pareja en Kepler»** se descompone con los estados de `[CB.41]` (1–10 nov, $52.6 M): 79.2 % casado
+  1:1, 5.2 % venta que Kepler parte, 3.6 % sólo en ContPAQi, 3.4 % traspasos, 2.0 % factoraje; **sin explicación 6.5 %**
+  ($3.4 M), todo retiros: dos transferencias que sólo trae la descarga (2169 SPEI $1.1 M, 4176 pago a tercero $0.86 M; no
+  están ni en el libro ni en Kepler), pagos a proveedor sin documento 1:1 en Kepler (De la Rosa, Bolsas de los Altos,
+  Fábricas Selectas) y crédito/capital/intereses.
+- **Índice para la latencia: no hace falta.** `bank_statement_lines` ya tiene `(tenant, cuenta, fecha)`; la lectura del mes
+  tarda 10 ms en la base. Lo que se ve desde la laptop es el traslado de ~2,900 filas. (Corrige lo dicho en §13.)
+- **ContPAQi como vista sobre `contpaqi_ods` (regla 1).** La consulta del importer sobre la réplica reproduce la tabla:
+  167,569 filas en las dos, 0 de más o de menos, 0 diferencias en cuenta, fecha, flujo, importe, mes o póliza. El concepto
+  difiere en 1,761, y **la que está mal es la tabla**: Contabilidad corrigió conceptos de póliza después de cargarlos («falta
+  Fact de PAGO COMISIONES» → «PAGO COMISIONES BBVA 4885») y el importer, incremental por movimiento, no ve cambios del
+  encabezado. Pero como vista tarda **188 ms** por mes contra **2 ms** de la tabla: pide un índice `(ejercicio, periodo)` en
+  `ct_movimientospoliza` (1.17 M filas: fuera de horario), cambiar 4 lectores (Bancos, Caja General, Maat, escáner de
+  feeds) y retirar el importer de `md`. **Decisión de Edgar.**
+
+**Sin validación visual.**
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 

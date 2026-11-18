@@ -16,8 +16,10 @@
  *     así el número dice qué se rompió.
  *
  *   destino PROD → **sólo lectura**: el mes en curso y el anterior (calculados de HOY, no escritos:
- *     un candado con la fecha adentro caduca). Cruza la consulta contra la segunda implementación
- *     que ya vive en el servicio (`contpaqiAccountDetail`, ±$1 por cuenta) y corre el placebo.
+ *     un candado con la fecha adentro caduca). Cruza el % casado del cuadre (lectura de todas las cuentas)
+ *     contra la suma del detalle por cuenta (`threeWayDetail`, una lectura por cuenta: lo que la persona
+ *     recorre) y corre el placebo. [CB.86] Antes cruzaba contra `contpaqiAccountDetail`, que lee el libro y no
+ *     la descarga del banco.
  *
  *   node database/tests/test-newdb-bank-threeway-cobertura.js
  */
@@ -113,7 +115,7 @@ async function soloLectura(url) {
     const hoy = hoyMx();
     const svc = servicio(pool);
     const cuentas = await pool('finance.bank_accounts').where({ tenant_id: MEGA, kind: 'bank' })
-      .whereNotNull('contpaqi_cuenta').select('id', 'contpaqi_cuenta');
+      .whereNotNull('contpaqi_cuenta').whereNotNull('account_label').select('id', 'contpaqi_cuenta', 'account_label');
     for (const p of [mesAntes(hoy.slice(0, 7)), hoy.slice(0, 7)]) {
       console.log(`\n[${p}]`);
       const t0 = Date.now();
@@ -127,13 +129,12 @@ async function soloLectura(url) {
       }
       if (c.casado_pct == null) { noMedido(`${p}: sin banco que casar en cuentas enlazadas`); continue; }
 
-      // ⭐ La segunda implementación: el drill por cuenta (±$1, voraz), sumado.
+      // ⭐ La segunda lectura: el detalle de cada cuenta del cuadre (lo que la persona recorre), sumado.
       let banco = 0;
       let casado = 0;
       for (const a of cuentas) {
-        const det = await svc.contpaqiAccountDetail(p, a.id);
-        banco += det.deposits.bank_total + det.withdrawals.bank_total;
-        casado += det.deposits.matched_amount + det.withdrawals.matched_amount;
+        const det = await svc.threeWayDetail(p, a.account_label);
+        for (const e of det.excel) { banco += e.importe; if (e.contpaqi) casado += e.importe; }
       }
       const pct2 = banco > 0 ? Math.round((casado / banco) * 1000) / 10 : null;
       const sinPoliza = Math.round((banco - casado) * 100) / 100;
@@ -143,6 +144,28 @@ async function soloLectura(url) {
         `el % casado cuadra con el drill por cuenta: ${c.casado_pct} % vs ${pct2} % (±0.5 pp)`);
       check(c.stale === (c.casado_pct < 99), `«atrasado» sale del % casado (${c.casado_pct} % → stale=${c.stale})`);
       check(!c.stale || /captura pendiente/.test(tw.nota), 'si está atrasado, la nota lo dice como captura pendiente');
+
+      // [CB.86] Paridad con el árbitro (R7, VERDAD_ABSOLUTA §38): en cada cuenta que usa la descarga, el «Banco» que
+      // publica el cuadre = la descarga (sin renglones repetidos entre archivos) desde su primer día + el libro de antes,
+      // sumados en SQL aparte. Umbral $1: es la misma plata, renglón por renglón.
+      for (const r of tw.por_cuenta.filter((x) => x.banco_fuente === 'descarga')) {
+        const [y, m] = p.split('-').map(Number);
+        const finMes = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+        const desde = r.banco_desde < `${p}-01` ? `${p}-01` : r.banco_desde;
+        const ref = (await pool.raw(`
+          WITH a AS (SELECT id FROM finance.bank_accounts WHERE tenant_id = ? AND account_label = ? AND kind = 'bank'),
+          d AS (SELECT DISTINCT ON (coalesce(l.line_key, l.id::text)) l.amount_in i, l.amount_out o FROM finance.bank_statement_lines l
+                 WHERE l.bank_account_id = (SELECT id FROM a) AND l.movement_date BETWEEN ?::date AND ?::date AND (l.amount_in > 0 OR l.amount_out > 0)
+                 ORDER BY coalesce(l.line_key, l.id::text)),
+          b AS (SELECT bm.amount_in i, bm.amount_out o FROM finance.bank_movements bm JOIN finance.bank_statements st ON st.id = bm.statement_id
+                 WHERE st.period = ? AND bm.bank_account_id = (SELECT id FROM a) AND bm.deleted_at IS NULL AND bm.movement_date < ?::date
+                   AND (bm.amount_in > 0 OR bm.amount_out > 0))
+          SELECT (SELECT coalesce(sum(i), 0) FROM d) + (SELECT coalesce(sum(i), 0) FROM b) AS ent,
+                 (SELECT coalesce(sum(o), 0) FROM d) + (SELECT coalesce(sum(o), 0) FROM b) AS sal`,
+        [MEGA, r.account_label, desde, finMes, p, r.banco_desde])).rows[0];
+        const ok = Math.abs(Number(ref.ent) - r.wb_in) <= 1 && Math.abs(Number(ref.sal) - r.wb_out) <= 1;
+        check(ok, `paridad ${r.account_label}: el «Banco» publicado es la descarga + el libro previo ($${r.wb_in}/$${r.wb_out} vs $${Number(ref.ent).toFixed(2)}/$${Number(ref.sal).toFixed(2)})`);
+      }
 
       // Placebo: la póliza de OTRA cuenta. Si el cruce por importe casara por azar, esto saldría alto.
       const plac = await pool.raw(`

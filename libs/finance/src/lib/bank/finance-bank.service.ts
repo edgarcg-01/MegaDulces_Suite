@@ -12,7 +12,7 @@ import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
 import { refrescarEncabezadosDelBanco } from './estado-de-cuenta/encabezado-del-banco';
 import { traspasosSinPareja, type MovimientoDeTraspaso } from './traspasos-sin-pareja';
-import { bancoCubreElMes, contpaqiEnCuadre, parearPorImporte, type RenglonDelBanco } from './banco-del-cuadre';
+import { bancoCubreElMes, parearPorImporte, type RenglonDelBanco } from './banco-del-cuadre';
 import { leerBancoDelCuadre, type BancoDelCuadre } from './estado-de-cuenta/banco-del-cuadre.query';
 
 /**
@@ -34,38 +34,11 @@ interface FilaTraspaso {
 }
 
 /**
- * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. Empareja
- * por cuenta enlazada, dirección e importe al centavo; si el banco tiene k movimientos de un mismo
- * importe y ContPAQi n, casan min(k, n), los primeros por fecha. Bindings: periodo, tenant, periodo.
- *
- * Medido el 2026-10-29 (prod, sólo lectura): ene–sep 2026 casan entre 99.8 % y 100.0 %; octubre,
- * mes abierto, 68.2 %. Placebo (la póliza de OTRA cuenta) 1.4–3.5 %. El drill por cuenta
- * (`contpaqiAccountDetail`, ±$1) es la segunda implementación: lo cruza
- * `database/tests/test-newdb-bank-threeway-cobertura.js`.
+ * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. [CB.86] Sale del mismo pareo
+ * que el cuadre (`compararContpaqi` → `casado`): contra el banco de cada cuenta (la descarga donde cuadra, CB.85) y con
+ * ±$1, como el detalle. Antes era una consulta aparte, al centavo y contra el libro, y su cruce con el detalle fallaba en el
+ * mes abierto (51.1 % contra 52.1 % en nov-2026). Medido el 2026-10-29: ene–sep 2026 entre 99.8 % y 100.0 %.
  */
-const SQL_CONTPAQI_CASADO = `
-WITH b AS (
-  SELECT a.contpaqi_cuenta AS cta,
-         CASE WHEN COALESCE(bm.amount_in, 0) > 0 THEN 'in' ELSE 'out' END AS dir,
-         ROUND((COALESCE(bm.amount_in, 0) + COALESCE(bm.amount_out, 0)) * 100)::bigint AS c,
-         bm.movement_date AS d
-  FROM finance.bank_movements bm
-  JOIN finance.bank_statements st ON st.id = bm.statement_id
-  JOIN finance.bank_accounts a ON a.id = bm.bank_account_id
-  WHERE st.period = ? AND bm.deleted_at IS NULL AND a.kind = 'bank' AND a.contpaqi_cuenta IS NOT NULL
-    AND COALESCE(bm.amount_in, 0) + COALESCE(bm.amount_out, 0) > 0
-), bn AS (SELECT b.*, ROW_NUMBER() OVER (PARTITION BY cta, dir, c ORDER BY d) AS k FROM b),
-q AS (
-  SELECT cuenta AS cta, CASE WHEN flujo = 'deposito' THEN 'in' ELSE 'out' END AS dir,
-         ROUND(importe * 100)::bigint AS c, COUNT(*) AS n
-  FROM analytics.contpaqi_bank_movements
-  WHERE tenant_id = ? AND anio_mes = ? AND importe > 0
-  GROUP BY 1, 2, 3
-)
-SELECT COALESCE(SUM(bn.c), 0)::bigint AS banco_c,
-       COALESCE(SUM(bn.c) FILTER (WHERE bn.k <= q.n), 0)::bigint AS casado_c,
-       (COUNT(*) FILTER (WHERE bn.k > COALESCE(q.n, 0)))::int AS sin_poliza_movs
-FROM bn LEFT JOIN q USING (cta, dir, c)`;
 
 /** [CP.8.89] Debajo de este % del dinero del banco con póliza, ContPAQi va atrasado (captura pendiente). */
 const CASADO_MIN_PCT = 99;
@@ -440,21 +413,37 @@ export class FinanceBankService {
         .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE flujo='retiro'),0) AS ret`))
         .select(trx.raw('COUNT(*)::int AS movs')) as { cuenta: string; dep: string; ret: string; movs: number }[];
       for (const r of agregado) { suma(r.cuenta, 'deposito', n(r.dep), Number(r.movs) || 0); suma(r.cuenta, 'retiro', n(r.ret), 0); }
-      if (cuadre && porPareja.size) {
-        const ctas = Array.from(porPareja.keys());
-        const polizas = (await trx('analytics.contpaqi_bank_movements')
+      // [CB.86] El % casado (CP.8.89) sale del MISMO pareo que el cuadre: contra el banco de la cuenta (la descarga donde
+      // cuadra) y con ±$1. Antes era una consulta aparte, al centavo y contra el libro, y su cruce con el detalle (±$1)
+      // fallaba en el mes abierto: 51.1 % contra 52.1 % en nov-2026 (test-newdb-bank-threeway-cobertura).
+      const casado = { banco_c: 0, casado_c: 0, sin_poliza_movs: 0 };
+      if (cuadre) {
+        const enlazadas = new Map<string, { id: string; account_label: string }>();
+        for (const a of accounts as { id: string; account_label: string | null; contpaqi_cuenta: string | null }[]) {
+          if (a.account_label && a.contpaqi_cuenta) enlazadas.set(a.contpaqi_cuenta, { id: a.id, account_label: a.account_label });
+        }
+        const ctas = Array.from(enlazadas.keys());
+        const polizas = ctas.length ? (await trx('analytics.contpaqi_bank_movements')
           .where('tenant_id', tenantId).andWhere('anio_mes', period).whereIn('cuenta', ctas).whereIn('flujo', ['deposito', 'retiro'])
           .select('cuenta', 'flujo', 'importe')
           .orderBy([{ column: 'fecha' }, { column: 'id_movimiento' }]) as { cuenta: string; flujo: string; importe: string }[])
-          .map((p) => ({ cuenta: p.cuenta, flujo: p.flujo, dir: (p.flujo === 'deposito' ? 'in' : 'out') as 'in' | 'out', importe: n(p.importe) }));
-        const libroDe = await this.bancoDelLibro(trx, period, Array.from(porPareja.values()).filter((c) => !cuadre.banco.descarga.has(c.account_label)).map((c) => c.id));
-        for (const [cta, c] of porPareja) {
+          .map((p) => ({ cuenta: p.cuenta, flujo: p.flujo, dir: (p.flujo === 'deposito' ? 'in' : 'out') as 'in' | 'out', importe: n(p.importe) })) : [];
+        const libroDe = await this.bancoDelLibro(trx, period, Array.from(enlazadas.values()).filter((c) => !cuadre.banco.descarga.has(c.account_label)).map((c) => c.id));
+        const cent = (v: number) => Math.round(v * 100);
+        for (const [cta, c] of enlazadas) {
           const banco: RenglonDelBanco[] = cuadre.banco.descarga.get(c.account_label)?.renglones ?? libroDe.get(c.id) ?? [];
-          const r = contpaqiEnCuadre(false, polizas.filter((p) => p.cuenta === cta), banco);
-          for (const p of r.dentro) suma(cta, p.flujo, p.importe, 1);
+          const pol = polizas.filter((p) => p.cuenta === cta);
+          const par = parearPorImporte(banco, pol);
+          banco.forEach((b, i) => { casado.banco_c += cent(b.importe); if (par.has(i)) casado.casado_c += cent(b.importe); else casado.sin_poliza_movs++; });
+          if (!porPareja.has(cta)) continue;
+          // Banco que no cubre el mes: entra sólo lo que casó (el mismo pareo), lo demás va aparte.
+          const tomadas = new Set(par.values());
           if (!acum.has(cta)) acum.set(cta, { cuenta: cta, dep: 0, ret: 0, movs: 0 });
           const sp = { in: 0, out: 0, movs: 0 };
-          for (const p of r.sin_pareja) { sp[p.dir] += p.importe; sp.movs++; }
+          pol.forEach((p, i) => {
+            if (tomadas.has(i)) suma(cta, p.flujo, p.importe, 1);
+            else { sp[p.dir] += p.importe; sp.movs++; }
+          });
           sinParejaDe.set(cta, sp);
           sinPareja.in += sp.in; sinPareja.out += sp.out; sinPareja.movs += sp.movs;
         }
@@ -491,6 +480,8 @@ export class FinanceBankService {
         totals: { ...tot, delta_in: r2(tot.excel_in - tot.contpaqi_in), delta_out: r2(tot.excel_out - tot.contpaqi_out) },
         /** [CB.85] ContPAQi sin pareja en el banco cargado, de las cuentas cuyo banco no cubre el mes. */
         contpaqi_sin_pareja: { in: r2(sinPareja.in), out: r2(sinPareja.out), movs: sinPareja.movs },
+        /** [CB.86] El dinero del banco de las cuentas enlazadas y cuánto tiene su póliza (centavos). Sólo con `cuadre`. */
+        casado,
       };
     });
   }
@@ -3365,7 +3356,8 @@ export class FinanceBankService {
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha_valor) FILTER (WHERE fecha_valor < ?::date + 1) AS last', [curYmd])).first();
       const cq: any = await trx('analytics.contpaqi_bank_movements').where({ tenant_id: tenantId, anio_mes: period })
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('MAX(fecha) FILTER (WHERE fecha < ?::date + 1) AS last', [curYmd])).first();
-      const cs: { banco_c?: string | number; casado_c?: string | number; sin_poliza_movs?: number } | undefined = (await trx.raw(SQL_CONTPAQI_CASADO, [period, tenantId, period])).rows?.[0];
+      // [CB.86] Del mismo pareo que el cuadre (compararContpaqi), no de una consulta aparte.
+      const cs: { banco_c?: string | number; casado_c?: string | number; sin_poliza_movs?: number } = cpq.casado;
       return { wb, kp, cq, cs };
     });
     // [CB.85] El banco llega hasta donde llega la descarga de las cuentas que la usan, no sólo el libro.
@@ -3407,7 +3399,7 @@ export class FinanceBankService {
     };
     // [CP.8.89] ContPAQi no se mide en días: sus pólizas agrupan (cobranza y traspasos por mes,
     // comisiones por banco), así que la fecha más alta no dice cuánto falta. Se mide qué parte del
-    // DINERO del banco ya tiene su póliza (SQL_CONTPAQI_CASADO).
+    // DINERO del banco ya tiene su póliza ([CB.86] el mismo pareo que el cuadre).
     const bancoC = n(cov.cs?.banco_c), casadoC = n(cov.cs?.casado_c);
     const casadoPct = bancoC > 0 ? Math.round((casadoC / bancoC) * 1000) / 10 : null;
     const cpqDias = { ...src(cc, cov.cq?.last), sin_datos: cc === 0 };
