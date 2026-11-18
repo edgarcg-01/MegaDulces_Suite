@@ -84,7 +84,7 @@ const STATUS_LABEL: Record<string, string> = {
     :host { display:block; }
     .td-wrap { padding:1rem; display:flex; flex-direction:column; gap:.8rem; }
     .td-head { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-    .td-title { font:700 1.1rem/1.2 'Hanken Grotesk',sans-serif; margin:0; color:var(--text,#1c1917); }
+    .td-title { font:700 1.1rem/1.2 var(--font-body); margin:0; color:var(--text,#1c1917); }
     .td-sub { margin:.15rem 0 0; font-size:.8rem; color:var(--text-dim,#78716c); }
     .td-date { padding:.4rem .6rem; border:1px solid var(--border-color); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.85rem; }
     .td-empty { padding:2.5rem; text-align:center; color:var(--text-dim,#78716c); font-size:.9rem; }
@@ -93,7 +93,7 @@ const STATUS_LABEL: Record<string, string> = {
     .t-chip.warn { background:#fef2f2; color:#b91c1c; }
     .td-scroll { overflow-x:auto; border:1px solid var(--border-color); border-radius:10px; }
     .td-table { width:100%; border-collapse:collapse; font-size:.82rem; }
-    .td-table th { text-align:left; padding:.55rem .7rem; font:600 .72rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); border-bottom:1px solid var(--border-color); white-space:nowrap; }
+    .td-table th { text-align:left; padding:.55rem .7rem; font:600 .72rem var(--font-body); color:var(--text-dim,#78716c); border-bottom:1px solid var(--border-color); white-space:nowrap; }
     .td-table th.num, .td-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
     .td-table td { padding:.55rem .7rem; border-bottom:1px solid var(--border-color); color:var(--text,#1c1917); white-space:nowrap; }
     .td-table tbody tr { cursor:pointer; }

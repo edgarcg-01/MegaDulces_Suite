@@ -261,7 +261,7 @@ import { environment } from '../../../../environments/environment';
     .is-warn { color:var(--warn,#b45309); }
 
     .et-maphead { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; padding:.75rem .9rem .5rem; flex-wrap:wrap; }
-    .et-maptitle { margin:0; font:700 .95rem 'Hanken Grotesk',sans-serif; display:flex; align-items:center; gap:.4rem; }
+    .et-maptitle { margin:0; font:700 .95rem var(--font-body); display:flex; align-items:center; gap:.4rem; }
     .et-mapsub { margin:.2rem 0 0; font-size:.78rem; color:var(--text-dim,#78716c); }
     .et-warn { color:var(--warn,#b45309); margin-left:.5rem; }
     .et-mapactions { display:flex; align-items:center; gap:.5rem; }
@@ -269,7 +269,7 @@ import { environment } from '../../../../environments/environment';
 
     .et-filters { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.75rem 0; }
     .et-segment { display:flex; border:1px solid var(--border-color); border-radius:8px; overflow:hidden; }
-    .et-segment button { border:0; background:transparent; padding:.36rem .7rem; font:600 .76rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); cursor:pointer; }
+    .et-segment button { border:0; background:transparent; padding:.36rem .7rem; font:600 .76rem var(--font-body); color:var(--text-dim,#78716c); cursor:pointer; }
     .et-segment button + button { border-left:1px solid var(--border-color); }
     .et-segment button.act { background:var(--action,#F05A28); color:#fff; }
     .et-search { position:relative; display:inline-flex; align-items:center; }
@@ -280,18 +280,18 @@ import { environment } from '../../../../environments/environment';
     @media (max-width:68.75rem) { .et-split { grid-template-columns:1fr; } }
     .et-master, .et-detail { background:var(--card-bg,#fff); border:1px solid var(--border-color); border-radius:10px; padding:.6rem; }
     .et-table .num, th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
-    .et-code { font:600 .74rem 'Geist Mono',monospace; }
+    .et-code { font:600 .74rem var(--font-mono); }
     .et-unit { display:block; font-size:.78rem; }
-    .et-plate { display:block; font:600 .68rem 'Geist Mono',monospace; color:var(--text-dim,#78716c); }
+    .et-plate { display:block; font:600 .68rem var(--font-mono); color:var(--text-dim,#78716c); }
     .et-nogps { display:inline-flex; align-items:center; gap:.25rem; font-size:.72rem; color:var(--text-dim,#78716c); }
     .et-row-hoy td:first-child { box-shadow:inset 3px 0 0 var(--action,#F05A28); }
     .et-foot, .et-empty { font-size:.74rem; color:var(--text-dim,#78716c); padding:.5rem .3rem 0; }
     .et-empty { text-align:center; padding:2rem .5rem; }
 
     .et-dhead { display:flex; justify-content:space-between; align-items:flex-start; gap:.75rem; padding:.2rem .3rem .6rem; border-bottom:1px solid var(--border-color); }
-    .et-dhead h3 { margin:0; font:700 .9rem 'Hanken Grotesk',sans-serif; }
+    .et-dhead h3 { margin:0; font:700 .9rem var(--font-body); }
     .et-dsub { margin:.15rem 0 0; font-size:.74rem; color:var(--text-dim,#78716c); }
-    .et-dtotal { font:700 .95rem 'Hanken Grotesk',sans-serif; font-variant-numeric:tabular-nums; }
+    .et-dtotal { font:700 .95rem var(--font-body); font-variant-numeric:tabular-nums; }
     .et-note { display:flex; gap:.4rem; align-items:flex-start; font-size:.74rem; color:var(--text-dim,#78716c); background:var(--surface-2,#fafaf9); border-radius:6px; padding:.45rem .55rem; margin:.5rem 0 0; }
 
     .et-stops { list-style:none; margin:.5rem 0 0; padding:0; }
@@ -299,15 +299,15 @@ import { environment } from '../../../../environments/environment';
     .et-stop { width:100%; display:flex; align-items:center; gap:.6rem; background:transparent; border:0; padding:.5rem .3rem; cursor:pointer; text-align:left; }
     .et-stop:hover { background:var(--surface-2,#fafaf9); }
     .et-stopmain { flex:1; min-width:0; }
-    .et-stopname { display:block; font:600 .78rem 'Hanken Grotesk',sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .et-stopname { display:block; font:600 .78rem var(--font-body); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .et-stopmeta { display:block; font-size:.68rem; color:var(--text-dim,#78716c); }
-    .et-stopval { font:600 .76rem 'Hanken Grotesk',sans-serif; font-variant-numeric:tabular-nums; }
+    .et-stopval { font:600 .76rem var(--font-body); font-variant-numeric:tabular-nums; }
     .et-lines { padding:.2rem .3rem .7rem; }
     .et-linesmeta { font-size:.7rem; color:var(--text-dim,#78716c); margin:.1rem 0 .35rem; }
     .et-linetable { width:100%; border-collapse:collapse; font-size:.72rem; }
     .et-linetable th { text-align:left; font-weight:600; color:var(--text-dim,#78716c); border-bottom:1px solid var(--border-color); padding:.2rem .25rem; }
     .et-linetable td { padding:.22rem .25rem; border-bottom:1px solid var(--surface-2,#fafaf9); }
-    .et-sku { font:600 .68rem 'Geist Mono',monospace; color:var(--text-dim,#78716c); margin-right:.3rem; }
+    .et-sku { font:600 .68rem var(--font-mono); color:var(--text-dim,#78716c); margin-right:.3rem; }
     .et-uom { font-size:.66rem; color:var(--text-dim,#78716c); }
     .et-comment { display:flex; gap:.35rem; font-size:.7rem; color:var(--text-dim,#78716c); margin:.4rem 0 0; }
   `],

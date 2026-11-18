@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
+- Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
+- Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».
+
 ### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
 - Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
 - Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.

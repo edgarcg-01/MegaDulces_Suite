@@ -199,7 +199,8 @@ const ORDEN: Record<CapturaKeplerEstado, number> = {
     .gp-kpi:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .gp-kpi-v { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-h2); font-weight:700; line-height:1.1; }
     .gp-kpi-l { font-size:var(--fs-xs); color:var(--text-muted); }
-    .gp-kpi-warn .gp-kpi-v { color:var(--warn-fg); }
+    /* [GP.RF.13] La cifra es TEXTO: --warn-fg daba 2.15:1 sobre blanco; --warn-soft-fg da 7.09:1. */
+    .gp-kpi-warn .gp-kpi-v { color:var(--warn-soft-fg); }
     .gp-kpi-bad .gp-kpi-v { color:var(--bad-fg); }
     .gp-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .gp-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }

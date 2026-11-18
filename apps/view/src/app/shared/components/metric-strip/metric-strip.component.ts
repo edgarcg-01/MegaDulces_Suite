@@ -231,7 +231,9 @@ export interface MetricStripItem {
        tiene para un titulo de panel y conserva la intencion del comentario de arriba: el valor de
        TEXTO va mas chico que el numerico (24.8) para que no grite. */
     .ms-v.is-text { font-family:var(--font-body,inherit); font-size:var(--fs-h3); font-weight:700; letter-spacing:-.01em; }
-    .ms-item.tone-ok .ms-v { color:var(--ok-fg); }
+    /* [UB.RF.8] --ok-fg como TEXTO da 3.30:1 sobre blanco y 3.00 sobre el fondo de página (medido en
+       Asignación de ubicaciones, 2026-11-18): al borde del 3:1 de texto grande. Igual que el ámbar. */
+    .ms-item.tone-ok .ms-v { color:var(--ok-soft-fg); }
     /* [PQ.73] --warn-fg como TEXTO da 1.95:1 sobre claro (medido en /compras/pedido, 2026-11-05):
        ni el 3:1 de texto grande. Para texto va --warn-soft-fg; --warn-fg queda para rellenos y barras. */
     .ms-item.tone-warn .ms-v { color:var(--warn-soft-fg); }
@@ -256,7 +258,8 @@ export interface MetricStripItem {
     .ms-sub { font-size:var(--fs-xs); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     /* delta multimodal */
     .ms-delta { font-family:var(--font-mono); font-size:.72rem; font-weight:600; color:var(--text-faint); }
-    .ms-delta.up { color:var(--ok-fg); } .ms-delta.down { color:var(--bad-fg); }
+    /* [UB.RF.8] el delta es texto chico: --ok-fg (3.30:1) no llega al 4.5:1. */
+    .ms-delta.up { color:var(--ok-soft-fg); } .ms-delta.down { color:var(--bad-fg); }
     /* live */
     .ms-live { width:6px; height:6px; border-radius:50%; background:var(--warn-fg); position:relative; }
     .ms-live::after { content:''; position:absolute; inset:0; border-radius:50%; background:var(--warn-fg); animation:ms-pulse 1.8s ease-out infinite; }
