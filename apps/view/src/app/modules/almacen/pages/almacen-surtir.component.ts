@@ -188,18 +188,26 @@ function plural(n: number, uno: string, varios: string): string {
             <button pButton type="button" class="sr-tap" (click)="continuarOla(o)">Continuar</button>
           </section>
         }
-        <!-- [GP.RF.28][GP.RF.35] Almacén (por nombre) y origen en UN renglón. Con un solo almacén, su nombre va arriba. -->
+        <!-- [GP.RF.28][GP.RF.35] Almacén (por nombre) y origen en UN renglón. Con un solo almacén, su nombre va arriba.
+             [GP.RF.41] Cada control lleva su rótulo VISIBLE encima (antes sólo aria-label: con el almacén ya
+             elegido, el selector mostraba un nombre sin decir qué era). Los controles siguen en un renglón. -->
         <section class="sr-cab">
           @if (almacenes().length > 1) {
-            <p-select inputId="sr-alm" [options]="almacenes()" optionLabel="name" optionValue="id" [ngModel]="almacenId() || null"
-                      (ngModelChange)="elegirAlmacen($event ?? '')" placeholder="Elige tu almacén" appendTo="body"
-                      styleClass="sr-select" ariaLabel="Almacén donde surtes" />
+            <div class="sr-campo sr-campo-alm">
+              <span class="sr-l" id="sr-alm-l">Almacén</span>
+              <p-select inputId="sr-alm" [options]="almacenes()" optionLabel="name" optionValue="id" [ngModel]="almacenId() || null"
+                        (ngModelChange)="elegirAlmacen($event ?? '')" placeholder="Elige tu almacén" appendTo="body"
+                        styleClass="sr-select" ariaLabelledBy="sr-alm-l" />
+            </div>
           }
-          <div class="sr-chips sr-origen" role="radiogroup" aria-label="Pedidos de">
-            @for (op of origenes; track op.v) {
-              <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="origen() === op.v"
-                      [class.sr-chip-on]="origen() === op.v" (click)="elegirOrigen(op.v)">{{ op.l }}</button>
-            }
+          <div class="sr-campo">
+            <span class="sr-l" id="sr-origen-l">Pedidos de</span>
+            <div class="sr-chips sr-origen" role="radiogroup" aria-labelledby="sr-origen-l">
+              @for (op of origenes; track op.v) {
+                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="origen() === op.v"
+                        [class.sr-chip-on]="origen() === op.v" (click)="elegirOrigen(op.v)">{{ op.l }}</button>
+              }
+            </div>
           </div>
         </section>
         @if (!almacenId()) { <p class="sr-tip">Elige primero tu almacén.</p> }
@@ -754,10 +762,13 @@ function plural(n: number, uno: string, varios: string): string {
     /* [GP.RF.35] Almacén y origen en un renglón. */
     /* Un solo renglón a 390 px (medido: con wrap, almacén y origen ocupaban dos). El nombre del almacén ya
        está en el encabezado: el selector puede cortarse con «…». */
-    .sr-cab { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    .sr-cab { display: flex; align-items: flex-end; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    /* [GP.RF.41] Rótulo pegado a SU control (proximidad: 4 px contra los 8 px entre controles). */
+    .sr-campo { display: flex; flex-direction: column; gap: var(--sp-1); flex: none; min-width: 0; }
+    .sr-campo-alm { flex: 1 1 0; }
     .sr-cab .sr-origen { flex: none; flex-wrap: nowrap; }
     /* ::ng-deep sólo para el tamaño del p-select de PrimeNG (vendor): ancho flexible y objetivo táctil. */
-    :host ::ng-deep .sr-cab .p-select { flex: 1 1 0; min-width: 0; width: auto; min-height: var(--tap-min); align-items: center; }
+    :host ::ng-deep .sr-cab .p-select { width: 100%; min-width: 0; min-height: var(--tap-min); align-items: center; }
     :host ::ng-deep .sr-cab .p-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sr-dias { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); margin: var(--sp-2) 0; }
     .sr-tm { display: flex; flex-direction: column; gap: var(--sp-2); }

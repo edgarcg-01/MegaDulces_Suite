@@ -831,7 +831,7 @@ Se midió lo que esas guías piden y que §5c.6 no había medido.
 - **El selector de almacén no tiene rótulo visible**, sólo un nombre para el lector de pantalla.
   - `accessibility` §7 pide rótulo visible.
   - La maqueta aprobada lo quitó para que almacén y origen quepan en un renglón: si se agrega, lo
-    decide Edgar.
+    decide Edgar. → Edgar lo pidió el mismo día; hecho en §5c.8 (GP.RF.41), sin perder el renglón.
 - **Las barras fijas:** el escáner mide 80 px y el pie 94 px, cada una bajo el 12 % del alto que
   pide `content-first-noise-reduction`.
   - Con el encabezado y la barra inferior de la Suite, el marco ocupa el 38 % del alto mientras se
@@ -853,6 +853,76 @@ Se midió lo que esas guías piden y que §5c.6 no había medido.
   inventados.
 - El celular real y su gesto «atrás» (se midió con `goBack` del navegador).
 - Las otras 24 pantallas que cambian con GP.RF.39.
+
+### 5c.8 El brinco al cargar y el rótulo del almacén (GP.RF.40–41, 2026-11-18) 🧪
+
+Edgar: «hagámoslo», sobre lo que §5c.7 dejó propuesto. Medido con Playwright sobre la API sintética
+(datos inventados, ninguna petición sale del navegador).
+
+**GP.RF.40: el brinco era la letra de las cifras, no Hanken.**
+- **Cómo se midió.** `e2e/reestructura/fuente-cls.e2e.ts` hace un A/B en la misma corrida:
+  - la variante «sin» recibe `styles.css` sin los respaldos;
+  - la letra web se retrasa 1.5 s para que el cambio llegue siempre después de pintar, como en un
+    celular con red lenta;
+  - 5 vueltas alternadas por pantalla, más una con la letra bloqueada (sin cambio de letra).
+- **La primera hipótesis no alcanzó.** Con sólo el respaldo de Hanken, Surtir siguió en 0.052.
+  Diagnóstico pieza por pieza de la tarjeta: el folio `PV-PRUEBA-001` va en Geist Mono y se pinta
+  primero en Consolas, que es 8.4 % más angosta (100 contra 109 px). Al llegar Geist Mono, el
+  segundo renglón (folio · total · vendedor) ya no cabía en 324 px y se partía: 21 → 44 px.
+- **Arreglo, en `libs/design-tokens/tokens.css` (las tres apps).** Dos familias de respaldo, la letra
+  local de Windows escalada al ancho de la web con `size-adjust` y con su ascenso y descenso:
+  - `'Hanken Respaldo'`: Segoe UI, un ajuste por peso (97.2–106.4 %). Error de ancho mediano en 20
+    textos de la Suite: 0.7–1.1 % (antes 2–6 % en los pesos 300, 400, 700 y 800).
+  - `'Geist Mono Respaldo'`: Consolas al 109.13 %. Al ser monoespaciada, el ancho coincide exacto en
+    cualquier texto (antes 8.4 % de diferencia).
+  - Se recalculan con `node e2e/reestructura/fuente-respaldo.js`, que incluye sus controles.
+- ⛔ **No se usó `font-size-adjust`**, la vía principal de la guía `visually-stable-font-fallbacks`.
+  Iguala la altura de la x, no el ancho, y aquí empeora:
+  - escala Segoe UI a 0.986, cuando Hanken es 2.5 % más ancha;
+  - escala Roboto a 0.933, cuando su ancho ya coincide con Hanken al 1 %.
+  - Se usó la alternativa que da la misma guía: `size-adjust` con `ascent-override` y
+    `descent-override` en un `@font-face` de respaldo.
+
+| Pantalla | Brinco sin respaldo | Con respaldo | Letra bloqueada (piso) |
+|---|---|---|---|
+| Surtir, celular 390 px | 0.052 (5 de 5) | **0.0008** (5 de 5) | 0.0008 |
+| Surtir, laptop 1366 px | 0.0012 | 0.0005 | 0.0005 |
+| Pedidos, laptop | 0.0009 | 0.0008 | 0.0008 |
+| Caja General, laptop | 0.0011 | 0.0012 | 0.0006 |
+
+- **Con la red real** (la auditoría de §5c.7 vuelta a correr): CLS de la carga 0.057 → 0.001; ningún
+  movimiento atribuido a la tarjeta.
+- **Controles:**
+  - sin respaldo, la tarjeta brinca: la prueba lo exige, y es su lado rojo;
+  - con respaldo queda igual que sin cambio de letra;
+  - en «con» se usaron 4–6 caras de respaldo y en «sin», 0;
+  - ya con la letra web, la posición final de cada texto es idéntica en las dos variantes (el
+    respaldo no deja rastro). En Caja General esto es NO MEDIDO: la pantalla no repite su
+    posición ni contra sí misma.
+- **Lo que cambia sin red a Google Fonts:** en Windows la Suite se pinta con estos respaldos (Segoe
+  UI y Consolas con el ancho de la letra web) en vez de Segoe UI y Consolas a su tamaño natural.
+
+**GP.RF.41: el selector de almacén con su rótulo visible.**
+- Antes sólo tenía un nombre para el lector de pantalla. Con el almacén ya elegido, el selector
+  mostraba «Sucursal de prueba…» sin decir qué era (guía `forms`: «DON'T use `aria-label` when a
+  visible `<label>` can be used»).
+- Ahora «ALMACÉN» va encima del selector y «PEDIDOS DE» encima de los chips de origen, que también
+  tenía sólo `aria-label`. El rótulo queda a 4 px de su control; entre controles hay 8.
+- Los controles siguen en un renglón, como en la maqueta. El costo es 22 px de alto (cabecera de 44 a
+  66 px).
+- Nombre que calcula el navegador: «Almacén». PrimeNG pone la opción elegida en `aria-label`, pero
+  `aria-labelledby` le gana.
+- Al medir salió un error del instrumento de §5c.7: leía el atributo `aria-label` y reportaba como
+  nombre el del almacén elegido. Se corrigió para que lea el nombre que calcula el navegador.
+
+**NO MEDIDO:**
+- Android y iOS. Ahí no hay Segoe UI ni Consolas, `local()` no resuelve y se sigue con la letra del
+  sistema, igual que antes. Medido en este navegador: Roboto ya coincide en ancho con Hanken al 1 %,
+  y el monospace de Android mide lo mismo que Geist Mono; en un teléfono real no se midió.
+- 28 reglas en 10 archivos declaran `'Hanken Grotesk', sans-serif` sin pasar por `--font-body`
+  (mapas, historial de vendedor, panel lateral, viajes del ERP, entre otros): no reciben el
+  respaldo.
+- Las demás pantallas de la Suite: se midieron 4.
 
 ---
 
@@ -916,7 +986,8 @@ Formato de cada hallazgo:
 | GP.RF.37 | 2 | 🟡 | El escáner salía con borde ámbar (clase compartida con un aviso) y 10 textos en `--warn-fg`/`--ok-fg` (2.15:1 y 3.30:1) | C + A | ilegible a pleno sol; el escáner parece un aviso | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg`/`--ok-soft-fg` (7.1:1) y clase propia | 🧪 |
 | GP.RF.38 | 2 | 🟠 | Con un pedido abierto, el «atrás» del celular sacaba de Surtir; el foco caía en `<body>` al abrir y al volver; la página no tenía h1; el renglón de vendedores escondía su barra sin pista (3 de 6 fuera de vista) y cortaba el anillo de foco; en alto contraste la opción elegida sólo se distinguía por la negrita | A (Playwright, API sintética) | un viaje entero para regresar al pedido; un toque al buscador antes de escanear; vendedores que no se ven | `stack-drill-down`, `accessibility`, `scrollability-affordance-hints`, `color` (Modern Web Guidance) | historial con `?pedido=`, foco al h1 y a la tarjeta, h1/h2, desvanecido y anillo completo, contorno `Highlight` (§5c.7) | 🧪 |
 | GP.RF.39 | 2 | 🟠 | Las flechas no elegían en NINGÚN `role="radio"` que dependiera del listener global: el listener se desconocía a sí mismo al escribir `tabindex` | A + prueba | el patrón que el lector de pantalla anuncia no funciona; el Tab entraba por la opción vieja | `accessibility` §2 (el rol promete su teclado); D.4 de `DESIGN.md` | marca propia y repaso con `aria-checked`, con 6 pruebas (3 rojas antes) (§5c.7) | 🧪 |
-| GP.RF.40 | 2 | 🟡 | El CLS de la carga (0.056) es el cambio de fuente: la tarjeta se re-parte en dos renglones cuando llega Hanken Grotesk (`display=swap`) | A | la lista brinca 22 px al cargar; un toque puede caer en otra tarjeta | `visually-stable-font-fallbacks`; Doherty | propuesta: respaldo con métricas ajustadas, global y medido aparte | ⬜ |
+| GP.RF.40 | 2 | 🟡 | El CLS de la carga (0.056) es el cambio de fuente: la tarjeta se re-parte en dos renglones cuando llega Hanken Grotesk (`display=swap`) | A | la lista brinca 22 px al cargar; un toque puede caer en otra tarjeta | `visually-stable-font-fallbacks`; Doherty | 2026-11-18: la causa era el folio en Geist Mono (Consolas 8.4 % más angosta). Respaldos con `size-adjust` para Hanken y Geist Mono en `tokens.css`: Surtir 0.052 → 0.0008, igual que sin cambio de letra (§5c.8) | 🧪 |
+| GP.RF.41 | 2 | 🟡 | El selector de almacén y los chips de origen sólo tenían `aria-label`: con el almacén elegido, el selector mostraba un nombre sin decir qué era | A | adivinar qué es cada control; regla `forms` | `forms` («DON'T use aria-label when a visible label can be used»); `accessibility` | rótulos visibles «Almacén» y «Pedidos de» encima de cada control, siguen en un renglón (+22 px) (§5c.8) | 🧪 |
 | GP.RF.30 | 2 | 🟠 | «Salir» de Surtir (y de Checar) no regresa a donde estabas: iba fijo a /almacen, que brinca a la primera pantalla del área. Del Tablero a Surtir, «Salir» dejaba en Inventario; para el surtidor, en Surtir misma (no hacía nada). Lo encontró Edgar | A (reproducido en prod con salir-foco.e2e.ts) | un viaje entero para volver a donde se estaba | Jakob (Atrás vuelve a donde estabas) | regresa a la pantalla anterior; sin ella, al Tablero, o a «Mi trabajo» si el puesto no lo abre | 🧪 |
 
 ---
@@ -925,6 +996,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-18 | **El brinco al cargar y el rótulo del almacén** 🧪 (GP.RF.40–41), a pedido de Edgar («hagámoslo»). El brinco de Surtir no era Hanken sino el folio en Geist Mono, que se pinta primero en Consolas, 8.4 % más angosta. Respaldos con las medidas de la letra web en `tokens.css`, para las tres apps: Surtir en el celular pasa de 0.052 a 0.0008, lo mismo que sin cambio de letra. Se descartó `font-size-adjust`, la vía principal de la guía: medido, empeoraba el ancho. El selector de almacén y los chips de origen llevan rótulo visible y siguen en un renglón (§5c.8). | Edgar (pedido), Claude |
 | 2026-11-18 | **Surtir re-auditado con Modern Web Guidance** 🧪 (GP.RF.38–40), a pedido de Edgar, con 12 guías y Playwright sobre una API sintética (la sesión de prod venció). Con un pedido abierto, el «atrás» del celular ya no saca de Surtir; el foco va al pedido y regresa a su tarjeta; hay h1; el renglón de vendedores dice que hay más y no corta el anillo de foco. Salió un defecto global: las flechas no elegían en ningún `role="radio"` sin teclado propio (GP.RF.39, arreglado en `libs/ui-web` con su prueba roja antes). El CLS es el cambio de fuente de toda la Suite (GP.RF.40, propuesto). De paso: el merge `223e12668` de otra sesión había dejado una línea `=======` en el spec de Surtir y el archivo no compilaba; se quitó (§5c.7). | Edgar (pedido), Claude |
 | 2026-11-17 | **Surtir reestructurado** 🧪 (GP.RF.35–37 y GP.RF.29), con la maqueta que aprobó Edgar después de decir «no reestructuraste la interfaz». Medido con Playwright, con su control y su negativa: a 390 px la primera tarjeta pasa de 1,001 a 504 px, el pedido abre arriba (antes a −1,381 px) y el escáner queda fijo. De paso salieron: el esqueleto de «Rutas de hoy» que hacía saltar la lista, el escáner con borde de aviso, 10 textos bajo AA y el «500 clientes» topado. Primero salió un encimado que era falso positivo del instrumento: se corrigió y se probó el detector con una maqueta rota (§5c.6). | Edgar (maqueta), Claude |
 | 2026-11-17 | **GP.RF.30 en código** 🧪: «Salir» de Surtir y Checar regresa a la pantalla de donde se llegó. Reproducido en prod antes del arreglo: del Tablero a Surtir, «Salir» dejaba en Inventario. | Edgar (lo encontró), Claude |

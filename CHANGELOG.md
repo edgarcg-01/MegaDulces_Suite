@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
+- Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
+- Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.
+
 ### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
 - Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
 - Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.

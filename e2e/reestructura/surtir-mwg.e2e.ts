@@ -319,12 +319,27 @@ test.describe('[GP.RF.38] Surtir re-auditado con Modern Web Guidance, en el celu
     salida['lista_estructura'] = await estructura(page);
     salida['tarjeta_nombre_accesible'] = await page.locator('app-almacen-surtir button.sr-ped').evaluateAll((bs) => bs.slice(0, 40).map((b) => (b as HTMLElement).innerText.replace(/\s+/g, ' ').trim().length).reduce((a, n) => ({ max: Math.max(a.max, n), suma: a.suma + n, n: a.n + 1 }), { max: 0, suma: 0, n: 0 }));
     salida['tarjeta_nombre_ejemplo'] = await page.locator('app-almacen-surtir button.sr-ped').first().evaluate((b) => (b as HTMLElement).innerText.replace(/\s+/g, ' ').trim());
-    salida['etiqueta_almacen'] = await page.evaluate(() => {
-      const ps = document.querySelector('app-almacen-surtir .sr-cab p-select');
-      if (!ps) return 'sin selector (un solo almacén)';
-      const cb = ps.querySelector('[role=combobox]') as HTMLElement | null;
-      return { nombre_programatico: cb?.getAttribute('aria-label') ?? cb?.getAttribute('aria-labelledby') ?? null, rotulo_visible: !!document.querySelector('app-almacen-surtir label[for="sr-alm"]') };
-    });
+    // [GP.RF.41] El nombre lo calcula el navegador (árbol de accesibilidad): PrimeNG pone en aria-label la
+    // opción ELEGIDA y aria-labelledby le gana; leer el atributo daba el nombre del almacén como rótulo.
+    const cbAlm = page.locator('app-almacen-surtir .sr-cab p-select [role=combobox]');
+    salida['etiqueta_almacen'] = (await cbAlm.count()) ? {
+      nombre_accesible: /combobox "([^"]*)"/.exec(await cbAlm.first().ariaSnapshot())?.[1] ?? null,
+      rotulo_visible: await cbAlm.first().evaluate((cb) => {
+        const ids = (cb.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+        const el = ids.length ? document.getElementById(ids[0]) : document.querySelector(`label[for="${cb.id}"]`);
+        return !!el && (el as HTMLElement).getBoundingClientRect().height > 0 ? (el as HTMLElement).innerText.trim() : false;
+      }),
+      grupo_origen: await page.locator('app-almacen-surtir .sr-origen').evaluate((g) => {
+        const l = document.getElementById(g.getAttribute('aria-labelledby') || '');
+        return l && l.getBoundingClientRect().height > 0 ? l.innerText.trim() : (g.getAttribute('aria-label') ? `sólo aria-label «${g.getAttribute('aria-label')}»` : false);
+      }),
+      alto_cabecera_px: await page.locator('app-almacen-surtir .sr-cab').evaluate((e) => Math.round(e.getBoundingClientRect().height)),
+      un_renglon: await page.evaluate(() => {
+        const a = document.querySelector('app-almacen-surtir .sr-cab p-select')?.getBoundingClientRect();
+        const b = document.querySelector('app-almacen-surtir .sr-cab .sr-origen')?.getBoundingClientRect();
+        return !!a && !!b && Math.abs(a.bottom - b.bottom) < 2;
+      }),
+    } : 'sin selector (un solo almacén)';
     salida['deslizables'] = await deslizables(page);
     salida['grupo_origen'] = await grupoOrigen(page);
     salida['alto_contraste'] = await altoContraste(page);
