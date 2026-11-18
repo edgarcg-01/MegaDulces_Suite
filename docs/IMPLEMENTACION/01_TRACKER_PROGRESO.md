@@ -1807,6 +1807,15 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         prueba de punta a punta no corre en el CI. **No hay aviso en vivo** cuando se sube el estado de cuenta: el
         veredicto cambia al recargar la bandeja.
       · ⛔ **Para soltar:** lo mismo que CC.20 (su migración `20261117153156`); CC.21 no agrega migración.
+- [x] **[CC.20.1]** 🧪 **El enlace de depósito salía con la IP de la oficina** (Edgar, 2026-11-18, con el primer
+      mensaje real: `http://192.168.0.222:8080/deposito/…`). Causa: en prod `APP_PUBLIC_URL` vale esa IP
+      (`make-prod-env.js` la puso para el correo de Salud BD) y pisa el origen de la petición; quien emite desde la
+      oficina entra por la misma IP. Arreglo sin tocar el secreto: `origenPublicoParaEnlace()` en `platform-core`
+      toma la primera base que abre desde internet (`PUBLIC_LINK_URL`, `APP_PUBLIC_URL`, la petición) y si ninguna,
+      `https://megadulcessuite.com`. Vale para el mensaje de WhatsApp, la ficha de Cartera y el QR del PDF. El mensaje ya
+      no promete «le avisamos cuando quede aplicado» (nadie avisa): dice que en el mismo enlace lo verá. 5 pruebas;
+      mutante sin `192.168` → 3 rojas. ⚠️ El mismo defecto, sin tocar: la liga de candidatos de RH
+      (`talent-links.service.ts`) y la de captura de gasto GX.9 también salen con la IP interna.
 - [x] **[CC.20]** ✅ (en prod el 2026-11-18, `bbd1d0131`) ⭐ **El CLIENTE sube su ficha de depósito desde un enlace personal, sin usuario ni
       contraseña** (Edgar, 2026-11-17: «lo más práctico y lo más fácil posible»; canal = enlace personal por WhatsApp y
       QR en el estado de cuenta; lo recibe Cobranza y lo ve el vendedor). Medido ese día: 2,722 cobros / $48.5M en 30

@@ -42,7 +42,7 @@ export function mensajeEstadoCuenta(det: CarteraDetalle, enlaceDeposito?: string
       '',
       '*¿Ya pagó?* Suba aquí la foto de su ficha de depósito o la captura de su transferencia, sin usuario ni contraseña:',
       enlaceDeposito,
-      'Es personal de su cuenta; le avisamos cuando quede aplicado.',
+      'Es personal de su cuenta; en ese mismo enlace verá cuando quede aplicado.',
       '',
       'Quedamos a sus órdenes para cualquier aclaración.',
     );
