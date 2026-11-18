@@ -24,6 +24,7 @@ import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -1019,6 +1020,7 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly location = inject(Location);
+  private readonly uso = inject(UsoService);
   /**
    * `[GP.RF.38]` true = el pedido abierto dejó su propia entrada en el historial (se abrió desde la lista).
    * Con eso «atrás» —el gesto del celular o «← Pedidos»— regresa a la lista en vez de salir de Surtir.
@@ -1710,8 +1712,30 @@ export class AlmacenSurtirComponent implements OnInit {
       },
       error: (e) => {
         this.cerrando.set(false);
+        this.reportarRechazo('cerrar_preventa', o, e, lines.filter((x) => 'substitute' in x).length);
         this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
       },
+    });
+  }
+
+  /**
+   * `[GP.RF.23]` Un cierre rechazado deja su MOTIVO. Medido en prod (30 días): 84 de 925 cierres se
+   * rechazaron (todos 4xx) y el motivo no quedaba en ningún lado: el servidor no lo guarda y el aviso
+   * dura 8 s en pantalla. Va por el canal de incidentes (`kind: 'error'`, [RA-PERF.6]): el código, el
+   * mensaje del servidor y lo que traía el cierre (renglones, faltantes, cambios), para separar las
+   * causas candidatas —cambiar un producto por otro, dos personas sobre el mismo pedido—. Nada de lo
+   * que la persona escribe. «Dispara y olvida»: no cambia lo que pasa en pantalla.
+   */
+  private reportarRechazo(accion: 'cerrar_preventa' | 'cerrar_kepler', o: PickerWave, e: unknown, cambios = 0): void {
+    const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
+    this.uso.reportarIncidente('surtir_cierre_rechazado', {
+      accion,
+      status,
+      motivo: this.mensaje(e, '').slice(0, 300),
+      ola_id: o.id,
+      renglones: o.lines.length,
+      faltantes: this.conFaltante(),
+      cambios,
     });
   }
 
@@ -2030,6 +2054,7 @@ export class AlmacenSurtirComponent implements OnInit {
       },
       error: (e) => {
         this.cerrando.set(false);
+        this.reportarRechazo('cerrar_kepler', o, e);
         this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
       },
     });

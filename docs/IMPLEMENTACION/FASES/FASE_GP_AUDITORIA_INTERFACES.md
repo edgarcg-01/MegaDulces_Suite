@@ -973,6 +973,39 @@ sección, con su motivo.
 - **Sin validación visual:** la API sintética no sirve Checar, la consola ni Ubicaciones. Lo cubren
   las pruebas de componente, que montan la plantilla de verdad.
 
+**Bloque 3: lo que nadie veía.**
+- **Atorados en el Tablero (GP.RF.16).**
+  - Nuevo `GET warehouse/orders/atorados`, de sólo lectura y con permiso del Tablero. Cuenta los
+    pedidos que siguen `AUTORIZADO` en Kepler con fecha anterior a la ventana de la fila (7 días),
+    por sucursal del alcance.
+  - Usa la misma regla que la cuenta de la fila (`ATORADOS_ALCANCE_SQL` junto a
+    `ATORADOS_KEPLER_SQL`) y la misma ventana: la constante `VENTANA_POOL_DIAS`, que ahora usa
+    también el pool.
+  - Medido en prod, sólo lectura: 396 pedidos en 8 sucursales, el más viejo del 29-nov-2025 y 288
+    en Zamora Centro. Tarda de 60 a 170 ms, y la suma cuadra sucursal por sucursal con la cuenta que
+    ya publicaba la fila.
+  - El aviso dice cuántos, desde cuándo y dónde se concentran. «Velos» pone en la lista el filtro con
+    la misma frontera, igual que GP.RF.15.
+  - Si no se pudo contar, lo dice; sin atorados no hay aviso (pruebas negativas). Se pide una vez
+    al abrir, no en cada filtro (control en el navegador).
+- **Preventa a un toque (GP.RF.21).**
+  - El motor cuenta por origen (`conteos_origen`), con sucursal, búsqueda y el mismo filtro de etapa
+    que la lista, sin el de origen. «Preventa N» dice lo que se verá al tocarlo.
+  - Un toque pide sólo la preventa; antes eran el desplegable y la opción. Medido en el navegador
+    con la API sintética: la petición sale con `origin=PREVENTA` y la lista trae sólo `PD-`.
+  - Con una API anterior no se pinta un número inventado (prueba negativa).
+- **El motivo de cada cierre rechazado (GP.RF.23).**
+  - Uno de cada 11 cierres de Surtir se rechazaba, y el motivo no quedaba en ningún lado.
+  - Ahora cada rechazo manda por el canal de incidentes que ya existía (`reportarIncidente`,
+    `kind: 'error'`): el código, el mensaje del servidor y lo que traía el cierre (renglones,
+    faltantes, cambios de producto, el id del surtido).
+  - No manda nada de lo que la persona escribe y no cambia lo que pasa en pantalla. La causa se sabrá
+    leyendo esos registros después de soltar.
+- **GP.RF.24, 25 y 26:** eran de `/almacen/surtir-preventa`, que se retiró en GP.RF.32. En Surtir,
+  «No había nada» está a dos toques: «Faltó» y «No había nada».
+- **Arranque no verificado:** el endpoint nuevo agrega decoradores de Nest a un controlador. Se probó
+  el motor y el SQL contra prod, no el arranque de la API: eso lo dice el despliegue.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -1022,14 +1055,14 @@ Formato de cada hallazgo:
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | 🧪 2026-11-18: el «1» a 7.09:1; «Salir» y todo botón sin relleno pasan AA desde el tema (§5c.9) |
 | GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
 | GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | ✅ en prod `4d99357f7` (la cifra de su nota, corregida en GP.10.5 🧪) |
-| GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | ⬜ siguiente cambio |
+| GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | 🧪 2026-11-18: `GET warehouse/orders/atorados` (sólo lectura, 60–170 ms en prod; 396 en 8 sucursales, cuadra sucursal por sucursal con la cuenta de la fila) y el aviso con «Velos» (§5c.9) |
 | GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | 🧪 2026-11-18: sin preferencia guardada abre en el almacén de la persona, y nombra sin número (§5c.9). «El que tiene trabajo» pediría que la API cuente por almacén: no se hizo |
 | GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens. Edgar: «corrijamos todo lo que está mal» | 🧪 2026-11-18: en el tema, rojo 700 = 6.47:1 (§5c.9). Queda: «Cancelar» junto a «Marcar urgente» en cada renglón (la consola tiene cambios vivos de otra sesión) | 
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
 | GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | ✅ en prod `4d99357f7`: 507 → 457 px medido |
-| GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
+| GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | 🧪 2026-11-18: «Preventa N» a un toque (la API cuenta por origen con la misma etapa que la lista); medido en el navegador (§5c.9) |
 | GP.RF.22 | 1 | 🟠 | «Existen demasiadas cosas» (Edgar). El Tablero abría en «Todos», con 1,396 de 2,389 pedidos ya embarcados; tenía 22 controles antes de la primera fila, dos rellenos naranjas que competían, 9 columnas (dos casi siempre en «—»), párrafos de ayuda en la cabecera y el volumen encimado sobre la etapa en 36 de 200 filas | A + B | lo que se lee antes de encontrar el trabajo; 58 % de la lista ya había salido | Carga visual; Hick; Von Restorff (una primaria); regla P | abre en «Por hacer» (decisión de Edgar); periodo en un desplegable; Surtir y Checar de contorno; Abierto y Guía bajo fecha y etapa; ayuda al «?»; volumen partido (§5.7) | 🧪 |
-| GP.RF.23–29 | 2 | 🔴/🟠/🟡 | Surtir en el celular: 1 de cada 11 cierres rechazado sin motivo guardado (23), primer pedido a 958 px (24), «Hoy · 39» contra 115 en la lista (25), sin «No hubo» (26), Surtir (Kepler) escribe al abrirse (27), 17.6 s y select nativo con código (28), «500 clientes nuevos» topado sin aviso (29) | A + B + C | ver §5c.2 | ver §5c.2 | se proponen en §5c; los de renglón esperan la sesión de surtidor | ⬜ |
+| GP.RF.23–29 | 2 | 🔴/🟠/🟡 | Surtir en el celular: 1 de cada 11 cierres rechazado sin motivo guardado (23), primer pedido a 958 px (24), «Hoy · 39» contra 115 en la lista (25), sin «No hubo» (26), Surtir (Kepler) escribe al abrirse (27), 17.6 s y select nativo con código (28), «500 clientes nuevos» topado sin aviso (29) | A + B + C | ver §5c.2 | ver §5c.2 | se proponen en §5c; los de renglón esperan la sesión de surtidor | 🧪 todos (2026-11-18): 27, 28 y 29 en §5c.5–5c.6; 24, 25 y 26 eran de `/almacen/surtir-preventa`, retirada en GP.RF.32 (en Surtir, «No había nada» está a dos toques); 23: el motivo de cada cierre rechazado queda en el canal de incidentes (§5c.9). La causa del 1 de cada 11 se sabrá con esos registros |
 | GP.RF.35 | 2 | 🟠 | «No reestructuraste la interfaz» (Edgar). La primera tarjeta empezaba a 1,001 px a 390 de ancho, cada pedido traía su botón naranja, el aviso de clientes iba arriba de todo, y al abrir un pedido de abajo la vista quedaba a media lista | A (Playwright, árbol con lecturas de prod) | el trabajo fuera de la primera pantalla; un desplazamiento para encontrar el primer producto | Carga visual; Fitts; Von Restorff | lista y pedido rehechos con la maqueta aprobada (§5c.6): 1,001 → 504 px; el pedido abre arriba; el escáner queda fijo | 🧪 |
 | GP.RF.36 | 2 | 🟡 | «Rutas de hoy» pintaba un esqueleto de 181 px y, sin rutas, desaparecía: la lista saltaba | A | posible fuente del CLS 0.23 de §5c.3; un toque que cae en otra tarjeta | Doherty; estabilidad (CLS) | sin esqueleto en la primera carga (§5c.6) | 🧪 |
 | GP.RF.37 | 2 | 🟡 | El escáner salía con borde ámbar (clase compartida con un aviso) y 10 textos en `--warn-fg`/`--ok-fg` (2.15:1 y 3.30:1) | C + A | ilegible a pleno sol; el escáner parece un aviso | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg`/`--ok-soft-fg` (7.1:1) y clase propia | 🧪 |

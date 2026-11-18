@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import type { WarehouseOrderDetail, WarehouseOrdersResponse } from '@megadulces/contracts';
+import type { WarehouseOrderDetail, WarehouseOrdersAtorados, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /** Filtros del tablero. Sin `month` ni rango, el servidor usa el mes en curso. */
@@ -40,6 +40,11 @@ export class AlmacenPedidosService {
     if (f.q) p = p.set('q', f.q);
     if (f.limit) p = p.set('limit', String(f.limit)).set('offset', String(f.offset ?? 0));
     return this.http.get<WarehouseOrdersResponse>(this.base, { params: p });
+  }
+
+  /** `[GP.RF.16]` Los que siguen autorizados en Kepler fuera de la ventana de la fila, en el alcance. */
+  atorados(): Observable<WarehouseOrdersAtorados> {
+    return this.http.get<WarehouseOrdersAtorados>(`${this.base}/atorados`);
   }
 
   detail(sucursal: string, serie: number, folio: string): Observable<WarehouseOrderDetail> {

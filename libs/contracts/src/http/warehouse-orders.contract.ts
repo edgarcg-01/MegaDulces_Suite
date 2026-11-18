@@ -114,6 +114,23 @@ export interface WarehouseOrdersAlcance {
   sucursales: Array<{ codigo: string; nombre: string }>;
 }
 
+/**
+ * `[GP.RF.16]` Pedidos que siguen `AUTORIZADO` en Kepler con fecha ANTERIOR a la ventana de la fila de
+ * surtido, en el alcance de quien consulta: nadie los va a surtir y el Tablero no los mostraba. Misma
+ * regla que `por_armar.atorados` de la fila (cuadra por sucursal). Sólo lectura.
+ */
+export interface WarehouseOrdersAtorados {
+  /** Primer día que SÍ entra a la fila de surtido. */
+  ventana_desde: string;
+  /** Último día atorado (`ventana_desde` − 1): con `desde`, el rango que lista el Tablero. */
+  hasta: string;
+  pedidos: number;
+  /** Fecha del más viejo; `null` si no hay ninguno. */
+  desde: string | null;
+  /** Sólo las sucursales con atorados, por código. */
+  sucursales: Array<{ codigo: string; nombre: string; pedidos: number; desde: string | null }>;
+}
+
 export interface WarehouseOrdersResponse {
   periodo: { from: string; to: string };
   alcance: WarehouseOrdersAlcance;
@@ -134,6 +151,12 @@ export interface WarehouseOrdersResponse {
    * piso desfasados. En el orden de `ETAPAS_PEDIDO`, y al final `cancelado` y `sin_dato` si hay.
    */
   conteos_etapa: Array<{ etapa: EtapaPedido; pedidos: number; con_desfase: number }>;
+  /**
+   * `[GP.RF.21]` Pedidos por origen (`TELEMARK`, `SUCURSAL`, `PREVENTA`…) con sucursal, búsqueda y el
+   * mismo filtro de etapa/estatus que `items`, SIN el de origen: el número del botón «Preventa».
+   * Opcional: una API anterior no lo manda.
+   */
+  conteos_origen?: Array<{ origen: string; pedidos: number }>;
   /**
    * `importe` null = quien consulta no ve dinero (`[MCP.3.2]`: el surtidor, sin `ALMACEN_PEDIDOS_VER`).
    * Sin filtro de estatus, los cancelados NO entran (ni aquí ni en `items`): se ven eligiéndolos.

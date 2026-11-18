@@ -10,6 +10,7 @@ import { AlmacenSurtirComponent } from './almacen-surtir.component';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
 import { ClientesNuevosService } from '../clientes-nuevos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -102,6 +103,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     almacenesSurtido: ReturnType<typeof vi.fn>;
   };
   let user: { warehouse_code?: string; sub?: string } | null;
+  // [GP.RF.23] el canal de incidentes: un cierre rechazado deja su motivo.
+  let uso: { reportarIncidente: ReturnType<typeof vi.fn> };
   let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits' | 'substitutes', ReturnType<typeof vi.fn>>;
   /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
   let cn: { resumen: ReturnType<typeof vi.fn> };
@@ -130,6 +133,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   async function montar(query: Record<string, string> = {}, origen: 'TELEMARK' | 'abre' = 'TELEMARK'): Promise<void> {
     // [GP.RF.38] El historial: `qp$.next(...)` hace lo que el router cuando el celular va «atrás».
     qp$ = new BehaviorSubject<ParamMap>(convertToParamMap(query));
+    uso = { reportarIncidente: vi.fn() };
     await TestBed.configureTestingModule({
       imports: [AlmacenSurtirComponent],
       providers: [
@@ -139,6 +143,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         { provide: PresalePickingService, useValue: pv },
         { provide: AuthService, useValue: { user: () => user } },
         { provide: ClientesNuevosService, useValue: cn },
+        { provide: UsoService, useValue: uso },
         { provide: AlertsSocketService, useValue: { connect: () => undefined, alert$: new Subject<{ type: string }>() } },
       ],
     }).compileComponents();
@@ -1429,6 +1434,25 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).toContain('1 renglón completo');
     expect(texto()).toContain('clave 70034: 75 → 50');
     expect(boton('Tomar siguiente')).toBeTruthy();
+  });
+
+  it('[GP.RF.23] un cierre rechazado deja su motivo por el canal de incidentes', async () => {
+    api.finish = vi.fn(() => throwError(() => ({ status: 422, error: { message: 'El renglón 2 ya lo cerró otra persona' } })));
+    await surtiendo();
+    clic('Completo');
+    clic('Terminé de surtir');
+    expect(uso.reportarIncidente).toHaveBeenCalledTimes(1);
+    const [nombre, props] = uso.reportarIncidente.mock.calls[0];
+    expect(nombre).toBe('surtir_cierre_rechazado');
+    expect(props).toMatchObject({ accion: 'cerrar_kepler', status: 422, motivo: 'El renglón 2 ya lo cerró otra persona', ola_id: 'ola-1' });
+  });
+
+  it('[GP.RF.23] NEGATIVA: un cierre que pasa no reporta nada', async () => {
+    await surtiendo();
+    clic('Completo');
+    clic('Terminé de surtir');
+    expect(api.finish).toHaveBeenCalled();
+    expect(uso.reportarIncidente).not.toHaveBeenCalled();
   });
 
   it('si cerrar falla, sigue surtiendo con la ola intacta', async () => {

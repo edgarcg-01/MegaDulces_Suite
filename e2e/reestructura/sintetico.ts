@@ -69,6 +69,36 @@ function detalle(orderId: string) {
   return { order: { ...fila, state: 'surtiendo', started: { user_id: YO, name: 'Surtidor de prueba', at: new Date().toISOString() } }, lines, justifications: [] };
 }
 
+/** [GP.RF.16][GP.RF.21] El Tablero de pedidos: 3 de Kepler y 2 de preventa, con sus conteos por origen. */
+function tablero(origen: string | null) {
+  const hoy = hoyMx();
+  const fila = (n: number, o: Record<string, unknown>) => ({
+    clave: `01-1-000${n}`, sucursal: '01', sucursal_nombre: 'Sucursal de prueba Norte', serie: 1, folio: `000${n}`, documento: `UD4001-000${n}`,
+    fecha: hoy, hora: '10:15', origen: 'TELEMARK', estatus: 'AUTORIZADO', estatus_kepler: 'AUTORIZADO', cliente_code: `C${n}`,
+    destino_nombre: `Abarrotes Prueba ${n}`, destino_ciudad: 'Ciudad de prueba', vendedor_code: '00021', vendedor_nombre: 'Vendedor Prueba Dos',
+    renglones: 4 + n, volumen: [{ unidad: 'CJA', cantidad: 3 + n }], importe: 1000 + n * 37, guia: null, transporte: null, chofer: null,
+    resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5, etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...o,
+  });
+  const todas = [fila(1, {}), fila(2, { origen: 'SUCURSAL' }), fila(3, {}),
+    fila(4, { clave: '01-PD-PD-000004', folio: 'PD-000004', documento: 'PD-000004', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'surtiendo', order_id: 'o-prueba-04' }),
+    fila(5, { clave: '01-PD-PD-000005', folio: 'PD-000005', documento: 'PD-000005', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'autorizado', order_id: 'o-prueba-05' })];
+  const items = origen ? todas.filter((x) => x.origen === origen) : todas;
+  return {
+    periodo: { from: hoy.slice(0, 8) + '01', to: hoy }, alcance: { todas: true, sucursales: [] },
+    filtros: { estatus: [], etapa: [], origen, sucursal: null, q: null, preventa: true },
+    conteos: [{ estatus: 'AUTORIZADO', pedidos: 2, renglones: 12, mas_antiguo_horas: 5 }, { estatus: 'SURTIDO', pedidos: 0, renglones: 0, mas_antiguo_horas: null }],
+    conteos_etapa: [{ etapa: 'autorizado', pedidos: 4, con_desfase: 0 }, { etapa: 'surtiendo', pedidos: 1, con_desfase: 0 }],
+    conteos_origen: [{ origen: 'PREVENTA', pedidos: 2 }, { origen: 'SUCURSAL', pedidos: 1 }, { origen: 'TELEMARK', pedidos: 2 }],
+    totales: { pedidos: items.length, renglones: 30, importe: 5500, mas_antiguo_horas: 5 },
+    items, truncado: false, pagina: { offset: 0, limit: 50, total: items.length }, sucursales_periodo: [{ codigo: '01', nombre: 'Sucursal de prueba Norte' }],
+    generado_en: new Date().toISOString(),
+  };
+}
+const ATORADOS_SINTETICOS = {
+  ventana_desde: masDias(hoyMx(), -7), hasta: masDias(hoyMx(), -8), pedidos: 396, desde: '2025-11-29',
+  sucursales: [{ codigo: '05', nombre: 'Zamora Centro', pedidos: 288, desde: '2026-03-19' }, { codigo: '06', nombre: 'Canindo', pedidos: 59, desde: '2026-08-15' }, { codigo: '02', nombre: 'Morelia Abastos', pedidos: 49, desde: '2025-11-29' }],
+};
+
 export type RegistroSintetico = { servidas: number; abortadas: string[]; desconocidas: string[]; salieron: string[] };
 
 /** Contesta TODA la API desde aquí. Control: cualquier /api que no pasó por aquí queda en `salieron`. */
@@ -95,6 +125,8 @@ export async function servirSintetico(page: Page): Promise<RegistroSintetico> {
     if (p === '/reparto/surtido/waves/mine') return r.fulfill(json([]));
     if (p === '/warehouse/new-customers/summary') return r.fulfill(json({ scope: 'todos', customers: 12, order_ids: ['o-prueba-05'], truncated: false }));
     if (p === '/users/me/access') return r.fulfill(json({ permissions: {} }));
+    if (p === '/warehouse/orders') return r.fulfill(json(tablero(u.searchParams.get('origin'))));
+    if (p === '/warehouse/orders/atorados') return r.fulfill(json(ATORADOS_SINTETICOS));
     reg.desconocidas.push(p);
     return r.fulfill(json({ data: [] }));
   });

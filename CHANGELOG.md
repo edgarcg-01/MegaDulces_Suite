@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
+- El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
+- «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
+- Cuando Surtir rechaza el cierre de un surtido, el motivo queda registrado para encontrar la causa.
+
 ### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
 - Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
 - El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
