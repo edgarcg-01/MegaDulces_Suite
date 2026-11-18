@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -15,6 +15,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FichasClientesComponent } from '../components/fichas-clientes.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CobranzaService, CobroRow, CobrosReport, DepositOcr, DepositFile, CobroDetail, UnmatchedBankReport, UnmatchedBankRow, CobroCandidate, SumaCandidatos } from '../cobranza.service';
@@ -30,7 +31,7 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
 @Component({
   selector: 'app-finanzas-cobranza',
   standalone: true,
-  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent],
+  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, TableModule, SelectModule, TagModule, InputTextModule, InputNumberModule, ButtonModule, DialogModule, ToastModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, FichasClientesComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -48,6 +49,9 @@ import { CobranzaSocketService, CollectionDepositEvent } from '../cobranza-socke
       <div class="cb-mode">
         <app-segmented [options]="modeOpts" [value]="mode()" (valueChange)="setMode($event)" ariaLabel="Vista" />
       </div>
+
+      <!-- [CC.20] La bandeja de las fichas que subieron los clientes desde su enlace personal. -->
+      @if (mode() === 'clientes') { <app-fichas-clientes /> }
 
       @if (mode() === 'cobros') {
       <div class="cb-cap-bar">
@@ -721,8 +725,10 @@ export class FinanzasCobranzaComponent {
   readonly viewTarget = signal<CobroRow | null>(null);
 
   // Caso B: abonos en banco sin cobro
-  readonly mode = signal<'cobros' | 'banco'>('cobros');
-  readonly modeOpts = [{ label: 'Cobros', value: 'cobros' }, { label: 'Abonos sin cobro', value: 'banco' }];
+  // [CC.20] 'clientes' = las fichas de depósito que subieron los clientes desde su enlace (su propia bandeja).
+  readonly mode = signal<'cobros' | 'banco' | 'clientes'>('cobros');
+  readonly modeOpts = [{ label: 'Cobros', value: 'cobros' }, { label: 'Abonos sin cobro', value: 'banco' }, { label: 'Fichas de clientes', value: 'clientes' }];
+  private readonly fichasClientes = viewChild(FichasClientesComponent);
   readonly huerfanoOpts = [{ label: 'Todos', value: '' }, { label: 'Sin cobro', value: '1' }];
   readonly soloHuerfanos = signal<string>('');
   readonly bancoReport = signal<UnmatchedBankReport | null>(null);
@@ -760,6 +766,8 @@ export class FinanzasCobranzaComponent {
     rejected: 'rechazó un comprobante',
     bank_matched: 'concilió un cobro con el banco',
     bank_unmatched: 'deshizo una conciliación',
+    reported: 'subió su ficha de depósito',
+    bank_loaded: 'cargó el estado de cuenta',
   };
 
   /**
@@ -768,9 +776,24 @@ export class FinanzasCobranzaComponent {
    * emite un evento por cada uno).
    */
   private onWsChange(ev: CollectionDepositEvent): void {
+    if (ev.action === 'bank_loaded') {
+      // [CC.21] Llegó el estado de cuenta (o la conciliación ya lo ligó): el veredicto «¿entró al banco?» de las fichas
+      // y los depósitos sin cobro se derivan al leer, así que basta recargar la vista que depende del banco. Sin aviso
+      // emergente: no lo hizo una persona, y la vista cambia sola.
+      if (this.wsTimer) clearTimeout(this.wsTimer);
+      this.wsTimer = setTimeout(() => {
+        if (this.mode() === 'clientes') this.fichasClientes()?.cargar();
+        else if (this.mode() === 'banco') this.loadBanco();
+      }, 400);
+      return;
+    }
     const me: any = this.auth.user();
     const mine = !!ev.actor && (ev.actor === me?.full_name || ev.actor === me?.username);
-    if (!mine) {
+    if (ev.action === 'reported') {
+      // [CC.20] Un CLIENTE subió su ficha desde su enlace: todavía no hay cobro (sin folio). Aviso con su nombre y monto.
+      this.toast.add({ severity: 'info', summary: 'Ficha de cliente', life: 6000,
+        detail: `${ev.cliente || 'Un cliente'} subió su ficha de depósito${ev.monto != null ? ' por ' + ev.monto.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : ''}` });
+    } else if (!mine) {
       this.toast.add({
         severity: 'info', summary: 'En vivo', life: 3500,
         detail: `${ev.actor || 'Alguien'} ${this.WS_VERB[ev.action] || 'actualizó un comprobante'} · ${ev.folio}`,
@@ -779,6 +802,7 @@ export class FinanzasCobranzaComponent {
     if (this.wsTimer) clearTimeout(this.wsTimer);
     this.wsTimer = setTimeout(() => {
       if (this.mode() === 'banco') this.loadBanco();
+      else if (this.mode() === 'clientes') this.fichasClientes()?.cargar();
       else this.load();
       // Si el diálogo abierto es justo el cobro que cambió, refrescalo también
       // (reusa el mismo helper que usan conciliar/deshacer).
@@ -787,7 +811,7 @@ export class FinanzasCobranzaComponent {
     }, 400);
   }
 
-  setMode(v: string) { this.mode.set(v as 'cobros' | 'banco'); if (v === 'banco' && !this.bancoReport()) this.loadBanco(); }
+  setMode(v: string) { this.mode.set(v as 'cobros' | 'banco' | 'clientes'); if (v === 'banco' && !this.bancoReport()) this.loadBanco(); }
   setHuerfanos(v: string) { this.soloHuerfanos.set(v); this.loadBanco(); }
   queueBanco() { if (this.timerB) clearTimeout(this.timerB); this.timerB = setTimeout(() => this.loadBanco(), 300); }
 

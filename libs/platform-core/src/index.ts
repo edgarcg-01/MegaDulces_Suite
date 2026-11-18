@@ -93,6 +93,7 @@ export * from './lib/constants/permissions';
 export * from './lib/constants/branches';
 export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
+export * from './lib/http/request-origin';
 // [PGP.71] Qué conexión abre qué servidor Kepler: requisición (commercial) y pago (finance).
 export * from './lib/kepler/kepler-servidor';
 // [BU.4.2] Todo buscador de producto encuentra por código de barras (7 casillas de kdii).

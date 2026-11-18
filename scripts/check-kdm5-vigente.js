@@ -78,6 +78,15 @@ const DEUDA_DECLARADA = [
     motivo: '[LE.CU.3] `huecosCorteSinCobro` baja a kdm5 desde el abono de kdm1 ya filtrado sin cancelados (c43 <> C): regla duplicada, no defecto',
     salida: 'leer la vista y quitar el filtro propio del abono',
   },
+  {
+    rel: rel('database', 'migrations-newdb', '20261117144732_cxc21_cartera_por_evento.js'),
+    n: 2,
+    motivo: '[CXC.21] NO suma dinero: (1) crea el índice ix_kdm5_abono; (2) los disparadores leen kdm5 para saber QUÉ '
+      + 'cuentas marcar sucias. Tiene que ser CRUDO a propósito: al CANCELAR un abono, la vista ya no muestra sus '
+      + 'aplicaciones y la cuenta afectada no se marcaría — justo el cambio de saldo que hay que recalcular. El dinero '
+      + 'lo calcula customer_receivables_for, que sí lee kepler_kdm5_vigente (armada desde la vista)',
+    salida: 'ninguna mientras el disparador de cancelación necesite ver la aplicación cancelada',
+  },
 ];
 
 /** El archivo que documenta la trampa puede nombrarla sin ser culpable de ella. */

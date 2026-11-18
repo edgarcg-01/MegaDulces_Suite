@@ -38,13 +38,15 @@ const NM = (m) => { nm++; console.log(`  ○ NO MEDIDO — ${m}`); };
 const eq = (a, b, tol = 0.05) => Math.abs(Number(a) - Number(b)) <= tol;
 const money = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function sqlDelServicio(filtros) {
+// [CXC.41] El bloque usa DOS juegos de filtros: el de la pantalla y el mismo sin el tipo de
+// cuenta (alimenta por_tipo_universo). Sus binds van en ese orden, entre los dos tenant.
+function sqlDelServicio(filtros, filtrosSinCuenta = filtros) {
   const src = fs.readFileSync(SRC, 'utf8');
   const i = src.indexOf("const VIVA = 'd.res > 0.005';");
   const j = src.indexOf('AS almacenes`;', i);
   if (i < 0 || j < 0) throw new Error('no se encontró el bloque SQL en customer-ledger.service.ts');
   const chunk = src.slice(i, j + 'AS almacenes`;'.length).replace('(extra: string)', '(extra)');
-  return new Function('filtros', `${chunk}\nreturn sql;`)(filtros);
+  return new Function('filtros', 'filtrosSinCuenta', `${chunk}\nreturn sql;`)(filtros, filtrosSinCuenta);
 }
 function aPg(sql) {
   let out = '', n = 0, dentro = false;
@@ -167,7 +169,7 @@ function plegar(clientes) {
     NM('el universo no ofrece ningún tipo de cuenta: nada que filtrar');
   } else {
     const uno = kinds.includes('interno') ? 'interno' : kinds[0];
-    const f = (await c.query(aPg(sqlDelServicio('WHERE d.cuenta_kind = ?')), [TENANT, uno, TENANT])).rows[0];
+    const f = (await c.query(aPg(sqlDelServicio('WHERE d.cuenta_kind = ?', '')), [TENANT, uno, TENANT])).rows[0];
     const B = plegar(f.clientes || []);
     const soloUno = Object.keys(B.por);
     (soloUno.length === 1 && soloUno[0] === uno)

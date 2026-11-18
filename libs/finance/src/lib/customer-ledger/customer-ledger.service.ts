@@ -9,6 +9,7 @@ import {
   skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
+import type { Knex } from 'knex';
 
 /**
  * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.
@@ -101,13 +102,75 @@ const emptyPorTipo = (): PorTipoCuenta => ({
   ruta: { saldo: 0, vencido: 0, clientes: 0 },
 });
 /**
+ * `[CXC.21]` De dónde se lee la cartera: la tabla por evento o la vista. `alDia` = hasta cuándo está al día la tabla
+ * (la marca más vieja que espera en la cola, o ahora).
+ */
+export interface FuenteCartera { rel: string; porEvento: boolean; alDia: string | null }
+/**
+ * `[CXC.21]` Cambia la vista por la tabla en un SQL armado. El SQL se escribe con la VISTA a propósito: las pruebas de
+ * base (`test-newdb-cartera-*`) leen ese bloque del código y lo corren tal cual. Si el texto no aparece UNA vez, falla en
+ * voz alta: leer la vista en silencio mientras se cree leer la tabla sería el peor de los dos mundos.
+ */
+/**
+ * `[CC.20]` Una lectura de MEJOR ESFUERZO dentro de una transacción. En Postgres un error deja la transacción
+ * abortada y todo lo que sigue falla; un `try/catch` solo NO alcanza. Aquí va en su SAVEPOINT: si falla, se vuelve
+ * a él y devuelve `null` (no se pudo saber), y el resto de la respuesta sigue funcionando.
+ */
+async function intentar<T>(trx: Knex.Transaction, nombre: string, fn: () => Promise<T>): Promise<T | null> {
+  await trx.raw(`SAVEPOINT ${nombre}`);
+  try {
+    const r = await fn();
+    await trx.raw(`RELEASE SAVEPOINT ${nombre}`);
+    return r;
+  } catch {
+    await trx.raw(`ROLLBACK TO SAVEPOINT ${nombre}`);
+    return null;
+  }
+}
+
+function conFuente(sql: string, rel: string): string {
+  if (rel === 'analytics.customer_receivables') return sql;
+  const de = 'FROM analytics.customer_receivables r\n';
+  if (sql.split(de).length !== 2) throw new Error(`[CXC.21] el SQL no lee la cartera UNA vez desde la vista: no se puede cambiar a ${rel}`);
+  return sql.replace(de, () => `FROM ${rel} r\n`);
+}
+
+/** `[CXC.43]` Por dónde se contactó a la cuenta. Lo registra el acto en la ficha. */
+export type CanalContacto = 'telefono' | 'whatsapp' | 'estado_cuenta_pdf';
+export const CANALES_CONTACTO: CanalContacto[] = ['telefono', 'whatsapp', 'estado_cuenta_pdf'];
+export interface UltimoContacto { at: string; canal: CanalContacto; por: string | null }
+
+/** Lo que devuelve `registrarContacto`: el renglón recién insertado, tal como lo da `returning`. */
+export interface ContactoRegistrado { id: string; canal: string; contacted_at: string }
+
+/**
+ * Una fila cruda del agregado por tipo de cuenta. Postgres devuelve los `numeric` como
+ * **string** por JSON, así que los importes se declaran como vienen y se convierten acá;
+ * tiparlos `number` mentiría sobre lo que llega.
+ */
+type FilaPorTipo = {
+  kind?: string | null;
+  saldo?: string | number | null;
+  vencido?: string | number | null;
+  clientes?: string | number | null;
+};
+
+/**
+ * ¿Este `kind` crudo del SQL es uno de los tres que conocemos? Es un *type guard* y no un
+ * `includes` suelto a propósito: `includes` devuelve `boolean` y no estrecha el tipo, así que
+ * el valor seguía siendo `string | null` y sólo un `any` escondía la diferencia.
+ */
+const esCuentaKind = (k: string | null | undefined): k is CuentaKind =>
+  !!k && (CUENTA_KINDS as readonly string[]).includes(k);
+
+/**
  * `[CXC.41]` Filas `{kind, saldo, vencido, clientes}` del SQL → `PorTipoCuenta`. Un `kind`
  * desconocido o vacío cae en `cliente_final`, la misma regla que aplica la tabla.
  */
-const porTipoDe = (rows: any[] | null | undefined): PorTipoCuenta => {
+const porTipoDe = (rows: FilaPorTipo[] | null | undefined): PorTipoCuenta => {
   const t = emptyPorTipo();
   for (const r of rows || []) {
-    const k: CuentaKind = CUENTA_KINDS.includes(r?.kind) ? r.kind : 'cliente_final';
+    const k: CuentaKind = esCuentaKind(r?.kind) ? r.kind : 'cliente_final';
     t[k].saldo = Math.round((t[k].saldo + (Number(r.saldo) || 0)) * 100) / 100;
     t[k].vencido = Math.round((t[k].vencido + (Number(r.vencido) || 0)) * 100) / 100;
     t[k].clientes += Number(r.clientes) || 0;
@@ -270,14 +333,49 @@ export class CustomerLedgerService {
    * No es decorativo: el 2026-09-24 los dos carriles llevaban ~26 h sin latir y la pantalla
    * igual rotulaba «saldos al 2026-09-24» — que era el reloj de Postgres, no la edad del dato.
    */
-  private async freshness(trx: any): Promise<Freshness> {
+  private async freshness(trx: Knex.Transaction, fuente?: FuenteCartera): Promise<Freshness> {
     try {
-      return composeFreshness([
+      const inputs = [
         evalInput('ods_live_hot', 'Saldos y cobros (kdue/kdm5)', await laneAt(trx, 'ods_live_hot'), 6),
         evalInput('ods_live_mirror', 'Clientes y vendedores (kdud/kduv)', await laneAt(trx, 'ods_live_mirror'), 26),
-      ]);
+      ];
+      // `[CXC.21]` Leyendo la tabla por evento hay un eslabón más: el drenado. Su edad es la de la marca más vieja que
+      // sigue en la cola (sin cola, está al día). Más de 15 min = el que drena no está corriendo, y se dice.
+      if (fuente?.porEvento) inputs.push(evalInput('cartera_por_evento', 'Cartera recalculada por evento', fuente.alDia, 0.25));
+      return composeFreshness(inputs);
     } catch {
       return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  /**
+   * `[CXC.21]` **De dónde se lee la cartera.** La tabla `analytics.customer_receivables_current` (por evento, ms) si
+   * está lista; si no, la vista `analytics.customer_receivables` (4 s, siempre al día). Lista = el interruptor
+   * prendido, al menos una corrida completa (la tabla está llena) y ninguna marca esperando más de 10 minutos (si el
+   * que drena se cayó, la tabla se queda vieja: se vuelve a la vista sin que nadie tenga que darse cuenta).
+   * Sin la migración (tabla inexistente) es la vista, como siempre.
+   */
+  private async fuenteCartera(trx: Knex.Transaction): Promise<FuenteCartera> {
+    const VISTA: FuenteCartera = { rel: 'analytics.customer_receivables', porEvento: false, alDia: null };
+    const hay = (await trx.raw(`SELECT to_regclass('analytics.customer_receivables_current') IS NOT NULL AS ok`)).rows[0]?.ok;
+    if (!hay) return VISTA;
+    // Un error dentro de la transacción la dejaría abortada para el resto de la pantalla: va en su SAVEPOINT.
+    await trx.raw('SAVEPOINT fuente_cartera');
+    try {
+      const s = (await trx.raw(`
+        SELECT COALESCE((SELECT e.enabled FROM analytics.receivables_by_event e LIMIT 1), false) AS prendido,
+               EXISTS (SELECT 1 FROM analytics.receivables_refresh_runs r WHERE r.mode = 'completo') AS lleno,
+               (SELECT min(q.created_at) FROM analytics.receivables_dirty_accounts q) AS pendiente_desde,
+               now() AS ahora`)).rows[0];
+      await trx.raw('RELEASE SAVEPOINT fuente_cartera');
+      const pendiente = s?.pendiente_desde ? new Date(s.pendiente_desde) : null;
+      const ahora = new Date(s?.ahora ?? Date.now());
+      if (!s?.prendido || !s?.lleno) return VISTA;
+      if (pendiente && ahora.getTime() - pendiente.getTime() > 10 * 60_000) return VISTA;
+      return { rel: 'analytics.customer_receivables_current', porEvento: true, alDia: (pendiente ?? ahora).toISOString() };
+    } catch {
+      await trx.raw('ROLLBACK TO SAVEPOINT fuente_cartera');
+      return VISTA;
     }
   }
 
@@ -316,14 +414,15 @@ export class CustomerLedgerService {
    * éste. Lo más caro de la pirámide es el `jsonb_agg` de `aplicaciones`, que **sólo usa el
    * drill** y la lista paga en cada request.
    */
-  private async agregado(trx: any, tenantId: string, q: CarteraQuery) {
+  private async agregado(trx: Knex.Transaction, tenantId: string, q: CarteraQuery, fuente?: FuenteCartera): Promise<Record<string, any>> { // eslint-disable-line @typescript-eslint/no-explicit-any -- fila cruda del SQL; ya era any
+    const rel = (fuente ?? (await this.fuenteCartera(trx))).rel;
     // Dos juegos de filtros: el de la pantalla y el MISMO sin el tipo de cuenta. El segundo
     // alimenta `por_tipo_universo` (ver abajo); sus binds se repiten en su lugar del SQL.
     const cond: string[] = [];
-    const bindFiltros: any[] = [];
+    const bindFiltros: Knex.Value[] = [];
     const condSinCuenta: string[] = [];
-    const bindSinCuenta: any[] = [];
-    const add = (sql: string, ...v: any[]) => {
+    const bindSinCuenta: Knex.Value[] = [];
+    const add = (sql: string, ...v: Knex.Value[]) => {
       cond.push(sql); bindFiltros.push(...v);
       condSinCuenta.push(sql); bindSinCuenta.push(...v);
     };
@@ -497,7 +596,7 @@ export class CustomerLedgerService {
 
     // Orden de los `?` en el texto: doc (tenant) · sel (filtros) · tcli (filtros sin cuenta) ·
     // almacenes (tenant).
-    const r = await trx.raw(sql, [tenantId, ...bindFiltros, ...bindSinCuenta, tenantId]);
+    const r = await trx.raw(conFuente(sql, rel), [tenantId, ...bindFiltros, ...bindSinCuenta, tenantId]);
     return r.rows[0];
   }
 
@@ -513,8 +612,11 @@ export class CustomerLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 5000);
     return this.tk.run(async (trx) => {
-      const a = await this.agregado(trx, tenantId, q);
-      const freshness = await this.freshness(trx);
+      // [CXC.21] UNA decisión de fuente para toda la respuesta: la tabla por evento o la vista.
+      const fuente = await this.fuenteCartera(trx);
+      const a = await this.agregado(trx, tenantId, q, fuente);
+      const freshness = await this.freshness(trx, fuente);
+      const contactos = await this.ultimosContactos(trx, tenantId);
       const hoy: string = a.hoy;
 
       const clientes: any[] = [];
@@ -571,6 +673,9 @@ export class CustomerLedgerService {
           dias_pago_prom: g.dias_pago_prom != null ? Number(g.dias_pago_prom) : null,
           n_pagos: Number(g.n_pagos) || 0,
           aging,
+          // `[CXC.43]` null = sin contacto en 30 días; si la tabla no existe, `contactos_medidos`
+          // va en false y la pantalla no afirma nada.
+          ultimo_contacto: contactos?.get(`${g.sucursal}|${g.cliente_code}`) ?? null,
         });
 
         kpi.total_saldo += saldo; kpi.total_vencido += r2(g.vencido);
@@ -653,6 +758,7 @@ export class CustomerLedgerService {
         kpi,
         clientes: clientes.slice(0, limit),
         total_clientes: clientes.length,
+        contactos_medidos: contactos != null,
         resumen,
         filtros: this.opciones(a),
       };
@@ -984,9 +1090,10 @@ export class CustomerLedgerService {
           AS almacenes`;
 
     return this.tk.run(async (trx) => {
-      const r = await trx.raw(sql, [...bind, tenantId]);
+      const fuente = await this.fuenteCartera(trx);
+      const r = await trx.raw(conFuente(sql, fuente.rel), [...bind, tenantId]);
       const a = r.rows[0];
-      const freshness = await this.freshness(trx);
+      const freshness = await this.freshness(trx, fuente);
       const hoy: string = a.hoy;
 
       // ⚠️ El veredicto (vencido / hoy / futuro) lo emite el SERVIDOR, no la pantalla. Restar
@@ -1106,7 +1213,8 @@ export class CustomerLedgerService {
     if (!dto?.monto || dto.monto <= 0) throw new BadRequestException('monto inválido');
     if (!dto?.fecha) throw new BadRequestException('fecha requerida');
     return this.tk.run(async (trx) => {
-      const snap = (await trx('analytics.customer_receivables as r')
+      const fuente = await this.fuenteCartera(trx);
+      const snap = (await trx(`${fuente.rel} as r`)
         .leftJoin('analytics.erp_customers as c', function (this: any) { this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code'); })
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': sucursal, 'r.cliente_code': cliente, 'r.cargo_abono': 'C' })
         // `[CXC.20]` El saldo que se congela en el compromiso es el CANÓNICO (`saldo_cliente`, de
@@ -1124,6 +1232,43 @@ export class CustomerLedgerService {
       }).returning(['id', 'estado']);
       return row;
     });
+  }
+
+  /**
+   * `[CXC.43]` Registra que se contactó a la cuenta. Lo dispara el ACTO en la ficha (llamar,
+   * WhatsApp, PDF), no un formulario. Tabla propia, nunca Kepler.
+   */
+  async registrarContacto(sucursal: string, cliente: string, canal: string, username?: string): Promise<ContactoRegistrado> {
+    if (!CANALES_CONTACTO.includes(canal as CanalContacto)) throw new BadRequestException('canal inválido');
+    if (!sucursal?.trim() || !cliente?.trim()) throw new BadRequestException('cuenta requerida');
+    this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const [row] = await trx('finance.collection_contacts').insert({
+        tenant_id: trx.raw('current_tenant_id()'),
+        sucursal: sucursal.trim(), cliente_code: cliente.trim(), canal,
+        created_by: username || null, updated_by: username || null,
+      }).returning(['id', 'canal', trx.raw(`to_char(contacted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as contacted_at`)]);
+      return row;
+    });
+  }
+
+  /**
+   * `[CXC.43]` El último contacto de cada cuenta en los últimos 30 días, por (sucursal, código).
+   * Devuelve `null` si la tabla todavía no existe (la migración no se ha aplicado): la pantalla
+   * lo DECLARA como no medido en vez de pintar a todos como «sin contactar» (ADR-056).
+   */
+  private async ultimosContactos(trx: Knex.Transaction, tenantId: string): Promise<Map<string, UltimoContacto> | null> {
+    const existe = (await trx.raw(`SELECT to_regclass('finance.collection_contacts') IS NOT NULL AS ok`)).rows[0]?.ok;
+    if (!existe) return null;
+    const r = await trx.raw(`
+      SELECT DISTINCT ON (sucursal, cliente_code)
+             sucursal, cliente_code, canal, to_char(contacted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at, created_by AS por
+        FROM finance.collection_contacts
+       WHERE tenant_id = ? AND contacted_at >= now() - interval '30 days'
+       ORDER BY sucursal, cliente_code, contacted_at DESC`, [tenantId]);
+    const m = new Map<string, UltimoContacto>();
+    for (const x of r.rows) m.set(`${x.sucursal}|${x.cliente_code}`, { at: x.at, canal: x.canal, por: x.por || null });
+    return m;
   }
 
   /** Resuelve un compromiso: cumplida | incumplida | cancelada. */
@@ -1161,7 +1306,9 @@ export class CustomerLedgerService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const hoy = await this.hoy(trx);
-      const rows = await trx('analytics.customer_receivables as r')
+      // [CXC.21] La ficha lee la tabla por evento si está lista (ms en vez de ~3.3 s).
+      const fuente = await this.fuenteCartera(trx);
+      const rows = await trx(`${fuente.rel} as r`)
         .leftJoin('analytics.erp_customers as c', function (this: any) {
           this.on('c.tenant_id', 'r.tenant_id').andOn('c.erp_code', 'r.cliente_code');
         })
@@ -1224,29 +1371,42 @@ export class CustomerLedgerService {
       // 360 — cobranza real del cliente (Fase CC): cobros UA0501 + evidencia (ficha/validada).
       // Puente por cliente_code (los cobros de la suc '00' — Oficinas, no el CEDIS: ERP_KEPLER
       // §2.3 — traen el código del cliente). Best-effort.
+      //
+      // ⛔ `[CC.20]` Filtraba `d.estado`, y la columna se llama `status`: la consulta fallaba SIEMPRE (medido en prod
+      // el 2026-11-17) y el `catch` lo callaba. Peor: dentro de la transacción, la falla la dejaba ABORTADA, así que
+      // lo que venía después también fallaba en silencio — los compromisos nunca se mostraban y la frescura salía
+      // «no se pudo medir». Cada lectura de mejor esfuerzo va ahora en su SAVEPOINT (`intentar`).
       let cobranza: any = null;
-      try {
-        const cc = (await trx.raw(
-          `SELECT count(*)::int n, COALESCE(sum(e.monto), 0)::numeric monto, max(e.cobro_date)::text ultimo,
-                  count(d.id)::int con_ficha, count(*) FILTER (WHERE d.estado = 'validado')::int validados
-             FROM analytics.erp_collections e
-             LEFT JOIN finance.collection_deposits d
-               ON d.tenant_id = e.tenant_id AND d.sucursal = e.sucursal AND d.folio = e.folio
-            WHERE e.tenant_id = ? AND e.cliente_code = ?`,
-          [tenantId, cliente])).rows[0];
-        if (cc && cc.n > 0) {
-          cobranza = { n: cc.n, monto: M2(cc.monto), ultimo: cc.ultimo, con_ficha: cc.con_ficha, validados: cc.validados };
-        }
-      } catch { /* CC no disponible → sin puente */ }
+      const cc = await intentar(trx, 'cc_cobranza', async () => (await trx.raw(
+        `SELECT count(*)::int n, COALESCE(sum(e.monto), 0)::numeric monto, max(e.cobro_date)::text ultimo,
+                count(d.id)::int con_ficha, count(*) FILTER (WHERE d.status = 'validado')::int validados
+           FROM analytics.erp_collections e
+           LEFT JOIN finance.collection_deposits d
+             ON d.tenant_id = e.tenant_id AND d.sucursal = e.sucursal AND d.folio = e.folio
+          WHERE e.tenant_id = ? AND e.cliente_code = ?`,
+        [tenantId, cliente])).rows[0]);
+      if (cc && cc.n > 0) {
+        cobranza = { n: cc.n, monto: M2(cc.monto), ultimo: cc.ultimo, con_ficha: cc.con_ficha, validados: cc.validados };
+      }
 
-      let compromisos: any[] = [];
-      try { compromisos = await this.promisesOf(trx, tenantId, sucursal, cliente); } catch { /* tabla no migrada aún */ }
+      const compromisos = (await intentar(trx, 'cc_compromisos', () => this.promisesOf(trx, tenantId, sucursal, cliente))) ?? [];
+
+      // `[CC.20]` Las fichas que el CLIENTE subió desde su enlace (por revisar, ligadas o rechazadas). Sin la migración
+      // 20261117153156 (columna `origen`) no hay ninguna: `null` = no se puede saber, no «cero».
+      const depositosReportados = await intentar(trx, 'cc_reportados', async () => (await trx.raw(
+        `SELECT id, status, folio, motivo_rechazo, reported_monto::numeric AS monto, reported_fecha::text AS fecha,
+                ocr_banco AS banco, created_at::text AS reportado
+           FROM finance.collection_deposits
+          WHERE tenant_id = ? AND origen = 'cliente' AND cuenta_sucursal = ? AND cliente_code = ?
+          ORDER BY created_at DESC LIMIT 20`, [tenantId, sucursal, cliente])).rows
+        .map((r: { monto: string | number | null }) => ({ ...r, monto: r.monto != null ? M2(r.monto) : null })));
 
       return {
         hoy,
         cobranza,
         compromisos,
-        freshness: await this.freshness(trx),
+        depositos_reportados: depositosReportados,
+        freshness: await this.freshness(trx, fuente),
         cliente: {
           sucursal, cliente_code: cliente, cliente_nombre: head.cliente_nombre || cliente, rfc: head.rfc || null,
           vendedor, vendedor_nombre: vendedorNombre, grupo: head.grupo || null, zona: head.zona || null,
