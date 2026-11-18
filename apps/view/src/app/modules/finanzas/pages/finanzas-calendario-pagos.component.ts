@@ -4386,12 +4386,17 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[TP.21.2]` Un dia ya pasado. Solo ahi un libro vacio dice algo: hacia adelante no hay nada que registrar. */
   isPast(iso: string): boolean { return iso < this.todayIso; }
 
+  /**
+   * `[PGP.151]` Cambiar de semana pide SÓLO la semana. Antes recargaba todo (`reload()`: semana, bandeja, deuda, atrasados
+   * y anticipos), y ninguna de las otras cuatro depende de la semana: la bandeja sola tardaba ~3 s en prod y competía con
+   * la semana por el servidor. Lo que cambia los datos (armar, autorizar, pagar) sigue llamando a `reload()`.
+   */
   shiftWeek(delta: number): void {
     this.armado.set(null);
     this.selectedDate.set(this.addDays(this.selectedDate(), delta * 7));
-    this.reload();
+    this.loadWeek();
   }
-  goToday(): void { this.armado.set(null); this.selectedDate.set(this.todayIso); this.reload(); }
+  goToday(): void { this.armado.set(null); this.selectedDate.set(this.todayIso); this.loadWeek(); }
 
   openDay(date: string): void {
     if (date !== this.selectedDate()) this.armado.set(null);
