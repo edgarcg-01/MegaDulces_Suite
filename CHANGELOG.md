@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
+- Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
+- Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
+- Con esto se sueltan 7 facturas más (73 de 208) y ninguna de las que ya estaban sueltas se vuelve a bloquear.
+
 ### Added — El anticipo a proveedor se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (PGP.127–129 y PGP.142–145 · 2026-11-17 · en código)
 - En *Compras › Pago a proveedor › Anticipos*, «Pedir anticipo» pide los papeles en el orden en que se tienen: el proveedor, **su orden de compra de Kepler** (pendiente o recibida en parte; una o varias de la misma sucursal), el importe (dice cuánto queda en esas órdenes), **la cotización** (PDF o foto, obligatoria) y **a qué cuenta se paga**: la cuenta aprobada del proveedor, la CLABE de la cotización o efectivo.
 - Una CLABE nueva queda **pedida de alta** con la cotización como respaldo; Dirección la aprueba en *Cuentas de pago* con «Ver respaldo» a la mano. El pago de un anticipo sólo se puede preparar por transferencia a esa cuenta aprobada: en «Preparar» ya no se escribe la CLABE a mano.
