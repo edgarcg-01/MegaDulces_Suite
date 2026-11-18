@@ -98,7 +98,10 @@ export interface CambioCantidad {
         </tr>
       </ng-template>
       <ng-template #body let-r>
-        <tr [class.row-gift]="r.regaloDe !== null">
+        <!-- [COT.46] id para «Ver en la lista»; el último agregado lleva una franja (y texto en la
+             confirmación de arriba: el color no va solo) y se resalta un momento al pedir verlo. -->
+        <tr [class.row-gift]="r.regaloDe !== null" [attr.id]="'renglon-' + r.id"
+            [class.row-ultimo]="r.id === marcado()" [class.row-destello]="r.id === destello()">
           <!-- [COT.31] # y Producto quedan fijos al desplazar a la derecha: al quitar (la X está al
                final) se ve QUÉ renglón se quita. Antes la tabla se corría y el nombre salía de vista. -->
           <td class="num mono dt-num fijo fijo-num" role="cell" data-label="Renglón">{{ r.numero }}</td>
@@ -243,6 +246,10 @@ export interface CambioCantidad {
       .mono { font-family: var(--font-mono, monospace); }
       .muted { color: var(--text-muted); }
       .row-gift { background: var(--surface-ground); }
+      /* [COT.46] El último agregado: franja en el número. Al pedir verlo, una capa sobre el fondo de CADA
+         celda (las fijas traen el suyo y taparían un fondo de fila); se quita sola, sin animación. */
+      .row-ultimo > td.fijo-num { box-shadow: inset 3px 0 0 var(--action); }
+      .row-destello > td { background-image: linear-gradient(var(--overlay-selected), var(--overlay-selected)); }
       .p-name { display: block; }
       .p-sku { display: block; font-size: var(--fs-micro); color: var(--text-muted); }
       .gift { font-size: 0.7rem; color: var(--ok-soft-fg); margin-right: 0.35rem; }
@@ -292,6 +299,10 @@ export class QuoteLinesTableComponent {
   readonly bloqueado = input(false);
   /** `[E.29]` El % del cliente de la cotización (para rotular el neto); null = sin descuento. */
   readonly clientePct = input<number | null>(null);
+  /** `[COT.46]` Id del último renglón agregado (lleva la franja). */
+  readonly marcado = input<string | null>(null);
+  /** `[COT.46]` Id del renglón resaltado un momento por «Ver en la lista». */
+  readonly destello = input<string | null>(null);
   readonly cantidad = output<CambioCantidad>();
   readonly quitar = output<string>();
 

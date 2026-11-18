@@ -82,3 +82,27 @@ describe('QuoteLinesTableComponent — [E.30] el SKU va con el producto', () => 
     expect(celdaProducto({ ...PEELERZ, sku: null, sinCasar: true, nombre: 'gomitas raras' })).toBe('gomitas raras | sin casar con el catálogo');
   });
 });
+
+describe('[COT.46] el último renglón agregado', () => {
+  function filas(marcado: string | null, destello: string | null): HTMLTableRowElement[] {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [QuoteLinesTableComponent], providers: [provideZonelessChangeDetection()] });
+    const f = TestBed.createComponent(QuoteLinesTableComponent);
+    f.componentRef.setInput('renglones', [PEELERZ, { ...PEELERZ, id: 'r2', numero: 2 }]);
+    f.componentRef.setInput('marcado', marcado);
+    f.componentRef.setInput('destello', destello);
+    f.detectChanges();
+    return Array.from((f.nativeElement as HTMLElement).querySelectorAll<HTMLTableRowElement>('tbody tr'));
+  }
+  it('cada fila lleva id para «Ver en la lista»; sólo la marcada lleva la franja y sólo la pedida se resalta', () => {
+    const [a, b] = filas('r2', 'r2');
+    expect(b.id).toBe('renglon-r2');
+    expect(b.classList.contains('row-ultimo')).toBe(true);
+    expect(b.classList.contains('row-destello')).toBe(true);
+    expect(a.classList.contains('row-ultimo')).toBe(false);
+    expect(a.classList.contains('row-destello')).toBe(false);
+  });
+  it('sin marcado no hay franja', () => {
+    expect(filas(null, null).some((r) => r.classList.contains('row-ultimo'))).toBe(false);
+  });
+});
