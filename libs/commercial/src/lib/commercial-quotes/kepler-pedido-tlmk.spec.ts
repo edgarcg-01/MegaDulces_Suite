@@ -6,7 +6,8 @@
  * función lo que la cotización habría guardado para esos renglones y tiene que devolver lo que
  * Kepler guardó: `c16` 10,154.17 · `c15` 752.16 · `c14` 0 · `c13` 191.88.
  */
-import { armarPedidoTlmk, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
+import { armarPedidoTlmk, claveFicha, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
+import { fichasPorRenglon } from './kepler-pedido-tlmk-sink.adapter';
 
 const ficha = (nombre: string, unidad: string, factor: number, costo = 10): FichaTlmk =>
   ({ nombre, unidad_base: unidad, iva: 0, ieps: -8, costo_base: costo, factor_presentacion: factor });
@@ -58,6 +59,28 @@ describe('[COT.7.1] armarPedidoTlmk — contra el pedido real 01/0003710', () =>
     expect(r.cabecera.c13).toBe(0);
     expect(r.cabecera.c19).toBe(0);
     expect(r.renglones[0].c58).toBe(1);
+  });
+});
+
+describe('[COT.44] el mismo producto en dos presentaciones (COT-2026-00472: 95579 en BTO ×20 y en PAQ)', () => {
+  // La ficha real de 01: base PAQ, unidad 3 BTO ×20. Una ficha por renglón (SKU + presentación).
+  const renglones: RenglonCotizacion[] = [
+    { sku: '95579', cantidad: 47, presentacion: 'BTO', factor: 20, precio: 1629.2, lista: 1658.02, importe: 76572.4 },
+    { sku: '95579', cantidad: 8, presentacion: 'PAQ', factor: 1, precio: 83.62, lista: 90.1, importe: 668.96 },
+  ];
+  it('cada renglón se compara con el factor de SU presentación y el pedido se arma', () => {
+    const fichas = new Map<string, FichaTlmk>([
+      [claveFicha('95579', 'BTO'), ficha('BOLSA CAMISA', 'PAQ', 20)],
+      [claveFicha('95579', 'PAQ'), ficha('BOLSA CAMISA', 'PAQ', 1)],
+    ]);
+    const r = armarPedidoTlmk(renglones, fichas, null);
+    if (!r.ok) throw new Error(r.motivos.join('; '));
+    expect(r.renglones.map((l) => [l.c9, l.c55, l.c58])).toEqual([[940, 'BTO', 20], [8, 'PAQ', 1]]);
+  });
+  it('con UNA ficha por SKU (lo de antes) el PAQ rebotaba contra el 20 del BTO', () => {
+    const r = armarPedidoTlmk(renglones, new Map([['95579', ficha('BOLSA CAMISA', 'PAQ', 20)]]), null);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivos[0]).toMatch(/95579: la presentación PAQ trae 1 en la cotización y 20 en la ficha/);
   });
 });
 
@@ -128,5 +151,20 @@ describe('[COT.28] observaciones → «Comentarios» c25/c26 (varchar(60) en Kep
 
   it('más de 120 no se trunca en silencio', () => {
     expect(() => renglonesObservaciones('Y'.repeat(121))).toThrow(/120/);
+  });
+});
+
+describe('[COT.44] fichasPorRenglon — la ficha real de 95579 en Padre Hidalgo', () => {
+  // kdii 01 medido el 2026-11-18: c11 PAQ · c80 PAQ ×1 · c83 BTO ×20.
+  const fila = { sku: '95579', nombre: 'BOLSA CAMISA VINO X VINO C100 / ALTOS', c11: 'PAQ', c18: '-16', c19: '0', c77: '70', c78: '0', c79: '0', c80: 'PAQ', c81: '1', c83: 'BTO', c84: '20' };
+  const renglones: RenglonCotizacion[] = [
+    { sku: '95579', cantidad: 47, presentacion: 'BTO', factor: 20, precio: 1629.2, lista: 1658.02, importe: 76572.4 },
+    { sku: '95579', cantidad: 8, presentacion: 'PAQ', factor: 1, precio: 83.62, lista: 90.1, importe: 668.96 },
+  ];
+  it('una ficha por presentación, cada una con su factor; y el pedido se arma', () => {
+    const fichas = fichasPorRenglon([fila], renglones);
+    expect(fichas.get(claveFicha('95579', 'BTO'))?.factor_presentacion).toBe(20);
+    expect(fichas.get(claveFicha('95579', 'PAQ'))?.factor_presentacion).toBe(1);
+    expect(armarPedidoTlmk(renglones, fichas, null).ok).toBe(true);
   });
 });

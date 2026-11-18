@@ -7,7 +7,7 @@ import {
 } from '../commercial-replenishment/kepler-servidores';
 import { CAPTURISTA_SUITE, horaMx, textoKepler } from '../commercial-replenishment/kepler-requisition-sink.adapter';
 import { factorPresentacionFicha } from '../commercial-replenishment/ficha-kepler';
-import { armarPedidoTlmk, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
+import { armarPedidoTlmk, claveFicha, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
 export interface PedidoTlmkEntrada {
   cotizacion_id: string;
@@ -70,6 +70,27 @@ export function fichaDeCatalogo(r: Record<string, unknown>): DatosCliente {
  * venía de la plantilla: el pedido 0003826 surtido mostraba «Dirección Envío» vacía.
  */
 export const C85_AL_CREAR = '0';
+
+/**
+ * `[COT.44]` Las fichas de `md.kdii` para el armado: UNA por RENGLÓN (SKU + presentación), no por SKU.
+ * El mismo producto puede ir dos veces en presentaciones distintas (95579 en BTO ×20 y en PAQ,
+ * COT-2026-00472) y con una ficha por SKU el factor del primero (20) se comparaba contra el segundo (1)
+ * y Kepler rechazaba el pedido entero.
+ */
+export function fichasPorRenglon(filas: Array<Record<string, unknown>>, renglones: RenglonCotizacion[]): Map<string, FichaTlmk> {
+  const num = (v: unknown) => Number(String(v ?? '').replace(/[^0-9.-]/g, '') || 0);
+  const fichas = new Map<string, FichaTlmk>();
+  for (const r of filas) {
+    for (const ren of renglones.filter((x) => x.sku === String(r['sku']))) {
+      fichas.set(claveFicha(ren.sku, ren.presentacion), {
+        nombre: String(r['nombre'] ?? ''), unidad_base: String(r['c11'] ?? '').trim().toUpperCase(),
+        iva: num(r['c18']), ieps: num(r['c19']), costo_base: num(r['c77']),
+        factor_presentacion: factorPresentacionFicha(r, ren.presentacion ?? String(r['c11'] ?? '')),
+      });
+    }
+  }
+  return fichas;
+}
 
 /** El documento: `U-D-40` con origen TELEMARK. Medido en 7,900 pedidos (ERP_KEPLER §3.y.3). */
 const DOC = { genero: 'U', naturaleza: 'D', grupo: '40', origen: 'TELEMARK', estado: 'CREADO' } as const;
@@ -217,17 +238,7 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       const fic = await c.query(
         `SELECT btrim(c1) AS sku, btrim(c2) AS nombre, c11, c18, c19, c77, c78, c79, c80, c81, c83, c84
            FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`, [skus]);
-      const num = (v: unknown) => Number(String(v ?? '').replace(/[^0-9.-]/g, '') || 0);
-      const fichas = new Map<string, FichaTlmk>();
-      for (const r of fic.rows) {
-        const ren = e.renglones.find((x) => x.sku === String(r.sku));
-        fichas.set(String(r.sku), {
-          nombre: String(r.nombre ?? ''), unidad_base: String(r.c11 ?? '').trim().toUpperCase(),
-          iva: num(r.c18), ieps: num(r.c19), costo_base: num(r.c77),
-          factor_presentacion: factorPresentacionFicha(r, ren?.presentacion ?? String(r.c11 ?? '')),
-        });
-      }
-      const armado = armarPedidoTlmk(e.renglones, fichas, e.pct_cliente);
+      const armado = armarPedidoTlmk(e.renglones, fichasPorRenglon(fic.rows, e.renglones), e.pct_cliente);
       if (!armado.ok) return { estado: 'rechazado', motivo: `${armado.motivos.length} renglón(es) no se pueden escribir en Kepler`, motivos: armado.motivos };
       const { renglones, cabecera } = armado;
 
