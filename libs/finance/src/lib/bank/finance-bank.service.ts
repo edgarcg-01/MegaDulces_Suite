@@ -3703,7 +3703,7 @@ export class FinanceBankService {
         }
       }
 
-      const excelRows = excel.map((e: any, ei: number) => {
+      const excelRows = excel.map((e, ei: number) => {
         // El pareo guardado manda. `take()` sólo atiende lo que Conciliar dejó suelto — y lo que
         // de ahí salga se marca `inferido`, porque no es lo mismo que el motor lo haya decidido.
         const fijo = casadoPorMov.get(e.id);
@@ -3966,7 +3966,13 @@ export class FinanceBankService {
           .first('bm.*', trx.raw('ba.alias as cuenta_alias'), trx.raw('mc.name as categoria'));
         if (!r) {
           // [CB.85] En una cuenta que usa la descarga, el renglón que el libro no tiene es de la descarga del banco.
-          const l: any = await trx('finance.bank_statement_lines as l')
+          /** [CB.85] Un renglón de la descarga del banco, con las columnas que pinta la ficha. */
+          interface RenglonDeDescarga {
+            movement_date: Date | string | null; movement_time: string | null; cuenta_alias: string | null; concept: string | null;
+            reference: string | null; tracking_key: string | null; counterparty_name: string | null; counterparty_rfc: string | null;
+            amount_in: string | number | null; amount_out: string | number | null; running_balance: string | number | null; archivo: string | null;
+          }
+          const l: RenglonDeDescarga | undefined = await trx('finance.bank_statement_lines as l')
             .leftJoin('finance.bank_accounts as ba', 'ba.id', 'l.bank_account_id')
             .leftJoin('finance.bank_statement_files as f', 'f.id', 'l.file_id')
             .where('l.id', key).andWhere('l.tenant_id', tenantId)

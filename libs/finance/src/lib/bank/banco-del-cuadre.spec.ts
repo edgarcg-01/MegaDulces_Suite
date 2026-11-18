@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { bancoCubreElMes, componerBanco, contpaqiEnCuadre, parearPorImporte, type RenglonDelBanco } from './banco-del-cuadre';
 
 const r = (id: string, fecha: string, dir: 'in' | 'out', importe: number, origen: 'libro' | 'descarga' = 'libro'): RenglonDelBanco =>
