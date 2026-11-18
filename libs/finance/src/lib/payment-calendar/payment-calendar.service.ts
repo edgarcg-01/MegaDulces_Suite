@@ -768,19 +768,36 @@ export class PaymentCalendarService {
     if (!code) return [];
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // `[PGP.153]` Sólo las facturas de este acreedor (las llaves salen de la misma vista de saldos que usa la evidencia).
+      const ev = await this.fuenteEvidencia(trx, trx.raw(
+        `ARRAY(SELECT v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) FROM analytics.v_supplier_payables v WHERE v.tenant_id = ? AND v.proveedor = ?)`,
+        [tenantId, code]));
       const { rows } = await trx.raw(
         `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
                 e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa
-           FROM analytics.v_payable_evidence e
+           FROM ${ev.sql} e
           WHERE e.tenant_id = ? AND e.proveedor = ?
           ORDER BY e.evidencia, e.puntaje DESC, e.pendiente DESC
           LIMIT 500`,
-        [tenantId, code],
+        [...ev.binds, tenantId, code],
       );
       return rows;
     });
+  }
+
+  /**
+   * `[PGP.152]`/`[PGP.153]` De dónde se lee la evidencia: la función por llaves si la migración ya está aplicada (calcula
+   * SÓLO esas facturas), o la vista de siempre si no (la API no exige lo que la base todavía no tiene). Con la función,
+   * ningún uso de la app lee la vista completa: sin materializar `cfd` (`[PGP.153]`) la vista completa es más lenta.
+   */
+  private async fuenteEvidencia(trx: Knex.Transaction, llaves: Knex.Raw | string[]): Promise<{ sql: string; binds: Knex.RawBinding[] }> {
+    const hay = (await trx.raw(`SELECT to_regprocedure('analytics.payable_evidence(text[])') IS NOT NULL AS h`)).rows[0]?.h;
+    if (!hay) return { sql: 'analytics.v_payable_evidence', binds: [] };
+    return Array.isArray(llaves)
+      ? { sql: 'analytics.payable_evidence(?::text[])', binds: [llaves] }
+      : { sql: 'analytics.payable_evidence(?)', binds: [llaves] };
   }
 
   /**
@@ -808,14 +825,10 @@ export class PaymentCalendarService {
        * `[PGP.152]` La evidencia se calcula SÓLO para estas facturas (`analytics.payable_evidence(p_llaves)`, el MISMO
        * cuerpo que la vista con el filtro dentro): la vista cruzaba las ~3,200 facturas abiertas contra 172 mil CFDI y
        * filtraba al final. Medido en prod: 3.7–4.6 s → ~2 s, 196 de 196 filas idénticas. Sin la migración aplicada
-       * (42883), la consulta de siempre: la API no exige lo que la base todavía no tiene.
+       * (`fuenteEvidencia`), la consulta de siempre: la API no exige lo que la base todavía no tiene.
        */
-      try {
-        return (await trx.transaction(async (sp) => (await sp.raw(
-          `SELECT ${COLS} FROM analytics.payable_evidence(?::text[]) e WHERE e.tenant_id = ?`, [llaves, tenantId])).rows));
-      } catch (e: unknown) {
-        if ((e as { code?: string })?.code !== '42883') throw e;
-      }
+      const ev = await this.fuenteEvidencia(trx, llaves);
+      if (ev.binds.length) return (await trx.raw(`SELECT ${COLS} FROM ${ev.sql} e WHERE e.tenant_id = ?`, [...ev.binds, tenantId])).rows;
       const { rows } = await trx.raw(
         `SELECT ${COLS}
            FROM analytics.v_payable_evidence e
@@ -1672,14 +1685,22 @@ export class PaymentCalendarService {
       const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
       if (!lot) return [];
 
+      // `[PGP.153]` La evidencia SÓLO de las facturas de este día (la función por llaves): antes el desglose cruzaba la
+      // vista completa, ~3.7 s de los ~5.9 s del Preliminar. Las llaves salen de la misma vista de saldos que el desglose.
+      const ev = await this.fuenteEvidencia(trx, trx.raw(
+        `ARRAY(SELECT v2.sucursal || '|' || v2.doc_tipo || '|' || v2.doc_sub || '|' || btrim(v2.folio)
+                 FROM finance.payment_allocation_items i2
+                 JOIN finance.payment_allocations a2 ON a2.id = i2.allocation_id
+                 JOIN analytics.v_supplier_payables v2 ON ${sqlKeplerPayableId('v2')} = i2.obligation_id
+                WHERE a2.lot_id = ? AND a2.status <> 'cancelled' AND i2.obligation_source = 'kepler_payable')`, [lot.id]));
       // La deuda derivada del ERP: la vista de pagables trae el documento, y la de evidencia
       // (`[PGP.19]`) dice si su papel está digitalizado. Las dos por la MISMA llave natural.
       const derivadas = await trx('finance.payment_allocation_items as i')
         .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
         .leftJoin('analytics.v_supplier_payables as v', trx.raw(`${KEPLER_PAYABLE_ID} = i.obligation_id`))
-        .joinRaw(`LEFT JOIN analytics.v_payable_evidence e
+        .joinRaw(`LEFT JOIN ${ev.sql} e
                     ON e.sucursal = v.sucursal AND e.doc_tipo = v.doc_tipo
-                   AND e.doc_sub = v.doc_sub AND btrim(e.folio) = btrim(v.folio)`)
+                   AND e.doc_sub = v.doc_sub AND btrim(e.folio) = btrim(v.folio)`, ev.binds as unknown as Knex.Value[])
         // El FOLIO EXTERNO —el que viene impreso en el papel del proveedor— no está en el ERP:
         // sale del comprobante de recepción (lo leyó el OCR) o del CFDI timbrado. Son las dos
         // únicas fuentes medidas, y cada una se declara por su nombre en `folio_externo_fuente`.
