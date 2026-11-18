@@ -83,8 +83,55 @@
 ### Fixed — El enlace para subir depósitos abre desde el celular del cliente (CC.20.1 · 2026-11-18)
 - El enlace del mensaje de WhatsApp, de la ficha de Cartera y del código QR del PDF salía con la dirección interna de la oficina y no abría desde fuera. Ahora usa megadulcessuite.com.
 - El mensaje ya no dice «le avisamos cuando quede aplicado»: dice que en ese mismo enlace verá cuando quede aplicado.
+### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
+- El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
+- La lista de cheques en tránsito ya no se corta en 50 sin avisar.
+- Una cuenta con descarga del banco podía perder un movimiento cuando el libro tenía otro del mismo importe días antes; ya no.
+
+### Fixed — Toda la Suite en el celular: las tablas apiladas ya muestran todos sus campos (GP.RF.12 · GP.RF.18 · GP.RF.19 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que se apilan por renglón ya no esconden columnas ni achican la letra (el Tablero escondía Cliente, Renglones y Etapa).
+- La letra más chica de Almacén sube de 10 a 11 px; el aviso de «cargado hace…» se lee mejor y el lector de pantalla ya no lo repite cada 15 segundos.
+- La lista de pedidos atorados del Tablero abre en menos de un quinto de segundo (antes, dos).
+
+### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
+- La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
+- Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.
+
+### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
+- El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
+- «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
+- Cuando Surtir rechaza el cierre de un surtido, el motivo queda registrado para encontrar la causa.
+
+### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
+- Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
+- El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
+
+### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
+- Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
+- Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».
+
+### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
+- Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
+- Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.
+
+### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
+- Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
+- Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.
+- Los renglones que se deslizan (vendedores, días atrasados) avisan que hay más y no cortan el anillo de foco.
+- En toda la Suite, las flechas del teclado vuelven a elegir en los selectores de una opción (estaban sin efecto).
+
+### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
+- La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
+- Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.
+- El aviso de clientes nuevos va al final y dice «Más de 500» cuando la lista se topó.
+- La lista ya no salta al cargar «Rutas de hoy», y los textos en ámbar y verde se leen (contraste AA).
 
 ### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en prod desde el 2026-11-18)
+### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
+- Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
+- El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
+
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
 - En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
 
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en prod desde el 2026-11-18)
