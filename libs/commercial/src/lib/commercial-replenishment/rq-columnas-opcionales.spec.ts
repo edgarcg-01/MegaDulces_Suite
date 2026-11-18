@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+// Sin `import ... from 'vitest'`: la config usa `globals: true` (ver requisicion-oc.spec.ts).
 import { lectorColumnaOpcional, RQ_COLUMNAS_OPCIONALES, type RqColumnaOpcional } from './rq-columnas-opcionales';
 
 describe('[PQ.130] lectorColumnaOpcional — la columna sola, no la fila entera', () => {

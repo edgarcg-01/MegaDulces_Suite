@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, expect, it } from 'vitest';
+// Sin `import ... from 'vitest'`: la config usa `globals: true` (ver requisicion-oc.spec.ts).
 
 const SVC = readFileSync(join(__dirname, 'commercial-replenishment.service.ts'), 'utf8');
 const CODIGO = SVC.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
