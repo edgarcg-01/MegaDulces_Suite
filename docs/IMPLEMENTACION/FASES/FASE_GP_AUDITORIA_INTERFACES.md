@@ -532,7 +532,7 @@ detuvieron dos escrituras (alta y «Crear 180»), y quedó registrado lo que hab
 | UB.RF.4 | 🟠 | «Últimas capturas» decía «Todavía no hay» mientras leía y también si fallaba (CEDIS sí tenía una) | A + API | 🧪 dice «Leyendo…», el error con «Reintentar», o «no hay» sólo si no hay. La respuesta de otro almacén ya no tapa la del nuevo. 5 pruebas |
 | UB.RF.5 | 🟡 | El mapa abre en «Bodega (0)» aunque todo esté en Tienda | A | 🧪 abre en la zona que tiene ubicaciones. 3 pruebas |
 | UB.RF.6 | 🟡 | En el formulario por rango, el selector de Tipo usa `ngModel` sin `name` (NG01352): rompe en modo desarrollo | A (prueba) | 🧪 `name="tipo"` |
-| UB.RF.7 | 🟡 | Cada pantalla (Mapa, Asignación, Contenido) pide el almacén otra vez, y Contenido abre vacío | A | ⬜ |
+| UB.RF.7 | 🟡 | Cada pantalla (Mapa, Asignación, Contenido) pide el almacén otra vez, y Contenido abre vacío | A | 🧪 2026-11-18: las tres comparten el almacén elegido (sólo dentro del alcance) y lo nombran sin número; Contenido abre en él, en el de la persona o en el único (§5c.9) |
 | UB.RF.8 | 🟡 | «0» de «Con lugar fijo» en verde, a 3.0:1 (bajo AA) | A | 🧪 2026-11-18: la cifra y el delta del resumen de métricas van en `--ok-soft-fg` (7.13:1), §5c.9 |
 | UB.RF.9 | 🟡 | «Se crea 180 de 180» (es «Se crean») | A | 🧪 2026-11-18: el resumen concuerda con su cuenta, §5c.9 |
 | UB.3b.1 | ⭐ | **Pedido de Edgar:** asignar con lector de código de barras, y que capturar la ubicación sea también asignar lo que está ahí. **Hecho como modo «Escanear» en Asignación:** se escanea el cartel y después cada producto. La presentación sale del código de barras (medido en prod: el del paquete y el de la caja de un mismo producto llevan a su presentación) y el papel, de la ubicación. Una ubicación que no existe se da de alta en el acto; si el producto ya tiene lugar fijo en otra, ofrece moverlo. Las lecturas rápidas esperan en fila. En el buscador normal, una búsqueda que deja un solo producto lo abre, y si fue su código de barras, abre la asignación de esa presentación con el campo de ubicación listo | C (23 pruebas) | 🧪 sin escribir en prod; `ubicaciones-escaneo.e2e.ts` lo mide al desplegar (hoy se salta: NO MEDIDO) |
@@ -954,6 +954,25 @@ sección, con su motivo.
   respaldo de GP.RF.40. Los mapas, el historial de vendedor, el panel lateral, los viajes del ERP y
   las pestañas compartidas no cambian de letra.
 
+**Bloque 2: el almacén, por su nombre y donde la persona trabaja.**
+- **Checar (GP.RF.11).** Ya preseleccionaba el almacén (el guardado, el de la persona o el único).
+  Lo que estaba mal era el `<select>` nativo con el número («06 · Canindo»). Ahora es un `p-select`
+  con el nombre y el rótulo visible «Almacén donde checas»; arriba de la pantalla también va el
+  nombre.
+- **Consola del Tablero (GP.RF.17).**
+  - Sin preferencia guardada, abre en el almacén de la persona. Antes abría en el primero de la
+    lista: CEDIS, con la fila vacía.
+  - Las opciones van por nombre.
+  - Lo que la persona eligió antes sigue ganando; la prueba negativa lo cuida.
+- **Ubicaciones (UB.RF.7).**
+  - Mapa, Asignación y Contenido comparten el almacén elegido (`shared/almacen-preferido.ts`).
+  - Sólo se usa si está en el alcance que la pantalla recibió: una preferencia vieja no abre un
+    almacén ajeno, y la prueba negativa lo cuida.
+  - Contenido ya no abre vacío: abre el elegido, el de la persona o el único que maneja.
+  - Las tres nombran el almacén sin número.
+- **Sin validación visual:** la API sintética no sirve Checar, la consola ni Ubicaciones. Lo cubren
+  las pruebas de componente, que montan la plantilla de verdad.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -998,13 +1017,13 @@ Formato de cada hallazgo:
 |---|---|---|---|---|---|---|---|---|
 | GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
 | GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras. Con GP.10.4 en prod: 5 pestañas, 50 accionables, 83 cifras, pero **507 px** de marco (GP.RF.20) | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
-| GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén | ⬜ |
+| GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén. Medido en el código: ya preseleccionaba (el guardado, el suyo o el único) | 🧪 2026-11-18: `p-select` por nombre con rótulo visible; ya no se ve «06 · Canindo» (§5c.9) |
 | GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | 🧪 2026-11-18: el «1» a 7.09:1; «Salir» y todo botón sin relleno pasan AA desde el tema (§5c.9) |
 | GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
 | GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | ✅ en prod `4d99357f7` (la cifra de su nota, corregida en GP.10.5 🧪) |
 | GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | ⬜ siguiente cambio |
-| GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | ⬜ |
+| GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | 🧪 2026-11-18: sin preferencia guardada abre en el almacén de la persona, y nombra sin número (§5c.9). «El que tiene trabajo» pediría que la API cuente por almacén: no se hizo |
 | GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens. Edgar: «corrijamos todo lo que está mal» | 🧪 2026-11-18: en el tema, rojo 700 = 6.47:1 (§5c.9). Queda: «Cancelar» junto a «Marcar urgente» en cada renglón (la consola tiene cambios vivos de otra sesión) | 
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
 | GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | ✅ en prod `4d99357f7`: 507 → 457 px medido |

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { SelectModule } from 'primeng/select';
 import { Router, RouterLink } from '@angular/router';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
@@ -77,7 +78,7 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
   selector: 'app-almacen-checar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SelectModule],
   template: `
     <div class="ck">
       <header class="ck-top">
@@ -102,14 +103,15 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
 
         @case ('listo') {
           <section class="ck-card">
+            <!-- [GP.RF.11] El almacén por su NOMBRE en un p-select (antes <select> nativo con «06 · Canindo»:
+                 la regla es nombrar la sucursal, nunca su número). Con uno solo, sólo el nombre. -->
             @if (almacenes().length > 1) {
-              <label class="ck-l" for="ck-alm">Almacén donde checas</label>
-              <select id="ck-alm" class="ck-select" [ngModel]="almacenId()" (ngModelChange)="elegirAlmacen($event)">
-                <option value="">— Elige —</option>
-                @for (a of almacenes(); track a.id) { <option [value]="a.id">{{ a.code }} · {{ a.nombre }}</option> }
-              </select>
+              <span class="ck-l" id="ck-alm-l">Almacén donde checas</span>
+              <p-select inputId="ck-alm" [options]="almacenes()" optionLabel="nombre" optionValue="id" [ngModel]="almacenId() || null"
+                        (ngModelChange)="elegirAlmacen($event ?? '')" placeholder="Elige tu almacén" appendTo="body"
+                        class="ck-pselect" ariaLabelledBy="ck-alm-l" />
             } @else if (almacenes().length === 1) {
-              <p class="ck-l">Almacén: <b>{{ almacenes()[0].code }} · {{ almacenes()[0].nombre }}</b></p>
+              <p class="ck-l">Almacén: <b>{{ almacenes()[0].nombre }}</b></p>
             } @else if (!error()) {
               <p class="ck-warn">No tienes una sucursal asignada. Pídele a Sistemas que te asigne tu sucursal.</p>
             }
@@ -317,6 +319,8 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     .ck-l { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:.4rem 0 .25rem; }
     .ck-l b { color:var(--text-main); }
     .ck-hint { margin:.35rem 0 0; font-size:var(--fs-sm); color:var(--text-muted); }
+    /* [GP.RF.11] el p-select: ancho completo y objetivo táctil (la clase va al host de PrimeNG). */
+    .ck-pselect { width:100%; min-height:var(--tap-min); align-items:center; }
     .ck-select, .ck-input { width:100%; min-height:var(--tap-min); padding:0 .7rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-lg); box-sizing:border-box; }
     .ck-select:focus-visible, .ck-input:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .ck-row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
@@ -450,7 +454,7 @@ export class AlmacenChecarComponent implements OnInit {
   });
   readonly almacenNombre = computed(() => {
     const a = this.almacenes().find((x) => x.id === this.almacenId());
-    return a ? `${a.code} · ${a.nombre}` : '';
+    return a ? a.nombre : ''; // [GP.RF.11] por nombre, nunca el número
   });
   readonly completos = computed(() => (this.pedido()?.renglones ?? []).filter((r) => r.estado === 'completo').length);
   readonly noCuadran = computed(() => (this.pedido()?.renglones ?? []).filter((r) => r.estado !== 'completo'));

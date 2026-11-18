@@ -16,6 +16,7 @@ import type {
 import { RouterLink } from '@angular/router';
 import { PickingService } from '../../reparto/picking.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { AuthService } from '../../../core/services/auth.service';
 
 type Accion = { ola: string; tipo: 'urgente' | 'quitar' | 'cancelar' | 'liberar' };
 
@@ -368,6 +369,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
+  private readonly auth = inject(AuthService);
 
   readonly skel = Array.from({ length: 6 });
   readonly dmy = dmy;
@@ -461,13 +463,17 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     this.api.consolaAlmacenes().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (lista) => {
         this.cargandoAlmacenes.set(false);
-        this.almacenes.set(lista.map((a) => ({ ...a, etiqueta: `${a.code} · ${a.nombre}` })));
+        // [GP.RF.17] La sucursal por su NOMBRE (antes «01 · Padre Hidalgo»).
+        this.almacenes.set(lista.map((a) => ({ ...a, etiqueta: a.nombre })));
         if (!lista.length) {
           this.sinAlmacen.set(true);
           return;
         }
+        // [GP.RF.17] Sin preferencia guardada, abre en el almacén de la persona (antes el primero de la
+        // lista: CEDIS, con la fila vacía, y dos clics para llegar al suyo).
         const guardado = this.leer(PREF_CONSOLA);
-        this.almacen.set(lista.some((a) => a.id === guardado) ? guardado : lista[0].id);
+        const suyo = lista.find((a) => a.code === this.auth.user()?.warehouse_code)?.id;
+        this.almacen.set(lista.some((a) => a.id === guardado) ? guardado : (suyo ?? lista[0].id));
         this.reload();
         // La fila cambia sola mientras surten: se relee (sólo con la pestaña a la vista), salvo a
         // media acción del coordinador o justo después de un toque en la fila.

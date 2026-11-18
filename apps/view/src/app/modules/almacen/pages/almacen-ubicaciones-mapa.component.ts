@@ -25,6 +25,7 @@ import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalo
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
@@ -375,7 +376,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   );
 
   readonly almacenOpts = computed(() =>
-    (this.data()?.alcance.almacenes ?? []).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })),
+    (this.data()?.alcance.almacenes ?? []).map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */,
   );
 
   private readonly conFormato = computed(() => (this.data()?.ubicaciones ?? []).filter((u) => u.familia === 'ubicacion'));
@@ -411,6 +412,12 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     this.api.list(this.warehouseId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         if (folio !== this.consulta) return;
+        // [UB.RF.7] Sin elección en esta pantalla, abre el almacén que eligió en Asignación o Contenido
+        // (si está en su alcance); antes abría siempre el que proponía el servidor.
+        if (!this.warehouseId() && d.warehouse) {
+          const elegido = elegirAlmacen(d.alcance.almacenes, d.warehouse.id);
+          if (elegido && elegido !== d.warehouse.id) { this.warehouseId.set(elegido); this.reload(); return; }
+        }
         this.data.set(d);
         if (!this.warehouseId() && d.warehouse) this.warehouseId.set(d.warehouse.id);
         // [UB.RF.5] Si la zona elegida está vacía y la otra no, se abre en la que tiene ubicaciones: CEDIS
@@ -436,6 +443,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   pickAlmacen(id: string): void {
     this.warehouseId.set(id);
+    guardarAlmacenPreferido(id); // [UB.RF.7]
     this.sel.set(null);
     this.reload();
   }

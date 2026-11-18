@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2761 KB, 14968 líneas, 78 secciones.
+> **Índice navegable** — 2762 KB, 14971 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13812 | 13853 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13854 | 14010 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14011 | 14041 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14042 | 14289 | 41 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14290 | 14354 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14355 | 14363 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14364 | 14417 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14424 | 14433 | 1 | 📝 Convenciones |
-| 14434 | 14471 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14472 | 14490 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14491 | 14543 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14544 | 14921 | 64 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14922 | 14952 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 14953 | 14974 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 14975 | 15002 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15003 | 15034 | 25 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15035 | 15058 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14042 | 14292 | 42 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14293 | 14357 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14358 | 14366 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14367 | 14420 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14427 | 14436 | 1 | 📝 Convenciones |
+| 14437 | 14474 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14475 | 14493 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14494 | 14546 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14547 | 14924 | 64 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14925 | 14955 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14956 | 14977 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14978 | 15005 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15006 | 15037 | 25 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15038 | 15061 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14233,6 +14233,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Botones sin relleno (`text`/`outlined`) de toda la Suite pasan AA en claro desde el tema (`operations-preset.ts`): gris 600 (7.03:1 sobre el fondo de página; era 4.40, «Salir» de Surtir) y el 700 en rojo/verde/azul/naranja/morado (4.56–6.98; el rojo de «Cancelar surtido» era 3.76). Oscuro sin cambio (ya 7.2–11.4). Comprobado el color calculado en el navegador.
 >     - El «1» de Por capturar a `--warn-soft-fg` (2.15 → 7.09); la cifra y el delta verdes del resumen de métricas a `--ok-soft-fg` (3.00 → 7.13, como [PQ.73]); «Se crean 180» en la captura de ubicaciones (prueba con negativa); 31 reglas en 10 archivos con la letra escrita a mano pasan al token (reciben el respaldo de GP.RF.40).
 >     - Queda de GP.RF.18: «Cancelar» junto a «Marcar urgente» en cada renglón (la consola trae cambios vivos de otra sesión).
+>   - [x] **[GP.RF.11][GP.RF.17][UB.RF.7]** 🧪 (2026-11-18) **El almacén, por su nombre y donde la persona trabaja** (Edgar: «corrijamos todo lo que está mal»). Auditoría de interfaces §5c.9 bloque 2.
+>     - Checar: `p-select` por nombre con rótulo visible (antes `<select>` nativo con «06 · Canindo»); ya preseleccionaba. Consola del Tablero: sin preferencia abre en el almacén de la persona (antes CEDIS, el primero, con la fila vacía) y nombra sin número. Ubicaciones: Mapa, Asignación y Contenido comparten el almacén elegido (`almacen/shared/almacen-preferido.ts`, sólo dentro del alcance) y Contenido ya no abre vacío.
+>     - Pruebas: Checar 26 (1 nueva, negativa contra el `<select>` y los números), consola 27 (2 nuevas, 1 negativa: lo elegido antes gana), preferencia 4 (1 negativa: fuera del alcance no se abre). Sin validación visual: la API sintética no sirve estas pantallas.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.

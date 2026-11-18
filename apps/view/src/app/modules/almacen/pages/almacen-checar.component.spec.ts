@@ -86,7 +86,23 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     await montar();
     expect(api['checadoAlmacenes']).toHaveBeenCalled();
     expect(c.almacenId()).toBe('w-01');
-    expect(texto()).toContain('Almacén: 01 · Padre Hidalgo');
+    // [GP.RF.11] por su nombre, nunca el número.
+    expect(texto()).toContain('Almacén: Padre Hidalgo');
+    expect(texto()).not.toContain('01 ·');
+  });
+
+  it('[GP.RF.11] con varios almacenes: p-select con rótulo visible y nombres; NEGATIVA: ni <select> nativo ni números', async () => {
+    await montar();
+    api['checadoAlmacenes'].mockReturnValue(of([{ id: 'w-01', code: '01', nombre: 'Padre Hidalgo' }, { id: 'w-06', code: '06', nombre: 'Canindo' }]));
+    c.iniciar();
+    render();
+    expect(el().querySelector('select')).toBeNull();
+    const cb = el().querySelector('p-select [role=combobox]') as HTMLElement;
+    expect(cb).not.toBeNull();
+    expect(cb.getAttribute('aria-labelledby')).toBe('ck-alm-l');
+    expect(el().querySelector('#ck-alm-l')?.textContent?.trim()).toBe('Almacén donde checas');
+    expect(texto()).toContain('Padre Hidalgo');
+    expect(texto()).not.toMatch(/\b0[16] ·/);
   });
 
   it('si ya traía un pedido lo retoma sin tocar nada', async () => {

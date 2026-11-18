@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
+- Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
+- El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
+
 ### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
 - Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
 - Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».

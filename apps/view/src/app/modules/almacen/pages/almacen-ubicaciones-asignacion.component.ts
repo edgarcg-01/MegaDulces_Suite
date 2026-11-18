@@ -32,6 +32,7 @@ import { presentacionDeLectura } from '../components/ubicaciones-censo.logica';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 
 const PAGINA = 50;
 const PAPEL = new Map(ASSIGNMENT_ROLES.map((r) => [r.key, r]));
@@ -342,7 +343,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   readonly enExcel = computed(() => this.vista() === 'excel' && this.puedeGestionar());
   readonly enEscaneo = computed(() => this.vista() === 'escanear' && this.puedeGestionar());
   readonly almacen = computed(() => this.almacenes().find((w) => w.id === this.warehouseId()) ?? null);
-  readonly almacenOpts = computed(() => this.almacenes().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
+  readonly almacenOpts = computed(() => this.almacenes().map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */);
   readonly filtros = computed<SegOption[]>(() => [
     { label: 'Todos', value: 'todos' },
     { label: `Sin lugar fijo${this.lista()?.ficha_kepler ? ` (${this.lista()!.sin_ubicacion})` : ''}`, value: 'sin_ubicacion' },
@@ -387,7 +388,8 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
       next: (d) => {
         this.almacenes.set(d.alcance.almacenes);
         if (!d.warehouse) { this.sinAlmacen.set(true); return; }
-        this.warehouseId.set(d.warehouse.id);
+        // [UB.RF.7] el almacén que eligió en Mapa o Contenido, si está en su alcance.
+        this.warehouseId.set(elegirAlmacen(d.alcance.almacenes, d.warehouse.id) ?? d.warehouse.id);
         this.cargarLista();
       },
       error: (e: HttpErrorResponse) => this.err.set(mensaje(e, 'No se pudo cargar el almacén.')),
@@ -402,6 +404,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
 
   pickAlmacen(id: string): void {
     this.warehouseId.set(id);
+    guardarAlmacenPreferido(id); // [UB.RF.7]
     this.offset.set(0);
     this.folioDet++; // la respuesta en vuelo del producto anterior ya no aplica
     this.selFila.set(null);
