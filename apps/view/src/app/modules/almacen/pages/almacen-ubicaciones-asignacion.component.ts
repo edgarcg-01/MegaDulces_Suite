@@ -263,7 +263,7 @@ interface Alta {
     .as-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     /* ::ng-deep sólo para el ancho del p-select y el tamaño del p-tag de PrimeNG (vendor). */
     :host ::ng-deep .as-sel { min-width:12rem; }
-    :host ::ng-deep .as-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .as-tag { font-size:var(--fs-micro); }
     .as-split { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-start; }
     .as-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .as-list { flex:1 1 26rem; }
@@ -288,7 +288,7 @@ interface Alta {
     .as-alta { padding:.5rem .55rem; border:1px dashed var(--border-color); border-radius:var(--r-sm); }
     .as-f { display:flex; flex-direction:column; gap:.2rem; }
     .as-f input { width:6.5rem; height:2.25rem; }
-    .as-l { font-size:var(--fs-nano); color:var(--text-muted); }
+    .as-l { font-size:var(--fs-micro); color:var(--text-muted); }
     .as-full { flex-basis:100%; }
     @media (pointer: coarse) { .as-f input, .as-q input { height:2.75rem; } }
     .as-sub.as-bad, .as-bad { color:var(--bad-fg); }

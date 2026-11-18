@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Toda la Suite en el celular: las tablas apiladas ya muestran todos sus campos (GP.RF.12 · GP.RF.18 · GP.RF.19 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que se apilan por renglón ya no esconden columnas ni achican la letra (el Tablero escondía Cliente, Renglones y Etapa).
+- La letra más chica de Almacén sube de 10 a 11 px; el aviso de «cargado hace…» se lee mejor y el lector de pantalla ya no lo repite cada 15 segundos.
+- La lista de pedidos atorados del Tablero abre en menos de un quinto de segundo (antes, dos).
+
 ### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
 - La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
 - Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.

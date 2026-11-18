@@ -97,6 +97,7 @@ SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.est
              GROUP BY 1) x
   ) lc ON true
   LEFT JOIN vend v ON v.sucursal = h.sucursal AND v.code = h.vendedor_code
+ ${filtro === 'periodo' ? 'WHERE (?::text[] IS NULL OR h.estatus = ANY(?::text[]))' : ''}
  ORDER BY h.fecha DESC, h.hora DESC NULLS LAST, h.sucursal, h.folio DESC`;
 }
 
@@ -385,10 +386,15 @@ export class WarehouseOrdersService {
     const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
-      const r = await trx.raw(LIST_SQL, [per.from, per.to, alcance.todas, codigos]);
+      // [GP.RF.19] Con filtro de estatus de Kepler (la liga de atorados, la lista del surtidor), la consulta
+      // filtra ANTES de leer los renglones de cada pedido. Medido en prod (2026-11-18): la liga de atorados
+      // leía 12,071 pedidos de un año para mostrar 396 y tardaba ~2 s. Los conteos por etapa y por origen
+      // quedan dentro de ese estatus (la pantalla así lo rotula); la preventa no tiene estatus de Kepler.
+      const est = filtros.estatus.length ? filtros.estatus : null;
+      const r = await trx.raw(LIST_SQL, [per.from, per.to, alcance.todas, codigos, est, est]);
       const piso = await this.pisoKepler(trx, per.from);
       const filas = (r.rows as Crudo[]).map((x) => this.aFila(x, reloj, piso));
-      if (filtros.preventa) {
+      if (filtros.preventa && !est) {
         const pv = await trx.raw(PREVENTA_SQL, [per.from, per.to, alcance.todas, codigos]);
         filas.push(...(pv.rows as PreventaCruda[]).map((x) => this.aFilaPreventa(x)));
       }

@@ -161,7 +161,7 @@ const diaAnterior = (v: string): string => {
                         @if (o.assigned_to) {
                           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'liberar', $event)"><span class="p-button-label">Liberar</span></button>
                         }
-                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger" [disabled]="guardando()" (click)="abrir(o, 'cancelar', $event)"><span class="p-button-label">Cancelar surtido</span></button>
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger gp-cancelar" [disabled]="guardando()" (click)="abrir(o, 'cancelar', $event)"><span class="p-button-label">Cancelar surtido</span></button>
                       </td>
                     </tr>
                     @if (accion()?.ola === o.id) {
@@ -304,7 +304,7 @@ const diaAnterior = (v: string): string => {
     .gp-table tbody tr:last-child td { border-bottom:0; }
     .gp-urg td:first-child { box-shadow:inset 3px 0 0 var(--warn-fg); }
     .gp-code { font-weight:600; }
-    .gp-badge { display:inline-flex; align-items:center; margin-left:.4rem; padding:0 .45rem; height:1.25rem; border-radius:var(--r-pill); font-size:var(--fs-nano); font-weight:700; text-transform:uppercase; letter-spacing:.03em; vertical-align:middle; }
+    .gp-badge { display:inline-flex; align-items:center; margin-left:.4rem; padding:0 .45rem; height:1.25rem; border-radius:var(--r-pill); font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; vertical-align:middle; }
     .gp-badge-warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .gp-motivo { color:var(--warn-soft-fg); }
     .gp-acts { white-space:nowrap; text-align:right; }
@@ -317,6 +317,10 @@ const diaAnterior = (v: string): string => {
       .gp-acts button { display:flex; width:100%; justify-content:flex-end; }
       .gp-table .gp-trunc { max-width:10rem; }
     }
+    /* [GP.RF.18] La destructiva, apartada de las demás (Von Restorff): en renglón, con aire a la izquierda;
+       apilada, con aire arriba. Sigue pidiendo confirmación («Sí, cancelar surtido»). [GP.RF.12] el badge a 11 px. */
+    .gp-acts .gp-cancelar { margin-left:var(--sp-4); }
+    @container (max-width: 64rem) { .gp-acts .gp-cancelar { margin:var(--sp-3) 0 0; } }
     .gp-confirm-row td { background:var(--hover-bg); }
     .gp-confirm { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
     .gp-confirm-t { font-weight:600; font-size:var(--fs-sm); }

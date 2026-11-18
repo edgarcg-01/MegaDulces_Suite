@@ -494,7 +494,7 @@ interface UbicacionFila extends WarehouseBin {
     .ub-mv-bin { flex: 1 1 0; min-width: 0; text-align: center; padding: .6rem;
       border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--card-bg); }
     .ub-mv-bin--on { border-color: var(--action); border-width: 2px; }
-    .ub-mv-lbl { display: block; font-size: .66rem; font-weight: 700; letter-spacing: .06em;
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ .ub-mv-lbl { display: block; font-size: var(--fs-micro); font-weight: 700; letter-spacing: .06em;
       text-transform: uppercase; color: var(--text-muted); }
     .ub-mv-bin strong { display: block; margin-top: .2rem; font-family: var(--font-mono, monospace);
       font-size: 1.35rem; font-variant-numeric: tabular-nums; }

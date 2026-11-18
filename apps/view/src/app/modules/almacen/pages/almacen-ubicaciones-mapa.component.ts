@@ -243,7 +243,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-sw .pi { font-size:var(--fs-nano); }
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; }
     .ub-grid { display:grid; grid-template-columns:4.75rem repeat(var(--ub-cols), minmax(1.75rem, 1fr)); gap:.25rem; align-items:center; min-width:min-content; }
-    .ub-rh { text-align:center; font-size:var(--fs-nano); color:var(--text-muted); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ .ub-rh { text-align:center; font-size:var(--fs-micro); color:var(--text-muted); }
     .ub-ah { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
     .ub-cell { height:2.25rem; border-radius:var(--r-sm); border:1px solid transparent; cursor:pointer; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--text-main); }
     .ub-cell .pi { font-size:var(--fs-xs); }
@@ -264,7 +264,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-code { font-size:var(--fs-lg); font-weight:600; }
     .ub-level-txt { font-size:var(--fs-xs); color:var(--text-muted); min-width:0; }
     .ub-level-txt b { color:var(--text-main); font-weight:600; }
-    .ub-chip { font-size:var(--fs-nano); padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-color); white-space:nowrap; }
+    .ub-chip { font-size:var(--fs-micro); padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-color); white-space:nowrap; }
     .ub-chip-activa { background:var(--ok-soft-bg); color:var(--ok-soft-fg); border-color:var(--ok-border); }
     .ub-chip-bloqueada { background:var(--bad-soft-bg); color:var(--bad-soft-fg); border-color:var(--bad-border); }
     .ub-chip-baja { background:var(--hover-bg); color:var(--text-muted); }

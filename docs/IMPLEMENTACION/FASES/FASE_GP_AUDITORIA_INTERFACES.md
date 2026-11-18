@@ -1006,6 +1006,44 @@ sección, con su motivo.
 - **Arranque no verificado:** el endpoint nuevo agrega decoradores de Nest a un controlador. Se probó
   el motor y el SQL contra prod, no el arranque de la API: eso lo dice el despliegue.
 
+**Bloque 4: letra, lectores de pantalla y la consulta lenta.**
+- **La letra de 10 px (GP.RF.12).** Medido en el navegador: en Surtir y el Tablero de escritorio ya
+  no quedaba texto bajo 12 px salvo dos casos.
+  - **La pastilla de frescura, pieza compartida:** pasa de 10.9 a 12 px.
+  - **El Tablero en el celular:** el bloque viejo de `styles.css` para tablas en el teléfono le ganaba
+    con `!important` al modo apilado (`.dt-stack`, [UIM.1]). Letra de 11.2 px y **15 de 35 celdas
+    escondidas** (Cliente, Renglones y Etapa); a 700 px, Etapa.
+  - Ese bloque ya no aplica a las tablas `.dt-stack`, 116 archivos. Medido aplicando el mismo
+    cambio a la hoja servida, porque el servidor de desarrollo dejó de recompilar: 35 de 35 celdas a
+    la vista, 14 px, sin cortes y sin desbordar.
+  - Las tablas que no usan `.dt-stack` siguen escondiendo columnas en el celular: hallazgo
+    `AUD-UI.1` en `AUDITORIA_BASE_INICIAL.md`.
+  - Las etiquetas y chips de 10 px (`--fs-nano`) de las pantallas del alcance pasan a 11 px
+    (`--fs-micro`, el tamaño de los tokens para etiquetas): etapa del Tablero, preventa, guías,
+    captura, asignación, Excel de asignación, Mapa (chips y rótulos de renglón), contenido y el
+    «URGENTE» de la fila.
+  - No se tocaron las cifras dentro de las celdas del Mapa: su espacio está contado y no se pudo ver
+    con datos.
+  - Lo que queda: los **9 niveles de letra de Revisión** piden un pase de jerarquía con la pantalla a
+    la vista (no es un cambio mecánico).
+- **La pastilla de frescura ya no habla cada 15 s (§5c.7).** Su `aria-live` iba sobre el texto que
+  avanza solo («hace 15s», «hace 30s»…), y el lector de pantalla lo leía en cada cambio. Ahora una
+  región aparte sólo anuncia cuando cambia el estado: atrasado o sin medir. Prueba negativa: el
+  texto que avanza no está en la región viva.
+- **La consulta lenta (GP.RF.19).** Medido en prod, sólo lectura, con el rango de la liga de atorados
+  (29-nov-2025 al 10-nov-2026).
+  - La consulta leía 12,071 pedidos para mostrar 396 y tardaba de 1.8 a 2.2 s.
+  - Con filtro de estatus de Kepler, ahora filtra antes de leer los renglones de cada pedido: 171 a
+    184 ms, con los mismos 396 pedidos.
+  - Con ese filtro, los conteos de etapa y de origen quedan dentro del estatus (la pantalla lo
+    rotula así) y la preventa no viene, porque no tiene estatus de Kepler.
+  - El mes en curso, sin filtro, sigue en 0.36–0.67 s: lo de arriba de 500 ms es la primera lectura
+    en frío.
+- **Cancelar surtido (resto de GP.RF.18):** en la fila, apartado del resto de acciones (aire a la
+  izquierda en renglón, arriba si están apiladas). Ya pedía confirmación.
+- **NO MEDIDO en el navegador:** la pastilla, las etiquetas de 11 px y la separación de «Cancelar»,
+  porque el servidor de desarrollo dejó de recompilar; lo cubren las pruebas de componente.
+
 ---
 
 ## 6. Los pasos que siguen
@@ -1051,14 +1089,14 @@ Formato de cada hallazgo:
 | GP.RF.3, 4, 6, 8, 9 | 0 | — | ver §4.5 | B | ver §4.5 | Retrabajo (`auditoria-diseno` §3c) | se confirman en su paso, con el puesto que los vive | ⬜ |
 | GP.RF.10 | 0 | 🟠 | Tablero: el marco ocupa **415 de 768 px** (54 %) antes de la primera fila; 7 pestañas, 58 accionables y 108 cifras en la primera pantalla. Paso 1 (2026-11-17): igual, con 125 cifras. Con GP.10.4 en prod: 5 pestañas, 50 accionables, 83 cifras, pero **507 px** de marco (GP.RF.20) | A | más de media pantalla sin trabajo, en la pantalla más consultada | Carga visual (`auditoria-diseno` §3c); Q.1 | GP.10.4 ya quita 2 pestañas; el «después» se mide al desplegar | 🔨 |
 | GP.RF.11 | 0 | 🟠 | Checar pide elegir el almacén en un `<select>` nativo antes de cualquier cosa | A | un clic de más en cada entrada | Hick; sistema de diseño (`p-select`) | paso 3: preseleccionar si la persona tiene un solo almacén. Medido en el código: ya preseleccionaba (el guardado, el suyo o el único) | 🧪 2026-11-18: `p-select` por nombre con rótulo visible; ya no se ve «06 · Canindo» (§5c.9) |
-| GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
+| GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | 🧪 2026-11-18 en parte: nada bajo 11 px en las pantallas del alcance; la pastilla a 12; el Tablero en celular de 11.2 a 14 px con sus 35 celdas (§5c.9). Quedan los 9 niveles de Revisión |
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | 🧪 2026-11-18: el «1» a 7.09:1; «Salir» y todo botón sin relleno pasan AA desde el tema (§5c.9) |
 | GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
 | GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | ✅ en prod `4d99357f7` (la cifra de su nota, corregida en GP.10.5 🧪) |
 | GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | 🧪 2026-11-18: `GET warehouse/orders/atorados` (sólo lectura, 60–170 ms en prod; 396 en 8 sucursales, cuadra sucursal por sucursal con la cuenta de la fila) y el aviso con «Velos» (§5c.9) |
 | GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | 🧪 2026-11-18: sin preferencia guardada abre en el almacén de la persona, y nombra sin número (§5c.9). «El que tiene trabajo» pediría que la API cuente por almacén: no se hizo |
-| GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens. Edgar: «corrijamos todo lo que está mal» | 🧪 2026-11-18: en el tema, rojo 700 = 6.47:1 (§5c.9). Queda: «Cancelar» junto a «Marcar urgente» en cada renglón (la consola tiene cambios vivos de otra sesión) | 
-| GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
+| GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens. Edgar: «corrijamos todo lo que está mal» | 🧪 2026-11-18: en el tema, rojo 700 = 6.47:1 (§5c.9). «Cancelar» apartado del resto de acciones en cada renglón (§5c.9) | 
+| GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | 🧪 2026-11-18: con filtro de estatus filtra antes de leer renglones; la liga de atorados de 1.8–2.2 s a 171–184 ms en prod (§5c.9) |
 | GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | ✅ en prod `4d99357f7`: 507 → 457 px medido |
 | GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | 🧪 2026-11-18: «Preventa N» a un toque (la API cuenta por origen con la misma etapa que la lista); medido en el navegador (§5c.9) |
 | GP.RF.22 | 1 | 🟠 | «Existen demasiadas cosas» (Edgar). El Tablero abría en «Todos», con 1,396 de 2,389 pedidos ya embarcados; tenía 22 controles antes de la primera fila, dos rellenos naranjas que competían, 9 columnas (dos casi siempre en «—»), párrafos de ayuda en la cabecera y el volumen encimado sobre la etapa en 36 de 200 filas | A + B | lo que se lee antes de encontrar el trabajo; 58 % de la lista ya había salido | Carga visual; Hick; Von Restorff (una primaria); regla P | abre en «Por hacer» (decisión de Edgar); periodo en un desplegable; Surtir y Checar de contorno; Abierto y Guía bajo fecha y etapa; ayuda al «?»; volumen partido (§5.7) | 🧪 |

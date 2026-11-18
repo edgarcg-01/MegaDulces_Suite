@@ -143,6 +143,8 @@ export interface WarehouseOrdersResponse {
    * Pedidos por estatus DE KEPLER en el periodo, con origen/sucursal aplicados pero SIN el filtro de
    * estatus: son los números de los botones de filtro. Incluye `CANCELADO` si hay alguno. Los de
    * preventa no entran: no tienen estatus de Kepler (van en `conteos_etapa`).
+   * ⚠️ `[GP.RF.19]` CON filtro de estatus (`status`), la consulta filtra antes de leer renglones: este
+   * conteo, `conteos_etapa` y `conteos_origen` quedan DENTRO de ese estatus, y la preventa no viene.
    */
   conteos: Array<{ estatus: string; pedidos: number; renglones: number; mas_antiguo_horas: number | null }>;
   /**

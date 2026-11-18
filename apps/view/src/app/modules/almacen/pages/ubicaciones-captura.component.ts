@@ -206,7 +206,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
     .uc-filebtn:focus-within { outline:2px solid var(--action-ring); outline-offset:1px; }
     .uc-resumen { display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
     .uc-cnt { display:inline-flex; align-items:center; gap:.35rem; }
-    :host ::ng-deep .uc-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .uc-tag { font-size:var(--fs-micro); }
     .uc-mot { display:block; margin-top:.15rem; }
     .uc-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .uc-sub { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
