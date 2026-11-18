@@ -9,7 +9,7 @@ import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
-import { leerValidacionDelDia } from './validacion-pago.sql';
+import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
@@ -1221,22 +1221,51 @@ export class PaymentCalendarService {
   async listDayAllocations(date: string) {
     this.assertDate(date);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
-      if (!lot) return [];
-      const allocations = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereNot('status', 'cancelled')
-        .orderByRaw('priority_rank ASC NULLS LAST').orderBy('created_at', 'asc');
-      if (!allocations.length) return [];
-      // `[PGP.113]` El día es un caso de la bandeja: los mismos renglones, con su día y el estado de su día.
-      const delDia: FilaDePago[] = (allocations as FilaDePago[]).map((a) => ({ ...a, lot_date: date, lot_status: (lot.status ?? null) as string | null }));
+    return this.tk.run(async (trx) => (await this.armarDias(trx, tenantId, [date]))?.armadas ?? []);
+  }
+
+  /** `[PGP.151]` Los pagos de varios días, repartidos por día (para la semana). */
+  private async pagosDeLosDias(trx: Knex.Transaction, tenantId: string, dias: string[]) {
+    const r = await this.armarDias(trx, tenantId, dias);
+    const out = new Map(dias.map((d) => [d, [] as NonNullable<typeof r>['armadas']]));
+    // `armarFilas` devuelve en el orden de entrada: se reparte por día sin reordenar.
+    r?.armadas.forEach((x, i) => out.get(r.filas[i].lot_date)?.push(x));
+    return out;
+  }
+
+  /**
+   * Los pagos (sin cancelar) de UNO O VARIOS días, armados en UNA pasada de `armarFilas`.
+   *
+   * `[PGP.151]` **Cambiar de semana tardaba 3.5–5.5 s** (`GET weeks/:date`, medido en prod 10 al 18-nov; 260 llamadas
+   * el 18). La semana armaba cada día por separado, y cada armado repetía las lecturas que no dependen del día: la
+   * etiqueta de las facturas de Kepler (`v_supplier_payables` filtrada por su llave md5, ~425 ms cada vez, corrida 4
+   * veces = 1.7 s de 3.1 s), el cierre en Kepler (4 veces), el RFC (2). Ahora es una pasada para los siete días.
+   *
+   * La regla de cada pago es la misma que tenía el día: su día y el estado de su día (`[PGP.113]`); el CFDI (~330 ms)
+   * sólo en un día que ya llegó o autorizado completo, o en un pago autorizado o pagado (`[PGP.108]`); la validación
+   * contra el banco, en cada día que tiene pagos (`[PGP.104]`). El orden: el del día (prioridad, luego alta).
+   */
+  private async armarDias(trx: Knex.Transaction, tenantId: string, dias: string[]) {
+    const lots = (await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId }).whereIn('lot_date', dias)
+      .select('id', 'status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia"))) as { id: string; status: string | null; dia: string }[];
+    if (!lots.length) return null;
+    const porLote = new Map(lots.map((l) => [l.id, l]));
+    const allocations = await trx('finance.payment_allocations').whereIn('lot_id', lots.map((l) => l.id)).whereNot('status', 'cancelled')
+      .orderByRaw('priority_rank ASC NULLS LAST').orderBy('created_at', 'asc');
+    if (!allocations.length) return null;
+    // `[PGP.113]` El día es un caso de la bandeja: los mismos renglones, con su día y el estado de su día.
+    const filas: FilaDePago[] = (allocations as FilaDePago[]).map((a) => {
+      const l = porLote.get(String(a['lot_id']))!;
+      return { ...a, lot_date: l.dia, lot_status: (l.status ?? null) as string | null };
+    });
+    const hoy = todayMx();
+    const armadas = await this.armarFilas(trx, tenantId, filas, {
       // `[PGP.108]` El CFDI cuesta ~330 ms: sólo en un día que ya llegó o autorizado completo, y
       // `[PGP.113]` en un pago autorizado o pagado (los que van a tener póliza).
-      const diaConCfdi = date <= todayMx() || LOCKED_LOT_STATUSES.has(lot.status);
-      return this.armarFilas(trx, tenantId, delDia, {
-        conCfdi: (a) => diaConCfdi || !!a.authorized_at || a.status === 'executed',
-        validarDias: [date],
-      });
+      conCfdi: (a) => a.lot_date <= hoy || LOCKED_LOT_STATUSES.has(a.lot_status ?? '') || !!a.authorized_at || a.status === 'executed',
+      validarDias: [...new Set(filas.map((f) => f.lot_date))],
     });
+    return { filas, armadas };
   }
 
   /**
@@ -1500,10 +1529,8 @@ export class PaymentCalendarService {
       const abonosDebeMenos = paraDebeMenos.size ? await this.abonosDeLasFacturas(trx, [...paraDebeMenos.values()].flat()) : new Map<string, AbonoQueBajoElSaldo[]>();
       // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
       // Sólo en un día que ya llegó; uno por venir no se ha pagado. `[PGP.113]` Uno por cada día pedido.
-      const validaciones = new Map<string, ValidacionPago>();
-      for (const d of [...new Set(opts.validarDias)]) {
-        for (const [k, v] of await leerValidacionDelDia(trx, tenantId, d, todayMx())) validaciones.set(k, v);
-      }
+      // `[PGP.151]` Todos los días pedidos con UNA lectura (antes, cuatro consultas por día: ~1.3 s en la bandeja).
+      const validaciones = await leerValidacionDeLosDias(trx, tenantId, opts.validarDias, todayMx());
       // `[PGP.108]` El CFDI de cada factura y si es PUE o PPD: decide la póliza de egreso de ContPAQi.
       // Sólo en un día autorizado o que ya llegó (los que van a tener póliza): cuesta ~330 ms y un día
       // en planeación no lo necesita.
@@ -1770,12 +1797,15 @@ export class PaymentCalendarService {
     const t = Date.parse(date + 'T00:00:00Z');
     if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== date) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
     const days = weekDates(date);
-    // En serie a propósito: 7 días × 3 lecturas en paralelo serían 21 transacciones a la vez
+    const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.151]` Los pagos de los siete días en UNA pasada (antes, un armado por día: 3.5–5.5 s por semana).
+    const porDia = await this.tk.run((trx) => this.pagosDeLosDias(trx, tenantId, days));
+    // En serie a propósito: 7 días × 2 lecturas en paralelo serían 14 transacciones a la vez
     // contra el pool de prod, por una pantalla.
     const out: PaymentCalendarWeek['days'] = [];
     for (const d of days) {
       const summary = await this.daySummary(d);
-      const allocations = (await this.listDayAllocations(d)) as unknown as PaymentCalendarAllocation[];
+      const allocations = (porDia.get(d) ?? []) as unknown as PaymentCalendarAllocation[];
       const lot = await this.getLot(d);
       out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
     }

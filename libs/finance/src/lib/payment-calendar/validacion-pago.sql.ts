@@ -64,27 +64,49 @@ export function cuentaDeOrigen(origen: string, cuentas: readonly { cuenta_id: st
  * pagado). Devuelve un mapa por id de pago; los pagos del día que no aparecen no se validaron.
  */
 export async function leerValidacionDelDia(trx: Knex | Knex.Transaction, tenantId: string, date: string, hoy: string): Promise<Map<string, ValidacionPago>> {
-  if (date > hoy) return new Map();
-  const desde = sumarDias(date, -MARGEN_VECINOS_DIAS);
-  const hasta = sumarDias(date, MARGEN_VECINOS_DIAS);
-  const pagos = (await trx.raw(SQL_PAGOS_A_VALIDAR, [tenantId, desde, hasta])).rows as PagoAValidar[];
-  if (!pagos.some((p) => p.dia === date)) return new Map();
-  const cobertura = (await trx.raw(SQL_COBERTURA_CUENTAS, [hoy, hoy, periodosDe(desde, hasta), tenantId])).rows as
+  return leerValidacionDeLosDias(trx, tenantId, [date], hoy);
+}
+
+/**
+ * `[PGP.151]` La validación de los pagos de VARIOS días, con las cuatro lecturas UNA vez. Antes la bandeja la pedía día
+ * por día: 14 días × 4 consultas = ~1.3 s de sus ~2.8 s (medido en prod el 2026-11-18). Cada día se sigue validando
+ * con SU ventana (±{@link MARGEN_VECINOS_DIAS} días de pagos y ±5 más de movimientos y comprobantes), filtrada en
+ * memoria sobre lo leído para todos: el resultado es el mismo que pidiéndolo solo. La cobertura no depende del día
+ * (de ella sólo se usan la cuenta y hasta dónde llega el libro).
+ */
+export async function leerValidacionDeLosDias(trx: Knex | Knex.Transaction, tenantId: string, dates: readonly string[], hoy: string): Promise<Map<string, ValidacionPago>> {
+  const out = new Map<string, ValidacionPago>();
+  const dias = [...new Set(dates)].filter((d) => d <= hoy).sort();
+  if (!dias.length) return out;
+  const gDesde = sumarDias(dias[0], -MARGEN_VECINOS_DIAS);
+  const gHasta = sumarDias(dias[dias.length - 1], MARGEN_VECINOS_DIAS);
+  const pagosTodos = (await trx.raw(SQL_PAGOS_A_VALIDAR, [tenantId, gDesde, gHasta])).rows as PagoAValidar[];
+  const conPago = dias.filter((d) => pagosTodos.some((p) => p.dia === d));
+  if (!conPago.length) return out;
+  const cobertura = (await trx.raw(SQL_COBERTURA_CUENTAS, [hoy, hoy, periodosDe(gDesde, gHasta), tenantId])).rows as
     { cuenta_id: string; account_label: string | null; hasta: string | null }[];
   // Los movimientos van más allá de la ventana de pagos (±5) para que el uno a uno vea todo lo que compite.
-  const movs = ((await trx.raw(SQL_MOVIMIENTOS_BANCO, [tenantId, sumarDias(desde, -5), sumarDias(hasta, 5)])).rows as
+  const movsTodos = ((await trx.raw(SQL_MOVIMIENTOS_BANCO, [tenantId, sumarDias(gDesde, -5), sumarDias(gHasta, 5)])).rows as
     { id: string; cuenta_id: string; fecha: string; salida: number; fecha_invalida: boolean }[])
     .filter((m) => m.salida > 0)
     .map<MovimientoBanco>((m) => ({ id: m.id, cuenta_id: m.cuenta_id, fecha: m.fecha, importe: Number(m.salida), fecha_invalida: !!m.fecha_invalida || m.fecha > hoy }));
-  const comprobantes = ((await trx.raw(SQL_COMPROBANTES_A_VALIDAR, [tenantId, sumarDias(desde, -5), sumarDias(hasta, 5)])).rows as
+  const compsTodos = ((await trx.raw(SQL_COMPROBANTES_A_VALIDAR, [tenantId, sumarDias(gDesde, -5), sumarDias(gHasta, 5)])).rows as
     { id: string; importe: number | null; fecha: string | null; origen: string }[])
     .map<ComprobanteBanco>((c) => ({ id: c.id, importe: Number(c.importe ?? 0), fecha: c.fecha, cuenta_id: cuentaDeOrigen(c.origen, cobertura) }));
   const cargado = new Map(cobertura.filter((c) => c.hasta).map((c) => [c.cuenta_id, c.hasta as string]));
-  const todos = validarPagos({
-    pagos: pagos.map((p) => ({ ...p, importe: Number(p.importe) })),
-    movimientos: movs, comprobantes, cargado_hasta: cargado,
-  });
-  const delDia = new Map<string, ValidacionPago>();
-  for (const p of pagos) if (p.dia === date) delDia.set(p.id, todos.get(p.id)!);
-  return delDia;
+  const entre = (f: string | null, a: string, b: string) => !!f && f >= a && f <= b;
+  for (const date of conPago) {
+    // La ventana de ESTE día, igual que cuando se pedía solo.
+    const desde = sumarDias(date, -MARGEN_VECINOS_DIAS);
+    const hasta = sumarDias(date, MARGEN_VECINOS_DIAS);
+    const pagos = pagosTodos.filter((p) => entre(p.dia, desde, hasta));
+    const movs = movsTodos.filter((m) => entre(m.fecha, sumarDias(desde, -5), sumarDias(hasta, 5)));
+    const comprobantes = compsTodos.filter((c) => entre(c.fecha, sumarDias(desde, -5), sumarDias(hasta, 5)));
+    const todos = validarPagos({
+      pagos: pagos.map((p) => ({ ...p, importe: Number(p.importe) })),
+      movimientos: movs, comprobantes, cargado_hasta: cargado,
+    });
+    for (const p of pagos) if (p.dia === date) out.set(p.id, todos.get(p.id)!);
+  }
+  return out;
 }
