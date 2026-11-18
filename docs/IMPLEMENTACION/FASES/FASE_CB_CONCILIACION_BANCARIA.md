@@ -689,6 +689,11 @@ Kepler y ContPAQi tenían y el banco no. El Δ Banco − Kepler del total era �
   archivo; sin archivo, su propio estado de cuenta): todas las cuentas del libro comparten el 10-nov aunque una de poco
   movimiento termine el 6, y una cuenta que pase a la descarga diaria (CB.80) tiene el suyo. Un corte global tomaría el máximo.
   Un mes cerrado no se recorta (agosto–octubre llegan al último día; si el 31 cae domingo, el 30 no es atraso).
+- ⛔ **D2 REFUTADA en su mitad ContPAQi el 2026-11-18** ([`VERDAD_ABSOLUTA` §38.5-3](../../VERDAD_ABSOLUTA.md)): contra una
+  respuesta conocida (meses cerrados con el banco recortado a propósito), en depósitos tiene más del doble de error que cortar
+  por fecha, porque ContPAQi fecha el depósito antes que el abono y la regla da por buenas todas las pólizas anteriores al
+  corte. La mitad Kepler se sostiene. Además, la columna «Banco» es el libro, no la descarga (§38.1). **CB.82 no se suelta
+  así**: va con ContPAQi por pareo y lo no pareado aparte (§38.6).
 - **D2 · Kepler se corta por fecha; ContPAQi por fecha salvo lo que casa.** `fecha_efectiva` de Kepler ya es la del banco
   (CB.49). ContPAQi no: sus pólizas agrupan y se fechan después (los 136 depósitos de 6721, «VENTAS TLMKT», van al 11-nov).
   La póliza posterior al corte se queda si casa por importe exacto con un movimiento del banco de su cuenta que nadie haya
