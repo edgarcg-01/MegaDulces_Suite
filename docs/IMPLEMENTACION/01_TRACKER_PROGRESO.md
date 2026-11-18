@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2791 KB, 15027 líneas, 78 secciones.
+> **Índice navegable** — 2792 KB, 15028 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13848 | 13889 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13890 | 14046 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14047 | 14077 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14078 | 14342 | 46 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14343 | 14407 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14408 | 14416 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14417 | 14470 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14477 | 14486 | 1 | 📝 Convenciones |
-| 14487 | 14524 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14525 | 14543 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14544 | 14596 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14597 | 14979 | 71 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 14980 | 15010 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15011 | 15032 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15033 | 15060 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15061 | 15093 | 27 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15094 | 15117 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14078 | 14343 | 47 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14344 | 14408 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14409 | 14417 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14418 | 14471 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14478 | 14487 | 1 | 📝 Convenciones |
+| 14488 | 14525 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14526 | 14544 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14545 | 14597 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14598 | 14980 | 71 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14981 | 15011 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15012 | 15033 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15034 | 15061 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15062 | 15094 | 27 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15095 | 15118 | 7 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14286,6 +14286,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - AUD-UI.1: el bloque global de tablas en el celular ya no esconde columnas ni corta celdas en las 153 tablas sin `.dt-stack`: la tabla se desplaza a lo ancho con la última columna fija, letra mínima 12 px. Medido (`tabla-celular.e2e.ts`, hoja real servida): antes 4 de 8 columnas escondidas y «Vendedor» inalcanzable a 11.2 px; ahora 0, todas alcanzables, 12 px, sin desbordar la página.
 >     - Corrección del bloque 4: `.gp-tag/.uc-tag/.as-tag/.ax-tag` eran reglas muertas (p-tag no tiene `styleClass` en PrimeNG 22; la etiqueta mide 12 px por el tema, medido): se quitaron con sus 10 `styleClass`. 14 textos en `--warn-fg`/`--ok-fg` a su tono para texto. Revisión de 6 tamaños propios a 4 niveles (40/20/18/14; se subió, nada se achicó).
 >     - Pastilla de frescura verificada en el navegador (12 px, sin región viva sobre el texto que avanza). NO MEDIDO: Revisión en el navegador (el servidor de desarrollo se apagó; `revision-letra.e2e.ts` listo).
+>   - [x] **[GP.RF.13] (Revisión, en el navegador)** 🧪 (2026-11-18) Medido `revision-letra.e2e.ts` al volver el servidor: dentro del pedido 4 tamaños (20/18/14 + el 13 del marco). Encontró y se corrigieron 2 textos bajo AA: «▶ REVISANDO» 4.24 → 7.15 (`--info-soft-fg`) y el botón «Está bien» 3.30 → 7.13 (fondo `--ok-soft-fg`). Re-medido: 0 bajo AA.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.

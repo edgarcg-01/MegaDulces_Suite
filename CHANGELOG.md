@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Revisión en caja: «Está bien» y «Revisando» se leen (GP.RF.13 · 2026-11-18 · en código, sin soltar)
+- El botón principal «Está bien» y la marca «▶ Revisando» tenían texto con poco contraste; ahora pasan el mínimo.
+
 ### Fixed — Toda la Suite en el celular: ninguna tabla esconde columnas (AUD-UI.1 · GP.RF.12–13 · 2026-11-18 · en código, sin soltar)
 - En el teléfono, las tablas que no se apilan ya no esconden columnas ni cortan el texto: se desplazan a lo ancho con la última columna fija.
 - Revisión en caja con menos tamaños de letra, y los avisos en ámbar o verde de Almacén se leen.

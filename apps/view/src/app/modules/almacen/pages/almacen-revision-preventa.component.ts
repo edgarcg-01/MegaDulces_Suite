@@ -444,7 +444,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       border-radius: var(--r-xl); background: var(--info-soft-bg); margin-bottom: var(--sp-3); }
     .rv-actual-falta { border-color: var(--warn-fg); background: var(--warn-soft-bg); }
     .rv-actual-sobra { border-color: var(--action); background: var(--card-bg); }
-    .rv-flecha { font-size: var(--fs-body); font-weight: 800; letter-spacing: .02em; color: var(--info-fg); }
+    /* [GP.RF.13] Sobre el azul claro de la tarjeta, --info-fg daba 4.24:1 (medido); --info-soft-fg, 7.15. */
+    .rv-flecha { font-size: var(--fs-body); font-weight: 800; letter-spacing: .02em; color: var(--info-soft-fg); }
     /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .rv-actual-falta .rv-flecha { color: var(--warn-soft-fg); }
     .rv-actual-sobra .rv-flecha { color: var(--action); }
     .rv-nombre { font-size: var(--fs-h2); font-weight: 800; line-height: 1.2; }
@@ -465,7 +466,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-btn:focus-visible, .rv-card:focus-visible, .rv-pill:focus-visible, .rv-volver:focus-visible, .rv-paso button:focus-visible, .rv-item-tocar:focus-visible {
       outline: 3px solid var(--focus-ring); outline-offset: 2px; }
     .rv-btn:disabled { cursor: not-allowed; opacity: .6; }
-    .rv-btn-ok { background: var(--ok-fg); border-color: var(--ok-fg); color: var(--card-bg); }
+    /* [GP.RF.13] «Está bien» llevaba blanco sobre --ok-fg: 3.30:1 (medido en el navegador). Con --ok-soft-fg, 7.13. */
+    .rv-btn-ok { background: var(--ok-soft-fg); border-color: var(--ok-soft-fg); color: var(--card-bg); }
     .rv-btn-sm { min-height: 3.25rem; font-size: var(--fs-body); }
     .rv-btn-mal { color: var(--bad-fg); border-color: var(--bad-border); }
     .rv-btn-atras { width: auto; align-self: flex-start; min-height: 3.25rem; font-size: var(--fs-body); margin-bottom: var(--sp-3); }
