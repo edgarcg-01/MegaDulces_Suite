@@ -24,7 +24,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   //      /login que no puede usar porque no tiene cuenta.
   // `[RH.2.4]` La bolsa de trabajo (`/hr/talent/public`) es pública por lo mismo: quien se postula no tiene cuenta.
   if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')
-      || req.url.includes('/finance/captura') || req.url.includes('/hr/talent/public')) {
+      || req.url.includes('/finance/captura') || req.url.includes('/hr/talent/public')
+      // `[CC.20]` El cliente que sube su ficha de depósito tampoco tiene cuenta.
+      || req.url.includes('/finance/deposito')) {
     return next(req);
   }
 

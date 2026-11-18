@@ -21,7 +21,7 @@
  *
  * Se guarda el PRIMER segmento: `captura/:token` y `empleo/liga/:token` cuelgan de él.
  */
-export const RUTAS_PUBLICAS: readonly string[] = ['firmar', 'captura', 'empleo'];
+export const RUTAS_PUBLICAS: readonly string[] = ['firmar', 'captura', 'empleo', 'deposito'];
 
 /**
  * ¿Esta URL es una pantalla pública? Acepta lo que venga: con query, con hash o con el outlet del

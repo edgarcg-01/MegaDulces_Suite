@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { CustomerLedgerService } from './customer-ledger.service';
+import { CustomerDepositsService } from '../collection-deposits/customer-deposits.service';
+import { qrSvg } from '../shared/qr-svg';
 
 /** RFCs genéricos del SAT: no son el RFC del cliente y no se imprimen como si lo fueran. */
 const RFC_GENERICOS = new Set(['XAXX010101000', 'XEXX010101000']);
@@ -69,13 +71,21 @@ export class EstadoCuentaClienteDocument {
     private readonly ledger: CustomerLedgerService,
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Optional() private readonly depositos?: CustomerDepositsService,
   ) {}
 
-  async render(sucursal: string, cliente: string): Promise<{ pdf: Buffer; nombre: string }> {
+  async render(sucursal: string, cliente: string, origin?: string): Promise<{ pdf: Buffer; nombre: string }> {
     const det = (await this.ledger.detalle(sucursal, cliente)) as unknown as DetalleEC;
     if (!det?.cliente) throw new NotFoundException(`No hay cartera del cliente ${cliente} en esa sucursal.`);
     const emisor = await this.emisor();
-    const pdf = await htmlAPdf(this.html(det, emisor, this.logo()), { footer: this.pie(det, emisor) });
+    // `[CC.20]` El QR de su enlace personal para subir la ficha de depósito. Si no se puede armar (sin origen público),
+    // el PDF sale igual, sin QR: el enlace es una comodidad, no una condición del estado de cuenta.
+    let qr: string | null = null;
+    try {
+      const url = this.depositos ? await this.depositos.enlaceDe(sucursal, cliente, origin) : null;
+      qr = url ? qrSvg(url, 118) : null;
+    } catch { qr = null; }
+    const pdf = await htmlAPdf(this.html(det, emisor, this.logo(), qr), { footer: this.pie(det, emisor) });
     return { pdf, nombre: `estado-de-cuenta-${det.cliente.cliente_code}-${det.hoy}.pdf` };
   }
 
@@ -113,7 +123,7 @@ export class EstadoCuentaClienteDocument {
   }
 
   /** `public` para probarlo sin Chromium: es el documento entero, menos la conversión. */
-  html(det: DetalleEC, emisor: EmisorEC, logo = ''): string {
+  html(det: DetalleEC, emisor: EmisorEC, logo = '', qrDeposito: string | null = null): string {
     const c = det.cliente;
     const abiertas = det.partidas
       .filter((p) => !p.saldada)
@@ -189,6 +199,9 @@ tr.total td{padding:2mm 1.5mm;border-top:1.5px solid var(--ink);border-bottom:0;
 .ajuste td{font-style:italic;color:var(--ink-2)}
 .nota{margin-top:5mm;padding:3mm 4mm;background:var(--soft);border-radius:2mm;font-size:8pt;color:var(--ink-2);line-height:1.45}
 .vacio{padding:6mm;text-align:center;color:var(--muted)}
+.pago{display:flex;gap:5mm;align-items:center;margin-top:5mm;padding:3mm 4mm;border:1.5px solid var(--accent);border-radius:2mm;font-size:9pt;line-height:1.45;page-break-inside:avoid}
+.pago .qr svg{display:block;width:30mm;height:30mm}
+.pago .s{font-size:7.5pt;color:var(--muted);margin-top:1mm}
 </style></head><body>
 <div class="head">
   <div class="marca">${logo ? `<img src="${logo}" alt="">` : ''}
@@ -224,6 +237,12 @@ ${abiertas.length ? `<table>
        página, y en papel un «Total» antes de que terminen las facturas se lee como el total. -->
   <tr class="total"><td colspan="4">Total</td><td class="r mono">${money(totImporte)}</td><td class="r mono">${money(totImporte - totSaldo)}</td><td class="r mono">${money(det.saldo)}</td><td></td></tr></tbody>
 </table>` : `<div class="vacio">Sin facturas pendientes a la fecha de corte.</div>`}
+${qrDeposito ? `<div class="pago">
+  <div class="qr">${qrDeposito}</div>
+  <div><b>¿Ya depositó?</b> Escanee este código con la cámara de su celular y tome una foto de su ficha de depósito.
+    Sin usuario ni contraseña: le avisamos a Crédito y Cobranza para aplicarlo a su cuenta.
+    <div class="s">El código es personal de su cuenta. No lo comparta.</div></div>
+</div>` : ''}
 <div class="nota">Este estado de cuenta refleja los movimientos registrados al ${fechaLarga(det.hoy)}.
   Si ya realizó su pago, le pedimos enviarnos su comprobante para aplicarlo a su cuenta; si tiene
   alguna aclaración, con gusto la atendemos${vendedor ? ` con su vendedor, ${esc(vendedor)},` : ''} o en nuestra área de Crédito y Cobranza.</div>

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
+import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOptions, PgListenService } from '@megadulces/platform-core';
 import { ExpenseProofsService } from './expense-proofs.service';
 import { ExpenseProofsController } from './expense-proofs.controller';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
@@ -14,6 +14,7 @@ import { AutorizacionKeplerController } from './autorizacion-kepler/autorizacion
 import { KeplerSolicitudGastoSinkAdapter } from './solicitud-kepler/kepler-solicitud-gasto-sink.adapter';
 import { SolicitudGastoService } from './solicitud-kepler/solicitud-gasto.service';
 import { SolicitudGastoController } from './solicitud-kepler/solicitud-gasto.controller';
+import { SolicitudPorEventoService } from './solicitud-kepler/solicitud-por-evento.service';
 import { FacturasSatService } from './solicitud-kepler/facturas-sat.service';
 import { FacturasSatController } from './solicitud-kepler/facturas-sat.controller';
 import { KeplerGastoSinkAdapter } from './comprobacion-kepler/kepler-gasto-sink.adapter';
@@ -44,8 +45,11 @@ import { ComprobacionGastoService } from './comprobacion-kepler/comprobacion-gas
   // nacida en la Suite (apagado por default: bandera, plantilla por servidor, interruptor y GRANT).
   // `[PGP.123]` KeplerGastoSinkAdapter + ComprobacionGastoService: validar el vale COMPRUEBA su gasto en Kepler (X-A-10
   // con su póliza; apagado por default: bandera, DG7, interruptor y GRANT).
+  // `[PGP.122]` R1 por evento: SolicitudPorEventoService escucha `solicitud_gasto_kepler` (sólo en el worker).
+  // PgListenService NO es global: cada módulo que escucha lo provee (como CarteraPorEventoService).
   providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
-    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService, KeplerGastoSinkAdapter, ComprobacionGastoService],
+    KeplerSolicitudGastoSinkAdapter, SolicitudGastoService, FacturasSatService, KeplerGastoSinkAdapter, ComprobacionGastoService,
+    PgListenService, SolicitudPorEventoService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}

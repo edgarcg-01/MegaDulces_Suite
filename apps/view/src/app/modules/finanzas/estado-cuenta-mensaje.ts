@@ -12,7 +12,7 @@ const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' 
  * detalle factura por factura va en el PDF. Las cifras son las MISMAS del diálogo (y del PDF):
  * salen del mismo auxiliar.
  */
-export function mensajeEstadoCuenta(det: CarteraDetalle): string {
+export function mensajeEstadoCuenta(det: CarteraDetalle, enlaceDeposito?: string | null): string {
   const abiertas = det.partidas.filter((p) => !p.saldada);
   const vencidas = abiertas.filter((p) => p.vencida);
   const masVieja = [...vencidas].sort((a, b) => (b.dias_vencido ?? 0) - (a.dias_vencido ?? 0))[0];
@@ -34,12 +34,21 @@ export function mensajeEstadoCuenta(det: CarteraDetalle): string {
   if (masVieja) {
     l.push('', `La factura pendiente más antigua es la ${masVieja.folio_digital}, vencida hace ${masVieja.dias_vencido} día${masVieja.dias_vencido === 1 ? '' : 's'}.`);
   }
-  l.push(
-    '',
-    'Le adjuntamos el PDF con el detalle de cada factura.',
-    'Si ya realizó su pago, le agradeceremos compartirnos el comprobante para aplicarlo a su cuenta. Quedamos a sus órdenes para cualquier aclaración.',
-    '',
-    '*Mega Dulces* · Crédito y Cobranza',
-  );
+  l.push('', 'Le adjuntamos el PDF con el detalle de cada factura.');
+  // `[CC.20]` Con enlace, el comprobante se sube ahí (foto o captura, sin usuario ni contraseña) y le llega directo a
+  // Cobranza. Sin enlace, como antes: que nos lo comparta.
+  if (enlaceDeposito) {
+    l.push(
+      '',
+      '*¿Ya pagó?* Suba aquí la foto de su ficha de depósito o la captura de su transferencia, sin usuario ni contraseña:',
+      enlaceDeposito,
+      'Es personal de su cuenta; le avisamos cuando quede aplicado.',
+      '',
+      'Quedamos a sus órdenes para cualquier aclaración.',
+    );
+  } else {
+    l.push('Si ya realizó su pago, le agradeceremos compartirnos el comprobante para aplicarlo a su cuenta. Quedamos a sus órdenes para cualquier aclaración.');
+  }
+  l.push('', '*Mega Dulces* · Crédito y Cobranza');
   return l.join('\n');
 }

@@ -22,6 +22,7 @@ import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCo
 import { consultaBuscadorCatalogo, PRECIO_SIMBOLICO_MAX } from '../shared/catalogo-buscador';
 import { LARGO_OBSERVACIONES, normalizarObservaciones } from './kepler-pedido-tlmk';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
+import { factorExactoDeFicha } from '../commercial-replenishment/ficha-kepler';
 import { ligasAutomaticas, type UsuarioParaLiga, type VendedorKepler } from './vendedor-auto-liga';
 
 /** `[E.21]` Un renglón del alta: qué y cuánto. El precio lo pone el servidor, nunca el body. */
@@ -996,12 +997,20 @@ export class CommercialQuotesService {
                -- que casó (ERP_KEPLER §3.y.4): pieza c7/c93/c102 = 1 · dos c82/c95/c96 = c81 · tres c85 = c84.
                -- Así el escaneo de la caja elige la caja. NULL = no fue un código.
                (SELECT CASE WHEN :code::text IN (upper(btrim(k.c7::text)), upper(btrim(k.c93::text)), upper(btrim(k.c102::text))) THEN 1
-                            WHEN :code::text IN (upper(btrim(k.c82::text)), upper(btrim(k.c95::text)), upper(btrim(k.c96::text))) THEN floor(k.c81)::int
-                            WHEN :code::text = upper(btrim(k.c85::text)) THEN floor(k.c84)::int END
+                            WHEN :code::text IN (upper(btrim(k.c82::text)), upper(btrim(k.c95::text)), upper(btrim(k.c96::text))) THEN k.c81::numeric
+                            WHEN :code::text = upper(btrim(k.c85::text)) THEN k.c84::numeric END
                   FROM kepler_ods.kdii k
                  WHERE :code::text IS NOT NULL AND btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
-                 LIMIT 1) AS scan_factor
+                 LIMIT 1) AS scan_factor,
+               -- [COT.45] Los factores EXACTOS de la ficha: las vistas los truncan (bulto 19.75 → 19).
+               ex.u2, ex.f2, ex.u3, ex.f3
           FROM :inner v
+          LEFT JOIN LATERAL (
+            SELECT upper(btrim(k.c80)) AS u2, k.c81::numeric AS f2, upper(btrim(k.c83)) AS u3, k.c84::numeric AS f3
+              FROM kepler_ods.kdii k
+             WHERE btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
+             LIMIT 1
+          ) ex ON true
           LEFT JOIN LATERAL (
             SELECT s.unidad, s.factor
               FROM kepler_ods.kdii k
@@ -1053,9 +1062,9 @@ export class CommercialQuotesService {
         barcode: (r['barcode'] as string) ?? null,
         unit_base: (r['unit_base'] as string) ?? null,
         piece_price: num(r['piece_price']),
-        pack_size: num(r['pack_size']),
+        pack_size: factorExactoDeFicha(num(r['pack_size']), r['pack_label'] as string | null, r),
         pack_label: (r['pack_label'] as string) ?? null,
-        box_size: num(r['box_size']),
+        box_size: factorExactoDeFicha(num(r['box_size']), r['box_label'] as string | null, r),
         box_label: (r['box_label'] as string) ?? null,
         sold_by_kg: r['sold_by_kg'] === true,
         precio_simbolico: num(r['piece_price']) !== null && (num(r['piece_price']) as number) <= PRECIO_SIMBOLICO_MAX,

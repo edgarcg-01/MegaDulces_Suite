@@ -539,7 +539,7 @@ const ESTADO_LABEL: Record<string, string> = {
            del mismo vale se separan a la primera corrección. -->
       <ng-template #fila let-p>
       <article class="ap-item" [class.cerrado]="sinAcciones(p)" [class.abierto]="abierto()?.id === p.id"
-               role="button" tabindex="0" [attr.aria-label]="'Ver el vale ' + p.folio_solicitud"
+               role="button" tabindex="0" [attr.aria-label]="etiquetaDelVale(p)"
                (click)="abrir(p)" (keydown.enter)="abrir(p)" (keydown.space)="abrir(p); $event.preventDefault()">
         <div class="ap-it-head">
           <!-- [PGP.79] El folio como lo busca quien abre Kepler: XA1501-<folio>. -->
@@ -1536,6 +1536,18 @@ export class FinanzasAprobacionGastosComponent {
    */
   sinAcciones(p: ExpedienteDelDia): boolean {
     return this.accionesDe(p).length === 0;
+  }
+
+  /**
+   * `[PGP.122]` Cómo se anuncia el renglón. Su `aria-label` REEMPLAZA a todo lo que trae dentro, así que tiene que decir
+   * lo que dice la pantalla: el folio como se ve (`XA1501-…`). La solicitud nacida en la Suite no tiene folio hasta que
+   * se firma y se escribe en Kepler: se anunciaba «Ver el vale null» (medido con Playwright, 2026-11-18). Sin folio se
+   * dice de quién y cuánto, porque «sin folio» solo no distingue un renglón de otro.
+   */
+  etiquetaDelVale(p: Pick<ExpedienteDelDia, 'folio_solicitud' | 'proveedor' | 'importe'>): string {
+    const doc = solicitudKepler(p.folio_solicitud);
+    if (doc) return `Ver el vale ${doc}`;
+    return `Ver el vale sin folio${p.proveedor ? ` de ${p.proveedor}` : ''} por ${this.money(p.importe)}`;
   }
 
   money(v: number | null | undefined): string {

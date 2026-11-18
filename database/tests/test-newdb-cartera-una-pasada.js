@@ -47,7 +47,9 @@ const money = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 
  * El SQL VIVO del servicio. Se extrae el bloque `const VIVA … AS almacenes\`;` y se evalúa como
  * lo que es: un template literal con dos interpolaciones (`bucket()` y `filtros`).
  */
-function sqlDelServicio(filtros) {
+// [CXC.41] El bloque usa DOS juegos de filtros: el de la pantalla y el mismo sin el tipo de
+// cuenta (alimenta por_tipo_universo). Sus binds van en ese orden, entre los dos tenant.
+function sqlDelServicio(filtros, filtrosSinCuenta = filtros) {
   const src = fs.readFileSync(SRC, 'utf8');
   const i = src.indexOf("const VIVA = 'd.res > 0.005';");
   const j = src.indexOf('AS almacenes`;', i);
@@ -56,7 +58,7 @@ function sqlDelServicio(filtros) {
       + 'Este test lee el SQL del servicio a propósito; arreglar el marcador, no copiar el SQL.');
   }
   const chunk = src.slice(i, j + 'AS almacenes`;'.length).replace('(extra: string)', '(extra)');
-  return new Function('filtros', `${chunk}\nreturn sql;`)(filtros);
+  return new Function('filtros', 'filtrosSinCuenta', `${chunk}\nreturn sql;`)(filtros, filtrosSinCuenta);
 }
 
 /** knex traduce `?` a `$N`; este script habla `pg` directo y hace la misma traducción. */
@@ -213,7 +215,7 @@ function plegar(clientes) {
   // ── 5. Los filtros siguen filtrando (y el invariante aguanta filtrado) ─────────────────
   console.log('\n5) Con filtro, el invariante se sostiene');
   const unaSuc = enDato[0];
-  const f = await correr('WHERE d.sucursal = ?', [TENANT, unaSuc, TENANT]);
+  const f = await correr('WHERE d.sucursal = ?', [TENANT, unaSuc, unaSuc, TENANT]);
   const B = plegar(f.row.clientes || []);
   const soloUna = new Set((f.row.clientes || []).map((x) => x.sucursal));
   soloUna.size === 1 && soloUna.has(unaSuc)

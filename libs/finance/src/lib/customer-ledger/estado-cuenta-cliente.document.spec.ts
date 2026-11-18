@@ -3,6 +3,8 @@ import { antiguedad, EstadoCuentaClienteDocument, type DetalleEC } from './estad
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerLedgerService } from './customer-ledger.service';
+import { CustomerDepositsService } from '../collection-deposits/customer-deposits.service';
+import { qrSvg } from '../shared/qr-svg';
 
 /**
  * `[CXC.40]` El estado de cuenta que se le entrega al cliente.
@@ -108,6 +110,19 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
     expect(providers).toContain(CustomerLedgerService);
     // vitest transpila sin emitDecoratorMetadata: se fija la ARIDAD, no los tipos.
     expect(CustomerLedgerController.length).toBe(4);
-    expect(EstadoCuentaClienteDocument.length).toBe(3);
+    // `[CC.20]` La 4ª es el servicio del enlace de depósito (para el QR), @Optional: tiene que llegar por el import
+    // del módulo de depósitos, o el PDF saldría siempre sin QR sin que nada lo diga.
+    expect(EstadoCuentaClienteDocument.length).toBe(4);
+    const imports = Reflect.getMetadata('imports', FinanceCustomerLedgerModule) as unknown[];
+    const exportados = imports.flatMap((m) => (Reflect.getMetadata('exports', m as object) as unknown[]) || []);
+    expect(exportados).toContain(CustomerDepositsService);
+  });
+
+  it('[CC.20] con enlace, el PDF imprime el QR para subir la ficha de depósito; sin enlace, no', () => {
+    const con = doc.html(DET, EMISOR, '', qrSvg('https://suite.test/deposito/TOKEN', 118));
+    expect(con).toContain('¿Ya depositó?');
+    expect(con).toContain('<svg');
+    const sin = doc.html(DET, EMISOR, '', null);
+    expect(sin).not.toContain('¿Ya depositó?');
   });
 });

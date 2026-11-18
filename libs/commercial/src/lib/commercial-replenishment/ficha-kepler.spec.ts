@@ -1,4 +1,4 @@
-import { factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
+import { factorExactoDeFicha, factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
 
 /**
  * `[PQ.19]` D24 — el factor de la ficha, con la misma regla que `analytics.v_kepler_unit_ladder`.
@@ -60,5 +60,27 @@ describe('[PQ.87][PQ.91] frenoFichaSinCaja', () => {
   it('NEGATIVA: ficha que no dice su factor no frena ni cambia la unidad', () => {
     const r = frenoFichaSinCaja([{ sku: '99999', piezas_por_caja: 12 }], ficha, '08');
     expect(r).toEqual({ motivo: null, sinCaja: new Map() });
+  });
+});
+
+/**
+ * `[COT.45]` Las vistas truncan el factor (floor) y Kepler guarda decimales: fichas reales de Padre
+ * Hidalgo, 2026-11-18 (95579 BTO ×19.75 · 97235 CJA ×10.80 en la Unidad Dos).
+ */
+describe('[COT.45] factorExactoDeFicha', () => {
+  const bolsa = { u2: 'PAQ', f2: '1.00', u3: 'BTO', f3: '19.75' };
+  const choco = { u2: 'CJA', f2: '10.80', u3: '', f3: '0.00' };
+  it('la vista dijo 19 y la ficha 19.75 en esa presentación: 19.75', () => {
+    expect(factorExactoDeFicha(19, 'BTO', bolsa)).toBe(19.75);
+    expect(factorExactoDeFicha(10, 'cja', choco)).toBe(10.8);
+  });
+  it('si el entero no coincide, NO se mezcla con otra presentación: se queda la vista', () => {
+    expect(factorExactoDeFicha(20, 'BTO', bolsa)).toBe(20);
+    expect(factorExactoDeFicha(19, 'CJA', bolsa)).toBe(19);
+  });
+  it('factores enteros, sin ficha o sin factor: igual que antes', () => {
+    expect(factorExactoDeFicha(24, 'CJA', { u2: 'PAQ', f2: '6', u3: 'CJA', f3: '24.00' })).toBe(24);
+    expect(factorExactoDeFicha(19, 'BTO', null)).toBe(19);
+    expect(factorExactoDeFicha(null, 'BTO', bolsa)).toBeNull();
   });
 });

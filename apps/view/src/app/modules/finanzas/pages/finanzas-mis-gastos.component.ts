@@ -195,7 +195,7 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
               <tr>
                 <td>
                   @if (f.proof) {
-                    <button type="button" class="mg-folio" (click)="abrir(f.proof)" [attr.aria-label]="'Ver el vale ' + f.folio">{{ f.folio || 'sin folio' }}</button>
+                    <button type="button" class="mg-folio" (click)="abrir(f.proof)" [attr.aria-label]="'Ver el vale ' + (f.folio || 'sin folio')">{{ f.folio || 'sin folio' }}</button>
                   } @else {
                     <span class="mg-folio-txt">{{ f.folio || 'sin folio' }}</span>
                   }
