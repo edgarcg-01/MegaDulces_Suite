@@ -53,3 +53,47 @@ export const SQL_SALIDAS_LIGADAS = `
 SELECT paid_bank_movement_id::text AS id
   FROM finance.payment_allocations
  WHERE tenant_id = ? AND paid_bank_movement_id IS NOT NULL AND status <> 'cancelled'`;
+
+/**
+ * `[PGP.146]` **Lo que dice la DESCARGA del banco de un pago atrasado.** Las tres lecturas de
+ * `segunLaDescarga` (`pago-por-el-banco.ts`). La descarga es el archivo del propio banco que Finanzas sube a
+ * diario (`finance.bank_statement_lines`); el estado de cuenta que leen las demás consultas de este archivo
+ * (`finance.bank_movements`) sólo la recibe cuando la cuenta «usa el banco», y el 2026-11-18 no la usaba
+ * ninguna: el libro se quedó en el 10-nov y 23 de 71 pagos atrasados ($2,964,539) ya habían salido según la
+ * descarga (placebo, los mismos pagos 20 días después: 0 de 79).
+ * ⛔ **Sólo se lee**: no marca pagado, no escribe en Kepler, no compite con `pagarPorElBanco`.
+ */
+
+/**
+ * Quiénes reclaman una salida: los pagos pendientes Y los ya pagados de los últimos 60 días (hasta hoy). Un pagado
+ * que no guardó su salida (lo pagó Kepler, o el libro) sigue siendo dueño de ella: sin él, el pendiente de al lado
+ * por el mismo importe se la quedaría. Parámetros: `[tenant, hoy, hoy]`.
+ */
+export const SQL_RECLAMANTES_DE_LA_DESCARGA = `
+SELECT a.id::text AS id, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.amount_assigned::float8 AS importe,
+       a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada, a.status
+  FROM finance.payment_allocations a
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+ WHERE a.tenant_id = ? AND a.status IN ('pending', 'executed')
+   AND l.lot_date BETWEEN ?::date - 60 AND ?::date`;
+
+/** Las salidas de la descarga en esos 60 días más el margen de la ventana. Parámetros: `[tenant, hoy, hoy]`. */
+export const SQL_SALIDAS_DE_LA_DESCARGA = `
+SELECT s.id::text AS id, s.bank_account_id::text AS cuenta_id, to_char(s.movement_date, 'YYYY-MM-DD') AS fecha,
+       s.amount_out::float8 AS importe
+  FROM finance.bank_statement_lines s
+  JOIN finance.bank_accounts ba ON ba.id = s.bank_account_id AND ba.kind = 'bank'
+ WHERE s.tenant_id = ? AND s.amount_out > 0
+   AND s.movement_date BETWEEN ?::date - 63 AND ?::date`;
+
+/**
+ * Hasta qué día cubre la descarga cada cuenta de banco activa: el fin del periodo del archivo más nuevo, no el
+ * último movimiento (un día sin movimientos también está cubierto). Null = nunca se ha subido. Parámetros: `[tenant]`.
+ */
+export const SQL_COBERTURA_DE_LA_DESCARGA = `
+SELECT ba.id::text AS cuenta_id, coalesce(nullif(btrim(ba.alias), ''), ba.bank || ' ' || ba.account_label) AS cuenta,
+       to_char(max(f.date_to), 'YYYY-MM-DD') AS hasta
+  FROM finance.bank_accounts ba
+  LEFT JOIN finance.bank_statement_files f ON f.bank_account_id = ba.id AND f.tenant_id = ba.tenant_id
+ WHERE ba.tenant_id = ? AND ba.kind = 'bank' AND ba.active
+ GROUP BY ba.id, ba.alias, ba.bank, ba.account_label`;

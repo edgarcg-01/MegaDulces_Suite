@@ -238,6 +238,21 @@ export interface PagosAtrasadosDia {
   conciliados_monto: number;
 }
 
+/**
+ * `[PGP.146]` **Lo que dice la descarga del propio banco de un pago pendiente cuyo día ya llegó.** Se LEE de
+ * la descarga que Finanzas sube a diario, uno a uno (±$1, ±3 días, la misma regla que marca pagado por el
+ * banco); no marca pagado ni escribe en Kepler. Existe porque el estado de cuenta del Calendario sólo recibe
+ * la descarga cuando la cuenta «usa el banco»: sin esto, un pago que ya salió se veía «por preparar».
+ * - `salio`: la salida está, en una sola cuenta y sin otro pago que la reclame.
+ * - `sin_salida`: no está en lo revisado; `sin_cubrir` nombra las cuentas cuya descarga no llega a esos días
+ *   (ahí no se puede afirmar nada: puede haber salido de una de ellas).
+ * - `no_decide`: el banco no lo decide solo (dos cuentas, dos salidas, otro pago la reclama, cheque o efectivo).
+ */
+export type SalidaSegunLaDescarga =
+  | { estado: 'salio'; fecha: string; cuenta_id: string; cuenta: string; importe: number }
+  | { estado: 'sin_salida'; revisadas: number; sin_cubrir: { cuenta: string; hasta: string | null }[] }
+  | { estado: 'no_decide'; motivo: string };
+
 export interface PaymentCalendarAllocation {
   id: string;
   classification: string;
@@ -297,6 +312,11 @@ export interface PaymentCalendarAllocation {
    * comprobante (`validarPagos`, `[PGP.103]`). Null en un día por venir (no se ha pagado) o si la API es anterior.
    */
   validacion?: ValidacionPago | null;
+  /**
+   * `[PGP.146]` Sólo en un pago PENDIENTE cuyo día ya llegó: qué dice la descarga del banco. Null en los
+   * demás; ausente = API anterior (NO MEDIDO, no «sin salida»).
+   */
+  banco_descarga?: SalidaSegunLaDescarga | null;
   /** `[PGP.107]` La evidencia guardada al marcar Pagado (null = sin marcar, efectivo, o anterior a PGP.107). */
   paid_bank_movement_id?: string | null;
   paid_proof_id?: string | null;
