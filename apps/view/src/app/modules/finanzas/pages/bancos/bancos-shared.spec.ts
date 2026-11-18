@@ -8,8 +8,9 @@ describe('[CB.59] barra de Bancos por proceso', () => {
   it('cada vista vive en un grupo que existe, en el orden del trabajo', () => {
     const grupos = VIEW_GRUPOS.map((g) => g.key);
     expect(WORK_VIEWS.every((v) => grupos.includes(v.grupo))).toBe(true);
-    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'cuentas', 'conciliacion', 'cuadre', 'comisiones', 'concentrado', 'contpaqi', 'capturas']);
-    expect(WORK_VIEWS.filter((v) => v.grupo === 'mas').map((v) => v.label)).toEqual(['Concentrado', 'Factoraje', 'Capturas WhatsApp']);
+    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'cuentas', 'conciliacion', 'cuadre', 'comisiones', 'concentrado', 'contpaqi']);
+    // [CB.78] Capturas WhatsApp salió de la barra (0 capturas en toda su vida).
+    expect(WORK_VIEWS.filter((v) => v.grupo === 'mas').map((v) => v.label)).toEqual(['Concentrado', 'Factoraje']);
   });
 
   it('Estados de cuenta: cuentas con descarga de las que tienen lector', () => {

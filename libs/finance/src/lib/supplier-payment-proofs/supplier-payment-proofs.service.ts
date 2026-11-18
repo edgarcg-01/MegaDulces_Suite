@@ -975,8 +975,13 @@ export class SupplierPaymentProofsService {
     const lectura = {
       importe, fecha: leido.fecha ?? null, cuenta_origen: leido.cuenta_origen ?? null, beneficiario: leido.beneficiario ?? null, ocr_status: leido.ocr_status,
     };
+    const ocr = {
+      monto: importe, fecha: leido.fecha ?? null, concepto: leido.concepto ?? null, cuenta_origen: leido.cuenta_origen ?? null,
+      cuenta_destino: leido.cuenta_destino ?? null, beneficiario: leido.beneficiario ?? null, clave_rastreo: leido.clave_rastreo ?? null,
+      banco_destino: leido.banco_destino ?? null, metodo: leido.metodo ?? null, ocr_status: leido.ocr_status, sha256: leido.sha256,
+    };
     const no = (estado: ResultadoComprobanteCalendario['estado'], motivo: string, pago_id: string | null = null): ResultadoComprobanteCalendario =>
-      ({ estado, pago_id, comprobante_id: null, motivo, lectura });
+      ({ estado, pago_id, comprobante_id: null, motivo, lectura, ocr });
     if (leido.ocr_status !== 'ok') return no('sin_lectura', 'No se pudo leer el comprobante: súbelo en PDF legible.');
 
     const { cuentaId, pagos } = await this.tk.run(async (trx) => {
@@ -1015,7 +1020,7 @@ export class SupplierPaymentProofsService {
         comentarios: `[PGP.130] Casó solo con el pago ${pagoId} del Calendario: misma cuenta de origen, importe (±$1) y fecha (±5 días).`,
       }).returning(['id']);
       await avisarComprobante(trx, row.id);
-      return { estado: 'casa' as const, pago_id: pagoId, comprobante_id: row.id as string, motivo: null, lectura };
+      return { estado: 'casa' as const, pago_id: pagoId, comprobante_id: row.id as string, motivo: null, lectura, ocr };
     });
     this.logger.log(`[PGP.130] comprobante ${r.estado} · pago ${r.pago_id ?? '-'} · $${importe ?? '?'} ${lectura.fecha ?? '?'} · por ${actor || '?'}`);
     return r;

@@ -9,7 +9,7 @@
  * estatus NO mueve los conteos de los botones.
  */
 import type { WarehouseOrderRow } from '@megadulces/contracts';
-import { armarRespuesta, horasAbierto, ordenEstatus, periodo, PeriodoInvalido, relojMx, sinImportes } from './warehouse-orders.engine';
+import { armarRespuesta, destinoDe, horasAbierto, LIMITE_ITEMS, ordenEstatus, ordenLista, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, sinImportes } from './warehouse-orders.engine';
 
 const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   clave: '01-1-0002781', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0002781',
@@ -83,7 +83,7 @@ describe('[GP.1] filtros y conteos', () => {
     const solo = armarRespuesta(rows, { ...SIN_FILTRO, estatus: ['CHECADO'] }, per, ALCANCE, ahora);
     expect(solo.items.map((i) => i.folio)).toEqual(['0000367']);
     expect(solo.conteos).toEqual(todo.conteos);
-    expect(solo.totales).toEqual({ pedidos: 1, renglones: 15, importe: 13369.96 });
+    expect(solo.totales).toMatchObject({ pedidos: 1, renglones: 15, importe: 13369.96, mas_antiguo_horas: 2 });
   });
 
   it('origen y sucursal sí mueven los conteos', () => {
@@ -127,7 +127,7 @@ describe('[GP.10.0] los cancelados no son trabajo pendiente', () => {
   it('«Todos» no lista al cancelado ni lo suma a los totales', () => {
     const r = armarRespuesta(rows, SIN_FILTRO, per, ALCANCE, ahora);
     expect(r.items.map((i) => i.folio)).toEqual(['0001171']);
-    expect(r.totales).toEqual({ pedidos: 1, renglones: 12, importe: 4000 });
+    expect(r.totales).toMatchObject({ pedidos: 1, renglones: 12, importe: 4000, mas_antiguo_horas: 40 });
   });
 
   it('NEGATIVA: el cancelado NO cuenta en el botón de su estatus viejo', () => {
@@ -176,7 +176,7 @@ describe('[GP.10.3] etapa de almacén y preventa', () => {
   it('«Todos» lista Kepler y preventa vivos; el preventa cancelado queda fuera', () => {
     const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
     expect(r.items.map((i) => i.folio)).toEqual(['0004001', '0004002', 'PD-000900']);
-    expect(r.totales).toEqual({ pedidos: 3, renglones: 22, importe: 1800 });
+    expect(r.totales).toMatchObject({ pedidos: 3, renglones: 22, importe: 1800, mas_antiguo_horas: null });
   });
 
   it('filtrar por etapa cambia la lista pero no los conteos; se combina con el estatus', () => {
@@ -222,5 +222,122 @@ describe('[MCP.3.2] sinImportes: lo que recibe el surtidor', () => {
     sinImportes(r);
     expect(r.totales.importe).toBeGreaterThan(0);
     expect(r.items.some((x) => x.importe !== null)).toBe(true);
+  });
+});
+
+/**
+ * `[GP.10.5]` La lista por páginas y en el orden de la fecha que pinta. Medido en prod el 2026-11-17
+ * (mes en curso): 2,348 pedidos, 830 de preventa; la respuesta se topaba en 2,000 (1.40 MB) y la
+ * preventa iba pegada al final, desde la posición 1,518: 348 no se veían.
+ */
+describe('[GP.10.5] página y orden de la lista', () => {
+  const ahora = new Date('2026-11-17T20:00:00Z');
+  const per = { from: '2026-11-01', to: '2026-11-30' };
+  const conPv = { ...SIN_FILTRO, preventa: true };
+  const k = (folio: string, fecha: string, hora: string | null, extra: Partial<WarehouseOrderRow> = {}) =>
+    fila({ clave: `01-1-${folio}`, folio, documento: `UD4001-${folio}`, fecha, hora, estatus: 'AUTORIZADO', estatus_kepler: 'AUTORIZADO', etapa: 'autorizado', ...extra });
+  const pv = (code: string, fecha: string) =>
+    fila({ clave: `01-PD-${code}`, folio: code, documento: code, fecha, hora: null, origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'autorizado', etapa_fuente: 'piso', order_id: `o-${code}` });
+
+  it('la preventa se intercala por su fecha: no queda al final de los de Kepler', () => {
+    // Así llegan del servicio: los de Kepler ya ordenados y la preventa pegada después.
+    const rows = [k('0000003', '2026-11-17', '10:00'), k('0000002', '2026-11-16', '09:00'), k('0000001', '2026-11-15', '08:00'), pv('PD-1', '2026-11-16'), pv('PD-2', '2026-11-17')];
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    expect(r.items.map((i) => i.folio)).toEqual(['0000003', 'PD-2', '0000002', 'PD-1', '0000001']);
+  });
+
+  it('el mismo día: por hora, lo sin hora al final y lo empatado en el orden en que llegó', () => {
+    const rows = [k('0000010', '2026-11-17', '08:00'), pv('PD-9', '2026-11-17'), k('0000011', '2026-11-17', '12:30'), k('0000012', '2026-11-17', '12:30')];
+    expect([...rows].sort(ordenLista).map((i) => i.folio)).toEqual(['0000011', '0000012', '0000010', 'PD-9']);
+  });
+
+  it('con página llega sólo ese tramo y el total de todas; nada queda fuera', () => {
+    const rows = Array.from({ length: 450 }, (_, i) => k(String(i).padStart(7, '0'), '2026-11-10', null));
+    const p1 = armarRespuesta(rows, conPv, per, ALCANCE, ahora, { offset: 0, limit: 200 });
+    const p3 = armarRespuesta(rows, conPv, per, ALCANCE, ahora, { offset: 400, limit: 200 });
+    expect(p1.items).toHaveLength(200);
+    expect(p3.items).toHaveLength(50);
+    expect(p1.pagina).toEqual({ offset: 0, limit: 200, total: 450 });
+    expect(p1.truncado).toBe(false);
+    expect(p1.totales.pedidos).toBe(450);
+    // Las tres páginas juntas son la lista entera, sin repetir ni saltar ninguno.
+    const todas = [0, 200, 400].flatMap((o) => armarRespuesta(rows, conPv, per, ALCANCE, ahora, { offset: o, limit: 200 }).items.map((i) => i.clave));
+    expect(new Set(todas).size).toBe(450);
+  });
+
+  it('NEGATIVA: sin página la respuesta es la de siempre (topada y avisada, sin `pagina`)', () => {
+    const rows = Array.from({ length: LIMITE_ITEMS + 5 }, (_, i) => k(String(i).padStart(7, '0'), '2026-11-10', null));
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora);
+    expect(r.items).toHaveLength(LIMITE_ITEMS);
+    expect(r.truncado).toBe(true);
+    expect(r.pagina).toBeUndefined();
+  });
+
+  it('el más antiguo sin embarcar sale de TODO lo filtrado, no de la página', () => {
+    const rows = [k('0000001', '2026-11-17', '10:00', { horas_abierto: 3 }), k('0000002', '2026-11-01', '10:00', { horas_abierto: 390 })];
+    const r = armarRespuesta(rows, conPv, per, ALCANCE, ahora, { offset: 0, limit: 1 });
+    expect(r.items.map((i) => i.folio)).toEqual(['0000001']);
+    expect(r.totales.mas_antiguo_horas).toBe(390);
+  });
+
+  it('NEGATIVA: las sucursales del selector no dependen del filtro de sucursal ni de la página', () => {
+    const rows = [k('0000001', '2026-11-17', '10:00'), fila({ clave: '08-1-0000367', sucursal: '08', sucursal_nombre: 'Morelia Madero', folio: '0000367', fecha: '2026-11-01' })];
+    const r = armarRespuesta(rows, { ...conPv, sucursal: '01' }, per, ALCANCE, ahora, { offset: 0, limit: 1 });
+    expect(r.items.every((i) => i.sucursal === '01')).toBe(true);
+    expect(r.sucursales_periodo).toEqual([{ codigo: '01', nombre: 'Padre Hidalgo' }, { codigo: '08', nombre: 'Morelia Madero' }]);
+  });
+});
+
+describe('[GP.10.5] paginaDe', () => {
+  it('sin limit no hay página (la respuesta de siempre)', () => {
+    expect(paginaDe({})).toBeNull();
+    expect(paginaDe({ limit: '' })).toBeNull();
+  });
+  it('limit con o sin offset', () => {
+    expect(paginaDe({ limit: '200' })).toEqual({ offset: 0, limit: 200 });
+    expect(paginaDe({ limit: '200', offset: '400' })).toEqual({ offset: 400, limit: 200 });
+  });
+  it('NEGATIVA: lo mal escrito es error, no la página 1 por default', () => {
+    expect(() => paginaDe({ offset: '200' })).toThrow(PaginaInvalida);
+    expect(() => paginaDe({ limit: 'abc' })).toThrow(PaginaInvalida);
+    expect(() => paginaDe({ limit: '200', offset: '-1' })).toThrow(PaginaInvalida);
+    expect(() => paginaDe({ limit: '0' })).toThrow(PaginaInvalida);
+    expect(() => paginaDe({ limit: '501' })).toThrow(PaginaInvalida);
+  });
+});
+
+/**
+ * `[GP.10.5]` D4: el total separado por destino. Medido en prod (noviembre, al 17): de $35.3 M de
+ * pedidos de Kepler, $22.1 M eran traspasos a sucursal (`TI###`) y $2.05 M cargas a ruta (`RD`/`RUTA`).
+ */
+describe('[GP.10.5] D4 importe por destino', () => {
+  it('clasifica por el cliente de Kepler: TI### traspaso, RD/RUTA carga, lo demás clientes', () => {
+    expect(destinoDe('TI009')).toBe('traspaso_sucursal');
+    expect(destinoDe('RD 502')).toBe('carga_ruta');
+    expect(destinoDe('RUTA 21')).toBe('carga_ruta');
+    expect(destinoDe('C3031')).toBe('clientes');
+    expect(destinoDe(null)).toBe('clientes'); // preventa a un abarrote sin clave de Kepler
+  });
+  it('NEGATIVA: lo que sólo se parece no es traspaso ni ruta', () => {
+    expect(destinoDe('TIENDA LUPITA')).toBe('clientes');
+    expect(destinoDe('TI12')).toBe('clientes');
+    expect(destinoDe('RDZ 1')).toBe('clientes');
+  });
+  it('las tres partes suman el total, y el traspaso ya no se cuenta como venta', () => {
+    const per = { from: '2026-11-01', to: '2026-11-30' };
+    const rows = [
+      fila({ clave: 'a', cliente_code: 'TI004', importe: 1000.1 }),
+      fila({ clave: 'b', cliente_code: 'RD 502', importe: 200.2 }),
+      fila({ clave: 'c', cliente_code: 'C1121', importe: 30.3 }),
+      fila({ clave: 'd', cliente_code: null, importe: 4.4 }),
+    ];
+    const r = armarRespuesta(rows, SIN_FILTRO, per, ALCANCE, new Date('2026-11-17T20:00:00Z'));
+    expect(r.totales.importe_por_destino).toEqual({ clientes: 34.7, traspaso_sucursal: 1000.1, carga_ruta: 200.2 });
+    const p = r.totales.importe_por_destino!;
+    expect(Math.round((p.clientes + p.traspaso_sucursal + p.carga_ruta) * 100) / 100).toBe(r.totales.importe);
+  });
+  it('el surtidor no recibe ni el total ni sus partes', () => {
+    const r = armarRespuesta([fila({ cliente_code: 'TI004' })], SIN_FILTRO, { from: '2026-11-01', to: '2026-11-30' }, ALCANCE, new Date());
+    expect(sinImportes(r).totales.importe_por_destino).toBeNull();
   });
 });

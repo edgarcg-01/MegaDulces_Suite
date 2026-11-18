@@ -261,6 +261,36 @@ describe('BancosEstadoBancoComponent', () => {
     });
   });
 
+  describe('[CB.80] «Usar el banco en las que cuadran»: una confirmación, una por una, y un fallo no detiene a las demás', () => {
+    const uso = (cuenta: string, metidos: number): UsoDelBanco =>
+      ({ cuenta, desde: '2026-11-03', ya_estaba: false, llaves: 0, libro_borrados: 0, metidos, en_cero: 0, sin_categoria: 0, sin_sucursal: 0 });
+
+    it('pasa las que cuadran (y sólo ésas); la que falla se dice con su motivo y conserva su botón', async () => {
+      const { cmp, usados, toasts, confirmaciones } = montar({ cuadre: CUADRE,
+        usar: (id) => (id === 't' ? Object.assign(new Error('400'), { error: { motivos: ['la descarga cambió: vuelve a revisar'] } }) : uso('BB 4166', 5)) });
+      let emitidos = 0;
+      cmp.guardado.subscribe(() => emitidos++);
+      expect(cmp.listasParaUsar().map((c) => c.alias)).toEqual(['BB 4166', 'STDR 1621']);
+      expect(cmp.listasNoCuadran()).toEqual(['BB 854', 'STDR 5565']);
+      cmp.pedirUsarTodas();
+      expect(confirmaciones.at(-1)?.header).toBe('Usar el banco en 2 cuentas');
+      expect(usados).toEqual([]);
+      await cmp.usarTodas();
+      expect(usados).toEqual(['p', 't']);
+      expect(toasts.find((t) => t.severity === 'warn')?.summary).toBe('1 de 2 cuentas ya usan el banco');
+      const err = toasts.find((t) => t.severity === 'error');
+      expect(err?.summary).toBe('1 siguen con el libro');
+      expect(err?.detail).toContain('STDR 1621 (la descarga cambió: vuelve a revisar)');
+      expect(cmp.pasando()).toBeNull();
+      expect(emitidos).toBe(1);
+    });
+
+    it('[negativa] sin permiso de gestionar no aparece el botón de todas', () => {
+      const { el } = montar({ cuadre: CUADRE, sinPermiso: true });
+      expect(el.textContent).not.toContain('que cuadran');
+    });
+  });
+
   describe('[CB.63] lo que falta subir hoy', () => {
     // El jueves 12-nov-2026 a media mañana, como en prod: unas cuentas subidas hoy, otras el lunes o ayer, una nunca.
     const sub = (alias: string, bank: string, hasta: string | null, ultima_subida: string | null, con_lector = true) =>

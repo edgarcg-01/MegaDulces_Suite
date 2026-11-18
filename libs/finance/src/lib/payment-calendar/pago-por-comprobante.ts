@@ -79,3 +79,19 @@ export async function moverComprobanteAKepler(
     .whereNot('status', 'rechazado')
     .update({ sucursal: kepler.sucursal, doc_prefix: kepler.doc_prefix, folio: kepler.folio, updated_at: trx.fn.now() });
 }
+
+/** `[PGP.130b]` El banco confirmó el pago que pagó el comprobante (liga su salida; el pago ya estaba pagado). */
+export const EVENTO_CONFIRMADO_POR_EL_BANCO = 'confirmado_por_el_banco';
+
+/**
+ * `[PGP.130b]` Los pagos que pagó su comprobante y que el estado de cuenta todavía no confirma, de los últimos 60 días.
+ * El día es la fecha del comprobante (cuando salió el dinero), no la del programa. Parámetros: `[tenant, hoy, hoy]`.
+ */
+export const SQL_POR_CONFIRMAR_EN_EL_BANCO = `
+SELECT a.id::text AS id, to_char(coalesce(p.ocr_fecha, p.pago_date, l.lot_date), 'YYYY-MM-DD') AS dia,
+       a.amount_assigned::float8 AS importe, a.payment_method AS metodo, a.bank_account_id::text AS cuenta_planeada
+  FROM finance.payment_allocations a
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+  LEFT JOIN finance.supplier_payment_proofs p ON p.id = a.paid_proof_id
+ WHERE a.tenant_id = ? AND a.status = 'executed' AND a.paid_proof_id IS NOT NULL AND a.paid_bank_movement_id IS NULL
+   AND l.lot_date BETWEEN ?::date - 60 AND ?::date`;

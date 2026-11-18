@@ -2,6 +2,7 @@ import {
   alcanceDelAcreedor, avisoDeFechas, comentarioDeLaSolicitud, cuentaFueraDeAlcance, evidenciaEsElSat, faltaParaPedir, fechaReal, rfcCompatible,
   lineaAmpara, puedePedir, referenciaDelComprobante, totalesDeLaSolicitud, type EstadoSolicitudGasto,
   basesDeQuienPide, correoValido, cuentaDePago, fechaDePago, hayInformacionDePago, PLAZOS_DE_PAGO,
+  conceptoDistintoDeCedis, rubroDeCuenta,
 } from './solicitud-gasto.contract';
 
 /** Una solicitud completa y válida: la base de cada caso, que después se rompe en UNA cosa. */
@@ -29,6 +30,40 @@ describe('[PGP.122] cuentaFueraDeAlcance — lo que no es gasto aunque pase por 
   });
   it('el gasto entra, incluida la nómina-hermana 601-001 que no es SUA', () => {
     for (const c of ['602-008', '611-006', '601-001', '603-001', '1500-001', null]) expect(cuentaFueraDeAlcance(c), String(c)).toBeNull();
+  });
+});
+
+describe('[PGP.122] R14 conceptoDistintoDeCedis — la cuenta del concepto aquí contra la de CEDIS', () => {
+  const capitan = { codigo: '074', nombre: 'CAPITAN DE MARCA.', cuenta: '102' };
+  const capitanCedis = { nombre: 'CAPITAN DE MARCA.', cuenta: '606-014' };
+  it('el caso medido: el 074 va a 102 (caja) en 01 y a 606-014 (gasto) en 00 → bloquea, y dice cuentas y quién lo corrige', () => {
+    const m = conceptoDistintoDeCedis(capitan, capitanCedis, '01');
+    expect(m).toMatch(/CAPITAN DE MARCA \(074\)/);
+    expect(m).toMatch(/102/);
+    expect(m).toMatch(/606-014/);
+    expect(m).toMatch(/Contabilidad/);
+  });
+  it('el nombre se compara sin punto final, espacios ni mayúsculas: sigue siendo el mismo concepto', () => {
+    expect(conceptoDistintoDeCedis({ ...capitan, nombre: ' capitan  de marca ' }, capitanCedis, '06')).toMatch(/Contabilidad/);
+  });
+  it('el mismo rubro con otra subcuenta (la caja propia de La Piedad) entra', () => {
+    expect(conceptoDistintoDeCedis({ codigo: '012', nombre: 'CAJA GENERAL LPA.', cuenta: '102-0142' }, { nombre: 'CAJA GENERAL LPA.', cuenta: '102-0042' }, '02')).toBeNull();
+    expect(conceptoDistintoDeCedis({ codigo: '240', nombre: 'X', cuenta: '602-008' }, { nombre: 'X', cuenta: '602-008' }, '08')).toBeNull();
+  });
+  it('el mismo código con OTRO nombre es otro concepto (el 246: «Traspaso salida» en 00, «Degustación» en 02) → entra', () => {
+    expect(conceptoDistintoDeCedis({ codigo: '246', nombre: 'DEGUSTACION A CLIENTES', cuenta: '606-006' }, { nombre: 'TRASPASO SALIDA', cuenta: '515-002' }, '02')).toBeNull();
+  });
+  it('sin contra qué comparar entra: CEDIS mismo, CEDIS sin el concepto o sin cuenta, o el concepto sin cuenta aquí', () => {
+    expect(conceptoDistintoDeCedis(capitan, capitanCedis, '00')).toBeNull();
+    expect(conceptoDistintoDeCedis(capitan, null, '01')).toBeNull();
+    expect(conceptoDistintoDeCedis(capitan, { nombre: 'CAPITAN DE MARCA.', cuenta: '  ' }, '01')).toBeNull();
+    expect(conceptoDistintoDeCedis({ codigo: '512', nombre: 'PAPEL HIGIENICO.', cuenta: '' }, { nombre: 'PAPEL HIGIENICO.', cuenta: '608-008' }, '08')).toBeNull();
+  });
+  it('rubroDeCuenta: lo anterior al primer guion', () => {
+    expect(rubroDeCuenta('606-014')).toBe('606');
+    expect(rubroDeCuenta(' 102-0142 ')).toBe('102');
+    expect(rubroDeCuenta('102')).toBe('102');
+    expect(rubroDeCuenta(null)).toBe('');
   });
 });
 

@@ -2,7 +2,9 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, com
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
 import { ButtonModule } from 'primeng/button';
 import type {
   ChecadoCajaP,
@@ -79,7 +81,8 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
   template: `
     <div class="ck">
       <header class="ck-top">
-        <a routerLink="/almacen" class="ck-salir"><i class="pi pi-arrow-left" aria-hidden="true"></i><span>Salir</span></a>
+        <!-- [GP.RF.30] Regresa a donde se llegó; antes iba a /almacen, que brinca a otra pantalla del área. -->
+        <a [routerLink]="salida" class="ck-salir"><i class="pi pi-arrow-left" aria-hidden="true"></i><span>Salir</span></a>
         <h1>Checar</h1>
         @if (almacenNombre()) { <span class="ck-alm">{{ almacenNombre() }}</span> }
       </header>
@@ -384,6 +387,13 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
 export class AlmacenChecarComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
+  /**
+   * `[GP.RF.30]` A dónde lleva «Salir», calculado al crear la pantalla (la navegación que la abre
+   * trae de dónde se llegó). Si el checador no abre el Tablero y no hay pantalla anterior, va a
+   * «Mi trabajo» y no a «sin acceso».
+   */
+  readonly salida = this.router.parseUrl(destinoDeSalida(urlPrevia(this.router), puedeAbrirTablero(inject(PermissionsService))));
   private readonly destroyRef = inject(DestroyRef);
   private readonly codigoInput = viewChild<ElementRef<HTMLInputElement>>('codigoInput');
   private readonly pesoInput = viewChild<ElementRef<HTMLInputElement>>('pesoInput');

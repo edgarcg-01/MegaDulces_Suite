@@ -487,11 +487,59 @@ pide aparte (regla 5).
 
 ### 8.4 Decisiones (firma Edgar)
 
-- **D4 (reabierta) — el push de las camionetas entra al ODS.** Con «ningún importer», dejarlo en el
+- ✅ **D4 — resuelta (Edgar, 2026-11-17: «sí, hagamos lo del ODS»).** El push de las camionetas se replica al ODS. Es la oleada 10 (venta: `sales_daily` y su cadena), talla XL: se planea antes de construir. Texto original:
+  **D4 (reabierta) — el push de las camionetas entra al ODS.** Con «ningún importer», dejarlo en el
   `mart` ya no es opción: `sales-fact`, `customer-sales` y las 4 rutas de X dependen de él.
   **Recomendación: replicarlo al ODS** como cualquier otra fuente.
+- ✅ **D15 — resuelta (Edgar, 2026-11-17: «asignémosla y guardémosla en el archivo maestro de md»).** El maestro es
+  `md:~/secrets/maestro.env.age` (cifrado con age; `rotar.sh <CLAVE>` pide el valor oculto y lo registra en
+  `ROTACIONES.md`). El maestro no tenía ninguna `CONTPAQI_SQL_*`, pero la contraseña SÍ existía: la que traen
+  embebida los importers de CFDIs, con la que esos carriles corren cada minuto (el crontab lo documenta).
+  - **Hecho el 2026-11-17 (Edgar: «sí, hazlo»):** ese mismo valor, sacado del código sin imprimirlo, quedó en el
+    maestro (`rotar.sh CONTPAQI_SQL_PASSWORD`), en `md:~/secrets/feeds.env` (con respaldo) y en el secreto
+    `ingesta/feeds-envfile`, que lo calca (misma huella el archivo y el secreto). El pod lo ve, y la réplica en seco
+    funciona: 388 tablas planeadas, lecturas de prueba bien. `contpaqi_ods` ya tiene datos (~20 millones de filas, de
+    la prueba del 30-oct), así que la primera vuelta sólo pone al día lo que difiere.
+  - **Encendida (Edgar, 2026-11-17: «hagámoslo»), como EXCEPCIÓN firmada a su regla del 10-nov («ningún cron»):**
+    ContPAQi es un SQL Server que no avisa de sus cambios, y la réplica por huella estaba aprobada (ADR-111). Sus dos
+    renglones de `ops/vl/crontab.feeds` sin `#` (cada 5 min la contabilidad, cada hora a los :42 lo demás) y los
+    umbrales de `contpaqi_replica_ct` (warn 0.5 h · crit 2 h) y `contpaqi_replica_resto` (warn 3 h · crit 12 h) en
+    `CRON_JOBS`. Llega con el siguiente despliegue de la ingesta.
+  - **En prod el 17-nov (`a2ec4043c`):** la primera vuelta de la contabilidad (17:35) tardó 41 s y recopió 65 de 1,266
+    tramos, que eran los 18 días de atraso; la segunda, 31 s y 7 tramos. Lo demás (17:42) tardó 316 s: 347 tablas, 124
+    de 1,468 tramos, 21 sin carril.
+  - **Mudada a un carril en ciclo el mismo día (Edgar: «hazlo»), sin cron:** `ops/k3s/32-contpaqi-replica.deployment.yaml`,
+    un proceso que llama al script en ciclo, como `feeds-livefast`: la contabilidad cada ~5 min y lo demás una vez por
+    hora. Los dos renglones del crontab vuelven a quedar comentados.
+    - **No son dos procesos con `--watch`:** el script toma su candado de Postgres de SESIÓN al arrancar. Con `--watch`
+      uno lo tendría para siempre y el otro saldría en bucle; además, un cliente de Postgres de por vida no se recupera
+      si la base se reinicia.
+    - La contraseña también se copió a `ingesta/feeds-env`, la forma `envFrom` del mismo secreto. El manifiesto de
+      `feeds-cron` pide rehacer los dos juntos.
+  - **Paso 2, el evento de verdad (con quien administra el SQL Server de ContPAQi):** medido el 17-nov, ContPAQi corre en
+    SQL Server 2022 EXPRESS, sin CDC ni Change Tracking encendidos.
+    - Sin SQL Server Agent no hay CDC ni replicación transaccional (la única salida sería pagar licencia Standard).
+    - Change Tracking sí existe en Express: la réplica leería sólo las llaves que cambiaron, borrados incluidos, y
+      podría correr cada pocos segundos. La huella quedaría como árbitro diario.
+    - Necesita permisos de administrador sobre las bases de ContPAQi (el usuario de la réplica es de sólo lectura). Una
+      actualización de ContPAQi puede apagarlo en una tabla sin avisar, así que la réplica tendría que detectarlo y
+      volver a la huella. Se prueba antes en una copia.
+  - ⛔ **Hallazgo de seguridad (2026-11-17):** `import-contpaqi-account-map.js`, `-bank-movements.js` y `-cfdis.js`
+    traen como valor por omisión `CONTPAQI_SQL_USER || 'platform_ro'` y `CONTPAQI_SQL_PASSWORD || '<una contraseña en
+    claro>'`, y el repo es PÚBLICO. Si es la real del SQL de ContPAQi (192.168.0.35\COMPAC), está expuesta. No se probó
+    contra el servidor. Recomendación: que quien administra ese SQL Server le asigne otra al usuario, guardarla con
+    `rotar.sh` y quitar el valor por omisión del código (sin variable, que falle).
+  Texto original:
 - **D15 — `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`** para encender `contpaqi_ods`. Es
   credencial: la pone Edgar (regla 7). Sin eso, la oleada 11 sólo cubre la parte de Kepler.
+- ✅ **El aviso de cambio de precio a las pantallas (Edgar, 2026-11-17: «lo que tú visualices mejor»).** El aviso lo
+  manda `notify-store.js` desde el hop-2, o sea desde `replicate-ods-live.js` (`ods-live-hot`, `-mirror`, `-caja`),
+  que lee el secreto `ingesta/ingest-env`; le faltaban `STORE_NOTIFY_URL` y `STORE_INGEST_KEY` (por eso «aviso NO
+  enviado»). Se agregaron con un `patch` (respaldo del secreto en `md:~/secrets`; ⚠️ ese secreto ya NO calca
+  `ingest.env`: tiene tres variables de CAOS que el archivo no trae, así que rehacerlo desde el archivo las borraría):
+  la URL interna de la API (`http://api.prod.svc.cluster.local:10000/api`) y la misma clave de la API (huella
+  comparada, nunca el valor). Reiniciados los cinco carriles del ODS. Probado desde `ods-live-hot`: HTTP 201 con la
+  clave, 401 con una falsa. Registrado en el maestro (`rotar.sh STORE_NOTIFY_URL`) y en `ROTACIONES.md`.
 - **Despliegue de la ingesta** (`sh ops/vl/deploy.sh` + `--k3s`). Además del OK, está frenado por
   trabajo sin commitear de otras sesiones en rutas que viajan en la imagen
   (`database/importers/kepler/route-push/armar-push-camioneta.js`, `ops/k3s/52-pg-prod.deployment.yaml`):
@@ -1252,5 +1300,27 @@ desempate.** El anexo lo había reclasificado como «E con hueco» porque el noc
     - `test-newdb-existencia-por-evento` sigue en 57 ✓ con el sensor nuevo, y la spec del servicio en 17 ✓.
   - **NO MEDIDO:** cuánto baja el costo en prod. Se mide al aplicar, con un día de `existencia_corridas` (suma de
     `ms`) contra el de hoy.
+  - **En prod (2026-11-17).** El commit viajó a `origin/main` en el push de otra sesión, que aplicó la migración
+    (lote 1198, 14:18) y desplegó `805a86ba4`. Medido en sus primeras 13 corridas (14:35–14:58):
+    - Corre una vez cada ~2 min, como se quería, y cada corrida guarda su estimado y su referencia.
+    - ⚠️ **El costo no bajó todavía:** ~5 s de base por minuto, lo mismo que con 30 s. El modelo SOBREESTIMA: la
+      mediana del estimado contra lo real es 1.8×. Ajustado con 30 corridas reales, el costo es 335 ms + 40 ms por SKU
+      + 0.027 ms por línea (r² 0.54, con la carga de `md` metiendo ruido). Por eso 4 de las 13 se fueron a completo
+      (13–18 s) cuando por llave habrían costado más o menos la mitad.
+    - **El ahorro de verdad es retirar `existencia-aux`** (pasos 5 y 6): hoy corre encima. El evento cuesta en horario
+      hábil lo mismo que `existencia-aux` en promedio, y de noche casi nada; `existencia-aux` cuesta lo mismo las 24 h.
+    - Recalibrar el modelo con estas cifras es el siguiente ajuste. Conviene que las tres constantes vivan como dato (en
+      `analytics.existencia_por_evento`) y no en la función, para calibrarlas sin migración.
+  - **Recalibrado como dato (2026-11-17, migración `20261117160520`).** La tabla `analytics.existencia_costo` tiene UN
+    renglón con las cuatro constantes, sembrado con el ajuste de prod: 335 ms + 40 ms por SKU + 0.027 ms por línea, y
+    20 s de referencia si nunca hubo un completo. `drenar_existencia` lo lee en cada corrida.
+    - **Recalibrar es un UPDATE**, comparando `estimado_ms` con `ms` en `existencia_corridas`. Sin renglón, la
+      función usa los valores sembrados: la falta de calibración nunca hace fallar al que drena.
+    - **Va en una tabla nueva y no como columnas de `existencia_por_evento`** (lo que decía arriba): ésa la leen los
+      disparadores en cada escritura de la ingesta, y un `ALTER` sobre ella esperaría a sus transacciones y frenaría
+      las siguientes. Una tabla nueva no toma candado sobre nada que exista, así que puede ir en horario.
+    - El resto de la función es letra por letra el de `20261117140515`: se arma reemplazando sólo la estimación, y el
+      md5 de esa función es igual al de la que corre en prod.
+    - **Prueba** `test-newdb-costo-como-dato`: 12 ✓ en una base mínima y en una tipo CI, con los 7 mutantes muertos.
 - De paso (no es de CANON): `analytics_refresh_price_signals` y `analytics_refresh_price_waterfall` están en `error` desde
   las 07:26 de hoy (latidos de la API).

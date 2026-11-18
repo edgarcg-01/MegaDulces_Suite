@@ -7,7 +7,7 @@ import {
   todayMx, urlDeServidor,
 } from '@megadulces/platform-core';
 import {
-  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
   exigeDetalle, faltaParaPedir, fechaReal, formaPago, hayInformacionDePago, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
   totalesDeLaSolicitud, unirDetallesDePago, type AlmacenesDeQuienPide, type InformacionDePago,
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
@@ -21,6 +21,7 @@ import {
   type EntregaSolicitudKepler, type ResultadoEscrituraSolicitud,
 } from './kepler-solicitud-gasto-sink.adapter';
 import { marcaDeLaSolicitud } from './solicitud-kepler.armador';
+import { SOLICITUD_CANCELADA_DESDE_LA_SUITE, SOLICITUD_CANCELAR_MOTIVO_MIN } from './solicitud-kepler.cancelacion';
 
 /**
  * `[PGP.122.8]`–`[PGP.122.12]` C2 — **La solicitud de gasto nace en la Suite, y al firmarla se escribe en
@@ -146,12 +147,28 @@ export class SolicitudGastoService {
            FROM kepler_ods.kdco WHERE sucursal = ? AND btrim(c3) <> '' ORDER BY btrim(c1), c2`, [s])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
       const proyectos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdcp WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const departamentos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdc3 WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
+      const cedis = await this.cuentasDeCedis(trx, s);
       return {
         sucursal: s,
-        conceptos: conceptos.map((c): ConceptoDeGasto => ({ ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) })),
+        conceptos: conceptos.map((c): ConceptoDeGasto => ({
+          ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s),
+        })),
         proyectos, departamentos,
       };
     });
+  }
+
+  /**
+   * R14 (anexo S §16): la cuenta de cada concepto en el catálogo de CEDIS (00), para compararla con la del servidor
+   * (`conceptoDistintoDeCedis`). En 00 no hay contra qué comparar: mapa vacío. Opcionalmente, sólo esos códigos.
+   */
+  private async cuentasDeCedis(trx: Trx, sucursal: string, codigos?: string[]): Promise<Map<string, { nombre: string; cuenta: string }>> {
+    if (sucursal === '00' || (codigos && !codigos.length)) return new Map();
+    const filas = (await trx.raw(
+      `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
+        WHERE sucursal = '00' AND btrim(c3) <> '' ${codigos ? 'AND btrim(c1) = ANY(?::text[])' : ''} ORDER BY btrim(c1), c2`,
+      codigos ? [codigos] : [])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
+    return new Map(filas.map((f) => [f.codigo, { nombre: f.nombre, cuenta: f.cuenta }]));
   }
 
   /** Acreedores de gasto del alcance v1 (DS3) en ESE servidor, los frecuentes primero, con el buscador compartido. */
@@ -195,6 +212,7 @@ export class SolicitudGastoService {
         `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
           WHERE sucursal = ? AND btrim(c1) = ANY(?::text[]) ORDER BY btrim(c1), c2`, [s, top.map((t) => t.codigo)])).rows as Array<{ codigo: string; nombre: string; cuenta: string }> : [];
       const porCodigo = new Map(cat.map((c) => [c.codigo, c]));
+      const cedis = await this.cuentasDeCedis(trx, s, top.map((t) => t.codigo));
       const ultimo = (await trx.raw(
         `SELECT btrim(l.c12) AS concepto, btrim(l.c13) AS proyecto, btrim(l.c16) AS departamento, to_char(h.c68, 'YYYY-MM-DD') AS fecha
           ${renglones} ORDER BY h.c68 DESC, h.c69 DESC, h.c6 DESC, l.c7 LIMIT 1`, [s, a])).rows[0] ?? null;
@@ -245,7 +263,7 @@ export class SolicitudGastoService {
         alcance,
         conceptos: top.filter((t) => porCodigo.has(t.codigo)).map((t) => {
           const c = porCodigo.get(t.codigo)!;
-          return { ...c, usos: t.usos, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) };
+          return { ...c, usos: t.usos, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s) };
         }),
         ultimo,
         forma_pago: formaPago(fp) ? fp : null,
@@ -492,10 +510,15 @@ export class SolicitudGastoService {
         `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS c, btrim(c2) AS nombre, btrim(c3) AS cuenta FROM kepler_ods.kdco
           WHERE sucursal = ? AND btrim(c1) = ANY(?::text[]) AND btrim(c3) <> '' ORDER BY btrim(c1), c2`, [s, codigos('concepto')])).rows as Array<{ c: string; nombre: string; cuenta: string }>)
         .map((r) => [r.c, { nombre: r.nombre, cuenta: r.cuenta }]));
+      const cedis = await this.cuentasDeCedis(trx, s, codigos('concepto'));
       for (const c of codigos('concepto')) {
         const k = conceptos.get(c);
         if (!k) no.push(`el concepto ${c} no está en el catálogo de ${s} o no tiene cuenta`);
-        else { const fuera = cuentaFueraDeAlcance(k.cuenta); if (fuera) no.push(fuera); }
+        else {
+          const fuera = cuentaFueraDeAlcance(k.cuenta); if (fuera) no.push(fuera);
+          // R14: en este servidor el concepto va a otro rubro que en CEDIS (el 074 a caja): no se escribe así en Kepler.
+          const distinto = conceptoDistintoDeCedis({ codigo: c, nombre: k.nombre, cuenta: k.cuenta }, cedis.get(c), s); if (distinto) no.push(distinto);
+        }
       }
       for (const [k, tabla, que] of [['proyecto', 'kdcp', 'proyecto'], ['departamento', 'kdc3', 'departamento']] as const) {
         const hay = new Set(((await trx.raw(`SELECT DISTINCT btrim(c1) AS c FROM kepler_ods.${tabla} WHERE sucursal = ? AND btrim(c1) = ANY(?::text[])`, [s, codigos(k)])).rows as Array<{ c: string }>).map((r) => r.c));
@@ -577,6 +600,52 @@ export class SolicitudGastoService {
       this.logger.error(`vale ${id}: la firma quedó guardada, pero la escritura en Kepler no terminó: ${(e as Error).message}. Si alcanzó a reclamarse, el cron la revisa por su marca en ${WRITING_HUERFANO_MIN} min`);
       return null;
     }
+  }
+
+  /**
+   * `[PGP.122]` F3 (DS40, Edgar 2026-11-17) — **Cancela en Kepler la solicitud que escribió la Suite, y cierra el vale.**
+   * Sólo con `COMPROBAR` (lo exige el controlador), sólo sin gasto X-A-10 vivo (lo decide Kepler vivo, con candado) y
+   * con motivo. Ya cancelada en Kepler (Finanzas lo hizo allá): no se escribe nada y el vale se cierra igual.
+   * No exige «que no sea suyo» como el rechazo: cancelar no saca dinero, deshace; quién canceló queda en el vale.
+   */
+  async cancelarEnKepler(id: string, motivo: unknown, actor: string): Promise<EstadoKeplerDeLaSolicitud> {
+    const m = String(motivo ?? '').trim().replace(/\s+/g, ' ');
+    if (m.length < SOLICITUD_CANCELAR_MOTIVO_MIN) throw new BadRequestException(`Escribe por qué se cancela (al menos ${SOLICITUD_CANCELAR_MOTIVO_MIN} caracteres): lo lee quien revise el gasto después`);
+    if (!UUID.test(String(id))) throw new BadRequestException('Vale inválido');
+    const v = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id }).first(
+      'id', 'status', 'origen', 'sucursal', 'folio_solicitud', 'kepler_request_status', 'kepler_request_mark', 'kepler_request_note',
+      'kepler_request_attempts', 'kepler_request_next_at')) as (ValeParaKepler & { id: string }) | undefined;
+    if (!v) throw new NotFoundException('No existe ese vale');
+    if (v.origen !== 'solicitud') throw new ConflictException('Este vale no nació en la Suite: su solicitud se cancela en Kepler');
+    if (!FIRMADAS.includes(v.status)) throw new ConflictException('Sólo se cancela una solicitud firmada; una por firmar se rechaza');
+    if (!v.folio_solicitud || !['written', 'seen_in_ods'].includes(String(v.kepler_request_status))) {
+      throw new ConflictException('Esta solicitud todavía no está escrita en Kepler: se rechaza aquí y Kepler nunca se entera');
+    }
+    const s = this.sucursal(v.sucursal);
+    await this.base(s);
+    const sw = await this.tk.run(async (trx) => opcional(trx, (sp) => sp('commercial.kepler_push_switch').where({ sucursal: s, tipo: TIPO_INTERRUPTOR })
+      .first<{ encendida: boolean } | undefined>('encendida'), undefined));
+    if (!sw?.encendida) throw new ConflictException(`La escritura de solicitudes en Kepler de esta sucursal está apagada: cancélala en Kepler`);
+    if (!this.sink) throw new ServiceUnavailableException('El escritor de Kepler no está disponible');
+    const r = await this.sink.cancelar({ sucursal: s, folio: String(v.folio_solicitud), marca: String(v.kepler_request_mark ?? ''), fecha: todayMx(), hora: horaMx() });
+    if (r.estado === 'apagado') throw new ConflictException(r.motivo);
+    if (r.estado === 'rechazado') throw new ConflictException(r.reintentable ? `${r.motivo}. Intenta de nuevo en un momento` : r.motivo);
+    const nota = r.estado === 'ya_estaba'
+      ? `Ya estaba cancelada en Kepler (folio ${r.folio}); ${actor} la cerró en la Suite: ${m}`
+      : `${SOLICITUD_CANCELADA_DESDE_LA_SUITE} por ${actor} (folio ${r.folio}): ${m}`;
+    const [fila] = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id }).whereIn('status', FIRMADAS)
+      .update({
+        status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: `${SOLICITUD_CANCELADA_DESDE_LA_SUITE}: ${m}`.slice(0, 500),
+        kepler_request_status: 'cancelled', kepler_request_next_at: null, kepler_request_note: nota.slice(0, 500), updated_at: trx.fn.now(),
+      })
+      .returning(['id', 'kepler_request_status', 'folio_solicitud', 'kepler_request_note', 'kepler_request_attempts', 'kepler_request_next_at']));
+    if (!fila) {
+      // Kepler ya quedó cancelado y el vale cambió entre tanto (alguien lo rechazó): se dice, no se pierde.
+      this.logger.error(`vale ${id}: la solicitud ${s}-${r.folio} quedó cancelada en Kepler, pero el vale ya no estaba firmado al cerrarlo: revisarlo a mano`);
+      throw new ConflictException(`La solicitud quedó cancelada en Kepler (folio ${r.folio}), pero el vale cambió mientras tanto: revísalo`);
+    }
+    this.logger.log(`vale ${id}: ${nota}`);
+    return this.estadoDe(fila as FilaEstadoKepler);
   }
 
   /** «Reintentar» de una persona con `COMPROBAR`: también los atorados y los que Kepler rechazó (ya corregidos). */

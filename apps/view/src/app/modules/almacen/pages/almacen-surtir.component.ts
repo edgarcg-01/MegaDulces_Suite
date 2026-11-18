@@ -5,6 +5,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
@@ -12,6 +14,7 @@ import { MessageService } from 'primeng/api';
 import type {
   KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
   PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport, PresaleOtherUnitsResponse, PresaleReviewStock,
+  PresaleSubstituteCandidate, PresaleSubstituteResponse,
 } from '@megadulces/contracts';
 import { topeEnUnidad } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -58,7 +61,14 @@ const PREF_OTRA = 'gp.surtir.preventa.otra.v1.';
 /** `[MCP.18]` El motivo de cada faltante, también en el celular hasta cerrar. */
 const PREF_MOTIVO = 'gp.surtir.preventa.motivo.v1.';
 
-type OtraUnidad = { product_id: string; unit: string; quantity: number };
+/**
+ * Lo que va en lugar de lo que faltó de un renglón. `[MCP.17]` el MISMO producto en otra unidad, o
+ * `[GP.RF.31]` OTRO producto (`otro: true`, con su nombre para decirlo en pantalla). Al servidor viajan
+ * sólo `product_id`, `unit` y `quantity` (`sustitutoParaEnviar`).
+ */
+type OtraUnidad = { product_id: string; unit: string; quantity: number; otro?: boolean; product_name?: string };
+const sustitutoParaEnviar = (x: OtraUnidad): { product_id: string; unit: string; quantity: number } =>
+  ({ product_id: x.product_id, unit: x.unit, quantity: x.quantity });
 
 /** Cada cuánto se vuelve a pedir la lista de Sucursal mientras se está viendo. */
 const SUCURSAL_CADA_MS = 30_000;
@@ -497,15 +507,76 @@ function plural(n: number, uno: string, varios: string): string {
             @if (pedidoSucursal() && l.status !== 'surtido') {
               <div class="sr-otra-fila">
                 @if (otraUnidad()[l.id]; as ou) {
-                  <span class="sr-otra-tag"><i class="pi pi-box" aria-hidden="true"></i> Van {{ fmtNum(ou.quantity) }} {{ ou.unit }} en otra unidad</span>
+                  @if (ou.otro) {
+                    <span class="sr-otra-tag"><i class="pi pi-sync" aria-hidden="true"></i> En su lugar: {{ fmtNum(ou.quantity) }} {{ ou.unit }} de {{ ou.product_name }}</span>
+                  } @else {
+                    <span class="sr-otra-tag"><i class="pi pi-box" aria-hidden="true"></i> Van {{ fmtNum(ou.quantity) }} {{ ou.unit }} en otra unidad</span>
+                  }
                   <button pButton type="button" [text]="true" class="sr-tap" (click)="quitarOtraUnidad(l)"
-                          [attr.aria-label]="'Quitar lo de otra unidad de ' + (l.product_name || l.sku)">Quitar</button>
-                } @else if (otraAbierta() !== l.id) {
+                          [attr.aria-label]="'Quitar lo que va en lugar de ' + (l.product_name || l.sku)">Quitar</button>
+                } @else if (otraAbierta() !== l.id && cambioAbierto() !== l.id) {
                   <button pButton type="button" [text]="true" class="sr-tap" (click)="abrirOtraUnidad(l)"
                           [attr.aria-label]="'Surtir en otra unidad ' + (l.product_name || l.sku)">
                     <i class="pi pi-box" aria-hidden="true"></i>&nbsp;Surtir en otra unidad</button>
+                  <!-- [GP.RF.31] Otro producto en lugar de lo que faltó: antes sólo existía en la pantalla que el surtidor no usa. -->
+                  <button pButton type="button" [text]="true" class="sr-tap" (click)="abrirCambio(l)"
+                          [attr.aria-label]="'Cambiar por otro producto ' + (l.product_name || l.sku)">
+                    <i class="pi pi-sync" aria-hidden="true"></i>&nbsp;Cambiar por otro producto</button>
                 }
               </div>
+              @if (cambioAbierto() === l.id) {
+                <div class="sr-falta sr-otra" role="group" [attr.aria-label]="'Cambiar ' + (l.product_name || l.sku) + ' por otro producto'">
+                  <label class="sr-l" for="sr-cambio-q">Faltan {{ fmtNum(faltanDe(l)) }} {{ unidadConteo(l) }}. ¿Con qué lo cambias?</label>
+                  <input id="sr-cambio-q" class="sr-falta-input" type="search" enterkeyhint="search" autocomplete="off"
+                         placeholder="Nombre, SKU o código" [ngModel]="cambioBusca()" (ngModelChange)="buscarCambio(l, $event)" />
+                  @switch (cambioCarga().estado) {
+                    @case ('cargando') { <p class="sr-tip"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando productos con existencia…</p> }
+                    @case ('error') {
+                      <p class="sr-tip sr-tip-bad">{{ cambioCarga().msg }}</p>
+                      <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="cargarCambios(l)">Reintentar</button>
+                    }
+                    @default {
+                      @if (!cambioElegido()) {
+                        @if (!cambioBusca().trim()) { <p class="sr-tip">Con existencia en tu sucursal y palabras del nombre o del proveedor en común. Tú decides si se parece.</p> }
+                        @if (!cambioCarga().data?.data?.length) {
+                          <p class="sr-tip">{{ cambioBusca().trim() ? 'Nada con existencia con esa búsqueda.' : 'Sin sugerencias: búscalo por nombre, SKU o código.' }}</p>
+                        }
+                        <ul class="sr-cambio-lista">
+                          @for (x of cambioCarga().data?.data ?? []; track x.product_id) {
+                            <li>
+                              <button type="button" class="sr-cambio-item" [disabled]="usadoEnOtroRenglon(x.product_id, l.id)" (click)="elegirCambio(l, x)">
+                                <strong>{{ x.product_name }}</strong>
+                                <span class="sr-tip">{{ x.sku }} · {{ precioCambio(x) }} · {{ existenciaCambio(x) }}@if (usadoEnOtroRenglon(x.product_id, l.id)) { · ya va en otro renglón }</span>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      } @else {
+                        @if (cambioElegido(); as x) {
+                          <p class="sr-l">{{ x.product_name }}</p>
+                          @if (x.units.length > 1) {
+                            <div class="sr-chips" role="radiogroup" aria-label="Unidad">
+                              @for (u of x.units; track u.unit) {
+                                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="cambioUnidad() === u.unit"
+                                        [class.sr-chip-on]="cambioUnidad() === u.unit" (click)="cambioUnidad.set(u.unit)">{{ u.unit }}</button>
+                              }
+                            </div>
+                          }
+                          <label class="sr-l" for="sr-cambio-n">¿Cuántos {{ cambioUnidad() }}?</label>
+                          <input id="sr-cambio-n" class="sr-falta-input" type="number" inputmode="numeric" min="1"
+                                 [ngModel]="cambioCant()" (ngModelChange)="cambioCant.set($event)" (keydown.enter)="ponerCambio(l)"
+                                 (wheel)="$any($event.target).blur()" autocomplete="off" />
+                          <button pButton type="button" [text]="true" class="sr-tap" (click)="cambioElegido.set(null)">Elegir otro</button>
+                        }
+                      }
+                    }
+                  }
+                  <div class="sr-falta-acc">
+                    <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="cerrarCambio()">Cancelar</button>
+                    <button pButton type="button" class="sr-tap" [disabled]="!cambioValido()" (click)="ponerCambio(l)">Poner</button>
+                  </div>
+                </div>
+              }
               @if (otraAbierta() === l.id) {
                 <div class="sr-falta sr-otra" role="group" [attr.aria-label]="'Surtir ' + (l.product_name || l.sku) + ' en otra unidad'">
                   @switch (otraCarga().estado) {
@@ -744,6 +815,10 @@ function plural(n: number, uno: string, varios: string): string {
     /* [MCP.18] El «¿Por qué?» del faltante, pegado a su renglón (proximidad: el motivo es de ESE producto). */
     .sr-motivo { margin: -.2rem 0 .4rem .75rem; }
     .sr-otra-tag { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .sr-cambio-lista { list-style: none; margin: .4rem 0; padding: 0; display: grid; gap: .35rem; max-height: 50vh; overflow-y: auto; }
+    .sr-cambio-item { display: grid; gap: .15rem; width: 100%; min-height: var(--tap-min); padding: .5rem .6rem; text-align: left; border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); color: var(--text-main); font: inherit; cursor: pointer; }
+    .sr-cambio-item:disabled { opacity: .55; cursor: not-allowed; }
+    .sr-cambio-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sr-otra { padding: .75rem; margin-bottom: .6rem; border: 1px solid var(--surface-border); border-radius: var(--r-md); background: var(--surface-card); }
     .sr-otra .sr-chips { justify-content: center; }
     .sr-hecho-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -808,6 +883,9 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  /** `[GP.RF.30]` De dónde se llegó, leído al crear la pantalla (después ya no se sabe). */
+  private readonly previa = urlPrevia(this.router);
+  private readonly perms = inject(PermissionsService);
   private readonly ruta = inject(ActivatedRoute);
   private readonly preventa = inject(PresalePickingService);
   private readonly toast = inject(MessageService);
@@ -951,6 +1029,18 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly otraCarga = signal<{ estado: 'cargando' | 'error' | 'listo'; data?: PresaleOtherUnitsResponse; msg?: string }>({ estado: 'cargando' });
   readonly otraElegida = signal<string | null>(null);
   readonly otraCant = signal<number | null>(null);
+  /**
+   * `[GP.RF.31]` Cambiar lo que faltó por OTRO producto (decisión de Edgar, 2026-11-17). El servidor ya lo
+   * hacía (`[MCP.13]`), pero sólo lo ofrecía `/almacen/surtir-preventa`, que el surtidor no usa: en esta
+   * pantalla no había cómo. Un renglón lleva a lo más un cambio: otra unidad u otro producto.
+   */
+  readonly cambioAbierto = signal<string | null>(null);
+  readonly cambioBusca = signal('');
+  readonly cambioCarga = signal<{ estado: 'cargando' | 'error' | 'listo'; data?: PresaleSubstituteResponse; msg?: string }>({ estado: 'cargando' });
+  readonly cambioElegido = signal<PresaleSubstituteCandidate | null>(null);
+  readonly cambioUnidad = signal<string | null>(null);
+  readonly cambioCant = signal<number | null>(null);
+  private cambioReloj: ReturnType<typeof setTimeout> | null = null;
   /** Renglones con un guardado en vuelo: sus botones se apagan para no mandar dos veces. */
   readonly guardando = signal<ReadonlySet<string>>(new Set());
   /** Lo último que pasó, para lectores de pantalla. */
@@ -1225,12 +1315,109 @@ export class AlmacenSurtirComponent implements OnInit {
   quitarOtraUnidad(l: PickerWaveLine): void {
     const o = this.ola();
     if (!o) return;
+    const era = this.otraUnidad()[l.id];
     this.otraUnidad.update((m) => {
       const { [l.id]: _fuera, ...resto } = m;
       return resto;
     });
     this.guardarOtra(o.id);
-    this.anuncio.set(`${l.product_name || l.sku}: ya no va nada en otra unidad.`);
+    this.anuncio.set(era?.otro ? `${l.product_name || l.sku}: ya no se cambia por otro producto.` : `${l.product_name || l.sku}: ya no va nada en otra unidad.`);
+  }
+
+  // ── [GP.RF.31] Cambiar lo que faltó por otro producto ─────────────────────────────────────────
+
+  /** Lo que faltó del renglón, en su unidad. */
+  faltanDe(l: PickerWaveLine): number {
+    return +(l.qty_requested - Number(l.qty_picked ?? 0)).toFixed(3);
+  }
+
+  abrirCambio(l: PickerWaveLine): void {
+    if (!this.ola() || !this.pedidoSucursal()) return;
+    this.otraAbierta.set(null);
+    this.cambioAbierto.set(l.id);
+    this.cambioBusca.set('');
+    this.cambioElegido.set(null);
+    this.cargarCambios(l);
+  }
+
+  cerrarCambio(): void {
+    this.cambioAbierto.set(null);
+    this.cambioElegido.set(null);
+    if (this.cambioReloj) clearTimeout(this.cambioReloj);
+  }
+
+  buscarCambio(l: PickerWaveLine, q: string): void {
+    this.cambioBusca.set(q);
+    this.cambioElegido.set(null);
+    if (this.cambioReloj) clearTimeout(this.cambioReloj);
+    this.cambioReloj = setTimeout(() => this.cargarCambios(l), 300);
+  }
+
+  cargarCambios(l: PickerWaveLine): void {
+    const o = this.ola();
+    if (!o) return;
+    const q = this.cambioBusca().trim();
+    this.cambioCarga.set({ estado: 'cargando' });
+    this.preventa.substitutes(o.id, l.id, q).subscribe({
+      next: (r) => {
+        // Si mientras tanto se cerró el panel o se tecleó otra cosa, esta respuesta ya no aplica.
+        if (this.cambioAbierto() !== l.id || this.cambioBusca().trim() !== q) return;
+        this.cambioCarga.set({ estado: 'listo', data: r });
+      },
+      error: (e) => {
+        if (this.cambioAbierto() !== l.id) return;
+        this.cambioCarga.set({ estado: 'error', msg: this.mensaje(e, 'No se pudieron cargar los productos.') });
+      },
+    });
+  }
+
+  /**
+   * Ya va en lugar de lo que faltó de OTRO renglón: el servidor rechaza el cierre si un producto se pone
+   * en dos renglones («elige uno distinto para cada uno»). Se avisa aquí, antes de marcarlo.
+   */
+  usadoEnOtroRenglon(productId: string, lineId: string): boolean {
+    return Object.entries(this.otraUnidad()).some(([id, x]) => id !== lineId && x.product_id === productId);
+  }
+
+  elegirCambio(l: PickerWaveLine, x: PresaleSubstituteCandidate): void {
+    const u = x.units[0];
+    if (!u || this.usadoEnOtroRenglon(x.product_id, l.id)) return;
+    this.cambioElegido.set(x);
+    this.cambioUnidad.set(u.unit);
+    // Misma unidad que el renglón: lo que faltó. Otra unidad: una, y el surtidor ajusta.
+    this.cambioCant.set(u.unit === l.qty_unit ? Math.max(1, Math.ceil(this.faltanDe(l))) : 1);
+  }
+
+  cambioValido(): boolean {
+    const raw = this.cambioCant();
+    if (!this.cambioElegido() || raw == null || (raw as unknown) === '') return false;
+    const q = Number(raw);
+    const pesable = /^(KG|GR|LT|LTS|L|ML)$/i.test(this.cambioUnidad() ?? '');
+    return Number.isFinite(q) && q > 0 && (pesable || Number.isInteger(q));
+  }
+
+  ponerCambio(l: PickerWaveLine): void {
+    const o = this.ola();
+    const x = this.cambioElegido();
+    const u = this.cambioUnidad();
+    if (!o || !x || !u || !this.cambioValido()) return;
+    const quantity = Number(this.cambioCant());
+    this.otraUnidad.update((m) => ({ ...m, [l.id]: { product_id: x.product_id, unit: u, quantity, otro: true, product_name: x.product_name } }));
+    this.guardarOtra(o.id);
+    this.cerrarCambio();
+    this.anuncio.set(`${l.product_name || l.sku}: se cambia por ${x.product_name}, ${this.fmtNum(quantity)} ${u}.`);
+  }
+
+  precioCambio(x: PresaleSubstituteCandidate): string {
+    const u = x.units[0];
+    return u?.price != null ? `${this.dinero(u.price)} / ${u.unit}` : 'sin precio';
+  }
+
+  existenciaCambio(x: PresaleSubstituteCandidate): string {
+    if (x.stock_qty === null) return 'existencia sin dato';
+    const u = x.units[0];
+    const q = u && u.factor > 1 ? Math.floor((x.stock_qty + 1e-9) / u.factor) : x.stock_qty;
+    return `hay ${this.fmtNum(q)} ${u?.unit ?? 'PZA'}`;
   }
 
   // ── [MCP.18] El justificante de cada faltante ──────────────────────────────────────────────
@@ -1315,8 +1502,9 @@ export class AlmacenSurtirComponent implements OnInit {
     const lines = o.lines.map((l) => ({
       line_id: l.id,
       picked: Number(l.qty_picked ?? 0),
-      // [MCP.17] El mismo producto en otra unidad viaja como un cambio con su mismo product_id.
-      ...(otra[l.id] && l.status !== 'surtido' ? { substitute: otra[l.id] } : {}),
+      // [MCP.17] El mismo producto en otra unidad viaja como un cambio con su mismo product_id;
+      // [GP.RF.31] otro producto, con el suyo. Sólo los tres campos que el servidor espera.
+      ...(otra[l.id] && l.status !== 'surtido' ? { substitute: sustitutoParaEnviar(otra[l.id]) } : {}),
       // [MCP.18] El justificante de cada faltante (sin tocar = el de por omisión, lo que dice el botón).
       ...(l.status !== 'surtido' ? camposDeMotivo(motivoDe(this.motivosLinea(), l.id, MOTIVO_SURTIDO_POR_OMISION)) : {}),
     }));
@@ -1574,11 +1762,13 @@ export class AlmacenSurtirComponent implements OnInit {
   }
 
   /**
-   * A `/almacen` y no al tablero de pedidos: el almacenista NO tiene `ALMACEN_PEDIDOS_VER` y el
-   * guard lo rebotaría. `/almacen` lo manda a la primera pantalla que sí puede abrir.
+   * `[GP.RF.30]` Regresa a la pantalla de donde se llegó (el Tablero, el Andén…). Antes iba a
+   * `/almacen`, que brinca a la primera pantalla del área: Inventario para superadmin, y para el
+   * surtidor Surtir misma, o sea que «Salir» no hacía nada. Sin pantalla anterior, va al Tablero:
+   * su ruta también la abre quien surte (`COMMERCIAL_PICKING_GESTIONAR`), que es quien entra aquí.
    */
   salir(): void {
-    irConservandoPanel(this.router, '/almacen');
+    irConservandoPanel(this.router, destinoDeSalida(this.previa, puedeAbrirTablero(this.perms)));
   }
 
   // ── Cantidades ──────────────────────────────────────────────────────────────────────────

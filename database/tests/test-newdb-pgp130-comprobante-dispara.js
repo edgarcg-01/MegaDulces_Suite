@@ -17,7 +17,9 @@
  *   7. `pagarPorComprobante` lo da por pagado (`executed`, `paid_proof_id`, UNA fila `pagado_por_comprobante`);
  *      correrlo otra vez no hace nada nuevo;
  *   8. la fila del worker de Kepler (`SQL_PROBADOS_SIN_LIGAR`) lo toma sin salida del banco;
- *   9. al escribirse el `X-D-26`, el comprobante pasa a apuntar a ese documento (`moverComprobanteAKepler`).
+ *   9. al escribirse el `X-D-26`, el comprobante pasa a apuntar a ese documento (`moverComprobanteAKepler`);
+ *  10. `[PGP.130b]` el banco CONFIRMA lo que pagó el comprobante: liga su salida sin cambiar el estado; otra vez, nada;
+ *  11. ⛔ una salida de OTRA cuenta (la del comprobante es otra) no lo confirma.
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
@@ -120,6 +122,10 @@ const comunes = (trx) => ({
       leer({ monto: 333333.33, cuenta_origen: '0000 1111 2222 3333', clave_rastreo: 'PGP130RASTREO4' });
       const r4 = await comp.comprobanteDelCalendario('data:application/pdf;base64,AAAA', 'prueba_pgp130');
       ok(r4.estado === 'sin_lectura' && (await filasCal(otroPago.id)).length === 0, `4. ⛔ una cuenta de origen que no es nuestra no casa (${r4.estado})`);
+      // La pantalla sigue con el carril de Kepler con ESTA lectura (sin mandar el PDF a leer otra vez).
+      ok(r4.ocr && Number(r4.ocr.monto) === 333333.33 && !!r4.ocr.sha256 && r4.ocr.clave_rastreo === 'PGP130RASTREO4',
+        '4. aunque no case, devuelve la lectura completa con su huella (para buscar el pago en Kepler)');
+      ok(r1.ocr && !!r1.ocr.sha256, '1. al casar también devuelve la lectura con su huella');
 
       // 5. clave de rastreo repetida (la del caso 1, ahora para otro pago)
       leer({ monto: 333333.33, clave_rastreo: 'PGP130-RASTREO1' });
@@ -153,6 +159,31 @@ const comunes = (trx) => ({
       const n9 = await porComprobante.moverComprobanteAKepler(trx, T, pago.id, { sucursal: '00', doc_prefix: 'XD2601', folio: '9913000' });
       const f9 = await trx('finance.supplier_payment_proofs').where({ id: r1.comprobante_id }).first();
       ok(n9 === 1 && f9.sucursal === '00' && f9.doc_prefix === 'XD2601' && f9.folio === '9913000', '9. al escribirse el X-D-26, el comprobante apunta a ese documento');
+
+      // 10–11. [PGP.130b] El banco CONFIRMA lo que pagó el comprobante (liga su salida, de la MISMA cuenta).
+      const otraCuenta = (await trx('finance.bank_accounts')
+        .insert({ tenant_id: T, bank: 'SANTANDER', account_label: '8813099131', kind: 'bank' }).returning('*'))[0];
+      const edo = async (c) => (await trx('finance.bank_statements').insert({ tenant_id: T, bank_account_id: c.id, period: '2099-03' }).returning('*'))[0];
+      const eC = await edo(cuenta), eO = await edo(otraCuenta);
+      let nm = 0;
+      const salida = async (c, e, fecha, monto) => (await trx('finance.bank_movements').insert({
+        tenant_id: T, bank_account_id: c.id, statement_id: e.id, movement_date: fecha, amount_out: monto, client_uuid: `pgp130b-${Date.now()}-${nm++}`,
+      }).returning('*'))[0];
+      const mBuena = await salida(cuenta, eC, '2099-03-11', 511359.31);
+      // Un pago pagado por comprobante cuya salida aparece en OTRA cuenta: no se liga.
+      const ajeno = await mk(firmado, 444.44, { status: 'executed', executed_at: trx.fn.now(), paid_proof_id: '00000000-0000-0000-0000-0000000130b0' });
+      await salida(otraCuenta, eO, '2099-03-10', 444.44);
+      const cb = await cal.confirmarPorElBanco('2099-03-15', 'prueba_pgp130');
+      const p10 = await trx('finance.payment_allocations').where({ id: pago.id }).first();
+      ok(p10.paid_bank_movement_id === mBuena.id && Number(p10.paid_bank_amount) === 511359.31 && p10.status === 'executed',
+        `10. el banco confirma el pago que pagó el comprobante: liga su salida y no cambia su estado (${JSON.stringify(cb)})`);
+      const h10 = await trx('finance.payment_allocation_history').where({ allocation_id: pago.id, event: 'confirmado_por_el_banco' });
+      ok(h10.length === 1, '10. UNA fila «confirmado_por_el_banco» en la bitácora');
+      const cb2 = await cal.confirmarPorElBanco('2099-03-15', 'prueba_pgp130');
+      ok(cb2.confirmados === 0 && (await trx('finance.payment_allocation_history').where({ allocation_id: pago.id, event: 'confirmado_por_el_banco' })).length === 1,
+        '10. ⛔ correrlo otra vez no confirma nada nuevo');
+      const a11 = await trx('finance.payment_allocations').where({ id: ajeno.id }).first();
+      ok(a11.paid_bank_movement_id == null && cb.otra_cuenta >= 1, `11. ⛔ la salida de OTRA cuenta no confirma el pago (otra_cuenta=${cb.otra_cuenta})`);
 
       throw ROLLBACK;
     });

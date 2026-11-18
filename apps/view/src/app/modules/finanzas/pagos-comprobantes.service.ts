@@ -1,3 +1,4 @@
+import type { ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
@@ -216,6 +217,13 @@ export class PagosComprobantesService {
   /** Ficha-first: busca el pago por monto + fecha + concepto (folio de factura). */
   matchPago(monto: number | null | undefined, fecha: string | null | undefined, concepto: string | null | undefined): Observable<{ pagos: PagoCandidate[] }> {
     return this.http.post<{ pagos: PagoCandidate[] }>(`${this.base}/match-pago`, { monto, fecha, concepto });
+  }
+  /**
+   * `[PGP.130]` El comprobante de una transferencia del Calendario: el servidor lo lee, lo casa con su pago y, si casa
+   * solo, lo da por pagado (la Suite lo registra en Kepler). Devuelve la lectura para seguir con Kepler si no casa.
+   */
+  calendario(file_base64: string): Observable<ResultadoComprobanteCalendario> {
+    return this.http.post<ResultadoComprobanteCalendario>(`${this.base}/calendario`, { file_base64 });
   }
   /** Sube el comprobante a Cloudinary y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'comprobante'): Observable<ProofFile> {

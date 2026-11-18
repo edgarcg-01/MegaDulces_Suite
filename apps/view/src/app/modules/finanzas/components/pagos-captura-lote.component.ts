@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { PagosComprobantesService, DepositOcr, PagoCandidate, ProofFile } from '../pagos-comprobantes.service';
+import type { ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
 import { CRITERIOS, Clasificacion, Chequeo, ETIQUETA_CRITERIO, clasificar, coincidencias, llavePago, pagosRepetidos, textoMotivo } from '../pagos-captura-lote';
 
 type Criterio = (typeof CRITERIOS)[number];
@@ -13,7 +14,8 @@ type Criterio = (typeof CRITERIOS)[number];
 const EN_PARALELO = 3;
 const MAX_BYTES = 10 * 1024 * 1024;
 
-type Fase = 'en_cola' | 'leyendo' | 'buscando' | 'listo' | 'guardando' | 'guardado' | 'duplicado' | 'error';
+/** `[PGP.130]` `pagado`: casó solo con su pago del Calendario (modo Calendario); la Suite lo da por pagado y lo registra en Kepler. */
+type Fase = 'en_cola' | 'leyendo' | 'buscando' | 'listo' | 'guardando' | 'guardado' | 'duplicado' | 'error' | 'pagado';
 
 /** Lo que devolvió el servidor al adjuntar (los controles de cuenta propia y clave repetida). */
 interface ResultadoGuardado {
@@ -47,6 +49,8 @@ export interface FilaLote {
   error: string | null;
   /** Nombre del archivo del lote del que esta fila es copia (fase «duplicado»). */
   copiaDe: string | null;
+  /** `[PGP.130]` Lo que dijo el Calendario de este comprobante (por qué no casó, o con qué pago casó). */
+  nota: string | null;
 }
 
 /**
@@ -113,6 +117,7 @@ export interface FilaLote {
               @if (cuenta().listos) { <span class="ok">{{ cuenta().listos }} listos</span> }
               @if (cuenta().porConfirmar) { <span class="warn">{{ cuenta().porConfirmar }} por confirmar</span> }
               @if (cuenta().sinPago) { <span class="bad">{{ cuenta().sinPago }} sin pago</span> }
+              @if (cuenta().pagados) { <span class="ok">{{ cuenta().pagados }} {{ cuenta().pagados === 1 ? 'pagado' : 'pagados' }} con el Calendario</span> }
               @if (cuenta().guardados) { <span><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> {{ cuenta().guardados }} guardando</span> }
             </span>
           </div>
@@ -127,7 +132,7 @@ export interface FilaLote {
 
         <div class="pl-body">
         <div class="pl-cols" aria-hidden="true">
-          <span></span><span>Comprobante</span><span>Lo que leyó la IA</span><span>Pago de Kepler</span><span></span>
+          <span></span><span>Comprobante</span><span>Lo que leyó la IA</span><span>{{ calendario() ? 'Pago' : 'Pago de Kepler' }}</span><span></span>
         </div>
 
         @for (f of filas(); track f.id) {
@@ -137,6 +142,8 @@ export interface FilaLote {
               @if (f.fase === 'listo' && f.elegido) {
                 <input type="checkbox" [checked]="f.confirmado" (change)="toggle(f.id)" [disabled]="guardando()"
                        [attr.aria-label]="'Confirmo que ' + f.nombre + ' es el comprobante de ' + llave(f.elegido)" />
+              } @else if (f.fase === 'pagado') {
+                <i class="pi pi-check-circle pl-ok" aria-label="Pagado con su pago del Calendario"></i>
               } @else if (f.fase === 'guardado') {
                 @if (f.resultado?.status === 'validado') { <i class="pi pi-check-circle pl-ok" aria-label="Guardado y validado"></i> } @else { <i class="pi pi-exclamation-circle warn" aria-label="Guardado con diferencias"></i> }
               }
@@ -151,11 +158,14 @@ export interface FilaLote {
                   @case ('leyendo') { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo con IA… }
                   @case ('buscando') { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando el pago… }
                   @case ('guardando') { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Guardando… }
-                  @case ('duplicado') { <span class="bad">Repetido{{ f.copiaDe ? ': es igual a ' + f.copiaDe : ' en este lote' }} — no se guarda</span> }
+                  @case ('duplicado') { <span class="bad">{{ f.nota || ('Repetido' + (f.copiaDe ? ': es igual a ' + f.copiaDe : ' en este lote')) }} — no se guarda</span> }
+                  @case ('pagado') { <span class="ok">Casó con su pago del Calendario</span> }
                   @case ('error') { <span class="bad">{{ f.error }}</span> }
                   @default { {{ kb(f.bytes) }} }
                 }
               </span>
+              <!-- [PGP.130] Por qué no casó con el Calendario (y se busca en Kepler). -->
+              @if (f.nota && f.fase !== 'pagado' && f.fase !== 'duplicado') { <span class="pl-sub">{{ f.nota }}</span> }
             </div>
 
             <!-- lectura -->
@@ -171,7 +181,9 @@ export interface FilaLote {
 
             <!-- pago -->
             <div class="pl-pago">
-              @if (f.fase === 'guardado') {
+              @if (f.fase === 'pagado') {
+                <span class="pl-sub">{{ f.nota }}</span>
+              } @else if (f.fase === 'guardado') {
                 <span class="pl-pk mono">{{ llave(f.elegido!) }}</span>
                 <span class="pl-tags">
                   <!-- [PC.6] la decisión la toma el SERVIDOR: puede no validar algo que aquí se veía «listo» -->
@@ -368,6 +380,15 @@ export class PagosCapturaLoteComponent {
   readonly live = input(false);
   /** `[PGP.72]` Sólo el botón (que también recibe el PDF soltado); para meterlo en la barra de otra pantalla. */
   readonly compacto = input(false);
+  /**
+   * `[PGP.130]` **Modo Calendario** (D1, Edgar 2026-11-17): cada comprobante se casa PRIMERO con su pago del Calendario
+   * (`POST supplier-payments/calendario`). Si casa, queda pagado y la Suite lo registra en Kepler, sin clic: la regla
+   * es determinista y uno a uno, como la validación sola de `[PC.6]`. Si no casa, sigue el carril de siempre (buscar
+   * el pago en Kepler y confirmar) con la MISMA lectura: el PDF no se manda a leer dos veces.
+   */
+  readonly calendario = input(false);
+  /** `[PGP.130]` Cuántos comprobantes casaron con su pago del Calendario en esta tanda (la pantalla recarga el día). */
+  readonly pagadosCalendario = output<number>();
   /** Se guardaron comprobantes: la página recarga su tabla. */
   readonly guardados = output<LoteGuardado>();
   /** `[PC.8]` La persona quiere ver en la tabla los que quedaron con diferencias. */
@@ -400,6 +421,7 @@ export class PagosCapturaLoteComponent {
       porConfirmar: enMesa.filter((f) => f.elegido && !f.confirmado).length + enMesa.filter((f) => !f.elegido && f.clasif?.confianza === 'elegir').length,
       sinPago: enMesa.filter((f) => !f.elegido && f.clasif?.confianza !== 'elegir').length + fs.filter((f) => f.fase === 'error').length,
       guardados: fs.filter((f) => f.fase === 'guardado').length,
+      pagados: fs.filter((f) => f.fase === 'pagado').length,
     };
   });
 
@@ -463,7 +485,7 @@ export class PagosCapturaLoteComponent {
     return {
       id: ++this.seq, nombre: file.name, bytes: file.size, dataUri, fase: copiaDe ? 'duplicado' : 'en_cola', copiaDe,
       ocr: null, subido: null, candidatos: [], clasif: null, elegido: null, confirmado: false,
-      busqueda: '', resultados: [], buscando: false, resultado: null, error: null,
+      busqueda: '', resultados: [], buscando: false, resultado: null, error: null, nota: null,
     };
   }
 
@@ -490,16 +512,24 @@ export class PagosCapturaLoteComponent {
   private async procesar(id: number) {
     const f = this.fila(id);
     if (!f) return;
+    let ocr: DepositOcr | null = null;
+    // [PGP.130] Primero el Calendario: si casa, terminó; si no, su lectura sirve para buscar en Kepler.
+    if (this.calendario()) {
+      const c = await this.intentarCalendario(id, f.dataUri);
+      if (c === 'terminado' || !this.fila(id)) return;
+      ocr = c;
+    }
     // La subida corre al lado del OCR; si falla, se reintenta al guardar.
     firstValueFrom(this.svc.uploadFile(f.dataUri, 'comprobante'))
       .then((subido) => this.patch(id, { subido }))
       .catch(() => { /* se reintenta en guardar() */ });
-    let ocr: DepositOcr;
-    try {
-      ocr = await firstValueFrom(this.svc.ocr(f.dataUri));
-    } catch {
-      this.patch(id, { fase: 'error', error: 'No se pudo leer el comprobante' });
-      return;
+    if (!ocr) {
+      try {
+        ocr = await firstValueFrom(this.svc.ocr(f.dataUri));
+      } catch {
+        this.patch(id, { fase: 'error', error: 'No se pudo leer el comprobante' });
+        return;
+      }
     }
     if (!this.fila(id)) return; // la quitaron mientras se leía
     // Mismo contenido que otra fila ya leída → el mismo papel dos veces.
@@ -516,6 +546,37 @@ export class PagosCapturaLoteComponent {
       fase: 'listo', candidatos, clasif,
       elegido: clasif.propuesto, confirmado: clasif.confianza === 'listo',
     });
+  }
+
+  /**
+   * `[PGP.130]` El comprobante contra los pagos del Calendario. `terminado` = casó (o ya estaba) y no hay nada más que
+   * hacer; si no, devuelve la lectura del servidor para seguir con Kepler (o `null` si el Calendario no respondió).
+   */
+  private async intentarCalendario(id: number, dataUri: string): Promise<'terminado' | DepositOcr | null> {
+    this.patch(id, { fase: 'leyendo' });
+    let r: ResultadoComprobanteCalendario;
+    try {
+      r = await firstValueFrom(this.svc.calendario(dataUri));
+    } catch (e: unknown) {
+      const st = (e as { status?: number })?.status;
+      this.patch(id, { nota: st === 403 ? 'Sin permiso para darlo por pagado en el Calendario: se busca en Kepler.' : 'No se pudo casar con el Calendario: se busca en Kepler.' });
+      return null;
+    }
+    const ocr: DepositOcr = { ...r.ocr };
+    if (r.estado === 'casa') {
+      const quien = r.lectura.beneficiario ? ` a ${r.lectura.beneficiario}` : '';
+      const cuanto = r.lectura.importe != null ? ` por ${this.money(r.lectura.importe)}` : '';
+      this.patch(id, { ocr, fase: 'pagado', nota: `Pago${quien}${cuanto}: queda pagado en cuanto la Suite lo procesa (alrededor de un minuto) y se registra en Kepler.` });
+      this.pagadosCalendario.emit(1);
+      return 'terminado';
+    }
+    if (r.estado === 'ya_tiene' || r.estado === 'repetido') {
+      this.patch(id, { ocr, fase: 'duplicado', nota: r.motivo ?? 'Ese pago ya tiene su comprobante' });
+      return 'terminado';
+    }
+    // sin_pago es lo normal para un pago que no salió del Calendario: no se dice nada; lo demás sí.
+    if (r.estado !== 'sin_pago' && r.motivo) this.patch(id, { nota: `Calendario: ${r.motivo}` });
+    return ocr;
   }
 
   // ── acciones de la persona ─────────────────────────────────────────────────

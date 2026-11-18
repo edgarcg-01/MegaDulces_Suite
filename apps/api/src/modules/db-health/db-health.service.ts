@@ -1507,6 +1507,9 @@ export const CRON_JOBS: CronCfg[] = [
   // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
   // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
   { key: 'contpaqi_add_cfdis_full', label: 'ContPAQi CFDIs (ADD, reconciliador)', cadence: '1×día', warnH: 26, critH: 50 },
+  // [CP.9.2] La réplica de ContPAQi al ODS por huella (encendida con la D15, 2026-11-17): los umbrales que pide su renglón del crontab.
+  { key: 'contpaqi_replica_ct', label: 'Réplica ContPAQi → ODS (contabilidad, por huella)', cadence: 'cada 5 min', warnH: 0.5, critH: 2 },
+  { key: 'contpaqi_replica_resto', label: 'Réplica ContPAQi → ODS (SAT, nómina, ADD)', cadence: 'cada hora (:42)', warnH: 3, critH: 12 },
   // [VL.4b] El poller de tickets de /tienda/live. Era MUDO y su única señal era el mtime de un .log
   // — que se sigue moviendo aunque no llegue un solo ticket. El 2026-09-11, tras mudar la fuente a
   // `md` y dejar las suscripciones viejas en DISABLE, las réplicas de `.249` quedaron congeladas y el

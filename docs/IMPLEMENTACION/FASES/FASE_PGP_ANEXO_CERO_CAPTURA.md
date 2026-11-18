@@ -83,7 +83,7 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 
 | Orden | Frente | Item | Dinero (30 días) | Esfuerzo | Prioridad | Por qué ahí |
 |---|---|---|---|---|---|---|
-| 1 | **El comprobante dispara el registro** (D1, D2) · 🔨 C1+C2 en código 2026-11-17 | `[PGP.130]` | Alto · $20.0 M CEDIS | M | **1** | Las piezas existen: lectura del comprobante (OCR), cruce, validación con 4 coincidencias, escritura del `X-D-26` con su compuerta. Falta unirlas al pago del Calendario |
+| 1 | **El comprobante dispara el registro** (D1, D2) · 🔨 C1+C2+C3 en código 2026-11-17 | `[PGP.130]` | Alto · $20.0 M CEDIS | M | **1** | Las piezas existen: lectura del comprobante (OCR), cruce, validación con 4 coincidencias, escritura del `X-D-26` con su compuerta. Falta unirlas al pago del Calendario |
 | 2 | **Las 8 sucursales** (D3, D4) | `[PGP.131]` | Alto · $12.0 M | S de código; espera D4 | **1** | Plantilla por servidor (se elige leyendo un `X-D-26` de Tesorería en cada Kepler vivo, sólo lectura) y ensayo con ROLLBACK por servidor |
 | 3 | **Ligar lo que Tesorería ya capturó** | `[PGP.132]` | — (métrica) | S | 2 | Mientras dure la transición, el pago capturado a mano se liga a su folio: sale de la fila del worker (hoy se revisa en cada pasada) y la métrica lo cuenta bien |
 | 4 | **Cheques** (D7) | `[PGP.133]` | Alto · $4.5 M | M | **1** | `X-D-25` con el número de la chequera de la Suite; misma compuerta y ensayo que el `X-D-26` |
@@ -148,6 +148,7 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 
 - **2026-11-17** — Plan. Universo medido; D1–D7 esperando a Edgar.
 - **2026-11-17** — Edgar firma D1–D7 como se recomendaban («si, firmo»). Empieza `[PGP.130]`.
+- **2026-11-17** — `[PGP.130]` C3: el botón «Comprobantes PDF» del Calendario casa primero con el pago de aquí; si no casa, sigue con Kepler con la misma lectura. Prueba con base real 13/13 en el CI.
 - **2026-11-17** — Frente 10, aplicar el anticipo: en 90 días salieron $1.6 M en efectivo que un anticipo sin aplicar ya cubría. `[PGP.139]` lo avisa en la fila del pago; `[PGP.140]` (la escritura en Kepler) queda con su C0 medido.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60

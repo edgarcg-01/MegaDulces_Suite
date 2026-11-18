@@ -642,7 +642,7 @@ const ESTADO_LABEL: Record<string, string> = {
            Dos visores serian dos lugares donde arreglar el mismo error. -->
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
                            [vale]="abierto()" [kepler]="keplerDelAbierto()" [acciones]="accionesDelVisor(abierto())"
-                           [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" (reintentarKepler)="reintentarKepler($event)"
+                           [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" (reintentarKepler)="reintentarKepler($event)" (cancelarKepler)="cancelarKepler($event)"
                            [gastoKepler]="gastoDelAbierto()" [puedeReintentarGasto]="true" (reintentarGasto)="reintentarGasto($event)"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
@@ -1442,6 +1442,23 @@ export class FinanzasAprobacionGastosComponent {
         this.pedirKepler([id]);
       },
       error: (e) => { this.actuando.set(null); this.falla('No se pudo reintentar en Kepler', e); },
+    });
+  }
+
+  /**
+   * `[PGP.122]` F3 (DS40): cancela en Kepler la solicitud que escribió la Suite (sin gasto vivo, con motivo) y el vale
+   * queda rechazado. Si Kepler no la deja (gasto aplicado, otra la tiene tomada), el aviso dice por qué.
+   */
+  cancelarKepler(e: { id: string; motivo: string }): void {
+    this.actuando.set(e.id);
+    this.solicitudes.cancelarEnKepler(e.id, e.motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => {
+        this.actuando.set(null);
+        this.abierto.set(null);
+        this.toast.add({ severity: 'info', summary: 'Cancelada en Kepler', life: 8000, detail: s.nota ?? `Solicitud ${solicitudKepler(s.folio) ?? s.folio ?? ''} cancelada; el vale quedó rechazado.` });
+        this.cargar(true);
+      },
+      error: (err) => this.falla('No se pudo cancelar en Kepler', err),
     });
   }
 

@@ -604,18 +604,22 @@ BanBajío): otra forma de gasto, a medir aparte.
 
 ---
 
-## 10. `[CB.74–CB.77]` 🧪 Auditoría de `/finanzas/bancos` y sus vistas (2026-11-17)
+## 10. `[CB.74–CB.77]` Auditoría de `/finanzas/bancos` y sus vistas (2026-11-17)
 
 Edgar: *«analiza todo /finanzas/bancos a profundidad»* → *«resolvamos estos problemas»*. Auditoría de código (backend
 núcleo; estados de cuenta, comisiones y capturas; frontend) cruzada con prod en sólo lectura (identidad
-7688376744939610156). Commits locales, **sin empujar**.
+7688376744939610156). **CB.74, la migración de CB.76 y CB.77 en prod el 2026-11-17** (rearmados sobre `origin/main` y empujados solos: `cd0050a7f`; prod sirve `805a86ba4`). CB.75 y el guardia de fechas de CB.76 siguen locales: dependen de CB.73, que no está en `origin`.
 
 | Ítem | Capa | Qué | Medido / estado |
 |---|---|---|---|
-| **CB.74** 🧪 | C1 | **La conciliación escribe sólo lo que cambió.** El aviso (CB.53) re-disparaba `runMatch` sin fin: el motor hacía DELETE+INSERT del periodo y `updated_at=now()` en todos sus movimientos, y la firma del aviso mira `max(updated_at)`. Además leía sin `ORDER BY` (greedy dependiente del orden físico). Ahora: orden fijo en los dos lados, `planEscritura` (`recon-escritura.ts`) escribe la diferencia, `updated_at` sólo donde cambió el estado; el resultado dice qué escribió (`diff.escrituras`). Commit `cac2f5eae`. | Antes: `bank_recon_matches` con **24.1 M inserts y 24.1 M deletes para 33,943 filas vivas**; **26,328 inserts en 240 s** (octubre, mes cerrado, y noviembre reescritos ~cada minuto); `POST /match` 8 llamadas en 30 días. Spec + 2 mutantes muertos. ⚠️ **NO MEDIDO: el antes/después del orden fijo sobre los pareos** (la corrida en seco contra prod quedó pendiente de permiso). Después del despliegue: medir `n_tup_ins` en dos lecturas separadas por minutos (debe quedar en ~0 sin dato nuevo) |
+| **CB.74** ✅ 2026-11-17 | C1 | **La conciliación escribe sólo lo que cambió.** El aviso (CB.53) re-disparaba `runMatch` sin fin: el motor hacía DELETE+INSERT del periodo y `updated_at=now()` en todos sus movimientos, y la firma del aviso mira `max(updated_at)`. Además leía sin `ORDER BY` (greedy dependiente del orden físico). Ahora: orden fijo en los dos lados, `planEscritura` (`recon-escritura.ts`) escribe la diferencia, `updated_at` sólo donde cambió el estado; el resultado dice qué escribió (`diff.escrituras`). Commit `cac2f5eae`. | Antes: `bank_recon_matches` con **24.1 M inserts y 24.1 M deletes para 33,943 filas vivas**; **26,328 inserts en 240 s** (octubre, mes cerrado, y noviembre reescritos ~cada minuto); `POST /match` 8 llamadas en 30 días. Spec + 2 mutantes muertos. **Después, en prod (`805a86ba4`): 0 inserts y 0 deletes en 240 s**; el log del worker dice «no corro — sin_cambios» cada minuto, y con un documento nuevo de Kepler (14:39) corrió en 1.2 s y «escribió −0/+0 pareos y 0 estados» (el control: el aviso está vivo y decide). ⚠️ **NO MEDIDO: el antes/después del orden fijo sobre los pareos** (la corrida en seco contra prod no se autorizó); la primera corrida con orden fijo ya pasó sin que se mida cuántos pareos cambiaron de contraparte |
 | **CB.75** 🧪 | C1 | **El encabezado del estado de cuenta de una cuenta que usa el banco se deriva de sus movimientos** (`encabezado-del-banco.ts`): totales = suma de movimientos vivos, inicial = `aperturaDelDia` del primer día, final = `cierreDelDia` del último; si la cadena no se afirma, «sin saldo» (`medido:false`). Se re-deriva al entrar una descarga y después de la carga del libro (que lo pisaba con el Excel). Commit `ac5998629`. | Antes: la descarga creaba el encabezado VACÍO → Cuentas, Cuadre 3 vías, ContPAQi y Conciliación iban a leer cero al pasar una cuenta. Hoy **ninguna de las 18 cuentas usa el banco** (`statement_source_since` vacío) y el libro dejó de cargarse el 10-nov: latente, destraba CB.73. Spec + 2 mutantes muertos; prueba contra base real extendida (`test-newdb-bank-estado-de-cuenta`), **NO MEDIDA local** (sin Postgres de pruebas): la corre el CI |
-| **CB.76** 🧪 | C0–C1 | **Fechas fuera del periodo.** La carga del libro acepta el mes ±10 días; lo demás no entra y se dice por hoja (`fuera_del_periodo`, aviso en pantalla). Migración de datos `20261117133104_cb76_fechas_del_libro_fuera_del_periodo` corrige las 32 que ya entraron, por id. Commits `ac5998629` (código) y `ae79abc7f` (migración). | Medido: 47 renglones del libro a 1–7 días de su mes (legítimos), **0 entre 8 y 31, 32 a más de un mes (≈ $1.9 M)**: 0206-02-25 → 2026-02-25 (6), 2027-08-06 → 2026-08-06 (17), 01-ene en octubre → 2026-10-01 (9). Fecha real con dos testigos que coinciden: la cadena de saldos (día anterior y siguiente) y el documento de Kepler casado. ⚠️ **La migración sólo hace UPDATE: se aplica a mano en prod ANTES de empujar** (en el log debe leerse «32 de 32») |
-| **CB.77** 🧪 | C2–C3 | **Bancos deja de afirmar lo que no midió.** Cierre: «Todo cuadra» ya no cuenta cuentas sin saldo (pendiente nuevo `saldo_sin_verificar`, sólo cuentas de banco). Conciliación: lee el estado guardado (`recon_estado`) en vez de «Ejecuta la conciliación», y lo que no casó se carga al abrir. La pestaña no dice «sin correr» mientras carga. Un error de saldos ya no se lee como «sin saldos»; respuestas de otro periodo no pisan al nuevo. Escrituras sólo con `FINANCE_BANK_GESTIONAR`. Subir el libro confirma y dice cuántos borró. Commit `fd334d1cf`. | **SANTANDER 5565 sin saldo de septiembre a noviembre** (sin ninguna descarga) y el Cierre la contaba entre «las cuentas que cierran». `check:pantalla finanzas-bancos`: 0 fallas nuevas antes y después; `check:templates(-types)` en verde. **Sin validación visual** |
+| **CB.76** 🔨 | C0–C1 | **Fechas fuera del periodo.** La carga del libro acepta el mes ±10 días; lo demás no entra y se dice por hoja (`fuera_del_periodo`, aviso en pantalla). Migración de datos `20261117133104_cb76_fechas_del_libro_fuera_del_periodo` corrige las 32 que ya entraron, por id. Commits `ac5998629` (código) y `ae79abc7f` (migración). | Medido: 47 renglones del libro a 1–7 días de su mes (legítimos), **0 entre 8 y 31, 32 a más de un mes (≈ $1.9 M)**: 0206-02-25 → 2026-02-25 (6), 2027-08-06 → 2026-08-06 (17), 01-ene en octubre → 2026-10-01 (9). Fecha real con dos testigos que coinciden: la cadena de saldos (día anterior y siguiente) y el documento de Kepler casado. ✅ **Migración aplicada en prod el 2026-11-17** (lote 1196, 14:17): verificadas por id las 32 (6 al 25-feb, 17 al 6-ago, 9 al 1-oct) y 0 renglones a más de un mes de su periodo. El guardia de la carga va con CB.75 (local) |
+| **CB.77** 🚀 2026-11-17 | C2–C3 | **Bancos deja de afirmar lo que no midió.** Cierre: «Todo cuadra» ya no cuenta cuentas sin saldo (pendiente nuevo `saldo_sin_verificar`, sólo cuentas de banco). Conciliación: lee el estado guardado (`recon_estado`) en vez de «Ejecuta la conciliación», y lo que no casó se carga al abrir. La pestaña no dice «sin correr» mientras carga. Un error de saldos ya no se lee como «sin saldos»; respuestas de otro periodo no pisan al nuevo. Escrituras sólo con `FINANCE_BANK_GESTIONAR`. Subir el libro confirma y dice cuántos borró. Commit `fd334d1cf`. | **SANTANDER 5565 sin saldo de septiembre a noviembre** (sin ninguna descarga) y el Cierre la contaba entre «las cuentas que cierran». `check:pantalla finanzas-bancos`: 0 fallas nuevas antes y después; `check:templates(-types)` en verde. **Sin validación visual** |
+
+| **CB.78** 🔨 (local `801b7654c`) | C2–C3 | **Las interfaces de Bancos, de 13 a 12** (Edgar: «sí, hazlo»). Sale **Capturas WhatsApp** de la barra (se borran su vista y su cliente; la ingesta del backend no se toca). **Factoraje** queda sólo con factoraje a proveedores, con su veredicto arriba y el error dicho: la parte banco ↔ ContPAQi eran las mismas cifras del Cuadre 3 vías. El **enlace cuenta de banco ↔ 102xxx** se muda a Configuración › Cuentas de banco (`accounts()` lo devuelve). El engrane y los ordenamientos de Configuración dejan de prometer lo que no hay. | 30 días: Capturas 1 consulta y 0 capturas en su vida; Factoraje 3 consultas, 0 al detalle, 0 enlaces. `check:pantalla` 317 pantallas, 0 nuevas; `ngc` 0 errores; specs 77/77. Sin validación visual. ⚠️ Desde septiembre el libro no trae movimientos de factoraje, así que la pestaña sale vacía hoy: es candidata a salir también cuando el libro se retire |
+
+| **CB.79** 🔨 (local `fdf7bcbd9`) | C1–C3 | **La conciliación es sólo automática** (Edgar: «¿por qué existe un botón de conciliar cuando debería ser automático?»). El oyente (CB.53) suma a la ventana los periodos que nombra el aviso de Bancos y los de los últimos 12 meses con movimientos sin evaluar; salen «Conciliar» y «Enviar a Hallazgos»; «desactualizado» pasa a ser «hay movimientos sin evaluar» (`sin_evaluar`), porque desde CB.74 la fecha del último pareo ya no se mueve al correr sin cambios. | El botón: 15 usos en 60 días (12 de `superadmin`), «Enviar a Hallazgos» 0. El hueco que tapaba: **mayo y junio nunca se conciliaron (11,022 movimientos sin evaluar) y agosto tenía 105**; octubre y noviembre en 0 (control). Al desplegar, el oyente los pone al día solo: **medir después** el % de mayo, junio y agosto |
 
 **Corrección de la auditoría:** «cheques en tránsito lento (2.4 s)» era falso. Ese promedio de 30 días lo inflaban
 los días 18–26 de octubre (6–7 s). Desde el 28-oct tarda ≈ 70 ms (consultas: 70 ms y 40 ms con `EXPLAIN ANALYZE`).
@@ -624,16 +628,47 @@ Quedan arriba de 500 ms (últimos 7 días): `comisiones-kepler` 570 ms, `ingreso
 
 **Para decidir (Edgar), sin código todavía:**
 
-- **Capturas de WhatsApp (CBW):** cero filas en toda su vida; su «Validar» crearía el depósito dos veces (WhatsApp +
-  banco). Recomendación: quitar la pestaña de Bancos › Más hasta que haya remitentes reales.
-- **Tareas de conciliación:** 15 pendientes por ≈ $6 M, asignadas y sin tocar desde el 5-ago; la pantalla abre en
-  enero de 2026. Recomendación: cerrarlas como «no aplica» o reasignarlas, y que la pantalla abra en el mes actual.
+- **Capturas de WhatsApp (CBW):** hecho en CB.78 (salió de la barra). El backend sigue montado; su «Validar» crearía
+  el depósito dos veces (WhatsApp + banco) si alguien lo llama por la API.
+- **Tareas de conciliación — corregido el 2026-11-17:** el «0 llamadas en 30 días» de la auditoría midió otra ruta
+  (`/finance/recon-tasks`); la pantalla llama a `/finance/maat/recon-tasks`: **17 aperturas, Contabilidad 10 en 4
+  días**, la última el 14-nov. Sus 15 pendientes son de enero (corrida del 24-jul) y **14 siguen sin casar en Kepler**
+  (22 de 25 retiros, ≈ $5.7 M): trabajo real, no se cierran. Queda para Edgar: 4 están asignadas a cuentas de prueba
+  (`superoot`, `superuser`, `rep_prueba`, `prueba`).
 - **Subir libro / Sincronizar del Sheet:** el libro dejó de cargarse el 10-nov y el Sheet está inactivo. Se retiran
   cuando las cuentas pasen al banco (CB.73); antes no, porque hoy el libro es la única fuente de `bank_movements`.
-- **Factoraje:** abre con banco ↔ ContPAQi (lo mismo que la columna del Cuadre 3 vías); el bloque de factoraje va
-  tercero. Recomendación: que la pestaña sea sólo factoraje.
+- **Factoraje:** hecho en CB.78.
 
 ---
+
+## 11. `[CB.80–CB.81]` El Cuadre con la descarga del banco, y «Generar en Kepler / póliza» por tipo (2026-11-17)
+
+Edgar: *«/finanzas/bancos?view=cuadre debe funcionar con los movimientos de view=estados y tener un botón: generar en
+Kepler y/o generar póliza»* → *«todas»* (todos los tipos de movimiento).
+
+**El Cuadre con la descarga — `[CB.80]` 🔨 (local `32e8f5e2b`).** El Cuadre 3 vías lee `bank_statements` /
+`bank_movements`; la descarga entra ahí sólo cuando la cuenta «usa el banco» (CB.60b/CB.73). Medido el 2026-11-17:
+**0 de 18 cuentas** la usan, y el libro dejó de cargarse el 10-nov. Botón en Estados de cuenta: «Usar el banco en las
+que cuadran», una confirmación, una por una, fallo parcial dicho. Requiere CB.75 en prod (encabezado derivado).
+
+**«Generar» por tipo — `[CB.81]` ⬜ plan.** Un botón genérico **duplicaría dinero**: medido en octubre (el último mes
+completo del libro), lo que no casó con Kepler es sobre todo lo que Kepler ya tiene de otra forma.
+
+| Tipo (octubre, sin casar) | Movs · monto | Qué sería «generar en Kepler» | Carril que ya existe | Lo que falta | Póliza ContPAQi |
+|---|---:|---|---|---|---|
+| Cobranza (venta cobrada) | 361 · $8.6 M | **No se genera**: Kepler la registra por corte de sucursal (`U-A-5`), no por depósito | — | Declararlo en la fila («Kepler la tiene agrupada por corte») | La de la venta |
+| Traspaso entre cuentas | 21 · $14.0 M | Traspaso de tesorería entre las dos cuentas propias | — | Medir primero cuántos son el otro lado en otra cuenta (CB.69) y cuántos faltan de verdad | — |
+| Compra de mercancía (pago a proveedor) | 12 · $1.83 M | El pago `X-D-26` | **PGP.130** (escribe el `X-D-26` al casar el comprobante) | Desde el retiro: casar con el pago del Calendario y disparar ese carril | La del pago |
+| Comisión bancaria + IVA | 73 · $14 mil | Gasto + pago de la comisión de terminal | **CB.62** (armador y vista; botón apagado) | CB.62.3 (captura real de un alta) y CB.62.4 (escritor apagado, `GRANT` 01–08, ensayo desde `md`, 3 candados) | **CP.8.91** banco × mes; falta la firma de Contabilidad de 5200650000 |
+| Nómina, servicios | 10 · $0.20 M | La solicitud de gasto | **PGP.122** (se escribe en Kepler al firmar) | Crear la solicitud desde el retiro | La del gasto |
+| Pago de crédito (capital) | 7 · $0.23 M | — | — | Sin carril: definir el documento con Finanzas | — |
+| Devoluciones SPEI | 5 · $0.67 M | — | — | Sin carril | — |
+| Sin clasificar | 9 · $2.1 M | — | — | Categorizar primero (CB.70) | — |
+
+**Orden propuesto:** (1) en el detalle del Cuadre, cada movimiento del banco sin Kepler dice su carril y lleva a él (o
+dice por qué no se genera) — sin escribir nada; (2) comisiones (CB.62.3–62.4: necesita un día que Finanzas no toque,
+para capturar un alta real); (3) pagos a proveedor por PGP.130; (4) gastos por PGP.122; (5) traspasos, crédito y
+devoluciones, que no tienen carril. Cada escritor sale apagado, con su ensayo desde `md` y su prueba negativa.
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 

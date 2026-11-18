@@ -28,6 +28,9 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PagosVencidosService.name);
   private mirada: MiradaAlAviso | null = null;
   private dejarDeEscuchar: (() => void) | null = null;
+  /** `[PGP.132]` La pasada de «lo que Kepler ya pagó»: con cada aviso (la firma cambia), no una vez al día. */
+  private miradaKepler: MiradaAlAviso | null = null;
+  private avisosKepler = 0;
 
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
@@ -46,21 +49,51 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
       (e) => this.logger.error(`pagos vencidos: la pasada falló, no se liberó nada: ${(e as Error)?.message}`),
     );
     try {
-      this.dejarDeEscuchar = this.listen.escuchar(CANAL_FUENTE_KEPLER, () => this.mirada?.avisar());
+      this.dejarDeEscuchar = this.listen.escuchar(CANAL_FUENTE_KEPLER, () => { this.avisosKepler++; this.miradaKepler?.avisar(); this.mirada?.avisar(); });
       this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): libera una vez al día los pagos que nadie pagó en una semana`);
     } catch (e: unknown) {
       this.logger.error(`no se pudo escuchar ${CANAL_FUENTE_KEPLER}: ${(e as Error)?.message} — los pagos vencidos NO se van a liberar`);
     }
     this.mirada.avisar();
+    if (process.env.DISABLE_PAGOS_POR_KEPLER === 'true') { this.logger.log('pagos por Kepler APAGADO (DISABLE_PAGOS_POR_KEPLER)'); return; }
+    this.miradaKepler = new MiradaAlAviso(
+      ESPERA_MS,
+      async () => `${todayMx()}|${this.avisosKepler}`,
+      async (cambio) => { if (cambio) await this.pagarPorKeplerAhora(); },
+      (e) => this.logger.error(`pagos por Kepler: la pasada falló: ${(e as Error)?.message}`),
+    );
+    this.miradaKepler.avisar();
   }
 
   onModuleDestroy(): void {
     this.dejarDeEscuchar?.();
     this.dejarDeEscuchar = null;
     this.mirada?.detener();
+    this.miradaKepler?.detener();
   }
 
   /** Una pasada por tenant activo. Un tenant que falla no detiene a los demás. */
+  /**
+   * `[PGP.132]` Lo que Tesorería ya pagó en Kepler queda pagado en la Suite (y lo pagado por el banco o el comprobante,
+   * ligado a esa captura). Un tenant que falla no detiene a los demás.
+   */
+  async pagarPorKeplerAhora(): Promise<number> {
+    const tenants: string[] = await this.knex('public.tenants').where({ activo: true }).pluck('id');
+    let pagados = 0;
+    for (const tenantId of tenants) {
+      try {
+        const r = await this.tenantCtx.run({ tenantId, roleName: 'system' }, () => this.calendario.pagarPorKepler());
+        pagados += r.pagados;
+        if (r.pagados || r.ligados) {
+          this.logger.log(`pagos por Kepler: ${r.revisados} sin ligar · ${r.pagados} pagados (${r.monto.toFixed(2)}, ${r.sin_autorizar} sin autorizar en la Suite) · ${r.ligados} ligados a la captura de Tesorería`);
+        }
+      } catch (e: unknown) {
+        this.logger.error(`pagos por Kepler (tenant ${tenantId}): la pasada falló: ${(e as Error)?.message}`);
+      }
+    }
+    return pagados;
+  }
+
   async liberarHoy(): Promise<number> {
     const tenants: string[] = await this.knex('public.tenants').where({ activo: true }).pluck('id');
     let liberados = 0;

@@ -1,29 +1,30 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 100 KB, 1197 líneas, 17 secciones.
+> **Índice navegable** — 116 KB, 1382 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 29 | 64 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
-| 65 | 77 | 1 | 1. El pedido, literal |
-| 78 | 93 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
-| 94 | 175 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
-| 176 | 194 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
-| 195 | 337 | 9 | 5. El escritor (C1–C2) |
-| 338 | 351 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
-| 352 | 431 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
-| 432 | 493 | 4 | 8. Plan por capas y orden de entrega |
-| 494 | 521 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 522 | 549 | 4 | 10. Decisiones |
-| 550 | 565 | 1 | 11. Riesgos y NO MEDIDO |
-| 566 | 594 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
-| 595 | 620 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 621 | 859 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
-| 860 | 995 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 996 | 1226 | 16 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 30 | 65 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
+| 66 | 78 | 1 | 1. El pedido, literal |
+| 79 | 94 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
+| 95 | 176 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
+| 177 | 195 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
+| 196 | 338 | 9 | 5. El escritor (C1–C2) |
+| 339 | 352 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
+| 353 | 432 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
+| 433 | 494 | 4 | 8. Plan por capas y orden de entrega |
+| 495 | 522 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 523 | 550 | 4 | 10. Decisiones |
+| 551 | 566 | 1 | 11. Riesgos y NO MEDIDO |
+| 567 | 595 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
+| 596 | 621 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
+| 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
+| 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 1251 | 1412 | 14 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1198,6 +1199,29 @@ sin avisar (2026-11-17).**
      reclasificación de los $25,900 ya posteados. Es de Contabilidad, no de la Suite (ADR-040).
   2. **En código:** el catálogo de la solicitud marca el concepto cuya cuenta difiere de la de 00, y no se puede pedir
      un gasto con él hasta que Contabilidad lo resuelva o lo acepte. Va antes del piloto en 07 y 08 (DS11).
+- 🧪 **Punto 2 hecho en código (2026-11-17).**
+  - *La regla* (`conceptoDistintoDeCedis`, en `libs/contracts`): bloquea si **el mismo concepto** va aquí a **otro rubro**
+    que en CEDIS.
+    - Es el mismo concepto cuando coincide el nombre, sin importar el punto final, los espacios o las mayúsculas.
+    - El rubro es lo que va antes del primer `-` de la cuenta.
+    - Una subcuenta distinta del mismo rubro entra (la caja de La Piedad: `102-0142` contra `102-0042`).
+    - El mismo código con otro nombre es otro concepto y entra. Primero se comparó sólo por código, y eso bloqueaba el
+      246, que es «Traspaso salida» en 00 y «Degustación a clientes» en 02, 04 y 05.
+  - *Dónde se aplica:*
+    - el catálogo y la precarga dicen `distinto_de_cedis`;
+    - `crear` contesta 400 con el motivo;
+    - la pantalla **no ofrece** el concepto, pero **dice por qué**. Si era el concepto de siempre del proveedor, lo dice
+      así, en vez de dejar el campo vacío sin razón.
+  - *Medido:*
+    - la regla con el SQL exacto del servicio, contra el catálogo real de prod (sólo lectura): bloquea **exactamente el
+      074** en 01, 06, 07 y 08, y nada más (de 267 a 382 conceptos por sucursal); la consulta a CEDIS tarda 21 ms;
+    - spec del contrato: 47 ✓; un mutante que compara la cuenta entera en vez del rubro → 1 ✗;
+    - spec de la pantalla: 20 ✓; `check:pantalla` de la pantalla: cumple las 10 reglas y tipa;
+    - typecheck de `libs/finance`: sin errores nuevos.
+  - **NO MEDIDO:**
+    - el mutante del componente, porque mutar dentro del árbol compartido frena el push de otras sesiones;
+    - la sección N (d) de la suite contra Postgres real, porque Docker local no arrancó; corre en `pruebas-db`;
+    - la validación visual.
 
 ### 16.3 Lista única para encender 05 (hoy repartida entre §13, el README del ensayo y #547)
 
@@ -1223,3 +1247,165 @@ sin avisar (2026-11-17).**
 | **DS36** | ¿Se arranca antes de la veda o después del 15-ene? | Canario en 05 antes del 28-nov; 07 y 08 sólo si el canario cierra limpio antes del 5-dic; si no, después del 15-ene con H6 y los proyectos 2027 listos | Edgar y Francisco |
 | **DS37** | ¿Cuándo se cierra la puerta «Tengo un folio de Kepler» en una sucursal encendida? | Después de 30 días seguidos ≥ 80 %; antes, sólo se mide por capturista | Edgar y Francisco |
 | **DS32 / DS34** (precisadas) | Cuenta de pago | Sólo informativa hasta que exista el alta verificada en el catálogo de PGP (R2) | Edgar |
+
+## 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17)
+
+> **El pedido, literal** (Edgar, 2026-11-17): *«hagamos que todo se pueda hacer desde suite»*, después de preguntar si
+> ya se podía generar todo el protocolo de gastos desde la Suite sin depender de Kepler.
+>
+> **Cómo cambia:**
+> - *«No depender de Kepler»* no es posible ni es la meta. La Suite escribe **dentro** de Kepler, que sigue siendo el ERP
+>   de la cuenta por pagar y de las pólizas que llegan a ContPAQi (ADR-040).
+> - La meta medible es **que nadie teclee un documento de gasto en Kepler**.
+> - **No abre fase:** el tablero tiene 8 🔨 contra un cupo de 4. Todo esto vive en PGP O9 (🔨) y, la nómina, en RH (🔨).
+
+### 17.1 El universo, medido (ODS, sólo lectura, X-A-15 vivas, 30 días al 17-nov)
+
+| Clase (por acreedor) | Documentos | Dinero | Hoy |
+|---|---:|---:|---|
+| Gasto operativo `G*`/`GNF*` (alcance v1) | 888 · 72 % | $4.44 M · 60 % | escritor construido, apagado |
+| Nómina `GN001` | 101 · 8 % | $2.38 M · 32 % | Kepler, a mano |
+| Comisiones bancarias `GB*` | 222 · 18 % | $0.14 M · 2 % | Kepler, a mano (CB.62 sin terminar) |
+| Tarjetas `TC`, compras `C`, préstamos `A`, otros | 28 · 2 % | $0.44 M · 6 % | Kepler, a mano |
+| **Total** | **1,239** | **$7.39 M** | **0 escritas por la Suite** (0 de 780 documentos de gasto en 7 días) |
+
+Además, cada 30 días hay **95 solicitudes canceladas** y **14 acreedores de gasto nuevos**.
+
+Los renglones de SUA, impuestos, activo y capital pasan por acreedores `G*`, pero no son gasto: siguen en Kepler, con
+Contabilidad (§6).
+
+### 17.2 El orden (dinero × esfuerzo, `pm/criterios.md`)
+
+| # | Frente | Dinero | Esfuerzo | Prioridad | Cubre (acumulado) | Quién |
+|---|---|---|---|---|---|---|
+| **F1** | **Encender lo construido** para `G*`: solicitud (S.1 → canario 05) → gasto X-A-10 (`[PGP.123]`) → pago X-D-26 (`[PGP.106]`/`[PGP.130]`) → 07 y 08 → resto → 00 | Alto | S por servidor (configuración) | **1** | 72 % de documentos · 60 % del dinero | Edgar (configura), Francisco (canarios) |
+| **F2** | **Nómina** `GN001`: al cerrar la nómina en RH, la Suite escribe su X-A-15 con el **mismo escritor** (recurrente, de importe conocido; no pasa por el formulario de gasto) | Alto | M | **1** | 80 % · 92 % | RH (dueño), el escritor de PGP |
+| **F3** | **Cancelar desde la Suite** (DS8 v2): una solicitud escrita y sin X-A-10 vivo, con motivo, siguiendo el patrón `[PQ.110]` (`c43 → C`, `c16 = c42 = 0`, `c67–c69`). El `GRANT` ya existe; pide ADR | Medio | M | **3** | quita la ida a Kepler en 95 al mes | PGP |
+| **F4** | **Comisiones bancarias** `GB*` **desde el estado de cuenta** (CB.62, con el mismo armador en A/F): nadie las captura, nacen del movimiento del banco. Falta el `GRANT` de 00 | Bajo en dinero, alto en tecleo (18 % de los documentos) | M | **3** | 98 % · 94 % | CB / PGP |
+| **F5** | **Alta de acreedor** desde la Suite: la persona lo pide con la constancia del SAT y Finanzas lo firma | Bajo | M | 4 | 14 al mes | PGP; decide Edgar (DS42) |
+| — | Tarjetas, compras, préstamos, retenciones y honorarios; SUA, impuestos, activo y capital; catálogos | — | — | **No entra** | el 2 % restante | Kepler o Contabilidad, como hoy |
+
+⭐ Con **F1 + F2** la Suite escribe **el 80 % de los documentos y el 92 % del dinero**. Con F4 llega al 98 %. Lo que queda
+fuera son 28 documentos al mes de procesos que no son gasto operativo.
+
+### 17.3 Lo que se construye ya, sin esperar a nadie
+
+- **F2, el contrato y el armador de la nómina.** El escritor y el armador de la X-A-15 ya existen
+  (`solicitud-kepler.armador.ts`). Falta un **origen nuevo** que no pase por el formulario: la nómina autorizada de RH
+  → renglones por concepto, proyecto y departamento → la misma escritura, con la misma marca, candados e interruptor
+  (`solicitud_gasto`). **Antes de escribir código:** medir de dónde sale hoy la nómina en la Suite (RH, `[MDT]`) y si
+  su total casa con las `GN001` de Kepler. Sin ese árbitro no se construye (pm, regla 5).
+- ⛔ **F2, medido el 2026-11-17: todavía no tiene árbitro.**
+  - La Suite **no calcula nómina**: RH migra Mega Talento, pero no hay periodos ni recibos propios.
+  - La nómina timbrada se lee de ContPAQi (`contpaqi_nom.add_nomina`, unos 287 mil recibos), pero **se dejó de
+    sincronizar el 30-oct**: el último pago es del 23-oct.
+  - Además, sólo tiene índice por su llave: ninguna pantalla puede leerla por periodo sin una vista con índice
+    (regla de los 500 ms).
+  - Contra Kepler **no cuadra**: por semana, la `GN001` va del 67 % al 115 % del neto timbrado (sep–oct; Kepler unos
+    $590 mil por semana en las 9 sucursales).
+  - Antes de construir F2: (1) que vuelva la sincronización de ContPAQi Nóminas; (2) explicar la diferencia (desfase de
+    fechas, finiquitos, IMSS o retenciones); (3) recién entonces, la vista por periodo con su índice y el escritor.
+- 🧪 **F3, cancelar desde la Suite: hecho en código el 2026-11-17 (ADR-121).**
+  - *Igual que Kepler*, medido sobre 156 canceladas: `c43 = C`; IVA, total y saldo en 0; quién y cuándo; los renglones
+    se conservan. No hay GRANT nuevo.
+  - *Fail-closed:* sólo con la marca de este vale, en A o N y **sin X-A-10 vivo** (DS40). Esas mismas condiciones van
+    en el `WHERE` como candado.
+  - *El vale* queda rechazado con el motivo y quién; se exige `COMPROBAR` y un motivo de al menos 10 caracteres.
+  - *Dónde:* el botón «Cancelar en Kepler…» del panel del vale, en Aprobación (`POST …/:id/cancelar-en-kepler`).
+  - *Prueba:* regla 8 ✓; el escritor real contra un Kepler de prueba local, 12 ✓; un mutante sin DS40 → 1 ✗; panel
+    52 ✓; AOT limpio.
+  - **NO MEDIDO:** contra el Kepler vivo (necesita el canario) y la validación visual.
+- **F4 lo retoma CB.** Aquí sólo se registra como consumidor del mismo escritor.
+
+### 17.4 Decisiones (de Edgar)
+
+| D | Pregunta | Recomendación |
+|---|---|---|
+| **DS38** ✅ | ¿Se confirma el orden F1 → F2 → F3/F4 → F5, y que lo de la última fila se queda en Kepler? | ✅ **Edgar, 2026-11-17: sí, ese orden.** F1 es configurar lo que ya está construido y es el 60 % del dinero |
+| **DS39** ✅ | Nómina: ¿la escribe RH al cerrar la nómina, o Finanzas la registra como un gasto más? | ✅ **Edgar, 2026-11-17: RH al cerrar la nómina**: es recurrente y de importe conocido, y RH ya está 🔨 con la migración de Mega Talento. Finanzas sólo firma |
+| **DS40** ✅ | Cancelar desde la Suite: ¿quién puede y hasta cuándo? | ✅ **Edgar, 2026-11-17:** quien tiene `COMPROBAR`, **sólo sin X-A-10 vivo** y con motivo; si ya hay gasto, en Kepler como hoy |
+| **DS41** | Comisiones bancarias: ¿nacen solas del estado de cuenta, sin captura? | (sin firmar) Sí (CB.62), con el `GRANT` de 00 que falta |
+| **DS42** ✅ | Alta de acreedor: ¿la Suite escribe `kdxd`? | ✅ **Edgar, 2026-11-17: SÍ, la Suite escribe `kdxd`** (contra la recomendación). Consecuencia: un escritor nuevo sobre el catálogo de acreedores, con firma de alta, su ADR y su captura de prueba (qué tablas y qué contador toca Kepler al dar de alta un acreedor: NO MEDIDO). La recomendación era: **No en v1**, como ALC con los clientes (D1-b): la Suite pide el alta con la constancia del SAT y Finanzas la da en Kepler. Se revisa cuando F1 esté en las 9 sucursales |
+
+### 17.5 F5 — El alta de acreedor la escribe la Suite en `kdxd` (DS42): lo medido y el plan (2026-11-17)
+
+**Lo medido** (ODS, sólo lectura):
+
+| Pregunta | Respuesta |
+|---|---|
+| ¿Un catálogo o nueve? | **Nueve**, uno por servidor. 256 claves de gasto están en los 9 (la base común) y cada servidor suma las suyas (00: 91 más; los demás, de 17 a 28) |
+| ¿La misma clave es el mismo acreedor en todos? | Sí: de 288 claves compartidas, sólo 2 cambian de nombre, y es variación de captura (`CANACO SARVYTUR MORELIA` / `… AC`) |
+| ¿Dónde se dan de alta los nuevos? | **En 7 a 9 servidores, aunque se usen en uno solo.** Los 14 acreedores de gasto que estrenaron documento en 30 días están en 7, 8 o 9 servidores. Finanzas los crea a mano, servidor por servidor, y a veces le faltan |
+| ¿Cómo se forma la clave? | Prefijo de clase de gasto + consecutivo de 3 dígitos (`GA031`, `GS029`, `GFS007`, `GNFC003`). `c2` admite **7 caracteres** |
+| ¿Hay contador? | **No.** En `sqliov` sólo hay rangos de cuentas (`CUENTAS`) y mensajes (`FMENSAJE`): quien da el alta elige el siguiente número |
+| ¿Qué columnas se llenan? | Las de la constancia de situación fiscal: `c3` nombre (100 %) · `c4` calle y número · `c5` colonia · `c6` ciudad y estado (~70 %) · `c27` código postal (65 %) · `c10` RFC (56 %) · `c7`/`c8` teléfonos · `c11` correo · `c24` giro. Casi siempre vacíos: `c12` agente, `c13` grupo, `c14` zona, `c15` límite, `c16` días de crédito, `c17`–`c23` y `c25`–`c36` |
+| ¿El alta escribe en otra tabla? | **No, sólo `kdxd`** (con la evidencia disponible). La fila de acumulados (`kdxg`, llave `c1 = PESOS`, `c2` = sucursal, `c3` = acreedor) **la crea el primer documento**, en el servidor donde se usa: 0 de los acreedores sin documentos tienen `kdxg` (salvo 12 en 03, historia replicada); `GA031` está en los 9 y sólo tiene `kdxg` en 08, donde se usó. `kdxj`, `kdxk` y `kdxv` son catálogos chicos (1, 4 y 28 filas), no por acreedor. La póliza abona la 201 sin subcuenta por acreedor: no hace falta cuenta contable |
+
+**⚠️ Un hueco de la cadena que esto destapa** (dueño: `[PGP.123]`, Francisco):
+- El escritor del gasto X-A-10 **se niega** si el acreedor no tiene su fila de `kdxg` en esa sucursal («se captura a mano»).
+- Con un acreedor nuevo, **el primer gasto en cada sucursal tendría que capturarse en Kepler**, salvo que ese escritor cree la fila como la crea Kepler. Hay que medir qué escribe Kepler en esa fila nueva.
+- Asimetría: el escritor del **pago** ubica `kdxg` sólo por `c3` (acreedor), y el del gasto por `c2` + `c3`. Los dos fallan cerrado, pero el del pago rechazaría de más si en un servidor hubiera filas de dos sucursales.
+
+**El plan** (en este orden, cada paso con su prueba negativa):
+1. **Captura de prueba** (como S.1): una persona da de alta un acreedor de prueba en Kepler de **una** sucursal, con
+   `foto-contadores.js` antes y después. Confirma que sólo cambia `kdxd`. Si aparece otra tabla, entra al plan.
+2. **Las clases (los prefijos) y su significado**, de Finanzas (DS43): `GA`, `GS`, `GG`, `GM`, `GJ`, `GC`, `GR`, `GT`,
+   `GV`, `GL`, `GF`, `GP`, `GD`, `GFS`, `GO`, `GH`, `GNF`… Sin eso, la persona no puede elegir la clase y la Suite no
+   debe adivinarla.
+3. **La pantalla:** en «Registrar o pedir», cuando el buscador no encuentra al proveedor, «Dar de alta» con la
+   **constancia del SAT** (el lector de ALC: nombre, RFC, domicilio, CP). La persona elige la clase y agrega teléfono,
+   correo y giro si los tiene. **Finanzas firma el alta** (DS42).
+4. **El escritor:**
+   - clave = prefijo + (el mayor consecutivo de ese prefijo en **los 9** Kepler vivos) + 1;
+   - se escribe en **los 9**, como hoy, con la misma clave;
+   - idempotente por clave + RFC: si la clave ya está con el mismo RFC, «ya estaba»; con otro, se toma la siguiente;
+   - no son 9 transacciones atómicas: cada servidor queda con su propio estado (escrito / reintentar), y el acreedor
+     se puede usar en una sucursal en cuanto está en la suya;
+   - candados: bandera, interruptor `alta_acreedor` y `GRANT INSERT ON md.kdxd` en los 9 (un archivo nuevo, aparte).
+5. **Migración** (generada): la tabla del alta y su estado por servidor (`tenant_id` + auditoría), y el CHECK del
+   interruptor extendido.
+
+**Decisiones:**
+
+| D | Pregunta | Recomendación | De quién |
+|---|---|---|---|
+| **DS43** | ¿Qué clases (prefijos) existen, qué significa cada una y cuál se ofrece a quién? | Que Finanzas dé la lista. La Suite la guarda como parámetro (ADR-114) y no la deduce | Finanzas |
+| **DS44** | ¿El alta va a los 9 servidores o sólo a donde se pide? | **A los 9**, como hoy: la misma clave significa el mismo acreedor en todos, y así ninguno queda en 7 | Edgar |
+| **DS45** | ¿Quién crea la fila de `kdxg` del primer documento de un acreedor nuevo? | El escritor del X-A-10 (`[PGP.123]`), clonando lo que escribe Kepler, después de medirlo | Francisco |
+
+### 17.6 Lo que se midió después (2026-11-17)
+
+**La nómina (F2): por qué ContPAQi Nóminas «dejó de sincronizar» el 30-oct.** No es una falla: **nunca estuvo
+programada.**
+- `contpaqi_nom` la llena `database/importers/contpaqi/replicate-contpaqi.js`. Se corrió a mano el 29 y 30 de octubre
+  (`[CP.9.2]`).
+- Sus dos renglones del crontab (`ops/vl/crontab.feeds`) están comentados, esperando la D15: la contraseña de SQL
+  Server de ContPAQi en `/secrets/feeds.env`, que es una credencial y la decide Edgar.
+- ⛔ Encenderla sería **un cron y un importer**, y la regla de Edgar del 2026-11-10 es «ningún cron y ningún
+  importer». **No se propone.**
+- La pregunta real es **DS46**: ¿de dónde llega la nómina a la Suite **por evento**? Sin esa respuesta, F2 no tiene
+  fuente ni árbitro.
+
+**DS45 (el `kdxg` del primer documento), lo que ya se sabe para `[PGP.123]`:**
+- *La fila que crea Kepler*, medida en 3 acreedores nuevos (GA031 y GM027 en 08, GR018 en 00): `c1 = PESOS`,
+  `c2` = sucursal, `c3` = acreedor, `c4` = `c6` = fecha del documento, `c7` = 1800-01-01, **`c21`** = **`c57`**
+  (cargo de noviembre) = importe del gasto. Las otras 50 columnas en cero.
+- ⚠️ *Lo que los escritores no mueven:* el del gasto suma sólo la columna del mes y las fechas (`c4`, `c6`); el del
+  pago, el abono del mes y `c4`/`c7`. **Ninguno toca `c21`.** En las 543 filas de acreedores de gasto, `c21` = cargos
+  − abonos del año en 277 (51 %), y en el resto ninguna columna la completa: **NO MEDIDO**.
+- Se cierra con una captura de prueba (foto de `kdxg` antes y después de que Kepler aplique un gasto). Hasta
+  entonces, cada documento que escribe la Suite puede dejar `c21` distinto de como lo dejaría Kepler.
+
+**Deuda con nombre, R1:**
+- El lazo de R1 (cancelada en Kepler → vale; huérfanas; contador) corre dentro del `@Cron` de 5 minutos de
+  `[PGP.122]`. **Es un reloj** (regla del 2026-11-10).
+- Las huérfanas y el contador son árbitros que deben encontrar 0. Detectar la cancelación, en cambio, actualiza el
+  vale.
+- *Su reemplazo por evento:* la cola de la réplica (`ods.cola`, `database/importers/lib/ods-cola.js`) cuando cambia
+  `kdm1.c43` de una X-A-15 con la marca de la Suite.
+- *Retiro:* el ciclo se retira cuando ese evento exista y lleve 30 días sin que el barrido encuentre algo que el
+  evento no vio.
+
+| D | Pregunta | De quién |
+|---|---|---|
+| **DS46** | ¿De dónde llega la nómina a la Suite, por evento (sin cron ni importer)? Hoy la única copia es una réplica manual del 30-oct | Edgar |

@@ -402,12 +402,46 @@ Lo que sigue en este paso, en orden, para que el «después» gane en todo y no 
      negro.
    - **Quien surte y coordina sin ver el Tablero** conserva el cambio de vista; antes vivía fuera de
      la cabecera, que para ese puesto no se pinta. Tiene su prueba.
-   - **NO MEDIDO:** la versión construida. Al desplegar, la misma prueba detecta que prod ya lo trae
-     y mide la real.
-2. **GP.10.5**, la lista deja de toparse y de bajar 1.4 MB. Con eso también se va el aviso de los
-   2000.
+   - **Medido en la versión real** (prod `4d99357f7`, 2026-11-17): la primera fila sube de 507 a
+     **457 px** a 1280 y a 1366, y de 428 a **378 px** a 1920. Son los mismos 50 px de la maqueta. ✅
+2. **GP.10.5** 🧪 (en código, 2026-11-17): la lista ya no se topa ni baja 1.4 MB.
+   - **El «antes», medido en prod hoy** (`paso1-gp105.e2e.ts`, a 1280, 1366 y 1920): la lista baja
+     **1.40 MB**, trae 2,000 de **2,358** pedidos del mes y queda quieta en 4.3–5.8 s.
+   - **Lo que el tope escondía:** la preventa iba pegada al final de los de Kepler sin importar su
+     fecha. Con el corte en 2,000, **348 de los 830 pedidos de preventa** del mes no se podían ver sin
+     filtrar.
+   - **El cambio:**
+     - La API manda sólo la página que se ve (200), con `pagina.total`, y el paginador llega a todos.
+     - La lista va por la fecha que pinta, con la preventa intercalada.
+     - El más antiguo sin embarcar y las sucursales del selector salen de todo lo filtrado.
+   - **D4:** el pie separa lo que va **a clientes**, el **traspaso a sucursales** (cliente `TI###`)
+     y la **carga a ruta** (`RD`/`RUTA`). Es la misma partición de `ERP_KEPLER.md`. En noviembre,
+     **$22.1 M de los $35.3 M** de Kepler eran traspasos que el pie sumaba como si fueran venta.
+   - **La leyenda del volumen**: el gramaje que Kepler guarda como unidad se lee «6 de 500», ya no
+     «6 500». La leyenda misma pasó al «?» de la cabecera con GP.RF.22 (§5.7).
+   - ⛔ **Corrección. «El volumen se encima sobre el estatus» SÍ ocurre: 36 de 200 filas.** Aquí se
+     había escrito que no ocurría (0 de 200, con control negativo de 200). Edgar lo vio en su pantalla
+     (SUCURSAL YURECUARO: «1 CJA · 1 BTO · 20 PZA · 40 KG» sobre «Surtido»).
+     - **Por qué el instrumento falló:** medía la caja del elemento, no el texto. Con
+       `white-space: nowrap` el texto se sale de sus 11rem y la caja no.
+     - **Por qué el control no lo delató:** el control movía la caja entera, así que medía lo mismo
+       que el instrumento.
+     - **El instrumento corregido** mide los renglones del texto pintado y encuentra **36 de 200** en
+       los tres anchos, YURECUARO incluida.
+     - **El arreglo va en GP.RF.22.** Con su maqueta sobre prod (quitar la clase que impide partir el
+       texto), las encimadas bajan de **36 a 0**.
+   - **NO MEDIDO:** el «después» en la pantalla viva; se mide con la misma prueba al desplegar.
 3. **GP.RF.21**, la preventa a un clic: un botón «Preventa» junto a los de etapa, con su conteo, en
    lugar del filtro de origen en dos clics.
+
+**Un defecto de GP.RF.15 que encontró el recorrido en prod** (`paso1.e2e.ts`, después de desplegar):
+- **Qué pasaba:** la liga de los atorados de Canindo abre el Tablero con las **58** filas correctas,
+  pero la nota de arriba decía **1,885**. Sumaba los conteos de los botones de etapa, que a propósito
+  no llevan el filtro de estatus.
+- **Por qué no lo vieron las pruebas:** la prueba del filtro revisaba qué se pedía y que la nota
+  existiera, no el número que publicaba.
+- **El arreglo:** la nota dice el total filtrado. Va con su prueba negativa, que salió roja antes del
+  arreglo, en el mismo commit que GP.10.5.
 
 ### 5.6 Lo que queda del paso 1
 
@@ -417,6 +451,55 @@ Lo que sigue en este paso, en orden, para que el «después» gane en todo y no 
   atorados del alcance de la persona, porque el Tablero es por mes y los atorados son de meses
   anteriores. Es el siguiente cambio de este paso.
 - **GP.RF.17 a GP.RF.19:** en el registro (§8).
+
+### 5.7 GP.RF.22 — el Tablero con menos cosas (2026-11-17) 🧪
+
+Edgar, viendo el Tablero ya con GP.10.5: *«esta interfaz no me convence, existen demasiadas cosas.
+Hay que rediseñar un poco»*. Antes de tocar la plantilla se contestaron las preguntas de `diseno`
+§0a/§0b.
+
+1. **Propósito, en una frase:** ¿qué pedidos siguen en el almacén y en qué etapa va cada uno?
+2. **Quién entra (30 días, `analytics.ui_usage`):**
+   - Quien coordina embarques: 158 cargas de la lista y 23 aperturas de detalle.
+   - Encargado de tienda: 130 cargas; auxiliar de tienda: 101.
+   - El surtidor (109) tiene su vista reducida, que no cambia.
+   - En total, **793 cargas de la lista contra 59 aperturas de detalle**: la pantalla se usa para
+     ver el estado, casi no para abrir pedidos.
+3. **El estado real:** de 2,389 pedidos del mes, **1,396 ya estaban embarcados** (58 %) y abrían la
+   lista. El trabajo del almacén eran 983 (autorizado 136, surtiendo 6, surtido 65, checado 776).
+4. **Qué ve al entrar (decisión de Edgar, entre dos maquetas):** «Por hacer», lo que sigue en el
+   almacén. «Todos» y cada etapa quedan a un clic.
+5. **Qué deja de ver, y por qué:**
+
+| Pieza de antes | Decisión | Por qué |
+|---|---|---|
+| Lista de entrada «Todos», con los embarcados | **«Por hacer»** | el 58 % de lo que se veía ya había salido |
+| Casilla «Sólo autorizados en adelante» | sale | «Por hacer» ya es eso |
+| Periodo: 4 botones y un calendario siempre visibles | **un desplegable**; el calendario sólo con «Otro rango…» | 5 controles para una decisión que casi no cambia |
+| Surtir y Checar en naranja relleno | **de contorno** | son puertas a otras pantallas; dos rellenos competían por ser «lo principal» de una pantalla que es de lectura |
+| Columna «Abierto» | **bajo la fecha**, como «hace 6 min», sólo si sigue abierto | en los embarcados siempre decía «—» |
+| Columna «Guía» | **bajo la etapa**, como «guía 0002066», sólo si existe | casi siempre decía «—» |
+| Texto «sólo lectura, el pedido se avanza en Kepler», las definiciones en `title` y la leyenda de unidades | **al «?»** de la cabecera (tema `almacen-pedidos` del diccionario) | eran párrafos que se leían una vez; además el `title` no existe sin mouse (regla P) |
+| Volumen encimado sobre la etapa (36 de 200 filas) | **se parte en renglones** dentro de su celda, sin cortar «20 PZA» | ver §5.5 |
+
+6. **Cifras y desglose:** cada botón de etapa filtra la lista. El pie separa a clientes, el
+   traspaso y la carga a ruta (D4). El pedido se abre en el panel lateral, igual que antes.
+7. **Lo que se conserva:** el cambio de vista Pedidos / Fila de surtido, los filtros de origen y
+   sucursal, el buscador, el panel lateral, la liga de los atorados y la vista del surtidor. La liga
+   de los atorados entra a «Todos», no a «Por hacer»: su cifra es por estatus de Kepler, y por etapa
+   no cuadraría.
+8. **Conteo, sin las 5 pestañas del grupo:**
+   - Antes de la primera fila: de 22 a 19 controles.
+   - Columnas: de 9 a 6, o 7 con la de sucursal.
+   - Rellenos naranjas en la cabecera: de 2 a 0.
+   - ⚠️ **Al pedirle a Edgar la decisión se le dijo «~15 en vez de 27». Era una estimación y se
+     corrige:** con las pestañas son 24 contra 27. Lo que más baja no es el número de controles sino
+     lo que se lee: la lista de entrada (2,389 → 983), el texto de la cabecera y dos columnas.
+9. **NO MEDIDO:**
+   - La pantalla viva con el cambio: se mide con `paso1-gp105.e2e.ts` al desplegar.
+   - Los 390 px.
+   - Si quien coordina extraña algo de lo que salió: eso se pregunta a quienes la usan después de
+     una semana.
 
 ---
 
@@ -472,6 +555,95 @@ detuvieron dos escrituras (alta y «Crear 180»), y quedó registrado lo que hab
 
 ---
 
+## 5c. Paso 2 — Surtir en el celular: línea base (2026-11-17)
+
+**La pregunta:** ¿el surtidor termina un pedido sin pensar qué tocar?
+
+**Cómo se midió:**
+- Nivel B: el uso de 30 días en `analytics.ui_usage` y los reportes de cierre en
+  `commercial.presale_picks`.
+- Nivel A: `paso2-surtir.e2e.ts` en prod, a 390 × 844 y táctil, como superadmin y sin escribir.
+  - «Empezar a surtir», «Tomar siguiente» y «Terminar» no se tocan.
+  - Lo que una pantalla intentó escribir por su cuenta se detuvo y se anota.
+
+### 5c.1 Dónde surten de verdad
+
+⛔ **Corrección del mismo día.** La primera versión de esta tabla atribuía la preventa a la pantalla
+`/almacen/surtir-preventa`, porque los conteos venían de su servicio (`presale-picking`). Es falso:
+desde `[MCP.3.1]` (19 de octubre) el surtidor surte la preventa en **Surtir, modo «Sucursal»**, que
+usa el mismo servicio. Lo delató la telemetría: 748 métricas web desde celular en `/almacen/surtir` y
+**ninguna** en `/almacen/surtir-preventa`.
+
+| Pantalla | Uso del surtidor en 30 días |
+|---|---|
+| **Surtir** (`/almacen/surtir`), modo **«Sucursal»** (preventa de las vendedoras) | 1,056 pedidos empezados y 925 cierres (84 rechazados); la lista se vuelve a pedir cada 30 s |
+| **Surtir** (`/almacen/surtir`), modo **«Telemarketing»** (pedidos de Kepler) | 66 «tomar siguiente» y 40 renglones marcados |
+| **Surtir preventa** (`/almacen/surtir-preventa`) | sin telemetría en 30 días: **NO MEDIDO** quién la usa |
+
+El trabajo diario es la preventa: 891 pedidos cerrados en 30 días, con 4,487 renglones (unos 5 por
+pedido). 219 pedidos (25 %) tuvieron algo que faltó.
+
+### 5c.2 Hallazgos
+
+| # | Hallazgo | Nivel | Costo |
+|---|---|---|---|
+| **GP.RF.23** | **Uno de cada 11 cierres se rechaza** (84 de 925, todos 4xx: validación, no caídas). El motivo **no queda en ningún lado**: el servidor no lo guarda y la telemetría de la app no registra errores. El mensaje sólo dura 8 s en pantalla. Los rechazos se concentran del 4 al 14 de noviembre (hasta 16 en un día); el 16 y el 17 bajan a 1 de 164 sin un cambio de código visible. Leyendo el código, los candidatos son cambiar un producto por otro (existencia, unidad, cantidad) y dos personas sobre el mismo pedido. El doble toque y el motivo faltante quedan descartados: el botón se apaga en el primer toque y cada faltante lleva un motivo por omisión | B + C | un cierre rechazado es volver a marcar y a enviar |
+| **GP.RF.24** | ⚠️ *De `/almacen/surtir-preventa`, que el surtidor no usa (ver la corrección de §5c.1); falta medir lo mismo en Surtir › Sucursal.* **En la bandeja, el primer pedido está a 958 px**: no se ve en un celular de 844 sin bajar. Antes de él hay 51 controles: la lista de sucursales (5 renglones), las pestañas de día y «Otro día», el aviso de **35 pendientes de días anteriores** con 11 botones de fecha, y el filtro de vendedor con 8 opciones en renglones | A (superadmin) | ⚠️ el surtidor ve una sola sucursal: su marco es menor. **NO MEDIDO** con su puesto |
+| **GP.RF.25** | ⚠️ *También de `/almacen/surtir-preventa`.* **«Hoy · 39» y la lista de 115 no cuentan lo mismo**: la pestaña cuenta lo pendiente y la lista pinta todo lo de hoy, incluido lo ya surtido y revisado. El rótulo no dice «por surtir» | A + C | se lee como si sobraran 76 pedidos; lo pendiente se mezcla con lo terminado |
+| **GP.RF.26** | **No hay «No hubo»**: para marcar que no hubo nada de un renglón se toca «−» hasta 0. En 30 días, 380 renglones costaron **1,073 toques** contra 380 con un botón. La mediana es 1 pieza (un toque); el costo se concentra en 59 renglones de 4 o más piezas, con un máximo de 60 | B | ~700 toques al mes; bajo |
+| **GP.RF.27** | **Surtir (Kepler) escribe al abrirse**: entrar a la pantalla pide «tomar trabajo» (`POST waves/next`) sin que la persona toque nada | A | quien entra sólo a ver se lleva un pedido |
+| **GP.RF.28** | Surtir (Kepler): **17.6 s** hasta quedar quieta como superadmin (GP.RF.9). El almacén se elige en un `<select>` nativo con código («06 · Canindo»), y no tiene `<h1>` | A | la regla de nombrar la sucursal; el sistema de diseño (`p-select`) |
+| **GP.RF.29** | Surtir (Kepler) avisa **«500 clientes nuevos sin clave de Kepler»**. Hoy son exactamente 500, así que cuadra por casualidad, pero el resumen cuenta lo que cabe en la bandeja (tope de 500) y no mira su aviso de tope: **desde el cliente 501 seguirá diciendo 500** | B + C | una cifra que va a mentir sin avisar (Cruce 1) |
+
+### 5c.3 Tiempos de carga
+
+**El servidor**, por llamada y por puesto (30 días, `analytics.ui_usage`; separado por rol porque
+superadmin ve todos los almacenes y tarda mucho más). Entre paréntesis, las llamadas del surtidor:
+
+| Llamada | Para qué | Surtidor: promedio | Surtidor: peor | Superadmin: promedio |
+|---|---|---:|---:|---:|
+| `GET presale-picking` (8,048) | la lista de Sucursal, cada 30 s | 23 ms | 593 ms | 27 ms |
+| `GET presale-picking/:id` (1,063) | abrir un pedido | 150 ms | **2.9 s** | 111 ms |
+| `POST …/start` · `…/finish` | empezar · terminar | 35 ms · 45 ms | 0.4 s · 1.5 s | 32 ms · 171 ms |
+| `GET new-customers/summary` (1,500) | el aviso de clientes nuevos | 217 ms | 1.8 s | 83 ms |
+| `GET waves/mine` (727) | «mis surtidos» de Telemarketing | 308 ms | **25.1 s** | 3.5 s |
+| `POST waves/next` (66) | «tomar siguiente» de Telemarketing | **2.7 s** | **21.1 s** | 7.6 s |
+
+**El celular** (métricas web de la app, 30 días, sólo celular, `/almacen/surtir`):
+
+| Métrica | Mediana | 75 % de las veces | 95 % de las veces | Lo que se considera bueno |
+|---|---:|---:|---:|---|
+| Pintar lo principal (LCP, 100 muestras) | 2.1 s | **4.5 s** | **26.4 s** | ≤ 2.5 s el 75 % |
+| Responder a un toque (INP, 410) | 120 ms | 152 ms | 346 ms | ≤ 200 ms el 75 % |
+| Cuánto se mueve la pantalla (CLS, 238) | 0.13 | **0.23** | **0.45** | ≤ 0.1 el 75 % |
+
+Lo que dicen:
+- **Surtir la preventa es rápido del lado del servidor**: la lista, empezar y terminar tardan
+  decenas de milisegundos. Sólo abrir un pedido tiene picos de casi 3 s.
+- **Lo lento es Telemarketing**: «tomar siguiente» tarda 2.7 s en promedio y llegó a 21 s;
+  «mis surtidos» llegó a 25 s. Por eso Surtir tardó 17.6 s en quedar quieta en la línea base. La
+  regla del proyecto es medio segundo.
+- **En el teléfono, la pantalla tarda 4.5 s en pintarse una de cada cuatro veces**, y una de cada 20
+  más de 26 s. Una pantalla que abre en Telemarketing puede pedir «mis surtidos» y «tomar siguiente»
+  al entrar (GP.RF.27): es la sospecha a confirmar.
+- **La pantalla se mueve** (CLS 0.23 el 75 % de las veces): lo que aparece tarde, como el aviso de
+  clientes nuevos o la lista que se vuelve a pedir cada 30 s, empuja lo que el surtidor iba a tocar.
+  En un celular eso es tocar el pedido equivocado. **NO MEDIDO** qué pieza lo mueve.
+- Tocar responde bien (INP 152 ms).
+
+### 5c.4 Lo que no se pudo medir y qué hace falta
+
+- **Los controles de un renglón (Completo, −, +, Cambiar), su tamaño y los toques por pedido**
+  necesitan la **sesión de un surtidor** (P-RF.1). Como superadmin, el pedido en curso de otra persona
+  se abre sin sus controles, y empezar uno propio sería una escritura. Por código, los botones piden
+  44 px (`--tap-min`).
+- **El motivo de cada rechazo (GP.RF.23)** no se puede saber con lo que hay: hace falta registrarlo
+  cuando ocurre. Se propone un evento con el código y el mensaje del rechazo, sin datos del cliente.
+- **Tres caminos para surtir preventa:** Surtir preventa, Surtir › Sucursal (por ruta) y la consola.
+  Saber si se funden (paso 2b) pide recorrer los tres con el surtidor.
+
+---
+
 ## 6. Los pasos que siguen
 
 Cada paso arranca con la línea base de su pantalla (Playwright), recorre el proceso **completo**
@@ -480,7 +652,7 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 | Paso | Interfaz | La pregunta del paso | Qué se mide con Playwright |
 |---|---|---|---|
 | **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» y el «después» de GP.10.4 medidos el 2026-11-17 (§5). 🧪 GP.RF.15 en código. Falta: GP.RF.20 (marco), GP.10.5 (tope y peso), GP.RF.21 (preventa a un clic), GP.RF.16 (aviso de atorados) y la regla de los surtidos abandonados (P-RF.4) |
-| **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | con el puesto de surtidor: toques por renglón; objetivos ≥44 px; qué pasa si se cae la red a medio surtido; la espera de superadmin (GP.RF.9) |
+| **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | 🔨 **línea base medida el 2026-11-17 (§5c)**: dónde surten, los 84 cierres rechazados, la bandeja a 390 px, «No hubo» y Surtir (Kepler). Falta, con el puesto de surtidor: los toques por renglón y el tamaño real de los botones; y registrar el motivo de cada rechazo |
 | **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad»); el mensaje del rechazo |
 | **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? ¿Hace falta elegir almacén cada vez? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo |
 | **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy |
@@ -518,13 +690,16 @@ Formato de cada hallazgo:
 | GP.RF.12 | 0 | 🟡 | Letra de 10 px en las 12 pantallas; hasta 9 niveles de letra (Revisión) | A | lectura forzada; jerarquía diluida | Q.5; escala `--fs-*` | se revisa pantalla por pantalla | ⬜ |
 | GP.RF.13 | 0 | 🟡 | «1» en ámbar `--warn-fg` sobre blanco a 2.15:1 en Por capturar; «Salir» a 4.40:1 en Surtir | A | ilegible a pleno sol en el celular | WCAG AA; `VALORES.md` §2 | `--warn-soft-fg` para texto | ⬜ |
 | GP.RF.14 | 1 | 🔴 | La fila de surtido muestra **25 surtidos abandonados** como si fueran trabajo de hoy. Canindo: 11, todos «Esperando hace 12 días». Morelia Abastos: 14, desde el 8-oct. En 30 días hubo 17 surtidos, los armó el sistema y se terminaron 5 | A + B | quien coordina no distingue el trabajo de hoy del abandonado; el surtidor que pide trabajo recibe primero el más viejo | Ley 0 del estándar (nada afirma lo que no es) | **P-RF.4**: que el sistema deshaga lo que armó y nadie tomó | ⬜ espera a Edgar |
-| GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | 🧪 |
+| GP.RF.15 | 1 | 🟠 | «58 pedidos siguen autorizados en Kepler… revísalos en Kepler»: una cifra publicada que **no se puede abrir** en la Suite | A + B | ver cuáles era imposible sin salir de la Suite | Cruce 1 de `auditoria-diseno` (toda cifra se recorre) | la cifra liga al Tablero filtrado por estatus de Kepler; cuadra 393 de 393 (§5.4) | ✅ en prod `4d99357f7` (la cifra de su nota, corregida en GP.10.5 🧪) |
 | GP.RF.16 | 1 | 🟠 | El Tablero **no dice nada de los atorados** en su primera pantalla. Son 393 en 8 sucursales, el más viejo de nov-2025 | A + B | quien coordina no se entera de lo que nadie va a surtir | Q.1 (contestar primero); Q.4 (el número lleva a su arreglo) | aviso arriba del Tablero con la cuenta del alcance de la persona; pide que la API los cuente | ⬜ siguiente cambio |
 | GP.RF.17 | 1 | 🟡 | Quien maneja varios almacenes cae en el primero (CEDIS, con la fila vacía) y da 2 clics para llegar al suyo. Después se recuerda | A | 2 clics la primera vez | Hick | abrir en el almacén que tiene trabajo; baja prioridad | ⬜ |
 | GP.RF.18 | 1 | 🟡 | «Cancelar surtido» en rojo sobre blanco a **3.76:1** (bajo AA), una vez por renglón y junto a «Marcar urgente» | A | 6 textos bajo AA en la fila; una acción destructiva al alcance en cada renglón | WCAG AA; Von Restorff (§10) | el botón de peligro sin relleno viene del tema: arreglarlo ahí cambia toda la suite, y eso pide aprobar el cambio de tokens | ⬜ |
 | GP.RF.19 | 1 | 🟡 | El Tablero con un rango largo (hasta un año) tarda **0.2 a 1.8 s** desde la laptop | B (servicio real) | la liga de los atorados puede pasar el medio segundo | regla de Edgar: más de 500 ms no funciona | va con GP.10.5 (la consulta lee todo el rango antes de filtrar el estatus) | ⬜ |
-| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | 🧪 |
+| GP.RF.20 | 1 | 🟠 | Con GP.10.4 el marco del Tablero creció de **415 a 507 px** (66 % de la pantalla): el cambio de vista ocupa un renglón propio, y se sumaron más botones de etapa y el aviso de tope | A (antes y después en prod) | 92 px más de marco en la pantalla más consultada | Carga visual; Q.1 | el cambio de vista pasa a la cabecera (+50 px medidos en maqueta sobre prod, §5.5); el aviso de tope se va con GP.10.5 | ✅ en prod `4d99357f7`: 507 → 457 px medido |
 | GP.RF.21 | 1 | 🟡 | Abrir un pedido de preventa pasó de **2 a 4 clics**: la preventa entró a una lista de 2,224 que va por fecha, y para verla hay que elegir el origen en un desplegable | A (antes y después en prod) | 2 clics más por consulta de preventa | Hick; menos clics (§1) | un botón «Preventa» con su conteo junto a los de etapa | ⬜ |
+| GP.RF.22 | 1 | 🟠 | «Existen demasiadas cosas» (Edgar). El Tablero abría en «Todos», con 1,396 de 2,389 pedidos ya embarcados; tenía 22 controles antes de la primera fila, dos rellenos naranjas que competían, 9 columnas (dos casi siempre en «—»), párrafos de ayuda en la cabecera y el volumen encimado sobre la etapa en 36 de 200 filas | A + B | lo que se lee antes de encontrar el trabajo; 58 % de la lista ya había salido | Carga visual; Hick; Von Restorff (una primaria); regla P | abre en «Por hacer» (decisión de Edgar); periodo en un desplegable; Surtir y Checar de contorno; Abierto y Guía bajo fecha y etapa; ayuda al «?»; volumen partido (§5.7) | 🧪 |
+| GP.RF.23–29 | 2 | 🔴/🟠/🟡 | Surtir en el celular: 1 de cada 11 cierres rechazado sin motivo guardado (23), primer pedido a 958 px (24), «Hoy · 39» contra 115 en la lista (25), sin «No hubo» (26), Surtir (Kepler) escribe al abrirse (27), 17.6 s y select nativo con código (28), «500 clientes nuevos» topado sin aviso (29) | A + B + C | ver §5c.2 | ver §5c.2 | se proponen en §5c; los de renglón esperan la sesión de surtidor | ⬜ |
+| GP.RF.30 | 2 | 🟠 | «Salir» de Surtir (y de Checar) no regresa a donde estabas: iba fijo a /almacen, que brinca a la primera pantalla del área. Del Tablero a Surtir, «Salir» dejaba en Inventario; para el surtidor, en Surtir misma (no hacía nada). Lo encontró Edgar | A (reproducido en prod con salir-foco.e2e.ts) | un viaje entero para volver a donde se estaba | Jakob (Atrás vuelve a donde estabas) | regresa a la pantalla anterior; sin ella, al Tablero, o a «Mi trabajo» si el puesto no lo abre | 🧪 |
 
 ---
 
@@ -532,6 +707,10 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | **GP.RF.30 en código** 🧪: «Salir» de Surtir y Checar regresa a la pantalla de donde se llegó. Reproducido en prod antes del arreglo: del Tablero a Surtir, «Salir» dejaba en Inventario. | Edgar (lo encontró), Claude |
+| 2026-11-17 | **Paso 2 (Surtir) arrancado: línea base** (§5c). La preventa se surte en Surtir › Sucursal (925 cierres en 30 días, 84 rechazados sin motivo guardado; se corrigió el mismo día la atribución a `/almacen/surtir-preventa`, que no tiene uso medido). Telemarketing casi no se usa, escribe al abrirse y es lo lento (tomar siguiente: 2.7 s de promedio, hasta 21 s). En el celular, Surtir tarda 4.5 s en pintarse el 75 % de las veces y la pantalla se mueve (CLS 0.23). Falta la sesión de un surtidor para medir los renglones. | Claude, a pedido de Edgar |
+| 2026-11-17 | **GP.RF.22 en código** 🧪, a pedido de Edgar («existen demasiadas cosas»). Entre dos maquetas eligió abrir en «Por hacer» (983 de 2,389). Además: periodo en un desplegable, Surtir y Checar de contorno, Abierto y Guía bajo fecha y etapa, ayuda al «?», y el volumen partido en renglones. **Corrige** lo dicho de GP.10.5: el volumen sí se encimaba (36 de 200; con el arreglo, 0). | Edgar, Claude |
+| 2026-11-17 | **Desplegado** `4d99357f7` (GP.RF.15, GP.RF.20, UB.RF, UB.3b.1, UB.RF.10) y medido en prod con Playwright: GP.RF.20 real da los 50 px de la maqueta; el escaneo arma la asignación correcta; los carteles se dibujan. El recorrido encontró que la nota de los atorados decía 1,885 con 58 filas (defecto de GP.RF.15). **GP.10.5 en código** 🧪: lista por páginas (antes 1.40 MB, 2,000 de 2,358, 348 preventas invisibles), total por destino (D4: $22.1 M de traspasos se leían como venta), leyenda del volumen, y la nota corregida. (Corregido el mismo día: el volumen SÍ se encimaba, 36 de 200; el instrumento medía la caja y no el texto. Ver §5.5.) | Claude, a pedido de Edgar |
 | 2026-11-17 | **Ubicaciones adelantado** a pedido de Edgar (§5b). El piloto no tiene ninguna ubicación; las 375 de CEDIS parecen una prueba en zona Tienda (UB.RF.2, decisión de Edgar). Arreglados en código: la cifra animada que se quedaba en el valor anterior (UB.RF.1, afecta a toda la suite), «no hay capturas» mientras lee, el texto falso del mapa, la zona en la que abre y un `ngModel` sin `name` | Claude |
 | 2026-11-17 | **GP.RF.20 hecho** 🧪: el cambio de vista sube a la cabecera. En maqueta sobre prod, la primera fila sube 50 px en los tres anchos y la cabecera no se parte (con su prueba negativa). La primera maqueta medía mal (dejaba vivo el CSS viejo) y se corrigió antes de citarla | Claude |
 | 2026-11-17 | **«Después» de GP.10.4 medido** en prod `5b9d9af58` (salió en el lote que empujó otra sesión). Mejora: de 7 a 5 pestañas, una sola pantalla para seguir un pedido, menos piezas. Empeora: marco 415→507 px, lista topada a 2,000 con 1.40 MB, y la preventa de 2 a 4 clics. Nuevos: GP.RF.20 y GP.RF.21 (§5.5) | Claude |

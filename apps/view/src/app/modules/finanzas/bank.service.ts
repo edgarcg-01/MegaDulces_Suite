@@ -9,6 +9,8 @@ import { JobAccepted } from './bancos-socket.service';
 export interface BankAccount {
   id: string; bank: string; account_label: string; alias: string | null;
   kind: 'bank' | 'cash' | 'factoraje'; kepler_link: string | null; active: boolean;
+  /** [CB.78] Cuenta contable 102xxx de ContPAQi enlazada (se edita en Configuración › Cuentas de banco). */
+  contpaqi_cuenta?: string | null; contpaqi_cuenta_nombre?: string | null;
 }
 
 export interface MovementCategory {
@@ -168,7 +170,9 @@ export interface DiagnosticoItem {
  */
 export interface ReconEstado {
   matched_amount: number; bank_amount: number; pct: number;
-  last_match_at: string | null; last_import_at: string | null; stale: boolean;
+  last_match_at: string | null; last_import_at: string | null;
+  /** [CB.79] Hay movimientos que el motor todavía no evaluó; `sin_evaluar` dice cuántos (el aviso los concilia solo). */
+  stale: boolean; sin_evaluar?: number;
 }
 export interface Diagnostico {
   period: string; ingresos: number; egresos: number; neto: number; movimientos: number;
@@ -219,17 +223,6 @@ export interface SideKeplerRow {
   importe: number; contraparte: string | null; forma: string | null; bank_movement_id: string | null; match_key: string;
 }
 
-/** CP.2 (Fase CP) — Comparación banco (Excel) vs LIBROS de ContPAQi por cuenta. */
-export interface ContpaqiCompareRow {
-  id: string; bank: string; account_label: string; alias: string | null; kind: string;
-  contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean;
-  excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number;
-  delta_in: number; delta_out: number; contpaqi_movs: number;
-}
-export interface ContpaqiCompare {
-  period: string; linked: number; rows: ContpaqiCompareRow[];
-  totals: { excel_in: number; excel_out: number; contpaqi_in: number; contpaqi_out: number; delta_in: number; delta_out: number };
-}
 export interface ContpaqiLinkResult {
   linked: number; total: number;
   results: { bank: string; account_label: string; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null }[];
@@ -239,20 +232,6 @@ export interface ContpaqiBankAccount {
   cuenta: string; cuenta_nombre: string; movs: number; taken: boolean; taken_by: string | null;
 }
 
-/** CP.2 drill — ¿dónde está el descuadre de una cuenta? Huérfanos de cada lado. */
-export interface CpqBankOnly { id: string; fecha: string; importe: number; concepto: string | null; tipo: string | null; codigo: string | null; categoria: string | null; }
-export interface CpqPolizaOnly { id: number; fecha: string; importe: number; concepto: string | null; poliza_tipo: number | null; poliza_folio: number | null; }
-export interface CpqReconSide {
-  bank_total: number; contpaqi_total: number; delta: number;
-  matched_count: number; matched_amount: number;
-  bank_only: CpqBankOnly[]; contpaqi_only: CpqPolizaOnly[];
-  bank_only_amount: number; contpaqi_only_amount: number;
-}
-export interface ContpaqiDetail {
-  period: string;
-  account: { id: string; bank: string; account_label: string; alias: string | null; contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null; linked: boolean };
-  deposits: CpqReconSide; withdrawals: CpqReconSide;
-}
 
 /** CP.2 factoraje — compras factoradas del Excel por proveedor vs su CxP/costo en ContPAQi. */
 export interface FactorajeRow {
@@ -532,18 +511,13 @@ export class BankService {
     return this.http.get<MovementFlow>(`${this.base}/movements/${id}/flow`);
   }
 
-  // ── CP.2 (Fase CP) — comparación vs LIBROS ContPAQi ──
-  contpaqiCompare(period: string): Observable<ContpaqiCompare> {
-    return this.http.get<ContpaqiCompare>(`${this.base}/contpaqi-compare?period=${encodeURIComponent(period)}`);
-  }
+  // ── CP.2 (Fase CP) — enlace de cuentas con ContPAQi (Configuración) y factoraje. La comparación banco ↔ ContPAQi
+  //    vive en el Cuadre 3 vías ([CB.78]). ──
   linkContpaqi(): Observable<ContpaqiLinkResult> {
     return this.http.post<ContpaqiLinkResult>(`${this.base}/contpaqi/link`, {});
   }
   contpaqiAccounts(): Observable<ContpaqiBankAccount[]> {
     return this.http.get<ContpaqiBankAccount[]>(`${this.base}/contpaqi-accounts`);
-  }
-  contpaqiDetail(period: string, accountId: string): Observable<ContpaqiDetail> {
-    return this.http.get<ContpaqiDetail>(`${this.base}/contpaqi-detail?period=${encodeURIComponent(period)}&account_id=${encodeURIComponent(accountId)}`);
   }
   factorajeCompare(period: string): Observable<FactorajeCompare> {
     return this.http.get<FactorajeCompare>(`${this.base}/factoraje-compare?period=${encodeURIComponent(period)}`);

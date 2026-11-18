@@ -9,6 +9,22 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: «Salir» de Surtir y de Checar regresa a donde estabas (GP.RF.30 · 2026-11-17 · en código, sin soltar)
+- Antes llevaba a la primera pantalla del área (Inventario, o la misma Surtir). Ahora regresa a la pantalla de donde se llegó; si se abrió directo, al Tablero de pedidos.
+
+### Changed — Pedidos del almacén: el Tablero abre en lo pendiente y con menos piezas (GP.RF.22 · 2026-11-17 · en código, sin soltar)
+- Al entrar se ve «Por hacer»: lo que sigue en el almacén, de autorizado a checado. Los embarcados y «Todos» quedan a un clic.
+- El periodo se elige en un desplegable; Surtir y Checar dejan de ser botones naranjas.
+- «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
+- Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
+
+### Changed — Pedidos del almacén: la lista del Tablero por páginas, el total por destino y la leyenda del volumen (GP.10.5 · 2026-11-17 · en código, sin soltar)
+- La lista ya no se corta en 2,000 pedidos: llega por páginas de 200 y el paginador alcanza todos (el mes tenía 2,358 y bajaban 1.4 MB). La preventa ya no queda al final: va por su fecha, junto a los de Kepler.
+- El total del pie se separa en lo que va a clientes, el traspaso a sucursales y la carga a ruta. Antes lo sumaba todo como si fuera venta.
+- Debajo de la lista, una leyenda dice qué es cada unidad del volumen (CJA caja, PAQ paquete…), y «6 500» ahora se lee «6 de 500».
+- Arreglo: al llegar desde los pedidos atorados de la fila de surtido, la nota decía 1,885 cuando la lista traía 58. Ahora dice cuántos trae la lista.
+- Ya en producción (`4d99357f7`): escanear para asignar ubicaciones, imprimir carteles, los arreglos de Ubicaciones, la liga de los atorados y el cambio de vista en la cabecera del Tablero.
+
 ### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
 - `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
 - Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.

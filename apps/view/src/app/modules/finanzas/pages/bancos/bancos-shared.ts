@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'comisiones' | 'cuentas' | 'capturas' | 'admin';
+export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'comisiones' | 'cuentas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -76,7 +76,8 @@ export const WORK_VIEWS: { key: BankView; label: string; icon: string; grupo: Ba
   { key: 'comisiones', label: 'Comisiones', icon: 'pi pi-percentage', grupo: 'kepler' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table', grupo: 'mas' },
   { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card', grupo: 'mas' },
-  { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp', grupo: 'mas' },
+  // [CB.78] «Capturas WhatsApp» (CBW) salió de la barra el 2026-11-17: 0 capturas en toda su vida y 1 consulta en 30
+  // días. El backend (ingesta de WhatsApp) sigue montado; si llega a tener remitentes reales, vuelve aquí.
 ];
 
 /** El número que lleva cada pestaña: lo que pide trabajo en esa vista (sustituye a la franja de indicadores). */
@@ -109,7 +110,7 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
     case 'conciliacion': {
       if (d.conciliacionMedida === false) return null;
       const p = d.conciliadoPct;
-      if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'se volvió a importar el libro después de la última conciliación: córrela de nuevo', aviso: true };
+      if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'hay movimientos que el motor todavía no revisa; los concilia solo', aviso: true };
       return p == null ? { texto: 'sin correr', aria: 'la conciliación no se ha corrido en este periodo', aviso: true }
         : { texto: `${p}%`, aria: `${p}% conciliado por monto`, aviso: p < 80 };
     }

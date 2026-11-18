@@ -215,7 +215,11 @@
 #    Para ver qué haría sin escribir: el mismo comando SIN `--apply` (imprime y no toca nada).
 20 4 3 * * /app/ops/vl/run-feed.sh contpaqi-derivador "node /app/database/scripts/derivar-reglas-contpaqi.js --apply"
 
-# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — ⛔ APAGADA HASTA LA D15 ─────────────────
+# ── `[CP.9.2]` LA RÉPLICA DE ContPAQi, POR HUELLA (ADR-111) — SE MUDÓ a un carril en ciclo ──────────────
+#
+# ⭐ Desde el 2026-11-17 (Edgar: «ningún cron») corre como un Deployment que lo llama en ciclo, en la forma de los carriles
+#    del ODS: `ops/k3s/32-contpaqi-replica.deployment.yaml` (contabilidad cada ~5 min, lo demás cada hora). Los dos
+#    renglones de abajo quedan comentados para que NO corra dos veces; lo de este bloque es la historia.
 #
 # Mantiene `contpaqi_ods`/`contpaqi_nom` al día comparando, en los dos lados, una huella por tramo de
 # la llave: sólo recopia lo que difiere. Medido en el pod el 2026-10-30: la contabilidad en menos de
@@ -224,6 +228,9 @@
 # ⛔ Apagada porque el replicador NO trae la contraseña embebida (a diferencia de los carriles de
 #    CFDIs de abajo): la lee de `CONTPAQI_SQL_PASSWORD`, y `/secrets/feeds.env` no la tiene. Es la
 #    D15 (§8.5), y la decide Edgar (regla 7).
+#
+# ✅ D15 resuelta por Edgar el 2026-11-17: `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env` (y en el maestro de md).
+#    ⚠️ Es el MISMO valor que hoy viaja embebido en los importers de CFDIs (repo público): está pendiente rotarlo.
 #
 # Para encenderla, las cuatro juntas (sin cualquiera, el carril miente):
 #   1. `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`.
