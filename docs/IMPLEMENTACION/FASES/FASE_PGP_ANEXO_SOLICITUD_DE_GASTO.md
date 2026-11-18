@@ -1232,8 +1232,8 @@ sin avisar (2026-11-17).**
 | 2 | Soltar `[PGP.122.4]` (R8), **sólo después** del `GRANT` de `sqliov` en los 9 servidores (`ops/prod/kepler-grants/pgp1224_contador_sqliov.sql`: sólo el contador, sin `kdm6`): con `compra` y `telemarketing` encendidos en los 9, soltarlo antes los detiene | Edgar | — |
 | 3 | ADR de la X-A-15 (R10): ADR-119, ⏳ propuesto el 2026-11-17 | lo ratifica Edgar | el canario |
 | 4 | Captura de prueba S.1 en 05 (`foto-contadores.js`) | Edgar + capturista de 05 | 5 |
-| 5 | GRANT en 05 | Edgar | 6 |
-| 6 | Ensayo con ROLLBACK: `fallas: []`, `control.intacto: true` | Edgar | 7 |
+| 5 | GRANT en 05 — ✅ 2026-11-18: lo aplicó Edgar desde `md` (`~/grants-pgp122/aplicar-05.sh`, una transacción, COMMIT sólo con la verificación del archivo en true) | Edgar | 6 |
+| 6 | Ensayo con ROLLBACK — ✅ 2026-11-18: `estado: escrito`, `fallas: []`, `avisos: []`, los 9 permisos en true, `control.intacto: true` (contador `KFXA1501.05` 82 antes y después; el ensayo habría tomado el folio `0000082`) | Edgar | 7 |
 | 7 | Secreto: `KEPLER_GASTO_SOLICITUD`, `KEPLER_SOLGASTO_TEMPLATE_FOLIO_05` | Edgar | 8 |
 | 8 | Interruptor de 05, tope 1 | Edgar | — |
 | 9 | Canario: una se aplica (X-A-10) y otra se cancela en Kepler, y el vale se entera | Edgar + Finanzas | el piloto |
