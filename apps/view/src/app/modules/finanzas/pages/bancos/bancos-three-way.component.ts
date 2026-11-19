@@ -48,7 +48,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               @if (v.nDescarga) {
                 Banco: la descarga del banco en {{ v.nDescarga }} {{ v.nDescarga === 1 ? 'cuenta' : 'cuentas' }}@if (v.nLibro) {; el libro de Tesorería en {{ v.nLibro }}{{ v.nLibroMotivo ? ' (' + v.nLibroMotivo + ' porque su descarga no cuadra)' : '' }}}.
               }
-              @if (v.n && v.hasta) {
+              @if (v.n && v.hasta && v.todas) {
                 Se compara del {{ dmShort(v.desde) }} al {{ dmShort(v.hasta) }}: el estado de cuenta del banco llega hasta ese día
                 ({{ v.dias_atras }} días antes de lo esperado).
               } @else if (v.n) {
@@ -1219,7 +1219,11 @@ export class BancosThreeWayComponent {
     const nLibroMotivo = nDescarga ? conDatos.filter((r) => r.banco_fuente !== 'descarga' && r.banco_motivo).length : 0;
     if (!v || (!n && !nDescarga && !v.fuera)) return null;
     return { desde: v.desde, hasta: v.hasta, corte_min: v.corte_min, dias_atras: v.dias_atras, fuera: v.fuera, dia_parcial: !!v.dia_parcial, n,
-      nDescarga, nLibro, nLibroMotivo, mesCerrado: !!v.mes_cerrado };
+      nDescarga, nLibro, nLibroMotivo, mesCerrado: !!v.mes_cerrado,
+      // [CB.89] «Se compara del … al …» sólo si TODAS las cuentas con datos quedaron cortadas. El servidor da
+      // `hasta` cuando las cortadas comparten fecha, aunque sea una sola: en nov-2026 una cuenta cortada al 10/11
+      // hacía decir «el banco llega hasta el 10/11» mientras la cobertura decía «al 19/11».
+      todas: n > 0 && conDatos.every((r) => !!v.cortes?.[r.account_label]) };
   }
 
   /**
@@ -1246,8 +1250,8 @@ export class BancosThreeWayComponent {
   /** El rango del título de los totales: «del 01/11 al 10/11» si hubo un corte común; si no, el periodo. */
   rangoTxt(d: ThreeWay): string {
     const v = this.ventanaDe(d);
-    if (v?.hasta) return `del ${dmShort(v.desde)} al ${dmShort(v.hasta)}`;
-    if (v) return `en ${d.period}, cada cuenta hasta el último día de su banco`;
+    if (v?.hasta && v.todas) return `del ${dmShort(v.desde)} al ${dmShort(v.hasta)}`;
+    if (v?.n) return `en ${d.period}; ${v.n === 1 ? 'una cuenta' : v.n + ' cuentas'} sólo hasta el último día de su banco`;
     return `en ${d.period}`;
   }
 
@@ -1287,7 +1291,7 @@ export class BancosThreeWayComponent {
   covSources(d: ThreeWay) {
     const c = d.coverage;
     return [
-      { key: 'wb', label: 'Banco', ...c.workbook },
+      { key: 'wb', label: 'Banco', ...c.workbook, cortes: Object.keys(d.ventana?.cortes || {}).length },
       { key: 'kep', label: 'Kepler (tesorería)', ...c.kepler },
       { key: 'cpq', label: 'ContPAQi (libros)', ...c.contpaqi },
     ];
@@ -1318,7 +1322,10 @@ export class BancosThreeWayComponent {
   }
 
   /** La etiqueta corta del atraso de una fuente. */
-  covTag(s: ThreeWaySource): string {
+  covTag(s: ThreeWaySource & { cortes?: number }): string {
+    // [CB.89] El banco puede ir «atrasado» porque UNAS cuentas se cortaron, con la más adelantada al día:
+    // la etiqueta decía «0 días atrás» en ámbar. Dice cuántas cuentas.
+    if (s.cortes && s.days_target - s.days_covered <= 0) return `${s.cortes} ${s.cortes === 1 ? 'cuenta atrasada' : 'cuentas atrasadas'}`;
     if (s.casado_pct != null) return `${this.pctTxt(s.casado_pct)} % con póliza`;
     return `${s.days_target - s.days_covered} días atrás`;
   }
@@ -1342,7 +1349,9 @@ export class BancosThreeWayComponent {
         : `${base}; todo el banco tiene póliza.`;
     }
     const falta = s.days_target - s.days_covered;
+    const cortes = (s as { cortes?: number }).cortes;
     const base = `${s.label}: capturado hasta el día ${s.days_covered} de ${s.days_target} esperados (${s.movs} movimientos)`;
+    if (cortes && falta <= 0) return `${base}; ${cortes === 1 ? 'una cuenta va atrasada' : cortes + ' cuentas van atrasadas'} y se compara sólo hasta el último día de su banco.`;
     return falta > 0 ? `${base}; van ${falta} días sin captura.` : `${base}; al día.`;
   }
 

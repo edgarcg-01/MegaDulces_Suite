@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
+- Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
 ### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)
 - Los filtros y el cambio entre Movimientos y Por día dicen cuál está activo; las tablas tienen título y se recorren con el teclado; la dirección de cada movimiento y lo que falta se leen en voz alta.
 - La búsqueda del detalle ya no trabaja en cada tecla: espera a que dejes de escribir.
