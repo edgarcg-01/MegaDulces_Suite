@@ -80,11 +80,11 @@ Uso de 30 días al 2026-11-14, prod, sólo lectura.
 
 | # | Paso del pedido | Ruta | Quién opera | Entradas | API de quien opera (30 d) | `check:pantalla` (deuda) | Estado tras GP.10.4 |
 |---|---|---|---|---:|---|---|---|
-| 1 | Consola maestra | `/almacen/pedidos` | coordinación, consulta | 34 | 682 lecturas (135 ms en promedio, máx. 823) | Q.1 · §2 · §9 | absorbió Preventa y Consola (en código, sin soltar) |
+| 1 | Consola maestra | `/almacen/pedidos` | coordinación, consulta | 34 | 682 lecturas (135 ms en promedio, máx. 823) | Q.1 · §2 · §9 | absorbió Preventa y Consola (en prod; meta medida en §5d) |
 | 1a | — vista «Fila de surtido» | `/almacen/pedidos?vista=fila` | coordina el surtido | (5 por la ruta vieja) | 63 aperturas; armar 2 veces sin falla | Q.1 · §2 · §9 · O.4 | era la Consola de surtido |
 | 1b | — detalle de un `PD-` | `/almacen/pedidos/preventa?pedido=` | encargado, Dirección | 2 | 69 lecturas · ligar 14 (sólo Dirección, octubre) | Q.1 · §2 · §9 | sin pestaña: detalle de preventa |
 | 2 | Surtir (celular) | `/almacen/surtir` | surtidor | 73 | surtidores: «mis surtidos» 570 (14 ms) · «siguiente» 54 (173 ms, máx. 781) | Q.1 · §2 · §9 | sin cambio; E2 le agrega carreta |
-| 2b | Surtir preventa (celular) | `/almacen/surtir-preventa` | surtidor de sucursal | 0 | 6,880 lecturas · terminar: **73 de 696 rechazados (10.5 %)** | Q.1 | ⚠️ duplica el modo Sucursal de Surtir (deuda con nombre) |
+| 2b | Surtir preventa (celular) | `/almacen/surtir-preventa` | surtidor de sucursal | 0 | 6,880 lecturas · terminar: **73 de 696 rechazados (10.5 %)** | Q.1 | retirada en GP.RF.32: quien surte llega a Surtir con su pedido |
 | 3 | Checar | `/almacen/checar` | checador | 1 | **ningún checador lo usó**: 16 «siguiente», de Dirección, superadmin y un surtidor | Q.1 · §2 · §9 | sin cambio; E3 lo rehace |
 | 4 | Por capturar en Kepler | `/almacen/pedidos-por-capturar` | facturación | 0 | 33 lecturas | Q.1 · §2 · §9 · O.4 | se retira o queda como bandeja de fallas (paso 4b) |
 | 5 | Revisión de pedidos (caja) | `/almacen/pedidos/revision` | caja | 52 | 15,974 lecturas · terminar: caja **20 de 187 rechazados (10.7 %)** | — | D9: preventa no se toca en esta etapa |
@@ -1085,6 +1085,64 @@ sección, con su motivo.
 
 ---
 
+## 5d. Revisión del plan y meta de la consola, medida (2026-11-19) 🧪
+
+**El pedido (Edgar):** *«aún todo está en fase de pruebas, sigamos corrigiendo el proceso»* y
+*«revisa el plan»*. Nada de lo que sigue cambia de 🧪 a ✅: todo sigue en pruebas hasta el piloto.
+
+### 5d.1 Lo que encontró la revisión del plan
+
+- ⭐ **El riesgo: pulir pantallas que el plan va a rehacer.** E3 rehace Checar (GP.13) y convierte
+  «Por capturar en Kepler» en la bandeja de lo que la Suite no pudo escribir (GP.12.3). Hasta E3,
+  esas dos pantallas **sólo se miden**: no se invierte en su presentación.
+- **El camino que mueve la fase está detenido en E0:** los permisos por columna de `kepler_push`
+  (GP.12.0e, los corre el PM), juntar más pedidos de cada transición (GP.12.0a) y el dueño de piso
+  del piloto (P-GP.1). **E2 (carretas) no tiene bloqueo técnico**: falta que Edgar la abra.
+- **Las sesiones por puesto (P-RF.1) siguen pendientes desde el 14-nov.** Sin ellas no se miden los
+  toques por renglón de Surtir ni por qué ningún checador usa Checar.
+- **Los documentos se habían quedado atrás:** el plan, en el 14-nov; §6 de este documento daba como
+  faltantes cosas ya hechas y nombraba una pantalla retirada. Se pusieron al día aquí y en el plan.
+
+### 5d.2 La meta de E1, medida en prod
+
+Servicio real (`WarehouseOrdersService`) contra `pg-prod` en sólo lectura, noviembre completo, y
+`analytics.ui_usage` para la latencia medida dentro del servidor.
+
+| Meta de E1 | Resultado | Cómo se midió |
+|---|---|---|
+| Pantallas para seguir un pedido: 3 → 1 | ✅ en prod: Preventa y Consola de surtido redirigen al Tablero | rutas en prod desde `4d99357f7` |
+| Pedidos visibles: 100 % | ✅ **Kepler 1,737 de 1,737** y **preventa 1,020 de 1,020**, ni uno de más ni de menos; 2,757 filas en 6 páginas, ninguna repetida. Los 108 cancelados quedan fuera de los totales, como se diseñó | todas las páginas de «Todos» contra un testigo escrito aparte: la versión más reciente de cada `U-D-40` en `kdm1`, y los `PD-` de ruta en `commercial.orders` |
+| Carga < 500 ms | ⚠️ **Cumple para quien opera una sucursal** (surtidor, auxiliar y encargado de tienda: 50–230 ms de promedio diario; coordinador de embarques 89–168 ms). **No cumple para quien ve varias**: supervisor 577–1,656 ms, superadmin hasta 832 ms de promedio y 2.7 s de máximo. Desde la laptop, todas las sucursales: ~1 s en caliente y 5 s en frío | `ui_usage` de 10 días, por día y por rol; y la llamada con la que abre el Tablero, corrida 6 veces |
+
+→ **GP.RF.43** (nuevo): el Tablero de quien ve varias sucursales pasa el medio segundo.
+
+### 5d.3 Lo que se corrigió (en código, sin soltar)
+
+- **GP.RF.42 — Por qué la caja rechaza cierres.** La revisión en caja rechazaba 20 de 187 cierres
+  (10.7 %) y nadie guardaba el motivo. Ahora cada rechazo deja, por el canal de incidentes:
+  - el código y el mensaje del servidor;
+  - los renglones, y cuántos se bajaron con motivo;
+  - si la revisión venía guardada de antes y cuántos minutos llevaba abierto el pedido.
+
+  Es lo mismo que ya hace Surtir (GP.RF.23), y nada de lo que la persona escribe viaja. La prueba se
+  pone en rojo si se quita el registro.
+- **GP.10.1b — Un pedido cancelado ya no se ve avanzado** en el seguimiento de la cotización
+  (televenta). Medido en prod:
+  - 6 de 359 cotizaciones en Kepler tienen el pedido cancelado;
+  - 3 decían «Embarcado» sin ningún embarque;
+  - los 5 revisados están en $0 y sin renglones.
+
+  Ahora el seguimiento dice «Pedido cancelado en Kepler» y el folio va marcado. No quedan pasos
+  pendientes, y los productos que Kepler borra al cancelar ya no se listan como «quitados». Los 353
+  pedidos vivos no cambian.
+
+### 5d.4 Lo que sigue sin medir
+
+- El marco del Tablero en prod (GP.RF.10, GP.RF.20): necesita una sesión vigente.
+- La causa de los cierres rechazados de Surtir y de la caja: los registros empiezan al soltar.
+
+---
+
 ## 6. Los pasos que siguen
 
 Cada paso arranca con la línea base de su pantalla (Playwright), recorre el proceso **completo**
@@ -1092,12 +1150,12 @@ con datos reales y termina con la medición de después. El orden sigue el recor
 
 | Paso | Interfaz | La pregunta del paso | Qué se mide con Playwright |
 |---|---|---|---|
-| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» y el «después» de GP.10.4 medidos el 2026-11-17 (§5). 🧪 GP.RF.15 en código. Falta: GP.RF.20 (marco), GP.10.5 (tope y peso), GP.RF.21 (preventa a un clic), GP.RF.16 (aviso de atorados) y la regla de los surtidos abandonados (P-RF.4) |
+| **1** | Tablero + fila de surtido + detalle de `PD-` | ¿Quien coordina ve en la primera pantalla qué pedido está atorado y qué sigue, sin clic? | ✅ el «antes» y el «después» de GP.10.4 medidos el 2026-11-17 (§5). 🧪 en prod: GP.RF.15, 16, 20, 21, 22 y GP.10.5; la meta de E1 medida el 2026-11-19 (§5d). Falta: el marco medido en prod con sesión (GP.RF.10), el Tablero de quien ve varias sucursales (GP.RF.43) y la regla de los surtidos abandonados (P-RF.4, de Edgar) |
 | **2** | Surtir (celular) | ¿El surtidor termina un pedido sin pensar qué tocar? | 🔨 **línea base medida el 2026-11-17 (§5c)**: dónde surten, los 84 cierres rechazados, la bandeja a 390 px, «No hubo» y Surtir (Kepler). Falta, con el puesto de surtidor: los toques por renglón y el tamaño real de los botones; y registrar el motivo de cada rechazo |
-| **2b** | Surtir preventa | ¿Hace falta una segunda pantalla de surtir? ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | lado a lado con Surtir: actos que una tiene y la otra no (sustitutos, «otra unidad»); el mensaje del rechazo |
-| **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? ¿Hace falta elegir almacén cada vez? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo |
-| **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy |
-| **5** | Revisión + Guías (caja) | ¿Cuántas pantallas y clics le toma a la caja cerrar un pedido de preventa? | clics por pedido; frecuencia de encuesta (GP.RF.6). D9: sólo se audita |
+| **2b** | Surtir preventa | ✅ contestada: no hacía falta, se retiró (GP.RF.32). ¿Por qué se rechaza uno de cada diez cierres (GP.RF.3)? | 🧪 el motivo de cada rechazo queda registrado (GP.RF.23); la causa se lee de esos registros |
+| **3** | Checar | ¿Por qué ningún checador lo usa (GP.RF.8)? | con el puesto de checador: el recorrido con y sin pedidos en la cola, y los clics antes del primer escaneo. ⛔ Hasta E3 sólo se mide: GP.13 lo rehace (§5d) |
+| **4** | Por capturar en Kepler | ¿Sigue haciendo falta cuando la Suite escriba SURTIDO (GP.12)? | qué le pide a Facturación y cuántos pedidos tiene hoy. ⛔ Hasta E3 sólo se mide: GP.12.3 la convierte en bandeja (§5d) |
+| **5** | Revisión + Guías (caja) | ¿Cuántas pantallas y clics le toma a la caja cerrar un pedido de preventa? ¿Por qué se rechaza uno de cada diez cierres? | clics por pedido; frecuencia de encuesta (GP.RF.6). 🧪 el motivo de cada rechazo queda registrado (GP.RF.42). D9: sólo se audita |
 | **6** | Clientes nuevos | ¿Es una pantalla, o es un aviso dentro de Surtir o del Tablero? | qué hace la persona ahí y cuántas veces |
 | **7** | Ubicaciones (fase UB) | ¿Mapa y contenido son una sola tarea? | ✅ adelantado: §5b (captura de punta a punta, 2026-11-17). Falta: medir con el puesto que captura y en celular |
 
@@ -1147,6 +1205,8 @@ Formato de cada hallazgo:
 | GP.RF.39 | 2 | 🟠 | Las flechas no elegían en NINGÚN `role="radio"` que dependiera del listener global: el listener se desconocía a sí mismo al escribir `tabindex` | A + prueba | el patrón que el lector de pantalla anuncia no funciona; el Tab entraba por la opción vieja | `accessibility` §2 (el rol promete su teclado); D.4 de `DESIGN.md` | marca propia y repaso con `aria-checked`, con 6 pruebas (3 rojas antes) (§5c.7) | 🧪 |
 | GP.RF.40 | 2 | 🟡 | El CLS de la carga (0.056) es el cambio de fuente: la tarjeta se re-parte en dos renglones cuando llega Hanken Grotesk (`display=swap`) | A | la lista brinca 22 px al cargar; un toque puede caer en otra tarjeta | `visually-stable-font-fallbacks`; Doherty | 2026-11-18: la causa era el folio en Geist Mono (Consolas 8.4 % más angosta). Respaldos con `size-adjust` para Hanken y Geist Mono en `tokens.css`: Surtir 0.052 → 0.0008, igual que sin cambio de letra (§5c.8) | 🧪 |
 | GP.RF.41 | 2 | 🟡 | El selector de almacén y los chips de origen sólo tenían `aria-label`: con el almacén elegido, el selector mostraba un nombre sin decir qué era | A | adivinar qué es cada control; regla `forms` | `forms` («DON'T use aria-label when a visible label can be used»); `accessibility` | rótulos visibles «Almacén» y «Pedidos de» encima de cada control, siguen en un renglón (+22 px) (§5c.8) | 🧪 |
+| GP.RF.42 | 5 | 🟠 | La revisión en caja rechaza 20 de 187 cierres (10.7 %, todos 4xx) y el motivo no queda en ningún lado: el servidor no lo guarda y el aviso dura 8 s | B | uno de cada diez cierres de caja se repite sin saber por qué | Retrabajo (`auditoria-diseno` §3c) | registrar el motivo como en Surtir (GP.RF.23): código, mensaje, renglones, bajados, si venía guardada y minutos abierto | 🧪 2026-11-19 (§5d). La causa se lee de los registros |
+| GP.RF.43 | 1 | 🟡 | El Tablero de quien ve varias sucursales pasa el medio segundo: supervisor 577–1,656 ms de promedio diario, superadmin hasta 2.7 s; quien opera una sucursal, 50–230 ms | B (`ui_usage`, por rol) | la vista de supervisión espera más de un segundo | regla de Edgar: más de 500 ms no funciona | se optimiza aparte, con medición antes y después en la misma tanda (regla 15) | ⬜ |
 | GP.RF.30 | 2 | 🟠 | «Salir» de Surtir (y de Checar) no regresa a donde estabas: iba fijo a /almacen, que brinca a la primera pantalla del área. Del Tablero a Surtir, «Salir» dejaba en Inventario; para el surtidor, en Surtir misma (no hacía nada). Lo encontró Edgar | A (reproducido en prod con salir-foco.e2e.ts) | un viaje entero para volver a donde se estaba | Jakob (Atrás vuelve a donde estabas) | regresa a la pantalla anterior; sin ella, al Tablero, o a «Mi trabajo» si el puesto no lo abre | 🧪 |
 
 ---
@@ -1155,6 +1215,7 @@ Formato de cada hallazgo:
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-19 | **Revisión del plan y meta de la consola medida** (§5d), a pedido de Edgar («revisa el plan»; todo sigue en pruebas). La consola muestra el 100 % de los pedidos del mes contra un testigo aparte (Kepler 1,737, preventa 1,020) y abre en menos de medio segundo para quien opera una sucursal, no para quien ve varias (GP.RF.43). Corregido en código: la caja registra el motivo de cada cierre rechazado (GP.RF.42) y el seguimiento de la cotización dice «Pedido cancelado en Kepler» (GP.10.1b: 3 de 6 cancelados decían «Embarcado»). Checar y Por capturar sólo se miden hasta E3. Ese mismo día salió a prod (`c11d75014`) lo del 18-nov. | Edgar (pedido), Claude |
 | 2026-11-18 | **El brinco al cargar y el rótulo del almacén** 🧪 (GP.RF.40–41), a pedido de Edgar («hagámoslo»). El brinco de Surtir no era Hanken sino el folio en Geist Mono, que se pinta primero en Consolas, 8.4 % más angosta. Respaldos con las medidas de la letra web en `tokens.css`, para las tres apps: Surtir en el celular pasa de 0.052 a 0.0008, lo mismo que sin cambio de letra. Se descartó `font-size-adjust`, la vía principal de la guía: medido, empeoraba el ancho. El selector de almacén y los chips de origen llevan rótulo visible y siguen en un renglón (§5c.8). | Edgar (pedido), Claude |
 | 2026-11-18 | **Surtir re-auditado con Modern Web Guidance** 🧪 (GP.RF.38–40), a pedido de Edgar, con 12 guías y Playwright sobre una API sintética (la sesión de prod venció). Con un pedido abierto, el «atrás» del celular ya no saca de Surtir; el foco va al pedido y regresa a su tarjeta; hay h1; el renglón de vendedores dice que hay más y no corta el anillo de foco. Salió un defecto global: las flechas no elegían en ningún `role="radio"` sin teclado propio (GP.RF.39, arreglado en `libs/ui-web` con su prueba roja antes). El CLS es el cambio de fuente de toda la Suite (GP.RF.40, propuesto). De paso: el merge `223e12668` de otra sesión había dejado una línea `=======` en el spec de Surtir y el archivo no compilaba; se quitó (§5c.7). | Edgar (pedido), Claude |
 | 2026-11-17 | **Surtir reestructurado** 🧪 (GP.RF.35–37 y GP.RF.29), con la maqueta que aprobó Edgar después de decir «no reestructuraste la interfaz». Medido con Playwright, con su control y su negativa: a 390 px la primera tarjeta pasa de 1,001 a 504 px, el pedido abre arriba (antes a −1,381 px) y el escáner queda fijo. De paso salieron: el esqueleto de «Rutas de hoy» que hacía saltar la lista, el escáner con borde de aviso, 10 textos bajo AA y el «500 clientes» topado. Primero salió un encimado que era falso positivo del instrumento: se corrigió y se probó el detector con una maqueta rota (§5c.6). | Edgar (maqueta), Claude |

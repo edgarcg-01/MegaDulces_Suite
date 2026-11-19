@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2837 KB, 15075 líneas, 78 secciones.
+> **Índice navegable** — 2838 KB, 15077 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13885 | 13926 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13927 | 14084 | 75 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14085 | 14115 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14116 | 14382 | 48 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14383 | 14447 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14448 | 14456 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14457 | 14510 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14517 | 14526 | 1 | 📝 Convenciones |
-| 14527 | 14564 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14565 | 14583 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14584 | 14636 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14637 | 15023 | 78 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15024 | 15054 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15055 | 15076 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15077 | 15104 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15105 | 15138 | 29 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15139 | 15165 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14116 | 14384 | 49 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14385 | 14449 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14450 | 14458 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14459 | 14512 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14519 | 14528 | 1 | 📝 Convenciones |
+| 14529 | 14566 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14567 | 14585 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14586 | 14638 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14639 | 15025 | 78 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15026 | 15056 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15057 | 15078 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15079 | 15106 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15107 | 15140 | 29 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15141 | 15167 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14326,6 +14326,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Pastilla de frescura verificada en el navegador (12 px, sin región viva sobre el texto que avanza). NO MEDIDO: Revisión en el navegador (el servidor de desarrollo se apagó; `revision-letra.e2e.ts` listo).
 >   - [x] **[GP.RF.13] (Revisión, en el navegador)** 🧪 (2026-11-18) Medido `revision-letra.e2e.ts` al volver el servidor: dentro del pedido 4 tamaños (20/18/14 + el 13 del marco). Encontró y se corrigieron 2 textos bajo AA: «▶ REVISANDO» 4.24 → 7.15 (`--info-soft-fg`) y el botón «Está bien» 3.30 → 7.13 (fondo `--ok-soft-fg`). Re-medido: 0 bajo AA.
 >   - [x] **[GP.RF.42]** 🧪 (2026-11-19) **La caja deja el motivo de cada cierre rechazado**, como Surtir (GP.RF.23). Medido en prod (30 días al 14-nov): 20 de 187 cierres de la revisión en caja rechazados (10.7 %, todos 4xx) y el motivo no quedaba en ningún lado. Ahora va por el canal de incidentes (`revision_cierre_rechazado`): código, mensaje del servidor, renglones, bajados, si la revisión venía guardada y cuántos minutos llevaba abierto el pedido. Nada de lo que la persona escribe. Prueba con su negativa (sin el registro, la prueba se pone roja). La causa se lee de esos registros después de soltar.
+>   - [x] **[GP.RF.0] (revisión del plan, 2026-11-19)** 🧪 Edgar: «revisa el plan»; todo sigue en pruebas. Meta de E1 medida en prod, sólo lectura: 1 pantalla para seguir un pedido; 100 % de los pedidos de noviembre visibles contra un testigo aparte (Kepler 1,737 de 1,737, preventa 1,020 de 1,020; 108 cancelados aparte); carga bajo 500 ms para quien opera una sucursal (50–230 ms en `ui_usage`), no para quien ve varias. Checar y «Por capturar» sólo se miden hasta E3. Plan y auditoría puestos al día (auditoría §5d).
+>   - [ ] **[GP.RF.43]** ⬜ El Tablero de quien ve varias sucursales pasa el medio segundo: supervisor 577–1,656 ms de promedio diario y superadmin hasta 2.7 s (`ui_usage`, 10 días, por rol); quien opera una sucursal, 50–230 ms. Optimizar aparte, con medición antes y después en la misma tanda (regla 15).
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.

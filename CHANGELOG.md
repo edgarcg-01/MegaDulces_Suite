@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Internal — Fase GP: revisión del plan y meta de la consola medida (2026-11-19)
+- La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo para quien opera una sucursal; para quien ve varias todavía no (pendiente).
+
 ### Fixed — Seguimiento de cotización: un pedido cancelado en Kepler ya no aparece embarcado; la caja deja el motivo de sus cierres rechazados (GP.10.1b · GP.RF.42 · 2026-11-19 · en código, sin soltar)
 - Si Kepler canceló el pedido de una cotización, el seguimiento lo dice («Pedido cancelado en Kepler») en lugar de mostrarlo surtido o embarcado, y no presenta como quitados los productos que Kepler borra al cancelar.
 - Cuando la revisión en caja no puede terminar un pedido, la razón queda registrada para poder corregirla.
