@@ -281,8 +281,10 @@ suite('[UB.3] Asignación por producto y presentación, contra Postgres real (tr
   });
 
   it('[UB.RF.11] orden=venta pone primero lo más vendido; orden=nombre, como antes. Venta en 0 no cuenta como venta', async () => {
-    const [p2] = await trx('catalog.products').insert({ tenant_id: M, nombre: 'UBIT ZACATE SEGUNDO', sku: 'UBIT-ZZ2' }).returning('id');
-    const [p3] = await trx('catalog.products').insert({ tenant_id: M, nombre: 'UBIT ALFA SIN VENTA', sku: 'UBIT-AA3' }).returning('id');
+    // `brand_id` es NOT NULL en la base real (el CI lo encontró el 2026-11-19): la marca del producto sembrado.
+    const { brand_id } = await trx('catalog.products').where({ id: ids['producto'] }).first('brand_id');
+    const [p2] = await trx('catalog.products').insert({ tenant_id: M, brand_id, nombre: 'UBIT ZACATE SEGUNDO', sku: 'UBIT-ZZ2' }).returning('id');
+    const [p3] = await trx('catalog.products').insert({ tenant_id: M, brand_id, nombre: 'UBIT ALFA SIN VENTA', sku: 'UBIT-AA3' }).returning('id');
     await trx('kepler_ods.kdii').insert([
       { sucursal: SUC, c1: 'UBIT-ZZ2', c11: 'PZA', c80: 'PZA', c83: 'CJA', c84: 10, c77: '5', c79: 50 },
       { sucursal: SUC, c1: 'UBIT-AA3', c11: 'PZA', c80: 'PZA', c83: 'CJA', c84: 10, c77: '5', c79: 50 },
