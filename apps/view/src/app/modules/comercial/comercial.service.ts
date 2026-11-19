@@ -1256,9 +1256,6 @@ export class ComercialService {
     if (opts.pageSize) params = params.set('pageSize', String(opts.pageSize));
     return this.http.get<Paged<StockRow>>(`${this.base}/inventory/stock`, { params });
   }
-  adjustStock(body: { warehouse_id: string; product_id: string; new_quantity: number; notes?: string }) {
-    return this.http.post<StockRow>(`${this.base}/inventory/adjust`, body);
-  }
   recordMovement(body: { warehouse_id: string; product_id: string; movement_type: StockMovementType; quantity: number; notes?: string }) {
     return this.http.post<StockMovement>(`${this.base}/inventory/movements`, body);
   }

@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import knexFactory from 'knex';
-import { EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
+import { EXISTENCIA_ODS_CON_APARTADO_SQL, EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
 
 /**
  * `[CANON.7.2]` Los reportes leen la existencia del ODS, no la copia `commercial.stock` del importer
@@ -121,5 +121,28 @@ describe('[CANON.7.3] los lectores clase B ya no leen la copia', () => {
       expect(f).not.toMatch(/\bs\.id IS (NOT )?NULL/);
       expect(f).toContain('CASE WHEN s.product_id IS NULL THEN NULL');
     }
+  });
+});
+
+describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el apartado de la app', () => {
+  it('la cantidad sale del ODS; de la copia sólo el apartado, que es dato propio', () => {
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain(`FROM ${EXISTENCIA_ODS_SQL} o`);
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('o.quantity');
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('COALESCE(ap.reserved_quantity, 0)');
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).not.toMatch(/ap\.quantity/);
+  });
+
+  it('listStock la usa y ya no lee la cantidad de la copia', () => {
+    const f = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.service.ts'), 'utf8').split('\r\n').join('\n');
+    const i = f.indexOf('async listStock(');
+    const cuerpo = f.slice(i, f.indexOf('\n  async ', i + 10));
+    expect(cuerpo).toContain('EXISTENCIA_ODS_CON_APARTADO_SQL');
+    expect(lecturasDeLaCopia(cuerpo)).toEqual([]);
+  });
+
+  it('D-EX3: la portada ya no ajusta (0 llamadas en 60 días; el ajuste es de Kepler) y no se llama «Ajustes»', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8');
+    expect(c).not.toMatch(/adjustStock|openAdjust|<p-dialog/);
+    expect(c).toContain('<h1>Existencia y apartados</h1>');
   });
 });

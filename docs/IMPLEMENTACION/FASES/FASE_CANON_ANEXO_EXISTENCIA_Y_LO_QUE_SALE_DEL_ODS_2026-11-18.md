@@ -153,6 +153,13 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    | **7.4e Scanner de reorden** (A13) | cron de medianoche + `scan-now` | lee el ODS como la pantalla de Existencia crítica (hoy difieren en el CEDIS) |
 
    Cada pieza que escribe lleva su prueba contra base real con el payload de la pantalla (regla 13).
+
+   🧪 **7.4a en código (2026-11-19).** La portada lee `EXISTENCIA_ODS_CON_APARTADO_SQL` (la cantidad del ODS y el apartado
+   de la app, que es dato propio); D-EX3 firmada («hagámoslo»): fuera «Ajustar» y la pantalla pasa a llamarse «Existencia y
+   apartados» (pestaña, menú, permiso, ayuda y la nota de Existencia). Medido en prod con RLS: el CEDIS pasa de 205
+   renglones congelados a 1,618; una página por sucursal 270–325 ms; la cuenta de la red 708 → 117 ms (sin los cuatro
+   joins 1:1, mismo total con y sin ellos). ⚠️ El resumen sin filtro de sucursal baja de 1.06 s a 0.64 s y sigue arriba de
+   500 ms: deuda con nombre. `POST /inventory/adjust` sigue vivo sin pantalla: se retira en 7.4d. Sin validación visual.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

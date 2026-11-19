@@ -7,6 +7,7 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { declararFechado } from './por-vencer';
+import { EXISTENCIA_ODS_CON_APARTADO_SQL } from './stock-state';
 
 export type StockMovementType =
   | 'in'
@@ -83,7 +84,9 @@ export class CommercialInventoryService {
       throw new BadRequestException('product_id inválido');
 
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.stock as s')
+      // [CANON.7.4a] La existencia del ODS + el apartado de la Suite (dato propio). Hasta el 2026-11-19 leía la
+      // copia `commercial.stock` del importer: el CEDIS congelado desde el 16-oct y `MD-32`, un almacén borrado.
+      let q = trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`))
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('public.products as p', 'p.id', 's.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
@@ -100,7 +103,12 @@ export class CommercialInventoryService {
       if (query.warehouse_id) q = q.where('s.warehouse_id', query.warehouse_id);
       if (query.product_id) q = q.where('s.product_id', query.product_id);
 
-      const [{ count }] = await q.clone().count<{ count: string }[]>('* as count');
+      // [CANON.7.4a] La cuenta sin los joins: los cuatro son 1:1 y no cambian el total (medido el 2026-11-19: 33,522
+      // con y sin ellos en la red, 4,778 en Padre Hidalgo). Sin `v_erp_unit_cost` la red baja de ~750 a ~120 ms.
+      const conteo = trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`));
+      if (query.warehouse_id) conteo.where('s.warehouse_id', query.warehouse_id);
+      if (query.product_id) conteo.where('s.product_id', query.product_id);
+      const [{ count }] = await conteo.count<{ count: string }[]>('* as count');
 
       const data = await q
         .select(
