@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Mesa de Servicio: «Agregar a la cola» explica quién aparece y por qué falta alguien (MS.8.4 · 2026-11-19 · fusionado, sin soltar)
+- Debajo del selector se dice siempre que sólo aparece quien tiene el permiso de atender o de coordinar y aún no está en la cola, y que Administración da ese permiso desde Personas. Antes sólo se decía con la lista vacía, y quien faltaba (Ubaldo, en Mantenimiento) faltaba sin explicación.
+- Al buscar un nombre que no está, el selector ya no dice «Nada coincide con la búsqueda»: dice que esa persona ya está en la cola o le falta el permiso.
 ### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
