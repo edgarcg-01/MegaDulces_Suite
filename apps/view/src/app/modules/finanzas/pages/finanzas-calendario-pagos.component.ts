@@ -18,7 +18,7 @@ import type {
   PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
   DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
-import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
+import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, bancoCanonico, bancoSinCuentaNuestra, destinoSinClabe, origenesParaDestino, origenPropuesto } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
 import { textoCfdi, textoMetodo } from '@megadulces/contracts/finance/cfdi-factura';
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
@@ -229,11 +229,20 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <!-- [PGP.142] D14 (Francisco, 2026-11-17): el anticipo VIVE en el Calendario. Se pide aquí con sus papeles
              (OC de Kepler, cotización, cuenta) para el día que se está viendo, y aparece en la franja de ese día.
              Lo ven Compras y quien programa pagos: la misma lista de permisos que exige el servidor.
-             [PGP.142] Quien autoriza (Dirección) no lo ve aquí: tiene «Programar un anticipo en este día» de
-             [PGP.138] (ADR-120). Cada quien, UNA entrada al anticipo en el Calendario, no dos. -->
+             [PGP.142] Quien autoriza (Dirección) no lo ve aquí: tiene «Programar anticipo» de [PGP.138] (ADR-120),
+             en este mismo lugar. Cada quien, UNA entrada al anticipo en el Calendario, no dos. -->
         @if (puedePedirAnticipo() && !puedeProgramarAnticipo()) {
           <button pButton type="button" class="pg-pedir-ant p-button-sm p-button-outlined p-button-secondary" (click)="pedirAnt.abrir(diaParaAnticipo())">
             <span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Pedir anticipo
+          </button>
+        }
+        <!-- [PGP.138] Programar un anticipo en el día que se ve: sólo Dirección (Edgar, 2026-11-17), nunca en un día que
+             ya pasó ni en uno ya soltado (las condiciones que tenía dentro de «Agregar facturas»).
+             [PGP.155.2] A un clic y donde Compras tiene «Pedir anticipo»: cada rol lo encuentra en el mismo lugar.
+             En la barra del día partía el renglón a 1440 px (+12 px, «Comprobantes PDF» abajo): medido. -->
+        @if (modo() === 'dia' && selectedDay() && puedeAgregar() && puedeProgramarAnticipo() && !diaPasado()) {
+          <button pButton type="button" class="pg-pedir-ant pg-prog-ant p-button-sm p-button-outlined p-button-secondary" aria-haspopup="dialog" (click)="anticipoVisible.set(true)">
+            <span class="pi pi-wallet" aria-hidden="true"></span>&nbsp;Programar anticipo
           </button>
         }
       </div>
@@ -503,10 +512,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (obligacionesEnRevision().length) {
                     <button type="button" class="pg-link" (click)="verLista.set(true); verRevision.set(true)"><i class="pi pi-lock" aria-hidden="true"></i>{{ obligacionesEnRevision().length }} por confirmar</button>
                   }
-                  <!-- [PGP.138] Programar un anticipo en este día: sólo Dirección (Edgar, 2026-11-17), y nunca en un día que ya pasó. -->
-                  @if (puedeProgramarAnticipo() && !diaPasado()) {
-                    <button type="button" class="pg-link" aria-haspopup="dialog" (click)="anticipoVisible.set(true)"><i class="pi pi-wallet" aria-hidden="true"></i>Programar un anticipo en este día</button>
-                  }
+                  <!-- [PGP.155.2] «Programar un anticipo» ya no vive aquí: un anticipo no es una factura, y escondido
+                       en «Agregar facturas» costaba 3 clics y un enlace de 13 px (recorrido visual). Está junto a
+                       «Por etapa / Por día», donde Compras tiene «Pedir anticipo»: sigue siendo UNA entrada ([PGP.142]). -->
                 </p>
               } @else {
                 <!-- ── LA LISTA: con búsqueda o con «Ver todas». Tiene su propio alto y su propio scroll. ── -->
@@ -1339,7 +1347,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}</p>
       }
       <label class="cal-dlg-label" for="cal-prep-method">Método de pago</label>
-      <p-select appendTo="body" inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" optionLabel="label" optionValue="value" placeholder="Método" [fluid]="true" class="cal-dlg-sel" />
+      <p-select appendTo="body" inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" (onChange)="ajustarOrigenAlDestino()" optionLabel="label" optionValue="value" placeholder="Método" [fluid]="true" class="cal-dlg-sel" />
       <!-- [PGP.30] De dónde salió lo precargado. Un valor puesto solo, sin decir con qué, es una
            orden disfrazada: acá va su evidencia para poder contradecirla de un vistazo. -->
       @if (habitoUsado(); as h) {
@@ -1360,10 +1368,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <p class="cal-dlg-hint cal-habito">No se precargó: a este proveedor se le ha pagado de varias formas ({{ h.metodo_veces }} de {{ h.metodo_de }} con la más usada).</p>
         }
       }
-      @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico' || prepMethod === 'cheque') {
-        <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
-        <p-select appendTo="body" inputId="cal-prep-origin" [options]="originOpts()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
-      }
+      <!-- [PGP.155.2] El DESTINO va antes que el origen: es el que decide de qué banco puede salir (sin CLABE, sólo del
+           mismo). Antes el aviso «la cuenta destino no tiene CLABE» salía bajo el origen, tres bloques antes de que se
+           viera el destino (recorrido visual). -->
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico') {
         <!-- [PGP.128] D12: un anticipo se transfiere sólo a la cuenta APROBADA de su cotización; la CLABE a mano no se acepta. -->
         @if (prepAllocation && esPagoDeAnticipo(prepAllocation)) {
@@ -1371,7 +1378,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         }
         @if (prepAccounts().length) {
           <label class="cal-dlg-label" for="cal-prep-dest">Cuenta destino del catálogo del proveedor</label>
-          <p-select appendTo="body" inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" [fluid]="true" class="cal-dlg-sel" />
+          <p-select appendTo="body" inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" (onChange)="ajustarOrigenAlDestino()" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" [fluid]="true" class="cal-dlg-sel" />
         } @else if (prepAccountsError()) {
           <p class="cal-dlg-hint"><b>No se pudo leer el catálogo de cuentas del proveedor ({{ prepAccountsError() }}).</b> Captura la CLABE abajo.</p>
         } @else if (prepPedida(); as p) {
@@ -1395,6 +1402,18 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <!-- [PGP.143] Sin campo de CLABE a mano (anticipo) no se habla de escribirla: lo encontró el recorrido visual. -->
         @if (!(prepAllocation && esPagoDeAnticipo(prepAllocation))) {
           <p class="cal-dlg-hint">Si escribes una CLABE de 18 dígitos se valida su dígito de control.</p>
+        }
+      }
+      @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico' || prepMethod === 'cheque') {
+        <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
+        <!-- [PGP.155] A una cuenta sin CLABE sólo se transfiere desde una cuenta nuestra del mismo banco: sólo se ofrecen ésas. -->
+        <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
+        @if (prepBancoObligado(); as b) {
+          <p class="cal-dlg-hint"><i class="pi pi-building-columns" aria-hidden="true"></i> La cuenta destino no tiene CLABE: la transferencia sale sólo de una cuenta <b>{{ b }}</b> nuestra; de nuestros bancos sólo se ofrecen ésas.</p>
+        } @else if (prepBancoSinCuenta(); as b) {
+          <!-- [PGP.155.2] Revisión independiente: sin cuenta nuestra de ese banco la lista trae todas y el servidor las
+               rechaza; antes el aviso decía «sólo se ofrecen ésas», que era falso. Se dice que así no se puede. -->
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> La cuenta destino no tiene CLABE y no tenemos cuenta <b>{{ b }}</b>: así no se le puede transferir. Pide su CLABE en «Cuentas de pago» o elige otro método.</p>
         }
       }
       @if (prepMethod === 'cheque') {
@@ -3569,7 +3588,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   prepAccountId: string | null = null;
   prepOriginId: string | null = null;
   prepSupplierId: string | null = null;
-  prepAccounts = signal<{ id: string; label: string }[]>([]);
+  /** `[PGP.155]` Con su banco y su CLABE: una cuenta sin CLABE restringe el origen al mismo banco. */
+  prepAccounts = signal<{ id: string; label: string; bank_name: string | null; clabe: string | null; account_number?: string | null }[]>([]);
   /** Un 403/500 del catálogo NO es «el proveedor no tiene cuentas»: se dice distinto. */
   readonly prepAccountsError = signal<string | null>(null);
   /**
@@ -3702,7 +3722,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
   }
 
-  readonly originOpts = signal<{ id: string; label: string }[]>([]);
+  /** `[PGP.155]` Con su banco y su tipo: el diálogo «Preparar» filtra por banco cuando el destino no tiene CLABE. */
+  readonly originOpts = signal<{ id: string; label: string; bank: string; kind: string }[]>([]);
 
   reprogramVisible = false;
   /** `[PGP.48]` Lo que mueve el diálogo «Mover a otro día»: uno, o todos los pendientes de un día ya pasado. */
@@ -4334,7 +4355,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
     this.http.get<PaymentOriginAccount[]>(`${this.base}/origin-accounts`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
-        this.originOpts.set(rows.map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}` })));
+        this.originOpts.set(rows.map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}`, bank: r.bank, kind: r.kind })));
         // Una cuenta recordada que ya no está en el catálogo no se propone: se pide de nuevo.
         if (this.bulkOriginId && !rows.some((r) => r.id === this.bulkOriginId)) this.bulkOriginId = null;
       },
@@ -4460,12 +4481,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** La cuenta en llano: a dónde va el dinero y si Dirección ya la aprobó. */
   cuentaDeAnticipo(s: AnticipoSolicitadoRow): string {
     const c = s.cuenta;
-    const fin = c?.clabe ? `${c.banco ? c.banco + ' ' : ''}···${c.clabe.slice(-4)}` : '';
+    // `[PGP.155]` CLABE o, sin ella, el número de cuenta del mismo banco (VUMERSOFT).
+    const num = c?.clabe ?? c?.numero ?? null;
+    const fin = num ? `${c?.banco ? c.banco + ' ' : ''}···${num.slice(-4)}` : '';
+    const que = c?.clabe ? 'CLABE' : 'Cuenta';
     switch (c?.estado) {
       case 'aprobada': return `a ${fin}, aprobada`;
       case 'en_aprobacion': return `a ${fin}, espera aprobación de Dirección`;
-      case 'rechazada': return `CLABE ${fin} rechazada: pedir otra cuenta`;
-      case 'sin_cuenta': return `CLABE ${fin} sin cuenta aprobada`;
+      case 'rechazada': return `${que} ${fin} rechazada: pedir otra cuenta`;
+      case 'sin_cuenta': return `${que} ${fin} sin cuenta aprobada`;
       case 'efectivo': return 'en efectivo';
       default: return 'sin cuenta capturada';
     }
@@ -5549,10 +5573,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
           // [PGP.90] La referencia fija se ve AL ELEGIR la cuenta: quien prepara sabe que va incluida.
-          this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.payment_reference ? ' · Ref ' + r.payment_reference : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
+          // [PGP.155] Sin CLABE se dice su número de cuenta: antes salía sólo «BBVA (alias)», sin a qué cuenta.
+          this.prepAccounts.set(rows.map((r) => ({
+            id: r.id, bank_name: r.bank_name ?? null, clabe: r.clabe ?? null, account_number: r.account_number ?? null,
+            label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : r.account_number ? ' · Cta ' + r.account_number : ''}${r.payment_reference ? ' · Ref ' + r.payment_reference : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}`,
+          })));
           // La favorita se propone sola; el usuario puede cambiarla. [PGP.75] Gana sobre la CLABE del historial.
           const fav = rows.find((r) => r.es_favorita)?.id ?? null;
           if (!this.prepAccountId && fav && (!this.prepDestination || intacto())) { this.prepAccountId = fav; if (intacto()) { this.prepDestination = ''; this.prepDestHistorial = null; } }
+          this.ajustarOrigenAlDestino();
         },
         error: (e) => { this.prepAccounts.set([]); this.prepAccountsError.set(e?.status === 403 ? 'sin permiso de Compras' : 'error del servidor'); },
       });
@@ -5585,6 +5614,48 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       });
     }
     this.prepareVisible = true;
+  }
+  /**
+   * `[PGP.155]` La cuenta destino elegida del catálogo, con su banco, su CLABE y su número (o `null`).
+   * `[PGP.155.2]` Sólo en transferencia, como el servidor: en un cargo automático el banco de su cuenta no ata el origen.
+   */
+  private prepDestinoElegido(): { clabe: string | null; bank_name: string | null; account_number?: string | null } | null {
+    if (this.prepMethod !== 'transferencia') return null;
+    return this.prepAccounts().find((c) => c.id === this.prepAccountId) ?? null;
+  }
+  /**
+   * `[PGP.155]` Los orígenes que sirven: a una cuenta sin CLABE, sólo nuestras cuentas de ese banco (no hay
+   * SPEI sin CLABE). Con CLABE o sin destino del catálogo, todas. La misma regla que el servidor.
+   */
+  prepOrigenes(): { id: string; label: string; bank: string; kind: string }[] {
+    return origenesParaDestino(this.originOpts(), this.prepDestinoElegido());
+  }
+  /**
+   * `[PGP.155]` El banco que obliga el destino sin CLABE («BBVA»), para decirlo junto al origen; `null` si no obliga.
+   * `[PGP.155.2]` Sólo cuando SÍ tenemos cuenta de ese banco: si no, decir «sólo se ofrecen ésas» era falso
+   * (la lista traía todas) — eso lo dice `prepBancoSinCuenta`.
+   */
+  prepBancoObligado(): string | null {
+    const d = this.prepDestinoElegido();
+    if (!d || !destinoSinClabe(d) || this.prepBancoSinCuenta()) return null;
+    return bancoCanonico(d.bank_name);
+  }
+  /** `[PGP.155.2]` El destino sin CLABE es de un banco del que no tenemos cuenta: así no se le puede transferir. */
+  prepBancoSinCuenta(): string | null {
+    return bancoSinCuentaNuestra(this.originOpts(), this.prepDestinoElegido());
+  }
+  /**
+   * `[PGP.155]` Al elegir (o proponerse) un destino sin CLABE, el origen se ajusta a su banco. Qué cuenta de ese
+   * banco NO se adivina (`[PGP.75]`: es la decisión del día de la Tesorería; VUMERSOFT rota entre cuatro BBVA):
+   * se queda la que ya estaba si es de ese banco; si no, la del día de la barra; si no, la de su historial; y si
+   * sólo hay una de ese banco, ésa. Si no, se queda vacía para elegir entre las de ese banco.
+   */
+  ajustarOrigenAlDestino(): void {
+    if (!this.prepBancoObligado()) return;
+    const h = this.prepAllocation ? this.habitoDe(this.prepAllocation) : null;
+    this.prepOriginId = origenPropuesto({
+      actual: this.prepOriginId, sirven: this.prepOrigenes().map((o) => o.id), delDia: this.bulkOriginId, historial: h?.cuenta_origen_id ?? null,
+    });
   }
   confirmPrepare(): void {
     if (!this.prepAllocation || !this.prepMethod) { this.toast.add({ severity: 'warn', summary: 'Falta el método', detail: 'Elige cómo se paga.' }); return; }

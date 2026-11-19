@@ -16,6 +16,11 @@
 - **Orden de servicio**: si la autoriza, la coordinación manda una orden a Mantenimiento o a Sistemas, a nombre de quien lo pidió, con su sucursal y su evidencia. La solicitud espera a la orden y se resuelve sola cuando la orden se resuelve; la orden dice de qué solicitud viene.
 - Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
 - Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
+### Added — El anticipo a una cuenta del mismo banco sin CLABE, con el importe sugerido desde la OC (PGP.154 · PGP.155 · PGP.155.1 · PGP.155.2 · 2026-11-18 · en código, sin soltar)
+- (PGP.155) **Un anticipo se paga a una cuenta del mismo banco, aunque no tenga CLABE** (VUMERSOFT: BBVA a BBVA con su número de cuenta). Al elegir al proveedor quedan puestas su OC de Kepler, su cuenta aprobada y el importe; el importe se propone como todo lo que queda de la OC, un porcentaje o una cantidad exacta. ⚠️ Necesita su migración en prod antes de pedir uno así.
+- (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
+- (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
+- (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
 
 ### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
 - Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
