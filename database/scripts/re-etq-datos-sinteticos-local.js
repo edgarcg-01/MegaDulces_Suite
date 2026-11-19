@@ -89,7 +89,8 @@ const FOLIOS = ['ETQ0474', 'ETQ0480', 'ETQ0485', 'ETV0487', 'ETV0490'];
     console.log('✓ sembrado en Suc 08. Lo que ve la vista:');
     console.table(v.rows);
   } catch (e) {
-    await c.query('ROLLBACK').catch(() => {});
+    // Si el ROLLBACK también falla (conexión caída), el error que importa es el original: se avisa y se sigue.
+    await c.query('ROLLBACK').catch((r) => console.error('ROLLBACK falló:', r.message));
     throw e;
   } finally {
     await c.end();
