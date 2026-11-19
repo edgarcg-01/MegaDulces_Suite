@@ -194,6 +194,11 @@ export function veredictoDuplicado(
  *
  * Bindings, en orden: `[sha, sha, nucleo, nucleo, nucleo, nucleo, tenant_id]`.
  *
+ * - ⛔ `[RE.84]` **Las evidencias DEVUELTAS (`status = 'rechazado'`) no son candidatas.** Una
+ *   factura devuelta es justo la que hay que volver a subir (el caso del 2026-11-19: dos facturas
+ *   agregadas al revés, devueltas, y al re-subirlas el backstop las frenaba con «ya está subido»).
+ *   Es el mismo criterio que `vigente`/`[RE.31]` con la entrada borrada: un registro que ya no vale
+ *   no puede tapar al que lo reemplaza. El revisor humano sigue siendo la compuerta de la nueva.
  * - `LEFT JOIN LATERAL` a las hojas, para no perder evidencias viejas que sólo traen el folio a
  *   nivel de evidencia.
  * - ⛔ El `ltrim(regexp_replace(...))` replica `folioNucleo()`; el test los compara.
@@ -209,10 +214,11 @@ export const SQL_CANDIDATOS_DUPLICADO = `WITH c AS MATERIALIZED (
          e->>'ocr_rfc' AS f_rfc, e->>'ocr_total' AS f_total
     FROM finance.goods_receipt_proofs p
     LEFT JOIN LATERAL jsonb_array_elements(COALESCE(p.files, '[]'::jsonb)) e ON true
-   WHERE (? <> '' AND e->>'sha256' = ?)
-      OR (? <> '' AND ltrim(regexp_replace(COALESCE(p.ocr_folio, ''), '\\D', '', 'g'), '0') = ?)
-      OR (? <> '' AND (e->>'role') IN ('remision', 'factura')
-                  AND ltrim(regexp_replace(COALESCE(e->>'ocr_folio', ''), '\\D', '', 'g'), '0') = ?)
+   WHERE p.status <> 'rechazado'
+     AND ((? <> '' AND e->>'sha256' = ?)
+       OR (? <> '' AND ltrim(regexp_replace(COALESCE(p.ocr_folio, ''), '\\D', '', 'g'), '0') = ?)
+       OR (? <> '' AND (e->>'role') IN ('remision', 'factura')
+                   AND ltrim(regexp_replace(COALESCE(e->>'ocr_folio', ''), '\\D', '', 'g'), '0') = ?))
    LIMIT 200)
 SELECT c.*, g.proveedor_code, (g.folio IS NOT NULL) AS vigente
   FROM c
