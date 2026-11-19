@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Internal — Bancos: la regla de qué peso está explicado, y la cifra medida (BFU.2.8–2.9 · 2026-11-19 · en código, sin soltar)
+- Una sola función decide si un movimiento del banco está explicado (documento de Kepler o categoría con evidencia; la cobranza sin cliente no cuenta). Octubre: 93.3 %; noviembre sólo con el texto del banco: 10.9 % hasta pasar las cuentas.
 ### Fixed — Bancos: al pasar una cuenta al banco, los pagos y confirmaciones ligados pasan con ella (BFU.2.5 · 2026-11-19 · en código, sin soltar)
 - Lo que estaba ligado a un renglón del libro (pago del calendario, confirmación de ContPAQi, captura, cliente declarado, categoría puesta a mano) pasa al mismo movimiento del banco; lo que no tiene pareja se avisa, no se adivina.
 ### Added — Bancos › Estados de cuenta: los archivos sin número de cuenta se comprueban por la cadena de saldos (BFU.1.3 · 2026-11-19 · en código, sin soltar)

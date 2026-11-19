@@ -18,7 +18,8 @@ OBJETIVO: Que el estado de cuenta de cada cuenta en Bancos › Cuentas sea la ve
 MÉTRICA 1 (la verdad):  Cuentas cuyo estado de cuenta cumple las 7 propiedades (§2)
           HOY (2026-11-19): 0 de 18 → META: 17 de 18 (STDR 5565 por D5) para <fecha a firmar>
 MÉTRICA 2 (toda la verdad): Pesos del estado de cuenta explicados (§2, propiedad 4)
-          HOY: 82.2 % con documento de Kepler en oct-2026 (el libro, su mejor mes); de la descarga, NO MEDIDO
+          HOY (medido con la función real, BFU.2.9): oct-2026 (libro) 93.3 % explicado, 82.2 % con documento de Kepler;
+          nov-2026 (descarga, sólo con el texto del banco) 10.9 % — el documento de Kepler llega al pasar la cuenta (E3)
           → META: 100 % explicado o declarado «sin explicar» con dueño, cada mes cerrado
 MÉTRICA 3 (al día): Días de atraso del estado de cuenta
           HOY: Cuentas muestra el libro, al 10-nov (9 días) → META: ≤ 1 día hábil en todas
@@ -309,4 +310,5 @@ falta; terciario = el detalle de cada movimiento.
 |---|---|---|
 | 2026-11-19 | Pedido de Edgar; inventario del libro, de sus lectores y de la descarga; medición en prod; plan propuesto (⬜) | Claude, para Edgar |
 | 2026-11-19 | «¿Qué sentido tiene compararlo?»: el libro deja de ser testigo (§3.1); se retira la verificación de octubre | Edgar / Claude |
+| 2026-11-19 | E0 (BFU.0.1–0.2), E1 (BFU.1.1 VERDAD §39, BFU.1.3 la cadena) y E2 (BFU.2.5 religar, BFU.2.8–2.9 la explicación y su cifra) en código, sin soltar. Medido: «explicado» oct 93.3 % (libro), nov 10.9 % sólo con el texto del banco: lo que mueve la cifra es pasar las cuentas (E3) | Claude |
 | 2026-11-19 | «Nuestra hoja será la verdad absoluta»: se revisaron en vivo Cuentas, Estados de cuenta y el Cuadre; el plan se reestructura alrededor de las 7 propiedades (§2); entra E0 (Cuentas deja de afirmar lo que no es) y E4 (el estado de cuenta explicado) | Edgar / Claude |
