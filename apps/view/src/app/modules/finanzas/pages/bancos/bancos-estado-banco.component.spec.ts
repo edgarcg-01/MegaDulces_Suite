@@ -108,6 +108,22 @@ describe('BancosEstadoBancoComponent', () => {
     expect(el.textContent).toContain('BNMX 9999 no se puede subir aún');
   });
 
+  it('[BFU.1.3] el archivo aceptado sin testigo y probado después por la cadena dice «por cadena», y el resumen lo cuenta aparte', () => {
+    const { cmp, el } = montar({ datos: { ...DATOS, archivos: [{ ...ARCHIVO, cuenta_probada: 'cadena' }],
+      cuentas: [{ ...cta('BB 1111', '2026-10-31', true, 0), por_cadena: 1 }] } });
+    expect(el.querySelector('p-table')?.textContent).toContain('por cadena');
+    expect(el.querySelector('p-table')?.textContent).not.toContain('sin testigo');
+    const sinTestigo = cmp.resumen()[2];
+    expect(sinTestigo.value).toBe(0);
+    expect(sinTestigo.sub).toContain('1 probados después por la cadena de saldos');
+  });
+
+  it('[negativa] [BFU.1.3] sin la prueba de la cadena (o con una API anterior) sigue diciendo «sin testigo»', () => {
+    const { el } = montar({ datos: { ...DATOS, archivos: [{ ...ARCHIVO, cuenta_probada: null }] } });
+    expect(el.querySelector('p-table')?.textContent).toContain('sin testigo');
+    expect(el.querySelector('p-table')?.textContent).not.toContain('por cadena');
+  });
+
   it('[negativa] la lista trae tope, el resumen no: lo dice y no recorta las cuentas', () => {
     const { cmp, el } = montar({ datos: { ...DATOS, total: 250, cuentas: [cta('BB 1111', '2026-10-31'), cta('BB 2222', '2026-10-30'), cta('BBVA 3333', '2026-10-29')] } });
     expect(cmp.resumen()[0].value).toBe('3 de 3');

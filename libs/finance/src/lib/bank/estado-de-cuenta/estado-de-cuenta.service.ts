@@ -7,6 +7,7 @@ import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable, type SucursalesContraElLibro } from './contra-el-libro';
 import { cuadreDeLaDescarga, type CuadreDeLaDescarga } from './cuadre-de-la-descarga';
 import { cuadresDeLaDescarga } from './cuadre-de-cuentas.query';
+import { probarCuentasPorCadena, type ArchivoEnCadena, type ComoSeComproboLaCuenta } from './cadena-de-la-cuenta';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
@@ -89,7 +90,12 @@ export interface ArchivosDelBanco {
    * `hasta` es el día del ÚLTIMO MOVIMIENTO de la cuenta (una cuenta quieta no avanza aunque se baje a diario);
    * `ultima_subida` es cuándo se guardó su descarga más reciente: eso dice si la cuenta ya se subió hoy (CB.63).
    */
-  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number;
+    /** [BFU.1.3] Archivos que nadie pudo comprobar de qué cuenta son: ni al subirlos ni después por la cadena de saldos. */
+    sin_testigo: number;
+    /** [BFU.1.3] Aceptados sin testigo y probados después por la cadena de saldos (VERDAD §39.3). */
+    por_cadena: number;
+    con_lector: boolean }[];
 }
 
 const pesos = (centavos: number) => Math.round(centavos) / 100;
@@ -314,12 +320,52 @@ export class EstadoDeCuentaService {
           trx.raw('count(f.id)::int as archivos'),
           trx.raw("count(f.id) FILTER (WHERE f.account_check = 'sin_testigo')::int as sin_testigo"))
         .orderBy('alias');
+      // [BFU.1.3] Lo que se aceptó «sin testigo» se prueba después por la cadena de saldos (VERDAD §39.3), sobre
+      // TODOS los archivos de esas cuentas (no sobre la lista recortada) y lo que la cuenta tuvo en el libro.
+      const { prueba, cuentaDe } = await this.probarPorCadena(trx);
       return {
-        archivos, total: Number(n), tope,
-        cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number }) =>
-          ({ ...c, con_lector: conLector.includes(c.bank) })),
+        archivos: (archivos as { id: string }[]).map((a) => ({ ...a, cuenta_probada: prueba.get(a.id) ?? null })),
+        total: Number(n), tope,
+        cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number }) => {
+          const porCadena = [...prueba.entries()].filter(([id, p]) => p === 'cadena' && cuentaDe.get(id) === c.id).length;
+          // `sin_testigo` sigue diciendo «sin poder comprobar la cuenta»: ahora cuenta sólo los que tampoco prueba la cadena.
+          return { ...c, sin_testigo: Math.max(0, c.sin_testigo - porCadena), por_cadena: porCadena, con_lector: conLector.includes(c.bank) };
+        }),
       };
     });
+  }
+
+  /**
+   * `[BFU.1.3]` Prueba por la cadena de saldos los archivos aceptados sin testigo. Sólo lee; si no hay ninguno, no
+   * consulta nada más. Ventana: los 7 días previos al primer archivo sin testigo de cada cuenta.
+   */
+  private async probarPorCadena(trx: Knex.Transaction): Promise<{ prueba: Map<string, ComoSeComproboLaCuenta>; cuentaDe: Map<string, string> }> {
+    const cuentas = (await trx('finance.bank_statement_files').where('account_check', 'sin_testigo')
+      .groupBy('bank_account_id').select('bank_account_id', trx.raw("to_char(min(date_from) - 7, 'YYYY-MM-DD') as desde"))) as { bank_account_id: string; desde: string }[];
+    if (!cuentas.length) return { prueba: new Map(), cuentaDe: new Map() };
+    const ids = cuentas.map((c) => c.bank_account_id);
+    const desde = cuentas.map((c) => c.desde).sort()[0];
+    const archivos = (await trx('finance.bank_statement_files').whereIn('bank_account_id', ids)
+      .select('id', 'bank_account_id', 'account_check', trx.raw("to_char(date_from, 'YYYY-MM-DD') as date_from"), 'opening_balance')) as
+      { id: string; bank_account_id: string; account_check: ArchivoEnCadena['check']; date_from: string; opening_balance: string | number }[];
+    const lineas = (await trx('finance.bank_statement_lines').whereIn('bank_account_id', ids).where('movement_date', '>=', desde)
+      .select('file_id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance')) as
+      { file_id: string; bank_account_id: string; fecha: string; running_balance: string | number }[];
+    // El libro (lo que no entró del banco): sólo renglones con saldo, en la misma ventana.
+    const libro = (await trx('finance.bank_movements').whereIn('bank_account_id', ids).where('movement_date', '>=', desde)
+      .whereNull('deleted_at').whereNotNull('running_balance').where((q) => q.whereNull('sync_source').orWhereNot('sync_source', 'banco'))
+      .select('bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance')) as
+      { bank_account_id: string; fecha: string; running_balance: string | number }[];
+    // La cuenta de cada archivo, para contar por cuenta sin otra consulta (local: el servicio es único para todas las peticiones).
+    const cuentaDe = new Map(archivos.map((a) => [a.id, a.bank_account_id] as const));
+    const prueba = probarCuentasPorCadena(
+      archivos.map((a) => ({ id: a.id, cuenta: a.bank_account_id, check: a.account_check, desde: a.date_from, apertura: Number(a.opening_balance) })),
+      [
+        ...lineas.map((l) => ({ archivo: l.file_id, cuenta: l.bank_account_id, fecha: l.fecha, saldo: Number(l.running_balance) })),
+        ...libro.map((m) => ({ archivo: null, cuenta: m.bank_account_id, fecha: m.fecha, saldo: Number(m.running_balance) })),
+      ],
+    );
+    return { prueba, cuentaDe };
   }
 
   /**

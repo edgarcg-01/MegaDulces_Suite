@@ -24,6 +24,15 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
+### Added — Bancos › Estados de cuenta: los archivos sin número de cuenta se comprueban por la cadena de saldos (BFU.1.3 · 2026-11-19 · en código, sin soltar)
+- Un archivo de BBVA o BanBajío aceptado «sin testigo» queda comprobado cuando abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro; hoy pasan de 19 sin comprobar a 1.
+- La regla de qué hace verdadero un estado de cuenta del banco queda escrita en VERDAD_ABSOLUTA §39.
+### Internal — Fase GP: revisión del plan y meta de la consola medida (2026-11-19)
+- La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo para quien opera una sucursal; para quien ve varias todavía no (pendiente).
+
+### Fixed — Seguimiento de cotización: un pedido cancelado en Kepler ya no aparece embarcado; la caja deja el motivo de sus cierres rechazados (GP.10.1b · GP.RF.42 · 2026-11-19 · en código, sin soltar)
+- Si Kepler canceló el pedido de una cotización, el seguimiento lo dice («Pedido cancelado en Kepler») en lugar de mostrarlo surtido o embarcado, y no presenta como quitados los productos que Kepler borra al cancelar.
+- Cuando la revisión en caja no puede terminar un pedido, la razón queda registrada para poder corregirla.
 
 ### Fixed — Bancos › Cuentas dice de dónde sale cada saldo y hasta qué día (BFU.0.1 · 2026-11-19 · en código, sin soltar)
 - Cada cuenta dice si su saldo sale del banco o del libro de Tesorería, hasta qué día llega, y si el banco ya trae más días.

@@ -429,6 +429,8 @@ export interface ArchivoEstadoBanco {
   opening_balance: number; closing_balance: number; total_in: number; total_out: number;
   balance_ok: boolean; declared_ok: boolean | null; account_check: ComoSeFijoLaCuenta;
   created_at: string; created_by: string | null;
+  /** [BFU.1.3] Si se aceptó sin testigo y después lo probó la cadena de saldos: 'cadena'. Falta en una API anterior. */
+  cuenta_probada?: 'en_archivo' | 'saldo_continuo' | 'cadena' | null;
 }
 /** La lista trae tope; `cuentas` no: es cada cuenta de banco activa y hasta dónde llega su descarga. */
 export interface ArchivosDelBanco {
@@ -437,7 +439,9 @@ export interface ArchivosDelBanco {
    * `hasta` = día del último movimiento (una cuenta quieta no avanza aunque se baje diario). `ultima_subida` = cuándo se
    * guardó su descarga más reciente (CB.63); falta en una API anterior, y entonces no se afirma qué está por subir.
    */
-  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida?: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida?: string | null; archivos: number; sin_testigo: number; con_lector: boolean;
+    /** [BFU.1.3] Aceptados sin testigo y probados después por la cadena de saldos; falta en una API anterior. */
+    por_cadena?: number }[];
 }
 
 /** [CB.60] La descarga del banco contra el libro, por cuenta y día (`GET statement-files/contra-libro`). */
