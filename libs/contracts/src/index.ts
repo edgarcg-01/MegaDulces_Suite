@@ -126,6 +126,8 @@ export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
+// `[RE.ETQ]` Etiquetas de caja de la orden de entrada (TSC TE200): cola, bitácora y reglas de la etiqueta.
+export * from './http/box-labels.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';

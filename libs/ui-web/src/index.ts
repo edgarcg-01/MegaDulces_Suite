@@ -115,3 +115,15 @@ export type {
   RenglonRespaldo, TramoMayoreo, UnidadConFactor, Escalon, CampoCoincidencia, Buscable, Coincidencia,
   Presentacion as PresentacionMostrador,
 } from './precios/catalogo-mostrador';
+
+/**
+ * `[RE.ETQ.1.1]` La etiquetera de la TSC TE200 (filas de 3, barras CODE128 a 2 puntos por módulo, hoja de
+ * 100 × 48 mm). Nació en GP.4 (checado) y subió acá con el segundo consumidor, la etiqueta de caja de la orden
+ * de entrada (ADR-056). `[RE.ETQ.1.2]` la plantilla de caja y `[RE.ETQ.1.6]` su versión TSPL (vía B).
+ */
+export {
+  PAGINA_TSC_3X, CSS_FILA_TSC_3X, MM_POR_MODULO, enFilas, escHtml, formatoCode128, modulosCode128, anchoBarrasMm,
+  barrasSvg, filasHtml,
+} from './etiquetera/etiquetera';
+export { etiquetaCajaHtml, etiquetasCajaHtml, CSS_ETIQUETA_CAJA, tamanoNombre, tamanoConsecutivo } from './etiquetera/etiqueta-caja';
+export { tsplEtiquetasCaja, tsplTexto, GEOMETRIA_TSC_3X, PUNTOS_POR_MM } from './etiquetera/tspl';
