@@ -45,6 +45,9 @@ export interface FilaIncidencia {
   status: EstadoIncidencia;
   authorized_by_name: string | null;
   base_schedule_minutes: number | null;
+  /** `[RH.17.2]` Horario distinto: salida (minuto del día) y comida (minutos) de ese día. */
+  end_minutes: number | null;
+  break_minutes: number | null;
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
@@ -127,7 +130,7 @@ export class HrAttendanceIncidentsService {
       let filtro = '';
       if (f.person_code) { params.push(f.person_code); filtro = ' AND i.person_code = ?'; }
       const { rows } = await trx.raw<{ rows: FilaIncidencia[] }>(`
-        SELECT ${SELECT_FILA}, quien.nombre AS person_name,
+        SELECT ${await this.selectFila(trx)}, quien.nombre AS person_name,
                CASE WHEN i.incident_type = 'horario_distinto' THEN (
                  SELECT count(*)::int FROM hr.attendance_incidents j
                   WHERE j.site_code = i.site_code AND j.person_code = i.person_code
@@ -157,11 +160,19 @@ export class HrAttendanceIncidentsService {
     return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
       if (!(await reader.sitioExiste(trx, c.site_code))) throw new NotFoundException(`No existe el sitio de checado "${c.site_code}".`);
       await this.exigirSemanaAbierta(trx, c.site_code, c.date_from, c.date_to);
+      // `[RH.17.2]` La salida y la comida del día sólo se guardan si la migración ya está; si no, se dice (no se pierden
+      // en silencio). Sin ellas, el Horario distinto se captura igual que siempre.
+      const completo = await reader.tieneHorarioCompleto(trx);
+      if (!completo && (c.end_minutes !== null || c.break_minutes !== null)) {
+        throw new BadRequestException('Todavía no se puede guardar la salida ni la comida de ese día: falta una actualización de la base '
+          + '(avísale a Sistemas). Mientras, captura el Horario distinto sólo con la entrada.');
+      }
       const [fila] = await trx('hr.attendance_incidents').insert({
         tenant_id: this.tenantCtx.requireTenantId(),
         site_code: c.site_code, person_code: c.person_code, incident_type: c.incident_type,
         date_from: c.date_from, date_to: c.date_to, note: c.note, minutes: c.minutes,
         authorized_by_name: c.authorized_by_name, base_schedule_minutes: c.base_schedule_minutes,
+        ...(completo ? { end_minutes: c.end_minutes, break_minutes: c.break_minutes } : {}),
         status: directa ? 'calificada' : 'capturada',
         user_id: await this.usuarioDe(trx, c.site_code, c.person_code),
         created_by: q.id, created_by_name: q.nombre,
@@ -181,7 +192,7 @@ export class HrAttendanceIncidentsService {
     const q = this.quien();
     return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
       const { rows: [actual] } = await trx.raw<{ rows: FilaIncidencia[] }>(
-        `SELECT ${SELECT_FILA} FROM hr.attendance_incidents i WHERE i.id = ? FOR UPDATE`, [id]);
+        `SELECT ${await this.selectFila(trx)} FROM hr.attendance_incidents i WHERE i.id = ? FOR UPDATE`, [id]);
       if (!actual) throw new NotFoundException('Esa incidencia ya no existe.');
       const rechazo = rechazoDelPaso(a, actual, { id: q.id, nombre: q.nombre, ...actor }, motivo);
       if (rechazo) throw new HttpException(rechazo.error, rechazo.status);
@@ -218,8 +229,13 @@ export class HrAttendanceIncidentsService {
 
   private async leer(trx: Knex.Transaction, id: string): Promise<FilaIncidencia> {
     const { rows: [r] } = await trx.raw<{ rows: FilaIncidencia[] }>(
-      `SELECT ${SELECT_FILA}, quien.nombre AS person_name FROM hr.attendance_incidents i${NOMBRE_EN_LA_PLAZA} WHERE i.id = ?`, [id]);
+      `SELECT ${await this.selectFila(trx)}, quien.nombre AS person_name FROM hr.attendance_incidents i${NOMBRE_EN_LA_PLAZA} WHERE i.id = ?`, [id]);
     return r;
+  }
+
+  /** `[RH.17.2]` La fila con la salida y la comida del Horario distinto; NULL mientras no exista la migración. */
+  private async selectFila(trx: Knex.Transaction): Promise<string> {
+    return `${SELECT_FILA}, ${reader.columnasHorarioCompleto(await reader.tieneHorarioCompleto(trx))}`;
   }
 
   /** La bitácora: la fila completa después de cada acción. */

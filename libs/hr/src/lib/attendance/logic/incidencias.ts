@@ -168,6 +168,10 @@ export interface CapturaIncidencia {
   authorized_by_name?: unknown;
   /** Horario distinto: su entrada de siempre, minuto del día. */
   base_schedule_minutes?: unknown;
+  /** `[RH.17.2]` Horario distinto: salida de ese día, minuto del día (opcional). */
+  end_minutes?: unknown;
+  /** `[RH.17.2]` Horario distinto: comida autorizada ese día, en minutos (opcional). */
+  break_minutes?: unknown;
   /** Quien califica captura ya calificada, salvo que la entregue a propósito. */
   deliver?: unknown;
 }
@@ -182,8 +186,14 @@ export interface CapturaValida {
   minutes: number | null;
   authorized_by_name: string | null;
   base_schedule_minutes: number | null;
+  /** `[RH.17.2]` Sólo Horario distinto; null en los demás tipos. */
+  end_minutes: number | null;
+  break_minutes: number | null;
   deliver: boolean;
 }
+
+/** `[RH.17.2]` Lo que la pantalla manda vacío cuando el campo opcional no se llenó. */
+const vacio = (v: unknown): boolean => v === null || v === undefined || v === '';
 
 const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -201,6 +211,8 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
   const autorizo = String(b.authorized_by_name ?? '').trim();
   let minutos: number | null = null;
   let base: number | null = null;
+  let salida: number | null = null;
+  let comida: number | null = null;
 
   if (!site || !persona || !tipo || !desde) {
     return { ok: false, error: 'Faltan el sitio, la persona, el tipo o la fecha.' };
@@ -254,6 +266,17 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
     const motivo = String(b.reason ?? '').trim();
     if (!motivo) return { ok: false, error: 'Escribe por qué ese día entró en otro horario.' };
     if (!autorizo) return { ok: false, error: 'Escribe quién autorizó el cambio de horario.' };
+    // `[RH.17.2]` El horario COMPLETO de ese día (opcional): sin salida, sólo mueve la entrada, como siempre.
+    if (!vacio(b.end_minutes)) {
+      salida = Math.round(Number(b.end_minutes));
+      if (!Number.isFinite(salida) || salida < 0 || salida > 1439) return { ok: false, error: 'La hora de salida de ese día no es válida.' };
+      if (salida <= minutos) return { ok: false, error: 'La salida de ese día tiene que ser después de la entrada.' };
+    }
+    if (!vacio(b.break_minutes)) {
+      comida = Math.round(Number(b.break_minutes));
+      if (!Number.isFinite(comida) || comida < 0 || comida > 240) return { ok: false, error: 'La comida de ese día va de 0 a 240 minutos.' };
+      if (salida !== null && comida >= salida - minutos) return { ok: false, error: 'La comida no puede durar lo mismo o más que el día.' };
+    }
     if (b.base_schedule_minutes != null && b.base_schedule_minutes !== '') {
       const v = Math.round(Number(b.base_schedule_minutes));
       base = Number.isFinite(v) && v >= 0 && v <= 1439 ? v : null;
@@ -287,7 +310,7 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
     valor: {
       site_code: site, person_code: persona, incident_type: tipo, date_from: desde, date_to: hasta,
       note: nota || null, minutes: minutos, authorized_by_name: autorizo || null,
-      base_schedule_minutes: base, deliver: b.deliver === true,
+      base_schedule_minutes: base, end_minutes: salida, break_minutes: comida, deliver: b.deliver === true,
     },
   };
 }
