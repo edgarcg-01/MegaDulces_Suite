@@ -376,6 +376,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-19 — `[RE.82]` La hoja de Kepler sola ya no pasa como factura
+
+- **Qué pasaba:** en Revisión de facturas se subía únicamente la «Aplica Orden Entrada» de Kepler como si fuera la factura. Esa hoja trae el mismo total que la entrada, así que «cuadraba» siempre. Medido (60 días): 114 de 1,985 comprobantes, 111 aceptados como recibidos.
+- **Qué cambió:** una sola regla en `libs/contracts` para las dos capturas y el servidor. Se frena sólo cuando el lector probó que no hay otro papel; la hoja de Kepler junto a la factura sigue valiendo.
+- **Lección:** antes de meter un tipo en la regla se miró qué era de verdad. «Vale» sonaba a papel interno y no lo era: los 41 «vale» sueltos eran notas de venta de proveedores chicos, que la captura «Varias» venía rechazando. Una etiqueta del lector no es su definición: se mira la fila.
+- **No medido:** la pantalla viva y `attach` contra base real.
+
 ## 2026-11-19 — `[CANON.7.1]` La existencia del ODS se lee directo: aplicada en prod y medida con RLS
 
 **Qué se pidió:** «resolvamos existencia y todo lo que pueda salir del ODS» (Edgar, 2026-11-18) y «sí, quítaselo» (2026-11-19: esta sesión construye 7.1).

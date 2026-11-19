@@ -10,7 +10,7 @@ import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expedien
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
 import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
-import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra } from '@megadulces/contracts';
+import { cuadraDentroDeTolerancia, evidenciaCuadra, sqlEvidenciaCuadra, paqueteSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
   HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
@@ -1940,6 +1940,19 @@ export class GoodsReceiptProofsService {
     // pueda capturarla en cualquier sucursal. `mode_write` es lo que permite "ve las 3 de su
     // zona, captura sólo en la suya". 403 explicando la dimensión y el valor, no un Forbidden mudo.
     await this.scope.assertCanWrite('warehouse', sucursal);
+
+    // `[RE.82]` La hoja de Kepler sola no es evidencia: trae el mismo total que la entrada y «cuadra»
+    // siempre (114 así en 60 días). Se decide con la lectura que hizo ESTE servidor (por hash), no con
+    // lo que diga el request; si alguna hoja no tiene lectura en memoria (otra réplica, reinicio), no
+    // se puede probar y pasa al revisor.
+    const tidLectura = this.tenantCtx.requireTenantId();
+    const tiposPorHoja = files.map((f) => {
+      const leida = f.sha256 ? this.readings.recall<RemisionFields>(tidLectura, f.sha256) : null;
+      return leida ? (leida.fields.documents_present || []).map((d) => d?.type) : null;
+    });
+    if (paqueteSoloHojaKepler(tiposPorHoja)) {
+      throw new BadRequestException(MENSAJE_SOLO_HOJA_KEPLER);
+    }
 
     // Backstop server-side: rechaza si alguna hoja ya se había subido (misma imagen, o mismo folio
     // del MISMO emisor — `[RE.42]`). Aquí la entrada destino siempre se conoce, así que el emisor

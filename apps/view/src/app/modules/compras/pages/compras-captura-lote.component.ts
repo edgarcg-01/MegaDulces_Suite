@@ -5,7 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import {
-  textoMotivoIdentificacion, type ExpedienteCubo, type IdentificacionCandidata, type IdentificacionEntrada,
+  textoMotivoIdentificacion, esSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER, type ExpedienteCubo, type IdentificacionCandidata, type IdentificacionEntrada,
 } from '@megadulces/contracts';
 import { EntradasService, ProofFile, RemisionOcr, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje } from '../entradas.service';
 import { esImagen, esPdf, imagenesAPdf } from '../imagenes-a-pdf';
@@ -459,9 +459,12 @@ export class ComprasCapturaLoteComponent {
       return;
     }
     // Qué es el papel: la orden de entrada de Kepler no es la factura del proveedor.
+    // `[RE.82]` La misma regla que la captura de una y el servidor. Antes también rechazaba «vale» y
+    // «otro» sueltos: medido en prod, los 41 «vale» solos de 60 días eran notas de venta y remisiones
+    // de proveedores chicos (ninguno con folio de Kepler), o sea papel bueno rechazado.
     const tipos = (ocr.documents_present || []).map((d) => d.type);
-    if (tipos.length && tipos.every((t) => t === 'aplica_orden_entrada' || t === 'vale' || t === 'otro')) {
-      this.patch(id, { ocr, fase: 'error', error: 'Es una hoja interna (orden de entrada o vale), no la factura del proveedor' });
+    if (esSoloHojaKepler(tipos)) {
+      this.patch(id, { ocr, fase: 'error', error: MENSAJE_SOLO_HOJA_KEPLER });
       return;
     }
     const rol: 'factura' | 'remision' = tipos.includes('factura') || !!ocr.uuid ? 'factura' : tipos.includes('remision') ? 'remision' : 'factura';

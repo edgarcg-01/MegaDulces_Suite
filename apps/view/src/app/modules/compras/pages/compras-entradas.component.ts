@@ -33,7 +33,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import type { ReceiptExpediente } from '@megadulces/contracts';
-import { warehouseName } from '@megadulces/contracts';
+import { warehouseName, esSoloHojaKepler, MENSAJE_SOLO_HOJA_KEPLER } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, ReceiptDeposit, DuplicateHit, duplicadoAvisa, duplicadoBloquea, duplicadoMensaje, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
@@ -3093,6 +3093,12 @@ export class ComprasEntradasComponent {
             if (tipos.includes('aplica_orden_entrada') && !tipos.some((t) => t === 'factura' || t === 'remision')) {
               this.patch(id, { role: 'orden_entrada' });
             }
+          }
+          // `[RE.82]` Sólo la hoja de Kepler: no cuenta como factura (el checklist la deja faltante y
+          // Guardar no se habilita) y se dice por qué. En el paso 1 es legítima: ahí sólo identifica.
+          if (esSoloHojaKepler((r.documents_present ?? []).map((d) => d.type))) {
+            this.patch(id, { role: 'orden_entrada' });
+            if (!(this.photoFirst() && this.attachStep() === 1)) this.attachError.set(`"${f.name}": ${MENSAJE_SOLO_HOJA_KEPLER}`);
           }
           const cur = this.attachFiles().find((x) => x.id === id);
           if (cur?.primary) { this.ocrForm = { ...r }; this.ocrRun.set(true); this.ocrLoading.set(false); this.afterOcrMatch(); }

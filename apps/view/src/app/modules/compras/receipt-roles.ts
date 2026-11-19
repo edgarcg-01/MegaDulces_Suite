@@ -1,3 +1,4 @@
+import { esSoloHojaKepler } from '@megadulces/contracts';
 import { DocPresence } from './entradas.service';
 
 /**
@@ -116,12 +117,21 @@ export function receptionSource(sourceBranch?: string | null): FuenteRecepcion {
   return sb.startsWith('wincaja') || sb === 'md_00' ? 'wincaja' : 'kepler';
 }
 
+/**
+ * `[RE.82]` El lector probó que la hoja es SÓLO la de Kepler (Aplica Orden Entrada). Su rol
+ * declarado ya no manda: decir «factura» sobre nuestra hoja no la vuelve factura (114 así en 60 días,
+ * todos «cuadrados» porque la hoja trae el mismo total que Kepler).
+ */
+export function hojaEsSoloKepler(h: HojaConRol): boolean {
+  return esSoloHojaKepler(h.ocrDocs);
+}
+
 /** Tipos cubiertos = rol declarado ∪ lo que el OCR detectó (packet-aware). */
 export function coveredTypes(hojas: readonly HojaConRol[]): Set<string> {
   const s = new Set<string>();
   for (const h of hojas) {
     const t = ROLE_TO_TYPE[h.role];
-    if (t) s.add(t);
+    if (t && !hojaEsSoloKepler(h)) s.add(t);
     for (const d of h.ocrDocs || []) s.add(d);
   }
   return s;
@@ -146,7 +156,7 @@ export function checklist(hojas: readonly HojaConRol[], fuente: FuenteRecepcion)
   const ocrByType = new Map<string, DocPresence>();
   for (const h of hojas) for (const d of h.ocrDocsDetail || []) if (!ocrByType.has(d.type)) ocrByType.set(d.type, d);
   const manualTypes = new Set<string>();
-  for (const h of hojas) { const t = ROLE_TO_TYPE[h.role]; if (t) manualTypes.add(t); }
+  for (const h of hojas) { const t = ROLE_TO_TYPE[h.role]; if (t && !hojaEsSoloKepler(h)) manualTypes.add(t); }
 
   return REQUIRED_BY_SOURCE[fuente].map((g) => {
     const auto = g.keys.map((k) => ocrByType.get(k)).find((d): d is DocPresence => !!d) || null;

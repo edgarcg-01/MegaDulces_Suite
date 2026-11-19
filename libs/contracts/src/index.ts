@@ -194,6 +194,8 @@ export * from './http/receipt-expediente.contract';
 export * from './http/lectura-escala';
 // [RE.73] Una sola tolerancia del cuadre (papel del proveedor ↔ entrada de Kepler) para servidor y pantalla.
 export * from './http/tolerancia-cuadre';
+// [RE.82] La hoja de Kepler sola no es evidencia: la regla que comparten la pantalla y el servidor.
+export * from './http/hoja-kepler';
 // [RE.75] La categoría y el tipo de un ajuste de compra, en llano (el cajón mostraba la llave cruda).
 export * from './http/ajuste-compra-labels';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.
