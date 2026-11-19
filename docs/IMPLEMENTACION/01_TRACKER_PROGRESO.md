@@ -8324,7 +8324,7 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 - [ ] **[RE.ETQ.2.1]** 🧪 2026-11-19 (`8f863301c`) — `GET commercial/receiving/box-labels/orders` con estado de etiquetado.
 - [ ] **[RE.ETQ.2.2]** 🧪 2026-11-19 (`8f863301c`) — `GET commercial/receiving/box-labels/catalog-defects` (factor 0 y sin `c85`, para Compras).
 - [ ] **[RE.ETQ.2.3]** 🧪 2026-11-19 (`8f863301c`): probado contra base real — `POST commercial/receiving/box-labels/prints` — bitácora (D4), `commercial.box_label_prints`; congela los datos de la primera impresión, con la fecha que pone el servidor (D6) y las del vale y la orden para medir el atraso. ⛔ Prueba contra base real con el payload de la pantalla.
-- [ ] **[RE.ETQ.2.4]** 🧪 2026-11-19 (`8f863301c`): reparto PROPUESTO, por confirmar — Permiso `ALMACEN_ETIQUETAS_CAJA` repartido en prod al puesto de recepción.
+- [ ] **[RE.ETQ.2.4]** 🧪 2026-11-19 (`8f863301c`): reparto confirmado por Sistemas el 2026-11-19 (almacenista, encargado_tienda, encargado_bodega y supervisor: 21 personas; quien entre después con esos roles lo hereda), falta aplicarlo en prod — Permiso `ALMACEN_ETIQUETAS_CAJA` repartido en prod al puesto de recepción.
 - [ ] **[RE.ETQ.3.1]** 🧪 2026-11-19 (`200ad28ee`): sin validación visual — `/almacen/etiquetas`: cola de órdenes, imprimir por orden o renglón, aviso de órdenes sin etiquetar.
 - [ ] **[RE.ETQ.3.2]** 🧪 2026-11-19 (`200ad28ee`): sin validación visual — Vista previa a tamaño real con avisos por renglón.
 - [ ] **[RE.ETQ.3.3]** 🧪 2026-11-19 (`200ad28ee`): sin validación visual — Reimpresión por renglón y consecutivos, con los datos congelados.

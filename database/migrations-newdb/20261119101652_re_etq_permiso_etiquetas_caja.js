@@ -3,8 +3,10 @@
  * `[RE.ETQ.2.4]` — Reparto de `ALMACEN_ETIQUETAS_CAJA` (regla 20: un módulo no está entregado hasta que su
  * permiso está repartido en prod).
  *
- * ⚠️ **PROPUESTA, por confirmar antes de aplicarla en prod**: quién recibe una clave es decisión de personas. Se
- * propone a quien ya recibe mercancía, medido abajo. Si cambia, se edita `REPARTO` ANTES de aplicar.
+ * ✅ **Confirmado por Sistemas el 2026-11-19**: los 4 roles de `REPARTO` (21 personas medidas ese día). Va por ROL:
+ * quien se dé de alta después con uno de esos roles la hereda sin tocar nada. Un rol NUEVO no la recibe solo
+ * (la clave no se deriva de otras, ADR-054): se le da desde /admin/roles, donde aparece como «Etiquetas de caja
+ * (Almacén)».
  *
  * ── Lo medido en prod antes de escribir esto (sólo lectura, 2026-11-19) ────────────────────────
  *  · La recepción de la Suite (Andén) cuelga de COMMERCIAL_INVENTORY_RECIBIR: la tienen `almacenista` (9

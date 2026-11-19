@@ -9,7 +9,7 @@ handheld sí lea y con registro de lo impreso. **Las seis decisiones están resp
 > **Estado al 2026-11-19:** construido y probado en local: los datos, las reglas de la etiqueta, la API con su
 > bitácora y la pantalla `/almacen/etiquetas`, en 4 commits sin subir. Faltan:
 > - verla en un navegador;
-> - confirmar quién recibe el permiso;
+> - aplicar el permiso en producción (Sistemas lo confirmó el 2026-11-19: almacenista, encargado de tienda, encargado de bodega y supervisor, 21 personas, y quien entre después con esos puestos);
 > - medir la impresora de Suc 08;
 > - la prueba física con el handheld;
 > - subirlo a producción.

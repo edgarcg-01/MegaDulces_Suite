@@ -182,7 +182,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | RE.ETQ.2.1 | `GET commercial/receiving/box-labels/orders?date_from&date_to` — órdenes de la sucursal del usuario con renglones, cajas y **estado de etiquetado** (por etiquetar · impresa · reimpresa, desde la bitácora) | 🧪 2026-11-19 (`8f863301c`) | no | `pruebas-db` con fixtures de `kdm1`/`kdm2`/`kdii` |
 | RE.ETQ.2.2 | `GET commercial/receiving/box-labels/catalog-defects` — productos recibidos en caja con factor 0 o sin `c85`, para Compras | 🧪 2026-11-19 (`8f863301c`) | no | ídem |
 | RE.ETQ.2.3 | `POST commercial/receiving/box-labels/prints` — **bitácora (D4)**: sucursal, orden, renglón, SKU, consecutivos desde-hasta, total, UXC, **fecha impresa (D6: la pone el servidor en la primera impresión)**, fechas del vale y de la orden (no se imprimen: miden el atraso), código, vía (A/B), motivo (primera · reimpresión), usuario. Tabla `commercial.box_label_prints` con `tenant_id` + audit; la primera impresión **congela** los datos de la etiqueta | 🧪 2026-11-19 (`8f863301c`): probado contra base real | **sí** | ⛔ obligatoria (regla 13), con el payload de la pantalla |
-| RE.ETQ.2.4 | Permiso **`ALMACEN_ETIQUETAS_CAJA`** (clave, ADR-054) **repartido** en prod al puesto de recepción/almacén (regla 20); `MATRIZ_ACCESOS.md` regenerada | 🧪 2026-11-19 (`8f863301c`): reparto PROPUESTO, por confirmar | sí (migración) | migración generada, aplicada una por una |
+| RE.ETQ.2.4 | Permiso **`ALMACEN_ETIQUETAS_CAJA`** (clave, ADR-054) **repartido** en prod al puesto de recepción/almacén (regla 20); `MATRIZ_ACCESOS.md` regenerada | 🧪 2026-11-19 (`8f863301c`): reparto confirmado por Sistemas el 2026-11-19 (4 roles, 21 personas; por rol, los nuevos lo heredan); falta aplicarlo en prod | sí (migración) | migración generada, aplicada una por una |
 
 ### C3 · UI
 | # | Item | Estado | `check:pantalla` antes → después |
@@ -249,7 +249,7 @@ C0–C3 en cuatro commits locales sobre `main`, sin push: `570da5c8a` (C0) · `c
 
 **Pruebas:** contrato 22 (mutación: 5 rojos) · etiquetera 15 · GP.4 idéntica por huella (mutación: rojo) · API 11 unitarias + 11 contra Postgres real (primera, reimpresión congelada aunque Kepler cambie, dos clics = una primera, 403/404/400, la base rechaza una segunda primera) · `design:paramtypes` 4 (negativa: 3 rojos) · pantalla 16 + 71 en `view` · `check:pantalla` de las dos pantallas: 0 fallas.
 
-**Pendiente para cerrar:** validación visual (`/almacen/etiquetas` en local con los datos sintéticos) · confirmar el reparto del permiso · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · PR, migraciones en prod una por una y reparto · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
+**Pendiente para cerrar:** validación visual (`/almacen/etiquetas` en local con los datos sintéticos) · aplicar en prod el reparto del permiso (confirmado por Sistemas el 2026-11-19) · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · PR, migraciones en prod una por una y reparto · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
 
 ## 8. Bitácora
 

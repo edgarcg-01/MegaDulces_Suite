@@ -1507,7 +1507,7 @@
 
 **Pendiente:**
 - Validación visual en local con `database/scripts/re-etq-datos-sinteticos-local.js`.
-- Confirmar el reparto del permiso (propuesta: `almacenista`, `encargado_tienda`, `encargado_bodega` y `supervisor`).
+- Aplicar en prod el reparto del permiso. Sistemas lo confirmó el 2026-11-19: `almacenista`, `encargado_tienda`, `encargado_bodega` y `supervisor` (21 personas). Va por rol, así que quien entre después con esos roles lo hereda.
 - `[RE.ETQ.0.3]`: medir el rollo y la impresora.
 - `[RE.ETQ.3.5]`: la prueba física.
 - PR, las 3 migraciones en prod una por una y la `MATRIZ_ACCESOS.md` regenerada.
