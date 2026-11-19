@@ -77,17 +77,35 @@ const fin = async (c) => {
     return fin(c);
   }
 
-  // ── 2. El estimado contra el conteo real, en la sucursal con más filas propias ────────────────────────────────
-  const { rows: [w] } = await c.query(`SELECT w.code, count(*)::int AS reales FROM kepler_ods.kdil k
+  // ── 2. El estimado contra lo REAL, en el mismo nodo del plan (EXPLAIN ANALYZE) ───────────────────────────────
+  // ⛔ Corregido el 2026-11-19 al aplicarla en prod: la primera versión comparaba el estimado del nodo de la vista
+  // (que con índice escanea UNA sucursal: 4,108) contra las filas propias de TODA la red (37,145) y salía roja con
+  // la estadística funcionando. En el ensayo pasaba porque el plan recorría kdil entera. Se mide estimado vs real
+  // del MISMO nodo, y el filtro suelto corre como control: tiene que salir mal, o el instrumento no distingue.
+  const { rows: [w] } = await c.query(`SELECT w.code FROM kepler_ods.kdil k
       JOIN commercial.warehouses w ON w.kepler_code = k.sucursal AND w.deleted_at IS NULL
-     WHERE k.sucursal = k.c1 GROUP BY w.code ORDER BY 2 DESC LIMIT 1`);
-  const plan = (await c.query(`EXPLAIN SELECT * FROM analytics.v_erp_stock_on_hand WHERE warehouse_code = $1`, [w.code]))
-    .rows.map((r) => r['QUERY PLAN']);
-  const linea = plan.find((l) => /Scan on kdil k\b/.test(l)) || '';
-  const est = Number((linea.match(/rows=(\d+)/) || [])[1]);
-  const { rows: [propio] } = await c.query(`SELECT count(*) FILTER (WHERE sucursal = c1)::int AS n FROM kepler_ods.kdil`);
-  check(`el planificador ve las filas propias de kdil (estima ${est}, son ${propio.n}; sin estadística estimaba ~0.5 %)`,
-    est >= propio.n * 0.5 && est <= propio.n * 2, linea.trim());
+     WHERE k.sucursal = k.c1 GROUP BY w.code ORDER BY count(*) DESC LIMIT 1`);
+  const nodoKdil = async (q, p = []) => {
+    const l = (await c.query(`EXPLAIN (ANALYZE, TIMING OFF) ${q}`, p)).rows.map((r) => r['QUERY PLAN'])
+      .find((x) => /Scan on kdil k\b/.test(x)) || '';
+    const m = l.match(/rows=(\d+) width=\d+\) \(actual rows=([\d.]+)/);
+    return { est: m ? Number(m[1]) : NaN, real: m ? Math.round(Number(m[2])) : NaN, linea: l.trim() };
+  };
+  const sano = (n) => n.est >= n.real * 0.5 && n.est <= n.real * 2;
+  const red = await nodoKdil(`SELECT count(*) FROM kepler_ods.kdil k WHERE (k.sucursal = k.c1) IS TRUE`);
+  check(`el planificador ve las filas propias de kdil (estima ${red.est}, son ${red.real}; sin la estadística, ~0.5 %)`,
+    sano(red), red.linea);
+  const suelto = await nodoKdil(`SELECT count(*) FROM kepler_ods.kdil k WHERE k.sucursal = k.c1`);
+  if (sano(suelto)) {
+    nomedido('control negativo del estimado', `el filtro SIN IS TRUE también estima bien (${suelto.est} de ${suelto.real}): `
+      + 'el instrumento ya no distingue, y quizá el IS TRUE sobra');
+  } else {
+    check(`control: el mismo filtro SIN IS TRUE estima ${suelto.est} de ${suelto.real} (el instrumento distingue)`, true);
+  }
+  const vista = await nodoKdil(`SELECT * FROM analytics.v_erp_stock_on_hand WHERE warehouse_code = $1`, [w.code]);
+  // Sólo SUBestimar rompe el plan (fue 180× abajo); el nodo de la vista lleva más filtros y puede sobrestimar.
+  check(`en la vista (${w.code}) el nodo de kdil no subestima: estima ${vista.est}, devuelve ${vista.real}`,
+    vista.est >= vista.real * 0.5, vista.linea);
 
   // ── 3. La cantidad, al renglón, contra el texto anterior de la vista ──────────────────────────────────────────
   const anterior = MIG.SQL_ANTERIOR.replace(/^\s*CREATE OR REPLACE VIEW analytics\.v_erp_stock_on_hand AS/, '');
