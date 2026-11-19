@@ -376,6 +376,43 @@ un toque):
   - Además, las guías de web moderna no se pudieron consultar: el clasificador de permisos bloqueó
     el comando.
 
+### 8.3 Etiquetas chicas para la tienda (UB.RF.12, 2026-11-19) 🧪
+
+**Lo que lo motivó.** Edgar: *«el problema es para tienda: no podemos poner letreros grandes porque
+le quitan visibilidad al producto»*. Pidió etiquetas con código de barras para leerlas al asignar.
+
+**Las cinco preguntas, en corto:**
+1. **Qué ve:** la etiqueta con el código grande arriba y su código de barras debajo.
+2. **Qué no ve:** el tipo y la fecha que lleva el cartel grande; en la etiqueta no caben ni deciden.
+3. **Accesibilidad:** la pistola lee un módulo de 0.36 mm, y la persona lee el código a un paso.
+4. **Ligada a:** «Ubicar productos». Leerla ahí es elegir la ubicación (§8.2).
+5. **¿Le toca al Mapa?** Sí: es el mismo «Imprimir» de UB.RF.10, con otro tamaño.
+
+**Construido:**
+- **Dónde:** en Mapa › Imprimir se elige el tamaño. En **tienda** sale por omisión la **etiqueta
+  chica**; en **bodega**, el cartel de media carta de siempre.
+- **La etiqueta:** 6.7 × 2.5 cm, 30 por hoja carta de etiquetas adhesivas (3 × 10, tipo 5160), en
+  orden de pasillo, rack y nivel, para el canto del anaquel o el poste de la góndola.
+  - El código va en letra de 9 mm y el CODE128 a 40 mm de ancho: unos 0.36 mm por módulo, más de
+    los 0.25 mm que lee una pistola de mano.
+  - En papel normal, la misma hoja sirve de **hoja de códigos** para leer desde una tabla, sin pegar
+    nada.
+- **Una sola pieza:** es el mismo componente del cartel, con un formato más, y el mismo dibujo de
+  CODE128; no hay otro módulo de impresión.
+
+**Medido** (PDF en un navegador sin ventana, con el `@page` y el CSS que el componente imprime,
+sacados del fuente):
+- 30 etiquetas = 1 hoja; 31 = 2 hojas;
+- cada etiqueta 66.67 × 25.40 mm, en su lugar de la plantilla con 0.000 mm de desviación;
+- las 31 con su código de barras.
+
+Pruebas: 5 nuevas, que con el arreglo roto dan 2 en rojo.
+
+**NO MEDIDO:**
+- que la hoja impresa cuadre con la marca de etiquetas que compren: cada marca varía décimas de
+  milímetro, y la nota de la pantalla pide imprimir una de prueba en papel normal y empalmarla;
+- que el lector de la tienda la lea, que se prueba con esa misma hoja.
+
 ## 9. Preguntas abiertas
 
 | Clave | Pregunta | Bloquea |

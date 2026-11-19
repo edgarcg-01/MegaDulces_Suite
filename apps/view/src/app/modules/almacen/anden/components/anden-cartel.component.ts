@@ -5,6 +5,16 @@ import { ButtonModule } from 'primeng/button';
 import JsBarcode from 'jsbarcode';
 import { printIsolated } from '../../../../shared/util/print-isolated';
 
+/**
+ * `[UB.RF.12]` `cartel` = media carta, dos por hoja (bodega: se lee caminando). `etiqueta` = 6.7 × 2.5 cm,
+ * 30 por hoja carta de etiquetas adhesivas (3 × 10, tipo 5160), para el canto del anaquel de la TIENDA,
+ * donde un cartel grande le quita vista al producto (Edgar, 2026-11-19).
+ */
+export type FormatoCartel = 'cartel' | 'etiqueta';
+
+/** Etiquetas por hoja carta en el formato `etiqueta` (3 columnas × 10 renglones). */
+export const ETIQUETAS_POR_HOJA = 30;
+
 export interface CartelUbicacion {
   /** El código que se escanea. Es el mismo `warehouse_bins.code`. */
   code: string;
@@ -43,27 +53,45 @@ const MODULO_PX = 2;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ct">
-      <p class="ct-nota">
-        Pega el cartel en {{ uno() ? 'la ubicación' : 'cada ubicación' }} antes de acomodar.
-        Salen <b>dos por hoja</b>; recorta por la línea punteada.
-      </p>
+      @if (formato() === 'etiqueta') {
+        <p class="ct-nota">
+          Para el canto del anaquel: <b>30 por hoja carta</b> de etiquetas adhesivas (3 × 10, de 6.7 × 2.5 cm, tipo 5160).
+          Imprime primero una en papel normal y empálmala con la de etiquetas para ver que cuadre.
+        </p>
+      } @else {
+        <p class="ct-nota">
+          Pega el cartel en {{ uno() ? 'la ubicación' : 'cada ubicación' }} antes de acomodar.
+          Salen <b>dos por hoja</b>; recorta por la línea punteada.
+        </p>
+      }
 
       <!-- Vista previa: el MISMO markup que se imprime, a escala. Imprimir algo
            distinto de lo que se vio en pantalla es como se cuelan los carteles con
            el código recortado. -->
-      <div class="ct-prev" #hoja>
-        @for (u of ubicaciones(); track u.code) {
-          <article class="ct-cartel">
-            <div class="ct-tipo">{{ u.label || 'Ubicación' }}</div>
-            <div class="ct-code">{{ u.code }}</div>
-            <svg class="ct-bar" [attr.data-code]="u.code"></svg>
-            <div class="ct-pie">
-              <span>{{ u.almacen || '' }}</span>
-              <span>{{ hoy() }}</span>
-            </div>
-          </article>
-        }
-      </div>
+      @if (formato() === 'etiqueta') {
+        <div class="ct-prev ct-prev-et" #hoja>
+          @for (u of ubicaciones(); track u.code) {
+            <article class="ct-et">
+              <div class="ct-et-code">{{ u.code }}</div>
+              <svg class="ct-bar" [attr.data-code]="u.code"></svg>
+            </article>
+          }
+        </div>
+      } @else {
+        <div class="ct-prev" #hoja>
+          @for (u of ubicaciones(); track u.code) {
+            <article class="ct-cartel">
+              <div class="ct-tipo">{{ u.label || 'Ubicación' }}</div>
+              <div class="ct-code">{{ u.code }}</div>
+              <svg class="ct-bar" [attr.data-code]="u.code"></svg>
+              <div class="ct-pie">
+                <span>{{ u.almacen || '' }}</span>
+                <span>{{ hoy() }}</span>
+              </div>
+            </article>
+          }
+        </div>
+      }
 
       <div class="ct-acciones">
         <button pButton type="button" class="ct-go" [loading]="imprimiendo()" (click)="imprimir()">
@@ -112,12 +140,25 @@ const MODULO_PX = 2;
       display: flex; justify-content: space-between; width: 100%;
       font-size: clamp(8px, 2.6vw, 14px); color: #555; font-variant-numeric: tabular-nums;
     }
+    /* [UB.RF.12] La etiqueta chica, en su proporción REAL (66.675 × 25.4 mm), 3 por renglón como en la hoja. */
+    .ct-prev-et { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-1); }
+    .ct-et {
+      container-type: inline-size;
+      aspect-ratio: 66.675 / 25.4;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4%;
+      padding: 3% 5%; background: #fff; color: #111;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden;
+    }
+    .ct-et-code { font-size: 15cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+    .ct-et .ct-bar { width: 60%; height: 34%; }
     .ct-acciones { display: flex; flex-direction: column; gap: var(--sp-1); }
     .ct-go { width: 100%; min-height: 54px; font-size: var(--fs-body); font-weight: var(--fw-bold); }
   `],
 })
 export class AndenCartelComponent implements AfterViewInit {
   readonly ubicaciones = input.required<CartelUbicacion[]>();
+  /** `[UB.RF.12]` Cartel de media carta (por omisión, como siempre) o etiqueta chica de 30 por hoja. */
+  readonly formato = input<FormatoCartel>('cartel');
   readonly cerrar = output<void>();
 
   readonly imprimiendo = signal(false);
@@ -131,14 +172,20 @@ export class AndenCartelComponent implements AfterViewInit {
   readonly textoBoton = computed(() => {
     if (this.imprimiendo()) return 'Preparando…';
     const n = this.ubicaciones().length;
+    if (this.formato() === 'etiqueta') {
+      const hojas = Math.ceil(n / ETIQUETAS_POR_HOJA);
+      return n === 1 ? 'Imprimir la etiqueta' : `Imprimir las ${n} etiquetas (${hojas} ${hojas === 1 ? 'hoja' : 'hojas'})`;
+    }
     return n === 1 ? 'Imprimir el cartel' : `Imprimir los ${n} carteles`;
   });
 
   constructor() {
     // Redibuja el símbolo cuando cambia la lista (se crea otra ubicación sin salir
-    // de la pantalla). `queueMicrotask` espera a que Angular haya pintado el @for.
+    // de la pantalla) o el formato (es otro markup). `queueMicrotask` espera a que
+    // Angular haya pintado el @for.
     effect(() => {
       this.ubicaciones();
+      this.formato();
       queueMicrotask(() => this.dibujar());
     });
   }
@@ -174,6 +221,7 @@ export class AndenCartelComponent implements AfterViewInit {
     const raiz = this.hoja()?.nativeElement;
     if (!raiz || this.imprimiendo()) return;
     this.imprimiendo.set(true);
+    if (this.formato() === 'etiqueta') { this.imprimirEtiquetas(raiz); return; }
     printIsolated({
       html: raiz.innerHTML,
       // Se imprime en hoja CARTA con dos carteles por página y se corta a la mitad:
@@ -191,6 +239,35 @@ export class AndenCartelComponent implements AfterViewInit {
         '.ct-code{font-size:48mm;font-weight:900;line-height:.95;text-align:center;overflow-wrap:anywhere}',
         '.ct-bar{display:block;width:140mm;height:22mm}',
         '.ct-pie{display:flex;justify-content:space-between;width:100%;font-size:5mm;color:#555}',
+      ].join(''),
+      bodyClass: 'anden-cartel-printing',
+      fallbackClass: 'anden-cartel-fallback',
+      onDone: () => this.imprimiendo.set(false),
+    });
+  }
+
+  /**
+   * `[UB.RF.12]` La hoja de etiquetas: carta, 3 columnas × 10 renglones, cada etiqueta de 66.675 × 25.4 mm
+   * con 3.175 mm entre columnas (el formato tipo 5160). Los márgenes de la PÁGINA son los de la hoja
+   * (12.7 mm arriba, 4.7625 mm a los lados), así cada hoja nueva arranca igual: 3 × 66.675 + 2 × 3.175 +
+   * 2 × 4.7625 = 215.9 mm de ancho, y 10 × 25.4 + 12.7 + 12.6 = 279.3 mm de alto (cabe en 279.4).
+   *
+   * El código de barras va a 40 mm: «TA011» en CODE128 son ~110 módulos con su zona quieta, ~0.36 mm por
+   * módulo, más que los 0.25 mm que lee una pistola de mano.
+   */
+  private imprimirEtiquetas(raiz: HTMLElement): void {
+    printIsolated({
+      html: `<div class="ct-hoja-et">${raiz.innerHTML}</div>`,
+      page: 'size: letter portrait; margin: 12.7mm 4.7625mm 12.6mm 4.7625mm;',
+      css: [
+        'body{margin:0}',
+        '.ct-hoja-et{display:grid;grid-template-columns:repeat(3,66.675mm);column-gap:3.175mm;row-gap:0;grid-auto-rows:25.4mm}',
+        '.ct-et{box-sizing:border-box;width:66.675mm;height:25.4mm;aspect-ratio:auto;',
+        'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1mm;',
+        'padding:1.5mm 3mm;background:#fff;color:#111;border:0;border-radius:0;overflow:hidden;',
+        'break-inside:avoid;page-break-inside:avoid}',
+        '.ct-et-code{font-size:9mm;font-weight:900;line-height:1;letter-spacing:.02em;font-variant-numeric:tabular-nums}',
+        '.ct-et .ct-bar{display:block;width:40mm;height:8.5mm}',
       ].join(''),
       bodyClass: 'anden-cartel-printing',
       fallbackClass: 'anden-cartel-fallback',
