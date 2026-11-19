@@ -104,7 +104,6 @@ const DEUDA_COLUMNAS = new Set([
   'apps/view/src/app/modules/comercial/pages/comercial-inventory-health.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-inventory-session-detail.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-inventory-variance.component.ts',
-  'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-order-detail.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-pricing.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-promotions.component.ts',
