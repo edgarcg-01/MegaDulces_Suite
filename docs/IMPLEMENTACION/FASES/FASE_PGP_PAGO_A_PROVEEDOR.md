@@ -2850,7 +2850,7 @@ mismo día (`[PGP.130]`) y el banco confirma después. Edgar firmó sus siete de
 
 ---
 
-### `[PGP.157]` La factura PUE se paga en su mes — y lo demás que hay que revisar fiscalmente (⬜ 2026-11-19)
+### `[PGP.158]` La factura PUE se paga en su mes — y lo demás que hay que revisar fiscalmente (⬜ 2026-11-19)
 
 > *«Reportan que estamos pagando facturas con un tiempo de más de un mes; cuando pagamos esa factura
 > en una sola exhibición debe ser en un plazo no mayor al mencionado, si no es necesario refacturar
@@ -2896,7 +2896,7 @@ momento que nunca entran a cuentas por pagar, o sin liga): para ésas, **NO MEDI
 
 | Item | Capa | Qué | Estado |
 |---|---|---|---|
-| `[PGP.157]` | C1+C3 | Regla pura en `libs/contracts` sobre `CfdiDeLaFactura` (fecha, forma y método ya vienen de `[PGP.108]`): **fecha límite** = último día del mes de emisión (parámetro P11). En el Calendario, cada PUE con forma 02/03 dice «PUE: pagar a más tardar el *dd-mmm*»; si se programa después, o el pago es parcial, aviso «fuera del mes de la factura: adelantar el pago o pedir que la sustituyan por PPD». Las ya vencidas, en una lista para Cuentas por pagar. La factura **sin CFDI ligado** dice «no se sabe si es PUE». Pruebas: los cinco caminos de la regla (en su mes, fuera, tarjeta, parcial, sin CFDI) | ⬜ |
+| `[PGP.158]` | C1+C3 | Regla pura en `libs/contracts` sobre `CfdiDeLaFactura` (fecha, forma y método ya vienen de `[PGP.108]`): **fecha límite** = último día del mes de emisión (parámetro P11). En el Calendario, cada PUE con forma 02/03 dice «PUE: pagar a más tardar el *dd-mmm*»; si se programa después, o el pago es parcial, aviso «fuera del mes de la factura: adelantar el pago o pedir que la sustituyan por PPD». Las ya vencidas, en una lista para Cuentas por pagar. La factura **sin CFDI ligado** dice «no se sabe si es PUE». Pruebas: los cinco caminos de la regla (en su mes, fuera, tarjeta, parcial, sin CFDI) | ⬜ |
 
 **P11 (contadora):** ¿el corte es fin del mes de emisión o hay facilidad hasta el día 17 del mes
 siguiente? Mientras no conteste, fin de mes.
@@ -2912,10 +2912,10 @@ una dice su dueño probable; **abrirla es decisión de Edgar**.
 | **F2** | **Facturas que pagamos y el proveedor canceló después** — un pago sin CFDI vigente pierde deducción e IVA | 65 CFDI cancelados en 2026 corresponden a facturas ya pagadas; **6 sin sustituta** encontrada | lista para Cuentas por pagar: pedir la sustituta. ⚠️ La sustituta se busca por RFC e importe en 90 días: una con importe distinto no se ve (son *posibles*) | bajo | PGP |
 | **F3** | **Lista 69-B (operaciones inexistentes) sin actualizar** | `fiscal.sat_list_versions`: la lista 69 se procesó hoy; **la 69-B no cambia desde el 16-jul**. Con la de julio, ningún proveedor de 2026 aparece | averiguar si la descarga de la 69-B dejó de ver cambios (el ingestor salta la versión cuando el contenido no cambia). Mientras, **no sabemos** si un proveedor entró a la 69-B desde julio. ⚠️ `contpaqi_ods.add_efos_rfc` **no** es la lista negra (291 de nuestros proveedores aparecen ahí): no se usa | bajo | Fiscal |
 | **F4** | **Nuestros REP (como emisor)** | 14 % de los REP que emitimos sale **después del día 5** del mes siguiente al cobro; 2,140 facturas PPD nuestras de más de 90 días no tienen REP | cruzar con la cartera de Kepler: **NO MEDIDO** si esas PPD están cobradas. Si lo están, la omisión es nuestra y el cliente no puede acreditar su IVA | medio | Cobranza / Facturación |
-| **F5** | **Facturas que emitimos PUE con forma 99** | 521 en 2026 | una PUE lleva la forma real. Si son ventas a crédito, es el espejo de `[PGP.157]` del lado de nuestros clientes: debieron ser PPD + REP | bajo (medir) | Facturación |
+| **F5** | **Facturas que emitimos PUE con forma 99** | 521 en 2026 | una PUE lleva la forma real. Si son ventas a crédito, es el espejo de `[PGP.158]` del lado de nuestros clientes: debieron ser PPD + REP | bajo (medir) | Facturación |
 | **F6** | **Recibidas con uso «S01 · sin efectos fiscales»** | 145 facturas de 10 proveedores | la contadora decide si se piden sustituir con el uso correcto | bajo | Contabilidad |
 | **F7** | **Pagos en efectivo arriba de $2,000** — no deducibles (LISR 27-III) | 14 facturas de 7 proveedores | política: no pagar en efectivo arriba de ese monto; el Calendario puede avisarlo al elegir «efectivo» | bajo | PGP |
-| **F8** | **PUE pagadas en parcialidades** | 45 | lo cubre el aviso de `[PGP.157]` | — | PGP |
+| **F8** | **PUE pagadas en parcialidades** | 45 | lo cubre el aviso de `[PGP.158]` | — | PGP |
 | **F9** | **Proveedores en la lista 69** (créditos firmes, cancelados por insolvencia) | 4 proveedores de 2026, ya revisados (`sat_list_matches` «confirmado») | vigilar; por sí sola no quita la deducción | — | Fiscal |
 
 **Lo que no se midió hoy:** opinión de cumplimiento de los proveedores (no hay fuente), retenciones
