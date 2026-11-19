@@ -8,7 +8,10 @@ import {
   inject,
   input,
   model,
+  signal,
   viewChild,
+  afterNextRender,
+  Injector,
   DOCUMENT
 } from '@angular/core';
 
@@ -36,7 +39,7 @@ import {
   template: `
     <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()"
          [class.is-window]="mode() === 'window'" [class.is-izq]="lado() === 'izquierda'">
-      <div class="sp-backdrop" (click)="close()" aria-hidden="true"></div>
+      <div class="sp-backdrop" (click)="pedirCierre()" aria-hidden="true"></div>
       <aside
         #panel
         class="sp-panel"
@@ -45,6 +48,8 @@ import {
         aria-modal="true"
         [attr.aria-label]="title()"
         tabindex="-1"
+        (keydown.tab)="atraparTab($event, false)"
+        (keydown.shift.tab)="atraparTab($event, true)"
       >
         <header class="sp-head">
           <div class="sp-head-text">
@@ -53,10 +58,23 @@ import {
               <p class="sp-sub">{{ subtitle() }}</p>
             }
           </div>
-          <button type="button" class="sp-close" (click)="close()" aria-label="Cerrar">
+          <button type="button" class="sp-close" (click)="pedirCierre()" aria-label="Cerrar">
             <i class="pi pi-times" aria-hidden="true"></i>
           </button>
         </header>
+        <!-- [LE.6.34] Con algo capturado, cerrar PREGUNTA (modern-web-guidance «dialog»: confirmación explícita
+             en formularios con cambios). El foco cae en «seguir»: un segundo Esc o Enter no descarta nada. -->
+        @if (confirmando()) {
+          <div class="sp-confirma" role="alertdialog" aria-labelledby="sp-confirma-t" aria-describedby="sp-confirma-d"
+               data-testid="sp-confirma">
+            <p class="sp-confirma-t" id="sp-confirma-t">¿Descartar lo que capturaste?</p>
+            <p class="sp-confirma-d" id="sp-confirma-d">{{ textoDescartar() }}</p>
+            <div class="sp-confirma-acc">
+              <button #btnSeguir type="button" class="sp-btn sp-btn--main" (click)="seguir()" data-testid="sp-seguir">{{ textoSeguir() }}</button>
+              <button type="button" class="sp-btn sp-btn--bad" (click)="descartar()" data-testid="sp-descartar">Descartar y cerrar</button>
+            </div>
+          </div>
+        }
         <div class="sp-body">
           <ng-content></ng-content>
         </div>
@@ -209,6 +227,28 @@ import {
         outline: 2px solid var(--action);
         outline-offset: 2px;
       }
+      .sp-confirma {
+        flex-shrink: 0;
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--warn-soft-bg);
+        color: var(--text-main);
+      }
+      .sp-confirma-t { margin: 0; font-weight: var(--fw-bold, 700); font-size: var(--fs-sm, 0.875rem); }
+      .sp-confirma-d { margin: 0.25rem 0 0.5rem; font-size: var(--fs-sm, 0.875rem); }
+      .sp-confirma-acc { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .sp-btn {
+        min-height: 36px;
+        padding: 0 0.875rem;
+        border-radius: var(--r-sm, 8px);
+        font: inherit;
+        font-size: var(--fs-sm, 0.875rem);
+        cursor: pointer;
+      }
+      @media (pointer: coarse) { .sp-btn, .sp-close { min-height: 44px; min-width: 44px; } }
+      .sp-btn--main { border: 1px solid var(--action); background: var(--action); color: var(--action-contrast, #fff); }
+      .sp-btn--bad { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--bad-soft-fg, var(--text-main)); }
+      .sp-btn:focus-visible { outline: 2px solid var(--focus-ring, var(--action)); outline-offset: 2px; }
       .sp-body {
         flex: 1;
         overflow-y: auto;
@@ -323,22 +363,108 @@ export class SidePeekComponent {
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
 
+  /**
+   * ⭐ `[LE.6.34]` **Hay algo capturado adentro**: cerrar (Esc, X, clic en el fondo) PREGUNTA antes de
+   * descartarlo. Auditoría del 2026-11-18: el arqueo de Caja General se cerraba con un Esc y al reabrir
+   * las piezas contadas, la firma y el documento volvían a cero. Aditivo: sin el input, nada cambia.
+   */
+  readonly sucio = input(false);
+  /** Qué se pierde, en palabras de la pantalla. */
+  readonly textoDescartar = input('Se pierde lo que tecleaste y no se guardó.');
+  readonly textoSeguir = input('Seguir aquí');
+  protected readonly confirmando = signal(false);
+
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  private readonly seguirBtn = viewChild<ElementRef<HTMLButtonElement>>('btnSeguir');
   private readonly doc = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  /** Quién tenía el foco al abrir: ahí regresa al cerrar (guía «accessibility» §5). */
+  private focoPrevio: HTMLElement | null = null;
 
   constructor() {
     effect(() => {
       const isOpen = this.open();
       this.doc.body.style.overflow = isOpen ? 'hidden' : '';
       if (isOpen) {
+        const activo = this.doc.activeElement as HTMLElement | null;
+        if (activo && activo !== this.doc.body && !this.panel()?.nativeElement.contains(activo)) this.focoPrevio = activo;
         queueMicrotask(() => this.panel()?.nativeElement.focus());
+      } else {
+        this.confirmando.set(false);
+        const previo = this.focoPrevio;
+        this.focoPrevio = null;
+        // Sólo si nadie más movió el foco (quien cierra puede mandarlo a otro lado a propósito).
+        queueMicrotask(() => {
+          const activo = this.doc.activeElement;
+          const perdido = !activo || activo === this.doc.body || !!this.panel()?.nativeElement.contains(activo);
+          if (perdido && previo?.isConnected) previo.focus();
+        });
       }
     });
   }
 
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    if (this.open()) this.close();
+  /**
+   * ⛔ `[LE.6.34]` Esc cierra SÓLO la capa de arriba. Antes cerraba el cajón siempre: PrimeNG escucha Esc en
+   * `document` sin detenerlo, así que un Esc en «¿Guardas este movimiento?» (o en el calendario, o en un
+   * desplegable) cerraba esa capa Y el cajón de abajo, con el conteo adentro.
+   */
+  @HostListener('document:keydown.escape', ['$event'])
+  onEscape(evento?: Event): void {
+    const ev = evento as KeyboardEvent | undefined;
+    if (!this.open()) return;
+    if (this.confirmando()) { this.seguir(); ev?.preventDefault(); return; }
+    if (ev && this.escPerteneceAOtraCapa(ev)) return;
+    this.pedirCierre();
+  }
+
+  /** ¿El Esc es de una capa que está ENCIMA de este cajón (un diálogo, un desplegable, un calendario)? */
+  private escPerteneceAOtraCapa(ev: KeyboardEvent): boolean {
+    if (ev.defaultPrevented) return true;
+    const panel = this.panel()?.nativeElement;
+    const destino = ev.target instanceof Element ? ev.target : null;
+    const capa = destino?.closest('.p-dialog, .p-overlay, .p-datepicker-panel, .p-select-overlay, .p-autocomplete-overlay, [role="listbox"], [role="menu"]');
+    if (capa && !panel?.contains(capa)) return true;
+    // Un diálogo modal abierto ENCIMA (este cajón no está sobre los modales): el Esc es suyo.
+    return !this.aboveModals() && !!this.doc.querySelector('.p-dialog-mask');
+  }
+
+  /**
+   * `[LE.6.34]` El panel es `aria-modal`: Tab da la vuelta DENTRO de él en vez de salir a la página de atrás
+   * (guía «accessibility» §12). Sólo actúa en los bordes —del último al primero y al revés—, así que no toca el
+   * recorrido normal ni los desplegables de PrimeNG que se montan en `body` (ésos manejan su propio teclado).
+   */
+  atraparTab(evento: Event, haciaAtras: boolean): void {
+    const panel = this.panel()?.nativeElement;
+    if (!panel || !this.open()) return;
+    const enfocables = Array.from(panel.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((el) => !el.closest('[hidden], [inert]') && el.getClientRects().length > 0);
+    if (!enfocables.length) return;
+    const primero = enfocables[0];
+    const ultimo = enfocables[enfocables.length - 1];
+    const activo = this.doc.activeElement;
+    if (!haciaAtras && (activo === ultimo || activo === panel)) { evento.preventDefault(); primero.focus(); }
+    else if (haciaAtras && (activo === primero || activo === panel)) { evento.preventDefault(); ultimo.focus(); }
+  }
+
+  /** Cerrar desde la persona: si hay algo capturado, primero pregunta. */
+  pedirCierre(): void {
+    if (this.sucio()) {
+      this.confirmando.set(true);
+      afterNextRender(() => this.seguirBtn()?.nativeElement.focus(), { injector: this.injector });
+      return;
+    }
+    this.close();
+  }
+
+  seguir(): void {
+    this.confirmando.set(false);
+    queueMicrotask(() => this.panel()?.nativeElement.focus());
+  }
+
+  descartar(): void {
+    this.confirmando.set(false);
+    this.close();
   }
 
   close(): void {

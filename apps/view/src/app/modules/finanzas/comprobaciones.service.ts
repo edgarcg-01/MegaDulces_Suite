@@ -225,6 +225,11 @@ export interface ValeEsperaKepler {
    * `undefined` = el servidor todavía no puede guardarlo (falta su migración): no se ofrece cerrarlo.
    */
   cancelada_revisada?: RevisionDeCancelada | null;
+  /**
+   * `[PGP.122]` Sólo en el vale que NACIÓ en la Suite: cómo va la escritura de su solicitud en Kepler. Sin folio y con
+   * esto, Kepler todavía no la tiene (y se dice por qué). `undefined` = no nació en la Suite, o servidor anterior.
+   */
+  nace_en_la_suite?: KeplerDelVale['nace_en_la_suite'];
 }
 
 export interface RespuestaEsperanKepler {

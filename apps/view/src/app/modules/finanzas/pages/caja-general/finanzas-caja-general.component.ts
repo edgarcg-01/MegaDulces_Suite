@@ -44,6 +44,8 @@ import { FreshnessPillComponent } from '../../../../shared/components/freshness-
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
+import { DescartarCambiosComponent } from '../../../../shared/components/descartar-cambios/descartar-cambios.component';
+import { DevolverFocoDirective } from '../../../../shared/directives/devolver-foco.directive';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
@@ -197,7 +199,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
     SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, MovimientoDocumentosComponent,
-    ArqueoDocumentosComponent, NgTemplateOutlet,
+    ArqueoDocumentosComponent, NgTemplateOutlet, DescartarCambiosComponent, DevolverFocoDirective,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -1361,7 +1363,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
       <!-- El 10%: lo que NO es la tarea. Vive en una VENTANA, no en un desplegable ([CG.116]):
            abrirla no mueve ni un pixel del arqueo que hay detras. -->
-      <p-dialog [visible]="jornadaAbierta()" (visibleChange)="jornadaAbierta.set($event)"
+      <p-dialog appDevolverFoco [visible]="jornadaAbierta()" (visibleChange)="jornadaAbierta.set($event)"
                 [modal]="true" [dismissableMask]="true" [draggable]="false" [maximizable]="true"
                 [style]="{ width: 'min(1180px, 96vw)' }" [contentStyle]="{ 'max-height': '78vh' }"
                 styleClass="cg-jornada-dlg" header="Tu jornada">
@@ -2561,386 +2563,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                  lo que estaba mirando, quitándole el espacio para mirarlo. Con el paso 1 a
                  pantalla completa eso es justo lo que no se puede gastar.
                  La guía no se perdió: vive en el rótulo del apartado, que cambia con el estado. -->
-            @if (capturaAbierta()) {
-            <div class="cg-detail">
-            <div class="cg-captura cg-entra">
-            <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
-                 arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
-                 pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
-                 contra una cifra que no se lee es contar a ciegas del lado equivocado.
-                 ⚠️ Sin documento anclado la ficha NO se calla ni dibuja un cero: dice que
-                 el movimiento es libre, que es un hecho distinto de "el documento dice 0". -->
-            <div class="cg-ficha">
-              <div class="cg-ficha-top">
-                <span class="cg-signo" [class.cg-signo-in]="f().tipo === 'ingreso'">
-                  <i class="pi" [class.pi-arrow-down]="f().tipo === 'ingreso'"
-                     [class.pi-arrow-up]="f().tipo !== 'ingreso'" aria-hidden="true"></i>
-                  {{ f().tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja' }}
-                </span>
-                @if (cobroElegido(); as c) {
-                  <span class="mono cg-ficha-doc">{{ c.doc_tipo }} {{ c.folio }}</span>
-                } @else {
-                  <span class="cg-ficha-doc fin-dim">sin documento del ERP</span>
-                }
-                <span class="cg-bandeja-sp"></span>
-                <span class="mono cg-ficha-fecha">{{ dmy(f().fecha) }}</span>
-                <p-button icon="pi pi-times" size="small" severity="secondary" [text]="true" [rounded]="true"
-                          ariaLabel="Cerrar la captura y volver a la cola"
-                          (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
-              </div>
-
-              <h3 class="cg-ficha-nombre">{{ f().beneficiario || cobroElegido()?.entidad_code || 'Movimiento sin contraparte' }}</h3>
-              <!-- [CGA-A.71] Ya entró al libro por otro camino: capturarlo otra vez metería el dinero dos veces. -->
-              @if (cobroElegido()?.ya_en_libro; as yl) {
-                <p class="cg-ya-libro-aviso" role="alert">
-                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                  <span><strong>Ya está en el libro como {{ yl.folio }}</strong> ({{ dmy(yl.fecha) }}, {{ money(yl.monto) }}):
-                    {{ textoYaEnLibro(yl) }}. No lo captures otra vez: hay que ligarlo a esa captura.</span>
-                </p>
-                <!-- [CGA-A.72] Ligar: la captura declara este documento y la cola deja de ofrecerlo. Lo vuelve a decidir el servidor. -->
-                @if (ligable(yl)) {
-                  <div class="cg-ya-libro-acc">
-                    <p-button [label]="'Sí, es ' + yl.folio + ': ligar'" icon="pi pi-link" size="small"
-                              [loading]="ligando()" [disabled]="ligando()"
-                              (onClick)="ligar(cobroElegido()!)"></p-button>
-                    <small class="fin-dim">No cambia el importe ni el corte: sólo dice qué documento es.</small>
-                  </div>
-                } @else {
-                  <small class="fin-dim d-block">Éste no se liga desde aquí: lo revisa tesorería (cambiaría la llave de un cobro).</small>
-                }
-              }
-
-              <!-- El numero grande de ESTA mitad. El del arqueo es el OTRO lado de la misma
-                   pregunta y vive en el apartado 2: nunca se ven los dos como titulo de lo mismo. -->
-              <div class="cg-ficha-cifra">
-                @if (cobroElegido(); as c) {
-                  <strong class="mono cg-ficha-monto">{{ money(c.monto) }}</strong>
-                  <span class="cg-ficha-pie">según el documento del ERP</span>
-                } @else {
-                  <strong class="mono cg-ficha-monto cg-ficha-libre">{{ money(f().monto) }}</strong>
-                  <span class="cg-ficha-pie">lo que llevas contado — no hay documento contra qué cuadrar</span>
-                }
-              </div>
-            </div>
-
-            <div class="fin-form">
-              <!-- ⭐⭐ [CG.94] Con documento, estos tres los FIJA el documento: ni se preguntan.
-                   El tipo ya lo dice el chip "Sale de la caja", la fecha esta en el encabezado y la
-                   sucursal es la del folio. Ver fichaSolaLectura. -->
-              @if (!fichaSolaLectura()) {
-              <div class="fin-row">
-                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
-                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
-                <label for="cg-tipo">Tipo</label>
-                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onTipo($event)"></p-select>
-                <label for="cg-fecha">Fecha</label>
-                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
-                              (onSelect)="setF('fecha', claveDe($event))"
-                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
-                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
-                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
-                <label for="cg-suc">Sucursal</label>
-                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
-              </div>
-              }
-
-              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
-                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
-                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
-                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
-                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
-                   escondía, así que para un GASTO no había forma de anclar al documento: había que
-                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
-                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
-              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
-                <!-- ⛔ [CG.94] El selector de documento NO se pinta cuando ya hay uno elegido: seria
-                     ofrecer elegir lo que ya esta elegido, y el encabezado lo muestra con su ✕ para
-                     soltarlo. Era la peor de las siete repeticiones -- un buscador cuyo unico
-                     contenido posible ya estaba arriba, dos centimetros mas alto. -->
-                @if (!fichaSolaLectura()) {
-                <div class="fin-row fin-row-col">
-                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
-                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
-                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
-                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Busca por cliente, folio o ruta — o déjalo vacío y captura a mano"></p-autocomplete>
-                  @if (cobroElegido(); as c) {
-                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
-                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
-                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
-                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
-                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
-                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
-                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
-                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
-                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
-                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
-                         documento era mandar a la persona a buscar el dato al otro extremo. -->
-                  } @else {
-                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elígelo y el importe lo pone el documento.</small>
-                  }
-                </div>
-                }
-
-                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
-                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano.
-
-                     ⛔⛔ [CG.111] SÓLO SI NO HAY DOCUMENTO, y eso es una corrección, no un detalle.
-                     Este campo llama a tomarMovimientoCaos, que hace cobroElegido.set(null):
-                     es EXCLUYENTE. Estaba visible también con un documento ya elegido, así que
-                     usarlo ahí BORRABA el documento en silencio -- se iban fecha, sucursal,
-                     beneficiario y la cuenta de la póliza, y origen_tipo pasaba de
-                     pago_proveedor a caos, o sea que el movimiento dejaba de estar anclado al
-                     ERP. Medido en prod: 11 de 30 movimientos quedaron con origen caos contra
-                     16 anclados al documento.
-
-                     ⭐ Con documento, el camino correcto es OTRO y ya existe: caosVinculados
-                     (más abajo, "retiros del cajero que financiaron este gasto"), que CONSERVA el
-                     ancla y adjunta las dispensaciones. Es el que dejó las 6 filas vivas en
-                     finance.caos_cash_links. Edgar: "a lo mucho enlazarlo con un movimiento de
-                     caos" -- enlazar, no reemplazar. -->
-                @if (!cobroElegido()) {
-                <div class="fin-row fin-row-col">
-                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
-                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
-                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
-                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
-                  @if (caosElegido(); as m) {
-                    <small class="fin-hint-ok">
-                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
-                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
-                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
-                    </small>
-                    <!-- [CGA-A.10b] Si venía de un documento anclado, su LLAVE se conserva y se
-                         DICE. Antes se perdía en silencio y sólo quedaba su texto en la glosa,
-                         con lo que la cola no podía saber de qué sucursal era. -->
-                    @if (docDeclarado(); as ref) {
-                      <small class="fin-hint-ok">Declara pagar el documento <strong>{{ ref }}</strong>.</small>
-                    }
-                  }
-                </div>
-                }
-              }
-
-              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
-                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
-                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
-                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
-                   el dato -- y por eso el bloque lo dice. -->
-              <!-- [CG.94] Los atajos de cuenta no aplican con documento: su cuenta ya salio de la
-                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla.
-                   ⭐ [CG.97] Esa regla decia "con documento" y la guarda preguntaba por el TIPO
-                   ('gasto'), que era su proxy: el gasto es el unico que no se deriva de Kepler.
-                   El proxy costaba los otros dos tipos enteros -- un ingreso o un deposito
-                   capturado a mano tampoco tiene poliza y se quedaba sin atajo. Ahora la guarda
-                   dice la regla: se ofrece cuando NO hay documento elegido, sea cual sea el tipo.
-                   El universo de chips lo acota el servidor, que ya filtra por (tipo, sucursal,
-                   persona) -- aca solo se decide si la oferta corresponde. -->
-              @if (!fichaSolaLectura() && !cobroElegido() && frecuentes().length) {
-                <div class="fin-row fin-row-col">
-                  <label id="cg-frec-lbl">Lo que más repites en {{ f().sucursal | sucursal }}</label>
-                  <!-- ⭐ [CG.98] role="toolbar" + roving tabindex (installToolbarNav, global en
-                       main.ts). Son ACCIONES, no una elección: por eso toolbar y no radiogroup
-                       -- un lector de pantalla anunciaría "no seleccionado" sobre un botón que
-                       llena un formulario, y la flecha NO activa (activar al mover pisaría la
-                       captura una vez por tecla).
-                       Lo que arregla: con diez chips, el tabulador paraba diez veces antes del
-                       siguiente campo (D.4a). Ahora se entra con UN tabulador y se recorre con
-                       flechas, que es lo que vuelve usable un atajo pensado para no usar el
-                       mouse en una pantalla de captura (§O.3 keyboard-first). -->
-                  <div class="cg-chips" role="toolbar" aria-labelledby="cg-frec-lbl">
-                    @for (fr of frecuentes(); track fr.rango) {
-                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
-                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
-                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
-                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
-                                badgeSeverity="secondary" size="small" severity="secondary"
-                                [outlined]="true" (onClick)="usarFrecuente(fr)"
-                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
-                    }
-                  </div>
-                  <!-- [CG.62] El atajo, ESCRITO. D.5: "un atajo que nadie sabe que existe no
-                       existe" -- y la navegación por flechas llevaba varios commits funcionando
-                       en la reja sin que nada la anunciara. Las teclas van en <kbd>. -->
-                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.
-                    <span class="cg-ap-atajo">Se recorren con <kbd>←</kbd><kbd>→</kbd> y se usan con <kbd>Enter</kbd>.</span>
-                  </small>
-                </div>
-              }
-
-              <!-- [CG.94] El beneficiario con documento ya es el TITULO de la ficha, arriba. -->
-              @if (!fichaSolaLectura()) {
-              <div class="fin-row">
-                <label for="cg-benef">Beneficiario</label>
-                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
-                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
-              </div>
-              }
-
-              <!-- ⭐ [CG.94] LA CUENTA, EN MODO FICHA: un renglon que la DICE, no un buscador que la
-                   pregunta. La cuenta sale de la poliza del propio documento y es autoritativa; el
-                   buscador la ofrecia editable y con el dropdown abierto, que invita a cambiarla. -->
-              @if (fichaSolaLectura()) {
-                <div class="fin-row fin-row-col cg-ficha-cta">
-                  <span class="fin-dim">Cuenta de Kepler</span>
-                  <strong class="mono">{{ f().kepler_cuenta || '—' }} / {{ f().kepler_concepto || '—' }}</strong>
-                  <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
-                    {{ etiquetaConcepto().texto }}
-                  </small>
-                  <!-- La puerta de salida: Kepler se equivoca, y una captura que no se puede
-                       corregir obliga a cancelar y rehacer. Abre el formulario completo. -->
-                  <p-button label="Corregir" icon="pi pi-pencil" size="small"
-                            severity="secondary" [text]="true"
-                            (onClick)="corrigiendo.set(true)"></p-button>
-                  <!-- [CGA-A.19] Sin cuenta, la salida no es sólo teclearla en ESTE movimiento: es
-                       declararla para la entidad, una vez, para los que vengan. -->
-                  @if (!f().kepler_cuenta && cobroElegido()?.entidad_code && puedeAutorizarPorPermiso()) {
-                    <p-button label="Declarar la cuenta de esta entidad" icon="pi pi-sitemap" size="small"
-                              severity="secondary" [text]="true"
-                              (onClick)="cuentasKepler.set({ entidad: cobroElegido()?.entidad_code ?? null, beneficiario: cobroElegido()?.beneficiario ?? null })"></p-button>
-                  }
-                </div>
-              } @else {
-              <div class="fin-row fin-row-col">
-                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
-                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
-                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
-                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
-                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
-                                placeholder="Busca por nombre, cuenta o código" appendTo="body"
-                                class="cg-full"></p-autocomplete>
-                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
-                  {{ etiquetaConcepto().texto }}
-                </small>
-                @if (cuentaFuenteDoc()) {
-                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
-                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
-                }
-              </div>
-              }
-
-              <!-- ⭐⭐ [CG.182] EL CORTE DE CAJA, QUE ES LO QUE LA PERSONA TIENE EN LA MANO.
-                   Medido en prod: la unica declaracion humana de donde salio un deposito es texto
-                   libre -- 708 referencias distintas en 749 depositos, cero parseables, la misma
-                   ruta escrita "ruta 21 09 26", "rd 21 04/07", "ruta 21 13 10 26". Y se ve por
-                   plaza: en la 00, 31 de 34 cobros declaran ruta y fecha; en Morelia, 0 de 16.
-                   Elegir el corte ESCRIBE la glosa con su caja, su plaza y su fecha. No ancla
-                   nada: la liga estructural es la version siguiente y vive en el servidor. Lo que
-                   entrega hoy es que la declaracion salga estructurada del lugar donde se hace.
-                   ⛔ Solo en el INGRESO y sin documento: con un documento de Kepler la glosa ya
-                   sale de el, y en un gasto o un deposito al banco no hay corte que declarar. -->
-              @if (!fichaSolaLectura() && f().tipo === 'ingreso' && !cobroElegido()) {
-                <div class="fin-row fin-row-col">
-                  <label for="cg-corte">¿De qué corte de caja salió?</label>
-                  <p-autocomplete inputId="cg-corte" [(ngModel)]="cortesSel" [suggestions]="cortesOpciones()"
-                                  (completeMethod)="buscarCortes($event)" (onSelect)="usarCorte($event)"
-                                  (onClear)="soltarCorte()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [dropdown]="true" [showClear]="true"
-                                  appendTo="body" class="cg-full"
-                                  placeholder="Últimos 7 días de esta sucursal — busca por caja, plaza o fecha"></p-autocomplete>
-                  <!-- ⛔ Cuatro estados. "Vacio" y "no se pudo leer" son ausencias distintas, y la
-                       de hoy tiene dueno distinto: el rezago de carga no lo resuelve quien captura. -->
-                  @if (cortesAviso(); as av) {
-                    <small class="fin-dim">{{ av }}</small>
-                  } @else {
-                    <small class="fin-dim">Al elegirlo se escribe el «Qué pasó» con su caja, su plaza y su
-                      fecha. El importe no se copia: se guarda lo que contaste.</small>
-                  }
-                </div>
-              }
-
-              <!-- [CG.94] La glosa con documento se arma del documento (X-D-26 0023028 · …).
-                   Preguntarla es pedir que alguien reescriba lo que ya quedo escrito. -->
-              @if (!fichaSolaLectura()) {
-              <div class="fin-row">
-                <label for="cg-glosa">Qué pasó</label>
-                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
-                       (keydown.enter)="guardar()"
-                       placeholder="Cuenta qué pasó — esto NO es el concepto contable" />
-              </div>
-              }
-
-
-              <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
-                   2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
-                   para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
-                   cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
-                   la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
-              <!-- ⛔ [CG.94] Con documento NO se ofrece declarar regla, y no es cosmetico: la cuenta
-                   de este movimiento salio de SU poliza, asi que el proximo movimiento de ese mismo
-                   beneficiario tambien la va a traer. Declarar una regla aca es fijar a mano algo que
-                   el ERP ya resuelve por si solo -- y si el beneficiario usa mas de una cuenta, la
-                   regla lo clasifica MAL (es lo que CG.88 frena del lado del servidor). -->
-              @if (!fichaSolaLectura() && puedeDeclararRegla()) {
-                <label class="fin-row cg-declara">
-                  <p-checkbox [binary]="true" [ngModel]="declararRegla()"
-                              (ngModelChange)="declararRegla.set($event)"></p-checkbox>
-                  <span>
-                    De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
-                    <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
-                    <small class="fin-dim d-block">
-                      Los próximos movimientos de este beneficiario se van a poder confirmar de un clic
-                      desde la bandeja, sin volver a elegir la cuenta.
-                    </small>
-                  </span>
-                </label>
-              }
-
-              <!--
-                [CG.160] El motivo de "sin documento". El servidor lo exige desde [CG.124] y la
-                pantalla no lo tenia: quien captura cobranza de ruta chocaba con un 400 que le
-                explicaba que hacer y no le daba donde. Aparece SOLO cuando no hay documento ni
-                movimiento del cajero elegido, que es cuando el servidor lo pide.
-              -->
-              @if (!cobroElegido() && !caosElegido()) {
-                <!-- [CGP-V.11] Era fin-field/fin-label/fin-input, que no existen en ningun lado, sobre
-                     un textarea crudo: se pintaba sin estilo. Ahora el patron de la pantalla. -->
-                <div class="fin-row fin-row-col cg-sin-doc">
-                  <label for="cg-sin-doc">Por qué este movimiento no tiene documento</label>
-                  <textarea
-                    pTextarea id="cg-sin-doc"
-                    rows="2"
-                    class="cg-full"
-                    [ngModel]="sinDocumentoMotivo()"
-                    (ngModelChange)="sinDocumentoMotivo.set($event)"
-                    [ngModelOptions]="{ standalone: true }"
-                    placeholder="Ej: cobranza de la ruta 501 que nadie registró en Kepler"
-                    maxlength="300"></textarea>
-                  <small class="fin-dim">
-                    No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
-                    Un movimiento sin origen y sin motivo no se puede auditar después.
-                  </small>
-                </div>
-              }
-
-              @if (bloqueos().length) {
-                <ul class="fin-blocks">
-                  @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
-                </ul>
-              }
-            </div>
-            <!-- ⛔⛔ [CG.62] ACA ESTABAN "Cancelar" Y "Guardar", Y SE MUDARON AL PIE DEL ARQUEO.
-                 Edgar: "el boton de guardar se debe mostrar abajo de arqueo. para solo pasar del
-                 arqueo a guardar".
-                 Tiene razon y el motivo es de ORDEN DE TRABAJO: lo ultimo que se hace antes de
-                 guardar es contar, y contar pasa en el apartado 2. Con Guardar aca, terminar el
-                 conteo exigia cruzar la pantalla de vuelta -- con el mouse y, peor, con el
-                 teclado. Ahora la ultima pieza contada y el boton son vecinos.
-                 ⚠️ Lo que [CG.60] decia aca ("el pie va pegado a la ficha") queda SUPERADO: era
-                 cierto contra el defecto de entonces (un Guardar flotando sobre la cola), pero
-                 resolvia el lugar equivocado. -->
-            <div class="cg-detail-pie cg-pie-cancelar">
-            <p-button label="Cancelar" severity="secondary" size="small" [text]="true"
-                      (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
-            </div>
-            </div>
-            </div>
-          }
+            <!-- [LE.6.34] La ficha (documento, cuenta, beneficiario, motivo) vivia aqui, fuera del cajon del arqueo,
+                 y el fondo del cajon la tapaba: tocar Corregir o Beneficiario cerraba la captura. Decision del PM
+                 (2026-11-18): la ficha se muda al cajon, arriba de la reja. Su X y su Cancelar se retiran: los da el cajon. -->
 
             <!-- ⛔ [CGA-A.63] Aca vivia la reposicion de sucursales ([CGA-A.61]) y se comia la primera
                  pantalla entera: cinco cifras y diez filas antes del primer movimiento. Edgar: "tiene
@@ -3228,7 +2853,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
                     [class.cg-fila-marcada]="estaMarcada(p.origen_ref)"
                     [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref"
-                    (click)="abrirDeLaCola(p)" (keydown.enter)="abrirDeLaCola(p)">
+                    (click)="abrirDeLaCola(p, $event)" (keydown.enter)="abrirDeLaCola(p, $event)">
                   <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
                        ESTADO (marcada o no); el acto de marcar es la fila entera. -->
                   <td class="cg-td-marca">
@@ -3405,9 +3030,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            es la cifra con la que se reconoce la fila. No es grave porque el importe del
            movimiento elegido se repite DENTRO del arqueo (la ficha y el renglon "documento"),
            asi que la cifra no desaparece de la pantalla -- cambia de lugar. -->
-      <app-side-peek [width]="680"
+      <!-- ⭐ [LE.6.34] Con algo contado, Esc, la X y el clic en el fondo PREGUNTAN antes de tirarlo
+           (auditoria 2026-11-18: un Esc borraba las piezas, la firma y los cheques). Guardar no
+           pregunta: esa ruta pone capturaAbierta en falso directo y no pasa por pedirCierre. -->
+      <app-side-peek #peekArqueo [width]="680"
                      [open]="capturaAbierta()"
                      (openChange)="$event ? null : cerrarConFoco(capturaAbierta)"
+                     [sucio]="capturaSucia()"
+                     textoDescartar="Se pierden las piezas contadas, el cambio devuelto, los cheques o papeles anotados, la firma y los retiros de CAOS que ligaste."
+                     textoSeguir="Seguir contando"
                      title="2 · El arqueo" subtitle="cuenta el efectivo, pieza por pieza">
           <!-- cg-ap-arqueo SE CONSERVA aunque ya no sea una <section> del split: es el ancla
                de seis candados que afirman cosas que siguen siendo ciertas -- que Guardar vive al
@@ -3423,6 +3054,370 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <span class="cg-ap-atajo"><kbd>&uarr;</kbd><kbd>&darr;</kbd> entre renglones &middot; <kbd>&darr;</kbd> al final, a Guardar</span>
           </div>
           @if (capturaAbierta()) {
+            <!-- [LE.6.34] LA FICHA, dentro del cajon: todo el movimiento en un solo lugar. -->
+            <div class="cg-detail">
+            <div class="cg-captura cg-entra">
+            <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
+                 arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
+                 pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
+                 contra una cifra que no se lee es contar a ciegas del lado equivocado.
+                 ⚠️ Sin documento anclado la ficha NO se calla ni dibuja un cero: dice que
+                 el movimiento es libre, que es un hecho distinto de "el documento dice 0". -->
+            <div class="cg-ficha">
+              <div class="cg-ficha-top">
+                <span class="cg-signo" [class.cg-signo-in]="f().tipo === 'ingreso'">
+                  <i class="pi" [class.pi-arrow-down]="f().tipo === 'ingreso'"
+                     [class.pi-arrow-up]="f().tipo !== 'ingreso'" aria-hidden="true"></i>
+                  {{ f().tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja' }}
+                </span>
+                @if (cobroElegido(); as c) {
+                  <span class="mono cg-ficha-doc">{{ c.doc_tipo }} {{ c.folio }}</span>
+                } @else {
+                  <span class="cg-ficha-doc fin-dim">sin documento del ERP</span>
+                }
+                <span class="cg-bandeja-sp"></span>
+                <span class="mono cg-ficha-fecha">{{ dmy(f().fecha) }}</span>
+              </div>
+
+              <h3 class="cg-ficha-nombre">{{ f().beneficiario || cobroElegido()?.entidad_code || 'Movimiento sin contraparte' }}</h3>
+              <!-- [CGA-A.71] Ya entró al libro por otro camino: capturarlo otra vez metería el dinero dos veces. -->
+              @if (cobroElegido()?.ya_en_libro; as yl) {
+                <p class="cg-ya-libro-aviso" role="alert">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <span><strong>Ya está en el libro como {{ yl.folio }}</strong> ({{ dmy(yl.fecha) }}, {{ money(yl.monto) }}):
+                    {{ textoYaEnLibro(yl) }}. No lo captures otra vez: hay que ligarlo a esa captura.</span>
+                </p>
+                <!-- [CGA-A.72] Ligar: la captura declara este documento y la cola deja de ofrecerlo. Lo vuelve a decidir el servidor. -->
+                @if (ligable(yl)) {
+                  <div class="cg-ya-libro-acc">
+                    <p-button [label]="'Sí, es ' + yl.folio + ': ligar'" icon="pi pi-link" size="small"
+                              [loading]="ligando()" [disabled]="ligando()"
+                              (onClick)="ligar(cobroElegido()!)"></p-button>
+                    <small class="fin-dim">No cambia el importe ni el corte: sólo dice qué documento es.</small>
+                  </div>
+                } @else {
+                  <small class="fin-dim d-block">Éste no se liga desde aquí: lo revisa tesorería (cambiaría la llave de un cobro).</small>
+                }
+              }
+
+              <!-- El numero grande de ESTA mitad. El del arqueo es el OTRO lado de la misma
+                   pregunta y vive en el apartado 2: nunca se ven los dos como titulo de lo mismo. -->
+              <div class="cg-ficha-cifra">
+                @if (cobroElegido(); as c) {
+                  <strong class="mono cg-ficha-monto">{{ money(c.monto) }}</strong>
+                  <span class="cg-ficha-pie">según el documento del ERP</span>
+                } @else {
+                  <strong class="mono cg-ficha-monto cg-ficha-libre">{{ money(f().monto) }}</strong>
+                  <span class="cg-ficha-pie">lo que llevas contado — no hay documento contra qué cuadrar</span>
+                }
+              </div>
+            </div>
+
+            <div class="fin-form">
+              <!-- ⭐⭐ [CG.94] Con documento, estos tres los FIJA el documento: ni se preguntan.
+                   El tipo ya lo dice el chip "Sale de la caja", la fecha esta en el encabezado y la
+                   sucursal es la del folio. Ver fichaSolaLectura. -->
+              @if (!fichaSolaLectura()) {
+              <div class="fin-row">
+                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
+                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
+                <label for="cg-tipo">Tipo</label>
+                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onTipo($event)"></p-select>
+                <label for="cg-fecha">Fecha</label>
+                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
+                              (onSelect)="setF('fecha', claveDe($event))"
+                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
+                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
+                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
+                <label for="cg-suc">Sucursal</label>
+                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
+              </div>
+              }
+
+              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
+                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
+                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
+                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
+                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
+                   escondía, así que para un GASTO no había forma de anclar al documento: había que
+                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
+                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
+              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
+                <!-- ⛔ [CG.94] El selector de documento NO se pinta cuando ya hay uno elegido: seria
+                     ofrecer elegir lo que ya esta elegido, y el encabezado lo muestra con su ✕ para
+                     soltarlo. Era la peor de las siete repeticiones -- un buscador cuyo unico
+                     contenido posible ya estaba arriba, dos centimetros mas alto. -->
+                @if (!fichaSolaLectura()) {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
+                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
+                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
+                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Busca por cliente, folio o ruta — o déjalo vacío y captura a mano"></p-autocomplete>
+                  @if (cobroElegido(); as c) {
+                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
+                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
+                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
+                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
+                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
+                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
+                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
+                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
+                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
+                         documento era mandar a la persona a buscar el dato al otro extremo. -->
+                  } @else {
+                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elígelo y el importe lo pone el documento.</small>
+                  }
+                </div>
+                }
+
+                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
+                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano.
+
+                     ⛔⛔ [CG.111] SÓLO SI NO HAY DOCUMENTO, y eso es una corrección, no un detalle.
+                     Este campo llama a tomarMovimientoCaos, que hace cobroElegido.set(null):
+                     es EXCLUYENTE. Estaba visible también con un documento ya elegido, así que
+                     usarlo ahí BORRABA el documento en silencio -- se iban fecha, sucursal,
+                     beneficiario y la cuenta de la póliza, y origen_tipo pasaba de
+                     pago_proveedor a caos, o sea que el movimiento dejaba de estar anclado al
+                     ERP. Medido en prod: 11 de 30 movimientos quedaron con origen caos contra
+                     16 anclados al documento.
+
+                     ⭐ Con documento, el camino correcto es OTRO y ya existe: caosVinculados
+                     (más abajo, "retiros del cajero que financiaron este gasto"), que CONSERVA el
+                     ancla y adjunta las dispensaciones. Es el que dejó las 6 filas vivas en
+                     finance.caos_cash_links. Edgar: "a lo mucho enlazarlo con un movimiento de
+                     caos" -- enlazar, no reemplazar. -->
+                @if (!cobroElegido()) {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
+                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
+                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
+                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
+                  @if (caosElegido(); as m) {
+                    <small class="fin-hint-ok">
+                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
+                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
+                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
+                    </small>
+                    <!-- [CGA-A.10b] Si venía de un documento anclado, su LLAVE se conserva y se
+                         DICE. Antes se perdía en silencio y sólo quedaba su texto en la glosa,
+                         con lo que la cola no podía saber de qué sucursal era. -->
+                    @if (docDeclarado(); as ref) {
+                      <small class="fin-hint-ok">Declara pagar el documento <strong>{{ ref }}</strong>.</small>
+                    }
+                  }
+                </div>
+                }
+              }
+
+              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
+                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
+                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
+                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
+                   el dato -- y por eso el bloque lo dice. -->
+              <!-- [CG.94] Los atajos de cuenta no aplican con documento: su cuenta ya salio de la
+                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla.
+                   ⭐ [CG.97] Esa regla decia "con documento" y la guarda preguntaba por el TIPO
+                   ('gasto'), que era su proxy: el gasto es el unico que no se deriva de Kepler.
+                   El proxy costaba los otros dos tipos enteros -- un ingreso o un deposito
+                   capturado a mano tampoco tiene poliza y se quedaba sin atajo. Ahora la guarda
+                   dice la regla: se ofrece cuando NO hay documento elegido, sea cual sea el tipo.
+                   El universo de chips lo acota el servidor, que ya filtra por (tipo, sucursal,
+                   persona) -- aca solo se decide si la oferta corresponde. -->
+              @if (!fichaSolaLectura() && !cobroElegido() && frecuentes().length) {
+                <div class="fin-row fin-row-col">
+                  <label id="cg-frec-lbl">Lo que más repites en {{ f().sucursal | sucursal }}</label>
+                  <!-- ⭐ [CG.98] role="toolbar" + roving tabindex (installToolbarNav, global en
+                       main.ts). Son ACCIONES, no una elección: por eso toolbar y no radiogroup
+                       -- un lector de pantalla anunciaría "no seleccionado" sobre un botón que
+                       llena un formulario, y la flecha NO activa (activar al mover pisaría la
+                       captura una vez por tecla).
+                       Lo que arregla: con diez chips, el tabulador paraba diez veces antes del
+                       siguiente campo (D.4a). Ahora se entra con UN tabulador y se recorre con
+                       flechas, que es lo que vuelve usable un atajo pensado para no usar el
+                       mouse en una pantalla de captura (§O.3 keyboard-first). -->
+                  <div class="cg-chips" role="toolbar" aria-labelledby="cg-frec-lbl">
+                    @for (fr of frecuentes(); track fr.rango) {
+                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
+                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
+                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
+                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
+                                badgeSeverity="secondary" size="small" severity="secondary"
+                                [outlined]="true" (onClick)="usarFrecuente(fr)"
+                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
+                    }
+                  </div>
+                  <!-- [CG.62] El atajo, ESCRITO. D.5: "un atajo que nadie sabe que existe no
+                       existe" -- y la navegación por flechas llevaba varios commits funcionando
+                       en la reja sin que nada la anunciara. Las teclas van en <kbd>. -->
+                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.
+                    <span class="cg-ap-atajo">Se recorren con <kbd>←</kbd><kbd>→</kbd> y se usan con <kbd>Enter</kbd>.</span>
+                  </small>
+                </div>
+              }
+
+              <!-- [CG.94] El beneficiario con documento ya es el TITULO de la ficha, arriba. -->
+              @if (!fichaSolaLectura()) {
+              <div class="fin-row">
+                <label for="cg-benef">Beneficiario</label>
+                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
+                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
+              </div>
+              }
+
+              <!-- ⭐ [CG.94] LA CUENTA, EN MODO FICHA: un renglon que la DICE, no un buscador que la
+                   pregunta. La cuenta sale de la poliza del propio documento y es autoritativa; el
+                   buscador la ofrecia editable y con el dropdown abierto, que invita a cambiarla. -->
+              @if (fichaSolaLectura()) {
+                <div class="fin-row fin-row-col cg-ficha-cta">
+                  <span class="fin-dim">Cuenta de Kepler</span>
+                  <strong class="mono">{{ f().kepler_cuenta || '—' }} / {{ f().kepler_concepto || '—' }}</strong>
+                  <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                    {{ etiquetaConcepto().texto }}
+                  </small>
+                  <!-- La puerta de salida: Kepler se equivoca, y una captura que no se puede
+                       corregir obliga a cancelar y rehacer. Abre el formulario completo. -->
+                  <p-button label="Corregir" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true"
+                            (onClick)="corrigiendo.set(true)"></p-button>
+                  <!-- [CGA-A.19] Sin cuenta, la salida no es sólo teclearla en ESTE movimiento: es
+                       declararla para la entidad, una vez, para los que vengan. -->
+                  @if (!f().kepler_cuenta && cobroElegido()?.entidad_code && puedeAutorizarPorPermiso()) {
+                    <p-button label="Declarar la cuenta de esta entidad" icon="pi pi-sitemap" size="small"
+                              severity="secondary" [text]="true"
+                              (onClick)="cuentasKepler.set({ entidad: cobroElegido()?.entidad_code ?? null, beneficiario: cobroElegido()?.beneficiario ?? null })"></p-button>
+                  }
+                </div>
+              } @else {
+              <div class="fin-row fin-row-col">
+                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
+                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
+                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
+                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
+                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
+                                placeholder="Busca por nombre, cuenta o código" appendTo="body"
+                                class="cg-full"></p-autocomplete>
+                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                  {{ etiquetaConcepto().texto }}
+                </small>
+                @if (cuentaFuenteDoc()) {
+                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
+                }
+              </div>
+              }
+
+              <!-- ⭐⭐ [CG.182] EL CORTE DE CAJA, QUE ES LO QUE LA PERSONA TIENE EN LA MANO.
+                   Medido en prod: la unica declaracion humana de donde salio un deposito es texto
+                   libre -- 708 referencias distintas en 749 depositos, cero parseables, la misma
+                   ruta escrita "ruta 21 09 26", "rd 21 04/07", "ruta 21 13 10 26". Y se ve por
+                   plaza: en la 00, 31 de 34 cobros declaran ruta y fecha; en Morelia, 0 de 16.
+                   Elegir el corte ESCRIBE la glosa con su caja, su plaza y su fecha. No ancla
+                   nada: la liga estructural es la version siguiente y vive en el servidor. Lo que
+                   entrega hoy es que la declaracion salga estructurada del lugar donde se hace.
+                   ⛔ Solo en el INGRESO y sin documento: con un documento de Kepler la glosa ya
+                   sale de el, y en un gasto o un deposito al banco no hay corte que declarar. -->
+              @if (!fichaSolaLectura() && f().tipo === 'ingreso' && !cobroElegido()) {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-corte">¿De qué corte de caja salió?</label>
+                  <p-autocomplete inputId="cg-corte" [(ngModel)]="cortesSel" [suggestions]="cortesOpciones()"
+                                  (completeMethod)="buscarCortes($event)" (onSelect)="usarCorte($event)"
+                                  (onClear)="soltarCorte()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [dropdown]="true" [showClear]="true"
+                                  appendTo="body" class="cg-full"
+                                  placeholder="Últimos 7 días de esta sucursal — busca por caja, plaza o fecha"></p-autocomplete>
+                  <!-- ⛔ Cuatro estados. "Vacio" y "no se pudo leer" son ausencias distintas, y la
+                       de hoy tiene dueno distinto: el rezago de carga no lo resuelve quien captura. -->
+                  @if (cortesAviso(); as av) {
+                    <small class="fin-dim">{{ av }}</small>
+                  } @else {
+                    <small class="fin-dim">Al elegirlo se escribe el «Qué pasó» con su caja, su plaza y su
+                      fecha. El importe no se copia: se guarda lo que contaste.</small>
+                  }
+                </div>
+              }
+
+              <!-- [CG.94] La glosa con documento se arma del documento (X-D-26 0023028 · …).
+                   Preguntarla es pedir que alguien reescriba lo que ya quedo escrito. -->
+              <!-- ⛔ [LE.6.34] Enter aqui llamaba a guardar() DIRECTO: se saltaba la ventana de
+                   confirmacion que el boton Guardar si abre. Ahora hace lo mismo que el boton. -->
+              @if (!fichaSolaLectura()) {
+              <div class="fin-row">
+                <label for="cg-glosa">Qué pasó</label>
+                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
+                       (keydown.enter)="enterEnGlosa($event)"
+                       placeholder="Cuenta qué pasó — esto NO es el concepto contable" />
+              </div>
+              }
+
+
+              <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
+                   2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
+                   para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
+                   cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
+                   la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
+              <!-- ⛔ [CG.94] Con documento NO se ofrece declarar regla, y no es cosmetico: la cuenta
+                   de este movimiento salio de SU poliza, asi que el proximo movimiento de ese mismo
+                   beneficiario tambien la va a traer. Declarar una regla aca es fijar a mano algo que
+                   el ERP ya resuelve por si solo -- y si el beneficiario usa mas de una cuenta, la
+                   regla lo clasifica MAL (es lo que CG.88 frena del lado del servidor). -->
+              @if (!fichaSolaLectura() && puedeDeclararRegla()) {
+                <label class="fin-row cg-declara">
+                  <p-checkbox [binary]="true" [ngModel]="declararRegla()"
+                              (ngModelChange)="declararRegla.set($event)"></p-checkbox>
+                  <span>
+                    De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
+                    <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
+                    <small class="fin-dim d-block">
+                      Los próximos movimientos de este beneficiario se van a poder confirmar de un clic
+                      desde la bandeja, sin volver a elegir la cuenta.
+                    </small>
+                  </span>
+                </label>
+              }
+
+              <!--
+                [CG.160] El motivo de "sin documento". El servidor lo exige desde [CG.124] y la
+                pantalla no lo tenia: quien captura cobranza de ruta chocaba con un 400 que le
+                explicaba que hacer y no le daba donde. Aparece SOLO cuando no hay documento ni
+                movimiento del cajero elegido, que es cuando el servidor lo pide.
+              -->
+              @if (!cobroElegido() && !caosElegido()) {
+                <!-- [CGP-V.11] Era fin-field/fin-label/fin-input, que no existen en ningun lado, sobre
+                     un textarea crudo: se pintaba sin estilo. Ahora el patron de la pantalla. -->
+                <div class="fin-row fin-row-col cg-sin-doc">
+                  <label for="cg-sin-doc">Por qué este movimiento no tiene documento</label>
+                  <textarea
+                    pTextarea id="cg-sin-doc"
+                    rows="2"
+                    class="cg-full"
+                    [ngModel]="sinDocumentoMotivo()"
+                    (ngModelChange)="sinDocumentoMotivo.set($event)"
+                    [ngModelOptions]="{ standalone: true }"
+                    placeholder="Ej: cobranza de la ruta 501 que nadie registró en Kepler"
+                    maxlength="300"></textarea>
+                  <small class="fin-dim">
+                    No está enlazado a Kepler ni al cajero, así que hay que decir por qué.
+                    Un movimiento sin origen y sin motivo no se puede auditar después.
+                  </small>
+                </div>
+              }
+
+              @if (bloqueos().length) {
+                <ul class="fin-blocks">
+                  @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
+                </ul>
+              }
+            </div>
+            </div>
+            </div>
             <div class="cg-captura cg-entra cg-entra-tras">
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
@@ -3513,8 +3508,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <div class="cg-caja-aparte-top">
                     <span class="cg-caja-ico mono" aria-hidden="true">⇄</span>
                     <strong>Del cajero (CAOS)</strong>
-                    @if (hayCajero()) {
-                      <strong class="mono cg-caos-monto">{{ money(aporteCajero()) }}</strong>
+                    @if (hayCajero() || depositadoIngreso() > 0) {
+                      <!-- [LE.6.33] + lo que un deposito compartido cubre de este cobro (sin sus billetes). -->
+                      <strong class="mono cg-caos-monto">{{ money(aporteCajero() + depositadoIngreso()) }}</strong>
                       <span class="fin-dim">ya contado por la máquina</span>
                     } @else {
                       <span class="fin-dim">¿parte de esto salió de la bóveda?</span>
@@ -3557,11 +3553,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       @for (v of caosVinculados(); track v.external_id) {
                         <!-- Esto ES un chip removible: p-chip lo trae con su boton de quitar, su icono
                              y su foco. Antes era un <span> con un <button> adentro y una "✕" tecleada. -->
-                        <p-chip [label]="money(v.monto) + ' · ' + (v.ref || 's/ref')" class="cg-caos-in"
+                        <!-- [LE.6.33] Con un cobro elegido, el chip dice lo que este cobro TOMA del deposito. -->
+                        <p-chip [label]="(tomaDeDeposito(v.external_id) !== null
+                                    ? 'toma ' + money(tomaDeDeposito(v.external_id)!) + ' de ' + money(v.monto) + ' libres'
+                                    : money(v.monto)) + ' · ' + (v.ref || 's/ref')" class="cg-caos-in"
                                 [removable]="true" removeIcon="pi pi-times"
                                 (onRemove)="desvincularCaos(v.external_id)"></p-chip>
                       }
                     </div>
+                    @if (depositadoIngreso() > 0) {
+                      <span class="fin-dim" data-testid="deposito-compartido">El depósito cubre {{ money(depositadoIngreso()) }} de este cobro; lo que le quede se liga a los otros cobros. Cuenta abajo sólo lo que se quedó en el cajón.</span>
+                    }
                   }
                   <!-- CS.3.7 — Lo que la maquina ya conto NO entra en la reja de abajo: esa queda para la
                        DIFERENCIA (morralla, un faltante). Aca solo se muestra; nunca se re-teclea. -->
@@ -4050,7 +4052,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
          navegador haciendo el trabajo. -->
     <!-- [CGS.18] Responder una observacion: no cambia ninguna cifra; si lo que estaba mal es un
          movimiento, la correccion es un ajuste en la jornada abierta. -->
-    <p-dialog [visible]="respondiendo() !== null" (visibleChange)="$event ? null : cerrarRespuesta()"
+    <p-dialog appDevolverFoco [visible]="respondiendo() !== null" (visibleChange)="$event ? null : cerrarRespuesta()"
               [modal]="true" [style]="{ width: '32rem', maxWidth: '96vw' }" [draggable]="false"
               [header]="'Responder la observación de ' + (respondiendo()?.folio ?? '')">
       @if (respondiendo(); as c) {
@@ -4086,7 +4088,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     <!-- ⭐ [CGA-A.19] Cuentas de Kepler: cuántos movimientos de la cola tienen su cuenta, y la
          configuración para el residuo que Kepler no resuelve. Es una CONSULTA y una declaración,
          no una captura: por eso vive en un diálogo y no en el formulario. -->
-    <p-dialog [visible]="cuentasKepler() !== null" (visibleChange)="$event ? null : cuentasKepler.set(null)"
+    <p-dialog appDevolverFoco [visible]="cuentasKepler() !== null" (visibleChange)="$event ? null : cuentasKepler.set(null)"
               [modal]="true" [style]="{ width: '64rem', maxWidth: '96vw' }"
               header="Cuentas de Kepler" [draggable]="false">
       @if (cuentasKepler(); as ck) {
@@ -4096,7 +4098,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       }
     </p-dialog>
 
-    <p-dialog [visible]="reporteAbierto()" (visibleChange)="$event ? null : cerrarConFoco(reporteAbierto)"
+    <p-dialog appDevolverFoco [visible]="reporteAbierto()" (visibleChange)="$event ? null : cerrarConFoco(reporteAbierto)"
               [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }"
               header="Reporte de movimientos" [draggable]="false">
       <pre class="cg-reporte">{{ reporteTexto() }}</pre>
@@ -4139,7 +4141,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       </ng-template>
     </p-dialog>
 
+    <!-- ⭐ [LE.6.34] Con algo contado la ventana no se cierra sola (ni Esc ni X): el pie pregunta
+         antes de tirar la reja. Ver app-descartar-cambios. -->
     <p-dialog [visible]="cierreAbierto()" (visibleChange)="$event ? null : cerrarConFoco(cierreAbierto)"
+              [closable]="!cierreSucio()" [closeOnEscape]="!cierreSucio()"
               [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }"
               header="Cerrar corte — cuenta el efectivo" [draggable]="false">
       <div class="fin-form">
@@ -4431,7 +4436,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
       </div>
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(cierreAbierto)"></p-button>
+        <app-descartar-cambios [sucio]="cierreSucio()" [bloqueado]="sellando() || cerrando()"
+                               texto="Se pierde el conteo que llevas y lo que anotaste de cheques, papeles y dólares."
+                               (cerrar)="cerrarCierre()" />
         @if (!revelacion()) {
           <!-- Sellar ANTES de revelar: si se revelara sin guardar, bastaba mirar el resultado y
                corregir el conteo, y el arqueo ciego dejaría de serlo. -->
@@ -4634,6 +4641,32 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.abrirConFoco(this.confirmarGuardar);
   }
 
+  /**
+   * ⛔ `[LE.6.34]` Enter en «Qué pasó» hace lo MISMO que el botón Guardar: pide confirmación. Llamaba a
+   * `guardar()` directo y se saltaba «¿Guardas este movimiento?». Un Enter que cierra la composición de
+   * un IME (acentos, dictado) no es un «guardar»: `isComposing` lo deja pasar.
+   */
+  enterEnGlosa(ev: Event): void {
+    if ((ev as KeyboardEvent).isComposing) return;
+    ev.preventDefault();
+    this.pedirConfirmacion();
+  }
+
+  /** `[LE.6.34]` El cajón del arqueo: se le pide cerrar a ÉL, para que pregunte si hay algo contado. */
+  private readonly peekArqueo = viewChild<SidePeekComponent>('peekArqueo');
+  /** [LE.6.35] La ventana de Reposición, para llevar ahí un pago «en hoja» desde la cola. */
+  private readonly repoCmp = viewChild<CajaReposicionComponent>('repo');
+
+  /**
+   * `[LE.6.34]` La X de la ficha y «Cancelar» cerraban la captura sin pasar por el cajón, o sea sin
+   * preguntar. Ahora van por `pedirCierre()`, igual que Esc y el clic en el fondo.
+   */
+  pedirCerrarCaptura(): void {
+    const peek = this.peekArqueo();
+    if (peek && this.capturaAbierta()) { peek.pedirCierre(); return; }
+    this.cerrarConFoco(this.capturaAbierta);
+  }
+
   /** La reja de denominaciones del corte. */
   moverEnRejaCorte(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-corte'); }
 
@@ -4814,7 +4847,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * los que el capturista ya vinculó (su efectivo se suma al arqueo y se enlaza al guardar).
    */
   caosSugeridos = signal<CaosCandidato[]>([]);
-  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown>; fecha?: string; operador?: string | null }>>([]);
+  caosVinculados = signal<Array<{ device: string; external_id: number; monto: number; ref: string | null; denominaciones: Array<{ denominacion: number; piezas: number }>; senales: Record<string, unknown>; fecha?: string; operador?: string | null; total?: number }>>([]);
   /**
    * ⭐ `[CGA-A.56]` De dónde salió el dinero de un EGRESO: retiros de CAOS o el cajón (Edgar,
    * 2026-10-26). `null` = todavía no se dijo, y el botón de guardar lo pide.
@@ -4872,6 +4905,44 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return this.linksDeEgreso(Number(doc.monto));
   });
   cubiertoPorRetiros = computed(() => redondea(this.linksCubiertos().reduce((a, l) => a + Number(l.monto || 0), 0)));
+  /**
+   * ⭐ `[LE.6.33]` **Un depósito de CAOS que junta varios cobros** (las rutas 501, 502 y 503 de Canindo en
+   * un solo depósito de $51,770, 2026-11-18). Antes se ligaba el depósito ENTERO al cobro y la base lo
+   * rechazaba: lo ligado no puede pasar del cobro (`CAOS_LINK_EXCEDE_CAPTURA`). Ahora cada depósito da
+   * sólo lo que el cobro necesita, en billetes (`pagableConBilletesCaos`), en el orden en que se ligaron
+   * y sin pasar de lo que le queda. Lo que no alcance se queda en el cajón y se cuenta en la reja.
+   *
+   * `entero`: el cobro se lleva el depósito completo. Entonces se conserva lo de siempre —sus billetes
+   * se copian al arqueo— y no se acredita nada aparte. Si es una parte, sus billetes no se pueden
+   * repartir: lo que cubre cuenta como contado por la máquina (`depositadoIngreso`), igual que en el
+   * servidor (`evaluarArqueoDeEgreso`).
+   *
+   * Sólo con un cobro de Kepler elegido: sin documento el monto SALE del conteo y no hay cifra que repartir.
+   */
+  linksDeIngreso = computed<Array<{ device: string; external_id: number; monto: number; senales: Record<string, unknown>; entero: boolean }>>(() => {
+    const tipo = this.f().tipo;
+    const doc = this.cobroElegido();
+    const vinculados = this.caosVinculados();
+    if (tipo !== 'ingreso' || !doc || !vinculados.length) return [];
+    let falta = redondea(Number(doc.monto) || 0);
+    const out: Array<{ device: string; external_id: number; monto: number; senales: Record<string, unknown>; entero: boolean }> = [];
+    for (const v of vinculados) {
+      if (falta <= 0.005) break;
+      const toma = pagableConBilletesCaos(Math.min(falta, Number(v.monto || 0)));
+      if (toma <= 0.005) continue;
+      const total = Number(v.total ?? v.monto);
+      const entero = Math.abs(toma - total) < 0.005 && Math.abs(Number(v.monto) - total) < 0.005;
+      out.push({ device: v.device, external_id: v.external_id, monto: toma, senales: v.senales, entero });
+      falta = redondea(falta - toma);
+    }
+    return out;
+  });
+  /** `[LE.6.33]` Lo que los depósitos compartidos cubren de este cobro: ya lo contó la máquina. */
+  depositadoIngreso = computed(() => redondea(this.linksDeIngreso().filter((l) => !l.entero).reduce((a, l) => a + l.monto, 0)));
+  /** `[LE.6.33]` Lo que toma de cada depósito, para decirlo en su chip. */
+  tomaDeDeposito(externalId: number): number | null {
+    return this.linksDeIngreso().find((l) => l.external_id === externalId)?.monto ?? null;
+  }
   buscandoCajero = signal(false);
 
   /**
@@ -4897,7 +4968,15 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     });
     const o = this.caosElegido();
     if (o?.denominaciones) src.push(...o.denominaciones.map(comoBillete));
-    for (const v of this.caosVinculados()) src.push(...v.denominaciones.map(comoBillete));
+    // `[LE.6.33]` Un depósito que este cobro toma sólo en PARTE no copia sus billetes (no se pueden
+    // repartir): lo que cubre va en `depositadoIngreso`. Leído incondicional (regla de signals).
+    const links = this.linksDeIngreso();
+    const parciales = new Set(links.filter((l) => !l.entero).map((l) => l.external_id));
+    const conDoc = links.length > 0;
+    for (const v of this.caosVinculados()) {
+      if (conDoc && (parciales.has(v.external_id) || !links.some((l) => l.external_id === v.external_id))) continue;
+      src.push(...v.denominaciones.map(comoBillete));
+    }
     return mergeDenoms(src);
   });
 
@@ -5145,8 +5224,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * cierra la captura por eso: cerrar es una acción propia (Cancelar), no el efecto de tocar dos
    * veces lo mismo.
    */
-  abrirDeLaCola(fila: MovimientoPendiente | null): void {
-    if (fila) this.capturarDesde(fila);
+  abrirDeLaCola(fila: MovimientoPendiente | null, evento?: Event): void {
+    if (!fila) return;
+    /**
+     * ⭐ `[LE.6.35]` Un pago «en hoja» no se captura suelto (el servidor lo rechaza): se paga con la reposición de su
+     * zona. La fila lleva a ESA reposición, desplegada y con el pago resaltado (PM, 2026-11-19). Antes abría una
+     * captura condenada y el aviso mandaba a una pantalla retirada.
+     */
+    if (fila.motivo === 'en_hoja') {
+      const repo = this.repoCmp();
+      if (repo) { repo.abrirEn(fila.origen_ref, (evento?.currentTarget as HTMLElement | null) ?? undefined); return; }
+    }
+    this.capturarDesde(fila);
   }
 
   /**
@@ -6435,7 +6524,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       ...this.f(), denominaciones: this.denominacionesParaGuardar(),
       // `[CGS.60]` Lo que fue en cheque o papel cuenta como la venta a crédito: parte del monto que no
       // es efectivo (el arqueo del util la suma al desglose).
-      venta_credito: this.documentosTotal(),
+      // `[LE.6.33]` + lo que cubre un depósito compartido (igual que el servidor, `evaluarArqueoDeEgreso`).
+      venta_credito: this.documentosTotal() + this.depositadoIngreso(),
       documentos_incompletos: this.documentosIncompletos(),
       // ⛔ [CG.38] Sin esto, devolver cambio trababa el guardado con `arqueo_no_cuadra`: el
       // desglose sumaba lo que ENTRÓ y el monto ya era el NETO, así que la diferencia era
@@ -6557,6 +6647,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     sin_regla: 'beneficiario sin regla',
     elegir_concepto: 'falta elegir concepto',
     fecha_futura: 'fecha posterior a hoy',
+    // [LE.6.35] Salía el código crudo «en_hoja»: dice qué es y a dónde lleva la fila.
+    en_hoja: 'va en la reposición · abrir',
   };
   motivoCorto(m: string | null | undefined): string {
     if (!m) return 'no confirmable';
@@ -7526,6 +7618,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * ahí (CG.22.6): no se inventa una segunda puerta para lo mismo.
    */
   declararDesdeRecurrente(r: RecurrenteSinRegla): void {
+    // ⛔ `[LE.6.34]` Se pide desde la ventana «Tu jornada», que es modal: sin cerrarla, el arqueo se abría DETRÁS.
+    this.jornadaAbierta.set(false);
     this.abrirCaptura();
     this.setF('tipo', 'gasto' as TipoMovimiento);
     this.setF('beneficiario', r.beneficiario);
@@ -7621,9 +7715,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
    */
   abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
-    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.bolsasCorte.set({}); this.bolsasAbiertas.set(false);
-    this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
+    const ca = this.corteAbierto();
+    const elegido = corte ?? (ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null);
+    /**
+     * ⛔ `[LE.6.34]` Reabrir el MISMO corte no tira lo que se llevaba contado. Antes la reja volvía a cero
+     * en cada apertura: se cerraba la ventana con Esc a media cuenta y había que contar otra vez. La reja
+     * se vacía sólo con otro corte, al descartar (`cerrarCierre`) o al cerrar el corte.
+     */
+    const mismoBorrador = !!elegido && elegido.id === this.corteDelBorrador;
+    if (!mismoBorrador) this.vaciarRejaCorte();
+    this.corteDelBorrador = elegido?.id ?? null;
+    this.conflictoEsperado.set(null);
     this.cargarNoEfectivo();
+    // `[CGP-V.9]` «Conté y no hay efectivo» se confirma CADA vez que se abre, aunque sea el mismo corte.
     this.errorCierre.set(null); this.ceroDeclarado.set(false);
     // `[CGP-V.3b]` Se baja SIEMPRE: una confirmación heredada de otro corte no confirma nada.
     this.jornadaConfirmada.set(false);
@@ -7636,10 +7740,58 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
      * este corte. Lo único que se fija acá es cuál es el corte. Recién abierto, el saldo todavía no
      * lo trae: por eso `abrirCorte()` lo pasa de su respuesta.
      */
-    const ca = this.corteAbierto();
-    this.corteDelCierre.set(corte ?? (ca ? { id: ca.id, folio: ca.folio, fecha: ca.fecha } : null));
+    this.corteDelCierre.set(elegido);
     this.abrirConFoco(this.cierreAbierto);
   }
+
+  /**
+   * `[LE.6.34]` De qué corte es la reja que está en memoria. Si se reabre ESE corte, la reja se queda;
+   * con otro, se vacía (el conteo de un corte no es el de otro).
+   */
+  private corteDelBorrador: string | null = null;
+
+  /** `[LE.6.34]` La reja del corte, en blanco: piezas, morralla, bolsas y reconteo. */
+  private vaciarRejaCorte(): void {
+    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.bolsasCorte.set({}); this.bolsasAbiertas.set(false);
+    this.motivoReconteo.set(''); this.recontando.set(false);
+  }
+
+  /**
+   * ⭐ `[LE.6.34]` Cerrar la ventana desde la persona (el «Cancelar» del pie). Si había algo contado, ya
+   * confirmó que lo descarta (`app-descartar-cambios`): la reja se vacía DE VERDAD, para que «se pierde»
+   * no sea mentira al reabrir.
+   */
+  cerrarCierre(): void {
+    this.vaciarRejaCorte();
+    this.corteDelBorrador = null;
+    this.cerrarConFoco(this.cierreAbierto);
+  }
+
+  /**
+   * ⭐ `[LE.6.34]` Verdadero si cerrar «Cerrar corte» tira algo que la persona hizo: piezas, morralla,
+   * bolsas o motivo en la reja mientras se teclea (ya sellada, lo sellado no se pierde), y cheques,
+   * papeles, dólares o explicaciones que cambió respecto de lo propuesto y todavía no se guardaron.
+   * Lee TODO antes de decidir: un computed que corta antes de leer queda sin esa dependencia.
+   */
+  readonly cierreSucio = computed(() => {
+    const editable = this.rejaEditable();
+    const conteo = this.conteoCorteTotal();
+    const morralla = Number(this.morrallaCorte() || 0);
+    const bolsas = this.hayBolsas();
+    const motivo = this.motivoReconteo().trim();
+    const declarado = this.neDeclarado();
+    const ch = this.neCh(); const pa = this.nePa();
+    const chValor = ch?.valor() ?? null; const chIgual = ch?.sinCambios() ?? true;
+    const paValor = pa?.valor() ?? null; const paIgual = pa?.sinCambios() ?? true;
+    const usd = this.neUsd(); const tc = this.neTC(); const prop = this.neUsdPropuesto();
+    const ex = this.neExplicacion();
+    const reja = editable && (conteo.some((d) => Number(d.piezas) > 0) || morralla > 0 || bolsas || motivo.length > 0);
+    const docs = (chValor !== null && !chIgual) || (paValor !== null && !paIgual);
+    const dolares = usd !== null && !(!!prop && usd === prop.usd && tc === prop.tipo_cambio);
+    const explicado = (['cheque', 'papel'] as const).some((t) =>
+      ex[t].monedas !== null || ex[t].dolares !== null || ex[t].otro !== null || ex[t].nota.trim().length > 0);
+    return reja || (!declarado && (docs || dolares || explicado));
+  });
 
   /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
   empezarReconteo(): void {
@@ -7748,6 +7900,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.cerrando.set(false);
         this.cierreAbierto.set(false); this.conflictoEsperado.set(null);
         this.corteDelCierre.set(null); this.revelado.set(null); this.recontando.set(false);
+        this.corteDelBorrador = null;   // `[LE.6.34]` cerrado el corte, su reja ya no es borrador de nada
         this.avisarOk('Corte cerrado', 'Queda pendiente de autorizar por otra persona.');
         this.cargarSaldo(); this.cargar(); this.cargarCortes(); this.cargarJornadasAtrasadas();
       },
@@ -7959,6 +8112,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.firmaRemotaMonto.set(null);
     this.firmaRemotaId.set(null);
     this.firmaCerrarRemota();
+    // `[LE.6.34]` Recién limpio: a partir de acá, lo que cambie lo hizo la persona (y cerrar pregunta).
+    this.fijarBaseCaptura();
     this.abrirConFoco(this.capturaAbierta);
     // ⛔ `[CG.46]` Esto lo hacía `p-dialog` solo y un `<aside>` NO. Sin esto, quien elige una fila
     // con el teclado se queda con el foco en la tabla y el panel se abre a su lado sin que nada
@@ -8137,6 +8292,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // CS.3.6 — si el motor ya le adjuntó su CAOS, se vincula solo: su efectivo autorellena parte del
     // arqueo y se enlaza al guardar. La unión ya viene hecha; el capturista sólo revisa y guarda.
     if (p.caos_match) this.vincularCaos(p.caos_match as unknown as CaosCandidato);
+    // `[LE.6.34]` El papel del cliente de crédito y el CAOS que trajo el motor vuelven solos al reabrir:
+    // no son trabajo de la persona, así que no hacen «sucio» al arqueo.
+    this.fijarBaseCaptura();
   }
 
   /**
@@ -8275,6 +8433,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * la fila para comparar — un pago parcial es legítimo y forzarlo al total sería inventar.
    */
   capturarDesdePagable(g: MovimientoPendiente & { pagable_label: string }): void {
+    // ⛔ `[LE.6.34]` Se pide desde la ventana «Tu jornada», que es modal: sin cerrarla, el arqueo se abría DETRÁS.
+    this.jornadaAbierta.set(false);
     this.capturarDesde(g);
   }
 
@@ -8285,6 +8445,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   capturarDesdeCaos(m: CaosCapturable): void {
     this.abrirCaptura();
     this.tomarMovimientoCaos(m);
+    this.fijarBaseCaptura();   // `[LE.6.34]` lo precargado no es trabajo de la persona
   }
 
   /**
@@ -8337,6 +8498,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       device: c.device, external_id: c.external_id, monto: c.monto, ref: c.ref,
       denominaciones: c.denominaciones,
       senales: { score: c.score, confianza: c.confianza, motivos: c.motivos },
+      // `[LE.6.33]` Lo que salió de la máquina: decide si este cobro se lleva el depósito ENTERO.
+      total: c.total ?? c.monto,
     }]);
     this.caosSugeridos.update((s) => s.filter((x) => x.external_id !== c.external_id));
     this.recomputarMonto();
@@ -9115,7 +9278,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // movimiento: la caja declaraba tener efectivo que ya no estaba.
     // `[CGA-A.56.2]` El retiro de CAOS vinculado ya NO se suma: el egreso se cuenta entero (Edgar, 2026-10-28).
     // `[CGS.60]` + lo que fue en cheque o papel (antes, la venta a crédito de CS.3.13).
-    this.onMonto(efectivo - this.totalDevuelto() + this.documentosTotal());
+    // `[LE.6.33]` + lo que un depósito compartido cubre de este cobro: lo contó la máquina, no la reja.
+    this.onMonto(efectivo - this.totalDevuelto() + this.documentosTotal() + this.depositadoIngreso());
   }
 
   // ── [CG.38] El cambio que se devuelve ───────────────────────────────────────────────────────
@@ -9129,6 +9293,55 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Lo que salió de la caja en este mismo acto. Mismo tipo que lo que entró. */
   devuelto = signal<DenominacionCapturada[]>([]);
+
+  // ── `[LE.6.34]` ¿Hay algo en el arqueo que se perdería al cerrarlo? ───────────────────────────
+  //
+  // Auditoría del 2026-11-18: un Esc cerraba el cajón y `abrirCaptura()` lo volvía a cero al reabrir —
+  // piezas, cambio, cheques, firma. La lista es la de lo que `abrirCaptura()` limpia y la persona hizo.
+
+  /**
+   * Lo que la persona puso en el arqueo, en una cadena comparable. Lee TODO siempre, sin cortar antes
+   * (un computed que se salta una lectura queda sin esa dependencia y no vuelve a despertar).
+   */
+  private huellaCaptura(): string {
+    const f = this.f();
+    const devuelto = this.devuelto();
+    const entran = this.docsEntran();
+    const salen = this.docsSalen();
+    const firma = this.firmaHecha();
+    const firmaTel = this.firmaRemotaPng();
+    const caos = this.caosVinculados();
+    const piezas = (l: readonly DenominacionCapturada[] | null | undefined) =>
+      (l ?? []).filter((d) => Number(d?.piezas) > 0).map((d) => `${d.denom_key}:${d.piezas}`).sort().join(',');
+    return JSON.stringify([
+      piezas(f.denominaciones), Number(f.morralla || 0), piezas(devuelto), entran, salen,
+      !!firma, !!firmaTel, caos.map((v) => `${v.device}|${v.external_id}`).sort(),
+    ]);
+  }
+
+  /**
+   * Cómo quedó el arqueo al ABRIRLO. No todo lo que hay al abrir lo puso la persona: un cobro de crédito
+   * trae su papel y un movimiento con su CAOS ya ligado. Eso vuelve igual al reabrir, así que no cuenta.
+   * `null` = todavía no se abrió ninguno (se compara contra un arqueo vacío).
+   */
+  private readonly capturaBase = signal<string | null>(null);
+
+  /** Fija lo que hay ahora como el arqueo «recién abierto». Lo llaman los caminos que precargan. */
+  private fijarBaseCaptura(): void {
+    this.capturaBase.set(this.huellaCaptura());
+  }
+
+  /**
+   * ⭐ `[LE.6.34]` Verdadero si cerrar el arqueo tira algo que la persona hizo: piezas en la reja,
+   * morralla, cambio devuelto, cheques o papeles, firma (dibujada o del teléfono) o retiros de CAOS
+   * ligados. El cajón lo recibe como `sucio` y pregunta antes de cerrar.
+   */
+  readonly capturaSucia = computed(() => {
+    const ahora = this.huellaCaptura();
+    const base = this.capturaBase();
+    return ahora !== (base ?? FinanzasCajaGeneralComponent.HUELLA_VACIA);
+  });
+  private static readonly HUELLA_VACIA = JSON.stringify(['', 0, '', [], [], false, false, []]);
 
   /**
    * ⛔ `[CG.114]` **Las tres cajas de DINERO, con el mismo defecto que las de piezas.**
@@ -9336,6 +9549,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // `[CGA-A.56.1]` Con documento: lo que el retiro paga del DOCUMENTO (lo mismo que se descontó
         // del conteo). Sin documento queda como en A.56: el monto contado.
         : f.tipo === 'gasto' ? (this.cobroElegido() ? this.linksCubiertos() : this.linksDeEgreso(Number(f.monto)))
+        // `[LE.6.33]` Un cobro de Kepler toma de cada depósito sólo lo que necesita: un depósito junta varias rutas.
+        : this.cobroElegido() ? this.linksDeIngreso().map(({ entero: _e, ...l }) => l)
         : this.caosVinculados().map((v) => ({ device: v.device, external_id: v.external_id, monto: v.monto, senales: v.senales })),
       origen_efectivo: f.tipo === 'gasto' ? (this.origenEfectivo() ?? undefined) : undefined,
       // La procedencia viaja con el movimiento: qué campo propuso el motor y con qué respaldo.

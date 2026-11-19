@@ -42,6 +42,9 @@ import type { CorteRow, FirmaSolicitudEstado, HojaAbierta, HojaGastos, HojasDeGa
 import { CajaFirmaApiService } from '../../caja-firma-api.service';
 import { recargaAutomaticaBloqueada } from '../../../../core/services/recarga-segura';
 import { todayMx } from '../../../../core/utils/mx-date';
+import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
+import { DescartarCambiosComponent } from '../../../../shared/components/descartar-cambios/descartar-cambios.component';
+import { Dialog } from 'primeng/dialog';
 
 /** jsdom no implementa ResizeObserver y algún componente de PrimeNG lo usa al montar. */
 class ResizeObserverStub {
@@ -839,7 +842,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.abrirCaptura();
     fx.detectChanges();
 
-    for (const sel of ['.cg-ap-que .cg-captura', '.cg-ap-arqueo .cg-captura']) {
+    // [LE.6.34] La ficha se mudó al cajón del arqueo: los dos envoltorios viven ahí.
+    for (const sel of ['.cg-ap-arqueo .cg-detail .cg-captura', '.cg-ap-arqueo .cg-captura.cg-entra-tras']) {
       const el: HTMLElement | null = fx.nativeElement.querySelector(sel);
       expect(el, 'no existe ' + sel).not.toBeNull();
       // ⚠️ jsdom no calcula layout, así que no se puede medir el alto. Lo que SÍ se puede exigir
@@ -1377,6 +1381,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const ultima: HTMLElement = Array.from(
       fx.nativeElement.querySelectorAll('input.cg-pieza'),
     ).pop() as HTMLElement;
+    // `[LE.6.34]` El cajón enfoca su panel en una microtarea al abrirse. Con `appDevolverFoco` en la página hay
+    // escuchas de `focusin` en `document`, y zone.js drena las microtareas pendientes DENTRO de ese evento: sin
+    // esperar aquí, el foco del panel le caía encima a `ultima.focus()`. En el navegador esa microtarea ya corrió.
+    await Promise.resolve();
     ultima.focus();
     comp.moverEnReja({ target: ultima, preventDefault: () => undefined } as unknown as Event, 1);
     expect(document.activeElement, 'la flecha cayó en un botón apagado').toBe(ultima);
@@ -1893,7 +1901,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // dos veces. Ahora no comparten caja: el arqueo es un APARTADO, con media pantalla reservada.
   // Un apartado no puede quedar «detrás» del otro, así que esto ya no se prueba con posiciones.
 
-  it('el arqueo y la clasificación viven en APARTADOS distintos: ninguno puede tapar al otro', async () => {
+  // ⭐ [LE.6.34] Decisión del PM (2026-11-18): la ficha vivía en el apartado 1 y el FONDO del cajón del arqueo la
+  // tapaba (tocar Corregir o Beneficiario cerraba la captura). Ahora ficha y reja van en el MISMO cajón, ficha primero:
+  // nada de la captura queda debajo del fondo, y se leen en el orden del trabajo (qué es → cuánto se cuenta).
+  it('[LE.6.34] la ficha y la reja viven en el MISMO cajón, la ficha primero: ningún fondo tapa la ficha', async () => {
     const fx = montar();
     comp.abrirCaptura();
     await Promise.resolve();
@@ -1904,11 +1915,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(reja).not.toBeNull();
     expect(glosa).not.toBeNull();
 
-    expect(reja!.closest('.cg-ap-arqueo'), 'la reja vive en el apartado 2').not.toBeNull();
-    expect(glosa!.closest('.cg-ap-que'), 'la glosa vive en el apartado 1').not.toBeNull();
-    // Y son DOS cajas, no una con dos nombres: si alguien vuelve a meterlos en el mismo apartado,
-    // vuelve la pelea por el alto que [CG.49] tuvo que arbitrar con el orden del DOM.
-    expect(reja!.closest('.cg-ap')).not.toBe(glosa!.closest('.cg-ap'));
+    expect(reja!.closest('app-side-peek'), 'la reja vive en el cajón').not.toBeNull();
+    expect(glosa!.closest('app-side-peek'), 'la glosa (la ficha) vive en el MISMO cajón, no bajo su fondo').not.toBeNull();
+    expect(glosa!.closest('.cg-ap-que'), 'la ficha volvió a quedar fuera del cajón').toBeNull();
+    // La ficha va ANTES que la reja: primero qué es, después cuánto se cuenta.
+    expect(glosa!.compareDocumentPosition(reja!) & Node.DOCUMENT_POSITION_FOLLOWING, 'la reja quedó antes que la ficha').toBeTruthy();
   });
 
   // ── [CG.50] D.7: las tablas se RECORREN con las flechas ──────────────────────────────────
@@ -2572,8 +2583,9 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('[negativa] la reja se ve SIEMPRE: ya no está plegada ni rotulada "(opcional)"', async () => {
     const fx = await capturaEnPantalla();
     expect(fx.nativeElement.querySelector('.cg-arqueo')).toBeTruthy();
-    // El <details> era el problema: plegado, el camino fácil era no contar.
-    expect(fx.nativeElement.querySelectorAll('details').length).toBe(0);
+    // El <details> era el problema: plegado, el camino fácil era no contar. `[LE.6.36]` La ventana de Reposición
+    // (otro componente, cerrada) sí pliega «Otras sucursales»: no es la reja, y se excluye.
+    expect([...fx.nativeElement.querySelectorAll('details')].filter((d) => !(d as HTMLElement).closest('app-caja-reposicion')).length).toBe(0);
     expect((fx.nativeElement.innerHTML as string)).not.toContain('(opcional)');
   });
 
@@ -2784,10 +2796,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // panel»: el apartado 1 lo dice como la FICHA (lo que el documento declara) y el apartado 2
     // como la META (contra cuánto tiene que cuadrar lo contado). Cualquier tercera, en cualquiera
     // de los dos, es un eco que alguien va a tener que ir a verificar que diga lo mismo.
+    // [LE.6.34] La ficha se mudó al cajón: el cajón entero lo dice DOS veces (ficha + meta), la ficha UNA.
     const [enFicha, textoFicha] = cuenta('.cg-detail');
-    const [enArqueo] = cuenta('.cg-ap-arqueo');
-    expect(enFicha, 'el apartado 1 lo dice una sola vez').toBe(1);
-    expect(enArqueo, 'el apartado 2 lo dice una sola vez').toBe(1);
+    const [enCajon] = cuenta('.cg-ap-arqueo');
+    expect(enFicha, 'la ficha lo dice una sola vez').toBe(1);
+    expect(enCajon, 'el cajón lo dice dos veces: ficha y meta, ni una más').toBe(2);
 
     // Y lo que se fue, se fue: la pista larga ya no está, ni el subtítulo que [CG.49] había puesto
     // en el encabezado del panel y que la ficha dejó sin oficio.
@@ -3220,6 +3233,76 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // El monto del cajero sigue dicho (la fusión no lo tiró al unir los dos rótulos).
     expect((fx.nativeElement.querySelector('.cg-ap-arqueo') as HTMLElement).textContent)
       .toContain(comp.money(comp.aporteCajero()));
+  });
+
+  // ── [LE.6.33] · UN DEPÓSITO QUE JUNTA VARIOS COBROS ─────────────────────────────────────────
+  // Caso real del 2026-11-18: «rd can 13/11», $51,770 = las ventas de las rutas 501, 502 y 503 de
+  // Canindo, cada una un cobro U-A-5 distinto. Antes el depósito ENTERO se ligaba al primer cobro y la
+  // base lo rechazaba (CAOS_LINK_EXCEDE_CAPTURA): no se podía repartir.
+  const cobroRuta = (ruta: string, folio: string, monto: number): MovimientoPendiente => ({
+    ...GASTO_TRABADO, origen_ref: `06-00${ruta.slice(-1)}|U-A-5|${folio}|0011`, tipo: 'ingreso', origen_tipo: 'cobro',
+    sucursal: `06-00${ruta.slice(-1)}`, doc_tipo: 'U-A-5', folio, fecha_valor: '2026-11-13', entidad_code: null,
+    beneficiario: 'CONTADO', monto, confirmable: true, kepler_cuenta: '115', kepler_concepto: '071', motivo: null, motivo_texto: null,
+  } as MovimientoPendiente);
+  const deposito = (libre: number) => ({
+    ...CAOS_DEP, origen_ref: 'AST700-19758|1954', external_id: 1954, ref: 'rd can 13/11', monto: libre, total: 51770,
+    // El servidor sólo manda billetes si el depósito está entero (`billetesSiEntero`).
+    denominaciones: libre === 51770 ? [{ denominacion: 500, piezas: 103 }, { denominacion: 200, piezas: 1 }, { denominacion: 50, piezas: 1 }, { denominacion: 20, piezas: 1 }] : [],
+    score: 100, motivos: ['mismo día'], confianza: 'alta' as const,
+  });
+  const ligarDeposito = (cobro: MovimientoPendiente, libre: number) => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [deposito(libre)], fecha: '2026-11-18', datos_al: null })) });
+    comp.capturarDesde(cobro);
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+  };
+  const enviado = () => svc['crear'].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+
+  it('[LE.6.33] el cobro de la 502 ($13,260.58) toma $13,260 del depósito de $51,770; NO el depósito entero', () => {
+    ligarDeposito(cobroRuta('502', '0000043', 13260.58), 51770);
+    expect(comp.hayCajero(), 'los billetes de un depósito compartido no se copian a la reja').toBe(false);
+    expect(comp.depositadoIngreso()).toBe(13260);
+    comp.setMorralla(0.58);
+    expect(comp.f().monto, 'el monto es el del cobro').toBe(13260.58);
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+    expect(enviado()['caos_links']).toEqual([{ device: 'AST700-19758', external_id: 1954, monto: 13260, senales: expect.anything() }]);
+    expect(enviado()['monto_contado'], 'no es un conteo distinto: cuadra con el documento').toBeUndefined();
+  });
+
+  it('[LE.6.33] la 501 ($16,147.99) toma lo que le queda al depósito ($13,360) y el resto se cuenta en el cajón', () => {
+    ligarDeposito(cobroRuta('501', '0000041', 16147.99), 13360);
+    expect(comp.depositadoIngreso()).toBe(13360);
+    comp.setPiezas(den(500), 5); comp.setPiezas(den(200), 1); comp.setPiezas(den(50), 1); comp.setPiezas(den(20), 1);
+    comp.setPiezas(den(10), 1); comp.setPiezas(den(5), 1); comp.setPiezas(den(2), 1); comp.setMorralla(0.99);
+    expect(comp.f().monto).toBe(16147.99);
+    expect(comp.bloqueos()).toEqual([]);
+    comp.guardar();
+    expect((enviado()['caos_links'] as Array<{ monto: number }>).map((l) => l.monto)).toEqual([13360]);
+  });
+
+  it('[LE.6.33] CONTROL: si el cobro se lleva el depósito ENTERO, todo sigue como antes (sus billetes al arqueo)', () => {
+    montar({ caosCandidatos: vi.fn(() => of({ rows: [{ ...deposito(51770), monto: 13260, total: 13260,
+      denominaciones: [{ denominacion: 500, piezas: 26 }, { denominacion: 200, piezas: 1 }, { denominacion: 50, piezas: 1 }, { denominacion: 10, piezas: 1 }] }],
+    fecha: '2026-11-18', datos_al: null })) });
+    comp.capturarDesde(cobroRuta('502', '0000043', 13260.58));
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    expect(comp.hayCajero()).toBe(true);
+    expect(comp.aporteCajero()).toBe(13260);
+    expect(comp.depositadoIngreso(), 'entero: no se acredita aparte (los billetes ya cuentan)').toBe(0);
+    comp.setMorralla(0.58);
+    expect(comp.f().monto).toBe(13260.58);
+    comp.guardar();
+    expect((enviado()['caos_links'] as Array<{ monto: number }>).map((l) => l.monto)).toEqual([13260]);
+  });
+
+  it('⛔ [LE.6.33] NEGATIVA: un cobro nunca liga MÁS que su importe, aunque el depósito tenga de sobra', () => {
+    ligarDeposito(cobroRuta('502', '0000043', 13260.58), 51770);
+    comp.setMorralla(0.58);
+    comp.guardar();
+    const total = (enviado()['caos_links'] as Array<{ monto: number }>).reduce((a, l) => a + l.monto, 0);
+    expect(total).toBeLessThanOrEqual(13260.58);
   });
 
   // ── [CGA-A.56] · EN UN EGRESO EL RETIRO SÓLO SE VINCULA ─────────────────────────────────────
@@ -4442,7 +4525,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       const panel = fx.nativeElement.querySelector('.cg-detail');
       expect(panel, 'el detalle tiene que aparecer en el flujo de la página').toBeTruthy();
       expect(panel.closest('p-dialog'), 'la captura volvió a ser un modal').toBeNull();
-      expect(panel.closest('.cg-ap-que'), 'el detalle salió del apartado 1').toBeTruthy();
+      // [LE.6.34] Vive en el cajón del arqueo, junto a la reja (decisión del PM, 2026-11-18).
+      expect(panel.closest('app-side-peek'), 'el detalle salió del cajón del arqueo').toBeTruthy();
     });
 
     it('⛔ la captura NO se pinta dentro de un p-dialog', () => {
@@ -4455,8 +4539,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       expect(panel.querySelector('.fin-form'), 'el formulario va en el panel').toBeTruthy();
       // ...y su salida tambien. ⭐ [CG.62] Guardar YA NO esta aca: bajo al pie del arqueo, que es
       // donde termina el trabajo. Lo que queda en la ficha es Cancelar, que es la salida.
-      expect(panel.querySelector('.cg-detail-pie'), 'el pie va en el panel').toBeTruthy();
-      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Cancelar');
+      // [LE.6.34] La salida de la ficha era un segundo «Cancelar»; dentro del cajón la da su X (que pregunta
+      // si hay algo contado). Dos salidas con el mismo nombre y efectos distintos eran un hallazgo de la auditoría.
+      expect(panel.querySelector('.cg-detail-pie'), 'volvió el Cancelar duplicado de la ficha').toBeNull();
+      expect(panel.closest('app-side-peek')?.querySelector('.sp-close'), 'el cajón no tiene salida').toBeTruthy();
 
       // ⛔ Y NINGUN dialogo abierto lo contiene. Es la asercion que define O.1: si manana alguien
       // lo devuelve a un p-dialog, esto cae.
@@ -5787,21 +5873,21 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
     });
 
     // ⭐ `[LE.6.21]` PM, 2026-11-06: «necesito solo dos pestañas, una donde se muestran las reposiciones, y otra de historial».
-    it('[LE.6.21] dos pestañas: «Reposiciones» lleva lo que pide un acto (lo sin retiro al final) y el historial lo explicado', () => {
+    // `[LE.6.36]` PM, 2026-11-19: los filtros pasan a ser del depósito de las HOJAS; la reposición por sucursal va
+    // en «Otras sucursales», con lo que pide un acto primero, lo sin retiro después y lo explicado al final.
+    it('[LE.6.36] «Otras sucursales»: lo que pide un acto primero, lo sin retiro después y lo explicado al final; abierta si hay acto', () => {
       const fx = montar({ reposicion: vi.fn(() => of(CON_PENDIENTES)) });
       fx.detectChanges();
-      const seg = () => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .seg-btn')] as HTMLElement[]).map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
-      expect(seg()).toEqual(['Reposiciones 3', 'Historial 1']);
-      const sucursales = () => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .rp-tbl tbody tr')] as HTMLElement[])
-        .map((tr) => tr.querySelector('[data-label="Sucursal"]')?.textContent?.trim()).filter(Boolean);
-      expect(sucursales()).toHaveLength(3);
-      // La cuenta ya no se repite arriba: la dice la pestaña.
-      expect(fx.nativeElement.querySelector('app-caja-reposicion .rp-lead')).toBeNull();
-      const c = fx.debugElement.query(By.directive(CajaReposicionComponent)).componentInstance as CajaReposicionComponent;
-      c.vista.set('historial');
-      fx.detectChanges();
-      expect(sucursales()).toHaveLength(1);
-      expect(fx.nativeElement.querySelector('app-caja-reposicion .rp-kpis')?.textContent).toContain('Del cajón');
+      const otras = fx.nativeElement.querySelector('app-caja-reposicion [data-testid="rp-otras"]') as HTMLDetailsElement;
+      expect(otras.open).toBe(true);
+      expect(otras.querySelector('summary')?.textContent?.replace(/\s+/g, ' ')).toContain('2 por resolver · 1 sin retiro · 1 explicada');
+      const estados = ([...otras.querySelectorAll('.rp-tbl tbody tr')] as HTMLElement[])
+        .filter((tr) => tr.querySelector('[data-label="Sucursal"]'))
+        .map((tr) => tr.querySelector('.rp-que')?.getAttribute('data-label'));
+      expect(estados).toEqual(['Qué sigue', 'Qué sigue', 'Qué sigue', 'Con qué se pagó']);
+      // Los filtros de arriba son de las hojas: ya no hay pestañas «Reposiciones / Historial».
+      const seg = ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .seg-btn')] as HTMLElement[]).map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+      expect(seg).toEqual(['Esperan depósito 0', 'Repuestas 0', 'Todas 0']);
     });
 
     it('[LE.6.21] en el historial cada fila dice con qué retiro se pagó, no «Nada pendiente»', () => {
@@ -5812,9 +5898,7 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       const explicada: ReposicionGrupo = { ...grupo('d', 'explicada'), docs: [doc], caos: 98.5, cajon: 1.5 };
       const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, grupos: [explicada] })) });
       fx.detectChanges();
-      const c = fx.debugElement.query(By.directive(CajaReposicionComponent)).componentInstance as CajaReposicionComponent;
-      c.vista.set('historial');
-      fx.detectChanges();
+      // `[LE.6.36]` Lo explicado vive al final de «Otras sucursales» (plegada: no pide ningún acto).
       const fila = (fx.nativeElement.querySelector('app-caja-reposicion .rp-tbl tbody tr') as HTMLElement).textContent ?? '';
       expect(fila).toContain('«gnf ma» · $98.50 + del cajón · $1.50');
       expect(fila).not.toContain('Nada pendiente');
@@ -5845,11 +5929,17 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
     const botonDe = (fx: { nativeElement: HTMLElement }, texto: string) =>
       ([...ventana(fx).querySelectorAll('button')] as HTMLButtonElement[]).find((b) => b.textContent?.includes(texto)) ?? null;
 
-    it('cuatro columnas: quién, cuánto falta y qué sigue (el desglose, al abrir la fila)', () => {
+    // `[LE.6.36]` Arriba, una fila por zona por pagar (zona, pagos, monto, qué sigue); abajo, el control de cada
+    // hoja pagada (hoja, zona, pagada, monto, depósito). El desglose, al abrir la fila.
+    it('[LE.6.36] «Por pagar hoy» y el control de hojas: cada uno con sus columnas, y el desglose al abrir la fila', () => {
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())) });
       fx.detectChanges();
-      const ths = [...ventana(fx).querySelector('.rp-tbl thead')!.querySelectorAll('th')].map((th) => th.textContent!.trim());
-      expect(ths).toEqual(['Detalle', 'Sucursal', 'Por resolver', 'Qué sigue']);
+      const ths = (sel: string) => [...ventana(fx).querySelector(`${sel} thead`)!.querySelectorAll('th')].map((th) => th.textContent!.trim());
+      expect(ths('.rp-pagar')).toEqual(['Detalle', 'Zona', 'Pagos', 'Monto', 'Qué sigue']);
+      const c = reposicion(fx);
+      c.vista.set('todas');
+      fx.detectChanges();
+      expect(ths('.rp-ctl')).toEqual(['Detalle', 'Hoja', 'Zona', 'Pagada', 'Monto', 'Depósito']);
     });
 
     it('⭐ la hoja aprobada es un renglón de «Por resolver» con el retiro que cuadra ya elegido; «Pagar» manda SÓLO el retiro', () => {
@@ -5944,43 +6034,46 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
         { desde: '2026-10-16', hasta: '2026-10-16', renglones: 12, total: 92606.73, como: 'deposito' as const, testigo: 'depósito del 22/10 por $92,606.73' }];
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ ya_repuestos: ya, sin_deposito: [sin] })], cerradas: [] }))) });
       fx.detectChanges();
-      // «Reposiciones»: lo que no tiene depósito (es lo que alguien tiene que resolver).
+      // `[LE.6.36]` Un solo plegable para todas las zonas: lo sin depósito (con su motivo) y lo ya repuesto (con su testigo).
       const bloque = ventana(fx).querySelector('[data-testid="rp-repuesto"]') as HTMLElement;
       expect(bloque, 'lo sin depósito no se ve').not.toBeNull();
-      expect(bloque.textContent).toContain('1 pago sin depósito ($194,570.19)');
+      const resumen = bloque.querySelector('summary')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(resumen).toContain('1 pago sin depósito ($194,570.19)');
+      expect(resumen).toContain('2 tramos ya repuestos ($262,302.76)');
       expect(bloque.textContent).toContain('cuenta 1604 cargada al 30/10/26');
-      expect(bloque.textContent).not.toContain('ya repuesto');
-      expect(bloque.querySelector('[data-testid="rp-sin-deposito"]')?.textContent).toContain('si es gasto normal, se paga en la cola');
-      // Lo que se paga sigue siendo sólo lo por reponer.
+      const tabla = bloque.querySelector('[data-testid="rp-sin-deposito"]')?.textContent ?? '';
+      expect(tabla).toContain('si es gasto normal, se paga en la cola');
+      expect(tabla).toContain('Ya se repuso con hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
+      expect(tabla).toContain('Ya se repuso con depósito del 22/10 por $92,606.73');
+      // Lo que se paga sigue siendo sólo lo por reponer: no suman a «Pagar».
       expect(botonDe(fx, 'Pagar Zona Morelia')).not.toBeNull();
-      expect(ventana(fx).querySelector('.rp-cifra')?.textContent).toContain('$83,981.89');
-      // `[LE.6.21]` El historial: lo ya repuesto, con su testigo.
-      reposicion(fx).vista.set('historial');
-      fx.detectChanges();
-      const hist = ventana(fx).querySelector('[data-testid="rp-repuesto"]')?.textContent ?? '';
-      expect(hist).toContain('2 tramos ya repuestos ($262,302.76)');
-      expect(hist).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
-      expect(hist).toContain('depósito del 22/10 por $92,606.73');
-      expect(hist).not.toContain('sin depósito');
+      expect(ventana(fx).querySelector('.rp-pagar .rp-cifra')?.textContent).toContain('$83,981.89');
+      expect(reposicion(fx).totalPorPagar()).toBe(83981.89);
     });
 
     // ⭐ `[LE.6.24]` PM, 2026-11-09: «en la hoja de reposición falta mostrar el folio del depósito y que sí
     // cuadre con lo que se le va a reponer». HG-1 real: $83,981.89 ↔ U-A-5 0000303 de Abastos por $83,982.
+    // `[LE.6.36]` Las hojas pagadas viven en el control «Hojas pagadas y su depósito», con su filtro; el detalle,
+    // al abrir la fila (clave «ctl|<id>»).
     const PAGO = (deposito: NonNullable<HojaGastos['pago']>['deposito']): NonNullable<HojaGastos['pago']> => ({
       medio: 'cajon', retiro: null, cajon: 83981.89, pagada_por_nombre: 'carmen', pagada_at: '2026-10-30T20:00:00Z', sin_capturar: 0, deposito });
-    const enHistorial = (h: HojaGastos) => {
+    const enControl = (h: HojaGastos, vista: 'deposito' | 'repuestas' | 'todas') => {
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [h] }))) });
       fx.detectChanges();
-      reposicion(fx).vista.set('historial');
-      reposicion(fx).alternar('hoja|h3');
+      reposicion(fx).vista.set(vista);
+      reposicion(fx).alternar(`ctl|${h.id}`);
       fx.detectChanges();
       return fx;
     };
+    const folios = (fx: { nativeElement: HTMLElement }) =>
+      [...ventana(fx).querySelectorAll('[data-testid="rp-ctl-fila"]')].map((tr) => tr.getAttribute('data-hoja'));
+    const DEPOSITADA = () => PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+      depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] });
 
     it('[LE.6.24] la hoja pagada dice el FOLIO del depósito y que cuadra con lo que se repone', () => {
-      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
-        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
-      expect(ventana(fx).querySelector('.rp-pagado')?.textContent).toContain('depósito U-A-5 0000303 de');
+      const fx = enControl(HOJA({ estado: 'pagada', pago: DEPOSITADA() }), 'repuestas');
+      expect(ventana(fx).querySelector('[data-testid="rp-deposito"]')?.textContent?.trim()).toBe('U-A-5 0000303');
+      expect(ventana(fx).querySelector('.rp-det .rp-pagado')?.textContent).toContain('depósito U-A-5 0000303 de');
       const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(cuadre).toContain('Se repone $83,981.89');
       expect(cuadre).toContain('U-A-5 0000303');
@@ -5990,35 +6083,36 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(cuadre).toContain('+$0.11 de redondeo');
     });
 
-    // ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
-    // depósito y que no se regresa dinero que nunca salió». Sin depósito, la hoja pagada NO es historial.
-    it('[LE.6.24][LE.6.27] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y la hoja se queda en Reposiciones', () => {
+    // ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve «para validar que hubo un depósito y que no se
+    // regresa dinero que nunca salió». Sin depósito, la hoja pagada NO es «Repuestas»: se queda esperando.
+    it('[LE.6.24][LE.6.27] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y la hoja se queda en «Esperan depósito»', () => {
       const SIN = HOJA({ estado: 'pagada', pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
         nota: 'No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 2026-11-05 a siete días; Kepler trae hasta el 2026-11-09.' }) });
-      const fx = enHistorial(SIN);
-      expect(ventana(fx).querySelector('.rp-pagado'), 'sin depósito no es historial').toBeNull();
-      reposicion(fx).vista.set('reposiciones');
+      const fx = enControl(SIN, 'repuestas');
+      expect(folios(fx), 'sin depósito no es «Repuestas»').toEqual([]);
+      expect(reposicion(fx).opcionesVista()[1].count).toBe(0);
+      reposicion(fx).vista.set('deposito');
       fx.detectChanges();
+      expect(folios(fx)).toEqual(['HG-3']);
+      expect(ventana(fx).querySelector('[data-testid="rp-deposito"]')?.textContent?.trim()).toBe('falta el depósito');
       const falta = ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(falta).toContain('Falta el depósito');
       expect(falta).toContain('Kepler trae hasta el 2026-11-09');
       const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(cuadre).toContain('sin depósito que cuadre');
       expect(cuadre).not.toContain('· cuadra');
-      const pagadoSinDep = reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito');
-      expect(pagadoSinDep?.value).toBe(83981.89);
-      expect(reposicion(fx).opcionesVista()[1].count).toBe(0);
+      const k = reposicion(fx).kpis().find((x) => x.label === 'Esperan depósito');
+      expect(k?.value).toBe(83981.89);
     });
 
-    it('[LE.6.27] con su depósito, la hoja pagada sí pasa al historial y no cuenta como pagada sin depósito', () => {
-      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
-        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
-      expect(ventana(fx).querySelector('.rp-pagado')).not.toBeNull();
+    it('[LE.6.27] con su depósito, la hoja pagada sí pasa a «Repuestas» y no espera depósito', () => {
+      const fx = enControl(HOJA({ estado: 'pagada', pago: DEPOSITADA() }), 'repuestas');
+      expect(folios(fx)).toEqual(['HG-3']);
       expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
-      reposicion(fx).vista.set('reposiciones');
+      reposicion(fx).vista.set('deposito');
       fx.detectChanges();
-      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
-      expect(reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito')?.value).toBe(0);
+      expect(folios(fx)).toEqual([]);
+      expect(reposicion(fx).kpis().find((k) => k.label === 'Esperan depósito')?.value).toBe(0);
     });
 
     // ⭐ `[LE.6.30]` PM, 2026-11-11: «es por eso que te pedí mostrar los depósitos, para que no pasen estas
@@ -6031,32 +6125,41 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
         pago: sinDep(true, 'Morelia Abastos ya capturó depósitos el 06/11 y éste no está.') });
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [espera, vencida] }))) });
       fx.detectChanges();
-      const filas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
-      expect(filas).toHaveLength(2);
-      expect(filas[0]).toContain('Depósito vencido: Morelia Abastos ya capturó depósitos el 06/11');
-      expect(filas[1]).toContain('Esperando el depósito: Kepler todavía no trae');
+      expect(folios(fx)).toEqual(['HG-9', 'HG-15']);
+      const tags = [...ventana(fx).querySelectorAll('[data-testid="rp-deposito"]')].map((e) => (e.textContent ?? '').trim());
+      expect(tags[0]).toMatch(/^vencido/);
+      expect(tags[1]).toMatch(/^esperando/);
+      expect(ventana(fx).querySelector('[data-testid="rp-deposito"][data-vencido="true"] .p-tag-danger')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-deposito"][data-vencido="false"] .p-tag-danger')).toBeNull();
+      // La explicación larga, al abrir cada fila.
+      reposicion(fx).alternar('ctl|h9');
+      reposicion(fx).alternar('ctl|h15');
+      fx.detectChanges();
+      const notas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+      expect(notas).toHaveLength(2);
+      expect(notas[0]).toContain('Depósito vencido: Morelia Abastos ya capturó depósitos el 06/11');
+      expect(notas[1]).toContain('Esperando el depósito: Kepler todavía no trae');
       expect(ventana(fx).querySelector('[data-vencido="true"] .rp-vencido')).not.toBeNull();
       expect(ventana(fx).querySelector('[data-vencido="false"] .rp-vencido')).toBeNull();
-      const k = reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito');
+      const k = reposicion(fx).kpis().find((x) => x.label === 'Esperan depósito');
       expect(k?.value).toBe(220654.2);
       expect(k?.tone).toBe('bad');
-      expect(k?.sub).toContain('1 vencida ($71,326.00): ya debían tener su depósito');
-      expect(k?.sub).toContain('1 en espera');
+      expect(k?.sub).toBe('2 hojas · 1 vencida');
     });
 
     it('[LE.6.30] [negativa] si todas esperan a Kepler, nada se marca vencido y la cifra queda en aviso, no en rojo', () => {
-      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [HOJA({ estado: 'pagada',
-        pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null, nota: 'Kepler todavía no trae depósitos.', vencido: false }) })] }))) });
-      fx.detectChanges();
+      const fx = enControl(HOJA({ estado: 'pagada',
+        pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null, nota: 'Kepler todavía no trae depósitos.', vencido: false }) }), 'deposito');
       expect(ventana(fx).querySelector('.rp-vencido')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-deposito"] .p-tag-danger')).toBeNull();
       expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent).toContain('Esperando el depósito');
-      expect(reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito')?.tone).toBe('warn');
+      expect(reposicion(fx).kpis().find((x) => x.label === 'Esperan depósito')?.tone).toBe('warn');
     });
 
     // ⭐ `[LE.6.31]` PM, 2026-11-11: la 1604 ya está cargada. El banco es el segundo testigo: dice si el dinero llegó.
     const BANCO = (estado: 'encontrado' | 'no_aparece', texto: string) => ({ estado, cuenta: '1604', cargado_hasta: '2026-11-12', texto,
       deposito: estado === 'encontrado' ? { id: 'm9', dia: '2026-11-06', importe: 71326 } : null });
-    it('[LE.6.31] sin Kepler ni banco es «No llegó al banco» y va primero; en el banco sin U-A-5 se dice así y no suma a la cifra', () => {
+    it('[LE.6.31] sin Kepler ni banco es «no llegó al banco» y va primero; en el banco sin U-A-5 se dice así y no es rojo', () => {
       const sinDep = (vencido: boolean, banco: ReturnType<typeof BANCO>) => PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
         nota: 'Kepler todavía no trae depósitos.', vencido, banco });
       const enBanco = HOJA({ id: 'h11', numero: 11, folio: 'HG-11', estado: 'pagada', total: 85866.52,
@@ -6065,27 +6168,30 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
         pago: sinDep(true, BANCO('no_aparece', 'No está en el estado de cuenta de la 1604 (cargado al 12/11).')) });
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [enBanco, noLlego] }))) });
       fx.detectChanges();
-      const filas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
-      expect(filas).toHaveLength(2);
-      expect(filas[0]).toContain('No llegó al banco:');
-      expect(filas[0]).toContain('No está en el estado de cuenta de la 1604 (cargado al 12/11)');
-      expect(filas[1]).toContain('En el banco, falta en Kepler:');
-      expect(filas[1]).toContain('$85,866.52 el 06/11');
+      expect(folios(fx)).toEqual(['HG-9', 'HG-11']);
+      const tags = [...ventana(fx).querySelectorAll('[data-testid="rp-deposito"]')].map((e) => (e.textContent ?? '').trim());
+      expect(tags).toEqual(['no llegó al banco', 'en el banco, falta en Kepler']);
+      reposicion(fx).alternar('ctl|h9');
+      reposicion(fx).alternar('ctl|h11');
+      fx.detectChanges();
+      const notas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+      expect(notas[0]).toContain('No llegó al banco:');
+      expect(notas[0]).toContain('No está en el estado de cuenta de la 1604 (cargado al 12/11)');
+      expect(notas[1]).toContain('En el banco, falta en Kepler:');
+      expect(notas[1]).toContain('$85,866.52 el 06/11');
       expect(ventana(fx).querySelector('[data-vencido="true"] .rp-vencido')).not.toBeNull();
       expect(ventana(fx).querySelector('[data-vencido="false"] .rp-vencido')).toBeNull();
-      const k = reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito');
-      expect(k?.value, 'lo que ya está en el banco no es «pagado sin depósito»').toBe(71326);
+      const k = reposicion(fx).kpis().find((x) => x.label === 'Esperan depósito');
       expect(k?.tone).toBe('bad');
-      expect(k?.sub).toContain('1 ya en el banco, sin su U-A-5 en Kepler');
+      expect(k?.sub).toContain('1 ya en el banco');
     });
 
-    it('[LE.6.31] [negativa] la hoja con su U-A-5 sigue en el historial y dice al lado lo que vio el banco', () => {
-      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
-        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }],
-        banco: { ...BANCO('encontrado', 'En el estado de cuenta de la 1604: $83,982.00 el 30/10.') } }) }));
-      expect(ventana(fx).querySelector('.rp-pagado')).not.toBeNull();
+    it('[LE.6.31] [negativa] la hoja con su U-A-5 sigue en «Repuestas» y dice al lado lo que vio el banco', () => {
+      const fx = enControl(HOJA({ estado: 'pagada', pago: { ...DEPOSITADA(), deposito: { ...DEPOSITADA().deposito,
+        banco: { ...BANCO('encontrado', 'En el estado de cuenta de la 1604: $83,982.00 el 30/10.') } } } }), 'repuestas');
+      expect(folios(fx)).toEqual(['HG-3']);
       expect(ventana(fx).querySelector('[data-testid="rp-hoja-banco"]')?.textContent).toContain('En el estado de cuenta de la 1604: $83,982.00 el 30/10.');
-      expect(reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito')).toBeUndefined();
+      expect(reposicion(fx).kpis().find((x) => x.label === 'Esperan depósito')?.value).toBe(0);
     });
 
     // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
@@ -6136,7 +6242,10 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
     it('[LE.6.20] una zona sin cuenta medida y con algo por reponer lo dice: no se sabe qué ya se repuso', () => {
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ banco: { cuenta: null, cargado_hasta: null } })], cerradas: [] }))) });
       fx.detectChanges();
-      expect(ventana(fx).querySelector('[data-testid="rp-repuesto"]')?.textContent).toContain('no está medida: no se sabe qué ya se repuso');
+      // `[LE.6.36]` Se dice UNA vez, junto al filtro del control, no en cada renglón.
+      const notas = ventana(fx).querySelectorAll('[data-testid="rp-cuenta-sin-medir"]');
+      expect(notas.length).toBe(1);
+      expect(notas[0].textContent).toContain('no está medida: no se sabe qué ya se repuso');
     });
 
     it('NEGATIVA: si las hojas no se pueden leer se dice, y la reposición se ve igual', () => {
@@ -6148,15 +6257,17 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(ventana(fx).textContent).not.toContain('No se pudo leer la reposición');
     });
 
-    it('[LE.6.21] dos cifras en «Reposiciones», de su lista; «Del cajón» (historia) va al historial; la aprobación en el pie', () => {
+    // `[LE.6.36]` Las tres tiras viejas se reemplazan por TRES cifras, una por pregunta del día, cada una de su lista.
+    it('[LE.6.36] tres cifras, de su lista: por pagar hoy, esperan depósito y repuestas; la aprobación en el pie', () => {
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())) });
       fx.detectChanges();
       const kpis = ventana(fx).querySelector('.rp-kpis')!.textContent ?? '';
-      expect(kpis).toContain('Por resolver');
-      expect(kpis).toContain('Sin retiro que lo explique');
-      expect(kpis).toContain('al final de la lista');
-      expect(kpis).not.toContain('Del cajón');
-      expect(kpis).not.toContain('Vincular con propuesta');
+      expect(kpis).toContain('Por pagar hoy');
+      // La tira anima la cifra al aparecer: el valor se lee del dato, no del texto a medio conteo.
+      expect(reposicion(fx).kpis()[0]).toMatchObject({ label: 'Por pagar hoy', value: 83981.89 });
+      expect(kpis).toContain('Esperan depósito');
+      expect(kpis).toContain('Repuestas');
+      for (const viejo of ['Por resolver', 'Sin retiro que lo explique', 'Pagado sin depósito', 'Del cajón']) expect(kpis).not.toContain(viejo);
       expect(ventana(fx).querySelector('.rp-universo')!.textContent).toContain('Nada espera firma ni se pagó antes de aprobarse.');
     });
   });
@@ -6378,6 +6489,255 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  /**
+   * ⭐ `[LE.6.34]` Auditoría del 2026-11-18: lo contado se tiraba con un Esc.
+   *
+   * El arqueo (cajón) y «Cerrar corte» (ventana) se cerraban con Esc, la X o «Cancelar», y al reabrir las
+   * piezas volvían a cero. «Pagar en efectivo» y «Declarar» abrían el arqueo DETRÁS de «Tu jornada», y
+   * Enter en «Qué pasó» guardaba sin la confirmación que el botón sí pide.
+   */
+  describe('[LE.6.35] un pago «en hoja» de la cola lleva a su reposición', () => {
+    const EN_HOJA = { ...GASTO_TRABADO, origen_ref: '06|X-D-26|0000547|0011', sucursal: '06', folio: '0000547', motivo: 'en_hoja' } as MovimientoPendiente;
+
+    it('⭐ la fila abre la Reposición buscando ESE pago, no una captura que el servidor rechazaría', () => {
+      const fx = montar();
+      fx.detectChanges();
+      const repo = (comp as unknown as { repoCmp: () => { abrirEn: (r: string) => void; abierta: () => boolean } }).repoCmp();
+      const abrirEn = vi.spyOn(repo, 'abrirEn');
+      comp.abrirDeLaCola(EN_HOJA);
+      expect(abrirEn).toHaveBeenCalledWith('06|X-D-26|0000547|0011', undefined);
+      expect(comp.capturaAbierta(), 'abrió una captura condenada').toBe(false);
+      expect(repo.abierta()).toBe(true);
+    });
+
+    it('CONTROL: una fila que no está «en hoja» abre la captura como siempre', () => {
+      montar();
+      comp.abrirDeLaCola(GASTO_TRABADO);
+      expect(comp.capturaAbierta()).toBe(true);
+    });
+  });
+
+  describe('[LE.6.34] lo contado no se tira sin preguntar', () => {
+    const peekArqueo =() => (comp as unknown as { peekArqueo: () => SidePeekComponent | undefined }).peekArqueo()!;
+    const corte = (id = 'c1') => vi.fn(() => of({
+      ...SALDO, sin_corte_abierto: false,
+      corte_abierto: { id, folio: 'CC-2026-00009', fecha: todayMx(), fondo_inicial: 0, ya_reconto: false, conteo_sellado: null },
+    } as unknown as SaldoResponse));
+    const denC = (key: string) => comp.reja.find((d) => d.key === key)!;
+    /** El p-dialog de «Cerrar corte» (hay varios en la página). */
+    const dialogoCierre = (fx: ReturnType<typeof montar>): Dialog => {
+      const leer = (v: unknown) => (typeof v === 'function' ? (v as () => unknown)() : v);
+      const d = fx.debugElement.queryAll(By.directive(Dialog)).map((x) => x.componentInstance as Dialog)
+        .find((x) => String(leer(x.header) ?? '').startsWith('Cerrar corte'));
+      if (!d) throw new Error('No se encontró el diálogo «Cerrar corte»');
+      return d;
+    };
+    const valorDe = (v: unknown) => (typeof v === 'function' ? (v as () => unknown)() : v);
+
+    // ── 1 · El arqueo (cajón) ──────────────────────────────────────────────────────────────────
+    it('[negativa] recién abierto y sin contar nada, el arqueo NO está sucio y cerrar no pregunta', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      fx.detectChanges();
+      expect(comp.capturaSucia()).toBe(false);
+      expect(peekArqueo().sucio()).toBe(false);
+      peekArqueo().pedirCierre();
+      expect(comp.capturaAbierta()).toBe(false);
+    });
+
+    it('⛔ con piezas contadas el cajón recibe «sucio» y Esc PREGUNTA en vez de cerrar', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      contar({ 500: 2 });
+      fx.detectChanges();
+      expect(comp.capturaSucia()).toBe(true);
+      expect(peekArqueo().sucio(), 'el cajón no recibe [sucio]').toBe(true);
+
+      peekArqueo().onEscape(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fx.detectChanges();
+      expect(comp.capturaAbierta(), 'Esc cerró el arqueo con piezas contadas').toBe(true);
+      expect(document.querySelector('[data-testid="sp-confirma"]')).not.toBeNull();
+
+      // Descartar sí cierra.
+      peekArqueo().descartar();
+      fx.detectChanges();
+      expect(comp.capturaAbierta()).toBe(false);
+    });
+
+    it('la X de la ficha y «Cancelar» también pasan por la pregunta', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      contar({ 100: 1 });
+      fx.detectChanges();
+      comp.pedirCerrarCaptura();
+      expect(comp.capturaAbierta()).toBe(true);
+    });
+
+    it('cuenta como sucio cada cosa que abrirCaptura() limpia: morralla, cambio, documentos, firma, CAOS', () => {
+      montar();
+      const casos: Array<[string, () => void]> = [
+        ['morralla', () => comp.f.update((v) => ({ ...v, morralla: 3.5 }))],
+        ['cambio devuelto', () => comp.devuelto.set([{ denom_key: '100', denominacion: 100, piezas: 1 }])],
+        ['cheque que entra', () => comp.docsEntran.set([{ tipo: 'cheque', monto: 100, banco: 'BBVA', numero: '1', de_quien: 'ABC', concepto: '' }])],
+        ['cheque que sale', () => comp.docsSalen.set(['P-1'])],
+        ['firma dibujada', () => comp.firmaHecha.set(true)],
+        ['firma del teléfono', () => comp.firmaRemotaPng.set('data:image/png;base64,AAAA')],
+        ['retiro de CAOS ligado', () => comp.caosVinculados.set([{ device: 'D1', external_id: 9, monto: 50, ref: null, denominaciones: [], senales: {} }])],
+      ];
+      for (const [nombre, hacer] of casos) {
+        comp.abrirCaptura();
+        expect(comp.capturaSucia(), `${nombre}: sucio antes de tocar nada`).toBe(false);
+        hacer();
+        expect(comp.capturaSucia(), `${nombre}: no cuenta como sucio`).toBe(true);
+      }
+    });
+
+    it('[negativa] lo que el movimiento PRECARGA (el papel del cliente de crédito) no es sucio; lo contado sí', () => {
+      montar();
+      comp.capturarDesde(COBRO_CREDITO);
+      expect(comp.docsEntran().length, 'la prueba no ejerce la precarga').toBe(1);
+      expect(comp.capturaSucia()).toBe(false);
+      contar({ 200: 1 });
+      expect(comp.capturaSucia()).toBe(true);
+    });
+
+    it('guardar cierra el arqueo SIN preguntar (lo cierra el código, no la persona)', () => {
+      const fx = montar();
+      comp.abrirCaptura();
+      comp.setF('kepler_cuenta', '601-001');
+      comp.elegirOrigenEfectivo('cajon');
+      comp.setF('kepler_concepto', 'PAPELERIA');
+      comp.setF('glosa', 'compra de papeleria');
+      comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
+      contar({ 500: 3 });
+      fx.detectChanges();
+      expect(comp.capturaSucia()).toBe(true);
+      comp.guardar();
+      fx.detectChanges();
+      expect(svc['crear']).toHaveBeenCalledTimes(1);
+      expect(comp.capturaAbierta()).toBe(false);
+      expect(document.querySelector('[data-testid="sp-confirma"]')).toBeNull();
+    });
+
+    // ── 2 · «Cerrar corte» ─────────────────────────────────────────────────────────────────────
+    it('[negativa] sin contar nada, «Cerrar corte» se cierra como siempre', () => {
+      const fx = montar({ saldo: corte() });
+      comp.abrirCierre();
+      fx.detectChanges();
+      expect(comp.cierreSucio()).toBe(false);
+      expect(valorDe(dialogoCierre(fx).closable)).toBe(true);
+      const dc = fx.debugElement.query(By.directive(DescartarCambiosComponent));
+      expect(dc, 'el pie no monta app-descartar-cambios').not.toBeNull();
+      (dc.componentInstance as DescartarCambiosComponent).pedir();
+      expect(comp.cierreAbierto()).toBe(false);
+    });
+
+    it('⛔ con la reja tecleada, la ventana no se cierra sola y «Cancelar» PREGUNTA', () => {
+      const fx = montar({ saldo: corte() });
+      comp.abrirCierre();
+      comp.setPiezasCorte(denC('500'), 3);
+      fx.detectChanges();
+      expect(comp.cierreSucio()).toBe(true);
+      const dlg = dialogoCierre(fx);
+      expect(valorDe(dlg.closable), 'la X sigue cerrando con piezas contadas').toBe(false);
+      expect(valorDe(dlg.closeOnEscape), 'Esc sigue cerrando con piezas contadas').toBe(false);
+
+      const dc = fx.debugElement.query(By.directive(DescartarCambiosComponent)).componentInstance as DescartarCambiosComponent;
+      expect(dc.sucio()).toBe(true);
+      dc.pedir();
+      fx.detectChanges();
+      expect(comp.cierreAbierto(), '«Cancelar» cerró sin preguntar').toBe(true);
+      expect(document.querySelector('[data-testid="dc-pregunta"]')).not.toBeNull();
+
+      // Descartar: cierra Y vacía — «se pierde» no puede ser mentira al reabrir.
+      dc.descartar();
+      expect(comp.cierreAbierto()).toBe(false);
+      comp.abrirCierre();
+      expect(comp.piezasCorteDe(denC('500'))).toBeNull();
+    });
+
+    it('⛔ reabrir el MISMO corte conserva la reja; otro corte la vacía', () => {
+      montar({ saldo: corte('c1') });
+      comp.abrirCierre();
+      comp.setPiezasCorte(denC('500'), 3);
+      comp.setBolsa(denC('10'), 'bolsas', 2);
+      comp.morrallaCorte.set(0.3);
+      comp.cierreAbierto.set(false);          // se cerró sin descartar
+      comp.abrirCierre();
+      expect(comp.piezasCorteDe(denC('500')), 'reabrir el mismo corte tiró la reja').toBe(3);
+      expect(comp.bolsaDe(denC('10')).bolsas).toBe(2);
+      expect(comp.morrallaCorte()).toBe(0.3);
+
+      comp.abrirCierre({ id: 'c2', folio: 'CC-2026-00010' });
+      expect(comp.piezasCorteDe(denC('500')), 'el conteo de un corte pasó a otro').toBeNull();
+      expect(comp.morrallaCorte()).toBe(0);
+    });
+
+    it('sellado el conteo, lo que queda en la reja ya no cuenta como sucio (lo sellado no se pierde)', () => {
+      montar({
+        saldo: corte(),
+        contarCorte: vi.fn(() => of({ corte_id: 'c1', puede_recontar: false, totales: {
+          ingresos: 0, gastos: 0, depositos: 0, esperado: 1500, contado: 1500, diferencia: 0, veredicto: 'cuadra',
+          movimientos: 0, cancelados: 0, ingresos_anclados: 0, ingresos_capturados: 0, cobertura_ingreso: null,
+        } })),
+      });
+      comp.abrirCierre();
+      comp.setPiezasCorte(denC('500'), 3);
+      expect(comp.cierreSucio()).toBe(true);
+      comp.sellarConteo();
+      expect(comp.rejaEditable()).toBe(false);
+      expect(comp.cierreSucio()).toBe(false);
+    });
+
+    it('los dólares tecleados (no propuestos) hacen sucio el cierre', () => {
+      montar({ saldo: corte() });
+      comp.abrirCierre();
+      expect(comp.cierreSucio()).toBe(false);
+      comp.neUsd.set(120);
+      expect(comp.cierreSucio()).toBe(true);
+    });
+
+    // ── 3 · El arqueo no se abre detrás de «Tu jornada» ────────────────────────────────────────
+    it('⛔ «Pagar en efectivo» cierra «Tu jornada» antes de abrir el arqueo', () => {
+      montar();
+      comp.jornadaAbierta.set(true);
+      comp.capturarDesdePagable({ ...FILA_A, pagable_label: 'X-D-26 0001294' });
+      expect(comp.capturaAbierta()).toBe(true);
+      expect(comp.jornadaAbierta(), 'el arqueo quedó DETRÁS de la ventana').toBe(false);
+    });
+
+    it('⛔ «Declarar» un recurrente cierra «Tu jornada» antes de abrir el arqueo', () => {
+      montar();
+      comp.jornadaAbierta.set(true);
+      comp.declararDesdeRecurrente(RECURRENTES.rows[1]);
+      expect(comp.capturaAbierta()).toBe(true);
+      expect(comp.jornadaAbierta(), 'el arqueo quedó DETRÁS de la ventana').toBe(false);
+    });
+
+    // ── 4 · Enter en «Qué pasó» ────────────────────────────────────────────────────────────────
+    it('⛔ Enter en «Qué pasó» pide confirmación: NO llama a crear directo', async () => {
+      const fx = await capturaEnPantalla();
+      comp.setF('kepler_cuenta', '601-001');
+      comp.elegirOrigenEfectivo('cajon');
+      comp.setF('kepler_concepto', 'PAPELERIA');
+      comp.setF('glosa', 'compra de papeleria');
+      comp.sinDocumentoMotivo.set('cobranza de ruta sin documento en Kepler');
+      contar({ 500: 3 });
+      fx.detectChanges();
+      expect(comp.bloqueos()).toEqual([]);
+      const glosa = fx.nativeElement.querySelector('#cg-glosa') as HTMLInputElement | null;
+      expect(glosa, 'no está el campo «Qué pasó»').not.toBeNull();
+
+      // Un Enter que cierra la composición de un IME no es «guardar».
+      glosa!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
+      expect(comp.confirmarGuardar()).toBe(false);
+
+      glosa!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(svc['crear'], 'Enter guardó sin confirmar').not.toHaveBeenCalled();
+      expect(comp.confirmarGuardar()).toBe(true);
     });
   });
 });

@@ -12,7 +12,7 @@ MÉTRICA:  cajas recibidas por orden de entrada X-A-40 que quedan etiquetadas de
 CAPA TOPE: C3
 ÁREA:      Logística (almacén)
 DUEÑO:     (por asignar)
-ESTADO:    ⬜ decidido, sin código — items dentro de RE (D1, 2026-11-17)
+ESTADO:    ⬜ decidido (D1–D6), sin código — items dentro de RE (D1, 2026-11-17)
 ```
 
 Requerimientos para revisión: [`REQ_ETQ_GR_ETIQUETAS_CAJA.md`](REQ_ETQ_GR_ETIQUETAS_CAJA.md). Tarjeta
@@ -30,11 +30,17 @@ los items se llaman **`RE.ETQ.*`** desde D1.
 | D3 | ¿Controlador de Windows o TSPL? | **Las dos** | Vía A navegador + controlador (la de GP.4) · vía B TSPL con contador de la impresora (RE.ETQ.1.6) |
 | D4 | ¿Bitácora de impresiones? | **Sí** | Tabla propia; el endpoint escribe y exige prueba contra base real (regla 13) |
 | D5 | ¿`70106` o `C70106`? | **`C` cuando sea caja** | Caja = `C`+clave siempre, aunque Kepler no lo tenga en `c85` (RE.ETQ.1.4) |
+| D6 | ¿Fecha del vale o de la orden? | **Ninguna: el día en que se imprime la etiqueta**, porque el vale o la orden pueden quedar pendientes | La fecha deja de salir de Kepler (RE.ETQ.0.4) y la calcula el servidor al imprimir (RE.ETQ.2.3) |
 | — | Medir el rollo y el controlador | **Se mide al implementar** | RE.ETQ.0.3 queda para el arranque de C3 |
 
-**Abierta — D6 (propuesta a Edgar):** ¿la fecha de la etiqueta es la del **vale** (llegada física)
-o la de la **orden** (lo que imprime Kepler)? Ver §2.3, hallazgo 9. Mientras no se decida: la de la
-orden, igual que Kepler.
+**Cómo se aplica D6** (decisiones de diseño, 2026-11-17):
+- **El día de la *primera* impresión** de esa etiqueta, en hora de la Ciudad de México y con el
+  reloj del **servidor**, no el de la PC. Una etiqueta impresa a las 23:30 del 17-nov dice
+  `320-26`, no `321-26`.
+- **La reimpresión repite la fecha guardada.** Si la tomara del día en que se reimprime, la Suite
+  repetiría el defecto 4 de Kepler: la etiqueta de reemplazo no coincidiría con sus hermanas.
+- **La bitácora guarda también las fechas del vale y de la orden.** No se imprimen, pero miden el
+  atraso entre la llegada y la etiqueta, que hoy nadie ve (§6).
 
 ---
 
@@ -76,7 +82,7 @@ captura. Si el Andén se adopta después, consume la misma pieza de impresión (
 | 6 | La caja incompleta no lleva etiqueta | el ciclo `n<=qx` con 0.5 cajas imprime 0; 7 renglones así en 30 días | la última etiqueta dice las piezas sueltas (RE.ETQ.1.5) |
 | 7 | Nombre cortado a 24 caracteres | 2,823 de 3,400 productos recibidos en caja se cortan; **226 quedan iguales a otro producto** (p. ej. `CAJETA ENVINADA TOPPER 1` = 1 KG y 1/2 KG) | nombre completo en dos renglones (RE.ETQ.1.2) |
 | 8 | Pie cortado en la 2.ª y 3.ª etiqueta de la fila | espécimen del 70106 | las tres etiquetas iguales |
-| 9 | La fecha es la de la orden, no la de llegada | 12 % de las órdenes se capturan 1 a 20 días después del vale; espécimen: vale 4-nov, etiqueta 5-nov | D6 (abierta) |
+| 9 | La fecha sale de un documento que puede quedar pendiente | 12 % de las órdenes se capturan 1 a 20 días después del vale; espécimen: vale 4-nov, etiqueta 5-nov | D6: el día de la primera impresión, guardado en la bitácora |
 | 10 | No hay registro | ninguna tabla guarda impresiones | bitácora (D4) |
 | 11 | La calibración es a mano | comentarios en `MD_OE`: «si me paso de 9.6 … me quitó la licencia» | página fija y medida (RE.ETQ.0.3) |
 | 12 | Tres formas distintas para lo mismo | Órdenes de entrada, Granel y Generales: formatos, fecha y código distintos | una pieza, una plantilla |
@@ -101,8 +107,8 @@ imprime solo: la impresora puede estar sin rollo y las cajas pueden no estar ah�
 1. **Cola automática.** Cada orden de entrada aparece sola en la pantalla en minutos (el ODS ya
    las trae, §2.1) con su estado: *por etiquetar · impresa · reimpresa*. Cero tecleo.
 2. **Un clic por orden.** Cajas, UXC, fecha y código ya calculados.
-3. **Datos congelados.** La primera impresión guarda lo que se imprimió; toda reimpresión sale
-   igual (mata los defectos 3 y 4).
+3. **Datos congelados.** La primera impresión guarda lo que se imprimió, fecha incluida (D6); toda
+   reimpresión sale igual (mata los defectos 3 y 4).
 4. **Control.** Aviso de órdenes con más de N horas sin etiquetar, y la métrica diaria «cajas
    etiquetadas / cajas recibidas» por sucursal. Hoy no se sabe si se etiquetó lo recibido.
 5. **La barra se vuelve útil.** `C`+clave legible permite escanear la caja en el checado (GP),
@@ -137,7 +143,7 @@ imprime solo: la impresora puede estar sin rollo y las cajas pueden no estar ah�
 | Código de barras | `C70106` en Code 128 | caja: `'C' \|\| c1`; otra unidad: el código de esa unidad (ver RE.ETQ.1.4) |
 | Consecutivo | 1:20 … 20:20 | cajas del renglón; la caja incompleta lleva sus piezas |
 | UXC | 18 | `kdm2.c58` del renglón |
-| Fecha | 308-26 | días desde el 1-ene **contando el 1-ene como 0**, sin ceros a la izquierda, año a 2 dígitos (como Kepler). Fuente: captura de la orden (`kdm1.c68`) hasta que se decida D6 |
+| Fecha | 308-26 | días desde el 1-ene **contando el 1-ene como 0**, sin ceros a la izquierda, año a 2 dígitos (como Kepler). Fuente (D6): **el día de la primera impresión**, hora de la Ciudad de México; la reimpresión repite la guardada |
 | Nombre | LA ROSA BOTA GRANDE 418GR | `kdii.c2` completo, en dos renglones |
 | Pie | Suc 08 Sucursal Morelia Abastos | clave + nombre de la sucursal |
 | ~~Encabezado de licencia~~ | ~~LUIS FRANCISCO LOPEZ GUTIERREZ · www.ERPkepler.com~~ | no se imprime: lo agrega el motor de Kepler |
@@ -154,9 +160,9 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | RE.ETQ.0.1 | Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE` + `Md_etiq_OE_fto`, la del espécimen), vale (`MD_oc`, no imprime), Granel y Generales | ✅ 2026-11-05 | `MD_OE.rep_etiq` reproduce el 70106 campo por campo |
-| RE.ETQ.0.2 | Vista `derive-no-copy` **`kepler_ods.v_etiqueta_caja_orden`**: una fila por renglón de `X-A-40` con sucursal, folio, renglón, fecha y hora de captura (`c68`+`c69`), fecha y vale de origen (`c39`, para D6), SKU, nombre completo, unidad (`c55`), **UXC = `c58`**, cajas completas, piezas sueltas, código de caja `'C'\|\|c1`, y dos banderas: `kepler_sin_c85` y `catalogo_factor_0` | ⬜ | Σ cajas de 30 días por sucursal = la medición de §2.1; el 70106 de la orden `0000474` da 20 cajas, UXC 18 |
+| RE.ETQ.0.2 | Vista `derive-no-copy` **`kepler_ods.v_etiqueta_caja_orden`**: una fila por renglón de `X-A-40` con sucursal, folio, renglón, fecha y hora de captura (`c68`+`c69`), fecha y vale de origen (`c39`; no se imprimen, D6: van a la cola y a la bitácora), SKU, nombre completo, unidad (`c55`), **UXC = `c58`**, cajas completas, piezas sueltas, código de caja `'C'\|\|c1`, y dos banderas: `kepler_sin_c85` y `catalogo_factor_0` | ⬜ | Σ cajas de 30 días por sucursal = la medición de §2.1; el 70106 de la orden `0000474` da 20 cajas, UXC 18 |
 | RE.ETQ.0.3 | Medir el rollo y el controlador TSC de la PC de Suc 08; averiguar si la TE200 tiene red o sólo USB (decide el transporte de la vía B) | ⬜ al implementar | foto con regla + captura de la configuración del controlador |
-| RE.ETQ.0.4 | Fecha de la etiqueta: cuenta de Kepler (1-ene = 0) sobre `kdm1.c68` de la orden; D6 puede cambiar la fuente al vale | ✅ 2026-11-05 (cuenta) · D6 abierta (fuente) | espécimen: 308 = 5-nov = `c68` de la orden 0000474 |
+| RE.ETQ.0.4 | Fecha de la etiqueta: cuenta de Kepler (1-ene = 0) sobre **el día de la primera impresión** (D6), no sobre una fecha de Kepler | ✅ 2026-11-05 (cuenta) · ✅ 2026-11-17 (fuente, D6) | espécimen: 308 = 5-nov (captura de la orden 0000474); prueba de la cuenta en RE.ETQ.1.3 |
 
 ⛔ Sin importer. Nada se trunca en el dato.
 
@@ -165,7 +171,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 |---|---|---|---|
 | RE.ETQ.1.1 | **Pieza de etiquetera en `libs/`**: sacar de `checado-etiquetas.ts` las filas de 3, la página y las barras; plantillas `checado` (GP.4) y `caja`. GP.4 la consume sin cambiar su salida | ⬜ | spec: el HTML de GP.4 idéntico antes y después |
 | RE.ETQ.1.2 | Plantilla `caja`: logo, clave, Code 128 a 2 puntos por módulo con ancho calculado, `n:total`, UXC, fecha, nombre completo en dos renglones (letra que se achica, nunca se corta), pie con la sucursal por nombre; las tres etiquetas de la fila iguales | ⬜ | spec con el 70106: 20 etiquetas, 7 filas, textos exactos; spec con `CAJETA ENVINADA TOPPER 1KG` y `1/2 KG`: nombres distintos |
-| RE.ETQ.1.3 | Fecha con la cuenta de Kepler y TZ `America/Mexico_City` (`mx-date.ts`) | ⬜ | spec: 2026-11-05 → `308-26`; 2026-01-01 → `0-26`; 31-dic de 2028 (bisiesto) → `365-28` |
+| RE.ETQ.1.3 | Fecha (D6): el instante de la primera impresión, con la cuenta de Kepler y TZ `America/Mexico_City` (`mx-date.ts`); la reimpresión recibe la fecha guardada y no la recalcula | ⬜ | spec: 2026-11-05 → `308-26`; 2026-01-01 → `0-26`; 31-dic de 2028 (bisiesto) → `365-28`; **17-nov 23:30 CDMX (05:30 UTC del 18) → `320-26`**; reimpresión del 20-nov de una etiqueta del 17 → `320-26` |
 | RE.ETQ.1.4 | Código por unidad: si la unidad del renglón es la tercera del producto (`c55` = `kdii.c83`) → `C`+clave; si es otra → el código de esa unidad (`c7` base, `c82` paquete) o la clave. Producto con `c85` vacío: se imprime `C`+clave y se marca «Kepler no lo reconoce» | ⬜ | spec con el 70106 (`C70106`) y con un producto real de Suc 00 sin `c85` |
 | RE.ETQ.1.5 | Caja incompleta: `c9` no múltiplo de `c58` → una etiqueta más, que dice sus piezas (`21:21 · 6 PZA`) | ⬜ | spec con la orden `0000685` de Suc 01 (4 renglones de media caja) |
 | RE.ETQ.1.6 | **Vía B — TSPL**: la misma plantilla escrita en TSPL, una por renglón, con `SET COUNTER` para que la impresora numere; el transporte (red, WebUSB o agente local) se elige con RE.ETQ.0.3 | ⬜ | spec: el TSPL del 70106 contra un archivo de referencia; prueba física en C3 |
@@ -175,7 +181,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 |---|---|---|---|---|
 | RE.ETQ.2.1 | `GET /almacen/etiquetas-caja/ordenes?date_from&date_to` — órdenes de la sucursal del usuario con renglones, cajas y **estado de etiquetado** (por etiquetar · impresa · reimpresa, desde la bitácora) | ⬜ | no | `pruebas-db` con fixtures de `kdm1`/`kdm2`/`kdii` |
 | RE.ETQ.2.2 | `GET /almacen/etiquetas-caja/catalogo-defectos` — productos recibidos en caja con factor 0 o sin `c85`, para Compras | ⬜ | no | ídem |
-| RE.ETQ.2.3 | `POST /almacen/etiquetas-caja/impresiones` — **bitácora (D4)**: sucursal, orden, renglón, SKU, consecutivos desde-hasta, total, UXC, fecha impresa, código, vía (A/B), motivo (primera · reimpresión), usuario. Tabla `commercial.box_label_prints` con `tenant_id` + audit; la primera impresión **congela** los datos de la etiqueta | ⬜ | **sí** | ⛔ obligatoria (regla 13), con el payload de la pantalla |
+| RE.ETQ.2.3 | `POST /almacen/etiquetas-caja/impresiones` — **bitácora (D4)**: sucursal, orden, renglón, SKU, consecutivos desde-hasta, total, UXC, **fecha impresa (D6: la pone el servidor en la primera impresión)**, fechas del vale y de la orden (no se imprimen: miden el atraso), código, vía (A/B), motivo (primera · reimpresión), usuario. Tabla `commercial.box_label_prints` con `tenant_id` + audit; la primera impresión **congela** los datos de la etiqueta | ⬜ | **sí** | ⛔ obligatoria (regla 13), con el payload de la pantalla |
 | RE.ETQ.2.4 | Permiso **`ALMACEN_ETIQUETAS_CAJA`** (clave, ADR-054) **repartido** en prod al puesto de recepción/almacén (regla 20); `MATRIZ_ACCESOS.md` regenerada | ⬜ | sí (migración) | migración generada, aplicada una por una |
 
 ### C3 · UI
@@ -201,6 +207,8 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | Etiquetas ya pegadas que se reimprimieron en Kepler | cajas con UXC 1 y fecha del documento | avisar al almacén; no se corrige lo ya pegado |
 | Productos con `c85` vacío (43 %) | el `C`+clave de la Suite no lo leen las pantallas de **Kepler** | aviso en pantalla + lista para Compras (RE.ETQ.2.2) |
 | La cola depende del ODS | si la ingesta se atrasa, la orden tarda en aparecer | la pantalla dice la hora del último dato (frescura, ADR-056) |
+| La etiqueta dice cuándo se etiquetó, no cuándo llegó (D6) | en el 12 % de las órdenes la llegada fue de 1 a 20 días antes; rotar por antigüedad con la etiqueta subestima la edad | la bitácora guarda la fecha del vale: la Suite puede mostrarla al escanear `C`+clave |
+| La orden queda pendiente | sin orden no hay etiqueta (D2): la caja espera sin etiqueta, como hoy | la bitácora mide el atraso vale → etiqueta; si sale grande, se decide etiquetar desde el vale (decisión nueva) |
 
 ---
 
@@ -220,5 +228,6 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-17 | D6 respondida: la fecha es el día en que se imprime, porque el vale o la orden pueden quedar pendientes. Se aplica como el día de la primera impresión, con hora del servidor en CDMX, y la reimpresión repite la guardada | Sistemas + Claude |
 | 2026-11-17 | D1–D5 respondidas (dentro de RE, desde la orden, las dos vías, con bitácora, `C` en caja). Análisis medido: cómo se trabaja hoy, 12 defectos de Kepler, 7 correcciones al plan propio; D6 abierta | Sistemas + Claude |
 | 2026-11-05 | Decode del espécimen 70106 y de las formas vigentes de Kepler; requerimientos para revisión | Sistemas + Claude |

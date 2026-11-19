@@ -101,6 +101,23 @@ function textoMayoreo(m: string | null): string {
     .join(' · ');
 }
 
+/**
+ * La clave del precio por volumen compara NÚMEROS, no la cadena: Kepler guarda el mismo «desde» como
+ * `3` en unas plazas y `3.00` en otras (medido 2026-11-18: 46 de 485 productos «distintos» lo eran
+ * sólo por eso, p. ej. 97363 en 07 y 08). Misma forma que `trim_scale` en `FICHA_SUCURSALES_SQL`.
+ */
+function claveMayoreo(m: string | null): string {
+  const s = txt(m);
+  if (!s) return '';
+  return s
+    .split(';')
+    .map((tramo) => {
+      const [u, desde, precio] = tramo.split(':');
+      return `${txt(u).toUpperCase()}:${num(desde)}:${num(precio).toFixed(2)}`;
+    })
+    .join(';');
+}
+
 function textoBarras(f: FichaPlaza): string {
   const partes = [
     [f.u1, f.cb1],
@@ -128,7 +145,7 @@ export function claveYTexto(campo: CampoFicha, f: FichaPlaza): { clave: string; 
       return { clave: pv.toFixed(2), texto: u ? `${pesos(pv)} / ${u}` : pesos(pv) };
     }
     case 'mayoreo':
-      return { clave: txt(f.mayoreo), texto: textoMayoreo(f.mayoreo) };
+      return { clave: claveMayoreo(f.mayoreo), texto: textoMayoreo(f.mayoreo) };
     case 'unidades': {
       const u1 = unidad(f.u1, 1);
       const u2 = unidad(f.u2, f.f2);

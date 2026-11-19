@@ -5,6 +5,60 @@ desglose (productos, unidades, días, clientes, tickets y depósito). Las entrad
 
 ---
 
+## El periodo del desglose es un calendario de rango (VEC.44, 2026-11-18)
+
+### El problema
+
+El «Calendario» del desglose pintaba la venta en semanas de lunes a domingo, pero lo que se pedía era
+otra cosa: **un calendario para ELEGIR los días**, y ver la venta de ese rango. El periodo sólo se
+podía cambiar entre el mes con que se abrió la ruta y el año completo. No había forma de ver, por
+ejemplo, del 3 al 12 de noviembre, o una quincena que cruza dos meses.
+
+### La solución
+
+- El chip de periodo es ahora un **calendario de rango**. Se eligen dos fechas, o una sola para ver
+  ese día, y al cerrarlo se aplica a todas las pestañas: productos, unidades, por día, clientes,
+  tickets y el arqueo de la vecinal.
+- El calendario **siempre muestra las fechas que se están viendo**. Al abrir la ruta, es el mes que
+  se abrió, hasta hoy.
+- Se elige **dentro del año del reporte y hasta hoy**. El rango puede cruzar meses.
+- **«Limpiar»** regresa al mes con que se abrió la ruta. **«Todo 2026»** muestra el año completo, que
+  es la consulta cara y por eso sigue a un clic explícito.
+- La pestaña «Calendario» por semanas **se retira**. La venta día por día sigue en «Por día».
+- En «Tickets», el ticket abierto ya mostraba lo que vendió, producto por producto. Ahora lleva al pie
+  el **«Total del ticket»**: la suma de sus renglones. El servidor saca el importe y los renglones de las
+  mismas filas, así que deben ser iguales; si algún día no lo son, la pantalla lo dice con la diferencia.
+
+### Cómo se implementó
+
+- **Sólo frontend.** El endpoint del desglose ya aceptaba `from`/`to` libres; no hay consulta,
+  endpoint ni migración nuevos.
+- `dRango` (en `comercial-ventas-por-ruta.component.ts`) gana sobre el mes y el año en
+  `detailBounds()`, el único lugar que decide el periodo. Así los tickets y el arqueo usan el mismo
+  rango sin código aparte.
+- Cambiar el periodo:
+  - suelta el día elegido, porque podría quedar fuera del rango;
+  - tira el arqueo y el crédito pedidos con el periodo anterior;
+  - descarta la respuesta del arqueo de otro periodo que llegue tarde.
+- Se borran `ventas-por-semana.ts`, su spec, la faceta de semana y `weekBounds`.
+- Pruebas: `comercial-ventas-por-ruta.periodo.spec.ts`, 11 pruebas. Cubren:
+  - el total al pie del ticket, y el aviso cuando los renglones no suman el importe;
+  - lo que muestra al abrir;
+  - un rango, un solo día y un rango que cruza meses;
+  - que elegir lo mismo no vuelve a pedir;
+  - «Limpiar» y «Todo el año»;
+  - los límites de lo que se puede elegir;
+  - que se sueltan el día y el arqueo;
+  - que la ruta nueva no hereda el rango.
+
+### Por qué así
+
+- Lo pidió el usuario (2026-11-18): el calendario era para **filtrar**, no para mostrar la venta por semanas.
+- Un solo periodo para todo el panel evita que una pestaña cuente un rango y otra otro.
+- **Pendiente:** validación visual con la sesión iniciada, y la medición en prod después de soltar.
+
+---
+
 ## Pestaña «Calendario» en el desglose de la ruta (VEC.42 y VEC.43, 2026-11-11 · 2026-11-12)
 
 ### El problema

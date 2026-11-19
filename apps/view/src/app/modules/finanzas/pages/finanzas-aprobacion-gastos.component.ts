@@ -31,7 +31,7 @@ import { lecturaKepler, solicitudKepler, type DetalleDeLaSolicitud, type KeplerD
 // `[PGP.123]` G.9 — La cola de comprobación: qué le falta a cada gasto autorizado, con las reglas puras de la cola.
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 import { ETIQUETA_FALTA_EN_KEPLER, importeDelVale, lecturaDeLaCancelada } from '@megadulces/contracts';
-import { colaDeKepler, esCanceladaEnKepler, lineaDelGasto, partirCanceladas, polizaCorta, quienTexto } from './esperan-kepler.ayudas';
+import { colaDeKepler, esCanceladaEnKepler, lecturaSinEscribir, lineaDelGasto, partirCanceladas, polizaCorta, quienTexto, solicitudSinEscribir } from './esperan-kepler.ayudas';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
 import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
@@ -292,6 +292,17 @@ const ESTADO_LABEL: Record<string, string> = {
               <div class="ap-muted">{{ vacioDe('kepler') }}</div>
             } @else {
               @let q = cola();
+              <!-- [PGP.122] La solicitud nacida en la Suite que Kepler todavía no tiene (la rechazó, se atoró o se escribe):
+                   primero y a la vista, cada renglón con lo que dijo Kepler y abrible para «Reintentar en Kepler». -->
+              @if (q.sinEscribir.length) {
+                <section class="ap-kep-sec" aria-labelledby="kep-sin-escribir">
+                  <h3 class="ap-kep-h" id="kep-sin-escribir">Su solicitud todavía no está en Kepler
+                    <span class="ap-kep-n">{{ q.sinEscribir.length | number }} · {{ money(montoDe(q.sinEscribir)) }}</span></h3>
+                  <div class="ap-kep-lista">
+                    @for (v of q.sinEscribir; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+                  </div>
+                </section>
+              }
               <div class="ap-kep-cab">
                 @if (q.porComprobar.length) {
                   <h2 class="ap-kep-tot">{{ q.porComprobar.length | number }} por comprobar · {{ money(montoDe(q.porComprobar)) }}</h2>
@@ -481,12 +492,9 @@ const ESTADO_LABEL: Record<string, string> = {
            renglón en rojo; el folio es un enlace neutro. G.UI.8: las personas, por su nombre. -->
       <ng-template #filaKepler let-v let-enCanceladas="enCanceladas">
         <div class="ap-kep" [class.hallazgo]="v.hallazgo">
-          @if (v.folio_solicitud) {
-            <button type="button" class="ap-kep-folio" (click)="abrirDesdeCola(v, $event)" [disabled]="abriendoDeCola() === v.id"
-                    [attr.aria-label]="'Abrir el vale ' + v.folio_solicitud">{{ v.folio_solicitud }}</button>
-          } @else {
-            <span class="ap-kep-folio-txt">sin folio</span>
-          }
+          <!-- [PGP.122] Sin folio también se abre (por su id): es justo el vale que hay que reintentar en Kepler. -->
+          <button type="button" class="ap-kep-folio" [class.ap-kep-folio-txt]="!v.folio_solicitud" (click)="abrirDesdeCola(v, $event)"
+                  [disabled]="abriendoDeCola() === v.id" [attr.aria-label]="etiquetaDeCola(v)">{{ v.folio_solicitud || 'sin folio' }}</button>
           <span class="ap-suc">{{ v.sucursal ? branchLabel(v.sucursal) : '' }}</span>
           <span class="ap-kep-prov">{{ v.proveedor || '—' }}</span>
           <span class="ap-kep-dias" [class.atorado]="(v.dias ?? 0) > 30">{{ diasTexto(v.dias) }}</span>
@@ -518,7 +526,10 @@ const ESTADO_LABEL: Record<string, string> = {
                 </div>
               }
             } @else {
-            @if (v.hallazgo) {
+            @if (solicitudSinEscribir(v)) {
+              @let ls = lecturaSinEscribir(v);
+              <span class="ap-kep-gasto" [class.warn]="ls.tono === 'warn'" [class.bad]="ls.tono === 'bad'">{{ ls.texto }}</span>
+            } @else if (v.hallazgo) {
               {{ textoHallazgo }}
             } @else if (esCanceladaEnKepler(v)) {
               {{ textoCancelada }}
@@ -1262,16 +1273,17 @@ export class FinanzasAprobacionGastosComponent {
    */
   abrirDesdeCola(v: ValeEsperaKepler, ev?: Event): void {
     const folio = String(v.folio_solicitud ?? '').trim();
-    if (!folio || this.abriendoDeCola()) return;
+    if (this.abriendoDeCola()) return;
     const origen = ev?.currentTarget instanceof HTMLElement ? ev.currentTarget : null;
     this.abriendoDeCola.set(v.id);
-    this.svc.buscarGastos(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // `[PGP.122]` Sin folio (la solicitud que nació en la Suite y Kepler no tiene) se busca por el id del vale.
+    this.svc.buscarGastos(folio || v.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.abriendoDeCola.set(null);
         const vale = (r?.vales ?? []).find((x) => x.id === v.id);
         if (!vale) {
           this.toast.add({ severity: 'warn', summary: 'No se pudo abrir el vale', life: 8000,
-            detail: `La búsqueda del folio ${folio} no lo trajo: búscalo arriba.` });
+            detail: `${folio ? `La búsqueda del folio ${folio}` : 'La búsqueda del vale sin folio'} no lo trajo: búscalo arriba.` });
           return;
         }
         this.abrir(vale);
@@ -1280,6 +1292,15 @@ export class FinanzasAprobacionGastosComponent {
       error: (e) => { this.abriendoDeCola.set(null); this.falla('No se pudo abrir el vale', e); },
     });
   }
+
+  /** `[PGP.122]` Cómo se anuncia el folio de la cola: sin folio, de quién y cuánto (dos sin folio no suenan igual). */
+  etiquetaDeCola(v: Pick<ValeEsperaKepler, 'folio_solicitud' | 'proveedor' | 'importe'>): string {
+    const folio = String(v.folio_solicitud ?? '').trim();
+    if (folio) return `Abrir el vale ${folio}`;
+    return `Abrir el vale sin folio${v.proveedor ? ` de ${v.proveedor}` : ''} por ${this.money(v.importe)}`;
+  }
+  readonly solicitudSinEscribir = solicitudSinEscribir;
+  readonly lecturaSinEscribir = lecturaSinEscribir;
 
   /**
    * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale abierto, si está en la cola de comprobación. `undefined` = no espera

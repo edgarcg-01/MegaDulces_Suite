@@ -22,6 +22,7 @@ import { HrTalentJobsService } from './talent/talent-jobs.service';
 import { HrTalentIntakeService } from './talent/talent-intake.service';
 import { HrTalentPublicController } from './talent/talent-public.controller';
 import { HrTalentLinksService } from './talent/talent-links.service';
+import { HrTalentHoyService } from './talent/talent-hoy.service';
 import { HrRecruitmentBotService } from './talent/bot/recruitment-bot.service';
 import { HrRecruitmentInterpreterService } from './talent/bot/interprete-registro.service';
 import { HrCvValidatorService } from './talent/bot/validar-cv.service';
@@ -61,7 +62,7 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
     PgListenService, HrRelojesAvisosService,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService, HrAttendanceEnrollmentsService,
-    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService,
+    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService, HrTalentHoyService,
     // `[RH.3.2.1]` la IA del registro por WhatsApp, sobre el cliente compartido de Anthropic (infra leaf: cada módulo
     // que lo usa lo pone en sus providers). Sin `ANTHROPIC_API_KEY` no consulta nada y el registro sigue igual.
     AnthropicService, HrRecruitmentInterpreterService,

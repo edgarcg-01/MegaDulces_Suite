@@ -1112,6 +1112,13 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-candidatos.component').then(m => m.RhCandidatosComponent),
       },
+      // `[RH.17.1]` Hoy: los pendientes del día, uno por uno (`GET /hr/talent/today`, VER o GESTIONAR; las respuestas
+      // usan los POST de candidatos, que piden GESTIONAR). Es la pestaña a la que lleva el menú.
+      {
+        path: 'reclutamiento/hoy',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-reclutamiento-hoy.component').then(m => m.RhReclutamientoHoyComponent),
+      },
       // `[RH.8.1]` Resumen del reclutamiento: lee lo mismo que la lista (`GET /hr/talent/summary`, VER o GESTIONAR).
       {
         path: 'reclutamiento/resumen',

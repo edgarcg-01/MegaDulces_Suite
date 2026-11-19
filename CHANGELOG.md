@@ -19,6 +19,12 @@
 - El detalle de una cuenta, la cobertura, la explicación de un descuadre y el Excel ya no llaman «Workbook» o «Excel» al banco: dicen «Banco», que hoy casi siempre es la descarga del banco.
 - El Excel del detalle separa las pólizas de ContPAQi sin banco de las que sólo esperan a que se cargue el banco, y respeta los filtros puestos.
 - El importe que no coincide con el banco, la marca «Revisar» y el filtro activo se leen en modo claro.
+### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
+- Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
+- Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
+- Con esto se sueltan 7 facturas más (73 de 208) y ninguna de las que ya estaban sueltas se vuelve a bloquear.
+### Fixed — Catálogo › Mantenimiento: el precio por volumen ya no marca «se sale» a una sucursal con los mismos tramos (CAT-PRECIO.1.2 · 2026-11-18 · en código, sin soltar)
+- Kepler guarda la cantidad «desde» como `3` en unas sucursales y `3.00` en otras. La pantalla comparaba el texto y marcaba como distinta a la que traía decimales (p. ej. 97363 en la 07 y la 08). Ahora compara los números: «Precio por volumen» baja de 485 a 439 productos (46 eran este falso aviso).
 ### Fixed — Revisión en caja: «Está bien» y «Revisando» se leen (GP.RF.13 · 2026-11-18 · en código, sin soltar)
 - El botón principal «Está bien» y la marca «▶ Revisando» tenían texto con poco contraste; ahora pasan el mínimo.
 
