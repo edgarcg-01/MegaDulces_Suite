@@ -308,7 +308,8 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
   });
 
   it('declara la frescura que no pudo medir, en vez de ocultar la píldora', () => {
-    // datos_al = null es el estado REAL hoy: analytics.cron_runs no tiene filas cdc_wal_NN.
+    // datos_al = null: la sucursal no tiene revisión registrada en `ods_branch_checks` (`[VAC.D4]`).
+    // Hasta el 2026-11-19 era el estado de TODAS, porque se leía un latido (`cdc_wal_NN`) que nadie escribía.
     expect(html()).toContain('Frescura del ERP sin medir');
     expect(fix.nativeElement.querySelector('app-freshness-pill')).toBeNull();
   });

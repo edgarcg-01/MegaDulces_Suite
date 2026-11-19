@@ -132,8 +132,6 @@ export interface ProcedenciaPrecio {
   plazasDistintas?: number;
   /** Se pidió una plaza y esa plaza no tiene el producto (existe en otras). */
   plazaSinDato?: boolean;
-  /** `override_manual` = alguien lo corrigió a mano; es el que se imprime en el anaquel. */
-  origenPrecio?: 'kepler' | 'override_manual';
   /**
    * `[ETQ-PROMO.2]` El código es una PROMOCIÓN/ajuste de Kepler, no un producto: el precio que trae es el
    * centavo simbólico. La pantalla AVISA en vez de pintar un precio. `false`/ausente = producto.
@@ -318,16 +316,14 @@ export class VerificadorService {
             product_id: r.product_id ?? null,
             proveedor: r.proveedor ?? null,
           },
-          // `[TDA.2]` Procedencia del número: de qué plaza salió, si varía entre plazas, y si lo
-          // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
-          // lo tenía invisible porque leía el ERP crudo).
+          // `[TDA.2]` Procedencia del número: de qué plaza salió y si varía entre plazas.
+          // `[VAC.D3]` Ya no hay «corregido a mano»: el precio es siempre el de Kepler.
           precioAmbiguo: r.precio_ambiguo === true,
           // `[TDA.9]` Ambigüedad de PRODUCTO (no de precio entre plazas).
           codigoAmbiguo: r.codigo_ambiguo === true,
           candidatos: Array.isArray(r.productos_candidatos) ? r.productos_candidatos : [],
           plazasDistintas: Number(r.plazas_con_precio_distinto) || 1,
           plazaSinDato: r.plaza_pedida_sin_dato === true,
-          origenPrecio: r.origen_precio === 'override_manual' ? 'override_manual' : 'kepler',
           esPromocion: r.es_promocion === true,
           // `[TDA.3]` De qué unidad es el código escaneado. Lo resuelve el backend contra la misma
           // fila de la que sale el precio, así que unidad y precio no pueden discrepar.

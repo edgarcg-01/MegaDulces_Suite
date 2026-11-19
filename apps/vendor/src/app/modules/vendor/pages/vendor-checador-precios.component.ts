@@ -198,7 +198,7 @@ interface Renglon {
                       <p class="ck-nota warn">Esta copia no trae el mayoreo: consúltalo con señal.</p>
                     }
                   }
-                  <p class="ck-nota">Precio al público con IVA en {{ nombreSucursal() }}.@if (f.corregidoAMano) { Corregido a mano: es el mismo de la etiqueta del anaquel. }</p>
+                  <p class="ck-nota">Precio al público con IVA en {{ nombreSucursal() }}.</p>
                   @if (f.otrosConElCodigo.length) {
                     <p class="ck-nota warn"><b>Ese código está también en {{ f.otrosConElCodigo.length === 1 ? 'otro producto' : f.otrosConElCodigo.length + ' productos más' }}</b> ({{ f.otrosConElCodigo.join(', ') }}). Confirma cuál es antes de dar el precio.</p>
                   }

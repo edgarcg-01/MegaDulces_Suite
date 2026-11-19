@@ -15,6 +15,9 @@ export * from './lib/commercial-commissions/commercial-commissions.service';
 export * from './lib/commercial-route-profit/commercial-route-profit.module';
 export * from './lib/commercial-route-profit/route-profit.service';
 export * from './lib/commercial-inventory/commercial-inventory.module';
+// `[VAC.D4]` La frescura por sucursal del carril `ods_live_hot` (lo que el verificador declara como
+// «datos al»). Se exporta el lector que ya usan existencia y precios, en vez de escribir otra copia.
+export { lecturaDeSucursales, type SucursalStock, type LecturaSucursal } from './lib/commercial-inventory/stock-state';
 export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';
 // [FLT] Lista de faltantes: la venta que NO ocurrió, reportada desde el piso.
