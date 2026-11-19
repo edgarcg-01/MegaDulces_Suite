@@ -1275,6 +1275,30 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(document.activeElement).toBe(boton);
     });
 
+    /**
+     * `[PGP.122]` La solicitud nacida en la Suite que Kepler rechazó: en su sección, a la vista, con el motivo, y el renglón
+     * SIN folio se abre (por su id). Antes: plegada en «No se pudo leer su estado en Kepler» y con «sin folio» como texto suelto.
+     */
+    it('[PGP.122] la solicitud que Kepler rechazó se ve con su motivo y se abre sin folio, por su id', () => {
+      montar();
+      const rech = K({ id: 'k9', folio_solicitud: null, proveedor: 'Plomería Prueba', importe: 116, espera: 'sin_medir', kepler_estado: null,
+        nace_en_la_suite: { status: 'rejected_by_kepler', nota: 'Kepler no aceptó el acreedor GP001', siguiente: null, intentos: 1 } });
+      colaKepler().flush(RESP({ vales: [rech] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(txt()).toContain('Su solicitud todavía no está en Kepler');
+      expect(txt()).toContain('Kepler: no la aceptó · Kepler no aceptó el acreedor GP001');
+      expect(txt()).not.toContain('No se pudo leer su estado en Kepler');
+      const boton = fix.nativeElement.querySelector('button[aria-label="Abrir el vale sin folio de Plomería Prueba por $116.00"]') as HTMLButtonElement;
+      expect(boton).toBeTruthy();
+      boton.click();
+      buscar('k9').flush(HALLADO([F({ id: 'k9', folio_solicitud: null as unknown as string, status: 'validada' })]));
+      expect(c.abierto()?.id).toBe('k9');
+      // Con folio, se sigue anunciando y buscando por el folio.
+      expect(c.etiquetaDeCola({ folio_solicitud: '0000501', proveedor: 'X', importe: 1 })).toBe('Abrir el vale 0000501');
+      expect(c.etiquetaDeCola({ folio_solicitud: null, proveedor: null, importe: 50 })).toBe('Abrir el vale sin folio por $50.00');
+    });
+
     it('si la búsqueda no trae el vale, lo dice y no abre otro', () => {
       montar();
       colaKepler().flush(RESP());

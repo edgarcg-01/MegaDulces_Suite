@@ -1,4 +1,4 @@
-import { QUIEN_RESUELVE_TEXTO, solicitudCanceladaEnKepler, type ComprobacionEnLaCola, type QuienResuelve } from '@megadulces/contracts';
+import { QUIEN_RESUELVE_TEXTO, lecturaKepler, solicitudCanceladaEnKepler, type ComprobacionEnLaCola, type QuienResuelve } from '@megadulces/contracts';
 import type { ValeEsperaKepler } from '../comprobaciones.service';
 
 /**
@@ -27,6 +27,12 @@ export interface GrupoConMotivo {
 }
 
 export interface ColaDeKepler {
+  /**
+   * `[PGP.122]` Firmados que nacieron en la Suite y cuya solicitud Kepler TODAVÍA NO TIENE (sin folio): Kepler la
+   * rechazó, se atoró, o se está escribiendo. Antes caían en «No se pudo leer su estado en Kepler» —plegado y sin poder
+   * abrirse— aunque Kepler sí había contestado. Van primero y a la vista: el rechazo necesita a una persona.
+   */
+  sinEscribir: ValeEsperaKepler[];
   /** Autorizados sin gasto: la cola de comprobación. Es exactamente `laSuite` + los vales de `conMotivo`. */
   porComprobar: ValeEsperaKepler[];
   /** Los que la Suite escribe sola (o ya escribió). */
@@ -91,6 +97,21 @@ export function grupoDelVale(g: ComprobacionEnLaCola | null | undefined): ClaveD
   return c.quien;
 }
 
+/** `[PGP.122]` ¿Nació en la Suite y Kepler todavía no tiene su solicitud? (sin folio: no se ha escrito). */
+export function solicitudSinEscribir(v: Pick<ValeEsperaKepler, 'folio_solicitud' | 'nace_en_la_suite'>): boolean {
+  return !!v.nace_en_la_suite && !String(v.folio_solicitud ?? '').trim();
+}
+
+/**
+ * `[PGP.122]` Lo que dice el renglón de una solicitud sin escribir: la MISMA lectura que el panel del vale
+ * (`lecturaKepler`), y la nota de Kepler (el motivo del rechazo) cuando la hay.
+ */
+export function lecturaSinEscribir(v: Pick<ValeEsperaKepler, 'nace_en_la_suite'>): { texto: string; tono: TonoDelGasto } {
+  const l = lecturaKepler({ solicitud: null, estado: null, suite: null, nace_en_la_suite: v.nace_en_la_suite }, 'validada');
+  const nota = String(v.nace_en_la_suite?.nota ?? '').trim();
+  return { texto: nota ? l.texto + ' · ' + nota : l.texto, tono: l.tono };
+}
+
 /** `[PGP.123]` G.UI.1c — ¿Kepler canceló su solicitud? Con su gasto generado (el hallazgo de GX.96) o sin él. */
 export function esCanceladaEnKepler(v: Pick<ValeEsperaKepler, 'hallazgo' | 'kepler_estado'>): boolean {
   return v.hallazgo || solicitudCanceladaEnKepler(v.kepler_estado);
@@ -107,9 +128,10 @@ export function partirCanceladas(vs: readonly ValeEsperaKepler[]): { conGasto: V
 
 /** Reparte la cola en sus secciones. Ningún vale se pierde: cada uno cae en exactamente una. */
 export function colaDeKepler(vales: readonly ValeEsperaKepler[]): ColaDeKepler {
-  const c: ColaDeKepler = { porComprobar: [], laSuite: [], conMotivo: [], porAutorizar: [], aplicadaSinLigar: [], canceladas: [], sinMedir: [] };
+  const c: ColaDeKepler = { sinEscribir: [], porComprobar: [], laSuite: [], conMotivo: [], porAutorizar: [], aplicadaSinLigar: [], canceladas: [], sinMedir: [] };
   const grupos = new Map<ClaveDelGrupo, ValeEsperaKepler[]>();
   for (const v of vales) {
+    if (solicitudSinEscribir(v)) { c.sinEscribir.push(v); continue; }
     if (esCanceladaEnKepler(v)) { c.canceladas.push(v); continue; }
     switch (v.espera) {
       case 'falta_generar_gasto': {

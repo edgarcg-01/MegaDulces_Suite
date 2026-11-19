@@ -26,6 +26,9 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL || 'https://megadulcessuite.com',
     viewport: { width: 1366, height: 768 },
     trace: 'retain-on-failure',
+    // Con VENTANA por default, para verla a ojo (E2E_SIN_VENTANA=1 o CI la esconden). E2E_LENTO=700 = ms entre acciones.
+    headless: !!process.env.CI || process.env.E2E_SIN_VENTANA === '1',
+    launchOptions: { slowMo: Number(process.env.E2E_LENTO) || 0 },
     // ⛔ Sin esto lo que atiende el service worker (ngsw) no pasa por page.route y una escritura puede salir a prod.
     serviceWorkers: 'block',
   },

@@ -1,8 +1,8 @@
 import type { ComprobacionEnLaCola, EstadoKeplerDelGasto, MotivoSinComprobar, QuienResuelve } from '@megadulces/contracts';
 import type { ValeEsperaKepler } from '../comprobaciones.service';
 import {
-  colaDeKepler, esCanceladaEnKepler, grupoDelVale, lineaDelGasto, loEscribeLaSuite, partirCanceladas, polizaCorta,
-  puedeEscribirseYa, quienTexto, TITULO_OTRO_MOTIVO,
+  colaDeKepler, esCanceladaEnKepler, grupoDelVale, lecturaSinEscribir, lineaDelGasto, loEscribeLaSuite, partirCanceladas, polizaCorta,
+  puedeEscribirseYa, quienTexto, solicitudSinEscribir, TITULO_OTRO_MOTIVO,
 } from './esperan-kepler.ayudas';
 
 /**
@@ -126,15 +126,36 @@ describe('[PGP.123] G.9 la cola de comprobación', () => {
       // `[PGP.123]` G.UI.1c: la cancelada SIN gasto (antes el servidor la descartaba) va con las canceladas, no a «sin medir».
       V('cancelada-sin-gasto', { espera: null, hallazgo: false, kepler_estado: 'C' }),
       V('sinmedir', { espera: null }),
+      // `[PGP.122]` Nació en la Suite y Kepler no la tiene (la rechazó): su propia sección, no «sin medir».
+      V('sin-escribir', { folio_solicitud: null, espera: 'sin_medir', kepler_estado: null, nace_en_la_suite: { status: 'rejected_by_kepler', nota: 'acreedor suspendido', siguiente: null, intentos: 1 } }),
     ];
     const q = colaDeKepler(vales);
     const enSecciones = [
-      ...q.laSuite, ...q.conMotivo.flatMap((g) => g.vales), ...q.porAutorizar, ...q.aplicadaSinLigar, ...q.canceladas, ...q.sinMedir,
+      ...q.sinEscribir, ...q.laSuite, ...q.conMotivo.flatMap((g) => g.vales), ...q.porAutorizar, ...q.aplicadaSinLigar, ...q.canceladas, ...q.sinMedir,
     ].map((v) => v.id);
     expect(enSecciones.sort()).toEqual(vales.map((v) => v.id).sort());
     expect(q.porComprobar.map((v) => v.id).sort()).toEqual([...q.laSuite, ...q.conMotivo.flatMap((g) => g.vales)].map((v) => v.id).sort());
     expect(q.canceladas.map((v) => v.id)).toEqual(['cancelada', 'cancelada-sin-gasto']);
     expect(q.sinMedir.map((v) => v.id)).toEqual(['sinmedir']);
+    expect(q.sinEscribir.map((v) => v.id)).toEqual(['sin-escribir']);
+  });
+
+  /**
+   * `[PGP.122]` La solicitud que nació en la Suite y Kepler rechazó caía en «No se pudo leer su estado en Kepler»: Kepler sí
+   * contestó. Medido con Playwright el 2026-11-19 (API sintética): plegada, sin el motivo y sin poder abrirse.
+   */
+  it('[PGP.122] la solicitud de la Suite que Kepler no tiene va a su sección, con lo que dijo Kepler', () => {
+    const rech = { status: 'rejected_by_kepler', nota: 'Kepler no aceptó el acreedor GP001', siguiente: null, intentos: 1 };
+    expect(solicitudSinEscribir({ folio_solicitud: null, nace_en_la_suite: rech })).toBe(true);
+    expect(solicitudSinEscribir({ folio_solicitud: '  ', nace_en_la_suite: rech })).toBe(true);
+    // Ya escrita (tiene folio): sigue su camino normal (autorizada, espera su gasto).
+    expect(solicitudSinEscribir({ folio_solicitud: '0000083', nace_en_la_suite: { ...rech, status: 'written' } })).toBe(false);
+    // No nació en la Suite: un vale sin folio de los de antes no cambia de sección.
+    expect(solicitudSinEscribir({ folio_solicitud: null })).toBe(false);
+    expect(lecturaSinEscribir({ nace_en_la_suite: rech })).toEqual({ texto: 'Kepler: no la aceptó · Kepler no aceptó el acreedor GP001', tono: 'bad' });
+    expect(lecturaSinEscribir({ nace_en_la_suite: { status: 'retry', nota: null, siguiente: null, intentos: 1 } })).toEqual({ texto: 'Kepler: se reintenta sola', tono: 'warn' });
+    // ⛔ Un punto final no se come la última letra de la nota.
+    expect(lecturaSinEscribir({ nace_en_la_suite: { ...rech, nota: 'acreedor suspendido.' } }).texto).toBe('Kepler: no la aceptó · acreedor suspendido.');
   });
 
   it('G.UI.1c: las canceladas, partidas en con gasto (¿salió dinero?) y sin gasto', () => {
