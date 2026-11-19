@@ -126,6 +126,8 @@ export interface BalanceRow {
   statement_id: string; bank: string; account_label: string; kind: string;
   opening: number; total_in: number; total_out: number; computed_closing: number; closing: number; delta: number;
   cuadra: boolean; sin_saldo: boolean;
+  /** [BFU.0.1] De dónde sale el saldo y hasta qué día llega; `banco_hasta`: hasta dónde trae ya la descarga. Opcionales: una API vieja no los manda. */
+  fuente?: 'banco' | 'libro'; banco_desde?: string | null; hasta?: string | null; banco_hasta?: string | null;
 }
 export interface Balances {
   period: string; accounts: BalanceRow[];
@@ -427,6 +429,8 @@ export interface ArchivoEstadoBanco {
   opening_balance: number; closing_balance: number; total_in: number; total_out: number;
   balance_ok: boolean; declared_ok: boolean | null; account_check: ComoSeFijoLaCuenta;
   created_at: string; created_by: string | null;
+  /** [BFU.1.3] Si se aceptó sin testigo y después lo probó la cadena de saldos: 'cadena'. Falta en una API anterior. */
+  cuenta_probada?: 'en_archivo' | 'saldo_continuo' | 'cadena' | null;
 }
 /** La lista trae tope; `cuentas` no: es cada cuenta de banco activa y hasta dónde llega su descarga. */
 export interface ArchivosDelBanco {
@@ -435,7 +439,9 @@ export interface ArchivosDelBanco {
    * `hasta` = día del último movimiento (una cuenta quieta no avanza aunque se baje diario). `ultima_subida` = cuándo se
    * guardó su descarga más reciente (CB.63); falta en una API anterior, y entonces no se afirma qué está por subir.
    */
-  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida?: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida?: string | null; archivos: number; sin_testigo: number; con_lector: boolean;
+    /** [BFU.1.3] Aceptados sin testigo y probados después por la cadena de saldos; falta en una API anterior. */
+    por_cadena?: number }[];
 }
 
 /** [CB.60] La descarga del banco contra el libro, por cuenta y día (`GET statement-files/contra-libro`). */
@@ -482,6 +488,8 @@ export interface CuadreDeCuentas { cuentas: CuentaEnCuadre[] }
 export interface UsoDelBanco {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
   metidos: number; en_cero: number; sin_categoria: number; sin_sucursal: number;
+  /** [BFU.2.5] Ligas pasadas al renglón del banco, y las que no tuvieron pareja. Faltan en una API anterior. */
+  religados?: number; sin_religar?: { fecha: string; importe: number; lado: 'entra' | 'sale'; ligas: string[] }[];
 }
 
 /**

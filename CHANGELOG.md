@@ -24,7 +24,24 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
+### Internal — Bancos: la regla de qué peso está explicado, y la cifra medida (BFU.2.8–2.9 · 2026-11-19 · en código, sin soltar)
+- Una sola función decide si un movimiento del banco está explicado (documento de Kepler o categoría con evidencia; la cobranza sin cliente no cuenta). Octubre: 93.3 %; noviembre sólo con el texto del banco: 10.9 % hasta pasar las cuentas.
+### Fixed — Bancos: al pasar una cuenta al banco, los pagos y confirmaciones ligados pasan con ella (BFU.2.5 · 2026-11-19 · en código, sin soltar)
+- Lo que estaba ligado a un renglón del libro (pago del calendario, confirmación de ContPAQi, captura, cliente declarado, categoría puesta a mano) pasa al mismo movimiento del banco; lo que no tiene pareja se avisa, no se adivina.
+### Added — Bancos › Estados de cuenta: los archivos sin número de cuenta se comprueban por la cadena de saldos (BFU.1.3 · 2026-11-19 · en código, sin soltar)
+- Un archivo de BBVA o BanBajío aceptado «sin testigo» queda comprobado cuando abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro; hoy pasan de 19 sin comprobar a 1.
+- La regla de qué hace verdadero un estado de cuenta del banco queda escrita en VERDAD_ABSOLUTA §39.
+### Internal — Fase GP: revisión del plan y meta de la consola medida (2026-11-19)
+- La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo para quien opera una sucursal; para quien ve varias todavía no (pendiente).
 
+### Fixed — Seguimiento de cotización: un pedido cancelado en Kepler ya no aparece embarcado; la caja deja el motivo de sus cierres rechazados (GP.10.1b · GP.RF.42 · 2026-11-19 · en código, sin soltar)
+- Si Kepler canceló el pedido de una cotización, el seguimiento lo dice («Pedido cancelado en Kepler») en lugar de mostrarlo surtido o embarcado, y no presenta como quitados los productos que Kepler borra al cancelar.
+- Cuando la revisión en caja no puede terminar un pedido, la razón queda registrada para poder corregirla.
+
+### Fixed — Bancos › Cuentas dice de dónde sale cada saldo y hasta qué día (BFU.0.1 · 2026-11-19 · en código, sin soltar)
+- Cada cuenta dice si su saldo sale del banco o del libro de Tesorería, hasta qué día llega, y si el banco ya trae más días.
+- Ya no dice «todo cuadra» cuando lo único que cuadra es el libro consigo mismo; si el banco va adelante, lleva a Estados de cuenta para pasar la cuenta.
+- Plan nuevo: el estado de cuenta de la suite como verdad absoluta del banco (anexo BFU de la fase CB).
 ### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
 - Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
 ### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)

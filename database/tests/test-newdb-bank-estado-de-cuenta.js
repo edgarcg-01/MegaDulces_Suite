@@ -435,6 +435,23 @@ async function completo(urlAdmin, urlRuntime) {
       // Una fecha FUTURA del libro (capturada mal): desde el primer día de la descarga se reemplaza también.
       await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP, movement_date: '2027-08-06',
         concept: 'PRUEBA FECHA MAL', amount_in: 1, amount_out: 0, running_balance: 1, client_uuid: 'prueba-cb67-futura' });
+      // [BFU.2.5] Lo que está ligado a un renglón del libro que se va a reemplazar: un renglón del 05 (+100, el banco lo
+      // trae ese día) con un pago del calendario, una captura, un programa de pagos, una confirmación de ContPAQi, el
+      // cliente declarado y la categoría puesta a mano; y al del 06 (+30, el banco NO lo trae) una captura.
+      const [stP] = await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stS.id ?? stS, bank_account_id: SINP,
+        movement_date: '2026-10-05', concept: 'PRUEBA LIGADO', amount_in: 100, amount_out: 0, running_balance: 7100, client_uuid: 'prueba-bfu25-par',
+        customer_code: 'C-0042', customer_nota: 'lo dijo cobranza', customer_declared_by: 'prueba', customer_declared_at: new Date(),
+        category_id: await catId('cobranza'), classified_by: 'manual' }).returning('id');
+      const LIGADO = stP.id ?? stP;
+      const SIN_PAR = (await admin('finance.bank_movements').where({ client_uuid: 'prueba-cb73-sinp-6' }).first('id')).id;
+      const [lote] = await admin('finance.payment_calendar_lots').insert({ tenant_id: MEGA, lot_date: '2026-10-05' }).returning('id');
+      await admin('finance.payment_allocations').insert({ tenant_id: MEGA, lot_id: lote.id ?? lote, classification: 'gasto', paid_bank_movement_id: LIGADO });
+      await admin('finance.bank_capture_inbox').insert({ tenant_id: MEGA, from_phone: 'prueba-bfu25', bank_movement_id: LIGADO });
+      await admin('finance.bank_capture_inbox').insert({ tenant_id: MEGA, from_phone: 'prueba-bfu25-sin', bank_movement_id: SIN_PAR });
+      await admin('finance.payment_program').insert({ tenant_id: MEGA, source_month: '2026-10', client_uuid: 'prueba-bfu25', bank_movement_id: LIGADO });
+      const hayCpq = (await admin.raw("select to_regclass('contpaqi.pago_confirmaciones') r")).rows[0].r;
+      if (hayCpq) await admin('contpaqi.pago_confirmaciones').insert({ tenant_id: MEGA, bank_movement_id: LIGADO, facturas: [], pagado: 100, confirmado_por: 'prueba', created_by: 'prueba' });
+
       const enCuadre = (await svc.cuadre('2026-10-20')).cuentas;
       const qS = enCuadre.find((c) => c.id === SINP)?.cuadre;
       check(qS?.cuadra === true && qS?.desde === '2026-10-05' && qS?.entrada === 'cuadra' && qS?.testigo?.fecha === '2026-10-04',
@@ -443,7 +460,25 @@ async function completo(urlAdmin, urlRuntime) {
         '[CB.73] y en la misma lista ROTA no cuadra y HUECO no cuadra en la entrada');
       const uS = await svc.usarElBanco(SINP, 'prueba', '2026-10-20');
       check(uS.desde === '2026-10-05', `[CB.73] manda desde el primer día de la descarga (${uS.desde})`);
-      check(uS.libro_borrados === 2 && uS.metidos === 6, `el 06 del libro (y la fecha futura) se reemplazan; entran los 3 días del banco (${uS.libro_borrados} borrados, ${uS.metidos} metidos)`);
+      check(uS.libro_borrados === 3 && uS.metidos === 6, `el 05 ligado, el 06 del libro (y la fecha futura) se reemplazan; entran los 3 días del banco (${uS.libro_borrados} borrados, ${uS.metidos} metidos)`);
+      // [BFU.2.5] Cada liga pasó al renglón del banco que es el mismo movimiento (05, +100); la del 06 se declara.
+      const nuevo = await admin('finance.bank_movements').where({ bank_account_id: SINP, sync_source: 'banco', movement_date: '2026-10-05' })
+        .where('amount_in', 100).whereNull('deleted_at').first('id', 'customer_code', 'customer_nota', 'classified_by', 'category_id');
+      const apunta = async (tabla, col, extra = {}) => (await admin(tabla).where({ [col]: nuevo?.id, ...extra }).count({ n: '*' }))[0].n;
+      check(!!nuevo && Number(await apunta('finance.payment_allocations', 'paid_bank_movement_id')) === 1,
+        '[BFU.2.5] el pago del calendario apunta al renglón del banco, no al reemplazado');
+      check(Number(await apunta('finance.bank_capture_inbox', 'bank_movement_id', { from_phone: 'prueba-bfu25' })) === 1
+        && Number(await apunta('finance.payment_program', 'bank_movement_id')) === 1,
+        '[BFU.2.5] la captura y el programa de pagos también');
+      if (hayCpq) check(Number(await apunta('contpaqi.pago_confirmaciones', 'bank_movement_id')) === 1, '[BFU.2.5] y la confirmación de ContPAQi');
+      else noMedido('contpaqi.pago_confirmaciones no existe en este destino');
+      check(nuevo?.customer_code === 'C-0042' && nuevo?.customer_nota === 'lo dijo cobranza' && nuevo?.classified_by === 'manual'
+        && nuevo?.category_id === await catId('cobranza'), `[BFU.2.5] el cliente declarado y la categoría puesta a mano pasan al renglón del banco (${JSON.stringify(nuevo)})`);
+      check(uS.religados === 1 && uS.sin_religar?.length === 1 && uS.sin_religar[0].fecha === '2026-10-06' && uS.sin_religar[0].importe === 30
+        && uS.sin_religar[0].ligas.includes('captura de depósito'),
+        `⛔ [BFU.2.5] el 06 (+30) no tiene pareja en el banco: se DECLARA, no se adivina (${JSON.stringify(uS.sin_religar)})`);
+      check(Number((await admin('finance.bank_capture_inbox').where({ from_phone: 'prueba-bfu25-sin' }).first('bank_movement_id')).bank_movement_id === SIN_PAR ? 1 : 0) === 1,
+        '[BFU.2.5] y su captura sigue en el renglón reemplazado (nada se pega a un movimiento que no es)');
       const vivosS = await admin('finance.bank_movements').where({ bank_account_id: SINP }).whereNull('deleted_at').whereNot('sync_source', 'banco').count({ n: '*' });
       check(Number(vivosS[0].n) === 2, `lo del libro antes del 05 no se toca (${vivosS[0].n} de 2)`);
       await recoger();

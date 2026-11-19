@@ -18,6 +18,7 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, CuadreDeCuentas, CuentaEnCuadre, RevisionEstadoBanco, UsoDelBanco } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
+import { dmy, money } from '../finanzas-format';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
   santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío', banamex: 'Banamex',
@@ -42,10 +43,12 @@ export interface PorSubir {
   porBanco: { banco: string; cuentas: { alias: string; texto: string }[] }[];
 }
 
-const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; sev: 'success' | 'warn' }>> = {
+const COMO: Readonly<Record<ComoSeFijoLaCuenta | 'cadena', { corto: string; largo: string; sev: 'success' | 'warn' }>> = {
   en_archivo: { corto: 'en el archivo', largo: 'el número de cuenta viene en el archivo', sev: 'success' },
   saldo_continuo: { corto: 'por saldo', largo: 'arranca exactamente donde cerró esa cuenta', sev: 'success' },
   sin_testigo: { corto: 'sin testigo', largo: 'no había un saldo anterior con qué comprobar la cuenta', sev: 'warn' },
+  // [BFU.1.3] Aceptado sin testigo y probado después: su apertura es un saldo que esa cuenta ya tenía (VERDAD §39.3).
+  cadena: { corto: 'por cadena', largo: 'abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro', sev: 'success' },
 };
 
 /** Un archivo soltado, de que se lee a que se guarda. */
@@ -305,7 +308,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
                 <td class="comm-num mono">{{ f.lines_in_file }}@if (f.lines_in_file > f.lines_new) { <span class="muted"> ({{ f.lines_in_file - f.lines_new }} ya estaban)</span> }</td>
                 <td class="comm-num mono">{{ num(f.opening_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="comm-num mono eb-strong">{{ num(f.closing_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td><p-tag [value]="como(f.account_check).corto" [severity]="como(f.account_check).sev" /></td>
+                <td><p-tag [value]="como(comoDe(f)).corto" [severity]="como(comoDe(f)).sev" [attr.title]="como(comoDe(f)).largo" /></td>
                 <td><span class="mono">{{ f.created_at | date:'dd/MM HH:mm' }}</span>@if (f.created_by) {<span class="muted"> · {{ f.created_by }}</span>}</td>
               </tr>
             </ng-template>
@@ -315,7 +318,8 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
           } }
           <p class="eb-leyenda">Cuenta comprobada: <b>en el archivo</b>, el banco pone el número de cuenta ·
             <b>por saldo</b>, el archivo arranca exactamente donde cerró esa cuenta ·
-            <b>sin testigo</b>, no había un saldo anterior con qué comprobarla.</p>
+            <b>por cadena</b>, se aceptó sin testigo y después se probó: abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro ·
+            <b>sin testigo</b>, nadie ha podido comprobarla todavía.</p>
         }
       </app-load-state>
     </section>
@@ -478,7 +482,9 @@ export class BancosEstadoBancoComponent implements OnInit {
     const ps = this.porSubir();
     const cuentas = (this.datos()?.cuentas ?? []).filter((c) => c.con_lector);
     const sinTestigoN = cuentas.reduce((n, c) => n + c.sin_testigo, 0);
-    const sinTestigoItem: MetricStripItem = { label: 'Sin testigo', value: sinTestigoN, format: 'number', tone: sinTestigoN ? 'warn' : 'muted', sub: 'archivos guardados sin poder comprobar la cuenta' };
+    const porCadenaN = cuentas.reduce((n, c) => n + (c.por_cadena ?? 0), 0);
+    const sinTestigoItem: MetricStripItem = { label: 'Sin testigo', value: sinTestigoN, format: 'number', tone: sinTestigoN ? 'warn' : 'muted',
+      sub: 'archivos sin poder comprobar la cuenta' + (porCadenaN ? ` · ${porCadenaN} probados después por la cadena de saldos` : '') };
     // [CB.63] Con la última subida medida, el primer número es «cuántas se subieron hoy»; la lista dice cuáles faltan.
     if (ps) {
       return [
@@ -664,7 +670,10 @@ export class BancosEstadoBancoComponent implements OnInit {
     if (r.sin_sucursal) partes.push(`${r.sin_sucursal} sin sucursal`);
     if (r.sin_categoria) partes.push(`${r.sin_categoria} sin categoría`);
     if (r.libro_borrados) partes.push(`${r.libro_borrados} renglón(es) del libro quedaron reemplazados por los del banco`);
-    return { severity: r.sin_sucursal || r.sin_categoria ? 'warn' : 'success', summary: `${r.cuenta} usa el banco desde el ${desde}`, detail: partes.join(' · '), life: 8000 };
+    // [BFU.2.5] Lo que estaba ligado a esos renglones: cuántas ligas pasaron y cuáles se quedaron sin pareja.
+    if (r.religados) partes.push(`${r.religados} con pagos, confirmaciones o capturas ligados pasaron al banco`);
+    if (r.sin_religar?.length) partes.push(`${r.sin_religar.length} sin pareja en el banco: ${r.sin_religar.slice(0, 3).map((x) => `${dmy(x.fecha)} ${money(x.importe)} (${x.ligas.join(', ')})`).join('; ')}${r.sin_religar.length > 3 ? '…' : ''}`);
+    return { severity: r.sin_sucursal || r.sin_categoria || r.sin_religar?.length ? 'warn' : 'success', summary: `${r.cuenta} usa el banco desde el ${desde}`, detail: partes.join(' · '), life: 8000 };
   }
 
   /** El veredicto de una fila: lo que la persona tiene que saber o hacer, y si está lista para guardar. */
@@ -794,7 +803,9 @@ export class BancosEstadoBancoComponent implements OnInit {
     }));
   }
   banco(b: RevisionEstadoBanco['banco']): string { return BANCO[b] ?? b; }
-  como(c: ComoSeFijoLaCuenta) { return COMO[c] ?? COMO.sin_testigo; }
+  como(c: ComoSeFijoLaCuenta | 'cadena') { return COMO[c] ?? COMO.sin_testigo; }
+  /** [BFU.1.3] Lo que dice la columna: si la cadena lo probó después, eso; si no, cómo se fijó al subirlo. */
+  comoDe(f: ArchivoEstadoBanco): ComoSeFijoLaCuenta | 'cadena' { return f.cuenta_probada === 'cadena' ? 'cadena' : f.account_check; }
   /** Los numeric de Postgres llegan como string por JSON. */
   num(v: number | string | null | undefined): number | null { return v === null || v === undefined ? null : Number(v); }
 

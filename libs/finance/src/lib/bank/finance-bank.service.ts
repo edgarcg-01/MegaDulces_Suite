@@ -1302,20 +1302,46 @@ export class FinanceBankService {
       const rows = await trx('finance.bank_statements as st')
         .join('finance.bank_accounts as ba', 'ba.id', 'st.bank_account_id')
         .where('st.period', period)
-        .select('st.id', 'ba.bank', 'ba.account_label', 'ba.kind',
-          'st.opening_balance', 'st.closing_balance', 'st.total_in', 'st.total_out')
+        .select('st.id', 'ba.id as account_id', 'ba.bank', 'ba.account_label', 'ba.kind',
+          'st.opening_balance', 'st.closing_balance', 'st.total_in', 'st.total_out',
+          trx.raw("to_char(ba.statement_source_since, 'YYYY-MM-DD') as banco_desde"))
         .orderBy([{ column: 'ba.kind' }, { column: 'ba.bank' }, { column: 'ba.account_label' }]);
+
+      // [BFU.0.1] De dónde sale el saldo de cada cuenta y hasta qué día llega. «Cuadra» sólo comprueba que
+      // inicial + depósitos − retiros = final DE ESA FUENTE: con el libro, el libro contra sí mismo. Medido el
+      // 2026-11-19: las 16 cuentas «cuadraban» con el libro al 10-nov y BBVA 6721 decía $0 de retiros en un mes en
+      // que su banco traía $3.2 M. Sin la fuente y el día, «cuadra» afirmaba lo que no se midió.
+      const finMes = `${period}-${String(new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
+      type FilaDeSaldo = { id: string; account_id: string; banco_desde: string | null };
+      const filas = rows as unknown as FilaDeSaldo[];
+      const ids = filas.map((r) => r.id);
+      const hastaPorEstado = new Map<string, string>(ids.length ? ((await trx('finance.bank_movements')
+        .whereIn('statement_id', ids).whereNull('deleted_at').groupBy('statement_id')
+        .select('statement_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as { statement_id: string; hasta: string }[])
+        .map((x) => [x.statement_id, x.hasta]) : []);
+      const cuentaIds = filas.map((r) => r.account_id);
+      const bancoHasta = new Map<string, string>(cuentaIds.length ? ((await trx('finance.bank_statement_lines')
+        .whereIn('bank_account_id', cuentaIds).whereBetween('movement_date', [`${period}-01`, finMes]).groupBy('bank_account_id')
+        .select('bank_account_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as { bank_account_id: string; hasta: string }[])
+        .map((x) => [x.bank_account_id, x.hasta]) : []);
 
       const accounts = (rows as any[]).map((r) => {
         const opening = n(r.opening_balance), closing = n(r.closing_balance);
         const computed = Math.round((opening + n(r.total_in) - n(r.total_out)) * 100) / 100;
         const delta = Math.round((computed - closing) * 100) / 100;
+        const fuente: 'banco' | 'libro' = r.banco_desde && r.banco_desde <= finMes ? 'banco' : 'libro';
         return {
           statement_id: r.id, bank: r.bank, account_label: r.account_label, kind: r.kind,
           opening, total_in: n(r.total_in), total_out: n(r.total_out),
           computed_closing: computed, closing, delta,
           cuadra: Math.abs(delta) < 1 && (opening !== 0 || closing !== 0),
           sin_saldo: opening === 0 && closing === 0,
+          /** [BFU.0.1] `banco` desde `banco_desde` (la cuenta ya usa la descarga); si no, el libro de Tesorería. */
+          fuente, banco_desde: (r.banco_desde as string | null) ?? null,
+          /** Último día con movimiento de esta cuenta en el periodo, en la fuente que se muestra. */
+          hasta: hastaPorEstado.get(r.id) ?? null,
+          /** Último día del periodo que trae la descarga del banco, la use o no la cuenta. */
+          banco_hasta: bancoHasta.get(r.account_id) ?? null,
         };
       });
 
