@@ -395,7 +395,7 @@ Pedido del usuario: un área de Presupuestos y Requerimientos que coordina Ernes
 - `pre-push`: 28 compuertas, nada rojo en los 26 archivos.
 - CI: **`Build & typecheck` y `Secret scan` en verde**, que son las obligatorias. `Lint & test` en rojo por `primeng` (24 > 21): **ajeno**. En la base del PR ya daba 24 y mi diff suma 0 `pButton` con `label`.
 - Mientras tanto `main` tomó **ADR-122** (`[VER]`, `0a906039e`). El de MSP pasa a **ADR-123** en una fusión (`6d4a1c2d8`), sin reescribir la rama. Era el único conflicto.
-- Protocolo §8.0b: puntos **109–114** (109–110 son observaciones del PM en este ciclo; 111–114, lecciones del mismo). El 107 y el 108 los reservan #564 y #568.
+- Protocolo §8.0b: puntos **114–119** (114–115 son observaciones del PM en este ciclo; 116–119, lecciones del mismo). Del 107 al 113 los reservan #564, #568 y #569: nacieron como 109–114 y se corrieron al ver que #569 ya tenía 109–113.
 
 **Lecciones:**
 - ⭐ **Una negativa de base que acepta «cualquier error» prueba poco.** Las negativas del esquema exigen el NOMBRE de la restricción en el mensaje: un INSERT que falla por otra columna ya no pasa por una prueba verde.
@@ -405,7 +405,7 @@ Pedido del usuario: un área de Presupuestos y Requerimientos que coordina Ernes
 - ⭐ **(2026-11-19) La matriz HTTP encontró lo que el dominio no podía ver: el ORDEN de las puertas.** `puedeLevantarEnCola` estaba bien probada, pero el alta subía los adjuntos al bucket antes de llamarla: la cajera con foto recibía «Almacenamiento no configurado» en local, y en prod la Suite habría subido y descartado archivos de alguien que no podía levantar. Ahora el 403 sale antes de tocar el bucket, como ya hacía `[MS.3.11]`.
 - ⭐ **(2026-11-19) Tres negativas HTTP estaban verdes por el motivo equivocado.** Pedían «un 400» y el 400 del bucket las satisfacía. Mismo error que en C0, una capa arriba: cada negativa exige ahora su mensaje.
 - **(2026-11-19) Una prueba que crea usuarios los anota al insertarlos, no al terminar de prepararlos.** Una corrida que cruzó el reinicio de la API dejó un usuario huérfano en la base local (borrado). Y el login admite 5 intentos por minuto: la matriz usa 5, así que corre una vez por minuto y aborta limpia si falta un token.
-- **(2026-11-19, observación del PM) Pedir que alguien levante algo es darle los pasos completos, y «ya está arriba» se verifica.** La persona preguntó dos veces dónde estaba el `.env`, que la copia no trae, y dos veces la API que estaba arriba era la del checkout compartido: una de 17.5 h y otra compilada sin las rutas nuevas. Lo que se pide: ruta del original, `cd`, comando y lo que debe decir el prompt. Lo que se verifica: `uptime`, el `dist/` de la copia y una ruta nueva que conteste 401 y no 404. Puntos 109–110.
+- **(2026-11-19, observación del PM) Pedir que alguien levante algo es darle los pasos completos, y «ya está arriba» se verifica.** La persona preguntó dos veces dónde estaba el `.env`, que la copia no trae, y dos veces la API que estaba arriba era la del checkout compartido: una de 17.5 h y otra compilada sin las rutas nuevas. Lo que se pide: ruta del original, `cd`, comando y lo que debe decir el prompt. Lo que se verifica: `uptime`, el `dist/` de la copia y una ruta nueva que conteste 401 y no 404. Puntos 114–115.
 
 ## 2026-11-18 — `[MS.8.4]` Ubaldo no aparecía para coordinar Mantenimiento: le falta el permiso, y la pantalla no lo decía
 
