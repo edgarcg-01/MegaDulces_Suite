@@ -81,13 +81,16 @@ export const ROL_COLA_LABEL: Readonly<Record<SdQueueRole, string>> = { coordinad
             <div class="qm-add">
               <label class="qm-field"><span>Agregar a la cola</span>
                 <p-select [options]="opcionesCandidatos()" optionLabel="label" optionValue="user_id" [(ngModel)]="elegido" [filter]="true" filterBy="label"
-                          placeholder="Elige a una persona" appendTo="body" ariaLabel="Persona a agregar" /></label>
+                          [emptyFilterMessage]="SIN_COINCIDENCIA" placeholder="Elige a una persona" appendTo="body" ariaLabel="Persona a agregar" /></label>
               <label class="qm-field"><span>Rol</span>
                 <p-select [options]="roles" optionLabel="label" optionValue="value" [(ngModel)]="rolNuevo" appendTo="body" ariaLabel="Rol de la persona nueva" /></label>
               <p-button label="Agregar" icon="pi pi-plus" [disabled]="!puedeAgregar()" [loading]="trabajando() === 'nuevo'" (onClick)="agregar()" />
             </div>
+            <!-- [MS.8.4] Quién aparece y a quién pedirlo, SIEMPRE: con candidatos en la lista, quien falta faltaba en silencio. -->
             @if (sinCandidatos()) {
-              <p class="qm-hint">No hay nadie más con el permiso de atender. Para sumar a otra persona, Administración debe darle <b>SERVICIO_ATENDER</b> desde Personas.</p>
+              <p class="qm-hint">Nadie más tiene el permiso de atender o coordinar. Para sumar a alguien, Administración le da <b>SERVICIO_ATENDER</b> (o <b>SERVICIO_COORDINAR</b>, para coordinar) desde Personas.</p>
+            } @else if (!cargando()) {
+              <p class="qm-hint">Sólo aparece quien ya tiene el permiso de atender (<b>SERVICIO_ATENDER</b>) o de coordinar (<b>SERVICIO_COORDINAR</b>). ¿Falta alguien? Administración se lo da desde Personas.</p>
             }
             @if (motivoNoAgrega(); as why) { <p class="qm-hint">{{ why }}</p> }
           }
@@ -128,6 +131,8 @@ export class SdQueueMembersComponent {
   /** Devuelve la configuración nueva cuando se cambia el responsable por omisión (la pantalla la refresca). */
   readonly configChange = output<SdConfigResponse>();
 
+  /** `[MS.8.4]` Lo que dice el selector cuando se busca a alguien que no está: casi siempre es que le falta el permiso, no que no exista. */
+  readonly SIN_COINCIDENCIA = 'Nadie con ese nombre tiene el permiso de atender o coordinar. Administración se lo da desde Personas.';
   readonly rolLabel = ROL_COLA_LABEL;
   readonly roles = SD_QUEUE_ROLES.map((r) => ({ value: r, label: ROL_COLA_LABEL[r] }));
 
