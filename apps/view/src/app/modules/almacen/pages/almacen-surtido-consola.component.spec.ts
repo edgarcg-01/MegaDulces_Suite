@@ -4,6 +4,7 @@ import type { ConsolaSurtidoOla, ConsolaSurtidoResponse } from '@megadulces/cont
 import { AlmacenSurtidoConsolaComponent } from './almacen-surtido-consola.component';
 import { provideRouter } from '@angular/router';
 import { PickingService } from '../../reparto/picking.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 /**
  * `[GP.3c.2]` La consola del coordinador, montada de verdad (plantilla + signals) con el servidor
@@ -364,5 +365,35 @@ describe('AlmacenSurtidoConsolaComponent · la consola del coordinador (GP.3c)',
     await montar(undefined, ATORADOS());
     expect(ligaAtorados()).toBeNull();
     expect(texto()).toContain('revísalos en Kepler');
+  });
+});
+
+describe('[GP.RF.17] La consola abre en el almacén de la persona, por su nombre', () => {
+  const LISTA = [{ id: 'w-00', code: '00', nombre: 'CEDIS' }, { id: 'w-08', code: '08', nombre: 'Morelia Abastos' }];
+  async function abrir(guardado: string | null): Promise<{ api: Record<string, ReturnType<typeof vi.fn>>; fix: ComponentFixture<AlmacenSurtidoConsolaComponent> }> {
+    const api = { consolaAlmacenes: vi.fn(() => of(LISTA)), consola: vi.fn(() => of(RESP())) };
+    try { localStorage.clear(); if (guardado) localStorage.setItem('gp.consola.almacen', guardado); } catch { /* sin almacenamiento */ }
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [AlmacenSurtidoConsolaComponent],
+      providers: [provideRouter([]), { provide: PickingService, useValue: api }, { provide: AuthService, useValue: { user: () => ({ warehouse_code: '08' }) } }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenSurtidoConsolaComponent);
+    fix.detectChanges();
+    await fix.whenStable();
+    return { api, fix };
+  }
+
+  it('sin preferencia guardada abre en el suyo (no en el primero de la lista), y las opciones van por nombre', async () => {
+    const { api, fix } = await abrir(null);
+    expect(api['consola']).toHaveBeenCalledWith('w-08');
+    expect(fix.componentInstance.almacenes().map((a) => a.etiqueta)).toEqual(['CEDIS', 'Morelia Abastos']);
+    fix.destroy();
+  });
+
+  it('NEGATIVA: lo que la persona eligió antes gana sobre su almacén asignado', async () => {
+    const { api, fix } = await abrir('w-00');
+    expect(api['consola']).toHaveBeenCalledWith('w-00');
+    fix.destroy();
   });
 });

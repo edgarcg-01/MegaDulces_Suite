@@ -44,6 +44,7 @@
 
       "@megadulces/contracts/http/suite-usage": ["./libs/contracts/src/http/suite-usage.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["./libs/contracts/src/http/alta-persona.contract.ts"],
+      "@megadulces/contracts/personas/nombre-propio": ["./libs/contracts/src/personas/nombre-propio.ts"],
       "@megadulces/contracts/http/arqueo-cajas": ["./libs/contracts/src/http/arqueo-cajas.contract.ts"],
       "@megadulces/contracts/http/codigo-de-barras": ["./libs/contracts/src/http/codigo-de-barras.contract.ts"],
       // [TP.20.5] Los agregó esa sesión a `tsconfig.base.json` y faltaban acá; la compuerta

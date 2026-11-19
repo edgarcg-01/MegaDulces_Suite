@@ -130,6 +130,11 @@ function reducir(dataUri: string, maxLado = 1600): Promise<string> {
           }
         }
 
+        <!-- [CC.20.2] El PDF que el mensaje de WhatsApp no puede llevar: el mismo documento que imprime Cobranza. -->
+        <a class="dc-btn dc-btn-sec dc-ec" [href]="pdfUrl" target="_blank" rel="noopener" data-testid="estado-cuenta-pdf">
+          Descargar mi estado de cuenta (PDF)
+        </a>
+
         @if (c.fichas.length) {
           <section class="dc-hist">
             <h2>Tus fichas enviadas</h2>
@@ -180,6 +185,8 @@ function reducir(dataUri: string, maxLado = 1600): Promise<string> {
     .dc-chip { font-size: var(--fs-xs); padding: 2px 8px; border-radius: var(--r-pill, 999px); background: var(--surface-2); color: var(--text-main); white-space: nowrap; }
     .dc-chip-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .dc-chip-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .dc-ec { margin-bottom: var(--sp-6); text-decoration: none; }
+    .dc-ec:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .dc-pie { margin-top: var(--sp-6); font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }
   `],
 })
@@ -189,6 +196,8 @@ export class DepositoClienteComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly token = this.route.snapshot.paramMap.get('token') || '';
+  /** `[CC.20.2]` Su estado de cuenta en PDF, autorizado por el mismo enlace. */
+  readonly pdfUrl = this.svc.estadoCuentaUrl(this.token);
   readonly hoy = hoyMx();
 
   readonly cargando = signal(true);

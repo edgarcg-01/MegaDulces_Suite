@@ -32,6 +32,11 @@ describe('[RH.1.10] RhHorasExtraComponent', () => {
     api = {
       sitios: vi.fn(() => of(SITIOS)),
       bancoHorasExtra: vi.fn(() => of(banco(o.personas))),
+      // [RH.14] Lo que la pantalla lee del padrón: vacío, para que no cambie lo que prueba este archivo.
+      nombresPorConfirmar: vi.fn(() => of({ filas: [], total: 0 })),
+      posiblesBajas: vi.fn(() => of({ site_code: '', dias: 31, filas: [], explicadas: [] })),
+      fichaPersona: vi.fn(() => of(null)),
+      catalogosFicha: vi.fn(() => of({ departamentos: [], puestos: [], sucursales: [] })),
       crearAjusteHorasExtra: vi.fn(() => of({ id: 'a1', fecha: '2026-09-24', minutos: 330, motivo: 'x', creadoPor: '', creadoEn: '' })),
       anularAjusteHorasExtra: vi.fn(() => of({ ok: true })),
       // Lo que pide el marco de las pestañas.

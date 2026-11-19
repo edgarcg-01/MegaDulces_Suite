@@ -153,3 +153,24 @@ describe('[CG.204] el teléfono que firma, por HTTP', () => {
     expect(b.comp.telefono).toBe(id);
   });
 });
+
+/** [LE.6.34] Un solo dedo traza (modern-web-guidance «natural-interactions»): la palma o un segundo dedo no se mezclan. */
+describe('[LE.6.34] la firma con el dedo', () => {
+  it('⛔ un segundo dedo (o la palma) no traza; al soltar el primero, el siguiente toque sí', () => {
+    const { comp } = montar('/firmar?t=TOK');
+    const trazos: string[] = [];
+    (comp as unknown as { pad: () => unknown }).pad = () => ({
+      abajo: () => trazos.push('abajo'), mueve: () => trazos.push('mueve'), arriba: () => trazos.push('arriba'), firmada: () => true,
+    });
+    const p = (pointerId: number, isPrimary: boolean) => ({ pointerId, isPrimary, offsetX: 1, offsetY: 1 }) as unknown as PointerEvent;
+    comp.abajo(p(1, true));
+    comp.abajo(p(2, false));
+    comp.mueve(p(2, false));
+    comp.mueve(p(1, true));
+    comp.arriba(p(2, false));
+    expect(trazos).toEqual(['abajo', 'mueve']);
+    comp.arriba(p(1, true));
+    comp.abajo(p(3, true));
+    expect(trazos).toEqual(['abajo', 'mueve', 'arriba', 'abajo']);
+  });
+});

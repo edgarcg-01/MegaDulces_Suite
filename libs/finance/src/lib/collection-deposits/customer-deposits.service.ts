@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, ObjectStorageService, OcrReadingsService, DepositSlipFields, todayMx,
+  origenPublicoParaEnlace,
 } from '@megadulces/platform-core';
 import { CollectionDepositsService } from './collection-deposits.service';
 import { CobranzaGateway } from './cobranza.gateway';
@@ -95,14 +96,14 @@ export class CustomerDepositsService {
 
   /**
    * La URL del enlace de una cuenta. No escribe nada: la versión se lee (sin renglón = 1). La llaman la ficha de
-   * cartera, el mensaje de WhatsApp y el PDF del estado de cuenta. `null` si no hay origen público configurado.
+   * cartera, el mensaje de WhatsApp y el PDF del estado de cuenta. Siempre con una base que abre desde internet (`[CC.20.1]`).
    */
   async enlaceDe(sucursal: string, cliente: string, origin?: string): Promise<string | null> {
     const tenantId = this.tenantCtx.requireTenantId();
     const s = (sucursal || '').trim(); const c = (cliente || '').trim();
     if (!s || !c) return null;
-    const base = (process.env.APP_PUBLIC_URL || origin || '').replace(/\/+$/, '');
-    if (!base) return null;
+    // `[CC.20.1]` El cliente abre desde su celular: nunca la IP de la oficina (ver `origenPublicoParaEnlace`).
+    const base = origenPublicoParaEnlace(origin);
     const v = await this.versionDe(tenantId, s, c);
     if (v == null) return null; // dado de baja sin versión nueva: no se emite
     const payload: TokenDeposito = { t: 'customer_deposit', tenant_id: tenantId, s, c, v };
@@ -152,6 +153,16 @@ export class CustomerDepositsService {
       throw new ForbiddenException('Este enlace fue reemplazado por uno nuevo. Usa el último que te mandamos.');
     }
     return { tenantId: p.tenant_id, sucursal: p.s, cliente: p.c };
+  }
+
+  /**
+   * `[CC.20.2]` Corre `fn` con la cuenta del enlace (token revalidado contra la versión vigente) y en su tenant. Lo usa el
+   * PDF del estado de cuenta que el cliente descarga desde su enlace: vive en `customer-ledger`, que ya importa este
+   * módulo, así que la autorización se queda aquí y el documento no sabe de tokens.
+   */
+  async conCuentaDelEnlace<T>(token: string, fn: (sucursal: string, cliente: string) => Promise<T>): Promise<T> {
+    const cta = await this.resolver(token);
+    return this.enCuenta(cta, () => fn(cta.sucursal, cta.cliente));
   }
 
   private enCuenta<T>(cta: CuentaDeposito, fn: () => Promise<T>): Promise<T> {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, model } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, inject, input, model } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { BILLETES_MXN, MONEDAS_MXN, revisarConteoCajon, type ConteoCajonHoja, type Denominacion } from '@megadulces/contracts';
@@ -44,6 +44,7 @@ import { money } from '../pages/finanzas-format';
       </p>
       }
 
+      <p class="cc-atajo" data-testid="cc-atajo"><kbd>↑</kbd><kbd>↓</kbd> o <kbd>Enter</kbd> entre piezas · al final, al siguiente campo</p>
       <div class="cc-grupos">
         @for (g of grupos(); track g.titulo) {
           <fieldset class="cc-grupo">
@@ -83,10 +84,54 @@ import { money } from '../pages/finanzas-format';
     .cc-sub { font-size: var(--fs-xs, .8rem); color: var(--text-muted); text-align: right; }
     .cc-dim { color: var(--text-muted); font-size: var(--fs-xs, .8rem); }
     .cc-num { font-variant-numeric: tabular-nums; }
+    .cc-atajo { margin: 0 0 var(--sp-2, .5rem); font-size: var(--fs-xs, .8rem); color: var(--text-muted); }
+    .cc-atajo kbd { font-family: var(--font-mono); font-size: var(--fs-xs, .8rem); padding: 0 4px; margin: 0 1px;
+      border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); }
     :host ::ng-deep .cc-in { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
   `],
 })
 export class ConteoCajonComponent {
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+
+  /**
+   * `[LE.6.11]` **Se cuenta sin mouse**, como en la reja de Captura (`moverEnReja`): `↓` o `Enter` a la
+   * pieza siguiente, `↑` a la anterior, y desde la última al siguiente campo de la ventana (quién
+   * recibe, o el botón). Se escucha en fase de CAPTURA porque `p-inputnumber` usa ↑ ↓ para sumar o
+   * restar una pieza: con las manos en el efectivo, una flecha que cambia el número en vez de moverse
+   * es un error que nadie ve.
+   */
+  constructor() {
+    const el = this.host.nativeElement;
+    const mover = (ev: KeyboardEvent): void => {
+      if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(ev.key) || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      const campos = [...el.querySelectorAll<HTMLInputElement>('input.cc-in')];
+      const i = campos.indexOf(ev.target as HTMLInputElement);
+      if (i < 0) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const dir = ev.key === 'ArrowUp' ? -1 : 1;
+      if (campos[i + dir]) { campos[i + dir].focus(); campos[i + dir].select(); return; }
+      if (dir === 1) this.siguienteCampo(el);
+    };
+    el.addEventListener('keydown', mover, true);
+    inject(DestroyRef).onDestroy(() => el.removeEventListener('keydown', mover, true));
+  }
+
+  /**
+   * El primer elemento enfocable DESPUÉS de este conteo, dentro de su ventana.
+   *
+   * `[LE.6.34]` Si la ventana marcó su botón primario con `data-conteo-siguiente` y está habilitado, va ahí:
+   * en Reposición el siguiente en el DOM era «Volver», y el Enter siguiente tiraba el conteo.
+   */
+  private siguienteCampo(el: HTMLElement): void {
+    const raiz = el.closest<HTMLElement>('.p-dialog') ?? document.body;
+    const primario = raiz.querySelector<HTMLElement>('button[data-conteo-siguiente]:not([disabled]), [data-conteo-siguiente] button:not([disabled])');
+    if (primario) { primario.focus(); return; }
+    const todos = [...raiz.querySelectorAll<HTMLElement>('input:not([disabled]), button:not([disabled]), select, textarea, a[href], [tabindex="0"]')];
+    const sig = todos.find((x) => !el.contains(x) && (el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING));
+    sig?.focus();
+  }
+
   /** Lo que sale del cajón. */
   readonly total = input.required<number>();
   readonly piezas = model<Record<string, number>>({});

@@ -201,14 +201,20 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
   });
 
   it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {
-    expect(SVC).toMatch(/oc_sucursal' AS oc_sucursal/);
-    expect(SVC).toMatch(/oc_folio'\s+AS oc_folio/);
+    expect(SVC).toContain("${opc('oc_sucursal')} AS oc_sucursal");
+    expect(SVC).toContain("${opc('oc_folio')} AS oc_folio");
     expect(CLI).toContain('oc_folio?: string | null');
   });
 
-  it('⚠️ y se piden con `to_jsonb` para no romper si el código llega antes que la migración', () => {
+  it('⚠️ y se piden con el lector de columnas opcionales para no romper si el código llega antes que la migración', () => {
     // El deploy y las migraciones viajan por caminos distintos y ya llegaron desordenados antes
-    // en este repo. Una columna directa daría 42703 y tiraría la lista entera.
-    expect(SVC).toContain(`to_jsonb(r) ->> 'oc_folio'`);
+    // en este repo. Una columna directa daría 42703 y tiraría la lista entera. `[PQ.130]`: ya no con
+    // `to_jsonb(r)` (armaba la fila entera, ~0.5 s por lectura) sino con `opc`, que pregunta si la
+    // columna existe y da NULL si no (`rq-columnas-opcionales.spec.ts`).
+    const lista = cuerpo('async listRequisitions');
+    expect(lista).toContain('const opc = await this.rqColumnaOpcional(trx);');
+    expect(lista).toContain("${opc('oc_folio')} AS oc_folio");
+    // Nunca como columna directa en la bandeja (ni en knex ni en SQL crudo).
+    expect(lista).not.toMatch(/['"`]r\.(oc_folio|kepler_folio|kepler_error)['"`]|\br\.(oc_folio|kepler_folio|kepler_error)\b/);
   });
 });

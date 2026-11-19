@@ -14,20 +14,60 @@
      .vendor-shell             → Modo vendedor
    ════════════════════════════════════════════════════════════════════════════ */
 
+/* ── RESPALDOS CON LAS MEDIDAS DE HANKEN GROTESK Y GEIST MONO — [GP.RF.40], 2026-11-18 ────────
+   Las dos llegan de Google Fonts con display=swap: la página pinta primero con la letra del
+   sistema y la cambia al llegar. En Windows esa letra mide distinto (Segoe UI contra Hanken: 2.4 %
+   más angosta en 400, 2.8 % más ancha en 700; Consolas contra Geist Mono: 8.4 % más angosta): al
+   cambiar, los renglones se re-parten y la página brinca. Medido con la letra retrasada 1.5 s
+   (e2e/reestructura/fuente-cls.e2e.ts, A/B en la misma corrida).
+   Estas caras son la letra local escalada al ancho de la web (size-adjust) y con su ascenso/descenso
+   (Hanken: 1.00/0.30 em, sin interlineado extra). Error de ancho por texto, mediana de 20
+   cadenas de la Suite: 0.7–1.1 % con el ajuste, contra 2–6 % sin él en los pesos 300/400/700/800.
+   ⛔ NO se usa font-size-adjust (la vía principal de la guía visually-stable-font-fallbacks):
+   iguala la altura de la x, no el ancho, y aquí empeora — achica Segoe 1.4 % cuando Hanken es
+   más ancha, y Roboto (Android) 6.7 % cuando su ancho ya coincide con Hanken al 1 %.
+   Sin Segoe UI (Android, iOS, Mac) local() no resuelve y se sigue a system-ui, igual que antes.
+   Sin red a Google Fonts, Windows pinta con esta cara: Segoe con el ancho de Hanken.
+   Recalcular: node e2e/reestructura/fuente-respaldo.js · medir el brinco: e2e/reestructura/fuente-cls.e2e.ts
+   (detalle en docs/IMPLEMENTACION/FASES/FASE_GP_AUDITORIA_INTERFACES.md §5c.8). */
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 300; src: local('Segoe UI Light'), local('SegoeUI-Light');
+  size-adjust: 106.39%; ascent-override: 94%; descent-override: 28.2%; line-gap-override: 0%; }
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 400; src: local('Segoe UI'), local('SegoeUI');
+  size-adjust: 102.4%; ascent-override: 97.66%; descent-override: 29.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 500; src: local('Segoe UI Semibold'), local('SegoeUI-Semibold');
+  size-adjust: 100.06%; ascent-override: 99.94%; descent-override: 29.98%; line-gap-override: 0%; }
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 600; src: local('Segoe UI Semibold'), local('SegoeUI-Semibold');
+  size-adjust: 100.5%; ascent-override: 99.5%; descent-override: 29.85%; line-gap-override: 0%; }
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 700; src: local('Segoe UI Bold'), local('SegoeUI-Bold');
+  size-adjust: 97.22%; ascent-override: 102.86%; descent-override: 30.86%; line-gap-override: 0%; }
+@font-face { font-family: 'Hanken Respaldo'; font-weight: 800; src: local('Segoe UI Bold'), local('SegoeUI-Bold');
+  size-adjust: 97.65%; ascent-override: 102.41%; descent-override: 30.72%; line-gap-override: 0%; }
+/* Lo mismo para las cifras. ⭐ En Surtir el brinco NO era Hanken: era el folio en Geist Mono, que
+   mientras baja se pinta en Consolas, 8.4 % más angosta (0.550 em por carácter contra 0.600): al
+   llegar Geist Mono el folio crece 100 → 109 px y el renglón de la tarjeta se parte en dos.
+   Por ser monoespaciada, el ajuste es EXACTO para cualquier texto: 0.600 / 0.5498 = 109.13 %.
+   Ascenso/descenso de Geist Mono: 1.01/0.30 em. En Android el monospace genérico ya mide 0.600 em. */
+@font-face { font-family: 'Geist Mono Respaldo'; font-weight: 400 500; src: local('Consolas');
+  size-adjust: 109.13%; ascent-override: 92.55%; descent-override: 27.49%; line-gap-override: 0%; }
+@font-face { font-family: 'Geist Mono Respaldo'; font-weight: 600 700; src: local('Consolas Bold'), local('Consolas-Bold');
+  size-adjust: 109.13%; ascent-override: 92.55%; descent-override: 27.49%; line-gap-override: 0%; }
+
 :root {
   /* ── TIPOGRAFÍA — familias ────────────────────────────────────────────────
      Hanken Grotesk (body/UI) + Poppins (display, SOLO storefront) + Geist Mono (data).
      Por qué no Inter: es el "default de convergencia" de toda app SaaS. Hanken da
      calidez sin perder neutralidad de herramienta; ver DESIGN_FOUNDATIONS.md §3.
      Fraunces quedó RETIRADA (decisión 2026-06-24: identidad Poppins tipo delivery). */
-  --font-body:    'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* [GP.RF.40] 'Hanken Respaldo' (abajo, @font-face) es Segoe UI con las medidas de Hanken: mientras
+     Hanken baja, la página pinta con ella y al llegar Hanken el texto no se re-parte. */
+  --font-body:    'Hanken Grotesk', 'Hanken Respaldo', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   /* ⚠️ El respaldo importa más de lo que parece: si Geist Mono no carga (red del campo, CSP,
      Google Fonts bloqueado) ESTO es lo que imprime los precios. Decía 'Courier New', que es
      la peor opción posible para una columna de cifras — trazo fino y con serifas. Consolas va
      primero porque la flota es Windows. Unificado desde el Storefront el 2026-10-03: antes
      .portal-shell declaraba su propio respaldo y los dos ya habían divergido. */
-  --font-mono:    'Geist Mono', ui-monospace, SFMono-Regular, Consolas, Menlo, monospace;
+  --font-mono:    'Geist Mono', 'Geist Mono Respaldo', ui-monospace, SFMono-Regular, Consolas, Menlo, monospace;
 
   /* Display scale (storefront hero + section heads, clamp responsive) */
   --text-display-xl: clamp(2.5rem, 7vw, 3.5rem);     /* hero h1 */

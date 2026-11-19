@@ -39,14 +39,18 @@ import type { Freshness } from '@megadulces/contracts';
   template: `
     @if (ts() != null || unknownState()) {
       <span class="fp" [class.warn]="stale()" [class.is-fetch]="measures() === 'fetch'"
-            [attr.title]="titleText()" aria-live="polite">
-        <span class="dot"></span>{{ text() }}
+            [attr.title]="titleText()">
+        <span class="dot" aria-hidden="true"></span>{{ text() }}
       </span>
     }
+    <!-- [GP.RF.38] Antes el aria-live iba sobre el texto que cambia cada 15 s («hace 15s», «hace 30s»…): el
+         lector de pantalla lo leía en cada cambio. Ahora sólo habla cuando cambia el ESTADO. -->
+    <span class="sr-only" aria-live="polite">{{ aviso() }}</span>
   `,
   styles: [`
     :host { display: inline-flex; }
-    .fp { display: inline-flex; align-items: center; gap: .35rem; font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    /* [GP.RF.12] 12 px (antes .68rem = 10.9 px, bajo el piso de letra). */
+    .fp { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .fp .dot { width: 6px; height: 6px; border-radius: var(--r-pill, 999px); background: var(--ok-fg); flex: none; }
     /* [AUD-CM.16] El texto en el ámbar que se lee (--warn-fg daba 1.95:1 sobre blanco); el punto conserva el tono. */
     .fp.warn { color: var(--warn-soft-fg); }
@@ -108,6 +112,16 @@ export class FreshnessPillComponent {
     const a = this.ageSec();
     if (a == null) return '';
     return `${w} ${this.rel(a)}`;
+  });
+
+  /**
+   * [GP.RF.38] Lo que se ANUNCIA (región viva): sólo el estado, no la edad que avanza sola. Vacío mientras
+   * el dato está al día; cambia una vez cuando se atrasa o cuando no se pudo medir.
+   */
+  readonly aviso = computed(() => {
+    if (this.unknownState()) return 'Edad del dato sin medir.';
+    if (this.stale()) return this.measures() === 'data' ? 'Los datos pueden estar atrasados.' : 'Esta pantalla se cargó hace rato: puede estar atrasada.';
+    return '';
   });
 
   /**

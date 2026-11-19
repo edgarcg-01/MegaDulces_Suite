@@ -34,19 +34,20 @@ export function mensajeEstadoCuenta(det: CarteraDetalle, enlaceDeposito?: string
   if (masVieja) {
     l.push('', `La factura pendiente más antigua es la ${masVieja.folio_digital}, vencida hace ${masVieja.dias_vencido} día${masVieja.dias_vencido === 1 ? '' : 's'}.`);
   }
-  l.push('', 'Le adjuntamos el PDF con el detalle de cada factura.');
   // `[CC.20]` Con enlace, el comprobante se sube ahí (foto o captura, sin usuario ni contraseña) y le llega directo a
-  // Cobranza. Sin enlace, como antes: que nos lo comparta.
+  // Cobranza. `[CC.20.2]` Y el PDF también está ahí: wa.me sólo lleva texto, así que «le adjuntamos» sólo se dice
+  // cuando no hay enlace (y entonces quien envía lo adjunta a mano). Sin enlace, como antes: que nos lo comparta.
   if (enlaceDeposito) {
     l.push(
       '',
-      '*¿Ya pagó?* Suba aquí la foto de su ficha de depósito o la captura de su transferencia, sin usuario ni contraseña:',
+      'En su enlace personal puede descargar el PDF con el detalle de cada factura y, *si ya pagó*, subir la foto de su ficha de depósito o la captura de su transferencia, sin usuario ni contraseña:',
       enlaceDeposito,
-      'Es personal de su cuenta; le avisamos cuando quede aplicado.',
+      'Es personal de su cuenta; en ese mismo enlace verá cuando su pago quede aplicado.',
       '',
       'Quedamos a sus órdenes para cualquier aclaración.',
     );
   } else {
+    l.push('', 'Le adjuntamos el PDF con el detalle de cada factura.');
     l.push('Si ya realizó su pago, le agradeceremos compartirnos el comprobante para aplicarlo a su cuenta. Quedamos a sus órdenes para cualquier aclaración.');
   }
   l.push('', '*Mega Dulces* · Crédito y Cobranza');

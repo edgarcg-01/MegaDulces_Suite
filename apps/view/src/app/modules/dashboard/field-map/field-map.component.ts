@@ -54,7 +54,7 @@ type FieldView = 'live' | 'equipo' | 'ruta' | 'vendedor';
     :host { display:block; }
     .fm-wrap { display:flex; flex-direction:column; min-height:calc(100vh - var(--app-header-h, 56px)); }
     .fm-tabs { display:flex; gap:.25rem; padding:.5rem .75rem 0; border-bottom:1px solid var(--border-color); background:var(--card-bg,#fff); flex-wrap:wrap; }
-    .fm-tabs button { padding:.55rem .9rem; border:0; border-bottom:2px solid transparent; background:transparent; font:600 .85rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); cursor:pointer; }
+    .fm-tabs button { padding:.55rem .9rem; border:0; border-bottom:2px solid transparent; background:transparent; font:600 .85rem var(--font-body); color:var(--text-dim,#78716c); cursor:pointer; }
     .fm-tabs button:hover { color:var(--text,#1c1917); }
     .fm-tabs button.act { color:var(--action,#F05A28); border-bottom-color:var(--action,#F05A28); }
     .fm-view { flex:1; min-height:0; }

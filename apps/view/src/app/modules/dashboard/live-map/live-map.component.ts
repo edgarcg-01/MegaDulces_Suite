@@ -230,7 +230,7 @@ interface VendorDayKpis {
     .lm-wrap { display:flex; flex-direction:column; height:calc(100vh - var(--app-header-h, 56px)); min-height:420px; }
     .lm-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3) var(--sp-4); padding:var(--sp-3) var(--sp-4); border-bottom:1px solid var(--border-color); flex-wrap:wrap; }
     .lm-headline { min-width:0; }
-    .lm-title { font:700 1.05rem/1.2 'Hanken Grotesk',sans-serif; margin:0; color:var(--text-main); }
+    .lm-title { font:700 1.05rem/1.2 var(--font-body); margin:0; color:var(--text-main); }
     .lm-sub { margin:.1rem 0 0; font-size:.78rem; color:var(--text-muted); }
     .lm-stats { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
     .chip { font-size:.72rem; font-weight:600; padding:.2rem var(--sp-2); border-radius:999px; white-space:nowrap; }
@@ -244,7 +244,7 @@ interface VendorDayKpis {
     .recenter { font-size:.72rem; padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); cursor:pointer; }
     .recenter:hover { background:var(--surface-hover-bg); }
     .lm-tabs { display:none; }
-    .lm-tabs button { flex:1; padding:var(--sp-2); border:0; background:var(--card-bg); font:600 .85rem 'Hanken Grotesk',sans-serif; color:var(--text-muted); border-bottom:2px solid transparent; cursor:pointer; }
+    .lm-tabs button { flex:1; padding:var(--sp-2); border:0; background:var(--card-bg); font:600 .85rem var(--font-body); color:var(--text-muted); border-bottom:2px solid transparent; cursor:pointer; }
     .lm-tabs button.act { color:var(--action); border-bottom-color:var(--action); }
     .lm-body { flex:1; display:flex; min-height:0; }
     .lm-list { width:280px; flex:0 0 280px; overflow-y:auto; border-right:1px solid var(--border-color); padding:var(--sp-2); -webkit-overflow-scrolling:touch; }
@@ -269,12 +269,12 @@ interface VendorDayKpis {
     .name { font-size:.84rem; font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .meta { font-size:.72rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .watching { font-size:.65rem; font-weight:700; color:var(--action); text-transform:uppercase; }
-    .lm-sub-h { display:flex; align-items:center; gap:.35rem; margin:var(--sp-3) 0 var(--sp-1); padding:0 var(--sp-2); font:700 .68rem/1 'Hanken Grotesk',sans-serif; letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
+    .lm-sub-h { display:flex; align-items:center; gap:.35rem; margin:var(--sp-3) 0 var(--sp-1); padding:0 var(--sp-2); font:700 .68rem/1 var(--font-body); letter-spacing:.04em; text-transform:uppercase; color:var(--text-muted); }
     .lm-sub-h .pi { font-size:.7rem; }
     .lm-sub-h span { font-weight:600; }
     .veh-route { display:inline-block; font-size:.62rem; font-weight:700; padding:.05rem .3rem; border-radius:4px; background:var(--info-soft-bg); color:var(--info-soft-fg); margin-right:.25rem; vertical-align:middle; }
     /* SidePeek */
-    .sp-status { display:inline-block; font:700 .8rem 'Hanken Grotesk',sans-serif; padding:var(--sp-1) var(--sp-3); border-radius:999px; margin-bottom:var(--sp-4); }
+    .sp-status { display:inline-block; font:700 .8rem var(--font-body); padding:var(--sp-1) var(--sp-3); border-radius:999px; margin-bottom:var(--sp-4); }
     .sp-status.st-moving { background:var(--info-soft-bg); color:var(--info-soft-fg); }
     .sp-status.st-instore { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .sp-status.st-idle { background:var(--neutral-100); color:var(--text-muted); }
@@ -283,10 +283,10 @@ interface VendorDayKpis {
     .sp-status.st-veh-offline { background:var(--neutral-100); color:var(--text-muted); }
     .sp-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3); margin:0 0 var(--sp-4); }
     .sp-grid dt { font-size:.7rem; color:var(--text-muted); }
-    .sp-grid dd { margin:.1rem 0 0; font:700 1rem 'Hanken Grotesk',sans-serif; color:var(--text-main); font-variant-numeric:tabular-nums; }
-    .sp-h { margin:var(--sp-3) 0 var(--sp-2); font:700 .8rem 'Hanken Grotesk',sans-serif; color:var(--text-main); }
+    .sp-grid dd { margin:.1rem 0 0; font:700 1rem var(--font-body); color:var(--text-main); font-variant-numeric:tabular-nums; }
+    .sp-h { margin:var(--sp-3) 0 var(--sp-2); font:700 .8rem var(--font-body); color:var(--text-main); }
     .sp-muted { font-size:.8rem; color:var(--text-muted); }
-    .sp-action { display:inline-flex; align-items:center; margin-top:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm); background:var(--btn-primary-bg); color:var(--btn-primary-ink); font:600 .82rem 'Hanken Grotesk',sans-serif; text-decoration:none; }
+    .sp-action { display:inline-flex; align-items:center; margin-top:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm); background:var(--btn-primary-bg); color:var(--btn-primary-ink); font:600 .82rem var(--font-body); text-decoration:none; }
     .sp-action:hover { background:var(--btn-primary-bg-hover); }
     /* Panel de análisis del día */
     .an-date { display:flex; align-items:center; gap:var(--sp-3); margin-bottom:var(--sp-3); font-size:.8rem; color:var(--text-muted); }
@@ -300,8 +300,8 @@ interface VendorDayKpis {
     .an-unit { border:1px solid var(--border-color); border-radius:var(--r-sm); padding:var(--sp-2) var(--sp-3); margin-bottom:var(--sp-2); }
     .an-unit.warn { border-color:var(--warn-border); }
     .an-u-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
-    .an-u-name { font:700 .86rem 'Hanken Grotesk',sans-serif; color:var(--text-main); }
-    .an-u-km { font:700 .82rem 'Hanken Grotesk',sans-serif; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+    .an-u-name { font:700 .86rem var(--font-body); color:var(--text-main); }
+    .an-u-km { font:700 .82rem var(--font-body); color:var(--text-muted); font-variant-numeric:tabular-nums; }
     .an-u-badges { display:flex; flex-wrap:wrap; gap:.3rem; margin:.35rem 0; }
     .an-b { display:inline-flex; align-items:center; gap:.25rem; font-size:.68rem; font-weight:600; padding:.1rem .4rem; border-radius:999px; cursor:default; }
     .an-b.bad { background:var(--bad-soft-bg); color:var(--bad-soft-fg); }
@@ -309,7 +309,7 @@ interface VendorDayKpis {
     .an-b.warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .an-u-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-1) var(--sp-3); margin:.25rem 0 0; }
     .an-u-grid dt { font-size:.66rem; color:var(--text-muted); }
-    .an-u-grid dd { margin:0 0 .2rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text-main); font-variant-numeric:tabular-nums; }
+    .an-u-grid dd { margin:0 0 .2rem; font:600 .8rem var(--font-body); color:var(--text-main); font-variant-numeric:tabular-nums; }
     @media (max-width: 47.9375rem) {
       .lm-head { padding:var(--sp-2) var(--sp-3); }
       .lm-sub { display:none; }

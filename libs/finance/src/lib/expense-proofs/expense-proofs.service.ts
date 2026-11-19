@@ -50,7 +50,7 @@ import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente,
 import { pideSinDepartamento } from './expediente-filtro';
 import { leerBusqueda, sqlDelMonto, sqlFolioExactoPrimero, TOPE_RECIENTES } from './busqueda-de-gastos';
 // `[GX.107]` La fecha del documento de Kepler se muestra; no decide si una solicitud aparece.
-import { candidatosDeFolio, desdeOFolioExacto, entraDesde, folioExactoDesde, SQL_DESDE_SU_SUCURSAL, SQL_MAS_RECIENTE_PRIMERO } from './frontera-solicitudes';
+import { candidatosDeFolio, desdeOFolioExacto, desdeSuSucursal, entraDesde, folioExactoDesde, sinValeEnLaSuite, SQL_MAS_RECIENTE_PRIMERO } from './frontera-solicitudes';
 // `[GX.108]` La solicitud le llega a quien la pidió también por su nombre exacto (si nadie más se llama igual).
 import { nombreLigable, solicitaDe, SQL_MI_NOMBRE_LIGABLE } from './solicita-por-nombre';
 import { leerTransferenciasDelGasto, transferenciasDelVale } from './transferencias-del-gasto';
@@ -1872,6 +1872,15 @@ export class ExpenseProofsService {
     this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     return this.tk.run(async (trx) => {
+      /*
+       * `[GX.113]` **Sin JIT.** «Mis gastos» (`GET proofs/mine`) tardaba ~2.8 s en prod (1,988 llamadas en 7 días, la
+       * ruta que más tiempo de servidor consumía) y casi todo era COMPILAR la consulta: Postgres estima la vista
+       * `v_expense_proofs` en ~580 mil de costo (sus dos búsquedas en Kepler por fila) y arriba de 100 mil enciende JIT,
+       * que gastaba ~1.6 s en la lista y ~0.8 s en el conteo por estado para consultas que corren en 20–60 ms.
+       * Medido con el servicio real, sólo lectura: 3.8–4.7 s → 0.16–0.22 s. Sólo en esta transacción (`SET LOCAL`):
+       * las otras listas del módulo no cambian con o sin JIT (medidas el mismo día).
+       */
+      await trx.raw('SET LOCAL jit = off');
       const b = trx('finance.v_expense_proofs')
         .select('id', 'solicitante', 'departamento', 'departamento_code', 'sucursal',
           'fecha_gasto', 'folio_solicitud', 'proveedor',
@@ -2299,7 +2308,8 @@ export class ExpenseProofsService {
          * capturada después del arranque con la fecha de una póliza vieja SÍ le llega; su fecha sólo
          * se muestra. Lo fechado Y capturado antes del arranque sigue fuera.
          */
-        .whereRaw(SQL_DESDE_SU_SUCURSAL)
+        // `[GX.114]` Como unión a un agregado por sucursal (antes, subconsulta por fila: 1.55 s).
+        .modify(desdeSuSucursal, tenantId)
         // `[GX.95]` La caja de búsqueda de «Mis gastos» también filtra lo asignado: antes lo
         // asignado salía siempre, coincidiera o no con lo que se buscaba.
         .modify((qb) => {
@@ -2308,12 +2318,8 @@ export class ExpenseProofsService {
           const like = `%${t}%`;
           qb.where((w) => w.whereILike('r.folio', like).orWhereILike('r.beneficiario', like).orWhereILike('r.concepto', like));
         })
-        .whereNotExists(function () {
-          this.select(trx.raw('1')).from('finance.expense_proofs as p')
-            .whereRaw('p.tenant_id = r.tenant_id')
-            .whereRaw('p.folio_solicitud = r.folio')
-            .whereRaw('p.sucursal = r.sucursal');
-        })
+        // `[GX.114]` Sin vale en la Suite, como anti-unión (antes `NOT EXISTS` por fila: 0.37 s).
+        .modify(sinValeEnLaSuite)
         /**
          * ⚠️ **Dos criterios, no uno.** Con `fecha` sola el orden es arbitrario entre los del
          * mismo dia —que es el caso normal, porque se levantan de a tandas— y la lista se

@@ -76,7 +76,7 @@ import { CajaFirmaApiService } from '../../caja-firma-api.service';
       @if (enviada()) {
         <!-- Vacío operacional: NO centrado, y dice qué pasó y qué sigue. Se llega acá SOLO con el
              acuse del servidor: antes decía enviada con la firma todavía en el aire. -->
-        <div class="fm-listo">
+        <div class="fm-listo" role="status">
           <i class="pi pi-check-circle" aria-hidden="true"></i>
           <strong>Firma enviada</strong>
           <p>Ya está en la pantalla de la caja. Puedes devolver el teléfono.</p>
@@ -91,10 +91,12 @@ import { CajaFirmaApiService } from '../../caja-firma-api.service';
           @if (c.documento) { <span class="fm-doc">{{ c.documento }}</span> }
         </div>
 
-        <canvas #pad class="fm-pad"
+        <!-- [LE.6.34] role=img: un canvas no tiene rol y su aria-label no se anuncia. El estado va en palabras. -->
+        <canvas #pad class="fm-pad" role="img" aria-describedby="fm-pad-estado"
                 (pointerdown)="abajo($event)" (pointermove)="mueve($event)"
-                (pointerup)="arriba()" (pointerleave)="arriba()"
-                aria-label="Firma acá con el dedo"></canvas>
+                (pointerup)="arriba($event)" (pointerleave)="arriba($event)" (pointercancel)="arriba($event)"
+                aria-label="Recuadro para firmar con el dedo"></canvas>
+        <p class="fm-sub" id="fm-pad-estado" aria-live="polite">{{ hecha() ? 'Hay una firma en el recuadro.' : 'El recuadro está vacío.' }}</p>
 
         <input type="text" pInputText [(ngModel)]="nombre" placeholder="Tu nombre"
                maxlength="120" aria-label="Nombre de quien firma" />
@@ -107,7 +109,7 @@ import { CajaFirmaApiService } from '../../caja-firma-api.service';
                     [disabled]="!hecha() || enviando()" (onClick)="enviar()"></p-button>
         </div>
         @if (reintentando(); as n) {
-          <p class="fm-sub">Sin señal: reintentando el envío ({{ n }} de {{ maxIntentos }})… No cierres esta pantalla.</p>
+          <p class="fm-sub" role="status">Sin señal: reintentando el envío ({{ n }} de {{ maxIntentos }})… No cierres esta pantalla.</p>
         }
 
         <p class="fm-legal">Vale como constancia de que recibiste el efectivo, igual que firmar el
@@ -233,14 +235,23 @@ export class FinanzasCajaFirmaComponent implements OnInit {
     return this.firma;
   }
 
-  abajo(ev: PointerEvent): void { this.pad()?.abajo(ev.offsetX, ev.offsetY); }
+  /** [LE.6.34] Un solo dedo traza: el segundo dedo o la palma no se mezclan en la misma línea. */
+  private dedo: number | null = null;
+  abajo(ev: PointerEvent): void {
+    if (!ev.isPrimary || this.dedo !== null) return;
+    this.dedo = ev.pointerId;
+    this.pad()?.abajo(ev.offsetX, ev.offsetY);
+  }
   mueve(ev: PointerEvent): void {
+    if (this.dedo !== null && ev.pointerId !== this.dedo) return;
     const p = this.pad();
     if (!p) return;
     p.mueve(ev.offsetX, ev.offsetY);
     if (p.firmada() !== this.hecha()) this.hecha.set(p.firmada());
   }
-  arriba(): void {
+  arriba(ev?: PointerEvent): void {
+    if (ev && this.dedo !== null && ev.pointerId !== this.dedo) return;
+    this.dedo = null;
     const p = this.pad();
     if (!p) return;
     p.arriba();

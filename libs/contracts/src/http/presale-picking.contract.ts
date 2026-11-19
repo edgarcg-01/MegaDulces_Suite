@@ -113,6 +113,17 @@ export interface PresalePickLine {
    * nunca cero); ausente = pedido cerrado o servidor anterior.
    */
   stock?: PresaleReviewStock | null;
+  /**
+   * `[GP.RF.33]` Las presentaciones del producto en la sucursal del pedido, con sus códigos de barras de
+   * Kepler: con ellas Surtir sabe si lo escaneado es la presentación pedida. Sólo mientras se surte;
+   * vacía = Kepler no tiene ficha del producto en la sucursal; ausente = no se pudo leer o servidor anterior.
+   */
+  presentaciones?: Array<{ unit: string; codigos: string[] }>;
+  /**
+   * `[GP.RF.34]` El lugar del producto en el almacén del pedido (Ubicaciones) y su orden de recorrido.
+   * `null` = sin ubicación dada de alta; ausente = no se pudo leer o servidor anterior.
+   */
+  ubicacion?: { code: string; orden: number | null } | null;
 }
 
 export interface PresalePickDetail {

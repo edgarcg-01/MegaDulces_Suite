@@ -397,3 +397,25 @@ describe('[PGP.91] la línea del descuento en el papel', () => {
     expect(cabeza).toContain('Se cubre $2,000.00');
   });
 });
+
+describe('[PGP.147] el papel dice cuando se paga más de lo que el ERP debe hoy', () => {
+  // Forma del caso Mondelez: se programó $469,071.93 y dos notas de crédito bajaron el saldo a $346,929.24.
+  const mdz = linea({ se_paga: 469071.93, importe: 469071.93, pendiente: 346929.24 });
+
+  it('la línea lo dice con lo que debe hoy, y el control lo cuenta', () => {
+    const html = tabla([pago({ amount_assigned: 469071.93 })], [mdz]);
+    expect(html).toContain('· HOY DEBE $346,929.24');
+    expect(control([mdz])).toContain('ATENCIÓN — se paga más de lo que el ERP debe hoy');
+  });
+
+  it('NEGATIVA: lo que se debe igual (o $1 de redondeo), lo saldado y lo que no es de Kepler no lo dicen', () => {
+    const igual = linea({ pendiente: 1000 });
+    const redondeo = linea({ se_paga: 1000, pendiente: 999.2 });
+    const saldada = linea({ pendiente: null, saldada: true });
+    const propia = linea({ obligation_source: 'budget_expense', se_paga: 1000, pendiente: 10 });
+    expect(control([igual, redondeo, saldada, propia])).not.toContain('se paga más de lo que el ERP debe hoy');
+    expect(tabla([pago()], [igual])).not.toContain('HOY DEBE');
+    // Control: la saldada sigue diciendo lo suyo (no se pierde el aviso de [PGP.35]).
+    expect(tabla([pago()], [saldada])).toContain('YA SALDADA EN EL ERP');
+  });
+});

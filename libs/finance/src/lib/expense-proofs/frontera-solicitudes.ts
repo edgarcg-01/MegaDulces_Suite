@@ -58,12 +58,32 @@ export const SQL_DESDE_EFECTIVA = `${SQL_FECHA_EFECTIVA} >= ?::date`;
 export const SQL_MAS_RECIENTE_PRIMERO = `${SQL_FECHA_EFECTIVA} DESC NULLS LAST`;
 
 /**
- * Lo asignado en Mis gastos: desde que la Suite arrancó en SU sucursal (su primer vale, `[GX.95]`),
- * por la fecha efectiva. Correlacionada: no usa índices de fecha (tampoco antes).
+ * Lo asignado en Mis gastos: desde que la Suite arrancó en SU sucursal (su primer vale, `[GX.95]`), por la fecha
+ * efectiva. Una sucursal sin ningún vale todavía no arrancó: no le toca nada (la unión la deja fuera).
+ *
+ * `[GX.114]` **Como UNIÓN a un agregado por sucursal, calculado una vez.** Era una subconsulta correlacionada que
+ * recorría `finance.expense_proofs` entera POR CADA solicitud: medido en prod el 2026-11-18, 2,019 recorridos = 1.55 s
+ * de los ~3–5 s de «vales asignados» del capturista con más vales. Mismas filas en el mismo orden (5 capturistas).
  */
-export const SQL_DESDE_SU_SUCURSAL =
-  `${SQL_FECHA_EFECTIVA} >= (SELECT min(p0.created_at)::date FROM finance.expense_proofs p0 `
-  + 'WHERE p0.tenant_id = r.tenant_id AND p0.sucursal = r.sucursal)';
+export function desdeSuSucursal(qb: Knex.QueryBuilder, tenantId: string): Knex.QueryBuilder {
+  return qb
+    .joinRaw(`JOIN (SELECT p0.sucursal, min(p0.created_at)::date AS arranque FROM finance.expense_proofs p0
+                     WHERE p0.tenant_id = ? GROUP BY p0.sucursal) AS arr ON arr.sucursal = r.sucursal`, [tenantId])
+    .whereRaw(`${SQL_FECHA_EFECTIVA} >= arr.arranque`);
+}
+
+/**
+ * `[GX.114]` La solicitud que todavía no tiene vale en la Suite, como ANTI-UNIÓN (antes `NOT EXISTS`, que Postgres
+ * evaluaba como subconsulta por fila: 802 recorridos de la tabla, 0.37 s). Una solicitud con vale sale de la lista;
+ * una sin vale aparece una vez.
+ */
+export function sinValeEnLaSuite(qb: Knex.QueryBuilder): Knex.QueryBuilder {
+  return qb
+    .leftJoin('finance.expense_proofs as px', function () {
+      this.on('px.tenant_id', '=', 'r.tenant_id').andOn('px.folio_solicitud', '=', 'r.folio').andOn('px.sucursal', '=', 'r.sucursal');
+    })
+    .whereNull('px.id');
+}
 
 /**
  * El folio exacto, desde el arranque por la fecha efectiva. Para Capturar gasto (una rama de su O)

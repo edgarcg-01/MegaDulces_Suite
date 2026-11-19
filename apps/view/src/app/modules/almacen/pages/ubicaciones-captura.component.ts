@@ -30,12 +30,13 @@ import { csvATabla, decodificarCsv, leerTablaUbicaciones, leerXlsx } from '../sh
 type Modo = 'rango' | 'archivo';
 type Sev = 'success' | 'secondary' | 'warn' | 'danger' | 'info';
 
-const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
-  nueva: { label: 'Se crea', sev: 'success' },
-  existe: { label: 'Ya existe', sev: 'secondary' },
-  baja: { label: 'Dada de baja', sev: 'warn' },
-  repetida: { label: 'Repetida', sev: 'warn' },
-  error: { label: 'Con error', sev: 'danger' },
+// [UB.RF.9] En el resumen la etiqueta va con su cuenta: «Se crean 180», no «Se crea 180».
+const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: Sev }> = {
+  nueva: { label: 'Se crea', plural: 'Se crean', sev: 'success' },
+  existe: { label: 'Ya existe', plural: 'Ya existen', sev: 'secondary' },
+  baja: { label: 'Dada de baja', plural: 'Dadas de baja', sev: 'warn' },
+  repetida: { label: 'Repetida', plural: 'Repetidas', sev: 'warn' },
+  error: { label: 'Con error', plural: 'Con error', sev: 'danger' },
 };
 
 /**
@@ -112,7 +113,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
         <div class="uc-step">
           <div class="uc-resumen" aria-label="Qué va a pasar">
             @for (a of acciones; track a) {
-              @if (p.conteo[a]) { <span class="uc-cnt"><p-tag [value]="accionLabel(a)" [severity]="accionSev(a)" styleClass="uc-tag" /> <b class="num">{{ p.conteo[a] }}</b></span> }
+              @if (p.conteo[a]) { <span class="uc-cnt"><p-tag [value]="accionLabel(a, p.conteo[a])" [severity]="accionSev(a)" styleClass="uc-tag" /> <b class="num">{{ p.conteo[a] }}</b></span> }
             }
             <span class="uc-sub">de {{ p.total }}</span>
           </div>
@@ -205,7 +206,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
     .uc-filebtn:focus-within { outline:2px solid var(--action-ring); outline-offset:1px; }
     .uc-resumen { display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
     .uc-cnt { display:inline-flex; align-items:center; gap:.35rem; }
-    :host ::ng-deep .uc-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .uc-tag { font-size:var(--fs-micro); }
     .uc-mot { display:block; margin-top:.15rem; }
     .uc-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .uc-sub { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
@@ -427,7 +428,7 @@ export class UbicacionesCapturaComponent {
     });
   }
 
-  accionLabel(a: BulkLocationAction): string { return ACCION[a].label; }
+  accionLabel(a: BulkLocationAction, n = 1): string { return n === 1 ? ACCION[a].label : ACCION[a].plural; }
   accionSev(a: BulkLocationAction): Sev { return ACCION[a].sev; }
   tipoLabel(t: LocationKind | null): string { return t ? LOCATION_KINDS.find((k) => k.key === t)?.label ?? t : '—'; }
   fecha(iso: string): string {

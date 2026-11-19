@@ -172,4 +172,59 @@ describe.skipIf(!URL)('[CGS.60] cobros y pagos con cheque o papel contra Postgre
     await expect(tk().run((trx) => trx('finance.cash_ledger_documentos').where({ cash_ledger_id: pago.id }).update({ monto: 1 })))
       .rejects.toThrow(/permission denied/);
   });
+
+  /**
+   * ⭐ `[LE.6.33]` **Un depósito de CAOS que junta varios cobros**, con el payload de la pantalla. Caso real
+   * (2026-11-18): «rd can 13/11», $51,770 = las rutas 501, 502 y 503 de Canindo, cada una un cobro
+   * distinto. Antes la pantalla ligaba el depósito ENTERO al primer cobro y la base lo rechazaba
+   * (`CAOS_LINK_EXCEDE_CAPTURA`). Ahora cada cobro toma lo suyo; lo que cubre el depósito ya lo contó la
+   * máquina y en la reja va sólo lo que se quedó en el cajón.
+   *
+   * ⚠️ Los cobros van sin documento de Kepler (la cola es una vista del ODS que aquí no se siembra): el
+   * arqueo y los dos candados de la base son los mismos con o sin documento.
+   */
+  it('⭐ [LE.6.33] un depósito de $51,770 se reparte entre tres cobros; lo demás se cuenta en el cajón', async () => {
+    const dev = `DEP-${CORRIDA}`;
+    const ext = 9_100_000 + Math.floor(Math.random() * 100_000);
+    await tk().run((trx) => trx('analytics.caos_cash_movements').insert({
+      tenant_id: T, device: dev, external_id: ext, type_id: 0, type_label: 'Deposito',
+      occurred_at: trx.raw(`((?::date) + interval '12 hours') AT TIME ZONE 'America/Mexico_City'`, [hoy]),
+      accounting_date: hoy, user_external: 'Prueba (003)', total: 51770, ref: 'rd can 13/11', _row_hash: `dep-${CORRIDA}`,
+    }));
+    const link = (monto: number) => ({ caos_links: [{ device: dev, external_id: ext, monto }] });
+    const enlazado = async () => Number((await tk().run((trx) => trx('finance.caos_cash_links')
+      .where({ caos_device: dev, caos_external_id: ext }).whereNull('deleted_at').sum({ s: 'monto_enlazado' }).first()))?.s ?? 0);
+
+    // 502: $13,260.40 → $13,260 del depósito y 40¢ de morralla.
+    await alta('ingreso', 13260.40, { morralla: 0.40, ...link(13260) });
+    // 503: $25,150.40 → $25,150 del depósito.
+    await alta('ingreso', 25150.40, { morralla: 0.40, ...link(25150) });
+    // 501: $16,060.40 → al depósito le quedan $13,360; $2,700.40 se quedan en el cajón y se cuentan.
+    await alta('ingreso', 16060.40, {
+      morralla: 0.40, ...link(13360),
+      denominaciones: [{ denominacion: 500, piezas: 5, denom_key: '500', flujo: 'recibido' }, { denominacion: 100, piezas: 2, denom_key: '100', flujo: 'recibido' }],
+    });
+    expect(await enlazado(), 'el depósito queda repartido al peso').toBe(51770);
+
+    // ⛔ NEGATIVA (base): el depósito ya no tiene nada libre.
+    await expect(alta('ingreso', 100.40, { morralla: 0.40, ...link(100) })).rejects.toThrow();
+    expect(await enlazado(), 'lo rechazado no dejó ligues').toBe(51770);
+
+    const ext2 = ext + 1;
+    await tk().run((trx) => trx('analytics.caos_cash_movements').insert({
+      tenant_id: T, device: dev, external_id: ext2, type_id: 0, type_label: 'Deposito',
+      occurred_at: trx.raw(`((?::date) + interval '13 hours') AT TIME ZONE 'America/Mexico_City'`, [hoy]),
+      accounting_date: hoy, user_external: 'Prueba (003)', total: 51770, ref: 'otro depósito', _row_hash: `dep2-${CORRIDA}`,
+    }));
+    const link2 = (monto: number) => ({ caos_links: [{ device: dev, external_id: ext2, monto }] });
+    const enlazado2 = async () => Number((await tk().run((trx) => trx('finance.caos_cash_links')
+      .where({ caos_device: dev, caos_external_id: ext2 }).whereNull('deleted_at').sum({ s: 'monto_enlazado' }).first()))?.s ?? 0);
+    // ⛔ NEGATIVA (servidor): lo que se quedó en el cajón se cuenta; contar $1,000 de $2,700.40 no cuadra.
+    await expect(alta('ingreso', 16060.40, {
+      morralla: 0.40, ...link2(13360), denominaciones: [{ denominacion: 500, piezas: 2, denom_key: '500', flujo: 'recibido' }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    // ⛔ NEGATIVA (base): un cobro no liga más que su importe — lo que mandaba la pantalla vieja.
+    await expect(alta('ingreso', 13260.40, { morralla: 0.40, ...link2(51770) })).rejects.toThrow();
+    expect(await enlazado2(), 'lo rechazado no dejó ligues').toBe(0);
+  });
 });

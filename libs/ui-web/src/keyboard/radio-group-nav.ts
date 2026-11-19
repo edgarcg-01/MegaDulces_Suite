@@ -45,21 +45,36 @@ function opcionesDe(grupo: Element): HTMLElement[] {
   );
 }
 
-/** `true` si el grupo ya administra su propio foco: entonces no se toca. */
+/**
+ * `[GP.RF.38]` La marca que este listener pone en los grupos que ÉL administra.
+ *
+ * ⛔ Sin ella el listener se desconocía a sí mismo: escribir `el.tabIndex` pone el ATRIBUTO
+ * `tabindex`, y `seAdministraSolo` —«alguna opción trae `tabindex`»— daba `true` para todo grupo
+ * que el listener ya había tocado. Desde el primer repaso, la flecha no hacía nada en ninguno
+ * (medido en Surtir, 2026-11-18) y el tabulador no seguía a la opción elegida tras un clic.
+ */
+const MARCA = 'data-radio-nav';
+
+/** `true` si el grupo ya administra su propio foco (trae `tabindex` y no es nuestro): no se toca. */
 function seAdministraSolo(grupo: Element): boolean {
+  if (grupo.getAttribute(MARCA) === 'auto') return false;
   return Array.from(grupo.querySelectorAll(OPCION)).some((el) => el.hasAttribute('tabindex'));
 }
 
 /**
  * Deja UN solo tab stop por grupo: la opción marcada, o la primera si ninguna lo está.
- * Es lo que convierte N paradas de tabulador en una (D.4a).
+ * Es lo que convierte N paradas de tabulador en una (D.4a). Sólo escribe lo que cambió.
  */
 function fijarRoving(grupo: Element): void {
   const ops = opcionesDe(grupo);
   if (!ops.length) return;
+  if (grupo.getAttribute(MARCA) !== 'auto') grupo.setAttribute(MARCA, 'auto');
   const marcada = ops.find((el) => el.getAttribute('aria-checked') === 'true');
   const ancla = marcada ?? ops[0];
-  for (const el of ops) el.tabIndex = el === ancla ? 0 : -1;
+  for (const el of ops) {
+    const quiere = el === ancla ? 0 : -1;
+    if (el.tabIndex !== quiere || !el.hasAttribute('tabindex')) el.tabIndex = quiere;
+  }
 }
 
 /**
@@ -111,11 +126,13 @@ export function installRadioGroupNav(doc: Document): () => void {
   };
 
   // El roving se repasa cuando el DOM cambia: estas pantallas crean y destruyen el grupo al
-  // navegar, y un `querySelectorAll` al arrancar no vería ninguno.
+  // navegar, y un `querySelectorAll` al arrancar no vería ninguno. `[GP.RF.38]` También cuando
+  // cambia `aria-checked` (elegir con el dedo o el mouse): si no, el tabulador seguía entrando por
+  // la opción vieja. Lo que escribe el repaso (`tabindex`, la marca) no está en el filtro: no hay lazo.
   let mo: MutationObserver | null = null;
   if (typeof MutationObserver !== 'undefined') {
     mo = new MutationObserver(() => repasar());
-    mo.observe(doc.documentElement, { childList: true, subtree: true });
+    mo.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-checked'] });
   }
   repasar();
   doc.addEventListener('keydown', onKeyDown, { capture: true });

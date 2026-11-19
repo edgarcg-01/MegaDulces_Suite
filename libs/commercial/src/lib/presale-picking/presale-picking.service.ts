@@ -59,6 +59,8 @@ import { DiaInvalido, diaDeConsulta } from './bandeja-dia';
 import { MOTIVOS_SURTIDO, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
 import { MotivoInvalido, armarJustificantes, conMotivosEnReporte, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
 import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
+import { escalerasDeClaves } from '../warehouse-locations/warehouse-locations-assign.service';
+import { presentacionesConCodigo, ubicacionDe, type AsignacionDeSurtido } from './apoyo-surtido';
 
 /**
  * `[MCP.3.13]` Pedido agrupado, en SQL sobre `o` = `commercial.orders`: folio del principal, partes
@@ -191,6 +193,15 @@ export class PresalePickingService {
       if (!fila['finished_at'] && lines.length) {
         const existencia = await this.existenciaPorRenglon(trx, String(fila['warehouse_id']), lines);
         for (const l of lines) l.stock = existencia ? existencia(l) : null;
+        // [GP.RF.33][GP.RF.34] Para escanear y para caminar: los códigos de cada presentación y el lugar
+        // del producto. Si no se pudo leer, no viajan (la pantalla no inventa una ubicación ni un código).
+        const apoyo = await this.apoyoDeSurtido(trx, String(fila['warehouse_id']), lines);
+        if (apoyo) {
+          for (const l of lines) {
+            l.presentaciones = presentacionesConCodigo(apoyo.escaleras.get((l.sku ?? '').trim())?.presentaciones);
+            l.ubicacion = ubicacionDe(apoyo.asignaciones, l.product_id, l.unit);
+          }
+        }
       }
       // [MCP.18] Por qué cambió: lo que corrigió la vendedora, lo que quitó el surtido y lo que quitó la caja.
       const revision = revisado ? ((await trx('commercial.presale_picks').where({ order_id: orderId }).first('review'))?.review ?? null) : null;
@@ -461,6 +472,39 @@ export class PresalePickingService {
       };
     } catch (e) {
       this.logger.warn(`[MCP.23] no se pudo leer la existencia para surtir: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * `[GP.RF.33][GP.RF.34]` Las escaleras con códigos (de la sucursal de Kepler del almacén) y las
+   * asignaciones vivas de Ubicaciones de los productos del pedido. En un punto de guarda: si falla, el
+   * pedido se abre igual y estos datos no viajan (`null`). Dos consultas por pedido, no una por renglón.
+   */
+  private async apoyoDeSurtido(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    lines: readonly PresalePickLine[],
+  ): Promise<{ escaleras: Awaited<ReturnType<typeof escalerasDeClaves>>; asignaciones: AsignacionDeSurtido[] } | null> {
+    try {
+      return await trx.transaction(async (sp) => {
+        const wh = await sp('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
+        const sucursal = wh?.kepler_code ? String(wh.kepler_code).trim() : null;
+        const skus = [...new Set(lines.map((l) => (l.sku ?? '').trim()).filter(Boolean))];
+        const escaleras = sucursal ? await escalerasDeClaves(sp, sucursal, skus) : new Map();
+        const asignaciones = (await sp('commercial.bin_assignments as a')
+          .join('commercial.warehouse_bins as b', function () {
+            this.on('b.tenant_id', 'a.tenant_id').andOn('b.id', 'a.bin_id');
+          })
+          .where('a.warehouse_id', warehouseId)
+          .whereIn('a.product_id', [...new Set(lines.map((l) => l.product_id))])
+          .whereNull('a.deleted_at')
+          .whereNot('b.estado', 'baja')
+          .select('a.product_id', 'a.presentacion_rotulo', 'a.papel', 'b.code', 'b.pick_sequence')) as AsignacionDeSurtido[];
+        return { escaleras, asignaciones };
+      });
+    } catch (e) {
+      this.logger.warn(`[GP.RF.33] no se pudieron leer códigos y ubicaciones para surtir: ${(e as Error).message}`);
       return null;
     }
   }
