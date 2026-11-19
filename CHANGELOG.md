@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — Etiquetas de caja desde la Suite (RE.ETQ · 2026-11-19 · en prod)
+- Nueva pantalla Almacén › Etiquetas de caja. Muestra la cola de órdenes de entrada de la sucursal e imprime en la TSC (rollo de 3 al paso, 100 × 48 mm) por orden o por renglón. También reimprime consecutivos con los mismos datos de la primera vez.
+- Cada etiqueta lleva:
+  - un código de barras Code 128 (`C` + clave), que reemplaza al Code 39 de Kepler; la lectura con el lector de mano está pendiente de prueba física;
+  - el nombre completo, sin cortar;
+  - la fecha del día de la primera impresión.
+- Una caja incompleta lleva su propia etiqueta, con sus piezas.
+- La pestaña «Catálogo de Kepler» lista los productos con factor de caja en 0 o sin código de caja, para que Compras los corrija.
+- Cada impresión queda en una bitácora: quién, cuándo y qué consecutivos.
+- La pantalla está disponible para almacenistas, encargados de tienda y de bodega, y supervisores (21 personas). Quien tenga la sesión abierta tiene que volver a entrar para verla.
 ### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
 - Los pagos aplicados y los saldos de cada documento de cartera ahora llegan de Kepler por la cola de cambios, que ve cada alta y cada cambio. Antes una parte se perdía en el camino: 2,967 saldos viejos y 133 pagos aplicados que nunca llegaron, entre ellos el que hizo reclamar a un cliente de Canindo.
 - Una comparación de sólo lectura contra Kepler dice, sucursal por sucursal, si falta algo (`database/scripts/ods-cartera-vs-replica.js`).

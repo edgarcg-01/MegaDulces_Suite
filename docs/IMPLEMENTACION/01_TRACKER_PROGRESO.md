@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2875 KB, 15131 líneas, 78 secciones.
+> **Índice navegable** — 2876 KB, 15131 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -40,7 +40,7 @@
 | 7836 | 7901 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 7902 | 7929 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 7930 | 8096 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8097 | 8125 | 5 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8097 | 8125 | 6 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
 | 8126 | 8527 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
 | 8528 | 8590 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
 | 8591 | 8720 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
@@ -8098,26 +8098,26 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 
 > Plan: [`FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md`](FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md) · requerimientos: [`FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md`](FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md) · tarjeta «ETQ-GR» del Tablero PM.
 > **D1–D6 respondidas el 2026-11-17:** dentro de RE · cantidad desde la orden de entrada `X-A-40` · navegador **y** TSPL · con bitácora · `C`+clave en caja · **la fecha es el día en que se imprime** (el vale o la orden pueden quedar pendientes).
-> **Estado 2026-11-19:** C0–C3 en código, probados en local y recorridos en el navegador con capturas (cola, detalle, imprimir, reimprimir, consecutivo fuera de rango, catálogo de Kepler); PR #571 abierto. Sin prueba física y nada en prod: las 3 migraciones se aplican una por una después del merge (`aplicar-migracion.sh` exige que estén en `origin/main`) y antes de soltar.
+> **Estado 2026-11-19 (tarde): en prod.** El #571 entró a `main` (`d1932da30`); las 3 migraciones se aplicaron una por una (batches 1215 → 1216 → 1217) y prod sirve `04285b22b`: las rutas contestan 401 sin sesión (no 404) y el menú está en el bundle publicado. Permiso repartido a 21 personas en 4 roles. La bitácora arrancó en 0 filas: nadie había impreso aún (quien tenga sesión abierta tiene que volver a entrar). El rollo de uso normal es el que configura Kepler (100 × 48 mm). Falta la prueba física (3.5), medir el controlador y red/USB (0.3) y la vía B (3.4). El candado de GP.4 dejó «Lint & test» rojo en `main` y se corrige en #574.
 > **Métrica HOY:** 0 de 86,155 cajas/mes se etiquetan desde la Suite (Kepler: barra Code 39 que no se lee, sin registro).
 
 - [x] **[RE.ETQ.0.1]** ✅ 2026-11-05 Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE`, la que imprime la etiqueta), vale (`MD_oc`, no imprime), Granel y Generales.
-- [ ] **[RE.ETQ.0.2]** 🧪 2026-11-19 (#571): verificada contra prod, aplicada en local — Vista `analytics.v_box_label_lines`: renglones de `X-A-40` con cajas, **UXC = `kdm2.c58`** (el catálogo trae factor 0 en 39 % de los renglones en caja), fecha de captura, vale de origen y `C`+clave (43 % de los productos no tiene `c85`).
-- [ ] **[RE.ETQ.0.3]** ⬜ Al implementar: medir el rollo, el controlador TSC y si la TE200 tiene red o sólo USB (decide el transporte del TSPL).
+- [x] **[RE.ETQ.0.2]** ✅ 2026-11-19 (#571): en prod (batch 1215), responde en 79 ms — Vista `analytics.v_box_label_lines`: renglones de `X-A-40` con cajas, **UXC = `kdm2.c58`** (el catálogo trae factor 0 en 39 % de los renglones en caja), fecha de captura, vale de origen y `C`+clave (43 % de los productos no tiene `c85`).
+- [ ] **[RE.ETQ.0.3]** ⬜ Rollo ✅ 2026-11-19: Kepler configura la «Etiqueta Colores 3 al paso» (la de uso normal) en 100 × 48 mm, la misma hoja que manda el módulo y lo que midió Francisco (3 × 32 mm + 2 × 2 mm); sin cambio de código (#574). Falta el controlador TSC de la PC de Suc 08 y si la TE200 tiene red o sólo USB (decide el transporte del TSPL).
 - [x] **[RE.ETQ.0.4]** ✅ 2026-11-17 Fecha: cuenta de Kepler (1-ene = 0, medida: 308 = 5-nov) sobre el día de la **primera impresión** (D6), no sobre una fecha de Kepler.
-- [ ] **[RE.ETQ.1.1]** 🧪 2026-11-19 (#571) — Pieza de etiquetera en `libs/` (sale de `checado-etiquetas.ts` de GP.4); GP.4 la consume sin cambiar su salida.
-- [ ] **[RE.ETQ.1.2]** 🧪 2026-11-19 (#571) — Plantilla de caja: Code 128 legible, nombre completo en dos renglones (226 productos quedan iguales a otro si se corta a 24), pie en las tres etiquetas.
-- [ ] **[RE.ETQ.1.3]** 🧪 2026-11-19 (#571) — Fecha del instante de la primera impresión con la cuenta de Kepler en TZ México; la reimpresión repite la guardada (spec: 5-nov-2026 → `308-26`; 1-ene → `0-26`; 17-nov 23:30 CDMX → `320-26`, no `321-26`).
-- [ ] **[RE.ETQ.1.4]** 🧪 2026-11-19 (#571): `C`+clave en CJA/BTO/CUB + aviso — Código por unidad: caja → `C`+clave (D5); aviso cuando Kepler no lo tiene en `c85`.
-- [ ] **[RE.ETQ.1.5]** 🧪 2026-11-19 (#571) — Caja incompleta con su etiqueta y piezas sueltas (Kepler imprime 0).
-- [ ] **[RE.ETQ.1.6]** 🧪 2026-11-19 (#571): sin medir la impresora — Vía B: TSPL con contador de la impresora (D3).
-- [ ] **[RE.ETQ.2.1]** 🧪 2026-11-19 (#571) — `GET commercial/receiving/box-labels/orders` con estado de etiquetado.
-- [ ] **[RE.ETQ.2.2]** 🧪 2026-11-19 (#571) — `GET commercial/receiving/box-labels/catalog-defects` (factor 0 y sin `c85`, para Compras).
-- [ ] **[RE.ETQ.2.3]** 🧪 2026-11-19 (#571): probado contra base real — `POST commercial/receiving/box-labels/prints` — bitácora (D4), `commercial.box_label_prints`; congela los datos de la primera impresión, con la fecha que pone el servidor (D6) y las del vale y la orden para medir el atraso. ⛔ Prueba contra base real con el payload de la pantalla.
-- [ ] **[RE.ETQ.2.4]** 🧪 2026-11-19 (#571): reparto confirmado por Sistemas el 2026-11-19 (almacenista, encargado_tienda, encargado_bodega y supervisor: 21 personas; quien entre después con esos roles lo hereda), falta aplicarlo en prod — Permiso `ALMACEN_ETIQUETAS_CAJA` repartido en prod al puesto de recepción.
-- [ ] **[RE.ETQ.3.1]** 🧪 2026-11-19 (#571): recorrida en local con capturas el 2026-11-19 — `/almacen/etiquetas`: cola de órdenes, imprimir por orden o renglón, aviso de órdenes sin etiquetar.
-- [ ] **[RE.ETQ.3.2]** 🧪 2026-11-19 (#571): recorrida en local con capturas el 2026-11-19; se corrigió que cortaba la 3.ª etiqueta — Vista previa a tamaño real con avisos por renglón.
-- [ ] **[RE.ETQ.3.3]** 🧪 2026-11-19 (#571): recorrida en local con capturas el 2026-11-19 (el 2:3 solo, con la fecha de la primera; un consecutivo fuera de rango se rechaza) — Reimpresión por renglón y consecutivos, con los datos congelados.
+- [x] **[RE.ETQ.1.1]** ✅ 2026-11-19 (#571, en prod; el candado dependía de la versión de jsbarcode y se partió en marco + barras en #574) — Pieza de etiquetera en `libs/` (sale de `checado-etiquetas.ts` de GP.4); GP.4 la consume sin cambiar su salida.
+- [x] **[RE.ETQ.1.2]** ✅ 2026-11-19 (#571, en prod; la lectura física la cierra 3.5) — Plantilla de caja: Code 128 legible, nombre completo en dos renglones (226 productos quedan iguales a otro si se corta a 24), pie en las tres etiquetas.
+- [x] **[RE.ETQ.1.3]** ✅ 2026-11-19 (#571, en prod; la lectura física la cierra 3.5) — Fecha del instante de la primera impresión con la cuenta de Kepler en TZ México; la reimpresión repite la guardada (spec: 5-nov-2026 → `308-26`; 1-ene → `0-26`; 17-nov 23:30 CDMX → `320-26`, no `321-26`).
+- [x] **[RE.ETQ.1.4]** ✅ 2026-11-19 (#571, en prod; la lectura física la cierra 3.5): `C`+clave en CJA/BTO/CUB + aviso — Código por unidad: caja → `C`+clave (D5); aviso cuando Kepler no lo tiene en `c85`.
+- [x] **[RE.ETQ.1.5]** ✅ 2026-11-19 (#571, en prod; la lectura física la cierra 3.5) — Caja incompleta con su etiqueta y piezas sueltas (Kepler imprime 0).
+- [ ] **[RE.ETQ.1.6]** 🧪 2026-11-19 (#571; en prod sin ofrecerse): sin medir la impresora — Vía B: TSPL con contador de la impresora (D3).
+- [x] **[RE.ETQ.2.1]** ✅ 2026-11-19 (#571, en prod: sin sesión contesta 401, no 404) — `GET commercial/receiving/box-labels/orders` con estado de etiquetado.
+- [x] **[RE.ETQ.2.2]** ✅ 2026-11-19 (#571, en prod: sin sesión contesta 401, no 404) — `GET commercial/receiving/box-labels/catalog-defects` (factor 0 y sin `c85`, para Compras).
+- [x] **[RE.ETQ.2.3]** ✅ 2026-11-19 (#571): probado contra base real y en prod; la bitácora arrancó en 0 filas — `POST commercial/receiving/box-labels/prints` — bitácora (D4), `commercial.box_label_prints`; congela los datos de la primera impresión, con la fecha que pone el servidor (D6) y las del vale y la orden para medir el atraso. ⛔ Prueba contra base real con el payload de la pantalla.
+- [x] **[RE.ETQ.2.4]** ✅ 2026-11-19 (#571): repartido en prod (batch 1217) a almacenista, encargado_tienda, encargado_bodega y supervisor, 21 personas medidas; quien entre después con esos roles lo hereda; `MATRIZ_ACCESOS.md` regenerada (#574) — Permiso `ALMACEN_ETIQUETAS_CAJA` repartido en prod al puesto de recepción.
+- [x] **[RE.ETQ.3.1]** ✅ 2026-11-19 (#571): recorrida en local con capturas; en prod (menú en el bundle publicado), sin validación visual en prod — `/almacen/etiquetas`: cola de órdenes, imprimir por orden o renglón, aviso de órdenes sin etiquetar.
+- [x] **[RE.ETQ.3.2]** ✅ 2026-11-19 (#571): recorrida en local con capturas (se corrigió que cortaba la 3.ª etiqueta); en prod, sin validación visual en prod — Vista previa a tamaño real con avisos por renglón.
+- [x] **[RE.ETQ.3.3]** ✅ 2026-11-19 (#571, en prod, sin validación visual en prod): recorrida en local con capturas (el 2:3 solo, con la fecha de la primera; un consecutivo fuera de rango se rechaza) — Reimpresión por renglón y consecutivos, con los datos congelados.
 - [ ] **[RE.ETQ.3.4]** ⬜ la vía B no se ofrece hasta medir la impresora (0.3) — Selector de vía A/B por PC.
 - [ ] **[RE.ETQ.3.5]** ⬜ Prueba física en Suc 08: el 70106 × 20 leído con el handheld por las dos vías (cierra también el pendiente de GP.4).
 
