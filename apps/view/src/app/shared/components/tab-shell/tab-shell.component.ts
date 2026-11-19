@@ -35,7 +35,7 @@ export interface ShellTab {
     :host { display:block; }
     .ts-wrap { display:flex; flex-direction:column; min-height:calc(100vh - var(--app-header-h, 56px)); }
     .ts-tabs { display:flex; gap:.25rem; padding:.5rem .75rem 0; border-bottom:1px solid var(--border-color); background:var(--card-bg,#fff); flex-wrap:wrap; }
-    .ts-tabs a { padding:.55rem .9rem; border:0; border-bottom:2px solid transparent; background:transparent; font:600 .85rem 'Hanken Grotesk',sans-serif; color:var(--text-dim,#78716c); cursor:pointer; text-decoration:none; }
+    .ts-tabs a { padding:.55rem .9rem; border:0; border-bottom:2px solid transparent; background:transparent; font:600 .85rem var(--font-body); color:var(--text-dim,#78716c); cursor:pointer; text-decoration:none; }
     .ts-tabs a:hover { color:var(--text,#1c1917); }
     .ts-tabs a.act { color:var(--action,#F05A28); border-bottom-color:var(--action,#F05A28); }
     .ts-view { flex:1; min-height:0; }

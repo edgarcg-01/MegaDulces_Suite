@@ -9,7 +9,7 @@
  * estatus NO mueve los conteos de los botones.
  */
 import type { WarehouseOrderRow } from '@megadulces/contracts';
-import { armarRespuesta, destinoDe, horasAbierto, LIMITE_ITEMS, ordenEstatus, ordenLista, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, sinImportes } from './warehouse-orders.engine';
+import { armarRespuesta, destinoDe, horasAbierto, LIMITE_ITEMS, ordenEstatus, ordenLista, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, sinImportes, ventanaPool } from './warehouse-orders.engine';
 
 const fila = (over: Partial<WarehouseOrderRow>): WarehouseOrderRow => ({
   clave: '01-1-0002781', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 1, folio: '0002781',
@@ -339,5 +339,47 @@ describe('[GP.10.5] D4 importe por destino', () => {
   it('el surtidor no recibe ni el total ni sus partes', () => {
     const r = armarRespuesta([fila({ cliente_code: 'TI004' })], SIN_FILTRO, { from: '2026-11-01', to: '2026-11-30' }, ALCANCE, new Date());
     expect(sinImportes(r).totales.importe_por_destino).toBeNull();
+  });
+});
+
+describe('[GP.RF.16] la ventana de la fila de surtido', () => {
+  it('7 días hacia atrás: el primero que entra y el último atorado', () => {
+    expect(ventanaPool('2026-11-18', 7)).toEqual({ desde: '2026-11-11', hasta: '2026-11-10' });
+  });
+  it('cruza mes y año sin error', () => {
+    expect(ventanaPool('2026-01-03', 7)).toEqual({ desde: '2025-12-27', hasta: '2025-12-26' });
+    expect(ventanaPool('2024-03-05', 7)).toEqual({ desde: '2024-02-27', hasta: '2024-02-26' });
+  });
+  it('NEGATIVA: con 0 días entra hoy y el atorado es de ayer (no hoy)', () => {
+    expect(ventanaPool('2026-11-18', 0)).toEqual({ desde: '2026-11-18', hasta: '2026-11-17' });
+  });
+});
+
+describe('[GP.RF.21] cuántos hay por origen (el número del botón «Preventa»)', () => {
+  const ahora = new Date('2026-11-13T22:00:00Z');
+  const per = { from: '2026-11-01', to: '2026-11-30' };
+  const tm = fila({ clave: '01-1-0005001', folio: '0005001', origen: 'TELEMARK', estatus: 'AUTORIZADO', estatus_kepler: 'AUTORIZADO', etapa: 'autorizado' });
+  const pv1 = fila({ clave: '01-PD-PD-000910', folio: 'PD-000910', documento: 'PD-000910', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'surtiendo', order_id: 'o-910' });
+  const pv2 = fila({ clave: '02-PD-PD-000911', folio: 'PD-000911', documento: 'PD-000911', sucursal: '02', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'embarcado', order_id: 'o-911' });
+  const pvCan = fila({ clave: '01-PD-PD-000912', folio: 'PD-000912', origen: 'PREVENTA', estatus: null, estatus_kepler: null, etapa: 'cancelado', order_id: 'o-912' });
+  const rows = [tm, pv1, pv2, pvCan];
+  const cuenta = (r: ReturnType<typeof armarRespuesta>, o: string) => r.conteos_origen?.find((c) => c.origen === o)?.pedidos ?? 0;
+
+  it('cuenta lo que verá al tocarlo: sin el filtro de origen y sin los cancelados', () => {
+    const r = armarRespuesta(rows, { ...SIN_FILTRO, preventa: true }, per, ALCANCE, ahora);
+    expect(cuenta(r, 'PREVENTA')).toBe(2);
+    expect(cuenta(r, 'TELEMARK')).toBe(1);
+  });
+
+  it('NEGATIVA: con el origen ya elegido, los demás orígenes siguen contándose (no se vuelven cero)', () => {
+    const r = armarRespuesta(rows, { ...SIN_FILTRO, preventa: true, origen: 'PREVENTA' }, per, ALCANCE, ahora);
+    expect(cuenta(r, 'TELEMARK')).toBe(1);
+    expect(r.items.every((i) => i.origen === 'PREVENTA')).toBe(true);
+  });
+
+  it('respeta la etapa y la sucursal elegidas, como la lista', () => {
+    const r = armarRespuesta(rows, { ...SIN_FILTRO, preventa: true, etapa: ['surtiendo'], sucursal: '01' }, per, ALCANCE, ahora);
+    expect(cuenta(r, 'PREVENTA')).toBe(1);
+    expect(cuenta(r, 'TELEMARK')).toBe(0);
   });
 });

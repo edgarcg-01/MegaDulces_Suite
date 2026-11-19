@@ -60,7 +60,14 @@ ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_FUND=false \
     NPM_CONFIG_AUDIT=false \
     CI=true \
-    PUPPETEER_SKIP_DOWNLOAD=true
+    PUPPETEER_SKIP_DOWNLOAD=true \
+    npm_config_onnxruntime_node_install_cuda=skip
+
+# `npm_config_onnxruntime_node_install_cuda=skip` (2026-11-18): `onnxruntime-node` 1.17.3 (lo trae
+# `@imgly/background-removal-node`) descarga en su `postinstall` los binarios CUDA (GPU) de un release de GitHub que
+# ahora da **404**. Desde `f6078e401` las cuatro imágenes dejaron de construirse y el vigía se quedó esperando una
+# imagen que no existe: ningún despliegue pasaba. El servidor no tiene GPU y la librería corre en CPU; la opción la
+# trae el propio paquete (`script/install.js`, «skip the installation of the CUDA EP binaries»).
 
 # Sólo los archivos que afectan a `npm ci`: el resto del código no debe invalidar esta capa.
 COPY package*.json .npmrc ./

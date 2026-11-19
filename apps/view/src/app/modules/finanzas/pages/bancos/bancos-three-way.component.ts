@@ -40,6 +40,31 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         <i [class]="d.cuadra ? 'pi pi-check-circle' : (capturaPendiente(d) ? 'pi pi-clock' : 'pi pi-exclamation-triangle')" aria-hidden="true"></i>
         <div>
           <h3>{{ verdict(d) }}</h3>
+          <!-- [CB.82] Qué días se compararon. Sin esta línea, lo que Kepler y ContPAQi registran
+               después del último día del banco se leía como descuadre. -->
+          @if (ventanaDe(d); as v) {
+            <p class="tw-ventana">
+              <!-- [CB.85] El «Banco» es la descarga del banco donde su cuadre por saldos va de punta a punta; si no, el libro. -->
+              @if (v.nDescarga) {
+                Banco: la descarga del banco en {{ v.nDescarga }} {{ v.nDescarga === 1 ? 'cuenta' : 'cuentas' }}@if (v.nLibro) {; el libro de Tesorería en {{ v.nLibro }}{{ v.nLibroMotivo ? ' (' + v.nLibroMotivo + ' porque su descarga no cuadra)' : '' }}}.
+              }
+              @if (v.n && v.hasta) {
+                Se compara del {{ dmShort(v.desde) }} al {{ dmShort(v.hasta) }}: el estado de cuenta del banco llega hasta ese día
+                ({{ v.dias_atras }} días antes de lo esperado).
+              } @else if (v.n) {
+                {{ v.n }} {{ v.n === 1 ? 'cuenta se compara' : 'cuentas se comparan' }} sólo hasta el último día que trae su banco; la más atrasada llega al {{ dmShort(v.corte_min) }}.
+              }
+              @if (v.dia_parcial) { Ese último día se cargó el mismo día y puede venir incompleto. }
+              @if (v.fuera; as f) {
+                @if (f.kepler.movs) {
+                  Fuera de la comparación, por ser posterior al último día del banco: Kepler {{ f.kepler.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de entradas y {{ f.kepler.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de salidas.
+                }
+                @if (f.contpaqi.movs) {
+                  ContPAQi sin pareja en el banco cargado, fuera del cuadre: {{ f.contpaqi.in | currency:'MXN':'symbol-narrow':'1.0-0' }} de depósitos y {{ f.contpaqi.out | currency:'MXN':'symbol-narrow':'1.0-0' }} de retiros{{ v.mesCerrado ? '' : ' (el mes no ha cerrado: su abono puede llegar después)' }}.
+                }
+              }
+            </p>
+          }
           <p class="muted">{{ d.nota }}</p>
         </div>
       </div>
@@ -88,18 +113,18 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
 
       <!-- Nivel 1 — control-total: aquí cuadran las 3 -->
       <div class="card-premium card-flat tw-card">
-        <h3 class="tw-card-title">Control-total <span class="muted">— las 3 fuentes en {{ d.period }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
+        <h3 class="tw-card-title">Totales del periodo <span class="muted">— las 3 fuentes {{ rangoTxt(d) }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
         <div class="tw-wrap">
           <table class="tw-tbl">
             <thead>
               <tr>
                 <th scope="col"><span class="sr-only">Concepto</span></th>
-                <th scope="col" class="ta-r"><i class="pi pi-building"></i> Workbook</th>
-                <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler (tesorería)</th>
-                <th scope="col" class="ta-r"><i class="pi pi-book"></i> ContPAQi</th>
-                <th scope="col" class="ta-r" title="Workbook − Kepler">Δ W–K</th>
-                <th scope="col" class="ta-r" title="Workbook − ContPAQi">Δ W–C</th>
-                <th scope="col" class="ta-r" title="Kepler − ContPAQi">Δ K–C</th>
+                <th scope="col" class="ta-r"><i class="pi pi-building" aria-hidden="true"></i> Banco</th>
+                <th scope="col" class="ta-r"><i class="pi pi-database" aria-hidden="true"></i> Kepler</th>
+                <th scope="col" class="ta-r"><i class="pi pi-book" aria-hidden="true"></i> ContPAQi</th>
+                <th scope="col" class="ta-r">Banco − Kepler</th>
+                <th scope="col" class="ta-r">Banco − ContPAQi</th>
+                <th scope="col" class="ta-r">Kepler − ContPAQi</th>
                 <th scope="col" class="ta-c">Estado</th>
               </tr>
             </thead>
@@ -110,11 +135,11 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <td class="ta-r mono">{{ row.workbook | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono">{{ row.kepler | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono">{{ row.contpaqi | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="ta-r mono" [class.warn]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">
+                  <td class="ta-r mono" [class.tw-info]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">
                     @if (cuad(row.delta_wk)) { {{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     @else {
                       <button type="button" class="tw-dlink" (click)="explain(d, row, 'wk')"
-                              [attr.aria-label]="'Ver qué explica el descuadre de ' + row.label + ' entre ' + PAIR_META.wk.a + ' y ' + PAIR_META.wk.b">
+                              [attr.aria-label]="'Ver qué explica la diferencia de ' + row.label + ' entre ' + PAIR_META.wk.a + ' y ' + PAIR_META.wk.b">
                         {{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.2-2' }}<i class="pi pi-search-plus" aria-hidden="true"></i>
                       </button>
                     }
@@ -128,18 +153,18 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                       </button>
                     }
                   </td>
-                  <td class="ta-r mono" [class.warn]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">
+                  <td class="ta-r mono" [class.tw-info]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">
                     @if (cuad(row.delta_kc)) { {{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     @else {
                       <button type="button" class="tw-dlink" (click)="explain(d, row, 'kc')"
-                              [attr.aria-label]="'Ver qué explica el descuadre de ' + row.label + ' entre ' + PAIR_META.kc.a + ' y ' + PAIR_META.kc.b">
+                              [attr.aria-label]="'Ver qué explica la diferencia de ' + row.label + ' entre ' + PAIR_META.kc.a + ' y ' + PAIR_META.kc.b">
                         {{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.2-2' }}<i class="pi pi-search-plus" aria-hidden="true"></i>
                       </button>
                     }
                   </td>
                   <td class="ta-c">
-                    @if (row.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra dentro de la tolerancia"></i> }
-                    @else { <i class="pi pi-exclamation-triangle bad" title="No cuadra — revisa el detalle por cuenta"></i> }
+                    @if (row.cuadra) { <span class="ok tw-est"><i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra</span> }
+                    @else { <span class="bad tw-est"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No cuadra</span> }
                   </td>
                 </tr>
               }
@@ -147,14 +172,16 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           </table>
         </div>
         <p class="tw-note muted"><i class="pi pi-info-circle"></i>
-          El <b>cuadre es banco ↔ fiscal (Workbook ↔ ContPAQi)</b> — las dos fuentes completas y por cuenta; el semáforo mira sólo ese par. <b>Workbook</b> = tu estado de cuenta. <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas). <b>Kepler (tesorería)</b> (kdm1, {{ d.kepler_movs }} movs) es <b>informativo</b>: es parcial —no incluye las ventas de tienda posteadas directo al 102— así que su diferencia (ámbar) es esperada, no descuadre. Una cuenta que el fiscal tiene pero el banco no cargó sale <b>"sin cargar"</b>, no en rojo.
+          El cuadre es <b>banco contra ContPAQi</b>: el estado de cuenta del banco contra los libros fiscales ({{ d.kepler_linked }} cuentas enlazadas); el estado mira sólo ese par.
+          <b>Kepler</b> ({{ d.kepler_movs }} movimientos de su tesorería) es <b>de consulta</b>: no trae las ventas de tienda que van directo a contabilidad, así que su diferencia es esperada y no es descuadre.
+          Una cuenta que ContPAQi tiene y el banco no cargó sale <b>«sin cargar»</b>, no en rojo.
         </p>
       </div>
 
       <!-- Nivel 2 — por cuenta: las 3 fuentes (Kepler desde tesorería kdm1) -->
       <div class="card-premium card-flat tw-tablewrap">
         <h3 class="tw-card-title tw-pnl-title">Por cuenta
-          <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por banco (Kepler desde tesorería)' : 'Workbook ↔ ContPAQi (Kepler aún sin datos del periodo)' }}</span>
+          <span class="muted">— {{ d.kepler_por_cuenta ? 'las 3 fuentes por cuenta' : 'banco contra ContPAQi (Kepler aún sin datos del periodo)' }}</span>
           <button type="button" class="tw-xls tw-xls-head" [disabled]="exporting()" (click)="exportCuadre(d)"
                   title="Descarga el control-total y el detalle por cuenta">
             <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
@@ -164,26 +191,28 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <ng-template #header>
               <tr>
                 <th rowspan="2" pSortableColumn="bank" title="Banco y número de cuenta">Cuenta <p-sorticon field="bank" /></th>
-                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left tw-in-ico"></i> Depósitos</th>
-                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
+                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left" aria-hidden="true"></i> Depósitos</th>
+                <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right" aria-hidden="true"></i> Retiros</th>
                 <th rowspan="2" class="ta-r tw-col-dif" pSortableColumn="worst_abs"
-                    title="Diferencia del cuadre real: banco (Workbook) − fiscal (ContPAQi)">Diferencia <p-sorticon field="worst_abs" /></th>
+                    title="Banco − ContPAQi">Diferencia <p-sorticon field="worst_abs" /></th>
               </tr>
               <tr>
-                <th class="ta-r" pSortableColumn="wb_in" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_in" /></th>
+                <th class="ta-r" pSortableColumn="wb_in" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_in" /></th>
                 <th class="ta-r tw-kep" pSortableColumn="kep_in" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_in" /></th>
-                <th class="ta-r" pSortableColumn="cp_in" title="Libros ContPAQi">CPQ <p-sorticon field="cp_in" /></th>
-                <th class="ta-r" pSortableColumn="wb_out" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_out" /></th>
+                <th class="ta-r" pSortableColumn="cp_in" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_in" /></th>
+                <th class="ta-r" pSortableColumn="wb_out" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_out" /></th>
                 <th class="ta-r tw-kep" pSortableColumn="kep_out" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_out" /></th>
-                <th class="ta-r" pSortableColumn="cp_out" title="Libros ContPAQi">CPQ <p-sorticon field="cp_out" /></th>
+                <th class="ta-r" pSortableColumn="cp_out" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_out" /></th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
               <tr class="tw-clickable" [attr.data-acct]="r.account_label" [class.tw-hl]="hlAcct() === r.account_label"
-                  (click)="openDrill(d.period, r)" title="Ver detalle a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi)">
+                  tabindex="0" (click)="openDrill(d.period, r)" (keydown.enter)="openDrill(d.period, r)"
+                  [attr.aria-label]="'Abrir el detalle de ' + r.bank + ' ' + r.account_label">
                 <td><span class="tw-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
-                  <i class="pi pi-search-plus tw-drill-ico"></i></td>
+                  @if (fuenteExcepcion(d, r); as fx) { <span class="tw-tag muted-tag" [attr.title]="fx.porque">{{ fx.txt }}</span><span class="sr-only"> — {{ fx.porque }}</span> }
+                  <i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono tw-kep" [class.warn]="r.kep_has && !cuad(r.delta_wk_in)" title="Kepler tesorería (informativo — parcial, no incluye ventas de tienda del 102)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -199,15 +228,15 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                       <span class="tw-tag muted-tag" title="El fiscal (ContPAQi) tiene esta cuenta pero el banco (Workbook) no está cargado este mes. Falta capturar el estado de cuenta — NO es descuadre.">sin cargar</span>
                     }
                     @case ('sin_comparar') {
-                      <span class="tw-tag muted-tag" title="No hay contra qué comparar: la cuenta no está enlazada a ContPAQi ni tiene estado de cuenta cargado en el periodo">sin comparar</span>
+                      <span class="tw-tag muted-tag" [attr.title]="sinCompararMotivo(r)">sin comparar</span><span class="sr-only"> — {{ sinCompararMotivo(r) }}</span>
                     }
                     @case ('cuadra') {
-                      <i class="pi pi-check-circle ok" [attr.title]="'Banco ↔ fiscal cuadran (±' + money(tol()) + ')'"></i>
+                      <span class="ok tw-est"><i class="pi pi-check-circle" aria-hidden="true"></i> Cuadra</span>
                     }
                     @default {
                       <span class="tw-dif">
                         <span class="mono bad">{{ r.worst_delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                        <span class="tw-tag warn-tag">vs ContPAQi</span>
+                        <span class="tw-tag muted-tag">vs ContPAQi</span>
                       </span>
                     }
                   }
@@ -224,7 +253,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           <div class="card-premium card-flat tw-card" id="tw-cheques">
             <h3 class="tw-card-title tw-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
             <div class="tw-chq-kpis">
-              <div class="tw-chq-kpi bad"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
+              <div class="tw-chq-kpi"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
               <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
             </div>
             <p class="tw-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
@@ -233,7 +262,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <table class="tw-tbl tw-chq-tbl">
                   <thead><tr><th>Cuenta</th><th>Doc</th><th>Beneficiario</th><th class="ta-r">Importe</th><th>Emitido</th></tr></thead>
                   <tbody>
-                    @for (q of transito(ch); track q.folio) {
+                    @for (q of transito(ch); track q.account_label + q.doc_tipo + q.folio) {
                       <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
                         <td class="tw-concept">{{ q.beneficiario || '—' }}</td>
                         <td class="ta-r mono">{{ q.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -242,6 +271,12 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   </tbody>
                 </table>
               </div>
+              <!-- [CB.86] La lista llega a los N del encabezado: antes se cortaba en 50 sin decirlo (Cruce 1). -->
+              @if (ch.total.en_transito_n > CHEQUES_VISIBLES && !chequesTodos()) {
+                <button type=button class=tw-exp-go (click)="chequesTodos.set(true)">
+                  Ver los {{ ch.total.en_transito_n - CHEQUES_VISIBLES }} restantes (se muestran los {{ CHEQUES_VISIBLES }} de mayor importe)
+                </button>
+              }
             }
           </div>
         }
@@ -425,7 +460,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             </tbody>
           </table>
         </div>
-        @if (keplerOnlyRows().length || contpaqiOnlyRows().length) {
+        @if (keplerOnlyRows().length || contpaqiOnlyRows().length || contpaqiDespues().length) {
           <div class="tw-orphans">
             <!-- CB.50 — TRES poblaciones, no una. Antes iban mezcladas bajo «En Kepler, sin
                  banco» y sólo una llevaba aclaración al final del renglón: en julio-2026 eso era
@@ -449,7 +484,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                       <p class="tw-grp-sub muted">{{ grupo.explica }}</p>
                       @if (grupoAbierto()[grupo.key] !== false) {
                         <table class="tw-tbl"><tbody>
-                          @for (k of grupo.rows; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                          @for (k of grupo.rows; track k.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('kepler', k.key)" (keydown.enter)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                         </tbody></table>
                       }
                     </div>
@@ -461,8 +496,27 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ co.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(co) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of co; track c.key) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (c of co; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
+              </div>
+            } }
+            @if (contpaqiDespues(); as cd) { @if (cd.length) {
+              <div class="tw-orphan">
+                <div class="tw-grp">
+                  <button type="button" class="tw-grp-head" (click)="contpaqiDespuesAbierto.set(!contpaqiDespuesAbierto())"
+                          [attr.aria-expanded]="contpaqiDespuesAbierto()">
+                    <i class="pi" [class.pi-chevron-down]="contpaqiDespuesAbierto()" [class.pi-chevron-right]="!contpaqiDespuesAbierto()" aria-hidden="true"></i>
+                    <span class="tw-grp-tit">En ContPAQi, sin pareja en el banco cargado</span>
+                    <span class="tw-grp-n mono">{{ cd.length }}</span>
+                    <span class="tw-grp-monto mono">{{ orphanTotal(cd) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                  </button>
+                  <p class="tw-grp-sub muted">El banco de esta cuenta todavía no cubre el mes y ContPAQi fecha el depósito antes que el abono: su pareja puede llegar después. Quedan fuera del cuadre; todavía no son pólizas sin banco.</p>
+                  @if (contpaqiDespuesAbierto()) {
+                    <table class="tw-tbl"><tbody>
+                      @for (c of cd; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                    </tbody></table>
+                  }
+                </div>
               </div>
             } }
           </div>
@@ -537,15 +591,26 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
+    /* [CB.82] Contraste: como color de TEXTO en claro, --warn-fg da 2.15:1 y --ok-fg 3.30:1 (AA pide
+       4.5). Para texto van los -soft-fg (7.09 y 7.13); en oscuro también pasan. Los -fg sueltos quedan
+       para rellenos, barras e iconos. El ámbar de etiqueta sobre su propio fondo daba 1.89:1. */
+    .ok { color: var(--ok-soft-fg); }
+    .warn, .warn-tag { color: var(--warn-soft-fg); }
+    /* La diferencia contra Kepler es de consulta: se lee, no alarma. El rojo queda para banco − ContPAQi. */
+    .tw-info { color: var(--text-muted); }
+    .tw-est { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
+    .tw-ventana { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 0; line-height: 1.4; }
+    /* Filas que abren algo: el foco se ve, por dentro para que no se corte en la tabla. */
+    tr.tw-clickable:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     /* CB.41 — chips/tags de estado de conciliación (partición exhaustiva) */
     .tw-recon-strip { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-1); }
     .tw-recon { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 600; padding: 1px 8px; border-radius: var(--r-pill); border: 1px solid var(--border-color); background: var(--surface-2, color-mix(in srgb, var(--text-muted) 8%, transparent)); color: var(--text-muted); white-space: nowrap; }
     .tw-recon b { font-variant-numeric: tabular-nums; color: var(--text-main); }
-    .tw-recon--casado { border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); color: var(--ok-fg); }
-    .tw-recon--casado b { color: var(--ok-fg); }
+    .tw-recon--casado { border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); color: var(--ok-soft-fg); }
+    .tw-recon--casado b { color: var(--ok-soft-fg); }
     .tw-recon--traspaso, .tw-recon--factoraje, .tw-recon--fiscal, .tw-recon--partido { border-color: color-mix(in srgb, var(--text-muted) 30%, transparent); }
-    .tw-recon--sin_categoria { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
-    .tw-recon--sin_categoria b { color: var(--warn-fg); }
+    .tw-recon--sin_categoria { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); color: var(--warn-soft-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
+    .tw-recon--sin_categoria b { color: var(--warn-soft-fg); }
     .tw-recon--sin_match { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); }
     .tw-recon--sin_match b { color: var(--bad-fg); }
     .tw-recon-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); line-height: 1.5; }
@@ -558,11 +623,11 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-drillmode button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; border-radius: var(--r-sm); }
     .tw-daily-scroll { overflow-x: auto; }
     .tw-daily-tbl { width: 100%; margin-top: var(--sp-2); min-width: 46rem; }
-    .tw-daily-tbl .tw-cum-warn { color: var(--warn-fg); font-weight: 700; }
+    .tw-daily-tbl .tw-cum-warn { color: var(--warn-soft-fg); font-weight: 700; }
     .tw-daily-tbl .tw-coldiv { border-left: 2px solid var(--border-color); }
     .tw-daily-grp th { font-size: var(--fs-xs); font-weight: 700; padding-bottom: 2px; }
-    .tw-daily-grp .tw-grp-dep { color: var(--ok-fg); }
-    .tw-daily-grp .tw-grp-ret { color: var(--warn-fg); }
+    .tw-daily-grp .tw-grp-dep { color: var(--text-main); }
+    .tw-daily-grp .tw-grp-ret { color: var(--text-main); }
     .tw-kpi-grp { font-weight: 700; color: var(--text-main); }
     .tw-kpi-sep { border-left: 1px solid var(--border-color); padding-left: var(--sp-2); margin-left: var(--sp-1); }
     .tw-otro-per { display: inline-block; margin-left: var(--sp-2); padding: 0 var(--sp-1);
@@ -580,12 +645,12 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-grp-head:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .tw-grp-head i { font-size: var(--fs-xs); color: var(--text-faint); }
     .tw-grp-tit { font-size: var(--fs-sm); font-weight: 600; }
-    .tw-grp-real .tw-grp-tit { color: var(--warn-fg); }
+    .tw-grp-real .tw-grp-tit { color: var(--warn-soft-fg); }
     .tw-grp-n { font-size: var(--fs-xs); color: var(--text-muted); background: var(--hover-bg);
       border-radius: var(--r-pill); padding: 0 var(--sp-2); }
     .tw-grp-monto { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .tw-grp-sub { font-size: var(--fs-xs); color: var(--text-muted); margin: 2px 0 var(--sp-2); line-height: 1.4; }
-    .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-fg); font-weight: 700; }
+    .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-soft-fg); font-weight: 700; }
     .tw-dayfilter { color: var(--text-muted); margin-left: .3rem; }
     .tw-daychip { appearance: none; border: 1px solid var(--border-color); background: var(--card-bg); border-radius: var(--r-pill); padding: 0 .5rem; font: inherit; font-size: .7rem; cursor: pointer; color: var(--text-muted); }
     .tw-daychip:hover { color: var(--text-main); }
@@ -615,7 +680,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     /* Resumen que reemplaza a las 3 barras cuando todo va al día. */
     .tw-cov-sum { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-faint); min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tw-cov.warn .tw-cov-sum { color: var(--warn-fg); }
+    .tw-cov.warn .tw-cov-sum { color: var(--warn-soft-fg); }
     .tw-cov-sources { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--sp-3); }
     .tw-cov-src { display: flex; flex-direction: column; gap: 3px; }
     .tw-cov-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: var(--sp-2); }
@@ -629,8 +694,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-chq-kpis { display: flex; gap: var(--sp-4); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); }
     .tw-chq-kpi { display: flex; flex-direction: column; gap: 1px; }
     .tw-chq-v { font-size: var(--fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
-    .tw-chq-kpi.bad .tw-chq-v { color: var(--warn-fg); }
-    .tw-chq-kpi.ok .tw-chq-v { color: var(--ok-fg); }
+    .tw-chq-kpi.ok .tw-chq-v { color: var(--ok-soft-fg); }
     .tw-chq-l { font-size: var(--fs-xs); color: var(--text-muted); }
     .tw-chq-tbl th, .tw-chq-tbl td { padding: var(--sp-1) var(--sp-3); }
     /* CB.33 — dialog drill */
@@ -702,7 +766,7 @@ export class BancosThreeWayComponent {
     this.mov.set(null); this.movErr.set(null); this.movOpen.set(true); this.movLoading.set(true);
     this.api.bankMovement(source, key).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.mov.set(d); this.movLoading.set(false); },
-      error: (e) => { this.movErr.set(e?.status === 404 ? 'El API no tiene /bank/movement (404) — falta redeploy.' : 'No se pudo cargar el detalle.'); this.movLoading.set(false); },
+      error: (e) => { this.movErr.set(e?.status === 404 ? 'No se encontró el detalle de este movimiento.' : 'No se pudo cargar el detalle.'); this.movLoading.set(false); },
     });
   }
   // CB.37 — filtros del detalle 3 vías.
@@ -789,7 +853,7 @@ export class BancosThreeWayComponent {
    * invisible. `motivo` lo decide el backend, no esta pantalla: si lo resolviera acá, el drill,
    * el resumen y la tabla podrían discrepar.
    */
-  readonly grupoAbierto = signal<Record<string, boolean>>({ sin_casar: true, banco_agrupa: false, otro_periodo: false });
+  readonly grupoAbierto = signal<Record<string, boolean>>({ sin_casar: true, despues_del_banco: false, banco_agrupa: false, otro_periodo: false });
   toggleGrupo(k: string): void {
     const cur = this.grupoAbierto();
     this.grupoAbierto.set({ ...cur, [k]: cur[k] === false });
@@ -804,6 +868,9 @@ export class BancosThreeWayComponent {
     const def = [
       { key: 'sin_casar', titulo: 'Sin explicar — revisar',
         explica: 'El importe existe en el banco de esta cuenta y aun así no pareó. Son los únicos que hay que investigar.' },
+      // [CB.82] Va antes que «agrupó» porque su causa es más simple: el banco no ha cargado ese día.
+      { key: 'despues_del_banco', titulo: 'Posterior al último día del banco',
+        explica: 'Kepler lo registró después del último día que trae el estado de cuenta de esta cuenta. No es un faltante: el banco todavía no carga esos días, y queda fuera del cuadre.' },
       { key: 'banco_agrupa', titulo: 'El banco lo agrupó',
         explica: 'No hay ningún depósito por ese importe: el banco recibió el dinero junto con otras ventas, en un solo movimiento. El dinero está, se parte distinto.' },
       { key: 'otro_periodo', titulo: 'Cobrado en otro mes',
@@ -812,12 +879,17 @@ export class BancosThreeWayComponent {
     const grupos = def.map((d) => ({ ...d, rows: rows.filter((r: any) => motivoDe(r) === d.key) }));
     return { grupos, total: rows.length, totalMonto: this.grupoTotal(rows) };
   });
-  readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only));
+  /** [CB.82] ContPAQi sin banco DENTRO de la ventana: los únicos que son «sin banco» de verdad. */
+  readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !c.sin_banco_cargado));
+  /** [CB.85] Las pólizas sin pareja en el banco cargado (el banco no cubre el mes): aparte, y se pueden abrir. */
+  readonly contpaqiDespues = computed(() => this.orphanFilter(this.drill()?.contpaqi_only).filter((c) => !!c.sin_banco_cargado));
+  readonly contpaqiDespuesAbierto = signal(false);
 
   constructor() {
     effect(() => {
       const d = this.data();
       this.cheques.set(null);
+      this.chequesTodos.set(false);
       this.covToggled.set(null);   // periodo nuevo → la cobertura vuelve a decidir sola
       if (d?.period) {
         this.api.chequesTransito(d.period).pipe(takeUntilDestroyed(this.destroyRef))
@@ -940,7 +1012,13 @@ export class BancosThreeWayComponent {
     setTimeout(() => this.hlAcct.set(null), 4000);
   }
 
-  transito(ch: ChequesTransito) { return ch.cheques.filter((q) => !q.cobrado).slice(0, 50); }
+  /** [CB.86] Cuántos cheques en tránsito se ven antes de pedir el resto (vienen de mayor a menor importe). */
+  readonly CHEQUES_VISIBLES = 50;
+  readonly chequesTodos = signal(false);
+  transito(ch: ChequesTransito) {
+    const t = ch.cheques.filter((q) => !q.cobrado);
+    return this.chequesTodos() ? t : t.slice(0, this.CHEQUES_VISIBLES);
+  }
 
   // -- Export ---------------------------------------------------------------
   // Se exporta LO QUE SE VE: `drillRows()` ya trae filtros + orden aplicados.
@@ -1084,6 +1162,67 @@ export class BancosThreeWayComponent {
   orphanTotal(rows: { importe: number }[]): number { return rows.reduce((s, r) => s + (Number(r.importe) || 0), 0); }
 
   rows(d: ThreeWay): ThreeWayRow[] { return [d.total.ingresos, d.total.egresos]; }
+
+  /**
+   * [CB.82] La ventana, sólo si hubo recorte. `hasta` es el día común (una sola carga); si las cuentas
+   * recortadas tienen días distintos se dice cuántas y cuál es la más atrasada.
+   */
+  ventanaDe(d: ThreeWay) {
+    const v = d.ventana;
+    const n = v ? Object.keys(v.cortes || {}).length : 0;
+    // [CB.85] Cuántas cuentas toman la descarga y cuántas el libro (de las que tienen movimientos este mes).
+    const conDatos = d.por_cuenta.filter((r) => r.wb_in || r.wb_out || r.cp_in || r.cp_out || r.kep_in || r.kep_out);
+    const nDescarga = conDatos.filter((r) => r.banco_fuente === 'descarga').length;
+    const nLibro = nDescarga ? conDatos.length - nDescarga : 0;
+    const nLibroMotivo = nDescarga ? conDatos.filter((r) => r.banco_fuente !== 'descarga' && r.banco_motivo).length : 0;
+    if (!v || (!n && !nDescarga && !v.fuera)) return null;
+    return { desde: v.desde, hasta: v.hasta, corte_min: v.corte_min, dias_atras: v.dias_atras, fuera: v.fuera, dia_parcial: !!v.dia_parcial, n,
+      nDescarga, nLibro, nLibroMotivo, mesCerrado: !!v.mes_cerrado };
+  }
+
+  /**
+   * [CB.85] La fuente del «Banco» de la fila, sólo cuando es la EXCEPCIÓN del periodo (la minoritaria): marcar las 18
+   * filas con lo mismo no le dice nada a nadie. El porqué viaja en texto (title + sr-only), no sólo en el tono.
+   */
+  fuenteExcepcion(d: ThreeWay, r: ThreeWayAccount): { txt: string; porque: string } | null {
+    if (!r.banco_fuente) return null;
+    const conFuente = d.por_cuenta.filter((x) => x.banco_fuente);
+    const nDesc = conFuente.filter((x) => x.banco_fuente === 'descarga').length;
+    if (!nDesc) return null;
+    const mayoriaDescarga = nDesc * 2 >= conFuente.length;
+    if (mayoriaDescarga && r.banco_fuente === 'libro') {
+      return { txt: 'libro', porque: r.banco_motivo
+        ? `El banco de esta cuenta sale del libro de Tesorería: ${r.banco_motivo}.`
+        : 'El banco de esta cuenta sale del libro de Tesorería: no hay descarga del banco este mes.' };
+    }
+    if (!mayoriaDescarga && r.banco_fuente === 'descarga') {
+      return { txt: 'descarga', porque: `El banco de esta cuenta sale de la descarga del banco${r.banco_desde ? ' desde el ' + dmShort(r.banco_desde) : ''}.` };
+    }
+    return null;
+  }
+
+  /** El rango del título de los totales: «del 01/11 al 10/11» si hubo un corte común; si no, el periodo. */
+  rangoTxt(d: ThreeWay): string {
+    const v = this.ventanaDe(d);
+    if (v?.hasta) return `del ${dmShort(v.desde)} al ${dmShort(v.hasta)}`;
+    if (v) return `en ${d.period}, cada cuenta hasta el último día de su banco`;
+    return `en ${d.period}`;
+  }
+
+  /**
+   * [CB.82] Por qué una cuenta queda «sin comparar», en sus palabras. Antes un solo texto decía «no está
+   * enlazada ni tiene estado de cuenta» para todas, y SANTANDER 1621 (nov-2026) sí estaba enlazada y sí
+   * tenía estado: lo que faltaba eran movimientos en ContPAQi.
+   */
+  sinCompararMotivo(r: ThreeWayAccount): string {
+    const banco = (Number(r.wb_in) || 0) !== 0 || (Number(r.wb_out) || 0) !== 0;
+    if (!r.linked) return banco
+      ? 'La cuenta no está enlazada a una cuenta de ContPAQi: no hay libro contra el cual comparar el banco.'
+      : 'La cuenta no está enlazada a ContPAQi y no tiene estado de cuenta en el periodo.';
+    return banco
+      ? 'ContPAQi no tiene movimientos de esta cuenta en el periodo: no hay contra qué comparar el banco.'
+      : 'Ni el banco ni ContPAQi tienen movimientos de esta cuenta en el periodo.';
+  }
 
   verdict(d: ThreeWay): string {
     if (d.cuadra) return `Las 3 fuentes cuadran en ${d.period} (dentro de ±${money(d.tolerance)}).`;

@@ -1,12 +1,17 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService, branchKeyFilterSql, branchKeySql, todayMx } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaDto,
-  HrSinPersonaResponse,
+  HrAltaPersonaBody, HrArchivarPersonaBody, HrBajaLoteBody, HrBajaLoteResultadoDto, HrBajaPlazaBody, HrBajaPlazaDto, HrBajaResultadoDto,
+  HrCatalogosFichaDto, HrFichaPersonaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrNombrePorConfirmarDto,
+  HrNombresPorConfirmarResponse, HrPersonaBuscadaDto, HrPosiblesBajasResponse, HrSinPersonaDto, HrSinPersonaResponse, HrSinPlazasDto,
 } from '@megadulces/contracts';
-import { esRelojDesconocido } from './logic/relojes';
-import { candidatosPara, normalizarNombre, usernameAlta, validarAlta, validarFicha, type CuentaPersona } from './logic/personas';
+import { esRelojDesconocido, nombreParaReloj } from './logic/relojes';
+import { TIPOS_INCIDENCIA } from './logic/incidencias';
+import {
+  candidatosPara, clasificarPosiblesBajas, diasParaBaja, nombrePorConfirmar, normalizarNombre, usernameAlta, validarAlta, validarFicha,
+  type CuentaPersona,
+} from './logic/personas';
 
 /**
  * Fase RH · `[RH.1.12]` — LIGAR un código de reloj a su persona, desde la Suite.
@@ -34,6 +39,23 @@ import { candidatosPara, normalizarNombre, usernameAlta, validarAlta, validarFic
 
 const ROL_SIN_ACCESO = 'sin_acceso';
 const RE_ADMIN = /^\s*admin/i;
+/** `[RH.14.6]` Las incidencias que justifican no venir (las mismas que excusan una falta en el reporte). */
+const TIPOS_QUE_JUSTIFICAN = TIPOS_INCIDENCIA.filter((t) => t.excusaFalta && t.tipo !== 'horas_extra').map((t) => t.tipo);
+const ETIQUETA_TIPO = new Map(TIPOS_INCIDENCIA.map((t) => [t.tipo, t.etiqueta]));
+const LOTE_MAX = 200;
+/**
+ * Plazas ACTIVAS de una persona: un código suyo ligado en un reloj de una plaza activa y su ficha ahí no está de baja (sin
+ * ficha cuenta como activa: así la mide el reporte). Toma la persona por `?` (user_id); excluye la plaza `?` si se da.
+ */
+const SQL_PLAZAS_ACTIVAS = `
+  SELECT DISTINCT d.site_code
+    FROM hr.device_enrollments x
+    JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+    LEFT JOIN hr.attendance_sites s ON s.tenant_id = d.tenant_id AND s.code = d.site_code
+    LEFT JOIN hr.person_site_profiles p ON p.tenant_id = x.tenant_id AND p.site_code = d.site_code
+                                       AND p.person_code = COALESCE(x.person_code, x.device_user_id)
+   WHERE x.tenant_id = ? AND x.user_id = ? AND d.site_code IS NOT NULL
+     AND COALESCE(s.is_active, true) AND COALESCE(p.is_active, true)`;
 /** El enrolamiento con su plaza y su código (el código de nómina si el reloj numera distinto). */
 interface Enrolamiento { id: string; user_id: string | null; site_code: string; codigo: string; warehouse_code: string | null }
 
@@ -238,9 +260,9 @@ export class HrAttendanceEnrollmentsService {
    * La persona ligada a ese código en la plaza, bloqueada (dos de RH a la vez no se pisan); null si no hay. Sin DISTINCT:
    * Postgres no lo deja junto con FOR UPDATE; el mismo dueño sale una vez por reloj y se junta aquí.
    */
-  private async duenoDe(trx: Knex.Transaction, tenant: string, site: string, codigo: string): Promise<{ id: string; nombre: string | null; role_name: string } | null> {
-    const filas: Array<{ id: string; nombre: string | null; role_name: string }> = (await trx.raw(`
-      SELECT u.id, u.nombre, u.role_name
+  private async duenoDe(trx: Knex.Transaction, tenant: string, site: string, codigo: string): Promise<{ id: string; nombre: string | null; role_name: string; status: string | null } | null> {
+    const filas: Array<{ id: string; nombre: string | null; role_name: string; status: string | null }> = (await trx.raw(`
+      SELECT u.id, u.nombre, u.role_name, u.status
         FROM hr.device_enrollments x
         JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
         JOIN identity.users u ON u.tenant_id = x.tenant_id AND u.id = x.user_id
@@ -313,21 +335,284 @@ export class HrAttendanceEnrollmentsService {
    * de esa plaza —sin faltas de quien ya se fue— y pasa a su papelera, de donde se reactiva. Exige motivo, y sólo para
    * un código ligado a una persona (lo que no es nadie se ignora en Relojes). No borra la huella del reloj físico.
    */
-  async darDeBaja(b: HrBajaPlazaBody): Promise<{ ok: true }> {
+  async darDeBaja(b: HrBajaPlazaBody): Promise<HrBajaResultadoDto> {
     const { site, codigo } = this.plazaYCodigo(b);
-    const motivo = String(b?.motivo ?? '').replace(/\s+/g, ' ').trim();
-    if (motivo.length < 5) throw new BadRequestException('Escribe por qué se da de baja (al menos 5 letras).');
+    const motivo = this.motivoDeBaja(b?.motivo);
     return this.run(async (trx, tenant) => {
-      const dueno = await this.duenoDe(trx, tenant, site, codigo);
-      if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: en Relojes se liga o se ignora.');
-      const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo }).forUpdate().first('is_active');
-      if (antes && antes.is_active === false) throw new ConflictException('Ya está de baja en esta plaza.');
-      const q = this.quien();
-      await trx('hr.person_site_profiles').insert({
-        tenant_id: tenant, site_code: site, person_code: codigo, is_active: false, source: 'suite', updated_by: q.id,
-      }).onConflict(['tenant_id', 'site_code', 'person_code']).merge({ is_active: false, updated_by: q.id, updated_at: trx.fn.now() });
-      await this.asentar(trx, tenant, dueno.id, 'baja_en_plaza', { site_code: site, codigo, motivo: motivo.slice(0, 300) });
+      const dueno = await this.bajaEn(trx, tenant, site, codigo, motivo);
+      const sin = await this.sinPlazas(trx, tenant, dueno);
+      return { ok: true as const, ...(sin ? { sin_plazas: sin } : {}) };
+    });
+  }
+
+  private motivoDeBaja(v: unknown): string {
+    const motivo = String(v ?? '').replace(/\s+/g, ' ').trim();
+    if (motivo.length < 5) throw new BadRequestException('Escribe por qué se da de baja (al menos 5 letras).');
+    return motivo;
+  }
+
+  /** La baja de UN código en la plaza, dentro de la transacción que se le dé. Devuelve a su dueño. */
+  private async bajaEn(trx: Knex.Transaction, tenant: string, site: string, codigo: string, motivo: string): Promise<{ id: string; nombre: string | null; role_name: string; status: string | null }> {
+    const dueno = await this.duenoDe(trx, tenant, site, codigo);
+    if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: en Relojes se liga o se ignora.');
+    const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo }).forUpdate().first('is_active');
+    if (antes && antes.is_active === false) throw new ConflictException('Ya está de baja en esta plaza.');
+    const q = this.quien();
+    await trx('hr.person_site_profiles').insert({
+      tenant_id: tenant, site_code: site, person_code: codigo, is_active: false, source: 'suite', updated_by: q.id,
+    }).onConflict(['tenant_id', 'site_code', 'person_code']).merge({ is_active: false, updated_by: q.id, updated_at: trx.fn.now() });
+    await this.asentar(trx, tenant, dueno.id, 'baja_en_plaza', { site_code: site, codigo, motivo: motivo.slice(0, 300) });
+    return dueno;
+  }
+
+  /** `[RH.14.1]` Si la persona ya no tiene ninguna plaza activa (y no está archivada), lo dice. */
+  private async sinPlazas(trx: Knex.Transaction, tenant: string, p: { id: string; nombre: string | null; role_name: string; status: string | null }): Promise<HrSinPlazasDto | null> {
+    if (p.status === 'terminated') return null;
+    const activas = (await trx.raw(SQL_PLAZAS_ACTIVAS, [tenant, p.id])).rows.length;
+    return activas ? null : { user_id: p.id, nombre: p.nombre, archivable: p.role_name === ROL_SIN_ACCESO };
+  }
+
+  /**
+   * `[RH.14.6]` Varias bajas en una plaza con el mismo motivo. Cada una en su propio punto de guardado: la que falla no
+   * deshace a las demás y se devuelve con su razón, para que la pantalla la deje seleccionada.
+   */
+  async darDeBajaLote(b: HrBajaLoteBody): Promise<HrBajaLoteResultadoDto> {
+    const site = String(b?.site_code ?? '').trim();
+    if (!site) throw new BadRequestException('Falta la plaza.');
+    const codigos = Array.isArray(b?.person_codes) ? [...new Set(b.person_codes.map((c) => String(c).trim()).filter(Boolean))] : [];
+    if (!codigos.length) throw new BadRequestException('Elige al menos a una persona.');
+    if (codigos.length > LOTE_MAX) throw new BadRequestException(`Son demasiadas de una vez (máximo ${LOTE_MAX}).`);
+    const motivo = this.motivoDeBaja(b?.motivo);
+    return this.run(async (trx, tenant) => {
+      const out: HrBajaLoteResultadoDto = { dados_de_baja: [], fallaron: [], sin_plazas: [] };
+      const duenos = new Map<string, { id: string; nombre: string | null; role_name: string; status: string | null }>();
+      for (const codigo of codigos) {
+        try {
+          const d = await trx.transaction((sp) => this.bajaEn(sp, tenant, site, codigo, motivo));
+          duenos.set(d.id, d);
+          out.dados_de_baja.push(codigo);
+        } catch (e) {
+          out.fallaron.push({ person_code: codigo, error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      for (const d of duenos.values()) {
+        const sin = await this.sinPlazas(trx, tenant, d);
+        if (sin) out.sin_plazas.push(sin);
+      }
+      return out;
+    });
+  }
+
+  /**
+   * `[RH.14.1]` Archivar a la persona (Edgar, D3 del 18-nov): `status = 'terminated'`. Sólo a quien no tiene acceso a la
+   * Suite (a una cuenta con acceso la da de baja Sistemas) y ya no tiene ninguna plaza activa. Se deshace solo: si RH la
+   * reactiva en una plaza, vuelve a estar activa.
+   */
+  async archivar(b: HrArchivarPersonaBody): Promise<{ ok: true }> {
+    const userId = String(b?.user_id ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(userId)) throw new BadRequestException('Falta la persona.');
+    const motivo = String(b?.motivo ?? '').replace(/\s+/g, ' ').trim();
+    if (motivo.length < 5) throw new BadRequestException('Escribe por qué se archiva (al menos 5 letras).');
+    return this.run(async (trx, tenant) => {
+      const u = await trx('identity.users').where({ tenant_id: tenant, id: userId }).whereNull('deleted_at').forUpdate()
+        .first('id', 'nombre', 'role_name', 'status');
+      if (!u) throw new NotFoundException('Esa persona no existe en la Suite.');
+      if (u.role_name !== ROL_SIN_ACCESO) throw new ConflictException(`${u.nombre ?? 'Esta persona'} tiene acceso a la Suite: la da de baja Sistemas en Administración › Personas.`);
+      if (u.status === 'terminated') throw new ConflictException('Ya está archivada.');
+      const activas = (await trx.raw(SQL_PLAZAS_ACTIVAS, [tenant, userId])).rows as Array<{ site_code: string }>;
+      if (activas.length) throw new ConflictException(`Sigue activa en ${activas.length === 1 ? 'una plaza' : `${activas.length} plazas`}: dala de baja ahí antes de archivarla.`);
+      await trx('identity.users').where({ tenant_id: tenant, id: userId })
+        .update({ status: 'terminated', terminated_at: trx.fn.now(), updated_at: trx.fn.now() });
+      await this.asentar(trx, tenant, userId, 'persona_archivada', { motivo: motivo.slice(0, 300), status_antes: u.status });
       return { ok: true as const };
+    });
+  }
+
+  /**
+   * `[RH.14.6]` Quién lleva `dias` o más sin checar en la plaza (o nunca checó) y sigue activo ahí. No se propone a
+   * quien tiene una incidencia que justifica la ausencia en ese tramo: se cuenta aparte, con la incidencia.
+   */
+  async posiblesBajas(siteCode: string, diasPedidos?: unknown): Promise<HrPosiblesBajasResponse> {
+    const site = String(siteCode ?? '').trim();
+    if (!site) throw new BadRequestException('Falta la plaza.');
+    const dias = diasParaBaja(diasPedidos);
+    return this.run(async (trx, tenant) => {
+      const filas: Array<Record<string, unknown>> = (await trx.raw(`
+        WITH cod AS (
+          SELECT COALESCE(e.person_code, e.device_user_id) AS code, min(e.user_id::text)::uuid AS user_id,
+                 count(DISTINCT e.user_id) AS duenos
+            FROM hr.device_enrollments e
+            JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+           WHERE e.tenant_id = ? AND d.site_code = ? AND e.user_id IS NOT NULL AND COALESCE(e.match_status, '') <> 'ignorado'
+           GROUP BY 1),
+        ult AS (
+          SELECT COALESCE(e.person_code, e.device_user_id) AS code, max(l.punched_at) AS ultima
+            FROM hr.device_enrollments e
+            JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+            JOIN hr.attendance_logs l ON l.tenant_id = e.tenant_id AND l.device_id = e.device_id AND l.device_user_id = e.device_user_id
+           WHERE e.tenant_id = ? AND d.site_code = ?
+           GROUP BY 1)
+        SELECT cod.code, cod.user_id, u.nombre, p.report_section, p.is_promoter, ult.ultima
+          FROM cod
+          JOIN identity.users u ON u.tenant_id = ? AND u.id = cod.user_id AND u.deleted_at IS NULL AND u.status IN ('active', 'invited')
+          LEFT JOIN hr.person_site_profiles p ON p.tenant_id = ? AND p.site_code = ? AND p.person_code = cod.code
+          LEFT JOIN ult ON ult.code = cod.code
+         WHERE cod.duenos = 1 AND COALESCE(p.is_active, true)
+           AND (ult.ultima IS NULL OR ult.ultima < now() - make_interval(days => ?))`,
+      [tenant, site, tenant, site, tenant, tenant, site, dias])).rows;
+      const base = filas.map((f) => ({
+        codigo: String(f['code']), user_id: String(f['user_id']), nombre: (f['nombre'] as string | null) ?? null,
+        seccion: (f['report_section'] as string | null) ?? null, promotora: f['is_promoter'] === true,
+        ultima: f['ultima'] ? new Date(f['ultima'] as string).toISOString() : null,
+      }));
+      const incs: Array<{ codigo: string; desde: string; hasta: string; etiqueta: string }> = base.length
+        ? ((await trx.raw(`
+            SELECT person_code, incident_type, to_char(date_from, 'YYYY-MM-DD') AS desde, to_char(date_to, 'YYYY-MM-DD') AS hasta
+              FROM hr.attendance_incidents
+             WHERE tenant_id = ? AND site_code = ? AND person_code = ANY(?) AND incident_type = ANY(?)
+               AND status NOT IN ('anulada', 'rechazada')`,
+          [tenant, site, base.map((b) => b.codigo), TIPOS_QUE_JUSTIFICAN])).rows as Array<Record<string, string>>)
+          .map((r) => ({ codigo: r['person_code'], desde: r['desde'], hasta: r['hasta'], etiqueta: ETIQUETA_TIPO.get(r['incident_type']) ?? r['incident_type'] }))
+        : [];
+      // `ultima` llega en UTC: para comparar contra días de pared se pasa a su día en México.
+      const conDia = base.map((b) => ({ ...b, ultima: b.ultima ? this.diaMx(b.ultima) : null, ultimaIso: b.ultima }));
+      const { proponer, explicadas } = clasificarPosiblesBajas(conDia, incs, { dias, hoy: todayMx() });
+      const otras = await this.otrasPlazasActivas(trx, tenant, site, [...proponer, ...explicadas].map((x) => x.user_id));
+      const dto = (x: (typeof conDia)[number] & { diasSinChecar?: number | null }) => ({
+        person_code: x.codigo, user_id: x.user_id, nombre: x.nombre, seccion: x.seccion, promotora: x.promotora,
+        ultima_checada: x.ultimaIso, dias_sin_checar: x.diasSinChecar ?? null, otras_plazas_activas: otras.get(x.user_id) ?? 0,
+      });
+      return {
+        site_code: site, dias,
+        filas: proponer.map(dto),
+        explicadas: explicadas.map((x) => ({ ...dto(x), incidencia: x.incidencia })),
+      };
+    });
+  }
+
+  private diaMx(iso: string): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  }
+
+  /** Por persona, en cuántas plazas activas está ADEMÁS de `site`. */
+  private async otrasPlazasActivas(trx: Knex.Transaction, tenant: string, site: string, userIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (!userIds.length) return out;
+    const rows: Array<{ user_id: string; n: number }> = (await trx.raw(`
+      SELECT x.user_id, count(DISTINCT d.site_code)::int AS n
+        FROM hr.device_enrollments x
+        JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+        LEFT JOIN hr.attendance_sites s ON s.tenant_id = d.tenant_id AND s.code = d.site_code
+        LEFT JOIN hr.person_site_profiles p ON p.tenant_id = x.tenant_id AND p.site_code = d.site_code
+                                           AND p.person_code = COALESCE(x.person_code, x.device_user_id)
+       WHERE x.tenant_id = ? AND x.user_id = ANY(?::uuid[]) AND d.site_code IS NOT NULL AND d.site_code <> ?
+         AND COALESCE(s.is_active, true) AND COALESCE(p.is_active, true)
+       GROUP BY 1`, [tenant, [...new Set(userIds)], site])).rows;
+    for (const r of rows) out.set(String(r.user_id), Number(r.n));
+    return out;
+  }
+
+  /**
+   * `[RH.14.3]` La ficha completa de una persona en una plaza: cómo está en cada reloj (para ver el número y el apodo junto
+   * al nombre de la Suite), su ficha de la plaza y lo que es de la persona.
+   */
+  async ficha(siteCode: string, personCode: string): Promise<HrFichaPersonaDto> {
+    const { site, codigo } = this.plazaYCodigo({ site_code: siteCode, person_code: personCode });
+    return this.run(async (trx, tenant) => {
+      const relojes: Array<Record<string, unknown>> = (await trx.raw(`
+        SELECT x.user_id, x.device_user_id, x.device_name, d.label, d.serial_number
+          FROM hr.device_enrollments x
+          JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+         WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? AND d.is_active
+         ORDER BY (x.user_id IS NULL), d.label`, [tenant, site, codigo])).rows;
+      const perfil = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
+        .first('report_section', 'is_promoter', 'is_active');
+      if (!relojes.length && !perfil) throw new NotFoundException('Ese código no tiene ficha ni reloj en esta plaza.');
+      const userId = (relojes.find((r) => r['user_id'])?.['user_id'] as string | undefined) ?? null;
+      const u = userId
+        ? await trx('identity.users as u')
+          .leftJoin('trade.zones as z', function () { this.on('z.tenant_id', '=', 'u.tenant_id').andOn('z.id', '=', 'u.zona_id'); })
+          .where({ 'u.tenant_id': tenant, 'u.id': userId })
+          .first('u.nombre', 'u.role_name', 'u.status', 'u.department_code', 'u.position_code', 'u.warehouse_code', 'z.name as zona_nombre')
+        : null;
+      const plazas = userId ? (await trx.raw(SQL_PLAZAS_ACTIVAS, [tenant, userId])).rows.length : 0;
+      return {
+        site_code: site, person_code: codigo, user_id: userId, nombre: u?.nombre ?? null,
+        con_acceso: !!u && u.role_name !== ROL_SIN_ACCESO, status: u?.status ?? null,
+        activa_en_plaza: perfil?.is_active !== false, seccion: perfil?.report_section ?? null, promotora: perfil?.is_promoter === true,
+        departamento_code: u?.department_code ?? null, puesto_code: u?.position_code ?? null, sucursal_code: u?.warehouse_code ?? null,
+        zona_nombre: u?.zona_nombre ?? null,
+        relojes: relojes.map((r) => ({
+          device_label: (r['label'] as string | null) ?? null, serial_number: String(r['serial_number']),
+          device_user_id: String(r['device_user_id']), nombre_reloj: (r['device_name'] as string | null) ?? null,
+        })),
+        nombre_para_reloj: u?.nombre ? nombreParaReloj(u.nombre) || null : null,
+        nombre_por_confirmar: u ? nombrePorConfirmar(u.nombre, relojes.map((r) => r['device_name'] as string | null)) : null,
+        plazas_activas: plazas,
+      };
+    });
+  }
+
+  /** `[RH.14.5]` Lo que se elige en la ficha: el mismo catálogo que usa Administración › Personas. */
+  async catalogos(): Promise<HrCatalogosFichaDto> {
+    return this.run(async (trx, tenant) => {
+      const [departamentos, puestos, sucursales] = await Promise.all([
+        trx('identity.departments').where({ tenant_id: tenant }).whereNull('deleted_at').orderBy('orden', 'asc').select('code', 'name'),
+        trx('identity.positions').where({ tenant_id: tenant }).whereNull('deleted_at').orderBy('orden', 'asc').select('code', 'name', 'department_code'),
+        trx('commercial.warehouses as w')
+          .leftJoin('trade.zones as z', function () { this.on('z.tenant_id', '=', 'w.tenant_id').andOn('z.id', '=', 'w.zone_id'); })
+          .where({ 'w.tenant_id': tenant }).whereNull('w.deleted_at').whereRaw(branchKeyFilterSql('w')).orderByRaw('1')
+          .select(trx.raw(`${branchKeySql('w')} AS code`), 'w.name', 'z.name as zone_name'),
+      ]);
+      return {
+        departamentos: departamentos.map((d: { code: string; name: string }) => ({ code: d.code, name: d.name })),
+        puestos: puestos.map((p: { code: string; name: string; department_code: string | null }) => ({ code: p.code, name: p.name, department_code: p.department_code ?? null })),
+        sucursales: sucursales.map((s: { code: string; name: string; zone_name: string | null }) => ({ code: s.code, name: s.name, zone_name: s.zone_name ?? null })),
+      };
+    });
+  }
+
+  /**
+   * `[RH.14.4]` Personas activas cuyo nombre es un apodo: el mismo que su reloj o de menos de 3 palabras (con o sin acceso
+   * a la Suite: el nombre lo corrige RH a cualquiera). Una fila por PERSONA (aunque cheque en varias plazas), con sus
+   * plazas para guardar y mandar al reloj.
+   */
+  async nombresPorConfirmar(siteCode?: string): Promise<HrNombresPorConfirmarResponse> {
+    const site = String(siteCode ?? '').trim() || null;
+    return this.run(async (trx, tenant) => {
+      const filas: Array<Record<string, unknown>> = (await trx.raw(`
+        SELECT u.id AS user_id, u.nombre, d.site_code, COALESCE(s.name, d.site_code) AS site_name,
+               COALESCE(x.person_code, x.device_user_id) AS codigo, max(x.device_name) AS apodo, max(x.last_seen_at) AS visto
+          FROM hr.device_enrollments x
+          JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+          LEFT JOIN hr.attendance_sites s ON s.tenant_id = d.tenant_id AND s.code = d.site_code
+          JOIN identity.users u ON u.tenant_id = x.tenant_id AND u.id = x.user_id AND u.deleted_at IS NULL
+                               AND u.status IN ('active', 'invited') AND u.kind IN ('interno', 'externo')
+          LEFT JOIN hr.person_site_profiles p ON p.tenant_id = x.tenant_id AND p.site_code = d.site_code
+                                             AND p.person_code = COALESCE(x.person_code, x.device_user_id)
+         WHERE x.tenant_id = ? AND d.site_code IS NOT NULL AND COALESCE(s.is_active, true) AND COALESCE(p.is_active, true)
+         GROUP BY 1, 2, 3, 4, 5`, [tenant])).rows;
+      const porPersona = new Map<string, { nombre: string; apodos: string[]; plazas: HrNombrePorConfirmarDto['plazas']; visto: string | null }>();
+      for (const f of filas) {
+        const id = String(f['user_id']);
+        const p = porPersona.get(id) ?? { nombre: String(f['nombre'] ?? ''), apodos: [], plazas: [], visto: null };
+        if (f['apodo']) p.apodos.push(String(f['apodo']));
+        p.plazas.push({ site_code: String(f['site_code']), site_name: String(f['site_name']), person_code: String(f['codigo']) });
+        const v = f['visto'] ? new Date(f['visto'] as string).toISOString() : null;
+        if (v && (!p.visto || v > p.visto)) p.visto = v;
+        porPersona.set(id, p);
+      }
+      const salida: HrNombrePorConfirmarDto[] = [];
+      for (const [id, p] of porPersona) {
+        if (site && !p.plazas.some((x) => x.site_code === site)) continue;
+        const motivo = nombrePorConfirmar(p.nombre, p.apodos);
+        if (!motivo) continue;
+        // La plaza pedida va primero: ahí se guarda el nombre.
+        const plazas = site ? [...p.plazas.filter((x) => x.site_code === site), ...p.plazas.filter((x) => x.site_code !== site)] : p.plazas;
+        salida.push({ user_id: id, nombre: p.nombre, motivo, nombre_reloj: p.apodos[0] ?? null, plazas, visto_en_reloj: p.visto });
+      }
+      salida.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      return { filas: salida, total: salida.length };
     });
   }
 
@@ -343,6 +628,12 @@ export class HrAttendanceEnrollmentsService {
       await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
         .update({ is_active: true, updated_by: q.id, updated_at: trx.fn.now() });
       if (dueno) await this.asentar(trx, tenant, dueno.id, 'reactivado_en_plaza', { site_code: site, codigo, ...(motivo ? { motivo: motivo.slice(0, 300) } : {}) });
+      // `[RH.14.1]` Archivada y sin acceso: reactivarla en una plaza la regresa también como persona (si no, el reporte
+      // la seguiría dejando fuera). A una cuenta con acceso no se le toca el estado: eso es de Sistemas.
+      if (dueno && dueno.status === 'terminated' && dueno.role_name === ROL_SIN_ACCESO) {
+        await trx('identity.users').where({ tenant_id: tenant, id: dueno.id }).update({ status: 'invited', terminated_at: null, updated_at: trx.fn.now() });
+        await this.asentar(trx, tenant, dueno.id, 'persona_reactivada', { site_code: site, codigo });
+      }
       return { ok: true as const };
     });
   }
@@ -355,12 +646,12 @@ export class HrAttendanceEnrollmentsService {
   }
 
   /**
-   * `[RH.7.1]` Corrige la ficha de una persona EN UNA PLAZA: sección del reporte, promotora y —sólo si no tiene acceso a
-   * la Suite— su nombre completo. Sin esto, después del corte, quien entró sin sección frena el cierre de cada semana
-   * (`[RH.1.6b]`) y RH sólo podría forzarlo con motivo. Cada cambio deja su «antes y después» en `identity.user_events`.
+   * `[RH.7.1]` Corrige la ficha de una persona EN UNA PLAZA: sección del reporte, promotora y su nombre completo. Sin esto,
+   * después del corte, quien entró sin sección frena el cierre de cada semana (`[RH.1.6b]`) y RH sólo podría forzarlo con
+   * motivo. Cada cambio deja su «antes y después» en `identity.user_events`.
    *
-   * El nombre de una cuenta CON acceso no se toca aquí: es una cuenta de la Suite y la administra Sistemas en
-   * `/admin/personas`. Lo que RH da de alta (y lo que trajo la carga) tiene el rol `sin_acceso`.
+   * `[RH.14.4]` El nombre, a cualquiera (antes sólo a `sin_acceso`). `[RH.14.5]` Departamento, puesto y sucursal, sólo a
+   * quien no tiene acceso: los de una cuenta con acceso los administra Sistemas en `/admin/personas`.
    */
   async editarFicha(b: HrFichaPlazaBody): Promise<HrFichaPlazaDto> {
     const site = String(b?.site_code ?? '').trim();
@@ -373,10 +664,44 @@ export class HrAttendanceEnrollmentsService {
       const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
         .forUpdate().first('report_section', 'is_promoter', 'is_active');
       if (!antes && !dueno) throw new NotFoundException('Ese código no tiene ficha ni persona en esta plaza.');
-      if (v.nombre !== undefined) {
+      const dePersona = v.departamento_code !== undefined || v.puesto_code !== undefined || v.sucursal_code !== undefined;
+      if (v.nombre !== undefined || dePersona) {
         if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: ligalo o dalo de alta en Relojes, y ahí va su nombre.');
-        if (dueno.role_name !== ROL_SIN_ACCESO) {
-          throw new ConflictException(`${dueno.nombre ?? 'Esta persona'} tiene acceso a la Suite: su nombre lo corrige Sistemas en Administración › Personas.`);
+        // `[RH.14.4]` El NOMBRE lo corrige RH a cualquiera (Edgar, 18-nov: «algunos me dejan cambiar su nombre y otros no»):
+        // no da ni quita acceso a nada, y queda en la bitácora. Departamento, puesto y sucursal NO: con acceso, la sucursal y
+        // la zona definen lo que la persona ve, y eso es de Sistemas (D2).
+        if (dePersona && dueno.role_name !== ROL_SIN_ACCESO) {
+          throw new ConflictException(`${dueno.nombre ?? 'Esta persona'} tiene acceso a la Suite: su departamento, puesto y sucursal los cambia Sistemas en Administración › Personas.`);
+        }
+      }
+      // `[RH.14.5]` Lo de la persona: cada código tiene que existir en su catálogo; la zona sale de la sucursal.
+      const cambiosPersona: Record<string, string | null> = {};
+      let personaAntes: Record<string, string | null> | null = null;
+      if (dePersona && dueno) {
+        personaAntes = await trx('identity.users').where({ tenant_id: tenant, id: dueno.id })
+          .first('department_code', 'position_code', 'warehouse_code', 'zona_id') as Record<string, string | null>;
+        if (v.departamento_code !== undefined) {
+          if (v.departamento_code && !(await trx('identity.departments').where({ tenant_id: tenant, code: v.departamento_code }).whereNull('deleted_at').first('code'))) {
+            throw new BadRequestException('Ese departamento no existe.');
+          }
+          cambiosPersona['department_code'] = v.departamento_code;
+        }
+        if (v.puesto_code !== undefined) {
+          if (v.puesto_code && !(await trx('identity.positions').where({ tenant_id: tenant, code: v.puesto_code }).whereNull('deleted_at').first('code'))) {
+            throw new BadRequestException('Ese puesto no existe.');
+          }
+          cambiosPersona['position_code'] = v.puesto_code;
+        }
+        if (v.sucursal_code !== undefined) {
+          let zona: string | null = null;
+          if (v.sucursal_code) {
+            const w = await trx('commercial.warehouses as w').where({ 'w.tenant_id': tenant }).whereNull('w.deleted_at')
+              .whereRaw(`${branchKeySql('w')} = ?`, [v.sucursal_code]).first('w.zone_id');
+            if (!w) throw new BadRequestException('Esa sucursal no existe.');
+            zona = (w.zone_id as string | null) ?? null;
+          }
+          cambiosPersona['warehouse_code'] = v.sucursal_code;
+          cambiosPersona['zona_id'] = zona;
         }
       }
       const q = this.quien();
@@ -389,14 +714,17 @@ export class HrAttendanceEnrollmentsService {
         source: 'suite', updated_by: q.id,
       }).onConflict(['tenant_id', 'site_code', 'person_code'])
         .merge({ ...ficha, updated_by: q.id, updated_at: trx.fn.now() });
-      if (v.nombre !== undefined && dueno && v.nombre !== dueno.nombre) {
-        await trx('identity.users').where({ tenant_id: tenant, id: dueno.id }).update({ nombre: v.nombre, updated_at: trx.fn.now() });
+      const cambiosUsuario: Record<string, unknown> = { ...cambiosPersona };
+      if (v.nombre !== undefined && dueno && v.nombre !== dueno.nombre) cambiosUsuario['nombre'] = v.nombre;
+      if (dueno && Object.keys(cambiosUsuario).length) {
+        await trx('identity.users').where({ tenant_id: tenant, id: dueno.id }).update({ ...cambiosUsuario, updated_at: trx.fn.now() });
       }
       if (dueno) {
         await this.asentar(trx, tenant, dueno.id, 'ficha_plaza_editada', {
           site_code: site, codigo,
-          antes: { nombre: dueno.nombre, seccion: antes?.report_section ?? null, promotora: antes?.is_promoter ?? false },
-          despues: { nombre: v.nombre ?? dueno.nombre, seccion: ficha.report_section, promotora: ficha.is_promoter },
+          antes: { nombre: dueno.nombre, seccion: antes?.report_section ?? null, promotora: antes?.is_promoter ?? false,
+            ...(personaAntes ? Object.fromEntries(Object.keys(cambiosPersona).map((k) => [k, personaAntes?.[k] ?? null])) : {}) },
+          despues: { nombre: v.nombre ?? dueno.nombre, seccion: ficha.report_section, promotora: ficha.is_promoter, ...cambiosPersona },
         });
       }
       return {

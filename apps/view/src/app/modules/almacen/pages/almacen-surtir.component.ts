@@ -1,15 +1,18 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, Location } from '@angular/common';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { skip } from 'rxjs';
 import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { destinoDeSalida, puedeAbrirTablero, urlPrevia } from '../salida-de-foco';
 import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import type {
   KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
@@ -21,9 +24,12 @@ import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { textoParte } from '../surtir-ruta/ruta-surtido.util';
+import { leerEscaneo, ordenarPorRecorrido } from '../escaneo-surtido';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { deVendedor, etiquetaDia, pendientesDeOtrosDias, vendedoresDe } from '../pedidos-por-dia';
 import { avisoBuscarEnBodega, sistemaSinProducto, textoSistema } from '../existencia-surtido';
@@ -104,7 +110,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, MotivoChipsComponent, JustificantesComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, SelectModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, FreshnessPillComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -114,13 +120,28 @@ function plural(n: number, uno: string, varios: string): string {
       <p class="sr-oculto" role="status" aria-live="polite">{{ anuncio() }}</p>
 
       <header class="sr-top">
-        <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="salir()">
-          <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span> Salir
-        </button>
-        <div class="sr-top-mid">
-          <strong>Surtir</strong>
-          @if (almacenNombre()) { <span class="sr-top-sub">{{ almacenNombre() }}</span> }
-        </div>
+        <!-- [GP.RF.35] Con un pedido de preventa abierto, el encabezado ES el pedido: «← Pedidos» regresa a la
+             lista (lo marcado sigue en el celular y el pedido queda en «Los que estás surtiendo»). -->
+        @if (fase() === 'surtiendo' && pedidoSucursal(); as p) {
+          <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="irAPedidos()">
+            <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span> Pedidos
+          </button>
+          <div class="sr-top-mid">
+            <!-- [GP.RF.38] El encabezado de la vista (h1): recibe el foco al abrir el pedido. -->
+            <h1 class="sr-top-cli" id="sr-titulo" tabindex="-1">{{ p.customer_name || 'Cliente sin nombre' }}</h1>
+            <span class="sr-top-sub">{{ p.code }} · {{ p.seller_name || 'Sin vendedor' }}</span>
+            <!-- [MCP.3.13] Parte de un pedido agrupado. -->
+            @if (textoParte(p); as tp) { <span class="sr-top-sub">{{ tp }}</span> }
+          </div>
+        } @else {
+          <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="salir()">
+            <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span> Salir
+          </button>
+          <div class="sr-top-mid">
+            <h1 id="sr-titulo-lista" tabindex="-1">Surtir</h1>
+            @if (almacenNombre()) { <span class="sr-top-sub">{{ almacenNombre() }}</span> }
+          </div>
+        }
         @if (ola(); as o) {
           <div class="sr-top-prog" aria-hidden="true">{{ hechos() }} / {{ o.lines.length }}</div>
         }
@@ -153,28 +174,47 @@ function plural(n: number, uno: string, varios: string): string {
         </div>
       }
 
-      <!-- ─────────── ELEGIR ALMACÉN / LISTO PARA TOMAR ─────────── -->
+      <!-- ─────────── LA LISTA · [GP.RF.35] rehecha (Edgar, 2026-11-17) ───────────
+           Antes: una tarjeta de almacén y origen de ~240 px, el aviso de clientes nuevos arriba de todo y un
+           botón naranja enorme por pedido. Ahora: almacén y origen en un renglón, los días en otro, lo que ya
+           estás surtiendo primero, cada pedido es una tarjeta que se toca entera, y el aviso de clientes abajo. -->
       @if (fase() === 'listo') {
-        <!-- [MCP.3.8] Clientes nuevos sin clave de Kepler: se nota aquí y lleva a la bandeja para ligarlos. -->
-        <app-clientes-nuevos-aviso (sinClave)="sinClave.set($event)"></app-clientes-nuevos-aviso>
-        <section class="sr-card">
-          <label class="sr-l" for="sr-alm">Almacén donde surtes</label>
-          <select id="sr-alm" class="sr-select" [ngModel]="almacenId()" (ngModelChange)="elegirAlmacen($event)">
-            <option value="">— Elige —</option>
-            @for (a of almacenes(); track a.id) {
-              <option [value]="a.id">{{ a.code }} · {{ a.name }}</option>
-            }
-          </select>
-
-          <span class="sr-l" id="sr-origen-l">Pedidos de</span>
-          <div class="sr-chips" role="radiogroup" aria-labelledby="sr-origen-l">
-            @for (op of origenes; track op.v) {
-              <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="origen() === op.v"
-                      [class.sr-chip-on]="origen() === op.v" (click)="elegirOrigen(op.v)">{{ op.l }}</button>
-            }
+        <!-- [GP.RF.27] Lo de Telemarketing que quedó a medias se AVISA; antes se retomaba solo al abrir. -->
+        @if (olaAMedias(); as o) {
+          <!-- [GP.RF.35] Un renglón: el folio y cuántos pedidos (medido: la lista de 12 folios ocupaba ~240 px
+               y empujaba los pedidos abajo del pliegue). Los folios se ven al continuar. -->
+          <section class="sr-medias" role="status">
+            <i class="pi pi-history" aria-hidden="true"></i>
+            <span class="sr-banda-txt">Telemarketing a medias: <b class="sr-ola-code">{{ o.code }}</b>@if (o.pedidos.length) { · {{ plural(o.pedidos.length, 'pedido', 'pedidos') }} }</span>
+            <button pButton type="button" class="sr-tap" (click)="continuarOla(o)">Continuar</button>
+          </section>
+        }
+        <!-- [GP.RF.28][GP.RF.35] Almacén (por nombre) y origen en UN renglón. Con un solo almacén, su nombre va arriba.
+             [GP.RF.41] Cada control lleva su rótulo VISIBLE encima (antes sólo aria-label: con el almacén ya
+             elegido, el selector mostraba un nombre sin decir qué era). Los controles siguen en un renglón. -->
+        <section class="sr-cab">
+          @if (almacenes().length > 1) {
+            <div class="sr-campo sr-campo-alm">
+              <span class="sr-l" id="sr-alm-l">Almacén</span>
+              <p-select inputId="sr-alm" [options]="almacenes()" optionLabel="name" optionValue="id" [ngModel]="almacenId() || null"
+                        (ngModelChange)="elegirAlmacen($event ?? '')" placeholder="Elige tu almacén" appendTo="body"
+                        styleClass="sr-select" ariaLabelledBy="sr-alm-l" />
+            </div>
+          }
+          <div class="sr-campo">
+            <span class="sr-l" id="sr-origen-l">Pedidos de</span>
+            <div class="sr-chips sr-origen" role="radiogroup" aria-labelledby="sr-origen-l">
+              @for (op of origenes; track op.v) {
+                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="origen() === op.v"
+                        [class.sr-chip-on]="origen() === op.v" (click)="elegirOrigen(op.v)">{{ op.l }}</button>
+              }
+            </div>
           </div>
+        </section>
+        @if (!almacenId()) { <p class="sr-tip">Elige primero tu almacén.</p> }
 
-          @if (origen() === 'TELEMARK') {
+        @if (origen() === 'TELEMARK') {
+          <section class="sr-tm">
             <button type="button" class="sr-btn sr-btn-go" [disabled]="!almacenId() || tomando()" (click)="tomar()">
               @if (tomando()) {
                 <i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Buscando trabajo…</span>
@@ -182,26 +222,20 @@ function plural(n: number, uno: string, varios: string): string {
                 <i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span>
               }
             </button>
-            <p class="sr-tip">
-              @if (!almacenId()) { Elige primero tu almacén. } @else { Te toca el pedido que más urge. No se elige cuál. }
-            </p>
+            @if (almacenId()) { <p class="sr-tip">Te toca el pedido que más urge. No se elige cuál.</p> }
             <!-- [MCP.3.2] La lista de pedidos autorizados (folio y cliente): Surtir no tiene pestañas. -->
             <button pButton type="button" [text]="true" severity="secondary" class="sr-tap sr-ver-lista" (click)="verLista()">
               <span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span> Ver la lista de pedidos
             </button>
-          } @else {
-            <p class="sr-tip">
-              @if (!almacenId()) { Elige primero tu almacén. }
-              @else { Lo que levantaron las vendedoras y preventa. Tú eliges cuál surtir. }
-            </p>
-          }
-        </section>
+          </section>
+        }
 
-        <!-- [MCP.3.1] Pedidos de Sucursal: por día de entrega, el surtidor elige cuál. -->
+        <!-- [MCP.3.1] Preventa: por día de entrega, el surtidor elige cuál. -->
         @if (origen() === 'SUCURSAL' && almacenId()) {
           <!-- [MCP.3.6] Las rutas de hoy van arriba; los pedidos sueltos de siempre, debajo. -->
           <app-almacen-rutas-hoy (hayRutas)="rutasHoy.set($event)"></app-almacen-rutas-hoy>
-          @if (rutasHoy() > 0) { <h3 class="sr-h3">Pedidos sueltos</h3> }
+          <!-- [GP.RF.38] h1 Surtir › h2 «Rutas de hoy» / «Pedidos sueltos» › h3 por vendedor; sin rutas, h2 por vendedor. -->
+          @if (rutasHoy() > 0) { <h2 class="sr-h3">Pedidos sueltos</h2> }
           @if (sucursalError()) {
             <div class="sr-banda sr-banda-bad" role="alert">
               <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -216,22 +250,27 @@ function plural(n: number, uno: string, varios: string): string {
             </div>
           }
           @if (sucursal()) {
-            <div class="sr-chips" role="radiogroup" aria-label="Día de entrega">
-              @for (d of dias; track d.v) {
-                <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="dia() === d.v && !diaAtrasado()"
-                        [class.sr-chip-on]="dia() === d.v && !diaAtrasado()" (click)="elegirDia(d.v)">{{ d.l }} · {{ porDia()[d.v] }}</button>
-              }
-              <!-- [MCP.24] El día atrasado abierto desde el aviso queda elegido hasta volver a una pestaña. -->
-              @if (diaAtrasado(); as f) {
-                <button type="button" class="sr-chip sr-chip-on" role="radio" aria-checked="true">{{ etiqueta(f) }} · {{ pedidosDelDia().length }}</button>
-              }
+            <div class="sr-dias">
+              <div class="sr-chips" role="radiogroup" aria-label="Día de entrega">
+                @for (d of dias; track d.v) {
+                  <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="dia() === d.v && !diaAtrasado()"
+                          [class.sr-chip-on]="dia() === d.v && !diaAtrasado()" (click)="elegirDia(d.v)">{{ d.l }} · {{ porDia()[d.v] }}</button>
+                }
+                <!-- [MCP.24] El día atrasado abierto desde el aviso queda elegido hasta volver a una pestaña. -->
+                @if (diaAtrasado(); as f) {
+                  <button type="button" class="sr-chip sr-chip-on" role="radio" aria-checked="true">{{ etiqueta(f) }} · {{ pedidosDelDia().length }}</button>
+                }
+              </div>
+              <!-- §9 La lista se vuelve a pedir cada 30 s: su edad se ve. -->
+              <app-freshness-pill measures="fetch" [since]="sucursalAl()" [staleAfterSec]="90"></app-freshness-pill>
             </div>
-            <!-- [MCP.24] Lo pendiente de días anteriores no se mezcla con hoy, pero tampoco se esconde: por día. -->
+            <!-- [MCP.24] Lo pendiente de días anteriores no se mezcla con hoy, pero tampoco se esconde: por día.
+                 [GP.RF.35] En un renglón que se desliza, no en una caja de varios renglones. -->
             @if (dia() === 'hoy' && !diaAtrasado() && atrasados().length) {
               <section class="sr-atras" aria-label="Pendientes de días anteriores">
                 <p class="sr-atras-t"><i class="pi pi-history" aria-hidden="true"></i>
                   {{ plural(totalAtrasados(), 'pedido pendiente', 'pedidos pendientes') }} de días anteriores</p>
-                <div class="sr-chips">
+                <div class="sr-chips sr-desliza">
                   @for (a of atrasados(); track a.fecha) {
                     <button type="button" class="sr-chip" (click)="verAtrasado(a.fecha)">{{ etiqueta(a.fecha) }} · {{ a.n }}</button>
                   }
@@ -240,7 +279,7 @@ function plural(n: number, uno: string, varios: string): string {
             }
             <!-- [MCP.24] Por vendedor: «Todos» conserva los encabezados; uno deja sólo los suyos. -->
             @if (opcionesVendedor().length > 2) {
-              <div class="sr-chips" role="radiogroup" aria-label="Vendedor">
+              <div class="sr-chips sr-desliza" role="radiogroup" aria-label="Vendedor">
                 @for (o of opcionesVendedor(); track o.v) {
                   <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="(vendedorEfectivo() ?? '') === o.v"
                           [class.sr-chip-on]="(vendedorEfectivo() ?? '') === o.v" (click)="vendedor.set(o.v || null)">{{ o.l }}</button>
@@ -248,61 +287,72 @@ function plural(n: number, uno: string, varios: string): string {
               </div>
             }
             @if (!pedidosDelDia().length) {
-              <p class="sr-tip sr-sec-vacia">No hay pedidos de sucursal {{ diaTexto() }}.</p>
+              <p class="sr-tip sr-sec-vacia">No hay pedidos de preventa {{ diaTexto() }}.</p>
             }
             <!-- [MCP.14] Lo que ya empezó esta persona, primero; lo demás separado por vendedor y en orden de
                  folio (la pantalla del PDF de rutas vecinales: «separar los pedidos x vendedor»). -->
             @if (misEnCurso().length) {
-              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-play" aria-hidden="true"></i> Los que estás surtiendo
-                <span class="sr-grupo-n">· {{ plural(misEnCurso().length, 'pedido', 'pedidos') }}</span></h3>
+              <h2 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 3 : null"><i class="pi pi-play" aria-hidden="true"></i> Los que estás surtiendo
+                <span class="sr-grupo-n">· {{ plural(misEnCurso().length, 'pedido', 'pedidos') }}</span></h2>
               @for (p of misEnCurso(); track p.order_id) {
                 <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: true }"></ng-container>
               }
             }
             @for (g of gruposDelDia(); track g.vendedor) {
-              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
-                <span class="sr-grupo-n">· {{ plural(g.pedidos.length, 'pedido', 'pedidos') }}</span></h3>
+              <h2 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 3 : null"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
+                <span class="sr-grupo-n">· {{ plural(g.pedidos.length, 'pedido', 'pedidos') }}</span></h2>
               @for (p of g.pedidos; track p.order_id) {
                 <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: false }"></ng-container>
               }
             }
+            <!-- [GP.RF.35] La tarjeta entera se toca (antes: un botón naranja enorme por pedido, que en una lista de 30
+                 eran 30 llamados a la vez). El naranja queda sólo en «Continuar» de lo que ya estás surtiendo. -->
             <ng-template #tarjetaPedido let-p let-conVendedor="conVendedor">
-              <article class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0">
-                <div class="sr-ped-top">
-                  <span class="sr-ola-code">{{ p.code }}</span>
-                  @if (p.days_late > 0) { <span class="sr-tag-tarde">{{ p.days_late === 1 ? 'Atrasado 1 día' : 'Atrasado ' + p.days_late + ' días' }}</span> }
-                  @else if (dia() === 'proximos') { <span class="sr-tip">Entrega {{ fechaCorta(p.requested_delivery_date) }}</span> }
-                </div>
-                <strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
-                @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
-                <!-- [MCP.3.13] Parte de un pedido agrupado: el resto se surte en otra sucursal. -->
-                @if (textoParte(p); as tp) { <span class="sr-tag-parte">{{ tp }}</span> }
-                <!-- [MCP.3.15] Trae indicaciones del vendedor: se ven completas al abrirlo. -->
-                @if (p.instructions) { <span class="sr-tag-ind"><i class="pi pi-megaphone" aria-hidden="true"></i> Con indicaciones del vendedor</span> }
-                <div class="sr-datos">
-                  @if (conVendedor) { <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span> }
-                  <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
-                  <span class="sr-dato">{{ dinero(p.total) }}</span>
-                </div>
-                @if (p.state === 'surtiendo' && !esMio(p)) {
-                  <p class="sr-tip">Lo está surtiendo {{ p.started?.name }}.</p>
-                } @else {
-                  <button type="button" class="sr-btn sr-btn-go sr-btn-ped" [disabled]="tomando()" (click)="surtirPedido(p.order_id)">
+              @if (p.state === 'surtiendo' && !esMio(p)) {
+                <article class="sr-ped sr-ped-otro" [class.sr-ped-tarde]="p.days_late > 0" [attr.data-pedido]="p.order_id">
+                  <span class="sr-ped-r1"><strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
+                    <span class="sr-ped-n">{{ plural(p.lines, 'producto', 'productos') }}</span></span>
+                  <span class="sr-ped-r2"><span class="sr-ola-code">{{ p.code }}</span></span>
+                  <span class="sr-ped-go">Lo está surtiendo {{ p.started?.name }}.</span>
+                </article>
+              } @else {
+                <button type="button" class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0" [class.sr-ped-mio]="p.state === 'surtiendo'" [attr.data-pedido]="p.order_id"
+                        [disabled]="tomando()" (click)="surtirPedido(p.order_id)">
+                  <span class="sr-ped-r1"><strong class="sr-ped-cli">{{ p.customer_name || 'Cliente sin nombre' }}</strong>
+                    <span class="sr-ped-n">{{ plural(p.lines, 'producto', 'productos') }}</span></span>
+                  <span class="sr-ped-r2">
+                    <span class="sr-ola-code">{{ p.code }}</span><span>{{ dinero(p.total) }}</span>
+                    @if (conVendedor) { <span>{{ p.seller_name || 'Sin vendedor' }}</span> }
+                    @if (p.days_late > 0) { <span class="sr-tag-tarde">{{ p.days_late === 1 ? 'Atrasado 1 día' : 'Atrasado ' + p.days_late + ' días' }}</span> }
+                    @else if (dia() === 'proximos') { <span>Entrega {{ fechaCorta(p.requested_delivery_date) }}</span> }
+                  </span>
+                  @if (sinClave().has(p.order_id) || textoParte(p) || p.instructions) {
+                    <span class="sr-ped-tags">
+                      @if (sinClave().has(p.order_id)) { <span class="sr-tag-nuevo">Cliente nuevo · sin clave de Kepler</span> }
+                      <!-- [MCP.3.13] Parte de un pedido agrupado: el resto se surte en otra sucursal. -->
+                      @if (textoParte(p); as tp) { <span class="sr-tag-parte">{{ tp }}</span> }
+                      <!-- [MCP.3.15] Trae indicaciones del vendedor: se ven completas al abrirlo. -->
+                      @if (p.instructions) { <span class="sr-tag-ind"><i class="pi pi-megaphone" aria-hidden="true"></i> Con indicaciones del vendedor</span> }
+                    </span>
+                  }
+                  <span class="sr-ped-go">
                     @if (tomandoId() === p.order_id) {
-                      <i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Abriendo…</span>
+                      <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Abriendo…
                     } @else if (p.state === 'surtiendo') {
-                      <i class="pi pi-play" aria-hidden="true"></i><span>Continuar</span>
+                      Continuar <i class="pi pi-angle-right" aria-hidden="true"></i>
                     } @else {
-                      <i class="pi pi-play" aria-hidden="true"></i><span>Surtir este</span>
+                      Surtir este <i class="pi pi-angle-right" aria-hidden="true"></i>
                     }
-                  </button>
-                }
-              </article>
+                  </span>
+                </button>
+              }
             </ng-template>
           } @else if (cargandoSucursal()) {
             <div class="sr-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando pedidos…</div>
           }
         }
+        <!-- [MCP.3.8][GP.RF.35] Clientes nuevos sin clave de Kepler: abajo, no es la tarea del surtidor; lleva a ligarlos. -->
+        <app-clientes-nuevos-aviso class="sr-nuevos" (sinClave)="sinClave.set($event)"></app-clientes-nuevos-aviso>
 
         @if (sinTrabajo(); as s) {
           <section class="sr-card sr-vacio">
@@ -330,27 +380,18 @@ function plural(n: number, uno: string, varios: string): string {
         }
       }
 
-      <!-- ─────────── SURTIENDO ─────────── -->
+      <!-- ─────────── SURTIENDO · [GP.RF.35] el escáner fijo arriba, cada producto empieza por DÓNDE está ─────────── -->
       @if (fase() === 'surtiendo' && ola(); as o) {
-        <div class="sr-barra" role="progressbar" aria-label="Avance del surtido" [attr.aria-valuenow]="hechos()"
-             [attr.aria-valuemin]="0" [attr.aria-valuemax]="o.lines.length"
-             [attr.aria-valuetext]="hechos() + ' de ' + o.lines.length + ' renglones'">
-          <span [style.--fill]="o.lines.length ? hechos() / o.lines.length : 0"></span>
-        </div>
-
-        <section class="sr-ola">
-          <span class="sr-ola-code">{{ o.code }}</span>
-          @if (pedidoSucursal(); as p) {
-            <span class="sr-ola-ped">{{ p.customer_name || 'Cliente sin nombre' }} · {{ p.seller_name || 'Sin vendedor' }}</span>
-            @if (textoParte(p); as tp) { <span class="sr-ola-ped sr-tag-parte">{{ tp }}</span> }
-            <!-- [MCP.23] Sin notas de explicación arriba del pedido («se guarda en este celular», la hora de la
-                 existencia): las quitó David el 2026-11-13. El surtidor ve el cliente y va directo a los renglones. -->
-          } @else {
+        <!-- [MCP.23] En preventa no van notas de explicación arriba del pedido (las quitó David el 2026-11-13):
+             el cliente y el vendedor ya están en el encabezado. Telemarketing conserva su ola. -->
+        @if (!pedidoSucursal()) {
+          <section class="sr-ola">
+            <span class="sr-ola-code">{{ o.code }}</span>
             <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
             <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
             <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
-          }
-        </section>
+          </section>
+        }
 
         <!-- [MCP.3.15] Indicaciones del vendedor: un solo recuadro por pedido, en grande, arriba de la lista. -->
         @if (pedidoSucursal()?.instructions; as ind) {
@@ -368,21 +409,31 @@ function plural(n: number, uno: string, varios: string): string {
           <app-justificantes [items]="justificantesPedido()" idBase="sr-jf"></app-justificantes>
         }
 
-        <section class="sr-buscar">
-          <i class="pi pi-search" aria-hidden="true"></i>
-          <input id="sr-buscar" class="sr-buscar-input" type="text" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
-                 (keydown.enter)="enterBuscar()" autocomplete="off" aria-label="Buscar producto"
-                 placeholder="Escanea la etiqueta o escribe el nombre" />
-          @if (busqueda()) {
-            <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="limpiarBusqueda()">Limpiar</button>
-          }
-        </section>
+        <!-- [GP.RF.35] Fijo arriba al desplazar: escanear el siguiente no obliga a volver a subir. El avance va pegado. -->
+        <div class="sr-fijo">
+          <section class="sr-buscar">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <input id="sr-buscar" class="sr-buscar-input" type="text" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event); avisoEscaneo.set(null)"
+                   (keydown.enter)="enterBuscar()" autocomplete="off" aria-label="Buscar producto"
+                   placeholder="Escanea la etiqueta o escribe el nombre" />
+            @if (busqueda()) {
+              <button pButton type="button" [text]="true" severity="secondary" class="sr-tap" (click)="limpiarBusqueda()">Limpiar</button>
+            }
+          </section>
+          <div class="sr-barra" role="progressbar" aria-label="Avance del surtido" [attr.aria-valuenow]="hechos()"
+               [attr.aria-valuemin]="0" [attr.aria-valuemax]="o.lines.length"
+               [attr.aria-valuetext]="hechos() + ' de ' + o.lines.length + ' renglones'">
+            <span [style.--fill]="o.lines.length ? hechos() / o.lines.length : 0"></span>
+          </div>
+          <!-- [GP.RF.33] Lo escaneado no se pudo marcar solo: por qué. -->
+          @if (avisoEscaneo(); as a) { <p class="sr-tip sr-tip-bad sr-aviso-esc" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ a }}</p> }
+        </div>
 
         <div class="sr-filtro">
-          <h3 class="sr-h3">
+          <h2 class="sr-h3">
             @if (busqueda()) { {{ plural(visibles().length, 'coincidencia', 'coincidencias') }} }
             @else { Por surtir <span class="sr-n">{{ pendientesTotal() }} de {{ o.lines.length }}</span> }
-          </h3>
+          </h2>
           @if (hechos() && !busqueda()) {
             <button type="button" class="sr-chip" [attr.aria-pressed]="ocultarHechos()" [class.sr-chip-on]="ocultarHechos()"
                     (click)="ocultarHechos.set(!ocultarHechos())">Ocultar los ya surtidos</button>
@@ -399,28 +450,34 @@ function plural(n: number, uno: string, varios: string): string {
           @if (l.status === 'pendiente' || editando() === l.id) {
             <!-- Renglón por surtir (o abierto para corregir): grande, con los botones del pulgar. -->
             <article class="sr-ren">
-              <div class="sr-ren-prod">
-                <strong>{{ l.product_name || l.sku }}</strong>
-                <span class="sr-sku">{{ l.sku }}</span>
-              </div>
-              <div class="sr-cant" [attr.aria-label]="'Surtir ' + cantidadPrincipal(l)">
-                <span class="sr-cant-n">{{ cantidadNumero(l) }}</span>
-                <span class="sr-cant-u">{{ unidadConteo(l) }}</span>
-                @if (cantidadBase(l); as b) { <span class="sr-cant-b">{{ b }}</span> }
-              </div>
-              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. -->
-              @if (!pedidoSucursal()) {
-              <div class="sr-datos">
-                <span class="sr-dato" [ngClass]="'sr-exist-' + existenciaEstado(l)">
-                  <i class="pi" [class.pi-box]="existenciaEstado(l) !== 'cero' && existenciaEstado(l) !== 'poca'"
-                     [class.pi-exclamation-triangle]="existenciaEstado(l) === 'cero' || existenciaEstado(l) === 'poca'" aria-hidden="true"></i>
-                  {{ existenciaTexto(l) }}
-                </span>
-                <span class="sr-dato sr-ubic">
+              <!-- [GP.RF.34][GP.RF.35] Lo primero es DÓNDE está: a eso camina el surtidor. En preventa, sólo si el
+                   servidor mandó el dato (sin él no se afirma «sin ubicación»). -->
+              @if (lugarDe(l); as lg) {
+                <p class="sr-lugar" [class.sr-lugar-no]="!lg.code">
                   <i class="pi pi-map-marker" aria-hidden="true"></i>
-                  {{ l.bin_code ? 'Ubicación ' + l.bin_code : 'Sin ubicación dada de alta' }}
-                </span>
+                  @if (lg.code) { Ubicación <span class="sr-lugar-code">{{ lg.code }}</span> } @else { Sin ubicación dada de alta }
+                </p>
+              }
+              <div class="sr-ren-cab">
+                <div class="sr-ren-prod">
+                  <strong>{{ l.product_name || l.sku }}</strong>
+                  <span class="sr-sku">{{ l.sku }}</span>
+                </div>
+                <div class="sr-cant" [attr.aria-label]="'Surtir ' + cantidadPrincipal(l)">
+                  <span class="sr-cant-n">{{ cantidadNumero(l) }}</span>
+                  <span class="sr-cant-u">{{ unidadConteo(l) }}</span>
+                </div>
               </div>
+              @if (cantidadBase(l); as b) { <span class="sr-cant-b">{{ b }}</span> }
+              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay. -->
+              @if (!pedidoSucursal()) {
+                <div class="sr-datos">
+                  <span class="sr-dato" [ngClass]="'sr-exist-' + existenciaEstado(l)">
+                    <i class="pi" [class.pi-box]="existenciaEstado(l) !== 'cero' && existenciaEstado(l) !== 'poca'"
+                       [class.pi-exclamation-triangle]="existenciaEstado(l) === 'cero' || existenciaEstado(l) === 'poca'" aria-hidden="true"></i>
+                    {{ existenciaTexto(l) }}
+                  </span>
+                </div>
               } @else {
                 <!-- [MCP.23] En un pedido de Sucursal, la existencia que trae el servidor por renglón. Sin ella
                      (servidor anterior) no se pinta nada; si no se pudo leer, dice «sin dato», nunca cero. -->
@@ -454,7 +511,7 @@ function plural(n: number, uno: string, varios: string): string {
                   </p>
                   <!-- [MCP.23] Va a quitar algo que el sistema dice que hay: que lo busque antes. No bloquea. -->
                   @if (buscarEnBodega(l, borrador()); as a) {
-                    <p class="sr-buscar" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
+                    <p class="sr-bodega" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
                   }
                   <div class="sr-falta-acc">
                     <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="cerrarEditor()">Cancelar</button>
@@ -476,7 +533,7 @@ function plural(n: number, uno: string, varios: string): string {
                     <span>Completo</span>
                   </button>
                   <button type="button" class="sr-btn sr-btn-falta" [disabled]="guardando().has(l.id)" (click)="abrirFaltante(l)">
-                    <i class="pi pi-minus-circle" aria-hidden="true"></i><span>Faltante</span>
+                    <i class="pi pi-minus-circle" aria-hidden="true"></i><span>Faltó</span>
                   </button>
                 </div>
               }
@@ -495,7 +552,7 @@ function plural(n: number, uno: string, varios: string): string {
             </article>
             <!-- [MCP.23] Ya lo marcó con faltante y el sistema dice que hay: el aviso sigue a la vista para corregir. -->
             @if (l.status !== 'surtido' && buscarEnBodega(l, l.qty_picked); as a) {
-              <p class="sr-buscar" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
+              <p class="sr-bodega" role="note"><i class="pi pi-search" aria-hidden="true"></i> {{ a }}</p>
             }
             <!-- [MCP.18] Por qué faltó: ya viene «No había en la sucursal» (lo que dice el botón); se cambia con un toque. -->
             @if (pedidoSucursal() && l.status !== 'surtido') {
@@ -688,7 +745,9 @@ function plural(n: number, uno: string, varios: string): string {
     </div>
   `,
   styles: [`
-    .sr-page { max-width: 46rem; }
+    /* [GP.RF.35] Sin el gap de .surf-page (1rem): los hijos ya traen su margen y cada componente VACÍO (rutas de
+       hoy, justificantes) sumaba otro hueco. Medido a 390 px: ~48 px entre el origen y los días. */
+    .sr-page { max-width: 46rem; gap: 0; }
     .sr-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .sr-msg { display: flex; align-items: center; gap: .6rem; padding: 1.25rem; color: var(--text-muted); }
     /* Botones de texto de la pantalla: también del pulgar (pre-vuelo 11). */
@@ -697,14 +756,35 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-top { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
     .sr-top-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .sr-top-mid strong { font-size: var(--fs-h3); }
+    /* [GP.RF.38] El título de la vista es un h1 (antes un <strong>: la pantalla no tenía encabezado principal).
+       Se ve igual que antes; el nombre del cliente ya no se corta con «…»: un encabezado se lee entero. */
+    .sr-top-mid h1 { margin: 0; font-size: var(--fs-h3); font-weight: 700; line-height: 1.25; text-wrap: balance; overflow-wrap: break-word; }
     .sr-top-sub { font-size: var(--fs-xs); color: var(--text-muted); }
+    /* [GP.RF.35] Almacén y origen en un renglón. */
+    /* Un solo renglón a 390 px (medido: con wrap, almacén y origen ocupaban dos). El nombre del almacén ya
+       está en el encabezado: el selector puede cortarse con «…». */
+    .sr-cab { display: flex; align-items: flex-end; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    /* [GP.RF.41] Rótulo pegado a SU control (proximidad: 4 px contra los 8 px entre controles). */
+    .sr-campo { display: flex; flex-direction: column; gap: var(--sp-1); flex: none; min-width: 0; }
+    .sr-campo-alm { flex: 1 1 0; }
+    .sr-cab .sr-origen { flex: none; flex-wrap: nowrap; }
+    /* ::ng-deep sólo para el tamaño del p-select de PrimeNG (vendor): ancho flexible y objetivo táctil. */
+    :host ::ng-deep .sr-cab .p-select { width: 100%; min-width: 0; min-height: var(--tap-min); align-items: center; }
+    :host ::ng-deep .sr-cab .p-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sr-dias { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); margin: var(--sp-2) 0; }
+    .sr-tm { display: flex; flex-direction: column; gap: var(--sp-2); }
+    /* El aviso de lo de Telemarketing a medias: texto legible (no --warn-fg, que da 2.15:1), borde ámbar. */
+    .sr-medias { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+      border: 1px solid var(--warn-fg); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-body); }
+    .sr-medias > i { color: var(--warn-soft-fg); }
+    .sr-nuevos { display: block; margin-top: var(--sp-6); }
     .sr-top-prog { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-lg); }
 
     .sr-banda { display: flex; align-items: center; gap: .6rem; padding: .6rem .8rem; margin-bottom: .75rem;
       border-radius: var(--r-md); border: 1px solid currentColor; font-size: var(--fs-body); }
     .sr-banda-txt { flex: 1; }
     .sr-banda-bad { color: var(--bad-fg); }
-    .sr-banda-warn { color: var(--warn-fg); }
+    .sr-banda-warn { color: var(--warn-soft-fg); }
 
     .sr-barra { height: 6px; border-radius: var(--r-pill); background: var(--surface-border); overflow: hidden; margin-bottom: .75rem; }
     /* transform y no width: no dispara layout (check-motion). */
@@ -714,15 +794,41 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-card { background: var(--surface-card); border: 1px solid var(--surface-border);
       border-radius: var(--radius-lg); padding: 1.25rem; display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1rem; }
     .sr-l { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-    .sr-select { min-height: var(--tap-min); padding: .4rem .6rem; border: 1px solid var(--surface-border);
-      border-radius: var(--r-sm); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); }
-    .sr-select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    :host ::ng-deep .sr-select { width: 100%; min-height: var(--tap-min); }
 
     .sr-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
     .sr-chip { min-height: var(--tap-min); padding: .35rem .9rem; border-radius: var(--r-pill); cursor: pointer;
       border: 1px solid var(--surface-border); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); }
     .sr-chip-on { border-color: var(--action); background: var(--surface-hover); font-weight: 700; }
     .sr-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    /* [GP.RF.38] En alto contraste (forced-colors) el sistema pone fondo y borde: la elegida sólo se distinguía
+       por la negrita (medido). Contorno Highlight hacia adentro, como app-segmented: no mueve nada. */
+    @media (forced-colors: active) { .sr-chip-on { outline: 2px solid Highlight; outline-offset: -2px; } }
+    /* [GP.RF.35] Renglón que se desliza (días atrasados, vendedores): con .sr-chips para ganarle a su wrap.
+       [GP.RF.38] (Modern Web Guidance, «scrollability-affordance-hints» y «natural-interactions»). Medido antes:
+       barra oculta y ninguna pista —3 de 6 vendedores fuera de la vista sin que nada lo dijera— y el anillo de
+       foco cortado 4 px (el desplazamiento recorta lo que sale de su caja). Ahora: 4 px de aire para el anillo
+       (compensados con margen), se detiene en cada chip, y el borde que tiene más se desvanece. Sin soporte de
+       animaciones por desplazamiento, la barra se queda visible: es la pista. */
+    .sr-chips.sr-desliza { flex-wrap: nowrap; overflow-x: auto; padding: 4px; margin: -4px; scrollbar-width: thin;
+      scroll-snap-type: x mandatory; scroll-padding-inline: 1.5rem; }
+    .sr-chips.sr-desliza > * { flex: none; scroll-snap-align: start; }
+    @supports (animation-timeline: scroll()) and (mask: linear-gradient(black, black)) {
+      .sr-chips.sr-desliza {
+        scrollbar-width: none;
+        mask:
+          linear-gradient(black, black) no-clip subtract,
+          linear-gradient(to right, black, transparent) 0 0 / var(--sr-fade-ini) 100% no-repeat no-clip,
+          linear-gradient(to right, transparent, black) 100% 0 / var(--sr-fade-fin) 100% no-repeat no-clip;
+        animation: sr-fade-ini linear both, sr-fade-fin linear both;
+        animation-timeline: scroll(self inline);
+        animation-range: 0 1.5rem, calc(100% - 1.5rem) 100%;
+      }
+    }
+    @property --sr-fade-ini { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @property --sr-fade-fin { syntax: "<length>"; inherits: false; initial-value: 0px; }
+    @keyframes sr-fade-ini { to { --sr-fade-ini: 1.5rem; } }
+    @keyframes sr-fade-fin { from { --sr-fade-fin: 1.5rem; } }
 
     /* Botones del pulgar: igual que la pantalla hermana (contar camión) — ícono arriba, texto abajo. */
     /* [GP.4] Más bajos (5.5 → 4.25rem) para que la tarjeta completa quepa sobre el pie fijo. */
@@ -740,13 +846,13 @@ function plural(n: number, uno: string, varios: string): string {
     /* [GP.3c] Apagado se ve GRIS, no naranja tenue: medido en prod (captura de Francisco,
        2026-10-08), el naranja al 55% se leía como "listo para tocar". */
     .sr-btn-go:disabled { opacity: 1; background: var(--surface-border); color: var(--text-muted); }
-    .sr-btn-ok { background: var(--ok-soft-bg); color: var(--ok-fg); border-color: var(--ok-fg); }
+    .sr-btn-ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-color: var(--ok-fg); }
     .sr-btn-falta { background: var(--surface-card); color: var(--text-main); border-color: var(--surface-border); }
     .sr-btn-ok:not(:disabled):hover, .sr-btn-falta:not(:disabled):hover { filter: brightness(.97); }
     .sr-tip { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
-    .sr-tip-ok { color: var(--ok-fg); font-size: var(--fs-body); font-weight: 600; margin: .25rem 0 .6rem; }
+    .sr-tip-ok { color: var(--ok-soft-fg); font-size: var(--fs-body); font-weight: 600; margin: .25rem 0 .6rem; }
     .sr-tip-bad { color: var(--bad-fg); font-weight: 600; }
-    .sr-sinhit { margin: .25rem 0 .6rem; font-size: var(--fs-body); color: var(--warn-fg); }
+    .sr-sinhit { margin: .25rem 0 .6rem; font-size: var(--fs-body); color: var(--warn-soft-fg); }
 
     .sr-vacio, .sr-listo { text-align: center; align-items: center; }
     .sr-vacio i, .sr-listo i { font-size: var(--fs-display); color: var(--text-muted); }
@@ -754,7 +860,7 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-listo .sr-btn i, .sr-vacio .sr-btn i { font-size: var(--fs-h2); color: inherit; }
     .sr-listo .sr-btn { align-self: stretch; }
     .sr-vacio h2, .sr-listo h2 { margin: .25rem 0; font-size: var(--fs-h2); }
-    .sr-aviso { display: flex; gap: .4rem; align-items: flex-start; margin: .25rem 0 0; color: var(--warn-fg);
+    .sr-aviso { display: flex; gap: .4rem; align-items: flex-start; margin: .25rem 0 0; color: var(--warn-soft-fg);
       font-size: var(--fs-body); text-align: left; }
     .sr-lista-min { margin: 0; padding-left: 1.2rem; text-align: left; font-size: var(--fs-body); }
 
@@ -762,8 +868,11 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-ola-code { font-family: var(--font-mono); font-weight: 700; }
     .sr-ola-ped { font-size: var(--fs-xs); color: var(--text-muted); }
 
-    .sr-buscar { display: flex; align-items: center; gap: .5rem; padding: .25rem .75rem; margin-bottom: .5rem;
-      border: 1px solid var(--surface-border); border-radius: var(--r-md); background: var(--surface-card); }
+    .sr-fijo { position: sticky; top: 0; z-index: 5; padding: var(--sp-2) 0 var(--sp-1); background: var(--surface-ground, var(--card-bg)); }
+    .sr-fijo .sr-barra { margin: var(--sp-2) 0 0; }
+    .sr-aviso-esc { margin-top: var(--sp-2); }
+    .sr-buscar { display: flex; align-items: center; gap: .5rem; padding: .25rem .75rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .sr-buscar i { color: var(--text-muted); }
     .sr-buscar-input { flex: 1; min-width: 0; min-height: var(--tap-min); border: 0; background: transparent;
       color: var(--text-main); font-size: var(--fs-body); }
@@ -777,18 +886,24 @@ function plural(n: number, uno: string, varios: string): string {
 
     .sr-ren { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
       padding: .6rem .85rem; margin-bottom: .5rem; display: flex; flex-direction: column; gap: .4rem; }
-    .sr-ren-prod { display: flex; flex-direction: column; gap: 0; }
+    .sr-ren-cab { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); }
+    .sr-ren-prod { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+    /* [GP.RF.35] La ubicación arriba y grande: es a donde camina. Sin ubicación, en gris y chica: no grita. */
+    .sr-lugar { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); }
+    .sr-lugar i { color: var(--text-muted); }
+    .sr-lugar-code { font-family: var(--font-mono); font-size: var(--fs-h2); font-weight: 800; letter-spacing: .02em; }
+    .sr-lugar-no { font-size: var(--fs-body); font-weight: 500; color: var(--text-muted); }
     .sr-ren-prod strong { font-size: var(--fs-lg); line-height: 1.15; }
     .sr-sku { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
     /* La cantidad es lo que se lee a un brazo de distancia: número grande, unidad un escalón abajo. */
-    .sr-cant { display: flex; align-items: baseline; flex-wrap: wrap; gap: .4rem; }
+    .sr-cant { display: flex; align-items: baseline; gap: .3rem; white-space: nowrap; }
     .sr-cant-n { font-size: var(--fs-display); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
     .sr-cant-u { font-size: var(--fs-h2); font-weight: 800; }
-    .sr-cant-b { flex-basis: 100%; font-size: var(--fs-body); color: var(--text-muted); }
+    .sr-cant-b { font-size: var(--fs-body); color: var(--text-muted); text-align: right; }
     .sr-datos { display: flex; flex-wrap: wrap; gap: .15rem .9rem; }
     .sr-dato { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-body); color: var(--text-muted); }
     .sr-exist-ok, .sr-exist-neutral { color: var(--text-main); }
-    .sr-exist-poca { color: var(--warn-fg); font-weight: 700; }
+    .sr-exist-poca { color: var(--warn-soft-fg); font-weight: 700; }
     .sr-exist-cero { color: var(--bad-fg); font-weight: 700; }
 
     .sr-acc { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
@@ -828,34 +943,48 @@ function plural(n: number, uno: string, varios: string): string {
       padding: .4rem 0 calc(.4rem + env(safe-area-inset-bottom));
       background: var(--surface-ground, var(--surface-card)); border-top: 1px solid var(--surface-border); }
     .sr-pie-n { font-size: var(--fs-body); color: var(--text-muted); text-align: center; }
-    .sr-pend { font-weight: 800; color: var(--warn-fg); font-variant-numeric: tabular-nums; }
-    .sr-pend-cero { color: var(--ok-fg); }
-    .sr-falt { font-weight: 800; color: var(--warn-fg); }
+    .sr-pend { font-weight: 800; color: var(--warn-soft-fg); font-variant-numeric: tabular-nums; }
+    .sr-pend-cero { color: var(--ok-soft-fg); }
+    .sr-falt { font-weight: 800; color: var(--warn-soft-fg); }
     .sr-btn-fin { min-height: 3.25rem; margin-top: 0; }
 
     /* [MCP.3.1] Pedidos de Sucursal. */
     .sr-sec-vacia { margin: .5rem 0 1rem; }
     /* [MCP.14] Encabezado de cada vendedor (y de «Los que estás surtiendo»). */
     .sr-grupo { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-4) 0 0; font-size: var(--fs-body); font-weight: 800; color: var(--text-main); }
-    .sr-grupo-n { font-weight: 500; color: var(--text-muted); }
-    .sr-ped { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
-      padding: .75rem .85rem; margin: .6rem 0; display: flex; flex-direction: column; gap: .35rem; }
+    .sr-grupo-n { font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+    /* [GP.RF.35] La tarjeta entera es el botón: sin un naranja por pedido. El naranja queda en «Continuar». */
+    .sr-ped { width: 100%; text-align: left; font: inherit; color: var(--text-main); cursor: pointer;
+      background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg);
+      padding: var(--sp-3) var(--sp-4); margin: var(--sp-2) 0; display: flex; flex-direction: column; gap: var(--sp-1); min-height: var(--tap-min); }
+    button.sr-ped:not(:disabled):hover { background: var(--surface-hover); }
+    button.sr-ped:not(:disabled):active { transform: scale(.99); }
+    button.sr-ped:disabled { opacity: .6; cursor: not-allowed; }
+    .sr-ped:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .sr-ped-otro { cursor: default; color: var(--text-muted); }
+    .sr-ped-r1 { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+    .sr-ped-n { flex: none; font-size: var(--fs-body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .sr-ped-r2 { display: flex; flex-wrap: wrap; gap: .1rem var(--sp-3); font-size: var(--fs-body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .sr-ped-tags { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); }
+    .sr-ped-go { align-self: flex-end; display: inline-flex; align-items: center; gap: var(--sp-1); font-weight: 700; color: var(--text-main); }
+    .sr-ped-mio { border-color: var(--action); }
+    .sr-ped-mio .sr-ped-go { color: var(--action-ink); background: var(--action); border-radius: var(--r-pill); padding: .3rem .9rem; }
     .sr-ped-tarde { border-left: 4px solid var(--warn-fg); }
     /* [MCP.24] Lo atrasado, aparte y por día: borde ámbar (no texto ámbar, que no pasa contraste). */
-    .sr-atras { display: flex; flex-direction: column; gap: var(--sp-2); margin: .6rem 0; padding: var(--sp-2) var(--sp-3);
-      border: 1px solid var(--warn-fg); border-radius: var(--r-md); background: var(--surface-card); }
+    .sr-atras { display: flex; flex-direction: column; gap: var(--sp-1); margin: var(--sp-2) 0; padding-left: var(--sp-3);
+      border-left: 3px solid var(--warn-fg); }
     .sr-atras-t { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
     .sr-atras-t i { color: var(--text-muted); }
     .sr-chips + .sr-chips { margin-top: .6rem; }
     /* [MCP.23] Lo que dice el sistema: en palabras; «no hay» en negritas (el estado no depende del color). */
     .sr-sistema { color: var(--text-muted); }
     .sr-sistema-no { color: var(--text-main); font-weight: 700; }
-    .sr-buscar { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
-      border: 1px solid var(--warn-fg); background: var(--surface-card); color: var(--text-main); font-size: var(--fs-body); font-weight: 600; }
-    .sr-buscar i { margin-top: .2rem; color: var(--text-muted); }
-    .sr-ped-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    /* [MCP.23] «Búscalo en bodega». [GP.RF.35] Antes compartía la clase .sr-buscar con el escáner y le ponía su borde ámbar. */
+    .sr-bodega { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+      border: 1px solid var(--warn-fg); background: var(--card-bg); color: var(--text-main); font-size: var(--fs-body); font-weight: 600; }
+    .sr-bodega i { margin-top: .2rem; color: var(--text-muted); }
     .sr-ped-cli { font-size: var(--fs-lg); line-height: 1.2; }
-    .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-fg); }
+    .sr-tag-tarde { font-size: var(--fs-xs); font-weight: 700; color: var(--warn-soft-fg); }
     .sr-tag-nuevo { font-size: var(--fs-xs); font-weight: 700; color: var(--info-fg); }
     /* [MCP.3.13] Discreto: informa, no pide acción. */
     .sr-tag-parte { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
@@ -869,12 +998,11 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-ind-chk { display: inline-flex; align-items: center; gap: .5rem; padding-top: .5rem; border-top: 1px solid var(--warn-fg);
       font-weight: 700; cursor: pointer; min-height: 2.75rem; }
     .sr-ind-chk input { width: 1.25rem; height: 1.25rem; accent-color: var(--ok-fg); }
-    .sr-btn-ped { min-height: 3.25rem; font-size: var(--fs-lg); flex-direction: row; gap: .5rem; margin-top: .2rem; }
-    .sr-btn-ped i { font-size: var(--fs-lg); }
     .sr-ver-lista { align-self: flex-start; }
 
     @media (prefers-reduced-motion: reduce) {
       .sr-barra > span, .sr-btn { transition: none; }
+      button.sr-ped:not(:disabled):active { transform: none; }
       .sr-btn:not(:disabled):active { transform: none; }
     }
   `],
@@ -890,13 +1018,22 @@ export class AlmacenSurtirComponent implements OnInit {
   private readonly preventa = inject(PresalePickingService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly location = inject(Location);
+  private readonly uso = inject(UsoService);
+  /**
+   * `[GP.RF.38]` true = el pedido abierto dejó su propia entrada en el historial (se abrió desde la lista).
+   * Con eso «atrás» —el gesto del celular o «← Pedidos»— regresa a la lista en vez de salir de Surtir.
+   */
+  private pedidoEnHistorial = false;
 
   readonly plural = plural;
   /** [MCP.3.13] «Parte de P-10482 · también surte PH»; suelto → null. */
   readonly textoParte = textoParte;
   readonly origenes: ReadonlyArray<{ v: Origen; l: string }> = [
     // [MCP.3.2] Sucursal primero (decisión de David, 2026-10-19): es lo que surte la sucursal.
-    { v: 'SUCURSAL', l: 'Sucursal' },
+    // [GP.RF.35] Se rotula «Preventa»: lo levantan vendedoras y preventa (la sucursal surte los dos orígenes).
+    { v: 'SUCURSAL', l: 'Preventa' },
     { v: 'TELEMARK', l: 'Telemarketing' },
   ];
   readonly dias: ReadonlyArray<{ v: PresalePickBucket; l: string }> = [
@@ -915,6 +1052,8 @@ export class AlmacenSurtirComponent implements OnInit {
   // ── [MCP.3.1] Sucursal ──
   readonly sucursal = signal<PresalePickInboxResponse | null>(null);
   readonly cargandoSucursal = signal(false);
+  /** §9 Cuándo llegó la lista (hora del navegador): la píldora dice «cargado hace N», no la edad del dato. */
+  readonly sucursalAl = signal<number | null>(null);
   readonly sucursalError = signal<string | null>(null);
   readonly dia = signal<PresalePickBucket>('hoy');
   /** El pedido de Sucursal que se está tomando (spinner en SU botón). */
@@ -1001,6 +1140,8 @@ export class AlmacenSurtirComponent implements OnInit {
   /** `[MCP.23]` La existencia del sistema de cada renglón del pedido de Sucursal abierto (`PresalePickLine.stock`). */
   readonly stockPedido = signal<Record<string, PresaleReviewStock | null | undefined>>({});
   readonly ola = signal<PickerWave | null>(null);
+  /** `[GP.RF.27]` El surtido de Telemarketing que quedó a medias: se avisa, no se retoma solo. */
+  readonly olaAMedias = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);
   /** Surtidos armados a mano que no se pudieron abrir (se liberaron): hay que avisar al supervisor. */
   readonly atoradas = signal<ReadonlyArray<{ code: string; motivo: string }>>([]);
@@ -1091,6 +1232,15 @@ export class AlmacenSurtirComponent implements OnInit {
       }
     }, SUCURSAL_CADA_MS);
     this.destroyRef.onDestroy(() => clearInterval(reloj));
+    // [GP.RF.38] El gesto «atrás» del celular con un pedido abierto (Modern Web Guidance, «stack-drill-down»):
+    // el historial quita `?pedido=` y aquí se regresa a la lista. Medido antes: «atrás» sacaba de Surtir
+    // (a /projects) con el pedido a medias. `skip(1)`: la primera emisión es la del arranque (la atiende `iniciar`).
+    this.ruta.queryParamMap?.pipe(skip(1), takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      if (!q.get('pedido') && this.pedidoSucursal() && this.fase() === 'surtiendo') {
+        this.pedidoEnHistorial = false;
+        this.volverAPedidos();
+      }
+    });
     this.iniciar();
   }
 
@@ -1103,6 +1253,7 @@ export class AlmacenSurtirComponent implements OnInit {
       next: (b) => {
         this.cargandoSucursal.set(false);
         this.sucursal.set(b);
+        this.sucursalAl.set(Date.now());
         this.sucursalError.set(null);
       },
       error: (e) => {
@@ -1209,7 +1360,11 @@ export class AlmacenSurtirComponent implements OnInit {
           unidad_presentacion: null,
           qty_picked: marcada ?? null,
           status: marcada == null ? 'pendiente' : this.estadoDe(marcada, l.qty),
-          bin_code: null,
+          // [GP.RF.34] El lugar del producto (Ubicaciones) y su orden de recorrido; antes iba siempre vacío.
+          bin_code: l.ubicacion?.code ?? null,
+          orden_recorrido: l.ubicacion?.orden ?? null,
+          // [GP.RF.33] Los códigos de cada presentación: con ellos escanear marca Completo.
+          ...(l.presentaciones ? { presentaciones: l.presentaciones } : {}),
           note: null,
           existencia: null,
           existencia_unidad: null,
@@ -1226,7 +1381,8 @@ export class AlmacenSurtirComponent implements OnInit {
     this.stockPedido.set(Object.fromEntries(d.lines.map((l) => [l.line_id, l.stock])));
     this.pedidoSucursal.set(d.order);
     this.indicacionesOk.set(false);
-    this.ola.set(ola);
+    // [GP.RF.34] En el orden del recorrido del almacén (lo que no tiene ubicación, al final, como venía).
+    this.ola.set({ ...ola, lines: ordenarPorRecorrido(ola.lines) });
     this.busqueda.set('');
     this.editando.set(null);
     // [MCP.17] Lo que ya se había puesto en otra unidad, si se cerró la app a medio surtir.
@@ -1237,7 +1393,31 @@ export class AlmacenSurtirComponent implements OnInit {
     this.otraAbierta.set(null);
     this.ocultarHechos.set(false);
     this.fase.set('surtiendo');
+    this.alInicio();
     this.anuncio.set(`Pedido ${d.order.code}: ${plural(ola.lines.length, 'renglón', 'renglones')}.`);
+    // [GP.RF.38] Abierto desde la lista, el pedido deja su entrada en el historial (`?pedido=`, la misma que
+    // abre el aviso de la campana): «atrás» regresa a la lista y una recarga lo vuelve a abrir. Abierto desde
+    // la URL, la entrada ya existe.
+    if (this.ruta.snapshot.queryParamMap.get('pedido') !== d.order.order_id) {
+      this.pedidoEnHistorial = true;
+      this.router.navigate([], { relativeTo: this.ruta, queryParams: { pedido: d.order.order_id }, queryParamsHandling: 'merge' })
+        .catch(() => false);
+    }
+    // [GP.RF.38] El foco va al pedido (su encabezado), no se queda en <body>. No al buscador: en el celular
+    // eso abre el teclado en pantalla encima de la lista.
+    this.enfocarLuego(() => this.host.nativeElement.querySelector<HTMLElement>('#sr-titulo'));
+  }
+
+  /** `[GP.RF.38]` Mueve el foco en cuanto la vista nueva está pintada, sin desplazar la página. */
+  private enfocarLuego(cual: () => HTMLElement | null): void {
+    setTimeout(() => cual()?.focus({ preventScroll: true }));
+  }
+
+  /** `[GP.RF.38]` Quita `?pedido=` de la URL sin dejar otra entrada en el historial. */
+  private quitarPedidoDeLaUrl(): void {
+    if (!this.ruta.snapshot.queryParamMap.get('pedido')) return;
+    this.router.navigate([], { relativeTo: this.ruta, queryParams: { pedido: null }, queryParamsHandling: 'merge', replaceUrl: true })
+      .catch(() => false);
   }
 
   // ── [MCP.17] Surtir en otra unidad del mismo producto ──────────────────────────────────────
@@ -1526,11 +1706,36 @@ export class AlmacenSurtirComponent implements OnInit {
         this.pedidoSucursal.set(null);
         this.fase.set('cerrada');
         this.anuncio.set('Pedido surtido.');
+        // [GP.RF.38] Cerrado, la URL ya no lo nombra: una recarga no intenta abrir un pedido terminado.
+        this.pedidoEnHistorial = false;
+        this.quitarPedidoDeLaUrl();
       },
       error: (e) => {
         this.cerrando.set(false);
+        this.reportarRechazo('cerrar_preventa', o, e, lines.filter((x) => 'substitute' in x).length);
         this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
       },
+    });
+  }
+
+  /**
+   * `[GP.RF.23]` Un cierre rechazado deja su MOTIVO. Medido en prod (30 días): 84 de 925 cierres se
+   * rechazaron (todos 4xx) y el motivo no quedaba en ningún lado: el servidor no lo guarda y el aviso
+   * dura 8 s en pantalla. Va por el canal de incidentes (`kind: 'error'`, [RA-PERF.6]): el código, el
+   * mensaje del servidor y lo que traía el cierre (renglones, faltantes, cambios), para separar las
+   * causas candidatas —cambiar un producto por otro, dos personas sobre el mismo pedido—. Nada de lo
+   * que la persona escribe. «Dispara y olvida»: no cambia lo que pasa en pantalla.
+   */
+  private reportarRechazo(accion: 'cerrar_preventa' | 'cerrar_kepler', o: PickerWave, e: unknown, cambios = 0): void {
+    const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
+    this.uso.reportarIncidente('surtir_cierre_rechazado', {
+      accion,
+      status,
+      motivo: this.mensaje(e, '').slice(0, 300),
+      ola_id: o.id,
+      renglones: o.lines.length,
+      faltantes: this.conFaltante(),
+      cambios,
     });
   }
 
@@ -1543,6 +1748,64 @@ export class AlmacenSurtirComponent implements OnInit {
     this.reporte.set(null);
     this.fase.set('listo');
     this.cargarSucursal();
+  }
+
+  /**
+   * `[GP.RF.35]` «← Pedidos» con un pedido de preventa a medias: regresa a la lista sin cerrarlo. Lo marcado
+   * vive en el celular hasta «Terminé de surtir» (PREF_MARCAS), y el pedido sigue a nombre de quien lo empezó:
+   * reaparece en «Los que estás surtiendo» con «Continuar».
+   */
+  volverAPedidos(): void {
+    const id = this.pedidoSucursal()?.order_id ?? null;
+    this.editando.set(null);
+    this.otraAbierta.set(null);
+    this.cerrarCambio();
+    this.busqueda.set('');
+    this.avisoEscaneo.set(null);
+    this.ola.set(null);
+    this.pedidoSucursal.set(null);
+    this.volverALista();
+    this.alInicio();
+    // [GP.RF.38] El foco regresa a la tarjeta del pedido que se dejó (queda en «Los que estás surtiendo»),
+    // sin mover la vista: la lista sigue empezando arriba.
+    this.enfocarLuego(() =>
+      (id ? this.host.nativeElement.querySelector<HTMLElement>(`[data-pedido="${id}"]`) : null)
+      ?? this.host.nativeElement.querySelector<HTMLElement>('#sr-titulo-lista'));
+  }
+
+  /**
+   * `[GP.RF.38]` «← Pedidos». La vista cambia al instante; si el pedido dejó su entrada en el historial,
+   * además se saca (`back`), para que el siguiente «atrás» no vuelva a abrir el pedido que se acaba de dejar.
+   */
+  irAPedidos(): void {
+    const enHistorial = this.pedidoEnHistorial;
+    this.pedidoEnHistorial = false;
+    this.volverAPedidos();
+    if (enHistorial) this.location.back();
+    else this.quitarPedidoDeLaUrl();
+  }
+
+  /**
+   * `[GP.RF.35]` Abrir un pedido (o volver a la lista) empieza ARRIBA. Medido en el celular: al abrir un pedido
+   * de abajo de la lista, la vista quedaba en −1,381 px, a media lista de productos. Quien se desplaza no es
+   * `window` sino el contenedor del layout: se busca el ancestro que de verdad se desplaza.
+   */
+  private alInicio(): void {
+    if (typeof getComputedStyle === 'undefined') return;
+    let p: HTMLElement | null = this.host.nativeElement.parentElement;
+    while (p && !(p.scrollHeight > p.clientHeight && /(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
+    const caja = p ?? (document.scrollingElement as HTMLElement | null);
+    if (caja) caja.scrollTop = 0;
+  }
+
+  /**
+   * `[GP.RF.34][GP.RF.35]` El lugar del renglón, lo primero de su tarjeta. Telemarketing siempre lo dice (con
+   * o sin ubicación dada de alta). En preventa, sólo si el servidor mandó el apoyo de surtido (`presentaciones`):
+   * con un servidor anterior no se sabe, y no se afirma «sin ubicación».
+   */
+  lugarDe(l: PickerWaveLine): { code: string | null } | null {
+    if (this.pedidoSucursal() && !l.presentaciones) return null;
+    return { code: l.bin_code || null };
   }
 
   fechaCorta(dia: string): string {
@@ -1581,27 +1844,22 @@ export class AlmacenSurtirComponent implements OnInit {
         const def =
           suc.find((w) => w.id === guardado) ?? (delUsuario ? suc.find((w) => w.code === delUsuario) : undefined);
         this.almacenId.set(def?.id ?? '');
+        // [GP.RF.27] Abrir NO escribe ni espera a Telemarketing (decisión de Edgar, 2026-11-17). Antes se
+        // pedía «mis surtidos» y, si había uno a medias, se retomaba SOLO con «tomar siguiente» (una
+        // escritura de hasta 21 s); la lista de preventa, que es lo que el surtidor vino a ver, esperaba
+        // detrás. Ahora la lista sale de inmediato y lo de Telemarketing a medias es un aviso con
+        // «Continuar» (un toque, `continuarOla`).
+        if (pedido) {
+          this.surtirPedido(pedido);
+          this.cargarSucursal(true);
+        } else {
+          this.fase.set('listo');
+          if (this.origen() === 'SUCURSAL') this.cargarSucursal();
+        }
         this.api.misOlas().subscribe({
-          next: (olas) => {
-            if (olas.length) {
-              // Se retoma con "tomar siguiente" y NO pintando la ola tal cual: una ola asignada por
-              // la consola puede venir sin arrancar (sin renglones) y "0 pendientes" habilitaba
-              // cerrarla sin surtir nada. tomarSiguiente la arranca y devuelve sus renglones.
-              this.almacenId.set(olas[0].warehouse_id);
-              this.tomar();
-            } else if (pedido) {
-              this.surtirPedido(pedido);
-              this.cargarSucursal(true);
-            } else {
-              this.fase.set('listo');
-              if (this.origen() === 'SUCURSAL') this.cargarSucursal();
-            }
-          },
-          error: () => {
-            this.error.set('No se pudo revisar si ya traías un surtido.');
-            this.fase.set('listo');
-            if (this.origen() === 'SUCURSAL') this.cargarSucursal();
-          },
+          next: (olas) => this.olaAMedias.set(olas[0] ?? null),
+          // Sin poder revisarlo no se inventa un «no traes nada»: se dice, sin frenar la pantalla.
+          error: () => this.error.set('No se pudo revisar si traías un surtido de Telemarketing a medias.'),
         });
       },
       error: () => {
@@ -1633,6 +1891,18 @@ export class AlmacenSurtirComponent implements OnInit {
     this.sinTrabajo.set(null);
   }
 
+  /**
+   * `[GP.RF.27]` Retoma el surtido de Telemarketing que quedó a medias (el aviso de arriba). Se retoma
+   * con «tomar siguiente» y NO pintando la ola tal cual: una ola asignada por la consola puede venir
+   * sin arrancar (sin renglones) y «0 pendientes» habilitaba cerrarla sin surtir nada.
+   */
+  continuarOla(o: PickerWave): void {
+    this.almacenId.set(o.warehouse_id);
+    this.origen.set('TELEMARK');
+    this.olaAMedias.set(null);
+    this.tomar();
+  }
+
   elegirOrigen(v: Origen): void {
     this.origen.set(v);
     this.sinTrabajo.set(null);
@@ -1660,6 +1930,7 @@ export class AlmacenSurtirComponent implements OnInit {
           this.editando.set(null);
           this.ocultarHechos.set(false);
           this.fase.set('surtiendo');
+          this.alInicio();
           this.anuncio.set(`Surtido ${r.ola.code}: ${plural(r.ola.lines.length, 'renglón', 'renglones')}.`);
           if (r.ya_era_tuya) this.avisar('info', 'Sigues con el surtido que ya traías.');
         } else {
@@ -1721,7 +1992,34 @@ export class AlmacenSurtirComponent implements OnInit {
    * Enter en el buscador (el escáner manda el código y un Enter): con UNA coincidencia pendiente,
    * el foco va a su "Completo". No lo marca solo: escanear la etiqueta no es haber contado.
    */
+  /** `[GP.RF.33]` Lo que dijo el último escaneo que no se pudo marcar solo (otra presentación, ya marcado). */
+  readonly avisoEscaneo = signal<string | null>(null);
+
+  /**
+   * Enter en el campo de búsqueda (el lector de código de barras manda Enter). `[GP.RF.33]` Si lo
+   * escaneado es la presentación pedida de UN renglón pendiente, se marca Completo y el campo queda listo
+   * para el siguiente. Si es otra presentación, se avisa y no se marca. Sin saberlo, lo de antes: deja el
+   * foco en «Completo» del único renglón que coincide.
+   */
   enterBuscar(): void {
+    this.avisoEscaneo.set(null);
+    const r = leerEscaneo(this.busqueda(), this.ola()?.lines ?? []);
+    if (r?.tipo === 'completo') {
+      const nombre = r.linea.product_name || r.linea.sku;
+      this.completo(r.linea);
+      this.busqueda.set('');
+      this.anuncio.set(`${nombre}: completo.`);
+      setTimeout(() => (document.getElementById('sr-buscar') as HTMLInputElement | null)?.focus());
+      return;
+    }
+    if (r?.tipo === 'otra_presentacion') {
+      this.avisoEscaneo.set(`Escaneaste ${r.escaneada}; el pedido pide ${r.pedida}. Cuenta en ${r.pedida} y marca a mano.`);
+      return;
+    }
+    if (r?.tipo === 'ya_marcado') {
+      this.avisoEscaneo.set(`${r.linea.product_name || r.linea.sku} ya está marcado. Para cambiarlo, toca «Corregir».`);
+      return;
+    }
     const p = this.pendientes();
     if (p.length === 1) {
       (document.getElementById('sr-ok-' + p[0].id) as HTMLButtonElement | null)?.focus();
@@ -1756,6 +2054,7 @@ export class AlmacenSurtirComponent implements OnInit {
       },
       error: (e) => {
         this.cerrando.set(false);
+        this.reportarRechazo('cerrar_kepler', o, e);
         this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
       },
     });

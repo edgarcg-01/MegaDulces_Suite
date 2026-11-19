@@ -6,6 +6,7 @@ import { FinanceCollectionDepositsModule } from '../collection-deposits/finance-
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
+import { EstadoCuentaPublicoController } from './estado-cuenta-publico.controller';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Lee el espejo
@@ -20,7 +21,8 @@ import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 @Module({
   // [CC.20] El estado de cuenta imprime el QR del enlace de depósito del cliente (CustomerDepositsService).
   imports: [FinanceCollectionDepositsModule],
-  controllers: [CustomerLedgerController],
+  // [CC.20.2] El cliente descarga su estado de cuenta desde su enlace personal (pública, autorizada por el token).
+  controllers: [CustomerLedgerController, EstadoCuentaPublicoController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
     PgListenService, CarteraPorEventoService],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],

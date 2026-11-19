@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -6,9 +6,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { HrPersonaAsistencia } from '@megadulces/contracts';
+import type { HrCatalogosFichaDto, HrFichaPersonaDto, HrPersonaAsistencia, HrSinPlazasDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -20,6 +19,7 @@ import { RhFaltasComponent } from './rh-faltas.component';
 import { RhToleranciaComponent } from './rh-tolerancia.component';
 import { RhIncidenciasComponent } from './rh-incidencias.component';
 import { RhRelojesComponent } from './rh-relojes.component';
+import { RhNombresPorConfirmarComponent } from '../components/rh-nombres-por-confirmar.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
@@ -33,8 +33,8 @@ interface TurnoForm { entrada: string; salida: string; comida: number; }
 /** `[RH.6.3]` Hasta 4 horarios (mañana, tarde…): cada día se mide contra el más cercano a su entrada. El sábado es uno. */
 interface FormHorario { turnos: TurnoForm[]; sabado: boolean; sabadoEntrada: string; sabadoSalida: string; }
 const MAX_HORARIOS = 4;
-/** `[RH.7.1]` La ficha de la persona en la plaza, mientras RH la edita. */
-interface FormFicha { codigo: string; nombre: string; seccion: string; promotora: boolean; }
+/** `[RH.7.1]` La ficha de la persona en la plaza, mientras RH la edita. `[RH.14.5]` Más lo de la persona (sin acceso). */
+interface FormFicha { codigo: string; nombre: string; seccion: string; promotora: boolean; departamento: string | null; puesto: string | null; sucursal: string | null; }
 
 /**
  * Fase RH · `[RH.1.7c]` — Checadas (`/rh/asistencia`): el reporte semanal «calcado» de Mega Talento. Una fila por
@@ -46,9 +46,9 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   selector: 'app-rh-asistencia',
   standalone: true,
   imports: [
-    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, LoadStateComponent, SidePeekComponent,
+    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, LoadStateComponent, SidePeekComponent,
     RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent,
-    RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent,
+    RhFaltasComponent, RhToleranciaComponent, RhIncidenciasComponent, RhRelojesComponent, RhNombresPorConfirmarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -88,7 +88,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             }
             <!-- [RH.13.5] Sólo el PDF para firmar (David, 13-nov: sin Excel). Una sola salida no necesita menú. Sale lo que se ve:
                  si hay filtro, el resumen de la izquierda ya lo dice («solo SISTEMAS»). -->
-            <p-button label="PDF para firmar" icon="pi pi-file-pdf" ariaLabel="PDF para firmar" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="pdfPlaza()" />
+            <p-button label="PDF para firmar" icon="pi pi-file-pdf" ariaLabel="PDF para firmar" styleClass="ra-icono-chico" severity="secondary" [outlined]="true" [loading]="exportando()" [disabled]="est.loading()" (onClick)="pdfPlaza()" />
           </div>
         }
       </div>
@@ -128,10 +128,20 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
               <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: null }" />
             }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
+            <!-- [RH.14.1] Con la baja se quedó sin ninguna plaza: se propone archivarla también como persona (nunca solo). -->
+            @if (sinPlazas(); as s) {
+              <div class="ra-banner ra-sinplazas" role="note">
+                <span>{{ s.nombre || 'Sin nombre' }} quedó sin plazas{{ s.archivable ? '.' : ' · cuenta con acceso: la baja es de Sistemas.' }}</span>
+                @if (s.archivable && puedeEditarFicha()) {
+                  <p-button label="Archivar" severity="danger" [outlined]="true" size="small" [loading]="guardando()" (onClick)="archivar(s)" />
+                }
+                <p-button label="Ahora no" [text]="true" severity="secondary" size="small" (onClick)="sinPlazas.set(null)" />
+              </div>
+            }
             @if (filas().length) {
               <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
                                       [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()" [saldos]="est.saldosHE()"
-                                      (abrir)="abrir($event)" (menu)="menu($event)" />
+                                      (abrir)="abrir($event)" />
               <!-- La leyenda, al pie y en palabras: cada color dice lo que significa; toca a una persona para ver su semana. -->
               <p class="ra-ley">
                 @if (mide()) { <span><b class="ra-ley-rojo">En rojo</b>, la entrada tarde y la falta.</span> }
@@ -149,16 +159,6 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
       }
       }
 
-      <p-popover #acc appendTo="body" ariaLabel="Acciones de la persona">
-        @if (enMenu(); as p) {
-          <div class="ra-menu">
-            <button type="button" (click)="acc.hide(); abrir(p)">Ver su ficha</button>
-            <button type="button" (click)="acc.hide(); est.verSolo(p.codigo)">Ver solo a esta persona</button>
-            @if (puedeCapturar()) { <button type="button" (click)="acc.hide(); capturar(p)">Capturar incidencia</button> }
-            @if (puedeGestionar()) { <button type="button" (click)="acc.hide(); abrir(p); abrirHorario(p)">Horario</button> }
-          </div>
-        }
-      </p-popover>
 
       <app-side-peek [open]="!!sel()" (openChange)="cambioFicha($event)" [width]="720" [title]="fichaTitulo()" [subtitle]="fichaSub()">
         @if (sel(); as p) {
@@ -193,22 +193,49 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
               <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: p }" />
             }
 
+            <!-- [RH.14.3] El número y el nombre de cada reloj junto al de la Suite, y alinearlos aquí. [RH.14] Sin párrafos:
+                 Edgar (18-nov) pidió botones sin explicación alrededor. -->
+            @if (fichaDet(); as fd) {
+              <div class="ra-reloj">
+                <p class="ra-reloj-t">Reloj</p>
+                <ul>
+                  @for (r of fd.relojes; track r.serial_number) {
+                    <li><span class="mono">#{{ r.device_user_id }}</span> {{ r.nombre_reloj || '—' }} <small>{{ r.device_label || r.serial_number }}</small></li>
+                  } @empty { <li>—</li> }
+                </ul>
+                @if (puedeEditarFicha() && relojDistinto(fd)) {
+                  <p-button label="Actualizar en el reloj" icon="pi pi-sync" severity="secondary" [outlined]="true" size="small"
+                            [ariaLabel]="'Poner ' + fd.nombre_para_reloj + ' en el reloj'" [loading]="guardando()" (onClick)="ponerEnReloj(p, fd)" />
+                }
+              </div>
+              @if (fd.nombre_por_confirmar) {
+                <div class="ra-tira ra-confirmar">
+                  <p><b>Nombre por confirmar</b></p>
+                  @if (puedeEditarFicha() && fichaForm()?.codigo !== p.codigo) { <p-button label="Corregir" size="small" (onClick)="abrirFicha(p)" /> }
+                </div>
+              }
+            } @else if (fichaDetError()) {
+              <p class="ra-form-nota">No se pudo leer el reloj.</p>
+            }
+
             <!-- [RH.7.1] Su ficha en esta plaza: lo que agrupa el reporte y lo que exige el cierre semanal. -->
             @if (p.registrado) {
               <div class="ra-tira">
-                <p>En esta plaza: sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
-                  {{ est.soloPromotoras() ? '· promotora' : '· personal de planta' }}.
-                  @if (depto(p) === sinDepartamento) { Sin sección no entra al cierre semanal. }</p>
+                <p>Sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
+                  · {{ est.soloPromotoras() ? 'promotora' : 'planta' }}
+                  @if (fichaDet(); as fd) {
+                    <br />{{ nombreDe(catalogos()?.departamentos, fd.departamento_code, 'sin departamento') }} · {{ nombreDe(catalogos()?.puestos, fd.puesto_code, 'sin puesto') }}
+                    · {{ nombreDe(catalogos()?.sucursales, fd.sucursal_code, 'sin sucursal') }}@if (fd.zona_nombre) { ({{ fd.zona_nombre }}) }
+                    @if (fd.con_acceso) { <small class="ra-acceso">con acceso a la Suite</small> }
+                  }</p>
                 @if (puedeEditarFicha()) { <p-button label="Editar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirFicha(p)" /> }
               </div>
               <!-- [RH.7.2] Baja en ESTA plaza, separada de lo diario y con motivo (Von Restorff): se deshace en Bajas. -->
               @if (puedeEditarFicha()) {
                 @if (bajaDe() === p.codigo) {
                   <form class="ra-form ra-baja" (ngSubmit)="darDeBaja(p)" aria-label="Dar de baja en esta plaza">
-                    <label class="ra-ancho">Por qué se da de baja en esta plaza
+                    <label class="ra-ancho">Motivo
                       <input pInputText name="bmot" [ngModel]="motivoBaja()" (ngModelChange)="motivoBaja.set($event)" required /></label>
-                    <p class="ra-form-nota">Deja de contar en el reporte de esta plaza (sin faltas). Sigue activa en las otras plazas donde checa.
-                      Se reactiva desde la pestaña Bajas.</p>
                     <div class="ra-form-btns">
                       <p-button type="submit" label="Dar de baja" severity="danger" [disabled]="motivoBaja().trim().length < 5" [loading]="guardando()" />
                       <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="bajaDe.set(null)" />
@@ -216,21 +243,41 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                   </form>
                 } @else {
                   <div class="ra-baja-lnk">
-                    <p-button label="Dar de baja en esta plaza" icon="pi pi-user-minus" [text]="true" severity="danger" size="small" (onClick)="abrirBaja(p)" />
+                    <p-button label="Dar de baja" icon="pi pi-user-minus" [text]="true" severity="danger" size="small" (onClick)="abrirBaja(p)" />
                   </div>
                 }
               }
               @if (fichaForm(); as ff) {
                 @if (ff.codigo === p.codigo) {
                   <form class="ra-form" (ngSubmit)="guardarFicha(p)" aria-label="Editar la ficha en esta plaza">
-                    <label>Nombre completo <input pInputText name="fnom" [(ngModel)]="ff.nombre" required /></label>
+                    <!-- [RH.14.4] El nombre, a cualquiera (con o sin acceso a la Suite). -->
+                    <label class="ra-ancho">Nombre completo <input pInputText name="fnom" [(ngModel)]="ff.nombre" required placeholder="Nombre y apellidos" /></label>
                     <label>Sección del reporte
                       <p-select [options]="seccionesConocidas()" [editable]="true" name="fsec" [(ngModel)]="ff.seccion" appendTo="body"
                                 placeholder="Elige o escribe" ariaLabel="Sección del reporte de RH" />
                     </label>
                     <label class="ra-check"><input type="checkbox" name="fpro" [(ngModel)]="ff.promotora" /> Es promotora de marca</label>
-                    <p class="ra-form-nota">El nombre sólo se corrige aquí si la persona no tiene acceso a la Suite; si lo tiene, lo corrige
-                      Sistemas en Administración › Personas.</p>
+                    <!-- [RH.14.5] Lo de la persona (no de la plaza), sólo sin acceso: la zona sale de la sucursal. -->
+                    @if (fichaDet() && !fichaDet()!.con_acceso) {
+                      @if (catalogos(); as cat) {
+                        <label>Departamento
+                          <p-select [options]="cat.departamentos" optionLabel="name" optionValue="code" name="fdep" [(ngModel)]="ff.departamento" [showClear]="true"
+                                    [filter]="true" filterBy="name" appendTo="body" placeholder="Sin departamento" ariaLabel="Departamento" />
+                        </label>
+                        <label>Puesto
+                          <p-select [options]="puestosDe(cat, ff.departamento)" optionLabel="name" optionValue="code" name="fpue" [(ngModel)]="ff.puesto" [showClear]="true"
+                                    [filter]="true" filterBy="name" appendTo="body" placeholder="Sin puesto" ariaLabel="Puesto" />
+                        </label>
+                        <label>Sucursal
+                          <p-select [options]="cat.sucursales" optionLabel="name" optionValue="code" name="fsuc" [(ngModel)]="ff.sucursal" [showClear]="true"
+                                    [filter]="true" filterBy="name" appendTo="body" placeholder="Sin sucursal" ariaLabel="Sucursal" />
+                        </label>
+                      } @else if (catalogosError()) {
+                        <p class="ra-form-nota">No se pudo cargar departamento, puesto y sucursal.</p>
+                      } @else {
+                        <p class="ra-form-nota">Cargando…</p>
+                      }
+                    }
                     <div class="ra-form-btns">
                       <p-button type="submit" label="Guardar" [loading]="guardando()" />
                       <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="fichaForm.set(null)" />
@@ -265,25 +312,32 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                      title="Relojes checadores" subtitle="Todas las plazas">
         @if (panel() === 'relojes') { <app-rh-relojes [embebido]="true" /> }
       </app-side-peek>
+      <!-- [RH.14.4] Los nombres que son el apodo del reloj: se corrigen aquí, sin salir de Asistencia. -->
+      <app-side-peek [open]="panel() === 'nombres'" (openChange)="!$event && cerrarPanel()" [width]="760"
+                     title="Nombres por confirmar" [subtitle]="est.nombreSitio()">
+        @if (panel() === 'nombres') {
+          <app-rh-nombres-por-confirmar [sitio]="est.sitio()" [puedeEditar]="puedeEditarFicha()" (cambio)="est.refrescarNombres(); est.asegurar(true)" />
+        }
+      </app-side-peek>
     </div>
 
     <ng-template #tiraHorario let-p>
       <div class="ra-tira">
         @if (p.horarioAsignado; as h) {
           @if (h.horarios.length > 1) {
-            <p>Horarios de <b>{{ primerNombre(p) }}</b> asignados por RH:
+            <p>Horarios:
               @for (x of h.horarios; track x.entrada; let ultimo = $last) { {{ h12(x.entrada) }} a {{ h12(x.salida) }} · comida {{ x.comidaMin }} min{{ ultimo ? '' : ';' }} }
-              {{ h.sabado ? ' · trabaja el sábado' : '' }}. Cada día se mide contra el que trabajó.</p>
+              {{ h.sabado ? ' · sábado' : '' }}</p>
           } @else {
-            <p>Horario de <b>{{ primerNombre(p) }}</b> asignado por RH: {{ h12(h.entrada) }} a {{ h12(h.salida) }} · comida {{ h.comidaMin }} min{{ h.sabado ? ' · trabaja el sábado' : '' }}.</p>
+            <p>Horario: {{ h12(h.entrada) }} a {{ h12(h.salida) }} · comida {{ h.comidaMin }} min{{ h.sabado ? ' · sábado' : '' }}</p>
           }
           @if (puedeGestionar()) {
             <p-button label="Cambiar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" />
-            <p-button label="Volver al deducido" [text]="true" size="small" [loading]="guardando()" (onClick)="quitarHorario(p)" />
+            <p-button label="Quitar" [text]="true" size="small" [loading]="guardando()" (onClick)="quitarHorario(p)" />
           }
         } @else {
-          <p><b>{{ primerNombre(p) }}</b> no tiene horario asignado. Se mide contra el que sale de sus checadas: {{ horarioTexto(p) }}.</p>
-          @if (puedeGestionar()) { <p-button label="Asignarle horario" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" /> }
+          <p>Horario deducido: {{ horarioTexto(p) }}</p>
+          @if (puedeGestionar()) { <p-button label="Asignar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" /> }
         }
       </div>
     </ng-template>
@@ -291,8 +345,9 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     <ng-template #formHorario let-p>
       @if (form(); as f) {
         <form class="ra-form" (ngSubmit)="guardarHorario()" aria-label="Asignar horario">
-          <p class="ra-form-nota">Para <b>{{ p ? (p.nombreCompleto || p.nombre) : 'las ' + visibles().length + ' personas que se ven' }}</b>. Manda sobre lo que se deduce de las
-            checadas: contra él se miden el retardo, las faltas, la salida y la comida.</p>
+          <!-- [RH.14.7] «Las que se ven» son las filas en pantalla (con «Solo irregulares», sólo ésas): antes decía las de la
+               búsqueda y le escribía el horario también a las que el filtro escondía. -->
+          <p class="ra-form-nota">Para <b>{{ p ? (p.nombreCompleto || p.nombre) : (filas().length === 1 ? 'la persona que se ve' : 'las ' + filas().length + ' personas que se ven') }}</b></p>
           @for (t of f.turnos; track $index; let i = $index) {
             <fieldset class="ra-turno">
               @if (f.turnos.length > 1) { <legend>Horario {{ i + 1 }}</legend> }
@@ -306,8 +361,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
           }
           @if (f.turnos.length < maxHorarios) {
             <p class="ra-form-nota">
-              <p-button label="Agregar otro horario" icon="pi pi-plus" [text]="true" size="small" (onClick)="agregarTurno()" />
-              Para quien trabaja unos días de mañana y otros de tarde: cada día se mide contra el horario más cercano a su entrada.
+              <p-button label="Agregar horario" icon="pi pi-plus" [text]="true" size="small" (onClick)="agregarTurno()" />
             </p>
           }
           <label class="ra-check"><input type="checkbox" name="sab" [(ngModel)]="f.sabado" /> Trabaja el sábado</label>
@@ -316,7 +370,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
             <label>Sábado sale <input pInputText type="time" name="sabS" [(ngModel)]="f.sabadoSalida" /></label>
           }
           <div class="ra-form-btns">
-            <p-button type="submit" label="Guardar horario" [loading]="guardando()" />
+            <p-button type="submit" [label]="p || filas().length <= 1 ? 'Guardar horario' : 'Guardar horario a ' + filas().length" [loading]="guardando()" />
             <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="form.set(null)" />
           </div>
         </form>
@@ -346,10 +400,6 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-rep-head p { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ra-parcial { color: var(--warn-soft-fg); font-weight: 600; }
     .ra-rep-acc { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
-    .ra-menu { display: flex; flex-direction: column; min-width: 13rem; }
-    .ra-menu button { text-align: left; border: 0; background: none; padding: 6px var(--sp-2); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
-    .ra-menu button:hover, .ra-menu button:focus-visible { background: var(--surface-hover-bg); outline: none; }
-    .ra-menu p { margin: var(--sp-1) var(--sp-2) 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 16rem; }
     .ra-irr { display: inline-flex; align-items: center; gap: 6px; }
     .ra-irr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); }
     .ra-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); border-radius: var(--r-pill); padding: 2px var(--sp-3);
@@ -395,6 +445,15 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
     .ra-banner { margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ra-ficha .ra-banner, .ra-una .ra-banner { margin: 0; }
     .ra-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .ra-sinplazas { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); background: var(--surface-2); color: var(--text-main); }
+    .ra-sinplazas span { flex: 1 1 30ch; }
+    .ra-reloj { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-reloj-t { margin: 0; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; flex: 1 1 100%; }
+    .ra-reloj ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1 1 20rem; }
+    .ra-reloj small { color: var(--text-muted); font-size: var(--fs-xs); }
+    .ra-confirmar { border: 1px solid var(--border-color); }
+    .ra-acceso { margin-left: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
+    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     /* [RH.13.5] Angosta: «Horario» y «PDF para firmar» sólo con su ícono (conservan el nombre para el lector de pantalla).
        En el teléfono la tabla no trae los días, así que la leyenda de D y C sobra. */
     @media (max-width: 48rem) {
@@ -418,7 +477,6 @@ export class RhAsistenciaComponent {
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
-  private readonly acc = viewChild<Popover>('acc');
 
   readonly gravedadLabel: Record<string, string> = { alta: 'Bloquea', media: 'Revisar', info: 'Nota', ok: 'Confirmado' };
   readonly horas = horasTexto;
@@ -428,7 +486,6 @@ export class RhAsistenciaComponent {
   readonly h12 = hora12;
 
   readonly sel = signal<HrPersonaAsistencia | null>(null);
-  readonly enMenu = signal<HrPersonaAsistencia | null>(null);
   readonly form = signal<FormHorario | null>(null);
   /** A quién va el horario: una persona, o null = las que se ven. */
   readonly destino = signal<HrPersonaAsistencia | null>(null);
@@ -507,10 +564,82 @@ export class RhAsistenciaComponent {
     const v = this.q().get('ver');
     return v === 'faltas' || v === 'tolerancia' ? v : 'semana';
   });
-  readonly panel = computed<'incidencias' | 'relojes' | null>(() => {
+  readonly panel = computed<'incidencias' | 'relojes' | 'nombres' | null>(() => {
     const p = this.q().get('panel');
-    return p === 'incidencias' || p === 'relojes' ? p : null;
+    return p === 'incidencias' || p === 'relojes' || p === 'nombres' ? p : null;
   });
+
+  // ── [RH.14.3] La ficha completa (relojes y datos de la persona), leída al abrir a alguien ──
+  readonly fichaDet = signal<HrFichaPersonaDto | null>(null);
+  readonly fichaDetError = signal<string | null>(null);
+  readonly catalogos = signal<HrCatalogosFichaDto | null>(null);
+  readonly catalogosError = signal<string | null>(null);
+  /** `[RH.14.1]` Con la última baja, la persona se quedó sin plazas. */
+  readonly sinPlazas = signal<HrSinPlazasDto | null>(null);
+  private fichaSeq = 0;
+
+  private cargarFichaDet(p: HrPersonaAsistencia): void {
+    const site = this.est.sitio();
+    const mi = ++this.fichaSeq;
+    this.fichaDet.set(null);
+    this.fichaDetError.set(null);
+    if (!site) return;
+    this.api.fichaPersona(site, p.codigo).subscribe({
+      next: (f) => { if (mi === this.fichaSeq) this.fichaDet.set(f); },
+      error: (e) => { if (mi === this.fichaSeq) this.fichaDetError.set(rhError(e, '')); },
+    });
+    if (!this.catalogos()) {
+      this.api.catalogosFicha().subscribe({
+        next: (c) => { this.catalogos.set(c); this.catalogosError.set(null); },
+        error: (e) => this.catalogosError.set(rhError(e, 'No se pudieron leer.')),
+      });
+    }
+  }
+
+  /** Algún reloj la tiene con un nombre distinto del que quedaría con su nombre de la Suite. */
+  relojDistinto(fd: HrFichaPersonaDto): boolean {
+    return !!fd.nombre_para_reloj && fd.relojes.some((r) => (r.nombre_reloj ?? '') !== fd.nombre_para_reloj);
+  }
+
+  /** Un código del catálogo, por su nombre. Sin catálogo se dice que no se pudo leer; sin valor, lo que diga `vacio` («sin departamento»). */
+  nombreDe(lista: Array<{ code: string; name: string }> | undefined, code: string | null, vacio: string): string {
+    if (!code) return vacio;
+    if (!lista) return this.catalogosError() ? 'no se pudo leer' : '…';
+    return lista.find((x) => x.code === code)?.name ?? 'ya no existe en el catálogo';
+  }
+
+  /** Con departamento elegido, sus puestos primero; sin él, todos. */
+  puestosDe(cat: HrCatalogosFichaDto, dep: string | null): HrCatalogosFichaDto['puestos'] {
+    if (!dep) return cat.puestos;
+    return [...cat.puestos.filter((x) => x.department_code === dep), ...cat.puestos.filter((x) => x.department_code !== dep)];
+  }
+
+  ponerEnReloj(p: HrPersonaAsistencia, fd: HrFichaPersonaDto): void {
+    const site = this.est.sitio();
+    if (!site || !fd.nombre_para_reloj || this.guardando()) return;
+    this.guardando.set(true);
+    this.api.renombrar(site, p.codigo, fd.nombre_para_reloj).subscribe({
+      next: (r) => {
+        this.guardando.set(false);
+        this.aviso.set({ texto: `Enviado al reloj: ${r.nombre}`, mal: false });
+        this.cargarFichaDet(p);
+      },
+      error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo mandar el nombre al reloj.'), mal: true }); },
+    });
+  }
+
+  archivar(s: HrSinPlazasDto): void {
+    if (this.guardando()) return;
+    this.guardando.set(true);
+    this.api.archivarPersona({ user_id: s.user_id, motivo: 'Sin plazas activas: se dio de baja en la última que tenía' }).subscribe({
+      next: () => {
+        this.guardando.set(false);
+        this.sinPlazas.set(null);
+        this.aviso.set({ texto: `Archivada: ${s.nombre || 'sin nombre'}`, mal: false });
+      },
+      error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo archivar.'), mal: true }); },
+    });
+  }
 
   irAVer(v: 'semana' | 'faltas' | 'tolerancia'): void {
     void this.router.navigate([], { relativeTo: this.ruta, queryParams: { ver: v === 'semana' ? null : v }, queryParamsHandling: 'merge' });
@@ -554,15 +683,13 @@ export class RhAsistenciaComponent {
     return p.semanas.reduce((t, s) => t + s.dias.filter((d) => d.estado === 'falta' && d.fecha < hoy).length, 0);
   }
 
-  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
-  cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
+  abrir(p: HrPersonaAsistencia): void {
+    this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); this.sinPlazas.set(null);
+    this.cargarFichaDet(p);
+  }
+  cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); this.fichaDet.set(null); this.fichaSeq++; }
   cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
   soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.verSolo(p.codigo); }
-
-  menu(e: { persona: HrPersonaAsistencia; evento: Event }): void {
-    this.enMenu.set(e.persona);
-    this.acc()?.toggle(e.evento);
-  }
 
   /** La captura vive en el panel de Incidencias: se abre AQUÍ, con la persona, la plaza y la semana ya puestas. */
   capturar(p: HrPersonaAsistencia, fecha?: string): void {
@@ -602,7 +729,8 @@ export class RhAsistenciaComponent {
     const site = this.est.sitio();
     if (!f || !site || !f.turnos.length) return;
     const p = this.destino();
-    const codigos = p ? [p.codigo] : this.visibles().map((x) => x.codigo);
+    // `[RH.14.7]` A quien está en pantalla: con «Solo irregulares», sólo a ésas (antes, a todas las de la búsqueda).
+    const codigos = p ? [p.codigo] : this.filas().map((x) => x.codigo);
     if (!codigos.length) return;
     const [t0] = f.turnos;
     this.guardando.set(true);
@@ -616,7 +744,7 @@ export class RhAsistenciaComponent {
       next: (r) => {
         this.guardando.set(false);
         this.form.set(null);
-        this.aviso.set({ texto: `Horario guardado${r.guardados > 1 ? ` para ${r.guardados} personas` : ''}. Los números ya se miden contra él.`, mal: false });
+        this.aviso.set({ texto: `Horario guardado${r.guardados > 1 ? ` (${r.guardados})` : ''}`, mal: false });
         this.est.asegurar(true);
       },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar el horario.'), mal: true }); },
@@ -627,9 +755,12 @@ export class RhAsistenciaComponent {
     this.aviso.set(null);
     this.form.set(null);
     const d = departamentoDe(p);
+    const fd = this.fichaDet();
     this.fichaForm.set({
-      codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, seccion: d === SIN_DEPARTAMENTO ? '' : d,
+      // `[RH.14.4]` Si su nombre es el apodo del reloj, el campo arranca vacío: copiar el apodo invita a guardarlo igual.
+      codigo: p.codigo, nombre: fd?.nombre_por_confirmar === 'apodo_del_reloj' ? '' : (p.nombreCompleto || p.nombre), seccion: d === SIN_DEPARTAMENTO ? '' : d,
       promotora: this.est.soloPromotoras(),
+      departamento: fd?.departamento_code ?? null, puesto: fd?.puesto_code ?? null, sucursal: fd?.sucursal_code ?? null,
     });
   }
 
@@ -639,10 +770,19 @@ export class RhAsistenciaComponent {
     const site = this.est.sitio();
     if (!f || !site) return;
     const antes = departamentoDe(p);
-    const cambios: { nombre?: string; seccion?: string; promotora?: boolean } = {};
-    if (f.nombre.trim() !== (p.nombreCompleto || p.nombre)) cambios.nombre = f.nombre;
+    const fd = this.fichaDet();
+    const cambios: { nombre?: string; seccion?: string; promotora?: boolean; departamento_code?: string | null; puesto_code?: string | null; sucursal_code?: string | null } = {};
+    // `[RH.14.4]` El nombre va para cualquiera. Lo de la persona (departamento, puesto, sucursal), sólo sin acceso: con
+    // acceso el servidor lo rechaza (lo cambia Sistemas).
+    const sinAcceso = !!fd && !fd.con_acceso;
+    if (f.nombre.trim() && f.nombre.trim() !== (p.nombreCompleto || p.nombre)) cambios.nombre = f.nombre;
     if (f.seccion.trim().toUpperCase() !== (antes === SIN_DEPARTAMENTO ? '' : antes)) cambios.seccion = f.seccion;
     if (f.promotora !== this.est.soloPromotoras()) cambios.promotora = f.promotora;
+    if (sinAcceso && fd) {
+      if ((f.departamento ?? null) !== fd.departamento_code) cambios.departamento_code = f.departamento ?? null;
+      if ((f.puesto ?? null) !== fd.puesto_code) cambios.puesto_code = f.puesto ?? null;
+      if ((f.sucursal ?? null) !== fd.sucursal_code) cambios.sucursal_code = f.sucursal ?? null;
+    }
     if (!Object.keys(cambios).length) { this.aviso.set({ texto: 'No cambiaste nada.', mal: false }); return; }
     this.guardando.set(true);
     this.api.editarFicha({ site_code: site, person_code: p.codigo, ...cambios }).subscribe({
@@ -651,11 +791,13 @@ export class RhAsistenciaComponent {
         this.fichaForm.set(null);
         this.aviso.set({
           texto: cambios.promotora !== undefined
-            ? `Guardado. Ahora sale en ${cambios.promotora ? 'Promotoras' : 'Planta'}: cambia el filtro de arriba para verla.`
-            : 'Guardado. El reporte ya la agrupa así.',
+            ? `Guardado · ahora en ${cambios.promotora ? 'Promotoras' : 'Planta'}`
+            : 'Guardado',
           mal: false,
         });
         this.est.asegurar(true);
+        if (cambios.nombre !== undefined) this.est.refrescarNombres();
+        this.cargarFichaDet(p);
       },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar la ficha.'), mal: true }); },
     });
@@ -676,11 +818,12 @@ export class RhAsistenciaComponent {
     if (!site || motivo.length < 5 || this.guardando()) return;
     this.guardando.set(true);
     this.api.darDeBaja({ site_code: site, person_code: p.codigo, motivo }).subscribe({
-      next: () => {
+      next: (r) => {
         this.guardando.set(false);
         this.bajaDe.set(null);
         this.cerrar();
-        this.aviso.set({ texto: `${p.nombreCompleto || p.nombre} quedó de baja en esta plaza. Se reactiva desde la pestaña Bajas.`, mal: false });
+        this.aviso.set({ texto: `De baja: ${p.nombreCompleto || p.nombre}`, mal: false });
+        this.sinPlazas.set(r.sin_plazas ?? null);
         this.est.asegurar(true);
       },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo dar de baja.'), mal: true }); },

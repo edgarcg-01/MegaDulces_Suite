@@ -96,4 +96,31 @@ export const OperationsPreset = definePreset(Aura, {
       },
     },
   },
+  // `[GP.RF.13]` `[GP.RF.18]` 2026-11-18: los botones SIN relleno (text y outlined) pintan su texto en
+  // el tono 500 de Aura, y en claro casi ninguno llega a AA (4.5:1). Medido contra blanco / el fondo
+  // de página (#F4F4F5): secondary 4.83/4.40 («Salir» de Surtir), danger 3.76/3.42 («Cancelar
+  // surtido» del Tablero), success 2.28, info 2.77, warn 2.80, help 3.96. Ahora: secondary 600
+  // (7.73/7.03), danger 700 (6.47/5.89), success 700 (5.02/4.56), info 700 (5.93/5.40), warn 700
+  // (5.18/4.71), help 700 (6.98/6.35). En oscuro no cambia (el 400 sobre zinc ya pasa). El relleno
+  // al pasar el mouse (tono 50) no cambia.
+  components: {
+    button: {
+      text: {
+        secondary: { color: 'light-dark({surface.600}, {surface.400})' },
+        success: { color: 'light-dark({green.700}, {green.400})' },
+        info: { color: 'light-dark({sky.700}, {sky.400})' },
+        warn: { color: 'light-dark({orange.700}, {orange.400})' },
+        help: { color: 'light-dark({purple.700}, {purple.400})' },
+        danger: { color: 'light-dark({red.700}, {red.400})' },
+      },
+      outlined: {
+        secondary: { color: 'light-dark({surface.600}, {surface.400})' },
+        success: { color: 'light-dark({green.700}, {green.400})' },
+        info: { color: 'light-dark({sky.700}, {sky.400})' },
+        warn: { color: 'light-dark({orange.700}, {orange.400})' },
+        help: { color: 'light-dark({purple.700}, {purple.400})' },
+        danger: { color: 'light-dark({red.700}, {red.400})' },
+      },
+    },
+  },
 });

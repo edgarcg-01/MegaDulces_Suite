@@ -5,7 +5,8 @@ import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/pl
 import { describirArchivo, describirNoLeidos, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable, type SucursalesContraElLibro } from './contra-el-libro';
-import { cuadreDeLaDescarga, type ArchivoParaCuadre, type CuadreDeLaDescarga, type SaldoDelBanco, type TestigoDeEntrada } from './cuadre-de-la-descarga';
+import { cuadreDeLaDescarga, type CuadreDeLaDescarga } from './cuadre-de-la-descarga';
+import { cuadresDeLaDescarga } from './cuadre-de-cuentas.query';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
@@ -369,36 +370,8 @@ export class EstadoDeCuentaService {
    * de sus renglones y el testigo de la entrada = el cierre de la cuenta el último día ANTES de su primer renglón (lo
    * que la cuenta traía, reconstruido por la cadena de saldos; sin contar lo que metió el propio banco).
    */
-  private async cuadreDe(trx: Knex.Transaction, ids: readonly string[], hoy: string): Promise<Map<string, CuadreDeLaDescarga>> {
-    const out = new Map<string, CuadreDeLaDescarga>();
-    if (!ids.length) return out;
-    const archivos: (ArchivoParaCuadre & { bank_account_id: string })[] = await trx('finance.bank_statement_files').whereIn('bank_account_id', ids)
-      .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"),
-        'opening_balance as abre', 'closing_balance as cierra', trx.raw(`to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') as subido`));
-    const saldos: (SaldoDelBanco & { bank_account_id: string })[] = await trx('finance.bank_statement_lines').whereIn('bank_account_id', ids)
-      .select('bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance as saldo');
-    for (const id of ids) {
-      const deA = archivos.filter((a) => a.bank_account_id === id);
-      const deS = saldos.filter((s) => s.bank_account_id === id);
-      const inicio = [...deA.map((a) => a.desde), ...deS.map((s) => s.fecha)].sort()[0] ?? null;
-      out.set(id, cuadreDeLaDescarga(deA, deS, await this.testigoDeEntrada(trx, id, inicio ?? this.manana(hoy)), hoy));
-    }
-    return out;
-  }
-
-  /** El cierre de la cuenta el último día con saldo antes de `antesDe`, sin contar lo que metió el banco. `null` si no hay. */
-  private async testigoDeEntrada(trx: Knex.Transaction, cuentaId: string, antesDe: string): Promise<TestigoDeEntrada | null> {
-    const base = () => trx('finance.bank_movements').where({ bank_account_id: cuentaId }).whereNull('deleted_at').whereNot('sync_source', 'banco');
-    const ultimo = await base().whereNotNull('running_balance').andWhere('movement_date', '<', antesDe)
-      .first(trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as d"));
-    if (!ultimo?.d) return null;
-    const saldo = cierreDelDia(await base().where({ movement_date: ultimo.d }).select('amount_in', 'amount_out', 'running_balance'));
-    return saldo === null ? null : { fecha: ultimo.d, saldo };
-  }
-
-  private manana(hoy: string): string {
-    const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1);
-    return d.toISOString().slice(0, 10);
+  private cuadreDe(trx: Knex.Transaction, ids: readonly string[], hoy: string): Promise<Map<string, CuadreDeLaDescarga>> {
+    return cuadresDeLaDescarga(trx, ids, hoy);
   }
 
   /** `[CB.60b]` ¿Existe ya la columna? La API puede desplegarse antes que la migración: sin columna, nada usa el banco. */

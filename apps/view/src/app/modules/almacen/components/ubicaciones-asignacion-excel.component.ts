@@ -110,7 +110,7 @@ const PAPEL = new Map(ASSIGNMENT_ROLES.map((r) => [r.key, r.label]));
     .ax-resumen { display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
     .ax-cnt { display:inline-flex; align-items:center; gap:.35rem; }
     /* ::ng-deep sólo para el tamaño del p-tag de PrimeNG (vendor). */
-    :host ::ng-deep .ax-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .ax-tag { font-size:var(--fs-micro); }
     .ax-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .ax-sub { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
     .ax-blk { display:block; }

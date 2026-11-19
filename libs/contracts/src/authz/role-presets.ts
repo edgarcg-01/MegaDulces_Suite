@@ -162,6 +162,10 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
   // Fase TP (ADR-064) — Presupuestos es responsable propio del proceso de pago
   // (capacidad diaria + gastos autorizados), separado de Tesorería/Finanzas.
   presupuestos: [Permission.PRESUPUESTOS_VER, Permission.PRESUPUESTOS_GESTIONAR],
+  // El permiso de Control de Caducidades no vivía en ningún grupo, así que ningún rol lo repartía.
+  // El promotor de marca lo necesita y nada más que eso (ADR-054: el permiso es una clave, no un
+  // paquete): ve sólo SUS hojas (el servicio filtra `created_by = userId`) y su marca (promoter_brands).
+  caducidades: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR],
 };
 
 export interface AreaPreset {
@@ -276,6 +280,14 @@ export const AREA_PRESETS: AreaPreset[] = [
     primary: ['televenta'],
     secondary: ['comercial'],
   },
+  {
+    role: 'promotor',
+    label: 'Promotor',
+    description:
+      'Promotor de marca: captura Control de Caducidades de su marca en su zona. Rol mínimo (ADR-054): sólo caducidades, ve sólo sus propias hojas.',
+    primary: ['caducidades'],
+    secondary: [],
+  },
 ];
 
 const verOnly = (perms: Permission[]): Permission[] =>
@@ -331,6 +343,7 @@ export const AREAS: AreaMeta[] = [
   { slug: 'cedis', label: 'CEDIS', icon: 'pi pi-box' },
   { slug: 'rutas', label: 'Rutas', icon: 'pi pi-directions' },
   { slug: 'telemarketing', label: 'Telemarketing', icon: 'pi pi-headphones' },
+  { slug: 'promotor', label: 'Promotor', icon: 'pi pi-clock' },
   { slug: 'externos', label: 'Externos (Portal B2B)', icon: 'pi pi-globe' },
   { slug: 'otros', label: 'Otros / heredados', icon: 'pi pi-ellipsis-h' },
 ];

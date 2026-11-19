@@ -25,6 +25,7 @@ import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalo
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
@@ -242,7 +243,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-sw .pi { font-size:var(--fs-nano); }
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; }
     .ub-grid { display:grid; grid-template-columns:4.75rem repeat(var(--ub-cols), minmax(1.75rem, 1fr)); gap:.25rem; align-items:center; min-width:min-content; }
-    .ub-rh { text-align:center; font-size:var(--fs-nano); color:var(--text-muted); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ .ub-rh { text-align:center; font-size:var(--fs-micro); color:var(--text-muted); }
     .ub-ah { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
     .ub-cell { height:2.25rem; border-radius:var(--r-sm); border:1px solid transparent; cursor:pointer; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--text-main); }
     .ub-cell .pi { font-size:var(--fs-xs); }
@@ -263,7 +264,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-code { font-size:var(--fs-lg); font-weight:600; }
     .ub-level-txt { font-size:var(--fs-xs); color:var(--text-muted); min-width:0; }
     .ub-level-txt b { color:var(--text-main); font-weight:600; }
-    .ub-chip { font-size:var(--fs-nano); padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-color); white-space:nowrap; }
+    .ub-chip { font-size:var(--fs-micro); padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-color); white-space:nowrap; }
     .ub-chip-activa { background:var(--ok-soft-bg); color:var(--ok-soft-fg); border-color:var(--ok-border); }
     .ub-chip-bloqueada { background:var(--bad-soft-bg); color:var(--bad-soft-fg); border-color:var(--bad-border); }
     .ub-chip-baja { background:var(--hover-bg); color:var(--text-muted); }
@@ -375,7 +376,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   );
 
   readonly almacenOpts = computed(() =>
-    (this.data()?.alcance.almacenes ?? []).map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })),
+    (this.data()?.alcance.almacenes ?? []).map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */,
   );
 
   private readonly conFormato = computed(() => (this.data()?.ubicaciones ?? []).filter((u) => u.familia === 'ubicacion'));
@@ -411,6 +412,12 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
     this.api.list(this.warehouseId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         if (folio !== this.consulta) return;
+        // [UB.RF.7] Sin elección en esta pantalla, abre el almacén que eligió en Asignación o Contenido
+        // (si está en su alcance); antes abría siempre el que proponía el servidor.
+        if (!this.warehouseId() && d.warehouse) {
+          const elegido = elegirAlmacen(d.alcance.almacenes, d.warehouse.id);
+          if (elegido && elegido !== d.warehouse.id) { this.warehouseId.set(elegido); this.reload(); return; }
+        }
         this.data.set(d);
         if (!this.warehouseId() && d.warehouse) this.warehouseId.set(d.warehouse.id);
         // [UB.RF.5] Si la zona elegida está vacía y la otra no, se abre en la que tiene ubicaciones: CEDIS
@@ -436,6 +443,7 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
 
   pickAlmacen(id: string): void {
     this.warehouseId.set(id);
+    guardarAlmacenPreferido(id); // [UB.RF.7]
     this.sel.set(null);
     this.reload();
   }

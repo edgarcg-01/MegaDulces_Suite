@@ -44,6 +44,11 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
       asistencia: vi.fn(() => of(asistencia([]))),
       estadoRelojes: vi.fn(() => of([])),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
+      // [RH.14] Lo que la pantalla lee del padrón: vacío, para que no cambie lo que prueba este archivo.
+      nombresPorConfirmar: vi.fn(() => of({ filas: [], total: 0 })),
+      posiblesBajas: vi.fn(() => of({ site_code: '', dias: 31, filas: [], explicadas: [] })),
+      fichaPersona: vi.fn(() => of(null)),
+      catalogosFicha: vi.fn(() => of({ departamentos: [], puestos: [], sucursales: [] })),
       estadoCierre: vi.fn(() => of([])),
       directorio: vi.fn(() => of([])),
     };

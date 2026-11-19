@@ -33,6 +33,10 @@ export class DepositoClienteService {
   contexto(token: string): Observable<ContextoDeposito> {
     return this.http.get<ContextoDeposito>(`${this.base}/${encodeURIComponent(token)}`);
   }
+  /** `[CC.20.2]` La URL del PDF del estado de cuenta (se abre con un `<a>`: sin interceptor, sin sesión). */
+  estadoCuentaUrl(token: string): string {
+    return `${this.base}/${encodeURIComponent(token)}/estado-de-cuenta.pdf`;
+  }
   subir(token: string, dataUri: string): Observable<ArchivoSubido> {
     return this.http.post<ArchivoSubido>(`${this.base}/${encodeURIComponent(token)}/subir`, { file_base64: dataUri });
   }

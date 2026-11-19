@@ -683,13 +683,35 @@ export function evaluarArqueoDeEgreso(
   hayConteo: boolean,
   egreso: { tipo?: string | null; origen_efectivo?: string | null; caos_links?: ReadonlyArray<{ monto: number | string }> | null },
   epsilon = LOTE_EPSILON,
-): VeredictoArqueo & { cubierto: number } {
+): VeredictoArqueo & { cubierto: number; depositado: number } {
   const cubierto = egreso.tipo === 'gasto' && egreso.origen_efectivo === 'caos'
     // Lo que la bóveda puede dar en SUS billetes ($20–$500): los pesos sueltos no los respalda.
     ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + pagableConBilletesCaos(Number(k.monto) || 0), 0))
     : 0;
   const credito = Math.max(0, Number(ventaCredito) || 0);
-  return { ...evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon), cubierto };
+  const base = evaluarArqueo(monto, morralla, dens, credito, hayConteo, epsilon);
+  /**
+   * ⭐ `[LE.6.33]` **Un COBRO depositado en la máquina: lo que el depósito cubre ya lo contó CAOS.**
+   *
+   * Caso (2026-11-18): el depósito «rd can 13/11» de $51,770 junta las ventas de las rutas 501, 502 y
+   * 503 de Canindo, y cada ruta es un cobro distinto en Kepler. La pantalla ligaba el depósito ENTERO
+   * al primer cobro, y la base lo rechazaba (`CAOS_LINK_EXCEDE_CAPTURA`): un depósito no podía
+   * repartirse entre varios cobros.
+   *
+   * ⛔ No es A.56.1 otra vez. En un EGRESO los billetes pasan por la mano de la cajera y se cuentan
+   * (A.56.2). En un cobro depositado, los billetes ESTÁN DENTRO de la máquina: no se pueden volver a
+   * contar, y el conteo de la máquina es el arqueo. Por eso lo ligado cuenta como lo que no está en el
+   * cajón, igual que un cheque. Los dos candados de la base (`caos_link_no_excede`) acotan el crédito:
+   * nunca más que el depósito, nunca más que el cobro.
+   *
+   * Compatible con la pantalla anterior, que copiaba los billetes del depósito a la reja: si el
+   * desglose YA cuadra sin acreditar, ése manda (acreditar encima lo contaría dos veces).
+   */
+  const depositado = egreso.tipo === 'ingreso'
+    ? redondea2((egreso.caos_links ?? []).reduce((a, k) => a + Math.max(0, Number(k.monto) || 0), 0))
+    : 0;
+  if (base.ok || depositado <= 0) return { ...base, cubierto, depositado };
+  return { ...evaluarArqueo(monto, morralla, dens, credito + depositado, hayConteo, epsilon), cubierto, depositado };
 }
 
 // ── Gasto: lo que se repite se ofrece, no se reescribe ────────────────────────────────────────

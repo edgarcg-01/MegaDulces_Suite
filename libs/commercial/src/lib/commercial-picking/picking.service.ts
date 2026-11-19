@@ -24,6 +24,7 @@ import {
   LINEAS_KEPLER_DE_OLA_SQL,
   POOL_KEPLER_SQL,
   UMBRAL_TANDA,
+  VENTANA_POOL_DIAS,
   documentoKepler,
   keplerOrderId,
   normalizarLlave,
@@ -405,7 +406,7 @@ export class PickingService {
     if (origen && !(ORIGENES_KEPLER as readonly string[]).includes(origen)) {
       throw new BadRequestException(`origen inválido: ${origen}. Válidos: ${ORIGENES_KEPLER.join(', ')}`);
     }
-    const days = q.days == null ? 7 : Number(q.days);
+    const days = q.days == null ? VENTANA_POOL_DIAS : Number(q.days); // [GP.RF.16] la misma ventana que el aviso del Tablero
     if (!Number.isInteger(days) || days < 0 || days > 60) {
       throw new BadRequestException('days debe ser un entero entre 0 y 60');
     }

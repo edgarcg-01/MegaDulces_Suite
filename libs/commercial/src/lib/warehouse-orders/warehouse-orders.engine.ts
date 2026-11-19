@@ -115,6 +115,18 @@ export function periodo(
 }
 
 /** Fecha y hora "de pared" de México para un instante dado: `YYYY-MM-DD` y minutos del día. */
+/**
+ * `[GP.RF.16]` La ventana de la fila de surtido: `dias` hacia atrás desde hoy (México). Igual que el pool
+ * de Kepler (`(now() AT TIME ZONE MX)::date - dias`). Devuelve el primer día que entra y el último que no.
+ */
+export function ventanaPool(hoyMx: string, dias: number): { desde: string; hasta: string } {
+  const d = new Date(`${hoyMx}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - dias);
+  const desde = d.toISOString().slice(0, 10);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return { desde, hasta: d.toISOString().slice(0, 10) };
+}
+
 export function relojMx(now: Date): { fecha: string; minutos: number } {
   const fecha = now.toLocaleDateString('en-CA', { timeZone: MX_TZ });
   const hm = now.toLocaleTimeString('en-GB', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
@@ -225,14 +237,22 @@ export function armarRespuesta(
   }
   const conteos_etapa = [...porEtapa.entries()].map(([etapa, c]) => ({ etapa: etapa as EtapaPedido, ...c }));
 
-  const filtrados = base
-    .filter((r) =>
-      filtros.estatus.length || filtros.etapa.length
-        ? (!filtros.estatus.length || filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) &&
-          (!filtros.etapa.length || filtros.etapa.includes(r.etapa))
-        : !esCancelado(r),
-    )
-    .sort(ordenLista);
+  const pasaEtapa = (r: WarehouseOrderRow): boolean =>
+    filtros.estatus.length || filtros.etapa.length
+      ? (!filtros.estatus.length || filtros.estatus.includes(r.estatus ?? 'SIN ESTATUS')) &&
+        (!filtros.etapa.length || filtros.etapa.includes(r.etapa))
+      : !esCancelado(r);
+  const filtrados = base.filter(pasaEtapa).sort(ordenLista);
+
+  // [GP.RF.21] Por origen: sucursal, búsqueda y el MISMO filtro de etapa/estatus que la lista, pero SIN el
+  // de origen. Es el número del botón «Preventa»: lo que verá al tocarlo.
+  const porOrigen = new Map<string, number>();
+  for (const r of rows) {
+    if ((filtros.sucursal && r.sucursal !== filtros.sucursal) || (filtros.q && !coincideTexto(r, filtros.q)) || !pasaEtapa(r)) continue;
+    const o = r.origen ?? 'SIN ORIGEN';
+    porOrigen.set(o, (porOrigen.get(o) ?? 0) + 1);
+  }
+  const conteos_origen = [...porOrigen.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([origen, pedidos]) => ({ origen, pedidos }));
   const totales = filtrados.reduce(
     (t, r) => ({
       pedidos: t.pedidos + 1,
@@ -262,6 +282,7 @@ export function armarRespuesta(
     filtros,
     conteos,
     conteos_etapa,
+    conteos_origen,
     totales: { ...totales, importe_por_destino: porDestino },
     items: filtrados.slice(desde, hasta),
     // Con página no hay tope: cada pedido está en alguna página y `pagina.total` dice cuántos son.

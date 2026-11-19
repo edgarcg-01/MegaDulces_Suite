@@ -39,6 +39,7 @@ import {
   isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import { evaluarDivergencia } from '@megadulces/contracts/authz/divergencia';
+import { nombrePropio } from '@megadulces/contracts/personas/nombre-propio';
 // `[ZN.8]` Las áreas se DERIVAN de AUTHZ_TREE: copiarlas acá las haría divergir (ADR-056).
 import { AREAS_DE_ALCANCE, AREA_TODAS, esAreaDeAlcance } from '@megadulces/contracts/authz/scope-areas';
 
@@ -851,9 +852,13 @@ export class UsersService {
     const zona_id = zoneRef !== undefined ? zoneRef : derivada ?? null;
     const normalizedRoleName = role_name.toLowerCase();
 
+    // `[RH.14.9]` Una sola forma de escribir el nombre de una PERSONA (no el de un cliente, servicio o dispositivo).
+    const kindAlta = (createUserDto as { kind?: string }).kind ?? 'interno';
+    const nombreAlta = typeof rest.nombre === 'string' && kindAlta === 'interno' ? { nombre: nombrePropio(rest.nombre) } : {};
     const [user] = await this.knex('users')
       .insert({
         ...rest,
+        ...nombreAlta,
         tenant_id: this.tenantCtx.requireTenantId(),
         zona_id,
         password_hash,
@@ -1362,6 +1367,12 @@ export class UsersService {
     }
 
     const updateData: Record<string, unknown> = { ...rest };
+    // `[RH.14.9]` Una sola forma de escribir el nombre de una PERSONA (Edgar, 18-nov). Las cuentas de cliente, servicio
+    // o dispositivo no: una razón social o el nombre de un equipo no se reescriben.
+    if (typeof updateData['nombre'] === 'string') {
+      const actual = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('kind');
+      if ((actual?.kind ?? 'interno') === 'interno') updateData['nombre'] = nombrePropio(updateData['nombre']);
+    }
 
     if (password) {
       // `[AU.28]` La llave que estaba declarada en cuatro lugares y no la pedía

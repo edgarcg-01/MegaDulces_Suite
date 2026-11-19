@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -231,6 +231,18 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[PGP.91] Fija o quita (0) el descuento al pagar de UNA factura del pago: lo cubierto no cambia; baja lo que sale del banco. Sólo en un día sin autorizar.' })
   setItemDiscount(@Param('id') id: string, @Param('itemId') itemId: string, @Body() body: ItemDiscountDto, @Req() req: AuthedRequest): Promise<PaymentCalendarItemDiscountResult> {
     return this.svc.setItemDiscount(id, itemId, body, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[PGP.148]` Baja cada factura de Kepler del pago a lo que debe HOY (una nota de crédito, devolución o pago bajó su
+   * saldo después de armarlo; caso Mondelez). Mismo permiso que quitar una factura. Sólo pago pendiente, sin autorizar
+   * y que no haya salido del banco; queda en la bitácora (`ajustado_al_saldo`).
+   */
+  @Post('allocations/:id/ajustar-al-saldo')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.148] Ajusta el pago al saldo de hoy en Kepler: cada factura que debe menos baja a lo que debe (nunca sube). Sólo pendiente, sin autorizar y sin salida del banco por su importe. Dice qué ajustó y qué no y por qué.' })
+  ajustarAlSaldo(@Param('id') id: string, @Req() req: AuthedRequest): Promise<PaymentCalendarAjusteAlSaldo> {
+    return this.svc.ajustarAlSaldo(id, req.user?.username || 'sistema');
   }
 
   /**

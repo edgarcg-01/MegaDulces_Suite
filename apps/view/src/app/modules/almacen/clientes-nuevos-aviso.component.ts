@@ -23,7 +23,8 @@ import { ClientesNuevosService } from './clientes-nuevos.service';
         <a class="cna cna-warn" routerLink="/almacen/clientes-nuevos" role="status">
           <i class="pi pi-user-plus" aria-hidden="true"></i>
           <span class="cna-txt">
-            <strong>{{ r.customers === 1 ? '1 cliente nuevo' : r.customers + ' clientes nuevos' }} sin clave de Kepler</strong>
+            <!-- [GP.RF.29] Topada, la cifra es el tope de la lista: se dice «más de», no un número que parece exacto. -->
+            <strong>{{ cuantos(r) }} sin clave de Kepler</strong>
             @if (r.order_ids.length) {
               <span class="cna-sub">{{ r.order_ids.length === 1 ? '1 pedido suyo espera' : r.order_ids.length + ' pedidos suyos esperan' }} · no se cobran en Kepler hasta ligarlos</span>
             }
@@ -64,6 +65,12 @@ export class ClientesNuevosAvisoComponent implements OnInit {
 
   ngOnInit(): void {
     this.cargar();
+  }
+
+  /** «1 cliente nuevo» · «12 clientes nuevos» · `[GP.RF.29]` «Más de 500 clientes nuevos» si la lista se topó. */
+  cuantos(r: NewCustomersSummary): string {
+    if (r.truncated) return `Más de ${r.customers} clientes nuevos`;
+    return r.customers === 1 ? '1 cliente nuevo' : `${r.customers} clientes nuevos`;
   }
 
   cargar(): void {

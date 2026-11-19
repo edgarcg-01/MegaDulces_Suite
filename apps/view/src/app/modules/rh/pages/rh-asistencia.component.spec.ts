@@ -56,6 +56,11 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       darDeBaja: vi.fn(() => of({ ok: true })),
       estadoRelojes: vi.fn(() => (relojes === 'error' ? throwError(() => new Error('403')) : of(relojes))),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
+      // [RH.14] Lo que la pantalla lee del padrón: vacío, para que no cambie lo que prueba este archivo.
+      nombresPorConfirmar: vi.fn(() => of({ filas: [], total: 0 })),
+      posiblesBajas: vi.fn(() => of({ site_code: '', dias: 31, filas: [], explicadas: [] })),
+      fichaPersona: vi.fn(() => of(null)),
+      catalogosFicha: vi.fn(() => of({ departamentos: [], puestos: [], sucursales: [] })),
       incidencias: vi.fn(() => of([{ id: 'a' }, { id: 'b' }])),
       estadoCierre: vi.fn(() => of(cierres)),
       directorio: vi.fn(() => of(o.directorio ?? [])),
@@ -375,8 +380,9 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       const barras = Array.from(el().querySelectorAll('tr.rs-depto td')).map((td) => Number(td.getAttribute('colspan')));
       expect(barras.length).toBeGreaterThan(0);
       expect(new Set(barras)).toEqual(new Set([columnas]));
-      // El «⋯» de cada persona vive en su celda de nombre (columna fija).
-      expect(el().querySelectorAll('tr.rs-fila td.rs-nom .rs-acc-btn').length).toBe(el().querySelectorAll('tr.rs-fila').length);
+      // [RH.14.10] Sin «⋯»: lo que ofrecía está en la ficha que abre la fila (con clic o con Enter).
+      expect(el().querySelectorAll('.rs-acc-btn').length).toBe(0);
+      expect(el().querySelectorAll('tr.rs-fila[tabindex="0"]').length).toBe(el().querySelectorAll('tr.rs-fila').length);
     });
 
     it('cerrar el panel quita sólo lo que servía para abrirlo', async () => {
@@ -433,6 +439,59 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(api['asignarHorario']).toHaveBeenLastCalledWith(expect.objectContaining({ person_codes: ['104', '118'] }));
   });
 
+  it('⛔ [RH.14.7] con «Solo irregulares», el horario de «Horario» va SÓLO a las que se ven, y el texto dice cuántas', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
+    const c = fix.componentInstance;
+    est().soloIrregulares.set(true);
+    await ciclo();
+    expect(c.filas().map((p) => p.codigo)).toEqual(['118']);
+    expect(c.visibles().length).toBe(3);                 // lo que el filtro esconde sigue en «visibles»…
+    c.abrirHorario(null);
+    await ciclo();
+    expect(texto()).toContain('la persona que se ve');   // …y antes el texto decía «las 3 personas que se ven»
+    c.guardarHorario();
+    expect(api['asignarHorario']).toHaveBeenLastCalledWith(expect.objectContaining({ person_codes: ['118'] }));
+  });
+
+  it('[RH.14.3] la ficha dice cómo está en cada reloj y manda su nombre al reloj; [RH.14.5] departamento y sucursal sin acceso', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+    api['renombrar'] = vi.fn(() => of({ ok: true, nombre: 'Prueba Uno Ejemplo', relojes: 2 }));
+    const ficha = {
+      site_code: 'PH', person_code: '104', user_id: 'u-104', nombre: 'Prueba Uno Ejemplo', con_acceso: false, status: 'invited',
+      activa_en_plaza: true, seccion: 'SISTEMAS', promotora: false, departamento_code: null, puesto_code: null, sucursal_code: null, zona_nombre: null,
+      relojes: [{ device_label: 'Reloj A', serial_number: 'S1', device_user_id: '104', nombre_reloj: 'Uno' }],
+      nombre_para_reloj: 'Prueba Uno Ejemplo', nombre_por_confirmar: null, plazas_activas: 1,
+    };
+    api['fichaPersona'].mockReturnValue(of(ficha));
+    api['catalogosFicha'].mockReturnValue(of({ departamentos: [{ code: 'sis', name: 'Sistemas' }], puestos: [], sucursales: [{ code: '03', name: 'Morelia Centro', zone_name: null }] }));
+    const c = fix.componentInstance;
+    const p = c.todas().find((x) => x.codigo === '104')!;
+    c.abrir(p);
+    await ciclo();
+    expect(api['fichaPersona']).toHaveBeenCalledWith('PH', '104');
+    expect(document.body.textContent).toContain('#104 Uno');
+    expect(document.body.textContent).toContain('Actualizar en el reloj');
+    expect(c.relojDistinto(ficha)).toBe(true);
+    c.ponerEnReloj(p, ficha);
+    expect(api['renombrar']).toHaveBeenCalledWith('PH', '104', 'Prueba Uno Ejemplo');
+    // Lo de la persona: sólo lo que cambió, con su código.
+    c.abrirFicha(p);
+    const f = c.fichaForm();
+    if (!f) throw new Error('sin formulario');
+    f.departamento = 'sis'; f.sucursal = '03';
+    c.guardarFicha(p);
+    expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '104', departamento_code: 'sis', sucursal_code: '03' });
+    // [RH.14.4] Con acceso a la Suite: el nombre SÍ se manda; ⛔ lo de la persona no (lo cambia Sistemas).
+    api['fichaPersona'].mockReturnValue(of({ ...ficha, con_acceso: true }));
+    c.abrir(p);
+    c.abrirFicha(p);
+    const g = c.fichaForm();
+    if (!g) throw new Error('sin formulario');
+    g.nombre = 'Otro Nombre Cualquiera'; g.departamento = 'sis'; g.seccion = 'almacen';
+    c.guardarFicha(p);
+    expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '104', nombre: 'Otro Nombre Cualquiera', seccion: 'almacen' });
+  });
+
   it('[RH.6.3] con dos horarios manda la lista; el primero va también suelto, y no pasa de 4', async () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
     const c = fix.componentInstance;
@@ -484,7 +543,7 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     c.darDeBaja(p);
     expect(api['darDeBaja']).toHaveBeenCalledWith({ site_code: 'PH', person_code: '104', motivo: 'renunció el viernes' });
     expect(c.sel()).toBeNull();
-    expect(c.aviso()?.texto).toContain('pestaña Bajas');
+    expect(c.aviso()?.texto).toBe('De baja: Prueba Uno Ejemplo');
   });
 
   it('[RH.7.1] ⛔ sin HR_DEVICES_GESTIONAR no se ofrece editar la ficha', async () => {

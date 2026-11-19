@@ -405,13 +405,49 @@ describe('propuestaDe — la cuenta que la contabilidad ya usó', () => {
 // privado del servicio y por eso NO tenía ni una prueba: probarla exigía un doble de Knex, y un
 // doble de Knex no ejecuta SQL. Acá es pura, y las que mandan son las negativas.
 
+describe('[LE.6.33] un COBRO depositado en CAOS: lo que el depósito cubre ya lo contó la máquina', () => {
+  const b = (v: number, p: number) => ({ denominacion: v, piezas: p });
+  const dep = (...montos: number[]) => ({ tipo: 'ingreso', caos_links: montos.map((monto) => ({ monto })) });
+
+  it('el caso real: «rd can 13/11» ($51,770) repartido entre 502, 503 y 501; el resto se cuenta en el cajón', () => {
+    // 502: $13,260.58 → el depósito cubre $13,260 y los 58¢ son morralla del cajón.
+    expect(evaluarArqueoDeEgreso(13260.58, 0.58, [], 0, false, dep(13260))).toMatchObject({ ok: true, depositado: 13260 });
+    // 503: $25,154.77 → $25,150 del depósito; $4.77 en el cajón.
+    expect(evaluarArqueoDeEgreso(25154.77, 0.77, [b(2, 2)], 0, false, dep(25150)).ok).toBe(true);
+    // 501: $16,147.99 → al depósito le quedan $13,360; $2,787.99 se quedan en el cajón y se cuentan.
+    expect(evaluarArqueoDeEgreso(16147.99, 0.99, [b(500, 5), b(200, 1), b(50, 1), b(20, 1), b(10, 1), b(5, 1), b(2, 1)], 0, false, dep(13360)).ok).toBe(true);
+  });
+
+  it('compatible con la pantalla anterior: si los billetes del depósito vienen en la reja, NO se acredita encima', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, dep(800))).toMatchObject({ ok: true, motivo: 'cuadra', suma: 800 });
+  });
+
+  it('⛔ [negativa] lo que el depósito no cubre se cuenta: contar $1,000 de los $2,787.99 no cuadra', () => {
+    // (Sin ningún desglose el servidor acepta el importe del documento —`sin_arqueo`—; el conteo
+    // obligatorio lo exige la pantalla, `motivosDeBloqueo`. Aquí se prueba lo que el servidor SÍ frena.)
+    const v = evaluarArqueoDeEgreso(16147.99, 0, [b(500, 2)], 0, false, dep(13360));
+    expect(v.ok).toBe(false);
+    if (v.motivo === 'no_cuadra') expect(v.diferencia).toBe(-1787.99);
+  });
+
+  it('⛔ [negativa] en un EGRESO el retiro sigue sin acreditar (A.56.2 intacto)', () => {
+    expect(evaluarArqueoDeEgreso(800, 0, [], 0, false, { tipo: 'gasto', origen_efectivo: 'caos', caos_links: [{ monto: 800 }] }))
+      .toMatchObject({ ok: true, motivo: 'sin_arqueo', depositado: 0 });
+    expect(evaluarArqueoDeEgreso(800, 5, [], 0, false, { tipo: 'gasto', origen_efectivo: 'caos', caos_links: [{ monto: 800 }] }).ok).toBe(false);
+  });
+
+  it('⛔ [negativa] un depósito no paga MÁS de lo que dice el cobro: lo sobrante descuadra', () => {
+    expect(evaluarArqueoDeEgreso(13260.58, 0.58, [], 0, false, dep(51770)).ok).toBe(false);
+  });
+});
+
 describe('[CGA-A.56.2] evaluarArqueoDeEgreso — el retiro de CAOS se VINCULA, no se descuenta: se cuenta todo lo entregado', () => {
   const b = (v: number, p: number) => ({ denominacion: v, piezas: p });
   const caos = (...montos: number[]) => ({ tipo: 'gasto', origen_efectivo: 'caos', caos_links: montos.map((monto) => ({ monto })) });
 
   it('el egreso contado entero cuadra, y el retiro queda como respaldo (cubierto) sin acreditar', () => {
     expect(evaluarArqueoDeEgreso(800, 0, [b(500, 1), b(100, 3)], 0, false, caos(800)))
-      .toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 800 });
+      .toEqual({ ok: true, motivo: 'cuadra', suma: 800, cubierto: 800, depositado: 0 });
   });
 
   it('⛔ [negativa] el caso de la pantalla: retiro de $23,320 vinculado y la reja con $5 — ya NO cuadra', () => {

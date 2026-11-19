@@ -48,6 +48,7 @@ describe('DepositoClienteComponent — [CC.20]', () => {
       subir: vi.fn(() => of({ url: 'finance/t/customer-deposits/a.jpg', kind: 'image' })),
       leer: vi.fn(() => of({ monto: 12500, fecha: '2026-11-15', banco: 'BBVA', referencia: '123', ocr_status: 'ok', sha256: 'HUELLA' })),
       enviar: vi.fn(() => of({ id: 'n1', status: 'recibido', ya_estaba: false })),
+      estadoCuentaUrl: vi.fn((tk: string) => '/api/finance/deposito/' + encodeURIComponent(tk) + '/estado-de-cuenta.pdf'),
     };
   });
 
@@ -66,6 +67,16 @@ describe('DepositoClienteComponent — [CC.20]', () => {
     expect(rech.textContent).toContain('La foto no se lee');
     expect(rech.compareDocumentPosition(f.nativeElement.querySelector('.dc-btn-main') as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(txt(f)).toContain('Aplicada');
+  });
+
+  it('7 · [CC.20.2] el PDF del estado de cuenta está en la página, con SU token y después del botón de subir', () => {
+    const f = crear('TK.1');
+    const a = f.nativeElement.querySelector('[data-testid="estado-cuenta-pdf"]') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('/api/finance/deposito/TK.1/estado-de-cuenta.pdf');
+    expect(a.textContent).toContain('Descargar mi estado de cuenta (PDF)');
+    expect(svc['estadoCuentaUrl']).toHaveBeenCalledWith('TK.1');
+    const subir = f.nativeElement.querySelector('.dc-btn-main') as Node;
+    expect(subir.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('2 y 4 · subir y leer en paralelo, la lectura llena los campos, y enviar manda lo correcto una sola vez', () => {

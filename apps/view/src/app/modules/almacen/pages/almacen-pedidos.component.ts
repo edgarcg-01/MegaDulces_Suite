@@ -13,7 +13,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { DrawerModule } from 'primeng/drawer';
-import { ETAPAS_PEDIDO, WAREHOUSE_ORDER_CANCELADO, type EtapaPedido, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersResponse } from '@megadulces/contracts';
+import { ETAPAS_PEDIDO, WAREHOUSE_ORDER_CANCELADO, type EtapaPedido, type WarehouseOrderDetail, type WarehouseOrderRow, type WarehouseOrdersAtorados, type WarehouseOrdersResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPedidosService, type AlmacenPedidosFiltro } from '../almacen-pedidos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -163,6 +163,17 @@ const dmy = (v: string | null | undefined): string => {
             <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
           }
         }
+        <!-- [GP.RF.16] Lo que nadie va a surtir, en la primera pantalla: antes el Tablero no decía nada (396
+             pedidos en 8 sucursales, el más viejo de nov-2025). La cifra se recorre: «Velos» pone el filtro. -->
+        @if (!estatusKepler() && !soloSurtidor()) {
+          @if (atorados(); as a) {
+            @if (a === 'error') {
+              <div class="gp-note" role="note"><i class="pi pi-exclamation-circle" aria-hidden="true"></i><span>No se pudo contar los pedidos que siguen autorizados en Kepler fuera de la fila de surtido.</span></div>
+            } @else if (a.pedidos > 0) {
+              <div class="gp-note gp-note-warn" role="note"><i class="pi pi-history" aria-hidden="true"></i><span><b>{{ a.pedidos.toLocaleString('es-MX') }} {{ a.pedidos === 1 ? 'pedido sigue autorizado' : 'pedidos siguen autorizados' }} en Kepler</b>@if (a.desde) { desde el {{ dmy(a.desde) }} }y no {{ a.pedidos === 1 ? 'entra' : 'entran' }} a la fila de surtido{{ atoradosDonde(a) }}. Nadie {{ a.pedidos === 1 ? 'lo' : 'los' }} va a surtir: ciérralos en Kepler.</span>@if (ligaAtorados(); as q) { <a class="gp-link" routerLink="/almacen/pedidos" [queryParams]="q">Velos</a> }</div>
+            }
+          }
+        }
         <!-- [GP.RF.15] Llegó de «velos en el Tablero» de la fila: se dice qué filtro trae y se quita con un clic. -->
         @if (estatusKepler() && !soloSurtidor()) {
           <div class="gp-note" role="note"><i class="pi pi-filter" aria-hidden="true"></i><span>Pedidos que Kepler sigue teniendo como <b>autorizados</b>, del {{ dmy(d.periodo.from) }} al {{ dmy(d.periodo.to) }}@if (sucursal()) {, sucursal <b>{{ sucursalNombre(d, sucursal()!) }}</b>}: <b>{{ d.totales.pedidos.toLocaleString('es-MX') }}</b>. Ninguno entra a la fila de surtido: ciérralos en Kepler.</span><button type="button" class="gp-link" (click)="quitarKepler()">Quitar este filtro</button></div>
@@ -183,6 +194,11 @@ const dmy = (v: string | null | undefined): string => {
                 }
               </div>
               <div class="gp-filters">
+                <!-- [GP.RF.21] La preventa a UN toque y con su número (antes: abrir el desplegable y elegirla, en
+                     una lista de 2,224 por fecha). Toca otra vez para quitarlo; el desplegable sigue para los demás. -->
+                @if (cuentaOrigen(d, 'PREVENTA'); as n) {
+                  <button type="button" class="gp-chip" [class.on]="origen() === 'PREVENTA'" [attr.aria-pressed]="origen() === 'PREVENTA'" (click)="pickOrigen(origen() === 'PREVENTA' ? null : 'PREVENTA')">Preventa <span class="num">{{ n.toLocaleString('es-MX') }}</span></button>
+                }
                 <p-select [options]="origenOpts" optionLabel="label" optionValue="value" [ngModel]="origen()" (onChange)="pickOrigen($event.value)" ariaLabel="Origen" appendTo="body" class="gp-sel" />
                 @if (sucursalOpts().length > 2) {
                   <p-select [options]="sucursalOpts()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (onChange)="pickSucursal($event.value)" ariaLabel="Sucursal" appendTo="body" class="gp-sel" />
@@ -359,6 +375,9 @@ const dmy = (v: string | null | undefined): string => {
     .gp-note .pi { color:var(--text-muted); margin-top:.15rem; }
     .gp-note-bad { border-left:3px solid var(--bad-fg); }
     .gp-note-bad .pi { color:var(--bad-fg); }
+    /* [GP.RF.16] El ámbar sólo en el borde y el icono de texto legible (--warn-fg como texto da 2.15:1). */
+    .gp-note-warn { border-left:3px solid var(--warn-fg); }
+    .gp-note-warn .pi { color:var(--warn-soft-fg); }
     .gp-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .gp-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
     .gp-bh h2 { font-size:var(--fs-h3); font-weight:700; margin:0; }
@@ -392,7 +411,7 @@ const dmy = (v: string | null | undefined): string => {
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
-    :host ::ng-deep .gp-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .gp-tag { font-size:var(--fs-micro); }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .gp-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .gp-errbox .pi { color:var(--bad-fg); } .gp-errbox-txt { flex:1; font-size:var(--fs-sm); }
@@ -474,6 +493,16 @@ export class AlmacenPedidosComponent implements OnInit {
    * con la cuenta de la fila; por etapa no cuadraría.
    */
   readonly estatusKepler = signal<string | null>(null);
+  /** `[GP.RF.16]` Los atorados del alcance (null = aún no se sabe; 'error' = no se pudo contar: se dice, no se calla). */
+  readonly atorados = signal<WarehouseOrdersAtorados | 'error' | null>(null);
+  /** La liga a la lista con la MISMA frontera que la cuenta (por estatus de Kepler, como GP.RF.15). */
+  readonly ligaAtorados = computed<Record<string, string> | null>(() => {
+    const a = this.atorados();
+    if (!a || a === 'error' || !a.pedidos || !a.desde) return null;
+    const q: Record<string, string> = { kepler_status: 'AUTORIZADO', date_from: a.desde, date_to: a.hasta };
+    if (a.sucursales.length === 1) q['branch'] = a.sucursales[0].codigo;
+    return q;
+  });
   private ligaAplicada = '';
 
   readonly loading = signal(false);
@@ -519,6 +548,13 @@ export class AlmacenPedidosComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // [GP.RF.16] Una vez al abrir: no depende del periodo ni de los filtros (es lo que quedó FUERA).
+    if (this.veTablero()) {
+      this.api.atorados().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (a) => this.atorados.set(a),
+        error: () => this.atorados.set('error'),
+      });
+    }
     this.q$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe((v) => {
       this.q.set(v);
       this.reload();
@@ -738,6 +774,18 @@ export class AlmacenPedidosComponent implements OnInit {
     return null;
   }
   /** La sucursal por su NOMBRE (nunca sólo «06»): del alcance o de las filas que llegaron. */
+  /** `[GP.RF.21]` Cuántos de un origen verá al elegirlo (`null` con una API anterior o en cero: no se pinta). */
+  cuentaOrigen(d: WarehouseOrdersResponse, origen: string): number | null {
+    return d.conteos_origen?.find((c) => c.origen === origen)?.pedidos || null;
+  }
+
+  /** `[GP.RF.16]` Dónde se concentran: con varias sucursales, la que más tiene (Q.3: señalar dónde está). */
+  atoradosDonde(a: WarehouseOrdersAtorados): string {
+    if (a.sucursales.length < 2) return a.sucursales.length === 1 ? ` en ${a.sucursales[0].nombre}` : '';
+    const top = [...a.sucursales].sort((x, y) => y.pedidos - x.pedidos)[0];
+    return `, en ${a.sucursales.length} sucursales (${top.pedidos.toLocaleString('es-MX')} en ${top.nombre})`;
+  }
+
   sucursalNombre(d: WarehouseOrdersResponse, codigo: string): string {
     const n =
       d.alcance.sucursales.find((x) => x.codigo === codigo)?.nombre ??

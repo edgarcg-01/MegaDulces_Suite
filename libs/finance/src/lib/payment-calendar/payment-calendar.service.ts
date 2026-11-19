@@ -8,8 +8,8 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
-import { leerValidacionDelDia } from './validacion-pago.sql';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
@@ -29,13 +29,27 @@ import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-prog
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
-import { SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, type FilaPendienteVencido } from './pagos-vencidos.sql';
-import { AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, type ResultadoPagoPorElBanco, type SalidaBanco } from './pago-por-el-banco';
+import {
+  EVENTO_REABIERTO, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco,
+  testigoDelBanco, type FilaLiberadoQueSalio, type FilaPendienteVencido,
+} from './pagos-vencidos.sql';
+import {
+  AUTOR_PAGO_POR_EL_BANCO, EVENTO_PAGADO_POR_EL_BANCO, decidirPagosPorElBanco, segunLaDescarga,
+  type CoberturaDeLaDescarga, type ReclamanteDeLaDescarga, type ResultadoPagoPorElBanco, type SalidaBanco,
+} from './pago-por-el-banco';
 import {
   AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_LIGADO, EVENTO_CONFIRMADO_POR_EL_BANCO, EVENTO_PAGADO_POR_COMPROBANTE,
   SQL_COMPROBANTES_POR_APLICAR, SQL_POR_CONFIRMAR_EN_EL_BANCO, moverComprobanteAKepler,
 } from './pago-por-comprobante';
-import { SQL_PENDIENTES_POR_EL_BANCO, SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO } from './pago-por-el-banco.sql';
+import {
+  SQL_COBERTURA_DE_LA_DESCARGA, SQL_PENDIENTES_POR_EL_BANCO, SQL_RECLAMANTES_DE_LA_DESCARGA, SQL_SALIDAS_DE_LA_DESCARGA,
+  SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO,
+} from './pago-por-el-banco.sql';
+import {
+  AUTOR_AJUSTE_AL_SALDO, EVENTO_AJUSTADO_AL_SALDO, SQL_ABONOS_DE_LAS_FACTURAS, SQL_CANDIDATOS_AJUSTE, SQL_YA_SALIO_DEL_BANCO,
+  cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo,
+  type CargoKepler, type FacturaParaDebeMenos,
+} from './debe-menos';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -292,6 +306,8 @@ interface VentanaRow {
   entity_ref: string | null; doc_ref: string | null;
   /** `[PGP.120]` El código del acreedor en Kepler: con la sucursal, casa la factura con sus anticipos. */
   payee_code: string | null;
+  /** `[PGP.147]` Lo que la factura debe hoy en Kepler. */
+  kepler_debe: number | string | null;
 }
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
@@ -752,19 +768,36 @@ export class PaymentCalendarService {
     if (!code) return [];
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // `[PGP.153]` Sólo las facturas de este acreedor (las llaves salen de la misma vista de saldos que usa la evidencia).
+      const ev = await this.fuenteEvidencia(trx, trx.raw(
+        `ARRAY(SELECT v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) FROM analytics.v_supplier_payables v WHERE v.tenant_id = ? AND v.proveedor = ?)`,
+        [tenantId, code]));
       const { rows } = await trx.raw(
         `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
                 e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa
-           FROM analytics.v_payable_evidence e
+           FROM ${ev.sql} e
           WHERE e.tenant_id = ? AND e.proveedor = ?
           ORDER BY e.evidencia, e.puntaje DESC, e.pendiente DESC
           LIMIT 500`,
-        [tenantId, code],
+        [...ev.binds, tenantId, code],
       );
       return rows;
     });
+  }
+
+  /**
+   * `[PGP.152]`/`[PGP.153]` De dónde se lee la evidencia: la función por llaves si la migración ya está aplicada (calcula
+   * SÓLO esas facturas), o la vista de siempre si no (la API no exige lo que la base todavía no tiene). Con la función,
+   * ningún uso de la app lee la vista completa: sin materializar `cfd` (`[PGP.153]`) la vista completa es más lenta.
+   */
+  private async fuenteEvidencia(trx: Knex.Transaction, llaves: Knex.Raw | string[]): Promise<{ sql: string; binds: Knex.RawBinding[] }> {
+    const hay = (await trx.raw(`SELECT to_regprocedure('analytics.payable_evidence(text[])') IS NOT NULL AS h`)).rows[0]?.h;
+    if (!hay) return { sql: 'analytics.v_payable_evidence', binds: [] };
+    return Array.isArray(llaves)
+      ? { sql: 'analytics.payable_evidence(?::text[])', binds: [llaves] }
+      : { sql: 'analytics.payable_evidence(?)', binds: [llaves] };
   }
 
   /**
@@ -783,12 +816,21 @@ export class PaymentCalendarService {
       .slice(0, 200);
     if (!llaves.length) return [];
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const { rows } = await trx.raw(
-        `SELECT e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
+    const COLS = `e.sucursal, e.doc_tipo, e.doc_sub, e.folio, e.proveedor,
                 'oblig:' || e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio) AS entity_ref,
                 e.pendiente::float8 AS pendiente, e.evidencia, e.ref_evidencia,
-                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa
+                e.puntaje, e.senales, e.motivo, e.rfc, e.rfc_fuente, e.rfc_discrepa`;
+    return this.tk.run(async (trx) => {
+      /*
+       * `[PGP.152]` La evidencia se calcula SÓLO para estas facturas (`analytics.payable_evidence(p_llaves)`, el MISMO
+       * cuerpo que la vista con el filtro dentro): la vista cruzaba las ~3,200 facturas abiertas contra 172 mil CFDI y
+       * filtraba al final. Medido en prod: 3.7–4.6 s → ~2 s, 196 de 196 filas idénticas. Sin la migración aplicada
+       * (`fuenteEvidencia`), la consulta de siempre: la API no exige lo que la base todavía no tiene.
+       */
+      const ev = await this.fuenteEvidencia(trx, llaves);
+      if (ev.binds.length) return (await trx.raw(`SELECT ${COLS} FROM ${ev.sql} e WHERE e.tenant_id = ?`, [...ev.binds, tenantId])).rows;
+      const { rows } = await trx.raw(
+        `SELECT ${COLS}
            FROM analytics.v_payable_evidence e
           WHERE e.tenant_id = ?
             AND (e.sucursal || '|' || e.doc_tipo || '|' || e.doc_sub || '|' || btrim(e.folio)) = ANY(?)`,
@@ -1205,22 +1247,51 @@ export class PaymentCalendarService {
   async listDayAllocations(date: string) {
     this.assertDate(date);
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
-      if (!lot) return [];
-      const allocations = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereNot('status', 'cancelled')
-        .orderByRaw('priority_rank ASC NULLS LAST').orderBy('created_at', 'asc');
-      if (!allocations.length) return [];
-      // `[PGP.113]` El día es un caso de la bandeja: los mismos renglones, con su día y el estado de su día.
-      const delDia: FilaDePago[] = (allocations as FilaDePago[]).map((a) => ({ ...a, lot_date: date, lot_status: (lot.status ?? null) as string | null }));
+    return this.tk.run(async (trx) => (await this.armarDias(trx, tenantId, [date]))?.armadas ?? []);
+  }
+
+  /** `[PGP.151]` Los pagos de varios días, repartidos por día (para la semana). */
+  private async pagosDeLosDias(trx: Knex.Transaction, tenantId: string, dias: string[]) {
+    const r = await this.armarDias(trx, tenantId, dias);
+    const out = new Map(dias.map((d) => [d, [] as NonNullable<typeof r>['armadas']]));
+    // `armarFilas` devuelve en el orden de entrada: se reparte por día sin reordenar.
+    r?.armadas.forEach((x, i) => out.get(r.filas[i].lot_date)?.push(x));
+    return out;
+  }
+
+  /**
+   * Los pagos (sin cancelar) de UNO O VARIOS días, armados en UNA pasada de `armarFilas`.
+   *
+   * `[PGP.151]` **Cambiar de semana tardaba 3.5–5.5 s** (`GET weeks/:date`, medido en prod 10 al 18-nov; 260 llamadas
+   * el 18). La semana armaba cada día por separado, y cada armado repetía las lecturas que no dependen del día: la
+   * etiqueta de las facturas de Kepler (`v_supplier_payables` filtrada por su llave md5, ~425 ms cada vez, corrida 4
+   * veces = 1.7 s de 3.1 s), el cierre en Kepler (4 veces), el RFC (2). Ahora es una pasada para los siete días.
+   *
+   * La regla de cada pago es la misma que tenía el día: su día y el estado de su día (`[PGP.113]`); el CFDI (~330 ms)
+   * sólo en un día que ya llegó o autorizado completo, o en un pago autorizado o pagado (`[PGP.108]`); la validación
+   * contra el banco, en cada día que tiene pagos (`[PGP.104]`). El orden: el del día (prioridad, luego alta).
+   */
+  private async armarDias(trx: Knex.Transaction, tenantId: string, dias: string[]) {
+    const lots = (await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId }).whereIn('lot_date', dias)
+      .select('id', 'status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia"))) as { id: string; status: string | null; dia: string }[];
+    if (!lots.length) return null;
+    const porLote = new Map(lots.map((l) => [l.id, l]));
+    const allocations = await trx('finance.payment_allocations').whereIn('lot_id', lots.map((l) => l.id)).whereNot('status', 'cancelled')
+      .orderByRaw('priority_rank ASC NULLS LAST').orderBy('created_at', 'asc');
+    if (!allocations.length) return null;
+    // `[PGP.113]` El día es un caso de la bandeja: los mismos renglones, con su día y el estado de su día.
+    const filas: FilaDePago[] = (allocations as FilaDePago[]).map((a) => {
+      const l = porLote.get(String(a['lot_id']))!;
+      return { ...a, lot_date: l.dia, lot_status: (l.status ?? null) as string | null };
+    });
+    const hoy = todayMx();
+    const armadas = await this.armarFilas(trx, tenantId, filas, {
       // `[PGP.108]` El CFDI cuesta ~330 ms: sólo en un día que ya llegó o autorizado completo, y
       // `[PGP.113]` en un pago autorizado o pagado (los que van a tener póliza).
-      const diaConCfdi = date <= todayMx() || LOCKED_LOT_STATUSES.has(lot.status);
-      return this.armarFilas(trx, tenantId, delDia, {
-        conCfdi: (a) => diaConCfdi || !!a.authorized_at || a.status === 'executed',
-        validarDias: [date],
-      });
+      conCfdi: (a) => a.lot_date <= hoy || LOCKED_LOT_STATUSES.has(a.lot_status ?? '') || !!a.authorized_at || a.status === 'executed',
+      validarDias: [...new Set(filas.map((f) => f.lot_date))],
     });
+    return { filas, armadas };
   }
 
   /**
@@ -1279,6 +1350,8 @@ export class PaymentCalendarService {
         pronto_beneficio?: number | null; pronto_estado?: string | null;
         /** `[PGP.126]` Es el pago de un anticipo pedido en la Suite (`[PGP.119]`): no admite descuento. */
         es_anticipo?: boolean;
+        /** `[PGP.147]` Lo que la factura debe hoy en Kepler (sólo las vivas de `v_supplier_payables`). */
+        kepler_debe?: number | null;
       }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
@@ -1326,6 +1399,8 @@ export class PaymentCalendarService {
               trx.raw(`nullif(btrim(v.referencia), '') AS doc_ref`),
               // `[PGP.120]` El acreedor en Kepler: con la sucursal, es la llave de sus anticipos sin aplicar.
               trx.raw('btrim(v.proveedor) AS payee_code'),
+              // `[PGP.147]` Lo que debe HOY: el pago se armó con otro saldo y una nota de crédito pudo bajarlo.
+              trx.raw('v.pendiente::float8 AS kepler_debe'),
             );
           for (const r of rows as VentanaRow[]) {
             labels.set(`${source}:${r.id}`, {
@@ -1333,6 +1408,7 @@ export class PaymentCalendarService {
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
               entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
               payee_code: r.payee_code ?? null,
+              kepler_debe: r.kepler_debe === null || r.kepler_debe === undefined ? null : Number(r.kepler_debe),
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1425,6 +1501,8 @@ export class PaymentCalendarService {
           payee_code: label?.payee_code ?? null,
           es_anticipo: label?.es_anticipo === true,
           kepler_saldada: saldada,
+          // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler).
+          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : label?.kepler_debe ?? null) : null,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
           pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
@@ -1458,12 +1536,27 @@ export class PaymentCalendarService {
         allocations.map((a) => ({ id: a.id, lotDate: a.lot_date, alta: toMxDateKey(a['created_at'] as Date | string | null) || a.lot_date })),
         items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
       );
+      // `[PGP.146]` Lo que dice la DESCARGA del banco de cada pendiente cuyo día ya llegó. Sólo lee (~45 ms
+      // medido en prod el 2026-11-18); no marca pagado. Sin esto, un pago que ya salió se veía «por preparar».
+      const hoyMx = todayMx();
+      const descarga = allocations.some((a) => a.status === 'pending' && a.lot_date <= hoyMx)
+        ? await this.segunLaDescarga(trx, tenantId, hoyMx) : new Map<string, SalidaSegunLaDescarga>();
+      // `[PGP.147]` La factura que hoy debe MENOS de lo que el pago le lleva (Mondelez, 13-nov: una nota de crédito de
+      // $120,000 aplicada el 12 y el pago salió completo). Sólo pendientes; los abonos se leen sólo si hay alguna.
+      const paraDebeMenos = new Map<string, FacturaParaDebeMenos[]>();
+      for (const a of allocations) {
+        if (a.status !== 'pending') continue;
+        const fs = (itemsByAllocation.get(a.id) ?? []).map((it) => ({
+          id: String(it['id']), applied_amount: Number(it['applied_amount']), kepler_debe: (it['kepler_debe'] ?? null) as number | null,
+          kepler_saldada: it['kepler_saldada'] === true, entity_ref: (it['entity_ref'] ?? null) as string | null, payee_code: (it['payee_code'] ?? null) as string | null,
+        }));
+        if (facturasQueDebenMenos(fs).length) paraDebeMenos.set(a.id, fs);
+      }
+      const abonosDebeMenos = paraDebeMenos.size ? await this.abonosDeLasFacturas(trx, [...paraDebeMenos.values()].flat()) : new Map<string, AbonoQueBajoElSaldo[]>();
       // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
       // Sólo en un día que ya llegó; uno por venir no se ha pagado. `[PGP.113]` Uno por cada día pedido.
-      const validaciones = new Map<string, ValidacionPago>();
-      for (const d of [...new Set(opts.validarDias)]) {
-        for (const [k, v] of await leerValidacionDelDia(trx, tenantId, d, todayMx())) validaciones.set(k, v);
-      }
+      // `[PGP.151]` Todos los días pedidos con UNA lectura (antes, cuatro consultas por día: ~1.3 s en la bandeja).
+      const validaciones = await leerValidacionDeLosDias(trx, tenantId, opts.validarDias, todayMx());
       // `[PGP.108]` El CFDI de cada factura y si es PUE o PPD: decide la póliza de egreso de ContPAQi.
       // Sólo en un día autorizado o que ya llegó (los que van a tener póliza): cuesta ~330 ms y un día
       // en planeación no lo necesita.
@@ -1539,6 +1632,8 @@ export class PaymentCalendarService {
           // `[PGP.113]` Autorizado por sí mismo, o porque su día se autorizó completo (regla vieja).
           autorizado: !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? ''),
           validacion: validaciones.get(a.id) ?? null,
+          banco_descarga: a.status === 'pending' && a.lot_date <= hoyMx ? descarga.get(a.id) ?? null : null,
+          debe_menos: paraDebeMenos.has(a.id) ? debeMenosDelPago(paraDebeMenos.get(a.id) ?? [], abonosDebeMenos) : null,
           cuenta_gasto: cuentaGastoDe(a.id),
           poliza: a.status === 'executed' ? (() => {
             const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
@@ -1590,14 +1685,22 @@ export class PaymentCalendarService {
       const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
       if (!lot) return [];
 
+      // `[PGP.153]` La evidencia SÓLO de las facturas de este día (la función por llaves): antes el desglose cruzaba la
+      // vista completa, ~3.7 s de los ~5.9 s del Preliminar. Las llaves salen de la misma vista de saldos que el desglose.
+      const ev = await this.fuenteEvidencia(trx, trx.raw(
+        `ARRAY(SELECT v2.sucursal || '|' || v2.doc_tipo || '|' || v2.doc_sub || '|' || btrim(v2.folio)
+                 FROM finance.payment_allocation_items i2
+                 JOIN finance.payment_allocations a2 ON a2.id = i2.allocation_id
+                 JOIN analytics.v_supplier_payables v2 ON ${sqlKeplerPayableId('v2')} = i2.obligation_id
+                WHERE a2.lot_id = ? AND a2.status <> 'cancelled' AND i2.obligation_source = 'kepler_payable')`, [lot.id]));
       // La deuda derivada del ERP: la vista de pagables trae el documento, y la de evidencia
       // (`[PGP.19]`) dice si su papel está digitalizado. Las dos por la MISMA llave natural.
       const derivadas = await trx('finance.payment_allocation_items as i')
         .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
         .leftJoin('analytics.v_supplier_payables as v', trx.raw(`${KEPLER_PAYABLE_ID} = i.obligation_id`))
-        .joinRaw(`LEFT JOIN analytics.v_payable_evidence e
+        .joinRaw(`LEFT JOIN ${ev.sql} e
                     ON e.sucursal = v.sucursal AND e.doc_tipo = v.doc_tipo
-                   AND e.doc_sub = v.doc_sub AND btrim(e.folio) = btrim(v.folio)`)
+                   AND e.doc_sub = v.doc_sub AND btrim(e.folio) = btrim(v.folio)`, ev.binds as unknown as Knex.Value[])
         // El FOLIO EXTERNO —el que viene impreso en el papel del proveedor— no está en el ERP:
         // sale del comprobante de recepción (lo leyó el OCR) o del CFDI timbrado. Son las dos
         // únicas fuentes medidas, y cada una se declara por su nombre en `folio_externo_fuente`.
@@ -1728,12 +1831,15 @@ export class PaymentCalendarService {
     const t = Date.parse(date + 'T00:00:00Z');
     if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== date) throw new BadRequestException('Fecha inválida (YYYY-MM-DD)');
     const days = weekDates(date);
-    // En serie a propósito: 7 días × 3 lecturas en paralelo serían 21 transacciones a la vez
+    const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.151]` Los pagos de los siete días en UNA pasada (antes, un armado por día: 3.5–5.5 s por semana).
+    const porDia = await this.tk.run((trx) => this.pagosDeLosDias(trx, tenantId, days));
+    // En serie a propósito: 7 días × 2 lecturas en paralelo serían 14 transacciones a la vez
     // contra el pool de prod, por una pantalla.
     const out: PaymentCalendarWeek['days'] = [];
     for (const d of days) {
       const summary = await this.daySummary(d);
-      const allocations = (await this.listDayAllocations(d)) as unknown as PaymentCalendarAllocation[];
+      const allocations = (porDia.get(d) ?? []) as unknown as PaymentCalendarAllocation[];
       const lot = await this.getLot(d);
       out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
     }
@@ -1852,10 +1958,14 @@ export class PaymentCalendarService {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', pend.map((p) => p.id))
         .select('allocation_id', 'obligation_source', 'obligation_id');
       const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.date, alta: p.alta })), items);
+      // `[PGP.146]` Lo que la descarga del banco ya muestra salido tampoco «sigue» por pagar (auditoría del 2026-11-18:
+      // el aviso contaba 65 y 20 ya habían salido, mientras la bandeja y el veredicto del día los separaban).
+      const descarga = await this.segunLaDescarga(trx, tenantId, todayMx());
       const porDia = new Map<string, PagosAtrasadosDia>();
       for (const p of pend) {
-        const d = porDia.get(p.date) ?? { date: p.date, pagos: 0, monto: 0, conciliados: 0, conciliados_monto: 0 };
+        const d = porDia.get(p.date) ?? { date: p.date, pagos: 0, monto: 0, conciliados: 0, conciliados_monto: 0, salidos: 0, salidos_monto: 0 };
         if (cierreCompleto(cierres.get(p.id))) { d.conciliados += 1; d.conciliados_monto = round2(d.conciliados_monto + Number(p.monto)); }
+        else if (descarga.get(p.id)?.estado === 'salio') { d.salidos = (d.salidos ?? 0) + 1; d.salidos_monto = round2((d.salidos_monto ?? 0) + Number(p.monto)); }
         else { d.pagos += 1; d.monto = round2(d.monto + Number(p.monto)); }
         porDia.set(p.date, d);
       }
@@ -1888,6 +1998,11 @@ export class PaymentCalendarService {
         ligado: 0, kepler_sin_medir: 0, kepler_pagado: 0, kepler_en_parte: 0, banco: 0, banco_sin_medir: 0,
       };
       const out: ResultadoPagosVencidos = { hoy, revisados: 0, liberados: 0, monto_liberado: 0, ids_liberados: [], conservados };
+      // `[PGP.149]` Primero se regresa lo que una pasada anterior soltó habiendo salido del banco.
+      const regreso = await this.regresarLosQueSalieron(trx, tenantId, hoy, autor);
+      out.regresados = regreso.ids.length;
+      out.ids_regresados = regreso.ids;
+      out.reprogramados_tras_liberar = regreso.reprogramados;
       const pend = (await trx.raw(SQL_PENDIENTES_VENCIDOS, [tenantId, hoy])).rows as FilaPendienteVencido[];
       out.revisados = pend.length;
       if (!pend.length) return out;
@@ -1896,13 +2011,14 @@ export class PaymentCalendarService {
         .select('allocation_id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount')) as
         (ItemParaCierre & { applied_amount: string | number; discount_amount: string | number | null })[];
       const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.lot_date, alta: p.alta })), items);
-      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, [tenantId, hoy, ids, pend.map((p) => p.monto), pend.map((p) => p.lot_date)]))
-        .rows as { id: string; salio: boolean }[];
-      const banco = new Map(salidas.map((s) => [s.id, !!s.salio]));
+      // `[PGP.149]` El banco: el libro O la descarga; «no salió» sólo con la descarga cubriendo esos días.
+      const salidas = (await trx.raw(SQL_SALIDA_DE_BANCO, paramsSalidaDeBanco(tenantId, hoy, pend)))
+        .rows as { id: string; salio: boolean; cubierto: boolean }[];
+      const banco = new Map(salidas.map((s) => [s.id, testigoDelBanco(s)]));
 
       for (const p of pend) {
         const cierre = cierres.get(p.id) ?? null;
-        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.get(p.id) ?? null, ligado: !!p.ligado }, hoy);
+        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.has(p.id) ? banco.get(p.id) ?? null : null, ligado: !!p.ligado }, hoy);
         if (d.accion === 'esperar') continue;
         if (d.accion === 'conservar') { conservados[d.motivo]++; continue; }
         const nota = notaLiberado(hoy, d.dias);
@@ -1935,6 +2051,180 @@ export class PaymentCalendarService {
       }
       return out;
     });
+  }
+
+  /**
+   * `[PGP.149]` **Lo que la liberación soltó habiendo salido del banco, vuelve.** El 17-nov se liberaron 7 pagos del
+   * 10-nov que la descarga del banco muestra salidos ($1,893,556.02): el testigo leía sólo el libro, parado desde el
+   * 10-nov. Kepler todavía debía sus facturas, así que se ofrecían otra vez para pagar. Aquí cada uno regresa a
+   * `pending` (el estado que tenía antes del error), con su nota y una fila `reabierto_salio_del_banco` en la bitácora
+   * con la salida que lo prueba; `[PGP.146]` lo pone entonces en «Por registrar en Kepler».
+   * ⛔ Si sus facturas ya están en otro pago vivo (alguien las volvió a programar) NO se toca: dos pagos de las mismas
+   * facturas es justo lo que esto evita; se cuenta aparte para que una persona lo revise.
+   */
+  private async regresarLosQueSalieron(trx: Knex.Transaction, tenantId: string, hoy: string, autor: string): Promise<{ ids: string[]; reprogramados: string[] }> {
+    const filas = (await trx.raw(SQL_LIBERADOS_QUE_SALIERON, [tenantId])).rows as FilaLiberadoQueSalio[];
+    const ids: string[] = [];
+    const reprogramados: string[] = [];
+    for (const f of filas) {
+      if (f.reprogramado) { reprogramados.push(f.id); continue; }
+      const nota = notaReabierto(hoy, { ...f, importe: Number(f.importe) });
+      const n = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: f.id, status: 'cancelled' }).update({
+        status: 'pending', notes: `${f.notes ?? ''}\n${nota}`.trim(), updated_by: autor, updated_at: trx.fn.now(),
+      });
+      if (!n) continue;
+      await trx('finance.payment_allocation_history').insert({
+        tenant_id: tenantId, allocation_id: f.id, event: EVENTO_REABIERTO, status_from: 'cancelled', status_to: 'pending', created_by: autor,
+        detail: JSON.stringify({ regla: 'PGP.149', hoy, nota, liberado: f.liberado, dia: f.lot_date, monto: Number(f.monto),
+          salida: { fecha: f.fecha, cuenta: f.cuenta, importe: Number(f.importe) } }),
+      });
+      const renglones = await trx('finance.payment_allocation_items').where({ allocation_id: f.id }).select('obligation_source', 'obligation_id');
+      for (const r of renglones) await this.recalcObligation(trx, r.obligation_source as ObligationSource, r.obligation_id);
+      ids.push(f.id);
+    }
+    return { ids, reprogramados };
+  }
+
+  /**
+   * `[PGP.148]` **Ajustar el pago al saldo de Kepler** (un clic): cada factura de Kepler que hoy debe menos de lo que
+   * el pago le lleva baja a lo que debe. Caso Mondelez: una nota de crédito de $120,000 aplicada el 12-nov y el pago
+   * del 13 salió completo. Sólo en un pago pendiente, sin autorizar (D19 b) y que no haya salido ya del banco.
+   */
+  async ajustarAlSaldo(allocationId: string, username: string, hoy: string = todayMx()): Promise<PaymentCalendarAjusteAlSaldo> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => this.ajustarAlSaldoEn(trx, tenantId, allocationId, username, 'manual', hoy));
+  }
+
+  /**
+   * `[PGP.148]` D19 (b): **el pago sin autorizar se ajusta solo** cuando Kepler baja el saldo de su factura. Lo llama el
+   * worker con cada aviso de Kepler (`PagosVencidosService`, sin reloj). Sólo días POR VENIR (el de hoy o uno pasado
+   * pudo ya salir del banco) y sólo si lo que bajó el saldo no es dinero (`seAjustaSolo`). Cada pago en su propio
+   * punto de guardado: uno que falla no detiene a los demás. Escribe la bitácora de cada ajuste.
+   */
+  async ajustarLosQueDebenMenos(hoy: string = todayMx(), autor = AUTOR_AJUSTE_AL_SALDO): Promise<{ revisados: number; ajustados: string[]; monto: number; omitidas: number; fallidos: number }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const filas = (await trx.raw(SQL_CANDIDATOS_AJUSTE, [tenantId, hoy])).rows as
+        { id: string; dia: string; monto: number; item_id: string; obligation_id: string; applied_amount: number; discount_amount: number }[];
+      const out = { revisados: new Set(filas.map((f) => f.id)).size, ajustados: [] as string[], monto: 0, omitidas: 0, fallidos: 0 };
+      if (!filas.length) return out;
+      const saldos = await this.saldosDeKepler(trx, filas.map((f) => f.obligation_id));
+      const conDeMas = new Set(filas.filter((f) => {
+        const s = saldos.get(f.obligation_id);
+        return f.discount_amount <= 0 && !!s && facturasQueDebenMenos([{ id: f.item_id, applied_amount: f.applied_amount, kepler_debe: s.debe, kepler_saldada: false, entity_ref: null, payee_code: null }]).length > 0;
+      }).map((f) => f.id));
+      for (const id of conDeMas) {
+        try {
+          const r = await trx.transaction((sp) => this.ajustarAlSaldoEn(sp, tenantId, id, autor, 'automatico', hoy));
+          out.omitidas += r.omitidas.length;
+          if (r.ajustadas.length) { out.ajustados.push(id); out.monto = round2(out.monto + r.antes - r.amount_assigned); }
+        } catch (e: unknown) {
+          out.fallidos++;
+          this.logger.warn(`[PGP.148] no se ajustó el pago ${id}: ${(e as Error)?.message}`);
+        }
+      }
+      return out;
+    });
+  }
+
+  /** `[PGP.148]` El saldo de HOY de facturas de Kepler, por su llave de obligación (la misma consulta que la etiqueta). */
+  private async saldosDeKepler(trx: Knex.Transaction, obligationIds: string[]): Promise<Map<string, { debe: number; entity_ref: string; payee_code: string | null }>> {
+    const ids = [...new Set(obligationIds)];
+    if (!ids.length) return new Map();
+    const rows = (await trx('analytics.v_supplier_payables as v')
+      .whereRaw(`${KEPLER_PAYABLE_ID} = ANY(?::uuid[])`, [ids])
+      .select(
+        trx.raw(`(${KEPLER_PAYABLE_ID})::text AS id`), trx.raw('v.pendiente::float8 AS debe'),
+        trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) AS entity_ref`),
+        trx.raw('btrim(v.proveedor) AS payee_code'),
+      )) as { id: string; debe: number | string; entity_ref: string; payee_code: string | null }[];
+    return new Map(rows.map((r) => [String(r.id), { debe: Number(r.debe), entity_ref: r.entity_ref, payee_code: r.payee_code }]));
+  }
+
+  /** `[PGP.148]` El ajuste, dentro de una transacción. `automatico` = el worker (sólo lo que `seAjustaSolo` permite). */
+  private async ajustarAlSaldoEn(
+    trx: Knex.Transaction, tenantId: string, allocationId: string, username: string, modo: 'manual' | 'automatico', hoy: string,
+  ): Promise<PaymentCalendarAjusteAlSaldo> {
+    const a = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
+    if (!a) throw new NotFoundException('Pago no encontrado');
+    if (a.status !== 'pending') throw new BadRequestException('Sólo se ajusta un pago pendiente.');
+    assertSinAutorizar(a);
+    // El día como texto: un `date` leído como Date puede correrse un día por la zona del proceso.
+    const lot = await trx('finance.payment_calendar_lots').where({ id: a.lot_id }).first('status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { status: string; dia: string } | undefined;
+    if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le puede cambiar el importe a sus pagos.');
+    const dia = lot?.dia ?? hoy;
+    // ⛔ Lo que ya salió del banco por su importe no se ajusta: la salida se quedaría sin pago que la reclame.
+    const [{ salio }] = (await trx.raw(SQL_YA_SALIO_DEL_BANCO, [tenantId, Number(a.amount_assigned), dia, hoy, tenantId, Number(a.amount_assigned), dia, hoy])).rows as { salio: boolean }[];
+    if (salio) {
+      throw new BadRequestException('Este pago ya salió del banco por su importe: no se ajusta (lo pagado de más se recupera con el proveedor o se aplica a su siguiente factura en Kepler).');
+    }
+    const items = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocationId }).forUpdate()
+      .select('id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount');
+    const kp = items.filter((i) => i.obligation_source === 'kepler_payable');
+    const saldos = await this.saldosDeKepler(trx, kp.map((i) => String(i.obligation_id)));
+    const facturas: FacturaParaDebeMenos[] = kp.map((i) => {
+      const s = saldos.get(String(i.obligation_id));
+      return { id: String(i.id), applied_amount: Number(i.applied_amount), kepler_debe: s ? s.debe : null, kepler_saldada: !s, entity_ref: s?.entity_ref ?? null, payee_code: s?.payee_code ?? null };
+    });
+    const malas = facturasQueDebenMenos(facturas);
+    const abonos = malas.length ? await this.abonosDeLasFacturas(trx, malas) : new Map<string, AbonoQueBajoElSaldo[]>();
+    const armadoEl = toMxDateKey(a.created_at);
+    const ajustadas: (PaymentCalendarAjusteAlSaldo['ajustadas'][number] & { abonos: AbonoQueBajoElSaldo[] })[] = [];
+    const omitidas: PaymentCalendarAjusteAlSaldo['omitidas'] = [];
+    for (const f of malas) {
+      const it = kp.find((i) => String(i.id) === f.id)!;
+      const c = cargoDeLaFactura(f);
+      const factura = c ? `${c.tipo}-${c.sub}-${c.folio}` : (f.entity_ref ?? '—');
+      const ab = c ? abonos.get(c.llave) ?? [] : [];
+      if (Number(it.discount_amount ?? 0) > 0) { omitidas.push({ item_id: f.id, factura, motivo: 'lleva descuento al pagar: ajústala a mano' }); continue; }
+      if (modo === 'automatico' && !seAjustaSolo(ab, armadoEl)) {
+        omitidas.push({ item_id: f.id, factura, motivo: 'un pago en Kepler bajó su saldo (puede ser este mismo pago): lo decide una persona' });
+        continue;
+      }
+      const despues = round2(f.kepler_debe as number);
+      await trx('finance.payment_allocation_items').where({ id: f.id }).update({ applied_amount: despues });
+      await this.recalcObligation(trx, it.obligation_source as ObligationSource, it.obligation_id);
+      ajustadas.push({ item_id: f.id, factura, antes: f.applied_amount, despues, abonos: ab });
+    }
+    const antes = Number(a.amount_assigned);
+    if (!ajustadas.length) return { allocation_id: allocationId, antes, amount_assigned: antes, ajustadas: [], omitidas };
+    await this.recalcAllocationTotal(trx, allocationId);
+    const [b] = await trx('finance.payment_allocations').where({ id: allocationId })
+      .update({ updated_by: username, updated_at: trx.fn.now() }).returning(['amount_assigned']);
+    const despues = Number(b.amount_assigned);
+    await trx('finance.payment_allocation_history').insert({
+      tenant_id: tenantId, allocation_id: allocationId, event: EVENTO_AJUSTADO_AL_SALDO, status_from: 'pending', status_to: 'pending', created_by: username,
+      detail: JSON.stringify({ regla: 'PGP.148', modo, hoy, antes, despues, facturas: ajustadas, omitidas }),
+    });
+    return { allocation_id: allocationId, antes, amount_assigned: despues, ajustadas: ajustadas.map((x) => ({ item_id: x.item_id, factura: x.factura, antes: x.antes, despues: x.despues })), omitidas };
+  }
+
+  /** `[PGP.147]` Los abonos vivos que Kepler aplicó a las facturas que deben menos, por llave de cargo. */
+  private async abonosDeLasFacturas(trx: Knex.Transaction, facturas: FacturaParaDebeMenos[]): Promise<Map<string, AbonoQueBajoElSaldo[]>> {
+    const cargos = [...new Map(facturasQueDebenMenos(facturas).map((f) => cargoDeLaFactura(f))
+      .filter((c): c is CargoKepler => !!c).map((c) => [c.llave, c] as const)).values()];
+    const out = new Map<string, AbonoQueBajoElSaldo[]>();
+    if (!cargos.length) return out;
+    const filas = (await trx.raw(SQL_ABONOS_DE_LAS_FACTURAS, [cargos.map((c) => c.sucursal), cargos.map((c) => c.acreedor),
+      cargos.map((c) => c.tipo), cargos.map((c) => c.sub), cargos.map((c) => c.folio)])).rows as { llave: string; tipo: number; folio: string; fecha: string | null; monto: number }[];
+    for (const r of filas) {
+      const arr = out.get(r.llave) ?? [];
+      arr.push({ doc: `${r.tipo}-${r.folio}`, clase: claseDeAbono(Number(r.tipo)), fecha: r.fecha, monto: Number(r.monto) });
+      out.set(r.llave, arr);
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.146]` Qué dice la DESCARGA del banco de los pendientes cuyo día ya llegó (`segunLaDescarga`, pura). Tres
+   * lecturas dentro de la transacción de quien llama; no escribe nada.
+   */
+  private async segunLaDescarga(trx: Knex.Transaction, tenantId: string, hoy: string): Promise<Map<string, SalidaSegunLaDescarga>> {
+    const reclamantes = (await trx.raw(SQL_RECLAMANTES_DE_LA_DESCARGA, [tenantId, hoy, hoy])).rows as ReclamanteDeLaDescarga[];
+    if (!reclamantes.some((r) => r.status === 'pending')) return new Map();
+    const salidas = (await trx.raw(SQL_SALIDAS_DE_LA_DESCARGA, [tenantId, hoy, hoy])).rows as SalidaBanco[];
+    const cobertura = (await trx.raw(SQL_COBERTURA_DE_LA_DESCARGA, [tenantId])).rows as CoberturaDeLaDescarga[];
+    return segunLaDescarga(reclamantes, salidas, cobertura, hoy);
   }
 
   /**

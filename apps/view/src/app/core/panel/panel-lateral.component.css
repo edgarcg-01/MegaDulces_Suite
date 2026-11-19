@@ -82,7 +82,7 @@
   flex-shrink: 0;
 }
 .mt-panel-title {
-  font: 600 0.8rem/1.2 'Hanken Grotesk', sans-serif;
+  font: 600 0.8rem/1.2 var(--font-body);
   color: var(--c-text-2, var(--text-muted));
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -97,7 +97,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font: 600 0.7rem/1 'Hanken Grotesk', sans-serif;
+  font: 600 0.7rem/1 var(--font-body);
   color: var(--warn-fg, #b45309);
   white-space: nowrap;
 }

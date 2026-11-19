@@ -13,6 +13,61 @@
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
 - Con esto se sueltan 7 facturas más (73 de 208) y ninguna de las que ya estaban sueltas se vuelve a bloquear.
+### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
+- El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
+- La lista de cheques en tránsito ya no se corta en 50 sin avisar.
+- Una cuenta con descarga del banco podía perder un movimiento cuando el libro tenía otro del mismo importe días antes; ya no.
+
+### Fixed — Toda la Suite en el celular: las tablas apiladas ya muestran todos sus campos (GP.RF.12 · GP.RF.18 · GP.RF.19 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que se apilan por renglón ya no esconden columnas ni achican la letra (el Tablero escondía Cliente, Renglones y Etapa).
+- La letra más chica de Almacén sube de 10 a 11 px; el aviso de «cargado hace…» se lee mejor y el lector de pantalla ya no lo repite cada 15 segundos.
+- La lista de pedidos atorados del Tablero abre en menos de un quinto de segundo (antes, dos).
+
+### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
+- La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
+- Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.
+
+### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
+- El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
+- «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
+- Cuando Surtir rechaza el cierre de un surtido, el motivo queda registrado para encontrar la causa.
+
+### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
+- Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
+- El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
+
+### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
+- Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
+- Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».
+
+### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
+- Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
+- Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.
+
+### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
+- Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
+- Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.
+- Los renglones que se deslizan (vendedores, días atrasados) avisan que hay más y no cortan el anillo de foco.
+- En toda la Suite, las flechas del teclado vuelven a elegir en los selectores de una opción (estaban sin efecto).
+
+### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
+- La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
+- Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.
+- El aviso de clientes nuevos va al final y dice «Más de 500» cuando la lista se topó.
+- La lista ya no salta al cargar «Rutas de hoy», y los textos en ámbar y verde se leen (contraste AA).
+
+### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
+- Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
+- El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
+
+
+### Changed — Almacén: Surtir con lo que el surtidor necesita (GP.RF.27–34 · 2026-11-17 · en código, sin soltar)
+- Abrir Surtir ya no toma trabajo solo ni espera a Telemarketing: la lista de preventa sale de inmediato, y si quedó un surtido de Telemarketing a medias se avisa con «Continuar».
+- Cada producto dice dónde está (su ubicación) y los productos van en el orden del recorrido del almacén.
+- Escanear el producto en la presentación pedida lo marca Completo; si es otra presentación (la caja cuando se pidieron paquetes), avisa.
+- Lo que faltó se puede cambiar por otro producto con existencia, además de surtirlo en otra unidad.
+- La pantalla «Preventa por surtir» se retira: todo vive en Surtir. Sus enlaces viejos llevan a Surtir o al Tablero.
+- El almacén se elige por su nombre.
 
 ### Added — El anticipo a proveedor se pide con su cotización, su OC y su cuenta, y aparece en su día del Calendario (PGP.127–129 y PGP.142–145 · 2026-11-17 · en código)
 - En *Compras › Pago a proveedor › Anticipos*, «Pedir anticipo» pide los papeles en el orden en que se tienen: el proveedor, **su orden de compra de Kepler** (pendiente o recibida en parte; una o varias de la misma sucursal), el importe (dice cuánto queda en esas órdenes), **la cotización** (PDF o foto, obligatoria) y **a qué cuenta se paga**: la cuenta aprobada del proveedor, la CLABE de la cotización o efectivo.
@@ -24,7 +79,63 @@
 - (PGP.144) **Anticipos solicitados: el embudo de lo que pide Compras.** Nueva pestaña en *Finanzas › Pagos* (y en *Compras › Pago a proveedor*): cuántos anticipos se pidieron y cuántos llegaron a cada paso — Solicitado, Programado, **Cubierto** (cuando el programa de pagos lo pagó), En Kepler y Aplicado —, dónde se atoran y desde cuándo, por fecha o por proveedor. Abajo, los anticipos que Kepler tiene sin solicitud en la Suite (se pagaron por fuera del proceso). La lista de pedidos sale de *Deuda con proveedores › Anticipos*, que ahora enlaza a esta pestaña.
 - (PGP.143) **La orden de compra conecta con su anticipo**: en *Compras › OC abiertas*, la orden que ya tiene anticipo lo dice bajo su total, y su detalle lista sus anticipos (en qué va cada uno, quién lo pidió y para qué día) con un botón «Pedir anticipo» que abre el formulario con el proveedor y esa orden ya elegidos.
 - (PGP.145) El pago de un anticipo ya se dice «1 anticipo» (no «1 factura») en *Autorizar el pago* y en su desglose, y su renglón ya no repite la sucursal («CEDIS · Anticipo · OC … · CEDIS»).
+### Changed — El estado de cuenta en PDF se descarga desde el enlace del cliente (CC.20.2 · 2026-11-18)
+- El mensaje de WhatsApp no puede llevar archivos, así que el PDF ya no hay que adjuntarlo a mano: el cliente lo descarga desde su enlace personal, el mismo donde sube su ficha de depósito.
+- El mensaje lo dice así, y sólo menciona «le adjuntamos el PDF» cuando el cliente no tiene enlace.
+- En Cartera, «Enviar estado de cuenta» ya no descarga el PDF cuando hay enlace; «Ver PDF» sigue a un clic.
+
+### Fixed — El enlace para subir depósitos abre desde el celular del cliente (CC.20.1 · 2026-11-18)
+- El enlace del mensaje de WhatsApp, de la ficha de Cartera y del código QR del PDF salía con la dirección interna de la oficina y no abría desde fuera. Ahora usa megadulcessuite.com.
+- El mensaje ya no dice «le avisamos cuando quede aplicado»: dice que en ese mismo enlace verá cuando quede aplicado.
+### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
+- El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
+- La lista de cheques en tránsito ya no se corta en 50 sin avisar.
+- Una cuenta con descarga del banco podía perder un movimiento cuando el libro tenía otro del mismo importe días antes; ya no.
+
+### Fixed — Toda la Suite en el celular: las tablas apiladas ya muestran todos sus campos (GP.RF.12 · GP.RF.18 · GP.RF.19 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que se apilan por renglón ya no esconden columnas ni achican la letra (el Tablero escondía Cliente, Renglones y Etapa).
+- La letra más chica de Almacén sube de 10 a 11 px; el aviso de «cargado hace…» se lee mejor y el lector de pantalla ya no lo repite cada 15 segundos.
+- La lista de pedidos atorados del Tablero abre en menos de un quinto de segundo (antes, dos).
+
+### Fixed — Bancos: el Cuadre 3 vías compara contra el banco de verdad (CB.85 · 2026-11-18 · en código, sin soltar)
+- La columna «Banco» toma la descarga del banco en las cuentas cuyo estado de cuenta cuadra por saldos; las demás siguen con el libro de Tesorería y la fila dice por qué.
+- Mientras el banco no cubre el mes, ContPAQi entra sólo con lo que casa con el banco cargado; lo que no casa se muestra aparte («sin pareja en el banco cargado»). Reemplaza la regla anterior, que contaba de más los depósitos.
+
+### Added — Almacén: el Tablero avisa lo que nadie va a surtir y la preventa está a un toque (GP.RF.16 · GP.RF.21 · GP.RF.23 · 2026-11-18 · en código, sin soltar)
+- El Tablero dice arriba cuántos pedidos siguen autorizados en Kepler desde hace más de una semana (hoy, 396 en 8 sucursales) y con «Velos» los lista para cerrarlos.
+- «Preventa» con su número junto a las etapas: un toque y la lista muestra sólo la preventa.
+- Cuando Surtir rechaza el cierre de un surtido, el motivo queda registrado para encontrar la causa.
+
+### Changed — Almacén: cada pantalla abre en el almacén de quien la usa y lo nombra (GP.RF.11 · GP.RF.17 · UB.RF.7 · 2026-11-18 · en código, sin soltar)
+- Checar, el Tablero y Ubicaciones nombran el almacén por su nombre, sin el número.
+- El Tablero abre en el almacén de la persona, no en el primero de la lista; Mapa, Asignación y Contenido de Ubicaciones recuerdan el almacén que elegiste en cualquiera de las tres.
+
+### Fixed — Toda la Suite: los botones sin relleno se leen (GP.RF.13 · GP.RF.18 · UB.RF.8–9 · 2026-11-18 · en código, sin soltar)
+- Los botones de texto y de contorno («Salir», «Cancelar surtido», los de estado) tenían texto demasiado claro para leerse a pleno sol; ahora pasan el mínimo de contraste en modo claro.
+- Las cifras verdes y ámbar de los resúmenes, más oscuras para que se lean; la captura de ubicaciones dice «Se crean 180».
+
+### Fixed — Toda la Suite: la página ya no brinca cuando llega la letra (GP.RF.40–41 · 2026-11-18 · en código, sin soltar)
+- Mientras baja la letra de la Suite (Hanken Grotesk y la de cifras, Geist Mono), Windows pinta con una letra de respaldo que ya mide lo mismo: al llegar, los renglones no se re-parten. En Surtir, en el celular, la lista dejaba de brincar.
+- Surtir: el selector de almacén y el de origen dicen qué son («Almacén», «Pedidos de»), sin perder el renglón.
+
+### Changed — Almacén: Surtir re-auditado con Modern Web Guidance (GP.RF.38–40 · 2026-11-18 · en código, sin soltar)
+- Con un pedido abierto, el «atrás» del celular regresa a la lista de pedidos en vez de salir de Surtir.
+- Al abrir un pedido el foco va a su encabezado, y al volver, a su tarjeta; la pantalla tiene encabezados en orden.
+- Los renglones que se deslizan (vendedores, días atrasados) avisan que hay más y no cortan el anillo de foco.
+- En toda la Suite, las flechas del teclado vuelven a elegir en los selectores de una opción (estaban sin efecto).
+
+### Changed — Almacén: Surtir reestructurado para el celular (GP.RF.35–37, GP.RF.29 · 2026-11-17 · en código, sin soltar)
+- La lista de pedidos cabe en la primera pantalla del celular: almacén y origen en un renglón, los días atrasados en un renglón que se desliza, y cada pedido es una tarjeta que se toca entera.
+- Con un pedido abierto, «← Pedidos» regresa a la lista sin cerrarlo; el escáner queda fijo arriba y cada producto empieza por su ubicación.
+- El aviso de clientes nuevos va al final y dice «Más de 500» cuando la lista se topó.
+- La lista ya no salta al cargar «Rutas de hoy», y los textos en ámbar y verde se leen (contraste AA).
+
 ### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en prod desde el 2026-11-18)
+### Fixed — Bancos: el Cuadre 3 vías compara los mismos días en las tres fuentes (CB.82 · 2026-11-17 · en código, sin soltar)
+- Cuando el estado de cuenta del banco va atrasado, cada cuenta se compara sólo hasta su último día cargado; lo que Kepler y ContPAQi registran después se muestra aparte y ya no se pinta como descuadre (nov-2026: −$2.17 M «vs ContPAQi» en BBVA 6721 eran pagos que el banco todavía no cargaba).
+- El atraso del banco cuenta como atraso, «sin comparar» dice su motivo, el texto de estado se lee (contraste AA), las cuentas se abren con teclado y los encabezados hablan en llano.
+
+### Changed — Cartera: un solo botón para enviar el estado de cuenta (CXC.44 · 2026-11-17 · en código, sin soltar)
 - En la ficha del cliente, «Enviar estado de cuenta» reemplaza a los cuatro botones (teléfono, PDF, WhatsApp y copiar enlace): descarga el PDF, abre el chat del cliente con el mensaje y su enlace para depósitos, y deja registrado el contacto. Sin teléfono, WhatsApp abre para elegir a quién.
 
 ### Changed — Fichas de clientes: se actualiza sola al llegar el banco (CC.21.1 · 2026-11-17 · en prod desde el 2026-11-18)
@@ -50,6 +161,10 @@
 - «Abierto» y «Guía» dejan su columna: van debajo de la fecha y de la etapa. Lo que se explicaba en la cabecera está en el botón «?».
 - Arreglo: el volumen de un pedido ya no se encima sobre su etapa.
 
+### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en código, sin aplicar)
+- La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
+- La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
+- Requiere aplicar su migración fuera de horario y prender el interruptor; hasta entonces todo funciona como hoy.
 ### Changed — Crédito de clientes: la cartera se recalcula al llegar el cambio, no en cada consulta (CXC.21b · 2026-11-17 · en prod desde el 2026-11-18)
 - La lista de cartera y la ficha del cliente leerán una cartera ya calculada que se actualiza sola, cuenta por cuenta, cuando Kepler registra una factura, un cobro, una cancelación o un cambio del cliente. En la base de prueba la lista bajó de ~0.9 s a ~0.07 s y la ficha de ~1–2 s a ~0.1 s, con la misma respuesta.
 - La zona, el grupo y el teléfono del cliente ya no cambian entre una consulta y otra (antes se elegían al azar entre las copias de las sucursales).
@@ -66,6 +181,13 @@
 - En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
 - Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
 
+### Changed — Crédito de clientes: buscar y ordenar al instante, «Siguiente cliente» y «contactado hoy» (CXC.42 · CXC.43 · 2026-11-17 · en código, sin soltar)
+- La búsqueda encuentra mientras escribes (sin Enter, sin acentos, por varias palabras) y el orden cambia al instante: ya no se recarga la cartera.
+- La pantalla ya no brinca al cargar, y mientras se aplica un filtro dice «Actualizando…».
+- En la ficha del cliente, **Siguiente cliente** y **Anterior**: la siguiente ya viene cargada.
+- Llamar, enviar por WhatsApp o abrir el estado de cuenta deja constancia del contacto; la lista muestra «hoy 10:32» o «hace 3 días». Necesita aplicar su migración al soltar; mientras no esté, la pantalla avisa que el registro no está activo.
+
+### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en código, sin soltar)
 ### Fixed — Crédito de clientes: abre en lo que cobranza trabaja y deja de esconder filas (CXC.41 · 2026-11-17 · en prod desde el 2026-11-18)
 - `/finanzas/cartera` abre en **Cliente, ordenada por más vencido**. La tira por tipo sigue mostrando el total completo, con las cuentas internas y las rutas a un clic.
 - Cambiar dos filtros seguidos ya no puede dejar en pantalla los datos del primero: la carga anterior se cancela.

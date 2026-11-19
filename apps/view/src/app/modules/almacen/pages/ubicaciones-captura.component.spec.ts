@@ -68,3 +68,16 @@ describe('[UB.RF.4] Últimas capturas', () => {
     expect(texto()).not.toContain('374 creadas');
   });
 });
+
+describe('[UB.RF.9] El resumen concuerda con su cuenta', () => {
+  it('«Se crean 180», no «Se crea 180»; en singular con 1', () => {
+    const { fix } = montar(() => of([]));
+    const c = fix.componentInstance;
+    expect(c.accionLabel('nueva', 180)).toBe('Se crean');
+    expect(c.accionLabel('existe', 3)).toBe('Ya existen');
+    expect(c.accionLabel('baja', 2)).toBe('Dadas de baja');
+    expect(c.accionLabel('nueva', 1)).toBe('Se crea');
+    // NEGATIVA: el renglón (sin cuenta) sigue en singular.
+    expect(c.accionLabel('nueva')).toBe('Se crea');
+  });
+});

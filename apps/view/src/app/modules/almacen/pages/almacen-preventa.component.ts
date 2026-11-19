@@ -381,7 +381,7 @@ const dmy = (v: string | null | undefined): string => {
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
-    :host ::ng-deep .mc-tag, :host ::ng-deep .mc-tag .p-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .mc-tag, :host ::ng-deep .mc-tag .p-tag { font-size:var(--fs-micro); }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .mc-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .mc-errbox .pi { color:var(--bad-fg); } .mc-errbox-txt { flex:1; font-size:var(--fs-sm); }

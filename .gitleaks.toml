@@ -35,6 +35,11 @@ paths = [
   '''\.angular''',
   '''coverage''',
   '''package-lock\.json''',
+  # Skill de referencia de terceros (GoogleChrome/modern-web-guidance): guías PÚBLICAS de
+  # buenas prácticas web, no código nuestro. `generic-api-key` marcaba dos ejemplos de la
+  # Web Crypto API (`encapsulateKey('MLKEM768-X25519')`, el nombre de un algoritmo
+  # post-cuántico, no un secreto). Vendor, misma clase que node_modules. (Edgar autorizó, 2026-11-18.)
+  '''(^|/)\.agents/skills/modern-web-guidance/''',
 ]
 # Connection strings a localhost/LAN con el password de dev conocido: NO son
 # secretos de prod (arrancan la DB local). Prod (proxy.rlwy.net con password real)

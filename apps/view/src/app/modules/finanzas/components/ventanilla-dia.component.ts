@@ -1,7 +1,7 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, inject, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, of, type Observable } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -15,6 +15,8 @@ import { todayMx } from '../../../core/utils/mx-date';
 import { uuidV4 } from '../../../core/utils/uuid';
 import { LibroEfectivoService, type HallazgoDelLibro, type SolicitudDelLibro } from '../libro-efectivo.service';
 import { ConteoCajonComponent } from './conteo-cajon.component';
+import { DevolverFocoDirective } from '../../../shared/directives/devolver-foco.directive';
+import { DescartarCambiosComponent } from '../../../shared/components/descartar-cambios/descartar-cambios.component';
 import { money, dmy } from '../pages/finanzas-format';
 
 type Conteo = 'cierre' | 'sorpresa' | 'arranque';
@@ -36,7 +38,7 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
 @Component({
   selector: 'app-ventanilla-dia',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, ConteoCajonComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, ConteoCajonComponent, DevolverFocoDirective, DescartarCambiosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="vd" aria-label="Tu día">
@@ -62,21 +64,35 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
           <p-button size="small" severity="secondary" [outlined]="true" label="Contar para cerrar" [disabled]="!gestionar()" (onClick)="abrirConteo('cierre')" />
           <p-button size="small" severity="secondary" [outlined]="true" label="Arqueo sorpresa" [disabled]="!gestionar()" (onClick)="abrirConteo('sorpresa')" />
           @if (autorizar()) {
-            <p-button size="small" severity="secondary" [outlined]="true" label="Cerrar el día" (onClick)="cerrarDia()" />
+            <!-- [LE.6.34] Cerrar el día no se deshace: pide confirmación en dos pasos y el foco cae en «No». -->
+            @if (!confirmandoCierre()) {
+              <p-button size="small" severity="secondary" [outlined]="true" label="Cerrar el día" [disabled]="cerrandoDia()" [loading]="cerrandoDia()"
+                        data-testid="cerrar-dia" (onClick)="pedirCierre()" />
+            } @else {
+              <span class="vd-confirma" role="alert" data-testid="confirma-cierre" (keydown.escape)="noCerrar()">
+                ¿Cerrar el día {{ dmy(jornada()!) }}? Ya no se podrá capturar en él.
+                <p-button size="small" label="Sí, cerrar" data-testid="cierre-si" (onClick)="cerrarDia()" />
+                <p-button size="small" severity="secondary" [outlined]="true" label="No" data-testid="cierre-no" (onClick)="noCerrar()" />
+              </span>
+            }
           }
         }
-        <p-button size="small" severity="secondary" [text]="true" [label]="'Firmas por dar (' + (solicitudes().length + ordenes().length) + ')'" (onClick)="verFirmas.set(true)" />
+        <!-- [LE.6.34] Una lectura fallida no es un cero: el conteo dice que no se pudo leer. -->
+        <p-button size="small" severity="secondary" [text]="true" [label]="etiquetaFirmas()" data-testid="ver-firmas" (onClick)="abrirFirmas()" />
         <p-button size="small" severity="secondary" [text]="true" label="Tope y usuarios de la máquina" (onClick)="abrirCatalogos()" />
-        <p-button size="small" severity="secondary" [text]="true" [label]="'Hallazgos (' + hallazgos().length + ')'" (onClick)="verHallazgos.set(true)" />
+        <p-button size="small" severity="secondary" [text]="true" [label]="etiquetaHallazgos()" data-testid="ver-hallazgos" (onClick)="verHallazgos.set(true)" />
       </div>
       <p class="vd-tope" data-testid="dia-tope">
-        @if (tope()?.monto_minor) { Tope del cajón: <b>{{ minor(tope()!.monto_minor) }}</b> }
-        @else { Sin tope del cajón fijado: al cerrar no se revisa el excedente. }
+        @if (errorTope()) { No se pudo leer el tope del cajón }
+        @else if (tope()?.monto_minor) { Tope del cajón: <b>{{ minor(tope()!.monto_minor) }}</b> }
+        @else { Sin tope del cajón fijado }
       </p>
       @if (aviso()) { <p class="vd-aviso" role="status" data-testid="dia-aviso">{{ aviso() }}</p> }
     </section>
 
-    <p-dialog [visible]="!!conteo()" (visibleChange)="!$event && conteo.set(null)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }"
+    <!-- [LE.6.34] El conteo es del cajón entero: con piezas, enviando o con el resultado en pantalla no se cierra solo. -->
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="!!conteo()" (visibleChange)="!$event && cerrarConteo()" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }"
+              [closable]="conteoLibre()" [closeOnEscape]="conteoLibre()"
               [header]="conteo() === 'arranque' ? 'Saldo de arranque' : conteo() === 'sorpresa' ? 'Arqueo sorpresa' : 'Contar el cajón para cerrar'">
       @if (resultado(); as r) {
         <div class="vd-resultado" role="status" data-testid="resultado-conteo">
@@ -89,6 +105,8 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
             <p>{{ r.conteo.diferencia_minor === '0' ? 'Cuadra.' : 'No cuadra por ' + minor(r.conteo.diferencia_minor) + ': quedó un hallazgo con dueño.' }}</p>
             @if (excedeTope(r.conteo.total_minor); as ex) {
               <p class="vd-aviso--mal" data-testid="excede-tope">Pasa del tope por {{ minor(ex) }}: deposita lo que sobra en la máquina antes de cerrar (V1).</p>
+            } @else if (errorTope()) {
+              <p data-testid="tope-sin-leer">No se pudo leer el tope del cajón: no se sabe si lo contado pasa de él.</p>
             }
           }
         </div>
@@ -103,15 +121,22 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
       }
       <ng-template #footer>
         @if (resultado()) {
-          <p-button label="Listo" (onClick)="cerrarConteo()" />
+          <p-button label="Listo" data-listo (onClick)="cerrarConteo()" />
         } @else {
-          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="conteo.set(null)" />
+          <app-descartar-cambios [sucio]="sucioConteo()" [bloqueado]="enviando()" (cerrar)="cerrarConteo()" />
           <p-button label="Registrar el conteo" [disabled]="!listoParaContar()" [loading]="enviando()" (onClick)="registrarConteo()" />
         }
       </ng-template>
     </p-dialog>
 
-    <p-dialog [visible]="verFirmas()" (visibleChange)="verFirmas.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Firmas por dar">
+    <!-- [LE.6.34] Mientras se firma no se cierra (la firma de una orden da el código); el resultado se dice AQUÍ, no detrás de la ventana. -->
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="verFirmas()" (visibleChange)="verFirmas.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Firmas por dar"
+              [closable]="!enviandoFirma()" [closeOnEscape]="!enviandoFirma()">
+      @if (avisoFirmas(); as a) {
+        <p class="vd-aviso vd-aviso--caja" [class.vd-aviso--mal]="a.mal" [attr.role]="a.mal ? 'alert' : 'status'" data-testid="firmas-aviso">{{ a.texto }}</p>
+      }
+      @if (errorOrdenes()) { <p class="vd-aviso vd-aviso--mal" role="alert" data-testid="firmas-error-ordenes">No se pudo leer qué órdenes con código esperan firma.</p> }
+      @if (errorSolicitudes()) { <p class="vd-aviso vd-aviso--mal" role="alert" data-testid="firmas-error-solicitudes">No se pudo leer qué registros esperan firma.</p> }
       @if (autorizar() && (solicitudes().length || ordenes().length)) {
         <label class="vd-lbl" for="vd-nota">Motivo, si rechazas</label>
         <input pInputText id="vd-nota" class="vd-in" [ngModel]="nota()" (ngModelChange)="nota.set($event)" autocomplete="off" />
@@ -123,8 +148,8 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
             · {{ o.motivo_firma ?? 'espera firma' }} · pidió {{ o.pedida_por }}</span>
           @if (autorizar()) {
             <span class="vd-botones">
-              <p-button size="small" label="Firmar" (onClick)="firmarOrden(o.id)" />
-              <p-button size="small" severity="secondary" [text]="true" label="Rechazar" [disabled]="nota().trim().length < 5" (onClick)="rechazarOrden(o.id)" />
+              <p-button size="small" label="Firmar" [disabled]="enviandoFirma()" (onClick)="firmarOrden(o.id)" />
+              <p-button size="small" severity="secondary" [text]="true" label="Rechazar" [disabled]="enviandoFirma() || nota().trim().length < 5" (onClick)="rechazarOrden(o.id)" />
             </span>
           }
         </div>
@@ -134,18 +159,21 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
           <span>{{ etiquetaEvento(s.event_kind) }} · <b class="num">{{ minor(s.gross_minor) }}</b> · {{ dmy(s.created_at) }}</span>
           @if (autorizar()) {
             <span class="vd-botones">
-              <p-button size="small" label="Firmar" (onClick)="firmar(s.id)" />
-              <p-button size="small" severity="secondary" [text]="true" label="Rechazar" [disabled]="nota().trim().length < 5" (onClick)="rechazar(s.id)" />
+              <p-button size="small" label="Firmar" [disabled]="enviandoFirma()" (onClick)="firmar(s.id)" />
+              <p-button size="small" severity="secondary" [text]="true" label="Rechazar" [disabled]="enviandoFirma() || nota().trim().length < 5" (onClick)="rechazar(s.id)" />
             </span>
           }
         </div>
       }
-      @if (!solicitudes().length && !ordenes().length) { <p class="muted">Nada espera firma.</p> }
+      @if (!solicitudes().length && !ordenes().length && !errorSolicitudes() && !errorOrdenes()) { <p class="muted" data-testid="nada-espera-firma">Nada espera firma.</p> }
       @if (!autorizar() && (solicitudes().length || ordenes().length)) { <p class="muted">Las firma Tesorería (quien opera no firma, V9).</p> }
     </p-dialog>
 
-    <p-dialog [visible]="verCatalogos()" (visibleChange)="verCatalogos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '40rem' }"
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="verCatalogos()" (visibleChange)="verCatalogos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '40rem' }"
               header="Tope del cajón y usuarios de la máquina">
+      @if (avisoCatalogos(); as a) {
+        <p class="vd-aviso vd-aviso--caja" [class.vd-aviso--mal]="a.mal" [attr.role]="a.mal ? 'alert' : 'status'" data-testid="catalogos-aviso">{{ a.texto }}</p>
+      }
       <p class="vd-lbl">Tope del cajón {{ autorizar() ? '' : '(lo fija quien firma caja)' }}</p>
       @if (autorizar()) {
         <div class="vd-fila">
@@ -162,7 +190,11 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
           }
         </div>
       } @empty {
-        <p class="muted">La máquina no tiene movimientos con usuario en 90 días.</p>
+        @if (errorUsuarios()) {
+          <p class="vd-aviso vd-aviso--mal" role="alert" data-testid="usuarios-error">No se pudo leer los usuarios de la máquina.</p>
+        } @else {
+          <p class="muted">La máquina no tiene movimientos con usuario en 90 días.</p>
+        }
       }
       @if (asignando(); as a) {
         <label class="vd-lbl" for="vd-busca">¿Quién es «{{ a.user_external }}»?</label>
@@ -173,25 +205,32 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
       }
     </p-dialog>
 
-    <p-dialog [visible]="verHallazgos()" (visibleChange)="verHallazgos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Hallazgos abiertos">
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="verHallazgos()" (visibleChange)="verHallazgos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Hallazgos abiertos">
       @for (h of hallazgos(); track h.id) {
         <div class="vd-fila" [attr.data-hallazgo]="h.id">
           <span>{{ h.source }} · {{ h.account_code ?? '—' }} · <b class="num">{{ h.amount_minor === null ? '—' : minor(h.amount_minor) }}</b>
             · {{ h.dias_abierto ?? 0 }} días</span>
         </div>
       } @empty {
-        <p class="muted">No hay hallazgos abiertos.</p>
+        @if (errorHallazgos()) {
+          <p class="vd-aviso vd-aviso--mal" role="alert" data-testid="hallazgos-error">No se pudo leer los hallazgos abiertos.</p>
+        } @else {
+          <p class="muted">No hay hallazgos abiertos.</p>
+        }
       }
     </p-dialog>
   `,
   styles: [`
-    .vd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-4);
-      margin: 0 0 var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-subtle, var(--border)); border-radius: var(--r-sm, 8px); }
+    /* [LE.6.10] Una línea en la barra de la Ventanilla: el día, sus acciones y el tope (la página no se desplaza). */
+    .vd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin: 0; }
     .vd-estado { margin: 0; font-size: var(--fs-sm); }
-    .vd-tope { flex-basis: 100%; margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .vd-tope { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .vd-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .vd-aviso { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); }
     .vd-aviso--mal { color: var(--bad-fg); }
+    .vd-aviso--caja { margin: 0 0 var(--sp-3); }
+    .vd-confirma { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2);
+      border-radius: var(--r-sm, 8px); background: var(--warn-soft-bg); font-size: var(--fs-sm); color: var(--text-main); }
     .vd-resultado p { margin: 0 0 var(--sp-2); }
     .vd-lbl { display: block; margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); }
     .vd-in { width: 100%; }
@@ -206,6 +245,10 @@ export class VentanillaDiaComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   /** Algo cambió en el libro: la Ventanilla vuelve a leer. */
   readonly cambio = output<void>();
+  /** `[LE.6.34]` Una firma dio un código para la máquina: la Ventanilla lo anota en su barra («Último código»). */
+  readonly codigo = output<{ codigo: string; de: string }>();
+  private readonly injector = inject(Injector);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly dmy = dmy;
   readonly minor = (m: string | null | undefined): string => money(Number(m ?? 0) / 100);
@@ -237,6 +280,25 @@ export class VentanillaDiaComponent implements OnInit {
   /** El motivo de un rechazo: la base lo exige (un rechazo sin porqué no se registra). */
   readonly nota = signal('');
 
+  // ── `[LE.6.34]` Auditoría 2026-11-18 ─────────────────────────────────────────────────────────────
+  /** Lo no medido se declara (ADR-056): una lectura fallida no se pinta como «(0)», «Nada espera firma» ni «Sin tope». */
+  readonly errorHallazgos = signal(false);
+  readonly errorSolicitudes = signal(false);
+  readonly errorOrdenes = signal(false);
+  readonly errorTope = signal(false);
+  readonly errorUsuarios = signal(false);
+  readonly etiquetaFirmas = computed(() => (this.errorSolicitudes() || this.errorOrdenes()
+    ? 'Firmas por dar (no se pudo leer)' : `Firmas por dar (${this.solicitudes().length + this.ordenes().length})`));
+  readonly etiquetaHallazgos = computed(() => (this.errorHallazgos() ? 'Hallazgos (no se pudo leer)' : `Hallazgos (${this.hallazgos().length})`));
+  /** El resultado de cada acción se dice DENTRO de su ventana (el aviso de la barra queda detrás del modal). */
+  readonly avisoFirmas = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly avisoCatalogos = signal<{ texto: string; mal: boolean } | null>(null);
+  /** Un candado para firmar y rechazar: el primer clic apaga los botones hasta que responde la base. */
+  readonly enviandoFirma = signal(false);
+  /** Cerrar el día no se deshace: dos pasos. */
+  readonly confirmandoCierre = signal(false);
+  readonly cerrandoDia = signal(false);
+
   readonly conteo = signal<Conteo | null>(null);
   readonly piezas = signal<Record<string, number>>({});
   readonly testigo = signal('');
@@ -253,25 +315,58 @@ export class VentanillaDiaComponent implements OnInit {
     if (n <= 0n) return false;
     return this.conteo() !== 'sorpresa' || this.testigo().trim().length >= 3;
   });
+  /** `[LE.6.34]` Hay piezas o testigo: cerrar la ventana tiraría el conteo del cajón entero. */
+  readonly sucioConteo = computed(() => !this.resultado()
+    && (Object.values(this.piezas()).some((n) => Number(n) > 0) || !!this.testigo().trim()));
+  /** La ventana de conteo se cierra sola (X, Esc) sólo sin captura, sin envío en curso y sin resultado. */
+  readonly conteoLibre = computed(() => !this.sucioConteo() && !this.enviando() && !this.resultado());
 
   ngOnInit(): void { this.leer(); }
 
   leer(): void {
+    /** Falla → `null` (no medido), nunca `[]`: «(0)» diría que no hay nada. */
+    const o$ = <T>(x: Observable<T>) => x.pipe(catchError(() => of(null)));
     forkJoin({
-      s: this.libro.saldos().pipe(catchError(() => of(null))),
-      h: this.libro.hallazgos().pipe(catchError(() => of([] as HallazgoDelLibro[]))),
-      q: this.libro.solicitudes().pipe(catchError(() => of([] as SolicitudDelLibro[]))),
-      t: this.libro.tope().pipe(catchError(() => of(null))),
-      o: this.libro.porFirmar().pipe(catchError(() => of([] as OrdenPorFirmar[]))),
+      s: o$(this.libro.saldos()),
+      h: o$(this.libro.hallazgos()),
+      q: o$(this.libro.solicitudes()),
+      t: o$(this.libro.tope()),
+      o: o$(this.libro.porFirmar()),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ s, h, q, t, o }) => {
-      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir'); this.hallazgos.set(h); this.solicitudes.set(q); this.tope.set(t); this.ordenes.set(o);
+      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir');
+      this.hallazgos.set(h ?? []); this.errorHallazgos.set(h === null);
+      this.solicitudes.set(q ?? []); this.errorSolicitudes.set(q === null);
+      this.tope.set(t); this.errorTope.set(t === null);
+      this.ordenes.set(o ?? []); this.errorOrdenes.set(o === null);
     });
   }
 
-  private hecho(msg: string): void { this.aviso.set(msg); this.leer(); this.cambio.emit(); }
-  private fallo(e: unknown, porDefecto: string): void {
+  private hecho(msg: string, donde: 'barra' | 'firmas' | 'catalogos' = 'barra'): void { this.decir(donde, msg, false); this.leer(); this.cambio.emit(); }
+  private fallo(e: unknown, porDefecto: string, donde: 'barra' | 'firmas' | 'catalogos' = 'barra'): void {
     const err = (e as { error?: { mensaje?: string; message?: string } })?.error;
-    this.aviso.set(err?.mensaje ?? err?.message ?? porDefecto);
+    this.decir(donde, err?.mensaje ?? err?.message ?? porDefecto, true);
+  }
+  private decir(donde: 'barra' | 'firmas' | 'catalogos', texto: string, mal: boolean): void {
+    if (donde === 'firmas') this.avisoFirmas.set({ texto, mal });
+    else if (donde === 'catalogos') this.avisoCatalogos.set({ texto, mal });
+    else this.aviso.set(texto);
+  }
+  private enfocar(sel: string): void {
+    afterNextRender(() => (this.host.nativeElement as HTMLElement).querySelector<HTMLElement>(sel)?.focus(), { injector: this.injector });
+  }
+
+  abrirFirmas(): void { this.avisoFirmas.set(null); this.verFirmas.set(true); }
+
+  /** `[LE.6.34]` Primer paso de cerrar el día: la pregunta, con el foco en «No». */
+  pedirCierre(): void {
+    if (!this.jornada() || this.cerrandoDia()) return;
+    this.confirmandoCierre.set(true);
+    this.enfocar('[data-testid="cierre-no"] button');
+  }
+
+  noCerrar(): void {
+    this.confirmandoCierre.set(false);
+    this.enfocar('[data-testid="cerrar-dia"] button');
   }
 
   abrirDia(): void {
@@ -280,12 +375,18 @@ export class VentanillaDiaComponent implements OnInit {
     });
   }
 
+  /** Segundo paso («Sí, cerrar»). Con candado: un doble clic no cierra dos veces. */
   cerrarDia(): void {
     const j = this.jornada();
-    if (!j) return;
+    if (!j || this.cerrandoDia()) return;
+    this.confirmandoCierre.set(false);
+    this.cerrandoDia.set(true);
     this.libro.cerrarJornada(j).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.hecho(r.excedente ? `Día ${dmy(j)} cerrado con tu firma. El cajón pasaba del tope: quedó un hallazgo a nombre de quien cerró.` : `Día ${dmy(j)} cerrado con tu firma.`),
-      error: (e) => this.fallo(e, 'No se cerró el día.'),
+      next: (r) => {
+        this.cerrandoDia.set(false);
+        this.hecho(r.excedente ? `Día ${dmy(j)} cerrado con tu firma. El cajón pasaba del tope: quedó un hallazgo a nombre de quien cerró.` : `Día ${dmy(j)} cerrado con tu firma.`);
+      },
+      error: (e) => { this.cerrandoDia.set(false); this.fallo(e, 'No se cerró el día.'); },
     });
   }
 
@@ -303,35 +404,65 @@ export class VentanillaDiaComponent implements OnInit {
     const fin = { error: (e: unknown) => { this.enviando.set(false); const err = (e as { error?: { mensaje?: string } })?.error; this.error.set(err?.mensaje ?? 'No se registró.'); } };
     if (t === 'arranque') {
       this.libro.registrarHecho({ tipo: 'apertura', moneda: 'MXN', fecha: this.jornada() ?? this.hoy, conteos: [{ cuenta: 'CAJA_MXN', piezas }] }, this.llave)
-        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (h) => { this.enviando.set(false); this.resultado.set({ tipo: 'hecho', hecho: h }); }, ...fin });
+        .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (h) => { this.enviando.set(false); this.resultado.set({ tipo: 'hecho', hecho: h }); this.enfocar('p-button[data-listo] button'); }, ...fin });
       return;
     }
     this.libro.contar({ cuenta: 'CAJA_MXN', tipo: t, piezas, contado_en: new Date().toISOString(), ...(t === 'sorpresa' ? { testigo: this.testigo().trim() } : {}) })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => { this.enviando.set(false); this.resultado.set({ tipo: 'conteo', conteo: c }); }, ...fin });
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => { this.enviando.set(false); this.resultado.set({ tipo: 'conteo', conteo: c }); this.enfocar('p-button[data-listo] button'); }, ...fin });
   }
 
-  cerrarConteo(): void { this.conteo.set(null); this.resultado.set(null); this.leer(); this.cambio.emit(); }
+  /** `[LE.6.34]` «Listo», Esc, X o el «Cancelar» confirmado: si ya hubo resultado, recarga. A medio envío no cierra. */
+  cerrarConteo(): void {
+    if (this.enviando()) return;
+    const hecho = !!this.resultado();
+    this.conteo.set(null); this.resultado.set(null);
+    if (hecho) { this.leer(); this.cambio.emit(); }
+  }
+
+  /** `[LE.6.34]` Toma el candado de firmas; `false` si ya hay una firma o un rechazo en curso. */
+  private tomarCandado(): boolean {
+    if (this.enviandoFirma()) return false;
+    this.enviandoFirma.set(true);
+    this.avisoFirmas.set(null);
+    return true;
+  }
 
   firmar(id: string): void {
-    this.libro.autorizar(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Firmado.'), error: (e) => this.fallo(e, 'No se firmó.') });
+    if (!this.tomarCandado()) return;
+    this.libro.autorizar(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.enviandoFirma.set(false); this.hecho('Firmado.', 'firmas'); },
+      error: (e) => { this.enviandoFirma.set(false); this.fallo(e, 'No se firmó.', 'firmas'); },
+    });
   }
 
   /** La firma de Tesorería da el código (nunca la de quien la pidió: la base lo exige). */
   firmarOrden(id: string): void {
+    if (!this.tomarCandado()) return;
+    const o = this.ordenes().find((x) => x.id === id);
     this.libro.firmarOrden(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.hecho(r.estado === 'pagado' && r.codigo ? `Firmada: el código para la máquina es ${r.codigo}.` : 'Firmada.'),
-      error: (e) => this.fallo(e, 'No se firmó.'),
+      next: (r) => {
+        this.enviandoFirma.set(false);
+        if (r.estado === 'pagado' && r.codigo) this.codigo.emit({ codigo: r.codigo, de: 'firma de ' + (o?.beneficiario ?? o?.kind ?? 'una orden') });
+        this.hecho(r.estado === 'pagado' && r.codigo ? `Firmada: el código para la máquina es ${r.codigo}.` : 'Firmada.', 'firmas');
+      },
+      error: (e) => { this.enviandoFirma.set(false); this.fallo(e, 'No se firmó.', 'firmas'); },
     });
   }
 
   rechazarOrden(id: string): void {
-    if (this.nota().trim().length < 5) return;
-    this.libro.rechazarOrden(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Orden rechazada.'), error: (e) => this.fallo(e, 'No se rechazó.') });
+    if (this.nota().trim().length < 5 || !this.tomarCandado()) return;
+    this.libro.rechazarOrden(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.enviandoFirma.set(false); this.hecho('Orden rechazada.', 'firmas'); },
+      error: (e) => { this.enviandoFirma.set(false); this.fallo(e, 'No se rechazó.', 'firmas'); },
+    });
   }
 
   rechazar(id: string): void {
-    if (this.nota().trim().length < 5) return;
-    this.libro.rechazar(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Rechazada.'), error: (e) => this.fallo(e, 'No se rechazó.') });
+    if (this.nota().trim().length < 5 || !this.tomarCandado()) return;
+    this.libro.rechazar(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.enviandoFirma.set(false); this.hecho('Rechazada.', 'firmas'); },
+      error: (e) => { this.enviandoFirma.set(false); this.fallo(e, 'No se rechazó.', 'firmas'); },
+    });
   }
 
   /** Lo contado arriba del tope, en centavos; `null` si no pasa o no hay tope fijado. */
@@ -343,14 +474,18 @@ export class VentanillaDiaComponent implements OnInit {
   }
 
   abrirCatalogos(): void {
-    this.verCatalogos.set(true); this.asignando.set(null); this.busca.set(''); this.halladas.set([]); this.nuevoTope.set('');
-    this.libro.usuariosDeMaquina().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (u) => this.usuarios.set(u), error: () => this.usuarios.set([]) });
+    this.verCatalogos.set(true); this.asignando.set(null); this.busca.set(''); this.halladas.set([]); this.nuevoTope.set(''); this.avisoCatalogos.set(null);
+    this.errorUsuarios.set(false);
+    this.libro.usuariosDeMaquina().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (u) => this.usuarios.set(u), error: () => { this.usuarios.set([]); this.errorUsuarios.set(true); },
+    });
   }
 
   fijarTope(): void {
     if (!this.topeValido()) return;
     this.libro.fijarTope(String(Number(this.nuevoTope().trim()) * 100)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (t) => { this.tope.set(t); this.nuevoTope.set(''); this.aviso.set('Tope fijado.'); }, error: (e) => this.fallo(e, 'No se fijó el tope.'),
+      next: (t) => { this.tope.set(t); this.errorTope.set(false); this.nuevoTope.set(''); this.decir('catalogos', 'Tope fijado.', false); },
+      error: (e) => this.fallo(e, 'No se fijó el tope.', 'catalogos'),
     });
   }
 
@@ -362,7 +497,8 @@ export class VentanillaDiaComponent implements OnInit {
 
   asignar(u: UsuarioDeMaquina, persona: string): void {
     this.libro.asignarUsuarioDeMaquina({ device: u.device, user_external: u.user_external, persona }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (l) => { this.usuarios.set(l); this.asignando.set(null); this.cambio.emit(); }, error: (e) => this.fallo(e, 'No se asignó.'),
+      next: (l) => { this.usuarios.set(l); this.asignando.set(null); this.decir('catalogos', 'Asignado.', false); this.cambio.emit(); },
+      error: (e) => this.fallo(e, 'No se asignó.', 'catalogos'),
     });
   }
 

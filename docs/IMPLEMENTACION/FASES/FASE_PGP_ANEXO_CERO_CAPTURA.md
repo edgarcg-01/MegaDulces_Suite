@@ -93,8 +93,146 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 | 8 | **Póliza de ContPAQi** | `[PGP.112]` (ya existe) | Alto | L | 2 | La Suite arma el TXT; Contabilidad lo importa con un clic (ADR-040: la Suite no escribe directo en ContPAQi) |
 | 9 | **Archivo de dispersión del banco** (D1-c) | `[PGP.137]` | Alto | L | 2 | Que la Suite arme el lote para el portal del banco. Requiere el catálogo de cuentas destino (O6/O7 de la fase) |
 | 10 | **Aplicar el anticipo** (agregado 2026-11-17) | `[PGP.139]` 🧪 · `[PGP.140]` | Alto · $2.0 M aplicables hoy, $3.6 M de +90 días | S (aviso) · M (escritura) | **1** | El aviso en la fila del pago ya está en código; la escritura en Kepler (`kdxf` + saldos) espera leer una aplicación entera en el Kepler vivo |
+| 11 | **El pago atrasado dice qué dice el banco** (agregado 2026-11-18) | `[PGP.146]` 🔨 | Medio · $3.0 M ya salidos que se veían «por preparar» | S | **1** | Sólo lectura de la descarga del banco; sin esto Contabilidad lee «atrasado» lo que ya se pagó. Ver §4a |
+| 12 | **El pago lleva más de lo que la factura debe** (agregado 2026-11-18, caso Mondelez) | `[PGP.147]` 🔨 · `[PGP.148]` | Alto · $0.41 M hoy en 5 pagos pendientes; $122 mil ya pagados de más | S (aviso) · M (ajuste) | **1** | Una nota de crédito, una devolución o un pago parcial bajan el saldo después de programar y nada lo volvía a comparar. Ver §4b |
+| 0 | ⛔ **La liberación a la semana soltó pagos que sí salieron del banco** (agregado 2026-11-18) | `[PGP.149]` 🔨 | **Crítico** · $1.89 M liberados por error el 17-nov; $1.8 M el 20-nov y $5.9 M al 24-nov con la regla vieja | S | **0** | Doble pago: las facturas de un pago que ya salió vuelven a ofrecerse. Va antes que todo. Ver §4c |
 
 ⭐ **Con los frentes 1 y 2, el 75 % del dinero `C…` deja de teclearse.** Con 4 y 6, el 96 %; con los anticipos, el 98 %.
+
+### 4a. El pago atrasado que ya salió (2026-11-18)
+
+Contabilidad se queja de pagos «atrasados». Medido ese día: **71 pendientes de días pasados ($10.9 M)**. El estado de
+cuenta del Calendario (`finance.bank_movements`) se quedó en el 10-nov porque **ninguna cuenta «usa el banco»** —el
+Excel de Tesorería dejó de subirse y el interruptor de `/finanzas/bancos` no se ha encendido—, así que las cinco
+lecturas del Calendario que dependen de él (pagar por el banco, validación, vencidos, salidas del banco) no ven nada
+desde entonces. La **descarga** del propio banco sí se sube a diario. Leída con la regla de `[PGP.121]`: **23 de los 71
+ya salieron ($2,964,539)**; placebo (los mismos pagos 20 días después) 0 de 79. `[PGP.146]` lo dice en cada pago, sin
+escribir nada. Lo que lo vuelve permanente es **encender «Usar el banco»** en las cuentas que cuadran (14 de 18).
+
+### 4b. El pago se programa una vez y el saldo de la factura cambia (caso Mondelez, 2026-11-18)
+
+**El caso.** Mondelez (`CM009`), factura `20-1-0010007` de CEDIS por **$469,071.93**, programada el **26-oct** para
+pagarse el **13-nov**. El **12-nov** se capturaron en Kepler dos notas de crédito aplicadas a esa misma factura
+(`55-0001512` por **$120,000**, referencia DMKT, y `55-0001513` por $2,142.69): su saldo bajó a **$346,929.24**. El
+pago del Calendario siguió en $469,071.93 y **así salió del banco el 13-nov** (BBVA 4176, SPEI a Citi). **Se le pagaron
+$122,142.69 de más.** En Kepler todavía no hay `X-D-26` de ese pago.
+
+**Por qué pasa.** El importe de cada factura se fija al armar el pago y **nada lo vuelve a comparar con lo que la
+factura debe**. `createAllocation` revisa el saldo al armar; después, una nota de crédito, una devolución, un anticipo
+aplicado o un pago parcial capturado en Kepler bajan el saldo y el pago no se entera. `[PGP.35]` sólo avisa cuando la
+factura queda **saldada por completo**; `[PGP.141]` avisa de notas **sin aplicar** — ésta ya estaba aplicada. Quien
+paga en el portal del banco teclea el importe del Calendario.
+
+**Qué tan seguido** (medido 2026-11-18 con el código de `[PGP.147]`, sólo lectura): **5 pagos pendientes llevan
+$414,800.53 más de lo que sus facturas deben hoy**. Dos por notas de crédito (Mondelez, ya pagado; `CE012` del 17-nov,
+$44,569.87, todavía sin salir) y tres porque Kepler ya registró una transferencia que el Calendario no ligó (uno
+programado para el **28-dic** por $117,161.87 cuya factura debe $6,125: se pagaría dos veces). Entre los ya pagados del
+Calendario hay 4 con $161,744 sobre la deuda, pero **lo que salió de verdad por ellos NO está MEDIDO** (pudo pagarlos
+Tesorería por el neto).
+
+**La solución, por capas.**
+1. `[PGP.147]` C1+C2 (en código): cada pago pendiente trae `debe_menos` — por factura, lo programado, lo que debe hoy
+   y **los documentos de Kepler que lo bajaron** (nota, devolución, pago). El saldo llega en la misma consulta de la
+   etiqueta (cero viajes nuevos); los abonos, una consulta de 91 ms sólo si hay alguna. C3: decirlo en la fila, en
+   rojo, antes de «Por pagar», y en la orden que se imprime.
+2. `[PGP.148]` **Ajustar el pago al saldo de Kepler** (un clic, con bitácora y el folio de la nota) — y, si se firma
+   D19, **solo, por evento**: cuando el ODS ve un abono aplicado a una factura que está en un pago pendiente, el pago
+   baja a lo que se debe y queda escrito por qué. Nunca sube solo.
+
+**D19 · ¿El pago se ajusta solo cuando Kepler baja el saldo de su factura?** (a) sólo avisar · (b) ajustar solo los
+pagos **sin autorizar** y avisar en los autorizados · (c) ajustar siempre. **Recomiendo (b)**: el importe correcto es un
+hecho (el saldo de Kepler), y en un pago sin autorizar nadie ha comprometido nada; en uno autorizado puede que
+Tesorería ya cargó la transferencia en el portal, y ahí cambiarlo en silencio haría que la Suite y el banco digan cosas
+distintas. **✅ Firmada (b) por Edgar el 2026-11-18** («si»).
+
+### 4b-bis. C3 de `[PGP.146]` y `[PGP.147]`: lo que dice la fila (diseño, 2026-11-18)
+
+Las cinco preguntas de `diseno` §0b, contestadas antes de la plantilla:
+1. **Qué ve y en qué orden.** El pago pendiente que ya salió del banco deja de ser trabajo de «preparar/mover»: pasa a
+   «Por registrar en Kepler» y en «Cómo sale» dice **«Salió del banco el vie 13 nov · cuenta · importe»** con lo que
+   le falta. El pago que lleva más de lo que se debe lo dice **en rojo bajo «A quién»**, con el documento de Kepler
+   que bajó el saldo, en todas las etapas (antes de autorizar, sobre todo). El atrasado sin salida dice si **no salió**
+   o **qué descarga falta** para saberlo.
+2. **Qué no ve.** «No lo decide el banco» (cheque, dos salidas iguales) va sólo al desglose: en la fila es ruido.
+   Un pago de HOY sin salida no dice nada (todavía puede salir).
+3. **Accesibilidad.** Texto + icono, nunca sólo color; el desglose lista cada abono (clase, folio, fecha, monto) por
+   factura; la frase de la etapa cuenta cuántos y cuánto.
+4. **Ligas.** La salida nombra su cuenta y su fecha (se busca en el estado de cuenta); el abono, su folio de Kepler.
+5. **¿Le toca a esta pantalla?** Sí: es la que decide pagar. Ajustar el importe es `[PGP.148]` (otra acción).
+
+⛔ **Seguridad, no presentación:** un pago que ya salió no ofrece «Mover» ni «Quitar» (lo volvería a programar), ni
+entra en «Mover los N de días pasados». Y el diálogo de autorizar repite el aviso de «lleva de más».
+**Lo que la interfaz no resuelve:** que la cuenta «use el banco» (persona, en Bancos) y bajar el importe (`[PGP.148]`).
+
+### 4b-ter. Auditoría de diseño de la C3 de `[PGP.146]`–`[PGP.148]` (2026-11-18, `[PGP.150]`)
+
+**Evidencia:** nivel **B** (prod, sólo lectura, con el código real del servicio) + **C** (fuente). **Sin nivel A**: los
+cambios no están desplegados y el backend local está prohibido; todo lo visual va como **sin validación visual**.
+Instrumentos con su control: contraste WCAG (21.00 / 4.48), APCA (106.0 / −107.9), `ngc --noEmit` (TS2339 sembrado).
+Guía externa: Modern Web Guidance (`accessibility`, `color`, `persistent-toast-notifications`, `form-factor-adaptation`).
+
+**La frase:** «¿En qué etapa está cada pago y qué le falta para cerrarse?» (una pregunta).
+
+| # | Sev | Hallazgo y costo | Ley | Estado |
+|---|---|---|---|---|
+| PGP.UI.1 | 🔴 | El aviso de atrasados (vista por día) contaba **65** pagos «que siguen en días que ya pasaron» y **20** ya habían salido del banco; la bandeja y el veredicto del día los separaban: dos vistas, dos universos. Invitaba a mover lo ya pagado | STD §1.5 (Cruce 5) | ✅ arreglado: el servidor los cuenta aparte (`salidos`) y el aviso dice «45 … · otros 20 ya salieron del banco» (medido en prod) |
+| PGP.UI.2 | 🔴 | La frase de «Por registrar en Kepler» prometía que lo que muestra la descarga «se marca pagado (y va a Kepler)»; el `X-D-26` sólo se escribe donde la escritura está encendida y el ensayo pasa | STD §1.1 | ✅ arreglado: dice lo que pasa y remite a la nota de escritura |
+| PGP.UI.3 | 🟠 | «Bajar a $X»: su nombre accesible no contenía el texto visible (control por voz no lo encuentra) | WCAG 2.5.3 | ✅ arreglado |
+| PGP.UI.4 | 🟠 | «No se sabe si salió» en **36 de 36** atrasados sin salida (ninguno dice «No salió»); nombraba la primera cuenta sin cubrir en el orden de la consulta (15 veces una que sólo iba un día atrás) | STD §3 comprensión | ✅ parcial: nombra la más atrasada y cuántas faltan. ⚠️ Mientras `STDR 5565` no tenga descarga (o no se dé de baja), ningún pago sin preparar podrá decir «No salió» |
+| PGP.UI.5 | 🟠 | Lo que dice «salió del banco» o «falta la descarga» no llevaba a donde se resuelve | DS Q.4 · STD §4.7 | ✅ un acceso a «Estados de cuenta» por vista (no por renglón) |
+| PGP.UI.6 | 🟠 | Un pago «Por autorizar» que lleva de más juntaba 6 controles en su renglón, y «Autorizar» seguía al lado del aviso rojo | VALORES §11 (≤ 3) · DS §10 poka-yoke | ✅ parcial: se quitó el «Ver» repetido (5); el diálogo de autorizar pone el aviso primero y ofrece «Bajar a $X» antes |
+| PGP.UI.7 | 🟠 | «Bajar a» y los demás botones `.pg-saldada-btn`: ~20 px de alto (estimado), sin regla `pointer: coarse` → < 24 px con mouse y < 44 en táctil; borde 1.27:1 (claro) / 1.19:1 (oscuro) contra 3:1 | WCAG 2.5.8 · 1.4.11 | ⬜ deuda de la CLASE (15+ usos). No se arregló: el bloque de estilos está en su tope de 34 kB y medir el compilado exige compilar |
+| PGP.UI.8 | 🟠 | Texto rojo de 13 px: WCAG pasa (4.83 / 6.40) pero **APCA Lc 71.6 claro y 48 oscuro** contra 75; `--text-muted` en oscuro, Lc 50.6 (token de toda la suite) | VALORES §2 (APCA manda ≤ 14 px) | ⬜ deuda de tokens |
+| PGP.UI.9 | 🟠 | Tras «Bajar a» (y «Quitar» saldadas) la tabla se recarga y el foco cae al documento | WCAG 2.4.3 | ⬜ deuda de la pantalla (todas las acciones de fila) |
+| PGP.UI.10 | 🟠 | **La bandeja tarda ~3 s en prod** (Dirección, 209 cargas hoy, prom 3.1 s, máx 16 s): escalón del 13-nov (~1 s) al 14-nov (~2.8 s), anterior a estos cambios; viajan **1.1 MB** por carga (facturas 611 kB). Lo de hoy suma ~25 ms y 27 kB (2 %) | VALORES §15 (< 500 ms) · Cruce 6 | ⬜ item aparte: medir el escalón del 14-nov |
+| PGP.UI.11 | 🟡 | El icono verde de «Salió del banco» y la pastilla ámbar «falta…» dan tono a «bien» y «falta» (mismo patrón que `[PGP.96]`/`[PGP.100]`) | STD §3.10 | ⬜ patrón de la pantalla |
+| PGP.UI.12 | 🟡 | Lo que «Bajar a» no ajustó (y por qué) vive sólo en el toast | MWG toasts: «identified by other means» | ⬜ la bitácora lo guarda; la pantalla no la muestra |
+| PGP.UI.13 | 🟡 | Texto: «N llevan … está en rojo» | — | ✅ «están» |
+
+**Ficha §3c.** *Carga:* hasta 5 controles por renglón (antes 6); la frase de la etapa suma una oración cuando hay pagos
+con de más. *Comprensión:* «descarga del banco» y «usar el banco» sin definir en la ayuda de la pantalla (NO MEDIDO si
+están en el diccionario). *Accesibilidad:* texto ≥ 4.5:1 en claro y oscuro (rojo 4.83 / 6.40, ámbar 6.37–12.29); color
+nunca solo (icono + palabra); un anuncio de la región viva por recarga. *Retrabajo:* doble clic protegido (guarda
+síncrona + `disabled`); nada que ya salió se puede mover ni quitar; «Bajar a» no pide confirmación porque lleva al hecho
+(el saldo de Kepler) y nunca sube.
+
+**NO MEDIDO (pide nivel A):** píxeles reales, foco tapado, recorrido con teclado, lector de pantalla (anuncios reales del
+toast y de la frase), `forced-colors`, reflujo a 320 px, INP, y claro/oscuro/celular en vivo.
+
+**Veredicto por capa:** antes de los arreglos, 🔴 **No pasa** (PGP.UI.1 y .2, Veracidad). Con ellos: **🟠 pasa con
+deuda** (accesibilidad .7–.9, rendimiento .10). Se revisa en nivel A al desplegar.
+
+### 4c. ⛔ La liberación a la semana soltó pagos que sí salieron del banco (2026-11-18)
+
+**El hallazgo** (al construir la pantalla de §4a). `[PGP.117]` libera, a la semana, el pago que «nadie pagó»: lo pasa a
+`cancelled` y sus facturas vuelven a ofrecerse para programar. Su testigo del banco leía **sólo el libro**
+(`bank_movements`), que se quedó en el 10-nov (§4a), y tomaba «no está en el libro» como «no salió». **El 17-nov liberó
+así 7 pagos del 10-nov que la descarga del banco muestra salidos el 10 y 11-nov: $1,893,556.02** (placebo +$100: 0 de
+16 liberados). Kepler todavía debía esas facturas ($1,894,520.07): estaban otra vez a un clic de pagarse dos veces.
+Ninguna se había vuelto a programar al medirlo. Con la regla vieja, el **20-nov** se liberaban 30 más ($1.8 M) y al
+**24-nov** 54 ($5.9 M).
+
+**El arreglo** (`[PGP.149]`):
+1. **El testigo del banco son dos: el libro o la descarga.** Y «no salió» sólo se afirma si la descarga cubre esos días
+   (la cuenta preparada, o todas las de banco activas si nadie la preparó); si no, el pago se conserva como
+   `banco_sin_medir`. Es la regla que `[PGP.117]` ya declaraba («ante la duda, se queda»), que el libro parado rompía.
+2. **Lo que soltó por error vuelve, solo.** En la misma pasada diaria, cada liberado con una salida por su importe
+   (±$1, desde 3 días antes de su día hasta el día en que se liberó) regresa a `pending`, con su nota y una fila
+   `reabierto_salio_del_banco` en la bitácora; `[PGP.146]` lo pone en «Por registrar en Kepler». Si sus facturas ya
+   están en otro pago vivo, no se toca y el log lo nombra para que una persona lo revise.
+
+**Medido con el código real contra prod (ensayo en seco, sólo lectura):** regresan **los 7**; con la regla nueva el
+20-nov y el 24-nov se liberan **0** (el 24: 26 se conservan porque salieron, 29 porque falta descarga). La consecuencia
+se declara: **mientras alguna cuenta activa no tenga descarga de esos días, un pago sin preparar no se libera**
+(`STDR 5565` nunca se ha subido; `STDR 1621` y `STDR 2169` llegan al 10 y 11-nov). Para que la liberación vuelva a
+soltar lo que de verdad no se pagó, hay que subir esas descargas o dar de baja la cuenta que no se usa.
+
+**Acción para personas, hoy:** que nadie vuelva a programar las facturas de esos 7 pagos hasta que el arreglo esté en
+prod; y, para cortar la liberación de inmediato, apagarla en el worker (`DISABLE_PAGOS_VENCIDOS=true`) hasta desplegar.
+
+**Acción para personas (no es código):** los $122,142.69 de Mondelez. Recomendado: al capturar en Kepler el `X-D-26`
+del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pago del **19-nov** (`0010025` y
+`0010027`, $191,580.99), y bajar ese pago a **$69,438.30**. Alternativa: pedir el reembolso a Mondelez.
 
 ---
 
@@ -150,6 +288,26 @@ Lo que firmar no destraba: **D4** pide que quien administra Kepler conceda los p
 - **2026-11-17** — Edgar firma D1–D7 como se recomendaban («si, firmo»). Empieza `[PGP.130]`.
 - **2026-11-17** — `[PGP.130]` C3: el botón «Comprobantes PDF» del Calendario casa primero con el pago de aquí; si no casa, sigue con Kepler con la misma lectura. Prueba con base real 13/13 en el CI.
 - **2026-11-17** — Frente 10, aplicar el anticipo: en 90 días salieron $1.6 M en efectivo que un anticipo sin aplicar ya cubría. `[PGP.139]` lo avisa en la fila del pago; `[PGP.140]` (la escritura en Kepler) queda con su C0 medido.
+- **2026-11-18** — Frente 11 (`[PGP.146]`): 23 de 71 pagos «atrasados» ya habían salido según la descarga del banco;
+  el Calendario no lo veía porque ninguna cuenta usa el banco (§4a). C1+C2 en código.
+- **2026-11-18** — Frente 12 (`[PGP.147]`), pedido de Edgar con el caso Mondelez: una nota de crédito de $120,000
+  aplicada el 12-nov y el pago del 13 salió completo, $122,142.69 de más (§4b). 5 pagos pendientes llevan $414,800.53
+  más de lo que deben. C1+C2 en código; D19 para Edgar.
+- **2026-11-18** — Edgar firma D19 (b): el pago sin autorizar se ajusta solo al saldo de Kepler; en el autorizado sólo
+  se avisa.
+- **2026-11-18** — ⛔ Frente 0 (`[PGP.149]`): la liberación a la semana soltó el 17-nov 7 pagos que sí habían salido del
+  banco ($1.89 M), porque su testigo leía sólo el libro parado. Ahora lee también la descarga, no afirma «no salió» sin
+  cobertura y regresa sola lo que soltó por error (§4c). Prueba con base real escrita, corre en el CI.
+- **2026-11-18** — C3 de `[PGP.146]` y `[PGP.147]` (§4b-bis): la fila dice que salió del banco o qué descarga falta,
+  y lo que lleva de más con el documento que bajó el saldo (también en el diálogo de autorizar y en el Preliminar). Lo
+  que ya salió no se mueve ni se quita. Sin validación visual.
+- **2026-11-18** — `[PGP.148]` en código: «Bajar a $X» en la fila (pago sin autorizar que no ha salido del banco) y,
+  por D19 (b), el worker ajusta solo con cada aviso de Kepler los pagos sin autorizar **de días por venir** cuya
+  diferencia explica una nota, devolución o bonificación y en los que no entró dinero desde que se armaron (un pago
+  en Kepler puede ser este mismo pago: ése lo decide una persona). ⛔ Nada que ya haya salido del banco por su importe
+  se ajusta: la salida se quedaría sin su pago. Ensayo en seco contra prod: de 4 pagos que llevan de más, el worker
+  ajustaría 1 (el del 28-dic, $111 mil que ya había pagado una transferencia); el `d0bc010a` de hoy ($1.22 M, $44.6 mil
+  de más por dos notas) queda para el botón; 2 se rechazan por haber salido ya del banco.
 - **2026-11-17** — `[PGP.130]` C0 medido: el comprobante casa **solo** con su pago del Calendario (misma cuenta, ±$1,
   ±5 días) en 46 de 47 comprobantes medibles de noviembre, **ninguno con un pago equivocado**; placebo (fechas −35, −60
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado

@@ -12,6 +12,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, piezasDeCajas, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { moverEnRenglon } from '../../../shared/util/captura-teclado.util';
 import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -306,7 +307,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
                     [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
-                    styleClass="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
+                    class="pr-sel-wide" ariaLabel="Filtrar por proveedor"></p-select>
           <p-iconfield class="pr-search">
             <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
@@ -364,14 +365,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-select [options]="brandOpts()" [(ngModel)]="fBrand" (onChange)="loadWorkbook()"
                       optionLabel="label" optionValue="value" placeholder="Todas las marcas" [showClear]="true"
                       [filter]="true" filterBy="label" [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body"
-                      styleClass="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
+                      class="pr-sel-wide" ariaLabel="Filtrar por marca"></p-select>
             <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
                       optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
-                      [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
+                      [filter]="true" filterBy="label" appendTo="body" class="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
             <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
                            optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                            [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                           appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
+                           appendTo="body" class="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
               <button type="button" class="pr-chip" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
               <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
               <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
@@ -430,7 +431,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           }
           <div class="pr-wb-scroll" #wbScroll>
             <p-table [value]="wbRows()" [loading]="loading()"
-                     styleClass="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
+                     class="p-datatable-sm pr-table pr-wb" tableStyleClass="pr-wb-tbl">
               <ng-template #header>
                 <tr>
                   <!-- [RA-UX.10] Columnas en orden de DECISIÓN: lo que se va a pedir y cuánto cuesta pegado al
@@ -476,7 +477,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0 && prodTrCajas(r.product_id) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="(sumCajas(r) > 0 || prodTrCajas(r.product_id) > 0) ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido ni traspaso: no hay nada que requerir'"
-                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" class="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" class="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" class="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
@@ -531,12 +532,12 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td class="pr-c-m pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   <td class="pr-c-m pr-r">
                     @if (r.iad != null) {
-                      <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
+                      <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" class="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
                   </td>
                   <td class="pr-c-m pr-r">
                     @if (seasonOn(r)) {
-                      <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
+                      <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" class="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
                   </td>
                   <!-- [RA-DYN.U7] El inflado por cumplimiento se VE. Sin este chip el pedido
@@ -544,7 +545,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                        SIN ACENTOS GRAVES ACA: el template es un template literal de JS. -->
                   <td class="pr-c-m pr-r">
                     @if (fillOn(r)) {
-                      <p-tag [value]="fillLabel(r)" [severity]="fillSev(r)" styleClass="pr-cov-tag" [title]="fillTitle(r)"></p-tag>
+                      <p-tag [value]="fillLabel(r)" [severity]="fillSev(r)" class="pr-cov-tag" [title]="fillTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="fillTitle(r)">—</span> }
                   </td>
                   <td class="pr-c-m pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
@@ -672,7 +673,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                           @if (b.rung) {
                                             <td class="pr-r pr-dx-c-exi"><span class="pr-rung" [title]="bRungTitle(b)">{{ b.nat | number:'1.0-0' }} {{ b.natu }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span></td>
                                             <td class="pr-r pr-muted pr-dx-c-dur">—</td>
-                                            <td class="pr-r pr-muted pr-dx-c-tra">—</td>
+                                            <td class="pr-r pr-muted pr-dx-c-tra pr-dx-c-tra-vacia">—</td>
                                           } @else {
                                             <td class="pr-r pr-muted pr-dx-c-exi" [title]="existTitle(b.exis, qtyOf(r, b))">{{ b.exis | number:'1.0-1' }}</td>
                                             <td class="pr-r pr-dx-c-dur">
@@ -685,20 +686,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                             <!-- [PQ.129] El traspaso se cambia AQUÍ, en la unidad del renglón (la misma de «Pedir»):
                                                  antes había que cambiar a la tabla «Traspasos (n)» y volver. Con dos orígenes para la
                                                  misma sucursal no hay un solo número que editar: se lee aquí y se cambia en la tabla aparte. -->
-                                            <td class="pr-r pr-dx-c-tra">
+                                            <!-- [PQ.129.1] La sucursal de origen va DEBAJO de la cantidad, no a su lado: en la misma
+                                                 línea «cj de Morelia Abastos» medía distinto en cada renglón, las cajas quedaban
+                                                 desalineadas y la columna (200 px) empujaba «Valor» fuera de la vista a 1440 px. -->
+                                            <td class="pr-r pr-dx-c-tra" [class.pr-dx-c-tra-vacia]="!trasDe(r, b.code) && !trasSuc(r, b.code)">
                                               @if (trasDe(r, b.code); as u) {
                                                 <span class="pr-step pr-tra-ed">
                                                   <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty-tr pr-qty-sm"
-                                                         aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                         aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Control+ArrowRight"
                                                          [ngModel]="trasDispOf(r, b, u)" (ngModelChange)="setTrasDispOf(r, b, u, $event)"
                                                          (keydown)="onQtyKey($event)" [title]="trasCeldaTitle(r, b, u)"
                                                          [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(b.code) + ' desde ' + sucNom(u.from_code) + ' en ' + unitLabelBranch(r, b)" />
-                                                  <span class="pr-dx-u">{{ unitLabelBranch(r, b) }} de {{ sucNom(u.from_code) }}</span>
+                                                  <span class="pr-dx-u">{{ unitLabelBranch(r, b) }}</span>
                                                 </span>
+                                                <span class="pr-tra-de">de {{ sucNom(u.from_code) }}</span>
                                               }
                                               @if (trasSuc(r, b.code); as t) {
-                                                @if (t.entra > 0 && !trasDe(r, b.code)) { <span class="pr-tra-in" [title]="'Le llegan ' + (t.entra | number:'1.0-1') + ' cajas por traspaso desde ' + t.de">+{{ t.entra | number:'1.0-1' }} de {{ t.de }}</span> }
-                                                @if (t.sale > 0) { <span class="pr-tra-out" [title]="'Manda ' + (t.sale | number:'1.0-1') + ' cajas a ' + t.a">manda {{ t.sale | number:'1.0-1' }}</span> }
+                                                @if (t.entra > 0 && !trasDe(r, b.code)) { <span class="pr-tra-in" [title]="'Le llegan ' + (t.entra | number:'1.0-1') + ' cajas por traspaso desde ' + t.de">+{{ t.entra | number:'1.0-1' }} {{ etOf(r).mayor }}</span>@if (t.de) { <span class="pr-tra-de">de {{ t.de }}</span> } }
+                                                @if (t.sale > 0) { <span class="pr-tra-out" [title]="'Manda ' + (t.sale | number:'1.0-1') + ' cajas a ' + t.a">manda {{ t.sale | number:'1.0-1' }} {{ etOf(r).mayor }}</span><span class="pr-tra-de">a {{ t.a }}</span> }
                                               } @else if (!trasDe(r, b.code)) { <span class="pr-muted">—</span> }
                                             </td>
                                           }
@@ -708,7 +713,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                         (pointerdown)="stepStart(r, b, -1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
                                                         (pointercancel)="stepStop()" (contextmenu)="$event.preventDefault()">−</button>
                                                 <input type="number" min="0" step="1" inputmode="numeric" class="pr-qty pr-qty-sm"
-                                                       aria-keyshortcuts="ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown"
+                                                       [attr.aria-keyshortcuts]="trasEditable(r, b) ? 'ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown Control+ArrowLeft' : 'ArrowUp ArrowDown Enter ArrowLeft ArrowRight Alt+ArrowUp Alt+ArrowDown'"
                                                        [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                        (keydown)="onQtyKey($event)"
                                                        [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + sucNom(b.code) + ' en ' + unitLabelBranch(r, b)" [title]="qtyTxt(r, b)" />
@@ -744,7 +749,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                           title="El proveedor entrega en un CEDIS y de ahí baja por traspaso">Consolidado</button>
                                                 </div>
                                                 @if (isConsolidated(r, b)) {
-                                                  <p-select class="pr-cedis" styleClass="pr-cedis-sel" [options]="cedisOpts(b)"
+                                                  <p-select class="pr-cedis pr-cedis-sel" [options]="cedisOpts(b)"
                                                             optionLabel="label" optionValue="value" appendTo="body"
                                                             [ngModel]="deliverOf(r, b)" (ngModelChange)="setDeliverTo(r, b, $event)"
                                                             [title]="deliverTitle(r, b)"
@@ -773,6 +778,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                     </tr></tfoot>
                                   </table>
                                 </div>
+                                <!-- [PQ.129.2] Con dos cajas por renglón, las teclas se dicen: ← → suman y ↑ ↓ / Enter se quedan
+                                     en su columna, así que cruzar de Traspaso a Pedir no se adivina (Edgar no lo encontró). -->
+                                @if (hayTrasEditable(r)) {
+                                  <p class="pr-teclas"><kbd>Ctrl</kbd>+<kbd>→</kbd> / <kbd>Ctrl</kbd>+<kbd>←</kbd> o <kbd>Tab</kbd>: entre Traspaso y Pedir · <kbd>Enter</kbd>: baja en la misma columna · <kbd>←</kbd> <kbd>→</kbd>: resta o suma uno</p>
+                                }
                                 <ng-container *ngTemplateOutlet="addBranchTpl; context: { $implicit: r }"></ng-container>
                                 <!-- ACUSE — sólo cuando algo se consolida: con todo directo repetiría la tabla. -->
                                 @if (hayConsolidado(r)) {
@@ -828,11 +838,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <tr>
                                           <td><span class="pr-suc">{{ sucNom(u.warehouse_code) }}</span></td>
                                           <td class="pr-det-act">
-                                            <p-tag [value]="typeLabel(u.type)" [severity]="typeSev(u.type)" styleClass="pr-abc"></p-tag>
+                                            <p-tag [value]="typeLabel(u.type)" [severity]="typeSev(u.type)" class="pr-abc"></p-tag>
                                             @if (u.from_code) { <span class="pr-from">desde {{ sucNom(u.from_code) }}</span> }
                                           </td>
                                           <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
-                                          <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
+                                          <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" class="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
                                           <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + sucNom(u.warehouse_code) + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                           <td class="pr-r pr-muted">{{ piezasDeCajas(u.qty, u.uxc) | number:'1.0-0' }}</td>
                                           <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
@@ -849,13 +859,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                             <div class="pr-exp-actions pr-dx-pie">
                               @if (tabOf(r.product_id) === 'buy' && branchBuys(r).length) {
                                 <label class="pr-dx-ctl">Entrega
-                                  <p-select styleClass="pr-dx-sel" [options]="entregaOpts(r)" optionLabel="label" optionValue="value" appendTo="body"
+                                  <p-select class="pr-dx-sel" [options]="entregaOpts(r)" optionLabel="label" optionValue="value" appendTo="body"
                                             [ngModel]="entregaModo(r)" (ngModelChange)="setEntregaModo(r, $event)"
                                             [ariaLabel]="'Dónde entrega el proveedor ' + r.sku"></p-select>
                                 </label>
                                 @if (escOf(r).length > 1) {
                                   <label class="pr-dx-ctl">en
-                                    <p-select styleClass="pr-dx-sel" [options]="unidadOpts(r)" optionLabel="label" optionValue="value" appendTo="body"
+                                    <p-select class="pr-dx-sel" [options]="unidadOpts(r)" optionLabel="label" optionValue="value" appendTo="body"
                                               [ngModel]="unidadModo(r)" (ngModelChange)="setUnidadModo(r, $event)"
                                               [ariaLabel]="'Unidad en que se captura ' + r.sku"></p-select>
                                   </label>
@@ -1001,16 +1011,19 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                  proveedores siempre en el mismo. Ponerlo producto por producto no decidía nada en
                  8 de cada 10 casos: era clic. El control por producto sigue ahí para el 18%. -->
             @if (carrito().entran > 0) {
+              <!-- [PQ.129.1] Entrega y unidad bajan JUNTAS de renglón: separadas, «en elegir» quedaba solo abajo. -->
+              <span class="pr-glob-par">
               <label class="pr-glob">Entrega
-                <p-select styleClass="pr-dx-sel" [options]="entregaGlobalOpts()" optionLabel="label" optionValue="value"
+                <p-select class="pr-dx-sel" [options]="entregaGlobalOpts()" optionLabel="label" optionValue="value"
                           appendTo="body" [ngModel]="entregaGlobal()" (ngModelChange)="aplicarEntregaGlobal($event)"
                           placeholder="elegir" ariaLabel="Dónde entrega el proveedor, para todo el pedido"></p-select>
               </label>
               <label class="pr-glob">en
-                <p-select styleClass="pr-dx-sel" [options]="unidadGlobalOpts" optionLabel="label" optionValue="value"
+                <p-select class="pr-dx-sel" [options]="unidadGlobalOpts" optionLabel="label" optionValue="value"
                           appendTo="body" [ngModel]="unidadGlobal()" (ngModelChange)="aplicarUnidadGlobal($event)"
                           placeholder="elegir" ariaLabel="Unidad en que se captura, para todo el pedido"></p-select>
               </label>
+              </span>
               @if (difieren(); as n) {
                 <!-- El color NO es el portador: lo dice con palabra y número, y lleva al producto. -->
                 <button type="button" class="pr-zlink pr-glob-dif" (click)="verPrimerDiferente()"
@@ -1144,7 +1157,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     <td class="pr-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
                     <td>
                       <p-tag [value]="(o.llega_aprox | date:'dd/MM/yy') || ''"
-                             [severity]="llegaSev(o)" styleClass="pr-cov-tag" [title]="llegaTitle(o)"></p-tag>
+                             [severity]="llegaSev(o)" class="pr-cov-tag" [title]="llegaTitle(o)"></p-tag>
                     </td>
                     <td class="pr-r"><span [class]="edadCls(o)" [title]="edadTitle(o)">{{ o.dias_abierta }} d</span></td>
                     <td class="pr-r pr-muted">{{ o.cantidad | number:'1.0-0' }} {{ o.unidad }}</td>
@@ -1338,7 +1351,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                     <div class="pr-sku">{{ r.n_canales }} {{ r.n_canales === 1 ? 'sucursal' : 'sucursales' }}@if (r.lead_time_days != null) { · tarda {{ r.lead_time_days }} d en surtir}</div>
                   </td>
                   <td role="cell" data-label="Toca">
-                    <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" styleClass="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
+                    <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" class="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
                     <div class="pr-sku">{{ r.next_due_date ? (r.next_due_date | date:'dd/MM/yy') : 'sin fecha' }}</div>
                   </td>
                   <td role="cell" data-label="Dónde">
@@ -1411,7 +1424,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 <td class="pr-muted" role="cell" data-label="Última entrega">{{ r.last_delivery_date ? (r.last_delivery_date | date:'dd/MM/yy') : '—' }}</td>
                 <td role="cell" data-label="Próximo pedido">{{ r.next_due_date ? (r.next_due_date | date:'dd/MM/yy') : '—' }}</td>
                 <td class="pr-r dt-num" role="cell" data-label="Atraso">
-                  <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" styleClass="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
+                  <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" class="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
                 </td>
                 <td class="pr-r pr-muted dt-num" role="cell" data-label="Bajo reorden">{{ r.n_below | number:'1.0-0' }} <span class="pr-wl-de">de {{ r.n_skus | number:'1.0-0' }}</span></td>
                 <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Sugerido">{{ r.suggested_cost > 0 ? money(r.suggested_cost) : '—' }}</td>
@@ -1615,7 +1628,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </div>
         <p-table [value]="deadRows()" [loading]="loading()"
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                 styleClass="p-datatable-sm pr-table dt-stack" [tableStyle]="deadTableStyle">
+                 class="p-datatable-sm pr-table dt-stack" [tableStyle]="deadTableStyle">
           <ng-template #header>
             <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
               <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
@@ -1876,7 +1889,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-qty, .pr-qty-tr { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
       color: var(--text-main); font-size: var(--fs-body); font-family: inherit; }
-    .pr-qty:focus, .pr-qty-tr:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
+    /* [PQ.129.1] Foco con outline sólido (3:1 o más), no el halo --action-ring (1.56:1): en una
+       columna de cajas que se recorre con Enter, la que tiene el foco se tiene que ver sin buscarla. */
+    .pr-qty:focus-visible, .pr-qty-tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-color: var(--action); }
+    /* [PQ.129.2] Las teclas de la captura, en gris y chico: se lee una vez. En táctil no hay teclado. */
+    .pr-teclas { margin: .35rem 0 0; color: var(--text-faint); font-size: var(--fs-micro); line-height: 1.6; }
+    .pr-teclas kbd { font-family: var(--font-mono, ui-monospace, monospace); font-size: inherit; padding: 0 .3rem;
+      border: 1px solid var(--border-color); border-radius: 4px; background: var(--card-bg); color: var(--text-muted); }
+    @media (hover: none) and (pointer: coarse) { .pr-teclas { display: none; } }
     /* El spinner nativo se retira para TODA la suite desde libs/ui-web/src/number-input.css
        (D.5), así que la regla que vivía acá se fue con él. Las flechas del TECLADO siguen siendo
        del input, no del spinner — y en esta pantalla onQtyKey las reasigna a moverse entre
@@ -1915,7 +1935,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 .3rem; margin-right: .3rem; }
     :host ::ng-deep .pr-wb tr.pr-wb-noncom > td { opacity: .62; }
     :host ::ng-deep .pr-wb tr.pr-wb-noncom:hover > td { opacity: 1; }
-    .pr-bulk { position: sticky; bottom: 0; display: flex; align-items: center; gap: .5rem; margin-top: .75rem; padding: .6rem .9rem;
+    /* [PQ.129.1] flex-wrap: lo que no cabe baja de renglón. Sin esto la barra exprimía los botones a
+       tres renglones de texto a 1440 px y, a 390 px, «Generar requisición» quedaba fuera de la pantalla
+       (la regla de celular vive en un @container que hoy no tiene contenedor: ver [MT.6]). */
+    .pr-bulk { position: sticky; bottom: 0; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .75rem; padding: .6rem .9rem;
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
     .pr-bulk-n { font-size: var(--fs-body); color: var(--text-main); font-variant-numeric: tabular-nums; }
     /* [RA-DYN.U3] El piso del proveedor. Avisa, no bloquea: juntar la canasta puede ser
@@ -1979,9 +2002,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-wb .pr-wb-open td:first-child { box-shadow: inset 3px 0 0 var(--action); }
     .pr-wb-go { font-size: var(--fs-micro); color: var(--text-faint); margin-right: .1rem; }
     /* Producto congelado al scrollear horizontal (columna 1 sticky, patrón existencia-crítica) */
-    :host ::ng-deep .pr-wb thead tr:first-child th:first-child,
-    :host ::ng-deep .pr-wb tbody td:first-child { position: sticky; left: 0; z-index: 2; background: var(--card-bg); }
-    :host ::ng-deep .pr-wb thead tr:first-child th:first-child { z-index: 3; }
+    /* [PQ.129.1] Sólo la fila del producto: «tbody td:first-child» alcanzaba también la celda del
+       desglose abierto (y la primera de sus tablas), que con z-index 2 tapaba la barra de abajo. */
+    :host ::ng-deep .pr-wb .p-datatable-thead > tr:first-child > th:first-child,
+    :host ::ng-deep .pr-wb tbody tr.pr-wb-row > td:first-child { position: sticky; left: 0; z-index: 2; background: var(--card-bg); }
+    :host ::ng-deep .pr-wb .p-datatable-thead > tr:first-child > th:first-child { z-index: 3; }
     :host ::ng-deep .pr-wb .pr-wb-row:hover td:first-child { background: var(--overlay-hover, var(--hover-bg)); }
     :host ::ng-deep .pr-wb .pr-wb-open td:first-child { background: var(--overlay-selected, var(--hover-bg)); }
     /* RA-PRO.32.1 — fila expandida (acordeón): desglose por sucursal accionable inline */
@@ -2019,12 +2044,15 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-dur-bad { color: var(--bad-fg); } .pr-dur-warn { color: var(--warn-soft-fg); } .pr-dur-ok { color: var(--text-muted); }
     .pr-tra-in { color: var(--info-fg); }
     .pr-tra-out { color: var(--text-faint); font-size: var(--fs-xs); display: block; }
+    /* [PQ.129.1] De dónde viene (o a dónde va) el traspaso, en su propio renglón bajo la cantidad. */
+    .pr-tra-de { display: block; margin-top: .2rem; color: var(--text-faint); font-size: var(--fs-micro); line-height: 1.25; white-space: normal; }
     .pr-dx-u { color: var(--text-faint); font-size: var(--fs-xs); margin-left: .2rem; }
     .pr-dx-pie { flex-wrap: wrap; gap: .4rem .75rem; }
     .pr-dx-ctl { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-muted); }
     /* [PQ.90] La entrega y la unidad DEL PEDIDO, en la barra de la requisicion en armado.
        Mismo peso visual que el control por producto a proposito: no compite con "Generar", que
        sigue siendo la unica primaria de la pantalla (DESIGN, Von Restorff). */
+    .pr-glob-par { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; max-width: 100%; }
     .pr-glob { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-muted); }
     .pr-glob-dif { color: var(--warn-soft-fg); }
     :host ::ng-deep .pr-dx-sel { min-width: 9rem; }
@@ -2289,6 +2317,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       .pr-det-buy tbody tr > td.pr-dx-c-exi::before { content: 'Exist. '; color: var(--text-faint); font-size: var(--fs-micro); }
       .pr-det-buy tbody tr > td.pr-dx-c-dur::before { content: 'Hoy '; color: var(--text-faint); font-size: var(--fs-micro); }
       .pr-det-buy tbody tr > td.pr-dx-c-que::before { content: 'Queda '; color: var(--text-faint); font-size: var(--fs-micro); }
+      /* [PQ.129.1] En la tarjeta hay DOS campos de captura: el del traspaso dice que lo es, y sin
+         traspaso no ocupa un renglón entero para pintar un guion. */
+      .pr-det-buy tbody tr > td.pr-dx-c-tra::before { content: 'Traspaso'; display: block; color: var(--text-faint); font-size: var(--fs-micro); }
+      .pr-det-buy tbody tr > td.pr-dx-c-tra-vacia { display: none; }
       .pr-det-buy tfoot { display: none; }   /* el total ya lo dicen la fila del producto y el botón de agregar */
       .pr-det-buy .pr-step { width: 100%; justify-content: flex-start; }
       .pr-det-buy .pr-qty-sm { width: 5rem; min-height: 44px; font-size: var(--fs-body); }
@@ -4245,6 +4277,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * no se pudo calcular (peldaño en contra) o le llega de dos orígenes. Para ésos queda la tabla aparte:
    * todo traspaso se alcanza.
    */
+  /** `[PQ.129.2]` ¿El renglón tiene caja de traspaso junto a «Pedir»? (con el peldaño en contra no la hay). */
+  trasEditable(r: WorkbookRow, b: BranchBuy): boolean { return !b.rung && !!this.trasDe(r, b.code); }
+  /** `[PQ.129.2]` ¿Algún renglón del desglose tiene las dos cajas? Sólo entonces se dice cómo cruzar. */
+  hayTrasEditable(r: WorkbookRow): boolean { return this.filasDesglose(r).some((b) => this.trasEditable(r, b)); }
   trasFueraDeTabla(r: WorkbookRow): number {
     const enRenglon = new Set(this.filasDesglose(r).filter((b) => !b.rung).map((b) => b.code));
     return this.trasRows(r.product_id)
@@ -5260,6 +5296,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * el mismo orden en que se ven.
    */
   onQtyKey(ev: KeyboardEvent): void {
+    // [PQ.129.2] Ctrl + ← → cambia a la caja de al lado del mismo renglón (Traspaso ↔ Pedir). Va primero:
+    // con Ctrl, `pasoPorTecla` no da paso, así que no compiten.
+    if (moverEnRenglon(ev, '.pr-qty, .pr-qty-tr')) return;
     const el = ev.target as HTMLInputElement;
     const up = ev.key === 'ArrowUp';
     const down = ev.key === 'ArrowDown';
