@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
-import { VENTANA_CFDI_DIAS, cfdisDeFacturas, type CfdiDeLaFactura, type CfdiRecibido, type FacturaParaCfdi } from '@megadulces/contracts/finance/cfdi-factura';
+import { VENTANA_CFDI_DIAS, cfdisDeFacturas, type CfdiDeLaFactura, type CfdiDelRenglon, type CfdiRecibido, type FacturaParaCfdi } from '@megadulces/contracts/finance/cfdi-factura';
 
 /**
  * `[PGP.108]` **La lectura del CFDI de cada factura de los pagos de un día.** La regla vive en el
@@ -66,9 +66,11 @@ function sumarDias(fecha: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** El CFDI de cada renglón de pago (por id de renglón). Los que no son factura de Kepler no aparecen. */
-export async function leerCfdiDeFacturas(trx: Knex | Knex.Transaction, tenantId: string, itemIds: readonly string[]): Promise<Map<string, CfdiDeLaFactura>> {
-  if (!itemIds.length) return new Map();
+/**
+ * `[PGP.158]` Pasos 1–3: lo que se sabe de cada factura por su documento de Kepler (importe, fecha,
+ * RFC). Salió de `leerCfdiDeFacturas` para que el aviso de cancelados use las MISMAS facturas.
+ */
+async function leerFacturasParaCfdi(trx: Knex | Knex.Transaction, tenantId: string, itemIds: readonly string[]): Promise<FacturaParaCfdi[]> {
   const llaves = (await trx.raw(SQL_LLAVES_DE_RENGLONES, [tenantId, [...itemIds]])).rows as { item_id: string; oid: string | null }[];
   const oids = [...new Set(llaves.map((l) => l.oid).filter((x): x is string => !!x))];
   const docs = oids.length
@@ -85,13 +87,48 @@ export async function leerCfdiDeFacturas(trx: Knex | Knex.Transaction, tenantId:
     const rfc = d ? rfcDe.get(`${d.sucursal}|${d.acreedor}`) : null;
     return { item_id: l.item_id, importe: d ? Number(d.importe) : null, fecha: d?.fecha ?? null, rfc: rfc ? rfc.trim().toUpperCase() : null };
   });
+  return facturas;
+}
+
+/** Paso 4: los CFDI (vigentes o, `[PGP.163]`, cancelados) de esas facturas, en su ventana de fechas. */
+async function leerCandidatos(trx: Knex | Knex.Transaction, tenantId: string, facturas: readonly FacturaParaCfdi[], sql: string): Promise<CfdiRecibido[]> {
   const conRfc = facturas.filter((f) => f.rfc && f.fecha);
-  let cfdis: CfdiRecibido[] = [];
-  if (conRfc.length) {
-    const fechas = conRfc.map((f) => f.fecha as string).sort();
-    const rfcs = [...new Set(conRfc.map((f) => f.rfc as string))];
-    cfdis = ((await trx.raw(SQL_CFDIS_CANDIDATOS, [tenantId, rfcs, sumarDias(fechas[0], -VENTANA_CFDI_DIAS), sumarDias(fechas[fechas.length - 1], VENTANA_CFDI_DIAS)])).rows as CfdiRecibido[])
-      .map((c) => ({ ...c, total: Number(c.total) }));
+  if (!conRfc.length) return [];
+  const fechas = conRfc.map((f) => f.fecha as string).sort();
+  const rfcs = [...new Set(conRfc.map((f) => f.rfc as string))];
+  return ((await trx.raw(sql, [tenantId, rfcs, sumarDias(fechas[0], -VENTANA_CFDI_DIAS), sumarDias(fechas[fechas.length - 1], VENTANA_CFDI_DIAS)])).rows as CfdiRecibido[])
+    .map((c) => ({ ...c, total: Number(c.total) }));
+}
+
+/** El CFDI de cada renglón de pago (por id de renglón). Los que no son factura de Kepler no aparecen. */
+export async function leerCfdiDeFacturas(trx: Knex | Knex.Transaction, tenantId: string, itemIds: readonly string[]): Promise<Map<string, CfdiDeLaFactura>> {
+  if (!itemIds.length) return new Map();
+  const facturas = await leerFacturasParaCfdi(trx, tenantId, itemIds);
+  return cfdisDeFacturas(facturas, await leerCandidatos(trx, tenantId, facturas, SQL_CFDIS_CANDIDATOS));
+}
+
+/**
+ * `[PGP.163]` Los MISMOS candidatos, pero cancelados: la factura que el proveedor canceló en el SAT
+ * (medido 2026-11-19: 65 de 2026 ligadas a una factura ya pagada; 6 sin sustituta).
+ */
+export const SQL_CFDIS_CANCELADOS = SQL_CFDIS_CANDIDATOS.replace("c.estatus_sat <> 'cancelado'", "c.estatus_sat = 'cancelado'");
+
+/**
+ * `[PGP.158][PGP.163]` El CFDI de cada renglón y, cuando no hay uno vigente (`ninguno`), el cancelado
+ * que casa con la factura por la MISMA regla (RFC + total ±$1 + fecha ±45 días, uno solo).
+ */
+export async function leerCfdiConCancelados(trx: Knex | Knex.Transaction, tenantId: string, itemIds: readonly string[]): Promise<Map<string, CfdiDelRenglon>> {
+  if (!itemIds.length) return new Map();
+  const facturas = await leerFacturasParaCfdi(trx, tenantId, itemIds);
+  const vigentes = cfdisDeFacturas(facturas, await leerCandidatos(trx, tenantId, facturas, SQL_CFDIS_CANDIDATOS));
+  const sinVigente = facturas.filter((f) => vigentes.get(f.item_id)?.estado === 'ninguno');
+  const cancelados = sinVigente.length
+    ? cfdisDeFacturas(sinVigente, await leerCandidatos(trx, tenantId, sinVigente, SQL_CFDIS_CANCELADOS))
+    : new Map<string, CfdiDeLaFactura>();
+  const out = new Map<string, CfdiDelRenglon>();
+  for (const [id, cfdi] of vigentes) {
+    const c = cancelados.get(id);
+    out.set(id, { cfdi, cancelado_uuid: c?.estado === 'unico' && c.cfdi ? c.cfdi.uuid : null });
   }
-  return cfdisDeFacturas(facturas, cfdis);
+  return out;
 }

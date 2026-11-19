@@ -7,6 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
+import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
@@ -179,6 +180,18 @@ export class PaymentCalendarController {
   bandeja(@Query('pagados_dias') dias?: string): Promise<PaymentCalendarBandeja> {
     const n = Number(dias);
     return this.svc.bandeja(Number.isFinite(n) && n > 0 ? n : 30) as Promise<PaymentCalendarBandeja>;
+  }
+
+  /**
+   * `[PGP.158][PGP.163]` El CFDI de las facturas de los pagos que la pantalla tiene a la vista, para el
+   * aviso fiscal del renglón (PUE fuera de su mes, factura cancelada en el SAT). En diferido: la
+   * bandeja no lo espera. `ids` = ids de pago separados por coma (hasta 300).
+   */
+  @Get('allocations-cfdi')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.158/163 — el CFDI de cada factura de esos pagos (PUE/PPD, forma y fecha) y, si no hay uno vigente, el cancelado que casa. Sólo lectura.' })
+  cfdiDePagos(@Query('ids') ids?: string): Promise<Record<string, CfdiDelRenglon>> {
+    return this.svc.cfdiDePagos(String(ids ?? '').split(','));
   }
 
   @Get('days/:date/summary')
