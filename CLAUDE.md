@@ -145,6 +145,7 @@
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
 | **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
+| **MSP** | Mesa de Servicio · área «Presupuestos y Requerimientos» (coordina Ernesto Zárate): sólo levantan encargados, auxiliares y gerencias de zona; dictamen obligatorio; órdenes de servicio ligadas a Mantenimiento/TI. Frente de MS, construido por cola ([plan](docs/IMPLEMENTACION/FASES/FASE_MSP_PRESUPUESTOS_Y_REQUERIMIENTOS.md)). **Pedido el 2026-11-18 por encima del cupo: falta que el PM lo ratifique** | 🔨 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) — absorbida por LE el 2026-10-27 | ⏸️ |
 | **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco; opera como **ventanilla bancaria** (ADR-112: billetes en la bóveda, ninguna salida sin orden, pagar es registrar); reemplaza a CGA | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |

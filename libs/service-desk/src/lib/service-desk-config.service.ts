@@ -9,6 +9,8 @@ import { SD_IMPACTS, type SdCatalogResponse, type SdPriority } from '@megadulces
 import { TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM, type BusinessCalendar } from './domain/business-clock';
 import { politicaEfectiva, type PoliticaSla, type PoliticasPorPrioridad } from './domain/sla';
+import { esMiembroDeCola, type AccesoColas } from './domain/queue-access';
+import { colaSeOfrece } from './domain/presupuesto';
 
 export interface SdSettings {
   calendar: BusinessCalendar;
@@ -74,9 +76,28 @@ export class ServiceDeskConfigService {
   }
 
   /** Lo que la pantalla «Nueva solicitud» necesita para pintarse. `userId` = quien pregunta (para saber si ya aceptó el aviso de privacidad). */
-  async catalog(userId?: string): Promise<SdCatalogResponse> {
+  async catalog(userId?: string, colas?: AccesoColas): Promise<SdCatalogResponse> {
     return this.tk.run(async (trx) => {
-      const queues = await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled', 'privacy_notice_code');
+      const todas = (await trx('servicedesk.queues')
+        .where({ active: true })
+        .whereNull('deleted_at')
+        .orderBy([{ column: 'sort_order' }, { column: 'name' }])
+        .select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled', 'privacy_notice_code', 'requires_description', 'requires_decision', 'work_order_queue_codes', 'requester_positions')) as Array<
+        { id: string; privacy_notice_code: string | null; requester_positions: string[] | null } & Record<string, unknown>
+      >;
+      /*
+       * `[MSP.2.1]` D1: un área que dice QUIÉN levanta (`requester_positions`) sólo se ofrece a esos puestos y a sus miembros (que la levantan a
+       * nombre de alguien que sí puede). Al resto no se le muestra: un área que el servidor le rechazaría es una puerta pintada. La lista de
+       * puestos es interna: no sale en la respuesta.
+       */
+      const puesto = userId && todas.some((q) => q.requester_positions) ? ((await trx('identity.users').where({ id: userId }).first('position_code'))?.position_code as string | null | undefined) ?? null : null;
+      const queues = todas
+        .filter((q) => colaSeOfrece(puesto, q.requester_positions, colas ? esMiembroDeCola(colas, q.id) : false))
+        .map((q) => {
+          const { requester_positions, ...resto } = q;
+          void requester_positions;
+          return resto;
+        });
       const activas = new Set(queues.map((q: { id: string }) => q.id));
       /*
        * `[PRV.2]` El aviso de privacidad VIGENTE de las colas que lo exigen, y si quien pregunta ya lo aceptó. `privacy_notice_code` es un dato

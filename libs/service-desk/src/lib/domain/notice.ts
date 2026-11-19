@@ -20,6 +20,7 @@ export type SdEventoClave =
   | 'cancelado'
   | 'autocerrado'
   | 'transferido'
+  | 'dictamen'
   | 'sla_por_vencer'
   | 'sla_primera_respuesta_vencida'
   | 'sla_vencido';
@@ -93,6 +94,9 @@ export function armarAviso(e: EntradaAviso): Aviso {
     case 'transferido':
       // `[MS.7.11]` `extracto` lleva el nombre del área destino. Le llega a quien atiende esa área.
       return { title: 'Te trasladaron una solicitud', message: `${ref}${quien ? ` — la trasladó ${quien}` : ''}${e.extracto ? ` a ${recortar(e.extracto, 60)}` : ''}.`, severity: e.priority === 'urgente' ? 'critical' : 'info' };
+    case 'dictamen':
+      // `[MSP.2.3]` `extracto` lleva el dictamen («autorizada» / «no autorizada»). Le llega a quien la reportó.
+      return { title: `Tu solicitud fue ${e.extracto === 'no_autorizado' ? 'NO autorizada' : 'autorizada'}`, message: `${ref}${quien ? ` — dictamen de ${quien}` : ''}. Abre la solicitud para ver el motivo.`, severity: e.extracto === 'no_autorizado' ? 'warn' : 'info' };
     case 'autocerrado':
       return {
         title: 'Cerramos tu solicitud',

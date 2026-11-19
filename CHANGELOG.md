@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en PR #567, sin soltar; la cola nace apagada)
+- Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
+- La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.
+- **Dictamen**: la coordinación autoriza o no autoriza, con motivo; quien lo pidió lo ve y recibe el aviso. Sin dictamen la solicitud no se resuelve.
+- **Orden de servicio**: si la autoriza, la coordinación manda una orden a Mantenimiento o a Sistemas, a nombre de quien lo pidió, con su sucursal y su evidencia. La solicitud espera a la orden y se resuelve sola cuando la orden se resuelve; la orden dice de qué solicitud viene.
+- Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
+- Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
 ### Changed — Verificador de precios: una sola verdad y la frescura real (VAC.D3 + VAC.D4, 2026-11-19 · en código, sin soltar)
 - El precio es siempre el de Kepler: se retira la «corrección a mano» (0 de 80,036 precios la usaban), en el verificador y en el checador de la app del vendedor.
 - La frescura de cada sucursal ya se mide: sale de la última revisión del carril caliente contra el ERP. El verificador y la Caja de mostrador dejan de decir «Frescura del ERP sin medir».
