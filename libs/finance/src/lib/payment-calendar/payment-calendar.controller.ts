@@ -44,7 +44,7 @@ export class PaymentCalendarController {
    */
   @Get('corte-sueltas')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
-  @ApiOperation({ summary: 'Facturas de sucursal que vencen antes del corte del 1-oct-2026 y que Oficinas NUNCA registró: sin cargo ni pago/anticipo del mismo acreedor por el mismo importe (±$1) en la 00, y sin nada aplicado. Ésas se pueden programar; las demás siguen «por confirmar» (pueden estar pagadas desde Oficinas). Medido el 2026-11-10: 67 de 205 facturas, $1,148,347.09.' })
+  @ApiOperation({ summary: 'Facturas de sucursal que vencen antes del corte del 1-oct-2026 y que Oficinas NUNCA registró: sin cargo del mismo acreedor por el importe o lo pendiente (±$1) en la 00 —salvo que su referencia tenga la serie de otra sucursal y otro número ([PGP.147])—, sin pago/anticipo de la 00 por el importe o lo pendiente, y sin nota, devolución o ajuste aplicado (un pago o anticipo de su propia sucursal no bloquea). Ésas se pueden programar; las demás siguen «por confirmar» (pueden estar pagadas desde Oficinas). Medido el 2026-11-18: 73 de 208 facturas, $1,471,894.74 pendientes.' })
   listCorteSueltas(): Promise<CorteSueltaRow[]> {
     return this.svc.listCorteSueltas();
   }
