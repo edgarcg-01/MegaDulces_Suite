@@ -3,8 +3,8 @@
 > **Pedido, literal (Edgar, 2026-11-18):** «los imports no deben de existir» · «revisa qué puede salir del ODS que hoy
 > no está saliendo» · «resolvamos existencia y todo lo que pueda salir del ODS».
 >
-> **Estado:** C0 medido (este documento). `[CANON.7.1]` en código y probado en un Postgres 18 desechable (2026-11-19),
-> **sin aplicar en prod**; 7.2–7.5 sin construir. Se cuelga de la excepción de cupo que Edgar firmó para CANON (anexo
+> **Estado:** C0 medido (este documento). `[CANON.7.1]` ✅ **en prod desde el 2026-11-19** (las 9 sucursales en 29–57 ms
+> leídas con RLS, antes 10.5–14 s); 7.2–7.5 sin construir. Se cuelga de la excepción de cupo que Edgar firmó para CANON (anexo
 > `FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md` §8); items `[CANON.7.N]`.
 >
 > ⭐ **Corrección del 2026-11-19 (§2.1 y §3):** la vista no era lenta por RLS sino por un **estimado**. Se arregla con una
@@ -109,9 +109,17 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    EXPLAIN contra el conteo real, la cantidad idéntica al renglón contra el texto anterior, el factor sólo difiere donde la
    tabla por evento difiere de su vista, una sucursal bajo 500 ms con un rol como la app. Ensayada entera en un Postgres 18
    desechable con los tipos de prod: el texto anterior deparsea idéntico al de prod, `up` dos veces, `down` exacto, y tres
-   negativas en rojo (sin migración, factor roto, sin la tabla por evento). ⛔ **Sin aplicar en prod.** `display_box_factor`
-   difiere hoy en 3 SKUs: retraso de < 24 h de la tabla por evento ante el refresco nocturno de `mv_kepler_bought_rung`
-   (un `REFRESH` no dispara la cola) — hueco de `[CANON.6.21]` con nombre.
+   negativas en rojo (sin migración, factor roto, sin la tabla por evento). ✅ **Aplicada en prod el 2026-11-19 a las
+   11:24** (0.3 s; sin lectores de la vista ni transacciones largas; 0 errores en la API en los 20 min alrededor) y medida
+   con RLS como `edgar`: estima 37,114 filas propias de `kdil` y son 37,145 (escrito sin `IS TRUE`, sigue en 204: es el
+   control), las 9 sucursales en 29–57 ms, toda la red ~90 ms, prueba 11/11. ⚠️ Se había prometido «fuera de horario» y
+   se aplicó en horario hábil: Git Bash dio la hora en UTC creyendo dar la de México. ⛔ La prueba traía un error de
+   instrumento que salió en prod: comparaba el estimado del nodo de UNA sucursal (4,108) contra las filas propias de toda
+   la red (37,145) y salía roja con la estadística funcionando. En el ensayo pasaba porque el plan recorría `kdil` entera.
+   Ahora compara estimado contra real del mismo nodo (`EXPLAIN ANALYZE`) y corre el filtro sin `IS TRUE` como control
+   negativo. `display_box_factor` difería la mañana del 19 en 3 SKUs (retraso de < 24 h de la tabla por evento ante el
+   refresco nocturno de `mv_kepler_bought_rung`: un `REFRESH` no dispara la cola, hueco de `[CANON.6.21]` con nombre); al
+   aplicarla eran 0.
 2. **`[CANON.7.2]` C2** — los **13** lectores clase A (analytics ×4, rentabilidad ×2, ficha de producto, monitoreo, Thot,
    existencia crítica / resumen / excedente de red, scanner de reorden) leen la vista.
 3. **`[CANON.7.3]` C2** — los **11** clase B (catálogo, facetas, precios y más vendidos del portal; detalle de pedido; bot de
