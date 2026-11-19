@@ -555,14 +555,20 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             <ul>@for (a of det.abonos; track a.folio) { <li>{{ a.doc_label }} {{ a.folio }} · {{ a.fecha }} <b>{{ money(a.importe) }}</b></li> }</ul>
           </details>
         }
-        @if (det.sin_documento !== 0) {
+        @if (det.sin_documento > 0) {
           <p class="ct-det-note ct-sin-doc">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             {{ money(det.sin_documento) }} del saldo no lo explica ningún documento: Kepler aplicó cobros
             por encima de lo que la cuenta justifica. El total de arriba es el de Kepler; el desglose se queda corto.
           </p>
+        } @else if (det.sin_documento < 0) {
+          <p class="ct-det-note ct-sin-doc">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            {{ money(-det.sin_documento) }} en pagos que Kepler todavía no aplica a ninguna factura: se restan del
+            saldo, pero cada factura sigue con lo que Kepler dice que debe.
+          </p>
         }
-        <p class="ct-det-note muted">El saldo del cliente sale de <b>kdue</b> (cargos − abonos), que es la cifra que cuadra con Kepler. El reparto por documento usa las aplicaciones de <b>kdm5</b>; lo que no logran ubicar se aplica a las partidas más viejas primero. Espejo read-only del ERP.</p>
+        <p class="ct-det-note muted">El saldo del cliente sale de <b>kdue</b> (cargos − abonos), que es la cifra que cuadra con Kepler. El saldo de cada factura es el de sus aplicaciones en <b>kdm5</b>, como en el reporte de partidas vivas. Espejo read-only del ERP.</p>
       }
     </p-dialog>
 

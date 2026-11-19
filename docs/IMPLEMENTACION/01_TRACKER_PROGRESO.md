@@ -1798,31 +1798,37 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · **Sin validación visual** (no medí la pantalla viva). Ya no hay acceso directo a «llamar» ni a «copiar enlace»:
         el teléfono va como destino del botón y el enlace dentro del mensaje.
       · Va DESPUÉS de CC.20 (usa su enlace): sale con esa serie.
-- [ ] **[CXC.45]** 🧪 (en código, sin soltar) **La cartera llega completa de Kepler al ODS: la cola de cambios cubre
-      `kdud`, `kduv`, `kduk`, `kdue` y `kdm5`** (Edgar, 2026-11-19: «necesitamos una solución robusta para que no vuelva a
-      pasar», después de que un cliente de Canindo reclamó su estado de cuenta). **Causa, medida:** el carril CTID busca
-      filas por posición física y no ve un UPDATE que deja la fila en otra página. Réplica contra ODS, sucursal por
-      sucursal: **2,967 documentos con el saldo de Kepler (`kdue.c20`) viejo, 100 documentos y 133 aplicaciones de pago
-      (`kdm5`) que nunca llegaron** — entre ellas el cobro 117 de Canindo ($39,829, del 22-sep), por eso la vista repartió
-      ese pago a otras facturas. Ninguna reconciliación cubría `kdm5`. **El arreglo, sin importer ni cron:**
-      · las 5 tablas entran a `ODS_COLA_TABLES` del carril de caja (cliente → documento → aplicación); la cola ve cada
-        INSERT y UPDATE y sólo borra su entrada después de entregarla;
-      · la puesta al día viaja por la MISMA cola (`ods-cola-instalar.js --poner-al-dia`), en tandas que esperan a que el
-        carril vacíe la anterior, para no poner las ventas detrás;
-      · las bajas de `kdm5` se propagan sin freno de edad y con el tope de 500 por pasada. De 1,267 aplicaciones que el
-        ODS tiene y la réplica no, 1,256 son de abonos cancelados (la vista `kepler_kdm5_vigente` ya las ignora) y 11 de
-        abonos vivos ($170,125.25);
-      · árbitro SIN reloj, de sólo lectura: `database/scripts/ods-cartera-vs-replica.js`. Hoy da rojo en las 9
-        sucursales con esas cifras; tiene que dar 0.
-      · **Probado:** `test-ods-cola` 71 ok; mutantes nuevos en rojo (sin la espera entre tandas → 3 rojas; sin la regla
-        de `kdm5` → 2). `test-ods-lane-partition` 18/18; `check-k3s-manifests` con las mismas 8 fallas ajenas de antes.
-      · **Falta:** soltar, instalar los triggers en las 9 réplicas, poner al día y ver el árbitro en 0.
-- [ ] **[CXC.46]** ⬜ **La cartera usa el saldo que lleva Kepler (`kdue.c20`) y deja de repartir abonos FIFO.** Hoy la
-      vista calcula el saldo de cada factura como importe − aplicaciones de `kdm5` y, si falta una aplicación, carga el
-      abono a las facturas más viejas: el total cuadra y el reparto es inventado (el cliente de Canindo: la 670 debía 14,295.92
-      en Kepler y la nota de crédito 93 está SIN aplicar; la vista decía 1,090.66). Medido en las réplicas: `c20` es igual
-      a importe − aplicaciones en el 99 % de las facturas de crédito (Canindo 1,563 de 1,580). Va DESPUÉS de CXC.45: con el
-      `c20` viejo del ODS, cambiar hoy empeoraría 2,967 documentos.
+- [x] **[CXC.45]** ✅ (en prod el 2026-11-19, `478302b8f`; cola en las 9 réplicas 14:16–14:33) **La cartera llega completa
+      de Kepler al ODS: la cola de cambios cubre `kdud`, `kduv`, `kduk`, `kdue` y `kdm5`** (Edgar, 2026-11-19: «necesitamos
+      una solución robusta para que no vuelva a pasar», después de que un cliente de Canindo reclamó su estado de cuenta).
+      **Causa, medida:** el carril CTID busca filas por posición física y no ve un UPDATE que deja la fila en otra página.
+      Réplica contra ODS, sucursal por sucursal: **2,967 documentos con el saldo de Kepler (`kdue.c20`) viejo, 100
+      documentos y 133 aplicaciones de pago (`kdm5`) que nunca llegaron** — entre ellas el cobro 117 de Canindo ($39,829,
+      del 22-sep). Ninguna reconciliación cubría `kdm5`. **El arreglo, sin importer ni cron:**
+      · las 5 tablas en `ODS_COLA_TABLES` del carril de caja (cliente → documento → aplicación); la cola ve cada INSERT y
+        UPDATE y sólo borra su entrada después de entregarla;
+      · la puesta al día viajó por la MISMA cola (`ods-cola-instalar.js --poner-al-dia`), en tandas que esperan a que el
+        carril vacíe la anterior: 843,625 llaves en 9 réplicas, ~18 min, 0 reinicios del carril;
+      · las bajas de `kdm5` se propagan sin freno de edad y con el tope de 500. Las 11 aplicaciones de abonos vivos que
+        Kepler ya había borrado ($170,125.25; CEDIS 7, Morelia Abastos 4) se anotaron como baja en su cola y se
+        propagaron (< 100 ms). Las 1,269 de abonos cancelados quedan: `kepler_kdm5_vigente` ya las ignora;
+      · árbitro SIN reloj y de sólo lectura: `database/scripts/ods-cartera-vs-replica.js` (dentro del pod del carril).
+        **Antes: rojo en las 9 sucursales. Después: 0 faltantes, 0 saldos distintos, 0 sobrantes vivos en las 9.**
+      · **Probado:** `test-ods-cola` 71 ok; mutantes nuevos en rojo (sin espera entre tandas → 3; sin regla de `kdm5` → 2).
+      · ⚠️ **Costo declarado:** durante la puesta al día la peor espera réplica→ODS de la caja llegó a 57 s (lo normal es
+        < 1 s); al terminar volvió a ≤ 3.7 s. Las tandas de 2,000 llaves de `kdue` pesan más de lo que supuse: para la
+        próxima, `--lote=500` fuera de horario.
+- [x] **[CXC.46]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente muestra el saldo que Kepler le da a cada
+      factura, y lo no aplicado en su renglón.** El detalle (PDF y ficha) leía `saldo_ajustado`, un reparto que carga el
+      abono sin aplicar a las facturas más viejas: el total cuadra, pero al cliente de Canindo le cobraba la 670 por 1,090.66
+      cuando en Kepler la 670 debe 14,295.92 y hay una nota de crédito de 14,295.92 SIN aplicar. Ahora cada factura lleva
+      su saldo de las aplicaciones de `kdm5` (= reporte de partidas vivas) y la nota sale como «Pagos no asignados a una
+      factura −$14,295.92» (el PDF ya lo sabía pintar). El reparto se queda para flujo y ciclo de caja, que lo usan como
+      supuesto de cobro. La ficha dice el caso negativo como tal (antes decía «Kepler aplicó cobros por encima»).
+      · **Medido y descartado:** leer el saldo de `kdue.c20` en vez de reconstruirlo. Con el ODS ya al día cambia 5
+        documentos y $0.05 de $69,589,609 — no se gana nada; el árbitro de CXC.45 vigila las dos columnas.
+      · **Probado:** spec de Cartera 25/25 (2 nuevas: el caso negativo y el positivo); mutante (la condición vieja
+        `!== 0`) la pone roja. `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual.**
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
