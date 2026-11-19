@@ -229,6 +229,29 @@ en el repo de Mega Talento.
 
 ## 8. Bitácora
 
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-19 | `[RH.17.1]` «Hoy» de Reclutamiento, en **PR #561** (CI corriendo al abrirlo). Pestaña `/rh/reclutamiento/hoy`, a la que lleva el menú: 4 pendientes con verbo y la tarjeta uno por uno. Nace de la auditoría en prod del 18-nov (1,952 postulados en la entrada, «Atrasado» en 85/100, 0 rechazados, ~6 clics por llamada) y de un prototipo navegable que RH validó «tal cual». Medido el 19-nov 00:37 (prod, sólo lectura): 56 nuevos · **846 activos fuera de su meta** · 1,039 apartados (+30 días) → cuota de 20 por pendiente. Pruebas: regla 14 y servicio contra base local (las dos con negativa en rojo) · pantalla 11 · regresión 327 + 254 + 265 · `ngc`/`tsc --noEmit` 0 · `check:pantalla` 0 · `pre-push` 27 compuertas. NO MEDIDO: carga en prod, celular, oscuro, rol sólo-VER. Falta: CI, aceptación del PM, despliegue y prueba en prod con RH | RH (validó el prototipo) + Claude |
+
+### `[RH.17.1]` — las capas
+
+| Capa | Qué | Estado | Verificado contra / Prueba |
+|---|---|---|---|
+| C0 Dato | Lee `talent.candidates`, `candidate_events`, `candidate_stage_transitions` (sin tablas ni migraciones nuevas) | sin cambio | Universo = el de «Postulados» (`SQL_ES_POSTULACION`) |
+| C1 Dominio | `libs/hr/src/lib/talent/logic/hoy.ts`: un candidato, un pendiente; >30 días sin movimiento = apartado; cuota 20 | 🧪 | `logic/hoy.spec.ts` 14/14, rota a propósito → 3 rojas |
+| C2 API | `GET /hr/talent/today` (`HrTalentHoyService`), sólo lectura, VER o GESTIONAR | 🧪 | `talent-hoy.service.db.spec.ts` contra Postgres local con rollback; rota a propósito → rojo. RLS no ejercida (corre como `postgres`) |
+| C3 Interfaz | `rh-reclutamiento-hoy.component.ts` + `hoy-formato.ts`; menú con `tabs` (`reclutamiento-tabs.ts`) | 🧪 | `hoy-formato.spec.ts` 11/11 · `ngc` 0 · `check:pantalla` 0 fallas. Sin validación visual en prod |
+| C4 Plataforma | Sin migración ni variable nueva | ⬜ | Pendiente: CI, merge, despliegue, `/api/health` |
+
+### Decisiones y bloqueos abiertos (`[RH.17]`)
+
+| # | Qué | Dueño | Qué lo destraba |
+|---|---|---|---|
+| D1 | ¿La cuota de 20 por pendiente es la correcta? | RH | Que la usen una semana con la cuota y digan |
+| D2 | «Nuevo» = postulado en las últimas 48 h sin contacto de RH | RH | Confirmarlo o pedir otra ventana |
+| B1 | `[RH.17.2]` (ficha pulida) toca la ficha que otra sesión tiene con cambios sin commitear | quien tenga esos cambios | Que aterricen en `main` |
+| B2 | `[RH.17.4]` (estados de vacantes) necesita una migración en `talent.job_postings` | PM | Autorizarla |
+
 | Fecha | Item | Qué | Evidencia | Estado |
 |---|---|---|---|---|
 | 19-nov | **[RH.17.1]** | **El nombre del checador llega en cuanto cambia.** En `/rh/asistencia` salía «Empleado 109» para quien no está ligado a la Suite: el aviso de cada checada trae el número y no el nombre, y la lista de usuarios sólo viajaba con la lectura completa, que desde `[RH.1.3]` los relojes que avisan ya no hacen cada hora (sólo al arrancar el agente). Ahora el vigía (cada 30 s) lee **sólo la lista** y la manda cuando (a) cambia el número de usuarios del reloj o (b) checa un número que no venía en la última lista; si falla, reintenta a los 5 min. La API ya cambiaba «Empleado N» por el nombre real: no se toca | Medido en prod (sólo lectura, 19-nov 08:52): 11 personas que checaron en 14 días sin nombre; la última lista de 9 de 12 relojes es del 12-nov y coincide al minuto con su `last_backfill_at`. Prueba `libs/hr/.../agente-usuarios-al-momento.spec.ts` (7) con el `RelojJob` real; rota a propósito en los dos sentidos (disparador apagado: 5 rojas; siempre encendido: el control rojo). Lector completo: 47/47 | 🧪 — falta desplegar el lector (`desplegar-ingesta.sh`, con el commit que sirva la API) y medir en prod que los «Empleado N» con checadas recientes bajan a 0 |

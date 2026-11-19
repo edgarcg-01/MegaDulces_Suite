@@ -395,12 +395,15 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .rv-top { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); }
     .rv-top-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    /* [GP.RF.12] Cuatro niveles de letra (la auditoría contó hasta 9 a la vista): 40 el número que se cuenta,
+       20 título y producto, 18 encabezados/estados/cliente/cantidad, 14 el texto. Antes también 16 y 13,
+       que casi no se distinguían de 18 y 14 y diluían la jerarquía. Se subió, nada se achicó. */
     .rv-h1 { margin: 0; font-size: var(--fs-h2); font-weight: 800; line-height: 1.2; }
     .rv-h2 { margin: var(--sp-5) 0 var(--sp-2); font-size: var(--fs-lg); font-weight: 800; }
     .rv-sub { font-size: var(--fs-body); color: var(--text-muted); }
     .rv-folio, .rv-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .rv-banda { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
-      border-radius: var(--r-md); border: 1px solid currentColor; color: var(--warn-fg); font-size: var(--fs-body); }
+      border-radius: var(--r-md); border: 1px solid var(--warn-fg); color: var(--warn-soft-fg); font-size: var(--fs-body); } /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */
     .rv-volver { min-width: var(--tap-min); min-height: var(--tap-min); border: 1px solid var(--border-color); border-radius: var(--r-md);
       background: var(--card-bg); color: var(--text-main); cursor: pointer; font-size: var(--fs-lg); }
     .rv-lista { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -410,11 +413,11 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-dias { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .rv-atras { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-fg);
       border-radius: var(--r-md); background: var(--card-bg); }
-    .rv-atras-t { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .rv-atras-t { margin: 0; display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
     .rv-atras-t i { color: var(--text-muted); }
     .rv-atras-dias { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
     .rv-atras-d { min-height: var(--tap-min); padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill);
-      background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
+      background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-body); font-weight: 600; cursor: pointer; font-variant-numeric: tabular-nums; }
     .rv-atras-d:hover { background: var(--surface-hover); }
     .rv-atras-d:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .rv-grupo:first-child { margin-top: 0; }
@@ -423,12 +426,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-lg); background: var(--card-bg); color: var(--text-main); }
     .rv-card:hover { background: var(--surface-hover); }
     .rv-card-atrasado { border-left: 4px solid var(--warn-fg); }
-    .rv-atraso { display: inline-flex; align-items: center; gap: var(--sp-1); align-self: flex-start; font-size: var(--fs-body); font-weight: 800; color: var(--warn-fg); }
+    .rv-atraso { display: inline-flex; align-items: center; gap: var(--sp-1); align-self: flex-start; font-size: var(--fs-body); font-weight: 800; color: var(--warn-soft-fg); }
     .rv-card-r1 { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
-    .rv-cliente { font-size: var(--fs-h3); line-height: 1.2; }
+    .rv-cliente { font-size: var(--fs-lg); line-height: 1.2; }
     .rv-card-r2 { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-body); color: var(--text-muted); }
     .rv-card-go { align-self: flex-end; font-weight: 800; font-size: var(--fs-lg); color: var(--action); }
-    .rv-chip { border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); font-weight: 800; white-space: nowrap; }
+    .rv-chip { border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); font-size: var(--fs-body); font-weight: 800; white-space: nowrap; }
     .rv-chip-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .rv-hechos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
     .rv-hecho { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
@@ -441,19 +444,20 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       border-radius: var(--r-xl); background: var(--info-soft-bg); margin-bottom: var(--sp-3); }
     .rv-actual-falta { border-color: var(--warn-fg); background: var(--warn-soft-bg); }
     .rv-actual-sobra { border-color: var(--action); background: var(--card-bg); }
-    .rv-flecha { font-size: var(--fs-body); font-weight: 800; letter-spacing: .02em; color: var(--info-fg); }
-    .rv-actual-falta .rv-flecha { color: var(--warn-fg); }
+    /* [GP.RF.13] Sobre el azul claro de la tarjeta, --info-fg daba 4.24:1 (medido); --info-soft-fg, 7.15. */
+    .rv-flecha { font-size: var(--fs-body); font-weight: 800; letter-spacing: .02em; color: var(--info-soft-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .rv-actual-falta .rv-flecha { color: var(--warn-soft-fg); }
     .rv-actual-sobra .rv-flecha { color: var(--action); }
     .rv-nombre { font-size: var(--fs-h2); font-weight: 800; line-height: 1.2; }
     /* [VTK.15] El SKU siempre a la vista: con él se busca en Kepler al cobrar. */
     .rv-sku { display: block; font-family: var(--font-mono); font-size: var(--fs-body); font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .rv-item .rv-sku { font-size: var(--fs-sm); font-weight: 500; }
+    .rv-item .rv-sku { font-size: var(--fs-body); font-weight: 500; }
     /* [MCP.13] El surtidor puso este producto en lugar de otro que no hubo. */
-    .rv-en-lugar { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); font-weight: 700; color: var(--info-fg); }
-    .rv-cant, .rv-pregunta { font-size: var(--fs-h3); font-weight: 700; }
-    .rv-falta { font-size: var(--fs-lg); font-weight: 800; color: var(--warn-fg); }
+    .rv-en-lugar { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-body); font-weight: 700; color: var(--info-fg); }
+    .rv-cant, .rv-pregunta { font-size: var(--fs-lg); font-weight: 700; }
+    .rv-falta { font-size: var(--fs-lg); font-weight: 800; color: var(--warn-soft-fg); }
     .rv-sobra { font-size: var(--fs-lg); font-weight: 800; color: var(--action); }
-    .rv-hay { font-size: var(--fs-body); font-weight: 700; color: var(--ok-fg); }
+    .rv-hay { font-size: var(--fs-body); font-weight: 700; color: var(--ok-soft-fg); }
     .rv-hay-no { color: var(--text-muted); }
     .rv-espera { font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
     .rv-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 3.5rem; width: 100%;
@@ -462,7 +466,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-btn:focus-visible, .rv-card:focus-visible, .rv-pill:focus-visible, .rv-volver:focus-visible, .rv-paso button:focus-visible, .rv-item-tocar:focus-visible {
       outline: 3px solid var(--focus-ring); outline-offset: 2px; }
     .rv-btn:disabled { cursor: not-allowed; opacity: .6; }
-    .rv-btn-ok { background: var(--ok-fg); border-color: var(--ok-fg); color: var(--card-bg); }
+    /* [GP.RF.13] «Está bien» llevaba blanco sobre --ok-fg: 3.30:1 (medido en el navegador). Con --ok-soft-fg, 7.13. */
+    .rv-btn-ok { background: var(--ok-soft-fg); border-color: var(--ok-soft-fg); color: var(--card-bg); }
     .rv-btn-sm { min-height: 3.25rem; font-size: var(--fs-body); }
     .rv-btn-mal { color: var(--bad-fg); border-color: var(--bad-border); }
     .rv-btn-atras { width: auto; align-self: flex-start; min-height: 3.25rem; font-size: var(--fs-body); margin-bottom: var(--sp-3); }
@@ -474,7 +479,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-num small { display: block; margin-top: var(--sp-1); font-family: inherit; font-size: var(--fs-body); font-weight: 700; color: var(--text-muted); }
     .rv-fin { display: flex; flex-direction: column; gap: var(--sp-2); align-items: stretch; text-align: center; padding: var(--sp-4);
       border-radius: var(--r-xl); background: var(--ok-soft-bg); color: var(--ok-soft-fg); margin-bottom: var(--sp-3); font-size: var(--fs-body); }
-    .rv-fin b { font-size: var(--fs-h3); }
+    .rv-fin b { font-size: var(--fs-lg); }
     .rv-aviso { color: var(--bad-fg); font-weight: 800; font-size: var(--fs-lg); }
     /* [MCP.18] El porqué de lo que la caja no cobra, uno por producto. */
     .rv-motivo { align-self: stretch; text-align: left; padding-top: var(--sp-2); border-top: 1px solid var(--border-color); }
@@ -501,12 +506,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
        oscuro, por dentro. El foco sigue a la vista (pre-vuelo 6), sólo que sin sombra alrededor. */
     .rv-scan-in:focus { outline: none !important; }
     .rv-scan-in:focus-visible { border-color: var(--text-main); box-shadow: inset 0 0 0 1px var(--text-main); }
-    .rv-scan-off { display: none; font-size: var(--fs-body); font-weight: 700; color: var(--warn-fg); cursor: pointer; }
+    .rv-scan-off { display: none; font-size: var(--fs-body); font-weight: 700; color: var(--warn-soft-fg); cursor: pointer; }
     .rv-scan:not(:focus-within) .rv-scan-off { display: block; }
     .rv-scan:not(:focus-within) .rv-scan-in { border-color: var(--warn-fg); }
     .rv-scan-msg { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
-    .rv-scan-ok { color: var(--ok-fg); }
-    .rv-scan-warn { color: var(--warn-fg); }
+    .rv-scan-ok { color: var(--ok-soft-fg); }
+    .rv-scan-warn { color: var(--warn-soft-fg); }
     .rv-scan-mal { color: var(--bad-fg); }
     .rv-scan-sin { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-body); color: var(--text-muted); }
     /* En celular no hay lector que se pierda: ahí el campo es un buscador y no se le exige el foco. */
@@ -531,7 +536,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       background: var(--card-bg); color: var(--text-main); font-size: var(--fs-body); font-weight: 700; cursor: pointer; }
     /* Angosto (teléfono o panel con el menú abierto): el nombre baja un escalón y los tres botones se apilan. */
     @container (max-width: 30rem) {
-      .rv-nombre { font-size: var(--fs-h3); }
+      .rv-nombre { font-size: var(--fs-lg); }
       .rv-btns3 { grid-template-columns: minmax(0, 1fr); }
       .rv-actual { padding: var(--sp-3); }
     }

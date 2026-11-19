@@ -116,3 +116,28 @@ describe('TeleventaQuoteNewComponent — la bandeja sigue a la sucursal', () => 
     expect(pedidas.map((p) => p.branch)).toEqual(['01']);
   });
 });
+
+describe('[COT.48] sumar a un renglón que ya estaba', () => {
+  it('la confirmación dice el número REAL del renglón (no «renglón 0»)', () => {
+    const svc: Partial<QuotesService> = {
+      pricePreview: () => of(previa('01', 132.46, 'list')),
+      listSalespersons: () => of([]),
+      stock: (branch: string) => of({ branch, stock_as_of: null, items: [] }),
+    };
+    TestBed.configureTestingModule({
+      imports: [TeleventaQuoteNewComponent],
+      providers: [provideZonelessChangeDetection(), provideRouter([]), MessageService, { provide: QuotesService, useValue: svc }],
+    });
+    const c = TestBed.createComponent(TeleventaQuoteNewComponent).componentInstance;
+    c.sucursal.set('01');
+    c.bandeja.set([{ ...OSITOS, id: 'r0', sku: '11111' }, { ...OSITOS }]);
+    c.articuloElegido.set({ sku: '99686', name: 'OSITOS BACK PACK JELLY' } as never);
+    c.rung.set('base');
+    c.cantidadArticulo.set(1);
+    c.cotizandoArticulo.set(false);
+    c.previaArticulo.set(previa('01', 132.46, 'list'));
+    c.agregarABandeja();
+    expect(c.bandeja()[1].quantity).toBe(2);
+    expect(c.ultimoAgregado()).toMatchObject({ id: 'r1', numero: 2, sumado: true });
+  });
+});
