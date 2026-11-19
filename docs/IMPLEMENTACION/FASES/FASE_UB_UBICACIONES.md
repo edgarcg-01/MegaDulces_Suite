@@ -348,6 +348,34 @@ LISTA                                   PRODUCTO (al tocar o escanear uno)
   - la lista abre en < 500 ms;
   - el rechazo, con su motivo registrado.
 
+**Construido el 2026-11-19 (🧪)**, con la maqueta aprobada por Edgar (*«toda la información que no
+sea de valor hay que almacenarla»*: lo que no decide no se muestra, pero tampoco se tira; queda a
+un toque):
+- **Servidor (C2):** la lista acepta `orden=venta`.
+  - Ordena con `analytics.product_demand`, la venta de 30 días de la sucursal sin mayoreo, ya
+    derivada de `sales_daily`. Medido en prod como `app_runtime`: de 160 a 237 ms en cinco
+    sucursales.
+  - Se descartó sumar `sales_daily` de 90 días: tardaba de 450 a 470 ms en PH y 1.4 s en frío.
+    Sus 500 primeros coinciden en 418 con los de 90 días de todos los canales.
+  - Una sola consulta da la página y las cifras: con lugar para surtir, en tienda, con venta
+    (`null` si la sucursal no tiene venta, nunca 0) y las ubicaciones de bodega.
+  - Cada fila trae sus lugares vivos. La consulta que arma knex corrió en prod en 56–95 ms.
+  - Prueba de integración contra Postgres real, con su control negativo (una venta en 0 no es
+    venta; la de otra sucursal no se mezcla): la corre el CI.
+- **Pantalla (C3):** «Ubicar productos» en la misma ruta.
+  - El censo con lector (§8.1) es ahora el campo de arriba, ya no otra vista; su componente se
+    borró y sus pruebas pasaron a la pantalla.
+  - 16 pruebas de pantalla y 6 de la lógica nueva, con negativas. Con el arreglo roto a propósito,
+    6 en rojo.
+  - Cada rechazo va al canal de incidentes como `ubicar_rechazado`.
+  - `check:pantalla`: las 10 reglas.
+- **NO MEDIDO:**
+  - la pantalla en el navegador (sin validación visual: no hubo sesión de prod);
+  - el CLS en el celular, que se lee de la telemetría después de soltar;
+  - la cámara del celular como lector (UB.3b).
+  - Además, las guías de web moderna no se pudieron consultar: el clasificador de permisos bloqueó
+    el comando.
+
 ## 9. Preguntas abiertas
 
 | Clave | Pregunta | Bloquea |

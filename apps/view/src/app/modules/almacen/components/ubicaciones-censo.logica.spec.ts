@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProductPresentation, WarehouseLocationRow } from '@megadulces/contracts';
-import { clasificarLectura, papelParaUbicacion, presentacionDeLectura, tipoPorDefecto } from './ubicaciones-censo.logica';
+import { clasificarLectura, lugaresEnPalabras, papelParaUbicacion, presentacionDeLectura, presentacionParaLugar, tipoPorDefecto } from './ubicaciones-censo.logica';
 
 /** `[UB.3b]` Lo que el censo deduce para que la persona sólo escanee. */
 
@@ -72,5 +72,44 @@ describe('[UB.3b] tipoPorDefecto al dar de alta desde el escaneo', () => {
   it('bodega = surtido, tienda = piso', () => {
     expect(tipoPorDefecto('B')).toBe('surtido');
     expect(tipoPorDefecto('T')).toBe('tienda_piso');
+  });
+});
+
+// [UB.RF.11] Lo que la pantalla rehecha dice y decide sin pantalla de por medio.
+const A = (presentacion: 1 | 2 | 3, papel: 'surtido_fijo' | 'exhibicion_tienda' | 'reserva_preferida', code: string, estado: 'activa' | 'baja' = 'activa') =>
+  ({ id: 'a' + code, bin_id: 'b' + code, code, zona: code[0] as 'B' | 'T', estado, presentacion, presentacion_rotulo: presentacion === 1 ? 'PAQ' : 'CJA', papel, min_qty: null, max_qty: null });
+
+describe('[UB.RF.11] lugaresEnPalabras', () => {
+  it('tienda y bodega SIEMPRE: lo que falta se dice «falta» (valor null), no se esconde', () => {
+    expect(lugaresEnPalabras([{ papel: 'exhibicion_tienda', code: 'TA011', presentacion: 1, rotulo: 'PAQ' }]))
+      .toEqual([{ etiqueta: 'Tienda', valor: 'TA011' }, { etiqueta: 'Bodega', valor: null }]);
+  });
+  it('con varias presentaciones cada código lleva su rótulo; la reserva sale sólo si hay', () => {
+    expect(lugaresEnPalabras([
+      { papel: 'surtido_fijo', code: 'BA053', presentacion: 2, rotulo: 'CJA' },
+      { papel: 'surtido_fijo', code: 'BA052', presentacion: 1, rotulo: 'PAQ' },
+      { papel: 'reserva_preferida', code: 'BC022', presentacion: 2, rotulo: 'CJA' },
+    ])).toEqual([
+      { etiqueta: 'Tienda', valor: null },
+      { etiqueta: 'Bodega', valor: 'BA053 (CJA), BA052 (PAQ)' },
+      { etiqueta: 'Reserva', valor: 'BC022 (CJA)' },
+    ]);
+  });
+});
+
+describe('[UB.RF.11] presentacionParaLugar', () => {
+  const d = (asignaciones: ReturnType<typeof A>[] = []) => ({ ...MAZAPAN, asignaciones });
+  it('la presentación señalada gana', () => {
+    expect(presentacionParaLugar(d(), 'surtido_fijo', 2)).toEqual({ peldano: 2 });
+  });
+  it('sin señalar: la única que todavía no tiene ese papel', () => {
+    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA052')]), 'surtido_fijo', null)).toEqual({ peldano: 2 });
+  });
+  it('NEGATIVA: si las dos (o ninguna) lo tienen, se PREGUNTA; no se adivina', () => {
+    expect(presentacionParaLugar(d(), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
+    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA052'), A(2, 'surtido_fijo', 'BA053')]), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
+  });
+  it('un lugar en una ubicación dada de baja no cuenta como «ya lo tiene»', () => {
+    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA061', 'baja')]), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
   });
 });

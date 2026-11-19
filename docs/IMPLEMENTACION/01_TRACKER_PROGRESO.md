@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2899 KB, 15152 líneas, 78 secciones.
+> **Índice navegable** — 2900 KB, 15152 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -74,7 +74,7 @@
 | 14172 | 14443 | 52 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
 | 14444 | 14508 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
 | 14509 | 14517 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14518 | 14572 | 9 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14518 | 14572 | 10 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
 | 14579 | 14588 | 1 | 📝 Convenciones |
 | 14589 | 14626 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
 | 14627 | 14645 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
@@ -14544,7 +14544,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
     - El buscador abre solo un resultado único; con un código de barras, abre la asignación de esa presentación con el campo de ubicación listo.
     - Sin endpoints nuevos. 23 pruebas (logica 15 + flujo 8, con 4 negativas). Módulo de almacén: 791/791. Plantillas tipan; `check:pantalla` y `check-estilos` sin fallas nuevas.
     - NO MEDIDO: la pantalla viva (`ubicaciones-escaneo.e2e.ts` se salta hasta que prod lo traiga) y el celular con cámara.
-  - [ ] **[UB.RF.11]** ⬜ (2026-11-19) **Asignación, rehecha desde cero: maqueta para aprobar** (FASE_UB §8.2). Lo preguntó una persona de Padre Hidalgo: sus 8 asignaciones («Exhibición en tienda» TA011) sí se guardaron, pero la pantalla dice «0 % ya ubicado» porque sólo cuenta el lugar de surtido en bodega; PH no tenía ninguna ubicación de bodega y el camino a mano no la crea. 6 de 17 asignaciones de ese día, rechazadas sin motivo registrado. Edgar: «generémosla desde 0, práctica y lo más accesible». Propuesta: un solo campo (producto o ubicación), el papel sale del código, la ubicación que falta se crea en el acto, la cola por venta (4,058 productos con venta en PH en 90 días; los 500 primeros son el 71.5 %), rótulos que dicen lo que cuentan y el rechazo con su motivo.
+  - [x] **[UB.RF.11]** 🧪 (2026-11-19) **«Ubicar productos»: la Asignación rehecha desde cero, con la maqueta aprobada** (FASE_UB §8.2). Lo preguntó una persona de Padre Hidalgo: sus asignaciones en tienda sí se guardaron, pero la pantalla decía «0 % ya ubicado» y el camino a mano no creaba la ubicación de bodega que faltaba. Edgar: «generémosla desde 0, práctica y lo más accesible»; y «toda la información que no sea de valor hay que almacenarla». **Servidor:** la lista acepta `orden=venta` (`analytics.product_demand`, 30 días, sin mayoreo; 160–237 ms en prod; sumar `sales_daily` de 90 días costaba 450–470 ms y 1.4 s en frío); una consulta da la página y las cifras (con lugar para surtir, en tienda, con venta —`null` sin venta, nunca 0— y ubicaciones de bodega) y cada fila trae sus lugares vivos; prueba de integración con control negativo (la corre el CI). **Pantalla:** un campo para producto o ubicación (el censo de UB.3b deja de ser otra vista y su componente se borra), el papel sale de la ubicación, la que falta se crea en el acto, la cola va por venta, la tarjeta dice «Tienda TA011 · Bodega falta», Deshacer en cada guardado y cada rechazo al canal de incidentes (`ubicar_rechazado`). 22 pruebas nuevas, 6 en rojo con el arreglo roto; `check:pantalla` 10 de 10. **NO MEDIDO:** la pantalla en el navegador (sin validación visual) y el CLS del celular, que se lee de la telemetría al soltar.
   - [x] **[UB.RF.10]** ✅ (2026-11-17, en prod `4d99357f7`) **Imprimir carteles desde el Mapa: uno, un rack, un pasillo o toda la zona** (pedido de Edgar). Reutiliza `anden-cartel` (dos por hoja carta, código de barras). 3 pruebas. NO MEDIDO en la pantalla viva hasta desplegar.
 - [ ] **[UB.3-orig]** ↪️ partido en UB.3a/UB.3b · `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.

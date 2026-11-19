@@ -9,6 +9,7 @@ import type {
   ProductAssignment,
   ProductLocationDetail,
   ProductLocationFilter,
+  ProductLocationOrder,
   ProductLocationsList,
   UpdateAssignmentBody,
   BulkLocationsBody,
@@ -57,10 +58,11 @@ export class AlmacenUbicacionesCatalogoService {
 
   // ── [UB.3] asignación por producto y presentación ──
   /** Una página de productos: `limit` va SIEMPRE (la pantalla pagina contra `total`, no acepta el default del servidor). */
-  products(warehouseId: string, opts: { q: string; filtro: ProductLocationFilter; limit: number; offset: number }): Observable<ProductLocationsList> {
-    const { q, filtro, limit, offset } = opts;
+  products(warehouseId: string, opts: { q: string; filtro: ProductLocationFilter; limit: number; offset: number; orden?: ProductLocationOrder }): Observable<ProductLocationsList> {
+    const { q, filtro, limit, offset, orden } = opts;
     let p = new HttpParams().set('warehouse_id', warehouseId).set('filtro', filtro).set('limit', limit).set('offset', offset);
     if (q) p = p.set('q', q);
+    if (orden) p = p.set('orden', orden); // [UB.RF.11] `venta`: lo más vendido primero
     return this.http.get<ProductLocationsList>(`${this.base}/products`, { params: p });
   }
 

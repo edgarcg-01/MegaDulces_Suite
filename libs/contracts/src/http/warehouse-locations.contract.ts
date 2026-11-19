@@ -358,6 +358,15 @@ export interface ProductLocationDetail {
   aviso: string | null;
 }
 
+/** `[UB.RF.11]` Un lugar vivo del producto en el almacén (asignación cuya ubicación no está dada de baja). */
+export interface ProductPlace {
+  papel: AssignmentRole;
+  code: string;
+  presentacion: 1 | 2 | 3;
+  /** El rótulo de la presentación cuando se asignó (`PAQ`, `CJA`…). */
+  rotulo: string | null;
+}
+
 export interface ProductLocationRow {
   product_id: string;
   sku: string;
@@ -365,9 +374,14 @@ export interface ProductLocationRow {
   /** Códigos de sus lugares fijos de surtido (uno por presentación). */
   surtido_fijo: string[];
   asignaciones: number;
+  /** `[UB.RF.11]` Todos sus lugares vivos, de la presentación mayor a la base: lo que la tarjeta dice en palabras. */
+  lugares: ProductPlace[];
 }
 
 export type ProductLocationFilter = 'todos' | 'sin_ubicacion' | 'con_ubicacion';
+
+/** `[UB.RF.11]` `venta` = lo que más se vendió en 30 días primero (`analytics.product_demand`); `nombre` = como antes. */
+export type ProductLocationOrder = 'nombre' | 'venta';
 
 export interface ProductLocationsList {
   warehouse: { id: string; code: string; name: string } | null;
@@ -379,6 +393,17 @@ export interface ProductLocationsList {
   total: number;
   /** Del universo, cuántos NO tienen lugar fijo de surtido en ninguna presentación. */
   sin_ubicacion: number;
+  /** `[UB.RF.11]` Del universo, cuántos tienen lugar en tienda (exhibición). */
+  con_tienda: number;
+  /**
+   * `[UB.RF.11]` Del universo, cuántos se vendieron en los últimos 30 días (sin mayoreo, como
+   * `analytics.product_demand`). `null` = la sucursal no tiene venta registrada (CEDIS): la lista
+   * no se puede ordenar por venta y va por nombre. Nunca 0 por falta de dato.
+   */
+  con_venta: number | null;
+  /** `[UB.RF.11]` Ubicaciones de bodega activas: con 0, un lugar fijo de surtido sólo se da creando la ubicación. */
+  ubicaciones_bodega: number;
+  orden: ProductLocationOrder;
   filas: ProductLocationRow[];
   limit: number;
   offset: number;

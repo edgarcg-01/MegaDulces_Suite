@@ -262,4 +262,46 @@ suite('[UB.3] Asignación por producto y presentación, contra Postgres real (tr
     const l = await svc.products(ids['w'], 'UBIT SIN FICHA', 'todos', 50, 0);
     expect(l.universo).toBe(0);
   });
+
+  // `[UB.RF.11]` La lista de la pantalla rehecha: dónde está cada producto, en palabras, y la cola por venta.
+  // Va al final: siembra un segundo producto con ficha y las pruebas de arriba cuentan el universo de uno.
+  it('[UB.RF.11] la lista dice cada lugar vivo, cuenta tienda y bodega, y sin venta registrada dice null (no 0)', async () => {
+    const l = await svc.products(ids['w'], 'UBIT', 'todos', 50, 0, 'venta');
+    // BA053 · BA052 · BA054 · BC022 · BD011 activas; BA061 está de baja y TA021 es de tienda.
+    expect(l).toMatchObject({ universo: 1, ubicaciones_bodega: 5, con_venta: null, orden: 'venta' });
+    // La exhibición viva es la sembrada en el peldaño 2 (prueba de «ya no está en Kepler»).
+    expect(l.con_tienda).toBe(1);
+    const lugares = l.filas[0].lugares.map((x) => `${x.papel}:${x.code}:${x.presentacion}`).sort();
+    expect(lugares).toContain('exhibicion_tienda:BA053:2');
+    expect(lugares.some((x) => x.startsWith('surtido_fijo:'))).toBe(true);
+    // Control negativo: la exhibición en TA021 se QUITÓ («quitar no borra»): no es un lugar.
+    expect(lugares.some((x) => x.includes(':TA021:'))).toBe(false);
+    // Un lugar en una ubicación dada de baja cuenta como asignación pero NO como lugar.
+    expect(l.filas[0].asignaciones).toBeGreaterThanOrEqual(l.filas[0].lugares.length);
+  });
+
+  it('[UB.RF.11] orden=venta pone primero lo más vendido; orden=nombre, como antes. Venta en 0 no cuenta como venta', async () => {
+    const [p2] = await trx('catalog.products').insert({ tenant_id: M, nombre: 'UBIT ZACATE SEGUNDO', sku: 'UBIT-ZZ2' }).returning('id');
+    const [p3] = await trx('catalog.products').insert({ tenant_id: M, nombre: 'UBIT ALFA SIN VENTA', sku: 'UBIT-AA3' }).returning('id');
+    await trx('kepler_ods.kdii').insert([
+      { sucursal: SUC, c1: 'UBIT-ZZ2', c11: 'PZA', c80: 'PZA', c83: 'CJA', c84: 10, c77: '5', c79: 50 },
+      { sucursal: SUC, c1: 'UBIT-AA3', c11: 'PZA', c80: 'PZA', c83: 'CJA', c84: 10, c77: '5', c79: 50 },
+    ]);
+    await trx('analytics.product_demand').insert([
+      { tenant_id: M, warehouse_id: ids['w'], product_id: ids['producto'], window_days: 30, revenue: 100 },
+      { tenant_id: M, warehouse_id: ids['w'], product_id: p2.id, window_days: 30, revenue: 500 },
+      // Control negativo: una fila de demanda con venta 0 NO es «se vende».
+      { tenant_id: M, warehouse_id: ids['w'], product_id: p3.id, window_days: 30, revenue: 0 },
+      // Y la venta de OTRA sucursal no se mezcla.
+      { tenant_id: M, warehouse_id: ids['otro'], product_id: p3.id, window_days: 30, revenue: 9999 },
+    ]);
+    const porVenta = await svc.products(ids['w'], 'UBIT', 'todos', 50, 0, 'venta');
+    expect(porVenta.filas.map((f) => f.sku)).toEqual(['UBIT-ZZ2', SKU, 'UBIT-AA3']);
+    expect(porVenta).toMatchObject({ universo: 3, total: 3, con_venta: 2 });
+    const porNombre = await svc.products(ids['w'], 'UBIT', 'todos', 50, 0, 'nombre');
+    expect(porNombre.filas.map((f) => f.sku)).toEqual(['UBIT-AA3', SKU, 'UBIT-ZZ2']);
+    // La página vacía (offset más allá) trae las cifras igual.
+    const vacia = await svc.products(ids['w'], 'UBIT', 'todos', 50, 100, 'venta');
+    expect(vacia).toMatchObject({ filas: [], universo: 3, total: 3, con_venta: 2 });
+  });
 });

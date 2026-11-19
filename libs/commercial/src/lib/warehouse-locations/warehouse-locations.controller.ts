@@ -96,16 +96,17 @@ export class WarehouseLocationsController {
 
   @Get('products')
   @RequireAnyPermission(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
-  @ApiOperation({ summary: 'Productos con ficha Kepler en el almacén, con su lugar fijo (?warehouse_id=&q=&filtro=todos|sin_ubicacion|con_ubicacion&limit=&offset=).' })
+  @ApiOperation({ summary: 'Productos con ficha Kepler en el almacén, con sus lugares (?warehouse_id=&q=&filtro=todos|sin_ubicacion|con_ubicacion&orden=nombre|venta&limit=&offset=).' })
   products(
     @Query('warehouse_id') warehouseId: string,
     @Query('q') q?: string,
     @Query('filtro') filtro?: ProductLocationFilter,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('orden') orden?: string,
   ): Promise<ProductLocationsList> {
     const f: ProductLocationFilter = filtro === 'sin_ubicacion' || filtro === 'con_ubicacion' ? filtro : 'todos';
-    return this.assign.products(warehouseId, q, f, Number(limit), Number(offset));
+    return this.assign.products(warehouseId, q, f, Number(limit), Number(offset), orden === 'venta' ? 'venta' : 'nombre');
   }
 
   @Get('products/:productId')
