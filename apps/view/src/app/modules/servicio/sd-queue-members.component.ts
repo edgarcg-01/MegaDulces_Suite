@@ -90,7 +90,7 @@ export const ROL_COLA_LABEL: Readonly<Record<SdQueueRole, string>> = { coordinad
             @if (sinCandidatos()) {
               <p class="qm-hint">Nadie más tiene el permiso de atender o coordinar. Para sumar a alguien, Administración le da <b>SERVICIO_ATENDER</b> (o <b>SERVICIO_COORDINAR</b>, para coordinar) desde Personas.</p>
             } @else if (!cargando()) {
-              <p class="qm-hint">Sólo aparece quien ya tiene el permiso de atender (<b>SERVICIO_ATENDER</b>) o de coordinar (<b>SERVICIO_COORDINAR</b>). ¿Falta alguien? Administración se lo da desde Personas.</p>
+              <p class="qm-hint">Sólo aparece quien tiene el permiso de atender (<b>SERVICIO_ATENDER</b>) o de coordinar (<b>SERVICIO_COORDINAR</b>) y aún no está en la cola. ¿Falta alguien? Administración le da el permiso desde Personas.</p>
             }
             @if (motivoNoAgrega(); as why) { <p class="qm-hint">{{ why }}</p> }
           }
@@ -131,8 +131,11 @@ export class SdQueueMembersComponent {
   /** Devuelve la configuración nueva cuando se cambia el responsable por omisión (la pantalla la refresca). */
   readonly configChange = output<SdConfigResponse>();
 
-  /** `[MS.8.4]` Lo que dice el selector cuando se busca a alguien que no está: casi siempre es que le falta el permiso, no que no exista. */
-  readonly SIN_COINCIDENCIA = 'Nadie con ese nombre tiene el permiso de atender o coordinar. Administración se lo da desde Personas.';
+  /**
+   * `[MS.8.4]` Lo que dice el selector cuando se busca a alguien que no está. Hay DOS razones y se nombran las dos: los candidatos
+   * excluyen a quien ya es miembro, así que «no tiene el permiso» a secas mentiría al buscar a alguien que ya está en la tabla de arriba.
+   */
+  readonly SIN_COINCIDENCIA = 'Nadie con ese nombre se puede agregar: o ya está en la cola, o le falta el permiso de atender o coordinar (Administración se lo da desde Personas).';
   readonly rolLabel = ROL_COLA_LABEL;
   readonly roles = SD_QUEUE_ROLES.map((r) => ({ value: r, label: ROL_COLA_LABEL[r] }));
 

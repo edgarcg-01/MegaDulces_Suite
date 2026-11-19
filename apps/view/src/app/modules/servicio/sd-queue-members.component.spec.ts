@@ -179,7 +179,8 @@ describe('[MS.7.17] SdQueueMembersComponent', () => {
     await render();
     await abrir();
     const ayuda = Array.from(el().querySelectorAll('.qm-add ~ .qm-hint')).map((p) => p.textContent ?? '').join(' ');
-    expect(ayuda).toContain('Sólo aparece quien ya tiene el permiso');
+    expect(ayuda).toContain('Sólo aparece quien tiene el permiso');
+    expect(ayuda).toContain('aún no está en la cola');
     expect(ayuda).toContain('SERVICIO_COORDINAR');
     expect(ayuda).toContain('Personas');
     expect(ayuda).not.toContain('Nadie más tiene el permiso');
@@ -191,6 +192,8 @@ describe('[MS.7.17] SdQueueMembersComponent', () => {
     const selector = fix.debugElement.queryAll(By.directive(Select)).map((d) => d.componentInstance as Select).find((s) => s.ariaLabel() === 'Persona a agregar');
     expect(selector).toBeDefined();
     expect(selector?.emptyFilterMessage()).toBe(c.SIN_COINCIDENCIA);
+    // Las DOS causas: ya es miembro (los candidatos lo excluyen) o le falta el permiso. Nombrar sólo la segunda mentiría.
+    expect(c.SIN_COINCIDENCIA).toContain('ya está en la cola');
     expect(c.SIN_COINCIDENCIA).toContain('permiso');
     expect(c.SIN_COINCIDENCIA).toContain('Personas');
   });
