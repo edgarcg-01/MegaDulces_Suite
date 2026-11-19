@@ -1,132 +1,134 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 495 KB, 4499 líneas, 120 secciones.
+> **Índice navegable** — 502 KB, 4613 líneas, 122 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 133 | 140 | 1 | Decisiones de Arquitectura (ADR Log) |
-| 141 | 159 | 1 | ADR-000 — Plantilla |
-| 160 | 184 | 1 | ADR-001 — Tracking via markdown en repo (no Linear/Jira) |
-| 185 | 206 | 1 | ADR-002 — Orden de fases (limitaciones primero) |
-| 207 | 216 | 1 | ADR-003 — Decisión: single-tenant vs multi-tenant (SUPERSEDED) |
-| 217 | 279 | 4 | ADR-010 — Multi-tenancy ACEPTADO con DB nueva limpia |
-| 280 | 289 | 1 | ADR-004 — Integración con ERP Kepler (SUPERSEDED) |
-| 290 | 329 | 3 | ADR-009 — Integración con ERP Kepler (Postgres) |
-| 330 | 360 | 2 | ADR-005 — Stack mobile (Ionic actual vs React Native nuevo) |
-| 361 | 382 | 2 | ADR-006 — WhatsApp BSP |
-| 383 | 399 | 1 | ADR-007 — Selección de LLM para bot conversacional |
-| 400 | 416 | 1 | ADR-008 — Partner financiero para YomWallet |
-| 417 | 445 | 2 | ADR-011 — Provider de embeddings: Voyage AI `voyage-3` |
-| 446 | 472 | 2 | ADR-012 — pgvector en DB legacy, portar con la tabla cuando se migre a multi-tenant |
-| 473 | 515 | 4 | ADR-013 — Estado intermedio `pending_approval` en state machine de orders (flujo B2B) |
-| 516 | 557 | 3 | ADR-014 — App del Portal B2B: Capacitor (Android primero), no Ionic; extraer a `apps/b2b-portal` |
-| 558 | 607 | 5 | ADR-016 — Motor de Inteligencia Comercial: el motor decide, el agente comunica, el LLM fuera del camino del di |
-| 608 | 644 | 4 | ADR-017 — Autodetección de llegada del vendedor: geo en customers + detección por lista + doble anti-traslape |
-| 645 | 701 | 6 | ADR-018 — **Thot**: motor de inteligencia comercial multi-señal (evoluciona ADR-016) |
-| 702 | 740 | 4 | ADR-020 — **Horus**: Supervisor AI de ejecución en campo (Trade) |
-| 741 | 775 | 4 | ADR-021 — **Aprendizaje de Horus**: motor que aprende, no LLM que decide (track Horus.L) |
-| 776 | 817 | 6 | ADR-022 — Caducidad / lote / FEFO: sub-ledger de lotes **aditivo**, FEFO en el consumo, rollout por fases |
-| 818 | 850 | 4 | ADR-023 — **Autonomía acotada de Thot** (L3): el motor auto-ejecuta dentro de límites, el LLM sigue fuera del  |
-| 851 | 888 | 4 | ADR-024 — Conteo zonificado: pasillos 2D + equipos (1 supervisor/pasillo, contadores proporcionales) |
-| 889 | 911 | 2 | ADR-025 — INEGI DENUE como fuente primaria de prospección de PdV |
-| 912 | 935 | 2 | ADR-026 — **Thot Chat**: analítica conversacional por tool-use, no RAG sobre la DB |
-| 936 | 959 | 3 | ADR-027 — **Última milla** (entrega a domicilio local): orquestación, no módulo nuevo |
-| 960 | 982 | 3 | ADR-028 — **Maat**: AI de Finanzas (conocimiento + chat + patrones), sin fine-tuning |
-| 983 | 1006 | 2 | ADR-029 — **Supervisor de Movimientos** (cuadre / reconciliación caja-inventario) |
-| 1007 | 1030 | 2 | ADR-030 — **Compras / Reabastecimiento** (punto de reorden · existencia crítica · sugerido de compra) |
-| 1031 | 1056 | 3 | ADR-031 — **Cadena de compra real** (RA.15): Requisición → Orden de Compra → Orden de Entrada (la OE mueve sto |
-| 1057 | 1090 | 4 | ADR-031 — Wincaja (POS Access 97): landing schema separado `wincaja.*` + crosswalk, NO merge |
-| 1091 | 1120 | 3 | ADR-033 — **Conciliación bancaria** (Fase CB): reemplazar el workbook Excel por interfaz + catálogo limpio |
-| 1121 | 1150 | 4 | ADR-034 — **Comercio conversacional por WhatsApp** (Fase F): el bot arma, el humano confirma, el pedido cae en |
-| 1151 | 1160 | 2 | ADR-035 — **Bot WhatsApp avanzado** (Fase FIQ): model-tiering + candados de canal público, el motor sigue poni |
-| 1161 | 1170 | 1 | ADR-036 — **Identidad del contacto por E.164 canónico** (Fase FIQ, raíz del 10x) |
-| 1171 | 1180 | 1 | ADR-037 — **Trust-score determinista + gate** (Fase FIQ): el motor decide, el LLM comunica y nunca acusa |
-| 1181 | 1190 | 1 | ADR-038 — **Apartado con TTL** (Fase FIQ): reserva temporal de stock, el motor reserva y un cron libera |
-| 1191 | 1202 | 1 | ADR-039 — **Geolocalización del pedido** (Fase FIQ): captura de pin en `delivery_address`, ETA/geocode diferid |
-| 1203 | 1214 | 2 | ADR-040 — **Conector ContPAQi** (Fase CP): ContPAQi = SoR contable externo, la plataforma = engagement |
-| 1215 | 1228 | 2 | ADR-041 — **Validación y Cuadre de Pólizas** (Fase PV): partida doble completa desde el SoR + detectores deter |
-| 1229 | 1242 | 3 | ADR-042 — **Captura bancaria por WhatsApp** (Fase CBW): la foto es comprobante en staging, nunca asiento direc |
-| 1243 | 1270 | 3 | ADR-043 — **Endurecimiento de infra + worker-tier** (Fase INFRA): activar/separar, no re-arquitecturar |
-| 1271 | 1279 | 1 | Cómo agregar un ADR nuevo |
-| 1280 | 1304 | 4 | ADR-046 — **Motor de Rentabilidad** (Fase MR): tres márgenes con dueño, no un margen con opinión |
-| 1305 | 1385 | 13 | ADR-045 — **Transportes de comunicación** (cliente↔servidor y in-process): REST + Socket.IO como columna, el r |
-| 1386 | 1415 | 3 | ADR-049 — **Anexo de venta** (Fase AX): el documento al cliente se DERIVA del ODS, no se copia |
-| 1416 | 1478 | 10 | ADR-044 — **Estación de recepción**: la app es dueña de lote/caducidad/evidencia, Kepler SoR de la cantidad; c |
-| 1479 | 1512 | 4 | ADR-050 — **Permiso ≠ alcance** (Fase ID): el rol dice qué acción, el scope dice sobre qué filas |
-| 1513 | 1555 | 5 | ADR-052 — **Contratos de tipos del boundary REST**: fuente única en `libs/contracts`, importada por los dos la |
-| 1556 | 1608 | 6 | ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo |
-| 1609 | 1643 | 4 | ADR-053 |
-| 1644 | 1680 | 6 | ADR-054 |
-| 1681 | 1743 | 7 | ADR-055 |
-| 1744 | 1805 | 8 | ADR-056 |
-| 1806 | 1860 | 8 | ADR-057 |
-| 1861 | 1897 | 6 | ADR-059 |
-| 1898 | 1929 | 6 | ADR-053 — **Reclamo de recepción** (WMS-REC.8): el faltante tiene responsable, no ajusta stock, y le pega al f |
-| 1930 | 1947 | 3 | ADR-060 |
-| 1948 | 1971 | 4 | ADR-061 |
-| 1972 | 1997 | 4 | ADR-062 |
-| 1998 | 2050 | 6 | ADR-063 |
-| 2051 | 2081 | 7 | ADR-064 |
-| 2082 | 2116 | 6 | ADR-065 |
-| 2117 | 2148 | 5 | ADR-066 |
-| 2149 | 2180 | 5 | ADR-067 |
-| 2181 | 2211 | 4 | ADR-068 |
-| 2212 | 2240 | 4 | ADR-069 |
-| 2241 | 2271 | 6 | ADR-070 |
-| 2272 | 2297 | 3 | ADR-071 |
-| 2298 | 2320 | 3 | ADR-072 |
-| 2321 | 2346 | 4 | ADR-073 |
-| 2347 | 2370 | 4 | ADR-074 |
-| 2371 | 2406 | 4 | ADR-075 |
-| 2407 | 2447 | 6 | ADR-076 |
-| 2448 | 2492 | 7 | ADR-077 |
-| 2493 | 2522 | 5 | ADR-078 |
-| 2523 | 2652 | 9 | ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no. |
-| 2653 | 2674 | 5 | ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mid |
-| 2675 | 2696 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
-| 2697 | 2714 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
-| 2715 | 2735 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
-| 2736 | 2767 | 8 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
-| 2768 | 2788 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
-| 2789 | 2808 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
-| 2809 | 2828 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
-| 2829 | 2849 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
-| 2850 | 2867 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
-| 2868 | 2891 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
-| 2892 | 2918 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
-| 2919 | 2957 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
-| 2958 | 2995 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
-| 2996 | 3066 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
-| 3067 | 3116 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
-| 3119 | 3147 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
-| 3148 | 3186 | 20 | ADRs vigentes (resumen) |
-| 3187 | 3234 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
-| 3235 | 3311 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
-| 3312 | 3361 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
-| 3362 | 3393 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
-| 3394 | 3428 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
-| 3429 | 3490 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
-| 3493 | 3537 | 23 | ADRs vigentes (resumen) |
-| 3538 | 3591 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
-| 3592 | 3620 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
-| 3621 | 3655 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
-| 3656 | 3766 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
-| 3767 | 3843 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
-| 3844 | 3879 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
-| 3880 | 3991 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
-| 3992 | 4068 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
-| 4069 | 4117 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
-| 4118 | 4169 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
-| 4170 | 4245 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
-| 4246 | 4307 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
-| 4308 | 4402 | 5 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
-| 4403 | 4462 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
-| 4463 | 4549 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
-| 4550 | 4570 | 2 | ADR-120 |
-| 4571 | 4631 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
+| 135 | 142 | 1 | Decisiones de Arquitectura (ADR Log) |
+| 143 | 161 | 1 | ADR-000 — Plantilla |
+| 162 | 186 | 1 | ADR-001 — Tracking via markdown en repo (no Linear/Jira) |
+| 187 | 208 | 1 | ADR-002 — Orden de fases (limitaciones primero) |
+| 209 | 218 | 1 | ADR-003 — Decisión: single-tenant vs multi-tenant (SUPERSEDED) |
+| 219 | 281 | 4 | ADR-010 — Multi-tenancy ACEPTADO con DB nueva limpia |
+| 282 | 291 | 1 | ADR-004 — Integración con ERP Kepler (SUPERSEDED) |
+| 292 | 331 | 3 | ADR-009 — Integración con ERP Kepler (Postgres) |
+| 332 | 362 | 2 | ADR-005 — Stack mobile (Ionic actual vs React Native nuevo) |
+| 363 | 384 | 2 | ADR-006 — WhatsApp BSP |
+| 385 | 401 | 1 | ADR-007 — Selección de LLM para bot conversacional |
+| 402 | 418 | 1 | ADR-008 — Partner financiero para YomWallet |
+| 419 | 447 | 2 | ADR-011 — Provider de embeddings: Voyage AI `voyage-3` |
+| 448 | 474 | 2 | ADR-012 — pgvector en DB legacy, portar con la tabla cuando se migre a multi-tenant |
+| 475 | 517 | 4 | ADR-013 — Estado intermedio `pending_approval` en state machine de orders (flujo B2B) |
+| 518 | 559 | 3 | ADR-014 — App del Portal B2B: Capacitor (Android primero), no Ionic; extraer a `apps/b2b-portal` |
+| 560 | 609 | 5 | ADR-016 — Motor de Inteligencia Comercial: el motor decide, el agente comunica, el LLM fuera del camino del di |
+| 610 | 646 | 4 | ADR-017 — Autodetección de llegada del vendedor: geo en customers + detección por lista + doble anti-traslape |
+| 647 | 703 | 6 | ADR-018 — **Thot**: motor de inteligencia comercial multi-señal (evoluciona ADR-016) |
+| 704 | 742 | 4 | ADR-020 — **Horus**: Supervisor AI de ejecución en campo (Trade) |
+| 743 | 777 | 4 | ADR-021 — **Aprendizaje de Horus**: motor que aprende, no LLM que decide (track Horus.L) |
+| 778 | 819 | 6 | ADR-022 — Caducidad / lote / FEFO: sub-ledger de lotes **aditivo**, FEFO en el consumo, rollout por fases |
+| 820 | 852 | 4 | ADR-023 — **Autonomía acotada de Thot** (L3): el motor auto-ejecuta dentro de límites, el LLM sigue fuera del  |
+| 853 | 890 | 4 | ADR-024 — Conteo zonificado: pasillos 2D + equipos (1 supervisor/pasillo, contadores proporcionales) |
+| 891 | 913 | 2 | ADR-025 — INEGI DENUE como fuente primaria de prospección de PdV |
+| 914 | 937 | 2 | ADR-026 — **Thot Chat**: analítica conversacional por tool-use, no RAG sobre la DB |
+| 938 | 961 | 3 | ADR-027 — **Última milla** (entrega a domicilio local): orquestación, no módulo nuevo |
+| 962 | 984 | 3 | ADR-028 — **Maat**: AI de Finanzas (conocimiento + chat + patrones), sin fine-tuning |
+| 985 | 1008 | 2 | ADR-029 — **Supervisor de Movimientos** (cuadre / reconciliación caja-inventario) |
+| 1009 | 1032 | 2 | ADR-030 — **Compras / Reabastecimiento** (punto de reorden · existencia crítica · sugerido de compra) |
+| 1033 | 1058 | 3 | ADR-031 — **Cadena de compra real** (RA.15): Requisición → Orden de Compra → Orden de Entrada (la OE mueve sto |
+| 1059 | 1092 | 4 | ADR-031 — Wincaja (POS Access 97): landing schema separado `wincaja.*` + crosswalk, NO merge |
+| 1093 | 1122 | 3 | ADR-033 — **Conciliación bancaria** (Fase CB): reemplazar el workbook Excel por interfaz + catálogo limpio |
+| 1123 | 1152 | 4 | ADR-034 — **Comercio conversacional por WhatsApp** (Fase F): el bot arma, el humano confirma, el pedido cae en |
+| 1153 | 1162 | 2 | ADR-035 — **Bot WhatsApp avanzado** (Fase FIQ): model-tiering + candados de canal público, el motor sigue poni |
+| 1163 | 1172 | 1 | ADR-036 — **Identidad del contacto por E.164 canónico** (Fase FIQ, raíz del 10x) |
+| 1173 | 1182 | 1 | ADR-037 — **Trust-score determinista + gate** (Fase FIQ): el motor decide, el LLM comunica y nunca acusa |
+| 1183 | 1192 | 1 | ADR-038 — **Apartado con TTL** (Fase FIQ): reserva temporal de stock, el motor reserva y un cron libera |
+| 1193 | 1204 | 1 | ADR-039 — **Geolocalización del pedido** (Fase FIQ): captura de pin en `delivery_address`, ETA/geocode diferid |
+| 1205 | 1216 | 2 | ADR-040 — **Conector ContPAQi** (Fase CP): ContPAQi = SoR contable externo, la plataforma = engagement |
+| 1217 | 1230 | 2 | ADR-041 — **Validación y Cuadre de Pólizas** (Fase PV): partida doble completa desde el SoR + detectores deter |
+| 1231 | 1244 | 3 | ADR-042 — **Captura bancaria por WhatsApp** (Fase CBW): la foto es comprobante en staging, nunca asiento direc |
+| 1245 | 1272 | 3 | ADR-043 — **Endurecimiento de infra + worker-tier** (Fase INFRA): activar/separar, no re-arquitecturar |
+| 1273 | 1281 | 1 | Cómo agregar un ADR nuevo |
+| 1282 | 1306 | 4 | ADR-046 — **Motor de Rentabilidad** (Fase MR): tres márgenes con dueño, no un margen con opinión |
+| 1307 | 1387 | 13 | ADR-045 — **Transportes de comunicación** (cliente↔servidor y in-process): REST + Socket.IO como columna, el r |
+| 1388 | 1417 | 3 | ADR-049 — **Anexo de venta** (Fase AX): el documento al cliente se DERIVA del ODS, no se copia |
+| 1418 | 1480 | 10 | ADR-044 — **Estación de recepción**: la app es dueña de lote/caducidad/evidencia, Kepler SoR de la cantidad; c |
+| 1481 | 1514 | 4 | ADR-050 — **Permiso ≠ alcance** (Fase ID): el rol dice qué acción, el scope dice sobre qué filas |
+| 1515 | 1557 | 5 | ADR-052 — **Contratos de tipos del boundary REST**: fuente única en `libs/contracts`, importada por los dos la |
+| 1558 | 1610 | 6 | ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo |
+| 1611 | 1645 | 4 | ADR-053 |
+| 1646 | 1682 | 6 | ADR-054 |
+| 1683 | 1745 | 7 | ADR-055 |
+| 1746 | 1807 | 8 | ADR-056 |
+| 1808 | 1862 | 8 | ADR-057 |
+| 1863 | 1899 | 6 | ADR-059 |
+| 1900 | 1931 | 6 | ADR-053 — **Reclamo de recepción** (WMS-REC.8): el faltante tiene responsable, no ajusta stock, y le pega al f |
+| 1932 | 1949 | 3 | ADR-060 |
+| 1950 | 1973 | 4 | ADR-061 |
+| 1974 | 1999 | 4 | ADR-062 |
+| 2000 | 2052 | 6 | ADR-063 |
+| 2053 | 2083 | 7 | ADR-064 |
+| 2084 | 2118 | 6 | ADR-065 |
+| 2119 | 2150 | 5 | ADR-066 |
+| 2151 | 2182 | 5 | ADR-067 |
+| 2183 | 2213 | 4 | ADR-068 |
+| 2214 | 2242 | 4 | ADR-069 |
+| 2243 | 2273 | 6 | ADR-070 |
+| 2274 | 2299 | 3 | ADR-071 |
+| 2300 | 2322 | 3 | ADR-072 |
+| 2323 | 2348 | 4 | ADR-073 |
+| 2349 | 2372 | 4 | ADR-074 |
+| 2373 | 2408 | 4 | ADR-075 |
+| 2409 | 2449 | 6 | ADR-076 |
+| 2450 | 2494 | 7 | ADR-077 |
+| 2495 | 2524 | 5 | ADR-078 |
+| 2525 | 2654 | 9 | ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no. |
+| 2655 | 2676 | 5 | ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mid |
+| 2677 | 2698 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
+| 2699 | 2716 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
+| 2717 | 2737 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
+| 2738 | 2769 | 8 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
+| 2770 | 2790 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
+| 2791 | 2810 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
+| 2811 | 2830 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
+| 2831 | 2851 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
+| 2852 | 2869 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
+| 2870 | 2893 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
+| 2894 | 2920 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
+| 2921 | 2959 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
+| 2960 | 2997 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
+| 2998 | 3068 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
+| 3069 | 3118 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
+| 3121 | 3149 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
+| 3150 | 3188 | 20 | ADRs vigentes (resumen) |
+| 3189 | 3236 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
+| 3237 | 3313 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
+| 3314 | 3363 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
+| 3364 | 3395 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
+| 3396 | 3430 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
+| 3431 | 3492 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
+| 3495 | 3539 | 23 | ADRs vigentes (resumen) |
+| 3540 | 3593 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
+| 3594 | 3622 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
+| 3623 | 3657 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
+| 3658 | 3768 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
+| 3769 | 3845 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
+| 3846 | 3881 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
+| 3882 | 3993 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
+| 3994 | 4070 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
+| 4071 | 4119 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
+| 4120 | 4171 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
+| 4172 | 4247 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
+| 4248 | 4309 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
+| 4310 | 4404 | 5 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
+| 4405 | 4464 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
+| 4465 | 4551 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
+| 4552 | 4572 | 2 | ADR-120 |
+| 4573 | 4635 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
+| 4636 | 4706 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
+| 4707 | 4747 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4701,3 +4703,44 @@ un número congelado afirma que nada cambió, que es justo lo que esta decisión
 **NO MEDIDO** — la fase está ⏸️ por cupo (8 🔨 contra 4). Lo que tendrá que probarse cuando se abra, declarado
 desde ahora: que dos entregas el mismo día se distinguen; que un tramo **sin** soltar **no** queda marcado «en
 prod» (prueba negativa); y que `/api/health` sigue devolviendo el mismo commit que hoy.
+
+## ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta
+
+**Fecha:** 2026-11-19 · **Estado:** ✅ decidido por Edgar («apaguémoslo») · **Item:** `[PERF.1]` ·
+**Migración:** `20261119112212_perf1_jit_off_app_runtime.js` · **Mide:** `identity.pg_stat_statements` de prod,
+sólo lectura, desde el 2026-11-01
+
+### Contexto
+
+Postgres enciende la compilación JIT por el **costo estimado** de la consulta (`jit_above_cost` = 100 mil), no por
+lo que tarda. Las vistas sobre Kepler se estiman caras aunque corran en milisegundos, así que la app pagaba la
+compilación en consultas que no la necesitan. Medido, rol `app_runtime`:
+
+- **~3.7 h de compilación JIT** en 24 mil llamadas de 33 consultas distintas, en 18 días;
+- tres consultas con ~2,750 llamadas cada una gastan **99–100 % de su tiempo compilando**;
+- el caso medido a mano: «Mis gastos» (`[GX.113]`), 2.8 s → 0.3 s sólo con apagarlo.
+
+Hasta hoy cada pantalla lo redescubría y lo apagaba por su cuenta con `SET LOCAL jit = off` (`[EX-PERF.1]`,
+`[AB.36]`, `[CANON.6.21]`, `[GX.113]`). Un remedio que cada quien tiene que reinventar es un primitivo repetido
+(ADR-056).
+
+### Decisión
+
+1. `ALTER ROLE app_runtime SET jit = off`: la API y el worker arrancan cada sesión sin JIT.
+2. **`postgres` no se toca** (ingesta, migraciones): sus cargas son otras y su JIT pesa poco (~0.6 h en el mismo
+   periodo).
+3. Los `SET LOCAL jit = off` que ya existen **se quedan**: no estorban, y retirarlos es otro cambio.
+
+### Consecuencias
+
+- Aplica a cada sesión **nueva**: las conexiones abiertas del pool conservan JIT hasta reciclarse o hasta el
+  siguiente despliegue.
+- ⚠️ **Lo que se vigila:** una sola consulta de más de 5 s tiene JIT por debajo del 10 % de su ejecución; es la
+  única donde JIT podría estar ayudando. Después del cambio se compara su tiempo medio en `pg_stat_statements`.
+- **Cómo se revierte:** el `down` de la migración (`ALTER ROLE app_runtime RESET jit`), o `SET LOCAL jit = on` en
+  la consulta que sí lo necesite.
+
+### Prueba
+
+La migración se verifica sola: lee `pg_db_role_setting` y falla si `jit=off` no quedó. Prueba local **NO MEDIDA**
+(Docker caído). Después de aplicar: que el tiempo de JIT de `app_runtime` en `pg_stat_statements` deje de crecer.
