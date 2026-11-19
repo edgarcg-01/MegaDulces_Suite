@@ -4,7 +4,7 @@ import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, step
 // Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
 import { unitTruth } from '../shared/unit-truth';
 import { loadSelloutChannelMap, type SelloutChannelMap } from './sellout-channel-map';
-import { existenciaOds } from '../commercial-inventory/stock-state';
+import { EXISTENCIA_ODS_SQL, existenciaOds } from '../commercial-inventory/stock-state';
 import type { MaterializedProvenance } from '@megadulces/platform-core';
 // [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
 // god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
@@ -2360,7 +2360,7 @@ export class CommercialAnalyticsService {
   }
 
   /**
-   * Productos en el top del ERP pero con stock=0 en commercial.stock.
+   * Productos en el top del ERP pero con existencia 0 en el ODS (`[CANON.7.3]`; antes, la copia `commercial.stock`).
    * Señal crítica: el ERP los considera best-sellers pero la app no tiene
    * dónde surtirlos → oportunidad de venta perdida.
    *
@@ -2395,7 +2395,7 @@ export class CommercialAnalyticsService {
           SELECT s.product_id,
                  SUM(s.quantity)::numeric AS total_qty,
                  SUM(s.reserved_quantity)::numeric AS total_reserved
-            FROM commercial.stock s
+            FROM ${EXISTENCIA_ODS_SQL} s
            WHERE s.product_id IN (SELECT product_id FROM top_erp)
            GROUP BY s.product_id
         )

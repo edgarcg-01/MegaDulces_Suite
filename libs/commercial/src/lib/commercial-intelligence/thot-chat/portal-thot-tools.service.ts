@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { ThotService } from '../thot.service';
+import { existenciaOds } from '../../commercial-inventory/stock-state';
 import { CommercialOrdersService } from '../../commercial-orders/commercial-orders.service';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { buildPortalSystemPrompt } from './thot-semantic';
@@ -175,7 +176,7 @@ export class PortalThotToolsService implements ThotToolProvider {
         .select('p.id', 'p.sku', 'p.nombre as product', 'pp.price', 'pp.min_qty');
       // disponibilidad en PH por cada producto
       const ids = rows.map((r: any) => r.id);
-      const avail = ids.length ? await trx('commercial.stock as s')
+      const avail = ids.length ? await trx.from(existenciaOds(trx, 's')) /* [CANON.7.3] del ODS */
         .join('commercial.warehouses as w', function (this: any) { this.on('w.id', '=', 's.warehouse_id').andOn('w.tenant_id', '=', 's.tenant_id'); })
         .whereIn('s.product_id', ids).andWhere('w.code', wh)
         .groupBy('s.product_id')
@@ -203,7 +204,7 @@ export class PortalThotToolsService implements ThotToolProvider {
         .limit(8).select('id', 'sku', 'nombre');
       if (!prods.length) return { message: `No encontré "${q}" en el catálogo.` };
       const ids = prods.map((p: any) => p.id);
-      const avail = await trx('commercial.stock as s')
+      const avail = await trx.from(existenciaOds(trx, 's')) /* [CANON.7.3] del ODS */
         .join('commercial.warehouses as w', function (this: any) { this.on('w.id', '=', 's.warehouse_id').andOn('w.tenant_id', '=', 's.tenant_id'); })
         .whereIn('s.product_id', ids).andWhere('w.code', wh)
         .groupBy('s.product_id')

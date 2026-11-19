@@ -132,8 +132,15 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    capital parado: $429 mil → $432 mil. Tiempos con el ODS, todos bajo 500 ms (el más lento 353 ms; Stock muerto 558 ms
    ya costaba 550 con la copia, lo pesa `v_erp_unit_cost`). Sell-out pierde la excepción «sin SKU pero con existencia»:
    0 filas en la copia y en el ODS.
-3. **`[CANON.7.3]` C2** — los **11** clase B (catálogo, facetas, precios y más vendidos del portal; detalle de pedido; bot de
-   WhatsApp; Command Center; Reparto › Faltantes; Thot del portal y del vendedor) por `stock-state.ts`, que ya lee la vista.
+3. **`[CANON.7.3]` C2** — los clase B (deciden «hay / no hay»). 🧪 **10 de 11 en código (2026-11-19)**, con la misma
+   `existenciaOds` de 7.2: catálogo y facetas del portal, lista de precios y más vendidos, bot de WhatsApp, Command
+   Center (agotados del top), Reparto › Faltantes y sus sugerencias, Thot del portal y del vendedor. **Cambian de fuente,
+   no de regla:** «sin fila» se sigue leyendo como 0, igual que con la copia. Decir «sin dato» en vez de «agotado» (la
+   regla de `estadoDeExistencia`, que el catálogo ya usa con `stock_state=1`) es otra decisión, por pantalla. **B6
+   (detalle de pedido) pasa a 7.4:** su tope tiene que cuadrar con `reserve()`, que valida contra la copia con candado.
+   Medido en prod con RLS (Padre Hidalgo, réplica de cada consulta): casi idéntico (catálogo «sólo con existencia» 3,339 →
+   3,337; Faltantes 637 → 655 renglones; precios con registro 5,355 → 4,751, las celdas en cero que la copia arrastraba);
+   todo bajo 125 ms (catálogo 47–64 ms, con la copia 14–25).
 4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios, más A6 y A13, que leen la existencia dentro de un endpoint que
    escribe): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
    de escribirse; conteos, ajustes y recepción se revisan uno por uno (hoy 0 movimientos en 30 días). Prueba contra base real

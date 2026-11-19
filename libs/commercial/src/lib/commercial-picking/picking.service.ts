@@ -33,6 +33,7 @@ import {
   type PedidoKeplerLlave,
 } from './kepler-origen';
 import { congelarPorPedido, presentacionDeProducto, type PedidoCongelado } from './congelar';
+import { EXISTENCIA_ODS_SQL } from '../commercial-inventory/stock-state';
 import { avisoCaja, type CajaCapturada, type CambioFicha } from './aviso-caja';
 import {
   ROUTE_KINDS,
@@ -1102,7 +1103,7 @@ export class PickingService {
              JOIN commercial.order_lines ol ON ol.order_id = o.id
              JOIN commercial.warehouses w1 ON w1.id = o.warehouse_id AND w1.tenant_id = o.tenant_id
              LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
-             LEFT JOIN commercial.stock s
+             LEFT JOIN ${EXISTENCIA_ODS_SQL} s -- [CANON.7.3] del ODS, no de la copia
                     ON s.warehouse_id = o.warehouse_id AND s.product_id = ol.product_id
             WHERE o.status = 'confirmed'
               AND NOT EXISTS (SELECT 1 FROM commercial.wave_orders wo
@@ -1131,7 +1132,7 @@ export class PickingService {
                                 OR b.lat1 IS NULL OR b.lng1 IS NULL
                            THEN NULL ELSE round(${KM}::numeric, 1) END AS km,
                       (w2.latitude IS NULL OR w2.longitude IS NULL) AS sin_coordenada
-                 FROM commercial.stock s2
+                 FROM ${EXISTENCIA_ODS_SQL} s2
                  JOIN commercial.warehouses w2
                       ON w2.id = s2.warehouse_id AND w2.tenant_id = s2.tenant_id
                 WHERE s2.product_id = b.product_id

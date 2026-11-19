@@ -2,6 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { TenantKnexService, applySmartSearch, applySmartSearchConCodigo } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { EmbeddingsService } from '@megadulces/platform-core';
+import { existenciaOds } from '../commercial-inventory/stock-state';
 import { RecommendationsService } from '../commercial-recommendations/recommendations.service';
 import {
   RecommendationCategory,
@@ -198,7 +199,7 @@ export class CommercialCatalogSearchService {
 
       // LEFT JOIN stock del warehouse (si se pidió).
       if (input.warehouseId) {
-        q = q.leftJoin('commercial.stock as s', function () {
+        q = q.leftJoin(existenciaOds(trx, 's'), function () { // [CANON.7.3] del ODS
           this.on('s.product_id', '=', 'p.id')
             .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', input.warehouseId!);
@@ -259,7 +260,7 @@ export class CommercialCatalogSearchService {
       if (input.warehouseId) {
         selects.push(
           trx.raw(
-            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
+            'CASE WHEN s.product_id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
           ),
         );
       } else {
@@ -320,7 +321,7 @@ export class CommercialCatalogSearchService {
       }
 
       if (input.hasStock && input.warehouseId) {
-        // s.id IS NOT NULL filtra rows que tienen registro en stock; el cálculo
+        // s.product_id IS NOT NULL filtra rows con registro de existencia; el cálculo
         // disponible = quantity - reserved > 0 garantiza que el cliente puede
         // pedir al menos 1.
         q = q.andWhereRaw(
@@ -578,7 +579,7 @@ export class CommercialCatalogSearchService {
         });
       }
       if (input.warehouseId) {
-        baseFrom.leftJoin('commercial.stock as s', function () {
+        baseFrom.leftJoin(existenciaOds(trx, 's'), function () { // [CANON.7.3] del ODS
           this.on('s.product_id', '=', 'p.id')
             .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', input.warehouseId!);

@@ -28,14 +28,31 @@ export function lecturasDeLaCopia(texto: string): string[] {
  * (`test-newdb-inventory-monitoring.js`) siembra la copia. Van con los escritores, en `[CANON.7.4]`.
  */
 const LECTORES_A: Array<[archivo: string, quedan: number, porque: string]> = [
-  ['commercial-analytics/commercial-analytics.service.ts', 1,
-    'A1 deadStock · A2 lowStock · A3 sellOut · A4 salidas. Queda rankingOutOfStock (B8): decide «agotado», va en [CANON.7.3]'],
+  ['commercial-analytics/commercial-analytics.service.ts', 0,
+    'A1 deadStock · A2 lowStock · A3 sellOut · A4 salidas · B8 rankingOutOfStock ([CANON.7.3])'],
   ['commercial-intelligence/thot-chat/thot-tools.service.ts', 0, 'A5 reorderPolicy'],
   ['commercial-inventory/inventory-monitoring.service.ts', 1, 'A6 recordCount: escribe el conteo → [CANON.7.4]'],
   ['commercial-products/commercial-products.service.ts', 0, 'A7 findById (total de la red)'],
   ['commercial-profitability/commercial-profitability.service.ts', 0, 'A8 overview · A9 breakdown'],
   ['commercial-replenishment/commercial-replenishment.service.ts', 0, 'A10 networkSurplus · A11 criticalStock · A12 summary'],
   ['commercial-replenishment/replenishment-scanner.service.ts', 2, 'A13 scanTenant: escribe la bandeja → [CANON.7.4]'],
+];
+
+/**
+ * `[CANON.7.3]` Los lectores clase B (deciden «hay / no hay» para el cliente, el bot, el vendedor o Reparto). Cambian
+ * de FUENTE, no de regla: «sin fila» sigue leyéndose como 0, igual que con la copia. Decir «sin dato» en vez de
+ * «agotado» (la regla de `estadoDeExistencia`) es otra decisión, por pantalla.
+ */
+const RAIZ = join(__dirname, '../../../../..');
+const LECTORES_B: Array<[archivo: string, quedan: number, porque: string]> = [
+  ['apps/api/src/composition/commerce-conversation.binding.module.ts', 0, 'B1 bot de WhatsApp (enrichMeta)'],
+  ['libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts', 0, 'B2 catálogo del portal · B3 facetas'],
+  ['libs/commercial/src/lib/commercial-pricing/commercial-pricing.service.ts', 0, 'B4 lista de precios · B5 más vendidos'],
+  ['libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts', 1,
+    'B6 detalle de pedido: su tope tiene que cuadrar con reserve(), que valida contra la copia con candado → [CANON.7.4]'],
+  ['libs/commercial/src/lib/commercial-picking/picking.service.ts', 0, 'B7 Reparto › Faltantes y sus sugerencias'],
+  ['libs/commercial/src/lib/commercial-intelligence/thot-chat/portal-thot-tools.service.ts', 0, 'B9 · B10 Thot del portal'],
+  ['libs/commercial/src/lib/commercial-intelligence/thot-chat/vendor-thot-tools.service.ts', 0, 'B11 Thot del vendedor'],
 ];
 
 describe('[CANON.7.2] la existencia del ODS con la forma de la copia', () => {
@@ -84,9 +101,25 @@ describe('[CANON.7.2] el detector de lecturas de la copia (control: tiene que ve
   });
 });
 
-describe('[CANON.7.2] los 13 lectores clase A ya no leen la copia', () => {
+describe('[CANON.7.2] los lectores clase A ya no leen la copia', () => {
   it.each(LECTORES_A)('%s', (archivo, quedan, porque) => {
     const lecturas = lecturasDeLaCopia(readFileSync(join(LIB, archivo), 'utf8'));
     expect(lecturas.map((l) => l.trim()), porque).toHaveLength(quedan);
+  });
+});
+
+describe('[CANON.7.3] los lectores clase B ya no leen la copia', () => {
+  it.each(LECTORES_B)('%s', (archivo, quedan, porque) => {
+    const lecturas = lecturasDeLaCopia(readFileSync(join(RAIZ, archivo), 'utf8'));
+    expect(lecturas.map((l) => l.trim()), porque).toHaveLength(quedan);
+  });
+
+  it('«sin fila» se sigue leyendo como antes: la tabla derivada no tiene `id`, se pregunta por `product_id`', () => {
+    for (const archivo of ['libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts',
+      'libs/commercial/src/lib/commercial-pricing/commercial-pricing.service.ts']) {
+      const f = readFileSync(join(RAIZ, archivo), 'utf8');
+      expect(f).not.toMatch(/\bs\.id IS (NOT )?NULL/);
+      expect(f).toContain('CASE WHEN s.product_id IS NULL THEN NULL');
+    }
   });
 });

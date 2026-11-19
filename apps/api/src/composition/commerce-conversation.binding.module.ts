@@ -24,6 +24,7 @@ import {
   StockReservationService,
   CommercialTrustModule,
   ContactTrustEngineService,
+  EXISTENCIA_ODS_SQL,
 } from '@megadulces/commercial';
 
 /**
@@ -212,7 +213,7 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
                   ON bf.tenant_id = p.tenant_id AND bf.product_id = p.id
            LEFT JOIN LATERAL (
              SELECT (st.quantity - COALESCE(st.reserved_quantity, 0)) AS qty
-               FROM commercial.stock st
+               FROM ${EXISTENCIA_ODS_SQL} st -- [CANON.7.3] del ODS, no de la copia
                JOIN commercial.warehouses w
                  ON w.id = st.warehouse_id AND w.tenant_id = st.tenant_id
               WHERE st.product_id = p.id AND st.tenant_id = p.tenant_id

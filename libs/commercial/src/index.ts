@@ -15,6 +15,8 @@ export * from './lib/commercial-commissions/commercial-commissions.service';
 export * from './lib/commercial-route-profit/commercial-route-profit.module';
 export * from './lib/commercial-route-profit/route-profit.service';
 export * from './lib/commercial-inventory/commercial-inventory.module';
+// [CANON.7.2] La existencia del ODS con la forma de la copia: la usan también las composiciones de apps/api.
+export { EXISTENCIA_ODS_SQL, existenciaOds } from './lib/commercial-inventory/stock-state';
 export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';
 // [FLT] Lista de faltantes: la venta que NO ocurrió, reportada desde el piso.
