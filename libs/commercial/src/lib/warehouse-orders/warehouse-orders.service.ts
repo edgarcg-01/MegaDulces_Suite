@@ -46,7 +46,7 @@ function headerSql(filtro: 'periodo' | 'folio'): string {
   return `
 WITH h AS MATERIALIZED (
   SELECT DISTINCT ON (h.sucursal, h.c5, h.c6)
-         h.sucursal, h.c2 AS k2, h.c3 AS k3, h.c4 AS k4, h.c5 AS k5, h.c6 AS k6,
+         h.sucursal, h.c1 AS k1, h.c2 AS k2, h.c3 AS k3, h.c4 AS k4, h.c5 AS k5, h.c6 AS k6,
          (h.c5)::int                                         AS serie,
          btrim(h.c6::text)                                   AS folio,
          to_char(h.c9::date, 'YYYY-MM-DD')                   AS fecha,
@@ -86,13 +86,16 @@ SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.est
   -- Medido 2026-10-06: octubre, 532 pedidos, 55-140 ms; el 0000367 da 16 CJA, igual que su ticket.
   -- Los renglones también anclan c1: la base de la 03 guarda copias de pedidos de la 02 con la
   -- misma serie y folio que los suyos (41 de 41 chocan, medido 2026-10-06) y se mezclarían.
+  -- [GP.RF.43] El c1 va por IGUALDAD con el del encabezado (ya anclado a su plaza): es la 2ª columna de
+  -- kdm2_pkey y, sólo con el btrim, el índice brincaba por cada c1 de la sucursal (~5 búsquedas por
+  -- pedido). Medido en prod 2026-11-19, todas las sucursales, noviembre: ver el commit.
   LEFT JOIN LATERAL (
     SELECT coalesce(sum(x.n), 0)::int AS renglones,
            jsonb_agg(jsonb_build_object('unidad', x.u, 'cantidad', x.q) ORDER BY x.q DESC) AS volumen
       FROM (SELECT coalesce(upper(NULLIF(btrim(l.c55::text), '')), 'SIN UNIDAD') AS u,
                    sum(coalesce(NULLIF(btrim(l.c56::text), '')::numeric, 0)) AS q, count(*) AS n
               FROM kepler_ods.kdm2 l
-             WHERE l.sucursal = h.sucursal AND l.c2 = h.k2 AND l.c3 = h.k3 AND l.c4 = h.k4 AND l.c5 = h.k5 AND l.c6 = h.k6
+             WHERE l.sucursal = h.sucursal AND l.c1 = h.k1 AND l.c2 = h.k2 AND l.c3 = h.k3 AND l.c4 = h.k4 AND l.c5 = h.k5 AND l.c6 = h.k6
                AND btrim(l.c1) = btrim(l.sucursal)
              GROUP BY 1) x
   ) lc ON true

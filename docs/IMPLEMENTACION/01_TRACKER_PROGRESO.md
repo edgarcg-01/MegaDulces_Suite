@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2850 KB, 15085 líneas, 78 secciones.
+> **Índice navegable** — 2853 KB, 15086 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,7 +71,7 @@
 | 13887 | 13928 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13929 | 14086 | 75 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14087 | 14117 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14118 | 14386 | 49 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14118 | 14386 | 50 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
 | 14387 | 14451 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
 | 14452 | 14460 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
 | 14461 | 14514 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
@@ -79,12 +79,12 @@
 | 14531 | 14568 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
 | 14569 | 14587 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
 | 14588 | 14640 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14641 | 15030 | 83 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15031 | 15061 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15062 | 15083 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15084 | 15111 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15112 | 15148 | 33 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15149 | 15175 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14641 | 15031 | 84 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15032 | 15062 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15063 | 15084 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15085 | 15112 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15113 | 15149 | 33 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15150 | 15176 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14328,8 +14328,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Pastilla de frescura verificada en el navegador (12 px, sin región viva sobre el texto que avanza). NO MEDIDO: Revisión en el navegador (el servidor de desarrollo se apagó; `revision-letra.e2e.ts` listo).
 >   - [x] **[GP.RF.13] (Revisión, en el navegador)** 🧪 (2026-11-18) Medido `revision-letra.e2e.ts` al volver el servidor: dentro del pedido 4 tamaños (20/18/14 + el 13 del marco). Encontró y se corrigieron 2 textos bajo AA: «▶ REVISANDO» 4.24 → 7.15 (`--info-soft-fg`) y el botón «Está bien» 3.30 → 7.13 (fondo `--ok-soft-fg`). Re-medido: 0 bajo AA.
 >   - [x] **[GP.RF.42]** 🧪 (2026-11-19) **La caja deja el motivo de cada cierre rechazado**, como Surtir (GP.RF.23). Medido en prod (30 días al 14-nov): 20 de 187 cierres de la revisión en caja rechazados (10.7 %, todos 4xx) y el motivo no quedaba en ningún lado. Ahora va por el canal de incidentes (`revision_cierre_rechazado`): código, mensaje del servidor, renglones, bajados, si la revisión venía guardada y cuántos minutos llevaba abierto el pedido. Nada de lo que la persona escribe. Prueba con su negativa (sin el registro, la prueba se pone roja). La causa se lee de esos registros después de soltar.
->   - [x] **[GP.RF.0] (revisión del plan, 2026-11-19)** 🧪 Edgar: «revisa el plan»; todo sigue en pruebas. Meta de E1 medida en prod, sólo lectura: 1 pantalla para seguir un pedido; 100 % de los pedidos de noviembre visibles contra un testigo aparte (Kepler 1,737 de 1,737, preventa 1,020 de 1,020; 108 cancelados aparte); carga bajo 500 ms para quien opera una sucursal (50–230 ms en `ui_usage`), no para quien ve varias. Checar y «Por capturar» sólo se miden hasta E3. Plan y auditoría puestos al día (auditoría §5d).
->   - [ ] **[GP.RF.43]** ⬜ El Tablero de quien ve varias sucursales pasa el medio segundo: supervisor 577–1,656 ms de promedio diario y superadmin hasta 2.7 s (`ui_usage`, 10 días, por rol); quien opera una sucursal, 50–230 ms. Optimizar aparte, con medición antes y después en la misma tanda (regla 15).
+>   - [x] **[GP.RF.0] (revisión del plan, 2026-11-19)** 🧪 Edgar: «revisa el plan»; todo sigue en pruebas. Meta de E1 medida en prod, sólo lectura: 1 pantalla para seguir un pedido; 100 % de los pedidos de noviembre visibles contra un testigo aparte (Kepler 1,737 de 1,737, preventa 1,020 de 1,020; 108 cancelados aparte); carga bajo 500 ms en promedio para todos los puestos (corregido el mismo día en GP.RF.43: decía «no para quien ve varias», con promedios por día de 1 a 3 llamadas). Checar y «Por capturar» sólo se miden hasta E3. Plan y auditoría puestos al día (auditoría §5d).
+>   - [x] **[GP.RF.43]** 🧪 **En código 2026-11-19, sin soltar** — Edgar: «sigue con la velocidad del tablero». **Primero, la cifra corregida:** «supervisor 577–1,656 ms de promedio diario» salía de 1 a 3 llamadas por día. En 10 días, pesado por llamada (`ui_usage`): supervisor 420 ms (11 llamadas), dirección 281 (15), compras 155–288; quien opera una sucursal, 85–127. Los picos de más de 1 s también los tiene el surtidor, que opera una sola (1,574 ms), y son lecturas en frío: en `pg_stat_statements`, la versión de la consulta anterior a GP.RF.19 leía en promedio 129 bloques del disco por llamada y llegó a 2.6 s; la vigente lleva 34 llamadas con máximo de 348 ms. **Lo que sí costaba ver todas las sucursales:** los renglones de cada pedido se leían con ~5 búsquedas en `kdm2_pkey` (el `c1`, 2ª columna, iba con `btrim`); ahora va por igualdad con el del encabezado. **Medido en `md` como `app_runtime`, sólo lectura, antes y después en la misma foto**, noviembre: todas las sucursales, mediana 241 → 184 ms y bloques 61,966 → 31,741; una sucursal sin cambio (25 ms); 1,880 filas idénticas columna por columna (28,887 renglones de los dos lados); ningún `c1` de `U-D-40` trae espacios (14,134 encabezados, 208,278 renglones). Descartados: índice de fecha (leería 70,980 documentos del mes contra 14,133) y contar con el índice armando el volumen sólo de la página (otros −60 ms, parte la consulta en dos). **Falta:** re-medir `ui_usage` y `pg_stat_statements` por rol después de soltar.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.
