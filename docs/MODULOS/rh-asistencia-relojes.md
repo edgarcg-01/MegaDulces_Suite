@@ -1,5 +1,43 @@
 # Recursos Humanos › Asistencia — relojes y personas
 
+## RH.17.1 · El nombre del checador llega al momento · RH.17.2 · Horario distinto con el horario del día (2026-11-19)
+
+**El problema.** En `/rh/asistencia`, quien no está ligado a una persona de la Suite salía como «Empleado 109». El
+aviso de cada checada trae el número y no el nombre; la lista de usuarios del reloj sólo viajaba con la lectura
+completa, y desde `RH.1.3` los relojes que avisan ya no la hacen cada hora: sólo al arrancar el lector. Medido el
+19-nov: 11 personas sin nombre, y la última lista de 9 de los 12 relojes era del 12-nov. Aparte, «Horario distinto»
+era de un día y con su porqué, pero sólo guardaba la entrada: un día de 8:00 a 14:00 se medía contra la salida de su
+horario de siempre y salía con 4 h de salida temprana.
+
+### Solución
+
+- **Nombres:** el lector manda la lista de usuarios en cuanto alguien se da de alta o de baja en el reloj, o checa un
+  número que no venía en la última lista. Lee sólo la lista (no el registro de checadas) y, si no la puede mandar,
+  reintenta a los 5 minutos. La Suite ya cambiaba «Empleado N» por el nombre real.
+- **Horario del día:** «Horario distinto» suma **salida y comida opcionales**. Con la salida, ese día se mide de la
+  entrada a la salida capturadas: retardo, salida temprana, horas esperadas y horas extra. Sin la salida, igual que
+  antes. El horario de siempre de la persona (botón «Horario») no cambia.
+
+### Cómo se implementó
+
+- Lector (`database/importers/checadores/agente/reloj.js`): dos disparadores en el vigía de cada 30 s (cambió el
+  número de usuarios del reloj, o checó un número desconocido) y la lectura de la lista con el candado del reloj,
+  igual que los comandos de renombrar.
+- Base: `hr.attendance_incidents.end_minutes` y `break_minutes` (migración `20261119093204`, nullable, con CHECK).
+  La API las usa sólo si ya existen: antes de aplicar la migración la asistencia no se cae y una salida se rechaza
+  diciendo por qué.
+- Cálculo (`asistencia-persona.ts`): el día con salida capturada usa esa entrada, salida y comida. Si ese día también
+  hay «Comida distinta», manda ésa.
+- Pantalla (`rh-incidencias`): «Salió a las» y «Comida ese día» en el formulario de Horario distinto, y en la ficha.
+- Pruebas del lector con el reloj simulado, del cálculo, de la pantalla y de la captura contra una base real con el
+  mismo cuerpo que manda la pantalla, antes y después de la migración. Cada una se rompió a propósito una vez.
+
+### Por qué así
+
+Un tipo de incidencia nuevo para «el horario de un día» habría dejado a RH escogiendo entre dos casi iguales; ampliar
+el que ya existe conserva el porqué y quién autorizó, que ya se pedían. Y la lista de usuarios se lee sola, y no el
+registro completo, porque cuesta decenas de KB contra los ~2 MB del registro, así que se puede pedir en el momento.
+
 ## RH.13.8 · El horario ya no se encima sobre las checadas (2026-11-17)
 
 **El problema.** En la tabla semanal de `/rh/asistencia`, a quien tiene varios horarios (mañana, tarde) y sábado, el

@@ -154,6 +154,49 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     expect(hd.authorized_by_name).toBe('Jefe Prueba');
   });
 
+  it('[RH.17.2] Horario distinto con el horario completo del día: manda la salida y la comida; vacías no van', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    const base = { person_code: '101', incident_type: 'horario_distinto', date_from: '2026-10-02', date_to: '', note: '', horas: '', entrada: '08:00', reason: 'Junta en corporativo', authorized_by_name: 'Jefe Prueba', deliver: false, minutos: '' };
+    const completo = c.cuerpoCaptura({ ...base, salida: '14:00', comidaDia: '0' }, 'PH');
+    // ⛔ «0 minutos» de comida es un valor (no comió ese día), no un campo vacío.
+    expect([completo.minutes, completo.end_minutes, completo.break_minutes]).toEqual([480, 840, 0]);
+    const soloEntrada = c.cuerpoCaptura({ ...base, salida: '', comidaDia: '' }, 'PH');
+    expect([soloEntrada.minutes, soloEntrada.end_minutes, soloEntrada.break_minutes]).toEqual([480, undefined, undefined]);
+    // En otro tipo no viajan aunque el formulario las conserve de antes.
+    const vac = c.cuerpoCaptura({ ...base, incident_type: 'vacaciones', salida: '14:00', comidaDia: '30' }, 'PH');
+    expect([vac.end_minutes, vac.break_minutes]).toEqual([undefined, undefined]);
+  });
+
+  it('[RH.17.2] el formulario de Horario distinto ofrece la salida y la comida del día', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    c.abrirCaptura('101', '2026-10-02');
+    c.form.update((f) => (f ? { ...f, incident_type: 'horario_distinto' } : f));
+    fix.detectChanges();
+    await fix.whenStable();
+    expect(texto()).toContain('Salió a las (opcional)');
+    expect(texto()).toContain('Comida ese día, en minutos (opcional)');
+  });
+
+  it('[RH.17.2] la ficha de un Horario distinto dice la salida y la comida que se capturaron; sin ellas, no las inventa', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR], lista: [
+      incidencia({ id: 'i-1', incident_type: 'horario_distinto', minutes: 480, end_minutes: 840, break_minutes: 0 }),
+      incidencia({ id: 'i-2', incident_type: 'horario_distinto', minutes: 615, end_minutes: null, break_minutes: null }),
+    ] });
+    const c = fix.componentInstance;
+    c.abrir(c.lista()[0]);
+    fix.detectChanges();
+    /** Cada renglón de la ficha como «etiqueta: valor». */
+    const dl = () => Array.from(el().querySelectorAll('.ri-dl dt'))
+      .map((dt) => `${dt.textContent?.trim()}: ${dt.nextElementSibling?.textContent?.trim()}`);
+    expect(dl()).toEqual(expect.arrayContaining(['Entró a las: 08:00', 'Salió a las: 14:00', 'Comida: 0 min']));
+    c.abrir(c.lista()[1]);
+    fix.detectChanges();
+    expect(dl()).toContain('Entró a las: 10:15');
+    expect(dl().some((r) => r.startsWith('Salió a las') || r.startsWith('Comida'))).toBe(false);
+  });
+
   it('[RH.1.10] comida distinta y cambio de descanso: de UN día, con sus minutos y quién autorizó', async () => {
     await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
     const c = fix.componentInstance;
