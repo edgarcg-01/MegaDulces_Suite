@@ -137,6 +137,31 @@ it('[MKT.21] filtrado: la portada dice que NO es el ranking completo y con qué 
     expect(textos.join(' ')).toContain('Por vendedora: Kepler');
   });
 
+  it('[MKT.28] fuera de mostrador, el lugar lleva la ruta de Kepler bajo el nombre; sin ligar, lo dice', async () => {
+    const { filasRanking } = await import('./mkt-ranking-pdf');
+    const part = mostrador.participantes[0];
+    const r = { ...mostrador, canal: 'preventa' as const, participantes: [
+      { ...part, nombre: 'VENDEDORA DEMO', ruta: '1V001', vendedor_fuente: 'asignacion' as const },
+      { ...part, nombre: 'VENTA RUTA GENERAL', ruta: '30001', vendedor_fuente: 'kepler' as const },
+    ] };
+    const filas = filasRanking(r);
+    expect(filas[0][1]).toBe('VENDEDORA DEMO\nRuta 1V001');
+    expect(filas[1][1]).toBe('VENTA RUTA GENERAL\nRuta 30001 (sin ligar: nombre de Kepler)');
+    expect(filasRanking(mostrador)[0][1]).toBe('Padre Hidalgo'); // control: mostrador no cambia
+  });
+
+  it('[MKT.29] la camioneta: el chofer de la comisión va limpio; sin chofer, se dice', async () => {
+    const { filasRanking } = await import('./mkt-ranking-pdf');
+    const part = mostrador.participantes[0];
+    const r = { ...mostrador, canal: 'ruta' as const, participantes: [
+      { ...part, nombre: 'CHOFER DEMO', ruta: '501', vendedor_fuente: 'comision' as const },
+      { ...part, nombre: 'Ruta 503', ruta: '503', vendedor_fuente: 'sin_dato' as const },
+    ] };
+    const filas = filasRanking(r);
+    expect(filas[0][1]).toBe('CHOFER DEMO\nRuta 501');
+    expect(filas[1][1]).toBe('Ruta 503\nRuta 503 (sin chofer en la comisión ni en la Suite)');
+  });
+
   it('sin filtros sigue siendo el reporte completo (control)', async () => {
     const { pdfRanking } = await import('./mkt-ranking-pdf');
     const { archivo } = await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date(), filtros: [] });
