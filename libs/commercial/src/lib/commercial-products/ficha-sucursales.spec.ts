@@ -75,6 +75,23 @@ describe('[CAT-PRECIO.1] claveYTexto', () => {
     expect(claveYTexto('mayoreo', ficha('01')).texto).toBe('PAQ desde 3: $34.14');
     expect(claveYTexto('mayoreo', ficha('01', { mayoreo: '' })).texto).toBe('sin precio por volumen');
   });
+
+  // Caso real 97363 (prod, 2026-11-18): Kepler guarda el «desde» como 3 en 01–06 y como 3.00 en 07 y 08.
+  // Es el mismo número; comparado como texto marcaba «se sale» a 07 y 08 con los mismos tramos a la vista.
+  const may0106 = 'CJA:3.00:835.50;PAQ:3:53.11';
+  const may0708 = 'CJA:3.00:835.50;PAQ:3.00:53.11';
+
+  it('NEGATIVA: el mismo «desde» escrito 3 y 3.00 NO es otra clave', () => {
+    expect(claveYTexto('mayoreo', ficha('07', { mayoreo: may0708 })).clave)
+      .toBe(claveYTexto('mayoreo', ficha('01', { mayoreo: may0106 })).clave);
+  });
+
+  it('pero otro «desde» u otro centavo SÍ es otra clave', () => {
+    const base = claveYTexto('mayoreo', ficha('01', { mayoreo: may0106 })).clave;
+    expect(claveYTexto('mayoreo', ficha('02', { mayoreo: 'CJA:3.00:835.50;PAQ:4:53.11' })).clave).not.toBe(base);
+    expect(claveYTexto('mayoreo', ficha('02', { mayoreo: 'CJA:3.00:835.50;PAQ:3:53.12' })).clave).not.toBe(base);
+    expect(claveYTexto('mayoreo', ficha('02', { mayoreo: 'CJA:3.00:835.50' })).clave).not.toBe(base);
+  });
 });
 
 describe('[CAT-PRECIO.1] compararFicha — el caso real 02073', () => {
@@ -114,6 +131,24 @@ describe('[CAT-PRECIO.1] compararFicha — el caso real 02073', () => {
     const c = compararCampo('precio1', [ficha('01'), ficha('02', { pv1: 40 })]);
     expect(c?.veredicto).toBe('sin_mayoria');
     expect(c?.valores.every((v) => v.fuera === null)).toBe(true);
+  });
+});
+
+describe('[CAT-PRECIO.1] compararFicha — el caso real 97363 (3 contra 3.00)', () => {
+  const fichas = red({
+    ...Object.fromEntries(['01', '02', '03', '04', '05', '06'].map((s) => [s, { mayoreo: 'CJA:3.00:835.50;PAQ:3:53.11' }])),
+    '07': { mayoreo: 'CJA:3.00:835.50;PAQ:3.00:53.11' },
+    '08': { mayoreo: 'CJA:3.00:835.50;PAQ:3.00:53.11' },
+  });
+
+  it('NEGATIVA: los mismos tramos no producen diferencia en precio por volumen', () => {
+    expect(compararFicha('97363', fichas).campos).toEqual([]);
+  });
+
+  it('control: si la 07 cobra otro precio de paquete, la 07 sí se sale', () => {
+    const otra = fichas.map((f) => (f.sucursal === '07' ? { ...f, mayoreo: 'CJA:3.00:835.50;PAQ:3.00:52.00' } : f));
+    const c = compararFicha('97363', otra).campos.find((x) => x.campo === 'mayoreo');
+    expect(c?.sucursales_fuera).toEqual(['07']);
   });
 });
 
