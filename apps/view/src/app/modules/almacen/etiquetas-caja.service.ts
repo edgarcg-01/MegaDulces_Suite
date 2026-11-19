@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import type { Observable } from 'rxjs';
 import type {
-  BoxLabelCatalogDefect,
+  BoxLabelCatalogDefectsResponse,
   BoxLabelOrdersResponse,
   BoxLabelPrintRequest,
   BoxLabelPrintResponse,
@@ -20,9 +20,9 @@ export class EtiquetasCajaService {
     return this.http.get<BoxLabelOrdersResponse>(`${this.base}/orders`, { params: p });
   }
 
-  defectos(rango: { date_from: string; date_to: string }): Observable<{ defectos: BoxLabelCatalogDefect[]; date_from: string; date_to: string }> {
+  defectos(rango: { date_from: string; date_to: string }): Observable<BoxLabelCatalogDefectsResponse> {
     const p = new HttpParams().set('date_from', rango.date_from).set('date_to', rango.date_to);
-    return this.http.get<{ defectos: BoxLabelCatalogDefect[]; date_from: string; date_to: string }>(`${this.base}/catalog-defects`, { params: p });
+    return this.http.get<BoxLabelCatalogDefectsResponse>(`${this.base}/catalog-defects`, { params: p });
   }
 
   imprimir(pedido: BoxLabelPrintRequest): Observable<BoxLabelPrintResponse> {

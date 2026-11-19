@@ -15,13 +15,13 @@ import { BoxLabelsService } from './box-labels.service';
  *       npx vitest run --config libs/commercial/vitest.config.ts \
  *       libs/commercial/src/lib/commercial-receiving/box-labels.servicio-real.spec.ts
  *
- * La URL admin sólo siembra y limpia (sucursal `93`, que no existe en ninguna base real). Requiere las migraciones
+ * La URL admin sólo siembra y limpia (sucursal `89`, que no existe en ninguna base real ni la usa otra prueba). Requiere las migraciones
  * 20261119100324 y 20261119101651 aplicadas. ⚠️ Sin las dos variables se SALTA y lo dice. Nunca contra prod.
  */
 const URL = process.env.BOX_LABELS_TEST_DB_URL;
 const ADMIN = process.env.BOX_LABELS_TEST_ADMIN_URL;
 const T = '00000000-0000-0000-0000-00000000d01c';
-const SUC = '93';
+const SUC = '89'; // propio de este archivo: '93' lo siembra unidades-captura y vitest corre los archivos a la vez (§8.0b punto 93)
 const FOLIO = `P${Date.now().toString(36).toUpperCase()}`.slice(0, 10);
 const VALE = `V${FOLIO.slice(1)}`;
 
@@ -46,7 +46,7 @@ describe.skipIf(!URL || !ADMIN)('[RE.ETQ.2.3] imprimir etiquetas de caja (Postgr
     admin = knexFactory({ client: 'pg', connection: ADMIN as string, pool: { min: 0, max: 2 } });
     const ctx = { requireTenantId: () => T, get: () => ({ tenantId: T, userId: null, username: 'prueba_etiquetas' }) } as unknown as TenantContextService;
     const tk = new TenantKnexService(knex, ctx);
-    // Alcance: sólo la sucursal 93, para lectura y escritura.
+    // Alcance: sólo la sucursal de prueba, para lectura y escritura.
     const scope = {
       readParam: async () => [SUC],
       assertCanWrite: async (_dim: string, v: string) => {

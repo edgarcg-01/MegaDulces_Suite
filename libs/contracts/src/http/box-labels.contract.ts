@@ -158,6 +158,13 @@ export interface BoxLabelCatalogDefect {
   ultima_captura: string | null;
 }
 
+/** `GET commercial/receiving/box-labels/catalog-defects`: los defectos y el periodo que se leyó. */
+export interface BoxLabelCatalogDefectsResponse {
+  defectos: BoxLabelCatalogDefect[];
+  date_from: string;
+  date_to: string;
+}
+
 // ── Reglas puras ───────────────────────────────────────────────────────────────────────────
 
 const num = (v: unknown): number | null => {

@@ -7,7 +7,7 @@ import {
   fechaKepler,
   totalEtiquetas,
   validarPedidoImpresion,
-  type BoxLabelCatalogDefect,
+  type BoxLabelCatalogDefectsResponse,
   type BoxLabelMotivo,
   type BoxLabelOrdersResponse,
   type BoxLabelPrintRequest,
@@ -149,7 +149,7 @@ export class BoxLabelsService {
   }
 
   /** `GET catalog-defects` — lo que el catálogo de Kepler tiene mal en lo recibido (lista para Compras). */
-  async defectos(query: Record<string, unknown> | undefined): Promise<{ defectos: BoxLabelCatalogDefect[]; date_from: string; date_to: string }> {
+  async defectos(query: Record<string, unknown> | undefined): Promise<BoxLabelCatalogDefectsResponse> {
     const { desde, hasta } = this.rango(query, 30);
     const sucursales = await this.scope.readParam(query, 'warehouse', RUTA);
     if (sucursales && !sucursales.length) return { defectos: [], date_from: desde, date_to: hasta };
