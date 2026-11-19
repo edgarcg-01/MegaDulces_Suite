@@ -130,6 +130,18 @@ describe('[COT.47] buscar, filtrar y ordenar los renglones', () => {
     expect(renglonesVisibles(lista, '', 'todos', 'nombre').map((x) => x.id)).toEqual(['c', 'b', 'a']);
     expect(renglonesVisibles(lista, '', 'todos', 'captura').map((x) => x.id)).toEqual(['a', 'b', 'c']);
   });
+  it('[COT.48] lo último arriba: lo recién agregado primero, sin tocar el número de renglón', () => {
+    expect(renglonesVisibles(lista, '', 'todos', 'reciente').map((x) => [x.id, x.numero])).toEqual([['c', 3], ['b', 2], ['a', 1]]);
+  });
+  it('[COT.48] lo último arriba: el que se acaba de SUMAR (marcado) sube primero', () => {
+    expect(renglonesVisibles(lista, '', 'todos', 'reciente', 'a').map((x) => x.id)).toEqual(['a', 'c', 'b']);
+    expect(renglonesVisibles(lista, '', 'todos', 'captura', 'a').map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+  it('[COT.48] lo último arriba: el regalo del ERP viaja pegado debajo de su renglón', () => {
+    const conRegalo = [...lista.slice(0, 2), r('g', 3, 'REGALO', '22222', { regaloDe: 1 }), r('d', 4, 'DULCE', '33333')];
+    expect(renglonesVisibles(conRegalo, '', 'todos', 'reciente').map((x) => x.id)).toEqual(['d', 'b', 'a', 'g']);
+    expect(renglonesVisibles(conRegalo, '', 'todos', 'reciente', 'a').map((x) => x.id)).toEqual(['a', 'g', 'd', 'b']);
+  });
 
   function montar(n: number) {
     TestBed.resetTestingModule();
@@ -140,6 +152,13 @@ describe('[COT.47] buscar, filtrar y ordenar los renglones', () => {
     f.detectChanges();
     return { f, el: f.nativeElement as HTMLElement };
   }
+  it('[COT.48] con ordenInicial «reciente» la primera fila pintada es la última agregada, aun sin barra', () => {
+    const { f, el } = montar(3);
+    expect(el.querySelector('tbody tr')?.id).toBe('renglon-x0');
+    f.componentRef.setInput('ordenInicial', 'reciente');
+    f.detectChanges();
+    expect(Array.from(el.querySelectorAll('tbody tr')).map((t) => t.id)).toEqual(['renglon-x2', 'renglon-x1', 'renglon-x0']);
+  });
   it('la barra sólo aparece desde 10 renglones (con menos todo cabe a la vista)', () => {
     expect(RENGLONES_PARA_FILTRAR).toBe(10);
     expect(montar(9).el.querySelector('.filtros')).toBeNull();
