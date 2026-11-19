@@ -18,6 +18,7 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, CuadreDeCuentas, CuentaEnCuadre, RevisionEstadoBanco, UsoDelBanco } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
+import { dmy, money } from '../finanzas-format';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
   santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío', banamex: 'Banamex',
@@ -669,7 +670,10 @@ export class BancosEstadoBancoComponent implements OnInit {
     if (r.sin_sucursal) partes.push(`${r.sin_sucursal} sin sucursal`);
     if (r.sin_categoria) partes.push(`${r.sin_categoria} sin categoría`);
     if (r.libro_borrados) partes.push(`${r.libro_borrados} renglón(es) del libro quedaron reemplazados por los del banco`);
-    return { severity: r.sin_sucursal || r.sin_categoria ? 'warn' : 'success', summary: `${r.cuenta} usa el banco desde el ${desde}`, detail: partes.join(' · '), life: 8000 };
+    // [BFU.2.5] Lo que estaba ligado a esos renglones: cuántas ligas pasaron y cuáles se quedaron sin pareja.
+    if (r.religados) partes.push(`${r.religados} con pagos, confirmaciones o capturas ligados pasaron al banco`);
+    if (r.sin_religar?.length) partes.push(`${r.sin_religar.length} sin pareja en el banco: ${r.sin_religar.slice(0, 3).map((x) => `${dmy(x.fecha)} ${money(x.importe)} (${x.ligas.join(', ')})`).join('; ')}${r.sin_religar.length > 3 ? '…' : ''}`);
+    return { severity: r.sin_sucursal || r.sin_categoria || r.sin_religar?.length ? 'warn' : 'success', summary: `${r.cuenta} usa el banco desde el ${desde}`, detail: partes.join(' · '), life: 8000 };
   }
 
   /** El veredicto de una fila: lo que la persona tiene que saber o hacer, y si está lista para guardar. */

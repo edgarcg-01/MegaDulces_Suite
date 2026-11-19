@@ -488,6 +488,8 @@ export interface CuadreDeCuentas { cuentas: CuentaEnCuadre[] }
 export interface UsoDelBanco {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
   metidos: number; en_cero: number; sin_categoria: number; sin_sucursal: number;
+  /** [BFU.2.5] Ligas pasadas al renglón del banco, y las que no tuvieron pareja. Faltan en una API anterior. */
+  religados?: number; sin_religar?: { fecha: string; importe: number; lado: 'entra' | 'sale'; ligas: string[] }[];
 }
 
 /**

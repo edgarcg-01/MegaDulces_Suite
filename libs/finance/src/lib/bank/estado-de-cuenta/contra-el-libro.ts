@@ -136,7 +136,7 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
  * Primero el mismo día; lo que sobra, contra el libro de ±3 días (el más cercano). `[CB.64]` Lo usan la
  * compuerta y Movimientos: una sola regla para decir «el libro lo tiene».
  */
-function parear(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[]) {
+export function parear(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[]) {
   const pareado = new Set<string>(); // ids de los dos lados ya usados
   const parDe = new Map<string, RenglonComparable>(); // id del banco → su renglón del libro
   const fechaDistinta = new Map<string, number>(); // día del banco → pares con otro día
