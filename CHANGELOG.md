@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Seguimiento de cotización: un pedido cancelado en Kepler ya no aparece embarcado; la caja deja el motivo de sus cierres rechazados (GP.10.1b · GP.RF.42 · 2026-11-19 · en código, sin soltar)
+- Si Kepler canceló el pedido de una cotización, el seguimiento lo dice («Pedido cancelado en Kepler») en lugar de mostrarlo surtido o embarcado, y no presenta como quitados los productos que Kepler borra al cancelar.
+- Cuando la revisión en caja no puede terminar un pedido, la razón queda registrada para poder corregirla.
+
 ### Fixed — Bancos › Cuentas dice de dónde sale cada saldo y hasta qué día (BFU.0.1 · 2026-11-19 · en código, sin soltar)
 - Cada cuenta dice si su saldo sale del banco o del libro de Tesorería, hasta qué día llega, y si el banco ya trae más días.
 - Ya no dice «todo cuadra» cuando lo único que cuadra es el libro consigo mismo; si el banco va adelante, lleva a Estados de cuenta para pasar la cuenta.

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2836 KB, 15074 líneas, 78 secciones.
+> **Índice navegable** — 2837 KB, 15075 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13885 | 13926 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 13927 | 14084 | 75 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14085 | 14115 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14116 | 14381 | 47 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14382 | 14446 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14447 | 14455 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14456 | 14509 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14516 | 14525 | 1 | 📝 Convenciones |
-| 14526 | 14563 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14564 | 14582 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14583 | 14635 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14636 | 15022 | 78 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15023 | 15053 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15054 | 15075 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15076 | 15103 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15104 | 15137 | 29 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15138 | 15164 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14116 | 14382 | 48 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14383 | 14447 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14448 | 14456 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14457 | 14510 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14517 | 14526 | 1 | 📝 Convenciones |
+| 14527 | 14564 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14565 | 14583 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14584 | 14636 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14637 | 15023 | 78 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15024 | 15054 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15055 | 15076 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15077 | 15104 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15105 | 15138 | 29 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15139 | 15165 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14145,7 +14145,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - **Antes → después** (prod, sólo lectura, el SQL real del repo): de 60 pedidos en olas, 53 iguales y 7 pasan a CANCELADO, los mismos 7 medidos aparte (5 en olas abiertas).
 >     - **Rendimiento:** con 2,500 llaves, ~200–260 ms → ~50–70 ms porque usa el índice. Es optimización, declarada aparte.
 >     - **Pruebas:** picking y pedidos 152/152, Por capturar 15/15. Una prueba negativa falla si la captura o el checado vuelven a leer `h.c11`. `check:pantalla` sin fallas nuevas y `check:templates-types` en verde.
->   - [ ] **[GP.10.1b]** ⬜ El seguimiento de la cotización (`quote-tracking`) todavía pinta «Surtido ✔» en un pedido cancelado en Kepler: 11 de 1,507 pedidos de telemarketing en 30 días. Toca la pantalla de televenta.
+>   - [x] **[GP.10.1b]** 🧪 (2026-11-19) El seguimiento de la cotización (`quote-tracking`) pintaba avanzado un pedido cancelado en Kepler (11 de 1,507 pedidos de telemarketing en 30 días, medido el 13-nov). Ahora lee el estatus VIGENTE (`ESTATUS_VIGENTE_SQL`, el del Tablero): dice «Pedido cancelado en Kepler», el folio va marcado «cancelado», no quedan pasos pendientes y no se listan como «quitados» los renglones que Kepler borra al cancelar. Medido en prod, sólo lectura: 6 de 359 cotizaciones en Kepler tienen el pedido cancelado; 3 decían «Embarcado» sin ningún embarque, todas en $0 y sin renglones. Control: en los 353 vivos el estatus no cambia. Servicio real contra prod: los 5 cancelados salen CANCELADO sin cambios; COT-2026-00139 conserva «surtido» porque el piso lo surtió en la Suite.
 > - **E1 — Consola maestra, ABIERTA el 2026-11-13 por encima del cupo (Edgar).** Meta: pasar de 3 pantallas a 1 para seguir un pedido; 100 % de los pedidos del periodo visibles y cuadrados; menos de 500 ms.
 >   - [x] **[GP.10.2]** 🧪 (2026-11-13) **La etapa de cada pedido sale de una sola función, y dice si la sabe Kepler o el piso.** Es `etapaDePedido`, en `warehouse-orders/etapa-pedido.ts`; los tipos (`ETAPAS_PEDIDO`, `EtapaPedidoResultado`) están en el contrato. Para: coordinador de almacén (`ALMACEN_SURTIDO_COORDINAR`) y encargado. Capa C1. Depende de GP.10.1 🧪.
 >     - **Verificado en prod** (noviembre, sólo lectura, con la función del repo compilada tal cual):
@@ -14325,6 +14325,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >     - Corrección del bloque 4: `.gp-tag/.uc-tag/.as-tag/.ax-tag` eran reglas muertas (p-tag no tiene `styleClass` en PrimeNG 22; la etiqueta mide 12 px por el tema, medido): se quitaron con sus 10 `styleClass`. 14 textos en `--warn-fg`/`--ok-fg` a su tono para texto. Revisión de 6 tamaños propios a 4 niveles (40/20/18/14; se subió, nada se achicó).
 >     - Pastilla de frescura verificada en el navegador (12 px, sin región viva sobre el texto que avanza). NO MEDIDO: Revisión en el navegador (el servidor de desarrollo se apagó; `revision-letra.e2e.ts` listo).
 >   - [x] **[GP.RF.13] (Revisión, en el navegador)** 🧪 (2026-11-18) Medido `revision-letra.e2e.ts` al volver el servidor: dentro del pedido 4 tamaños (20/18/14 + el 13 del marco). Encontró y se corrigieron 2 textos bajo AA: «▶ REVISANDO» 4.24 → 7.15 (`--info-soft-fg`) y el botón «Está bien» 3.30 → 7.13 (fondo `--ok-soft-fg`). Re-medido: 0 bajo AA.
+>   - [x] **[GP.RF.42]** 🧪 (2026-11-19) **La caja deja el motivo de cada cierre rechazado**, como Surtir (GP.RF.23). Medido en prod (30 días al 14-nov): 20 de 187 cierres de la revisión en caja rechazados (10.7 %, todos 4xx) y el motivo no quedaba en ningún lado. Ahora va por el canal de incidentes (`revision_cierre_rechazado`): código, mensaje del servidor, renglones, bajados, si la revisión venía guardada y cuántos minutos llevaba abierto el pedido. Nada de lo que la persona escribe. Prueba con su negativa (sin el registro, la prueba se pone roja). La causa se lee de esos registros después de soltar.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.

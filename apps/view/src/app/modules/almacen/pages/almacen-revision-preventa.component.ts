@@ -28,6 +28,7 @@ import { diaMxDe, todayMx } from '../../../core/utils/mx-date';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { UsoService } from '../../../core/services/uso.service';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import {
   type Accion,
@@ -552,6 +553,10 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   private readonly zone = inject(NgZone);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
+  private readonly uso = inject(UsoService);
+  /** `[GP.RF.42]` Cuándo se abrió el pedido y si la revisión venía guardada: dos causas candidatas de un rechazo. */
+  private abiertoEn = 0;
+  private retomado = false;
   private readonly escanerInput = viewChild<ElementRef<HTMLInputElement>>('escaner');
 
   readonly bandeja = signal<PresaleReviewInboxResponse | null>(null);
@@ -763,7 +768,10 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     this.cargandoDetalle.set(true);
     this.api.detail(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
-        this.progreso.set(this.leerGuardado(d) ?? progresoInicial(d.lines));
+        const guardado = this.leerGuardado(d);
+        this.retomado = guardado != null;
+        this.abiertoEn = Date.now();
+        this.progreso.set(guardado ?? progresoInicial(d.lines));
         this.detalle.set(d);
         this.cargandoDetalle.set(false);
         this.listoParaEscanear();
@@ -973,7 +981,33 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
         if (sig) this.abrir(sig.order_id);
         else this.cerrarDetalle();
       },
-      error: (e) => { this.trabajando.set(false); this.toast.add({ severity: 'error', summary: mensaje(e, 'No se pudo terminar la revisión.'), life: 8000 }); },
+      error: (e) => {
+        this.trabajando.set(false);
+        this.reportarRechazo(d, e, conMotivo.size);
+        this.toast.add({ severity: 'error', summary: mensaje(e, 'No se pudo terminar la revisión.'), life: 8000 });
+      },
+    });
+  }
+
+  /**
+   * `[GP.RF.42]` Un cierre rechazado en caja deja su MOTIVO, como Surtir ([GP.RF.23]). Medido en prod
+   * (30 días al 2026-11-14): la caja vio rechazados 20 de 187 cierres (10.7 %, todos 4xx) y el motivo
+   * no quedaba en ningún lado: el servidor no lo guarda y el aviso dura 8 s. Va por el canal de
+   * incidentes (`kind: 'error'`): el código, el mensaje del servidor y lo que separa las causas
+   * candidatas —otra caja ya lo revisó (cuánto llevaba abierto), una revisión guardada de antes
+   * (retomado), renglones bajados con su motivo—. Nada de lo que la persona escribe.
+   */
+  private reportarRechazo(d: PresaleReviewDetail, e: unknown, bajados: number): void {
+    const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
+    this.uso.reportarIncidente('revision_cierre_rechazado', {
+      accion: 'revisar_terminar',
+      status,
+      motivo: mensaje(e, '').slice(0, 300),
+      order_id: d.order.order_id,
+      renglones: d.lines.length,
+      bajados,
+      retomado: this.retomado,
+      minutos_abierto: this.abiertoEn ? Math.round((Date.now() - this.abiertoEn) / 60000) : null,
     });
   }
 

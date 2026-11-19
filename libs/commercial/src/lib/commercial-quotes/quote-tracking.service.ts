@@ -3,8 +3,9 @@ import { TenantKnexService, TenantContextService, branchName } from '@megadulces
 
 import { CommercialQuotesService } from './commercial-quotes.service';
 import type { QuienCotiza } from './quote-scope';
+import { ESTATUS_VIGENTE_SQL } from '../commercial-picking/kepler-origen';
 import {
-  armarPasos, cambiosContraCotizacion, docPedido, hallazgosAbiertos, identidadDelPedido, llavesHallazgo,
+  armarPasos, cambiosContraCotizacion, docPedido, hallazgosAbiertos, identidadDelPedido, llavesHallazgo, pedidoCancelado,
   type EmbarqueCrudo, type FacturaCruda, type HallazgoCrudo, type PedidoCrudo, type PisoCrudo, type SeguimientoCotizacion,
   type RenglonCotizadoCrudo, type RenglonPedidoCrudo,
 } from './quote-tracking.reglas';
@@ -16,10 +17,12 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * prefiere el que trae el código de la cotización en «Comentarios» (`c24`, Kepler lo copia al
  * escribir el pedido), que es la prueba de identidad; si alguien editó el comentario, el de serie 1.
  * `DISTINCT ON`: el ODS puede traer el mismo documento más de una vez (ver `WarehouseOrdersService`).
+ * `[GP.10.1b]` El estatus es el VIGENTE (`ESTATUS_VIGENTE_SQL`, el mismo del Tablero): un cancelado
+ * sale CANCELADO, no con el `c11` que conserva.
  */
 const PEDIDO_SQL = `
 SELECT (h.c5)::int AS serie, btrim(h.c6::text) AS folio, to_char(h.c9::date, 'YYYY-MM-DD') AS fecha,
-       NULLIF(btrim(h.c62::text), '') AS hora, upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
+       NULLIF(btrim(h.c62::text), '') AS hora, ${ESTATUS_VIGENTE_SQL} AS estatus,
        NULLIF(btrim(h.c100::text), '') AS resp_surtido, NULLIF(btrim(h.c102::text), '') AS resp_checado,
        NULLIF(btrim(h.c103::text), '') AS resp_embarque,
        NULLIF(btrim(h.c10::text), '') AS cliente, (position(? in coalesce(h.c24::text, '')) > 0) AS trae_cotizacion
@@ -155,6 +158,8 @@ export class QuoteTrackingService {
       const enPedido = (await k.raw(PEDIDO_LINEAS_SQL, [suc, pedido.serie, pedido.folio])).rows as RenglonPedidoCrudo[];
       // Con la identidad dudosa (el pedido quizá no es éste), comparar renglones fabricaría «quitados» falsos.
       const identidad = identidadDelPedido(pedido, cab.erp_customer_code);
+      // [GP.10.1b] Al cancelar, Kepler borra los renglones: compararlos diría que «quitó» toda la cotización.
+      const cancelado = pedidoCancelado(pedido);
 
       const r: SeguimientoCotizacion = {
         en_kepler: true,
@@ -164,7 +169,7 @@ export class QuoteTrackingService {
           identidad,
         },
         pasos: armarPasos(pedido, embarques, facturas, piso ?? null),
-        cambios: identidad === 'dudosa' ? [] : cambiosContraCotizacion(cotizado, enPedido),
+        cambios: identidad === 'dudosa' || cancelado ? [] : cambiosContraCotizacion(cotizado, enPedido),
         hallazgos: hallazgosAbiertos(hall),
         leido_en,
       };

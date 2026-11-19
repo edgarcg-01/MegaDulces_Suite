@@ -51,6 +51,18 @@ describe('respuesta', () => {
   it('sin pasos hechos no inventa avance', () => {
     expect(respuesta(cadena(-1))).toEqual({ ahora: 'Sin avance en Kepler', sigue: null });
   });
+
+  it('[GP.10.1b] pedido cancelado en Kepler: lo dice y no propone siguiente (COT-2026-00139 decía «Embarcado»)', () => {
+    const r = respuesta([paso('pedido', 'Pedido en Kepler', true, {
+      cuando: '2026-11-03', documentos: [{ documento: 'UD4001-0001803', fecha: '2026-11-03', cancelado: true, importe: null }],
+    })]);
+    expect(r).toEqual({ ahora: 'Pedido cancelado en Kepler', sigue: null });
+  });
+
+  it('[GP.10.1b] el pedido vivo sigue igual (prueba negativa)', () => {
+    const r = respuesta(cadena(2, { pedido: { documentos: [{ documento: 'UD4001-0001803', fecha: '2026-11-03', cancelado: false, importe: null }] } }));
+    expect(r).toEqual({ ahora: 'Surtido', sigue: 'Sigue: checado' });
+  });
 });
 
 describe('[GP.9.3] cambios contra la cotización', () => {

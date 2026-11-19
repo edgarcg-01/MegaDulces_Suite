@@ -1,4 +1,4 @@
-import { armarPasos, cambiosContraCotizacion, claveCapturada, hallazgosAbiertos, horaMx, identidadDelPedido, llavesHallazgo, type PedidoCrudo, type EmbarqueCrudo, type FacturaCruda } from './quote-tracking.reglas';
+import { armarPasos, cambiosContraCotizacion, claveCapturada, hallazgosAbiertos, horaMx, identidadDelPedido, llavesHallazgo, pedidoCancelado, type PedidoCrudo, type EmbarqueCrudo, type FacturaCruda } from './quote-tracking.reglas';
 
 /**
  * `[GP.9.1]` Anclado a la cadena real de Canindo (06, medida en prod 2026-11-12): pedido
@@ -86,6 +86,26 @@ describe('armarPasos', () => {
   it('ESTATUS desconocido no adelanta pasos', () => {
     const p = porClave(armarPasos(pedido({ estatus: 'RARO' }), [], [], null));
     expect(p['autorizado'].hecho).toBe(false);
+  });
+
+  it('[GP.10.1b] cancelado (06-0001803, COT-2026-00139: decía «Embarcado» sin embarque): sólo el pedido, marcado cancelado', () => {
+    const ps = armarPasos(pedido({ folio: '0001803', estatus: 'CANCELADO' }), [], [], null);
+    expect(ps.map((p) => p.clave)).toEqual(['pedido']);
+    expect(ps[0].documentos[0]).toMatchObject({ documento: 'UD4001-0001803', cancelado: true });
+  });
+
+  it('[GP.10.1b] cancelado: lo que el piso marcó en la Suite sí pasó, y se queda', () => {
+    const ps = armarPasos(pedido({ estatus: 'CANCELADO' }), [], [],
+      { surtio: 'Juan', surtido_at: '2026-11-03T16:00:00.000Z', checo: null, checado_at: null });
+    expect(ps.map((p) => p.clave)).toEqual(['pedido', 'autorizado', 'surtido']);
+  });
+
+  it('[GP.10.1b] un pedido vivo no se marca cancelado (prueba negativa)', () => {
+    const ps = armarPasos(pedido(), [emb1823], [], null);
+    expect(ps).toHaveLength(6);
+    expect(ps[0].documentos[0].cancelado).toBe(false);
+    expect(pedidoCancelado(pedido())).toBe(false);
+    expect(pedidoCancelado(pedido({ estatus: 'cancelado' }))).toBe(true);
   });
 });
 
