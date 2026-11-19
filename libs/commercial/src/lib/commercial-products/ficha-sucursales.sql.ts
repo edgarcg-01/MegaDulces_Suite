@@ -25,8 +25,10 @@ WITH plazas AS (
     FROM commercial.warehouses w
    WHERE w.deleted_at IS NULL AND w.sells_to_public IS TRUE AND w.kepler_code IS NOT NULL
 ), volumen AS (
+  -- trim_scale: Kepler guarda el mismo «desde» como 3 en unas plazas y 3.00 en otras; sin él, la
+  -- cadena difiere y el filtro de abajo cuenta como distinto lo que es igual (46 productos, 2026-11-18).
   SELECT p.sucursal AS suc, btrim(p.c1) AS sku,
-         string_agg(upper(btrim(p.c2)) || ':' || (p.c4::numeric)::text || ':' || round(p.c7::numeric, 2)::text,
+         string_agg(upper(btrim(p.c2)) || ':' || trim_scale(p.c4::numeric)::text || ':' || round(p.c7::numeric, 2)::text,
                     ';' ORDER BY upper(btrim(p.c2)), p.c4::numeric) AS mayoreo
     FROM kepler_ods.kdpv_prod_util p
     JOIN plazas ON plazas.suc = p.sucursal
