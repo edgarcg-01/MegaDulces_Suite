@@ -13,6 +13,7 @@ import {
   RecordMovementDto,
   AdjustStockDto,
   StockMovementType,
+  StockSummary,
 } from './commercial-inventory.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -40,6 +41,13 @@ export class CommercialInventoryController {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get('stock/summary')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({ summary: 'Resumen de existencia de TODA la selección (líneas, unidades, valor, salud), por almacén — CANON.7.4a' })
+  stockSummary(@Query('warehouse_id') warehouseId?: string): Promise<StockSummary> {
+    return this.service.stockSummary({ warehouse_id: warehouseId });
   }
 
   @Get('stock/:warehouse_id/:product_id')

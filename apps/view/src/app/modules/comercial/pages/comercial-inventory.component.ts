@@ -10,7 +10,7 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
-import { ComercialService, StockRow, Warehouse } from '../comercial.service';
+import { ComercialService, StockRow, StockSummary, Warehouse } from '../comercial.service';
 import { makeLazyLoad } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
@@ -63,8 +63,9 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </div>
       </header>
     
-      <!-- KPI BENTO — data-viz del total (independiente del paginado) -->
-      @if (summaryAll().length > 0) {
+      <!-- KPI BENTO — data-viz del total (independiente del paginado). [CANON.7.4a] Lo agrega el servidor sobre TODA
+           la selección; antes se sumaban en el navegador las 500 filas a las que se topa el listado. -->
+      @if (summary()) {
         <div class="surf-grid in-bento">
           <!-- HERO: valor del inventario disponible + barras por almacén -->
           <app-metric-card class="panel-col-6" [large]="true"
@@ -72,7 +73,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             accent="var(--action)"
             [variant]="kpis().valueByWh.length > 1 ? 'bars' : 'plain'"
             [series]="kpis().valueByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
-          [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes')"></app-metric-card>
+          [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes') + (kpis().withoutCost ? ' · ' + kpis().withoutCost + ' con saldo sin costo' : '')"></app-metric-card>
           <app-metric-card class="panel-col-3"
             label="Unidades on-hand" [value]="kpis().totalUnits" format="number"
             accent="var(--chart-2)"
@@ -197,11 +198,12 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td class="comm-num in-num-soft">{{ s.on_hand }}</td>
-                <td class="comm-num in-num-soft">{{ s.reserved }}</td>
+                <!-- [CANON.7.4a] Con formato: la API manda texto con la escala de cada columna («1» del ERP, «0.000» del apartado). -->
+                <td class="comm-num in-num-soft">{{ s.on_hand | number:'1.0-3' }}</td>
+                <td class="comm-num in-num-soft">{{ s.reserved | number:'1.0-3' }}</td>
                 <td class="comm-num in-avail-cell">
                   <span class="comm-pill no-dot in-avail-pill" [class]="stockPillClass(s.available)">
-                    {{ s.available }}
+                    {{ s.available | number:'1.0-3' }}
                   </span>
                 </td>
                 <td class="comm-num">
@@ -391,30 +393,24 @@ export class ComercialInventoryComponent {
     this.reload();
   }
 
-  readonly summaryAll = signal<StockRow[]>([]);
+  /** [CANON.7.4a] El resumen de TODA la selección, agregado en el servidor. Hasta el 2026-11-19 se sumaban aquí las
+   *  filas de `listStock(pageSize: 9999)`, que el servidor topa a 500: en la red pintaba 500 líneas, $475,940 y
+   *  «1 almacén» contra 33,530 líneas, $70.4 M y 9 almacenes. */
+  readonly summary = signal<StockSummary | null>(null);
   readonly kpis = computed(() => {
-    const list = this.summaryAll();
-    const lines = list.length;
-    const critical = list.filter((r) => r.available > 0 && r.available < 20).length;
-    const zero = list.filter((r) => r.available <= 0).length;
-    const healthy = list.filter((r) => r.available >= 20).length;
-    const totalUnits = list.reduce((s, r) => s + Number(r.on_hand || 0), 0);
-    const totalValue = list.reduce((s, r) => s + Number(r.available_value || 0), 0);
-
-    // Composición por almacén (para las micro-gráficas de barras con tooltip).
-    const wmap = new Map<string, { name: string; value: number; units: number }>();
-    for (const r of list) {
-      const e = wmap.get(r.warehouse_id) ?? { name: r.warehouse_name || r.warehouse_id, value: 0, units: 0 };
-      e.value += Number(r.available_value || 0);
-      e.units += Number(r.on_hand || 0);
-      wmap.set(r.warehouse_id, e);
-    }
-    const wh = [...wmap.values()].sort((a, b) => b.value - a.value);
-
+    const su = this.summary();
+    // Composición por almacén (para las micro-gráficas de barras con tooltip), del más valioso al menos.
+    const wh = [...(su?.by_warehouse ?? [])].sort((a, b) => b.value - a.value);
     return {
-      lines, critical, zero, healthy, totalUnits, totalValue,
-      whCount: wmap.size,
-      whLabels: wh.map((w) => w.name),
+      lines: su?.lines ?? 0,
+      critical: su?.critical ?? 0,
+      zero: su?.zero ?? 0,
+      healthy: su?.healthy ?? 0,
+      totalUnits: su?.units ?? 0,
+      totalValue: su?.value ?? 0,
+      withoutCost: su?.without_cost ?? 0,
+      whCount: wh.length,
+      whLabels: wh.map((w) => w.warehouse_name || w.warehouse_id),
       valueByWh: wh.map((w) => Math.round(w.value)),
       unitsByWh: wh.map((w) => Math.round(w.units)),
     };
@@ -430,9 +426,9 @@ export class ComercialInventoryComponent {
   }
 
   private loadSummary(): void {
-    this.api.listStock({ warehouse_id: this.whParam(), pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.summaryAll.set(r.data || []),
-      error: () => this.summaryAll.set([]),
+    this.api.stockSummary({ warehouse_id: this.whParam() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.summary.set(r),
+      error: () => this.summary.set(null),
     });
   }
 

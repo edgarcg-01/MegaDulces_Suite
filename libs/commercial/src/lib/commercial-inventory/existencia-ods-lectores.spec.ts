@@ -145,4 +145,34 @@ describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el aparta
     expect(c).not.toMatch(/adjustStock|openAdjust|<p-dialog/);
     expect(c).toContain('<h1>Existencia y apartados</h1>');
   });
+
+  // Probado en local el 2026-11-19: las tarjetas sumaban en el navegador `listStock(pageSize: 9999)`, que el servidor
+  // topa a 500, y en la red decían 500 líneas, $475,940 y «1 almacén» contra 33,530, $70.4 M y 9.
+  it('el resumen lo agrega el servidor sobre TODA la selección, del mismo universo que el listado', () => {
+    const f = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.service.ts'), 'utf8').split('\r\n').join('\n');
+    const i = f.indexOf('async stockSummary(');
+    expect(i).toBeGreaterThan(0);
+    const cuerpo = f.slice(i, f.indexOf('\n  async ', i + 10));
+    expect(cuerpo).toContain('EXISTENCIA_ODS_CON_APARTADO_SQL');
+    expect(cuerpo).toContain('analytics.v_erp_unit_cost'); // el mismo costo arbitrado que valúa cada renglón
+    expect(cuerpo).toMatch(/groupBy\('s\.warehouse_id'/);
+    expect(cuerpo).toContain('without_cost'); // sin costo se CUENTA, no se suma como cero
+    expect(cuerpo).not.toMatch(/\.limit\(/); // un tope aquí volvería a resumir sólo una parte
+    expect(lecturasDeLaCopia(cuerpo)).toEqual([]);
+  });
+
+  it('la ruta del resumen pide el mismo permiso que el listado y va antes de la ruta con parámetros', () => {
+    const ctl = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.controller.ts'), 'utf8').split('\r\n').join('\n');
+    const r = ctl.indexOf("@Get('stock/summary')");
+    expect(r).toBeGreaterThan(0);
+    expect(ctl.slice(r, r + 120)).toContain('Permission.COMMERCIAL_INVENTORY_VER');
+    expect(r).toBeLessThan(ctl.indexOf("@Get('stock/:warehouse_id/:product_id')"));
+  });
+
+  it('la pantalla pinta el resumen del servidor (no suma una página) y las cantidades con un solo formato', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8');
+    expect(c).not.toMatch(/listStock\(\{[^}]*pageSize:\s*9999/);
+    expect(c).toContain('this.api.stockSummary(');
+    for (const campo of ['s.on_hand', 's.reserved', 's.available']) expect(c).toContain(`{{ ${campo} | number:'1.0-3' }}`);
+  });
 });
