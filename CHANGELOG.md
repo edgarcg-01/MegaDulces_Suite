@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
+- Los pagos aplicados y los saldos de cada documento de cartera ahora llegan de Kepler por la cola de cambios, que ve cada alta y cada cambio. Antes una parte se perdía en el camino: 2,967 saldos viejos y 133 pagos aplicados que nunca llegaron, entre ellos el que hizo reclamar a un cliente de Canindo.
+- Una comparación de sólo lectura contra Kepler dice, sucursal por sucursal, si falta algo (`database/scripts/ods-cartera-vs-replica.js`).
 ### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en PR #567, sin soltar; la cola nace apagada)
 - Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
 - La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.

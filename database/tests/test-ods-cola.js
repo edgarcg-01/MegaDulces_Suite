@@ -30,7 +30,7 @@ const path = require('path');
 const { Client } = require('pg');
 // Antes del require: el carril lee la lista de la cola al cargar, y el bloque 5 mide su nota.
 process.env.ODS_COLA_TABLES = 'kdm1,kdm2';
-const { instalarSql, quitarSql, estadoCola, drenarCola, TRIGGER, autoSql, quitarAutoSql, expandirTablas } = require('../importers/lib/ods-cola');
+const { instalarSql, quitarSql, estadoCola, drenarCola, TRIGGER, autoSql, quitarAutoSql, expandirTablas, ponerAlDia } = require('../importers/lib/ods-cola');
 const { syncCtid, crearCicloTiempoReal, borrarEnVivo } = require('../importers/kepler/replicate-ods-live').__test;
 
 let ok = 0, fail = 0, noMedido = 0;
@@ -275,7 +275,8 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     const caja = conCola[0]?.t || '';
     A(/27-ods-live-caja/.test(conCola[0]?.f || ''), 'y es el carril de caja');
     const valor = (k) => ((caja.match(new RegExp(`name: ${k}\\s*\\n\\s*value: "?([^"\\n]*)"?`)) || [])[1] || '').trim();
-    A(valor('ODS_COLA_TABLES') === 'kdm1,kdm2,kdc2*', 'vacía kdm1 y kdm2 (cabecera antes que renglones) y las pólizas kdc2* [OPS-AUD.13]');
+    A(valor('ODS_COLA_TABLES') === 'kdm1,kdm2,kdc2*,kdud,kduv,kduk,kdue,kdm5',
+      'vacía kdm1 y kdm2 (cabecera antes que renglones), las pólizas kdc2* [OPS-AUD.13] y la cartera: cliente → documento → aplicación [CXC.45]');
     A(/^(1|true|yes)$/i.test(valor('ODS_TIEMPO_REAL')), 'con ODS_TIEMPO_REAL (sin él el piso del sondeo vuelve a 1 s)');
     // De la línea `command:`, no del texto: el encabezado del YAML cita `--watch=1` en su historia.
     const w = Number((caja.match(/^\s*command:.*--watch=([0-9.]+)/m) || [])[1]);
@@ -381,6 +382,79 @@ const TABLAS = [{ tabla: 'kdm1', pk: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'] }, { t
     A(r2.borradas === 0 && !d2.q.length && !enviados.length, '⛔ el TOPE sigue: 501 borrados de pólizas en una pasada no se tocan (poda)');
     const r3 = await borrarEnVivo({ code: '00', tabla: 'kdc3', meta: META, llaves: ll(1), dest: dest(delOds(1)), shipFn });
     A(r3.borradas === 0 && /sin fecha/.test(r3.nota || ''), 'el prefijo es exacto: kdc3 (no es póliza) sigue sin borrar');
+  }
+
+  console.log('\n[7c] [CXC.45] Aplicaciones de pago (kdm5): sin freno de edad, con tope, y el nombre exacto');
+  {
+    const cols = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((n) => ({ column_name: n, data_type: /c[457]/.test(n) ? 'numeric' : 'character varying' }));
+    const META = { cols, pk: cols.map((c) => c.column_name) };
+    const ll = (n) => Array.from({ length: n }, (_, i) => ({ c1: '06', c2: 'U', c3: 'A', c4: 7, c5: 1, c6: '0000117', c7: i + 1 }));
+    const dest = (filas) => { const q = []; return { q, async query(sql, params) { q.push({ sql: String(sql), params }); return { rows: filas }; } }; };
+    let enviados = [];
+    const shipFn = async (rows) => { enviados.push(...rows); return { rowCount: rows.length }; };
+    const d1 = dest(ll(2));
+    const r1 = await borrarEnVivo({ code: '06', tabla: 'kdm5', meta: META, llaves: ll(2), dest: d1, shipFn });
+    A(!/current_date/.test(d1.q[0]?.sql || '') && d1.q[0]?.params.length === 2,
+      'kdm5 NO lleva freno de edad (un cobro se cancela o se re-aplica semanas después)');
+    A(r1.borradas === 2 && enviados.every((x) => x.sucursal === '06'), 'y borra las que el ODS tiene, de SU sucursal');
+    enviados = [];
+    const d2 = dest(ll(501));
+    const r2 = await borrarEnVivo({ code: '06', tabla: 'kdm5', meta: META, llaves: ll(501), dest: d2, shipFn });
+    A(r2.borradas === 0 && !d2.q.length && !enviados.length, '⛔ el TOPE sigue: 501 bajas de aplicaciones en una pasada no se tocan (poda)');
+    const r3 = await borrarEnVivo({ code: '06', tabla: 'kdm5x', meta: META, llaves: ll(1), dest: dest(ll(1)), shipFn });
+    A(r3.borradas === 0 && /sin fecha/.test(r3.nota || ''), 'nombre EXACTO: kdm5x no hereda la regla');
+    const r4 = await borrarEnVivo({ code: '06', tabla: 'kdue', meta: META, llaves: ll(1), dest: dest(ll(1)), shipFn });
+    A(r4.borradas === 0 && /sin fecha/.test(r4.nota || ''), 'kdue (los documentos) sigue sin propagar bajas: se cuentan');
+  }
+
+  console.log('\n[7d] [CXC.45] Puesta al día POR LA COLA: en tandas, esperando a que cada una se vacíe');
+  {
+    // Una réplica de mentira: 5 filas en `md.kdm5`, y una `ods.cola` que un «carril» vacía (o no).
+    // El «carril» vacía la cola SÓLO mientras el script duerme: así, encolar sin esperar deja dos
+    // tandas juntas en la cola, y eso se cuenta como `encimadas`.
+    let actual = null;
+    const hacer = ({ drena }) => {
+      const cola = []; let id = 0; const consultas = []; let encimadas = 0;
+      const filas = Array.from({ length: 5 }, (_, i) => ({ llave: { c1: '06', c6: String(i + 1) } }));
+      const m = { cola, consultas, get encimadas() { return encimadas; }, drenar() { if (drena) cola.length = 0; }, async query(sql, params) {
+        const s = String(sql); consultas.push(s);
+        if (/^SELECT jsonb_build_object/.test(s)) return { rows: filas };
+        if (/^INSERT INTO "ods"\.cola/.test(s)) {
+          if (cola.some((r) => r.tabla === params[0])) encimadas++;
+          const ins = JSON.parse(params[1]).map((llave) => ({ id: ++id, tabla: params[0], llave }));
+          cola.push(...ins);
+          return { rows: ins.map((r) => ({ id: r.id })) };
+        }
+        if (/SELECT count\(\*\)::int AS n FROM "ods"\.cola/.test(s)) {
+          return { rows: [{ n: cola.filter((r) => r.tabla === params[0] && r.id <= params[1]).length }] };
+        }
+        return { rows: [] };
+      } };
+      actual = m;
+      return m;
+    };
+    let reloj = 0; const ahora = () => reloj; const dormir = async (ms) => { reloj += ms; actual?.drenar(); };
+
+    const seco = hacer({ drena: true });
+    const r0 = await ponerAlDia(seco, 'kdm5', ['c1', 'c6'], { apply: false });
+    A(r0.filas === 5 && !seco.consultas.some((s) => /INSERT/.test(s)), 'en seco: cuenta las filas y NO encola nada');
+    A(/to_jsonb\(t\) -> 'c1'/.test(seco.consultas[0]), 'la llave se arma con to_jsonb, igual que el trigger (la firma compara igual con igual)');
+
+    const ok = hacer({ drena: true });
+    const r1 = await ponerAlDia(ok, 'kdm5', ['c1', 'c6'], { apply: true, lote: 2, dormir, ahora });
+    A(r1.completo && r1.encoladas === 5 && r1.tandas === 3, `con el carril drenando: 5 llaves en 3 tandas de 2 (dio ${r1.encoladas} en ${r1.tandas})`);
+    A(ok.encimadas === 0, `⛔ cada tanda espera a que la anterior se vacíe: ninguna se encoló encima de otra (${ok.encimadas})`);
+
+    reloj = 0;
+    const atorada = hacer({ drena: false });
+    const r2 = await ponerAlDia(atorada, 'kdm5', ['c1', 'c6'], { apply: true, lote: 2, esperaMs: 5000, sondeoMs: 1000, dormir, ahora });
+    A(!r2.completo && r2.tandas === 1 && atorada.cola.length === 2,
+      '⛔ si nadie drena la tabla, se detiene en la PRIMERA tanda: no deja la cola creciendo sola');
+    A(/ODS_COLA_TABLES/.test(r2.error || ''), 'y dice por qué (la tabla no está en ODS_COLA_TABLES del carril)');
+
+    let tiro = false;
+    try { await ponerAlDia(hacer({ drena: true }), 'kduk', [], { apply: true }); } catch { tiro = true; }
+    A(tiro, 'sin PK no se puede poner al día por llave: falla en voz alta');
   }
 
   console.log('\n[8] [OPS-AUD.13] La cola se pone SOLA en la tabla del mes (event trigger), sin cron');

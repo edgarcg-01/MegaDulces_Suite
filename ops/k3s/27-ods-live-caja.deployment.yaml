@@ -174,13 +174,22 @@ spec:
             # corrección contable —incluida la de CUENTA, que cambia la llave y la cola anota la
             # vieja como borrado— llega al ODS en segundos y no a las 02:25. La cola se pone sola en
             # la tabla del mes nuevo (event trigger, `ods-cola-instalar.js --auto=kdc2*`).
+            # `[CXC.45]` + la CARTERA: cliente (`kdud`, `kduv`, `kduk`) antes que sus documentos
+            # (`kdue`) y éstos antes que sus aplicaciones de pago (`kdm5`). El carril CTID no ve un
+            # UPDATE que deja la fila en otra página: medido el 2026-11-19, 2,967 documentos con el
+            # saldo de Kepler (`kdue.c20`) viejo en el ODS y 133 aplicaciones que nunca llegaron
+            # (el cobro 117 de Canindo, $39,829, «sin aplicar» desde el 22-sep). La cola ve cada
+            # INSERT y cada UPDATE, y sólo borra su entrada después de entregarla.
             - name: ODS_COLA_TABLES
-              value: kdm1,kdm2,kdc2*
+              value: kdm1,kdm2,kdc2*,kdud,kduv,kduk,kdue,kdm5
             # `[OBS.15.10]` Los borrados que la cola ve se propagan al ODS (decisión del PM,
             # 2026-10-27): sólo filas con fecha de negocio de los últimos 7 días y nunca más de 500
             # por tabla en una pasada (eso es una poda, no una edición). Apagarlo = quitar esto.
             # `[OPS-AUD.13]` En pólizas (`kdc2*`) SIN freno de edad, con el mismo tope (decisión
             # del PM, 2026-10-27): una corrección de un mes pasado es legítima.
+            # `[CXC.45]` Y en las aplicaciones de pago (`kdm5`, sin fecha), también sin freno de edad
+            # y con el tope. `kdue`, `kdud`, `kduv` y `kduk` no tienen regla: su baja se cuenta y no
+            # se propaga (`replicate-ods-live.js`, `reglaBorrado`).
             - name: ODS_COLA_BORRAR
               value: "1"
           # ⛔ La sonda mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". El

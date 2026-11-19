@@ -20,6 +20,11 @@
  *   --tables=kdm1,kdm2 (default)
  *   --tables=kdc2* --auto=kdc2* --apply   # [OPS-AUD.13] las pólizas de todos los meses + el event
  *                                         # trigger que la pone sola en la tabla del mes que viene
+ *   --tables=kdue,kdm5 --poner-al-dia --apply
+ *       `[CXC.45]` además encola la llave de TODAS las filas actuales, en tandas que esperan a que el
+ *       carril vacíe la anterior (ver `ponerAlDia` en ods-cola.js). Repara lo que se perdió ANTES de
+ *       que la tabla tuviera cola. Sólo sobre tablas con la cola ACTIVA; en seco, cuenta las filas.
+ *       `--lote=2000` (tamaño de tanda) · `--espera=180` (segundos máximos por tanda).
  *
  * Origen: `ODS_SOURCE_BASE` (la del carril) o `KEPLER_REPLICA_BASE`. Nunca `DATABASE_URL_NEW`:
  * en este repo esa variable significa tres cosas distintas (GOTCHAS §17).
@@ -28,7 +33,7 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env'), quiet: true });
 const { Client } = require('pg');
 const { BRANCHES, replicaUrl } = require('../importers/lib/kepler-branches');
-const { instalarSql, quitarSql, estadoCola, profundidadCola, autoSql, quitarAutoSql, expandirTablas } = require('../importers/lib/ods-cola');
+const { instalarSql, quitarSql, estadoCola, profundidadCola, autoSql, quitarAutoSql, expandirTablas, ponerAlDia } = require('../importers/lib/ods-cola');
 
 const arg = (k) => (process.argv.find((a) => a.startsWith(`--${k}=`)) || '').split('=')[1];
 const APPLY = process.argv.includes('--apply');
@@ -39,6 +44,9 @@ const TABLAS = (arg('tables') || 'kdm1,kdm2').split(',').map((s) => s.trim()).fi
 // `[OPS-AUD.13]` `--auto=kdc2*`: además instala el EVENT TRIGGER que pone la cola sola en cada tabla
 // nueva que cumpla el patrón (la póliza de cada mes), sin cron. Con `--quitar`, lo retira.
 const AUTO = (arg('auto') || '').split(',').map((s) => s.trim()).filter(Boolean);
+const AL_DIA = process.argv.includes('--poner-al-dia');
+const LOTE = Math.max(100, Number(arg('lote')) || 2000);
+const ESPERA_MS = Math.max(10, Number(arg('espera')) || 180) * 1000;
 const BASE = process.env.ODS_SOURCE_BASE || process.env.KEPLER_REPLICA_BASE;
 
 async function pkDe(p, tabla) {
@@ -87,6 +95,23 @@ async function pkDe(p, tabla) {
         }
       }
       const despues = APPLY ? await estadoCola(p, nombres) : antes;
+      // `[CXC.45]` La puesta al día va DESPUÉS de instalar: lo que cambie mientras tanto ya lo anota el trigger.
+      let alDia = '';
+      if (AL_DIA && !QUITAR) {
+        const partes = [];
+        for (const { tabla, pk } of tablas) {
+          if (APPLY && despues.tablas[tabla] !== 'activa') { partes.push(`${tabla}: cola ${despues.tablas[tabla]}, no se encola`); continue; }
+          const r = await ponerAlDia(p, tabla, pk, {
+            apply: APPLY, lote: LOTE, esperaMs: ESPERA_MS,
+            avisar: (m) => process.stdout.write(`  ${b.code} ${m}\r`),
+          });
+          partes.push(!APPLY ? `${tabla}: ${r.filas} filas`
+            : r.completo ? `${tabla}: ${r.encoladas} en ${r.tandas} tandas, ${Math.round(r.ms / 1000)} s`
+              : `${tabla}: DETENIDA — ${r.error}`);
+          if (APPLY && !r.completo) throw new Error(`${tabla}: ${r.error}`);
+        }
+        alDia = partes.join(' · ');
+      }
       const prof = despues.cola ? await profundidadCola(p, nombres) : [];
       // Con un patrón la lista puede ser larga (un mes por tabla): se resume por estado.
       const resumir = (e) => Object.entries(nombres.reduce((m, t) => { m[e.tablas[t]] = (m[e.tablas[t]] || 0) + 1; return m; }, {}))
@@ -96,6 +121,7 @@ async function pkDe(p, tabla) {
         antes: resumir(antes),
         despues: APPLY ? resumir(despues) : '(en seco)',
         en_cola: prof.reduce((a, r) => a + r.n, 0),
+        ...(AL_DIA ? { al_dia: alDia } : {}),
       });
     } catch (e) {
       resumen.push({ rama: b.code, error: e.message.slice(0, 90) });
