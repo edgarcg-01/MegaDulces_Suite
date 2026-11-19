@@ -1,18 +1,15 @@
 import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { rxResource } from '@angular/core/rxjs-interop';
-import { catchError, firstValueFrom, forkJoin, of } from 'rxjs';
+import { firstValueFrom, forkJoin } from 'rxjs';
 import { TableModule } from 'primeng/table';
-import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
-import { MultiSelectModule } from 'primeng/multiselect';
 import { PopoverModule } from 'primeng/popover';
 import { DatePickerModule } from 'primeng/datepicker';
-import { warehouseName } from '@megadulces/contracts';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -23,812 +20,478 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-// [MKT.27] La barra única del Andén (pistola + cámara + tecleado, filtra una lista local). Ya la usa
-// Ubicaciones fuera del Andén; deuda con nombre: moverla a shared/ (ADR-056), no se mueve aquí para
-// no tocar los archivos del Andén en este cambio.
-import { ScanFieldComponent } from '../../almacen/anden/components/scan-field.component';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
-  CANALES, CANAL_CORTO, CANAL_LARGO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
-  textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe, VendedoraEnRanking, SIN_PROVEEDOR, nombreProveedor,
-  coincideRenglon,
+  CANALES, CANAL_VENTA, Canal, MktRankingService, PromoVenta, VendedorVenta, VentaSemana, canalesSinContrastar, coincidePromoVenta, dinero,
+  moverSemana, pct, textoProductos, textoSemana,
 } from '../mkt-ranking.service';
-import { SUCURSALES_VENTA } from './mkt-ranking-promos.component';
-import { pdfRanking } from '../mkt-ranking-pdf';
+import { pdfVenta } from '../mkt-venta-pdf';
 
-/** Los filtros que se ven como etiqueta quitable. */
-type FiltroId = 'proveedor' | 'promo' | 'sucursales' | 'estado' | 'busqueda';
+type Vista = 'promociones' | 'vendedores';
+const TODOS = 'todos';
+const n0 = (v: number) => v.toLocaleString('es-MX', { maximumFractionDigits: 2 });
 
 /**
- * `[MKT.11]` **Ranking de promociones** — reemplaza el Excel «RANKING SEMANA NN» de Mercadotecnia.
+ * `[MKT.30]`/`[MKT.31]` **Promociones** — los dos rankings de Mercadotecnia (rediseño del 2026-11-19,
+ * maqueta aprobada por el dev responsable, v14).
  *
- * Propósito (una pregunta): ¿quién cumplió las promociones de la semana y quién no?
- * Entra Mercadotecnia el lunes con la semana cerrada; Dirección consulta.
+ * Dos preguntas que no se mezclan:
+ *  · «Ranking de promociones»: ¿qué promoción se vende más y dónde se movió? TODA la venta de la
+ *    semana, los 4 canales; filtros canal · sucursal · zona; la promo abre por canal, sucursal y zona.
+ *  · «Ranking de vendedores»: ¿quién vendió más? Sólo lo que se le CARGÓ a cada uno (en Sucursales,
+ *    lo que la cajera le asignó en su arqueo); el vendedor abre sus promociones con precio y total.
  *
- * Jerarquía: primario = el lugar y el cubrimiento de cada fila; secundario = cumplidas, sin venta y
- * sin objetivo; terciario = la clave del vendedor y la nota del método.
- *
- * Desglose: la fila abre el detalle por promoción (objetivo, venta, cubrimiento, regalos en
- * existencia y el aviso de un código que Kepler reutilizó). «Sin objetivo» lleva a capturarlos.
- * `[MKT.22]` Las promociones salen de Kepler (las que vendieron esa semana, como en la app de vendedor):
- * nadie las da de alta. Fijar objetivos vive en «Objetivos» (otra pregunta: contra qué se mide).
+ * Jerarquía: primario = paquetes y el lugar; secundario = dinero, objetivo y avance; terciario =
+ * el código, la ruta y las notas de método. «Objetivos» se cambian en un solo panel (Sucursales).
+ * Lo que no se midió se dice (ADR-056): «sin dato» para el dinero sin producto, y el dinero de los
+ * canales que aún no se contrastan contra Kepler lo lleva escrito junto a la cifra.
  */
 @Component({
   selector: 'app-mkt-ranking',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TableModule, TagModule, ButtonModule, InputTextModule, SelectModule, MultiSelectModule, PopoverModule, DatePickerModule, ToastModule,
-    PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent,
-    ScanFieldComponent],
+  imports: [CommonModule, FormsModule, RouterLink, TableModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, DatePickerModule, ToastModule,
+    PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="surf-page rk">
+    <div class="surf-page vt">
       <p-toast></p-toast>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Ranking de promociones <app-context-help topic="mkt-ranking" /></h1>
-          <p class="surf-page-sub">Quién cumplió las promociones de la semana.</p>
+          <h1>Promociones <app-context-help topic="mkt-ranking" /></h1>
+          <div class="vt-semana" role="group" aria-label="Semana">
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="cambiarSemana(-1)" [disabled]="!datos()" aria-label="Semana anterior">
+              <span class="p-button-icon pi pi-chevron-left" aria-hidden="true"></span></button>
+            <button type="button" class="vt-semana-btn" (click)="calendario.toggle($event)" aria-haspopup="dialog" [disabled]="!datos()"
+                    [attr.aria-label]="'Semana: ' + (datos() ? semanaTexto() : 'cargando') + '. Elegir otra en el calendario'">
+              <i [class]="actualizando() ? 'pi pi-spin pi-spinner' : 'pi pi-calendar'" aria-hidden="true"></i>
+              <span>{{ datos() ? semanaTexto() : 'Cargando semana…' }}</span>
+            </button>
+            <span class="sr-only" role="status">{{ actualizando() ? 'Actualizando…' : '' }}</span>
+            <p-popover #calendario appendTo="body" ariaLabel="Elegir semana">
+              <p-datepicker [inline]="true" [showWeek]="true" [firstDayOfWeek]="1" [maxDate]="hoy" [ngModel]="lunesFecha()"
+                            (onSelect)="elegirDia($event); calendario.hide()" ariaLabel="Elige un día: se abre su semana (lunes a domingo)" />
+              <p class="vt-pista">Toca cualquier día: se abre su semana, de lunes a domingo.</p>
+            </p-popover>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="cambiarSemana(1)" [disabled]="!datos() || datos()?.semana?.en_curso" aria-label="Semana siguiente">
+              <span class="p-button-icon pi pi-chevron-right" aria-hidden="true"></span></button>
+          </div>
         </div>
-        <div class="rk-acciones">
+        <div class="vt-acciones">
           <app-freshness-pill measures="fetch" [since]="datos()?.consultado_at ?? null" [staleAfterSec]="900"></app-freshness-pill>
-          <button pButton type="button" class="p-button-sm" (click)="pdf()" [disabled]="generando() || !datos() || actualizando()" [loading]="generando()"
-                  [attr.aria-label]="hayFiltros() ? 'Reporte filtrado: sólo lo que ves con tus filtros' : 'Reporte de la semana: los 4 canales completos'">
-            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">{{ hayFiltros() ? 'Reporte filtrado' : 'Reporte de la semana' }}</span>
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="objetivosAbierto.set(true)" [disabled]="!datos()">
+            <span class="p-button-icon p-button-icon-left pi pi-bullseye" aria-hidden="true"></span><span class="p-button-label">Objetivos</span>
+          </button>
+          <button pButton type="button" class="p-button-sm" (click)="pdf()" [disabled]="generando() || !datos() || actualizando()" [loading]="generando()">
+            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF</span>
           </button>
         </div>
       </header>
 
-      <!-- Una sola barra: semana · canal · vista, y los filtros detrás de un botón (auditoría 2026-11-12:
-           13 controles antes de la primera fila abrumaban). Lo filtrado nunca queda escondido: se ve como etiqueta. -->
-      <div class="rk-filtros">
-        <app-page-tabs [tabs]="tabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
-        <div class="rk-semana" role="group" aria-label="Semana">
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="cambiarSemana(-1)" aria-label="Semana anterior">
-            <span class="p-button-icon pi pi-chevron-left" aria-hidden="true"></span></button>
-          <!-- Calendario: cualquier semana en dos clics (abrir y elegir un día), no N clics de flecha. -->
-          <button type="button" class="rk-semana-btn" (click)="calendario.toggle($event)" aria-haspopup="dialog"
-                  [attr.aria-label]="'Semana: ' + (datos() ? semanaTexto() : 'cargando') + '. Elegir otra en el calendario'" [disabled]="!datos()">
-            <!-- Al recargar cambia SÓLO el ícono (mismo tamaño): un texto extra hacía crecer el botón
-                 34→52 px y bajaba toda la pantalla 15 px (medido 2026-11-12). -->
-            <i [class]="actualizando() ? 'pi pi-spin pi-spinner' : 'pi pi-calendar'" aria-hidden="true"></i>
-            <span class="rk-semana-txt">{{ datos() ? semanaTexto() : 'Cargando semana…' }}</span>
-          </button>
-          <span class="sr-only" role="status">{{ actualizando() ? 'Actualizando el ranking…' : '' }}</span>
-          <p-popover #calendario appendTo="body" ariaLabel="Elegir semana">
-            <p-datepicker [inline]="true" [showWeek]="true" [firstDayOfWeek]="1" [maxDate]="hoy" [ngModel]="lunesFecha()"
-                          (onSelect)="elegirDia($event); calendario.hide()" ariaLabel="Elige un día: se abre su semana (lunes a domingo)" />
-            <p class="rk-cal-pista">Elige cualquier día: se abre su semana, de lunes a domingo.</p>
-          </p-popover>
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="cambiarSemana(1)" [disabled]="datos()?.semana?.en_curso" aria-label="Semana siguiente">
-            <span class="p-button-icon pi pi-chevron-right" aria-hidden="true"></span></button>
-        </div>
-        <app-segmented [options]="opcionesCanal()" [value]="canal()" (valueChange)="elegirCanal($event)" ariaLabel="Canal"></app-segmented>
-        <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="elegirVista($event)" ariaLabel="Ver el ranking por"></app-segmented>
-        <button pButton type="button" class="p-button-sm p-button-text rk-btn-filtros" (click)="filtrosAbiertos.set(!filtrosAbiertos())"
-                [attr.aria-expanded]="filtrosAbiertos()" aria-controls="rk-panel-filtros">
-          <span class="p-button-icon p-button-icon-left pi pi-filter" aria-hidden="true"></span>
-          <span class="p-button-label">Filtros{{ chips().length ? ' (' + chips().length + ')' : '' }}</span>
-        </button>
-      </div>
-      @if (filtrosAbiertos()) {
-        <div class="rk-filtros rk-filtros--2" id="rk-panel-filtros">
-          <p-select [options]="datos()?.promos_lista ?? []" optionLabel="mecanica" optionValue="id" [ngModel]="promo()" (ngModelChange)="elegirPromo($event)"
-                    [filter]="true" filterBy="mecanica,code" [showClear]="true" placeholder="Todas las promociones" appendTo="body"
-                    class="rk-promo-sel" ariaLabel="Filtrar por promoción">
-            <ng-template #item let-o><span>{{ o.mecanica }}</span> <span class="rk-tenue rk-inline">{{ o.code }}</span></ng-template>
-          </p-select>
-          <!-- [MKT.24] El proveedor filtra como la promoción: el lugar se recalcula sólo con las suyas. -->
-          <p-select [options]="opcionesProveedor()" optionLabel="label" optionValue="value" [ngModel]="proveedor()" (ngModelChange)="elegirProveedor($event)"
-                    [filter]="true" filterBy="label" [showClear]="true" placeholder="Todos los proveedores" appendTo="body"
-                    class="rk-promo-sel" ariaLabel="Filtrar por proveedor"></p-select>
-          <p-multiselect [options]="opcionesSucursal" optionLabel="label" optionValue="value" [ngModel]="sucursales()" (ngModelChange)="elegirSucursales($event)"
-                         placeholder="Todas las sucursales" [showClear]="true" display="comma" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                         appendTo="body" ariaLabel="Filtrar por sucursal"></p-multiselect>
-          @if (vista() !== 'vendedoras') {
-            <!-- Una vendedora no tiene objetivo: «cumplida / no cumplida» no aplica y no se ofrece. -->
-            <app-segmented [options]="opcionesEstado" [value]="estado()" (valueChange)="elegirEstado($event)" ariaLabel="Filtrar por venta"></app-segmented>
-          }
-          <input pInputText type="search" class="rk-buscar" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
-                 [placeholder]="textoBuscar()" aria-label="Buscar en el ranking" />
-        </div>
-      }
-      @if (chips().length) {
-        <div class="rk-chips" role="group" aria-label="Filtros activos">
-          @for (c of chips(); track c.id) {
-            <button type="button" class="rk-chip" (click)="quitarFiltro(c.id)" [attr.aria-label]="'Quitar filtro ' + c.texto">
-              {{ c.texto }} <i class="pi pi-times" aria-hidden="true"></i></button>
-          }
-          @if (chips().length > 1) {
-            <button type="button" class="rk-chip rk-chip--todos" (click)="limpiarFiltros()">Quitar todos</button>
-          }
-        </div>
-      }
-      @if (datos()?.promo_filtrada; as pf) {
-        <p class="rk-nota" role="status"><i class="pi pi-filter" aria-hidden="true"></i> El lugar se calcula sólo con «{{ nombrePromo(pf) }}».</p>
-      } @else if (datos()?.proveedor_filtrado; as pv) {
-        <p class="rk-nota" role="status"><i class="pi pi-filter" aria-hidden="true"></i> El lugar se calcula sólo con las promociones de {{ nombreProveedor(pv) }}.</p>
-      }
+      <app-page-tabs [tabs]="tabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
 
-      <!-- Mientras recarga se queda lo último, atenuado y dicho («Actualizando…»): nunca vuelve a cero. -->
-      <div class="rk-cuerpo" [class.rk-actualizando]="actualizando()" [attr.aria-busy]="actualizando()">
-      @if (datos(); as d) {
-        <app-metric-strip [items]="kpis()" [instant]="true" density="compact" ariaLabel="Resumen de la semana" (drill)="drill($event)"></app-metric-strip>
-        @if (d.semana.en_curso) {
-          <p class="rk-nota" role="status"><i class="pi pi-clock" aria-hidden="true"></i> La semana está en curso: la venta llega hasta hoy y el lugar todavía puede cambiar.</p>
-        }
-      }
+      <app-segmented [options]="opcionesVista" [value]="vista()" (valueChange)="elegirVista($event)" ariaLabel="Ranking"></app-segmented>
 
-      @if (vista() === 'vendedoras') {
-      @if (datos()?.vendedoras && coberturaTexto()) {
-        <p class="rk-nota" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i>
-          {{ coberturaTexto() }}
-          @if (puedeCapturar) { <a routerLink="/tienda/arqueo/promociones" class="rk-liga">Capturar en el arqueo</a> }</p>
-      }
-      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasVendedora().length"
-                      emptyIcon="pi-user-edit" [emptyTitle]="'Nadie tiene ventas atribuidas esta semana'"
-                      emptyHint="Las cajeras escriben quién vendió cada ticket en «Arqueo › Promociones vendidas». Kepler no lo sabe en el mostrador." (retry)="res.reload()">
-        <p-table [value]="filasVendedora()" selectionMode="single" size="small" [rowHover]="true"
-                 class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrirVendedora($any($event).data)">
-          <ng-template #header>
-            <tr>
-              <th class="comm-num rk-col-lugar">Lugar</th>
-              <th>Vendedora</th>
-              <th class="comm-num">Promociones aplicadas</th>
-              <th class="comm-num">Tickets</th>
-              <th>Lo que más vendió</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-x>
-            <tr [pSelectableRow]="x" [attr.aria-label]="'Ver todo lo que vendió ' + x.nombre">
-              <td class="comm-num rk-lugar" data-label="Lugar">{{ x.lugar }}</td>
-              <td data-label="Vendedora"><span class="rk-nombre">{{ x.nombre }}</span><span class="rk-tenue">{{ x.warehouse_name }}</span></td>
-              <td class="comm-num rk-pct" data-label="Aplicadas">{{ x.aplicaciones | number:'1.0-2' }}</td>
-              <td class="comm-num" data-label="Tickets">{{ x.tickets }}</td>
-              <td data-label="Lo que más vendió">
-                @for (p of x.promos.slice(0, 2); track p.code) { <span class="rk-producto">{{ p.mecanica }} × {{ p.cantidad | number:'1.0-2' }}</span> }
-                @if (x.promos.length > 2) { <span class="rk-tenue">y {{ x.promos.length - 2 }} más</span> }
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </app-load-state>
-      } @else if (vista() === 'promociones') {
-      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasPromo().length"
-                      emptyIcon="pi-search" [emptyTitle]="datos()?.promos_vigentes ? 'Ninguna promoción coincide con los filtros' : vacioTitulo()"
-                      [emptyHint]="datos()?.promos_vigentes ? 'Cambia o quita los filtros.' : vacioPista()" (retry)="res.reload()">
-        <p-table [value]="filasPromo()" dataKey="promo_id" selectionMode="single" size="small" [rowHover]="true"
-                 class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrirPromo($any($event).data)">
-          <ng-template #header>
-            <tr>
-              <th class="comm-num rk-col-lugar">Lugar</th>
-              <th>Promoción</th>
-              <th class="rk-col-cub">Cubrimiento</th>
-              <th class="comm-num">Cumplieron</th>
-              <th class="comm-num">Venta (pz)</th>
-              @if (colSinVentaPromo()) { <th class="comm-num">Sin venta</th> }
-            </tr>
-          </ng-template>
-          <ng-template #body let-x>
-            <tr [pSelectableRow]="x" [attr.aria-label]="'Ver quién vendió ' + x.nombre">
-              <td class="comm-num rk-lugar" data-label="Lugar">{{ x.lugar ?? '—' }}</td>
-              <td data-label="Promoción">
-                <span class="rk-nombre">{{ x.nombre }}</span>
-                <span class="rk-tenue">{{ x.code }}@if (x.productos.length) { · {{ x.productos.join(' · ') }} }</span>
-                <span class="rk-tenue">{{ proveedorConFuente(x.proveedor, x.proveedor_fuente) }}</span>
-              </td>
-              <td class="rk-col-cub" data-label="Cubrimiento">
-                @if (x.puntaje !== null) {
-                  <div class="rk-barra" aria-hidden="true"><span [style.width.%]="x.puntaje * 100"></span></div>
-                  <span class="rk-pct">{{ pct(x.puntaje) }}</span>
-                } @else {
-                  <span class="rk-tenue">Sin objetivos: no se puede medir</span>
-                }
-              </td>
-              <td class="comm-num" data-label="Cumplieron">{{ x.cumplidas }} <span class="rk-de">de {{ x.con_objetivo }}</span></td>
-              <td class="comm-num" data-label="Venta">{{ x.venta_total | number:'1.0-2' }}</td>
-              @if (colSinVentaPromo()) { <td class="comm-num" data-label="Sin venta">{{ x.sin_venta }} <span class="rk-de">de {{ x.participantes }}</span></td> }
-            </tr>
-          </ng-template>
-        </p-table>
-      </app-load-state>
-      } @else {
-      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filas().length"
-                      [emptyIcon]="datos()?.promos_vigentes ? 'pi-search' : 'pi-megaphone'"
-                      [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()"
-                      (retry)="res.reload()">
-        <p-table [value]="filas()" dataKey="clave" selectionMode="single" size="small" [rowHover]="true"
-                 class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrir($any($event).data)">
-          <ng-template #header>
-            <tr>
-              <th class="comm-num rk-col-lugar">Lugar</th>
-              <th>{{ canal() === 'mostrador' ? 'Sucursal' : 'Vendedor' }}</th>
-              <th class="rk-col-cub">Cubrimiento</th>
-              <th class="comm-num">Cumplidas</th>
-              @if (colSinVenta()) { <th class="comm-num">Sin venta</th> }
-              @if (colSinObjetivo()) { <th class="comm-num">Sin objetivo</th> }
-            </tr>
-          </ng-template>
-          <ng-template #body let-p>
-            <tr [pSelectableRow]="p" [attr.aria-label]="'Ver las promociones de ' + p.nombre">
-              <td class="comm-num rk-lugar" data-label="Lugar">{{ p.lugar ?? '—' }}</td>
-              <td data-label="Quién">
-                <span class="rk-nombre">{{ p.nombre }}</span>
-                @if (canal() !== 'mostrador') { <span class="rk-tenue">{{ p.warehouse_name }}</span> }
-              </td>
-              <td class="rk-col-cub" data-label="Cubrimiento">
-                @if (p.puntaje !== null) {
-                  <div class="rk-barra" aria-hidden="true"><span [style.width.%]="p.puntaje * 100"></span></div>
-                  <span class="rk-pct">{{ pct(p.puntaje) }}</span>
-                } @else {
-                  <span class="rk-tenue">Sin objetivos: no se puede medir</span>
-                }
-              </td>
-              <td class="comm-num" data-label="Cumplidas">{{ p.cumplidas }} <span class="rk-de">de {{ p.con_objetivo }}</span></td>
-              @if (colSinVenta()) { <td class="comm-num" data-label="Sin venta">{{ p.sin_venta }}</td> }
-              @if (colSinObjetivo()) { <td class="comm-num" data-label="Sin objetivo">@if (p.sin_objetivo) { <p-tag [value]="'' + p.sin_objetivo" severity="warn"></p-tag> } @else { <span class="rk-tenue">—</span> }</td> }
-            </tr>
-          </ng-template>
-        </p-table>
-      </app-load-state>
-      }
-
-      @if (datos(); as d) {
-        <p class="rk-metodo">{{ d.criterio }}</p>
-      }
+      <div class="vt-filtros">
+        <input pInputText type="search" class="vt-buscar" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+               [placeholder]="vista() === 'promociones' ? 'Escanea o escribe: promoción, código o producto' : 'Busca un vendedor, ruta o sucursal'"
+               [attr.aria-label]="vista() === 'promociones' ? 'Buscar promoción' : 'Buscar vendedor'" />
+        <app-segmented [options]="opcionesCanal" [value]="canal() ?? todos" (valueChange)="elegirCanal($event)" ariaLabel="Canal"></app-segmented>
+        <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value" [ngModel]="sucursal()" (ngModelChange)="elegirSucursal($event)"
+                  [showClear]="true" placeholder="Todas las sucursales" appendTo="body" ariaLabel="Sucursal" [filter]="true" filterBy="label"></p-select>
+        <p-select [options]="opcionesZona()" optionLabel="label" optionValue="value" [ngModel]="zona()" (ngModelChange)="elegirZona($event)"
+                  [showClear]="true" placeholder="Todas las zonas" appendTo="body" ariaLabel="Zona"></p-select>
       </div>
 
-      <app-side-peek [open]="!!abiertaVendedora()" (openChange)="$event ? null : abiertaVendedora.set(null)" [width]="640"
-                     [title]="abiertaVendedora()?.nombre ?? ''" [subtitle]="subtituloVendedora()">
-        @if (abiertaVendedora(); as v) {
-          <p class="rk-peek-frase">
-            Aplicó <strong>{{ v.aplicaciones | number:'1.0-2' }}</strong> promociones en <strong>{{ v.tickets }}</strong>
-            {{ v.tickets === 1 ? 'ticket' : 'tickets' }} de {{ v.warehouse_name }}. Cuenta sólo los tickets que la cajera le asignó en el arqueo.
-          </p>
-          <p-table [value]="v.promos" size="small" class="surf-table surf-table--plain">
-            <ng-template #header>
-              <tr><th>Promoción</th><th class="comm-num">Aplicadas</th></tr>
-            </ng-template>
-            <ng-template #body let-p>
-              <tr>
-                <td><span class="rk-promo">{{ p.mecanica }}</span><span class="rk-tenue">{{ p.code }}</span></td>
-                <td class="comm-num rk-pct">{{ p.cantidad | number:'1.0-2' }}</td>
-              </tr>
-            </ng-template>
-          </p-table>
-          @if (puedeCapturar) {
-            <div class="rk-peek-acciones">
-              <a pButton class="p-button-sm p-button-outlined" routerLink="/tienda/arqueo/promociones">
-                <span class="p-button-icon p-button-icon-left pi pi-user-edit" aria-hidden="true"></span><span class="p-button-label">Corregir quién vendió</span></a>
+      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !datos()!.promos.length"
+                      emptyTitle="Ninguna promoción vendió con estos filtros" emptyHint="Cambia la semana o quita un filtro." (retry)="res.reload()">
+        @if (datos(); as d) {
+          <div [class.vt-atenuado]="actualizando()">
+          @if (vista() === 'promociones') {
+            <app-metric-strip [items]="metricas()" ariaLabel="La semana"></app-metric-strip>
+            @if (sinContrastar().length) {
+              <p class="vt-aviso" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                Dinero de {{ textoSinContrastar() }}: todavía sin contrastar contra el total de los documentos de Kepler.</p>
+            }
+            <div class="vt-cab">
+              <h2>Toda la venta <span class="vt-tenue">· {{ textoFiltro() }}</span></h2>
+              <span class="vt-tenue">{{ filasPromos().length }} de {{ d.promos.length }} promociones · de más a menos paquetes</span>
             </div>
-          }
-        }
-      </app-side-peek>
-
-      <app-side-peek [open]="!!abiertaPromo()" (openChange)="$event ? null : abiertaPromo.set(null)" [width]="760"
-                     [title]="abiertaPromo()?.nombre ?? ''" [subtitle]="subtituloPromo()">
-        @if (abiertaPromo(); as x) {
-          <p class="rk-peek-frase">
-            @if (x.puntaje !== null) {
-              Cubrimiento promedio <strong>{{ pct(x.puntaje) }}</strong>: {{ x.cumplidas }} de {{ x.con_objetivo }} llegaron a su objetivo.
-            } @else { Nadie tiene objetivo en esta promoción. }
-            @if (x.sin_venta) { {{ x.sin_venta }} sin venta. }
-          </p>
-          <p class="rk-peek-dato"><span class="rk-tenue rk-inline">Proveedor</span>
-            {{ x.proveedor ? x.proveedor.code + ' · ' + x.proveedor.name : 'Sin asignar' }}
-            @if (x.proveedor_fuente === 'producto') { <span class="rk-tenue rk-inline">· del producto que la activa</span> }
-            @if (!x.proveedor && puedeGestionar) { <a routerLink="/mkt/ranking/promociones" class="rk-liga">Asignarlo en Objetivos</a> }</p>
-          <h3 class="rk-peek-h">{{ canal() === 'mostrador' ? 'Por sucursal' : 'Quién la vendió' }}</h3>
-          <p-table [value]="filasDePromo()" size="small" class="surf-table surf-table--plain">
-            <ng-template #header>
-              <tr>
-                <th>{{ canal() === 'mostrador' ? 'Sucursal' : 'Vendedor' }}</th>
-                <th class="comm-num">Objetivo</th>
-                <th class="comm-num">Venta (pz)</th>
-                <th class="comm-num">Cubrimiento</th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-f>
-              <tr>
-                <td>
-                  <span class="rk-promo">{{ f.nombre }}</span>
-                  @if (canal() !== 'mostrador') { <span class="rk-tenue">{{ f.warehouse_name }}</span> }
-                  @for (pr of f.renglon.productos; track pr.sku) { <span class="rk-producto">{{ textoVentaProducto(pr) }}</span> }
-                </td>
-                <td class="comm-num">@if (f.renglon.objetivo !== null) { {{ f.renglon.objetivo | number:'1.0-2' }} @if (f.renglon.objetivo_fuente === 'dinamico') { <span class="rk-tenue">dinámico</span> } } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }</td>
-                <td class="comm-num">{{ f.renglon.venta | number:'1.0-2' }}</td>
-                <td class="comm-num rk-pct">{{ pct(f.renglon.cubrimiento) }}</td>
-              </tr>
-            </ng-template>
-            <ng-template #emptymessage><tr><td colspan="4" class="rk-tenue">Nadie coincide con los filtros.</td></tr></ng-template>
-          </p-table>
-          <!-- [MKT.25] En el mostrador Kepler no sabe quién vendió: lo escriben las cajeras en el arqueo. -->
-          @if (canal() === 'mostrador') {
-            <h3 class="rk-peek-h">Quién la vendió</h3>
-            @if (vendedorasDePromo().length) {
-              <p-table [value]="vendedorasDePromo()" size="small" class="surf-table surf-table--plain">
-                <ng-template #header>
-                  <tr><th>Vendedora</th><th class="comm-num">Venta (pz)</th></tr>
-                </ng-template>
-                <ng-template #body let-v>
-                  <tr>
-                    <td><span class="rk-promo">{{ v.nombre }}</span><span class="rk-tenue">{{ v.warehouse_name }}</span></td>
-                    <td class="comm-num rk-pct">{{ v.cantidad | number:'1.0-2' }}</td>
-                  </tr>
-                </ng-template>
-              </p-table>
-              <p class="rk-tenue rk-peek-pie">{{ textoAtribuido() }}</p>
-            } @else {
-              <p class="rk-tenue">Ninguna cajera ha escrito quién vendió esta promoción esta semana.
-                @if (puedeCapturar) { <a routerLink="/tienda/arqueo/promociones" class="rk-liga">Capturar en el arqueo</a> }</p>
-            }
-          }
-        }
-      </app-side-peek>
-
-      <app-side-peek [open]="!!abierto()" (openChange)="$event ? null : abierto.set(null)" [width]="760"
-                     [title]="abierto()?.nombre ?? ''" [subtitle]="subtitulo()">
-        @if (abierto(); as p) {
-          <p class="rk-peek-frase">
-            @if (p.puntaje !== null) {
-              Cubrió en promedio <strong>{{ pct(p.puntaje) }}</strong> de sus objetivos y cumplió <strong>{{ p.cumplidas }} de {{ p.con_objetivo }}</strong> promociones.
-            } @else {
-              Ninguna de sus promociones tiene objetivo: no tiene lugar en el ranking hasta capturarlos.
-            }
-            @if (p.sin_objetivo) { {{ p.sin_objetivo }} sin objetivo no cuentan. }
-          </p>
-          <!-- [MKT.27] Buscar dentro: promoción, código, producto, SKU, proveedor o código de barras (pistola o cámara). -->
-          <div class="rk-peek-buscar">
-            <app-scan-field [valor]="buscaDetalle()" (valorChange)="buscaDetalle.set($event)" (enter)="refocoDetalle.set(refocoDetalle() + 1)"
-                            [refocoTick]="refocoDetalle()" [visibles]="promosDelDetalle(p).length" [total]="promosVisibles(p).length"
-                            etiqueta="Buscar en las promociones de este detalle"
-                            placeholder="Escanea o busca: promoción, producto, SKU, proveedor"></app-scan-field>
-            @if (sinCodigosBarras()) {
-              <p class="rk-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer los códigos de barras: busca por SKU o por nombre.</p>
-            }
-            <div class="rk-peek-reporte">
-              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="pdfDetalle(p)"
-                      [disabled]="generando() || actualizando() || !promosDelDetalle(p).length" [loading]="generando()"
-                      [attr.aria-label]="buscaDetalle().trim() ? 'Imprimir sólo las promociones que coinciden con lo buscado' : 'Imprimir el detalle de ' + p.nombre">
-                <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
-                <span class="p-button-label">{{ buscaDetalle().trim() ? 'Imprimir lo filtrado' : 'Imprimir este detalle' }}</span>
-              </button>
+            <p-table [value]="filasPromos()" dataKey="promo_id" styleClass="p-datatable-sm vt-tabla" [tableStyle]="{ 'min-width': '760px' }">
+              <ng-template #header>
+                <tr>
+                  <th class="vt-num" style="width:3rem">#</th>
+                  <th>Promoción</th>
+                  <th class="vt-num" style="width:7rem">Paquetes</th>
+                  <th class="vt-num" style="width:7rem">Objetivo</th>
+                  <th style="width:10rem">Avance</th>
+                  <th class="vt-num" style="width:9rem">Dinero</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-p let-i="rowIndex">
+                <tr class="vt-fila" tabindex="0" (click)="abrirPromo(p)" (keydown.enter)="abrirPromo(p)" [attr.aria-label]="'Ver ' + p.nombre">
+                  <td class="vt-num vt-tenue">{{ lugarDe(p) }}</td>
+                  <td>
+                    <span class="vt-nombre">{{ p.nombre }}</span> <span class="vt-codigo">{{ p.code }}</span>
+                    <span class="vt-sub">{{ textoProductos(p.productos_metodo, p.productos_nombres) }}{{ p.proveedor ? ' · ' + p.proveedor : '' }}</span>
+                  </td>
+                  <td class="vt-num vt-fuerte">{{ n0(p.paquetes) }}</td>
+                  <td class="vt-num vt-tenue">{{ p.objetivo === null ? '—' : n0(p.objetivo) }}</td>
+                  <td><div class="vt-avance"><span class="vt-barra" aria-hidden="true"><span [style.width.%]="barra(p.avance)"></span></span><span class="vt-tenue">{{ pct(p.avance) }}</span></div></td>
+                  <td class="vt-num" [class.vt-tenue]="p.dinero === null">{{ dinero(p.dinero) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="vt-tenue">{{ sinCodigosBarras()
+                ? 'No se pudieron leer los códigos de barras: busca por nombre, código o producto.'
+                : 'Ninguna promoción coincide con «' + busqueda() + '».' }}</td></tr></ng-template>
+            </p-table>
+          } @else {
+            <div class="vt-cab">
+              <h2>Lo que se le cargó a cada vendedor <span class="vt-tenue">· {{ textoFiltro() }}</span></h2>
+              <span class="vt-tenue">{{ filasVendedores().length }} vendedores · de más a menos paquetes</span>
             </div>
+            @if (d.mostrador && d.mostrador.tickets_con_promo > d.mostrador.tickets_asignados) {
+              <p class="vt-aviso" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                Sucursales: {{ d.mostrador.tickets_con_promo - d.mostrador.tickets_asignados }} de {{ d.mostrador.tickets_con_promo }} tickets con promoción
+                no se le cargaron a nadie (la cajera no los asignó en su arqueo). No se reparten.</p>
+            }
+            <p-table [value]="filasVendedores()" dataKey="clave" styleClass="p-datatable-sm vt-tabla" [tableStyle]="{ 'min-width': '760px' }">
+              <ng-template #header>
+                <tr>
+                  <th class="vt-num" style="width:3rem">#</th>
+                  <th>Vendedor</th>
+                  <th style="width:11rem">Canal</th>
+                  <th class="vt-num" style="width:7rem">Paquetes</th>
+                  <th class="vt-num" style="width:8rem">Promociones</th>
+                  <th class="vt-num" style="width:9rem">Total</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-v>
+                <tr class="vt-fila" tabindex="0" (click)="abrirVendedor(v)" (keydown.enter)="abrirVendedor(v)" [attr.aria-label]="'Ver lo que vendió ' + v.nombre">
+                  <td class="vt-num vt-tenue">{{ lugarVendedor(v) }}</td>
+                  <td><span class="vt-nombre">{{ v.nombre }}</span><span class="vt-sub">{{ v.detalle }}</span></td>
+                  <td class="vt-tenue">{{ canalTexto(v.canal) }}</td>
+                  <td class="vt-num vt-fuerte">{{ n0(v.paquetes) }}</td>
+                  <td class="vt-num">{{ v.promos.length }}</td>
+                  <td class="vt-num">{{ dinero(v.total) }}@if (v.promos_sin_dato) {<span class="vt-sub">+ {{ v.promos_sin_dato }} sin dato</span>}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="6" class="vt-tenue">{{ busqueda() ? 'Ningún vendedor coincide con «' + busqueda() + '».' : 'Nadie tiene promociones cargadas con estos filtros.' }}</td></tr>
+              </ng-template>
+            </p-table>
+          }
+          <p class="vt-nota">{{ vista() === 'promociones'
+            ? 'Cuenta toda la venta, se le haya cargado a un vendedor o no. Dinero: lo que pagó el cliente por los productos de la promoción, con impuestos; «sin dato» = sin producto identificado. Objetivo: el que fija Mercadotecnia o, si no, el promedio de sus 4 semanas anteriores.'
+            : 'Sólo cuenta lo que se le cargó a cada uno (la venta completa está en «Ranking de promociones»). Sucursales: lo que la cajera le asignó en su arqueo · Ruta vecinal: quien tiene asignada la ruta · Ruta directa: la camioneta y su chofer · Telemarketing: su clave.' }}</p>
           </div>
-          <p-table [value]="promosDelDetalle(p)" size="small" class="surf-table surf-table--plain">
-            <ng-template #header>
-              <tr>
-                <th>Promoción</th>
-                <th class="comm-num">Objetivo</th>
-                <th class="comm-num">Venta (pz)</th>
-                <th class="comm-num">Cubrimiento</th>
-                @if (canal() === 'mostrador') { <th class="comm-num">Regalos en existencia</th> }
-              </tr>
-            </ng-template>
-            <ng-template #body let-x>
-              <tr>
-                <td>
-                  <span class="rk-promo">{{ x.mecanica }}</span>
-                  <span class="rk-tenue">{{ x.code }}@if (proveedorPorPromo().get(x.promo_id); as pv) { · {{ pv }} }</span>
-                  @for (pr of x.productos; track pr.sku) {
-                    <span class="rk-producto">{{ textoVentaProducto(pr) }}</span>
-                  } @empty {
-                    <span class="rk-tenue" [title]="x.productos_nota">{{ textoProductos(x.productos_metodo, []) }}</span>
-                  }
-                  @if (x.descripcion_distinta) {
-                    <span class="rk-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Kepler vendió este código con otra descripción: puede ser otra promoción.</span>
-                  }
-                </td>
-                <td class="comm-num">
-                  @if (x.objetivo !== null) {
-                    {{ x.objetivo | number:'1.0-2' }}
-                    @if (x.objetivo_fuente === 'dinamico') { <span class="rk-tenue">dinámico</span> }
-                  } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }
-                </td>
-                <td class="comm-num">{{ x.venta | number:'1.0-2' }}</td>
-                <td class="comm-num rk-pct">{{ pct(x.cubrimiento) }}</td>
-                @if (canal() === 'mostrador') { <td class="comm-num">{{ x.existencia === null ? '—' : (x.existencia | number:'1.0-2') }}</td> }
-              </tr>
-            </ng-template>
-            <ng-template #emptymessage>
-              <tr><td [attr.colspan]="canal() === 'mostrador' ? 5 : 4" class="rk-tenue">
-                @if (buscaDetalle().trim()) { Ninguna promoción de {{ p.nombre }} coincide con «{{ buscaDetalle().trim() }}». } @else { Ninguna promoción coincide con el filtro de venta. }
-              </td></tr>
-            </ng-template>
-          </p-table>
-          @if (puedeGestionar) {
-            <div class="rk-peek-acciones">
-              <a pButton class="p-button-sm p-button-outlined" routerLink="/mkt/ranking/promociones">
-                <span class="p-button-icon p-button-icon-left pi pi-sliders-h" aria-hidden="true"></span><span class="p-button-label">Ajustar objetivos</span></a>
-            </div>
-          }
         }
+      </app-load-state>
+
+      <!-- La promoción: dónde se vendió (canal, sucursal, zona). Sin vendedores: eso es el otro ranking. -->
+      <app-side-peek [open]="!!abiertaPromo()" (openChange)="!$event && abiertaPromo.set(null)" [title]="abiertaPromo()?.nombre ?? ''"
+                     [subtitle]="abiertaPromo() ? 'Código ' + abiertaPromo()!.code + ' · ' + semanaTexto() : null">
+        @if (abiertaPromo(); as p) {
+          <app-metric-strip [items]="metricasPromo()" density="compact" ariaLabel="La promoción"></app-metric-strip>
+          @if (p.dinero === null) { <p class="vt-aviso" role="note">Sin producto identificado: no se puede saber cuánto pagó el cliente por ella.</p> }
+          <p class="vt-sub">{{ textoProductos(p.productos_metodo, p.productos_nombres) }}</p>
+          <h3 class="vt-h3">Dónde se vendió</h3>
+          <table class="vt-mini">
+            <thead><tr><th>Canal</th><th class="vt-num">Paquetes</th><th class="vt-num">Dinero</th><th class="vt-num">Del total</th></tr></thead>
+            <tbody>
+              @for (c of p.por_canal; track c.canal) {
+                <tr><td>{{ canalTexto(c.canal) }}</td><td class="vt-num vt-fuerte">{{ n0(c.paquetes) }}</td><td class="vt-num">{{ dinero(c.dinero) }}</td><td class="vt-num vt-tenue">{{ pct(p.paquetes ? c.paquetes / p.paquetes : null) }}</td></tr>
+              }
+            </tbody>
+          </table>
+          <div class="vt-cab vt-cab--peek">
+            <h3 class="vt-h3">En qué {{ desglose() === 'sucursal' ? 'sucursales' : 'zonas' }} se movió</h3>
+            <app-segmented [options]="opcionesDesglose" [value]="desglose()" (valueChange)="desglose.set($any($event))" ariaLabel="Ver por"></app-segmented>
+          </div>
+          <table class="vt-mini">
+            <thead><tr><th>{{ desglose() === 'sucursal' ? 'Sucursal' : 'Zona' }}</th>@if (desglose() === 'sucursal') {<th>Zona</th>}<th class="vt-num">Paquetes</th><th class="vt-num">Objetivo</th><th class="vt-num">Dinero</th></tr></thead>
+            <tbody>
+              @for (s of filasDesglose(); track s.clave) {
+                <tr><td>{{ s.nombre }}</td>@if (desglose() === 'sucursal') {<td class="vt-tenue">{{ s.zona }}</td>}<td class="vt-num vt-fuerte">{{ n0(s.paquetes) }}</td>
+                  <td class="vt-num vt-tenue">{{ s.objetivo === null ? '—' : n0(s.objetivo) }}</td><td class="vt-num">{{ dinero(s.dinero) }}</td></tr>
+              }
+            </tbody>
+          </table>
+        }
+      </app-side-peek>
+
+      <!-- El vendedor: lo que se le cargó, con precio por paquete y total. -->
+      <app-side-peek [open]="!!abiertoVendedor()" (openChange)="!$event && abiertoVendedor.set(null)" [title]="abiertoVendedor()?.nombre ?? ''"
+                     [subtitle]="abiertoVendedor() ? canalTexto(abiertoVendedor()!.canal) + ' · ' + abiertoVendedor()!.detalle : null">
+        @if (abiertoVendedor(); as v) {
+          <app-metric-strip [items]="metricasVendedor()" density="compact" ariaLabel="El vendedor"></app-metric-strip>
+          @if (v.canal === 'mostrador') {
+            <p class="vt-aviso" role="note">Se lo asignó la cajera en su arqueo: {{ v.tickets }} {{ v.tickets === 1 ? 'ticket' : 'tickets' }}.
+              @if (datos()?.mostrador; as m) { En Sucursales, {{ m.tickets_asignados }} de {{ m.tickets_con_promo }} tickets con promoción están asignados. }</p>
+          }
+          <h3 class="vt-h3">Lo que vendió</h3>
+          <table class="vt-mini">
+            <thead><tr><th>Promoción</th><th class="vt-num">Paquetes</th><th class="vt-num">Precio</th><th class="vt-num">Total</th></tr></thead>
+            <tbody>
+              @for (x of v.promos; track x.code) {
+                <tr><td><span class="vt-nombre">{{ x.nombre }}</span> <span class="vt-codigo">{{ x.code }}</span></td><td class="vt-num vt-fuerte">{{ n0(x.paquetes) }}</td>
+                  <td class="vt-num vt-tenue">{{ dinero(x.precio) }}</td><td class="vt-num">{{ dinero(x.total) }}</td></tr>
+              }
+              <tr class="vt-total"><th scope="row">Total</th><td class="vt-num">{{ n0(v.paquetes) }}</td><td></td><td class="vt-num">{{ dinero(v.total) }}</td></tr>
+            </tbody>
+          </table>
+          <p class="vt-nota">Precio: lo que pagó el cliente por un paquete de la promoción, en promedio. Total = lo que pagó por sus productos.
+            @if (v.promos_sin_dato) { {{ v.promos_sin_dato }} {{ v.promos_sin_dato === 1 ? 'promoción no tiene' : 'promociones no tienen' }} producto identificado: su dinero no entra al total. }</p>
+        }
+      </app-side-peek>
+
+      <!-- Objetivos: se cambian todos en un solo lugar (paquetes por sucursal a la semana, en Sucursales). -->
+      <app-side-peek [open]="objetivosAbierto()" (openChange)="objetivosAbierto.set($event)" title="Objetivos"
+                     subtitle="Paquetes por sucursal, a la semana · Sucursales">
+        <input pInputText type="search" class="vt-buscar" [ngModel]="buscaObjetivo()" (ngModelChange)="buscaObjetivo.set($event)"
+               placeholder="Buscar promoción o código" aria-label="Buscar promoción en objetivos" />
+        <table class="vt-mini">
+          <thead><tr><th>Promoción</th><th class="vt-num">Automático</th><th class="vt-num">Objetivo</th></tr></thead>
+          <tbody>
+            @for (p of filasObjetivo(); track p.promo_id) {
+              <tr>
+                <td><span class="vt-nombre">{{ p.nombre }}</span> <span class="vt-codigo">{{ p.code }}</span>
+                  @if (p.objetivo_sucursal.mixto) { <span class="vt-sub">Tiene objetivos distintos por sucursal: <a routerLink="/mkt/ranking/promociones">cambiar por sucursal</a></span> }
+                  @if (!p.objetivo_sucursal.sucursales.length) { <span class="vt-sub">No se vende en Sucursales</span> }
+                </td>
+                <td class="vt-num vt-tenue">{{ p.objetivo_sucursal.automatico ?? '—' }}</td>
+                <td class="vt-num">
+                  <input pInputText type="text" inputmode="numeric" class="vt-obj" [class.vt-obj--cambio]="cambios().has(p.promo_id)"
+                         [ngModel]="valorObjetivo(p)" (ngModelChange)="editarObjetivo(p, $event)"
+                         [disabled]="!puedeGestionar || !p.objetivo_sucursal.sucursales.length || p.objetivo_sucursal.mixto"
+                         [placeholder]="p.objetivo_sucursal.mixto ? 'varios' : 'auto'" [attr.aria-label]="'Objetivo por sucursal de ' + p.nombre" />
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <p class="vt-nota">Vacío = automático: el promedio de sus 4 semanas anteriores. Lo que escribas queda fijo en todas sus sucursales hasta que lo cambies o lo borres.
+          Los de rutas, telemarketing o una sola sucursal: <a routerLink="/mkt/ranking/promociones">Objetivos por sucursal</a>.</p>
+        @if (!puedeGestionar) { <p class="vt-aviso" role="note">Puedes verlos; para cambiarlos hace falta permiso de Mercadotecnia.</p> }
+        <div class="vt-pie">
+          <span class="vt-tenue" role="status">{{ cambios().size ? cambios().size + (cambios().size === 1 ? ' cambio sin guardar' : ' cambios sin guardar') : '' }}</span>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="cancelarObjetivos()" [disabled]="!cambios().size || guardando()">
+            <span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" class="p-button-sm" (click)="guardarObjetivos()" [disabled]="!cambios().size || guardando() || !puedeGestionar" [loading]="guardando()">
+            <span class="p-button-label">Guardar</span></button>
+        </div>
       </app-side-peek>
     </div>
   `,
   styles: [`
-    :host { display: block; }
-    .rk-acciones { display: flex; align-items: center; gap: var(--sp-3); }
-    .rk-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-3) 0 var(--sp-2); }
-    .rk-cuerpo { transition: opacity var(--dur-short) ease; }
-    .rk-cuerpo app-metric-strip { display: block; margin-bottom: var(--sp-3); }
-    .rk-actualizando { opacity: 0.55; }
-    .rk-de { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--sp-1); }
-    .rk-liga { margin-left: var(--sp-2); color: var(--action); text-decoration: underline; }
-    .rk-btn-filtros { margin-left: auto; }
-    .rk-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: 0 0 var(--sp-2); }
-    .rk-chip { display: inline-flex; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--surface-border);
-               border-radius: var(--r-pill); background: transparent; color: var(--fg-1); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
-    .rk-chip:hover { background: var(--overlay-hover); }
-    .rk-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .rk-chip--todos { border-style: dashed; color: var(--text-muted); }
-    .rk-semana { display: inline-flex; align-items: center; gap: var(--sp-1); }
-    .rk-semana-txt { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; min-width: 13rem; text-align: left; }
-    .rk-semana-btn { display: inline-flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-3); border: 1px solid var(--surface-border);
-                     border-radius: var(--r-pill); background: transparent; color: var(--fg-1); font: inherit; cursor: pointer; }
-    .rk-semana-btn:hover { background: var(--overlay-hover); }
-    .rk-semana-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-    .rk-cal-pista { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 18rem; }
-    .rk-filtros--2 { margin-top: 0; }
-    .rk-promo-sel { min-width: 18rem; max-width: 26rem; }
-    .rk-inline { display: inline; }
-    .rk-buscar { min-width: 14rem; }
-    .rk-nota { display: flex; gap: var(--sp-2); align-items: center; color: var(--text-muted); font-size: var(--fs-sm); margin: var(--sp-2) 0; }
-    .rk-col-lugar { width: 4.5rem; }
-    .rk-col-cub { min-width: 14rem; }
-    .rk-lugar { font-size: var(--fs-lg); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
-    .rk-nombre { display: block; font-weight: var(--fw-bold); }
-    .rk-producto { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
-    .rk-tenue { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
-    .rk-col-cub { white-space: nowrap; }
-    .rk-barra { display: inline-block; vertical-align: middle; width: 8rem; height: 0.5rem; border-radius: var(--r-pill); background: var(--overlay-hover); overflow: hidden; margin-right: var(--sp-2); }
-    /* Neutra: el lugar ya ordena. Los umbrales 90 % / 50 % no eran regla de negocio de nadie. */
-    .rk-barra > span { display: block; height: 100%; background: var(--fg-2); border-radius: var(--r-pill); }
-    .rk-pct { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
-    .rk-metodo { color: var(--text-muted); font-size: var(--fs-xs); margin-top: var(--sp-3); max-width: 70rem; }
-    .rk-peek-frase { margin: 0 0 var(--sp-4); }
-    .rk-peek-buscar { margin: 0 0 var(--sp-3); }
-    .rk-peek-reporte { display: flex; justify-content: flex-end; margin-top: var(--sp-2); }
-    .rk-peek-dato { margin: 0 0 var(--sp-3); }
-    .rk-peek-h { font-size: var(--fs-sm); font-weight: var(--fw-bold); margin: var(--sp-4) 0 var(--sp-2); }
-    .rk-peek-pie { margin-top: var(--sp-2); }
-    .rk-promo { display: block; }
-    .rk-aviso { display: flex; gap: var(--sp-1); align-items: flex-start; color: var(--warn-fg); font-size: var(--fs-xs); margin-top: var(--sp-1); }
-    .rk-peek-acciones { margin-top: var(--sp-4); display: flex; justify-content: flex-end; }
-    @media (max-width: 48rem) { .rk-buscar { margin-left: 0; width: 100%; } .rk-semana-txt { min-width: 0; } }
+    .vt { display: flex; flex-direction: column; gap: var(--sp-3, 12px); container-type: inline-size; }
+    /* Angosto (sidebar abierto o celular): los filtros y las acciones se apilan; la tabla se desplaza dentro de su marco. */
+    @container (max-width: 720px) {
+      .vt-filtros { flex-direction: column; align-items: stretch; }
+      .vt-acciones { width: 100%; justify-content: flex-end; }
+    }
+    .vt-semana { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
+    .vt-semana-btn { display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 14px; font-weight: 600; color: var(--fg-1); background: var(--surface-0, #fff);
+      border: 1px solid var(--border, #E4E4E7); border-radius: 8px; padding: 6px 12px; cursor: pointer; min-height: 34px; }
+    .vt-semana-btn:focus-visible, .vt-fila:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .vt-pista { margin: 6px 0 0; font-size: 12px; color: var(--fg-2); }
+    .vt-acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .vt-filtros { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .vt-buscar { flex: 1 1 320px; min-width: 0; }
+    .vt-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+    .vt-cab h2 { margin: 0; font-size: 15px; font-weight: 700; }
+    .vt-cab--peek { margin-top: 12px; align-items: center; }
+    .vt-h3 { margin: 12px 0 6px; font-size: 14px; font-weight: 700; }
+    .vt-tenue { color: var(--fg-2); font-weight: 500; }
+    .vt-fuerte { font-weight: 700; }
+    .vt-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .vt-nombre { font-weight: 600; }
+    .vt-codigo { font-family: var(--font-mono, 'Geist Mono', monospace); font-size: 12px; color: var(--fg-3, #6B6B74); }
+    .vt-sub { display: block; font-size: 12px; color: var(--fg-3, #6B6B74); font-weight: 400; }
+    .vt-fila { cursor: pointer; }
+    .vt-avance { display: flex; align-items: center; gap: 8px; }
+    .vt-barra { flex: 1; height: 6px; border-radius: 999px; background: var(--border, #E4E4E7); overflow: hidden; }
+    .vt-barra > span { display: block; height: 100%; background: var(--action); }
+    .vt-aviso { margin: 0; display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: var(--fg-2); background: var(--surface-1, #FAFAFA);
+      border: 1px solid var(--border, #E4E4E7); border-radius: 8px; padding: 8px 12px; }
+    .vt-nota { margin: 4px 0 0; font-size: 12px; color: var(--fg-3, #6B6B74); line-height: 1.5; }
+    .vt-atenuado { opacity: .6; transition: opacity .15s; }
+    .vt-mini { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .vt-mini th { text-align: left; font-size: 12px; font-weight: 600; color: var(--fg-2); padding: 8px 6px; border-bottom: 1px solid var(--border, #E4E4E7); }
+    .vt-mini td { padding: 8px 6px; border-bottom: 1px solid var(--surface-2, #F4F4F5); vertical-align: top; }
+    .vt-mini th.vt-num { text-align: right; }
+    .vt-total th, .vt-total td { font-weight: 700; border-bottom: 0; }
+    .vt-obj { width: 76px; text-align: right; }
+    .vt-obj--cambio { border-color: var(--action); font-weight: 700; }
+    .vt-pie { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border, #E4E4E7); }
+    .vt-pie > span { margin-right: auto; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   `],
 })
 export class MktRankingComponent {
   private readonly api = inject(MktRankingService);
   private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
   private readonly perms = inject(PermissionsService);
   readonly tabs = PROMOS_TABS;
   readonly pct = pct;
-  readonly textoVentaProducto = textoVentaProducto;
+  readonly n0 = n0;
+  readonly dinero = dinero;
   readonly textoProductos = textoProductos;
-  readonly proveedorConFuente = nombreProveedor;
+  readonly todos = TODOS;
   readonly puedeGestionar = this.perms.has(Permission.MKT_AGREEMENTS_GESTIONAR);
-  /** Liga al arqueo, donde la cajera escribe quién vendió: sólo a quien puede capturar ahí. */
-  readonly puedeCapturar = this.perms.has(Permission.STORE_ARQUEO_CAPTURAR);
 
-  /** NULL = la última semana cerrada (la decide el servidor). */
+  /** NULL = la última semana (la decide el servidor). */
   readonly semana = signal<string | null>(null);
-  readonly canal = signal<Canal>('mostrador');
+  readonly vista = signal<Vista>('promociones');
+  readonly canal = signal<Canal | null>(null);
+  readonly sucursal = signal<string | null>(null);
+  readonly zona = signal<string | null>(null);
   readonly busqueda = signal('');
-  readonly abierto = signal<ParticipanteRanking | null>(null);
-  /** [MKT.27] El buscador DENTRO del detalle de un participante (pistola o tecleado); se vacía al abrir otro. */
-  readonly buscaDetalle = signal('');
-  /** [MKT.27] Tras cada Enter de la pistola el campo se reenfoca y selecciona: la siguiente lectura pisa la anterior. */
-  readonly refocoDetalle = signal(0);
+  readonly abiertaPromo = signal<PromoVenta | null>(null);
+  readonly abiertoVendedor = signal<VendedorVenta | null>(null);
+  readonly desglose = signal<'sucursal' | 'zona'>('sucursal');
+  readonly objetivosAbierto = signal(false);
+  readonly buscaObjetivo = signal('');
+  /** Lo tecleado en «Objetivos» sin guardar: promo → texto ('' = volver al automático). */
+  readonly cambios = signal(new Map<string, string>());
+  readonly guardando = signal(false);
   readonly generando = signal(false);
 
-  // ── `[MKT.16]` filtros ──
-  readonly vista = signal<'participantes' | 'promociones' | 'vendedoras'>('participantes');
-  /** Promo del filtro: el SERVIDOR recalcula el lugar sólo con ella (una sola implementación de la regla). */
-  readonly promo = signal<string | null>(null);
-  /** Sucursales: filtran filas aquí; el ranking de promociones lo recalcula el servidor con ellas. */
-  readonly sucursales = signal<string[]>([]);
-  readonly estado = signal<EstadoVenta>('todas');
-  /** [MKT.24] Proveedor del filtro: id, 'sin' (las que nadie asignó) o null = todos. Lo aplica el SERVIDOR. */
-  readonly proveedor = signal<string | null>(null);
-  readonly abiertaPromo = signal<PromoEnRanking | null>(null);
-  readonly abiertaVendedora = signal<VendedoraEnRanking | null>(null);
-
-  readonly opcionesSucursal = SUCURSALES_VENTA.map((c) => ({ value: c, label: warehouseName(c) }));
-  readonly opcionesEstado: SegOption[] = [
-    { label: 'Todas', value: 'todas' }, { label: 'Cumplidas', value: 'cumplida' },
-    { label: 'No cumplidas', value: 'no_cumplida' }, { label: 'Sin venta', value: 'sin_venta' },
+  readonly opcionesVista: SegOption[] = [
+    { label: 'Ranking de promociones', value: 'promociones' },
+    { label: 'Ranking de vendedores', value: 'vendedores' },
   ];
-  readonly opcionesVista = computed<SegOption[]>(() => [
-    { label: this.canal() === 'mostrador' ? 'Por sucursal' : 'Por vendedor', value: 'participantes' },
-    { label: 'Por promoción', value: 'promociones' },
-    // [MKT.18] Sólo el mostrador: ahí Kepler no sabe quién vendió y lo escriben las cajeras.
-    ...(this.canal() === 'mostrador' ? [{ label: 'Por vendedora', value: 'vendedoras' }] : []),
-  ]);
+  readonly opcionesCanal: SegOption[] = [{ label: 'Todos', value: TODOS }, ...CANALES.map((c) => ({ label: CANAL_VENTA[c], value: c }))];
+  readonly opcionesDesglose: SegOption[] = [{ label: 'Sucursal', value: 'sucursal' }, { label: 'Zona', value: 'zona' }];
 
   readonly res = rxResource({
-    params: () => ({ semana: this.semana(), canal: this.canal(), promo: this.promo(), sucursales: this.sucursales(), proveedor: this.proveedor() }),
-    stream: ({ params }) => this.api.ranking(params.semana, params.canal, params.promo, params.sucursales, params.proveedor),
+    params: () => ({ semana: this.semana(), canal: this.canal(), sucursal: this.sucursal(), zona: this.zona() }),
+    stream: ({ params }) => this.api.venta(params.semana, { canal: params.canal, sucursal: params.sucursal, zona: params.zona }),
   });
-  /**
-   * Lo último que llegó. Al cambiar semana, canal o filtro el recurso se vacía mientras carga; antes
-   * eso borraba la franja y el contador volvía a subir desde cero: se leía «Promedio general 0.0 %»
-   * y «0 promociones» por un par de segundos (medido en la auditoría del 2026-11-12). Ahora se queda
-   * lo anterior, atenuado y con «Actualizando…»; si la carga FALLA, se suelta (no se finge vigente).
-   */
-  readonly datos = linkedSignal<{ v: RankingSemana | undefined; cargando: boolean }, RankingSemana | undefined>({
+  /** Lo último que llegó: al cambiar un filtro se queda lo anterior atenuado; si la carga FALLA, se suelta. */
+  readonly datos = linkedSignal<{ v: VentaSemana | undefined; cargando: boolean }, VentaSemana | undefined>({
     source: () => ({ v: this.res.hasValue() ? this.res.value() : undefined, cargando: this.res.isLoading() }),
     computation: (s, prev) => s.v ?? (s.cargando ? prev?.value : undefined),
   });
   readonly actualizando = computed(() => this.res.isLoading() && !!this.datos());
-  readonly error = computed(() => (this.res.error() ? 'No se pudo cargar el ranking. Revisa tu conexión y vuelve a intentar.' : null));
-
-  private readonly enSucursal = (w: string) => !this.sucursales().length || this.sucursales().includes(w);
-  private readonly conEstado = (x: RenglonRanking) => this.estado() === 'todas' || estadoDe(x) === this.estado();
-
-  readonly filas = computed(() => {
-    const q = this.busqueda();
-    return (this.datos()?.participantes ?? []).filter((p) =>
-      coincideBusqueda(q, p.nombre, p.warehouse_name) && this.enSucursal(p.warehouse_code)
-      && (this.estado() === 'todas' || p.promos.some(this.conEstado)));
-  });
-
-  /** Ranking de promociones: con el estado elegido, sólo las que tienen algún participante en él. */
-  readonly filasPromo = computed(() => {
-    const d = this.datos();
-    if (!d) return [];
-    const q = this.busqueda();
-    return d.promos_ranking.filter((x) =>
-      coincideBusqueda(q, x.nombre, x.code, x.proveedor?.name ?? '', x.proveedor?.code ?? '', ...x.productos)
-      && (this.estado() === 'todas' || this.renglonesDe(x.promo_id).some((f) => this.conEstado(f.renglon))));
-  });
-
-  /** Los participantes de la promo abierta, con su renglón, según los filtros. */
-  readonly filasDePromo = computed(() => {
-    const x = this.abiertaPromo();
-    return x ? this.renglonesDe(x.promo_id).filter((f) => this.conEstado(f.renglon)) : [];
-  });
-
-  private renglonesDe(promoId: string): Array<{ nombre: string; warehouse_name: string; renglon: RenglonRanking }> {
-    return (this.datos()?.participantes ?? [])
-      .filter((p) => this.enSucursal(p.warehouse_code))
-      .flatMap((p) => p.promos.filter((r) => r.promo_id === promoId).map((renglon) => ({ nombre: p.nombre, warehouse_name: p.warehouse_name, renglon })))
-      .sort((a, b) => (b.renglon.cubrimiento ?? -1) - (a.renglon.cubrimiento ?? -1) || b.renglon.venta - a.renglon.venta);
-  }
-
-  promosVisibles(p: ParticipanteRanking): RenglonRanking[] { return p.promos.filter(this.conEstado); }
-
-  /** [MKT.27] El proveedor de cada promo del ranking, con su fuente («del producto» nunca se lee como asignado). */
-  readonly proveedorPorPromo = computed(() => new Map((this.datos()?.promos_ranking ?? []).map((x) => [x.promo_id, x.proveedor ? nombreProveedor(x.proveedor, x.proveedor_fuente) : ''])));
-  /** [MKT.27] Las promos del detalle que coinciden con el buscador de adentro (además del filtro de venta). */
-  promosDelDetalle(p: ParticipanteRanking): RenglonRanking[] {
-    const q = this.buscaDetalle();
-    const prov = this.proveedorPorPromo();
-    const codigos = this.datos()?.codigos_barras;
-    return this.promosVisibles(p).filter((x) => coincideRenglon(q, x, prov.get(x.promo_id) ?? '', codigos));
-  }
-  /** [MKT.27] Si el servidor no pudo leer los códigos de barras y lo buscado parece uno, se dice (no es «ninguna coincide»). */
-  readonly sinCodigosBarras = computed(() => this.datos()?.codigos_barras === null && /^\d{8,14}$/.test(this.buscaDetalle().trim()));
-
-  /**
-   * [MKT.25] Quién vendió la promo abierta en el mostrador: las vendedoras que las cajeras
-   * escribieron en el arqueo, con sus piezas de ESA promo, respetando el filtro de sucursal.
-   */
-  readonly vendedorasDePromo = computed(() => {
-    const x = this.abiertaPromo();
-    if (!x) return [];
-    return (this.datos()?.vendedoras?.personas ?? [])
-      .filter((v) => this.enSucursal(v.warehouse_code))
-      .map((v) => ({ nombre: v.nombre, warehouse_name: v.warehouse_name, cantidad: v.promos.find((p) => p.code === x.code)?.cantidad ?? 0 }))
-      .filter((v) => v.cantidad > 0)
-      .sort((a, b) => b.cantidad - a.cantidad || a.nombre.localeCompare(b.nombre, 'es'));
-  });
-  /** [MKT.25] Cuánto de la venta de la promo tiene vendedora: lo atribuido no se presenta como el total. */
-  readonly textoAtribuido = computed(() => {
-    const x = this.abiertaPromo();
-    if (!x) return '';
-    const atrib = this.vendedorasDePromo().reduce((a, v) => a + v.cantidad, 0);
-    const total = this.filasDePromo().reduce((a, f) => a + f.renglon.venta, 0);
-    const fmt = (v: number) => v.toLocaleString('es-MX', { maximumFractionDigits: 2 });
-    return atrib >= total
-      ? 'Toda la venta de esta promoción tiene vendedora.'
-      : `Con vendedora: ${fmt(atrib)} de ${fmt(total)} piezas. El resto, la cajera aún no lo asigna en el arqueo.`;
-  });
-
-  /** [MKT.24] Las opciones del filtro: cada proveedor con cuántas promos tiene en este canal. */
-  readonly opcionesProveedor = computed(() => (this.datos()?.proveedores_lista ?? []).map((p) => ({
-    label: `${p.code ? p.code + ' · ' : ''}${p.name} (${p.promos})`, value: p.id ?? SIN_PROVEEDOR,
-  })));
-  nombreProveedor(id: string): string {
-    if (id === SIN_PROVEEDOR) return 'ningún proveedor asignado';
-    return this.datos()?.proveedores_lista.find((p) => p.id === id)?.name ?? 'el proveedor elegido';
-  }
-  elegirProveedor(id: string | null): void { this.cerrarDetalles(); this.promo.set(null); this.proveedor.set(id || null); }
-
-  readonly hayFiltros = computed(() => !!this.promo() || !!this.proveedor() || this.sucursales().length > 0 || this.estado() !== 'todas' || !!this.busqueda());
-  /** Los filtros viven plegados; abren solos si llegas con uno puesto (nunca se filtra a escondidas: ver `chips`). */
-  readonly filtrosAbiertos = signal(false);
-
-  /** Lo filtrado, siempre a la vista como etiqueta quitable — aunque el panel esté cerrado. */
-  readonly chips = computed<Array<{ id: FiltroId; texto: string }>>(() => {
-    const c: Array<{ id: FiltroId; texto: string }> = [];
-    const pv = this.proveedor();
-    if (pv) c.push({ id: 'proveedor', texto: pv === SIN_PROVEEDOR ? 'Sin proveedor asignado' : this.nombreProveedor(pv) });
-    const pr = this.promo();
-    if (pr) c.push({ id: 'promo', texto: this.nombrePromo(pr) });
-    const ss = this.sucursales();
-    if (ss.length) c.push({ id: 'sucursales', texto: ss.length <= 2 ? ss.map((x) => warehouseName(x)).join(', ') : `${ss.length} sucursales` });
-    if (this.estado() !== 'todas' && this.vista() !== 'vendedoras') {
-      c.push({ id: 'estado', texto: this.opcionesEstado.find((o) => o.value === this.estado())?.label ?? '' });
-    }
-    if (this.busqueda().trim()) c.push({ id: 'busqueda', texto: `«${this.busqueda().trim()}»` });
-    return c;
-  });
-  quitarFiltro(id: FiltroId): void {
-    if (id === 'proveedor') this.elegirProveedor(null);
-    else if (id === 'promo') this.elegirPromo(null);
-    else if (id === 'sucursales') this.elegirSucursales([]);
-    else if (id === 'estado') this.estado.set('todas');
-    else this.busqueda.set('');
-  }
-
-  /** Una columna que es cero en todas las filas no informa nada: se muestra sólo si alguien la tiene. */
-  readonly colSinVenta = computed(() => this.filas().some((p) => p.sin_venta > 0));
-  readonly colSinObjetivo = computed(() => this.filas().some((p) => p.sin_objetivo > 0));
-  readonly colSinVentaPromo = computed(() => this.filasPromo().some((x) => x.sin_venta > 0));
-
-  readonly subtituloPromo = computed(() => {
-    const x = this.abiertaPromo();
-    const d = this.datos();
-    if (!x || !d) return null;
-    const lugar = x.lugar === null ? 'Sin lugar' : `Lugar ${x.lugar} de ${d.promos_ranking.filter((y) => y.lugar !== null).length}`;
-    return `${x.code} · ${lugar} · ${textoSemana(d.semana)}`;
-  });
-
-  nombrePromo(id: string): string { return this.datos()?.promos_lista.find((p) => p.id === id)?.mecanica ?? 'la promoción elegida'; }
-  elegirVista(v: string): void {
-    this.cerrarDetalles();
-    this.vista.set(v === 'promociones' || v === 'vendedoras' ? v : 'participantes');
-  }
-
-  /** [MKT.18] Vendedoras del mostrador, con los filtros de búsqueda y sucursal. */
-  readonly filasVendedora = computed(() => {
-    const q = this.busqueda();
-    return (this.datos()?.vendedoras?.personas ?? []).filter((x) =>
-      this.enSucursal(x.warehouse_code) && coincideBusqueda(q, x.nombre, x.warehouse_name, ...x.promos.map((p) => p.mecanica)));
-  });
-
-  /** Cuánto de la venta está atribuido: el ranking por vendedora sólo cuenta eso, y se dice. */
-  /** Lo atribuido con los filtros de sucursal: alimenta la franja y la nota (una sola cuenta). */
-  readonly cobertura = computed(() => {
-    const v = this.datos()?.vendedoras;
-    if (!v) return null;
-    const filas = v.por_sucursal.filter((x) => this.enSucursal(x.warehouse_code));
-    const t = filas.reduce((a, x) => a + x.tickets_con_promo, 0);
-    const c = filas.reduce((a, x) => a + x.tickets_con_vendedora, 0);
-    const sin = filas.filter((x) => x.tickets_con_promo > 0 && x.tickets_con_vendedora === 0).map((x) => warehouseName(x.warehouse_code));
-    return { t, c, sin };
-  });
-  /** La cifra «c de t» ya va en la franja: la nota dice qué IMPLICA y dónde falta, sin repetirla. */
-  readonly coberturaTexto = computed(() => {
-    const k = this.cobertura();
-    if (!k) return '';
-    if (!k.t) return 'Esta semana no hay tickets de mostrador con estas promociones.';
-    return (k.c < k.t ? 'El ranking cuenta sólo los tickets que ya tienen vendedora.' : 'Todos los tickets con promoción tienen vendedora.')
-      + (k.sin.length ? ` Sin captura: ${k.sin.join(', ')}.` : '');
-  });
-
-  readonly textoBuscar = computed(() => {
-    if (this.vista() === 'promociones') return 'Buscar promoción o producto';
-    if (this.vista() === 'vendedoras') return 'Buscar vendedora, sucursal o promoción';
-    return this.canal() === 'mostrador' ? 'Buscar sucursal' : 'Buscar vendedor o sucursal';
-  });
-
-  abrirVendedora(v: VendedoraEnRanking): void { this.abiertaVendedora.set(v); }
-  readonly subtituloVendedora = computed(() => {
-    const v = this.abiertaVendedora();
-    const d = this.datos();
-    if (!v || !d?.vendedoras) return null;
-    return `Lugar ${v.lugar} de ${d.vendedoras.personas.length} · ${textoSemana(d.semana)}`;
-  });
-  elegirPromo(id: string | null): void { this.cerrarDetalles(); this.promo.set(id || null); }
-  elegirSucursales(v: string[] | null): void { this.cerrarDetalles(); this.sucursales.set(v ?? []); }
-  elegirEstado(v: string): void { this.estado.set(v as EstadoVenta); }
-  abrirPromo(x: PromoEnRanking): void { this.abiertaPromo.set(x); }
-  limpiarFiltros(): void {
-    this.cerrarDetalles();
-    this.promo.set(null); this.proveedor.set(null); this.sucursales.set([]); this.estado.set('todas'); this.busqueda.set('');
-  }
-  private cerrarDetalles(): void { this.abierto.set(null); this.abiertaPromo.set(null); this.abiertaVendedora.set(null); }
-
-  readonly opcionesCanal = computed<SegOption[]>(() => CANALES.map((c) => ({ label: CANAL_CORTO[c], value: c })));
+  readonly error = computed(() => (this.res.error() ? 'No se pudieron cargar las promociones. Revisa tu conexión y vuelve a intentar.' : null));
 
   readonly semanaTexto = computed(() => { const d = this.datos(); return d ? textoSemana(d.semana) : ''; });
+  readonly opcionesSucursal = computed(() => (this.datos()?.sucursales_lista ?? []).map((s) => ({ value: s.code, label: `${s.nombre} (${s.code})` })));
+  readonly opcionesZona = computed(() => (this.datos()?.zonas_lista ?? []).map((z) => ({ value: z, label: z })));
 
-  /**
-   * La franja habla de LO QUE SE ESTÁ VIENDO. Antes era una sola para las tres vistas: en «Por
-   * vendedora» decía «Primer lugar: Canindo» (una sucursal) sobre una tabla cuyo primer lugar era
-   * una vendedora. Contesta primero la pregunta de la vista (quién va arriba) y luego su contexto.
-   */
-  readonly kpis = computed<MetricStripItem[]>(() => {
+  readonly filasPromos = computed(() => {
+    const q = this.busqueda();
+    const d = this.datos();
+    return (d?.promos ?? []).filter((p) => coincidePromoVenta(q, p, d?.codigos_barras ?? null));
+  });
+  /** [MKT.27] Si no se pudieron leer los códigos de barras y lo buscado parece uno, se dice (no es «ninguna coincide»). */
+  readonly sinCodigosBarras = computed(() => this.datos()?.codigos_barras === null && /^\d{8,14}$/.test(this.busqueda().trim()));
+  readonly filasVendedores = computed(() => {
+    const q = this.busqueda();
+    return (this.datos()?.vendedores ?? []).filter((v) => coincideBusqueda(q, v.nombre, v.detalle, v.warehouse_name, v.vendedor));
+  });
+  /** El lugar es el de la lista completa: buscar no renumera (el 5.º sigue siendo el 5.º). */
+  lugarDe(p: PromoVenta): number { return (this.datos()?.promos.indexOf(p) ?? -1) + 1; }
+  lugarVendedor(v: VendedorVenta): number { return (this.datos()?.vendedores.indexOf(v) ?? -1) + 1; }
+
+  readonly sinContrastar = computed(() => { const d = this.datos(); return d ? canalesSinContrastar(d, this.canal()) : []; });
+  readonly textoSinContrastar = computed(() => this.sinContrastar().map((c) => CANAL_VENTA[c]).join(', '));
+
+  readonly metricas = computed<MetricStripItem[]>(() => {
     const d = this.datos();
     if (!d) return [];
-    if (this.vista() === 'promociones') return this.kpisPromociones(d);
-    if (this.vista() === 'vendedoras') return this.kpisVendedoras();
-    const sinObj = d.participantes.reduce((a, p) => a + p.sin_objetivo, 0);
-    const primero = d.participantes.find((p) => p.lugar === 1);
-    const medibles = d.participantes.filter((p) => p.lugar !== null);
-    const todas = medibles.filter((p) => p.con_objetivo > 0 && p.cumplidas === p.con_objetivo).length;
-    const k: MetricStripItem[] = [
-      { label: 'Primer lugar', value: primero ? primero.nombre : '—', format: 'text', sub: primero ? pct(primero.puntaje) : 'nadie medible' },
-      d.promedio_general === null
-        ? { label: 'Promedio general', value: 'Sin medir', format: 'text', tone: 'muted', state: 'no_medido', stateNote: 'Ninguna promoción tiene objetivo esta semana.' }
-        // `percent` del MetricStrip espera 0–100 (no la fracción).
-        : { label: 'Promedio general', value: Math.round(d.promedio_general * 1000) / 10, format: 'percent',
-            ...(this.sucursales().length ? { sub: 'de todas, no sólo las filtradas' } : {}) },
-      { label: 'Cumplieron todas', value: `${todas} de ${medibles.length}`, format: 'text' },
+    const top = d.promos[0];
+    const suc = d.sucursal_top;
+    const sinDato = d.totales.promos_sin_dato;
+    return [
+      { label: 'Paquetes', value: d.totales.paquetes, format: 'number', sub: d.totales.objetivo === null ? 'sin objetivo' : `de ${n0(d.totales.objetivo)} de objetivo` },
+      {
+        label: 'Dinero', value: d.totales.dinero, format: 'currency',
+        sub: sinDato ? `al menos · ${sinDato} ${sinDato === 1 ? 'promoción' : 'promociones'} sin dato` : 'lo que pagó el cliente',
+        ...(this.sinContrastar().length ? { state: 'parcial' as const, stateNote: `Sin contrastar contra Kepler: ${this.textoSinContrastar()}` } : {}),
+      },
+      { label: 'La más vendida', value: top ? top.nombre : '—', format: 'text', sub: top ? `${n0(top.paquetes)} paquetes` : undefined },
+      { label: 'Sucursal que más vendió', value: suc ? suc.nombre : '—', format: 'text', sub: suc ? `${suc.zona} · ${n0(suc.paquetes)} paquetes` : undefined },
     ];
-    // Lo que pide acción aparece SÓLO cuando hay algo: un «0 · todas medidas» no decide nada.
-    if (sinObj) k.push({ label: 'Sin objetivo', value: sinObj, format: 'number', tone: 'warn', sub: 'no cuentan para el lugar', drill: 'objetivos' });
-    return k;
+  });
+  readonly metricasPromo = computed<MetricStripItem[]>(() => {
+    const p = this.abiertaPromo();
+    if (!p) return [];
+    return [
+      { label: 'Paquetes', value: p.paquetes, format: 'number', sub: p.objetivo === null ? 'sin objetivo' : `de ${n0(p.objetivo)} · ${pct(p.avance)}` },
+      { label: 'Dinero', value: p.dinero === null ? 'sin dato' : p.dinero, format: p.dinero === null ? 'text' : 'currency2' },
+      { label: 'Lugar', value: `#${this.lugarDe(p)} de ${this.datos()?.promos.length ?? 0}`, format: 'text' },
+    ];
+  });
+  readonly metricasVendedor = computed<MetricStripItem[]>(() => {
+    const v = this.abiertoVendedor();
+    if (!v) return [];
+    return [
+      { label: 'Total', value: v.total, format: 'currency2' },
+      { label: 'Paquetes', value: v.paquetes, format: 'number' },
+      { label: 'Promociones', value: v.promos.length, format: 'number' },
+    ];
   });
 
-  private kpisPromociones(d: RankingSemana): MetricStripItem[] {
-    const medidas = d.promos_ranking.filter((x) => x.lugar !== null).sort((a, b) => (a.lugar ?? 0) - (b.lugar ?? 0));
-    const mejor = medidas[0];
-    const peor = medidas.length > 1 ? medidas[medidas.length - 1] : undefined;
-    const sinVenta = d.promos_ranking.reduce((a, x) => a + x.sin_venta, 0);
-    const k: MetricStripItem[] = [
-      { label: 'Mejor promoción', value: mejor ? mejor.nombre : '—', format: 'text', sub: mejor ? pct(mejor.puntaje) : 'ninguna con objetivo' },
-      { label: 'La más baja', value: peor ? peor.nombre : '—', format: 'text', sub: peor ? pct(peor.puntaje) : 'sólo hay una medida' },
-    ];
-    if (sinVenta) k.push({ label: 'Sin venta', value: sinVenta, format: 'number', tone: 'warn', sub: d.canal === 'mostrador' ? 'sucursal × promoción' : 'vendedor × promoción' });
-    return k;
-  }
+  /** «En qué sucursales/zonas se movió»: por zona se SUMAN sus sucursales (el dinero sin dato sigue sin dato). */
+  readonly filasDesglose = computed(() => {
+    const p = this.abiertaPromo();
+    if (!p) return [];
+    if (this.desglose() === 'sucursal') return p.por_sucursal.map((s) => ({ clave: s.warehouse_code, ...s }));
+    const z = new Map<string, { clave: string; nombre: string; zona: string; paquetes: number; objetivo: number | null; dinero: number | null }>();
+    for (const s of p.por_sucursal) {
+      const a = z.get(s.zona) ?? { clave: s.zona, nombre: s.zona, zona: s.zona, paquetes: 0, objetivo: null, dinero: s.dinero === null ? null : 0 };
+      a.paquetes += s.paquetes;
+      if (s.objetivo !== null) a.objetivo = (a.objetivo ?? 0) + s.objetivo;
+      if (a.dinero !== null && s.dinero !== null) a.dinero = Math.round((a.dinero + s.dinero) * 100) / 100;
+      z.set(s.zona, a);
+    }
+    return [...z.values()].sort((a, b) => b.paquetes - a.paquetes || a.nombre.localeCompare(b.nombre, 'es'));
+  });
 
-  private kpisVendedoras(): MetricStripItem[] {
-    const k = this.cobertura();
-    const arriba = this.filasVendedora()[0];
-    const items: MetricStripItem[] = [
-      { label: arriba && arriba.lugar !== 1 ? 'Arriba en el filtro' : 'Primer lugar', value: arriba ? arriba.nombre : '—', format: 'text',
-        sub: arriba ? arriba.warehouse_name : 'nadie atribuido' },
-      k && k.t
-        ? { label: 'Tickets con vendedora', value: `${k.c} de ${k.t}`, format: 'text', sub: `${Math.round((100 * k.c) / k.t)} %`,
-            ...(k.c < k.t ? { state: 'parcial' as const, stateNote: 'El ranking cuenta sólo los tickets que la cajera ya asignó.' } : {}) }
-        : { label: 'Tickets con vendedora', value: 'Sin tickets', format: 'text', tone: 'muted' },
-    ];
-    if (k?.sin.length) items.push({ label: 'Sucursales sin captura', value: k.sin.length, format: 'number', tone: 'warn' });
-    return items;
-  }
+  readonly filasObjetivo = computed(() => {
+    const q = this.buscaObjetivo();
+    return (this.datos()?.promos ?? []).filter((p) => coincideBusqueda(q, p.nombre, p.code));
+  });
 
-  readonly vacioTitulo = computed(() => (this.datos()?.promos_vigentes ? 'Nadie coincide con la búsqueda' : 'Ninguna promoción se ha vendido esta semana en este canal'));
-  readonly vacioPista = computed(() => (this.datos()?.promos_vigentes
-    ? 'Prueba con otro nombre o limpia la búsqueda.'
-    : 'El ranking toma de Kepler las promociones («= GRATIS») que se vendieron en la semana. Cambia de canal o mira la semana anterior.'));
+  canalTexto(c: Canal): string { return CANAL_VENTA[c]; }
+  barra(avance: number | null): number { return avance === null ? 0 : Math.min(100, Math.round(avance * 100)); }
 
-  readonly subtitulo = computed(() => {
-    const p = this.abierto();
+  readonly textoFiltro = computed(() => this.filtrosEnPalabras().join(' · ') || 'todas las sucursales y canales');
+  private filtrosEnPalabras(): string[] {
     const d = this.datos();
-    if (!p || !d) return null;
-    const lugar = p.lugar === null ? 'Sin lugar' : `Lugar ${p.lugar} de ${d.participantes.filter((x) => x.lugar !== null).length}`;
-    return `${lugar} · ${textoSemana(d.semana)}`;
-  });
+    const out: string[] = [];
+    if (this.canal()) out.push(CANAL_VENTA[this.canal()!]);
+    if (this.sucursal()) out.push(d?.sucursales_lista.find((s) => s.code === this.sucursal())?.nombre ?? `Sucursal ${this.sucursal()}`);
+    if (this.zona()) out.push(`Zona ${this.zona()}`);
+    if (this.busqueda().trim()) out.push(`Búsqueda «${this.busqueda().trim()}»`);
+    return out;
+  }
+
+  // ── navegación ──
+  elegirVista(v: string): void { this.cerrarDetalles(); this.vista.set(v === 'vendedores' ? 'vendedores' : 'promociones'); }
+  elegirCanal(v: string): void { this.cerrarDetalles(); this.canal.set(v === TODOS ? null : (v as Canal)); }
+  elegirSucursal(v: string | null): void { this.cerrarDetalles(); this.sucursal.set(v || null); }
+  elegirZona(v: string | null): void { this.cerrarDetalles(); this.zona.set(v || null); }
+  abrirPromo(p: PromoVenta): void { this.abiertoVendedor.set(null); this.desglose.set('sucursal'); this.abiertaPromo.set(p); }
+  abrirVendedor(v: VendedorVenta): void { this.abiertaPromo.set(null); this.abiertoVendedor.set(v); }
+  private cerrarDetalles(): void { this.abiertaPromo.set(null); this.abiertoVendedor.set(null); }
 
   /** Hoy: el calendario no ofrece semanas futuras (no hay venta que medir). */
   readonly hoy = new Date();
-  /** El lunes de la semana en pantalla, como fecha local para marcarlo en el calendario. */
   readonly lunesFecha = computed(() => {
     const l = this.datos()?.semana.lunes;
     if (!l) return null;
     const [y, m, d] = l.split('-').map(Number);
     return new Date(y, m - 1, d);
   });
-  /** Un día cualquiera del calendario abre SU semana: se lleva al lunes (ISO, lunes a domingo). */
+  /** Un día cualquiera del calendario abre SU semana (ISO, lunes a domingo). */
   elegirDia(dia: Date): void {
     const l = new Date(dia.getFullYear(), dia.getMonth(), dia.getDate());
     l.setDate(l.getDate() - ((l.getDay() + 6) % 7));
@@ -836,7 +499,6 @@ export class MktRankingComponent {
     this.cerrarDetalles();
     this.semana.set(l.getFullYear() + '-' + p2(l.getMonth() + 1) + '-' + p2(l.getDate()));
   }
-
   cambiarSemana(delta: number): void {
     const d = this.datos();
     if (!d) return;
@@ -844,156 +506,63 @@ export class MktRankingComponent {
     this.semana.set(moverSemana(d.semana.lunes, delta));
   }
 
-  elegirCanal(v: string): void {
-    this.cerrarDetalles();
-    if (v !== 'mostrador' && this.vista() === 'vendedoras') this.vista.set('participantes');
-    this.promo.set(null); // las promos de otro canal son otras
-    this.canal.set(v as Canal);
+  // ── objetivos ──
+  valorObjetivo(p: PromoVenta): string {
+    const c = this.cambios();
+    if (c.has(p.promo_id)) return c.get(p.promo_id)!;
+    return p.objetivo_sucursal.fijo === null ? '' : String(p.objetivo_sucursal.fijo);
   }
-
-  abrir(p: ParticipanteRanking): void { this.buscaDetalle.set(''); this.abierto.set(p); }
-
-  drill(id: string): void {
-    if (id === 'objetivos' || id === 'promos') this.irAObjetivos();
+  editarObjetivo(p: PromoVenta, texto: string): void {
+    const limpio = String(texto ?? '').replace(/[^\d.]/g, '');
+    const original = p.objetivo_sucursal.fijo === null ? '' : String(p.objetivo_sucursal.fijo);
+    const m = new Map(this.cambios());
+    if (limpio === original) m.delete(p.promo_id); else m.set(p.promo_id, limpio);
+    this.cambios.set(m);
   }
-
-  irAObjetivos(): void { void this.router.navigate(['/mkt/ranking/promociones']); }
-
-  /** El reporte de la semana con los CUATRO canales (sólo los que tienen promociones). */
-  /**
-   * [MKT.21] Lo que el PDF filtrado dice en su portada: el canal y cada filtro con su nombre. Sale de
-   * las mismas señales que pintan las etiquetas de la pantalla.
-   */
-  readonly filtrosTexto = computed<string[]>(() => {
-    const t = ['Canal: ' + CANAL_LARGO[this.canal()]];
-    const pv = this.proveedor();
-    if (pv) t.push('Proveedor: ' + (pv === SIN_PROVEEDOR ? 'sin asignar' : this.nombreProveedor(pv)));
-    const pr = this.promo();
-    if (pr) t.push('Promoción: ' + this.nombrePromo(pr));
-    const ss = this.sucursales();
-    if (ss.length) t.push((ss.length === 1 ? 'Sucursal: ' : 'Sucursales: ') + ss.map((x) => warehouseName(x)).join(', '));
-    if (this.estado() !== 'todas') t.push('Estado: ' + (this.opcionesEstado.find((o) => o.value === this.estado())?.label ?? ''));
-    if (this.busqueda().trim()) t.push('Búsqueda: «' + this.busqueda().trim() + '»');
-    return t;
-  });
+  cancelarObjetivos(): void { this.cambios.set(new Map()); }
 
   /**
-   * [MKT.21] El ranking tal como se VE: las mismas listas que pinta la pantalla (`filas`, `filasPromo`,
-   * `filasVendedora`), así el PDF no puede decir otra cosa que la pantalla. La cobertura de vendedoras
-   * se recalcula con las sucursales filtradas (si no, diría «4 de 10» de toda la semana).
+   * Guarda con el endpoint de siempre (`PUT promos/:id/objetivos`, probado contra base real en `[MKT.23]`):
+   * el mismo valor en cada sucursal donde se vende en mostrador; vacío = se borra el fijo y vuelve el automático.
    */
-  rankingFiltrado(d: RankingSemana): RankingSemana {
-    const v = d.vendedoras;
-    const ps = v ? v.por_sucursal.filter((x) => this.enSucursal(x.warehouse_code)) : [];
-    return {
-      ...d,
-      participantes: this.filas().map((p) => ({ ...p, promos: this.promosVisibles(p) })),
-      promos_ranking: this.filasPromo(),
-      vendedoras: v ? {
-        ...v,
-        personas: this.filasVendedora(),
-        por_sucursal: ps,
-        tickets_con_promo: ps.reduce((a, x) => a + x.tickets_con_promo, 0),
-        tickets_con_vendedora: ps.reduce((a, x) => a + x.tickets_con_vendedora, 0),
-      } : null,
-    };
+  async guardarObjetivos(): Promise<void> {
+    const d = this.datos();
+    if (!d || !this.cambios().size || this.guardando()) return;
+    const llamadas = [...this.cambios().entries()].flatMap(([id, texto]) => {
+      const p = d.promos.find((x) => x.promo_id === id);
+      if (!p || !p.objetivo_sucursal.sucursales.length) return [];
+      const v = texto.trim() === '' ? null : Number(texto);
+      if (v !== null && !(v > 0)) return [];
+      return [this.api.guardarObjetivos(id, p.objetivo_sucursal.sucursales.map((w) => ({ warehouse_code: w, canal: 'mostrador' as const, vendor_code: '', objetivo_semanal: v })))];
+    });
+    if (!llamadas.length) { this.cambios.set(new Map()); return; }
+    this.guardando.set(true);
+    try {
+      await firstValueFrom(forkJoin(llamadas));
+      this.toast.add({ severity: 'success', summary: 'Objetivos guardados', detail: `${llamadas.length} ${llamadas.length === 1 ? 'promoción' : 'promociones'}` });
+      this.cambios.set(new Map());
+      this.res.reload();
+    } catch {
+      this.toast.add({ severity: 'error', summary: 'No se guardaron los objetivos', detail: 'Lo que escribiste sigue aquí. Intenta de nuevo.' });
+    } finally {
+      this.guardando.set(false);
+    }
   }
 
+  // ── PDF de lo que se ve ──
   async pdf(): Promise<void> {
     const d = this.datos();
     if (!d || this.generando() || this.actualizando()) return;
-    if (this.hayFiltros()) { await this.pdfFiltrado(d); return; }
-    this.generando.set(true);
-    const win = abrirPestanaParaPdf('Preparando el ranking…');
-    try {
-      // [MKT.16] El reporte es la semana COMPLETA: los 4 canales se piden SIN los filtros de la
-      // pantalla. Reusar `d` mezclaba un canal filtrado (p. ej. una sola promoción) con tres completos.
-      // Si un canal no llega, NO se arma el reporte: un PDF sin un canal se lee como «ese canal no vendió».
-      const todosLos = await firstValueFrom(forkJoin(CANALES.map((c) => this.api.ranking(d.semana.lunes, c).pipe(catchError(() => of(null))))));
-      const falto = CANALES.filter((_, i) => !todosLos[i]);
-      if (falto.length) {
-        cerrarPestanaDePdf(win);
-        this.toast.add({ severity: 'error', summary: 'Reporte incompleto: no se generó', detail: `No se pudo traer ${falto.map((c) => CANAL_LARGO[c]).join(', ')}. Intenta de nuevo.` });
-        return;
-      }
-      const todos = todosLos.filter((x): x is RankingSemana => !!x)
-        .filter((r) => r.promos_vigentes > 0 && r.participantes.length > 0)
-        .sort((a, b) => CANALES.indexOf(a.canal) - CANALES.indexOf(b.canal));
-      if (!todos.length) {
-        cerrarPestanaDePdf(win);
-        this.toast.add({ severity: 'info', summary: 'Sin datos', detail: 'No hay promociones vigentes en esta semana.' });
-        return;
-      }
-      const { blob, archivo } = await pdfRanking({
-        semana: d.semana, rankings: todos, elaboro: this.auth.user()?.username ?? 'Mercadotecnia', consultado: new Date(d.consultado_at),
-      });
-      const donde = entregarPdf(win, blob, archivo);
-      if (donde === 'descarga') this.toast.add({ severity: 'success', summary: 'Reporte descargado', detail: archivo });
-    } catch {
-      cerrarPestanaDePdf(win);
-      this.toast.add({ severity: 'error', summary: 'No se pudo generar el PDF', detail: 'Intenta de nuevo.' });
-    } finally {
-      this.generando.set(false);
-    }
-  }
-  /** [MKT.21] El PDF de lo que se ve: el canal en pantalla con sus filtros, dicho en la portada. */
-  private async pdfFiltrado(d: RankingSemana): Promise<void> {
-    const r = this.rankingFiltrado(d);
-    const hayAlgo = r.participantes.length || r.promos_ranking.length || (r.vendedoras?.personas.length ?? 0);
-    if (!hayAlgo) {
-      this.toast.add({ severity: 'info', summary: 'Nada que reportar', detail: 'Ningún renglón coincide con tus filtros. Cámbialos o quítalos.' });
+    const vista = this.vista();
+    const datos: VentaSemana = { ...d, promos: this.filasPromos(), vendedores: this.filasVendedores() };
+    if (vista === 'promociones' ? !datos.promos.length : !datos.vendedores.length) {
+      this.toast.add({ severity: 'info', summary: 'Nada que reportar', detail: 'Ningún renglón coincide con tus filtros.' });
       return;
     }
-    await this.imprimirFiltrado(d, r, this.filtrosTexto(), false, 'Preparando el reporte filtrado…');
-  }
-
-  /**
-   * [MKT.27] El PDF de lo que se ve DENTRO del detalle de un participante: sólo sus promociones que
-   * coinciden con el buscador (y el filtro de venta), y en la portada cada filtro, la sucursal o el
-   * vendedor y lo buscado. Sin las tablas de toda la semana: no es lo que se filtró.
-   */
-  async pdfDetalle(p: ParticipanteRanking): Promise<void> {
-    const d = this.datos();
-    if (!d || this.generando() || this.actualizando()) return;
-    const rep = this.reporteDetalle(d, p);
-    if (!rep) {
-      this.toast.add({ severity: 'info', summary: 'Nada que imprimir', detail: 'Ninguna promoción coincide con lo que buscaste. Cámbialo o bórralo.' });
-      return;
-    }
-    await this.imprimirFiltrado(d, rep.ranking, rep.filtros, true, 'Preparando el reporte del detalle…');
-  }
-
-  /** [MKT.27] Lo que lleva el reporte del detalle: las MISMAS promociones que se ven (`promosDelDetalle`). null = nada. */
-  reporteDetalle(d: RankingSemana, p: ParticipanteRanking): { ranking: RankingSemana; filtros: string[] } | null {
-    const promos = this.promosDelDetalle(p);
-    if (!promos.length) return null;
-    const ids = new Set(promos.map((x) => x.promo_id));
-    const q = this.buscaDetalle().trim();
-    return {
-      ranking: {
-        ...d,
-        participantes: [{ ...p, promos }],
-        promos_ranking: d.promos_ranking.filter((x) => ids.has(x.promo_id)),
-        vendedoras: null,
-      },
-      filtros: [
-        ...this.filtrosTexto(),
-        (this.canal() === 'mostrador' ? 'Sucursal: ' : 'Vendedor: ') + p.nombre,
-        ...(q ? ['Buscado en el detalle: «' + q + '»'] : []),
-        `Promociones: ${promos.length} de ${this.promosVisibles(p).length}`,
-      ],
-    };
-  }
-
-  /** Arma y entrega un PDF filtrado (uno solo a la vez); si falla, lo dice y cierra la pestaña. */
-  private async imprimirFiltrado(d: RankingSemana, r: RankingSemana, filtros: string[], soloDetalle: boolean, preparando: string): Promise<void> {
     this.generando.set(true);
-    const win = abrirPestanaParaPdf(preparando);
+    const win = abrirPestanaParaPdf('Preparando el reporte…');
     try {
-      const { blob, archivo } = await pdfRanking({
-        semana: d.semana, rankings: [r], elaboro: this.auth.user()?.username ?? 'Mercadotecnia',
-        consultado: new Date(d.consultado_at), filtros, soloDetalle,
-      });
+      const { blob, archivo } = await pdfVenta({ datos, vista, filtros: this.filtrosEnPalabras(), elaboro: this.auth.user()?.username ?? 'Mercadotecnia' });
       const donde = entregarPdf(win, blob, archivo);
       if (donde === 'descarga') this.toast.add({ severity: 'success', summary: 'Reporte descargado', detail: archivo });
     } catch {
