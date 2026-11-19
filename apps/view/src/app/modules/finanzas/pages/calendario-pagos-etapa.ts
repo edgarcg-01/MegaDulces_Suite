@@ -14,7 +14,7 @@
  * como trabajo por hacer inflaba la primera etapa en un tercio. Sólo si su día ya llegó: en un día
  * por venir, lo que Kepler ya pagó es «quítalo del día» (ocupa el tope de un día que se arma; `[PGP.96]`).
  */
-import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
+import { cierreCompleto, type CierreKeplerPago, type SalidaSegunLaDescarga } from '@megadulces/contracts';
 
 export type EtapaPago = 'preparar' | 'autorizar' | 'pagar' | 'kepler' | 'pagado' | 'rebote';
 
@@ -42,6 +42,8 @@ export interface PagoParaEtapa {
   kepler_cierre: CierreKeplerPago | null;
   /** `[PGP.113]` El día del pago (AAAA-MM-DD). Ausente = API anterior: se toma el día que se está viendo. */
   lot_date?: string;
+  /** `[PGP.146]` Lo que dice la descarga del banco de un pendiente cuyo día ya llegó. Ausente = API anterior. */
+  banco_descarga?: SalidaSegunLaDescarga | null;
 }
 
 /** Misma regla que `isPrepared()` del backend: método, origen (salvo efectivo) y destino (transferencia). */
@@ -62,10 +64,21 @@ export function pagadoPorKepler(a: PagoParaEtapa, hoy: string, diaVisto?: string
   return a.status === 'pending' && !!dia && dia <= hoy && cierreCompleto(a.kepler_cierre);
 }
 
+/**
+ * `[PGP.146]` Pendiente en la Suite y la descarga del banco ya muestra su salida (uno a uno, la regla de `[PGP.121]`):
+ * el dinero salió, falta marcarlo y su pago en Kepler. Medido el 2026-11-18: 23 de 71 «atrasados» ($3.0 M) estaban
+ * así porque ninguna cuenta «usa el banco». ⛔ Moverlo a otro día o quitarlo lo volvería a programar: doble pago.
+ */
+export function salioDelBanco(a: Pick<PagoParaEtapa, 'status' | 'banco_descarga'>): Extract<SalidaSegunLaDescarga, { estado: 'salio' }> | null {
+  const d = a.banco_descarga;
+  return a.status === 'pending' && d?.estado === 'salio' ? d : null;
+}
+
 export function etapaDelPago(a: PagoParaEtapa, hoy: string, diaVisto?: string): EtapaPago {
   if (a.status === 'failed') return 'rebote';
   if (a.status === 'executed') return cierreCompleto(a.kepler_cierre) ? 'pagado' : 'kepler';
   if (pagadoPorKepler(a, hoy, diaVisto)) return 'pagado';
+  if (salioDelBanco(a)) return 'kepler';
   if (!preparado(a)) return 'preparar';
   if (!autorizado(a)) return 'autorizar';
   return 'pagar';

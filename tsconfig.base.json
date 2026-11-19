@@ -50,6 +50,7 @@
 
       "@megadulces/contracts/http/suite-usage": ["libs/contracts/src/http/suite-usage.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["libs/contracts/src/http/alta-persona.contract.ts"],
+      "@megadulces/contracts/personas/nombre-propio": ["libs/contracts/src/personas/nombre-propio.ts"],
       "@megadulces/contracts/http/arqueo-cajas": ["libs/contracts/src/http/arqueo-cajas.contract.ts"],
       // [BU.4] ¿Es un código de barras? La misma regla en el vendedor, en view y en la API.
       "@megadulces/contracts/http/codigo-de-barras": ["libs/contracts/src/http/codigo-de-barras.contract.ts"],

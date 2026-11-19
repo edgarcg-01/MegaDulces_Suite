@@ -665,7 +665,8 @@ export interface HrAltaPersonaBody {
 
 /**
  * `[RH.7.1]` `PUT /hr/attendance/enrollments/site-profile` — corregir la ficha de una persona EN UNA PLAZA: su sección del
- * reporte de RH, si es promotora y (sólo si no tiene acceso a la Suite) su nombre completo. Lo que no viene, no cambia.
+ * reporte de RH, si es promotora y su nombre completo (`[RH.14.4]`: a cualquiera, tenga o no acceso). Lo que no viene, no
+ * cambia.
  */
 export interface HrFichaPlazaBody {
   site_code: string;
@@ -673,6 +674,14 @@ export interface HrFichaPlazaBody {
   nombre?: string;
   seccion?: string;
   promotora?: boolean;
+  /**
+   * `[RH.14.5]` De la PERSONA, no de la plaza, y sólo si no tiene acceso a la Suite (Edgar, D2 del 18-nov): a quien tiene
+   * acceso lo cambia Sistemas, porque su sucursal y su zona definen lo que ve. `null` = quitarlo. La zona no se elige:
+   * sale de la sucursal.
+   */
+  departamento_code?: string | null;
+  puesto_code?: string | null;
+  sucursal_code?: string | null;
 }
 
 export interface HrFichaPlazaDto {
@@ -707,6 +716,119 @@ export interface HrBajaPlazaDto {
   ultima_checada: string | null;
   /** Checadas en esta plaza DESPUÉS de la baja: si es > 0, sigue checando (¿la baja fue un error?). */
   checadas_desde_baja: number;
+}
+
+/**
+ * `[RH.14.1]` Después de una baja: la persona ya no tiene NINGUNA plaza activa. Si `archivable` (no tiene acceso a la
+ * Suite), la pantalla propone archivarla también como persona (Edgar, D3 del 18-nov); si tiene acceso, lo hace Sistemas.
+ */
+export interface HrSinPlazasDto {
+  user_id: string;
+  nombre: string | null;
+  archivable: boolean;
+}
+
+/** `POST /hr/attendance/enrollments/site-profile/deactivate`. */
+export interface HrBajaResultadoDto {
+  ok: true;
+  /** Presente sólo si con esta baja la persona se quedó sin plazas activas. */
+  sin_plazas?: HrSinPlazasDto;
+}
+
+/** `[RH.14.6]` `POST /hr/attendance/enrollments/site-profile/deactivate-batch` — varias bajas en una plaza, con un motivo. */
+export interface HrBajaLoteBody {
+  site_code: string;
+  person_codes: string[];
+  motivo: string;
+}
+
+/** Cada baja es independiente: las que fallan no deshacen las demás, y se dicen por código. */
+export interface HrBajaLoteResultadoDto {
+  dados_de_baja: string[];
+  fallaron: Array<{ person_code: string; error: string }>;
+  sin_plazas: HrSinPlazasDto[];
+}
+
+/** `[RH.14.1]` `POST /hr/attendance/enrollments/person/archive` — archivar a la persona (sin acceso y sin plazas activas). */
+export interface HrArchivarPersonaBody {
+  user_id: string;
+  motivo: string;
+}
+
+/** `[RH.14.6]` `GET /hr/attendance/enrollments/site-profiles/stale?site_code=&days=` — quién lleva N días sin checar. */
+export interface HrPosibleBajaDto {
+  person_code: string;
+  user_id: string;
+  nombre: string | null;
+  seccion: string | null;
+  promotora: boolean;
+  ultima_checada: string | null;
+  /** null = nunca checó en esta plaza (no se sabe desde cuándo). */
+  dias_sin_checar: number | null;
+  /** En cuántas OTRAS plazas sigue activa: si es 0, con la baja se queda sin ninguna. */
+  otras_plazas_activas: number;
+}
+
+export interface HrPosiblesBajasResponse {
+  site_code: string;
+  dias: number;
+  filas: HrPosibleBajaDto[];
+  /** No se proponen: una incidencia que justifica la ausencia toca el tramo sin checar. */
+  explicadas: Array<HrPosibleBajaDto & { incidencia: { etiqueta: string; desde: string; hasta: string } }>;
+}
+
+/**
+ * `[RH.14.3]` `GET /hr/attendance/enrollments/site-profile?site_code=&person_code=` — la ficha completa de una persona en
+ * una plaza: cómo está en cada reloj, su ficha de la plaza y lo que es de la persona (departamento, puesto, sucursal).
+ */
+export interface HrFichaPersonaDto {
+  site_code: string;
+  person_code: string;
+  user_id: string | null;
+  nombre: string | null;
+  /** Tiene un rol distinto de `sin_acceso`: su departamento, puesto y sucursal los cambia Sistemas (el nombre, RH). */
+  con_acceso: boolean;
+  /** `terminated` = archivada. */
+  status: string | null;
+  activa_en_plaza: boolean;
+  seccion: string | null;
+  promotora: boolean;
+  departamento_code: string | null;
+  puesto_code: string | null;
+  sucursal_code: string | null;
+  zona_nombre: string | null;
+  relojes: Array<{ device_label: string | null; serial_number: string; device_user_id: string; nombre_reloj: string | null }>;
+  /** Cómo quedaría su nombre de la Suite en el reloj (23 caracteres, sin acentos); null sin nombre. */
+  nombre_para_reloj: string | null;
+  /** `[RH.14.4]` Su nombre es el apodo del reloj o tiene menos de 3 palabras (la regla de «nombres por confirmar»). */
+  nombre_por_confirmar: 'apodo_del_reloj' | 'menos_de_3_palabras' | null;
+  /** Plazas activas de la persona, contando ésta. */
+  plazas_activas: number;
+}
+
+/** `[RH.14.5]` `GET /hr/attendance/enrollments/catalogs` — lo que se elige en la ficha. */
+export interface HrCatalogosFichaDto {
+  departamentos: Array<{ code: string; name: string }>;
+  puestos: Array<{ code: string; name: string; department_code: string | null }>;
+  sucursales: Array<{ code: string; name: string; zone_name: string | null }>;
+}
+
+/** `[RH.14.4]` `GET /hr/attendance/enrollments/names-to-confirm` — personas activas (con o sin acceso) cuyo nombre es un apodo. */
+export interface HrNombrePorConfirmarDto {
+  user_id: string;
+  nombre: string;
+  motivo: 'apodo_del_reloj' | 'menos_de_3_palabras';
+  /** El apodo de su reloj (el primero que tenga), para reconocerla. */
+  nombre_reloj: string | null;
+  /** Sus plazas activas: el nombre se guarda por la primera y se puede mandar a los relojes de todas. */
+  plazas: Array<{ site_code: string; site_name: string; person_code: string }>;
+  /** La última vez que algún reloj la reportó como enrolada (`last_seen_at`): NO es su última checada. */
+  visto_en_reloj: string | null;
+}
+
+export interface HrNombresPorConfirmarResponse {
+  filas: HrNombrePorConfirmarDto[];
+  total: number;
 }
 
 export interface HrLigarResultadoDto {

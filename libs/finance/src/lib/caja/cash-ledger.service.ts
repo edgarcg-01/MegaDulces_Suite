@@ -670,7 +670,9 @@ export class CashLedgerService {
       `El desglose (efectivo + crédito) no cuadra con el monto: ${v.suma.toFixed(2)} contra `
       + `${Number(monto).toFixed(2)} (diferencia ${Math.abs(v.diferencia).toFixed(2)}).`
       // `[CGA-A.56.2]` Una pestaña abierta antes del cambio cuenta sólo «lo del cajón»: decirle por qué.
-      + (v.cubierto > 0 ? ' El retiro de CAOS ya no se descuenta: cuenta todo lo que se entregó y recarga la pantalla.' : ''),
+      + (v.cubierto > 0 ? ' El retiro de CAOS ya no se descuenta: cuenta todo lo que se entregó y recarga la pantalla.' : '')
+      // `[LE.6.33]` Un cobro depositado: lo que cubre el depósito no se cuenta; lo demás sí.
+      + (v.depositado > 0 ? ` El depósito de CAOS cubre ${v.depositado.toFixed(2)}: cuenta en la reja sólo lo que se quedó en el cajón.` : ''),
     );
   }
 

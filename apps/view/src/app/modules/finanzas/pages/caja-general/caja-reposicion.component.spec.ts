@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import type { ResumenLote } from '../../cash-ledger.service';
+import { describe, expect, it, vi } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import { provideZonelessChangeDetection } from '@angular/core';
+import { provideRouter } from '@angular/router';
+import { MessageService } from 'primeng/api';
+import { NEVER, Subject, throwError, type Observable } from 'rxjs';
+import type { HojaGastos, PagoHojaResultado, ReposicionDoc, ReposicionVinculo } from '@megadulces/contracts';
+import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
+import { CaosService } from '../../caos.service';
+import { AuthService } from '../../../../core/services/auth.service';
+import { PermissionsService } from '../../../../core/services/permissions.service';
 import { money } from '../finanzas-format';
-import { avisoDeReposicion } from './caja-reposicion.component';
+import { avisoDePagoHoja, avisoDeReposicion, CajaReposicionComponent } from './caja-reposicion.component';
 
 /**
  * El aviso de «Reponer». Canindo 30/10 (2026-10-30): decía «0 de 1… 1 no se pudieron» y el servidor
@@ -62,5 +71,159 @@ describe('avisoDeReposicion · lo que no entró dice cuál y por qué', () => {
   it('[negativa] un rechazo sin motivo lo dice, en vez de dejar el hueco', () => {
     const a = avisoDeReposicion(lote({ filas: [{ origen_ref: 'ref-suelta', estado: 'rechazado' }], rechazados: 1 }), 1, []);
     expect(a.detail).toContain('ref-suelta: el servidor no dijo por qué.');
+  });
+});
+
+// ── `[LE.6.34]` Las ventanas de Reposición, montadas y usadas como las usaría la cajera ─────────────
+
+class ResizeObserverStub { observe(): void { /* no-op */ } unobserve(): void { /* no-op */ } disconnect(): void { /* no-op */ } }
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+
+/** Una hoja de zona aprobada que se paga del cajón: $1,000. */
+const HOJA_CAJON = { id: 'h1', folio: 'HG-1', total: 1000, retiros_que_cuadran: [], renglones: [] } as unknown as HojaGastos;
+
+function montar(pago: () => Observable<PagoHojaResultado> = () => NEVER) {
+  const api = {
+    reposicion: vi.fn(() => NEVER), hojasDeGastos: vi.fn(() => NEVER),
+    pagarHojaDeGastos: vi.fn(pago), pagarHojaAbierta: vi.fn(() => NEVER), capturarHojaDeGastos: vi.fn(() => NEVER),
+  };
+  const toast = { add: vi.fn() };
+  TestBed.configureTestingModule({
+    imports: [CajaReposicionComponent],
+    providers: [
+      provideZonelessChangeDetection(), provideRouter([]),
+      { provide: CashLedgerService, useValue: api },
+      { provide: CaosService, useValue: { moverVinculo: vi.fn(() => NEVER) } },
+      { provide: MessageService, useValue: toast },
+      { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
+      { provide: PermissionsService, useValue: { has: () => true, hasAny: () => true, isAdmin: () => false, isSuperadmin: () => true, cargado: () => true } },
+    ],
+  });
+  const fixture = TestBed.createComponent(CajaReposicionComponent);
+  fixture.componentRef.setInput('puedeGestionar', true);
+  fixture.detectChanges();
+  const comp = fixture.componentInstance;
+  const pinta = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
+  const boton = (testid: string) => document.body.querySelector<HTMLButtonElement>(`[data-testid="${testid}"] button, button[data-testid="${testid}"]`);
+  /** Abre el arqueo de lo que sale del cajón para la hoja de $1,000. */
+  const abrirConteo = async () => { comp.elegirHoja(HOJA_CAJON, 'cajon'); comp.pagarHoja(HOJA_CAJON); await pinta(); };
+  return { fixture, comp, api, toast, pinta, boton, abrirConteo };
+}
+
+describe('[LE.6.34] Reposición · el arqueo de lo que sale del cajón', () => {
+  it('con piezas, «Volver» pregunta y la ventana sigue abierta (sin X); sin piezas cierra directo', async () => {
+    const m = montar();
+    await m.abrirConteo();
+    expect(m.comp.contando()?.clave).toBe('hoja|h1');
+    // Control: limpia, la X está y «Volver» cierra.
+    expect(document.body.querySelector('.p-dialog [aria-label="Cerrar"]')).not.toBeNull();
+    m.comp.conteoPiezas.set({ '500': 1 });
+    await m.pinta();
+    expect(document.body.querySelector('.p-dialog [aria-label="Cerrar"]')).toBeNull();
+    m.boton('dc-cancelar')!.click();
+    await m.pinta();
+    expect(m.comp.contando()).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="dc-pregunta"]')).not.toBeNull();
+    m.boton('dc-descartar')!.click();
+    await m.pinta();
+    expect(m.comp.contando()).toBeNull();
+    expect(m.comp.conteoPiezas()).toEqual({});
+
+    await m.abrirConteo();
+    m.boton('dc-cancelar')!.click();
+    await m.pinta();
+    expect(m.comp.contando()).toBeNull();
+  });
+
+  it('reabrir el arqueo del MISMO pago conserva las piezas', async () => {
+    const m = montar();
+    await m.abrirConteo();
+    m.comp.conteoPiezas.set({ '500': 1 });
+    m.comp.cerrarConteo();
+    await m.abrirConteo();
+    expect(m.comp.conteoPiezas()).toEqual({ '500': 1 });
+  });
+
+  it('mientras paga, «Volver» está apagado y la ventana no se cierra', async () => {
+    const enVuelo = new Subject<PagoHojaResultado>();
+    const m = montar(() => enVuelo);
+    await m.abrirConteo();
+    m.comp.conteoPiezas.set({ '1000': 1 });
+    await m.pinta();
+    expect(m.comp.conteoListo()).toBe(true);
+    m.boton('rp-pagar-conteo')!.click();
+    await m.pinta();
+    expect(m.api.pagarHojaDeGastos).toHaveBeenCalledTimes(1);
+    expect(m.boton('dc-cancelar')!.disabled).toBe(true);
+    m.comp.cerrarConteo();
+    m.comp.descartarConteo();
+    await m.pinta();
+    expect(m.comp.contando()).not.toBeNull();
+    expect(m.comp.conteoPiezas()).toEqual({ '1000': 1 });
+  });
+
+  it('Enter en la última pieza lleva el foco a «Pagar…», no a «Volver»', async () => {
+    const m = montar();
+    await m.abrirConteo();
+    m.comp.conteoPiezas.set({ '1000': 1 });
+    await m.pinta();
+    const campos = [...document.body.querySelectorAll<HTMLInputElement>('.p-dialog input.cc-in')];
+    expect(campos.length).toBeGreaterThan(3);
+    const ultimo = campos[campos.length - 1];
+    ultimo.focus();
+    ultimo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(m.boton('rp-pagar-conteo'));
+    // Y nada se descartó.
+    expect(m.comp.contando()).not.toBeNull();
+  });
+
+  it('si el pago falla, el error aparece DENTRO de la ventana (role="alert"), no en un toast detrás', async () => {
+    const m = montar(() => throwError(() => ({ status: 409, error: { message: 'El cajón no alcanza para HG-1' } })));
+    await m.abrirConteo();
+    m.comp.conteoPiezas.set({ '1000': 1 });
+    await m.pinta();
+    m.boton('rp-pagar-conteo')!.click();
+    await m.pinta();
+    const err = document.body.querySelector('.p-dialog [data-testid="rp-conteo-err"]');
+    expect(err?.getAttribute('role')).toBe('alert');
+    expect(err?.textContent).toContain('El cajón no alcanza para HG-1');
+    expect(m.toast.add).not.toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }));
+    // Las piezas siguen: se corrige y se reintenta sin volver a contar.
+    expect(m.comp.conteoPiezas()).toEqual({ '1000': 1 });
+  });
+});
+
+describe('[LE.6.34] Reposición · «Cambiar de retiro» en vuelo', () => {
+  it('mientras cambia no se cierra: sin X y «Cancelar» apagado (antes Esc la dejaba trabada)', async () => {
+    const m = montar();
+    m.comp.abrirMover({ link_id: 'l1', monto: 100, ref: 'gnf', external_id: 9 } as unknown as ReposicionVinculo,
+      { folio: 'X-1', cg_folio: null } as unknown as ReposicionDoc);
+    await m.pinta();
+    expect(document.body.querySelector('.p-dialog [aria-label="Cerrar"]')).not.toBeNull();
+    m.comp.ocupado.set('mover');
+    await m.pinta();
+    expect(document.body.querySelector('.p-dialog [aria-label="Cerrar"]')).toBeNull();
+    expect(m.boton('rp-mover-cancelar')!.disabled).toBe(true);
+  });
+});
+
+describe('[LE.6.34] avisoDePagoHoja · lo que no entró dice TODOS sus motivos y se queda', () => {
+  const resultado = (sin: PagoHojaResultado['sin_capturar']) => ({
+    sin_capturar: sin,
+    hoja: { renglones: [{ origen_ref: 'r1', doc_tipo: 'X-D-26', folio: '0000001' }, { origen_ref: 'r2', doc_tipo: 'X-D-26', folio: '0000002' }] },
+  }) as unknown as PagoHojaResultado;
+
+  it('dos motivos distintos: los nombra los dos, con su folio, y es sticky', () => {
+    const a = avisoDePagoHoja(resultado([{ origen_ref: 'r1', motivo: 'Falta la cuenta contable.' }, { origen_ref: 'r2', motivo: 'El beneficiario no existe' }]),
+      '1 pago quedó explicado por el cajón.');
+    expect(a.detail).toContain('X-D-26 0000001: Falta la cuenta contable');
+    expect(a.detail).toContain('X-D-26 0000002: El beneficiario no existe');
+    expect(a.severity).toBe('warn');
+    expect(a.sticky).toBe(true);
+  });
+
+  it('[control] todo entró: verde y se va solo', () => {
+    const a = avisoDePagoHoja(resultado([]), '2 pagos quedaron explicados por el cajón.');
+    expect(a).toEqual({ severity: 'success', detail: '2 pagos quedaron explicados por el cajón.', sticky: false });
   });
 });

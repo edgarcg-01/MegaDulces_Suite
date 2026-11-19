@@ -20,6 +20,7 @@ import { SegmentedComponent, type SegOption } from '../../../../shared/component
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
+import { DevolverFocoDirective } from '../../../../shared/directives/devolver-foco.directive';
 import { money, dmy } from '../finanzas-format';
 
 // ── Los huecos (`GET /finance/caja/cuadre-huecos`, motor `caja-huecos.engine.ts`) ────────────────
@@ -202,7 +203,7 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, DialogModule, InputTextModule,
-    MetricStripComponent, FreshnessPillComponent, LoadStateComponent, ContextHelpComponent, SegmentedComponent, SidePeekComponent, CajaTabsComponent],
+    MetricStripComponent, FreshnessPillComponent, LoadStateComponent, ContextHelpComponent, SegmentedComponent, SidePeekComponent, CajaTabsComponent, DevolverFocoDirective],
   template: `
     <app-caja-tabs />
     <div class="surf-page in">
@@ -458,13 +459,15 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
           <input pInputText type="search" class="cc-buscar" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)"
                  placeholder="Buscar concepto o monto…" aria-label="Buscar en el día" />
         </div>
+        <!-- [LE.6.34] dt-scope: sin ese ancestro, dt-stack no apila en celular (dense-table.css). -->
+        <div class="dt-scope">
         <p-table [value]="detVista(cd)" size="small" dataKey="key" class="surf-table surf-table--plain dt-stack">
           <ng-template #header>
             <tr>
-              <th>Movimiento</th>
-              <th class="ta-r comm-num">Caja</th>
-              <th class="ta-r comm-num">Kepler</th>
-              <th>Par</th>
+              <th scope="col">Movimiento</th>
+              <th scope="col" class="ta-r comm-num">Caja</th>
+              <th scope="col" class="ta-r comm-num">Kepler</th>
+              <th scope="col">Par</th>
             </tr>
           </ng-template>
           <ng-template #body let-e>
@@ -484,10 +487,11 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
           </ng-template>
           <ng-template #emptymessage><tr><td colspan="4" class="ta-c muted tw-empty">Sin movimientos con este filtro.</td></tr></ng-template>
         </p-table>
+        </div>
       }
     </app-side-peek>
 
-    <p-dialog [visible]="movOpen()" (visibleChange)="movOpen.set($event)" [modal]="true" [dismissableMask]="true"
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="movOpen()" (visibleChange)="movOpen.set($event)" [modal]="true" [dismissableMask]="true"
               [style]="{ width: '34rem', maxWidth: '94vw' }" [draggable]="false" [header]="mov()?.title || 'Movimiento'">
       @if (movLoad()) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Cargando detalle…</span></div> }
       @else if (movErr(); as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }

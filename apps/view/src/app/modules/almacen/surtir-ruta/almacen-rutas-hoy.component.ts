@@ -41,10 +41,14 @@ function plural(n: number, uno: string, varios: string): string {
   imports: [LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (cargando() || error() || rutas().length) {
+    <!-- [GP.RF.35] La PRIMERA carga no pinta el esqueleto: sin rutas (lo común por la tarde; 0 de 9 sucursales
+         el 2026-11-17 a las 18 h) el bloque de 181 px aparecía y se iba, y la lista de pedidos saltaba
+         (medido a 390 px con Playwright). Ya cargada una vez, el esqueleto sí acompaña al reintento. -->
+    @if ((cargando() && cargadoAl() !== null) || error() || rutas().length) {
       <section class="rh" aria-labelledby="rh-titulo">
         <div class="rh-head">
-          <h3 class="rh-h3" id="rh-titulo">Rutas de hoy</h3>
+          <!-- [GP.RF.38] h2: cuelga del h1 «Surtir» (antes h3 sin h1 ni h2 arriba). -->
+          <h2 class="rh-h3" id="rh-titulo">Rutas de hoy</h2>
           <app-freshness-pill measures="fetch" [since]="cargadoAl()"></app-freshness-pill>
         </div>
         <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="false" [skeletonRows]="2"

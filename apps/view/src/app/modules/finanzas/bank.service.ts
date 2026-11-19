@@ -265,6 +265,13 @@ export interface ThreeWayAccount {
   comparable: boolean;
   /** Peor desviación contra el banco entre las fuentes disponibles, y de cuál viene. */
   worst_delta: number; worst_abs: number; worst_src: 'K' | 'C' | null;
+  /**
+   * [CB.85] De dónde sale «Banco»: la descarga del banco si su cuadre por saldos va de punta a punta, si no el libro de
+   * Tesorería (`banco_motivo` dice por qué, cuando tiene una descarga que no cuadra). Opcionales: API anterior = libro.
+   */
+  banco_fuente?: 'descarga' | 'libro'; banco_desde?: string | null; banco_hasta?: string | null; banco_motivo?: string | null;
+  /** [CB.85] Pólizas sin pareja en el banco cargado: no entran a cp_in/cp_out. */
+  cp_sin_pareja_in?: number; cp_sin_pareja_out?: number;
 }
 /**
  * Frescura de una fuente en el periodo. `pct` es cobertura EN DÍAS (hasta qué día del mes
@@ -290,6 +297,26 @@ export interface ThreeWay {
   por_cuenta: ThreeWayAccount[];
   coverage: ThreeWayCoverage;
   kepler_movs: number; kepler_linked: number; kepler_por_cuenta: boolean; nota: string;
+  /** [CB.82] Qué días se compararon. Ausente si el API todavía no lo manda: se trata como mes entero. */
+  ventana?: ThreeWayVentana;
+}
+
+/**
+ * [CB.82] La ventana del cuadre, por cuenta. Si el estado de cuenta de una cuenta va atrasado, sus tres
+ * fuentes se comparan sólo hasta su último día (`cortes[cuenta]`) y lo posterior de Kepler y ContPAQi va
+ * en `fuera`. `hasta` es el día común cuando todas las recortadas comparten uno (una sola carga).
+ */
+export interface ThreeWayVentana {
+  desde: string; esperado: string; cortes: Record<string, string>;
+  hasta: string | null; corte_min: string | null; dias_atras: number | null;
+  /** El día de corte se cargó ese mismo día: puede venir incompleto. */
+  dia_parcial?: boolean;
+  /** [CB.85] El mes ya terminó (en el mes en curso ContPAQi entra sólo por pareja con el banco). */
+  mes_cerrado?: boolean;
+  /** [CB.85] Cuentas que usan la descarga del banco (desde/hasta), y por qué las que tienen descarga siguen con el libro. */
+  banco?: { descarga: Record<string, { desde: string; hasta: string }>; libro_motivo: Record<string, string> };
+  /** Kepler: posterior al último día del banco. [CB.85] ContPAQi: sin pareja en el banco cargado. */
+  fuera: { kepler: { in: number; out: number; movs: number }; contpaqi: { in: number; out: number; movs: number } } | null;
 }
 
 /** CB.30 — Cheques en tránsito (gap de timing banco↔Kepler). */
@@ -309,7 +336,8 @@ export type BankMovSource = 'workbook' | 'kepler' | 'contpaqi';
 export interface BankMovDetail { source: BankMovSource; title: string; fields: { label: string; value: string | number | null }[] }
 export type ReconStatus = 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_categoria' | 'sin_match';
 export interface ThreeWayDetailExcel {
-  id: string; source: 'workbook'; key: string; fecha: string; concepto: string | null; codigo: string | null;
+  /** [CB.85] `descarga`: renglón que sólo trae la descarga del banco (el libro no lo tiene). */
+  id: string; source: 'workbook' | 'descarga'; key: string; fecha: string; concepto: string | null; codigo: string | null;
   dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean; recon: ReconStatus;
   kepler_importe: number | null; contpaqi_importe: number | null;
   kepler_doc: string | null; contpaqi_poliza: string | null;
@@ -328,8 +356,13 @@ export interface ThreeWayDetail {
      * CB.50 — por qué no casó, resuelto en el backend para que todas las vistas cuenten lo mismo.
      * `otro_periodo` y `banco_agrupa` están EXPLICADOS; sólo `sin_casar` es excepción a investigar.
      */
-    motivo?: 'otro_periodo' | 'banco_agrupa' | 'sin_casar' }[];
-  contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
+    motivo?: 'otro_periodo' | 'despues_del_banco' | 'banco_agrupa' | 'sin_casar' }[];
+  contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null;
+    /**
+     * [CB.85] Sin pareja en el banco cargado mientras el banco no cubre el mes: su abono puede llegar después (ContPAQi
+     * fecha el depósito antes que el banco). Queda fuera del cuadre; no es todavía una póliza sin banco.
+     */
+    sin_banco_cargado?: boolean }[];
   recon_totals: Record<ReconStatus, { n: number; monto: number }>;
   agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
   totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
@@ -339,7 +372,13 @@ export interface ThreeWayDetail {
     /** CB.50 — partición de `kepler_only`: los tres n suman `kepler_only_n`. */
     kepler_only_banco_agrupa_n?: number; kepler_only_banco_agrupa_monto?: number;
     kepler_only_sin_casar_n?: number; kepler_only_sin_casar_monto?: number;
-    contpaqi_only_n: number; contpaqi_only_monto: number };
+    contpaqi_only_n: number; contpaqi_only_monto: number;
+    kepler_only_despues_n?: number; kepler_only_despues_monto?: number;
+    contpaqi_only_sin_banco_n?: number; contpaqi_only_sin_banco_monto?: number };
+  /** [CB.82] Último día comparado de esta cuenta; `null` = el mes entero. */
+  banco_hasta?: string | null;
+  /** [CB.85] De dónde sale el banco de esta cuenta, desde qué día manda la descarga y por qué no, si no. */
+  banco_fuente?: 'descarga' | 'libro'; banco_desde?: string | null; banco_motivo?: string | null;
 }
 
 export interface ThreeWayDailyRow {

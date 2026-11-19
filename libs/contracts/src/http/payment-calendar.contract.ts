@@ -77,6 +77,19 @@ export interface PaymentCalendarItemDiscountResult {
   amount_assigned: number;
 }
 
+/**
+ * `[PGP.148]` `POST allocations/:id/ajustar-al-saldo` — baja cada factura del pago a lo que debe HOY en Kepler (nunca
+ * sube). Sólo en un pago pendiente, sin autorizar, que no haya salido del banco. Lo que no se ajusta dice por qué.
+ */
+export interface PaymentCalendarAjusteAlSaldo {
+  allocation_id: string;
+  /** El total del pago antes y después. */
+  antes: number;
+  amount_assigned: number;
+  ajustadas: { item_id: string; factura: string; antes: number; despues: number }[];
+  omitidas: { item_id: string; factura: string; motivo: string }[];
+}
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */
@@ -133,6 +146,11 @@ export interface PaymentCalendarAllocationItem {
    * La pantalla NO debe leer ese «—» como «beneficiario desconocido».
    */
   kepler_saldada: boolean;
+  /**
+   * `[PGP.147]` Lo que la factura debe HOY en Kepler (`v_supplier_payables.pendiente`). 0 si está saldada; null si
+   * no es factura de Kepler o la API es anterior (NO MEDIDO).
+   */
+  kepler_debe?: number | null;
 
   /**
    * `[PGP.36]` **Por qué esta factura está en el día**, con la ventana de pronto pago que ya
@@ -236,6 +254,57 @@ export interface PagosAtrasadosDia {
   /** `[PGP.95]` Los pendientes que Kepler ya saldó por completo: no faltan, se dicen aparte. */
   conciliados: number;
   conciliados_monto: number;
+  /**
+   * `[PGP.146]` Los pendientes que la descarga del banco ya muestra salidos (y Kepler todavía no salda): tampoco
+   * «siguen» por pagar. Auditoría del 2026-11-18: el aviso contaba 65 y 20 ya habían salido. Ausente = API anterior.
+   */
+  salidos?: number;
+  salidos_monto?: number;
+}
+
+/**
+ * `[PGP.146]` **Lo que dice la descarga del propio banco de un pago pendiente cuyo día ya llegó.** Se LEE de
+ * la descarga que Finanzas sube a diario, uno a uno (±$1, ±3 días, la misma regla que marca pagado por el
+ * banco); no marca pagado ni escribe en Kepler. Existe porque el estado de cuenta del Calendario sólo recibe
+ * la descarga cuando la cuenta «usa el banco»: sin esto, un pago que ya salió se veía «por preparar».
+ * - `salio`: la salida está, en una sola cuenta y sin otro pago que la reclame.
+ * - `sin_salida`: no está en lo revisado; `sin_cubrir` nombra las cuentas cuya descarga no llega a esos días
+ *   (ahí no se puede afirmar nada: puede haber salido de una de ellas).
+ * - `no_decide`: el banco no lo decide solo (dos cuentas, dos salidas, otro pago la reclama, cheque o efectivo).
+ */
+export type SalidaSegunLaDescarga =
+  | { estado: 'salio'; fecha: string; cuenta_id: string; cuenta: string; importe: number }
+  | { estado: 'sin_salida'; revisadas: number; sin_cubrir: { cuenta: string; hasta: string | null }[] }
+  | { estado: 'no_decide'; motivo: string };
+
+/** `[PGP.147]` Un abono que Kepler aplicó a la factura: pago, nota de crédito, devolución o anticipo. */
+export interface AbonoQueBajoElSaldo {
+  /** `55-0001512`: tipo y folio en Kepler. */
+  doc: string;
+  clase: string;
+  fecha: string | null;
+  monto: number;
+}
+
+/** `[PGP.147]` Una factura del pago que hoy debe MENOS de lo que el pago le lleva. */
+export interface FacturaQueDebeMenos {
+  item_id: string;
+  factura: string;
+  programado: number;
+  debe: number;
+  de_mas: number;
+  /** Lo que Kepler le aplicó, el más nuevo primero: lo que explica por qué debe menos. */
+  abonos: AbonoQueBajoElSaldo[];
+}
+
+/**
+ * `[PGP.147]` **El pago lleva más de lo que se debe** (caso Mondelez, 13-nov: una nota de crédito de $120,000
+ * aplicada el 12 y el pago salió completo). Sólo en pagos pendientes; la factura saldada por completo va aparte
+ * (`kepler_saldadas`).
+ */
+export interface DebeMenosDelPago {
+  de_mas: number;
+  facturas: FacturaQueDebeMenos[];
 }
 
 export interface PaymentCalendarAllocation {
@@ -297,6 +366,13 @@ export interface PaymentCalendarAllocation {
    * comprobante (`validarPagos`, `[PGP.103]`). Null en un día por venir (no se ha pagado) o si la API es anterior.
    */
   validacion?: ValidacionPago | null;
+  /**
+   * `[PGP.146]` Sólo en un pago PENDIENTE cuyo día ya llegó: qué dice la descarga del banco. Null en los
+   * demás; ausente = API anterior (NO MEDIDO, no «sin salida»).
+   */
+  banco_descarga?: SalidaSegunLaDescarga | null;
+  /** `[PGP.147]` Sólo en un pago PENDIENTE: lo que lleva de más contra el saldo de hoy en Kepler. Null = nada; ausente = API anterior. */
+  debe_menos?: DebeMenosDelPago | null;
   /** `[PGP.107]` La evidencia guardada al marcar Pagado (null = sin marcar, efectivo, o anterior a PGP.107). */
   paid_bank_movement_id?: string | null;
   paid_proof_id?: string | null;

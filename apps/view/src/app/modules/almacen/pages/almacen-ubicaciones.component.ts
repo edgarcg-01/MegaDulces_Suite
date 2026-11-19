@@ -25,6 +25,7 @@ import { validarMovimiento, Veredicto } from '../shared/mover-lote';
 // queda como deuda con nombre (lo está editando otra rama y moverlos ahora
 // sería pelearse por el mismo archivo).
 import { ScanFieldComponent } from '../anden/components/scan-field.component';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 import { AndenCartelComponent, CartelUbicacion } from '../anden/components/anden-cartel.component';
 
 /** Una ubicación con lo que la pantalla deriva para poder ordenarla y filtrarla. */
@@ -87,7 +88,7 @@ interface UbicacionFila extends WarehouseBin {
         </div>
         <div class="ub-head-actions">
           <p-select [options]="warehouseOptions()" [(ngModel)]="warehouseId" optionLabel="label"
-            optionValue="value" placeholder="Almacén" (onChange)="reload()" styleClass="ub-w"></p-select>
+            optionValue="value" placeholder="Almacén" (onChange)="cambiarAlmacen()" styleClass="ub-w"></p-select>
           <button pButton [text]="true" size="small" severity="secondary" (click)="reload()" [loading]="loading()">
             <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
           </button>
@@ -128,7 +129,7 @@ interface UbicacionFila extends WarehouseBin {
             @for (c of escaneoCandidatos(); track c.id) {
               <button type="button" class="ub-scan-cand" (click)="abrirDesdeLookup(c)">
                 <b>{{ c.code }}</b>
-                <span>{{ c.warehouse_code }} · {{ c.warehouse_name || '' }}</span>
+                <span>{{ c.warehouse_name || c.warehouse_code }}</span>
               </button>
             }
           </div>
@@ -493,7 +494,7 @@ interface UbicacionFila extends WarehouseBin {
     .ub-mv-bin { flex: 1 1 0; min-width: 0; text-align: center; padding: .6rem;
       border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--card-bg); }
     .ub-mv-bin--on { border-color: var(--action); border-width: 2px; }
-    .ub-mv-lbl { display: block; font-size: .66rem; font-weight: 700; letter-spacing: .06em;
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ .ub-mv-lbl { display: block; font-size: var(--fs-micro); font-weight: 700; letter-spacing: .06em;
       text-transform: uppercase; color: var(--text-muted); }
     .ub-mv-bin strong { display: block; margin-top: .2rem; font-family: var(--font-mono, monospace);
       font-size: 1.35rem; font-variant-numeric: tabular-nums; }
@@ -568,7 +569,7 @@ export class AlmacenUbicacionesComponent implements OnInit {
   readonly tipos = TIPOS_UBICACION;
 
   readonly warehouses = signal<Warehouse[]>([]);
-  readonly warehouseOptions = computed(() => this.warehouses().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
+  readonly warehouseOptions = computed(() => this.warehouses().map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */);
   warehouseId = '';
 
   readonly bins = signal<WarehouseBin[]>([]);
@@ -676,9 +677,24 @@ export class AlmacenUbicacionesComponent implements OnInit {
 
   ngOnInit(): void {
     this.comercial.listWarehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (ws: Warehouse[]) => this.warehouses.set(ws || []),
+      next: (ws: Warehouse[]) => {
+        this.warehouses.set(ws || []);
+        // [UB.RF.7] Antes abría vacío («elige un almacén») aunque la persona viniera de elegirlo en el
+        // Mapa. Abre el que eligió en Ubicaciones; si no, el suyo; si sólo maneja uno, ése.
+        if (this.warehouseId) return;
+        const lista = ws || [];
+        const suyo = lista.find((w) => w.code === this.auth.user()?.warehouse_code)?.id ?? (lista.length === 1 ? lista[0].id : null);
+        const elegido = elegirAlmacen(lista, suyo);
+        if (elegido) { this.warehouseId = elegido; this.reload(); }
+      },
       error: () => this.warehouses.set([]),
     });
+  }
+
+  /** [UB.RF.7] Cambiar de almacén aquí lo recuerda también para el Mapa y Asignación. */
+  cambiarAlmacen(): void {
+    guardarAlmacenPreferido(this.warehouseId);
+    this.reload();
   }
 
   reload(): void {

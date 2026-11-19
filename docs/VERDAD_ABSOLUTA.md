@@ -1,52 +1,53 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 394 KB, 5806 líneas, 40 secciones.
+> **Índice navegable** — 402 KB, 5911 líneas, 41 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 53 | 68 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 69 | 85 | 1 | 0. Qué es este documento, y qué NO es |
-| 86 | 194 | 6 | 1. Las siete reglas |
-| 195 | 231 | 10 | 2. El estado, en una tabla |
-| 232 | 394 | 10 | 3. Existencia |
-| 395 | 619 | 12 | 4. Ventas y unidades |
-| 620 | 651 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 652 | 728 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 729 | 799 | 5 | 6. Las trampas que ya cobraron |
-| 800 | 857 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 858 | 902 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 903 | 1104 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1105 | 1210 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1211 | 1411 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1412 | 1728 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1729 | 1748 | 2 | 10. Cómo se verifica |
-| 1749 | 1771 | 1 | 11. Lo que este documento no cubre |
-| 1772 | 1847 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1848 | 2007 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2008 | 2422 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2423 | 2663 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2664 | 2856 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2857 | 2899 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2900 | 2998 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2999 | 3472 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3473 | 3580 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3581 | 3735 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3736 | 3887 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3888 | 4093 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4094 | 4183 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4184 | 4373 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4374 | 4442 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4443 | 4737 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4738 | 4955 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4956 | 5208 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5209 | 5254 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5255 | 5339 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5340 | 5436 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
-| 5437 | 5795 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
-| 5796 | 5858 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
+| 54 | 69 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 70 | 86 | 1 | 0. Qué es este documento, y qué NO es |
+| 87 | 195 | 6 | 1. Las siete reglas |
+| 196 | 232 | 10 | 2. El estado, en una tabla |
+| 233 | 395 | 10 | 3. Existencia |
+| 396 | 620 | 12 | 4. Ventas y unidades |
+| 621 | 652 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 653 | 729 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 730 | 800 | 5 | 6. Las trampas que ya cobraron |
+| 801 | 858 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 859 | 903 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 904 | 1105 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1106 | 1211 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1212 | 1412 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1413 | 1729 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1730 | 1749 | 2 | 10. Cómo se verifica |
+| 1750 | 1772 | 1 | 11. Lo que este documento no cubre |
+| 1773 | 1848 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1849 | 2008 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2009 | 2423 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2424 | 2664 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2665 | 2857 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2858 | 2900 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2901 | 2999 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 3000 | 3473 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3474 | 3581 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3582 | 3736 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3737 | 3888 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3889 | 4094 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4095 | 4184 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4185 | 4374 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4375 | 4443 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4444 | 4738 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4739 | 4956 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4957 | 5209 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5210 | 5255 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5256 | 5340 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5341 | 5437 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 5438 | 5796 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 5797 | 5861 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
+| 5862 | 5964 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5855,3 +5856,108 @@ scratchpad de la sesión): no se pueden volver a correr desde aquí hasta que se
 
 **Medición reproducible:** consultas de sólo lectura contra `pg-prod` el 2026-11-05; los guiones viven
 fuera del repo (scratchpad de la sesión).
+
+---
+
+## 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y ContPAQi no tiene fecha de banco (CB.82, 2026-11-18)
+
+> Pedido de Edgar (2026-11-18): *«hay que escribir una verdad absoluta del mismo, apliquemos ingeniería inversa
+> para ver de dónde obtener la misma»*. Nace de la auditoría de `/finanzas/bancos?view=cuadre` y de `[CB.82]`, cuya
+> regla para ContPAQi se escribió **sin** leer este documento y salió refutada al probarla contra una respuesta
+> conocida (§38.5). Todo medido en `pg-prod` en sólo lectura (identidad verificada por `system_identifier`), sin
+> pantalla viva.
+
+### 38.1 De dónde sale cada columna (ingeniería inversa)
+
+| Columna del Cuadre | Tabla que lee | Cómo se llena | Fuente primaria | ¿Testigo externo? |
+|---|---|---|---|---|
+| **«Banco» (Workbook)** | `finance.bank_statements.total_in/out` (+ `bank_movements`) | `.xlsx` del libro CUENTAS subido por pantalla (`importStatement`) | **el libro de Tesorería, llenado a mano** (§37) | ⛔ **no**: es una transcripción del banco |
+| *(el banco de verdad)* | `finance.bank_statement_lines` | el archivo que da el banco, cuenta por cuenta y día por día (`[CB.60]`) | el banco | ✅ **el único**; existe desde nov-2026 |
+| Kepler | `analytics.kepler_bank_movements` (vista) | `analytics.bank_movement_legs`, tabla que mantiene un trigger sobre `kepler_ods.kdm1` (OPS-AUD.11) + catálogo `kdb1` + fecha del complemento de pago SAT | Kepler | no: lo captura Tesorería |
+| ContPAQi | `analytics.contpaqi_bank_movements` (**tabla**) | **importer** `database/importers/contpaqi/import-contpaqi-bank-movements.js` (MovimientosPoliza de cuentas `102…`) | ContPAQi | no: lo captura Contabilidad |
+
+- ✅ **Kepler se deriva sin pérdida:** `analytics.bank_movement_legs_drift()` = **0 faltan / 0 sobran** contra `kdm1`, y
+  `bank_movement_legs_errors` vacío (2026-11-18).
+- ⛔ **ContPAQi viola la regla 1:** la réplica `contpaqi_ods.ct_movimientospoliza` ya existe y el dato se sigue
+  **copiando** con un importer. Deuda con nombre: volverla vista sobre la réplica.
+- ⭐ **Y la copia está rancia** (medido en `[CB.86]`): la réplica reproduce la tabla en 167,569/167,569 filas sin una
+  diferencia de importe, fecha ni póliza, pero el **concepto** difiere en 1,761 y la que está mal es la tabla —Contabilidad
+  corrigió conceptos después de cargarlos y el importer, incremental por movimiento, no ve el cambio del encabezado—. Como
+  vista tarda 188 ms por mes contra 2 ms: falta un índice `(ejercicio, periodo)` en la réplica.
+
+### 38.2 Qué fecha trae cada fuente — contra la descarga del banco
+
+Parejas **inequívocas** (el importe aparece una sola vez en el mes y en la cuenta, de cada lado), nov-2026:
+
+| Fuente − banco | Mismo día | ±1 día | p10 / p50 / p90 (días) |
+|---|---:|---:|---|
+| libro CUENTAS | **99.6 %** | 99.6 % | 0 / 0 / 0 |
+| Kepler `fecha_efectiva` | **96.5–97.2 %** | 98–99 % | 0 / 0 / 0 |
+| ContPAQi `fecha`, depósitos | **3.9 %** | 13.3 % | −9 / −2 / +7 |
+| ContPAQi `fecha`, retiros | 39.3 % | 55.4 % | −6 / 0 / +2 |
+
+- ⭐ **ContPAQi no tiene fecha de banco: tiene MES de banco.** En 12,643 parejas inequívocas de ago–oct, el `anio_mes`
+  de la póliza es el mes del banco en el **100 %** de los depósitos y el 99.9 % de los retiros. Su fecha dentro del
+  mes es la de la póliza (agrupa y fecha antes o después), no la del abono.
+- El cruce por importe exacto **es real en depósitos**: corrido un centavo casa 1 de 2,873. En retiros hay un piso de
+  coincidencia de **3–4 %** (importes que se repiten).
+
+### 38.3 ¿El testigo está completo?
+
+La descarga se juzga **por sus saldos**, no contra el libro (`[CB.73]`, `cuadre-de-la-descarga.ts`: cada archivo abre en
+el saldo con que la cuenta ya iba). ⛔ Por renglón da roturas falsas: `seq` es del archivo y dos archivos encimados se
+intercalan mal; el instrumento correcto es el del servicio, no una consulta ordenada a mano.
+
+- 2026-11-18: **15 de 17 cuentas** tienen descarga de punta a punta con la entrada cuadrada. **STDR 1604** está rota del
+  3 al 10 (del 4 al 9 nunca se bajó), **BB 3660** abre en un saldo que no es el de su cierre anterior, y **STDR 5565**
+  no tiene descarga. Ninguna cuenta tiene encendido «usar el banco» (`statement_source_since` vacío).
+- El libro contra la descarga, 1–10 nov: trae **menos** en casi todas las cuentas. El 10-nov se cargó a medias (se subió
+  ese día a las 14:09; BBVA 6721 no trae las dos salidas del 10).
+
+### 38.4 Qué arbitra cada número del Cuadre
+
+| Número | Árbitro | Grano válido | Estado |
+|---|---|---|---|
+| **Banco** | la **descarga**, donde su cuadre por saldos va de punta a punta (§38.3) | día | ⚠️ **el Cuadre publica el libro**; donde no hay descarga que cuadre, el libro se tiene que rotular como transcripción |
+| **Banco − Kepler** | la descarga | **día** (`fecha_efectiva` = día del banco en ~97 %) | ✅ se puede cortar por fecha. Pareo 1:1 contra la descarga: **77 %** del dinero hasta el 10-nov, 68 % hasta el 13, 56 % hasta el 18 → **Kepler se captura con atraso** |
+| **Banco − ContPAQi** | la descarga | **mes**, o pareo 1:1 | ⛔ **nunca por fecha**. Pareo hasta el 10-nov: **52 %** del dinero del banco |
+| % casado de ContPAQi | pareo 1:1 contra el banco | mes | ✅ el instrumento de `[CP.8.89]`; contra la descarga y no contra el libro, pendiente |
+
+**Medido en `[CB.86]`:** el ~23 % del banco (1–10 nov) sin pareja 1:1 en Kepler se descompone con los estados de `[CB.41]`
+del detalle del cuadre: 79.2 % casado 1:1 · 5.2 % venta que Kepler parte · 3.6 % sólo en ContPAQi · 3.4 % traspasos ·
+2.0 % factoraje · **6.5 % sin explicación**, todo retiros: dos transferencias que sólo trae la descarga (no están ni en el
+libro ni en Kepler), pagos a proveedor sin documento 1:1 y crédito/capital/intereses. Sólo ese 6.5 % es candidato a «falta
+en Kepler», y todavía no se publica así: no se revisó caso por caso.
+
+### 38.5 Hipótesis refutadas — no las reconstruyas
+
+1. **«La columna Banco del Cuadre es el banco.»** Es el libro de Tesorería (§38.1).
+2. **«ContPAQi se corta por fecha cuando el banco va atrasado.»** Su fecha no es del banco (§38.2).
+3. **«`[CB.82]`: ContPAQi por fecha, más las pólizas posteriores que casen por importe.»** Probada contra una respuesta
+   conocida —meses cerrados con el banco recortado a propósito al día 10, 15 y 20; el ideal es el pareo con el banco
+   entero—:
+   - en depósitos tiene **más del doble de error que cortar por fecha**: da por buenas todas las pólizas anteriores al
+     corte, y ContPAQi fecha los depósitos antes que el abono;
+   - en retiros sí mejora.
+
+   La regla que se acerca al ideal es **«ContPAQi entra sólo con lo que casa 1:1 con el banco cargado; lo que no casa se
+   publica aparte»**. Su riesgo es el del árbitro-espejo (R5): lo no pareado **tiene** que publicarse, o la diferencia
+   nunca sale en contra.
+4. **«`fechaaplicacion` de ContPAQi es la fecha del banco.»** Viene llena en el 100 % y difiere de `fecha` en 10–21 %, pero
+   coincide con el día del banco **menos** que `fecha` (retiros: 0 % contra 55.6 % donde difieren).
+5. **«La conciliación bancaria de ContPAQi sirve de testigo.»** `esconciliado` = **0 %** desde junio: Contabilidad no la usa.
+
+### 38.6 Lo que sigue
+
+- ✅ **Hecho en `[CB.85]`** (2026-11-18, en código): el Cuadre toma **la descarga** como «Banco» en las cuentas cuyo cuadre
+  por saldos va de punta a punta, y el libro sólo donde no, con el porqué en la fila; ContPAQi entra por **pareo** mientras
+  el banco no cubre el mes, con lo no pareado aparte. Octubre idéntico al centavo; noviembre recorrible en 18 de 18 cuentas.
+- ✅ **Hecho en `[CB.86]`:** el % casado de ContPAQi sale del mismo pareo que el cuadre (contra la descarga, ±$1), y la
+  **paridad R7** quedó registrada en `test-newdb-bank-threeway-cobertura.js`: el «Banco» publicado contra una suma SQL
+  independiente de la descarga + el libro previo, por cuenta. En su primera corrida encontró que STDR 2169 perdía $2,187.80
+  (el pareo de CB.64 cruzaba el primer día de la descarga); corregido.
+- `analytics.contpaqi_bank_movements` → vista sobre `contpaqi_ods` (regla 1).
+- **R7:** el Cuadre no tiene paridad registrada; esta sección no la sustituye.
+
+**Medición reproducible:** consultas de sólo lectura contra `pg-prod` el 2026-11-18, más los servicios reales
+(`cuadre()` de `estado-de-cuenta.service.ts`, `threeWay()`), con los guiones en el scratchpad de la sesión.

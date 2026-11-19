@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { Component, provideZonelessChangeDetection } from '@angular/core';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { SidePeekComponent } from './side-peek.component';
 
@@ -95,5 +95,128 @@ describe('[CGA-A.65] el título no deja un globo nativo sobre la ventana', () =>
     const host = fx.nativeElement.querySelector('app-side-peek') as HTMLElement;
     expect(host.hasAttribute('title')).toBe(false);
     expect(host.querySelector('.sp-title')?.textContent).toContain('Reposición');
+  });
+});
+
+/**
+ * `[LE.6.34]` Auditoría 2026-11-18 (modern-web-guidance «dialog» y «accessibility» §5): Esc cierra SÓLO la capa
+ * de arriba, cerrar con algo capturado PREGUNTA, y el foco regresa a quien abrió.
+ */
+describe('[LE.6.34] SidePeek — Esc de la capa de arriba, descarte confirmado, foco de regreso', () => {
+  let fixture: ReturnType<typeof TestBed.createComponent<SidePeekComponent>>;
+  const esc = (target: EventTarget = document.body, prevenido = false) => {
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    if (prevenido) ev.preventDefault();
+    target.dispatchEvent(ev);
+    fixture.detectChanges();
+  };
+  function montar(sucio = false) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [SidePeekComponent], providers: [provideZonelessChangeDetection()] });
+    fixture = TestBed.createComponent(SidePeekComponent);
+    fixture.componentRef.setInput('sucio', sucio);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    return fixture.componentInstance;
+  }
+  afterEach(() => document.querySelectorAll('.p-dialog-mask, .prueba-capa').forEach((n) => n.remove()));
+
+  it('CONTROL: limpio, Esc lo cierra como siempre', () => {
+    const c = montar();
+    esc();
+    expect(c.open()).toBe(false);
+  });
+
+  it('⛔ con un diálogo modal ENCIMA, el Esc es del diálogo: el cajón sigue abierto', () => {
+    const c = montar();
+    const mask = document.createElement('div'); mask.className = 'p-dialog-mask'; document.body.appendChild(mask);
+    esc();
+    expect(c.open()).toBe(true);
+  });
+
+  it('⛔ un Esc que ya atendió un desplegable o calendario (defaultPrevented) no cierra el cajón', () => {
+    const c = montar();
+    esc(document.body, true);
+    expect(c.open()).toBe(true);
+  });
+
+  it('⛔ un Esc desde una capa de PrimeNG fuera del cajón no lo cierra', () => {
+    const c = montar();
+    const capa = document.createElement('div'); capa.className = 'p-overlay prueba-capa';
+    const input = document.createElement('input'); capa.appendChild(input); document.body.appendChild(capa);
+    esc(input);
+    expect(c.open()).toBe(true);
+  });
+
+  it('⭐ con algo capturado, Esc PREGUNTA; el foco cae en «seguir» y un segundo Esc no descarta', async () => {
+    const c = montar(true);
+    esc();
+    expect(c.open()).toBe(true);
+    const caja = fixture.nativeElement.querySelector('[data-testid="sp-confirma"]') as HTMLElement;
+    expect(caja).not.toBeNull();
+    await Promise.resolve();
+    expect(document.activeElement?.getAttribute('data-testid')).toBe('sp-seguir');
+    esc();
+    expect(c.open(), 'el segundo Esc es «seguir», no «descartar»').toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-testid="sp-confirma"]')).toBeNull();
+  });
+
+  it('⭐ con algo capturado, la X y el fondo preguntan; «Descartar y cerrar» cierra', () => {
+    const c = montar(true);
+    (fixture.nativeElement.querySelector('.sp-close') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(c.open()).toBe(true);
+    (fixture.nativeElement.querySelector('[data-testid="sp-descartar"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(c.open()).toBe(false);
+    montar(true);
+    (fixture.nativeElement.querySelector('.sp-backdrop') as HTMLElement).click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.open()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-testid="sp-confirma"]')).not.toBeNull();
+  });
+
+  it('⭐ al cerrar, el foco regresa al botón que lo abrió', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [SidePeekComponent], providers: [provideZonelessChangeDetection()] });
+    const disparador = document.createElement('button'); document.body.appendChild(disparador); disparador.focus();
+    fixture = TestBed.createComponent(SidePeekComponent);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.componentInstance.close();
+    fixture.detectChanges();
+    await Promise.resolve(); await Promise.resolve();
+    expect(document.activeElement).toBe(disparador);
+    disparador.remove();
+  });
+});
+
+/** [LE.6.34] El panel es aria-modal: Tab da la vuelta adentro (guía «accessibility» §12). */
+@Component({ standalone: true, imports: [SidePeekComponent], template: '<app-side-peek [open]="true" title="T"><button id="a">a</button><button id="b">b</button></app-side-peek>' })
+class ConBotones {}
+describe('[LE.6.34] SidePeek — Tab no se sale del panel', () => {
+  it('⭐ Tab en el último enfocable vuelve al primero; Shift+Tab en el primero va al último', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [ConBotones], providers: [provideZonelessChangeDetection()] });
+    const fx = TestBed.createComponent(ConBotones);
+    fx.detectChanges();
+    await Promise.resolve(); await Promise.resolve();
+    const orig = HTMLElement.prototype.getClientRects;
+    HTMLElement.prototype.getClientRects = function () { return [{}] as unknown as DOMRectList; };
+    try {
+      const panel = fx.nativeElement.querySelector('.sp-panel') as HTMLElement;
+      const ultimo = fx.nativeElement.querySelector('#b') as HTMLElement;
+      ultimo.focus();
+      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      expect(document.activeElement?.className, 'Tab desde el último no volvió al primero (la X del panel)').toContain('sp-close');
+      panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+      expect(document.activeElement).toBe(ultimo);
+      // CONTROL: en medio del recorrido, Tab no se intercepta.
+      (fx.nativeElement.querySelector('#a') as HTMLElement).focus();
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      panel.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    } finally { HTMLElement.prototype.getClientRects = orig; }
   });
 });

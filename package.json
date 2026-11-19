@@ -29,6 +29,8 @@
     "check:basura:self": "node scripts/check-basura.js --self",
     "check:motion": "node scripts/check-motion.js",
     "check:motion:self": "node scripts/check-motion.js --self-test",
+    "check:cascada": "node scripts/check-cascada.js",
+    "check:cascada:self": "node scripts/check-cascada.js --self-test",
     "check:pantalla": "node scripts/check-pantalla.js",
     "check:pantalla:self": "node scripts/check-pantalla.js --self-test",
     "check:estilos": "node scripts/check-estilos.js",

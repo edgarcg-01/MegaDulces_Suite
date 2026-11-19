@@ -121,7 +121,8 @@ test.describe('Paso 2 · Surtir en el celular', () => {
     const antesDeC = abortadas.length;
     t0 = Date.now();
     await page.goto('/almacen/surtir');
-    await page.getByRole('combobox', { name: /Almacén donde surtes/ }).or(page.getByRole('button', { name: /Tomar siguiente/ })).first().waitFor({ timeout: 30_000 });
+    // [GP.RF.41] El selector se nombra por su rótulo visible «Almacén» (antes aria-label «Almacén donde surtes»).
+    await page.getByRole('combobox', { name: /^Almacén/ }).or(page.getByRole('button', { name: /Tomar siguiente/ })).first().waitFor({ timeout: 30_000 });
     const qC = await quieta(page, t0);
     salida['surtir_kepler'] = {
       quieta_ms: qC.ms, seguia_cargando: qC.seguia_cargando,

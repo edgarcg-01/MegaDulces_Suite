@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Injector, NgZone, OnDestroy, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -34,6 +34,8 @@ import { CashLedgerService, type ArqueoMovimientoDia, type CandadoCaja, type Fon
 import type { PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, ResumenApartado, SalidaDocumento, TipoArqueoCaja } from '@megadulces/contracts';
 import { SALIDA_TEXTO } from '@megadulces/contracts';
 import { ArqueoDocumentosComponent } from '../../components/arqueo-documentos.component';
+import { DescartarCambiosComponent } from '../../../../shared/components/descartar-cambios/descartar-cambios.component';
+import { DevolverFocoDirective } from '../../../../shared/directives/devolver-foco.directive';
 import { CajaSocketService } from '../../caja-socket.service';
 import { desgloseRubro, etiquetaPosicion, plural } from './posicion-caja.util';
 import { CaosSocketService } from '../../caos-socket.service';
@@ -191,7 +193,8 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, TextareaModule, SelectModule,
     DialogModule, InputNumberModule, InputTextModule,
     LoadStateComponent, SidePeekComponent, MetricCardComponent, FreshnessPillComponent,
-    ContextHelpComponent, CajaTabsComponent, SegmentedComponent, ArqueoDocumentosComponent],
+    ContextHelpComponent, CajaTabsComponent, SegmentedComponent, ArqueoDocumentosComponent,
+    DescartarCambiosComponent, DevolverFocoDirective],
   template: `
     <app-caja-tabs />
     <div class="surf-page in">
@@ -788,7 +791,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
       </app-side-peek>
     </div>
     <!-- [CGS.46] El arqueo completo. Ciego en el recuento: lo que sello el corte se ve al guardar. -->
-    <p-dialog [visible]="!!arqDlg()" (visibleChange)="$event ? null : cerrarArqueo()" [modal]="true"
+    <!-- [LE.6.34] Con algo contado la X y Esc no la cierran: «Cancelar» pregunta antes de tirar el conteo. -->
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="!!arqDlg()" (visibleChange)="$event ? null : cerrarArqueo()" [modal]="true"
+              [closable]="!arqTrabado()" [closeOnEscape]="!arqTrabado()"
               [style]="{ width: '42rem', maxWidth: '96vw' }" [draggable]="false" [header]="tituloArqueo()">
       @if (!arqGuardado()) {
         <p class="cq-hint">
@@ -855,6 +860,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
         @if (arqFalta(); as falta) { <p class="cq-nota" role="status">{{ falta }}</p> }
       } @else {
         @if (arqGuardado(); as g) {
+          <div role="status" data-testid="arq-resultado">
           <p>Contaste <b>{{ mx(g.arqueo.efectivo) }}</b> en efectivo.
             @if (g.arqueo.total_mxn !== null) { Con lo demás, la caja suma <b>{{ mx(g.arqueo.total_mxn) }}</b>. }
             @else { Algún rubro quedó sin contar: no se suma un total. }
@@ -871,16 +877,17 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
               <p class="cq-dim">Salió {{ s.texto }} ({{ mx(s.monto) }}): {{ salidaTexto(s.salida) }}{{ s.nota ? ' · ' + s.nota : '' }}</p>
             }
           }
+          </div>
         }
       }
       @if (arqErr()) { <p class="cq-nota cq-mal" role="alert">{{ arqErr() }}</p> }
       <ng-template #footer>
         @if (!arqGuardado()) {
-          <p-button label="Cancelar" size="small" severity="secondary" [text]="true" (onClick)="cerrarArqueo()" />
+          <app-descartar-cambios [sucio]="arqSucio()" [bloqueado]="arqGuardando()" (cerrar)="descartarArqueo()" />
           <p-button label="Guardar arqueo" icon="pi pi-lock" size="small" [disabled]="arqGuardando() || !!arqFalta()"
-                    [loading]="arqGuardando()" (onClick)="guardarArqueo()" />
+                    [loading]="arqGuardando()" (onClick)="guardarArqueo()" data-testid="arq-guardar" />
         } @else {
-          <p-button label="Listo" size="small" (onClick)="cerrarArqueo()" />
+          <p-button label="Listo" size="small" (onClick)="cerrarArqueo()" data-testid="arq-listo" />
         }
       </ng-template>
     </p-dialog>
@@ -1334,6 +1341,23 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   readonly arqErr = signal<string | null>(null);
   readonly arqGuardado = signal<ArqueoGuardadoDto | null>(null);
   readonly arqRecientes = signal<ArqueoCajaDto[]>([]);
+  /** `[LE.6.34]` De qué arqueo es lo tecleado (tipo + corte): reabrir el mismo sin guardar no lo borra. */
+  private arqClave: string | null = null;
+  private readonly injector = inject(Injector);
+
+  /**
+   * `[LE.6.34]` Hay algo tecleado que se perdería al cerrar: cualquier pieza (también un 0, que dice «lo
+   * conté y no hay»), morralla, caja fuerte, cheques o papeles marcados, dólares o la nota.
+   */
+  readonly arqSucio = computed(() => {
+    if (!this.arqDlg() || this.arqGuardado()) return false;
+    return Object.values(this.arqPiezas()).some((v) => v !== null && v !== undefined)
+      || this.arqMorralla() !== null || this.arqCF() !== null
+      || this.arqUsd() !== null || this.arqTC() !== null || !!this.arqTCFuente().trim() || !!this.arqNota().trim()
+      || !!this.arqCh()?.contado() || !!this.arqPa()?.contado();
+  });
+  /** La ventana no se cierra sola: con algo tecleado (pregunta «Cancelar») o mientras guarda. */
+  readonly arqTrabado = computed(() => this.arqSucio() || this.arqGuardando());
 
   /** El corte que esta persona puede recontar: el último cerrado que no contó, ni cerró, ni capturó. */
   readonly corteARecontar = computed<ArqueoDia | null>(() => {
@@ -1370,10 +1394,19 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
   }
 
   abrirArqueo(tipo: TipoArqueoCaja, corte: ArqueoDia | null): void {
-    this.arqPiezas.set({}); this.arqMorralla.set(null); this.arqCF.set(null); this.arqCFFuente.set('pantalla de la máquina');
-    this.arqUsd.set(null); this.arqTC.set(null); this.arqTCFuente.set('');
-    this.arqNota.set(''); this.arqErr.set(null); this.arqGuardado.set(null);
-    this.arqDlg.set({ tipo, corte });
+    // `[LE.6.34]` El mismo arqueo (tipo y corte), reabierto sin guardar: lo contado sigue ahí.
+    const clave = `${tipo}|${corte?.corte_id ?? ''}`;
+    const mismo = this.arqClave === clave && !this.arqGuardado();
+    this.arqClave = clave;
+    this.arqErr.set(null);
+    if (mismo) {
+      this.arqDlg.set({ tipo, corte });
+      if (this.arqDocs() && !this.arqDocsError()) return;
+    } else {
+      this.limpiarArqueo();
+      this.arqClave = clave;
+      this.arqDlg.set({ tipo, corte });
+    }
     // `[CGS.59]` Lo que había, para marcarlo. Sin esa lectura no se cuentan (la llave contra dos conteos la trae).
     this.arqDocs.set(null); this.arqDocsError.set(null);
     this.cajas.documentosEnCaja().subscribe({
@@ -1396,8 +1429,24 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
     return SALIDA_TEXTO[s];
   }
 
+  /** La X, Esc o «Listo»: se oculta y lo tecleado se queda (sólo «Cancelar» confirmado lo tira). */
   cerrarArqueo(): void {
+    if (this.arqGuardando()) return;
     this.arqDlg.set(null);
+  }
+
+  /** `[LE.6.34]` «Cancelar»: sin nada tecleado, o confirmando que se descarta. */
+  descartarArqueo(): void {
+    if (this.arqGuardando()) return;
+    this.limpiarArqueo();
+    this.arqDlg.set(null);
+  }
+
+  private limpiarArqueo(): void {
+    this.arqPiezas.set({}); this.arqMorralla.set(null); this.arqCF.set(null); this.arqCFFuente.set('pantalla de la máquina');
+    this.arqUsd.set(null); this.arqTC.set(null); this.arqTCFuente.set('');
+    this.arqNota.set(''); this.arqErr.set(null); this.arqGuardado.set(null);
+    this.arqClave = null;
   }
 
   guardarArqueo(): void {
@@ -1424,7 +1473,11 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
       nota: this.arqNota().trim() || null,
     };
     this.cajas.registrarArqueoCaja(body).subscribe({
-      next: (g) => { this.arqGuardando.set(false); this.arqGuardado.set(g); this.cargarArqueosCaja(); this.cargarPosicion(); },
+      next: (g) => {
+        this.arqGuardando.set(false); this.arqGuardado.set(g); this.cargarArqueosCaja(); this.cargarPosicion();
+        // `[LE.6.34]` El botón «Guardar» desaparece con el foco adentro: el foco va a «Listo», y el resultado se anuncia (role="status").
+        afterNextRender(() => document.querySelector<HTMLElement>('[data-testid="arq-listo"] button')?.focus(), { injector: this.injector });
+      },
       error: (e) => { this.arqGuardando.set(false); this.arqErr.set(textoDeError(e) || 'No se pudo guardar el arqueo.'); },
     });
   }

@@ -670,6 +670,165 @@ dice por qué no se genera) — sin escribir nada; (2) comisiones (CB.62.3–62.
 para capturar un alta real); (3) pagos a proveedor por PGP.130; (4) gastos por PGP.122; (5) traspasos, crédito y
 devoluciones, que no tienen carril. Cada escritor sale apagado, con su ensayo desde `md` y su prueba negativa.
 
+## 12. `[CB.82]` 🧪 El Cuadre 3 vías compara los mismos días (2026-11-17)
+
+**De dónde sale.** Auditoría de `/finanzas/bancos?view=cuadre&period=2026-11` (nivel B + C: base de prod en sólo lectura y
+código; sin pantalla viva). Las tres fuentes llegaban a días distintos y la pantalla comparaba el mes entero de cada una:
+
+| Fuente | Último día (nov-2026) | Posterior al 10-nov |
+|---|---|---|
+| Banco (libro CUENTAS, una carga el 10-nov a las 14:09) | 10-nov | — |
+| ContPAQi | 13-nov | $5.78 M dep · $4.01 M ret |
+| Kepler (tesorería) | 17-nov | $4.38 M ent · $5.76 M sal |
+
+BBVA 6721 salía con **−$2,165,287 «vs ContPAQi»** en rojo: cuatro pagos a proveedores (Effem, Mondelez…) del 10 y 11-nov que
+Kepler y ContPAQi tenían y el banco no. El Δ Banco − Kepler del total era −$3.54 M / −$4.09 M por la misma razón.
+
+**Las reglas (D1–D3, de Claude, con su porqué).**
+- **D1 · Corte por LOTE de carga, sólo si el banco va atrasado (≥3 días).** El día de una cuenta es el último de su lote (mismo
+  archivo; sin archivo, su propio estado de cuenta): todas las cuentas del libro comparten el 10-nov aunque una de poco
+  movimiento termine el 6, y una cuenta que pase a la descarga diaria (CB.80) tiene el suyo. Un corte global tomaría el máximo.
+  Un mes cerrado no se recorta (agosto–octubre llegan al último día; si el 31 cae domingo, el 30 no es atraso).
+- ⛔ **D2 REFUTADA en su mitad ContPAQi el 2026-11-18** ([`VERDAD_ABSOLUTA` §38.5-3](../../VERDAD_ABSOLUTA.md)): contra una
+  respuesta conocida (meses cerrados con el banco recortado a propósito), en depósitos tiene más del doble de error que cortar
+  por fecha, porque ContPAQi fecha el depósito antes que el abono y la regla da por buenas todas las pólizas anteriores al
+  corte. La mitad Kepler se sostiene. Además, la columna «Banco» es el libro, no la descarga (§38.1). **Reemplazada
+  por `[CB.85]`** (§13): ContPAQi por pareo y lo no pareado aparte.
+- **D2 · Kepler se corta por fecha; ContPAQi por fecha salvo lo que casa.** `fecha_efectiva` de Kepler ya es la del banco
+  (CB.49). ContPAQi no: sus pólizas agrupan y se fechan después (los 136 depósitos de 6721, «VENTAS TLMKT», van al 11-nov).
+  La póliza posterior al corte se queda si casa por importe exacto con un movimiento del banco de su cuenta que nadie haya
+  tomado. Medido: 66.8 % de las 401 posteriores casan con su cuenta; contra otra cuenta (placebo) 0.5–1.2 %.
+- **D3 · Lo que queda fuera se publica, y el día parcial se declara.** `ventana.fuera` por fuente; si el último día se cargó
+  ese mismo día, la pantalla dice que puede venir incompleto (no se recorta un día más: el lado del banco es el total del estado).
+
+**Además, de la misma auditoría.** El atraso del banco cuenta como atraso (antes `anyStale` sólo miraba Kepler y ContPAQi, y la
+nota afirmaba «el banco va al día»); «sin comparar» dice su motivo (SANTANDER 1621 sí estaba enlazada y con estado; lo que faltaba
+eran movimientos en ContPAQi); texto de estado con `-soft-fg` (de 2.15:1 / 3.30:1 a 7.09:1 / 7.13:1 en claro); la diferencia
+contra Kepler, cheques en tránsito y «retiros» dejan el ámbar; filas que se abren con Enter; estado con palabra; encabezados
+en llano y sin `kdm1`, `102` ni «falta redeploy».
+
+**Medido (el `threeWay` real, sólo lectura contra prod, 2026-11-17).**
+
+| | Antes | Después |
+|---|---:|---:|
+| nov · Banco − Kepler (ingresos / egresos) | −$3.54 M / −$4.09 M | +$0.81 M / +$2.15 M |
+| nov · Banco − ContPAQi | +$8.70 M / +$7.05 M (días mezclados) | +$9.91 M / +$10.23 M (ContPAQi con 51 % del dinero del banco casado: captura pendiente, ya dicho) |
+| nov · BBVA 6721 diferencia | −$2,165,287 | −$592,247 (dos pagos del 10-nov, el día parcial) |
+| oct (control: banco al día) | — | idéntico al centavo, sin corte |
+
+**Pruebas.** `three-way-explain.spec.ts` 3/3, rojo al quitar el filtro (2 ✗). `ngc --noEmit` 0 errores, con control
+(`TS2339` visto). `check:pantalla` sin fallas nuevas; `boundary`, `templates`, `estilos` en verde.
+`test-newdb-bank-threeway-cobertura.js` (sólo lectura, prod): 14 ✓ / 2 ✗; los dos ✗ son de noviembre, comparan el % casado
+(consulta exacta) contra el drill por cuenta (±$1) — ninguno de los dos se tocó: **anterior a CB.82**, queda para revisar.
+**Sin validación visual.**
+
+**Pendiente de la misma auditoría.** La lista de cheques se topa en 50 sin aviso (hoy 19). La vista por día no recorta
+(muestra los días posteriores con banco en cero, que es lo que son).
+
+**⛔ Corregido el 2026-11-18: la «latencia» de la auditoría NO existe hoy.** La auditoría citó «cuadre 815 ms, cheques en
+tránsito 2.4 s (hasta 10 s)»: era el promedio de 30 días de `analytics.ui_usage`, que mezcla dos regímenes. La serie por día
+(`finanzas_operativo`) tiene un escalón el **28-oct**: cheques 6.5 s → 70 ms, cuadre 2.1 s → 190 ms, detalle 2.0 s → 150 ms.
+No fue toda la API (Comercial y Logística no bajan ese día): es `1fd46ce06` (27-oct), «Bancos lee la tabla del trigger, fuera
+el REFRESH de cada minuto». `ui_usage` mide dentro del servidor (interceptor de Nest), así que el túnel no entra.
+
+| Endpoint (últimos 7 días, todos los roles) | Promedio | Máximo de un día |
+|---|---:|---:|
+| `three-way` | 207 ms | 513 ms |
+| `three-way-detail` | 183 ms | 661 ms |
+| `cheques-transito` | 73 ms | 168 ms |
+| `diagnostico` (lo pide la carcasa de Bancos en cada vista, no el Cuadre) | 306–310 ms (17 y 18-nov) | ~890 ms |
+
+`diagnostico` bajó de ~1,000–1,300 ms a 438 el 14-nov y ~306 desde el 17: es `[CB.71]` (`7bb8aec9a`), que dejó «NO MEDIDO:
+latencia tras desplegar»; queda medido aquí. El resto cuadra con el código: con el servicio real en sólo lectura, `diagnostico`
+tarda 78 ms en noviembre y 208 ms en un mes cerrado, y prod suma un costo fijo de ~30 ms por petición (`balances` 8 → 42 ms,
+`statements` 5 → 33 ms). Las 6 llamadas de la carga en ráfaga no se estorban (diagnóstico 78 → 108 ms).
+
+**Lo que CB.82 agrega** (antes `815e5892b` contra después, intercalados, 5 corridas, mediana; el viaje laptop→prod es 1 ms):
+`three-way` nov 115 → 147 ms (17 → 23 consultas), oct 165 → 180 ms; `three-way-detail` +5 a +10 ms (10 → 14 consultas).
+NO MEDIDO: a qué se deben los máximos de un día arriba de 500 ms (`ui_usage` guarda sólo el máximo diario, no el reparto).
+
+## 13. `[CB.85]` 🧪 El Cuadre 3 vías usa el banco de verdad y ContPAQi entra por pareja (2026-11-18)
+
+**De dónde sale.** [`VERDAD_ABSOLUTA` §38](../../VERDAD_ABSOLUTA.md): la columna «Banco» era el libro CUENTAS (a mano), el
+banco de verdad es la descarga (`bank_statement_lines`), y ContPAQi no tiene fecha de banco pero sí mes. La regla de
+`[CB.82]` para ContPAQi quedó refutada (§38.5-3). Edgar: «sí, hazlo».
+
+**Las reglas (D1–D3, de Claude, con su porqué).**
+- **D1 · «Banco» = la descarga donde su cuadre va de punta a punta.** El juicio es el de `[CB.73]` (mismo primitivo, ahora en
+  `cuadre-de-cuentas.query.ts`). El «Banco» de la cuenta es el libro del mes menos lo que la descarga no trae, más lo que sólo
+  trae la descarga: la partición de `[CB.64]`, así lo que el libro tiene y el banco confirma conserva su id, su categoría y su
+  conciliación. Sin descarga que cuadre, el libro de siempre (las cifras no cambian) con el porqué en la fila.
+- **D2 · ContPAQi por pareja mientras el banco no cubre el mes.** Mes en curso siempre (ContPAQi fecha el depósito hasta ~9
+  días antes que el abono); mes cerrado sólo si su banco va atrasado (≥3 días). Entra lo que casa 1:1 (exacto, luego ±$1) con
+  el banco cargado; lo demás va a `contpaqi_sin_pareja` y se publica. Mes cerrado al día: el mes contable entero, como antes.
+- **D3 · El detalle lee lo mismo que la fila.** Mismo banco (`leerBancoDelCuadre`, acotado a la cuenta), mismo pareo
+  (`parearPorImporte`) y mismo orden (fecha, id): la cifra de la fila se recorre en su detalle.
+
+**Medido (código real, sólo lectura contra prod, 2026-11-18).**
+
+| Control | Resultado |
+|---|---|
+| Octubre (banco al día): totales y cada cuenta contra la versión anterior | idéntico al centavo |
+| Noviembre: fuente del «Banco» | 15 cuentas con descarga (llega al 18-nov); 3 con libro: 1604 (rota del 3 al 10), 3660 (la entrada no cuadra), 5565 (sin descarga) |
+| Noviembre: Σ del detalle = fila (banco y ContPAQi pareado) | 18 de 18 cuentas |
+| Testigo de entrada en lote contra el original | 90 de 90 casos iguales (18 `null`) |
+| Pareo rápido contra la implementación original | 3,000 casos aleatorios iguales |
+
+**Pruebas.** `banco-del-cuadre.spec.ts` 7/7, rojo al romper el desempate y al dejar entrar lo que no casa; `libs/finance`
+bank 215/215; front bancos 64/64 (`three-way-explain.spec.ts` con el campo nuevo); `tsc` de `libs/finance` sin errores
+nuevos (39 TS1272 previos); `ngc` 0 en estos archivos (4 ajenos sin commitear). `test-newdb-bank-threeway-cobertura.js` 14 ✓ /
+2 ✗, las mismas de antes de CB.82 (comparan el % casado de CP.8.89, que sigue midiendo contra el libro). **Sin validación visual.**
+
+**Latencia.** `three-way` de noviembre: mediana 128 → ~400–450 ms desde la laptop (viaje a prod 1 ms; prod suma ~30 ms):
+bajo la regla de 500 ms, con poco margen. Lo que se ve desde la laptop es el traslado de las filas: la consulta de la descarga
+tarda 10 ms en la base y ya tiene índice (§14 corrige lo que decía aquí). Ya recortado: el testigo en una consulta con `LATERAL` (16 ms contra 80 con
+`max()`, mismas filas), el pareo con búsqueda binaria y el detalle acotado a su cuenta (100–225 ms según la carga).
+
+**Pendiente.** Resuelto o medido en §14 (`[CB.86]`).
+
+## 14. `[CB.86]` 🧪 Lo pendiente del Cuadre: el % casado del mismo pareo, la paridad R7 y la lista de cheques (2026-11-18)
+
+**Hecho.**
+- **% casado (CP.8.89) del mismo pareo que el cuadre.** `compararContpaqi` parea una vez todas las cuentas enlazadas contra
+  su banco (la descarga donde cuadra) con `parearPorImporte` (±$1) y de ahí salen lo que entra al cuadre y el % casado. Se
+  retira `SQL_CONTPAQI_CASADO` (al centavo, contra el libro). Las 2 ✗ de `test-newdb-bank-threeway-cobertura` eran esa
+  diferencia de tolerancia; el cruce pasa a ser contra el detalle del cuadre (`threeWayDetail`, una lectura por cuenta).
+- **Paridad registrada (R7, VERDAD §38).** La misma prueba compara, en cada cuenta con descarga, el «Banco» publicado contra
+  una suma SQL independiente: la descarga sin renglones repetidos desde su primer día + el libro de antes. Umbral $1.
+- **Error de CB.85 que encontró esa paridad.** El pareo de CB.64 (`descargaEnMovimientos`) usa ±3 días de margen; con todo el
+  libro, una salida que el banco cobró el 11-nov (STDR 2169, $2,187.80) se pareaba con otra igual que el libro tenía el 9 —
+  antes de la descarga— y el «Banco» se quedaba con una. Son dos: la descarga abre el 10 en el saldo con que el libro cerró
+  el 9, con la del 9 ya restada. Arreglo en `leerBancoDelCuadre`: el pareo sólo usa el libro desde el primer día de la
+  descarga (llama directo a `descargaEnMovimientos`; el campo que CB.85 había agregado a `leerDescargaDelPeriodo` se retira).
+- **Cheques en tránsito.** La lista llega a los N del encabezado: 50 de mayor importe y «Ver los N restantes».
+
+**Medido (sólo lectura contra prod, 2026-11-18).**
+
+| | |
+|---|---|
+| Prueba de cobertura | 32 ✓ / 0 ✗ (antes 14 ✓ / 2 ✗); 16 paridades por cuenta, todas al centavo |
+| Octubre contra la versión anterior | idéntico |
+| Noviembre | 18/18 recorribles; 2169 recupera $2,187.80 en salidas; 40.6 % casado |
+| Latencia (misma tanda, prod cargado) | nov −41 ms (sin la consulta aparte); oct +100 ms (parea en JS lo que hacía SQL) |
+
+**Medido, sin cambio de código.**
+- **El ~23 % del banco «sin pareja en Kepler»** se descompone con los estados de `[CB.41]` (1–10 nov, $52.6 M): 79.2 % casado
+  1:1, 5.2 % venta que Kepler parte, 3.6 % sólo en ContPAQi, 3.4 % traspasos, 2.0 % factoraje; **sin explicación 6.5 %**
+  ($3.4 M), todo retiros: dos transferencias que sólo trae la descarga (2169 SPEI $1.1 M, 4176 pago a tercero $0.86 M; no
+  están ni en el libro ni en Kepler), pagos a proveedor sin documento 1:1 en Kepler (De la Rosa, Bolsas de los Altos,
+  Fábricas Selectas) y crédito/capital/intereses.
+- **Índice para la latencia: no hace falta.** `bank_statement_lines` ya tiene `(tenant, cuenta, fecha)`; la lectura del mes
+  tarda 10 ms en la base. Lo que se ve desde la laptop es el traslado de ~2,900 filas. (Corrige lo dicho en §13.)
+- **ContPAQi como vista sobre `contpaqi_ods` (regla 1).** La consulta del importer sobre la réplica reproduce la tabla:
+  167,569 filas en las dos, 0 de más o de menos, 0 diferencias en cuenta, fecha, flujo, importe, mes o póliza. El concepto
+  difiere en 1,761, y **la que está mal es la tabla**: Contabilidad corrigió conceptos de póliza después de cargarlos («falta
+  Fact de PAGO COMISIONES» → «PAGO COMISIONES BBVA 4885») y el importer, incremental por movimiento, no ve cambios del
+  encabezado. Pero como vista tarda **188 ms** por mes contra **2 ms** de la tabla: pide un índice `(ejercicio, periodo)` en
+  `ct_movimientospoliza` (1.17 M filas: fuera de horario), cambiar 4 lectores (Bancos, Caja General, Maat, escáner de
+  feeds) y retirar el importer de `md`. **Decisión de Edgar.**
+
+**Sin validación visual.**
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

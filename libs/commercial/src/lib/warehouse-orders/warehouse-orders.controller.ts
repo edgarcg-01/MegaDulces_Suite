@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   RequireAuthGuard, RolesGuard, RequireAnyPermission, RequirePermissions, Permission,
 } from '@megadulces/platform-core';
-import type { WarehouseOrderDetail, WarehouseOrdersResponse } from '@megadulces/contracts';
+import type { WarehouseOrderDetail, WarehouseOrdersAtorados, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { WarehouseOrdersService } from './warehouse-orders.service';
 import { sinImportes } from './warehouse-orders.engine';
 
@@ -54,6 +54,17 @@ export class WarehouseOrdersController {
     return this.svc
       .list({ month, from, to, estatus: status, etapa: stage, origen: origin, sucursal: branch, q, preventa: presale, offset, limit })
       .then((r) => (ve ? r : sinImportes(r)));
+  }
+
+  /**
+   * `[GP.RF.16]` Cuántos pedidos siguen autorizados en Kepler fuera de la ventana de la fila (nadie los
+   * va a surtir), por sucursal del alcance. Para el aviso del Tablero; sólo quien ve el Tablero.
+   */
+  @Get('atorados')
+  @RequirePermissions(Permission.ALMACEN_PEDIDOS_VER)
+  @ApiOperation({ summary: 'Pedidos U-D-40 que siguen AUTORIZADO en Kepler con fecha anterior a la ventana de la fila de surtido (7 días), por sucursal del alcance.' })
+  atorados(): Promise<WarehouseOrdersAtorados> {
+    return this.svc.atorados();
   }
 
   @Get(':branch/:serie/:folio')

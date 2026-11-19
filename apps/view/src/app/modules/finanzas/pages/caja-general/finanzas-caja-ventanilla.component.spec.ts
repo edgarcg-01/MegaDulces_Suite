@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
-import type { CustodiaAbierta, EstadoDeCobro, HojaDeReposicion, PartidaEnSuspenso, QuienLlevaDeposito, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import { Subject, of, throwError } from 'rxjs';
+import { By } from '@angular/platform-browser';
+import { Dialog } from 'primeng/dialog';
+import type { CustodiaAbierta, EstadoDeCobro, HojaDeReposicion, PartidaEnSuspenso, QuienLlevaDeposito, PlanDePagoVentanilla, ResultadoCobro, ResultadoPago, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
 import { FinanzasCajaVentanillaComponent } from './finanzas-caja-ventanilla.component';
 import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } from '../../cash-ledger.service';
 import { LibroEfectivoService } from '../../libro-efectivo.service';
@@ -85,9 +87,13 @@ const HOJAS: HojaDeReposicion[] = [
 const CUSTODIAS: CustodiaAbierta[] = [{ persona: 'u-lleva', nombre: 'Quien Lleva', saldo_minor: '155050', desde: '2026-11-05T10:00:00Z',
   reposiciones: [{ orden_id: 'o9', zona: 'morelia', total_minor: '155050', documentos: 2, dia: '2026-11-05' }] }];
 
-function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; aprobar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
-  hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[]; custodias?: CustodiaAbierta[] } = {}) {
-  const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : f.doc_tipo === 'X-D-60' ? ANTICIPOS : COLA)) };
+function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
+  hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[] | 'falla'; custodias?: CustodiaAbierta[]; cobrosFalla?: boolean; topada?: boolean } = {}) {
+  const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => {
+    if (f.doc_tipo === 'U-A-5') return opciones.cobrosFalla ? throwError(() => ({ status: 503 })) : of(COBROS);
+    if (f.doc_tipo === 'X-D-60') return of(ANTICIPOS);
+    return of(opciones.topada ? { ...COLA, has_more: true } : COLA);
+  }) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
       : of({ cuentas: [], ultimo_asiento: '0', jornada_abierta: opciones.jornada === undefined ? '2026-11-03' : opciones.jornada,
@@ -110,7 +116,8 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     retiroACustodia: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e20' })),
     rendir: vi.fn(() => of({ asientos: ['e21', 'e22'], saldo_minor: '0' })),
     confirmarDeposito: vi.fn(() => throwError(() => ({ error: { codigo: 'deposito_no_encontrado', mensaje: 'El banco todavía no muestra el depósito de esa reposición.' } }))),
-    quienLleva: vi.fn(() => of(opciones.quien ?? [{ usuario_id: 'u-lleva', nombre: 'Quien Lleva' }])),
+    quienLleva: vi.fn(() => (opciones.quien === 'falla' ? throwError(() => ({ status: 503 }))
+      : of(opciones.quien ?? [{ usuario_id: 'u-lleva', nombre: 'Quien Lleva' }]))),
     pedirReposicion: vi.fn(() => of({ estado: 'por_firmar' as const, orden_id: 'o9', motivo: 'la reposición la firma Tesorería (D-R1)' })),
     recibir: vi.fn(() => of<ResultadoCobro>({ estado: 'recibido', entry_id: 'e2', tipo: 'ruta', ruta: '22', contado_minor: '180000',
       esperado_minor: '185000', diferencia_minor: '-5000', es_redondeo: false })),
@@ -122,7 +129,7 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
       { provide: CashLedgerService, useValue: ledger },
       { provide: LibroEfectivoService, useValue: libro },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
-      { provide: PermissionsService, useValue: { has: (p: Permission) => (p === Permission.FINANCE_EXPENSES_COMPROBAR ? opciones.aprobar !== false : opciones.gestionar !== false), hasAny: () => true, isAdmin: () => false,
+      { provide: PermissionsService, useValue: { has: () => opciones.gestionar !== false, hasAny: () => true, isAdmin: () => false,
         // `[LE.6.9]` Quien monta esta pantalla trabaja en la Ventanilla: tiene esa clave EXPLÍCITA.
         hasExplicit: (p: Permission) => p === Permission.FINANCE_CAJA_VENTANILLA } },
     ],
@@ -130,6 +137,13 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
   const fixture = TestBed.createComponent(FinanzasCajaVentanillaComponent);
   fixture.detectChanges();
   return { fixture, comp: fixture.componentInstance, ledger, libro, el: fixture.nativeElement as HTMLElement };
+}
+
+/** `[LE.6.10]` Cada cola vive en su vista (una sola pantalla, sin scroll): se elige antes de mirarla. */
+function ver(m: ReturnType<typeof montar>, vista: 'pagar' | 'recibir' | 'suspenso' | 'reposiciones' | 'custodias') {
+  m.comp.vista.set(vista);
+  m.fixture.detectChanges();
+  return m;
 }
 
 describe('[LE.2.13] la Ventanilla', () => {
@@ -203,19 +217,32 @@ describe('[LE.2.13] la Ventanilla', () => {
 
   it('sin el día del libro abierto: se ve la cola y lo dice, pero no se paga', () => {
     const { el, comp } = montar({ jornada: null });
-    expect(el.querySelector('[data-testid="libro-sin-dia"]')?.textContent).toContain('Falta el saldo de arranque');
+    expect(el.querySelector('[data-testid="libro-sin-dia"]')?.textContent).toContain('no se paga hasta el saldo de arranque');
     expect(comp.puedePagar()).toBe(false);
     expect([...el.querySelectorAll('tr[data-estado] button')].every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
   });
 
   it('si no se pudo leer el libro, lo declara (no lo da por abierto ni por cerrado)', () => {
-    const { el } = montar({ saldosFalla: true });
-    expect(el.querySelector('[data-testid="libro-sin-medir"]')).not.toBeNull();
+    // `[LE.6.10]` Lo dice la barra del día, una sola vez (antes también un aviso a todo lo ancho).
+    const { el, comp } = montar({ saldosFalla: true });
+    expect(comp.libro()).toBe('sin_medir');
+    expect(el.querySelector('[data-testid="dia-estado"]')?.textContent).toContain('No se pudo leer el día del libro');
   });
 
   it('sin el permiso de operar la caja, se ve pero no se paga', () => {
     const { comp } = montar({ gestionar: false });
     expect(comp.puedePagar()).toBe(false);
+  });
+
+  it('[LE.6.10] abre en «Por pagar», con el conteo de cada cola; sólo se pinta la cola elegida', () => {
+    const m = montar();
+    expect(m.comp.vista()).toBe('pagar');
+    expect(m.comp.vistas().map((v) => [v.value, v.count])).toEqual([['pagar', 3], ['recibir', 3], ['suspenso', 2], ['reposiciones', 1], ['custodias', 1]]);
+    expect(m.el.querySelectorAll('tr[data-estado]').length).toBe(3);
+    expect(m.el.querySelector('tr[data-cobro]')).toBeNull();
+    ver(m, 'recibir');
+    expect(m.el.querySelector('tr[data-estado]')).toBeNull();
+    expect(m.el.querySelectorAll('tr[data-cobro]').length).toBe(3);
   });
 
   it('su ayuda existe en el diccionario', () => {
@@ -225,7 +252,7 @@ describe('[LE.2.13] la Ventanilla', () => {
   // ── `[LE.6.7]` Por recibir ───────────────────────────────────────────────────────────────
 
   it('[LE.6.7] pide los cobros U-A-5 de la 0011 y su estado en UN viaje; lo ya recibido no se lista, se cuenta', () => {
-    const { ledger, libro, el, comp } = montar();
+    const { ledger, libro, el, comp } = ver(montar(), 'recibir');
     expect(ledger.movimientosPendientes).toHaveBeenCalledWith({ doc_tipo: 'U-A-5', tipo: 'ingreso', caja: '0011', limit: 200 });
     expect(libro.estadoDeCobros).toHaveBeenCalledTimes(1);
     expect(libro.estadoDeCobros).toHaveBeenCalledWith(COBROS.rows.map((r) => r.origen_ref));
@@ -292,8 +319,9 @@ describe('[LE.2.13] la Ventanilla', () => {
 
   // ── `[LE.6.7]` En Suspenso ───────────────────────────────────────────────────────────────
 
-  it('[LE.6.7] Suspenso va primero: lo que entró sin dueño y lo que salió sin orden, y su total arriba', () => {
-    const { el, comp } = montar();
+  it('[LE.6.7] Suspenso: lo que entró sin dueño y lo que salió sin orden, su total arriba y su conteo en el selector', () => {
+    const { el, comp } = ver(montar(), 'suspenso');
+    expect(comp.vistas().find((v) => v.value === 'suspenso')?.count).toBe(2);
     const filas = [...el.querySelectorAll('tr[data-suspenso]')];
     expect(filas.map((f) => f.getAttribute('data-suspenso'))).toEqual(['haber', 'debe']);
     expect(filas[0].textContent).toContain('Entró sin decir de quién');
@@ -330,10 +358,13 @@ describe('[LE.2.13] la Ventanilla', () => {
   });
 
   it('[LE.6.7] sin Suspenso lo dice en una línea; si no se pudo leer, lo declara (no lo pinta como vacío)', () => {
-    const vacio = montar({ suspenso: [] }).el;
+    const vacio = ver(montar({ suspenso: [] }), 'suspenso').el;
     expect(vacio.querySelector('[data-testid="suspenso-vacio"]')).not.toBeNull();
     TestBed.resetTestingModule();
-    const falla = montar({ suspenso: 'falla' }).el;
+    const m = ver(montar({ suspenso: 'falla' }), 'suspenso');
+    const falla = m.el;
+    // Sin medir no hay conteo (no se dibuja un cero).
+    expect(m.comp.vistas().find((v) => v.value === 'suspenso')?.count).toBeUndefined();
     expect(falla.querySelector('[data-testid="suspenso-error"]')).not.toBeNull();
     expect(falla.querySelector('[data-testid="suspenso-vacio"]')).toBeNull();
   });
@@ -341,7 +372,7 @@ describe('[LE.2.13] la Ventanilla', () => {
   // ── `[LE.6.8]` Reposiciones ──────────────────────────────────────────────────────────────
 
   it('[LE.6.8] la hoja de cada zona: sus pagos, su total y lo de antes de la apertura dicho aparte', () => {
-    const { el } = montar();
+    const { el } = ver(montar(), 'reposiciones');
     const fila = el.querySelector('tr[data-zona="morelia"]') as HTMLElement;
     expect(fila.textContent).toContain('Zona Morelia');
     expect(fila.textContent).toContain('1 de antes de la apertura');
@@ -364,13 +395,14 @@ describe('[LE.2.13] la Ventanilla', () => {
     expect(document.body.querySelector('[data-testid="resultado-reposicion"]')?.textContent).toContain('Quedó por firmar');
   });
 
-  // ⭐ `[LE.6.18]` PM, 2026-11-06: «¿por qué volver a confirmar una hoja que ya tiene todos los gastos aprobados?»
-  it('[LE.6.18] con cada pago autorizado no se pide firma: el botón saca el código y lo detenido se ve con su motivo', () => {
+  it('[LE.6.18] con cada pago autorizado no se pide firma: el botón saca el código y lo detenido se ve con su enlace', () => {
     const detenido = { origen_ref: '07|X-D-26|9004|0011', sucursal: '07', folio: '9004', fecha_pago: '2026-11-05', beneficiario: 'GASTOS',
       importe_minor: '48000', motivo: 'El gasto todavía no lo aprueba nadie en Aprobación de gastos: se aprueba ahí antes de pagar.' };
     const hoja: HojaDeReposicion = { ...HOJAS[0], motivo_firma: null, detenidos: [detenido] };
     const m = montar({ hojas: [hoja, HOJAS[1]] });
-    expect(m.el.querySelector('[data-testid="reposicion-detenidos"]')?.textContent).toContain('1 pago espera su aprobación y no entra');
+    const { el } = ver(m, 'reposiciones');
+    expect(el.querySelector('[data-testid="reposicion-detenidos"]')?.textContent).toContain('1 pago espera');
+    expect(el.querySelector('[data-testid="reposicion-detenidos"] a')?.getAttribute('href')).toBe('/finanzas/aprobacion-gastos');
 
     m.libro.pedirReposicion.mockReturnValue(of({ estado: 'pagado' as const, orden_id: 'o10', codigo: '4821', maquina_minor: '155000',
       cajon_minor: '50', redondeo_minor: '0', entry_id: null, vence: '2026-11-06 23:59:59-06' }) as never);
@@ -379,36 +411,13 @@ describe('[LE.2.13] la Ventanilla', () => {
     m.fixture.detectChanges();
     expect(document.body.querySelector('[data-testid="reposicion-sin-firma"]')).not.toBeNull();
     expect(document.body.querySelector('[data-testid="reposicion-firma"]')).toBeNull();
-    const lista = document.body.querySelector('[data-testid="reposicion-detenidos-lista"]');
-    expect(lista?.textContent).toContain('9004');
-    expect(lista?.querySelector('a')?.getAttribute('href')).toBe('/finanzas/aprobacion-gastos');
+    expect(document.body.querySelector('[data-testid="reposicion-detenidos-lista"]')?.textContent).toContain('9004');
     const botones = [...document.body.querySelectorAll('button')].map((b) => b.textContent?.trim());
     expect(botones).toContain('Sacar el código');
     expect(botones).not.toContain('Pedir la firma');
     m.comp.pedirReposicion();
     m.fixture.detectChanges();
     expect(document.body.querySelector('[data-testid="resultado-reposicion"]')?.textContent).toContain('El código es 4821');
-  });
-
-  it('[LE.6.18] si a un pago le falta su autorización lo dice antes, y el botón pide la firma', () => {
-    const m = montar();
-    m.comp.abrirReposicion(HOJAS[0]);
-    m.fixture.detectChanges();
-    expect(document.body.querySelector('[data-testid="reposicion-firma"]')?.textContent).toContain('la firma Tesorería');
-    expect([...document.body.querySelectorAll('button')].map((b) => b.textContent?.trim())).toContain('Pedir la firma');
-  });
-
-  // Un enlace a otra pantalla afirma que se puede abrir: a quien no aprueba gastos lo mandaría a «sin acceso».
-  it('[LE.6.18] NEGATIVA: sin permiso de aprobar gastos, lo detenido se dice sin enlace', () => {
-    const detenido = { origen_ref: '07|X-D-26|9004|0011', sucursal: '07', folio: '9004', fecha_pago: '2026-11-05', beneficiario: 'GASTOS',
-      importe_minor: '48000', motivo: 'El gasto todavía no lo aprueba nadie.' };
-    const hoja: HojaDeReposicion = { ...HOJAS[0], motivo_firma: null, detenidos: [detenido] };
-    const m = montar({ hojas: [hoja, HOJAS[1]], aprobar: false });
-    m.comp.abrirReposicion(hoja);
-    m.fixture.detectChanges();
-    const lista = document.body.querySelector('[data-testid="reposicion-detenidos-lista"]');
-    expect(lista?.textContent).toContain('Los aprueba quien firma gastos');
-    expect(lista?.querySelector('a')).toBeNull();
   });
 
   it('[LE.6.8] NEGATIVA: sin nadie nombrado para llevar el depósito, lo dice y no se pide', () => {
@@ -423,14 +432,14 @@ describe('[LE.2.13] la Ventanilla', () => {
   });
 
   it('[LE.6.8] sin apertura del libro no hay hoja: lo dice en una línea', () => {
-    const { el } = montar({ hojas: HOJAS.map((h) => ({ ...h, sin_arranque: true, renglones: [] })) });
+    const { el } = ver(montar({ hojas: HOJAS.map((h) => ({ ...h, sin_arranque: true, renglones: [] })) }), 'reposiciones');
     expect(el.querySelector('[data-testid="reposicion-sin-arranque"]')).not.toBeNull();
   });
 
   // ── `[LE.6.5]` Custodias ───────────────────────────────────────────────────────────────
 
   it('[LE.6.5] quién tiene dinero a su cargo, desde cuándo, y la reposición que espera su depósito', () => {
-    const { el } = montar();
+    const { el } = ver(montar(), 'custodias');
     const fila = el.querySelector('tr[data-persona="u-lleva"]') as HTMLElement;
     expect(fila.textContent).toContain('Quien Lleva');
     expect(fila.textContent).toContain('espera su depósito en el banco');
@@ -487,5 +496,154 @@ describe('[LE.2.13] la Ventanilla', () => {
     const [body] = libro.registrarHecho.mock.calls[0] as unknown as [Record<string, unknown>, string];
     expect(body).toEqual({ tipo: 'otro_ingreso', concepto: 'venta de desecho', piezas: { 100: '1' } });
     expect(comp.resultadoOtro()).toEqual({ estado: 'asentado', entry_id: 'e30' });
+  });
+
+  // ── `[LE.6.32]` Auditoría 2026-11-18: una lectura fallida nunca se pinta como «no hay» ──────
+
+  const kpi = (comp: FinanzasCajaVentanillaComponent, label: string) => comp.kpis().find((k) => k.label === label);
+
+  it('[LE.6.32] CONTROL: con todo leído, «Por recibir» es la suma medida y «En Suspenso» está', () => {
+    const { comp } = montar();
+    expect(kpi(comp, 'Por recibir')).toMatchObject({ value: 2168.24, format: 'currency2' }); // ruta 22 ($1,850) + Morelia ($318.24); lo detenido y lo recibido no suman
+    expect(kpi(comp, 'Por recibir')?.state).toBeUndefined();
+    expect(kpi(comp, 'En Suspenso')?.value).toBe(3500);
+  });
+
+  it('[LE.6.32] si los cobros no se pudieron leer, «Por recibir» es NO MEDIDO (no $0.00) y su cola no lleva conteo', () => {
+    const { comp } = montar({ cobrosFalla: true });
+    expect(kpi(comp, 'Por recibir')).toMatchObject({ value: '—', state: 'no_medido' });
+    expect(comp.vistas().find((v) => v.value === 'recibir')?.count).toBeUndefined();
+  });
+
+  it('[LE.6.32] si Suspenso no se pudo leer, su tarjeta NO desaparece: dice que no se midió', () => {
+    const { comp } = montar({ suspenso: 'falla' });
+    expect(kpi(comp, 'En Suspenso')).toMatchObject({ value: '—', state: 'no_medido' });
+  });
+
+  it('[LE.6.32] una cola topada lo dice: las cifras son «parcial» y el conteo dice «N+»', () => {
+    const m = montar({ topada: true });
+    expect(kpi(m.comp, 'Se pagan ya')?.state).toBe('parcial');
+    const pagar = m.comp.vistas().find((v) => v.value === 'pagar');
+    expect(pagar?.label).toBe('Por pagar 3+');
+    expect(pagar?.count).toBeUndefined();
+    expect(m.el.querySelector('[data-testid="pagos-topada"]')?.textContent).toContain('suman sólo esos');
+    TestBed.resetTestingModule();
+    expect(kpi(montar().comp, 'Se pagan ya')?.state).toBeUndefined();
+  });
+
+  it('[LE.6.32] si no se pudo leer quién lleva el depósito, lo dice; NO manda a nombrar a alguien', () => {
+    const { fixture, comp } = montar({ quien: 'falla' });
+    comp.abrirReposicion(HOJAS[0]);
+    fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="quien-lleva-error"]')?.textContent).toContain('No se pudo leer quién puede llevar el depósito');
+    expect(document.body.querySelector('[data-testid="sin-quien-lleva"]')).toBeNull();
+    expect(comp.listoParaReponer()).toBe(false);
+  });
+
+  it('[LE.6.32] «Pedir firma» se anuncia como pedir firma, no como «Pagar»', () => {
+    const { el } = montar();
+    const boton = el.querySelector('tr[data-estado="firma"] button');
+    expect(boton?.getAttribute('aria-label')).toBe('Pedir firma para X-D-26 0000003');
+  });
+
+  it('[LE.6.32] sin el permiso de operar la caja, dice por qué los botones están apagados', () => {
+    expect(montar({ gestionar: false }).el.querySelector('[data-testid="solo-lectura"]')?.textContent).toContain('Capturar en Caja General');
+    TestBed.resetTestingModule();
+    expect(montar().el.querySelector('[data-testid="solo-lectura"]')).toBeNull();
+  });
+
+  // ── `[LE.6.34]` Auditoría 2026-11-18: ninguna ventana tira lo contado ni el código ─────────────
+
+  /** La ventana de PrimeNG cuyo título empieza con `titulo` (lee sus entradas: closable, closeOnEscape). */
+  const dialogo = (m: ReturnType<typeof montar>, titulo: string) => m.fixture.debugElement.queryAll(By.directive(Dialog))
+    .find((d) => String((d.componentInstance as Dialog).header() ?? '').startsWith(titulo))!;
+  const boton = (sel: string) => document.body.querySelector(sel) as HTMLButtonElement | null;
+  const clic = (m: ReturnType<typeof montar>, sel: string) => { boton(sel)!.click(); m.fixture.detectChanges(); };
+
+  it('[LE.6.34] con piezas contadas, «Cancelar» pregunta antes de cerrar (y la X y el Esc se apagan); sin piezas cierra de una', () => {
+    const m = montar();
+    m.comp.abrirOtro();
+    m.fixture.detectChanges();
+    expect((dialogo(m, 'Otro ingreso').componentInstance as Dialog).closable()).toBe(true);
+    clic(m, '[data-testid="dc-cancelar"] button');
+    expect(m.comp.otroAbierto()).toBe(false);                       // CONTROL: limpia, cierra de una
+    m.comp.abrirOtro();
+    m.comp.piezasOtro.set({ 100: 2 });
+    m.fixture.detectChanges();
+    const d = dialogo(m, 'Otro ingreso').componentInstance as Dialog;
+    expect(d.closable()).toBe(false);
+    expect(d.closeOnEscape()).toBe(false);
+    clic(m, '[data-testid="dc-cancelar"] button');
+    expect(m.comp.otroAbierto()).toBe(true);                        // no cerró: preguntó
+    expect(document.body.querySelector('[data-testid="dc-pregunta"]')).not.toBeNull();
+    expect(m.comp.piezasOtro()).toEqual({ 100: 2 });
+    clic(m, '[data-testid="dc-descartar"]');
+    expect(m.comp.otroAbierto()).toBe(false);
+  });
+
+  it('[LE.6.34] mientras se paga la ventana no se cierra; con el resultado sólo «Listo» (con el foco), que recarga; el código queda en la barra', () => {
+    const m = montar();
+    const respuesta = new Subject<ResultadoPago>();
+    m.libro.pagar.mockReturnValueOnce(respuesta as never);
+    m.comp.abrir(m.comp.filas()[0]);
+    m.fixture.detectChanges();
+    const pago = dialogo(m, 'Pagar').componentInstance as Dialog;
+    expect(pago.closable()).toBe(true);                             // CONTROL: recién abierta, nada que perder
+    m.comp.recibe.set('Encargado del proveedor');
+    m.comp.piezas.set({ 10: 1 });
+    m.comp.pagar();
+    m.fixture.detectChanges();
+    expect(m.comp.enviando()).toBe(true);
+    expect(pago.closable()).toBe(false);
+    expect(pago.closeOnEscape()).toBe(false);
+    expect(boton('[data-testid="dc-cancelar"] button')?.disabled).toBe(true);
+    m.comp.cerrar();                                                // ni por código se cierra a medio envío
+    expect(m.comp.pagando()).not.toBeNull();
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')).toBeNull();
+
+    respuesta.next({ estado: 'pagado', orden_id: 'o1', codigo: 'JAQD-8', maquina_minor: '1722000', cajon_minor: '1000',
+      redondeo_minor: '0', entry_id: 'e1', vence: '2026-11-04T06:00:00Z' });
+    respuesta.complete();
+    m.fixture.detectChanges();
+    expect(pago.closable()).toBe(false);                            // con el resultado: sólo «Listo»
+    expect(pago.closeOnEscape()).toBe(false);
+    expect(document.body.querySelector('[data-testid="dc-cancelar"]')).toBeNull();
+    expect(document.activeElement?.closest('p-button')?.hasAttribute('data-listo')).toBe(true);
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.textContent).toContain('JAQD-8');
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.textContent).toContain('X-D-26 0000002');
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.getAttribute('role')).toBe('status');
+
+    const lecturas = m.ledger.movimientosPendientes.mock.calls.length;
+    clic(m, 'p-button[data-listo] button');
+    expect(m.comp.pagando()).toBeNull();
+    expect(m.ledger.movimientosPendientes.mock.calls.length).toBeGreaterThan(lecturas);   // «Listo» recarga
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.textContent).toContain('JAQD-8');   // y el código sigue a la vista
+  });
+
+  it('[LE.6.34] cerrar con Esc o X después del éxito recarga igual que «Listo» (otro ingreso)', () => {
+    const m = montar();
+    m.comp.abrirOtro();
+    m.comp.conceptoOtro.set('venta de desecho');
+    m.comp.piezasOtro.set({ 100: 1 });
+    m.comp.recibirOtro();
+    m.fixture.detectChanges();
+    expect(m.comp.resultadoOtro()).not.toBeNull();
+    const lecturas = m.libro.custodias.mock.calls.length;
+    dialogo(m, 'Otro ingreso').triggerEventHandler('visibleChange', false);
+    m.fixture.detectChanges();
+    expect(m.comp.otroAbierto()).toBe(false);
+    expect(m.libro.custodias.mock.calls.length).toBeGreaterThan(lecturas);
+  });
+
+  it('[LE.6.34] la reposición con código también lo deja en la barra', () => {
+    const m = montar();
+    m.libro.pedirReposicion.mockReturnValueOnce(of({ estado: 'pagado' as const, orden_id: 'o10', codigo: '4821', maquina_minor: '155000',
+      cajon_minor: '50', redondeo_minor: '0', entry_id: null, vence: '2026-11-06 23:59:59-06' }) as never);
+    m.comp.abrirReposicion(HOJAS[0]);
+    m.comp.piezasReposicion.set({ '0.5': 1 });
+    m.comp.pedirReposicion();
+    m.fixture.detectChanges();
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.textContent).toContain('4821');
+    expect(m.el.querySelector('[data-testid="ultimo-codigo"]')?.textContent).toContain('Zona Morelia');
   });
 });

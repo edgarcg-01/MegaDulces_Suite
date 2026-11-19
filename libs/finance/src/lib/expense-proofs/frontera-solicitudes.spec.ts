@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import knexFactory from 'knex';
 import {
-  candidatosDeFolio, desdeOFolioExacto, entraDesde, folioExactoDesde, SQL_DESDE_SU_SUCURSAL, SQL_FECHA_EFECTIVA,
+  candidatosDeFolio, desdeOFolioExacto, desdeSuSucursal, entraDesde, folioExactoDesde, sinValeEnLaSuite, SQL_FECHA_EFECTIVA,
   SQL_MAS_RECIENTE_PRIMERO,
 } from './frontera-solicitudes';
 
@@ -78,7 +78,22 @@ describe('[GX.107] el SQL armado, compilado', () => {
   it('la fecha efectiva es la más nueva entre documento y captura (greatest ignora la captura vacía)', () => {
     expect(SQL_FECHA_EFECTIVA).toBe('greatest(r.fecha, r.capturado_at::date)');
     expect(SQL_MAS_RECIENTE_PRIMERO).toBe('greatest(r.fecha, r.capturado_at::date) DESC NULLS LAST');
-    expect(SQL_DESDE_SU_SUCURSAL.startsWith('greatest(r.fecha, r.capturado_at::date) >= (SELECT min(p0.created_at)')).toBe(true);
+  });
+
+  it('[GX.114] desde el arranque de SU sucursal: UNIÓN a un agregado por sucursal (no subconsulta por fila), con el tenant en su lugar', () => {
+    const s = sql(r().modify(desdeSuSucursal, 't'));
+    expect(s.sql).toContain('JOIN (SELECT p0.sucursal, min(p0.created_at)::date AS arranque FROM finance.expense_proofs p0');
+    expect(s.sql).toContain('WHERE p0.tenant_id = $1 GROUP BY p0.sucursal) AS arr ON arr.sucursal = r.sucursal');
+    expect(s.sql).toContain('where "r"."tenant_id" = $2 and greatest(r.fecha, r.capturado_at::date) >= arr.arranque');
+    expect(s.bindings).toEqual(['t', 't']);
+    // ⛔ La forma vieja (correlacionada, un recorrido de la tabla por solicitud) no vuelve.
+    expect(s.sql).not.toContain('p0.sucursal = r.sucursal)');
+  });
+
+  it('[GX.114] sin vale en la Suite: anti-unión por tenant, folio y sucursal', () => {
+    const s = sql(r().modify(sinValeEnLaSuite));
+    expect(s.sql).toContain('left join "finance"."expense_proofs" as "px" on "px"."tenant_id" = "r"."tenant_id" and "px"."folio_solicitud" = "r"."folio" and "px"."sucursal" = "r"."sucursal"');
+    expect(s.sql).toContain('"px"."id" is null');
   });
 
   it('⭐ el folio exacto: por texto (casa con el índice) Y desde el arranque por la fecha efectiva', () => {
@@ -118,7 +133,8 @@ describe('[GX.107] el servicio usa la regla en sus tres lugares', () => {
   });
 
   it('Mis gastos: lo asignado desde el arranque de SU sucursal, y lo más reciente primero', () => {
-    expect(SERVICIO).toContain('.whereRaw(SQL_DESDE_SU_SUCURSAL)');
+    expect(SERVICIO).toContain('.modify(desdeSuSucursal, tenantId)');
+    expect(SERVICIO).toContain('.modify(sinValeEnLaSuite)');
     expect(SERVICIO).toContain('.orderByRaw(`${SQL_MAS_RECIENTE_PRIMERO}, r.folio ASC`)');
     expect(SERVICIO).not.toMatch(/`r\.fecha >= \(SELECT min\(p0\.created_at\)/);
   });

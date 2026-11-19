@@ -121,7 +121,7 @@ interface VendorDay {
     :host { display:block; }
     .vh-wrap { display:flex; flex-direction:column; height:calc(100vh - var(--app-header-h, 56px)); min-height:480px; padding:1rem; gap:.85rem; }
     .vh-head { display:flex; align-items:flex-end; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-    .vh-title { font:700 1.1rem/1.2 'Hanken Grotesk',sans-serif; margin:0; color:var(--text,#1c1917); }
+    .vh-title { font:700 1.1rem/1.2 var(--font-body); margin:0; color:var(--text,#1c1917); }
     .vh-sub { margin:.15rem 0 0; font-size:.8rem; color:var(--text-dim,#78716c); }
     .vh-filters { display:flex; gap:.5rem; flex-wrap:wrap; }
     .vh-date { padding:.4rem .6rem; border:1px solid var(--border-color); border-radius:8px; background:var(--card-bg,#fff); color:var(--text,#1c1917); font-size:.85rem; }
@@ -132,7 +132,7 @@ interface VendorDay {
     .vh-note { font-size:.76rem; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; }
     .k-val small { font-size:.72rem; font-weight:600; color:#b91c1c; }
     .vh-dv { border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); overflow:hidden; }
-    .vh-dv-head { padding:.5rem .7rem; font:600 .8rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); border-bottom:1px solid var(--border-color); }
+    .vh-dv-head { padding:.5rem .7rem; font:600 .8rem var(--font-body); color:var(--text,#1c1917); border-bottom:1px solid var(--border-color); }
     .vh-dv-hint { font-weight:400; color:var(--text-dim,#78716c); font-size:.72rem; }
     .vh-dv-list { display:flex; flex-wrap:wrap; gap:.4rem; padding:.5rem .6rem; max-height:120px; overflow-y:auto; }
     .vh-dv-row { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:999px; background:var(--hover,#f5f5f4); cursor:pointer; font-size:.76rem; color:var(--text,#1c1917); }
@@ -149,7 +149,7 @@ interface VendorDay {
     .vh-pb { display:flex; align-items:center; gap:.7rem; padding:.5rem .7rem; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg,#fff); }
     .pb-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; flex:0 0 auto; border:0; border-radius:50%; background:var(--action,#F05A28); color:#fff; cursor:pointer; }
     .pb-range { flex:1; min-width:0; accent-color:var(--action,#F05A28); }
-    .pb-clock { font:600 .78rem 'Hanken Grotesk',sans-serif; color:var(--text,#1c1917); font-variant-numeric:tabular-nums; min-width:58px; text-align:center; }
+    .pb-clock { font:600 .78rem var(--font-body); color:var(--text,#1c1917); font-variant-numeric:tabular-nums; min-width:58px; text-align:center; }
     .pb-speed { display:inline-flex; gap:.25rem; flex:0 0 auto; }
     .pb-speed button { font-size:.72rem; font-weight:600; padding:.2rem .45rem; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg,#fff); color:var(--text-dim,#78716c); cursor:pointer; }
     .pb-speed button.act { border-color:var(--action,#F05A28); color:var(--action,#F05A28); }

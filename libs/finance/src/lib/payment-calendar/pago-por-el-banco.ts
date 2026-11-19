@@ -22,6 +22,8 @@
  * Función pura: recibe los pagos pendientes, las salidas del banco y las que ya están ligadas a otro pago.
  */
 
+import type { SalidaSegunLaDescarga } from '@megadulces/contracts';
+
 /** Días alrededor del día planeado en que se busca la salida (medido: Tesorería paga el día, a lo más 3 después). */
 export const VENTANA_BANCO_DIAS = 3;
 /** Pesos de tolerancia entre el importe del pago y la salida (redondeos del banco). */
@@ -115,6 +117,57 @@ export function decidirPagosPorElBanco(
       continue;
     }
     out.set(p.id, { estado: 'probado', movimiento_id: c[0].id, cuenta_id: c[0].cuenta_id, fecha: c[0].fecha, importe: c[0].importe });
+  }
+  return out;
+}
+
+/** `[PGP.146]` Un pago que reclama una salida de la descarga: pendiente o ya pagado (el pagado sigue siendo su dueño). */
+export interface ReclamanteDeLaDescarga extends PagoPendiente {
+  status: string;
+  /** La cuenta que alguien preparó; null = nadie la preparó (casi todos). Sólo acota de qué cuentas se dice «no cubre». */
+  cuenta_planeada: string | null;
+}
+
+/** `[PGP.146]` Hasta qué día cubre la descarga una cuenta de banco activa (null = nunca se subió). */
+export interface CoberturaDeLaDescarga {
+  cuenta_id: string;
+  cuenta: string;
+  hasta: string | null;
+}
+
+const masDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * `[PGP.146]` **Qué dice la descarga del banco de cada pago pendiente cuyo día ya llegó.** La regla es la de
+ * `decidirPagosPorElBanco` (±$1, ±3 días, una sola cuenta, uno a uno), con dos diferencias que la hacen más
+ * prudente, porque aquí nadie guardó qué salida es de qué pago:
+ * - **Los pagados también reclaman.** Un pago que Kepler o el libro ya dieron por pagado sigue siendo dueño de su
+ *   salida; si un pendiente por el mismo importe la reclama también, es `no_decide`, no `salio`.
+ * - **«Sin salida» no es «no se pagó»**: se dice qué cuentas no cubren los días de la ventana (sólo la preparada,
+ *   si alguien la preparó; si no, todas las de banco).
+ * Sólo lee. El resultado trae únicamente los pendientes con día ≤ hoy.
+ */
+export function segunLaDescarga(
+  reclamantes: readonly ReclamanteDeLaDescarga[], salidas: readonly SalidaBanco[],
+  cobertura: readonly CoberturaDeLaDescarga[], hoy: string,
+): Map<string, SalidaSegunLaDescarga> {
+  const decisiones = decidirPagosPorElBanco(reclamantes, salidas, hoy);
+  const alias = new Map(cobertura.map((c) => [c.cuenta_id, c.cuenta]));
+  const out = new Map<string, SalidaSegunLaDescarga>();
+  for (const p of reclamantes) {
+    if (p.status !== 'pending' || p.dia > hoy) continue;
+    const d = decisiones.get(p.id);
+    if (!d) continue;
+    if (d.estado === 'probado') {
+      out.set(p.id, { estado: 'salio', fecha: d.fecha, cuenta_id: d.cuenta_id, cuenta: alias.get(d.cuenta_id) ?? 'cuenta sin nombre', importe: d.importe });
+    } else if (d.estado === 'sin_salida') {
+      const necesita = [masDias(p.dia, VENTANA_BANCO_DIAS), hoy].sort()[0];
+      const cuentas = p.cuenta_planeada ? cobertura.filter((c) => c.cuenta_id === p.cuenta_planeada) : cobertura;
+      const sinCubrir = cuentas.filter((c) => !c.hasta || c.hasta < necesita).map((c) => ({ cuenta: c.cuenta, hasta: c.hasta }));
+      out.set(p.id, { estado: 'sin_salida', revisadas: cuentas.length - sinCubrir.length, sin_cubrir: sinCubrir });
+    } else {
+      out.set(p.id, { estado: 'no_decide', motivo: d.motivo });
+    }
   }
   return out;
 }

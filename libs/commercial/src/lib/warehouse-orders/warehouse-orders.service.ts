@@ -6,13 +6,14 @@ import type {
   WarehouseOrderRow,
   WarehouseOrderShipment,
   WarehouseOrdersAlcance,
+  WarehouseOrdersAtorados,
   WarehouseOrdersResponse,
 } from '@megadulces/contracts';
 import type { Knex } from 'knex';
-import { ESTATUS_VIGENTE_SQL } from '../commercial-picking/kepler-origen';
+import { ATORADOS_ALCANCE_SQL, ESTATUS_VIGENTE_SQL, VENTANA_POOL_DIAS } from '../commercial-picking/kepler-origen';
 import { ENTREGADO_SQL, sucursalKeplerSql } from '../presale-control/presale-control.service';
 import { etapaDePedido } from './etapa-pedido';
-import { armarRespuesta, horasAbierto, ORIGEN_PREVENTA, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, type Filtros, type Pagina } from './warehouse-orders.engine';
+import { armarRespuesta, horasAbierto, ORIGEN_PREVENTA, paginaDe, PaginaInvalida, periodo, PeriodoInvalido, relojMx, ventanaPool, type Filtros, type Pagina } from './warehouse-orders.engine';
 
 /**
  * `[GP.1]` Tablero de pedidos del almacén — lectura pura sobre el ODS, sin importer
@@ -96,6 +97,7 @@ SELECT h.sucursal, h.serie, h.folio, h.fecha, h.hora, h.origen, h.estatus, h.est
              GROUP BY 1) x
   ) lc ON true
   LEFT JOIN vend v ON v.sucursal = h.sucursal AND v.code = h.vendedor_code
+ ${filtro === 'periodo' ? 'WHERE (?::text[] IS NULL OR h.estatus = ANY(?::text[]))' : ''}
  ORDER BY h.fecha DESC, h.hora DESC NULLS LAST, h.sucursal, h.folio DESC`;
 }
 
@@ -384,16 +386,47 @@ export class WarehouseOrdersService {
     const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
-      const r = await trx.raw(LIST_SQL, [per.from, per.to, alcance.todas, codigos]);
+      // [GP.RF.19] Con filtro de estatus de Kepler (la liga de atorados, la lista del surtidor), la consulta
+      // filtra ANTES de leer los renglones de cada pedido. Medido en prod (2026-11-18): la liga de atorados
+      // leía 12,071 pedidos de un año para mostrar 396 y tardaba ~2 s. Los conteos por etapa y por origen
+      // quedan dentro de ese estatus (la pantalla así lo rotula); la preventa no tiene estatus de Kepler.
+      const est = filtros.estatus.length ? filtros.estatus : null;
+      const r = await trx.raw(LIST_SQL, [per.from, per.to, alcance.todas, codigos, est, est]);
       const piso = await this.pisoKepler(trx, per.from);
       const filas = (r.rows as Crudo[]).map((x) => this.aFila(x, reloj, piso));
-      if (filtros.preventa) {
+      if (filtros.preventa && !est) {
         const pv = await trx.raw(PREVENTA_SQL, [per.from, per.to, alcance.todas, codigos]);
         filas.push(...(pv.rows as PreventaCruda[]).map((x) => this.aFilaPreventa(x)));
       }
       const resp = armarRespuesta(filas, filtros, per, alcance, ahora, pagina);
       this.logger.debug(`pedidos ${per.from}..${per.to}: ${filas.length} en ${Date.now() - t0} ms`);
       return resp;
+    });
+  }
+
+  /**
+   * `[GP.RF.16]` Los atorados del alcance de quien consulta: siguen `AUTORIZADO` en Kepler con fecha
+   * anterior a la ventana de la fila de surtido. Medido en prod (2026-11-18, sólo lectura): 396 en 8
+   * sucursales, el más viejo del 29-nov-2025, en 60–170 ms; la suma cuadra sucursal por sucursal con
+   * `ATORADOS_KEPLER_SQL`, la cuenta que ya publica la fila. Sin sucursal asignada no se consulta.
+   */
+  async atorados(): Promise<WarehouseOrdersAtorados> {
+    this.tenantCtx.requireTenantId();
+    const ventana = ventanaPool(relojMx(new Date()).fecha, VENTANA_POOL_DIAS);
+    const vacio: WarehouseOrdersAtorados = { ventana_desde: ventana.desde, hasta: ventana.hasta, pedidos: 0, desde: null, sucursales: [] };
+    const alcance = await this.alcance();
+    if (!alcance.todas && alcance.sucursales.length === 0) return vacio;
+    const codigos = alcance.sucursales.map((x) => x.codigo);
+    return this.tk.run(async (trx) => {
+      const r = await trx.raw(ATORADOS_ALCANCE_SQL, [alcance.todas, codigos, ventana.desde]);
+      const sucursales = (r.rows as Array<{ sucursal: string; n: number; desde: string | null }>).map((x) => ({
+        codigo: String(x.sucursal).trim(),
+        nombre: branchName(String(x.sucursal).trim()),
+        pedidos: Number(x.n) || 0,
+        desde: x.desde ?? null,
+      }));
+      const fechas = sucursales.map((x) => x.desde).filter((x): x is string => !!x).sort();
+      return { ...vacio, pedidos: sucursales.reduce((a, x) => a + x.pedidos, 0), desde: fechas[0] ?? null, sucursales };
     });
   }
 

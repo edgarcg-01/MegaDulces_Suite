@@ -328,6 +328,39 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-18** — 🧪 **[COT.47] Auditoría de la tabla de renglones (Modern Web Guidance) y filtros para listas largas.**
+  Medido en prod (30 días, 410 cotizaciones): mediana 9 renglones, p90 40, máximo 195; 118 con 20 o más; de 6,646
+  renglones, 120 con promoción y 3,032 con precio por volumen. Hecho, en la tabla compartida (alta y detalle): **encabezado
+  fijo al bajar** (`surf-table--sticky`; la esquina fija encima de las celdas fijas); **semántica**: `scope="col"` en los
+  encabezados, el producto como `rowheader` (el lector dice de qué renglón es cada importe) y nombre accesible de la tabla
+  («Renglones de la cotización COT-…», PrimeNG no lo expone y se pone ya pintada); **«Ver en la lista»** espera a que
+  termine el desplazamiento (promesa de `scrollIntoView`, degrada a `await undefined`) y deja el cursor en la cantidad del
+  renglón; **barra de buscar y filtrar desde 10 renglones**: buscar por nombre o SKU con `coincideBusqueda` (palabras en
+  cualquier orden, sin acentos), «Todos / Faltan existencias / Con promoción» con su cuenta, orden «Como se capturó /
+  Importe mayor / Nombre»; con filtro dice «Mostrando X de Y · Quitar filtro», los números de renglón y los totales no
+  cambian, y «Ver en la lista» de un renglón escondido quita el filtro. «Con precio por volumen» NO es filtro (46 % de los
+  renglones: no separa nada). Pruebas: 7 nuevas (búsqueda, cuentas, orden sin renumerar, umbral de 10, «Mostrando», semántica,
+  filtro que se quita); 138/138 de televenta; `ngc` limpio; `check:pantalla --todas` 0 nuevas (la tabla mejora en D.7);
+  `check:busqueda` y `check:estilos` en verde. **NO MEDIDO:** INP con 195 renglones (pide trazo en navegador); cuántos
+  renglones tienen faltantes hoy (la existencia es en vivo). **Pendiente:** el filtro «Cambió de precio» del detalle (la fila
+  de la tabla no trae la revisión de precio). **Sin validación visual.**
+
+- **2026-11-18** — 🧪 **[COT.46] Ver lo que se acaba de agregar en una lista larga** (Edgar: «al ir agregando productos en una
+  lista larga no se va mostrando lo que se agrega»). El renglón nuevo cae al final de la tabla, fuera de la pantalla, y la
+  única señal era un aviso en la esquina que se iba solo: quien dicta mira el buscador y no percibe el cambio lejos de su
+  vista (ceguera al cambio; la respuesta va donde está la atención), duda si entró, baja a revisar y pierde el hilo. Ahora
+  `app-ultimo-agregado`, justo debajo del buscador: «Renglón 23: GALL MINI MAMUT · 10 CJA · $2,573.02 · Ver en la lista» (o
+  «Sumado al renglón 5: … ahora 15 CJA»), se queda hasta el siguiente agregado, se anuncia al lector de pantalla y «Ver en la
+  lista» baja al renglón y lo resalta 1.5 s sin mover el foco; en la tabla el último agregado lleva una franja en el número.
+  Alta y detalle (en el detalle el renglón se identifica como el que no estaba antes de la recarga). Cinco preguntas: (1) lo
+  último agregado, debajo del buscador; (2) fuera el aviso de esquina y la página NO se desplaza sola (el buscador saldría de
+  la vista a media captura); (3) región viva, teclado, el resaltado no va solo en color, desplazamiento sin animación con
+  movimiento reducido; (4) el número es el de la columna «#» y el renglón del pedido en Kepler; (5) Telemarketing, alta y
+  detalle. Quitar el renglón borra la confirmación. Pruebas: 6 del componente + 2 de la tabla; la primera corrida cazó texto
+  pegado para el lector («Renglón 23GALL…»), arreglado con separadores en texto; 131/131 de televenta; `check:pantalla
+  --todas` 0 nuevas. `ngc` NO MEDIDO para este cambio: rojo por `side-peek` y `descartar-cambios`, trabajo sin commitear de
+  otra sesión (mis archivos sin errores). **Sin validación visual.**
+
 - **2026-11-18** — 🧪 **[COT.45] Bultos y cajas con decimales** (Edgar: «que podamos administrar decimales en el bulto»).
   Kepler guarda factores con decimales en 8 artículos por sucursal (95579 BTO ×19.75 · 97235 CJA ×10.80 · 99136 BTO ×22.7
   · 95438 BTO ×6.84 · los chocolates Palmer KG ×2.5), y `v_label_presentations` / `v_label_prices` los truncan con

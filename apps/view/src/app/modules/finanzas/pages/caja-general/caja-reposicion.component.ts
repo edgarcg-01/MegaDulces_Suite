@@ -13,7 +13,7 @@ import {
   ZONAS_HOJA_GASTOS, pagableConBilletesCaos, revisarConteoCajon, warehouseName,
   type HojaGastos, type HojasDeGastos, type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro,
   type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago, type PagarHojaInput,
-  type ConteoCajonHoja, type HojaAbierta, type RetiroParaHoja,
+  type ConteoCajonHoja, type HojaAbierta, type RetiroParaHoja, type PagoHojaResultado,
 } from '@megadulces/contracts';
 import { uuidV4 } from '../../../../core/utils/uuid';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
@@ -29,6 +29,8 @@ import { CaosService } from '../../caos.service';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
+import { DescartarCambiosComponent } from '../../../../shared/components/descartar-cambios/descartar-cambios.component';
+import { DevolverFocoDirective } from '../../../../shared/directives/devolver-foco.directive';
 
 interface OpcionOrigen { label: string; value: string }
 
@@ -77,6 +79,30 @@ export function avisoDeReposicion(
 }
 
 /**
+ * `[LE.6.34]` Lo que dice el aviso después de pagar una hoja (o reintentar su captura): lo que quedó
+ * explicado y, de lo que no entró, CUÁL y POR QUÉ — todos los motivos, no sólo el del primer renglón
+ * (antes `sin_capturar[0].motivo`, y con 8 segundos de vida). Como `avisoDeReposicion`: si algo quedó
+ * sin capturar el aviso se queda hasta que se cierre.
+ */
+export function avisoDePagoHoja(
+  x: Pick<PagoHojaResultado, 'sin_capturar'> & { hoja: Pick<HojaGastos, 'renglones'> },
+  explicado: string, sinMotivo = 'reintenta con «Capturar lo que falta»',
+): { severity: 'success' | 'warn'; detail: string; sticky: boolean } {
+  const faltan = x.sin_capturar.length;
+  if (!faltan) return { severity: 'success', detail: explicado, sticky: false };
+  const nombre = new Map((x.hoja.renglones ?? []).map((r) => [r.origen_ref, `${r.doc_tipo} ${r.folio}`.trim()]));
+  const porMotivo = new Map<string, string[]>();
+  for (const f of x.sin_capturar) {
+    const m = (f.motivo ?? '').trim().replace(/\.+$/, '') || sinMotivo;
+    porMotivo.set(m, [...(porMotivo.get(m) ?? []), nombre.get(f.origen_ref) || f.origen_ref]);
+  }
+  const motivos = [...porMotivo.entries()].map(([m, folios]) =>
+    `${folios.slice(0, 3).join(', ')}${folios.length > 3 ? ` y ${folios.length - 3} más` : ''}: ${m}`);
+  const cab = `${faltan} sin capturar`;
+  return { severity: 'warn', detail: `${explicado} ${cab} — ${motivos.join(' · ')}.`.trim(), sticky: true };
+}
+
+/**
  * ⭐ `[CGA-A.61]` **Reposición de sucursales**, en una ventana que abre la barra de Captura.
  *
  * Edgar, 2026-10-28: *«hagámoslo, pero desde una sola interfaz para tener más practicidad»*. Aquí está
@@ -105,6 +131,7 @@ export function avisoDeReposicion(
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
     LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ConteoCajonComponent,
+    DescartarCambiosComponent, DevolverFocoDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -598,7 +625,10 @@ export function avisoDeReposicion(
     </app-side-peek>
 
     <!-- appendTo body: se abre DESDE la ventana y tiene que quedar encima de ella, no adentro. -->
-    <p-dialog [visible]="mover() !== null" (visibleChange)="$event ? null : cerrarMover()" [modal]="true" appendTo="body"
+    <!-- [LE.6.34] Mientras el cambio va en camino no se cierra: con la X o Esc PrimeNG se ocultaba, cerrarMover()
+         lo ignoraba y la ventana quedaba trabada (oculta para PrimeNG, abierta para la pantalla). -->
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="mover() !== null" (visibleChange)="$event ? null : cerrarMover()" [modal]="true" appendTo="body"
+              [closable]="ocupado() !== 'mover'" [closeOnEscape]="ocupado() !== 'mover'"
               header="Cambiar de retiro" [style]="{ width: '34rem' }" [draggable]="false">
       @if (mover(); as m) {
         <div class="rp-mover">
@@ -612,7 +642,8 @@ export function avisoDeReposicion(
         </div>
       }
       <ng-template #footer>
-        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="cerrarMover()"></p-button>
+        <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="ocupado() === 'mover'" (onClick)="cerrarMover()"
+                  data-testid="rp-mover-cancelar"></p-button>
         <p-button label="Cambiar de retiro" icon="pi pi-check" [disabled]="!destinoMover || motivoMover.trim().length < 10 || !!ocupado()"
                   [loading]="ocupado() === 'mover'" (onClick)="confirmarMover()"></p-button>
       </ng-template>
@@ -620,14 +651,21 @@ export function avisoDeReposicion(
 
     <!-- Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». [LE.6.19] PM, 2026-11-06: «toda reposición
          que salga del cajón se hace con arqueo» — también el pico que el cajón pone a un retiro de CAOS. -->
-    <p-dialog [visible]="contando() !== null" (visibleChange)="$event ? null : contando.set(null)" [modal]="true" appendTo="body"
+    <!-- [LE.6.34] Con piezas contadas la ventana no se cierra sola (X, Esc o «Volver» preguntan antes de tirar
+         el conteo), y mientras paga no se cierra: cerrarla a medio envío perdía el resultado. -->
+    <p-dialog appDevolverFoco closeAriaLabel="Cerrar" [visible]="contando() !== null" (visibleChange)="$event ? null : cerrarConteo()" [modal]="true" appendTo="body"
+              [closable]="!conteoTrabado()" [closeOnEscape]="!conteoTrabado()"
               [header]="'Pagar ' + (contando()?.titulo ?? '') + ': arqueo de lo que sale del cajón'" [style]="{ width: '38rem' }" [draggable]="false">
       @if (contando(); as c) {
         <app-conteo-cajon [total]="c.total" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
       }
+      <!-- El error del pago va aquí, junto al conteo: un toast detrás de la ventana no se lee. -->
+      @if (conteoErr(); as e) { <p class="rp-conteo-err" role="alert" data-testid="rp-conteo-err">{{ e }}</p> }
       <ng-template #footer>
-        <p-button label="Volver" severity="secondary" [text]="true" (onClick)="contando.set(null)"></p-button>
-        <p-button [label]="'Pagar ' + (contando()?.titulo ?? '')" icon="pi pi-check" [disabled]="!conteoListo() || !!ocupado()"
+        <app-descartar-cambios etiqueta="Volver" [sucio]="hayPiezas()" [bloqueado]="!!ocupado()" (cerrar)="descartarConteo()" />
+        <!-- data-conteo-siguiente: Enter desde la última pieza viene aquí, no a «Volver». -->
+        <p-button data-conteo-siguiente data-testid="rp-pagar-conteo" [label]="'Pagar ' + (contando()?.titulo ?? '')" icon="pi pi-check"
+                  [disabled]="!conteoListo() || !!ocupado()"
                   [loading]="ocupado() === contando()?.clave" (onClick)="pagarConCajon()"></p-button>
       </ng-template>
     </p-dialog>
@@ -700,6 +738,7 @@ export function avisoDeReposicion(
     .rp-mover p { margin:0; }
     .rp-lbl { font-size:var(--fs-xs); color:var(--text-muted); }
     .rp-sel-ancho { width:100%; }
+    .rp-conteo-err { margin:var(--sp-3) 0 0; color:var(--bad-fg); font-size:var(--fs-sm); }
     `,
   ],
 })
@@ -761,6 +800,14 @@ export class CajaReposicionComponent implements OnInit {
     const c = this.contando();
     return !!c && revisarConteoCajon({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) }, c.total).ok;
   });
+  /** `[LE.6.34]` Hay algo contado: cerrar la ventana lo tira, y se pregunta antes. */
+  readonly hayPiezas = computed(() => Object.values(this.conteoPiezas()).some((n) => Number(n) > 0) || Number(this.conteoMorralla() ?? 0) > 0);
+  /** `[LE.6.34]` La ventana del conteo no se cierra sola: con piezas (pregunta) o mientras paga. */
+  readonly conteoTrabado = computed(() => this.hayPiezas() || !!this.ocupado());
+  /** `[LE.6.34]` Por qué no se pagó, dentro de la ventana del conteo (no en un toast detrás de ella). */
+  readonly conteoErr = signal<string | null>(null);
+  /** De qué pago son las piezas contadas: reabrir el mismo no las borra. */
+  private conteoDe: string | null = null;
   private readonly elegidosHoja = signal<Record<string, string>>({});
   /** `[LE.6.19]` La llave de cada pago de una abierta: un reintento (o el doble clic) no paga dos hojas. */
   private readonly llavesAbierta: Record<string, string> = {};
@@ -1130,15 +1177,50 @@ export class CajaReposicionComponent implements OnInit {
   }
 
   private contar(c: Conteo): void {
+    // `[LE.6.34]` Lo contado para ESTE pago se conserva si la ventana se cerró sin descartarlo.
+    if (this.conteoDe !== c.clave) this.limpiarConteo();
+    this.conteoDe = c.clave;
+    this.conteoErr.set(null);
+    this.contando.set(c);
+  }
+
+  /** La X o Esc de PrimeNG (sólo con la ventana limpia y sin pago en vuelo). */
+  cerrarConteo(): void {
+    if (this.ocupado()) return;
+    this.contando.set(null);
+  }
+
+  /** «Volver»: sin piezas, o confirmando que se tiran. */
+  descartarConteo(): void {
+    if (this.ocupado()) return;
+    this.limpiarConteo();
+    this.contando.set(null);
+  }
+
+  private limpiarConteo(): void {
     this.conteoPiezas.set({});
     this.conteoMorralla.set(null);
-    this.contando.set(c);
+    this.conteoErr.set(null);
+    this.conteoDe = null;
+  }
+
+  /** Un pago que salió bien: la ventana se cierra y lo contado ya no sirve para otro. */
+  private conteoPagado(): void {
+    this.limpiarConteo();
+    this.contando.set(null);
+  }
+
+  /** El error del pago: dentro de la ventana si el conteo sigue abierto; si no, en el aviso. */
+  private errorDePago(clave: string, summary: string, err: unknown): void {
+    if (this.contando()?.clave === clave) { this.conteoErr.set(`${summary}: ${this.textoError(err)}`); return; }
+    this.toast.add({ severity: 'error', summary, detail: this.textoError(err), life: 10000 });
   }
 
   /** El pago, ya contado lo que sale del cajón. */
   pagarConCajon(): void {
     const c = this.contando();
     if (!c || !this.conteoListo() || this.ocupado()) return;
+    this.conteoErr.set(null);
     c.pagar({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) });
   }
 
@@ -1203,14 +1285,11 @@ export class CajaReposicionComponent implements OnInit {
         next: (x) => {
           delete this.llavesAbierta[clave];
           this.ocupado.set(null);
-          this.contando.set(null);
-          const faltan = x.sin_capturar.length;
-          this.toast.add({
-            severity: faltan ? 'warn' : 'success', summary: `${a.nombre}: ${x.hoja.folio} pagada`,
-            detail: `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`
-              + (faltan ? ` ${faltan} sin capturar: ${x.sin_capturar[0].motivo ?? 'reintenta con «Capturar lo que falta»'}.` : ''),
-            life: 8000,
-          });
+          this.conteoPagado();
+          const av = avisoDePagoHoja(x,
+            `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`);
+          this.toast.add({ severity: av.severity, summary: `${a.nombre}: ${x.hoja.folio} pagada`, detail: av.detail,
+            ...(av.sticky ? { sticky: true } : { life: 8000 }) });
           this.cargar();
           this.cambio.emit();
         },
@@ -1218,7 +1297,7 @@ export class CajaReposicionComponent implements OnInit {
           this.ocupado.set(null);
           // Un rechazo del servidor no pagó nada: la siguiente vez es otro intento, con otra llave.
           if (err?.status && err.status < 500) delete this.llavesAbierta[clave];
-          this.toast.add({ severity: 'error', summary: `No se pagó la reposición de ${a.nombre}`, detail: this.textoError(err), life: 10000 });
+          this.errorDePago(clave, `No se pagó la reposición de ${a.nombre}`, err);
           this.cargar();
         },
       });
@@ -1231,20 +1310,17 @@ export class CajaReposicionComponent implements OnInit {
     this.api.pagarHojaDeGastos(h.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => {
         this.ocupado.set(null);
-        this.contando.set(null);
-        const faltan = x.sin_capturar.length;
-        this.toast.add({
-          severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio} pagada`,
-          detail: `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`
-            + (faltan ? ` ${faltan} sin capturar: ${x.sin_capturar[0].motivo ?? 'reintenta con «Capturar lo que falta»'}.` : ''),
-          life: 8000,
-        });
+        if (this.contando()?.clave === clave) this.conteoPagado();
+        const av = avisoDePagoHoja(x,
+          `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`);
+        this.toast.add({ severity: av.severity, summary: `${x.hoja.folio} pagada`, detail: av.detail,
+          ...(av.sticky ? { sticky: true } : { life: 8000 }) });
         this.cargar();
         this.cambio.emit();
       },
       error: (err) => {
         this.ocupado.set(null);
-        this.toast.add({ severity: 'error', summary: `No se pagó ${h.folio}`, detail: this.textoError(err), life: 10000 });
+        this.errorDePago(clave, `No se pagó ${h.folio}`, err);
         this.cargar();
       },
     });
@@ -1257,9 +1333,9 @@ export class CajaReposicionComponent implements OnInit {
     this.api.capturarHojaDeGastos(h.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (x) => {
         this.ocupado.set(null);
-        const faltan = x.sin_capturar.length;
-        this.toast.add({ severity: faltan ? 'warn' : 'success', summary: `${x.hoja.folio}: ${x.capturados} ${x.capturados === 1 ? 'capturado' : 'capturados'}`,
-          detail: faltan ? `${faltan} todavía sin capturar: ${x.sin_capturar[0].motivo ?? 'revisa su cuenta contable'}.` : 'Todos sus pagos ya están en el libro.', life: 8000 });
+        const av = avisoDePagoHoja(x, x.sin_capturar.length ? '' : 'Todos sus pagos ya están en el libro.', 'revisa su cuenta contable');
+        this.toast.add({ severity: av.severity, summary: `${x.hoja.folio}: ${x.capturados} ${x.capturados === 1 ? 'capturado' : 'capturados'}`,
+          detail: av.detail, ...(av.sticky ? { sticky: true } : { life: 8000 }) });
         this.cargar();
         this.cambio.emit();
       },

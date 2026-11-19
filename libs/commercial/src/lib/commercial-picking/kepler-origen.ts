@@ -255,6 +255,33 @@ SELECT count(*)::int AS n, min(fecha) AS desde
  WHERE x.estatus = 'AUTORIZADO' AND x.fecha < ?
    AND (?::text IS NULL OR x.origen = ?::text)`;
 
+/** Días hacia atrás que entran a la fila de surtido (el pool). Antes de eso, un autorizado es «atorado». */
+export const VENTANA_POOL_DIAS = 7;
+
+/**
+ * `[GP.RF.16]` Los mismos atorados que `ATORADOS_KEPLER_SQL`, pero de TODO el alcance de quien
+ * consulta y por sucursal: el aviso del Tablero. La regla es la misma (cabecera vigente, `AUTORIZADO`,
+ * fecha anterior a la ventana); sólo cambia el filtro de sucursal. Una sucursal sin atorados no sale.
+ *
+ * Parámetros: [todas (boolean), sucursales (text[]), desde].
+ */
+export const ATORADOS_ALCANCE_SQL = `
+SELECT x.sucursal, count(*)::int AS n, min(x.fecha) AS desde
+  FROM (
+    SELECT DISTINCT ON (h.sucursal, h.c5, h.c6)
+           h.sucursal,
+           to_char(h.c9::date, 'YYYY-MM-DD') AS fecha,
+           ${ESTATUS_VIGENTE_SQL} AS estatus
+      FROM kepler_ods.kdm1 h
+     WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 40
+       AND btrim(h.c1) = btrim(h.sucursal)
+       AND (?::boolean OR h.sucursal = ANY(?::text[]))
+     ORDER BY h.sucursal, h.c5, h.c6, h.c9 DESC
+  ) x
+ WHERE x.estatus = 'AUTORIZADO' AND x.fecha < ?
+ GROUP BY x.sucursal
+ ORDER BY x.sucursal`;
+
 /**
  * Cabecera VIGENTE de pedidos Kepler dados por llave. Parámetro: un arreglo JSON
  * `[{"sucursal":"01","serie":1,"folio":"0002781"}, ...]`.

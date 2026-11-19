@@ -1,8 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { NEVER, Subject, of } from 'rxjs';
-import type { WarehouseOrdersResponse } from '@megadulces/contracts';
+import { NEVER, Subject, of, throwError } from 'rxjs';
+import type { WarehouseOrdersAtorados, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { AlmacenPedidosComponent } from './almacen-pedidos.component';
 import { AlmacenPedidosService } from '../almacen-pedidos.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -22,7 +22,7 @@ describe('AlmacenPedidosComponent · botón Surtir (GP.3)', () => {
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list: () => NEVER, detail: () => NEVER } },
+        { provide: AlmacenPedidosService, useValue: { list: () => NEVER, detail: () => NEVER, atorados: () => NEVER } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -84,7 +84,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER) } },
+        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -180,7 +180,7 @@ describe('AlmacenPedidosComponent · cancelados (GP.10.0)', () => {
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(RESP())), detail: vi.fn(() => NEVER) } },
+        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(RESP())), detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -260,7 +260,7 @@ describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list, detail } },
+        { provide: AlmacenPedidosService, useValue: { list, detail, atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -378,7 +378,7 @@ describe('AlmacenPedidosComponent · vista «Fila de surtido» (GP.10.4b)', () =
     TestBed.configureTestingModule({
       providers: [
         provideRouter([{ path: 'almacen/pedidos', component: AlmacenPedidosComponent }]),
-        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER) } },
+        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
         { provide: PickingService, useValue: { consolaAlmacenes } },
       ],
@@ -563,7 +563,7 @@ describe('AlmacenPedidosComponent · lista por páginas (GP.10.5)', () => {
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER) } },
+        { provide: AlmacenPedidosService, useValue: { list, detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -665,7 +665,7 @@ describe('AlmacenPedidosComponent · importe por destino y leyenda (GP.10.5)', (
       imports: [AlmacenPedidosComponent],
       providers: [
         provideRouter([]),
-        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(resp)), detail: vi.fn(() => NEVER) } },
+        { provide: AlmacenPedidosService, useValue: { list: vi.fn(() => of(resp)), detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) } },
         { provide: PermissionsService, useValue: perms },
       ],
     }).compileComponents();
@@ -735,5 +735,110 @@ describe('AlmacenPedidosComponent · ayuda «almacen-pedidos» (GP.RF.22)', () =
     }
     expect(new Set(terminos).size).toBe(terminos.length);
     expect(t.intro).toMatch(/sólo lectura/);
+  });
+});
+
+describe('[GP.RF.16] El Tablero dice cuántos pedidos nadie va a surtir', () => {
+  const RESP = (): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: true, sucursales: [] },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: false },
+    conteos: [],
+    conteos_etapa: [],
+    totales: { pedidos: 0, renglones: 0, importe: 0 },
+    items: [],
+    truncado: false,
+    generado_en: '2026-11-18T20:00:00.000Z',
+  });
+  const ATORADOS = (p: Partial<WarehouseOrdersAtorados> = {}): WarehouseOrdersAtorados => ({
+    ventana_desde: '2026-11-11', hasta: '2026-11-10', pedidos: 396, desde: '2025-11-29',
+    sucursales: [{ codigo: '05', nombre: 'Zamora Centro', pedidos: 288, desde: '2026-03-19' }, { codigo: '02', nombre: 'Canindo', pedidos: 108, desde: '2025-11-29' }],
+    ...p,
+  });
+
+  async function montar(atorados: () => unknown, permisos: Record<string, boolean> = { [Permission.ALMACEN_PEDIDOS_VER]: true }) {
+    const perms = new PermissionsService();
+    perms.load(permisos, 'almacenista');
+    const api = { list: vi.fn(() => of(RESP())), detail: vi.fn(() => NEVER), atorados: vi.fn(atorados) };
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [provideRouter([]), { provide: AlmacenPedidosService, useValue: api }, { provide: PermissionsService, useValue: perms }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    return { fix, el, api, texto: () => el.textContent?.replace(/\s+/g, ' ') ?? '' };
+  }
+
+  it('⭐ el aviso dice cuántos, desde cuándo y dónde se concentran; «Velos» lleva a la lista con la misma frontera', async () => {
+    const { el, texto } = await montar(() => of(ATORADOS()));
+    expect(texto()).toContain('396 pedidos siguen autorizados en Kepler desde el 29/11/2025');
+    expect(texto()).toContain('en 2 sucursales (288 en Zamora Centro)');
+    const liga = Array.from(el.querySelectorAll('a')).find((a) => a.textContent?.trim() === 'Velos') as HTMLAnchorElement;
+    expect(liga).toBeTruthy();
+    expect(liga.getAttribute('href')).toContain('kepler_status=AUTORIZADO');
+    expect(liga.getAttribute('href')).toContain('date_from=2025-11-29');
+    expect(liga.getAttribute('href')).toContain('date_to=2026-11-10');
+  });
+
+  it('con una sola sucursal, la liga la fija', async () => {
+    const { el } = await montar(() => of(ATORADOS({ pedidos: 26, desde: '2026-09-21', sucursales: [{ codigo: '08', nombre: 'Morelia Abastos', pedidos: 26, desde: '2026-09-21' }] })));
+    const liga = Array.from(el.querySelectorAll('a')).find((a) => a.textContent?.trim() === 'Velos') as HTMLAnchorElement;
+    expect(liga.getAttribute('href')).toContain('branch=08');
+  });
+
+  it('NEGATIVA: sin atorados no hay aviso', async () => {
+    const { texto } = await montar(() => of(ATORADOS({ pedidos: 0, desde: null, sucursales: [] })));
+    expect(texto()).not.toContain('siguen autorizados');
+  });
+
+  it('NEGATIVA: si no se pudo contar, lo dice (no se dibuja como cero)', async () => {
+    const { texto } = await montar(() => throwError(() => ({ status: 500 })));
+    expect(texto()).toContain('No se pudo contar los pedidos que siguen autorizados en Kepler');
+  });
+
+  it('quien sólo surte no lo pide', async () => {
+    const { api } = await montar(() => of(ATORADOS()), { [Permission.COMMERCIAL_PICKING_GESTIONAR]: true });
+    expect(api.atorados).not.toHaveBeenCalled();
+  });
+});
+
+describe('[GP.RF.21] La preventa a un toque, con su número', () => {
+  const RESP = (conteos_origen?: Array<{ origen: string; pedidos: number }>): WarehouseOrdersResponse => ({
+    periodo: { from: '2026-11-01', to: '2026-11-30' },
+    alcance: { todas: true, sucursales: [] },
+    filtros: { estatus: [], etapa: [], origen: null, sucursal: null, q: null, preventa: true },
+    conteos: [], conteos_etapa: [], conteos_origen,
+    totales: { pedidos: 0, renglones: 0, importe: 0 },
+    items: [], truncado: false, generado_en: '2026-11-18T20:00:00.000Z',
+  });
+  async function montar(resp: WarehouseOrdersResponse) {
+    const perms = new PermissionsService();
+    perms.load({ [Permission.ALMACEN_PEDIDOS_VER]: true }, 'almacenista');
+    const api = { list: vi.fn(() => of(resp)), detail: vi.fn(() => NEVER), atorados: vi.fn(() => NEVER) };
+    await TestBed.configureTestingModule({
+      imports: [AlmacenPedidosComponent],
+      providers: [provideRouter([]), { provide: AlmacenPedidosService, useValue: api }, { provide: PermissionsService, useValue: perms }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AlmacenPedidosComponent);
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    const chip = () => Array.from(el.querySelectorAll('button.gp-chip')).find((b) => /^Preventa/.test(b.textContent?.trim() ?? '')) as HTMLButtonElement | undefined;
+    return { fix, api, chip };
+  }
+
+  it('⭐ el botón dice cuántos hay y, al tocarlo, la lista pide sólo la preventa', async () => {
+    const { fix, api, chip } = await montar(RESP([{ origen: 'PREVENTA', pedidos: 37 }, { origen: 'TELEMARK', pedidos: 12 }]));
+    expect(chip()?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Preventa 37');
+    chip()!.click();
+    fix.detectChanges();
+    const ult = api.list.mock.calls.at(-1)![0] as { origen?: string | null };
+    expect(ult.origen).toBe('PREVENTA');
+    expect(chip()?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('NEGATIVA: con una API anterior (sin conteos_origen) no se pinta un número inventado', async () => {
+    const { chip } = await montar(RESP(undefined));
+    expect(chip()).toBeUndefined();
   });
 });

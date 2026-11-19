@@ -32,6 +32,7 @@ import { presentacionDeLectura } from '../components/ubicaciones-censo.logica';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 
 const PAGINA = 50;
 const PAPEL = new Map(ASSIGNMENT_ROLES.map((r) => [r.key, r]));
@@ -262,7 +263,7 @@ interface Alta {
     .as-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     /* ::ng-deep sólo para el ancho del p-select y el tamaño del p-tag de PrimeNG (vendor). */
     :host ::ng-deep .as-sel { min-width:12rem; }
-    :host ::ng-deep .as-tag { font-size:var(--fs-nano); }
+    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .as-tag { font-size:var(--fs-micro); }
     .as-split { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-start; }
     .as-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .as-list { flex:1 1 26rem; }
@@ -287,7 +288,7 @@ interface Alta {
     .as-alta { padding:.5rem .55rem; border:1px dashed var(--border-color); border-radius:var(--r-sm); }
     .as-f { display:flex; flex-direction:column; gap:.2rem; }
     .as-f input { width:6.5rem; height:2.25rem; }
-    .as-l { font-size:var(--fs-nano); color:var(--text-muted); }
+    .as-l { font-size:var(--fs-micro); color:var(--text-muted); }
     .as-full { flex-basis:100%; }
     @media (pointer: coarse) { .as-f input, .as-q input { height:2.75rem; } }
     .as-sub.as-bad, .as-bad { color:var(--bad-fg); }
@@ -342,7 +343,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   readonly enExcel = computed(() => this.vista() === 'excel' && this.puedeGestionar());
   readonly enEscaneo = computed(() => this.vista() === 'escanear' && this.puedeGestionar());
   readonly almacen = computed(() => this.almacenes().find((w) => w.id === this.warehouseId()) ?? null);
-  readonly almacenOpts = computed(() => this.almacenes().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
+  readonly almacenOpts = computed(() => this.almacenes().map((w) => ({ label: w.name, value: w.id })) /* [UB.RF.7] por nombre */);
   readonly filtros = computed<SegOption[]>(() => [
     { label: 'Todos', value: 'todos' },
     { label: `Sin lugar fijo${this.lista()?.ficha_kepler ? ` (${this.lista()!.sin_ubicacion})` : ''}`, value: 'sin_ubicacion' },
@@ -387,7 +388,8 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
       next: (d) => {
         this.almacenes.set(d.alcance.almacenes);
         if (!d.warehouse) { this.sinAlmacen.set(true); return; }
-        this.warehouseId.set(d.warehouse.id);
+        // [UB.RF.7] el almacén que eligió en Mapa o Contenido, si está en su alcance.
+        this.warehouseId.set(elegirAlmacen(d.alcance.almacenes, d.warehouse.id) ?? d.warehouse.id);
         this.cargarLista();
       },
       error: (e: HttpErrorResponse) => this.err.set(mensaje(e, 'No se pudo cargar el almacén.')),
@@ -402,6 +404,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
 
   pickAlmacen(id: string): void {
     this.warehouseId.set(id);
+    guardarAlmacenPreferido(id); // [UB.RF.7]
     this.offset.set(0);
     this.folioDet++; // la respuesta en vuelo del producto anterior ya no aplica
     this.selFila.set(null);

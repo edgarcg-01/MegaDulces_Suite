@@ -87,4 +87,9 @@ export interface ResultadoPagosVencidos {
   /** Los ids liberados, para que el log diga cuáles. */
   ids_liberados: string[];
   conservados: Record<MotivoConservar, number>;
+  /** `[PGP.149]` Liberados antes que sí habían salido del banco y regresaron a pendientes. */
+  regresados?: number;
+  ids_regresados?: string[];
+  /** `[PGP.149]` Liberados que salieron del banco pero sus facturas ya están en otro pago: los revisa una persona. */
+  reprogramados_tras_liberar?: string[];
 }

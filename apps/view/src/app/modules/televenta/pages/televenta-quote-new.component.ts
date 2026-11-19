@@ -68,6 +68,7 @@ function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
 }
 import { totalesCotizacion } from '@megadulces/contracts';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
+import { UltimoAgregadoComponent, textoAgregado, verRenglonEnLista, type UltimoAgregado } from '../components/ultimo-agregado.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -139,6 +140,7 @@ const ORIGENES = ORIGENES_COTIZACION;
     InputGroupModule,
     InputGroupAddonModule,
     QuoteLinesTableComponent,
+    UltimoAgregadoComponent,
     FreshnessPillComponent,
     ContextHelpComponent,
   ],
@@ -789,6 +791,8 @@ const ORIGENES = ORIGENES_COTIZACION;
               }
             </div>
           }
+          <!-- [COT.46] Lo que acaba de entrar, donde está la vista (el renglón cae al final de la lista). -->
+          <app-ultimo-agregado [info]="ultimoAgregado()" (ver)="verRenglon($event)" />
           <!-- [COT.33] La cotización completa sin mouse; los atajos se escriben, no se adivinan. -->
           <p class="atajos card-body">
             Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
@@ -830,6 +834,9 @@ const ORIGENES = ORIGENES_COTIZACION;
               [renglones]="renglonesBandeja()"
               [bloqueado]="guardando()"
               [clientePct]="descuentoClientePct() || null"
+              titulo="Renglones de la cotización nueva"
+              [marcado]="ultimoAgregado()?.id ?? null"
+              [destello]="destelloRenglon()"
               (cantidad)="onCantidadBandeja($event)"
               (quitar)="quitarDeBandeja($event)"
             />
@@ -1593,6 +1600,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
   buscandoArticulo = signal(false);
   /** `[BU.6.1]` «¿Quisiste decir…?» de la última búsqueda sin resultados; null = nada que sugerir. */
   readonly sugerenciaArticulo = signal<string | null>(null);
+  /** `[COT.46]` Lo último que entró a la lista (la confirmación bajo el buscador y la franja del renglón). */
+  readonly ultimoAgregado = signal<UltimoAgregado | null>(null);
+  /** `[COT.46]` El renglón resaltado un momento por «Ver en la lista». */
+  readonly destelloRenglon = signal<string | null>(null);
   /** `[BU.6.2]` «¿Quisiste decir…?» de la última búsqueda de clientes sin resultados. */
   readonly sugerenciaCliente = signal<string | null>(null);
   catalogoAbierto = signal(false);
@@ -2079,6 +2090,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
       });
   }
 
+  /**
+   * `[COT.46]`/`[COT.47]` «Ver en la lista»: resalta el renglón, baja a él y deja el cursor en su
+   * cantidad. El resaltado dura 1.5 s DESPUÉS de llegar; el contador evita que dos clics seguidos se pisen.
+   */
+  async verRenglon(id: string): Promise<void> {
+    const vez = ++this.vecesVer;
+    this.destelloRenglon.set(id);
+    await verRenglonEnLista(id);
+    setTimeout(() => { if (this.vecesVer === vez) this.destelloRenglon.set(null); }, 1500);
+  }
+  private vecesVer = 0;
+
   /** `[BU.6.2]` Clic en la sugerencia de cliente: se busca eso (el autocompletar abre la lista nueva). */
   usarSugerenciaCliente(s: string): void {
     this.terminoCliente = s;
@@ -2307,10 +2330,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
       const total = existente.quantity + qty;
       this.cambiarCantidadBandeja(existente.id, total);
       const n = this.bandeja().indexOf(existente) + 1;
-      this.toast.add({
-        severity: 'info',
-        summary: 'Sumado a una partida que ya estaba',
-        detail: `${art.name || art.sku}: renglón ${n} ahora con ${total} ${prev!.unit_label || this.labelUnidadActiva()} (se recalcula el precio).`,
+      // [COT.46] La confirmación va bajo el buscador (donde está la vista), no en un aviso de esquina.
+      this.ultimoAgregado.set({
+        id: existente.id, numero: n, nombre: art.name || art.sku, sumado: true,
+        detalle: `ahora ${total} ${prev!.unit_label || this.labelUnidadActiva()} (se recalcula el precio)`,
       });
     } else {
       const factorNum = rung === 'box' ? (art.box_size || null) : (rung === 'pack' ? (art.pack_size || null) : null);
@@ -2340,10 +2363,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
       };
       this.bandeja.update((items) => [...items, item]);
       this.revisarExistencia();
-      this.toast.add({
-        severity: 'success',
-        summary: 'Agregado a la bandeja',
-        detail: `${qty} ${item.unit_label} de ${item.name}`,
+      this.ultimoAgregado.set({
+        id: item.id, numero: this.bandeja().length, nombre: item.name, sumado: false,
+        detalle: textoAgregado(qty, item.unit_label, item.line_total),
       });
     }
 
@@ -2386,7 +2408,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       pasos: '',
     };
     this.bandeja.update((items) => [...items, item]);
-    this.toast.add({ severity: 'info', summary: 'Anotado como no manejado', detail: `"${texto}" queda en la cotización sin precio.` });
+    this.ultimoAgregado.set({ id: item.id, numero: this.bandeja().length, nombre: texto, sumado: false, detalle: 'sin precio: queda como demanda que no manejamos' });
     this.terminoArticulo = '';
     this.resultadosArticulos.set([]);
     this.catalogoAbierto.set(false);
@@ -2527,6 +2549,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   quitarDeBandeja(id: string): void {
     const it = this.bandeja().find((x) => x.id === id);
     this.bandeja.update((items) => items.filter((x) => x.id !== id));
+    // [COT.46] Quitado el renglón confirmado, la confirmación ya no es verdad (y los números se recorren).
+    this.ultimoAgregado.set(null);
     // [COT.31] Se dice QUÉ se quitó: la X está al final de la fila y el nombre al principio.
     if (it) this.toast.add({ severity: 'info', summary: 'Renglón quitado', detail: `${it.quantity} ${it.unit_label} de ${it.name}` });
   }

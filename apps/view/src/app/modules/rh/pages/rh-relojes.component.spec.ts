@@ -39,6 +39,11 @@ describe('[RH.1.7] RhRelojesComponent', () => {
       sitios: vi.fn(() => of(SITIOS)),
       estadoRelojes: vi.fn(() => of(o.estado)),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
+      // [RH.14] Lo que la pantalla lee del padrón: vacío, para que no cambie lo que prueba este archivo.
+      nombresPorConfirmar: vi.fn(() => of({ filas: [], total: 0 })),
+      posiblesBajas: vi.fn(() => of({ site_code: '', dias: 31, filas: [], explicadas: [] })),
+      fichaPersona: vi.fn(() => of(null)),
+      catalogosFicha: vi.fn(() => of({ departamentos: [], puestos: [], sucursales: [] })),
       relojes: vi.fn(() => of([RELOJ])),
       lotesPendientes: vi.fn(() => of(o.lotes ?? [])),
       guardarReloj: vi.fn(() => of(RELOJ)),

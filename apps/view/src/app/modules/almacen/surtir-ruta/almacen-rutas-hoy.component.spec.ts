@@ -164,6 +164,26 @@ describe('AlmacenRutasHoyComponent · rutas de hoy (MCP.3.6)', () => {
     expect(api.routes).toHaveBeenCalledTimes(2);
   });
 
+  it('[GP.RF.35] la primera carga no pinta el esqueleto (sin rutas, aparecía y se iba: la lista saltaba 181 px)', async () => {
+    const r$ = new Subject<ReturnType<typeof BANDEJA>>();
+    api.routes = vi.fn(() => r$);
+    await montar();
+    expect(el().querySelector('section')).toBeNull();
+    r$.next(BANDEJA([]));
+    fix.detectChanges();
+    expect(texto().trim()).toBe('');
+  });
+
+  it('[GP.RF.35] NEGATIVA: con rutas, al llegar SÍ se pintan', async () => {
+    const r$ = new Subject<ReturnType<typeof BANDEJA>>();
+    api.routes = vi.fn(() => r$);
+    await montar();
+    r$.next(BANDEJA([R()]));
+    fix.detectChanges();
+    expect(texto()).toContain('Rutas de hoy');
+    expect(tarjeta('lista')).toBeTruthy();
+  });
+
   it('sin rutas hoy no pinta nada: ni título ni texto de relleno', async () => {
     api.routes = vi.fn(() => of(BANDEJA([])));
     await montar();

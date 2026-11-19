@@ -78,6 +78,25 @@ interface FilaEscalera {
 }
 
 /**
+ * La escalera de varias claves de una sucursal de Kepler, ya limpia, por clave: cada presentación con
+ * su rótulo, su factor y sus códigos de barras. Una sola consulta (medido: 500 claves en 53–61 ms).
+ * `[GP.RF.33]` Exportada para que Surtir sepa qué presentación se escaneó; antes vivía sólo aquí.
+ */
+export async function escalerasDeClaves(trx: Knex | Knex.Transaction, sucursal: string, skus: string[]): Promise<Map<string, ReturnType<typeof limpiarEscalera>>> {
+  const out = new Map<string, ReturnType<typeof limpiarEscalera>>();
+  if (!skus.length) return out;
+  const r = await trx.raw(ESCALERA_SQL, [sucursal, skus]);
+  const porSku = new Map<string, FilaEscalera[]>();
+  for (const f of r.rows as FilaEscalera[]) {
+    const k = String(f.sku);
+    if (!porSku.has(k)) porSku.set(k, []);
+    porSku.get(k)!.push(f);
+  }
+  for (const [k, filas] of porSku) out.set(k, limpiarEscalera(filas));
+  return out;
+}
+
+/**
  * Limpia la escalera cruda: un peldaño SIN factor que repite el rótulo de otro es un FANTASMA de la
  * captura de Kepler (medido en PH: 2,661 de 9,656 fichas) y no se ofrece como presentación. Uno sin
  * factor con rótulo PROPIO (17 en PH) sí existe: se ofrece, marcado sin factor.
@@ -144,17 +163,7 @@ export class WarehouseLocationsAssignService {
 
   /** La escalera de varias claves, ya limpia, por clave. Una sola consulta. */
   private async escaleras(trx: Knex.Transaction, sucursal: string, skus: string[]) {
-    const out = new Map<string, ReturnType<typeof limpiarEscalera>>();
-    if (!skus.length) return out;
-    const r = await trx.raw(ESCALERA_SQL, [sucursal, skus]);
-    const porSku = new Map<string, FilaEscalera[]>();
-    for (const f of r.rows as FilaEscalera[]) {
-      const k = String(f.sku);
-      if (!porSku.has(k)) porSku.set(k, []);
-      porSku.get(k)!.push(f);
-    }
-    for (const [k, filas] of porSku) out.set(k, limpiarEscalera(filas));
-    return out;
+    return escalerasDeClaves(trx, sucursal, skus);
   }
 
   private async escalera(trx: Knex.Transaction, sucursal: string, sku: string) {

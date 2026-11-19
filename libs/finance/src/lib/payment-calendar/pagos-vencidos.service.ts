@@ -90,6 +90,19 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
       } catch (e: unknown) {
         this.logger.error(`pagos por Kepler (tenant ${tenantId}): la pasada falló: ${(e as Error)?.message}`);
       }
+      // [PGP.148] D19 (b): con el mismo aviso de Kepler (una nota, devolución o pago nuevo), el pago SIN autorizar de un
+      // día por venir baja solo a lo que su factura debe hoy. Se apaga con DISABLE_AJUSTE_AL_SALDO=true.
+      if (process.env.DISABLE_AJUSTE_AL_SALDO !== 'true') {
+        try {
+          const a = await this.tenantCtx.run({ tenantId, roleName: 'system' }, () => this.calendario.ajustarLosQueDebenMenos());
+          if (a.ajustados.length || a.fallidos) {
+            this.logger.log(`ajuste al saldo de Kepler: ${a.revisados} pagos revisados · ${a.ajustados.length} ajustados ($${a.monto.toFixed(2)} menos)`
+              + ` · ${a.omitidas} facturas para una persona · ${a.fallidos} fallidos${a.ajustados.length ? ` · ${a.ajustados.join(', ')}` : ''}`);
+          }
+        } catch (e: unknown) {
+          this.logger.error(`ajuste al saldo de Kepler (tenant ${tenantId}): la pasada falló, no se ajustó nada: ${(e as Error)?.message}`);
+        }
+      }
     }
     return pagados;
   }
@@ -105,7 +118,10 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`pagos vencidos ${r.hoy}: ${r.revisados} con su día hace una semana o más · ${r.liberados} liberados ($${r.monto_liberado.toFixed(2)})`
           + ` · conservados: Kepler pagado ${c.kepler_pagado}, Kepler a medias ${c.kepler_en_parte}, sin medir en Kepler ${c.kepler_sin_medir},`
           + ` banco ${c.banco}, banco sin medir ${c.banco_sin_medir}, ligados ${c.ligado}`
-          + (r.ids_liberados.length ? ` · liberados: ${r.ids_liberados.join(', ')}` : ''));
+          + (r.ids_liberados.length ? ` · liberados: ${r.ids_liberados.join(', ')}` : '')
+          // [PGP.149] Lo que una pasada anterior soltó habiendo salido del banco.
+          + (r.ids_regresados?.length ? ` · regresados a pendientes porque salieron del banco: ${r.ids_regresados.join(', ')}` : '')
+          + (r.reprogramados_tras_liberar?.length ? ` · ⚠ salieron del banco y sus facturas ya están en otro pago (revisar): ${r.reprogramados_tras_liberar.join(', ')}` : ''));
       } catch (e: unknown) {
         this.logger.error(`pagos vencidos (tenant ${tenantId}): la pasada falló, no se liberó nada: ${(e as Error)?.message}`);
       }

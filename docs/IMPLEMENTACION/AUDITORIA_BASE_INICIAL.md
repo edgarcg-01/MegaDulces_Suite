@@ -1064,3 +1064,25 @@ Lo encontró `[CE.1.7]` al barrer las fuentes de «Por vencer».
 2. El plan correctivo (Sprint A.0bis) está reflejado como tareas en `01_TRACKER_PROGRESO.md`.
 3. Cualquier finding rechazado/diferido debe quedar documentado con razón en este archivo (sección "deuda aceptada").
 4. Al cerrar Sprint A.0bis, este archivo se marca como `# AUDITORIA_BASE_INICIAL.md (cerrado)` y se genera nuevo `AUDITORIA_BASE_POST_FIX.md` si se quiere verificar.
+
+## Addendum — `AUD-UI.1`: en el celular, toda tabla de PrimeNG esconde columnas sin decirlo (2026-11-18)
+
+**Estado: ABIERTO para las tablas que no usan `.dt-stack`; CORREGIDO para las que sí (`[GP.RF.12]`).**
+Lo encontró la auditoría de interfaces de la Fase GP (§5c.9) al medir la letra del Tablero en un
+celular.
+
+- **Qué pasa:** `apps/view/src/styles.css`, bloque «Mobile table optimizations», aplica con `!important`
+  a TODA `.p-datatable`:
+  - bajo 768 px: letra de 12 px, sin salto de línea y cortada con «…», y esconde de la columna 6 en
+    adelante (salvo la última);
+  - bajo 480 px: letra de 11.2 px y esconde de la columna 4 en adelante (salvo la última).
+  - Ningún aviso dice que faltan columnas.
+- **Medido en el Tablero a 390 px:** 15 de 35 celdas ocultas (Cliente, Renglones y Etapa); a 700 px,
+  Etapa.
+- **Lo que se corrigió:** el bloque ya no aplica a las tablas `.dt-stack` ([UIM.1],
+  `libs/ui-web/src/dense-table.css`). Esas tablas, 116 archivos, apilan cada renglón con TODOS sus
+  campos, y el bloque les ganaba por el `!important`. En el Tablero quedan 35 de 35 celdas a la vista,
+  en 14 px, sin cortes y sin desbordar.
+- **Lo que sigue abierto:** las tablas que no optaron por `.dt-stack` siguen escondiendo columnas en el
+  celular. Arreglarlo es pasar cada una a `.dt-stack` o declarar qué falta. No se tocó a ciegas: cambia
+  lo que se ve en cada pantalla de la Suite en el teléfono.
