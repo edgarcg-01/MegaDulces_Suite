@@ -22,7 +22,7 @@ import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pa
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados, type LineaDescuento } from './descuento-al-pagar';
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
 import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
-import { faltaCuentaParaTransferirAnticipo, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
+import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -2844,11 +2844,14 @@ export class PaymentCalendarService {
       const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
       let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
       const accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
-      let cuentaElegida: { clabe: string | null } | null = null;
+      let cuentaElegida: { clabe: string | null; account_number: string | null } | null = null;
+      let destinoCatalogo: { clabe: string | null; bank_name: string | null; account_number: string | null } | null = null;
       if (accountId) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
         if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
-        cuentaElegida = { clabe: acc.clabe ? String(acc.clabe).replace(/\D/g, '') : null };
+        // `[PGP.155]` También el número de cuenta: el anticipo a una cuenta sin CLABE se compara por él.
+        cuentaElegida = { clabe: acc.clabe ? String(acc.clabe).replace(/\D/g, '') : null, account_number: acc.account_number ?? null };
+        destinoCatalogo = { clabe: acc.clabe ?? null, bank_name: acc.bank_name ?? null, account_number: acc.account_number ?? null };
         // [PGP.90] La referencia fija viaja en el snapshot: es lo que imprime la instrucción a Caja
         // General y lo que el banco tiene que llevar, o el proveedor no reconoce el depósito.
         destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.payment_reference ? ' · Ref ' + acc.payment_reference : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
@@ -2863,6 +2866,14 @@ export class PaymentCalendarService {
         // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
         const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
         if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
+        // `[PGP.155]` A una cuenta del catálogo SIN CLABE no hay SPEI: sólo sale de una cuenta nuestra del mismo
+        // banco (VUMERSOFT: BBVA a BBVA). Qué cuenta de ese banco, la decide la Tesorería (`[PGP.75]`).
+        // `[PGP.155.2]` Sólo en TRANSFERENCIA (revisión independiente): en un cargo automático el proveedor cobra
+        // de nuestra cuenta y el banco de su cuenta no ata el origen. Y una tarjeta de 16 dígitos no ata (SPEI).
+        if (dto.payment_method === 'transferencia') {
+          const otroBanco = faltaOrigenMismoBanco({ destino: destinoCatalogo, origen: { bank: origin.bank ?? null, kind: origin.kind ?? null } });
+          if (otroBanco) throw new BadRequestException(otroBanco);
+        }
       }
       /**
        * `[PGP.128]` D12 — **el anticipo se transfiere sólo a la cuenta APROBADA de su cotización.** Una CLABE
@@ -2873,13 +2884,14 @@ export class PaymentCalendarService {
        */
       if (usesDestination) {
         const { rows: ants } = await trx.raw(
-          `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe
+          `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe, to_jsonb(o) ->> 'payee_account_number' AS cuenta
              FROM finance.payment_allocation_items i
              JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
             WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
           [tenantId, allocationId]);
+        const filas = ants as { clabe: string | null; cuenta: string | null }[];
         const falta = faltaCuentaParaTransferirAnticipo({
-          clabesDeAnticipos: (ants as { clabe: string | null }[]).map((r) => r.clabe ?? null), cuentaElegida,
+          clabesDeAnticipos: filas.map((r) => r.clabe ?? null), cuentasDeAnticipos: filas.map((r) => r.cuenta ?? null), cuentaElegida,
         });
         if (falta) throw new BadRequestException(falta);
       }

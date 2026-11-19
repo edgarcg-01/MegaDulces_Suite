@@ -194,3 +194,111 @@ describe('[PGP.129] la propuesta del día no arma anticipos', () => {
     expect(ids).not.toContain('ant-1');
   });
 });
+
+/**
+ * `[PGP.155.2]` Lo que vio el recorrido visual del anticipo de VUMERSOFT (2026-11-18): «Programar un anticipo en
+ * este día» vivía dentro de «Agregar facturas» (3 clics y un enlace de 13 px), y en «Preparar» el aviso «la
+ * cuenta destino no tiene CLABE» salía bajo el origen, antes de que se viera el destino.
+ */
+describe('[PGP.155.2] el anticipo a un clic, y en «Preparar» el destino antes que el origen', () => {
+  const DIRECCION = [Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR];
+  const enDia = (c: FinanzasCalendarioPagosComponent, fecha: string) => {
+    c.modo.set('dia'); c.selectedDate.set(fecha);
+    // Un día completo según el contrato (PaymentCalendarWeekDay): la plantilla lo pinta entero.
+    c.week.set({ from: fecha, to: fecha, days: [{ date: fecha, lot_folio: null, libro: null, allocations: [], summary: {
+      date: fecha, capacity_defined: true, authorized_amount: 1000, assigned_amount: 0, remaining_amount: 1000,
+      executed_amount: 0, pending_execution_amount: 0, exceeded: false, lot_status: 'draft' } }] } as never);
+  };
+  const boton = (el: HTMLElement) => el.querySelector('.pg-modo .pg-prog-ant') as HTMLButtonElement | null;
+
+  it('Dirección lo tiene junto a «Por etapa / Por día» (donde Compras tiene «Pedir anticipo») y abre el diálogo de programar', () => {
+    const { fixture, c } = montar(DIRECCION);
+    enDia(c, c.todayIso);
+    fixture.detectChanges();
+    const b = boton(fixture.nativeElement as HTMLElement);
+    expect(b?.textContent).toContain('Programar anticipo');
+    b!.click();
+    expect(c.anticipoVisible()).toBe(true);
+  });
+
+  it('⛔ NEGATIVA — en «Por etapa» no aparece: se programa para el día que se ve', () => {
+    const { fixture, c } = montar(DIRECCION);
+    enDia(c, c.todayIso);
+    c.modo.set('etapa');
+    fixture.detectChanges();
+    expect(boton(fixture.nativeElement as HTMLElement)).toBeNull();
+  });
+
+  it('⛔ NEGATIVA — en un día que ya pasó no aparece', () => {
+    const { fixture, c } = montar(DIRECCION);
+    enDia(c, '2020-01-06');
+    fixture.detectChanges();
+    expect(boton(fixture.nativeElement as HTMLElement)).toBeNull();
+  });
+
+  it('⛔ NEGATIVA — quien no autoriza no lo ve (tiene «Pedir anticipo», una sola entrada)', () => {
+    const { fixture, c } = montar([Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR]);
+    enDia(c, c.todayIso);
+    fixture.detectChanges();
+    expect(boton(fixture.nativeElement as HTMLElement)).toBeNull();
+  });
+
+  it('⛔ NEGATIVA — ya no vive dentro de «Agregar facturas»: una sola entrada, no dos', () => {
+    const { fixture } = montar(DIRECCION);
+    expect((fixture.nativeElement as HTMLElement).innerHTML).not.toContain('Programar un anticipo en este día');
+    expect(document.body.innerHTML).not.toContain('Programar un anticipo en este día');
+  });
+
+  const ORIGENES = [
+    { id: 'bbva-1', label: 'BBVA 5712', bank: 'BBVA', kind: 'bank' }, { id: 'bte-1', label: 'BANORTE 3041', bank: 'BANORTE', kind: 'bank' },
+    { id: 'fac', label: 'FACTORAJE', bank: 'FACTORAJE', kind: 'factoraje' },
+  ];
+  const preparar = async (c: FinanzasCalendarioPagosComponent, fixture: { detectChanges(): void; whenStable(): Promise<unknown>; componentRef: { changeDetectorRef: { markForCheck(): void } } }, metodo: string, banco: string) => {
+    c.originOpts.set(ORIGENES);
+    c.prepMethod = metodo as never;
+    c.prepAccounts.set([{ id: 'x', label: banco + ' · Cta 0123458796', bank_name: banco, clabe: null, account_number: '0123458796' }]);
+    c.prepAccountId = 'x';
+    c.prepareVisible = true;
+    fixture.componentRef.changeDetectorRef.markForCheck();
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    return [...document.querySelectorAll('.cal-dlg-hint')].map((p) => (p.textContent ?? '').replace(/\s+/g, ' ')).join(' | ');
+  };
+
+  it('⛔ NEGATIVA (revisión independiente) — sin cuenta nuestra de ese banco no dice «sólo se ofrecen ésas»: dice que así no se puede', async () => {
+    const { fixture, c } = montar(DIRECCION);
+    const txt = await preparar(c, fixture, 'transferencia', 'HSBC');
+    expect(c.prepBancoSinCuenta()).toBe('HSBC');
+    expect(c.prepBancoObligado()).toBeNull();
+    expect(txt).toContain('no tenemos cuenta HSBC');
+    expect(txt).not.toContain('sólo se ofrecen ésas');
+  });
+
+  it('a una BBVA sin CLABE: de nuestros bancos sólo las BBVA, y el factoraje se queda (el servidor lo acepta)', async () => {
+    const { fixture, c } = montar(DIRECCION);
+    const txt = await preparar(c, fixture, 'transferencia', 'BBVA');
+    expect(c.prepOrigenes().map((o) => o.id)).toEqual(['bbva-1', 'fac']);
+    expect(txt).toContain('de nuestros bancos sólo se ofrecen ésas');
+  });
+
+  it('⛔ NEGATIVA (revisión independiente) — en cargo automático no se restringe el origen: el banco de su cuenta no lo ata', async () => {
+    const { fixture, c } = montar(DIRECCION);
+    const txt = await preparar(c, fixture, 'cargo_automatico', 'BBVA');
+    expect(c.prepOrigenes()).toHaveLength(3);
+    expect(c.prepBancoObligado()).toBeNull();
+    expect(txt).not.toContain('no tiene CLABE');
+  });
+
+  it('en «Preparar» una transferencia pide primero el destino y después el origen', async () => {
+    const { fixture, c } = montar(DIRECCION);
+    c.prepMethod = 'transferencia';
+    c.prepAccounts.set([{ id: 'x', label: 'BBVA · Cta 0123458796', bank_name: 'BBVA', clabe: null }]);
+    c.prepareVisible = true;
+    fixture.componentRef.changeDetectorRef.markForCheck();   // OnPush: un campo plano no la marca sola
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const orden = [...document.querySelectorAll('label.cal-dlg-label')].map((l) => l.getAttribute('for'));
+    expect(orden).toContain('cal-prep-dest');
+    expect(orden.indexOf('cal-prep-dest')).toBeLessThan(orden.indexOf('cal-prep-origin'));
+  });
+});
