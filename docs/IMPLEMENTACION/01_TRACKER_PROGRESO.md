@@ -1,5 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
+> **Índice navegable** — 2843 KB, 15082 líneas, 78 secciones.
 > **Índice navegable** — 2860 KB, 15087 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
@@ -10,6 +11,81 @@
 | 91 | 98 | 15 | Tracker de Progreso |
 | 99 | 198 | 285 | 📊 Estado global de fases |
 | 199 | 225 | 1 | 🚦 Estado por item (granular) |
+| 226 | 4223 | 675 | 🎯 EN PROGRESO |
+| 4240 | 4277 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 4278 | 4311 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 4312 | 4396 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 4397 | 4500 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 4501 | 4567 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 4568 | 4671 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4672 | 4755 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 4756 | 4925 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 4926 | 4988 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 4989 | 5061 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 5062 | 5113 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 5114 | 5978 | 168 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 5979 | 5992 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 5993 | 6017 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 6018 | 6040 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 6041 | 6079 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 6080 | 6881 | 78 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 6882 | 7066 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 7067 | 7109 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 7110 | 7187 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 7188 | 7281 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 7282 | 7417 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 7418 | 7434 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 7435 | 7487 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 7488 | 7555 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 7556 | 7808 | 20 | Fase CH — Checadores / Control de asistencia |
+| 7809 | 7874 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 7875 | 7902 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 7903 | 8069 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 8070 | 8097 | 3 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8098 | 8499 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 8500 | 8562 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 8563 | 8692 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 8693 | 8755 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 8756 | 8916 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 8917 | 8987 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 8988 | 9036 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 9037 | 9069 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 9070 | 9626 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 9627 | 9758 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 9759 | 9812 | 38 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 9813 | 9852 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 9853 | 9905 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 9906 | 9972 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 9973 | 10135 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 10136 | 10419 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 10420 | 10587 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 10588 | 13018 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 13019 | 13027 | 1 | Fase RR — Ventas por ruta |
+| 13028 | 13335 | 31 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13336 | 13346 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13347 | 13367 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13368 | 13378 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13379 | 13390 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13391 | 13450 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13451 | 13878 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 13879 | 13893 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 13894 | 13935 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 13936 | 14093 | 75 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14094 | 14124 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14125 | 14390 | 47 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14391 | 14455 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14456 | 14464 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14465 | 14518 | 8 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14525 | 14534 | 1 | 📝 Convenciones |
+| 14535 | 14572 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14573 | 14591 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14592 | 14644 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14645 | 15030 | 76 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15031 | 15061 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15062 | 15083 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15084 | 15111 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15112 | 15145 | 28 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15146 | 15172 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 | 226 | 4227 | 690 | 🎯 EN PROGRESO |
 | 4244 | 4281 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 4282 | 4315 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
@@ -682,14 +758,18 @@ Pedido de Edgar (2026-11-17): *«hagamos que nada se capture a mano»*. Firmó D
 - [x] **[THR.1]** 🧪 2026-10-16 **El nombre del tier decide si un tope existe.** Los 4 `@Throttle({ default })` de `commercial-analytics` (chat del sell-out 15/min; incentivo de ruta + .xlsx + .pdf 20/min) **nunca limitaron**: corregidos a `long`. Compuerta nueva `check:throttle-names` (pre-push + CI, con `:self`, mutada sobre el árbol real). **Cambia el comportamiento:** la petición 16.ª/21.ª por minuto responde 429. **Declarado sin tocar:** `@SkipThrottle()` a secas en 2 controladores de ingesta de checadas (`libs/hr`) — salta nada y quitarlo cambia la protección de un endpoint público: decide RH/seguridad (deuda con ratchet en el script). **Sin verificar:** que en prod el tope distinga por IP real.
 - [x] **[VAC.PROTOCOLO]** 🧪 Las observaciones de la auditoría de diseño del PM y las lecciones del ciclo entran al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **18–25** y punto **(15)** de `CLAUDE.md`.
 - [ ] **[VAC.L2 · L4 · L5 · L8]** ⏸️ Resolver único, envelope de procedencia, unidades dudosas (necesita medir `c84` contra prod) y throttle. **[VAC.U1 · U2 · U3 · U14]** ⏸️ Descomponer el componente, cámara compartida, `<dialog>`, `@layer`.
-- [ ] **[VAC.D1–D6]** ⏸️ Leer de `analytics.v_label_prices`, códigos como vista, override manual, frescura por sucursal, snapshot y reapuntar el candado de paridad `[CV.26]` — **todo necesita lectura de prod** (hoy sin acceso). Decisiones **D2, D3, D5** sin firmar.
+- [ ] **[VAC.D1–D6]** ⏸️ Leer de `analytics.v_label_prices`, códigos como vista, override manual, frescura por sucursal, snapshot y reapuntar el candado de paridad `[CV.26]` — **todo necesita lectura de prod** (hoy sin acceso). Decisiones **D2, D3, D5** sin firmar. **2026-11-19:** decisiones D2 y D3 resueltas (`[VAC.D3]`, `[VAC.D4]`), y la lectura de prod ya existe (cuenta `sistemas`, sólo lectura).
 - [x] **[VAC.PROTOCOLO]** 🧪 Las observaciones de la auditoría de diseño del PM y las lecciones del ciclo entran al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **18–25** y punto **(15)** de `CLAUDE.md`; y, tras el incidente de arranque, **30 y 31** (`GOTCHAS.md` §84).
 - [x] **[VAC.FIX]** 🚀 `e5fa64ec8` (Edgar, 2026-10-15): alias de sólo tipo en el parámetro decorado de `kp.controller.ts` + prueba sobre `design:paramtypes`. **Verificado el 2026-10-16:** `/api/health` de prod `200`, commit `11d37aa77` (incluye el arreglo). La duración de la caída **no se midió**.
 - [x] **[VAC.U16]** 🚀 2026-11-07 (0Sistemas): logo 50 % más grande (96 → 144 px; kiosco 64 → 96), pie (productos escaneados y respaldo) al 80 % de opacidad, y la frescura **no se pinta en kiosco** (la ve el operador, no la clienta). **En prod desde #507** (fusionado 2026-11-08; `/api/health` = `dd13a0261` lo contiene, medido 2026-11-11). ⛔ No es ✅: falta verla en el monitor real del mostrador (`[VAC.ATERRIZAJE]`).
 - [x] **[VAC.P1]** ✅ 2026-11-11 El escaneo dejó de barrer `kdii` (#507; migración `20261107115424_kdii_indice_codigos_verificador` aplicada en prod el 2026-11-08 06:18 UTC, los dos índices `indisvalid = true`). **Medido en prod, mismo instrumento antes y después:** la consulta pasó de 62–66 ms (Parallel Seq Scan, 8,892 buffers) a **0.7 ms** (Bitmap Index Scan sobre `ix_kdii_codigos_verificador`, 19 buffers); `/api/kp/precio` en la LAN, de ~75 ms a **15–24 ms** (5 corridas). Un código de barras de muestra; por `megadulcessuite.com` NO re-medido.
 - [x] **[VAC.PROTOCOLO.2]** 🧪 2026-11-07 Observaciones del PM del ciclo al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **82–85**; y al cerrarlo (2026-11-11), **101–102**.
-- [ ] **[VAC.ATERRIZAJE]** ⚠️ Para marcar ✅ (DoD de `METODO_DE_TRABAJO` §5): validación visual en el monitor real + H1 con Precios/Comercial; el resto (L2/L4/L5/L8, U1–U3, U14, D1–D6) en ⏸️ con nombre. Estado punto por punto en `FASE_VAC` §12.
-- [ ] ⚠️ **Falta la validación visual en el monitor real de mostrador** (lector, cámara, pantalla completa y datos reales): todo lo visual se vio en renders estáticos, no en la app.
+- [x] **[VAC.ATERRIZAJE]** ✅ 2026-11-19 Fase **aceptada por 0Sistemas sin la validación visual en el mostrador**, que queda con nombre en `[VAC.VISUAL]`. D2 firmada (`[VAC.D3]`), D3 resuelta (`[VAC.D4]`) y H1 medido (`[VAC.H1]`). Detalle en `FASE_VAC` §14.
+- [ ] **[VAC.VISUAL]** ⏸️ Validación visual en el monitor real del mostrador: lector, cámara, pantalla completa, logo de 144 px frente al precio, pie al 80 % en modo oscuro, kiosco sin frescura. **Diferida con nombre:** la fase se aceptó así (0Sistemas, 2026-11-19); se hace cuando haya un mostrador disponible. Destraba D5 (cámara compartida).
+- [x] **[VAC.D3]** 🧪 2026-11-19 **Decisión D2 firmada por 0Sistemas: se retira la corrección manual del precio.** Medido: 0 de 80,036 filas manuales. `KpService` ya no la lee ni la aplica; contrato `origen_precio: 'kepler'`; fuera la nota «corregido a mano» del verificador **y del checador del vendedor**. Pruebas con negativa. Sin soltar.
+- [x] **[VAC.D4]** 🧪 2026-11-19 **Decisión D3 resuelta midiendo:** la frescura por sucursal sale de `analytics.ods_branch_checks` (carril `ods_live_hot`, 9 de 9 sucursales revisadas hace < 1 min), no de `cdc_wal_NN` (0 filas). Reusa `lecturaDeSucursales` (exportado de `@megadulces/commercial`). ⚠️ También cambia `/tienda/caja`, que lee el mismo `datos_al`. 5 pruebas, 3 rojas con el servicio anterior. Sin soltar.
+- [ ] **[VAC.H1]** ⚠️ 2026-11-19 **Medido:** escalera de precios rota en 166 SKUs (114 con la presentación ≥ 2 % más cara, 80 ≥ 5 %, 12 ≥ 10 %; mediana 4.6 %), más 199 dudosos por unidad. La lista por SKU va a Precios/Comercial fuera del repo (repo público). **Espera a Edgar con Precios/Comercial:** corregir en Kepler o que la pantalla avise (VAC.UI.3).
+- [x] **[VAC.PROTOCOLO.3]** 🧪 2026-11-19 Observaciones del PM del ciclo de decisiones (resumen con el dato re-medido, «mídelo» con el instrumento de la pantalla, diferir con nombre, reusar el lector que ya existe) y una lección propia (decisión ≠ item) al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **109–113**.
 
 ### Fase ETQ-AVISOS — Avisar a las sucursales que cambió un precio, y que Compras comparta la lista · 2026-10-09 · plan en [`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASES/FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md) · **mapa de punta a punta en [`FASE_ETQ_CAMBIOS_ESTADO_AVISOS`](FASES/FASE_ETQ_CAMBIOS_ESTADO_AVISOS.md)**
 

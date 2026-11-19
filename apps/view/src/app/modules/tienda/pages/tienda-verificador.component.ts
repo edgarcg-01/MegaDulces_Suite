@@ -90,7 +90,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
           @if (datosAl()) {
             <app-freshness-pill measures="data" [since]="datosAl()" [staleAfterSec]="3600" />
           } @else {
-            <span class="vf-fresh-nd" title="El backend no reporta el latido del ERP para esta sucursal (analytics.cron_runs, cdc_wal_NN). No se sabe de cuándo es el precio.">
+            <span class="vf-fresh-nd" title="No hay registro de que esta sucursal se haya revisado contra el ERP. No se sabe de cuándo es el precio.">
               <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura del ERP sin medir
             </span>
           }
@@ -306,7 +306,6 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   @if (p.iva_pct != null) { IVA {{ p.iva_pct }}%. }
                   @if (p.ieps_pct) { IEPS {{ p.ieps_pct }}%. }
                   @if (origen() === 'respaldo') { Tomado del respaldo del {{ snapshotAl() | date:'dd/MM/yy HH:mm' }}. }
-                  @if (origenPrecio() === 'override_manual') { Precio corregido a mano: es el mismo que sale en la etiqueta del anaquel. }
                   @if (codigoAmbiguo()) { <strong>Ese codigo esta en {{ candidatos().length }} productos distintos</strong> del catalogo: {{ candidatos()[0]?.nombre }} y {{ candidatos()[1]?.nombre }}. Lo de arriba es UNO de ellos, elegido por orden. Confirma cual tienes en la mano antes de cobrar. }
                   @if (precioAmbiguo()) { Este producto tiene {{ plazasDistintas() }} precios distintos entre plazas y no se pudo acotar a la tuya: confírmalo en caja. }
                   @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
@@ -712,7 +711,6 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   // arbitrario, y con 385 códigos que difieren entre plazas eso significaba que el mostrador podía
   // mostrar el precio de CEDIS — la fila que la etiquetera excluye a propósito. Anaquel y mostrador
   // podían decir números distintos del mismo producto, sin que la pantalla lo insinuara.
-  readonly origenPrecio = signal<'kepler' | 'override_manual'>('kepler');
   readonly precioAmbiguo = signal(false);
   /** `[TDA.9]` El código matchea más de un producto: la pantalla PREGUNTA, no elige. */
   readonly codigoAmbiguo = signal(false);
@@ -1034,8 +1032,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
       this.origen.set(r.origen);
       this.snapshotAl.set(r.snapshotAl);
       // `[TDA.2]` Procedencia del número. Se resetea en CADA resultado: si quedara pegada del
-      // producto anterior, la pantalla diría "corregido a mano" sobre uno que no lo está.
-      this.origenPrecio.set(r.origenPrecio ?? 'kepler');
+      // producto anterior, la pantalla diría «varía entre plazas» sobre uno que no varía.
       this.precioAmbiguo.set(r.precioAmbiguo === true);
       this.codigoAmbiguo.set(r.codigoAmbiguo === true);
       // Se resetea en CADA resultado, como la ambigüedad: pegada del escaneo anterior avisaría «promoción» sobre
