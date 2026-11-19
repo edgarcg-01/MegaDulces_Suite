@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: una sola verdad y la frescura real (VAC.D3 + VAC.D4, 2026-11-19 · en código, sin soltar)
+- El precio es siempre el de Kepler: se retira la «corrección a mano» (0 de 80,036 precios la usaban), en el verificador y en el checador de la app del vendedor.
+- La frescura de cada sucursal ya se mide: sale de la última revisión del carril caliente contra el ERP. El verificador y la Caja de mostrador dejan de decir «Frescura del ERP sin medir».
 ### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
 - Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
 ### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)
