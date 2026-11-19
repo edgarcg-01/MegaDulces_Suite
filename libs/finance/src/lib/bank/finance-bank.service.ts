@@ -1312,15 +1312,17 @@ export class FinanceBankService {
       // 2026-11-19: las 16 cuentas «cuadraban» con el libro al 10-nov y BBVA 6721 decía $0 de retiros en un mes en
       // que su banco traía $3.2 M. Sin la fuente y el día, «cuadra» afirmaba lo que no se midió.
       const finMes = `${period}-${String(new Date(Number(period.slice(0, 4)), Number(period.slice(5, 7)), 0).getDate()).padStart(2, '0')}`;
-      const ids = (rows as any[]).map((r) => r.id);
+      type FilaDeSaldo = { id: string; account_id: string; banco_desde: string | null };
+      const filas = rows as unknown as FilaDeSaldo[];
+      const ids = filas.map((r) => r.id);
       const hastaPorEstado = new Map<string, string>(ids.length ? ((await trx('finance.bank_movements')
         .whereIn('statement_id', ids).whereNull('deleted_at').groupBy('statement_id')
-        .select('statement_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as any[])
+        .select('statement_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as { statement_id: string; hasta: string }[])
         .map((x) => [x.statement_id, x.hasta]) : []);
-      const cuentaIds = (rows as any[]).map((r) => r.account_id);
+      const cuentaIds = filas.map((r) => r.account_id);
       const bancoHasta = new Map<string, string>(cuentaIds.length ? ((await trx('finance.bank_statement_lines')
         .whereIn('bank_account_id', cuentaIds).whereBetween('movement_date', [`${period}-01`, finMes]).groupBy('bank_account_id')
-        .select('bank_account_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as any[])
+        .select('bank_account_id', trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as hasta"))) as { bank_account_id: string; hasta: string }[])
         .map((x) => [x.bank_account_id, x.hasta]) : []);
 
       const accounts = (rows as any[]).map((r) => {
