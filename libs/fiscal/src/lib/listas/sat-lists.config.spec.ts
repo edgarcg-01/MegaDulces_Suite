@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { DIAS_LISTA_VIEJA, diasDeAtraso, fechaDeActualizacion, fechaDeLaLista, SAT_LISTS } from './sat-lists.config';
 
 /**
