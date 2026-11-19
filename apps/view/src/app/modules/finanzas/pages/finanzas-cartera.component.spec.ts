@@ -355,6 +355,28 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(txt).toContain('Aplicada · cobro 4820');
   });
 
+  it('18b · [CXC.46] pagos que Kepler no aplicó a ninguna factura se dicen como tales, no como «cobros de más»', () => {
+    detalle = vi.fn(() => of({ ...DET, sin_documento: -14295.92 }));
+    const f = crear();
+    f.componentInstance.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    const nota = (document.body.querySelector('.ct-sin-doc')?.textContent || '').replace(/\s+/g, ' ');
+    expect(nota).toContain('14,295.92');
+    expect(nota).toContain('en pagos que Kepler todavía no aplica a ninguna factura');
+    expect(nota).not.toContain('por encima');
+    expect(nota).not.toContain('-$');
+    // Y la nota del pie ya no promete el reparto «a las partidas más viejas».
+    expect(document.body.textContent || '').not.toContain('partidas más viejas primero');
+  });
+
+  it('18c · [CXC.46] con saldo que ninguna factura explica, sigue el aviso de siempre', () => {
+    detalle = vi.fn(() => of({ ...DET, sin_documento: 500 }));
+    const f = crear();
+    f.componentInstance.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    f.detectChanges();
+    expect(document.body.querySelector('.ct-sin-doc')?.textContent || '').toContain('por encima de lo que la cuenta justifica');
+  });
+
   it('19 · [CXC.44] UN solo botón entrega el estado de cuenta: chat del teléfono + contacto, con el enlace adentro (y el PDF va EN el enlace: [CC.20.2])', () => {
     const conTel = { ...DET, cliente: { ...DET.cliente, telefono: '3314855906' } } as CarteraDetalle;
     detalle = vi.fn(() => of(conTel));
