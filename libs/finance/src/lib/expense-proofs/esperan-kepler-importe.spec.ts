@@ -32,3 +32,29 @@ describe('[PGP.123] G.UI.2 esperanKepler: lo capturado viaja con la fila', () =>
     expect(METODO).toContain('importe_fuente: f.importe_fuente ?? null');
   });
 });
+
+/**
+ * `[PGP.122]` La solicitud que nació en la Suite y Kepler rechazó caía en la cola como «No se pudo leer su estado en
+ * Kepler», plegada y sin poder abrirse (medido con Playwright el 2026-11-19). La cola ahora trae cómo va su escritura,
+ * y el buscador abre un vale por su id (el renglón sin folio no tiene otra llave). La prueba de base real es el bloque
+ * O de `database/tests/test-newdb-comprobacion-gasto-suite.js`; esto cuida que la consulta no se reescriba sin ellos.
+ */
+describe('[PGP.122] esperanKepler y buscarGastos: la solicitud sin escribir', () => {
+  const BUSCAR = SERVICIO.slice(SERVICIO.indexOf('async buscarGastos('), SERVICIO.indexOf('async buscarGastos(') + 3000);
+
+  it('la cola pide la escritura de la solicitud, sólo si la columna existe', () => {
+    expect(METODO).toContain(`hasColumn('expense_proofs', 'kepler_request_status')`);
+    expect(METODO).toContain('ep.kepler_request_status, ep.kepler_request_note, ep.kepler_request_next_at, ep.kepler_request_attempts');
+    expect(METODO).toContain('LEFT JOIN finance.expense_proofs ep ON ep.id = v.id');
+  });
+
+  it('⛔ sólo el vale que NACIÓ en la Suite trae nace_en_la_suite', () => {
+    expect(METODO).toContain(`conSolicitud && f.origen === 'solicitud'`);
+  });
+
+  it('el buscador abre un vale por su id, antes de la búsqueda por texto', () => {
+    const id = BUSCAR.indexOf(`.where('p.id', q.toLowerCase())`);
+    expect(id).toBeGreaterThan(0);
+    expect(id).toBeLessThan(BUSCAR.indexOf('applySmartSearch'));
+  });
+});

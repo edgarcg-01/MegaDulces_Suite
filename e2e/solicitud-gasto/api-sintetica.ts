@@ -47,6 +47,8 @@ export interface Registro {
   crear: Cuerpo | null;
   aprobar: Cuerpo | null;
   cancelar: Cuerpo | null;
+  /** Cuántas veces la pantalla pidió «Reintentar en Kepler». */
+  reintentos: number;
   subidas: number;
   servidas: number;
   /** Escrituras que no son de este flujo (telemetría, etc.): se abortan y se cuentan. */
@@ -59,9 +61,21 @@ export interface Registro {
 
 type Etapa = 'nada' | 'pedida' | 'firmada' | 'cancelada';
 
-export async function servirApi(page: Page): Promise<Registro> {
-  const reg: Registro = { crear: null, aprobar: null, cancelar: null, subidas: 0, servidas: 0, abortadas: [], desconocidas: [], salieron: [] };
+/**
+ * El escenario de Kepler. `acepta`: la firma escribe la solicitud (folio 0000083). `rechaza`: la firma NO la escribe
+ * (`rejected_by_kepler`, sin folio) y el primer «Reintentar en Kepler» sí. La nota del rechazo es la forma de las reales.
+ */
+export interface Opciones { kepler?: 'acepta' | 'rechaza' }
+export const NOTA_RECHAZO = 'Kepler no aceptó el acreedor GP001: está suspendido.';
+
+export async function servirApi(page: Page, op: Opciones = {}): Promise<Registro> {
+  const reg: Registro = { crear: null, aprobar: null, cancelar: null, reintentos: 0, subidas: 0, servidas: 0, abortadas: [], desconocidas: [], salieron: [] };
   let etapa: Etapa = 'nada';
+  // Control negativo (regla 12): E2E_MUTANTE=kepler_rechaza vuelve rechazo el camino feliz, y la prueba feliz debe salir roja.
+  const rechaza = op.kepler === 'rechaza' || process.env.E2E_MUTANTE === 'kepler_rechaza';
+  /** Lo que Kepler hizo con la solicitud firmada. */
+  let kst: 'written' | 'rejected_by_kepler' = 'written';
+  const escrita = () => etapa === 'firmada' && kst === 'written';
   let archivo: Cuerpo | null = null;
   const motivoCancelar = (): string => String(reg.cancelar?.['motivo'] ?? '');
 
@@ -73,7 +87,7 @@ export async function servirApi(page: Page): Promise<Registro> {
   };
   const acreedor = () => ACREEDORES.find((a) => a.clave === reg.crear?.['acreedor']) ?? ACREEDORES[0];
   const status = (): string => (etapa === 'pedida' ? 'recibida' : etapa === 'firmada' ? 'aprobada' : 'rechazada');
-  const folio = (): string | null => (etapa === 'firmada' || etapa === 'cancelada' ? FOLIO_KEPLER : null);
+  const folio = (): string | null => (escrita() || etapa === 'cancelada' ? FOLIO_KEPLER : null);
 
   const expediente = () => ({
     id: VALE, folio_solicitud: folio(), sucursal: SUC, fecha_gasto: hoyMx(), created_at: hoyMx(), created_hora: horaMx(),
@@ -86,10 +100,12 @@ export async function servirApi(page: Page): Promise<Registro> {
   });
   const naceEnLaSuite = () => (etapa === 'pedida'
     ? { status: 'pending', nota: null, siguiente: null, intentos: 0 }
-    : etapa === 'firmada' ? { status: 'written', nota: null, siguiente: null, intentos: 1 }
+    : etapa === 'firmada' ? (kst === 'written'
+      ? { status: 'written', nota: null, siguiente: null, intentos: 1 + reg.reintentos }
+      : { status: 'rejected_by_kepler', nota: NOTA_RECHAZO, siguiente: null, intentos: 1 })
     : { status: 'cancelled', nota: `Cancelada en Kepler desde la Suite: ${motivoCancelar()}`, siguiente: null, intentos: 1 });
   const keplerDelVale = () => ({
-    solicitud: folio(), estado: etapa === 'firmada' ? 'A' : etapa === 'cancelada' ? 'C' : null, suite: null, nace_en_la_suite: naceEnLaSuite(),
+    solicitud: folio(), estado: escrita() ? 'A' : etapa === 'cancelada' ? 'C' : null, suite: null, nace_en_la_suite: naceEnLaSuite(),
   });
   const estadoSolicitud = () => ({ id: VALE, status: naceEnLaSuite().status, folio: folio(), nota: naceEnLaSuite().nota, intentos: naceEnLaSuite().intentos, siguiente: null });
   const grupo = (clave: string, etiqueta: string, ids: string[]) => ({ clave, etiqueta, n: ids.length, monto: ids.length ? total() : 0, ids });
@@ -115,9 +131,11 @@ export async function servirApi(page: Page): Promise<Registro> {
   };
   const esperanKepler = () => ({
     vales: etapa === 'firmada' ? [{
-      id: VALE, folio_solicitud: FOLIO_KEPLER, sucursal: SUC, proveedor: acreedor().nombre, importe: total(), importe_capturado: total(), importe_fuente: null,
+      id: VALE, folio_solicitud: folio(), sucursal: SUC, proveedor: acreedor().nombre, importe: total(), importe_capturado: total(), importe_fuente: null,
       created_by: QUIEN_PIDE, validated_by: YO, capturo_nombre: 'Cajera Prueba', reviso_nombre: 'Tesorera de prueba', revisado_at: new Date().toISOString(),
-      dias: 0, espera: 'falta_generar_gasto', hallazgo: false, kepler_estado: 'A', gasto_kepler: null, pista_cancelada: null, cancelada_revisada: null,
+      dias: 0, espera: escrita() ? 'falta_generar_gasto' : 'sin_medir', hallazgo: false, kepler_estado: escrita() ? 'A' : null,
+      // Nació en la Suite (origen = 'solicitud'): el servidor manda cómo va la escritura de su solicitud.
+      nace_en_la_suite: naceEnLaSuite(), gasto_kepler: null, pista_cancelada: null, cancelada_revisada: null,
     }] : [],
     truncado: false, medido: true,
   });
@@ -169,11 +187,13 @@ export async function servirApi(page: Page): Promise<Registro> {
     if (m === 'POST' && p === `/finance/expenses/proofs/${VALE}/approve`) {
       reg.aprobar = cuerpo();
       etapa = 'firmada';
-      // Control negativo (regla 12): con E2E_MUTANTE=kepler_rechaza la firma NO escribe en Kepler y la prueba debe salir roja.
-      if (process.env.E2E_MUTANTE === 'kepler_rechaza') {
-        return r.fulfill(json({ id: VALE, status: 'aprobada', solicitud_kepler: { ...estadoSolicitud(), status: 'rejected_by_kepler', folio: null, nota: 'Mutante: Kepler la rechazó.' } }));
-      }
+      if (rechaza) kst = 'rejected_by_kepler';
       return r.fulfill(json({ id: VALE, status: 'aprobada', solicitud_kepler: estadoSolicitud() }));
+    }
+    if (m === 'POST' && p === `/finance/expenses/solicitudes/${VALE}/reintentar-kepler`) {
+      reg.reintentos++;
+      kst = 'written';
+      return r.fulfill(json(estadoSolicitud()));
     }
     if (m === 'POST' && p === `/finance/expenses/solicitudes/${VALE}/cancelar-en-kepler`) {
       reg.cancelar = cuerpo();
@@ -216,7 +236,7 @@ export async function servirApi(page: Page): Promise<Registro> {
     }
     if (p === '/finance/expenses/proofs/buscar') {
       const t = sp.get('q') ?? '';
-      const hay = etapa !== 'nada' && (!t || t.includes(FOLIO_KEPLER) || 'plomería prueba'.includes(t.toLowerCase()));
+      const hay = etapa !== 'nada' && (!t || t === VALE || t.includes(FOLIO_KEPLER) || 'plomería prueba'.includes(t.toLowerCase()));
       return r.fulfill(json({ q: t, recientes: !t, vales: hay ? [expediente()] : [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null }));
     }
     if (p === `/finance/expenses/proofs/${VALE}`) return r.fulfill(json({ ...expediente(), storage_ok: true }));
