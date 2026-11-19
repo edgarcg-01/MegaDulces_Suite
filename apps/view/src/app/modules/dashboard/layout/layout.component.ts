@@ -40,6 +40,7 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { RECLUTAMIENTO_TABS } from '../../rh/reclutamiento-tabs';
 import { PAGOS_VIAJE_TABS } from '../../logistica/pagos-viaje-tabs';
 import { COSTO_UNIDAD_TABS } from '../../logistica/costo-unidad-tabs';
 import { CAJA_TABS } from '../../finanzas/caja-tabs';
@@ -930,7 +931,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Reclutamiento',
       items: [
-        { label: 'Reclutamiento', icon: 'pi pi-users', route: '/rh/reclutamiento', anyOf: [Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR] },
+        // `[RH.17.1]` Con `tabs`: lleva a la primera pestaña que la persona ve («Hoy») y queda marcado en todas.
+        { label: 'Reclutamiento', icon: 'pi pi-users', route: '/rh/reclutamiento/hoy', anyOf: [Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR], tabs: RECLUTAMIENTO_TABS },
       ],
     },
     {
