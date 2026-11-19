@@ -175,4 +175,20 @@ describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el aparta
     expect(c).toContain('this.api.stockSummary(');
     for (const campo of ['s.on_hand', 's.reserved', 's.available']) expect(c).toContain(`{{ ${campo} | number:'1.0-3' }}`);
   });
+
+  // check-dense-tables acepta la PALABRA dt-stack en cualquier parte (un comentario basta); esto exige la clase de verdad.
+  it('en el teléfono cada renglón se apila: clase real (no styleClass, muerto en PrimeNG 22), rótulo por celda y la barra en ::after', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8').split('\r\n').join('\n');
+    const tabla = c.slice(c.indexOf('<p-table'), c.indexOf('</p-table>'));
+    expect(tabla).toMatch(/\n\s+class="dt-stack"\n/);
+    expect(c).toMatch(/class="cell cell-span-12 is-flush dt-scope"/);
+    const celdas = tabla.slice(tabla.indexOf('#body'), tabla.indexOf('#emptymessage')).match(/<td\b[^>]*>/g) ?? [];
+    expect(celdas.length).toBe(9);
+    for (const td of celdas) {
+      expect(td).toContain('role="cell"');
+      if (!td.includes('dt-id')) expect(td).toMatch(/data-label="[^"]+"/);
+    }
+    expect(c).toMatch(/tr\.in-row-low td:first-child::after/);
+    expect(c).not.toMatch(/tr\.in-row-(low|zero) td:first-child::before/);
+  });
 });
