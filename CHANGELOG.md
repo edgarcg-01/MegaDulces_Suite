@@ -13,6 +13,8 @@
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
 - Con esto se sueltan 7 facturas más (73 de 208) y ninguna de las que ya estaban sueltas se vuelve a bloquear.
+### Fixed — Catálogo › Mantenimiento: el precio por volumen ya no marca «se sale» a una sucursal con los mismos tramos (CAT-PRECIO.1.2 · 2026-11-18 · en código, sin soltar)
+- Kepler guarda la cantidad «desde» como `3` en unas sucursales y `3.00` en otras. La pantalla comparaba el texto y marcaba como distinta a la que traía decimales (p. ej. 97363 en la 07 y la 08). Ahora compara los números: «Precio por volumen» baja de 485 a 439 productos (46 eran este falso aviso).
 ### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
 - El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
 - La lista de cheques en tránsito ya no se corta en 50 sin avisar.
