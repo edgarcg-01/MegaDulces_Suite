@@ -78,6 +78,7 @@ export function armarOrdenes(filas: readonly FilaVista[], bitacora: readonly Fil
       total_etiquetas: total,
       avisos: avisosDelRenglon(f),
       enviadas: enviadas.size,
+      pendientes: Array.from({ length: total }, (_, i) => i + 1).filter((n) => !enviadas.has(n)),
       primera: primera ? { fecha_etiqueta: primera.fecha_etiqueta, enviada_at: primera.enviada_at, usuario: primera.enviada_por } : null,
       reimpresiones: registros.filter((r) => r.motivo === 'reimpresion').length,
     };

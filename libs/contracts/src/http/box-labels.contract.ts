@@ -64,6 +64,8 @@ export interface BoxLabelLineRow {
 export interface BoxLabelLineEstado {
   /** Cuántas etiquetas DISTINTAS del renglón se han enviado a imprimir (de `total_etiquetas`). */
   enviadas: number;
+  /** Los consecutivos que falta enviar (1..total menos los enviados): lo que imprime «Imprimir» de un clic. */
+  pendientes: number[];
   /** La primera vez: su fecha impresa queda congelada. `null` = nunca se envió. */
   primera: { fecha_etiqueta: string; enviada_at: string; usuario: string | null } | null;
   reimpresiones: number;
@@ -100,7 +102,10 @@ export interface BoxLabelOrdersResponse {
   date_to: string;
   /** Sucursales que el alcance del usuario deja ver. `null` = todas. */
   sucursales: string[] | null;
-  /** La última orden de entrada que trajo el ODS (frescura, ADR-056). `null` = no se pudo medir. */
+  /**
+   * La última orden de entrada que trajo el ODS (frescura, ADR-056), con su zona: la hora de captura de Kepler es la
+   * de la Ciudad de México (`-06:00`, sin horario de verano desde 2022). `null` = no se pudo medir.
+   */
   ods_ultima_captura: string | null;
   generado_at: string;
 }

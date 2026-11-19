@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import { armarDefectos, armarOrdenes, type FilaBitacora, type FilaVista } from './box-labels';
 import { elegir } from './box-labels.service';
@@ -31,9 +30,10 @@ describe('[RE.ETQ.2.1] armarOrdenes', () => {
     expect(o.renglones[0]).toMatchObject({ enviadas: 20, reimpresiones: 1, primera: { fecha_etiqueta: '308-26', usuario: 'encargado08' } });
   });
 
-  it('parcial cuando falta alguna', () => {
+  it('parcial cuando falta alguna, y dice cuáles faltan', () => {
     const [o] = armarOrdenes([FILA], [reg({ consecutivos: [1, 2, 3] })]);
     expect(o).toMatchObject({ estado: 'parcial', etiquetas_enviadas: 3 });
+    expect(o.renglones[0].pendientes).toEqual(Array.from({ length: 17 }, (_, i) => i + 4));
   });
 
   it('un consecutivo fuera de rango (Kepler bajó la cantidad) no infla lo enviado', () => {

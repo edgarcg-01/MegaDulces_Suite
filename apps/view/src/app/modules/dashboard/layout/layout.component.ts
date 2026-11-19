@@ -1096,6 +1096,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     conteo: 'pi pi-qrcode',
     control: 'pi pi-shield',
     'analisis-bi': 'pi pi-chart-line',
+    // [RE.ETQ.3.1] Etiquetas de caja de la orden de entrada (TSC TE200).
+    etiquetas: 'pi pi-print',
   };
 
   /**

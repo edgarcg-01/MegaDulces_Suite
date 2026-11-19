@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { etiquetasDelRenglon, type BoxLabelLineRow } from '@megadulces/contracts';
 import { anchoBarrasMm, barrasSvg, enFilas, formatoCode128, modulosCode128 } from './etiquetera';
 import { etiquetaCajaHtml, etiquetasCajaHtml, tamanoConsecutivo, tamanoNombre } from './etiqueta-caja';

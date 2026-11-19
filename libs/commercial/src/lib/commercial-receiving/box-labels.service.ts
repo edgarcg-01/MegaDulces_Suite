@@ -138,7 +138,7 @@ export class BoxLabelsService {
       const ods = (
         await trx.raw(
           `/* re-etq:frescura */ SELECT to_char(max(c68::date + CASE WHEN btrim(coalesce(c69, '')) ~ '^[0-9]{1,2}:[0-9]{2}$'
-                    THEN btrim(c69)::time ELSE time '00:00' END), 'YYYY-MM-DD"T"HH24:MI') AS u
+                    THEN btrim(c69)::time ELSE time '00:00' END), 'YYYY-MM-DD"T"HH24:MI":00-06:00"') AS u
              FROM kepler_ods.kdm1
             WHERE c2 = 'X' AND c3 = 'A' AND c4 = 40 AND c68::date >= (?::date - 7) ${sucursales ? 'AND sucursal = ANY(?)' : ''}`,
           odsParams,

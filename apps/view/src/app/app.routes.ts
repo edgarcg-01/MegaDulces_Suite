@@ -2157,6 +2157,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_LLEGADAS_VER)]
       },
       {
+        // `[RE.ETQ.3.1]` Etiquetas de caja de la orden de entrada (TSC TE200), dentro de Recepción (D1): la cola
+        // de órdenes de Kepler para imprimir y reimprimir. Clave propia ALMACEN_ETIQUETAS_CAJA.
+        path: 'etiquetas',
+        loadComponent: () => import('./modules/almacen/pages/almacen-etiquetas.component').then(m => m.AlmacenEtiquetasComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_ETIQUETAS_CAJA)]
+      },
+      {
+        // `[RE.ETQ.3.2]` Lo que el catálogo de Kepler tiene mal en lo recibido en caja (para Compras). Misma clave.
+        path: 'etiquetas/catalogo',
+        loadComponent: () => import('./modules/almacen/pages/almacen-etiquetas-catalogo.component').then(m => m.AlmacenEtiquetasCatalogoComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_ETIQUETAS_CAJA)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
