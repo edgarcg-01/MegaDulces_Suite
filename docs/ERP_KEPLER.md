@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 117 KB, 1749 líneas, 35 secciones.
+> **Índice navegable** — 119 KB, 1765 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -22,26 +22,26 @@
 | 615 | 653 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
 | 654 | 812 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
 | 813 | 935 | 10 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 936 | 999 | 5 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 1000 | 1037 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1038 | 1067 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1068 | 1121 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1122 | 1170 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1171 | 1202 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1203 | 1263 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1264 | 1298 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1299 | 1340 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
-| 1341 | 1452 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1453 | 1483 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1484 | 1531 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1532 | 1559 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1560 | 1616 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1617 | 1667 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1668 | 1693 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1694 | 1758 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1759 | 1778 | 1 | 6. Importers / feeds relevantes |
-| 1779 | 1786 | 1 | 7. Conexiones y credenciales |
-| 1787 | 1796 | 1 | 8. Para profundizar |
+| 936 | 1015 | 6 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 1016 | 1053 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1054 | 1083 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1084 | 1137 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1138 | 1186 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1187 | 1218 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1219 | 1279 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1280 | 1314 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1315 | 1356 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
+| 1357 | 1468 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1469 | 1499 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1500 | 1547 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1548 | 1575 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1576 | 1632 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1633 | 1683 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1684 | 1709 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1710 | 1774 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1775 | 1794 | 1 | 6. Importers / feeds relevantes |
+| 1795 | 1802 | 1 | 7. Conexiones y credenciales |
+| 1803 | 1812 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -993,6 +993,22 @@ pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valore
    `FASES/FASE_GP_PLAN_IMPLEMENTACION.md` §2.1.
 3. **No hay hora por etapa.** Sólo `c62` (ticket) y `c69` (sin decodificar: 18:27 en el pedido,
    19:30 en su embarque). El tiempo de surtido/checado/embarque **no existe en Kepler**.
+   ⭐ **Corregido el 2026-11-19 (`[GP.12.0a]`, foto antes/después de 71 cambios de estatus):** `c69`
+   es la hora (`HH:MM`) de la **última** captura y Kepler la sobrescribe en cada etapa; la hora de
+   cada etapa sólo se ve si alguien lee el pedido entre una y otra.
+
+⭐ **Qué escribe cada captura en el `U-D-40`** (`[GP.12.0a]`, 2026-11-19; detalle en
+`FASES/FASE_GP_PLAN_IMPLEMENTACION.md` §2.2):
+- **«Estatus Embarque» deja `kdm1.c43 = 'A'`.** Es la **Salida por Embarque** (`U-D-41`, otra
+  captura, minutos u horas después) la que lo pasa a `'F'`, deja **`c42` (saldo) en 0** y pone
+  `c83` (transporte) y **`c86` (guía, el mismo número que su `U-D-41`: 2,839 de 2,840)**, y deja
+  `kdm2.c24` en 0. En 30 días, `c43 = 'F'` en 2,830 embarcados (todos con salida y saldo 0) y
+  `'A'` en 73 (68 sin salida).
+- **`c85`** pasa de `'0'` a número en el embarque: el domicilio de entrega.
+- **Surtido** vacía `kdm1.c30` y `c88`, pone `c83`/`c84` en `'0'`, y en `kdm2` vacía `c62`/`c63`
+  de todos los renglones; los renglones en cero **se borran** y los demás se renumeran (`c7`).
+- **Checado** cambia una unidad **borrando y volviendo a crear** el renglón: el nuevo trae
+  `c28 = 'CHECADO'`, otra `c55` y no tiene `c51`/`c52`.
 
 **Sucursal ≠ tienda.** Los pedidos `SUCURSAL` van a clientes internos de tres clases: `TI00x`
 (tiendas), `RD 50x` (reparto directo) y `RUTA nn`. Nacen `AUTORIZADO` (nunca `CREADO`). Fase GP.

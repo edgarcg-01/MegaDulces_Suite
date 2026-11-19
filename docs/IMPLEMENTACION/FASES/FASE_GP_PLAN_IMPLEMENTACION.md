@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | **E0** Preparación | Que nada se construya sobre un supuesto | GP.12.0 · GP.15.0 · GP.8.0 | M | Decode de las 3 capturas de estatus de Kepler: **NO MEDIDO → 0 campos sin explicar** · ADR firmado · piloto con dueño |
 | **E1** Consola maestra | Un solo lugar para ver todos los pedidos y su estado real | GP.10 | M | Pantallas para seguir un pedido: **3 → 1** · pedidos del periodo visibles: **100 %**, cuadrados contra Kepler y la Suite |
-| **EA** Autorizar pedidos TLMK ([anexo](FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md)) | La autorización `CREADO → AUTORIZADO` se hace en la Suite y deja quién, cuándo y con qué saldo | GP.A.0–GP.A.5 | M | TELEMARK `CREADO` de más de 7 días (sin Zamora Centro): **17 → 0 de más de 1 día hábil** · autorizaciones con evidencia: **0 % → 100 %** |
+| **EA** Autorizar pedidos TLMK ([anexo](FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md)) | Dentro del límite se autoriza solo (avisando a Crédito y cobranza, D-A3 de Edgar); lo demás lo decide Crédito y cobranza con una ficha de crédito y una sugerencia de límite | GP.A.0–GP.A.8 | L | Autorizados solos: **19.8 % (simulado) → ≥ 33 %** con límites revisados · autorizaciones con evidencia: **0 % → 100 %** · dinero en juego: **$3.1 M vencido a más de 45 días** |
 | **E2** Carretas | Cada pedido en surtido tiene su carreta y se encuentra escaneándola | GP.11 | M | Surtidos en la Suite con carreta: **0 % → 100 %** |
 | **E3** Surtido en Kepler + checado | Lo surtido llega a Kepler sin recaptura, y se checa en la Suite | GP.12 (Surtido, Checado) · GP.13 | L | Surtidos en la Suite que siguen `AUTORIZADO` en Kepler: **16 → 0** · checados en la Suite: **0 → 100 %** de lo surtido en el piloto |
 | **E4** Embarque | Saber dónde está cada pedido checado y qué camión lo llevó | GP.14 · GP.15 · GP.12 (Embarcado) | L | Pedidos embarcados con estiba registrada: **~⅓ en Padre Hidalgo, relleno o 0 en el resto (Kepler, oct) → 100 % escaneada** en el piloto |
@@ -64,7 +64,7 @@ persona captura cada estatus a mano, y que haya piloto con dueño.
 
 | # | Resultado | Capa | Verificado contra / entrega |
 |---|---|---|---|
-| **GP.12.0a** 🔨 | Se sabe qué campos cambia Kepler al capturar *Estatus Surtido*, *Estatus Checado* y *Estatus Embarque*: diff por `xmin` en la réplica de 3 pedidos por pantalla, en la sucursal piloto. Incluye la **unidad de `kdm2.c51` vs `c52`** (pendiente desde GP.0: pedida y surtida vienen en unidades distintas), responsables `c100/c102/c103` y ubicaciones `c59/c60/c61`. **Medido el 2026-11-13 (§2.1).** Por corte transversal: unidad resuelta, recálculo del importe encontrado, Salida por Embarque separada. **Foto antes/después en marcha** (§2.2). Primeros casos reales: el checado recalcula el importe y **borra o renumera renglones**. Falta juntar ≥3 pedidos por transición | C0 | La pantalla de Kepler (captura de la persona que lo hizo) y el `kdm2` antes/después |
+| **GP.12.0a** 🧪 | Se sabe qué campos cambia Kepler al capturar *Estatus Surtido*, *Estatus Checado* y *Estatus Embarque*: diff por `xmin` en la réplica de 3 pedidos por pantalla, en la sucursal piloto. Incluye la **unidad de `kdm2.c51` vs `c52`** (pendiente desde GP.0: pedida y surtida vienen en unidades distintas), responsables `c100/c102/c103` y ubicaciones `c59/c60/c61`. **Medido el 2026-11-13 (§2.1).** Por corte transversal: unidad resuelta, recálculo del importe encontrado, Salida por Embarque separada. **Foto antes/después hecha el 2026-11-19** (§2.2): 71 cambios de estatus, con 8 a 18 casos de cada etapa suelta. Ya está escrito qué columnas toca cada etapa y con qué valor; esa lista es la de GP.12.0e. Hallazgos: «Estatus Embarque» deja `c43` en `A`, y es la Salida por Embarque la que lo pasa a `F` y deja el saldo en 0; el checado cambia una unidad borrando y volviendo a crear el renglón. Cuatro columnas quedan sin decodificar (se sabe qué hace Kepler con ellas, no qué significan), y se abren P-GP.11 (quién va en «capturó» y «responsable») y P-GP.12 (si la salida queda en Kepler) | C0 | La pantalla de Kepler (captura de la persona que lo hizo) y el `kdm2` antes/después |
 | **GP.12.0e** ⬜ | **Permisos por columna para `kepler_push`**, en un archivo propio como `ops/prod/kepler-grants/pq110_cancelar_oc.sql`. Contiene `UPDATE` sólo en las columnas que mide GP.12.0a (ADR-117, tabla). El `DELETE` en `md.kdm2` ya está desde D40 (00, 01, 02, 06, 07 y 08). Lo corre el PM | C0 | El permiso aplicado, verificado como `kepler_push` en sólo lectura (`has_column_privilege`) |
 | **GP.12.0d** 🧪 | Se sabe **cómo recalcula Kepler el renglón y la cabecera cuando una etapa baja la cantidad**. **Medido el 2026-11-13:**<br>· `c56` es la cantidad vigente y `c9` = `c56 × c58`.<br>· El renglón: `c13` = `round(c9 × c12, 2)` en 47,626 de 47,626 renglones.<br>· La cabecera: `c16` = `round(Σc13 × (1 − c19/100), 2)` en 2,884 de 2,885 pedidos (el otro a 5 centavos, por el kg sin redondear de E.25), incluidos los 508 con diferencia.<br>· `c14`/`c15` (IVA, IEPS) ya los reproduce `armarPedidoTlmk` → `totalesCotizacion` (E.25, 79 de 79), **y se reusa** (ADR-056).<br>**Verificado el 2026-11-13** con esa misma función: descuento, IVA, IEPS y total al centavo en **2,889 de 2,890** pedidos embarcados y **509 de 509** con diferencia (el otro, a 2¢ por kilos sin redondear). Control negativo: con la cantidad pedida, 6 de 508 | C0 | Espejo: el importe que Kepler calculó en esos 508 pedidos, al centavo |
 | **GP.12.0b** ✅ | **[ADR-117](../02_DECISIONES_ARQUITECTURA.md), firmado por Edgar el 2026-11-13.** ADR que **enmienda ADR-086**: la Suite actualiza en su lugar el estatus y las cantidades de un `U-D-40` existente: interruptor por sucursal apagado al nacer, todo o nada, idempotente, sólo desde `md`. **Ya tiene precedente:** `[PQ.110]` actualiza en su lugar una OC de Kepler (`UPDATE` de cabecera con el estado leído en el `WHERE`, más `DELETE` de renglones; `kepler-oc-cancelacion.ts`). GP.12 sigue ese patrón, no inventa otro | Decisión | Firma del PM |
@@ -77,8 +77,9 @@ persona captura cada estatus a mano, y que haya piloto con dueño.
 medido o declarado NO MEDIDO.
 **HOY (2026-11-19):** unidad resuelta; importe explicado al centavo, IVA e IEPS incluidos
 (GP.12.0d); ADR-117 firmado el 2026-11-13; piloto elegido (Padre Hidalgo) sin dueño de piso;
-dinero en juego NO MEDIDO; la foto antes/después se rehízo el 2026-11-19 para juntar los casos de
-una sola etapa (§2.2); GP.12.0e espera esa foto y lo corre el PM.
+dinero en juego NO MEDIDO; la foto antes/después del 2026-11-19 junta 71 cambios de estatus y dice
+qué columnas toca cada etapa (§2.2), con 4 columnas sin decodificar y dos preguntas para el PM
+(P-GP.11, P-GP.12). GP.12.0e ya tiene su lista de columnas y lo corre el PM.
 
 ### 2.1 Lo que midió E0 (2026-11-13, prod sólo lectura, pedidos `U-D-40` de 30 días)
 
@@ -140,13 +141,62 @@ una sola etapa (§2.2); GP.12.0e espera esa foto y lo corre el PM.
 
 ### 2.2 Foto antes/después (GP.12.0a)
 
-Sin SSH a `md`: se toma una foto completa (`kdm1` + `kdm2`, todas las columnas) de los `U-D-40`
-abiertos en `pg-prod`, y después se leen **los mismos pedidos** y se compara, columna por columna y
-por transición de estatus. También dice si nació un `U-D-41`.
+Se toma una foto completa (`kdm1` + `kdm2`, todas las columnas) de los `U-D-40` abiertos en
+`pg-prod` (por `md`, sólo lectura, verificado por `system_identifier`), cada 5 minutos se leen **los
+mismos pedidos** y se compara, columna por columna y por transición de estatus, con el valor de
+antes y de después. Los renglones se emparejan por producto, porque Kepler los renumera. También
+dice si nació el `U-D-41`.
 
 - **Controles hechos:**
   - con respuesta conocida: la foto contra sí misma da vacío;
   - negativo: una copia alterada a propósito sale con exactamente lo alterado.
+
+#### Resultado del 2026-11-19 (71 cambios de estatus, 13:51–16:05, las 9 sucursales)
+
+Hay casos de las cuatro etapas sueltas: CREADO→AUTORIZADO **8**, AUTORIZADO→SURTIDO **15**,
+SURTIDO→CHECADO **12**, CHECADO→EMBARCADO **18**. Además, 12 pedidos brincaron dos o tres etapas en
+menos de 5 minutos (la recaptura del papel al final) y 5 se cancelaron en SURTIDO.
+
+| Etapa | Cabecera (`kdm1`) | Renglones (`kdm2`) |
+|---|---|---|
+| **CREADO→AUTORIZADO** | sólo `c11` | nada |
+| **AUTORIZADO→SURTIDO** | `c11`; `c69` = hora de esta captura; `c88` `'0'`→vacío y `c30` (texto, p. ej. la condición de pago)→vacío; `c83`/`c84` a `'0'`; `c67` = quien captura; `c100` (responsable) en 3 de 15; `c63` cambia de prefijo en 6 de 10; `c13`–`c16` y `c42` se recalculan si se quitó algo | `c52` (surtida) en todos; **`c62` y `c63` se vacían en todos**; `c59` (ubicación de surtido) en 5 de 29; **renglones en cero salen y los demás se renumeran** (`c7`) |
+| **SURTIDO→CHECADO** | `c11`, `c69`; `c83`/`c84` se vacían; `c102` (responsable) en 2 de 5; `c13`–`c16` y `c42` recalculados | `c53` (checada); salen renglones, **entran** otros y se renumeran. Un cambio de unidad es **borrar y volver a crear** el renglón: el nuevo trae `c28 = 'CHECADO'`, otra `c55`, `c62`/`c63` llenos y sin `c51`/`c52` |
+| **CHECADO→EMBARCADO** | `c11`, `c69`; **`c43` `N`→`A`**; `c85` de `'0'` a número (domicilio de entrega) en todos; `c103` (responsable) en 2 de 4 | `c54` (embarcada); `c62`/`c63` se vacían |
+| **Salida por Embarque** (`U-D-41`, otra captura) | **`c43` `A`→`F`**, **`c42` (saldo) → 0**, `c83` = transporte, `c86` = guía (el mismo número en el pedido y en su `U-D-41`: 2,839 de 2,840 en 30 días) | `c24` → 0 |
+| **Cancelar** | `c43` `N`→`C`, `c16` y `c42` → 0, **`c11` no cambia** | se borran todos |
+
+**Lo que confirma el corte de 30 días** (embarcados no cancelados): `c43 = F` en 2,830, todos con
+`U-D-41` y saldo 0; `c43 = A` en 73, y 68 de ellos **sin** `U-D-41`. O sea que «Estatus Embarque»
+deja el pedido en `A` y es la salida la que lo cierra. **La salida llega después**: de 18 pedidos
+vistos pasar a EMBARCADO, sólo 4 tenían su `U-D-41` media hora más tarde (en 3 casos nació en la misma
+pasada).
+
+**Qué tendría que escribir la Suite en cada etapa** (es la lista de columnas de GP.12.0e; la salida
+sigue en Kepler, D26):
+- **SURTIDO:** `kdm1.c11`, `c69`, `c67`, `c100`, `c30`→vacío, `c88`→vacío, `c83`/`c84`→`'0'`, y si
+  algo bajó, `c13`–`c16` y `c42` (GP.12.0d). `kdm2.c52`, `c59`, `c62`/`c63`→vacío; `DELETE` de los
+  renglones en cero y renumerar `c7`.
+- **CHECADO:** `kdm1.c11`, `c69`, `c102`, `c83`/`c84`→vacío, recálculo. `kdm2.c53`, `c60`; `DELETE`,
+  renumerar e `INSERT` para un renglón nuevo o un cambio de unidad.
+- **EMBARCADO:** `kdm1.c11`, `c69`, `c43`→`'A'`, `c85`, `c103`. `kdm2.c54`, `c61`.
+
+**Sin decodificar**: de estas columnas se conoce lo que Kepler hace con ellas, no qué significan, y
+la Suite las imitaría.
+- `kdm1.c63`: prefijo `PD-` o `PD26-`, que a veces cambia.
+- `kdm1.c88`: vale `'0'` y se vacía al surtir.
+- `kdm1.c30`: texto que se vacía al surtir.
+- `kdm2.c62` y `c63`: números que se vacían en cada captura (`c62` = `c63` × la cantidad en los
+  casos vistos).
+
+**Preguntas que abre (para el PM):**
+- **P-GP.11**: ¿qué va en `c67` (quien captura) y en `c100`/`c102`/`c103` (responsables) cuando
+  escribe la Suite? Kepler pone ahí claves de sus usuarios y empleados. Falta el puente entre la
+  persona de la Suite y su clave de Kepler, o una clave fija «SUITE».
+- **P-GP.12**: ¿la Suite deja el EMBARCADO en `A` y la salida sigue en Kepler (D26 tal cual), o
+  E4 también la cubre?
+
+**Casos de la primera foto** (2026-11-13, los primeros 22 minutos), que abrieron la pregunta:
 - **La prueba negativa encontró un hueco:** 117 pedidos abiertos no tienen renglones. Son los
   cancelados del punto 8.
 - **Foto del 2026-11-13, 16:28:** 375 pedidos y 2,189 renglones. Se repite el diff hasta juntar
@@ -154,7 +204,7 @@ por transición de estatus. También dice si nació un `U-D-41`.
   CHECADO→EMBARCADO.
 - **Los datos no van al repo**, porque es público. El script es de la sesión: se reescribe con
   esta receta si hace falta.
-- **Casos reales** (los primeros 22 minutos después de la foto):
+- **Casos reales**:
 
   | Pedido | Transición | Cabecera (`kdm1`) | Renglones (`kdm2`) | `U-D-41` |
   |---|---|---|---|---|
@@ -166,8 +216,7 @@ por transición de estatus. También dice si nació un `U-D-41`.
   | Padre Hidalgo | CHECADO→EMBARCADO | `c11`, `c16`, `c42`, `c43`, `c63`, `c69`, `c85`, `c103` | `c54`; 5 productos salen, 2 entran | no (todavía) |
   | Padre Hidalgo | AUTORIZADO→EMBARCADO, en <4 min | `c11`, `c30`, `c42`, `c43`, `c69`, `c83`–`c86`, `c88`, `c100`, `c102`, `c103` | `c24`, `c52`–`c54`, `c62`, `c63` | **sí, en la misma pasada** |
 
-  Faltan casos de una sola etapa: hay 1 de SURTIDO→CHECADO, 1 de CHECADO→EMBARCADO y ninguno de
-  AUTORIZADO→SURTIDO.
+  Ese día faltaban casos de una sola etapa; los juntó la foto del 2026-11-19 (arriba).
 
   El de Padre Hidalgo muestra que las cuatro capturas (surtido, checado, embarque y salida) se
   hacen de corrido al final: es la recaptura del papel. EMBARCADO también toca `c43` (estado del
