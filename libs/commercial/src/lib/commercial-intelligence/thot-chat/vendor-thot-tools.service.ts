@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { ThotService } from '../thot.service';
+import { existenciaOds } from '../../commercial-inventory/stock-state';
 import { Customer360Service } from '../customer-360.service';
 import { CommercialOrdersService } from '../../commercial-orders/commercial-orders.service';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
@@ -209,7 +210,7 @@ export class VendorThotToolsService implements ThotToolProvider {
         .limit(8).select('id', 'sku', 'nombre');
       if (!prods.length) return { message: `No encontré "${q}" en el catálogo.` };
       const ids = prods.map((p: any) => p.id);
-      const stock = await trx('commercial.stock as s')
+      const stock = await trx.from(existenciaOds(trx, 's')) /* [CANON.7.3] del ODS */
         .join('commercial.warehouses as w', function (this: any) { this.on('w.id', '=', 's.warehouse_id').andOn('w.tenant_id', '=', 's.tenant_id'); })
         .whereIn('s.product_id', ids).andWhere('w.code', wh)
         .groupBy('s.product_id')

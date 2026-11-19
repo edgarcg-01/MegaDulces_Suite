@@ -120,13 +120,39 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    negativo. `display_box_factor` difería la mañana del 19 en 3 SKUs (retraso de < 24 h de la tabla por evento ante el
    refresco nocturno de `mv_kepler_bought_rung`: un `REFRESH` no dispara la cola, hueco de `[CANON.6.21]` con nombre); al
    aplicarla eran 0.
-2. **`[CANON.7.2]` C2** — los **13** lectores clase A (analytics ×4, rentabilidad ×2, ficha de producto, monitoreo, Thot,
-   existencia crítica / resumen / excedente de red, scanner de reorden) leen la vista.
-3. **`[CANON.7.3]` C2** — los **11** clase B (catálogo, facetas, precios y más vendidos del portal; detalle de pedido; bot de
-   WhatsApp; Command Center; Reparto › Faltantes; Thot del portal y del vendedor) por `stock-state.ts`, que ya lee la vista.
-4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
-   de escribirse; conteos, ajustes y recepción se revisan uno por uno (hoy 0 movimientos en 30 días). Prueba contra base real
-   con el payload de la pantalla (regla 13).
+2. **`[CANON.7.2]` C2** — los lectores clase A leen la vista. 🧪 **11 de 13 en código (2026-11-19)**, con una sola
+   definición, `EXISTENCIA_ODS_SQL` / `existenciaOds()` en `stock-state.ts` (la vista con la forma de la copia; apartados
+   en 0, como `leerExistencia`): Stock muerto, Bajo stock (Command Center), Sell-out, Salidas, Thot `reorder_policy`, ficha
+   de producto, Rentabilidad overview y breakdown, Existencia crítica, su resumen y el excedente de red. Candado
+   `existencia-ods-lectores.spec.ts` (rojo en los 7 archivos de antes). **A6 (conteo de Monitoreo) y A13 (scanner de
+   reorden) pasan a 7.4:** leen dentro de un endpoint que escribe y su prueba contra base real siembra la copia (regla 13).
+   Antes/después medido en prod con RLS (`edgar`), réplica de cada consulta: las 8 sucursales dan lo mismo al renglón;
+   cambia el CEDIS (la copia lo tenía congelado desde el 16-oct: un producto, 2,318 contra 72,576 en Kepler) y sale
+   `MD-32`. Bajo stock del Command Center: 34,218 → 18,650 celdas; inventario valuado de Rentabilidad: $65.98 M → $69.02 M;
+   capital parado: $429 mil → $432 mil. Tiempos con el ODS, todos bajo 500 ms (el más lento 353 ms; Stock muerto 558 ms
+   ya costaba 550 con la copia, lo pesa `v_erp_unit_cost`). Sell-out pierde la excepción «sin SKU pero con existencia»:
+   0 filas en la copia y en el ODS.
+3. **`[CANON.7.3]` C2** — los clase B (deciden «hay / no hay»). 🧪 **10 de 11 en código (2026-11-19)**, con la misma
+   `existenciaOds` de 7.2: catálogo y facetas del portal, lista de precios y más vendidos, bot de WhatsApp, Command
+   Center (agotados del top), Reparto › Faltantes y sus sugerencias, Thot del portal y del vendedor. **Cambian de fuente,
+   no de regla:** «sin fila» se sigue leyendo como 0, igual que con la copia. Decir «sin dato» en vez de «agotado» (la
+   regla de `estadoDeExistencia`, que el catálogo ya usa con `stock_state=1`) es otra decisión, por pantalla. **B6
+   (detalle de pedido) pasa a 7.4:** su tope tiene que cuadrar con `reserve()`, que valida contra la copia con candado.
+   Medido en prod con RLS (Padre Hidalgo, réplica de cada consulta): casi idéntico (catálogo «sólo con existencia» 3,339 →
+   3,337; Faltantes 637 → 655 renglones; precios con registro 5,355 → 4,751, las celdas en cero que la copia arrastraba);
+   todo bajo 125 ms (catálogo 47–64 ms, con la copia 14–25).
+4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios, más A6, A13 y B6, que leen la existencia dentro de algo que
+   escribe). **Medido el 2026-11-19** (prod, sólo lectura; `stock_movements` 90 días y `ui_usage` 60 días), ordenado por uso:
+
+   | Pieza | Uso medido | Qué cambia |
+   |---|---|---|
+   | **7.4a Inicio de Almacén** (`/almacen`, `listStock`, C3) | **704 llamadas en 28 días**, ocho roles de tienda y almacén. Es la PORTADA de Almacén, no una consola: muestra el CEDIS congelado | la lectura pasa al ODS con los mismos campos. Su botón «Ajustar» (`POST /inventory/adjust`) tuvo **0 llamadas** y escribe en la copia: se retira (ajustar es en Kepler, ADR-040) → **D-EX3** |
+   | **7.4b Pedidos** (`reserve`/`consume`/`release`, cron de apartados, B6) | 7 ventas y 12 liberaciones en 30 días; **0 apartados en 90 días** (1,104 pedidos confirmados sin apartar); 1 apartado vivo (15 piezas) | validar contra el ODS; `consume` deja de restar `quantity` (la venta la descuenta Kepler); el apartado sigue siendo dato propio. Prueba contra base real sembrando `kdil` |
+   | **7.4c Lotes** (`stock_lots`, caducidades C1/C2) | `POST expiry-reviews/entries`: 123 en 60 días; 144 lotes declarados (15,720 piezas) | ⭐ el disparador `trg_rebalance_stock_lots` mantiene el lote **NA** como `quantity` de la copia − lotes declarados: **es una TERCERA copia** (64,440 filas). Pasa a derivarse del ODS sin guardarse. ⛔ En el CEDIS quedaron **5,175 lotes NA huérfanos desde el 28-jul** sin fila en la copia, que suman 104 M de piezas (el SKU `00001` solo, 97 M) |
+   | **7.4d Lo que nadie usa** | 0 en 60–90 días: ajustes, movimientos, conteos (abrir/contar/conciliar), conteo de Monitoreo (A6), pasillos, recepción (última el 16-oct, D21), carga de camioneta (C18), `stock-reservation` | se retira o se repunta, uno por uno, con su dueño |
+   | **7.4e Scanner de reorden** (A13) | cron de medianoche + `scan-now` | lee el ODS como la pantalla de Existencia crítica (hoy difieren en el CEDIS) |
+
+   Cada pieza que escribe lleva su prueba contra base real con el payload de la pantalla (regla 13).
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 
@@ -145,3 +171,6 @@ código; los más calientes son el catálogo del portal y el detalle de pedido. 
 - ~~**D-EX1 (Edgar):** quién construye `[CANON.7.1]`~~ — **resuelta el 2026-11-19** («sí, quítaselo»): esta sesión. La
   sesión que construyó `[CANON.6.21]` ya no está viva; 7.1 terminó sin tocar su cola (sólo lee su tabla de factor).
 - **D-EX2 (Edgar):** `[PQ.61]` (venta diaria por evento): aplicar su migración fuera de horario. Es la base del frente Venta.
+- **D-EX3 (decide Claude, firma Edgar):** retirar el botón «Ajustar» de la portada de Almacén. Recomendado: sí — 0 llamadas
+  en 60 días, escribe en una copia que se va a congelar, y el ajuste de existencia es de Kepler (ADR-040). Sin él, la portada
+  sólo lee y puede pasar al ODS entera.

@@ -11,6 +11,7 @@ import {
   buildPriceReportMeta,
   resolvePriceReportParams,
 } from './price-report';
+import { existenciaOds } from '../commercial-inventory/stock-state';
 
 export type { PriceReportQuery } from './price-report';
 
@@ -790,9 +791,10 @@ export class CommercialProductsService {
         .whereNull('deleted_at')
         .count<{ count: string }[]>('* as count');
 
-      // Stock agregado entre warehouses.
-      const stockAgg = await trx('commercial.stock')
-        .where({ product_id: id })
+      // Stock agregado entre warehouses. [CANON.7.2] Del ODS; `total_reserved` queda en 0 (la vista no tiene los
+      // apartados de la Suite, ver EXISTENCIA_ODS_SQL).
+      const stockAgg = await trx.from(existenciaOds(trx, 'e'))
+        .where('e.product_id', id)
         .select(
           trx.raw('COALESCE(SUM(quantity), 0)::numeric AS total_on_hand'),
           trx.raw('COALESCE(SUM(reserved_quantity), 0)::numeric AS total_reserved'),
