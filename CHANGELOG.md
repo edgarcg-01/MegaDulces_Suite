@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Bancos › Estados de cuenta: los archivos sin número de cuenta se comprueban por la cadena de saldos (BFU.1.3 · 2026-11-19 · en código, sin soltar)
+- Un archivo de BBVA o BanBajío aceptado «sin testigo» queda comprobado cuando abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro; hoy pasan de 19 sin comprobar a 1.
+- La regla de qué hace verdadero un estado de cuenta del banco queda escrita en VERDAD_ABSOLUTA §39.
 ### Internal — Fase GP: revisión del plan y meta de la consola medida (2026-11-19)
 - La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo para quien opera una sucursal; para quien ve varias todavía no (pendiente).
 

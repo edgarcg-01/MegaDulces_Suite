@@ -1,53 +1,54 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 402 KB, 5911 líneas, 41 secciones.
+> **Índice navegable** — 406 KB, 5983 líneas, 42 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 54 | 69 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 70 | 86 | 1 | 0. Qué es este documento, y qué NO es |
-| 87 | 195 | 6 | 1. Las siete reglas |
-| 196 | 232 | 10 | 2. El estado, en una tabla |
-| 233 | 395 | 10 | 3. Existencia |
-| 396 | 620 | 12 | 4. Ventas y unidades |
-| 621 | 652 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 653 | 729 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 730 | 800 | 5 | 6. Las trampas que ya cobraron |
-| 801 | 858 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 859 | 903 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 904 | 1105 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1106 | 1211 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1212 | 1412 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1413 | 1729 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1730 | 1749 | 2 | 10. Cómo se verifica |
-| 1750 | 1772 | 1 | 11. Lo que este documento no cubre |
-| 1773 | 1848 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1849 | 2008 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2009 | 2423 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2424 | 2664 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2665 | 2857 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2858 | 2900 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2901 | 2999 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 3000 | 3473 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3474 | 3581 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3582 | 3736 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3737 | 3888 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3889 | 4094 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4095 | 4184 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4185 | 4374 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4375 | 4443 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4444 | 4738 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4739 | 4956 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4957 | 5209 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5210 | 5255 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5256 | 5340 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5341 | 5437 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
-| 5438 | 5796 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
-| 5797 | 5861 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
-| 5862 | 5964 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
+| 55 | 70 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 71 | 87 | 1 | 0. Qué es este documento, y qué NO es |
+| 88 | 196 | 6 | 1. Las siete reglas |
+| 197 | 233 | 10 | 2. El estado, en una tabla |
+| 234 | 396 | 10 | 3. Existencia |
+| 397 | 621 | 12 | 4. Ventas y unidades |
+| 622 | 653 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 654 | 730 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 731 | 801 | 5 | 6. Las trampas que ya cobraron |
+| 802 | 859 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 860 | 904 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 905 | 1106 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1107 | 1212 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1213 | 1413 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1414 | 1730 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1731 | 1750 | 2 | 10. Cómo se verifica |
+| 1751 | 1773 | 1 | 11. Lo que este documento no cubre |
+| 1774 | 1849 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1850 | 2009 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2010 | 2424 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2425 | 2665 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2666 | 2858 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2859 | 2901 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2902 | 3000 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 3001 | 3474 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3475 | 3582 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3583 | 3737 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3738 | 3889 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3890 | 4095 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4096 | 4185 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4186 | 4375 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4376 | 4444 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4445 | 4739 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4740 | 4957 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4958 | 5210 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5211 | 5256 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5257 | 5341 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5342 | 5438 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 5439 | 5797 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 5798 | 5862 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
+| 5863 | 5967 | 8 | 38. ⭐⭐ EL CUADRE 3 VÍAS DE BANCOS: el «Banco» del cuadre es el libro, el banco de verdad es la descarga, y Con |
+| 5968 | 6037 | 5 | 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026- |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5961,3 +5962,75 @@ en Kepler», y todavía no se publica así: no se revisó caso por caso.
 
 **Medición reproducible:** consultas de sólo lectura contra `pg-prod` el 2026-11-18, más los servicios reales
 (`cuadre()` de `estado-de-cuenta.service.ts`, `threeWay()`), con los guiones en el scratchpad de la sesión.
+
+---
+
+## 39. ⭐⭐ EL ESTADO DE CUENTA DEL BANCO: qué tiene que cumplir para ser la verdad, y quién lo arbitra (BFU, 2026-11-19)
+
+> Pedido de Edgar (2026-11-19): *«nuestra hoja será la verdad absoluta… dándole la verdad, toda la verdad, a este
+> estado de cuenta»*. La hoja es Bancos › Cuentas y el estado de cuenta de cada cuenta. El plan que la construye es
+> el anexo [`FASE_CB_ANEXO_BANCO_FUENTE_UNICA.md`](IMPLEMENTACION/FASES/FASE_CB_ANEXO_BANCO_FUENTE_UNICA.md). Todo
+> medido en `pg-prod` en sólo lectura (identidad por `system_identifier`) y en la pantalla viva con Playwright, con
+> las escrituras bloqueadas.
+
+### 39.1 La regla
+
+**Un estado de cuenta es la verdad sólo si cumple siete propiedades, y cada una la arbitra un testigo que no es la
+propia pantalla.** Si una no se cumple, la pantalla dice **cuál**, no «cuadra».
+
+| # | Propiedad | Árbitro | Lo que se declara si falla |
+|---|---|---|---|
+| 1 | **Completo** — ningún día falta | El **banco**: cada archivo abre en el saldo con que cerró el anterior (`cuadre-de-la-descarga.ts`, CB.73) | «falta del dd/mm al dd/mm» |
+| 2 | **De la cuenta correcta** | El número de cuenta en el archivo, o la **cadena de saldos** hasta un archivo comprobado o el libro (§39.3) | «sin comprobar la cuenta» |
+| 3 | **Exacto** — el saldo es el del banco | El saldo de la última línea del banco de cada día | «saldo del libro al dd/mm» |
+| 4 | **Explicado** — cada peso con su porqué | El documento de **Kepler** casado; si no, la regla y el texto del banco que la disparó | «sin explicar», con dueño |
+| 5 | **Cruzado** | Kepler (`kdm1`) y ContPAQi (pólizas), §38 | la diferencia con su motivo |
+| 6 | **Trazable** | `bank_statement_files` (`file_sha1`, quién y cuándo) y `raw_line`; sin permiso de borrar | — |
+| 7 | **Al día** | El calendario de días hábiles | «al dd/mm, faltan N días» |
+
+### 39.2 Lo que NO es árbitro
+
+- ⛔ **El libro de Tesorería no es testigo.** Es una transcripción del banco (§37, §38). Se usa una sola vez y se
+  suelta: como hoja de respuestas para medir al motor (1–10 nov), como semilla del catálogo de sucursales y como
+  saldo de arranque del primer archivo. Después de pasar la cuenta, nada se compara contra él.
+- ⛔ **«Cierra» no es «es verdad».** Inicial + depósitos − retiros = final comprueba la fuente **contra sí misma**.
+  Medido el 2026-11-19: Cuentas decía «cuadran 16» con el libro al 10-nov; BBVA 6721 mostraba $0 de retiros en un
+  mes en que su banco traía unos $3.2 M (corregido en `[BFU.0.1]`: la fila dice su fuente y su día).
+- ⛔ **«Depósito sin otra señal = cobranza» no es una explicación.** Es el piso del clasificador: con los conceptos
+  barajados al azar acierta 62.2 % por esa regla sola (CB.65). No cuenta para la propiedad 4 hasta saber de qué
+  cliente es.
+
+### 39.3 La cuenta de un archivo se prueba por la cadena de saldos (medido)
+
+BBVA y BanBajío no escriben el número de cuenta en su descarga; al subirla, la suite la compara con el último saldo
+conocido y, si no hay, la acepta «sin testigo» con la confirmación de quien sube. Al 2026-11-19 eran **19 de 100
+archivos**.
+
+**La prueba después de subido:** un archivo es de su cuenta si su saldo de apertura es un saldo que **esa** cuenta
+tuvo en los 7 días previos a su primer día —en una línea de un archivo ya comprobado o en un renglón del libro—, y se
+encadena hasta llegar a un ancla (número en el archivo, comprobado al subir, o el libro).
+
+| Medición (prod, 2026-11-19) | Resultado |
+|---|---|
+| Archivos sin testigo que la cadena prueba | **18 de 19** |
+| **Control negativo:** el mismo archivo contra cada OTRA cuenta del mismo banco | **0 de 87** intentos lo «prueba» |
+| **Control positivo:** los 64 comprobados al subir, olvidando su comprobación | la cadena prueba **63** |
+| El que no se prueba | BB 3660, 3–6 nov: su libro llega al 31-jul; es la misma cuenta que el Cuadre ya pide volver a bajar desde el 31/07 |
+
+⚠️ La cadena **no** distingue dos cuentas que, por casualidad, tuvieron el mismo saldo la misma semana: el control
+negativo dice que no pasó en noviembre, no que no pueda pasar. Por eso el número en el archivo, cuando existe, gana.
+
+### 39.4 Lo que el estado de cuenta no puede afirmar
+
+Dos renglones que falten y se anulen entre sí (una entrada y una salida iguales) no rompen la cadena de saldos. Es
+el mismo límite del estado de cuenta impreso del banco, y se declara en pantalla.
+
+### 39.5 Lo que sigue
+
+- `[BFU.1.3]` la cadena de §39.3 en el código: «sin testigo» pasa a «probada por la cadena» o «sin comprobar».
+- `[BFU.2.8]` / `[BFU.2.9]` la explicación de cada renglón y la cifra de «explicado» sobre la descarga (hoy NO
+  MEDIDA; del libro de octubre: 82.2 % de los pesos con documento de Kepler, 97.8 % con categoría, 59.1 % con
+  sucursal).
+
+**Medición reproducible:** `cadena-testigo.js` y consultas de sólo lectura en el scratchpad de la sesión del
+2026-11-19.
