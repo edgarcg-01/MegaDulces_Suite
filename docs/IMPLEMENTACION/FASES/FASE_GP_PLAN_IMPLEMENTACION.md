@@ -205,9 +205,12 @@ su estado real en Kepler y en el piso, y priorice desde ahí (D1, D2).
 - Visibles: **100 %**. Noviembre, contra un testigo escrito aparte: Kepler **1,737 de 1,737** y
   preventa **1,020 de 1,020**, ninguno de más ni de menos; los 108 cancelados van aparte.
 - Nadie perdió acceso: los 3 roles con la clave (12 personas) ven el Tablero (GP.10.4b).
-- Carga: **cumple para quien opera una sucursal** (50–230 ms de promedio diario, medido dentro del
-  servidor) y **no para quien ve varias** (supervisor hasta 1.7 s, superadmin hasta 2.7 s) →
-  GP.RF.43, a optimizar aparte.
+- Carga: **cumple en promedio para todos los puestos** (medido dentro del servidor, 10 días, por
+  llamada): quien opera una sucursal 85–127 ms, quien ve varias 155–420 ms. Quedan picos de más de
+  un segundo, también en quien opera una sola: son lecturas en frío del disco. ⚠️ La primera
+  versión de esta línea decía «no cumple para quien ve varias»; salía de promedios por día de 1 a 3
+  llamadas y se corrigió el mismo día. Aun así, leer todas las sucursales bajó de 241 a 184 ms
+  (GP.RF.43, 🧪).
 
 **No incluye:** la regla de «atorado» (D3), Análisis BI (D5), cambios al proceso de preventa (D9).
 
@@ -420,4 +423,5 @@ prod, o escrito por qué no. La fase cierra con E5 y la métrica de la cabecera 
 | 2026-11-14 | GP.10.4c hecho: sin pestañas Preventa ni Consola de surtido; sus rutas redirigen al Tablero con la vista o el filtro puestos. Pantallas para seguir un pedido: 3 → 1 (en código, sin soltar) | Claude |
 | 2026-11-17 a 19 | La auditoría de interfaces corrigió el Tablero, Surtir, Revisión y Ubicaciones (GP.RF.15–42) y GP.10.5; todo en prod el 19-nov salvo lo del mismo día (detalle en su bitácora) | Claude, a pedido de Edgar |
 | 2026-11-19 | Revisión del plan (Edgar: «revisa el plan»; todo sigue en pruebas). Meta de E1 medida en prod: 1 pantalla, 100 % de los pedidos visibles contra un testigo aparte, menos de 500 ms para quien opera una sucursal pero no para quien ve varias (GP.RF.43). GP.10.1b hecho (🧪). Nuevo riesgo: no pulir Checar ni «Por capturar» antes de E3. Siguen bloqueando E3: GP.12.0e (los corre el PM), GP.12.0a y el dueño de piso. E2 no tiene bloqueo técnico: falta abrirla | Claude |
+| 2026-11-19 | GP.RF.43 (Edgar: «sigue con la velocidad del tablero»). Corregida la cifra de la mañana: en promedio el Tablero ya abría bajo 500 ms también para quien ve varias sucursales; los picos son lecturas en frío y los tiene también quien opera una. Lo que sí cuesta ver todas, leer los renglones de cada pedido, baja de 241 a 184 ms con las mismas filas (🧪, sin soltar) | Claude |
 | 2026-11-14 | Nace el anexo [FASE_GP_AUDITORIA_INTERFACES.md](FASE_GP_AUDITORIA_INTERFACES.md) (pedido de Edgar: menos interfaces, menos clics, máxima visibilidad, Playwright en cada paso). Paso 0: instrumento con control, blindaje contra escrituras en prod, uso medido de las 10 interfaces del recorrido; la línea base por pantalla espera la sesión (P-RF.1) | Claude |

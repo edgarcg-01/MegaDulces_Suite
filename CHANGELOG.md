@@ -27,6 +27,9 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
+### Changed — Tablero de pedidos: abre más rápido con todas las sucursales (GP.RF.43 · 2026-11-19 · en código, sin soltar)
+- La lista lee los renglones de cada pedido con una búsqueda en vez de cinco: con todas las sucursales, la consulta baja de 241 a 184 ms y lee la mitad de los datos. Muestra exactamente los mismos pedidos.
+
 ### Internal — Bancos: la regla de qué peso está explicado, y la cifra medida (BFU.2.8–2.9 · 2026-11-19 · en código, sin soltar)
 - Una sola función decide si un movimiento del banco está explicado (documento de Kepler o categoría con evidencia; la cobranza sin cliente no cuenta). Octubre: 93.3 %; noviembre sólo con el texto del banco: 10.9 % hasta pasar las cuentas.
 ### Fixed — Bancos: al pasar una cuenta al banco, los pagos y confirmaciones ligados pasan con ella (BFU.2.5 · 2026-11-19 · en código, sin soltar)
@@ -35,7 +38,7 @@
 - Un archivo de BBVA o BanBajío aceptado «sin testigo» queda comprobado cuando abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro; hoy pasan de 19 sin comprobar a 1.
 - La regla de qué hace verdadero un estado de cuenta del banco queda escrita en VERDAD_ABSOLUTA §39.
 ### Internal — Fase GP: revisión del plan y meta de la consola medida (2026-11-19)
-- La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo para quien opera una sucursal; para quien ve varias todavía no (pendiente).
+- La consola de pedidos muestra el 100 % de los pedidos del mes (Kepler y preventa) y abre en menos de medio segundo en promedio para todos los puestos (corregido el mismo día: la primera versión decía que no para quien ve varias sucursales).
 
 ### Fixed — Seguimiento de cotización: un pedido cancelado en Kepler ya no aparece embarcado; la caja deja el motivo de sus cierres rechazados (GP.10.1b · GP.RF.42 · 2026-11-19 · en código, sin soltar)
 - Si Kepler canceló el pedido de una cotización, el seguimiento lo dice («Pedido cancelado en Kepler») en lugar de mostrarlo surtido o embarcado, y no presenta como quitados los productos que Kepler borra al cancelar.
