@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto, HrResumenReclutamientoDto,
   HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrPedirDocumentosResultadoDto, HrLigaCreadaDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
-  HrTalentEtapa, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
+  HrTalentEtapa, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion, HrHoyDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -24,6 +24,11 @@ export class ReclutamientoService {
   }
 
   /** `[RH.8.1]` El Resumen: en proceso por ciudad y etapa, y quién va fuera de su meta. */
+  /** `[RH.17.1]` Los pendientes del día (sólo lectura): cada uno con su total y la cuota que se trabaja hoy. */
+  hoy(): Observable<HrHoyDto> {
+    return this.http.get<HrHoyDto>(`${this.base}/today`);
+  }
+
   resumen(): Observable<HrResumenReclutamientoDto> {
     return this.http.get<HrResumenReclutamientoDto>(`${this.base}/summary`);
   }
