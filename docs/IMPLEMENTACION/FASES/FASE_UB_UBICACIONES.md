@@ -262,6 +262,92 @@ imprimir una o muchas hojas con el código»*. Es el camino 3 de §5, primero en
 - **Pendiente de UB.3b:** el censo **en celular con la cámara** (hoy es con lector o teclado) y la
   medición de la propuesta de Wincaja (§2.1).
 
+### 8.2 Asignación, rehecha desde cero (UB.RF.11, 2026-11-19) — maqueta para aprobar
+
+**Lo que la motivó.** El 2026-11-19 una persona de Padre Hidalgo preguntó por WhatsApp por qué un
+producto seguía «sin lugar fijo» si ya le había dado ubicación. Edgar: *«eso es señal de mejorar la
+interfaz; generémosla desde 0, práctica y lo más accesible para el usuario»*. Medido en prod (sólo
+lectura) ese día:
+
+- Lo que asignó **sí se guardó**: 8 productos con «Exhibición en tienda» en TA011, de 15:30 a 15:37.
+  Pero la pantalla llama «lugar fijo» **sólo** al lugar de surtido en bodega, y lo dice con «0 % ya
+  ubicado»: afirma que nada tiene lugar cuando 8 lo tienen en tienda (ley 0 del estándar).
+- **En Padre Hidalgo no se podía dar ningún lugar fijo**: sus 8 ubicaciones (creadas ese día) son
+  todas de tienda (TA011–TA024). El camino a mano manda «dala de alta primero» a otra pestaña; sólo el
+  modo Escanear la crea en el acto, y vive escondido como «otra vista».
+- En el formulario, el aviso rojo sale **antes de escribir** y el ejemplo «BA053» del campo parece un
+  valor ya capturado (lo que se ve en la captura de WhatsApp).
+- Ese día hubo 17 intentos de asignar y **6 rechazados**, todos del supervisor. **El motivo NO se
+  registra en ningún lado** (como Surtir antes de GP.RF.23): NO MEDIDO.
+- Se usa sobre todo en celular (8 persona-días contra 4 en computadora, 30 días). La única medición
+  de estabilidad de Asignación dio CLS 0.603 (malo); el Mapa, 0.242 en el 75 % de las cargas.
+- **Universo que importa:** 4,058 productos se vendieron en PH en 90 días (de 9,028 con ficha). Los
+  500 más vendidos son el **71.5 %** de la venta. Hoy la lista va por nombre.
+
+**Las cinco preguntas (`diseno` §0b), por escrito:**
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve al entrar y en qué orden? | Un solo campo arriba, **«Escanea o escribe un producto o una ubicación»** (lector, cámara o teclado). Debajo, la cola **«Por ubicar»: lo que más se vende primero**. Cada tarjeta dice **dónde está, en palabras y por presentación**: «PAQ · Tienda TA011 · Bodega: falta» |
+| 2 | ¿Qué NO ve? | Las tres cifras de arriba (las reemplaza una línea con rótulos verdaderos: «0 con lugar para surtir · 8 en tienda · de 4,058 que se venden»). El selector de **papel** (sale de la ubicación: B de surtido → lugar fijo, T → tienda, como Escanear). Mín./máx. de entrada (queda a un toque, D5). Excel (pasa a «Más»). El «Productos en Kepler 9,028», que no decide nada |
+| 3 | ¿Qué accesibilidad necesita? | Una mano y un pulgar: objetivos de 44 px o más, tarjeta completa como botón. Rótulo visible en el campo (no sólo el ejemplo). El error **después** de intentar, en palabras y con la salida («BA053 no existe en Padre Hidalgo · **Crear y asignar**»). Cada guardado se confirma en la fila y con `aria-live`, con **Deshacer**. Nada sólo por color. «Atrás» del celular regresa a la lista (como Surtir, GP.RF.38). Sin brincos al cargar |
+| 4 | ¿Está ligada a otro proceso? | Sí. El lugar fijo es lo que Surtir enseña en cada renglón («Ubicación BC110») y el orden del recorrido. La ubicación nace aquí si no existe (alta de UB.1/UB.2) y su cartel se imprime en el Mapa (UB.RF.10): desde la confirmación, «Imprimir su cartel» |
+| 5 | ¿Le toca a esta pantalla? | Sí: «dónde vive cada producto». **Escanear deja de ser otra vista**: es el campo de arriba. El alta en bloque (por rango, Excel) sigue en el Mapa; aquí sólo se crea la ubicación que se está asignando |
+
+**La maqueta (celular, 390 px):**
+
+```
+LISTA                                   PRODUCTO (al tocar o escanear uno)
+┌──────────────────────────────────┐    ┌──────────────────────────────────┐
+│ Ubicar productos  Padre Hidalgo ▾│    │ ← Por ubicar                     │
+│ Producto o ubicación              │    │ BUBBALOO TUTI-FRUTI 239.7GR/47   │
+│ ┌──────────────────────────────┐ │    │ 02009 · 1 CJA = 32 PAQ           │
+│ │ ▣ Escanea o escribe…         │ │    │                                  │
+│ └──────────────────────────────┘ │    │ PAQ                              │
+│ ⚠ Padre Hidalgo no tiene         │    │  Tienda   TA011         Quitar   │
+│   ubicaciones de bodega. Escanea │    │  Bodega   falta                  │
+│   o escribe una (B…) y se crea   │    │ ┌──────────────────────────────┐ │
+│   al asignarla.                  │    │ │ ▣ Ubicación de bodega del PAQ│ │
+│                                  │    │ └──────────────────────────────┘ │
+│ Por ubicar · lo más vendido      │    │ CJA (32 PAQ)                     │
+│ 0 para surtir · 8 en tienda ·    │    │  Bodega   falta   [Poner lugar]  │
+│ de 4,058 que se venden           │    │                                  │
+│ ┌──────────────────────────────┐ │    │ Mínimo y máximo (opcional)  ›    │
+│ │ BUBBALOO TUTI-FRUTI 239.7GR ›│ │    ├──────────────────────────────────┤
+│ │ 02009 · PAQ                  │ │    │ SI LA UBICACIÓN NO EXISTE        │
+│ │ Tienda TA011 · Bodega: falta │ │    │ BA053 no existe en Padre Hidalgo │
+│ └──────────────────────────────┘ │    │ [ Crear BA053 y asignar ] Cancelar│
+│ ┌──────────────────────────────┐ │    ├──────────────────────────────────┤
+│ │ MAZAPAN DE LA ROSA 30PZ     ›│ │    │ AL GUARDAR                       │
+│ │ 02146 · CJA = 30 PZA         │ │    │ ✓ PAQ en bodega BA053            │
+│ │ Tienda: falta · Bodega: falta│ │    │   Deshacer · Imprimir su cartel  │
+│ └──────────────────────────────┘ │    └──────────────────────────────────┘
+│ Más ▾ (Excel · Mapa)             │
+└──────────────────────────────────┘
+```
+
+- **Escanear una ubicación primero** (el censo de §8.1) sigue igual con el mismo campo. Fija «Aquí:
+  BA053 · bodega» y cada producto que se lea queda asignado ahí.
+- **Lo que cambia contra hoy:** un campo en vez de tres caminos (lista, Escanear, Excel); el papel ya
+  no se elige; la ubicación que falta se crea en el acto; las cifras dicen lo que cuentan; la cola
+  va por venta. Cada rechazo deja su motivo en el canal de incidentes (como GP.RF.23).
+- **Lo que se conserva:** las presentaciones de la escalera de Kepler de la sucursal (D10) y el
+  motivo cuando no hay presentación; «mover» en vez de duplicar un lugar único; Cambiar, Quitar con
+  confirmación, Excel por lote; el almacén compartido con Mapa y Contenido (UB.RF.7).
+- **Lo que pide del servidor (C2):** que la lista se ordene por venta de 90 días de la sucursal
+  (`analytics.sales_daily`), bajo 500 ms, y que diga cuántas ubicaciones de bodega hay. Lo demás
+  usa los endpoints de hoy.
+- **Lo que la interfaz NO resuelve:** el censo es trabajo de piso (§8). Con una mano no se recorre
+  Padre Hidalgo entero: los 500 más vendidos son la meta razonable del primer recorrido.
+- **Criterios de aceptación:**
+  - de «escaneo el producto» a «asignado», 2 lecturas y ningún clic si la ubicación existe, y un
+    toque más si no existe;
+  - 0 rótulos que digan algo distinto de lo que cuentan;
+  - objetivos de 44 px o más;
+  - CLS < 0.1 en el celular;
+  - la lista abre en < 500 ms;
+  - el rechazo, con su motivo registrado.
+
 ## 9. Preguntas abiertas
 
 | Clave | Pregunta | Bloquea |
