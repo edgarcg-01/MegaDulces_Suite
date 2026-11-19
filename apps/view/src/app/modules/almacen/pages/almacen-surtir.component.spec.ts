@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree, type ParamMap } from '@angular/router';
 import { Location } from '@angular/common';
 import { BehaviorSubject, NEVER, of, Subject, throwError } from 'rxjs';
+import { MessageService } from 'primeng/api';
 import type {
   PickerTakeNextResponse, PickerWave, PickerWaveLine, PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow,
 } from '@megadulces/contracts';
@@ -561,6 +562,110 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     c.noHabia(c.pendientes()[0]); // SALSA MAGA, agotado
     fix.detectChanges();
     expect(texto().match(/búscalo en bodega/g)?.length).toBe(1);
+  });
+
+  // ── [GP.RF.44] Un pedido ya surtido no se vuelve a cerrar, y un cierre «rechazado» puede estar guardado ──
+  // Medido en prod el 2026-11-19: de los 3 primeros rechazos registrados, ninguno era real (un 504 medio
+  // segundo después de guardarse el cierre; dos 409 de un pedido reabierto 15 min después de cerrarlo).
+  describe('[GP.RF.44] lo que ya está surtido', () => {
+    const SURTIDO = (user_id: string, name: string): PresalePickDetail => {
+      const d = DETALLE();
+      return { ...d, order: { ...d.order, state: 'completo', finished: { user_id, name, at: '2026-11-19T19:41:25.000Z' } } };
+    };
+    const avisos = (): { severity?: string; detail?: string }[] =>
+      (vi.mocked(fix.debugElement.injector.get(MessageService).add).mock.calls as unknown as [{ severity?: string; detail?: string }][]).map((x) => x[0]);
+    const espiarAvisos = (): void => {
+      vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+    };
+    /** Abre el pedido de Preventa, marca todo y toca «Terminé de surtir». */
+    const cerrarPreventa = (): void => {
+      clic('Preventa');
+      clic('Surtir este');
+      clic('Completo');
+      c.noHabia(c.pendientes()[0]);
+      fix.detectChanges();
+      clic('Terminé de surtir');
+      fix.detectChanges();
+    };
+
+    it('con ?pedido= de un pedido que ya cerré, no lo abre en curso: borra mis marcas y lo dice', async () => {
+      localStorage.setItem('gp.surtir.preventa.v1.o-rosy', JSON.stringify({ pl1: 5, pl2: 0 }));
+      pv.detail = vi.fn(() => of(SURTIDO('yo', 'Ángel Cisneros')));
+      await montar({ pedido: 'o-rosy' });
+      expect(c.fase()).toBe('listo');
+      expect(c.ola()).toBeNull();
+      expect(boton('Terminé de surtir')).toBeFalsy();
+      expect(localStorage.getItem('gp.surtir.preventa.v1.o-rosy') ?? '').toBe('');
+    });
+
+    it('el aviso dice quién lo cerró y a qué hora', async () => {
+      pv.detail = vi.fn(() => of(SURTIDO('otra', 'Rosa Pérez')));
+      await montar({}, 'abre');
+      espiarAvisos();
+      c.surtirPedido('o-rosy');
+      fix.detectChanges();
+      expect(c.fase()).toBe('listo');
+      expect(avisos()).toEqual([expect.objectContaining({ severity: 'info', detail: expect.stringMatching(/ya está surtido: lo cerró Rosa Pérez a las 13:41/) })]);
+    });
+
+    it('NEGATIVA: un pedido en curso sí se abre', async () => {
+      await montar({ pedido: 'o-rosy' });
+      expect(c.fase()).toBe('surtiendo');
+      expect(boton('Terminé de surtir')).toBeTruthy();
+    });
+
+    it('un 504 cuyo cierre sí se guardó queda cerrado, con el aviso y el incidente marcado ya_guardado', async () => {
+      pv.finish = vi.fn(() => throwError(() => ({ status: 504, error: null })));
+      await montar();
+      espiarAvisos();
+      pv.detail = vi.fn()
+        .mockReturnValueOnce(of(DETALLE()))
+        .mockReturnValueOnce(of(SURTIDO('yo', 'Ángel Cisneros')));
+      cerrarPreventa();
+      expect(pv.detail).toHaveBeenCalledTimes(2);
+      expect(c.fase()).toBe('cerrada');
+      expect(c.reporte()).toBeNull();
+      expect(avisos()).toEqual([expect.objectContaining({ severity: 'info', detail: 'El cierre sí se guardó a las 13:41.' })]);
+      expect(uso.reportarIncidente).toHaveBeenCalledTimes(1);
+      expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ accion: 'cerrar_preventa', status: 504, ya_guardado: true });
+    });
+
+    it('un 409 de un pedido que cerró otra persona regresa a la lista y dice quién', async () => {
+      pv.finish = vi.fn(() => throwError(() => ({ status: 409, error: { message: 'Este pedido ya se terminó de surtir.' } })));
+      await montar();
+      espiarAvisos();
+      pv.detail = vi.fn()
+        .mockReturnValueOnce(of(DETALLE()))
+        .mockReturnValueOnce(of(SURTIDO('otra', 'Rosa Pérez')));
+      cerrarPreventa();
+      expect(c.fase()).toBe('listo');
+      expect(c.ola()).toBeNull();
+      expect(avisos().map((a) => a.severity)).toEqual(['info']);
+      expect(avisos()[0].detail).toContain('lo cerró Rosa Pérez');
+      expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 409, ya_guardado: true });
+    });
+
+    it('NEGATIVA: un 504 que NO se guardó sigue surtiendo, con el error y ya_guardado false', async () => {
+      pv.finish = vi.fn(() => throwError(() => ({ status: 504, error: null })));
+      await montar();
+      espiarAvisos();
+      cerrarPreventa();
+      expect(pv.detail).toHaveBeenCalledTimes(2);
+      expect(c.fase()).toBe('surtiendo');
+      expect(c.cerrando()).toBe(false);
+      expect(avisos().map((a) => a.severity)).toEqual(['error']);
+      expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 504, ya_guardado: false });
+    });
+
+    it('NEGATIVA: un 422 no relee el pedido y el incidente no dice ya_guardado', async () => {
+      pv.finish = vi.fn(() => throwError(() => ({ status: 422, error: { message: 'Falta el motivo' } })));
+      await montar();
+      espiarAvisos();
+      cerrarPreventa();
+      expect(pv.detail).toHaveBeenCalledTimes(1);
+      expect(c.fase()).toBe('surtiendo');
+      expect(uso.reportarIncidente.mock.calls[0][1]).not.toHaveProperty('ya_guardado');
+    });
   });
 
   it('[MCP.23] prueba negativa: sin existencia del servidor no pinta nada; si no se pudo leer dice «sin dato», nunca cero', async () => {

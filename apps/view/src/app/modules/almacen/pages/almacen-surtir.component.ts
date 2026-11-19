@@ -28,7 +28,7 @@ import { UsoService } from '../../../core/services/uso.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import { textoParte } from '../surtir-ruta/ruta-surtido.util';
+import { horaMx, textoParte } from '../surtir-ruta/ruta-surtido.util';
 import { leerEscaneo, ordenarPorRecorrido } from '../escaneo-surtido';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { deVendedor, etiquetaDia, pendientesDeOtrosDias, vendedoresDe } from '../pedidos-por-dia';
@@ -1314,7 +1314,8 @@ export class AlmacenSurtirComponent implements OnInit {
     this.preventa.start(orderId).subscribe({
       next: () => {
         this.preventa.detail(orderId).subscribe({
-          next: (d) => this.abrirPedido(d),
+          // [GP.RF.44] «Empezar» no rechaza un pedido ya surtido: se mira aquí, antes de pintarlo en curso.
+          next: (d) => (d.order.finished ? this.yaSurtido(d) : this.abrirPedido(d)),
           error: (e) => this.falloAlAbrir(e),
         });
       },
@@ -1689,33 +1690,87 @@ export class AlmacenSurtirComponent implements OnInit {
       ...(l.status !== 'surtido' ? camposDeMotivo(motivoDe(this.motivosLinea(), l.id, MOTIVO_SURTIDO_POR_OMISION)) : {}),
     }));
     this.preventa.finish(o.id, { lines }).subscribe({
-      next: (r) => {
-        this.cerrando.set(false);
-        this.guardar(PREF_MARCAS + o.id, '');
-        this.guardar(PREF_OTRA + o.id, '');
-        this.guardar(PREF_MOTIVO + o.id, '');
-        this.motivosLinea.set({});
-        this.otraUnidad.set({});
-        this.resumen.set({
-          completos: o.lines.filter((l) => l.status === 'surtido').length,
-          faltantes: this.conFaltante(),
-          cambios: [],
-        });
-        this.reporte.set(r.report);
-        this.ola.set(null);
-        this.pedidoSucursal.set(null);
-        this.fase.set('cerrada');
-        this.anuncio.set('Pedido surtido.');
-        // [GP.RF.38] Cerrado, la URL ya no lo nombra: una recarga no intenta abrir un pedido terminado.
-        this.pedidoEnHistorial = false;
-        this.quitarPedidoDeLaUrl();
-      },
-      error: (e) => {
-        this.cerrando.set(false);
-        this.reportarRechazo('cerrar_preventa', o, e, lines.filter((x) => 'substitute' in x).length);
-        this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
-      },
+      next: (r) => this.cerradoSucursal(o, r.report),
+      error: (e) => this.revisarCierre(o, e, lines.filter((x) => 'substitute' in x).length),
     });
+  }
+
+  private cerradoSucursal(o: PickerWave, report: PresalePickReport | null): void {
+    this.cerrando.set(false);
+    this.guardar(PREF_MARCAS + o.id, '');
+    this.guardar(PREF_OTRA + o.id, '');
+    this.guardar(PREF_MOTIVO + o.id, '');
+    this.motivosLinea.set({});
+    this.otraUnidad.set({});
+    this.resumen.set({
+      completos: o.lines.filter((l) => l.status === 'surtido').length,
+      faltantes: this.conFaltante(),
+      cambios: [],
+    });
+    this.reporte.set(report);
+    this.ola.set(null);
+    this.pedidoSucursal.set(null);
+    this.fase.set('cerrada');
+    this.anuncio.set('Pedido surtido.');
+    // [GP.RF.38] Cerrado, la URL ya no lo nombra: una recarga no intenta abrir un pedido terminado.
+    this.pedidoEnHistorial = false;
+    this.quitarPedidoDeLaUrl();
+  }
+
+  /**
+   * `[GP.RF.44]` Un cierre «rechazado» puede estar guardado. Medido en prod el 2026-11-19, primeras
+   * horas con el registro de GP.RF.23: de 3 rechazos, ninguno era real. Un 504 llegó medio segundo
+   * DESPUÉS de que el servidor guardó el cierre; dos 409 «ya se terminó de surtir» eran el mismo
+   * pedido, reabierto 15 min después de cerrarlo. Con 409, 5xx o sin respuesta se relee el pedido
+   * antes de decir que falló: si lo cerró esta persona, queda cerrado (sin el reporte, que no llegó);
+   * si lo cerró otra, se dice quién. El incidente se registra igual, con `ya_guardado`.
+   */
+  private revisarCierre(o: PickerWave, e: unknown, cambios: number): void {
+    const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
+    if (status !== 0 && status !== 409 && status < 500) return this.cierreRechazado(o, e, cambios);
+    this.preventa.detail(o.id).subscribe({
+      next: (d) => {
+        const f = d.order.finished;
+        if (!f) return this.cierreRechazado(o, e, cambios, false);
+        this.reportarRechazo('cerrar_preventa', o, e, cambios, true);
+        if (f.user_id !== this.auth.user()?.sub) return this.yaSurtido(d);
+        this.cerradoSucursal(o, null);
+        this.avisar('info', `El cierre sí se guardó a las ${horaMx(f.at)}.`);
+      },
+      error: () => this.cierreRechazado(o, e, cambios),
+    });
+  }
+
+  private cierreRechazado(o: PickerWave, e: unknown, cambios: number, yaGuardado?: boolean): void {
+    this.cerrando.set(false);
+    this.reportarRechazo('cerrar_preventa', o, e, cambios, yaGuardado);
+    this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
+  }
+
+  /**
+   * `[GP.RF.44]` Un pedido ya surtido no se abre como si siguiera en curso: con `?pedido=` en la URL
+   * (una recarga, el aviso de la campana) «Empezar» lo deja pasar, y la pantalla lo pintaba con las
+   * marcas guardadas en el celular para volver a cerrarlo. Se borran esas marcas y se vuelve a la lista.
+   */
+  private yaSurtido(d: PresalePickDetail): void {
+    const id = d.order.order_id;
+    const f = d.order.finished;
+    this.tomando.set(false);
+    this.tomandoId.set(null);
+    this.cerrando.set(false);
+    this.guardar(PREF_MARCAS + id, '');
+    this.guardar(PREF_OTRA + id, '');
+    this.guardar(PREF_MOTIVO + id, '');
+    this.motivosLinea.set({});
+    this.otraUnidad.set({});
+    this.ola.set(null);
+    this.pedidoSucursal.set(null);
+    this.fase.set('listo');
+    this.pedidoEnHistorial = false;
+    this.quitarPedidoDeLaUrl();
+    const quien = f?.user_id && f.user_id === this.auth.user()?.sub ? 'lo cerraste tú' : `lo cerró ${f?.name ?? 'otra persona'}`;
+    this.avisar('info', `${d.order.code} ya está surtido: ${quien} a las ${horaMx(f?.at)}.`);
+    this.cargarSucursal(true);
   }
 
   /**
@@ -1726,7 +1781,7 @@ export class AlmacenSurtirComponent implements OnInit {
    * causas candidatas —cambiar un producto por otro, dos personas sobre el mismo pedido—. Nada de lo
    * que la persona escribe. «Dispara y olvida»: no cambia lo que pasa en pantalla.
    */
-  private reportarRechazo(accion: 'cerrar_preventa' | 'cerrar_kepler', o: PickerWave, e: unknown, cambios = 0): void {
+  private reportarRechazo(accion: 'cerrar_preventa' | 'cerrar_kepler', o: PickerWave, e: unknown, cambios = 0, yaGuardado?: boolean): void {
     const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
     this.uso.reportarIncidente('surtir_cierre_rechazado', {
       accion,
@@ -1736,6 +1791,8 @@ export class AlmacenSurtirComponent implements OnInit {
       renglones: o.lines.length,
       faltantes: this.conFaltante(),
       cambios,
+      // [GP.RF.44] Sólo cuando se releyó el pedido: true = el cierre sí se guardó (rechazo falso).
+      ...(yaGuardado === undefined ? {} : { ya_guardado: yaGuardado }),
     });
   }
 

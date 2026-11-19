@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Surtir: un cierre que sí se guardó ya no aparece como error (GP.RF.44 · 2026-11-19)
+- Si al terminar un surtido se cae la conexión o el servidor dice que el pedido ya estaba cerrado, la pantalla revisa el pedido antes de avisar: si quedó guardado, lo da por cerrado.
+- Un pedido que ya se surtió no se vuelve a abrir como si siguiera en curso: la pantalla dice quién lo cerró y a qué hora, y regresa a la lista.
+
 ### Added — Etiquetas de caja desde la Suite (RE.ETQ · 2026-11-19 · en prod)
 - Nueva pantalla Almacén › Etiquetas de caja. Muestra la cola de órdenes de entrada de la sucursal e imprime en la TSC (rollo de 3 al paso, 100 × 48 mm) por orden o por renglón. También reimprime consecutivos con los mismos datos de la primera vez.
 - Cada etiqueta lleva:
