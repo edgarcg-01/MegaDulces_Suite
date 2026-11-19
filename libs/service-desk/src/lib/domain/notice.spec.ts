@@ -3,8 +3,20 @@ import { armarAviso, llaveDeAviso, type SdEventoClave } from './notice';
 
 const EVENTOS: SdEventoClave[] = [
   'nuevo_prioritario', 'nueva_solicitud', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado', 'transferido',
-  'sla_por_vencer', 'sla_primera_respuesta_vencida', 'sla_vencido',
+  'dictamen', 'sla_por_vencer', 'sla_primera_respuesta_vencida', 'sla_vencido',
 ];
+
+describe('`[MSP.2.3]` el aviso del dictamen', () => {
+  it('⭐ dice si quedó autorizada o NO, quién lo dio, y no copia el motivo (lo lee en la solicitud)', () => {
+    const si = armarAviso({ ...base, event: 'dictamen', extracto: 'autorizado', actor: 'Ernesto' });
+    const no = armarAviso({ ...base, event: 'dictamen', extracto: 'no_autorizado', actor: 'Ernesto' });
+    expect(si.title).toBe('Tu solicitud fue autorizada');
+    expect(no.title).toBe('Tu solicitud fue NO autorizada');
+    expect(no.severity).toBe('warn');
+    expect(si.message).toContain('dictamen de Ernesto');
+    expect(si.message).toContain('SRV-2026-00042');
+  });
+});
 const base = { folio: 'SRV-2026-00042', title: 'No abre el ERP', priority: 'alta' as const };
 
 describe('armarAviso', () => {

@@ -19,6 +19,8 @@ import {
   type SdChangeStatusDto,
   type SdConfigResponse,
   type SdCreateRequestDto,
+  type SdCreateWorkOrderDto,
+  type SdSetDecisionDto,
   type SdListResponse,
   type SdNotificationDto,
   type SdPreferencesDto,
@@ -91,7 +93,8 @@ export class ServiceDeskController {
   @RequirePermissions(Permission.SERVICIO_REPORTAR)
   @ApiOperation({ summary: 'Colas, categorías e impactos para la pantalla «Nueva solicitud».' })
   catalog(@Req() req: AuthedRequest): Promise<SdCatalogResponse> {
-    return this.config.catalog(actorDesdeRequest(req).userId);
+    // `[MSP.2.1]` Con las colas de quien pregunta: un área que restringe quién levanta se le ofrece a sus miembros aunque su puesto no esté.
+    return this.actors.resolve(req).then((ctx) => this.config.catalog(ctx.userId, ctx.colas));
   }
 
   /**
@@ -249,6 +252,20 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Traslada la solicitud a otra cola (mismo folio, hilo y adjuntos). Sólo la coordinación del área de origen; el destino debe tener quién la atienda.' })
   transfer(@Param('id') id: string, @Body() dto: SdTransferDto, @Req() req: AuthedRequest): Promise<SdTransferResult> {
     return this.actors.resolve(req).then((ctx) => this.requests.transfer(ctx, id, dto));
+  }
+
+  @Post('requests/:id/decision')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: '`[MSP.2.3]` Dictamen de la coordinación (autorizado / no autorizado + motivo) en un área que lo exige. No cambia el estado; sin dictamen no se resuelve.' })
+  decision(@Param('id') id: string, @Body() dto: SdSetDecisionDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
+    return this.actors.resolve(req).then((ctx) => this.requests.setDecision(ctx, id, dto));
+  }
+
+  @Post('requests/:id/work-orders')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: '`[MSP.2.4]` Genera una orden de servicio: solicitud hija en otra área, a nombre de quien reportó, con su evidencia. Devuelve la ficha de ESTA solicitud.' })
+  workOrder(@Param('id') id: string, @Body() dto: SdCreateWorkOrderDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
+    return this.actors.resolve(req).then((ctx) => this.requests.createWorkOrder(ctx, id, dto));
   }
 
   @Post('requests/:id/priority')

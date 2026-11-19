@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en código, sin soltar; la cola nace apagada)
+- Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
+- La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.
+- **Dictamen**: la coordinación autoriza o no autoriza, con motivo; quien lo pidió lo ve y recibe el aviso. Sin dictamen la solicitud no se resuelve.
+- **Orden de servicio**: si la autoriza, la coordinación manda una orden a Mantenimiento o a Sistemas, a nombre de quien lo pidió, con su sucursal y su evidencia. La solicitud espera a la orden y se resuelve sola cuando la orden se resuelve; la orden dice de qué solicitud viene.
+- Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
+- Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
+
 ### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.

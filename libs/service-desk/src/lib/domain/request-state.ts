@@ -33,13 +33,15 @@ export const TRANSICIONES: Readonly<Record<SdStatus, Readonly<Partial<Record<SdS
   },
   en_proceso: {
     en_espera: AGENTE,
-    resuelto: AGENTE,
+    // `[MSP.1.6]` 'system': la solicitud que ORIGINÓ órdenes de servicio se resuelve sola cuando la última se resuelve. El servidor sólo
+    // usa este camino tras `resolverPadrePorOrdenes` (domain/presupuesto); ninguna persona actúa como 'system'.
+    resuelto: [...AGENTE, 'system'],
     cancelado: ['coordinator'],
   },
   en_espera: {
     // El solicitante que responde reanuda el ticket (lo hace el servicio al recibir su comentario).
     en_proceso: ['agent', 'coordinator', 'requester', 'system'],
-    resuelto: AGENTE,
+    resuelto: [...AGENTE, 'system'], // `[MSP.1.6]` ídem: el padre espera a sus órdenes (`orden_servicio`) y se resuelve con ellas
     cancelado: ['requester', 'coordinator'],
   },
   resuelto: {

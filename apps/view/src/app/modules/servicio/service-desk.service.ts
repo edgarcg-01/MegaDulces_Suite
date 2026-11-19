@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
+  SdAnyPauseReason, SdCreateWorkOrderDto, SdSetDecisionDto,
   SdPauseReason,
   SdAgentDto, SdAssignDto, SdCatalogResponse, SdChangePriorityDto, SdChangeStatusDto, SdConfigResponse,
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
@@ -32,13 +33,17 @@ export interface SdInboxQuery {
   offset?: number;
 }
 
-/** `[MS.7.9]` Por qué un ticket queda en espera (lo que se espera, en palabras de quien atiende). */
-export const PAUSE_REASON_LABEL: Record<SdPauseReason, string> = {
+/**
+ * `[MS.7.9]` Por qué un ticket queda en espera (lo que se espera, en palabras de quien atiende). `[MSP]` Incluye `orden_servicio`, que pone
+ * SÓLO el servidor: se muestra, pero no se ofrece al pausar a mano (`PAUSE_REASONS` sale de `SD_PAUSE_REASONS`, que no lo trae).
+ */
+export const PAUSE_REASON_LABEL: Record<SdAnyPauseReason, string> = {
   proveedor: 'Esperando al proveedor',
   refaccion: 'Esperando una refacción',
   aprobacion: 'Esperando una aprobación',
   solicitante: 'Esperando a quien reportó',
   otro: 'Otro motivo',
+  orden_servicio: 'Esperando su orden de servicio',
 };
 export const PAUSE_REASONS: { value: SdPauseReason; label: string }[] = SD_PAUSE_REASONS.map((value) => ({ value, label: PAUSE_REASON_LABEL[value] }));
 
@@ -110,6 +115,10 @@ export class ServiceDeskService {
   assign(id: string, dto: SdAssignDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/assign`, dto); }
   priority(id: string, dto: SdChangePriorityDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/priority`, dto); }
   logTime(id: string, dto: SdLogTimeDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/time`, dto); }
+  /** `[MSP.3.2]` El dictamen de la coordinación (autorizado / no autorizado + motivo). */
+  decision(id: string, dto: SdSetDecisionDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/decision`, dto); }
+  /** `[MSP.3.3]` Genera una orden de servicio en otra área. Devuelve la ficha de ESTA solicitud (con la orden en su lista). */
+  workOrder(id: string, dto: SdCreateWorkOrderDto): Observable<SdRequestDetail> { return this.http.post<SdRequestDetail>(`${this.base}/requests/${id}/work-orders`, dto); }
 
   notifications(since?: string): Observable<SdNotificationDto[]> {
     return this.http.get<SdNotificationDto[]>(`${this.base}/me/notifications`, { params: this.params({ since }) });

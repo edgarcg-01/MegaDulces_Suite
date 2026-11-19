@@ -7,8 +7,9 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
+import { TagModule } from 'primeng/tag';
 import type { Observable } from 'rxjs';
-import type { SdAgentDto, SdAttachmentInput, SdCatalogResponse, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult } from '@megadulces/contracts';
+import type { SdAgentDto, SdAnyPauseReason, SdAttachmentInput, SdCatalogResponse, SdDecision, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
 import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError } from './service-desk.service';
 import { TEXTO_VISTA_LIMITADA, TITULO_VISTA_LIMITADA, esVistaLimitada, etiquetaPrioridad, plazoDeFila } from './confidencial';
@@ -58,7 +59,7 @@ function leerComoDataUri(f: File): Promise<string> {
 @Component({
   selector: 'app-sd-request-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TextareaModule, SdAdjuntosComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, TextareaModule, TagModule, SdAdjuntosComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loading() && !r()) { <p class="sd-hint">Cargando…</p> }
@@ -110,6 +111,8 @@ function leerComoDataUri(f: File): Promise<string> {
           @if (t.requester_department_name) { <div><dt>Área</dt><dd>{{ t.requester_department_name }}</dd></div> }
           <div><dt>Atiende</dt><dd>{{ t.assigned_to_name || 'Sin asignar' }}</dd></div>
           <div><dt>Cola</dt><dd>{{ t.queue_name }} · {{ t.category_name }}</dd></div>
+          <!-- [MSP.3.4] Una orden de servicio dice de qué solicitud nació (sólo la referencia: abrirla depende de los permisos de quien mira). -->
+          @if (t.parent; as p) { <div><dt>Viene de</dt><dd>Orden de servicio de <span class="sd-mono">{{ p.folio }}</span> · {{ p.queue_name }}</dd></div> }
           @if (t.priority === null) {
             <!-- [MSH.3] Un área sin prioridad no preguntó impacto ni riesgo: no se muestra un «Afecta: sólo a mí» que nadie contestó. -->
           } @else if (t.safety_risk === true || t.safety_risk === false) {
@@ -166,8 +169,105 @@ function leerComoDataUri(f: File): Promise<string> {
           </ul>
         }
 
+        <!-- ═══ [MSP.3.2] Dictamen: después de lo pedido y su evidencia, antes de las acciones. Lo ve también quien reportó. ═══ -->
+        @if (t.requires_decision) {
+          <section class="sd-blk" aria-label="Dictamen de la coordinación">
+            <h3>Dictamen</h3>
+            @if (t.decision; as d) {
+              <div class="sd-blk-head">
+                <p-tag [severity]="d.decision === 'autorizado' ? 'success' : 'danger'" [icon]="d.decision === 'autorizado' ? 'pi pi-check' : 'pi pi-times'" [value]="d.decision === 'autorizado' ? 'Autorizado' : 'No autorizado'" />
+                <small class="sd-hint">{{ d.decided_by_name || 'La coordinación' }} · {{ d.decided_at | date:'dd/MM/yy HH:mm' }}</small>
+              </div>
+              <p class="sd-desc">{{ d.note }}</p>
+            } @else {
+              <p class="sd-hint">Pendiente. La coordinación del área da el dictamen (autorizado o no autorizado, con su motivo) antes de resolver la solicitud.</p>
+            }
+            @if (puedeDictaminar()) {
+              @if (dictamen(); as dd) {
+                <div class="sd-modo" role="group" [attr.aria-label]="dd === 'autorizado' ? 'Autorizar' : 'No autorizar'">
+                  <label class="sd-field">
+                    <span>{{ dd === 'autorizado' ? 'Motivo de la autorización *' : 'Por qué no se autoriza *' }}</span>
+                    <textarea pTextarea rows="3" [ngModel]="notaDictamen()" (ngModelChange)="notaDictamen.set($event)" placeholder="Lo leerá quien la pidió"></textarea>
+                  </label>
+                  <div class="sd-modo-foot">
+                    @if (dd === 'autorizado') {
+                      <p-button label="Autorizar" size="small" [loading]="busy()" [disabled]="!notaDictamen().trim()" (onClick)="dictaminar()" />
+                    } @else {
+                      <p-button label="No autorizar" size="small" severity="danger" [loading]="busy()" [disabled]="!notaDictamen().trim()" (onClick)="dictaminar()" />
+                    }
+                    <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarDictamen()" />
+                  </div>
+                </div>
+              } @else {
+                <div class="sd-actions-in" role="group" aria-label="Dar dictamen">
+                  @if (t.decision?.decision !== 'autorizado') { <p-button icon="pi pi-check" [label]="t.decision ? 'Cambiar a autorizado' : 'Autorizar'" size="small" (onClick)="dictamen.set('autorizado')" /> }
+                  @if (t.decision?.decision !== 'no_autorizado') { <p-button icon="pi pi-times" [label]="t.decision ? 'Cambiar a no autorizado' : 'No autorizar'" size="small" severity="danger" [outlined]="true" (onClick)="dictamen.set('no_autorizado')" /> }
+                </div>
+              }
+            }
+          </section>
+        }
+
+        <!-- ═══ [MSP.3.3] Órdenes de servicio: su estado VIVO (lo lee el servidor en cada apertura). ═══ -->
+        @if (t.work_orders?.length || puedeOrdenar()) {
+          <section class="sd-blk" aria-label="Órdenes de servicio">
+            <h3>Órdenes de servicio</h3>
+            @if (t.work_orders?.length) {
+              <ul class="sd-ord">
+                @for (o of t.work_orders; track o.id) {
+                  <li>
+                    <span class="sd-ord-h">
+                      <span class="sd-mono">{{ o.folio }}</span>
+                      <span>{{ o.queue_name }} · {{ o.category_name }}</span>
+                      <span class="sd-st" [attr.data-s]="o.status">{{ statusLabel[o.status] }}</span>
+                    </span>
+                    <small class="sd-hint">{{ o.assigned_to_name ? 'Atiende ' + o.assigned_to_name : 'Sin asignar' }} · enviada {{ o.created_at | date:'dd/MM/yy HH:mm' }}</small>
+                    @if (o.resolution_note) { <span class="sd-ord-n">{{ o.resolution_note }}</span> }
+                  </li>
+                }
+              </ul>
+            }
+            @if (puedeOrdenar()) {
+              @if (ordenAbierta()) {
+                <div class="sd-modo" role="group" aria-label="Generar orden de servicio">
+                  <label class="sd-field">
+                    <span>¿A qué área? *</span>
+                    <p-select [options]="areasOrden()" optionLabel="name" optionValue="id" [ngModel]="ordenArea()" (ngModelChange)="elegirAreaOrden($event)" placeholder="Elige el área" appendTo="body" ariaLabel="Área de la orden" />
+                  </label>
+                  <label class="sd-field">
+                    <span>Categoría en esa área *</span>
+                    <p-select [options]="categoriasOrden()" optionLabel="name" optionValue="id" [ngModel]="ordenCategoria()" (ngModelChange)="ordenCategoria.set($event)" [disabled]="!ordenArea()" [placeholder]="ordenArea() ? 'Elige una categoría' : 'Primero elige el área'" appendTo="body" ariaLabel="Categoría de la orden" />
+                  </label>
+                  @if (ordenPideRiesgo()) {
+                    <label class="sd-field">
+                      <span>¿Hay riesgo para personas? *</span>
+                      <p-select [options]="opcionesRiesgo" optionLabel="label" optionValue="value" [ngModel]="ordenRiesgo()" (ngModelChange)="ordenRiesgo.set($event)" placeholder="Sí o no" appendTo="body" ariaLabel="Riesgo para personas" />
+                    </label>
+                  }
+                  <label class="sd-field">
+                    <span>Título</span>
+                    <input pInputText [ngModel]="ordenTitulo()" (ngModelChange)="ordenTitulo.set($event)" [placeholder]="t.title" aria-label="Título de la orden" />
+                  </label>
+                  <label class="sd-field">
+                    <span>Qué debe hacer el área *</span>
+                    <textarea pTextarea rows="3" [ngModel]="ordenInstr()" (ngModelChange)="ordenInstr.set($event)" placeholder="Instrucciones para quien atienda la orden"></textarea>
+                  </label>
+                  <small class="sd-hint">La orden va a nombre de {{ t.requester_name || 'quien la pidió' }}, con su misma ubicación y su evidencia. Esta solicitud queda en espera y se resuelve sola cuando la orden se resuelva.</small>
+                  <div class="sd-modo-foot">
+                    <p-button label="Generar orden" size="small" [loading]="busy()" [disabled]="!ordenLista()" (onClick)="generarOrden()" />
+                    <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarOrden()" />
+                  </div>
+                </div>
+              } @else {
+                <div class="sd-actions-in"><p-button icon="pi pi-send" label="Generar orden de servicio" size="small" severity="secondary" [outlined]="true" (onClick)="ordenAbierta.set(true)" /></div>
+              }
+            }
+          </section>
+        }
+
         <!-- ═══ Acciones ═══ -->
         @if (!esFinal()) {
+          @if (agent() && faltaDictamen()) { <p class="sd-hint" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i> Para resolverla, primero hace falta el dictamen de la coordinación.</p> }
           <div class="sd-actions" role="group" aria-label="Acciones">
             @if (agent()) {
               @if (t.status === 'nuevo') {
@@ -401,6 +501,14 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-msg[data-k='status'] .sd-msg-tx, .sd-msg[data-k='assignment'] .sd-msg-tx, .sd-msg[data-k='priority'] .sd-msg-tx, .sd-msg[data-k='system'] .sd-msg-tx { color: var(--text-muted); font-size: var(--fs-xs); }
     .sd-comp { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-2); }
     .sd-comp-foot { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .sd-blk { display: flex; flex-direction: column; gap: var(--sp-2); border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
+    .sd-blk h3 { margin: 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .sd-blk-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .sd-actions-in { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+    .sd-ord { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .sd-ord li { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
+    .sd-ord-h { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-main); }
+    .sd-ord-n { font-size: var(--fs-sm); color: var(--text-main); white-space: pre-wrap; overflow-wrap: anywhere; }
     .sd-sp { flex: 1; }
     .sd-chk { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     @media (max-width: 40rem) {
@@ -454,7 +562,7 @@ export class SdRequestDetailComponent {
   /** `[MS.7.9]` Lo que se espera al poner en espera (obligatorio: el servidor lo exige). */
   readonly motivoPausa = signal<SdPauseReason | null>(null);
   readonly motivosPausa = PAUSE_REASONS;
-  motivoTexto(m: SdPauseReason): string { return PAUSE_REASON_LABEL[m]; }
+  motivoTexto(m: SdAnyPauseReason): string { return PAUSE_REASON_LABEL[m]; }
   private readonly estadoPendiente = signal<SdStatus | null>(null);
 
   readonly asignarA = signal<string | null>(null);
@@ -474,9 +582,92 @@ export class SdRequestDetailComponent {
   readonly etiquetaPri = etiquetaPrioridad;
   readonly esFinal = computed(() => { const s = this.r()?.status; return s === 'cerrado' || s === 'cancelado'; });
   readonly oferta = computed<SdStatus[]>(() => {
-    const s = this.r()?.status;
-    return s ? [...OFERTA_AGENTE[s]] : [];
+    const t = this.r();
+    const s = t?.status;
+    // `[MSP.3.2]` Sin dictamen no se ofrece «Marcar resuelta» (el servidor lo rechazaría con 409).
+    const sinDictamen = this.faltaDictamen();
+    return s ? OFERTA_AGENTE[s].filter((x) => !(x === 'resuelto' && sinDictamen)) : [];
   });
+  /** `[MSP.3.2]` El área exige dictamen y todavía no lo hay. */
+  readonly faltaDictamen = computed(() => { const t = this.r(); return !!t?.requires_decision && !t.decision && !['resuelto', 'cerrado', 'cancelado'].includes(t.status); });
+
+  // ── `[MSP.3.2]` el dictamen ──
+  readonly dictamen = signal<SdDecision | null>(null);
+  readonly notaDictamen = signal('');
+  /** Quien coordina, en un área con dictamen, mientras esté viva y sin órdenes en marcha (el servidor exige además que sea de ESA área). */
+  readonly puedeDictaminar = computed(() => {
+    const t = this.r();
+    return this.coord() && !!t?.requires_decision && !['resuelto', 'cerrado', 'cancelado'].includes(t.status) && !(t.work_orders?.length);
+  });
+  cerrarDictamen(): void { this.dictamen.set(null); this.notaDictamen.set(''); }
+  dictaminar(): void {
+    const d = this.dictamen();
+    const nota = this.notaDictamen().trim();
+    if (!d || !nota) return;
+    this.ejecutar(this.api.decision(this.id(), { decision: d, note: nota }), d === 'autorizado' ? 'Solicitud autorizada.' : 'Solicitud no autorizada.', () => this.cerrarDictamen());
+  }
+
+  // ── `[MSP.3.3]` la orden de servicio ──
+  readonly ordenAbierta = signal(false);
+  readonly ordenArea = signal<string | null>(null);
+  readonly ordenCategoria = signal<string | null>(null);
+  readonly ordenRiesgo = signal<boolean | null>(null);
+  readonly ordenTitulo = signal('');
+  readonly ordenInstr = signal('');
+  readonly opcionesRiesgo = [{ value: true, label: 'Sí' }, { value: false, label: 'No' }];
+  /** Las áreas a las que ESTA área manda órdenes (las dice el catálogo, por valor) y que ofrecen categorías. */
+  readonly areasOrden = computed(() => {
+    const c = this.catalogoTraslado();
+    const t = this.r();
+    const codigos = c?.queues.find((q) => q.id === t?.queue_id)?.work_order_queue_codes ?? [];
+    return c && codigos.length ? c.queues.filter((q) => codigos.includes(q.code) && c.categories.some((k) => k.queue_id === q.id)) : [];
+  });
+  readonly categoriasOrden = computed(() => {
+    const c = this.catalogoTraslado();
+    const q = this.ordenArea();
+    return c && q ? c.categories.filter((k) => k.queue_id === q) : [];
+  });
+  /** El área destino usa el modelo de riesgo (Mantenimiento): «¿hay riesgo para personas?» es obligatoria. */
+  readonly ordenPideRiesgo = computed(() => this.areasOrden().find((q) => q.id === this.ordenArea())?.priority_model === 'riesgo_operacion');
+  /** Coordinación + dictamen autorizado (si el área lo exige) + solicitud tomada y viva + un área a la cual mandarla. */
+  readonly puedeOrdenar = computed(() => {
+    const t = this.r();
+    if (!this.coord() || !t || !['asignado', 'en_proceso', 'en_espera'].includes(t.status) || t.parent) return false;
+    if (t.requires_decision && t.decision?.decision !== 'autorizado') return false;
+    return this.areasOrden().length > 0;
+  });
+  readonly ordenLista = computed(() => !!this.ordenArea() && !!this.ordenCategoria() && !!this.ordenInstr().trim() && (!this.ordenPideRiesgo() || this.ordenRiesgo() !== null));
+  elegirAreaOrden(id: string): void {
+    if (id === this.ordenArea()) return;
+    this.ordenArea.set(id);
+    this.ordenCategoria.set(null);
+    this.ordenRiesgo.set(null);
+  }
+  cerrarOrden(): void {
+    this.ordenAbierta.set(false);
+    this.ordenArea.set(null);
+    this.ordenCategoria.set(null);
+    this.ordenRiesgo.set(null);
+    this.ordenTitulo.set('');
+    this.ordenInstr.set('');
+  }
+  generarOrden(): void {
+    const q = this.ordenArea();
+    const c = this.ordenCategoria();
+    if (!q || !c || !this.ordenLista()) return;
+    const riesgo = this.ordenRiesgo();
+    this.ejecutar(
+      this.api.workOrder(this.id(), {
+        queue_id: q,
+        category_id: c,
+        instructions: this.ordenInstr().trim(),
+        title: this.ordenTitulo().trim() || undefined,
+        safety_risk: this.ordenPideRiesgo() && riesgo !== null ? riesgo : undefined,
+      }),
+      'Orden de servicio enviada. Esta solicitud queda en espera de la orden.',
+      () => this.cerrarOrden(),
+    );
+  }
   /** El solicitante puede cancelar mientras nadie esté trabajando el ticket. */
   readonly puedeCancelar = computed(() => ['nuevo', 'asignado', 'en_espera'].includes(this.r()?.status ?? ''));
 
@@ -484,6 +675,13 @@ export class SdRequestDetailComponent {
     effect(() => {
       const id = this.id();
       untracked(() => this.cargar(id));
+    });
+    effect(() => {
+      // `[MSP.3.3]` En un área con dictamen, quien coordina necesita el catálogo para saber a qué áreas manda órdenes (por valor).
+      const necesita = this.coord() && !!this.r()?.requires_decision;
+      if (necesita) untracked(() => {
+        if (!this.catalogoTraslado()) this.api.catalog().subscribe({ next: (c) => this.catalogoTraslado.set(c), error: () => undefined });
+      });
     });
     effect(() => {
       // `[MS.7.6]` Quien se ofrece al asignar es de la COLA de este ticket, no cualquiera que tenga la clave.

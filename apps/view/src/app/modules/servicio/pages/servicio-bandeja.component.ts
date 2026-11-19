@@ -6,7 +6,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdCategoryDto, type SdPauseReason, type SdRequestRow, type SdStatsResponse, type SdTransferResult } from '@megadulces/contracts';
+import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdCategoryDto, type SdAnyPauseReason, type SdRequestRow, type SdStatsResponse, type SdTransferResult } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -437,7 +437,7 @@ export class ServicioBandejaComponent implements OnInit {
     this.aviso.set(`${r.folio} se trasladó a ${r.queue_name}.`);
     this.recargar();
   }
-  motivoPausa(m: SdPauseReason): string { return PAUSE_REASON_LABEL[m]; }
+  motivoPausa(m: SdAnyPauseReason): string { return PAUSE_REASON_LABEL[m]; }
 
   abrir(id: string): void { this.selId.set(id); this.aviso.set(null); }
   cerrar(): void { this.selId.set(null); }

@@ -73,6 +73,17 @@ export type SdActor = 'requester' | 'agent' | 'coordinator' | 'system';
  */
 export const SD_PAUSE_REASONS = ['proveedor', 'refaccion', 'aprobacion', 'solicitante', 'otro'] as const;
 export type SdPauseReason = (typeof SD_PAUSE_REASONS)[number];
+/**
+ * `[MSP.0.1]` Motivos de espera que pone SÓLO el servidor: nadie los elige al pausar a mano (`SD_PAUSE_REASONS` no los trae y la API los
+ * rechaza en `pause_reason`). `orden_servicio` = la solicitud espera a sus órdenes de servicio; la respuesta de quien reportó no la reanuda.
+ */
+export const SD_SERVER_PAUSE_REASONS = ['orden_servicio'] as const;
+/** Cualquier motivo con el que una solicitud puede estar en espera (los que se eligen y los que pone el servidor). */
+export type SdAnyPauseReason = SdPauseReason | (typeof SD_SERVER_PAUSE_REASONS)[number];
+
+/** `[MSP.1.3]` El dictamen de la coordinación en un área que lo exige (`requires_decision`). */
+export const SD_DECISIONS = ['autorizado', 'no_autorizado'] as const;
+export type SdDecision = (typeof SD_DECISIONS)[number];
 
 export const SD_FIELD_TYPES = ['boolean', 'select', 'text', 'photo'] as const;
 export type SdFieldType = (typeof SD_FIELD_TYPES)[number];
@@ -106,6 +117,12 @@ export interface SdQueueDto {
   privacy_required?: boolean;
   /** `[PRV.2]` La versión VIGENTE del aviso que exige la cola, o `null` si no hay ninguna publicada. Sólo viene en una cola que lo exige. */
   privacy_notice?: SdPrivacyNoticeDto | null;
+  /** `[MSP.2.1]` `true` = la descripción es OBLIGATORIA al levantar en esta cola (el servidor da 400 sin ella). Ausente = opcional. */
+  requires_description?: boolean;
+  /** `[MSP.2.1]` `true` = la coordinación da un DICTAMEN (autorizado / no autorizado) y sin él no se resuelve. */
+  requires_decision?: boolean;
+  /** `[MSP.2.1]` Las colas (`code`) a las que la coordinación de ésta manda ÓRDENES DE SERVICIO. Ausente/`null` = a ninguna. */
+  work_order_queue_codes?: string[] | null;
 }
 
 /** `[PRV.2]` El aviso de privacidad vigente de una cola, tal como lo necesita el formulario. */
@@ -317,7 +334,7 @@ export interface SdRequestRow {
   /** `[MS.7.12]` Ticket de prueba (lo marca la coordinación): no cuenta en reportes, tablero, carga, Mi trabajo ni avisos. */
   is_test: boolean;
   /** `[MS.7.9]` Por qué está en espera (sólo mientras `status = en_espera`; `null` si no, o si la espera es anterior al motivo). */
-  pause_reason: SdPauseReason | null;
+  pause_reason: SdAnyPauseReason | null;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». `null` = no se preguntó (cola de impacto): nunca un `false` inventado. */
   safety_risk: boolean | null;
   status: SdStatus;
@@ -395,6 +412,71 @@ export interface SdRequestDetail extends SdRequestRow {
    * atiende; **`null` para quien reportó** (no es «lista vacía»: no tiene acceso). `time_logged_minutes` es la suma.
    */
   time_entries: SdWorkLogEntryDto[] | null;
+  /**
+   * `[MSP.2.6]` El dictamen de la coordinación, o `null` si aún no lo hay. Lo ve también quien reportó (es la respuesta a su solicitud).
+   * Opcional sólo para no romper las fixtures anteriores: la API lo envía siempre.
+   */
+  decision?: SdDecisionDto | null;
+  /** `[MSP.2.6]` La cola de esta solicitud exige dictamen para resolverse. */
+  requires_decision?: boolean;
+  /** `[MSP.2.6]` Si esta solicitud es una ORDEN DE SERVICIO: de qué solicitud nació (sólo la referencia; abrirla depende de los permisos). */
+  parent?: SdRequestRefDto | null;
+  /** `[MSP.2.6]` Las órdenes de servicio que nacieron de esta solicitud, con su estado VIVO (se leen en cada apertura, no se copian). */
+  work_orders?: SdWorkOrderRowDto[];
+}
+
+/** `[MSP.2.6]` El dictamen tal como se muestra. */
+export interface SdDecisionDto {
+  decision: SdDecision;
+  note: string;
+  decided_by_name: string | null;
+  decided_at: string;
+}
+
+/** `[MSP.2.6]` Una referencia a otra solicitud (el padre de una orden). */
+export interface SdRequestRefDto {
+  id: string;
+  folio: string;
+  queue_name: string;
+}
+
+/** `[MSP.2.6]` Una orden de servicio vista desde la solicitud que la originó. */
+export interface SdWorkOrderRowDto {
+  id: string;
+  folio: string;
+  queue_name: string;
+  category_name: string;
+  status: SdStatus;
+  assigned_to_name: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+/** `[MSP.2.3]` Registrar (o corregir, mientras no haya órdenes) el dictamen. Sólo la coordinación del área. */
+export interface SdSetDecisionDto {
+  decision: SdDecision;
+  /** El motivo: lo lee quien reportó. Obligatorio. */
+  note: string;
+}
+
+/**
+ * `[MSP.2.4]` Generar una ORDEN DE SERVICIO: una solicitud nueva en otra área, ligada a ésta, a nombre de quien la reportó, con su
+ * misma sucursal y su evidencia. Sólo la coordinación del área; en un área con dictamen, sólo si está AUTORIZADA.
+ */
+export interface SdCreateWorkOrderDto {
+  /** La cola destino: una de `work_order_queue_codes` de la cola de origen. */
+  queue_id: string;
+  /** Una categoría DE la cola destino. */
+  category_id: string;
+  /** Qué debe hacer el área destino (la descripción de la orden). Obligatorio. */
+  instructions: string;
+  /** El título de la orden. Ausente = el de la solicitud de origen. */
+  title?: string;
+  /** Obligatorio si el área destino usa el modelo `riesgo_operacion` (Mantenimiento). */
+  safety_risk?: boolean;
+  /** Respuestas a los campos propios del área destino. */
+  extra?: Record<string, unknown>;
 }
 
 /** `[MS.3.15]` Un registro de tiempo de un ticket. */

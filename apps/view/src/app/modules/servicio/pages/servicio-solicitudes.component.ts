@@ -170,8 +170,9 @@ function dataUri(f: File): Promise<string> {
                 }
                 <label class="ss-field"><span>Título corto <em>*</em></span>
                   <input pInputText [(ngModel)]="form.title" maxlength="200" placeholder="Ej. No me abre el sistema de caja" /></label>
-                <label class="ss-field"><span>Cuéntanos qué pasa</span>
-                  <textarea pTextarea rows="5" [(ngModel)]="form.description" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
+                <!-- [MSP.3.1] La descripción es obligatoria cuando el área lo dice (por su valor; el servidor también la exige). -->
+                <label class="ss-field"><span>Cuéntanos qué pasa @if (descripcionObligatoria()) { <em>*</em> }</span>
+                  <textarea pTextarea rows="5" [(ngModel)]="form.description" [attr.aria-required]="descripcionObligatoria()" placeholder="Qué intentabas hacer, qué mensaje te salió, desde cuándo."></textarea></label>
                 <!-- [MS.DICTADO] Dictar en lugar de escribir. Nunca en un área confidencial: el audio lo procesa un servicio externo (lo exige también el servidor). -->
                 @if (puedeDictar()) {
                   <sd-dictado [queueId]="colaElegida()?.id ?? null" (texto)="agregarDictado($event)" />
@@ -450,6 +451,8 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly avisoPrivacidad = computed(() => this.colaElegida()?.privacy_notice ?? null);
   /** `[MSH.3]` Un área sin prioridad (`uses_priority: false`) no pregunta impacto, riesgo ni bloqueo. Sin dato = sí la usa (lo de siempre). */
   readonly usaPrioridad = computed(() => this.colaElegida()?.uses_priority !== false);
+  /** `[MSP.3.1]` El área exige la descripción (Presupuestos y Requerimientos). */
+  readonly descripcionObligatoria = computed(() => this.colaElegida()?.requires_description === true);
   readonly avisoConf = computed(() => avisoConfidencial(this.colaElegida()?.name));
   readonly etiquetaPri = etiquetaPrioridad;
   /** `[MS.7.7]` ¿La cola de la categoría elegida sugiere la prioridad por riesgo × operación? (lo dice la cola, no su nombre) */
@@ -564,6 +567,8 @@ export class ServicioSolicitudesComponent implements OnInit {
     }
     // `[MS.7.7]` En una cola de riesgo hay que CONTESTAR si hay riesgo para personas: sin respuesta no se sugiere prioridad (y no se adivina «no»).
     if (this.modeloRiesgo() && this.form.safety_risk === null) return false;
+    // `[MSP.3.1]` La descripción, cuando el área la exige.
+    if (this.descripcionObligatoria() && !this.form.description.trim()) return false;
     // `[MS.7.4]` Cada campo requerido de la cola necesita una respuesta de verdad («No» cuenta; un texto en blanco no) y la foto requerida, un archivo.
     for (const c of this.camposCola()) {
       if (!c.required) continue;
