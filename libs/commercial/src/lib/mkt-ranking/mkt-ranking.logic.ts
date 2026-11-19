@@ -22,7 +22,8 @@ export const CANAL_TEXTO: Record<Canal, string> = {
   mostrador: 'Sucursales (mostrador)',
   preventa: 'Vecinal (preventa)',
   ruta: 'Rutas',
-  mayoreo: 'Televenta (mayoreo)',
+  // [MKT.28] Mercadotecnia le dice Telemarketing (como el resto de la Suite: /telemarketing, «Factura Telemarketing»).
+  mayoreo: 'Telemarketing (mayoreo)',
 };
 
 export const esCanal = (v: unknown): v is Canal => typeof v === 'string' && (CANALES as readonly string[]).includes(v);
@@ -126,6 +127,12 @@ export function promedioGeneral(xs: Array<{ puntaje: number | null }>): number |
   const v = xs.map((x) => x.puntaje).filter((p): p is number => p !== null);
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
+
+/**
+ * `[MKT.28]`/`[MKT.29]` Quién se nombra por una ruta vive en `rutas/quien-trabaja-la-ruta.ts`: es la
+ * misma respuesta para el ranking y para Ventas por ruta (ADR-056). Se reexporta para no romper imports.
+ */
+export { vendedorDeRuta } from '../rutas/quien-trabaja-la-ruta';
 
 // ─────────────────────────────── objetivo sugerido ───────────────────────────────
 

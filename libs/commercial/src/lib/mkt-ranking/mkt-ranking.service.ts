@@ -8,6 +8,32 @@ import {
   objetivoSugerido, unidadesDePago, textoRegla, lunesDe,
   identificarProductos, ProductosDePromo, MetodoProducto, CandidatoProducto,
 } from './mkt-ranking.logic';
+import { leerQuienTrabajaLasRutas, QuienTrabajaLasRutas, FuenteQuien } from '../rutas/quien-trabaja-la-ruta';
+import {
+  armarRankings, LineaVenta, ObjetivoParticipante, PromoVenta, RankingsVenta, SucursalInfo, VendedorVenta, FiltroVenta, SIN_ZONA,
+} from './mkt-venta.logic';
+
+/**
+ * `[MKT.29]` La venta de las CAMIONETAS de ruta directa. Kepler central no la tiene por ruta: cada
+ * camioneta corre su propio Kepler y lo sube (push) a `analytics.v_route_sales_lines` — la misma fuente
+ * que `/comercial/ventas-por-ruta` y el motor de comisiones de RD (contrastada contra el Excel de
+ * comisiones: 312 celdas, razón 1.0001, `FASE_RD_INDICADORES_RUTA.md` §2.4a). La sucursal de cada
+ * camioneta es la de su sucursal padre en `wincaja.branches` (21–28 → 01, 501–505 → 06), igual que
+ * en Ventas por ruta. Medido en prod el 2026-11-18 (sólo lectura):
+ *  · misma unidad que la línea de Kepler: precio unitario en la misma escala en 966 de 971 SKU;
+ *  · NO duplica la clave `06:30001` de Kepler (venta capturada en la sucursal de Canindo): renglones
+ *    gemelos 521 de 2,484 contra 418 del placebo (rutas de otra plaza) → venta distinta, se suma;
+ *  · desde septiembre la ruta directa llega sólo por push (la fuente `wincaja` ya no trae);
+ *  · 115 ms la semana, 198 ms cinco semanas; sin tenant en la sesión, 0 filas.
+ * La clave del participante es `ruta:<número>` (no choca con las `sucursal:código` de Kepler).
+ */
+const CAMIONETAS_FROM = `analytics.v_route_sales_lines sl
+  JOIN wincaja.branches b ON b.tenant_id = sl.tenant_id AND b.source_branch = sl.source_branch AND b.is_route
+  JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch`;
+const CAMIONETAS_WHERE = `sl.tenant_id = public.current_tenant_id() AND sl.source = 'push' AND sl.sale_channel = 'ruta_venta'`;
+const CAMIONETA_SUCURSAL = `COALESCE(pb.kepler_code, pb.warehouse_code)`;
+const CAMIONETA_CLAVE = `'ruta:' || sl.source_branch`;
+export const PREFIJO_CAMIONETA = 'ruta:';
 
 /**
  * `[MKT.10]` — Ranking de promociones y sus incentivos, en vivo desde Kepler.
@@ -163,6 +189,17 @@ export interface ParticipanteRanking {
   cumplidas: number;
   sin_venta: number;
   promos: RenglonRanking[];
+  /**
+   * `[MKT.28]`/`[MKT.29]` Fuera de mostrador, de dónde sale `nombre` (`rutas/quien-trabaja-la-ruta.ts`):
+   * `comision` = el chofer al que se le paga la comisión de la ruta; `asignacion` = la persona que la
+   * Suite tiene asignada a la ruta; `kepler` = el nombre que trae Kepler (suele ser el de la ruta, no
+   * el de quien vende); `sin_dato` = nadie, el nombre es «Ruta N». NULL en mostrador.
+   */
+  vendedor_fuente?: FuenteQuien | 'sin_dato' | null;
+  /** `[MKT.28]` La clave de la ruta (Kepler `1V001`, camioneta `501`); NULL en mostrador. */
+  ruta?: string | null;
+  /** `[MKT.28]` Otras personas asignadas a la misma ruta en la Suite, además de `nombre`. */
+  otros_vendedores?: string[];
 }
 
 export interface RankingSemana {
@@ -234,6 +271,73 @@ export interface PromoEnRanking {
   cumplidas: number;
   sin_venta: number;
 }
+
+/** `[MKT.30]` Un vendedor del ranking de vendedores, con su nombre y de dónde sale. */
+export interface VendedorVentaDto extends VendedorVenta {
+  nombre: string;
+  warehouse_name: string;
+  /** Debajo del nombre: la ruta, la camioneta o cuántos tickets le asignó la cajera. */
+  detalle: string;
+  /**
+   * De dónde sale el nombre: `cajera` (la asignó en su arqueo) · `comision` · `asignacion` (Suite) ·
+   * `kepler` (el nombre que trae Kepler, suele ser el de la ruta) · `sin_dato` (camioneta sin chofer).
+   */
+  fuente: FuenteQuien | 'cajera' | 'kepler' | 'sin_dato';
+}
+
+/**
+ * `[MKT.30]` El objetivo de una promoción en Sucursales (mostrador), por sucursal y a la semana, para el
+ * botón «Objetivos». `fijo` = el que fijó Mercadotecnia si es el MISMO en todas sus sucursales (`mixto`
+ * = hay valores distintos: se cambian en Objetivos, por sucursal). `automatico` = el promedio de sus
+ * sucursales del dinámico, hacia arriba. `sucursales` = dónde aplica (a las que se escribe al guardar).
+ */
+export interface ObjetivoSucursal { fijo: number | null; mixto: boolean; automatico: number | null; sucursales: string[] }
+
+/** `[MKT.30]`/`[MKT.31]` Los dos rankings de la semana: promociones (toda la venta) y vendedores (lo cargado). */
+export interface VentaSemana {
+  semana: Semana;
+  filtro: { canal: Canal | null; sucursal: string | null; zona: string | null };
+  /** Las sucursales que vendieron alguna promoción en la semana (para el filtro), con su zona. */
+  sucursales_lista: Array<{ code: string; nombre: string; zona: string }>;
+  zonas_lista: string[];
+  totales: RankingsVenta['totales'];
+  sucursal_top: RankingsVenta['sucursal_top'];
+  promos: Array<PromoVenta & {
+    productos_nombres: string[];
+    /** `[MKT.27]` Para buscar con la pistola: el código de barras se resuelve a estos SKU. */
+    productos_skus: string[];
+    productos_metodo: MetodoProducto;
+    /** `[MKT.24]` El proveedor (asignado o del producto), para buscarlo; NULL = ninguno. */
+    proveedor: string | null;
+    objetivo_sucursal: ObjetivoSucursal;
+  }>;
+  /** `[MKT.27]` Códigos de barras de los productos (`sku → códigos`); NULL = no se pudieron leer. */
+  codigos_barras: Record<string, string[]> | null;
+  vendedores: VendedorVentaDto[];
+  mostrador: RankingsVenta['mostrador'];
+  /**
+   * Si el dinero de cada canal ya se contrastó contra Kepler (`kdm1.c16`). Mostrador sí (semana 46:
+   * 0.012 %, doc de fase §6k); Vecinal, Ruta directa y Telemarketing NO: la pantalla lo declara.
+   */
+  dinero_contrastado: Record<Canal, boolean>;
+  criterio: string;
+  consultado_at: string;
+}
+
+/** `[MKT.31]` Ver `VentaSemana.dinero_contrastado`. Cambiar a `true` sólo con la medición en el doc de fase. */
+export const DINERO_CONTRASTADO: Record<Canal, boolean> = { mostrador: true, preventa: false, ruta: false, mayoreo: false };
+
+const CRITERIO_VENTA =
+  'Ranking de promociones: TODA la venta de la semana (lunes a domingo), se le haya cargado a un vendedor o no; '
+  + 'paquetes = veces que se aplicó el código de la promoción en Kepler (en Ruta directa, también lo que sube cada camioneta). '
+  + 'Dinero = lo que pagó el cliente, con impuestos, por los productos que activan la promoción en los tickets donde se aplicó; '
+  + 'es un piso: una promoción de marca puede llevar más productos de la marca. Sin producto identificado no hay dinero («sin dato»). '
+  + 'En los totales un producto que activa dos promociones se cuenta una vez. '
+  + 'Objetivo = el que fijó Mercadotecnia o, si no fijó, el promedio de las 4 semanas anteriores. '
+  + 'Zona = la de la sucursal donde se facturó; sin zona asignada, «Sin zona». '
+  + 'Ranking de vendedores: sólo lo que se le cargó a cada uno. Sucursales: los tickets que la cajera le asignó en su arqueo; '
+  + 'Ruta vecinal y Telemarketing: la ruta o clave del documento en Kepler y quien la tiene asignada; Ruta directa: la camioneta y su chofer. '
+  + 'Precio = lo que pagó el cliente por un paquete, en promedio.';
 
 export interface CodigoKepler {
   code: string;
@@ -792,9 +896,19 @@ export class MktRankingService {
           GROUP BY 1, 2, 3, 4, 5`,
         [desde, hasta, codes, canales],
       );
+      // `[MKT.29]` Las camionetas no están en la matview (es de Kepler central): su historia sale del push.
+      const camionetas = canales.includes('ruta')
+        ? (await trx.raw(
+          `SELECT date_trunc('week', sl.business_date)::date semana, ${CAMIONETA_SUCURSAL} warehouse_code, 'ruta' canal,
+                  ${CAMIONETA_CLAVE} vendor_code, btrim(sl.sku) sku, sum(sl.qty) qty, 'Ruta ' || sl.source_branch vendor_name
+             FROM ${CAMIONETAS_FROM}
+            WHERE ${CAMIONETAS_WHERE} AND sl.business_date BETWEEN ? AND ? AND btrim(sl.sku) = ANY(?::text[])
+            GROUP BY 1, 2, 4, 5, 7`,
+          [desde, hasta, codes])).rows as Array<Record<string, unknown>>
+        : [];
       // (promo, sucursal, canal, vendedor) -> { semana -> qty }
       const hist = new Map<string, Map<string, number>>();
-      for (const row of r.rows as Array<Record<string, unknown>>) {
+      for (const row of [...(r.rows as Array<Record<string, unknown>>), ...camionetas]) {
         const sem = ymd(row['semana']);
         for (const p of promos) {
           if (p.code !== row['sku']) continue;
@@ -924,7 +1038,17 @@ export class MktRankingService {
     const ventana = Math.max(1, Math.floor(opts.ventanaSemanas ?? 1));
     const desdeVenta = sumarDias(s.lunes, -7 * (ventana - 1));
     const desdeHist = sumarDias(s.lunes, -28);
-    const [semana, hist, registradas] = await Promise.all([
+    // `[MKT.29]` Las camionetas (push): una sola consulta da la primera venta y si vendió en la ventana.
+    const camionetasP = canales.includes('ruta')
+      ? trx.raw(
+        `SELECT 'ruta' canal, btrim(sl.sku) sku, ${CAMIONETA_SUCURSAL} warehouse_code, min(sl.business_date) primera,
+                bool_or(sl.business_date >= ?) en_ventana
+           FROM ${CAMIONETAS_FROM}
+          WHERE ${CAMIONETAS_WHERE} AND sl.business_date BETWEEN ? AND ? AND btrim(sl.sku) = ANY(?::text[]) AND sl.qty > 0
+          GROUP BY 2, 3`,
+        [desdeVenta, desdeHist < desdeVenta ? desdeHist : desdeVenta, s.hasta, codes])
+      : Promise.resolve({ rows: [] });
+    const [semana, hist, registradas, camionetas] = await Promise.all([
       ventana === 1
         ? trx.raw(
           `SELECT canal, sku, warehouse_code, min(business_date) primera
@@ -941,10 +1065,13 @@ export class MktRankingService {
         .select('p.*')
         .select(trx.raw('(SELECT count(*) FROM commercial.mkt_ranking_objectives o WHERE o.promo_id = p.id)::int AS objetivos'))
         .orderBy('p.updated_at', 'desc'),
+      camionetasP,
     ]);
     const filas = [
       ...((semana?.rows ?? []) as Array<Record<string, unknown>>).map((r) => ({ ...r, en_semana: true })),
       ...(hist.rows as Array<Record<string, unknown>>).map((r) => ({ ...r, en_semana: ventana > 1 && r['en_ventana'] === true })),
+      // Con ventana 1, `desdeVenta` es el lunes: «en la ventana» es «en la semana».
+      ...((camionetas as { rows: Array<Record<string, unknown>> }).rows).map((r) => ({ ...r, en_semana: r['en_ventana'] === true })),
     ];
     // Lo que vendió en la ventana pedida: con la matview en la ventana larga; la semana, con la línea.
     const porCode = new Map<string, { canales: Set<Canal>; sucs: Set<string>; primera: string }>();
@@ -1034,6 +1161,21 @@ export class MktRankingService {
   }
 
   /**
+   * `[MKT.29]` La venta de la semana de las camionetas, con las mismas columnas que la consulta de la
+   * línea de Kepler en el canal `ruta` (sucursal, `ruta:<número>`, sku, cantidad, descripciones).
+   */
+  private ventaCamionetas(trx: Knex.Transaction, desde: string, hasta: string, skus: string[]): Promise<{ rows: Array<Record<string, unknown>> }> {
+    if (!skus.length) return Promise.resolve({ rows: [] });
+    return trx.raw(
+      `SELECT ${CAMIONETA_SUCURSAL} warehouse_code, ${CAMIONETA_CLAVE} vendor_code, 'Ruta ' || sl.source_branch vendor_name,
+              btrim(sl.sku) sku, sum(sl.qty) qty, array_agg(DISTINCT sl.producto) descripciones
+         FROM ${CAMIONETAS_FROM}
+        WHERE ${CAMIONETAS_WHERE} AND sl.business_date BETWEEN ? AND ? AND btrim(sl.sku) = ANY(?::text[])
+        GROUP BY 1, 2, 3, 4`,
+      [desde, hasta, skus]) as unknown as Promise<{ rows: Array<Record<string, unknown>> }>;
+  }
+
+  /**
    * `promoId` (`[MKT.16]`): el ranking de UNA promoción — el lugar se recalcula sólo con ella, con
    * la misma regla. La lista de promos del filtro (`promos_lista`) sale siempre completa.
    * `sucursales`: el ranking de PROMOCIONES se calcula sólo con los participantes de esas sucursales;
@@ -1068,13 +1210,17 @@ export class MktRankingService {
       const idsCanal = delCanal.map((p) => p.id).filter((id) => !ID_KEPLER.test(id)); // los k-… no tienen objetivos fijos
       const independientes: Promise<[Filas, Array<Record<string, unknown>>, ObjetivoDinamico[]] | null> = delCanal.length
         ? Promise.all([
-          this.tk.run((t) => t.raw(
-            `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code,
-                    max(vendor_name) vendor_name, sku, sum(qty) qty, array_agg(DISTINCT producto) descripciones
-               FROM analytics.v_kepler_sales_lines
-              WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
-              GROUP BY 1, 2, 4`,
-            [canal, semana.lunes, semana.hasta, codesCanal, canal]) as unknown as Promise<Filas>),
+          Promise.all([
+            this.tk.run((t) => t.raw(
+              `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code,
+                      max(vendor_name) vendor_name, sku, sum(qty) qty, array_agg(DISTINCT producto) descripciones
+                 FROM analytics.v_kepler_sales_lines
+                WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
+                GROUP BY 1, 2, 4`,
+              [canal, semana.lunes, semana.hasta, codesCanal, canal]) as unknown as Promise<Filas>),
+            // `[MKT.29]` En Rutas, además, cada camioneta (push): Kepler central sólo tiene `06:30001`.
+            canal === 'ruta' ? this.tk.run((t) => this.ventaCamionetas(t, semana.lunes, semana.hasta, codesCanal)) : Promise.resolve({ rows: [] }),
+          ]).then(([k, c]): Filas => ({ rows: [...k.rows, ...c.rows] })),
           this.tk.run((t) => t('commercial.mkt_ranking_objectives').whereIn('promo_id', idsCanal).where('canal', canal) as unknown as Promise<Array<Record<string, unknown>>>),
           // `[MKT.17]` El objetivo dinámico de ESTA semana (la matview, ~130 ms medido).
           this.tk.run((t) => this.objetivosDinamicos(t, delCanal, semana, [canal])),
@@ -1111,7 +1257,12 @@ export class MktRankingService {
           + 'pieza; las cajas son las del producto que la activa, cuando se identifica). Proveedor = el que asignó '
           + 'Mercadotecnia en Objetivos o, si no asignó, el del producto que activa la promoción (marcado «del '
           + 'producto», sólo si todos sus productos son de un mismo proveedor). Kepler registra el código de la '
-          + 'promoción a nombre de «PROMOCIONES MKT».',
+          + 'promoción a nombre de «PROMOCIONES MKT». '
+          + 'Vendedor (Vecinal, Rutas, Telemarketing): Kepler guarda la RUTA, no a la persona; el nombre es el chofer '
+          + 'al que se le paga la comisión de la ruta o, si no tiene, quien la tiene asignada en la Suite; es el de HOY '
+          + '(no hay historial: en semanas pasadas puede no ser quien vendió). Una ruta sin ligar muestra el nombre de '
+          + 'Kepler. Rutas: cada camioneta de ruta directa con su propia venta (la que sube su Kepler), más la venta '
+          + 'que Kepler registra en la sucursal a nombre de la ruta.',
         consultado_at: new Date().toISOString(),
       };
       if (!promos.length) { await Promise.all([independientes, existenciasP]); return base; }
@@ -1119,6 +1270,16 @@ export class MktRankingService {
       // Quién vendió (mostrador) también en paralelo con lo que sigue.
       const vendedorasP = canal === 'mostrador' ? this.tk.run((t) => this.vendedorasDeLaSemana(t, promos, semana, nombres)) : Promise.resolve(null);
       vendedorasP.catch(() => undefined);
+      // `[MKT.28]`/`[MKT.29]` Fuera de mostrador, quién trabaja cada ruta (comisión → asignación → Kepler,
+      // la misma respuesta que Ventas por ruta). Si no se puede leer, el ranking sale con el nombre de
+      // Kepler o «Ruta N» (y lo dice `vendedor_fuente`), no se cae.
+      const tenantId = this.tenantCtx.requireTenantId();
+      const quienP: Promise<QuienTrabajaLasRutas | null> = canal === 'mostrador'
+        ? Promise.resolve(null)
+        : this.tk.run((t) => leerQuienTrabajaLasRutas(t, tenantId)).catch((e: unknown) => {
+          this.logger.warn(`[MKT.29] quién trabaja las rutas, no leído: ${e instanceof Error ? e.message : String(e)}`);
+          return null;
+        });
       const [[ventasCanal, objetivosCanal, dinamicosCanal], existencias] = await Promise.all([independientes.then((x) => x!), existenciasP]);
       const codeSet = new Set(promos.map((p) => p.code));
       const idSet = new Set(promos.map((p) => p.id));
@@ -1160,12 +1321,15 @@ export class MktRankingService {
         : Promise.resolve({});
       const [ventaProd, factores] = skusProducto.length
         ? await Promise.all([
-          this.tk.run((trx) => trx.raw(
-            `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code, sku, sum(qty) qty
-               FROM analytics.v_kepler_sales_lines
-              WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
-              GROUP BY 1, 2, 3`,
-            [canal, semana.lunes, semana.hasta, skusProducto, canal]) as unknown as Promise<Filas>),
+          Promise.all([
+            this.tk.run((trx) => trx.raw(
+              `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code, sku, sum(qty) qty
+                 FROM analytics.v_kepler_sales_lines
+                WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
+                GROUP BY 1, 2, 3`,
+              [canal, semana.lunes, semana.hasta, skusProducto, canal]) as unknown as Promise<Filas>),
+            canal === 'ruta' ? this.tk.run((t) => this.ventaCamionetas(t, semana.lunes, semana.hasta, skusProducto)) : Promise.resolve({ rows: [] }),
+          ]).then(([k, c]): Filas => ({ rows: [...k.rows, ...c.rows] })),
           this.tk.run((trx) => trx.raw(`SELECT sucursal, sku, factor_caja FROM analytics.v_kepler_unit_ladder WHERE sku = ANY(?::text[])`, [skusProducto]) as unknown as Promise<Filas>),
         ])
         : [{ rows: [] }, { rows: [] }];
@@ -1200,6 +1364,7 @@ export class MktRankingService {
         }
       }
 
+      const quienRuta = await quienP;
       const participantes = [...part.values()].map((pa) => {
         const promosDe = promos.filter((p) => !p.warehouse_codes || p.warehouse_codes.includes(pa.warehouse_code));
         const renglones: RenglonRanking[] = promosDe.map((p) => {
@@ -1228,10 +1393,19 @@ export class MktRankingService {
         const wname = nombres.get(pa.warehouse_code) ?? `Sucursal ${pa.warehouse_code}`;
         // Un vendedor con objetivo y sin venta no trae nombre de la venta: se muestra su clave de Kepler.
         const vname = pa.vendor_name || pa.vendor_code.split(':').pop() || pa.vendor_code;
+        // `[MKT.28]` Kepler guarda la RUTA, no a la persona: el nombre sale de quién trabaja esa ruta.
+        const ruta = canal === 'mostrador' ? null : (pa.vendor_code.split(':').pop() || null);
+        const camioneta = pa.vendor_code.startsWith(PREFIJO_CAMIONETA);
+        const quien = ruta ? (quienRuta?.de(ruta, camioneta ? null : pa.warehouse_code) ?? null) : null;
+        // Sin persona: la clave de Kepler trae su nombre de vendedor; la camioneta sólo su número.
+        const fuente: ParticipanteRanking['vendedor_fuente'] = canal === 'mostrador' ? null : (quien ? quien.fuente : (camioneta ? 'sin_dato' : 'kepler'));
         return {
           clave: `${pa.warehouse_code}|${pa.vendor_code}`, warehouse_code: pa.warehouse_code, warehouse_name: wname,
-          vendor_code: pa.vendor_code, nombre: canal === 'mostrador' ? wname : vname,
+          vendor_code: pa.vendor_code, nombre: canal === 'mostrador' ? wname : (quien?.nombre ?? vname),
           ...pt, promos: renglones,
+          vendedor_fuente: fuente,
+          ruta,
+          otros_vendedores: quien?.otros ?? [],
         };
       });
       const ordenados = ordenarRanking(participantes);
@@ -1256,6 +1430,221 @@ export class MktRankingService {
       const [vendedoras, codigos_barras] = await Promise.all([vendedorasP, codigosP]);
       return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking, vendedoras, codigos_barras };
     }
+  }
+
+  // ═════════════════════════════════ venta: los dos rankings ═════════════════════════════════
+
+  /**
+   * `[MKT.30]`/`[MKT.31]` El ranking de PROMOCIONES (toda la venta de la semana, los 4 canales, más
+   * vendida primero) y el de VENDEDORES (sólo lo que se le cargó a cada uno). Las reglas viven en
+   * `mkt-venta.logic.ts`; aquí sólo se lee:
+   *  · la línea de venta de Kepler (`v_kepler_sales_lines`) de los TICKETS con alguna promoción, sólo
+   *    las líneas de los códigos de promo y de los productos que las activan (`[MKT.15]`);
+   *  · las camionetas de ruta directa (push, `[MKT.29]`), con su folio como ticket;
+   *  · quién vendió en mostrador: lo que asignó la cajera (`mkt_promo_ticket_sellers`, `[MKT.18]`);
+   *  · objetivos fijados por Mercadotecnia o, donde no hay, el dinámico (`[MKT.17]`);
+   *  · la zona de cada sucursal (`commercial.warehouses.zone_id` → `trade.zones`); sin zona = «Sin zona».
+   * Sólo lectura. El tiempo en prod está NO MEDIDO (el servidor no respondía al escribir esto).
+   */
+  async venta(semanaPedida: string | undefined, filtro: FiltroVenta): Promise<VentaSemana> {
+    const semana = this.semana(semanaPedida);
+    type Filas = { rows: Array<Record<string, unknown>> };
+    const f: FiltroVenta = { canal: filtro.canal ?? null, sucursal: filtro.sucursal ?? null, zona: filtro.zona ?? null };
+    const [sucursales, promos] = await this.tk.run(async (trx) => [
+      await this.sucursalesConZona(trx),
+      await this.promosVigentes(trx, semana),
+    ] as const);
+    const vacio: VentaSemana = {
+      semana, filtro: { canal: f.canal ?? null, sucursal: f.sucursal ?? null, zona: f.zona ?? null },
+      sucursales_lista: [], zonas_lista: [], totales: { paquetes: 0, objetivo: null, dinero: 0, promos: 0, promos_sin_dato: 0 },
+      sucursal_top: null, promos: [], codigos_barras: {}, vendedores: [], mostrador: null, dinero_contrastado: DINERO_CONTRASTADO,
+      criterio: CRITERIO_VENTA, consultado_at: new Date().toISOString(),
+    };
+    if (!promos.length) return vacio;
+    const codes = [...new Set(promos.map((p) => p.code))];
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hace4 = sumarDias(semana.lunes, -21);
+
+    // Lo que no depende de nada más, en paralelo y en tramos cortos (ver `ranking`, `[MKT.26]`).
+    const identP = this.tk.run((trx) => this.productosConCache(trx, promos.map((p) => ({
+      code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: semana.hasta,
+    }))));
+    const idsFijos = promos.map((p) => p.id).filter((id) => !ID_KEPLER.test(id));
+    const fijosP = idsFijos.length
+      ? this.tk.run((t) => t('commercial.mkt_ranking_objectives').whereIn('promo_id', idsFijos) as unknown as Promise<Array<Record<string, unknown>>>)
+      : Promise.resolve([] as Array<Record<string, unknown>>);
+    const dinamicosP = this.tk.run((t) => this.objetivosDinamicos(t, promos, semana, [...CANALES]));
+    const asignadosP = this.tk.run((t) => t('commercial.mkt_promo_ticket_sellers').whereBetween('business_date', [semana.lunes, semana.hasta])
+      .select('warehouse_code', 'doc_tipo', 'caja', 'folio', 'person_code', 'person_name') as unknown as Promise<Array<Record<string, unknown>>>);
+    const quienP: Promise<QuienTrabajaLasRutas | null> = this.tk.run((t) => leerQuienTrabajaLasRutas(t, tenantId)).catch((e: unknown) => {
+      this.logger.warn(`[MKT.30] quién trabaja las rutas, no leído: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    });
+    for (const p of [fijosP, dinamicosP, asignadosP]) Promise.resolve(p).catch(() => undefined); // se esperan abajo
+
+    const ident = await identP;
+    const skusProducto = [...new Set([...ident.values()].flatMap((x) => x.productos.map((p) => p.sku)))];
+    const skus = [...new Set([...codes, ...skusProducto])];
+    // `[MKT.24]` El proveedor (para buscar) y `[MKT.27]` los códigos de barras (pistola): no tumban la pantalla si fallan.
+    const conProvP = this.tk.run((t) => this.conProveedorDelProducto(t, promos, ident)).catch((e: unknown) => {
+      this.logger.warn(`[MKT.30] proveedor no leído: ${e instanceof Error ? e.message : String(e)}`);
+      return promos;
+    });
+    const codigosP: Promise<Record<string, string[]> | null> = skusProducto.length
+      ? Promise.resolve(this.tk.run((t) => t.raw(
+        `SELECT sku, array_agg(DISTINCT btrim(barcode) ORDER BY btrim(barcode)) codigos
+           FROM catalog.product_barcodes
+          WHERE sku = ANY(?::text[]) AND deleted_at IS NULL AND btrim(barcode) <> ''
+          GROUP BY sku`, [skusProducto]) as unknown as Promise<Filas>))
+        .then((r) => Object.fromEntries(r.rows.map((x) => [String(x['sku']), (x['codigos'] as string[]) ?? []])))
+        .catch((e: unknown) => { this.logger.warn(`[MKT.30] códigos de barras no leídos: ${e instanceof Error ? e.message : String(e)}`); return null; })
+      : Promise.resolve({});
+    const [kepler, camionetas] = await Promise.all([
+      this.tk.run((t) => t.raw(
+        `WITH tk AS MATERIALIZED (
+           SELECT DISTINCT warehouse_code, doc_tipo, caja, folio
+             FROM analytics.v_kepler_sales_lines
+            WHERE business_date BETWEEN ? AND ? AND canal = ANY(?::text[]) AND sku = ANY(?::text[]))
+         SELECT l.canal, l.warehouse_code, l.doc_tipo, l.caja, l.folio,
+                CASE WHEN l.canal = 'mostrador' THEN '' ELSE l.vendor_code END vendor_code, max(l.vendor_name) vendor_name,
+                l.sku, sum(l.qty) qty, sum(l.importe) importe
+           FROM analytics.v_kepler_sales_lines l
+           JOIN tk ON tk.warehouse_code = l.warehouse_code AND tk.doc_tipo = l.doc_tipo AND tk.caja = l.caja AND tk.folio = l.folio
+          WHERE l.business_date BETWEEN ? AND ? AND l.canal = ANY(?::text[]) AND l.sku = ANY(?::text[])
+          GROUP BY 1, 2, 3, 4, 5, 6, 8`,
+        [semana.lunes, semana.hasta, [...CANALES], codes, semana.lunes, semana.hasta, [...CANALES], skus]) as unknown as Promise<Filas>),
+      this.tk.run((t) => t.raw(
+        `WITH tk AS MATERIALIZED (
+           SELECT DISTINCT sl.source_branch, sl.doc_ref
+             FROM ${CAMIONETAS_FROM}
+            WHERE ${CAMIONETAS_WHERE} AND sl.business_date BETWEEN ? AND ? AND btrim(sl.sku) = ANY(?::text[]))
+         SELECT ${CAMIONETA_SUCURSAL} warehouse_code, ${CAMIONETA_CLAVE} vendor_code, sl.source_branch, sl.doc_ref,
+                btrim(sl.sku) sku, sum(sl.qty) qty, sum(sl.importe) importe
+           FROM ${CAMIONETAS_FROM}
+           JOIN tk ON tk.source_branch = sl.source_branch AND tk.doc_ref = sl.doc_ref
+          WHERE ${CAMIONETAS_WHERE} AND sl.business_date BETWEEN ? AND ? AND btrim(sl.sku) = ANY(?::text[])
+          GROUP BY 1, 2, 3, 4, 5`,
+        [semana.lunes, semana.hasta, codes, semana.lunes, semana.hasta, skus]) as unknown as Promise<Filas>),
+    ]);
+    const [fijos, dinamicos, asignados, quienRuta, conProv, codigos_barras] = await Promise.all([fijosP, dinamicosP, asignadosP, quienP, conProvP, codigosP]);
+    const proveedorDe = new Map(conProv.map((p) => [p.id, p.proveedor ? p.proveedor.name : null]));
+
+    // Mostrador: el ticket se le carga a quien eligió la cajera.
+    const llaveTicket = (x: Record<string, unknown>) => `${x['warehouse_code']}|${Number(x['doc_tipo'])}|${String(x['caja']).trim()}|${String(x['folio']).trim()}`;
+    const persona = new Map<string, { code: string; nombre: string }>();
+    for (const a of asignados) persona.set(llaveTicket(a), { code: String(a['person_code']), nombre: String(a['person_name']) });
+    const nombrePersona = new Map<string, string>();
+    const nombreKepler = new Map<string, string>();
+    const lineas: LineaVenta[] = [];
+    for (const r of kepler.rows) {
+      const canal = String(r['canal']) as Canal;
+      const tk = llaveTicket(r);
+      let vendedor: string | null = String(r['vendor_code'] ?? '') || null;
+      if (canal === 'mostrador') {
+        const q = persona.get(tk);
+        vendedor = q ? q.code : null;
+        if (q) nombrePersona.set(`${r['warehouse_code']}|${q.code}`, q.nombre);
+      } else if (vendedor && r['vendor_name']) nombreKepler.set(vendedor, String(r['vendor_name']));
+      lineas.push({ canal, warehouse_code: String(r['warehouse_code']), ticket: `k|${tk}`, sku: String(r['sku']), qty: n(r['qty']), importe: n(r['importe']), vendedor });
+    }
+    for (const r of camionetas.rows) {
+      lineas.push({
+        canal: 'ruta', warehouse_code: String(r['warehouse_code']), ticket: `c|${r['source_branch']}|${String(r['doc_ref']).trim()}`,
+        sku: String(r['sku']), qty: n(r['qty']), importe: n(r['importe']), vendedor: String(r['vendor_code']),
+      });
+    }
+
+    // Objetivos: lo fijado gana; donde no hay, el dinámico de la semana.
+    const obj = new Map<string, ObjetivoParticipante>();
+    for (const d of dinamicos) {
+      if (d.sugerido !== null) obj.set(`${d.promo_id}|${d.warehouse_code}|${d.canal}|${d.vendor_code}`, { promo_id: d.promo_id, canal: d.canal, warehouse_code: d.warehouse_code, objetivo: d.sugerido });
+    }
+    for (const o of fijos) {
+      if (!esCanal(o['canal'])) continue;
+      obj.set(`${o['promo_id']}|${o['warehouse_code']}|${o['canal']}|${o['vendor_code'] ?? ''}`,
+        { promo_id: String(o['promo_id']), canal: o['canal'] as Canal, warehouse_code: String(o['warehouse_code']), objetivo: n(o['objetivo_semanal']) });
+    }
+
+    const r = armarRankings({
+      lineas, objetivos: [...obj.values()], sucursales, filtro: f,
+      promos: promos.map((p) => ({ promo_id: p.id, code: p.code, nombre: p.mecanica, productos: (ident.get(p.code)?.productos ?? []).map((x) => x.sku) })),
+    });
+
+    const nombreSuc = (w: string) => sucursales.get(w)?.nombre ?? `Sucursal ${w}`;
+    const vendedores: VendedorVentaDto[] = r.vendedores.map((v) => {
+      const base = { ...v, warehouse_name: nombreSuc(v.warehouse_code) };
+      if (v.canal === 'mostrador') {
+        return { ...base, nombre: nombrePersona.get(`${v.warehouse_code}|${v.vendedor}`) ?? v.vendedor, fuente: 'cajera' as const,
+          detalle: `${base.warehouse_name} · le asignaron ${v.tickets} ${v.tickets === 1 ? 'ticket' : 'tickets'}` };
+      }
+      const camioneta = v.vendedor.startsWith(PREFIJO_CAMIONETA);
+      const ruta = v.vendedor.split(':').pop() || v.vendedor;
+      const q = quienRuta?.de(ruta, camioneta ? null : v.warehouse_code) ?? null;
+      const nombre = q?.nombre ?? (camioneta ? `Ruta ${ruta}` : (nombreKepler.get(v.vendedor) ?? ruta));
+      const otros = q?.otros?.length ? ` · apoyo: ${q.otros.join(', ')}` : '';
+      return {
+        ...base, nombre, fuente: q ? q.fuente : (camioneta ? 'sin_dato' as const : 'kepler' as const),
+        detalle: `${camioneta ? 'Camioneta' : 'Ruta'} ${ruta} · ${base.warehouse_name}${otros}`,
+      };
+    });
+
+    // `[MKT.30]` El objetivo por sucursal en mostrador de cada promo (botón «Objetivos»).
+    const objSuc = new Map<string, { fijos: Map<string, number>; auto: number[]; sucs: Set<string> }>();
+    const accObj = (promoId: string) => {
+      const a = objSuc.get(promoId) ?? { fijos: new Map<string, number>(), auto: [] as number[], sucs: new Set<string>() };
+      objSuc.set(promoId, a);
+      return a;
+    };
+    const idDe = new Map(promos.map((p) => [p.code, p.id]));
+    for (const l of lineas) if (l.canal === 'mostrador' && idDe.has(l.sku)) accObj(idDe.get(l.sku)!).sucs.add(l.warehouse_code);
+    for (const d of dinamicos) {
+      if (d.canal !== 'mostrador' || d.sugerido === null) continue;
+      const a = accObj(d.promo_id); a.auto.push(d.sugerido); a.sucs.add(d.warehouse_code);
+    }
+    for (const o of fijos) {
+      if (o['canal'] !== 'mostrador') continue;
+      const a = accObj(String(o['promo_id'])); a.fijos.set(String(o['warehouse_code']), n(o['objetivo_semanal'])); a.sucs.add(String(o['warehouse_code']));
+    }
+    const objetivoSucursal = (promoId: string): ObjetivoSucursal => {
+      const a = objSuc.get(promoId);
+      if (!a) return { fijo: null, mixto: false, automatico: null, sucursales: [] };
+      const valores = new Set(a.fijos.values());
+      return {
+        fijo: valores.size === 1 && a.fijos.size === a.sucs.size ? [...valores][0] : null,
+        mixto: a.fijos.size > 0 && !(valores.size === 1 && a.fijos.size === a.sucs.size),
+        automatico: a.auto.length ? Math.ceil(a.auto.reduce((x, y) => x + y, 0) / a.auto.length) : null,
+        sucursales: [...a.sucs].sort(),
+      };
+    };
+
+    const vistas = new Set(lineas.map((l) => l.warehouse_code));
+    const sucursalesLista = [...vistas].sort().map((w) => ({ code: w, nombre: nombreSuc(w), zona: sucursales.get(w)?.zona || SIN_ZONA }));
+    return {
+      ...vacio,
+      sucursales_lista: sucursalesLista,
+      zonas_lista: [...new Set(sucursalesLista.map((s) => s.zona))].sort((a, b) => (a === SIN_ZONA ? 1 : b === SIN_ZONA ? -1 : a.localeCompare(b, 'es'))),
+      totales: r.totales, sucursal_top: r.sucursal_top, mostrador: r.mostrador,
+      promos: r.promos.map((p) => {
+        const x = ident.get(p.code);
+        return {
+          ...p, productos_metodo: x?.metodo ?? 'sin_identificar', productos_nombres: (x?.productos ?? []).map((y) => y.nombre ?? y.sku),
+          productos_skus: (x?.productos ?? []).map((y) => y.sku), proveedor: proveedorDe.get(p.promo_id) ?? null,
+          objetivo_sucursal: objetivoSucursal(p.promo_id),
+        };
+      }),
+      codigos_barras,
+      vendedores,
+    };
+  }
+
+  /** `[MKT.30]` Nombre y zona de cada sucursal de Kepler. Sin zona asignada, `zona: null` (se dice «Sin zona»). */
+  private async sucursalesConZona(trx: Knex.Transaction): Promise<Map<string, SucursalInfo>> {
+    const r = await trx.raw(
+      `SELECT btrim(w.kepler_code) code, w.name, btrim(z.name) zona
+         FROM commercial.warehouses w
+         LEFT JOIN trade.zones z ON z.tenant_id = w.tenant_id AND z.id = w.zone_id
+        WHERE w.deleted_at IS NULL AND w.kepler_code IS NOT NULL`);
+    return new Map((r.rows as Array<Record<string, unknown>>).map((x) => [String(x['code']), { nombre: String(x['name'] ?? ''), zona: (x['zona'] as string | null) || null }]));
   }
 
   // ═════════════════════════════════ incentivos ═════════════════════════════════
