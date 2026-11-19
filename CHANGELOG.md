@@ -9,6 +9,17 @@
 ---
 
 ## [Unreleased]
+### Added — Etiquetas de caja desde la Suite (RE.ETQ · 2026-11-19 · en prod)
+- Nueva pantalla Almacén › Etiquetas de caja. Muestra la cola de órdenes de entrada de la sucursal e imprime en la TSC (rollo de 3 al paso, 100 × 48 mm) por orden o por renglón. También reimprime consecutivos con los mismos datos de la primera vez.
+- Cada etiqueta lleva:
+  - un código de barras Code 128 (`C` + clave), que reemplaza al Code 39 de Kepler; la lectura con el lector de mano está pendiente de prueba física;
+  - el nombre completo, sin cortar;
+  - la fecha del día de la primera impresión.
+- Una caja incompleta lleva su propia etiqueta, con sus piezas.
+- La pestaña «Catálogo de Kepler» lista los productos con factor de caja en 0 o sin código de caja, para que Compras los corrija.
+- Cada impresión queda en una bitácora: quién, cuándo y qué consecutivos.
+- La pantalla está disponible para almacenistas, encargados de tienda y de bodega, y supervisores (21 personas). Quien tenga la sesión abierta tiene que volver a entrar para verla.
+### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
 ### Fixed — Etiquetas: se vuelve a imprimir, y con la tipografía de la etiqueta (ETQ-FUENTE.3 · 2026-11-12)
 - Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
 - Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
