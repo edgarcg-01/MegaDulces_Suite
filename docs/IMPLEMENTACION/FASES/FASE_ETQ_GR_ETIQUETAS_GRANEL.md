@@ -249,7 +249,7 @@ C0–C3 en el PR #571 (2026-11-19), probados en local y recorridos en el navegad
 
 **Pruebas:** contrato 22 (mutación: 5 rojos) · etiquetera 15 · GP.4 idéntica por huella (mutación: rojo) · API 11 unitarias + 11 contra Postgres real (primera, reimpresión congelada aunque Kepler cambie, dos clics = una primera, 403/404/400, la base rechaza una segunda primera) · `design:paramtypes` 4 (negativa: 3 rojos) · pantalla 16 + 71 en `view` · `check:pantalla` de las dos pantallas: 0 fallas.
 
-**Pendiente para cerrar:** las 3 migraciones en prod una por una antes del merge del PR #571 (la del permiso hace el reparto confirmado por Sistemas el 2026-11-19) · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
+**Pendiente para cerrar:** las 3 migraciones en prod una por una, después del merge del PR #571 y antes de soltar (`aplicar-migracion.sh` exige que estén en `origin/main`; el vigía no despliega con una pendiente; la del permiso hace el reparto confirmado por Sistemas el 2026-11-19) · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
 
 ## 8. Bitácora
 

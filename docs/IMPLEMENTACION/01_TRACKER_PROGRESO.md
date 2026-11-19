@@ -40,7 +40,7 @@
 | 7818 | 7883 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 7884 | 7911 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 7912 | 8078 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 8079 | 8107 | 4 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
+| 8079 | 8107 | 5 | 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción) |
 | 8108 | 8509 | 187 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
 | 8510 | 8572 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
 | 8573 | 8702 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
@@ -8080,7 +8080,7 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 
 > Plan: [`FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md`](FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md) · requerimientos: [`FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md`](FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md) · tarjeta «ETQ-GR» del Tablero PM.
 > **D1–D6 respondidas el 2026-11-17:** dentro de RE · cantidad desde la orden de entrada `X-A-40` · navegador **y** TSPL · con bitácora · `C`+clave en caja · **la fecha es el día en que se imprime** (el vale o la orden pueden quedar pendientes).
-> **Estado 2026-11-19:** C0–C3 en código, probados en local y recorridos en el navegador con capturas (cola, detalle, imprimir, reimprimir, consecutivo fuera de rango, catálogo de Kepler); PR #571 abierto. Sin prueba física y nada en prod: las 3 migraciones se aplican una por una antes del merge.
+> **Estado 2026-11-19:** C0–C3 en código, probados en local y recorridos en el navegador con capturas (cola, detalle, imprimir, reimprimir, consecutivo fuera de rango, catálogo de Kepler); PR #571 abierto. Sin prueba física y nada en prod: las 3 migraciones se aplican una por una después del merge (`aplicar-migracion.sh` exige que estén en `origin/main`) y antes de soltar.
 > **Métrica HOY:** 0 de 86,155 cajas/mes se etiquetan desde la Suite (Kepler: barra Code 39 que no se lee, sin registro).
 
 - [x] **[RE.ETQ.0.1]** ✅ 2026-11-05 Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE`, la que imprime la etiqueta), vale (`MD_oc`, no imprime), Granel y Generales.
