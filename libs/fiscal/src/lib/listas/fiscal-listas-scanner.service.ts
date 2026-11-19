@@ -42,7 +42,7 @@ export class FiscalListasScannerService {
         try {
           const r = await this.ingest.refreshFromSat(lista);
           hashes[lista] = r.listHash;
-          this.logger.log(`Lista ${lista}: ${r.total} RFCs (${r.altas} altas, ${r.cambios} cambios)${r.skipped ? ' [sin cambios]' : ''}.`);
+          this.logger.log(`Lista ${lista}: ${r.total} RFCs (${r.altas} altas, ${r.cambios} cambios)${r.skipped ? ' [sin cambios]' : ''} · datos al ${r.actualizada_al ?? 'NO LO DICE'}.`);
         } catch (e: any) {
           this.logger.warn(`No se pudo refrescar lista ${lista} (${e?.message || e}).`);
         }

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { listaConfig, RFC_REGEX, SatListConfig } from './sat-lists.config';
+import { DIAS_LISTA_VIEJA, diasDeAtraso, fechaDeLaLista, listaConfig, RFC_REGEX, SatListConfig } from './sat-lists.config';
 
 export interface SatListIngestResult {
   lista: string;
@@ -11,6 +11,8 @@ export interface SatListIngestResult {
   cambios: number;
   source: string;
   skipped?: boolean;
+  /** `[PGP.161]` La fecha que la propia lista dice tener (la más vieja si son varios archivos); null si no la dice. */
+  actualizada_al?: string | null;
 }
 
 /**
@@ -33,23 +35,47 @@ export class SatListIngestService {
       throw new Error(`Lista ${lista} sin URLs configuradas (ver env). Usa ingestCsv() con archivo.`);
     }
     const texts: string[] = [];
+    const fechas: Array<string | null> = [];
     for (const url of cfg.urls) {
       this.logger.log(`Descargando lista ${lista} de ${url}`);
       const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(`SAT devolvió ${res.status} al descargar ${url}`);
       const buf = Buffer.from(await res.arrayBuffer());
-      texts.push(new TextDecoder('latin1').decode(buf)); // el SAT sirve Latin1
+      const texto = new TextDecoder('latin1').decode(buf); // el SAT sirve Latin1
+      texts.push(texto);
+      fechas.push(fechaDeLaLista(texto, res.headers.get('last-modified')));
     }
     // El Art. 69 publica VARIOS CSV con encabezados DISTINTOS (p.ej. CSDsinefectos
     // no trae "TIPO PERSONA" y su columna de supuesto queda en otro índice). Por eso
     // se parsea CADA archivo con su PROPIO header y se combinan las filas: concatenar
     // los textos y detectar un solo header metía columnas equivocadas (fechas como
     // situación). El hash de dedup se computa sobre el texto concatenado (continuidad).
+    const actualizada_al = this.revisarAtraso(lista, fechas);
     const listHash = this.hashOf(lista, texts.join('\n'));
     const already = await this.findVersion(listHash);
-    if (already) return this.skipVersion(lista, listHash, already, cfg.urls.join(' + '));
+    if (already) return { ...this.skipVersion(lista, listHash, already, cfg.urls.join(' + ')), actualizada_al };
     const rows = texts.flatMap((t) => this.parseCsv(cfg, t)).map((r) => ({ ...r, lista }));
-    return this.persistRows(lista, rows, listHash, cfg.urls.join(' + '));
+    return { ...(await this.persistRows(lista, rows, listHash, cfg.urls.join(' + '))), actualizada_al };
+  }
+
+  /**
+   * `[PGP.161]` La lista se baja bien cada noche y aun así puede ser vieja: el SAT deja de actualizar
+   * una ruta y publica en otra. Eso pasó con la 69-B (once meses sin que nada lo dijera). Aquí se usa
+   * la fecha de cada archivo (`fechaDeLaLista`) y se avisa si pasa de `DIAS_LISTA_VIEJA` o si no hay.
+   */
+  private revisarAtraso(lista: string, fechas: Array<string | null>): string | null {
+    if (fechas.some((f) => f === null)) {
+      this.logger.warn(`Lista ${lista}: ${fechas.filter((f) => f === null).length} de ${fechas.length} archivo(s) sin fecha (ni en el texto ni en Last-Modified) — NO MEDIDO si están al día.`);
+    }
+    const conFecha = fechas.filter((f): f is string => !!f).sort();
+    const masVieja = conFecha[0] ?? null;
+    if (masVieja) {
+      const dias = diasDeAtraso(masVieja, new Date().toISOString().slice(0, 10));
+      if (dias > DIAS_LISTA_VIEJA) {
+        this.logger.warn(`Lista ${lista} dice estar actualizada al ${masVieja} (${dias} días): el SAT pudo moverla de ruta. Revisar sat.gob.mx/minisitio/DatosAbiertos/contribuyentes_publicados.html.`);
+      }
+    }
+    return masVieja;
   }
 
   /** Ingesta un CSV ya obtenido (importer CLI on-prem). Un archivo = un header. */
