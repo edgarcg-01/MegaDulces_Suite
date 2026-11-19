@@ -1,4 +1,5 @@
 import { CommercialPricingService } from './commercial-pricing.service';
+import { EXISTENCIA_ODS_SQL } from '../commercial-inventory/stock-state';
 
 /**
  * `[MCP.3.16]` El catálogo con `stock_state=1`. La base es un doble que ANOTA cada join, cada
@@ -39,7 +40,8 @@ function montar(opts: { filas: Array<Record<string, unknown>>; alDia?: boolean }
     let esConteo = false;
     const b: Record<string, unknown> = {};
     for (const m of ['whereNull', 'where', 'whereNotNull', 'whereRaw', 'whereIn', 'orderBy', 'limit', 'offset']) b[m] = () => b;
-    b['leftJoin'] = (t: string) => { reg.leftJoins.push(t); return b; };
+    // [CANON.7.3] una tabla derivada llega como raw: se anota su SQL.
+    b['leftJoin'] = (t: unknown) => { reg.leftJoins.push(String(t)); return b; };
     b['joinRaw'] = (sql: string, bindings?: unknown[]) => { reg.joinRaws.push({ sql, bindings }); return b; };
     b['select'] = (...cols: unknown[]) => {
       for (const c of cols) reg.selects.push(typeof c === 'string' ? c : String((c as { sql?: string }).sql ?? c));
@@ -71,13 +73,15 @@ type Fila = Record<string, unknown>;
 const listar = (svc: CommercialPricingService, o: { warehouseId?: string; stockState?: boolean }) =>
   svc.listPrices(LISTA, { ...o, pricedOnly: true, commercialOnly: true, sort: 'sales', pageSize: 10000 }) as Promise<{ data: Fila[] }>;
 
-const VIEJO_STOCK = 'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available';
+const ODS_JOIN = `${EXISTENCIA_ODS_SQL} AS s`;
+const VIEJO_STOCK = 'CASE WHEN s.product_id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available';
 
 describe('[MCP.3.16] catálogo · sin stock_state todo igual que antes', () => {
-  it('⭐ con almacén y SIN stock_state: commercial.stock, el mismo stock_available y el mismo orden', async () => {
+  it('⭐ con almacén y SIN stock_state: la existencia del ODS en la forma de la copia [CANON.7.3], el mismo stock_available y el mismo orden', async () => {
     const { svc, reg } = montar({ filas: [{ product_id: 'a', sku: '1', stock_available: 4 }] });
     const r = await listar(svc, { warehouseId: ALMACEN });
-    expect(reg.leftJoins).toContain('commercial.stock as s');
+    expect(reg.leftJoins).toContain(ODS_JOIN);
+    expect(reg.leftJoins).not.toContain('commercial.stock as s');
     expect(reg.joinRaws).toEqual([]);
     expect(reg.selects).toContain(VIEJO_STOCK);
     expect(reg.selects.some((s) => s.includes('stock_medible'))).toBe(false);
@@ -92,6 +96,7 @@ describe('[MCP.3.16] catálogo · sin stock_state todo igual que antes', () => {
     const { svc, reg } = montar({ filas: [{ product_id: 'a', sku: '1', stock_available: null }] });
     const r = await listar(svc, { stockState: true });
     expect(reg.leftJoins).not.toContain('commercial.stock as s');
+    expect(reg.leftJoins).not.toContain(ODS_JOIN);
     expect(reg.joinRaws).toEqual([]);
     expect(reg.selects).toContain('NULL::int AS stock_available');
     expect(reg.orderBy).toEqual(['ts.sales_rank ASC NULLS LAST, p.nombre ASC']);
@@ -111,6 +116,7 @@ describe('[MCP.3.16] catálogo · con stock_state=1', () => {
     const { svc, reg } = montar({ filas });
     await listar(svc, { warehouseId: ALMACEN, stockState: true });
     expect(reg.leftJoins).not.toContain('commercial.stock as s');
+    expect(reg.leftJoins).not.toContain(ODS_JOIN);
     expect(reg.selects).not.toContain(VIEJO_STOCK);
     const joins = reg.joinRaws.map((j) => j.sql).join('\n');
     expect(joins).toMatch(/LEFT JOIN catalog\.products tw/);

@@ -1,0 +1,125 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import knexFactory from 'knex';
+import { EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
+
+/**
+ * `[CANON.7.2]` Los reportes leen la existencia del ODS, no la copia `commercial.stock` del importer
+ * `import-branch-stock-live`. La copia traía el CEDIS congelado desde el 16-oct (205 filas contra el CEDIS
+ * entero de Kepler) y `MD-32`, un almacén borrado; en las 8 sucursales era idéntica al renglón (medido el
+ * 2026-11-19). Lo que este archivo existe para que no vuelva: que un lector de la lista regrese a la copia.
+ */
+const LIB = join(__dirname, '..');
+
+/** Las líneas de CÓDIGO que leen la copia (no comentarios, no `commercial.stock_lots` ni otras tablas). */
+export function lecturasDeLaCopia(texto: string): string[] {
+  return texto.split('\n')
+    .filter((l) => !/^\s*(\/\/|\*|\/\*|--)/.test(l))
+    .map((l) => l.replace(/\s\/\/.*$/, '').replace(/\s--\s.*$/, ''))
+    .filter((l) => /commercial\.stock(?![_a-z])/.test(l));
+}
+
+/**
+ * Los lectores clase A del anexo CANON.7 §3, por archivo, y cuántas lecturas de la copia les QUEDAN a
+ * propósito. ⚠️ Un número distinto de 0 es deuda con nombre, no un permiso.
+ *
+ * A6 y A13 leen dentro de un endpoint que ESCRIBE (el conteo de Monitoreo y la bandeja del scanner): por la
+ * regla 13 no cambian sin una prueba contra base real con el ODS sembrado, y la que existe
+ * (`test-newdb-inventory-monitoring.js`) siembra la copia. Van con los escritores, en `[CANON.7.4]`.
+ */
+const LECTORES_A: Array<[archivo: string, quedan: number, porque: string]> = [
+  ['commercial-analytics/commercial-analytics.service.ts', 0,
+    'A1 deadStock · A2 lowStock · A3 sellOut · A4 salidas · B8 rankingOutOfStock ([CANON.7.3])'],
+  ['commercial-intelligence/thot-chat/thot-tools.service.ts', 0, 'A5 reorderPolicy'],
+  ['commercial-inventory/inventory-monitoring.service.ts', 1, 'A6 recordCount: escribe el conteo → [CANON.7.4]'],
+  ['commercial-products/commercial-products.service.ts', 0, 'A7 findById (total de la red)'],
+  ['commercial-profitability/commercial-profitability.service.ts', 0, 'A8 overview · A9 breakdown'],
+  ['commercial-replenishment/commercial-replenishment.service.ts', 0, 'A10 networkSurplus · A11 criticalStock · A12 summary'],
+  ['commercial-replenishment/replenishment-scanner.service.ts', 2, 'A13 scanTenant: escribe la bandeja → [CANON.7.4]'],
+];
+
+/**
+ * `[CANON.7.3]` Los lectores clase B (deciden «hay / no hay» para el cliente, el bot, el vendedor o Reparto). Cambian
+ * de FUENTE, no de regla: «sin fila» sigue leyéndose como 0, igual que con la copia. Decir «sin dato» en vez de
+ * «agotado» (la regla de `estadoDeExistencia`) es otra decisión, por pantalla.
+ */
+const RAIZ = join(__dirname, '../../../../..');
+const LECTORES_B: Array<[archivo: string, quedan: number, porque: string]> = [
+  ['apps/api/src/composition/commerce-conversation.binding.module.ts', 0, 'B1 bot de WhatsApp (enrichMeta)'],
+  ['libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts', 0, 'B2 catálogo del portal · B3 facetas'],
+  ['libs/commercial/src/lib/commercial-pricing/commercial-pricing.service.ts', 0, 'B4 lista de precios · B5 más vendidos'],
+  ['libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts', 1,
+    'B6 detalle de pedido: su tope tiene que cuadrar con reserve(), que valida contra la copia con candado → [CANON.7.4]'],
+  ['libs/commercial/src/lib/commercial-picking/picking.service.ts', 0, 'B7 Reparto › Faltantes y sus sugerencias'],
+  ['libs/commercial/src/lib/commercial-intelligence/thot-chat/portal-thot-tools.service.ts', 0, 'B9 · B10 Thot del portal'],
+  ['libs/commercial/src/lib/commercial-intelligence/thot-chat/vendor-thot-tools.service.ts', 0, 'B11 Thot del vendedor'],
+];
+
+describe('[CANON.7.2] la existencia del ODS con la forma de la copia', () => {
+  it('lee SÓLO la vista canónica y da las cinco columnas que leían de la copia', () => {
+    expect(EXISTENCIA_ODS_SQL).toContain('FROM analytics.v_erp_stock_on_hand e');
+    expect(EXISTENCIA_ODS_SQL).not.toMatch(/commercial\.stock(?![_a-z])/);
+    for (const col of ['e.tenant_id', 'e.warehouse_id', 'e.product_id', 'e.qty_stock_units AS quantity']) {
+      expect(EXISTENCIA_ODS_SQL).toContain(col);
+    }
+  });
+
+  it('⚠️ los apartados son 0 y lo dice: la vista no los tiene (misma regla que leerExistencia)', () => {
+    expect(EXISTENCIA_ODS_SQL).toContain('0::numeric AS reserved_quantity');
+  });
+
+  it('existenciaOds pone el alias y truena con uno que se pudiera inyectar (se interpola en SQL)', () => {
+    const k = knexFactory({ client: 'pg' });
+    expect(existenciaOds(k, 's').toString()).toBe(`${EXISTENCIA_ODS_SQL} AS s`);
+    expect(k.from(existenciaOds(k, 'st')).where('st.product_id', 'x').toString())
+      .toMatch(/^select \* from \(SELECT e\.tenant_id[\s\S]+\) AS st where "st"\."product_id" = 'x'$/);
+    expect(() => existenciaOds(k, 's; DROP TABLE x')).toThrow(/alias inválido/);
+    expect(() => existenciaOds(k, 'S')).toThrow(/alias inválido/);
+  });
+});
+
+describe('[CANON.7.2] el detector de lecturas de la copia (control: tiene que ver las formas reales)', () => {
+  it('ve las cuatro formas en que se leía la copia', () => {
+    const viejo = [
+      `const base = trx('commercial.stock as s')`,
+      `        .leftJoin('commercial.stock as s', (j) =>`,
+      `        .from({ st: 'commercial.stock' })`,
+      `               FROM commercial.stock st`,
+    ].join('\n');
+    expect(lecturasDeLaCopia(viejo)).toHaveLength(4);
+  });
+
+  it('no cuenta comentarios, ni otras tablas del mismo prefijo', () => {
+    const ok = [
+      `   * Productos en el top del ERP pero con stock=0 en commercial.stock.`,
+      `      // [RA.VA.2] commercial.stock ya NO se une acá`,
+      `                -- [RA.VA.2] commercial.stock ya NO se une acá: la existencia sale de rpl.`,
+      `      const lot = await trx('commercial.stock_lots').where({ id })`,
+      `      const x = trx.from(existenciaOds(trx, 's')) // antes: commercial.stock`,
+    ].join('\n');
+    expect(lecturasDeLaCopia(ok)).toEqual([]);
+  });
+});
+
+describe('[CANON.7.2] los lectores clase A ya no leen la copia', () => {
+  it.each(LECTORES_A)('%s', (archivo, quedan, porque) => {
+    const lecturas = lecturasDeLaCopia(readFileSync(join(LIB, archivo), 'utf8'));
+    expect(lecturas.map((l) => l.trim()), porque).toHaveLength(quedan);
+  });
+});
+
+describe('[CANON.7.3] los lectores clase B ya no leen la copia', () => {
+  it.each(LECTORES_B)('%s', (archivo, quedan, porque) => {
+    const lecturas = lecturasDeLaCopia(readFileSync(join(RAIZ, archivo), 'utf8'));
+    expect(lecturas.map((l) => l.trim()), porque).toHaveLength(quedan);
+  });
+
+  it('«sin fila» se sigue leyendo como antes: la tabla derivada no tiene `id`, se pregunta por `product_id`', () => {
+    for (const archivo of ['libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts',
+      'libs/commercial/src/lib/commercial-pricing/commercial-pricing.service.ts']) {
+      const f = readFileSync(join(RAIZ, archivo), 'utf8');
+      expect(f).not.toMatch(/\bs\.id IS (NOT )?NULL/);
+      expect(f).toContain('CASE WHEN s.product_id IS NULL THEN NULL');
+    }
+  });
+});

@@ -14,6 +14,7 @@ import { FotoSwr } from '../shared/foto-swr';
 import { esNombreDePromocion } from '@megadulces/contracts';
 import {
   existenciaDeSucursalJoin,
+  existenciaOds,
   GEMELO_JOIN_SQL,
   HECHOS_EXISTENCIA_SQL,
   lecturaDeSucursales,
@@ -532,7 +533,7 @@ export class CommercialPricingService {
             const ex = existenciaDeSucursalJoin(warehouseId);
             q = q.joinRaw(GEMELO_JOIN_SQL).joinRaw(ex.sql, ex.bindings);
           }
-        } else q = q.leftJoin('commercial.stock as s', function () {
+        } else q = q.leftJoin(existenciaOds(trx, 's'), function () { // [CANON.7.3] del ODS
           this.on('s.product_id', '=', 'p.id')
             .andOn('s.tenant_id', '=', 'p.tenant_id')
             .andOnVal('s.warehouse_id', warehouseId);
@@ -601,7 +602,7 @@ export class CommercialPricingService {
               : ['false AS stock_medible', 'false AS stock_con_registro', 'NULL::float8 AS stock_qty', 'NULL::uuid AS stock_twin_product_id']
             ).map((c) => trx.raw(c))
             : [trx.raw(
-              'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
+              'CASE WHEN s.product_id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
             )]),
           // `[VPR.2]` La PROCEDENCIA viaja con el número (ADR-056). Sin esto nadie puede saber si
           // el precio que está leyendo es el de su plaza o el promedio de la red — que es
@@ -968,7 +969,7 @@ export class CommercialPricingService {
         .leftJoin('inventory.products_active as ipa', 'ipa.sku', 'ts.sku');
 
       if (warehouseId) {
-        q = q.leftJoin('commercial.stock as s', function () {
+        q = q.leftJoin(existenciaOds(trx, 's'), function () { // [CANON.7.3] del ODS
           this.on('s.product_id', '=', 'ts.id')
             .andOn('s.tenant_id', '=', 'ts.tenant_id')
             .andOnVal('s.warehouse_id', warehouseId);
@@ -999,7 +1000,7 @@ export class CommercialPricingService {
       if (warehouseId) {
         selects.push(
           trx.raw(
-            'CASE WHEN s.id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
+            'CASE WHEN s.product_id IS NULL THEN NULL ELSE GREATEST(s.quantity - COALESCE(s.reserved_quantity, 0), 0) END AS stock_available',
           ),
         );
       } else {

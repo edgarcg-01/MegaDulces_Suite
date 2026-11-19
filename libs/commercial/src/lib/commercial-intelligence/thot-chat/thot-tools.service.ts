@@ -3,6 +3,7 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { CommercialAnalyticsService } from '../../commercial-analytics/commercial-analytics.service';
 import { RoutePromoService } from '../../commercial-analytics/route-promo.service';
 import { ThotService } from '../thot.service';
+import { EXISTENCIA_ODS_SQL } from '../../commercial-inventory/stock-state';
 import { ThotToolDef, ThotToolProvider, ThotScope } from './thot-tool-provider';
 import { buildThotSystemPrompt } from './thot-semantic';
 
@@ -588,7 +589,7 @@ export class ThotToolsService implements ThotToolProvider {
           'rp.max_stock',
           trx.raw(
             `(SELECT COALESCE(SUM(st.quantity),0) - COALESCE(SUM(st.reserved_quantity),0)
-               FROM commercial.stock st
+               FROM ${EXISTENCIA_ODS_SQL} st
                WHERE st.tenant_id = rp.tenant_id AND st.product_id = rp.product_id AND st.warehouse_id = rp.warehouse_id) AS available`,
           ),
           'rp.abc_class',
@@ -599,8 +600,8 @@ export class ThotToolsService implements ThotToolProvider {
         .orderByRaw('w.code ASC NULLS LAST')
         .limit(200);
       return {
-        source: 'commercial.reorder_policy + commercial.stock (piezas)',
-        note: 'min_stock / reorder_point / max_stock en PIEZAS. available = existencia − reservado (suma de pasillos).',
+        source: 'commercial.reorder_policy + analytics.v_erp_stock_on_hand (existencia del ODS de Kepler, piezas)',
+        note: 'min_stock / reorder_point / max_stock en PIEZAS. available = existencia del ERP (no descuenta apartados de la Suite).',
         count: rows.length,
         rows,
       };

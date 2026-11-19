@@ -20,6 +20,8 @@ export * from './lib/commercial-inventory/commercial-inventory.module';
 // Dos líneas y no `export { a, type B }`: `check-commit-wiring` no reconoce el `type` en línea.
 export { lecturaDeSucursales } from './lib/commercial-inventory/stock-state';
 export type { SucursalStock, LecturaSucursal } from './lib/commercial-inventory/stock-state';
+// [CANON.7.2] La existencia del ODS con la forma de la copia: la usan también las composiciones de apps/api.
+export { EXISTENCIA_ODS_SQL, existenciaOds } from './lib/commercial-inventory/stock-state';
 export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';
 // [FLT] Lista de faltantes: la venta que NO ocurrió, reportada desde el piso.
