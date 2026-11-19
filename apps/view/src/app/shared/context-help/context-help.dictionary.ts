@@ -1504,8 +1504,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'La sucursal importa',
         entries: [
           { term: 'Por qué se elige sucursal', def: 'El mismo código puede tener precio distinto entre plazas. La pantalla usa la sucursal de tu cuenta; si la máquina del mostrador no tiene cuenta propia, se le pasa la sucursal en la dirección (?sucursal=NN).' },
-          { term: 'Datos hace N', def: 'Qué tan reciente es el dato del ERP para esa sucursal. Si dice horas, el precio pudo cambiar y aún no llegar.' },
-          { term: 'Frescura del ERP sin medir', def: 'El sistema no sabe de cuándo es el dato de esa sucursal porque no le llega el latido del ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
+          { term: 'Datos hace N', def: 'Hace cuánto se revisaron por última vez los precios de esa sucursal contra el ERP (se revisan cada pocos segundos, cambien o no). Si dice horas, el precio pudo cambiar y aún no llegar.' },
+          { term: 'Frescura del ERP sin medir', def: 'El sistema no tiene registro de que esa sucursal se haya revisado contra el ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
         ],
       },
       {

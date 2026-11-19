@@ -102,7 +102,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | MSP.4.2 | Desplegar; `ernesto_zarate` cierra sesión y vuelve a entrar (los permisos viajan en el token) | ⬜ |
 | MSP.4.3 | Encender la cola desde Configuración y levantar una solicitud de prueba (marcarla «de prueba») con un encargado, **con evidencia adjunta** y una orden de servicio a Mantenimiento: es la primera vez que la evidencia corre de punta a punta (el bucket no existe en local) | ⬜ |
 
-## 4. Decisiones (→ ADR-123)
+## 4. Decisiones (→ ADR-124)
 
 | # | Decisión | Quién | Fecha |
 |---|---|---|---|
@@ -183,4 +183,4 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | 2026-11-18 | Pedido del usuario: área de Presupuestos y Requerimientos (coordina Ernesto Zárate), D1–D4 contestadas. Medido prod. Plan escrito. | Sistemas + Claude |
 | 2026-11-18 | C0–C3 escritos. C1 y C3 🧪 (con mutantes); C0 y la matriz HTTP de C2 NO MEDIDAS (sin Postgres local ni API). Ver §7. | Claude |
 | 2026-11-19 | Con Postgres local y la API levantada desde la copia: C0 47/47 (4 mutantes en rojo), C2 62/62 (3 rondas de mutantes en rojo). La matriz encontró el 403 que llegaba después del bucket; arreglado. Evidencia de punta a punta NO MEDIDA (sin bucket local) → `[MSP.4.3]`. | Usuario + Claude |
-| 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-123** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 114–119; 109–113 son de #569). | Claude |
+| 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-124** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 114–119; 109–113 son de #569). | Claude |

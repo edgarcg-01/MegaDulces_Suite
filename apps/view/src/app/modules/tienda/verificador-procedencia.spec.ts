@@ -19,6 +19,9 @@ import { join } from 'node:path';
  * importer nunca pisa) mientras el mostrador leía el ERP crudo. **Medido: hoy hay CERO filas
  * `manual` en prod**, así que ese defecto estaba latente, no activo — se arregla porque el día que
  * alguien use el override no puede ser el día en que se descubra que el mostrador lo ignora.
+ * ⛔ **Retirado el 2026-11-19 (`[VAC.D3]`, firmado por 0Sistemas):** la etiquetera dejó de imprimir
+ * el override y seguía en 0 filas (0 de 80,036), así que el mostrador lo aplicaba con una nota que
+ * podía mentir. Hoy hay una sola verdad: el precio del ERP. El candado de abajo vigila que no vuelva.
  *
  * Lo que este candado NO cubre —y hay que decirlo— es la pregunta de fondo: la etiquetera imprime
  * la MODA DE LA RED (excluyendo CEDIS) y el mostrador contesta por plaza. Son dos preguntas
@@ -72,14 +75,14 @@ describe('verificador · de qué plaza salió el precio', () => {
     expect(fn).toMatch(/plaza_pedida_sin_dato/);
   });
 
-  it('el override manual del anaquel gana, y se lee con el tenant puesto', () => {
-    // [TDA.4] El filtro pasó de SQL a JS: la misma lectura trae ahora los tiers de mayoreo, así
-    // que la query devuelve la fila completa y el override se decide sobre `source`. La garantía
-    // vigilada es la misma: sólo un precio corregido A MANO pisa al del ERP.
-    expect(SVC).toMatch(/l.source,/);
-    expect(SVC).toMatch(/r.source === .manual./);
+  it('[VAC.D3] ya no hay corrección manual: el precio es el de Kepler, y la etiqueta se lee con el tenant puesto', () => {
+    // Firmado por 0Sistemas el 2026-11-19 (0 de 80,036 filas eran manuales): ninguna fila de la
+    // etiqueta pisa el precio del ERP. Si alguien devuelve la rama, este candado se pone rojo.
+    expect(SVC).not.toMatch(/l\.source,/);
+    expect(SVC).not.toMatch(/r\.source === .manual./);
+    expect(SVC).not.toMatch(/override_manual/);
     // RLS FORCE + endpoint @Public(): sin el tenant en la MISMA tx la lectura vuelve vacía EN
-    // SILENCIO si el rol es app_runtime, o sea el override desaparecería sin un solo error.
+    // SILENCIO si el rol es app_runtime, o sea el mayoreo desaparecería sin un solo error.
     // [TDA.4] El metodo pasa a llamarse `datosDeEtiqueta`: la misma lectura trae ahora tambien
     // los tiers de mayoreo, porque salen de la misma fila. La garantia vigilada es la misma.
     // El lookahead importa: sin él el regex paraba en el `}` del tipo de retorno multilínea y
@@ -88,7 +91,7 @@ describe('verificador · de qué plaza salió el precio', () => {
     expect(fn).toMatch(/SET LOCAL app\.tenant_id/);
     expect(fn).toMatch(/this\.db\.transaction/);
     // Es un refinamiento del precio, no el precio: si falla, el mostrador sigue contestando.
-    // [TDA.4] El neutro ahora es `vacio` (override null + mayoreo []), no `null` pelado: la
+    // [TDA.4] El neutro ahora es `vacio` (mayoreo [] y lo demás null), no `null` pelado: la
     // misma lectura trae dos cosas. Lo que se vigila sigue siendo que el catch NO relance.
     expect(fn).toMatch(/catch[\s\S]*return vacio/);
   });
@@ -99,21 +102,21 @@ describe('verificador · de qué plaza salió el precio', () => {
   });
 
   // LA NEGATIVA QUE MÁS DUELE SI SE ROMPE: la procedencia tiene que resetearse en CADA resultado.
-  // Pegada del producto anterior, la pantalla diría "precio corregido a mano" sobre uno que no lo
-  // está — y eso es peor que no decir nada, porque suena a confirmación.
+  // Pegada del producto anterior, la pantalla diría «varía entre plazas» sobre uno que no varía
+  // — y eso es peor que no decir nada, porque suena a confirmación.
   it('la procedencia se resetea en cada resultado', () => {
     const fn = /private aplicar\(r: ResultadoBusqueda\): void \{[\s\S]*?\n  \}/.exec(PAGE)![0];
-    for (const s of ['origenPrecio.set', 'precioAmbiguo.set', 'plazasDistintas.set', 'plazaSinDato.set']) {
+    for (const s of ['precioAmbiguo.set', 'plazasDistintas.set', 'plazaSinDato.set']) {
       expect(fn).toContain(s);
     }
-    // Con `??` y `=== true`: un campo ausente (el camino del respaldo no los trae) cae al valor
+    // Con `=== true`: un campo ausente (el camino del respaldo no los trae) cae al valor
     // neutro, nunca a `undefined` colándose como verdadero.
-    expect(fn).toMatch(/r\.origenPrecio \?\? 'kepler'/);
     expect(fn).toMatch(/r\.precioAmbiguo === true/);
   });
 
   it('la pantalla lo dice, no lo esconde', () => {
-    expect(PAGE).toMatch(/origenPrecio\(\) === 'override_manual'/);
+    // [VAC.D3] Y ya no dice «corregido a mano»: esa rama se retiró con su dato.
+    expect(PAGE).not.toMatch(/corregido a mano/i);
     expect(PAGE).toMatch(/precioAmbiguo\(\)/);
     expect(PAGE).toMatch(/plazaSinDato\(\)/);
   });

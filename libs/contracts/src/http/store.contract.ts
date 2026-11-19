@@ -235,7 +235,12 @@ export interface VerificadorPrecioOk {
   codigo_ambiguo: boolean;
   productos_candidatos: CandidatoVerificador[];
   plaza_pedida_sin_dato: boolean;
-  origen_precio: 'kepler' | 'override_manual';
+  /**
+   * De dónde sale el precio. `[VAC.D3]` (firmado por 0Sistemas el 2026-11-19): SIEMPRE `'kepler'`.
+   * Se retiró `'override_manual'` (la corrección a mano que pisaba al ERP; 0 de 80,036 filas la
+   * usaban). El campo se conserva porque lo leen kioscos y la app del vendedor ya instalados.
+   */
+  origen_precio: 'kepler';
   /** `[MOS.1]` El proveedor de la ficha. `null` = sin proveedor o no se pudo leer. */
   proveedor?: string | null;
   /**
