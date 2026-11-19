@@ -1,5 +1,5 @@
 import type { WarehouseLocationRow } from '@megadulces/contracts';
-import { cartelesDe, estadoDeRack, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
+import { cartelesDe, estadoDeRack, formatoPorZona, zonaConUbicaciones } from './almacen-ubicaciones-mapa.component';
 
 const nivel = (p: Partial<WarehouseLocationRow>): WarehouseLocationRow => ({
   id: 'x', warehouse_id: 'w', warehouse_code: '01', code: 'BA051', label: null, familia: 'ubicacion',
@@ -67,5 +67,12 @@ describe('[UB.RF.10] mapa · carteles a imprimir', () => {
   });
   it('NEGATIVA: la zona de tienda no se cuela en los de bodega (y viceversa)', () => {
     expect(cartelesDe(ubs, { zona: 'T' }, '01').map((c) => c.code)).toEqual(['TA011']);
+  });
+});
+
+describe('[UB.RF.12] mapa · qué se imprime por omisión', () => {
+  it('⭐ en tienda, la etiqueta chica (un cartel grande le quita vista al producto); en bodega, el cartel', () => {
+    expect(formatoPorZona('T')).toBe('etiqueta');
+    expect(formatoPorZona('B')).toBe('cartel');
   });
 });

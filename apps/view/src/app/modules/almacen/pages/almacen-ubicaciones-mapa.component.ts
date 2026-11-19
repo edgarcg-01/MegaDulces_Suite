@@ -26,7 +26,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
 import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
-import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
+import { AndenCartelComponent, type CartelUbicacion, type FormatoCartel } from '../anden/components/anden-cartel.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -78,7 +78,8 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           }
           @if (data()?.warehouse && !enCaptura()) {
             <!-- [UB.RF.10] Carteles para pegar en el rack: uno, un rack, un pasillo o toda la zona. -->
-            <button pButton type="button" class="p-button-sm p-button-outlined" [attr.aria-pressed]="imprimirAbierto()" (click)="abrirImpresion()"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir carteles</span></button>
+            <!-- [UB.RF.12] En tienda son etiquetas chicas para el canto del anaquel (un cartel le quita vista al producto). -->
+            <button pButton type="button" class="p-button-sm p-button-outlined" [attr.aria-pressed]="imprimirAbierto()" (click)="abrirImpresion()"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">{{ zona() === 'T' ? 'Imprimir etiquetas' : 'Imprimir carteles' }}</span></button>
           }
           @if (puedeGestionar() && data()?.warehouse) {
             @if (enCaptura()) {
@@ -101,21 +102,22 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           <app-metric-strip [items]="kpis()" ariaLabel="Resumen de ubicaciones" />
 
           @if (carteles().length) {
-            <section class="ub-block ub-carteles" aria-label="Carteles para imprimir">
-              <app-anden-cartel [ubicaciones]="carteles()" (cerrar)="cerrarImpresion()" />
+            <section class="ub-block ub-carteles" [attr.aria-label]="formatoCartel() === 'etiqueta' ? 'Etiquetas para imprimir' : 'Carteles para imprimir'">
+              <app-anden-cartel [ubicaciones]="carteles()" [formato]="formatoCartel()" (cerrar)="cerrarImpresion()" />
             </section>
           } @else if (imprimirAbierto() && !enCaptura()) {
             <section class="ub-block ub-step ub-imprimir" aria-labelledby="ub-h-imp">
-              <h3 id="ub-h-imp">Imprimir carteles · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
+              <h3 id="ub-h-imp">Imprimir · {{ zona() === 'B' ? 'bodega' : 'tienda' }}</h3>
               @if (pasillosCartel().length) {
+                <app-segmented [options]="formatosCartel" [value]="formatoCartel()" (valueChange)="formatoElegido.set($any($event))" ariaLabel="Tamaño" />
                 <app-segmented [options]="pasillosCartel()" [value]="pasilloCartel()" (valueChange)="pasilloCartel.set($any($event))" ariaLabel="Pasillo" />
-                <p class="ub-hint">Salen dos por hoja carta; se recorta por la línea punteada. Para uno solo o un rack, tócalo en el mapa.</p>
+                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas de 6.7 × 2.5 cm para el canto del anaquel, 30 por hoja carta.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
                 <div class="ub-acts">
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarImpresion()"><span class="p-button-label">Cancelar</span></button>
-                  <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ cuentaCartel() === 1 ? 'cartel' : 'carteles' }}</span></button>
+                  <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ nombreCartel(cuentaCartel()) }}</span></button>
                 </div>
               } @else {
-                <p class="ub-hint">No hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} dadas de alta: no hay carteles que imprimir.</p>
+                <p class="ub-hint">No hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} dadas de alta: no hay nada que imprimir.</p>
               }
             </section>
           }
@@ -175,13 +177,13 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
                           <span class="ub-level-txt">Nivel {{ n.nivel }} · {{ tipoLabel(n.tipo) }}@if (n.renglones_con_cantidad) { · <b>{{ n.renglones_con_cantidad }} con mercancía</b> }</span>
                           <span class="ub-chip ub-chip-{{ n.estado }}">{{ estadoTxt(n.estado) }}</span>
                           @if (n.estado !== 'baja') {
-                            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'Imprimir el cartel de ' + n.code" (click)="verCarteles({ code: n.code })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button>
+                            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'Imprimir ' + (formatoCartel() === 'etiqueta' ? 'la etiqueta' : 'el cartel') + ' de ' + n.code" (click)="verCarteles({ code: n.code })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button>
                           }
                           @if (n.motivo_estado) { <span class="ub-sub">{{ n.motivo_estado }}</span> }
                         </li>
                       }
                     </ul>
-                    <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir los carteles de este rack</span></button>
+                    <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarteles({ pasillo: s.pasillo, rack: s.celda.rack })"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir {{ formatoCartel() === 'etiqueta' ? 'las etiquetas' : 'los carteles' }} de este rack</span></button>
                   } @else {
                     <p class="ub-hint">Este rack no tiene niveles dados de alta.</p>
                   }
@@ -323,8 +325,23 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   });
   readonly cuentaCartel = computed(() => this.pasillosCartel().find((o) => o.value === this.pasilloCartel())?.count ?? 0);
 
-  abrirImpresion(): void { this.imprimirAbierto.update((v) => !v); this.pasilloCartel.set('*'); this.carteles.set([]); }
-  cerrarImpresion(): void { this.imprimirAbierto.set(false); this.carteles.set([]); }
+  /**
+   * `[UB.RF.12]` Tamaño de lo que se imprime. Por omisión, el de la zona: en TIENDA etiquetas chicas para el
+   * canto del anaquel (un cartel de media carta le quita vista al producto, Edgar 2026-11-19); en BODEGA el
+   * cartel, que se lee caminando. La persona lo puede cambiar.
+   */
+  readonly formatoElegido = signal<FormatoCartel | null>(null);
+  readonly formatoCartel = computed<FormatoCartel>(() => this.formatoElegido() ?? formatoPorZona(this.zona()));
+  readonly formatosCartel: SegOption[] = [
+    { label: 'Etiqueta chica · 30 por hoja', value: 'etiqueta' },
+    { label: 'Cartel · media carta', value: 'cartel' },
+  ];
+  nombreCartel(n: number): string {
+    return this.formatoCartel() === 'etiqueta' ? (n === 1 ? 'etiqueta' : 'etiquetas') : n === 1 ? 'cartel' : 'carteles';
+  }
+
+  abrirImpresion(): void { this.imprimirAbierto.update((v) => !v); this.pasilloCartel.set('*'); this.formatoElegido.set(null); this.carteles.set([]); }
+  cerrarImpresion(): void { this.imprimirAbierto.set(false); this.formatoElegido.set(null); this.carteles.set([]); }
   verCarteles(f: { pasillo?: string | null; rack?: number | null; code?: string }): void {
     this.carteles.set(cartelesDe(this.conFormato(), { zona: this.zona(), ...f }, this.data()?.warehouse?.code ?? null));
   }
@@ -549,6 +566,11 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
  * código), sin los dados de baja, en el orden en que se recorre el almacén. El rótulo es corto a
  * propósito: el código ya dice pasillo y rack, y en el cartel cabe una línea.
  */
+/** `[UB.RF.12]` Lo que se imprime por omisión en cada zona: tienda → etiqueta chica; bodega → cartel. */
+export function formatoPorZona(zona: LocationZone): FormatoCartel {
+  return zona === 'T' ? 'etiqueta' : 'cartel';
+}
+
 export function cartelesDe(
   ubicaciones: WarehouseLocationRow[],
   f: { zona: LocationZone; pasillo?: string | null; rack?: number | null; code?: string },

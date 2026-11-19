@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén › Ubicaciones: etiquetas chicas para la tienda (UB.RF.12 · 2026-11-19)
+- En tienda, «Imprimir» saca etiquetas de 6.7 × 2.5 cm con el código y su código de barras, 30 por hoja carta de etiquetas adhesivas, para pegarlas en el canto del anaquel sin tapar el producto. En bodega sigue el cartel grande.
+- Al leer la etiqueta en «Ubicar productos» se elige esa ubicación: no hay que teclear nada.
+
 ### Changed — Almacén › Ubicar productos: rehecha para el celular y el lector (UB.RF.11 · 2026-11-19)
 - Un solo campo para el producto o la ubicación: el lugar se asigna escaneando, y una ubicación que todavía no existe se crea en ese momento.
 - La lista empieza por lo que más se vende, y cada producto dice en palabras dónde está: «Tienda TA011 · Bodega falta». Ya no dice «0 % ya ubicado» cuando el producto sí tiene lugar en tienda.
