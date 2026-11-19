@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, afterRenderEffect, computed, effect, inject, input, linkedSignal, output, signal, untracked } from '@angular/core';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { CommonModule } from '@angular/common';
@@ -66,7 +66,7 @@ export interface RenglonTabla {
 
 /** `[COT.47]` Los filtros de una lista larga de renglones. */
 export type FiltroRenglones = 'todos' | 'faltan' | 'promo';
-export type OrdenRenglones = 'captura' | 'importe' | 'nombre';
+export type OrdenRenglones = 'reciente' | 'captura' | 'importe' | 'nombre';
 
 /**
  * `[COT.47]` Desde cuántos renglones aparece la barra de buscar y filtrar. Medido en prod (30 días,
@@ -91,12 +91,33 @@ export function cuentasRenglones(renglones: RenglonTabla[]): Record<FiltroRenglo
  */
 export function renglonesVisibles(
   renglones: RenglonTabla[], busqueda: string, filtro: FiltroRenglones, orden: OrdenRenglones,
+  marcado: string | null = null,
 ): RenglonTabla[] {
   const out = renglones.filter((r) =>
     (filtro === 'todos' || (filtro === 'faltan' ? falta(r) : esPromo(r))) && coincideBusqueda(busqueda, r.nombre, r.sku));
   if (orden === 'importe') return [...out].sort((a, b) => (b.neto ?? b.importe ?? -1) - (a.neto ?? a.importe ?? -1));
   if (orden === 'nombre') return [...out].sort((a, b) => nombres.compare(a.nombre, b.nombre));
+  if (orden === 'reciente') return recientePrimero(out, marcado);
   return out;
+}
+
+/**
+ * `[COT.48]` Lo último arriba: quien dicta una lista larga ve lo que acaba de agregar JUSTO debajo del
+ * buscador, sin bajar a buscarlo (el renglón nuevo caía al final, fuera de la vista). El que se acaba de
+ * tocar (`marcado`: agregado o sumado a uno que ya estaba) va primero. El regalo del ERP viaja pegado a
+ * su renglón. Sólo cambia lo que se VE: el «#» sigue siendo el renglón del pedido en Kepler.
+ */
+function recientePrimero(renglones: RenglonTabla[], marcado: string | null): RenglonTabla[] {
+  const grupos: RenglonTabla[][] = [];
+  for (const r of renglones) {
+    const padre = r.regaloDe === null ? undefined : grupos.find((g) => g[0].numero === r.regaloDe);
+    if (padre) padre.push(r);
+    else grupos.push([r]);
+  }
+  grupos.reverse();
+  const i = marcado === null ? -1 : grupos.findIndex((g) => g.some((r) => r.id === marcado));
+  if (i > 0) grupos.unshift(...grupos.splice(i, 1));
+  return grupos.flat();
 }
 
 export interface CambioCantidad {
@@ -136,9 +157,14 @@ export interface CambioCantidad {
         }
       </div>
     }
-    <!-- [COT.47] Encabezado fijo al bajar (surf-table--sticky): en 40 renglones «Precio», «De dónde sale» e
-         «Importe» son tres columnas de pesos y sin el encabezado no se sabe cuál es cuál. -->
-    <p-table class="dt-stack surf-table--sticky" [value]="visibles()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ width: '100%' }">
+    <!-- [COT.47] Encabezado fijo al bajar: en 40 renglones «Precio», «De dónde sale» e «Importe» son tres
+         columnas de pesos y sin el encabezado no se sabe cuál es cuál.
+         [COT.48] La tabla es su PROPIA caja de desplazamiento (scrollable). Con surf-table--sticky solo NO se
+         pegaba (medido en prod con Playwright, 2026-11-19): el contenedor de PrimeNG y este :host tienen
+         overflow (lo exigen las columnas fijas al desplazar de lado), así que el sticky se pegaba a una caja
+         que nunca se desplaza en vertical. Encabezado y columnas fijas comparten ahora la misma caja. -->
+    <p-table class="dt-stack surf-table--sticky" [value]="visibles()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ width: '100%' }"
+             [scrollable]="true" scrollHeight="calc(100dvh - 10rem)">
       <ng-template #header>
         <tr>
           <th scope="col" class="num fijo fijo-num">#</th>
@@ -382,8 +408,11 @@ export class QuoteLinesTableComponent {
   readonly umbralFiltros = RENGLONES_PARA_FILTRAR;
   readonly busqueda = signal('');
   readonly filtro = signal<FiltroRenglones>('todos');
-  readonly orden = signal<OrdenRenglones>('captura');
-  readonly visibles = computed(() => renglonesVisibles(this.renglones(), this.busqueda(), this.filtro(), this.orden()));
+  /** `[COT.48]` El orden con que abre: «reciente» mientras se captura (alta, borrador), «captura» al consultar. */
+  readonly ordenInicial = input<OrdenRenglones>('captura');
+  readonly orden = linkedSignal<OrdenRenglones>(() => this.ordenInicial());
+  readonly visibles = computed(() =>
+    renglonesVisibles(this.renglones(), this.busqueda(), this.filtro(), this.orden(), this.marcado()));
   readonly filtrando = computed(() => this.busqueda().trim() !== '' || this.filtro() !== 'todos');
   readonly opcionesFiltro = computed<SegOption[]>(() => {
     const n = cuentasRenglones(this.renglones());
@@ -393,8 +422,9 @@ export class QuoteLinesTableComponent {
       { label: 'Con promoción', value: 'promo', count: n.promo },
     ];
   });
-  /** El de captura va primero: el número de renglón es el del pedido en Kepler. */
+  /** El número de renglón es siempre el del pedido en Kepler, en cualquier orden. */
   readonly opcionesOrden: SegOption[] = [
+    { label: 'Lo último arriba', value: 'reciente' },
     { label: 'Como se capturó', value: 'captura' },
     { label: 'Importe mayor', value: 'importe' },
     { label: 'Nombre', value: 'nombre' },

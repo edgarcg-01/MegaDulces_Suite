@@ -5,465 +5,251 @@ import { provideRouter } from '@angular/router';
 import { MessageService } from 'primeng/api';
 
 import { MktRankingComponent } from './mkt-ranking.component';
-import { ParticipanteRanking, RankingSemana } from '../mkt-ranking.service';
+import { PromoVenta, VendedorVenta, VentaSemana } from '../mkt-ranking.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
 import { environment } from '../../../../environments/environment';
 
-const BASE = `${environment.apiUrl}/commercial/mkt-ranking`;
-const PROV = '11111111-2222-4333-8444-555555555555';
+/**
+ * `[MKT.30]`/`[MKT.31]` La pantalla de los dos rankings (maqueta v14). Lo que se prueba: lo que ve
+ * Mercadotecnia, lo que pide al servidor y lo que escribe (objetivos), con datos sintéticos.
+ */
+const VENTA = `${environment.apiUrl}/commercial/mkt-ranking/venta`;
+const OBJ = (id: string) => `${environment.apiUrl}/commercial/mkt-ranking/promos/${id}/objetivos`;
 
-const p = (over: Partial<ParticipanteRanking>): ParticipanteRanking => ({
-  clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
-  lugar: 1, puntaje: 0.9, con_objetivo: 3, sin_objetivo: 0, cumplidas: 2, sin_venta: 0,
-  promos: [{ promo_id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'dinamico', venta: 9, cubrimiento: 0.9, existencia: 4, descripcion_distinta: true,
-    productos: [{ sku: 'DM201', nombre: 'LECHE ENTERA LT /12', unidades: 24, cajas: 2 }], productos_metodo: 'ticket_y_nombre', productos_nota: '' }],
-  ...over,
-});
-
-const ranking = (over: Partial<RankingSemana> = {}): RankingSemana => ({
-  semana: { lunes: '2026-11-02', domingo: '2026-11-08', numero: 45, hasta: '2026-11-08', en_curso: false },
-  canal: 'mostrador', canal_texto: 'Sucursales (mostrador)', promos_vigentes: 3, promedio_general: 0.6,
-  participantes: [
-    p({}),
-    p({ clave: '04|', warehouse_code: '04', warehouse_name: 'Yurécuaro', nombre: 'Yurécuaro', lugar: null, puntaje: null, con_objetivo: 0, sin_objetivo: 3, cumplidas: 0,
-      promos: [{ ...p({}).promos[0], objetivo: null, objetivo_fuente: null, cubrimiento: null }] }),
+const promo = (over: Partial<PromoVenta>): PromoVenta => ({
+  promo_id: 'k-62253', code: '62253', nombre: '3 PROD LA ROSA', paquetes: 157, dinero: 27464.8, objetivo: 200, avance: 0.785,
+  por_canal: [{ canal: 'mostrador', paquetes: 100, dinero: 17000 }, { canal: 'preventa', paquetes: 57, dinero: 10464.8 }],
+  por_sucursal: [
+    { warehouse_code: '01', nombre: 'Padre Hidalgo', zona: 'LA PIEDAD RD', paquetes: 90, dinero: 15000, objetivo: 100 },
+    { warehouse_code: '02', nombre: 'Abastos', zona: 'LA PIEDAD RD', paquetes: 40, dinero: 7000, objetivo: 60 },
+    { warehouse_code: '04', nombre: 'Yurécuaro', zona: 'Sin zona', paquetes: 27, dinero: 5464.8, objetivo: null },
   ],
-  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1', proveedor_id: PROV }], promo_filtrada: null,
-  proveedores_lista: [{ id: PROV, code: 'CD015', name: 'DULCES DEMO SA', promos: 1 }], proveedor_filtrado: null,
-  promos_ranking: [{ promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', proveedor: { id: PROV, code: 'CD015', name: 'DULCES DEMO SA' }, proveedor_fuente: 'asignado',
-    productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
-    participantes: 2, venta_total: 18, objetivo_total: 10, lugar: 1, puntaje: 0.9, con_objetivo: 1, sin_objetivo: 1, cumplidas: 0, sin_venta: 0 }],
-  vendedoras: {
-    tickets_con_promo: 10, tickets_con_vendedora: 4,
-    personas: [{ lugar: 1, warehouse_code: '01', warehouse_name: 'Padre Hidalgo', person_code: '901', nombre: 'VENDEDORA DEMO A', tickets: 3, aplicaciones: 7,
-      promos: [{ code: 'DM001', mecanica: '3 leches = gratis 1', cantidad: 7 }] },
-      { lugar: 2, warehouse_code: '04', warehouse_name: 'Yurécuaro', person_code: '902', nombre: 'VENDEDORA DEMO B', tickets: 1, aplicaciones: 2,
-      promos: [{ code: 'DM001', mecanica: '3 leches = gratis 1', cantidad: 2 }] }],
-    por_sucursal: [{ warehouse_code: '01', tickets_con_promo: 6, tickets_con_vendedora: 4 }, { warehouse_code: '04', tickets_con_promo: 4, tickets_con_vendedora: 0 }],
-  },
-  criterio: 'Cubrimiento con tope', consultado_at: '2026-11-11T18:00:00Z',
+  productos_nombres: ['PELLERZ LA ROSA'], productos_skus: ['R1'], proveedor: 'DULCES DEMO SA', productos_metodo: 'ticket_y_nombre',
+  objetivo_sucursal: { fijo: null, mixto: false, automatico: 25, sucursales: ['01', '02'] },
+  ...over,
+});
+const vendedor = (over: Partial<VendedorVenta>): VendedorVenta => ({
+  clave: 'mostrador|01|P7', canal: 'mostrador', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendedor: 'P7',
+  nombre: 'VENDEDORA DEMO', detalle: 'Padre Hidalgo · le asignaron 3 tickets', fuente: 'cajera',
+  paquetes: 9, tickets: 3, total: 1574.46, promos_sin_dato: 0,
+  promos: [{ code: '62253', nombre: '3 PROD LA ROSA', paquetes: 9, precio: 174.94, total: 1574.46 }],
+  ...over,
+});
+const venta = (over: Partial<VentaSemana> = {}): VentaSemana => ({
+  semana: { lunes: '2026-11-09', domingo: '2026-11-15', numero: 46, hasta: '2026-11-15', en_curso: false },
+  filtro: { canal: null, sucursal: null, zona: null },
+  sucursales_lista: [{ code: '01', nombre: 'Padre Hidalgo', zona: 'LA PIEDAD RD' }, { code: '04', nombre: 'Yurécuaro', zona: 'Sin zona' }],
+  zonas_lista: ['LA PIEDAD RD', 'Sin zona'],
+  totales: { paquetes: 186, objetivo: 200, dinero: 27464.8, promos: 2, promos_sin_dato: 1 },
+  sucursal_top: { warehouse_code: '01', nombre: 'Padre Hidalgo', zona: 'LA PIEDAD RD', paquetes: 90 },
+  promos: [
+    promo({}),
+    promo({ promo_id: 'k-00126', code: '00126', nombre: 'KISSES = GRATIS 1', paquetes: 29, dinero: null, objetivo: null, avance: null,
+      productos_nombres: [], productos_skus: [], proveedor: null, productos_metodo: 'sin_identificar', por_canal: [{ canal: 'mostrador', paquetes: 29, dinero: null }],
+      por_sucursal: [{ warehouse_code: '01', nombre: 'Padre Hidalgo', zona: 'LA PIEDAD RD', paquetes: 29, dinero: null, objetivo: null }],
+      objetivo_sucursal: { fijo: 4, mixto: false, automatico: 3, sucursales: ['01'] } }),
+  ],
+  codigos_barras: { R1: ['7501000000017'] },
+  vendedores: [
+    vendedor({ clave: 'preventa|06|06:1V001', canal: 'preventa', nombre: 'VENDEDOR VECINAL DEMO', detalle: 'Ruta 1V001 · Canindo', fuente: 'asignacion', paquetes: 30, total: 5000 }),
+    vendedor({}),
+  ],
+  mostrador: { tickets_con_promo: 10, tickets_asignados: 4 },
+  dinero_contrastado: { mostrador: true, preventa: false, ruta: false, mayoreo: false },
+  criterio: 'criterio', consultado_at: '2026-11-19T06:00:00Z',
   ...over,
 });
 
-async function montar(r: RankingSemana) {
+/** Lo que la pantalla y sus piezas le preguntan a los permisos (page-tabs pregunta isAdmin y hasAny). */
+const permisos = (gestiona: boolean) => ({
+  has: () => gestiona, hasAny: () => gestiona, hasExplicit: () => gestiona, isAdmin: () => false, isSuperadmin: () => false, cargado: () => true,
+});
+
+async function montar(d: VentaSemana, gestiona = true) {
   TestBed.configureTestingModule({
     imports: [MktRankingComponent],
-    providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), MessageService],
+    providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), MessageService,
+      { provide: PermissionsService, useValue: permisos(gestiona) }],
   });
   const fixture = TestBed.createComponent(MktRankingComponent);
   fixture.detectChanges();
   const http = TestBed.inject(HttpTestingController);
-  http.expectOne((req) => req.url === BASE && req.params.get('canal') === 'mostrador').flush(r);
+  http.expectOne((req) => req.url === VENTA).flush(d);
   await fixture.whenStable();
   fixture.detectChanges();
-  return { fixture, http, comp: fixture.componentInstance };
+  return { fixture, http, comp: fixture.componentInstance, el: fixture.nativeElement as HTMLElement };
 }
+const texto = (el: HTMLElement) => (el.textContent ?? '').replace(/\s+/g, ' ');
 
-describe('[MKT.11] MktRankingComponent', () => {
-  afterEach(() => {
-    TestBed.inject(HttpTestingController).verify();
-    TestBed.resetTestingModule();
-  });
-
-  it('monta y pinta el ranking en el orden del servidor, con la semana en palabras', async () => {
-    const { fixture } = await montar(ranking());
-    await fixture.whenStable();
+describe('[MKT.30] Ranking de promociones: toda la venta', () => {
+  it('pide la semana GLOBAL (sin canal) y ordena por paquetes, con dinero y objetivo', async () => {
+    TestBed.configureTestingModule({
+      imports: [MktRankingComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), MessageService, { provide: PermissionsService, useValue: permisos(true) }],
+    });
+    const fixture = TestBed.createComponent(MktRankingComponent);
     fixture.detectChanges();
-    const texto = (fixture.nativeElement as HTMLElement).textContent || '';
-    expect(texto).toContain('Ranking de promociones');
-    expect(texto).toContain('Semana 45 · 2 al 8 nov');
-    expect(texto.indexOf('Padre Hidalgo')).toBeLessThan(texto.indexOf('Yurécuaro'));
+    const req = TestBed.inject(HttpTestingController).expectOne((r) => r.url === VENTA);
+    expect(req.request.params.keys()).toEqual([]);
+    req.flush(venta());
+    await fixture.whenStable(); fixture.detectChanges();
+    const filas = [...(fixture.nativeElement as HTMLElement).querySelectorAll('tr.vt-fila')].map(texto);
+    expect(filas[0]).toContain('3 PROD LA ROSA');
+    expect(filas[0]).toContain('157');
+    expect(filas[0]).toContain('$27,464.80');
+    expect(filas[0]).toContain('79 %');
   });
 
-  it('⭐ NEGATIVA: quien no tiene objetivos NO sale con 0 %: se dice que no se puede medir', async () => {
-    const { fixture } = await montar(ranking());
-    await fixture.whenStable();
+  it('[MKT.31] sin producto identificado dice «sin dato», nunca $0', async () => {
+    const { el } = await montar(venta());
+    const kisses = [...el.querySelectorAll('tr.vt-fila')].map(texto).find((t) => t.includes('KISSES'))!;
+    expect(kisses).toContain('sin dato');
+    expect(kisses).not.toContain('$0.00');
+    expect(kisses).toContain('Producto sin identificar');
+  });
+
+  it('[MKT.31] declara el dinero de los canales sin contrastar; filtrando Sucursales ya no', async () => {
+    const { el, comp, fixture, http } = await montar(venta());
+    expect(texto(el)).toContain('Dinero de Ruta vecinal, Ruta directa, Telemarketing: todavía sin contrastar');
+    comp.elegirCanal('mostrador');
     fixture.detectChanges();
-    const texto = (fixture.nativeElement as HTMLElement).textContent || '';
-    expect(texto).toContain('Sin objetivos: no se puede medir');
-    expect(texto).not.toMatch(/Yurécuaro[^]*?\b0 %/);
+    http.expectOne((r) => r.url === VENTA && r.params.get('canal') === 'mostrador').flush(venta({ filtro: { canal: 'mostrador', sucursal: null, zona: null } }));
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(texto(el)).not.toContain('todavía sin contrastar');
   });
 
-  it('el promedio general va a la franja en 0–100 (no la fracción)', async () => {
-    const { comp } = await montar(ranking());
-    const prom = comp.kpis().find((k) => k.label === 'Promedio general')!;
-    expect(prom.value).toBe(60);
-    expect(prom.format).toBe('percent');
-  });
-
-  it('sin ningún objetivo, el promedio general se DECLARA no medido', async () => {
-    const { comp } = await montar(ranking({ promedio_general: null }));
-    const prom = comp.kpis().find((k) => k.label === 'Promedio general')!;
-    expect(prom.state).toBe('no_medido');
-    expect(prom.value).toBe('Sin medir');
-  });
-
-  it('la búsqueda filtra por nombre sin acentos; abrir una fila muestra su detalle con el aviso del código', async () => {
-    const { comp } = await montar(ranking());
-    comp.busqueda.set('yurecuaro');
-    expect(comp.filas().map((x) => x.nombre)).toEqual(['Yurécuaro']);
-    comp.abrir(ranking().participantes[0]);
-    expect(comp.subtitulo()).toContain('Lugar 1 de 1');
-  });
-
-  it('cambiar de canal pide ese canal y cierra el detalle abierto', async () => {
-    const { comp, http } = await montar(ranking());
-    comp.abrir(ranking().participantes[0]);
-    comp.elegirCanal('ruta');
-    TestBed.tick();
-    http.expectOne((req) => req.url === BASE && req.params.get('canal') === 'ruta').flush(ranking({ canal: 'ruta', participantes: [] }));
-    expect(comp.abierto()).toBeNull();
-  });
-
-  it('[MKT.16] estado «cumplidas»: Padre Hidalgo (90 %) sale; «no cumplidas» lo deja con su renglón', async () => {
-    const { comp } = await montar(ranking());
-    comp.elegirEstado('cumplida');
-    expect(comp.filas().map((x) => x.nombre)).toEqual([]);
-    comp.elegirEstado('no_cumplida');
-    expect(comp.filas().map((x) => x.nombre)).toEqual(['Padre Hidalgo']);
-    expect(comp.promosVisibles(comp.filas()[0]).map((x) => x.code)).toEqual(['DM001']);
-  });
-
-  it('[MKT.16] sucursal: filtra filas aquí y la pide al servidor (el ranking de promos se recalcula allá)', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    comp.elegirSucursales(['04']);
+  it('los filtros los aplica el servidor: canal, sucursal y zona viajan como parámetros', async () => {
+    const { comp, fixture, http } = await montar(venta());
+    comp.elegirCanal('preventa'); comp.elegirSucursal('01'); comp.elegirZona('Sin zona');
     fixture.detectChanges();
-    const req = http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04');
-    req.flush(ranking());
-    await fixture.whenStable();
-    expect(comp.filas().map((x) => x.nombre)).toEqual(['Yurécuaro']);
+    const req = http.expectOne((r) => r.url === VENTA && r.params.get('canal') === 'preventa');
+    expect(req.request.params.get('sucursal')).toBe('01');
+    expect(req.request.params.get('zona')).toBe('Sin zona');
+    req.flush(venta());
   });
 
-  it('[MKT.16] promoción: el servidor recalcula el lugar sólo con ella; quitar filtros la suelta', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    comp.elegirPromo('a');
+  it('buscar filtra filas pero NO renumera: el lugar es el de la semana', async () => {
+    const { el, comp, fixture } = await montar(venta());
+    comp.busqueda.set('kisses');
     fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('promo') === 'a').flush(ranking({ promo_filtrada: 'a' }));
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('El lugar se calcula sólo con «3 leches = gratis 1»');
-    comp.limpiarFiltros();
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && !q.params.has('promo')).flush(ranking());
-    await fixture.whenStable();
-    expect(comp.hayFiltros()).toBe(false);
+    const filas = [...el.querySelectorAll('tr.vt-fila')].map(texto);
+    expect(filas).toHaveLength(1);
+    expect(filas[0].trim().startsWith('2')).toBe(true);
   });
 
-  it('[MKT.16] por promoción: la fila abre quién la vendió, mejor cubrimiento primero', async () => {
-    const { comp } = await montar(ranking());
-    comp.elegirVista('promociones');
-    expect(comp.filasPromo().map((x) => x.code)).toEqual(['DM001']);
-    comp.abrirPromo(comp.filasPromo()[0]);
-    expect(comp.filasDePromo().map((f) => f.nombre)).toEqual(['Padre Hidalgo', 'Yurécuaro']);
-    comp.elegirEstado('sin_venta');
-    expect(comp.filasPromo()).toEqual([]);
+  it('[MKT.27] la pistola: un código de barras encuentra la promo de su producto; también el proveedor', async () => {
+    const { el, comp, fixture } = await montar(venta());
+    comp.busqueda.set('7501000000017');
+    fixture.detectChanges();
+    expect([...el.querySelectorAll('tr.vt-fila')].map(texto)).toEqual([expect.stringContaining('3 PROD LA ROSA')]);
+    comp.busqueda.set('dulces demo');
+    expect(comp.filasPromos().map((p) => p.code)).toEqual(['62253']);
   });
 
-  it('[MKT.24] proveedor: lo pide al servidor, se ve como etiqueta y la portada del PDF lo nombra; quitarlo lo suelta', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    expect(comp.opcionesProveedor()).toEqual([{ label: 'CD015 · DULCES DEMO SA (1)', value: PROV }]);
-    comp.elegirProveedor(PROV);
+  it('[negativa] sin códigos de barras leídos, lo dice en vez de «ninguna coincide»', async () => {
+    const { el, comp, fixture } = await montar(venta({ codigos_barras: null }));
+    comp.busqueda.set('7501000000017');
     fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('proveedor') === PROV).flush(ranking({ proveedor_filtrado: PROV }));
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect(comp.chips().map((c) => c.texto)).toContain('DULCES DEMO SA');
-    expect(comp.filtrosTexto()).toContain('Proveedor: DULCES DEMO SA');
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('El lugar se calcula sólo con las promociones de DULCES DEMO SA');
-    comp.quitarFiltro('proveedor');
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && !q.params.has('proveedor')).flush(ranking());
-    await fixture.whenStable();
-    expect(comp.hayFiltros()).toBe(false);
+    expect(texto(el)).toContain('No se pudieron leer los códigos de barras');
   });
 
-  it('[MKT.24] «Sin proveedor asignado» se ofrece como filtro y se pide como «sin»', async () => {
-    const { comp, http, fixture } = await montar(ranking({ proveedores_lista: [{ id: null, code: null, name: 'Sin proveedor asignado', promos: 3 }] }));
-    expect(comp.opcionesProveedor()).toEqual([{ label: 'Sin proveedor asignado (3)', value: 'sin' }]);
-    comp.elegirProveedor('sin');
+  it('la promo abre DÓNDE se vendió: por canal y, por zona, suma sus sucursales', async () => {
+    const { el, comp, fixture } = await montar(venta());
+    comp.abrirPromo(comp.datos()!.promos[0]);
     fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('proveedor') === 'sin').flush(ranking());
-    await fixture.whenStable();
-    expect(comp.chips().map((c) => c.texto)).toContain('Sin proveedor asignado');
+    expect(texto(el)).toContain('Dónde se vendió');
+    expect(texto(el)).toContain('Ruta vecinal');
+    expect(texto(el)).not.toContain('Quién la vendió');
+    comp.desglose.set('zona');
+    expect(comp.filasDesglose()).toEqual([
+      { clave: 'LA PIEDAD RD', nombre: 'LA PIEDAD RD', zona: 'LA PIEDAD RD', paquetes: 130, objetivo: 160, dinero: 22000 },
+      { clave: 'Sin zona', nombre: 'Sin zona', zona: 'Sin zona', paquetes: 27, objetivo: null, dinero: 5464.8 },
+    ]);
   });
+});
 
-  it('⭐ [MKT.25] la promoción abierta dice su proveedor y QUIÉN la vendió, con lo atribuido contra el total', async () => {
-    const { comp, fixture } = await montar(ranking());
-    comp.elegirVista('promociones');
-    comp.abrirPromo(comp.filasPromo()[0]);
+describe('[MKT.30] Ranking de vendedores: lo que se le cargó', () => {
+  it('lista a los vendedores de todos los canales y dice lo que la cajera no asignó', async () => {
+    const { el, comp, fixture } = await montar(venta());
+    comp.elegirVista('vendedores');
     fixture.detectChanges();
-    await fixture.whenStable();
+    const filas = [...el.querySelectorAll('tr.vt-fila')].map(texto);
+    expect(filas[0]).toContain('VENDEDOR VECINAL DEMO');
+    expect(filas[0]).toContain('Ruta vecinal');
+    expect(filas[1]).toContain('VENDEDORA DEMO');
+    expect(texto(el)).toContain('6 de 10 tickets con promoción no se le cargaron a nadie');
+  });
+
+  it('el vendedor abre sus promociones con precio por paquete y total', async () => {
+    const { el, comp, fixture } = await montar(venta());
+    comp.elegirVista('vendedores');
+    comp.abrirVendedor(comp.datos()!.vendedores[1]);
     fixture.detectChanges();
-    expect(comp.vendedorasDePromo().map((v) => [v.nombre, v.cantidad])).toEqual([['VENDEDORA DEMO A', 7], ['VENDEDORA DEMO B', 2]]);
-    // 7 + 2 = 9 con vendedora, de 9 + 9 = 18 vendidas: lo atribuido no se presenta como el total.
-    expect(comp.textoAtribuido()).toBe('Con vendedora: 9 de 18 piezas. El resto, la cajera aún no lo asigna en el arqueo.');
-    const texto = document.body.textContent || '';
-    expect(texto).toContain('CD015 · DULCES DEMO SA');
-    expect(texto).toContain('Quién la vendió');
-    expect(texto).toContain('VENDEDORA DEMO A');
-    // con el filtro de sucursal, sólo las de esa sucursal
-    comp.sucursales.set(['01']);
-    expect(comp.vendedorasDePromo().map((v) => v.nombre)).toEqual(['VENDEDORA DEMO A']);
+    const t = texto(el);
+    expect(t).toContain('Lo que vendió');
+    expect(t).toContain('$174.94');
+    expect(t).toContain('$1,574.46');
+    expect(t).toContain('Se lo asignó la cajera en su arqueo: 3 tickets');
   });
+});
 
-  it('[negativa MKT.25] si ninguna cajera la asignó, lo dice en vez de una tabla vacía', async () => {
-    const { comp, fixture } = await montar(ranking({ vendedoras: { ...ranking().vendedoras!, personas: [] } }));
-    comp.elegirVista('promociones');
-    comp.abrirPromo(comp.filasPromo()[0]);
+describe('[MKT.30] Objetivos: en un solo lugar', () => {
+  it('guarda el mismo objetivo en cada sucursal donde se vende (mostrador) con el endpoint de siempre', async () => {
+    const { comp, http, fixture } = await montar(venta());
+    const rosa = comp.datos()!.promos[0];
+    comp.editarObjetivo(rosa, '30');
+    expect(comp.cambios().size).toBe(1);
+    const p = comp.guardarObjetivos();
+    const req = http.expectOne(OBJ('k-62253'));
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ items: [
+      { warehouse_code: '01', canal: 'mostrador', vendor_code: '', objetivo_semanal: 30 },
+      { warehouse_code: '02', canal: 'mostrador', vendor_code: '', objetivo_semanal: 30 },
+    ] });
+    req.flush({ guardados: 2, quitados: 0 });
+    await p;
     fixture.detectChanges();
-    await fixture.whenStable();
+    http.expectOne((r) => r.url === VENTA).flush(venta()); // recarga
+    expect(comp.cambios().size).toBe(0);
+  });
+
+  it('borrar el número = volver al automático (se manda null)', async () => {
+    const { comp, http, fixture } = await montar(venta());
+    const kisses = comp.datos()!.promos[1];
+    expect(comp.valorObjetivo(kisses)).toBe('4');
+    comp.editarObjetivo(kisses, '');
+    const p = comp.guardarObjetivos();
+    const req = http.expectOne(OBJ('k-00126'));
+    expect(req.request.body.items[0].objetivo_semanal).toBeNull();
+    req.flush({ guardados: 0, quitados: 1 });
+    await p;
     fixture.detectChanges();
-    expect(comp.vendedorasDePromo()).toEqual([]);
-    expect(document.body.textContent).toContain('Ninguna cajera ha escrito quién vendió esta promoción esta semana.');
+    http.expectOne((r) => r.url === VENTA).flush(venta()); // recarga
   });
 
-  it('[MKT.18] por vendedora: dice cuánto está atribuido y dónde no hay captura (no lo dibuja como cero)', async () => {
-    const { comp } = await montar(ranking());
-    expect(comp.opcionesVista().map((o) => o.value)).toContain('vendedoras');
-    comp.elegirVista('vendedoras');
-    expect(comp.filasVendedora().map((x) => x.nombre)).toEqual(['VENDEDORA DEMO A', 'VENDEDORA DEMO B']);
-    const tickets = comp.kpis().find((k) => k.label === 'Tickets con vendedora')!;
-    expect(tickets.value).toBe('4 de 10');
-    expect(tickets.state).toBe('parcial');
-    expect(comp.coberturaTexto()).toContain('cuenta sólo los tickets que ya tienen vendedora');
-    expect(comp.coberturaTexto()).toContain('Sin captura: Yurécuaro');
+  it('[negativa] escribir lo mismo que ya tenía no cuenta como cambio', async () => {
+    const { comp } = await montar(venta());
+    comp.editarObjetivo(comp.datos()!.promos[1], '4');
+    expect(comp.cambios().size).toBe(0);
   });
 
-  it('⭐ NEGATIVA (auditoría 2026-11-12): al recargar, la franja NO vuelve a cero — se queda lo anterior y dice «Actualizando…»', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    comp.elegirSucursales(['04']);
+  it('[negativa] si falla el guardado, lo escrito se queda', async () => {
+    const { comp, http } = await montar(venta());
+    comp.editarObjetivo(comp.datos()!.promos[0], '30');
+    const p = comp.guardarObjetivos();
+    http.expectOne(OBJ('k-62253')).flush({ message: 'x' }, { status: 500, statusText: 'Error' });
+    await p;
+    expect(comp.cambios().get('k-62253')).toBe('30');
+  });
+
+  it('[negativa] sin permiso de Mercadotecnia, los objetivos se ven pero no se cambian', async () => {
+    const { el, comp, fixture } = await montar(venta(), false);
+    comp.objetivosAbierto.set(true);
     fixture.detectChanges();
-    const req = http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04');
-    // Mientras viaja la respuesta: los datos siguen ahí y la pantalla lo declara.
-    expect(comp.datos()?.promedio_general).toBe(0.6);
-    expect(comp.actualizando()).toBe(true);
-    expect(comp.kpis().find((k) => k.label === 'Promedio general')?.value).toBe(60);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Actualizando el ranking…');
-    req.flush(ranking({ promedio_general: 0.5 }));
-    await fixture.whenStable();
-    expect(comp.actualizando()).toBe(false);
-    expect(comp.kpis().find((k) => k.label === 'Promedio general')?.value).toBe(50);
-  });
-
-  it('si la recarga FALLA, lo anterior se suelta (no se finge vigente)', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    comp.elegirSucursales(['04']);
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04').flush({ message: 'x' }, { status: 500, statusText: 'Error' });
-    await fixture.whenStable();
-    expect(comp.datos()).toBeUndefined();
-    expect(comp.error()).toContain('No se pudo cargar');
-  });
-
-  it('⭐ la franja habla de la vista: «Primer lugar» es una sucursal, una promoción o una vendedora según lo que se ve', async () => {
-    const { comp } = await montar(ranking());
-    expect(comp.kpis()[0]).toMatchObject({ label: 'Primer lugar', value: 'Padre Hidalgo' });
-    comp.elegirVista('promociones');
-    expect(comp.kpis()[0]).toMatchObject({ label: 'Mejor promoción', value: '3 leches = gratis 1' });
-    comp.elegirVista('vendedoras');
-    expect(comp.kpis()[0]).toMatchObject({ label: 'Primer lugar', value: 'VENDEDORA DEMO A' });
-    expect(comp.kpis().find((k) => k.label === 'Sucursales sin captura')?.value).toBe(1);
-    // Con filtro de sucursal, el primero visible no es el 1.º de la semana: se dice.
-    comp.sucursales.set(['04']);
-    expect(comp.kpis()[0]).toMatchObject({ label: 'Arriba en el filtro', value: 'VENDEDORA DEMO B' });
-  });
-
-  it('por vendedora: la fila abre todo lo que vendió y el estado «cumplida» no se ofrece', async () => {
-    const { comp, fixture } = await montar(ranking());
-    comp.filtrosAbiertos.set(true);
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('No cumplidas'); // control: en sucursales sí se ofrece
-    comp.elegirVista('vendedoras');
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('No cumplidas');
-    expect(comp.textoBuscar()).toBe('Buscar vendedora, sucursal o promoción');
-    comp.abrirVendedora(comp.filasVendedora()[0]);
-    expect(comp.subtituloVendedora()).toContain('Lugar 1 de 2');
-    comp.elegirVista('participantes');
-    expect(comp.abiertaVendedora()).toBeNull();
-  });
-
-  it('⭐ diseño limpio: los filtros nacen plegados, pero lo filtrado SIEMPRE se ve como etiqueta y se quita de un clic', async () => {
-    const { comp, fixture, http } = await montar(ranking());
-    const texto = () => (fixture.nativeElement as HTMLElement).textContent || '';
-    expect(comp.filtrosAbiertos()).toBe(false);
-    expect(texto()).not.toContain('Todas las promociones');
-    comp.busqueda.set('yure');
-    comp.elegirEstado('no_cumplida');
-    fixture.detectChanges();
-    expect(comp.chips().map((c) => c.texto)).toEqual(['No cumplidas', '«yure»']);
-    expect(texto()).toContain('Filtros (2)');
-    expect(texto()).toContain('«yure»');
-    comp.quitarFiltro('busqueda');
-    expect(comp.chips().map((c) => c.id)).toEqual(['estado']);
-    comp.quitarFiltro('estado');
-    expect(comp.hayFiltros()).toBe(false);
-    http.verify();
-  });
-
-  it('calendario: cualquier día abre SU semana (lunes); el domingo es de la semana que termina, no de la siguiente', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    expect(comp.lunesFecha()?.getDate()).toBe(2);
-    comp.elegirDia(new Date(2026, 9, 1)); // jueves 1-oct
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('semana') === '2026-09-28').flush(ranking());
-    comp.elegirDia(new Date(2026, 10, 8)); // domingo 8-nov → semana del 2-nov
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('semana') === '2026-11-02').flush(ranking());
-    await fixture.whenStable();
-  });
-
-  it('[MKT.21] reporte filtrado: lleva SÓLO lo que se ve, y la portada nombra cada filtro', async () => {
-    const { comp, fixture, http } = await montar(ranking());
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Reporte de la semana');
-    comp.sucursales.set(['04']);
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04').flush(ranking());
-    await fixture.whenStable();
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Reporte filtrado');
-    const r = comp.rankingFiltrado(comp.datos()!);
-    expect(r.participantes.map((p) => p.nombre)).toEqual(['Yurécuaro']);
-    expect(r.vendedoras?.personas.map((x) => x.nombre)).toEqual(['VENDEDORA DEMO B']);
-    // La cobertura se recalcula con la sucursal filtrada: 0 de 4, no «4 de 10» de toda la semana.
-    expect([r.vendedoras?.tickets_con_vendedora, r.vendedoras?.tickets_con_promo]).toEqual([0, 4]);
-    expect(comp.filtrosTexto()).toEqual(['Canal: Sucursales (mostrador)', 'Sucursal: Yurécuaro']);
-  });
-
-  it('[MKT.21] con estado «no cumplidas», el detalle de cada sucursal trae sólo esas promociones', async () => {
-    const { comp } = await montar(ranking());
-    comp.elegirEstado('no_cumplida');
-    const r = comp.rankingFiltrado(comp.datos()!);
-    expect(r.participantes.map((p) => [p.nombre, p.promos.length])).toEqual([['Padre Hidalgo', 1]]);
-    expect(comp.filtrosTexto()).toContain('Estado: No cumplidas');
-  });
-
-  it('una columna que es cero en todas las filas no se pinta; aparece en cuanto alguien la tiene', async () => {
-    const { comp } = await montar(ranking());
-    expect(comp.colSinVenta()).toBe(false);
-    expect(comp.colSinObjetivo()).toBe(true); // Yurécuaro tiene 3 sin objetivo
-    expect(comp.kpis().map((k) => k.label)).toEqual(['Primer lugar', 'Promedio general', 'Cumplieron todas', 'Sin objetivo']);
-  });
-
-  it('[MKT.18] la vista por vendedora sólo existe en mostrador; cambiar de canal la suelta', async () => {
-    const { comp, http, fixture } = await montar(ranking());
-    comp.elegirVista('vendedoras');
-    comp.elegirCanal('ruta');
-    fixture.detectChanges();
-    http.expectOne((q) => q.url === BASE && q.params.get('canal') === 'ruta').flush(ranking({ canal: 'ruta', vendedoras: null }));
-    await fixture.whenStable();
-    expect(comp.vista()).toBe('participantes');
-    expect(comp.opcionesVista().map((o) => o.value)).not.toContain('vendedoras');
-  });
-
-  // ── [MKT.27] buscar DENTRO del detalle: promoción, código, producto, SKU, proveedor y código de barras ──
-  const dosPromos = (): ParticipanteRanking => p({
-    promos: [
-      p({}).promos[0],
-      { ...p({}).promos[0], promo_id: 'b', code: 'DM002', mecanica: '5 exh canels = gratis 1', descripcion_distinta: false,
-        productos: [{ sku: 'DM300', nombre: 'CANELS SURTIDO DISPLAY', unidades: 63, cajas: 1.58 }] },
-    ],
-  });
-  const conBarras = (over: Partial<RankingSemana> = {}) => ranking({
-    participantes: [dosPromos()],
-    codigos_barras: { DM201: ['7501234567890', '750123456789'] },
-    promos_ranking: [
-      ranking().promos_ranking[0],
-      { ...ranking().promos_ranking[0], promo_id: 'b', code: 'DM002', nombre: '5 exh canels = gratis 1', proveedor: null, proveedor_fuente: null },
-    ],
-    ...over,
-  });
-
-  it('⭐ [MKT.27] la pistola: el código de barras de un producto deja sólo SU promoción, y el campo dice «1 de 2»', async () => {
-    const { comp, fixture } = await montar(conBarras());
-    const part = comp.datos()!.participantes[0];
-    comp.abrir(part);
-    comp.buscaDetalle.set('7501234567890');
-    fixture.detectChanges();
-    expect(comp.promosDelDetalle(part).map((x) => x.code)).toEqual(['DM001']);
-    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
-    expect(texto).toContain('1 de 2');
-  });
-
-  it('[MKT.27] también por SKU, nombre del producto, código y mecánica de la promo, proveedor, y palabras en cualquier orden', async () => {
-    const { comp } = await montar(conBarras());
-    const part = comp.datos()!.participantes[0];
-    comp.abrir(part);
-    const busca = (q: string) => { comp.buscaDetalle.set(q); return comp.promosDelDetalle(part).map((x) => x.code); };
-    expect(busca('dm300')).toEqual(['DM002']);          // SKU
-    expect(busca('canels display')).toEqual(['DM002']); // producto, sin mayúsculas
-    expect(busca('DM001')).toEqual(['DM001']);          // código de la promo
-    expect(busca('dulces demo')).toEqual(['DM001']);    // proveedor asignado
-    expect(busca('leche 3')).toEqual(['DM001']);        // palabras en cualquier orden
-    expect(busca('')).toEqual(['DM001', 'DM002']);      // vacío = todas
-  });
-
-  it('[negativa MKT.27] lo que no coincide lo DICE (con lo buscado), no deja una tabla muda', async () => {
-    const { comp, fixture } = await montar(conBarras());
-    comp.abrir(comp.datos()!.participantes[0]);
-    comp.buscaDetalle.set('0000000000000');
-    fixture.detectChanges();
-    expect(comp.promosDelDetalle(comp.datos()!.participantes[0])).toEqual([]);
-    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
-    expect(texto).toContain('Ninguna promoción de Padre Hidalgo coincide con «0000000000000»');
-  });
-
-  it('[negativa MKT.27] si el servidor no pudo leer los códigos, se avisa: no se finge «ninguna coincide» como dato', async () => {
-    const { comp, fixture } = await montar(conBarras({ codigos_barras: null }));
-    comp.abrir(comp.datos()!.participantes[0]);
-    comp.buscaDetalle.set('7501234567890');
-    fixture.detectChanges();
-    expect(comp.sinCodigosBarras()).toBe(true);
-    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
-    expect(texto).toContain('No se pudieron leer los códigos de barras');
-    comp.buscaDetalle.set('dm201'); // por SKU sigue funcionando y el aviso se va
-    expect(comp.sinCodigosBarras()).toBe(false);
-    expect(comp.promosDelDetalle(comp.datos()!.participantes[0]).map((x) => x.code)).toEqual(['DM001']);
-  });
-
-  it('⭐ [MKT.27] imprimir desde el detalle lleva SÓLO lo que se ve, y la portada dice sucursal, lo buscado y cuántas de cuántas', async () => {
-    const { comp, fixture } = await montar(conBarras());
-    const part = comp.datos()!.participantes[0];
-    comp.abrir(part);
-    comp.buscaDetalle.set('7501234567890');
-    fixture.detectChanges();
-    const rep = comp.reporteDetalle(comp.datos()!, part)!;
-    expect(rep.ranking.participantes.map((x) => x.promos.map((y) => y.code))).toEqual([['DM001']]);
-    expect(rep.ranking.promos_ranking.map((x) => x.code)).toEqual(['DM001']); // el proveedor de lo impreso, nada más
-    expect(rep.ranking.vendedoras).toBeNull();
-    expect(rep.filtros).toEqual(['Canal: Sucursales (mostrador)', 'Sucursal: Padre Hidalgo', 'Buscado en el detalle: «7501234567890»', 'Promociones: 1 de 2']);
-    const texto = (fixture.nativeElement as HTMLElement).ownerDocument.body.textContent || '';
-    expect(texto).toContain('Imprimir lo filtrado');
-  });
-
-  it('[negativa MKT.27] si nada coincide no hay reporte (no se imprime una hoja vacía) y el botón se apaga', async () => {
-    const { comp, fixture } = await montar(conBarras());
-    const part = comp.datos()!.participantes[0];
-    comp.abrir(part);
-    comp.buscaDetalle.set('no-existe');
-    fixture.detectChanges();
-    expect(comp.reporteDetalle(comp.datos()!, part)).toBeNull();
-    const boton = [...(fixture.nativeElement as HTMLElement).ownerDocument.querySelectorAll('button')]
-      .find((b) => (b.textContent || '').includes('Imprimir lo filtrado')) as HTMLButtonElement | undefined;
-    expect(boton?.disabled).toBe(true);
-  });
-
-  it('[control MKT.27] sin buscar, imprime el detalle completo y dice «Imprimir este detalle»', async () => {
-    const { comp, fixture } = await montar(conBarras());
-    const part = comp.datos()!.participantes[0];
-    comp.abrir(part);
-    fixture.detectChanges();
-    const rep = comp.reporteDetalle(comp.datos()!, part)!;
-    expect(rep.ranking.participantes[0].promos.map((y) => y.code)).toEqual(['DM001', 'DM002']);
-    expect(rep.filtros.some((f) => f.startsWith('Buscado'))).toBe(false);
-    expect(rep.filtros).toContain('Promociones: 2 de 2');
-    expect((fixture.nativeElement as HTMLElement).ownerDocument.body.textContent).toContain('Imprimir este detalle');
-  });
-
-  it('[MKT.27] abrir otro participante vacía el buscador (no se arrastra lo buscado en otra sucursal)', async () => {
-    const { comp } = await montar(conBarras());
-    comp.abrir(comp.datos()!.participantes[0]);
-    comp.buscaDetalle.set('canels');
-    comp.abrir(comp.datos()!.participantes[0]);
-    expect(comp.buscaDetalle()).toBe('');
+    await fixture.whenStable(); fixture.detectChanges();
+    const inputs = [...el.querySelectorAll<HTMLInputElement>('input.vt-obj')];
+    expect(inputs.length).toBeGreaterThan(0);
+    expect(inputs.every((i) => i.disabled)).toBe(true);
+    expect(texto(el)).toContain('hace falta permiso de Mercadotecnia');
   });
 });

@@ -22,11 +22,18 @@ import { warehouseName } from '@megadulces/contracts';
 const SALTO = String.fromCharCode(10);
 const n0 = (v: number) => (Math.round(v * 100) / 100).toLocaleString('es-MX', { maximumFractionDigits: 2 });
 
+/** [MKT.28]/[MKT.29] Lo que se dice bajo el nombre cuando NO es de una persona ligada a la ruta. */
+const NOTA_FUENTE_PDF: Record<string, string> = {
+  kepler: ' (sin ligar: nombre de Kepler)',
+  sin_dato: ' (sin chofer en la comisión ni en la Suite)',
+};
+
 /** Renglones de la tabla de lugares. Un participante sin ningún objetivo va sin lugar y lo dice. */
 export function filasRanking(r: RankingSemana): string[][] {
   return r.participantes.map((p) => [
     p.lugar === null ? '-' : String(p.lugar),
-    p.nombre,
+    // [MKT.28] Fuera de mostrador, la ruta de Kepler bajo el nombre (y si el nombre no es de la asignación, se dice).
+    p.ruta ? [p.nombre, `Ruta ${p.ruta}${NOTA_FUENTE_PDF[p.vendedor_fuente ?? ''] ?? ''}`].join(SALTO) : p.nombre,
     p.puntaje === null ? 'Sin objetivos' : pct(p.puntaje),
     `${p.cumplidas} de ${p.con_objetivo}`,
     String(p.sin_venta),

@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { MktRankingService, esIdPromo, SIN_PROVEEDOR } from './mkt-ranking.service';
 import type { PromoDto, ObjetivoDto, IncentivoDto, Quien } from './mkt-ranking.service';
+import { esCanal, type Canal } from './mkt-ranking.logic';
 
 interface AuthedRequest { user?: { id?: string; username?: string } }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,6 +48,22 @@ export class MktRankingController {
     if (proveedor && proveedor !== SIN_PROVEEDOR && !UUID.test(proveedor)) throw new BadRequestException('El proveedor no es válido');
     const whs = String(sucursales ?? '').split(',').map((x) => x.trim()).filter((x) => /^\d{2}$/.test(x));
     return this.service.ranking(semana, canal, promo || undefined, whs.length ? whs : undefined, proveedor || undefined);
+  }
+
+  // ─────────── los dos rankings: promociones y vendedores (`[MKT.30]`/`[MKT.31]`) ───────────
+
+  @Get('venta')
+  @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
+  @ApiOperation({ summary: 'Ranking de promociones (toda la venta, los 4 canales) y de vendedores (lo cargado a cada uno), con dinero' })
+  venta(
+    @Query('semana') semana?: string, @Query('canal') canal?: string, @Query('sucursal') sucursal?: string, @Query('zona') zona?: string,
+  ): ReturnType<MktRankingService['venta']> {
+    // Un filtro inválido se rechaza: un ranking vacío que parezca real es peor que un 400.
+    if (canal && !esCanal(canal)) throw new BadRequestException('El canal no es válido');
+    if (sucursal && !/^\d{2}$/.test(sucursal)) throw new BadRequestException('La sucursal no es válida');
+    const z = String(zona ?? '').trim();
+    if (z.length > 100) throw new BadRequestException('La zona no es válida');
+    return this.service.venta(semana, { canal: canal ? (canal as Canal) : null, sucursal: sucursal || null, zona: z || null });
   }
 
   // ─────────── proveedor de la promoción (`[MKT.24]`) ───────────

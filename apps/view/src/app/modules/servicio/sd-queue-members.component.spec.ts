@@ -1,5 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { Select } from 'primeng/select';
 import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import type { SdQueueCandidateDto, SdQueueMemberDto, SdQueueMembersResponse } from '@megadulces/contracts';
@@ -164,6 +166,41 @@ describe('[MS.7.17] SdQueueMembersComponent', () => {
   it('sin candidatos lo dice y explica a quién pedir el permiso', async () => {
     await render({ queueCandidates: vi.fn(() => of([])) });
     await abrir();
+    expect(texto()).toContain('Nadie más tiene el permiso');
     expect(texto()).toContain('SERVICIO_ATENDER');
+    expect(texto()).toContain('SERVICIO_COORDINAR');
+  });
+
+  /**
+   * `[MS.8.4]` El caso que lo pidió (2026-11-18): Ubaldo no salía en «Agregar a la cola» de Mantenimiento porque no tenía la clave, y como
+   * la lista SÍ tenía a otros (Mario, Claudia) el aviso de «lista vacía» nunca salía: faltaba en silencio.
+   */
+  it('⭐ [MS.8.4] CON candidatos también dice quién aparece y a quién pedir a quien falta', async () => {
+    await render();
+    await abrir();
+    const ayuda = Array.from(el().querySelectorAll('.qm-add ~ .qm-hint')).map((p) => p.textContent ?? '').join(' ');
+    expect(ayuda).toContain('Sólo aparece quien tiene el permiso');
+    expect(ayuda).toContain('aún no está en la cola');
+    expect(ayuda).toContain('SERVICIO_COORDINAR');
+    expect(ayuda).toContain('Personas');
+    expect(ayuda).not.toContain('Nadie más tiene el permiso');
+  });
+
+  it('[MS.8.4] buscar a alguien que no está explica la causa probable, no sólo «nada coincide»', async () => {
+    await render();
+    await abrir();
+    const selector = fix.debugElement.queryAll(By.directive(Select)).map((d) => d.componentInstance as Select).find((s) => s.ariaLabel() === 'Persona a agregar');
+    expect(selector).toBeDefined();
+    expect(selector?.emptyFilterMessage()).toBe(c.SIN_COINCIDENCIA);
+    // Las DOS causas: ya es miembro (los candidatos lo excluyen) o le falta el permiso. Nombrar sólo la segunda mentiría.
+    expect(c.SIN_COINCIDENCIA).toContain('ya está en la cola');
+    expect(c.SIN_COINCIDENCIA).toContain('permiso');
+    expect(c.SIN_COINCIDENCIA).toContain('Personas');
+  });
+
+  it('⛔ [MS.8.4] NEGATIVA — sin can_manage no se muestra la ayuda de agregar (no hay qué agregar)', async () => {
+    await render({ queueMembers: vi.fn(() => of(resp([COORD, TEC], false))) });
+    await abrir();
+    expect(texto()).not.toContain('Sólo aparece quien');
   });
 });
