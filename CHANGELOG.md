@@ -9,7 +9,7 @@
 ---
 
 ## [Unreleased]
-### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en código, sin soltar; la cola nace apagada)
+### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en PR #567, sin soltar; la cola nace apagada)
 - Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
 - La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.
 - **Dictamen**: la coordinación autoriza o no autoriza, con motivo; quien lo pidió lo ve y recibe el aviso. Sin dictamen la solicitud no se resuelve.

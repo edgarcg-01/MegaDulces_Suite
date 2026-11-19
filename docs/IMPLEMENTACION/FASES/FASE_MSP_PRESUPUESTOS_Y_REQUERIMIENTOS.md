@@ -131,7 +131,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 - [ ] 3. Los 4 endpoints que escriben ejercidos contra base real con el payload de la pantalla — ejercidos los 4 (2026-11-19), **falta la evidencia**: sin bucket local, el alta con adjunto y su copia en la orden esperan a `[MSP.4.3]`
 - [x] 4. Toda compuerta nueva rota a propósito una vez (mutantes del §7: C0 4/4, C1 6/6, C2 3 rondas, C3 3/3)
 - [ ] 5. Primitivos genéricos: son columnas de `queues` + `domain/presupuesto.ts` en `libs/service-desk` (no hay primitivo local)
-- [ ] 6. Tracker + log + roadmap al día
+- [x] 6. Tracker + log + roadmap al día (2026-11-19, checkpoint del PR #567)
 - [ ] 7. En prod
 
 ## 7. Pruebas y mutantes (medido el 2026-11-18; C0 y C2 el 2026-11-19)
@@ -143,7 +143,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | Mutantes del dominio | **6/6 en rojo**: cualquiera levanta (3 rojas) · orden sin dictamen autorizado · padre resuelto con una orden abierta · resolver sin dictamen · dictamen cambia con orden en marcha · orden a un área confidencial |
 | `tsc --noEmit -p libs/service-desk/tsconfig.json` | 0 errores en `service-desk` y `contracts` (los 7 que reporta son previos, de `platform-core`) |
 | `apps/view/.../sd-request-detail-presupuesto.spec.ts` | **10/10** |
-| Módulo `servicio` del frontend completo | **327/327** (36 archivos) |
+| Módulo `servicio` del frontend completo | **327/327** (36 archivos); **330/330** el 2026-11-19 con el `sd-queue-members` que trajo `main` (#562) |
 | Mutantes de la pantalla | **3/3 en rojo** (U3 sobrevivió la primera vez: la prueba buscaba «No autorizar» y con dictamen dado el botón dice «Cambiar a no autorizado»; se endureció) |
 | `check:pantalla -- servicio` | **28 → 28** fallas (8 componentes; 15 en deuda, 13 que ya traía `main`): ninguna nueva |
 | `check-template-types` | `view`, `portal`, `vendor` sin errores; `api`: 1 previo y ajeno (`src/instrument.ts`, `mcp`) |
@@ -183,3 +183,4 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | 2026-11-18 | Pedido del usuario: área de Presupuestos y Requerimientos (coordina Ernesto Zárate), D1–D4 contestadas. Medido prod. Plan escrito. | Sistemas + Claude |
 | 2026-11-18 | C0–C3 escritos. C1 y C3 🧪 (con mutantes); C0 y la matriz HTTP de C2 NO MEDIDAS (sin Postgres local ni API). Ver §7. | Claude |
 | 2026-11-19 | Con Postgres local y la API levantada desde la copia: C0 47/47 (4 mutantes en rojo), C2 62/62 (3 rondas de mutantes en rojo). La matriz encontró el 403 que llegaba después del bucket; arreglado. Evidencia de punta a punta NO MEDIDA (sin bucket local) → `[MSP.4.3]`. | Usuario + Claude |
+| 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-123** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 109–114). | Claude |
