@@ -11,8 +11,8 @@ import { CheckboxModule } from 'primeng/checkbox';
 import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import {
-  digitosClabe, faltaSolicitudAnticipo, llaveOcKepler, topeDeOcs,
-  type AnticipoOcKeplerRow, type AnticipoProveedorRow, type AnticipoSolicitudBody, type CuentaDelAnticipo,
+  cuentaCortaAnticipo, digitosClabe, faltaSolicitudAnticipo, importeSugeridoAnticipo, llaveOcKepler, numeroDeCuentaValido, textoUltimoMovimiento, topeDeOcs,
+  type AnticipoOcKeplerRow, type AnticipoProveedorRow, type AnticipoSolicitudBody, type CuentaDelAnticipo, type ModoImporteAnticipo,
 } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { leerPesos } from '../pages/calendario-pagos-descuento';
@@ -27,6 +27,9 @@ export interface AnticipoPedido {
   /** El día en que aparece en el Calendario (YYYY-MM-DD). */
   fecha: string;
 }
+
+/** Una cuenta aprobada del proveedor, del catálogo de Cuentas de pago (`GET …/by-supplier/:id`). */
+interface CuentaCatalogo { id: string; bank_name: string; clabe: string | null; account_number: string | null; alias: string | null; es_favorita: boolean }
 
 /** `pedir`: Compras o quien programa pagos elige el día. `programar`: Dirección, desde el Calendario, en el día que ve. */
 export type ModoAnticipo = 'pedir' | 'programar';
@@ -95,7 +98,9 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
           @if (opciones().length) {
             <ul class="pa-opciones" aria-label="Proveedores encontrados">
               @for (o of opciones(); track o.id) {
-                <li><button type="button" class="pa-opcion" (click)="elegirProveedor(o)">{{ o.name }}&nbsp;<span class="pa-muted">{{ o.code }}</span></button></li>
+                <!-- [PGP.155.2] Con su último movimiento, como en «Cuentas de pago» [PGP.154]: VUMERSOFT salía dos
+                     veces (CD004 y CV10) y nada decía cuál se usa. -->
+                <li><button type="button" class="pa-opcion" (click)="elegirProveedor(o)">{{ o.name }}&nbsp;<span class="pa-muted">{{ o.code }}@if (movimiento(o); as m) { · {{ m }}}</span></button></li>
               }
             </ul>
           }
@@ -132,8 +137,37 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
             }
           </fieldset>
         }
-        <label class="pa-label" for="pa-monto">Importe</label>
-        <input id="pa-monto" name="pa-monto" pInputText type="text" inputmode="decimal" autocomplete="off" class="pa-full comm-num pa-monto" [ngModel]="monto()" (ngModelChange)="monto.set($event)" />
+        <!-- [PGP.155] El importe se PROPONE desde la OC: todo lo que queda (100 %), un porcentaje o a mano. -->
+        <fieldset class="pa-fs">
+          <legend class="pa-label">Importe</legend>
+          <div class="pa-radios">
+            <label class="pa-radio"><p-radiobutton name="pa-modo" value="todo" inputId="pa-modo-t" [ngModel]="modoImporte()" (ngModelChange)="modoImporte.set($event)" /> Todo lo que queda de la OC</label>
+            <label class="pa-radio"><p-radiobutton name="pa-modo" value="porcentaje" inputId="pa-modo-p" [ngModel]="modoImporte()" (ngModelChange)="modoImporte.set($event)" /> Un porcentaje</label>
+            <label class="pa-radio"><p-radiobutton name="pa-modo" value="importe" inputId="pa-modo-i" [ngModel]="modoImporte()" (ngModelChange)="modoImporte.set($event)" /> Otro importe</label>
+          </div>
+          @switch (modoImporte()) {
+            @case ('todo') {
+              @if (importe(); as m) {
+                <p class="pa-importe comm-num">{{ pesos(m) }}</p>
+                <p class="pa-muted">{{ tope().anticipado > 0 ? 'Lo que queda de ' + pesos(tope().total) + ' (ya hay ' + pesos(tope().anticipado) + ' pedidos).' : 'El 100 % de ' + ocsTexto() + '.' }}</p>
+              } @else {
+                <p class="pa-muted">{{ ocsElegidas().length ? 'Esa orden ya no tiene saldo para anticipar.' : 'Elige la orden de compra y aquí sale su importe.' }}</p>
+              }
+            }
+            @case ('porcentaje') {
+              <div class="pa-pct">
+                <input id="pa-pct" name="pa-pct" pInputText type="text" inputmode="decimal" autocomplete="off" class="comm-num pa-pct-in" aria-label="Porcentaje de la orden de compra"
+                       [ngModel]="porcentaje()" (ngModelChange)="porcentaje.set($event)" />
+                <span>% de {{ pesos(tope().total) }}</span>
+                @if (importe(); as m) { <span>= <b class="comm-num">{{ pesos(m) }}</b></span> }
+              </div>
+            }
+            @case ('importe') {
+              <input id="pa-monto" name="pa-monto" pInputText type="text" inputmode="decimal" autocomplete="off" class="pa-full comm-num pa-monto" aria-label="Importe del anticipo"
+                     [ngModel]="monto()" (ngModelChange)="monto.set($event)" />
+            }
+          }
+        </fieldset>
 
         <!-- [PGP.127] D10: la cotización es obligatoria (PDF o foto); es el respaldo de qué se paga y de la CLABE. -->
         <label class="pa-label" for="pa-cot">Cotización del proveedor</label>
@@ -146,7 +180,8 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
           @if (cotError(); as e) { <p class="pa-error" role="alert">{{ e }}</p> }
         }
 
-        <!-- [PGP.127] D12: la CLABE nueva la aprueba Dirección antes de pagar (en Cuentas de pago, con la cotización a la vista). -->
+        <!-- [PGP.127] D12: la CLABE nueva la aprueba Dirección antes de pagar (en Cuentas de pago, con la cotización a la vista).
+             [PGP.155] La cuenta aprobada puede no tener CLABE (mismo banco), y la nueva puede ser un número de cuenta. -->
         <fieldset class="pa-fs">
           <legend class="pa-label">Se paga a</legend>
           <div class="pa-radios">
@@ -154,12 +189,21 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
               <label class="pa-radio"><p-radiobutton name="pa-cta" value="aprobada" inputId="pa-cta-a" [ngModel]="ctaTipo()" (ngModelChange)="ctaTipo.set($event)" /> Cuenta aprobada</label>
             }
             <label class="pa-radio"><p-radiobutton name="pa-cta" value="nueva" inputId="pa-cta-n" [ngModel]="ctaTipo()" (ngModelChange)="ctaTipo.set($event)" /> CLABE de la cotización</label>
+            <label class="pa-radio"><p-radiobutton name="pa-cta" value="nueva_cuenta" inputId="pa-cta-c" [ngModel]="ctaTipo()" (ngModelChange)="ctaTipo.set($event)" /> Cuenta del mismo banco</label>
             <label class="pa-radio"><p-radiobutton name="pa-cta" value="efectivo" inputId="pa-cta-e" [ngModel]="ctaTipo()" (ngModelChange)="ctaTipo.set($event)" /> Efectivo</label>
           </div>
           @switch (ctaTipo()) {
             @case ('aprobada') {
-              <p-select inputId="pa-cta-sel" name="pa-cta-sel" appendTo="body" [options]="cuentaOpciones()" optionLabel="label" optionValue="value" [ngModel]="cuentaId()" (ngModelChange)="cuentaId.set($event)"
-                        placeholder="Elige la cuenta" [fluid]="true" ariaLabel="Cuenta aprobada del proveedor" />
+              @if (cuentas().length === 1) {
+                <!-- Con una sola cuenta aprobada no hay nada que elegir: se dice cuál. -->
+                <p class="pa-fijo">{{ cuentaOpciones()[0].label }}</p>
+              } @else {
+                <p-select inputId="pa-cta-sel" name="pa-cta-sel" appendTo="body" [options]="cuentaOpciones()" optionLabel="label" optionValue="value" [ngModel]="cuentaId()" (ngModelChange)="cuentaId.set($event)"
+                          placeholder="Elige la cuenta" [fluid]="true" ariaLabel="Cuenta aprobada del proveedor" />
+              }
+              @if (cuentaSinClabe(); as c) {
+                <p class="pa-muted">Sin CLABE: es una transferencia entre cuentas de {{ c.bank_name }}; sale de una cuenta nuestra de {{ c.bank_name }}.</p>
+              }
             }
             @case ('nueva') {
               <div class="pa-campos">
@@ -173,6 +217,19 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
                 </div>
               </div>
               <p class="pa-muted">Dirección aprueba esta CLABE antes del pago, con la cotización a la vista. Sin esa aprobación el anticipo no se puede transferir.</p>
+            }
+            @case ('nueva_cuenta') {
+              <div class="pa-campos">
+                <div>
+                  <label class="pa-label pa-label--sub" for="pa-cuenta">Número de cuenta</label>
+                  <input id="pa-cuenta" name="pa-cuenta" pInputText type="text" inputmode="numeric" autocomplete="off" class="pa-full comm-num" [ngModel]="cuentaNum()" (ngModelChange)="cuentaNum.set($event)" />
+                </div>
+                <div>
+                  <label class="pa-label pa-label--sub" for="pa-banco-c">Banco</label>
+                  <input id="pa-banco-c" name="pa-banco-c" pInputText type="text" autocomplete="off" class="pa-full" [ngModel]="banco()" (ngModelChange)="banco.set($event)" placeholder="Ej. BBVA" />
+                </div>
+              </div>
+              <p class="pa-muted">Para transferir entre cuentas del mismo banco, sin CLABE. Dirección la aprueba antes del pago, con la cotización a la vista.</p>
             }
             @case ('efectivo') { <p class="pa-muted">Sale en efectivo de Caja General: no lleva cuenta.</p> }
           }
@@ -225,6 +282,10 @@ export function diaInicialDelAnticipo(visto: string | null | undefined, hoy: str
     .pa-fijo { margin: 0; font-size: var(--fs-sm); color: var(--text-main); }
     .pa-full { width: 100%; }
     .pa-monto { max-width: 14rem; }
+    /* [PGP.155] El importe sugerido es el dato que se firma: se lee primero. */
+    .pa-importe { margin: 0; font-size: var(--fs-lg); font-weight: 600; color: var(--text-main); }
+    .pa-pct { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .pa-pct-in { width: 5rem; }
     .pa-campos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
     .pa-elegido { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
     .pa-opciones { list-style: none; margin: var(--sp-1) 0 0; padding: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); max-height: 14rem; overflow-y: auto; }
@@ -282,9 +343,13 @@ export class PedirAnticipoDialogComponent {
 
   readonly titulo = computed(() => (this.modo() === 'programar' ? 'Programar anticipo a proveedor' : 'Pedir anticipo a proveedor'));
   readonly accion = computed(() => (this.modo() === 'programar' ? 'Programar anticipo' : 'Pedir anticipo'));
+  // `[PGP.155.2]` Ya no dice «a la cuenta de la cotización»: con una cuenta aprobada del catálogo, una del mismo
+  // banco o efectivo, eso era falso (lo vio el recorrido visual). A dónde va el dinero lo dice «Se paga a».
   readonly ayuda = computed(() => (this.modo() === 'programar'
-    ? 'Queda como un pago propio en el día que estás viendo: Tesorería lo prepara, se autoriza como cualquier pago y se paga a la cuenta de la cotización.'
-    : 'Aparece en el Calendario de pagos el día que elijas: ahí se agrega a ese día, Dirección lo autoriza y Tesorería lo paga a la cuenta de la cotización.'));
+    ? 'Queda como un pago propio en el día que estás viendo: Tesorería lo prepara y se autoriza como cualquier pago.'
+    : 'Aparece en el Calendario de pagos el día que elijas: ahí se agrega a ese día, Dirección lo autoriza y Tesorería lo paga.'));
+  /** `[PGP.155.2]` El mismo texto que «Cuentas de pago» (`textoUltimoMovimiento`, una sola regla). */
+  movimiento(o: AnticipoProveedorRow): string | null { return textoUltimoMovimiento(o.ultimo_movimiento); }
 
   readonly hoy = new Date();
   readonly busca = signal('');
@@ -314,6 +379,26 @@ export class PedirAnticipoDialogComponent {
   readonly sucursal = computed<string | null>(() => this.ocsElegidas()[0]?.sucursal ?? null);
   readonly sucursales = computed(() => new Set(this.ocs().map((o) => o.sucursal)).size);
   readonly tope = computed(() => topeDeOcs(this.ocsElegidas()));
+  /** «la OC 0007411» o «las 2 OC», para decir de dónde sale el importe. */
+  readonly ocsTexto = computed(() => { const o = this.ocsElegidas(); return o.length === 1 ? `la OC ${o[0].folio}` : `las ${o.length} OC`; });
+
+  // ── `[PGP.155]` El importe se PROPONE: todo lo que queda de la OC (100 %, lo normal en VUMERSOFT), un porcentaje
+  // del total de las OC elegidas, o uno a mano. Con OC elegida no hay que teclear nada. ──
+  readonly modoImporte = signal<ModoImporteAnticipo>('todo');
+  readonly porcentaje = signal('');
+  /** El importe que se manda: el sugerido, o el tecleado en «Otro importe». `null` = todavía no hay. */
+  readonly importe = computed<number | null>(() => {
+    const modo = this.modoImporte(), tope = this.tope(), porcentaje = this.porcentaje(), leido = leerPesos(this.monto());
+    return importeSugeridoAnticipo({ modo, tope, porcentaje, importe: leido.pesos ?? null });
+  });
+  /** Por qué el modo elegido todavía no da importe (null = sí da, o lo dice la regla común). */
+  private faltaImporte(): string | null {
+    const modo = this.modoImporte();
+    if (modo === 'importe') return leerPesos(this.monto()).error ?? null;
+    if (this.importe() != null) return null;
+    if (modo === 'todo') return 'Esa orden ya no tiene saldo para anticipar: elige otra.';
+    return this.porcentaje().trim() ? 'El porcentaje va de 0 a 100.' : 'Escribe qué porcentaje de la OC se anticipa.';
+  }
   ocMarcada(o: AnticipoOcKeplerRow): boolean { return this.ocsSel().has(llaveOcKepler(o)); }
   /** Elegida una, las de otra sucursal se apagan (poka-yoke: el error no se deja cometer). */
   ocBloqueada(o: AnticipoOcKeplerRow): boolean { const s = this.sucursal(); return !!s && s !== o.sucursal; }
@@ -331,38 +416,53 @@ export class PedirAnticipoDialogComponent {
   readonly cotError = signal<string | null>(null);
 
   // ── `[PGP.127]` D12: a qué cuenta se paga ──
-  readonly cuentas = signal<{ id: string; bank_name: string; clabe: string | null; alias: string | null; es_favorita: boolean }[]>([]);
-  readonly ctaTipo = signal<'aprobada' | 'nueva' | 'efectivo'>('nueva');
+  readonly cuentas = signal<CuentaCatalogo[]>([]);
+  readonly ctaTipo = signal<'aprobada' | 'nueva' | 'nueva_cuenta' | 'efectivo'>('nueva');
   readonly cuentaId = signal<string | null>(null);
   readonly clabe = signal('');
+  /** `[PGP.155]` El número de cuenta nuevo (mismo banco, sin CLABE). */
+  readonly cuentaNum = signal('');
   readonly banco = signal('');
   readonly cuentaOpciones = computed(() => this.cuentas().map((c) => ({
-    label: `${c.bank_name} · CLABE terminación ${String(c.clabe).slice(-4)}${c.alias ? ` (${c.alias})` : ''}`, value: c.id,
+    label: `${cuentaCortaAnticipo({ clabe: c.clabe ? digitosClabe(c.clabe) : null, numero: digitosClabe(c.account_number) || null, banco: c.bank_name })}${c.alias ? ` (${c.alias})` : ''}`,
+    value: c.id,
   })));
+  /** `[PGP.155]` La cuenta aprobada elegida, si no tiene CLABE: se paga entre cuentas del mismo banco. */
+  readonly cuentaSinClabe = computed<CuentaCatalogo | null>(() => {
+    const id = this.cuentaId(), tipo = this.ctaTipo();
+    const c = this.cuentas().find((x) => x.id === id);
+    return tipo === 'aprobada' && c && digitosClabe(c.clabe).length !== 18 ? c : null;
+  });
   readonly cuenta = computed<CuentaDelAnticipo | null>(() => {
-    const t = this.ctaTipo(), id = this.cuentaId(), clabe = this.clabe(), banco = this.banco();
+    const t = this.ctaTipo(), id = this.cuentaId(), clabe = this.clabe(), num = this.cuentaNum(), banco = this.banco(), cs = this.cuentas();
     if (t === 'efectivo') return { tipo: 'efectivo' };
-    if (t === 'aprobada') return id ? { tipo: 'aprobada', account_id: id } : null;
+    // `[PGP.155.2]` Revisión independiente: con UNA cuenta aprobada la pantalla la muestra como texto (no hay
+    // selector). Si la elección automática se saltó —la persona tocó «Efectivo» o escribió el banco antes de que
+    // llegaran sus cuentas— `cuentaId` quedaba vacío y el botón no se encendía nunca. Con una sola, es ésa.
+    const unica = cs.length === 1 ? cs[0].id : null;
+    if (t === 'aprobada') return (id ?? unica) ? { tipo: 'aprobada', account_id: (id ?? unica)! } : null;
+    if (t === 'nueva_cuenta') return { tipo: 'nueva_cuenta', cuenta: digitosClabe(num), banco: banco.trim() };
     return { tipo: 'nueva', clabe: digitosClabe(clabe), banco: banco.trim() };
   });
 
   /** `[PGP.138]` Hay algo capturado que se perdería al cerrar. */
-  readonly sucio = computed(() => !!this.prov() || !!this.busca().trim() || !!this.monto().trim() || !!this.motivo().trim()
-    || !!this.cot() || !!this.clabe().trim());
+  readonly sucio = computed(() => !!this.prov() || !!this.busca().trim() || !!this.monto().trim() || !!this.porcentaje().trim() || !!this.motivo().trim()
+    || !!this.cot() || !!this.clabe().trim() || !!this.cuentaNum().trim());
 
   /** Por qué todavía no se puede pedir: la MISMA regla que el servidor (`faltaSolicitudAnticipo`). */
   readonly falta = computed<string | null>(() => {
     // Todas las señales se leen siempre (sin cortocircuito): el computed no se queda sin dependencias.
-    const prov = this.prov(), suc = this.sucursal(), leido = leerPesos(this.monto()), motivo = this.motivo(), fecha = this.dia();
+    const prov = this.prov(), suc = this.sucursal(), importe = this.importe(), motivo = this.motivo(), fecha = this.dia();
     const ocs = this.ocsElegidas(), cot = this.cot(), cuenta = this.cuenta(), subiendo = this.cotSubiendo();
-    const sinOcs = this.ocsError(), leyendoOcs = this.ocsCargando();
+    const sinOcs = this.ocsError(), leyendoOcs = this.ocsCargando(), faltaImporte = this.faltaImporte();
     // `[PGP.138]` Sin sus órdenes de compra no se sabe el tope: no se deja pedir (y no se lee como «sin OC»).
     if (prov && sinOcs) return 'Faltan sus órdenes de compra: reintenta leerlas antes de pedir (sin ellas no se sabe el tope).';
     if (prov && leyendoOcs) return 'Leyendo sus órdenes de compra…';
-    if (leido.error) return leido.error;
+    // `[PGP.155]` El importe se dice en su turno (después de la OC): sin OC, la regla común pide la OC primero.
+    if (prov && ocs.length && faltaImporte) return faltaImporte;
     if (subiendo) return 'Esperando a que suba la cotización…';
     return faltaSolicitudAnticipo({
-      supplier_code: prov?.code ?? null, sucursal: suc, monto: leido.pesos ?? 0, motivo, fecha: this.ymd(fecha),
+      supplier_code: prov?.code ?? null, sucursal: suc, monto: importe ?? 0, motivo, fecha: this.ymd(fecha),
       ocs, cotizacion: !!cot, cuenta,
     });
   });
@@ -396,6 +496,7 @@ export class PedirAnticipoDialogComponent {
     this.deOc.set(null); this.ocPorMarcar = null; this.provAviso.set(null); this.ocAviso.set(null);
     this.busca.set(''); this.opciones.set([]); this.estadoBusqueda.set('nada'); this.limpiarProveedor();
     this.monto.set(''); this.motivo.set(''); this.errorGuardar.set(null); this.confirmarDescarte.set(false);
+    this.modoImporte.set('todo'); this.porcentaje.set('');
     this.cot.set(null); this.cotError.set(null); this.cotSubiendo.set(false);
     const hoy = this.ymd(new Date())!;
     const visto = dia !== undefined ? dia : this.ymd(this.fechaInicial());
@@ -452,7 +553,7 @@ export class PedirAnticipoDialogComponent {
   private limpiarProveedor(): void {
     this.ocsSeq++;
     this.prov.set(null); this.ocs.set([]); this.ocsSel.set(new Set()); this.ocsError.set(false); this.ocsCargando.set(false);
-    this.cuentas.set([]); this.cuentaId.set(null); this.ctaTipo.set('nueva'); this.clabe.set(''); this.banco.set('');
+    this.cuentas.set([]); this.cuentaId.set(null); this.ctaTipo.set('nueva'); this.clabe.set(''); this.cuentaNum.set(''); this.banco.set('');
   }
   /** Cambiar de proveedor suelta la OC con que se abrió: ya no es de éste. */
   quitarProveedor(): void {
@@ -485,15 +586,16 @@ export class PedirAnticipoDialogComponent {
     this.prov.set(p); this.opciones.set([]); this.estadoBusqueda.set('nada');
     this.cargarOcs(p);
     const ses = this.sesion;
-    // `[PGP.127]` Sus cuentas APROBADAS con CLABE: si tiene, se propone la favorita; si no, se captura la de la cotización.
-    this.http.get<{ id: string; bank_name: string; clabe: string | null; alias: string | null; es_favorita: boolean }[]>(`${this.urlCuentas}/by-supplier/${p.id}`)
+    // `[PGP.127]` Sus cuentas APROBADAS: si tiene, se propone la favorita; si no, se captura la de la cotización.
+    // `[PGP.155]` Con CLABE o, sin ella, con número de cuenta del mismo banco (VUMERSOFT: BBVA, 10 dígitos).
+    this.http.get<CuentaCatalogo[]>(`${this.urlCuentas}/by-supplier/${p.id}`)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           if (ses !== this.sesion || this.prov()?.id !== p.id) return;
-          const con = (r ?? []).filter((c) => digitosClabe(c.clabe).length === 18);
+          const con = (r ?? []).filter((c) => digitosClabe(c.clabe).length === 18 || numeroDeCuentaValido(digitosClabe(c.account_number)));
           this.cuentas.set(con);
           // Revisión del PR: si ya eligió «Efectivo» o empezó a escribir la CLABE, la respuesta no se lo cambia.
-          if (con.length && this.ctaTipo() === 'nueva' && !this.clabe().trim() && !this.banco().trim()) { this.ctaTipo.set('aprobada'); this.cuentaId.set((con.find((c) => c.es_favorita) ?? con[0]).id); }
+          if (con.length && this.ctaTipo() === 'nueva' && !this.clabe().trim() && !this.cuentaNum().trim() && !this.banco().trim()) { this.ctaTipo.set('aprobada'); this.cuentaId.set((con.find((c) => c.es_favorita) ?? con[0]).id); }
         },
         // Sin poder leerlas, se captura la CLABE: si ya estaba aprobada, el servidor la reconoce y no la pide otra vez.
         error: () => this.cuentas.set([]),
@@ -558,7 +660,8 @@ export class PedirAnticipoDialogComponent {
     const prov = this.prov();
     const cot = this.cot();
     const suc = this.sucursal();
-    const pesos = leerPesos(this.monto()).pesos;
+    // `[PGP.155]` El sugerido (100 % o porcentaje) o el tecleado: el mismo número que la pantalla enseña.
+    const pesos = this.importe();
     if (!prov || !cot || !suc || pesos == null) return;
     const fecha = this.ymd(this.dia()) ?? this.ymd(new Date())!;
     const body: AnticipoSolicitudBody = {
@@ -573,8 +676,8 @@ export class PedirAnticipoDialogComponent {
         this.guardando.set(false);
         this.cerrar();
         const monto = Number(r.monto);
-        const cta = r.cuenta === 'pedida' ? ' La CLABE quedó pedida de alta: Dirección la aprueba en Cuentas de pago antes del pago.'
-          : r.cuenta === 'ya_pedida' ? ' Esa CLABE ya esperaba la aprobación de Dirección: no se pidió otra vez.' : '';
+        const cta = r.cuenta === 'pedida' ? ' La cuenta quedó pedida de alta: Dirección la aprueba en Cuentas de pago antes del pago.'
+          : r.cuenta === 'ya_pedida' ? ' Esa cuenta ya esperaba la aprobación de Dirección: no se pidió otra vez.' : '';
         if (this.modo() === 'pedir') {
           this.toast.add({ severity: 'success', summary: 'Anticipo pedido', life: 9000,
             detail: `${prov.name}: ${this.pesos(monto)} (${r.concepto}). Aparece en el Calendario de pagos el ${this.fecha(fecha)}.${cta}` });

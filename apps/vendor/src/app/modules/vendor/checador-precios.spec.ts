@@ -75,9 +75,11 @@ describe('fichaDeVivo / fichaDeCopia — lo que se pinta de UN producto', () => 
     expect(f.otrosConElCodigo).toEqual(['OTRO PRUEBA']);
   });
 
-  it('promoción, precio ambiguo, de otra plaza y corregido a mano llegan como banderas', () => {
-    const f = fichaDeVivo(vivo({ es_promocion: true, precio_ambiguo: true, plaza_pedida_sin_dato: true, origen_precio: 'override_manual' }));
-    expect([f.esPromocion, f.precioAmbiguo, f.deOtraPlaza, f.corregidoAMano]).toEqual([true, true, true, true]);
+  it('promoción, precio ambiguo y de otra plaza llegan como banderas', () => {
+    const f = fichaDeVivo(vivo({ es_promocion: true, precio_ambiguo: true, plaza_pedida_sin_dato: true }));
+    expect([f.esPromocion, f.precioAmbiguo, f.deOtraPlaza]).toEqual([true, true, true]);
+    // [VAC.D3] Ya no existe la bandera «corregido a mano»: el precio es siempre el de Kepler.
+    expect('corregidoAMano' in f).toBe(false);
   });
 
   it('⛔ [negativa] una unidad leída SIN precio no se afirma', () => {

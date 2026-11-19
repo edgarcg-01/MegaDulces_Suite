@@ -23,6 +23,7 @@ import { PaymentProgramService } from '../payment-program/payment-program.servic
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import type { PaymentCalendarItemDiscountBody } from '@megadulces/contracts';
+import { faltaOrigenMismoBanco } from '@megadulces/contracts';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -63,6 +64,8 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
   // `[PGP.128]` La CLABE de la cotización del anticipo (`payee_clabe`), de `[PGP.127]`.
   '../../../../../database/migrations-newdb/20261117121939_pgp127_anticipo_cotizacion_oc_y_cuenta.js',
+  // `[PGP.155]` El número de cuenta del anticipo a una cuenta sin CLABE (`payee_account_number`).
+  '../../../../../database/migrations-newdb/20261118131620_pgp155_anticipo_a_cuenta_sin_clabe.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -130,6 +133,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[10], trx);  // `[PGP.120]` el motivo `anticipo` en el CHECK (idempotente)
     await migUp(MIGS[11], trx);  // `[PGP.126]` la naturaleza de la obligación (idempotente)
     await migUp(MIGS[12], trx);  // `[PGP.128]` la CLABE de la cotización del anticipo (idempotente)
+    await migUp(MIGS[13], trx);  // `[PGP.155]` el número de cuenta del anticipo sin CLABE (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1731,6 +1735,69 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       expect(String(p.destination_account_text)).toContain(CLABE);
       const e = await cal.prepare(alloc, { payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' }, USER);
       expect(e.payment_method).toBe('efectivo');
+    });
+  });
+
+  /**
+   * `[PGP.155]` El anticipo a una cuenta del MISMO banco, sin CLABE (VUMERSOFT: BBVA a BBVA). El mismo
+   * `POST allocations/:id/preparar`: se prepara sólo con la cuenta del catálogo que tiene ESE número.
+   */
+  describe('[PGP.155] el anticipo a una cuenta sin CLABE se transfiere sólo a esa cuenta', () => {
+    const DIA = '2030-05-21';
+    const CTA = '0123458796';
+    let sup = '', alloc = '';
+    const cuenta = async (account_number: string) => (await trx('commercial.supplier_payment_accounts').insert({
+      tenant_id: M, supplier_id: sup, bank_name: 'BBVA', account_number, status: 'activa', es_favorita: false, created_by: USER,
+    }).returning('id'))[0].id as string;
+
+    beforeAll(async () => {
+      sup = (await trx('catalog.suppliers').where({ tenant_id: M, code: 'TPIT-GONAC' }).first('id')).id as string;
+      const ant = (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature: 'anticipo', concept: 'PGP147 anticipo', original_amount: 5691.01, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: '00', kepler_doc_tipo: 60,
+        payee_account_number: CTA, quote_file_key: `commercial/${M}/anticipos/pgp155.pdf`, quote_file_kind: 'pdf',
+      }).returning('id'))[0].id as string;
+      alloc = (await cal.createAllocation({ date: DIA, items: [{ obligation_source: 'supplier_payable', obligation_id: ant, applied_amount: 5691.01 }] }, USER)).id;
+    });
+
+    it('⛔ NEGATIVA — sin cuenta del catálogo, o con OTRA cuenta del mismo banco, no se prepara', async () => {
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: `BBVA · Cta ${CTA}` }, USER))
+        .rejects.toThrow(/cuenta aprobada por Dirección \(la cuenta terminación 8796\)/);
+      const otra = await cuenta('0123450000');
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: otra }, USER))
+        .rejects.toThrow(/no es la del anticipo \(la cuenta terminación 8796\)/);
+    });
+
+    it('⛔ NEGATIVA — a esa cuenta (BBVA, sin CLABE) desde una cuenta nuestra de OTRO banco no se prepara: no hay SPEI sin CLABE', async () => {
+      const buena = await cuenta('0123458796');
+      const [banorte] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'BANORTE', account_label: '9148', alias: 'BTE 9148 (prueba)', kind: 'bank', active: true }).returning('id');
+      await expect(cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: banorte.id, supplier_payment_account_id: buena }, USER))
+        .rejects.toThrow(/sale sólo de una cuenta BBVA nuestra/);
+      // Control: a una cuenta CON CLABE desde Banorte sí (SPEI) — la regla no toca a los demás.
+      expect(faltaOrigenMismoBanco({ destino: { clabe: '012180001234567899', bank_name: 'BBVA' }, origen: { bank: 'BANORTE', kind: 'bank' } })).toBeNull();
+    });
+
+    it('⛔ [PGP.155.2] la regla del mismo banco es sólo para TRANSFERENCIA: un cargo automático desde Banorte sí se prepara', async () => {
+      // Revisión independiente: en un cargo automático el proveedor cobra de nuestra cuenta; el banco de SU cuenta no
+      // ata el origen. Una factura (no un anticipo) a la misma cuenta BBVA sin CLABE.
+      const buena = await cuenta('0123458796');
+      const [bte] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'BANORTE', account_label: '9149', alias: 'BTE 9149 (prueba)', kind: 'bank', active: true }).returning('id');
+      const fac = (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature: 'factura', concept: 'PGP155 factura', original_amount: 1200, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: '00',
+      }).returning('id'))[0].id as string;
+      const pago = (await cal.createAllocation({ date: DIA, items: [{ obligation_source: 'supplier_payable', obligation_id: fac, applied_amount: 1200 }] }, USER)).id;
+      await expect(cal.prepare(pago, { payment_method: 'transferencia', bank_account_id: bte.id, supplier_payment_account_id: buena }, USER))
+        .rejects.toThrow(/sale sólo de una cuenta BBVA nuestra/);
+      const p = await cal.prepare(pago, { payment_method: 'cargo_automatico', bank_account_id: bte.id, supplier_payment_account_id: buena }, USER);
+      expect(p).toMatchObject({ payment_method: 'cargo_automatico', supplier_payment_account_id: buena });
+    });
+
+    it('con la cuenta del catálogo que tiene ese número (aunque esté escrita con espacios), sí', async () => {
+      const buena = await cuenta('0123 458 796');
+      const p = await cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: buena }, USER);
+      expect(p).toMatchObject({ payment_method: 'transferencia', supplier_payment_account_id: buena });
+      expect(String(p.destination_account_text)).toContain('Cta 0123 458 796');
     });
   });
 

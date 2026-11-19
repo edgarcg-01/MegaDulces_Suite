@@ -24,6 +24,7 @@ const USER = 'pgp119_it_compras';
 const MIGS = [
   '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
   '../../../../../database/migrations-newdb/20261117121939_pgp127_anticipo_cotizacion_oc_y_cuenta.js',
+  '../../../../../database/migrations-newdb/20261118131620_pgp155_anticipo_a_cuenta_sin_clabe.js',
 ];
 const COT = { key: `commercial/${M}/anticipos/it127.pdf`, kind: 'pdf' as const };
 const CLABE = '012180001234567899', OTRA = '072180009999999993';   // sintéticas, dígito de control bien
@@ -168,7 +169,7 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect(await trx('commercial.supplier_payment_accounts').where({ tenant_id: M, supplier_id: prov })).toHaveLength(0);
     expect((await trx('commercial.supplier_payment_obligations').where({ id: r1.obligation_id }).first()).payee_clabe).toBe(CLABE);
     const de = async (id: string) => (await svc.listAnticiposSolicitados()).find((s) => s.obligation_id === id)!;
-    expect((await de(r1.obligation_id)).cuenta).toEqual({ estado: 'en_aprobacion', clabe: CLABE, banco: 'BBVA' });
+    expect((await de(r1.obligation_id)).cuenta).toEqual({ estado: 'en_aprobacion', clabe: CLABE, numero: null, banco: 'BBVA' });
 
     const r2 = await svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 500, cuenta: { tipo: 'nueva', clabe: CLABE, banco: 'BBVA' } }), USER);
     expect(r2.cuenta).toBe('ya_pedida');
@@ -193,6 +194,44 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect((await trx('commercial.supplier_payment_obligations').where({ id: r.obligation_id }).first()).payee_clabe).toBe(CLABE);
     await expect(svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'nueva', clabe: '012180001234567890', banco: 'BBVA' } }), USER)).rejects.toThrow(/dígito de control/);
     await svc.cancel(r.obligation_id, 'prueba de la cuenta', USER);
+  });
+
+  // ── `[PGP.155]` La cuenta del mismo banco, sin CLABE (VUMERSOFT: BBVA a BBVA) ──
+  it('⭐ [PGP.155] la cuenta aprobada SIN CLABE sirve: se guarda su número de cuenta y el seguimiento la dice aprobada, no «efectivo»', async () => {
+    const sinClabe = (await trx('commercial.supplier_payment_accounts').insert({ tenant_id: M, supplier_id: prov, bank_name: 'BBVA', account_number: '0123 458 796', status: 'activa', es_favorita: true, created_by: USER }).returning('id'))[0].id as string;
+    const r = await svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'aprobada', account_id: sinClabe } }), USER);
+    expect(r.cuenta).toBe('aprobada');
+    expect(await trx('commercial.supplier_payment_obligations').where({ id: r.obligation_id }).first('payee_clabe', 'payee_account_number'))
+      .toEqual({ payee_clabe: null, payee_account_number: '0123458796' });
+    expect((await svc.listAnticiposSolicitados()).find((s) => s.obligation_id === r.obligation_id)!.cuenta)
+      .toEqual({ estado: 'aprobada', clabe: null, numero: '0123458796', banco: 'BBVA' });
+    await svc.cancel(r.obligation_id, 'prueba de la cuenta sin CLABE', USER);
+  });
+
+  it('⭐ [PGP.155] un número de cuenta nuevo de la cotización queda PEDIDO de alta; el mismo (con espacios) no se pide dos veces', async () => {
+    const CTA = '9876543210';
+    const r1 = await svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'nueva_cuenta', cuenta: CTA, banco: 'BANORTE' } }), USER);
+    expect(r1.cuenta).toBe('pedida');
+    const pedidas = await trx('commercial.supplier_payment_account_change_requests').where({ tenant_id: M, supplier_id: prov, proposed_account_number: CTA });
+    expect(pedidas).toHaveLength(1);
+    expect(pedidas[0]).toMatchObject({ status: 'pending_approval', proposed_bank_name: 'BANORTE', proposed_clabe: null, proposed_attachment_url: COT.key });
+    expect((await svc.listAnticiposSolicitados()).find((s) => s.obligation_id === r1.obligation_id)!.cuenta)
+      .toEqual({ estado: 'en_aprobacion', clabe: null, numero: CTA, banco: 'BANORTE' });
+    const r2 = await svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'nueva_cuenta', cuenta: '98 7654 3210', banco: 'BANORTE' } }), USER);
+    expect(r2.cuenta).toBe('ya_pedida');
+    expect(await trx('commercial.supplier_payment_account_change_requests').where({ tenant_id: M, supplier_id: prov, proposed_account_number: CTA })).toHaveLength(1);
+    for (const id of [r1.obligation_id, r2.obligation_id]) await svc.cancel(id, 'prueba de la cuenta nueva', USER);
+  });
+
+  it('⛔ NEGATIVA [PGP.155] — un número de cuenta corto o una CLABE en el campo de cuenta no salen; la base no acepta letras ni las dos a la vez', async () => {
+    await expect(svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'nueva_cuenta', cuenta: '12345', banco: 'BBVA' } }), USER)).rejects.toThrow(/de 7 a 14 dígitos/);
+    await expect(svc.crearAnticipo(cuerpo({ purchase_order_id: null, monto: 100, cuenta: { tipo: 'nueva_cuenta', cuenta: CLABE, banco: 'BBVA' } }), USER)).rejects.toThrow(/Eso es una CLABE/);
+    await expect(trx.transaction(async (t) => {
+      await t('commercial.supplier_payment_obligations').where({ id: primero }).update({ payee_account_number: '01234A8796' });
+    })).rejects.toThrow(/ck_spo_payee_account_number/);
+    await expect(trx.transaction(async (t) => {
+      await t('commercial.supplier_payment_obligations').where({ id: primero }).update({ payee_account_number: '0123458796', payee_clabe: CLABE });
+    })).rejects.toThrow(/ck_spo_payee_account_number/);
   });
 
   it('[PGP.127] la cotización: sólo PDF o foto, en la carpeta del tenant; se abre con URL firmada, y el pedido viejo dice que no la tiene', async () => {
@@ -297,5 +336,29 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
     expect((await svc.anticiposKeplerSinSolicitud(180)).map((k) => k.folio)).toContain('IT132V1');
     const x61 = (await svc.anticiposKeplerSinSolicitud(90)).find((k) => k.folio === 'IT119X61')!;
     expect(x61).toMatchObject({ sucursal: '08', proveedor: 'CIT119A', proveedor_nombre: 'CIT119 DULCES DE PRUEBA', importe: 6000 });
+  });
+
+  it('⭐ [PGP.155.2] el buscador del anticipo dice el último movimiento en Kepler y pone primero a quien tiene', async () => {
+    // Un gemelo SIN documentos cuyo nombre ordena antes (como VUMERSOFT CV10 contra CD004).
+    await trx('catalog.suppliers').insert({ tenant_id: M, code: 'CIT148Z', name: 'CIT119 AAA GEMELO SIN MOVIMIENTO', activo: true });
+    await trx.raw(`INSERT INTO kepler_ods.kdxe (sucursal, c1, c2, c3, c4, c5, c6, c7, c11, c20)
+                   VALUES ('03', '03', 'CIT119A', 'A', 20, 1, 'IT148F1', '2026-11-09', 100, 100)`);
+    const r = await svc.anticipoProveedores('cit119');
+    const { rows } = await trx.raw(`SELECT to_char(max(c7), 'YYYY-MM-DD') AS u FROM kepler_ods.kdxe WHERE c2 = 'CIT119A'`);
+    expect(rows[0].u).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(r.find((p) => p.code === 'CIT119A')?.ultimo_movimiento).toBe(rows[0].u);
+    expect(r.find((p) => p.code === 'CIT148Z')?.ultimo_movimiento).toBeNull();
+    // ⛔ NEGATIVA — por nombre iría primero; sin movimiento va al final. Y el de gasto (G…) no recibe anticipo.
+    expect(r[r.length - 1].code).toBe('CIT148Z');
+    expect(r.map((p) => p.code)).not.toContain('GIT119B');
+  });
+
+  it('⛔ [PGP.155.2] una clave del catálogo con espacio al final encuentra sus movimientos (no dice «sin movimientos»)', async () => {
+    // Revisión independiente: el resto del repo recorta la clave; sin eso, la búsqueda afirmaría algo falso.
+    await trx('catalog.suppliers').insert({ tenant_id: M, code: 'CIT155P ', name: 'CIT155 CLAVE CON ESPACIO', activo: true });
+    await trx.raw(`INSERT INTO kepler_ods.kdxe (sucursal, c1, c2, c3, c4, c5, c6, c7, c11, c20)
+                   VALUES ('03', '03', 'CIT155P', 'A', 20, 1, 'IT155F1', '2026-11-02', 100, 100)`);
+    const r = await svc.anticipoProveedores('cit155');
+    expect(r.find((p) => p.code === 'CIT155P')?.ultimo_movimiento).toBe('2026-11-02');
   });
 });

@@ -25,6 +25,7 @@
 const { fmt, conectar, cerrar, leerVerificado, normalizarChecadas, normalizarUsuarios, motivo, serieCoincide } =
   require('./zk/lectura-verificada');
 const { escucharAvisosDelReloj } = require('./zk/eventos');
+const { leerUsuarios } = require('./zk/lector-zk');
 const { descubrir } = require('./descubrir');
 const { ErrorEnvio } = require('./enviar');
 const { ejecutarComando } = require('./escritura');
@@ -77,6 +78,15 @@ const LIMITE_BACKFILL_MS = 10 * 60 * 1000;
  * vea verde de forma sostenida y el amarillo vuelva a ser una señal.
  */
 const LATIDO_MS = 5 * 60 * 1000;
+
+/**
+ * `[RH.17.1]` Tope para leer SOLO la lista de usuarios (no el registro de checadas). Son 72 bytes por persona: unos
+ * cientos de personas son decenas de KB, nada contra los ~2 MB del registro completo.
+ */
+const LIMITE_USUARIOS_MS = 60 * 1000;
+
+/** `[RH.17.1]` Si la lista no se pudo leer o mandar, se vuelve a intentar hasta pasado esto (no en cada vuelta del vigía). */
+const REINTENTO_USUARIOS_MS = 5 * 60 * 1000;
 
 /**
  * ══ POR QUÉ TODO COMANDO AL RELOJ LLEVA TOPE DE TIEMPO ══
@@ -146,6 +156,12 @@ class RelojJob {
     this.timers = {};
     this.ultimoError = null;
     this.infoReloj = null;
+    // `[RH.17.1]` La lista de usuarios (nombres) a la Suite en cuanto cambia. Ver `refrescarUsuarios`.
+    this.usuariosVistos = null;           // userCounts que ya se mandó (o con el que se abrió la sesión)
+    this.codigosConocidos = null;         // números que venían en la última lista mandada; null = aún no se manda
+    this.codigosSinLista = new Set();     // números que avisaron checada y no estaban en la lista
+    this.usuariosEnEspera = false;
+    this.usuariosNoAntesDe = 0;
   }
 
   get etiqueta() { return this.reloj.alias || this.reloj.sucursalId || this.reloj.serie; }
@@ -234,8 +250,88 @@ class RelojJob {
   alChecada(c) {
     if (this.primerAviso) { this.primerAviso = false; this.log('📣 el reloj avisa cada checada (sin releer su memoria)'); }
     this.avisosSinCuadrar = (this.avisosSinCuadrar || 0) + 1;
-    const encoladas = this.cola.encolar(this.reloj.serie, normalizarChecadas([c]), 'aviso');
+    const filas = normalizarChecadas([c]);
+    // `[RH.17.1]` El aviso trae el número, no el nombre. Un número que no venía en la última lista (o si aún no se
+    // manda ninguna) pide la lista en la siguiente vuelta del vigía: el aviso llega por el mismo socket, y leer aquí
+    // encimaría dos comandos en un reloj que sólo acepta uno a la vez.
+    for (const f of filas) {
+      if ((!this.codigosConocidos || !this.codigosConocidos.has(f.codigo)) && !this.codigosSinLista.has(f.codigo)) {
+        this.codigosSinLista.add(f.codigo);
+        this.usuariosEnEspera = true;
+      }
+    }
+    const encoladas = this.cola.encolar(this.reloj.serie, filas, 'aviso');
     if (encoladas) this.programarEnvio();
+  }
+
+  /** `[RH.17.1]` Solo la lista de usuarios del reloj, por la sesión abierta. Aparte para poder simularla en la prueba. */
+  leerListaUsuarios() {
+    return leerUsuarios(this.zk);
+  }
+
+  /**
+   * `[RH.17.1]` LOS NOMBRES, EN CUANTO CAMBIAN. Lee SOLO la lista de usuarios del reloj (no el registro de checadas) y
+   * la manda a la Suite en un lote sin checadas; la API cambia «Empleado N» por el nombre real.
+   *
+   * Por qué hace falta: el aviso de cada checada trae el número, no el nombre, y la lista sólo viajaba con la lectura
+   * completa. Desde `[RH.1.3]` los relojes que avisan ya no hacen la relectura de cada hora, así que la lista sólo salía
+   * al arrancar el agente. Medido en prod el 19-nov-2026: la última lista de 9 de los 12 relojes era del 12-nov, y 11
+   * personas que se dieron de alta después salían en /rh/asistencia como «Empleado 109».
+   *
+   * Va con el candado `ocupado`, igual que los comandos (que ya leen la lista por esta misma sesión). Si falla, no se
+   * da por mandada: se reintenta pasados `REINTENTO_USUARIOS_MS`.
+   */
+  async refrescarUsuarios(porque, info) {
+    if (!this.corriendo || !this.zk || this.ocupado) return;   // queda en espera: la toma la siguiente vuelta
+    this.ocupado = true;
+    const pedidos = [...this.codigosSinLista];
+    let usuarios = null;
+    let sesionRota = false;
+    try {
+      usuarios = normalizarUsuarios(await conLimite(this.leerListaUsuarios(), LIMITE_USUARIOS_MS, 'la lista de usuarios'));
+    } catch (e) {
+      // Igual que en los comandos: un error a media lectura deja el socket inservible.
+      sesionRota = true;
+      this.usuariosNoAntesDe = Date.now() + REINTENTO_USUARIOS_MS;
+      this.log(`⚠ lista de usuarios (${porque}): ${motivo(e)} — se reintenta en ${REINTENTO_USUARIOS_MS / 60000} min`);
+    } finally {
+      if (sesionRota) destruirSocket(this.zk);
+      this.soltarCandado();
+    }
+    if (sesionRota) {
+      if (this.corriendo) await this.reconectar('después de leer la lista de usuarios');
+      return;
+    }
+
+    try {
+      await this.enviador.enviarLote({
+        serie: this.reloj.serie,
+        ip: this.reloj.ip,
+        origen: 'agente',
+        infoReloj: { logCounts: info.logCounts, userCounts: info.userCounts },
+        usuarios,
+        checadas: [],
+        completa: false,
+      });
+    } catch (e) {
+      // Un error que no se reintenta (409: reloj sin dar de alta) ya quedó archivado en la API; repetirlo cada 5 min
+      // solo llenaría `ingest_batches`. Lo demás (red, 5xx, llave) se reintenta.
+      if (!(e instanceof ErrorEnvio && !e.reintentable)) {
+        this.usuariosEnEspera = true;
+        this.usuariosNoAntesDe = Date.now() + REINTENTO_USUARIOS_MS;
+        this.log(`⚠ no se pudo mandar la lista de usuarios (${porque}): ${motivo(e)} — se reintenta en ${REINTENTO_USUARIOS_MS / 60000} min`);
+        return;
+      }
+      this.log(`⚠ lista de usuarios (${porque}): ${motivo(e)}`);
+    }
+    this.usuariosVistos = info.userCounts;
+    // Los números que pidieron la lista cuentan como conocidos aunque no vinieran en ella: así un número raro no
+    // vuelve a pedirla en cada checada.
+    this.codigosConocidos = new Set([...usuarios.map((u) => u.codigo), ...pedidos]);
+    for (const c of pedidos) this.codigosSinLista.delete(c);
+    this.usuariosEnEspera = this.codigosSinLista.size > 0;
+    this.usuariosNoAntesDe = 0;
+    this.log(`👤 lista de usuarios a la Suite (${porque}): ${usuarios.length}`);
   }
 
   async soltarSocket() {
@@ -317,6 +413,11 @@ class RelojJob {
         // agente estuvo caído lo recupera el backfill inicial.
         if (this.infoReloj && Number.isFinite(this.infoReloj.logCounts)) {
           this.conteoVisto = this.infoReloj.logCounts;
+        }
+        // `[RH.17.1]` Igual con los usuarios: lo que cambie desde aquí, el vigía lo manda. Lo que cambió con la sesión
+        // caída lo cubre el aviso de un número desconocido al checar (ver `alChecada`).
+        if (this.infoReloj && Number.isFinite(this.infoReloj.userCounts)) {
+          this.usuariosVistos = this.infoReloj.userCounts;
         }
       } catch { this.infoReloj = null; }
 
@@ -434,6 +535,17 @@ class RelojJob {
         await this.backfill('movimiento nuevo');
         return;
       }
+    }
+
+    // `[RH.17.1]` ¿Alguien se dio de alta (o de baja) en el reloj, o checó un número que no venía en la lista? Se manda
+    // la lista de usuarios ahora, no hasta el siguiente arranque del agente.
+    if (this.usuariosVistos == null) this.usuariosVistos = info.userCounts;
+    const cambioUsuarios = info.userCounts !== this.usuariosVistos;
+    if ((cambioUsuarios || this.usuariosEnEspera) && Date.now() >= this.usuariosNoAntesDe) {
+      await this.refrescarUsuarios(
+        cambioUsuarios ? `usuarios en el reloj: ${this.usuariosVistos} → ${info.userCounts}` : 'checó un número que no estaba en la lista',
+        info);
+      if (!this.zk) return;   // se rompió la sesión y ya se reconectó (o quedó el reintento): esta vuelta termina aquí
     }
 
     // ══ LATIDO PERIÓDICO ════════════════════════════════════════════

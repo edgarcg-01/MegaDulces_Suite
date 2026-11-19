@@ -2,12 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import type {
-  DeudaProgramableResponse, ProgramarDocumentoDto, ProgramarDocumentoResultado,
+  DeudaProgramableResponse, ProgramarDocumentoDto, ProgramarDocumentoResultado, ProveedorSelectorOpcion,
 } from '@megadulces/contracts';
 import { armarDeudaProgramable, NOMBRE_DOCUMENTO_CXP, type FilaDeudaCruda } from './deuda-programable.engine';
 // `[PGP.119]` El anticipo pedido en la Suite: la regla (contrato) y sus lecturas (SQL medido en prod).
 import {
-  digitosClabe, estadoCuentaAnticipo, etapaDeSolicitud, faltaSolicitudAnticipo, llaveOcKepler, MARCA_CANCELADO, parearSolicitudes, tipoDeAcreedor, warehouseName,
+  digitosClabe, estadoCuentaAnticipo, etapaDeSolicitud, faltaSolicitudAnticipo, llaveOcKepler, MARCA_CANCELADO, numeroDeCuentaValido, parearSolicitudes, tipoDeAcreedor, warehouseName,
   type AnticipoOcKeplerRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
   type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada, type RefOcKepler,
 } from '@megadulces/contracts';
@@ -278,10 +278,17 @@ export class SupplierPaymentObligationsService {
   async anticipoProveedores(search?: string): Promise<AnticipoProveedorRow[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const b = trx('catalog.suppliers as s').select('s.id', trx.raw('btrim(s.code) AS code'), 's.name')
+      // `[PGP.155.2]` Con su último movimiento en Kepler, como el buscador de «Cuentas de pago» (`[PGP.154]`): sin
+      // él, VUMERSOFT salía dos veces (`CD004` y `CV10`) y nada decía cuál es el que se usa. Los que tienen
+      // movimiento van primero. Lateral: 11 ms contra 41 ms de agrupar todo `kdxe` (medido en prod, 2026-11-18).
+      const b = trx('catalog.suppliers as s')
+        // `btrim` sólo del lado del catálogo (revisión independiente): `kdxe.c2` llega limpio del ODS (0 con espacios,
+        // medido 2026-11-18) y `btrim(k.c2)` mata el índice — 59 ms contra 7.4 s, mismos renglones (prod, sólo lectura).
+        .joinRaw('LEFT JOIN LATERAL (SELECT max(k.c7) AS ultimo FROM kepler_ods.kdxe k WHERE k.c2 = btrim(s.code)) m ON true')
+        .select('s.id', trx.raw('btrim(s.code) AS code'), 's.name', trx.raw(`to_char(m.ultimo, 'YYYY-MM-DD') AS ultimo_movimiento`))
         .where('s.activo', true).whereRaw(`btrim(s.code) LIKE 'C%'`);
       if (search?.trim()) applySmartSearch(b, search, { columns: ['s.name', 's.code'] });
-      return b.orderBy('s.name').limit(30);
+      return b.orderByRaw('m.ultimo IS NULL, s.name').limit(30);
     });
   }
 
@@ -397,7 +404,7 @@ export class SupplierPaymentObligationsService {
       const monto = Math.round(Number(dto.monto) * 100) / 100;
       const sucursal = String(dto.sucursal).trim();
       const motivo = String(dto.motivo).trim();
-      const { clabe, resultado } = await this.cuentaDelAnticipo(trx, tenantId, supplier, dto, cot!, username);
+      const { clabe, cuenta, resultado } = await this.cuentaDelAnticipo(trx, tenantId, supplier, dto, cot!, username);
       const folios = ocs.map((o) => o.folio).join(', ');
       const concepto = `Anticipo · OC ${folios}${oc ? ` · OC Suite ${oc.folio}` : ''} · ${warehouseName(sucursal)}`;
       const [row] = await trx('commercial.supplier_payment_obligations').insert({
@@ -413,6 +420,9 @@ export class SupplierPaymentObligationsService {
         quote_file_key: cot!.key, quote_file_kind: cot!.kind,
         kepler_ocs: JSON.stringify(ocs.map((o) => ({ sucursal: o.sucursal, serie: o.serie, folio: o.folio }))),
         payee_clabe: clabe,
+        // `[PGP.155]` La cuenta sin CLABE (mismo banco). Sólo se escribe si hay: un anticipo con CLABE o en
+        // efectivo no depende de que la migración `pgp155` ya esté aplicada.
+        ...(cuenta ? { payee_account_number: cuenta } : {}),
       }).returning(['id', 'original_amount']);
       return { obligation_id: row.id, monto: Number(row.original_amount), concepto, cuenta: resultado };
     });
@@ -431,31 +441,42 @@ export class SupplierPaymentObligationsService {
   private async cuentaDelAnticipo(
     trx: Knex.Transaction, tenantId: string, supplier: { id: string; name: string },
     dto: AnticipoSolicitudBody, cot: { key: string; kind: string }, username: string,
-  ): Promise<{ clabe: string | null; resultado: ResultadoCuentaAnticipo }> {
+  ): Promise<{ clabe: string | null; cuenta: string | null; resultado: ResultadoCuentaAnticipo }> {
     const c = dto.cuenta!;
-    if (c.tipo === 'efectivo') return { clabe: null, resultado: 'efectivo' };
+    if (c.tipo === 'efectivo') return { clabe: null, cuenta: null, resultado: 'efectivo' };
     if (c.tipo === 'aprobada') {
       const acc = await trx('commercial.supplier_payment_accounts')
-        .where({ tenant_id: tenantId, id: c.account_id, supplier_id: supplier.id, status: 'activa' }).first('clabe');
+        .where({ tenant_id: tenantId, id: c.account_id, supplier_id: supplier.id, status: 'activa' }).first('clabe', 'account_number');
       if (!acc) throw new BadRequestException('La cuenta elegida no es de este proveedor o ya no está activa: vuelve a elegirla.');
       const clabe = digitosClabe(acc.clabe);
-      if (clabe.length !== 18) throw new BadRequestException('Esa cuenta no tiene CLABE: captura la de la cotización.');
-      return { clabe, resultado: 'aprobada' };
+      if (clabe.length === 18) return { clabe, cuenta: null, resultado: 'aprobada' };
+      // `[PGP.155]` Sin CLABE: la cuenta del mismo banco (VUMERSOFT, BBVA a BBVA). Dirección ya la aprobó.
+      const cuenta = digitosClabe(acc.account_number);
+      if (numeroDeCuentaValido(cuenta)) return { clabe: null, cuenta, resultado: 'aprobada' };
+      throw new BadRequestException('Esa cuenta no tiene CLABE ni un número de cuenta que se pueda usar: captura la de la cotización.');
     }
-    const clabe = digitosClabe(c.clabe);
-    const activa = await trx('commercial.supplier_payment_accounts')
-      .where({ tenant_id: tenantId, supplier_id: supplier.id, clabe, status: 'activa' }).first('id');
-    if (activa) return { clabe, resultado: 'aprobada' };
-    const pedida = await trx('commercial.supplier_payment_account_change_requests')
-      .where({ tenant_id: tenantId, supplier_id: supplier.id, proposed_clabe: clabe, status: 'pending_approval' }).first('id');
-    if (pedida) return { clabe, resultado: 'ya_pedida' };
+    // La cuenta nueva de la cotización: CLABE o número de cuenta. Si ya está activa, se reconoce; si ya está
+    // pedida, no se pide otra vez; si no, nace su solicitud de alta y la aprueba Dirección.
+    const porClabe = c.tipo === 'nueva';
+    const valor = digitosClabe(porClabe ? c.clabe : c.tipo === 'nueva_cuenta' ? c.cuenta : '');
+    const res = (resultado: ResultadoCuentaAnticipo) => ({ clabe: porClabe ? valor : null, cuenta: porClabe ? null : valor, resultado });
+    // El número de cuenta se compara por sus dígitos: en el catálogo puede estar con espacios o guiones.
+    const activa = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, supplier_id: supplier.id, status: 'activa' })
+      .andWhere((q) => (porClabe ? q.where('clabe', valor) : q.whereRaw(`regexp_replace(coalesce(account_number, ''), '\\D', '', 'g') = ?`, [valor])))
+      .first('id');
+    if (activa) return res('aprobada');
+    const pedida = await trx('commercial.supplier_payment_account_change_requests').where({ tenant_id: tenantId, supplier_id: supplier.id, status: 'pending_approval' })
+      .andWhere((q) => (porClabe ? q.where('proposed_clabe', valor) : q.whereRaw(`regexp_replace(coalesce(proposed_account_number, ''), '\\D', '', 'g') = ?`, [valor])))
+      .first('id');
+    if (pedida) return res('ya_pedida');
     await trx('commercial.supplier_payment_account_change_requests').insert({
       tenant_id: tenantId, supplier_id: supplier.id, account_id: null, deactivate: false,
-      proposed_bank_name: String(c.banco).trim(), proposed_account_number: null, proposed_clabe: clabe, proposed_alias: null,
+      proposed_bank_name: String(c.banco).trim(),
+      proposed_account_number: porClabe ? null : valor, proposed_clabe: porClabe ? valor : null, proposed_alias: null,
       proposed_attachment_url: cot.key, proposed_attachment_kind: cot.kind, proposed_es_favorita: false,
-      reason: `Anticipo a ${supplier.name}: CLABE de su cotización, capturada al pedir el anticipo.`, requested_by: username,
+      reason: `Anticipo a ${supplier.name}: ${porClabe ? 'CLABE' : 'número de cuenta (mismo banco)'} de su cotización, capturado al pedir el anticipo.`, requested_by: username,
     });
-    return { clabe, resultado: 'pedida' };
+    return res('pedida');
   }
 
   /**
@@ -468,18 +489,19 @@ export class SupplierPaymentObligationsService {
     return this.tk.run(async (trx) => {
       type Cruda = Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa' | 'cuenta'> & {
         candidatos: CandidatoAnticipoKepler[]; tenant_id?: string;
-        payee_clabe: string | null; banco_aprobada: string | null; solicitud_estado: string | null; solicitud_banco: string | null;
+        payee_clabe: string | null; payee_cuenta: string | null; banco_aprobada: string | null; solicitud_estado: string | null; solicitud_banco: string | null;
       };
       const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as Cruda[];
       const pareo = parearSolicitudes(rows);
-      return rows.map(({ candidatos, tenant_id, payee_clabe, banco_aprobada, solicitud_estado, solicitud_banco, ...r }) => {
+      return rows.map(({ candidatos, tenant_id, payee_clabe, payee_cuenta, banco_aprobada, solicitud_estado, solicitud_banco, ...r }) => {
         void candidatos; void tenant_id;
         const p = pareo.get(r.obligation_id) ?? { kepler: null, posibles: 0 };
         const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), disponible: Number(r.disponible), kepler: p.kepler, posibles: p.posibles };
         // `[PGP.127]` La cuenta se deriva aquí, con la regla del contrato: nunca se guarda su estado.
+        // `[PGP.155]` Con CLABE o, sin ella, con el número de cuenta del mismo banco.
         const cuenta = {
-          estado: estadoCuentaAnticipo({ payee_clabe, tiene_cotizacion: !!r.tiene_cotizacion, banco_aprobada, solicitud_estado }),
-          clabe: payee_clabe, banco: banco_aprobada ?? solicitud_banco ?? null,
+          estado: estadoCuentaAnticipo({ payee_clabe, payee_cuenta, tiene_cotizacion: !!r.tiene_cotizacion, banco_aprobada, solicitud_estado }),
+          clabe: payee_clabe, numero: payee_cuenta ?? null, banco: banco_aprobada ?? solicitud_banco ?? null,
         };
         return { ...fila, cubierto_el: r.cubierto_el ?? null, ocs: r.ocs ?? [], cuenta, etapa: etapaDeSolicitud(fila) };
       });
@@ -546,13 +568,29 @@ export class SupplierPaymentObligationsService {
     });
   }
 
-  /** Búsqueda ligera de proveedores para el selector de la obligación nueva. */
-  async searchSuppliers(search?: string) {
+  /**
+   * Búsqueda ligera de proveedores para los selectores de *Pago a proveedor*.
+   *
+   * `[PGP.154]` Sólo ofrece los que existen en el catálogo de proveedores de Kepler (`kdxd`): 547 de
+   * los 1,354 activos de `catalog.suppliers` no existen ahí (son los de la importación vieja de
+   * líneas) y salían como el mismo proveedor repetido. Cada opción trae su clave y su último
+   * movimiento en Kepler (`kdxe`) para distinguir dos fichas con el mismo nombre (`CD004` / `CV10`
+   * VUMERSOFT). Las que tienen movimiento van primero. Medido el 2026-11-18: 20–37 ms.
+   */
+  async searchSuppliers(search?: string): Promise<ProveedorSelectorOpcion[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const b = trx('catalog.suppliers').select('id', 'name', 'code', 'is_critical', 'critical_reason').where('activo', true);
-      if (search?.trim()) b.andWhereILike('name', `%${search.trim()}%`);
-      return b.orderBy('name').limit(50);
+      const mov = trx('kepler_ods.kdxe').select('c2').max({ ultimo: 'c7' }).groupBy('c2').as('m');
+      const b = trx('catalog.suppliers as s')
+        // `[PGP.155.2]` `btrim` del lado del catálogo, como el resto del repo; NO del lado del ODS (mata el índice: ver
+        // `anticipoProveedores`). `kdxd.c2` y `kdxe.c2` llegan limpios (0 con espacios, medido 2026-11-18).
+        .leftJoin(mov, function () { this.on('m.c2', '=', trx.raw('btrim(s.code)')); })
+        .select('s.id', 's.name', 's.code', 's.is_critical', 's.critical_reason',
+          trx.raw(`to_char(m.ultimo, 'YYYY-MM-DD') as ultimo_movimiento`))
+        .where('s.activo', true)
+        .whereExists(trx('kepler_ods.kdxd as k').select(trx.raw('1')).whereRaw('k.c2 = btrim(s.code)'));
+      if (search?.trim()) b.andWhereILike('s.name', `%${search.trim()}%`);
+      return b.orderByRaw('m.ultimo is null, s.name').limit(50);
     });
   }
 

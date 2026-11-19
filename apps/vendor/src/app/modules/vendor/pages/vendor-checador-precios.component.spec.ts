@@ -34,7 +34,7 @@ const ficha = {
     { u: 'PZA', nombre: 'Pieza', precio: 8.78, trae: null, precioPorTrae: null, etiquetaPorTrae: null },
     { u: 'PAQ', nombre: 'Paquete', precio: 93.48, trae: { n: 12, u: 'PZA', palabra: 'piezas' }, precioPorTrae: 7.79, etiquetaPorTrae: 'c/pieza' },
   ],
-  unidadLeida: 'PAQ', esPromocion: false, otrosConElCodigo: [], precioAmbiguo: false, deOtraPlaza: false, corregidoAMano: false,
+  unidadLeida: 'PAQ', esPromocion: false, otrosConElCodigo: [], precioAmbiguo: false, deOtraPlaza: false,
   mayoreo: [
     { u: 'PZA', singular: 'pieza', plural: 'piezas', desde: 12, precio: 8.2, precioNormal: 8.78, descuentoPct: 6.6, etiqueta: 'c/pieza' },
     { u: 'PAQ', singular: 'paquete', plural: 'paquetes', desde: 3, precio: 88, precioNormal: 93.48, descuentoPct: 5.9, etiqueta: 'c/paquete' },

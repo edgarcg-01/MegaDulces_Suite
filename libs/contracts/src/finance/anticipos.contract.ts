@@ -176,11 +176,26 @@ export interface CotizacionSubida { key: string; kind: 'pdf' | 'image' }
 /**
  * `[PGP.127]` D12 — **a qué cuenta se paga el anticipo.** La cuenta aprobada del proveedor, una CLABE
  * nueva de la cotización (nace la solicitud de alta y Dirección la aprueba antes de pagar), o efectivo.
+ *
+ * `[PGP.155]` La cuenta aprobada puede no tener CLABE (VUMERSOFT: BBVA a BBVA, con el número de cuenta), y
+ * la nueva de la cotización puede ser un **número de cuenta del mismo banco** (`nueva_cuenta`): misma
+ * solicitud de alta, misma aprobación de Dirección.
  */
 export type CuentaDelAnticipo =
   | { tipo: 'aprobada'; account_id: string }
   | { tipo: 'nueva'; clabe: string; banco: string }
+  | { tipo: 'nueva_cuenta'; cuenta: string; banco: string }
   | { tipo: 'efectivo' };
+
+/**
+ * `[PGP.155]` Un número de cuenta bancaria (no CLABE): de 7 a 14 dígitos. BBVA, Banorte y HSBC usan 10;
+ * Santander, Banamex y Scotiabank, 11. La CLABE (18) va por su lado, con su dígito de control. El mismo
+ * rango lo exige la base (`ck_spo_payee_account_number`).
+ */
+export const DIGITOS_CUENTA = { min: 7, max: 14 } as const;
+export function numeroDeCuentaValido(d: string): boolean {
+  return /^\d+$/.test(d) && d.length >= DIGITOS_CUENTA.min && d.length <= DIGITOS_CUENTA.max;
+}
 
 /** Lo que manda la pantalla para pedir un anticipo. */
 export interface AnticipoSolicitudBody {
@@ -253,7 +268,31 @@ export function faltaCuentaAnticipo(c: CuentaDelAnticipo | null | undefined): st
     if (String(c.banco ?? '').trim().length < 2) return 'Escribe el banco de la CLABE.';
     return null;
   }
+  if (c.tipo === 'nueva_cuenta') {
+    const d = digitosClabe(c.cuenta);
+    if (d.length === 18) return 'Eso es una CLABE (18 dígitos): elige «CLABE».';
+    if (!numeroDeCuentaValido(d)) return `El número de cuenta lleva de ${DIGITOS_CUENTA.min} a ${DIGITOS_CUENTA.max} dígitos${d.length ? ` (van ${d.length})` : ''}.`;
+    if (String(c.banco ?? '').trim().length < 2) return 'Escribe el banco de la cuenta.';
+    return null;
+  }
   return 'Di a qué cuenta se paga.';
+}
+
+/**
+ * `[PGP.155]` **El importe que se propone**: todo lo que queda de la OC (100 %), un porcentaje del total de
+ * las OC elegidas, o un importe a mano. Redondeado al centavo; `null` = todavía no se puede calcular (sin OC,
+ * o el porcentaje no es un número entre 0 y 100). El tope lo sigue diciendo `faltaSolicitudAnticipo`.
+ */
+export type ModoImporteAnticipo = 'todo' | 'porcentaje' | 'importe';
+export function importeSugeridoAnticipo(p: {
+  modo: ModoImporteAnticipo; tope: { total: number; queda: number }; porcentaje?: unknown; importe?: number | null;
+}): number | null {
+  if (p.modo === 'importe') return p.importe == null || !Number.isFinite(p.importe) ? null : r2(p.importe);
+  if (!(p.tope.total > 0)) return null;
+  if (p.modo === 'todo') return p.tope.queda > 0 ? r2(p.tope.queda) : null;
+  const pct = Number(String(p.porcentaje ?? '').replace(',', '.').replace('%', '').trim());
+  if (!String(p.porcentaje ?? '').trim() || !Number.isFinite(pct) || !(pct > 0) || pct > 100) return null;
+  return r2(p.tope.total * pct / 100);
 }
 
 /** Un proveedor que puede recibir anticipo (de mercancía, activo). */
@@ -261,6 +300,13 @@ export interface AnticipoProveedorRow {
   id: string;
   code: string;
   name: string;
+  /**
+   * `[PGP.155.2]` Fecha (`YYYY-MM-DD`) de su documento más reciente en las cuentas por pagar de Kepler
+   * (`kdxe.c7`), como en «Cuentas de pago» (`[PGP.154]`). Distingue a los gemelos: VUMERSOFT `CD004` (último
+   * el 9-nov) contra `CV10` (ninguno). `null` = cero documentos. Opcional: una respuesta sin el campo no
+   * se lee como «sin movimientos» (ver `textoUltimoMovimiento`).
+   */
+  ultimo_movimiento?: string | null;
 }
 
 /** En qué va una solicitud. */
@@ -311,8 +357,24 @@ export interface AnticipoSolicitadoRow {
   ocs: RefOcKepler[];
   /** `[PGP.127]` Tiene cotización (se abre con `GET …/anticipos/:id/cotizacion`). */
   tiene_cotizacion: boolean;
-  /** `[PGP.127]` La cuenta, derivada al leer del catálogo y sus solicitudes. */
-  cuenta: { estado: EstadoCuentaAnticipo; clabe: string | null; banco: string | null };
+  /**
+   * `[PGP.127]` La cuenta, derivada al leer del catálogo y sus solicitudes. `[PGP.155]` `numero`: el número de
+   * cuenta cuando se paga a una cuenta sin CLABE (mismo banco); trae uno u otro, nunca los dos. Opcional: una
+   * API anterior a `[PGP.155]` no lo manda (desfase del despliegue).
+   */
+  cuenta: { estado: EstadoCuentaAnticipo; clabe: string | null; numero?: string | null; banco: string | null };
+}
+
+/**
+ * `[PGP.155]` La cuenta del anticipo en llano, para una frase: «BBVA · CLABE terminación 7899» o «BBVA ·
+ * cuenta terminación 8796». Vacío si no tiene ninguna (efectivo o pedido de antes).
+ */
+export function cuentaCortaAnticipo(c: { clabe: string | null; numero?: string | null; banco: string | null } | null | undefined): string {
+  if (!c) return '';
+  const banco = c.banco ? `${c.banco} · ` : '';
+  if (c.clabe) return `${banco}CLABE terminación ${c.clabe.slice(-4)}`;
+  if (c.numero) return `${banco}cuenta terminación ${c.numero.slice(-4)}`;
+  return '';
 }
 
 /**
@@ -330,8 +392,10 @@ export type EstadoCuentaAnticipo = 'aprobada' | 'en_aprobacion' | 'rechazada' | 
 
 export function estadoCuentaAnticipo(s: {
   payee_clabe: string | null; tiene_cotizacion: boolean; banco_aprobada: string | null; solicitud_estado: string | null;
+  /** `[PGP.155]` El número de cuenta, cuando se paga a una cuenta sin CLABE. */
+  payee_cuenta?: string | null;
 }): EstadoCuentaAnticipo {
-  if (!s.payee_clabe) return s.tiene_cotizacion ? 'efectivo' : 'sin_dato';
+  if (!s.payee_clabe && !s.payee_cuenta) return s.tiene_cotizacion ? 'efectivo' : 'sin_dato';
   if (s.banco_aprobada != null) return 'aprobada';
   if (s.solicitud_estado === 'pending_approval') return 'en_aprobacion';
   if (s.solicitud_estado === 'rejected') return 'rechazada';
@@ -360,17 +424,28 @@ export function anticiposDelDia<T extends Pick<AnticipoSolicitadoRow, 'etapa' | 
  */
 export function faltaCuentaParaTransferirAnticipo(p: {
   clabesDeAnticipos: readonly (string | null)[];
-  cuentaElegida: { clabe: string | null } | null;
+  /**
+   * `[PGP.155]` El número de cuenta de cada anticipo (mismo orden que `clabesDeAnticipos`), cuando se pidió a
+   * una cuenta sin CLABE. Sin él, como antes: sólo se compara la CLABE.
+   */
+  cuentasDeAnticipos?: readonly (string | null)[];
+  cuentaElegida: { clabe: string | null; account_number?: string | null } | null;
 }): string | null {
   if (!p.clabesDeAnticipos.length) return null;
-  const clabes = [...new Set(p.clabesDeAnticipos.filter((c): c is string => !!c))];
-  if (clabes.length > 1) return 'Este pago junta anticipos con CLABE distintas: sácalos a pagos separados.';
-  const fin = clabes[0] ? ` (la de su cotización, CLABE terminación ${clabes[0].slice(-4)})` : '';
+  // Cada anticipo se paga a UNA cuenta: su CLABE o, si no tiene, su número de cuenta.
+  const destinos = [...new Set(p.clabesDeAnticipos.map((c, i) => (c ? `clabe:${c}` : p.cuentasDeAnticipos?.[i] ? `cuenta:${p.cuentasDeAnticipos[i]}` : null))
+    .filter((d): d is string => !!d))];
+  if (destinos.length > 1) return 'Este pago junta anticipos que van a cuentas distintas: sácalos a pagos separados.';
+  const [tipo, valor] = destinos[0]?.split(':') ?? [];
+  const fin = !valor ? '' : tipo === 'clabe' ? ` (la de su cotización, CLABE terminación ${valor.slice(-4)})` : ` (la cuenta terminación ${valor.slice(-4)})`;
   if (!p.cuentaElegida) {
     return `Este pago es un anticipo: se transfiere sólo a una cuenta aprobada por Dirección${fin}. Elígela del catálogo; si no aparece, su alta todavía espera aprobación en Cuentas de pago.`;
   }
-  if (clabes[0] && p.cuentaElegida.clabe !== clabes[0]) {
+  if (tipo === 'clabe' && p.cuentaElegida.clabe !== valor) {
     return `La cuenta elegida no es la de la cotización del anticipo${fin}. Elige ésa.`;
+  }
+  if (tipo === 'cuenta' && digitosClabe(p.cuentaElegida.account_number) !== valor) {
+    return `La cuenta elegida no es la del anticipo${fin}. Elige ésa.`;
   }
   return null;
 }

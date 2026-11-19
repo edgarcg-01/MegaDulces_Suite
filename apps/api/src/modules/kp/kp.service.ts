@@ -358,8 +358,14 @@ export class KpService {
   /**
    * `[TDA.4]` — Lo que la etiqueta del anaquel sabe de este producto y el mostrador no leía.
    *
-   * Devuelve el override manual (si lo hay) **y los tiers de mayoreo**. Son la misma consulta
-   * porque salen de la misma fila: separarlas sería pagar dos viajes por un solo hecho.
+   * Devuelve **los tiers de mayoreo**, el gramaje, la llave del aviso y el proveedor: todo sale de
+   * la misma fila, así que separarlo sería pagar varios viajes por un solo hecho.
+   *
+   * `[VAC.D3]` Ya NO devuelve una corrección manual del precio (firmado por 0Sistemas el
+   * 2026-11-19). Era la rama `source = 'manual'`, que pisaba el precio de Kepler; la etiquetera ya
+   * no la imprimía, así que el mostrador podía decir «es el mismo que sale en la etiqueta» de un
+   * precio que la etiqueta no traía. Medido ese día en prod: **0 de 80,036** filas de
+   * `commercial.product_label_prices` eran manuales. Una sola verdad: el precio sale del ERP.
    *
    * ── Por qué el mayoreo importa acá ──────────────────────────────────────────
    * Medido en prod el 2026-09-09: **8,481 de 9,020 productos (94 %) tienen mayoreo real**
@@ -380,7 +386,7 @@ export class KpService {
    * ── Por qué acá y no vía `/store/labels/resolve` ────────────────────────────
    * Ese endpoint ya devuelve todo esto, pero exige **sesión + `STORE_LABELS_VER`**, y este
    * kiosco es `@Public()` a propósito: *"el kiosco no tiene con quién autenticarse"*. Se lee la
-   * tabla directo, que es lo que este servicio ya hacía para el override. No cambia la clase de
+   * tabla directo. No cambia la clase de
    * exposición: sigue publicando **precios de venta**, nunca costo ni margen.
    *
    * `SET LOCAL app.tenant_id` en la MISMA tx: la tabla tiene RLS **FORCE** y sin contexto la
@@ -389,7 +395,6 @@ export class KpService {
    * Ante cualquier problema devuelve todo en `null`: es un refinamiento del precio, no el precio.
    */
   private async datosDeEtiqueta(codigo: string, sucursal: string | null): Promise<{
-    override: number | null;
     mayoreo: MayoreoTier[];
     contenido: string | null;
     /**
@@ -405,7 +410,7 @@ export class KpService {
     /** `[MOS.1]` El proveedor de la ficha (`catalog.suppliers`), el mismo que ve Compras. */
     proveedor: string | null;
   }> {
-    const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null, product_id: null, proveedor: null };
+    const vacio = { mayoreo: [] as MayoreoTier[], contenido: null, product_id: null, proveedor: null };
     // `[NORM.3]` La plaza de la que salió el precio. La tabla ahora tiene grano por sucursal, así
     // que el mayoreo se pide para ESA tienda: 1,164 grupos de mayoreo de paquete (6.3 %) tienen
     // precio distinto entre plazas, y antes se publicaba el de la moda. Sin plaza conocida se lee
@@ -418,7 +423,7 @@ export class KpService {
           // `[TDA.7]` Mismas dos columnas que el lote del snapshot, por el mismo motivo: son la
           // base del mayoreo de paquete. Los dos caminos tienen que ver lo mismo o el modo sin
           // red contesta distinto que el modo en línea.
-          `SELECT l.piece_price, l.source, l.content, l.unit_base,
+          `SELECT l.piece_price, l.content, l.unit_base,
                   l.wholesale_piece_price, l.wholesale_piece_min_qty,
                   l.wholesale_pack_price,  l.wholesale_pack_min_qty,
                   l.pack_price,            l.pack_size,
@@ -443,13 +448,11 @@ export class KpService {
         const r = rows?.[0];
         if (!r) return vacio;
 
-        const base = r.piece_price != null ? Number(r.piece_price) : null;
-        const override = r.source === 'manual' && base && base > 0 ? base : null;
         // El cómputo vive en `tiersDeFila` porque el snapshot offline usa el MISMO: la regla del
         // descuento mínimo no puede existir dos veces.
         const { mayoreo, contenido } = this.tiersDeFila(r);
         return {
-          override, mayoreo, contenido, product_id: r.product_id ?? null,
+          mayoreo, contenido, product_id: r.product_id ?? null,
           proveedor: r.proveedor ? String(r.proveedor).trim() || null : null,
         };
       });
@@ -581,24 +584,12 @@ export class KpService {
         && filasDelCodigo.every((x) => esCentavo(x.pv1) && (x.pv2 == null || Number(x.pv2) <= 0.01));
       const esPromocion = esCodigoSimbolico(r.nombre, centavoEnTodas);
 
-      // El override manual gana: es una corrección humana deliberada y es lo que sale impreso en
-      // el anaquel. Sólo se pisa el precio de la unidad BASE (es lo que la tabla guarda por pieza).
-      // `[TDA.4]` Una sola lectura trae el override manual Y los tiers de mayoreo: salen de la
-      // misma fila de la etiqueta, así que separarlas sería pagar dos viajes por un solo hecho.
+      // `[TDA.4]` Una sola lectura trae los tiers de mayoreo, el gramaje y la llave del aviso.
       // `[NORM.3]` `r` es la fila de la plaza elegida (la pedida, o la determinista). El mayoreo se
       // pide para esa MISMA plaza: si se pidieran por caminos distintos, el precio unitario y su
       // mayoreo podrían salir de dos tiendas diferentes.
+      // `[VAC.D3]` El precio es SIEMPRE el de Kepler: ya no hay corrección manual que lo pise.
       const etiqueta = await this.datosDeEtiqueta(r.codigo, r.sucursal || null);
-      const manual = etiqueta.override;
-      let origen: 'kepler' | 'override_manual' = 'kepler';
-      if (manual != null && base) {
-        const iva = Math.abs(Number(r.iva_raw)) / 100;
-        const ieps = Math.abs(Number(r.ieps_raw)) / 100;
-        const div = (1 + iva) * (1 + ieps);
-        base.precio_con_iva = redondea(manual);
-        base.precio_sin_iva = redondea(manual / (div || 1));
-        origen = 'override_manual';
-      }
 
       return {
         ok: true,
@@ -636,7 +627,7 @@ export class KpService {
         codigo_ambiguo: codigoAmbiguo,
         productos_candidatos: candidatos,
         plaza_pedida_sin_dato: plazaPedidaSinDato,
-        origen_precio: origen,
+        origen_precio: 'kepler',
         // `[MOS.1]` El proveedor de la ficha, de la misma lectura que el mayoreo.
         proveedor: etiqueta.proveedor,
         // `[ETQ-PROMO.2]` Con esto en `true` el precio de arriba es el centavo simbólico, no un precio.
