@@ -712,6 +712,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               [bloqueado]="guardando()"
               [clientePct]="num(q.terms_discount_pct) || null"
               [titulo]="'Renglones de la cotización ' + q.code"
+              [ordenInicial]="editable() ? 'reciente' : 'captura'"
               [marcado]="ultimoAgregado()?.id ?? null"
               [destello]="destelloRenglon()"
               (cantidad)="onCantidadTabla($event)"

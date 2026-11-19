@@ -835,6 +835,7 @@ const ORIGENES = ORIGENES_COTIZACION;
               [bloqueado]="guardando()"
               [clientePct]="descuentoClientePct() || null"
               titulo="Renglones de la cotización nueva"
+              ordenInicial="reciente"
               [marcado]="ultimoAgregado()?.id ?? null"
               [destello]="destelloRenglon()"
               (cantidad)="onCantidadBandeja($event)"
