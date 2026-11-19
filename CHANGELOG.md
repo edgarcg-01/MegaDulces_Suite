@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas: se vuelve a imprimir, y con la tipografía de la etiqueta (ETQ-FUENTE.3 · 2026-11-12)
+- Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
+- Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
+
 ### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
