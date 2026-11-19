@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentObligationsService, CreateSupplierObligationDto, type ResultadoCuentaAnticipo } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
-import type { DeudaProgramableResponse, ProgramarDocumentoResultado } from '@megadulces/contracts';
+import type { DeudaProgramableResponse, ProgramarDocumentoResultado, ProveedorSelectorOpcion } from '@megadulces/contracts';
 import type { AnticipoOcKeplerRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody } from '@megadulces/contracts';
 import { PERMISOS_PEDIR_ANTICIPO, type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada } from '@megadulces/contracts';
 
@@ -62,8 +62,8 @@ export class SupplierPaymentObligationsController {
 
   @Get('suppliers')
   @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)
-  @ApiOperation({ summary: 'Búsqueda ligera de proveedores para el selector de la obligación nueva.' })
-  searchSuppliers(@Query('search') search?: string) {
+  @ApiOperation({ summary: 'PGP.154 — buscador de proveedores: sólo los que existen en Kepler, con su clave y su último movimiento.' })
+  searchSuppliers(@Query('search') search?: string): Promise<ProveedorSelectorOpcion[]> {
     return this.svc.searchSuppliers(search);
   }
 

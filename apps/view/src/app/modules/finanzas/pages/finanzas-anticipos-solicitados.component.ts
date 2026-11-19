@@ -13,7 +13,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
-  diasEnEtapa, embudoAnticipos, ETAPA_ANTICIPO_TEXTO, faltaCancelarAnticipo, partirMotivo, PASOS_EMBUDO_ANTICIPO, PERMISOS_PEDIR_ANTICIPO,
+  cuentaCortaAnticipo, diasEnEtapa, embudoAnticipos, ETAPA_ANTICIPO_TEXTO, faltaCancelarAnticipo, partirMotivo, PASOS_EMBUDO_ANTICIPO, PERMISOS_PEDIR_ANTICIPO,
   type AnticipoKeplerSinSolicitudRow, type AnticipoSolicitadoRow, type EtapaSolicitudAnticipo, type PasoEmbudoAnticipo,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
@@ -430,12 +430,14 @@ export class FinanzasAnticiposSolicitadosComponent implements OnInit {
   cuentaTexto(s: AnticipoSolicitadoRow): string | null {
     const c = s.cuenta;
     if (!c) return null;
-    const fin = c.clabe ? `${c.banco ? c.banco + ' · ' : ''}CLABE terminación ${c.clabe.slice(-4)}` : '';
+    // `[PGP.155]` CLABE o, sin ella, el número de cuenta del mismo banco: la misma frase del contrato.
+    const fin = cuentaCortaAnticipo(c);
+    const que = c.clabe ? 'la CLABE' : 'la cuenta';
     switch (c.estado) {
       case 'aprobada': return `A ${fin} (aprobada).`;
       case 'en_aprobacion': return `A ${fin}: espera la aprobación de Dirección en Cuentas de pago.`;
-      case 'rechazada': return `Dirección rechazó la CLABE ${fin}: pídele al proveedor otra cuenta.`;
-      case 'sin_cuenta': return `La CLABE ${fin} ya no está aprobada: hay que pedir su alta otra vez.`;
+      case 'rechazada': return `Dirección rechazó ${que} ${fin}: pídele al proveedor otra cuenta.`;
+      case 'sin_cuenta': return `${que === 'la CLABE' ? 'La CLABE' : 'La cuenta'} ${fin} ya no está aprobada: hay que pedir su alta otra vez.`;
       case 'efectivo': return 'En efectivo.';
       case 'sin_dato': return null;
     }

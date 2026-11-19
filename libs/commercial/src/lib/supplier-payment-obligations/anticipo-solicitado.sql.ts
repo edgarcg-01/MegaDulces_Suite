@@ -19,7 +19,9 @@ export const SQL_ANTICIPOS_SOLICITADOS = `WITH s AS (
          -- [PGP.127]/[PGP.129] Lo que el Calendario necesita para ofrecerlo en su día sin otra llamada.
          o.supplier_id::text AS supplier_id, o.tenant_id,
          (o.original_amount - o.reserved_amount - o.paid_amount)::float8 AS disponible,
-         coalesce(o.kepler_ocs, '[]'::jsonb) AS ocs, (o.quote_file_key IS NOT NULL) AS tiene_cotizacion, o.payee_clabe
+         coalesce(o.kepler_ocs, '[]'::jsonb) AS ocs, (o.quote_file_key IS NOT NULL) AS tiene_cotizacion, o.payee_clabe,
+         -- [PGP.155] La cuenta sin CLABE (mismo banco). to_jsonb: no truena si la migración pgp155 todavía no llegó.
+         to_jsonb(o) ->> 'payee_account_number' AS payee_cuenta
     FROM commercial.supplier_payment_obligations o
     JOIN catalog.suppliers sp ON sp.id = o.supplier_id
     LEFT JOIN commercial.purchase_orders po ON po.id = o.purchase_order_id
@@ -46,10 +48,12 @@ export const SQL_ANTICIPOS_SOLICITADOS = `WITH s AS (
 SELECT s.id::text AS obligation_id, s.proveedor, s.proveedor_nombre, s.sucursal, s.monto, s.pagado, s.status AS estado_obligacion,
        s.motivo, s.created_by AS creado_por, s.creado, s.fecha_deseada, s.oc_folio,
        pg.allocation_id, pg.dia AS programado_dia, pg.cubierto_el,
-       s.supplier_id, s.disponible, s.ocs, s.tiene_cotizacion, s.payee_clabe,
+       s.supplier_id, s.disponible, s.ocs, s.tiene_cotizacion, s.payee_clabe, s.payee_cuenta,
        -- [PGP.127] La cuenta se DERIVA del catálogo y de su última solicitud con esa CLABE: no se copia.
+       -- [PGP.155] …o con ese número de cuenta, comparado por sus dígitos.
        (SELECT a.bank_name FROM commercial.supplier_payment_accounts a
-         WHERE a.tenant_id = s.tenant_id AND a.supplier_id::text = s.supplier_id AND a.clabe = s.payee_clabe AND a.status = 'activa'
+         WHERE a.tenant_id = s.tenant_id AND a.supplier_id::text = s.supplier_id AND a.status = 'activa'
+           AND (a.clabe = s.payee_clabe OR regexp_replace(coalesce(a.account_number, ''), '\\D', '', 'g') = s.payee_cuenta)
          ORDER BY a.created_at LIMIT 1) AS banco_aprobada,
        r.status AS solicitud_estado, r.proposed_bank_name AS solicitud_banco,
        coalesce((SELECT json_agg(json_build_object('folio', c.folio, 'fecha', to_char(c.fecha, 'YYYY-MM-DD'), 'importe', c.importe, 'remanente', c.remanente))
@@ -60,9 +64,10 @@ SELECT s.id::text AS obligation_id, s.proveedor, s.proveedor_nombre, s.sucursal,
   LEFT JOIN pg ON pg.obligation_id = s.id
   LEFT JOIN LATERAL (
     SELECT q.status, q.proposed_bank_name FROM commercial.supplier_payment_account_change_requests q
-     WHERE q.tenant_id = s.tenant_id AND q.supplier_id::text = s.supplier_id AND q.proposed_clabe = s.payee_clabe AND NOT q.deactivate
+     WHERE q.tenant_id = s.tenant_id AND q.supplier_id::text = s.supplier_id AND NOT q.deactivate
+       AND (q.proposed_clabe = s.payee_clabe OR regexp_replace(coalesce(q.proposed_account_number, ''), '\\D', '', 'g') = s.payee_cuenta)
      ORDER BY q.requested_at DESC LIMIT 1
-  ) r ON s.payee_clabe IS NOT NULL
+  ) r ON s.payee_clabe IS NOT NULL OR s.payee_cuenta IS NOT NULL
  ORDER BY s.created_at DESC`;
 
 /**
