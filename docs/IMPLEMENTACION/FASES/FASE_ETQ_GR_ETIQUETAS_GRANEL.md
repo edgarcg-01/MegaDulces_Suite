@@ -12,7 +12,7 @@ MÉTRICA:  cajas recibidas por orden de entrada X-A-40 que quedan etiquetadas de
 CAPA TOPE: C3
 ÁREA:      Logística (almacén)
 DUEÑO:     (por asignar)
-ESTADO:    🧪 C0–C3 en código (4 commits locales, 2026-11-19), probados en local; sin validación visual, sin prueba física, nada en prod
+ESTADO:    🧪 C0–C3 en código (PR #571, 2026-11-19), probados en local y recorridos en el navegador con capturas; sin prueba física, nada en prod
 ```
 
 Requerimientos para revisión: [`REQ_ETQ_GR_ETIQUETAS_CAJA.md`](REQ_ETQ_GR_ETIQUETAS_CAJA.md). Tarjeta
@@ -160,7 +160,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | RE.ETQ.0.1 | Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE` + `Md_etiq_OE_fto`, la del espécimen), vale (`MD_oc`, no imprime), Granel y Generales | ✅ 2026-11-05 | `MD_OE.rep_etiq` reproduce el 70106 campo por campo |
-| RE.ETQ.0.2 | Vista `derive-no-copy` **`analytics.v_box_label_lines`**: una fila por renglón de `X-A-40` con sucursal, folio, renglón, fecha y hora de captura (`c68`+`c69`), fecha y vale de origen (`c39`; no se imprimen, D6: van a la cola y a la bitácora), SKU, nombre completo, unidad (`c55`), **UXC = `c58`**, cajas completas, piezas sueltas, código de caja `'C'\|\|c1`, y dos banderas: `kepler_sin_c85` y `catalogo_factor_0` | 🧪 2026-11-19 (`570da5c8a`): verificada contra prod, aplicada en local | Σ cajas de 30 días por sucursal = la medición de §2.1; el 70106 de la orden `0000474` da 20 cajas, UXC 18 |
+| RE.ETQ.0.2 | Vista `derive-no-copy` **`analytics.v_box_label_lines`**: una fila por renglón de `X-A-40` con sucursal, folio, renglón, fecha y hora de captura (`c68`+`c69`), fecha y vale de origen (`c39`; no se imprimen, D6: van a la cola y a la bitácora), SKU, nombre completo, unidad (`c55`), **UXC = `c58`**, cajas completas, piezas sueltas, código de caja `'C'\|\|c1`, y dos banderas: `kepler_sin_c85` y `catalogo_factor_0` | 🧪 2026-11-19 (#571): verificada contra prod, aplicada en local | Σ cajas de 30 días por sucursal = la medición de §2.1; el 70106 de la orden `0000474` da 20 cajas, UXC 18 |
 | RE.ETQ.0.3 | Medir el rollo y el controlador TSC de la PC de Suc 08; averiguar si la TE200 tiene red o sólo USB (decide el transporte de la vía B) | ⬜ al implementar | foto con regla + captura de la configuración del controlador |
 | RE.ETQ.0.4 | Fecha de la etiqueta: cuenta de Kepler (1-ene = 0) sobre **el día de la primera impresión** (D6), no sobre una fecha de Kepler | ✅ 2026-11-05 (cuenta) · ✅ 2026-11-17 (fuente, D6) | espécimen: 308 = 5-nov (captura de la orden 0000474); prueba de la cuenta en RE.ETQ.1.3 |
 
@@ -169,27 +169,27 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 ### C1 · Dominio
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| RE.ETQ.1.1 | **Pieza de etiquetera en `libs/`**: sacar de `checado-etiquetas.ts` las filas de 3, la página y las barras; plantillas `checado` (GP.4) y `caja`. GP.4 la consume sin cambiar su salida | 🧪 2026-11-19 (`c617e4408`) | spec: el HTML de GP.4 idéntico antes y después |
-| RE.ETQ.1.2 | Plantilla `caja`: logo, clave, Code 128 a 2 puntos por módulo con ancho calculado, `n:total`, UXC, fecha, nombre completo en dos renglones (letra que se achica, nunca se corta), pie con la sucursal por nombre; las tres etiquetas de la fila iguales | 🧪 2026-11-19 (`c617e4408`) | spec con el 70106: 20 etiquetas, 7 filas, textos exactos; spec con `CAJETA ENVINADA TOPPER 1KG` y `1/2 KG`: nombres distintos |
-| RE.ETQ.1.3 | Fecha (D6): el instante de la primera impresión, con la cuenta de Kepler y TZ `America/Mexico_City` (`mx-date.ts`); la reimpresión recibe la fecha guardada y no la recalcula | 🧪 2026-11-19 (`c617e4408`) | spec: 2026-11-05 → `308-26`; 2026-01-01 → `0-26`; 31-dic de 2028 (bisiesto) → `365-28`; **17-nov 23:30 CDMX (05:30 UTC del 18) → `320-26`**; reimpresión del 20-nov de una etiqueta del 17 → `320-26` |
-| RE.ETQ.1.4 | Código por unidad: si la unidad del renglón es la tercera del producto (`c55` = `kdii.c83`) → `C`+clave; si es otra → el código de esa unidad (`c7` base, `c82` paquete) o la clave. Producto con `c85` vacío: se imprime `C`+clave y se marca «Kepler no lo reconoce» | 🧪 2026-11-19 (`c617e4408`): `C`+clave en CJA/BTO/CUB + aviso | spec con el 70106 (`C70106`) y con un producto real de Suc 00 sin `c85` |
-| RE.ETQ.1.5 | Caja incompleta: `c9` no múltiplo de `c58` → una etiqueta más, que dice sus piezas (`21:21 · 6 PZA`) | 🧪 2026-11-19 (`c617e4408`) | spec con la orden `0000685` de Suc 01 (4 renglones de media caja) |
-| RE.ETQ.1.6 | **Vía B — TSPL**: la misma plantilla escrita en TSPL, una por renglón, con `SET COUNTER` para que la impresora numere; el transporte (red, WebUSB o agente local) se elige con RE.ETQ.0.3 | 🧪 2026-11-19 (`c617e4408`): sin medir la impresora | spec: el TSPL del 70106 contra un archivo de referencia; prueba física en C3 |
+| RE.ETQ.1.1 | **Pieza de etiquetera en `libs/`**: sacar de `checado-etiquetas.ts` las filas de 3, la página y las barras; plantillas `checado` (GP.4) y `caja`. GP.4 la consume sin cambiar su salida | 🧪 2026-11-19 (#571) | spec: el HTML de GP.4 idéntico antes y después |
+| RE.ETQ.1.2 | Plantilla `caja`: logo, clave, Code 128 a 2 puntos por módulo con ancho calculado, `n:total`, UXC, fecha, nombre completo en dos renglones (letra que se achica, nunca se corta), pie con la sucursal por nombre; las tres etiquetas de la fila iguales | 🧪 2026-11-19 (#571) | spec con el 70106: 20 etiquetas, 7 filas, textos exactos; spec con `CAJETA ENVINADA TOPPER 1KG` y `1/2 KG`: nombres distintos |
+| RE.ETQ.1.3 | Fecha (D6): el instante de la primera impresión, con la cuenta de Kepler y TZ `America/Mexico_City` (`mx-date.ts`); la reimpresión recibe la fecha guardada y no la recalcula | 🧪 2026-11-19 (#571) | spec: 2026-11-05 → `308-26`; 2026-01-01 → `0-26`; 31-dic de 2028 (bisiesto) → `365-28`; **17-nov 23:30 CDMX (05:30 UTC del 18) → `320-26`**; reimpresión del 20-nov de una etiqueta del 17 → `320-26` |
+| RE.ETQ.1.4 | Código por unidad: si la unidad del renglón es la tercera del producto (`c55` = `kdii.c83`) → `C`+clave; si es otra → el código de esa unidad (`c7` base, `c82` paquete) o la clave. Producto con `c85` vacío: se imprime `C`+clave y se marca «Kepler no lo reconoce» | 🧪 2026-11-19 (#571): `C`+clave en CJA/BTO/CUB + aviso | spec con el 70106 (`C70106`) y con un producto real de Suc 00 sin `c85` |
+| RE.ETQ.1.5 | Caja incompleta: `c9` no múltiplo de `c58` → una etiqueta más, que dice sus piezas (`21:21 · 6 PZA`) | 🧪 2026-11-19 (#571) | spec con la orden `0000685` de Suc 01 (4 renglones de media caja) |
+| RE.ETQ.1.6 | **Vía B — TSPL**: la misma plantilla escrita en TSPL, una por renglón, con `SET COUNTER` para que la impresora numere; el transporte (red, WebUSB o agente local) se elige con RE.ETQ.0.3 | 🧪 2026-11-19 (#571): sin medir la impresora | spec: el TSPL del 70106 contra un archivo de referencia; prueba física en C3 |
 
 ### C2 · API
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| RE.ETQ.2.1 | `GET commercial/receiving/box-labels/orders?date_from&date_to` — órdenes de la sucursal del usuario con renglones, cajas y **estado de etiquetado** (por etiquetar · impresa · reimpresa, desde la bitácora) | 🧪 2026-11-19 (`8f863301c`) | no | `pruebas-db` con fixtures de `kdm1`/`kdm2`/`kdii` |
-| RE.ETQ.2.2 | `GET commercial/receiving/box-labels/catalog-defects` — productos recibidos en caja con factor 0 o sin `c85`, para Compras | 🧪 2026-11-19 (`8f863301c`) | no | ídem |
-| RE.ETQ.2.3 | `POST commercial/receiving/box-labels/prints` — **bitácora (D4)**: sucursal, orden, renglón, SKU, consecutivos desde-hasta, total, UXC, **fecha impresa (D6: la pone el servidor en la primera impresión)**, fechas del vale y de la orden (no se imprimen: miden el atraso), código, vía (A/B), motivo (primera · reimpresión), usuario. Tabla `commercial.box_label_prints` con `tenant_id` + audit; la primera impresión **congela** los datos de la etiqueta | 🧪 2026-11-19 (`8f863301c`): probado contra base real | **sí** | ⛔ obligatoria (regla 13), con el payload de la pantalla |
-| RE.ETQ.2.4 | Permiso **`ALMACEN_ETIQUETAS_CAJA`** (clave, ADR-054) **repartido** en prod al puesto de recepción/almacén (regla 20); `MATRIZ_ACCESOS.md` regenerada | 🧪 2026-11-19 (`8f863301c`): reparto confirmado por Sistemas el 2026-11-19 (4 roles, 21 personas; por rol, los nuevos lo heredan); falta aplicarlo en prod | sí (migración) | migración generada, aplicada una por una |
+| RE.ETQ.2.1 | `GET commercial/receiving/box-labels/orders?date_from&date_to` — órdenes de la sucursal del usuario con renglones, cajas y **estado de etiquetado** (por etiquetar · impresa · reimpresa, desde la bitácora) | 🧪 2026-11-19 (#571) | no | `pruebas-db` con fixtures de `kdm1`/`kdm2`/`kdii` |
+| RE.ETQ.2.2 | `GET commercial/receiving/box-labels/catalog-defects` — productos recibidos en caja con factor 0 o sin `c85`, para Compras | 🧪 2026-11-19 (#571) | no | ídem |
+| RE.ETQ.2.3 | `POST commercial/receiving/box-labels/prints` — **bitácora (D4)**: sucursal, orden, renglón, SKU, consecutivos desde-hasta, total, UXC, **fecha impresa (D6: la pone el servidor en la primera impresión)**, fechas del vale y de la orden (no se imprimen: miden el atraso), código, vía (A/B), motivo (primera · reimpresión), usuario. Tabla `commercial.box_label_prints` con `tenant_id` + audit; la primera impresión **congela** los datos de la etiqueta | 🧪 2026-11-19 (#571): probado contra base real | **sí** | ⛔ obligatoria (regla 13), con el payload de la pantalla |
+| RE.ETQ.2.4 | Permiso **`ALMACEN_ETIQUETAS_CAJA`** (clave, ADR-054) **repartido** en prod al puesto de recepción/almacén (regla 20); `MATRIZ_ACCESOS.md` regenerada | 🧪 2026-11-19 (#571): reparto confirmado por Sistemas el 2026-11-19 (4 roles, 21 personas; por rol, los nuevos lo heredan); falta aplicarlo en prod | sí (migración) | migración generada, aplicada una por una |
 
 ### C3 · UI
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| RE.ETQ.3.1 | `/almacen/etiquetas`: **cola de órdenes de entrada** de la sucursal con su estado; «Imprimir» por orden o por renglón; aviso de órdenes sin etiquetar con más de N horas | 🧪 2026-11-19 (`200ad28ee`): sin validación visual | pantalla nueva |
-| RE.ETQ.3.2 | Vista previa a tamaño real; avisos por renglón: «Kepler no reconoce este código», «factor de caja en 0 en Kepler», «caja incompleta» | 🧪 2026-11-19 (`200ad28ee`): sin validación visual | |
-| RE.ETQ.3.3 | Reimpresión: elegir renglón y consecutivos (p. ej. sólo la 7:20); sale con los datos congelados y queda en la bitácora como reimpresión | 🧪 2026-11-19 (`200ad28ee`): sin validación visual | |
+| RE.ETQ.3.1 | `/almacen/etiquetas`: **cola de órdenes de entrada** de la sucursal con su estado; «Imprimir» por orden o por renglón; aviso de órdenes sin etiquetar con más de N horas | 🧪 2026-11-19 (#571): recorrida en local con capturas | pantalla nueva |
+| RE.ETQ.3.2 | Vista previa a tamaño real; avisos por renglón: «Kepler no reconoce este código», «factor de caja en 0 en Kepler», «caja incompleta» | 🧪 2026-11-19 (#571): recorrida en local con capturas | |
+| RE.ETQ.3.3 | Reimpresión: elegir renglón y consecutivos (p. ej. sólo la 7:20); sale con los datos congelados y queda en la bitácora como reimpresión | 🧪 2026-11-19 (#571): recorrida en local con capturas | |
 | RE.ETQ.3.4 | Selector de vía A (navegador) / B (TSPL) por PC, recordado en el navegador | ⬜ la vía B no se ofrece hasta medir la impresora (0.3) | |
 | RE.ETQ.3.5 | **Prueba física (nivel A):** imprimir el 70106 × 20 en la TSC de Suc 08 por las dos vías y **leer las 20 con el handheld**; destraba también el pendiente de GP.4 | ⬜ | foto + 20/20 lecturas por vía |
 
@@ -226,7 +226,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 
 ## Implementación (2026-11-19)
 
-C0–C3 en cuatro commits locales sobre `main`, sin push: `570da5c8a` (C0) · `c617e4408` (C1) · `8f863301c` (C2) · `200ad28ee` (C3).
+C0–C3 en el PR #571 (2026-11-19), probados en local y recorridos en el navegador con capturas (ver la bitácora).
 
 | Pieza | Dónde |
 |---|---|
@@ -249,12 +249,13 @@ C0–C3 en cuatro commits locales sobre `main`, sin push: `570da5c8a` (C0) · `c
 
 **Pruebas:** contrato 22 (mutación: 5 rojos) · etiquetera 15 · GP.4 idéntica por huella (mutación: rojo) · API 11 unitarias + 11 contra Postgres real (primera, reimpresión congelada aunque Kepler cambie, dos clics = una primera, 403/404/400, la base rechaza una segunda primera) · `design:paramtypes` 4 (negativa: 3 rojos) · pantalla 16 + 71 en `view` · `check:pantalla` de las dos pantallas: 0 fallas.
 
-**Pendiente para cerrar:** validación visual (`/almacen/etiquetas` en local con los datos sintéticos) · aplicar en prod el reparto del permiso (confirmado por Sistemas el 2026-11-19) · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · PR, migraciones en prod una por una y reparto · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
+**Pendiente para cerrar:** las 3 migraciones en prod una por una antes del merge del PR #571 (la del permiso hace el reparto confirmado por Sistemas el 2026-11-19) · `RE.ETQ.0.3` medir rollo e impresora en Suc 08 · `RE.ETQ.3.5` prueba física por la vía A · regenerar `MATRIZ_ACCESOS.md` con el permiso repartido.
 
 ## 8. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-19 | Prueba en local con capturas: cola, detalle con avisos, imprimir (la hoja que iba a la impresora, interceptada), reimprimir el 2:3, consecutivo fuera de rango y catálogo de Kepler. Se corrigieron la vista previa (cortaba la 3.ª etiqueta) y la nota de fecha repetida; revisión previa al PR (retornos tipados con el contrato, sucursal de prueba propia). PR #571 | Sistemas + Claude |
 | 2026-11-19 | C0–C3 construidos y probados en local (4 commits sin push): vista verificada contra prod, etiquetera en libs/ (GP.4 idéntica), API con bitácora probada contra base real, pantallas /almacen/etiquetas. Falta validación visual, prueba física y prod | Sistemas + Claude |
 | 2026-11-17 | D6 respondida: la fecha es el día en que se imprime, porque el vale o la orden pueden quedar pendientes. Se aplica como el día de la primera impresión, con hora del servidor en CDMX, y la reimpresión repite la guardada | Sistemas + Claude |
 | 2026-11-17 | D1–D5 respondidas (dentro de RE, desde la orden, las dos vías, con bitácora, `C` en caja). Análisis medido: cómo se trabaja hoy, 12 defectos de Kepler, 7 correcciones al plan propio; D6 abierta | Sistemas + Claude |
