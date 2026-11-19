@@ -4,6 +4,7 @@ import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, step
 // Estas tres pantallas tenían `analytics.v_unit_truth` clavada a mano con la MV poblada al lado.
 import { unitTruth } from '../shared/unit-truth';
 import { loadSelloutChannelMap, type SelloutChannelMap } from './sellout-channel-map';
+import { existenciaOds } from '../commercial-inventory/stock-state';
 import type { MaterializedProvenance } from '@megadulces/platform-core';
 // [GX.19]/[IG.1] Cobertura por período: lógica pura y probada (period-coverage.spec.ts), fuera del
 // god service. Se llama `period-*` y no `expense-*` porque el mismo motor sirve a egresos (grupo =
@@ -1980,7 +1981,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       // catalog.products (tabla real) — la vista public.products no expone
       // sales_units_30d/rotation_tier (columnas nuevas).
-      const base = trx('commercial.stock as s')
+      const base = trx.from(existenciaOds(trx, 's')) // [CANON.7.2] del ODS, no de la copia
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('catalog.products as p', 'p.id', 's.product_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
@@ -2086,7 +2087,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       // Filtro base reutilizable (disponible < threshold + almacén opcional).
       const filtered = () => {
-        const q = trx('commercial.stock as s').whereRaw(
+        const q = trx.from(existenciaOds(trx, 's')).whereRaw( // [CANON.7.2]
           '(s.quantity - s.reserved_quantity) < ?',
           [threshold],
         );
@@ -5077,12 +5078,11 @@ export class CommercialAnalyticsService {
             // **1,144** vivos, **0 con existencia** y **0 con venta de por vida**. Eran el 52% de
             // los renglones que esta pantalla pintaba con guion en UxC — y no es que falte el
             // factor, es que no hay producto que medir. Misma regla que ya se aplicó en
-            // `salidasReport()` (commit b2fc112): se CONSERVA el que tenga existencia real, para
-            // que la anomalía se siga viendo donde sí es una anomalía.
-            .whereRaw(`(nullif(btrim(coalesce(p.sku, '')), '') IS NOT NULL
-               OR EXISTS (SELECT 1 FROM commercial.stock s
-                           WHERE s.tenant_id = p.tenant_id AND s.product_id = p.id
-                             AND s.quantity <> 0))`)
+            // `salidasReport()` (commit b2fc112).
+            // [CANON.7.2] Conservaba al que tuviera existencia en la copia `commercial.stock`. El ODS no le puede
+            // atribuir existencia a un producto sin SKU (la tiene su gemelo, que ya entra por su SKU), y medido el
+            // 2026-11-19 eran 0 en la copia y 0 en el ODS: la excepción no tenía filas y costaba ~100 ms.
+            .whereRaw(`nullif(btrim(coalesce(p.sku, '')), '') IS NOT NULL`)
             .modify((qb) => this.promoFilter(qb, promoMode))
             .modify((qb) => { if (search) qb.whereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
             .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
@@ -7207,7 +7207,7 @@ export class CommercialAnalyticsService {
       const scopeIds = scopeWh.map((w) => w.id);
       let stkRows: any[] = [];
       if (scopeIds.length) {
-        stkRows = await trx('commercial.stock as st')
+        stkRows = await trx.from(existenciaOds(trx, 'st')) // [CANON.7.2]
           .join('commercial.warehouses as w', 'w.id', 'st.warehouse_id')
           .where('st.tenant_id', tenantId).whereIn('st.warehouse_id', scopeIds)
           .select('w.code as wcode', 'st.product_id as product_id', 'st.quantity as quantity');

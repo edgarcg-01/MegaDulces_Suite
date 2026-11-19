@@ -21,6 +21,7 @@ import { Knex } from 'knex';
 import { createHash, randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
+import { EXISTENCIA_ODS_SQL, existenciaOds } from '../commercial-inventory/stock-state';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
 import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores';
@@ -1041,7 +1042,9 @@ export class CommercialReplenishmentService {
    * La existencia disponible, en la unidad nativa del almacén.
    *
    * `[AB.15]` Dos fuentes, y la base del objetivo decide cuál:
-   *  · `'stock'` (Compras, default): la copia `commercial.stock` menos lo reservado.
+   *  · `'stock'` (Compras, default): la existencia del ODS EN VIVO (`EXISTENCIA_ODS_SQL`, alias `s`). Hasta
+   *    `[CANON.7.2]` (2026-11-19) era la copia `commercial.stock` menos lo reservado, con el CEDIS congelado desde
+   *    el 16-oct; la vista no tiene apartados, así que `reserved_quantity` es 0.
    *  · `'plan'` (base 'demanda' de Autoabasto): `analytics.replenishment_plan.stock_pz`, que es lo
    *    que lee `workbook()` en /compras/pedido. Sale de la vista `v_erp_stock_on_hand` (ODS de
    *    Kepler) y toma el CEDIS 00 sólo desde su corte a Kepler (30-sep-2026). La copia, en cambio,
@@ -1226,7 +1229,7 @@ export class CommercialReplenishmentService {
                SUM(${surH}) AS surplus_total,
                SUM(CASE WHEN ${surH} > 0 THEN 0 ELSE ${sug} END) AS need_total
           FROM commercial.reorder_policy rp
-          LEFT JOIN commercial.stock s ON s.tenant_id = rp.tenant_id AND s.warehouse_id = rp.warehouse_id AND s.product_id = rp.product_id
+          LEFT JOIN ${EXISTENCIA_ODS_SQL} s ON s.tenant_id = rp.tenant_id AND s.warehouse_id = rp.warehouse_id AND s.product_id = rp.product_id
           LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id = rp.tenant_id AND rpl.warehouse_id = rp.warehouse_id AND rpl.product_id = rp.product_id${cadenceJoins}
          WHERE rp.tenant_id = ?
          GROUP BY rp.product_id) as sbp`, [tenantId]);
@@ -1376,7 +1379,7 @@ export class CommercialReplenishmentService {
         rankBind);
 
       const base = trx('commercial.reorder_policy as rp')
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin(existenciaOds(trx, 's'), (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
@@ -1467,7 +1470,7 @@ export class CommercialReplenishmentService {
       if (soloConFalta) base.andWhereRaw(`${sug} > 0`);
 
       const conteo = trx('commercial.reorder_policy as rp')
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin(existenciaOds(trx, 's'), (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'));
       if (abcPedido) {
@@ -1714,7 +1717,7 @@ export class CommercialReplenishmentService {
     const it = this.transitDescuento();
     return this.tk.run(async (trx) => {
       const base = trx('commercial.reorder_policy as rp')
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin(existenciaOds(trx, 's'), (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))

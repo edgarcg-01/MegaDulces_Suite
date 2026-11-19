@@ -46,6 +46,31 @@ export const CARRIL_EXISTENCIA = 'ods_live_hot';
 
 type Db = Knex | Knex.Transaction;
 
+/**
+ * `[CANON.7.2]` La existencia del ODS con la FORMA de la copia `commercial.stock`
+ * (`tenant_id · warehouse_id · product_id · quantity · reserved_quantity`), para que un reporte cambie de fuente
+ * sin reescribir su consulta. Una sola definición: los lectores que dejan la copia usan ÉSTA, no su propio SELECT.
+ *
+ *  - `quantity` = `qty_stock_units` de `analytics.v_erp_stock_on_hand`, la misma unidad que la copia en las 8
+ *    sucursales (idénticas al renglón, medido 2026-11-19). Donde difieren, la copia está mal: el CEDIS congelado
+ *    desde el 16-oct (205 filas contra el CEDIS entero de Kepler) y `MD-32`, un almacén borrado.
+ *  - ⚠️ `reserved_quantity` es 0: la vista no tiene los apartados de la Suite. Misma regla que `leerExistencia`
+ *    (en prod, 1 fila de la copia tenía apartado).
+ *  - Sólo almacenes de Kepler: un almacén fuera del ERP no tiene fila. Con LEFT JOIN se lee como antes, cuando la
+ *    copia no tenía fila.
+ *  - Rinde desde `[CANON.7.1]`: la red entera ~90 ms y una sucursal 30–60 ms con RLS. Un reporte de red la
+ *    lee sin filtro y queda bajo 500 ms (medido por lector en `[CANON.7.2]`).
+ */
+export const EXISTENCIA_ODS_SQL = `(SELECT e.tenant_id, e.warehouse_id, e.product_id,
+          e.qty_stock_units AS quantity, 0::numeric AS reserved_quantity
+     FROM analytics.v_erp_stock_on_hand e)`;
+
+/** `EXISTENCIA_ODS_SQL` como tabla de knex con su alias, para `from(...)` o `leftJoin(...)`. */
+export function existenciaOds(db: Db, alias: string): Knex.Raw {
+  if (!/^[a-z_][a-z0-9_]*$/.test(alias)) throw new Error(`existenciaOds: alias inválido «${alias}»`);
+  return db.raw(`${EXISTENCIA_ODS_SQL} AS ${alias}`);
+}
+
 /** Una sucursal a leer: su id y su clave (`commercial.warehouses.code`). */
 export interface SucursalStock {
   id: string;

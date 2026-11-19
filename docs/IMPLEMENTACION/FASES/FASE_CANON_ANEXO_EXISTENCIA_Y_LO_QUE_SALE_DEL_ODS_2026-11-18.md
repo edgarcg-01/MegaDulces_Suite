@@ -120,11 +120,22 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    negativo. `display_box_factor` difería la mañana del 19 en 3 SKUs (retraso de < 24 h de la tabla por evento ante el
    refresco nocturno de `mv_kepler_bought_rung`: un `REFRESH` no dispara la cola, hueco de `[CANON.6.21]` con nombre); al
    aplicarla eran 0.
-2. **`[CANON.7.2]` C2** — los **13** lectores clase A (analytics ×4, rentabilidad ×2, ficha de producto, monitoreo, Thot,
-   existencia crítica / resumen / excedente de red, scanner de reorden) leen la vista.
+2. **`[CANON.7.2]` C2** — los lectores clase A leen la vista. 🧪 **11 de 13 en código (2026-11-19)**, con una sola
+   definición, `EXISTENCIA_ODS_SQL` / `existenciaOds()` en `stock-state.ts` (la vista con la forma de la copia; apartados
+   en 0, como `leerExistencia`): Stock muerto, Bajo stock (Command Center), Sell-out, Salidas, Thot `reorder_policy`, ficha
+   de producto, Rentabilidad overview y breakdown, Existencia crítica, su resumen y el excedente de red. Candado
+   `existencia-ods-lectores.spec.ts` (rojo en los 7 archivos de antes). **A6 (conteo de Monitoreo) y A13 (scanner de
+   reorden) pasan a 7.4:** leen dentro de un endpoint que escribe y su prueba contra base real siembra la copia (regla 13).
+   Antes/después medido en prod con RLS (`edgar`), réplica de cada consulta: las 8 sucursales dan lo mismo al renglón;
+   cambia el CEDIS (la copia lo tenía congelado desde el 16-oct: un producto, 2,318 contra 72,576 en Kepler) y sale
+   `MD-32`. Bajo stock del Command Center: 34,218 → 18,650 celdas; inventario valuado de Rentabilidad: $65.98 M → $69.02 M;
+   capital parado: $429 mil → $432 mil. Tiempos con el ODS, todos bajo 500 ms (el más lento 353 ms; Stock muerto 558 ms
+   ya costaba 550 con la copia, lo pesa `v_erp_unit_cost`). Sell-out pierde la excepción «sin SKU pero con existencia»:
+   0 filas en la copia y en el ODS.
 3. **`[CANON.7.3]` C2** — los **11** clase B (catálogo, facetas, precios y más vendidos del portal; detalle de pedido; bot de
    WhatsApp; Command Center; Reparto › Faltantes; Thot del portal y del vendedor) por `stock-state.ts`, que ya lee la vista.
-4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
+4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios, más A6 y A13, que leen la existencia dentro de un endpoint que
+   escribe): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
    de escribirse; conteos, ajustes y recepción se revisan uno por uno (hoy 0 movimientos en 30 días). Prueba contra base real
    con el payload de la pantalla (regla 13).
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla

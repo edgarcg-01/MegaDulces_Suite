@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, orPorCodigoDeBarras } from '@megadulces/platform-core';
 import { resolveMarginTarget, MARGIN_TARGET_FALLBACK } from '../shared/margin-target';
+import { EXISTENCIA_ODS_SQL, existenciaOds } from '../commercial-inventory/stock-state';
 
 /**
  * [SD.3] Fuente del hecho de venta — migrada del linaje IMPERATIVO al DERIVADO del ODS.
@@ -751,7 +752,7 @@ export class CommercialProfitabilityService {
        * `unverified` = valuado con un costo que contradice al del PdV.
        */
       const [inv] = await trx
-        .from({ st: 'commercial.stock' })
+        .from(existenciaOds(trx, 'st')) // [CANON.7.2] del ODS, no de la copia
         .join({ p: 'catalog.products' }, function (this: any) {
           this.on('p.id', '=', 'st.product_id').andOn('p.tenant_id', '=', 'st.tenant_id');
         })
@@ -1181,7 +1182,7 @@ export class CommercialProfitabilityService {
                 trx.raw(
                   `(SELECT st.product_id, st.warehouse_id, SUM(st.quantity) AS qty,
                            SUM(st.quantity * uc.costo_unitario) AS value
-                      FROM commercial.stock st
+                      FROM ${EXISTENCIA_ODS_SQL} st
                       LEFT JOIN analytics.mv_erp_unit_cost uc
                              ON uc.tenant_id = st.tenant_id
                             AND uc.warehouse_id = st.warehouse_id
@@ -1197,7 +1198,7 @@ export class CommercialProfitabilityService {
                 trx.raw(
                   `(SELECT st.product_id, SUM(st.quantity) AS qty,
                            SUM(st.quantity * uc.costo_unitario) AS value
-                      FROM commercial.stock st
+                      FROM ${EXISTENCIA_ODS_SQL} st
                       LEFT JOIN analytics.mv_erp_unit_cost uc
                              ON uc.tenant_id = st.tenant_id
                             AND uc.warehouse_id = st.warehouse_id
