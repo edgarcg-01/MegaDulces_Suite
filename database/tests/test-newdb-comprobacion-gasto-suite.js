@@ -619,6 +619,24 @@ async function main() {
     await knex('finance.expense_proofs').where({ id: m2 }).update({ kepler_expense_status: 'pending' });
     const rj = await proofs.reject(m2, QUIEN.full_name, 'prueba: su gasto nunca se escribió', QUIEN);
     check(rj.status === 'rechazada', 'sin gasto escrito por la Suite, el rechazo de siempre pasa', rj);
+
+    // ── O ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    console.log('\n— O. [PGP.122] La solicitud nacida en la Suite que Kepler rechazó: la cola dice cómo va su escritura y se abre por su id');
+    if (!(await knex.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status'))) {
+      noMedido('falta la columna kepler_request_status (PGP.122) en esta base: el bloque O no se puede medir');
+    } else {
+      const nota = 'Kepler no aceptó el acreedor: está suspendido';
+      const o = await valeAprobado(null, { status: 'validada', origen: 'solicitud', kepler_request_status: 'rejected_by_kepler', kepler_request_note: nota, kepler_request_attempts: 1 });
+      const fo = (await proofs.esperanKepler(2000)).vales.find((x) => x.id === o);
+      check(!!fo && fo.folio_solicitud == null && fo.nace_en_la_suite?.status === 'rejected_by_kepler' && fo.nace_en_la_suite?.nota === nota && fo.nace_en_la_suite?.intentos === 1,
+        'la cola trae el vale sin folio CON cómo va su escritura (antes: sólo «sin_medir», y la pantalla decía «no se pudo leer»)', fo);
+      const fv = (await proofs.esperanKepler(2000)).vales.find((x) => x.id === c);
+      check(!!fv && fv.nace_en_la_suite === undefined, 'un vale que NO nació en la Suite no trae nace_en_la_suite', fv?.nace_en_la_suite);
+      const bo = await proofs.buscarGastos(String(o));
+      check(bo.vales.length === 1 && bo.vales[0].id === o, 'buscar por el id del vale lo trae (así lo abre la cola sin folio)', bo.vales.map((x) => x.id));
+      const bx = await proofs.buscarGastos('00000000-0000-0000-0000-000000000000');
+      check(bx.vales.length === 0, 'un id que no existe no trae nada (no cae a la búsqueda por texto)', bx.vales.length);
+    }
   } finally {
     // ── Limpieza: exactamente lo que se creó ──────────────────────────────────────────────────────────────────────────
     const err = (q) => q.catch((x) => console.log(`  ! limpieza: ${x.message}`));

@@ -2853,7 +2853,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
                     [class.cg-fila-marcada]="estaMarcada(p.origen_ref)"
                     [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref"
-                    (click)="abrirDeLaCola(p)" (keydown.enter)="abrirDeLaCola(p)">
+                    (click)="abrirDeLaCola(p, $event)" (keydown.enter)="abrirDeLaCola(p, $event)">
                   <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
                        ESTADO (marcada o no); el acto de marcar es la fila entera. -->
                   <td class="cg-td-marca">
@@ -4654,6 +4654,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** `[LE.6.34]` El cajón del arqueo: se le pide cerrar a ÉL, para que pregunte si hay algo contado. */
   private readonly peekArqueo = viewChild<SidePeekComponent>('peekArqueo');
+  /** [LE.6.35] La ventana de Reposición, para llevar ahí un pago «en hoja» desde la cola. */
+  private readonly repoCmp = viewChild<CajaReposicionComponent>('repo');
 
   /**
    * `[LE.6.34]` La X de la ficha y «Cancelar» cerraban la captura sin pasar por el cajón, o sea sin
@@ -5222,8 +5224,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * cierra la captura por eso: cerrar es una acción propia (Cancelar), no el efecto de tocar dos
    * veces lo mismo.
    */
-  abrirDeLaCola(fila: MovimientoPendiente | null): void {
-    if (fila) this.capturarDesde(fila);
+  abrirDeLaCola(fila: MovimientoPendiente | null, evento?: Event): void {
+    if (!fila) return;
+    /**
+     * ⭐ `[LE.6.35]` Un pago «en hoja» no se captura suelto (el servidor lo rechaza): se paga con la reposición de su
+     * zona. La fila lleva a ESA reposición, desplegada y con el pago resaltado (PM, 2026-11-19). Antes abría una
+     * captura condenada y el aviso mandaba a una pantalla retirada.
+     */
+    if (fila.motivo === 'en_hoja') {
+      const repo = this.repoCmp();
+      if (repo) { repo.abrirEn(fila.origen_ref, (evento?.currentTarget as HTMLElement | null) ?? undefined); return; }
+    }
+    this.capturarDesde(fila);
   }
 
   /**
@@ -6635,6 +6647,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     sin_regla: 'beneficiario sin regla',
     elegir_concepto: 'falta elegir concepto',
     fecha_futura: 'fecha posterior a hoy',
+    // [LE.6.35] Salía el código crudo «en_hoja»: dice qué es y a dónde lleva la fila.
+    en_hoja: 'va en la reposición · abrir',
   };
   motivoCorto(m: string | null | undefined): string {
     if (!m) return 'no confirmable';

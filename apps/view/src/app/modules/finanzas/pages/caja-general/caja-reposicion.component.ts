@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -163,6 +163,11 @@ export function avisoDePagoHoja(
         <p-button icon="pi pi-refresh" size="small" severity="secondary" [text]="true" [loading]="cargando()"
                   ariaLabel="Volver a leer la reposición" (onClick)="cargar()"></p-button>
       </header>
+
+      <!-- [LE.6.35] Se llegó desde un pago «en hoja» de la cola: dónde está, en palabras. -->
+      @if (avisoBuscado(); as av) {
+        <p class="rp-buscado-aviso" role="status" data-testid="rp-buscado">{{ av }}</p>
+      }
 
       @if (datos()) {
         <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
@@ -426,7 +431,7 @@ export function avisoDePagoHoja(
                       <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
                     </ng-template>
                     <ng-template #body let-r>
-                      <tr>
+                      <tr [attr.data-rp-ref]="r.origen_ref" [class.rp-buscado]="r.origen_ref === resaltado()">
                         <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
                         <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
                         <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
@@ -442,7 +447,7 @@ export function avisoDePagoHoja(
                         <tr><th>Sucursal</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th><th>Por qué</th></tr>
                       </ng-template>
                       <ng-template #body let-r>
-                        <tr>
+                        <tr [attr.data-rp-ref]="r.origen_ref" [class.rp-buscado]="r.origen_ref === resaltado()">
                           <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
                           <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
                           <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
@@ -722,6 +727,9 @@ export function avisoDePagoHoja(
     .rp-sel { min-width:14rem; }
     .rp-det { background:var(--surface-2); padding:var(--sp-3); }
     .rp-desglose { margin:0 0 var(--sp-2); color:var(--fg-2); }
+    /* [LE.6.35] El renglon que se busco desde la cola: un borde, no un color de fondo que compita con los avisos. */
+    .rp-buscado > td { box-shadow: inset 0 0 0 2px var(--focus-ring, var(--action)); }
+    .rp-buscado-aviso { margin:0 0 var(--sp-3); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm,8px); background:var(--surface-2, var(--card-bg)); border:1px solid var(--border-color); color:var(--text-main); }
     .rp-prop { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); padding:var(--sp-3); margin-bottom:var(--sp-3);
                display:flex; flex-direction:column; gap:var(--sp-2); }
     .rp-prop-t { margin:0; }
@@ -750,6 +758,8 @@ export class CajaReposicionComponent implements OnInit {
   // El p-toast lo pone Captura (providers: [MessageService]): este componente vive adentro.
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   /** Reponer es el lote de la cola, y pagar una hoja, su retiro: lo puede quien gestiona la caja. */
   readonly puedeGestionar = input(false);
@@ -1060,14 +1070,79 @@ export class CajaReposicionComponent implements OnInit {
     });
     // `[CGA-A.65]` Las hojas van aparte: si no se pueden leer, la reposición se ve igual y se dice.
     this.api.hojasDeGastos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (h) => { this.hojas.set(h); this.hojasNoLeidas.set(false); },
-      error: () => { this.hojas.set(null); this.hojasNoLeidas.set(true); },
+      next: (h) => { this.hojas.set(h); this.hojasNoLeidas.set(false); this.ubicarBuscado(); },
+      error: () => { this.hojas.set(null); this.hojasNoLeidas.set(true); this.ubicarBuscado(); },
     });
+  }
+
+  /**
+   * ⭐ `[LE.6.35]` **Desde la cola, un pago «en hoja» lleva a SU hoja** (PM, 2026-11-19: *«cuando le doy al movimiento
+   * de en hoja, no me lleva a la hoja en la que se encuentra»*). Antes la fila abría una captura que el servidor iba a
+   * rechazar, y el aviso mandaba a «Finanzas › Gastos › Hoja de zona», una pantalla retirada en LE.6.19.
+   * Abre la ventana, y cuando llegan las hojas despliega la de la zona y resalta el renglón; si el pago no está en
+   * ninguna hoja que se pague aquí, dice dónde está y por qué.
+   */
+  abrirEn(origenRef: string, origen?: HTMLElement): void {
+    this.buscado = origenRef;
+    this.resaltado.set(null);
+    this.avisoBuscado.set(null);
+    this.vista.set('reposiciones');
+    this.abrirVentana(origen);
+  }
+  private buscado: string | null = null;
+  /** El renglón que se buscó desde la cola: se resalta en su tabla. */
+  readonly resaltado = signal<string | null>(null);
+  /** Dónde está (o por qué no está) el pago que se buscó, en palabras. */
+  readonly avisoBuscado = signal<string | null>(null);
+
+  private ubicarBuscado(): void {
+    const ref = this.buscado;
+    if (!ref) return;
+    this.buscado = null;
+    const doc = this.folioDoc(ref);
+    const h = this.hojas();
+    if (!h) { this.avisoBuscado.set(`No se pudieron leer las hojas de zona: no se puede ubicar ${doc}. Pulsa Actualizar.`); return; }
+    const tiene = (xs: ReadonlyArray<{ origen_ref: string }> | undefined) => !!xs?.some((x) => x.origen_ref === ref);
+    for (const a of h.abiertas ?? []) {
+      const enFila = a.renglones.length > 0;
+      if (tiene(a.renglones) || (enFila && tiene(a.detenidos))) {
+        this.abiertas.update((m) => ({ ...m, [`abierta|${a.zona}`]: true }));
+        this.resaltado.set(ref);
+        this.avisoBuscado.set(tiene(a.renglones)
+          ? `${doc} va en la reposición abierta de ${a.nombre}: se paga con ella, aquí abajo.`
+          : `${doc} va en la reposición de ${a.nombre}, pero espera su aprobación: no entra hasta aprobarse.`);
+        afterNextRender(() => this.host.nativeElement.ownerDocument
+          .querySelector(`[data-rp-ref="${CSS.escape(ref)}"]`)?.scrollIntoView({ block: 'center' }), { injector: this.injector });
+        return;
+      }
+      const det = a.detenidos.find((x) => x.origen_ref === ref);
+      if (det) { this.avisoBuscado.set(`${doc} va en la reposición de ${a.nombre}, pero no entra: ${det.motivo}.`); return; }
+      const sd = (a.sin_deposito ?? []).find((x) => x.origen_ref === ref);
+      if (sd) { this.avisoBuscado.set(`${doc} es de ${a.nombre} y no se repone aquí: ${sd.motivo}.`); return; }
+      const ap = (a.pagados_aparte ?? []).find((x) => x.origen_ref === ref);
+      if (ap) { this.avisoBuscado.set(`${doc} ya salió ${ap.como === 'cajon' ? 'del cajón' : 'de un retiro'}${ap.cg_folio ? ` (${ap.cg_folio})` : ''}: ya no se repone.`); return; }
+      const fu = a.fuera.find((x) => x.origen_ref === ref);
+      if (fu) { this.avisoBuscado.set(`${doc} no va en la reposición de ${a.nombre} (${fu.motivo}): se captura en la cola.`); return; }
+    }
+    for (const c of h.cerradas ?? []) {
+      if (tiene(c.renglones)) {
+        const clave = `hoja|${c.id}`;
+        if (this.filas().some((f) => f.clave === clave)) {
+          this.abiertas.update((m) => ({ ...m, [clave]: true }));
+          this.resaltado.set(ref);
+        }
+        this.avisoBuscado.set(`${doc} va en la hoja ${c.folio} de ${c.nombre_zona} (${c.estado}).`);
+        return;
+      }
+    }
+    this.avisoBuscado.set(`${doc} no aparece en ninguna reposición de esta ventana: puede ser de antes de que su zona empezara a reponerse por hoja.`);
   }
 
   /** Abre la ventana y RELEE: lo que la cola confirmó desde que se cargó ya no está por capturar. */
   abrirVentana(origen?: HTMLElement): void {
     this.origen = origen ?? null;
+    // Abierta desde la barra (no desde un pago buscado): sin aviso ni resaltado de una búsqueda vieja.
+    if (!this.buscado) { this.resaltado.set(null); this.avisoBuscado.set(null); }
     this.abierta.set(true);
     this.cargar();
   }

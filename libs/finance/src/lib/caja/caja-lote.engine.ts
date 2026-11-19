@@ -63,7 +63,7 @@ export const TEXTO_NO_CONFIRMABLE: Record<MotivoNoConfirmable, string> = {
   sin_regla: 'Nadie declaró con qué cuenta contable se registra este beneficiario: declárala en «Cuentas de Kepler» o captúralo a mano.',
   fecha_futura: 'Este documento viene fechado después de hoy: su fecha es un error de captura del ERP. '
     + 'Captúralo a mano y corrige la fecha, o el movimiento se va a registrar en un mes que todavía no llegó.',
-  en_hoja: 'Va en la hoja de gastos de su zona: se paga con la hoja aprobada, en Finanzas › Gastos › Hoja de zona.',
+  en_hoja: 'Va en la hoja de gastos de su zona: se paga con la reposición de su zona, en Caja General › Reposición (toca la fila en la cola).',
 };
 
 /**

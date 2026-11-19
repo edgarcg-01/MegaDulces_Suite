@@ -6473,8 +6473,29 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
    * piezas volvían a cero. «Pagar en efectivo» y «Declarar» abrían el arqueo DETRÁS de «Tu jornada», y
    * Enter en «Qué pasó» guardaba sin la confirmación que el botón sí pide.
    */
+  describe('[LE.6.35] un pago «en hoja» de la cola lleva a su reposición', () => {
+    const EN_HOJA = { ...GASTO_TRABADO, origen_ref: '06|X-D-26|0000547|0011', sucursal: '06', folio: '0000547', motivo: 'en_hoja' } as MovimientoPendiente;
+
+    it('⭐ la fila abre la Reposición buscando ESE pago, no una captura que el servidor rechazaría', () => {
+      const fx = montar();
+      fx.detectChanges();
+      const repo = (comp as unknown as { repoCmp: () => { abrirEn: (r: string) => void; abierta: () => boolean } }).repoCmp();
+      const abrirEn = vi.spyOn(repo, 'abrirEn');
+      comp.abrirDeLaCola(EN_HOJA);
+      expect(abrirEn).toHaveBeenCalledWith('06|X-D-26|0000547|0011', undefined);
+      expect(comp.capturaAbierta(), 'abrió una captura condenada').toBe(false);
+      expect(repo.abierta()).toBe(true);
+    });
+
+    it('CONTROL: una fila que no está «en hoja» abre la captura como siempre', () => {
+      montar();
+      comp.abrirDeLaCola(GASTO_TRABADO);
+      expect(comp.capturaAbierta()).toBe(true);
+    });
+  });
+
   describe('[LE.6.34] lo contado no se tira sin preguntar', () => {
-    const peekArqueo = () => (comp as unknown as { peekArqueo: () => SidePeekComponent | undefined }).peekArqueo()!;
+    const peekArqueo =() => (comp as unknown as { peekArqueo: () => SidePeekComponent | undefined }).peekArqueo()!;
     const corte = (id = 'c1') => vi.fn(() => of({
       ...SALDO, sin_corte_abierto: false,
       corte_abierto: { id, folio: 'CC-2026-00009', fecha: todayMx(), fondo_inicial: 0, ya_reconto: false, conteo_sellado: null },
