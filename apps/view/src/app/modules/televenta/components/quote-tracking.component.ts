@@ -28,7 +28,12 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
   const ultimo = hechos[hechos.length - 1];
   const siguiente = pasos.find((p) => !p.hecho) ?? null;
   if (!ultimo) return { ahora: 'Sin avance en Kepler', sigue: null };
-  const fac = pasos.find((p) => p.clave === 'facturado');
+  // [GP.10.1b] Cancelado en Kepler: es la respuesta entera, y después no sigue nada (antes decía
+  // «Embarcado» en 3 pedidos cancelados que nunca se embarcaron).
+  if (pasos[0]?.clave === 'pedido' && pasos[0].documentos.some((d) => d.cancelado)) {
+    return { ahora: 'Pedido cancelado en Kepler', sigue: null };
+  }
+  const fac =pasos.find((p) => p.clave === 'facturado');
   const cancelada = fac && !fac.hecho ? fac.documentos.find((d) => d.cancelado) : undefined;
   // Facturado con una factura viva: el importe va en la respuesta (auditoría 2026-11-13: «Facturado» solo
   // se leía como «todo bien» aunque Kepler hubiera quitado la mitad de la cotización).
@@ -119,7 +124,7 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
                       } @else {
                         <span class="mono">{{ doc.documento }}</span>
                       }
-                      @if (doc.cancelado) { <span class="seg-tag">cancelada</span> }
+                      @if (doc.cancelado) { <span class="seg-tag">{{ p.clave === 'facturado' ? 'cancelada' : 'cancelado' }}</span> }
                       @else if (p.clave === 'facturado' && doc.importe !== null) {
                         <span class="seg-num">{{ doc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                       }

@@ -4,6 +4,7 @@ import { of, throwError } from 'rxjs';
 import type { PresaleReviewDetail, PresaleReviewInboxResponse, PresaleReviewInboxRow } from '@megadulces/contracts';
 import { AlmacenRevisionPreventaComponent } from './almacen-revision-preventa.component';
 import { PresaleReviewService } from '../presale-review.service';
+import { UsoService } from '../../../core/services/uso.service';
 
 /**
  * `[MCP.10]` La revisión en caja, montada de verdad (plantilla + signals) con el servidor simulado.
@@ -38,6 +39,7 @@ const DETALLE = (): PresaleReviewDetail => ({
 describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () => {
   let fix: ComponentFixture<AlmacenRevisionPreventaComponent>;
   let api: Record<'inbox' | 'detail' | 'finish' | 'search', ReturnType<typeof vi.fn>>;
+  let uso: { reportarIncidente: ReturnType<typeof vi.fn> };
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const texto = (): string => el().textContent?.replace(/\s+/g, ' ') ?? '';
@@ -58,9 +60,10 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
       finish: vi.fn(() => of({ order_id: 'o-carm', review: { lines: [], total_before: 380, total_after: 420 } })),
       search: vi.fn((q: string) => of({ q, data: [], truncated: false })),
     };
+    uso = { reportarIncidente: vi.fn() };
     await TestBed.configureTestingModule({
       imports: [AlmacenRevisionPreventaComponent],
-      providers: [provideRouter([]), { provide: PresaleReviewService, useValue: api }],
+      providers: [provideRouter([]), { provide: PresaleReviewService, useValue: api }, { provide: UsoService, useValue: uso }],
     }).compileComponents();
     fix = TestBed.createComponent(AlmacenRevisionPreventaComponent);
     fix.detectChanges();
@@ -449,6 +452,40 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     clic('Terminar y seguir con el siguiente');
     expect(texto()).toContain('Pedido revisado');
     expect(boton('Terminar y seguir con el siguiente')?.disabled).toBe(false);
+  });
+
+  it('[GP.RF.42] un cierre aceptado no reporta nada', async () => {
+    await montar();
+    await abrir();
+    clic('Está bien');
+    clic('Ya se completó');
+    clic('No hay');
+    clic('Terminar y seguir con el siguiente');
+    expect(api.finish).toHaveBeenCalledTimes(1);
+    expect(uso.reportarIncidente).not.toHaveBeenCalled();
+  });
+
+  it('[GP.RF.42] un cierre rechazado deja su motivo en el canal de incidentes', async () => {
+    await montar();
+    await abrir();
+    api.finish.mockReturnValueOnce(throwError(() => ({ status: 409, error: { message: 'Este pedido ya lo revisó María Cajera a las 10:00.' } })));
+    clic('Está bien');
+    clic('Ya se completó');
+    clic('No hay');
+    clic('Terminar y seguir con el siguiente');
+    expect(uso.reportarIncidente).toHaveBeenCalledTimes(1);
+    const [nombre, props] = uso.reportarIncidente.mock.calls[0];
+    expect(nombre).toBe('revision_cierre_rechazado');
+    expect(props).toMatchObject({
+      accion: 'revisar_terminar',
+      status: 409,
+      motivo: 'Este pedido ya lo revisó María Cajera a las 10:00.',
+      order_id: 'o-carm',
+      renglones: DETALLE().lines.length,
+      retomado: false,
+    });
+    expect(typeof props.bajados).toBe('number');
+    expect(props.minutos_abierto).toBe(0);
   });
 
   it('un error al cargar la lista se muestra como error, no como «no hay pedidos»', async () => {

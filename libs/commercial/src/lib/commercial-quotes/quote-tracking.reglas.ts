@@ -14,8 +14,20 @@
  *    (en 30 días, 56 de 98 pedidos de cotización sin surtidor) se dice «Kepler no registró quién».
  */
 
+import { WAREHOUSE_ORDER_CANCELADO } from '@megadulces/contracts';
+
 /** El orden en que Kepler avanza el estatus del pedido (`kdm1.c11`), medido en 7,837 pedidos de 90 días. */
 export const ESTATUS_PEDIDO = ['CREADO', 'AUTORIZADO', 'SURTIDO', 'CHECADO', 'EMBARCADO'] as const;
+
+/**
+ * `[GP.10.1b]` El pedido está cancelado en Kepler. El estatus llega de `ESTATUS_VIGENTE_SQL` (GP.10.0):
+ * un cancelado (`c43 = 'C'`) CONSERVA su `c11`, así que leer `c11` lo pintaba avanzado. Medido el
+ * 2026-11-19: 6 de 359 cotizaciones en Kepler; 3 decían «Embarcado» sin ningún embarque, todas en $0
+ * y sin renglones.
+ */
+export function pedidoCancelado(p: Pick<PedidoCrudo, 'estatus'>): boolean {
+  return (p.estatus ?? '').toUpperCase() === WAREHOUSE_ORDER_CANCELADO;
+}
 
 export type ClavePaso = 'pedido' | 'autorizado' | 'surtido' | 'checado' | 'embarcado' | 'facturado';
 
@@ -226,10 +238,11 @@ export function armarPasos(
 
   const surtido = idx >= 2 || embarcado || !!piso?.surtido_at;
   const checado = idx >= 3 || embarcado || !!piso?.checado_at;
+  const cancelado = pedidoCancelado(pedido);
 
-  return [
+  const pasos = [
     paso('pedido', 'Pedido en Kepler', true, conHora(pedido.fecha, pedido.hora), null,
-      [{ documento: docPedido(pedido.serie, pedido.folio), fecha: pedido.fecha, cancelado: false, importe: null }]),
+      [{ documento: docPedido(pedido.serie, pedido.folio), fecha: pedido.fecha, cancelado, importe: null }]),
     paso('autorizado', 'Autorizado', idx >= 1 || surtido, null, null),
     paso('surtido', 'Surtido', surtido, horaMx(piso?.surtido_at ?? null),
       quienDe(piso?.surtio ?? null, pedido.resp_surtido, e0?.resp_surtido ?? null)),
@@ -241,6 +254,9 @@ export function armarPasos(
     paso('facturado', 'Facturado', vivas.length > 0, vivas[0] ? conHora(vivas[0].fecha, vivas[0].hora) : null, null,
       facturas.map((f) => ({ documento: docFactura(f.serie, f.folio), fecha: f.fecha, cancelado: f.cancelada, importe: f.importe }))),
   ];
+  // [GP.10.1b] Cancelado: después de una cancelación no sigue nada, así que no hay pasos «pendientes».
+  // Queda lo que algo PRUEBA que pasó (el piso en la Suite, un embarque), nunca el `c11` conservado.
+  return cancelado ? pasos.filter((p) => p.hecho) : pasos;
 }
 
 export function hallazgosAbiertos(rows: HallazgoCrudo[]): HallazgoSeguimiento[] {
