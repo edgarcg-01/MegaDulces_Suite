@@ -185,8 +185,15 @@ const aFechaLocal = (iso: string): Date => { const [y, m, d] = iso.split('-').ma
           }
         </div>
       }
+      <!-- [RH.14.3] El aviso lleva a donde se arregla: la bandeja de códigos sin persona vive en el panel de Relojes. -->
       @if (sinLigar(); as n) {
-        <p class="mc-nota">{{ n }}</p>
+        <p class="mc-nota">{{ n }}
+          @if (veRelojes()) { <button type="button" class="mc-nota-link" (click)="abrir({ panel: 'relojes' })">Ligar</button> }</p>
+      }
+      <!-- [RH.14.4] Quien tiene el apodo del reloj como nombre: se corrige en su panel, sin salir de Asistencia. -->
+      @if (est.nombresPendientes(); as k) {
+        <p class="mc-nota">{{ k }} nombre{{ k === 1 ? '' : 's' }} por confirmar
+          <button type="button" class="mc-nota-link" (click)="abrir({ panel: 'nombres' })">{{ adminRelojes() ? 'Corregir' : 'Ver' }}</button></p>
       }
     }
   `,
@@ -253,6 +260,9 @@ const aFechaLocal = (iso: string): Date => { const [y, m, d] = iso.split('-').ma
     .mc-cierre-link { font: inherit; font-weight: 600; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; min-height: var(--tap-min); }
     .mc-cierre-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .mc-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .mc-nota-link { font: inherit; font-weight: 600; color: var(--text-main); background: none; border: 0; padding: 0 var(--sp-1); text-decoration: underline;
+      cursor: pointer; min-height: var(--tap-min); }
+    .mc-nota-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .mc-sin { padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
     .mc-sin h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
     .mc-sin p { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 72ch; }
@@ -405,7 +415,8 @@ export class RhMarcoComponent implements OnInit {
     const ps = this.est.datos()?.personas ?? [];
     const n = ps.filter((p) => !p.registrado).length;
     if (!n) return null;
-    return `${n} de ${ps.length} persona${ps.length === 1 ? '' : 's'} checa${n === 1 ? '' : 'n'} sin estar ligada${n === 1 ? '' : 's'} a su persona de la Suite: sale${n === 1 ? '' : 'n'} con el nombre del reloj.`;
+    // [RH.14] Corto: el botón «Ligar» lleva a resolverlo (Edgar, 18-nov: sin explicación alrededor de los botones).
+    return `${n} sin ligar`;
   });
 
   ngOnInit(): void { this.est.iniciar(); }

@@ -6,6 +6,8 @@ import type {
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
   HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrCrucesDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrArchivarPersonaBody, HrBajaLoteBody, HrBajaLoteResultadoDto, HrBajaResultadoDto, HrCatalogosFichaDto, HrFichaPersonaDto,
+  HrNombresPorConfirmarResponse, HrPosiblesBajasResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -164,8 +166,38 @@ export class RhService {
     return this.http.get<HrBajaPlazaDto[]>(`${this.base}/enrollments/site-profiles/inactive`, { params: this.params({ site_code }) });
   }
 
-  darDeBaja(b: HrBajaPlazaBody): Observable<{ ok: true }> {
-    return this.http.post<{ ok: true }>(`${this.base}/enrollments/site-profile/deactivate`, b);
+  darDeBaja(b: HrBajaPlazaBody): Observable<HrBajaResultadoDto> {
+    return this.http.post<HrBajaResultadoDto>(`${this.base}/enrollments/site-profile/deactivate`, b);
+  }
+
+  /** `[RH.14.6]` Quién lleva N días sin checar en la plaza (31 por omisión). */
+  posiblesBajas(site_code: string, days?: number): Observable<HrPosiblesBajasResponse> {
+    return this.http.get<HrPosiblesBajasResponse>(`${this.base}/enrollments/site-profiles/stale`, { params: this.params({ site_code, days }) });
+  }
+
+  /** `[RH.14.6]` Varias bajas con un motivo: las que fallan vuelven por código. */
+  darDeBajaLote(b: HrBajaLoteBody): Observable<HrBajaLoteResultadoDto> {
+    return this.http.post<HrBajaLoteResultadoDto>(`${this.base}/enrollments/site-profile/deactivate-batch`, b);
+  }
+
+  /** `[RH.14.1]` Archivar a la persona (sin acceso y sin plazas activas). */
+  archivarPersona(b: HrArchivarPersonaBody): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/enrollments/person/archive`, b);
+  }
+
+  /** `[RH.14.3]` La ficha completa: relojes, ficha de la plaza y lo de la persona. */
+  fichaPersona(site_code: string, person_code: string): Observable<HrFichaPersonaDto> {
+    return this.http.get<HrFichaPersonaDto>(`${this.base}/enrollments/site-profile`, { params: this.params({ site_code, person_code }) });
+  }
+
+  /** `[RH.14.5]` Departamentos, puestos y sucursales para la ficha. */
+  catalogosFicha(): Observable<HrCatalogosFichaDto> {
+    return this.http.get<HrCatalogosFichaDto>(`${this.base}/enrollments/catalogs`);
+  }
+
+  /** `[RH.14.4]` Personas cuyo nombre es el apodo del reloj (de una plaza, o de todas). */
+  nombresPorConfirmar(site_code?: string | null): Observable<HrNombresPorConfirmarResponse> {
+    return this.http.get<HrNombresPorConfirmarResponse>(`${this.base}/enrollments/names-to-confirm`, { params: this.params({ site_code }) });
   }
 
   reactivar(b: HrBajaPlazaBody): Observable<{ ok: true }> {

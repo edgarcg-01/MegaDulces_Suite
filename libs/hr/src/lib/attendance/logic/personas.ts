@@ -11,6 +11,8 @@
  * otra no, la prueba se pone roja.
  */
 
+import { nombrePropio } from '@megadulces/contracts/personas/nombre-propio';
+
 /** Palabras mínimas de un nombre para unir fichas o ligarlo a una cuenta: menos es un apodo. */
 export const PALABRAS_MINIMAS = 3;
 
@@ -128,21 +130,44 @@ export function validarAlta(b: { nombre?: unknown; seccion?: unknown }): { nombr
   const seccion = seccionDe(b?.seccion);
   if (!seccion) return { error: 'Elige la sección del reporte de RH (sin ella no puede entrar al cierre semanal).' };
   if (seccion.length > 80) return { error: 'La sección es demasiado larga.' };
-  return { nombre, seccion };
+  // `[RH.14.9]` Una sola forma de escribir el nombre (Edgar, 18-nov).
+  return { nombre: nombrePropio(nombre), seccion };
 }
 
 /**
  * `[RH.7.1]` Lo que RH corrige de la ficha de una persona en una plaza: nombre, sección, promotora. Lo que no viene no
  * cambia; lo que viene se valida con las MISMAS reglas del alta (sin sección o sin nombre completo no entra al cierre).
  */
-export function validarFicha(b: { nombre?: unknown; seccion?: unknown; promotora?: unknown }):
-  { nombre?: string; seccion?: string; promotora?: boolean } | { error: string } {
-  const out: { nombre?: string; seccion?: string; promotora?: boolean } = {};
+/**
+ * `[RH.14.5]` Lo que RH cambia de la PERSONA (no de la plaza): departamento, puesto y sucursal. `null` = quitarlo;
+ * `undefined` = no se toca. Sólo valida la forma: que el código exista en su catálogo lo revisa el servicio.
+ */
+export interface CambiosPersona { departamento_code?: string | null; puesto_code?: string | null; sucursal_code?: string | null }
+
+function codigoDe(v: unknown, campo: string): string | null | { error: string } {
+  if (v === null) return null;
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  if (s.length > 60 || !/^[A-Za-z0-9_.-]+$/.test(s)) return { error: `${campo}: código no válido.` };
+  return s;
+}
+
+export function validarFicha(b: {
+  nombre?: unknown; seccion?: unknown; promotora?: unknown; departamento_code?: unknown; puesto_code?: unknown; sucursal_code?: unknown;
+}): ({ nombre?: string; seccion?: string; promotora?: boolean } & CambiosPersona) | { error: string } {
+  const out: { nombre?: string; seccion?: string; promotora?: boolean } & CambiosPersona = {};
+  for (const [campo, etiqueta] of [['departamento_code', 'Departamento'], ['puesto_code', 'Puesto'], ['sucursal_code', 'Sucursal']] as const) {
+    if (b?.[campo] === undefined) continue;
+    const c = codigoDe(b[campo], etiqueta);
+    if (c !== null && typeof c === 'object') return c;
+    out[campo] = c;
+  }
+  if (out.sucursal_code && !/^[0-9]{2}$/.test(out.sucursal_code)) return { error: 'Sucursal: elige una de la lista.' };
   if (b?.nombre !== undefined) {
     const nombre = String(b.nombre ?? '').replace(/\s+/g, ' ').trim();
     if (palabras(normalizarNombre(nombre)) < 2) return { error: 'Escribe el nombre completo (nombre y apellido).' };
     if (nombre.length > 120) return { error: 'El nombre es demasiado largo.' };
-    out.nombre = nombre;
+    out.nombre = nombrePropio(nombre);   // `[RH.14.9]` una sola forma de escribirlo
   }
   if (b?.seccion !== undefined) {
     const seccion = seccionDe(b.seccion);
@@ -157,6 +182,59 @@ export function validarFicha(b: { nombre?: unknown; seccion?: unknown; promotora
   if (!Object.keys(out).length) return { error: 'No hay nada que cambiar.' };
   return out;
 }
+
+/**
+ * `[RH.14.4]` ¿El nombre de esta persona es un apodo que RH tiene que confirmar? Lo es si es el MISMO que trae alguno
+ * de sus relojes (la carga usó el apodo cuando Mega Talento no tenía el nombre completo) o si tiene menos de 3 palabras.
+ * Un nombre de 3 palabras distinto del reloj se da por bueno: no se adivina con más reglas (ver FASE_RH §5.5).
+ */
+export function nombrePorConfirmar(nombre: unknown, apodosReloj: Array<string | null | undefined>): 'apodo_del_reloj' | 'menos_de_3_palabras' | null {
+  const n = normalizarNombre(nombre);
+  if (!n) return 'menos_de_3_palabras';
+  if (apodosReloj.some((a) => a && normalizarNombre(a) === n)) return 'apodo_del_reloj';
+  return palabras(n) < PALABRAS_MINIMAS ? 'menos_de_3_palabras' : null;
+}
+
+/** `[RH.14.6]` Días sin checar para proponer la baja (Edgar, D1 del 18-nov). Se puede pedir otro valor, dentro del rango. */
+export const DIAS_SIN_CHECAR_BAJA = 31;
+export const DIAS_SIN_CHECAR_MIN = 7;
+export const DIAS_SIN_CHECAR_MAX = 365;
+
+export function diasParaBaja(v: unknown): number {
+  const n = Math.trunc(Number(v));
+  if (v === undefined || v === null || v === '' || !Number.isFinite(n)) return DIAS_SIN_CHECAR_BAJA;
+  return Math.min(DIAS_SIN_CHECAR_MAX, Math.max(DIAS_SIN_CHECAR_MIN, n));
+}
+
+/**
+ * `[RH.14.6]` Quién se propone dar de baja: lleva `dias` o más sin checar en la plaza (o nunca checó), y NO tiene una
+ * incidencia que justifique la ausencia (vacaciones, incapacidad, permiso…) que toque el tramo desde su última checada
+ * hasta hoy. Esa la explica: no se propone, se cuenta aparte. Fechas en 'yyyy-MM-dd' (día de pared de México).
+ */
+export function clasificarPosiblesBajas<T extends { codigo: string; ultima: string | null }>(
+  filas: T[], incidencias: Array<{ codigo: string; desde: string; hasta: string; etiqueta: string }>, o: { dias: number; hoy: string },
+): { proponer: Array<T & { diasSinChecar: number | null }>; explicadas: Array<T & { incidencia: { etiqueta: string; desde: string; hasta: string } }> } {
+  const limite = restarDias(o.hoy, o.dias);
+  const proponer: Array<T & { diasSinChecar: number | null }> = [];
+  const explicadas: Array<T & { incidencia: { etiqueta: string; desde: string; hasta: string } }> = [];
+  for (const f of filas) {
+    const ultimoDia = f.ultima ? f.ultima.slice(0, 10) : null;
+    if (ultimoDia && ultimoDia > limite) continue;            // checó dentro de la ventana: sigue trabajando
+    const inc = incidencias.find((i) => i.codigo === f.codigo && i.hasta >= (ultimoDia ?? '0000-01-01') && i.desde <= o.hoy);
+    if (inc) { explicadas.push({ ...f, incidencia: { etiqueta: inc.etiqueta, desde: inc.desde, hasta: inc.hasta } }); continue; }
+    proponer.push({ ...f, diasSinChecar: ultimoDia ? diasEntre(ultimoDia, o.hoy) : null });
+  }
+  // Primero quien más tiempo lleva sin checar; «nunca checó» al final (no se sabe desde cuándo).
+  proponer.sort((a, b) => (b.diasSinChecar ?? -1) - (a.diasSinChecar ?? -1));
+  return { proponer, explicadas };
+}
+
+const restarDias = (iso: string, n: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d - n)).toISOString().slice(0, 10);
+};
+const diasEntre = (desde: string, hasta: string): number =>
+  Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
 
 /** `[RH.1.12]` Username de una persona dada de alta desde la bandeja: plaza + código, con prefijo propio. */
 export function usernameAlta(sitio: string, codigo: string): string {

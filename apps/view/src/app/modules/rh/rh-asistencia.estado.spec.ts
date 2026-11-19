@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
@@ -22,6 +22,11 @@ describe('[RH.1.7c] RhAsistenciaEstado', () => {
       asistencia: vi.fn(() => of(asistencia([persona()]))),
       estadoRelojes: vi.fn(() => of([])),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
+      // [RH.14] Lo que la pantalla lee del padrón: vacío, para que no cambie lo que prueba este archivo.
+      nombresPorConfirmar: vi.fn(() => of({ filas: [], total: 0 })),
+      posiblesBajas: vi.fn(() => of({ site_code: '', dias: 31, filas: [], explicadas: [] })),
+      fichaPersona: vi.fn(() => of(null)),
+      catalogosFicha: vi.fn(() => of({ departamentos: [], puestos: [], sucursales: [] })),
       incidencias: vi.fn(() => of([{ id: '1' }, { id: '2' }])),
       estadoCierre: vi.fn(() => of([])),
       directorio: vi.fn(() => of([])),
@@ -45,6 +50,23 @@ describe('[RH.1.7c] RhAsistenciaEstado', () => {
     expect(est.sitio()).toBe('PH');
     expect(api['asistencia']).toHaveBeenCalledWith({ site_code: 'PH', date_from: '2026-10-01', date_to: '2026-10-07', only_promoters: false });
     expect(est.atajo()).toBe('esta');
+  });
+
+  it('⛔ [RH.14.8] otra semana u otro grupo: lo de antes NO queda pintado mientras llega lo nuevo; recalcular lo mismo sí lo conserva', () => {
+    crear(Permission.HR_ATTENDANCE_VER);
+    est.iniciar();
+    expect(est.datos()).not.toBeNull();
+    api['asistencia'].mockReturnValue(NEVER);       // la respuesta nueva no llega todavía
+    est.asegurar(true);                              // misma clave (p. ej. después de guardar un horario)
+    expect(est.datos()).not.toBeNull();
+    est.moverSemana(-7);                             // otra semana: la etiqueta cambia ya, los datos viejos se van
+    expect(est.datos()).toBeNull();
+    api['asistencia'].mockReturnValue(of(asistencia([persona()])));
+    est.moverSemana(7);
+    expect(est.datos()).not.toBeNull();
+    api['asistencia'].mockReturnValue(NEVER);
+    est.setPromotoras(true);
+    expect(est.datos()).toBeNull();
   });
 
   it('⭐ cambiar de pestaña no vuelve a pedir el cálculo (misma plaza, mismo periodo)', () => {

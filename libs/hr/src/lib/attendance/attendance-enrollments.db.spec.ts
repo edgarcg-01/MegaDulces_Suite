@@ -157,13 +157,15 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
         // Sólo la promotora: la sección se queda como estaba.
         await svc.editarFicha({ site_code: SITIO, person_code: '7', promotora: false });
         r['f2'] = (await trx('hr.person_site_profiles').where({ tenant_id: TENANT, site_code: SITIO, person_code: '7' }).first('report_section', 'is_promoter'));
-        // Nombre: Ana es `sin_acceso` → se corrige. Una cuenta CON acceso → no (la administra Sistemas).
+        // Nombre: Ana es `sin_acceso` → se corrige. `[RH.14.4]` Una cuenta CON acceso → TAMBIÉN (el nombre no da acceso a
+        // nada); lo que no se le toca es el departamento (lo cubre attendance-padron-rh.db.spec).
         await svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: '  Ana   López Ruiz Corregida ' });
         r['nombreAna'] = (await trx('identity.users').where({ id: ANA }).first('nombre')).nombre;
         r['nombreCorto'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Ana' }));
         await trx('identity.users').where({ id: ANA }).update({ role_name: 'superadmin' });
-        r['nombreConAcceso'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Otro Nombre Distinto' }));
+        r['nombreConAcceso'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Ana López Ruiz Con Acceso' }));
         r['nombreIntacto'] = (await trx('identity.users').where({ id: ANA }).first('nombre')).nombre;
+        await svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Ana López Ruiz Corregida' });
         await trx('identity.users').where({ id: ANA }).update({ role_name: 'sin_acceso' });
         // Mismo `created_at` dentro de la transacción: se busca el asiento por su contenido, no por su orden.
         const ev = await trx('identity.user_events').where({ user_id: ANA, event: 'ficha_plaza_editada' }).select('detalle', 'actor_user_id');
@@ -242,9 +244,9 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
     expect(r['f2']).toEqual({ report_section: 'ALMACÉN GENERAL', is_promoter: false });
     expect(r['nombreAna']).toBe('Ana López Ruiz Corregida');
     expect(r['nombreCorto']).toBe('BadRequestException');
-    expect(r['nombreConAcceso']).toBe('ConflictException');
-    expect(r['nombreIntacto']).toBe('Ana López Ruiz Corregida');
-    expect(r['evFicha']).toEqual([3, true, true]);
+    expect(r['nombreConAcceso']).toBe('sin error');
+    expect(r['nombreIntacto']).toBe('Ana López Ruiz Con Acceso');
+    expect(r['evFicha']).toEqual([5, true, true]);
     expect(r['padron2']).toEqual(['Ana López Ruiz Corregida', 'ALMACÉN GENERAL']);
     // [RH.7.2]
     expect(r['bajaSinMotivo']).toBe('BadRequestException');

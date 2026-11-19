@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrDesligarBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrArchivarPersonaBody, HrBajaLoteBody, HrBajaLoteResultadoDto, HrBajaPlazaBody, HrBajaPlazaDto, HrBajaResultadoDto,
+  HrCatalogosFichaDto, HrDesligarBody, HrFichaPersonaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto,
+  HrNombresPorConfirmarResponse, HrPersonaBuscadaDto, HrPosiblesBajasResponse, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { HrAttendanceEnrollmentsService } from './attendance-enrollments.service';
 
@@ -55,9 +57,51 @@ export class HrAttendanceEnrollmentsController {
 
   @Post('site-profile/deactivate')
   @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
-  @ApiOperation({ summary: 'RH — dar de baja a una persona EN UNA PLAZA (con motivo): deja de contar en su reporte.' })
-  darDeBaja(@Body() b: HrBajaPlazaBody): Promise<{ ok: true }> {
+  @ApiOperation({ summary: 'RH — dar de baja a una persona EN UNA PLAZA (con motivo): deja de contar en su reporte. Dice si se quedó sin plazas.' })
+  darDeBaja(@Body() b: HrBajaPlazaBody): Promise<HrBajaResultadoDto> {
     return this.enrollments.darDeBaja(b);
+  }
+
+  @Get('site-profiles/stale')
+  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.6] — posibles bajas: activos en la plaza que llevan N días (31 por omisión) sin checar.' })
+  posiblesBajas(@Query('site_code') site?: string, @Query('days') days?: string): Promise<HrPosiblesBajasResponse> {
+    return this.enrollments.posiblesBajas(String(site ?? ''), days);
+  }
+
+  @Post('site-profile/deactivate-batch')
+  @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.6] — varias bajas en una plaza con un motivo; las que fallan no deshacen a las demás.' })
+  darDeBajaLote(@Body() b: HrBajaLoteBody): Promise<HrBajaLoteResultadoDto> {
+    return this.enrollments.darDeBajaLote(b);
+  }
+
+  @Post('person/archive')
+  @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.1] — archivar a una persona sin acceso a la Suite que ya no tiene plazas activas.' })
+  archivar(@Body() b: HrArchivarPersonaBody): Promise<{ ok: true }> {
+    return this.enrollments.archivar(b);
+  }
+
+  @Get('site-profile')
+  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.3] — la ficha completa de una persona en una plaza: relojes, ficha y datos de la persona.' })
+  ficha(@Query('site_code') site?: string, @Query('person_code') codigo?: string): Promise<HrFichaPersonaDto> {
+    return this.enrollments.ficha(String(site ?? ''), String(codigo ?? ''));
+  }
+
+  @Get('catalogs')
+  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.5] — departamentos, puestos y sucursales para la ficha de la persona.' })
+  catalogos(): Promise<HrCatalogosFichaDto> {
+    return this.enrollments.catalogos();
+  }
+
+  @Get('names-to-confirm')
+  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH [RH.14.4] — personas activas sin acceso cuyo nombre es el apodo del reloj o tiene menos de 3 palabras.' })
+  nombresPorConfirmar(@Query('site_code') site?: string): Promise<HrNombresPorConfirmarResponse> {
+    return this.enrollments.nombresPorConfirmar(site);
   }
 
   @Post('site-profile/reactivate')
