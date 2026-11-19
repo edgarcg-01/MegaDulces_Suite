@@ -291,7 +291,7 @@ const diaAnterior = (v: string): string => {
     .gp-kpi-v { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-h2); font-weight:700; line-height:1.1; }
     .gp-kpi-l { font-size:var(--fs-xs); color:var(--text-muted); }
     .gp-kpi-warn { border-left:3px solid var(--warn-fg); }
-    .gp-kpi-warn .gp-kpi-v { color:var(--warn-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .gp-kpi-warn .gp-kpi-v { color:var(--warn-soft-fg); }
     .gp-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; margin-bottom:.75rem; }
     .gp-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
     .gp-bh h2 { font-size:var(--fs-h3); font-weight:700; margin:0; }

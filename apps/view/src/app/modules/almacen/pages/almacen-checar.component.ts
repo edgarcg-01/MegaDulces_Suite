@@ -337,7 +337,7 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     @media (prefers-reduced-motion: reduce) { .ck-destello { animation:none; } }
     .ck-listo { display:flex; flex-direction:column; gap:.5rem; border:1px solid var(--ok-fg); border-radius:var(--r-lg); background:var(--ok-soft-bg); color:var(--ok-soft-fg); padding:var(--sp-3); margin-bottom:var(--sp-3); }
     .ck-listo p { margin:0; font-size:var(--fs-lg); }
-    .ck-llena { margin:0; font-size:var(--fs-body); color:var(--warn-fg); font-weight:600; }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .ck-llena { margin:0; font-size:var(--fs-body); color:var(--warn-soft-fg); font-weight:600; }
     .ck-n { min-width:2.5rem; text-align:center; font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:800; }
     .ck-check { display:inline-flex; align-items:center; gap:.4rem; min-height:var(--tap-min); font-size:var(--fs-sm); cursor:pointer; }
     .ck-check input { width:1.25rem; height:1.25rem; }
