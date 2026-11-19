@@ -1,12 +1,10 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { PageTabsComponent, type PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
-import { Permission } from '../../../core/constants/permissions';
-
-const VER = [Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR];
+import { RECLUTAMIENTO_TABS } from '../reclutamiento-tabs';
 
 /**
- * Fase RH · `[RH.2.3]` — el marco de Reclutamiento: encabezado y pestañas (Candidatos · Vacantes · Revisiones).
- * Las tres leen con VER o GESTIONAR, igual que sus endpoints: ningún permiso aterriza en una pestaña que rebota.
+ * Fase RH · `[RH.2.3]` — el marco de Reclutamiento: encabezado y pestañas. Las pestañas viven en `reclutamiento-tabs.ts`
+ * (`[RH.17.1]`): son las mismas que lee el menú lateral, que lleva a la primera («Hoy»).
  */
 @Component({
   selector: 'app-rh-reclutamiento-marco',
@@ -34,11 +32,5 @@ const VER = [Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR]
 export class RhReclutamientoMarcoComponent {
   readonly subtitulo = input('Quién se postuló, en qué etapa va y qué le falta. Nada se borra: lo que sale va a la papelera y se puede restaurar.');
 
-  readonly tabs: PageTab[] = [
-    // `[RH.8.1]` Lo primero que se mira: cuántos en cada etapa, de qué ciudad, y quién va fuera de meta.
-    { label: 'Resumen', route: '/rh/reclutamiento/resumen', anyOf: VER },
-    { label: 'Candidatos', route: '/rh/reclutamiento', anyOf: VER },
-    { label: 'Vacantes', route: '/rh/reclutamiento/vacantes', anyOf: VER },
-    { label: 'Revisiones', route: '/rh/reclutamiento/revisiones', anyOf: VER },
-  ];
+  readonly tabs: PageTab[] = [...RECLUTAMIENTO_TABS];
 }
