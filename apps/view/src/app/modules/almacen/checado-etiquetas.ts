@@ -1,6 +1,9 @@
-import JsBarcode from 'jsbarcode';
 import type { ChecadoEtiquetaCJ, ChecadoEtiquetaP } from '@megadulces/contracts';
+import { CSS_FILA_TSC_3X, PAGINA_TSC_3X, barrasSvg, enFilas, escHtml, filasHtml } from '@megadulces/ui-web';
 import { printIsolated } from '../../shared/util/print-isolated';
+
+/** `[RE.ETQ.1.1]` Las filas de 3 viven ahora en la etiquetera de `libs/ui-web`; se re-exportan por compatibilidad. */
+export { enFilas };
 
 /**
  * `[GP.4]` Etiquetas del checado para la **TSC TE200** (térmica directa, 203 dpi) con rollo de
@@ -62,36 +65,10 @@ export function etiquetaDeCaja(e: ChecadoEtiquetaCJ, orderCode: string, destino:
   };
 }
 
-/** En filas de 3, que es como sale el rollo. La última fila puede ir incompleta. */
-export function enFilas<T>(xs: T[], porFila = 3): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < xs.length; i += porFila) out.push(xs.slice(i, i + porFila));
-  return out;
-}
-
-const esc = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const esc = escHtml;
 
 /** El código de barras como SVG en texto (para el documento aislado de impresión). */
-function barras(codigo: string): string {
-  try {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    JsBarcode(svg, codigo, { format: /^(\d\d)+$/.test(codigo) ? 'CODE128C' : 'CODE128', displayValue: false, width: 2, height: 60, margin: 0 });
-    const w = parseFloat(svg.getAttribute('width') || '');
-    const h = parseFloat(svg.getAttribute('height') || '');
-    // Sin el viewBox numérico se ve bien en pantalla y sale cortado al imprimir (lección del andén).
-    if (w > 0 && h > 0) {
-      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-      svg.setAttribute('preserveAspectRatio', 'none');
-      svg.removeAttribute('width');
-      svg.removeAttribute('height');
-    }
-    svg.setAttribute('class', 'et-bar');
-    return svg.outerHTML;
-  } catch {
-    return ''; // un código que CODE128 no representa sale sin barras; la etiqueta igual se lee
-  }
-}
+const barras = (codigo: string): string => barrasSvg(codigo, 'et-bar');
 
 /** "12/12" cabe a 11 mm; "100/120" no: se achica con el número de caracteres. */
 export function tamanoGrande(t: string): string {
@@ -100,10 +77,7 @@ export function tamanoGrande(t: string): string {
 }
 
 export function etiquetasHtml(etiquetas: Etiqueta[]): string {
-  return enFilas(etiquetas)
-    .map((fila) => {
-      const celdas = fila
-        .map((e) => `
+  return filasHtml(etiquetas, (e) => `
           <div class="et">
             <div class="et-pedido">${esc(e.pedido)}</div>
             <div class="et-destino">${esc(e.destino ?? '')}</div>
@@ -111,19 +85,12 @@ export function etiquetasHtml(etiquetas: Etiqueta[]): string {
             <div class="et-detalle">${esc(e.detalle)}</div>
             ${barras(e.codigo)}
             <div class="et-codigo">${esc(e.codigo)}</div>
-          </div>`)
-        .join('');
-      return `<div class="et-fila">${celdas}</div>`;
-    })
-    .join('');
+          </div>`);
 }
 
 const CSS = [
-  'body{margin:0}',
-  // 47.6 y no 48: con la fila exacta a la hoja, el redondeo del navegador mete una hoja en blanco,
-  // que en la etiquetera es una fila de 3 etiquetas tirada.
-  '.et-fila{display:flex;gap:2mm;width:100mm;height:47.6mm;box-sizing:border-box;break-after:page;page-break-after:always;overflow:hidden}',
-  '.et-fila:last-child{break-after:auto;page-break-after:auto}',
+  // La fila de 3 (hoja de 100 × 47.6 mm) es de la etiquetera compartida.
+  CSS_FILA_TSC_3X,
   '.et{box-sizing:border-box;width:32mm;height:100%;padding:1.5mm;display:flex;flex-direction:column;align-items:stretch;',
   'background:white;color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden}',
   '.et-pedido{font-size:2.6mm;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden}',
@@ -145,7 +112,7 @@ export function imprimirEtiquetas(etiquetas: Etiqueta[], onDone?: () => void): v
   }
   printIsolated({
     html: etiquetasHtml(etiquetas),
-    page: 'size: 100mm 48mm; margin: 0;',
+    page: PAGINA_TSC_3X,
     css: CSS,
     bodyClass: 'checado-etiquetas-printing',
     fallbackClass: 'checado-etiquetas-fallback',

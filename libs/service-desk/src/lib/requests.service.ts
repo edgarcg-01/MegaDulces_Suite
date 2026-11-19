@@ -29,6 +29,13 @@ import {
   type SdChannel,
   type SdCloseReason,
   type SdCreateRequestDto,
+  type SdCreateWorkOrderDto,
+  type SdDecision,
+  type SdDecisionDto,
+  type SdAnyPauseReason,
+  type SdRequestRefDto,
+  type SdSetDecisionDto,
+  type SdWorkOrderRowDto,
   type SdExtraValueDto,
   type SdImpact,
   type SdListResponse,
@@ -66,6 +73,17 @@ import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
 import { accesoATicket, type AccesoTicket, colasDeLectura, esMiembroDeCola, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
+import {
+  exigeDictamenParaResolver,
+  mensajeQuienLevanta,
+  notaResolucionPorOrdenes,
+  puedeLevantarEnCola,
+  resolverPadrePorOrdenes,
+  validarDescripcion,
+  validarDictamen,
+  validarOrdenDeServicio,
+  type ErrorPresupuesto,
+} from './domain/presupuesto';
 import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridadPorModelo } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
@@ -123,6 +141,14 @@ interface RequestRow {
   reopened_count: number;
   created_at: Date;
   updated_at: Date;
+  /** `[MSP.0.1]` El dictamen y el padre (orden de servicio). */
+  decision?: SdDecision | null;
+  decision_note?: string | null;
+  decided_by?: string | null;
+  decided_at?: Date | null;
+  parent_request_id?: string | null;
+  /** `[MSP.0.1]` Banderas de SU cola (las traen `base()` y `bloquear()`). */
+  queue_requires_decision?: boolean;
   // Lo que agrega el JOIN de `base()`:
   queue_name?: string | null;
   category_name?: string | null;
@@ -181,6 +207,14 @@ const CARPETA = 'service-desk/requests';
 
 const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 const esUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
+/** `[MSP]` El error de dominio como la excepción HTTP que le corresponde. */
+const comoExcepcion = (e: ErrorPresupuesto): Error =>
+  e.http === 400 ? new BadRequestException(e.mensaje) : e.http === 403 ? new ForbiddenException(e.mensaje) : new ConflictException(e.mensaje);
+
+/** `[MSP.2.4]` Lo que el alta de una ORDEN DE SERVICIO lleva además del DTO (no viaja en el cuerpo HTTP: lo arma `createWorkOrder`). */
+interface OpcionesAlta {
+  ordenDe?: { padreId: string; destinoId: string };
+}
 
 @Injectable()
 export class ServiceDeskRequestsService {
@@ -199,7 +233,12 @@ export class ServiceDeskRequestsService {
 
   // ───────────────────────────── alta ─────────────────────────────
 
-  async create(ctx: ActorCtx, dto: SdCreateRequestDto): Promise<SdRequestDetail> {
+  /**
+   * `opc.ordenDe` (`[MSP.2.4]`) NO viaja en el cuerpo HTTP: lo pone `createWorkOrder`. Con él, el alta es la de una ORDEN DE SERVICIO: el
+   * padre se bloquea y se valida DENTRO de esta transacción, la orden nace ligada a él, hereda su evidencia y el padre queda esperándola —o
+   * nada—. Devuelve la ficha del PADRE (quien coordina Presupuestos no es miembro del área destino: la ficha de la orden le daría 404).
+   */
+  async create(ctx: ActorCtx, dto: SdCreateRequestDto, opc: OpcionesAlta = {}): Promise<SdRequestDetail> {
     const title = String(dto?.title ?? '').trim();
     const description = String(dto?.description ?? '').trim();
     if (!title) throw new BadRequestException('Escribe un título para la solicitud');
@@ -227,6 +266,29 @@ export class ServiceDeskRequestsService {
       throw new BadRequestException('requester_id inválido');
     }
 
+    /*
+     * `[MSP.2.2]` D1 — quién levanta, ANTES de tocar el bucket (la misma regla que `[MS.3.11]`): a un puesto que el área no recibe no se
+     * le sube nada para luego descartarlo. Es una lectura previa; la que MANDA es la de la transacción (abajo), que lo vuelve a verificar.
+     * Si la persona indicada no existe, aquí no se decide: la transacción responde su 400.
+     */
+    const previo = await this.tk.run(async (trx) => {
+      const c = await trx('servicedesk.categories as c')
+        .join('servicedesk.queues as q', function () {
+          this.on('q.tenant_id', 'c.tenant_id').andOn('q.id', 'c.queue_id');
+        })
+        .where('c.id', dto.category_id)
+        .whereNull('c.deleted_at')
+        .first('q.requester_positions');
+      const puestos = (c?.requester_positions as string[] | null | undefined) ?? null;
+      if (!puestos) return null;
+      const titular = await trx('identity.users')
+        .where({ id: pidioOtro ? (dto.requester_id as string) : ctx.userId })
+        .whereNull('deleted_at')
+        .first('position_code');
+      return titular ? this.rechazoPorPuesto(trx, puestos, titular.position_code ?? null) : null;
+    });
+    if (previo) throw previo;
+
     // 1) Lo que hace falta para validar adjuntos (tope de tamaño) — antes de tocar el bucket.
     const settings = (await this.tk.run((trx) => this.cfg.load(trx))).settings;
     const preparados = this.att.preparar(dto.attachments, settings.maxAttachmentBytes);
@@ -244,9 +306,14 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone', 'q.uses_priority', 'q.sla_enabled', 'q.confidential', 'q.privacy_notice_code');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.code as queue_code', 'q.name as queue_name', 'q.priority_model', 'q.asks_zone', 'q.uses_priority', 'q.sla_enabled', 'q.confidential', 'q.privacy_notice_code', 'q.requires_description', 'q.requester_positions');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
+        // `[MSP.2.2]` La descripción, cuando el área la exige (por su valor, no por su nombre).
+        const sinDescripcion = validarDescripcion(cat.requires_description === true, description);
+        if (sinDescripcion) throw comoExcepcion(sinDescripcion);
+        // `[MSP.2.4]` Una ORDEN DE SERVICIO: el padre se bloquea y se valida ANTES de escribir nada (dictamen, destino, estado).
+        const orden = opc.ordenDe ? await this.prepararOrden(trx, ctx, opc.ordenDe, cat, description) : null;
         /*
          * `[MS.7.7]` El modelo de prioridad lo dicta la COLA (su `priority_model`), no su nombre. En `riesgo_operacion` «¿hay riesgo
          * para personas?» es OBLIGATORIA y debe ser verdadero o falso: un faltante NO se toma como «no hay riesgo» (el peligro nunca
@@ -293,7 +360,8 @@ export class ServiceDeskRequestsService {
           .where({ queue_id: cat.queue_id, active: true })
           .orderBy([{ column: 'sort_order' }, { column: 'label' }])
           .select('code', 'label', 'type', 'required', 'options')) as { code: string; label: string; type: CampoDef['type']; required: boolean; options: string[] }[];
-        const extraValidado = validarCamposExtra(defs, dto.extra, preparados.length);
+        // `[MSP.2.4]` La evidencia que la orden hereda del padre cuenta como adjunto (una foto obligatoria del área destino la satisface).
+        const extraValidado = validarCamposExtra(defs, dto.extra, preparados.length + (orden?.adjuntos.length ?? 0));
         if (extraValidado.errores.length) throw new BadRequestException(extraValidado.errores.join('. '));
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
@@ -306,6 +374,12 @@ export class ServiceDeskRequestsService {
           })
           .first('id', 'nombre', 'username', 'department_code', 'position_code');
         if (pidioOtro && !me) throw new BadRequestException('La persona indicada no existe o no puede figurar como solicitante');
+        /*
+         * `[MSP.2.2]` D1 — quién levanta: si el área trae lista de puestos, el puesto del TITULAR debe estar en ella. También a nombre de
+         * otra persona: quien atiende no puede abrir la puerta a alguien que el área no recibe. El 403 dice qué puestos sí.
+         */
+        const sinPuesto = await this.rechazoPorPuesto(trx, (cat.requester_positions as string[] | null) ?? null, me?.position_code ?? null);
+        if (sinPuesto) throw sinPuesto;
         /*
          * `[PRV.2]` El aviso de privacidad de la cola (RH): se exige haber ACEPTADO la versión vigente ANTES de crear el ticket — lo pide el
          * servidor, no sólo la pantalla. El consentimiento es de la persona TITULAR (`solicitanteId`): la casilla de quien atiende no consiente
@@ -361,6 +435,8 @@ export class ServiceDeskRequestsService {
             channel: 'web',
             due_at: plazos.due_at,
             first_response_due_at: plazos.first_response_due_at,
+            // `[MSP.2.4]` La columna sólo se toca en una orden: un alta normal no depende de ella.
+            ...(orden ? { parent_request_id: orden.padre.id } : {}),
             created_by: ctx.userId,
             updated_by: ctx.userId,
           })
@@ -378,13 +454,24 @@ export class ServiceDeskRequestsService {
           kind: 'system',
           authorId: ctx.userId,
           authorLabel: ctx.nombre,
-          body: pidioOtro ? `Solicitud levantada por ${ctx.nombre} a nombre de ${nombreSolicitante}` : 'Solicitud creada',
-          meta: { ...(usaPrioridad ? { priority, impact: impactoEf, blocks_work: bloqueaEf } : {}), ...(riesgo !== null ? { safety_risk: riesgo } : {}), ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
+          body: orden
+            ? `Orden de servicio de ${orden.padre.folio} (${orden.colaPadre}), levantada por ${ctx.nombre}${pidioOtro ? ` a nombre de ${nombreSolicitante}` : ''}`
+            : pidioOtro
+              ? `Solicitud levantada por ${ctx.nombre} a nombre de ${nombreSolicitante}`
+              : 'Solicitud creada',
+          meta: {
+            ...(usaPrioridad ? { priority, impact: impactoEf, blocks_work: bloqueaEf } : {}),
+            ...(riesgo !== null ? { safety_risk: riesgo } : {}),
+            ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}),
+            ...(orden ? { work_order_of: orden.padre.id, parent_folio: orden.padre.folio } : {}),
+          },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
         await this.insertEnlaces(trx, tenantId, id, msgId, ctx.userId, enlaces);
 
         let efectos: Efectos = { avisos: [], bitacora: [{ tenantId, requestId: id, folio, event: 'created', status: 'nuevo', assignedTo: null }] };
+        // `[MSP.2.4]` La orden hereda la evidencia del padre, y el padre queda esperándola — en ESTA transacción.
+        if (orden) efectos = juntar(efectos, await this.ligarOrden(trx, config, ctx, orden, { id: id as string, folio, msgId, area: cat.queue_name as string }, now));
         // A quien no la reportó se le avisa que existe (si no, le llegarían los «resuelto» de algo que no conocía).
         if (pidioOtro) efectos.avisos.push({ event: 'levantada', request_id: id, folio, title, priority, recipients: [solicitanteId], actor_id: ctx.userId, actor_name: ctx.nombre });
 
@@ -434,11 +521,256 @@ export class ServiceDeskRequestsService {
         return { id: id as string, efectos };
       });
       await this.despachar(efectos);
-      return await this.detail(ctx, id);
+      return await this.detail(ctx, opc.ordenDe?.padreId ?? id);
     } catch (e) {
       await this.att.descartar(subidos);
       throw e;
     }
+  }
+
+  // ─────────────────────── `[MSP]` dictamen y órdenes de servicio ───────────────────────
+
+  /**
+   * `[MSP.2.3]` El DICTAMEN de la coordinación (D2): autorizado / no autorizado, con motivo. No cambia el estado (resolver sigue siendo un
+   * paso aparte), cuenta como primera respuesta y queda en el hilo, público: es la respuesta a quien lo pidió. Se puede corregir mientras no
+   * haya órdenes emitidas ni esté resuelta. Sólo la coordinación DE ESA COLA por membresía real: el god-mode no autoriza gasto.
+   */
+  async setDecision(ctx: ActorCtx, id: string, dto: SdSetDecisionDto): Promise<SdRequestDetail> {
+    if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
+    const nota = String(dto?.note ?? '').trim();
+    if (nota.length > MAX_TEXTO) throw new BadRequestException(`El motivo admite hasta ${MAX_TEXTO} caracteres`);
+    const efectos = await this.tk.run(async (trx) => {
+      const r = await this.bloquear(trx, id);
+      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      const ordenes = await trx('servicedesk.requests').where({ parent_request_id: id }).whereNull('deleted_at').count({ n: '*' }).first();
+      const veto = validarDictamen({
+        colaExige: r.queue_requires_decision === true,
+        coordina: ctx.esCoordinador && ctx.colas.coordina.has(r.queue_id),
+        status: r.status,
+        decision: dto?.decision,
+        nota,
+        previo: r.decision ? { decision: r.decision, nota: r.decision_note ?? '' } : null,
+        ordenes: Number(ordenes?.n ?? 0),
+      });
+      if (veto) throw comoExcepcion(veto);
+      const decision = dto.decision as SdDecision;
+      const now = new Date();
+      await trx('servicedesk.requests')
+        .where({ id })
+        .update({
+          decision,
+          decision_note: nota,
+          decided_by: ctx.userId,
+          decided_at: now,
+          // Dar el dictamen ES responder (como tomar o comentar).
+          ...(r.first_responded_at ? {} : { first_responded_at: now }),
+          updated_at: now,
+          updated_by: ctx.userId,
+        });
+      await this.addMessage(trx, r.tenant_id, id, {
+        kind: 'system',
+        visibility: 'public',
+        authorId: ctx.userId,
+        authorLabel: ctx.nombre,
+        body: nota,
+        meta: { decision, ...(r.decision ? { previous_decision: r.decision } : {}) },
+      });
+      const fx = sinEfectos();
+      fx.avisos.push(this.evento(r, 'dictamen', [r.requester_id], ctx, { extracto: decision, discriminador: now.getTime() }));
+      return fx;
+    });
+    await this.despachar(efectos);
+    return this.detail(ctx, id);
+  }
+
+  /**
+   * `[MSP.2.4]` Genera una ORDEN DE SERVICIO (D3): una solicitud NUEVA en el área destino, a nombre de quien reportó la de origen (es quien
+   * recibe el servicio y confirma), con su misma sucursal. Todo lo demás —validar el padre, heredar la evidencia, dejar al padre esperando—
+   * ocurre dentro de la transacción del alta (`create` con `ordenDe`).
+   */
+  async createWorkOrder(ctx: ActorCtx, id: string, dto: SdCreateWorkOrderDto): Promise<SdRequestDetail> {
+    if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
+    if (!esUuid(dto?.queue_id)) throw new BadRequestException('queue_id inválido');
+    if (!esUuid(dto?.category_id)) throw new BadRequestException('category_id inválido');
+    if (dto.safety_risk !== undefined && typeof dto.safety_risk !== 'boolean') throw new BadRequestException('safety_risk debe ser verdadero o falso');
+    const instrucciones = String(dto?.instructions ?? '').trim();
+    if (!instrucciones) throw new BadRequestException('Escribe qué debe hacer el área que recibe la orden');
+    // Sólo para armar el alta (título, titular, sucursal). El alta vuelve a BLOQUEAR y validar el padre dentro de su transacción.
+    const padre = (await this.tk.run((trx) => this.base(trx).where('r.id', id).first())) as RequestRow | undefined;
+    if (!padre || !this.puedeVer(padre, ctx)) throw new NotFoundException('Solicitud no encontrada');
+    const titulo = String(dto.title ?? '').trim() || padre.title;
+    return this.create(
+      ctx,
+      {
+        category_id: dto.category_id,
+        title: titulo,
+        description: instrucciones,
+        safety_risk: dto.safety_risk,
+        extra: dto.extra,
+        warehouse_code: padre.warehouse_code,
+        requester_id: padre.requester_id === ctx.userId ? undefined : padre.requester_id,
+      },
+      { ordenDe: { padreId: id, destinoId: dto.queue_id } },
+    );
+  }
+
+  /** `[MSP.2.4]` Bloquea y valida el padre de una orden; devuelve lo que la orden hereda. */
+  /** `[MSP.2.2]` D1 — el puesto del TITULAR contra la lista del área: `null` si puede levantar (o el área no tiene lista); si no, el 403 que dice qué puestos sí. */
+  private async rechazoPorPuesto(trx: Knex.Transaction, puestos: string[] | null, puesto: string | null): Promise<ForbiddenException | null> {
+    if (puedeLevantarEnCola(puesto, puestos)) return null;
+    const nombres = (await trx('identity.positions').whereIn('code', puestos ?? []).orderBy('name').pluck('name')) as string[];
+    return new ForbiddenException(mensajeQuienLevanta(nombres));
+  }
+
+  private async prepararOrden(
+    trx: Knex.Transaction,
+    ctx: ActorCtx,
+    o: { padreId: string; destinoId: string },
+    cat: { queue_id: string; queue_code: string; confidential: boolean | null },
+    instrucciones: string,
+  ): Promise<{ padre: RequestRow; colaPadre: string; adjuntos: { storage_key: string; file_name: string; content_type: string; size_bytes: string | number }[] }> {
+    const padre = await this.bloquear(trx, o.padreId);
+    if (!padre || !this.puedeVer(padre, ctx)) throw new NotFoundException('Solicitud no encontrada');
+    const colaPadre = (await trx('servicedesk.queues').where({ id: padre.queue_id }).first('name', 'requires_decision', 'work_order_queue_codes')) as
+      | { name: string; requires_decision: boolean; work_order_queue_codes: string[] | null }
+      | undefined;
+    const delDestino = cat.queue_id === o.destinoId;
+    const miembros = delDestino ? (await this.agents.listIn(trx, o.destinoId)).length : 0;
+    const veto = validarOrdenDeServicio({
+      coordina: ctx.esCoordinador && ctx.colas.coordina.has(padre.queue_id),
+      destinosPermitidos: colaPadre?.work_order_queue_codes ?? null,
+      colaExigeDictamen: colaPadre?.requires_decision === true,
+      decision: padre.decision ?? null,
+      padreStatus: padre.status,
+      padreEsOrden: !!padre.parent_request_id,
+      destinoCode: cat.queue_code ?? null,
+      destinoConfidencial: cat.confidential === true,
+      categoriaEsDelDestino: delDestino,
+      miembrosDestino: miembros,
+      instrucciones,
+    });
+    if (veto) throw comoExcepcion(veto);
+    // La evidencia PÚBLICA del padre (la del alta y la de mensajes públicos): una nota interna de Presupuestos no viaja a otra área.
+    const adjuntos = (await trx('servicedesk.request_attachments as a')
+      .leftJoin('servicedesk.request_messages as m', function () {
+        this.on('m.tenant_id', 'a.tenant_id').andOn('m.id', 'a.message_id');
+      })
+      .where('a.request_id', padre.id)
+      .where((w) => w.whereNull('a.message_id').orWhere('m.visibility', 'public'))
+      .orderBy('a.created_at', 'asc')
+      .select('a.storage_key', 'a.file_name', 'a.content_type', 'a.size_bytes')) as { storage_key: string; file_name: string; content_type: string; size_bytes: string | number }[];
+    return { padre, colaPadre: colaPadre?.name ?? 'otra área', adjuntos };
+  }
+
+  /**
+   * `[MSP.2.4]` Lo que la orden recién creada provoca en la MISMA transacción: hereda la evidencia del padre (una fila nueva que apunta al
+   * MISMO objeto del bucket: no se copia el archivo, y los adjuntos son registro sin DELETE), el padre lo anota en su hilo y queda en espera
+   * (`orden_servicio`: la respuesta de quien reportó no lo reanuda; el reloj, si lo hay, se pausa).
+   */
+  private async ligarOrden(
+    trx: Knex.Transaction,
+    config: SdConfig,
+    ctx: ActorCtx,
+    orden: { padre: RequestRow; adjuntos: { storage_key: string; file_name: string; content_type: string; size_bytes: string | number }[] },
+    hija: { id: string; folio: string; msgId: string; area: string },
+    now: Date,
+  ): Promise<Efectos> {
+    const { padre } = orden;
+    if (orden.adjuntos.length) {
+      await trx('servicedesk.request_attachments').insert(
+        orden.adjuntos.map((a) => ({
+          tenant_id: padre.tenant_id,
+          request_id: hija.id,
+          message_id: hija.msgId,
+          storage_key: a.storage_key,
+          file_name: a.file_name,
+          content_type: a.content_type,
+          size_bytes: a.size_bytes,
+          uploaded_by: ctx.userId,
+        })),
+      );
+    }
+    await this.addMessage(trx, padre.tenant_id, padre.id, {
+      kind: 'system',
+      visibility: 'public',
+      authorId: ctx.userId,
+      authorLabel: ctx.nombre,
+      body: `Orden de servicio ${hija.folio} enviada a ${hija.area}`,
+      meta: { work_order_id: hija.id, work_order_folio: hija.folio, to_queue: hija.area },
+    });
+    if (padre.status === 'en_espera') {
+      // Ya esperaba (a otra orden, o por otro motivo): ahora espera a sus órdenes. El reloj sigue pausado desde antes.
+      if (padre.pause_reason !== 'orden_servicio') await trx('servicedesk.requests').where({ id: padre.id }).update({ pause_reason: 'orden_servicio', updated_at: now, updated_by: ctx.userId });
+      return sinEfectos();
+    }
+    return this.moverEstado(trx, config, padre, 'en_espera', ['coordinator'], ctx, now, '', 'orden_servicio');
+  }
+
+  /**
+   * `[MSP.2.5]` Lo que el cambio de estado de una ORDEN provoca en su padre (misma transacción). Resuelta → si ya no queda ninguna abierta
+   * (y al menos una se resolvió), el padre se resuelve SOLO con la nota de sus órdenes. Cancelada o reabierta → sólo se anota en el padre:
+   * decide la coordinación (reabrir el padre no es automático: `[MSP.D2]`).
+   */
+  private async alCambiarOrden(trx: Knex.Transaction, config: SdConfig, hija: RequestRow, to: SdStatus, ctx: Autor, now: Date): Promise<Efectos> {
+    if (!hija.parent_request_id) return sinEfectos();
+    const padre = await this.bloquear(trx, hija.parent_request_id);
+    if (!padre) return sinEfectos();
+    const area = (await trx('servicedesk.queues').where({ id: hija.queue_id }).first('name'))?.name ?? 'otra área';
+    const texto: Partial<Record<SdStatus, string>> = { resuelto: 'se resolvió', cancelado: 'se canceló', en_proceso: 'se reabrió' };
+    await this.addMessage(trx, padre.tenant_id, padre.id, {
+      kind: 'system',
+      visibility: 'public',
+      authorId: ctx.userId,
+      authorLabel: ctx.nombre,
+      body: `La orden de servicio ${hija.folio} (${area}) ${texto[to] ?? `pasó a ${to}`}`,
+      meta: { work_order_id: hija.id, work_order_folio: hija.folio, work_order_status: to },
+    });
+    if (to !== 'resuelto') return sinEfectos();
+    const ordenes = (await trx('servicedesk.requests as r')
+      .join('servicedesk.queues as q', function () {
+        this.on('q.tenant_id', 'r.tenant_id').andOn('q.id', 'r.queue_id');
+      })
+      .where('r.parent_request_id', padre.id)
+      .whereNull('r.deleted_at')
+      .orderBy('r.created_at', 'asc')
+      .select('r.id', 'r.folio', 'r.status', 'r.resolution_note', 'q.name as area')) as { id: string; folio: string; status: SdStatus; resolution_note: string | null; area: string }[];
+    const estados = ordenes.map((x) => x.status);
+    const colaPadre = await trx('servicedesk.queues').where({ id: padre.queue_id }).first('requires_decision');
+    if (!resolverPadrePorOrdenes({ padreStatus: padre.status, colaExigeDictamen: colaPadre?.requires_decision === true, decision: padre.decision ?? null, ordenes: estados })) return sinEfectos();
+    const nota = notaResolucionPorOrdenes(ordenes.map((x) => ({ folio: x.folio, area: x.area, status: x.status, nota: x.resolution_note })));
+    return this.moverEstado(trx, config, padre, 'resuelto', ['system'], SISTEMA, now, nota);
+  }
+
+  /** `[MSP.2.6]` Dictamen, padre y órdenes de una ficha. */
+  private async presupuestoDe(trx: Knex.Transaction, r: RequestRow): Promise<Pick<SdRequestDetail, 'decision' | 'requires_decision' | 'parent' | 'work_orders'>> {
+    let decision: SdDecisionDto | null = null;
+    if (r.decision && r.decided_at) {
+      const u = r.decided_by ? await trx('identity.users').where({ id: r.decided_by }).first('nombre', 'username') : null;
+      decision = { decision: r.decision, note: r.decision_note ?? '', decided_by_name: u ? u.nombre || u.username : null, decided_at: iso(r.decided_at) as string };
+    }
+    let parent: SdRequestRefDto | null = null;
+    if (r.parent_request_id) {
+      const p = await trx('servicedesk.requests as r')
+        .join('servicedesk.queues as q', function () {
+          this.on('q.tenant_id', 'r.tenant_id').andOn('q.id', 'r.queue_id');
+        })
+        .where('r.id', r.parent_request_id)
+        .first('r.id', 'r.folio', 'q.name as queue_name');
+      if (p) parent = { id: p.id, folio: p.folio, queue_name: p.queue_name };
+    }
+    const filas = (await this.base(trx).where('r.parent_request_id', r.id).orderBy('r.created_at', 'asc')) as RequestRow[];
+    const work_orders: SdWorkOrderRowDto[] = filas.map((h) => ({
+      id: h.id,
+      folio: h.folio,
+      queue_name: h.queue_name ?? '',
+      category_name: h.category_name ?? '',
+      status: h.status,
+      assigned_to_name: h.assigned_to ? h.assigned_nombre || h.assigned_username || null : null,
+      created_at: iso(h.created_at) as string,
+      resolved_at: iso(h.resolved_at),
+      resolution_note: h.resolution_note ?? null,
+    }));
+    return { decision, requires_decision: r.queue_requires_decision === true, parent, work_orders };
   }
 
   // ───────────────────────────── lecturas ─────────────────────────────
@@ -684,6 +1016,8 @@ export class ServiceDeskRequestsService {
         links,
         time_logged_minutes: logged,
         time_entries: entradasTiempo,
+        // `[MSP.2.6]` El dictamen, el padre (si es una orden) y las órdenes con su estado VIVO.
+        ...(await this.presupuestoDe(trx, r)),
       };
     });
   }
@@ -1124,10 +1458,15 @@ export class ServiceDeskRequestsService {
    * LA función que escribe `status`. Recibe la fila ya bloqueada (`FOR UPDATE`) y la deja coherente con el
    * reloj del SLA. Lanza 403 si ninguno de los roles que `ctx` tiene sobre el ticket puede hacer la transición.
    */
-  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null, motivoPausa?: SdPauseReason): Promise<Efectos> {
+  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null, motivoPausa?: SdAnyPauseReason): Promise<Efectos> {
     const from = r.status as SdStatus;
     const actor = actores.find((a) => puedeTransicionar(from, to, a));
     if (!actor) throw new ForbiddenException('No tienes permiso para hacer ese cambio en esta solicitud');
+    // `[MSP.2.5]` D2: en un área que exige dictamen, sin dictamen no se resuelve (lo dice el servidor, no sólo la pantalla).
+    if (to === 'resuelto') {
+      const falta = exigeDictamenParaResolver(r.queue_requires_decision === true, r.decision ?? null);
+      if (falta) throw new ConflictException(falta);
+    }
     const ef = efectosDe(from, to);
     const patch: Patch = { status: to, updated_at: now, updated_by: ctx.userId };
 
@@ -1190,6 +1529,8 @@ export class ServiceDeskRequestsService {
       if (otra) fx.avisos.push(this.evento(r, 'cancelado', [otra], ctx));
     }
     if (to === 'cerrado' && actor === 'system') fx.avisos.push(this.evento(r, 'autocerrado', [r.requester_id], ctx, { dias: config.settings.autoCloseDays }));
+    // `[MSP.2.5]` Una ORDEN DE SERVICIO que se resuelve, se cancela o se reabre lo anota en su padre (y resolverla puede resolverlo).
+    if (r.parent_request_id && (to === 'resuelto' || to === 'cancelado' || ef.reabre)) return juntar(fx, await this.alCambiarOrden(trx, config, r, to, ctx, now));
     return fx;
   }
 
@@ -1372,7 +1713,7 @@ export class ServiceDeskRequestsService {
       })
       .where('r.id', id)
       .whereNull('r.deleted_at')
-      .select('r.*', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled')
+      .select('r.*', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled', 'q.requires_decision as queue_requires_decision')
       .forUpdate('r')
       .first();
   }
@@ -1454,7 +1795,7 @@ export class ServiceDeskRequestsService {
         this.on('z.tenant_id', 'r.tenant_id').andOn('z.code', 'r.zone_code');
       })
       .whereNull('r.deleted_at')
-      .select('r.*', 'q.name as queue_name', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
+      .select('r.*', 'q.name as queue_name', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled', 'q.requires_decision as queue_requires_decision', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
   }
 
   private buscar(qb: Knex.QueryBuilder, search: string | undefined): void {
@@ -1492,7 +1833,7 @@ export class ServiceDeskRequestsService {
       warehouse_name: r.warehouse_code ? nombreUbicacionExtra(r.warehouse_code) ?? branchName(r.warehouse_code) : null,
       zone_code: r.zone_code ?? null,
       zone_name: r.zone_name ?? null,
-      pause_reason: (r.pause_reason ?? null) as SdPauseReason | null,
+      pause_reason: (r.pause_reason ?? null) as SdAnyPauseReason | null,
       is_test: !!r.is_test,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,

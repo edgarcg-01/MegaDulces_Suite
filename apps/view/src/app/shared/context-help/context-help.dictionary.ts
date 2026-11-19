@@ -772,6 +772,46 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [RE.ETQ.3.x] Etiquetas de caja de la orden de entrada (TSC TE200).
+  'almacen-etiquetas-caja': {
+    title: 'Etiquetas de caja — guía',
+    intro: 'Cada orden de entrada que se captura en Kepler aparece aquí unos minutos después, con sus productos en caja (CJA, bulto o cubeta). Se imprime una etiqueta por caja en la TSC, con un código que el lector sí lee. Reemplaza «Imprimir Etiquetas» de Kepler.',
+    groups: [
+      {
+        heading: 'Qué dice la etiqueta',
+        entries: [
+          { term: 'Consecutivo', def: 'La caja de cuántas: 7:20 es la séptima de veinte cajas de ese producto en la orden.' },
+          { term: 'UXC', def: 'Unidades por caja, tal como vienen en la orden de entrada de Kepler (no en el catálogo, que tiene el factor en 0 en muchos productos).' },
+          { term: 'Fecha', def: 'El día en que la etiqueta se envía por primera vez, en la cuenta de Kepler: días desde el 1 de enero (el 1 de enero es 0) y el año. 322-26 es el 19 de noviembre de 2026. Una reimpresión sale con la misma fecha.' },
+          { term: 'Código', def: 'C y la clave del producto, como en Kepler. La Suite lo lee siempre; Kepler sólo si el producto tiene ese código de caja en su catálogo.' },
+          { term: 'Caja incompleta', def: 'Si llegaron piezas sueltas (media caja), la última etiqueta lo dice en negativo con sus piezas. Kepler no le imprimía etiqueta.' },
+        ],
+      },
+      {
+        heading: 'Imprimir y reimprimir',
+        entries: [
+          { term: 'Imprimir', def: 'Manda todas las etiquetas que faltan de la orden. Desde el detalle se pueden elegir los productos.' },
+          { term: 'Enviada', def: 'Se mandó a la impresora. El navegador no avisa si la impresión se canceló o salió mal: en ese caso se reimprime.' },
+          { term: 'Reimprimir', def: 'Desde el detalle de la orden, se escribe qué etiquetas: 7, o 3-5. Salen iguales a la primera vez, aunque Kepler haya cambiado algo después.' },
+        ],
+      },
+    ],
+  },
+  'almacen-etiquetas-catalogo': {
+    title: 'Catálogo de Kepler en lo recibido — guía',
+    intro: 'Productos que llegaron en caja con el catálogo de Kepler mal. La etiqueta se imprime igual con lo de la orden de entrada; esta lista es para que Compras lo corrija en Kepler (la Suite no escribe en Kepler).',
+    groups: [
+      {
+        heading: 'Qué puede estar mal',
+        entries: [
+          { term: 'Sin código de caja', def: 'El producto no tiene C y su clave como código de caja en Kepler: las pantallas de Kepler no leen la etiqueta (la Suite sí).' },
+          { term: 'Factor de caja en 0', def: 'Kepler no sabe cuántas piezas trae la caja del producto.' },
+          { term: 'Factor distinto al recibido', def: 'La orden de entrada trajo otra cantidad por caja que la que dice el catálogo.' },
+          { term: 'La caja es otra unidad', def: 'El producto llegó en caja pero en Kepler su unidad de caja es otra (o no tiene).' },
+        ],
+      },
+    ],
+  },
   'almacen-existencia-negativa': {
     title: 'Existencia negativa — guía',
     intro: 'Productos que Kepler tiene en negativo hoy en una sucursal: salió más de lo que entró. Kepler deja vender sin existencia y la pantalla de Existencia lo muestra como 0, así que aquí es donde se ve. Se corrige en Kepler; aquí se registra qué pasó.',
@@ -1504,8 +1544,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'La sucursal importa',
         entries: [
           { term: 'Por qué se elige sucursal', def: 'El mismo código puede tener precio distinto entre plazas. La pantalla usa la sucursal de tu cuenta; si la máquina del mostrador no tiene cuenta propia, se le pasa la sucursal en la dirección (?sucursal=NN).' },
-          { term: 'Datos hace N', def: 'Qué tan reciente es el dato del ERP para esa sucursal. Si dice horas, el precio pudo cambiar y aún no llegar.' },
-          { term: 'Frescura del ERP sin medir', def: 'El sistema no sabe de cuándo es el dato de esa sucursal porque no le llega el latido del ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
+          { term: 'Datos hace N', def: 'Hace cuánto se revisaron por última vez los precios de esa sucursal contra el ERP (se revisan cada pocos segundos, cambien o no). Si dice horas, el precio pudo cambiar y aún no llegar.' },
+          { term: 'Frescura del ERP sin medir', def: 'El sistema no tiene registro de que esa sucursal se haya revisado contra el ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
         ],
       },
       {

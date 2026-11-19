@@ -113,6 +113,8 @@ export * from './http/cortes-sucursales.contract';
 export * from './http/creditor-statements.contract';
 // [PGP.1] A quién le falta cuenta de pago — la llave que destraba el Calendario de Pagos.
 export * from './http/cuentas-pago-faltantes.contract';
+// [PGP.154] El buscador de proveedores de Pago a proveedor: sólo los que existen en Kepler, con su clave.
+export * from './http/proveedor-selector.contract';
 // [PGP.6] La deuda viva que todavía no está programada, y cómo se programa un documento.
 export * from './http/deuda-programable.contract';
 export * from './http/warehouse-orders.contract';
@@ -124,6 +126,8 @@ export * from './http/cantidad-pedido.contract';
 export * from './http/warehouse-locations.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
+// `[RE.ETQ]` Etiquetas de caja de la orden de entrada (TSC TE200): cola, bitácora y reglas de la etiqueta.
+export * from './http/box-labels.contract';
 // [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
@@ -235,6 +239,8 @@ export * from './finance/corte-suelta.contract';
 export * from './finance/pago-vencido.contract';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
+// `[PGP.155]` A una cuenta sin CLABE se transfiere sólo desde una cuenta nuestra del mismo banco.
+export * from './finance/mismo-banco.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).

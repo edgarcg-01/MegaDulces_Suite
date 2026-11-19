@@ -4,7 +4,7 @@
  * Vectores SINTÉTICOS (el repo es público): reproducen la forma de los casos medidos en prod sin
  * nombres ni montos reales.
  */
-import { anticiposDelDia, anticiposDeOc, diasEnEtapa, embudoAnticipos, ETAPA_ANTICIPO_TEXTO, disponibleDeAnticipo, estadoCuentaAnticipo, etapaDeSolicitud, faltaCancelarAnticipo, faltaCuentaAnticipo, faltaCuentaParaTransferirAnticipo, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, MARCA_CANCELADO, neteableHoy, parearSolicitudes, partirMotivo, tipoDeAcreedor, topeDeOcs, tramoDeAnticipo } from './anticipos.contract';
+import { anticiposDelDia, anticiposDeOc, cuentaCortaAnticipo, importeSugeridoAnticipo, diasEnEtapa, embudoAnticipos, ETAPA_ANTICIPO_TEXTO, disponibleDeAnticipo, estadoCuentaAnticipo, etapaDeSolicitud, faltaCancelarAnticipo, faltaCuentaAnticipo, faltaCuentaParaTransferirAnticipo, faltaSolicitudAnticipo, grupoDeAnticipo, llaveAnticipo, MARCA_CANCELADO, neteableHoy, parearSolicitudes, partirMotivo, tipoDeAcreedor, topeDeOcs, tramoDeAnticipo } from './anticipos.contract';
 
 describe('[PGP.118] tipoDeAcreedor', () => {
   it('C* es mercancía, G* gasto, TC* tarjeta', () => {
@@ -191,6 +191,62 @@ describe('[PGP.128] faltaCuentaParaTransferirAnticipo — sólo a la cuenta apro
   });
   it('⛔ dos anticipos con CLABE distintas en un mismo pago se separan', () => {
     expect(faltaCuentaParaTransferirAnticipo({ clabesDeAnticipos: [C, '072180009999999993'], cuentaElegida: { clabe: C } })).toMatch(/separados/);
+  });
+});
+
+describe('[PGP.155] el anticipo a una cuenta del mismo banco, sin CLABE (VUMERSOFT: BBVA a BBVA)', () => {
+  const CTA = '0123458796';
+  it('la cuenta nueva por número: de 7 a 14 dígitos, con banco; una CLABE pegada ahí se manda a «CLABE»', () => {
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: '012 345 8796', banco: 'BBVA' })).toBeNull();
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: '12345', banco: 'BBVA' })).toMatch(/de 7 a 14 dígitos \(van 5\)/);
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: '123456789012345', banco: 'BBVA' })).toMatch(/van 15/);
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: '012180001234567899', banco: 'BBVA' })).toMatch(/Eso es una CLABE/);
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: CTA, banco: '' })).toMatch(/banco/);
+    expect(faltaCuentaAnticipo({ tipo: 'nueva_cuenta', cuenta: '', banco: 'BBVA' })).toMatch(/de 7 a 14 dígitos\./);
+  });
+  it('⛔ NEGATIVA — con número de cuenta guardado NO es «efectivo» (el defecto que esto corrige)', () => {
+    const b = { payee_clabe: null, tiene_cotizacion: true, banco_aprobada: null as string | null, solicitud_estado: null as string | null };
+    expect(estadoCuentaAnticipo({ ...b, payee_cuenta: CTA, banco_aprobada: 'BBVA' })).toBe('aprobada');
+    expect(estadoCuentaAnticipo({ ...b, payee_cuenta: CTA, solicitud_estado: 'pending_approval' })).toBe('en_aprobacion');
+    expect(estadoCuentaAnticipo({ ...b, payee_cuenta: null })).toBe('efectivo');
+  });
+  it('⛔ al preparar: se transfiere sólo a la cuenta aprobada con ESE número; otra no; anticipos a cuentas distintas se separan', () => {
+    const t = (cuentaElegida: { clabe: string | null; account_number?: string | null } | null, cuentas = [CTA]) =>
+      faltaCuentaParaTransferirAnticipo({ clabesDeAnticipos: cuentas.map(() => null), cuentasDeAnticipos: cuentas, cuentaElegida });
+    expect(t(null)).toMatch(/cuenta aprobada por Dirección \(la cuenta terminación 8796\)/);
+    expect(t({ clabe: null, account_number: '0123 458 796' })).toBeNull();
+    expect(t({ clabe: null, account_number: '0123450000' })).toMatch(/no es la del anticipo \(la cuenta terminación 8796\)/);
+    expect(t({ clabe: '012180001234567899', account_number: null })).toMatch(/no es la del anticipo/);
+    expect(t({ clabe: null, account_number: CTA }, [CTA, '9999999999'])).toMatch(/cuentas distintas/);
+    // Una CLABE y una cuenta en el mismo pago también son dos destinos.
+    expect(faltaCuentaParaTransferirAnticipo({ clabesDeAnticipos: ['012180001234567899', null], cuentasDeAnticipos: [null, CTA], cuentaElegida: { clabe: null, account_number: CTA } })).toMatch(/cuentas distintas/);
+  });
+  it('la cuenta en llano: CLABE o número, con el banco', () => {
+    expect(cuentaCortaAnticipo({ clabe: null, numero: CTA, banco: 'BBVA' })).toBe('BBVA · cuenta terminación 8796');
+    expect(cuentaCortaAnticipo({ clabe: '012180001234567899', numero: null, banco: null })).toBe('CLABE terminación 7899');
+    expect(cuentaCortaAnticipo({ clabe: null, numero: null, banco: 'BBVA' })).toBe('');
+  });
+});
+
+describe('[PGP.155] importeSugeridoAnticipo — 100 % de la OC, un porcentaje o un importe', () => {
+  const tope = { total: 5691.01, queda: 5691.01 };
+  it('por defecto, todo lo que queda de la OC', () => {
+    expect(importeSugeridoAnticipo({ modo: 'todo', tope })).toBe(5691.01);
+    expect(importeSugeridoAnticipo({ modo: 'todo', tope: { total: 10000, queda: 4000 } })).toBe(4000);
+  });
+  it('un porcentaje del TOTAL de las OC, al centavo («50», «50 %», «12,5»)', () => {
+    expect(importeSugeridoAnticipo({ modo: 'porcentaje', tope, porcentaje: '50' })).toBe(2845.51);
+    expect(importeSugeridoAnticipo({ modo: 'porcentaje', tope, porcentaje: '50 %' })).toBe(2845.51);
+    expect(importeSugeridoAnticipo({ modo: 'porcentaje', tope: { total: 10000, queda: 10000 }, porcentaje: '12,5' })).toBe(1250);
+  });
+  it('⛔ NEGATIVA — sin OC, OC sin saldo, o un porcentaje que no es de 0 a 100: no se inventa un importe', () => {
+    expect(importeSugeridoAnticipo({ modo: 'todo', tope: { total: 0, queda: 0 } })).toBeNull();
+    expect(importeSugeridoAnticipo({ modo: 'todo', tope: { total: 5000, queda: 0 } })).toBeNull();
+    for (const p of ['', '0', '-5', '120', 'mitad']) expect(importeSugeridoAnticipo({ modo: 'porcentaje', tope, porcentaje: p })).toBeNull();
+  });
+  it('a mano: el importe tal cual, al centavo', () => {
+    expect(importeSugeridoAnticipo({ modo: 'importe', tope, importe: 1000.005 })).toBe(1000.01);
+    expect(importeSugeridoAnticipo({ modo: 'importe', tope, importe: null })).toBeNull();
   });
 });
 

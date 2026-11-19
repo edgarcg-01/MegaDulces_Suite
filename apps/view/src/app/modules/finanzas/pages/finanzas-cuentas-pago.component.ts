@@ -19,11 +19,12 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
+import { textoUltimoMovimiento, type CuentaPagoFaltante, type CuentasPagoFaltantesResponse, type CuentaPagoPropuesta, type ProveedorSelectorOpcion } from '@megadulces/contracts';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 
-interface SupplierOpt { id: string; name: string; code: string }
+/** `[PGP.154]` Del buscador trae su último movimiento; desde «a quién le falta cuenta» sólo id, nombre y clave. */
+type SupplierOpt = Pick<ProveedorSelectorOpcion, 'id' | 'name' | 'code'> & Partial<Pick<ProveedorSelectorOpcion, 'ultimo_movimiento'>>;
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; payment_reference: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
 interface ChangeRequest {
   id: string; supplier_id: string; supplier_name: string; account_id: string | null; deactivate: boolean;
@@ -165,14 +166,19 @@ interface ChangeRequest {
         <div class="cta-section-head"><h2>Buscar proveedor</h2></div>
         <input pInputText type="text" [(ngModel)]="supplierSearch" (ngModelChange)="searchSuppliers($event)" placeholder="Buscar proveedor…" class="cta-search" />
         @if (supplierOpts().length) {
+          <!-- [PGP.154] Dos fichas de Kepler pueden llamarse igual (CD004 / CV10 VUMERSOFT): la clave y el
+               último movimiento las distinguen, y las que tienen movimiento van primero. -->
           <div class="cta-sup-list">
             @for (s of supplierOpts(); track s.id) {
-              <div class="cta-sup-item" (click)="pickSupplier(s)">{{ s.name }}</div>
+              <button type="button" class="cta-sup-item" (click)="pickSupplier(s)">
+                <span class="cta-sup-name">{{ s.name }}</span>
+                <span class="cta-sup-meta"><span class="cta-mono">{{ s.code }}</span>@if (movimiento(s); as m) { · {{ m }}}</span>
+              </button>
             }
           </div>
         }
         @if (selectedSupplier()) {
-          <div class="cta-sup-current">Proveedor seleccionado: <strong>{{ selectedSupplier()!.name }}</strong></div>
+          <div class="cta-sup-current">Proveedor seleccionado: <strong>{{ selectedSupplier()!.name }}</strong> <span class="cta-mono">{{ selectedSupplier()!.code }}</span></div>
           <p-table [value]="accounts()" [loading]="loadingAccounts()" styleClass="p-datatable-sm surf-table cta-table">
             <ng-template #header><tr><th>Banco</th><th>Cuenta</th><th>CLABE</th><th>Alias</th><th>Favorita</th><th>Adjunto</th><th style="width:8rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
             <ng-template #body let-a>
@@ -230,11 +236,16 @@ interface ChangeRequest {
         <input pInputText type="text" [(ngModel)]="dlgSupplierSearch" (ngModelChange)="searchSuppliers($event)" placeholder="Buscar proveedor…" class="cta-full" />
         @if (supplierOpts().length) {
           <div class="cta-sup-list">
-            @for (s of supplierOpts(); track s.id) { <div class="cta-sup-item" (click)="requestSupplier.set(s)">{{ s.name }}</div> }
+            @for (s of supplierOpts(); track s.id) {
+              <button type="button" class="cta-sup-item" (click)="requestSupplier.set(s)">
+                <span class="cta-sup-name">{{ s.name }}</span>
+                <span class="cta-sup-meta"><span class="cta-mono">{{ s.code }}</span>@if (movimiento(s); as m) { · {{ m }}}</span>
+              </button>
+            }
           </div>
         }
       } @else {
-        <p class="cta-dlg-p">{{ requestSupplier()!.name }}</p>
+        <p class="cta-dlg-p">{{ requestSupplier()!.name }} <span class="cta-mono cta-muted">{{ requestSupplier()!.code }}</span></p>
       }
       @if (!requestDeactivate) {
         <!-- [PGP.29] De dónde salió lo que ya viene escrito. Quien FIRMA el alta tiene derecho a
@@ -302,9 +313,12 @@ interface ChangeRequest {
     .cta-section h2 { font-size:.95rem; margin:0 0 .5rem; }
     .cta-section-head { display:flex; align-items:baseline; gap:.5rem; }
     .cta-search, .cta-full { width:100%; margin-bottom:.4rem; }
-    .cta-sup-list { border:1px solid var(--border-color); border-radius:var(--r-md); max-height:8rem; overflow-y:auto; margin-bottom:.5rem; }
-    .cta-sup-item { padding:.3rem .6rem; font-size:.82rem; cursor:pointer; }
+    .cta-sup-list { border:1px solid var(--border-color); border-radius:var(--r-md); max-height:12rem; overflow-y:auto; margin-bottom:.5rem; }
+    .cta-sup-item { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; gap:0 .8rem;
+                    width:100%; padding:.3rem .6rem; font:inherit; font-size:.82rem; text-align:left; color:inherit;
+                    background:none; border:0; cursor:pointer; }
     .cta-sup-item:hover { background:var(--card-bg); }
+    .cta-sup-meta { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
     .cta-sup-current { font-size:.82rem; color:var(--text-muted); margin:.4rem 0; }
     .cta-table { font-size:.84rem; margin-top:.3rem; }
     .cta-mono { font-family:var(--font-mono); }
@@ -517,10 +531,16 @@ export class FinanzasCuentasPagoComponent implements OnInit {
 
   requestTitle(): string { return this.requestDeactivate ? 'Solicitar baja de cuenta' : 'Solicitar cuenta de pago'; }
 
+  /**
+   * `[PGP.154]` «último movimiento 9-nov-2026» o «sin movimientos en Kepler». La regla vive en `textoUltimoMovimiento`
+   * (`[PGP.155.2]`): la usa también el diálogo del anticipo, y sin el campo ya no afirma «sin movimientos».
+   */
+  movimiento(s: SupplierOpt): string | null { return textoUltimoMovimiento(s.ultimo_movimiento); }
+
   searchSuppliers(term: string): void {
     if (this.searchTimer) clearTimeout(this.searchTimer);
     this.searchTimer = setTimeout(() => {
-      this.http.get<SupplierOpt[]>(`${environment.apiUrl}/commercial/supplier-obligations/suppliers`, { params: { search: term } })
+      this.http.get<ProveedorSelectorOpcion[]>(`${environment.apiUrl}/commercial/supplier-obligations/suppliers`, { params: { search: term } })
         .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (r) => this.supplierOpts.set(r), error: () => this.supplierOpts.set([]) });
     }, 250);
   }

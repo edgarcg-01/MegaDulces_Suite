@@ -236,9 +236,16 @@ const FECHA_BORRADO = Object.freeze({ kdm1: 'c68', kdm2: 'c32' }); // captura de
 // la dejaba publicada para siempre. La poda se sigue distinguiendo por el TOPE: llega en miles de
 // golpe, una corrección en decenas. Se declara por prefijo porque el nombre cambia cada mes.
 const BORRADO_SIN_EDAD = Object.freeze(['kdc2']);
+// `[CXC.45]` Las APLICACIONES de pago (`kdm5`): sin columna de fecha, y un pago se cancela o se
+// re-aplica semanas después de capturado — con el freno de 7 días esa baja no llegaría nunca y la
+// factura seguiría «pagada» en el ODS. Medido el 2026-11-19: de 1,267 aplicaciones que el ODS tiene
+// y la réplica no, 1,256 son de abonos cancelados (`kepler_kdm5_vigente` ya las ignora) y 11 de
+// abonos VIVOS ($170,125.25) que Kepler re-aplicó. Nombre EXACTO, no prefijo: `kdm5x` no es esto.
+// La poda se sigue distinguiendo por el TOPE (500 por pasada), igual que en pólizas.
+const BORRADO_SIN_EDAD_EXACTAS = Object.freeze(['kdm5']);
 const reglaBorrado = (tabla) => (FECHA_BORRADO[tabla]
   ? { col: FECHA_BORRADO[tabla] }
-  : BORRADO_SIN_EDAD.some((p) => tabla.startsWith(p)) ? { col: null } : null);
+  : (BORRADO_SIN_EDAD.some((p) => tabla.startsWith(p)) || BORRADO_SIN_EDAD_EXACTAS.includes(tabla)) ? { col: null } : null);
 const COLA_ESTADO_MS = 60 * 1000;
 const _colaEstado = new Map(); // code → { en, activas: Set, faltan: string[] }
 // ⛔ LA COLA SÓLO VE LO QUE PASÓ DESPUÉS DE EXISTIR. Medido en el piloto de la 06 (2026-10-26):

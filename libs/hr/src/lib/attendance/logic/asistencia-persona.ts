@@ -99,9 +99,17 @@ export interface IncidenciaVigente {
   hasta: string;
   nota: string;
   minutos: number | null;
+  /** `[RH.17.2]` Horario distinto: salida de ese día (minuto del día) y su comida en minutos. Null = no se capturó. */
+  salidaMin?: number | null;
+  comidaMin?: number | null;
 }
 
-/** Un día-persona con todas sus horas. */
+/**
+ * `[RH.17.2]` El horario COMPLETO de un día que RH capturó con «Horario distinto» (entrada Y salida). Ese día se mide
+ * de la entrada a la salida capturadas: retardo, salida anticipada, jornada esperada y horas extra. Sin salida, el
+ * Horario distinto sólo mueve la entrada, como siempre. El horario permanente de la persona no se toca.
+ */
+interface HorarioDelDiaCompleto { entrada: number; salida: number; comida: number | null }
 export interface FilaDia {
   codigo: string;
   nombreReloj: string;
@@ -174,7 +182,15 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
   // (código → fecha → incidencias). Una incidencia es un PERIODO; aquí se abre en días,
   // recortado al rango, para pegarla a cada celda.
   const incPorDia = new Map<string, Map<string, IncidenciaDia[]>>();
+  // `[RH.17.2]` (código → fecha → horario completo de ese día). Sólo el Horario distinto con salida.
+  const completoPorDia = new Map<string, Map<string, HorarioDelDiaCompleto>>();
   for (const inc of e.incidencias) {
+    if (inc.tipo === 'horario_distinto' && inc.minutos != null && inc.salidaMin != null && inc.salidaMin > inc.minutos
+        && inc.desde >= desde && inc.desde <= hasta) {
+      if (!completoPorDia.has(inc.personCode)) completoPorDia.set(inc.personCode, new Map());
+      (completoPorDia.get(inc.personCode) as Map<string, HorarioDelDiaCompleto>)
+        .set(inc.desde, { entrada: Number(inc.minutos), salida: Number(inc.salidaMin), comida: inc.comidaMin ?? null });
+    }
     const t = tipoIncidencia(inc.tipo);
     const item: IncidenciaDia = {
       id: inc.id, tipo: inc.tipo, codigo: t?.codigo || 'OTR',
@@ -469,7 +485,11 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     // deducido de sus checadas. Sin horario asignado NO se calculan para un rotativo ni para medio
     // tiempo (jornada de 5 h 20 o menos): su horario cambia de un día a otro y la salida deducida
     // no es la de ese día.
+    const completoDe = completoPorDia.get(cod);
     const jornadaDe = (f: string): number | null => {
+      // `[RH.17.2]` Ese día RH capturó entrada y salida: su jornada es ésa.
+      const hc = completoDe?.get(f);
+      if (hc) return hc.salida - hc.entrada;
       const h = horarioDe(f);
       if (asig && h) {
         const sab = hd.diaSemana(f) === 6;
@@ -492,7 +512,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         // `[RH.1.10]` DESAYUNO / COMIDA DISTINTOS: ese día RH autorizó otro tiempo; el exceso de ese
         // día se mide contra el que autorizó.
         const desPermitido = minutosDe(incs, 'desayuno_distinto');
-        const comPermitidaDia = minutosDe(incs, 'comida_distinta');
+        // `[RH.17.2]` La comida del Horario distinto cuenta igual que una «Comida distinta»; si hay las dos, manda ésa
+        // (es la incidencia hecha sólo para la comida).
+        const hc = completoDe?.get(d.fecha) ?? null;
+        const comPermitidaDia = minutosDe(incs, 'comida_distinta') ?? hc?.comida ?? null;
         if (desPermitido !== null && det.desayunoMin !== null) det.desayunoExcesoMin = Math.max(0, det.desayunoMin - desPermitido);
         // USO DE HORAS EXTRA: los minutos que usó ese día se SUMAN a lo que trabajó.
         const extraUsadas = incs.filter((i) => i.tipo === 'horas_extra').reduce((t, i) => t + (Number(i.minutos) || 0), 0);
@@ -512,8 +535,9 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         if (asig && hDia && laboralesAsig) {
           const sab = hd.diaSemana(d.fecha) === 6;
           const leToca = laboralesAsig.includes(hd.diaSemana(d.fecha));
-          const ent = hd.aMinutos(sab ? asig.sabadoEntrada || hDia.entrada : hDia.entrada);
-          const sal = hd.aMinutos(sab ? asig.sabadoSalida || hDia.salida : hDia.salida);
+          // `[RH.17.2]` Con el horario completo de ese día, se mide contra él y no contra el permanente.
+          const ent = hc ? hc.entrada : hd.aMinutos(sab ? asig.sabadoEntrada || hDia.entrada : hDia.entrada);
+          const sal = hc ? hc.salida : hd.aMinutos(sab ? asig.sabadoSalida || hDia.salida : hDia.salida);
           const comPermitida = comPermitidaDia ?? (sab ? 0 : hDia.comidaMin);
           esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida) : 0;
           if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - det.salidaMin);

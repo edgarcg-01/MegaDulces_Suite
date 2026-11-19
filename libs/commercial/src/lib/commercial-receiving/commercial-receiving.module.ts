@@ -7,6 +7,8 @@ import { ReceivingSessionService } from './receiving-session.service';
 import { ReceivingSessionController } from './receiving-session.controller';
 import { ReceivingClaimsService } from './receiving-claims.service';
 import { ReceivingClaimsController } from './receiving-claims.controller';
+import { BoxLabelsService } from './box-labels.service';
+import { BoxLabelsController } from './box-labels.controller';
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -21,8 +23,8 @@ import { ReceivingClaimsController } from './receiving-claims.controller';
  */
 @Module({
   imports: [CloudinaryModule, AiProductMatcherModule, CommercialInventoryModule],
-  controllers: [ReceivingAuditorController, ReceivingSessionController, ReceivingClaimsController],
-  providers: [ReceivingAuditorService, ReceivingSessionService, ReceivingClaimsService],
+  controllers: [ReceivingAuditorController, ReceivingSessionController, ReceivingClaimsController, BoxLabelsController],
+  providers: [ReceivingAuditorService, ReceivingSessionService, ReceivingClaimsService, BoxLabelsService],
   exports: [ReceivingAuditorService, ReceivingSessionService, ReceivingClaimsService],
 })
 export class CommercialReceivingModule {}

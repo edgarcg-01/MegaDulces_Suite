@@ -12,6 +12,42 @@
 ### Changed — Bancos: el libro CUENTAS de Tesorería ya no se carga (BFU.5.1 · 2026-11-19 · en código, sin soltar)
 - Subir el libro y sincronizarlo desde Google Sheets ya no se puede: la suite dice que la fuente de los bancos es la descarga del banco y que se sube en Estados de cuenta.
 - El pendiente del Cierre de una cuenta sin movimientos lleva a Estados de cuenta.
+### Added — Etiquetas de caja desde la Suite (RE.ETQ · 2026-11-19 · en prod)
+- Nueva pantalla Almacén › Etiquetas de caja. Muestra la cola de órdenes de entrada de la sucursal e imprime en la TSC (rollo de 3 al paso, 100 × 48 mm) por orden o por renglón. También reimprime consecutivos con los mismos datos de la primera vez.
+- Cada etiqueta lleva:
+  - un código de barras Code 128 (`C` + clave), que reemplaza al Code 39 de Kepler; la lectura con el lector de mano está pendiente de prueba física;
+  - el nombre completo, sin cortar;
+  - la fecha del día de la primera impresión.
+- Una caja incompleta lleva su propia etiqueta, con sus piezas.
+- La pestaña «Catálogo de Kepler» lista los productos con factor de caja en 0 o sin código de caja, para que Compras los corrija.
+- Cada impresión queda en una bitácora: quién, cuándo y qué consecutivos.
+- La pantalla está disponible para almacenistas, encargados de tienda y de bodega, y supervisores (21 personas). Quien tenga la sesión abierta tiene que volver a entrar para verla.
+### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
+### Fixed — Etiquetas: se vuelve a imprimir, y con la tipografía de la etiqueta (ETQ-FUENTE.3 · 2026-11-12)
+- Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
+- Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
+
+### Fixed — El estado de cuenta del cliente dice lo mismo que Kepler, factura por factura (CXC.46 · 2026-11-19 · en código, sin soltar)
+- Cada factura lleva el saldo que Kepler le da. Un pago o una nota de crédito que Kepler todavía no aplica sale en su propio renglón («Pagos no asignados a una factura»), en vez de restarse de las facturas más viejas.
+
+### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en producción)
+- Los pagos aplicados y los saldos de cada documento de cartera ahora llegan de Kepler por la cola de cambios, que ve cada alta y cada cambio. Antes una parte se perdía en el camino: 2,967 saldos viejos y 133 pagos aplicados que nunca llegaron, entre ellos el que hizo reclamar a un cliente de Canindo.
+- Una comparación de sólo lectura contra Kepler dice, sucursal por sucursal, si falta algo (`database/scripts/ods-cartera-vs-replica.js`).
+### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en PR #567, sin soltar; la cola nace apagada)
+- Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
+- La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.
+- **Dictamen**: la coordinación autoriza o no autoriza, con motivo; quien lo pidió lo ve y recibe el aviso. Sin dictamen la solicitud no se resuelve.
+- **Orden de servicio**: si la autoriza, la coordinación manda una orden a Mantenimiento o a Sistemas, a nombre de quien lo pidió, con su sucursal y su evidencia. La solicitud espera a la orden y se resuelve sola cuando la orden se resuelve; la orden dice de qué solicitud viene.
+- Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
+- Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
+### Changed — Verificador de precios: una sola verdad y la frescura real (VAC.D3 + VAC.D4, 2026-11-19 · en código, sin soltar)
+- El precio es siempre el de Kepler: se retira la «corrección a mano» (0 de 80,036 precios la usaban), en el verificador y en el checador de la app del vendedor.
+- La frescura de cada sucursal ya se mide: sale de la última revisión del carril caliente contra el ERP. El verificador y la Caja de mostrador dejan de decir «Frescura del ERP sin medir».
+### Added — El anticipo a una cuenta del mismo banco sin CLABE, con el importe sugerido desde la OC (PGP.154 · PGP.155 · PGP.155.1 · PGP.155.2 · 2026-11-18 · en código, sin soltar)
+- (PGP.155) **Un anticipo se paga a una cuenta del mismo banco, aunque no tenga CLABE** (VUMERSOFT: BBVA a BBVA con su número de cuenta). Al elegir al proveedor quedan puestas su OC de Kepler, su cuenta aprobada y el importe; el importe se propone como todo lo que queda de la OC, un porcentaje o una cantidad exacta. ⚠️ Necesita su migración en prod antes de pedir uno así.
+- (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
+- (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
+- (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
 ### Changed — Tablero de pedidos: abre más rápido con todas las sucursales (GP.RF.43 · 2026-11-19 · en código, sin soltar)
 - La lista lee los renglones de cada pedido con una búsqueda en vez de cinco: con todas las sucursales, la consulta baja de 241 a 184 ms y lee la mitad de los datos. Muestra exactamente los mismos pedidos.
 

@@ -67,8 +67,7 @@ export interface FichaPrecio {
   precioAmbiguo: boolean;
   /** La sucursal del vendedor no tiene el producto: el precio es de otra plaza. */
   deOtraPlaza: boolean;
-  /** Lo corrigió una persona: es el mismo de la etiqueta del anaquel. */
-  corregidoAMano: boolean;
+  // `[VAC.D3]` (2026-11-19) Se retiró `corregidoAMano`: el precio es siempre el de Kepler.
 }
 
 export type ResultadoConsulta =
@@ -100,7 +99,6 @@ export function fichaDeVivo(r: VerificadorPrecioOk): FichaPrecio {
       : [],
     precioAmbiguo: r.precio_ambiguo === true,
     deOtraPlaza: r.plaza_pedida_sin_dato === true,
-    corregidoAMano: r.origen_precio === 'override_manual',
   };
 }
 
@@ -121,7 +119,6 @@ export function fichaDeCopia(item: VerificadorSnapshotItem, codigoLeido: string,
     otrosConElCodigo: otros.filter((o) => o.c !== item.c).map((o) => o.n),
     precioAmbiguo: false,
     deOtraPlaza: false,
-    corregidoAMano: false,
   };
 }
 

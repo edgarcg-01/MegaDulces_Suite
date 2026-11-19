@@ -303,21 +303,24 @@ describe('[VAC.L7] KpService.getPrecio', () => {
     });
   });
 
-  describe('override manual [TDA.2]', () => {
-    it('una corrección humana gana al ERP y se declara', async () => {
-      const { svc } = servicio({
-        kdii: [kdii()],
-        etiqueta: [etiqueta({ source: 'manual', piece_price: 90 })],
-      });
-      const r: any = await svc.getPrecio('00610', '03');
-      expect(r.origen_precio).toBe('override_manual');
-      expect(r.precio_con_iva).toBe(90);
-      expect(r.precio_sin_iva).toBe(77.59);   // 90 / 1.16
+  describe('[VAC.D3] sin corrección manual: el precio es el de Kepler', () => {
+    it('una fila de etiqueta marcada «manual» ya NO pisa el precio del ERP', async () => {
+      const { svc } = servicio({ kdii: [kdii()], etiqueta: [etiqueta({ source: 'manual', piece_price: 90 })] });
+      const sinMarca = (await svc.getPrecio('00610', '03')) as any;
+      const ref = servicio({ kdii: [kdii()], etiqueta: [etiqueta()] });
+      const conKepler = (await ref.svc.getPrecio('00610', '03')) as any;
+      expect(sinMarca.origen_precio).toBe('kepler');
+      // El mismo precio que sin la marca: la fila «manual» de $90 no cambia nada.
+      expect(sinMarca.precio_con_iva).toBe(conKepler.precio_con_iva);
+      expect(sinMarca.precio_con_iva).not.toBe(90);
     });
 
-    it('sin corrección, el origen es kepler', async () => {
-      const { svc } = servicio({ kdii: [kdii()], etiqueta: [etiqueta()] });
-      expect(((await svc.getPrecio('00610', '03')) as any).origen_precio).toBe('kepler');
+    it('la lectura de la etiqueta ya no pide la columna source', async () => {
+      const { svc, llamadas } = servicio({ kdii: [kdii()], etiqueta: [etiqueta()] });
+      await svc.getPrecio('00610', '03');
+      const lecturaEtiqueta = llamadas.find((l) => l.sql.includes('product_label_prices'));
+      expect(lecturaEtiqueta).toBeDefined();
+      expect(lecturaEtiqueta!.sql).not.toMatch(/l\.source/);
     });
   });
 });

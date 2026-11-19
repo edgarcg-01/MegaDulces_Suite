@@ -339,7 +339,62 @@ async function expandirTablas(p, nombres, { esquemaFuente = 'md' } = {}) {
   return [...new Set(out)];
 }
 
+/**
+ * `[CXC.45]` PUESTA AL DÍA POR LA COLA: anota en `ods.cola` la llave de TODAS las filas actuales de
+ * `tabla`, con el MISMO formato que el trigger (`to_jsonb(fila) -> col`), para que el carril las
+ * vuelva a leer y las embarque. No es un importer ni una copia: es el mismo camino por el que viaja
+ * cualquier cambio, recorrido una vez. Repara lo que el carril CTID perdió antes de que existiera la
+ * cola (medido el 2026-11-19: 2,967 saldos de `kdue` viejos y 133 aplicaciones de `kdm5` que nunca
+ * llegaron), y el ODS descarta lo idéntico, así que sólo se escribe lo que estaba mal.
+ *
+ * ⛔ EN TANDAS, ESPERANDO A QUE CADA UNA SE VACÍE. La cola la vacía el carril de caja en tiempo
+ * real, en orden de `id`: meter 100 mil llaves de golpe pondría cada venta de esa sucursal DETRÁS
+ * de ellas. Con tandas de `lote`, lo más que espera una venta es una tanda. Si una tanda no se vacía
+ * en `esperaMs` (nadie drena esa tabla: falta en `ODS_COLA_TABLES`), se detiene y lo dice — nunca
+ * deja la cola creciendo sola.
+ *
+ * Inyectables para la prueba: `dormir` y `ahora`.
+ */
+async function ponerAlDia(p, tabla, pk, {
+  lote = 2000, esperaMs = 180000, sondeoMs = 1000, esquemaFuente = 'md', esquemaCola = 'ods', apply = false,
+  dormir = (ms) => new Promise((r) => setTimeout(r, ms)), ahora = () => Date.now(), avisar = () => {},
+} = {}) {
+  if (!pk || !pk.length) throw new Error(`ods-cola: ${tabla} sin PK — no se puede poner al día por llave`);
+  const llaveSql = `jsonb_build_object(${pk.map((k) => `${lit(k)}, to_jsonb(t) -> ${lit(k)}`).join(', ')})`;
+  const { rows } = await p.query(`SELECT ${llaveSql} AS llave FROM ${qid(esquemaFuente)}.${qid(tabla)} t`);
+  const res = { tabla, filas: rows.length, encoladas: 0, tandas: 0, ms: 0, completo: !apply ? null : false };
+  if (!apply) return res;
+  const t0 = ahora();
+  const cola = `${qid(esquemaCola)}.cola`;
+  for (let i = 0; i < rows.length; i += lote) {
+    const tanda = rows.slice(i, i + lote).map((r) => r.llave);
+    const { rows: ins } = await p.query(
+      `INSERT INTO ${cola} (tabla, llave, op) SELECT $1, x, 'U' FROM jsonb_array_elements($2::jsonb) AS x
+       RETURNING id`, [tabla, JSON.stringify(tanda)]);
+    const tope = ins.reduce((m, r) => Math.max(m, Number(r.id)), 0);
+    res.encoladas += ins.length;
+    res.tandas++;
+    const desde = ahora();
+    for (;;) {
+      const quedan = Number((await p.query(
+        `SELECT count(*)::int AS n FROM ${cola} WHERE tabla = $1 AND id <= $2`, [tabla, tope])).rows[0].n);
+      if (!quedan) break;
+      if (ahora() - desde > esperaMs) {
+        res.ms = ahora() - t0;
+        res.error = `la tanda ${res.tandas} no se vació en ${Math.round(esperaMs / 1000)} s (quedan ${quedan}): `
+          + `¿${tabla} está en ODS_COLA_TABLES del carril de caja? Se detiene aquí; lo encolado se drena cuando el carril la tome.`;
+        return res;
+      }
+      await dormir(sondeoMs);
+    }
+    avisar(`${tabla}: ${res.encoladas}/${res.filas}`);
+  }
+  res.completo = true;
+  res.ms = ahora() - t0;
+  return res;
+}
+
 module.exports = {
   TRIGGER, LOTE_DEFAULT, instalarSql, quitarSql, estadoCola, profundidadCola, leerPorLlave, drenarCola,
-  autoSql, quitarAutoSql, expandirTablas,
+  autoSql, quitarAutoSql, expandirTablas, ponerAlDia,
 };

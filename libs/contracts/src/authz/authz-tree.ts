@@ -248,6 +248,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // [GP.3c] Consola de surtido: una sola clave, que ve Y maneja (la pantalla existe para decidir).
           // [GP.4] Checado: pantalla de foco del checador. Una clave, que hace (no hay sólo-ver).
           { id: 'checar', label: 'Checar pedidos', route: '/almacen/checar', view: [Permission.ALMACEN_CHECADO_GESTIONAR], manage: [Permission.ALMACEN_CHECADO_GESTIONAR] },
+          // `[RE.ETQ.2.4]` Etiquetas de caja de la orden de entrada (Fase RE). Una clave, que hace: la pantalla
+          // existe para imprimir. Repartida por migración en la misma entrega.
+          { id: 'etiquetas-caja', label: 'Etiquetas de caja', route: '/almacen/etiquetas', view: [Permission.ALMACEN_ETIQUETAS_CAJA], manage: [Permission.ALMACEN_ETIQUETAS_CAJA] },
           { id: 'surtido-consola', label: 'Consola de surtido', route: '/almacen/surtido-consola', view: [Permission.ALMACEN_SURTIDO_COORDINAR], manage: [Permission.ALMACEN_SURTIDO_COORDINAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing

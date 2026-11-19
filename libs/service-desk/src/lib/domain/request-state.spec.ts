@@ -18,6 +18,8 @@ describe('puedeTransicionar — el camino feliz', () => {
     ['resuelto', 'en_proceso', 'requester'], // reabrir
     ['nuevo', 'cancelado', 'requester'],
     ['resuelto', 'cerrado', 'system'], // auto-cierre
+    ['en_espera', 'resuelto', 'system'], // [MSP.1.6] el padre se resuelve con su última orden de servicio
+    ['en_proceso', 'resuelto', 'system'], // [MSP.1.6] ídem
   ])('%s → %s lo puede hacer %s', (from, to, actor) => {
     expect(puedeTransicionar(from, to, actor)).toBe(true);
   });

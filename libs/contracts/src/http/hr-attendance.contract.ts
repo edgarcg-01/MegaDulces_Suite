@@ -283,6 +283,9 @@ export interface HrIncidenciaDto {
   status: HrEstadoIncidencia;
   authorized_by_name: string | null;
   base_schedule_minutes: number | null;
+  /** `[RH.17.2]` Horario distinto: salida de ese día (minuto del día) y su comida en minutos. Null = no se capturó. */
+  end_minutes?: number | null;
+  break_minutes?: number | null;
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
@@ -320,6 +323,9 @@ export interface HrCapturaIncidenciaBody {
   reason?: string;
   authorized_by_name?: string;
   base_schedule_minutes?: number;
+  /** `[RH.17.2]` Horario distinto: salida de ese día (minuto del día) y comida (minutos), opcionales. */
+  end_minutes?: number | null;
+  break_minutes?: number | null;
   /** Quien califica captura ya calificada, salvo que la entregue a propósito para otra persona. */
   deliver?: boolean;
 }

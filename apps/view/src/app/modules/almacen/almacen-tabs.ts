@@ -352,6 +352,20 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    /**
+     * `[RE.ETQ.3.1]` Etiquetas de caja de la orden de entrada (Fase RE). Área propia y no una pestaña de Inventario:
+     * es trabajo de recepción de todos los días, y quien la usa en Suc 08 (el encargado) no tiene el Andén. Dos
+     * pestañas porque contestan dos preguntas: qué falta etiquetar, y qué tiene mal el catálogo de Kepler.
+     */
+    key: 'etiquetas',
+    label: 'Etiquetas de caja',
+    match: ['/almacen/etiquetas'],
+    tabs: [
+      { label: 'Por etiquetar', icon: 'pi pi-print', route: '/almacen/etiquetas', permission: Permission.ALMACEN_ETIQUETAS_CAJA, exact: true },
+      { label: 'Catálogo de Kepler', icon: 'pi pi-exclamation-circle', route: '/almacen/etiquetas/catalogo', permission: Permission.ALMACEN_ETIQUETAS_CAJA, exact: true },
+    ],
+  },
+  {
     key: 'control',
     label: 'Control',
     // `/almacen/movimientos` NO está acá a propósito: el **Diario de
