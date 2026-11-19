@@ -2847,3 +2847,119 @@ una sola carga, del 12-ago-2026: casi seguro el año está mal tecleado (2026-08
 **Siguiente (2026-11-17): [Anexo C — que ningún pago se capture a mano](FASE_PGP_ANEXO_CERO_CAPTURA.md).** Lo de esta
 prueba lo volvió plan: el banco llega tarde como disparador, así que el registro en Kepler lo dispara el comprobante el
 mismo día (`[PGP.130]`) y el banco confirma después. Edgar firmó sus siete decisiones el 2026-11-17.
+
+---
+
+### `[PGP.158]` La factura PUE se paga en su mes — y lo demás que hay que revisar fiscalmente (⬜ 2026-11-19)
+
+> *«Reportan que estamos pagando facturas con un tiempo de más de un mes; cuando pagamos esa factura
+> en una sola exhibición debe ser en un plazo no mayor al mencionado, si no es necesario refacturar
+> para poder generar ese pago. Analiza esto.»* — Edgar, 2026-11-19. Y después: *«aviso; ábrelo, y
+> analiza qué otras cosas debemos revisar fiscalmente».*
+
+#### La regla, y lo que cambia del pedido
+
+- **El plazo no es «un mes»: es el mes de calendario en que se emitió la factura.** Una PUE del 28
+  tiene tres días; una del 1.º, treinta. Si no se paga en ese mes, el proveedor **cancela la PUE y la
+  sustituye por una PPD** (forma de pago 99) y emite el **REP** cuando cobra. A una PUE no se le puede
+  poner REP: primero se corrige el CFDI. Fundamento citado por el SAT y la práctica: CFF 29 y 29-A;
+  RMF 2.7.1.32 y 2.7.1.39 (la numeración cambia entre resoluciones: confirmar la vigente).
+- Algunas resoluciones dieron una facilidad hasta el **día 17 del mes siguiente**. La Suite usa el
+  corte **más estricto (fin del mes de emisión)**, que nunca deja pasar una fuera de plazo; si la
+  contadora confirma la facilidad, es un parámetro (P11), no código.
+- **Refacturar es el último recurso**: le cuesta a los dos lados (aceptar la cancelación, nueva
+  factura, después el REP). Lo que se previene: pagar las PUE antes de que cierre su mes y pedir PPD a
+  quien nos da crédito y factura PUE.
+
+#### Lo medido (prod, sólo lectura, 2026-11-19)
+
+Universo: facturas de Kepler (`kdxe` A) de ene–oct 2026 ligadas a **un solo** CFDI recibido por la
+regla de `[PGP.108]` (RFC + total ±$1 + fecha ±45 días); el pago es la aplicación en `kdxf` de un
+`X-D-25`/`26`/`60`. ⚠️ **Dos de cada tres PUE de acreedores no se ligaron** (gastos pagados al
+momento que nunca entran a cuentas por pagar, o sin liga): para ésas, **NO MEDIDO**.
+
+| Qué | Resultado |
+|---|---|
+| PUE pagadas en su mes | 84 % (mediana: 1 día después de emitida) — **control:** las PPD se pagan a 50 días de mediana |
+| PUE fuera de su mes, por forma de pago | 2 de cada 3 son **tarjeta** (04/28): el proveedor cobró al momento; lo tardío es el registro del pago de la tarjeta. **No se refacturan** |
+| PUE por **transferencia** fuera de su mes | **1 de cada 7**; con cheque, ninguna |
+| Por qué | casi todas son de fin de mes: se capturan en Kepler ya en el mes siguiente y se pagan ~2 días después. El retraso es de la factura, no del pago |
+| Dónde | mercancía: **6 proveedores**; gastos: muchos y chicos |
+| Hoy | 17 PUE por transferencia **abiertas con su mes vencido** (si se pagan así, quedan fuera de plazo) y 6 todavía en su mes |
+| PUE pagadas en parcialidades | 45 (PUE es una exhibición: con parcialidades debió ser PPD) |
+
+#### Decisión
+
+- **D (Edgar, 2026-11-19): aviso, no candado.** Un pago no se frena por un error del proveedor.
+
+#### El item
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.158]` | C1+C3 | Regla pura en `libs/contracts` sobre `CfdiDeLaFactura` (fecha, forma y método ya vienen de `[PGP.108]`): **fecha límite** = último día del mes de emisión (parámetro P11). En el Calendario, cada PUE con forma 02/03 dice «PUE: pagar a más tardar el *dd-mmm*»; si se programa después, o el pago es parcial, aviso «fuera del mes de la factura: adelantar el pago o pedir que la sustituyan por PPD». Las ya vencidas, en una lista para Cuentas por pagar. La factura **sin CFDI ligado** dice «no se sabe si es PUE». Pruebas: los cinco caminos de la regla (en su mes, fuera, tarjeta, parcial, sin CFDI) | ⬜ |
+
+**P11 (contadora):** ¿el corte es fin del mes de emisión o hay facilidad hasta el día 17 del mes
+siguiente? Mientras no conteste, fin de mes.
+
+#### La revisión fiscal: lo que además hay que revisar (propuestas, ninguna abierta)
+
+Medido el mismo día, sólo lectura, CFDI de 2026. Ordenado por **dinero en juego × esfuerzo**. Cada
+una dice su dueño probable; **abrirla es decisión de Edgar**.
+
+| # | Qué | Lo medido | Qué falta / qué hacer | Esfuerzo | Dueño |
+|---|---|---|---|---|---|
+| **F1** | **PPD pagadas sin REP del proveedor** — sin REP, el IVA de esa factura no es acreditable, y 91 % del dinero a proveedores es PPD | jul–oct: casi todas tienen REP. **ene–jun: NO MEDIDO** — la descarga del SAT trajo 10–65 REP al mes contra ~250–340 desde julio: es un hueco de la descarga, no del proveedor | **re-descargar ene–jun** (ya lo pedía `[PGP.110b]`) y medir; después, que la póliza avise «espera REP» (`[PGP.109]`) | bajo | PGP |
+| **F2** | **Facturas que pagamos y el proveedor canceló después** — un pago sin CFDI vigente pierde deducción e IVA | 65 CFDI cancelados en 2026 corresponden a facturas ya pagadas; **6 sin sustituta** encontrada | lista para Cuentas por pagar: pedir la sustituta. ⚠️ La sustituta se busca por RFC e importe en 90 días: una con importe distinto no se ve (son *posibles*) | bajo | PGP |
+| **F3** | **Lista 69-B (operaciones inexistentes) sin actualizar** | `fiscal.sat_list_versions`: la lista 69 se procesó hoy; **la 69-B no cambia desde el 16-jul**. Con la de julio, ningún proveedor de 2026 aparece | averiguar si la descarga de la 69-B dejó de ver cambios (el ingestor salta la versión cuando el contenido no cambia). Mientras, **no sabemos** si un proveedor entró a la 69-B desde julio. ⚠️ `contpaqi_ods.add_efos_rfc` **no** es la lista negra (291 de nuestros proveedores aparecen ahí): no se usa | bajo | Fiscal |
+| **F4** | **Nuestros REP (como emisor)** | 14 % de los REP que emitimos sale **después del día 5** del mes siguiente al cobro; 2,140 facturas PPD nuestras de más de 90 días no tienen REP | cruzar con la cartera de Kepler: **NO MEDIDO** si esas PPD están cobradas. Si lo están, la omisión es nuestra y el cliente no puede acreditar su IVA | medio | Cobranza / Facturación |
+| **F5** | **Facturas que emitimos PUE con forma 99** | 521 en 2026 | una PUE lleva la forma real. Si son ventas a crédito, es el espejo de `[PGP.158]` del lado de nuestros clientes: debieron ser PPD + REP | bajo (medir) | Facturación |
+| **F6** | **Recibidas con uso «S01 · sin efectos fiscales»** | 145 facturas de 10 proveedores | la contadora decide si se piden sustituir con el uso correcto | bajo | Contabilidad |
+| **F7** | **Pagos en efectivo arriba de $2,000** — no deducibles (LISR 27-III) | 14 facturas de 7 proveedores | política: no pagar en efectivo arriba de ese monto; el Calendario puede avisarlo al elegir «efectivo» | bajo | PGP |
+| **F8** | **PUE pagadas en parcialidades** | 45 | lo cubre el aviso de `[PGP.158]` | — | PGP |
+| **F9** | **Proveedores en la lista 69** (créditos firmes, cancelados por insolvencia) | 4 proveedores de 2026, ya revisados (`sat_list_matches` «confirmado») | vigilar; por sí sola no quita la deducción | — | Fiscal |
+
+**Lo que no se midió hoy:** opinión de cumplimiento de los proveedores (no hay fuente), retenciones
+enteradas (viven en ContPAQi), y la conciliación de nuestras facturas canceladas (33 mil emitidas de
+2026 tienen el estatus del SAT sin consultar: `estatus_sat = 'desconocido'`).
+
+#### Que no se repita: cada error se ataja donde se comete (Edgar, 2026-11-19: «hagámoslo»)
+
+> *«¿Cómo utilizamos esa información para no seguir cometiendo errores?»* — Edgar, 2026-11-19.
+
+**El principio:** no se revisa después; el sistema avisa **en el momento del acto**, a **quien lo
+hace**, con el dato que ya tiene. **El hecho que lo hace posible (medido, sólo lectura):** la descarga
+del SAT corre a diario y cada factura recibida está en `fiscal.cfdis` **~1 día** después de emitida
+(p90 1.5 días) — antes de que nadie la capture en Kepler, que es donde se pierde el mes.
+
+| Momento | Quién | Qué avisa el sistema | Item |
+|---|---|---|---|
+| **Llega la factura del SAT** | Cuentas por pagar | PUE de un proveedor que nos da crédito (`kdxd.c16` > 0): «págala antes del fin de mes o pide PPD» · proveedor en la 69-B · uso «S01 sin efectos fiscales»: pedir sustitución | `[PGP.162]` |
+| **Se programa el pago** | Tesorería | fecha límite de la PUE (`[PGP.158]`) · efectivo arriba de $2,000 (LISR 27-III) · factura **cancelada en el SAT**: no pagar sin la sustituta | `[PGP.158]` `[PGP.163]` |
+| **Se paga una PPD** | Contabilidad | «espera complemento»; a los 30 días sin REP, se le pide al proveedor | `[PGP.164]` |
+| Cobramos a un cliente | Cobranza | nuestro REP antes del día 5 del mes siguiente (F4) | propuesta, fuera de PGP |
+| Facturamos a un cliente con crédito | Facturación | PPD, no PUE (F5) | propuesta, fuera de PGP |
+
+**Tres reglas para que no se repita**
+
+1. **Una sola lista de reglas fiscales** (ADR-056). Las reglas viven en el detector de riesgos de
+   Finanzas (`libs/finance/src/lib/maat/maat-detector.service.ts`: `rule_key`, `params`, bandeja de
+   hallazgos; ya trae `contpaqi_proveedor_efos`) y la regla pura en `libs/contracts`; cada pantalla
+   (Calendario, Cuentas por pagar) **pregunta** a esa regla, no la copia.
+2. **Corregir la causa, no la factura.** A los proveedores de mercancía que dan crédito y facturan PUE
+   se les pide PPD **una vez**, y su respuesta queda en el proveedor como parámetro (pregunta
+   configurable, no WhatsApp). Las PUE cobradas con tarjeta no se tocan. Las facturas se capturan el
+   día que llegan: el aviso de `[PGP.162]` es el que lo empuja.
+3. **Medir que baja.** Cada item deja su indicador, **leído al abrir** (sin cron, sin tabla nueva):
+   PUE fuera de su mes · pagadas y luego canceladas · PPD sin REP · nuestros REP tarde. Deben ir a
+   cero; si uno sube, una regla falló. Cada regla nace con su **prueba negativa** (regla 12).
+
+**Orden** (dinero × esfuerzo): `[PGP.161]` → `[PGP.162]` + `[PGP.158]` → `[PGP.163]` → `[PGP.164]`.
+F4 y F5 (nuestras facturas a clientes) quedan como propuesta para Cobranza y Facturación: abrirlas es
+decisión de Edgar.
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.161]` | C0 | **La lista 69-B vuelve a estar al día.** `fiscal.sat_list_versions`: la 69 se procesa a diario y la 69-B no cambia desde el 16-jul. Averiguar si la fuente del SAT cambió de lugar o de forma, o si el ingestor (que salta la versión cuando el contenido no cambia) la está leyendo mal; arreglarlo y volver a cruzar a los proveedores. **Prueba negativa:** un RFC de prueba en la lista sale como hallazgo | ⬜ |
+| `[PGP.162]` | C1+C3 | **Aviso al llegar la factura del SAT**, a Cuentas por pagar: PUE de proveedor con crédito, proveedor en la 69-B, uso S01. Reglas en el detector (un `rule_key` por regla, con `params`); la respuesta del proveedor a «¿facturas PPD?» queda como parámetro suyo. Indicador: PUE fuera de su mes | ⬜ |
+| `[PGP.163]` | C1+C3 | **Al programar el pago:** factura cancelada en el SAT (no pagar sin la sustituta) y efectivo arriba de $2,000. Arranca con la lista de las facturas ya pagadas que el proveedor canceló sin sustituta (6 al 2026-11-19, *posibles*: la sustituta se busca por RFC e importe). Indicador: pagadas y luego canceladas | ⬜ |
+| `[PGP.164]` | C0+C1 | **Los complementos de pago de proveedores, completos:** re-descargar del SAT los REP de ene–jun (sigue a `[PGP.110b]`) y medir; después, el pago PPD dice «espera complemento» y a los 30 días sin REP es hallazgo. Indicador: PPD pagadas sin REP | ⬜ |
