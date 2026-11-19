@@ -1300,7 +1300,9 @@ export class CustomerLedgerService {
   /**
    * Detalle (auxiliar) de un cliente: partidas con saldo por documento EXACTO (kdm5)
    * + los cobros/notas aplicados a cada factura (como el reporte Kepler). Si falta
-   * `saldo_documento` (ramas sin kdm5), cae a `importe` (sin aplicar).
+   * `saldo_documento` (ramas sin kdm5), cae a `importe` (sin aplicar). `[CXC.46]` Lo que el
+   * saldo del cliente tiene y las facturas no explican va en `sin_documento`: positivo = saldo
+   * sin factura; negativo = pagos que Kepler aún no aplica a ninguna factura.
    */
   async detalle(sucursal: string, cliente: string) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -1326,10 +1328,14 @@ export class CustomerLedgerService {
 
       const partidas = cargos.map((cg: any) => {
         const importe = M2(cg.importe);
-        // El saldo que se muestra es el ajustado (cuadra con kdue); `saldo_kdm5` es lo que
-        // dicen las aplicaciones. Difieren cuando hubo un abono que kdm5 no supo ubicar.
+        // ⛔ `[CXC.46]` El saldo de CADA factura es el que dicen las aplicaciones de Kepler (`saldo_documento`),
+        // no el reparto `saldo_ajustado`. El reparto carga un abono sin aplicar a las facturas más viejas: el total
+        // cuadra, pero el estado de cuenta le cobraba al cliente una factura equivocada (2026-11-19, Canindo: la 670
+        // salía con 1,090.66 y en Kepler debe 14,295.92 con una nota de crédito de 14,295.92 aún sin aplicar). Ese
+        // abono sale ahora en su renglón («Pagos no asignados a una factura»: `sin_documento` negativo), como en el
+        // reporte de partidas vivas de Kepler. El reparto sigue para los pronósticos (flujo, ciclo de caja).
         const saldo_kdm5 = cg.saldo_documento != null ? M2(cg.saldo_documento) : importe;
-        const saldo_documento = cg.saldo_ajustado != null ? M2(cg.saldo_ajustado) : saldo_kdm5;
+        const saldo_documento = saldo_kdm5;
         const venc = cg.vencimiento || null;
         const dias = venc ? Math.floor((Date.parse(hoy) - Date.parse(venc)) / 86400000) : null;
         const aplicaciones: any[] = Array.isArray(cg.aplicaciones) ? cg.aplicaciones : (cg.aplicaciones || []);
