@@ -131,9 +131,10 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </article>
       </div>
     
-      <!-- TABLA flush -->
+      <!-- TABLA flush. [CANON.7.4a] dt-stack: en el teléfono cada renglón se apila con sus campos. Sin la columna
+           «Ajustar», la regla global dejaba fija a la derecha «Valor disp.» y «Disponible» quedaba debajo. -->
       <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
+        <article class="cell cell-span-12 is-flush dt-scope">
           <p-table
             [value]="rows()"
             [loading]="loading()"
@@ -146,6 +147,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             (onLazyLoad)="onLazyLoad($event)"
            
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
+            class="dt-stack"
             >
             <ng-template #header>
               <tr>
@@ -162,19 +164,19 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             </ng-template>
             <ng-template #body let-s>
               <tr [class.in-row-low]="s.available > 0 && s.available < 20" [class.in-row-zero]="s.available <= 0">
-                <td>
+                <td role="cell" data-label="Almacén">
                   <span class="in-warehouse-cell">
                     <i class="pi pi-warehouse" aria-hidden="true"></i>
                     {{ s.warehouse_name || s.warehouse_id }}
                   </span>
                 </td>
-                <td>
+                <td class="dt-id" role="cell">
                   <div class="comm-cell-strong">{{ s.product_name || s.product_id }}</div>
                   @if (s.brand_name) {
                     <div class="comm-muted is-small">{{ s.brand_name }}</div>
                   }
                 </td>
-                <td>
+                <td role="cell" data-label="SKU">
                   @if (s.sku) {
                     <code class="comm-code">{{ s.sku }}</code>
                   }
@@ -182,7 +184,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td>
+                <td role="cell" data-label="Ubicación">
                   @if (s.location) {
                     <code class="comm-code in-loc-code">{{ s.location }}</code>
                   }
@@ -190,7 +192,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td class="comm-num">
+                <td class="comm-num dt-num" role="cell" data-label="Costo">
                   @if (s.cost_base != null) {
                     <span>{{ s.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                   }
@@ -199,14 +201,14 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                   }
                 </td>
                 <!-- [CANON.7.4a] Con formato: la API manda texto con la escala de cada columna («1» del ERP, «0.000» del apartado). -->
-                <td class="comm-num in-num-soft">{{ s.on_hand | number:'1.0-3' }}</td>
-                <td class="comm-num in-num-soft">{{ s.reserved | number:'1.0-3' }}</td>
-                <td class="comm-num in-avail-cell">
+                <td class="comm-num dt-num in-num-soft" role="cell" data-label="On hand">{{ s.on_hand | number:'1.0-3' }}</td>
+                <td class="comm-num dt-num in-num-soft" role="cell" data-label="Reservado">{{ s.reserved | number:'1.0-3' }}</td>
+                <td class="comm-num dt-num in-avail-cell" role="cell" data-label="Disponible">
                   <span class="comm-pill no-dot in-avail-pill" [class]="stockPillClass(s.available)">
                     {{ s.available | number:'1.0-3' }}
                   </span>
                 </td>
-                <td class="comm-num">
+                <td class="comm-num dt-num" role="cell" data-label="Valor disp.">
                   @if (s.available_value) {
                     <span>{{ s.available_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   }
@@ -321,8 +323,9 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     tr.in-row-zero td:first-child {
       position: relative;
     }
-    tr.in-row-low td:first-child::before,
-    tr.in-row-zero td:first-child::before {
+    /* [CANON.7.4a] ::after y no ::before: en el teléfono (dt-stack) el ::before de cada celda es su rótulo. */
+    tr.in-row-low td:first-child::after,
+    tr.in-row-zero td:first-child::after {
       content: '';
       position: absolute;
       left: 0;
@@ -331,8 +334,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       width: 3px;
       border-radius: 2px;
     }
-    tr.in-row-low td:first-child::before { background: var(--c-warn); }
-    tr.in-row-zero td:first-child::before { background: var(--c-bad); }
+    tr.in-row-low td:first-child::after { background: var(--c-warn); }
+    tr.in-row-zero td:first-child::after { background: var(--c-bad); }
 
     /* ── Warehouse cell: texto + icono ── */
     .in-warehouse-cell {
