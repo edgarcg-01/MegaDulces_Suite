@@ -99,6 +99,26 @@ const ATORADOS_SINTETICOS = {
   sucursales: [{ codigo: '05', nombre: 'Zamora Centro', pedidos: 288, desde: '2026-03-19' }, { codigo: '06', nombre: 'Canindo', pedidos: 59, desde: '2026-08-15' }, { codigo: '02', nombre: 'Morelia Abastos', pedidos: 49, desde: '2025-11-29' }],
 };
 
+/** [GP.RF.12] Revisión en caja de la preventa: 5 pedidos por revisar y su detalle (completos, con faltante y con sobrante). */
+function revisionBandeja() {
+  const hoy = hoyMx();
+  const data = [1, 2, 3, 4, 5].map((k) => ({
+    order_id: `o-rev-${k}`, code: `PV-REV-00${k}`, customer_name: `Abarrotes Revisión ${k}`, seller_name: VENDEDORES[k % VENDEDORES.length],
+    warehouse_name: 'Sucursal de prueba Norte', requested_delivery_date: hoy, lines: 4 + k, total: 900 + k * 211,
+    finished: { user_id: 'u-surt', name: 'Surtidor de prueba', at: new Date(Date.now() - k * 600_000).toISOString() },
+    pick_outcome: k % 2 ? 'con_faltantes' : 'completo', state: 'por_revisar', reviewed: null, group_code: null, instructions: k === 2 ? 'Entregar antes de las 10.' : null,
+  }));
+  return { today: hoy, pending: data.length, truncated: false, data, scope: 'todos' };
+}
+function revisionDetalle(orderId: string) {
+  const fila = revisionBandeja().data.find((x) => x.order_id === orderId) ?? revisionBandeja().data[0];
+  const linea = (n: number, ordered: number, picked: number) => ({
+    key: `k-${n}`, product_id: `p-rev-${n}`, product_name: `Producto de revisión ${n} caja con 24 piezas`, sku: `RV-0${n}`, unit: 'CJA', factor: 24,
+    ordered, picked, restorable: picked < ordered, stock: { state: 'ok', qty: 12, checked_at: new Date().toISOString() }, substitutes_for: null,
+  });
+  return { order: fila, lines: [linea(1, 5, 5), linea(2, 3, 1), linea(3, 2, 2), linea(4, 4, 0), linea(5, 1, 2)], justifications: [] };
+}
+
 export type RegistroSintetico = { servidas: number; abortadas: string[]; desconocidas: string[]; salieron: string[] };
 
 /** Contesta TODA la API desde aquí. Control: cualquier /api que no pasó por aquí queda en `salieron`. */
@@ -127,6 +147,9 @@ export async function servirSintetico(page: Page): Promise<RegistroSintetico> {
     if (p === '/users/me/access') return r.fulfill(json({ permissions: {} }));
     if (p === '/warehouse/orders') return r.fulfill(json(tablero(u.searchParams.get('origin'))));
     if (p === '/warehouse/orders/atorados') return r.fulfill(json(ATORADOS_SINTETICOS));
+    if (p === '/warehouse/presale-review') return r.fulfill(json(revisionBandeja()));
+    const rv = /^\/warehouse\/presale-review\/([^/]+)$/.exec(p);
+    if (rv && rv[1] !== 'search') return r.fulfill(json(revisionDetalle(rv[1])));
     reg.desconocidas.push(p);
     return r.fulfill(json({ data: [] }));
   });

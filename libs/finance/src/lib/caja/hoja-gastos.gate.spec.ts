@@ -26,7 +26,7 @@ describe('[CGA-A.65] sin hoja pagada, un pago de la hoja no entra al libro', () 
   it('NEGATIVA: sin hoja todavía → 400, y dice dónde se paga', () => {
     const v = veredictoPagoDeHoja(gasto({ retiros: [RETIRO] }), [], req(null));
     expect(v).toEqual({ ok: false, http: 400, texto: expect.stringContaining('Va en la hoja de gastos de Zona Morelia') });
-    expect(v.ok === false && v.texto).toContain('Finanzas › Gastos › Hoja de zona');
+    expect(v.ok === false && v.texto).toContain('Caja General › Reposición');
   });
 
   it('NEGATIVA: en una hoja que espera aprobación → 400 «sin aprobación no se paga»', () => {

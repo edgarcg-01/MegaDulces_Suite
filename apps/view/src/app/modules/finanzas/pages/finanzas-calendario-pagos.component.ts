@@ -637,7 +637,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           @if (corteSueltasError()) { De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas. No se pudo revisar cuáles nunca registró Oficinas, así que todas siguen bloqueadas. }
                           @else if (corteSueltas() === null) { De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas. Revisando cuáles nunca registró… }
                           @else {
-                            De sucursal, antes del 1-oct: Oficinas tiene una copia o un pago por el mismo importe, o ya llevan algo aplicado. Se revisan con Finanzas.
+                            De sucursal, antes del 1-oct: Oficinas tiene una copia o un pago por su importe, o ya llevan aplicada una nota, devolución o ajuste. Se revisan con Finanzas.
                             @if (obligacionesSueltas()) { Ya se pueden programar {{ facturas(obligacionesSueltas()) }} de antes del corte que Oficinas nunca registró. }
                           }
                         </span></span>
@@ -2970,7 +2970,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         // [PGP.48] Sólo los documentos con ficha (`oblig:`) tienen factura que buscar.
         buscaEvidencia: (o.entity_ref ?? '').trim().startsWith('oblig:'),
         // [PGP.113] Si llegó hasta acá siendo de antes del corte, es porque se soltó: se dice por qué.
-        suelta: anteriorAlCorte(o) ? 'antes del corte, pero Oficinas nunca la registró ni hay pago que la cubra' : null,
+        suelta: anteriorAlCorte(o) ? 'antes del corte, pero Oficinas no la registró ni la pagó' : null,
         sucursal: this.branchLabel(o.branch_code),
         vence: this.venceTxt(o),
         importe: this.money(o.available_amount),

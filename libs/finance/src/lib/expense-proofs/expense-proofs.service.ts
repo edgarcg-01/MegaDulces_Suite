@@ -9,6 +9,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, esSolicitudDeNomina, type EstadoAporte } from '@megadulces/contracts';
 import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional, faltaParaEvidenciaAdicional, ROL_EVIDENCIA_ADICIONAL } from '@megadulces/contracts';
+import type { KeplerDelVale } from '@megadulces/contracts';
 // `[PGP.123]` G.9: lo que la cola dice del gasto (X-A-10) de cada vale.
 import type { ComprobacionEnLaCola, EstadoKeplerDelGasto, PistaCancelada, CanceladaResuelta, RevisionDeCancelada } from '@megadulces/contracts';
 import { faltaEnLaNotaDeRevision } from '@megadulces/contracts';
@@ -376,6 +377,13 @@ export interface ValeEsperaKepler {
    * `undefined` = el servidor no puede guardarlo (falta la migración): la pantalla no ofrece cerrarlo.
    */
   cancelada_revisada?: RevisionDeCancelada | null;
+  /**
+   * `[PGP.122]` Sólo en los vales que NACIERON en la Suite: cómo va la escritura de su solicitud en Kepler (la misma
+   * forma que `kepler-autorizacion`). Sin folio y con esto, la cola dice que Kepler no la tiene y por qué (antes caía
+   * en «No se pudo leer su estado en Kepler»: Kepler sí contestó, la rechazó). Ausente = no nació en la Suite, o el
+   * servidor no tiene la columna.
+   */
+  nace_en_la_suite?: KeplerDelVale['nace_en_la_suite'];
 }
 
 export interface RespuestaEsperanKepler {
@@ -393,6 +401,9 @@ interface FilaEsperaKepler {
   tiene_gasto: boolean; kepler_estado: string | null; kepler_aplicada: boolean | null;
   capturo_nombre: string | null; reviso_nombre: string | null;
   forma_pago: string | null; kepler_acreedor: string | null; kepler_fecha: string | null;
+  /** `[PGP.122]` Sólo si existe la columna (`conSolicitud`): la escritura de la solicitud que nació en la Suite. */
+  origen?: string | null; kepler_request_status?: string | null; kepler_request_note?: string | null;
+  kepler_request_next_at?: string | Date | null; kepler_request_attempts?: number | string | null;
 }
 
 export interface ResultadoBusquedaGastos {
@@ -3216,6 +3227,11 @@ export class ExpenseProofsService {
       const reg = await trx.raw(`SELECT to_regclass('analytics.expense_requests') r, to_regclass('analytics.expense_documents') d`);
       // Sin las vistas de Kepler no se puede saber a qué espera nada: se DECLARA, no se dibuja vacío.
       if (!reg.rows[0]?.r || !reg.rows[0]?.d) return { vales: [], truncado: false, medido: false };
+      // `[PGP.122]` La escritura de la solicitud que nace en la Suite (sin la columna, el servidor no la conoce).
+      const conSolicitud = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_request_status');
+      const colsSolicitud = conSolicitud
+        ? `, ep.origen, ep.kepler_request_status, ep.kepler_request_note, ep.kepler_request_next_at, ep.kepler_request_attempts` : '';
+      const joinSolicitud = conSolicitud ? `LEFT JOIN finance.expense_proofs ep ON ep.id = v.id` : '';
 
       const filas = (await trx.raw(`
         WITH v AS (
@@ -3244,7 +3260,9 @@ export class ExpenseProofsService {
                -- [PGP.123] G.UI.8: el nombre del padrón (la cola decía la clave de usuario).
                (SELECT nullif(btrim(u.nombre), '') FROM identity.users u WHERE u.tenant_id = :t AND lower(u.username) = lower(v.created_by) LIMIT 1) AS capturo_nombre,
                (SELECT nullif(btrim(u.nombre), '') FROM identity.users u WHERE u.tenant_id = :t AND lower(u.username) = lower(v.validated_by) LIMIT 1) AS reviso_nombre
+               ${colsSolicitud}
           FROM v
+          ${joinSolicitud}
           LEFT JOIN g ON g.sucursal = v.sucursal AND g.solicitud_folio = v.folio_solicitud
           LEFT JOIN analytics.expense_requests r
                  ON r.tenant_id = :t AND r.sucursal = v.sucursal AND r.folio = v.folio_solicitud
@@ -3273,6 +3291,14 @@ export class ExpenseProofsService {
           // `null` si la fecha no se puede leer: «0 días» afirmaría que es de hoy.
           dias: Number.isFinite(t) ? Math.max(0, Math.floor((hoy - t) / 86_400_000)) : null,
           espera, hallazgo, kepler_estado: f.kepler_estado ? String(f.kepler_estado).trim() : null,
+          ...(conSolicitud && f.origen === 'solicitud' ? {
+            nace_en_la_suite: {
+              status: f.kepler_request_status ?? null,
+              nota: f.kepler_request_note ?? null,
+              siguiente: f.kepler_request_next_at ? new Date(f.kepler_request_next_at).toISOString() : null,
+              intentos: Number(f.kepler_request_attempts ?? 0),
+            },
+          } : {}),
         });
       }
       /**
@@ -3465,6 +3491,16 @@ export class ExpenseProofsService {
     };
     // Una letra suelta trae media base. Un digito si vale: el folio se busca por digitos.
     if (lectura.modo === 'corta') return vacio;
+    // `[PGP.122]` Un vale por su id: la cola «Esperan a Kepler» abre así el que no tiene folio (nació en la Suite y
+    // Kepler todavía no tiene su solicitud). Antes ese renglón no se podía abrir.
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q)) {
+      return this.tk.run(async (trx) => {
+        const filas: FilaDelDiaCruda[] = await trx('finance.v_expense_proofs as p')
+          .where('p.tenant_id', tenantId).where('p.id', q.toLowerCase())
+          .select(...this.columnasDelDia(trx).map((c) => (typeof c === 'string' ? `p.${c}` : c)));
+        return { ...vacio, recientes: false, vales: await this.detallarDelDia(trx, tenantId, filas) };
+      });
+    }
 
     return this.tk.run(async (trx) => {
       // Desde cuando usa la Suite cada sucursal. Una solicitud de antes no es «sin vale».

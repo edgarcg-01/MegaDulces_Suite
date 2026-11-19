@@ -328,6 +328,29 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-19** — 🧪 **[COT.48] Lo último arriba, y el encabezado fijo que COT.47 no logró** (Edgar, probando en prod:
+  «tengo que usar el cursor para estar viendo los productos agregados, haciendo scroll… quita tiempo y es confuso no ver lo
+  que estoy agregando»). COT.46 confirmaba lo agregado debajo del buscador, pero el renglón seguía cayendo al FINAL de la
+  tabla: para verlo con su precio y existencia había que bajar. Ahora la tabla abre en **«Lo último arriba»** en el alta y en
+  un borrador editable: lo recién agregado (o el renglón al que se le acaba de sumar) queda primero, justo debajo del
+  buscador; el regalo del ERP viaja pegado a su renglón; el «#» sigue siendo el renglón del pedido en Kepler y el pedido sale
+  en orden de captura (sólo cambia lo que se ve). Al consultar una cotización que ya no es borrador abre «Como se capturó».
+  ⛔ **Corrección de COT.47:** el encabezado fijo **NO funcionaba**. Medido en prod con Playwright (COT-2026-00522, 40
+  renglones, 1440×900): al bajar, el encabezado se iba con la tabla. Causa: el contenedor de PrimeNG y el `:host` de la tabla
+  tienen `overflow` (las columnas fijas lo necesitan al desplazar de lado), y un `position: sticky` se pega al ancestro con
+  overflow más cercano, que nunca se desplaza en vertical. Arreglo: `p-table [scrollable]` con `scrollHeight="calc(100dvh -
+  10rem)"`, el patrón de Admin › Personas: encabezado y columnas fijas comparten la misma caja de desplazamiento. Verificado
+  en prod con el mismo recorrido: «Ver en la lista» sí baja al renglón y deja el cursor en su cantidad; la barra de filtros,
+  las cuentas, «Mostrando 1 de 40» y el vacío «Ningún renglón coincide» funcionan. Pruebas: 4 nuevas (orden reciente, el
+  sumado primero, el regalo pegado, la tabla pinta la última arriba sin barra); 142/142 de televenta; `ngc` limpio;
+  `check:pantalla --todas` 0 nuevas; `check:estilos` en verde. **NO MEDIDO hasta desplegar:** el encabezado fijo con
+  `scrollable` en el navegador (se verifica en prod después de soltar).
+  **En prod (`7b5ee14ba`), verificado con Playwright** (alta, Padre Hidalgo, 16 artículos, escrituras bloqueadas): en los 16
+  agregados la primera fila fue la recién agregada; al sumar a la ficha 1 subió primera con 2 PAQ; el encabezado queda arriba
+  de la tabla al desplazar. **[COT.48.1]** El mismo recorrido cazó un defecto de COT.46: «Sumado al renglón **0**» —
+  `cambiarCantidadBandeja` reemplaza el objeto y `indexOf(existente)` daba −1. Ahora se busca por id; prueba nueva (con el
+  defecto devuelto da exactamente `numero: 0`); 143/143 de televenta.
+
 - **2026-11-18** — 🧪 **[COT.47] Auditoría de la tabla de renglones (Modern Web Guidance) y filtros para listas largas.**
   Medido en prod (30 días, 410 cotizaciones): mediana 9 renglones, p90 40, máximo 195; 118 con 20 o más; de 6,646
   renglones, 120 con promoción y 3,032 con precio por volumen. Hecho, en la tabla compartida (alta y detalle): **encabezado

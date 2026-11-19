@@ -125,7 +125,7 @@ interface Alta {
                     <td role="cell" data-label="Producto"><span class="as-nom">{{ r.nombre }}</span><span class="as-sub mono">{{ r.sku }}</span></td>
                     <td role="cell" data-label="Lugar fijo">
                       @if (r.surtido_fijo.length) { @for (c of r.surtido_fijo; track $index) { <span class="as-code mono">{{ c }}</span> } }
-                      @else { <p-tag value="Sin lugar fijo" severity="warn" styleClass="as-tag" /> }
+                      @else { <p-tag value="Sin lugar fijo" severity="warn" /> }
                     </td>
                   </tr>
                 </ng-template>
@@ -160,7 +160,7 @@ interface Alta {
                     </div>
                     @for (a of asignacionesDe(d, p.peldano); track a.id) {
                       <div class="as-row">
-                        <p-tag [value]="papelLabel(a.papel)" [severity]="a.papel === 'exhibicion_tienda' ? 'info' : a.papel === 'surtido_fijo' ? 'success' : 'secondary'" styleClass="as-tag" />
+                        <p-tag [value]="papelLabel(a.papel)" [severity]="a.papel === 'exhibicion_tienda' ? 'info' : a.papel === 'surtido_fijo' ? 'success' : 'secondary'" />
                         @if (edicion()?.id === a.id) {
                           <form class="as-form" (ngSubmit)="guardarEdicion(a)">
                             <label class="as-f"><span class="as-l">Ubicación</span><input pInputText class="mono" name="code" [ngModel]="edicion()!.code" (ngModelChange)="setEdicion('code', $event)" maxlength="8" /></label>
@@ -221,7 +221,7 @@ interface Alta {
                     </div>
                     @for (a of huerfanas(d); track a.id) {
                       <div class="as-row">
-                        <p-tag [value]="papelLabel(a.papel)" severity="secondary" styleClass="as-tag" />
+                        <p-tag [value]="papelLabel(a.papel)" severity="secondary" />
                         <span class="as-code-l mono">{{ a.code }}</span>
                         <span class="as-sub">se guardó como {{ a.presentacion_rotulo || 'presentación ' + a.presentacion }}</span>
                         @if (puedeGestionar()) {
@@ -263,7 +263,7 @@ interface Alta {
     .as-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
     /* ::ng-deep sólo para el ancho del p-select y el tamaño del p-tag de PrimeNG (vendor). */
     :host ::ng-deep .as-sel { min-width:12rem; }
-    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .as-tag { font-size:var(--fs-micro); }
+    /* [GP.RF.12] Aqui habia ":host ::ng-deep .as-tag { font-size }": regla MUERTA (p-tag en PrimeNG 22 no recibe styleClass); la etiqueta mide 12 px por el tema. Se quitó junto con sus styleClass. */
     .as-split { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-start; }
     .as-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; }
     .as-list { flex:1 1 26rem; }
@@ -292,7 +292,7 @@ interface Alta {
     .as-full { flex-basis:100%; }
     @media (pointer: coarse) { .as-f input, .as-q input { height:2.75rem; } }
     .as-sub.as-bad, .as-bad { color:var(--bad-fg); }
-    .as-ok { margin:0; font-size:var(--fs-sm); color:var(--ok-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .as-ok { margin:0; font-size:var(--fs-sm); color:var(--ok-soft-fg); }
     .as-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; text-decoration:underline; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }

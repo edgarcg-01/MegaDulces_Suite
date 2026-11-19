@@ -631,8 +631,8 @@ export class PaymentCalendarService {
 
   /**
    * `[PGP.113]` Las facturas «por confirmar» (`[PGP.13]`) que Oficinas NUNCA registró: sin copia, sin
-   * pago y sin nada aplicado. La pantalla las deja programar a mano. Regla en
-   * `libs/contracts/src/finance/corte-suelta.contract.ts`; medido 2026-11-10: 67 de 205, 435-534 ms.
+   * pago y sin nota aplicada (`[PGP.147]`). La pantalla las deja programar a mano. Regla en
+   * `libs/contracts/src/finance/corte-suelta.contract.ts`; medido 2026-11-18: 73 de 208, mediana ~500 ms.
    */
   async listCorteSueltas(): Promise<CorteSueltaRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();

@@ -835,6 +835,7 @@ const ORIGENES = ORIGENES_COTIZACION;
               [bloqueado]="guardando()"
               [clientePct]="descuentoClientePct() || null"
               titulo="Renglones de la cotización nueva"
+              ordenInicial="reciente"
               [marcado]="ultimoAgregado()?.id ?? null"
               [destello]="destelloRenglon()"
               (cantidad)="onCantidadBandeja($event)"
@@ -2329,7 +2330,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (existente) {
       const total = existente.quantity + qty;
       this.cambiarCantidadBandeja(existente.id, total);
-      const n = this.bandeja().indexOf(existente) + 1;
+      // [COT.48] Por id: cambiarCantidadBandeja REEMPLAZA el objeto, y `indexOf(existente)` daba -1 →
+      // «Sumado al renglón 0» (visto en prod con Playwright, 2026-11-19).
+      const n = this.bandeja().findIndex((it) => it.id === existente.id) + 1;
       // [COT.46] La confirmación va bajo el buscador (donde está la vista), no en un aviso de esquina.
       this.ultimoAgregado.set({
         id: existente.id, numero: n, nombre: art.name || art.sku, sumado: true,

@@ -4,8 +4,7 @@
 
 El almacén va a imprimir desde la Suite la etiqueta de caja que hoy sale de Kepler (Operación ›
 Compras › **Órdenes de entrada** › «Imprimir Etiquetas»): sin teclear nada, con un código que el
-handheld sí lea y con registro de lo impreso. **D1–D5 ya están respondidas** (§1). Queda abierta
-una sola decisión, **D6: qué fecha va en la etiqueta** (§1).
+handheld sí lea y con registro de lo impreso. **Las seis decisiones están respondidas** (§1).
 
 ---
 
@@ -18,14 +17,17 @@ una sola decisión, **D6: qué fecha va en la etiqueta** (§1).
 | D3 | ¿Controlador de Windows o comandos directos (TSPL)? | **Las dos** |
 | D4 | ¿Bitácora de impresiones? | **Sí** |
 | D5 | ¿`70106` o `C70106`? | **`C` cuando sea caja** |
+| D6 | ¿Fecha del vale o de la orden? | **El día en que se imprime la etiqueta**: el vale o la orden pueden quedar pendientes |
 | — | Medir el rollo en Suc 08 | **Al implementar** |
 
-**D6 — abierta.** ¿La fecha de la etiqueta es la de la **llegada** (el vale de entrada) o la de la
-**orden de entrada** (lo que imprime Kepler hoy)? El 88 % de las órdenes se captura el mismo día
-que el vale, pero **200 de 1,663 (12 %) se capturan de 1 a 20 días después**. En la muestra del
-70106 la mercancía llegó el 4-nov y la etiqueta dice 5-nov. Para rotar por antigüedad sirve la
-de llegada. **Recomendación: la del vale.** Mientras no se decida, se usa la de la orden, igual que
-Kepler.
+**Cómo se aplica D6:**
+- Es el día de la **primera** impresión, con la hora de la Ciudad de México que da el servidor. El
+  reloj de la PC no cuenta. Una etiqueta impresa a las 23:30 del 17-nov dice `320-26`.
+- Una **reimpresión repite la fecha** de la primera. Si no, la etiqueta de reemplazo no coincidiría
+  con las demás cajas, que es justo lo que hoy hace mal Kepler.
+- La bitácora guarda **también** las fechas del vale y de la orden, aunque no se impriman. Con eso se
+  mide cuánto tarda la mercancía en quedar etiquetada desde que llegó. El 12 % de las órdenes se
+  captura de 1 a 20 días después del vale.
 
 ---
 
@@ -106,10 +108,10 @@ No se imprime solo: la impresora puede estar sin rollo y las cajas pueden no est
 | RF-03 | Reimprimir eligiendo renglón y etiquetas | Reimprimir la 7:20 sale idéntica a la primera (UXC 18, misma fecha) | Alta |
 | RF-04 | Código en Code 128: `C`+clave cuando la unidad es caja; el de la unidad en los demás casos | 20 de 20 lecturas con el handheld, por las dos vías | Alta |
 | RF-05 | UXC del renglón de la orden, no del catálogo | Un producto con factor 0 en el catálogo imprime el factor del renglón | Alta |
-| RF-06 | Fecha con la cuenta de Kepler (1-ene = 0); fuente según D6 | El 70106 sale `308-26` aunque se imprima otro día | Alta |
+| RF-06 | Fecha con la cuenta de Kepler (1-ene = 0) sobre el día de la primera impresión (D6), hora de la Ciudad de México; la reimpresión repite la guardada | Impresa el 17-nov sale `320-26`, también a las 23:30; reimpresa el 20-nov sigue `320-26` | Alta |
 | RF-07 | Nombre completo en dos renglones | «CAJETA ENVINADA TOPPER 1KG» y «… 1/2 KG» se distinguen | Alta |
 | RF-08 | Caja incompleta con su etiqueta, que dice las piezas sueltas | La orden `0000685` de Suc 01 imprime sus 4 medias cajas | Media |
-| RF-09 | Bitácora de cada impresión: quién, qué, cuántas, por qué vía y si fue reimpresión | Probada contra base real con el envío de la pantalla | Alta |
+| RF-09 | Bitácora de cada impresión: quién, qué, cuántas, por qué vía, si fue reimpresión, la fecha impresa y las fechas del vale y de la orden | Probada contra base real con el envío de la pantalla | Alta |
 | RF-10 | Aviso de órdenes sin etiquetar después de N horas | Una orden de prueba sin imprimir aparece en el aviso | Media |
 | RF-11 | Avisos por renglón: «Kepler no reconoce este código», «factor 0 en Kepler», «caja incompleta» | Se ven en la vista previa | Media |
 | RF-12 | Lista para Compras de productos con factor 0 o sin código de caja en Kepler | Coincide con la medición (896 productos sin código, 1,672 renglones con factor 0) | Media |
@@ -148,8 +150,7 @@ etiquetas ilegibles, medido con la bitácora.
 ## 9. Pendientes y riesgos
 
 - [x] Leer las formas de etiquetas de Kepler
-- [x] Responder D1 a D5
-- [ ] Decidir D6 (fecha del vale o de la orden) — Edgar
+- [x] Responder D1 a D6
 - [ ] Medir el rollo y la impresora (USB o red) — al implementar, Suc 08
 - [ ] Avisar al almacén que las etiquetas **reimpresas** en Kepler traen UXC 1 y otra fecha
 
@@ -159,3 +160,5 @@ etiquetas ilegibles, medido con la bitácora.
 | Si la TE200 sólo tiene USB, el TSPL necesita un programa en la PC o cambiar el controlador | se mide primero; la vía del navegador sigue disponible |
 | El 43 % de los productos no tiene código de caja en Kepler: sus pantallas no leerán `C`+clave | aviso + lista para Compras |
 | Si la ingesta de Kepler se atrasa, la orden tarda en aparecer | la pantalla dice la hora del último dato |
+| La etiqueta dice cuándo se etiquetó, no cuándo llegó (D6) | la bitácora guarda la fecha del vale; al escanear la caja se puede ver |
+| Si la orden queda pendiente, la caja espera sin etiqueta, como hoy (D2) | la bitácora mide ese atraso; si resulta grande, se decide si se etiqueta desde el vale |

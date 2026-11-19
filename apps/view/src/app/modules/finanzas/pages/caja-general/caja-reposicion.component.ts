@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -28,6 +29,7 @@ import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
+import { diaMxDe, todayMx } from '../../../../core/utils/mx-date';
 import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
 import { DescartarCambiosComponent } from '../../../../shared/components/descartar-cambios/descartar-cambios.component';
 import { DevolverFocoDirective } from '../../../../shared/directives/devolver-foco.directive';
@@ -35,13 +37,20 @@ import { DevolverFocoDirective } from '../../../../shared/directives/devolver-fo
 interface OpcionOrigen { label: string; value: string }
 
 /**
- * Un renglón de la lista: lo que una sucursal pagó en un día, la hoja ABIERTA de una zona (`[LE.6.19]`:
- * se paga aquí en un acto) o una hoja de zona del carril viejo (aprobada, o pagada con algo sin capturar).
+ * `[LE.6.36]` Un renglón de «Por pagar hoy»: la hoja ABIERTA de una zona (`[LE.6.19]`: se paga aquí en un acto) o
+ * una hoja de zona del carril viejo (aprobada, o pagada con algo sin capturar).
  */
-type Fila =
-  | { tipo: 'grupo'; clave: string; g: ReposicionGrupo }
+export type FilaPagar =
   | { tipo: 'abierta'; clave: string; a: HojaAbierta }
   | { tipo: 'hoja'; clave: string; h: HojaGastos };
+/** `[LE.6.36]` Un renglón del control de hojas pagadas: la hoja y su depósito. */
+export interface FilaControl { clave: string; h: HojaGastos }
+/** `[CGA-A.61]` Un renglón de «Otras sucursales»: lo que una sucursal pagó en un día. */
+export interface FilaGrupo { tipo: 'grupo'; clave: string; g: ReposicionGrupo }
+/** `[LE.6.36]` Los filtros del control: lo que espera su depósito, lo ya repuesto, o todas las hojas. */
+export type VistaReposicion = 'deposito' | 'repuestas' | 'todas';
+/** `[LE.6.36]` El estado del depósito en una palabra corta, con su icono y su severidad: nunca sólo color. */
+export interface EstadoDeposito { texto: string; icono: string; sev: 'success' | 'info' | 'warn' | 'danger' | 'secondary' }
 
 /** `[LE.6.19]` Lo que se está contando antes de pagar: todo lo que sale del cajón se cuenta. */
 interface Conteo { clave: string; titulo: string; total: number; pagar: (conteo: ConteoCajonHoja) => void }
@@ -103,24 +112,37 @@ export function avisoDePagoHoja(
 }
 
 /**
- * ⭐ `[CGA-A.61]` **Reposición de sucursales**, en una ventana que abre la barra de Captura.
+ * ⭐ `[LE.6.36]` **Reposición: control por hoja** (PM, 2026-11-19: *«la interfaz de reposición es muy complicada
+ * para que el usuario lleve un control de reposiciones»*). Medido ese día en prod: la ventana se abre ~45 veces al
+ * día; Carmen y Mayra pagan ~20 hojas en 12 días; hay 27 hojas, todas pagadas, y ~20 siguen sin su depósito. El
+ * trabajo diario son DOS actos —pagar la hoja de cada zona y vigilar que llegue el depósito de cada hoja pagada— y
+ * la ventana los mezclaba con la reposición por sucursal, tres tiras de cifras, un plegable por zona y párrafos
+ * largos en cada renglón.
  *
- * Edgar, 2026-10-28: *«hagámoslo, pero desde una sola interfaz para tener más practicidad»*. Aquí está
- * todo junto: qué documentos de Kepler tiene cada sucursal por día de pago, de qué retiro salió cada
- * peso, y las acciones —reponer lo que sigue en la cola, confirmar la propuesta de vínculos, cambiar
- * un vínculo de retiro y, desde `[CGA-A.65]`, pagar la hoja de zona aprobada— en la misma fila.
+ * Las cinco preguntas (skill `diseno` §0b), contestadas antes de escribir la plantilla:
+ *  1. **Qué ve y en qué orden:** primero lo que hay que PAGAR hoy, una fila por zona con su botón (acto 1); después
+ *     el control de las hojas pagadas, que abre en «Esperan depósito» con lo vencido primero (acto 2).
+ *  2. **Qué NO ve de entrada:** la explicación larga del depósito (baja al detalle del renglón: una línea corta con
+ *     qué falta y quién, y lo que se buscó plegado), las tres tiras viejas de cifras (las reemplaza UNA tira de tres
+ *     cifras, una por pregunta: por pagar hoy, esperan depósito, repuestas; más los conteos de los filtros) y los
+ *     plegables por zona (lo que no va en la hoja queda en un solo plegable al final).
+ *  3. **Accesibilidad:** los filtros son `app-segmented` (radiogroup, el conteo dentro del nombre); el estado del
+ *     depósito es palabra + icono en un `p-tag` (nunca sólo color); cada renglón desplegable tiene su botón con
+ *     `aria-expanded`; los montos van en `tabular-nums`; todo se alcanza con teclado (flechas en el filtro, Enter
+ *     en la fila abre su detalle).
+ *  4. **Ligado a:** la cola de Captura (un pago «en hoja» abre esta ventana con `abrirEn(ref)`, `[LE.6.35]`),
+ *     Kepler (el `U-A-5` del depósito), la cuenta bancaria de la zona (segundo testigo) y CAOS (el retiro con que
+ *     se pagó, en el detalle).
+ *  5. **¿Le toca a esta pantalla?:** sí, pagar y vigilar las hojas de zona. La reposición POR SUCURSAL (`[CGA-A.61]`,
+ *     grupos accionables / sin retiro / explicados) sigue viva con sus acciones intactas, en una sección compacta
+ *     al final, «Otras sucursales (sin hoja de zona)», plegada si no tiene nada accionable.
  *
- * ⭐ `[CGA-A.65]` **La más sencilla, sin perder nada** (Edgar, 2026-10-29: *«hay que hacer la interfaz
- * más sencilla del mundo pero sin perder atención al detalle o ignorar información»*). La auditoría
- * encontró diez columnas, cinco cifras de tres universos distintos (la roja no estaba en la lista de
- * abajo), el naranja en seis papeles, encabezados más fuertes que las cifras y un renglón de Morelia
- * con dos instrucciones contrarias. Queda: cuatro columnas —quién, cuánto falta, qué sigue y el
- * desglose al abrir la fila—, tres cifras cada una con su lista, una sola acción por renglón y el
- * naranja sólo en ese botón. Nada se tiró: el total, lo de CAOS, lo del cajón y los documentos
- * están en la segunda línea o en el desglose.
+ * Jerarquía (Q.5): primario = la fila de cada zona por pagar y la etiqueta del depósito de cada hoja; secundario =
+ * hoja, zona, día y monto; terciario = los pagos, el retiro, lo que se buscó y la reposición por sucursal.
  *
- * Jerarquía (Q.5): primario = cuánto falta y qué sigue; secundario = quién, el día y el total;
- * terciario = el desglose y los documentos, al abrir la fila.
+ * Lo que viene de antes y se conserva (`[CGA-A.61]`–`[LE.6.35]`): los flujos de pago (retiro que cuadra ya elegido,
+ * arqueo de lo que sale del cajón, descartar con pregunta), «Capturar lo que falta», «Cambiar retiro», confirmar la
+ * propuesta de vínculos, los avisos con todos sus motivos y el «llévame a su hoja» desde la cola.
  *
  * ⚠️ Quién hace qué lo vuelve a exigir el servidor: «Reponer» y «Pagar» son de quien gestiona la caja;
  * vincular y cambiar de retiro, de superadmin (`[CGA-A.58]`); y quien aprobó una hoja no la paga.
@@ -129,21 +151,60 @@ export function avisoDePagoHoja(
   selector: 'app-caja-reposicion',
   standalone: true,
   imports: [
-    FormsModule, RouterLink, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
+    FormsModule, RouterLink, NgTemplateOutlet, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule,
     LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ConteoCajonComponent,
     DescartarCambiosComponent, DevolverFocoDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!-- [LE.6.36] Piezas que se usan en los dos bloques (por pagar y pagadas): una sola plantilla, no dos copias. -->
+    <ng-template #renglonesHoja let-rs>
+      <p-table [value]="rs" size="small" class="rp-mini">
+        <ng-template #header>
+          <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
+        </ng-template>
+        <ng-template #body let-r>
+          <tr [attr.data-rp-ref]="r.origen_ref" [class.rp-buscado]="r.origen_ref === resaltado()">
+            <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
+            <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
+            <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
+            <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+            <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
+          </tr>
+        </ng-template>
+      </p-table>
+    </ng-template>
+
+    <!-- [LE.6.24] Lo que se repone contra el depósito que lo repuso: su folio de Kepler y si cuadra. La nota
+         larga de por qué falta NO va aquí: va plegada en «Lo que se buscó». -->
+    <ng-template #depositoHoja let-h>
+      @if (h.pago; as p) {
+        <p class="rp-desglose" data-testid="rp-hoja-deposito">
+          Se repone <span class="rp-mono">{{ money(h.total) }}</span> ·
+          @if (p.deposito.depositos?.[0]; as d) {
+            @if (d.folio) {
+              depósito <span class="rp-mono">U-A-5 {{ d.folio }}</span> de {{ nombre(d.sucursal ?? '') }}, {{ dmy(d.dia) }}, a la cuenta {{ d.banco }}:
+            } @else {
+              depósito del {{ dmy(d.dia) }}:
+            }
+            <span class="rp-mono">{{ money(d.importe) }}</span> · <strong>cuadra</strong>
+            @if (p.deposito.diferencia) { <span class="fin-dim">({{ diferenciaTexto(p.deposito.diferencia) }} de redondeo)</span> }
+            @if (p.deposito.banco; as b) { <span class="d-block" data-testid="rp-hoja-banco">{{ b.texto }}</span> }
+          } @else {
+            <strong>sin depósito que cuadre</strong>
+          }
+        </p>
+      }
+    </ng-template>
+
     <!-- [CGA-A.63] Ventana y no cajón: mientras se repone, la cola pasa a segundo plano.
          Sin aboveModals: adentro hay p-select y se abre el p-dialog de cambiar de retiro. -->
     <app-side-peek mode="window" [width]="1100" [open]="abierta()" (openChange)="$event ? null : cerrarVentana()"
                    title="Reposición" [subtitle]="subtitulo()">
     <div class="rp">
       <header class="rp-head">
+        <span class="sr-only" aria-live="polite" aria-atomic="true">{{ anuncio() }}</span>
         @if (datos(); as d) {
-          <!-- [LE.6.21] La cuenta la dice la pestaña: aquí sólo se anuncia, no se repite a la vista. -->
-          <span class="sr-only" aria-live="polite" aria-atomic="true">{{ nPendientes() ? nPendientes() + ' por reponer' : 'Nada por reponer' }}</span>
           @if (d.datos_al) {
             <app-freshness-pill measures="data" [since]="d.datos_al" label="Kepler" />
           } @else {
@@ -156,190 +217,314 @@ export function avisoDePagoHoja(
           }
         }
         <span class="rp-sp"></span>
-        @if (datos()) {
-          <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="vista.set($any($event))"
-                         ariaLabel="Reposiciones o historial" />
-        }
         <p-button icon="pi pi-refresh" size="small" severity="secondary" [text]="true" [loading]="cargando()"
                   ariaLabel="Volver a leer la reposición" (onClick)="cargar()"></p-button>
       </header>
 
-      @if (datos()) {
-        <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
+      <!-- [LE.6.35] Se llegó desde un pago «en hoja» de la cola: dónde está, en palabras. -->
+      @if (avisoBuscado(); as av) {
+        <p class="rp-buscado-aviso" role="status" data-testid="rp-buscado">{{ av }}</p>
       }
 
-      <!-- [LE.6.19] La hoja de zona se paga aquí, en la lista. Sólo se dice lo que quedó del carril viejo, o que no se leyó. -->
-      @if (enEspera().length || hojasNoLeidas()) {
+      <!-- [CGA-A.65] Lo que quedó del carril viejo esperando a otra persona: una hoja cerrada sin aprobar. -->
+      @if (enEspera().length) {
         <p class="rp-hojas" role="status">
           <i class="pi pi-file-check" aria-hidden="true"></i>
-          <span>
-            @if (hojasNoLeidas()) { Las hojas de zona no se pudieron leer: su reposición no aparece en la lista. }
-            @for (x of enEspera(); track x.clave) { {{ x.texto }}@if (!$last) { · } }
-          </span>
+          <span>@for (x of enEspera(); track x.clave) { {{ x.texto }}@if (!$last) { · } }</span>
         </p>
       }
 
-      <!-- [LE.6.20] Lo que ya se repuso (hoja en papel o depósito) y lo que el banco cubre sin depósito: no se
-           reponen aquí, pero se ven con su testigo. «Lo que venga con un depósito es reposición.» -->
-      @for (z of repuestoDeZonas(); track z.zona) {
-        @if (vista() === 'historial' ? z.dias.length : (z.sinDeposito.length || !z.cuenta)) {
-        <details class="rp-repuesto" data-testid="rp-repuesto">
-          <summary>
-            <strong>{{ z.nombre }}:</strong>
-            @if (vista() === 'historial') {
-              {{ z.dias.length }} {{ z.dias.length === 1 ? 'tramo ya repuesto' : 'tramos ya repuestos' }} ({{ money(z.repuesto) }})
-            } @else if (z.sinDeposito.length) {
-              {{ z.nSinDeposito }} {{ z.nSinDeposito === 1 ? 'pago' : 'pagos' }} sin depósito ({{ money(z.sinDepositoTotal) }})
-            }
-            @if (z.cuenta) {
-              <span class="rp-dim"> · cuenta {{ z.cuenta }} cargada al {{ z.cargadoHasta ? dmy(z.cargadoHasta) : 'sin movimientos' }}</span>
-            } @else {
-              <span class="rp-warn"> · la cuenta donde se deposita su reposición no está medida: no se sabe qué ya se repuso</span>
-            }
-          </summary>
-          @if (vista() === 'historial') {
-            <p-table [value]="z.dias" size="small" class="rp-mini">
-              <ng-template #header>
-                <tr><th>Días de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Ya se repuso con</th></tr>
-              </ng-template>
-              <ng-template #body let-d>
-                <tr>
-                  <td class="rp-mono" data-label="Días de pago" role="cell">{{ dmy(d.desde) }}@if (d.hasta !== d.desde) { – {{ dmy(d.hasta) }} }</td>
-                  <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ d.renglones }}</td>
-                  <td class="rp-num dt-num" data-label="Total" role="cell">{{ money(d.total) }}</td>
-                  <td data-label="Ya se repuso con" role="cell">{{ d.como === 'papel' ? 'Hoja en papel: ' : '' }}{{ d.testigo }}</td>
-                </tr>
-              </ng-template>
-            </p-table>
-          }
-          @if (vista() !== 'historial' && z.sinDeposito.length) {
-            <p class="rp-desglose">Sin depósito que los reponga: no se reponen aquí. Si se repusieron en partes, los liga una persona a su retiro; si son gasto normal, se pagan en la cola.</p>
-            <p-table [value]="z.sinDeposito" size="small" class="rp-mini" data-testid="rp-sin-deposito">
-              <ng-template #header>
-                <tr><th>Día de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Por qué</th></tr>
-              </ng-template>
-              <ng-template #body let-d>
-                <tr>
-                  <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(d.dia) }}</td>
-                  <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ d.n }}</td>
-                  <td class="rp-num dt-num" data-label="Total" role="cell">{{ money(d.total) }}</td>
-                  <td data-label="Por qué" role="cell">{{ d.motivo }}</td>
-                </tr>
-              </ng-template>
-            </p-table>
-          }
-        </details>
-        }
-      }
+      <!-- [LE.6.36] La respuesta primero (Q.1): por pagar hoy, lo que espera depósito y lo repuesto. -->
+      <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
 
-      <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="3"
-                      errorTitle="No se pudo leer la reposición" emptyIcon="pi-check-circle"
-                      [emptyTitle]="textoVacio()"
-                      [emptyHint]="pistaVacio()"
-                      (retry)="cargar()">
-        <p-table [value]="filas()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl dt-stack"
-                 selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
-                 (selectionChange)="filaActiva.set($any($event))">
-          <ng-template #header>
-            <tr>
-              <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
-              <th>Sucursal</th>
-              <th class="rp-num-h">{{ vista() === 'historial' ? 'Total' : 'Por resolver' }}</th>
-              <th>{{ vista() === 'historial' ? 'Con qué se pagó' : 'Qué sigue' }}</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-f let-expanded="expanded">
-            <tr [pSelectableRow]="f" (keydown.enter)="enterEnFila($event, f.clave)">
-              <td class="rp-col-tog dt-actions" data-label="Detalle" role="cell">
-                <p-button type="button" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [text]="true" size="small"
-                          severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' el desglose de ' + quien(f)"
-                          (onClick)="alternar(f.clave)"></p-button>
-              </td>
-              @if (f.tipo === 'abierta') {
-                <!-- [LE.6.19] La hoja abierta de la zona: se cierra y se paga en un acto, sin aprobarla aparte. -->
-                <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
-                  <strong>{{ f.a.nombre }}</strong>
-                  <small>{{ f.a.renglones.length }} {{ f.a.renglones.length === 1 ? 'pago' : 'pagos' }} con su compra o su gasto aprobado</small>
+      <!-- ═══ ACTO 1: lo que hay que pagar hoy, una fila por zona con su botón ═══ -->
+      <section class="rp-bloque" aria-labelledby="rp-t-pagar" data-testid="rp-por-pagar">
+        <h3 class="rp-t" id="rp-t-pagar">
+          Por pagar hoy
+          @if (hojas() && porPagar().length) {
+            <span class="rp-t-cifra" data-testid="rp-total-pagar">{{ money(totalPorPagar()) }}</span>
+          }
+        </h3>
+        <app-load-state class="dt-scope" [loading]="leyendoHojas() && !hojas() && !hojasNoLeidas()" [skeletonRows]="2"
+                        [error]="hojasNoLeidas() ? 'Su reposición no aparece aquí hasta que se lean: no se sabe qué hay por pagar.' : null"
+                        errorTitle="Las hojas de zona no se pudieron leer" (retry)="cargar()"
+                        [isEmpty]="!porPagar().length" emptyIcon="pi-check-circle" emptyTitle="Nada por pagar hoy"
+                        emptyHint="Ninguna zona tiene pagos esperando su reposición.">
+          <p-table [value]="porPagar()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-pagar dt-stack"
+                   selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
+                   (selectionChange)="filaActiva.set($any($event))">
+            <ng-template #header>
+              <tr>
+                <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
+                <th>Zona</th>
+                <th class="rp-num-h">Pagos</th>
+                <th class="rp-num-h">Monto</th>
+                <th>Qué sigue</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f let-expanded="expanded">
+              <tr [pSelectableRow]="f" (keydown.enter)="enterEnFila($event, f.clave)" data-testid="rp-pagar-fila">
+                <td class="rp-col-tog dt-actions" data-label="Detalle" role="cell">
+                  <button pButton type="button" text severity="secondary" class="p-button-sm rp-tog" [attr.aria-expanded]="!!expanded"
+                          [attr.aria-label]="(expanded ? 'Ocultar' : 'Ver') + ' los pagos de ' + quienPagar(f)" (click)="alternar(f.clave)">
+                    <span class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></span>
+                  </button>
                 </td>
-                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
-                  <strong>{{ money(f.a.total) }}</strong>
-                  <small>se deposita en la cuenta de la zona</small>
-                </td>
-                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
-                  @if (!puedeGestionar()) {
-                    <small class="fin-dim">La paga quien gestiona la caja.</small>
-                  } @else {
-                    <div class="rp-accion">
-                      <p-select [options]="opcionesAbierta(f.a)" [ngModel]="eleccionAbierta(f.a)" (ngModelChange)="elegirAbierta(f.a, $event)"
-                                optionLabel="label" optionValue="value" placeholder="¿Con qué retiro?" size="small"
-                                appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga la reposición de ' + f.a.nombre"></p-select>
-                      <p-button [label]="'Pagar ' + f.a.nombre" icon="pi pi-check" size="small"
-                                [disabled]="!eleccionAbierta(f.a) || !!ocupado()" [loading]="ocupado() === f.clave"
-                                (onClick)="pagarAbierta(f.a)"></p-button>
-                    </div>
-                    <small class="fin-dim">{{ textoCuadreAbierta(f.a) }}</small>
-                  }
-                  @if (f.a.detenidos.length) {
-                    <!-- [LE.6.20] El enlace afirma que se puede abrir: sólo a quien aprueba gastos; a los demás, en texto. -->
-                    @if (puedeAprobar()) {
-                      <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
-                        <i class="pi pi-arrow-right" aria-hidden="true"></i>
-                        {{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación y no entran' }}. Ir a Aprobación de gastos
-                      </a>
-                    } @else {
-                      <small class="fin-dim">{{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación en Aprobación de gastos y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación en Aprobación de gastos y no entran' }}.</small>
-                    }
-                  }
-                </td>
-              } @else if (f.tipo === 'hoja') {
-                <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
-                  <strong>{{ f.h.nombre_zona }} · {{ f.h.folio }}</strong>
-                  <small>{{ textoHoja(f.h) }}</small>
-                </td>
-                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
-                  <strong>{{ money(f.h.total) }}</strong>
-                  <small>{{ f.h.estado === 'pagada' ? 'pagada ' + (f.h.pago ? dmy(f.h.pago.pagada_at.slice(0, 10)) : '') : 'aprobó ' + (f.h.aprobada_por_nombre ?? 'finanzas') }}</small>
-                </td>
-                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
-                  @if (f.h.estado === 'aprobada') {
+                @if (f.tipo === 'abierta') {
+                  <!-- [LE.6.19] La hoja abierta de la zona: se cierra y se paga en un acto, sin aprobarla aparte. -->
+                  <td class="rp-quien dt-id" data-label="Zona" role="cell"><strong>{{ f.a.nombre }}</strong></td>
+                  <td class="rp-num dt-num" data-label="Pagos" role="cell">
+                    {{ f.a.renglones.length }} {{ f.a.renglones.length === 1 ? 'pago' : 'pagos' }}
+                    @if (f.a.detenidos.length) { <small class="rp-sub">{{ f.a.detenidos.length }} sin aprobar</small> }
+                  </td>
+                  <td class="rp-cifra dt-num" data-label="Monto" role="cell"><strong>{{ money(f.a.total) }}</strong></td>
+                  <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
                     @if (!puedeGestionar()) {
-                      <small class="fin-dim">La paga quien gestiona la caja, con un solo retiro de CAOS.</small>
-                    } @else if (f.h.aprobada_por === yo()) {
-                      <small class="fin-dim">La aprobaste tú: la paga otra persona.</small>
+                      <small class="fin-dim">La paga quien gestiona la caja.</small>
                     } @else {
                       <div class="rp-accion">
-                        <p-select [options]="opcionesHoja(f.h)" [ngModel]="eleccionHoja(f.h)" (ngModelChange)="elegirHoja(f.h, $event)"
+                        <p-select [options]="opcionesAbierta(f.a)" [ngModel]="eleccionAbierta(f.a)" (ngModelChange)="elegirAbierta(f.a, $event)"
                                   optionLabel="label" optionValue="value" placeholder="¿Con qué retiro?" size="small"
-                                  appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga ' + f.h.folio"></p-select>
-                        <p-button [label]="'Pagar ' + f.h.folio" icon="pi pi-check" size="small"
-                                  [disabled]="!eleccionHoja(f.h) || !!ocupado()" [loading]="ocupado() === f.clave"
-                                  (onClick)="pagarHoja(f.h)"></p-button>
+                                  appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga la reposición de ' + f.a.nombre"></p-select>
+                        <p-button [label]="'Pagar ' + f.a.nombre" icon="pi pi-check" size="small"
+                                  [disabled]="!eleccionAbierta(f.a) || !!ocupado()" [loading]="ocupado() === f.clave"
+                                  (onClick)="pagarAbierta(f.a)"></p-button>
                       </div>
-                      <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
+                      <small class="fin-dim">{{ textoCuadreAbierta(f.a) }}</small>
                     }
-                  } @else if (!(f.h.pago?.sin_capturar ?? 0)) {
-                    <!-- [LE.6.27] Sin su depósito, la reposición no está validada: se dice primero, con lo que se buscó. -->
-                    @if (!depositoValidado(f.h)) {
-                      <!-- [LE.6.30] La incidencia (vencido) no se ve igual que la espera: lo dice el texto, el color sólo acompaña. -->
-                      <span data-testid="rp-falta-deposito" [attr.data-vencido]="f.h.pago?.deposito?.vencido ?? null">
-                        <strong [class.rp-vencido]="depositoVencido(f.h)">{{ etiquetaSinDeposito(f.h) }}:</strong>
-                        {{ f.h.pago?.deposito?.nota ?? 'no se pudo leer si llegó.' }}
-                        <!-- [LE.6.31] El segundo testigo: si el dinero llegó a la cuenta de la zona. -->
-                        @if (f.h.pago?.deposito?.banco; as b) { <span class="d-block" data-testid="rp-banco">{{ b.texto }}</span> }</span>
-                      <small class="fin-dim d-block">Pagada {{ textoPagoHoja(f.h) }}. Pasa al historial cuando aparezca su U-A-5 en Kepler.</small>
+                    @if (f.a.detenidos.length) {
+                      <!-- [LE.6.20] El enlace afirma que se puede abrir: sólo a quien aprueba gastos; a los demás, en texto. -->
+                      @if (puedeAprobar()) {
+                        <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
+                          <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                          {{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación y no entran' }}. Ir a Aprobación de gastos
+                        </a>
+                      } @else {
+                        <small class="fin-dim">{{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación en Aprobación de gastos y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación en Aprobación de gastos y no entran' }}.</small>
+                      }
+                    }
+                  </td>
+                } @else {
+                  <td class="rp-quien dt-id" data-label="Zona" role="cell">
+                    <strong>{{ f.h.nombre_zona }}</strong>
+                    <small class="rp-mono">{{ f.h.folio }} · venta del {{ dmy(f.h.venta_del_dia) }}</small>
+                  </td>
+                  <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ f.h.renglones.length }} {{ f.h.renglones.length === 1 ? 'pago' : 'pagos' }}</td>
+                  <td class="rp-cifra dt-num" data-label="Monto" role="cell"><strong>{{ money(f.h.total) }}</strong></td>
+                  <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+                    @if (f.h.estado === 'aprobada') {
+                      @if (!puedeGestionar()) {
+                        <small class="fin-dim">La paga quien gestiona la caja, con un solo retiro de CAOS.</small>
+                      } @else if (f.h.aprobada_por === yo()) {
+                        <small class="fin-dim">La aprobaste tú: la paga otra persona.</small>
+                      } @else {
+                        <div class="rp-accion">
+                          <p-select [options]="opcionesHoja(f.h)" [ngModel]="eleccionHoja(f.h)" (ngModelChange)="elegirHoja(f.h, $event)"
+                                    optionLabel="label" optionValue="value" placeholder="¿Con qué retiro?" size="small"
+                                    appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga ' + f.h.folio"></p-select>
+                          <p-button [label]="'Pagar ' + f.h.folio" icon="pi pi-check" size="small"
+                                    [disabled]="!eleccionHoja(f.h) || !!ocupado()" [loading]="ocupado() === f.clave"
+                                    (onClick)="pagarHoja(f.h)"></p-button>
+                        </div>
+                        <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
+                      }
                     } @else {
-                      <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
-                      <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
+                      <!-- Pagada, con renglones que no entraron al libro: se termina aquí. -->
+                      @if (puedeGestionar()) {
+                        <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
+                                  [disabled]="!!ocupado()" [loading]="ocupado() === f.clave" (onClick)="capturarHoja(f.h)"></p-button>
+                      }
+                      <small class="fin-dim">Pagada, pero {{ f.h.pago?.sin_capturar }} {{ f.h.pago?.sin_capturar === 1 ? 'pago no ha entrado' : 'pagos no han entrado' }} al libro (casi siempre, la cuenta del beneficiario).</small>
+                    }
+                  </td>
+                }
+              </tr>
+            </ng-template>
+            <ng-template #expandedrow let-f>
+              <tr>
+                <td colspan="5" class="rp-det" role="cell">
+                  @if (f.tipo === 'abierta') {
+                    <p class="rp-desglose">
+                      Al pagarla, sus {{ f.a.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
+                      Lo que sale del cajón se cuenta por pieza antes de pagar.
+                    </p>
+                    <ng-container *ngTemplateOutlet="renglonesHoja; context: { $implicit: f.a.renglones }" />
+                    @if (f.a.detenidos.length) {
+                      <p class="rp-desglose">Esperan su aprobación y no entran a esta reposición:</p>
+                      <p-table [value]="f.a.detenidos" size="small" class="rp-mini" data-testid="rp-detenidos">
+                        <ng-template #header>
+                          <tr><th>Sucursal</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th><th>Por qué</th></tr>
+                        </ng-template>
+                        <ng-template #body let-r>
+                          <tr [attr.data-rp-ref]="r.origen_ref" [class.rp-buscado]="r.origen_ref === resaltado()">
+                            <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
+                            <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
+                            <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+                            <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
+                            <td data-label="Por qué" role="cell">{{ r.motivo }}</td>
+                          </tr>
+                        </ng-template>
+                      </p-table>
                     }
                   } @else {
-                    @if (puedeGestionar()) {
-                      <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
-                                [disabled]="!!ocupado()" [loading]="ocupado() === f.clave" (onClick)="capturarHoja(f.h)"></p-button>
-                    }
-                    <small class="fin-dim">Pagada, pero {{ f.h.pago?.sin_capturar }} {{ f.h.pago?.sin_capturar === 1 ? 'pago no ha entrado' : 'pagos no han entrado' }} al libro (casi siempre, la cuenta del beneficiario).</small>
+                    <p class="rp-desglose">
+                      Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }} · aprobó {{ f.h.aprobada_por_nombre ?? 'sin nombre' }} ·
+                      al pagarla, sus {{ f.h.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
+                    </p>
+                    <ng-container *ngTemplateOutlet="depositoHoja; context: { $implicit: f.h }" />
+                    <ng-container *ngTemplateOutlet="renglonesHoja; context: { $implicit: f.h.renglones }" />
                   }
                 </td>
-              } @else {
+              </tr>
+            </ng-template>
+          </p-table>
+        </app-load-state>
+      </section>
+
+      <!-- ═══ ACTO 2: vigilar que llegue el depósito de cada hoja pagada ═══ -->
+      <section class="rp-bloque" aria-labelledby="rp-t-control" data-testid="rp-control">
+        <div class="rp-control-head">
+          <h3 class="rp-t" id="rp-t-control">Hojas pagadas y su depósito</h3>
+          @if (hojas()) {
+            <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="vista.set($any($event))"
+                           ariaLabel="Qué hojas ver" />
+          }
+        </div>
+        <!-- [LE.6.20] Una zona cuya cuenta de depósito no está medida se dice UNA vez, aquí, no en cada renglón. -->
+        @for (z of zonasSinMedir(); track z.zona) {
+          <p class="rp-nota" data-testid="rp-cuenta-sin-medir"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ z.texto }}</p>
+        }
+        <app-load-state class="dt-scope" [loading]="leyendoHojas() && !hojas() && !hojasNoLeidas()" [skeletonRows]="3"
+                        [error]="hojasNoLeidas() ? 'No se sabe qué hojas esperan su depósito.' : null"
+                        errorTitle="Las hojas de zona no se pudieron leer" (retry)="cargar()"
+                        [isEmpty]="!hojasControl().length" emptyIcon="pi-check-circle"
+                        [emptyTitle]="vacioControl().titulo" [emptyHint]="vacioControl().pista">
+          <p-table [value]="hojasControl()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-ctl dt-stack"
+                   selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
+                   (selectionChange)="filaActiva.set($any($event))">
+            <ng-template #header>
+              <tr>
+                <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
+                <th>Hoja</th>
+                <th>Zona</th>
+                <th>Pagada</th>
+                <th class="rp-num-h">Monto</th>
+                <th>Depósito</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f let-expanded="expanded">
+              <tr [pSelectableRow]="f" (keydown.enter)="enterEnFila($event, f.clave)" data-testid="rp-ctl-fila" [attr.data-hoja]="f.h.folio">
+                <td class="rp-col-tog dt-actions" data-label="Detalle" role="cell">
+                  <button pButton type="button" text severity="secondary" class="p-button-sm rp-tog" [attr.aria-expanded]="!!expanded"
+                          [attr.aria-label]="(expanded ? 'Ocultar' : 'Ver') + ' el detalle de ' + f.h.folio" (click)="alternar(f.clave)">
+                    <span class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></span>
+                  </button>
+                </td>
+                <td class="rp-mono dt-id" data-label="Hoja" role="cell">{{ f.h.folio }}</td>
+                <td data-label="Zona" role="cell">{{ f.h.nombre_zona }}</td>
+                <td class="rp-mono" data-label="Pagada" role="cell">
+                  @if (f.h.pago; as p) { {{ dmy(diaMx(p.pagada_at)) }} } @else { <span class="rp-dim">sin pagar</span> }
+                </td>
+                <td class="rp-num dt-num" data-label="Monto" role="cell">{{ money(f.h.total) }}</td>
+                <td data-label="Depósito" role="cell" data-testid="rp-deposito" [attr.data-vencido]="f.h.pago?.deposito?.vencido ?? null">
+                  @let e = estadoDeposito(f.h);
+                  <p-tag [severity]="e.sev" [icon]="e.icono" [value]="e.texto"></p-tag>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #expandedrow let-f>
+              <tr>
+                <td colspan="6" class="rp-det" role="cell">
+                  <!-- En una línea: qué falta y quién. Lo largo, plegado debajo. -->
+                  <p class="rp-falta-linea" data-testid="rp-que-falta">{{ queFalta(f.h) }}</p>
+                  @if (f.h.pago; as p) {
+                    <p class="rp-desglose">Pagada <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>@if (p.pagada_por_nombre) { · la pagó {{ p.pagada_por_nombre }} }.</p>
+                    <ng-container *ngTemplateOutlet="depositoHoja; context: { $implicit: f.h }" />
+                    @if (!depositoValidado(f.h) && !p.sin_capturar) {
+                      <details class="rp-porque">
+                        <summary>Lo que se buscó</summary>
+                        <!-- [LE.6.30] La incidencia (vencido) no se ve igual que la espera: lo dice el texto, el color sólo acompaña. -->
+                        <p data-testid="rp-falta-deposito" [attr.data-vencido]="p.deposito.vencido ?? null">
+                          <strong [class.rp-vencido]="depositoVencido(f.h)">{{ etiquetaSinDeposito(f.h) }}:</strong>
+                          {{ p.deposito.nota ?? 'no se pudo leer si llegó.' }}
+                          <!-- [LE.6.31] El segundo testigo: si el dinero llegó a la cuenta de la zona. -->
+                          @if (p.deposito.banco; as b) { <span class="d-block" data-testid="rp-banco">{{ b.texto }}</span> }
+                        </p>
+                      </details>
+                    }
+                  } @else {
+                    <p class="rp-desglose">
+                      Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }}@if (f.h.aprobada_por_nombre) { · aprobó {{ f.h.aprobada_por_nombre }} }@if (f.h.motivo) { · {{ f.h.motivo }} }.
+                    </p>
+                  }
+                  <ng-container *ngTemplateOutlet="renglonesHoja; context: { $implicit: f.h.renglones }" />
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </app-load-state>
+      </section>
+
+      <!-- [LE.6.20] Pagos de la zona que NO van en la hoja: lo que el banco cubre sin depósito y lo que ya se
+           repuso (hoja en papel o depósito). Un solo plegable para todas las zonas, no uno por zona. -->
+      @if (fueraDeHoja().length) {
+        <details class="rp-plegable" data-testid="rp-repuesto">
+          <summary>
+            <strong>Pagos de zona que no van en una hoja</strong>
+            <span class="rp-dim"> · {{ resumenFuera() }}</span>
+          </summary>
+          @if (nSinDeposito()) {
+            <p class="rp-desglose">Sin depósito que los reponga: no se reponen aquí. Si se repusieron en partes, los liga una persona a su retiro; si son gasto normal, se pagan en la cola.</p>
+          }
+          @if (bancosDeZonas()) { <p class="rp-desglose rp-dim">{{ bancosDeZonas() }}.</p> }
+          <p-table [value]="fueraDeHoja()" size="small" class="rp-mini" data-testid="rp-sin-deposito">
+            <ng-template #header>
+              <tr><th>Zona</th><th>Días de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Qué pasó</th></tr>
+            </ng-template>
+            <ng-template #body let-d>
+              <tr>
+                <td data-label="Zona" role="cell">{{ d.zona }}</td>
+                <td class="rp-mono" data-label="Días de pago" role="cell">{{ dmy(d.desde) }}@if (d.hasta !== d.desde) { – {{ dmy(d.hasta) }} }</td>
+                <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ d.n }}</td>
+                <td class="rp-num dt-num" data-label="Total" role="cell">{{ money(d.total) }}</td>
+                <td data-label="Qué pasó" role="cell">{{ d.texto }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </details>
+      }
+
+      <!-- [CGA-A.61] La reposición POR SUCURSAL sigue viva, con sus acciones intactas: aquí abajo y plegada
+           si no tiene nada que se resuelva en la fila. -->
+      <details class="rp-plegable" data-testid="rp-otras" [open]="otrasAbiertas()">
+        <summary>
+          <strong>Otras sucursales (sin hoja de zona)</strong>
+          <span class="rp-dim"> · {{ resumenOtras() }}</span>
+        </summary>
+        <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!filasGrupo().length" [skeletonRows]="3"
+                        errorTitle="No se pudo leer la reposición" emptyIcon="pi-check-circle"
+                        emptyTitle="Nada por reponer"
+                        emptyHint="Sin documentos de caja de sucursal pendientes en estos días."
+                        (retry)="cargar()">
+          <p-table [value]="filasGrupo()" size="small" dataKey="clave" [expandedRowKeys]="abiertas()" class="rp-tbl dt-stack"
+                   selectionMode="single" [metaKeySelection]="false" [selection]="filaActiva()"
+                   (selectionChange)="filaActiva.set($any($event))">
+            <ng-template #header>
+              <tr>
+                <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
+                <th>Sucursal</th>
+                <th class="rp-num-h">Por resolver</th>
+                <th>Qué sigue</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f let-expanded="expanded">
+              <tr [pSelectableRow]="f" (keydown.enter)="enterEnFila($event, f.clave)">
+                <td class="rp-col-tog dt-actions" data-label="Detalle" role="cell">
+                  <button pButton type="button" text severity="secondary" class="p-button-sm rp-tog" [attr.aria-expanded]="!!expanded"
+                          [attr.aria-label]="(expanded ? 'Ocultar' : 'Ver') + ' el desglose de ' + quienGrupo(f.g)" (click)="alternar(f.clave)">
+                    <span class="pi" [class.pi-chevron-down]="expanded" [class.pi-chevron-right]="!expanded" aria-hidden="true"></span>
+                  </button>
+                </td>
                 <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
                   <strong>{{ nombre(f.g.sucursal) }}</strong>
                   <small>{{ dmy(f.g.fecha) }} · {{ textoDocs(f.g) }}</small>
@@ -410,86 +595,11 @@ export function avisoDePagoHoja(
                     }
                   }
                 </td>
-              }
-            </tr>
-          </ng-template>
-          <ng-template #expandedrow let-f>
-            <tr>
-              <td colspan="4" class="rp-det" role="cell">
-                @if (f.tipo === 'abierta') {
-                  <p class="rp-desglose">
-                    Al pagarla, sus {{ f.a.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
-                    Lo que sale del cajón se cuenta por pieza antes de pagar.
-                  </p>
-                  <p-table [value]="f.a.renglones" size="small" class="rp-mini">
-                    <ng-template #header>
-                      <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
-                    </ng-template>
-                    <ng-template #body let-r>
-                      <tr>
-                        <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
-                        <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
-                        <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
-                        <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
-                        <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
-                      </tr>
-                    </ng-template>
-                  </p-table>
-                  @if (f.a.detenidos.length) {
-                    <p class="rp-desglose">Esperan su aprobación y no entran a esta reposición:</p>
-                    <p-table [value]="f.a.detenidos" size="small" class="rp-mini" data-testid="rp-detenidos">
-                      <ng-template #header>
-                        <tr><th>Sucursal</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th><th>Por qué</th></tr>
-                      </ng-template>
-                      <ng-template #body let-r>
-                        <tr>
-                          <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
-                          <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
-                          <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
-                          <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
-                          <td data-label="Por qué" role="cell">{{ r.motivo }}</td>
-                        </tr>
-                      </ng-template>
-                    </p-table>
-                  }
-                } @else if (f.tipo === 'hoja') {
-                  <p class="rp-desglose">
-                    Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }} · aprobó {{ f.h.aprobada_por_nombre ?? 'sin nombre' }} ·
-                    al pagarla, sus {{ f.h.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
-                  </p>
-                  @if (f.h.pago; as p) {
-                    <!-- [LE.6.24] Lo que se repone contra el depósito que lo repuso: su folio de Kepler y si cuadra. -->
-                    <p class="rp-desglose" data-testid="rp-hoja-deposito">
-                      Se repone <span class="rp-mono">{{ money(f.h.total) }}</span> ·
-                      @if (p.deposito.depositos?.[0]; as d) {
-                        @if (d.folio) {
-                          depósito <span class="rp-mono">U-A-5 {{ d.folio }}</span> de {{ nombre(d.sucursal ?? '') }}, {{ dmy(d.dia) }}, a la cuenta {{ d.banco }}:
-                        } @else {
-                          depósito del {{ dmy(d.dia) }}:
-                        }
-                        <span class="rp-mono">{{ money(d.importe) }}</span> · <strong>cuadra</strong>
-                        @if (p.deposito.diferencia) { <span class="fin-dim">({{ diferenciaTexto(p.deposito.diferencia) }} de redondeo)</span> }
-                      } @else {
-                        <strong>sin depósito que cuadre</strong> — {{ p.deposito.nota ?? 'el depósito todavía no aparece.' }}
-                      }
-                      @if (p.deposito.banco; as b) { <span class="d-block" data-testid="rp-hoja-banco">{{ b.texto }}</span> }
-                    </p>
-                  }
-                  <p-table [value]="f.h.renglones" size="small" class="rp-mini">
-                    <ng-template #header>
-                      <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
-                    </ng-template>
-                    <ng-template #body let-r>
-                      <tr>
-                        <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
-                        <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
-                        <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
-                        <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
-                        <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
-                      </tr>
-                    </ng-template>
-                  </p-table>
-                } @else {
+              </tr>
+            </ng-template>
+            <ng-template #expandedrow let-f>
+              <tr>
+                <td colspan="4" class="rp-det" role="cell">
                   <p class="rp-desglose">
                     Kepler <span class="rp-mono">{{ money(f.g.total) }}</span> = de CAOS <span class="rp-mono">{{ money(f.g.caos) }}</span>
                     + del cajón <span class="rp-mono">{{ money(f.g.cajon) }}</span>
@@ -565,17 +675,17 @@ export function avisoDePagoHoja(
                       </tr>
                     </ng-template>
                   </p-table>
-                }
-              </td>
-            </tr>
-          </ng-template>
-        </p-table>
-      </app-load-state>
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </app-load-state>
+      </details>
 
       <!-- [LE.6.25] Lo que oficinas pagó a cuenta de una sucursal: se le CARGA, no se le repone. Va aparte
            para que nadie lo busque en la reposición ni lo confunda con ella. -->
       @if (cargosOficinas().length) {
-        <details class="rp-repuesto" data-testid="rp-oficinas">
+        <details class="rp-plegable" data-testid="rp-oficinas">
           <summary>
             <strong>Pagado por oficinas a cuenta de una sucursal:</strong>
             {{ cargosOficinas().length }} {{ cargosOficinas().length === 1 ? 'pago' : 'pagos' }} ({{ money(totalCargosOficinas()) }})
@@ -605,7 +715,7 @@ export function avisoDePagoHoja(
       @if (datos(); as d) {
         <p class="rp-universo fin-dim">
           @for (z of d.universo.en_hoja ?? []; track z.zona) {
-            {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de estos días ({{ money(z.total) }}) van en su hoja, no en esta lista.
+            {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de estos días ({{ money(z.total) }}) van en su hoja, no en la lista por sucursal.
           }
           @for (z of d.universo.antes_de_hoja ?? []; track z.zona) {
             {{ nombreZona(z.zona) }}: {{ z.n }} {{ z.n === 1 ? 'pago' : 'pagos' }} de antes del {{ dmy(z.desde) }} ({{ money(z.total) }}) nunca entraron al libro; no se capturan hoy (caerían en el corte de hoy).
@@ -686,22 +796,35 @@ export function avisoDePagoHoja(
     /* Encabezado de columna: --fs-micro, mayúsculas y atenuado (DESIGN.md, escala tipográfica). Antes
        heredaba el tamaño del cuerpo y en negritas: pesaba más que las cifras que nombra. */
     :host ::ng-deep .rp-tbl .p-datatable-thead > tr > th,
+    :host ::ng-deep .rp-pagar .p-datatable-thead > tr > th,
+    :host ::ng-deep .rp-ctl .p-datatable-thead > tr > th,
     :host ::ng-deep .rp-mini .p-datatable-thead > tr > th {
       font-family:var(--font-body); font-size:var(--fs-micro); font-weight:700; text-transform:uppercase;
       letter-spacing:.06em; color:var(--text-muted);
     }
     .rp-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); }
     .rp-sp { flex:1 1 auto; }
-    .rp-lead { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); font-weight:700; color:var(--fg-1); }
-    .rp-lead-sub { font-family:var(--font-body); font-weight:400; color:var(--text-muted); }
     .rp-warn { color:var(--warn-soft-fg); font-size:var(--fs-xs); }
-    .rp-kpis { display:block; margin-bottom:var(--sp-2); }
+    .rp-kpis { display:block; margin-bottom:var(--sp-3); }
     .rp-hojas { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin:0 0 var(--sp-2);
                 font-size:var(--fs-sm); color:var(--fg-2); }
-    .rp-repuesto { margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--fg-2); }
-    .rp-repuesto > summary { cursor:pointer; padding:var(--sp-1) 0; }
+    /* [LE.6.36] Dos bloques, uno por acto. El grupo lo hace el espacio, no una caja (Gestalt). */
+    .rp-bloque { margin:0 0 var(--sp-5); }
+    .rp-t { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin:0 0 var(--sp-2);
+            font-size:var(--fs-sm); font-weight:700; color:var(--fg-1); }
+    .rp-t-cifra { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-lg); }
+    .rp-control-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); justify-content:space-between; }
+    .rp-nota { margin:0 0 var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted); }
+    .rp-sub { display:block; font-family:var(--font-body); font-size:var(--fs-xs); color:var(--text-muted); }
+    .rp-tog { width:2rem; height:2rem; padding:0; }
+    .rp-falta-linea { margin:0 0 var(--sp-2); font-weight:600; color:var(--fg-1); }
+    .rp-porque { margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--fg-2); }
+    .rp-porque > summary { cursor:pointer; color:var(--text-muted); }
+    .rp-porque > p { margin:var(--sp-1) 0 0; max-width:70rem; }
+    .rp-plegable { margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--fg-2); }
+    .rp-plegable > summary { cursor:pointer; padding:var(--sp-1) 0; }
     .rp-pagado { font-size:var(--fs-sm); color:var(--fg-2); }
-    .rp-repuesto > summary:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:2px; }
+    .rp-plegable > summary:focus-visible, .rp-porque > summary:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:2px; }
     .rp-dim { color:var(--text-muted); }
     .rp-num-h { text-align:right; }
     .rp-num { text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -711,7 +834,7 @@ export function avisoDePagoHoja(
     .rp-quien strong { display:block; font-weight:600; color:var(--fg-1); }
     .rp-quien small, .rp-cifra small { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
     .rp-cifra { text-align:right; white-space:nowrap; }
-    .rp-cifra strong { display:block; font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-md); font-weight:700; color:var(--fg-1); }
+    .rp-cifra strong { display:block; font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-body); font-weight:700; color:var(--fg-1); }
     .rp-dim { color:var(--text-muted); }
     .rp-falta { font-weight:600; color:var(--fg-1); }
     .rp-vencido { color:var(--bad-fg); }
@@ -722,6 +845,9 @@ export function avisoDePagoHoja(
     .rp-sel { min-width:14rem; }
     .rp-det { background:var(--surface-2); padding:var(--sp-3); }
     .rp-desglose { margin:0 0 var(--sp-2); color:var(--fg-2); }
+    /* [LE.6.35] El renglon que se busco desde la cola: un borde, no un color de fondo que compita con los avisos. */
+    .rp-buscado > td { box-shadow: inset 0 0 0 2px var(--focus-ring, var(--action)); }
+    .rp-buscado-aviso { margin:0 0 var(--sp-3); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm,8px); background:var(--surface-2, var(--card-bg)); border:1px solid var(--border-color); color:var(--text-main); }
     .rp-prop { border:1px solid var(--border-color); border-radius:var(--r-md, 8px); padding:var(--sp-3); margin-bottom:var(--sp-3);
                display:flex; flex-direction:column; gap:var(--sp-2); }
     .rp-prop-t { margin:0; }
@@ -750,6 +876,8 @@ export class CajaReposicionComponent implements OnInit {
   // El p-toast lo pone Captura (providers: [MessageService]): este componente vive adentro.
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   /** Reponer es el lote de la cola, y pagar una hoja, su retiro: lo puede quien gestiona la caja. */
   readonly puedeGestionar = input(false);
@@ -775,20 +903,23 @@ export class CajaReposicionComponent implements OnInit {
   /** `[CGA-A.65]` Las hojas de zona. `null` + `hojasNoLeidas` = no se pudo leer: se dice, no se pinta vacío. */
   readonly hojas = signal<HojasDeGastos | null>(null);
   readonly hojasNoLeidas = signal(false);
+  /** `[LE.6.36]` Las hojas van en camino: «cargando» no es «nada por pagar». */
+  readonly leyendoHojas = signal(false);
+  /** `[LE.6.36]` El día de hoy (México) con que se cuentan los días desde el pago; se toma al leer. */
+  readonly hoy = signal(todayMx());
   /** `[CGA-A.63]` La ventana de la reposición; la abre el botón de la barra de Captura. */
   readonly abierta = signal(false);
   /** El botón que la abrió: al cerrar, el foco vuelve ahí y no al `<body>`. */
   private origen: HTMLElement | null = null;
   /**
-   * Qué grupos se ven. ⭐ Medido en prod el 2026-10-28 (ventana 22–28/10): de 28 sucursal-día, 20
-   * tenían egresos sin vincular y NINGÚN retiro de su sucursal — son de antes del proceso nuevo, o
-   * se pagaron por otro lado. Mezclados con los de un clic, la lista de «pendientes» era casi toda
-   * filas sin acción posible. Van aparte: son la señal de descuadre, no trabajo de un clic.
+   * ⭐ `[LE.6.36]` El filtro del control de hojas pagadas. Abre en «Esperan depósito», lo vencido primero: es el
+   * acto 2 del día (vigilar que llegue). Reemplaza las pestañas «Reposiciones / Historial» (`[LE.6.21]`): lo que
+   * hay que PAGAR ya no depende del filtro, va siempre arriba.
    */
-  readonly vista = signal<'reposiciones' | 'historial'>('reposiciones');
+  readonly vista = signal<VistaReposicion>('deposito');
   readonly abiertas = signal<Record<string, boolean>>({});
   /** D.7: la fila con el foco de teclado (flechas por `pSelectableRow`; Enter abre su desglose). */
-  readonly filaActiva = signal<Fila | null>(null);
+  readonly filaActiva = signal<FilaPagar | FilaControl | FilaGrupo | null>(null);
   /** Lo que está escribiendo (idempotencia visual): la clave de la fila, o `'mover'`. */
   readonly ocupado = signal<string | null>(null);
   private readonly elegidos = signal<Record<string, string>>({});
@@ -832,13 +963,11 @@ export class CajaReposicionComponent implements OnInit {
   /** `[LE.6.19]` La hoja abierta de cada zona con algo que pagar: se paga aquí, en un acto. */
   readonly abiertasPorPagar = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.renglones.length > 0));
   readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length + this.abiertasPorPagar().length);
-  /** `[LE.6.21]` Lo de la pestaña «Reposiciones»: lo que se resuelve en la fila y lo que ningún retiro explica. */
-  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length + this.hojasSinDeposito().length);
   /**
    * ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
    * depósito y que no se regresa dinero que nunca salió». Una hoja pagada sin su `U-A-5` en Kepler (o con
-   * el depósito sin medir o ambiguo) NO está validada: se queda aquí hasta que aparezca. Medido en prod el
-   * 9/11: 4 de 13 hojas pagadas tienen su depósito.
+   * el depósito sin medir o ambiguo) NO está validada: se queda en «Esperan depósito» hasta que aparezca.
+   * Medido en prod el 9/11: 4 de 13 hojas pagadas tienen su depósito.
    */
   depositoValidado(h: HojaGastos): boolean { return h.pago?.deposito?.estado === 'depositada'; }
   readonly hojasSinDeposito = computed(() => (this.hojas()?.cerradas ?? [])
@@ -851,9 +980,10 @@ export class CajaReposicionComponent implements OnInit {
   depositoVencido(h: HojaGastos): boolean { return h.pago?.deposito?.vencido === true; }
   /**
    * ⭐ `[LE.6.31]` El estado de cuenta de la zona es el segundo testigo: el dinero está en el banco y sólo falta su
-   * `U-A-5` en Kepler. No es vencido ni cuenta como pagado sin depósito; se queda aquí hasta que se capture.
+   * `U-A-5` en Kepler. No es vencido; se queda en «Esperan depósito» hasta que se capture.
    */
   enBancoSinKepler(h: HojaGastos): boolean { return !this.depositoValidado(h) && h.pago?.deposito?.banco?.estado === 'encontrado'; }
+  /** La etiqueta larga de lo que se buscó (va al detalle, con la nota del servidor). */
   etiquetaSinDeposito(h: HojaGastos): string {
     const b = h.pago?.deposito?.banco?.estado;
     if (b === 'encontrado') return 'En el banco, falta en Kepler';
@@ -863,67 +993,246 @@ export class CajaReposicionComponent implements OnInit {
   }
   readonly hojasVencidas = computed(() => this.hojasSinDeposito().filter((h) => this.depositoVencido(h)));
   readonly hojasEnEspera = computed(() => this.hojasSinDeposito().filter((h) => !this.depositoVencido(h)));
-  /** `[LE.6.21]` Las hojas de zona ya pagadas, con todo en el libro y (`[LE.6.27]`) su depósito: van al historial. */
+  /** `[LE.6.21]` Las hojas de zona ya pagadas, con todo en el libro y (`[LE.6.27]`) su depósito: «Repuestas». */
   readonly hojasPagadas = computed(() => (this.hojas()?.cerradas ?? [])
     .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0) && this.depositoValidado(h)));
 
-  readonly filas = computed<Fila[]>(() => {
-    const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
-    const deHoja = (hs: HojaGastos[]): Fila[] => hs.map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h }));
-    // `[LE.6.21]` PM, 2026-11-06: «solo dos pestañas, una donde se muestran las reposiciones, y otra de historial».
-    if (this.vista() === 'historial') return [...deHoja(this.hojasPagadas()), ...deGrupo(this.explicadas())];
-    // `[LE.6.30]` La incidencia primero (depósito vencido); después lo que tiene acción; lo que sólo espera a
-    // Kepler, después de lo accionable; lo que ningún retiro explica, al final (es la señal de descuadre).
-    return [
-      ...deHoja(this.hojasVencidas()),
-      ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
-      ...deHoja(this.hojasPorPagar()),
-      ...deGrupo(this.accionables()),
-      ...deHoja(this.hojasEnEspera()),
-      ...deGrupo(this.sinRetiro()),
-    ];
-  });
-  readonly opcionesVista = computed<SegOption[]>(() => [
-    { label: 'Reposiciones', value: 'reposiciones', count: this.nPendientes() },
-    { label: 'Historial', value: 'historial', count: this.hojasPagadas().length + this.explicadas().length },
+  // ── `[LE.6.36]` Acto 1: lo que hay que pagar hoy ──────────────────────────────────────────────
+
+  /** Una fila por zona con algo que pagar (la abierta) y lo que quedó del carril viejo con su acción. */
+  readonly porPagar = computed<FilaPagar[]>(() => [
+    ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
+    ...this.hojasPorPagar().map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h })),
   ]);
+  /** Lo que sale hoy: las abiertas y las aprobadas. Una pagada con algo sin capturar ya salió: no suma. */
+  readonly totalPorPagar = computed(() => Math.round((this.abiertasPorPagar().reduce((t, a) => t + a.total, 0)
+    + this.hojasPorPagar().filter((h) => h.estado === 'aprobada').reduce((t, h) => t + h.total, 0)) * 100) / 100);
 
   /**
-   * `[CGA-A.65]` Lo que quedó del carril viejo esperando a otra persona: una hoja cerrada sin aprobar. Desde
-   * `[LE.6.19]` la abierta se paga en la lista, sin cerrarla ni aprobarla aparte.
+   * ⭐ `[LE.6.36]` La respuesta en una línea (Q.1): tres cifras, una por pregunta del día, cada una de SU lista.
+   * Reemplazan las tres tiras viejas (no se suman a ellas). Sin hojas leídas se declaran «no medido», nunca $0.
    */
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    if (!this.hojas()) {
+      const nota = this.hojasNoLeidas() ? 'Las hojas de zona no se pudieron leer' : 'Leyendo las hojas de zona';
+      return (['Por pagar hoy', 'Esperan depósito', 'Repuestas'] as const).map((label) => ({
+        label, value: this.hojasNoLeidas() ? 'sin leer' : 'leyendo…', format: 'text' as const, state: 'no_medido' as const, stateNote: nota,
+      }));
+    }
+    const zonas = this.porPagar().length;
+    const espera = this.hojasSinDeposito();
+    const nv = this.hojasVencidas().length;
+    const repuestas = this.hojasPagadas().length;
+    // `[LE.6.31]` La que ya está en el banco sigue esperando su U-A-5 (está en la lista), pero se dice aparte.
+    const enBanco = espera.filter((h) => this.enBancoSinKepler(h)).length;
+    return [
+      { label: 'Por pagar hoy', value: this.totalPorPagar(), format: 'currency2', tone: 'default',
+        sub: zonas ? `${zonas} ${zonas === 1 ? 'renglón' : 'renglones'} con su botón` : 'nada por pagar' },
+      { label: 'Esperan depósito', value: Math.round(espera.reduce((t, h) => t + h.total, 0) * 100) / 100, format: 'currency2',
+        tone: nv ? 'bad' : espera.length ? 'warn' : 'ok',
+        sub: `${espera.length} ${espera.length === 1 ? 'hoja' : 'hojas'}${nv ? ` · ${nv} ${nv === 1 ? 'vencida' : 'vencidas'}` : ''}`
+          + (enBanco ? ` · ${enBanco} ya en el banco` : '') },
+      { label: 'Repuestas', value: repuestas, format: 'number', tone: 'muted', sub: 'con su U-A-5 en Kepler' },
+    ];
+  });
+
+  // ── `[LE.6.36]` Acto 2: vigilar el depósito de cada hoja pagada ────────────────────────────────
+
   /**
-   * `[LE.6.20]` Por zona: lo que ya se repuso (con su testigo) y lo que el banco cubre sin depósito, agrupado
-   * por día. Una zona sin cuenta medida y con algo por reponer también sale: no se sabe qué ya se repuso.
+   * Las hojas del filtro. «Esperan depósito»: lo vencido primero, después lo que espera. «Repuestas»: las que ya
+   * tienen su `U-A-5`. «Todas»: cada hoja que mandó el servidor (también las del carril viejo), lo vencido primero.
    */
-  readonly repuestoDeZonas = computed(() => (this.hojas()?.abiertas ?? []).map((a) => {
-    const porDia = new Map<string, { dia: string; n: number; total: number; motivo: string }>();
+  readonly hojasControl = computed<FilaControl[]>(() => {
+    const v = this.vista();
+    const vencidas = this.hojasVencidas();
+    const lista = v === 'deposito' ? [...vencidas, ...this.hojasEnEspera()]
+      : v === 'repuestas' ? this.hojasPagadas()
+        : [...vencidas, ...(this.hojas()?.cerradas ?? []).filter((h) => !vencidas.includes(h))];
+    return lista.map((h) => ({ clave: `ctl|${h.id}`, h }));
+  });
+  /** Los conteos van DENTRO del nombre del filtro: sin hojas leídas no hay conteo (no se dibuja un cero). */
+  readonly opcionesVista = computed<SegOption[]>(() => {
+    const h = this.hojas();
+    return [
+      { label: 'Esperan depósito', value: 'deposito', count: h ? this.hojasSinDeposito().length : undefined },
+      { label: 'Repuestas', value: 'repuestas', count: h ? this.hojasPagadas().length : undefined },
+      { label: 'Todas', value: 'todas', count: h ? h.cerradas.length : undefined },
+    ];
+  });
+  readonly vacioControl = computed(() => {
+    const v = this.vista();
+    if (v === 'deposito') return { titulo: 'Ninguna hoja espera su depósito', pista: 'Cada hoja pagada ya tiene su U-A-5 en Kepler.' };
+    if (v === 'repuestas') return { titulo: 'Ninguna hoja repuesta todavía', pista: 'Una hoja pasa aquí cuando aparece su U-A-5 en Kepler.' };
+    return { titulo: 'Sin hojas de zona', pista: 'Todavía no se ha cerrado ninguna hoja.' };
+  });
+
+  /** El día de México de una marca de tiempo del servidor. */
+  diaMx(valor: string | null | undefined): string { return diaMxDe(valor); }
+
+  /** Días desde el ancla del depósito (el día del retiro, o el del pago si salió del cajón), como el servidor. */
+  diasDesdePago(h: HojaGastos): number | null {
+    const p = h.pago;
+    if (!p) return null;
+    const ancla = p.retiro?.dia ?? diaMxDe(p.pagada_at);
+    const hoy = this.hoy();
+    if (!/^\d{4}-\d{2}-\d{2}/.test(ancla) || !/^\d{4}-\d{2}-\d{2}/.test(hoy)) return null;
+    const dia = (s: string) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+    return Math.max(0, Math.round((dia(hoy) - dia(ancla)) / 86_400_000));
+  }
+
+  /**
+   * ⭐ `[LE.6.36]` El depósito en una frase corta (≤ 8 palabras), con icono y severidad. Lo largo va al detalle.
+   * ⛔ Sin medir no es vencido ni «$0»: es «cuenta sin medir». La incidencia (vencido, no llegó) es la única roja.
+   */
+  estadoDeposito(h: HojaGastos): EstadoDeposito {
+    const p = h.pago;
+    if (!p) {
+      if (h.estado === 'aprobada') return { texto: 'por pagar', icono: 'pi pi-arrow-up', sev: 'secondary' };
+      if (h.estado === 'cerrada') return { texto: 'espera aprobación', icono: 'pi pi-clock', sev: 'secondary' };
+      return { texto: h.estado === 'rechazada' ? 'rechazada' : h.estado === 'cancelada' ? 'cancelada' : 'sin pagar', icono: 'pi pi-ban', sev: 'secondary' };
+    }
+    if (p.sin_capturar) return { texto: `falta capturar ${p.sin_capturar}`, icono: 'pi pi-exclamation-circle', sev: 'warn' };
+    const d = p.deposito;
+    if (d.estado === 'depositada') {
+      const f = d.depositos?.[0]?.folio;
+      return { texto: f ? `U-A-5 ${f}` : 'depositada', icono: 'pi pi-check-circle', sev: 'success' };
+    }
+    if (d.estado === 'sin_medir') return { texto: 'cuenta sin medir', icono: 'pi pi-question-circle', sev: 'secondary' };
+    if (d.estado === 'ambiguo') return { texto: 'varios depósitos posibles', icono: 'pi pi-question-circle', sev: 'warn' };
+    const b = d.banco?.estado;
+    if (b === 'encontrado') return { texto: 'en el banco, falta en Kepler', icono: 'pi pi-building', sev: 'info' };
+    if (b === 'no_aparece') return { texto: 'no llegó al banco', icono: 'pi pi-times-circle', sev: 'danger' };
+    const n = this.diasDesdePago(h);
+    if (d.vencido === true) {
+      return { texto: n === null ? 'vencido' : `vencido · ${n} ${n === 1 ? 'día' : 'días'}`, icono: 'pi pi-times-circle', sev: 'danger' };
+    }
+    if (d.vencido === false) {
+      const t = n === null ? 'esperando' : n === 0 ? 'esperando · pagada hoy' : n <= 7 ? `esperando · día ${n} de 7` : `esperando · ${n} días`;
+      return { texto: t, icono: 'pi pi-clock', sev: 'secondary' };
+    }
+    return { texto: 'falta el depósito', icono: 'pi pi-exclamation-circle', sev: 'warn' };
+  }
+
+  /** Quién deposita y captura el `U-A-5` de una zona: sus sucursales, por nombre. */
+  private sucursalesDe(h: HojaGastos): string {
+    const z = ZONAS_HOJA_GASTOS.find((x) => x.clave === h.zona);
+    const suc = z ? [...z.sucursales] : h.por_sucursal.filter((s) => s.renglones).map((s) => s.sucursal);
+    return suc.length ? suc.map((s) => warehouseName(s)).join(' o ') : h.nombre_zona;
+  }
+
+  /** ⭐ `[LE.6.36]` En una línea: qué falta y quién lo hace. La explicación completa va plegada debajo. */
+  queFalta(h: HojaGastos): string {
+    const p = h.pago;
+    if (!p) {
+      if (h.estado === 'aprobada') return 'Falta pagarla: arriba, en «Por pagar hoy».';
+      if (h.estado === 'cerrada') return 'Falta que finanzas la apruebe (carril de antes).';
+      return `${h.estado === 'rechazada' ? 'Rechazada' : 'Cancelada'}: no se paga.`;
+    }
+    if (p.sin_capturar) return `Faltan ${p.sin_capturar} ${p.sin_capturar === 1 ? 'pago' : 'pagos'} en el libro: «Capturar lo que falta», arriba.`;
+    const d = p.deposito;
+    const quien = this.sucursalesDe(h);
+    if (d.estado === 'depositada') return 'Nada: su depósito está en Kepler y cuadra.';
+    if (d.estado === 'sin_medir') return 'No se puede validar: la clave de banco de la zona no está medida.';
+    if (d.estado === 'ambiguo') return 'Falta que una persona ligue cuál de los depósitos es el suyo.';
+    if (d.banco?.estado === 'encontrado') return `Falta capturar su U-A-5 en Kepler: lo captura ${quien}.`;
+    if (d.banco?.estado === 'no_aparece') return `Falta que ${quien} deposite ${money(h.total)} en la ${d.banco.cuenta ?? 'cuenta de la zona'}.`;
+    if (d.vencido === true) return `Falta su depósito de ${money(h.total)}: lo deposita y lo captura ${quien}.`;
+    if (d.vencido === false) return `Falta su depósito: ${quien} todavía no captura depósitos de después del pago.`;
+    return `Falta su depósito de ${money(h.total)}: lo deposita y lo captura ${quien}.`;
+  }
+
+  /**
+   * ⭐ `[LE.6.36]` La zona cuya cuenta de depósito no está medida, dicha UNA vez junto al filtro (Canindo hoy: su
+   * cuenta no está en el catálogo de bancos). Junta lo que dice la hoja abierta (`banco.cuenta: null`) y lo que
+   * dicen las pagadas (banco `sin_cuenta`, o la clave de Kepler sin medir).
+   */
+  readonly zonasSinMedir = computed<Array<{ zona: string; texto: string }>>(() => {
+    const h = this.hojas();
+    if (!h) return [];
+    const zonas = new Map<string, { nombre: string; banco: boolean; kepler: boolean }>();
+    const marca = (zona: string, nombre: string, que: 'banco' | 'kepler') => {
+      const z = zonas.get(zona) ?? { nombre, banco: false, kepler: false };
+      z[que] = true;
+      zonas.set(zona, z);
+    };
+    for (const a of h.abiertas ?? []) {
+      if (!a.banco?.cuenta && (a.renglones.length || (a.sin_deposito ?? []).length)) marca(a.zona, a.nombre, 'banco');
+    }
+    for (const c of h.cerradas ?? []) {
+      const d = c.pago?.deposito;
+      if (!d) continue;
+      if (d.banco?.estado === 'sin_cuenta') marca(c.zona, c.nombre_zona, 'banco');
+      if (d.estado === 'sin_medir') marca(c.zona, c.nombre_zona, 'kepler');
+    }
+    return [...zonas.entries()].map(([zona, z]) => ({
+      zona,
+      texto: z.kepler
+        ? `${z.nombre}: la clave de banco donde se deposita su reposición no está medida; su depósito no se puede validar.`
+        : `${z.nombre}: la cuenta donde se deposita su reposición no está medida: no se sabe qué ya se repuso por banco; su depósito se valida sólo con el U-A-5 de Kepler.`,
+    }));
+  });
+
+  /**
+   * `[LE.6.20]` Lo de cada zona que NO va en la hoja: lo que el banco cubre sin depósito (por día, con su motivo) y
+   * los tramos ya repuestos (hoja en papel o depósito, con su testigo). Una sola tabla, no un plegable por zona.
+   */
+  readonly fueraDeHoja = computed(() => (this.hojas()?.abiertas ?? []).flatMap((a) => {
+    const porDia = new Map<string, { zona: string; desde: string; hasta: string; n: number; total: number; texto: string; sin: true }>();
     for (const r of a.sin_deposito ?? []) {
-      const x = porDia.get(r.fecha_pago) ?? { dia: r.fecha_pago, n: 0, total: 0, motivo: r.motivo };
+      const x = porDia.get(r.fecha_pago) ?? { zona: a.nombre, desde: r.fecha_pago, hasta: r.fecha_pago, n: 0, total: 0, texto: `Sin depósito: ${r.motivo}`, sin: true as const };
       x.n += 1;
       x.total = Math.round((x.total + r.importe) * 100) / 100;
       porDia.set(r.fecha_pago, x);
     }
-    const dias = a.ya_repuestos ?? [];
-    const sinDeposito = [...porDia.values()].sort((p, q) => p.dia.localeCompare(q.dia));
-    return {
-      zona: a.zona, nombre: a.nombre, dias, sinDeposito,
-      repuesto: Math.round(dias.reduce((t, d) => t + d.total, 0) * 100) / 100,
-      nSinDeposito: (a.sin_deposito ?? []).length,
-      sinDepositoTotal: Math.round(sinDeposito.reduce((t, d) => t + d.total, 0) * 100) / 100,
-      cuenta: a.banco?.cuenta ?? null, cargadoHasta: a.banco?.cargado_hasta ?? null,
-    };
-  }).filter((z) => z.dias.length || z.sinDeposito.length || (!z.cuenta && (this.hojas()?.abiertas ?? []).some((a) => a.zona === z.zona && a.renglones.length))));
+    const sin = [...porDia.values()].sort((p, q) => p.desde.localeCompare(q.desde));
+    const ya = (a.ya_repuestos ?? []).map((d) => ({ zona: a.nombre, desde: d.desde, hasta: d.hasta, n: d.renglones, total: d.total,
+      texto: `Ya se repuso con ${d.como === 'papel' ? 'hoja en papel: ' : ''}${d.testigo}`, sin: false as const }));
+    return [...sin, ...ya];
+  }));
+  /** `[LE.6.20]` Hasta qué día se ve el banco de cada zona: sin eso, «sin depósito» no se puede leer. */
+  readonly bancosDeZonas = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.banco?.cuenta)
+    .map((a) => `${a.nombre}: cuenta ${a.banco.cuenta} cargada al ${a.banco.cargado_hasta ? dmy(a.banco.cargado_hasta) : 'sin movimientos'}`).join(' · '));
+  readonly nSinDeposito = computed(() => this.fueraDeHoja().filter((d) => d.sin).reduce((t, d) => t + d.n, 0));
+  readonly resumenFuera = computed(() => {
+    const sin = this.fueraDeHoja().filter((d) => d.sin);
+    const ya = this.fueraDeHoja().filter((d) => !d.sin);
+    const partes: string[] = [];
+    const n = this.nSinDeposito();
+    if (n) partes.push(`${n} ${n === 1 ? 'pago' : 'pagos'} sin depósito (${money(Math.round(sin.reduce((t, d) => t + d.total, 0) * 100) / 100)})`);
+    if (ya.length) partes.push(`${ya.length} ${ya.length === 1 ? 'tramo ya repuesto' : 'tramos ya repuestos'} (${money(Math.round(ya.reduce((t, d) => t + d.total, 0) * 100) / 100)})`);
+    return partes.join(' · ');
+  });
+
+  // ── `[CGA-A.61]` Otras sucursales: la reposición por sucursal, con sus acciones intactas ──────────
+
+  /** Lo que se resuelve en la fila primero; lo que ningún retiro explica después (la señal de descuadre); lo explicado al final. */
+  readonly filasGrupo = computed<FilaGrupo[]>(() => [...this.accionables(), ...this.sinRetiro(), ...this.explicadas()]
+    .map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g })));
+  /** Abierta si tiene algo que se resuelve en la fila, o si no se pudo leer (el error no se esconde). */
+  readonly otrasAbiertas = computed(() => this.accionables().length > 0 || !!this.error());
+  readonly resumenOtras = computed(() => {
+    const d = this.datos();
+    if (!d) return this.error() ? 'no se pudo leer' : 'leyendo…';
+    const partes = [`pago del ${dmy(d.desde)} al ${dmy(d.hasta)}`];
+    const a = this.accionables().length;
+    const s = this.sinRetiro().length;
+    const e = this.explicadas().length;
+    if (a) partes.push(`${a} por resolver`);
+    if (s) partes.push(`${s} sin retiro`);
+    if (e) partes.push(`${e} ${e === 1 ? 'explicada' : 'explicadas'}`);
+    if (!a && !s && !e) partes.push('nada');
+    return partes.join(' · ');
+  });
 
   readonly enEspera = computed<Array<{ clave: string; texto: string }>>(() => (this.hojas()?.cerradas ?? [])
     .filter((c) => c.estado === 'cerrada')
     .map((c) => ({ clave: `c|${c.id}`, texto: `${c.folio} (${c.nombre_zona}, ${money(c.total)}) quedó cerrada en el carril de antes y espera aprobación` })));
 
   /**
-   * `[CGA-A.63]` Lo que dice el botón de la barra sin abrir nada: las mismas cuentas que los
-   * filtros de la ventana, para que lo de afuera y lo de adentro digan lo mismo. Sin importes: el
-   * botón es la puerta, la cifra está adentro con su desglose. Lo que no se midió se dice; un
-   * Kepler sin medir no es «nada pendiente».
+   * `[CGA-A.63]` Lo que dice el botón de la barra sin abrir nada: las mismas cuentas que la ventana, para que
+   * lo de afuera y lo de adentro digan lo mismo. Sin importes: el botón es la puerta, la cifra está adentro
+   * con su desglose. Lo que no se midió se dice; un Kepler sin medir no es «nada pendiente». `[LE.6.36]` Y los
+   * depósitos vencidos, que son la incidencia del acto 2.
    */
   readonly resumen = computed(() => {
     const d = this.datos();
@@ -932,55 +1241,21 @@ export class CajaReposicionComponent implements OnInit {
     const partes: string[] = [];
     if (this.nPorResolver()) partes.push(`${this.nPorResolver()} por resolver`);
     if (this.sinRetiro().length) partes.push(`${this.sinRetiro().length} sin retiro`);
+    const v = this.hojasVencidas().length;
+    if (v) partes.push(`${v} ${v === 1 ? 'depósito vencido' : 'depósitos vencidos'}`);
+    if (this.hojasNoLeidas()) partes.push('hojas de zona sin leer');
     if (!d.caos_al) partes.push('CAOS sin medir');
     return partes.length ? partes.join(' · ') : 'nada pendiente';
   });
+  /** Lo que se anuncia al lector de pantalla cuando cambia: lo mismo que se ve arriba de cada bloque. */
+  readonly anuncio = computed(() => {
+    if (!this.hojas()) return this.hojasNoLeidas() ? 'Las hojas de zona no se pudieron leer' : '';
+    const n = this.porPagar().length;
+    const v = this.hojasVencidas().length;
+    return `${n ? n + ' por pagar' : 'Nada por pagar'} · ${this.hojasSinDeposito().length} esperan depósito${v ? `, ${v} vencidas` : ''}`;
+  });
   /** El título repite el rótulo del botón —como «Tu jornada»—; el resto va aquí. */
-  readonly subtitulo = computed(() => {
-    const d = this.datos();
-    return d ? `de sucursales · pago del ${dmy(d.desde)} al ${dmy(d.hasta)}` : 'de sucursales';
-  });
-
-  /**
-   * Tres cifras, y cada una dice de qué lista es: la auditoría encontró cinco de tres universos, y la
-   * roja ($121,992.87 el 29/10) no estaba en la lista de abajo. La aprobación y lo que espera su hoja
-   * no se perdieron: van en el renglón y en el pie.
-   */
-  readonly kpis = computed<MetricStripItem[]>(() => {
-    const porResolver = Math.round((this.accionables().reduce((a, g) => a + this.porResolverDe(g), 0)
-      + this.hojasPorPagar().filter((h) => h.estado === 'aprobada').reduce((a, h) => a + h.total, 0)
-      + this.abiertasPorPagar().reduce((a, h) => a + h.total, 0)) * 100) / 100;
-    const sinRetiro = this.sinRetiro().reduce((a, g) => a + g.sin_vincular, 0);
-    const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
-    const n = this.nPorResolver();
-    const m = this.sinRetiro().length;
-    // `[LE.6.31]` Lo que ya está en el banco no es «pagado sin depósito»: sólo le falta su U-A-5.
-    const enBanco = this.hojasSinDeposito().filter((h) => this.enBancoSinKepler(h)).length;
-    const sinDep = Math.round(this.hojasSinDeposito().filter((h) => !this.enBancoSinKepler(h)).reduce((a, h) => a + h.total, 0) * 100) / 100;
-    const k = this.hojasSinDeposito().length - enBanco;
-    const yaEnBanco = enBanco ? ` · ${enBanco} ya en el banco, sin su U-A-5 en Kepler` : '';
-    const nv = this.hojasVencidas().length;
-    const vencido = Math.round(this.hojasVencidas().reduce((a, h) => a + h.total, 0) * 100) / 100;
-    if (this.vista() === 'historial') {
-      const conRetiro = Math.round(this.explicadas().reduce((a, g) => a + g.caos, 0) * 100) / 100;
-      return [
-        { label: 'Con retiro de CAOS', value: conRetiro, format: 'currency2', tone: 'default', sub: 'de lo explicado en estos días' },
-        { label: 'Del cajón', value: cajon, format: 'currency2', tone: 'muted', sub: 'lo que CAOS no dio, en estos días' },
-      ];
-    }
-    return [
-      { label: 'Por resolver', value: porResolver, format: 'currency2', tone: 'default',
-        sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} con su acción en la fila` },
-      { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
-        sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} al final de la lista: CAOS no dice de dónde salió` },
-      // `[LE.6.27]` Lo pagado que todavía no prueba con un depósito que el dinero salió. `[LE.6.30]` Rojo si
-      // alguna ya está VENCIDA; y el subtítulo separa la incidencia de la espera.
-      { label: 'Pagado sin depósito', value: sinDep, format: 'currency2', tone: nv > 0 ? 'bad' : sinDep > 0 ? 'warn' : 'ok',
-        sub: (nv > 0
-          ? `${nv} ${nv === 1 ? 'vencida' : 'vencidas'} (${money(vencido)}): ya debían tener su depósito y no está · ${k - nv} en espera`
-          : `${k} ${k === 1 ? 'hoja pagada' : 'hojas pagadas'} sin su U-A-5 en Kepler`) + yaEnBanco },
-    ];
-  });
+  readonly subtitulo = computed(() => 'pagar cada hoja de zona y vigilar que llegue su depósito');
 
   /** `[CGA-A.62]` La aprobación de los días de la ventana, en una frase: antes era una cifra en cero. */
   readonly textoAprobacion = computed(() => {
@@ -989,12 +1264,6 @@ export class CajaReposicionComponent implements OnInit {
     if (!sinAprobar && !antes) return 'Nada espera firma ni se pagó antes de aprobarse.';
     return `${sinAprobar} ${sinAprobar === 1 ? 'gasto espera' : 'gastos esperan'} firma o se rechazó; ${antes} ${antes === 1 ? 'se pagó' : 'se pagaron'} antes de aprobarse.`;
   });
-
-  readonly textoVacio = computed(() => (this.vista() === 'historial'
-    ? 'Nada repuesto todavía en estos días' : 'Nada por reponer'));
-  readonly pistaVacio = computed(() => (this.vista() === 'historial'
-    ? 'Lo que se paga en «Reposiciones» aparece aquí con su retiro.'
-    : 'Sin documentos de caja de sucursal pendientes en estos días.'));
 
   /** `[LE.6.21]` Con qué se pagó lo explicado: los retiros de CAOS de sus documentos, y lo que puso el cajón. */
   textoPagoGrupo(g: ReposicionGrupo): string {
@@ -1059,15 +1328,94 @@ export class CajaReposicionComponent implements OnInit {
       error: (e) => { this.error.set(this.textoError(e)); this.cargando.set(false); },
     });
     // `[CGA-A.65]` Las hojas van aparte: si no se pueden leer, la reposición se ve igual y se dice.
+    this.hoy.set(todayMx());
+    this.leyendoHojas.set(true);
     this.api.hojasDeGastos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (h) => { this.hojas.set(h); this.hojasNoLeidas.set(false); },
-      error: () => { this.hojas.set(null); this.hojasNoLeidas.set(true); },
+      next: (h) => { this.hojas.set(h); this.hojasNoLeidas.set(false); this.leyendoHojas.set(false); this.ubicarBuscado(); },
+      error: () => { this.hojas.set(null); this.hojasNoLeidas.set(true); this.leyendoHojas.set(false); this.ubicarBuscado(); },
     });
+  }
+
+  /**
+   * ⭐ `[LE.6.35]` **Desde la cola, un pago «en hoja» lleva a SU hoja** (PM, 2026-11-19: *«cuando le doy al movimiento
+   * de en hoja, no me lleva a la hoja en la que se encuentra»*). Antes la fila abría una captura que el servidor iba a
+   * rechazar, y el aviso mandaba a «Finanzas › Gastos › Hoja de zona», una pantalla retirada en LE.6.19.
+   * Abre la ventana, y cuando llegan las hojas despliega la de la zona y resalta el renglón; si el pago no está en
+   * ninguna hoja que se pague aquí, dice dónde está y por qué.
+   *
+   * `[LE.6.36]` Ya no fuerza un filtro: un pago de la hoja abierta (o de una aprobada) cae en «Por pagar hoy», que
+   * siempre se ve; uno de una hoja ya pagada pone el filtro del control donde está esa hoja (`ubicarBuscado`).
+   */
+  abrirEn(origenRef: string, origen?: HTMLElement): void {
+    this.buscado = origenRef;
+    this.resaltado.set(null);
+    this.avisoBuscado.set(null);
+    this.abrirVentana(origen);
+  }
+  private buscado: string | null = null;
+  /** El renglón que se buscó desde la cola: se resalta en su tabla. */
+  readonly resaltado = signal<string | null>(null);
+  /** Dónde está (o por qué no está) el pago que se buscó, en palabras. */
+  readonly avisoBuscado = signal<string | null>(null);
+
+  private ubicarBuscado(): void {
+    const ref = this.buscado;
+    if (!ref) return;
+    this.buscado = null;
+    const doc = this.folioDoc(ref);
+    const h = this.hojas();
+    if (!h) { this.avisoBuscado.set(`No se pudieron leer las hojas de zona: no se puede ubicar ${doc}. Pulsa Actualizar.`); return; }
+    const tiene = (xs: ReadonlyArray<{ origen_ref: string }> | undefined) => !!xs?.some((x) => x.origen_ref === ref);
+    for (const a of h.abiertas ?? []) {
+      const enFila = a.renglones.length > 0;
+      if (tiene(a.renglones) || (enFila && tiene(a.detenidos))) {
+        this.abiertas.update((m) => ({ ...m, [`abierta|${a.zona}`]: true }));
+        this.resaltado.set(ref);
+        this.avisoBuscado.set(tiene(a.renglones)
+          ? `${doc} va en la reposición abierta de ${a.nombre}: se paga con ella, en «Por pagar hoy».`
+          : `${doc} va en la reposición de ${a.nombre}, pero espera su aprobación: no entra hasta aprobarse.`);
+        this.llevarA(ref);
+        return;
+      }
+      const det = a.detenidos.find((x) => x.origen_ref === ref);
+      if (det) { this.avisoBuscado.set(`${doc} va en la reposición de ${a.nombre}, pero no entra: ${det.motivo}.`); return; }
+      const sd = (a.sin_deposito ?? []).find((x) => x.origen_ref === ref);
+      if (sd) { this.avisoBuscado.set(`${doc} es de ${a.nombre} y no se repone aquí: ${sd.motivo}.`); return; }
+      const ap = (a.pagados_aparte ?? []).find((x) => x.origen_ref === ref);
+      if (ap) { this.avisoBuscado.set(`${doc} ya salió ${ap.como === 'cajon' ? 'del cajón' : 'de un retiro'}${ap.cg_folio ? ` (${ap.cg_folio})` : ''}: ya no se repone.`); return; }
+      const fu = a.fuera.find((x) => x.origen_ref === ref);
+      if (fu) { this.avisoBuscado.set(`${doc} no va en la reposición de ${a.nombre} (${fu.motivo}): se captura en la cola.`); return; }
+    }
+    for (const c of h.cerradas ?? []) {
+      if (tiene(c.renglones)) {
+        // `[LE.6.36]` Arriba si todavía se paga aquí; si no, en el control, con el filtro donde está la hoja.
+        if (this.porPagar().some((f) => f.clave === `hoja|${c.id}`)) {
+          this.abiertas.update((m) => ({ ...m, [`hoja|${c.id}`]: true }));
+          this.avisoBuscado.set(`${doc} va en la hoja ${c.folio} de ${c.nombre_zona}: está en «Por pagar hoy».`);
+        } else {
+          this.vista.set(this.hojasSinDeposito().includes(c) ? 'deposito' : this.hojasPagadas().includes(c) ? 'repuestas' : 'todas');
+          this.abiertas.update((m) => ({ ...m, [`ctl|${c.id}`]: true }));
+          this.avisoBuscado.set(`${doc} va en la hoja ${c.folio} de ${c.nombre_zona} (${c.estado}): está abierta en «Hojas pagadas y su depósito».`);
+        }
+        this.llevarA(ref);
+        return;
+      }
+    }
+    this.avisoBuscado.set(`${doc} no aparece en ninguna reposición de esta ventana: puede ser de antes de que su zona empezara a reponerse por hoja.`);
+  }
+
+  /** Resalta el renglón buscado y lo trae a la vista cuando ya se pintó. */
+  private llevarA(ref: string): void {
+    this.resaltado.set(ref);
+    afterNextRender(() => this.host.nativeElement.ownerDocument
+      .querySelector(`[data-rp-ref="${CSS.escape(ref)}"]`)?.scrollIntoView({ block: 'center' }), { injector: this.injector });
   }
 
   /** Abre la ventana y RELEE: lo que la cola confirmó desde que se cargó ya no está por capturar. */
   abrirVentana(origen?: HTMLElement): void {
     this.origen = origen ?? null;
+    // Abierta desde la barra (no desde un pago buscado): sin aviso ni resaltado de una búsqueda vieja.
+    if (!this.buscado) { this.resaltado.set(null); this.avisoBuscado.set(null); }
     this.abierta.set(true);
     this.cargar();
   }
@@ -1083,10 +1431,8 @@ export class CajaReposicionComponent implements OnInit {
   nombreZona(clave: string): string { return ZONAS_HOJA_GASTOS.find((z) => z.clave === clave)?.nombre ?? clave; }
   folioDoc(origenRef: string): string { const [, tipo, folio] = origenRef.split('|'); return `${tipo} ${folio}`; }
   porResolverDe(g: ReposicionGrupo): number { return Math.round((g.sin_vincular + g.por_capturar) * 100) / 100; }
-  quien(f: Fila): string {
-    if (f.tipo === 'abierta') return `la reposición de ${f.a.nombre}`;
-    return f.tipo === 'hoja' ? f.h.folio : `${this.nombre(f.g.sucursal)} del ${dmy(f.g.fecha)}`;
-  }
+  quienPagar(f: FilaPagar): string { return f.tipo === 'abierta' ? `la reposición de ${f.a.nombre}` : f.h.folio; }
+  quienGrupo(g: ReposicionGrupo): string { return `${this.nombre(g.sucursal)} del ${dmy(g.fecha)}`; }
 
   /** `[CGA-A.62]` Lo que sigue en la cola y SÍ se puede reponer: lo que espera firma o se rechazó, no. */
   reponibles(g: ReposicionGrupo): ReposicionDoc[] {
