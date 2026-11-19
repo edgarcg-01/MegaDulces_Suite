@@ -141,10 +141,18 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    Medido en prod con RLS (Padre Hidalgo, réplica de cada consulta): casi idéntico (catálogo «sólo con existencia» 3,339 →
    3,337; Faltantes 637 → 655 renglones; precios con registro 5,355 → 4,751, las celdas en cero que la copia arrastraba);
    todo bajo 125 ms (catálogo 47–64 ms, con la copia 14–25).
-4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios, más A6 y A13, que leen la existencia dentro de un endpoint que
-   escribe): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
-   de escribirse; conteos, ajustes y recepción se revisan uno por uno (hoy 0 movimientos en 30 días). Prueba contra base real
-   con el payload de la pantalla (regla 13).
+4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios, más A6, A13 y B6, que leen la existencia dentro de algo que
+   escribe). **Medido el 2026-11-19** (prod, sólo lectura; `stock_movements` 90 días y `ui_usage` 60 días), ordenado por uso:
+
+   | Pieza | Uso medido | Qué cambia |
+   |---|---|---|
+   | **7.4a Inicio de Almacén** (`/almacen`, `listStock`, C3) | **704 llamadas en 28 días**, ocho roles de tienda y almacén. Es la PORTADA de Almacén, no una consola: muestra el CEDIS congelado | la lectura pasa al ODS con los mismos campos. Su botón «Ajustar» (`POST /inventory/adjust`) tuvo **0 llamadas** y escribe en la copia: se retira (ajustar es en Kepler, ADR-040) → **D-EX3** |
+   | **7.4b Pedidos** (`reserve`/`consume`/`release`, cron de apartados, B6) | 7 ventas y 12 liberaciones en 30 días; **0 apartados en 90 días** (1,104 pedidos confirmados sin apartar); 1 apartado vivo (15 piezas) | validar contra el ODS; `consume` deja de restar `quantity` (la venta la descuenta Kepler); el apartado sigue siendo dato propio. Prueba contra base real sembrando `kdil` |
+   | **7.4c Lotes** (`stock_lots`, caducidades C1/C2) | `POST expiry-reviews/entries`: 123 en 60 días; 144 lotes declarados (15,720 piezas) | ⭐ el disparador `trg_rebalance_stock_lots` mantiene el lote **NA** como `quantity` de la copia − lotes declarados: **es una TERCERA copia** (64,440 filas). Pasa a derivarse del ODS sin guardarse. ⛔ En el CEDIS quedaron **5,175 lotes NA huérfanos desde el 28-jul** sin fila en la copia, que suman 104 M de piezas (el SKU `00001` solo, 97 M) |
+   | **7.4d Lo que nadie usa** | 0 en 60–90 días: ajustes, movimientos, conteos (abrir/contar/conciliar), conteo de Monitoreo (A6), pasillos, recepción (última el 16-oct, D21), carga de camioneta (C18), `stock-reservation` | se retira o se repunta, uno por uno, con su dueño |
+   | **7.4e Scanner de reorden** (A13) | cron de medianoche + `scan-now` | lee el ODS como la pantalla de Existencia crítica (hoy difieren en el CEDIS) |
+
+   Cada pieza que escribe lleva su prueba contra base real con el payload de la pantalla (regla 13).
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 
@@ -163,3 +171,6 @@ código; los más calientes son el catálogo del portal y el detalle de pedido. 
 - ~~**D-EX1 (Edgar):** quién construye `[CANON.7.1]`~~ — **resuelta el 2026-11-19** («sí, quítaselo»): esta sesión. La
   sesión que construyó `[CANON.6.21]` ya no está viva; 7.1 terminó sin tocar su cola (sólo lee su tabla de factor).
 - **D-EX2 (Edgar):** `[PQ.61]` (venta diaria por evento): aplicar su migración fuera de horario. Es la base del frente Venta.
+- **D-EX3 (decide Claude, firma Edgar):** retirar el botón «Ajustar» de la portada de Almacén. Recomendado: sí — 0 llamadas
+  en 60 días, escribe en una copia que se va a congelar, y el ajuste de existencia es de Kepler (ADR-040). Sin él, la portada
+  sólo lee y puede pasar al ODS entera.
