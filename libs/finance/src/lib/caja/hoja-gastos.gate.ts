@@ -108,8 +108,8 @@ async function hojaDelRetiro(trx: Knex | Knex.Transaction, tenantId: string, dev
 /** La frase para quien ve un pago de la hoja en la cola, o intenta pagarlo suelto. */
 export function textoPagoDeHoja(req: RequisitoDelPago): string {
   const h = req.hoja;
-  if (!h) return `Va en la hoja de gastos de ${req.zona.nombre}: se paga con la hoja aprobada, en Finanzas › Gastos › Hoja de zona.`;
-  if (h.estado === 'aprobada') return `Va en la hoja ${folioHoja(h.numero)}, ya aprobada: se paga con ella, de un solo retiro, en Finanzas › Gastos › Hoja de zona.`;
+  if (!h) return `Va en la hoja de gastos de ${req.zona.nombre}: se paga con la reposición de la zona, en Caja General › Reposición (toca la fila en la cola).`;
+  if (h.estado === 'aprobada') return `Va en la hoja ${folioHoja(h.numero)}, ya aprobada: se paga con ella, de un solo retiro, en Caja General › Reposición.`;
   if (h.estado === 'cerrada') return `Va en la hoja ${folioHoja(h.numero)}, que espera la aprobación de finanzas: sin aprobación no se paga.`;
   return `Va en la hoja ${folioHoja(h.numero)} (${h.estado}).`;
 }

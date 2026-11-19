@@ -779,7 +779,10 @@ export interface MovimientoPendiente {
   motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto'
     // El documento viene fechado DESPUÉS de hoy: no se confirma en lote, se captura a mano
     // corrigiendo la fecha. Medido: 8 documentos del ERP, y uno ya entró al libro como diciembre.
-    | 'fecha_futura';
+    | 'fecha_futura'
+    // `[LE.6.35]` Va en la reposición de su zona (CGA-A.65): no se captura suelto, la fila lleva a la Reposición.
+    // El servidor ya lo mandaba; el tipo no lo tenía, así que ninguna pantalla podía distinguirlo.
+    | 'en_hoja';
   motivo_texto?: string;
 }
 

@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { NEVER, Subject, throwError, type Observable } from 'rxjs';
+import { NEVER, Subject, of, throwError, type Observable } from 'rxjs';
 import type { HojaGastos, PagoHojaResultado, ReposicionDoc, ReposicionVinculo } from '@megadulces/contracts';
 import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
@@ -16,7 +16,7 @@ import { avisoDePagoHoja, avisoDeReposicion, CajaReposicionComponent } from './c
  * El aviso de «Reponer». Canindo 30/10 (2026-10-30): decía «0 de 1… 1 no se pudieron» y el servidor
  * sí había mandado el porqué; lo que importa es que el folio y el motivo lleguen a la pantalla.
  */
-const HOJA = 'Va en la hoja de gastos de Zona Canindo: se paga con la hoja aprobada, en Finanzas › Gastos › Hoja de zona.';
+const HOJA = 'Va en la hoja de gastos de Zona Canindo: se paga con la reposición de la zona, en Caja General › Reposición (toca la fila en la cola).';
 const doc = (folio: string) => ({ origen_ref: `06|X-D-26|${folio}|0011`, doc_tipo: 'X-D-26', folio });
 const lote = (p: Partial<ResumenLote>): ResumenLote => ({
   filas: [], guardados: 0, duplicados: 0, rechazados: 0, no_confirmables: 0, monto_guardado: 0, ...p,
@@ -30,7 +30,7 @@ describe('avisoDeReposicion · lo que no entró dice cuál y por qué', () => {
       retiro: { device: 'AST700-19758', external_id: 1818, ref: 'bono productividad canindo', libre_antes: 24220, tomado: 0, libre_despues: 24220, del_cajon: 0 },
     }), 1, [doc('0000373')]);
     expect(a.detail).toContain('No entró (sigue en la cola) — X-D-26 0000373: Va en la hoja de gastos de Zona Canindo');
-    expect(a.detail).toContain('Finanzas › Gastos › Hoja de zona.');
+    expect(a.detail).toContain('Caja General › Reposición');
     expect(a.severity).toBe('error');
     expect(a.sticky).toBe(true);
   });
@@ -225,5 +225,56 @@ describe('[LE.6.34] avisoDePagoHoja · lo que no entró dice TODOS sus motivos y
   it('[control] todo entró: verde y se va solo', () => {
     const a = avisoDePagoHoja(resultado([]), '2 pagos quedaron explicados por el cajón.');
     expect(a).toEqual({ severity: 'success', detail: '2 pagos quedaron explicados por el cajón.', sticky: false });
+  });
+});
+
+/** [LE.6.35] Desde la cola, un pago «en hoja» lleva a SU hoja (PM, 2026-11-19). */
+describe('[LE.6.35] abrirEn · el pago «en hoja» de la cola lleva a su reposición', () => {
+  const R = (folio: string) => ({ origen_ref: '06|X-D-26|' + folio + '|0011', sucursal: '06', doc_tipo: 'X-D-26', folio, fecha_pago: '2026-11-19', beneficiario: 'MANIOBRAS', importe: 100 });
+  const abierta = (over: Record<string, unknown> = {}) => ({ zona: 'canindo', nombre: 'Zona Canindo', renglones: [R('0000547')], detenidos: [], fuera: [], pagados_aparte: [], sin_deposito: [], ...over });
+  const conHojas = (hojas: unknown) => { const m = montar(); m.api.hojasDeGastos.mockReturnValue(of(hojas) as never); return m; };
+
+  it('⭐ en la hoja abierta: despliega la zona, resalta el renglón y dice dónde está', () => {
+    const { comp } = conHojas({ abiertas: [abierta()], cerradas: [] });
+    comp.abrirEn('06|X-D-26|0000547|0011');
+    expect(comp.abierta()).toBe(true);
+    expect(comp.abiertas()['abierta|canindo']).toBe(true);
+    expect(comp.resaltado()).toBe('06|X-D-26|0000547|0011');
+    expect(comp.avisoBuscado()).toContain('reposición abierta de Zona Canindo');
+  });
+
+  it('detenido sin renglones que pagar: dice por qué no entra, sin desplegar nada', () => {
+    const { comp } = conHojas({ abiertas: [abierta({ renglones: [], detenidos: [{ ...R('0000547'), motivo: 'espera su aprobación' }] })], cerradas: [] });
+    comp.abrirEn('06|X-D-26|0000547|0011');
+    expect(comp.avisoBuscado()).toContain('espera su aprobación');
+    expect(comp.resaltado()).toBeNull();
+  });
+
+  it('sin depósito: dice que no se repone aquí y por qué', () => {
+    const { comp } = conHojas({ abiertas: [abierta({ renglones: [], sin_deposito: [{ ...R('0000547'), motivo: 'el banco lo cubre sin depósito' }] })], cerradas: [] });
+    comp.abrirEn('06|X-D-26|0000547|0011');
+    expect(comp.avisoBuscado()).toContain('no se repone aquí: el banco lo cubre sin depósito');
+  });
+
+  it('⛔ [negativa] un pago que no está en ninguna hoja lo dice; no inventa una zona', () => {
+    const { comp } = conHojas({ abiertas: [abierta()], cerradas: [] });
+    comp.abrirEn('06|X-D-26|0000999|0011');
+    expect(comp.avisoBuscado()).toContain('no aparece en ninguna reposición');
+    expect(comp.resaltado()).toBeNull();
+  });
+
+  it('⛔ [negativa] si las hojas no se pudieron leer, lo dice (no lo da por ausente)', () => {
+    const m = montar(); m.api.hojasDeGastos.mockReturnValue(throwError(() => new Error('503')) as never);
+    m.comp.abrirEn('06|X-D-26|0000547|0011');
+    expect(m.comp.avisoBuscado()).toContain('No se pudieron leer las hojas');
+  });
+
+  it('CONTROL: abrir la ventana desde la barra no arrastra el aviso de una búsqueda vieja', () => {
+    const { comp } = conHojas({ abiertas: [abierta()], cerradas: [] });
+    comp.abrirEn('06|X-D-26|0000547|0011');
+    comp.cerrarVentana();
+    comp.abrirVentana();
+    expect(comp.avisoBuscado()).toBeNull();
+    expect(comp.resaltado()).toBeNull();
   });
 });
