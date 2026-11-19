@@ -145,6 +145,41 @@ const T = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
             sinMedir('ningún papel real con hash y proveedor: el control positivo queda sin correr');
           }
         }
+
+        // ── 5. `[RE.84]` Una evidencia DEVUELTA no es candidata (sólo lectura) ──
+        console.log('\n═══ 5. [RE.84] la evidencia devuelta no bloquea ═══');
+        // Una (sucursal, folio) cuyo ÚNICO estado es `rechazado`: si la excluimos, se nota.
+        const { rows: devOnly } = await knex.raw(
+          `SELECT p.sucursal, p.folio,
+                  ltrim(regexp_replace(COALESCE(p.ocr_folio, ''), '\\D', '', 'g'), '0') AS n
+             FROM finance.goods_receipt_proofs p
+            WHERE p.tenant_id = ?
+              AND p.status = 'rechazado'
+              AND ltrim(regexp_replace(COALESCE(p.ocr_folio, ''), '\\D', '', 'g'), '0') <> ''
+              AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_proofs q
+                   WHERE q.tenant_id = p.tenant_id AND q.sucursal = p.sucursal AND q.folio = p.folio
+                     AND q.status <> 'rechazado')
+            LIMIT 1`, [T]);
+        if (!devOnly.length) {
+          sinMedir('no hay ninguna (sucursal,folio) devuelta-only en este ambiente: el caso queda sin medir');
+        } else {
+          const { sucursal: suc, folio: fol, n } = devOnly[0];
+          // CONTROL: el mismo universo SIN el filtro de estado SÍ la traería (prueba que lo excluye el filtro).
+          const { rows: viejo } = await knex.raw(
+            `WITH c AS MATERIALIZED (
+               SELECT p.sucursal, p.folio
+                 FROM finance.goods_receipt_proofs p
+                WHERE p.tenant_id = ?
+                  AND ltrim(regexp_replace(COALESCE(p.ocr_folio, ''), '\\D', '', 'g'), '0') = ?
+                LIMIT 200)
+             SELECT DISTINCT sucursal, folio FROM c`, [T, n]);
+          ok(viejo.some((r) => r.sucursal === suc && r.folio === fol),
+            `CONTROL: sin el filtro, la devuelta ${suc}/${fol} (núcleo ${n}) SÍ aparecería`);
+          // El SQL real (con el filtro) NO debe traerla.
+          const { rows: ahora } = await knex.raw(SQL_CANDIDATOS_DUPLICADO, ['', '', n, n, n, n, T]);
+          ok(!ahora.some((r) => r.sucursal === suc && r.folio === fol),
+            `[RE.84] la evidencia DEVUELTA ${suc}/${fol} (núcleo ${n}) NO es candidata a duplicado`);
+        }
       } finally { await knex.destroy(); }
     }
 
