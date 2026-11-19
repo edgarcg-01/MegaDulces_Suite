@@ -73,7 +73,9 @@ describe('[CB.68] el Cierre no dice «Sin datos» mientras carga', () => {
     expect(el.querySelector('[aria-label="Cargando el cierre del periodo"]')).toBeNull();
     expect(el.querySelector('.fb-diag-head h2')?.textContent).toBe('1 pendiente para que cuadre');
     expect(el.querySelector('.fb-diag-hasta')?.textContent).toBe('Cuenta los movimientos cargados hasta el 10/11.');
-    expect(el.querySelector('.fb-diag-cta')?.textContent).toContain('Subir libro');
+    // [BFU.5.1] El libro ya no se carga: el botón lleva a la descarga del banco.
+    expect(el.querySelector('.fb-diag-cta')?.textContent).toContain('Ir a Estados de cuenta');
+    expect(el.textContent).not.toContain('Subir libro');
   });
 });
 

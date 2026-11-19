@@ -450,7 +450,7 @@ async function completo(urlAdmin, urlRuntime) {
       await admin('finance.bank_capture_inbox').insert({ tenant_id: MEGA, from_phone: 'prueba-bfu25-sin', bank_movement_id: SIN_PAR });
       await admin('finance.payment_program').insert({ tenant_id: MEGA, source_month: '2026-10', client_uuid: 'prueba-bfu25', bank_movement_id: LIGADO });
       const hayCpq = (await admin.raw("select to_regclass('contpaqi.pago_confirmaciones') r")).rows[0].r;
-      if (hayCpq) await admin('contpaqi.pago_confirmaciones').insert({ tenant_id: MEGA, bank_movement_id: LIGADO, facturas: [], pagado: 100, confirmado_por: 'prueba', created_by: 'prueba' });
+      if (hayCpq) await admin('contpaqi.pago_confirmaciones').insert({ tenant_id: MEGA, bank_movement_id: LIGADO, facturas: ['FAC-PRUEBA-BFU25'], pagado: 100, confirmado_por: 'prueba', created_by: 'prueba' });
 
       const enCuadre = (await svc.cuadre('2026-10-20')).cuentas;
       const qS = enCuadre.find((c) => c.id === SINP)?.cuadre;

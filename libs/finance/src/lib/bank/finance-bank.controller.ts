@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { LIBRO_RETIRADO } from './libro-retirado';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
@@ -213,6 +214,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'Flujo de un movimiento: cadena compra→pago (proveedor) o cómo Kepler tiene la cobranza (depósito).' })
   movementFlow(@Param('id') id: string) { return this.svc.movementFlow(id); }
 
+  /**
+   * [BFU.5.1] El libro CUENTAS de Tesorería ya no se carga (Edgar, 2026-11-19: «ya no se vuelve a usar workbook»).
+   * La fuente de los bancos es la descarga del banco (Estados de cuenta). Se niega en la entrada HTTP, no en el
+   * servicio: las pruebas contra base real siguen usando el importador para armar sus casos.
+   */
   @Post('import')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @SkipTenantTx()
@@ -224,6 +230,7 @@ export class FinanceBankController {
     @Req() req: AuthedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
+    if (LIBRO_RETIRADO) throw new BadRequestException(LIBRO_RETIRADO);
     const file = body?.file_base64 || '';
     const period = body?.period || '';
     const source = body?.source_file;
@@ -349,6 +356,7 @@ export class FinanceBankController {
     @Req() req: AuthedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
+    if (LIBRO_RETIRADO) throw new BadRequestException(LIBRO_RETIRADO);
     if (wantsInline(sync, body?.sync)) return this.sheetSync.syncCurrent({ force: true });
     return this.delegate(res, 'bank-sheet-sync', 'Sync del workbook maestro', req?.user?.full_name || req?.user?.username, () => this.sheetSync.syncCurrent({ force: true }));
   }

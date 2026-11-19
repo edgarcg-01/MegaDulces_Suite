@@ -164,8 +164,8 @@ export class BancosCierreComponent {
       case 'sin_clasificar': return 'Ver sin clasificar';
       case 'traspaso_descuadre': return 'Ver traspasos';
       case 'saldo_no_cuadra': return 'Ver cuenta';
-      // [CB.68] El botón abre el selector del libro CUENTAS: decía «Subir estado» y la descarga del banco va en otra pestaña.
-      case 'cuenta_sin_cargar': return 'Subir libro';
+      // [BFU.5.1] El libro CUENTAS ya no se carga: la cuenta sin movimientos se resuelve con su descarga del banco.
+      case 'cuenta_sin_cargar': return 'Ir a Estados de cuenta';
       // [CB.77] La cuenta de banco sin saldo se verifica con su descarga, que trae el saldo de cada renglón.
       case 'saldo_sin_verificar': return 'Ir a Estados de cuenta';
       default: return 'Revisar';

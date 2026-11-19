@@ -1,4 +1,5 @@
 import { Injectable, Inject, Logger, BadRequestException } from '@nestjs/common';
+import { LIBRO_RETIRADO } from './libro-retirado';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import * as crypto from 'node:crypto';
@@ -126,7 +127,8 @@ export class SheetSyncService {
    */
   @Cron('0 */3 * * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
-    if (process.env.SHEET_SYNC_ENABLED !== 'true') return;
+    // [BFU.5.1] El libro CUENTAS ya no se carga (Edgar, 2026-11-19): aunque alguien encienda la variable, no entra.
+    if (process.env.SHEET_SYNC_ENABLED !== 'true' || LIBRO_RETIRADO) return;
     if (this.running) { this.logger.warn('skip: sync previo aún corriendo'); return; }
     this.running = true;
     try {
