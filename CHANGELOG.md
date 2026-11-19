@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)
+- Los filtros y el cambio entre Movimientos y Por día dicen cuál está activo; las tablas tienen título y se recorren con el teclado; la dirección de cada movimiento y lo que falta se leen en voz alta.
+- La búsqueda del detalle ya no trabaja en cada tecla: espera a que dejes de escribir.
+- En Alto Contraste de Windows se ve el filtro elegido, la cuenta resaltada y las barras de cobertura.
 ### Fixed — Bancos, Cuadre 3 vías: los textos dicen de dónde sale el banco y el ámbar se lee (CB.87 · 2026-11-19 · en código, sin soltar)
 - El detalle de una cuenta, la cobertura, la explicación de un descuadre y el Excel ya no llaman «Workbook» o «Excel» al banco: dicen «Banco», que hoy casi siempre es la descarga del banco.
 - El Excel del detalle separa las pólizas de ContPAQi sin banco de las que sólo esperan a que se cargue el banco, y respeta los filtros puestos.

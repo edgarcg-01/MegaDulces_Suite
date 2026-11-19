@@ -114,8 +114,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       <!-- Nivel 1 — control-total: aquí cuadran las 3 -->
       <div class="card-premium card-flat tw-card">
         <h3 class="tw-card-title">Totales del periodo <span class="muted">— las 3 fuentes {{ rangoTxt(d) }} (tolerancia ±{{ d.tolerance | currency:'MXN':'symbol-narrow':'1.2-2' }})</span></h3>
-        <div class="tw-wrap">
+        <div class="tw-wrap" tabindex="0" role="region" aria-labelledby="tw-tot-cap">
           <table class="tw-tbl">
+            <caption id="tw-tot-cap" class="sr-only">Totales del periodo por fuente</caption>
             <thead>
               <tr>
                 <th scope="col"><span class="sr-only">Concepto</span></th>
@@ -207,12 +208,11 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             </ng-template>
             <ng-template #body let-r>
               <tr class="tw-clickable" [attr.data-acct]="r.account_label" [class.tw-hl]="hlAcct() === r.account_label"
-                  tabindex="0" (click)="openDrill(d.period, r)" (keydown.enter)="openDrill(d.period, r)"
-                  [attr.aria-label]="'Abrir el detalle de ' + r.bank + ' ' + r.account_label">
+                  tabindex="0" (click)="openDrill(d.period, r)" (keydown.enter)="openDrill(d.period, r)" (keydown.space)="$event.preventDefault(); openDrill(d.period, r)">
                 <td><span class="tw-strong">{{ r.bank }}</span> <span class="muted mono">{{ r.account_label }}</span>
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
                   @if (fuenteExcepcion(d, r); as fx) { <span class="tw-tag muted-tag" [attr.title]="fx.porque">{{ fx.txt }}</span><span class="sr-only"> — {{ fx.porque }}</span> }
-                  <i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td>
+                  <i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i><span class="sr-only">, abre el detalle de la cuenta</span></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono tw-kep" [class.warn]="r.kep_has && !cuad(r.delta_wk_in)" title="Kepler tesorería (informativo — parcial, no incluye ventas de tienda del 102)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
@@ -251,16 +251,17 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       @if (cheques(); as ch) {
         @if (ch.total.cheques_n > 0) {
           <div class="card-premium card-flat tw-card" id="tw-cheques">
-            <h3 class="tw-card-title tw-pnl-title">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
+            <h3 class="tw-card-title tw-pnl-title" id="tw-cheques-tit" tabindex="-1">Cheques en tránsito <span class="muted">— Kepler los registra al emitir; el banco, al cobrarse</span></h3>
             <div class="tw-chq-kpis">
               <div class="tw-chq-kpi"><span class="tw-chq-v">{{ ch.total.en_transito_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">en tránsito · {{ ch.total.en_transito_n }} cheques</span></div>
               <div class="tw-chq-kpi ok"><span class="tw-chq-v">{{ ch.total.cobrado_monto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span><span class="tw-chq-l">ya cobrados · {{ ch.total.cobrado_n }}</span></div>
             </div>
             <p class="tw-note muted"><i class="pi pi-info-circle"></i> Lo <b>en tránsito</b> explica por qué Kepler puede mostrar más salida que el banco: el cheque ya salió en Kepler pero el banco aún no lo cobra. No es descuadre.</p>
             @if (ch.total.en_transito_n > 0) {
-              <div class="tw-wrap">
+              <div class="tw-wrap" tabindex="0" role="region" aria-labelledby="tw-chq-cap">
                 <table class="tw-tbl tw-chq-tbl">
-                  <thead><tr><th>Cuenta</th><th>Doc</th><th>Beneficiario</th><th class="ta-r">Importe</th><th>Emitido</th></tr></thead>
+                  <caption id="tw-chq-cap" class="sr-only">Cheques en tránsito</caption>
+                  <thead><tr><th scope="col">Cuenta</th><th scope="col">Doc</th><th scope="col">Beneficiario</th><th scope="col" class="ta-r">Importe</th><th scope="col">Emitido</th></tr></thead>
                   <tbody>
                     @for (q of transito(ch); track q.account_label + q.doc_tipo + q.folio) {
                       <tr><td class="mono">{{ q.account_label }}</td><td class="mono muted">{{ q.doc_tipo }} {{ q.folio }}</td>
@@ -392,9 +393,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       @if (drillLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando movimientos…</p></div> }
       @else if (drillErr()) { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ drillErr() }}</p></div> }
       @else if (drill(); as dd) {
-        <div class="tw-drillmode" role="radiogroup" aria-label="Modo del detalle">
-          <button type="button" role="radio" [attr.aria-checked]="drillMode()==='movimientos'" [class.on]="drillMode()==='movimientos'" (click)="setDrillMode('movimientos')">Movimientos (1:1)</button>
-          <button type="button" role="radio" [attr.aria-checked]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
+        <div class="tw-drillmode" role="group" aria-label="Vista del detalle">
+          <button type="button" [attr.aria-pressed]="drillMode()==='movimientos'" [class.on]="drillMode()==='movimientos'" (click)="setDrillMode('movimientos')">Movimientos (1:1)</button>
+          <button type="button" [attr.aria-pressed]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
         </div>
         @if (drillMode() === 'movimientos') {
         <p class="dlg-lead">Cada movimiento del <b>banco</b> marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).@if (dfDay(); as dy) { <span class="tw-dayfilter">· filtrado al día <b>{{ dy }}</b> <button type="button" class="tw-daychip" (click)="dfDay.set('')">quitar ✕</button></span> }</p>
@@ -416,27 +417,28 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
         <p class="tw-recon-note">Cada movimiento del banco queda clasificado — <b>ninguno se reporta como "no existe" sin razón</b>. Sólo <b class="bad">Revisar</b> es excepción real; <b>Traspaso</b> (traslado entre cuentas), <b>Factoraje</b> (financiamiento) y <b>Partido por venta</b> (Kepler lo asienta partido) están en Kepler, sólo que no 1:1; <b>Sin categoría</b> es dato por categorizar (una regla por concepto en Config lo resuelve, no es faltante de dinero). Δ agregado banco − Kepler: depósitos {{ dd.agg.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}, retiros {{ dd.agg.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
         <div class="tw-drill-filters">
           <div class="tw-fg" role="group" aria-label="Dirección">
-            <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
-            <button type="button" [class.on]="dfDir()==='in'" (click)="dfDir.set('in')">Depósitos</button>
-            <button type="button" [class.on]="dfDir()==='out'" (click)="dfDir.set('out')">Retiros</button>
+            <button type="button" [class.on]="dfDir()===''" [attr.aria-pressed]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
+            <button type="button" [class.on]="dfDir()==='in'" [attr.aria-pressed]="dfDir()==='in'" (click)="dfDir.set('in')">Depósitos</button>
+            <button type="button" [class.on]="dfDir()==='out'" [attr.aria-pressed]="dfDir()==='out'" (click)="dfDir.set('out')">Retiros</button>
           </div>
           <div class="tw-fg" role="group" aria-label="Estado">
-            <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
-            <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">En las 3</button>
-            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Revisar</button>
+            <button type="button" [class.on]="dfEstado()===''" [attr.aria-pressed]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
+            <button type="button" [class.on]="dfEstado()==='casado'" [attr.aria-pressed]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">En las 3</button>
+            <button type="button" [class.on]="dfEstado()==='descuadre'" [attr.aria-pressed]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Revisar</button>
           </div>
-          <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
-          <span class="muted tw-fcount">{{ drillRows().length }} de {{ dd.excel.length }}</span>
+          <input type="text" class="tw-fsearch" [ngModel]="dfSearchTxt()" (ngModelChange)="buscar($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar en los movimientos" />
+          <span class="muted tw-fcount" role="status">{{ drillRows().length }} de {{ dd.excel.length }}</span>
           <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportDrill(dd)"
                   title="Descarga lo que estas viendo: con los filtros y el orden puestos">
             <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
           </button>
         </div>
-        <div class="tw-wrap">
+        <div class="tw-wrap" tabindex="0" role="region" aria-labelledby="tw-drill-cap">
           <table class="tw-tbl tw-drill-tbl">
+            <caption id="tw-drill-cap" class="sr-only">Movimientos del banco de la cuenta y si Kepler y ContPAQi los tienen</caption>
             <thead><tr>
               @for (c of DRILL_COLS; track c.field) {
-                <th [class]="c.cls" [attr.aria-sort]="ariaSort(drillSort(), c.field)">
+                <th scope="col" [class]="c.cls" [attr.aria-sort]="ariaSort(drillSort(), c.field)">
                   <button type="button" class="surf-sort" (click)="sortDrill(c.field)"
                           [attr.aria-label]="'Ordenar por ' + c.label">
                     {{ c.label }}<i [class]="sortIcon(drillSort(), c.field)" aria-hidden="true"></i>
@@ -448,10 +450,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               @for (e of drillRows(); track e.id) {
                 <tr>
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
-                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'"></i></td>
+                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" aria-hidden="true"></i><span class="sr-only">{{ e.dir === 'in' ? 'Depósito' : 'Retiro' }}</span></td>
                   <td class="ta-r mono"><button type="button" class="tw-dlink" (click)="openMov('workbook', e.key)" title="Ver detalle (estado de cuenta)">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button></td>
-                  <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.kepler_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
-                  <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.contpaqi_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.kepler_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint" aria-hidden="true"></i><span class="sr-only">no está</span> }</td>
+                  <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.contpaqi_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint" aria-hidden="true"></i><span class="sr-only">no está</span> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
                   <td><span [class]="reconClass(e.recon)" [title]="reconTitle(e.recon)">{{ reconLabel(e.recon) }}</span></td>
                 </tr>
@@ -484,7 +486,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                       <p class="tw-grp-sub muted">{{ grupo.explica }}</p>
                       @if (grupoAbierto()[grupo.key] !== false) {
                         <table class="tw-tbl"><tbody>
-                          @for (k of grupo.rows; track k.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('kepler', k.key)" (keydown.enter)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                          @for (k of grupo.rows; track k.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('kepler', k.key)" (keydown.enter)="openMov('kepler', k.key)" (keydown.space)="$event.preventDefault(); openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i><span class="sr-only">{{ k.dir === 'in' ? 'Depósito' : 'Retiro' }}</span></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}@if (k.casado_otro_periodo; as cp) { <span class="tw-otro-per" [title]="'Casado con un movimiento del banco del ' + cp.period + ' (' + dmShort(cp.fecha_banco) + ')'">cobrado en {{ cp.period }}</span> }<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                         </tbody></table>
                       }
                     </div>
@@ -496,7 +498,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ co.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(co) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of co; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (c of co; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)" (keydown.space)="$event.preventDefault(); openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i><span class="sr-only">{{ c.dir === 'in' ? 'Depósito' : 'Retiro' }}</span></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             } }
@@ -513,7 +515,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <p class="tw-grp-sub muted">El banco de esta cuenta todavía no cubre el mes y ContPAQi fecha el depósito antes que el abono: su pareja puede llegar después. Quedan fuera del cuadre; todavía no son pólizas sin banco.</p>
                   @if (contpaqiDespuesAbierto()) {
                     <table class="tw-tbl"><tbody>
-                      @for (c of cd; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
+                      @for (c of cd; track c.key) { <tr class="tw-clickable" tabindex="0" (click)="openMov('contpaqi', c.key)" (keydown.enter)="openMov('contpaqi', c.key)" (keydown.space)="$event.preventDefault(); openMov('contpaqi', c.key)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}</td></tr> }
                     </tbody></table>
                   }
                 </div>
@@ -538,8 +540,9 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <span [class.warn]="!cuad(dy.totals.delta_out)">Δ acum <b>{{ dy.totals.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
               @if (dy.totals.dup_n) { <span class="warn tw-kpi-sep">dup Kepler <b>{{ dy.totals.dup_n }}</b> · {{ dy.totals.dup_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
             </div>
-            <div class="tw-daily-scroll">
+            <div class="tw-daily-scroll" tabindex="0" role="region" aria-labelledby="tw-daily-cap">
               <table class="tw-tbl tw-daily-tbl">
+                <caption id="tw-daily-cap" class="sr-only">Conciliación por día, banco contra Kepler</caption>
                 <thead>
                   <tr class="tw-daily-grp">
                     <th></th>
@@ -556,15 +559,15 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 </thead>
                 <tbody>
                   @for (r of dy.days; track r.dia) {
-                    <tr class="tw-row-click" (click)="focusDay(r.dia)" tabindex="0" role="button" (keyup.enter)="focusDay(r.dia)" [title]="'Ver los movimientos del ' + r.dia">
-                      <td class="mono">{{ r.dia }}</td>
+                    <tr class="tw-row-click" (click)="focusDay(r.dia)" tabindex="0" (keydown.enter)="focusDay(r.dia)" (keydown.space)="$event.preventDefault(); focusDay(r.dia)">
+                      <td class="mono">{{ r.dia }}<span class="sr-only">, ver sus movimientos</span></td>
                       <td class="ta-r mono">{{ r.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_in)">{{ r.kepler_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_in)">{{ r.cum_delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="ta-r mono tw-coldiv">{{ r.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_out)">{{ r.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                       <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_out)">{{ r.cum_delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                      <td class="ta-r mono">@if (r.dup_n) { <span class="tw-dup" [title]="r.dup_n + ' duplicados = ' + (r.dup_monto | currency:'MXN')">{{ r.dup_n }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                      <td class="ta-r mono">@if (r.dup_n) { <span class="tw-dup" [title]="r.dup_n + ' duplicados = ' + (r.dup_monto | currency:'MXN')">{{ r.dup_n }}</span> } @else { <i class="pi pi-minus tw-faint" aria-hidden="true"></i><span class="sr-only">sin duplicados</span> }</td>
                     </tr>
                   }
                   @if (!dy.days.length) { <tr><td colspan="8" class="ta-c muted tw-empty">Sin movimientos en el periodo.</td></tr> }
@@ -605,7 +608,17 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-est { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .tw-ventana { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 0; line-height: 1.4; }
     /* Filas que abren algo: el foco se ve, por dentro para que no se corte en la tabla. */
-    tr.tw-clickable:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    tr.tw-clickable:focus-visible, tr.tw-row-click:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .tw-wrap:focus-visible, .tw-daily-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    /* [CB.88] Alto Contraste de Windows: los fondos y box-shadow desaparecen, así que el estado elegido, el
+       resalte de la cuenta y las barras de cobertura se dibujan con colores del sistema. */
+    @media (forced-colors: active) {
+      .tw-fg button.on, .tw-drillmode button.on { outline: 2px solid Highlight; outline-offset: -2px; }
+      tr.tw-hl > td { box-shadow: none; border-block: 2px solid Highlight; }
+      .tw-cov-bar { border: 1px solid CanvasText; }
+      .tw-cov-fill { background: CanvasText; }
+      .tw-cent { color: LinkText; }
+    }
     /* CB.41 — chips/tags de estado de conciliación (partición exhaustiva) */
     .tw-recon-strip { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-1); }
     .tw-recon { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 600; padding: 1px 8px; border-radius: var(--r-pill); border: 1px solid var(--border-color); background: var(--surface-2, color-mix(in srgb, var(--text-muted) 8%, transparent)); color: var(--text-muted); white-space: nowrap; }
@@ -705,7 +718,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     /* CB.38 — el Δ que no cuadra es un botón: el número que evidencia algo lleva a su arreglo */
     .tw-dlink { font: inherit; font-variant-numeric: tabular-nums; color: inherit; background: none; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: var(--sp-1); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
     .tw-dlink i { font-size: .7rem; opacity: 0; transition: opacity 120ms ease; }
-    .tw-dlink:hover i { opacity: .8; }
+    .tw-dlink:hover i, .tw-dlink:focus-visible i { opacity: .8; }
     .tw-dlink:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     /* Resalte de la cuenta a la que se llegó desde el panel.
        Va como anillo y no como fondo a propósito: el fondo tendría que ganarle al
@@ -777,6 +790,18 @@ export class BancosThreeWayComponent {
   readonly dfDir = signal<'' | 'in' | 'out'>('');
   readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
   readonly dfSearch = signal('');
+  /** [CB.88] Lo que se teclea; dfSearch (lo que filtra) lo toma 200 ms después de la última tecla. */
+  readonly dfSearchTxt = signal('');
+  private buscarTimer: ReturnType<typeof setTimeout> | null = null;
+  buscar(v: string): void {
+    this.dfSearchTxt.set(v);
+    if (this.buscarTimer) clearTimeout(this.buscarTimer);
+    this.buscarTimer = setTimeout(() => { this.buscarTimer = null; this.dfSearch.set(v); }, 200);
+  }
+  private limpiarBusqueda(): void {
+    if (this.buscarTimer) { clearTimeout(this.buscarTimer); this.buscarTimer = null; }
+    this.dfSearchTxt.set(''); this.dfSearch.set('');
+  }
   /** Columnas del Detalle 3 vías: etiqueta + campo por el que ordena. */
   readonly DRILL_COLS = [
     { field: 'fecha',            label: 'Fecha',     cls: '' },
@@ -890,6 +915,7 @@ export class BancosThreeWayComponent {
   readonly contpaqiDespuesAbierto = signal(false);
 
   constructor() {
+    this.destroyRef.onDestroy(() => { if (this.buscarTimer) clearTimeout(this.buscarTimer); });
     effect(() => {
       const d = this.data();
       this.cheques.set(null);
@@ -946,7 +972,11 @@ export class BancosThreeWayComponent {
   /** Del panel al bloque de cheques: cierra y lo trae a la vista. */
   goToCheques(): void {
     this.expOpen.set(false);
-    setTimeout(() => document.getElementById('tw-cheques')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
+    // [CB.88] El foco acompaña a la vista: si no, quien usa teclado se queda en el diálogo cerrado.
+    setTimeout(() => {
+      document.getElementById('tw-cheques')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      document.getElementById('tw-cheques-tit')?.focus({ preventScroll: true });
+    }, 60);
   }
 
   readonly expTitle = computed(() => {
@@ -1137,7 +1167,7 @@ export class BancosThreeWayComponent {
     this.drillAcct = `${r.bank} ${r.account_label}`;
     this.drillPeriod = period; this.drillAcctLabel = r.account_label;
     this.drillMode.set('movimientos'); this.daily.set(null);
-    this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set(''); this.drillSort.set(null);
+    this.dfDir.set(''); this.dfEstado.set(''); this.limpiarBusqueda(); this.drillSort.set(null);
     this.drill.set(null); this.drillErr.set(null); this.drillOpen.set(true); this.drillLoading.set(true);
     this.api.threeWayDetail(period, r.account_label).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (dd) => { this.drill.set(dd); this.drillLoading.set(false); },
@@ -1158,7 +1188,7 @@ export class BancosThreeWayComponent {
     }
   }
   /** Clic en un día → filtra la tabla de Movimientos a ese día (vuelve a 'movimientos'). */
-  focusDay(dia: string): void { this.drillMode.set('movimientos'); this.dfSearch.set(''); this.dfDir.set(''); this.dfEstado.set(''); this.dfDay.set(dia); }
+  focusDay(dia: string): void { this.drillMode.set('movimientos'); this.limpiarBusqueda(); this.dfDir.set(''); this.dfEstado.set(''); this.dfDay.set(dia); }
   readonly dfDay = signal<string>('');
 
   /**
