@@ -25,6 +25,10 @@
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
 
+### Fixed — Bancos › Cuentas dice de dónde sale cada saldo y hasta qué día (BFU.0.1 · 2026-11-19 · en código, sin soltar)
+- Cada cuenta dice si su saldo sale del banco o del libro de Tesorería, hasta qué día llega, y si el banco ya trae más días.
+- Ya no dice «todo cuadra» cuando lo único que cuadra es el libro consigo mismo; si el banco va adelante, lleva a Estados de cuenta para pasar la cuenta.
+- Plan nuevo: el estado de cuenta de la suite como verdad absoluta del banco (anexo BFU de la fase CB).
 ### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
 - Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
 ### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)

@@ -269,7 +269,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
           <app-load-state [error]="balError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
           <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
-            [period]="period()" (openAccount)="verCuentaMovs($event)" />
+            [period]="period()" (openAccount)="verCuentaMovs($event)" (irAEstados)="goView('estados')" />
         }
       }
 

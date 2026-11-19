@@ -126,6 +126,8 @@ export interface BalanceRow {
   statement_id: string; bank: string; account_label: string; kind: string;
   opening: number; total_in: number; total_out: number; computed_closing: number; closing: number; delta: number;
   cuadra: boolean; sin_saldo: boolean;
+  /** [BFU.0.1] De dónde sale el saldo y hasta qué día llega; `banco_hasta`: hasta dónde trae ya la descarga. Opcionales: una API vieja no los manda. */
+  fuente?: 'banco' | 'libro'; banco_desde?: string | null; hasta?: string | null; banco_hasta?: string | null;
 }
 export interface Balances {
   period: string; accounts: BalanceRow[];
