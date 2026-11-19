@@ -10,7 +10,8 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
-import { leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerCfdiConCancelados, leerCfdiDeFacturas } from './cfdi-factura.sql';
+import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
 import { leerCuentasGasto } from './cuenta-gasto.sql';
 import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
@@ -1321,6 +1322,24 @@ export class PaymentCalendarService {
         validarDias: filas.filter((a) => a.status === 'executed' || !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? '')).map((a) => a.lot_date),
       }) : [];
       return { pagos, pagados_desde: desde, generado: new Date().toISOString() };
+    });
+  }
+
+  /**
+   * `[PGP.158][PGP.163]` **El CFDI de las facturas de unos pagos**, con el cancelado que casa cuando no
+   * hay uno vigente: de ahí salen los avisos fiscales del renglón (PUE fuera de su mes, factura
+   * cancelada). La bandeja no lo trae para los pagos en planeación (cuesta ~330 ms, `[PGP.108]`), así
+   * que la pantalla lo pide EN DIFERIDO, como la evidencia: la lista no lo espera. Sólo lectura.
+   */
+  async cfdiDePagos(allocationIds: readonly string[]): Promise<Record<string, CfdiDelRenglon>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids = [...new Set(allocationIds.map((s) => String(s).trim()).filter((s) => UUID.test(s)))].slice(0, 300);
+    if (!ids.length) return {};
+    return this.tk.run(async (trx) => {
+      const items = (await trx('finance.payment_allocation_items').where({ tenant_id: tenantId }).whereIn('allocation_id', ids)
+        .whereIn('obligation_source', ['kepler_payable', 'supplier_payable']).select('id')) as { id: string }[];
+      return Object.fromEntries(await leerCfdiConCancelados(trx, tenantId, items.map((i) => String(i.id))));
     });
   }
 

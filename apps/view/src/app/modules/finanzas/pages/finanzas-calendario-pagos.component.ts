@@ -20,7 +20,7 @@ import type {
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, bancoCanonico, bancoSinCuentaNuestra, destinoSinClabe, origenesParaDestino, origenPropuesto } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
-import { textoCfdi, textoMetodo } from '@megadulces/contracts/finance/cfdi-factura';
+import { avisosFiscales, textoCfdi, textoMetodo, type AvisoFiscal, type CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
@@ -912,6 +912,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   [attr.aria-label]="'Ver las notas de crédito de ' + allocationTitle(a)">Ver</button>
                         </span>
                       }
+                      <!-- [PGP.158][PGP.163] El aviso fiscal sin abrir el pago (la bandeja de Maat no la revisa nadie):
+                           PUE fuera de su mes, factura cancelada en el SAT, efectivo no deducible. El detalle, por factura, al abrirlo. -->
+                      @if (avisoDelPago(a); as af) {
+                        <span class="pg-sub pg-sub-2 pg-fis"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ af }}</span>
+                      }
                       <!-- [PGP.147] La factura ya debe menos de lo que el pago le lleva (caso Mondelez): en rojo, con el
                            documento de Kepler que bajó el saldo; el detalle por factura, en el desglose. Sin regla CSS nueva. -->
                       @if (deMas(a); as dm) {
@@ -1166,6 +1171,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 <!-- [PGP.108] Su CFDI y si es PUE o PPD: decide la póliza de egreso (PPD espera el REP del proveedor). -->
                                 @if (it.cfdi; as cf) {
                                   <span class="pg-cfdi" [class.is-no]="cf.estado !== 'unico'">@if (cf.estado === 'unico') {@if (cf.metodo; as m) {{{ textoMetodo(m) }}} @else {CFDI ligado, sin método de pago}} @else {{{ textoCfdi(cf.estado) }}}</span>
+                                }
+                                <!-- [PGP.158][PGP.163] Qué hacer con esta factura antes de pagarla (o la fecha límite de una PUE). -->
+                                @for (av of avisosDeItem(it.id); track av.clave) {
+                                  <span class="pg-fis-it" [class.is-warn]="av.nivel === 'warn'">@if (av.nivel === 'warn') {<i class="pi pi-exclamation-triangle" aria-hidden="true"></i>}{{ av.texto }}</span>
                                 }
                               </td>
                               <td class="r comm-num">{{ money(it.applied_amount) }}
@@ -2128,6 +2137,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ens-err { color:var(--warn-soft-fg); }
     .pg-cfdi { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
     .pg-cfdi.is-no { color:var(--warn-soft-fg); }
+    /* [PGP.158][PGP.163] El aviso fiscal: texto + ícono (el color nunca va solo); --warn-soft-fg pasa AA como
+       texto (--warn-fg no: 2.15:1 sobre blanco). */
+    .pg-fis { color:var(--warn-soft-fg); }
+    .pg-fis-it { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-fis-it.is-warn { color:var(--warn-soft-fg); }
+    .pg-fis-it .pi { font-size:var(--fs-xs); margin-right:var(--sp-1); }
     .pg-falta { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 var(--sp-2); font-weight:600; }
     .pg-sec-cierre { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-sec-cierre > .pi { color:var(--ok-fg); }
@@ -3142,6 +3157,64 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return this.filasDeuda().filter((f) => f.buscaEvidencia && !listos.has((f.o.entity_ref ?? '').trim())).length;
   });
   private evidenciaCorriendo = false;
+  // ── [PGP.158][PGP.163] El aviso fiscal del renglón, en el momento de pagar ─────────────────────
+  // Edgar, 2026-11-19: «nadie revisa la bandeja de Maat; la información, en la ventana y al momento».
+  /** El CFDI (y el cancelado que casa) de las facturas de los pagos por pagar, pedido EN DIFERIDO. */
+  readonly cfdiRenglones = signal<Record<string, CfdiDelRenglon>>({});
+  private readonly cfdiPedidos = new Set<string>();
+  private cfdiCorriendo = false;
+  private porPagarSinCfdi(): string[] {
+    return this.allocations().filter((a) => (a.status === 'pending' || a.status === 'failed') && !this.cfdiPedidos.has(a.id)).map((a) => a.id);
+  }
+  private readonly pideCfdi = effect(() => {
+    const faltan = this.porPagarSinCfdi().length;
+    untracked(() => { if (faltan) void this.cargarCfdi(); });
+  });
+  private async cargarCfdi(): Promise<void> {
+    if (this.cfdiCorriendo) return;
+    this.cfdiCorriendo = true;
+    let ids: string[] = [];
+    try {
+      for (;;) {
+        ids = this.porPagarSinCfdi().slice(0, 150);
+        if (!ids.length) return;
+        ids.forEach((i) => this.cfdiPedidos.add(i));
+        const r = await firstValueFrom(this.http.get<Record<string, CfdiDelRenglon>>(`${this.base}/allocations-cfdi`, { params: { ids: ids.join(',') } }));
+        this.cfdiRenglones.update((m) => ({ ...m, ...(r ?? {}) }));
+      }
+    } catch {
+      // Sin respuesta no hay aviso: NO MEDIDO, nunca «está bien». La tanda se vuelve a pedir al recargar.
+      ids.forEach((i) => this.cfdiPedidos.delete(i));
+    } finally {
+      this.cfdiCorriendo = false;
+    }
+  }
+  /** Los avisos fiscales de cada factura (por id de renglón), con la regla del contrato. */
+  readonly avisosFiscalesPorItem = computed(() => {
+    const m = this.cfdiRenglones();
+    const out = new Map<string, AvisoFiscal[]>();
+    for (const a of this.allocations()) {
+      const fecha = a.lot_date ?? this.selectedDate();
+      for (const it of a.items ?? []) {
+        const renglon = m[it.id] ?? (it.cfdi ? { cfdi: it.cfdi, cancelado_uuid: null } : undefined);
+        const av = avisosFiscales({ renglon, fecha_pago: fecha, hoy: this.todayIso, pagado: a.status === 'executed', metodo_pago: a.payment_method, importe: Number(it.applied_amount) || 0 });
+        if (av.length) out.set(it.id, av);
+      }
+    }
+    return out;
+  });
+  avisosDeItem(id: string): AvisoFiscal[] { return this.avisosFiscalesPorItem().get(id) ?? []; }
+  /** La marca del pago cerrado: sólo lo que pide hacer algo, sin repetir por factura. */
+  avisoDelPago(a: PaymentCalendarAllocation): string | null {
+    const claves = new Set<string>();
+    for (const it of a.items ?? []) for (const av of this.avisosDeItem(it.id)) if (av.nivel === 'warn') claves.add(av.clave);
+    const t: string[] = [];
+    if (claves.has('cfdi_cancelado')) t.push('factura cancelada en el SAT');
+    if (claves.has('pue_fuera_de_mes') || claves.has('pue_mes_cerrado') || claves.has('pue_pagada_fuera')) t.push('PUE fuera de su mes');
+    if (claves.has('efectivo_no_deducible')) t.push('efectivo arriba de $2,000: no deducible');
+    return t.length ? t.join(' · ') : null;
+  }
+
   private async cargarEvidencias(): Promise<void> {
     if (this.evidenciaCorriendo) return;
     this.evidenciaCorriendo = true;

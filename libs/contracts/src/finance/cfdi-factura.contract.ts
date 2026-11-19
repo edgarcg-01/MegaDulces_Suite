@@ -123,3 +123,92 @@ export function textoCfdi(e: EstadoCfdiFactura): string { return TEXTO[e]; }
 export function textoMetodo(m: MetodoPagoCfdi): string {
   return m === 'PUE' ? 'PUE · una exhibición' : 'PPD · espera REP';
 }
+
+// ─── [PGP.158][PGP.163] El aviso fiscal del renglón, en el momento de pagar ────────────────────
+//
+// Nace de un reporte a Edgar (2026-11-19): «estamos pagando facturas con más de un mes». Una factura
+// PUE se paga dentro del MES DE CALENDARIO en que se emitió; si no, el proveedor la cancela y la
+// sustituye por una PPD (a una PUE no se le puede poner REP). Medido ese día en prod (ene–oct): 1 de
+// cada 7 PUE pagadas por transferencia salió fuera de su mes; las PUE cobradas con tarjeta (04/28)
+// ya se pagaron al momento y NO avisan. Y la bandeja de hallazgos no la revisa nadie (~7 mil en
+// «nuevo»): el aviso va en el renglón del pago, donde se decide. D (Edgar): aviso, no candado.
+
+/** Formas de pago del CFDI en las que la PUE espera NUESTRO pago: cheque y transferencia. */
+export const FORMAS_PUE_POR_PAGAR: ReadonlySet<string> = new Set(['02', '03']);
+/** LISR 27-III: una erogación de más de esto en efectivo no es deducible. */
+export const TOPE_EFECTIVO_DEDUCIBLE = 2000;
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const MESES_C = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** Último día del mes de `fecha` (`YYYY-MM-DD`): la fecha límite de una PUE. */
+export function finDeMes(fecha: string): string {
+  const [y, m] = fecha.slice(0, 10).split('-').map(Number);
+  const ultimo = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${String(y)}-${String(m).padStart(2, '0')}-${String(ultimo).padStart(2, '0')}`;
+}
+/** `2026-11-30` → `30-nov`. */
+export function fechaCortaMx(fecha: string): string {
+  const [, m, d] = fecha.slice(0, 10).split('-').map(Number);
+  return `${String(d)}-${MESES_C[m - 1]}`;
+}
+
+export type ClaveAvisoFiscal = 'pue_limite' | 'pue_fuera_de_mes' | 'pue_mes_cerrado' | 'pue_pagada_fuera' | 'cfdi_cancelado' | 'efectivo_no_deducible';
+export interface AvisoFiscal {
+  clave: ClaveAvisoFiscal;
+  /** `warn` = hay que hacer algo; `info` = sólo la fecha límite. */
+  nivel: 'info' | 'warn';
+  texto: string;
+}
+
+/** `[PGP.158]` Lo que el servidor manda de cada renglón: su CFDI y, si no hay vigente, el cancelado que casa. */
+export interface CfdiDelRenglon {
+  cfdi: CfdiDeLaFactura;
+  /** `[PGP.163]` UUID de un CFDI CANCELADO que casa con la factura cuando no hay uno vigente; null si no hay. */
+  cancelado_uuid: string | null;
+}
+
+export interface EntradaAvisoFiscal {
+  /** Undefined = todavía no llegó (NO MEDIDO): no avisa nada. */
+  renglon: CfdiDelRenglon | null | undefined;
+  /** El día del pago (`lot_date`). */
+  fecha_pago: string;
+  /** Hoy en MX (`YYYY-MM-DD`). */
+  hoy: string;
+  /** El pago ya salió (`executed`). */
+  pagado: boolean;
+  /** Cómo sale el pago. */
+  metodo_pago: string | null;
+  /** Lo que sale por esta factura. */
+  importe: number;
+}
+
+/**
+ * `[PGP.158][PGP.163]` **Los avisos fiscales de una factura del pago**, el más urgente primero.
+ * Puro: lo usa la pantalla con lo que el servidor ya ligó (`cfdisDeFacturas`), sin otra fuente.
+ */
+export function avisosFiscales(e: EntradaAvisoFiscal): AvisoFiscal[] {
+  const out: AvisoFiscal[] = [];
+  const r = e.renglon;
+  if (r && r.cancelado_uuid && r.cfdi.estado !== 'unico') {
+    out.push({ clave: 'cfdi_cancelado', nivel: 'warn', texto: 'El proveedor canceló esta factura en el SAT: no la pagues sin la que la sustituye' });
+  }
+  const c = r?.cfdi;
+  if (c && c.estado === 'unico' && c.metodo === 'PUE' && c.cfdi && FORMAS_PUE_POR_PAGAR.has(String(c.cfdi.forma_pago ?? '').trim())) {
+    const limite = finDeMes(c.cfdi.fecha);
+    const mes = MESES[Number(c.cfdi.fecha.slice(5, 7)) - 1];
+    if (e.pagado) {
+      if (e.fecha_pago > limite) out.push({ clave: 'pue_pagada_fuera', nivel: 'warn', texto: `PUE de ${mes} pagada fuera de su mes: pide al proveedor que la sustituya por PPD` });
+    } else if (e.hoy > limite) {
+      out.push({ clave: 'pue_mes_cerrado', nivel: 'warn', texto: `PUE de ${mes}: su mes ya cerró. Pide al proveedor que la sustituya por PPD antes de pagarla` });
+    } else if (e.fecha_pago > limite) {
+      out.push({ clave: 'pue_fuera_de_mes', nivel: 'warn', texto: `PUE: págala a más tardar el ${fechaCortaMx(limite)} (está para el ${fechaCortaMx(e.fecha_pago)}), o pide PPD` });
+    } else {
+      out.push({ clave: 'pue_limite', nivel: 'info', texto: `PUE: pagar a más tardar el ${fechaCortaMx(limite)}` });
+    }
+  }
+  if (e.metodo_pago === 'efectivo' && e.importe > TOPE_EFECTIVO_DEDUCIBLE) {
+    out.push({ clave: 'efectivo_no_deducible', nivel: 'warn', texto: 'En efectivo, arriba de $2,000 no es deducible: págala por transferencia o cheque' });
+  }
+  return out;
+}
