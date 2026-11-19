@@ -1278,13 +1278,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             }
           }
 
+          <!-- [PGP.156] El texto va en UN <span>: suelto dentro del flex, cada pedazo entre <b> era una pieza
+               flex que no se parte (14 piezas) y ensanchaba la columna del cajón -todo salía cortado a la derecha-. -->
           <p class="pg-cr-decl">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Aplicar una nota de crédito o un anticipo <b>que ya existe</b> contra una factura se hace
+            <span>Aplicar una nota de crédito o un anticipo <b>que ya existe</b> contra una factura se hace
             <b>en Kepler</b>: la Suite todavía no escribe ese movimiento. Esta pantalla dice <b>qué
             hay</b> y <b>cuánto</b>, para que no se pague de más. El descuento que el proveedor
             concede <b>al pagar</b> se captura en el desglose del pago. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
-            aplicado, así que lo pendiente real puede ser mayor.
+            aplicado, así que lo pendiente real puede ser mayor.</span>
           </p>
         </div>
       </app-load-state>
@@ -1746,7 +1748,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        que es lo que §Q.5 pide, y no agrega una caja más al renglón. */
     .pg-ev-dis { color:var(--warn-soft-fg); font-weight:600; }
     /* El cajon del desglose. Lo PENDIENTE lleva el peso; lo ya aplicado es contexto. */
-    .pg-cr { display:grid; gap:var(--sp-2); }
+    /* [PGP.156] minmax(0,1fr): ningún hijo puede ensanchar la columna más allá del cajón. */
+    .pg-cr { display:grid; grid-template-columns:minmax(0, 1fr); gap:var(--sp-2); }
     .pg-cr-tot { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3);
       border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--surface-2); font-size:var(--fs-sm); }
     .pg-cr-tot b { color:var(--text-main); font-weight:700; }
@@ -1756,10 +1759,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .pg-cr-row.is-pend { border-left:3px solid var(--warn-fg); }
     .pg-cr-main { display:flex; flex-direction:column; min-width:0; }
+    /* Angular quita el espacio entre </b> y <span>: salía «Nota de créditoCanindo». */
+    .pg-cr-row .pg-sub > b { margin-right:var(--sp-1); }
     .pg-cr-part { font-size:var(--fs-sm); color:var(--warn-soft-fg); }
     .pg-cr-ok { display:flex; align-items:center; gap:6px; font-size:var(--fs-sm); color:var(--ok-soft-fg); margin:0; }
     .pg-cr-decl { display:flex; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted);
       border-top:1px solid var(--border-color); padding-top:var(--sp-2); margin:var(--sp-2) 0 0; }
+    .pg-cr-decl > span { min-width:0; }
     .pg-cr-decl b { color:var(--text-main); }
     /* [PGP.16] El costo de adelantar: terciario a proposito. Es un dato para decidir, no una
        alarma -la propuesta ya no adelanta nada por su cuenta-. */
