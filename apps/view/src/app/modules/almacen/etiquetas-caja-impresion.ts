@@ -22,9 +22,14 @@ export function imprimirEtiquetasCaja(etiquetas: readonly EtiquetaCaja[], onDone
   });
 }
 
-/** El documento de la vista previa (un `iframe` aislado, para que su CSS no toque la app). */
+/**
+ * El documento de la vista previa (un `iframe` aislado, para que su CSS no toque la app). Sin margen ni
+ * desplazamiento: la fila mide la hoja (100 × 48 mm) y el `iframe` también, así que con el margen de 8 px
+ * que el navegador le pone al `body` la tercera etiqueta quedaba cortada detrás de una barra (visto en la
+ * prueba en local del 2026-11-19).
+ */
 export function documentoVistaPrevia(etiquetas: readonly EtiquetaCaja[]): string {
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>${CSS_ETIQUETA_CAJA}body{background:white}</style></head><body>${etiquetasCajaHtml(etiquetas)}</body></html>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>${CSS_ETIQUETA_CAJA}html,body{margin:0;padding:0;overflow:hidden;background:white}</style></head><body>${etiquetasCajaHtml(etiquetas)}</body></html>`;
 }
 
 /**

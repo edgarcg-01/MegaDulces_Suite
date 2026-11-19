@@ -49,4 +49,9 @@ describe('documentoVistaPrevia', () => {
     expect((doc.match(/class="et ec"/g) ?? []).length).toBe(3);
     expect(doc).toContain('322-26');
   });
+
+  it('no deja margen ni barras: la fila de 100 mm cabe entera en el iframe de 100 mm', () => {
+    const doc = documentoVistaPrevia([]);
+    expect(doc).toContain('html,body{margin:0;padding:0;overflow:hidden;');
+  });
 });

@@ -219,7 +219,6 @@ const llave = (o: { sucursal: string; serie: number; folio: string }) => `${o.su
             <span class="p-button-icon pi pi-print" aria-hidden="true"></span>
             <span class="p-button-label">{{ pendientesSeleccion() ? 'Imprimir ' + pendientesSeleccion() + ' ' + (pendientesSeleccion() === 1 ? 'etiqueta' : 'etiquetas') : 'Nada pendiente en lo elegido' }}</span>
           </button>
-          <span class="et-ter">La fecha de la etiqueta es el día en que se envía por primera vez (hoy {{ fechaHoy }}); una reimpresión sale igual que la primera.</span>
         </div>
       }
     </app-side-peek>
@@ -246,7 +245,7 @@ const llave = (o: { sucursal: string; serie: number; folio: string }) => `${o.su
     .et-reimp { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
     .et-re-in { width: 12rem; max-width: 100%; }
     .et-err { display: block; color: var(--bad-fg); font-size: var(--fs-xs); margin-top: var(--sp-1); }
-    .et-prev { width: 100mm; height: 48mm; max-width: 100%; border: 1px solid var(--border-color); background: white; display: block; }
+    .et-prev { box-sizing: content-box; width: 100mm; height: 48mm; max-width: 100%; border: 1px solid var(--border-color); background: white; display: block; }
     .et-peek-acc { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); }
   `],
 })
@@ -371,7 +370,7 @@ export class AlmacenEtiquetasComponent implements OnInit {
   readonly notaPrevia = computed(() => {
     const algunaNueva = this.seleccion().some((l) => !l.primera && l.pendientes.length);
     return algunaNueva
-      ? `La fecha la pone el servidor al enviar: si se manda hoy, ${this.fechaHoy}.`
+      ? `La fecha de la etiqueta es el día en que se envía por primera vez: hoy, ${this.fechaHoy}. Una reimpresión sale igual que la primera.`
       : 'Estas etiquetas ya tienen fecha: salen con la de la primera vez.';
   });
 
