@@ -132,6 +132,10 @@ export class RhAsistenciaEstado {
     const { desde, hasta } = this.rango();
     const clave = [site, desde, hasta, this.soloPromotoras() ? 'p' : 'n'].join('|');
     if (!forzar && clave === this.clave && (this.datos() || this.loading())) return;
+    // `[RH.14.8]` Otra plaza, otro periodo u otro grupo: lo de antes NO se queda pintado bajo la etiqueta nueva mientras
+    // llega lo nuevo (se leían los totales de la semana pasada con «Semana del …» de la actual). Recalcular lo mismo
+    // (`forzar` con la misma clave, p. ej. después de guardar un horario) sí conserva la tabla.
+    if (clave !== this.clave) { this.datos.set(null); this.pendientes.set(null); this.cierres.set(null); }
     this.clave = clave;
     this.cargar(site, desde, hasta);
   }
@@ -145,6 +149,7 @@ export class RhAsistenciaEstado {
       error: () => this.relojesMedidos.set(false),
     });
     this.leerIncidencias(site, desde, mi);
+    this.leerNombresPorConfirmar(site, mi);
     this.saldosHE.set(null);
     this.api.bancoHorasExtra(site, undefined, hasta).subscribe({
       next: (b) => { if (mi === this.seq) this.saldosHE.set(new Map(b.personas.map((p) => [p.codigo, p.saldoMin]))); },
@@ -173,6 +178,23 @@ export class RhAsistenciaEstado {
       next: (c) => { if (mi === this.seq) this.cierres.set(c); },
       error: () => { if (mi === this.seq) this.cierres.set(null); },
     });
+  }
+
+  /** `[RH.14.4]` Cuántas personas de la plaza tienen el apodo del reloj como nombre; null = no se pudo leer (no es 0). */
+  readonly nombresPendientes = signal<number | null>(null);
+
+  private leerNombresPorConfirmar(site: string, mi: number): void {
+    if (!this.perms.hasAny(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)) { this.nombresPendientes.set(null); return; }
+    this.api.nombresPorConfirmar(site).subscribe({
+      next: (r) => { if (mi === this.seq) this.nombresPendientes.set(r.total); },
+      error: () => { if (mi === this.seq) this.nombresPendientes.set(null); },
+    });
+  }
+
+  /** Después de corregir nombres: sólo el contador. */
+  refrescarNombres(): void {
+    const site = this.sitio();
+    if (site) this.leerNombresPorConfirmar(site, this.seq);
   }
 
   /** Después de calificar o cerrar en Incidencias: el contador y el aviso, sin recalcular la asistencia. */

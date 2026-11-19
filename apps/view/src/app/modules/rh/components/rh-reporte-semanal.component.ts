@@ -55,10 +55,7 @@ import {
                       <!-- Cuando la columna Horario no cabe, su dato baja aquí, debajo del nombre. -->
                       <small class="rs-hor-movil">{{ f.horario.hora }}@if (f.horario.nota) { · {{ f.horario.nota }} }</small>
                     </span>
-                    <button type="button" class="rs-acc-btn" (click)="$event.stopPropagation(); menu.emit({ persona: f.p, evento: $event })"
-                            (keydown.enter)="$event.stopPropagation()" [attr.aria-label]="'Acciones para ' + (f.p.nombreCompleto || f.p.nombre)">
-                      <i class="pi pi-ellipsis-h" aria-hidden="true"></i>
-                    </button>
+                    <!-- [RH.14.10] Sin «⋯»: todo lo que ofrecía (ficha, ver sola, capturar, horario) ya está en la ficha que abre la fila. -->
                   </div>
                 </td>
                 <td class="rs-hor" [class.ded]="!f.horario.asignado">@for (r of f.horarioRenglones; track $index) { <span class="rs-hor-r">{{ r }}</span> }@if (f.horario.nota) { <small>{{ f.horario.nota }}</small> }</td>
@@ -196,10 +193,6 @@ import {
     tr.rs-sub td { color: var(--text-muted); font-weight: 600; border-bottom: 2px solid var(--rs-linea-fuerte); }
     tfoot td { background: var(--surface-2); font-weight: 700; position: sticky; bottom: 0; border-top: 2px solid var(--rs-linea-fuerte); }
     tfoot tr:last-child td { border-bottom: 0; }
-    .rs-acc-btn { border: 0; background: none; border-radius: var(--r-sm); padding: 2px 6px; color: var(--text-muted); cursor: pointer;
-      min-width: var(--tap-min); min-height: var(--tap-min); }
-    .rs-acc-btn:hover { background: var(--surface-hover-bg); color: var(--text-main); }
-    .rs-acc-btn:focus-visible { outline: 2px solid var(--focus-ring); }
     .rs-estrecha { display: none; }
     /* [RH.13.5] «Que se ajuste a cualquier dispositivo» (David, 13-nov). Se mide el ANCHO DE LA TABLA, no la ventana (el menú
        lateral cambia lo que queda). Medido con 7 personas: a 1024 px la tabla pedía 1,137 px en 884; a 768, en 707.
@@ -243,7 +236,6 @@ export class RhReporteSemanalComponent {
   readonly saldos = input<Map<string, number> | null>(null);
 
   readonly abrir = output<HrPersonaAsistencia>();
-  readonly menu = output<{ persona: HrPersonaAsistencia; evento: Event }>();
 
   readonly horas = horasTexto;
   readonly firma = firmaHoras;

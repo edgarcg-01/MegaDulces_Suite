@@ -4,8 +4,9 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
+import { firstValueFrom } from 'rxjs';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { HrBajaPlazaDto } from '@megadulces/contracts';
+import type { HrBajaPlazaDto, HrPosibleBajaDto, HrPosiblesBajasResponse, HrSinPlazasDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -13,8 +14,11 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
-import { RhService, rhError } from '../rh.service';
+import { RhService, fechaCorta, rhError } from '../rh.service';
 import { fechaHoraMx } from '../reclutamiento-formato';
+
+/** `[RH.14.6]` Los días sin checar que proponen la baja (Edgar, D1 del 18-nov); el servidor tiene el mismo valor. */
+const DIAS_POR_OMISION = 31;
 
 /**
  * Fase RH · `[RH.7.2]` — Bajas (`/rh/asistencia/bajas`): la papelera de empleados de Mega Talento, por plaza. Quien está
@@ -46,11 +50,81 @@ import { fechaHoraMx } from '../reclutamiento-formato';
         <app-freshness-pill measures="fetch" [since]="leidoEn()" label="Leído" />
       </section>
 
+      <!-- [RH.14.6] Lo que hay que decidir va primero: quién lleva N días sin checar y sigue activo. Nunca se da de baja solo:
+           RH elige, escribe el motivo y la baja de cada uno es independiente (la que falla se queda seleccionada). -->
+      <section class="rb-card" aria-labelledby="rb-pb-t">
+        <div class="rb-pb-head">
+          <h2 id="rb-pb-t">Posibles bajas</h2>
+          <label class="rb-dias">Sin checar en
+            <input pInputText type="number" inputmode="numeric" min="7" max="365" [ngModel]="dias()" (ngModelChange)="cambiarDias($event)"
+                   aria-label="Días sin checar" />
+            días o más</label>
+          <app-freshness-pill measures="fetch" [since]="pbLeidoEn()" label="Leído" />
+        </div>
+        <app-load-state [loading]="pbLoading() && !posibles()" [error]="pbError()" (retry)="cargarPosibles()">
+          @if (pbAviso(); as a) { <p class="rb-aviso" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
+          @if (sinPlazas().length) {
+            <div class="rb-sinplazas" role="note">
+              <p><b>{{ sinPlazas().length }}</b> sin plazas: {{ nombresSinPlazas() }}@if (noArchivables().length) { · {{ noArchivables().length }} con acceso (Sistemas) }</p>
+              @if (gestiona() && archivables().length) {
+                @if (confirmarArchivo()) {
+                  <p-button [label]="'Sí, archivar (' + archivables().length + ')'" severity="danger" size="small" [loading]="archivando()" (onClick)="archivar()" />
+                  <p-button label="No" [text]="true" severity="secondary" size="small" (onClick)="confirmarArchivo.set(false)" />
+                } @else {
+                  <p-button [label]="'Archivar (' + archivables().length + ')'" severity="danger" [outlined]="true" size="small" (onClick)="confirmarArchivo.set(true)" />
+                }
+              }
+            </div>
+          }
+          @if (!posibles()?.filas?.length) {
+            <p class="rb-vacio">Nadie.</p>
+          } @else {
+            <p-table [value]="posibles()!.filas" dataKey="person_code" class="dt-stack surf-table surf-table--plain surf-table--sticky" size="small"
+                     [rowHover]="true" [tableStyle]="{ 'min-width': '46rem' }" [selection]="seleccion()" (selectionChange)="seleccion.set($event)">
+              <ng-template #header>
+                <tr>
+                  @if (gestiona()) { <th class="rb-chk"><p-table-header-checkbox ariaLabel="Seleccionar a todos" /></th> }
+                  <th scope="col">Clv</th><th scope="col">Nombre</th><th scope="col">Sección</th><th scope="col">Última checada</th>
+                  <th scope="col" class="comm-num">Días sin checar</th><th scope="col">Otras plazas</th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-p>
+                <tr>
+                  @if (gestiona()) { <td class="rb-chk"><p-table-checkbox [value]="p" [ariaLabel]="'Elegir a ' + (p.nombre || p.person_code)" /></td> }
+                  <td class="mono" role="cell" data-label="Clv">{{ p.person_code }}</td>
+                  <td role="cell" data-label="Nombre"><b>{{ p.nombre || '—' }}</b>@if (p.promotora) { <span class="rb-tag">promotora</span> }</td>
+                  <td role="cell" data-label="Sección">{{ p.seccion || 'sin sección' }}</td>
+                  <td class="mono" role="cell" data-label="Última checada">{{ p.ultima_checada ? fecha(p.ultima_checada) : 'nunca checó aquí' }}</td>
+                  <td class="mono comm-num" role="cell" data-label="Días sin checar">{{ p.dias_sin_checar ?? '—' }}</td>
+                  <td role="cell" data-label="Otras plazas">{{ p.otras_plazas_activas ? 'sigue en ' + p.otras_plazas_activas : 'ninguna' }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+            @if (gestiona()) {
+              <form class="rb-lote" (ngSubmit)="darDeBaja()" aria-label="Dar de baja a las personas elegidas">
+                <label class="rb-motivo">Motivo
+                  <input pInputText name="motivo" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" required /></label>
+                <p-button type="submit" [label]="'Dar de baja (' + seleccion().length + ')'"
+                          severity="danger" [disabled]="!seleccion().length || motivo().trim().length < 5" [loading]="guardandoLote()" />
+              </form>
+            }
+          }
+          @if (posibles()?.explicadas?.length) {
+            <details class="rb-explicadas">
+              <summary>{{ posibles()!.explicadas.length }} con incidencia</summary>
+              <ul>
+                @for (x of posibles()!.explicadas; track x.person_code) {
+                  <li><span class="mono">#{{ x.person_code }}</span> {{ x.nombre || '—' }} · {{ x.incidencia.etiqueta }} del {{ dia(x.incidencia.desde) }} al {{ dia(x.incidencia.hasta) }}</li>
+                }
+              </ul>
+            </details>
+          }
+        </app-load-state>
+      </section>
+
       <app-load-state [loading]="loading() && !lista()" [error]="error()" (retry)="cargar()">
         <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Bajas de la plaza" />
         <section class="rb-card dt-scope" aria-label="Bajas de la plaza">
-          <p class="rb-nota">Quien está aquí <b>no cuenta en el reporte de esta plaza</b>: no le salen faltas. La baja se da desde su ficha en
-            Checadas, con motivo. Quien sigue checando después de su baja aparece primero: o la baja fue un error, o alguien usa su código.</p>
           @if (aviso(); as a) { <p class="rb-aviso" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
           @if (!filas().length) {
             <p class="rb-vacio">{{ lista()?.length ? 'Nadie coincide con «' + buscar() + '».' : 'Nadie está de baja en esta plaza.' }}</p>
@@ -108,8 +182,6 @@ import { fechaHoraMx } from '../reclutamiento-formato';
     .rb-plaza { min-width: 14rem; }
     .rb-buscar { flex: 1 1 16rem; max-width: 24rem; }
     .rb-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; padding-bottom: var(--sp-2); }
-    .rb-nota { margin: 0; padding: var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); max-width: 90ch; line-height: 1.5; }
-    .rb-nota b { color: var(--text-main); }
     .rb-aviso { margin: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-sm); color: var(--ok-soft-fg); }
     .rb-aviso.bad { color: var(--bad-fg); }
     .rb-vacio { margin: 0; padding: var(--sp-4) var(--sp-3); color: var(--text-muted); font-size: var(--fs-sm); }
@@ -120,6 +192,19 @@ import { fechaHoraMx } from '../reclutamiento-formato';
     .rb-bad { color: var(--bad-fg); font-weight: 700; }
     .rb-acc { text-align: right; white-space: nowrap; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .rb-pb-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); }
+    .rb-pb-head h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
+    .rb-dias { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-muted); }
+    .rb-dias input { width: 5rem; font-variant-numeric: tabular-nums; }
+    .rb-chk { width: 2.75rem; text-align: center; }
+    .rb-lote { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); border-top: 1px solid var(--border-color); }
+    .rb-motivo { display: flex; flex-direction: column; gap: var(--sp-1); flex: 1 1 20rem; max-width: 34rem; font-size: var(--fs-xs); color: var(--text-muted); }
+    .rb-sinplazas { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .rb-sinplazas p { margin: 0; flex: 1 1 30ch; }
+    .rb-explicadas { margin: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .rb-explicadas summary { cursor: pointer; color: var(--text-muted); min-height: var(--tap-min); }
+    .rb-explicadas ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-4); display: flex; flex-direction: column; gap: 2px; }
     @media (max-width: 40rem) { .rb-page { padding: var(--sp-3); } }
   `],
 })
@@ -156,10 +241,111 @@ export class RhBajasComponent {
     ];
   });
   readonly fecha = fechaHoraMx;
+  readonly dia = fechaCorta;
+
+  // ── [RH.14.6] Posibles bajas ──
+  readonly dias = signal(DIAS_POR_OMISION);
+  readonly posibles = signal<HrPosiblesBajasResponse | null>(null);
+  readonly pbLoading = signal(false);
+  readonly pbError = signal<string | null>(null);
+  readonly pbLeidoEn = signal<Date | null>(null);
+  readonly pbAviso = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly seleccion = signal<HrPosibleBajaDto[]>([]);
+  readonly motivo = signal('');
+  readonly guardandoLote = signal(false);
+  /** `[RH.14.1]` Quién se quedó sin plazas con la última baja (de aquí se archiva). */
+  readonly sinPlazas = signal<HrSinPlazasDto[]>([]);
+  readonly archivables = computed(() => this.sinPlazas().filter((s) => s.archivable));
+  readonly noArchivables = computed(() => this.sinPlazas().filter((s) => !s.archivable));
+  readonly nombresSinPlazas = computed(() => this.sinPlazas().map((s) => s.nombre || 'sin nombre').join(', '));
+  readonly confirmarArchivo = signal(false);
+  readonly archivando = signal(false);
+  private pbSeq = 0;
+  private motivoDe(dias: number): string { return `Sin checar en esta plaza desde hace ${dias} días o más`; }
 
   constructor() {
     // Sólo la plaza dispara la lectura; lo que `cargar` toca adentro no se rastrea.
-    effect(() => { if (this.est.sitio()) untracked(() => this.cargar()); });
+    effect(() => { if (this.est.sitio()) untracked(() => { this.cargar(); this.cargarPosibles(); }); });
+  }
+
+  cambiarDias(v: unknown): void {
+    const n = Math.trunc(Number(v));
+    if (!Number.isFinite(n) || n < 7 || n > 365) return;     // el campo dice el rango; fuera de él no se pide nada
+    if (n === this.dias()) return;
+    this.dias.set(n);
+    this.cargarPosibles();
+  }
+
+  cargarPosibles(): void {
+    const site = this.est.sitio();
+    if (!site) return;
+    const mi = ++this.pbSeq;
+    this.pbLoading.set(true);
+    this.pbError.set(null);
+    this.api.posiblesBajas(site, this.dias()).subscribe({
+      next: (r) => {
+        if (mi !== this.pbSeq) return;
+        this.posibles.set(r);
+        // Lo elegido que ya no está en la lista (otra plaza, otra ventana) se suelta.
+        const hay = new Set(r.filas.map((f) => f.person_code));
+        this.seleccion.set(this.seleccion().filter((s) => hay.has(s.person_code)));
+        if (!this.motivo().trim() || this.motivo().startsWith('Sin checar en esta plaza')) this.motivo.set(this.motivoDe(r.dias));
+        this.pbLeidoEn.set(new Date());
+        this.pbLoading.set(false);
+      },
+      error: (e) => { if (mi !== this.pbSeq) return; this.posibles.set(null); this.pbError.set(rhError(e, 'No se pudieron leer las posibles bajas.')); this.pbLoading.set(false); },
+    });
+  }
+
+  /** Cada baja es independiente: las que fallan se quedan seleccionadas para reintentar, y se dice por qué. */
+  darDeBaja(): void {
+    const site = this.est.sitio();
+    const elegidas = this.seleccion();
+    if (!site || !elegidas.length || this.motivo().trim().length < 5 || this.guardandoLote()) return;
+    this.guardandoLote.set(true);
+    this.pbAviso.set(null);
+    this.api.darDeBajaLote({ site_code: site, person_codes: elegidas.map((p) => p.person_code), motivo: this.motivo().trim() }).subscribe({
+      next: (r) => {
+        this.guardandoLote.set(false);
+        const fallo = new Set(r.fallaron.map((f) => f.person_code));
+        this.seleccion.set(elegidas.filter((p) => fallo.has(p.person_code)));
+        this.sinPlazas.set(r.sin_plazas);
+        this.confirmarArchivo.set(false);
+        const ok = `${r.dados_de_baja.length} ${r.dados_de_baja.length === 1 ? 'dada' : 'dadas'} de baja en la plaza`;
+        this.pbAviso.set(r.fallaron.length
+          ? { texto: `${ok} · ${r.fallaron.length} fallaron (siguen elegidas): ${r.fallaron.map((f) => `#${f.person_code}: ${f.error}`).join(' · ')}`, mal: true }
+          : { texto: `${ok}`, mal: false });
+        this.cargarPosibles();
+        this.cargar();
+        this.est.asegurar(true);
+      },
+      error: (e) => { this.guardandoLote.set(false); this.pbAviso.set({ texto: rhError(e, 'No se pudo dar de baja.'), mal: true }); },
+    });
+  }
+
+  /** `[RH.14.1]` Una por una: la que falla no frena a las demás y se nombra. */
+  async archivar(): Promise<void> {
+    const lista = this.archivables();
+    if (!lista.length || this.archivando()) return;
+    this.archivando.set(true);
+    const fallaron: string[] = [];
+    const fallidas = new Set<string>();
+    for (const s of lista) {
+      try {
+        await firstValueFrom(this.api.archivarPersona({ user_id: s.user_id, motivo: 'Sin plazas activas: se dio de baja en la última que tenía' }));
+      } catch (e) {
+        fallidas.add(s.user_id);
+        fallaron.push(`${s.nombre || 'sin nombre'}: ${rhError(e, 'no se pudo')}`);
+      }
+    }
+    this.archivando.set(false);
+    this.confirmarArchivo.set(false);
+    const hechas = lista.length - fallaron.length;
+    // Se quedan en el aviso las que no se pudieron archivar (para reintentar) y las que tienen acceso (las ve Sistemas).
+    this.sinPlazas.set(this.sinPlazas().filter((s) => !s.archivable || fallidas.has(s.user_id)));
+    this.pbAviso.set(fallaron.length
+      ? { texto: `${hechas} archivada${hechas === 1 ? '' : 's'} · ${fallaron.length} no: ${fallaron.join(' · ')}`, mal: true }
+      : { texto: `${hechas} archivada${hechas === 1 ? '' : 's'}`, mal: false });
   }
 
   cargar(): void {
@@ -182,7 +368,7 @@ export class RhBajasComponent {
       next: () => {
         this.guardando.set(false);
         this.confirmar.set(null);
-        this.aviso.set({ texto: `${b.nombre || 'El código ' + b.person_code} vuelve al reporte de la plaza.`, mal: false });
+        this.aviso.set({ texto: `Reactivada: ${b.nombre || '#' + b.person_code}`, mal: false });
         this.cargar();
         this.est.asegurar(true);
       },
