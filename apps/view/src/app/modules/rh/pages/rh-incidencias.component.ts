@@ -47,6 +47,9 @@ interface FormCaptura {
   horas: string; entrada: string; reason: string; authorized_by_name: string; deliver: boolean;
   /** `[RH.1.10]` Desayuno o comida distintos: los minutos que RH autorizó ese día. */
   minutos: string;
+  /** `[RH.17.2]` Horario distinto: a qué hora salió ese día y su comida en minutos (opcionales). */
+  salida?: string;
+  comidaDia?: string;
   /** `[RH.6.6]` Visita fuera: a qué hora lo recogieron y a qué hora lo dejaron en su casa. */
   recogida?: string;
   entrega?: string;
@@ -162,6 +165,10 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
           }
           @if (f.incident_type === 'horario_distinto') {
             <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
+            <label>Salió a las (opcional) <input pInputText type="time" name="salida" [(ngModel)]="f.salida" /></label>
+            <label>Comida ese día, en minutos (opcional)
+              <input pInputText type="number" inputmode="numeric" name="comidaDia" min="0" max="240" [(ngModel)]="f.comidaDia" /></label>
+            <p class="ri-ancho ri-ayuda">Con la salida, ese día se mide de la entrada a la salida: retardo, salida temprana y horas extra. Sin la salida sólo cambia la entrada. Sin la comida se descuenta la de su horario. Su horario de siempre no cambia.</p>
           }
           @if (f.incident_type === 'desayuno_distinto' || f.incident_type === 'comida_distinta') {
             <label>Minutos de {{ f.incident_type === 'desayuno_distinto' ? 'desayuno' : 'comida' }} autorizados
@@ -240,6 +247,8 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
               <dl class="ri-dl">
                 @if (i.note) { <dt>Nota</dt><dd>{{ i.note }}</dd> }
                 @if (i.minutes !== null) { <dt>{{ i.incident_type === 'horario_distinto' ? 'Entró a las' : 'Minutos' }}</dt><dd class="mono">{{ i.incident_type === 'horario_distinto' ? hhmm(i.minutes) : i.minutes }}</dd> }
+                @if (i.incident_type === 'horario_distinto' && i.end_minutes != null) { <dt>Salió a las</dt><dd class="mono">{{ hhmm(i.end_minutes) }}</dd> }
+                @if (i.incident_type === 'horario_distinto' && i.break_minutes != null) { <dt>Comida</dt><dd class="mono">{{ i.break_minutes }} min</dd> }
                 @if (i.authorized_by_name) { <dt>Autorizó</dt><dd>{{ i.authorized_by_name }}</dd> }
                 <dt>Capturó</dt><dd>{{ i.created_by_name || '—' }}</dd>
                 @if (i.rated_by_name) { <dt>{{ i.status === 'rechazada' ? 'Rechazó' : 'Calificó' }}</dt><dd>{{ i.rated_by_name }}</dd> }
@@ -543,6 +552,9 @@ export class RhIncidenciasComponent implements OnInit {
     // `[RH.6.7]` Las horas pagadas, a minutos («1,5» también se entiende).
     const hp = Number(String(f.horasPagadas ?? '').replace(',', '.'));
     const minPagados = t === 'pago_horas_extra' && String(f.horasPagadas ?? '').trim() !== '' && Number.isFinite(hp) ? Math.round(hp * 60) : undefined;
+    // `[RH.17.2]` Horario distinto con el horario completo de ese día: salida y comida, si se llenaron.
+    const hdDia = t === 'horario_distinto';
+    const comidaDia = hdDia && String(f.comidaDia ?? '').trim() !== '' ? Math.round(Number(f.comidaDia)) : undefined;
     return {
       site_code: site, person_code: f.person_code.trim(), incident_type: t, date_from: f.date_from,
       date_to: DE_UN_DIA.has(t) ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
@@ -551,6 +563,8 @@ export class RhIncidenciasComponent implements OnInit {
       reason: autoriza ? f.reason.trim() : undefined,
       authorized_by_name: autoriza || t === 'visita_fuera' ? f.authorized_by_name.trim() : undefined,
       base_schedule_minutes: recogida,
+      end_minutes: hdDia ? aMin(f.salida ?? '') : undefined,
+      break_minutes: comidaDia,
       deliver: f.deliver || undefined,
     };
   }

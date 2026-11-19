@@ -434,22 +434,50 @@ export async function ventanas(trx: Knex.Transaction, hoy: string, ventanaDias: 
 
 // ── Incidencias y justificantes ─────────────────────────────────────────────────────────────
 
+/**
+ * `[RH.17.2]` ¿Ya tiene `hr.attendance_incidents` la salida y la comida del Horario distinto (`end_minutes`,
+ * `break_minutes`)? Si la API llega a prod antes que la migración, nombrar esas columnas tiraría la asistencia
+ * entera; así se leen como NULL hasta que existan. Sólo se recuerda el «sí»: un «no» se vuelve a preguntar, para que
+ * se usen en cuanto se aplique la migración.
+ */
+let hayHorarioCompleto = false;
+export async function tieneHorarioCompleto(trx: Knex.Transaction): Promise<boolean> {
+  if (hayHorarioCompleto) return true;
+  const { rows } = await trx.raw<{ rows: Array<{ n: number }> }>(
+    `SELECT count(*)::int AS n FROM pg_attribute
+      WHERE attrelid = 'hr.attendance_incidents'::regclass AND attname IN ('end_minutes', 'break_minutes') AND NOT attisdropped`);
+  hayHorarioCompleto = Number(rows[0]?.n) === 2;
+  return hayHorarioCompleto;
+}
+
+/** `[RH.17.2]` Las dos columnas para un SELECT: las reales, o NULL con su nombre mientras no exista la migración. */
+export function columnasHorarioCompleto(hay: boolean, alias = 'i'): string {
+  return hay ? `${alias}.end_minutes, ${alias}.break_minutes` : 'NULL::int AS end_minutes, NULL::int AS break_minutes';
+}
+
 /** Las incidencias que TOCAN el rango (no sólo las que empiezan en él). Por omisión, las vigentes. */
 export async function incidenciasEnRango(
   trx: Knex.Transaction, siteCode: string, desde: string, hasta: string,
   estados: EstadoIncidencia[] = ESTADOS_VIGENTES,
 ): Promise<IncidenciaVigente[]> {
-  const rows: Array<{ id: string; person_code: string; incident_type: string; desde: string; hasta: string; note: string | null; minutes: number | null }> =
-    await trx('hr.attendance_incidents')
-      .where({ site_code: siteCode })
-      .where('date_from', '<=', hasta).where('date_to', '>=', desde)
-      .whereIn('status', estados)
-      .orderBy([{ column: 'date_from' }, { column: 'created_at' }])
-      .select('id', 'person_code', 'incident_type', 'note', 'minutes',
-        trx.raw(`to_char(date_from, 'YYYY-MM-DD') AS desde`), trx.raw(`to_char(date_to, 'YYYY-MM-DD') AS hasta`));
+  const completo = await tieneHorarioCompleto(trx);
+  const rows: Array<{
+    id: string; person_code: string; incident_type: string; desde: string; hasta: string; note: string | null; minutes: number | null;
+    end_minutes: number | null; break_minutes: number | null;
+  }> =
+    await trx('hr.attendance_incidents as i')
+      .where({ 'i.site_code': siteCode })
+      .where('i.date_from', '<=', hasta).where('i.date_to', '>=', desde)
+      .whereIn('i.status', estados)
+      .orderBy([{ column: 'i.date_from' }, { column: 'i.created_at' }])
+      .select('i.id', 'i.person_code', 'i.incident_type', 'i.note', 'i.minutes',
+        trx.raw(columnasHorarioCompleto(completo)),
+        trx.raw(`to_char(i.date_from, 'YYYY-MM-DD') AS desde`), trx.raw(`to_char(i.date_to, 'YYYY-MM-DD') AS hasta`));
   return rows.map((r) => ({
     id: r.id, personCode: r.person_code, tipo: r.incident_type, desde: r.desde, hasta: r.hasta,
     nota: r.note || '', minutos: r.minutes == null ? null : Number(r.minutes),
+    salidaMin: r.end_minutes == null ? null : Number(r.end_minutes),
+    comidaMin: r.break_minutes == null ? null : Number(r.break_minutes),
   }));
 }
 

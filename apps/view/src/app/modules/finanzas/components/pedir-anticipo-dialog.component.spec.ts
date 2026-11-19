@@ -55,7 +55,7 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
   /** Todo lo que pide la regla, con una OC: el pedido ya puede salir. */
   const completo = () => {
     elegirConOcs([OCS[0]], []);
-    c.monto.set('100'); c.motivo.set('temporada');
+    c.modoImporte.set('importe'); c.monto.set('100'); c.motivo.set('temporada');
     c.cot.set({ key: 'commercial/t/anticipos/x.pdf', kind: 'pdf', nombre: 'c.pdf' });
     c.clabe.set(CLABE); c.banco.set('BBVA');
   };
@@ -112,16 +112,19 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
     expect(c.falta()).toMatch(/proveedor/);
     elegirConOcs(OCS, []);
     expect(c.ctaTipo()).toBe('nueva');                     // sin cuenta aprobada: se captura la de la cotización
-    c.monto.set('1166,40');
-    expect(c.falta()).toMatch(/centavos con punto/);       // ambiguo: no se adivina
-    c.monto.set('7,000.01');
+    expect(c.modoImporte()).toBe('todo');                  // [PGP.155] por defecto, todo lo que queda de la OC
     c.motivo.set('temporada');
     expect(c.falta()).toMatch(/orden de compra de Kepler/);
     c.alternarOc(c.ocs()[0], true);
     c.alternarOc(c.ocs()[1], true);
     expect(c.sucursal()).toBe('03');                       // la sucursal es la de la OC
     expect(c.ocBloqueada(c.ocs()[2])).toBe(true);          // la de otra sucursal se apaga
-    expect(c.falta()).toMatch(/quedan \$7000\.00/);        // 6,000 + 4,000 − 3,000 (el pedido p1, UNA vez)
+    expect(c.importe()).toBe(7000);                        // [PGP.155] 6,000 + 4,000 − 3,000 (p1 UNA vez), sin teclear
+    c.modoImporte.set('importe');
+    c.monto.set('1166,40');
+    expect(c.falta()).toMatch(/centavos con punto/);       // ambiguo: no se adivina
+    c.monto.set('7,000.01');
+    expect(c.falta()).toMatch(/quedan \$7000\.00/);        // a mano, el tope lo sigue diciendo
     c.monto.set('7000');
     expect(c.falta()).toMatch(/cotización/);
     c.cot.set({ key: 'commercial/t/anticipos/x.pdf', kind: 'pdf', nombre: 'cotizacion.pdf' });
@@ -194,6 +197,32 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
     expect(document.querySelector('.pa-opciones[role="listbox"]')).toBeNull();   // sin listbox falso
   });
 
+  it('[PGP.155.2] los gemelos se distinguen: cada proveedor dice su último movimiento en Kepler, o que no tiene', () => {
+    c.abrir();
+    c.busca.set('vumer');
+    c.buscarAhora();
+    provs().flush([
+      { id: 'a', code: 'CD004', name: 'VUMERSOFT', ultimo_movimiento: '2026-11-09' },
+      { id: 'b', code: 'CV10', name: 'VUMERSOFT SAPI DE CV', ultimo_movimiento: null },
+      { id: 'c', code: 'CX01', name: 'SIN EL CAMPO' },
+    ]);
+    fixture.detectChanges();
+    const textos = [...document.querySelectorAll('.pa-opcion')].map((b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(textos).toEqual([
+      'VUMERSOFT CD004 · último movimiento 9-nov-2026',
+      'VUMERSOFT SAPI DE CV CV10 · sin movimientos en Kepler',
+      // ⛔ Sin el campo no se afirma «sin movimientos»: no se midió (ADR-056).
+      'SIN EL CAMPO CX01',
+    ]);
+  });
+
+  it('⛔ NEGATIVA [PGP.155.2] — la ayuda no promete «la cuenta de la cotización»: con cuenta aprobada, del mismo banco o efectivo era falso', () => {
+    expect(c.ayuda()).not.toMatch(/cotizaci/);
+    fixture.componentRef.setInput('modo', 'programar');
+    expect(c.ayuda()).not.toMatch(/cotizaci/);
+    expect(c.ayuda()).toMatch(/día que estás viendo/);
+  });
+
   it('⛔ [PGP.138] cerrar con algo capturado pregunta antes de tirarlo; sin nada capturado, cierra', () => {
     c.abrir();
     c.motivo.set('temporada');
@@ -254,8 +283,78 @@ describe('[PGP.138][PGP.142] PedirAnticipoDialogComponent', () => {
     expect(c.ocsElegidas().map((o) => o.folio)).toEqual(['0000101']);
     expect(c.ctaTipo()).toBe('aprobada');
     expect(c.cuentaId()).toBe(A2);
-    expect(c.cuentaOpciones().map((o) => o.value)).toEqual([A1, A2]);   // la que no tiene CLABE no sirve para transferir
+    expect(c.cuentaOpciones().map((o) => o.value)).toEqual([A1, A2]);   // sin CLABE NI número de cuenta no sirve para transferir
     expect(c.cuenta()).toEqual({ tipo: 'aprobada', account_id: A2 });
+  });
+
+  // ── `[PGP.155]` VUMERSOFT: BBVA a BBVA con el número de cuenta, y el 100 % de la OC sin teclear ──
+  const VUM = '00000000-0000-0000-0000-0000000000b1';
+  const CTA_VUM = { id: VUM, bank_name: 'BBVA', clabe: null, account_number: '0123458796', alias: 'RECARGA TELEFONICA', es_favorita: true };
+  const OC_VUM = { sucursal: '00', serie: '1', folio: '0007411', fecha: '2026-11-18', estado: 'N', total: 5691.01, pedidos: [] };
+
+  it('⭐ [PGP.155] elegir al proveedor deja el anticipo casi listo: su OC, el 100 % y su cuenta aprobada SIN CLABE', () => {
+    c.abrir();
+    elegirConOcs([OC_VUM], [CTA_VUM]);
+    expect(c.ocsElegidas().map((o) => o.folio)).toEqual(['0007411']);   // una sola OC: se marca sola
+    expect(c.importe()).toBe(5691.01);                                  // el 100 %, sin teclear
+    expect(c.ctaTipo()).toBe('aprobada');
+    expect(c.cuentaOpciones()).toEqual([{ label: 'BBVA · cuenta terminación 8796 (RECARGA TELEFONICA)', value: VUM }]);
+    expect(c.cuentaSinClabe()?.bank_name).toBe('BBVA');
+    fixture.detectChanges();
+    const txt = document.querySelector('p-dialog')?.textContent ?? '';
+    expect(txt).toContain('BBVA · cuenta terminación 8796');            // una sola cuenta: se dice, no se elige
+    expect(txt).toContain('transferencia entre cuentas de BBVA');
+    c.cot.set({ key: 'commercial/t/anticipos/v.pdf', kind: 'pdf', nombre: 'v.pdf' });
+    c.motivo.set('saldo de recargas');
+    expect(c.falta()).toBeNull();
+    c.guardar();
+    const req = http.expectOne((r) => r.url.endsWith('/commercial/supplier-obligations/anticipo') && r.method === 'POST');
+    expect(req.request.body).toMatchObject({ sucursal: '00', monto: 5691.01, cuenta: { tipo: 'aprobada', account_id: VUM },
+      kepler_ocs: [{ sucursal: '00', serie: '1', folio: '0007411' }] });
+    req.flush({ obligation_id: 'v1', monto: 5691.01, concepto: 'Anticipo · OC 0007411 · CEDIS', cuenta: 'aprobada' });
+  });
+
+  it('⛔ [PGP.155.2] con UNA cuenta aprobada, «Cuenta aprobada» es ésa aunque la elección automática se haya saltado', () => {
+    // Revisión independiente: la persona toca «Efectivo» ANTES de que lleguen sus cuentas → no se elige sola;
+    // al volver a «Cuenta aprobada» la cuenta se ve como texto (sin selector) y el botón no se encendía nunca.
+    c.abrir();
+    c.elegirProveedor(PROV);
+    ocsDe().flush([OC_VUM]);
+    c.ctaTipo.set('efectivo');
+    cuentasDe().flush([CTA_VUM]);
+    expect(c.ctaTipo()).toBe('efectivo');          // la respuesta no le cambia lo que eligió
+    expect(c.cuentaId()).toBeNull();
+    c.ctaTipo.set('aprobada');
+    expect(c.cuenta()).toEqual({ tipo: 'aprobada', account_id: VUM });
+    c.cot.set({ key: 'commercial/t/anticipos/v.pdf', kind: 'pdf', nombre: 'v.pdf' });
+    c.motivo.set('saldo de recargas');
+    expect(c.falta()).toBeNull();
+  });
+
+  it('[PGP.155] un porcentaje del total de la OC, al centavo; y la cuenta nueva por número del mismo banco', () => {
+    c.abrir();
+    elegirConOcs([OC_VUM], []);
+    c.modoImporte.set('porcentaje');
+    expect(c.falta()).toMatch(/qué porcentaje/);
+    c.porcentaje.set('50');
+    expect(c.importe()).toBe(2845.51);
+    c.ctaTipo.set('nueva_cuenta'); c.cuentaNum.set('0123 458 796'); c.banco.set('BBVA');
+    expect(c.cuenta()).toEqual({ tipo: 'nueva_cuenta', cuenta: '0123458796', banco: 'BBVA' });
+    expect(c.sucio()).toBe(true);
+  });
+
+  it('⛔ NEGATIVA [PGP.155] — un porcentaje fuera de 0–100, una OC sin saldo o una CLABE en el campo de cuenta no dejan pedir', () => {
+    c.abrir();
+    elegirConOcs([{ ...OC_VUM, pedidos: [{ id: 'p9', monto: 5691.01 }] }], []);
+    expect(c.importe()).toBeNull();
+    expect(c.falta()).toMatch(/ya no tiene saldo/);                     // no se inventa un importe
+    c.modoImporte.set('porcentaje'); c.porcentaje.set('120');
+    expect(c.falta()).toMatch(/de 0 a 100/);
+    c.abrir();
+    elegirConOcs([OC_VUM], []);
+    c.cot.set({ key: 'commercial/t/anticipos/v.pdf', kind: 'pdf', nombre: 'v.pdf' }); c.motivo.set('saldo');
+    c.ctaTipo.set('nueva_cuenta'); c.cuentaNum.set(CLABE); c.banco.set('BBVA');
+    expect(c.falta()).toMatch(/Eso es una CLABE/);
   });
   // ── Revisión independiente del PR: lo que llega tarde, después de cerrar, reabrir o cambiar de proveedor ──
   it('⛔ NEGATIVA (revisión) — una búsqueda que llega después de cerrar y reabrir no pinta proveedores bajo un buscador vacío', () => {
