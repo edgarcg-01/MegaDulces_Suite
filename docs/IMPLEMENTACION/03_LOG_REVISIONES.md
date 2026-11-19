@@ -25,7 +25,7 @@
 | 628 | 645 | 1 | 2026-11-17 — `[CXC.21b]` La cartera por evento: de 4 s por consulta a recalcular sólo la cuenta que cambió |
 | 646 | 668 | 2 | 2026-11-17 — `[CXC.42]`–`[CXC.43]` La fluidez de Cartera: dejar de esperar en cada gesto, y saber a quién ya s |
 | 669 | 687 | 1 | 2026-11-17 — `[CXC.41]` Auditoría de `/finanzas/cartera`: lo que cobranza veía primero no era lo suyo |
-| 688 | 716 | 3 | 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D5 respondidas, análisis medido y plan corregido |
+| 688 | 716 | 4 | 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D6 respondidas, análisis medido y plan corregido |
 | 717 | 741 | 3 | 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto |
 | 742 | 771 | 2 | 2026-11-14 — `[CB.68]`–`[CB.70]` Auditoría del Cierre de Bancos (nov-2026): cuatro hallazgos rojos, corregidos |
 | 772 | 810 | 3 | 2026-11-14 — `[MDT]` Entrega del núcleo: dos defectos que sólo aparecen al soltar, y el vale de servicio |
@@ -685,11 +685,11 @@ cliente» con la siguiente ya pedida; y llamar, mandar WhatsApp o el PDF dejan c
   culpaba al `jsonb_agg` de `aplicaciones`; medido hoy, la vista base tarda lo mismo con o sin él.
 - **Cero filas no es desuso hasta descartar el defecto:** antes de concluir que nadie usa los
   compromisos se comprobó que `ui_usage` sí registra POST y que no hubo ningún envío.
-## 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D5 respondidas, análisis medido y plan corregido (⬜ sin código)
+## 2026-11-17 — `[RE.ETQ]` Etiquetas de caja en la TSC TE200: D1–D6 respondidas, análisis medido y plan corregido (⬜ sin código)
 
 **Origen.** El almacén pidió que la Suite imprima la etiqueta de caja que hoy sale de Kepler (Órdenes de entrada › «Imprimir Etiquetas», TSC TE200), porque su código de barras no se lee. Se decodificaron las formas vigentes (`MD_OE.kpl` y `Md_etiq_OE_fto.kpl`) del caché del cliente de Kepler y se armó el plan. El 2026-11-17 se respondieron D1–D5 y se pidió revisar el plan propio, lo que Kepler hace mal y cómo se trabaja hoy. Plan: [`FASE_ETQ_GR_ETIQUETAS_GRANEL.md`](FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md) · para Edgar: [`REQ_ETQ_GR_ETIQUETAS_CAJA.md`](FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md) · 19 items `[RE.ETQ.x.y]` en el tracker.
 
-**Decisiones:** D1 dentro de Recepción (items `RE.ETQ.*`, sin fase nueva) · D2 la cantidad sale de la orden de entrada (`X-A-40`) · D3 dos vías: navegador y TSPL · D4 con bitácora · D5 `C`+clave cuando la unidad es caja · el rollo se mide al implementar. **Abierta, de Edgar: D6**, si la fecha es la del vale (la llegada) o la de la orden. Mientras tanto, la de la orden, igual que Kepler.
+**Decisiones:** D1 dentro de Recepción (items `RE.ETQ.*`, sin fase nueva) · D2 la cantidad sale de la orden de entrada (`X-A-40`) · D3 dos vías: navegador y TSPL · D4 con bitácora · D5 `C`+clave cuando la unidad es caja · el rollo se mide al implementar · **D6 (respondida el mismo día): la fecha es el día en que se imprime**, porque el vale o la orden pueden quedar pendientes. Se aplica como el día de la *primera* impresión, en hora de la Ciudad de México y con el reloj del servidor. La reimpresión repite esa fecha, para no repetir el defecto 4 de Kepler. La bitácora guarda además las fechas del vale y de la orden para medir el atraso.
 
 **Medido en prod (sólo lectura, 30 días):** 86,155 cajas en 6,353 renglones. Suc 00 promedia 1,897 al día (máximo 4,417) y Suc 08, 675 (máximo 1,801). El Andén de la Suite tiene 38 sesiones en total, la última el 7-oct, por eso el módulo trabaja sobre la orden de entrada de Kepler. 200 de 1,663 órdenes (12 %) se capturan de 1 a 20 días después del vale.
 
@@ -711,7 +711,7 @@ cliente» con la siguiente ya pedida; y llamar, mandar WhatsApp o el PDF dejan c
 
    Se cerró con un merge cuyo árbol es el del remoto, sin tocar ningún archivo vivo.
 
-**Pendiente:** D6 (Edgar) · medir el rollo y la impresora (USB o red) al implementar · avisar al almacén que lo reimpreso en Kepler sale con UXC 1 y otra fecha · construir C0→C3 desde `[RE.ETQ.0.2]`.
+**Pendiente:** medir el rollo y la impresora (USB o red) al implementar · avisar al almacén que lo reimpreso en Kepler sale con UXC 1 y otra fecha · construir C0→C3 desde `[RE.ETQ.0.2]`.
 
 
 ## 2026-11-14 — `[RE.70]`–`[RE.77]` Auditoría de `/compras/entradas`: lo que la pantalla afirmaba sin ser cierto

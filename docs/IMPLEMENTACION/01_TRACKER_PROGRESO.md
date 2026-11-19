@@ -8053,22 +8053,22 @@ Fuente de verdad organizacional: **ORGANIGRAMA 2026** (5 sitios, 120 plazas). Re
 ## 📋 BACKLOG — RE.ETQ: Etiquetas de caja en la TSC TE200 (dentro de Recepción)
 
 > Plan: [`FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md`](FASES/FASE_ETQ_GR_ETIQUETAS_GRANEL.md) · requerimientos: [`FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md`](FASES/REQ_ETQ_GR_ETIQUETAS_CAJA.md) · tarjeta «ETQ-GR» del Tablero PM.
-> **D1–D5 respondidas el 2026-11-17:** dentro de RE · cantidad desde la orden de entrada `X-A-40` · navegador **y** TSPL · con bitácora · `C`+clave en caja. **D6 abierta:** fecha del vale o de la orden.
+> **D1–D6 respondidas el 2026-11-17:** dentro de RE · cantidad desde la orden de entrada `X-A-40` · navegador **y** TSPL · con bitácora · `C`+clave en caja · **la fecha es el día en que se imprime** (el vale o la orden pueden quedar pendientes).
 > **Métrica HOY:** 0 de 86,155 cajas/mes se etiquetan desde la Suite (Kepler: barra Code 39 que no se lee, sin registro).
 
 - [x] **[RE.ETQ.0.1]** ✅ 2026-11-05 Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE`, la que imprime la etiqueta), vale (`MD_oc`, no imprime), Granel y Generales.
 - [ ] **[RE.ETQ.0.2]** ⬜ Vista `kepler_ods.v_etiqueta_caja_orden`: renglones de `X-A-40` con cajas, **UXC = `kdm2.c58`** (el catálogo trae factor 0 en 39 % de los renglones en caja), fecha de captura, vale de origen y `C`+clave (43 % de los productos no tiene `c85`).
 - [ ] **[RE.ETQ.0.3]** ⬜ Al implementar: medir el rollo, el controlador TSC y si la TE200 tiene red o sólo USB (decide el transporte del TSPL).
-- [ ] **[RE.ETQ.0.4]** 🔨 Fecha: cuenta de Kepler (1-ene = 0, medida: 308 = 5-nov) ✅; fuente vale u orden = D6.
+- [x] **[RE.ETQ.0.4]** ✅ 2026-11-17 Fecha: cuenta de Kepler (1-ene = 0, medida: 308 = 5-nov) sobre el día de la **primera impresión** (D6), no sobre una fecha de Kepler.
 - [ ] **[RE.ETQ.1.1]** ⬜ Pieza de etiquetera en `libs/` (sale de `checado-etiquetas.ts` de GP.4); GP.4 la consume sin cambiar su salida.
 - [ ] **[RE.ETQ.1.2]** ⬜ Plantilla de caja: Code 128 legible, nombre completo en dos renglones (226 productos quedan iguales a otro si se corta a 24), pie en las tres etiquetas.
-- [ ] **[RE.ETQ.1.3]** ⬜ Fecha con la cuenta de Kepler en TZ México (spec: 5-nov-2026 → `308-26`; 1-ene → `0-26`).
+- [ ] **[RE.ETQ.1.3]** ⬜ Fecha del instante de la primera impresión con la cuenta de Kepler en TZ México; la reimpresión repite la guardada (spec: 5-nov-2026 → `308-26`; 1-ene → `0-26`; 17-nov 23:30 CDMX → `320-26`, no `321-26`).
 - [ ] **[RE.ETQ.1.4]** ⬜ Código por unidad: caja → `C`+clave (D5); aviso cuando Kepler no lo tiene en `c85`.
 - [ ] **[RE.ETQ.1.5]** ⬜ Caja incompleta con su etiqueta y piezas sueltas (Kepler imprime 0).
 - [ ] **[RE.ETQ.1.6]** ⬜ Vía B: TSPL con contador de la impresora (D3).
 - [ ] **[RE.ETQ.2.1]** ⬜ `GET /almacen/etiquetas-caja/ordenes` con estado de etiquetado.
 - [ ] **[RE.ETQ.2.2]** ⬜ `GET /almacen/etiquetas-caja/catalogo-defectos` (factor 0 y sin `c85`, para Compras).
-- [ ] **[RE.ETQ.2.3]** ⬜ `POST /almacen/etiquetas-caja/impresiones` — bitácora (D4), `commercial.box_label_prints`; congela los datos de la primera impresión. ⛔ Prueba contra base real con el payload de la pantalla.
+- [ ] **[RE.ETQ.2.3]** ⬜ `POST /almacen/etiquetas-caja/impresiones` — bitácora (D4), `commercial.box_label_prints`; congela los datos de la primera impresión, con la fecha que pone el servidor (D6) y las del vale y la orden para medir el atraso. ⛔ Prueba contra base real con el payload de la pantalla.
 - [ ] **[RE.ETQ.2.4]** ⬜ Permiso `ALMACEN_ETIQUETAS_CAJA` repartido en prod al puesto de recepción.
 - [ ] **[RE.ETQ.3.1]** ⬜ `/almacen/etiquetas`: cola de órdenes, imprimir por orden o renglón, aviso de órdenes sin etiquetar.
 - [ ] **[RE.ETQ.3.2]** ⬜ Vista previa a tamaño real con avisos por renglón.
