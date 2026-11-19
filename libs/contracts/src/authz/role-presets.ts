@@ -166,6 +166,11 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
   // El promotor de marca lo necesita y nada más que eso (ADR-054: el permiso es una clave, no un
   // paquete): ve sólo SUS hojas (el servicio filtra `created_by = userId`) y su marca (promoter_brands).
   caducidades: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR],
+  // Edgar pidió (2026-11-19) que TODAS las promotoras entren a `/levantamiento` (catálogo digital:
+  // escanear/fotografiar fichas) y a la Mesa de Servicio para REPORTAR (SERVICIO_REPORTAR abre reportar
+  // y ver/comentar/reabrir SÓLO lo propio; NO la bandeja de atención, que es SERVICIO_ATENDER).
+  levantamiento: [Permission.CATALOGO_LEVANTAR],
+  mesa_servicio_reportar: [Permission.SERVICIO_REPORTAR],
 };
 
 export interface AreaPreset {
@@ -284,8 +289,8 @@ export const AREA_PRESETS: AreaPreset[] = [
     role: 'promotor',
     label: 'Promotor',
     description:
-      'Promotor de marca: captura Control de Caducidades de su marca en su zona. Rol mínimo (ADR-054): sólo caducidades, ve sólo sus propias hojas.',
-    primary: ['caducidades'],
+      'Promotor de marca: captura Control de Caducidades de su marca en su zona, levanta fichas del catálogo digital (/levantamiento) y reporta a la Mesa de Servicio. Rol mínimo (ADR-054): ve sólo sus propias hojas y solicitudes.',
+    primary: ['caducidades', 'levantamiento', 'mesa_servicio_reportar'],
     secondary: [],
   },
 ];
