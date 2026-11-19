@@ -199,6 +199,15 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         <!-- RE.28.4 — el lote vuelve. Aparece sólo con "Por validar" + "Cuadra": el filtro ES la
              selección, y con esos dos puestos lo que hay en pantalla es exactamente lo que el
              server va a aceptar. Sin el segundo filtro prometería N y entregaría 3. -->
+        <!-- [RE.83] Recordarle a la sucursal lo que se le devolvió. Sólo en Devueltas y para quien devuelve. -->
+        @if (puedeAvisar()) {
+          <div class="cb-field"><label>&nbsp;</label>
+            <button pButton type="button" severity="secondary" outlined [loading]="avisando()" [disabled]="avisando()"
+                    (click)="avisarSucursales()" [title]="'Avisa a quien puede subir facturas en ' + avisoDestinoTexto()">
+              <span class="p-button-icon p-button-icon-left pi pi-bell" aria-hidden="true"></span>
+              <span class="p-button-label">Avisar a {{ avisoDestinoTexto() }}</span>
+            </button></div>
+        }
         @if (puedeLote()) {
           <div class="cb-field"><label>&nbsp;</label>
             <button pButton type="button" severity="success" (click)="abrirLote()"
@@ -2324,7 +2333,8 @@ export class ComprasEntradasComponent {
     if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
     // [RE.35.5] La Bandeja manda. Un ?estado= de un link viejo se traduce; ?bandeja= gana.
     const ban = qp.get('bandeja');
-    if (ban && ['revisar', 'auto', 'sin_cfdi_aun', 'pendiente', 'validado', 'descartada', 'todas'].includes(ban)) this.setBandejaInicial(ban);
+    if (ban && ['revisar', 'auto', 'sin_cfdi_aun', 'pendiente', 'devueltas', 'validado', 'descartada', 'todas'].includes(ban)) this.setBandejaInicial(ban);
+    else if (est === 'rechazado') this.setBandejaInicial('devueltas');
     else if (est === 'pendiente' || est === 'validado' || est === 'descartada') this.setBandejaInicial(est);
     else if (est === 'por_validar') this.setBandejaInicial('revisar');
     else if (est !== null) this.setBandejaInicial('todas');
@@ -2670,6 +2680,8 @@ export class ComprasEntradasComponent {
       { label: 'Pasan solas' + ne(e?.auto), value: 'auto' },
       { label: 'Sin CFDI aún' + ne(e?.sin_cfdi_aun), value: 'sin_cfdi_aun' },
       { label: 'Sin papel' + n(k ? Math.max(0, k.entradas - k.con_comprobante) : undefined), value: 'pendiente' },
+      // `[RE.83]` Lo devuelto a la sucursal y sin papel nuevo. Antes no tenía bandeja: no se encontraba.
+      { label: 'Devueltas' + n(k?.rechazados), value: 'devueltas' },
       { label: 'Validadas' + n(k?.validados), value: 'validado' },
       { label: 'Descartadas', value: 'descartada' },
       { label: 'Todas', value: 'todas' },
@@ -2680,6 +2692,7 @@ export class ComprasEntradasComponent {
     this.bandejaSel.set(v);
     this.cuadreSel.set(null);
     const estado = v === 'pendiente' || v === 'validado' || v === 'descartada' ? v
+      : v === 'devueltas' ? 'rechazado'
       : v === 'todas' ? '' : 'por_validar';
     this.estadoSel.set(estado as Exclude<EntradasQuery['estado'], undefined>);
   }
@@ -3250,6 +3263,59 @@ export class ComprasEntradasComponent {
     });
   }
 
+  // ── [RE.83] Avisar a la sucursal lo devuelto ──
+  readonly avisando = signal(false);
+  /** A qué sucursales va el aviso: las filtradas, o si no hay filtro, las que traen devueltas en la lista. */
+  readonly avisoDestino = computed(() => {
+    const sel = this.sucursalesSel();
+    if (sel.length) return sel;
+    return [...new Set(this.rows().filter((c) => c.deposit_status === 'rechazado').map((c) => c.sucursal))];
+  });
+  readonly avisoDestinoTexto = computed(() => {
+    const d = this.avisoDestino();
+    return d.length === 1 ? warehouseName(d[0]) : `${d.length} sucursales`;
+  });
+  readonly puedeAvisar = computed(() => this.bandejaSel() === 'devueltas' && this.canValidate() && this.avisoDestino().length > 0
+    && (this.report()?.kpis.rechazados ?? 0) > 0);
+
+  avisarSucursales() {
+    const d = this.avisoDestino();
+    if (!d.length || this.avisando()) return;
+    this.confirm.confirm({
+      header: 'Avisar a la sucursal',
+      message: `Se le recuerda a quien puede subir facturas en ${d.map((x) => warehouseName(x)).join(', ')} que tiene facturas devueltas por corregir. Queda escrito en el historial de cada una.`,
+      icon: 'pi pi-bell',
+      acceptLabel: 'Avisar',
+      rejectLabel: 'Cancelar',
+      rejectButtonStyleClass: 'p-button-text',
+      accept: () => this.doAvisar(d),
+    });
+  }
+
+  private doAvisar(d: string[]) {
+    this.avisando.set(true);
+    this.svc.avisarDevueltas(d).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.avisando.set(false);
+        const nadie = res.filter((r) => r.devueltas > 0 && r.destinatarios === 0);
+        const llegaron = res.filter((r) => r.devueltas > 0 && r.destinatarios > 0);
+        const sinDevueltas = res.filter((r) => r.devueltas === 0);
+        if (llegaron.length) {
+          this.toast.add({ severity: 'success', summary: 'Aviso enviado',
+            detail: llegaron.map((r) => `${r.sucursal_nombre}: ${r.devueltas} devuelta(s), a ${r.destinatarios} persona(s)`).join(' · ') });
+        }
+        if (nadie.length) {
+          this.toast.add({ severity: 'warn', summary: 'No le llega a nadie', sticky: true,
+            detail: `En ${nadie.map((r) => r.sucursal_nombre).join(', ')} nadie tiene permiso para subir facturas. Quedó en el historial, pero hay que avisar por otro medio o dar el permiso.` });
+        }
+        if (sinDevueltas.length && !llegaron.length && !nadie.length) {
+          this.toast.add({ severity: 'info', summary: 'Sin devueltas', detail: `${sinDevueltas.map((r) => r.sucursal_nombre).join(', ')} ya no tiene facturas devueltas.` });
+        }
+      },
+      error: (e) => { this.avisando.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo avisar', detail: e?.error?.message || '' }); },
+    });
+  }
+
   doValidate(c: EntradaRow) {
     if (!c.deposit_id || this.actingId()) return;
     this.actingId.set(c.deposit_id);
@@ -3279,7 +3345,20 @@ export class ComprasEntradasComponent {
     this.saving.set(true);
     const sig = this.siguienteDe(c);
     this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.seguirTrasDecidir(c, sig); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+      .subscribe({ next: (res) => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.avisoDevuelta(c, res?.aviso?.destinatarios); this.seguirTrasDecidir(c, sig); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+  }
+
+  /** `[RE.83]` Al devolver se dice a quién le llegó, o que a nadie: un aviso no se da por enviado. */
+  private avisoDevuelta(c: EntradaRow, destinatarios: number | null | undefined) {
+    const suc = warehouseName(c.sucursal);
+    if (destinatarios == null) {
+      this.toast.add({ severity: 'info', summary: 'Devuelta', detail: `Entrada ${c.folio}. No se pudo confirmar el aviso a ${suc}: aparecerá en su campana.` });
+    } else if (destinatarios === 0) {
+      this.toast.add({ severity: 'warn', summary: 'Devuelta, pero no le llega a nadie', sticky: true,
+        detail: `Entrada ${c.folio}: en ${suc} nadie tiene permiso para subir facturas.` });
+    } else {
+      this.toast.add({ severity: 'info', summary: 'Devuelta', detail: `Entrada ${c.folio}. Se avisó a ${destinatarios} persona(s) de ${suc}.` });
+    }
   }
 
   openDetail(c: EntradaRow) {

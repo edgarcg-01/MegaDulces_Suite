@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import type { EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
+import type { AvisoSucursal, DevueltasResumen, EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -225,6 +225,7 @@ export type OrdenEntradas = 'antiguedad' | 'reciente' | 'monto' | 'riesgo' | 'fe
 export interface EntradasQuery {
   /** `descartada` (RE.20.3) sale de todos los demás estados: sólo se ve pidiéndola por su nombre. */
   estado?: 'pendiente' | 'con_comprobante' | 'por_validar' | 'validado' | 'rechazado' | 'descartada' | '';
+  // (`[RE.83]` 'rechazado' es la bandeja «Devueltas».)
   from?: string;
   to?: string;
   search?: string;
@@ -775,8 +776,17 @@ export class EntradasService {
     return this.http.post<AttachBulkResult>(`${this.base}/attach-bulk`, { items });
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
-  reject(id: string, motivo?: string, motivo_codigo?: string): Observable<any> {
-    return this.http.post(`${this.base}/${id}/reject`, { motivo, motivo_codigo });
+  /** `aviso.destinatarios`: a cuántas personas de la sucursal les llegó (`null` = no se pudo medir). `[RE.83]` */
+  reject(id: string, motivo?: string, motivo_codigo?: string): Observable<{ id: string; status: string; aviso?: { destinatarios: number | null } }> {
+    return this.http.post<{ id: string; status: string; aviso?: { destinatarios: number | null } }>(`${this.base}/${id}/reject`, { motivo, motivo_codigo });
+  }
+  /** `[RE.83]` Lo devuelto que espera papel nuevo, donde la persona puede subir. Lo lee la campana. */
+  devueltas(): Observable<DevueltasResumen> {
+    return this.http.get<DevueltasResumen>(`${this.base}/devueltas`);
+  }
+  /** `[RE.83]` «Avisar a la sucursal»: recuerda sus devueltas a quien puede subir ahí. */
+  avisarDevueltas(sucursales: string[]): Observable<AvisoSucursal[]> {
+    return this.http.post<AvisoSucursal[]>(`${this.base}/devueltas/avisar`, { sucursales });
   }
   /**
    * `[RE.20.3]` — saca del proceso una entrada que nunca va a tener factura de proveedor.

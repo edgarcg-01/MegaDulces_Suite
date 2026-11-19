@@ -376,6 +376,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-19 — `[RE.83]` La factura devuelta le llega a la sucursal
+
+- **Qué pasaba:** devolver una factura sólo cambiaba su estado. Nadie en la sucursal se enteraba y la pantalla no tenía una bandeja donde encontrar lo devuelto.
+- **Qué cambió:** al devolver, aviso en vivo a quien puede subir en esa sucursal y, sobre todo, la campana lee las devueltas pendientes, así que el aviso no se pierde si nadie tenía la Suite abierta. Bandeja «Devueltas» y botón «Avisar a la sucursal», que queda en el historial de cada factura.
+- **Lección:** «quien puede subir en la sucursal» medido literal le llegaba a ~20 personas de oficina por cada devolución: 12 puestos tienen la llave con escritura en todas. El público correcto salió de mirar quién tiene el permiso, no de leer el permiso.
+- **No medido:** el arranque de Nest, los endpoints contra base real y la pantalla viva.
+
 ## 2026-11-19 — `[RE.82]` La hoja de Kepler sola ya no pasa como factura
 
 - **Qué pasaba:** en Revisión de facturas se subía únicamente la «Aplica Orden Entrada» de Kepler como si fuera la factura. Esa hoja trae el mismo total que la entrada, así que «cuadraba» siempre. Medido (60 días): 114 de 1,985 comprobantes, 111 aceptados como recibidos.

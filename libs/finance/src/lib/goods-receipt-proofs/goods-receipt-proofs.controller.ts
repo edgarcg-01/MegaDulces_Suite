@@ -5,6 +5,7 @@ import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, Receipt
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
 import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import { ReceiptDevueltasService } from './receipt-devueltas.service';
 import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
 import { EXPEDIENTE_HALLAZGOS } from '@megadulces/contracts';
 import { RemisionLine } from '@megadulces/platform-core';
@@ -28,6 +29,7 @@ export class GoodsReceiptProofsController {
     private readonly twins: GoodsReceiptTwinsService,
     private readonly slaSvc: ReceiptSlaService,
     private readonly expedienteSvc: GoodsReceiptExpedienteService,
+    private readonly devueltasSvc: ReceiptDevueltasService,
   ) {}
 
   @Get()
@@ -127,6 +129,25 @@ export class GoodsReceiptProofsController {
   })
   sla() {
     return this.slaSvc.scanCurrentTenant();
+  }
+
+  /**
+   * `[RE.83]` Lo devuelto que espera papel nuevo, en las sucursales donde quien pregunta puede SUBIR.
+   * Lo lee la campana por poll: así la devolución no se pierde si nadie tenía la Suite abierta.
+   */
+  @Get('devueltas')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_GESTIONAR)
+  @ApiOperation({ summary: 'RE.83 — facturas devueltas sin papel nuevo, en las sucursales donde el usuario puede subir (alcance de escritura). Para la campana.' })
+  devueltas() {
+    return this.devueltasSvc.devueltasMias();
+  }
+
+  /** `[RE.83]` El botón «Avisar a la sucursal»: recuerda sus devueltas a quien puede subir ahí. Queda en el historial. */
+  @Post('devueltas/avisar')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VALIDAR)
+  @ApiOperation({ summary: 'RE.83 — avisa a quien puede subir en cada sucursal pedida que tiene facturas devueltas. Deja una fila aviso_sucursal en el historial de cada devuelta y responde a cuántas personas les llega.' })
+  avisarDevueltas(@Body() body: { sucursales?: string[] }, @Req() req: AuthedRequest) {
+    return this.devueltasSvc.avisarSucursales(body?.sucursales ?? [], req?.user?.full_name || req?.user?.username);
   }
 
   @Get('settings')
@@ -348,7 +369,10 @@ export class GoodsReceiptProofsController {
   @ApiOperation({
     summary: 'Rechaza la evidencia con motivo TIPIFICADO (ilegible|no_corresponde|total_no_cuadra|falta_hoja|duplicada|otro) + texto. Auditado + historial.',
   })
-  reject(@Param('id') id: string, @Body() body: { motivo?: string; motivo_codigo?: string }, @Req() req: AuthedRequest) {
-    return this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, body?.motivo_codigo);
+  async reject(@Param('id') id: string, @Body() body: { motivo?: string; motivo_codigo?: string }, @Req() req: AuthedRequest) {
+    const row = await this.svc.reject(id, req?.user?.full_name || req?.user?.username, body?.motivo, body?.motivo_codigo);
+    // `[RE.83]` Ya confirmada la devolución: avisa a quien puede subir en esa sucursal (best-effort).
+    const aviso = await this.devueltasSvc.alDevolver(id);
+    return { ...row, aviso };
   }
 }

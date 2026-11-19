@@ -8,6 +8,7 @@ import { GoodsReceiptsWatcherService } from './goods-receipts-watcher.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
 import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
+import { ReceiptDevueltasService } from './receipt-devueltas.service';
 import { CajaRealtimeModule } from '../caja/caja-realtime.module';
 
 /**
@@ -43,6 +44,8 @@ import { CajaRealtimeModule } from '../caja/caja-realtime.module';
     ReceiptSlaService,
     // `[RE.35]` El expediente de la factura (sólo lectura, ADR-085).
     GoodsReceiptExpedienteService,
+    // `[RE.83]` La devolución le llega a quien puede subir en la sucursal (campana + aviso manual).
+    ReceiptDevueltasService,
   ],
   exports: [GoodsReceiptProofsService, ReceiptSlaService],
 })

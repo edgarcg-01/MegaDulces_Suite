@@ -16,6 +16,8 @@ import { EtiquetasService } from '../../tienda/etiquetas.service';
 import { avisoDePrecio } from '../../tienda/aviso-precio';
 import { DesktopNoticeService } from '../../../core/services/desktop-notice.service';
 import { ComprasService } from '../../compras/compras.service';
+import { EntradasService } from '../../compras/entradas.service';
+import { warehouseName } from '@megadulces/contracts';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -123,6 +125,22 @@ const FINANCE_NOTIF_ENABLED = false;
             </div>
           }
 
+          <!-- [RE.83] Lo que se le devolvió a mi sucursal y sigue sin papel nuevo. Siempre a la vista para
+               quien sube facturas (también en cero), y lleva a la bandeja donde se vuelve a subir. -->
+          @if (devActivo() && !devOficina()) {
+            <div class="px-2 py-2 border-b border-divider">
+              <a routerLink="/compras/revision-facturas" [queryParams]="{ bandeja: 'devueltas' }" (click)="close()"
+                 class="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-surface-hover text-left transition-colors">
+                <i class="pi pi-replay text-base" [style.color]="(devN() ?? 0) > 0 ? 'var(--warn-fg)' : 'var(--content-muted, currentColor)'" aria-hidden="true"></i>
+                <span class="flex-1 min-w-0">
+                  <span class="block text-sm text-content-main">{{ devN() === null ? 'Facturas devueltas: sin medir' : devN() + ' factura(s) devuelta(s) por corregir' }}</span>
+                  <span class="block text-xs text-content-muted">Compras · vuelve a subir el papel correcto</span>
+                </span>
+                <i class="pi pi-angle-right text-content-muted" aria-hidden="true"></i>
+              </a>
+            </div>
+          }
+
           <div class="max-h-[46vh] overflow-y-auto">
             @if (feed().length === 0) {
               <p class="px-4 py-6 text-center text-xs text-content-muted">Sin novedades en tiempo real.</p>
@@ -173,6 +191,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly etiquetas = inject(EtiquetasService);
   private readonly escritorio = inject(DesktopNoticeService);
   private readonly compras = inject(ComprasService);
+  private readonly entradas = inject(EntradasService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -230,7 +249,26 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
    * uno de menos no existe.
    */
   private readonly misSucursales = signal<Set<string> | null>(null);
-  readonly attentionCount = computed(() => this.criticos() + this.accionesPend() + (this.rqN() ?? 0));
+  readonly attentionCount = computed(() => this.criticos() + this.accionesPend() + (this.rqN() ?? 0) + (this.devN() ?? 0));
+
+  /**
+   * [RE.83] Facturas devueltas (Edgar, 2026-11-19: «cada que se devuelve hay que notificar a los
+   * usuarios que pueden subir de cada sucursal»).
+   *
+   * - A quién: a quien tiene la CLAVE COMPRAS_ENTRADAS_GESTIONAR; el servidor recorta a las sucursales
+   *   donde puede SUBIR. Sin isAdmin(): el god-mode puede subir en todas y el aviso de cada
+   *   devolución de la red le sería ruido.
+   * - De dónde: las devueltas mismas (goods-receipts/devueltas), no un aviso en memoria: si nadie
+   *   tenía la Suite abierta al devolver, la campana igual lo dice al entrar.
+   * - Cuándo: cada 60 s con la pestaña visible, y en cuanto el servidor empuja entradas_devuelta
+   *   (al devolver o al «Avisar a la sucursal»). La llave de cada aviso es la devuelta + la hora del último
+   *   aviso: un recordatorio manual vuelve a sonar.
+   */
+  readonly devActivo = computed(() => !this.perms.isAdmin() && this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  /** null = todavía no se pudo medir (se dice «sin medir», nunca 0). */
+  readonly devN = signal<number | null>(null);
+  private readonly devOficina = signal(false);
+  private devVisto: Set<string> | null = null;
 
   /**
    * `[PQ.35]` Requisiciones por aprobar (Edgar, 2026-10-29: «que se entere cuando llega una
@@ -263,7 +301,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly sdActivo = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
   private readonly sdPuedeAtender = computed(() => this.perms.hasAny(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR));
   /** `[MS.AVISO]` Sólo a quien atiende y todavía no decidió: con el permiso ya dado o negado el botón sobra. */
-  readonly puedeActivarEscritorio = computed(() => (this.sdPuedeAtender() || this.rqActivo()) && this.escritorio.permiso() === 'default');
+  readonly puedeActivarEscritorio = computed(() => (this.sdPuedeAtender() || this.rqActivo() || this.devActivo()) && this.escritorio.permiso() === 'default');
   activarEscritorio(): void { void this.escritorio.solicitar(); }
   private sdVisto = new Set<string>();
   private sdDesde: string | undefined;
@@ -308,6 +346,10 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
         this.rqTimer = setInterval(() => this.zone.run(() => this.pollRequisiciones()), 60_000);
       });
       this.destroyRef.onDestroy(() => { if (this.rqTimer) clearInterval(this.rqTimer); });
+    }
+    if (this.devActivo()) {
+      this.pollDevueltas();
+      encuestarVisible(60_000, () => this.pollDevueltas(), { destroyRef: this.destroyRef, zone: this.zone });
     }
     // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
     // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
@@ -406,6 +448,44 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * [RE.83] Lee las devueltas. Al abrir la Suite entran al feed las que llegaron desde la última vez que se
+   * abrió la campana (no sólo las que se devuelvan con la pestaña abierta); de ahí en adelante, cada
+   * devuelta o recordatorio nuevo entra al feed y, si la pestaña no se ve, sale el aviso de Windows.
+   */
+  private pollDevueltas(): void {
+    this.entradas.devueltas().subscribe({
+      next: (r) => {
+        // Oficina (sube en todas): la campana no le muestra devueltas; la bandeja sigue a su alcance.
+        if (r.de_sucursal === false) { this.devN.set(null); this.devOficina.set(true); return; }
+        this.devN.set(r.n);
+        const primera = this.devVisto === null;
+        const visto = this.devVisto ?? new Set<string>();
+        const llave = (x: { proof_id: string; aviso_at: string }) => `${x.proof_id}|${x.aviso_at}`;
+        const nuevas = r.recientes.filter((x) => !visto.has(llave(x)) && (!primera || Date.parse(x.aviso_at) > this.lastReadAt()));
+        for (const x of r.recientes) visto.add(llave(x));
+        this.devVisto = visto;
+        if (!nuevas.length) return;
+        const items: FeedItem[] = nuevas.map((x) => ({
+          type: 'entradas_devuelta', severity: 'warn',
+          title: `Factura devuelta · ${warehouseName(x.sucursal)} · entrada ${x.folio}`,
+          message: `${x.proveedor ?? 'Proveedor sin nombre'}${x.motivo ? ' · ' + x.motivo : ''}${x.devuelta_por ? ' · la devolvió ' + x.devuelta_por : ''}`,
+          at: Date.parse(x.aviso_at) || Date.now(),
+          route: `/compras/revision-facturas?bandeja=devueltas&suc=${encodeURIComponent(x.sucursal)}`,
+        }));
+        this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
+        this.newSince.set(true);
+        if (!primera && typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          const t = nuevas.length === 1 ? items[0].title : `${nuevas.length} facturas devueltas`;
+          this.escritorio.mostrar(t, nuevas.length === 1 ? items[0].message : 'Vuelve a subir el papel correcto.',
+            () => irConservandoPanel(this.router, '/compras/revision-facturas?bandeja=devueltas'), 'entradas_devuelta');
+        }
+      },
+      // Best-effort: un fallo no calla la campana; el contador queda en «sin medir» hasta la primera lectura.
+      error: () => undefined,
+    });
+  }
+
   /** A dónde lleva un aviso: lo que es de quien atiende, a la bandeja; lo demás, a sus solicitudes. */
   private rutaServicio(event: string, requestId: string | null): string {
     const deAtencion = event === 'nuevo_prioritario' || event === 'nueva_solicitud' || event === 'asignado' || event === 'reabierto' || event.startsWith('sla_');
@@ -417,6 +497,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     // `[MS.3.6]` El push de la mesa NO entra al feed: sólo adelanta la lectura del log (ver arriba).
     // Entrar por las dos vías duplicaría cada aviso.
     if (a.type === ('service_desk' as any)) { if (this.sdActivo()) this.pollServicio(); return; }
+    // [RE.83] Igual que la mesa: el push sólo adelanta la lectura de las devueltas (si no, entraría dos veces).
+    if (a.type === ('entradas_devuelta' as any)) { if (this.devActivo()) this.pollDevueltas(); return; }
     // Finanzas (hallazgos Maat) desactivado: no dejamos pasar sus alertas al feed en vivo.
     if (!FINANCE_NOTIF_ENABLED && a.type === ('finance_finding' as any)) return;
     // Aviso de FEED nuevo (Kepler/ContPAQi): solo a quien tiene el módulo de Finanzas.
@@ -471,7 +553,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   toggle(): void {
     const willOpen = !this.open();
     this.open.set(willOpen);
-    if (willOpen) { this.markRead(); if (this.canSeeFinance()) this.refresh(); if (this.rqActivo()) this.pollRequisiciones(); }
+    if (willOpen) { this.markRead(); if (this.canSeeFinance()) this.refresh(); if (this.rqActivo()) this.pollRequisiciones(); if (this.devActivo()) this.pollDevueltas(); }
   }
   close(): void { this.open.set(false); }
 
