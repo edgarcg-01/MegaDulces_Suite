@@ -224,3 +224,30 @@ en el repo de Mega Talento.
 | Mergear la cadena frena todos los despliegues hasta aplicar sus migraciones | Aplicarlas el mismo día del merge |
 | El rol `recursos_humanos` sin personas | Nadie de RH ve las pantallas hasta ocuparlo |
 | La URL de la base compartida de Railway circuló con superusuario | Rotarla en RH.4.2 |
+
+---
+
+## 8. Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-19 | `[RH.17.1]` «Hoy» de Reclutamiento, en **PR #561** (CI corriendo al abrirlo). Pestaña `/rh/reclutamiento/hoy`, a la que lleva el menú: 4 pendientes con verbo y la tarjeta uno por uno. Nace de la auditoría en prod del 18-nov (1,952 postulados en la entrada, «Atrasado» en 85/100, 0 rechazados, ~6 clics por llamada) y de un prototipo navegable que RH validó «tal cual». Medido el 19-nov 00:37 (prod, sólo lectura): 56 nuevos · **846 activos fuera de su meta** · 1,039 apartados (+30 días) → cuota de 20 por pendiente. Pruebas: regla 14 y servicio contra base local (las dos con negativa en rojo) · pantalla 11 · regresión 327 + 254 + 265 · `ngc`/`tsc --noEmit` 0 · `check:pantalla` 0 · `pre-push` 27 compuertas. NO MEDIDO: carga en prod, celular, oscuro, rol sólo-VER. Falta: CI, aceptación del PM, despliegue y prueba en prod con RH | RH (validó el prototipo) + Claude |
+
+### `[RH.17.1]` — las capas
+
+| Capa | Qué | Estado | Verificado contra / Prueba |
+|---|---|---|---|
+| C0 Dato | Lee `talent.candidates`, `candidate_events`, `candidate_stage_transitions` (sin tablas ni migraciones nuevas) | sin cambio | Universo = el de «Postulados» (`SQL_ES_POSTULACION`) |
+| C1 Dominio | `libs/hr/src/lib/talent/logic/hoy.ts`: un candidato, un pendiente; >30 días sin movimiento = apartado; cuota 20 | 🧪 | `logic/hoy.spec.ts` 14/14, rota a propósito → 3 rojas |
+| C2 API | `GET /hr/talent/today` (`HrTalentHoyService`), sólo lectura, VER o GESTIONAR | 🧪 | `talent-hoy.service.db.spec.ts` contra Postgres local con rollback; rota a propósito → rojo. RLS no ejercida (corre como `postgres`) |
+| C3 Interfaz | `rh-reclutamiento-hoy.component.ts` + `hoy-formato.ts`; menú con `tabs` (`reclutamiento-tabs.ts`) | 🧪 | `hoy-formato.spec.ts` 11/11 · `ngc` 0 · `check:pantalla` 0 fallas. Sin validación visual en prod |
+| C4 Plataforma | Sin migración ni variable nueva | ⬜ | Pendiente: CI, merge, despliegue, `/api/health` |
+
+### Decisiones y bloqueos abiertos (`[RH.17]`)
+
+| # | Qué | Dueño | Qué lo destraba |
+|---|---|---|---|
+| D1 | ¿La cuota de 20 por pendiente es la correcta? | RH | Que la usen una semana con la cuota y digan |
+| D2 | «Nuevo» = postulado en las últimas 48 h sin contacto de RH | RH | Confirmarlo o pedir otra ventana |
+| B1 | `[RH.17.2]` (ficha pulida) toca la ficha que otra sesión tiene con cambios sin commitear | quien tenga esos cambios | Que aterricen en `main` |
+| B2 | `[RH.17.4]` (estados de vacantes) necesita una migración en `talent.job_postings` | PM | Autorizarla |

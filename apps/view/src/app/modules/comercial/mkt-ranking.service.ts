@@ -15,10 +15,10 @@ import { environment } from '../../../environments/environment';
 export type Canal = 'mostrador' | 'preventa' | 'ruta' | 'mayoreo';
 export const CANALES: Canal[] = ['mostrador', 'preventa', 'ruta', 'mayoreo'];
 export const CANAL_CORTO: Record<Canal, string> = {
-  mostrador: 'Sucursales', preventa: 'Vecinal', ruta: 'Rutas', mayoreo: 'Televenta',
+  mostrador: 'Sucursales', preventa: 'Vecinal', ruta: 'Rutas', mayoreo: 'Telemarketing',
 };
 export const CANAL_LARGO: Record<Canal, string> = {
-  mostrador: 'Sucursales (mostrador)', preventa: 'Vecinal (preventa)', ruta: 'Rutas', mayoreo: 'Televenta (mayoreo)',
+  mostrador: 'Sucursales (mostrador)', preventa: 'Vecinal (preventa)', ruta: 'Rutas', mayoreo: 'Telemarketing (mayoreo)',
 };
 
 /** [MKT.15] Cómo se supo el producto de la promo: Kepler no guarda la liga, se deriva del ticket. */
@@ -71,6 +71,15 @@ export interface ParticipanteRanking {
   cumplidas: number;
   sin_venta: number;
   promos: RenglonRanking[];
+  /**
+   * [MKT.28]/[MKT.29] De dónde sale `nombre` fuera de mostrador: el chofer de la comisión, la persona
+   * asignada en la Suite, el nombre de Kepler, o nadie (`sin_dato`: el nombre es «Ruta N»).
+   */
+  vendedor_fuente?: 'comision' | 'asignacion' | 'kepler' | 'sin_dato' | null;
+  /** [MKT.28] Clave de la ruta (Kepler `1V001`, camioneta `501`). */
+  ruta?: string | null;
+  /** [MKT.28] Otras personas asignadas a la ruta en la Suite, además de `nombre`. */
+  otros_vendedores?: string[];
 }
 
 export interface VendedoraEnRanking {
@@ -257,10 +266,104 @@ export interface IncentivoDto {
   notas?: string | null;
 }
 
+// ─────────── [MKT.30]/[MKT.31] los dos rankings: promociones (toda la venta) y vendedores (lo cargado) ───────────
+
+/** Cómo le dice Mercadotecnia a cada canal en el ranking de la semana (2026-11-18). */
+export const CANAL_VENTA: Record<Canal, string> = {
+  mostrador: 'Sucursales', preventa: 'Ruta vecinal', ruta: 'Ruta directa', mayoreo: 'Telemarketing',
+};
+/** El filtro de zona para las sucursales sin zona (nunca se adivina). */
+export const SIN_ZONA = 'Sin zona';
+
+/** `dinero: null` = la promoción no tiene producto identificado («sin dato»), NO cero. */
+export interface DesglosePromo { paquetes: number; dinero: number | null }
+export interface ObjetivoSucursal { fijo: number | null; mixto: boolean; automatico: number | null; sucursales: string[] }
+export interface PromoVenta extends DesglosePromo {
+  promo_id: string;
+  code: string;
+  nombre: string;
+  objetivo: number | null;
+  avance: number | null;
+  por_canal: Array<DesglosePromo & { canal: Canal }>;
+  por_sucursal: Array<DesglosePromo & { warehouse_code: string; nombre: string; zona: string; objetivo: number | null }>;
+  productos_nombres: string[];
+  /** [MKT.27] Los SKU del producto: la pistola lee un código de barras y se resuelve a uno de éstos. */
+  productos_skus: string[];
+  productos_metodo: MetodoProducto;
+  /** [MKT.24] El proveedor (asignado o del producto), para buscarlo; null = ninguno. */
+  proveedor: string | null;
+  objetivo_sucursal: ObjetivoSucursal;
+}
+
+/**
+ * [MKT.27] ¿La promo coincide con lo buscado? Nombre, código, proveedor, producto o SKU, y si lo
+ * buscado es un código de barras (pistola), el de cualquiera de sus productos.
+ */
+export function coincidePromoVenta(q: string, p: PromoVenta, codigos: Record<string, string[]> | null): boolean {
+  if (coincideBusqueda(q, p.nombre, p.code, p.proveedor ?? '', ...p.productos_nombres, ...p.productos_skus)) return true;
+  const c = q.trim();
+  return /^\d{8,14}$/.test(c) && !!codigos && p.productos_skus.some((s) => (codigos[s] ?? []).includes(c));
+}
+export interface PromoDeVendedor { code: string; nombre: string; paquetes: number; precio: number | null; total: number | null }
+export interface VendedorVenta {
+  clave: string;
+  canal: Canal;
+  warehouse_code: string;
+  warehouse_name: string;
+  vendedor: string;
+  nombre: string;
+  detalle: string;
+  fuente: 'cajera' | 'comision' | 'asignacion' | 'kepler' | 'sin_dato';
+  paquetes: number;
+  tickets: number;
+  total: number;
+  promos_sin_dato: number;
+  promos: PromoDeVendedor[];
+}
+export interface VentaSemana {
+  semana: Semana;
+  filtro: { canal: Canal | null; sucursal: string | null; zona: string | null };
+  sucursales_lista: Array<{ code: string; nombre: string; zona: string }>;
+  zonas_lista: string[];
+  totales: { paquetes: number; objetivo: number | null; dinero: number; promos: number; promos_sin_dato: number };
+  sucursal_top: { warehouse_code: string; nombre: string; zona: string; paquetes: number } | null;
+  promos: PromoVenta[];
+  /** [MKT.27] `sku → códigos de barras`; null = no se pudieron leer (la pantalla lo dice). */
+  codigos_barras: Record<string, string[]> | null;
+  vendedores: VendedorVenta[];
+  mostrador: { tickets_con_promo: number; tickets_asignados: number } | null;
+  dinero_contrastado: Record<Canal, boolean>;
+  criterio: string;
+  consultado_at: string;
+}
+export interface FiltroVenta { canal: Canal | null; sucursal: string | null; zona: string | null }
+
+/**
+ * Los canales cuyo dinero todavía no se contrastó contra Kepler, dentro del filtro. La pantalla lo
+ * dice junto a la cifra (ADR-056): no se presenta como medido lo que no se midió.
+ */
+export function canalesSinContrastar(d: Pick<VentaSemana, 'dinero_contrastado'>, canal: Canal | null): Canal[] {
+  return (canal ? [canal] : CANALES).filter((c) => !d.dinero_contrastado[c]);
+}
+
+/** «$1,234.50»; `null` → «sin dato» (no hay producto identificado), nunca $0. */
+export const dinero = (v: number | null | undefined) =>
+  v === null || v === undefined ? 'sin dato' : v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 @Injectable({ providedIn: 'root' })
 export class MktRankingService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/mkt-ranking`;
+
+  /** [MKT.30] Los dos rankings de la semana; los filtros los aplica el SERVIDOR (el total no repite renglones). */
+  venta(semana: string | null, f: FiltroVenta): Observable<VentaSemana> {
+    let p = new HttpParams();
+    if (semana) p = p.set('semana', semana);
+    if (f.canal) p = p.set('canal', f.canal);
+    if (f.sucursal) p = p.set('sucursal', f.sucursal);
+    if (f.zona) p = p.set('zona', f.zona);
+    return this.http.get<VentaSemana>(`${this.base}/venta`, { params: p });
+  }
 
   ranking(semana: string | null, canal: Canal, promo: string | null = null, sucursales: string[] = [], proveedor: string | null = null): Observable<RankingSemana> {
     let p = new HttpParams().set('canal', canal);
