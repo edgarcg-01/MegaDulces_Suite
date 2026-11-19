@@ -267,7 +267,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   readonly devActivo = computed(() => !this.perms.isAdmin() && this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   /** null = todavía no se pudo medir (se dice «sin medir», nunca 0). */
   readonly devN = signal<number | null>(null);
-  private readonly devOficina = signal(false);
+  readonly devOficina = signal(false); // la plantilla lo lee: `private` daba TS2341 y tumbaba el build de view
   private devVisto: Set<string> | null = null;
 
   /**
