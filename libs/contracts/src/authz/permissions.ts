@@ -471,6 +471,12 @@ export enum Permission {
   // checador nunca checa lo que él surtió (P4), y eso lo cuida el sistema por pedido, no el perfil.
   // Rol `checador` + `almacenista` (mig 20261008143820).
   ALMACEN_CHECADO_GESTIONAR = 'ALMACEN_CHECADO_GESTIONAR',
+  // `[RE.ETQ.2.4]` Etiquetas de caja de la orden de entrada (/almacen/etiquetas, TSC TE200): ver la cola,
+  // enviar a imprimir y reimprimir. Clave PROPIA: hoy la recepción cuelga de COMMERCIAL_INVENTORY_RECIBIR
+  // (el Andén), que en Suc 08 no tiene nadie (medido: 0 almacenistas ahí; reciben los encargados de tienda),
+  // y reusarla daría el Andén a quien sólo pega etiquetas. Una clave, que hace (no hay sólo-ver: la pantalla
+  // existe para imprimir). Se reparte por migración en la misma entrega ([LC.6.2], regla 20).
+  ALMACEN_ETIQUETAS_CAJA = 'ALMACEN_ETIQUETAS_CAJA',
   // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
   //
   // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:

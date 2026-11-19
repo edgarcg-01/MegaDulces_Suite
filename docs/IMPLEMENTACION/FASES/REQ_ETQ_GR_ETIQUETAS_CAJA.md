@@ -6,6 +6,16 @@ El almacén va a imprimir desde la Suite la etiqueta de caja que hoy sale de Kep
 Compras › **Órdenes de entrada** › «Imprimir Etiquetas»): sin teclear nada, con un código que el
 handheld sí lea y con registro de lo impreso. **Las seis decisiones están respondidas** (§1).
 
+> **Estado al 2026-11-19:** construido y probado en local: los datos, las reglas de la etiqueta, la API con su
+> bitácora y la pantalla `/almacen/etiquetas`, en 4 commits sin subir. Faltan:
+> - verla en un navegador;
+> - aplicar el permiso en producción (Sistemas lo confirmó el 2026-11-19: almacenista, encargado de tienda, encargado de bodega y supervisor, 21 personas, y quien entre después con esos puestos);
+> - medir la impresora de Suc 08;
+> - la prueba física con el handheld;
+> - subirlo a producción.
+>
+> Las direcciones técnicas quedaron como `commercial/receiving/box-labels/*` (dentro de Recepción).
+
 ---
 
 ## 1. Decisiones
