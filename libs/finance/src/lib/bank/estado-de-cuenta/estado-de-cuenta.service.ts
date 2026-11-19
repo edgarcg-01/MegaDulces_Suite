@@ -8,6 +8,7 @@ import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibr
 import { cuadreDeLaDescarga, type CuadreDeLaDescarga } from './cuadre-de-la-descarga';
 import { cuadresDeLaDescarga } from './cuadre-de-cuentas.query';
 import { probarCuentasPorCadena, type ArchivoEnCadena, type ComoSeComproboLaCuenta } from './cadena-de-la-cuenta';
+import { leerLigasDelLibro, religarAlBanco, type Religado } from './religar';
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
@@ -327,7 +328,8 @@ export class EstadoDeCuentaService {
         archivos: (archivos as { id: string }[]).map((a) => ({ ...a, cuenta_probada: prueba.get(a.id) ?? null })),
         total: Number(n), tope,
         cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; ultima_subida: string | null; archivos: number; sin_testigo: number }) => {
-          const porCadena = [...prueba.entries()].filter(([id, p]) => p === 'cadena' && cuentaDe.get(id) === c.id).length;
+          // ⛔ Array.from, NO spread: webpack baja `[...map.entries()]` a `[iterador]` y el conteo saldría mal.
+          const porCadena = Array.from(prueba.entries()).filter(([id, p]) => p === 'cadena' && cuentaDe.get(id) === c.id).length;
           // `sin_testigo` sigue diciendo «sin poder comprobar la cuenta»: ahora cuenta sólo los que tampoco prueba la cadena.
           return { ...c, sin_testigo: Math.max(0, c.sin_testigo - porCadena), por_cadena: porCadena, con_lector: conLector.includes(c.bank) };
         }),
@@ -512,7 +514,7 @@ export class EstadoDeCuentaService {
       const cuenta = await trx('finance.bank_accounts').where({ id: cuentaId, kind: 'bank' })
         .first('id', trx.raw('coalesce(alias, account_label) as alias'), trx.raw("to_char(statement_source_since, 'YYYY-MM-DD') as desde"));
       if (!cuenta) throw new BadRequestException('la cuenta no existe o no es de banco');
-      if (cuenta.desde) return { cuenta: cuenta.alias, desde: cuenta.desde, ya_estaba: true, llaves: 0, libro_borrados: 0, ...SIN_ALIMENTAR };
+      if (cuenta.desde) return { cuenta: cuenta.alias, desde: cuenta.desde, ya_estaba: true, llaves: 0, libro_borrados: 0, ...SIN_ALIMENTAR, religados: 0, sin_religar: [] };
       // La sucursal se aprende del historial del libro (la S de los renglones que casan con el banco).
       const mapa = new MapaDeSucursal();
       await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa, hoy);
@@ -530,6 +532,8 @@ export class EstadoDeCuentaService {
           confirmed_by: actor, created_by: actor, updated_by: actor,
         })));
       }
+      // [BFU.2.5] Antes de borrar: lo que está colgado de los renglones del libro que se van a reemplazar.
+      const conLigas = await leerLigasDelLibro(trx, cuentaId, desde);
       const libroBorrados = await trx('finance.bank_movements')
         .where({ bank_account_id: cuentaId }).where('movement_date', '>=', desde)
         .whereIn('sync_source', ['upload', 'sheet']).whereRaw("client_uuid NOT LIKE 'whatsapp:%'").whereNull('deleted_at')
@@ -537,8 +541,11 @@ export class EstadoDeCuentaService {
       await trx('finance.bank_accounts').where({ id: cuentaId })
         .update({ statement_source_since: desde, statement_source_set_by: actor, statement_source_set_at: trx.fn.now(), updated_at: trx.fn.now() });
       const alimentado = await this.alimentarDesdeElBanco(trx, tenantId, cuentaId, desde, actor);
-      this.logger.log(`[CB.60b] ${cuenta.alias} usa el banco desde ${desde} (por ${actor}): ${llaves.length} llaves, ${libroBorrados} del libro borrados, ${alimentado.metidos} del banco`);
-      return { cuenta: cuenta.alias, desde, ya_estaba: false, llaves: llaves.length, libro_borrados: libroBorrados, ...alimentado };
+      // [BFU.2.5] Y después de meter el banco: cada liga pasa a su renglón del banco (mismo pareo que la compuerta).
+      const religado = await religarAlBanco(trx, cuentaId, desde, conLigas);
+      this.logger.log(`[CB.60b] ${cuenta.alias} usa el banco desde ${desde} (por ${actor}): ${llaves.length} llaves, ${libroBorrados} del libro borrados, ${alimentado.metidos} del banco, ${religado.religados} religados, ${religado.sin_pareja.length} sin pareja`);
+      return { cuenta: cuenta.alias, desde, ya_estaba: false, llaves: llaves.length, libro_borrados: libroBorrados, ...alimentado,
+        religados: religado.religados, sin_religar: religado.sin_pareja };
     });
   }
 
@@ -602,6 +609,10 @@ const SIN_ALIMENTAR: Alimentado = { metidos: 0, en_cero: 0, sin_categoria: 0, si
 
 export interface UsoDelBanco extends Alimentado {
   cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
+  /** [BFU.2.5] Renglones del libro cuyas ligas (pagos, confirmaciones, capturas, cliente, categoría manual) pasaron al banco. */
+  religados: number;
+  /** [BFU.2.5] Los que tenían algo colgado y no tienen pareja en el banco: su liga queda en el renglón reemplazado. */
+  sin_religar: Religado['sin_pareja'];
 }
 
 export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null };

@@ -24,6 +24,8 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
+### Fixed — Bancos: al pasar una cuenta al banco, los pagos y confirmaciones ligados pasan con ella (BFU.2.5 · 2026-11-19 · en código, sin soltar)
+- Lo que estaba ligado a un renglón del libro (pago del calendario, confirmación de ContPAQi, captura, cliente declarado, categoría puesta a mano) pasa al mismo movimiento del banco; lo que no tiene pareja se avisa, no se adivina.
 ### Added — Bancos › Estados de cuenta: los archivos sin número de cuenta se comprueban por la cadena de saldos (BFU.1.3 · 2026-11-19 · en código, sin soltar)
 - Un archivo de BBVA o BanBajío aceptado «sin testigo» queda comprobado cuando abre en un saldo que esa cuenta ya tenía en otro archivo comprobado o en el libro; hoy pasan de 19 sin comprobar a 1.
 - La regla de qué hace verdadero un estado de cuenta del banco queda escrita en VERDAD_ABSOLUTA §39.
