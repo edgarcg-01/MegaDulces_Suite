@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas: se vuelve a imprimir, y con la tipografía de la etiqueta (ETQ-FUENTE.3 · 2026-11-12)
+- Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
+- Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
+
 ### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en código, sin soltar)
 - Los pagos aplicados y los saldos de cada documento de cartera ahora llegan de Kepler por la cola de cambios, que ve cada alta y cada cambio. Antes una parte se perdía en el camino: 2,967 saldos viejos y 133 pagos aplicados que nunca llegaron, entre ellos el que hizo reclamar a un cliente de Canindo.
 - Una comparación de sólo lectura contra Kepler dice, sucursal por sucursal, si falta algo (`database/scripts/ods-cartera-vs-replica.js`).
