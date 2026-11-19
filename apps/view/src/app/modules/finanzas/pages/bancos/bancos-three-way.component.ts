@@ -106,7 +106,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           }
         </div>
         @if (anyStale(d)) {
-          <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día.@if (!d.coverage.workbook.stale) { El banco (Workbook) va al día.}</p>
+          <p class="tw-cov-note muted"><i class="pi pi-info-circle"></i> Una fuente va rezagada en captura: sus diferencias son <b>captura pendiente</b>, no descuadre. Se cierran cuando esa fuente se pone al día.@if (!d.coverage.workbook.stale) { El banco va al día.}</p>
         }
         }
       </div>
@@ -198,10 +198,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               </tr>
               <tr>
                 <th class="ta-r" pSortableColumn="wb_in" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_in" /></th>
-                <th class="ta-r tw-kep" pSortableColumn="kep_in" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_in" /></th>
+                <th class="ta-r tw-kep" pSortableColumn="kep_in" title="La tesorería de Kepler, por cuenta">Kepler <p-sorticon field="kep_in" /></th>
                 <th class="ta-r" pSortableColumn="cp_in" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_in" /></th>
                 <th class="ta-r" pSortableColumn="wb_out" title="La descarga del banco donde cuadra por saldos; si no, el libro de Tesorería">Banco <p-sorticon field="wb_out" /></th>
-                <th class="ta-r tw-kep" pSortableColumn="kep_out" title="Kepler tesorería (kdm1, por banco)">Kepler <p-sorticon field="kep_out" /></th>
+                <th class="ta-r tw-kep" pSortableColumn="kep_out" title="La tesorería de Kepler, por cuenta">Kepler <p-sorticon field="kep_out" /></th>
                 <th class="ta-r" pSortableColumn="cp_out" title="Libros ContPAQi">ContPAQi <p-sorticon field="cp_out" /></th>
               </tr>
             </ng-template>
@@ -225,7 +225,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <td class="ta-r tw-col-dif">
                   @switch (r.estado) {
                     @case ('sin_cargar') {
-                      <span class="tw-tag muted-tag" title="El fiscal (ContPAQi) tiene esta cuenta pero el banco (Workbook) no está cargado este mes. Falta capturar el estado de cuenta — NO es descuadre.">sin cargar</span>
+                      <span class="tw-tag muted-tag" title="ContPAQi tiene esta cuenta, pero su banco no está cargado este mes: falta la descarga o el libro de Tesorería. No es descuadre.">sin cargar</span>
                     }
                     @case ('sin_comparar') {
                       <span class="tw-tag muted-tag" [attr.title]="sinCompararMotivo(r)">sin comparar</span><span class="sr-only"> — {{ sinCompararMotivo(r) }}</span>
@@ -397,7 +397,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           <button type="button" role="radio" [attr.aria-checked]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
         </div>
         @if (drillMode() === 'movimientos') {
-        <p class="dlg-lead">Cada movimiento del <b>banco</b> (Excel) marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).@if (dfDay(); as dy) { <span class="tw-dayfilter">· filtrado al día <b>{{ dy }}</b> <button type="button" class="tw-daychip" (click)="dfDay.set('')">quitar ✕</button></span> }</p>
+        <p class="dlg-lead">Cada movimiento del <b>banco</b> marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).@if (dfDay(); as dy) { <span class="tw-dayfilter">· filtrado al día <b>{{ dy }}</b> <button type="button" class="tw-daychip" (click)="dfDay.set('')">quitar ✕</button></span> }</p>
         <div class="tw-drill-kpis">
           <span><b>{{ dd.totals.excel_n }}</b> movs banco</span>
           <span class="ok"><b>{{ dd.totals.excel_en_kepler }}</b> en Kepler</span>
@@ -450,8 +450,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <td class="mono muted nowrap">{{ dmShort(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'"></i></td>
                   <td class="ta-r mono"><button type="button" class="tw-dlink" (click)="openMov('workbook', e.key)" title="Ver detalle (estado de cuenta)">{{ e.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button></td>
-                  <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
-                  <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.kepler_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (e.contpaqi_importe !== e.importe) {<span class="sr-only"> (distinto del banco)</span>}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
                   <td><span [class]="reconClass(e.recon)" [title]="reconTitle(e.recon)">{{ reconLabel(e.recon) }}</span></td>
                 </tr>
@@ -598,6 +598,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .warn, .warn-tag { color: var(--warn-soft-fg); }
     /* La diferencia contra Kepler es de consulta: se lee, no alarma. El rojo queda para banco − ContPAQi. */
     .tw-info { color: var(--text-muted); }
+    /* [CB.87] El importe que no coincide con el banco venía de los estilos compartidos con --warn-fg (2.15:1 en
+       claro). Aquí va el -soft-fg; además se subraya, para que el color no sea lo único que lo marca. */
+    .tw-cent { color: var(--warn-soft-fg); text-decoration: underline dotted; text-underline-offset: 3px; }
+    .tw-fg button.on { color: var(--action-press); }
     .tw-est { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .tw-ventana { font-size: var(--fs-sm); color: var(--text-main); margin: var(--sp-1) 0 0; line-height: 1.4; }
     /* Filas que abren algo: el foco se ve, por dentro para que no se corte en la tabla. */
@@ -611,8 +615,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-recon--traspaso, .tw-recon--factoraje, .tw-recon--fiscal, .tw-recon--partido { border-color: color-mix(in srgb, var(--text-muted) 30%, transparent); }
     .tw-recon--sin_categoria { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); color: var(--warn-soft-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
     .tw-recon--sin_categoria b { color: var(--warn-soft-fg); }
-    .tw-recon--sin_match { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); }
-    .tw-recon--sin_match b { color: var(--bad-fg); }
+    .tw-recon--sin_match { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); color: var(--bad-soft-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); }
+    .tw-recon--sin_match b { color: var(--bad-soft-fg); }
     .tw-recon-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); line-height: 1.5; }
     .tw-recon-note .bad { color: var(--bad-fg); }
     /* CB.42 — toggle Movimientos ↔ Por día + tabla por día */
@@ -777,7 +781,7 @@ export class BancosThreeWayComponent {
   readonly DRILL_COLS = [
     { field: 'fecha',            label: 'Fecha',     cls: '' },
     { field: 'dir',              label: 'Dir',       cls: 'ta-c' },
-    { field: 'importe',          label: 'Workbook',  cls: 'ta-r' },
+    { field: 'importe',          label: 'Banco',     cls: 'ta-r' },
     { field: 'kepler_importe',   label: 'Kepler',    cls: 'ta-r' },
     { field: 'contpaqi_importe', label: 'ContPAQi',  cls: 'ta-r' },
     { field: 'concepto',         label: 'Concepto',  cls: '' },
@@ -1048,7 +1052,7 @@ export class BancosThreeWayComponent {
         cols: [
           { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
           { header: 'Direccion', get: (r: any) => (r.dir === 'in' ? 'Deposito' : 'Retiro'), width: 11 },
-          { header: 'Workbook', get: (r: any) => r.importe, type: 'money', total: true },
+          { header: 'Banco', get: (r: any) => r.importe, type: 'money', total: true },
           { header: 'Kepler', get: (r: any) => r.kepler_importe, type: 'money', total: true },
           { header: 'Doc Kepler', get: (r: any) => r.kepler_doc, width: 16 },
           { header: 'ContPAQi', get: (r: any) => r.contpaqi_importe, type: 'money', total: true },
@@ -1056,9 +1060,13 @@ export class BancosThreeWayComponent {
           { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
         ],
       }];
-      if (dd.kepler_only.length) {
+      // [CB.87] Las hojas de abajo llevan la MISMA población y los mismos filtros que la pantalla: antes
+      // iban sin filtrar y la de ContPAQi mezclaba las pólizas sin banco con las que sólo esperan a que
+      // el banco se cargue, que la pantalla separa.
+      const kOnly = this.keplerOnlyRows();
+      if (kOnly.length) {
         sheets.push({
-          name: 'En Kepler sin banco', rows: dd.kepler_only,
+          name: 'En Kepler sin banco', subtitle: this.filterNote(dd), rows: kOnly,
           cols: [
             { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
             { header: 'Doc', get: (r: any) => r.doc, width: 16 },
@@ -1068,15 +1076,19 @@ export class BancosThreeWayComponent {
           ],
         });
       }
-      if (dd.contpaqi_only.length) {
+      const colsCpq = [
+        { header: 'Fecha', get: (r: any) => r.fecha, type: 'date' as const, width: 12 },
+        { header: 'Poliza', get: (r: any) => r.poliza, width: 16 },
+        { header: 'Importe', get: (r: any) => r.importe, type: 'money' as const, total: true },
+        { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
+      ];
+      const cSin = this.contpaqiOnlyRows(), cEspera = this.contpaqiDespues();
+      if (cSin.length) sheets.push({ name: 'En ContPAQi sin banco', subtitle: this.filterNote(dd), rows: cSin, cols: colsCpq });
+      if (cEspera.length) {
         sheets.push({
-          name: 'En ContPAQi sin banco', rows: dd.contpaqi_only,
-          cols: [
-            { header: 'Fecha', get: (r: any) => r.fecha, type: 'date', width: 12 },
-            { header: 'Poliza', get: (r: any) => r.poliza, width: 16 },
-            { header: 'Importe', get: (r: any) => r.importe, type: 'money', total: true },
-            { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
-          ],
+          name: 'ContPAQi sin pareja aun',
+          subtitle: 'El banco de esta cuenta todavia no cubre el mes: su pareja puede llegar despues. Fuera del cuadre. ' + this.filterNote(dd),
+          rows: cEspera, cols: colsCpq,
         });
       }
       await exportXlsx('Detalle 3 vias ' + this.drillAcct + ' ' + dd.period, sheets);
@@ -1092,12 +1104,12 @@ export class BancosThreeWayComponent {
           rows: this.rows(d),
           cols: [
             { header: '', get: (r: any) => r.label, width: 18 },
-            { header: 'Workbook', get: (r: any) => r.workbook, type: 'money', total: true },
+            { header: 'Banco', get: (r: any) => r.workbook, type: 'money', total: true },
             { header: 'Kepler (tesoreria)', get: (r: any) => r.kepler, type: 'money', total: true },
             { header: 'ContPAQi', get: (r: any) => r.contpaqi, type: 'money', total: true },
-            { header: 'Delta W-K', get: (r: any) => r.delta_wk, type: 'money', total: true },
-            { header: 'Delta W-C', get: (r: any) => r.delta_wc, type: 'money', total: true },
-            { header: 'Delta K-C', get: (r: any) => r.delta_kc, type: 'money', total: true },
+            { header: 'Banco - Kepler', get: (r: any) => r.delta_wk, type: 'money', total: true },
+            { header: 'Banco - ContPAQi', get: (r: any) => r.delta_wc, type: 'money', total: true },
+            { header: 'Kepler - ContPAQi', get: (r: any) => r.delta_kc, type: 'money', total: true },
           ],
         },
         {
@@ -1105,10 +1117,10 @@ export class BancosThreeWayComponent {
           cols: [
             { header: 'Banco', get: (r: any) => r.bank, width: 20 },
             { header: 'Cuenta', get: (r: any) => r.account_label, width: 16 },
-            { header: 'Dep. Workbook', get: (r: any) => r.wb_in, type: 'money', total: true },
+            { header: 'Dep. Banco', get: (r: any) => r.wb_in, type: 'money', total: true },
             { header: 'Dep. Kepler', get: (r: any) => (r.kep_has ? r.kep_in : null), type: 'money', total: true },
             { header: 'Dep. ContPAQi', get: (r: any) => r.cp_in, type: 'money', total: true },
-            { header: 'Ret. Workbook', get: (r: any) => r.wb_out, type: 'money', total: true },
+            { header: 'Ret. Banco', get: (r: any) => r.wb_out, type: 'money', total: true },
             { header: 'Ret. Kepler', get: (r: any) => (r.kep_has ? r.kep_out : null), type: 'money', total: true },
             { header: 'Ret. ContPAQi', get: (r: any) => r.cp_out, type: 'money', total: true },
             { header: 'Diferencia', get: (r: any) => (r.comparable && !r.cuadra ? r.worst_delta : null), type: 'money', total: true },
@@ -1245,7 +1257,7 @@ export class BancosThreeWayComponent {
   covSources(d: ThreeWay) {
     const c = d.coverage;
     return [
-      { key: 'wb', label: 'Workbook (banco)', ...c.workbook },
+      { key: 'wb', label: 'Banco', ...c.workbook },
       { key: 'kep', label: 'Kepler (tesorería)', ...c.kepler },
       { key: 'cpq', label: 'ContPAQi (libros)', ...c.contpaqi },
     ];

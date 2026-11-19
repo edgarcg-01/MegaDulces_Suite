@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos, Cuadre 3 vías: los textos dicen de dónde sale el banco y el ámbar se lee (CB.87 · 2026-11-19 · en código, sin soltar)
+- El detalle de una cuenta, la cobertura, la explicación de un descuadre y el Excel ya no llaman «Workbook» o «Excel» al banco: dicen «Banco», que hoy casi siempre es la descarga del banco.
+- El Excel del detalle separa las pólizas de ContPAQi sin banco de las que sólo esperan a que se cargue el banco, y respeta los filtros puestos.
+- El importe que no coincide con el banco, la marca «Revisar» y el filtro activo se leen en modo claro.
 ### Fixed — Revisión en caja: «Está bien» y «Revisando» se leen (GP.RF.13 · 2026-11-18 · en código, sin soltar)
 - El botón principal «Está bien» y la marca «▶ Revisando» tenían texto con poco contraste; ahora pasan el mínimo.
 

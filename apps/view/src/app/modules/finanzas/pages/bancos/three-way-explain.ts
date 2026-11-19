@@ -30,8 +30,8 @@ export interface PairMeta {
 }
 
 export const PAIR_META: Record<TwPair, PairMeta> = {
-  wk: { a: 'Workbook', b: 'Kepler', hint: 'movimientos del banco que Kepler no tiene, y de Kepler que el banco no movió' },
-  wc: { a: 'Workbook', b: 'ContPAQi', hint: 'movimientos del banco que no están en los libros, y de los libros sin banco' },
+  wk: { a: 'Banco', b: 'Kepler', hint: 'movimientos del banco que Kepler no tiene, y de Kepler que el banco no movió' },
+  wc: { a: 'Banco', b: 'ContPAQi', hint: 'movimientos del banco que no están en los libros, y de los libros sin banco' },
   kc: { a: 'Kepler', b: 'ContPAQi', hint: 'movimientos que una fuente registra y la otra no' },
 };
 
@@ -97,7 +97,7 @@ function missingSource(a: ThreeWayAccount, pair: TwPair): string | null {
 /** Movimiento suelto que participa del descuadre, ya normalizado para pintarlo. */
 export interface ExplainMovement {
   /** Dónde está registrado: el banco, Kepler o ContPAQi. */
-  fuente: 'Workbook' | 'Kepler' | 'ContPAQi';
+  fuente: 'Banco' | 'Kepler' | 'ContPAQi';
   fecha: string;
   importe: number;
   concepto: string;
@@ -129,7 +129,7 @@ export function explainMovements(dd: ThreeWayDetail, row: TwRow, pair: TwPair, l
     const falta = pair === 'kc'
       ? (e.kepler ? 'ContPAQi' : 'Kepler')
       : faltaK ? 'Kepler' : 'ContPAQi';
-    out.push({ fuente: 'Workbook', fecha: e.fecha, importe: e.importe, concepto: e.concepto || '—', falta_en: falta });
+    out.push({ fuente: 'Banco', fecha: e.fecha, importe: e.importe, concepto: e.concepto || '—', falta_en: falta });
   }
 
   // Los huérfanos dicen que el BANCO no tiene el movimiento; NO dicen nada de la
@@ -137,7 +137,7 @@ export function explainMovements(dd: ThreeWayDetail, row: TwRow, pair: TwPair, l
   // no como "falta en la otra": afirmar eso sería inventar lo que estas listas no
   // establecen. Para ese par la evidencia dura son las filas de arriba, donde las
   // dos fuentes se comparan contra el mismo movimiento bancario.
-  const orphanFalta = pair === 'kc' ? 'el banco' : 'Workbook';
+  const orphanFalta = pair === 'kc' ? 'el banco' : 'Banco';
   // [CB.82] Lo posterior al último día del banco queda fuera del cuadre (el reparto por cuenta ya no
   // lo suma): listarlo como «falta en Workbook» sería acusar al banco de un día que no ha cargado.
   // [CB.85] Lo mismo la póliza sin pareja en el banco cargado: mientras el banco no cubre el mes, no entra al cuadre.
