@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Surtir: un cierre que sí se guardó ya no aparece como error (GP.RF.44 · 2026-11-19)
+- Si al terminar un surtido se cae la conexión o el servidor dice que el pedido ya estaba cerrado, la pantalla revisa el pedido antes de avisar: si quedó guardado, lo da por cerrado.
+- Un pedido que ya se surtió no se vuelve a abrir como si siguiera en curso: la pantalla dice quién lo cerró y a qué hora, y regresa a la lista.
+
 ### Changed — Bancos: el libro CUENTAS de Tesorería ya no se carga (BFU.5.1 · 2026-11-19 · en código, sin soltar)
 - Subir el libro y sincronizarlo desde Google Sheets ya no se puede: la suite dice que la fuente de los bancos es la descarga del banco y que se sube en Estados de cuenta.
 - El pendiente del Cierre de una cuenta sin movimientos lleva a Estados de cuenta.
