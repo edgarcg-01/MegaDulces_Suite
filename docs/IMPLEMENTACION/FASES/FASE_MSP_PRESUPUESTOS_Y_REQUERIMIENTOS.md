@@ -102,7 +102,7 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | MSP.4.2 | Desplegar; `ernesto_zarate` cierra sesión y vuelve a entrar (los permisos viajan en el token) | ⬜ |
 | MSP.4.3 | Encender la cola desde Configuración y levantar una solicitud de prueba (marcarla «de prueba») con un encargado, **con evidencia adjunta** y una orden de servicio a Mantenimiento: es la primera vez que la evidencia corre de punta a punta (el bucket no existe en local) | ⬜ |
 
-## 4. Decisiones (→ ADR-122)
+## 4. Decisiones (→ ADR-123)
 
 | # | Decisión | Quién | Fecha |
 |---|---|---|---|

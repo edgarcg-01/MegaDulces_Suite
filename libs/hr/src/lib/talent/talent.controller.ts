@@ -5,12 +5,13 @@ import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCasilleroDto, HrDocumentoNuevo, HrLigaCreadaDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
   HrResumenReclutamientoDto,
   HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
-  HrPedirDocumentos, HrPedirDocumentosResultadoDto,
+  HrPedirDocumentos, HrPedirDocumentosResultadoDto, HrHoyDto,
 } from '@megadulces/contracts';
 import { HrTalentCandidatesService } from './talent-candidates.service';
 import { HrTalentJobsService } from './talent-jobs.service';
 import { HrTalentLinksService } from './talent-links.service';
 import { HrDocumentRequestService } from './bot/pedir-documentos.service';
+import { HrTalentHoyService } from './talent-hoy.service';
 
 /**
  * Fase RH · `[RH.2.2]` — la API de reclutamiento para RH (con sesión). Lo público —el formulario
@@ -35,7 +36,17 @@ export class HrTalentController {
     private readonly jobs: HrTalentJobsService,
     private readonly links: HrTalentLinksService,
     private readonly documentos: HrDocumentRequestService,
+    private readonly hoyService: HrTalentHoyService,
   ) {}
+
+  // ── Hoy: los pendientes del día ([RH.17.1], sólo lectura) ─────────────────────────────────
+
+  @Get('today')
+  @RequireAnyPermission(...VER)
+  @ApiOperation({ summary: 'RH — Hoy: pendientes del día (nuevos, seguimiento, expedientes completos, evaluación del jefe), cada uno con su total y la cuota del día.' })
+  hoy(): Promise<HrHoyDto> {
+    return this.hoyService.hoy();
+  }
 
   // ── Candidatos: lectura ──────────────────────────────────────────────────────────────────
 

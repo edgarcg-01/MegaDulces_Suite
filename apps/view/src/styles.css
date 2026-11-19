@@ -916,15 +916,23 @@ input:focus, textarea:focus, select:focus {
    el teléfono apilan cada renglón con TODOS sus campos. Con !important, este bloque les ganaba: escondía
    las columnas 4 en adelante (bajo 480 px) o 6 en adelante, cortaba el texto con «…» y dejaba la letra
    en 11.2 px. Medido en el Tablero a 390 px: 15 de 35 celdas ocultas (Cliente, Renglones y Etapa).
-   Las tablas que no optaron por .dt-stack siguen igual (también esconden columnas: hallazgo aparte). */
+   [AUD-UI.1] 2026-11-18: y a las que NO usan .dt-stack (153 archivos) ya no les esconde nada. Antes
+   escondía con display:none las columnas 6 en adelante (bajo 768 px) o 4 en adelante (bajo 480 px),
+   salvo la última, y cortaba cada celda con «…», sin ningún aviso de que faltaba algo. Ahora la tabla
+   conserva todas sus columnas y se DESPLAZA a lo ancho dentro de su caja (sin [scrollable], PrimeNG no
+   lo hacía y el overflow-x:hidden del body la habría recortado), con la última columna fija a la
+   derecha. Letra mínima 12 px (antes 11.2). Lo mejor para una tabla de registros sigue siendo .dt-stack. */
 @media (max-width: 48rem) {
+  .p-datatable:not(.dt-stack) .p-datatable-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th,
   .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td {
     padding: 0.5rem 0.75rem !important;
-    font-size: 0.75rem !important;
+    font-size: var(--fs-xs) !important;
     white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
     min-width: 120px !important;
   }
 
@@ -940,18 +948,7 @@ input:focus, textarea:focus, select:focus {
   .p-datatable.p-datatable-sm:not(.dt-stack) .p-datatable-thead > tr > th,
   .p-datatable.p-datatable-sm:not(.dt-stack) .p-datatable-tbody > tr > td {
     padding: 0.375rem 0.5rem !important;
-    font-size: 0.7rem !important;
-  }
-
-  /* Hide less important columns on very small screens */
-  .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th:nth-child(n+6),
-  .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td:nth-child(n+6) {
-    display: none !important;
-  }
-
-  .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th:last-child,
-  .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td:last-child {
-    display: table-cell !important;
+    font-size: var(--fs-xs) !important;
   }
 }
 
@@ -959,18 +956,6 @@ input:focus, textarea:focus, select:focus {
   .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th,
   .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td {
     min-width: 100px !important;
-    font-size: 0.7rem !important;
-  }
-
-  /* Show only essential columns on very small screens */
-  .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th:nth-child(n+4),
-  .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td:nth-child(n+4) {
-    display: none !important;
-  }
-
-  .p-datatable:not(.dt-stack) .p-datatable-thead > tr > th:last-child,
-  .p-datatable:not(.dt-stack) .p-datatable-tbody > tr > td:last-child {
-    display: table-cell !important;
   }
 }
 

@@ -113,7 +113,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
         <div class="uc-step">
           <div class="uc-resumen" aria-label="Qué va a pasar">
             @for (a of acciones; track a) {
-              @if (p.conteo[a]) { <span class="uc-cnt"><p-tag [value]="accionLabel(a, p.conteo[a])" [severity]="accionSev(a)" styleClass="uc-tag" /> <b class="num">{{ p.conteo[a] }}</b></span> }
+              @if (p.conteo[a]) { <span class="uc-cnt"><p-tag [value]="accionLabel(a, p.conteo[a])" [severity]="accionSev(a)" /> <b class="num">{{ p.conteo[a] }}</b></span> }
             }
             <span class="uc-sub">de {{ p.total }}</span>
           </div>
@@ -128,7 +128,7 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
                   <td class="mono" role="cell" data-label="Código">{{ r.code || '—' }}</td>
                   <td role="cell" data-label="Tipo">{{ tipoLabel(r.tipo) }}</td>
                   <td role="cell" data-label="Nombre">{{ r.label || '—' }}</td>
-                  <td role="cell" data-label="Qué pasará"><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)" styleClass="uc-tag" />@if (r.motivo) { <span class="uc-sub uc-mot">{{ r.motivo }}</span> }</td>
+                  <td role="cell" data-label="Qué pasará"><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)" />@if (r.motivo) { <span class="uc-sub uc-mot">{{ r.motivo }}</span> }</td>
                 </tr>
               </ng-template>
             </p-table>
@@ -206,14 +206,14 @@ const ACCION: Record<BulkLocationAction, { label: string; plural: string; sev: S
     .uc-filebtn:focus-within { outline:2px solid var(--action-ring); outline-offset:1px; }
     .uc-resumen { display:flex; flex-wrap:wrap; gap:.4rem .9rem; align-items:center; }
     .uc-cnt { display:inline-flex; align-items:center; gap:.35rem; }
-    /* [GP.RF.12] 11 px (antes 10): piso de letra para etiquetas y chips. */ :host ::ng-deep .uc-tag { font-size:var(--fs-micro); }
+    /* [GP.RF.12] Aqui habia ":host ::ng-deep .uc-tag { font-size }": regla MUERTA (p-tag en PrimeNG 22 no recibe styleClass); la etiqueta mide 12 px por el tema. Se quitó junto con sus styleClass. */
     .uc-mot { display:block; margin-top:.15rem; }
     .uc-acts { display:flex; justify-content:flex-end; gap:.5rem; }
     .uc-sub { font-size:var(--fs-xs); color:var(--text-muted); margin:0; }
     .uc-sub.uc-bad, .uc-cuenta.uc-bad, .uc-step.uc-bad { color:var(--bad-fg); }
     .uc-link { background:none; border:0; padding:0; color:var(--action); font:inherit; text-decoration:underline; cursor:pointer; }
     .uc-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
-    .uc-ok { margin:0; font-size:var(--fs-sm); color:var(--ok-fg); }
+    /* [GP.RF.13] texto: el tono para texto (el de relleno no llega a 4.5:1). */ .uc-ok { margin:0; font-size:var(--fs-sm); color:var(--ok-soft-fg); }
     .uc-lotes { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
     .uc-lote { display:grid; grid-template-columns:1fr auto; gap:.15rem .75rem; align-items:center; padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .uc-lote > :nth-child(2) { grid-column:1; }

@@ -228,7 +228,161 @@ Si nada coincide, el botón se apaga: no se imprime una hoja vacía. Cada rengl�
 
 **NO MEDIDO:** la pantalla viva (sin validación visual); la pistola y la cámara en un equipo real; el arranque de la API (`Logger` nuevo como campo, el constructor no cambió; lo mide el CI); el peso que agregan los códigos a la respuesta.
 
+## 6i. `[MKT.28]` — Vecinal, Rutas y Telemarketing por vendedor (2026-11-18)
+
+**Pedido:** «hay que desglosarlos por vendedor, creo que ahora lo generalizas» y cambiar Televenta a Telemarketing.
+
+**Lo medido en prod (sólo lectura, semana 46):**
+- **Vecinal:** 8 claves de Kepler (`1V001`, `2V003`…), una por ruta. 5 de 8 tienen nombre de ruta («RUTA VECINAL …»), no de persona: por eso se veía «generalizado».
+- **Cartera como control:** las 9 rutas vecinales ligadas en `trade.catalogs` (`[VK.1]`) compran 97–100 % de sus tickets (4 semanas) en su propia clave. La liga es buena.
+- **Asignación:** 8 de 9 rutas tienen una sola persona toda la semana; `07:2V003` tiene 2 (una de apoyo). Nadie trabaja dos rutas.
+- **Rutas:** toda la venta va a una sola clave (`06:30001`) y una sola caja. La ruta real está en `kdm1.c67`: 5001 (195 tickets en la semana, 654 en 8 semanas) y 5004 (2 y 20). Las demás (5002–5009) no vendieron en 8 semanas.
+- `commercial.order_kepler_documents` (liga pedido ↔ documento) no sirve para esto: 14 ligas, todas del 16-oct, ninguna de la semana.
+
+**Qué cambió:**
+- El nombre de cada vendedor sale de quién tiene asignada esa ruta en la Suite (`trade.catalogs.erp_vendor_code` → `daily_assignments` → `users.nombre`). Debajo: sucursal, ruta de Kepler y apoyo. Se busca también por ruta.
+- Ruta sin ligar: queda el nombre de Kepler y la pantalla dice «ruta sin ligar en la Suite: nombre de Kepler». En el PDF, «(sin ligar: nombre de Kepler)».
+- Si la asignación no se puede leer, el ranking sale igual con el nombre de Kepler.
+- «Televenta» → «Telemarketing» en Ranking, Objetivos, Incentivos y el PDF.
+
+**⚠️ Límite:** `daily_assignments` es la plantilla de HOY, sin historial. En una semana pasada, si cambiaron a alguien de ruta, sale quien la tiene hoy. Está dicho en el criterio.
+
+**Rutas: lo que falta para ligarla** (no se hizo; no se adivina):
+1. Saber qué ruta de la Suite es la 5001 de Kepler (y la 5004). Los clientes de las rutas 501–505 no tienen clave de Kepler, así que el dato no lo prueba: lo tiene que confirmar Canindo o Logística.
+2. «RUTA 501» está **duplicada** en el catálogo, con una persona asignada en cada una.
+3. No hay pantalla para poner la clave de Kepler a una ruta. Hoy sólo se lee.
+4. Si se liga `06:30001` a una sola ruta, la venta de la 5004 (~3 %) se le atribuye. Separarlas bien pide la `c67` en la vista de venta (migración) y los objetivos por esa llave.
+
+**Pruebas:** dominio 76 (+8: a quién se nombra por una ruta, empate estable, nadie asignado → null; ruta ligada → persona con ruta y apoyo; sin ligar → nombre de Kepler dicho; la asignación truena → sale igual; mostrador no consulta; Telemarketing). Componente 35 (+2) y PDF 10 (+1). Mutaciones: usar el nombre de Kepler; quitar el aviso «sin ligar» → rojo.
+
+**NO MEDIDO:** la pantalla viva; el nombre real que sale para cada ruta en prod (se probó con datos simulados); el peso de la consulta de asignación (es una lectura chica, no se midió el tiempo).
+
+## 6j. `[MKT.29]` — Rutas por camioneta, y quién trabaja la ruta (2026-11-18)
+
+**Pedido:** «busca la forma de que ligues todas las rutas… audita y busca la forma de sacar las ventas de cada vendedor de ruta directa». **Supera la parte de Rutas de §6i:** la respuesta no estaba en Kepler central sino en el push de las camionetas, que ya usaba `/comercial/ventas-por-ruta`.
+
+**Lo que ya existía (leído en docs y código, no se reconstruyó):**
+- `analytics.v_route_sales_lines`: la venta por renglón de cada camioneta (cada una corre su Kepler y lo sube). La usan Ventas por ruta y el motor de comisiones de RD; se contrastó contra el Excel de comisiones (312 celdas, razón 1.0001, cobertura de agosto ~85 %; `FASE_RD_INDICADORES_RUTA.md` §2.4a).
+- `wincaja.branches` (`is_route`, `parent_branch`): la sucursal de cada camioneta, igual que en Ventas por ruta.
+- `routeDrivers` (Ventas por ruta): el chofer por la comisión o el nombre de Kepler.
+
+**Lo medido en prod (sólo lectura, 2026-11-18):**
+
+| Pregunta | Resultado |
+|---|---|
+| ¿`06:30001` es la misma venta que el push 501–505? | **No.** 9 de 24 días, 1 cliente por día, 13–33 piezas por ticket; gemelos por renglón (día+SKU+cantidad) 521 de 2,484 contra **418 del placebo** (rutas de otra plaza). Se suma, no se reemplaza |
+| ¿Misma unidad? | Precio unitario en la misma escala en 966 de 971 SKU |
+| ¿Fuente `wincaja` todavía? | No: desde septiembre la ruta directa llega sólo por push (4 renglones con fecha de diciembre, basura) |
+| Sucursal de cada camioneta | 21–28 → `01`; 501–505 → `06`; 321/322 → `07` (sin venta en vivo) |
+| Liga de las RD en la Suite | 0 de 15 con `erp_*`: sólo la etiqueta («RUTA 501» ×2, «502» a secas además de «RUTA 502») |
+| Costo | 115 ms la semana; 198 ms cinco semanas; sin tenant en la sesión, 0 filas |
+
+**Qué cambió:**
+- En Rutas, cada camioneta es un participante (`ruta:<número>`) con su venta, sus objetivos dinámicos (historia del push) y las promos que sólo ella vendió. `06:30001` sigue como participante propio.
+- `libs/commercial/src/lib/rutas/quien-trabaja-la-ruta.ts`: **una** respuesta para el ranking y Ventas por ruta. Orden: **comisión → asignación de la Suite → nombre de persona en Kepler → nadie**. Las personas asignadas que no son el chofer de comisión se devuelven aparte (se ven: «asignado en la Suite: …»). Una clave de Kepler con sucursal no usa la liga por etiqueta (el vendedor «21» de una sucursal no es la camioneta «RUTA 21»); con la misma clave en dos sucursales y nada para desempatar, no se adivina.
+- Camioneta sin nadie: «Ruta N» y «sin chofer en la comisión ni en la Suite» (`vendedor_fuente: sin_dato`).
+
+**Antes / después (semana 46):** Rutas **1 participante, 27 piezas de promo → 10 participantes, 159 piezas**. Sobre 17 rutas, el nombre: ningún nombre de comisión cambia; 505, 1V001, 1V003, 1V004 y 3V001 pasan de «sin chofer» a la asignación; 2V005 pasa del nombre de Kepler a la persona asignada (otra); en el ranking, 1V002 pasa de la asignada al chofer de comisión (la asignada se ve aparte).
+
+**⚠️ Para Comercial (conflictos de captura, no de código):** 21 y 1V002 (comisión ≠ asignación) · 2V005 (Kepler ≠ asignación) · 505 sin chofer de comisión · «RUTA 501» y «502» duplicadas en el catálogo. Corrección a lo dicho antes en esta sesión: 502 **sí** tiene personas asignadas (en la fila «502» a secas).
+
+**Pruebas:** `quien-trabaja-la-ruta.spec.ts` 13 (orden de fuentes, nombres capturados a mano, etiquetas, ligas, no adivinar); `mkt-ranking.vendedor.spec.ts` 15 (+7: camionetas con su venta y chofer, `06:30001` se suma, sin chofer lo dice, promo sólo de camionetas, objetivo dinámico del push, la clave «01:21» no toma la etiqueta «RUTA 21», Vecinal no lee el push); componente +1; PDF +1. Mutaciones (asignación antes que comisión; camionetas fuera de la venta; la etiqueta casa con claves de Kepler) → 9 rojos; restauradas → verde. Compuertas: `check:pantalla` 2 de 2 sin fallas; lint 0 errores; `tsc` sin errores en los archivos tocados.
+
+**NO MEDIDO:** la pantalla viva; el arranque de la API (no cambian decoradores ni el constructor); **Incentivos** con canal Rutas sigue leyendo sólo Kepler central (sin camionetas): pendiente.
+
+## 6k. `[MKT.30]`–`[MKT.31]` — el ranking por VOLUMEN y el DINERO de la promoción (2026-11-18, C0)
+
+**Re-análisis con el dev responsable.** La finalidad de la pantalla, en sus palabras: *«revisar cuánto se va vendiendo de todas las promociones (piezas o paquetes), cuánto dinero, cuál es la más vendida y quién vendió más, en persona»*. Hoy la pantalla contesta otra pregunta (*¿quién cumplió su meta?*, la del Excel): ordena por cubrimiento (`ordenarRanking`, logic:115), «Mejor promoción» es la de mejor cubrimiento, no hay total de la semana y no hay dinero.
+
+| # | Decisión (dev responsable, 2026-11-18) |
+|---|---|
+| D1 | Dinero = lo **cobrado** del SKU que activa la promoción, en los tickets donde se aplicó (`kdm2.c13`, con impuestos), todos sus renglones del ticket |
+| D2 | Promoción sin producto identificado = **«sin dato»**, y el total lleva su cobertura; nunca $0 |
+| D3 | Lo principal pasa a ser el volumen (opción A); el cubrimiento queda como columna. **Lo confirma el dev con Mercadotecnia** antes de cambiar el orden de la pantalla |
+
+**Medido en prod (sólo lectura, `system_identifier` verificado, 2026-11-18; semana 46 = 9–15 nov, mostrador; el producto con el código real `productosDePromos`):**
+
+| Qué | Resultado |
+|---|---|
+| Promociones con venta | 67, **1,537 aplicaciones** |
+| Producto identificado | 45 ticket+nombre · 2 mismo código · **13 sin identificar · 7 pocos tickets** |
+| Con dinero en la semana | 44 de 67 (3 identificadas no salieron con su producto en el mismo ticket esa semana) |
+| Dinero cobrado (sin doble conteo) | **$111,337.44** · sumado por promoción $113,251.41 (un renglón puede activar dos promociones: el total general se cuenta sin repetir) |
+| A precio de lista (`kdm2.c66` × cantidad) | $118,382.62 → lo cobrado es ~6 % menos |
+| Control de unidad (`precio × cantidad = importe`) | 629 de 629 |
+| Producto > total del ticket | 0 de 368 tickets |
+| Árbitro `kdm1.c16` en los 658 tickets con promoción | Σ renglones $1,182,642.48 vs Σ total $1,182,500.29 (0.012 %) |
+| Más dinero | 62253 «3 PROD LA ROSA» $27,464.80 (157 apl.) · 09015 «4 EXH MINI PPR» $14,119.44 · 00209 «5 EXH ORBIT» $12,297.86 |
+
+**⚠️ Hallazgo, revisado a mano en `kdm2` (ticket 08-4-0007170):** en una promoción **de marca** («3 PROD LA ROSA») el ticket trae 10 productos La Rosa por **$566.42**, pero la medición contó **$193.61**: sólo los SKU que la identificación eligió (`MAX_PRODUCTOS`, los más frecuentes). En promociones de un solo producto («3 LECHE SAN JUAN») no pasa. Queda abierto cómo contar las de marca (D5).
+
+**Opción D medida (mismo día, sólo lectura): «al menos» = SKU identificados; nota = otros productos de la MISMA marca del catálogo (`catalog.products.brand_id`, nunca el nombre) en esos tickets.** Control con resultado conocido, ticket 08-4-0007170: **$193.61 y $372.81 en 7 renglones, exacto**. La marca del catálogo, en el control de La Rosa: 13 de 13 SKU con la misma marca y el mismo proveedor; buscar por nombre falla en los dos sentidos (43 SKU de la marca sin «ROSA» en el nombre; 184 con «ROSA» de otra marca). En este catálogo la marca es, en la práctica, la del distribuidor.
+
+| Clase (por los SKU identificados) | Promociones | «Al menos» |
+|---|---:|---:|
+| Un producto | 16 | $22,412.35 |
+| Varios, una marca | 25 | $75,202.87 |
+| Varios, varias marcas | 6 | $15,636.19 |
+| Sin dato | 20 | — |
+| **Total sin doble conteo** | **67** | **$111,337.44** (igual a la primera medición) |
+
+Nota de marca de la semana: $63,661.17. Lectura de los renglones de los tickets: 2.1 s, 15,952 renglones.
+
+**Lo que enseña la medición (por qué D sola no basta):**
+- En una promoción de MARCA la nota es real y grande: «3 PROD LA ROSA» al menos $27,464.80 **+ $44,507.19** de La Rosa en 81 de 86 tickets.
+- En una promoción de PRODUCTO específico la nota es ruido: «5 EXH ORBIT» suma $4,038.63 de otros productos de su distribuidor; «1 BLS KISSES LECHE 807 GR», $471.47 de otros Hershey. El sistema no puede distinguir los dos casos sin la lista de la promoción (leer el nombre está prohibido, regla 10). → **La nota de la semana ($63,661.17) NO se publica como total.**
+- En «varias marcas» la identificación pudo admitir un producto que no es de la promoción (09015 «4 EXH MINI PPR», $14,119.44, con SKU de 3 distribuidores): ahí «al menos» **no está garantizado como piso**.
+- Hay tickets con la promoción y producto de la marca, pero sin ningún SKU identificado: aportan $0 al «al menos» (00126: 1 ticket con SKU identificado, 3 con nota).
+- **Uso real (prod, sólo lectura, 2026-11-18):** `mkt_incentives` **0 reglas**, `mkt_incentive_captures` 0, `mkt_ranking_objectives` **0 objetivos fijados**, `mkt_ranking_promos` 0 renglones; `ui_usage` 30 días: Ranking 104 llamadas (marketing, telemarketing, administrativo), Objetivos e Incentivos sólo administrativo/superadmin. Las metas y los «pesos por caja» existen pero viven en pantallas que Mercadotecnia no abre → en la propuesta ágil se capturan **dentro del detalle de la promoción** (objetivo por sucursal e incentivo «$X por caja vendida», reusando el motor de `[MKT.13]`, sin tabla nueva).
+- Conclusión: con 31 de 67 promociones de varios productos y 20 sin dato, **la lista confirmada por Mercadotecnia (opción E) es la única que da el dinero exacto**; D sirve de puente si la nota va sólo en el detalle de cada promoción.
+
+**NO MEDIDO:** Vecinal, Rutas (push) y Telemarketing (puede traer descuento de documento, `kdm1.c13`); el tiempo con el código de la pantalla (el script de medición tardó 36 s y no está optimizado).
+
+## 6l. Auditoría de «pesos por caja» (2026-11-18, C0/C1, sin código)
+
+**Pedido:** «investiga si se pueden sacar los pesos por caja; funciona como una comisión a cada vendedor; estaba en los Excel». Fuente leída: los Excel SEMANA 35, 36 y 37 de Mercadotecnia (bloques «PESOS POR CAJAS», con fórmulas), la auditoría de los 45 archivos del 2026-11-11 (§1) y el motor de `[MKT.13]` (`mkt-ranking.service.ts`, `resultadoIncentivo`).
+
+**Qué es en el Excel.** Un bloque aparte del ranking, por hoja: `FECHA` (vigencia) · regla en texto · `VENTA` (semana) · `ACUM` (desde el inicio de la vigencia) · `$ DINERO` = `ACUM × monto`, tecleado a mano. ⭐ **No va ligado a un código de promoción sino a PRODUCTOS reales de Kepler** (el texto trae «CODS: …» o una marca/línea). Se paga a la sucursal, a su jefe, a una persona del mostrador, a cada ruta o al jefe de zona: un bloque por beneficiario.
+
+| Regla que aparece | ¿La calcula el motor `[MKT.13]`? |
+|---|---|
+| $X por caja vendida de un producto/marca | ✅ `por_caja`: unidades base ÷ `factor_caja` de la ficha de Kepler de esa sucursal; sin factor → «sin factor», no se paga |
+| $X por cada N piezas (p. ej. 60), aunque la caja de Kepler sea otra | ⚠️ no: falta «cada N unidades» (hoy sólo `por_monto` lleva base) |
+| $X por bolsa / por unidad | ✅ `por_unidad` (⚠️ «bolsa» puede no ser la unidad base: probar la unidad) |
+| $X por cliente distinto / por tienda a la que se le venda | 🟡 `por_cliente`, pero cuenta por semana; el Excel acumula en la vigencia |
+| $X por cada venta realizada (ticket) | ❌ no existe |
+| $X al mes por cliente que compre ≥ $500 de una marca | ❌ no existe (umbral por cliente) |
+| Concurso: monto fijo al que más venda / al jefe que cumpla | ❌ no es «por caja»; queda fuera |
+
+**Defectos del Excel que el motor ya evita:** el multiplicador de `$ DINERO` distinto al del texto (Winis ×100 con «$25»; un concurso multiplicado ×20; Rondix ×1 en una hoja con «$30»); `VENTA` en piezas en una hoja y en cajas en otra para la misma regla; `ACUM` igual a `VENTA`; códigos tecleados mal (95498 por 96498).
+
+**Huecos para «a cada vendedor»:** (1) el motor agrupa por sucursal × clave de vendedor de la línea de Kepler: en mostrador depende de que se capture la vendedora (cobertura **NO MEDIDA**); (2) **Ruta directa: el motor no lee el push de las camionetas** (ya anotado en §6j); (3) jefe de sucursal o de zona no está en el dato (sería el total de la sucursal o de la zona); (4) el objetivo se guarda por `promo_id` de `mkt_ranking_promos` (0 renglones), y con la opción A las promociones ya no se dan de alta: `[MKT.30]` debe resolver esa llave.
+
+⭐ **Implicación de diseño:** el incentivo es de un **producto**, no de una promoción. Ponerlo dentro del detalle de la promoción (maqueta v11) no calza con cómo lo usa Mercadotecnia → decisión abierta con el dev responsable.
+
+**NO MEDIDO (prod sin responder el 2026-11-18 noche):** el arbitraje `VENTA/ACUM` del Excel contra unidades ÷ `factor_caja` (Rondix y Sabritas, semanas 35–36, sucursales 01/02/06; script listo en el scratchpad de la sesión, `arbitra-pesos-caja.js`); si el `factor_caja` de Kepler coincide con el «/N» del nombre; cuánto venden las camionetas de esos productos.
+
+## 6m. `[MKT.30]`–`[MKT.31]` — construido: dos rankings que no se mezclan (2026-11-19, C1–C3)
+
+**Pedido (dev responsable, sobre la maqueta v14):** «desarróllalo y manda el PR». Decisiones del mismo día: un solo PR con `[MKT.28]`/`[MKT.29]`; el dinero se programa y el de los canales sin contrastar se DECLARA y se contrasta antes del merge; los «pesos por caja» quedan fuera (§6l, van después).
+
+**La regla del dev (2026-11-18):** el ranking de PROMOCIONES cuenta toda la venta y se filtra por canal, sucursal o zona; el ranking de VENDEDORES cuenta sólo lo que se le cargó a cada uno. Son dos preguntas; la promoción ya no dice «quién la vendió» y el ranking de promociones ya no filtra por vendedor.
+
+| Capa | Pieza | Verificado con |
+|---|---|---|
+| C1 | `libs/commercial/src/lib/mkt-ranking/mkt-venta.logic.ts` — `armarRankings`: paquetes, dinero (piso, sin repetir un producto que active dos promos en los totales), objetivo y avance dentro del filtro, sucursal #1, vendedores con precio y total, tickets de mostrador sin asignar | `mkt-venta.logic.spec.ts` 11 casos con resultado conocido (total 310 contra 350 sumando por promo; «Sin zona»; lo no asignado no es de nadie) |
+| C2 | `GET /commercial/mkt-ranking/venta?semana&canal&sucursal&zona` (sólo lectura, `MKT_AGREEMENTS_VER`, sin claves nuevas); `venta()` en `mkt-ranking.service.ts`: línea de Kepler de los tickets con promo (sólo promos y sus productos), camionetas por folio (push), cajera (`mkt_promo_ticket_sellers`), objetivos (fijo gana, si no el dinámico), zona (`warehouses.zone_id` → `trade.zones`), proveedor y códigos de barras | `mkt-ranking.venta.spec.ts` 12 casos (llave del ticket con espacios, cajera, camioneta, vecinal ligada y sin ligar, objetivo fijo/mixto, barras que fallan → `null`) |
+| C3 | `/mkt/ranking` reescrita (`mkt-ranking.component.ts`, mismo selector y ruta): pestañas Ranking de promociones / de vendedores, filtros canal · sucursal · zona, ficha de la promo (por canal, por sucursal o zona) y del vendedor (promo · paquetes · precio · total), panel **Objetivos** (PUT `promos/:id/objetivos` de siempre, mostrador, todas las sucursales donde se vende), PDF de la pestaña (`mkt-venta-pdf.ts`) | componente 15 casos (escribe el PUT con el payload exacto; vacío = `null`; sin permiso no escribe; falla → lo escrito se queda), PDF 4; `check:pantalla` 0 fallas (el aviso #9 se cerró con `@container`); `check:templates` y `check:templates-types` verdes |
+
+**Prueba negativa:** 4 mutaciones (total con doble conteo · sin producto = $0 · mostrador cargado al genérico de Kepler · la pantalla pinta $0) → las 4 en rojo; restauradas → verde.
+
+**Lo que se conserva y lo que se va:** se conservan la búsqueda con pistola (`[MKT.27]`), el proveedor en el buscador (`[MKT.24]`), el calendario por semana, Objetivos por sucursal (`/mkt/ranking/promociones`) e Incentivos. Se van de esta pantalla la lectura con la **cámara** del celular (el buscador es un campo simple: la pistola escribe en él y funciona; `app-scan-field` del Andén ya no se monta aquí), el lugar por cubrimiento, el filtro por proveedor (queda en el buscador) y la existencia de regalos; el PDF anterior (`pdfRanking`) queda sin usar en el código, sin borrarlo.
+
+**NO MEDIDO:** la pantalla viva y el tiempo de `venta()` en prod (prod no respondía el 2026-11-19); el dinero de Ruta vecinal, Ruta directa y Telemarketing contra `kdm1.c16` (declarado en pantalla y PDF con `DINERO_CONTRASTADO`; se contrasta antes del merge); el arranque de la API (se agregó un método al controlador sin tocar el constructor); el texto de la ayuda contextual `mkt-ranking` todavía describe el ranking por cubrimiento (`context-help.dictionary.ts` tiene cambios sin commitear de otra sesión: no se tocó).
+
 ## 7. Pendiente / abierto
+
+- `[MKT.29]` **Incentivos con canal Rutas** sin las camionetas (`resultadoIncentivo` lee sólo `v_kepler_sales_lines`/`mv_kepler_sales_daily`). Y pasar a Comercial los conflictos de captura de §6j.
 
 - `[MKT.27]` **Buscar por precio:** investigar en Kepler el precio de una promoción (o el de lista del producto), contrastarlo contra lo cobrado y, si se valida, agregarlo al buscador.
 

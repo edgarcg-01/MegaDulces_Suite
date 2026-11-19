@@ -17,12 +17,29 @@
 - Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
 - Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
 
+### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
+- Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
+### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)
+- Los filtros y el cambio entre Movimientos y Por día dicen cuál está activo; las tablas tienen título y se recorren con el teclado; la dirección de cada movimiento y lo que falta se leen en voz alta.
+- La búsqueda del detalle ya no trabaja en cada tecla: espera a que dejes de escribir.
+- En Alto Contraste de Windows se ve el filtro elegido, la cuenta resaltada y las barras de cobertura.
+### Fixed — Bancos, Cuadre 3 vías: los textos dicen de dónde sale el banco y el ámbar se lee (CB.87 · 2026-11-19 · en código, sin soltar)
+- El detalle de una cuenta, la cobertura, la explicación de un descuadre y el Excel ya no llaman «Workbook» o «Excel» al banco: dicen «Banco», que hoy casi siempre es la descarga del banco.
+- El Excel del detalle separa las pólizas de ContPAQi sin banco de las que sólo esperan a que se cargue el banco, y respeta los filtros puestos.
+- El importe que no coincide con el banco, la marca «Revisar» y el filtro activo se leen en modo claro.
 ### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.
 - Con esto se sueltan 7 facturas más (73 de 208) y ninguna de las que ya estaban sueltas se vuelve a bloquear.
 ### Fixed — Catálogo › Mantenimiento: el precio por volumen ya no marca «se sale» a una sucursal con los mismos tramos (CAT-PRECIO.1.2 · 2026-11-18 · en código, sin soltar)
 - Kepler guarda la cantidad «desde» como `3` en unas sucursales y `3.00` en otras. La pantalla comparaba el texto y marcaba como distinta a la que traía decimales (p. ej. 97363 en la 07 y la 08). Ahora compara los números: «Precio por volumen» baja de 485 a 439 productos (46 eran este falso aviso).
+### Fixed — Revisión en caja: «Está bien» y «Revisando» se leen (GP.RF.13 · 2026-11-18 · en código, sin soltar)
+- El botón principal «Está bien» y la marca «▶ Revisando» tenían texto con poco contraste; ahora pasan el mínimo.
+
+### Fixed — Toda la Suite en el celular: ninguna tabla esconde columnas (AUD-UI.1 · GP.RF.12–13 · 2026-11-18 · en código, sin soltar)
+- En el teléfono, las tablas que no se apilan ya no esconden columnas ni cortan el texto: se desplazan a lo ancho con la última columna fija.
+- Revisión en caja con menos tamaños de letra, y los avisos en ámbar o verde de Almacén se leen.
+
 ### Fixed — Bancos: el % de ContPAQi con póliza, la lista de cheques y un movimiento perdido (CB.86 · 2026-11-18 · en código, sin soltar)
 - El % del dinero del banco que ya tiene póliza en ContPAQi se mide contra el mismo banco y con el mismo criterio que el cuadre.
 - La lista de cheques en tránsito ya no se corta en 50 sin avisar.
