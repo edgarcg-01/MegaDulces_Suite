@@ -3439,9 +3439,9 @@ export class FinanceBankService {
       ventana: { ...ventana, fuera },
       kepler_movs: kep.movs, kepler_linked: cpq.linked, kepler_por_cuenta: kepHasData,
       nota: notaContpaqi ?? (anyStale
-        ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día.' + (coverage.workbook.stale ? '' : ' El banco (Workbook) va al día.')
+        ? 'Cobertura despareja este periodo: alguna fuente va rezagada en captura (ver barra de cobertura). Las diferencias grandes contra esa fuente son CAPTURA PENDIENTE, no descuadre real — se cierran cuando esa fuente se pone al día.' + (coverage.workbook.stale ? '' : ' El banco va al día.')
         : (kepHasData
-          ? 'Kepler se desglosa por banco desde tesorería (kdm1), no del 102 contable. Las 3 fuentes se comparan por cuenta. Diferencias esperadas: Kepler registra lo capturado (el banco es la verdad), cheques en tránsito y timing. Semáforo ±$1,000.'
+          ? 'Kepler se toma de su tesorería, cuenta por cuenta. Diferencias esperadas contra Kepler: lo que registra es lo capturado (el banco manda), los cheques que todavía no se cobran y los días de desfase.'
           : 'El feed de tesorería Kepler aún no tiene movimientos para este periodo; Kepler va solo en el control-total (102 contable).')),
     };
   }

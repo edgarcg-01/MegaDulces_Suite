@@ -3,8 +3,12 @@
 > **Pedido, literal (Edgar, 2026-11-18):** «los imports no deben de existir» · «revisa qué puede salir del ODS que hoy
 > no está saliendo» · «resolvamos existencia y todo lo que pueda salir del ODS».
 >
-> **Estado:** C0 medido (este documento). Nada construido todavía. Se cuelga de la excepción de cupo que Edgar firmó para
-> CANON (anexo `FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md` §8); items `[CANON.7.N]`.
+> **Estado:** C0 medido (este documento). `[CANON.7.1]` en código y probado en un Postgres 18 desechable (2026-11-19),
+> **sin aplicar en prod**; 7.2–7.5 sin construir. Se cuelga de la excepción de cupo que Edgar firmó para CANON (anexo
+> `FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md` §8); items `[CANON.7.N]`.
+>
+> ⭐ **Corrección del 2026-11-19 (§2.1 y §3):** la vista no era lenta por RLS sino por un **estimado**. Se arregla con una
+> estadística y sin tabla nueva: el diseño de «existencia mantenida por cambio en la cola de CANON.6.21» queda descartado.
 >
 > **Cómo se midió:** horario vivo del pod `feeds-cron` (igual al del repo) y el loop `feeds-livefast`; código con `git grep`;
 > prod en sólo lectura (`system_identifier` 7688376744939610156), una parte como `postgres` y la que importa como un rol
@@ -68,26 +72,50 @@ Medido con un rol sin superusuario ni `BYPASSRLS` (como corre la app; tres corri
 | **Una sucursal (`warehouse_code = '08'`)** | 44 ms | **10.5–11 s** |
 | `reorder_policy` ⟕ existencia, toda la red | — | ~500 ms (con la copia: 5 ms) |
 
-⛔ Cambiar los lectores a la vista directa vuelve lentas pantallas que hoy son instantáneas (Existencia crítica, catálogo del
-portal, detalle de pedido). La nota de `stock-state.ts` («sin filtro más de un minuto; con una sucursal ~0.5 s», 2026-10-27)
-sigue siendo la advertencia correcta; con `postgres` no se ve.
+⛔ Cambiar los lectores a la vista **tal como está** vuelve lentas pantallas que hoy son instantáneas (Existencia crítica,
+catálogo del portal, detalle de pedido). Con `postgres` no se ve.
+
+### 2.2 La causa, medida el 2026-11-19: un estimado, no RLS
+
+`EXPLAIN ANALYZE` de una sucursal con el rol de la app: el filtro `k.sucursal = k.c1` (el almacén propio de cada
+sucursal) compara dos columnas, Postgres no tiene estadística para eso y usa el 0.5 % por defecto: estima **204** filas de
+`kdil` donde hay **37,133** (91 % de 40,800). Con 204 elige un Merge Join sólo por almacén y deja el SKU como filtro:
+**40 millones de pares descartados**, 13.8 s de 13.8 s. RLS sólo cambia la forma del plan lo suficiente para exponerlo.
+
+| Intento | Resultado |
+|---|---|
+| Unir `kdil` al almacén por `sucursal` Y `c1` | ✖ la clase de equivalencia re-deriva `sucursal = c1`: mismo plan, 12.9 s |
+| `CREATE STATISTICS (mcv) ON sucursal, c1` | ✖ el MCV no sirve para «columna = columna» (Postgres 18, probado) |
+| Estadística de la expresión `((sucursal = c1))` con el filtro escrito igual | ✖ sigue en 204 |
+| La misma estadística con el filtro escrito `(k.sucursal = k.c1) IS TRUE` | ✔ **37,123** (Postgres 18 desechable, datos de la misma forma) |
+
+Con el estimado bien (simulado en prod quitando el filtro) quedan ~330 ms por sucursal, casi todo de calcular entero
+`v_product_box_factor` (10 mil productos) en cada lectura. `[CANON.6.21]` ya guarda esa regla por llave en
+`analytics.resolved_product_box_factor`. Con las dos cosas: **una sucursal 36–66 ms · toda la red 87–113 ms · 3 SKUs
+5–6 ms** (rol `edgar`, sin BYPASSRLS, tres corridas cada una).
 
 ---
 
-## 3. El diseño: existencia mantenida por cambio, en la pieza que YA existe
+## 3. El diseño: la vista misma, con la estadística que le faltaba
 
-`[CANON.6.21]` puso en prod (2026-11-17) la cola por SKU `analytics.llaves_sucias`, disparadores por sentencia en 13 fuentes
-y `analytics.drenar_existencia()` (ADR-104: nunca frenan la ingesta). **`kepler_ods.kdil` no es una de sus fuentes** (cubre
-precio, factores de caja y costo). ADR-056: no se inventa otra cola.
+~~Existencia mantenida por cambio: `kdil` como fuente 14 de la cola de `[CANON.6.21]` y una tabla nueva.~~ Descartado el
+2026-11-19 por §2.2: no hace falta copiar nada. (Además habría sumado los ~290 mil cambios de `kdil` a una cola cuyo
+drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
 
-1. **`[CANON.7.1]` C0→C1** — `kdil` como fuente 14 (columnas que la regla lee: `c4`, `c8`, `c9`; clave `sucursal`+`c3`) y una
-   regla más en `recalcular_existencia(skus)`: la existencia por (almacén, producto) **idéntica** a `v_erp_stock_on_hand`
-   (misma plantilla letra por letra, como hicieron con los factores), en una tabla con índice por (tenant, almacén, producto).
-   Prueba: idéntica completa y por llave; mutantes.
+1. **`[CANON.7.1]` C0** — migración `20261119083212_canon71_existencia_ods_estimado_y_factor_por_evento`:
+   `kepler_ods.st_kdil_almacen_propio` (estadística de la expresión `(sucursal = c1)`) + `ANALYZE`, y la vista con
+   `WHERE (k.sucursal = k.c1) IS TRUE` y el factor de caja desde `analytics.resolved_product_box_factor`. Prueba
+   `database/tests/test-newdb-canon71-existencia-ods.js`: la estadística y el `IS TRUE` juntos, el estimado leído del
+   EXPLAIN contra el conteo real, la cantidad idéntica al renglón contra el texto anterior, el factor sólo difiere donde la
+   tabla por evento difiere de su vista, una sucursal bajo 500 ms con un rol como la app. Ensayada entera en un Postgres 18
+   desechable con los tipos de prod: el texto anterior deparsea idéntico al de prod, `up` dos veces, `down` exacto, y tres
+   negativas en rojo (sin migración, factor roto, sin la tabla por evento). ⛔ **Sin aplicar en prod.** `display_box_factor`
+   difiere hoy en 3 SKUs: retraso de < 24 h de la tabla por evento ante el refresco nocturno de `mv_kepler_bought_rung`
+   (un `REFRESH` no dispara la cola) — hueco de `[CANON.6.21]` con nombre.
 2. **`[CANON.7.2]` C2** — los **13** lectores clase A (analytics ×4, rentabilidad ×2, ficha de producto, monitoreo, Thot,
-   existencia crítica / resumen / excedente de red, scanner de reorden) leen la tabla.
+   existencia crítica / resumen / excedente de red, scanner de reorden) leen la vista.
 3. **`[CANON.7.3]` C2** — los **11** clase B (catálogo, facetas, precios y más vendidos del portal; detalle de pedido; bot de
-   WhatsApp; Command Center; Reparto › Faltantes; Thot del portal y del vendedor) por `stock-state.ts`, que pasa a leer la tabla.
+   WhatsApp; Command Center; Reparto › Faltantes; Thot del portal y del vendedor) por `stock-state.ts`, que ya lee la vista.
 4. **`[CANON.7.4]` C1** — escritores (clase C, 18 sitios): el apartado valida contra el ODS (`reserve`/`consume`), `quantity` deja
    de escribirse; conteos, ajustes y recepción se revisan uno por uno (hoy 0 movimientos en 30 días). Prueba contra base real
    con el payload de la pantalla (regla 13).
@@ -106,5 +134,6 @@ código; los más calientes son el catálogo del portal y el detalle de pedido. 
 
 ## 4. Decisiones
 
-- **D-EX1 (Edgar):** quién construye `[CANON.7.1]` — la sesión dueña de `[CANON.6.21]` (la cola es suya) o ésta, coordinadas.
+- ~~**D-EX1 (Edgar):** quién construye `[CANON.7.1]`~~ — **resuelta el 2026-11-19** («sí, quítaselo»): esta sesión. La
+  sesión que construyó `[CANON.6.21]` ya no está viva; 7.1 terminó sin tocar su cola (sólo lee su tabla de factor).
 - **D-EX2 (Edgar):** `[PQ.61]` (venta diaria por evento): aplicar su migración fuera de horario. Es la base del frente Venta.

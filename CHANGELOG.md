@@ -15,6 +15,16 @@
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
 
+### Fixed — Bancos, Cuadre 3 vías: la fecha de comparación ya no se generaliza (CB.89 · 2026-11-19 · en código, sin soltar)
+- Si sólo algunas cuentas tienen el banco atrasado, la pantalla ya no dice que todo el periodo se compara hasta ese día: dice cuántas cuentas van atrasadas.
+### Fixed — Bancos, Cuadre 3 vías: se usa con teclado y con lector de pantalla (CB.88 · 2026-11-19 · en código, sin soltar)
+- Los filtros y el cambio entre Movimientos y Por día dicen cuál está activo; las tablas tienen título y se recorren con el teclado; la dirección de cada movimiento y lo que falta se leen en voz alta.
+- La búsqueda del detalle ya no trabaja en cada tecla: espera a que dejes de escribir.
+- En Alto Contraste de Windows se ve el filtro elegido, la cuenta resaltada y las barras de cobertura.
+### Fixed — Bancos, Cuadre 3 vías: los textos dicen de dónde sale el banco y el ámbar se lee (CB.87 · 2026-11-19 · en código, sin soltar)
+- El detalle de una cuenta, la cobertura, la explicación de un descuadre y el Excel ya no llaman «Workbook» o «Excel» al banco: dicen «Banco», que hoy casi siempre es la descarga del banco.
+- El Excel del detalle separa las pólizas de ContPAQi sin banco de las que sólo esperan a que se cargue el banco, y respeta los filtros puestos.
+- El importe que no coincide con el banco, la marca «Revisar» y el filtro activo se leen en modo claro.
 ### Fixed — Pagos: una factura de antes del corte ya no se queda «por confirmar» sólo porque Oficinas tiene otra por el mismo importe (PGP.147 · 2026-11-18 · en código, sin soltar)
 - Cuando un proveedor surte el mismo pedido a varias sucursales, las facturas salen por el mismo importe exacto. Si Oficinas había registrado la compra de otra sucursal, la pantalla creía que era una copia y bloqueaba las demás, aunque nadie las hubiera pagado. Ahora lee la referencia: su serie dice de qué sucursal es, y si es de otra sucursal y de otra factura, no la toma como copia. Ante la duda, sigue bloqueada.
 - Lo que la sucursal pagó por su cuenta ya no bloquea la factura: se programa lo pendiente. Siguen bloqueadas las que tienen una nota, devolución o ajuste aplicado, porque así se cerró en el corte lo que Oficinas pagó.

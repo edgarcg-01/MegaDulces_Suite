@@ -4628,3 +4628,76 @@ tiene `UPDATE` de esas siete columnas en los 9 servidores (`[PQ.110]`, verificad
 - Pantalla (`vale-gasto-peek`): 52 ✓. Compila en AOT (`ngc --noEmit`).
 - **NO MEDIDO:** contra el Kepler vivo (necesita una solicitud escrita por la Suite, o sea el canario) y la validación
   visual.
+
+---
+
+## ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado «en prod» lo escribe el acto de soltar
+
+**Fecha:** 2026-11-19 · **Estado:** ⏳ propuesto · **Fase:** VER (`FASE_VER_VERSION_VISIBLE.md`, ⏸️ por cupo) ·
+**Pedido de Edgar:** 2026-11-19, «antes nos versionábamos por el id del commit, esto no es claro en producción»;
+aprobó combinar las tres capas. **Falta firmar:** D1–D4 de la fase ·
+**Mide:** prod `192.168.0.222:30080` y el repo, sólo lectura, 2026-11-19
+
+### Contexto
+
+La única respuesta a «qué está corriendo» es `/api/health` → `{"commit":"9552bf79a"}`. Ese valor lo hornea el
+Dockerfile y lo resuelve `apps/api/src/build-info.ts`, que ya cerró su propio defecto (`[VL.11.C]`: tres lectores,
+tres respuestas, y una cadena vacía que el `??` dejaba pasar).
+
+Para las máquinas funciona: `sellar`, `auto-deploy.sh` y el vigía comparan commits y no se equivocan. Para una
+persona no distingue nada. Medido el 2026-11-19:
+
+- **0 de 3** aplicaciones (suite, portal, vendedor) muestra su versión a quien la usa;
+- no hay archivo de versión; `package.json` quedó en `1.0.0`; de las 9 etiquetas de git **ninguna** es una entrega;
+- el CHANGELOG tiene **958** entradas y sólo **232** dicen si están en producción — **726 no dicen nada**;
+- ese estado se escribe **a mano**. El 2026-11-18 la fusión de un pull dejó **5 entradas duplicadas** del mismo
+  cambio, una diciendo «en código, sin soltar» y la otra «en prod».
+
+⭐ El defecto de fondo: **un hecho que depende de que alguien se acuerde de anotarlo se contradice solo.** Y el
+identificador de commit, exacto para una máquina, no dice ni cuándo salió ni qué trae.
+
+### Decisión
+
+1. **El commit NO se retira.** Sigue en `/api/health` y sigue siendo lo que leen el sello, el despliegue y el vigía.
+   Es la verdad técnica, y es la única que no admite ambigüedad. Lo que se agrega es una capa **para personas**,
+   encima, nunca en su lugar.
+2. **El nombre que ve una persona tiene dos partes:** el **producto** (`1.4`) y la **fecha de la entrega**
+   (`19-nov-2026`, con un número al final si hubo más de una ese día). Se lee entero: `1.4 · 19-nov-2026`.
+3. **Lo automático y lo manual quedan separados a propósito:**
+   - el **producto** (`mayor.menor`) lo mueve **una persona** (D1: el PM), y sólo cuando cierra algo que la gente
+     nombra. Es raro y es lo único con significado;
+   - el **parche** y la **fecha** los calcula el acto de soltar. Nadie los decide;
+   - el **commit** lo hornea la imagen, como hoy.
+4. **El número lleva a su contenido.** La versión publica también **qué trae**, derivado de lo que entró entre la
+   entrega anterior y ésta. Un número sin contenido no resuelve el pedido: sólo cambia un identificador ilegible
+   por otro más corto.
+5. **El estado «en prod desde» lo escribe el acto de soltar**, no una persona. Desde la fecha de corte, ninguna
+   entrada nueva del CHANGELOG lo declara a mano.
+6. **Las 726 entradas viejas sin estado se quedan como están**, dicho en el encabezado del archivo. Rellenarlas a
+   mano repite el defecto; inferirlas por la fecha inventa un hecho que nadie midió.
+
+### Rechazado
+
+- **Versión clásica de tres números con significado de compatibilidad** (`mayor` = ruptura). La suite tiene **un
+  solo cliente**: no hay a quién prometerle compatibilidad, y el número quedaría decorativo. Se conserva la
+  **forma** `mayor.menor.parche` porque es la que todo el mundo sabe leer, no su contrato.
+- **Derivar el `menor` automáticamente de los `feat`.** Con ~100 commits por día casi toda entrega trae uno: el
+  número subiría a diario y sería un contador, duplicando lo que ya dice la fecha.
+- **Sólo la fecha, sin producto.** Es lo que Edgar pidió combinar, y además deja a Dirección sin forma de nombrar
+  un hito («lo de Almacén sin papel») que no sea un día del calendario.
+- **Sólo el producto, sin fecha.** No contesta la pregunta que de verdad hace la gente: «¿ya tengo lo de ayer?».
+- **Reemplazar el commit.** Dejaría al vigía y al sello sin su llave exacta para ganar legibilidad en otra capa.
+
+### Riesgo declarado
+
+⚠️ **Tres coordenadas para una sola cosa pueden volverse ruido.** La defensa es que sólo una se dice en voz alta
+(`1.4 · 19-nov`) y las demás son campos del detalle.
+
+⚠️ **El número de producto sólo es honesto si alguien lo mueve.** Si el 2027-01-19 sigue en `1.0`, se quita (D4):
+un número congelado afirma que nada cambió, que es justo lo que esta decisión viene a evitar.
+
+### Prueba
+
+**NO MEDIDO** — la fase está ⏸️ por cupo (8 🔨 contra 4). Lo que tendrá que probarse cuando se abra, declarado
+desde ahora: que dos entregas el mismo día se distinguen; que un tramo **sin** soltar **no** queda marcado «en
+prod» (prueba negativa); y que `/api/health` sigue devolviendo el mismo commit que hoy.
