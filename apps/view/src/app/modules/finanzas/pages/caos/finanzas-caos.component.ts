@@ -418,7 +418,7 @@ interface TarjetaCaos {
                             @for (f of v.filas; track f.cash_ledger_id) {
                               <tr [class.fin-dim]="f.estado === 'cancelado'">
                                 <td>
-                                  <a routerLink="/finanzas/caja-general" [queryParams]="{ q: f.folio, from: diaMx(f.fecha), to: diaMx(f.fecha) }"
+                                  <a routerLink="/finanzas/caja-general" [queryParams]="{ q: f.folio, from: f.fecha, to: f.fecha }"
                                      [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
                                 </td>
                                 <td class="mono">{{ dmy(f.fecha) }}</td>

@@ -938,6 +938,8 @@ export interface CaosCapturable {
   user_external: string | null;
   ref: string | null;
   monto: number;
+  /** `[LE.6.37]` Lo que todavía no explica ningún movimiento de Caja General (= `monto` sin vínculos). */
+  libre?: number;
   denominaciones: Array<{ denominacion: number; piezas: number }>;
 }
 

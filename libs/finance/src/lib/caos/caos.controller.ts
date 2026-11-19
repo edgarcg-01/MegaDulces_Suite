@@ -8,6 +8,7 @@ import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 import { CaosRutaCajaService, type CaosPorRuta } from './caos-ruta-caja.service';
 import { CaosConteoFisicoService } from './caos-conteo-fisico.service';
 import type { CaosConteoFisicoDto } from '@megadulces/contracts';
+import type { DepositoCobros, LigarCobrosInput, LigarCobrosResultado } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string; roles_frescos?: string[] } }
 
@@ -150,6 +151,26 @@ export class CaosController {
   private actor(req: AuthedRequest) {
     const u = req.user ?? {};
     return { id: u.id ?? u.sub ?? u.userId, username: u.username, roles_frescos: u.roles_frescos ?? [] };
+  }
+
+  // ── [LE.6.37] Ligar cobros ya capturados a un depósito, desde Caja General ─────────────────
+  // Permisos de CAJA GENERAL, no de CAOS: es el acto de quien captura (Edgar, 2026-11-19: «eso debe
+  // ser posible desde la interfaz principal de captura»). Corregir un vínculo ajeno sigue siendo
+  // de superadmin (`[CGA-A.58]`); aquí sólo se AGREGAN vínculos con las mismas reglas.
+
+  @Get('depositos/:device/:externalId/cobros')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.37] Cobros ya capturados (ingresos con algo sin explicar, del día del depósito hacia atrás) que pueden explicar un depósito de CAOS.' })
+  cobrosParaDeposito(@Param('device') device: string, @Param('externalId') externalId: string, @Query('dias') dias?: string): Promise<DepositoCobros> {
+    return this.svc.cobrosParaDeposito(device, Number(externalId), { dias: dias ? Number(dias) : undefined });
+  }
+
+  @Post('depositos/:device/:externalId/cobros')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.37] Liga cobros ya capturados a un depósito de CAOS, en el orden dado: cada uno toma lo que le falta mientras el depósito tenga libre; el último puede quedar en parte. Todo o nada.' })
+  ligarCobrosADeposito(@Param('device') device: string, @Param('externalId') externalId: string,
+    @Body() body: LigarCobrosInput, @Req() req: AuthedRequest): Promise<LigarCobrosResultado> {
+    return this.svc.ligarCobrosADeposito(device, Number(externalId), body, this.actor(req));
   }
 
   // ── [CG.58] La conciliacion de INGRESOS, al 100% ───────────────────────────────────────

@@ -1339,6 +1339,22 @@ export class CashLedgerService {
       const snap = sinClasificar
         ? { cuenta_nombre: null as string | null, concepto_nombre: null as string | null }
         : await this.resolveConcept(trx, tenantId, input.sucursal, input.kepler_cuenta, input.kepler_concepto);
+      /**
+       * ⛔ `[LE.6.37]` Un movimiento de CAOS que ya explica cobros (o gastos) por VÍNCULO no se
+       * registra además como un movimiento propio: sería el mismo dinero dos veces. Desde que un
+       * depósito ligado a medias sigue en la cola, la captura lo ofrece; lo que le falta se termina
+       * de ligar a sus cobros, no se registra entero.
+       */
+      if (input.origen_tipo === 'caos' && input.origen_ref && await this.tablaCaosLinks(trx)) {
+        const [device, ext] = String(input.origen_ref).split('|');
+        const ya = !device || !Number.isFinite(Number(ext)) ? null : await trx('finance.caos_cash_links').where({ tenant_id: tenantId, caos_device: device, caos_external_id: Number(ext) })
+          .whereNull('deleted_at').first('id');
+        if (ya) {
+          throw new ConflictException('Ese movimiento de la caja fuerte ya está ligado a otros movimientos de Caja General: '
+            + 'termina de ligarlo a sus cobros; no se registra como uno nuevo.');
+        }
+      }
+
       const year = Number(String(input.fecha).slice(0, 4));
       const folio = await this.nextFolio(trx, tenantId, input.tipo, year);
 
@@ -2210,10 +2226,16 @@ export class CashLedgerService {
              AND l.deleted_at IS NULL AND l.estado <> 'cancelado'`));
       // CS.3.3 — excluye lo ya ENLAZADO a un gasto (consumido). Guarda: la tabla puede no existir
       // todavía si el código va por delante de su migración.
-      if (await this.tablaCaosLinks(trx)) qb = qb.whereNotExists((sub: any) => sub
-        .select(trx.raw('1')).from('finance.caos_cash_links as k')
-        .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
-           AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`));
+      // ⭐ `[LE.6.37]` Un DEPÓSITO ligado a medias sigue aquí mientras le quede libre: antes, con el
+      // primer cobro ligado desaparecía de la cola aunque le faltaran $38,355.71 (el 1954 de
+      // Canindo, 2026-11-19), y quien captura creía que ya había terminado.
+      const hayLinks = await this.tablaCaosLinks(trx);
+      if (hayLinks) qb = qb.where((b: Knex.QueryBuilder) => b
+        .whereNotExists((sub: Knex.QueryBuilder) => sub
+          .select(trx.raw('1')).from('finance.caos_cash_links as k')
+          .whereRaw(`k.tenant_id = m.tenant_id AND k.caos_device = m.device
+             AND k.caos_external_id = m.external_id AND k.deleted_at IS NULL`))
+        .orWhereRaw(`m.type_id = 0 AND ${sqlDisponibleCaos('m')} > 0.005`));
       // `[CGA-A.51]` Un retiro ya clasificado (al cajón o a cargo de alguien) no se captura como un
       // gasto entero: su dinero se explica con los gastos que se le enlazan (ADR-101).
       if (await CajaCustodiaService.hayCustodia(trx)) qb = qb.whereRaw(`NOT ${sqlRetiroClasificado('m')}`);
@@ -2230,7 +2252,9 @@ export class CashLedgerService {
         .orderBy([{ column: 'm.occurred_at', order: 'desc' }, { column: 'm.external_id', order: 'desc' }])
         .limit(limit)
         .select('m.id', 'm.device', 'm.external_id', 'm.type_id', 'm.type_label', 'm.occurred_at',
-          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref');
+          'm.accounting_date', 'm.user_external', 'm.total', 'm.ref',
+          // `[LE.6.37]` Lo que el movimiento todavía no explica (igual a `total` si no tiene vínculos).
+          hayLinks ? trx.raw(`${sqlDisponibleCaos('m')} AS libre`) : trx.raw('abs(m.total) AS libre'));
 
       // Denominaciones de cada movimiento (una consulta, no N).
       const ids = movs.map((r: any) => r.id);
@@ -2258,6 +2282,7 @@ export class CashLedgerService {
         user_external: m.user_external,
         ref: m.ref,
         monto: Number(m.total),
+        libre: Math.round(Number(m.libre) * 100) / 100,
         // Sólo billetes 500/200/100/50/20 (los que la máquina cuenta). La morralla va a mano.
         denominaciones: porMov.get(m.id) || [],
       }));
