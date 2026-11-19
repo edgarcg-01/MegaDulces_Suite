@@ -345,6 +345,11 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
   sumado primero, el regalo pegado, la tabla pinta la última arriba sin barra); 142/142 de televenta; `ngc` limpio;
   `check:pantalla --todas` 0 nuevas; `check:estilos` en verde. **NO MEDIDO hasta desplegar:** el encabezado fijo con
   `scrollable` en el navegador (se verifica en prod después de soltar).
+  **En prod (`7b5ee14ba`), verificado con Playwright** (alta, Padre Hidalgo, 16 artículos, escrituras bloqueadas): en los 16
+  agregados la primera fila fue la recién agregada; al sumar a la ficha 1 subió primera con 2 PAQ; el encabezado queda arriba
+  de la tabla al desplazar. **[COT.48.1]** El mismo recorrido cazó un defecto de COT.46: «Sumado al renglón **0**» —
+  `cambiarCantidadBandeja` reemplaza el objeto y `indexOf(existente)` daba −1. Ahora se busca por id; prueba nueva (con el
+  defecto devuelto da exactamente `numero: 0`); 143/143 de televenta.
 
 - **2026-11-18** — 🧪 **[COT.47] Auditoría de la tabla de renglones (Modern Web Guidance) y filtros para listas largas.**
   Medido en prod (30 días, 410 cotizaciones): mediana 9 renglones, p90 40, máximo 195; 118 con 20 o más; de 6,646
