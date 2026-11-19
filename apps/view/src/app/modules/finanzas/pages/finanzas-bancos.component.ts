@@ -237,21 +237,7 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
       @if (view() === 'estados') {
         <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones(); softRefresh()" (verMovimientos)="verMovimientosDeCuenta($event)" />
-        <!-- El libro sigue entrando mientras dure el paralelo (D2, CB.60): sus dos entradas viven aquí. -->
-        <section class="card-premium card-flat fb-libro" aria-labelledby="fb-libro-t">
-          <div class="fb-libro-txt">
-            <h3 id="fb-libro-t" class="fb-card-title fb-libro-t">El libro CUENTAS</h3>
-            <p class="muted">Se sigue subiendo mientras se compara contra la descarga del banco, cuenta por cuenta.
-              @if (sheetCfg(); as sc) { Sheet {{ sc.active ? 'automático' : 'manual' }}@if (sc.last_synced_at) { , sincronizado el {{ sc.last_synced_at | date:'dd/MM HH:mm' }} }.
-                @if (sc.last_error) { <span class="fb-libro-err">Último error: {{ sc.last_error }}</span> } }</p>
-          </div>
-          @if (puedeGestionar()) {
-          <div class="fb-libro-acc">
-            <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
-            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir libro CUENTAS</span></button>
-          </div>
-          }
-        </section>
+        <!-- [BFU.5.1] El libro CUENTAS ya no se carga (Edgar, 2026-11-19): sus botones (subir y sincronizar) se fueron; el servidor lo niega. -->
       }
 
       @if (view() === 'cuentas') {
@@ -321,12 +307,6 @@ export function avisoFechasFueraDelPeriodo(res: Pick<ImportResult, 'accounts' | 
     .fb-nav-chev { font-size: .7rem; }
     .fb-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .fb-live i { color: var(--ok-fg); font-size: .5rem; animation: fb-live-pulse 2s ease-in-out infinite; }
-    .fb-libro { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3); margin-top: var(--sp-3); }
-    .fb-libro-t { margin: 0 0 var(--sp-1); }
-    .fb-libro-txt { flex: 1 1 24rem; min-width: 0; }
-    .fb-libro-txt p { margin: 0; font-size: var(--fs-xs); }
-    .fb-libro-err { color: var(--bad-fg); }
-    .fb-libro-acc { display: flex; gap: var(--sp-2); flex: none; }
     @media (prefers-reduced-motion: reduce) { .fb-live i { animation: none; } }
     @keyframes fb-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
@@ -972,10 +952,8 @@ export class FinanzasBancosComponent implements OnInit {
       case 'sin_clasificar': this.abrirMovimientos({ uncat: true }); break;
       case 'traspaso_descuadre': this.abrirMovimientos({ group: 'traspaso' }); break;
       case 'saldo_no_cuadra': this.view.set('cuentas'); break;
-      case 'cuenta_sin_cargar':
-        if (this.puedeGestionar()) this.fileInput?.nativeElement.click();
-        else this.toast.add({ severity: 'info', summary: 'Subir el libro', detail: 'Lo hace quien tiene el permiso de gestionar Bancos (Tesorería).', life: 5000 });
-        break;
+      // [BFU.5.1] Una cuenta sin movimientos se resuelve con su descarga del banco: el libro ya no se carga.
+      case 'cuenta_sin_cargar': this.goView('estados'); break;
       case 'saldo_sin_verificar': this.goView('estados'); break;
       default: this.abrirMovimientos({});
     }

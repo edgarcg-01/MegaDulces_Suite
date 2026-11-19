@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Bancos: el libro CUENTAS de Tesorería ya no se carga (BFU.5.1 · 2026-11-19 · en código, sin soltar)
+- Subir el libro y sincronizarlo desde Google Sheets ya no se puede: la suite dice que la fuente de los bancos es la descarga del banco y que se sube en Estados de cuenta.
+- El pendiente del Cierre de una cuenta sin movimientos lleva a Estados de cuenta.
 ### Changed — Tablero de pedidos: abre más rápido con todas las sucursales (GP.RF.43 · 2026-11-19 · en código, sin soltar)
 - La lista lee los renglones de cada pedido con una búsqueda en vez de cinco: con todas las sucursales, la consulta baja de 241 a 184 ms y lee la mitad de los datos. Muestra exactamente los mismos pedidos.
 

@@ -1555,7 +1555,7 @@ export class FinanceBankService {
         // que es como se llama en pantalla (decía «Admin»). La nota de CAJA GENERAL se fue: la consulta ya excluye la caja.
         titulo: `${c.alias}: sin movimientos en ${period}`,
         detalle: `La cuenta está activa pero no tiene movimientos cargados en ${period}: ni el libro CUENTAS ni la descarga del banco los metieron al cierre.`,
-        accion: `Si viene en el libro con otro nombre de hoja, renombra la hoja como «${c.alias}» y vuelve a subir el libro: si no, se vuelve a quedar fuera. Si ya tiene su descarga del banco, úsala con «Usar el banco» en Estados de cuenta. Si la cuenta ya no se usa, desactívala en Configuración (el engrane).` });
+        accion: `Sube su descarga del banco en Estados de cuenta y pásala con «Usar el banco»: el libro CUENTAS ya no se carga (BFU.5.1, 2026-11-19). Si la cuenta ya no se usa, desactívala en Configuración (el engrane).` });
     }
     // 4. Traspasos internos que no netean (TI=TE).
     if (Math.abs(bal.traspasos.delta) >= 1000) {

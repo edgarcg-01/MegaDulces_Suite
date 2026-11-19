@@ -147,7 +147,7 @@ libro después de E3.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| **D1** | Desde cuándo manda el banco en cada cuenta | (a) desde el primer día de su descarga, si cumple las propiedades 1 y 2 · (b) desde el 1-dic | **(a)**: noviembre queda del banco. Las que cumplen pasan juntas, fuera de horario |
+| **D1** ✅ firmada por Edgar, 2026-11-19 («hagámoslo») | Desde cuándo manda el banco en cada cuenta | (a) desde el primer día de su descarga, si cumple las propiedades 1 y 2 · (b) desde el 1-dic | **(a)**: noviembre queda del banco. Las que cumplen pasan juntas, fuera de horario |
 | **D2** | La historia enero–octubre | (a) se queda del libro, congelada y **rotulada «libro»** · (b) se reemplaza con descargas | **(a)**: reemplazar re-hace conciliaciones y pagos cerrados; compararla no cambia ninguna decisión. Cuentas la muestra como «libro», nunca como banco |
 | **D3** | M y C dejan de capturarse | (a) se derivan · (b) Tesorería los pone en la suite | **(a)**; lo que el motor no identifica va a «sin explicar», no se inventa |
 | **D4** | Caja General y Factoraje | Caja General → LE. Factoraje: (a) captura en la suite · (b) se inactiva | Caja General fuera. Factoraje: **preguntar a Tesorería** |
@@ -156,6 +156,7 @@ libro después de E3.
 | **D7** | Descarga automática del banco | Contrato por banco | **Fuera de esta fase** |
 | **D8** | Qué cuenta como «explicado» (propiedad 4) | (a) documento de Kepler, o categoría con evidencia (regla o texto del banco que la disparó) · (b) sólo documento de Kepler | **(a)**, pero «depósito sin otra señal = cobranza» **no** cuenta como explicado hasta identificar al cliente: es el piso del placebo (62 %) |
 | **D9** | Un archivo sin testigo de cuenta (19 hoy) | (a) no cuenta para «completo» hasta comprobarse por saldo · (b) se acepta con confirmación de quien sube | **(a)**: hoy se aceptan con un clic; una cuenta equivocada contamina dos estados de cuenta |
+| **D10** ✅ Edgar, 2026-11-19 («ya no se vuelve a usar workbook») | El libro CUENTAS ¿se sigue cargando mientras pasan las cuentas? | — | **No se vuelve a cargar.** La subida y la sincronización de Sheets se niegan desde ya (BFU.5.1); las cuentas que todavía no cuadran quedan con su libro al 10-nov hasta que su descarga se complete y pasen |
 
 ---
 
@@ -239,7 +240,7 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| BFU.5.1 | La carga del libro se niega para cuentas pasadas (ya lo hace por fecha) y el botón desaparece cuando todas pasaron | ⬜ | Subir un libro con una cuenta pasada no escribe nada de esa cuenta |
+| BFU.5.1 | 🧪 2026-11-19 (D10) **El libro ya no entra**: `POST finance/bank/import` y `POST sheet-sync/run` se niegan con «súbela en Estados de cuenta» (`libro-retirado.ts`); el cron de Sheets no corre aunque se encienda la variable; los botones «Subir libro» y «Sincronizar» se fueron de Estados de cuenta; el pendiente «sin movimientos» del Cierre lleva a Estados de cuenta. El importador del servicio queda (las pruebas contra base real lo usan) | 🧪 | Prueba: subir y sincronizar se niegan (mutante sin la negativa → rojo) |
 | BFU.5.2 | Se apaga `sheet-sync` y se retira el importador de línea de comandos | ⬜ | Sin lectores; regla principal del repo |
 | BFU.5.3 | El Cuadre 3 vías deja el respaldo «libro» (CB.85) | ⬜ | Cuadre de noviembre idéntico antes/después |
 | BFU.5.4 | ADR: «el banco es la fuente de `bank_movements`; el libro queda como historia hasta oct-2026» | ⬜ | ADR escrito |
