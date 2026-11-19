@@ -224,3 +224,11 @@ en el repo de Mega Talento.
 | Mergear la cadena frena todos los despliegues hasta aplicar sus migraciones | Aplicarlas el mismo día del merge |
 | El rol `recursos_humanos` sin personas | Nadie de RH ve las pantallas hasta ocuparlo |
 | La URL de la base compartida de Railway circuló con superusuario | Rotarla en RH.4.2 |
+
+---
+
+## 8. Bitácora
+
+| Fecha | Item | Qué | Evidencia | Estado |
+|---|---|---|---|---|
+| 19-nov | **[RH.17.1]** | **El nombre del checador llega en cuanto cambia.** En `/rh/asistencia` salía «Empleado 109» para quien no está ligado a la Suite: el aviso de cada checada trae el número y no el nombre, y la lista de usuarios sólo viajaba con la lectura completa, que desde `[RH.1.3]` los relojes que avisan ya no hacen cada hora (sólo al arrancar el agente). Ahora el vigía (cada 30 s) lee **sólo la lista** y la manda cuando (a) cambia el número de usuarios del reloj o (b) checa un número que no venía en la última lista; si falla, reintenta a los 5 min. La API ya cambiaba «Empleado N» por el nombre real: no se toca | Medido en prod (sólo lectura, 19-nov 08:52): 11 personas que checaron en 14 días sin nombre; la última lista de 9 de 12 relojes es del 12-nov y coincide al minuto con su `last_backfill_at`. Prueba `libs/hr/.../agente-usuarios-al-momento.spec.ts` (7) con el `RelojJob` real; rota a propósito en los dos sentidos (disparador apagado: 5 rojas; siempre encendido: el control rojo). Lector completo: 47/47 | 🧪 — falta desplegar el lector (`desplegar-ingesta.sh`, con el commit que sirva la API) y medir en prod que los «Empleado N» con checadas recientes bajan a 0 |
