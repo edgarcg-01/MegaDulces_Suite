@@ -7,6 +7,7 @@ import {
   type LocationKind,
   type LocationZone,
   type ProductLocationDetail,
+  type ProductPlace,
   type ProductPresentation,
   type WarehouseLocationRow,
 } from '@megadulces/contracts';
@@ -55,6 +56,45 @@ export function papelParaUbicacion(u: Pick<WarehouseLocationRow, 'code' | 'zona'
 }
 
 const norm = (s: string): string => s.trim().toUpperCase();
+
+/** `[UB.RF.11]` Un renglón de «dónde está» de una tarjeta: el lugar en palabras o que falta (con palabra, no con color). */
+export interface LugarEnPalabras { etiqueta: 'Tienda' | 'Bodega' | 'Reserva'; valor: string | null }
+
+/**
+ * `[UB.RF.11]` Dónde está un producto, para su tarjeta: tienda y bodega siempre (si falta, se dice),
+ * reserva sólo si tiene. Con más de una presentación entre sus lugares, cada código lleva su rótulo
+ * («BA053 (CJA)»); con una sola, el rótulo sobra.
+ */
+export function lugaresEnPalabras(lugares: ReadonlyArray<Pick<ProductPlace, 'papel' | 'code' | 'presentacion' | 'rotulo'>>): LugarEnPalabras[] {
+  const varias = new Set(lugares.map((l) => l.presentacion)).size > 1;
+  const de = (papel: AssignmentRole) =>
+    lugares.filter((l) => l.papel === papel).map((l) => (varias && l.rotulo ? `${l.code} (${l.rotulo})` : l.code)).join(', ') || null;
+  const out: LugarEnPalabras[] = [
+    { etiqueta: 'Tienda', valor: de('exhibicion_tienda') },
+    { etiqueta: 'Bodega', valor: de('surtido_fijo') },
+  ];
+  const reserva = de('reserva_preferida');
+  if (reserva) out.push({ etiqueta: 'Reserva', valor: reserva });
+  return out;
+}
+
+/**
+ * `[UB.RF.11]` Con un producto abierto, ¿a qué presentación va la ubicación que se escaneó? La que la
+ * persona señaló («Poner lugar» de esa presentación); si no señaló, la única que todavía no tiene ese
+ * papel; si son varias (o todas ya lo tienen), se pregunta con un botón por presentación.
+ */
+export function presentacionParaLugar(
+  d: Pick<ProductLocationDetail, 'presentaciones' | 'asignaciones'>,
+  papel: AssignmentRole,
+  senalada: number | null,
+): { peldano: 1 | 2 | 3 } | { opciones: ProductPresentation[] } {
+  const s = d.presentaciones.find((p) => p.peldano === senalada);
+  if (s) return { peldano: s.peldano };
+  if (d.presentaciones.length === 1) return { peldano: d.presentaciones[0].peldano };
+  const sinPapel = d.presentaciones.filter((p) => !d.asignaciones.some((a) => a.presentacion === p.peldano && a.papel === papel && a.estado !== 'baja'));
+  if (sinPapel.length === 1) return { peldano: sinPapel[0].peldano };
+  return { opciones: sinPapel.length ? sinPapel : d.presentaciones };
+}
 
 /**
  * Qué presentación es lo que se escaneó: la que trae ese código de barras en la ficha de Kepler de la

@@ -20,6 +20,7 @@ import {
   type ProductAssignment,
   type ProductLocationDetail,
   type ProductLocationFilter,
+  type ProductLocationOrder,
   type ProductLocationsList,
   type ProductPresentation,
   type UpdateAssignmentBody,
@@ -184,7 +185,14 @@ export class WarehouseLocationsAssignService {
 
   // ── Lectura ──────────────────────────────────────────────────────────────────────────────────
 
-  async products(warehouseIdRaw: string, q: string | undefined, filtro: ProductLocationFilter, limitRaw?: number, offsetRaw?: number): Promise<ProductLocationsList> {
+  async products(
+    warehouseIdRaw: string,
+    q: string | undefined,
+    filtro: ProductLocationFilter,
+    limitRaw?: number,
+    offsetRaw?: number,
+    orden: ProductLocationOrder = 'nombre',
+  ): Promise<ProductLocationsList> {
     this.tenantCtx.requireTenantId();
     const warehouseId = String(warehouseIdRaw ?? '').toLowerCase();
     if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
@@ -194,68 +202,131 @@ export class WarehouseLocationsAssignService {
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
       const wh = await almacenDeUbicaciones(trx, this.scope, ctx, warehouseId, false);
-      const base = { warehouse: { id: wh.id, code: wh.code, name: wh.name }, limit, offset };
-      if (!wh.kepler_code) return { ...base, ficha_kepler: false, universo: 0, total: 0, sin_ubicacion: 0, filas: [] };
-      // Universo = los productos que tienen ficha en Kepler de ESTA sucursal.
-      const universo = () => {
-        // EXISTS y no JOIN: aunque la sucursal trajera dos fichas de la misma clave, el producto sale una
-        // vez (medido: 9,039 productos de PH en 26 ms). Sucursal como VALOR: llega al índice ix_kdii_suc_sku.
-        const qb = trx('catalog.products as p')
-          .whereNull('p.deleted_at')
-          .whereRaw('EXISTS (SELECT 1 FROM kepler_ods.kdii k WHERE btrim(k.sucursal) = ? AND btrim(k.c1) = p.sku)', [wh.kepler_code]);
-        applySmartSearchConCodigo(qb, q, { columns: ['p.nombre', 'p.sku'] }, 'p.sku', wh.kepler_code); // [BU.4.2] + código de barras de ESTA sucursal
-        return qb;
-      };
-      // Un lugar fijo en una ubicación DADA DE BAJA no cuenta: el producto ya no tiene dónde surtirse.
-      const conSurtido = trx('commercial.bin_assignments as a')
-        .join('commercial.warehouse_bins as b', function () {
-          this.on('b.tenant_id', 'a.tenant_id').andOn('b.id', 'a.bin_id');
-        })
-        .whereRaw('a.product_id = p.id')
-        .where({ 'a.warehouse_id': wh.id, 'a.papel': 'surtido_fijo' })
-        .whereNull('a.deleted_at')
-        .whereNot('b.estado', 'baja')
-        .select(trx.raw('1'));
-      const filtrado = () => {
-        const qb = universo();
-        if (filtro === 'sin_ubicacion') qb.whereNotExists(conSurtido);
-        if (filtro === 'con_ubicacion') qb.whereExists(conSurtido);
-        return qb;
-      };
-      const [{ total }] = await filtrado().count({ total: '*' });
-      const [{ todos }] = await universo().count({ todos: '*' });
-      const [{ sin }] = await universo().whereNotExists(conSurtido).count({ sin: '*' });
-      const filas = await filtrado()
-        .select(
-          'p.id as product_id',
-          'p.sku',
-          'p.nombre',
-          trx.raw(`COALESCE((SELECT array_agg(b.code ORDER BY a.presentacion DESC)
-                    FROM commercial.bin_assignments a JOIN commercial.warehouse_bins b ON b.tenant_id = a.tenant_id AND b.id = a.bin_id
-                   WHERE a.product_id = p.id AND a.warehouse_id = ? AND a.papel = 'surtido_fijo' AND a.deleted_at IS NULL AND b.estado <> 'baja'), '{}') AS surtido_fijo`, [wh.id]),
-          trx.raw(`(SELECT count(*) FROM commercial.bin_assignments a
-                     WHERE a.product_id = p.id AND a.warehouse_id = ? AND a.deleted_at IS NULL) AS asignaciones`, [wh.id]),
+      const base = { warehouse: { id: wh.id, code: wh.code, name: wh.name }, limit, offset, orden };
+      const bodega = await this.ubicacionesDeBodega(trx, wh.id);
+      if (!wh.kepler_code) {
+        return { ...base, ficha_kepler: false, universo: 0, total: 0, sin_ubicacion: 0, con_tienda: 0, con_venta: null, ubicaciones_bodega: bodega, filas: [] };
+      }
+      // Un lugar en una ubicación DADA DE BAJA no cuenta: el producto ya no tiene dónde surtirse.
+      const lugar = (papel: AssignmentRole) =>
+        trx('commercial.bin_assignments as a')
+          .join('commercial.warehouse_bins as b', function () {
+            this.on('b.tenant_id', 'a.tenant_id').andOn('b.id', 'a.bin_id');
+          })
+          .whereRaw('a.product_id = p.id')
+          .where({ 'a.warehouse_id': wh.id, 'a.papel': papel })
+          .whereNull('a.deleted_at')
+          .whereNot('b.estado', 'baja')
+          .select(trx.raw('1'));
+      // [UB.RF.11] La venta de 30 días de ESTA sucursal, ya derivada de `sales_daily` (sin mayoreo):
+      // ordena «lo más vendido primero». Medido en prod 2026-11-19 (las 9 sucursales, como app_runtime):
+      // la consulta entera 160–237 ms; sumar `sales_daily` de 90 días costaba 450–470 ms en PH y 1.4 s
+      // en frío. Sus 500 primeros coinciden en 418 con los de 90 días de todos los canales.
+      const venta = trx('analytics.product_demand as d')
+        .select('d.product_id', 'd.revenue as r')
+        .where({ 'd.warehouse_id': wh.id, 'd.window_days': 30 });
+      // Universo = los productos que tienen ficha en Kepler de ESTA sucursal. EXISTS y no JOIN: aunque la
+      // sucursal trajera dos fichas de la misma clave, el producto sale una vez (9,039 de PH en 26 ms).
+      // Sucursal como VALOR: llega al índice ix_kdii_suc_sku.
+      const u = trx('catalog.products as p')
+        .leftJoin(venta.as('v'), 'v.product_id', 'p.id')
+        .whereNull('p.deleted_at')
+        .whereRaw('EXISTS (SELECT 1 FROM kepler_ods.kdii k WHERE btrim(k.sucursal) = ? AND btrim(k.c1) = p.sku)', [wh.kepler_code])
+        .select('p.id', 'p.sku', 'p.nombre', 'v.r', trx.raw('EXISTS (?) AS con_surtido', [lugar('surtido_fijo')]), trx.raw('EXISTS (?) AS con_tienda', [lugar('exhibicion_tienda')]));
+      applySmartSearchConCodigo(u, q, { columns: ['p.nombre', 'p.sku'] }, 'p.sku', wh.kepler_code); // [BU.4.2] + código de barras de ESTA sucursal
+      const enFiltro = filtro === 'sin_ubicacion' ? 'NOT u.con_surtido' : filtro === 'con_ubicacion' ? 'u.con_surtido' : 'true';
+      // Nombre + clave al final: con nombres repetidos el orden es estable y la página no salta ni repite.
+      const ordenSql = orden === 'venta' ? 'r DESC NULLS LAST, nombre, sku' : 'nombre, sku';
+      // [UB.RF.11] UNA consulta: el universo se arma una vez y de él salen las cifras y la página. Las
+      // cifras llegan aunque la página venga vacía (antes eran tres conteos y la página, cuatro pasadas).
+      const filas: Array<Record<string, unknown>> = await trx
+        .with('u', u)
+        .with('k', (qb) =>
+          qb.from('u').select(
+            trx.raw('count(*)::int AS universo'),
+            trx.raw('(count(*) FILTER (WHERE NOT u.con_surtido))::int AS sin'),
+            trx.raw('(count(*) FILTER (WHERE u.con_tienda))::int AS tienda'),
+            trx.raw('(count(*) FILTER (WHERE u.r > 0))::int AS con_venta'),
+            trx.raw(`(count(*) FILTER (WHERE ${enFiltro}))::int AS total`),
+          ),
         )
-        // Nombre + clave: con nombres repetidos, el orden es estable y la página no salta ni repite.
-        .orderBy([{ column: 'p.nombre' }, { column: 'p.sku' }])
-        .limit(limit)
-        .offset(offset);
-      this.logger.debug(`productos ${wh.code} (${filtro}, q=${q ?? ''}): ${filas.length} en ${Date.now() - t0} ms`);
+        .with('pg', (qb) => qb.from('u').select('u.*').whereRaw(enFiltro).orderByRaw(ordenSql).limit(limit).offset(offset))
+        .from('k')
+        .joinRaw('LEFT JOIN pg ON true')
+        .select('k.*', 'pg.id as product_id', 'pg.sku', 'pg.nombre', 'pg.r')
+        .orderByRaw(ordenSql.replace(/(^|, )(\w+)/g, '$1pg.$2'));
+      const k = filas[0] ?? {};
+      const pagina = filas.filter((f) => f['product_id'] != null);
+      const lugares = await this.lugaresDe(trx, wh.id, pagina.map((f) => String(f['product_id'])));
+      // `null` cuando la sucursal no tiene NINGUNA venta registrada (CEDIS): no es «0 se venden».
+      const hayVenta = !!(await trx('analytics.product_demand').where({ warehouse_id: wh.id, window_days: 30 }).first(trx.raw('1 AS x')));
+      this.logger.debug(`productos ${wh.code} (${filtro}, ${orden}, q=${q ?? ''}): ${pagina.length} en ${Date.now() - t0} ms`);
       return {
         ...base,
         ficha_kepler: true,
-        universo: Number(todos) || 0,
-        total: Number(total) || 0,
-        sin_ubicacion: Number(sin) || 0,
-        filas: filas.map((f: Record<string, unknown>) => ({
-          product_id: String(f['product_id']),
-          sku: String(f['sku']),
-          nombre: String(f['nombre']),
-          surtido_fijo: (f['surtido_fijo'] as string[]) ?? [],
-          asignaciones: Number(f['asignaciones']) || 0,
-        })),
+        universo: Number(k['universo']) || 0,
+        total: Number(k['total']) || 0,
+        sin_ubicacion: Number(k['sin']) || 0,
+        con_tienda: Number(k['tienda']) || 0,
+        con_venta: hayVenta ? Number(k['con_venta']) || 0 : null,
+        ubicaciones_bodega: bodega,
+        filas: pagina.map((f) => {
+          const id = String(f['product_id']);
+          const todos = lugares.get(id) ?? [];
+          const vivos = todos.filter((l) => l.vivo);
+          return {
+            product_id: id,
+            sku: String(f['sku']),
+            nombre: String(f['nombre']),
+            surtido_fijo: vivos.filter((l) => l.papel === 'surtido_fijo').map((l) => l.code),
+            asignaciones: todos.length,
+            lugares: vivos.map(({ papel, code, presentacion, rotulo }) => ({ papel, code, presentacion, rotulo })),
+          };
+        }),
       };
     });
+  }
+
+  /** `[UB.RF.11]` Ubicaciones de bodega activas del almacén (familia ubicación: carretas y espera no cuentan). */
+  private async ubicacionesDeBodega(trx: Knex.Transaction, warehouseId: string): Promise<number> {
+    const [{ n }] = await trx('commercial.warehouse_bins')
+      .where({ warehouse_id: warehouseId, zona: 'B', estado: 'activa', familia: 'ubicacion' })
+      .count({ n: '*' });
+    return Number(n) || 0;
+  }
+
+  /**
+   * `[UB.RF.11]` Las asignaciones de una página de productos, en una consulta. `vivo` = su ubicación no
+   * está dada de baja; las de una ubicación dada de baja cuentan como asignación pero no como lugar.
+   */
+  private async lugaresDe(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    productIds: string[],
+  ): Promise<Map<string, Array<{ papel: AssignmentRole; code: string; presentacion: 1 | 2 | 3; rotulo: string | null; vivo: boolean }>>> {
+    const out = new Map<string, Array<{ papel: AssignmentRole; code: string; presentacion: 1 | 2 | 3; rotulo: string | null; vivo: boolean }>>();
+    if (!productIds.length) return out;
+    const rows = await trx('commercial.bin_assignments as a')
+      .join('commercial.warehouse_bins as b', function () {
+        this.on('b.tenant_id', 'a.tenant_id').andOn('b.id', 'a.bin_id');
+      })
+      .where('a.warehouse_id', warehouseId)
+      .whereIn('a.product_id', productIds)
+      .whereNull('a.deleted_at')
+      .orderBy([{ column: 'a.presentacion', order: 'desc' }, { column: 'a.papel' }, { column: 'b.code' }])
+      .select('a.product_id', 'a.papel', 'b.code', 'a.presentacion', 'a.presentacion_rotulo', 'b.estado');
+    for (const r of rows as Array<Record<string, unknown>>) {
+      const id = String(r['product_id']);
+      if (!out.has(id)) out.set(id, []);
+      out.get(id)!.push({
+        papel: r['papel'] as AssignmentRole,
+        code: String(r['code']),
+        presentacion: Number(r['presentacion']) as 1 | 2 | 3,
+        rotulo: (r['presentacion_rotulo'] as string | null) ?? null,
+        vivo: r['estado'] !== 'baja',
+      });
+    }
+    return out;
   }
 
   async detail(warehouseIdRaw: string, productIdRaw: string): Promise<ProductLocationDetail> {

@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén › Ubicar productos: rehecha para el celular y el lector (UB.RF.11 · 2026-11-19)
+- Un solo campo para el producto o la ubicación: el lugar se asigna escaneando, y una ubicación que todavía no existe se crea en ese momento.
+- La lista empieza por lo que más se vende, y cada producto dice en palabras dónde está: «Tienda TA011 · Bodega falta». Ya no dice «0 % ya ubicado» cuando el producto sí tiene lugar en tienda.
+- Cada lugar guardado se puede deshacer en el acto, y si el sistema rechaza algo, lo dice con su motivo.
+
 ### Fixed — Surtir: un cierre que sí se guardó ya no aparece como error (GP.RF.44 · 2026-11-19)
 - Si al terminar un surtido se cae la conexión o el servidor dice que el pedido ya estaba cerrado, la pantalla revisa el pedido antes de avisar: si quedó guardado, lo da por cerrado.
 - Un pedido que ya se surtió no se vuelve a abrir como si siguiera en curso: la pantalla dice quién lo cerró y a qué hora, y regresa a la lista.
