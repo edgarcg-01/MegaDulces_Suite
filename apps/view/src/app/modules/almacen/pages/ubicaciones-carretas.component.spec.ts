@@ -40,9 +40,11 @@ describe('[GP.11.5] Ubicaciones › Carretas', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('⭐ cada carreta dice en palabras si está libre o qué pedido trae, de quién y desde cuándo', async () => {
-    const { pausa, texto } = montar([R([C('C01'), OCUPADA, C('C09', { estado: 'baja', motivo_estado: 'rueda rota' })])]);
+    const { fix, pausa, texto } = montar([R([C('C01'), OCUPADA, C('C09', { estado: 'baja', motivo_estado: 'rueda rota' })])]);
     await pausa();
-    expect(texto()).toContain('1 libre · 1 con pedido');
+    // Q.1: la respuesta primero (libres, con pedido, fuera de uso), y §9: de cuándo es lo que se ve.
+    expect(fix.componentInstance.kpis().map((k) => [k.label, k.value])).toEqual([['Libres', 1], ['Con pedido', 1], ['Fuera de uso', 1]]);
+    expect(fix.componentInstance.cargadoEn()).not.toBeNull();
     expect(texto()).toContain('C01 Carreta 1 Libre');
     expect(texto()).toContain('C07 Carreta 7 Con U-D-40 2840 · Ana desde las 10:42');
     expect(texto()).toContain('Dada de baja (rueda rota)');

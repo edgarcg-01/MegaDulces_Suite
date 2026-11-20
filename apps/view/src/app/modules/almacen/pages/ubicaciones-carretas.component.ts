@@ -7,6 +7,9 @@ import { CART_KINDS, CART_NUM_MAX, describeCart, type CartKind, type CartRow, ty
 import { AlmacenCarretasService } from '../almacen-carretas.service';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
+import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 /**
  * `[GP.11.5]` Ubicaciones › Carretas: el catálogo de carretas y carritos del almacén (FASE_GP D6), el alta
@@ -25,7 +28,7 @@ import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/
 @Component({
   selector: 'app-ubicaciones-carretas',
   standalone: true,
-  imports: [FormsModule, ButtonModule, SegmentedComponent, AndenCartelComponent],
+  imports: [FormsModule, ButtonModule, SegmentedComponent, AndenCartelComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (carteles().length) {
@@ -37,13 +40,14 @@ import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/
     <section class="ca-block" aria-labelledby="ca-h">
       <div class="ca-head">
         <h2 id="ca-h" class="ca-h2">Carretas y carritos</h2>
-        @if (data(); as d) {
-          <span class="ca-sub">{{ d.libres }} {{ d.libres === 1 ? 'libre' : 'libres' }} · {{ d.ocupadas }} con pedido</span>
-          @if (d.carretas.length) {
-            <button pButton type="button" class="p-button-sm p-button-outlined ca-tap" (click)="imprimir(d.carretas)"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir los {{ d.carretas.length }} carteles</span></button>
-          }
+        <!-- §9: la ocupación cambia a cada rato; se dice de cuándo es lo que se ve. -->
+        <app-freshness-pill measures="fetch" [since]="cargadoEn()" />
+        @if (data()?.carretas?.length) {
+          <button pButton type="button" class="p-button-sm p-button-outlined ca-tap" (click)="imprimir(data()!.carretas)"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">Imprimir los {{ data()!.carretas.length }} carteles</span></button>
         }
       </div>
+      <!-- Q.1: la respuesta primero — cuántas hay para tomar y cuántas traen pedido. -->
+      @if (kpis().length) { <app-metric-strip [items]="kpis()" density="compact" ariaLabel="Carretas del almacén" /> }
 
       @if (puedeGestionar()) {
         <form class="ca-alta" (ngSubmit)="darDeAlta()" aria-label="Dar de alta carretas por rango">
@@ -57,12 +61,11 @@ import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/
 
       <p class="ca-msg" [class.ca-mal]="aviso()?.mal" aria-live="polite">{{ aviso()?.texto ?? '' }}</p>
 
-      @if (error(); as e) {
-        <p class="ca-msg ca-mal" role="alert">{{ e }} <button pButton type="button" class="p-button-sm p-button-text ca-tap" (click)="cargar()"><span class="p-button-label">Reintentar</span></button></p>
-      } @else if (data(); as d) {
-        @if (!d.carretas.length) {
-          <p class="ca-vacio">{{ d.warehouse.name }} todavía no tiene carretas dadas de alta. Mientras no haya, Surtir trabaja sin carreta.</p>
-        } @else {
+      <!-- §2: cargando, vacío y error se distinguen (y el error deja reintentar). -->
+      <app-load-state [loading]="!data() && !error()" [error]="error()" errorTitle="No se pudieron leer las carretas" [skeletonRows]="3"
+                      [isEmpty]="!!data() && !data()!.carretas.length" emptyIcon="pi-shopping-cart" emptyTitle="Todavía no hay carretas"
+                      [emptyHint]="(warehouse().name) + ' todavía no tiene carretas dadas de alta. Mientras no haya, Surtir trabaja sin carreta.'" (retry)="cargar()">
+        @if (data(); as d) {
           <ul class="ca-lista">
             @for (c of d.carretas; track c.id) {
               <li class="ca-fila">
@@ -83,18 +86,21 @@ import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/
             }
           </ul>
         }
-      } @else {
-        <div class="ca-skel" aria-busy="true"><span class="sr-only">Leyendo las carretas…</span></div>
-      }
+      </app-load-state>
     </section>
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; container-type: inline-size; }
+    /* En angosto (celular, panel lateral): el estado baja a su propio renglón. */
+    @container (max-width: 30rem) {
+      .ca-fila { grid-template-columns: 3.5rem 1fr auto; }
+      .ca-estado { grid-column: 1 / -1; }
+    }
     .ca-block { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); margin-bottom: var(--sp-3); }
     .ca-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); }
     .ca-h2 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); }
-    .ca-sub, .ca-hint, .ca-vacio { font-size: var(--fs-sm); color: var(--text-muted); }
-    .ca-hint, .ca-vacio { margin: 0; }
+    .ca-hint { font-size: var(--fs-sm); color: var(--text-muted); }
+    .ca-hint { margin: 0; }
     .ca-alta { display: flex; flex-wrap: wrap; align-items: end; gap: var(--sp-2); }
     .ca-f { display: flex; flex-direction: column; gap: var(--sp-1); }
     .ca-l { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -107,7 +113,6 @@ import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/
     .ca-code { font-weight: var(--fw-bold); }
     .ca-estado { font-size: var(--fs-sm); }
     .ca-btns { display: inline-flex; gap: var(--sp-1); }
-    .ca-skel { height: 6rem; }
   `],
 })
 export class UbicacionesCarretasComponent {
@@ -120,6 +125,18 @@ export class UbicacionesCarretasComponent {
   readonly max = CART_NUM_MAX;
   readonly tipos: SegOption[] = CART_KINDS.map((k) => ({ label: `${k.label}s (${k.para})`, value: k.key }));
   readonly data = signal<CartsResponse | null>(null);
+  readonly cargadoEn = signal<Date | null>(null);
+  /** Q.1: libres para tomar, con pedido y fuera de uso (bloqueadas o dadas de baja). */
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    const d = this.data();
+    if (!d?.carretas.length) return [];
+    const fuera = d.carretas.filter((c) => c.estado !== 'activa').length;
+    return [
+      { label: 'Libres', value: d.libres, sub: 'para tomar' },
+      { label: 'Con pedido', value: d.ocupadas, sub: 'ocupadas' },
+      { label: 'Fuera de uso', value: fuera, sub: 'bloqueadas o de baja' },
+    ];
+  });
   readonly error = signal<string | null>(null);
   readonly aviso = signal<{ texto: string; mal: boolean } | null>(null);
   readonly tipo = signal<CartKind>('carreta');
@@ -153,7 +170,7 @@ export class UbicacionesCarretasComponent {
     this.error.set(null);
     try {
       const d = await firstValueFrom(this.api.list(this.warehouse().id));
-      if (folio === this.folio) this.data.set(d);
+      if (folio === this.folio) { this.data.set(d); this.cargadoEn.set(new Date()); }
     } catch (e) {
       if (folio === this.folio) this.error.set(mensaje(e, 'No se pudieron leer las carretas.'));
     }
