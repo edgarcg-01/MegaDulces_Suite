@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Estado de cuenta de acreedores: buscar, la factura a un clic y «Agendar» (ECA.9 · 2026-11-20)
+- Al entrar se ven 7 documentos del acreedor en lugar de 1: los avisos, la ficha y las cifras ocupan mucho menos.
+- Buscador dentro de los documentos del acreedor: folio, referencia, importe (con o sin comas), fecha, sucursal y el folio del pago que se les aplicó. Si no encuentra nada, ofrece buscar también en los pagados de los últimos 12 meses.
+- «PDF» abre la factura del proveedor en un clic (la misma que ya encuentra Pagos); si sólo hay UUID, se copia. Sólo para documentos con saldo.
+- «Agendar» lleva al Calendario de pagos al día del vencimiento (u hoy, si ya venció), con la factura ya buscada en «Agregar facturas».
+- La columna «Saldo» ahora muestra el saldo del documento (antes mostraba su estado); en el teléfono cada documento se ve como ficha.
+
 ### Fixed — Almacén: cierres que sí se guardaron ya no se reportan como fallidos (GP.RF.45 y GP.RF.46 · 2026-11-20)
 - Surtir: si al terminar el servidor tarda y no contesta, la pantalla revisa unos segundos si el cierre se guardó antes de decir que falló (en prod, los 4 casos de estos días sí se habían guardado).
 - Revisión en caja: si un pedido ya quedó revisado (por ejemplo, con un segundo toque), la pantalla lo dice y pasa al siguiente en lugar de mostrar un error.
