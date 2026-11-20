@@ -1,0 +1,27 @@
+-- [PGP.122.8] Cancelar una solicitud de gasto (X-A-15) desde la Suite IGUAL que Kepler: Kepler BORRA sus renglones.
+--
+-- Lo medido (Kepler VIVO de la 05, 2026-11-19/20; es el único servidor donde kepler_push puede leer kdm6):
+--   · 31 de 31 X-A-15/X-A-10 canceladas sin renglones en kdm6; 148 de 148 vivas (A/N/F) con renglones.
+--   · Los contadores de la tabla (pg_stat_user_tables) marcaron 1 DELETE en kdm6 al minuto de cada cancelación
+--     hecha a mano el 2026-11-19 (13:41 y 15:04).
+--   · El ODS (kepler_ods.kdm6) todavía tiene esos renglones: no ve los DELETE (GOTCHAS §22). La premisa anterior
+--     («se conservan 364 de 364») se midió ahí y era un artefacto.
+--
+-- Lo que agrega:
+--   GRANT SELECT ON md.kdm6 — leer cuántos renglones tiene y guardar su foto en la bitácora antes de borrarlos.
+--                             (Hoy kepler_push sólo lo tiene en la 05; en la 00, 06, 07 y 08 «permiso denegado».)
+--   GRANT DELETE ON md.kdm6 — borrarlos. El DELETE no se acota por columna ni por fila en Kepler: lo acota el
+--                             adaptador (KeplerSolicitudGastoSinkAdapter.cancelar: una X-A-15, su sucursal, su folio,
+--                             después de cancelar la cabecera con candado, y exactamente los renglones leídos).
+--
+-- ⛔ Dar el permiso NO enciende nada: la cancelación sigue apagada por el interruptor 'cancela_solicitud_gasto'
+--    de commercial.kepler_push_switch (sembrado apagado, tope 1) y por KEPLER_GASTO_SOLICITUD.
+-- ⚠️ Sin este permiso la cancelación FALLA entera (el DELETE revienta y la transacción se deshace): no deja la
+--    cabecera cancelada con renglones vivos.
+--
+-- Correr con (05 primero, es el canario):
+--   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/pgp1228_cancelar_solicitud_kdm6.sql --servidores 05
+--   node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/pgp1228_cancelar_solicitud_kdm6.sql --servidores 05 --aplicar
+-- verificar: SELECT has_table_privilege('kepler_push', 'md.kdm6', 'SELECT') AND has_table_privilege('kepler_push', 'md.kdm6', 'DELETE')
+
+GRANT SELECT, DELETE ON md.kdm6 TO kepler_push;   -- la foto de los renglones y su borrado, como Kepler

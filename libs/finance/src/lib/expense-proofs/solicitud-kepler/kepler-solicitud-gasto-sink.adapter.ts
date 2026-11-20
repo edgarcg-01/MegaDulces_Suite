@@ -93,7 +93,11 @@ export type MarcaEnKepler = { ok: true; encontrada: { folio: string; kepler: str
  */
 /** `[PGP.122]` F3: lo que pasó al cancelar en Kepler una solicitud de la Suite. */
 /** `[PGP.122.6]` La cabecera tal como estaba en Kepler ANTES de cancelar (lo que la sentencia pisa): para la bitácora. */
-export interface OriginalDeLaSolicitud { estado: string; iva: string | null; total: string | null; saldo: string | null; capturista: string | null; fecha: string | null; hora: string | null; marca: string | null }
+export interface OriginalDeLaSolicitud {
+  estado: string; iva: string | null; total: string | null; saldo: string | null; capturista: string | null; fecha: string | null; hora: string | null; marca: string | null;
+  /** `[PGP.122.8]` Los renglones (`kdm6`) tal como estaban: Kepler los borra al cancelar, y ésta es la única foto que queda. */
+  renglones?: Array<Record<string, unknown>>;
+}
 
 export type ResultadoCancelacionSolicitud =
   | { estado: 'cancelada'; folio: string; original?: OriginalDeLaSolicitud }
@@ -245,7 +249,13 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
         return d.yaCancelada ? { estado: 'ya_estaba', folio: e.folio } : { estado: 'rechazado', motivo: d.motivo, reintentable: false };
       }
       const f0 = filas[0];
-      for (const s of sentenciasCancelacionSolicitud({ sucursal: e.sucursal, folio: e.folio, estado: f0.estado, marca: e.marca, total: f0.total, capturista: CAPTURISTA_SUITE, fecha: e.fecha, hora: e.hora })) {
+      // `[PGP.122.8]` Kepler borra los renglones al cancelar: se leen (cuántos y su foto para la bitácora). Sin
+      // `FOR UPDATE` a propósito: pediría UPDATE sobre kdm6. El candado es la cabecera (ya tomada) y el DELETE tiene
+      // que tocar exactamente estos; si alguien agregó o quitó uno en medio, se deshace todo.
+      const renglones = (await c.query(
+        `SELECT row_to_json(l) AS r FROM md.kdm6 l WHERE l.c1 = $1 AND l.c2 = 'X' AND l.c3 = 'A' AND l.c4 = 15 AND l.c5 = 1 AND btrim(l.c6) = $2`,
+        [e.sucursal, e.folio])).rows.map((x: { r: Record<string, unknown> }) => x.r);
+      for (const s of sentenciasCancelacionSolicitud({ sucursal: e.sucursal, folio: e.folio, estado: f0.estado, marca: e.marca, total: f0.total, renglones: renglones.length, capturista: CAPTURISTA_SUITE, fecha: e.fecha, hora: e.hora })) {
         const r = await c.query(s.sql, s.params);
         if (r.rowCount !== s.esperadas) {
           await c.query('ROLLBACK');
@@ -256,7 +266,7 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
       this.logger.log(`Solicitud ${e.sucursal}-${e.folio} (${e.marca ?? 'capturada en Kepler'}) cancelada en Kepler desde la Suite`);
       return {
         estado: 'cancelada', folio: e.folio,
-        original: { estado: f0.estado, iva: f0.iva, total: f0.total, saldo: f0.saldo, capturista: f0.capturista, fecha: f0.fecha, hora: f0.hora, marca: f0.marca || null },
+        original: { estado: f0.estado, iva: f0.iva, total: f0.total, saldo: f0.saldo, capturista: f0.capturista, fecha: f0.fecha, hora: f0.hora, marca: f0.marca || null, renglones },
       };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);
