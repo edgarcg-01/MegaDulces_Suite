@@ -7,6 +7,9 @@ import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 import { EstadoCuentaPublicoController } from './estado-cuenta-publico.controller';
+import { CarteraTelefonosController } from './cartera-telefonos.controller';
+import { CarteraTelefonosService } from './cartera-telefonos.service';
+import { KeplerTelefonoClienteAdapter } from './kepler-telefono-cliente.adapter';
 import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
 
 /**
@@ -23,9 +26,10 @@ import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
   // [CC.20] El estado de cuenta imprime el QR del enlace de depósito del cliente (CustomerDepositsService).
   imports: [FinanceCollectionDepositsModule],
   // [CC.20.2] El cliente descarga su estado de cuenta desde su enlace personal (pública, autorizada por el token).
-  controllers: [CustomerLedgerController, EstadoCuentaPublicoController],
+  // [CXC.48] Los teléfonos de la cartera: el del cliente se escribe en Kepler, el del vendedor en la Suite.
+  controllers: [CustomerLedgerController, EstadoCuentaPublicoController, CarteraTelefonosController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
-    PgListenService, CarteraPorEventoService,
+    PgListenService, CarteraPorEventoService, CarteraTelefonosService, KeplerTelefonoClienteAdapter,
     // [GP.A.4] La bandeja «Por autorizar» de Crédito y cobranza (sólo lectura).
     AutorizacionPedidosService],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],
