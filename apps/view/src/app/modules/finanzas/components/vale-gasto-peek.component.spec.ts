@@ -185,7 +185,8 @@ describe('ValeGastoPeekComponent', () => {
       montar(V(), ['aprobar', 'rechazar']);
       const botones = [...fix.nativeElement.querySelectorAll('.vp-act button')]
         .map((b: Element) => b.textContent?.trim());
-      expect(botones).toEqual(['Rechazar', 'Revisado']);
+      // [PGP.122.9] La firma repite la cifra: no se firma «a ciegas» un vale abierto por error.
+      expect(botones).toEqual(['Rechazar', 'Revisado · $1,234.50']);
     });
 
     /** ⛔ Y la palabra vieja no puede quedar en ningún botón: serían dos nombres para lo mismo. */
@@ -209,7 +210,7 @@ describe('ValeGastoPeekComponent', () => {
       const emitidos: AprobacionVale[] = [];
       c.aprobar.subscribe((a) => emitidos.push(a));
       const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
-        .find((b: Element) => b.textContent?.trim() === 'Revisado') as HTMLButtonElement;
+        .find((b: Element) => (b.textContent?.trim() ?? '').startsWith('Revisado ·')) as HTMLButtonElement;
       btn.click();
       expect(emitidos).toHaveLength(1);
       expect(emitidos[0].vale.id).toBe('v1');
@@ -268,7 +269,7 @@ describe('ValeGastoPeekComponent', () => {
         const emitidos: AprobacionVale[] = [];
         c.aprobar.subscribe((a) => emitidos.push(a));
         const btn = [...fix.nativeElement.querySelectorAll('.vp-act button')]
-          .find((b: Element) => b.textContent?.trim() === 'Revisado como provisional') as HTMLButtonElement;
+          .find((b: Element) => (b.textContent?.trim() ?? '').startsWith('Revisado como provisional ·')) as HTMLButtonElement;
         expect(btn).toBeTruthy();
         btn.click();
         expect(emitidos[0].provisional).toBe(true);
@@ -464,7 +465,7 @@ describe('ValeGastoPeekComponent', () => {
     it('junto a las decisiones, el pie sigue igual', () => {
       montar(V(), ['aprobar', 'rechazar', 'agregar_evidencia']);
       const pie = [...fix.nativeElement.querySelectorAll('.vp-act button')].map((b: Element) => b.textContent?.trim());
-      expect(pie).toEqual(['Rechazar', 'Revisado']);
+      expect(pie).toEqual(['Rechazar', 'Revisado · $1,234.50']);
       expect(botonAgregar()).toBeTruthy();
     });
 
@@ -630,7 +631,8 @@ describe('ValeGastoPeekComponent', () => {
     const K = (status: string) => ({ estado: 'A', solicitud: '0000082', nace_en_la_suite: { status, nota: null, siguiente: null, intentos: 1 } }) as never;
     const botones = () => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('button')) as HTMLButtonElement[];
     const abrir = () => botones().find((b) => (b.textContent ?? '').includes('Cancelar en Kepler…'));
-    const final = () => botones().find((b) => (b.textContent ?? '').trim() === 'Cancelar en Kepler');
+    // [PGP.122.9] El botón final nombra QUÉ cancela: «Cancelar <folio> ($cifra) en Kepler».
+    const final = () => botones().find((b) => /^Cancelar .+ en Kepler$/.test((b.textContent ?? '').trim()) && !(b.textContent ?? '').includes('…'));
 
     it('sólo con la solicitud ya escrita y el vale firmado; pide motivo (mínimo 10) y lo emite', () => {
       montar(V({ status: 'validada' }));
@@ -644,19 +646,36 @@ describe('ValeGastoPeekComponent', () => {
       fix.detectChanges();
       const ta = (fix.nativeElement as HTMLElement).querySelector('#vp-cancelar-m') as HTMLTextAreaElement;
       expect(ta).toBeTruthy();
-      expect(final()!.disabled).toBe(true);
+      // [PGP.122.9] modern-web-guidance (forms): el botón no se bloquea por validación; nombra folio y cifra.
+      expect(final()!.disabled).toBe(false);
+      expect(final()!.textContent).toContain('$1,234.50');
+      // Sin tocar el campo no se regaña.
+      expect(ta.getAttribute('aria-invalid')).toBeNull();
+      expect((fix.nativeElement as HTMLElement).querySelector('#vp-cancelar-err')).toBeNull();
       const emitido: unknown[] = [];
       c.cancelarKepler.subscribe((e) => emitido.push(e));
       ta.value = 'corto';
       ta.dispatchEvent(new Event('input'));
       fix.detectChanges();
-      expect(final()!.disabled).toBe(true);
+      final()!.click();
+      fix.detectChanges();
+      // Corto: no se manda nada, se marca el campo, se dice cuánto falta y el foco vuelve al motivo.
+      expect(emitido).toEqual([]);
+      expect(ta.getAttribute('aria-invalid')).toBe('true');
+      expect((fix.nativeElement as HTMLElement).querySelector('#vp-cancelar-err')?.textContent).toContain('faltan 5 caracteres');
+      expect(ta.getAttribute('aria-describedby')).toContain('vp-cancelar-err');
+      expect(document.activeElement).toBe(ta);
       ta.value = 'Se capturó dos veces';
       ta.dispatchEvent(new Event('input'));
       fix.detectChanges();
-      expect(final()!.disabled).toBe(false);
       final()!.click();
       expect(emitido).toEqual([{ id: 'v1', motivo: 'Se capturó dos veces' }]);
+      // El formulario se queda (no tira el foco) y, ocupado, no se puede mandar dos veces.
+      fix.componentRef.setInput('ocupado', true);
+      fix.detectChanges();
+      expect(final()!.disabled).toBe(true);
+      final()!.click();
+      expect(emitido).toHaveLength(1);
     });
 
     /**

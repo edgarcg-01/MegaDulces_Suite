@@ -3,7 +3,7 @@
  * `[PGP.122.11]` Empaqueta `ensayo.ts` —con el adaptador REAL, su revisión, `pg` y nada más— en UN archivo
  * `.cjs` que corre con `node` pelón dentro de un contenedor en `md`. Ver `README.md`.
  *
- *   node ops/prod/ensayo-solicitud-gasto/empaquetar.js <salida.cjs>
+ *   node ops/prod/ensayo-solicitud-gasto/empaquetar.js <salida.cjs> [ensayo-cancelar.ts]
  *
  * Mismo modelo que `../ensayo-cancelar-oc/empaquetar.js`: `@nestjs/common` se cambia por un sustituto de
  * diez líneas y los alias apuntan a ARCHIVOS, no a barriles (el de platform-core trae media API; el de
@@ -14,7 +14,9 @@ const esbuild = require('esbuild');
 
 const RAIZ = path.resolve(__dirname, '..', '..', '..');
 const salida = process.argv[2];
-if (!salida) { console.error('Uso: node empaquetar.js <salida.cjs>'); process.exit(1); }
+if (!salida) { console.error('Uso: node empaquetar.js <salida.cjs> [ensayo.ts | ensayo-cancelar.ts]'); process.exit(1); }
+// [PGP.122.8] El segundo argumento elige el ensayo: crear (por omisión) o cancelar.
+const entrada = process.argv[3] || 'ensayo.ts';
 
 const NEST_MINIMO = `
 exports.Injectable = () => () => undefined;
@@ -23,7 +25,7 @@ class Logger { constructor(n) { this.n = n; }
 exports.Logger = Logger;`;
 
 esbuild.build({
-  entryPoints: [path.join(__dirname, 'ensayo.ts')],
+  entryPoints: [path.join(__dirname, entrada)],
   bundle: true,
   platform: 'node',
   target: 'node20',

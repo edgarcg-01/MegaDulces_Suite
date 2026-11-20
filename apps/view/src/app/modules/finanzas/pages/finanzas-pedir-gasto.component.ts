@@ -18,7 +18,7 @@ import {
   FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
   detallePagoOpcional, exigeDetalle, faltaParaPedir, fechaDePago, hayInformacionDePago, totalesDeLaSolicitud,
   type AcreedorDeGasto, type AlcanceDeLaBase, type CatalogoDeLaSolicitud, type DuplicadoProbable, type FacturaPorRegistrar, type FuenteDelDato,
-  type InformacionDePago, type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante,
+  type InformacionDePago, type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante, type FaltanteSolicitud,
 } from '@megadulces/contracts';
 
 import { STORE_BRANCHES, branchLabel } from '../../../core/constants/store-branches';
@@ -135,8 +135,8 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
           <fieldset class="pg-bloque">
             <legend class="pg-legend" id="pg-prov-t"><span class="pg-num">2</span> Proveedor</legend>
             <div class="pg-campo">
-              <label for="pg-acreedor">Proveedor (acreedor de Kepler)</label>
-              <p-autocomplete inputId="pg-acreedor" [ngModel]="acreedorSel()" (ngModelChange)="acreedorTecleado($event)" [suggestions]="acreedoresSug()"
+              <label for="pg-acreedor">Proveedor (acreedor de Kepler) <span class="pg-req" aria-hidden="true">*</span></label>
+              <p-autocomplete inputId="pg-acreedor" [required]="true" [invalid]="mal('pg-acreedor')" [ngModel]="acreedorSel()" (ngModelChange)="acreedorTecleado($event)" [suggestions]="acreedoresSug()"
                 (completeMethod)="buscarAcreedor($event.query)" (onSelect)="elegirAcreedor($event.value)" optionLabel="nombre"
                 [forceSelection]="true" [dropdown]="true" [showClear]="true" appendTo="body" [fluid]="true"
                 placeholder="Nombre, clave o RFC" [emptyMessage]="buscarFallo() ? 'No se pudo buscar: intenta otra vez' : 'Sin acreedores de gasto con eso en esta base'">
@@ -172,18 +172,19 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                 <!-- H20: con la factura casada al SAT la foto sobra: el botón deja de ser el principal y lo dice. -->
                 <md-captura-en-vivo [etiqueta]="cfdiUuid() ? 'Tomar foto (opcional)' : 'Tomar foto'" [secundario]="!!cfdiUuid()" (capturada)="alCapturar($event)" />
               }
-              <label class="pg-subir">
+              <label class="pg-subir" [class.pg-subir-mal]="mal('pg-doc-t')">
                 <i class="pi pi-upload" aria-hidden="true"></i>
                 <span>{{ tipo() === 'cotizacion' ? 'Subir la cotización' : 'Subir archivo' }}</span>
-                <input type="file" accept="image/*,application/pdf" (change)="alElegirArchivo($event)" />
+                <input type="file" accept="image/*,application/pdf" (change)="alElegirArchivo($event)" aria-describedby="pg-arch-estado" />
               </label>
             </div>
-            @if (archivo(); as a) {
-              <p class="pg-leido" aria-live="polite">
-                <a [href]="a.url" target="_blank" rel="noopener"><i class="pi pi-file" aria-hidden="true"></i> Ver el archivo</a>
-                <span class="pg-leido-t">{{ estadoLectura() }}</span>
-              </p>
-            }
+            <!-- [PGP.122.9] La región de estado EXISTE siempre y sólo cambia de texto: una que aparece ya con su texto no se
+                 anuncia de forma fiable (modern-web-guidance: required-field-feedback). El enlace va fuera de ella. -->
+            <p class="pg-leido">
+              @if (archivo(); as a) { <a [href]="a.url" target="_blank" rel="noopener"><i class="pi pi-file" aria-hidden="true"></i> Ver el archivo</a> }
+              <span id="pg-arch-estado" class="pg-leido-t" role="status">{{ estadoArchivo() }}</span>
+            </p>
+            @if (errorArchivo(); as ea) { <p class="pg-error" role="alert"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ ea }}</p> }
             <div class="pg-grid">
               <div class="pg-campo">
                 <label for="pg-folio">Folio del {{ tipo() === 'cfdi' ? 'CFDI' : tipo() === 'cotizacion' ? 'documento' : 'ticket' }}</label>
@@ -191,9 +192,11 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                 @if (fuente('folio'); as f) { <small class="pg-fuente">{{ f }}</small> }
               </div>
               <div class="pg-campo">
-                <label for="pg-fecha">Fecha del documento</label>
+                <label for="pg-fecha">Fecha del documento <span class="pg-req" aria-hidden="true">*</span></label>
                 <p-datepicker inputId="pg-fecha" [ngModel]="fechaDoc()" (ngModelChange)="fechaDoc.set($event); marcar('fecha')" dateFormat="dd/mm/yy"
-                  [showIcon]="true" appendTo="body" [maxDate]="hoyDate()" [fluid]="true" />
+                  [showIcon]="true" appendTo="body" [maxDate]="hoyDate()" [fluid]="true" [required]="true" [invalid]="mal('pg-fecha')"
+                  placeholder="dd/mm/aaaa" ariaLabelledBy="pg-fecha-l" />
+                <small id="pg-fecha-l" class="sr-only">Fecha del documento, día/mes/año</small>
                 @if (fuente('fecha'); as f) { <small class="pg-fuente">{{ f }}</small> }
               </div>
             </div>
@@ -223,23 +226,26 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             @for (r of renglones(); track $index; let i = $index) {
               <div class="pg-renglon" role="group" [attr.aria-label]="'Renglón ' + (i + 1)">
                 <div class="pg-campo pg-ren-concepto">
-                  <label [for]="'pg-con-' + i">Concepto</label>
-                  <p-select [inputId]="'pg-con-' + i" appendTo="body" [options]="conceptos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
+                  <!-- [PGP.122.9] El combobox de p-select es un <span>: un <label for> no lo nombra. Se nombra por id del
+                       label (ariaLabelledBy); si no, su nombre era el valor elegido (modern-web-guidance: accessibility). -->
+                  <label [for]="'pg-con-' + i" [id]="'pg-con-l-' + i">Concepto <span class="pg-req" aria-hidden="true">*</span></label>
+                  <p-select [inputId]="'pg-con-' + i" [ariaLabelledBy]="'pg-con-l-' + i" [required]="true" [invalid]="mal('pg-con-' + i)" appendTo="body" [options]="conceptos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
                     filterBy="etiqueta" [ngModel]="r.concepto" (ngModelChange)="cambiarRenglon(i, 'concepto', $event)" [fluid]="true" placeholder="Elige el concepto" />
                 </div>
                 <div class="pg-campo">
-                  <label [for]="'pg-pro-' + i">Proyecto</label>
-                  <p-select [inputId]="'pg-pro-' + i" appendTo="body" [options]="proyectos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
+                  <label [for]="'pg-pro-' + i" [id]="'pg-pro-l-' + i">Proyecto <span class="pg-req" aria-hidden="true">*</span></label>
+                  <p-select [inputId]="'pg-pro-' + i" [ariaLabelledBy]="'pg-pro-l-' + i" [required]="true" [invalid]="mal('pg-pro-' + i)" appendTo="body" [options]="proyectos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
                     filterBy="etiqueta" [ngModel]="r.proyecto" (ngModelChange)="cambiarRenglon(i, 'proyecto', $event)" [fluid]="true" placeholder="Proyecto" />
                 </div>
                 <div class="pg-campo">
-                  <label [for]="'pg-dep-' + i">Departamento</label>
-                  <p-select [inputId]="'pg-dep-' + i" appendTo="body" [options]="departamentos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
+                  <label [for]="'pg-dep-' + i" [id]="'pg-dep-l-' + i">Departamento <span class="pg-req" aria-hidden="true">*</span></label>
+                  <p-select [inputId]="'pg-dep-' + i" [ariaLabelledBy]="'pg-dep-l-' + i" [required]="true" [invalid]="mal('pg-dep-' + i)" appendTo="body" [options]="departamentos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
                     filterBy="etiqueta" [ngModel]="r.departamento" (ngModelChange)="cambiarRenglon(i, 'departamento', $event)" [fluid]="true" placeholder="Departamento" />
                 </div>
                 <div class="pg-campo pg-ren-importe">
-                  <label [for]="'pg-imp-' + i">Importe sin IVA</label>
+                  <label [for]="'pg-imp-' + i">Importe sin IVA <span class="pg-req" aria-hidden="true">*</span></label>
                   <p-inputnumber [inputId]="'pg-imp-' + i" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2" [maxFractionDigits]="2" [min]="0"
+                    [ariaRequired]="true" [invalid]="mal('pg-imp-' + i)"
                     [ngModel]="r.importe" (ngModelChange)="cambiarRenglon(i, 'importe', $event)" [fluid]="true" />
                 </div>
                 @if (renglones().length > 1) {
@@ -278,9 +284,10 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
           <fieldset class="pg-bloque">
             <legend class="pg-legend" id="pg-como" tabindex="-1"><span class="pg-num">5</span> {{ tipo() === 'cotizacion' ? 'Cómo se va a pagar' : 'Cómo se paga' }}</legend>
             <div class="pg-campo">
-              <span class="pg-label" id="pg-forma-t">Forma de pago</span>
-              <p-selectbutton [options]="formasPago" optionLabel="label" optionValue="id" [ngModel]="formaPago()" (ngModelChange)="formaPago.set($event); marcar('forma_pago')"
-                [allowEmpty]="false" ariaLabelledBy="pg-forma-t" />
+              <span class="pg-label" id="pg-forma-t">Forma de pago <span class="pg-req" aria-hidden="true">*</span></span>
+              <!-- [PGP.122.9] Una sola opción de seis: radiogroup con flechas («1 de 6»), no seis botones con aria-pressed. -->
+              <app-segmented [options]="formasPagoSeg" [value]="formaPago()" (valueChange)="formaPago.set($event); marcar('forma_pago')" ariaLabel="Forma de pago"
+                [class.pg-seg-mal]="mal('pg-como')" />
               @if (fuente('forma_pago'); as f) { <small class="pg-fuente">{{ f }}</small> }
             </div>
             @if (detalleLabel(); as dl) {
@@ -296,8 +303,7 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             }
             <div class="pg-campo">
               <span class="pg-label" id="pg-plazo-t">Plazo</span>
-              <p-selectbutton [options]="plazos" optionLabel="label" optionValue="id" [ngModel]="plazoSel()" (ngModelChange)="elegirPlazo($event)"
-                [allowEmpty]="false" ariaLabelledBy="pg-plazo-t" />
+              <app-segmented [options]="plazosSeg" [value]="plazoSel()" (valueChange)="elegirPlazo($event)" ariaLabel="Plazo" />
               @if (plazoSel() === 'otra') {
                 <div class="pg-campo pg-otra">
                   <label for="pg-fecha-pago">Fecha de pago</label>
@@ -352,8 +358,9 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
               <div class="pg-campo"><label for="pg-unidad">Unidad o placa</label>
                 <input pInputText id="pg-unidad" [ngModel]="unidad()" (ngModelChange)="unidad.set($event)" maxlength="20" autocomplete="off" /></div>
             </div>
-            <div class="pg-campo"><label for="pg-nota">Nota para Kepler (si no, se arma del concepto, el periodo y la unidad)</label>
-              <input pInputText id="pg-nota" [ngModel]="nota()" (ngModelChange)="nota.set($event)" maxlength="60" autocomplete="off" /></div>
+            <div class="pg-campo"><label for="pg-nota">Nota para Kepler</label>
+              <input pInputText id="pg-nota" [ngModel]="nota()" (ngModelChange)="nota.set($event)" maxlength="60" autocomplete="off" aria-describedby="pg-nota-ayuda" />
+              <small id="pg-nota-ayuda" class="pg-fuente">Si no la escribes, se arma del concepto, el periodo y la unidad.</small></div>
           </details>
 
           @if (duplicados().length) {
@@ -370,17 +377,24 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             <p class="pg-nota-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo revisar si ya hay un gasto igual hoy.</p>
           }
 
-          @if (faltan().length) {
-            <div class="pg-faltan">
-              <p class="pg-faltan-t">Falta para mandarlo a firma:</p>
-              <ul>@for (f of faltan(); track f.motivo) { <li>{{ f.motivo }}</li> }</ul>
+          <!-- [PGP.122.9] El resumen de lo que falta sale DESPUÉS de intentar mandarlo, no al abrir la pantalla (salían 8
+               faltantes con el formulario vacío). Cada renglón lleva al campo (modern-web-guidance: forms,
+               accessible-error-announcement). Mientras no se intente, la franja de arriba dice cuánto falta, sin regañar. -->
+          @if (intento() && faltan().length) {
+            <div class="pg-faltan" id="pg-faltan" tabindex="-1" aria-labelledby="pg-faltan-t">
+              <p class="pg-faltan-t" id="pg-faltan-t">Para mandarlo a firma falta{{ faltan().length === 1 ? '' : 'n' }} {{ faltan().length }} dato{{ faltan().length === 1 ? '' : 's' }}:</p>
+              <ul>@for (f of faltan(); track f.motivo) {
+                <li><button type="button" class="pg-faltan-ir" (click)="irAlCampo(f)">{{ f.motivo }}</button></li>
+              }</ul>
             </div>
           }
         }
       </app-load-state>
 
       @if (creada(); as c) {
-        <div class="pg-hecho" role="status">
+        <!-- [PGP.122.9] El foco viene aquí al mandarlo (el formulario se vacía y el botón ya no existe para el foco);
+             sin toast encima: dos avisos a la vez se pisan en el lector de pantalla. -->
+        <div class="pg-hecho" id="pg-hecho" tabindex="-1" role="status">
           <i class="pi pi-check-circle" aria-hidden="true"></i>
           <div>
             <p><strong>Listo: {{ dinero(c.total) }} espera firma.</strong> Al firmarse se escribe en Kepler; su folio aparece en Mis gastos.</p>
@@ -398,9 +412,15 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             <span class="pg-barra-total comm-num">{{ dinero(totales().total) }}</span>
             <span class="pg-barra-falta">{{ faltan().length ? 'Faltan ' + faltan().length : 'Listo para firma' }}</span>
           </div>
+          <!-- [PGP.122.9] Habilitado aunque falte algo: al tocarlo dice qué falta y lleva al campo. Sólo se bloquea mientras
+               se manda, para no mandar dos veces («DON'T disable submit buttons to block validation»). -->
           <p-button type="button" styleClass="pg-enviar" icon="pi pi-send" [label]="tipo() === 'cotizacion' ? 'Pedir firma' : 'Mandar a firma'"
-            [disabled]="enviando() || faltan().length > 0" [loading]="enviando()" (onClick)="enviar()" />
+            [disabled]="enviando()" [loading]="enviando()" (onClick)="enviar()" />
         </div>
+        @if (errorEnvio(); as ee) {
+          <!-- Se queda hasta que se corrige o se vuelve a mandar: un toast se cerraba solo y el motivo no quedaba escrito. -->
+          <p class="pg-error" role="alert"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ ee }}</p>
+        }
       }
     </section>
   `,
@@ -460,6 +480,16 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
     .pg-cerrado-d, .pg-motivos { color: var(--text-muted); font-size: var(--fs-sm); }
     .pg-faltan { flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); }
     .pg-faltan-t { margin: 0; font-weight: 600; color: var(--text-main); }
+    /* [PGP.122.9] Cada faltante lleva a su campo; los obligatorios se ven (*) y lo que falta se marca DESPUÉS de intentar. */
+    .pg-faltan { border-color: var(--bad-border); }
+    .pg-faltan:focus-visible, .pg-hecho:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .pg-faltan-ir { background: none; border: 0; padding: 0; color: var(--bad-soft-fg); text-decoration: underline; cursor: pointer; font: inherit; text-align: left; min-height: 1.5rem; }
+    .pg-faltan-ir:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .pg-req { color: var(--bad-fg); }
+    .pg-error { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--bad-border);
+      border-radius: var(--r-md); background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: var(--fs-sm); }
+    .pg-subir-mal { border-color: var(--bad-fg); }
+    .pg-seg-mal { display: block; outline: 1px solid var(--bad-fg); border-radius: var(--r-md); }
     .pg-faltan ul, .pg-aviso ul, .pg-motivos ul { margin: 0; padding-left: var(--sp-5); }
     .pg-motivos summary { cursor: pointer; }
     .pg-elige { margin: 0; color: var(--text-muted); display: flex; gap: var(--sp-2); align-items: center; }
@@ -492,6 +522,8 @@ export class FinanzasPedirGastoComponent {
   readonly hoy = computed(() => this.hoyIso());
   /** Copia mutable: `p-selectbutton` pide un arreglo y el catálogo del contrato es `readonly` (TS4104). */
   readonly formasPago = [...FORMAS_PAGO];
+  /** `[PGP.122.9]` Forma de pago y plazo como radiogroup (`app-segmented`): una opción de varias. */
+  readonly formasPagoSeg: SegOption[] = FORMAS_PAGO.map((f) => ({ label: f.label, value: f.id }));
   readonly tiposDoc: SegOption[] = [
     { label: 'Ticket o nota', value: 'ticket' },
     { label: 'Factura', value: 'cfdi' },
@@ -594,6 +626,7 @@ export class FinanzasPedirGastoComponent {
   // ── S.17 · El plazo (DS30) ─────────────────────────────────────────────────────────────────
   /** Copia mutable para `p-selectbutton` (el catálogo del contrato es `readonly`, TS4104). */
   readonly plazos = [...PLAZOS_DE_PAGO.map((d) => ({ id: String(d), label: d === 0 ? 'De contado' : `${d} días` })), { id: 'otra', label: 'Otra fecha' }];
+  readonly plazosSeg: SegOption[] = this.plazos.map((p) => ({ label: p.label, value: p.id }));
   /** El plazo corre desde la fecha del documento (factura o ticket); una cotización todavía no se gasta: desde hoy. */
   private readonly desdePlazo = computed(() => (this.tipo() === 'cotizacion' ? null : iso(this.fechaDoc())));
   readonly pagoCalculado = computed(() => {
@@ -659,6 +692,44 @@ export class FinanzasPedirGastoComponent {
       ? `El comprobante es de ${l.acreedor.nombre} (${l.acreedor.clave}) y elegiste a ${sel.nombre}: revisa que sea el acreedor correcto.`
       : null;
   });
+
+  // ── `[PGP.122.9]` Validación después de intentar, errores que se quedan escritos ─────────────────────
+  /** Se intentó mandar con datos faltantes: desde aquí se marcan los campos y se muestra el resumen. */
+  readonly intento = signal(false);
+  /** El último rechazo al mandar (o «no se sabe si llegó»): visible hasta corregir o volver a mandar. */
+  readonly errorEnvio = signal<string | null>(null);
+  /** Archivo muy grande o que no se subió: junto al botón de subir, no en un aviso que se cierra solo. */
+  readonly errorArchivo = signal<string | null>(null);
+  /** El texto de la región de estado del archivo (siempre presente; sólo cambia de texto). */
+  readonly estadoArchivo = computed(() => this.leyendo() ? 'Subiendo y leyendo el comprobante…' : this.archivo() ? this.estadoLectura() : '');
+  /** Los ids de los campos que faltan, sólo después de intentar mandarlo. */
+  private readonly marcados = computed((): ReadonlySet<string> => {
+    if (!this.intento()) return new Set();
+    const rs = this.renglones();
+    const ids = new Set<string>();
+    for (const f of this.faltan()) { const id = campoQueFalta([f], rs); if (id) ids.add(id); }
+    rs.forEach((r, i) => {
+      if (!r.concepto) ids.add(`pg-con-${i}`);
+      if (!r.proyecto) ids.add(`pg-pro-${i}`);
+      if (!r.departamento) ids.add(`pg-dep-${i}`);
+      if (!(Number(r.importe ?? 0) > 0)) ids.add(`pg-imp-${i}`);
+    });
+    return ids;
+  });
+  mal(id: string): boolean { return this.marcados().has(id); }
+  /** Desde el resumen: al campo de ESE faltante. */
+  irAlCampo(f: FaltanteSolicitud): void {
+    const destino = document.getElementById(campoQueFalta([f], this.renglones()) ?? 'pg-que');
+    destino?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    destino?.focus({ preventScroll: true });
+  }
+  private enfocar(id: string): void {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.focus({ preventScroll: true });
+    }, 0);
+  }
 
   /** La MISMA compuerta que el 400 del servidor (`faltaParaPedir`, del contrato). */
   readonly faltan = computed(() => faltaParaPedir({
@@ -829,8 +900,9 @@ export class FinanzasPedirGastoComponent {
     const f = input.files?.[0];
     input.value = '';
     if (!f) return;
+    this.errorArchivo.set(null);
     if (f.size > MAX_ARCHIVO_GASTO_BYTES) {
-      this.toast.add({ severity: 'warn', summary: 'Archivo muy grande', detail: `El máximo es ${MAX_ARCHIVO_GASTO_MB} MB.` });
+      this.errorArchivo.set(`El archivo es muy grande: el máximo es ${MAX_ARCHIVO_GASTO_MB} MB.`);
       return;
     }
     const lector = new FileReader();
@@ -850,7 +922,7 @@ export class FinanzasPedirGastoComponent {
           error: () => { this.leyendo.set(false); this.lectura.set({ legible: false, motivo: 'No se pudo leer: captúralo a mano', leido: null, acreedor: null, cfdi: null }); },
         });
       },
-      error: (e) => { this.leyendo.set(false); this.toast.add({ severity: 'error', summary: 'No se subió el archivo', detail: e?.error?.message || 'Intenta de nuevo' }); },
+      error: (e) => { this.leyendo.set(false); this.errorArchivo.set(`No se subió el archivo: ${e?.error?.message || 'intenta de nuevo'}.`); },
     });
   }
 
@@ -1124,7 +1196,14 @@ export class FinanzasPedirGastoComponent {
 
   // ── Mandar a firma ─────────────────────────────────────────────────────────────────────────────
   enviar(): void {
-    if (this.enviando() || this.faltan().length) return;
+    if (this.enviando()) return;
+    if (this.faltan().length) {
+      // [PGP.122.9] El botón no se bloquea: se marca lo que falta y el foco va al resumen, que lleva a cada campo.
+      this.intento.set(true);
+      this.enfocar('pg-faltan');
+      return;
+    }
+    this.errorEnvio.set(null);
     this.enviando.set(true);
     const a = this.archivo();
     this.api.crear({
@@ -1141,18 +1220,18 @@ export class FinanzasPedirGastoComponent {
       next: (c) => {
         this.enviando.set(false);
         this.creada.set(c);
-        this.toast.add({ severity: 'success', summary: 'Mandado a firma', detail: `${this.dinero(c.total)} · al firmarse se escribe en Kepler` });
         this.reiniciar(false);
         this.bandejaVersion.update((v) => v + 1);
+        this.enfocar('pg-hecho');
       },
       error: (e) => {
         this.enviando.set(false);
         const status = Number(e?.status ?? 0);
         if (status === 0 || status >= 500) {
           // No se sabe si llegó. Mandarla otra vez es seguro: lleva el mismo identificador y no se duplica.
-          this.toast.add({ severity: 'warn', summary: 'No se sabe si llegó', life: 10000, detail: 'Revisa Mis gastos o vuelve a mandarla: si ya había llegado, no se duplica.' });
+          this.errorEnvio.set('No se sabe si llegó. Revisa Mis gastos o vuelve a mandarla: si ya había llegado, no se duplica.');
         } else {
-          this.toast.add({ severity: 'error', summary: 'No se mandó', detail: e?.error?.message || 'Intenta de nuevo', life: 8000 });
+          this.errorEnvio.set(`No se mandó: ${e?.error?.message || 'intenta de nuevo'}.`);
         }
       },
     });
@@ -1166,6 +1245,7 @@ export class FinanzasPedirGastoComponent {
     this.plazoSel.set('0'); this.fechaOtra.set(null);
     this.pagoAbierto.set(false); this.pagoCuenta.set(''); this.pagoBanco.set(''); this.pagoCorreo.set('');
     this.duplicados.set([]); this.duplicadosFallo.set(false); this.fuentes.set({}); this.tipo.set('ticket');
+    this.intento.set(false); this.errorEnvio.set(null); this.errorArchivo.set(null);
     this.idCliente = nuevoId();
     if (borrarCreada) this.creada.set(null);
   }

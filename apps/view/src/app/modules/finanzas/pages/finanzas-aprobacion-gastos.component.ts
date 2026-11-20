@@ -191,7 +191,7 @@ const ESTADO_LABEL: Record<string, string> = {
                 <div class="ap-reap-act">
                   <button pButton type="button" class="p-button-text" [disabled]="actuando() !== null"
                           (click)="decidirReapertura(r, false)">No reabrir</button>
-                  <button pButton type="button" class="p-button-outlined" [loading]="actuando() === r.id"
+                  <button pButton type="button" class="p-button-outlined" [loading]="actuando() === r.id" [disabled]="actuando() !== null"
                           (click)="decidirReapertura(r, true)">Reabrir</button>
                 </div>
               </article>
@@ -1481,6 +1481,7 @@ export class FinanzasAprobacionGastosComponent {
   }
 
   cancelarKepler(e: { id: string; motivo: string }): void {
+    if (this.actuando()) return; // [PGP.122.9] una cancelación a la vez
     // `[PGP.122.6]` La capturada en Kepler (no nació en la Suite) se cancela por su sucursal y folio.
     const v = this.abierto();
     if (v && v.id === e.id && !this.kepler()[e.id]?.nace_en_la_suite && v.sucursal && v.folio_solicitud) {
@@ -1622,6 +1623,8 @@ export class FinanzasAprobacionGastosComponent {
    * y la deuda desaparece de la vista de quien la acaba de crear.
    */
   aprobar(a: AprobacionVale): void {
+    // [PGP.122.9] Un segundo Enter mientras responde no vuelve a firmar (el servidor ya lo rechazaba, con un error confuso).
+    if (this.actuando()) return;
     const p = a.vale;
     this.actuando.set(p.id);
     const body = a.provisional
@@ -1681,6 +1684,7 @@ export class FinanzasAprobacionGastosComponent {
    * ese dinero dos veces en el total del día y en lo que se reporta.
    */
   decidirReapertura(r: ReaperturaPendiente, aprueba: boolean): void {
+    if (this.actuando()) return; // [PGP.122.9] una decisión a la vez: el botón con [loading] no se desactivaba
     const nota = aprueba ? '' : (globalThis.prompt?.(`¿Por qué no se reabre el vale ${r.folio_solicitud}?`) ?? '').trim();
     // Negar sin decir por qué deja a quien pidió sin nada que corregir: vuelve a pedir lo mismo.
     if (!aprueba && !nota) return;
@@ -1703,12 +1707,13 @@ export class FinanzasAprobacionGastosComponent {
    * quedó en revisión porque el cuadre por visión no dio.
    */
   darPorComprobado(p: ExpedienteDelDia): void {
+    if (this.actuando()) return;
     this.actuando.set(p.id);
     this.svc.validate(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.actuando.set(null);
         this.abierto.set(null);
-        this.toast.add({ severity: 'success', summary: 'Comprobado', detail: `Solicitud ${p.folio_solicitud}` });
+        this.toast.add({ severity: 'success', summary: 'Comprobado', detail: this.nombreDelVale(p) });
         this.cargar(true);
       },
       error: (e) => this.falla('No se pudo cerrar', e),
@@ -1720,23 +1725,39 @@ export class FinanzasAprobacionGastosComponent {
    * y vuelve a subir lo mismo — que es como se hace eterna una bandeja.
    */
   rechazar(p: ExpedienteDelDia): void {
-    const motivo = (globalThis.prompt?.(`¿Por qué se rechaza la solicitud ${p.folio_solicitud}?`) ?? '').trim();
+    if (this.actuando()) return;
+    // [PGP.122.9] La nacida en la Suite no tiene folio: decía «¿Por qué se rechaza la solicitud null?». Ahora nombra
+    // folio (o proveedor) y cifra, para no rechazar el vale equivocado.
+    const motivo = (globalThis.prompt?.(`¿Por qué se rechaza ${this.nombreDelVale(p)}?`) ?? '').trim();
     if (!motivo) return;
     this.actuando.set(p.id);
     this.svc.reject(p.id, motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.actuando.set(null);
         this.abierto.set(null);
-        this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Solicitud ${p.folio_solicitud}` });
+        this.toast.add({ severity: 'info', summary: 'Rechazado', detail: this.nombreDelVale(p) });
         this.cargar(true);
       },
       error: (e) => this.falla('No se pudo rechazar', e),
     });
   }
 
+  /** `[PGP.122.9]` El vale por su folio de Kepler, o —si aún no lo tiene— por proveedor y cifra. */
+  nombreDelVale(p: Pick<ExpedienteDelDia, 'folio_solicitud' | 'proveedor' | 'importe'>): string {
+    const doc = solicitudKepler(p.folio_solicitud);
+    const cifra = this.money(p.importe);
+    if (doc) return `la solicitud ${doc}${p.proveedor ? ` de ${p.proveedor}` : ''} por ${cifra}`;
+    return `la solicitud sin folio${p.proveedor ? ` de ${p.proveedor}` : ''} por ${cifra}`;
+  }
+
+  /**
+   * `[PGP.122.9]` Un error al aprobar, rechazar, cancelar o comprobar se QUEDA hasta que la persona lo cierra: con el
+   * default de p-toast (3 s) el error de una escritura en Kepler se iba solo y no quedaba en ningún lado
+   * (modern-web-guidance: persistent-toast-notifications).
+   */
   private falla(summary: string, e: unknown): void {
     this.actuando.set(null);
     const detail = (e as { error?: { message?: string } })?.error?.message || 'Vuelve a intentar';
-    this.toast.add({ severity: 'error', summary, detail });
+    this.toast.add({ severity: 'error', summary, detail, sticky: true });
   }
 }

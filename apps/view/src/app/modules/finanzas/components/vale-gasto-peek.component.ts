@@ -183,15 +183,21 @@ type DocDelExpediente = DocEvidencia;
                 <p-button type="button" label="Cancelar en Kepler…" icon="pi pi-ban" size="small" [text]="true" severity="danger"
                           styleClass="vp-cancelar" [disabled]="ocupado()" (onClick)="abrirCancelar(p.id)" />
               } @else {
-                <div class="vp-cancelar-f" role="group" aria-labelledby="vp-cancelar-l">
-                  <label id="vp-cancelar-l" for="vp-cancelar-m" class="vp-kep-t">Por qué se cancela. Se cancela en Kepler y el vale queda rechazado con este motivo. Si ya tiene el gasto aplicado, Kepler no lo deja y te lo dice.</label>
-                  <textarea pTextarea id="vp-cancelar-m" rows="2" maxlength="300" [value]="motivoCancelar()"
-                            (input)="motivoCancelar.set($any($event.target).value)"></textarea>
+                <!-- [PGP.122.9] modern-web-guidance (forms, accessibility, required-field-feedback): label corto, la
+                     instrucción como ayuda ligada, el error sólo después de tocar o intentar, el botón no se bloquea por
+                     validación y nombra QUÉ se cancela (folio y cifra). El formulario se queda mientras Kepler contesta. -->
+                <div class="vp-cancelar-f" [attr.aria-busy]="ocupado() || null">
+                  <label for="vp-cancelar-m" class="vp-kep-t vp-cancelar-l">Motivo de la cancelación</label>
+                  <textarea pTextarea id="vp-cancelar-m" rows="2" maxlength="300" minlength="10" required [value]="motivoCancelar()"
+                            (input)="motivoCancelar.set($any($event.target).value)" (blur)="motivoTocado.set(true)"
+                            [attr.aria-invalid]="motivoCorto() ? true : null"
+                            [attr.aria-describedby]="motivoCorto() ? 'vp-cancelar-ayuda vp-cancelar-err' : 'vp-cancelar-ayuda'"></textarea>
+                  <small id="vp-cancelar-ayuda" class="vp-kep-t">Al menos {{ motivoMin }} caracteres. Se cancela en Kepler y el vale queda rechazado con este motivo; si ya tiene el gasto aplicado, Kepler no lo deja y te lo dice.</small>
+                  @if (motivoCorto()) { <small id="vp-cancelar-err" class="vp-err" role="alert">Escribe el motivo: faltan {{ motivoMin - motivoCancelar().trim().length }} caracteres.</small> }
                   <div class="vp-cancelar-b">
-                    <p-button type="button" label="Cancelar en Kepler" icon="pi pi-ban" size="small" severity="danger"
-                              [disabled]="ocupado() || motivoCancelar().trim().length < motivoMin" (onClick)="confirmarCancelar(p.id)" />
-                    <p-button type="button" label="No" size="small" [text]="true" (onClick)="cancelandoId.set(null)" />
-                    @if (motivoCancelar().trim().length < motivoMin) { <small class="vp-kep-t">Al menos {{ motivoMin }} caracteres.</small> }
+                    <p-button type="button" [label]="'Cancelar ' + (p.folio_solicitud || 'la solicitud') + ' (' + money(p.importe) + ') en Kepler'" icon="pi pi-ban" size="small" severity="danger"
+                              [disabled]="ocupado()" [loading]="ocupado()" (onClick)="confirmarCancelar(p.id)" />
+                    <p-button type="button" label="No cancelar" size="small" [text]="true" [disabled]="ocupado()" (onClick)="cancelandoId.set(null)" />
                   </div>
                 </div>
               }
@@ -342,7 +348,9 @@ type DocDelExpediente = DocEvidencia;
             <span class="ap-grow"></span>
             @if (acciones().includes('pedir_reapertura')) {
               <!-- [GX.29] El capturista no reabre: PIDE. Quien decide es quien firmó. -->
-              <button pButton type="button" class="p-button-outlined" [loading]="ocupado()"
+              <!-- [PGP.122.9] [loading] de pButton sólo pinta (clase p-disabled): no desactiva el botón y con Enter o
+                   Espacio se disparaba otra vez. [disabled] además, en cada acción que manda algo al servidor. -->
+              <button pButton type="button" class="p-button-outlined" [loading]="ocupado()" [disabled]="ocupado()"
                       (click)="pedirReapertura.emit(p)">Pedir que lo reabran</button>
             } @else {
               <button pButton type="button" class="p-button-text" [disabled]="ocupado()"
@@ -355,11 +363,12 @@ type DocDelExpediente = DocEvidencia;
                   («Aprobado · falta ejercer») y el aviso de éxito son otro texto, y se
                   declaran aparte en vez de tocarlos de arrastre.
                 -->
-                <button pButton type="button" [loading]="ocupado()" (click)="emitirAprobacion(p)">
-                  {{ provisional() ? 'Revisado como provisional' : 'Revisado' }}
+                <!-- [PGP.122.9] La firma repite la cifra (forms: «indicate exact amounts on pay buttons»). -->
+                <button pButton type="button" [loading]="ocupado()" [disabled]="ocupado()" (click)="emitirAprobacion(p)">
+                  {{ provisional() ? 'Revisado como provisional' : 'Revisado' }} · {{ money(p.importe) }}
                 </button>
               } @else {
-                <button pButton type="button" class="p-button-outlined" [loading]="ocupado()"
+                <button pButton type="button" class="p-button-outlined" [loading]="ocupado()" [disabled]="ocupado()"
                         (click)="comprobar.emit(p)">Dar por comprobado</button>
               }
             }
@@ -384,6 +393,8 @@ type DocDelExpediente = DocEvidencia;
   .vp-kep-t { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
   .vp-kep-t.bad { color: var(--bad-fg); }
   .vp-cancelar-f { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+  .vp-cancelar-l { font-weight: 600; color: var(--fg-1); }
+  .vp-err { margin: 0; font-size: var(--fs-sm); color: var(--bad-soft-fg); }
   .vp-cancelar-b { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
   /* [PGP.123] G.UI.5: el tono del gasto, además de su texto (los -soft-fg pasan AA como texto). */
   .vp-kep-t.ok { color: var(--ok-soft-fg); }
@@ -559,15 +570,25 @@ export class ValeGastoPeekComponent {
   readonly cancelandoId = signal<string | null>(null);
   readonly motivoCancelar = signal('');
   readonly motivoMin = 10;
+  /** `[PGP.122.9]` El motivo se marca corto sólo después de salir del campo o de intentar cancelar. */
+  readonly motivoTocado = signal(false);
+  readonly motivoCorto = computed(() => this.motivoTocado() && this.motivoCancelar().trim().length < this.motivoMin);
   abrirCancelar(id: string): void {
     this.motivoCancelar.set('');
+    this.motivoTocado.set(false);
     this.cancelandoId.set(id);
     setTimeout(() => (document.getElementById('vp-cancelar-m') as HTMLTextAreaElement | null)?.focus(), 0);
   }
   confirmarCancelar(id: string): void {
+    if (this.ocupado()) return;
     const motivo = this.motivoCancelar().trim();
-    if (motivo.length < this.motivoMin) return;
-    this.cancelandoId.set(null);
+    if (motivo.length < this.motivoMin) {
+      this.motivoTocado.set(true);
+      (document.getElementById('vp-cancelar-m') as HTMLTextAreaElement | null)?.focus();
+      return;
+    }
+    // [PGP.122.9] El formulario NO se quita aquí (eso tiraba el foco a <body> dentro del panel): se queda deshabilitado
+    // mientras Kepler contesta; si cancela, el vale cambia y el formulario se va solo; si no, el motivo sigue escrito.
     this.cancelarKepler.emit({ id, motivo });
   }
   /**

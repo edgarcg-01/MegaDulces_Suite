@@ -362,4 +362,51 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     expect(c.plazoSel()).toBe('0');
     expect(c.pagoAbierto()).toBe(false);
   });
+
+  /**
+   * `[PGP.122.9]` modern-web-guidance (forms, required-field-feedback, accessible-error-announcement): no se regaña
+   * antes de intentar, el botón no se bloquea por validación, al intentar se marca lo que falta y el foco va al
+   * resumen; el rechazo del servidor se queda escrito (un toast se cerraba solo a los 3–8 s).
+   */
+  it('[PGP.122.9] sin intentar no hay resumen ni campos marcados, y «Mandar a firma» NO está deshabilitado', () => {
+    abrir([]);
+    fix.detectChanges();
+    expect(c.faltan().length).toBeGreaterThan(0);
+    expect(fix.nativeElement.querySelector('#pg-faltan')).toBeNull();
+    expect(c.mal('pg-acreedor')).toBe(false);
+    const boton = fix.nativeElement.querySelector('.pg-barra button') as HTMLButtonElement;
+    expect(boton.disabled).toBe(false);
+  });
+
+  it('[PGP.122.9] al intentar con faltantes: no se manda nada, sale el resumen con el foco y se marcan los campos', async () => {
+    abrir([]);
+    fix.detectChanges();
+    c.enviar();
+    fix.detectChanges();
+    await espera();
+    http.expectNone((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes'));
+    const resumen = fix.nativeElement.querySelector('#pg-faltan') as HTMLElement;
+    expect(resumen).not.toBeNull();
+    expect(resumen.querySelectorAll('button.pg-faltan-ir').length).toBe(c.faltan().length);
+    expect(document.activeElement?.id).toBe('pg-faltan');
+    expect(c.mal('pg-acreedor')).toBe(true);
+    expect(c.mal('pg-con-0')).toBe(true);
+  });
+
+  it('[PGP.122.9] el rechazo del servidor queda escrito junto al botón (role=alert) hasta volver a mandar', () => {
+    abrir([F()]);
+    elegir(PRECARGA('transferencia'));
+    c.usarFactura(F());
+    fix.detectChanges();
+    expect(c.faltan()).toEqual([]);
+    c.enviar();
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes'))
+      .flush({ message: 'El acreedor no existe en esta base' }, { status: 400, statusText: 'Bad Request' });
+    fix.detectChanges();
+    const err = fix.nativeElement.querySelector('.pg-error[role=alert]') as HTMLElement;
+    expect(err?.textContent).toContain('El acreedor no existe en esta base');
+    c.enviar();
+    expect(c.errorEnvio()).toBeNull();
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes'));
+  });
 });
