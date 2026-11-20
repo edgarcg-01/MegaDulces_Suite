@@ -15,7 +15,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type {
-  CorteArqueo, CorteCobro, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteConteoCajero, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -389,11 +389,20 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   @if (d.fuera.length) {
                     <p class="cs-sub cs-pad-fuera">Contado fuera de un corte · {{ money(sumaFuera(d.fuera)) }} · no suma ni resta a los cortes</p>
                     <table class="cs-cortes">
-                      <thead><tr><th>Hora</th><th>Qué</th><th>Caja</th><th class="ta-r">Importe</th><th>Por qué no está en un corte</th><th>Quién contó</th></tr></thead>
+                      <thead><tr><th class="cs-togcol"><span class="sr-only">Ver lo que contó</span></th><th>Hora</th><th>Qué</th><th>Caja</th><th class="ta-r">Importe</th><th>Por qué no está en un corte</th><th>Quién contó</th></tr></thead>
                       <tbody>
                         @for (x of d.fuera; track $index) {
-                          <tr><td class="cs-mono">{{ x.hora.slice(0, 5) }}</td><td>{{ fueraTipo(x) }}</td><td class="cs-mono">{{ x.caja ?? '—' }}</td>
+                          @let abierto = !!x.id && conteoAbierto() === x.id;
+                          <tr><td class="cs-togcol"><button type="button" class="cs-tog" [disabled]="!x.id" (click)="toggleConteo(x.id)"
+                                [attr.aria-expanded]="abierto" [attr.aria-controls]="'cs-ct-' + x.id"
+                                [attr.aria-label]="(abierto ? 'Ocultar' : 'Ver') + ' lo que contó a las ' + x.hora.slice(0, 5)"><i class="pi" [class.pi-chevron-right]="!abierto" [class.pi-chevron-down]="abierto" aria-hidden="true"></i></button></td>
+                            <td class="cs-mono">{{ x.hora.slice(0, 5) }}</td><td>{{ fueraTipo(x) }}</td><td class="cs-mono">{{ x.caja ?? '—' }}</td>
                             <td class="ta-r num">{{ money(x.total) }}</td><td>{{ fueraPorQue(x) }}</td><td>{{ x.usuario ?? '—' }}</td></tr>
+                          @if (abierto) {
+                            <tr class="cs-ct-fila"><td></td><td colspan="6" [id]="'cs-ct-' + x.id">
+                              <ng-container *ngTemplateOutlet="detConteo; context: { $implicit: x, medios: [], ligado: null }" />
+                            </td></tr>
+                          }
                         }
                       </tbody>
                     </table>
@@ -499,6 +508,30 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   @if (cuadraPorBruto(c, a)) {
                     <p class="cs-hint cs-nota">El corte salió por lo esperado <b>sin restar</b> la devolución: Kepler no la descontó en este corte. Cuadra contra el esperado bruto ({{ money(a.esperado_total) }}).</p>
                   }
+                  <!-- [CSU.23] La evidencia de «Declarado · cajero»: cada retiro y el cierre que contó en este
+                       turno, con sus piezas. Antes sólo llegaba la suma; para ver un retiro había que ir a
+                       /tienda/arqueo, que Finanzas no tiene (SM.47). -->
+                  @if (a.conteos_cajero.length) {
+                    <p class="cs-sub">Lo que contó el cajero · {{ a.conteos_cajero.length }} conteo(s)</p>
+                    <ul class="cs-conteos">
+                      @for (k of a.conteos_cajero; track k.id; let i = $index) {
+                        @let abierto = conteoAbierto() === k.id;
+                        <li>
+                          <button type="button" class="cs-conteo" (click)="toggleConteo(k.id)" [attr.aria-expanded]="abierto" [attr.aria-controls]="'cs-ct-' + k.id">
+                            <i class="pi" [class.pi-chevron-right]="!abierto" [class.pi-chevron-down]="abierto" aria-hidden="true"></i>
+                            <span class="cs-mono">{{ k.hora }}</span>
+                            <span class="cs-conteo-que">{{ etiquetaConteo(a.conteos_cajero, i) }}@if (k.usuario) { <span class="muted"> · {{ k.usuario }}</span> }</span>
+                            <span class="num">{{ money(k.total) }}</span>
+                          </button>
+                          @if (abierto) {
+                            <div class="cs-ct-det" [id]="'cs-ct-' + k.id">
+                              <ng-container *ngTemplateOutlet="detConteo; context: { $implicit: k, medios: k.medios, ligado: k.ligado }" />
+                            </div>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
                 } @else {
                   <p class="cs-hint">No se encontró el arqueo del turno {{ c.referencia }}. El cuadre queda <b>sin medir</b>; no es lo mismo que cuadrar.</p>
                 }
@@ -534,6 +567,38 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
         </div>
       }
     </div>
+
+    <!-- [CSU.23] Lo que contó un conteo: sus piezas, lo que declaró aparte (sólo el cierre) y su nota.
+         Lo usan el detalle del corte y los conteos fuera de corte; una sola forma de leer un conteo. -->
+    <ng-template #detConteo let-k let-medios="medios" let-ligado="ligado">
+      @if (k.piezas.length) {
+        <table class="cs-mini cs-piezas">
+          <thead><tr><th>Pieza</th><th class="ta-r">Cuántas</th><th class="ta-r">Importe</th></tr></thead>
+          <tbody>
+            @for (p of k.piezas; track p.denom_key) {
+              <tr><td>{{ p.etiqueta }}</td><td class="ta-r num">{{ p.piezas }}</td><td class="ta-r num">{{ money(p.importe) }}</td></tr>
+            }
+            <tr class="cs-tot"><td>Suma de las piezas</td><td></td><td class="ta-r num">{{ money(k.total + (k.piezas_diferencia ?? 0)) }}</td></tr>
+          </tbody>
+        </table>
+        @if (k.piezas_diferencia !== null && abs(k.piezas_diferencia) >= 0.01) {
+          <p class="cs-hint cs-nota"><b>Las piezas no dan el total capturado</b>: suman {{ money(k.total + k.piezas_diferencia) }} y el conteo dice {{ money(k.total) }} ({{ signo(k.piezas_diferencia) }}).</p>
+        }
+      } @else if (abs(k.total) < 0.005) {
+        <!-- Medido (30 días a 2026-11-20): los 26 conteos sin piezas son de $0, el cajón vacío. -->
+        <p class="cs-hint">Contó <b>$0.00</b>: el cajón estaba vacío.</p>
+      } @else {
+        <p class="cs-hint">No guardó las piezas: sólo el total de {{ money(k.total) }}.</p>
+      }
+      @if (medios.length) {
+        <p class="cs-sub">Declaró además</p>
+        @for (m of medios; track m.clave) {
+          <div class="cs-row"><span>{{ m.etiqueta }}</span><span class="num">{{ money(m.monto) }}</span></div>
+        }
+      }
+      @if (k.nota) { <p class="cs-hint cs-nota">Nota de quien contó: «{{ k.nota }}»</p> }
+      @if (ligado === 'hora') { <p class="cs-hint">Ligado a este turno por caja y hora: la captura no trae el folio del turno.</p> }
+    </ng-template>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
     :host { display:block; }
@@ -621,6 +686,16 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-errbox .pi { color:var(--bad-fg); } .cs-errbox-txt { flex:1; font-size:var(--fs-sm); }
     .cs-empty { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); padding:var(--sp-6); text-align:center; color:var(--text-muted); }
     .cs-empty .pi { font-size:var(--fs-lg); }
+    /* [CSU.23] Los conteos del cajero: un renglón por conteo que se abre en sus piezas. */
+    .cs-conteos { list-style:none; margin:0; padding:0; }
+    .cs-conteo { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; align-items:center; gap:.5rem; width:100%; padding:.3rem .15rem; border:0; border-bottom:1px dashed var(--border-color); background:none; color:inherit; font:inherit; font-size:var(--fs-sm); text-align:left; cursor:pointer; }
+    .cs-conteo:hover { background:var(--overlay-hover); }
+    .cs-conteo:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .cs-conteo .pi { font-size:var(--fs-nano); color:var(--text-muted); }
+    .cs-conteo-que { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cs-ct-det { padding:.35rem 0 .5rem 1.4rem; }
+    .cs-ct-fila > td { border-top:0 !important; padding-top:0 !important; }
+    .cs-piezas { max-width:22rem; }
   `],
 })
 export class FinanzasCortesSucursalesComponent implements OnInit {
@@ -881,6 +956,17 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     if (d.capturado_at) frases.push(`cierre capturado ${dmyHora(d.capturado_at)}`);
     frases.push(d.ligado === 'folio' ? 'ligado por el folio del turno' : 'ligado por caja y hora (la captura no trae folio)');
     return `${frases.join(' · ')}.`;
+  }
+
+  /** `[CSU.23]` El conteo abierto (por su id): uno a la vez, en el detalle o en los de fuera de corte. */
+  readonly conteoAbierto = signal<string | null>(null);
+  toggleConteo(id: string): void { if (id) this.conteoAbierto.update((x) => (x === id ? null : id)); }
+  /** `[CSU.23]` «Retiro 2 de 4» o «Cierre»: el número dice en qué orden los contó. */
+  etiquetaConteo(xs: readonly CorteConteoCajero[], i: number): string {
+    if (xs[i].tipo === 'cierre') return 'Cierre';
+    const retiros = xs.filter((x) => x.tipo === 'retiro').length;
+    const n = xs.slice(0, i + 1).filter((x) => x.tipo === 'retiro').length;
+    return `Retiro ${n} de ${retiros}`;
   }
 
   /** `[CSU.20]` Conteos fuera de corte: cuánto suman, qué son y por qué no están en un corte. */

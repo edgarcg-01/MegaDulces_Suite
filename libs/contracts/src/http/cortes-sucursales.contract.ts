@@ -170,6 +170,52 @@ export interface CorteArqueo {
    * para la diferencia, pero se dicen — «sin declaración» con 6 conteos sueltos no es «nadie contó».
    */
   conteos_cajero_sin_ligar: number;
+  /**
+   * `[CSU.23]` Los retiros y el cierre que el cajero contó en ESTE turno, uno por uno y con sus piezas:
+   * la evidencia de «Declarado · cajero». Del más viejo al más nuevo. Vacío = no contó nada ligado al turno.
+   */
+  conteos_cajero: CorteConteoCajero[];
+}
+
+/** `[CSU.23]` Una pieza contada: «Billete de $500 × 9 = $4,500». La etiqueta sale del catálogo compartido. */
+export interface CorteConteoPieza {
+  denom_key: string;
+  etiqueta: string;
+  valor: number;
+  piezas: number;
+  importe: number;
+}
+
+/** `[CSU.23]` Lo que el cierre declaró fuera del efectivo contado: tarjeta, transferencia, créditos, cheques. */
+export interface CorteConteoMedio {
+  clave: string;
+  etiqueta: string;
+  monto: number;
+}
+
+/**
+ * `[CSU.23]` Un retiro o cierre del arqueo ciego del cajero (`reconciliation.blind_counts`), con lo que
+ * contó. Medido el 2026-11-20 (30 días, 2,461 conteos): el 99.9 % guarda sus piezas; 0 tienen foto y
+ * 0 los validó la encargada, por eso no viajan esos campos vacíos.
+ */
+export interface CorteConteoCajero {
+  id: string;
+  tipo: 'retiro' | 'cierre';
+  /** Día y hora (`HH:MM`) de la tienda en que se capturó. */
+  fecha: string;
+  hora: string;
+  total: number;
+  /** Quién contó: nombre del usuario de la Suite, o su usuario si no tiene nombre. */
+  usuario: string | null;
+  nota: string | null;
+  /** Vacío = el conteo no guardó piezas, que no es lo mismo que haber contado cero. */
+  piezas: CorteConteoPieza[];
+  /** Suma de las piezas − total. `null` sin piezas; distinto de 0 = las piezas no dan el total. */
+  piezas_diferencia: number | null;
+  /** Sólo el cierre: lo declarado fuera del efectivo. */
+  medios: CorteConteoMedio[];
+  /** Cómo se ligó al turno (`[CSU.16]`): por el folio que trae la captura, o por la hora. */
+  ligado: 'folio' | 'hora';
 }
 
 /**
@@ -304,6 +350,12 @@ export interface CorteConteoFuera {
   folio: string | null;
   /** Quién contó: nombre del usuario de la Suite, o su usuario si no tiene nombre. */
   usuario: string | null;
+  /** `[CSU.23]` Para abrirlo: su id, sus piezas y la nota (vacío = no guardó piezas). */
+  id: string;
+  piezas: CorteConteoPieza[];
+  /** Suma de las piezas − total; `null` sin piezas (misma regla que `CorteConteoCajero`). */
+  piezas_diferencia: number | null;
+  nota: string | null;
 }
 
 export interface CorteSucursalResumen {
