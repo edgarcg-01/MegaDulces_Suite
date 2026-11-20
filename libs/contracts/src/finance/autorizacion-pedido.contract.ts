@@ -17,7 +17,8 @@
  * desconocidos mandan el pedido a la bandeja con «no pude verificar…», nunca lo autorizan.
  */
 
-import { SALDO_CERO, esRestoDeFactura } from '@megadulces/contracts';
+import { SALDO_CERO, esRestoDeFactura } from './resto-tolerado.contract';
+import { diasEntre } from './pago-vencido.contract';
 
 /**
  * Los parámetros los fija Crédito y cobranza en la Suite (D-A6, D-A10), no el código. Se reciben siempre;
@@ -49,13 +50,20 @@ export const PARAMETROS_PROPUESTOS: Readonly<ParametrosAutorizacion> = Object.fr
  * Crudo: no aplica abonos factura por factura. Lo que lo aleja de la cartera de la Suite son las facturas de
  * ticket (`U-D-5` «Fac», que apuntan a su `U-D-10` por `c37/c38/c39`) sin abono aplicado; en telemarketing,
  * 60 días: 22 de 445 clientes difieren y la condición 2 da el mismo veredicto en 2,975 de 2,975 pedidos.
- * Recibe `$1` = sucursal y `$2` = cliente; devuelve una fila con `por_cobrar`.
+ */
+/** La suma de Kepler, para meterla en un GROUP BY por lote. `x` es el alias de `kepler_ods.kdue`. */
+export const porCobrarKeplerSuma = (x = 'x'): string =>
+  `coalesce(sum(${x}.c11::numeric) FILTER (WHERE ${x}.c29 = 'C' AND ${x}.c4 <> 10), 0) - coalesce(sum(${x}.c11::numeric) FILTER (WHERE ${x}.c29 = 'A'), 0)`;
+
+/**
+ * La misma, para un cliente. La llave va CRUDA (`c1`, `c2` sin `btrim`): medido el 2026-11-20, ninguna de las 745 mil
+ * filas de `kdue` trae espacios en `c1` ni `c2`, y así entra por `kdue_pkey` (30 clientes en 20 ms). Un barrido de la
+ * red con `btrim` se pasó del tiempo límite de 5 minutos (no se midió cuánto aportó cada parte).
  */
 export const POR_COBRAR_KEPLER_SQL = `
-  SELECT coalesce(sum(x.c11::numeric) FILTER (WHERE x.c29 = 'C' AND btrim(x.c4::text) <> '10'), 0)
-       - coalesce(sum(x.c11::numeric) FILTER (WHERE x.c29 = 'A'), 0) AS por_cobrar
+  SELECT ${porCobrarKeplerSuma('x')} AS por_cobrar
     FROM kepler_ods.kdue x
-   WHERE x.sucursal = $1 AND btrim(x.c1) = $1 AND btrim(x.c2) = $2`;
+   WHERE x.sucursal = $1 AND x.c1 = $1 AND x.c2 = $2`;
 
 /** El cliente está bloqueado si su nombre en el `kdud` de la sucursal del pedido EMPIEZA con esto (GP.A.0c). */
 export const MARCA_BLOQUEO = 'NO TOCAR';
@@ -138,12 +146,10 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const dinero = (n: number) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 }).format(n);
 
-/** Días de `desde` a `hasta` (`YYYY-MM-DD`), por calendario. null si alguna fecha no se entiende. */
-export function diasEntre(desde: string, hasta: string): number | null {
-  const a = Date.parse(`${desde.slice(0, 10)}T00:00:00Z`);
-  const b = Date.parse(`${hasta.slice(0, 10)}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return Math.round((b - a) / 86_400_000);
+/** Días de calendario con el `diasEntre` de pago-vencido (un solo cálculo); null si alguna fecha no se entiende. */
+function dias(desde: string, hasta: string): number | null {
+  const d = diasEntre(desde, hasta);
+  return Number.isFinite(d) ? d : null;
 }
 
 /** El nombre del cliente lleva la marca de bloqueo de Kepler (al inicio, sin importar mayúsculas). */
@@ -184,11 +190,11 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
     for (const f of e.facturas) {
       if (!(f.saldo > SALDO_CERO)) continue;
       if (esRestoDeFactura(f.saldo, f.importe)) { resto += f.saldo; continue; }
-      const dias = f.vencimiento ? diasEntre(f.vencimiento, e.hoy) : null;
-      if (dias == null) { sinFecha = true; continue; }
-      if (dias > p.graciaDias) {
+      const atraso = f.vencimiento ? dias(f.vencimiento, e.hoy) : null;
+      if (atraso == null) { sinFecha = true; continue; }
+      if (atraso > p.graciaDias) {
         vencido += f.saldo;
-        diasMax = Math.max(diasMax ?? 0, dias);
+        diasMax = Math.max(diasMax ?? 0, atraso);
       }
     }
     vencido = r2(vencido);
@@ -211,7 +217,7 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   else if (e.carril.autorizados_hoy >= e.carril.tope_dia) falla(6, `ya se autorizaron ${e.carril.autorizados_hoy} hoy: es el tope del día`);
 
   // 7 · el pedido no es viejo
-  const diasSinMov = diasEntre(e.pedido.ultimo_movimiento ?? e.pedido.fecha, e.hoy);
+  const diasSinMov = dias(e.pedido.ultimo_movimiento ?? e.pedido.fecha, e.hoy);
   const viejo = diasSinMov == null || diasSinMov > p.pedidoViejoDias;
   if (diasSinMov == null) falla(7, 'no entiendo la fecha del pedido');
   else if (viejo) falla(7, `lleva ${diasSinMov} días sin movimiento`);

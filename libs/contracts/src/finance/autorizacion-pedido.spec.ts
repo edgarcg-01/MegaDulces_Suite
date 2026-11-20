@@ -2,9 +2,8 @@ import {
   PARAMETROS_PROPUESTOS,
   clienteBloqueado,
   decidirAutorizacion,
-  diasEntre,
   type EntradaAutorizacion,
-} from './autorizacion-pedido.reglas';
+} from './autorizacion-pedido.contract';
 
 /**
  * `[GP.A.1]` La regla de autorización automática de pedidos TELEMARK (anexo EA §3.1). Cada condición
@@ -140,8 +139,10 @@ describe('[GP.A.1] decidirAutorizacion', () => {
     expect(r.motivos.map((m) => m.condicion)).toEqual([1, 4, 5]);
   });
 
-  it('diasEntre cuenta días de calendario y no inventa ante una fecha rota', () => {
-    expect(diasEntre('2026-09-19', '2026-11-20')).toBe(62);
-    expect(diasEntre('no-es-fecha', '2026-11-20')).toBeNull();
+  it('cuenta días de calendario y no inventa ante una fecha rota', () => {
+    expect(decidirAutorizacion(base({ facturas: [{ saldo: 12_300, importe: 12_300, vencimiento: '2026-09-19' }] }), P).numeros.dias_vencido_max).toBe(62);
+    const r = decidirAutorizacion(base({ pedido: { importe: 1_000, fecha: 'no-es-fecha' } }), P);
+    expect(r.decision).toBe('aparte');
+    expect(r.motivos).toContainEqual({ condicion: 7, texto: 'no entiendo la fecha del pedido' });
   });
 });

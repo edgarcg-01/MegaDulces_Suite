@@ -231,6 +231,8 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 // [PGP.94] El cierre de un pago del Calendario contra lo que Kepler hizo.
 export * from './finance/cierre-kepler.contract';
+// [GP.A.1] La regla de autorización automática de pedidos TELEMARK y el «Monto por Cobrar» de Kepler (GP.A.0b).
+export * from './finance/autorizacion-pedido.contract';
 // [PGP.97] Lo que salió del banco a un proveedor, contra Kepler y contra el programa de pagos.
 export * from './finance/salida-proveedor.contract';
 // `[PGP.113]` La factura de sucursal anterior al corte que Oficinas nunca registró se puede programar.
