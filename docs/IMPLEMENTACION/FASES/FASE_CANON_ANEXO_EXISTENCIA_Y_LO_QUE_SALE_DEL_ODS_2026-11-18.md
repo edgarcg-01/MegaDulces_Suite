@@ -211,6 +211,24 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
      (regla anterior, sin cambio); el aviso «se vendió vencido» sigue leyendo `stock_lots`, cuyo lote `NA` mantiene la
      copia (7.4c). En la base desechable la vista de existencia es la de antes de 7.1 (su migración depende de 6.21, que
      no corre sin los datos de prod): misma cantidad, otro origen del factor de caja, que esta prueba no lee.
+
+   🧪 **7.4e en código (2026-11-20).** El scanner de reorden (A13, `replenishment-scanner.service.ts`, la bandeja
+   `commercial.replenishment_findings`) leía la copia en sus dos consultas (bajo reorden y cadencia lenta); ahora lee
+   `existenciaOds`, la MISMA fuente que la pantalla de Existencia crítica desde 7.2 (sin apartados, igual que ella: 15
+   piezas en toda la red). Medido en prod con RLS: «bajo reorden» pasa de 24,251 a 24,261 (Canindo +74, CEDIS −64, el
+   resto ±3); la consulta, 0.79 s (corre de noche). Prueba contra Postgres real `replenishment-scanner.it.spec.ts`: el
+   servicio REAL como `app_runtime` con una copia que miente a propósito (100 contra 3 de Kepler, y 0 contra 40): marca
+   el bajo y no el sano; devuelto a la copia, rojo (2 de 2) y también el candado estático.
+
+   **7.4c (lotes), medido el 2026-11-20 — sin código todavía.** De 151 caducidades capturadas en 60 días, 139 se
+   volvieron lote fechado (`EXP-…`); 12 no, porque el lote `NA` no alcanzaba (2 sin renglón en la copia). En el CEDIS no
+   se capturan caducidades y su `NA` es basura: 5,385 renglones, 104.7 M de piezas, 5,178 sin renglón en la copia. Hay
+   ~130 lotes fechados vivos y **ninguno tiene su entrada en `stock_lot_movements`**. Ubicaciones usa un solo renglón
+   de lote (60 piezas). ⚠️ Lo que decide el diseño: cuando la existencia de Kepler baja de lo declarado en lotes, el
+   disparador de la copia consume los lotes fechados en orden FEFO, y ese consumo es irreversible (si después entra
+   mercancía, va a `NA`, no regresa al lote). Sin la copia, eso tiene que ocurrir por EVENTO del ODS (el cambio de
+   `kdil` del producto), sólo para los ~130 productos con lote fechado — no derivarse al leer, que lo volvería
+   reversible.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

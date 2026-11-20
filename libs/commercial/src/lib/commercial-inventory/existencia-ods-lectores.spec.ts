@@ -35,7 +35,7 @@ const LECTORES_A: Array<[archivo: string, quedan: number, porque: string]> = [
   ['commercial-products/commercial-products.service.ts', 0, 'A7 findById (total de la red)'],
   ['commercial-profitability/commercial-profitability.service.ts', 0, 'A8 overview · A9 breakdown'],
   ['commercial-replenishment/commercial-replenishment.service.ts', 0, 'A10 networkSurplus · A11 criticalStock · A12 summary'],
-  ['commercial-replenishment/replenishment-scanner.service.ts', 2, 'A13 scanTenant: escribe la bandeja → [CANON.7.4]'],
+  ['commercial-replenishment/replenishment-scanner.service.ts', 0, 'A13 scanTenant: la bandeja lee lo mismo que Existencia crítica ([CANON.7.4e])'],
 ];
 
 /**
