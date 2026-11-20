@@ -7,6 +7,7 @@ import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 // ⚠️ `import type`: con `emitDecoratorMetadata` + `isolatedModules`, un tipo usado en la firma de
 // un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
 import type { PorDiaResp, ContactoRegistrado } from './customer-ledger.service';
+import type { BandejaAutorizacion } from '@megadulces/contracts';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
@@ -174,7 +175,7 @@ export class CustomerLedgerController {
   @Get('autorizacion-pedidos')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @ApiOperation({ summary: 'Pedidos de telemarketing por autorizar, con el veredicto de la regla y los números de Kepler.' })
-  autorizacionPedidos(@Query('sucursal') sucursal?: string) {
+  autorizacionPedidos(@Query('sucursal') sucursal?: string): Promise<BandejaAutorizacion> {
     return this.autorizacion.bandeja({ sucursal: sucursal && /^[0-9]{2}$/.test(sucursal) ? sucursal : undefined });
   }
 
