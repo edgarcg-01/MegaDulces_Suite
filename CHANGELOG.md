@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Mi trabajo: «Temporadas por confirmar» (PQ.132 · 2026-11-20)
+- Quien confirma las temporadas (Coordinación de Compras y Dirección) ve en «Mi trabajo» cada temporada que ya está en venta, o que empieza en 45 días o menos, y que sigue con las fechas propuestas: cuál es, del cuándo al cuándo se vende y cuántos productos lleva confirmados. Lleva a Compras › Temporadas y sale de la lista en cuanto se confirma.
+- Lo propuesto no llega al pedido, y hasta hoy nada le pedía a nadie confirmarlo. Quien sólo puede ver Temporadas no la recibe: no podría vaciarla.
+- Requiere la migración `20261120111847` (responsabilidad `compras.temporadas`), aplicada antes de soltar.
+
 ### Fixed — Bancos: una descarga encimada ya no mete dos veces el mismo movimiento (BFU.3.4 · 2026-11-20)
 - BBVA completa días después la referencia de los depósitos en efectivo; al subir la descarga siguiente, esos depósitos entraban otra vez como nuevos. Ahora se reconocen por día, importe y saldo, y el renglón que ya estaba toma la referencia completa.
 - El cuadre de una cuenta dice «N renglón(es) de la descarga están dos veces» si vuelve a pasar, en vez de decir que cuadra.

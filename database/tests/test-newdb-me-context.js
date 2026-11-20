@@ -304,8 +304,9 @@ const tieneDecoradorPermisos = (tramo) =>
   //   aquí al entrar (2026-10-22): este chequeo quedó en 20 con 21 claves hasta que AB.32 lo vio.
   // `[AB.32]` +1: entró «Requisiciones de sucursal por aprobar» con su clave `compras.requisiciones_sucursal`.
   // `[PGP.124]` +1: entró «Anticipos a proveedor sin factura» con su clave `compras.anticipos`.
+  // `[PQ.132]` +1: entró «Temporadas por confirmar» con su clave `compras.temporadas`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 23, catalogo);
+    catalogo.length === 24, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -366,8 +367,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[MS.3.8]` sobre su propio desfase. 26 + las dos de pagos = 28.
   // `[AB.32]` +1 cola y +1 clave: «Requisiciones de sucursal por aprobar» (`compras.requisiciones_sucursal`). 29.
   // `[PGP.124]` +1 cola y +1 clave: «Anticipos sin factura, con más de 90 días» (`compras.anticipos`). 30.
-  check('cada cola declara su responsabilidad (20 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 30, declaradas);
+  // `[PQ.132]` +1 cola y +1 clave: «Temporadas por confirmar» (`compras.temporadas`). 31.
+  check('cada cola declara su responsabilidad (21 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 31, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -954,7 +956,12 @@ const tieneDecoradorPermisos = (tramo) =>
      * mes, como mucho los 21 anticipos de mercancía de más de 90 días) y el QUÉ decide: a qué
      * proveedor pedirle la factura o el reembolso. Ordena por dinero, como la cartera.
      */
-    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante', 'presupuesto-ejercicios', 'anticipos-sin-factura'];
+    /*
+     * `[PQ.132]` +1: `temporadas-por-confirmar`. Chica por naturaleza (siete temporadas al año; con la
+     * ventana de 45 días rara vez hay más de dos a la vez: hoy, 1) y el QUÉ decide: cuál confirmar primero.
+     * Ordena por la venta que empieza antes.
+     */
+    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante', 'presupuesto-ejercicios', 'anticipos-sin-factura', 'temporadas-por-confirmar'];
     const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
     const deMas = conDesglose.filter((id) => !DESGLOSE_PERMITIDO.includes(id));
     check('⛔ [SN.33] sólo se desglosan las colas declaradas (una cola grande mudaría su pantalla a la portada)',
@@ -1184,6 +1191,68 @@ const tieneDecoradorPermisos = (tramo) =>
   const iBucle = srcZ.indexOf('for (const zona of zonasObjetivo)');
   check('⛔ el ancla del tramo se resuelve ANTES del bucle de zonas (tramo ÚNICO)',
     iAncla >= 0 && iBucle >= 0 && iAncla < iBucle, { ancla: iAncla, bucle: iBucle });
+
+  /*
+   * ── 4n. `[PQ.132]` Temporadas por confirmar ──────────────────────────────────────────────────
+   *
+   * Medido en prod el 2026-11-20: las 14 temporada-año siguen en `propuesta` y Navidad 2026 lleva un mes
+   * en venta así. Lo que se vigila son las tres formas en que esta cola miente sin que nadie lo note:
+   *  1. que la vea quien no la puede vaciar (VER sin GESTIONAR) o que no la vea quien confirma (D47);
+   *  2. que cuente una temporada que ya terminó, o una borrada (inflaría la cola para siempre);
+   *  3. que se mida contra `v_season_candidates` (0.4–1.6 s por temporada-año en la portada de todos).
+   * Y una cuarta, que encontró la revisión independiente del PR: que el fin de venta corte también el lado
+   * CERRADO. Una confirmada que termina su venta seguía siendo una salida de los últimos 30 días; con el corte
+   * en la base desaparecía, `cerradas_30d` caía a 0 y la cola se declaraba `congelada` trabajándose.
+   */
+  console.log('\n── 4n. [PQ.132] Temporadas por confirmar ──');
+  const migTem = fs.readFileSync(
+    path.resolve(dirMig, '20261120111847_pq132_bandeja_temporadas_por_confirmar.js'), 'utf8',
+  );
+  check('la migración declara la clave y la reparte a los DOS puestos que confirman (D47)',
+    /KEY = 'compras\.temporadas'/.test(migTem)
+      && /\['gerente_compras', true\]/.test(migTem) && /\['direccion', false\]/.test(migTem), null);
+  check('⛔ y NO otorga permisos (los cuatro ocupantes ya tienen COMPRAS_TEMPORADAS_GESTIONAR)',
+    !/(INSERT INTO|UPDATE)\s+identity\.role_permissions/i.test(migTem) && !/'identity\.role_permissions'\)/.test(migTem));
+
+  const iTem = srcSinCom.indexOf(`id: 'temporadas-por-confirmar'`);
+  check('existe la bandeja de temporadas', iTem >= 0, null);
+  // Hasta la SIGUIENTE bandeja o el fin del arreglo, lo que llegue primero: si se agrega una bandeja después
+  // de ésta, leer hasta `];` mediría también la ajena (falso verde en los positivos, falso rojo en los negativos).
+  const finTem = [srcSinCom.indexOf("\n    id: '", iTem + 1), srcSinCom.indexOf('\n];', iTem)]
+    .filter((x) => x > iTem).reduce((a, b) => Math.min(a, b), Infinity);
+  const bTem = iTem >= 0 && Number.isFinite(finTem) ? srcSinCom.slice(iTem, finTem) : '';
+  check('la bandeja se leyó hasta su final (si no, mide de menos)', /nota:/.test(bTem), bTem.length);
+  check('enlaza a la pantalla que YA existe (/compras/temporadas)', /ruta: '\/compras\/temporadas'/.test(bTem));
+  check('responde de la clave nueva, no de compras.reabasto (que no tiene direccion)',
+    /responsabilidad: 'compras\.temporadas'/.test(bTem));
+  check('⛔ gatea con GESTIONAR y SÓLO con GESTIONAR (quien sólo ve no puede vaciarla)',
+    /anyOf: \[Permission\.COMPRAS_TEMPORADAS_GESTIONAR\]/.test(bTem) && !/COMPRAS_TEMPORADAS_VER/.test(bTem));
+  check('la cola es lo propuesto y sale al confirmar (confirmed_at, la única puerta)',
+    /estadoAbierto: 'propuesta'/.test(bTem) && /cierre: 'confirmed_at'/.test(bTem));
+  check('⛔ no inventa gravedad: Temporadas no la declara, nivel null', /nivel: null,/.test(bTem));
+
+  const sqlTem = sinComentarios(fs.readFileSync(
+    path.resolve(__dirname, '../../libs/trade/src/lib/users/temporadas-por-confirmar.sql.ts'), 'utf8'));
+  check('⛔ no mide contra v_season_candidates (segundos por temporada en la portada de todos)',
+    sqlTem.length > 0 && !/v_season_candidates/.test(sqlTem));
+  check('⛔ tenant EXPLÍCITO (KNEX_CONNECTION no pasa por RLS) y sin borradas en fechas ni temporadas',
+    /d\.tenant_id = \?::uuid AND d\.deleted_at IS NULL/.test(sqlTem)
+      && /s\.deleted_at IS NULL AND s\.active/.test(sqlTem));
+  check('⛔ una temporada que ya terminó SALE de lo abierto (vigente = sale_to >= hoy en México, en medir Y en el desglose)',
+    /d\.sale_to >= \(now\(\) AT TIME ZONE 'America\/Mexico_City'\)::date AS vigente/.test(sqlTem)
+      && /abiertaExtra: \{ sql: 'vigente', args: \[\] \}/.test(bTem)
+      && /\.where\('temporadas\.vigente', true\)/.test(bTem));
+  check('⛔ …pero el fin de venta NO corta la base (si no, cerradas_30d cae a 0 al terminar la venta)',
+    !/AND d\.sale_to >=/.test(sqlTem));
+  check('⛔ sólo cuenta lo que estuvo en la cola (registrada antes de que acabara la venta; confirmada después de entrar)',
+    /e\.entro < \(\(d\.sale_to \+ 1\)::timestamp AT TIME ZONE 'America\/Mexico_City'\)/.test(sqlTem)
+      && /d\.status = 'propuesta' OR d\.confirmed_at >= e\.entro/.test(sqlTem));
+  check('la ventana se declara UNA vez (la constante), no un 45 suelto en el SQL',
+    /export const TEMPORADAS_VENTANA_DIAS = \d+;/.test(sqlTem)
+      && (sqlTem.match(/\$\{TEMPORADAS_VENTANA_DIAS\}/g) || []).length === 2
+      && (sqlTem.match(/\b45\b/g) || []).length === 1);
+  check('las fechas de venta viajan como TEXTO (un date de node-pg se corre un día)',
+    /to_char\(d\.sale_from, 'YYYY-MM-DD'\)/.test(sqlTem) && /to_char\(d\.sale_to, 'YYYY-MM-DD'\)/.test(sqlTem));
 
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
