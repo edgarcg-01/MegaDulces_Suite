@@ -229,6 +229,25 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    mercancía, va a `NA`, no regresa al lote). Sin la copia, eso tiene que ocurrir por EVENTO del ODS (el cambio de
    `kdil` del producto), sólo para los ~130 productos con lote fechado — no derivarse al leer, que lo volvería
    reversible.
+
+   **Plan de 7.4c (2026-11-20, sin código; D-EX4 la decide Claude y la firma Edgar, D-EX5 es de Edgar):**
+   1. **C0 — el consumo FEFO pasa al evento del ODS.** Un disparador POR SENTENCIA sobre `kepler_ods.kdil` (tablas de
+      transición, el patrón de `[CANON.6.21]`, `tg_kdii_ficha_history` y ADR-104: la ingesta escribe por lote, así que
+      corre una vez por lote y sólo ve lo que cambió). Sólo actúa sobre los productos que tienen lote fechado vivo
+      (~130): si la existencia de Kepler quedó por debajo de lo declarado en lotes, consume la diferencia en orden FEFO
+      (lo bueno primero, como el disparador de hoy) y lo deja escrito en `stock_lot_movements`. Nace APAGADO con su
+      interruptor, atrapa su propio error y nunca frena la ingesta. Fuera de horario: `CREATE TRIGGER` sobre la tabla
+      más escrita del ODS. ⛔ Mientras exista la copia, los dos disparadores coexisten: se prende éste y se apaga el de
+      la copia en el mismo paso, no antes.
+   2. **C1 — el lote `NA` deja de guardarse y se deriva**: `NA = max(existencia del ODS − Σ lotes fechados, 0)`, una
+      definición en `stock-state.ts` (como `APARTADO_VIVO_SQL`). La leen la lista de lotes de inventario, «por ubicar»
+      de Ubicaciones y el aviso «se vendió vencido» de entregar.
+   3. **C1 — capturar una caducidad** (`feedLine`) ya no necesita renglón en la copia ni mueve cantidad del `NA`: declara
+      hasta lo que la existencia de Kepler deja libre (existencia − Σ fechados). Corregirla (`unfeedLine`) sólo baja el
+      lote fechado. Prueba contra Postgres real con `kdil` sembrado, incluido el caso que hoy falla (sin renglón en la
+      copia).
+   4. **D-EX5 (Edgar):** los ~64 mil renglones `NA` guardados (en el CEDIS, 104.7 M de piezas que no existen) quedan sin
+      lector después del paso 2. Recomendado: borrarlos en 7.5, con el conteo antes y después, cuando ya nadie los lea.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 
