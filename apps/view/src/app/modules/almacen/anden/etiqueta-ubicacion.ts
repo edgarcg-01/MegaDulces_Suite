@@ -1,19 +1,25 @@
-import { CSS_FILA_TSC_3X, anchoBarrasMm, barrasSvg, escHtml, filasHtml } from '@megadulces/ui-web';
+import { anchoBarrasMm, barrasSvg, escHtml } from '@megadulces/ui-web';
 
 /**
  * `[UB.RF.14]` La etiqueta de una ubicación de TIENDA, para la **TSC TE200 con el rollo amarillo** (Edgar,
- * 2026-11-20: «las etiquetas deben salir con la TSC 200, etiqueta amarilla»). El rollo amarillo es igual al
- * blanco de checado (Edgar, mismo día): 3 por fila, 32 × 48 mm, 2 mm entre etiquetas, 100 mm de ancho.
+ * 2026-11-20: «las etiquetas deben salir con la TSC 200, etiqueta amarilla»).
  *
- * No es otra impresora ni otro módulo: es la etiquetera compartida (`@megadulces/ui-web`, ADR-056), la misma
- * fila de 3 que imprimen el checado (GP.4) y la etiqueta de caja (RE). Reemplaza a la hoja carta tipo 5160 de
- * `[UB.RF.12]`, que nunca se imprimió en piso.
+ * `[UB.RF.16]` El rollo amarillo es de **UNA etiqueta a lo ancho, de 60 × 30 mm** (Edgar, 2026-11-20, y es lo
+ * que configura Kepler: «Amarilla 60 × 30 mm», captura de Sistemas del 2026-11-19 en FASE_ETQ_GR). La primera
+ * versión lo suponía igual al blanco de checado (3 por fila de 32 × 48, hoja de 100 × 48) y la etiqueta salía
+ * de otro tamaño. Ahora el navegador manda UNA hoja de 60 × 30 por etiqueta; el sensor de la TSC salta el
+ * hueco entre etiquetas.
  *
  * El código de barras va a **2 puntos por módulo** (0.25 mm a 203 dpi): con un ancho que no es múltiplo del
- * punto, la impresora redondea cada barra distinto. `TA011` son 90 módulos = 22.5 mm, centrados en los 29 mm
- * útiles: 3.25 mm de zona quieta por lado, más de los 2.5 mm (10 módulos) que pide CODE128. Las barras van
- * paralelas al avance del rollo, que es como una térmica directa las imprime más nítidas.
+ * punto, la impresora redondea cada barra distinto. `TA011` son 90 módulos = 22.5 mm, centrados en los 57 mm
+ * útiles. Las barras van paralelas al avance del rollo, que es como una térmica directa las imprime más nítidas.
  */
+
+/** La hoja que el navegador manda a la TSC con el rollo amarillo: UNA etiqueta de 60 × 30 mm. */
+export const PAGINA_TSC_AMARILLA = 'size: 60mm 30mm; margin: 0;';
+
+/** El rollo amarillo, en mm: lo que la plantilla y sus pruebas usan para medir que todo quepa. */
+export const GEOMETRIA_AMARILLA = { anchoMm: 60, altoMm: 30, margenMm: 1.5 } as const;
 
 export interface EtiquetaUbicacion {
   code: string;
@@ -21,7 +27,7 @@ export interface EtiquetaUbicacion {
   almacen: string | null;
 }
 
-/** `TA011` (5) cabe a 7.5 mm en 29 mm; un código viejo más largo se achica, nunca se corta. */
+/** `TA011` (5) cabe a 10 mm en 57 mm; un código viejo más largo se achica, nunca se corta. */
 export function tamanoCodigo(code: string): '' | 'eu-c-m' | 'eu-c-s' {
   if (code.length <= 5) return '';
   return code.length <= 7 ? 'eu-c-m' : 'eu-c-s';
@@ -32,28 +38,31 @@ export function etiquetaUbicacionHtml(u: EtiquetaUbicacion): string {
   return `
           <div class="et eu">
             <div class="eu-arriba">${escHtml(arriba)}</div>
-            <div class="eu-centro">
-              <div class="eu-code ${tamanoCodigo(u.code)}">${escHtml(u.code)}</div>
-              ${barrasSvg(u.code, 'eu-bar', anchoBarrasMm(u.code))}
-            </div>
+            <div class="eu-code ${tamanoCodigo(u.code)}">${escHtml(u.code)}</div>
+            ${barrasSvg(u.code, 'eu-bar', anchoBarrasMm(u.code))}
           </div>`;
 }
 
-/** Las etiquetas en filas de 3, como sale el rollo. La última fila puede ir incompleta. */
+/** Una etiqueta por hoja, como sale el rollo amarillo. */
 export function etiquetasUbicacionHtml(us: readonly EtiquetaUbicacion[]): string {
-  return filasHtml(us, etiquetaUbicacionHtml);
+  return us.map(etiquetaUbicacionHtml).join('');
 }
 
-/** Medidas en mm de la etiqueta de 32 × 47.6. En negro: es térmica directa, el amarillo lo pone el papel. */
+/**
+ * Medidas en mm de la etiqueta de 60 × 29.6: 29.6 y no 30 porque, con la etiqueta exacta a la hoja, el redondeo
+ * del navegador mete una hoja en blanco (la misma lección de la fila de 47.6 en la etiquetera). En negro: es
+ * térmica directa, el amarillo lo pone el papel.
+ *
+ * Alto, de arriba abajo: 1.5 margen · 2.9 rótulo · 10 código · 9 barras · 1.5 margen + 3 huecos de ~1.5 = ~29.4.
+ */
 export const CSS_ETIQUETA_UBICACION = [
-  CSS_FILA_TSC_3X,
-  '.et{box-sizing:border-box;width:32mm;height:100%;padding:1.5mm;display:flex;flex-direction:column;align-items:stretch;',
-  'color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden}',
-  '.eu-arriba{font-size:2.4mm;font-weight:700;line-height:1.1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-  '.eu-centro{margin:auto 0;display:flex;flex-direction:column;align-items:center;gap:2mm}',
-  // 7.5 mm: el más ancho medido (TB044) ocupa ~27 de los 29 mm útiles; a 8 mm eran 28.84, sin aire.
-  '.eu-code{font-size:7.5mm;font-weight:900;line-height:1;letter-spacing:.02em;white-space:nowrap}',
-  '.eu-c-m{font-size:6mm}',
-  '.eu-c-s{font-size:4.5mm}',
-  '.eu-bar{display:block;height:14mm;max-width:29mm}',
+  'body{margin:0}',
+  '.et{box-sizing:border-box;width:60mm;height:29.6mm;padding:1.5mm;display:flex;flex-direction:column;align-items:center;justify-content:space-between;',
+  'color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden;break-after:page;page-break-after:always}',
+  '.et:last-child{break-after:auto;page-break-after:auto}',
+  '.eu-arriba{max-width:100%;font-size:2.6mm;font-weight:700;line-height:1.1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  '.eu-code{font-size:10mm;font-weight:900;line-height:1;letter-spacing:.02em;white-space:nowrap}',
+  '.eu-c-m{font-size:8mm}',
+  '.eu-c-s{font-size:6mm}',
+  '.eu-bar{display:block;height:9mm;max-width:57mm}',
 ].join('');
