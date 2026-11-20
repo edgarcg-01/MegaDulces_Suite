@@ -4397,14 +4397,14 @@ alguien los capturara (§2.2 del plan); hasta hoy, siete transiciones:
   pedido. **D29 (Edgar, 2026-11-13):** en la Suite se agrega sólo en el checado, con motivo y con el
   nombre de quien lo agregó; nunca en el embarque.
 
-### Enmienda del 2026-11-20 — también AUTORIZADO (D-A1 del anexo EA) · ⏳ **por firmar**
+### Enmienda del 2026-11-20 — también AUTORIZADO (D-A1 del anexo EA) · ✅ **firmada por Edgar el 2026-11-20**
 
 **Contexto.** El [anexo EA](FASES/FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md) pide que un pedido TELEMARK dentro del
 límite se autorice solo, avisando a Crédito y cobranza (D-A3, Edgar, 2026-11-19). Hoy lo autoriza una persona en
 Kepler y COT.7 (D1) había dejado esa autorización en Kepler. Medido (GP.A.0a): autorizar en Kepler cambia **sólo
 `kdm1.c11`** (8 de 8 casos de la foto del 19-nov), no aparta existencia y no crea cartera.
 
-**Decisión propuesta.**
+**Decisión.**
 1. La Suite escribe **CREADO → AUTORIZADO** en un `U-D-40` TELEMARK existente: `UPDATE md.kdm1 SET c11 =
    'AUTORIZADO' WHERE <llave> AND c11 = 'CREADO'`. Si no actualiza una fila, alguien lo movió en Kepler: no se
    reintenta, va a la bandeja (punto 7).
