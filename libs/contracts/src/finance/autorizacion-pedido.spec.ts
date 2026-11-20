@@ -121,6 +121,9 @@ describe('[GP.A.1] decidirAutorizacion', () => {
     expect(decidirAutorizacion(base({ carril: { encendido: true, autorizados_hoy: 0, tope_dia: null } }), P).decision).toBe('bandeja');
     const r = decidirAutorizacion(base({ carril: { encendido: true, autorizados_hoy: 50, tope_dia: 50 } }), P);
     expect(r.motivos[0]).toEqual({ condicion: 6, texto: 'ya se autorizaron 50 hoy: es el tope del día' });
+    // [D-A14] sin tope = sólo a mano: el automático no pasa, y el motivo lo dice así.
+    const sinTope = decidirAutorizacion(base({ carril: { encendido: true, autorizados_hoy: 0, tope_dia: null } }), P);
+    expect(sinTope.motivos[0]).toEqual({ condicion: 6, texto: 'en esta sucursal la Suite sólo autoriza a mano (sin tope del día)' });
   });
 
   it('7 · pedido viejo → aparte (ni automático ni bandeja), aunque además falle otra', () => {

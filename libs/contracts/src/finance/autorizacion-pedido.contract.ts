@@ -231,7 +231,8 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
 
   // 6 · el carril de la sucursal
   if (!e.carril.encendido) falla(6, 'la autorización automática está apagada en esta sucursal');
-  else if (e.carril.tope_dia == null) falla(6, 'la sucursal no tiene tope del día configurado');
+  // [D-A14] Sin tope = el interruptor encendido sólo para autorizar a mano desde la Suite; el automático no corre.
+  else if (e.carril.tope_dia == null) falla(6, 'en esta sucursal la Suite sólo autoriza a mano (sin tope del día)');
   else if (e.carril.autorizados_hoy >= e.carril.tope_dia) falla(6, `ya se autorizaron ${e.carril.autorizados_hoy} hoy: es el tope del día`);
 
   // 7 · el pedido no es viejo
@@ -314,3 +315,36 @@ export interface BandejaAutorizacion {
   /** NO MEDIDO hasta GP.A.2: la Suite todavía no registra autorizaciones. */
   autorizados_hoy: null;
 }
+
+/**
+ * `[GP.A.2]` Lo que decide Crédito y cobranza sobre un pedido, desde el panel de la bandeja.
+ *  · `autorizar`: CREADO → AUTORIZADO en Kepler.
+ *  · `regresar` (D-A7): AUTORIZADO → CREADO en Kepler; sólo un pedido que autorizó la Suite.
+ *  · `rechazar`: no toca Kepler (el pedido sigue CREADO); el motivo queda en la Suite y sube a Dirección (GP.A.6b).
+ *  · `escalar`: «Pasar a Dirección General», tampoco toca Kepler.
+ */
+export type AccionDecisionPedido = 'autorizar' | 'regresar' | 'rechazar' | 'escalar';
+
+/** El cuerpo de `POST /api/finance/autorizacion-pedidos/:sucursal/:serie/:folio`: lo que manda el panel. */
+export interface DecisionPedidoBody {
+  accion: AccionDecisionPedido;
+  /** Obligatorio (§3.6): queda en la bitácora con quién y cuándo. */
+  motivo: string;
+}
+
+/**
+ * Cómo terminó. `escrito` / `ya_estaba`: Kepler tiene el estatus pedido. `apagado` / `rechazado`: Kepler no se tocó o
+ * no aceptó (el motivo dice por qué; `reintentable` si fue la red o un candado). `registrado`: rechazar o escalar.
+ */
+export type EstadoDecisionPedido = 'escrito' | 'ya_estaba' | 'apagado' | 'rechazado' | 'registrado';
+
+export interface ResultadoDecisionPedido {
+  id: string;
+  accion: AccionDecisionPedido;
+  estado: EstadoDecisionPedido;
+  /** La frase para la persona, corta. */
+  mensaje: string;
+  reintentable: boolean;
+}
+
+export const MOTIVO_MAX = 500;
