@@ -67,6 +67,8 @@ const MAPA = [
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
+  // ⛔ En el SQL de knex.raw no va ningún signo de interrogación literal: knex lo vuelve $1 aunque no haya bindings
+  // (la primera versión de esta migración falló así en prod el 2026-11-20 y se deshizo entera). Por eso {0,1}.
   if (!(await knex.schema.withSchema('finance').hasTable('category_kepler_accounts'))) {
     await knex.raw(`
       CREATE TABLE finance.category_kepler_accounts (
@@ -79,7 +81,7 @@ exports.up = async function up(knex) {
         created_by     text,
         updated_at     timestamptz NOT NULL DEFAULT now(),
         updated_by     text,
-        CONSTRAINT category_kepler_accounts_prefijo_ck CHECK (account_prefix ~ '^[0-9]{3}(-[0-9]{3})?$'),
+        CONSTRAINT category_kepler_accounts_prefijo_ck CHECK (account_prefix ~ '^[0-9]{3}(-[0-9]{3}){0,1}$'),
         CONSTRAINT category_kepler_accounts_uno UNIQUE (tenant_id, account_prefix)
       )`);
     await knex.raw('ALTER TABLE finance.category_kepler_accounts ENABLE ROW LEVEL SECURITY');
