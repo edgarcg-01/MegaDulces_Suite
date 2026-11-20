@@ -2570,6 +2570,54 @@ la borraría y la API daría 500: quien reconstruya esa cadena tiene que recrear
 
 **Tiempo de candidatos, re-medido en prod con la base de meses:** ~0.4–1.6 s por temporada-año (2026 trae más
 renglones por mes que 2025). Más de 500 ms: queda en caché.
+
+### 19.14 Navidad 2026 en caliente: que los puestos lean y ejecuten (2026-11-20)
+
+**El pedido, literal (Francisco, 2026-11-20):** *«no arranques 2027 aún, tenemos que ponernos creativos en
+2026 Navidad […] calibrar en caliente sobre la marcha»*, y después *«cómo involucramos a director comercial,
+jefe de mkt, jefe de compras, gerentes de zona en la temporada, auxiliares de compras para que lean esta
+información y se involucren en la ejecución, qué propones en la Suite para comunicar y accionar»*.
+
+**El análisis** (sobra, falta, parados, traspasos y no comprados de Navidad, mismas sucursales contra 2025, con
+el método de PQ.97: ritmo de 14 días × factor agregado de la temporada anterior) corre con tres scripts de sólo
+lectura **fuera del repo**, y sus cifras viven en una página privada que se comparte con los dueños: el repo es
+público. ⚠️ Esos scripts son un puente con fecha, no un primitivo: lo que calculan es la vista C1 de PQ.97 y se
+retiran cuando exista (ADR-056).
+
+**Dónde entra hoy cada puesto** (medido en prod, `analytics.ui_usage`, 30 días, GET):
+
+| Lugar | Quién lo usa | Días de 30 |
+|---|---|---:|
+| Campana de avisos | todos los puestos del pedido | 15–29 |
+| Mi trabajo (`/users/me/work`) | dirección, gerencia de compras, mercadotecnia, jefe de mercadotecnia | 13–29 |
+| Pedido, sobreinventario y sugerencia de traspaso | auxiliares de compras y compras-operaciones | 23–26 |
+| Compras › Temporadas | 26 lecturas en 10 días, **0 escrituras**: las 14 fechas siguen en propuesta | — |
+
+Por eso la propuesta es **llevar la temporada a donde cada puesto ya entra**, no abrir otra pantalla a la que
+haya que ir.
+
+**Lo que destapó medir a las personas** (prod, 2026-11-20; los nombres viven en la página, no aquí):
+
+- La **mercadotecnia de plaza** de dos de las tres plazas entra con el rol `administrativo` (puesto
+  `auxiliar_mkt`), que **no tiene** `COMPRAS_TEMPORADAS_VER`: hoy no puede abrir Temporadas. La tercera entra
+  con el rol `marketing`, que la ve y la gestiona. *(Corregido el mismo día: la primera medición dijo que esa
+  plaza no tenía usuario activo; lo tenía, con otro nombre de pila en el padrón.)*
+- Dos de los tres **gerentes de zona** entran como `superadmin` y uno como `direccion`: los tres ven y
+  gestionan Temporadas.
+- Dos de los tres compradores (Compras A y C) tienen roles que sólo **ven** Temporadas; confirmar lo hacen
+  quienes dice D47.
+
+**Decisiones (Francisco, 2026-11-20):**
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| D45 | ¿Se arranca sin esperar código? | ✅ Sí: página compartida con las cifras de cada corrida y **junta de 20 minutos los lunes** (23 y 30 de noviembre, 7 y 14 de diciembre) con esa página como agenda. Cada lunes se vuelve a correr el análisis |
+| D46 | ¿Quién responde por qué? | ✅ Dirección general y comercial (aprueban paquete y precio), jefatura de compras con Compras A, B y C (sobra, falta, traspasos, no comprados), jefatura de mercadotecnia con la de cada plaza (empujar, exhibir), gerentes de zona La Piedad 01–04, Zamora 05–06 y Morelia 07–08 (su zona y los parados). Los nombres, en la página |
+| D47 | ¿Quién confirma fechas y productos de Navidad 2026 en Temporadas? | ✅ La jefatura de compras con la dirección comercial, esta semana. Es lo que destraba el resto: lo propuesto no etiqueta ni frena (ADR-056) |
+| D48 | ¿Qué se construye en la Suite, y en qué orden? | ✅ «Avanza», dentro de PQ y sin fase nueva: (1) `[PQ.132]` bandeja en Mi trabajo, (2) `[PQ.95]` la etiqueta del freno en Pedido, (3) la pestaña «En curso» de `[PQ.99]` con la vista C1 de `[PQ.97]`. ⚠️ Con 9 fases 🔨 contra un cupo de 4, el PM tiene que ratificar el orden |
+
+**Pendiente del PM:** ¿se le da `COMPRAS_TEMPORADAS_VER` a la mercadotecnia de plaza? Darlo al rol
+`administrativo` lo abriría a todo ese rol; la alternativa es por puesto. Es un cambio de permisos en prod.
 ## 20. El menú de Compras de Kepler dentro de la Suite (2026-11-09)
 
 > ⭐ **Completado y reemplazado por el [anexo K](FASE_PQ_ANEXO_MENU_COMPRAS_KEPLER.md)
@@ -2696,6 +2744,7 @@ tiene a propósito** (KR). Ahí D40 tendría que decidir si se le da o si la Sui
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-20 | **§19.14 Navidad 2026 en caliente**: análisis de sobra, falta, parados y traspasos fuera del repo; página compartida y junta de los lunes (D45); dueños por puesto (D46); confirman fechas y productos la jefatura de compras con la dirección comercial (D47); orden en la Suite: `[PQ.132]` bandeja → `[PQ.95]` → «En curso» (D48, falta ratificar). Medido: la mercadotecnia de plaza no puede abrir Temporadas | sesión Claude + Francisco |
 | 2026-11-12 | **Anexo K**: el menú Compras de Kepler completo, 10 módulos y 25 opciones, cada una con su destino (cero pantallas nuevas). Medido: una de cada 8 OC se cancela; la autorización no frena nada; «Saldar» es un documento de cuentas por pagar (corrige §20). Nacen **PQ.122–PQ.123** y **DK1–DK3**, sin firma | Claude |
 | 2026-11-10 | **§19.11 base de partida**: propuesta de temporadas × productos desde la historia (Wincaja + Kepler, sell-out canónico diario): 495 propuestas en CSV fuera del repo. La lista de temporadas sale del Plan Anual de Mercadotecnia 2026; la ventana es la del MAYORISTA (Muertos 1-sep → 2-nov), y con ella la repetición 2025→2026 sube de 1/16 a 26/58. PQ.94 corregida: siembra, regla de la mitad del mes, 45/45 | sesión Claude + Francisco |
 | 2026-11-10 | **PQ.94 🧪 C0** (§19.10): migración de Temporadas (3 tablas en `catalog`, 2 vistas) sin aplicar en prod; la venta sale del sell-out canónico `mv_sellout_monthly` (no de `sales_daily`, importer); 37/37 contra Postgres real con dos pruebas negativas. Lista de Navidad «no reponer» para Compras: 47 productos, 4 con ~$197 mil en tránsito (fuera del repo). D36: la temporada en el catálogo de la Suite; una sola puerta de escritura | sesión Claude + Francisco |

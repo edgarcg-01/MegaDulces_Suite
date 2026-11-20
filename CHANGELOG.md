@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Mi trabajo: «Temporadas por confirmar» (PQ.132 · 2026-11-20)
+- Quien confirma las temporadas (Coordinación de Compras y Dirección) ve en «Mi trabajo» cada temporada que ya está en venta, o que empieza en 45 días o menos, y que sigue con las fechas propuestas: cuál es, del cuándo al cuándo se vende y cuántos productos lleva confirmados. Lleva a Compras › Temporadas y sale de la lista en cuanto se confirma.
+- Lo propuesto no llega al pedido, y hasta hoy nada le pedía a nadie confirmarlo. Quien sólo puede ver Temporadas no la recibe: no podría vaciarla.
+- Requiere la migración `20261120111847` (responsabilidad `compras.temporadas`), aplicada antes de soltar.
+
 ### Changed — Almacén › Ubicaciones: las etiquetas de tienda salen en la TSC TE200, rollo amarillo (UB.RF.14 · 2026-11-20)
 - En tienda, «Imprimir etiquetas» ya no arma una hoja carta: manda las etiquetas a la TSC TE200 con el rollo amarillo, 3 por fila, de 3.2 × 4.8 cm, con el código grande y su código de barras. Al imprimir se elige la TSC.
 
