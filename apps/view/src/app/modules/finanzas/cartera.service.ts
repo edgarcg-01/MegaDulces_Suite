@@ -245,6 +245,18 @@ export interface CarteraDetalle {
    */
   depositos_reportados?: DepositoReportado[] | null;
 }
+/** `[CXC.48]` Los teléfonos de una cuenta: el del cliente en cada sucursal de Kepler y el del vendedor (en la Suite). */
+export interface TelefonosCuenta {
+  cliente_code: string;
+  sucursales: { sucursal: string; telefono: string | null }[];
+  escritura: { posible: boolean; motivo: string | null };
+  vendedor: { sucursal: string; code: string; nombre: string | null; telefono: string | null } | null;
+  ultimo_cambio: { telefono_nuevo: string; estado: string; created_by: string | null; created_at: string } | null;
+}
+export interface CambioTelefonoCliente {
+  estado: 'escrito' | 'parcial' | 'rechazado';
+  servidores: { servidor: string; estado: 'escrita' | 'ya_estaba' | 'no_esta' | 'rechazada'; anterior: string | null; motivo: string | null }[];
+}
 export interface Compromiso { id: string; monto_prometido: number; fecha_promesa: string; estado: string; nota: string | null; created_by: string | null; created_at: string }
 
 export interface CarteraQuery {
@@ -337,6 +349,19 @@ export class CarteraService {
   }
   /** `[CXC.43]` Deja constancia del contacto (llamar, WhatsApp, PDF). */
   /** `[CC.20]` La URL del enlace personal de la cuenta para subir su ficha de depósito (no escribe nada). */
+  // ── `[CXC.48]` Teléfonos de la cartera ──────────────────────────────────────────────────────────
+  telefonos(sucursal: string, cliente: string, vendedor?: string | null): Observable<TelefonosCuenta> {
+    const params = vendedor ? { vendedor } : undefined;
+    return this.http.get<TelefonosCuenta>(`${environment.apiUrl}/finance/cartera-telefonos/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`, { params });
+  }
+  cambiarTelefonoCliente(sucursal: string, cliente: string, telefono: string): Observable<CambioTelefonoCliente> {
+    return this.http.post<CambioTelefonoCliente>(
+      `${environment.apiUrl}/finance/cartera-telefonos/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/telefono`, { telefono });
+  }
+  cambiarTelefonoVendedor(sucursal: string, vendedor: string, telefono: string): Observable<{ sucursal: string; code: string; telefono: string }> {
+    return this.http.put<{ sucursal: string; code: string; telefono: string }>(
+      `${environment.apiUrl}/finance/cartera-telefonos/vendedor/${encodeURIComponent(sucursal)}/${encodeURIComponent(vendedor)}/telefono`, { telefono });
+  }
   enlaceDeposito(sucursal: string, cliente: string): Observable<{ url: string | null }> {
     return this.http.post<{ url: string | null }>(`${environment.apiUrl}/finance/collections/clientes/enlace`, { sucursal, cliente });
   }

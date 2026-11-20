@@ -79,6 +79,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   let createPromise: ReturnType<typeof vi.fn>;
   let query: Record<string, string>;
   let enlaceDeposito: ReturnType<typeof vi.fn>;
+  let telefonos: ReturnType<typeof vi.fn>;
 
   function configurar() {
     TestBed.configureTestingModule({
@@ -87,7 +88,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } },
-        { provide: CarteraService, useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } },
+        { provide: CarteraService, useValue: { cartera, detalle, createPromise, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } },
         { provide: AuthService, useValue: { user: () => ({ permissions: {} }) } },
         { provide: PermissionsService, useValue: { isAdmin: () => true } },
       ],
@@ -100,6 +101,11 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     detalle = vi.fn(() => of(DET));
     createPromise = vi.fn(() => of({ id: 'p1', estado: 'abierta' }));
     enlaceDeposito = vi.fn(() => of({ url: 'https://suite.test/deposito/TOKEN' }));
+    telefonos = vi.fn(() => of({
+      cliente_code: 'C1', sucursales: [{ sucursal: '01', telefono: null }],
+      escritura: { posible: false, motivo: 'La escritura del teléfono en Kepler está apagada para esta sucursal.' },
+      vendedor: null, ultimo_cambio: null,
+    }));
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -298,7 +304,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const ahora = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: ahora }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -321,7 +327,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
   it('16 · [CXC.43] un contacto que no quedó registrado SE DICE', () => {
     cartera = vi.fn(() => of({ ...resp([cli('C1', 'Abarrotes Uno', 100, 100)]), contactos_medidos: true }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto: () => throwError(() => ({ status: 500 })), tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     f.componentInstance.registrarContacto(DET, 'telefono');
@@ -383,7 +389,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -416,7 +422,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     const estadoCuentaPdf = vi.fn(() => NEVER); // el PDF sigue generándose: el segundo clic no lo pide otra vez
     const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
     configurar();
-    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+    TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
     const f = TestBed.createComponent(FinanzasCarteraComponent);
     f.detectChanges();
     const c = f.componentInstance;
@@ -461,7 +467,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       detalle = vi.fn(() => of(D47));
       const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
       configurar();
-      TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+      TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos } });
       const f = TestBed.createComponent(FinanzasCarteraComponent);
       f.detectChanges();
       const c = f.componentInstance;
@@ -516,6 +522,100 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       c.periodoEC.set('6m');
       f.detectChanges();
       expect(hrefDe()).toContain('estado-de-cuenta.pdf?date_from=2026-05-17');
+    });
+  });
+
+  describe('22 · [CXC.48] teléfonos: el del cliente a Kepler, el del vendedor a la Suite', () => {
+    const D48 = { ...DET, cliente: { ...DET.cliente, telefono: '3511420007', vendedor: '501', vendedor_nombre: '501 Victor Manuel Zalapa Barri' } } as CarteraDetalle;
+    const TELS = (over: Record<string, unknown> = {}) => ({
+      cliente_code: 'C1',
+      sucursales: [{ sucursal: '00', telefono: '3511420007' }, { sucursal: '01', telefono: '351 142 0007' }, { sucursal: '05', telefono: null }],
+      escritura: { posible: true, motivo: null },
+      vendedor: { sucursal: '01', code: '501', nombre: '501 Victor Manuel Zalapa Barri', telefono: null },
+      ultimo_cambio: null, ...over,
+    });
+
+    function armar(opts: { tels?: object; cambiarTelefonoCliente?: ReturnType<typeof vi.fn>; cambiarTelefonoVendedor?: ReturnType<typeof vi.fn>; admin?: boolean } = {}) {
+      detalle = vi.fn(() => of(D48));
+      telefonos = vi.fn(() => of(opts.tels ?? TELS()));
+      const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
+      configurar();
+      TestBed.overrideProvider(CarteraService, { useValue: {
+        cartera, detalle, createPromise, registrarContacto, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito, telefonos,
+        cambiarTelefonoCliente: opts.cambiarTelefonoCliente ?? vi.fn(), cambiarTelefonoVendedor: opts.cambiarTelefonoVendedor ?? vi.fn(),
+      } });
+      if (opts.admin === false) TestBed.overrideProvider(PermissionsService, { useValue: { isAdmin: () => false } });
+      const f = TestBed.createComponent(FinanzasCarteraComponent);
+      f.detectChanges();
+      const c = f.componentInstance;
+      c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+      f.detectChanges();
+      return { f, c };
+    }
+    const q = (sel: string) => document.body.querySelector(`[data-testid="${sel}"]`) as HTMLElement | null;
+
+    it('dice el teléfono y si es distinto en otras sucursales (el formato no cuenta como distinto)', () => {
+      armar();
+      expect(telefonos).toHaveBeenCalledWith('01', 'C1', '501');
+      const txt = q('telefonos')?.textContent || '';
+      expect(txt).toContain('351 142 0007');
+      expect(txt).toContain('distinto en 1 de 3 sucursales');
+    });
+
+    it('guardar escribe en Kepler, resume por sucursal y el chat del cliente usa el número nuevo', () => {
+      const cambiarTelefonoCliente = vi.fn(() => of({ estado: 'escrito', servidores: [
+        { servidor: 'SC', estado: 'escrita', anterior: '', motivo: null },
+        { servidor: '00', estado: 'escrita', anterior: '', motivo: null },
+        { servidor: '01', estado: 'escrita', anterior: '', motivo: null },
+        { servidor: '04', estado: 'no_esta', anterior: null, motivo: null },
+        { servidor: '05', estado: 'escrita', anterior: '', motivo: null },
+      ] }));
+      const { f, c } = armar({ cambiarTelefonoCliente });
+      q('tel-cliente-cambiar')!.click(); f.detectChanges();
+      c.telNuevo = '33 1485 5906';
+      c.guardarTel(c.detalle()!); f.detectChanges();
+      expect(cambiarTelefonoCliente).toHaveBeenCalledWith('01', 'C1', '33 1485 5906');
+      expect(q('tel-aviso')?.textContent).toContain('Teléfono guardado en Kepler: 3 actualizada(s) · no está dado de alta en 1');
+      expect(q('telefonos')?.textContent).toContain('igual en las 3 sucursales');
+      expect((q('enviar-estado-cuenta') as HTMLAnchorElement).href).toMatch(/^https:\/\/wa\.me\/523314855906\?/);
+    });
+
+    it('⛔ NEGATIVA — una base que rechaza SE DICE, con su sucursal', () => {
+      const cambiarTelefonoCliente = vi.fn(() => of({ estado: 'parcial', servidores: [
+        { servidor: 'SC', estado: 'escrita', anterior: '', motivo: null },
+        { servidor: '07', estado: 'rechazada', anterior: null, motivo: 'permission denied for table kdud' },
+      ] }));
+      const { f, c } = armar({ cambiarTelefonoCliente });
+      c.abrirEdicionTel('cliente'); c.telNuevo = '3314855906';
+      c.guardarTel(c.detalle()!); f.detectChanges();
+      const av = q('tel-aviso')!;
+      expect(av.classList).toContain('ct-pdf-err');
+      expect(av.textContent).toContain('Kepler no aceptó el cambio en: 07. permission denied');
+    });
+
+    it('⛔ NEGATIVA — con la escritura apagada, el botón no se puede pulsar y dice por qué', () => {
+      const { f } = armar({ tels: TELS({ escritura: { posible: false, motivo: 'La escritura del teléfono en Kepler está apagada para esta sucursal.' } }) });
+      q('tel-cliente-cambiar')!.click(); f.detectChanges();
+      expect((q('tel-guardar') as HTMLButtonElement).disabled).toBe(true);
+      expect(q('tel-bloqueo')?.textContent).toContain('apagada');
+    });
+
+    it('el del vendedor se guarda en la Suite y desde ahí el chat del vendedor abre directo', () => {
+      const cambiarTelefonoVendedor = vi.fn(() => of({ sucursal: '01', code: '501', telefono: '3398765432' }));
+      const { f, c } = armar({ cambiarTelefonoVendedor });
+      expect(q('tel-vendedor-cambiar')?.textContent).toContain('Agregar');
+      expect((q('enviar-vendedor') as HTMLAnchorElement).href).toMatch(/^https:\/\/wa\.me\/\?text=/);
+      c.abrirEdicionTel('vendedor'); c.telNuevo = '339 876 5432';
+      c.guardarTel(c.detalle()!); f.detectChanges();
+      expect(cambiarTelefonoVendedor).toHaveBeenCalledWith('01', '501', '339 876 5432');
+      expect((q('enviar-vendedor') as HTMLAnchorElement).href).toMatch(/^https:\/\/wa\.me\/523398765432\?text=/);
+    });
+
+    it('⛔ NEGATIVA — sin la llave, los teléfonos se ven pero no se editan', () => {
+      armar({ admin: false });
+      expect(q('telefonos')?.textContent).toContain('351 142 0007');
+      expect(q('tel-cliente-cambiar')).toBeNull();
+      expect(q('tel-vendedor-cambiar')).toBeNull();
     });
   });
 

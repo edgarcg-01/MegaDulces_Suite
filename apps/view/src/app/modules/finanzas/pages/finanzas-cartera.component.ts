@@ -31,7 +31,7 @@ const fechaMx = (iso: string): string =>
 /** Minúsculas y sin acentos: «Peña» se encuentra escribiendo «pena». */
 const normalizar = (s: string | null | undefined): string =>
   (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
+import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, TelefonosCuenta, CarteraFiltros, CarteraQuery, CanalContacto, CarteraResumen, CarteraTendencia, AgingBucket, Partida, BusquedaProducto, CuentaKind } from '../cartera.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -418,6 +418,48 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <span class="muted" data-testid="sin-pagadas">Sin pagadas en el periodo</span>
             }
           </div>
+          <!-- [CXC.48] Edgar, 2026-11-20: los teléfonos se corrigen aquí, donde se usan para enviar. El del cliente se
+               escribe EN KEPLER, en cada sucursal donde está dado de alta (un cambio hecho en una sucursal no llega a
+               las otras: medido); el del vendedor se guarda en la Suite (Kepler no tiene dónde). -->
+          <div class="ct-tels" data-testid="telefonos">
+            <div class="ct-tel">
+              <span class="muted">Tel. cliente</span>
+              <b>{{ telCliente()?.telefono || det.cliente.telefono || 'sin teléfono' }}</b>
+              @if (telCliente(); as tc) { <small class="muted" [class.ct-tel-dif]="tc.distintas > 0">{{ tc.resumen }}</small> }
+              @if (puedeTelefonos() && tels() && editarTel() !== 'cliente') {
+                <button type="button" class="ct-link-btn" (click)="abrirEdicionTel('cliente')" data-testid="tel-cliente-cambiar">Cambiar</button>
+              }
+            </div>
+            @if (tels()?.vendedor; as v) {
+              <div class="ct-tel">
+                <span class="muted">Tel. vendedor</span>
+                <b>{{ v.telefono || 'sin teléfono' }}</b>
+                @if (puedeTelefonos() && editarTel() !== 'vendedor') {
+                  <button type="button" class="ct-link-btn" (click)="abrirEdicionTel('vendedor')" data-testid="tel-vendedor-cambiar">{{ v.telefono ? 'Cambiar' : 'Agregar' }}</button>
+                }
+              </div>
+            }
+            @if (editarTel(); as cual) {
+              <form class="ct-tel-form" (ngSubmit)="guardarTel(det)" data-testid="tel-form">
+                <input pInputText type="tel" inputmode="tel" autocomplete="off" name="telNuevo" [(ngModel)]="telNuevo"
+                       [attr.aria-label]="cual === 'cliente' ? 'Teléfono del cliente, 10 dígitos' : 'Teléfono del vendedor, 10 dígitos'"
+                       placeholder="10 dígitos" />
+                <button pButton type="submit" [disabled]="telBusy() || (cual === 'cliente' && !tels()?.escritura?.posible)"
+                        [attr.aria-busy]="telBusy()" data-testid="tel-guardar">{{ telBusy() ? 'Guardando…' : cual === 'cliente' ? 'Guardar en Kepler' : 'Guardar' }}</button>
+                <button type="button" class="ct-link-btn" [disabled]="telBusy()" (click)="editarTel.set(null)">Cancelar</button>
+                @if (cual === 'cliente') {
+                  @if (tels()?.escritura?.posible) {
+                    <small class="muted">Se escribe en las {{ tels()?.sucursales?.length }} sucursales donde está dado de alta.</small>
+                  } @else {
+                    <small class="ct-pdf-err" data-testid="tel-bloqueo">{{ tels()?.escritura?.motivo }}</small>
+                  }
+                }
+              </form>
+            }
+            @if (telAviso(); as ta) {
+              <p class="ct-pdf-aviso" [class.ct-pdf-err]="ta.error" role="status" data-testid="tel-aviso"><i class="pi" [class.pi-check-circle]="!ta.error" [class.pi-exclamation-triangle]="ta.error" aria-hidden="true"></i> {{ ta.texto }}</p>
+            }
+          </div>
           <!-- [CXC.44] Edgar, 2026-11-17: «todo esto lo podemos hacer en uno solo». Teléfono, PDF, WhatsApp y el
                enlace para depósitos eran CUATRO botones de UN acto: entregarle al cliente su estado de cuenta. Un botón:
                descarga el PDF (para adjuntarlo: wa.me sólo lleva texto), abre el chat de ESE teléfono —o, sin teléfono,
@@ -439,7 +481,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <i class="pi pi-user" aria-hidden="true"></i>
               <span class="ct-send-txt">
                 <b>Enviar al vendedor</b>
-                <small>WhatsApp · {{ nombreVendedor(det) || 'sin vendedor' }} · eliges el chat</small>
+                <small>WhatsApp · {{ nombreVendedor(det) || 'sin vendedor' }} · {{ tels()?.vendedor?.telefono || 'eliges el chat' }}</small>
               </span>
             </a>
           </div>
@@ -780,6 +822,13 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-rs-table th, .ct-rs-table td { padding: .3rem .5rem; border-bottom: 1px solid var(--border-color); text-align: left; }
     .ct-rs-table th { color: var(--text-muted); font-weight: 600; }
     .ct-det-contact { display: flex; gap: .6rem; flex-basis: 100%; margin-top: .5rem; }
+    /* [CXC.48] Teléfonos: una línea por teléfono; la edición en su renglón, sin diálogo. */
+    .ct-tels { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; margin-top: .5rem; font-size: var(--fs-sm, .82rem); }
+    .ct-tel { display: inline-flex; align-items: baseline; gap: .45rem; }
+    .ct-tel b { font-variant-numeric: tabular-nums; }
+    .ct-tel-dif { color: var(--warn-soft-fg); }
+    .ct-tel-form { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .ct-tel-form input { width: 12rem; }
     /* [CXC.44] El único botón de entrega: es la acción primaria de la ficha, así que lleva el color de acción. */
     .ct-send { display: inline-flex; align-items: center; gap: .55rem; min-height: 40px; padding: .35rem .9rem; border-radius: 8px;
       border: 1px solid var(--action); background: var(--action); color: var(--action-ink); text-decoration: none; font-size: .82rem; }
@@ -1191,7 +1240,106 @@ export class FinanzasCarteraComponent implements OnInit {
 
   /** `[CXC.47]` Al vendedor: sin teléfono en ningún sistema (medido), wa.me sin número abre WhatsApp para elegir el chat. */
   waLinkVendedor(det: CarteraDetalle): string {
-    return `https://wa.me/?text=${encodeURIComponent(mensajeVendedor(det, this.enlaceDeposito(), this.periodoMensaje()))}`;
+    // `[CXC.48]` Con el teléfono del vendedor guardado, el chat abre directo; sin él, se elige en WhatsApp.
+    const tel = this.tels()?.vendedor?.telefono || '';
+    return `https://wa.me/${tel ? `52${tel}` : ''}?text=${encodeURIComponent(mensajeVendedor(det, this.enlaceDeposito(), this.periodoMensaje()))}`;
+  }
+
+  // ── `[CXC.48]` Teléfonos: el del cliente se corrige EN KEPLER (cada sucursal donde está), el del vendedor en la Suite ──
+  readonly tels = signal<TelefonosCuenta | null>(null);
+  private telsSub?: Subscription;
+  /** Qué teléfono se está editando. */
+  readonly editarTel = signal<'cliente' | 'vendedor' | null>(null);
+  telNuevo = '';
+  readonly telBusy = signal(false);
+  readonly telAviso = signal<{ texto: string; error: boolean } | null>(null);
+  /** La llave que deja corregir teléfonos (escribe en Kepler). Sin ella, los teléfonos se ven y no se editan. */
+  readonly puedeTelefonos = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_CARTERA_TELEFONOS] === true);
+
+  /** El teléfono del cliente en la sucursal de la cuenta, y cómo está en las demás donde está dado de alta. */
+  readonly telCliente = computed(() => {
+    const t = this.tels(); const det = this.detalle();
+    if (!t || !det) return null;
+    const propio = t.sucursales.find((x) => x.sucursal === det.cliente.sucursal)?.telefono ?? null;
+    const digitos = (v: string | null) => (v || '').replace(/\D/g, '');
+    const distintas = t.sucursales.filter((x) => digitos(x.telefono) !== digitos(propio)).length;
+    const n = t.sucursales.length;
+    const resumen = n === 1 ? 'dado de alta en 1 sucursal'
+      : distintas === 0 ? `igual en las ${n} sucursales donde está dado de alta`
+      : `distinto en ${distintas} de ${n} sucursales`;
+    return { telefono: propio, resumen, distintas };
+  });
+
+  private pedirTelefonos(det: CarteraDetalle): void {
+    this.telsSub?.unsubscribe();
+    this.telsSub = this.svc.telefonos(det.cliente.sucursal, det.cliente.cliente_code, det.cliente.vendedor)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (t) => { if (this.detalleRef()?.cliente === det.cliente.cliente_code) this.tels.set(t); },
+        // Sin los teléfonos la ficha sigue: el de `det.cliente.telefono` sirve para enviar. Se dice, no se calla.
+        error: (e) => this.telAviso.set({ texto: `No se pudieron leer los teléfonos. ${e?.error?.message || ''}`.trim(), error: true }),
+      });
+  }
+
+  abrirEdicionTel(cual: 'cliente' | 'vendedor'): void {
+    this.telAviso.set(null);
+    this.telNuevo = (cual === 'cliente' ? this.telCliente()?.telefono : this.tels()?.vendedor?.telefono) || '';
+    this.editarTel.set(cual);
+  }
+
+  guardarTel(det: CarteraDetalle): void {
+    const cual = this.editarTel();
+    if (!cual || this.telBusy()) return;
+    this.telBusy.set(true);
+    this.telAviso.set(null);
+    const c = det.cliente;
+    const fin = () => this.telBusy.set(false);
+    const fallo = (e: { error?: { message?: string }; message?: string }) => {
+      fin();
+      this.telAviso.set({ texto: `No se guardó. ${e?.error?.message || e?.message || ''}`.trim(), error: true });
+    };
+    if (cual === 'vendedor') {
+      const v = this.tels()?.vendedor;
+      if (!v) { fin(); return; }
+      this.svc.cambiarTelefonoVendedor(v.sucursal, v.code, this.telNuevo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          fin();
+          const t = this.tels();
+          if (t?.vendedor) this.tels.set({ ...t, vendedor: { ...t.vendedor, telefono: r.telefono } });
+          this.editarTel.set(null);
+          this.telAviso.set({ texto: `Teléfono del vendedor guardado: ${r.telefono}.`, error: false });
+        },
+        error: fallo,
+      });
+      return;
+    }
+    this.svc.cambiarTelefonoCliente(c.sucursal, c.cliente_code, this.telNuevo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        fin();
+        const cuenta = (e: string) => r.servidores.filter((x) => x.estado === e && x.servidor !== 'SC').length;
+        const malas = r.servidores.filter((x) => x.estado === 'rechazada');
+        const nuevo = this.telNuevo.replace(/\D/g, '').slice(-10);
+        // Lo escrito se refleja ya; el ODS lo confirma por la cola de cambios en segundos.
+        const t = this.tels();
+        if (t) {
+          const buenas = new Set(r.servidores.filter((x) => x.estado === 'escrita' || x.estado === 'ya_estaba').map((x) => x.servidor));
+          this.tels.set({ ...t, sucursales: t.sucursales.map((x) => (buenas.has(x.sucursal) ? { ...x, telefono: nuevo } : x)) });
+        }
+        if (r.estado !== 'rechazado') {
+          const d = this.detalle();
+          if (d) this.detalle.set({ ...d, cliente: { ...d.cliente, telefono: nuevo } });
+          this.cacheDet.delete(`${c.sucursal}|${c.cliente_code}`);
+        }
+        const partes = [`${cuenta('escrita')} actualizada(s)`];
+        if (cuenta('ya_estaba')) partes.push(`${cuenta('ya_estaba')} ya lo tenía(n)`);
+        if (cuenta('no_esta')) partes.push(`no está dado de alta en ${cuenta('no_esta')}`);
+        this.editarTel.set(null);
+        this.telAviso.set(malas.length
+          ? { texto: `Kepler no aceptó el cambio en: ${malas.map((x) => (x.servidor === 'SC' ? 'concentrador' : x.servidor)).join(', ')}. ${malas[0].motivo || ''}`.trim(), error: true }
+          : { texto: `Teléfono guardado en Kepler: ${partes.join(' · ')}.`, error: false });
+      },
+      error: fallo,
+    });
   }
 
   /**
@@ -1282,6 +1430,7 @@ export class FinanzasCarteraComponent implements OnInit {
   }
   private limpiarFicha() {
     this.enlaceDeposito.set(null); this.enlaceSub?.unsubscribe();
+    this.tels.set(null); this.telsSub?.unsubscribe(); this.editarTel.set(null); this.telAviso.set(null);
     this.verSaldadas.set(false);
     this.pdfAviso.set(null);
     this.contactoError.set(null);
@@ -1389,6 +1538,7 @@ export class FinanzasCarteraComponent implements OnInit {
       this.detalle.set(enCache); this.detalleLoading.set(false);
       this.precargarSiguiente();
       this.pedirEnlace(sucursal, cliente);
+      this.pedirTelefonos(enCache);
       return;
     }
     this.detalle.set(null); this.detalleLoading.set(true);
@@ -1398,6 +1548,7 @@ export class FinanzasCarteraComponent implements OnInit {
         this.detalle.set(d); this.detalleLoading.set(false);
         this.precargarSiguiente();
         this.pedirEnlace(sucursal, cliente);
+        this.pedirTelefonos(d);
       },
       error: (e) => { this.detalleError.set(e?.error?.message || e?.message || 'error'); this.detalleLoading.set(false); },
     });

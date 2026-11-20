@@ -588,6 +588,8 @@ export enum Permission {
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
+  /** `[CXC.48]` Corregir teléfonos de la cartera: el del cliente se escribe en Kepler (kdud.c7, cada base donde está); el del vendedor queda en la Suite. */
+  FINANCE_CARTERA_TELEFONOS = 'FINANCE_CARTERA_TELEFONOS',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas

@@ -1880,6 +1880,40 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         periodo, PDF sin periodo, siempre «por defecto», vendedor como botón primario: 4/4). `ngc --noEmit`: 0 errores;
         `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual** (ni del PDF ni de la ficha).
         Arranque: sólo se agregó un `@Query` de tipo `string` (sin tocar constructores); `design:paramtypes` no medido.
+- [ ] **[CXC.48]** 🧪 (en código, sin soltar; la escritura en Kepler nace APAGADA) **Los teléfonos de la cartera: el del
+      cliente se corrige EN KEPLER en cada sucursal donde está dado de alta, y el del vendedor en la Suite** (Edgar,
+      2026-11-20: «actualizar los números de teléfono e insertarlos en Kepler, dependiendo en cuántas sucursales esté
+      dado de alta, y el del vendedor»).
+      · **Medido (prod, sólo lectura):** el teléfono es `kdud.c7` (la forma `md_cat_cli.kpl` deja la columna 7 con
+        teléfonos en `kdlogmov`, 373 cambios en las 9). Un cambio hecho en UNA sucursal no llega a las otras (el cliente
+        30172, editado en la 05: las otras 7 siguen igual): por eso se escribe en cada base. De ~3,000 claves, 2,401
+        están en las 9 sucursales y 2,013 de ellas sin teléfono. En `kduv` (vendedores) no hay columna de teléfono que se
+        pueda nombrar (c8–c21 vacías en las 400 filas; el recurso con las formas de Kepler no fue alcanzable): **el del
+        vendedor se guarda en la Suite** (`commercial.seller_phones`), sin adivinar una columna.
+      · **C0** migración `20261120125622_cxc48_telefonos_cartera.js`: `finance.customer_phone_changes` (quién, antes,
+        después y qué contestó cada base: Kepler sólo verá «SUITE»), `commercial.seller_phones`, el tipo
+        `telefono_cliente` del interruptor (9 renglones APAGADOS, tope 5/día; la restricción se rehace leyendo la
+        vigente) y la llave `FINANCE_CARTERA_TELEFONOS` a `credito_cobranza`.
+      · **C2** `KeplerTelefonoClienteAdapter`: primero pregunta a las 10 bases (concentrador + 00…08); si una no contesta
+        no escribe en NINGUNA. Por base, en su transacción: `UPDATE md.kdud SET c7` sólo donde está la clave
+        (`no_esta` no se toca; el mismo número con otro formato es `ya_estaba`) y el renglón de `kdlogmov` con la columna
+        7, el nuevo y el anterior, como la forma de Kepler. API `finance/cartera-telefonos` (ver, cambiar cliente,
+        cambiar vendedor). El ODS lo trae de vuelta por la cola de cambios (`kdud` está en ella desde CXC.45).
+      · **C3** ficha de Cartera: «Tel. cliente» (y si es distinto en otras sucursales) y «Tel. vendedor», con
+        «Cambiar» para quien tiene la llave; con la escritura apagada el botón dice por qué. Con el teléfono del
+        vendedor guardado, «Enviar al vendedor» abre su chat directo.
+      · **Probado:** adaptador 8/8 (SQL real contra un cliente simulado; mutantes en rojo: escribir donde no está,
+        comparar sin normalizar, seguir con una base caída); Cartera 38/38 (6 nuevas; mutantes en rojo: editar sin
+        llave, pulsar con la escritura apagada, un rechazo dicho como éxito); permisos de contracts 79/79; `ngc
+        --noEmit` 0 errores; `check:pantalla` 0 nuevas. ⚠️ **NO MEDIDO en local:** `database/tests/test-newdb-cartera-
+        telefonos.js` (Postgres real, regla 13) — Docker local no respondió; lo corre `pruebas-db` en el CI. Contra
+        Kepler: sólo el ensayo con ROLLBACK (abajo). **Sin validación visual.** Arranque: controlador y servicio nuevos
+        con aridad fijada en la spec; `design:paramtypes` no medido.
+      · ⛔ **Para encender (Edgar), en este orden:** (1) aplicar la migración; (2) `KEPLER_PUSH_URL_SC` en el secreto
+        `kepler-push` (el mismo paso 2 de ALC §13); (3) en las 10 bases, para ese usuario: `GRANT SELECT, UPDATE (c7) ON
+        md.kdud` e `INSERT ON md.kdlogmov`; (4) un ensayo con ROLLBACK contra las 10; (5) encender UNA sucursal
+        (`kepler_push_switch`, tipo `telefono_cliente`) y revisar el primer cambio en la ficha de Kepler de dos
+        sucursales y en el concentrador.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
