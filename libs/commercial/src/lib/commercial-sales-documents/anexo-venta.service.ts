@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as puppeteer from 'puppeteer';
 import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
-import { warehouseName } from '@megadulces/contracts';
+import { importeConLetra, warehouseName } from '@megadulces/contracts';
 
 /**
  * AX.4 — Anexo informativo al CFDI (+ pagaré desprendible), en PDF.
@@ -333,32 +333,13 @@ export class AnexoVentaService {
       .map((x) => x.v);
   }
 
-  /** Importe con letra (pesos MXN). Sin dependencia externa: el documento debe ser autosuficiente. */
+  /**
+   * Importe con letra (pesos MXN). `[PGP.165]` Es el de `@megadulces/contracts`, el mismo del cheque (ADR-056): la
+   * copia privada que vivía aquí escribía «sesenta y uno mil … setenta y uno pesos», «veintiuno mil» y «un millón
+   * pesos». El redondeo a centavos es el de siempre; la primera letra va en mayúscula, como antes.
+   */
   private conLetra(n: number): string {
-    const ent = Math.floor(n);
-    const cent = Math.round((n - ent) * 100);
-    return `${this.letras(ent)} pesos ${String(cent).padStart(2, '0')}/100 M.N.`.replace(/^./, (c) => c.toUpperCase());
-  }
-  private letras(n: number): string {
-    if (n === 0) return 'cero';
-    if (n === 100) return 'cien';
-    const U = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez',
-      'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete', 'dieciocho', 'diecinueve'];
-    const D = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
-    const C = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
-      'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
-    if (n < 20) return U[n];
-    if (n < 30) return n === 20 ? 'veinte' : `veinti${U[n - 20]}`;
-    if (n < 100) return D[Math.floor(n / 10)] + (n % 10 ? ` y ${U[n % 10]}` : '');
-    if (n < 1000) return C[Math.floor(n / 100)] + (n % 100 ? ` ${this.letras(n % 100)}` : '');
-    if (n < 1e6) {
-      const miles = Math.floor(n / 1000);
-      const pre = miles === 1 ? 'mil' : `${this.letras(miles)} mil`;
-      return pre + (n % 1000 ? ` ${this.letras(n % 1000)}` : '');
-    }
-    const mill = Math.floor(n / 1e6);
-    const pre = mill === 1 ? 'un millón' : `${this.letras(mill)} millones`;
-    return pre + (n % 1e6 ? ` ${this.letras(n % 1e6)}` : '');
+    return importeConLetra(Math.round(Number(n) * 100)).replace(/^./, (c) => c.toUpperCase());
   }
 
   /**

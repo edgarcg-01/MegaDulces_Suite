@@ -233,10 +233,14 @@ export * from './finance/salida-proveedor.contract';
 export * from './finance/corte-suelta.contract';
 // `[PGP.117]` A la semana, el pago que nadie pagó se libera del Calendario y queda en la bitácora.
 export * from './finance/pago-vencido.contract';
+// `[PGP.165]` El importe con letra del cheque (y del anexo de venta): centavos enteros, «un» delante de mil/millón/peso.
+export * from './finance/importe-con-letra';
 // `[PGP.118]` Anticipos a proveedor: el submódulo de Deuda con proveedores.
 export * from './finance/anticipos.contract';
 // `[PGP.155]` A una cuenta sin CLABE se transfiere sólo desde una cuenta nuestra del mismo banco.
 export * from './finance/mismo-banco.contract';
+// `[PGP.157]` Dónde se entrega el efectivo, y el anticipo autorizado que Caja General tiene por entregar.
+export * from './finance/entrega-efectivo.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).

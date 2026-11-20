@@ -36,6 +36,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, proponerAnticipos, round2, type AnticipoOfrecido, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
 import { disponibleDeAnticipo, llaveAnticipo, tipoDeAcreedor, type AnticipoRow } from '@megadulces/contracts';
+// `[PGP.157]` El nombre de la base de un anticipo (la 00 es Oficinas, no CEDIS).
+import { nombreDeBase } from '@megadulces/contracts';
 // `[PGP.129]` Los anticipos que Compras pidió para el día (D13) y la cotización a un clic.
 import { anticiposDelDia, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { PedirAnticipoDialogComponent, diaInicialDelAnticipo, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
@@ -1435,7 +1437,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <label class="cal-dlg-label" for="cal-prep-ref">Folio del cheque</label>
         <input id="cal-prep-ref" pInputText type="text" [(ngModel)]="prepReference" placeholder="Folio" class="cal-dlg-full" />
       }
-      @if (prepMethod === 'efectivo') {
+      @if (prepMethod === 'efectivo' && prepAllocation && esPagoDeAnticipo(prepAllocation)) {
+        <!-- [PGP.157] Un anticipo en efectivo sale de la Caja General de SU base: cada base cuadra sola (Francisco,
+             2026-11-19). El de una compra de Morelia sale de la 08, se captura en su Kepler y se aplica a su factura.
+             La caja no se teclea: la pone el servidor. Y no es X-D-26 sino X-D-60: el aviso de abajo no le aplica. -->
+        <p class="cal-dlg-label">Caja de salida</p>
+        <p class="cal-dlg-hint cal-caja-anticipo"><i class="pi pi-wallet" aria-hidden="true"></i> Sale de la <b>Caja General de {{ nombreBase(sucursalDelAnticipo(prepAllocation)) }}</b>, la base del anticipo: ahí se captura su <b>X-D-60</b> y ahí se aplica a su factura. Al autorizarlo, Caja General lo ve en Captura «por entregar».</p>
+      } @else if (prepMethod === 'efectivo') {
         <label class="cal-dlg-label" for="cal-prep-cash">Caja de salida</label>
         <input id="cal-prep-cash" pInputText type="text" [(ngModel)]="prepCash" placeholder="Caja" class="cal-dlg-full" />
         <!-- [PGP.33] Se dice ANTES de elegirlo. Kepler (kdm1.c31) sólo distingue transferencia,
@@ -5653,6 +5661,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** `[PGP.128]` El pago lleva un anticipo pedido en la Suite: se transfiere sólo a una cuenta aprobada (el servidor lo exige igual). */
   esPagoDeAnticipo(a: PaymentCalendarAllocation): boolean { return (a.items ?? []).some((it) => it.es_anticipo === true); }
+  /** `[PGP.157]` La base del anticipo (la de su OC): de su Caja General sale el efectivo. */
+  sucursalDelAnticipo(a: PaymentCalendarAllocation): string | null { return (a.items ?? []).find((it) => it.es_anticipo === true)?.branch_code ?? null; }
+  nombreBase(c: string | null | undefined): string { return c ? nombreDeBase(c) : 'su sucursal'; }
 
   // ── Preparar UN pago (origen + destino: lo que pide el layout) ─────────────
   openPrepare(a: PaymentCalendarAllocation): void {

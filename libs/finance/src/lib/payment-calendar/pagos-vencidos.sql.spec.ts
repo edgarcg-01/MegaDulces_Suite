@@ -1,4 +1,22 @@
-import { SQL_LIBERADOS_QUE_SALIERON, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco, testigoDelBanco } from './pagos-vencidos.sql';
+import {
+  SQL_ES_CHEQUE_EMITIDO, SQL_LIBERADOS_QUE_SALIERON, SQL_PENDIENTES_VENCIDOS, SQL_SALIDA_DE_BANCO, notaReabierto, paramsSalidaDeBanco, testigoDelBanco,
+} from './pagos-vencidos.sql';
+
+/**
+ * `[PGP.173]` La lectura de los vencidos trae si el pago es un cheque emitido. El predicado contra Postgres real corre en
+ * `database/tests/test-newdb-pgp173-cheque-no-se-libera.js`; aquí, que la consulta lo trae y no cambió sus parámetros.
+ */
+describe('[PGP.173] los vencidos dicen si son un cheque emitido', () => {
+  it('la consulta trae `cheque_emitido` con el predicado compartido, y sigue pidiendo [tenant, hoy]', () => {
+    expect(SQL_PENDIENTES_VENCIDOS).toContain(`${SQL_ES_CHEQUE_EMITIDO} AS cheque_emitido`);
+    expect((SQL_PENDIENTES_VENCIDOS.match(/\?/g) ?? []).length).toBe(2);
+  });
+
+  it('el predicado exige método cheque Y un número en la referencia', () => {
+    expect(SQL_ES_CHEQUE_EMITIDO).toContain(`a.payment_method = 'cheque'`);
+    expect(SQL_ES_CHEQUE_EMITIDO).toContain(`~ '[0-9]{3,}'`);
+  });
+});
 
 /**
  * `[PGP.149]` El testigo del banco de la liberación a la semana. La consulta corre contra base real en

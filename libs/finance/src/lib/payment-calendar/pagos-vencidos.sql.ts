@@ -7,6 +7,14 @@ import { DIAS_ANTES_BANCO, DIAS_PARA_LIBERAR, TOLERANCIA_BANCO } from '@megadulc
 import type { Knex } from 'knex';
 
 /**
+ * `[PGP.173]` **Qué es un cheque emitido**, mientras la chequera no viva en la Suite (`[PGP.167]`): un pago con
+ * método `cheque` cuyo número ya está en la referencia (Tesorería lo teclea al llenarlo: 28 de 28 en noviembre, de 4
+ * y 5 dígitos). Un pago «cheque» sin número todavía no tiene papel y sigue la regla de todos. Se exige un número de
+ * 3 dígitos o más para no tomar una nota cualquiera como folio.
+ */
+export const SQL_ES_CHEQUE_EMITIDO = `(a.payment_method = 'cheque' AND coalesce(a.reference_text, '') ~ '[0-9]{3,}')`;
+
+/**
  * Los pagos pendientes cuyo día pasó hace `DIAS_PARA_LIBERAR` días o más. Parámetros:
  * `[tenant_id, hoy (YYYY-MM-DD)]`. Las fechas salen como texto para no depender de la zona del proceso.
  */
@@ -15,7 +23,8 @@ export const SQL_PENDIENTES_VENCIDOS = `
          to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
          a.amount_assigned::float8 AS monto, a.classification, a.created_by, a.authorized_by, a.notes,
          l.status AS lot_status, a.bank_account_id::text AS cuenta,
-         (a.kepler_payment_folio IS NOT NULL OR a.paid_bank_movement_id IS NOT NULL) AS ligado
+         (a.kepler_payment_folio IS NOT NULL OR a.paid_bank_movement_id IS NOT NULL) AS ligado,
+         ${SQL_ES_CHEQUE_EMITIDO} AS cheque_emitido
     FROM finance.payment_allocations a
     JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
    WHERE a.tenant_id = ? AND a.status = 'pending'
@@ -84,6 +93,8 @@ export interface FilaPendienteVencido {
   created_by: string | null; authorized_by: string | null; notes: string | null; lot_status: string | null; ligado: boolean;
   /** `[PGP.149]` La cuenta preparada (null = nadie la preparó: se exige la cobertura de todas). */
   cuenta: string | null;
+  /** `[PGP.173]` Con cheque y su número en la referencia (`SQL_ES_CHEQUE_EMITIDO`). */
+  cheque_emitido: boolean;
 }
 
 /** `[PGP.149]` El evento de la bitácora al regresar un pago que se liberó habiendo salido del banco. */

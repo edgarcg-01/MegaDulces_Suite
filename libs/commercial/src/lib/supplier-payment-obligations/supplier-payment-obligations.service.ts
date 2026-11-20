@@ -11,7 +11,9 @@ import {
   type AnticipoOcKeplerRow, type AnticipoProveedorRow, type AnticipoSolicitadoRow, type AnticipoSolicitudBody, type CandidatoAnticipoKepler,
   type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada, type RefOcKepler,
 } from '@megadulces/contracts';
-import { SQL_ANTICIPOS_KEPLER_MERCANCIA, SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS_KEPLER } from './anticipo-solicitado.sql';
+// `[PGP.157]` El anticipo en efectivo que Caja General tiene por entregar: la regla vive en el contrato.
+import { partirMotivo, porEntregar, xd60DeLaEntrega, type AnticipoPorEntregarRow, type PagoDeEntrega } from '@megadulces/contracts';
+import { SQL_ANTICIPOS_KEPLER_MERCANCIA, SQL_ANTICIPOS_SOLICITADOS, SQL_ANTICIPO_OCS_KEPLER, SQL_PAGOS_EFECTIVO_DE_ANTICIPOS } from './anticipo-solicitado.sql';
 
 /** `[PGP.127]` La cotización: PDF o foto, hasta 10 MB (la ruta tiene su parser de 16 MB en `main.ts`). */
 const TIPOS_COTIZACION = /^data:(application\/pdf|image\/(png|jpe?g|webp|heic|heif))[;,]/i;
@@ -486,25 +488,77 @@ export class SupplierPaymentObligationsService {
    */
   async listAnticiposSolicitados(): Promise<AnticipoSolicitadoRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) => {
-      type Cruda = Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa' | 'cuenta'> & {
-        candidatos: CandidatoAnticipoKepler[]; tenant_id?: string;
-        payee_clabe: string | null; payee_cuenta: string | null; banco_aprobada: string | null; solicitud_estado: string | null; solicitud_banco: string | null;
+    return this.tk.run((trx) => this.solicitudesConEtapa(trx, tenantId));
+  }
+
+  /**
+   * `[PGP.119]` Las solicitudes con su `X-D-60` pareado y su etapa — la MISMA lectura para el seguimiento y para
+   * Caja General (`[PGP.157]`).
+   */
+  private async solicitudesConEtapa(trx: Knex.Transaction, tenantId: string): Promise<AnticipoSolicitadoRow[]> {
+    type Cruda = Omit<AnticipoSolicitadoRow, 'kepler' | 'posibles' | 'etapa' | 'cuenta'> & {
+      candidatos: CandidatoAnticipoKepler[]; tenant_id?: string;
+      payee_clabe: string | null; payee_cuenta: string | null; banco_aprobada: string | null; solicitud_estado: string | null; solicitud_banco: string | null;
+    };
+    const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as Cruda[];
+    const pareo = parearSolicitudes(rows);
+    return rows.map(({ candidatos, tenant_id, payee_clabe, payee_cuenta, banco_aprobada, solicitud_estado, solicitud_banco, ...r }) => {
+      void candidatos; void tenant_id;
+      const p = pareo.get(r.obligation_id) ?? { kepler: null, posibles: 0 };
+      const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), disponible: Number(r.disponible), kepler: p.kepler, posibles: p.posibles };
+      // `[PGP.127]` La cuenta se deriva aquí, con la regla del contrato: nunca se guarda su estado.
+      // `[PGP.155]` Con CLABE o, sin ella, con el número de cuenta del mismo banco.
+      const cuenta = {
+        estado: estadoCuentaAnticipo({ payee_clabe, payee_cuenta, tiene_cotizacion: !!r.tiene_cotizacion, banco_aprobada, solicitud_estado }),
+        clabe: payee_clabe, numero: payee_cuenta ?? null, banco: banco_aprobada ?? solicitud_banco ?? null,
       };
-      const rows = (await trx.raw(SQL_ANTICIPOS_SOLICITADOS, [tenantId])).rows as Cruda[];
-      const pareo = parearSolicitudes(rows);
-      return rows.map(({ candidatos, tenant_id, payee_clabe, payee_cuenta, banco_aprobada, solicitud_estado, solicitud_banco, ...r }) => {
-        void candidatos; void tenant_id;
-        const p = pareo.get(r.obligation_id) ?? { kepler: null, posibles: 0 };
-        const fila = { ...r, monto: Number(r.monto), pagado: Number(r.pagado), disponible: Number(r.disponible), kepler: p.kepler, posibles: p.posibles };
-        // `[PGP.127]` La cuenta se deriva aquí, con la regla del contrato: nunca se guarda su estado.
-        // `[PGP.155]` Con CLABE o, sin ella, con el número de cuenta del mismo banco.
-        const cuenta = {
-          estado: estadoCuentaAnticipo({ payee_clabe, payee_cuenta, tiene_cotizacion: !!r.tiene_cotizacion, banco_aprobada, solicitud_estado }),
-          clabe: payee_clabe, numero: payee_cuenta ?? null, banco: banco_aprobada ?? solicitud_banco ?? null,
-        };
-        return { ...fila, cubierto_el: r.cubierto_el ?? null, ocs: r.ocs ?? [], cuenta, etapa: etapaDeSolicitud(fila) };
-      });
+      return { ...fila, cubierto_el: r.cubierto_el ?? null, ocs: r.ocs ?? [], cuenta, etapa: etapaDeSolicitud(fila) };
+    });
+  }
+
+  /**
+   * `[PGP.157]` **Los anticipos en efectivo que Caja General tiene por entregar**, UNO POR PAGO del Calendario (un
+   * anticipo partido en dos pagos son dos renglones, cada uno con su importe). Nace al AUTORIZAR el pago (el pago solo
+   * o su día) y se va solo cuando Kepler tiene SU `X-D-60` (uno de antes de la autorización no cuenta: se dice). El
+   * efectivo sale de la Caja General de la BASE del anticipo (cada base cuadra sola). No se copia nada: se deriva del
+   * pago y del pareo del seguimiento. La regla vive en el contrato (`porEntregar`, `xd60DeLaEntrega`).
+   */
+  async listAnticiposPorEntregar(): Promise<AnticipoPorEntregarRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      type Pago = PagoDeEntrega & {
+        allocation_id: string; obligation_id: string; importe: number; pago_folio: string | null; dia: string;
+        autorizado_por: string | null; autorizado_el: string | null;
+      };
+      const crudos = (await trx.raw(SQL_PAGOS_EFECTIVO_DE_ANTICIPOS, [tenantId])).rows as Pago[];
+      if (!crudos.length) return [];
+      // Un pago con dos renglones del mismo anticipo es una sola entrega: se suman.
+      const pagos = new Map<string, Pago>();
+      for (const p of crudos) {
+        const k = `${p.allocation_id}|${p.obligation_id}`;
+        const ya = pagos.get(k);
+        if (ya) ya.importe = Number(ya.importe) + Number(p.importe);
+        else pagos.set(k, { ...p, importe: Number(p.importe) });
+      }
+      const solicitudes = new Map((await this.solicitudesConEtapa(trx, tenantId)).map((s) => [s.obligation_id, s]));
+      const out: AnticipoPorEntregarRow[] = [];
+      for (const p of pagos.values()) {
+        // ⚠️ Un anticipo de hace más de 180 días sale del seguimiento y, con él, de aquí: se declara en el tracker.
+        const s = solicitudes.get(p.obligation_id);
+        if (!s) continue;
+        const con_xd60 = xd60DeLaEntrega(s.kepler, p.autorizado_el ?? p.dia);
+        if (!porEntregar({ ...p, etapa: s.etapa, con_xd60 })) continue;
+        out.push({
+          obligation_id: p.obligation_id, allocation_id: p.allocation_id, pago_folio: p.pago_folio, programado_dia: p.dia,
+          proveedor: s.proveedor, proveedor_nombre: s.proveedor_nombre, sucursal: s.sucursal,
+          monto: Number(p.importe), monto_anticipo: s.monto, motivo: partirMotivo(s.motivo).motivo, ocs: s.ocs,
+          autorizado_por: p.autorizado_por ?? null, autorizado_el: p.autorizado_el ?? null,
+          kepler_previo: s.kepler ?? null,
+        });
+      }
+      // El día del Calendario más cercano primero; a la par, por proveedor y pago.
+      return out.sort((a, b) => String(a.programado_dia ?? '').localeCompare(String(b.programado_dia ?? ''))
+        || a.proveedor.localeCompare(b.proveedor) || a.allocation_id.localeCompare(b.allocation_id));
     });
   }
 

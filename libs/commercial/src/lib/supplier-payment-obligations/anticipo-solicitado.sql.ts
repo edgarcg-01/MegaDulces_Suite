@@ -6,6 +6,7 @@
  *    después. El uno a uno lo decide `parearSolicitudes` (contrato). Control negativo medido el
  *    2026-11-13: 4 de 143 anticipos de 12 meses tienen un gemelo así.
  */
+import { ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 
 /**
  * Las solicitudes de anticipo de 180 días con su pago del Calendario y sus candidatos de Kepler.
@@ -118,3 +119,21 @@ export const SQL_ANTICIPOS_KEPLER_MERCANCIA = `SELECT k.sucursal, btrim(k.c2) AS
  WHERE btrim(k.c1) = k.sucursal AND btrim(k.c3) = 'D' AND k.c4::int = 60 AND btrim(k.c2) LIKE 'C%'
    AND k.c7::date >= ?::date
  ORDER BY k.c7 DESC, btrim(k.c6) DESC`;
+
+/**
+ * `[PGP.157]` **Los pagos del Calendario en EFECTIVO, ya autorizados, que llevan un anticipo** — uno por pago y
+ * anticipo (un anticipo partido en dos pagos son dos renglones, cada uno con SU importe). Autorizado = el pago solo
+ * (`[PGP.113]`) o su día completo (`ESTADOS_DIA_AUTORIZADO`). Parámetros: `[tenant_id]`.
+ */
+export const SQL_PAGOS_EFECTIVO_DE_ANTICIPOS = `SELECT a.id::text AS allocation_id, i.obligation_id::text AS obligation_id,
+       i.applied_amount::float8 AS importe, a.folio AS pago_folio, a.status AS pago_estado, a.payment_method AS pago_metodo,
+       to_char(l.lot_date, 'YYYY-MM-DD') AS dia, true AS pago_autorizado,
+       coalesce(a.authorized_by, l.released_by) AS autorizado_por,
+       to_char(coalesce(a.authorized_at, l.released_at) AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD"T"HH24:MI') AS autorizado_el
+  FROM finance.payment_allocation_items i
+  JOIN finance.payment_allocations a ON a.id = i.allocation_id AND a.status <> 'cancelled' AND a.payment_method = 'efectivo'
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+  JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = i.tenant_id AND o.nature = 'anticipo'
+ WHERE i.tenant_id = ? AND i.obligation_source = 'supplier_payable'
+   AND (a.authorized_at IS NOT NULL OR l.status IN (${ESTADOS_DIA_AUTORIZADO.map((s) => `'${s}'`).join(', ')}))
+ ORDER BY l.lot_date, a.id, i.id`;
