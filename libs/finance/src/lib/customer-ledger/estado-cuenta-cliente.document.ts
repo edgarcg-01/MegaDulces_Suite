@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, pagadaEnPeriodo, restarMeses } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { CustomerLedgerService } from './customer-ledger.service';
 import { CustomerDepositsService } from '../collection-deposits/customer-deposits.service';
@@ -12,10 +13,13 @@ const RFC_GENERICOS = new Set(['XAXX010101000', 'XEXX010101000']);
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto',
   'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
+/** Un cobro, nota de crédito o devolución que Kepler aplicó a la factura (`kdm5`). */
+interface AplicacionEC { label?: string | null; folio?: string | null; fecha?: string | null; monto?: number | string | null }
 /** Lo que este documento lee del auxiliar (`CustomerLedgerService.detalle`). */
 interface PartidaEC {
   doc_label: string; folio_digital: string; fecha: string | null; vencimiento: string | null;
   importe: number; saldo_documento: number; dias_vencido: number | null; vencida: boolean; saldada: boolean;
+  pagada_el?: string | null; aplicaciones?: AplicacionEC[] | null;
 }
 export interface DetalleEC {
   hoy: string;
@@ -42,6 +46,23 @@ export function antiguedad(partidas: PartidaEC[]): { etiqueta: string; monto: nu
     t[i].monto = Math.round((t[i].monto + p.saldo_documento) * 100) / 100;
   }
   return t;
+}
+
+/**
+ * `[CXC.47]` Desde cuándo salen las facturas pagadas (la regla y su default medido viven en `@megadulces/contracts`,
+ * `estado-cuenta-periodo`, la misma que usa la pantalla). Sin valor → los últimos 3 meses; `todo` →
+ * `null` (toda la historia que hay); una fecha `AAAA-MM-DD` → esa. Lo que no es ninguna de las tres, o una fecha
+ * después del corte, se RECHAZA: un periodo mal escrito que cayera en el default daría un documento que nadie pidió.
+ */
+export function resolverDesde(hoy: string, crudo?: string | null): string | null {
+  const v = (crudo ?? '').trim();
+  if (!v) return restarMeses(hoy, MESES_ESTADO_CUENTA_POR_DEFECTO);
+  if (v === 'todo') return null;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
+    && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+  if (!ok) throw new BadRequestException(`date_from inválido: «${v}». Usa AAAA-MM-DD o «todo».`);
+  if (v > hoy) throw new BadRequestException(`date_from (${v}) es posterior al corte (${hoy}).`);
+  return v;
 }
 
 const fechaCorta = (f: string | null) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
@@ -74,9 +95,11 @@ export class EstadoCuentaClienteDocument {
     @Optional() private readonly depositos?: CustomerDepositsService,
   ) {}
 
-  async render(sucursal: string, cliente: string, origin?: string): Promise<{ pdf: Buffer; nombre: string }> {
+  /** `[CXC.47]` `dateFrom`: desde cuándo salen las pagadas (ver `resolverDesde`); las abiertas salen todas. */
+  async render(sucursal: string, cliente: string, origin?: string, dateFrom?: string | null): Promise<{ pdf: Buffer; nombre: string }> {
     const det = (await this.ledger.detalle(sucursal, cliente)) as unknown as DetalleEC;
     if (!det?.cliente) throw new NotFoundException(`No hay cartera del cliente ${cliente} en esa sucursal.`);
+    const desde = resolverDesde(det.hoy, dateFrom);
     const emisor = await this.emisor();
     // `[CC.20]` El QR de su enlace personal para subir la ficha de depósito. Si no se puede armar (sin origen público),
     // el PDF sale igual, sin QR: el enlace es una comodidad, no una condición del estado de cuenta.
@@ -85,7 +108,7 @@ export class EstadoCuentaClienteDocument {
       const url = this.depositos ? await this.depositos.enlaceDe(sucursal, cliente, origin) : null;
       qr = url ? qrSvg(url, 118) : null;
     } catch { qr = null; }
-    const pdf = await htmlAPdf(this.html(det, emisor, this.logo(), qr), { footer: this.pie(det, emisor) });
+    const pdf = await htmlAPdf(this.html(det, emisor, this.logo(), qr, desde), { footer: this.pie(det, emisor) });
     return { pdf, nombre: `estado-de-cuenta-${det.cliente.cliente_code}-${det.hoy}.pdf` };
   }
 
@@ -123,11 +146,24 @@ export class EstadoCuentaClienteDocument {
   }
 
   /** `public` para probarlo sin Chromium: es el documento entero, menos la conversión. */
-  html(det: DetalleEC, emisor: EmisorEC, logo = '', qrDeposito: string | null = null): string {
+  html(det: DetalleEC, emisor: EmisorEC, logo = '', qrDeposito: string | null = null, desde: string | null = null): string {
     const c = det.cliente;
-    const abiertas = det.partidas
-      .filter((p) => !p.saldada)
-      .sort((a, b) => String(a.fecha ?? '').localeCompare(String(b.fecha ?? '')) || a.folio_digital.localeCompare(b.folio_digital));
+    const porFecha = (a: PartidaEC, b: PartidaEC) =>
+      String(a.fecha ?? '').localeCompare(String(b.fecha ?? '')) || a.folio_digital.localeCompare(b.folio_digital);
+    const abiertas = det.partidas.filter((p) => !p.saldada).sort(porFecha);
+    // `[CXC.47]` Las pagadas del periodo, con lo que las pagó: el cliente ve también lo que ya quedó saldado.
+    const pagadas = det.partidas.filter((p) => pagadaEnPeriodo(p, desde)).sort(porFecha);
+    const totPagado = Math.round(pagadas.reduce((s, p) => s + p.importe, 0) * 100) / 100;
+    // Cada cobro o nota que Kepler aplicó a la factura, debajo de ella: «todo a detalle» (Edgar, 2026-11-20).
+    const subfilas = (p: PartidaEC, cols: number) => (p.aplicaciones || []).map((a) => {
+      const monto = Number(a.monto) || 0;
+      return `<tr class="apl"><td colspan="${cols - 2}">↳ ${esc(a.label || 'Abono')} ${esc(a.folio || '')}</td>
+        <td class="mono">${fechaCorta(a.fecha ?? null)}</td><td class="r mono">−${money(Math.abs(monto))}</td></tr>`;
+    }).join('');
+    // En la tabla de abiertas (8 columnas) el abono va bajo «Abonos»: folio a la izquierda, su fecha bajo «Vence».
+    const subfilasAbierta = (p: PartidaEC) => (p.aplicaciones || []).map((a) => `<tr class="apl"><td colspan="3">↳ ${esc(a.label || 'Abono')} ${esc(a.folio || '')}</td>
+        <td class="mono">${fechaCorta(a.fecha ?? null)}</td><td></td><td class="r mono">${money(Math.abs(Number(a.monto) || 0))}</td><td></td><td></td></tr>`).join('');
+    const periodo = desde ?`del ${fechaCorta(desde)} al ${fechaCorta(det.hoy)}` : `hasta el ${fechaCorta(det.hoy)}, toda la historia registrada`;
     // Lo que NO está vencido y SÍ tiene factura. No es `saldo − vencido`: eso mete en «por vencer»
     // lo que ninguna factura explica, y la tarjeta dejaba de coincidir con la antigüedad de abajo.
     // Ese resto se declara en el saldo total y tiene su renglón en la tabla.
@@ -149,8 +185,12 @@ export class EstadoCuentaClienteDocument {
         <td>${esc(p.doc_label)}</td><td class="mono">${esc(p.folio_digital)}</td>
         <td class="mono">${fechaCorta(p.fecha)}</td><td class="mono">${fechaCorta(p.vencimiento)}</td>
         <td class="r mono">${money(p.importe)}</td><td class="r mono">${abonos > 0.005 ? money(abonos) : '—'}</td>
-        <td class="r mono b">${money(p.saldo_documento)}</td><td>${situ}</td></tr>`;
+        <td class="r mono b">${money(p.saldo_documento)}</td><td>${situ}</td></tr>${subfilasAbierta(p)}`;
     }).join('');
+    const filasPagadas = pagadas.map((p) => `<tr>
+        <td>${esc(p.doc_label)}</td><td class="mono">${esc(p.folio_digital)}</td>
+        <td class="mono">${fechaCorta(p.fecha)}</td><td class="mono">${fechaCorta(p.pagada_el ?? null)}</td>
+        <td class="r mono b">${money(p.importe)}</td></tr>${subfilas(p, 5)}`).join('');
     // Lo que el saldo del cliente tiene y ninguna factura explica: renglón propio, nunca escondido.
     const ajuste = Math.abs(det.sin_documento) > 0.005
       ? `<tr class="ajuste"><td colspan="6">${det.sin_documento > 0 ? 'Saldo no asignado a una factura' : 'Pagos no asignados a una factura'}</td>
@@ -197,6 +237,7 @@ tr.total td{padding:2mm 1.5mm;border-top:1.5px solid var(--ink);border-bottom:0;
 .r{text-align:right}.mono{font-family:Consolas,'Courier New',monospace;font-size:8pt}.b{font-weight:700}
 .venc{color:var(--bad);font-weight:600}.ok{color:var(--good)}
 .ajuste td{font-style:italic;color:var(--ink-2)}
+tr.apl td{padding:.6mm 1.5mm .6mm 5mm;border-bottom:1px dotted var(--line);font-size:7.5pt;color:var(--ink-2)}
 .nota{margin-top:5mm;padding:3mm 4mm;background:var(--soft);border-radius:2mm;font-size:8pt;color:var(--ink-2);line-height:1.45}
 .vacio{padding:6mm;text-align:center;color:var(--muted)}
 .pago{display:flex;gap:5mm;align-items:center;margin-top:5mm;padding:3mm 4mm;border:1.5px solid var(--accent);border-radius:2mm;font-size:9pt;line-height:1.45;page-break-inside:avoid}
@@ -206,7 +247,8 @@ tr.total td{padding:2mm 1.5mm;border-top:1.5px solid var(--ink);border-bottom:0;
 <div class="head">
   <div class="marca">${logo ? `<img src="${logo}" alt="">` : ''}
     <div class="emisor"><b>${esc(emisor.nombre)}</b>RFC ${esc(emisor.rfc)}</div></div>
-  <div class="titulo"><h1>Estado de cuenta</h1><div class="corte">Corte al ${fechaLarga(det.hoy)}</div></div>
+  <div class="titulo"><h1>Estado de cuenta</h1><div class="corte">Corte al ${fechaLarga(det.hoy)}</div>
+    <div class="corte">Periodo: ${periodo}</div></div>
 </div>
 <div class="cli">
   <div><div class="nom">${esc(c.cliente_nombre)}</div>
@@ -216,7 +258,8 @@ tr.total td{padding:2mm 1.5mm;border-top:1.5px solid var(--ink);border-bottom:0;
   <div><dl class="kv">
       ${c.dias_credito ? `<dt>Plazo de crédito</dt><dd>${c.dias_credito} días</dd>` : ''}
       ${c.limite_credito ? `<dt>Línea de crédito</dt><dd>${money(c.limite_credito)}</dd>` : ''}
-      <dt>Facturas abiertas</dt><dd>${abiertas.length}${nVencidas ? ` (${nVencidas} vencida${nVencidas === 1 ? '' : 's'})` : ''}</dd></dl></div>
+      <dt>Facturas abiertas</dt><dd>${abiertas.length}${nVencidas ? ` (${nVencidas} vencida${nVencidas === 1 ? '' : 's'})` : ''}</dd>
+      <dt>Pagadas en el periodo</dt><dd>${pagadas.length}${pagadas.length ? ` por ${money(totPagado)}` : ''}</dd></dl></div>
 </div>
 <div class="res">
   <div class="total"><div class="l">Saldo total</div><div class="v">${money(det.saldo)}</div>
@@ -237,6 +280,12 @@ ${abiertas.length ? `<table>
        página, y en papel un «Total» antes de que terminen las facturas se lee como el total. -->
   <tr class="total"><td colspan="4">Total</td><td class="r mono">${money(totImporte)}</td><td class="r mono">${money(totImporte - totSaldo)}</td><td class="r mono">${money(det.saldo)}</td><td></td></tr></tbody>
 </table>` : `<div class="vacio">Sin facturas pendientes a la fecha de corte.</div>`}
+<h2>Facturas pagadas · ${esc(periodo)}</h2>
+${pagadas.length ? `<table>
+  <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Pagada el</th><th class="r">Importe</th></tr></thead>
+  <tbody>${filasPagadas}
+  <tr class="total"><td colspan="4">Pagado en el periodo · ${pagadas.length} factura${pagadas.length === 1 ? '' : 's'}</td><td class="r mono">${money(totPagado)}</td></tr></tbody>
+</table>` : `<div class="vacio">Sin facturas pagadas en este periodo.</div>`}
 ${qrDeposito ? `<div class="pago">
   <div class="qr">${qrDeposito}</div>
   <div><b>¿Ya depositó?</b> Escanee este código con la cámara de su celular y tome una foto de su ficha de depósito.
@@ -244,6 +293,7 @@ ${qrDeposito ? `<div class="pago">
     <div class="s">El código es personal de su cuenta. No lo comparta.</div></div>
 </div>` : ''}
 <div class="nota">Este estado de cuenta refleja los movimientos registrados al ${fechaLarga(det.hoy)}.
+  Las facturas abiertas salen todas, sin importar su fecha; las pagadas, las del periodo.
   Si ya realizó su pago, le pedimos enviarnos su comprobante para aplicarlo a su cuenta; si tiene
   alguna aclaración, con gusto la atendemos${vendedor ? ` con su vendedor, ${esc(vendedor)},` : ''} o en nuestra área de Crédito y Cobranza.</div>
 </body></html>`;

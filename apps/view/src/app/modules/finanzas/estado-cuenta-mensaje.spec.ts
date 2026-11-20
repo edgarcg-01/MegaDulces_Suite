@@ -1,4 +1,4 @@
-import { mensajeEstadoCuenta } from './estado-cuenta-mensaje';
+import { mensajeEstadoCuenta, mensajeVendedor, pdfPublicoDelEnlace } from './estado-cuenta-mensaje';
 import type { CarteraDetalle, Partida } from './cartera.service';
 
 /**
@@ -11,7 +11,7 @@ const P = (folio: string, over: Partial<Partida> = {}) => ({
 
 const DET = {
   hoy: '2026-11-06',
-  cliente: { cliente_nombre: 'ANAHI ELIZABETH NAVEDA LOPEZ ' },
+  cliente: { cliente_nombre: 'ANAHI ELIZABETH NAVEDA LOPEZ ', cliente_code: 'C1026', vendedor: '501', vendedor_nombre: '501 Victor Manuel Zalapa Barri' },
   saldo: 471609.4, vencido: 471609.4, saldo_a_favor: 0,
   partidas: [
     P('00UD1301-0005449', { dias_vencido: 93 }),
@@ -43,5 +43,48 @@ describe('[CXC.40] mensaje del estado de cuenta', () => {
 
   it('NEGATIVA — sin emojis: es un mensaje de Crédito y Cobranza', () => {
     expect(mensajeEstadoCuenta(DET)).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+});
+
+describe('[CXC.47] periodo y envío al vendedor', () => {
+  const ENLACE = 'https://megadulcessuite.com/deposito/eyJ.abc.def';
+  const PDF12 = pdfPublicoDelEnlace(ENLACE, '2025-11-06');
+
+  it('la liga pública al PDF sale del enlace del cliente, con el periodo', () => {
+    expect(PDF12).toBe('https://megadulcessuite.com/api/finance/deposito/eyJ.abc.def/estado-de-cuenta.pdf?date_from=2025-11-06');
+    expect(pdfPublicoDelEnlace(ENLACE, 'todo')).toContain('date_from=todo');
+  });
+
+  it('NEGATIVA — sin enlace (o con uno que no es de depósito) no inventa liga', () => {
+    expect(pdfPublicoDelEnlace(null, '2025-11-06')).toBeNull();
+    expect(pdfPublicoDelEnlace('https://megadulcessuite.com/otra/cosa', '2025-11-06')).toBeNull();
+  });
+
+  it('al cliente: con el periodo por defecto no repite liga; con otro, la agrega con su nombre', () => {
+    const def = mensajeEstadoCuenta(DET, ENLACE, { etiqueta: 'Últimos 3 meses', pdfUrl: PDF12, porDefecto: true });
+    expect(def).not.toContain('/api/finance/deposito/');
+    const otro = mensajeEstadoCuenta(DET, ENLACE, { etiqueta: 'Último año', pdfUrl: PDF12, porDefecto: false });
+    expect(otro).toContain('(último año):');
+    expect(otro).toContain(PDF12!);
+    expect(otro).toContain(ENLACE);
+  });
+
+  it('al vendedor: lo saluda sin el número de ruta, nombra al cliente con su código y lleva las mismas cifras', () => {
+    const m = mensajeVendedor(DET, ENLACE, { etiqueta: 'Último año', pdfUrl: PDF12, porDefecto: false });
+    expect(m.split('\n')[0]).toBe('Hola, *Victor Manuel Zalapa Barri*.');
+    expect(m).toContain('tu cliente *ANAHI ELIZABETH NAVEDA LOPEZ* (C1026) al 6 de noviembre de 2026');
+    expect(m).toContain('• Saldo total: *$471,609.40*');
+    expect(m).toContain('la 00UD1301-0004714, vencida hace 103 días');
+    expect(m).toContain('(último año):');
+    expect(m).toContain(PDF12!);
+    expect(m).toContain(ENLACE);
+    expect(m).not.toContain('Te adjunto');
+    expect(m).not.toMatch(/\p{Extended_Pictographic}/u);
+  });
+
+  it('al vendedor sin enlace: dice que adjunta el PDF y no inventa ligas', () => {
+    const m = mensajeVendedor(DET, null, { etiqueta: 'Últimos 3 meses', pdfUrl: null, porDefecto: true });
+    expect(m).toContain('Te adjunto el PDF');
+    expect(m).not.toContain('http');
   });
 });

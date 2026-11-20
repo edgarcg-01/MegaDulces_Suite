@@ -37,10 +37,16 @@ describe('[CC.20.2] EstadoCuentaPublicoController', () => {
   it('la cuenta sale del token: render con la sucursal y el cliente del enlace, y responde un PDF', async () => {
     const { ctrl, render, res, headers } = armar('TK');
     await ctrl.pdf('TK', res as never, { headers: { host: 'megadulcessuite.com', 'x-forwarded-proto': 'https' } });
-    expect(render).toHaveBeenCalledWith('01', 'C1093', 'https://megadulcessuite.com');
+    expect(render).toHaveBeenCalledWith('01', 'C1093', 'https://megadulcessuite.com', undefined);
     expect(headers['Content-Type']).toBe('application/pdf');
     expect(headers['Content-Disposition']).toContain('estado-de-cuenta-C1093.pdf');
     expect(String(res.send.mock.calls[0][0])).toBe('PDF 01/C1093');
+  });
+
+  it('[CXC.47] el periodo que viaja en la liga llega al documento', async () => {
+    const { ctrl, render, res } = armar('TK');
+    await ctrl.pdf('TK', res as never, { headers: { host: 'megadulcessuite.com' } }, '2026-05-20');
+    expect(render.mock.calls[0][3]).toBe('2026-05-20');
   });
 
   it('⛔ NEGATIVA: un token que no sirve no genera PDF ni responde', async () => {

@@ -36,7 +36,8 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
-import { mensajeEstadoCuenta } from '../estado-cuenta-mensaje';
+import { mensajeEstadoCuenta, mensajeVendedor, pdfPublicoDelEnlace, type PeriodoMensaje } from '../estado-cuenta-mensaje';
+import { MESES_ESTADO_CUENTA_POR_DEFECTO, PERIODOS_ESTADO_CUENTA, dateFromDelPeriodo, pagadaEnPeriodo, type PeriodoEstadoCuenta } from '@megadulces/contracts';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
@@ -401,13 +402,20 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
             @if (det.vencido > 0) { <span class="ct-venc-num">Vencido <b>{{ money(det.vencido) }}</b></span> }
             @if (det.saldo_a_favor > 0) { <span class="ct-favor">A favor <b>{{ money(det.saldo_a_favor) }}</b></span> }
             @if (det.dias_pago_prom != null) { <span class="muted" [title]="det.n_pagos + ' facturas pagadas'">paga a <b>{{ det.dias_pago_prom }}d</b></span> }
-            @if (det.pagadas > 0) {
+            <!-- [CXC.47] Edgar, 2026-11-20: el estado de cuenta muestra pagadas y no pagadas, y se elige el tiempo. El
+                 periodo recorta SÓLO las pagadas (las abiertas salen todas) y es el mismo para esta tabla, el PDF y
+                 los dos mensajes: lo que se ve es lo que se envía. -->
+            <p-select [options]="periodosEC" [ngModel]="periodoEC()" (ngModelChange)="periodoEC.set($event)"
+                      optionLabel="etiqueta" optionValue="clave" ariaLabel="Periodo de las facturas pagadas"
+                      styleClass="ct-sel ct-sel-periodo" data-testid="periodo-estado-cuenta" />
+            @if (pagadasPeriodo().length > 0) {
               <button type="button" class="ct-link-btn" (click)="verSaldadas.set(!verSaldadas())"
-                      [attr.aria-pressed]="verSaldadas()"
-                      [title]="'Facturas ya cobradas por ' + money(det.importe_pagado)">
+                      [attr.aria-pressed]="verSaldadas()" data-testid="ver-pagadas">
                 <i class="pi" [class.pi-eye]="!verSaldadas()" [class.pi-eye-slash]="verSaldadas()" aria-hidden="true"></i>
-                {{ verSaldadas() ? 'Ocultar' : 'Ver' }} {{ det.pagadas }} pagadas
+                {{ verSaldadas() ? 'Ocultar' : 'Ver' }} {{ pagadasPeriodo().length }} pagadas · {{ money(importePagadoPeriodo()) }}
               </button>
+            } @else {
+              <span class="muted" data-testid="sin-pagadas">Sin pagadas en el periodo</span>
             }
           </div>
           <!-- [CXC.44] Edgar, 2026-11-17: «todo esto lo podemos hacer en uno solo». Teléfono, PDF, WhatsApp y el
@@ -420,8 +428,18 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                [attr.aria-busy]="pdfBusy()" data-testid="enviar-estado-cuenta">
               <i class="pi" [class.pi-whatsapp]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i>
               <span class="ct-send-txt">
-                <b>Enviar estado de cuenta</b>
+                <b>Enviar al cliente</b>
                 <small>WhatsApp · {{ det.cliente.telefono || 'eliges a quién' }}{{ enlaceDeposito() ? ' · PDF y depósitos en su enlace' : ' · con el PDF para adjuntar' }}</small>
+              </span>
+            </a>
+            <!-- [CXC.47] El mismo estado de cuenta para el vendedor de la cuenta. Ni Kepler ni la Suite guardan su teléfono:
+                 el chat se elige en WhatsApp, y el botón lo dice. -->
+            <a [href]="waLinkVendedor(det)" target="_blank" rel="noopener" class="ct-send ct-send-sec" (click)="enviarAlVendedor(det)"
+               [attr.aria-busy]="pdfBusy()" data-testid="enviar-vendedor">
+              <i class="pi pi-user" aria-hidden="true"></i>
+              <span class="ct-send-txt">
+                <b>Enviar al vendedor</b>
+                <small>WhatsApp · {{ nombreVendedor(det) || 'sin vendedor' }} · eliges el chat</small>
               </span>
             </a>
           </div>
@@ -470,7 +488,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               }
             } @empty {
               <tr><td colspan="8" class="ct-empty">
-                @if (det.pagadas > 0 && !verSaldadas()) { Sin partidas vivas — todo cobrado. Sus {{ det.pagadas }} facturas pagadas están arriba, en «Ver pagadas». }
+                @if (pagadasPeriodo().length > 0 && !verSaldadas()) { Sin partidas vivas — todo cobrado. Sus {{ pagadasPeriodo().length }} facturas pagadas del periodo están arriba, en «Ver pagadas». }
                 @else { Sin partidas para este cliente. }
               </td></tr>
             }
@@ -766,6 +784,9 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-send { display: inline-flex; align-items: center; gap: .55rem; min-height: 40px; padding: .35rem .9rem; border-radius: 8px;
       border: 1px solid var(--action); background: var(--action); color: var(--action-ink); text-decoration: none; font-size: .82rem; }
     .ct-send:hover { background: var(--action-hover); border-color: var(--action-hover); }
+    /* [CXC.47] El envío al vendedor es secundario: un solo botón de color de acción por ficha. */
+    .ct-send.ct-send-sec { background: transparent; color: var(--text-main); border-color: var(--border); }
+    .ct-send.ct-send-sec:hover { background: var(--surface-hover); border-color: var(--text-muted); }
     .ct-send:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ct-send[aria-busy="true"] { cursor: progress; }
     .ct-send .pi { font-size: 1.1rem; }
@@ -871,9 +892,40 @@ export class FinanzasCarteraComponent implements OnInit {
   readonly detalleRef = signal<{ sucursal: string; cliente: string; nombre: string } | null>(null);
   /** Las saldadas viven en el payload; el default sigue siendo "partidas vivas". */
   readonly verSaldadas = signal(false);
+
+  // ── `[CXC.47]` El periodo del estado de cuenta: recorta las PAGADAS de la tabla, del PDF y de los mensajes ──────────
+  readonly periodosEC = [...PERIODOS_ESTADO_CUENTA];
+  /** Default 3 meses: la regla y su medición viven en `@megadulces/contracts` (estado-cuenta-periodo). */
+  readonly periodoEC = signal<PeriodoEstadoCuenta>('3m');
+  /** Lo que viaja como `date_from`: una fecha AAAA-MM-DD o «todo». */
+  readonly dateFromEC = computed(() => {
+    const hoy = this.detalle()?.hoy;
+    return hoy ? dateFromDelPeriodo(hoy, this.periodoEC()) : undefined;
+  });
+  /** Las pagadas que entran al periodo: la MISMA regla que el PDF (`pagadaEnPeriodo`). */
+  readonly pagadasPeriodo = computed(() => {
+    const df = this.dateFromEC();
+    const desde = !df || df === 'todo' ? null : df;
+    return (this.detalle()?.partidas || []).filter((p) => pagadaEnPeriodo(p, desde));
+  });
+  readonly importePagadoPeriodo = computed(() =>
+    Math.round(this.pagadasPeriodo().reduce((s, p) => s + p.importe, 0) * 100) / 100);
   readonly partidasVisibles = computed(() => {
     const p = this.detalle()?.partidas || [];
-    return this.verSaldadas() ? p : p.filter((x) => !x.saldada);
+    if (!this.verSaldadas()) return p.filter((x) => !x.saldada);
+    const pagadas = new Set(this.pagadasPeriodo());
+    return p.filter((x) => !x.saldada || pagadas.has(x));
+  });
+  /** El periodo elegido, para los mensajes: su nombre y la liga pública al PDF de ESE periodo. */
+  readonly periodoMensaje = computed<PeriodoMensaje | null>(() => {
+    const df = this.dateFromEC();
+    if (!df) return null;
+    const p = PERIODOS_ESTADO_CUENTA.find((x) => x.clave === this.periodoEC());
+    return {
+      etiqueta: p?.etiqueta || '',
+      pdfUrl: pdfPublicoDelEnlace(this.enlaceDeposito(), df),
+      porDefecto: p?.meses === MESES_ESTADO_CUENTA_POR_DEFECTO,
+    };
   });
 
   /**
@@ -1129,7 +1181,26 @@ export class FinanzasCarteraComponent implements OnInit {
   waLink(det: CarteraDetalle): string {
     const tel = (det.cliente.telefono || '').replace(/\D/g, '');
     const num = tel.length === 10 ? `52${tel}` : tel;
-    return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det, this.enlaceDeposito()))}`;
+    return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det, this.enlaceDeposito(), this.periodoMensaje()))}`;
+  }
+
+  /** `[CXC.47]` El nombre del vendedor sin el número de ruta que `kduv` le pone delante. */
+  nombreVendedor(det: CarteraDetalle): string {
+    return (det.cliente.vendedor_nombre || det.cliente.vendedor || '').replace(/^\d+\s+/, '').trim();
+  }
+
+  /** `[CXC.47]` Al vendedor: sin teléfono en ningún sistema (medido), wa.me sin número abre WhatsApp para elegir el chat. */
+  waLinkVendedor(det: CarteraDetalle): string {
+    return `https://wa.me/?text=${encodeURIComponent(mensajeVendedor(det, this.enlaceDeposito(), this.periodoMensaje()))}`;
+  }
+
+  /**
+   * `[CXC.47]` Con enlace, el mensaje lleva la liga al PDF del periodo: no hay nada que adjuntar. Sin enlace, se descarga
+   * el PDF para adjuntarlo, como con el cliente. No se registra como contacto con el cliente: no lo es.
+   */
+  enviarAlVendedor(det: CarteraDetalle): void {
+    if (this.periodoMensaje()?.pdfUrl) this.pdfAviso.set({ texto: 'El mensaje al vendedor lleva la liga al PDF del periodo.', error: false });
+    else if (!this.pdfBusy()) this.descargarParaWhatsApp(det);
   }
 
   /**
@@ -1169,7 +1240,7 @@ export class FinanzasCarteraComponent implements OnInit {
     const c = det.cliente;
     this.pdfBusy.set(true);
     this.pdfAviso.set(null);
-    this.svc.estadoCuentaPdf(c.sucursal, c.cliente_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.estadoCuentaPdf(c.sucursal, c.cliente_code, this.dateFromEC()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (b) => {
         this.pdfBusy.set(false);
         const donde = entregarPdf(win, b, `estado-de-cuenta-${c.cliente_code}-${det.hoy}`);

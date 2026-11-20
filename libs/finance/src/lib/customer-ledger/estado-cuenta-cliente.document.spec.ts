@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { antiguedad, EstadoCuentaClienteDocument, type DetalleEC } from './estado-cuenta-cliente.document';
+import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, type DetalleEC } from './estado-cuenta-cliente.document';
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerLedgerService } from './customer-ledger.service';
@@ -62,8 +62,11 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
     expect(t.match(/\bTotal\b/g)).toHaveLength(1);
   });
 
-  it('sólo facturas abiertas, de la más vieja a la más nueva', () => {
-    expect(t).not.toContain('0001111');
+  it('la tabla de abiertas sólo trae abiertas, de la más vieja a la más nueva; la pagada va en su sección', () => {
+    // `[CXC.47]` Antes la pagada no salía en el documento. Ahora sale, pero DESPUÉS de las abiertas, en «Facturas pagadas».
+    const abiertasTxt = t.slice(t.indexOf('Detalle de facturas abiertas'), t.indexOf('Facturas pagadas'));
+    expect(abiertasTxt).not.toContain('0001111');
+    expect(t.slice(t.indexOf('Facturas pagadas'))).toContain('0001111');
     const i = (f: string) => t.indexOf(f);
     expect(i('0004714')).toBeLessThan(i('0005449'));
     expect(i('0005449')).toBeLessThan(i('0009999'));
@@ -116,6 +119,69 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
     const imports = Reflect.getMetadata('imports', FinanceCustomerLedgerModule) as unknown[];
     const exportados = imports.flatMap((m) => (Reflect.getMetadata('exports', m as object) as unknown[]) || []);
     expect(exportados).toContain(CustomerDepositsService);
+  });
+
+  describe('[CXC.47] pagadas y no pagadas, a detalle, por periodo', () => {
+    const APL = (folio: string, fecha: string, monto: number) => ({ label: 'Cobro CFDI', folio, fecha, monto });
+    const D47: DetalleEC = {
+      ...DET,
+      partidas: [
+        // abierta con un abono parcial: el abono sale debajo
+        P('00UD1301-0004714', { fecha: '2026-07-11', importe: 29686.44, saldo_documento: 2023.66, dias_vencido: 103,
+          aplicaciones: [APL('0000101', '2026-08-02', 27662.78)] }),
+        P('00UD1301-0005449', { fecha: '2026-07-21', importe: 34798.77, saldo_documento: 34798.77, dias_vencido: 93 }),
+        P('00UD1301-0009999', { fecha: '2026-11-01', vencimiento: '2026-11-16', importe: 500, saldo_documento: 500, dias_vencido: null, vencida: false }),
+        // pagada DENTRO del periodo (facturada y pagada en él)
+        P('00UD1301-0007001', { fecha: '2026-10-01', importe: 1200, saldo_documento: 0, saldada: true, vencida: false,
+          pagada_el: '2026-10-10', aplicaciones: [APL('0000201', '2026-10-05', 700), APL('0000202', '2026-10-10', 500)] }),
+        // facturada ANTES del periodo pero terminada de pagar dentro: entra
+        P('00UD1301-0006001', { fecha: '2026-06-01', importe: 800, saldo_documento: 0, saldada: true, vencida: false,
+          pagada_el: '2026-09-01', aplicaciones: [APL('0000150', '2026-09-01', 800)] }),
+        // facturada y pagada ANTES del periodo: no entra
+        P('00UD1301-0005001', { fecha: '2026-05-01', importe: 333.33, saldo_documento: 0, saldada: true, vencida: false,
+          pagada_el: '2026-05-20', aplicaciones: [APL('0000099', '2026-05-20', 333.33)] }),
+        // en cero (cancelada): nunca
+        P('00UD1301-0005002', { fecha: '2026-10-02', importe: 0, saldo_documento: 0, saldada: true, vencida: false }),
+      ],
+    };
+    const desde = resolverDesde(D47.hoy, undefined);
+    const t47 = texto(doc.html(D47, EMISOR, '', null, desde));
+    const pag = t47.slice(t47.indexOf('Facturas pagadas'));
+
+    it('el periodo por defecto son 3 meses antes del corte, y se imprime', () => {
+      expect(desde).toBe('2026-08-06');
+      expect(t47).toContain('Periodo: del 06/08/2026 al 06/11/2026');
+    });
+
+    it('pagadas del periodo: las facturadas o terminadas de pagar en él; no las de antes ni las en cero', () => {
+      expect(pag).toContain('0007001');
+      expect(pag).toContain('0006001');
+      expect(pag).not.toContain('0005001');
+      expect(pag).not.toContain('0005002');
+      expect(t47).toContain('Pagado en el periodo · 2 facturas $2,000.00');
+      expect(t47).toContain('Pagadas en el periodo 2 por $2,000.00');
+    });
+
+    it('cada abono va debajo de su factura, con folio, fecha y monto (abiertas y pagadas)', () => {
+      expect(pag).toMatch(/0007001 01\/10\/2026 10\/10\/2026 \$1,200\.00 ↳ Cobro CFDI 0000201 05\/10\/2026 −\$700\.00 ↳ Cobro CFDI 0000202 10\/10\/2026 −\$500\.00/);
+      expect(t47).toMatch(/0004714[^↳]*↳ Cobro CFDI 0000101 02\/08\/2026 \$27,662\.78/);
+    });
+
+    it('«todo» trae toda la historia; las abiertas salen igual con cualquier periodo', () => {
+      const tTodo = texto(doc.html(D47, EMISOR, '', null, resolverDesde(D47.hoy, 'todo')));
+      expect(tTodo).toContain('0005001');
+      expect(tTodo).toContain('toda la historia registrada');
+      const tCorto = texto(doc.html(D47, EMISOR, '', null, '2026-11-01'));
+      for (const f of ['0004714', '0005449', '0009999']) expect(tCorto).toContain(f);
+      expect(tCorto).toContain('Sin facturas pagadas en este periodo');
+    });
+
+    it('NEGATIVA — un periodo mal escrito o posterior al corte se rechaza, no cae al default', () => {
+      for (const malo of ['2026-13-01', '2026-02-30', 'ayer', '20/11/2026']) expect(() => resolverDesde('2026-11-20', malo)).toThrow(/date_from inválido/);
+      expect(() => resolverDesde('2026-11-20', '2026-11-21')).toThrow(/posterior al corte/);
+      expect(resolverDesde('2026-11-20', '2026-11-20')).toBe('2026-11-20');
+    });
+
   });
 
   it('[CC.20] con enlace, el PDF imprime el QR para subir la ficha de depósito; sin enlace, no', () => {

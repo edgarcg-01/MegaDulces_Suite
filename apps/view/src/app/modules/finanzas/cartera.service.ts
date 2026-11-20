@@ -314,8 +314,10 @@ export class CarteraService {
     return this.http.get<CarteraDetalle>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}`);
   }
   /** `[CXC.40]` El estado de cuenta en PDF. Blob y no URL: el endpoint pide JWT. */
-  estadoCuentaPdf(sucursal: string, cliente: string): Observable<Blob> {
-    return this.http.get(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/estado-de-cuenta.pdf`, { responseType: 'blob' });
+  /** `[CXC.47]` `dateFrom`: desde cuándo salen las pagadas (AAAA-MM-DD o «todo»); sin él, el servidor pone 3 meses. */
+  estadoCuentaPdf(sucursal: string, cliente: string, dateFrom?: string): Observable<Blob> {
+    const params = dateFrom ? { date_from: dateFrom } : undefined;
+    return this.http.get(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/estado-de-cuenta.pdf`, { responseType: 'blob', params });
   }
   createPromise(sucursal: string, cliente: string, body: { monto: number; fecha: string; nota?: string }): Observable<{ id: string; estado: string }> {
     return this.http.post<{ id: string; estado: string }>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(cliente)}/promise`, body);
