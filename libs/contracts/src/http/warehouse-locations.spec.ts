@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   defaultPickSequence,
   expandLocationRange,
@@ -9,6 +11,10 @@ import {
   formatLocationCode,
   LOCATION_CODE_RE,
   parseLocationCode,
+  CART_CODE_RE,
+  describeCart,
+  formatCartCode,
+  parseCartCode,
 } from './warehouse-locations.contract';
 
 describe('[UB.1] código de ubicación', () => {
@@ -170,5 +176,38 @@ describe('[UB.3] leer presentación y papel como los escribe la gente', () => {
     ['Tienda', 'exhibicion_tienda'], ['RESERVA', 'reserva_preferida'], ['bodega', null], ['', null],
   ])('papel %j → %s', (raw, papel) => {
     expect(parseAssignmentRole(raw)).toBe(papel);
+  });
+});
+
+describe('[GP.11.1] código de carreta', () => {
+  it('⭐ lo que escanea la pistola y lo que se teclea en el celular terminan en el mismo código', () => {
+    for (const raw of ['C07', 'c07', '7', '07', 'C7', ' c 7 ']) {
+      const r = parseCartCode(raw);
+      expect(r).toEqual({ ok: true, code: 'C07', numero: 7 });
+    }
+    expect(parseCartCode('C99')).toEqual({ ok: true, code: 'C99', numero: 99 });
+  });
+
+  it('NEGATIVA: fuera de C01–C99, o algo que no es número, se explica (no se adivina)', () => {
+    for (const raw of ['C00', '0', 'C100', '100', 'BA053', 'CA1', '', null]) {
+      const r = parseCartCode(raw);
+      expect(r.ok).toBe(false);
+    }
+    const r = parseCartCode('C100');
+    expect(r.ok === false && r.motivo).toContain('C01 a la C99');
+  });
+
+  it('la expresión del contrato es la del CHECK de la base, y no choca con una ubicación', () => {
+    expect(CART_CODE_RE.source).toBe('^C(0[1-9]|[1-9][0-9])$');
+    expect(CART_CODE_RE.test('BA053')).toBe(false);
+    expect(LOCATION_CODE_RE.test('C07')).toBe(false);
+    expect(formatCartCode(12)).toBe('C12');
+    expect(() => formatCartCode(100)).toThrow();
+    expect(describeCart('carrito', 12)).toBe('Carrito 12');
+  });
+
+  it('⭐ la migración usa la MISMA expresión que el contrato (una regla, tres compuertas)', () => {
+    const mig = fs.readFileSync(path.resolve(__dirname, '../../../../database/migrations-newdb/20261120112959_gp11_1_carretas_en_catalogo.js'), 'utf8');
+    expect(/const CART_RE = '([^']+)'/.exec(mig)?.[1]).toBe(CART_CODE_RE.source);
   });
 });
