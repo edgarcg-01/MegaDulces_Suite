@@ -328,6 +328,51 @@ compran como «público en general» y su RFC **no existe en ningún sistema nue
   además régimen fiscal y código postal que coincidan con los del SAT; si no coinciden, el timbrado falla.
   Por eso va con la constancia, no sólo con el RFC.
 
+### 3.6 La pantalla — aprobada por Edgar el 2026-11-20
+
+Edgar: *«muéstrame cómo quedaría la interfaz»* → *«lo más sencilla posible, sólo información de valor, sin
+saturar»* → *«listo, podemos empezar a trabajar mediante eso»*. Maqueta (privada, en claude.ai):
+`https://claude.ai/artifact/4AGFP93K29dqDe3mwkPZUF`, artboards 1–3 (la 3 es la vista de PC a 1440 × 900).
+
+**Dónde vive: en Cartera (`/finanzas/cartera`), como segundo segmento «Por autorizar», no en el Tablero de
+almacén.** Medido en `analytics.ui_usage` (30 días): el rol `credito_cobranza` abre la cartera en 24 de 30 días
+y el detalle del cliente cientos de veces; el Tablero, **nunca**. La pantalla va donde se toma la decisión.
+Esto corrige lo que decía GP.A.4.
+
+**Las cinco preguntas** (`diseno` §0b):
+1. **Qué ve y en qué orden:** «N pedidos esperan tu decisión»; debajo, como enlaces, «X se autorizaron solos
+   hoy» y «Y viejos van aparte». La lista: cliente y sucursal · por qué no pasó solo (etiqueta + una frase; una
+   segunda línea **sólo** si hay un dato que cambia la decisión) · importe · espera. La más vieja primero. Toda
+   la fila abre el panel. Primario: el conteo; secundario: el motivo de cada fila; terciario: importe y espera.
+2. **Qué no ve:** pestañas para los autorizados solos o los viejos (son otra pregunta: enlaces); conteos por
+   motivo arriba (repetían las etiquetas); folio, clave y límite en la fila (el folio va al panel y el límite ya
+   está en la frase); botones por fila.
+3. **Accesibilidad:** una fila = un objetivo, operable con teclado; la etiqueta lleva palabra, no sólo color;
+   contraste calculado: todo texto ≥ 5.00:1.
+4. **Ligas:** viene del pedido TELEMARK de Kepler (`U-D-40`), va a Surtido (E1/E3); el folio está en el panel.
+5. **¿Le toca a esta pantalla?** Sí: es el trabajo diario de Crédito y cobranza. Lo autorizado solo se ve
+   aquí y también en el seguimiento de la cotización (GP.A.7).
+
+**El panel del pedido** (a la derecha de la lista, sin salir de ella; en código, `app-side-peek`):
+- arriba, el **veredicto** en una línea («Excede su límite por $6,181.40») y **3 números con la fórmula de
+  Kepler**: límite · por cobrar en Kepler · este pedido;
+- **«lo que Kepler no dice»**, sólo cuando aplica: las facturas de ticket sin abono (GP.A.0b);
+- **«Para decidir»**: los 2 o 3 hechos que pesan en ESE caso (ver abajo); las 7 condiciones, plegadas;
+- la decisión: **motivo obligatorio** (queda registrado), Autorizar, Rechazar, «Pasar a Dirección General»;
+  a un cliente NO TOCAR no se le puede autorizar;
+- la sugerencia de límite en **una línea**, sólo si aplica;
+- plegado, «Más del cliente» (lo que debe por antigüedad, cómo compra, última decisión, listas del SAT);
+- «Siguiente pedido», para no volver a la lista.
+
+Carga medida en la maqueta (nivel C, sin validación visual): la bandeja pasó de ~22 controles y ~68 cifras a
+~12 y ~28; el panel, de ~70 cifras visibles a ~14.
+
+**Qué revisa Crédito y cobranza al autorizar a mano** (lo que el panel pone en «Para decidir», según el caso):
+
+| Siempre | Excede | Sin límite | Vencido | NO TOCAR | Viejo (aparte) |
+|---|---|---|---|---|---|
+| cuánto se pasa y en proporción a su límite · cómo paga (días contra su plazo, a tiempo, peor atraso) · si tiene vencido y su último pago o promesa · qué pasó las veces que se pasó · si el pedido es normal para él · sus otros pedidos sin facturar · si el «por cobrar» de Kepler está inflado por facturas de ticket | si se pasa seguido y paga, **subirle el límite en Kepler** en vez de autorizar a mano cada vez | facturas pagadas y a cuántos días · lo más que ha debido · RFC y listas del SAT; si paga bien, **capturarle límite en Kepler**; sin historial: contado o límite chico | cuánto, desde cuándo, último pago, promesa registrada; autorizar con vencido viejo es prestar sobre lo que ya debe | no se autoriza; si la marca ya no aplica, se quita en Kepler | confirmar con telemarketing que sigue vivo |
+
 ---
 
 ## 4. Dinero en juego
@@ -357,8 +402,8 @@ de E4.
 | **GP.A.1** 🧪 | **Hecha el 2026-11-20:** `decidirAutorizacion` en `libs/commercial/src/lib/commercial-quotes/autorizacion-pedido.reglas.ts` — evalúa las 7 condiciones (todas, no se corta en la primera) y devuelve `autorizar` / `bandeja` / `aparte`, cada motivo en una frase («excede $500.00 su límite», «tiene $12,300.00 vencidos desde hace 62 días») y los números que vio. Lo desconocido (saldo, cartera, nombre, frescura, tope) va a la bandeja con «no pude verificar…», nunca se autoriza. Los centavos con `esRestoDeFactura`; el bloqueo con `^NO TOCAR`. Los parámetros se reciben (`PARAMETROS_PROPUESTOS` es la propuesta sin firmar de D-A6/D-A10). 18 pruebas; 3 mutantes rojos (sin la excepción de centavos, «NO TOCAR» en cualquier lado, saldo desconocido como cero). Definición: **Regla de autorización** en `libs/commercial` (función pura, con pruebas y su prueba negativa): las 6 condiciones de §3.1, cada una con el número que la decide. Sin límite = `sin límite`, nunca `0` (ADR-056). La gracia y N minutos son **parámetros** (los fija Crédito y cobranza, no el código) | C1 | GP.A.0c | — |
 | **GP.A.2** | **Escribir la autorización**: `c11 = 'AUTORIZADO'` con `WHERE c11 = 'CREADO'`, desde `md`, interruptor por sucursal apagado al nacer, tope diario, idempotente. Guarda en una tabla propia (con `tenant_id` y auditoría) **quién o qué la autorizó**, cuándo, la regla y los números que vio, y el motivo si se autorizó excedida. Rechazar **no cancela en Kepler**: deja el pedido `CREADO` con el motivo en la Suite | C2 | GP.A.1 · GP.A.0d | ⛔ sí: prueba contra un Kepler de pruebas y contra base real con el payload de la pantalla |
 | **GP.A.3** | **Automático**: al ver un pedido TELEMARK `CREADO` nuevo (por evento, no por cron), corre la regla y, si pasa, autoriza con GP.A.2. Aviso agrupado a Crédito y cobranza | C2 | GP.A.2 | ⛔ sí |
-| **GP.A.4** | **Bandeja «Por autorizar»** como vista del Tablero (E1): pedido, cliente, importe, la condición que falló en una frase, antigüedad. Los autorizados solos aparecen marcados. Autorizar excedido pide motivo; los bloqueados no se autorizan | C3 | GP.A.2 · GP.10.4 | — |
-| **GP.A.5** | **Ficha de crédito** (§3.2) en un panel de la bandeja, cada cifra con fuente y fecha. Lectura de la cartera CXC y de los pedidos; no copia tablas | C2/C3 | GP.A.4 | — |
+| **GP.A.4** | **Bandeja «Por autorizar» en Cartera** (`/finanzas/cartera`, segundo segmento), **no en el Tablero** (§3.6, aprobada por Edgar el 2026-11-20): «N pedidos esperan tu decisión», enlaces a los autorizados solos y a los viejos; por fila, cliente y sucursal · por qué no pasó solo (etiqueta + frase; segunda línea sólo si cambia la decisión) · importe · espera; la fila abre el panel. Los bloqueados no se autorizan. Pide la llave nueva de `credito_cobranza`, repartida en la misma migración (regla 20) | C3 | GP.A.2 | — |
+| **GP.A.5** | **Panel del pedido** (`app-side-peek`, §3.6): veredicto en una línea, los 3 números con la fórmula de Kepler, «lo que Kepler no dice» si aplica, «Para decidir» con los 2–3 hechos del caso, motivo obligatorio y la decisión, la sugerencia en una línea, el resto plegado. Lee del ODS y de la cartera, cada cifra con su fecha; no copia tablas | C2/C3 | GP.A.4 | — |
 | **GP.A.6** | **Sugerencia de límite** (§3.3) y lista «revisar» (clientes con vencido viejo que siguen comprando). Crédito y cobranza la acepta o la descarta; aceptarla le recuerda cambiarla en Kepler y queda registrado. Se mide la cobertura de notas de crédito por cliente antes de mostrarlas | C1/C3 | GP.A.5 | sí (aceptar/descartar) |
 | **GP.A.6b** | **Escalamiento a Dirección General**: lo que Crédito y cobranza no autoriza sube a la bandeja de `direccion` con su motivo y la ficha; Dirección General autoriza o rechaza. **Regresar** un autorizado solo (D-A7): `c11 = 'CREADO'` con `WHERE c11 = 'AUTORIZADO'`, sólo `credito_cobranza`. Llaves nuevas repartidas en la misma migración (regla 20) | C2/C3 | GP.A.4 | ⛔ sí |
 | **GP.A.6c** | **Aviso de renovar o subir** (§3.4), por evento al entrar un pedido; un aviso por cliente; atenderlo registra la revisión del crédito; la Suite detecta en `kdud.c15` cuándo se aplicó en Kepler | C1/C2/C3 | GP.A.6 | sí (registro de la revisión) |
@@ -413,6 +458,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
+| 2026-11-20 | **La pantalla, aprobada** (Edgar: «listo, podemos empezar a trabajar mediante eso»). Vive en Cartera, no en el Tablero (`credito_cobranza` abre Cartera 24 de 30 días; el Tablero, nunca). Se simplificó a pedido de Edgar con `auditoria-diseno`: bandeja de ~22 controles y ~68 cifras a ~12 y ~28; panel de ~70 cifras a ~14. Nueva §3.6 con las cinco preguntas, el panel y **qué revisa Crédito y cobranza al autorizar a mano**. GP.A.4 y GP.A.5 reescritos | Claude |
 | 2026-11-20 | **GP.A.0b 🧪: el «Monto por Cobrar» de Kepler, decodificado 9 de 9 al centavo** (Edgar: «cumpliendo los parámetros de Kepler, lo menos posible de interacción humana y la mayor información»). Σ cargos de `kdue` sin tickets de contado − Σ abonos; la hipótesis de los pedidos quedó refutada. La regla adopta la fórmula de Kepler (en telemarketing, 60 días, mismo veredicto en 2,975 de 2,975 pedidos); 20 pruebas, mutante «recortar el negativo» rojo. Lo que separa a Kepler de lo que el cliente debe son las facturas de ticket sin abono: información para la ficha | Claude |
 | 2026-11-20 | **GP.A.1 🧪**: la regla como función pura (`decidirAutorizacion`), 18 pruebas y 3 mutantes rojos. Sigue GP.A.2 (escribir la autorización), que espera D-A1 escrita en ADR-117 y el permiso GP.A.0d | Claude |
 | 2026-11-20 | **C0 de EA: GP.A.0a y GP.A.0c 🧪** (prod, sólo lectura). Autorizar = sólo `c11` (8 casos de la foto del 19-nov), no aparta existencia (`kdik`/`kdil`, con control positivo) ni crea cartera. El bloqueo del cliente no es un campo: es el nombre que empieza con «NO TOCAR», por sucursal (145 de 235 conservan límite). La condición 3 usa la regla de centavos ya hecha (`[GP.R.1]`). Queda GP.A.0b (no bloquea) y GP.A.0d (permiso, lo corre el PM). Lo siguiente: GP.A.1, la regla como función pura | Claude |
