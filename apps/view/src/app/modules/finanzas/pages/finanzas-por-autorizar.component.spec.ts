@@ -10,14 +10,14 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 
 /** `[GP.A.4]` La bandeja «Por autorizar» montada: lo que ve Crédito y cobranza y lo que todavía no puede hacer. */
 const res = (motivos: ResultadoAutorizacion['motivos'], o: Partial<ResultadoAutorizacion['numeros']> = {}): ResultadoAutorizacion => ({
-  decision: motivos.some((m) => m.condicion === 7) ? 'aparte' : motivos.length ? 'bandeja' : 'autorizar',
+  decision: motivos.some((m) => m.condicion === 7 || m.condicion === 8) ? 'aparte' : motivos.length ? 'bandeja' : 'autorizar',
   bloqueado: motivos.some((m) => m.condicion === 4),
   motivos,
   numeros: { limite: 25_000, comprometido: null, excedente: null, vencido_fuera_de_gracia: 0, dias_vencido_max: null, resto_ignorado: 0, dias_sin_movimiento: 1, ...o },
 });
 const ped = (folio: string, nombre: string, motivos: ResultadoAutorizacion['motivos'], o: Partial<PedidoPorAutorizar> = {}): PedidoPorAutorizar => ({
   sucursal: '08', sucursal_nombre: 'Morelia Abastos', serie: 1, folio, fecha: '2026-11-14', dias_esperando: 6,
-  cliente: 'C' + folio, cliente_nombre: nombre, es_contado: false, importe: 18_420.5, resultado: res(motivos),
+  cliente: 'C' + folio, cliente_nombre: nombre, es_contado: false, ruta_vecinal: false, importe: 18_420.5, resultado: res(motivos),
   limite: 25_000, plazo_dias: 15, por_cobrar_kepler: 12_760.9, saldo_cartera: 12_760.9, otros_pedidos: 0,
   pago: { facturas_pagadas: 23, mediana_dias: 14, a_tiempo: 20, peor_atraso: 16 },
   ...o,
@@ -27,7 +27,7 @@ const bandeja = (pendientes: PedidoPorAutorizar[], aparte: PedidoPorAutorizar[] 
   hoy: '2026-11-20',
   freshness: { data_as_of: '2026-11-20T18:00:00Z', status: 'fresh', stale: false, age_human: '2 min', inputs: [] },
   parametros: { graciaDias: 15, pedidoViejoDias: 30, frescuraMaxMin: 15, origen: 'propuesta' },
-  pendientes, aparte, sucursales_encendidas: [], autorizados_hoy: null,
+  pendientes, aparte, contado: [], sucursales_encendidas: [], autorizados_hoy: null,
 });
 
 describe('FinanzasPorAutorizarComponent — [GP.A.4]', () => {
@@ -107,6 +107,12 @@ describe('[GP.A.4] las frases de cada caso', () => {
     expect(etiquetaDe(ped('1', 'x', [{ condicion: 3, texto: 'vencido' }])).texto).toBe('Vencido');
     expect(etiquetaDe(ped('1', 'x', [apagado])).texto).toBe('Pasaría solo');
     expect(fraseDe(ped('1', 'x', [apagado]))).toContain('se autorizaría solo');
+  });
+
+  it('[D-A13] en «aparte», la ruta vecinal se nombra y su motivo va primero', () => {
+    const p = ped('1', 'x', [{ condicion: 1, texto: 'sin límite en Kepler' }, { condicion: 8, texto: 'es de la ruta vecinal: va aparte' }], { ruta_vecinal: true });
+    expect(etiquetaDe(p).texto).toBe('Ruta vecinal');
+    expect(fraseDe(p)).toBe('es de la ruta vecinal: va aparte');
   });
 
   it('CONTADO: «venta de contado», sin segunda línea de pago', () => {

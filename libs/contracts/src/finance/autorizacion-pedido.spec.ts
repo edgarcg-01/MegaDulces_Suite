@@ -134,6 +134,29 @@ describe('[GP.A.1] decidirAutorizacion', () => {
     expect(r.decision).toBe('autorizar');
   });
 
+  it('[D-A12] CONTADO sin límite ni por cobrar pasa: las condiciones de crédito no le aplican', () => {
+    const r = decidirAutorizacion(base({ cliente: { nombre: 'CONTADO', limite: null, es_contado: true }, por_cobrar_kepler: null, pedidos_abiertos: null, facturas: null }), P);
+    expect(r.decision).toBe('autorizar');
+    expect(r.motivos).toEqual([]);
+  });
+
+  it('[D-A12] negativo: a CONTADO sí le aplican el carril y la antigüedad', () => {
+    const r = decidirAutorizacion(base({ cliente: { nombre: 'CONTADO', limite: null, es_contado: true }, por_cobrar_kepler: null, carril: { encendido: false, autorizados_hoy: 0, tope_dia: 50 } }), P);
+    expect(r.motivos.map((m) => m.condicion)).toEqual([6]);
+    const v = decidirAutorizacion(base({ cliente: { nombre: 'CONTADO', limite: null, es_contado: true }, pedido: { importe: 1, fecha: '2026-05-01' } }), P);
+    expect(v.decision).toBe('aparte');
+  });
+
+  it('[D-A13] la ruta vecinal va aparte aunque cumpla todo lo demás', () => {
+    const r = decidirAutorizacion(base({ pedido: { importe: 1_000, fecha: '2026-11-19', ruta_vecinal: true } }), P);
+    expect(r.decision).toBe('aparte');
+    expect(r.motivos).toEqual([{ condicion: 8, texto: 'es de la ruta vecinal: va aparte' }]);
+  });
+
+  it('[D-A13] negativo: sin la marca de ruta vecinal no aparece la condición 8', () => {
+    expect(decidirAutorizacion(base({ pedido: { importe: 1_000, fecha: '2026-11-19', ruta_vecinal: false } }), P).decision).toBe('autorizar');
+  });
+
   it('junta TODOS los motivos, no sólo el primero', () => {
     const r = decidirAutorizacion(base({ cliente: { nombre: 'NO TOCAR X', limite: 0 }, edad_datos_min: 99 }), P);
     expect(r.motivos.map((m) => m.condicion)).toEqual([1, 4, 5]);

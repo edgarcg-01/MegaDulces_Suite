@@ -36,6 +36,8 @@ export interface LecturaBandeja {
   pedidos: Array<{
     sucursal: string; serie: number; folio: string; cliente: string; importe: number; fecha: string;
     nombre: string | null; limite: number | null; plazo: number | null; por_cobrar: number | null;
+    /** `[D-A13]` El vendedor es de la ruta vecinal (`kdm1.c12` ~ `^[0-9]V[0-9]`, el mismo patrón que `ix_kdm1_ruta_vecinal`). */
+    ruta_vecinal: boolean;
   }>;
   /** Los pedidos `U-D-40` sin cancelar ni salir (`c43` distinto de C y F) de esos clientes, cualquier estatus. */
   abiertos: Array<{ sucursal: string; cliente: string; serie: number; folio: string; importe: number; fecha: string }>;
@@ -106,8 +108,8 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
     const c = carril.get(x.sucursal);
     const resultado = decidirAutorizacion({
       hoy: l.hoy,
-      pedido: { importe: x.importe, fecha: x.fecha },
-      cliente: { nombre: x.nombre, limite: x.limite },
+      pedido: { importe: x.importe, fecha: x.fecha, ruta_vecinal: x.ruta_vecinal },
+      cliente: { nombre: x.nombre, limite: x.limite, es_contado: x.cliente === CONTADO },
       por_cobrar_kepler: x.por_cobrar,
       pedidos_abiertos: Math.round(otros * 100) / 100,
       facturas: vivas,
@@ -125,6 +127,7 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
       cliente: x.cliente,
       cliente_nombre: x.nombre,
       es_contado: x.cliente === CONTADO,
+      ruta_vecinal: x.ruta_vecinal,
       importe: x.importe,
       resultado,
       limite: x.limite,
@@ -141,8 +144,10 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
     hoy: l.hoy,
     freshness: l.freshness,
     parametros: { ...p, origen: 'propuesta' },
-    pendientes: todos.filter((t) => t.resultado.decision !== 'aparte').sort(porFecha),
+    // [D-A12] CONTADO no le toca a Crédito y cobranza: va en su propia lista (con el automático encendido, pasa solo).
+    pendientes: todos.filter((t) => t.resultado.decision !== 'aparte' && !t.es_contado).sort(porFecha),
     aparte: todos.filter((t) => t.resultado.decision === 'aparte').sort(porFecha),
+    contado: todos.filter((t) => t.resultado.decision !== 'aparte' && t.es_contado).sort(porFecha),
     sucursales_encendidas: l.carril.filter((c) => c.encendida).map((c) => c.sucursal).sort(),
     autorizados_hoy: null,
   };
@@ -174,7 +179,8 @@ export class AutorizacionPedidosService {
     const ped = await trx.raw(`
       WITH h AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS hoy),
       p AS (
-        SELECT k.sucursal, (k.c5)::int AS serie, k.c6 AS folio, k.c10 AS cliente, k.c16::numeric AS importe, k.c9::date AS fecha
+        SELECT k.sucursal, (k.c5)::int AS serie, k.c6 AS folio, k.c10 AS cliente, k.c16::numeric AS importe, k.c9::date AS fecha,
+               btrim(coalesce(k.c12, '')) ~ '^[0-9]V[0-9]' AS ruta_vecinal
           FROM kepler_ods.kdm1 k
          WHERE k.c2 = 'U' AND k.c3 = 'D' AND k.c4 = 40 AND k.c1 = k.sucursal AND k.c27 = 'TELEMARK' AND k.c11 = 'CREADO'
            AND coalesce(k.c43, '') <> 'C' ${filtro}),
@@ -186,7 +192,7 @@ export class AutorizacionPedidosService {
       m AS MATERIALIZED (SELECT c.sucursal, c.cliente, ${porCobrarKeplerSuma('x')} AS por_cobrar
               FROM c LEFT JOIN kepler_ods.kdue x ON x.sucursal = c.sucursal AND x.c1 = c.sucursal AND x.c2 = c.cliente
              GROUP BY 1, 2)
-      SELECT p.sucursal, p.serie, p.folio, p.cliente, p.importe, p.fecha::text AS fecha, h.hoy::text AS hoy,
+      SELECT p.sucursal, p.serie, p.folio, p.cliente, p.importe, p.fecha::text AS fecha, p.ruta_vecinal, h.hoy::text AS hoy,
              u.c3 AS nombre, u.c15::numeric AS limite, u.c16::numeric AS plazo, m.por_cobrar
         FROM p CROSS JOIN h
         LEFT JOIN m USING (sucursal, cliente)
@@ -231,6 +237,7 @@ export class AutorizacionPedidosService {
         importe: Number(r['importe']), fecha: String(r['fecha']),
         nombre: r['nombre'] == null ? null : String(r['nombre']).trim(),
         limite: num(r['limite']), plazo: num(r['plazo']), por_cobrar: num(r['por_cobrar']),
+        ruta_vecinal: r['ruta_vecinal'] === true,
       })),
       abiertos: (abiertos as Array<Record<string, unknown>>).map((r) => ({
         sucursal: String(r['sucursal']), cliente: String(r['cliente']), serie: Number(r['serie']), folio: String(r['folio']),

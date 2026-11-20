@@ -17,7 +17,7 @@ const fresca = (minutos: number) => ({
 const lectura = (o: Partial<LecturaBandeja> = {}): LecturaBandeja => ({
   hoy: '2026-11-20',
   pedidos: [
-    { sucursal: '08', serie: 1, folio: '0001842', cliente: 'C3104', importe: 1_000, fecha: '2026-11-19', nombre: 'ABARROTES EL SOL', limite: 10_000, plazo: 15, por_cobrar: 2_000 },
+    { sucursal: '08', serie: 1, folio: '0001842', cliente: 'C3104', importe: 1_000, fecha: '2026-11-19', nombre: 'ABARROTES EL SOL', limite: 10_000, plazo: 15, por_cobrar: 2_000, ruta_vecinal: false },
   ],
   abiertos: [],
   facturas: [],
@@ -63,7 +63,7 @@ describe('[GP.A.4] armarBandeja', () => {
 
   it('un pedido viejo va aparte, no a la bandeja del día', () => {
     const b = armarBandeja(lectura({ pedidos: [
-      { sucursal: '05', serie: 1, folio: '0000047', cliente: '00031', importe: 6_563.14, fecha: '2026-04-01', nombre: 'X', limite: 10_000, plazo: 2, por_cobrar: 56_702.27 },
+      { sucursal: '05', serie: 1, folio: '0000047', cliente: '00031', importe: 6_563.14, fecha: '2026-04-01', nombre: 'X', limite: 10_000, plazo: 2, por_cobrar: 56_702.27, ruta_vecinal: false },
     ] }), P);
     expect(b.pendientes).toHaveLength(0);
     expect(b.aparte).toHaveLength(1);
@@ -83,21 +83,30 @@ describe('[GP.A.4] armarBandeja', () => {
     expect(b.pendientes[0].resultado.motivos.map((m) => m.condicion)).toEqual([5]);
   });
 
-  it('CONTADO (venta de contado) se marca y no se le inventa «por cobrar»: va a la bandeja con «no pude verificar»', () => {
+  it('[D-A12] CONTADO sale de la bandeja a su propia lista, sin «por cobrar» inventado; con el carril encendido pasaría solo', () => {
     const b = armarBandeja(lectura({ pedidos: [
-      { sucursal: '08', serie: 1, folio: '0002000', cliente: 'CONTADO', importe: 3_000, fecha: '2026-11-19', nombre: 'CONTADO', limite: null, plazo: null, por_cobrar: null },
+      { sucursal: '08', serie: 1, folio: '0002000', cliente: 'CONTADO', importe: 3_000, fecha: '2026-11-19', nombre: 'CONTADO', limite: null, plazo: null, por_cobrar: null, ruta_vecinal: false },
     ] }), P);
-    const x = b.pendientes[0];
-    expect(x.es_contado).toBe(true);
-    expect(x.por_cobrar_kepler).toBeNull();
-    expect(x.resultado.decision).toBe('bandeja');
-    expect(x.resultado.motivos).toContainEqual({ condicion: 2, texto: 'no pude verificar el saldo' });
+    expect(b.pendientes).toHaveLength(0);
+    expect(b.contado).toHaveLength(1);
+    expect(b.contado[0].es_contado).toBe(true);
+    expect(b.contado[0].por_cobrar_kepler).toBeNull();
+    expect(b.contado[0].resultado.decision).toBe('autorizar');
+  });
+
+  it('[D-A13] un pedido de la ruta vecinal va aparte con su marca, aunque sea reciente', () => {
+    const b = armarBandeja(lectura({ pedidos: [
+      { sucursal: '05', serie: 1, folio: '0000801', cliente: '30028', importe: 2_000, fecha: '2026-11-15', nombre: 'X', limite: 10_000, plazo: 2, por_cobrar: 0, ruta_vecinal: true },
+    ] }), P);
+    expect(b.pendientes).toHaveLength(0);
+    expect(b.aparte).toHaveLength(1);
+    expect(b.aparte[0].ruta_vecinal).toBe(true);
   });
 
   it('el más viejo primero', () => {
     const b = armarBandeja(lectura({ pedidos: [
-      { sucursal: '08', serie: 1, folio: 'B', cliente: 'C1', importe: 1, fecha: '2026-11-19', nombre: 'B', limite: 10, plazo: 1, por_cobrar: 0 },
-      { sucursal: '08', serie: 1, folio: 'A', cliente: 'C2', importe: 1, fecha: '2026-11-15', nombre: 'A', limite: 10, plazo: 1, por_cobrar: 0 },
+      { sucursal: '08', serie: 1, folio: 'B', cliente: 'C1', importe: 1, fecha: '2026-11-19', nombre: 'B', limite: 10, plazo: 1, por_cobrar: 0, ruta_vecinal: false },
+      { sucursal: '08', serie: 1, folio: 'A', cliente: 'C2', importe: 1, fecha: '2026-11-15', nombre: 'A', limite: 10, plazo: 1, por_cobrar: 0, ruta_vecinal: false },
     ] }), P);
     expect(b.pendientes.map((x) => x.folio)).toEqual(['A', 'B']);
   });

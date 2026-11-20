@@ -20,18 +20,23 @@ export const CONDICIONES = [
   'Los datos son recientes',
   'La autorización automática está encendida en la sucursal',
   'El pedido no es viejo',
+  'No es de la ruta vecinal',
 ] as const;
 
 type Tono = 'success' | 'secondary' | 'danger' | 'contrast';
 
 /** Lo que falló y le toca decidir a una persona. Las condiciones 5 y 6 son del sistema: se dicen una vez arriba. */
 export function motivosDelCliente(p: PedidoPorAutorizar) {
-  return p.resultado.motivos.filter((m) => m.condicion !== 5 && m.condicion !== 6);
+  const m = p.resultado.motivos.filter((x) => x.condicion !== 5 && x.condicion !== 6);
+  // En «aparte» manda por qué está aparte (ruta vecinal o viejo), no lo demás.
+  if (p.resultado.decision === 'aparte' || p.ruta_vecinal) return [...m.filter((x) => x.condicion === 8 || x.condicion === 7), ...m.filter((x) => x.condicion < 7)];
+  return m;
 }
 
 /** La etiqueta de la fila: palabra, no sólo color. */
 export function etiquetaDe(p: PedidoPorAutorizar): { texto: string; tono: Tono } {
   if (p.es_contado) return { texto: 'Contado', tono: 'secondary' };
+  if (p.ruta_vecinal) return { texto: 'Ruta vecinal', tono: 'secondary' };
   const c = motivosDelCliente(p)[0]?.condicion;
   if (c === 4) return { texto: 'NO TOCAR', tono: 'contrast' };
   if (c === 2) return { texto: 'Excede', tono: 'danger' };
@@ -132,8 +137,9 @@ export function esperaDe(p: PedidoPorAutorizar): string {
             <app-metric-strip [items]="cifras()" [instant]="true" [selected]="verAparte() ? 'aparte' : 'pendientes'"
                               ariaLabel="Pedidos por autorizar" (drill)="verAparte.set($event === 'aparte')" />
             <p class="pa-sub">
-              @if (verAparte()) { Más de {{ d.parametros.pedidoViejoDias }} días sin movimiento: no se autorizan solos ni ocupan la lista del día. }
+              @if (verAparte()) { Más de {{ d.parametros.pedidoViejoDias }} días sin movimiento o de la ruta vecinal: no se autorizan solos ni ocupan la lista del día. }
               @else if (!d.sucursales_encendidas.length) { La autorización automática está apagada: todos esperan aquí. }
+              @if (!verAparte() && d.contado.length) { {{ d.contado.length }} de contado no necesitan tu autorización. }
             </p>
           </div>
         }
@@ -198,7 +204,7 @@ export function esperaDe(p: PedidoPorAutorizar): string {
           }
 
           <details class="pa-detalles">
-            <summary>Ver las 7 condiciones</summary>
+            <summary>Ver las condiciones</summary>
             <ul class="pa-conds">
               @for (c of condiciones(p); track c.texto) {
                 <li><i [class]="c.ok ? 'pi pi-check pa-ok' : 'pi pi-times pa-mal'" aria-hidden="true"></i>
@@ -324,6 +330,6 @@ export class FinanzasPorAutorizarComponent implements OnInit {
 
   condiciones(p: PedidoPorAutorizar): { texto: string; ok: boolean }[] {
     const fallan = new Set(p.resultado.motivos.map((m) => m.condicion));
-    return CONDICIONES.map((texto, i) => ({ texto, ok: !fallan.has((i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7) }));
+    return CONDICIONES.map((texto, i) => ({ texto, ok: !fallan.has((i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) }));
   }
 }

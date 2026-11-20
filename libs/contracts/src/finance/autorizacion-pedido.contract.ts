@@ -7,11 +7,11 @@
  * `kdm1.c11` (GP.A.0a, medido: ni renglones, ni existencia, ni cartera). Esta función no escribe nada:
  * dice qué hacer y POR QUÉ, con los números que vio. Quien escribe es GP.A.2.
  *
- * Las siete condiciones se evalúan TODAS (no se corta en la primera): Crédito y cobranza ve cada motivo,
+ * Las ocho condiciones se evalúan TODAS (no se corta en la primera): Crédito y cobranza ve cada motivo,
  * no sólo el primero. La decisión:
- *  - `aparte`    el pedido es viejo (condición 7): no entra ni al automático ni a la bandeja del día.
+ *  - `aparte`    el pedido es viejo (7) o de la ruta vecinal (8, D-A13): ni automático ni bandeja del día.
  *  - `bandeja`   falló alguna otra: decide Crédito y cobranza (y si no, Dirección General).
- *  - `autorizar` pasaron las siete.
+ *  - `autorizar` pasaron todas. A CONTADO no le aplican las de crédito (1, 2 y 3; D-A12).
  *
  * ⛔ Lo que no se pudo leer NO se da por bueno (ADR-056): un saldo, una cartera, un nombre o una frescura
  * desconocidos mandan el pedido a la bandeja con «no pude verificar…», nunca lo autorizan.
@@ -85,12 +85,22 @@ export interface EntradaAutorizacion {
     fecha: string;
     /** Último movimiento conocido, si hay; si no, cuenta la fecha del pedido. */
     ultimo_movimiento?: string | null;
+    /**
+     * `[D-A13]` Lo capturó la ruta vecinal (vendedor `3V…`, `kdm1.c12`) aunque diga TELEMARK. Edgar, 2026-11-20: va aparte,
+     * ni automático ni bandeja del día (eran 49 de los 64 de la bandeja, todos de Zamora Centro, nunca facturados).
+     */
+    ruta_vecinal?: boolean;
   };
   cliente: {
     /** Nombre en el `kdud` de la sucursal del pedido. null = no se pudo leer. */
     nombre: string | null;
     /** `kdud.c15`. null o 0 = sin límite. */
     limite: number | null;
+    /**
+     * `[D-A12]` La cuenta CONTADO (venta de contado). Edgar, 2026-11-20: no usa crédito, así que las condiciones de
+     * crédito (1, 2 y 3) no le aplican; las demás sí.
+     */
+    es_contado?: boolean;
   };
   /**
    * El «Monto por Cobrar» de la pantalla Autorización de Pedidos de Kepler, **con la fórmula de Kepler**
@@ -117,7 +127,7 @@ export interface EntradaAutorizacion {
 }
 
 export type DecisionAutorizacion = 'autorizar' | 'bandeja' | 'aparte';
-export type CondicionAutorizacion = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type CondicionAutorizacion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export interface MotivoAutorizacion {
   condicion: CondicionAutorizacion;
@@ -162,14 +172,19 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   const motivos: MotivoAutorizacion[] = [];
   const falla = (condicion: CondicionAutorizacion, texto: string) => motivos.push({ condicion, texto });
 
+  // [D-A12] Contado no usa crédito: las condiciones 1, 2 y 3 no le aplican.
+  const credito = !e.cliente.es_contado;
+
   // 1 · tiene límite
   const limite = e.cliente.limite != null && e.cliente.limite > 0 ? e.cliente.limite : null;
-  if (limite == null) falla(1, 'sin límite en Kepler');
+  if (credito && limite == null) falla(1, 'sin límite en Kepler');
 
   // 2 · por cobrar (fórmula de Kepler) + otros pedidos + este pedido ≤ límite
   let comprometido: number | null = null;
   let excedente: number | null = null;
-  if (e.por_cobrar_kepler == null || e.pedidos_abiertos == null) {
+  if (!credito) {
+    // contado: nada que comparar contra un límite
+  } else if (e.por_cobrar_kepler == null || e.pedidos_abiertos == null) {
     falla(2, 'no pude verificar el saldo');
   } else {
     comprometido = r2(e.por_cobrar_kepler + Math.max(e.pedidos_abiertos, 0) + e.pedido.importe);
@@ -183,7 +198,9 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   let vencido: number | null = null;
   let diasMax: number | null = null;
   let resto = 0;
-  if (e.facturas == null) {
+  if (!credito) {
+    // contado: su cartera no es la de un cliente con crédito
+  } else if (e.facturas == null) {
     falla(3, 'no pude verificar lo vencido');
   } else {
     vencido = 0;
@@ -223,7 +240,11 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   if (diasSinMov == null) falla(7, 'no entiendo la fecha del pedido');
   else if (viejo) falla(7, `lleva ${diasSinMov} días sin movimiento`);
 
-  const decision: DecisionAutorizacion = viejo ? 'aparte' : motivos.length ? 'bandeja' : 'autorizar';
+  // 8 · [D-A13] no es de la ruta vecinal
+  const vecinal = e.pedido.ruta_vecinal === true;
+  if (vecinal) falla(8, 'es de la ruta vecinal: va aparte');
+
+  const decision: DecisionAutorizacion = viejo || vecinal ? 'aparte' : motivos.length ? 'bandeja' : 'autorizar';
   return {
     decision,
     bloqueado,
@@ -263,6 +284,8 @@ export interface PedidoPorAutorizar {
   cliente_nombre: string | null;
   /** La cuenta CONTADO (venta de contado): sin «por cobrar» de Kepler ni cartera, porque no es un cliente con crédito. */
   es_contado: boolean;
+  /** `[D-A13]` Lo capturó la ruta vecinal: va aparte con esa etiqueta. */
+  ruta_vecinal: boolean;
   importe: number;
   /** El veredicto de `decidirAutorizacion`, con sus motivos y números. */
   resultado: ResultadoAutorizacion;
@@ -282,8 +305,10 @@ export interface BandejaAutorizacion {
   parametros: ParametrosAutorizacion & { origen: 'propuesta' | 'credito_cobranza' };
   /** Lo que decide Crédito y cobranza hoy (y lo que pasaría solo si el carril estuviera encendido), el más viejo primero. */
   pendientes: PedidoPorAutorizar[];
-  /** Pedidos viejos (condición 7): ni automático ni bandeja del día. */
+  /** Pedidos viejos (7) o de la ruta vecinal (8): ni automático ni bandeja del día. */
   aparte: PedidoPorAutorizar[];
+  /** `[D-A12]` Pedidos de CONTADO: no usan crédito, no le tocan a Crédito y cobranza. Con el automático encendido pasan solos. */
+  contado: PedidoPorAutorizar[];
   /** Sucursales con la autorización automática encendida (`kepler_push_switch`, tipo `autorizacion`). */
   sucursales_encendidas: string[];
   /** NO MEDIDO hasta GP.A.2: la Suite todavía no registra autorizaciones. */
