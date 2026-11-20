@@ -78,6 +78,26 @@ export function cubrioSusDias(s: SolicitudPrevia): boolean {
 
 const diasEntre = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
+/**
+ * `[PGP.164]` **Hasta dónde está cubierto SIN huecos desde `inicio`.** Junta las solicitudes que cubrieron sus
+ * días, de la que empieza antes a la que empieza después, mientras cada una arranque a más tardar donde
+ * terminó la anterior (el día final cuenta: se pidió a media jornada y la siguiente lo vuelve a pedir).
+ * Devuelve el primer día que ninguna cubrió y, si después hay otra cubierta, dónde empieza.
+ *
+ * El caso que lo pidió (prod, 2026-11-20): recibidas tenía buenas del 1-jul en adelante y la de ene–oct del
+ * 27-oct en «error» (0 de 5 paquetes). La regla tomaba el fin más tardío (hoy) como «cubierto», y de enero a
+ * junio no se volvió a pedir: llegaron 10–65 complementos de pago al mes contra ~250–340 desde julio.
+ */
+export function primerHueco(buenas: readonly SolicitudPrevia[], inicio: string): { desde: string; siguiente: string | null } {
+  let cursor = inicio;
+  const orden = [...buenas].sort((a, b) => (a.fecha_ini < b.fecha_ini ? -1 : a.fecha_ini > b.fecha_ini ? 1 : 0));
+  for (const s of orden) {
+    if (s.fecha_ini > cursor) return { desde: cursor, siguiente: s.fecha_ini };
+    if (s.fecha_fin > cursor) cursor = s.fecha_fin;
+  }
+  return { desde: cursor, siguiente: null };
+}
+
 export function decidirAlDia(previas: readonly SolicitudPrevia[], hoy: string): DecisionAlDia {
   const enCurso = previas.filter((s) => EN_CURSO.has(s.estado));
   const atorada = enCurso.find((s) => diasEntre(s.creada, hoy) > DIAS_PARA_ATORADA);
@@ -108,6 +128,12 @@ export function decidirAlDia(previas: readonly SolicitudPrevia[], hoy: string): 
     return { accion: 'pedir', desde: `${hoy.slice(0, 4)}-01-01`, hasta: hoy, recupera: 'ninguna descarga de este rol terminó completa' };
   }
   if (base > hoy) return { accion: 'nada', motivo: 'al_dia' };
+  // [PGP.164] Un hueco ANTES de lo último cubierto (desde el 1-ene del año): se pide desde ahí hasta hoy.
+  // Termina hoy, así que no repite los parámetros de ninguna anterior (código 5002); lo ya bajado se fusiona por UUID.
+  const h = primerHueco(buenas, `${hoy.slice(0, 4)}-01-01`);
+  if (h.siguiente && h.desde < base) {
+    return { accion: 'pedir', desde: h.desde, hasta: hoy, recupera: `del ${h.desde} al ${h.siguiente} ninguna descarga de este rol terminó completa` };
+  }
   // Desde el último día cubierto, INCLUSIVE: esa solicitud se hizo a media jornada y lo que se timbró después
   // todavía no está. Lo repetido no duplica: la ingesta fusiona por UUID.
   const hueco = previas.find((s) => !cubrioSusDias(s) && s.fecha_fin > base);
