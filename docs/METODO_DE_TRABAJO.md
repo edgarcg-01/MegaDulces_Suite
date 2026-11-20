@@ -64,6 +64,39 @@ DUEÑO:     <nombre>
 - Una fase 🔨 **tiene dueño y fecha de cierre comprometida**. La que pierde cualquiera de las dos cae a ⏸️ sola.
 - 🧪 **no libera el cupo**: el cupo lo libera llegar a ✅ (prod) o a ⏸️/❌ declarados. Esto es a propósito — 330 items 🧪 son exactamente lo que pasa cuando «probado» cuenta como terminado.
 
+### 3.0 El cupo se EJECUTA, no se pide (2026-11-20)
+
+> ⭐ **Por qué hizo falta.** El límite de 4 existía desde el 2026-10-14 y aun así el tablero llegó a
+> **9 fases 🔨**. Al medirlo salió la causa: la regla que debía cortar («sin dueño o sin fecha cae a
+> ⏸️ sola») **nunca podía dispararse, porque su gatillo era el único campo que nadie llenaba**:
+> «Cierre comprometido» estaba en **6 de 64 tarjetas, y en 0 de las 9 fases 🔨**. Un límite de
+> trabajo en curso sin condición de término no limita nada: si nada tiene fecha, nada llega tarde
+> nunca, y entonces nada se cierra ni se pausa. Es la misma raíz de los 330 🧪.
+
+**1 · Sin fecha no se entra.** Una fase pasa a 🔨 sólo con **dueño** y **cierre comprometido** en su
+tarjeta. Sin los dos se queda en «Por hacer». Es el único campo que se vuelve requisito de entrada:
+los demás (área, prioridad, dinero, esfuerzo) ya se llenan solos en la mitad o más de las tarjetas.
+
+**2 · La caducidad la ejecuta un script, no una persona.**
+
+```bash
+node .claude/skills/pm/cupo.js            # informe: qué se sostiene y qué cae (NO escribe)
+node .claude/skills/pm/cupo.js --aplicar  # mueve a «En pausa» lo que no se sostiene
+node .claude/skills/pm/cupo.js --self     # prueba negativa: 7 controles, tiene que salir rojo si mide mal
+```
+
+⛔ **Antes de la primera corrida con `--aplicar`, los dueños ponen su fecha.** Una compuerta que se
+dispara sobre un campo que nunca se recolectó no castiga el problema, castiga a la persona: pausaría
+trabajo que sí está vivo sólo porque a su tarjeta le falta un dato. Se avisa, se da plazo, y recién
+después muerde.
+
+**3 · Abrir exige decir qué sale.** La tarjeta nueva no se crea sin nombrar **cuál se cierra o se
+pausa a cambio**. Hoy abrir cuesta una frase y cerrar cuesta el DoD de 7 — esa asimetría es la que
+desborda, y ninguna regla aguanta si quien la firma la puede saltar gratis. Excepción: **prioridad 0
+(riesgo de seguridad) entra sin canje**. Si se abre igual sobre el cupo, se escribe en la tarjeta
+quién lo autorizó, cuándo y qué se pausó — el registro de 2026-11 muestra seis fases abiertas «por
+encima del cupo» sin ese renglón.
+
 ### 3.1 Qué entra primero — dinero en juego × esfuerzo (Edgar, 2026-10-21)
 
 **Mucho dinero y poco esfuerzo va primero; mucho esfuerzo y poco dinero, al final.** Cada fase o
