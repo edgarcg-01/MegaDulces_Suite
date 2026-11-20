@@ -9,6 +9,7 @@ import { diaMxDeInstante, type ArqueosResponse } from '@megadulces/contracts';
 import { environment } from '../../../../../environments/environment';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { CashLedgerService, type MovimientoCaja } from '../../cash-ledger.service';
 import { money, dmy } from '../finanzas-format';
@@ -40,7 +41,7 @@ const TOPE_PAGINAS = 8;
   selector: 'app-estado-cuenta-caja',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, ButtonModule, DialogModule, SelectModule, LoadStateComponent, MetricStripComponent, ContextHelpComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, SelectModule, LoadStateComponent, MetricStripComponent, ContextHelpComponent, FreshnessPillComponent],
   template: `
     <p-dialog header="Estado de cuenta de Caja General" [(visible)]="visible" [modal]="true" [dismissableMask]="true"
               [style]="{ width: '58rem', maxWidth: '96vw' }" appendTo="body">
@@ -48,6 +49,7 @@ const TOPE_PAGINAS = 8;
         <p-select [options]="meses" optionLabel="label" optionValue="value" [ngModel]="mes()" (onChange)="cambiarMes($event.value)"
                   ariaLabel="Mes" styleClass="ec-sel" />
         <span class="ec-sp"></span>
+        <app-freshness-pill measures="fetch" [since]="leidoEn()" />
         <app-context-help topic="caja-estado-cuenta" />
         <p-button size="small" icon="pi pi-print" label="Imprimir o PDF" [disabled]="!estado()?.dias?.length" (onClick)="imprimir()" />
       </div>
@@ -105,6 +107,7 @@ export class EstadoCuentaCajaComponent {
   readonly error = signal<string | null>(null);
   readonly estado = signal<EstadoDeCuenta | null>(null);
   readonly truncado = signal(false);
+  readonly leidoEn = signal<Date | null>(null);
   readonly avisoImpresion = signal<string | null>(null);
   readonly avisos = computed(() => { const e = this.estado(); return e ? avisosDelEstado(e) : []; });
   private pedido = 0;
@@ -135,6 +138,7 @@ export class EstadoCuentaCajaComponent {
       if (yo !== this.pedido) return;
       this.truncado.set(movs.truncado);
       this.estado.set(armarEstadoDeCuenta(arq?.rows ?? [], movs.rows, periodo));
+      this.leidoEn.set(new Date());
     } catch {
       if (yo === this.pedido) this.error.set('Revisa la conexión e intenta de nuevo.');
     } finally {
