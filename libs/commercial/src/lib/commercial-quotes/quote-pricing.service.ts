@@ -262,23 +262,27 @@ export interface ReglaDescuento {
   umbral_verificado: boolean;
   aplica_a: string | null;
   saldo_estado: string | null;
-  /** `[PDV.4]` La tienda lleva control de saldo: tiene alguna regla con `saldo_estado` ≠ `sin_control`. */
-  tienda_lleva_saldo?: boolean;
   reglas_duplicadas: string | number;
   valid_to: string | Date | null;
 }
 
 /**
- * `[PDV.4]` Promoción por cantidad con saldo 0 (`c9 = 0 AND c10 = 0`, `sin_control`) en una tienda que SÍ
- * lleva control de saldo: el mostrador no la da. Medido en tickets U-D-10 de 14 días (2026-10-19→11-02),
- * reglas de umbral 1: en la 05 se cobra bajo lista el 49.5 % con saldo contra 22.4 % sin él; en la 08,
- * 98.7 % contra 36.1 % (lo que queda es la escalera de mayoreo). En una tienda que no lleva la columna
- * (la 08 al instalarse, sept-2026) el cero no dice nada y la promo se aplica. Sólo `descuento_cantidad`:
- * es lo medido. Devuelve el motivo para `not_applied`, o null si la regla se aplica.
+ * `[PDV.4]` `[ETQ-PROMO.7]` Una promoción por cantidad sólo se aplica si Kepler le deja SALDO POR VENDER
+ * (`kdpv_descuxq.c10 > 0`, `saldo_estado = 'con_saldo'`). Así trabaja la caja de Kepler, y la Suite se
+ * adapta a eso en vez de suponer otra regla.
+ *
+ * Medido en el mostrador (U-D-10) el 2026-11-20, antes de corregir los datos:
+ *   - con saldo: la caja aplicó el descuento en el 69–90 % de los renglones;
+ *   - con `c9 = 0` y `c10 = 0`: **0 de más de 280 renglones en 10 días**, en Zamora Centro y en
+ *     Morelia Abastos.
+ * Así se cae la excepción de 2026-11-02 («si la tienda no lleva saldo, se aplica»): se basaba en la
+ * instalación nueva de Morelia Abastos, y su caja tampoco da esas promociones. «Agotada» también lleva
+ * `c10 = 0`, la misma columna que decide. Sólo `descuento_cantidad`: el regalo no está medido.
+ * Devuelve el motivo para `not_applied`, o null si la regla se aplica.
  */
-export function motivoPromoSinSaldo(rule: Pick<ReglaDescuento, 'mecanismo' | 'saldo_estado' | 'tienda_lleva_saldo'>): string | null {
-  if (rule.mecanismo !== 'descuento_cantidad' || rule.saldo_estado !== 'sin_control' || !rule.tienda_lleva_saldo) return null;
-  return 'La promoción tiene saldo 0 en una sucursal que lleva control de saldo: el mostrador no la da. Se declara, no se aplica.';
+export function motivoPromoSinSaldo(rule: Pick<ReglaDescuento, 'mecanismo' | 'saldo_estado'>): string | null {
+  if (rule.mecanismo !== 'descuento_cantidad' || rule.saldo_estado === 'con_saldo') return null;
+  return 'La promoción no tiene saldo por vender en Kepler: la caja no la da. Se declara, no se aplica.';
 }
 
 /**
@@ -816,9 +820,7 @@ export class QuotePricingService {
         }
       : await knex.raw(
           `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
-                  umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to,
-                  EXISTS (SELECT 1 FROM analytics.v_erp_discount_rules s
-                           WHERE s.tienda = :branch AND s.saldo_estado <> 'sin_control') AS tienda_lleva_saldo
+                  umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
              FROM analytics.v_erp_discount_rules
             WHERE tienda = :branch AND sku = :sku
               AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
@@ -855,6 +857,7 @@ export class QuotePricingService {
           `El ERP tiene ${rule.reglas_duplicadas} reglas ${rule.mecanismo} vigentes para este SKU y presentación; se aplicó la de la propia tienda con vigencia más larga.`,
         );
       }
+      // El descuento por cantidad sin saldo ya salió arriba como no aplicado; el regalo no está medido.
       if (rule.saldo_estado === 'agotada') {
         warnings.push(`La promoción ${rule.mecanismo} está marcada como AGOTADA en el ERP (saldo 0): el mostrador podría no darla.`);
       }
@@ -1367,12 +1370,10 @@ export class QuotePricingService {
     const ladders = await this.ladders(knex, branch, lista);
     const r = await knex.raw(
       `SELECT sku, unidad, mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
-              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to,
-              EXISTS (SELECT 1 FROM analytics.v_erp_discount_rules s
-                       WHERE s.tienda = ? AND s.saldo_estado <> 'sin_control') AS tienda_lleva_saldo
+              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
          FROM analytics.v_erp_discount_rules
         WHERE tienda = ? AND sku IN (${lista.map(() => '?').join(', ')})`,
-      [branch, branch, ...lista],
+      [branch, ...lista],
     );
     for (const row of r.rows as ReglaDescuento[]) {
       const l = reglas.get(row.sku) ?? [];

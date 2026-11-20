@@ -892,11 +892,18 @@ export class CommercialLabelsService {
           // que lleva el precio grande en el 85% de las etiquetas, y a igualdad la de mayor
           // descuento; `promo_unidad` viaja igual para que la etiqueta sólo la aplique al precio
           // que de verdad le toca.
+          //
+          // `[ETQ-PROMO.7]` La etiqueta sólo imprime la promo que la caja da: la que tiene SALDO POR
+          // VENDER en Kepler (`c10 > 0`, `saldo_estado = 'con_saldo'`). Medido el 2026-11-20 en el
+          // mostrador: con `c9 = c10 = 0` la caja dio el descuento en 0 de más de 280 renglones en
+          // 10 días, y la etiqueta lo imprimía igual (42311 en Morelia Abastos: decía $43.90 y la
+          // caja cobraba $45.26). La vista sigue publicando todas, con su `saldo_estado`; aquí se
+          // aplica la regla de Kepler, en vez de suponer otra.
           qb.leftJoin(
             trx.raw(
               `(SELECT DISTINCT ON (sucursal, sku) sucursal, sku, pct, min_qty, unidad, valid_to
                   FROM analytics.v_label_promotions
-                 WHERE sucursal = ? AND aplica_a IS NOT NULL
+                 WHERE sucursal = ? AND aplica_a IS NOT NULL AND saldo_estado = 'con_saldo'
                  ORDER BY sucursal, sku, (aplica_a = 'base') DESC, pct DESC) AS pr`,
               [suc],
             ) as any,

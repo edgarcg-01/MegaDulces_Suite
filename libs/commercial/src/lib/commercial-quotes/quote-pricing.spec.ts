@@ -142,25 +142,26 @@ describe('[COT.16] rungDeRotulo — el mismo rótulo es base en un producto y un
 });
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-// `[PDV.4]` Promoción con saldo 0: el mostrador no la da SI la tienda lleva control de saldo (medido en
-// U-D-10 de 14 días: 05 → 49.5 % con saldo vs 22.4 % sin él; 08 → 98.7 % vs 36.1 %).
+// `[PDV.4]` `[ETQ-PROMO.7]` Como Kepler: el descuento por cantidad sólo se da con saldo por vender (c10 > 0).
+// Medido 2026-11-20 en U-D-10: con c9 = c10 = 0, 0 de más de 280 renglones en 10 días (Zamora Centro y
+// Morelia Abastos); con saldo, 69–90 %.
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-describe('[PDV.4] motivoPromoSinSaldo — saldo 0 en una tienda que lleva saldo no se aplica', () => {
-  const r = (saldo_estado: string | null, tienda_lleva_saldo: boolean, mecanismo = 'descuento_cantidad') => ({ mecanismo, saldo_estado, tienda_lleva_saldo });
-  it('saldo 0 en tienda con control: se declara, no se aplica', () => {
-    expect(motivoPromoSinSaldo(r('sin_control', true))).toContain('saldo 0');
-  });
+describe('[ETQ-PROMO.7] motivoPromoSinSaldo — sin saldo por vender no se aplica, como en Kepler', () => {
+  const r = (saldo_estado: string | null, mecanismo = 'descuento_cantidad') => ({ mecanismo, saldo_estado });
   it('con saldo: se aplica', () => {
-    expect(motivoPromoSinSaldo(r('con_saldo', true))).toBeNull();
+    expect(motivoPromoSinSaldo(r('con_saldo'))).toBeNull();
   });
-  it('tienda que no lleva la columna (el cero no dice nada): se aplica', () => {
-    expect(motivoPromoSinSaldo(r('sin_control', false))).toBeNull();
+  it('sin control (c9 = c10 = 0): se declara, no se aplica — también en la tienda que «no lleva saldo»', () => {
+    expect(motivoPromoSinSaldo(r('sin_control'))).toContain('saldo');
   });
-  it('agotada sigue como antes (se aplica con advertencia aparte)', () => {
-    expect(motivoPromoSinSaldo(r('agotada', true))).toBeNull();
+  it('agotada (c10 = 0): se declara, no se aplica', () => {
+    expect(motivoPromoSinSaldo(r('agotada'))).toContain('saldo');
+  });
+  it('estado desconocido (null): no se inventa, no se aplica', () => {
+    expect(motivoPromoSinSaldo(r(null))).not.toBeNull();
   });
   it('sólo descuento por cantidad: el regalo no está medido', () => {
-    expect(motivoPromoSinSaldo(r('sin_control', true, 'gratis_cantidad'))).toBeNull();
+    expect(motivoPromoSinSaldo(r('sin_control', 'gratis_cantidad'))).toBeNull();
   });
 });
 
