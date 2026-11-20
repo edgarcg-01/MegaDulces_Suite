@@ -15,7 +15,7 @@ const base = (o: Partial<EntradaAutorizacion> = {}): EntradaAutorizacion => ({
   hoy: '2026-11-20',
   pedido: { importe: 1_000, fecha: '2026-11-19' },
   cliente: { nombre: 'ABARROTES UNO', limite: 10_000 },
-  saldo_vivo: 2_000,
+  por_cobrar_kepler: 2_000,
   pedidos_abiertos: 500,
   facturas: [{ saldo: 2_000, importe: 2_000, vencimiento: '2026-11-30' }],
   edad_datos_min: 2,
@@ -40,26 +40,38 @@ describe('[GP.A.1] decidirAutorizacion', () => {
   });
 
   it('2 · saldo + otros pedidos + este pedido sobre el límite → dice cuánto excede', () => {
-    const r = decidirAutorizacion(base({ saldo_vivo: 9_000 }), P);
+    const r = decidirAutorizacion(base({ por_cobrar_kepler: 9_000 }), P);
     expect(r.decision).toBe('bandeja');
     expect(r.numeros.excedente).toBe(500);
     expect(r.motivos[0].texto).toBe('excede $500.00 su límite');
   });
 
   it('2 · justo en el límite pasa (negativo del anterior)', () => {
-    expect(decidirAutorizacion(base({ saldo_vivo: 8_500 }), P).decision).toBe('autorizar');
+    expect(decidirAutorizacion(base({ por_cobrar_kepler: 8_500 }), P).decision).toBe('autorizar');
   });
 
   it('2 · ⛔ saldo u otros pedidos desconocidos NO se dan por cero', () => {
-    for (const o of [{ saldo_vivo: null }, { pedidos_abiertos: null }]) {
+    for (const o of [{ por_cobrar_kepler: null }, { pedidos_abiertos: null }]) {
       const r = decidirAutorizacion(base(o), P);
       expect(r.decision).toBe('bandeja');
       expect(r.motivos).toContainEqual({ condicion: 2, texto: 'no pude verificar el saldo' });
     }
   });
 
+  it('2 · [GP.A.0b] el 00031 de la captura de Zamora Centro: límite 10,000, por cobrar en Kepler 56,702.27 → excede', () => {
+    const r = decidirAutorizacion(base({ por_cobrar_kepler: 56_702.27, pedidos_abiertos: 0, pedido: { importe: 6_563.14, fecha: '2026-11-19' } }), P);
+    expect(r.decision).toBe('bandeja');
+    expect(r.numeros.excedente).toBe(53_265.41);
+  });
+
+  it('2 · [GP.A.0b] un por cobrar NEGATIVO (saldo a favor, como el 00007) suma a favor, como en Kepler', () => {
+    const r = decidirAutorizacion(base({ por_cobrar_kepler: -7_610.28, pedidos_abiertos: 0, pedido: { importe: 15_000, fecha: '2026-11-19' } }), P);
+    expect(r.numeros.comprometido).toBe(7_389.72);
+    expect(r.decision).toBe('autorizar');
+  });
+
   it('3 · vencido fuera de la gracia → bandeja con monto y días', () => {
-    const r = decidirAutorizacion(base({ facturas: [{ saldo: 12_300, importe: 12_300, vencimiento: '2026-09-19' }], saldo_vivo: 0 }), P);
+    const r = decidirAutorizacion(base({ facturas: [{ saldo: 12_300, importe: 12_300, vencimiento: '2026-09-19' }], por_cobrar_kepler: 0 }), P);
     expect(r.decision).toBe('bandeja');
     expect(r.motivos[0]).toEqual({ condicion: 3, texto: 'tiene $12,300.00 vencidos desde hace 62 días' });
   });

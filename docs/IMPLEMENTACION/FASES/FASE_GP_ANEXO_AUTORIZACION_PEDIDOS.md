@@ -60,10 +60,27 @@ Anclado a la captura de Edgar (Zamora Centro, `05`) contra el ODS:
 | Cliente · Nombre | `kdm1.c10` · `kdm1.c32` | ✅ `00031` JORGE RODRIGUEZ RAMOS |
 | Monto Pedido | `kdm1.c16` | ✅ 6,563.14 · 5,507.43 · 4,381.30 |
 | Monto Crédito | **`kdud.c15`** (límite del cliente en esa sucursal); el plazo es `kdud.c16`. Ya lo expone `analytics.v_cliente_credito` | ✅ 10,000.00 para el `00031` |
-| Monto por Cobrar | **NO DECODIFICADO.** Ver abajo | ❌ |
-| Crédito Disponible | Monto Crédito − Monto por Cobrar | ✅ la resta; su segundo término, no |
+| Monto por Cobrar | **Σ cargos del cliente en `kdue` SIN los tickets de contado (tipo 10) − Σ todos sus abonos**, crudo (GP.A.0b, 2026-11-20) | ✅ **9 de 9 al centavo**, incluido el `00007` en −7,610.28 |
+| Crédito Disponible | Monto Crédito − Monto por Cobrar | ✅ |
 
-**El «Monto por Cobrar» de Kepler no es el saldo del cliente.** Para los 9 clientes de la captura:
+**Decodificado el 2026-11-20 (GP.A.0b).** Por tipo de cargo, el `00031` es `56,133.70` (tipo 5) + `1,189.74`
+(tipo 8) − `621.17` de abonos = `56,702.27`, lo que dice la pantalla; los otros 8 cuadran igual. Lo que lo
+aleja de lo que el cliente debe son las **facturas de ticket** (`U-D-5` «Fac», serie `UD0501`): cada una apunta
+a su ticket `U-D-10` por `c37/c38/c39`, con el mismo importe, y el ticket ya está cerrado (`c43 = 'F'`). Kepler
+deja fuera el ticket y cuenta la factura, y como a la factura nadie le aplicó el abono, la sigue contando por
+cobrar. La cartera de la Suite no cuenta el tipo 5, por eso da `568.57`. En la red hay facturas de ticket sin
+abono en 4 sucursales (La Piedad Abastos, 8 Esquinas, Yurécuaro y Zamora Centro), unos $2.2 M.
+
+**En telemarketing la diferencia casi no pesa:** en 60 días (2,975 pedidos TELEMARK, 445 clientes) sólo 22
+clientes tienen los dos números distintos (18 por facturas de ticket), y la condición del límite da **el mismo
+veredicto en los 2,975** con la fórmula de Kepler que con el saldo de la Suite. La diferencia grande es de la ruta
+vecinal de Zamora Centro.
+
+**Por eso la regla usa la fórmula de Kepler** (misma fórmula, mismos resultados): Crédito y cobranza ve en la
+Suite el mismo número que ve en Kepler, y la ficha le explica qué parte son facturas de ticket sin abono. Lo
+único que la Suite agrega encima son los otros pedidos abiertos del cliente, rotulado como suyo.
+
+Lo que se creía antes del decode (se conserva como historia): para los 9 clientes de la captura,
 
 | Cliente | Kepler dice | Saldo real (cartera CXC) | Σ`kdue` sin aplicar FIFO | Pedidos `CREADO` del cliente |
 |---|---:|---:|---:|---:|
@@ -72,11 +89,9 @@ Anclado a la captura de Edgar (Zamora Centro, `05`) contra el ODS:
 | `00032` | 39,038.47 | 3,560.27 | 74,516.65 | 45,652.34 |
 | `00038` | 32,581.41 | −2,801.52 | 64,841.58 | 35,182.18 |
 
-Lo que Kepler muestra queda **cerca de la suma de los pedidos sin autorizar** del cliente (dentro de ±15 %
-en los 9), no de lo que debe. **Hipótesis, no decode:** Kepler cuenta los pedidos abiertos como «por
-cobrar». Si es así, los pedidos que nadie cierra le comen el crédito al cliente aunque no deba nada.
-**Por eso la Suite no copia este número**: usa el saldo de la cartera CXC (verificado contra `kdue`, Fase
-CXC) más los pedidos abiertos, cada uno por separado y con su fuente.
+~~Lo que Kepler muestra queda cerca de la suma de los pedidos sin autorizar; hipótesis: Kepler cuenta los
+pedidos abiertos como «por cobrar».~~ **Refutada por el decode:** Kepler no suma pedidos; la cercanía era
+casualidad de que esos clientes tienen tantas facturas de ticket como pedidos muertos.
 
 Lo que la lista de Kepler **no** muestra: lo vencido, la antigüedad del pedido, quién lo capturó, cómo
 paga el cliente, ni si está bloqueado. El bloqueo vive en el **nombre** («NO TOCAR …» en `kdud.c3`):
@@ -185,7 +200,8 @@ plazo 0, una factura vence el día que se emite. Por eso «vencido» se mide con
 Un pedido TELEMARK se autoriza **solo** si se cumplen **todas**:
 
 1. El cliente **tiene límite** (`kdud.c15 > 0`). Sin límite no hay automático: va a la bandeja.
-2. **Saldo vivo** (cartera CXC) **+ pedidos abiertos** del cliente sin facturar **+ este pedido ≤ límite**.
+2. **Monto por Cobrar con la fórmula de Kepler** (GP.A.0b; negativo cuenta a favor, como en Kepler) **+ otros
+   pedidos abiertos** del cliente sin facturar (agregado de la Suite) **+ este pedido ≤ límite**.
 3. **Nada vencido** de más de **plazo + gracia** días. La gracia es un parámetro que fija Crédito y cobranza
    (propuesta: 15 días; ver D-A6). **Los restos de centavos no cuentan**: una factura que ya tuvo cobro y
    debe hasta $1 cuenta como pagada (`esRestoDeFactura` de `libs/contracts`, ya hecha y probada en
@@ -335,7 +351,7 @@ de E4.
 | # | Resultado | Capa | Depende | ¿Escribe? |
 |---|---|---|---|---|
 | **GP.A.0a** 🧪 | Se confirma con **3 pedidos reales** que Autorizar en Kepler sólo cambia `kdm1.c11`, y que no toca `kdm2`, `kdue` ni existencias. Foto antes/después en la réplica (protocolo de GP.12.0a), nunca una prueba en el Kepler vivo. **Medido (2026-11-19/20):** · la foto del 19-nov juntó **8** pedidos CREADO→AUTORIZADO: cabecera, **sólo `c11`**; renglones, **nada** (plan §2.2) · **no aparta existencia**: ninguna columna numérica de `kdik` iguala lo pedido en AUTORIZADO por producto (Morelia Abastos, 291 productos: la mejor coincide en 4, el mismo ruido que lo sólo CREADO, 5 de 96), ni en unidad base ni de venta, ni sumando todos los estatus abiertos; `kdil` igual. **Control positivo:** el mismo instrumento sí encuentra la existencia (`kdik.c60` = `kdil c4+c8−c9` en 2,977 de 3,378) · **no crea cartera**: `kdue` no tiene cargos de tipo 40; sus 7 renglones tipo 40 son abonos (`c29 = 'A'`, el Anticipo `U-A-40`). **NO MEDIDO:** otras tablas fuera de `kdm1`/`kdm2`/`kdik`/`kdil`/`kdue` | C0 | — | no |
-| **GP.A.0b** | Se decodifica el «Monto por Cobrar» de Kepler (hipótesis: incluye los pedidos abiertos, §1). No bloquea: la Suite usa su propio saldo. Sirve para explicarle a Crédito y cobranza por qué los dos números no coinciden | C0 | — | no |
+| **GP.A.0b** 🧪 | Se decodifica el «Monto por Cobrar» de Kepler. **Hecho el 2026-11-20 (§1):** Σ cargos de `kdue` sin el tipo 10 − Σ abonos, **9 de 9 al centavo** contra la captura. La hipótesis de los pedidos abiertos quedó refutada. La diferencia con la cartera de la Suite son las facturas de ticket (`U-D-5`) sin abono. En telemarketing (60 días) la condición del límite da el mismo veredicto con las dos fórmulas en 2,975 de 2,975 pedidos, así que **la regla adopta la de Kepler** (`POR_COBRAR_KEPLER_SQL`). **NO MEDIDO:** si esas facturas de ticket sin abono se cobraron (lo que haría falso el número de Kepler), y la paridad en otras sucursales (la captura es de una sola) | C0 | — | no |
 | **GP.A.0c** 🧪 | Fuente del bloqueo del cliente: se busca un campo en `kdud`; si no existe, la regla se declara (hoy «NO TOCAR» en el nombre). **Medido (2026-11-20, 23,406 filas cliente × sucursal):** **no hay campo de bloqueo**: ninguna de las columnas de pocos valores (`c14`, `c17`, `c18`, `c26`, `c28`, `c29`) separa a los marcados del resto. **La marca es el nombre que EMPIEZA con «NO TOCAR»** (235 filas, 158 claves, siempre al inicio). Las otras palabras buscadas (bloqueado, suspendido, no vender, no surtir, jurídico, cancelado, moroso, demanda) dan **0**; «BAJA» da 10 y **todas son falso positivo** («trabajadores»), por eso la regla es `^NO TOCAR`, no «contiene». **Es por sucursal:** 101 clientes la tienen en todas sus sucursales y 57 sólo en algunas, así que se lee la fila de `kdud` de la sucursal del pedido. **145 de las 235 filas siguen con límite** (`c15 > 0`): sin esta condición, la regla 1 las dejaría pasar. Pedidos TELEMARK de 60 días a clientes marcados: **0** | C0 | — | no |
 | **GP.A.0d** | Permiso `UPDATE (c11)` en `md.kdm1` para `kepler_push`, en el mismo archivo que GP.12.0e (lo corre el PM) | C0 | GP.12.0e | sí (permiso) |
 | **GP.A.1** 🧪 | **Hecha el 2026-11-20:** `decidirAutorizacion` en `libs/commercial/src/lib/commercial-quotes/autorizacion-pedido.reglas.ts` — evalúa las 7 condiciones (todas, no se corta en la primera) y devuelve `autorizar` / `bandeja` / `aparte`, cada motivo en una frase («excede $500.00 su límite», «tiene $12,300.00 vencidos desde hace 62 días») y los números que vio. Lo desconocido (saldo, cartera, nombre, frescura, tope) va a la bandeja con «no pude verificar…», nunca se autoriza. Los centavos con `esRestoDeFactura`; el bloqueo con `^NO TOCAR`. Los parámetros se reciben (`PARAMETROS_PROPUESTOS` es la propuesta sin firmar de D-A6/D-A10). 18 pruebas; 3 mutantes rojos (sin la excepción de centavos, «NO TOCAR» en cualquier lado, saldo desconocido como cero). Definición: **Regla de autorización** en `libs/commercial` (función pura, con pruebas y su prueba negativa): las 6 condiciones de §3.1, cada una con el número que la decide. Sin límite = `sin límite`, nunca `0` (ADR-056). La gracia y N minutos son **parámetros** (los fija Crédito y cobranza, no el código) | C1 | GP.A.0c | — |
@@ -397,6 +413,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
+| 2026-11-20 | **GP.A.0b 🧪: el «Monto por Cobrar» de Kepler, decodificado 9 de 9 al centavo** (Edgar: «cumpliendo los parámetros de Kepler, lo menos posible de interacción humana y la mayor información»). Σ cargos de `kdue` sin tickets de contado − Σ abonos; la hipótesis de los pedidos quedó refutada. La regla adopta la fórmula de Kepler (en telemarketing, 60 días, mismo veredicto en 2,975 de 2,975 pedidos); 20 pruebas, mutante «recortar el negativo» rojo. Lo que separa a Kepler de lo que el cliente debe son las facturas de ticket sin abono: información para la ficha | Claude |
 | 2026-11-20 | **GP.A.1 🧪**: la regla como función pura (`decidirAutorizacion`), 18 pruebas y 3 mutantes rojos. Sigue GP.A.2 (escribir la autorización), que espera D-A1 escrita en ADR-117 y el permiso GP.A.0d | Claude |
 | 2026-11-20 | **C0 de EA: GP.A.0a y GP.A.0c 🧪** (prod, sólo lectura). Autorizar = sólo `c11` (8 casos de la foto del 19-nov), no aparta existencia (`kdik`/`kdil`, con control positivo) ni crea cartera. El bloqueo del cliente no es un campo: es el nombre que empieza con «NO TOCAR», por sucursal (145 de 235 conservan límite). La condición 3 usa la regla de centavos ya hecha (`[GP.R.1]`). Queda GP.A.0b (no bloquea) y GP.A.0d (permiso, lo corre el PM). Lo siguiente: GP.A.1, la regla como función pura | Claude |
 | 2026-11-19 | Edgar: «ya tenemos los RFC, sólo es asignarlos (pólizas de ContPAQi)». Medido: los CFDI de 282 de los 287 clientes genéricos están timbrados a público en general (2 con RFC propio); el catálogo de personas de ContPAQi da 30 candidatos por nombre. De 73 se llega a ~105 de 366; ~255 no tienen RFC en ningún sistema. Nuevo D-A11 | Claude |

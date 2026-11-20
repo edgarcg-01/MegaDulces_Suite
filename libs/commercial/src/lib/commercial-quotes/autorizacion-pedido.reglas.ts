@@ -39,6 +39,24 @@ export const PARAMETROS_PROPUESTOS: Readonly<ParametrosAutorizacion> = Object.fr
   frescuraMaxMin: 15,
 });
 
+/**
+ * `[GP.A.0b]` **El «Monto por Cobrar» de Kepler, con SU fórmula** (pantalla Finanzas › Crédito y cobranza ›
+ * Operación CFDI › Autorización de Pedidos). Decodificado el 2026-11-20 contra la captura de Zamora Centro:
+ * **9 de 9 clientes al centavo**, incluido uno negativo (−7,610.28):
+ *
+ *     Σ cargos del cliente en `kdue` (c29 = 'C') SIN los tickets de contado (tipo 10)  −  Σ todos sus abonos (c29 = 'A')
+ *
+ * Crudo: no aplica abonos factura por factura. Lo que lo aleja de la cartera de la Suite son las facturas de
+ * ticket (`U-D-5` «Fac», que apuntan a su `U-D-10` por `c37/c38/c39`) sin abono aplicado; en telemarketing,
+ * 60 días: 22 de 445 clientes difieren y la condición 2 da el mismo veredicto en 2,975 de 2,975 pedidos.
+ * Recibe `$1` = sucursal y `$2` = cliente; devuelve una fila con `por_cobrar`.
+ */
+export const POR_COBRAR_KEPLER_SQL = `
+  SELECT coalesce(sum(x.c11::numeric) FILTER (WHERE x.c29 = 'C' AND btrim(x.c4::text) <> '10'), 0)
+       - coalesce(sum(x.c11::numeric) FILTER (WHERE x.c29 = 'A'), 0) AS por_cobrar
+    FROM kepler_ods.kdue x
+   WHERE x.sucursal = $1 AND btrim(x.c1) = $1 AND btrim(x.c2) = $2`;
+
 /** El cliente está bloqueado si su nombre en el `kdud` de la sucursal del pedido EMPIEZA con esto (GP.A.0c). */
 export const MARCA_BLOQUEO = 'NO TOCAR';
 
@@ -65,9 +83,16 @@ export interface EntradaAutorizacion {
     /** `kdud.c15`. null o 0 = sin límite. */
     limite: number | null;
   };
-  /** Saldo vivo del cliente en la cartera. null = no se pudo leer. */
-  saldo_vivo: number | null;
-  /** Lo de sus OTROS pedidos abiertos sin facturar. null = no se pudo leer. */
+  /**
+   * El «Monto por Cobrar» de la pantalla Autorización de Pedidos de Kepler, **con la fórmula de Kepler**
+   * ({@link POR_COBRAR_KEPLER_SQL}, GP.A.0b: 9 de 9 al centavo). Puede ser negativo (saldo a favor) y así
+   * cuenta, como en Kepler. null = no se pudo leer.
+   */
+  por_cobrar_kepler: number | null;
+  /**
+   * Lo de sus OTROS pedidos abiertos sin facturar. **Agregado de la Suite** (Kepler no lo suma): evita que
+   * varios pedidos que caben uno por uno se autoricen juntos por encima del límite. null = no se pudo leer.
+   */
   pedidos_abiertos: number | null;
   /** Sus facturas vivas. null = no se pudo leer la cartera. */
   facturas: FacturaDelCliente[] | null;
@@ -134,13 +159,13 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
   const limite = e.cliente.limite != null && e.cliente.limite > 0 ? e.cliente.limite : null;
   if (limite == null) falla(1, 'sin límite en Kepler');
 
-  // 2 · saldo + otros pedidos + este pedido ≤ límite
+  // 2 · por cobrar (fórmula de Kepler) + otros pedidos + este pedido ≤ límite
   let comprometido: number | null = null;
   let excedente: number | null = null;
-  if (e.saldo_vivo == null || e.pedidos_abiertos == null) {
+  if (e.por_cobrar_kepler == null || e.pedidos_abiertos == null) {
     falla(2, 'no pude verificar el saldo');
   } else {
-    comprometido = r2(Math.max(e.saldo_vivo, 0) + Math.max(e.pedidos_abiertos, 0) + e.pedido.importe);
+    comprometido = r2(e.por_cobrar_kepler + Math.max(e.pedidos_abiertos, 0) + e.pedido.importe);
     if (limite != null && comprometido > limite + SALDO_CERO) {
       excedente = r2(comprometido - limite);
       falla(2, `excede ${dinero(excedente)} su límite`);
