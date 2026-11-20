@@ -3,19 +3,16 @@ import {
 } from '@angular/core';
 import { ButtonModule } from 'primeng/button';
 import JsBarcode from 'jsbarcode';
-import { PAGINA_TSC_3X } from '@megadulces/ui-web';
 import { printIsolated } from '../../../../shared/util/print-isolated';
-import { CSS_ETIQUETA_UBICACION, etiquetasUbicacionHtml } from '../etiqueta-ubicacion';
+import { CSS_ETIQUETA_UBICACION, PAGINA_TSC_AMARILLA, etiquetasUbicacionHtml } from '../etiqueta-ubicacion';
 
 /**
  * `[UB.RF.12]` `cartel` = media carta, dos por hoja (bodega: se lee caminando). `etiqueta` = la chica, para
  * el canto del anaquel de la TIENDA, donde un cartel grande le quita vista al producto (Edgar, 2026-11-19).
- * `[UB.RF.14]` La etiqueta sale en la **TSC TE200 con el rollo amarillo**: 3 por fila, 32 × 48 mm.
+ * `[UB.RF.14]` La etiqueta sale en la **TSC TE200 con el rollo amarillo**. `[UB.RF.16]` Ese rollo es de UNA
+ * etiqueta a lo ancho, de 60 × 30 mm (no la fila de 3 de 32 × 48 del checado).
  */
 export type FormatoCartel = 'cartel' | 'etiqueta';
-
-/** Etiquetas por fila del rollo de la TSC (`etiqueta-ubicacion.ts`). */
-export const ETIQUETAS_POR_FILA = 3;
 
 export interface CartelUbicacion {
   /** El código que se escanea. Es el mismo `warehouse_bins.code`. */
@@ -57,7 +54,7 @@ const MODULO_PX = 2;
     <div class="ct">
       @if (formato() === 'etiqueta') {
         <p class="ct-nota">
-          Salen en la <b>TSC TE200</b> con el <b>rollo amarillo</b>, 3 por fila. Al imprimir, elige la TSC.
+          Salen en la <b>TSC TE200</b> con el <b>rollo amarillo</b> (6 × 3 cm), una por etiqueta. Al imprimir, elige la TSC con papel de 60 × 30 mm.
         </p>
       } @else {
         <p class="ct-nota">
@@ -142,19 +139,19 @@ const MODULO_PX = 2;
       display: flex; justify-content: space-between; width: 100%;
       font-size: clamp(8px, 2.6vw, 14px); color: #555; font-variant-numeric: tabular-nums;
     }
-    /* [UB.RF.14] La etiqueta de la TSC en su proporción REAL (32 × 47.6 mm), 3 por fila como sale el rollo,
-       sobre amarillo como el papel. */
-    .ct-prev-et { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-1); max-width: 360px; }
+    /* [UB.RF.16] La etiqueta del rollo amarillo en su proporción REAL (60 × 29.6 mm), sobre amarillo como el
+       papel. Las medidas en cqw son las de la impresión entre 60 mm: código 10 mm, rótulo 2.6, barras 22.5 × 9. */
+    .ct-prev-et { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr)); gap: var(--sp-2); max-width: 640px; }
     .ct-et {
       container-type: inline-size;
-      aspect-ratio: 32 / 47.6;
-      display: flex; flex-direction: column; align-items: center; gap: 6%;
-      padding: 5%; background: #fde68a; color: #111;
+      aspect-ratio: 60 / 29.6;
+      display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+      padding: 2.5%; background: #fde68a; color: #111;
       border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden;
     }
-    .ct-et-arriba { font-size: 7.5cqw; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-    .ct-et-code { margin-top: auto; font-size: 25cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-    .ct-et .ct-bar { width: 78%; height: 30%; margin-bottom: auto; }
+    .ct-et-arriba { font-size: 4.3cqw; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .ct-et-code { font-size: 16.7cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+    .ct-et .ct-bar { width: 37.5%; height: 15cqw; }
     .ct-acciones { display: flex; flex-direction: column; gap: var(--sp-1); }
     .ct-go { width: 100%; min-height: 54px; font-size: var(--fs-body); font-weight: var(--fw-bold); }
   `],
@@ -176,10 +173,7 @@ export class AndenCartelComponent implements AfterViewInit {
   readonly textoBoton = computed(() => {
     if (this.imprimiendo()) return 'Preparando…';
     const n = this.ubicaciones().length;
-    if (this.formato() === 'etiqueta') {
-      const filas = Math.ceil(n / ETIQUETAS_POR_FILA);
-      return n === 1 ? 'Imprimir la etiqueta' : `Imprimir las ${n} etiquetas (${filas} ${filas === 1 ? 'fila' : 'filas'} de la TSC)`;
-    }
+    if (this.formato() === 'etiqueta') return n === 1 ? 'Imprimir la etiqueta' : `Imprimir las ${n} etiquetas`;
     return n === 1 ? 'Imprimir el cartel' : `Imprimir los ${n} carteles`;
   });
 
@@ -256,14 +250,14 @@ export class AndenCartelComponent implements AfterViewInit {
   }
 
   /**
-   * `[UB.RF.14]` A la TSC TE200, como el checado y la etiqueta de caja: el navegador manda cada FILA de 3 como
-   * una hoja de 100 × 48 mm con el controlador de Windows. La plantilla y su CSS viven en
-   * `etiqueta-ubicacion.ts`, sobre la etiquetera compartida.
+   * `[UB.RF.14]` A la TSC TE200 con el controlador de Windows, como el checado y la etiqueta de caja.
+   * `[UB.RF.16]` Con el rollo amarillo el navegador manda UNA hoja de 60 × 30 mm por etiqueta. La plantilla y
+   * su CSS viven en `etiqueta-ubicacion.ts`.
    */
   private imprimirEtiquetas(): void {
     printIsolated({
       html: etiquetasUbicacionHtml(this.ubicaciones()),
-      page: PAGINA_TSC_3X,
+      page: PAGINA_TSC_AMARILLA,
       css: CSS_ETIQUETA_UBICACION,
       bodyClass: 'anden-cartel-printing',
       fallbackClass: 'anden-cartel-fallback',

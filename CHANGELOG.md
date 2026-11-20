@@ -15,6 +15,8 @@
 - «PDF» abre la factura del proveedor en un clic (la misma que ya encuentra Pagos); si sólo hay UUID, se copia. Sólo para documentos con saldo.
 - «Agendar» lleva al Calendario de pagos al día del vencimiento (u hoy, si ya venció), con la factura ya buscada en «Agregar facturas».
 - La columna «Saldo» ahora muestra el saldo del documento (antes mostraba su estado); en el teléfono cada documento se ve como ficha.
+### Fixed — Almacén: la etiqueta de ubicación sale del tamaño del rollo amarillo (UB.RF.16 · 2026-11-20)
+- Las etiquetas de tienda se imprimían como la fila de 3 del checado y en el rollo amarillo (una etiqueta de 6 × 3 cm) salían cortadas y encimadas. Ahora sale una etiqueta de 60 × 30 mm por hoja, con el código grande y su código de barras.
 
 ### Fixed — Almacén: cierres que sí se guardaron ya no se reportan como fallidos (GP.RF.45 y GP.RF.46 · 2026-11-20)
 - Surtir: si al terminar el servidor tarda y no contesta, la pantalla revisa unos segundos si el cierre se guardó antes de decir que falló (en prod, los 4 casos de estos días sí se habían guardado).

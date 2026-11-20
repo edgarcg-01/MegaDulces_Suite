@@ -120,7 +120,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
               @if (pasillosCartel().length) {
                 <app-segmented [options]="formatosCartel" [value]="formatoCartel()" (valueChange)="formatoElegido.set($any($event))" ariaLabel="Tamaño" />
                 <app-segmented [options]="pasillosCartel()" [value]="pasilloCartel()" (valueChange)="pasilloCartel.set($any($event))" ariaLabel="Pasillo" />
-                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas de 3.2 × 4.8 cm en la TSC TE200, rollo amarillo, 3 por fila.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
+                <p class="ub-hint">{{ formatoCartel() === 'etiqueta' ? 'Etiquetas de 6 × 3 cm en la TSC TE200, rollo amarillo.' : 'Salen dos por hoja carta; se recorta por la línea punteada.' }} Para uno solo o un rack, tócalo en el mapa.</p>
                 <div class="ub-acts">
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" (click)="cerrarImpresion()"><span class="p-button-label">Cancelar</span></button>
                   <button pButton type="button" class="p-button-sm" (click)="verCarteles({ pasillo: pasilloCartel() === '*' ? null : pasilloCartel() })"><span class="p-button-label">Ver {{ cuentaCartel() }} {{ nombreCartel(cuentaCartel()) }}</span></button>
