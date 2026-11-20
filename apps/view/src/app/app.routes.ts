@@ -750,6 +750,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
       },
       {
+        // ⭐ `[LE.6.38]` **Estado de cuenta**: el periodo de Caja General como lo entrega un banco
+        // (saldo inicial, movimientos con saldo, saldo final contado), desde Captura y sus cortes.
+        // Lectura: `FINANCE_CAJA_VER`, el mismo de Arqueos.
+        path: 'caja-general/estado-de-cuenta',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-estado-cuenta.component').then(m => m.FinanzasCajaEstadoCuentaComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
+      },
+      {
         // ⭐ `[CGA-A.67]` **Cuadre**: la caja contra la Caja General de Kepler, día por día, con el
         // rojo partido en «falta capturar» (lo explica la cola) y «no cuadra». Vivía como vista de
         // `/finanzas/caja` («Control (histórico)»), fuera de la barra de quien opera la caja.

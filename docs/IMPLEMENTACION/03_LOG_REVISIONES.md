@@ -390,6 +390,17 @@
 
 **Qué pasó:** le reportaron a Edgar que *«estamos pagando facturas con más de un mes»*. Una factura PUE se paga dentro de su mes de calendario; si no, el proveedor la sustituye por una PPD. Medido en prod (sólo lectura, ene–oct): 1 de cada 7 PUE pagadas por transferencia salió fuera de su mes; las PUE cobradas con tarjeta no aplican (el proveedor cobró al momento).
 
+## 2026-11-20 — `[LE.6.38]` Estado de cuenta de Caja General
+
+**Qué pasó:** Edgar pidió un estado de cuenta de Caja General (consolidado, pantalla + PDF, para Tesorería y Dirección) y eligió el libro nuevo como fuente. Medido antes de construir: la cuenta «Caja General · pesos» del libro nuevo no tiene ningún asiento (nunca se hizo la apertura) y todos sus asientos llevan la jornada del 27-oct. Un estado de cuenta sobre él habría dicho «caja vacía». Se le planteó y cambió a Captura + cortes.
+
+**Cerrado:** `[LE.6.38]` 🧪 — pestaña «Estado de cuenta» en Caja, sin tocar API ni base. Falta verla con la sesión real.
+
+**Lecciones:**
+- **La fuente que el usuario elige también se mide.** «El libro nuevo» sonaba al correcto; medido, no tenía la cuenta que se iba a mostrar.
+- **Un movimiento no vive en el día de su fecha.** Un tercio trae la fecha de su documento (hasta 16 días antes del corte que lo cobró); agrupar por fecha habría repartido mal el saldo. La llave es el corte.
+- **El estado de cuenta comprueba su propia identidad** (saldo final = inicial + todo lo demás) y, si no da, lo dice en la pantalla y en el papel.
+
 **Lo que apareció al revisar lo demás:**
 - La lista 69-B del SAT se bajaba cada noche de una ruta que el SAT dejó de actualizar (datos «al 31 de diciembre de 2025»), y el ingestor la saltaba sin decir nada porque su contenido no cambiaba.
 - La descarga de facturas recibidas de ene–oct quedó en «error» el 27-oct sin bajar ningún paquete; el arreglo de la carga (`[PGP.110b]`) entró el 12-nov y nadie la volvió a pedir.

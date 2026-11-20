@@ -2406,6 +2406,33 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[LE.6.38]` El estado de cuenta de Caja General. Las definiciones salen de
+  // `estado-cuenta-caja.util.ts` y de la fórmula del corte (`cash-cut.engine.ts`).
+  'caja-estado-cuenta': {
+    title: 'Estado de cuenta de Caja General',
+    intro: 'Lo que un banco entrega, para el efectivo de Caja General: con cuánto arrancó el periodo, cada entrada y salida con su saldo, y con cuánto terminó. Sale de la Captura y de los cortes ya sellados.',
+    groups: [
+      {
+        heading: 'El resumen',
+        entries: [
+          { term: 'Saldo inicial', def: 'El fondo con que arrancó el primer corte del periodo: lo contado al cerrar el día anterior.' },
+          { term: 'Saldo final', def: 'Lo que se contó, pieza por pieza, al cerrar el último corte del periodo. Es efectivo contado, no un cálculo.' },
+          { term: 'Caja fuerte (neto)', def: 'Lo que la caja fuerte (CAOS) dejó en el cajón menos lo que se llevó. Entra a la cuenta del día aunque nadie lo haya capturado como movimiento.' },
+          { term: 'Diferencias de arqueo', def: 'Lo contado menos lo que debía haber, sumado día por día. Negativo es faltante; positivo, sobrante.' },
+          { term: 'Otros ajustes', def: 'Lo que el corte resta o suma fuera de la fórmula de seis términos: efectivo en custodia de alguien, cheques o documentos que no son billetes.' },
+          { term: 'Fondo que no arranca del cierre anterior', def: 'Un día empezó con un fondo distinto a lo que se contó la noche anterior. Se publica porque es dinero que apareció o desapareció entre dos cortes.' },
+        ],
+      },
+      {
+        heading: 'El detalle',
+        entries: [
+          { term: 'Saldo por movimiento', def: 'El fondo del día más cada entrada y menos cada salida, en orden. Sólo se publica si los movimientos listados suman exactamente lo que selló el corte.' },
+          { term: 'Fecha del movimiento', def: 'La de su documento. Puede ser anterior al corte en que entró (hasta 16 días, medido): por eso cada movimiento va con su corte y no con su fecha.' },
+          { term: 'Sin corte', def: 'Movimientos capturados que todavía no entran a ningún corte. No están en estos saldos.' },
+        ],
+      },
+    ],
+  },
   // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
   // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
   // `[LE.CU.4]` El Cuadre pasó del día al HUECO: cada peso sin explicación, con su dueño. Los

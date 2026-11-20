@@ -90,6 +90,15 @@ export const CAJA_TABS: readonly PageTab[] = [
     anyOf: [Permission.FINANCE_CAJA_VER, Permission.FINANCE_BANK_VER],
   },
   {
+    // ⭐ `[LE.6.38]` **Estado de cuenta** — el periodo entero: saldo inicial, movimientos con su
+    // saldo y saldo final contado. Va después de Cuadre: Arqueos revisa un día, Cuadre lo cruza con
+    // Kepler y esto lo junta en el mes. Mismo gate que su ruta (`FINANCE_CAJA_VER`).
+    label: 'Estado de cuenta',
+    route: '/finanzas/caja-general/estado-de-cuenta',
+    icon: 'pi pi-file',
+    permission: Permission.FINANCE_CAJA_VER,
+  },
+  {
     // `[CS.2]` La bóveda física (dispositivo AST700). Permiso PROPIO, no el de Caja General:
     // es otro circuito de efectivo, y así está declarado en `permissions.ts`.
     label: 'Caja Fuerte',
