@@ -80,9 +80,13 @@ import {
   type DocumentoQueEntraUI,
 } from '../../components/movimiento-documentos.component';
 import type { DocumentoEnCaja } from '@megadulces/contracts';
+import type { LigarCobrosResultado } from '@megadulces/contracts';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { CajaCuentasKeplerComponent } from './caja-cuentas-kepler.component';
 import { CajaReposicionComponent } from './caja-reposicion.component';
+// [PGP.157] El anticipo en efectivo autorizado en el Calendario, por entregar (antes de su X-D-60).
+import { CajaAnticiposPorEntregarComponent } from '../../components/caja-anticipos-por-entregar.component';
+import { DepositoCobrosComponent } from './deposito-cobros.component';
 
 /**
  * `[CGP-V.2]` Lo que el servidor respondió al sellar o recontar EN ESTA sesión, atado a SU corte, con
@@ -198,8 +202,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
-    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, MovimientoDocumentosComponent,
+    SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, DepositoCobrosComponent, MovimientoDocumentosComponent,
     ArqueoDocumentosComponent, NgTemplateOutlet, DescartarCambiosComponent, DevolverFocoDirective,
+    CajaAnticiposPorEntregarComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -1283,6 +1288,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <span class="cg-jornada-sep" aria-hidden="true"></span>
           <span class="cg-jornada-res">{{ repo.resumen() }}</span>
         </button>
+
+        <!-- [PGP.157] Los anticipos en efectivo que Dirección ya autorizó y Kepler todavía no tiene: la MISMA pieza que
+             «Reposición» (un botón que dice cuántos y cuánto y abre una ventana). Sin anticipos no sale: no hay nada
+             que hacer. Si la lectura falla, sale diciéndolo. -->
+        @if (anticipos.hay()) {
+          <button #antBtn type="button" class="cg-jornada-btn cg-ant-btn" aria-haspopup="dialog"
+                  (click)="anticipos.abrirVentana(antBtn)">
+            <i class="pi pi-wallet" aria-hidden="true"></i>
+            <strong>Anticipos por entregar</strong>
+            <span class="cg-jornada-sep" aria-hidden="true"></span>
+            <span class="cg-jornada-res">{{ anticipos.resumen() }}</span>
+          </button>
+        }
 
         <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
         @if (puedeGestionar()) {
@@ -2992,6 +3010,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                ventana encima. Vive en este apartado y no al final de .cg-app porque ese es una
                columna flex con gap, y un hijo mas le quitaria 1rem de alto a la cola. -->
           <app-caja-reposicion #repo [puedeGestionar]="puedeGestionar()" (cambio)="trasReposicion()" />
+          <!-- [PGP.157] Los anticipos en efectivo autorizados, como la reposición: no pintan nada aquí; su botón va en
+               la barra y su lista en una ventana encima. Se releen con la cola. -->
+          <app-caja-anticipos-por-entregar #anticipos [recarga]="datosAl()" />
         </section>
 
       </div><!-- /cg-split -->
@@ -3214,6 +3235,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     }
                   }
                 </div>
+                <!-- [LE.6.37] Un DEPOSITO casi siempre es el efectivo de cobros YA capturados (las rutas
+                     de un dia): se liga a ellos aqui mismo. Registrarlo como ingreso nuevo contaria el
+                     mismo dinero dos veces; eso queda como segunda opcion, y cerrada si ya tiene cobros. -->
+                @if (caosElegido(); as m) {
+                  @if (m.tipo === 'ingreso' && !fichaSolaLectura()) {
+                    <app-deposito-cobros [device]="m.device" [externalId]="m.external_id" [refTexto]="m.ref"
+                                         (ligado)="depositoLigado(m, $event)" />
+                    @if (depositoYaLigado(m)) {
+                      <small class="fin-hint-warn" data-testid="cg-deposito-ya-ligado">
+                        Ya tiene cobros ligados ({{ money(m.monto - (m.libre ?? m.monto)) }}): termina de ligarlo arriba; no se registra como ingreso nuevo.
+                      </small>
+                    } @else {
+                      <small class="fin-dim">¿No es de cobros capturados? Sigue abajo y se registra como un ingreso nuevo.</small>
+                    }
+                  }
+                }
                 }
               }
 
@@ -6543,6 +6580,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       exige_origen: !this.caosElegido() && !this.pagoSinEfectivo(),
       origen_efectivo: this.origenEfectivo(),
       retiros_vinculados: this.caosVinculados().length,
+      // `[LE.6.37]` Un depósito que ya explica cobros no se registra además entero.
+      deposito_ya_ligado: this.depositoYaLigado(this.caosElegido()),
     },
     todayMx(),
   ));
@@ -8327,7 +8366,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Etiqueta del movimiento de CAOS: qué es, quién y cuánto. */
   caosLabel = (m: CaosCapturable) =>
-    `${dmy(m.fecha_valor)} · ${m.type_label} #${m.external_id} · ${m.user_external || 's/operador'} · ${money(m.monto)}${m.ref ? ' · «' + m.ref + '»' : ''}`;
+    `${dmy(m.fecha_valor)} · ${m.type_label} #${m.external_id} · ${m.user_external || 's/operador'} · ${money(m.monto)}`
+    // `[LE.6.37]` Un depósito ligado a medias dice lo que le queda.
+    + `${this.depositoYaLigado(m) ? ` (libre ${money(m.libre!)})` : ''}${m.ref ? ' · «' + m.ref + '»' : ''}`;
 
   buscarCaos(e: AutoCompleteCompleteEvent): void {
     this.svc.caosCapturables({
@@ -8398,6 +8439,28 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     }));
     this.recomputarMonto();
     this.pedirPropuesta();
+  }
+
+  /** `[LE.6.37]` Un depósito de CAOS que ya tiene parte ligada a cobros (libre < total). */
+  depositoYaLigado(m: CaosCapturable | null): boolean {
+    return !!m && m.tipo === 'ingreso' && m.libre != null && m.libre < m.monto - 0.005;
+  }
+
+  /**
+   * `[LE.6.37]` Los cobros quedaron ligados al depósito: no hay nada que registrar. Se cierra la
+   * captura sin preguntar (lo precargado era del depósito, no trabajo de la persona) y se recarga la
+   * cola, que es la que encadena al siguiente — igual que después de guardar (`[CG.93]`).
+   */
+  depositoLigado(m: CaosCapturable, r: LigarCobrosResultado): void {
+    const n = r.vinculos.length;
+    const partes = [`${n} ${n === 1 ? 'cobro' : 'cobros'} por ${money(r.ligado)}`];
+    if (r.sin_depositar > 0.005) partes.push(`se quedan en caja ${money(r.sin_depositar)}`);
+    if (r.libre > 0.005) partes.push(`al depósito le faltan cobros por ${money(r.libre)}`);
+    this.avisarOk(`Depósito #${m.external_id} ligado`, partes.join(' · '));
+    this.soltarCaos();
+    this.caosSel = null;
+    this.capturaAbierta.set(false);
+    this.cargarPendientes(false, true);
   }
 
   /** Soltar CAOS vuelve a captura manual; conserva el conteo ya precargado (no se re-teclea). */

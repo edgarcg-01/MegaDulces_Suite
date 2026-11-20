@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import type { CaosConteoFisicoDto, CaosConteoPieza } from '@megadulces/contracts';
 import type { VincularLoteInput, VincularLoteResultado, MoverVinculoInput, MoverVinculoResultado } from '@megadulces/contracts';
+import type { DepositoCobros, LigarCobrosInput, LigarCobrosResultado } from '@megadulces/contracts';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
@@ -151,6 +152,16 @@ export class CaosService {
   /** `[CGA-A.61]` Sólo superadmin: pasa un vínculo a otro retiro (baja con motivo + alta, juntas). */
   moverVinculo(linkId: string, body: MoverVinculoInput): Observable<MoverVinculoResultado> {
     return this.http.post<MoverVinculoResultado>(`${this.base}/vinculos/${linkId}/mover`, body);
+  }
+
+  /** `[LE.6.37]` Los cobros ya capturados que pueden explicar un depósito (permiso de ver Caja General). */
+  cobrosParaDeposito(device: string, externalId: number): Observable<DepositoCobros> {
+    return this.http.get<DepositoCobros>(`${this.base}/depositos/${encodeURIComponent(device)}/${externalId}/cobros`);
+  }
+
+  /** `[LE.6.37]` Liga esos cobros al depósito, en el orden dado (permiso de capturar en Caja General). */
+  ligarCobros(device: string, externalId: number, body: LigarCobrosInput): Observable<LigarCobrosResultado> {
+    return this.http.post<LigarCobrosResultado>(`${this.base}/depositos/${encodeURIComponent(device)}/${externalId}/cobros`, body);
   }
 
   /** `[CGA-A.58]` Sólo superadmin. Baja con motivo; el monto vuelve a quedar libre. */

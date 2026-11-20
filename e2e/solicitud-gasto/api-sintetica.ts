@@ -220,6 +220,8 @@ export async function servirApi(page: Page, op: Opciones = {}): Promise<Registro
       }));
     }
     if (p === '/finance/expenses/solicitudes/duplicados') return r.fulfill(json([]));
+    // [PGP.122.6] Dónde se cancela la capturada en Kepler: en ninguna (este recorrido es de la que nace en la Suite).
+    if (p === '/finance/expenses/solicitudes/cancelacion') return r.fulfill(json({ sucursales: [] }));
     if (p === '/finance/expenses/solicitudes/facturas-sat') {
       return r.fulfill(json({
         sucursal: SUC, desde: hoyMx(), ultima_llegada: new Date().toISOString(), horas_sin_llegadas: 0,

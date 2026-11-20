@@ -3,6 +3,10 @@
 Corre el `KeplerPagoSinkAdapter` **real** contra Kepler y termina en `ROLLBACK`: no escribe nada.
 El único paso que escribe (`confirmar`) se cambia por revisar las tablas temporales.
 
+> ⛔⛔ **Este ensayo es la ÚNICA forma de probar una escritura contra el Kepler vivo.** Nunca se prueba
+> escribiendo de verdad «para luego cancelar»: el 2026-11-19 una solicitud de prueba se ejerció como gasto
+> en 4 minutos y la Suite ya no la pudo deshacer ([`GOTCHAS.md` §94](../../../docs/GOTCHAS.md)).
+
 **Por qué desde `md`:** `pg_hba.conf` de Kepler sólo acepta al usuario `kepler_push` desde el servidor
 `md`. En `md` no hay `node` ni el repo, así que el ensayo se empaqueta en un solo archivo y corre en un
 contenedor que se borra al terminar. En el sistema de `md` no se instala nada; sólo queda la imagen

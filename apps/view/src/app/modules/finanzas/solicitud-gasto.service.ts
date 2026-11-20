@@ -6,6 +6,7 @@ import type {
   AcreedorDeGasto, BandejaDeFacturasSat, CatalogoDeLaSolicitud, CrearSolicitudGastoDto, DescartarFacturaSatDto, DetalleDeFacturaSat,
   DetalleDeLaSolicitud, DisponibilidadDeLaSolicitud, DuplicadoProbable, EstadoKeplerDeLaSolicitud, FacturaDescartada, LecturaDelComprobante,
   PrecargaDeLaSolicitud, SolicitudGastoCreada, SucursalesAbiertasDeLaSolicitud,
+  CancelacionDeSolicitudDisponible, SolicitudKeplerCancelada,
 } from '@megadulces/contracts';
 
 /**
@@ -64,6 +65,16 @@ export class SolicitudGastoService {
   /** `[PGP.122]` F3 (DS40): cancela en Kepler la solicitud que escribió la Suite y cierra el vale. */
   cancelarEnKepler(id: string, motivo: string): Observable<EstadoKeplerDeLaSolicitud> {
     return this.http.post<EstadoKeplerDeLaSolicitud>(`${this.base}/${id}/cancelar-en-kepler`, { motivo });
+  }
+
+  /** `[PGP.122.6]` Las sucursales donde hoy se puede cancelar una solicitud desde la Suite (interruptor encendido). */
+  cancelacionDisponible(): Observable<CancelacionDeSolicitudDisponible> {
+    return this.http.get<CancelacionDeSolicitudDisponible>(`${this.base}/cancelacion`);
+  }
+
+  /** `[PGP.122.6]` «Cancela sol gasto»: la X-A-15 de esa sucursal y folio (también la capturada en Kepler). */
+  cancelarSolicitudKepler(sucursal: string, folio: string, motivo: string): Observable<SolicitudKeplerCancelada> {
+    return this.http.post<SolicitudKeplerCancelada>(`${this.base}/kepler/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/cancelar`, { motivo });
   }
 
   // ── S.13 · La bandeja de facturas del SAT por registrar ─────────────────────────────────────────

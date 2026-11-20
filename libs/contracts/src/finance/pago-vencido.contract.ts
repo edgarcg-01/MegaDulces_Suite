@@ -20,6 +20,12 @@
  *     pago, nunca liberarlo.
  * Un pago que alguien ligó a mano a un documento de Kepler o a un movimiento del banco se conserva.
  *
+ * ⛔ `[PGP.173]` **Un cheque emitido no se libera nunca.** Kepler registra el cheque hasta que se cobra (28 de 28
+ * medidos, 2026-11-19) y el banco no tiene salida mientras el proveedor no lo deposite: para los dos testigos, un
+ * cheque ya entregado y sin depositar es «nadie lo pagó». Liberarlo vuelve a ofrecer sus facturas y, si después el
+ * proveedor llama y Caja General lo libera en el banco, se pagan dos veces. Pasó el 17-nov con el 5383 (cobrado el
+ * 11, lo regresó `[PGP.149]`). El cheque sale del Calendario cobrándose o cancelándose, no por el reloj.
+ *
  * ⛔ Liberar NO borra: el pago pasa a `cancelled` con su nota, sus renglones se quedan, y la
  * bitácora (`finance.payment_allocation_history`) guarda lo que se midió en ese momento.
  */
@@ -43,10 +49,12 @@ export interface PagoPendienteVencido {
   salidaDeBanco: boolean | null;
   /** Ligado a mano a un pago de Kepler o a un movimiento del banco. */
   ligado: boolean;
+  /** `[PGP.173]` El pago es con cheque y ya tiene su número: el cheque existe en papel (y casi siempre ya se entregó). */
+  chequeEmitido: boolean;
 }
 
 export type MotivoConservar =
-  | 'ligado' | 'kepler_sin_medir' | 'kepler_pagado' | 'kepler_en_parte' | 'banco' | 'banco_sin_medir';
+  | 'ligado' | 'cheque_emitido' | 'kepler_sin_medir' | 'kepler_pagado' | 'kepler_en_parte' | 'banco' | 'banco_sin_medir';
 
 export type DecisionVencido =
   | { accion: 'esperar'; dias: number }
@@ -63,6 +71,8 @@ export function decidirVencido(p: PagoPendienteVencido, hoy: string): DecisionVe
   const dias = diasEntre(p.lotDate, hoy);
   if (!Number.isFinite(dias) || dias < DIAS_PARA_LIBERAR) return { accion: 'esperar', dias };
   if (p.ligado) return { accion: 'conservar', dias, motivo: 'ligado' };
+  // `[PGP.173]` Antes que Kepler y el banco: para un cheque en tránsito los dos dicen «no se pagó», y es falso.
+  if (p.chequeEmitido) return { accion: 'conservar', dias, motivo: 'cheque_emitido' };
   const c = p.cierre;
   // Una sola factura sin medir basta para no liberar: lo que no se comprueba no se suelta.
   if (!c || c.estado === 'sin_medir' || c.facturas.sin_medir > 0) return { accion: 'conservar', dias, motivo: 'kepler_sin_medir' };

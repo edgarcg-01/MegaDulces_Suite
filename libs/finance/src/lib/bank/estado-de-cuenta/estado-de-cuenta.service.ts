@@ -14,6 +14,7 @@ import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
 import { avisarBancos } from '../aviso-bancos';
 import { refrescarEncabezadosDelBanco } from './encabezado-del-banco';
+import { completaElConcepto, huellaDe, huellaGuardada, marcarYaCargados, type RenglonGuardado } from './renglones-repetidos';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -151,7 +152,7 @@ export class EstadoDeCuentaService {
     return cierreDelDia(delDia);
   }
 
-  private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody, sha1: string): Promise<RevisionEstadoDeCuenta & { _lineas: { m: MovimientoBanco; llave: string; existe: boolean }[] }> {
+  private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody, sha1: string): Promise<RevisionEstadoDeCuenta & { _lineas: LineaRevisada[] }> {
     const motivos: string[] = [];
     const ctl = leido.control;
     const desde = leido.movimientos[0]?.fecha ?? null;
@@ -203,12 +204,19 @@ export class EstadoDeCuentaService {
     const futuros = leido.movimientos.filter((m) => m.fecha > hoy).length;
     if (futuros) motivos.push(`${futuros} movimiento(s) con fecha posterior a hoy`);
 
-    const lineas = cuenta ? leido.movimientos.map((m) => ({ m, llave: llaveDeLinea(cuenta!.id, m), existe: false })) : [];
+    const lineas: LineaRevisada[] = cuenta ? leido.movimientos.map((m) => ({ m, llave: llaveDeLinea(cuenta!.id, m), existe: false, mismo_que: null })) : [];
     if (cuenta && lineas.length) {
-      const ya = new Set<string>((await trx('finance.bank_statement_lines')
-        .where({ bank_account_id: cuenta.id }).whereIn('line_key', lineas.map((l) => l.llave)).select('line_key'))
-        .map((r: { line_key: string }) => r.line_key));
-      for (const l of lineas) l.existe = ya.has(l.llave);
+      // [BFU.3.4] Ya está guardado si casa por llave (mismo texto) o por huella (día, cargo, abono y saldo): BBVA
+      // completa después la referencia de los depósitos y el mismo renglón llega con otro concepto.
+      const fechas = lineas.map((l) => l.m.fecha).sort();
+      const guardados: RenglonGuardado[] = (await trx('finance.bank_statement_lines')
+        .where({ bank_account_id: cuenta.id }).whereBetween('movement_date', [fechas[0], fechas[fechas.length - 1]])
+        .select('id', 'line_key', 'concept', 'amount_in', 'amount_out', 'running_balance', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"))
+        .orderBy([{ column: 'movement_date' }, { column: 'seq' }]))
+        .map((r: { id: string; line_key: string; concept: string; fecha: string; amount_in: string; amount_out: string; running_balance: string }) =>
+          ({ id: r.id, line_key: r.line_key, concept: r.concept, huella: huellaGuardada(r) }));
+      const marcas = marcarYaCargados(lineas.map((l) => ({ llave: l.llave, concepto: l.m.concepto, huella: huellaDe(l.m) })), guardados);
+      lineas.forEach((l, i) => { l.existe = marcas[i].existe; l.mismo_que = marcas[i].mismo_que; });
     }
     const yaCargados = lineas.filter((l) => l.existe).length;
     const previo = await trx('finance.bank_statement_files').where({ file_sha1: sha1 }).first('id', 'created_at', 'created_by');
@@ -278,6 +286,7 @@ export class EstadoDeCuentaService {
         line_key: llave, created_by: actor ?? null, updated_by: actor ?? null,
       }));
       let insertadas = 0;
+      const completados = await this.completarConceptos(trx, rev.cuenta.id, _lineas, actor);
       for (let i = 0; i < filas.length; i += 500) {
         const r = await trx('finance.bank_statement_lines').insert(filas.slice(i, i + 500))
           .onConflict(['tenant_id', 'bank_account_id', 'line_key']).ignore().returning('id');
@@ -286,12 +295,35 @@ export class EstadoDeCuentaService {
       if (insertadas !== rev.nuevos) {
         await trx('finance.bank_statement_files').where({ id: archivoId }).update({ lines_new: insertadas, updated_at: trx.fn.now() });
       }
-      this.logger.log(`[CB.58] ${rev.banco} ${rev.cuenta.alias} ${rev.desde}..${rev.hasta}: ${insertadas} nuevos de ${rev.movimientos} (${rev.como_se_fijo})`);
+      this.logger.log(`[CB.58] ${rev.banco} ${rev.cuenta.alias} ${rev.desde}..${rev.hasta}: ${insertadas} nuevos de ${rev.movimientos} (${rev.como_se_fijo}), ${completados} con la referencia completada`);
       // [CB.60b] Si la cuenta ya usa el banco, lo nuevo entra a los movimientos de Bancos en la misma transacción.
       const desdeBanco = await this.bancoDesde(trx, rev.cuenta.id);
       const alimentado = desdeBanco ? await this.alimentarDesdeElBanco(trx, tenantId, rev.cuenta.id, desdeBanco, actor) : null;
       return { ...rev, nuevos: insertadas, ya_cargados: rev.movimientos - insertadas, archivo_id: archivoId, ya_existia: false, alimentado };
     });
+  }
+
+  /**
+   * `[BFU.3.4]` El renglón que ya estaba guardado con un concepto más corto (BBVA agrega la referencia días después)
+   * toma el concepto completo, en la descarga y en su movimiento de Bancos si la cuenta ya usa el banco. La llave no
+   * cambia: es la identidad del renglón (y la del movimiento, `banco:` + llave). Si el movimiento no tenía sucursal y
+   * la referencia nueva la da el catálogo, se la pone. Si el texto nuevo NO extiende al guardado, no se toca.
+   */
+  private async completarConceptos(trx: Knex.Transaction, cuentaId: string, lineas: readonly LineaRevisada[], actor?: string): Promise<number> {
+    const aCompletar = lineas.filter((l) => l.mismo_que && completaElConcepto(l.mismo_que.concept, l.m.concepto));
+    if (!aCompletar.length) return 0;
+    const catalogo = new Map<string, string>((await trx('finance.bank_branch_keys').where({ bank_account_id: cuentaId, active: true })
+      .select('key_type', 'key_value', 'sucursal')).map((k: { key_type: string; key_value: string; sucursal: string }) => [`${k.key_type}|${k.key_value}`, k.sucursal]));
+    for (const l of aCompletar) {
+      const g = l.mismo_que!;
+      await trx('finance.bank_statement_lines').where({ id: g.id }).update({
+        concept: l.m.concepto, reference: l.m.referencia, raw_line: l.m.texto_original, updated_by: actor ?? null, updated_at: trx.fn.now(),
+      });
+      const suc = sucursalDelCatalogo({ amount_in: pesos(l.m.abono_centavos), concepto: l.m.concepto, referencia: l.m.referencia }, catalogo);
+      await trx('finance.bank_movements').where({ bank_account_id: cuentaId, client_uuid: `banco:${g.line_key}` }).whereNull('deleted_at')
+        .update({ concept: l.m.concepto, ...(suc ? { sucursal: trx.raw('coalesce(sucursal, ?)', [suc.sucursal]) } : {}), updated_at: trx.fn.now() });
+    }
+    return aCompletar.length;
   }
 
   /**
@@ -602,6 +634,9 @@ export class EstadoDeCuentaService {
   }
 
 }
+
+/** Un renglón del archivo en la revisión: su llave, si ya está guardado y, si lo está con otro concepto, cuál. */
+interface LineaRevisada { m: MovimientoBanco; llave: string; existe: boolean; mismo_que: RenglonGuardado | null }
 
 /** `[CB.60b]` Lo que hizo alimentar `bank_movements` desde la descarga. */
 export interface Alimentado { metidos: number; en_cero: number; sin_categoria: number; sin_sucursal: number }

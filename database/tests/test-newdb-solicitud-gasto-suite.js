@@ -38,7 +38,7 @@ const { assertSafeTarget } = require('./_lib/assert-safe-target');
 const ADMIN_URL = process.env.DATABASE_URL_NEW;
 assertSafeTarget('test-newdb-solicitud-gasto-suite', { url: ADMIN_URL });
 const { noMedido } = require('./_lib/no-medido');
-const { crearKeplerDePrueba } = require('./_lib/kepler-de-prueba');
+const { crearKeplerDePrueba, insertarKdm1 } = require('./_lib/kepler-de-prueba');
 
 // ── Los módulos REALES; de platform-core, doble sólo la infraestructura de Nest ─────────────────────
 const PC = (r) => path.join(RAIZ, 'libs', 'platform-core', 'src', 'lib', r);
@@ -105,7 +105,8 @@ const tk = {
   },
   get global() { return knex; },
 };
-const ctx = { requireTenantId: () => T, getTenantId: () => T };
+// get(): quién actúa (la bitácora de cancelaciones de [PGP.122.6] guarda el usuario de la petición).
+const ctx = { requireTenantId: () => T, getTenantId: () => T, get: () => ({ tenantId: T, username: 'firmante_prueba' }) };
 const almacen = { getDataUri: async () => null };
 const lector = { extractExpenseReceipt: async () => { throw new Error('la prueba no lee comprobantes'); } };
 
@@ -663,6 +664,71 @@ async function main() {
     const cHomOk = await pedir({ renglones: [{ concepto: C_HOMONIMO, proyecto: PROYECTO, departamento: DEPTO, importe: 100 }] });
     check(!!cHomOk.id, 'R14: con el homónimo (otro concepto) sí se pide', cHomOk.id);
     await k.query(`DELETE FROM md.kdco WHERE c1 = ANY($1::text[])`, [[C_RUBRO, C_HOMONIMO]]);
+
+    // ── O · [PGP.122.6] «Cancela sol gasto» desde la Suite: la que se capturó en Kepler ─────────────────────────
+    console.log('\n— O. [PGP.122.6] Cancela sol gasto: la capturada en Kepler (interruptor, tope, bitácora y su vale)');
+    if (!(await knex.schema.withSchema('commercial').hasColumn('purchase_order_cancellations', 'solicitud_folio'))) {
+      noMedido('falta la migración 20261119113518 (PGP.122.6) en esta base: el bloque O no se mide');
+    } else {
+      alcance.dim = { mode: 'all', values: [], resolvable: true };
+      const est = async (fn) => { try { await fn(); return 200; } catch (e) { return typeof e.getStatus === 'function' ? e.getStatus() : (e.code || e.message); } };
+      const TIPO_C = 'cancela_solicitud_gasto';
+      const FO = '0989500';
+      const FO2 = '0989501';
+      const MOTIVO = 'Prueba PGP.122.6: se pidió dos veces';
+      // Lo que kepler_push ya tiene en los 9 servidores (PQ.110): UPDATE de las columnas que toca cancelar.
+      await k.query(`GRANT UPDATE (c14, c16, c42, c43, c67, c68, c69) ON md.kdm1 TO ${ROL}`);
+      const comunK = { c1: SUC, c2: 'X', c3: 'A', c4: 15, c5: 1, c7: 'PESOS', c9: hoy, c10: ACR, c17: '0', c31: 'Sol', c40: 1, c63: 'XA1501-', c67: '05ANA', c68: hoy, c69: '09:00' };
+      await insertarKdm1(k, { ...comunK, c6: FO, c16: 300, c42: 300, c43: 'A', c24: 'CAPTURADA EN KEPLER' });
+      await insertarKdm1(k, { ...comunK, c6: FO2, c16: 80, c42: 80, c43: 'N', c24: 'OTRA CAPTURADA EN KEPLER' });
+      const enK = async (folio) => (await k.query(`SELECT btrim(c43) c43, c16::text c16, c42::text c42, btrim(c67) c67 FROM md.kdm1 WHERE c1 = $1 AND c4 = 15 AND btrim(c6) = $2`, [SUC, folio])).rows[0];
+      // El vale de la Suite que comprueba esa solicitud (capturado sobre el folio de Kepler, no nacido en la Suite).
+      const [vo] = await knex('finance.expense_proofs').insert({
+        tenant_id: T, solicitante: 'prueba pgp1226', proveedor: 'prueba pgp1226', sucursal: SUC, folio_solicitud: FO, importe: 300,
+        status: 'validada', files: JSON.stringify([ARCHIVO]), clasificacion: 'fiscal', forma_pago: 'transferencia', created_by: 'captura_prueba',
+      }).returning('id');
+      const voId = vo.id ?? vo;
+      ids.push(voId);
+      const swC0 = await knex('commercial.kepler_push_switch').where({ tenant_id: T, sucursal: SUC, tipo: TIPO_C }).first();
+      check(!!swC0 && swC0.encendida === false && Number(swC0.tope_dia) === 1, 'la migración sembró el interruptor cancela_solicitud_gasto de la 05 APAGADO, con tope 1', swC0);
+      const swC = (encendida, tope_dia = 1) => knex('commercial.kepler_push_switch').where({ tenant_id: T, sucursal: SUC, tipo: TIPO_C }).update({ encendida, tope_dia, updated_at: knex.fn.now() });
+      const bitacora = () => knex('commercial.purchase_order_cancellations').where({ tenant_id: T, sucursal: SUC, document_type: 'solicitud_gasto' }).whereIn('solicitud_folio', [FO, FO2]);
+      try {
+        await swC(false);
+        check(!(await svc.cancelacionDisponible()).sucursales.includes(SUC), 'apagado: la 05 no se ofrece para cancelar');
+        check(await est(() => svc.cancelarSolicitudKepler(SUC, FO, MOTIVO, FIRMA.full_name)) === 503 && (await enK(FO)).c43 === 'A', '⛔ apagado → 503 y Kepler intacto');
+        await swC(true, 1);
+        check((await svc.cancelacionDisponible()).sucursales.includes(SUC), 'encendido: la 05 se ofrece');
+        check(await est(() => svc.cancelarSolicitudKepler(SUC, FO, 'corto', FIRMA.full_name)) === 400, '⛔ motivo de menos de 10 caracteres → 400');
+        check(await est(() => svc.cancelarSolicitudKepler(SUC, 'abc', MOTIVO, FIRMA.full_name)) === 400, '⛔ folio que no es número → 400');
+        // El payload de la pantalla: sucursal, el folio como se ve (sin ceros) y el motivo.
+        const r = await svc.cancelarSolicitudKepler(SUC, '989500', MOTIVO, FIRMA.full_name);
+        const kFO = await enK(FO);
+        check(r.estado === 'cancelada' && r.folio === FO && r.vales_cerrados === 1, 'cancelada, con el folio completo y su vale cerrado', r);
+        check(kFO.c43 === 'C' && kFO.c16 === '0.00' && kFO.c42 === '0.00' && kFO.c67 === 'SUITE', 'en Kepler: C, total y saldo en 0, cancela SUITE', kFO);
+        const vO = await knex('finance.expense_proofs').where({ id: voId }).first('status', 'motivo_rechazo', 'revision_nota');
+        check(vO.status === 'rechazada' && vO.motivo_rechazo.includes(MOTIVO) && vO.revision_nota.includes(FIRMA.full_name), 'el vale ligado quedó rechazado con el motivo y quién', vO);
+        const b = await bitacora().where({ solicitud_folio: FO }).first();
+        const orig = typeof b?.kepler_original === 'string' ? JSON.parse(b.kepler_original) : b?.kepler_original;
+        check(b && b.estado === 'cancelada' && b.motivo === MOTIVO && b.proof_id === voId && b.created_by_username === 'firmante_prueba' && orig?.estado === 'A' && orig?.total === '300.00' && orig?.capturista === '05ANA',
+          'la bitácora: cancelada, motivo, su vale, quién, y la foto de Kepler de antes (A, $300, 05ANA)', b);
+        check(await est(() => svc.cancelarSolicitudKepler(SUC, FO, MOTIVO, FIRMA.full_name)) === 409, '⛔ otra vez la misma → 409 (ya se canceló desde la Suite)');
+        check(await est(() => svc.cancelarSolicitudKepler(SUC, FO2, MOTIVO, FIRMA.full_name)) === 503 && (await enK(FO2)).c43 === 'N', '⛔ tope 1 por día: la segunda → 503 y Kepler intacto');
+        await swC(true, 5);
+        // ⛔ Kepler no la deja (con gasto vivo): queda en la bitácora como rechazada, con su motivo; nada se escribe.
+        await insertarKdm1(k, { ...comunK, c4: 10, c6: '0989700', c16: 80, c43: 'A', c37: 15, c38: 1, c39: FO2 });
+        const r2 = await svc.cancelarSolicitudKepler(SUC, FO2, MOTIVO, FIRMA.full_name);
+        const b2 = await bitacora().where({ solicitud_folio: FO2 }).first();
+        check(r2.estado === 'rechazada' && /0989700/.test(r2.rechazo || '') && (await enK(FO2)).c43 === 'N' && b2?.estado === 'rechazada' && /0989700/.test(b2?.rechazo || ''),
+          'con gasto vivo: rechazada, dice cuál, Kepler intacto y la bitácora guarda el intento', { r2, b2: b2 && { estado: b2.estado, rechazo: b2.rechazo } });
+        await k.query(`DELETE FROM md.kdm1 WHERE c1 = $1 AND c4 = 10 AND c6 = '0989700'`, [SUC]);
+      } finally {
+        await knex('commercial.purchase_order_cancellations').where({ tenant_id: T, sucursal: SUC, document_type: 'solicitud_gasto' }).whereIn('solicitud_folio', [FO, FO2]).del()
+          .catch((e) => console.log(`  ! limpieza O: ${e.message}`));
+        if (swC0) await knex('commercial.kepler_push_switch').where({ tenant_id: T, sucursal: SUC, tipo: TIPO_C })
+          .update({ encendida: swC0.encendida, tope_dia: swC0.tope_dia, nota: swC0.nota, updated_at: swC0.updated_at }).catch((e) => console.log(`  ! limpieza O: ${e.message}`));
+      }
+    }
   } finally {
     // ── Limpieza: exactamente lo que se creó ─────────────────────────────────────────────────────
     if (cfdisSembrados.length) await knex('fiscal.cfdis').where({ tenant_id: T }).whereIn('uuid', cfdisSembrados).del().catch((e) => console.log(`  ! limpieza: ${e.message}`));

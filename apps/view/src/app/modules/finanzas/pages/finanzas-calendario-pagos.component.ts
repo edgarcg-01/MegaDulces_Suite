@@ -36,12 +36,15 @@ import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, proponerAnticipos, round2, type AnticipoOfrecido, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
 import { disponibleDeAnticipo, llaveAnticipo, tipoDeAcreedor, type AnticipoRow } from '@megadulces/contracts';
+// `[PGP.157]` El nombre de la base de un anticipo (la 00 es Oficinas, no CEDIS).
+import { nombreDeBase } from '@megadulces/contracts';
 // `[PGP.129]` Los anticipos que Compras pidió para el día (D13) y la cotización a un clic.
 import { anticiposDelDia, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { PedirAnticipoDialogComponent, diaInicialDelAnticipo, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
+import { SemanaPickerComponent } from '../../../shared/components/semana-picker/semana-picker.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
@@ -194,7 +197,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent, SemanaPickerComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -285,7 +288,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <div class="pg-week">
           <span class="pg-week-nav">
             <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(-1)" aria-label="Semana anterior"><span class="pi pi-angle-left" aria-hidden="true"></span></button>
-            <span class="pg-queue-wk comm-num" aria-live="polite">{{ weekLabel() }}</span>
+            <!-- [PGP.176] La semana se toca y abre dos meses (el brinco largo en 3 clics), y su etiqueta sale de la fecha
+                 elegida, no de la respuesta: con diez clics seguidos ya no se queda en la semana de origen. -->
+            <app-semana-picker [fecha]="selectedDate()" (elegir)="saltarA($event)" />
             <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico" (click)="shiftWeek(1)" aria-label="Semana siguiente"><span class="pi pi-angle-right" aria-hidden="true"></span></button>
             <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-hoy" [disabled]="selectedDate() === todayIso" (click)="goToday()">Hoy</button>
             <app-context-help topic="calendario-de-pagos" />
@@ -306,7 +311,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           }
         </div>
         <app-load-state class="pg-days-ls" [loading]="loadingWeek() && !week()" [error]="weekError()" [skeletonRows]="1" (retry)="loadWeek()">
-          <div class="pg-days">
+          <!-- inert y no sólo pointer-events: con Tab + Enter se elegía un día de la semana vieja mientras llegaba la nueva. -->
+          <div class="pg-days" [class.is-en-camino]="semanaEnCamino()" [attr.aria-busy]="semanaEnCamino() || null" [attr.inert]="semanaEnCamino() ? '' : null">
             @for (d of week()?.days ?? []; track d.date) {
               <button type="button" class="pg-day"
                       [class.is-sel]="d.date === selectedDate()" [class.is-nocap]="!d.summary.capacity_defined"
@@ -1431,7 +1437,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <label class="cal-dlg-label" for="cal-prep-ref">Folio del cheque</label>
         <input id="cal-prep-ref" pInputText type="text" [(ngModel)]="prepReference" placeholder="Folio" class="cal-dlg-full" />
       }
-      @if (prepMethod === 'efectivo') {
+      @if (prepMethod === 'efectivo' && prepAllocation && esPagoDeAnticipo(prepAllocation)) {
+        <!-- [PGP.157] Un anticipo en efectivo sale de la Caja General de SU base: cada base cuadra sola (Francisco,
+             2026-11-19). El de una compra de Morelia sale de la 08, se captura en su Kepler y se aplica a su factura.
+             La caja no se teclea: la pone el servidor. Y no es X-D-26 sino X-D-60: el aviso de abajo no le aplica. -->
+        <p class="cal-dlg-label">Caja de salida</p>
+        <p class="cal-dlg-hint cal-caja-anticipo"><i class="pi pi-wallet" aria-hidden="true"></i> Sale de la <b>Caja General de {{ nombreBase(sucursalDelAnticipo(prepAllocation)) }}</b>, la base del anticipo: ahí se captura su <b>X-D-60</b> y ahí se aplica a su factura. Al autorizarlo, Caja General lo ve en Captura «por entregar».</p>
+      } @else if (prepMethod === 'efectivo') {
         <label class="cal-dlg-label" for="cal-prep-cash">Caja de salida</label>
         <input id="cal-prep-cash" pInputText type="text" [(ngModel)]="prepCash" placeholder="Caja" class="cal-dlg-full" />
         <!-- [PGP.33] Se dice ANTES de elegirlo. Kepler (kdm1.c31) sólo distingue transferencia,
@@ -1811,9 +1823,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* La semana y su resumen en UN renglon; las fichas abajo, a todo lo ancho (medido: lado a lado las fichas se enciman). */
     .pg-week { display:flex; align-items:center; gap:var(--sp-1) var(--sp-3); flex-wrap:wrap; min-width:0; }
     .pg-week-nav { display:flex; align-items:center; gap:2px; }
-    .pg-queue-wk { font-size:var(--fs-sm); font-weight:600; color:var(--text-main); white-space:nowrap; padding:0 2px; }
+    /* [PGP.176] Mientras llega la semana pedida, la tira vieja se atenúa y no se toca: la etiqueta ya dice otra. */
+    .pg-days.is-en-camino { opacity:.5; pointer-events:none; }
     :host ::ng-deep .pg-ico.p-button { padding:var(--sp-1); min-width:auto; }
-    :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); }
+    /* [PGP.176] min-height: con el dedo medía 39×28 (este padding le ganaba a la regla táctil); --tap-min es 0 con ratón. */
+    :host ::ng-deep .pg-hoy.p-button { padding:var(--sp-1) var(--sp-2); font-size:var(--fs-xs); min-height:var(--tap-min); min-width:var(--tap-min); }
     .pg-days-ls { display:block; min-width:0; }
     /* Los 7 dias en una fila; si no caben, la FILA se desplaza de lado: la pantalla no crece. */
     .pg-days { display:flex; gap:var(--sp-1); overflow-x:auto; scroll-snap-type:x proximity; }
@@ -3593,10 +3607,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       why: '«Pagado» se habilita en cada uno cuando el banco muestra la salida y está su comprobante.',
       action: porPag.length ? { kind: 'etapa', etapa: 'pagar', label: 'Ir a «Por pagar»', icon: 'pi-arrow-right' } : null };
   });
-  readonly weekLabel = computed(() => {
+  /**
+   * `[PGP.176]` La tira enseña otra semana que la elegida: se pidió una nueva y no ha llegado. La etiqueta
+   * (`app-semana-picker`) ya dice la nueva; la tira vieja se atenúa para no afirmar que es ésa. No se usa
+   * `loadingWeek()` a secas: también se prende al releer tras guardar, y ahí la tira sí es la semana que dice.
+   */
+  readonly semanaEnCamino = computed(() => {
     const w = this.week();
-    if (!w) return '—';
-    return `${this.fmt(w.from, { day: 'numeric', month: 'short' })} – ${this.fmt(w.to, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    const sel = this.selectedDate();
+    return !!w && !w.days.some((d) => d.date === sel);
   });
 
   classificationFilter: string | null = null;
@@ -4497,14 +4516,33 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.loadWeek();
   }
   goToday(): void { this.armado.set(null); this.selectedDate.set(this.todayIso); this.loadWeek(); }
+  /**
+   * `[PGP.176]` El brinco desde el calendario de dos meses: abre ESE día, como tocarlo en la tira (o llegar con
+   * `?fecha=`). Si cae en la semana que ya está a la vista, no se relee nada; si no, sólo la semana (`[PGP.151]`).
+   */
+  saltarA(fecha: string): void {
+    // Sin atajo si la última carga falló: `openDay` no pasa por `loadWeek`, que es quien limpia el error, y el aviso
+    // «No se pudo cargar la semana» se quedaba encima de una semana que sí se veía (revisión independiente).
+    if (!this.loadingWeek() && !this.weekError() && this.week()?.days.some((d) => d.date === fecha)) { this.openDay(fecha); return; }
+    this.armado.set(null);
+    this.selectedDate.set(fecha);
+    this.targetDate = fecha;
+    // Como tocarlo en la tira: en angosto, al llegar la semana se lleva la vista al panel del día.
+    this.loadWeek(() => this.llevarAlPanel());
+  }
 
   openDay(date: string): void {
     if (date !== this.selectedDate()) this.armado.set(null);
     this.selectedDate.set(date);
     this.targetDate = date;
     void this.proponer();
-    // El panel queda al lado de la lista; sólo en angosto (una columna) cae abajo y hace falta llevar
-    // la vista hasta él. Sin animación: respeta movimiento reducido.
+    this.llevarAlPanel();
+  }
+  /**
+   * El panel queda al lado de la lista; sólo en angosto (una columna) cae abajo y hace falta llevar
+   * la vista hasta él. Sin animación: respeta movimiento reducido.
+   */
+  private llevarAlPanel(): void {
     setTimeout(() => {
       const el = this.payPanel?.nativeElement;
       if (el && el.getBoundingClientRect().top > window.innerHeight * 0.6) el.scrollIntoView({ block: 'start' });
@@ -4617,7 +4655,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** Cada petición de semana lleva su número: dos clics rápidos no deben pintar la semana vieja. */
   private weekSeq = 0;
-  loadWeek(): void {
+  /** `alLlegar` corre sólo si llega ESTA petición (no una que otro clic ya dejó vieja). */
+  loadWeek(alLlegar?: () => void): void {
     this.cargarEscrituraKepler();
     const seq = ++this.weekSeq;
     this.loadingWeek.set(true);
@@ -4629,6 +4668,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         this.loadingWeek.set(false);
         if (!w.days.some((d) => d.date === this.selectedDate())) this.selectedDate.set(w.from);
         void this.proponer();
+        alLlegar?.();
       },
       error: (e) => { if (seq !== this.weekSeq) return; this.loadingWeek.set(false); this.weekError.set(e?.error?.message || 'No se pudo cargar la semana de pagos.'); },
     });
@@ -5621,6 +5661,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** `[PGP.128]` El pago lleva un anticipo pedido en la Suite: se transfiere sólo a una cuenta aprobada (el servidor lo exige igual). */
   esPagoDeAnticipo(a: PaymentCalendarAllocation): boolean { return (a.items ?? []).some((it) => it.es_anticipo === true); }
+  /** `[PGP.157]` La base del anticipo (la de su OC): de su Caja General sale el efectivo. */
+  sucursalDelAnticipo(a: PaymentCalendarAllocation): string | null { return (a.items ?? []).find((it) => it.es_anticipo === true)?.branch_code ?? null; }
+  nombreBase(c: string | null | undefined): string { return c ? nombreDeBase(c) : 'su sucursal'; }
 
   // ── Preparar UN pago (origen + destino: lo que pide el layout) ─────────────
   openPrepare(a: PaymentCalendarAllocation): void {

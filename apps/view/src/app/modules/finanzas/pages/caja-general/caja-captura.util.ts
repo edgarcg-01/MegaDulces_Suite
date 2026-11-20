@@ -342,12 +342,18 @@ export interface FormularioCaja {
   retiros_vinculados?: number;
   /** `[CGS.60]` Hay un cheque o papel a medio teclear (le falta lo que lo identifica o el importe). */
   documentos_incompletos?: boolean;
+  /**
+   * `[LE.6.37]` La captura ES un depósito de CAOS que ya explica cobros por vínculo: registrarlo
+   * entero contaría el mismo dinero dos veces (el servidor lo rechaza con 409).
+   */
+  deposito_ya_ligado?: boolean;
 }
 
 export type MotivoBloqueo =
   | 'falta_tipo' | 'falta_fecha' | 'falta_sucursal' | 'fecha_futura'
   | 'falta_concepto' | 'falta_concepto_de_cuenta' | 'glosa_corta' | 'monto_invalido' | 'falta_desglose' | 'arqueo_no_cuadra'
-  | 'falta_motivo_sin_documento' | 'falta_origen_efectivo' | 'caos_sin_retiro' | 'documentos_incompletos';
+  | 'falta_motivo_sin_documento' | 'falta_origen_efectivo' | 'caos_sin_retiro' | 'documentos_incompletos'
+  | 'deposito_ya_ligado';
 
 /**
  * ⛔⛔ `[CG.160]` **Largo mínimo del motivo, ESPEJADO del servidor.**
@@ -383,6 +389,7 @@ export const TEXTO_BLOQUEO: Record<MotivoBloqueo, string> = {
   falta_origen_efectivo: 'Di de dónde salió el dinero: de un retiro de CAOS o del cajón.',
   caos_sin_retiro: 'Elige de qué retiro de CAOS salió el dinero (busca los retiros y agrega uno).',
   documentos_incompletos: 'Completa cada cheque (banco, número, de quién e importe) y cada papel (quién debe, por qué e importe), o quítalo.',
+  deposito_ya_ligado: 'Este depósito ya tiene cobros ligados: termina de ligarlo a sus cobros; no se registra como ingreso nuevo.',
 };
 
 /**
@@ -456,6 +463,9 @@ export function motivosDeBloqueo(f: FormularioCaja, hoy?: string | null): Motivo
 
   // `[CGS.60]` Un cheque o papel a medio teclear no se manda: el servidor lo rechazaría igual.
   if (f.documentos_incompletos) m.push('documentos_incompletos');
+
+  // `[LE.6.37]` El mismo freno del servidor (`create()`), adelantado al botón.
+  if (f.deposito_ya_ligado) m.push('deposito_ya_ligado');
 
   return m;
 }

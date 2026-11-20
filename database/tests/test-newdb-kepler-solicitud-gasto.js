@@ -290,6 +290,59 @@ async function main() {
 
     r = await nuevo(Adaptador, env).entregar(pedido('SUITE SG-CCCC0004'));
     check(r.estado === 'escrito' && r.folio === '0000091', `control positivo: con todo en su lugar vuelve a escribir, folio 91 (${JSON.stringify(r)})`);
+
+    console.log('\n[8] [PGP.122.6] «Cancela sol gasto»: la capturada en Kepler (sin marca, candado por total) y la de la Suite (F3)');
+    // Lo que ya tiene kepler_push en los 9 servidores (PQ.110, verificado el 2026-11-17): UPDATE de esas columnas.
+    await k.query(`GRANT UPDATE (c14, c16, c42, c43, c67, c68, c69) ON md.kdm1 TO ${ROL}`);
+    await k.query(`INSERT INTO md.kdm6 (c1, c2, c3, c4, c5, c6, c7, c8, c9, c11) VALUES ($1, 'X', 'A', 15, 1, '0000080', 1, '602-008', 'RENGLON HUMANO', 50)`, [SUC]);
+    const cancelar = (folio, marca) => ad.cancelar({ sucursal: SUC, folio, marca, fecha: '2026-11-19', hora: '12:00' });
+    r = await cancelar('0000080', null);
+    let h = await sol('0000080');
+    check(r.estado === 'cancelada' && r.original && r.original.estado === 'N' && r.original.total === '50.00' && r.original.capturista === '01ANA',
+      `la capturada en Kepler (0000080, N, $50, 01ANA): cancelada, y devuelve la cabecera de antes para la bitácora (${JSON.stringify(r)})`);
+    check(h.c43 === 'C' && h.c16 === '0.00' && h.c42 === '0.00' && h.c14 === '0.00' && h.c67 === 'SUITE', `queda como la cancela Kepler: C, total/saldo/IVA en 0, quién cancela (${JSON.stringify(h)})`);
+    const renH = (await k.query(`SELECT count(*)::int n FROM md.kdm6 WHERE c1 = $1 AND c6 = '0000080'`, [SUC])).rows[0].n;
+    check(renH === 1, 'los renglones se conservan (Kepler no los borra al cancelar una solicitud)');
+    r = await cancelar('0000080', null);
+    check(r.estado === 'ya_estaba', `otra vez: ya_estaba, sin escribir (${JSON.stringify(r)})`);
+    // ⛔ La que escribió la Suite no se cancela por este camino (va por su vale, que guarda la marca).
+    r = await cancelar('0000081', null);
+    check(r.estado === 'rechazado' && /la escribió la Suite/.test(r.motivo) && (await sol('0000081')).c43 === 'A', `0000081 trae marca de la Suite: rechazada sin marca, intacta (${JSON.stringify(r)})`);
+    // ⛔ DS40: con un gasto X-A-10 vivo no se cancela.
+    await insertarKdm1(k, { ...comun, c6: '0000600', c9: '2026-11-15', c16: 200, c42: 200, c18: '2026-11-15', c43: 'A', c17: '0', c67: '01ANA' });
+    await insertarKdm1(k, { ...comun, c4: 10, c6: '0000700', c9: '2026-11-16', c16: 200, c43: 'A', c17: '0', c37: 15, c38: 1, c39: '0000600' });
+    r = await cancelar('0000600', null);
+    check(r.estado === 'rechazado' && /0000700/.test(r.motivo) && (await sol('0000600')).c43 === 'A', `con el gasto 0000700 vivo: rechazada, intacta (${JSON.stringify(r)})`);
+    // ⛔ Sin el permiso de escribir c43: rechazada y nada cambia.
+    await k.query(`DELETE FROM md.kdm1 WHERE c1 = $1 AND c4 = 10 AND c6 = '0000700'`, [SUC]);
+    await k.query(`REVOKE UPDATE (c43) ON md.kdm1 FROM ${ROL}`);
+    r = await cancelar('0000600', null);
+    h = await sol('0000600');
+    check(r.estado === 'rechazado' && h.c43 === 'A' && h.c16 === '200.00', `sin UPDATE (c43): rechazada y la solicitud quedó igual (${JSON.stringify(r)})`);
+    await k.query(`GRANT UPDATE (c43) ON md.kdm1 TO ${ROL}`);
+    // ⛔ El candado por total: otra sesión le cambió el total entre la lectura y la escritura → 0 filas, nada escrito.
+    const conCambio = nuevo(Adaptador, env);
+    conCambio.poolDe = function (url) {
+      const pool = Adaptador.prototype.poolDe.call(this, url);
+      return { connect: async () => {
+        const c = await pool.connect();
+        const q = c.query.bind(c);
+        c.query = async (sql, params) => {
+          if (/^UPDATE md\.kdm1 SET c43 = 'C'/.test(String(sql).trim())) await q(`UPDATE md.kdm1 SET c16 = 201 WHERE c1 = $1 AND c4 = 15 AND c6 = '0000600'`, [SUC]);
+          return q(sql, params);
+        };
+        return c;
+      } };
+    };
+    r = await conCambio.cancelar({ sucursal: SUC, folio: '0000600', marca: null, fecha: '2026-11-19', hora: '12:00' });
+    h = await sol('0000600');
+    check(r.estado === 'rechazado' && r.reintentable === true && h.c43 === 'A' && h.c16 === '200.00', `el total cambió a la mitad: 0 filas, ROLLBACK, intacta (${JSON.stringify(r)}, ${JSON.stringify(h)})`);
+    // Control positivo: la misma, sin cambios de por medio, sí se cancela.
+    r = await cancelar('0000600', null);
+    check(r.estado === 'cancelada' && (await sol('0000600')).c43 === 'C', `control positivo: 0000600 se cancela (${JSON.stringify(r)})`);
+    // La F3 (con la marca del vale) sigue igual.
+    r = await cancelar('0000081', 'SUITE SG-6F9A1B2C');
+    check(r.estado === 'cancelada' && (await sol('0000081')).c43 === 'C', `F3: la de la Suite, con su marca, se cancela (${JSON.stringify(r)})`);
   } finally {
     for (const a of adaptadores) await a.onModuleDestroy().catch(() => undefined);
     await k.end();

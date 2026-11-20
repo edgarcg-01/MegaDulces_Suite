@@ -302,3 +302,50 @@ describe('[PGP.155.2] el anticipo a un clic, y en «Preparar» el destino antes 
     expect(orden.indexOf('cal-prep-dest')).toBeLessThan(orden.indexOf('cal-prep-origin'));
   });
 });
+
+/**
+ * `[PGP.157]` Un anticipo en efectivo sale de la Caja General de SU base (cada base cuadra sola): «Preparar» no pide la
+ * caja, la dice. Una factura en efectivo sigue con la caja escrita a mano (datos de prueba).
+ */
+describe('[PGP.157] en efectivo, el anticipo sale de la Caja General de su base', () => {
+  const DIRECCION = [Permission.FINANCE_PAYMENTS_VER, Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR];
+  const pago = (p: Record<string, unknown> = {}) => ({
+    id: 'a157', beneficiary: 'DULCES DE PRUEBA', amount_assigned: 4800, discount_total: 0, payment_method: null, cash_register_text: null,
+    status: 'pending', lot_date: '2026-11-20', supplier_payment_account_id: null, destination_account_text: null, reference_text: null,
+    items: [{ id: 'i1', obligation_source: 'supplier_payable', obligation_id: 'o1', applied_amount: 4800, beneficiary: 'DULCES DE PRUEBA',
+      supplier_id: 's1', concept: 'Anticipo · OC 0000157 · Morelia Abastos', branch_code: '08', es_anticipo: true }],
+    ...p,
+  }) as never;
+  const abrir = async (c: FinanzasCalendarioPagosComponent, fixture: { detectChanges(): void; whenStable(): Promise<unknown>; componentRef: { changeDetectorRef: { markForCheck(): void } } }, a: unknown) => {
+    c.openPrepare(a as never);
+    c.prepMethod = 'efectivo' as never;
+    c.prepareVisible = true;
+    fixture.componentRef.changeDetectorRef.markForCheck();
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+  };
+  const ayudas = () => [...document.querySelectorAll('.cal-dlg-hint')].map((p) => (p.textContent ?? '').replace(/\s+/g, ' ')).join(' | ');
+
+  it('⭐ un anticipo de Morelia Abastos: dice que sale de su Caja General y no pide la caja a mano', async () => {
+    const { fixture, c } = montar(DIRECCION);
+    await abrir(c, fixture, pago());
+    const txt = ayudas();
+    expect(txt).toContain('Sale de la Caja General de Morelia Abastos, la base del anticipo');
+    expect(txt).toContain('Al autorizarlo, Caja General lo ve en Captura «por entregar»');
+    expect(document.querySelector('#cal-prep-cash')).toBeNull();
+    // Un anticipo no es X-D-26: el aviso de «Kepler no distingue efectivo» no le aplica.
+    expect(txt).not.toContain('X-D-26');
+  });
+
+  it('⛔ NEGATIVA — una FACTURA en efectivo sigue con la caja escrita a mano y no promete «por entregar»', async () => {
+    const { fixture, c, http } = montar(DIRECCION);
+    await abrir(c, fixture, pago({ items: [{ id: 'i2', obligation_source: 'supplier_payable', obligation_id: 'o2', applied_amount: 900,
+      beneficiary: 'DULCES DE PRUEBA', supplier_id: 's1', concept: 'Factura 08-1234', branch_code: '08' }] }));
+    expect(document.querySelector('#cal-prep-cash')).not.toBeNull();
+    expect(ayudas()).not.toContain('por entregar');
+    expect(ayudas()).toContain('X-D-26');
+    c.prepCash = 'CAJA GENERAL';
+    c.confirmPrepare();
+    const req = http.expectOne((r) => r.url.endsWith('/allocations/a157/preparar'));
+    expect(req.request.body).toMatchObject({ payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' });
+  });
+});

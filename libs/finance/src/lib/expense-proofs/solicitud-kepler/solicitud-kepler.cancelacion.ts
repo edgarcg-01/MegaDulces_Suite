@@ -17,6 +17,12 @@
  *  · Con un gasto X-A-10 vivo (DS40): ése se cancela en Kepler, como hoy.
  *  · Una solicitud que no lleva la marca de ESTE vale: no se cancela un documento ajeno aunque tenga el folio.
  *  · Una que no está en A ni en N (F = ejecutada): no se vio cómo la cancela Kepler.
+ *
+ * ── `[PGP.122.6]` También la que se capturó en Kepler («Cancela sol gasto», pedido de Edgar 2026-11-19) ──────────
+ * Las 156 medidas ARRIBA son justo ésas (capturadas a mano): Kepler la cancela igual, sea de quien sea. Lo único que
+ * cambia es cómo se reconoce: sin marca de la Suite, el candado es el TOTAL leído (`c16`) además del estado, con la
+ * fila tomada `FOR UPDATE`. Y al revés: una que SÍ lleva la marca de la Suite no se cancela por este camino (se
+ * cancela desde su vale, que es el que guarda qué pasó).
  */
 
 /** Una sentencia con las filas que debe tocar: si toca otras, se deshace todo. */
@@ -32,8 +38,11 @@ export interface EntradaCancelacionSolicitud {
   /** Cuántas X-A-15 hay con ese folio en la sucursal (más de una = series distintas). */
   coincidencias: number;
   solicitud: { folio: string; estado: string; marca: string } | null;
-  /** La marca del vale (`kepler_request_mark`): tiene que ser la del documento. */
-  marcaDelVale: string;
+  /**
+   * La marca del vale (`kepler_request_mark`): tiene que ser la del documento. `null` = `[PGP.122.6]` la solicitud
+   * se capturó en Kepler: no se exige marca, y una que la traiga de la Suite se rechaza (va por su vale).
+   */
+  marcaDelVale: string | null;
   /** Folios de los X-A-10 no cancelados que apuntan a esta solicitud. */
   gastosVivos: string[];
 }
@@ -49,9 +58,15 @@ const ESTADO: Record<string, string> = { N: 'nueva', A: 'autorizada', F: 'ejecut
 export function decidirCancelacionSolicitud(e: EntradaCancelacionSolicitud): DecisionCancelacionSolicitud {
   if (!e.solicitud || e.coincidencias === 0) return { ok: false, motivo: 'Kepler no tiene esa solicitud en esa sucursal' };
   if (e.coincidencias > 1) return { ok: false, motivo: `Kepler tiene ${e.coincidencias} solicitudes con ese folio en la sucursal: no se sabe cuál cancelar` };
-  const marca = String(e.marcaDelVale ?? '').trim();
-  if (!marca || e.solicitud.marca.trim() !== marca) {
-    return { ok: false, motivo: `La solicitud ${e.solicitud.folio} de Kepler no lleva la marca de este vale (${marca || 'sin marca'}): no se cancela un documento ajeno` };
+  if (e.marcaDelVale === null) {
+    if (esMarcaDeLaSuite(e.solicitud.marca)) {
+      return { ok: false, motivo: `La solicitud ${e.solicitud.folio} la escribió la Suite (${e.solicitud.marca.trim()}): se cancela desde su vale` };
+    }
+  } else {
+    const marca = String(e.marcaDelVale ?? '').trim();
+    if (!marca || e.solicitud.marca.trim() !== marca) {
+      return { ok: false, motivo: `La solicitud ${e.solicitud.folio} de Kepler no lleva la marca de este vale (${marca || 'sin marca'}): no se cancela un documento ajeno` };
+    }
   }
   if (e.solicitud.estado === 'C') return { ok: false, motivo: `La solicitud ${e.solicitud.folio} ya está cancelada en Kepler`, yaCancelada: true };
   // DS40 va antes que el estado: es lo que la persona puede resolver (cancelando el gasto en Kepler).
@@ -64,12 +79,22 @@ export function decidirCancelacionSolicitud(e: EntradaCancelacionSolicitud): Dec
   return { ok: true };
 }
 
-/** Lo que se va a escribir. `estado` y `marca` son los LEÍDOS: van en el `WHERE` como candado. */
+/** `[PGP.122.6]` ¿La marca `c26` es de la Suite? (`marcaDeLaSolicitud`: `SUITE SG-` + 8 hex). */
+export function esMarcaDeLaSuite(marca: string | null | undefined): boolean {
+  return /^SUITE SG-[0-9A-F]{8}$/i.test(String(marca ?? '').trim());
+}
+
+/**
+ * Lo que se va a escribir. `estado` y la marca (o el total) son los LEÍDOS: van en el `WHERE` como candado.
+ * `marca: null` = `[PGP.122.6]` capturada en Kepler: el candado es `total` (`c16` leído, como texto exacto).
+ */
 export interface PlanCancelacionSolicitud {
   sucursal: string;
   folio: string;
   estado: string;
-  marca: string;
+  marca: string | null;
+  /** `c16` leído (texto, sin redondear). Obligatorio cuando `marca` es `null`. */
+  total?: string | null;
   /** `c67`: quién cancela, como lo escribe la Suite (`CAPTURISTA_SUITE`). */
   capturista: string;
   /** `c68` (`YYYY-MM-DD`) y `c69` (`HH:MM`), hora de México. */
@@ -85,15 +110,19 @@ export function sentenciasCancelacionSolicitud(p: PlanCancelacionSolicitud): Sen
   if (!ESTADOS_SOLICITUD_CANCELABLES.includes(p.estado)) {
     throw new Error(`[PGP.122] estado ${p.estado} no cancelable: la regla debió rechazarla antes`);
   }
+  const porMarca = p.marca !== null;
+  if (!porMarca && (p.total === null || p.total === undefined || String(p.total).trim() === '')) {
+    throw new Error('[PGP.122.6] sin marca, el candado es el total leído: no se escribe sin él');
+  }
   return [{
     que: 'cabecera de la solicitud',
     sql: `UPDATE md.kdm1 SET c43 = 'C', c14 = 0, c16 = 0, c42 = 0, c67 = $5, c68 = $6, c69 = $7
            WHERE c1 = $1 AND c2 = 'X' AND c3 = 'A' AND c4 = 15 AND c5 = 1 AND btrim(c6) = $2
-             AND btrim(c43) = $3 AND btrim(c26) = $4
+             AND btrim(c43) = $3 AND ${porMarca ? 'btrim(c26) = $4' : 'c16 = $4::numeric'}
              AND NOT EXISTS (SELECT 1 FROM md.kdm1 g
                               WHERE g.c1 = $1 AND g.c2 = 'X' AND g.c3 = 'A' AND g.c4 = 10 AND g.c5 = 1
                                 AND btrim(g.c37::text) = '15' AND btrim(g.c39) = $2 AND btrim(g.c43) <> 'C')`,
-    params: [p.sucursal, p.folio, p.estado, p.marca, p.capturista, p.fecha, p.hora],
+    params: [p.sucursal, p.folio, p.estado, porMarca ? p.marca : String(p.total).trim(), p.capturista, p.fecha, p.hora],
     esperadas: 1,
   }];
 }

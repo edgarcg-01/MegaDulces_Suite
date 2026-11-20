@@ -653,7 +653,7 @@ const ESTADO_LABEL: Record<string, string> = {
            Dos visores serian dos lugares donde arreglar el mismo error. -->
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
                            [vale]="abierto()" [kepler]="keplerDelAbierto()" [acciones]="accionesDelVisor(abierto())"
-                           [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" (reintentarKepler)="reintentarKepler($event)" (cancelarKepler)="cancelarKepler($event)"
+                           [solicitudSuite]="detalleDelAbierto()" [puedeReintentar]="true" [cancelaSucursales]="cancelaSucursales()" (reintentarKepler)="reintentarKepler($event)" (cancelarKepler)="cancelarKepler($event)"
                            [gastoKepler]="gastoDelAbierto()" [puedeReintentarGasto]="true" (reintentarGasto)="reintentarGasto($event)"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
@@ -950,6 +950,7 @@ export class FinanzasAprobacionGastosComponent {
     this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abrir(v));
     this.leerDeLaUrl();
     this.cargar();
+    this.pedirCancelaSucursales();
     effect(() => this.escribirEnLaUrl(this.pestana(), this.grupo()));
     // `[PGP.122]` Al abrir una solicitud nacida en la Suite se pide lo que su firma escribe en Kepler (una vez por vale).
     effect(() => {
@@ -1470,7 +1471,37 @@ export class FinanzasAprobacionGastosComponent {
    * `[PGP.122]` F3 (DS40): cancela en Kepler la solicitud que escribió la Suite (sin gasto vivo, con motivo) y el vale
    * queda rechazado. Si Kepler no la deja (gasto aplicado, otra la tiene tomada), el aviso dice por qué.
    */
+  /** `[PGP.122.6]` Dónde se puede cancelar la solicitud capturada en Kepler (se pide una vez; sin respuesta, en ninguna). */
+  readonly cancelaSucursales = signal<readonly string[]>([]);
+  private pedirCancelaSucursales(): void {
+    this.solicitudes.cancelacionDisponible().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.cancelaSucursales.set(r?.sucursales ?? []),
+      error: () => this.cancelaSucursales.set([]),
+    });
+  }
+
   cancelarKepler(e: { id: string; motivo: string }): void {
+    // `[PGP.122.6]` La capturada en Kepler (no nació en la Suite) se cancela por su sucursal y folio.
+    const v = this.abierto();
+    if (v && v.id === e.id && !this.kepler()[e.id]?.nace_en_la_suite && v.sucursal && v.folio_solicitud) {
+      this.actuando.set(e.id);
+      this.solicitudes.cancelarSolicitudKepler(v.sucursal, v.folio_solicitud, e.motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.actuando.set(null);
+          const doc = solicitudKepler(r.folio) ?? r.folio;
+          if (r.estado === 'rechazada') {
+            this.toast.add({ severity: 'error', summary: 'Kepler no la dejó cancelar', sticky: true, detail: `${doc}: ${r.rechazo ?? 'sin motivo'}` });
+            return;
+          }
+          this.abierto.set(null);
+          this.toast.add({ severity: 'info', summary: r.estado === 'ya_estaba' ? 'Ya estaba cancelada en Kepler' : 'Cancelada en Kepler', life: 8000,
+            detail: `${doc}${r.vales_cerrados ? '; el vale quedó rechazado con el motivo' : ''}.` });
+          this.cargar(true);
+        },
+        error: (err) => { this.actuando.set(null); this.falla('No se pudo cancelar en Kepler', err); },
+      });
+      return;
+    }
     this.actuando.set(e.id);
     this.solicitudes.cancelarEnKepler(e.id, e.motivo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => {

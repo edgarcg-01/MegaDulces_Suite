@@ -9,12 +9,25 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos: una descarga encimada ya no mete dos veces el mismo movimiento (BFU.3.4 · 2026-11-20)
+- BBVA completa días después la referencia de los depósitos en efectivo; al subir la descarga siguiente, esos depósitos entraban otra vez como nuevos. Ahora se reconocen por día, importe y saldo, y el renglón que ya estaba toma la referencia completa.
+- El cuadre de una cuenta dice «N renglón(es) de la descarga están dos veces» si vuelve a pasar, en vez de decir que cuadra.
+- El saldo inicial del mes ya no sale corrido cuando BBVA aplica primero un cargo fechado al día siguiente.
+- Se quitaron los 18 depósitos repetidos de BBVA 4176 y BBVA 6586 (migración de datos).
+
+### Changed — Bancos: 15 cuentas usan la descarga del banco como fuente (BFU.3.2 · 2026-11-19)
+- Desde su primer día descargado, los movimientos de esas cuentas son los del banco; lo que estaba ligado a los renglones del libro (pagos, capturas, confirmaciones) pasó a su renglón del banco. BB 3660, STDR 1604 y STDR 5565 siguen con el libro porque su descarga no cuadra.
 ### Changed — Almacén › Ubicaciones: las etiquetas de tienda salen en la TSC TE200, rollo amarillo (UB.RF.14 · 2026-11-20)
 - En tienda, «Imprimir etiquetas» ya no arma una hoja carta: manda las etiquetas a la TSC TE200 con el rollo amarillo, 3 por fila, de 3.2 × 4.8 cm, con el código grande y su código de barras. Al imprimir se elige la TSC.
 
 ### Fixed — Almacén › Ubicar productos: un producto va en paquete O en caja (UB.RF.13 · 2026-11-20)
 - La ficha del producto pedía un lugar de tienda y uno de bodega para cada presentación, y un producto con su paquete ya en tienda seguía diciendo «falta» en la caja. Ahora pide Tienda y Bodega una vez por producto, y cada lugar dice en qué presentación está («TA011 PAQ»).
 - Al escanear una ubicación sin haber leído el código de barras del producto, la pantalla ya no escoge la presentación: si hay más de una, pregunta «¿va en PAQ o CJA?».
+
+### Added — Anticipo en efectivo: Caja General lo ve por entregar, con la Caja General de su base (PGP.157 · 2026-11-19)
+- Al preparar en el Calendario un anticipo en efectivo, ya no se escribe la caja: sale de la Caja General de la base del anticipo (la de su OC), porque cada base cuadra sola. Un anticipo de una compra de Morelia sale de la caja de Morelia y se aplica a su factura de Morelia.
+- En cuanto Dirección lo autoriza, aparece en Caja General › Captura: un botón en la barra («Anticipos por entregar», junto a «Reposición») dice cuántos y cuánto, y abre la lista con el proveedor, de qué Caja General sale, el importe, quién lo autorizó y el folio del pago.
+- Sale solo cuando Kepler tiene su X-D-60. Si Kepler ya tenía uno igual de antes de autorizar, no lo saca: avisa que se revise.
 
 ### Added — Almacén › Ubicaciones: etiquetas chicas para la tienda (UB.RF.12 · 2026-11-19)
 - En tienda, «Imprimir» saca etiquetas de 6.7 × 2.5 cm con el código y su código de barras, 30 por hoja carta de etiquetas adhesivas, para pegarlas en el canto del anaquel sin tapar el producto. En bodega sigue el cartel grande.
@@ -68,6 +81,9 @@
 - (PGP.155.1) Al preparar ese pago por transferencia, de nuestras cuentas de banco sólo se ofrecen las de ese mismo banco (6 BBVA de 18) y la pantalla dice por qué; el servidor rechaza otro banco. Si no tenemos cuenta de ese banco, la pantalla dice que así no se puede transferir.
 - (PGP.154) El buscador de proveedores de «Cuentas de pago» ya no repite fichas: sólo los que existen en Kepler, con su clave y su último movimiento («chompys» daba 3 renglones; ahora 1).
 - (PGP.155.2) Lo que encontró el recorrido en pantalla: «Programar anticipo» a un clic junto a «Por etapa / Por día»; el buscador del anticipo distingue a los gemelos (CD004 con movimiento, CV10 sin ninguno); la ayuda ya no promete «la cuenta de la cotización»; y en «Preparar» la cuenta destino va antes que el origen.
+### Changed — Bancos: el libro CUENTAS de Tesorería ya no se carga (BFU.5.1 · 2026-11-19 · en código, sin soltar)
+- Subir el libro y sincronizarlo desde Google Sheets ya no se puede: la suite dice que la fuente de los bancos es la descarga del banco y que se sube en Estados de cuenta.
+- El pendiente del Cierre de una cuenta sin movimientos lleva a Estados de cuenta.
 ### Changed — Tablero de pedidos: abre más rápido con todas las sucursales (GP.RF.43 · 2026-11-19 · en código, sin soltar)
 - La lista lee los renglones de cada pedido con una búsqueda en vez de cinco: con todas las sucursales, la consulta baja de 241 a 184 ms y lee la mitad de los datos. Muestra exactamente los mismos pedidos.
 

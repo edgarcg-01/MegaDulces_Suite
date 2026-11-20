@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
   AcreedorDeGasto, CatalogoDeLaSolicitud, CrearSolicitudGastoDto, DetalleDeLaSolicitud, DisponibilidadDeLaSolicitud, DuplicadoProbable,
-  EstadoKeplerDeLaSolicitud, LecturaDelComprobante, PrecargaDeLaSolicitud, SolicitudGastoCreada, SucursalesAbiertasDeLaSolicitud,
+  EstadoKeplerDeLaSolicitud, SolicitudKeplerCancelada, CancelacionDeSolicitudDisponible, LecturaDelComprobante, PrecargaDeLaSolicitud, SolicitudGastoCreada, SucursalesAbiertasDeLaSolicitud,
 } from '@megadulces/contracts';
 
 import { SolicitudGastoService } from './solicitud-gasto.service';
@@ -93,6 +93,20 @@ export class SolicitudGastoController {
   @ApiOperation({ summary: '[PGP.122] F3 (DS40): cancela en Kepler la solicitud que escribió la Suite (sin gasto X-A-10 vivo, con motivo) y cierra el vale.' })
   cancelarEnKepler(@Param('id') id: string, @Body() body: { motivo?: unknown }, @Req() req: AuthedRequest): Promise<EstadoKeplerDeLaSolicitud> {
     return this.svc.cancelarEnKepler(id, body?.motivo, req?.user?.full_name || req?.user?.username || '');
+  }
+
+  @Get('cancelacion')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.122.6] Las sucursales donde hoy se puede cancelar una solicitud desde la Suite (interruptor cancela_solicitud_gasto).' })
+  cancelacionDisponible(): Promise<CancelacionDeSolicitudDisponible> {
+    return this.svc.cancelacionDisponible();
+  }
+
+  @Post('kepler/:sucursal/:folio/cancelar')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.122.6] «Cancela sol gasto»: cancela en Kepler la X-A-15 (también la capturada en Kepler; sin gasto vivo, con motivo) y cierra sus vales.' })
+  cancelarSolicitudKepler(@Param('sucursal') sucursal: string, @Param('folio') folio: string, @Body() body: { motivo?: unknown }, @Req() req: AuthedRequest): Promise<SolicitudKeplerCancelada> {
+    return this.svc.cancelarSolicitudKepler(sucursal, folio, body?.motivo, req?.user?.full_name || req?.user?.username || '');
   }
 
   @Post(':id/reintentar-kepler')

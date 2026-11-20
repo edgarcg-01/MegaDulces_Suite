@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
-import { diaMxDeInstante } from '@megadulces/contracts';
+import { diaMxDeInstante, repartirDeposito } from '@megadulces/contracts';
+// `[LE.6.37]` Ligar cobros ya capturados a un depósito, desde Caja General.
+import type { DepositoCobros, LigarCobrosInput, LigarCobrosResultado } from '@megadulces/contracts';
 // `[CGA-A.57]`/`[CGA-A.58]` La forma del boundary de vinculos vive en libs/contracts (ADR-052).
 import type { CaosVinculos, CaosVinculoFila, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
 // `[CGA-A.61]` El lote de vínculos de la reposición y «cambiar de retiro».
@@ -178,7 +180,14 @@ export class CaosService {
          * $8.23 M** «sin registrar», una acusación falsa del tamaño de la de `[CG.162]`.
          */
         if (sinRegistrar) {
-          x = x.whereIn('type_id', [0, 4]).whereRaw(`${folio} IS NULL`);
+          // ⭐ `[LE.6.37]` Un DEPÓSITO ligado a medias sigue «sin registrar» mientras le quede libre (y
+          // no se haya registrado como movimiento propio): con el primer cobro ligado se salía de la
+          // lista con $38,355.71 todavía sin explicar (el 1954, 2026-11-19).
+          x = x.whereIn('type_id', [0, 4]).whereRaw(`(${folio} IS NULL OR (type_id = 0
+            AND ${sqlDisponibleCaos(T)} > 0.005
+            AND NOT EXISTS (SELECT 1 FROM finance.cash_ledger lc WHERE lc.tenant_id = ${T}.tenant_id
+              AND lc.origen_tipo = 'caos' AND lc.origen_ref = ${T}.device || '|' || ${T}.external_id
+              AND lc.deleted_at IS NULL AND lc.estado <> 'cancelado')))`);
           x = registroDesde ? x.where('occurred_at', '>=', registroDesde) : x.whereRaw('false');
         } else {
           x = x.where('occurred_at', '>=', desde);
@@ -681,13 +690,15 @@ export class CaosService {
         .where({ 'k.tenant_id': tenantId, 'k.caos_device': mov.device, 'k.caos_external_id': mov.external_id })
         .whereNull('k.deleted_at').whereNull('l.deleted_at')
         .orderBy([{ column: 'k.created_at', order: 'asc' }, { column: 'l.folio', order: 'asc' }])
-        .select('k.id as link_id', 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+        // `[LE.6.37]` La fecha como TEXTO (`YYYY-MM-DD`): con `String(Date)` la pantalla publicaba
+        // «Tue Nov 17 2026 00:00:00 GMT-0600 (Central Standard Time)».
+        .select('k.id as link_id', 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', trx.raw('l.fecha::text AS fecha'), 'l.monto', 'l.estado',
           'k.monto_enlazado', 'k.created_at as vinculado_at',
           trx.raw(`'vinculo' AS via`));
       const nacidos = await trx('finance.cash_ledger as l')
         .where({ 'l.tenant_id': tenantId, 'l.origen_tipo': 'caos', 'l.origen_ref': `${mov.device}|${mov.external_id}` })
         .whereNull('l.deleted_at')
-        .select(trx.raw('NULL::uuid AS link_id'), 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', 'l.fecha', 'l.monto', 'l.estado',
+        .select(trx.raw('NULL::uuid AS link_id'), 'l.id as cash_ledger_id', 'l.folio', 'l.tipo', trx.raw('l.fecha::text AS fecha'), 'l.monto', 'l.estado',
           'l.monto as monto_enlazado', 'l.created_at as vinculado_at',
           trx.raw(`'nacio_en_la_maquina' AS via`));
       // node-pg entrega `numeric` como TEXTO y `timestamptz` como Date: el crudo lo declara asi y
@@ -698,7 +709,8 @@ export class CaosService {
       };
       const filas: CaosVinculoFila[] = ([...nacidos, ...enlaces] as FilaCruda[]).map((r) => ({
         ...r,
-        fecha: String(r.fecha), vinculado_at: String(r.vinculado_at),
+        fecha: String(r.fecha).slice(0, 10),
+        vinculado_at: r.vinculado_at instanceof Date ? r.vinculado_at.toISOString() : String(r.vinculado_at),
         monto: Number(r.monto), monto_enlazado: Number(r.monto_enlazado),
       }));
       // Lo cancelado se publica (se ve que existió) pero no consume el movimiento.
@@ -885,6 +897,120 @@ export class CaosService {
         { manual: true, via: 'mover', por: user.username ?? null, desde: Number(k.caos_external_id), motivo }, user, { ampliar: true });
       return { ok: true, link_baja: linkId, link_alta: alta, monto: toma, queda: Math.round((antes - toma) * 100) / 100 };
     });
+  }
+
+  /**
+   * ⭐ `[LE.6.37]` Los cobros YA CAPTURADOS que pueden explicar un depósito de CAOS. Edgar,
+   * 2026-11-19: *«eso debe ser posible desde la interfaz principal de captura»* — ligar el depósito
+   * de $51,770 de las rutas 501/502/503 de Canindo exigía ir a `/finanzas/caos` como superadmin y
+   * teclear tres folios con su monto.
+   *
+   * La ventana: el cobro va ANTES que el depósito (`[CG.58]`: medido sobre 708 depósitos, el saldo
+   * corrido nunca se va a negativo), así que se miran los cobros del día del depósito hacia atrás.
+   * Sólo los que todavía tienen algo que explicar.
+   */
+  async cobrosParaDeposito(device: string, externalId: number, q: { dias?: number } = {}): Promise<DepositoCobros> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const dias = Math.min(Math.max(Number(q.dias) || 21, 1), 60);
+    const LIMITE = 400;
+    return this.tk.run(async (trx) => {
+      const mov = await this.depositoDeCaos(trx, tenantId, device, externalId);
+      const dia = diaMxDeInstante(mov.occurred_at);
+      if (!dia) throw new BadRequestException(`El depósito ${externalId} no trae fecha.`);
+      const desde = new Date(Date.parse(`${dia}T12:00:00Z`) - dias * 86400000).toISOString().slice(0, 10);
+      const filas = await trx('finance.cash_ledger as l')
+        .where('l.tenant_id', tenantId).whereNull('l.deleted_at')
+        .where('l.tipo', 'ingreso').whereNot('l.estado', 'cancelado')
+        .whereRaw(`coalesce(l.origen_tipo, '') <> 'caos'`)
+        .whereBetween('l.fecha', [desde, dia])
+        .select('l.id', 'l.folio', trx.raw('l.fecha::text AS fecha'), 'l.sucursal', 'l.ruta', 'l.glosa', 'l.monto',
+          trx.raw(`l.monto - coalesce((SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
+                     WHERE k.tenant_id = l.tenant_id AND k.cash_ledger_id = l.id AND k.deleted_at IS NULL), 0) AS falta`))
+        .orderBy([{ column: 'l.fecha', order: 'desc' }, { column: 'l.sucursal', order: 'asc' }, { column: 'l.folio', order: 'asc' }]);
+      const vivos = (filas as Array<Record<string, unknown>>)
+        .map((r) => ({
+          cash_ledger_id: String(r['id']), folio: String(r['folio']), fecha: String(r['fecha']).slice(0, 10),
+          sucursal: String(r['sucursal'] ?? ''), ruta: r['ruta'] == null ? null : String(r['ruta']),
+          glosa: r['glosa'] == null ? null : String(r['glosa']),
+          monto: Number(r['monto']), falta: Math.round(Number(r['falta']) * 100) / 100,
+        }))
+        .filter((r) => r.falta > 0.005);
+      return {
+        deposito: {
+          device: String(mov.device), external_id: Number(mov.external_id), fecha: dia, ref: mov.ref ?? null,
+          total: Math.abs(Number(mov.total)), libre: Math.round(Number(mov.libre) * 100) / 100,
+        },
+        desde,
+        rows: vivos.slice(0, LIMITE),
+        has_more: vivos.length > LIMITE,
+      };
+    });
+  }
+
+  /**
+   * ⭐ `[LE.6.37]` Liga cobros ya capturados a UN depósito, desde Caja General (permiso de capturar,
+   * no de superadmin: es el acto de quien captura, no una corrección). El reparto lo hace el
+   * servidor con `repartirDeposito` —la misma función que pinta la pantalla—: en el orden dado,
+   * cada cobro toma lo que le falta mientras el depósito tenga libre; el último puede quedar en parte
+   * y esa diferencia se queda en caja (los depósitos van en billetes; el 57 % de los cobros trae
+   * centavos, `[CG.58]`).
+   *
+   * ⛔ Todo o nada: si un vínculo no pasa sus reglas (`altaVinculoCaos`), no se guarda ninguno.
+   */
+  async ligarCobrosADeposito(device: string, externalId: number, body: LigarCobrosInput, user: ActorCaos): Promise<LigarCobrosResultado> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ids = Array.isArray(body?.cash_ledger_ids) ? body.cash_ledger_ids.map((x) => String(x ?? '').trim()).filter(Boolean) : [];
+    if (!ids.length) throw new BadRequestException('Elige al menos un cobro.');
+    if (ids.length > 100) throw new BadRequestException('Son demasiados cobros de una vez (máximo 100).');
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Un cobro viene repetido.');
+    return this.tk.run(async (trx) => {
+      const mov = await this.depositoDeCaos(trx, tenantId, device, externalId);
+      const libre = Math.round(Number(mov.libre) * 100) / 100;
+      if (libre <= 0.005) throw new ConflictException(`El depósito ${externalId} ya está ligado completo.`);
+      const filas = await trx('finance.cash_ledger as l')
+        .where('l.tenant_id', tenantId).whereNull('l.deleted_at').whereIn('l.id', ids)
+        .select('l.id', 'l.folio', 'l.tipo', 'l.monto', 'l.estado', 'l.origen_tipo', 'l.origen_efectivo', 'l.origen_ref',
+          trx.raw(`l.monto - coalesce((SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
+                     WHERE k.tenant_id = l.tenant_id AND k.cash_ledger_id = l.id AND k.deleted_at IS NULL), 0) AS falta`));
+      const porId = new Map((filas as Array<Record<string, unknown>>).map((f) => [String(f['id']), f]));
+      const faltan = ids.filter((id) => !porId.has(id));
+      if (faltan.length) throw new NotFoundException(`${faltan.length === 1 ? 'Un cobro ya no existe' : `${faltan.length} cobros ya no existen`} en Caja General.`);
+      const reparto = repartirDeposito(libre, ids.map((id) => ({ id, falta: Number(porId.get(id)!['falta']) })));
+      const sinNada = ids.filter((id) => !reparto.some((r) => r.id === id));
+      if (sinNada.length) {
+        const folios = sinNada.map((id) => String(porId.get(id)!['folio'])).join(', ');
+        throw new BadRequestException(`No le alcanza el depósito a ${folios} (o ya está explicado entero). Quítalo de la lista.`);
+      }
+      const vinculos: LigarCobrosResultado['vinculos'] = [];
+      for (const r of reparto) {
+        const l = porId.get(r.id)! as unknown as Parameters<typeof altaVinculoCaos>[2];
+        await altaVinculoCaos(trx, tenantId, l, { device: mov.device, external_id: mov.external_id, type_id: mov.type_id }, r.monto,
+          { manual: true, via: 'captura_deposito', por: user.username ?? null }, user, { ampliar: true });
+        vinculos.push({ folio: l.folio, monto: r.monto, parcial: r.parcial });
+      }
+      const ligado = Math.round(vinculos.reduce((a, v) => a + v.monto, 0) * 100) / 100;
+      const faltaTotal = Math.round(reparto.reduce((a, r) => a + Number(porId.get(r.id)!['falta']), 0) * 100) / 100;
+      return {
+        ok: true, vinculos, ligado,
+        libre: Math.round((libre - ligado) * 100) / 100,
+        sin_depositar: Math.round((faltaTotal - ligado) * 100) / 100,
+      };
+    });
+  }
+
+  /** `[LE.6.37]` El depósito (type 0) con lo que tiene libre. Un retiro u otro tipo no es un depósito. */
+  private async depositoDeCaos(trx: Knex.Transaction, tenantId: string, device: string, externalId: number) {
+    if (!device || !Number.isFinite(externalId)) throw new BadRequestException('Falta el depósito de CAOS.');
+    const mov = await trx('analytics.caos_cash_movements as m')
+      .where({ 'm.tenant_id': tenantId, 'm.device': device, 'm.external_id': externalId })
+      .first('m.device', 'm.external_id', 'm.type_id', 'm.total', 'm.ref', 'm.occurred_at',
+        trx.raw(`${sqlDisponibleCaos('m')} AS libre`));
+    if (!mov) throw new NotFoundException(`El movimiento ${externalId} no existe en CAOS.`);
+    if (Number(mov.type_id) !== 0) throw new BadRequestException(`El movimiento ${externalId} de CAOS no es un depósito.`);
+    const nacido = await trx('finance.cash_ledger').where({ tenant_id: tenantId, origen_tipo: 'caos', origen_ref: `${device}|${externalId}` })
+      .whereNull('deleted_at').whereNot('estado', 'cancelado').first('folio');
+    if (nacido) throw new ConflictException(`El depósito ${externalId} ya se registró como ${nacido.folio}: no se le ligan cobros.`);
+    return mov as { device: string; external_id: string | number; type_id: string | number; total: string | number; ref: string | null; occurred_at: Date | string; libre: string | number };
   }
 }
 
