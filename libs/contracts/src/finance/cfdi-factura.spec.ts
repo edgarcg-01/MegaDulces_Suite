@@ -89,6 +89,24 @@ describe('[PGP.158][PGP.163] el aviso fiscal del renglón del pago', () => {
     expect(claves(e({ renglon: { ...ligado(cfdi({ metodo_pago: 'PPD', forma_pago: '99' })), cancelado_uuid: 'C1' } }))).toEqual([]);
   });
 
+  it('[PGP.177] proveedor en la 69-B: avisa primero, definitivo o presunto, y no tapa los demás', () => {
+    const def: CfdiDelRenglon = { ...ligado(cfdi()), efos: { situacion: 'Definitivo', publicado: '2026-01-23' } };
+    expect(claves(e({ renglon: def }))).toEqual(['proveedor_69b', 'pue_limite']);
+    expect(avisosFiscales(e({ renglon: def }))[0]).toMatchObject({ nivel: 'warn', texto: expect.stringContaining('(definitivo)') });
+    const pre: CfdiDelRenglon = { ...ligado(cfdi()), efos: { situacion: 'Presunto', publicado: null } };
+    expect(avisosFiscales(e({ renglon: pre }))[0]).toMatchObject({ clave: 'proveedor_69b', texto: expect.stringContaining('(presunto)') });
+    // sin CFDI ligado también avisa: la lista es del proveedor, no de la factura
+    const sinCfdi: CfdiDelRenglon = { cfdi: { estado: 'ninguno', cfdi: null, candidatos: 0, metodo: null }, cancelado_uuid: null, efos: { situacion: 'Definitivo', publicado: null } };
+    expect(claves(e({ renglon: sinCfdi }))).toEqual(['proveedor_69b']);
+  });
+
+  it('⛔ control 69-B: sin efos, con efos null o en otra situación, nada', () => {
+    expect(claves(e({ renglon: { ...ligado(cfdi()), efos: null } }))).toEqual(['pue_limite']);
+    expect(claves(e())).toEqual(['pue_limite']);
+    const otra = { ...ligado(cfdi()), efos: { situacion: 'Desvirtuado', publicado: null } } as unknown as CfdiDelRenglon;
+    expect(claves(e({ renglon: otra }))).toEqual(['pue_limite']);
+  });
+
   it('efectivo arriba de $2,000 no es deducible; hasta $2,000 sí', () => {
     const ppd = ligado(cfdi({ metodo_pago: 'PPD', forma_pago: '99' }));
     expect(claves(e({ renglon: ppd, metodo_pago: 'efectivo', importe: 2000.01 }))).toEqual(['efectivo_no_deducible']);

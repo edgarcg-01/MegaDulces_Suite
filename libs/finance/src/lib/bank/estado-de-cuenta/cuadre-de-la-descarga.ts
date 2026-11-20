@@ -1,3 +1,5 @@
+import { huellaGuardada, repetidosEntreArchivos } from './renglones-repetidos';
+
 /**
  * `[CB.73]` **El cuadre de la descarga: el banco se juzga por sus saldos, no contra el libro** (Edgar, 2026-11-17:
  * «ahora hay que usar cuadre en vez de usar el libro, usa los estados de cuenta nuevos»).
@@ -17,11 +19,19 @@
  * (los días de en medio, si los hay, no tuvieron movimientos: el saldo no se movió). Si empieza dentro de lo ya
  * cubierto (encimado), tiene que abrir en un saldo por el que la cuenta pasó esa semana.
  *
+ * `[BFU.3.4]` Y los renglones GUARDADOS no se repiten entre archivos: si dos descargas dejaron el mismo renglón (misma
+ * huella: día, cargo, abono y saldo), la cuenta no cuadra. Los saldos con que abre cada archivo no lo ven: el 19-nov
+ * dejaron pasar 18 depósitos repetidos en dos cuentas BBVA (ver `renglones-repetidos.ts`).
+ *
  * ⛔ El cuadre no ve renglones que falten y se anulen entre sí (una entrada y una salida iguales en una cuenta de
  * paso): ese límite es el mismo del estado de cuenta del banco, y se declara, no se esconde.
  */
 export interface ArchivoParaCuadre { desde: string; hasta: string; abre: number | string; cierra: number | string; subido: string }
-export interface SaldoDelBanco { fecha: string; saldo: number | string }
+export interface SaldoDelBanco {
+  fecha: string; saldo: number | string;
+  /** [BFU.3.4] De qué archivo es el renglón y sus importes: para ver si se repite entre archivos. */
+  archivo?: string; abono?: number | string; cargo?: number | string;
+}
 export interface TestigoDeEntrada { fecha: string; saldo: number }
 
 export interface RoturaDelCuadre { despues_de: string; antes_de: string; cierra: number; abre: number }
@@ -37,6 +47,8 @@ export interface CuadreDeLaDescarga {
   testigo: TestigoDeEntrada | null;
   abre: number | null;
   rotura: RoturaDelCuadre | null;
+  /** [BFU.3.4] Renglones guardados que repiten a otro de otro archivo (null = no se pudo medir: faltan los importes). */
+  repetidos?: { renglones: number; importe: number } | null;
   /** Se puede usar el banco: hay descarga, sigue de punta a punta y la entrada no contradice al testigo. */
   cuadra: boolean;
   motivo: string | null;
@@ -83,10 +95,20 @@ export function cuadreDeLaDescarga(
     if (a.hasta > finFecha || (a.hasta === finFecha && a.subido > finSubido)) { finFecha = a.hasta; finSaldo = centavos(a.cierra); finSubido = a.subido; }
   }
 
-  const base = { desde: inicio, hasta: finFecha, archivos: archivos.length, entrada, testigo, abre: abre / 100, rotura };
+  const conImportes = saldos.length > 0 && saldos.every((s) => s.archivo !== undefined && s.abono !== undefined && s.cargo !== undefined);
+  const repetidos = conImportes
+    ? repetidosEntreArchivos(saldos.map((s) => ({
+      archivo: s.archivo!, importe_centavos: centavos(s.abono!) + centavos(s.cargo!),
+      huella: huellaGuardada({ fecha: s.fecha, amount_in: s.abono!, amount_out: s.cargo!, running_balance: s.saldo }) })))
+    : null;
+  const base = { desde: inicio, hasta: finFecha, archivos: archivos.length, entrada, testigo, abre: abre / 100, rotura, repetidos };
   if (rotura) {
     return { ...base, cuadra: false,
       motivo: `el saldo no sigue entre el ${dm(rotura.despues_de)} y el ${dm(rotura.antes_de)} (cerró en ${$(centavos(rotura.cierra))} y abre en ${$(centavos(rotura.abre))}): ${bajar(rotura.despues_de)}` };
+  }
+  if (repetidos && repetidos.renglones > 0) {
+    return { ...base, cuadra: false,
+      motivo: `${repetidos.renglones} renglón(es) de la descarga están dos veces (${$(Math.round(repetidos.importe * 100))}): el banco cambió su concepto entre una descarga y otra` };
   }
   if (entrada === 'no_cuadra' && testigo) {
     return { ...base, cuadra: false,

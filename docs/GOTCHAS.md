@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 285 KB, 4967 líneas, 106 secciones.
+> **Índice navegable** — 286 KB, 4979 líneas, 106 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/GOTCHAS.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -112,7 +112,7 @@
 | 4940 | 4971 | 4 | 91. ⛔ Seis trampas de HERRAMIENTA que no avisan — y las seis cobraron en el ciclo de Caducidades (2026-10-16) |
 | 4972 | 4990 | 3 | 92. ⛔ Un índice de EXPRESIÓN sin `ANALYZE` no existe para el planificador — y la prueba que apaga `enable_seqs |
 | 4991 | 5016 | 4 | 93. ⛔ `/api/health` en verde con la suite en blanco: el 404 que la CDN guarda durante un despliegue |
-| 5017 | 5085 | 5 | 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite  |
+| 5017 | 5097 | 6 | 94. ⛔⛔ Una prueba escrita en el Kepler vivo es un documento REAL: la sucursal la ejerce en minutos y la Suite  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5063,7 +5063,7 @@ todavía no existe. Deshacerlo quedó en manos de personas, en Kepler: primero c
   fecha): **se avisa antes a la sucursal**, el concepto dice `PRUEBA — NO EJERCER` y el importe es
   simbólico ($1.00). Un concepto creíble es una invitación a ejercerlo.
 
-### Deshacerlo en Kepler enseñó dos cosas más (medido en `md.kdm1` de Zamora Centro, 2026-11-19)
+### Deshacerlo en Kepler enseñó tres cosas más (medido en `md.kdm1` de Zamora Centro, 2026-11-19)
 
 1. **Kepler NO revisa el gasto vivo al cancelar una solicitud: es su regla, no un permiso.** Medido
    en `md.kdm1` de las 9 sucursales el mismo día: **43 solicitudes canceladas con su gasto todavía
@@ -5077,6 +5077,18 @@ todavía no existe. Deshacerlo quedó en manos de personas, en Kepler: primero c
    le devolvió el saldo a la `0000091` y la regresó a `A` con $4,000.00 disponibles, **aunque ya
    estaba en `C`**. Una solicitud cancelada volvió a quedar ejercible sin que nadie lo pidiera.
    Se cerró cancelándola otra vez (15:06).
+
+3. ⛔ **Kepler BORRA los renglones (`kdm6`) al cancelar, y el ODS los conserva.** En el Kepler vivo
+   de la 05 (el único donde `kepler_push` puede leer `kdm6`): **31 de 31** `X-A-15`/`X-A-10`
+   canceladas sin renglones y **148 de 148** vivas con renglones; los contadores de la tabla marcaron
+   el `DELETE` al minuto de cada cancelación (13:41 y 15:04). `kepler_ods.kdm6` todavía tiene los
+   renglones de `0000091` y `0000086`: es el §22 (el ODS no ve los `DELETE`). La F3 se había
+   construido sobre «los renglones se conservan, 364 de 364», **medido en el ODS: un artefacto**. La
+   cancelación de la Suite dejaba vivos renglones que Kepler borra; `[PGP.122.8]` la corrige
+   (borra exactamente los leídos y guarda su foto en la bitácora). **Toda pregunta «¿Kepler conserva
+   o borra?» se mide en el Kepler vivo o en sus contadores, nunca en el ODS.** Y quien sume
+   `kepler_ods.kdm6` sin cruzar el estado de `kdm1` cuenta como vivos los renglones de documentos
+   cancelados.
 
 **El orden para deshacer es siempre: primero el gasto (`Cancela gasto CFDI`), después la solicitud
 (`Cancela sol gasto`), y al final leer los dos en `C`.** Cuando la Suite tenga «Cancela gasto CFDI»,

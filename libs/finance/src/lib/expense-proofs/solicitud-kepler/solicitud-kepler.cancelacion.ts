@@ -7,11 +7,15 @@
  *  · Cabecera: `c43` → C · `c14` (IVA), `c16` (total) y `c42` (saldo) → 0 en las 156 · `c67` → quien cancela
  *    (Tesorería, sobre todo) · `c68`/`c69` → fecha y hora de la cancelación. `c13` y `c15` ya van en 0 en TODAS
  *    (vivas y canceladas): no se tocan.
- *  · Renglones (`kdm6`): se CONSERVAN con su importe (364 de 364). A diferencia de la requisición, no se borran.
+ *  · Renglones (`kdm6`): ⛔ **Kepler los BORRA** (`[PGP.122.8]`, medido 2026-11-19/20 en el Kepler VIVO de la 05:
+ *    31 de 31 X-A-15/X-A-10 canceladas sin renglones, 148 de 148 vivas con renglones; los contadores marcaron el
+ *    DELETE en `kdm6` al minuto de cada cancelación). Aquí decía «se CONSERVAN (364 de 364)»: eso se midió en el ODS,
+ *    que no ve los DELETE (GOTCHAS §22) — era un artefacto. Igual que la requisición (`[KR.7]`): se borran.
  *  · El contador (`sqliov`) no se mueve.
  *  · El gasto X-A-10 apunta a su solicitud por `c37 = 15`, `c38 = 1`, `c39 = folio` (2,066 de 2,066).
  *  · Permisos: `kepler_push` ya tiene `UPDATE` de `c14`, `c16`, `c42`, `c43`, `c67`–`c69` en los 9 servidores
- *    (`[PQ.110]`, verificado el 2026-11-17). No hay GRANT nuevo.
+ *    (`[PQ.110]`, verificado el 2026-11-17). Borrar los renglones pide `DELETE` sobre `md.kdm6`
+ *    (`ops/prod/kepler-grants/pgp1228_cancelar_solicitud_kdm6.sql`); sin él la transacción falla y no se escribe nada.
  *
  * ── Lo que se niega a hacer (fail-closed) ─────────────────────────────────────────────────────────────────────────
  *  · Con un gasto X-A-10 vivo (DS40): ése se cancela en Kepler, como hoy.
@@ -95,6 +99,8 @@ export interface PlanCancelacionSolicitud {
   marca: string | null;
   /** `c16` leído (texto, sin redondear). Obligatorio cuando `marca` es `null`. */
   total?: string | null;
+  /** `[PGP.122.8]` Cuántos renglones (`kdm6`) se leyeron con candado: el `DELETE` tiene que tocar exactamente ésos. */
+  renglones: number;
   /** `c67`: quién cancela, como lo escribe la Suite (`CAPTURISTA_SUITE`). */
   capturista: string;
   /** `c68` (`YYYY-MM-DD`) y `c69` (`HH:MM`), hora de México. */
@@ -114,6 +120,9 @@ export function sentenciasCancelacionSolicitud(p: PlanCancelacionSolicitud): Sen
   if (!porMarca && (p.total === null || p.total === undefined || String(p.total).trim() === '')) {
     throw new Error('[PGP.122.6] sin marca, el candado es el total leído: no se escribe sin él');
   }
+  if (!Number.isInteger(p.renglones) || p.renglones < 0) {
+    throw new Error(`[PGP.122.8] renglones leídos inválidos (${p.renglones}): no se borra sin saber cuántos son`);
+  }
   return [{
     que: 'cabecera de la solicitud',
     sql: `UPDATE md.kdm1 SET c43 = 'C', c14 = 0, c16 = 0, c42 = 0, c67 = $5, c68 = $6, c69 = $7
@@ -124,6 +133,13 @@ export function sentenciasCancelacionSolicitud(p: PlanCancelacionSolicitud): Sen
                                 AND btrim(g.c37::text) = '15' AND btrim(g.c39) = $2 AND btrim(g.c43) <> 'C')`,
     params: [p.sucursal, p.folio, p.estado, porMarca ? p.marca : String(p.total).trim(), p.capturista, p.fecha, p.hora],
     esperadas: 1,
+  }, {
+    // `[PGP.122.8]` Kepler borra los renglones al cancelar. Va DESPUÉS de la cabecera: si la cabecera no se tocó
+    // (candado), ya se deshizo todo y esto no corre.
+    que: 'renglones de la solicitud',
+    sql: `DELETE FROM md.kdm6 WHERE c1 = $1 AND c2 = 'X' AND c3 = 'A' AND c4 = 15 AND c5 = 1 AND btrim(c6) = $2`,
+    params: [p.sucursal, p.folio],
+    esperadas: p.renglones,
   }];
 }
 

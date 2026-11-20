@@ -125,10 +125,26 @@ export async function leerCfdiConCancelados(trx: Knex | Knex.Transaction, tenant
   const cancelados = sinVigente.length
     ? cfdisDeFacturas(sinVigente, await leerCandidatos(trx, tenantId, sinVigente, SQL_CFDIS_CANCELADOS))
     : new Map<string, CfdiDeLaFactura>();
+  const rfcs = [...new Set(facturas.map((f) => f.rfc).filter((x): x is string => !!x))];
+  const efos = rfcs.length
+    ? (await trx.raw(SQL_PROVEEDORES_69B, [rfcs])).rows as { rfc: string; situacion: 'Presunto' | 'Definitivo'; publicado: string | null }[]
+    : [];
+  const efosDe = new Map(efos.map((e) => [e.rfc, { situacion: e.situacion, publicado: e.publicado }]));
+  const rfcDe = new Map(facturas.map((f) => [f.item_id, f.rfc]));
   const out = new Map<string, CfdiDelRenglon>();
   for (const [id, cfdi] of vigentes) {
     const c = cancelados.get(id);
-    out.set(id, { cfdi, cancelado_uuid: c?.estado === 'unico' && c.cfdi ? c.cfdi.uuid : null });
+    const rfc = rfcDe.get(id);
+    out.set(id, { cfdi, cancelado_uuid: c?.estado === 'unico' && c.cfdi ? c.cfdi.uuid : null, efos: (rfc && efosDe.get(rfc)) || null });
   }
   return out;
 }
+
+/**
+ * `[PGP.177]` Los acreedores del día que el SAT tiene en la lista 69-B (presunto o definitivo).
+ * `fiscal.sat_list_rfcs` es global y su llave es `(lista, rfc)`. Parámetros: `[rfcs (text[])]`.
+ */
+export const SQL_PROVEEDORES_69B = `
+SELECT r.rfc, r.situacion, to_char(r.fecha_publicacion, 'YYYY-MM-DD') AS publicado
+  FROM fiscal.sat_list_rfcs r
+ WHERE r.lista = '69B' AND r.situacion IN ('Presunto', 'Definitivo') AND r.rfc = ANY(?::text[])`;

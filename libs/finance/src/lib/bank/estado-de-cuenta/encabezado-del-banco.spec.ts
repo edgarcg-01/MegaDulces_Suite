@@ -45,6 +45,17 @@ describe('[CB.75] armarEncabezado: el encabezado de una cuenta que usa el banco'
     expect([e.total_in, e.total_out]).toEqual([10, 2]);
   });
 
+  it('[BFU.3.4] BBVA pone primero un cargo fechado al día siguiente: con los dos primeros días juntos, la apertura es la real', () => {
+    // Inventado con la forma de BBVA 5712: abre en 1,000; el cargo de 50 fechado el día 2 se aplica antes que los abonos del 1.
+    const d1 = [{ amount_in: 100, amount_out: 0, running_balance: 1050 }, { amount_in: 10, amount_out: 0, running_balance: 1060 }];
+    const d2 = [{ amount_in: 0, amount_out: 50, running_balance: 950 }, { amount_in: 5, amount_out: 0, running_balance: 1065 }];
+    expect(aperturaDelDia(d1)).toBe(950); // control: con un solo día sale DESPUÉS del cargo (el defecto medido)
+    const d3 = [{ amount_in: 0, amount_out: 15, running_balance: 1050 }];
+    const e = armarEncabezado({ periodo: '2026-11', primerDia: [...d1, ...d2], ultimoDia: d3, totalIn: 115, totalOut: 65 });
+    expect(e.opening_balance).toBe(1000);
+    expect(Math.round((e.opening_balance + e.total_in - e.total_out) * 100) / 100).toBe(e.closing_balance);
+  });
+
   it('⛔ un periodo sin movimientos no se cuenta como cuadrado', () => {
     const e = armarEncabezado({ periodo: '2026-12', primerDia: [], ultimoDia: [], totalIn: 0, totalOut: 0 });
     expect(e.medido).toBe(false);
