@@ -190,7 +190,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                   <div class="cad-miss" role="status">
                     <i class="pi pi-info-circle" aria-hidden="true"></i>
                     <span>{{ avisoCodigo() }}</span>
-                    @if (codigo().trim()) {
+                    @if (codigo().trim() && !fueraDeAlcance()) {
                       <button type="button" class="cad-miss-a" (click)="usarCodigoCrudo()">Registrarlo con el código tal cual</button>
                     }
                   </div>
@@ -804,6 +804,15 @@ export class TiendaCaducidadesComponent {
   readonly refoco = signal(0);
   readonly candidatos = signal<{ id: string; nombre: string | null; sku: string | null; brand_name: string | null }[]>([]);
   readonly avisoCodigo = signal('');
+  /**
+   * [CAD.1] El código resolvió a un producto que SÍ está en el catálogo, pero de una marca fuera
+   * del alcance de quien captura (`out_of_scope` del servidor). ⚠️ NO es «no está en el catálogo»:
+   * acá el servidor sabe qué producto es y lo oculta a propósito
+   * (`commercial-expiry-reviews.service.ts`: `visible = hits.filter(marca ∈ sus marcas)`).
+   * Por eso «registrarlo con el código tal cual» no se ofrece: guardaría `id/sku/brand = null`,
+   * tirando una identidad que el sistema ya tenía, y saltearía la regla de alcance.
+   */
+  readonly fueraDeAlcance = signal(false);
 
   readonly fechaRaw = signal('');
   readonly fechaIso = signal<string | null>(null);
@@ -957,6 +966,7 @@ export class TiendaCaducidadesComponent {
     this.resolviendo.set(true);
     this.candidatos.set([]);
     this.avisoCodigo.set('');
+    this.fueraDeAlcance.set(false);
 
     this.svc.resolveExpiryCode(c)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -973,8 +983,9 @@ export class TiendaCaducidadesComponent {
             return;
           }
           if (r.candidates?.length) { this.candidatos.set(r.candidates); return; }
+          this.fueraDeAlcance.set(!!r.out_of_scope);
           this.avisoCodigo.set(r.out_of_scope
-            ? 'Ese código es de una marca que no llevas. Avísale al encargado.'
+            ? 'Ese código es de una marca que no llevas. Avísale al encargado para que lo registre.'
             : 'Ese código no está en el catálogo. Búscalo por nombre, o regístralo con el código tal cual.');
         },
         error: () => {
@@ -1001,6 +1012,9 @@ export class TiendaCaducidadesComponent {
   usarCodigoCrudo(): void {
     const c = this.codigo().trim();
     if (!c) return;
+    // [CAD.1] Candado además de esconder el botón: si el código es de una marca fuera de alcance,
+    // el servidor YA identificó el producto y guardarlo «tal cual» tiraría esa identidad.
+    if (this.fueraDeAlcance()) return;
     this.fijarProducto({ id: null, nombre: `Código ${c}`, sku: null, brand: null, raw: c });
     this.avisoCodigo.set('');
     this.toast.add({
