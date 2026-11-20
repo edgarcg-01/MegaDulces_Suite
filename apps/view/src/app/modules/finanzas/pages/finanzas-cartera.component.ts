@@ -14,6 +14,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { esRestoDeFactura } from '@megadulces/contracts';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 
@@ -315,7 +316,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                      sólo con mouse, y ningún cliente era alcanzable sin él. -->
                 <tr (click)="openDetalle(c)" (keydown.enter)="openDetalle(c)"
                     (keydown.space)="$event.preventDefault(); openDetalle(c)" tabindex="0"
-                    class="ct-row" [class.ct-row-venc]="c.vencido > 0">
+                    class="ct-row" [class.ct-row-venc]="c.vencido > 0 && !c.solo_resto_vencido">
                   <td>
                     <b>{{ c.cliente_nombre }}</b> <span class="muted">{{ c.cliente_code }}</span>
                     <!-- [CXC.43] A quién ya se le habló: al retomar la lista se sabe dónde ibas. -->
@@ -344,7 +345,12 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                     @if (c.uso_linea != null) { <span [class.ct-sobre]="c.sobre_linea" [title]="'Límite ' + money(c.limite_credito || 0)">{{ c.uso_linea }}%</span> } @else { <span class="muted">—</span> }
                     @if (c.sobre_linea) { <i class="pi pi-exclamation-triangle ct-sobre" title="Sobre su línea de crédito" aria-hidden="true"></i> }
                   </td>
-                  <td class="ta-r" [class.ct-venc-num]="c.vencido > 0">{{ c.vencido | number:'1.2-2' }}</td>
+                  <!-- [GP.R.1] Todo su vencido son centavos de facturas ya cobradas: no es cobranza. -->
+                  @if (c.solo_resto_vencido) {
+                    <td class="ta-r"><span class="ct-tag-redondeo" [title]="tituloRedondeo">Redondeo</span> <span class="muted">{{ c.vencido | number:'1.2-2' }}</span></td>
+                  } @else {
+                    <td class="ta-r" [class.ct-venc-num]="c.vencido > 0">{{ c.vencido | number:'1.2-2' }}</td>
+                  }
                   <td class="ta-r"><b>{{ c.saldo | number:'1.2-2' }}</b></td>
                   <td class="ta-r"><i class="pi pi-angle-right muted" aria-hidden="true"></i></td>
                 </tr>
@@ -440,7 +446,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
           <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>
             @for (p of partidasVisibles(); track p.folio_digital) {
-              <tr [class.ct-row-venc]="p.vencida" [class.ct-row-pagada]="p.saldada">
+              <tr [class.ct-row-venc]="p.vencida && !esResto(p)" [class.ct-row-pagada]="p.saldada">
                 <td>{{ p.doc_label }}</td>
                 <td class="ct-mono">{{ p.folio_digital }}</td>
                 <td>{{ p.fecha }}</td>
@@ -449,6 +455,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                 <td class="ta-r"><b>{{ p.saldo_documento | number:'1.2-2' }}</b></td>
                 <td>
                   @if (p.saldada) { <span class="ct-tag-pag">Pagada{{ p.pagada_el ? ' ' + p.pagada_el : '' }}</span> }
+                  @else if (esResto(p)) { <span class="ct-tag-redondeo" [title]="tituloRedondeo">Redondeo</span> }
                   @else if (p.vencida) { <span class="ct-tag-venc">{{ p.dias_vencido }}d</span> }
                   @else { <span class="muted">al día</span> }
                 </td>
@@ -812,6 +819,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
     .ct-det-state { display: flex; align-items: center; gap: .6rem; padding: 1.2rem .2rem; font-size: .85rem; color: var(--text-muted); }
     .ct-det-err { color: var(--bad-fg); }
     .ct-row-pagada td { opacity: .6; }
+    .ct-tag-redondeo { border: 1px solid var(--border-color); color: var(--text-muted); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .ct-tag-pag { background: var(--ok-soft-bg); color: var(--ok-soft-fg); border-radius: 4px; padding: .1rem .4rem; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
     .ct-link-btn { background: none; border: 0; padding: 0; font: inherit; font-size: .82rem; color: var(--action); cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
     .ct-link-btn:hover { text-decoration: underline; }
@@ -934,10 +942,19 @@ export class FinanzasCarteraComponent implements OnInit {
           return tokens.every((t) => hay.includes(t));
         })
       : rows.slice();
+    // [GP.R.1] En «cobrar», el vencido que es puro redondeo cuenta como cero: no se sale a cobrar $0.05.
+    const venc = (c: CarteraCliente) => (c.solo_resto_vencido ? 0 : c.vencido);
     return this.orden() === 'vencido'
-      ? hits.sort((x, y) => y.vencido - x.vencido || y.saldo - x.saldo)
+      ? hits.sort((x, y) => venc(y) - venc(x) || y.saldo - x.saldo)
       : hits.sort((x, y) => y.saldo - x.saldo);
   });
+
+  /** `[GP.R.1]` La misma regla del servidor (`esRestoDeFactura`), sobre la partida del detalle. */
+  esResto(p: Partida): boolean {
+    return !p.saldada && esRestoDeFactura(Number(p.saldo_documento), Number(p.importe));
+  }
+  readonly tituloRedondeo =
+    'Centavos que quedaron de una factura ya cobrada (hasta $1). Siguen en Kepler; se cierran con un Ajuste Abono, no con otro cobro.';
   readonly visibles = computed(() => this.filtradas().slice(0, FinanzasCarteraComponent.FILAS_VISIBLES));
 
   // ── `[CXC.42]` Recorrer la lista desde la ficha ─────────────────────────────────

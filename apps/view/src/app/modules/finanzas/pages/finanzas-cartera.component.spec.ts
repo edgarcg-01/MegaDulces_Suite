@@ -448,4 +448,36 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     fila.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(detalle).toHaveBeenCalledWith('01', 'C1');
   });
+
+  it('17 · [GP.R.1] el vencido que es puro redondeo dice «Redondeo», no pinta la fila y va al final de «cobrar»', () => {
+    cartera = vi.fn(() => of(resp([
+      cli('R', 'Solo centavos', 0.37, 0.37, { solo_resto_vencido: true, resto_redondeo: 0.37, n_restos: 1 }),
+      cli('V', 'Debe de verdad', 0.5, 0.2),
+    ])));
+    const f = crear();
+    const filas = Array.from(el(f).querySelectorAll('tr.ct-row')) as HTMLElement[];
+    expect(filas[0].textContent).toContain('Debe de verdad');
+    const resto = filas[1];
+    expect(resto.textContent).toContain('Redondeo');
+    expect(resto.textContent).toContain('0.37');
+    expect(resto.classList.contains('ct-row-venc')).toBe(false);
+  });
+
+  it('17b · [GP.R.1] negativo: con vencido real además del resto, la fila sigue vencida y sin «Redondeo»', () => {
+    cartera = vi.fn(() => of(resp([cli('B', 'Mixto', 500.37, 500.37, { solo_resto_vencido: false, resto_redondeo: 0.37, n_restos: 1 })])));
+    const f = crear();
+    const fila = el(f).querySelector('tr.ct-row') as HTMLElement;
+    expect(fila.classList.contains('ct-row-venc')).toBe(true);
+    expect(fila.textContent).not.toContain('Redondeo');
+  });
+
+  it('17c · [GP.R.1] la partida de centavos de una factura cobrada es resto; la nunca cobrada no', () => {
+    const f = crear();
+    const c = f.componentInstance;
+    const p = (saldo: number, importe: number, saldada = false) => ({ saldo_documento: saldo, importe, saldada }) as never;
+    expect(c.esResto(p(0.37, 15730.37))).toBe(true);
+    expect(c.esResto(p(0.08, 0.08))).toBe(false);
+    expect(c.esResto(p(1.5, 100))).toBe(false);
+    expect(c.esResto(p(0, 100, true))).toBe(false);
+  });
 });

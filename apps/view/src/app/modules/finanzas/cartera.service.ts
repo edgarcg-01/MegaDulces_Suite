@@ -39,6 +39,11 @@ export interface CarteraCliente {
    * convive con una API anterior; si `CarteraResp.contactos_medidos` es false, no se afirma nada.
    */
   ultimo_contacto?: UltimoContacto | null;
+  /**
+   * `[GP.R.1]` Cuánto de lo vivo es resto de centavos de facturas ya cobradas, y si TODO lo vencido es
+   * eso. Aditivo: `vencido` y `saldo` no cambian. Opcionales mientras convive con una API anterior.
+   */
+  resto_redondeo?: number; n_restos?: number; solo_resto_vencido?: boolean;
 }
 /** `[CXC.43]` Por dónde se contactó a la cuenta: lo registra el acto en la ficha. */
 export type CanalContacto = 'telefono' | 'whatsapp' | 'estado_cuenta_pdf';
