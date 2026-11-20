@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: cierres que sí se guardaron ya no se reportan como fallidos (GP.RF.45 y GP.RF.46 · 2026-11-20)
+- Surtir: si al terminar el servidor tarda y no contesta, la pantalla revisa unos segundos si el cierre se guardó antes de decir que falló (en prod, los 4 casos de estos días sí se habían guardado).
+- Revisión en caja: si un pedido ya quedó revisado (por ejemplo, con un segundo toque), la pantalla lo dice y pasa al siguiente en lugar de mostrar un error.
+
 ### Fixed — Almacén › Surtir: un pedido de preventa en el que no hubo nada (MCP.27 · 2026-11-20)
 - Si todo el pedido quedó en «No había», el botón ya no es «Terminé de surtir» (que el sistema rechazaba sin salida): es «Avisar a la vendedora: no hubo nada». A la vendedora le llega el aviso para cancelarlo, y el pedido sale de la cola del surtidor como «por cancelar». El pedido no se cierra en cero.
 

@@ -488,6 +488,36 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(props.minutos_abierto).toBe(0);
   });
 
+  it('⭐ [GP.RF.46] el 409 de un pedido que SÍ quedó revisado: relee, lo dice y sigue (no deja a la caja tocando otra vez)', async () => {
+    await montar();
+    await abrir();
+    api.finish.mockReturnValueOnce(throwError(() => ({ status: 409, error: { message: 'Este pedido ya lo revisó María Cajera a las 10:00.' } })));
+    // La relectura: ya quedó revisado (el primer toque se guardó).
+    const d = DETALLE();
+    api.detail.mockReturnValueOnce(of({ ...d, order: { ...d.order, state: 'revisado', reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-11-20T16:30:00.000Z' } } }));
+    const antes = api.detail.mock.calls.length;
+    clic('Está bien');
+    clic('Ya se completó');
+    clic('No hay');
+    clic('Terminar y seguir con el siguiente');
+    expect(api.detail.mock.calls.length).toBeGreaterThan(antes);
+    expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 409, ya_guardado: true });
+    expect(el().textContent?.replace(/\s+/g, ' ')).toContain('ya está revisado: lo revisó María Cajera a las 10:30.');
+  });
+
+  it('NEGATIVA [GP.RF.46]: un 422 no relee (es un error de lo capturado, no un cierre que quizá se guardó)', async () => {
+    await montar();
+    await abrir();
+    api.finish.mockReturnValueOnce(throwError(() => ({ status: 422, error: { message: 'Falta el motivo' } })));
+    const antes = api.detail.mock.calls.length;
+    clic('Está bien');
+    clic('Ya se completó');
+    clic('No hay');
+    clic('Terminar y seguir con el siguiente');
+    expect(api.detail.mock.calls.length).toBe(antes);
+    expect(uso.reportarIncidente.mock.calls[0][1]).not.toHaveProperty('ya_guardado');
+  });
+
   it('un error al cargar la lista se muestra como error, no como «no hay pedidos»', async () => {
     await montar();
     api.inbox.mockReturnValueOnce(throwError(() => ({ error: { message: 'boom' } })));
