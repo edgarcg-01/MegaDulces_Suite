@@ -89,7 +89,7 @@ export interface FacturaAPagar {
 
 /** El acreedor, con sus datos fiscales del último `X-D-26` suyo (98.9 % igual) o, si no hay, de `kdxd`. */
 export interface ProveedorKepler {
-  /** `kdxd.c2` = `kdm1.c10`. Sólo proveedores de compra (`C…`): el alcance de D1. */
+  /** `kdxd.c2` = `kdm1.c10`. Proveedores de compra (`C…`) y, desde `[PGP.180]`, acreedores de gasto (`G…`). */
   codigo: string;
   rfc: string;
   nombre: string;
@@ -97,6 +97,16 @@ export interface ProveedorKepler {
   domicilio: [string, string, string];
   /** `kdxd.c16`: días de crédito → `kdm1.c17` (463 de 471). `null` si no se conoce. */
   dias: number | null;
+  /**
+   * `[PGP.180]` `kdm1.c12` del último pago a este acreedor: el concepto con que Tesorería le paga. Lo usa el gasto de un
+   * acreedor de gasto (`G…`), cuyo X-A-10 no trae concepto. Ausente o `null` si no hay pago anterior.
+   */
+  conceptoUltimoPago?: string | null;
+}
+
+/** `[PGP.180]` Acreedor de gasto (`G…`: servicios, rentas, fletes…), a diferencia del proveedor de compra (`C…`). */
+export function esAcreedorDeGasto(codigo: string | null | undefined): boolean {
+  return /^G/.test((codigo ?? '').trim());
 }
 
 export interface PagoKeplerEntrada {
@@ -151,10 +161,18 @@ export type ResultadoArmado = { ok: true; plan: PlanPagoKepler } | { ok: false; 
  * lo confirme: el ensayo lo avisa.
  */
 export const CONCEPTO_GASTOS_GENERALES = '007';
-/** El concepto (`c12`) con el que se paga UNA factura: el suyo (`kdxe.c18`, P6: manda la factura); sin él, si es de gasto, `007` (P8). */
-export function conceptoDeFactura(f: Pick<FacturaAPagar, 'concepto' | 'tipo'>): string {
+/**
+ * El concepto (`c12`) con el que se paga UNA factura: el suyo (`kdxe.c18`, P6: manda la factura); sin él, si es de gasto,
+ * `007` (P8). `[PGP.180]` El gasto de un acreedor de GASTO (`G…`) no trae concepto nunca, y Tesorería no le pone `007`:
+ * le pone el de su último pago (medido 2026-11-20 en 60 días: 427 de 450 en Padre Hidalgo, 703 de 737 en Morelia Abastos;
+ * con `007` acertaba 88 de 439 y 189 de 702). Sin pago anterior, no hay concepto: no se adivina.
+ */
+export function conceptoDeFactura(f: Pick<FacturaAPagar, 'concepto' | 'tipo'>, prov?: Pick<ProveedorKepler, 'codigo' | 'conceptoUltimoPago'>): string {
   const c = (f.concepto ?? '').trim();
-  return c || (Number(f.tipo) === 10 ? CONCEPTO_GASTOS_GENERALES : '');
+  if (c) return c;
+  if (Number(f.tipo) !== 10) return '';
+  if (prov && esAcreedorDeGasto(prov.codigo)) return (prov.conceptoUltimoPago ?? '').trim();
+  return CONCEPTO_GASTOS_GENERALES;
 }
 
 const r2 = (v: number): number => Math.round(v * 100) / 100;
@@ -184,7 +202,15 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
 
   if (!/^\d{2}$/.test(e.sucursal)) motivos.push(`Sucursal Kepler inválida «${e.sucursal}»`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(e.fecha)) motivos.push(`Fecha inválida «${e.fecha}»`);
-  if (!/^C/.test(prov.codigo ?? '')) motivos.push(`El acreedor ${prov.codigo || '(vacío)'} no es un proveedor de compra (C…): por ahora sólo se escriben ésos`);
+  // [PGP.180] Proveedores de compra (C…) y acreedores de gasto (G…). El pago al acreedor de gasto es el MISMO X-D-26
+  // (misma serie y contador, póliza 201/102) pero contra su gasto X-A-10, nunca contra una factura de compra.
+  const deGasto = esAcreedorDeGasto(prov.codigo);
+  if (!/^C/.test(prov.codigo ?? '') && !deGasto) motivos.push(`El acreedor ${prov.codigo || '(vacío)'} no es un proveedor de compra (C…) ni un acreedor de gasto (G…): por ahora sólo se escriben ésos`);
+  if (deGasto) {
+    for (const f of e.facturas) {
+      if (Number(f.tipo) !== 10) motivos.push(`El acreedor de gasto ${prov.codigo} sólo se paga contra gastos (X-A-10), y ${f.tipo}-${f.subtipo}-${f.folio} no lo es`);
+    }
+  }
   const c45 = (e.cuentaTesoreria ?? '').trim();
   if (!c45) motivos.push('Sin cuenta de tesorería de Kepler (kdm1.c45): no se sabe de qué banco salió');
   else if (c45 === C45_CAJA_GENERAL) motivos.push('Sale de Caja General: el efectivo espera el dictamen de Contabilidad (D1)');
@@ -204,10 +230,14 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
     motivos.push(`Lo aplicado a cada factura, a centavos, no suma el importe del pago (${e.importe.toFixed(2)}): la póliza quedaría descuadrada`);
   }
 
-  const conceptos = [...new Set(e.facturas.map(conceptoDeFactura))];
+  const conceptos = [...new Set(e.facturas.map((f) => conceptoDeFactura(f, prov)))];
   if (conceptos.length > 1) motivos.push(`Las facturas traen conceptos distintos (${conceptos.join(', ')}) y Kepler pide uno por pago: pártelo en un pago por concepto`);
   const concepto = conceptos[0] ?? '';
-  if (conceptos.length === 1 && !concepto) motivos.push('La factura no trae concepto (kdxe.c18): Kepler no sabría a qué sucursal cargar la compra');
+  if (conceptos.length === 1 && !concepto) {
+    motivos.push(deGasto
+      ? `El acreedor de gasto ${prov.codigo} no tiene un pago anterior en Kepler del que tomar el concepto: se captura a mano`
+      : 'La factura no trae concepto (kdxe.c18): Kepler no sabría a qué sucursal cargar la compra');
+  }
 
   if (motivos.length) return { ok: false, motivos };
 
@@ -279,7 +309,7 @@ export type ResultadoArmadoVarios = { ok: true; planes: PlanPorConcepto[] } | { 
 export function armarPagosKepler(e: PagoKeplerEntrada): ResultadoArmadoVarios {
   const grupos = new Map<string, FacturaAPagar[]>();
   for (const f of e.facturas) {
-    const c = conceptoDeFactura(f);
+    const c = conceptoDeFactura(f, e.proveedor);
     grupos.set(c, [...(grupos.get(c) ?? []), f]);
   }
   if (grupos.size <= 1) {

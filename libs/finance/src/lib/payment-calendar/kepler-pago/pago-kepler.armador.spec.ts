@@ -81,8 +81,11 @@ describe('[PGP.71] armarPagoKepler', () => {
   it('rechaza el efectivo de Caja General (D1)', () => {
     rechaza(entrada({ cuentaTesoreria: '0011' }), /Caja General/);
   });
-  it('rechaza un acreedor que no es proveedor de compra', () => {
-    rechaza(entrada({ proveedor: { ...entrada().proveedor, codigo: 'GB001' } }), /no es un proveedor de compra/);
+  it('rechaza un acreedor que no es de compra (C…) ni de gasto (G…)', () => {
+    rechaza(entrada({ proveedor: { ...entrada().proveedor, codigo: 'AB003' } }), /no es un proveedor de compra \(C…\) ni un acreedor de gasto/);
+  });
+  it('[PGP.180] el acreedor de gasto sólo se paga contra gastos X-A-10: contra una factura de compra, no', () => {
+    rechaza(entrada({ proveedor: { ...entrada().proveedor, codigo: 'GB001', conceptoUltimoPago: '012' } }), /sólo se paga contra gastos \(X-A-10\)/);
   });
   it('rechaza una factura de otro almacén que el servidor', () => {
     rechaza(entrada({ facturas: [factura({ almacen: '01' })] }), /almacén 01/);
@@ -259,5 +262,37 @@ describe('[PGP.106] kdm5, póliza E y acumulados — contra el pago real 0024254
     if (!r.ok) throw new Error(r.motivos.join());
     expect(r.planes.map((p) => p.plan.poliza.renglones.length)).toEqual([2, 2]);
     expect(r.planes.map((p) => p.plan.acumulados.abonoAcreedor)).toEqual([1160, 1160]);
+  });
+});
+
+describe('[PGP.180] el pago a un acreedor de gasto (G…)', () => {
+  const gasto = (o: Partial<FacturaAPagar> = {}): FacturaAPagar =>
+    factura({ tipo: 10, subtipo: 1, folio: '0009851', concepto: '', referencia: 'GNF-Z2', saldo: 280, aplicado: 280, iva: 0, total: 280, ...o });
+  const acreedor = (conceptoUltimoPago: string | null) =>
+    ({ codigo: 'GG008', rfc: 'XAXX010101000', nombre: 'GASTOS GENERALES', domicilio: ['', '', ''] as [string, string, string], dias: 0, conceptoUltimoPago });
+  const motivos = (e: PagoKeplerEntrada): string[] => { const r = armarPagoKepler(e); return r.ok ? [] : r.motivos; };
+
+  it('el mismo X-D-26 que a un proveedor, contra su gasto X-A-10, con el concepto de su último pago', () => {
+    const r = armarPagoKepler(entrada({ importe: 280, proveedor: acreedor('012'), facturas: [gasto()] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.kdm1).toMatchObject({ c10: 'GG008', c12: '012', c16: 280, c31: 'Tra' });
+    expect(r.plan.kdxf).toEqual([{ c1: '00', c2: 'GG008', c3: '2026-11-05', c4: 26, c5: 1, c7: 10, c8: 1, c9: '0009851', c10: 280, c11: 280 }]);
+    expect(r.plan.poliza.renglones.map((x) => [x['c3'], x['c4'], x['c5']])).toEqual([['201', 'C', 280], ['102', 'A', 280]]);
+  });
+
+  it('sin un pago anterior no hay concepto: no se escribe (no se adivina el 007)', () => {
+    expect(motivos(entrada({ importe: 280, proveedor: acreedor(null), facturas: [gasto()] })).join()).toMatch(/no tiene un pago anterior en Kepler/);
+  });
+
+  it('si el gasto sí trae concepto, manda el gasto; varios gastos del mismo acreedor son UN pago', () => {
+    expect(conceptoDeFactura({ tipo: 10, concepto: '009' }, acreedor('012'))).toBe('009');
+    const r = armarPagosKepler(entrada({ importe: 380, proveedor: acreedor('012'), facturas: [gasto(), gasto({ folio: '0009852', saldo: 100, aplicado: 100, total: 100 })] }));
+    expect(r.ok && r.planes.map((x) => x.concepto)).toEqual(['012']);
+  });
+
+  it('⛔ control: el gasto de un proveedor de COMPRA sigue con el 007 de P8, aunque su último pago traiga otro concepto', () => {
+    expect(conceptoDeFactura({ tipo: 10, concepto: '' }, { codigo: 'CA041', conceptoUltimoPago: 'C-010' })).toBe('007');
+    expect(conceptoDeFactura({ tipo: 10, concepto: '' })).toBe('007');
   });
 });

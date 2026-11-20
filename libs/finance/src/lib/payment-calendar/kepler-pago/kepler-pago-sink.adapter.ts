@@ -256,13 +256,15 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       if (!d) return { estado: 'rechazado', motivo: `Kepler (${e.sucursal}) no tiene al acreedor ${e.acreedor} en su catálogo (kdxd)` };
       // RFC, nombre y domicilio del último pago a ese acreedor (98.9 %); si no hay, del catálogo.
       const prev = (await c.query(
-        `SELECT coalesce(c22,'') c22, coalesce(c32,'') c32, coalesce(c33,'') c33, coalesce(c34,'') c34, coalesce(c35,'') c35
+        `SELECT coalesce(c22,'') c22, coalesce(c32,'') c32, coalesce(c33,'') c33, coalesce(c34,'') c34, coalesce(c35,'') c35,
+                btrim(coalesce(c12,'')) c12
            FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c10)=$2 AND c43 <> 'C'
           ORDER BY c6 DESC LIMIT 1`, [e.sucursal, e.acreedor])).rows[0];
       const dias = Number(d.dias);
+      // [PGP.180] El concepto del último pago: el del gasto de un acreedor de gasto, que su X-A-10 no trae.
       const proveedor: ProveedorKepler = prev
-        ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null }
-        : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null };
+        ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: prev.c12 || null }
+        : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: null };
 
       // ── La cuenta de tesorería: UN código de kdb1 (18 de 18 cuentas resuelven, medido) ─────
       const digitos = (e.origen.account_label || '').replace(/\D/g, '');
