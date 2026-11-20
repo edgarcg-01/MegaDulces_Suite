@@ -25,8 +25,14 @@ export interface RenglonAClasificar {
   concepto?: string | null;
   /** Tipo del documento de Kepler casado (`U-A-5`, `N-A-26`, `X-D-26`…), si lo hay. */
   doc_tipo?: string | null;
-  /** Entidad del documento de Kepler (`kdm1.c10`): `C…` proveedor, `GN…` nómina. */
+  /** Entidad del documento de Kepler (`kdm1.c10`): `C…` proveedor de mercancía, `G…` acreedor de gasto. */
   entidad?: string | null;
+  /**
+   * `[BFU.2.10]` El nombre del acreedor CONGELADO en el documento al capturarlo (`kdm1.c32`, `beneficiario` en la vista).
+   * Es la única señal de nómina: la letra tras la G es la inicial del nombre (GN002 Gas Noel, GN003 Walmart, GNF… gasto
+   * no fiscal) y GN001 se renombró a Walmart el 8-nov-2026 (en noviembre: 81 documentos «NOMINA» y 4 «Nueva Wal Mart»).
+   */
+  beneficiario?: string | null;
 }
 
 export interface CategoriaDelRenglon { categoria: string; por: FuenteDeCategoria }
@@ -35,12 +41,17 @@ const SIN = 'sin_clasificar';
 const norm = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase()
   .normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-function porDocumento(tipo: string, entidad: string): string | null {
+/**
+ * La categoría que da el documento de Kepler casado, o `null` si el documento no la dice. Un acreedor de gasto (`G…`)
+ * que no es nómina queda en `null`: su categoría es del acreedor, no del prefijo (`[BFU.2.11]`).
+ */
+export function categoriaDelDocumento(tipoDoc: string | null | undefined, entidadDoc?: string | null, beneficiarioDoc?: string | null): string | null {
+  const tipo = norm(tipoDoc), entidad = norm(entidadDoc), beneficiario = norm(beneficiarioDoc);
   if (tipo === 'N-A-26' || tipo === 'X-A-45') return 'traspaso_entre_cuentas';
   if (/^U-A-(5|7|25)$/.test(tipo)) return 'cobranza';
   if (/^X-D-/.test(tipo)) {
     if (/^C[A-Z]/.test(entidad)) return 'compra_mercancia';
-    if (/^GN/.test(entidad)) return 'nomina';
+    if (/^NOMINA\b/.test(beneficiario)) return 'nomina';
   }
   return null;
 }
@@ -64,7 +75,7 @@ const DEPOSITO: [RegExp, string][] = [
 ];
 
 export function clasificarRenglon(r: RenglonAClasificar, reglaDelLibro?: (concepto: string) => string): CategoriaDelRenglon {
-  const doc = porDocumento(norm(r.doc_tipo), norm(r.entidad));
+  const doc = categoriaDelDocumento(r.doc_tipo, r.entidad, r.beneficiario);
   if (doc) return { categoria: doc, por: 'documento' };
   const t = norm(r.concepto);
   const entra = Math.round(Number(r.amount_in ?? 0) * 100) > 0;

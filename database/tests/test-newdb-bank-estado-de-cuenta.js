@@ -19,6 +19,8 @@
  *   9. ⛔ RLS: sin tenant, `app_runtime` no ve ningún renglón.
  *  14. [BFU.3.4] BBVA completa la referencia en la descarga siguiente → el renglón NO entra dos veces, toma el concepto
  *      completo y el cuadre no ve repetidos; ⛔ NEGATIVA: un repetido sembrado a mano hace que la cuenta no cuadre.
+ *  15. [BFU.2.10] Al casar con Kepler, el retiro sin categoría toma la de su documento (como app_runtime, con RLS);
+ *      ⛔ NEGATIVAS: lo categorizado por otra fuente no se toca; si el pareo se va, la categoría del documento se va.
  * Destino PROD: sólo lectura (las tablas existen, cuántos archivos hay); lo que escribe, NO MEDIDO.
  */
 
@@ -617,6 +619,42 @@ async function completo(urlAdmin, urlRuntime) {
       const qN = (await svc.cuadre('2026-11-20')).cuentas.find((x) => x.id === DEP)?.cuadre;
       check(qN?.cuadra === false && qN?.repetidos?.renglones === 1 && qN?.repetidos?.importe === 100 && /dos veces/.test(qN?.motivo ?? ''),
         `⛔ con un renglón repetido entre archivos la cuenta NO cuadra y lo dice (${qN?.motivo})`);
+
+      console.log('\n[15] BFU.2.10 — al casar con Kepler, el retiro sin categoría toma la de su documento');
+      const { categorizarPorDocumento } = require(path.join(ROOT, 'libs/finance/src/lib/bank/estado-de-cuenta/categoria-del-documento.ts'));
+      const [stDep] = await admin('finance.bank_statements').where({ bank_account_id: DEP, period: '2026-11' }).select('id');
+      const retiro = async (n, extra = {}) => (await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stDep.id, bank_account_id: DEP,
+        movement_date: '2026-11-15', concept: `SPEI ENVIADO PRUEBA ${n}`, amount_in: 0, amount_out: n, client_uuid: `prueba-bfu210-${n}`,
+        classified_by: 'banco', sync_source: 'banco', source_file: 'banco', ...extra }).returning('id'))[0];
+      const idDe = (r) => r.id ?? r;
+      const TRASP = idDe(await retiro(11));                 // casado con un traspaso (N-A-26): la categoría la da el documento
+      const SIN_ENT = idDe(await retiro(12));               // casado con un pago (X-D-26) cuya entidad no se conoce: no se adivina
+      const comision = await catId('comision_bancaria');
+      const MANO = idDe(await retiro(13, { category_id: comision, classified_by: 'manual' })); // ya clasificado a mano
+      const pareo = (mov, tipo, folio) => admin('finance.bank_recon_matches').insert({ tenant_id: MEGA, bank_movement_id: mov, kepler_sucursal: '01',
+        kepler_doc_tipo: tipo, kepler_doc_folio: folio, kepler_amount: 1, match_type: 'inferred', match_confidence: 0.9, matched_by: 'prueba-bfu210' });
+      await pareo(TRASP, 'N-A-26', 'PRB0001'); await pareo(SIN_ENT, 'X-D-26', 'PRB0002'); await pareo(MANO, 'N-A-26', 'PRB0003');
+      const comoApp = (fn) => runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]); return fn(trx); });
+      const ids = [TRASP, SIN_ENT, MANO];
+      const enSeco = await comoApp((trx) => categorizarPorDocumento(trx, ids, { soloContar: true }));
+      const tras0 = await admin('finance.bank_movements').where({ id: TRASP }).first('category_id', 'classified_by');
+      check(enSeco.puestas === 1 && tras0.category_id === null, `en seco cuenta 1 y no escribe (${JSON.stringify(enSeco)})`);
+      const r1 = await comoApp((trx) => categorizarPorDocumento(trx, ids));
+      const de = async (id) => admin('finance.bank_movements as bm').leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('bm.id', id).first('mc.code', 'bm.classified_by');
+      const t1 = await de(TRASP), s1 = await de(SIN_ENT), m1 = await de(MANO);
+      check(r1.puestas === 1 && t1.code === 'traspaso_entre_cuentas' && t1.classified_by === 'documento',
+        `como app_runtime: el retiro casado con un traspaso queda «traspaso», declarado por el documento (${t1.code}/${t1.classified_by})`);
+      check(s1.code === null && s1.classified_by === 'banco', `⛔ casado con un pago sin entidad conocida: sigue sin categoría, no se adivina (${s1.code}/${s1.classified_by})`);
+      check(m1.code === 'comision_bancaria' && m1.classified_by === 'manual', `⛔ lo puesto a mano no se toca aunque tenga pareo (${m1.code}/${m1.classified_by})`);
+      const r2 = await comoApp((trx) => categorizarPorDocumento(trx, ids));
+      check(r2.puestas + r2.cambiadas + r2.quitadas === 0, `la segunda corrida no cambia nada (${JSON.stringify(r2)})`);
+      await admin('finance.bank_recon_matches').where({ bank_movement_id: TRASP }).del();
+      const r3 = await comoApp((trx) => categorizarPorDocumento(trx, ids));
+      const t3 = await de(TRASP);
+      check(r3.quitadas === 1 && t3.code === null && t3.classified_by === 'banco',
+        `⛔ si el pareo se va, la categoría del documento se va con él (${t3.code}/${t3.classified_by})`);
+      noMedido('[BFU.2.10] proveedor (C…) y nómina (nombre NOMINA) necesitan la entidad del ODS: aquí sólo se prueba el traspaso; en prod se mide antes/después');
     }
   } finally {
     await limpiar(admin).catch(() => {});

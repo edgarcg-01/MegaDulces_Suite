@@ -215,6 +215,9 @@ credenciales de banca en línea.
 | BFU.2.7 | **Categoría por documento, por evento** (CB.66): al casar un movimiento del banco sin categoría, toma la del documento; nunca pisa una manual | ⬜ | Los «sin categoría» bajan al llegar los documentos |
 | BFU.2.8 | **La explicación de cada renglón, en un solo lugar** (función pura en `libs/finance`): documento de Kepler, categoría y su evidencia, sucursal y su origen, contraparte y referencia, póliza de ContPAQi, pago del calendario, comprobante; y si no hay, «sin explicar» con el porqué | ⬜ | Spec con un caso por fuente de explicación + el caso vacío; es lo que leen E4 y la cifra de la métrica 2 |
 | BFU.2.9 | **Medir la métrica 2 sobre la descarga** (hoy NO MEDIDA): pesos explicados por cuenta y mes con BFU.2.8 | ⬜ | Cruce contra el 82.2 % del libro de octubre (mismo criterio D8) |
+| BFU.2.10 | 🧪 2026-11-20 **Al casar con Kepler, la categoría sale del documento** (el motor, en su transacción; `classified_by = 'documento'`, sigue al pareo). Corrige «GN… = nómina»: la nómina sale del nombre congelado (NOMINA), no del prefijo | 🧪 | Bloque [15] de `test-newdb-bank-estado-de-cuenta.js` + antes/después en prod |
+| BFU.2.11 | ⬜ La categoría de un acreedor de gasto (G…) y de un pago del Calendario, como parámetro que se contesta una vez (28 + 40 en noviembre) | ⬜ | Antes/después en prod |
+| BFU.2.12 | ⬜ El motor no casa los cheques de nómina que Kepler sí tiene (10 en noviembre) | ⬜ | Prueba del pase |
 
 ### E3 · C2 — Pasar las cuentas
 
@@ -236,6 +239,7 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 | BFU.4.3 | **«Sin explicar» como bandeja con dueño**: por cuenta, lo que no tiene documento, categoría con evidencia o sucursal; se resuelve ahí | ⬜ | |
 | BFU.4.4 | **Exportar el estado de cuenta explicado** (Excel y PDF): el del banco más el porqué de cada peso, con las propiedades del mes en el encabezado | ⬜ | |
 | BFU.4.5 | **Aviso a quien sube** (D6): a la hora límite, qué cuenta no tiene el archivo de ayer y desde qué día bajarlo | ⬜ | |
+| BFU.4.5 | ⬜ **Cada área ve y reconoce sus movimientos del banco para conciliarlos en Kepler** (Edgar, 2026-11-20). Lo que no tiene documento le llega al área dueña (del Calendario, del acreedor, o asignada por Tesorería con un clic); el área lo captura en Kepler y el motor casa solo. Primero Compras, RH y Tesorería; falta quién en cada una | ⬜ | Permiso repartido en prod + pantalla viva |
 
 ### E5 · C2–C3 — Apagar el libro
 
@@ -316,3 +320,4 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-19 | «Nuestra hoja será la verdad absoluta»: se revisaron en vivo Cuentas, Estados de cuenta y el Cuadre; el plan se reestructura alrededor de las 7 propiedades (§2); entra E0 (Cuentas deja de afirmar lo que no es) y E4 (el estado de cuenta explicado) | Edgar / Claude |
 | 2026-11-19 | BFU.5.1 en prod (el libro ya no entra). E3: 15 cuentas pasadas al banco a las 19:02; 0 ligas colgando; 3 cuentas no cuadran y siguen con el libro | Edgar (autorizó) / Claude |
 | 2026-11-20 | Hallazgo tras E3: 18 depósitos repetidos (BBVA completó la referencia entre descargas) y el saldo inicial de BBVA 5712 mal derivado → BFU.3.4 (código + migración ensayada con ROLLBACK). Edgar autorizó corregir los datos | Edgar / Claude |
+| 2026-11-20 | «¿Por qué no podemos clasificar estos 265?»: todos retiros; 145 ya casados con Kepler sin categoría (el motor no la escribía), 40 del Calendario, 65 sin documento. BFU.2.10 en código; BFU.2.11, 2.12 y 4.5 (cada área reconoce sus movimientos) planeados. Edgar: «hagámoslo» | Edgar / Claude |

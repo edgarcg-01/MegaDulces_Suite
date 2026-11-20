@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos: un retiro conciliado con Kepler toma la categoría de su documento (BFU.2.10 · 2026-11-20)
+- Un pago del banco que ya está casado con su documento de Kepler (pago a proveedor, nómina, traspaso entre cuentas) deja de aparecer «sin clasificar»: la categoría sale del documento. Si la conciliación cambia, la categoría la sigue; lo clasificado a mano no se toca.
+- La nómina se reconoce por el nombre guardado en el documento («NOMINA») y no por la clave del acreedor, que en noviembre se reasignó a Walmart.
 ### Added — Mi trabajo: «Temporadas por confirmar» (PQ.132 · 2026-11-20)
 - Quien confirma las temporadas (Coordinación de Compras y Dirección) ve en «Mi trabajo» cada temporada que ya está en venta, o que empieza en 45 días o menos, y que sigue con las fechas propuestas: cuál es, del cuándo al cuándo se vende y cuántos productos lleva confirmados. Lleva a Compras › Temporadas y sale de la lista en cuanto se confirma.
 - Lo propuesto no llega al pedido, y hasta hoy nada le pedía a nadie confirmarlo. Quien sólo puede ver Temporadas no la recibe: no podría vaciarla.

@@ -18,7 +18,15 @@ describe('[CB.61] clasificarRenglon — la categoría sin M/C', () => {
     expect(entra('DEP.EFECTIVO', { doc_tipo: 'U-A-5' })).toEqual({ categoria: 'cobranza', por: 'documento' });
     expect(sale('SPEI ENVIADO', { doc_tipo: 'N-A-26' }).categoria).toBe('traspaso_entre_cuentas');
     expect(sale('PROVEEDOR SA DE CV', { doc_tipo: 'X-D-26', entidad: 'CD001' }).categoria).toBe('compra_mercancia');
-    expect(sale('PAGO', { doc_tipo: 'X-D-26', entidad: 'GN001' }).categoria).toBe('nomina');
+    expect(sale('PAGO', { doc_tipo: 'X-D-26', entidad: 'GN001', beneficiario: 'NOMINA' }).categoria).toBe('nomina');
+  });
+
+  it('[BFU.2.10] ⛔ la nómina sale del NOMBRE guardado en el documento, no del prefijo GN', () => {
+    // GN001 se renombró a Walmart el 8-nov; GN002/GN003 y los GNF… nunca fueron nómina.
+    expect(sale('PAGO', { doc_tipo: 'X-D-26', entidad: 'GN001', beneficiario: 'Nueva Wal Mart de México' })).toEqual({ categoria: 'sin_clasificar', por: 'ninguna' });
+    expect(sale('PAGO', { doc_tipo: 'X-D-26', entidad: 'GNFC002', beneficiario: 'COMISION Y VIATICOS LOGISTICA' }).categoria).toBe('sin_clasificar');
+    expect(sale('PAGO', { doc_tipo: 'X-D-26', entidad: 'GN001' }).categoria).toBe('sin_clasificar'); // sin nombre no se adivina
+    expect(sale('CHEQUE', { doc_tipo: 'X-D-25', entidad: 'GN001', beneficiario: 'NOMINA' }).categoria).toBe('nomina');
   });
 
   it('[negativa] «COMISION» del banco NO es comisión de venta, aunque la regla genérica del libro lo diga', () => {
