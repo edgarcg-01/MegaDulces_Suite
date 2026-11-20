@@ -401,7 +401,8 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
             @if (c.duplicados.length) {
               <p class="pg-nota-aviso">Ojo: hoy ya había {{ c.duplicados.length === 1 ? 'otro gasto' : c.duplicados.length + ' gastos' }} al mismo acreedor por el mismo total@for (d of c.duplicados; track $index) { · {{ d.donde === 'kepler' ? 'Kepler' : 'Suite' }}@if (d.folio) { {{ d.folio }} } }. Si es el mismo, avisa a quien firma.</p>
             }
-            <a routerLink="/finanzas/mis-gastos">Ver en Mis gastos</a>
+            <!-- [PGP.122.10] Al vale recién pedido, ya abierto: en una bandeja de 40+ vales del día quedaba al fondo. -->
+            <a routerLink="/finanzas/mis-gastos" [queryParams]="{ vale: c.id }">Ver el vale en Mis gastos</a>
           </div>
         </div>
       }

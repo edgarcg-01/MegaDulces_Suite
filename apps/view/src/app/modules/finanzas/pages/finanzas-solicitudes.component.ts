@@ -480,7 +480,7 @@ export class FinanzasSolicitudesComponent {
     // Ya validada → cerrado.
     if (p.status === 'validada') return 'completo';
     // Aprobado y comprobable pero SIN evidencia todavía: le toca al capturista subirla
-    // (segundo momento, en «Capturar gasto»).
+    // (segundo momento, en «Pedir un gasto»).
     if (p.status === 'aprobada' && p.requiere_evidencia && p.comprobante === false) return 'capturar';
     // recibida (por aprobar) / revision (por validar): le toca al aprobador.
     return 'validar';
@@ -561,7 +561,7 @@ export class FinanzasSolicitudesComponent {
     const base: Record<string, string> = {
       autorizar: `Pedidas y todavía sin autorizar en Kepler. La autorización se hace allá; acá se ven para no perderlas.`,
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
-      capturar: `Le toca al capturista, en «Capturar gasto»: registrar la solicitud (subir la firmada + clasificarla), o —si ya se aprobó y es comprobable— subir la evidencia.`,
+      capturar: `Le toca al capturista, en «Pedir un gasto»: registrar la solicitud (subir la firmada + clasificarla), o —si ya se aprobó y es comprobable— subir la evidencia.`,
       validar: `Le toca al aprobador: aprobar la solicitud recién capturada, o validar la evidencia que quedó en revisión.`,
       sin_folio: `Lo que llegó por link desde el celular y todavía no se liga a una solicitud de Kepler. 
         El trabajo es ponerle folio: ahí entra al ciclo normal y se aprueba como cualquier otra. 

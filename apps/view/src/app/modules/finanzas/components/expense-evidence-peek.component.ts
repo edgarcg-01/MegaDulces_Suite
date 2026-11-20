@@ -74,7 +74,7 @@ const ETIQUETAS: Record<string, string> = {
         <h4 class="ep-sec">Papeles adjuntos</h4>
         <ul class="ep-check">
           <!-- La evidencia NO es requisito para aprobar: se sube DESPUÉS, y la sube el
-               capturista desde «Capturar gasto». Acá sólo se refleja si ya llegó. -->
+               capturista desde Mis gastos («Subir evidencia»). Acá sólo se refleja si ya llegó. -->
           <li [class.ok]="tieneComprobante() || !necesitaEvidencia()">
             <i class="pi" [class.pi-check-circle]="tieneComprobante() || !necesitaEvidencia()" [class.pi-clock]="necesitaEvidencia() && !tieneComprobante()" aria-hidden="true"></i>
             <span>Evidencia del gasto</span>
@@ -134,7 +134,7 @@ const ETIQUETAS: Record<string, string> = {
             <span>
               @if (proof()?.storage_ok === false) { Hay adjuntos pero el almacenamiento no está configurado en el servidor — avisa a sistemas. }
               @else if (!proof()) { Esta solicitud todavía no se captura. }
-              @else if (necesitaEvidencia()) { La evidencia la sube el capturista después de aprobar, desde «Capturar gasto». }
+              @else if (necesitaEvidencia()) { La evidencia la sube el capturista después de aprobar, desde Mis gastos («Subir evidencia»). }
               @else { Gasto no comprobable: no lleva evidencia. }
             </span>
           </div>

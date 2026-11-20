@@ -124,7 +124,8 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
           <button pButton type="button" class="p-button-text p-button-sm" (click)="cargar()" [loading]="cargando()"
                   aria-label="Actualizar"><i class="pi pi-refresh" aria-hidden="true"></i></button>
           <!-- [GX.97] La única acción primaria. Antes «Mis gastos» no tenía entrada a la captura. -->
-          <a pButton class="mg-capturar" routerLink="/finanzas/gastos"><i class="pi pi-plus" aria-hidden="true"></i>&nbsp;Capturar gasto</a>
+          <!-- [PGP.122.10] Decía «Capturar gasto»: no se sabía que ahí también se PIDE. Mismo nombre que su pestaña. -->
+          <a pButton class="mg-capturar" routerLink="/finanzas/gastos"><i class="pi pi-plus" aria-hidden="true"></i>&nbsp;Pedir un gasto</a>
         </div>
       </header>
       @if (buscandoArriba()) {

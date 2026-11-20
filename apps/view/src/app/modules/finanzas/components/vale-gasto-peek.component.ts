@@ -121,7 +121,7 @@ type DocDelExpediente = DocEvidencia;
           <div><dt>{{ (p.departamentos?.length ?? 0) > 1 ? 'Departamentos' : 'Departamento' }}</dt><dd>
             @if (p.departamentos === undefined) { {{ p.solicitante || 'sin medir' }} }
             @else if (p.departamentos === null) { sin leer en Kepler }
-            @else if (!p.departamentos.length) { sin departamento en Kepler }
+            @else if (!p.departamentos.length) { {{ p.folio_solicitud ? 'sin departamento en Kepler' : 'aún no está en Kepler (se escribe al firmarse)' }} }
             @else if (p.departamentos.length === 1) { {{ nombreDep(p.departamentos[0]) }} }
             @else {
               <ul class="vp-deps">
@@ -669,7 +669,7 @@ export class ValeGastoPeekComponent {
     // `[GX.98]` El departamento de Kepler (el de más importe). El capturado dice «Sucursal NN».
     const deps = p.departamentos;
     const dep = deps?.length ? (deps.length > 1 ? `${this.nombreDep(deps[0])} y ${deps.length - 1} más` : this.nombreDep(deps[0]))
-      : deps === undefined ? (p.solicitante || 'sin departamento') : 'sin departamento en Kepler';
+      : deps === undefined ? (p.solicitante || 'sin departamento') : p.folio_solicitud ? 'sin departamento en Kepler' : 'aún no está en Kepler';
     return `${p.folio_solicitud || 'sin folio'} · ${dep}`;
   }
 

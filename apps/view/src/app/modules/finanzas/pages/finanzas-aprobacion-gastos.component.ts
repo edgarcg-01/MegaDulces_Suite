@@ -1135,7 +1135,8 @@ export class FinanzasAprobacionGastosComponent {
     const ds = p.departamentos;
     if (ds === undefined) return p.solicitante || 'departamento sin medir';
     if (ds === null) return 'departamento sin leer en Kepler';
-    if (!ds.length) return 'sin departamento en Kepler';
+    // [PGP.122.10] La nacida en la Suite aún no está en Kepler (sin folio): «sin departamento en Kepler» afirmaba de más.
+    if (!ds.length) return p.folio_solicitud ? 'sin departamento en Kepler' : 'aún no está en Kepler';
     const primero = ds[0].nombre ?? ds[0].clave;
     return ds.length === 1 ? primero : `${primero} y ${ds.length - 1} más`;
   }

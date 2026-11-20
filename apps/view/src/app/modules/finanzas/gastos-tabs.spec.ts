@@ -19,7 +19,7 @@ const visibles = (tiene: (p: Permission) => boolean) => GASTOS_TABS.filter((t) =
 describe('[GX.80] las pestañas de Gastos', () => {
   it('son las cinco pantallas, en este orden ([LE.6.19]: la hoja de zona se paga en Caja)', () => {
     expect(GASTOS_TABS.map((t) => t.route)).toEqual([
-      '/finanzas/aprobacion-gastos', '/finanzas/mis-gastos', '/finanzas/expediente', '/finanzas/gastos-historial',
+      '/finanzas/aprobacion-gastos', '/finanzas/mis-gastos', '/finanzas/gastos', '/finanzas/expediente', '/finanzas/gastos-historial',
       '/finanzas/comisiones-logistica',
     ]);
   });
@@ -27,7 +27,7 @@ describe('[GX.80] las pestañas de Gastos', () => {
   it('quien firma entra a Aprobación y ve todas', () => {
     const firma = con(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_VER);
     expect(primeraPestanaVisible(GASTOS_TABS, firma)?.route).toBe('/finanzas/aprobacion-gastos');
-    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística']);
+    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Pedir un gasto', 'Expediente', 'Historial', 'Comisiones de logística']);
   });
 
   /** `[LE.6.19]` La hoja de zona ya no es pestaña: se paga en Caja General › Reposición. */
@@ -36,11 +36,17 @@ describe('[GX.80] las pestañas de Gastos', () => {
     expect(primeraPestanaVisible(GASTOS_TABS, con(Permission.FINANCE_HOJA_GASTOS_CERRAR))).toBeNull();
   });
 
-  /** ⭐ Quien sólo captura entra a SUS gastos y no ve barra (una sola pestaña). */
-  it('⭐ quien sólo captura entra a Mis gastos, y es su única pestaña', () => {
+  /** ⭐ Quien sólo captura entra a SUS gastos; `[PGP.122.10]` y a un toque, «Pedir un gasto». */
+  it('⭐ quien sólo captura entra a Mis gastos y tiene «Pedir un gasto» al lado', () => {
     const captura = con(Permission.FINANCE_EXPENSES_CAPTURAR);
     expect(primeraPestanaVisible(GASTOS_TABS, captura)?.route).toBe('/finanzas/mis-gastos');
-    expect(visibles(captura)).toEqual(['Mis gastos']);
+    expect(visibles(captura)).toEqual(['Mis gastos', 'Pedir un gasto']);
+  });
+
+  /** `[PGP.122.10]` La pestaña de pedir NO abre «Gastos» a quien no tiene ningún permiso de gastos. */
+  it('⛔ «Pedir un gasto» sólo con algún permiso de gastos, y no cambia a dónde se entra', () => {
+    expect(visibles(con(Permission.FINANCE_BANK_VER))).toEqual([]);
+    expect(primeraPestanaVisible(GASTOS_TABS, con(Permission.FINANCE_EXPENSES_COMPROBAR))?.route).toBe('/finanzas/aprobacion-gastos');
   });
 
   it('con la llave del historial de todos (sin más), entra al Historial', () => {
@@ -66,7 +72,7 @@ describe('[GX.80] las rutas viven en el shell, con su guard', () => {
 
   it('existe el shell y adentro están las cuatro pantallas', () => {
     expect(shell).not.toBeNull();
-    for (const p of ['aprobacion-gastos', 'gastos-historial', 'expediente', 'mis-gastos']) {
+    for (const p of ['aprobacion-gastos', 'gastos-historial', 'expediente', 'mis-gastos', 'gastos']) {
       expect(shell?.[0]).toContain("path: '" + p + "'");
     }
   });
@@ -80,11 +86,13 @@ describe('[GX.80] las rutas viven en el shell, con su guard', () => {
     expect(s).toMatch(/path: 'gastos-historial',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_VER, Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.FINANCE_EXPENSES_HISTORIAL_TODOS\)\]/);
     expect(s).toMatch(/path: 'comisiones-logistica',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.LOGISTICS_SHIPMENTS_GESTIONAR\)\]/);
     // `[LE.6.19]` La ruta vieja de la hoja lleva a Caja General, donde ahora se paga.
+    // `[PGP.122.10]` «Registrar o pedir» entró al shell y sigue SIN guard (GX.17: «para este tendrán acceso todos»).
+    expect(s).toMatch(/path: 'gastos',\s*loadComponent: \(\) => import\('\.\/modules\/finanzas\/pages\/finanzas-gastos\.component'\)[\s\S]*?canActivate: \[\]/);
     expect(s).toMatch(/path: 'hoja-gastos',\s*redirectTo: '\/finanzas\/caja-general'/);
   });
 
   it('las cuatro ya no están fuera del shell (no hay rutas duplicadas)', () => {
-    for (const p of ['aprobacion-gastos', 'gastos-historial', 'expediente', 'mis-gastos']) {
+    for (const p of ['aprobacion-gastos', 'gastos-historial', 'expediente', 'mis-gastos', 'gastos']) {
       expect(rutas.split("path: '" + p + "'").length - 1).toBe(1);
     }
   });
