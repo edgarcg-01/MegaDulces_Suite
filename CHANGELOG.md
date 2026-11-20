@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén › Surtir: un pedido de preventa en el que no hubo nada (MCP.27 · 2026-11-20)
+- Si todo el pedido quedó en «No había», el botón ya no es «Terminé de surtir» (que el sistema rechazaba sin salida): es «Avisar a la vendedora: no hubo nada». A la vendedora le llega el aviso para cancelarlo, y el pedido sale de la cola del surtidor como «por cancelar». El pedido no se cierra en cero.
+
 ### Fixed — Bancos: una descarga encimada ya no mete dos veces el mismo movimiento (BFU.3.4 · 2026-11-20)
 - BBVA completa días después la referencia de los depósitos en efectivo; al subir la descarga siguiente, esos depósitos entraban otra vez como nuevos. Ahora se reconocen por día, importe y saldo, y el renglón que ya estaba toma la referencia completa.
 - El cuadre de una cuenta dice «N renglón(es) de la descarga están dos veces» si vuelve a pasar, en vez de decir que cuadra.

@@ -120,6 +120,13 @@ export class PresalePickingController {
     return this.service.start(id, query);
   }
 
+  @Post(':id/report-empty')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.27] No hubo nada: avisa a la vendedora para que lo cancele; el pedido no se cierra en cero' })
+  reportEmpty(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<PresalePickInboxRow> {
+    return this.service.reportEmpty(id, query);
+  }
+
   @Post(':id/finish')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({ summary: 'Terminar: hubo todo, o se quita del pedido lo que no hubo y se avisa a la vendedora' })

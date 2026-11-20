@@ -692,10 +692,19 @@ function plural(n: number, uno: string, varios: string): string {
             @if (faltaMarcarIndicaciones()) { · <span class="sr-falt">Falta marcar «Cumplí las indicaciones»</span> }
             @if (motivosSinCompletar().length) { · <span class="sr-falt">Escribe cuál fue el «Otro motivo»</span> }
           </div>
+          <!-- [MCP.27] Un pedido de preventa NO se cierra en cero: si no hubo nada, se avisa a la vendedora para que lo
+               cancele. Antes el botón era «Terminé» y el servidor lo rechazaba sin salida (7 intentos en 3 min, 2026-11-20). -->
+          @if (todoEnCero()) {
+            <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="cerrando()" (click)="avisarVacio()">
+              <i class="pi" [class.pi-send]="!cerrando()" [class.pi-spin]="cerrando()" [class.pi-spinner]="cerrando()" aria-hidden="true"></i>
+              <span>Avisar a la vendedora: no hubo nada</span>
+            </button>
+          } @else {
           <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="pendientesTotal() > 0 || faltaMarcarIndicaciones() || motivosSinCompletar().length > 0 || cerrando()" (click)="cerrar()">
             <i class="pi" [class.pi-check]="!cerrando()" [class.pi-spin]="cerrando()" [class.pi-spinner]="cerrando()" aria-hidden="true"></i>
             <span>Terminé de surtir</span>
           </button>
+          }
         </footer>
         }
       }
@@ -1218,6 +1227,16 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly hechas = computed(() => this.filtradas().filter((l) => l.status !== 'pendiente'));
   readonly hechos = computed(() => (this.ola()?.lines ?? []).filter((l) => l.status !== 'pendiente').length);
   readonly pendientesTotal = computed(() => (this.ola()?.lines ?? []).filter((l) => l.status === 'pendiente').length);
+  /**
+   * `[MCP.27]` Pedido de preventa en el que no hubo NADA: todos los renglones tocados, ninguno con cantidad y sin otra
+   * unidad puesta. No se cierra en cero (la regla de MCP): se avisa a la vendedora.
+   */
+  readonly todoEnCero = computed(() => {
+    const o = this.ola();
+    if (!this.pedidoSucursal() || !o?.lines.length) return false;
+    if (Object.keys(this.otraUnidad()).length) return false;
+    return o.lines.every((l) => l.status !== 'pendiente' && !((l.qty_picked ?? 0) > 0));
+  });
   readonly conFaltante = computed(
     () => (this.ola()?.lines ?? []).filter((l) => ['faltante', 'agotado', 'danado'].includes(l.status)).length,
   );
@@ -1760,6 +1779,40 @@ export class AlmacenSurtirComponent implements OnInit {
    * (una recarga, el aviso de la campana) «Empezar» lo deja pasar, y la pantalla lo pintaba con las
    * marcas guardadas en el celular para volver a cerrarlo. Se borran esas marcas y se vuelve a la lista.
    */
+  /**
+   * `[MCP.27]` No hubo nada: se avisa a la vendedora y el pedido sale de la cola «por cancelar». No se cierra (la regla
+   * de MCP), así que no hay reporte: se regresa a la lista diciendo a quién se avisó.
+   */
+  avisarVacio(): void {
+    const p = this.pedidoSucursal();
+    if (!p || this.cerrando()) return;
+    this.cerrando.set(true);
+    this.preventa.reportEmpty(p.order_id).subscribe({
+      next: (r) => {
+        const id = p.order_id;
+        this.cerrando.set(false);
+        this.guardar(PREF_MARCAS + id, '');
+        this.guardar(PREF_OTRA + id, '');
+        this.guardar(PREF_MOTIVO + id, '');
+        this.motivosLinea.set({});
+        this.otraUnidad.set({});
+        this.ola.set(null);
+        this.pedidoSucursal.set(null);
+        this.fase.set('listo');
+        this.pedidoEnHistorial = false;
+        this.quitarPedidoDeLaUrl();
+        this.avisar('info', `${r.code}: le avisamos a ${r.seller_name ?? 'la vendedora'} que no hubo nada; queda por cancelar.`);
+        this.cargarSucursal(true);
+      },
+      error: (e: unknown) => {
+        this.cerrando.set(false);
+        const motivo = this.mensaje(e, 'No se pudo avisar a la vendedora.');
+        this.avisar('error', motivo);
+        this.uso.reportarIncidente('surtir_aviso_vacio_rechazado', { status: Number((e as { status?: number })?.status ?? 0) || 0, motivo: motivo.slice(0, 300), code: p.code });
+      },
+    });
+  }
+
   private yaSurtido(d: PresalePickDetail): void {
     const id = d.order.order_id;
     const f = d.order.finished;

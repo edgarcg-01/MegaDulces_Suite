@@ -23,8 +23,12 @@ import type { OrderJustification } from './order-justification.contract';
 /** Pestañas de la bandeja. `hoy` incluye lo vencido: lo atrasado también se surte hoy. */
 export type PresalePickBucket = 'hoy' | 'manana' | 'proximos';
 
-/** Estado del surtido de un pedido. `en_recorrido` = ya va en una ola de la consola de surtido. */
-export type PresalePickState = 'nuevo' | 'surtiendo' | 'completo' | 'con_faltantes' | 'en_recorrido';
+/**
+ * Estado del surtido de un pedido. `en_recorrido` = ya va en una ola de la consola de surtido.
+ * `[MCP.27]` `por_cancelar` = no hubo nada y el surtidor ya avisó a la vendedora: el pedido NO se cerró (no se
+ * surte en cero), sale de la cola del surtidor y espera que la vendedora lo cancele.
+ */
+export type PresalePickState = 'nuevo' | 'surtiendo' | 'completo' | 'con_faltantes' | 'en_recorrido' | 'por_cancelar';
 
 export interface PresalePickPerson {
   user_id: string;
@@ -52,6 +56,8 @@ export interface PresalePickInboxRow {
   state: PresalePickState;
   started: PresalePickPerson | null;
   finished: PresalePickPerson | null;
+  /** `[MCP.27]` Quién avisó a la vendedora que no hubo nada, y cuándo; `null` = no se ha avisado. */
+  empty_reported: PresalePickPerson | null;
   /** Aviso de la sucursal sin acuse. */
   unseen: boolean;
   /** `[MCP.10.1]` Quién lo revisó en caja y cuándo; `null` = sin revisar. Opcional por compatibilidad. */
