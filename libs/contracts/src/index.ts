@@ -300,3 +300,5 @@ export * from './finance/solicitud-gasto.contract';
 export * from './finance/factura-sat.contract';
 // `[PGP.123]` G.5 — cuándo la Suite comprueba un gasto en Kepler (escribe su X-A-10), o por qué no.
 export * from './finance/comprobacion-gasto.contract';
+// `[CXC.47]` El periodo del estado de cuenta del cliente: una regla para la pantalla de Cartera y para el PDF.
+export * from './finance/estado-cuenta-periodo.contract';

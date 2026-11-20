@@ -1846,7 +1846,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
       · ⚠️ **Costo declarado:** durante la puesta al día la peor espera réplica→ODS de la caja llegó a 57 s (lo normal es
         < 1 s); al terminar volvió a ≤ 3.7 s. Las tandas de 2,000 llaves de `kdue` pesan más de lo que supuse: para la
         próxima, `--lote=500` fuera de horario.
-- [x] **[CXC.46]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente muestra el saldo que Kepler le da a cada
+- [x] **[CXC.46]** ✅ (en prod el 2026-11-19, `8e47a8d22`; /api/health sirvió `2fef8c312`) **El estado de cuenta del cliente muestra el saldo que Kepler le da a cada
       factura, y lo no aplicado en su renglón.** El detalle (PDF y ficha) leía `saldo_ajustado`, un reparto que carga el
       abono sin aplicar a las facturas más viejas: el total cuadra, pero al cliente de Canindo le cobraba la 670 por 1,090.66
       cuando en Kepler la 670 debe 14,295.92 y hay una nota de crédito de 14,295.92 SIN aplicar. Ahora cada factura lleva
@@ -1857,6 +1857,27 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         documentos y $0.05 de $69,589,609 — no se gana nada; el árbitro de CXC.45 vigila las dos columnas.
       · **Probado:** spec de Cartera 25/25 (2 nuevas: el caso negativo y el positivo); mutante (la condición vieja
         `!== 0`) la pone roja. `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual.**
+- [ ] **[CXC.47]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente trae las pagadas y las no pagadas, a
+      detalle, por el periodo que se elija, y se manda al cliente y al vendedor** (Edgar, 2026-11-20).
+      · **PDF:** además de las abiertas (todas, de cualquier fecha), una sección «Facturas pagadas» del periodo: entra la
+        que se facturó o se terminó de pagar dentro de él; las de importe cero (canceladas) no. Debajo de CADA factura,
+        abierta o pagada, cada cobro o nota que Kepler le aplicó (folio, fecha, monto). El periodo se imprime arriba.
+      · **Periodo:** `date_from` (AAAA-MM-DD o `todo`) en los dos endpoints del PDF (Cobranza y el enlace del cliente).
+        Default **3 meses**, medido en prod sobre 1,607 cuentas: el plazo de crédito es de 0 a 15 días en el 98 %, y en
+        3 meses la mitad de las cuentas tiene 2 facturas y el 99 % hasta 43 (con 12 meses, el 1 % pasa de 290). Un
+        periodo mal escrito o después del corte da 400; no cae al default. La regla vive en `@megadulces/contracts`
+        (`estado-cuenta-periodo`): la misma para la ficha, el PDF y los mensajes (ADR-056).
+      · **Ficha de Cartera:** selector de periodo (Último mes · 3 · 6 meses · Último año · Toda la historia); «Ver N
+        pagadas» cuenta y muestra las del periodo. Lo que se ve es lo que se envía.
+      · **Enviar al vendedor** (botón secundario): mismo resumen, tuteado, con la liga al PDF del periodo y el enlace del
+        cliente para reenviárselo. ⚠️ Ni Kepler (`kduv`) ni `identity.users` tienen el teléfono del vendedor (medido):
+        WhatsApp abre para elegir el chat. No se registra como contacto con el cliente.
+      · **Al cliente:** si el periodo no es el de su enlace (3 meses), el mensaje agrega la liga al PDF de ese periodo.
+      · **Probado:** PDF 18/18 y controlador público 5/5; mutantes en rojo (sin `pagada_el`, sin abonos, periodo malo al
+        default, incluir las de importe cero: 4/4). Cartera 32/32 y mensaje 9/9; mutantes en rojo (pagadas sin
+        periodo, PDF sin periodo, siempre «por defecto», vendedor como botón primario: 4/4). `ngc --noEmit`: 0 errores;
+        `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual** (ni del PDF ni de la ficha).
+        Arranque: sólo se agregó un `@Query` de tipo `string` (sin tocar constructores); `design:paramtypes` no medido.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el

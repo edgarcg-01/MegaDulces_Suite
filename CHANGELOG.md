@@ -60,7 +60,12 @@
 - Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
 - Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
 
-### Fixed — El estado de cuenta del cliente dice lo mismo que Kepler, factura por factura (CXC.46 · 2026-11-19 · en código, sin soltar)
+### Added — El estado de cuenta del cliente trae también las facturas pagadas, por periodo, y se manda al vendedor (CXC.47 · 2026-11-20 · en código, sin soltar)
+- El PDF del estado de cuenta trae las facturas abiertas (todas) y las pagadas del periodo, cada una con los cobros y notas que la pagaron.
+- En la ficha de Cartera se elige el periodo (de un mes a toda la historia; por defecto, tres meses). La tabla, el PDF y los mensajes usan el mismo.
+- Nuevo botón «Enviar al vendedor»: le manda por WhatsApp el estado de cuenta de su cliente, con la liga al PDF. El teléfono del vendedor no está en ningún sistema, así que el chat se elige en WhatsApp.
+
+### Fixed — El estado de cuenta del cliente dice lo mismo que Kepler, factura por factura (CXC.46 · 2026-11-19 · en producción)
 - Cada factura lleva el saldo que Kepler le da. Un pago o una nota de crédito que Kepler todavía no aplica sale en su propio renglón («Pagos no asignados a una factura»), en vez de restarse de las facturas más viejas.
 
 ### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en producción)

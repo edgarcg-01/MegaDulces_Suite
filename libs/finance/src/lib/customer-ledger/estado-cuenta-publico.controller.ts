@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, Req, Res } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query, Req, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -31,9 +31,13 @@ export class EstadoCuentaPublicoController {
   @Get(':token/estado-de-cuenta.pdf')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: '[CC.20.2] El estado de cuenta del cliente en PDF, autorizado por su enlace personal.' })
-  async pdf(@Param('token') token: string, @Res() res: Response, @Req() req: RequestConCabeceras): Promise<void> {
+  async pdf(
+    @Param('token') token: string, @Res() res: Response, @Req() req: RequestConCabeceras,
+    /** `[CXC.47]` El periodo que eligió quien lo envió (viaja en la liga); sin él, los últimos 3 meses. */
+    @Query('date_from') dateFrom?: string,
+  ): Promise<void> {
     const { pdf, nombre } = await this.depositos.conCuentaDelEnlace(token,
-      (sucursal, cliente) => this.estadoCuenta.render(sucursal, cliente, requestOrigin(req)));
+      (sucursal, cliente) => this.estadoCuenta.render(sucursal, cliente, requestOrigin(req), dateFrom));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
     res.send(pdf);

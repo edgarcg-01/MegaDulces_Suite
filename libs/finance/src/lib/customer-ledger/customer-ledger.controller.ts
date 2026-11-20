@@ -172,15 +172,17 @@ export class CustomerLedgerController {
   @Get(':sucursal/:cliente/estado-de-cuenta.pdf')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: '[CXC.40] Estado de cuenta del cliente en PDF (saldo, antigüedad y facturas abiertas), para entregarle.' })
+  @ApiOperation({ summary: '[CXC.40][CXC.47] Estado de cuenta del cliente en PDF (saldo, antigüedad, facturas abiertas y las pagadas del periodo), para entregarle.' })
   async estadoDeCuentaPdf(
     @Param('sucursal') sucursal: string,
     @Param('cliente') cliente: string,
     @Res() res: Response,
     @Req() req: AuthedRequest,
+    /** `[CXC.47]` Desde cuándo salen las facturas pagadas: AAAA-MM-DD o «todo»; sin valor, los últimos 3 meses. */
+    @Query('date_from') dateFrom?: string,
   ): Promise<void> {
     // `[CC.20]` El origen público va para el QR del enlace de depósito que se imprime en el PDF.
-    const { pdf, nombre } = await this.estadoCuenta.render(sucursal, cliente, requestOrigin(req));
+    const { pdf, nombre } = await this.estadoCuenta.render(sucursal, cliente, requestOrigin(req), dateFrom);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
     res.send(pdf);

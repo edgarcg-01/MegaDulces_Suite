@@ -441,6 +441,84 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(document.body.textContent).toContain('eliges a quién');
   });
 
+  describe('21 · [CXC.47] periodo, pagadas y envío al vendedor', () => {
+    const PART = (folio: string, over: Record<string, unknown>) => ({
+      doc_tipo: 'U-D-13', doc_label: 'Venta crédito', doc_code: 'UD1301', folio, folio_digital: folio, fecha: '2026-11-01',
+      vencimiento: '2026-11-16', importe: 100, saldo_documento: 100, saldo_kdm5: 100, dias_vencido: 1, vencida: true,
+      estatus: null, saldada: false, pagada_el: null, dias_pago: null, aplicaciones: [], ...over,
+    });
+    const D47 = {
+      ...DET,
+      cliente: { ...DET.cliente, vendedor: '501', vendedor_nombre: '501 Victor Manuel Zalapa Barri' },
+      partidas: [
+        PART('F-ABIERTA', {}),
+        PART('F-PAG-RECIENTE', { saldada: true, vencida: false, saldo_documento: 0, importe: 250, fecha: '2026-10-01', pagada_el: '2026-10-10' }),
+        PART('F-PAG-VIEJA', { saldada: true, vencida: false, saldo_documento: 0, importe: 999, fecha: '2026-03-01', pagada_el: '2026-03-20' }),
+      ],
+    } as unknown as CarteraDetalle;
+
+    function armar(estadoCuentaPdf = vi.fn(() => NEVER)) {
+      detalle = vi.fn(() => of(D47));
+      const registrarContacto = vi.fn(() => of({ id: 'k1', canal: 'whatsapp' as const, contacted_at: new Date().toISOString() }));
+      configurar();
+      TestBed.overrideProvider(CarteraService, { useValue: { cartera, detalle, createPromise, registrarContacto, estadoCuentaPdf, tendencia: () => of([]), resolvePromise: () => of({}), enlaceDeposito } });
+      const f = TestBed.createComponent(FinanzasCarteraComponent);
+      f.detectChanges();
+      const c = f.componentInstance;
+      c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+      f.detectChanges();
+      return { f, c, estadoCuentaPdf, registrarContacto };
+    }
+
+    it('por defecto 3 meses: cuenta sólo las pagadas del periodo y al verlas muestra ésas, no las viejas', () => {
+      const { f, c } = armar();
+      expect(c.periodoEC()).toBe('3m');
+      expect(c.dateFromEC()).toBe('2026-08-17');
+      const ver = document.body.querySelector('[data-testid="ver-pagadas"]') as HTMLButtonElement;
+      expect(ver.textContent).toContain('Ver 1 pagadas');
+      ver.click();
+      f.detectChanges();
+      const txt = document.body.querySelector('.ct-det-table')?.textContent || '';
+      expect(txt).toContain('F-ABIERTA');
+      expect(txt).toContain('F-PAG-RECIENTE');
+      expect(txt).not.toContain('F-PAG-VIEJA');
+    });
+
+    it('«Toda la historia» trae también las viejas, y el PDF se pide con ese periodo', () => {
+      const { f, c, estadoCuentaPdf } = armar();
+      c.periodoEC.set('todo');
+      f.detectChanges();
+      expect(c.pagadasPeriodo().map((p) => p.folio_digital)).toEqual(['F-PAG-RECIENTE', 'F-PAG-VIEJA']);
+      c.verEstadoCuenta(D47);
+      expect(estadoCuentaPdf).toHaveBeenCalledWith('01', 'C1', 'todo');
+    });
+
+    it('al vendedor: botón secundario, wa.me para elegir el chat, su nombre sin número y la liga al PDF del periodo', () => {
+      const { f, c, registrarContacto } = armar();
+      c.periodoEC.set('12m');
+      f.detectChanges();
+      const a = document.body.querySelector('[data-testid="enviar-vendedor"]') as HTMLAnchorElement;
+      expect(a.classList).toContain('ct-send-sec');
+      expect(a.textContent).toContain('Victor Manuel Zalapa Barri');
+      const href = decodeURIComponent(a.href);
+      expect(href).toMatch(/^https:\/\/wa\.me\/\?text=/);
+      expect(href).toContain('Hola, *Victor Manuel Zalapa Barri*.');
+      expect(href).toContain('https://suite.test/api/finance/deposito/TOKEN/estado-de-cuenta.pdf?date_from=2025-11-17');
+      c.enviarAlVendedor(D47);
+      // No es un contacto con el cliente: no se registra como tal.
+      expect(registrarContacto).not.toHaveBeenCalled();
+    });
+
+    it('al cliente con un periodo que no es el de su enlace, el mensaje lleva la liga de ese periodo', () => {
+      const { f, c } = armar();
+      const hrefDe = () => decodeURIComponent((document.body.querySelector('[data-testid="enviar-estado-cuenta"]') as HTMLAnchorElement).href);
+      expect(hrefDe()).not.toContain('/api/finance/deposito/');
+      c.periodoEC.set('6m');
+      f.detectChanges();
+      expect(hrefDe()).toContain('estado-de-cuenta.pdf?date_from=2026-05-17');
+    });
+  });
+
   it('8 · la fila se abre con Enter', () => {
     const f = crear();
     const fila = el(f).querySelector('tr.ct-row') as HTMLElement;
