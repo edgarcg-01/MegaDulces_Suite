@@ -14,7 +14,7 @@ import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
 import { avisarBancos } from '../aviso-bancos';
 import { refrescarEncabezadosDelBanco } from './encabezado-del-banco';
-import { columnasDelDocumento } from './categoria-del-documento';
+import { columnasDelDocumento } from './motor-de-categoria.aplicar';
 import { completaElConcepto, huellaDe, huellaGuardada, marcarYaCargados, type RenglonGuardado } from './renglones-repetidos';
 
 /**

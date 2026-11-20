@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Bancos: un solo motor de categoría, con el porqué de lo que no se clasifica (BFU.7 · 2026-11-20)
+- La categoría de un pago del banco sale de la cuenta contable de Kepler del documento que liquida (por la conciliación o por el Calendario): combustible de ventas, fletes, honorarios, publicidad… en vez de «compra con tarjeta» o «sin clasificar».
+- Lo que no se puede clasificar queda con su motivo y quién lo resuelve: Kepler todavía no lo tiene, Kepler lo tiene en otra cuenta, la cuenta de Kepler no tiene categoría, el pareo es débil…
+- 15 categorías nuevas con el nombre de la cuenta de mayor de Kepler (logística, local, tecnología, publicidad, contables, dirección, papelería, venta, financieros, activo fijo…).
 ### Added — Almacén: carretas y carritos (GP.11 · 2026-11-20)
 - Ubicaciones › Mapa › «Carretas»: se dan de alta por rango (carretas para cajas, carritos para piezas y paquetes; comparten numeración C01–C99) y sus carteles salen listos para imprimir. Cada carreta dice si está libre o qué pedido trae, de quién y desde qué hora; el coordinador puede liberarla a mano.
 - Surtir (pedidos de Kepler): en una ola de un pedido, la carreta se escanea antes del primer renglón (o se teclea su número). Una carreta lleva un solo pedido; si ya trae otro, la pantalla dice de quién es. Se puede agregar otra o deshacer la equivocada.
