@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Anticipo en efectivo: Caja General lo ve por entregar, con la Caja General de su base (PGP.157 · 2026-11-19)
+- Al preparar en el Calendario un anticipo en efectivo, ya no se escribe la caja: sale de la Caja General de la base del anticipo (la de su OC), porque cada base cuadra sola. Un anticipo de una compra de Morelia sale de la caja de Morelia y se aplica a su factura de Morelia.
+- En cuanto Dirección lo autoriza, aparece en Caja General › Captura: un botón en la barra («Anticipos por entregar», junto a «Reposición») dice cuántos y cuánto, y abre la lista con el proveedor, de qué Caja General sale, el importe, quién lo autorizó y el folio del pago.
+- Sale solo cuando Kepler tiene su X-D-60. Si Kepler ya tenía uno igual de antes de autorizar, no lo saca: avisa que se revise.
+
 ### Added — Almacén › Ubicaciones: etiquetas chicas para la tienda (UB.RF.12 · 2026-11-19)
 - En tienda, «Imprimir» saca etiquetas de 6.7 × 2.5 cm con el código y su código de barras, 30 por hoja carta de etiquetas adhesivas, para pegarlas en el canto del anaquel sin tapar el producto. En bodega sigue el cartel grande.
 - Al leer la etiqueta en «Ubicar productos» se elige esa ubicación: no hay que teclear nada.

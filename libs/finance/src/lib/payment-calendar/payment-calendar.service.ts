@@ -24,6 +24,8 @@ import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubier
 // `[PGP.120]` El anticipo aplicado desde el Calendario: lo apartado y la verificación de un renglón.
 import { SQL_ANTICIPOS_CON_APARTADO, SQL_ANTICIPO_PARA_FACTURA, type FilaAnticipoParaFactura } from './anticipo-calendario.sql';
 import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedor, warehouseName } from '@megadulces/contracts';
+// `[PGP.157]` La caja del anticipo en efectivo (la de su base) y los estados de un día ya autorizado.
+import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -283,7 +285,8 @@ export const REPROGRAM_REASONS: ReprogramReason[] = ['cuenta_erronea', 'falla_si
 // TP.6 — un lote AUTORIZADO (o más adelante) ya cerró su alcance: no admite nuevos pagos.
 // Reprogramar/fallar/ejecutar una allocation EXISTENTE sigue permitido (son hechos de ejecución,
 // no de autorización) — lo que se bloquea es agregar pagos NUEVOS al lote ya autorizado.
-const LOCKED_LOT_STATUSES = new Set(['released', 'executing', 'closed']);
+// `[PGP.157]` Los mismos tres estados que lee Caja General para saber si un anticipo ya se autorizó: una sola lista.
+const LOCKED_LOT_STATUSES = new Set(ESTADOS_DIA_AUTORIZADO);
 
 /**
  * `[PGP.113]` **Un pago AUTORIZADO queda congelado.** Cambiar su forma de pago, sus facturas o su
@@ -2928,11 +2931,30 @@ export class PaymentCalendarService {
         }
       }
       if (dto.payment_method === 'cheque' && !dto.reference_text?.trim()) throw new BadRequestException('Cheque requiere folio/referencia');
-      if (dto.payment_method === 'efectivo' && !dto.cash_register_text?.trim()) throw new BadRequestException('Efectivo requiere la caja de salida');
+      /**
+       * `[PGP.157]` **Un anticipo en efectivo sale de la Caja General de SU base** (cada base cuadra sola; Francisco,
+       * 2026-11-19): el de una compra de Morelia sale de la 08, se captura en su Kepler y se aplica a su factura. Por eso
+       * la caja no se teclea: se DERIVA de la sucursal del anticipo (la de su OC). Así la ve Caja General «por entregar»
+       * al autorizarlo. Otro pago en efectivo sigue con la caja escrita a mano (la regla de antes).
+       */
+      let cajaTexto = dto.payment_method === 'efectivo' ? dto.cash_register_text?.trim() || null : null;
+      if (dto.payment_method === 'efectivo') {
+        const { rows: bases } = await trx.raw(
+          `SELECT DISTINCT nullif(btrim(o.kepler_sucursal), '') AS sucursal FROM finance.payment_allocation_items i
+             JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
+            WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
+          [tenantId, allocationId]);
+        const sucursales = (bases as { sucursal: string | null }[]).map((b) => b.sucursal);
+        if (sucursales.length > 1 || sucursales.includes(null)) {
+          throw new BadRequestException('Este pago lleva anticipos sin una sola sucursal: no se sabe de qué Caja General sale el efectivo.');
+        }
+        if (sucursales.length === 1) cajaTexto = cajaDeSalidaTexto(sucursales[0] as string);
+        if (!cajaTexto) throw new BadRequestException('Efectivo requiere la caja de salida');
+      }
 
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
         payment_method: dto.payment_method, bank_account_id: needsOrigin ? dto.bank_account_id : null,
-        destination_account_text: destinationText, cash_register_text: dto.cash_register_text ?? null,
+        destination_account_text: destinationText, cash_register_text: cajaTexto,
         reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
         updated_by: username, updated_at: trx.fn.now(),
       }).returning('*');
