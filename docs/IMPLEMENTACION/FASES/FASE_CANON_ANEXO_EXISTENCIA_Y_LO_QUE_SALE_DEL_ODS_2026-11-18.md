@@ -248,6 +248,18 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
       copia).
    4. **D-EX5 (Edgar):** los ~64 mil renglones `NA` guardados (en el CEDIS, 104.7 M de piezas que no existen) quedan sin
       lector después del paso 2. Recomendado: borrarlos en 7.5, con el conteo antes y después, cuando ya nadie los lea.
+
+   🧪 **Paso 1 (C0) en código (2026-11-20), D-EX4 firmada («sí, sigue»).** Migración
+   `20261120150025_canon74c_lotes_fefo_por_evento_del_ods` (sin aplicar: fuera de horario). La llave de la copia se
+   INSERTA en la definición que la base tiene (`pg_get_functiondef`) y `down` la quita exacta: copiar el cuerpo a mano daba
+   otra función (lo cazó la prueba). El disparador parte de las celdas declaradas (índice parcial
+   `ix_stock_lots_declarados`) y no del lote de la ingesta: medido en prod con un lote simulado de ~1,400 renglones,
+   60–110 ms al revés contra 13–30 ms así, sin el índice. La existencia de una celda, ~100 ms, sólo cuando el lote toca
+   un producto declarado. Al prenderlo hoy, 5 celdas tienen declarado por encima de Kepler (5,035 piezas; 2 sin
+   renglón en `kdil`, que no se consumen hasta que Kepler las escriba). Prueba contra Postgres real
+   `lotes-fefo-por-evento.it.spec.ts` 9/9 y siete mutantes en rojo (sin interruptor, FEFO sin preferir lo bueno, sin
+   bitácora, el error que frena la ingesta, la copia que sigue consumiendo, `down` sin quitar la llave, consumir sin
+   comparar). Pasos 2 y 3 (C1): pendientes.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 
