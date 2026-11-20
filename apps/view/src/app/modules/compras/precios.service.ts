@@ -3,9 +3,11 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type {
+  ConsultaEnCeros,
   ConsultaFichaSucursales,
   ConsultaListaPrecios,
   ConsultaSinClasificar,
+  RespuestaEnCeros,
   RespuestaFichaSucursales,
   RespuestaHistoriaPrecio,
   RespuestaListaPrecios,
@@ -33,6 +35,11 @@ export class PreciosService {
   /** `[CAT-PRECIO.5]` Productos sin línea, tipo o grupo en ninguna sucursal. */
   sinClasificar(q: ConsultaSinClasificar = {}): Observable<RespuestaSinClasificar> {
     return this.http.get<RespuestaSinClasificar>(`${this.base}/unclassified`, { params: params(q) });
+  }
+
+  /** `[CAT-PRECIO.6]` Mantenimiento: costo o precio en cero en la ficha de Kepler. */
+  enCeros(q: ConsultaEnCeros = {}): Observable<RespuestaEnCeros> {
+    return this.http.get<RespuestaEnCeros>(`${this.base}/zero-cost-or-price`, { params: params(q) });
   }
 
   /** `[CAT-PRECIO.2]` El catálogo de precios de una sucursal. */

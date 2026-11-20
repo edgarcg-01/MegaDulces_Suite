@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2957 KB, 15249 líneas, 78 secciones.
+> **Índice navegable** — 2959 KB, 15261 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -60,31 +60,31 @@
 | 10539 | 10706 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
 | 10707 | 13137 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
 | 13138 | 13146 | 1 | Fase RR — Ventas por ruta |
-| 13147 | 13454 | 31 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 13455 | 13465 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 13466 | 13486 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 13487 | 13497 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 13498 | 13509 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 13510 | 13569 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 13570 | 13997 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 13998 | 14012 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 14013 | 14054 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 14055 | 14221 | 82 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14222 | 14253 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14254 | 14530 | 58 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14531 | 14596 | 96 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14597 | 14605 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14606 | 14664 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14671 | 14680 | 1 | 📝 Convenciones |
-| 14681 | 14718 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14719 | 14737 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14738 | 14790 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14791 | 15185 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15186 | 15216 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15217 | 15238 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15239 | 15266 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15267 | 15311 | 45 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15312 | 15339 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 13147 | 13466 | 33 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 13467 | 13477 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 13478 | 13498 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 13499 | 13509 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 13510 | 13521 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 13522 | 13581 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 13582 | 14009 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 14010 | 14024 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 14025 | 14066 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 14067 | 14233 | 82 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 14234 | 14265 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14266 | 14542 | 58 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14543 | 14608 | 96 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14609 | 14617 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14618 | 14676 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14683 | 14692 | 1 | 📝 Convenciones |
+| 14693 | 14730 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14731 | 14749 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14750 | 14802 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14803 | 15197 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15198 | 15228 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15229 | 15250 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15251 | 15278 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15279 | 15323 | 45 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15324 | 15351 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13416,6 +13416,18 @@ porque la numeración `CG.*` ya tiene números repetidos (CG.98, CG.130, CG.160)
   costo (crédito y cobranza, facturación, marketing, telemarketing según `MATRIZ_ACCESOS`) podría calcularlo. Se le
   ofreció mostrar el margen sólo con `COMPRAS_COSTO_ESTANDAR_VER` y eligió **margen visible para todos** los que ven el
   catálogo (el propósito es que el vendedor lo entienda). Si se revierte, es un cambio de una línea en el servicio.
+- [ ] **[CAT-PRECIO.6]** 🧪 **Mantenimiento · Costo o precio en cero** (2026-11-20) — pedido de Edgar: «productos que
+  tengan 0 en su costo o precio». Tercera vista de `/compras/catalogo/mantenimiento` (`?vista=en-ceros`): cada unidad EN USO
+  de la ficha de Kepler (base siempre; la dos y la tres sólo con factor > 0 — rotuladas con factor 0 traen ceros por
+  construcción, `ERP_KEPLER.md` §2.1.1) con costo (`c77`/`c78`/`c79`) o precio de venta (`c90`/`c91`/`c92`) en cero, en
+  las sucursales que venden al público. Medido en prod con RLS: **291** productos (casi todo costo VACÍO en la base),
+  **63** también con precio en $0, **120** con venta en 30 días; `EN_CEROS_SQL` 0.47–0.55 s (la primera versión, que
+  abría las 76 mil fichas en tres, 1.0–1.5 s: mismo resultado). Primero lo que vende con precio en $0, luego por venta.
+  «Dónde» se DERIVA: agrupado por unidad y qué está en cero, «en sus N sucursales» cuando es en todas. ⛔ No viaja ningún
+  costo con valor (el permiso del catálogo lo tiene el cliente B2B). Prueba contra Postgres real (`en-ceros.it.spec.ts`,
+  el servicio REAL como `app_runtime` con `kdii` sembrado: vacío, cero, precio $0, caja en uso, caja rotulada sin factor,
+  sucursal que no vende y una ficha sana de control) 4/4; regla del «dónde» 5/5; Compras 993/993; `check:pantalla` la
+  vista 10/10; `ngc` y `tsgo` sin errores propios. ⚠️ **Sin validación visual** todavía: la API local no corre.
 
 - [x] **[CAT.7]** 🧪 **Reporte de precios por proveedor, imprimible** — `/compras/catalogo/reporte`,
   4ª pestaña del catálogo (mismo permiso `COMMERCIAL_PRODUCTS_VER`: es el mismo dato mirado para
