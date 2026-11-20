@@ -25,6 +25,7 @@ import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalo
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
+import { UbicacionesCarretasComponent } from './ubicaciones-carretas.component';
 import { elegirAlmacen, guardarAlmacenPreferido } from '../shared/almacen-preferido';
 import { AndenCartelComponent, type CartelUbicacion, type FormatoCartel } from '../anden/components/anden-cartel.component';
 
@@ -64,7 +65,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
   selector: 'app-almacen-ubicaciones-mapa',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent, UbicacionesCapturaComponent, AndenCartelComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent, UbicacionesCapturaComponent, UbicacionesCarretasComponent, AndenCartelComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head ub-head">
@@ -76,7 +77,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
           @if (almacenOpts().length > 1) {
             <p-select [options]="almacenOpts()" optionLabel="label" optionValue="value" [ngModel]="warehouseId()" (onChange)="pickAlmacen($event.value)" ariaLabel="Almacén" appendTo="body" class="ub-sel" />
           }
-          @if (data()?.warehouse && !enCaptura()) {
+          @if (data()?.warehouse && !enCaptura() && !enCarretas()) {
             <!-- [UB.RF.10] Carteles para pegar en el rack: uno, un rack, un pasillo o toda la zona. -->
             <!-- [UB.RF.12] En tienda son etiquetas chicas para el canto del anaquel (un cartel le quita vista al producto). -->
             <button pButton type="button" class="p-button-sm p-button-outlined" [attr.aria-pressed]="imprimirAbierto()" (click)="abrirImpresion()"><span class="p-button-icon pi pi-print" aria-hidden="true"></span><span class="p-button-label">{{ zona() === 'T' ? 'Imprimir etiquetas' : 'Imprimir carteles' }}</span></button>
@@ -86,6 +87,14 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
               <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCaptura(false)"><span class="p-button-icon pi pi-map" aria-hidden="true"></span><span class="p-button-label">Volver al mapa</span></button>
             } @else {
               <button pButton type="button" class="p-button-sm" (click)="verCaptura(true)"><span class="p-button-icon pi pi-table" aria-hidden="true"></span><span class="p-button-label">Captura masiva</span></button>
+            }
+          }
+          <!-- [GP.11.5] Carretas y carritos: el mismo catálogo, su propia vista. -->
+          @if (data()?.warehouse && !enCaptura()) {
+            @if (enCarretas()) {
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarretas(false)"><span class="p-button-icon pi pi-map" aria-hidden="true"></span><span class="p-button-label">Volver al mapa</span></button>
+            } @else {
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCarretas(true)"><span class="p-button-icon pi pi-shopping-cart" aria-hidden="true"></span><span class="p-button-label">Carretas</span></button>
             }
           }
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
@@ -124,6 +133,8 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
 
           @if (enCaptura()) {
             <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
+          } @else if (enCarretas()) {
+            <app-ubicaciones-carretas [warehouse]="d.warehouse" [puedeGestionar]="puedeGestionar()" [puedeCoordinar]="puedeCoordinar()" />
           } @else {
           <div class="ub-split">
             <section class="ub-block" aria-labelledby="ub-h-mapa">
@@ -309,6 +320,8 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   /** `?vista=captura` — en la URL, para que el enlace se pueda compartir y el botón Atrás funcione. */
   private readonly vista = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('vista'))), { initialValue: null });
   readonly enCaptura = computed(() => this.vista() === 'captura' && this.puedeGestionar());
+  /** `[GP.11.5]` `?vista=carretas`: carretas y carritos del almacén. */
+  readonly enCarretas = computed(() => this.vista() === 'carretas');
 
   // ── [UB.RF.10] Carteles: uno, un rack, un pasillo o toda la zona ────────────────────────────────
   readonly imprimirAbierto = signal(false);
@@ -388,6 +401,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   readonly creada = signal<string | null>(null);
   readonly parsed = computed(() => parseLocationCode(this.codigo()));
 
+  /** `[GP.11.5]` Liberar a mano una carreta con pedido es del coordinador de surtido. */
+  readonly puedeCoordinar = computed(
+    () => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.ALMACEN_SURTIDO_COORDINAR],
+  );
   readonly puedeGestionar = computed(
     () => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.ALMACEN_UBICACIONES_GESTIONAR],
   );
@@ -452,6 +469,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         this.err.set(typeof m === 'string' ? `No se pudieron cargar las ubicaciones: ${m}` : 'No se pudieron cargar las ubicaciones.');
       },
     });
+  }
+
+  verCarretas(si: boolean): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: si ? 'carretas' : null }, queryParamsHandling: 'merge' });
   }
 
   verCaptura(si: boolean): void {

@@ -17,7 +17,7 @@ export class WarehouseCartsController {
   constructor(private readonly svc: WarehouseCartsService) {}
 
   @Get()
-  @RequireAnyPermission(Permission.COMMERCIAL_PICKING_VER, Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_GESTIONAR)
+  @RequireAnyPermission(Permission.COMMERCIAL_PICKING_VER, Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
   @ApiOperation({ summary: 'Carretas y carritos del almacén, con el pedido que trae cada una' })
   list(@Query('warehouse_id') warehouseId: string): Promise<CartsResponse> {
     return this.svc.list(warehouseId);
