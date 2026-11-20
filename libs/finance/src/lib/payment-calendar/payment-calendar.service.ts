@@ -2017,7 +2017,7 @@ export class PaymentCalendarService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const conservados: Record<MotivoConservar, number> = {
-        ligado: 0, kepler_sin_medir: 0, kepler_pagado: 0, kepler_en_parte: 0, banco: 0, banco_sin_medir: 0,
+        ligado: 0, cheque_emitido: 0, kepler_sin_medir: 0, kepler_pagado: 0, kepler_en_parte: 0, banco: 0, banco_sin_medir: 0,
       };
       const out: ResultadoPagosVencidos = { hoy, revisados: 0, liberados: 0, monto_liberado: 0, ids_liberados: [], conservados };
       // `[PGP.149]` Primero se regresa lo que una pasada anterior soltó habiendo salido del banco.
@@ -2040,7 +2040,10 @@ export class PaymentCalendarService {
 
       for (const p of pend) {
         const cierre = cierres.get(p.id) ?? null;
-        const d = decidirVencido({ lotDate: p.lot_date, cierre, salidaDeBanco: banco.has(p.id) ? banco.get(p.id) ?? null : null, ligado: !!p.ligado }, hoy);
+        const d = decidirVencido({
+          lotDate: p.lot_date, cierre, salidaDeBanco: banco.has(p.id) ? banco.get(p.id) ?? null : null, ligado: !!p.ligado,
+          chequeEmitido: !!p.cheque_emitido, // `[PGP.173]`
+        }, hoy);
         if (d.accion === 'esperar') continue;
         if (d.accion === 'conservar') { conservados[d.motivo]++; continue; }
         const nota = notaLiberado(hoy, d.dias);

@@ -14,7 +14,7 @@ const cierre = (estado: EstadoCierreKepler, f: Partial<Record<EstadoFacturaCierr
 });
 
 const p = (o: Partial<PagoPendienteVencido> = {}): PagoPendienteVencido => ({
-  lotDate: '2026-11-03', cierre: cierre('sin_pagar', { sin_pagar: 2 }), salidaDeBanco: false, ligado: false, ...o,
+  lotDate: '2026-11-03', cierre: cierre('sin_pagar', { sin_pagar: 2 }), salidaDeBanco: false, ligado: false, chequeEmitido: false, ...o,
 });
 
 describe('[PGP.117] decidirVencido', () => {
@@ -60,6 +60,35 @@ describe('[PGP.117] decidirVencido', () => {
 
   it('una fecha ilegible no libera nada', () => {
     expect(decidirVencido(p({ lotDate: 'sin-fecha' }), '2026-11-20').accion).toBe('esperar');
+  });
+});
+
+/**
+ * `[PGP.173]` El cheque entregado y sin depositar: Kepler no lo tiene (lo captura al cobro) y el banco no tiene
+ * salida, así que para los dos testigos «nadie lo pagó». Es la forma del 5383 (liberado el 17-nov ya cobrado) y de los
+ * cheques fechados a diciembre que ya están en manos del proveedor.
+ */
+describe('[PGP.173] un cheque emitido no se libera a la semana', () => {
+  it('control: sin testigos, a la semana se libera — y el MISMO pago con cheque emitido se conserva', () => {
+    expect(decidirVencido(p(), '2026-11-20')).toMatchObject({ accion: 'liberar' });
+    expect(decidirVencido(p({ chequeEmitido: true }), '2026-11-20')).toEqual({ accion: 'conservar', dias: 17, motivo: 'cheque_emitido' });
+  });
+
+  it('no depende de cuánto tiempo pase: un mes después sigue conservado (sale cobrándose o cancelándose)', () => {
+    expect(decidirVencido(p({ chequeEmitido: true }), '2026-12-15')).toMatchObject({ accion: 'conservar', motivo: 'cheque_emitido' });
+  });
+
+  it('gana a Kepler y al banco: los dos dirían «no se pagó» y es falso', () => {
+    expect(decidirVencido(p({ chequeEmitido: true, cierre: cierre('sin_pagar', { sin_pagar: 3 }), salidaDeBanco: false }), '2026-11-20'))
+      .toMatchObject({ motivo: 'cheque_emitido' });
+  });
+
+  it('antes de la semana se espera igual que cualquier pago (no cambia el «esperar»)', () => {
+    expect(decidirVencido(p({ chequeEmitido: true }), '2026-11-09')).toEqual({ accion: 'esperar', dias: 6 });
+  });
+
+  it('ligado a mano sigue contando como ligado (el motivo más fuerte primero)', () => {
+    expect(decidirVencido(p({ chequeEmitido: true, ligado: true }), '2026-11-20')).toMatchObject({ motivo: 'ligado' });
   });
 });
 
