@@ -25,6 +25,8 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261113175529_pgp119_anticipo_como_obligacion_de_pago.js',
   '../../../../../database/migrations-newdb/20261117121939_pgp127_anticipo_cotizacion_oc_y_cuenta.js',
   '../../../../../database/migrations-newdb/20261118131620_pgp155_anticipo_a_cuenta_sin_clabe.js',
+  // `[PGP.157]` Quién autorizó el pago (`[PGP.113]`): Caja General ve el anticipo en efectivo al autorizarlo.
+  '../../../../../database/migrations-newdb/20261110141406_pgp113_autorizacion_por_pago.js',
 ];
 const COT = { key: `commercial/${M}/anticipos/it127.pdf`, kind: 'pdf' as const };
 const CLABE = '012180001234567899', OTRA = '072180009999999993';   // sintéticas, dígito de control bien
@@ -360,5 +362,77 @@ suite('[PGP.119] pedir un anticipo contra Postgres real (transacción revertida)
                    VALUES ('03', '03', 'CIT155P', 'A', 20, 1, 'IT155F1', '2026-11-02', 100, 100)`);
     const r = await svc.anticipoProveedores('cit155');
     expect(r.find((p) => p.code === 'CIT155P')?.ultimo_movimiento).toBe('2026-11-02');
+  });
+  // ── `[PGP.157]` El anticipo en efectivo que Caja General tiene por entregar ──
+  /**
+   * Un anticipo de una compra de Morelia Abastos sale de la Caja General de la 08 (cada base cuadra sola). Uno por PAGO
+   * del Calendario: nace al AUTORIZAR y se va cuando Kepler tiene SU `X-D-60` en la 08.
+   */
+  const pagoEfectivo = async (ant: string, dia: string, importe: number, autorizado: boolean) => {
+    const [lote] = await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: dia })
+      .onConflict(['tenant_id', 'lot_date']).merge().returning('id');
+    const [pago] = await trx('finance.payment_allocations').insert({
+      tenant_id: M, lot_id: lote.id, classification: 'proveedor_mercancia', status: 'pending', amount_assigned: importe,
+      payment_method: 'efectivo', cash_register_text: 'Caja General · Morelia Abastos',
+      ...(autorizado ? { authorized_by: 'it157_direccion', authorized_at: trx.fn.now() } : {}),
+    }).returning('id');
+    await trx('finance.payment_allocation_items').insert({ tenant_id: M, allocation_id: pago.id, obligation_source: 'supplier_payable', obligation_id: ant, applied_amount: importe });
+    return { pago: pago.id as string, lote: lote.id as string };
+  };
+  const pedir = async (sucursal: string, folio: string, monto: number) => {
+    await ocKepler(sucursal, folio, 'CIT119A', 20000);
+    return (await svc.crearAnticipo(cuerpo({ monto, sucursal, purchase_order_id: null, kepler_ocs: [{ sucursal, serie: '1', folio }] }), USER)).obligation_id;
+  };
+  const xd60 = (sucursal: string, folio: string, importe: number, fecha = 'now()::date') => trx.raw(
+    `INSERT INTO kepler_ods.kdxe (sucursal, c1, c2, c3, c4, c5, c6, c7, c11, c20) VALUES (?, ?, 'CIT119A', 'D', 60, 1, ?, ${fecha}, ?, ?)`,
+    [sucursal, sucursal, folio, importe, importe]);
+  const panel = async (ant: string) => (await svc.listAnticiposPorEntregar()).filter((s) => s.obligation_id === ant);
+
+  it('⭐ [PGP.157] por entregar: sólo autorizado y en efectivo, de la Caja General de su base; se va con SU X-D-60', async () => {
+    const ant = await pedir('08', 'IT157OC1', 4800);
+    expect(await panel(ant)).toEqual([]);   // pedido, sin pago en el Calendario
+    const { pago, lote } = await pagoEfectivo(ant, '2031-02-03', 4800, false);
+    // ⛔ NEGATIVA — preparado pero SIN autorizar: Caja General no tiene nada que entregar.
+    expect(await panel(ant)).toEqual([]);
+    await trx('finance.payment_allocations').where({ id: pago }).update({ authorized_by: 'it157_direccion', authorized_at: trx.fn.now(), folio: '310203-01-01' });
+    expect(await panel(ant)).toEqual([expect.objectContaining({
+      allocation_id: pago, pago_folio: '310203-01-01', programado_dia: '2031-02-03', proveedor: 'CIT119A', sucursal: '08',
+      monto: 4800, monto_anticipo: 4800, autorizado_por: 'it157_direccion', kepler_previo: null,
+      ocs: [{ sucursal: '08', serie: '1', folio: 'IT157OC1' }],
+    })]);
+    // ⛔ NEGATIVA — el mismo pago en transferencia no es de Caja General.
+    await trx('finance.payment_allocations').where({ id: pago }).update({ payment_method: 'transferencia' });
+    expect(await panel(ant)).toEqual([]);
+    // También cuenta el día autorizado completo (sin autorización del pago solo): quién lo dice el día.
+    await trx('finance.payment_allocations').where({ id: pago }).update({ payment_method: 'efectivo', authorized_by: null, authorized_at: null });
+    expect(await panel(ant)).toEqual([]);
+    await trx('finance.payment_calendar_lots').where({ id: lote }).update({ status: 'released', released_by: 'it157_dia', released_at: trx.fn.now() });
+    expect(await panel(ant)).toEqual([expect.objectContaining({ autorizado_por: 'it157_dia' })]);
+    // ⛔ NEGATIVA — el mismo importe capturado en OTRA base (00) no es su X-D-60: sigue por entregar.
+    await xd60('00', 'IT157X59', 4800);
+    expect(await panel(ant)).toHaveLength(1);
+    // Kepler tiene SU X-D-60 en la 08 (hoy, después de autorizar): sale y es un documento más de la cola.
+    await xd60('08', 'IT157X60', 4800);
+    expect(await panel(ant)).toEqual([]);
+  });
+
+  it('⛔ [PGP.157] un anticipo partido en dos pagos: cada pago es su renglón, con SU importe; el que no está autorizado no sale', async () => {
+    const ant = await pedir('08', 'IT157OC2', 6100);
+    const a = await pagoEfectivo(ant, '2031-03-03', 3050, true);
+    const b = await pagoEfectivo(ant, '2031-03-10', 3050, false);
+    // Si se tomara el pago del día MÁS RECIENTE (el 10, sin autorizar), el autorizado del 3 desaparecería.
+    expect(await panel(ant)).toEqual([expect.objectContaining({ allocation_id: a.pago, programado_dia: '2031-03-03', monto: 3050, monto_anticipo: 6100 })]);
+    await trx('finance.payment_allocations').where({ id: b.pago }).update({ authorized_by: 'it157_direccion', authorized_at: trx.fn.now() });
+    const filas = await panel(ant);
+    expect(filas.map((f) => [f.programado_dia, f.monto])).toEqual([['2031-03-03', 3050], ['2031-03-10', 3050]]);
+  });
+
+  it('⛔ [PGP.157] un X-D-60 de ANTES de la autorización no esconde la entrega: sigue «por entregar» y lo dice', async () => {
+    const ant = await pedir('08', 'IT157OC3', 5100);
+    // Kepler ya tenía un X-D-60 de este proveedor, base e importe de hace dos días (otro dinero, pagado por fuera).
+    await xd60('08', 'IT157X61', 5100, `(now()::date - 2)`);
+    expect((await svc.listAnticiposSolicitados()).find((s) => s.obligation_id === ant)).toMatchObject({ etapa: 'en_kepler', kepler: { folio: 'IT157X61' } });
+    await pagoEfectivo(ant, '2031-04-07', 5100, true);
+    expect(await panel(ant)).toEqual([expect.objectContaining({ kepler_previo: expect.objectContaining({ folio: 'IT157X61' }) })]);
   });
 });
