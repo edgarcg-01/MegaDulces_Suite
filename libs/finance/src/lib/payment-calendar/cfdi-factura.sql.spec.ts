@@ -1,4 +1,4 @@
-import { SQL_CFDIS_CANCELADOS, SQL_CFDIS_CANDIDATOS, SQL_PROVEEDORES_69B } from './cfdi-factura.sql';
+import { SQL_CFDIS_CANCELADOS, SQL_CFDIS_CANDIDATOS, SQL_PAGADAS_CANCELADAS, SQL_PROVEEDORES_69B } from './cfdi-factura.sql';
 
 describe('[PGP.177] el proveedor en la 69-B se busca por su llave, sólo presunto o definitivo', () => {
   it('lista 69B, las dos situaciones que piden algo, por RFC', () => {
@@ -15,5 +15,18 @@ describe('[PGP.163] los candidatos cancelados son los MISMOS con el estatus al r
     expect(SQL_CFDIS_CANCELADOS).toContain("c.estatus_sat = 'cancelado'");
     expect(SQL_CFDIS_CANCELADOS).not.toContain("<> 'cancelado'");
     expect(SQL_CFDIS_CANCELADOS.replace("= 'cancelado'", "<> 'cancelado'")).toBe(SQL_CFDIS_CANDIDATOS);
+  });
+});
+
+describe('[PGP.178] las pagadas que el proveedor canceló: la misma liga del CFDI, los mismos pagos del cierre', () => {
+  it('parte de los acreedores del día, último año, cancelados sin sustituta por el total ni por lo pagado', () => {
+    expect(SQL_PAGADAS_CANCELADAS).toContain("c.estatus_sat = 'cancelado'");
+    expect(SQL_PAGADAS_CANCELADAS).toContain('c.emisor_rfc = ANY(?::text[])');
+    expect(SQL_PAGADAS_CANCELADAS).toContain("interval '365 days'");
+    expect(SQL_PAGADAS_CANCELADAS).toContain('abs(f.importe - c.total) <= 1');
+    expect(SQL_PAGADAS_CANCELADAS).toContain('c.f >= f.f_kep - 45 AND c.f < f.f_kep + 6');
+    expect(SQL_PAGADAS_CANCELADAS).toContain('k.c4 IN (25, 26, 60)');
+    expect(SQL_PAGADAS_CANCELADAS).toContain('abs(v.total - g.pagado) <= 1');
+    expect(SQL_PAGADAS_CANCELADAS.split('?').length - 1).toBe(6);
   });
 });

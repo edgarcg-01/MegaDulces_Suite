@@ -20,7 +20,7 @@ import type {
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, bancoCanonico, bancoSinCuentaNuestra, destinoSinClabe, origenesParaDestino, origenPropuesto } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
-import { avisosFiscales, textoCfdi, textoMetodo, type AvisoFiscal, type CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
+import { avisoPagadasCanceladas, avisosFiscales, pagadasCanceladasDe, textoCfdi, textoMetodo, type AvisoFiscal, type CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
@@ -3214,6 +3214,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         const av = avisosFiscales({ renglon, fecha_pago: fecha, hoy: this.todayIso, pagado: a.status === 'executed', metodo_pago: a.payment_method, importe: Number(it.applied_amount) || 0 });
         if (av.length) out.set(it.id, av);
       }
+      // [PGP.178] Es del proveedor, no de una factura: una vez por pago, arriba de su primera factura.
+      const items = a.items ?? [];
+      const pc = avisoPagadasCanceladas(pagadasCanceladasDe(items.map((it) => m[it.id])));
+      if (pc && items.length) out.set(items[0].id, [pc, ...(out.get(items[0].id) ?? [])]);
     }
     return out;
   });
@@ -3224,6 +3228,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     for (const it of a.items ?? []) for (const av of this.avisosDeItem(it.id)) if (av.nivel === 'warn') claves.add(av.clave);
     const t: string[] = [];
     if (claves.has('proveedor_69b')) t.push('proveedor en la lista 69-B del SAT');
+    if (claves.has('proveedor_cancelo_pagada')) t.push('canceló una factura que ya le pagaste: pídele la sustituta');
     if (claves.has('cfdi_cancelado')) t.push('factura cancelada en el SAT');
     if (claves.has('pue_fuera_de_mes') || claves.has('pue_mes_cerrado') || claves.has('pue_pagada_fuera')) t.push('PUE fuera de su mes');
     if (claves.has('efectivo_no_deducible')) t.push('efectivo arriba de $2,000: no deducible');

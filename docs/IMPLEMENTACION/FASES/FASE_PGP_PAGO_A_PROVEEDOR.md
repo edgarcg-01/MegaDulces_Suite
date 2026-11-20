@@ -2934,7 +2934,7 @@ del SAT corre a diario y cada factura recibida está en `fiscal.cfdis` **~1 día
 | Momento | Quién | Qué avisa el sistema | Item |
 |---|---|---|---|
 | **Llega la factura del SAT** | Cuentas por pagar | PUE de un proveedor que nos da crédito (`kdxd.c16` > 0): «págala antes del fin de mes o pide PPD» · proveedor en la 69-B · uso «S01 sin efectos fiscales»: pedir sustitución | `[PGP.162]` |
-| **Se programa el pago** | Tesorería | fecha límite de la PUE (`[PGP.158]`) · efectivo arriba de $2,000 (LISR 27-III) · factura **cancelada en el SAT**: no pagar sin la sustituta · proveedor en la 69-B | `[PGP.158]` `[PGP.163]` `[PGP.177]` |
+| **Se programa el pago** | Tesorería | fecha límite de la PUE (`[PGP.158]`) · efectivo arriba de $2,000 (LISR 27-III) · factura **cancelada en el SAT**: no pagar sin la sustituta · proveedor en la 69-B · proveedor que canceló una factura ya pagada | `[PGP.158]` `[PGP.163]` `[PGP.177]` `[PGP.178]` |
 | **Se paga una PPD** | Contabilidad | «espera complemento»; a los 30 días sin REP, se le pide al proveedor | `[PGP.164]` |
 | Cobramos a un cliente | Cobranza | nuestro REP antes del día 5 del mes siguiente (F4) | propuesta, fuera de PGP |
 | Facturamos a un cliente con crédito | Facturación | PPD, no PUE (F5) | propuesta, fuera de PGP |
@@ -2964,3 +2964,4 @@ decisión de Edgar.
 | `[PGP.163]` | C1+C3 | **Al programar el pago:** factura cancelada en el SAT (no pagar sin la sustituta) y efectivo arriba de $2,000. Arranca con la lista de las facturas ya pagadas que el proveedor canceló sin sustituta (6 al 2026-11-19, *posibles*: la sustituta se busca por RFC e importe). Indicador: pagadas y luego canceladas | 🧪 2026-11-19: el aviso en el Calendario (cancelada, efectivo); falta la lista |
 | `[PGP.164]` | C0+C1 | **Los complementos de pago de proveedores, completos:** re-descargar del SAT los REP de ene–jun (sigue a `[PGP.110b]`) y medir; después, el pago PPD dice «espera complemento» y a los 30 días sin REP es hallazgo. Indicador: PPD pagadas sin REP | 🧪 2026-11-20: la descarga automática rellena sola el hueco del año (ene–jun de recibidas); falta que baje y medir |
 | `[PGP.177]` | C1+C3 | **Al programar el pago, el proveedor en la 69-B** (presunto o definitivo): primer aviso del renglón y marca en el renglón cerrado, con la misma lectura de `[PGP.158]`. Indicador: pagos a proveedores en la 69-B | 🧪 2026-11-20: hoy 0 de 335 facturas por pagar |
+| `[PGP.178]` | C1+C3 | **Al programar el pago, el proveedor que canceló una factura ya pagada:** aviso una vez por pago («pídele la sustituta») con la misma lectura de `[PGP.158]`. Indicador: pagadas con CFDI cancelado sin sustituta | 🧪 2026-11-20: 11 medidas, 8 sin sustituta; hoy lo prenden 3 pagos |
