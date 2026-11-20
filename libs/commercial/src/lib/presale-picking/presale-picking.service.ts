@@ -24,6 +24,7 @@ import type {
   PresaleReviewStock,
   PresaleSellerOrder,
   PresaleSellerStatusResponse,
+  PresaleSellerSearchResponse,
   PresaleOtherUnitsResponse,
   PresaleOrderRow,
   PresaleSubstituteCandidate,
@@ -58,6 +59,8 @@ import {
 } from './presale-substitute.engine';
 import { PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA } from './presale-route.engine';
 import { DiaInvalido, diaDeConsulta } from './bandeja-dia';
+import { BUSQUEDA_DIAS, BUSQUEDA_TOPE, buscarEnPedidos, textoDeBusqueda } from './buscar-pedidos';
+import { STATUS_EN_MESA } from '../presale-control/presale-control.engine';
 import { MOTIVOS_SURTIDO, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
 import { MotivoInvalido, armarJustificantes, conMotivosEnReporte, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
 import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
@@ -708,6 +711,56 @@ export class PresalePickingService {
         .distinct(trx.raw(`to_char(o.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`));
       const unseen_days = (sinVer as Array<{ dia: string }>).map((r) => r.dia).sort().reverse();
       return { today: hoy, date: dia, data, unseen_reports: data.filter((d) => d.report_unseen).length, unseen_days };
+    });
+  }
+
+  /**
+   * `[MCP.28]` El buscador de «Mis pedidos»: cualquier pedido de los últimos {@link BUSQUEDA_DIAS} días
+   * (por día en que se levantó), en cualquier estado de la mesa — cancelados y entregados incluidos, que
+   * la lista del día no muestra. La vendedora busca en los suyos; el supervisor, también en los de su
+   * equipo (`users.supervisor_id = él`), y ésos le llegan con `is_mine: false` (sólo para consultar: el
+   * servidor ya no le deja modificar un pedido ajeno). No marca nada como visto.
+   */
+  async sellerSearch(q: unknown): Promise<PresaleSellerSearchResponse> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) throw new UnauthorizedException('Sin usuario en la sesión.');
+    const texto = textoDeBusqueda(q);
+    return this.tk.run(async (trx) => {
+      const equipo = ((await trx('public.users').where('supervisor_id', userId).pluck('id')) as string[]).filter((id) => id !== userId);
+      const qb = trx('commercial.orders as o')
+        .whereIn('o.user_id', [userId, ...equipo])
+        .whereNotNull('o.requested_delivery_date')
+        .where('o.delivery_type', 'route')
+        .whereNull('o.deleted_at')
+        .whereIn('o.status', [...STATUS_EN_MESA])
+        .whereRaw(`o.created_at >= now() - (? || ' days')::interval`, [String(BUSQUEDA_DIAS)]);
+      buscarEnPedidos(qb, texto);
+      const filas = (await qb
+        .orderBy('o.created_at', 'desc')
+        .limit(BUSQUEDA_TOPE + 1)
+        .select('o.id', 'o.user_id')) as Array<{ id: string; user_id: string | null }>;
+      const encontrados = filas.slice(0, BUSQUEDA_TOPE);
+      const base = {
+        q: texto, window_days: BUSQUEDA_DIAS, limit: BUSQUEDA_TOPE,
+        truncated: filas.length > BUSQUEDA_TOPE, includes_team: equipo.length > 0,
+      };
+      if (!encontrados.length) return { ...base, data: [] };
+      const ids = encontrados.map((f) => f.id);
+      const pedidos = await this.presale.pedidosParaGuias(trx, { almacenes: null, orderIds: ids });
+      const avance = await this.armarAvance(trx, pedidos);
+      const filaDe = new Map(pedidos.map((p) => [p.id, p]));
+      const avanceDe = new Map(avance.map((a) => [a.order_id, a]));
+      const autorDe = new Map(encontrados.map((f) => [f.id, f.user_id]));
+      // En el orden de la búsqueda (el más reciente primero), no en el del motor (por día de entrega).
+      const data = ids
+        .filter((id) => avanceDe.has(id))
+        .map((id) => ({
+          ...(avanceDe.get(id) as PresaleSellerOrder),
+          created_date: fechaMx(filaDe.get(id)?.created_at),
+          seller_name: filaDe.get(id)?.seller_name ?? null,
+          is_mine: autorDe.get(id) === userId,
+        }));
+      return { ...base, data };
     });
   }
 
