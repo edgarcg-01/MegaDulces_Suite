@@ -238,9 +238,9 @@ suite('[GP.11] Carretas: catálogo y ocupación, contra Postgres real (transacci
       expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C55', pedido: { source: 'suite', order_id: ids['pdMio'] } }))).toBe(404);
     });
 
-    it('Kepler: el U-D-40 de mi ola entra por su llave y se lee «U-D-40 12345»; uno que no está en surtido, 404', async () => {
+    it('Kepler: el U-D-40 de mi ola entra por su llave y se lee «UD4040-12345» (como en el Tablero); uno que no está en surtido, 404', async () => {
       const r = await svc.occupy({ warehouse_id: ids['w'], carreta: 'C02', pedido: { source: 'kepler', sucursal: '97', serie: 40, folio: '12345' } });
-      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'U-D-40 12345', source: 'kepler' });
+      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'UD4040-12345', source: 'kepler' });
       const lista = await svc.list(ids['w']);
       expect(lista.carretas.filter((c) => c.ocupacion).map((c) => c.code)).toEqual(['C01', 'C02', 'C07', 'C08']);
       expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C03', pedido: { source: 'kepler', sucursal: '97', serie: 40, folio: '99999' } }))).toBe(404);
@@ -263,7 +263,7 @@ suite('[GP.11] Carretas: catálogo y ocupación, contra Postgres real (transacci
 
     it('⭐ por OLA: la pantalla manda la ola de un pedido y el servidor encuentra el U-D-40; la ola dice con qué carreta va', async () => {
       const r = await svc.occupy({ warehouse_id: ids['w'], carreta: 'C03', pedido: { source: 'ola', wave_id: ids['ola'] } });
-      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'U-D-40 12345', source: 'kepler' });
+      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'UD4040-12345', source: 'kepler' });
       const w = await svc.forWave(ids['ola']);
       expect(w).toMatchObject({ pedidos: 1, tanda: false });
       // C01–C04 (alta por rango) + C07 y C08 activas; la C09 está dada de baja y no cuenta.

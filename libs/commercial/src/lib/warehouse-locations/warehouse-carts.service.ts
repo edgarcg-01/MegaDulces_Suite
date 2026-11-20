@@ -17,6 +17,7 @@ import {
   type OccupyCartResult,
   type WaveCartsResponse,
 } from '@megadulces/contracts';
+import { documentoUD40 } from '@megadulces/contracts';
 import { almacenDeUbicaciones, contextoDeAlcance, type AlmacenUbicaciones } from './warehouse-locations-scope';
 import { decidirLiberar, decidirOcupar, type CarretaHechos, type PedidoHechos } from './carretas.reglas';
 
@@ -28,7 +29,8 @@ const TIPOS = new Set<string>(CART_KINDS.map((k) => k.key));
 const horaMx = (iso: string): string =>
   new Date(iso).toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit', hour12: false });
 
-const pedidoKepler = (serie: number | string, folio: string): string => `U-D-${serie} ${folio}`;
+/** Como en el Tablero y en la ola de Surtir (`UD4001-0002840`): un solo nombre para el pedido. */
+const pedidoKepler = (serie: number | string, folio: string): string => documentoUD40(Number(serie), folio);
 
 interface FilaCarreta {
   id: string;
