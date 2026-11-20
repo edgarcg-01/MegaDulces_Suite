@@ -259,7 +259,21 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    renglón en `kdil`, que no se consumen hasta que Kepler las escriba). Prueba contra Postgres real
    `lotes-fefo-por-evento.it.spec.ts` 9/9 y siete mutantes en rojo (sin interruptor, FEFO sin preferir lo bueno, sin
    bitácora, el error que frena la ingesta, la copia que sigue consumiendo, `down` sin quitar la llave, consumir sin
-   comparar). Pasos 2 y 3 (C1): pendientes.
+   comparar).
+
+   🧪 **Pasos 2–3 (C1) en código (2026-11-20).** Medido el uso (30 días): de lo que lee el `NA` guardado, sólo la captura
+   de caducidades está viva (las promotoras capturan y corrigen a diario); la lista de lotes de inventario, «por ubicar»
+   y «asignar lote» tuvieron 0 llamadas → 7.4d. `lotes-declarados.ts` (una definición): lo libre para declarar =
+   existencia del ODS − lo declarado (`lot_code <> 'NA'`), con el MISMO candado que el disparador de `kdil`.
+   `feedLine`/`unfeedLine` lo usan: ya no exigen renglón en la copia ni mueven el `NA`. Entregar (`consume`) calcula el
+   aviso «se vendió vencido» con lo sin lote derivado. Medido en prod, 155 capturas en 60 días: 143 alimentaron, 12 no;
+   con la regla nueva, 2 de esas 12 tendrían hoy lugar; el `NA` guardado coincide con el derivado en todas las celdas
+   capturadas menos una. Pruebas contra Postgres real: `lotes-declarados.it.spec.ts` 5/5 (con un `NA` guardado que
+   miente: 500), el caso de «vendido vencido» en `order-stock.it.spec.ts`, y las 4 suites de caducidades con servicio
+   real 31/31 (`createEntry` incluido; en serie: en paralelo chocan entre ellas por la base compartida, ajeno a este
+   cambio). Seis mutantes en rojo. ⛔ El interruptor sigue apagado: hasta aplicar la migración y prenderlo, los lotes
+   los sigue consumiendo el disparador de la copia (que ahora ya no ve el `NA` que la captura dejó de mover; se cuadra
+   solo en la siguiente pasada del importer).
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

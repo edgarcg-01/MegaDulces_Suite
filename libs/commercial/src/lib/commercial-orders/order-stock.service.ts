@@ -116,13 +116,18 @@ export class OrderStockService {
         `Stock físico insuficiente para entregar producto ${productId}: ${existencia} < ${quantity}`,
       );
     }
-    // P2.2d (warn): si lo bueno (no vencido) no cubre la cantidad, el sobrante saldría de vencidos. Sólo se LEE:
-    // los lotes son `[CANON.7.4c]` (hoy el lote NA de `stock_lots` lo mantiene la copia).
+    // P2.2d (warn): si lo bueno (no vencido) no cubre la cantidad, el sobrante saldría de vencidos. Sólo se LEE.
+    // `[CANON.7.4c]` Los lotes DECLARADOS salen de `stock_lots`; lo sin lote (`NA`) ya no se lee guardado: es la
+    // existencia de Kepler menos lo declarado (`lotes-declarados.ts`), y cuenta como bueno.
     const lots = (await trx('commercial.stock_lots')
       .where({ warehouse_id: warehouseId, product_id: productId })
+      .whereNot('lot_code', 'NA')
+      .where('quantity', '>', 0)
       .select('quantity')
       .select(trx.raw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE) as is_good'))) as Array<{ quantity: string; is_good: boolean }>;
-    const goodAvail = lots.reduce((s, l) => s + (l.is_good ? Number(l.quantity) : 0), 0);
+    const declarado = lots.reduce((s, l) => s + Number(l.quantity), 0);
+    const sinLote = Math.max(existencia - declarado, 0);
+    const goodAvail = sinLote + lots.reduce((s, l) => s + (l.is_good ? Number(l.quantity) : 0), 0);
     const expiredAvail = lots.reduce((s, l) => s + (l.is_good ? 0 : Number(l.quantity)), 0);
     // Tope en lo vencido que HAY: con la copia cuadrando (suma de lotes = existencia ≥ cantidad) el tope no cambia
     // nada; sin ella (producto sin renglón en la copia, o la copia rezagada) evita avisar «se vendió vencido» de un
