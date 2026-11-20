@@ -3223,6 +3223,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const claves = new Set<string>();
     for (const it of a.items ?? []) for (const av of this.avisosDeItem(it.id)) if (av.nivel === 'warn') claves.add(av.clave);
     const t: string[] = [];
+    if (claves.has('proveedor_69b')) t.push('proveedor en la lista 69-B del SAT');
     if (claves.has('cfdi_cancelado')) t.push('factura cancelada en el SAT');
     if (claves.has('pue_fuera_de_mes') || claves.has('pue_mes_cerrado') || claves.has('pue_pagada_fuera')) t.push('PUE fuera de su mes');
     if (claves.has('efectivo_no_deducible')) t.push('efectivo arriba de $2,000: no deducible');

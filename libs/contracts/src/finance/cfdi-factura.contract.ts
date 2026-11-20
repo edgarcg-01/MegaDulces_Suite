@@ -153,7 +153,7 @@ export function fechaCortaMx(fecha: string): string {
   return `${String(d)}-${MESES_C[m - 1]}`;
 }
 
-export type ClaveAvisoFiscal = 'pue_limite' | 'pue_fuera_de_mes' | 'pue_mes_cerrado' | 'pue_pagada_fuera' | 'cfdi_cancelado' | 'efectivo_no_deducible';
+export type ClaveAvisoFiscal = 'proveedor_69b' | 'pue_limite' | 'pue_fuera_de_mes' | 'pue_mes_cerrado' | 'pue_pagada_fuera' | 'cfdi_cancelado' | 'efectivo_no_deducible';
 export interface AvisoFiscal {
   clave: ClaveAvisoFiscal;
   /** `warn` = hay que hacer algo; `info` = sólo la fecha límite. */
@@ -166,6 +166,18 @@ export interface CfdiDelRenglon {
   cfdi: CfdiDeLaFactura;
   /** `[PGP.163]` UUID de un CFDI CANCELADO que casa con la factura cuando no hay uno vigente; null si no hay. */
   cancelado_uuid: string | null;
+  /**
+   * `[PGP.177]` El acreedor está en la lista 69-B del SAT (`fiscal.sat_list_rfcs`), presunto o definitivo.
+   * Null o ausente = no aparece **o no se conoce su RFC** (eso lo dice `cfdi.estado = 'sin_rfc'`).
+   */
+  efos?: ProveedorEnLista69B | null;
+}
+
+/** `[PGP.177]` Un proveedor en la lista 69-B: el SAT presume (o ya resolvió) que sus facturas amparan operaciones inexistentes. */
+export interface ProveedorEnLista69B {
+  situacion: 'Presunto' | 'Definitivo';
+  /** Fecha de publicación en la lista (`YYYY-MM-DD`), si el SAT la da. */
+  publicado: string | null;
 }
 
 export interface EntradaAvisoFiscal {
@@ -190,6 +202,12 @@ export interface EntradaAvisoFiscal {
 export function avisosFiscales(e: EntradaAvisoFiscal): AvisoFiscal[] {
   const out: AvisoFiscal[] = [];
   const r = e.renglon;
+  // [PGP.177] Primero: con el proveedor en la 69-B, ninguna de sus facturas cuenta para impuestos.
+  if (r?.efos?.situacion === 'Definitivo') {
+    out.push({ clave: 'proveedor_69b', nivel: 'warn', texto: 'El SAT tiene a este proveedor en la lista 69-B (definitivo): sus facturas no son deducibles. No lo pagues sin Contabilidad' });
+  } else if (r?.efos?.situacion === 'Presunto') {
+    out.push({ clave: 'proveedor_69b', nivel: 'warn', texto: 'El SAT tiene a este proveedor en la lista 69-B (presunto): que Contabilidad lo revise antes de pagar' });
+  }
   if (r && r.cancelado_uuid && r.cfdi.estado !== 'unico') {
     out.push({ clave: 'cfdi_cancelado', nivel: 'warn', texto: 'El proveedor canceló esta factura en el SAT: no la pagues sin la que la sustituye' });
   }
