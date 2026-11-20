@@ -11,7 +11,10 @@
  *   - enviar la hoja y verificar:
  *       (1) el renglón con caducidad aparece en /commercial/inventory/expiring,
  *       (2) commercial.stock.quantity NO cambió (invariante SUM(lotes)=stock),
- *       (3) fed_lines = 1 (solo el renglón con producto+caducidad),
+ *       (3) fed_lines = 0: el almacén de prueba NO es una plaza de Kepler, así que no hay factor
+ *           para convertir a la unidad base y el renglón dice por qué ([P2.9 paso 4], D4).
+ *           La conversión en sí se prueba contra Postgres real en
+ *           libs/commercial/.../fefo-unidad-base.servicio-real.spec.ts,
  *       (4) re-enviar → 409.
  *
  * Requiere API en :3334 con el código de commercial-expiry-reviews.
@@ -111,7 +114,7 @@ function check(name, cond, detail) {
 
   const expDate = new Date(Date.now() + 20 * 24 * 3600 * 1000).toISOString().slice(0, 10); // vence en 20 días
   const line1 = await req('POST', `/commercial/expiry-reviews/${reviewId}/lines`, {
-    product_id: productId, product_code_raw: 'SMOKE-1', quantity: 10, expiry_date: expDate,
+    product_id: productId, product_code_raw: 'SMOKE-1', quantity: 10, unit: 'pieza', expiry_date: expDate,
     condition: 'regular', observations: 'se ve dura', action: 'promocionar', location: 'Anaquel 3',
     files: [{ role: 'evidencia', url: 'https://example.test/foto.jpg', kind: 'image' }],
   }, token);
@@ -135,12 +138,13 @@ function check(name, cond, detail) {
   console.log('\n── 5. Enviar hoja → alimenta FEFO ──');
   const submit = await req('POST', `/commercial/expiry-reviews/${reviewId}/submit`, {}, token);
   check('submit OK (status submitted)', submit.body?.status === 'submitted', submit.body);
-  check('fed_lines = 1 (solo el renglón con producto+caducidad)', submit.body?.fed_lines === 1, { fed_lines: submit.body?.fed_lines });
+  // [P2.9 paso 4] El almacén de prueba (`EXPREV-…`) no es una plaza de Kepler: sin presentaciones no hay
+  // factor a la unidad base, y FEFO NO se alimenta (D4). Antes fechaba las 10 «tal cual».
+  check('fed_lines = 0 (almacén sin plaza de Kepler: no hay factor a la base)', submit.body?.fed_lines === 0, { fed_lines: submit.body?.fed_lines });
 
   const expiring = await req('GET', `/commercial/inventory/expiring?days=60&warehouse_id=${whId}`, null, token);
-  const lot = (expiring.body || []).find((l) => l.product_id === productId && Number(l.quantity) === 10);
-  check('el lote fechado aparece en /expiring con qty 10', !!lot, { rows: (expiring.body || []).length });
-  check('el lote fechado tiene la caducidad capturada', lot?.expiry_date?.slice(0, 10) === expDate, { got: lot?.expiry_date });
+  const lot = (expiring.body || []).find((l) => l.product_id === productId && l.expiry_date?.slice(0, 10) === expDate);
+  check('sin factor no aparece ningún lote fechado en /expiring', !lot, { lot });
 
   const stockAfter = await req('GET', `/commercial/inventory/stock/${whId}/${productId}`, null, token);
   const qtyAfter = Number(stockAfter.body?.quantity ?? -1);
@@ -149,7 +153,7 @@ function check(name, cond, detail) {
   const detail2 = await req('GET', `/commercial/expiry-reviews/${reviewId}`, null, token);
   const l1 = (detail2.body?.lines || []).find((l) => l.product_id === productId);
   const l2 = (detail2.body?.lines || []).find((l) => !l.product_id);
-  check('renglón 1 marcado fed_to_fefo con fefo_qty=10', l1?.fed_to_fefo === true && Number(l1?.fefo_qty) === 10, { l1 });
+  check('renglón 1 NO fechó y dice por qué (sin_presentaciones)', l1?.fed_to_fefo === false && l1?.fefo_motivo === 'sin_presentaciones', { l1 });
   check('renglón 2 (sin producto) NO alimentó FEFO', l2?.fed_to_fefo === false, { l2 });
 
   console.log('\n── 6b. Promotor de marca propia (scoping) ──');
@@ -228,9 +232,17 @@ function check(name, cond, detail) {
   const folio = entry.body?.folio;
   check('la alta emitió folio con formato CAD-<suc>-<año>-<NNNNN>',
     typeof folio === 'string' && /^CAD-[0-9]{2}-\d{4}-\d{5}$/.test(folio), folio);
-  check('la alta alimentó FEFO al guardarse', entry.body?.fed_to_fefo === true, {
-    fed: entry.body?.fed_to_fefo, qty: entry.body?.fefo_qty,
-  });
+  // [P2.9 paso 4] Que la alta fechara depende de que el producto de muestra tenga «caja» CON factor en
+  // esta plaza de Kepler. Si fechó, se exige la conversión (base = cajas × factor); si no, el motivo.
+  const fecho = entry.body?.fed_to_fefo === true;
+  if (fecho) {
+    check('la alta fechó EN LA BASE: fefo_base_qty = 4 × fefo_factor',
+      Number(entry.body?.fefo_base_qty) === 4 * Number(entry.body?.fefo_factor) || entry.body?.fefo_motivo === 'existencia_sin_fecha_insuficiente',
+      { base: entry.body?.fefo_base_qty, factor: entry.body?.fefo_factor, motivo: entry.body?.fefo_motivo });
+  } else {
+    check('la alta no fechó y dice por qué', ['unidad_fuera_del_producto', 'unidad_sin_factor', 'sin_presentaciones', 'sin_lectura', 'sin_existencia_sin_fecha'].includes(entry.body?.fefo_motivo),
+      { motivo: entry.body?.fefo_motivo });
+  }
 
   // El eco del turno: lo que YO capturé hoy.
   const mine2 = await req('GET', '/commercial/expiry-reviews/entries/mine', null, token);
@@ -239,7 +251,8 @@ function check(name, cond, detail) {
   // Corrección: revierte FEFO, reescribe y vuelve a alimentar.
   const upd = await req('PATCH', `/commercial/expiry-reviews/entries/${entryId}`, { quantity: 6 }, token);
   check('corregir una alta del día → 200', upd.status === 200, { status: upd.status, body: upd.body });
-  check('la corrección re-alimentó FEFO con la cantidad nueva', Number(upd.body?.fefo_qty) === 6, upd.body?.fefo_qty);
+  if (fecho) check('la corrección re-fechó con la cantidad nueva (en la unidad capturada)', Number(upd.body?.fefo_qty) === 6 || upd.body?.fefo_motivo === 'existencia_sin_fecha_insuficiente', { qty: upd.body?.fefo_qty, motivo: upd.body?.fefo_motivo });
+  else console.log('  SKIP re-fechar: el producto de muestra no tiene «caja» con factor en esta plaza');
 
   // El invariante sigue intacto después de alimentar Y revertir.
   const stockAfterEntry = await req('GET', `/commercial/inventory/stock?warehouse_id=${suc.id}&product_id=${productId}`, null, token);

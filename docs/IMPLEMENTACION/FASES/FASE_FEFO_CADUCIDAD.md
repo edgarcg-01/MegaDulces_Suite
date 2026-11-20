@@ -162,7 +162,7 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 ### P2.9 — Unidades de medida de la captura: pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g (2026-10-19)
 
-> **Estado (2026-11-19): paso 0 ✅ medido · pasos 1 y 2 ✅ (en prod desde el 2026-11-04, PR #484; uso real medido, §4e) · paso 3 🚀 en prod (PR #511, fusionado el 2026-11-08) · paso 4 ⬜.** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
+> **Estado (2026-11-20): paso 0 ✅ medido · pasos 1 y 2 ✅ (en prod desde el 2026-11-04, PR #484; uso real medido, §4e; métrica re-medida: 24 de 25 = 96 %, §4f) · paso 3 🚀 en prod (PR #511, fusionado el 2026-11-08) · paso 4 🧪 en PR (FEFO en la unidad base, §4f, ADR-125).** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
 
 ```
 OBJETIVO:  que quien captura una caducidad pueda decir en qué unidad la contó, y que se guarde ESA y no otra
@@ -225,7 +225,7 @@ DUEÑO:     por asignar
 | **1** ✅ 2026-11-19 | C1 | Contrato `caducidad-unidad` + reemplazo de `unitHint` (sin cambio visible). | Tabla de casos Kepler → unidad; el caso «`PAQ` ya no da `caja`» **falla con el código viejo** (prueba negativa); todos los consumidores de los tipos recorridos, plantillas incluidas. |
 | **2** ✅ 2026-11-19 | C2 | Migración que amplía el CHECK + el servicio valida con el contrato + `resolve`/búsqueda devuelven `unidades` (presentaciones del producto traducidas). | Prueba **contra Postgres real con el payload de la pantalla** para **cada una de las 7 unidades** (`POST /entries`); una unidad inválida da 400 **y** la base la rechaza; un producto de base `500` con ranura `KG` devuelve `g500` y `kg`. Se aplica **antes** que el código (si la pantalla manda `paquete` a un servidor viejo, recibe 400). |
 | **3** 🚀 2026-11-08 | C3 | Selector filtrado por producto (con «otra unidad»), plural/etiqueta, hoja impresa, expediente, «Capturas por día» y detalle de Almacén. | Skill `diseno` antes; `check:pantalla` antes y después sin fallas nuevas; validación visual a 390 px; spec del texto de la hoja por unidad y del filtro (producto con 2 unidades ofrece 2; sin escalera ofrece las 7). |
-| **4** | C2 | FEFO con conversión (D4): `cantidad × factor` a la unidad base del producto; sin factor, no alimenta y lo dice. Y, si el PM lo quiere, equivalencias «esto son N …». | Antes/después de lo que entra a FEFO con la **misma** consulta del paso 0. Las equivalencias **no** se publican sobre producto de peso sin factor verificado (`UNIDADES_DE_MEDIDA.md` §7.3). |
+| **4** 🧪 2026-11-20 | C2 | FEFO con conversión (D4): `cantidad × factor` a la unidad base del producto; sin factor, no alimenta y lo dice. Y, si el PM lo quiere, equivalencias «esto son N …». | Antes/después de lo que entra a FEFO con la **misma** consulta del paso 0. Las equivalencias **no** se publican sobre producto de peso sin factor verificado (`UNIDADES_DE_MEDIDA.md` §7.3). |
 
 #### 4b. Paso 0 — medido el 2026-10-30 (prod, cuenta `sistemas`, sólo lectura, `system_identifier` 7688376744939610156)
 
@@ -279,6 +279,41 @@ Misma pregunta que el paso 0 (¿la unidad capturada es una que el producto tiene
 - **No medido:** la fecha exacta en que el paso 3 llegó a prod; por eso no se sabe cuáles de los 4 renglones posteriores al 2026-11-08 pasaron ya por el selector filtrado.
 - Siguen: el **paso 4** (FEFO con conversión; la escalera llega sin factor, §4d) y el hallazgo del campo de código que recibe nombres (§4d).
 
+#### 4f. Paso 4 — FEFO en la unidad base (2026-11-20, 🧪 en PR; ADR-125)
+
+**Medido antes (C0, prod, cuenta `sistemas` de sólo lectura, `system_identifier` 7688376744939610156, 2026-11-20).** Cada renglón se clasificó contra `analytics.v_label_presentations` de **su** plaza:
+
+| Clase del renglón | Renglones | Entraron a FEFO | Fechado (tal cual) | Con el paso 4 |
+|---|---:|---:|---:|---:|
+| en la unidad base del producto | 35 | 35 | 535 | 542 (factor 1) |
+| en una presentación **con factor** (45 caja · 2 paquete) | 47 | 47 | **1,248** | **24,365** en la base |
+| en una unidad que el producto **no tiene** en Kepler (66 «pieza» sobre base PAQ) | 66 | 59 | 1,935 | 0 — `unidad_fuera_del_producto` |
+| en la escalera (sin factor) | 1 | 0 | 0 | 0 — `unidad_sin_factor` |
+| sin presentaciones en la plaza | 3 | 1 | 12 | 0 — `sin_presentaciones` |
+| sin unidad | 4 | 2 | 24 | 0 — `sin_unidad` |
+| **Total** | **156** | **144** | **3,754** | hasta **24,907** |
+
+- **La existencia cuenta en la base** (regla 10, contra un testigo independiente): el costo unitario que Kepler guarda con la existencia (`kdik.c16`) es el de la base en **45 de 46** productos con presentación convertible (0.54–0.90 de su precio; ninguno cerca del precio de la caja). `commercial.stock` = `v_erp_stock_on_hand` en los 46.
+- **Hallazgo:** en **26 de 82** renglones convertibles, `cantidad × factor` supera la existencia **de hoy** (no la del día de la captura: ésa no se midió). Con la conversión, «parcial» será más frecuente, y la pantalla lo dirá con su cifra. Puede ser venta posterior, conteo mayor que el sistema o una unidad mal elegida («caja» por «paquete», §4b); no se adivina.
+
+**Lo construido:**
+- **Contrato** (`caducidad-unidad`): `factorDeCaptura(unidades, unidad)` → `{ factor }` o `{ motivo }`. La base vale 1, una presentación vale su factor y **sin factor no se inventa un 1**. `FEFO_MOTIVOS` (10), espejo del CHECK.
+- **Migración `20261120172724`** (aditiva, idempotente, nullable): `fefo_base_qty` (lo movido en la base, lo que se revierte), `fefo_factor` y `fefo_motivo` con CHECK. **No toca filas.** Va en prod **antes** del código: el servidor nuevo escribe esas columnas.
+- **Servicio:** `feedLine` mueve `cantidad × factor` con el factor de la plaza del almacén (una lectura por hoja, antes de bloquear existencias; SAVEPOINT de 5 s). Sin factor, no alimenta y guarda el motivo. `fefo_qty` **no cambia de significado** (unidad capturada), así que la hoja impresa, el expediente y «Capturas por día» siguen diciendo «3 cajas». `unfeedLine` revierte `fefo_base_qty`; en un renglón anterior al paso 4 revierte lo que movió (`fefo_qty`), no `× factor`.
+- **Pantalla:** `estadoFefo` dice el motivo **del servidor**. La inferencia de antes habría dicho «no hay existencia sin fecha» de un renglón al que sólo le falta el factor. Mismo texto en el aviso al guardar, la hoja impresa y el detalle de Almacén. No cambia el diseño: sólo la frase.
+- **Prueba HTTP** (`http-expiry-reviews-test.js`): el almacén de prueba no es plaza de Kepler, así que ahora se espera que **no** feche y que diga `sin_presentaciones`. La alta en sucursal exige la conversión si fechó, o el motivo si no. ⚠️ **NO MEDIDO:** necesita la API local levantada.
+
+**Medido después (local, `:5442`):** contra Postgres real **12/12** (`fefo-unidad-base.servicio-real.spec.ts`: caja, base, kg de bolsa, escalera, unidad ajena, parcial, sin presentaciones, sin unidad, corrección, renglón viejo, hoja de Almacén, invariante y CHECK). Negativas: sin convertir → **5 rojos**; escalera con factor 1 → **3**; revertir `fefo_qty × factor` → **1**; pantalla que ignora el motivo → **3**. Módulo de caducidades **43/43** corrido junto; `modules/comercial` + `modules/tienda` **944/944**; contrato **1,668/1,668**; `tsgo` sin errores nuevos (el único, `apps/api/src/instrument.ts`, ya está en `main`).
+- **Defecto propio cazado:** la spec del paso 3 (`unidades-producto`) sembraba el almacén `94`, que `expediente-dias` también usa. Corridas juntas, una moría en `commercial_warehouses_tenant_code_unique`. Pasa a `86`/`87`; ver §8.0b punto 93.
+
+**Métrica de P2.9, re-medida con más volumen (2026-11-20):** desde el despliegue del paso 2, **24 de 25 renglones (96 %)** están en una unidad que el producto tiene en Kepler en su plaza (paso 0: 46 %). 18 en «paquete», en 5 sucursales y 5 días con captura. El único fuera es una «pieza» de un producto sólo PAQ (SKU 88004, plaza 01). Supera la meta propuesta (≥ 90 %); «sostenido» pide más semanas con la misma consulta.
+
+**No medido / pendiente:**
+- **El «después» en prod** (criterio de cierre): lo que entra a FEFO con las capturas nuevas, con la misma clasificación. Se mide cuando el paso 4 esté en prod.
+- **Arranque de la API**: no cambian ni el constructor ni los decoradores, sólo métodos privados y un `select`.
+- **`[P2.9.4.D1]` — decisión del PM:** los **113** renglones viejos (47 convertibles + 66 en unidad ajena) siguen fechados tal cual. Reconvertirlos movería lotes que ya se consumieron en parte. Opciones: no tocarlos (recomendado: son de oct-nov y su caducidad ya pasó o está cerca), o un ajuste puntual por sucursal.
+- **Equivalencias «esto son N …»** (opcional en el plan): no se construyeron. Con `fefo_factor` guardado, la hoja podría decir «3 cajas = 72 paquetes». Queda para cuando el PM lo pida.
+
 #### 5. Consulta de medición del paso 0 (solo lectura — ejecutada el 2026-10-30, ver §4b)
 
 ```sql
@@ -301,6 +336,7 @@ La segunda consulta (unidad capturada contra **las unidades del producto**) cruz
 - **PAQ histórico.** No se puede saber cuántas «caja» eran paquetes sin medir (paso 0); no se corrige por regla.
 - **El filtro depende del catálogo.** Si la escalera de un producto está mal, el selector ofrece lo equivocado; por eso la salida «otra unidad» y la métrica de capturas fuera de la escalera.
 - **No incluye:** cubetas (D5), cambiar `feedLine` antes del paso 4, ni tocar la captura del Andén (ya cuenta en la unidad del vale).
+- **Paso 4: fechan MENOS renglones.** Lo que antes entraba tal cual en una unidad sin factor ahora no entra (74 de 156 en el historial), y el renglón lo dice. Es la decisión D4, no un defecto: una existencia fechada con la unidad equivocada adelanta o atrasa un vencimiento.
 
 #### 7. Definición de Terminado (los 7 puntos de `METODO_DE_TRABAJO` §5, aplicados)
 

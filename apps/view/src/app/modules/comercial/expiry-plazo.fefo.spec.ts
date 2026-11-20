@@ -1,4 +1,5 @@
-import { estadoFefo, mensajeFefo } from './expiry-plazo';
+import { FEFO_MOTIVOS } from '@megadulces/contracts';
+import { estadoFefo, mensajeFefo, motivoFefoEnTexto } from './expiry-plazo';
 
 /**
  * `[P2.6.12]` «Ya se reflejó» sólo cuando se reflejó TODO.
@@ -47,6 +48,45 @@ describe('estadoFefo · cuánto de lo capturado llegó al inventario', () => {
 
   it('una línea sin banderas (la hoja vieja o el detalle sin cargar) no revienta', () => {
     expect(estadoFefo({})).toMatchObject({ nivel: 'ninguno', reflejado: 0, capturado: 0 });
+  });
+});
+
+/**
+ * `[P2.9 paso 4]` Desde que FEFO convierte a la unidad base, el motivo lo dice el SERVIDOR (`fefo_motivo`).
+ * La inferencia de antes diría «no tiene existencia sin fecha» de un renglón que no fechó porque Kepler no
+ * trae el factor de su unidad: una afirmación falsa (Ley 0 del estándar).
+ */
+describe('[P2.9 paso 4] estadoFefo dice el motivo del servidor', () => {
+  it('⛔ NEGATIVA — sin factor NO se dice «no hay existencia sin fecha»: se dice que falta el factor', () => {
+    const e = estadoFefo({ fed_to_fefo: false, fefo_qty: 0, quantity: 2, product_id: 'p1', unit: 'pieza', fefo_motivo: 'unidad_sin_factor' });
+    expect(e.nivel).toBe('ninguno');
+    expect(e.motivo).not.toMatch(/existencia sin fecha/);
+    expect(e.motivo).toBe('Kepler no dice a cuánto del inventario equivale «pieza» en este producto');
+  });
+
+  it('una unidad que el producto no tiene en Kepler se nombra en plural', () => {
+    expect(estadoFefo({ fed_to_fefo: false, quantity: 6, product_id: 'p1', unit: 'pieza', fefo_motivo: 'unidad_fuera_del_producto' }).motivo)
+      .toBe('en Kepler este producto no se maneja en piezas');
+  });
+
+  it('parcial: el motivo del servidor manda; sin él, el de siempre', () => {
+    const e = estadoFefo({ fed_to_fefo: true, fefo_qty: '4.167', quantity: '10.000', product_id: 'p1', unit: 'caja', fefo_motivo: 'existencia_sin_fecha_insuficiente' });
+    expect(e).toMatchObject({ nivel: 'parcial', reflejado: 4.167, faltante: 10 - 4.167 });
+    expect(e.motivo).toMatch(/no tenía más existencia sin fecha/);
+  });
+
+  it('total: no hay motivo aunque el renglón traiga uno viejo', () => {
+    expect(estadoFefo({ fed_to_fefo: true, fefo_qty: 10, quantity: 10, product_id: 'p1', fefo_motivo: null }).motivo).toBeNull();
+  });
+
+  it('cada motivo del contrato tiene su frase (ninguno sale crudo), y uno desconocido sale crudo', () => {
+    for (const m of FEFO_MOTIVOS) expect(motivoFefoEnTexto(m, 'caja')).not.toBe(m);
+    expect(motivoFefoEnTexto('motivo_del_futuro')).toBe('motivo_del_futuro');
+  });
+
+  it('el mensaje al guardar lo lleva tal cual', () => {
+    expect(mensajeFefo(estadoFefo({ fed_to_fefo: false, quantity: 2, product_id: 'p', unit: 'kg', fefo_motivo: 'sin_presentaciones' }), 'kg').detail)
+      .toBe('Guardado, pero no movió inventario: Kepler no publica las presentaciones de este producto en esta sucursal, y sin ellas no se sabe a cuánto inventario equivale lo contado.');
   });
 });
 
