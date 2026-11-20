@@ -218,6 +218,15 @@ Un pedido TELEMARK se autoriza **solo** si se cumplen **todas**:
    día**: se lista aparte, con su cifra, para que alguien decida si sigue vivo. Así quedan fuera los 782 de
    Zamora Centro sin que la Suite cancele nada.
 
+8. **No es de la ruta vecinal** (D-A13, Edgar, 2026-11-20): un pedido capturado por un vendedor `3V…` (`kdm1.c12`) va
+   aparte aunque diga TELEMARK.
+
+**CONTADO** (D-A12, Edgar, 2026-11-20): a la cuenta de venta de contado no le aplican las condiciones de crédito (1, 2 y
+3); las demás sí. No pasa por Crédito y cobranza.
+
+Medido el 2026-11-20 con las dos decisiones: **la bandeja baja de 64 pedidos a 8**; aparte, 789 (605 de la ruta
+vecinal); de contado, 6.
+
 **Quién decide lo que no pasa la regla** (D-A2, Edgar, 2026-11-19): **Crédito y cobranza** (rol
 `credito_cobranza`). Lo que Crédito y cobranza **no autoriza sube a Dirección General** (rol `direccion`),
 con el motivo de Crédito y cobranza y la misma ficha. Crédito y cobranza **puede regresar un pedido
@@ -447,8 +456,8 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | **D-A8** | ¿Se contrata Buró de Crédito o Círculo de Crédito? | Primero lo gratis y de casa (listas del SAT y pedir RFC al renovar); el buró sólo si después de 2 semanas de piloto Crédito y cobranza dice que le falta información para los excedidos sin historial (306 pedidos en 60 días) | ⬜ Edgar (costo y contrato) |
 | **D-A9** | «Si no, Dirección General»: ¿sube sólo lo que Crédito y cobranza **rechaza**, o también lo que **no atiende** en cierto tiempo? | Las dos: lo rechazado sube de inmediato, y lo que lleve más de un día hábil sin atender también, para que el pedido no se quede detenido | ⬜ Edgar |
 | **D-A11** | ¿Cómo se asignan los RFC que ya tenemos (2 de CFDI + 30 candidatos de ContPAQi)? | La ficha los muestra como «RFC probable (ContPAQi)»; Crédito y cobranza los confirma con la constancia al renovar el crédito y los captura en Kepler. Que la Suite escriba `kdud` sería abrir lo que ALC D1-b cerró | ⬜ Edgar |
-| **D-A12** | Los pedidos TELEMARK a **CONTADO** (la cuenta de venta de contado; 20 en CREADO, 4 de ellos de este mes fuera de Zamora Centro): ¿necesitan autorización de crédito? | No: un pedido de contado no usa crédito. Que se autoricen solos o no pasen por esta bandeja. Mientras tanto la bandeja los marca «de contado» y no les calcula «por cobrar» | ⬜ Edgar |
-| **D-A13** | Los pedidos de la **ruta vecinal** (vendedor `3V…`) capturados como TELEMARK: hoy son **49 de los 64** que vería la bandeja, todos de Zamora Centro y nunca facturados | Mandarlos a «aparte» con la etiqueta «ruta vecinal», no a la bandeja del día | ⬜ Edgar |
+| **D-A12** | Los pedidos TELEMARK a **CONTADO** (la cuenta de venta de contado; 20 en CREADO, 4 de ellos de este mes fuera de Zamora Centro): ¿necesitan autorización de crédito? | No: un pedido de contado no usa crédito. Que se autoricen solos o no pasen por esta bandeja | ✅ **Edgar, 2026-11-20** («apliquémoslos»): a CONTADO no le aplican las condiciones 1–3; sale de la bandeja a su propia lista. Hoy: 6 |
+| **D-A13** | Los pedidos de la **ruta vecinal** (vendedor `3V…`) capturados como TELEMARK: hoy son **49 de los 64** que vería la bandeja, todos de Zamora Centro y nunca facturados | Mandarlos a «aparte» con la etiqueta «ruta vecinal», no a la bandeja del día | ✅ **Edgar, 2026-11-20** («apliquémoslos»): condición 8 de la regla; ni automático ni bandeja. Hoy: 605 de los 789 de aparte |
 | **D-A10** | Parámetros nuevos: «pedido viejo» (propuesta 30 días sin movimiento) y «crédito por renovar» (propuesta 12 meses sin revisión) | Que los fije Crédito y cobranza, junto con D-A6 | ⬜ Crédito y cobranza |
 
 ---
@@ -460,6 +469,7 @@ construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
 | 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
 | 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
 | 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
+| 2026-11-20 | **D-A12 y D-A13 aplicadas** (Edgar: «apliquémoslos»): CONTADO sin condiciones de crédito y fuera de la bandeja; ruta vecinal como condición 8, a «aparte». La bandeja de hoy baja de 64 a 8 pedidos | Claude |
 | 2026-11-20 | **GP.A.4 pantalla (sólo lectura)**: `/finanzas/cartera/por-autorizar` como tercer segmento de Cartera, con la maqueta aprobada: `app-metric-strip` (esperan / viejos, aparte), una frase por pedido, panel con los 3 números de Kepler y «Para decidir». La compuerta Q.1 se resolvió con la pieza del sistema, no se selló. 9 pruebas; `ngc --noEmit` sin errores. Falta: verla con datos (nivel A), GP.A.2 para encender Autorizar, y D-A12/D-A13 | Claude |
 | 2026-11-20 | **GP.A.4 servidor 🔨** y la regla mudada a `libs/contracts` (`libs/finance` no puede importar `libs/commercial`). Medido en prod: la bandeja de hoy tendría 64 pedidos, **49 de la ruta vecinal de Zamora Centro** y 6 de CONTADO; telemarketing de verdad, 11 → D-A12 y D-A13. La consulta principal tardaba 245 s (el planificador estimaba 1 pedido) y queda en 92 ms | Claude |
 | 2026-11-20 | **La pantalla, aprobada** (Edgar: «listo, podemos empezar a trabajar mediante eso»). Vive en Cartera, no en el Tablero (`credito_cobranza` abre Cartera 24 de 30 días; el Tablero, nunca). Se simplificó a pedido de Edgar con `auditoria-diseno`: bandeja de ~22 controles y ~68 cifras a ~12 y ~28; panel de ~70 cifras a ~14. Nueva §3.6 con las cinco preguntas, el panel y **qué revisa Crédito y cobranza al autorizar a mano**. GP.A.4 y GP.A.5 reescritos | Claude |
