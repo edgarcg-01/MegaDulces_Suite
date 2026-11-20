@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import knexFactory from 'knex';
-import { EXISTENCIA_ODS_CON_APARTADO_SQL, EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
+import { APARTADO_VIVO_SQL, EXISTENCIA_ODS_CON_APARTADO_SQL, EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
 
 /**
  * `[CANON.7.2]` Los reportes leen la existencia del ODS, no la copia `commercial.stock` del importer
@@ -48,8 +48,8 @@ const LECTORES_B: Array<[archivo: string, quedan: number, porque: string]> = [
   ['apps/api/src/composition/commerce-conversation.binding.module.ts', 0, 'B1 bot de WhatsApp (enrichMeta)'],
   ['libs/commercial/src/lib/commercial-catalog-search/commercial-catalog-search.service.ts', 0, 'B2 catálogo del portal · B3 facetas'],
   ['libs/commercial/src/lib/commercial-pricing/commercial-pricing.service.ts', 0, 'B4 lista de precios · B5 más vendidos'],
-  ['libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts', 1,
-    'B6 detalle de pedido: su tope tiene que cuadrar con reserve(), que valida contra la copia con candado → [CANON.7.4]'],
+  ['libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts', 0,
+    'B6 detalle de pedido: lee lo mismo con lo que valida reserve() ([CANON.7.4b])'],
   ['libs/commercial/src/lib/commercial-picking/picking.service.ts', 0, 'B7 Reparto › Faltantes y sus sugerencias'],
   ['libs/commercial/src/lib/commercial-intelligence/thot-chat/portal-thot-tools.service.ts', 0, 'B9 · B10 Thot del portal'],
   ['libs/commercial/src/lib/commercial-intelligence/thot-chat/vendor-thot-tools.service.ts', 0, 'B11 Thot del vendedor'],
@@ -125,11 +125,13 @@ describe('[CANON.7.3] los lectores clase B ya no leen la copia', () => {
 });
 
 describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el apartado de la app', () => {
-  it('la cantidad sale del ODS; de la copia sólo el apartado, que es dato propio', () => {
+  it('la cantidad sale del ODS y el apartado, que es dato propio, del libro de movimientos ([CANON.7.4b]): nada de la copia', () => {
     expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain(`FROM ${EXISTENCIA_ODS_SQL} o`);
     expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('o.quantity');
     expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('COALESCE(ap.reserved_quantity, 0)');
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain(`LEFT JOIN ${APARTADO_VIVO_SQL} ap`);
     expect(EXISTENCIA_ODS_CON_APARTADO_SQL).not.toMatch(/ap\.quantity/);
+    expect(lecturasDeLaCopia(EXISTENCIA_ODS_CON_APARTADO_SQL)).toEqual([]);
   });
 
   it('listStock la usa y ya no lee la cantidad de la copia', () => {
@@ -190,5 +192,79 @@ describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el aparta
     }
     expect(c).toMatch(/tr\.in-row-low td:first-child::after/);
     expect(c).not.toMatch(/tr\.in-row-(low|zero) td:first-child::before/);
+  });
+});
+
+/**
+ * `[CANON.7.4b]` Los pedidos apartan, entregan y liberan sin tocar la copia. La copia exige
+ * `quantity >= reserved_quantity`: apartar contra el ODS con la copia rezagada (el CEDIS desde el 16-oct; toda la red
+ * en `[CANON.7.5]`) la rompería u obligaría a escribir la cantidad en la copia. El apartado se DERIVA del libro de
+ * movimientos; medido en prod el 2026-11-20, da lo mismo que la columna (un apartado vivo, 15 piezas).
+ */
+describe('[CANON.7.4b] los pedidos: existencia del ODS, apartado del libro de movimientos', () => {
+  const leer = (rel: string) => readFileSync(join(LIB, rel), 'utf8').split('\r\n').join('\n');
+  const cuerpoDe = (f: string, firma: string) => {
+    const i = f.indexOf(firma);
+    expect(i, firma).toBeGreaterThan(0);
+    const fin = f.indexOf('\n  async ', i + 10);
+    return f.slice(i, fin > 0 ? fin : undefined);
+  };
+
+  it('el apartado vivo sale SÓLO del libro: apartado − liberado por referencia, sin bajar de cero, de pedidos y reservas vivos', () => {
+    expect(lecturasDeLaCopia(APARTADO_VIVO_SQL)).toEqual([]);
+    expect(APARTADO_VIVO_SQL).toContain('FROM commercial.stock_movements m');
+    expect(APARTADO_VIVO_SQL).toContain(`m.movement_type IN ('reserve', 'release')`);
+    expect(APARTADO_VIVO_SQL).toMatch(/GREATEST\(sum\(CASE WHEN m\.movement_type = 'reserve' THEN m\.quantity ELSE -m\.quantity END\), 0\)/);
+    expect(APARTADO_VIVO_SQL).toMatch(/GROUP BY m\.tenant_id, m\.warehouse_id, m\.product_id, m\.reference_type, m\.reference_id/);
+    expect(APARTADO_VIVO_SQL).toContain(`po.status NOT IN ('fulfilled', 'cancelled')`);
+    expect(APARTADO_VIVO_SQL).toContain('pr.released_at IS NULL');
+  });
+
+  it('apartar, entregar y liberar no leen ni escriben la copia, ni el cron que vence las reservas del bot', () => {
+    for (const rel of ['commercial-orders/order-stock.service.ts', 'commercial-stock-reservation/stock-reservation-cron.service.ts']) {
+      expect(lecturasDeLaCopia(leer(rel)).map((l) => l.trim()), rel).toEqual([]);
+    }
+  });
+
+  it('apartar valida existencia del ODS − apartado, con candado por (almacén, producto)', () => {
+    const r = cuerpoDe(leer('commercial-orders/order-stock.service.ts'), 'async reserve(');
+    expect(r).toContain('await bloquearExistencia(trx, warehouseId, productId)');
+    expect(r).toContain('existenciaYApartado(trx, warehouseId, productId)');
+    expect(r).toMatch(/if \(existencia - apartado < quantity\)/);
+    expect(r).toContain(`tipo: 'reserve'`);
+  });
+
+  it('entregar valida contra el ODS y NO resta nada (la venta la descuenta Kepler)', () => {
+    const c = cuerpoDe(leer('commercial-orders/order-stock.service.ts'), 'async consume(');
+    expect(c).toContain('await bloquearExistencia(trx, warehouseId, productId)');
+    expect(c).toMatch(/if \(existencia < quantity\)/);
+    expect(c).not.toMatch(/\.update\(/);
+    expect(c).not.toMatch(/stock_lot_movements/); // la traza por lote decía siempre NA (8 de 8 en 90 días)
+    expect(c).toContain(`tipo: 'sale'`);
+  });
+
+  it('liberar topa en lo que ESA referencia apartó (antes: lo apartado en todo el almacén)', () => {
+    const l = cuerpoDe(leer('commercial-orders/order-stock.service.ts'), 'async release(');
+    expect(l).toContain('apartadoDeReferencia(trx, referenceType, orderId, warehouseId, productId)');
+    expect(l).toContain('Math.min(propio, quantity)');
+    const cron = leer('commercial-stock-reservation/stock-reservation-cron.service.ts');
+    expect(cron).toContain(`apartadoDeReferencia(trx, 'reservation', r.id, l.warehouse_id, l.product_id)`);
+  });
+
+  it('sólo se aparta con referencia «order» o «reservation», las dos que el apartado vivo sabe cuándo mueren', () => {
+    const llamadas = [
+      ...leer('commercial-orders/commercial-orders.service.ts').matchAll(/this\.stock\.reserve\(([^;]*?)\);/g),
+      ...leer('commercial-stock-reservation/stock-reservation.service.ts').matchAll(/this\.stock\.reserve\(([^;]*?)\);/g),
+    ].map((m) => m[1].split(',').map((s) => s.trim()));
+    expect(llamadas.length).toBe(5); // confirmar, tomar en campo, entregar ya, editar renglón; y la reserva del bot
+    for (const args of llamadas) expect([5, 6]).toContain(args.length);
+    for (const args of llamadas.filter((a) => a.length === 6)) expect(args[5]).toBe(`'reservation'`);
+  });
+
+  it('el detalle de pedido (B6) lee lo mismo con lo que valida reserve(), acotado con constantes a lo del pedido', () => {
+    const f = readFileSync(join(RAIZ, 'libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts'), 'utf8').split('\r\n').join('\n');
+    expect(f).toContain('FROM ${EXISTENCIA_ODS_CON_APARTADO_SQL} x');
+    expect(f).toContain('WHERE x.warehouse_id = ANY(?::uuid[]) AND x.product_id = ANY(?::uuid[])) AS s');
+    expect(f).toContain('.leftJoin(existenciaDelPedido, function () {');
   });
 });

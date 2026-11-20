@@ -2,14 +2,16 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
+import { apartadoDeReferencia, bloquearExistencia } from '../commercial-inventory/stock-state';
 
 /**
  * FIQ.6 (ADR-038) — Cron de auto-liberación de apartados vencidos.
  *
  * Cada 5 min libera las reservas con `expires_at < NOW()` que sigan activas
- * (released_at IS NULL): devuelve el `reserved_quantity` de cada línea a stock,
- * escribe un movimiento 'release' (reference_type='reservation') y marca la
- * reserva `released_reason='expired'`.
+ * (released_at IS NULL): escribe un movimiento 'release' (reference_type='reservation')
+ * por lo que cada línea tenía apartado y marca la reserva `released_reason='expired'`.
+ * Desde `[CANON.7.4b]` no toca la copia `commercial.stock`: el apartado se deriva del
+ * libro de movimientos (`APARTADO_VIVO_SQL`).
  *
  * Cross-tenant: el cron es un job global del API sin tenant context. Usa
  * `KNEX_NEW_DB_ADMIN` (rol postgres, BYPASSRLS) y opera keyed por el `tenant_id`
@@ -46,26 +48,21 @@ export class StockReservationCronService {
             .where({ tenant_id: r.tenant_id, reservation_id: r.id })
             .select('product_id', 'warehouse_id', 'quantity');
 
+          // `[CANON.7.4b]` El apartado vive en el libro de movimientos, no en la copia: se escribe la liberación
+          // de lo que ESTA reserva tiene apartado y nada más (marcarla `released_at` ya la saca del apartado vivo).
           for (const l of lines) {
-            const stockRow = await trx('commercial.stock')
-              .where({ tenant_id: r.tenant_id, warehouse_id: l.warehouse_id, product_id: l.product_id })
-              .forUpdate()
-              .first('id', 'quantity', 'reserved_quantity');
-            if (!stockRow) continue;
-            const rBefore = Number(stockRow.reserved_quantity);
-            const rel = Math.min(rBefore, Number(l.quantity));
+            await bloquearExistencia(trx, l.warehouse_id, l.product_id);
+            const propio = await apartadoDeReferencia(trx, 'reservation', r.id, l.warehouse_id, l.product_id);
+            const rel = Math.min(propio, Number(l.quantity));
             if (rel <= 0) continue;
-            await trx('commercial.stock')
-              .where({ id: stockRow.id })
-              .update({ reserved_quantity: rBefore - rel, updated_at: trx.fn.now() });
             await trx('commercial.stock_movements').insert({
               tenant_id: r.tenant_id,
               warehouse_id: l.warehouse_id,
               product_id: l.product_id,
               movement_type: 'release',
               quantity: rel,
-              quantity_before: Number(stockRow.quantity),
-              quantity_after: Number(stockRow.quantity),
+              quantity_before: null,
+              quantity_after: null,
               reference_type: 'reservation',
               reference_id: r.id,
             });
