@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2953 KB, 15246 líneas, 78 secciones.
+> **Índice navegable** — 2954 KB, 15247 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -70,21 +70,21 @@
 | 13998 | 14012 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
 | 14013 | 14054 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 14055 | 14221 | 82 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 14222 | 14252 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14253 | 14529 | 58 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14530 | 14594 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14595 | 14603 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14604 | 14662 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14669 | 14678 | 1 | 📝 Convenciones |
-| 14679 | 14716 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14717 | 14735 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14736 | 14788 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14789 | 15183 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15184 | 15214 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15215 | 15236 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15237 | 15264 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15265 | 15308 | 45 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15309 | 15336 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14222 | 14253 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 14254 | 14530 | 58 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14531 | 14595 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14596 | 14604 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14605 | 14663 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14670 | 14679 | 1 | 📝 Convenciones |
+| 14680 | 14717 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14718 | 14736 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14737 | 14789 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14790 | 15184 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15185 | 15215 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15216 | 15237 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15238 | 15265 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15266 | 15309 | 45 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15310 | 15337 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14247,6 +14247,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
       ⚠️ Exige una corrida real de CI, o sea un push/PR — no se puede medir local sin inventar el número.
 - [ ] **[CD.9]** ⬜ Confirmar en una corrida real que la acotación pone el `verify` en verde. Local ya se
       verificó sobre el commit que fallaba: `exit=1` → `exit=0`.
+- [x] **[CD.10]** 🧪 (2026-11-20) **Una compuerta que se cuelga o muere ya no cuenta como «nada rojo».** Medido ese día: `lint-boundary-gate` se quedó 10 min sin CPU ni hijos en un push; al matarla, `gate-push` la clasificó «deuda preexistente (no frena)» y dio «nada rojo en tus archivos» sin haber medido. Ahora cada compuerta tiene tope (180 s; las 28 juntas tardan 10–75 s) y la que lo vence, muere por señal o sale roja SIN imprimir nada (en Windows matar un proceso no deja señal) es NO MEDIDA y frena con su motivo (fail-closed, ADR-056). `npm run check:gate-push:self`: colgada, matada, roja ajena (sigue siendo deuda), roja tuya y verde, 5/5; mutante (quitar la rama nueva) → 2 en rojo. Antes de soltarla: las 28 reales sobre el árbol, 5 rojas y **ninguna muda** (no frena a nadie de más). Pendiente: la causa del cuelgue de boundary (NO MEDIDA).
 
 ---
 
