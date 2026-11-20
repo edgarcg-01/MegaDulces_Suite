@@ -30,6 +30,12 @@ export interface ParametrosAutorizacion {
   graciaDias: number;
   /** Un pedido con más de estos días sin movimiento es «viejo» y se lista aparte (D-A4/D-A10). */
   pedidoViejoDias: number;
+  /**
+   * Los OTROS pedidos abiertos del cliente que cuentan contra su crédito: los de estos últimos días. Aparte de
+   * `pedidoViejoDias` porque son preguntas distintas: un pedido AUTORIZADO de hace una semana sin surtir sigue
+   * comprometiendo crédito, aunque un CREADO de esa edad ya esté muerto.
+   */
+  abiertosHorizonteDias: number;
   /** La cartera y el pedido se leyeron hace a lo más estos minutos (condición 5). */
   frescuraMaxMin: number;
 }
@@ -37,7 +43,13 @@ export interface ParametrosAutorizacion {
 /** La propuesta del anexo (§3.1, D-A6, D-A10). NO está firmada: es lo que se le propone a Crédito y cobranza. */
 export const PARAMETROS_PROPUESTOS: Readonly<ParametrosAutorizacion> = Object.freeze({
   graciaDias: 15,
-  pedidoViejoDias: 30,
+  // Medido en prod el 2026-11-20 (TELEMARK de 60 días, sin cancelados ni ruta vecinal): de los capturados hace 0–1
+  // días quedan en CREADO 0 de 115; de ahí en adelante, un 1 % que ya no baja (2 de 121 a los 2–3 días, 18 de 1,387 a
+  // los 31–60): todo lo que se autoriza se autoriza el mismo día o al siguiente. Lo que sigue en CREADO después es
+  // un pedido muerto. Crédito y cobranza lo dijo de los 6 de contado del reporte (de 3 a 30 días): «eran viejos y no
+  // debían pasar». Antes, 30 (propuesta sin medir).
+  pedidoViejoDias: 2,
+  abiertosHorizonteDias: 30,
   frescuraMaxMin: 15,
 });
 

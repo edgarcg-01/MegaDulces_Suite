@@ -65,7 +65,7 @@ describe('[GP.A.2] fotoDeLaRegla', () => {
     const f = fotoDeLaRegla(pedido(), '2026-11-20T20:00:00Z') as Record<string, Record<string, unknown>>;
     expect(f['decision']).toBe('bandeja');
     expect(f['numeros']).toMatchObject({ importe: 1_500, limite: 10_000, por_cobrar_kepler: 9_000, otros_pedidos: 0 });
-    expect(f['parametros']).toMatchObject({ graciaDias: 15, pedidoViejoDias: 30 });
+    expect(f['parametros']).toMatchObject({ graciaDias: 15, pedidoViejoDias: 2, abiertosHorizonteDias: 30 });
     expect(f['data_as_of']).toBe('2026-11-20T20:00:00Z');
   });
 });
