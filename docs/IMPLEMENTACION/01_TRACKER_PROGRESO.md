@@ -1864,7 +1864,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         documentos y $0.05 de $69,589,609 — no se gana nada; el árbitro de CXC.45 vigila las dos columnas.
       · **Probado:** spec de Cartera 25/25 (2 nuevas: el caso negativo y el positivo); mutante (la condición vieja
         `!== 0`) la pone roja. `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual.**
-- [ ] **[CXC.47]** 🧪 (en código, sin soltar) **El estado de cuenta del cliente trae las pagadas y las no pagadas, a
+- [x] **[CXC.47]** ✅ (en prod el 2026-11-20, `a8667f600`; /api/health sirvió `49899887a`) **El estado de cuenta del cliente trae las pagadas y las no pagadas, a
       detalle, por el periodo que se elija, y se manda al cliente y al vendedor** (Edgar, 2026-11-20).
       · **PDF:** además de las abiertas (todas, de cualquier fecha), una sección «Facturas pagadas» del periodo: entra la
         que se facturó o se terminó de pagar dentro de él; las de importe cero (canceladas) no. Debajo de CADA factura,
@@ -1885,7 +1885,7 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         periodo, PDF sin periodo, siempre «por defecto», vendedor como botón primario: 4/4). `ngc --noEmit`: 0 errores;
         `check:pantalla finanzas-cartera`: 0 fallas nuevas. **Sin validación visual** (ni del PDF ni de la ficha).
         Arranque: sólo se agregó un `@Query` de tipo `string` (sin tocar constructores); `design:paramtypes` no medido.
-- [ ] **[CXC.48]** 🧪 (en código, sin soltar; la escritura en Kepler nace APAGADA) **Los teléfonos de la cartera: el del
+- [x] **[CXC.48]** ✅ (en prod el 2026-11-20, `464e2c7ec`; con CXC.48.1, /api/health sirve `e6c6c16e8`; ENCENDIDA sólo en Canindo) **Los teléfonos de la cartera: el del
       cliente se corrige EN KEPLER en cada sucursal donde está dado de alta, y el del vendedor en la Suite** (Edgar,
       2026-11-20: «actualizar los números de teléfono e insertarlos en Kepler, dependiendo en cuántas sucursales esté
       dado de alta, y el del vendedor»).
@@ -1919,6 +1919,17 @@ saldos distintos del mismo universo y ofrecía filtrar sólo el 21% de la carter
         md.kdud` e `INSERT ON md.kdlogmov`; (4) un ensayo con ROLLBACK contra las 10; (5) encender UNA sucursal
         (`kepler_push_switch`, tipo `telefono_cliente`) y revisar el primer cambio en la ficha de Kepler de dos
         sucursales y en el concentrador.
+      · **[CXC.48.1] Encendido (2026-11-20, Edgar: «encendámosla»):** sin el concentrador (Kepler no tiene su dirección;
+        sale como `omitida`, con su motivo). GRANT en las 9 bases (Edgar, con `~/grants-cxc48/aplicar.sh` desde md: el
+        superusuario sólo entra desde ahí) y ensayo con ROLLBACK, SQL real del adaptador en el pod: antes de los permisos
+        0/9 («permiso denegado»), después **9/9** (escribe, relee, 1 renglón de bitácora, el ROLLBACK lo deja como estaba).
+        Interruptor `telefono_cliente` encendido SÓLO en Canindo (06), tope 5/día. Falta el primer cambio real y verlo en
+        la ficha de Kepler de dos sucursales.
+- [x] **[CXC.49]** ✅ (en prod el 2026-11-20, `49899887a`) **Los 5 botones de Cartera que salían VACÍOS** («Reintentar»,
+      «Sí, cancelar», «No», «Registrar», «Cerrar»): en PrimeNG 22 `label=` estático en `pButton` no pinta nada, sin error ni
+      aviso, y `ngc` no lo ve (un atributo fijo no es un enlace). Pasan a `<span class="p-button-label">`. Lo trajo CXC.41
+      (17-nov) y frenaba `check-primeng-api` en el pre-push de todo el equipo (24 contra el techo de 21; ahora 19). Prueba
+      7b: ningún `pButton` de la ficha sin texto; el mutante (`label=` de vuelta) la pone roja.
 - [ ] **[CC.21.1]** 🧪 **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
 - [x] **[CC.21.1]** ✅ (en prod el 2026-11-18, `bbd1d0131`) **Lo que le faltaba a CC.21** (Edgar, 2026-11-17: «hagamos lo que falta»).
       · **Aviso en vivo al llegar el banco, sin migración:** Bancos ya emite `pg_notify('bancos_movimientos')` al cargar el
