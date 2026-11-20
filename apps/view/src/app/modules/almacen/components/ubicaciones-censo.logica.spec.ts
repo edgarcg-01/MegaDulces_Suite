@@ -97,19 +97,15 @@ describe('[UB.RF.11] lugaresEnPalabras', () => {
   });
 });
 
-describe('[UB.RF.11] presentacionParaLugar', () => {
-  const d = (asignaciones: ReturnType<typeof A>[] = []) => ({ ...MAZAPAN, asignaciones });
-  it('la presentación señalada gana', () => {
-    expect(presentacionParaLugar(d(), 'surtido_fijo', 2)).toEqual({ peldano: 2 });
+describe('[UB.RF.13] presentacionParaLugar — paquete O caja', () => {
+  it('la presentación leída por su código de barras gana', () => {
+    expect(presentacionParaLugar(MAZAPAN, 2)).toEqual({ peldano: 2 });
   });
-  it('sin señalar: la única que todavía no tiene ese papel', () => {
-    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA052')]), 'surtido_fijo', null)).toEqual({ peldano: 2 });
+  it('con una sola presentación no hay nada que preguntar', () => {
+    expect(presentacionParaLugar({ presentaciones: [MAZAPAN.presentaciones[0]] }, null)).toEqual({ peldano: 1 });
   });
-  it('NEGATIVA: si las dos (o ninguna) lo tienen, se PREGUNTA; no se adivina', () => {
-    expect(presentacionParaLugar(d(), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
-    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA052'), A(2, 'surtido_fijo', 'BA053')]), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
-  });
-  it('un lugar en una ubicación dada de baja no cuenta como «ya lo tiene»', () => {
-    expect(presentacionParaLugar(d([A(1, 'surtido_fijo', 'BA061', 'baja')]), 'surtido_fijo', null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
+  it('⭐ NEGATIVA: con PAQ y CJA y sin código, se PREGUNTA — aunque el PAQ ya tenga lugar, no se deduce la CJA', () => {
+    expect(presentacionParaLugar(MAZAPAN, null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
+    expect(presentacionParaLugar({ ...MAZAPAN, asignaciones: [A(1, 'surtido_fijo', 'BA052')] }, null)).toMatchObject({ opciones: [{ peldano: 1 }, { peldano: 2 }] });
   });
 });

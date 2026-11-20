@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Changed — Almacén › Ubicaciones: las etiquetas de tienda salen en la TSC TE200, rollo amarillo (UB.RF.14 · 2026-11-20)
+- En tienda, «Imprimir etiquetas» ya no arma una hoja carta: manda las etiquetas a la TSC TE200 con el rollo amarillo, 3 por fila, de 3.2 × 4.8 cm, con el código grande y su código de barras. Al imprimir se elige la TSC.
+
+### Fixed — Almacén › Ubicar productos: un producto va en paquete O en caja (UB.RF.13 · 2026-11-20)
+- La ficha del producto pedía un lugar de tienda y uno de bodega para cada presentación, y un producto con su paquete ya en tienda seguía diciendo «falta» en la caja. Ahora pide Tienda y Bodega una vez por producto, y cada lugar dice en qué presentación está («TA011 PAQ»).
+- Al escanear una ubicación sin haber leído el código de barras del producto, la pantalla ya no escoge la presentación: si hay más de una, pregunta «¿va en PAQ o CJA?».
+
 ### Added — Almacén › Ubicaciones: etiquetas chicas para la tienda (UB.RF.12 · 2026-11-19)
 - En tienda, «Imprimir» saca etiquetas de 6.7 × 2.5 cm con el código y su código de barras, 30 por hoja carta de etiquetas adhesivas, para pegarlas en el canto del anaquel sin tapar el producto. En bodega sigue el cartel grande.
 - Al leer la etiqueta en «Ubicar productos» se elige esa ubicación: no hay que teclear nada.

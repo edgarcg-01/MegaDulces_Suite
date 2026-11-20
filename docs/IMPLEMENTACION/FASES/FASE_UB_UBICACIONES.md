@@ -413,6 +413,82 @@ Pruebas: 5 nuevas, que con el arreglo roto dan 2 en rojo.
   milímetro, y la nota de la pantalla pide imprimir una de prueba en papel normal y empalmarla;
 - que el lector de la tienda la lea, que se prueba con esa misma hoja.
 
+### 8.4 Un producto va en paquete O en caja (UB.RF.13, 2026-11-20) 🧪
+
+**El pedido** (Edgar, 2026-11-20): «en `/almacen/ubicaciones/asignacion` deducimos que debe ser
+paquete y caja, y la realidad es que puede ser paquete o caja».
+
+**El defecto** era de la pantalla, no del dato. El servidor ya contaba por producto: «con lugar para
+surtir» y «con lugar en tienda» valen si cualquiera de sus presentaciones lo tiene. Pero la ficha del
+producto (UB.RF.11) cometía dos errores:
+- **Pedía lugares por presentación.** Dibujaba un bloque por presentación, con tienda y bodega cada
+  uno. Un producto con PAQ y CJA pedía cuatro lugares, y con su PAQ ya en tienda seguía diciendo
+  «Tienda: falta» en el bloque de la CJA.
+- **Elegía la presentación por su cuenta.** Al escanear una ubicación sin haber leído el código de
+  barras, se iba a «la presentación que todavía no tiene ese lugar». Con el PAQ ya en bodega, una
+  segunda ubicación de bodega se asignaba sola a la CJA, aunque la persona quisiera mover el PAQ.
+
+**Medido en prod ese día:** 26 lugares vivos, de 18 productos, todos de tienda y todos en PAQ,
+capturados el 19-nov en Padre Hidalgo. Ninguno es de bodega.
+
+**Lo que cambia:**
+- La ficha tiene un solo bloque: **Tienda** y **Bodega** del producto, y **Reserva** si tiene.
+  - Cada lugar dice en qué presentación está («TA011 PAQ»).
+  - «Falta» sale sólo si ninguna presentación tiene ese lugar.
+  - Arriba, «Va en PAQ o CJA · 1 CJA = 20 PAQ».
+- **«Poner lugar» señala tienda o bodega, ya no una presentación.** Después de escanear la ubicación:
+  - si el producto se abrió con el código de barras de una presentación, va a esa;
+  - si el producto tiene una sola presentación, va a esa;
+  - si no, la pantalla pregunta «¿va en PAQ o CJA?», con un botón por presentación.
+- **Sin cambio:**
+  - el servidor y su regla de un lugar fijo por presentación: escoger la presentación que ya tiene
+    lugar fijo ofrece «Moverlo a…»;
+  - la tarjeta de la lista, que ya hablaba por producto.
+
+**Pruebas:**
+- 3 nuevas en la pantalla y 3 reescritas en la lógica; almacén queda en 889/889.
+- Dos mutantes las ponen en rojo:
+  - volver a deducir la CJA tumba 4 pruebas;
+  - contar sólo los lugares de la CJA tumba 1.
+
+**NO MEDIDO:** cómo se ve en el celular de piso. Falta una sesión de prod con permiso de gestionar.
+
+### 8.5 Las etiquetas de tienda salen en la TSC TE200, rollo amarillo (UB.RF.14, 2026-11-20) 🧪
+
+**El pedido** (Edgar, 2026-11-20): «las etiquetas deben salir con la TSC 200, etiqueta amarilla».
+
+**Geometría del rollo.** Según Edgar, el rollo amarillo es igual al blanco de checado: 3 etiquetas por
+fila, de 32 × 48 mm cada una, 2 mm entre ellas y 100 mm de ancho total. Esas medidas las tomó
+Francisco el 2026-10-08 para GP.4. La hoja carta tipo 5160 de §8.3 se retira: nunca se imprimió en piso.
+
+**Cómo se arma.** No hay impresora ni módulo nuevo. La etiqueta usa la etiquetera compartida
+(`@megadulces/ui-web`, ADR-056), la misma que ya imprimen el checado y la etiqueta de caja:
+- el navegador manda cada fila de 3 como una hoja de 100 × 48 mm con el controlador de Windows;
+- la plantilla vive en `apps/view/.../almacen/anden/etiqueta-ubicacion.ts`;
+- cada etiqueta lleva arriba el almacén y el rótulo («01 · Tienda · nivel 1»), luego el código grande
+  y su CODE128;
+- las barras van a 2 puntos por módulo, o sea 0.25 mm a 203 dpi. Con otro ancho, la impresora
+  redondea cada barra distinto;
+- las barras quedan paralelas al avance del rollo, que es como una térmica directa las imprime más
+  nítidas.
+
+**Medido** en PDF, con el `@page` y el CSS reales empaquetados del fuente (esbuild, sin copiarlos):
+- 3 etiquetas salen en 1 hoja, 7 en 3 y 31 en 11: una hoja por fila;
+- cada hoja mide 99.82 × 48.01 mm, que es la misma hoja del checado;
+- cada etiqueta mide 32.00 × 47.60 mm y empieza en 0, 34 y 68 mm de la fila;
+- la barra de `TA011` mide 22.50 × 14.00 mm, con zona quieta de 3.25 mm a cada lado dentro del margen
+  (4.75 mm al borde de la etiqueta), más de los 2.5 mm que pide el estándar;
+- el código más ancho mide 26.99 mm de los 29 mm útiles. A 8 mm medía 28.84 mm y no le quedaba aire,
+  así que se bajó a 7.5 mm.
+
+**Pruebas:** 5 en la etiqueta y 3 en el cartel; almacén queda en 894/894. Dos mutantes las ponen en
+rojo: quitar el ancho fijo de las barras tumba 1 prueba y volver a la hoja carta tumba 2.
+
+**NO MEDIDO:**
+- que el rollo amarillo tenga de verdad la geometría del blanco. Lo dijo Edgar; no se midió;
+- la impresión real en la TSC y que la pistola de la tienda la lea;
+- si una etiqueta de 48 mm de alto cabe en el canto del anaquel o sobresale.
+
 ## 9. Preguntas abiertas
 
 | Clave | Pregunta | Bloquea |
