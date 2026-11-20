@@ -99,7 +99,7 @@ const TOPE_PAGINAS = 8;
             <div class="card-premium card-flat tw-tablewrap dt-scope">
               <p-table [value]="e.dias" dataKey="corte_id" [expandedRowKeys]="abiertos()" size="small"
                        selectionMode="single" [metaKeySelection]="false" [rowHover]="true"
-                       (onRowSelect)="alternar(.data)" (onRowUnselect)="alternar(.data)"
+                       (onRowSelect)="alternar($event.data)" (onRowUnselect)="alternar($event.data)"
                        class="surf-table surf-table--plain surf-table--sticky">
                 <ng-template #header>
                   <tr>
@@ -262,8 +262,11 @@ export class FinanzasCajaEstadoCuentaComponent {
   }
 
   /** La fila entera abre y cierra sus movimientos: con clic, Enter o espacio, y con flechas entre filas. */
-  alternar(d: { corte_id: string }): void {
-    this.abiertos.update((a) => ({ ...a, [d.corte_id]: !a[d.corte_id] }));
+  alternar(d: { corte_id: string } | { corte_id: string }[] | undefined): void {
+    // PrimeNG tipa el evento como fila, arreglo o nada; con selección simple llega una fila.
+    const fila = Array.isArray(d) ? d[0] : d;
+    if (!fila) return;
+    this.abiertos.update((a) => ({ ...a, [fila.corte_id]: !a[fila.corte_id] }));
   }
 
   imprimir(): void {
