@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { esSoloHojaKepler, paqueteSoloHojaKepler } from './hoja-kepler';
 
 describe('[RE.82] la hoja de Kepler sola no es evidencia', () => {

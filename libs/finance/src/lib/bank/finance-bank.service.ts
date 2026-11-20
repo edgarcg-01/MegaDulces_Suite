@@ -7,6 +7,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
+import { categorizarPorDocumento } from './estado-de-cuenta/categoria-del-documento';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -2233,12 +2234,17 @@ export class FinanceBankService {
           await trx('finance.bank_movements').whereIn('id', plan.aMatched.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
         }
       }
+      // [BFU.2.10] Con el pareo ya escrito, el renglón de la descarga sin categoría toma la de su documento de Kepler
+      // (proveedor, nómina, traspaso); si el pareo cambió o se fue, la categoría que vino del documento lo sigue. En
+      // seco sólo cuenta. Lo puesto a mano, por regla o por el texto del banco no se toca (`categoria-del-documento.ts`).
+      const categoriaDelDocumento = await categorizarPorDocumento(trx, periodMovIds, { soloContar: dryRun });
+      (diff as Record<string, unknown>).categoria_del_documento = categoriaDelDocumento;
 
       const matchedBank = matchedSet.size;
       const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
-      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate) · ${dryRun ? 'en seco' : `escribió −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados`}`);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate) · ${dryRun ? 'en seco' : `escribió −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados`} · categoría del documento: +${categoriaDelDocumento.puestas} ~${categoriaDelDocumento.cambiadas} −${categoriaDelDocumento.quitadas}`);
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,

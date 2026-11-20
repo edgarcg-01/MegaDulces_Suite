@@ -184,9 +184,12 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     const fecha = String(w.documentos[0].plan.poliza.fecha);
     const abono = Math.round(w.documentos.reduce((s, d) => s + d.plan.acumulados.abonoAcreedor * 100, 0)) / 100;
     const colG = columnaAbonoKdxg(a0.mes);
+    // [PGP.131] La fila del acreedor es la de ESTE servidor (`c2` = sucursal), como la busca el escritor del gasto
+    // (`kepler-gasto-sink.adapter.ts`): La Piedad Abastos y 8 Esquinas guardan además filas de otras sucursales
+    // (medido 2026-11-20: en 8 Esquinas, 114 filas de 01, 02 y 03; la propia es única por acreedor en los 9 servidores).
     const g = await c.query(
       `UPDATE md.kdxg SET ${colG} = ${colG} + $1, c4 = greatest(c4, $2::timestamp), c7 = greatest(c7, $2::timestamp)
-        WHERE btrim(c3)=$3 AND btrim(c1)='PESOS'`, [abono, fecha, a0.acreedor]);
+        WHERE btrim(c3)=$3 AND btrim(c1)='PESOS' AND btrim(c2)=$4`, [abono, fecha, a0.acreedor, w.sucursal]);
     if (g.rowCount !== 1) throw new Error(`El acumulado del acreedor ${a0.acreedor} (kdxg) trae ${g.rowCount} filas en ${w.sucursal}: se esperaba una`);
 
     const porCuenta = new Map<string, { cargo: number; abono: number }>();

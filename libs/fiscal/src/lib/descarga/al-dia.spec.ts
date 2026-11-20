@@ -1,4 +1,4 @@
-import { cubrioSusDias, decidirAlDia, type SolicitudPrevia } from './al-dia';
+import { cubrioSusDias, decidirAlDia, primerHueco, type SolicitudPrevia } from './al-dia';
 
 /**
  * `[PGP.110c]` Las solicitudes de prod tal como estaban el 2026-11-12 (sólo lectura): recibidas con la del
@@ -22,10 +22,32 @@ const EMITIDAS_HOY: SolicitudPrevia[] = [
 const MANUAL = s({ estado: 'descargada', fecha_ini: '2026-01-01', fecha_fin: '2026-11-12', creada: '2026-11-12', packages_total: 6, packages_done: 6 });
 
 describe('[PGP.110c] qué le pide la Suite al SAT', () => {
-  it('[PGP.110e] recibidas HOY: se recupera sola — pide desde el 17-jul (lo último cubierto) hasta hoy', () => {
+  it('[PGP.164] recibidas HOY: se recupera sola — pide desde el 1-ene (ene–jun nunca bajó), no desde el 17-jul', () => {
+    // [PGP.110e] pedía desde el 17-jul: tomaba el fin de la buena de julio como «cubierto» y se saltaba ene–jun.
     const d = decidirAlDia(RECIBIDAS_HOY, '2026-11-13');
-    expect(d).toMatchObject({ accion: 'pedir', desde: '2026-07-17', hasta: '2026-11-13' });
-    expect(d.accion === 'pedir' && d.recupera).toContain('2026-10-27');
+    expect(d).toMatchObject({ accion: 'pedir', desde: '2026-01-01', hasta: '2026-11-13' });
+    expect(d.accion === 'pedir' && d.recupera).toContain('del 2026-01-01 al 2026-07-01');
+  });
+
+  it('[PGP.164] recibidas en prod el 2026-11-20: con las diarias al corriente, el hueco de ene–jun se pide igual', () => {
+    const diaria = (ini: string, fin: string) => s({ fecha_ini: ini, fecha_fin: fin, creada: fin, packages_total: 1, packages_done: 1 });
+    const prod = [...RECIBIDAS_HOY, diaria('2026-07-17', '2026-11-14'), diaria('2026-11-14', '2026-11-15'), diaria('2026-11-19', '2026-11-20'), diaria('2026-11-15', '2026-11-19')];
+    expect(decidirAlDia(prod, '2026-11-21')).toMatchObject({ accion: 'pedir', desde: '2026-01-01', hasta: '2026-11-21' });
+    // ⛔ control: cuando la de ene–hoy termina completa, al día siguiente vuelve a pedir sólo desde ayer
+    const completa = s({ fecha_ini: '2026-01-01', fecha_fin: '2026-11-21', creada: '2026-11-21', packages_total: 6, packages_done: 6 });
+    expect(decidirAlDia([...prod, completa], '2026-11-22')).toEqual({ accion: 'pedir', desde: '2026-11-21', hasta: '2026-11-22' });
+  });
+
+  it('[PGP.164] un hueco a mitad del año también se pide, desde su primer día', () => {
+    const a = s({ fecha_ini: '2026-01-01', fecha_fin: '2026-03-31', creada: '2026-03-31' });
+    const b = s({ fecha_ini: '2026-05-01', fecha_fin: '2026-11-19', creada: '2026-11-19' });
+    expect(decidirAlDia([a, b], '2026-11-20')).toMatchObject({ accion: 'pedir', desde: '2026-03-31', hasta: '2026-11-20' });
+    expect(primerHueco([b, a], '2026-01-01')).toEqual({ desde: '2026-03-31', siguiente: '2026-05-01' });
+    // ⛔ control: pegadas (una empieza el día que la otra termina) no son hueco, ni lo del año anterior
+    const c = s({ fecha_ini: '2026-03-31', fecha_fin: '2026-05-01', creada: '2026-05-01' });
+    expect(primerHueco([a, b, c], '2026-01-01')).toEqual({ desde: '2026-11-19', siguiente: null });
+    const dic = s({ fecha_ini: '2025-12-15', fecha_fin: '2026-01-04', creada: '2026-01-04' });
+    expect(decidirAlDia([dic], '2026-01-05')).toEqual({ accion: 'pedir', desde: '2026-01-04', hasta: '2026-01-05' });
   });
 
   it('[PGP.110e] emitidas HOY: sin ninguna completa, pide sola desde el 1-ene del año', () => {

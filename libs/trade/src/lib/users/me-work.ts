@@ -2,6 +2,7 @@ import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
   CAJA_CONFIRMAR_UMBRAL_DIAS,
+  diaCorto,
   parseHHMM,
   resumenEjercicioPendiente,
   type BusinessCalendar,
@@ -11,6 +12,7 @@ import {
   warehouseName,
 } from '@megadulces/contracts';
 import { SQL_ANTICIPOS_MAS_DE_90 } from './anticipos-sin-factura.sql';
+import { SQL_TEMPORADAS_EN_VENTANA, TEMPORADAS_VENTANA_DIAS } from './temporadas-por-confirmar.sql';
 import { branchKeySql, cajaColaDelLibroSql, ejercicioNoEsDePruebaSql, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
 
 /**
@@ -92,7 +94,9 @@ export type ResponsabilidadKey =
   /** `[AB.32]` Lo que pidieron las sucursales desde Autoabasto, por aprobar (mig `20261026084306`). */
   | 'compras.requisiciones_sucursal'
   /** `[PGP.124]` Anticipos de mercancía con más de 90 días y sin factura contra qué aplicarse. */
-  | 'compras.anticipos';
+  | 'compras.anticipos'
+  /** `[PQ.132]` Temporadas en venta (o a 45 días) con las fechas propuestas (mig `20261120111847`). */
+  | 'compras.temporadas';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -1664,6 +1668,79 @@ export const BANDEJAS: readonly BandejaDef[] = [
         nivel: null,
         desde: f.fecha ? new Date(f.fecha).toISOString() : null,
         nota: `${PESOS.format(Number(f.a_favor))} · anticipo ${f.folio} · ${warehouseName(f.sucursal)}`,
+      }));
+    },
+  },
+  /*
+   * `[PQ.132]` **La temporada en venta (o a 45 días de estarlo) con las fechas sin confirmar.**
+   *
+   * Medido en prod el 2026-11-20: las 14 temporada-año de Temporadas siguen en `propuesta` diez días después
+   * de que la pantalla entró a prod, y Navidad 2026 lleva un mes en venta así. Lo propuesto no frena nada
+   * (PQ.94): sólo lo confirmado llega al pedido. Nadie lo confirmaba porque nada se lo pedía a nadie.
+   *
+   * ⭐ Va a quien confirma (D47): Coordinación de Compras y Dirección, con la clave nueva
+   * `compras.temporadas` (mig `20261120111847`). `compras.reabasto` no servía: no la tiene `direccion`.
+   */
+  {
+    id: 'temporadas-por-confirmar',
+    label: 'Temporadas por confirmar',
+    detalle: `en venta o a ${TEMPORADAS_VENTANA_DIAS} días o menos, con las fechas propuestas · lo propuesto no llega al pedido`,
+    ruta: '/compras/temporadas',
+    icono: 'pi pi-calendar',
+    alcance: 'bandeja',
+    responsabilidad: 'compras.temporadas',
+    // La temporada es de toda la red: no hay sucursal que acotar.
+    acotablePorSucursal: false,
+    /*
+     * **7 días** desde que entró a la cola. Es política: una semana basta para revisar dos fechas, y con la
+     * ventana de 45 días deja más de un mes para que la confirmación llegue antes de la venta.
+     * ⚠️ Hoy nace **`congelada`**, no `atrasada`: `veredictoDe` mira primero las salidas, y en 30 días nadie
+     * confirmó ninguna (0 de 14). Es la verdad: Navidad 2026 entró el 10-nov ya en venta y nadie la tocó.
+     */
+    umbral_dias: 7,
+    /*
+     * ⛔ GESTIONAR y no VER, aunque la ruta acepte las dos (`anyPermissionGuard`): sólo GESTIONAR confirma,
+     * y una bandeja que quien la recibe no puede vaciar se deja de mirar. El guard la acepta (regla 1).
+     */
+    anyOf: [Permission.COMPRAS_TEMPORADAS_GESTIONAR],
+    medir: (knex, { tenantId }) =>
+      medirCola(knex, knex.from(knex.raw(SQL_TEMPORADAS_EN_VENTANA, [tenantId, tenantId])), {
+        estadoCol: 'status',
+        estadoAbierto: 'propuesta',
+        fecha: 'entro',
+        /* Confirmar escribe `confirmed_at` (`confirmarFechas`, la única puerta): es la salida exacta. */
+        cierre: 'confirmed_at',
+        /*
+         * ⛔ «La venta no terminó» pesa SÓLO del lado abierto (`[SN.36]`): una propuesta cuya venta ya pasó
+         * dejó de ser trabajo, pero una confirmada que terminó su venta sigue siendo una salida de los
+         * últimos 30 días. Con el corte en la base, `cerradas_30d` caía a 0 al terminar la venta y la cola
+         * se declaraba `congelada` trabajándose.
+         */
+        abiertaExtra: { sql: 'vigente', args: [] },
+      }),
+    /*
+     * El desglose: son pocas por naturaleza (siete temporadas al año, rara vez más de dos en la ventana) y lo
+     * que importa es CUÁL. El orden es la venta que empieza primero. La nota dice además cuántos productos
+     * lleva confirmados, que es la otra mitad de lo que se le pide a quien confirma (D47).
+     */
+    desglosar: async (knex, { tenantId }, tope) => {
+      const filas = await knex
+        .from(knex.raw(SQL_TEMPORADAS_EN_VENTANA, [tenantId, tenantId]))
+        // Las mismas que cuenta `medir`: propuestas y con la venta sin terminar (el `abiertaExtra` de arriba).
+        .where('temporadas.status', 'propuesta')
+        .where('temporadas.vigente', true)
+        .orderBy('temporadas.venta_desde', 'asc')
+        .limit(tope)
+        .select('temporadas.id', 'temporadas.temporada', 'temporadas.year', 'temporadas.venta_desde', 'temporadas.venta_hasta',
+          'temporadas.en_venta', 'temporadas.entro', 'temporadas.productos_confirmados');
+      return filas.map((f: { id: string; temporada: string; year: number; venta_desde: string; venta_hasta: string; en_venta: boolean; entro: Date | string | null; productos_confirmados: number }) => ({
+        id: f.id,
+        label: `${f.temporada} ${f.year}`,
+        // Temporadas no declara gravedad: no se inventa una (`MeDesgloseItem.nivel`).
+        nivel: null,
+        desde: f.entro ? new Date(f.entro).toISOString() : null,
+        nota: `${f.en_venta ? 'en venta' : 'empieza la venta'} del ${diaCorto(f.venta_desde)} al ${diaCorto(f.venta_hasta)} · ` +
+          `${Number(f.productos_confirmados) === 1 ? '1 producto confirmado' : `${Number(f.productos_confirmados)} productos confirmados`}`,
       }));
     },
   },

@@ -30,14 +30,25 @@ describe('[PGP.122] F3 decidirCancelacionSolicitud — cancelar desde la Suite i
 });
 
 describe('[PGP.122] F3 sentenciasCancelacionSolicitud — lo mismo que escribe Kepler, y con candado', () => {
-  const plan = { sucursal: '05', folio: '0000082', estado: 'A', marca: MARCA, capturista: 'SUITE', fecha: '2026-11-17', hora: '14:05' };
-  it('pone C y en cero IVA, total y saldo; quién y cuándo; NO borra renglones (Kepler los conserva)', () => {
-    const [s, ...resto] = sentenciasCancelacionSolicitud(plan);
-    expect(resto).toHaveLength(0);
+  const plan = { sucursal: '05', folio: '0000082', estado: 'A', marca: MARCA, renglones: 2, capturista: 'SUITE', fecha: '2026-11-17', hora: '14:05' };
+  it('pone C y en cero IVA, total y saldo; quién y cuándo', () => {
+    const [s] = sentenciasCancelacionSolicitud(plan);
     expect(s.sql).toMatch(/SET c43 = 'C', c14 = 0, c16 = 0, c42 = 0, c67 = \$5, c68 = \$6, c69 = \$7/);
     expect(s.sql).not.toMatch(/DELETE|kdm6/);
     expect(s.params).toEqual(['05', '0000082', 'A', MARCA, 'SUITE', '2026-11-17', '14:05']);
     expect(s.esperadas).toBe(1);
+  });
+  it('[PGP.122.8] BORRA los renglones, como Kepler (31/31 canceladas sin kdm6 en la 05): después de la cabecera, exactamente los leídos', () => {
+    const ss = sentenciasCancelacionSolicitud(plan);
+    expect(ss).toHaveLength(2);
+    const r = ss[1];
+    expect(r.sql).toMatch(/^DELETE FROM md\.kdm6 WHERE c1 = \$1 AND c2 = 'X' AND c3 = 'A' AND c4 = 15 AND c5 = 1 AND btrim\(c6\) = \$2$/);
+    expect(r.params).toEqual(['05', '0000082']);
+    expect(r.esperadas).toBe(2);
+  });
+  it('⛔ sin saber cuántos renglones hay, no se arma el borrado', () => {
+    expect(() => sentenciasCancelacionSolicitud({ ...plan, renglones: -1 })).toThrow(/renglones/);
+    expect(() => sentenciasCancelacionSolicitud({ ...plan, renglones: Number.NaN })).toThrow(/renglones/);
   });
   it('el WHERE repite estado, marca y «sin gasto vivo» (c37 = 15, c39 = folio): si alguien la tocó, 0 filas', () => {
     const [s] = sentenciasCancelacionSolicitud(plan);
@@ -72,7 +83,7 @@ describe('[PGP.122.6] la solicitud capturada en Kepler', () => {
     expect(decidirCancelacionSolicitud({ ...deKepler(), coincidencias: 2 }).ok).toBe(false);
   });
   it('la sentencia: candado por estado + TOTAL leído (no por marca), los mismos SET y sin gasto vivo', () => {
-    const [s] = sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: '4000.00', capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' });
+    const [s] = sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: '4000.00', renglones: 1, capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' });
     expect(s.sql).toMatch(/SET c43 = 'C', c14 = 0, c16 = 0, c42 = 0, c67 = \$5, c68 = \$6, c69 = \$7/);
     expect(s.sql).toMatch(/btrim\(c43\) = \$3 AND c16 = \$4::numeric/);
     expect(s.sql).not.toMatch(/c26/);
@@ -80,6 +91,6 @@ describe('[PGP.122.6] la solicitud capturada en Kepler', () => {
     expect(s.params).toEqual(['05', '0000077', 'A', '4000.00', 'SUITE', '2026-11-19', '12:10']);
   });
   it('⛔ sin marca y sin total no hay candado: no se arma la sentencia', () => {
-    expect(() => sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: null, capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' })).toThrow(/candado/);
+    expect(() => sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: null, renglones: 1, capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' })).toThrow(/candado/);
   });
 });
