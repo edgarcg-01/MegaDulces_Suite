@@ -42,6 +42,8 @@ import { movimientosDePoliza, type MovimientoCuenta, type PolizaKepler } from '.
 
 /** Quién capturó (`kdm1.c67`): lo escribió la Suite, no una persona. Mismo valor que la requisición (`[KR.17]`). */
 export const CAPTURISTA_SUITE = 'SUITE';
+/** `[PGP.179]` Ancho de `kdc2AAMM.c6` (el nombre en el renglón de la póliza) en los 9 servidores. */
+export const LARGO_NOMBRE_POLIZA = 40;
 /** La cuenta de tesorería de Caja General (`c45 = '0011'`). El efectivo espera el dictamen de Contabilidad (D1). */
 export const C45_CAJA_GENERAL = '0011';
 
@@ -213,8 +215,11 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   const { c81, c82, c84 } = ivaProporcional(e.facturas);
   const importe = r2(e.importe);
   // La póliza: el nombre y la referencia son los del documento (`kdm1.c32` / `c11`), igual en los N+1 renglones.
+  // [PGP.179] El renglón de la póliza (`kdc2AAMM.c6`) es `varchar(40)` y el documento (`kdm1.c32`) `varchar(60)`: Kepler
+  // guarda en la póliza las primeras 40 letras del nombre (medido 2026-11-20: CC010, 48 letras, 7 de 7 pólizas de Tesorería).
+  // Sin el recorte, el pago a un proveedor de nombre largo lo rechaza Postgres («demasiado largo para varchar(40)»).
   const asiento = (c10: number, c3: string, c4: 'C' | 'A', monto: number): Record<string, Valor> =>
-    ({ c10, c3, c4, c5: monto, c9: monto, c6: prov.nombre, c7: e.referencia, c14: e.sucursal, c23: '0' });
+    ({ c10, c3, c4, c5: monto, c9: monto, c6: prov.nombre.slice(0, LARGO_NOMBRE_POLIZA), c7: e.referencia, c14: e.sucursal, c23: '0' });
   const poliza: PolizaKepler = {
     tipo: 'E', fecha: e.fecha,
     renglones: [

@@ -61,6 +61,17 @@ describe('[PGP.71] armarPagoKepler', () => {
   it('rechaza aplicar más de lo que Kepler dice que se debe', () => {
     rechaza(entrada({ facturas: [factura({ saldo: 1000 })] }), /debe 1000\.00 en Kepler/);
   });
+  it('[PGP.179] el nombre largo: completo en el documento, sus primeras 40 letras en la póliza (como Kepler)', () => {
+    const nombre = 'COMERCIALIZADORA DE PRODUCTOS DEL BAJIO SA DE CV'; // 48 letras, como CC010
+    const r = armarPagoKepler(entrada({ proveedor: { codigo: 'CC010', rfc: 'X', nombre, domicilio: ['', '', ''], dias: 30 } }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.plan.kdm1['c32']).toBe(nombre);
+    expect(r.plan.poliza.renglones.every((x) => x['c6'] === nombre.slice(0, 40))).toBe(true);
+    // ⛔ control: un nombre de 40 o menos pasa entero
+    const corto = armarPagoKepler(entrada());
+    expect(corto.ok && corto.plan.poliza.renglones.every((x) => x['c6'] === 'DISTRIBUCIONES AYARI')).toBe(true);
+  });
   it('rechaza un importe que no es la suma de lo aplicado', () => {
     rechaza(entrada({ importe: 1200 }), /no es la suma/);
   });
