@@ -17,6 +17,19 @@
  *   6. el worker: ajusta el de un día por venir explicado por una nota; ⛔ no el de un pago en dinero posterior a armarlo,
  *      ⛔ no el de hoy, ⛔ no el autorizado;
  *   7. ⛔ correrlo otra vez no ajusta ni registra nada nuevo.
+ *
+ * [PGP.184] Reprogramar (Francisco, 2026-11-20; caso CE012: reprogramado a hoy con el importe de antes de sus notas de crédito).
+ * D19 (b), igual que el worker:
+ *   8. a un día POR VENIR: el pago nuevo baja a lo que su factura debe hoy, deja UNA fila (modo reprogramar) y la
+ *      respuesta lo dice; el pago viejo queda como estaba;
+ *   9. ⛔ a HOY: no baja (pudo ya salir del banco esta mañana), no escribe nada, y la respuesta dice por qué;
+ *  10. ⛔ «desde que se armó» cuenta desde el pago ORIGINAL: con una transferencia entre el armado original y el día en
+ *      que se movió, ni el reprogramado ni el worker se ajustan solos (con la fecha del reprogramado sí lo hacían);
+ *  11. ⛔ venía autorizado: no baja y se dice por qué;
+ *  12. ⛔ el banco se mira desde el día ORIGINAL: lo que ya salió por su importe antes de moverlo no se ajusta;
+ *  13. si el ajuste truena después de escribir, el pago se mueve igual y no queda nada a medias;
+ *  14. sin nota de por medio, reprogramar no cambia el importe ni deja bitácora.
+ * Ningún caso deja un aviso inesperado en el log (salvo el 13, que lo siembra).
  */
 const path = require('path');
 try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true }); } catch { /* opcional */ }
@@ -24,6 +37,8 @@ try { require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env
 process.env.JWT_SECRET = process.env.JWT_SECRET || `prueba-local-pgp148-${'x'.repeat(40)}`;
 const T = '00000000-0000-0000-0000-00000000d01c';
 let pass = 0, fail = 0;
+/** [PGP.184] Lo que el servicio registró como aviso o error. */
+const avisos = [];
 const ok = (c, m) => { if (c) { pass++; console.log('  ✓', m); } else { fail++; console.log('  ✗', m); } };
 
 let Servicio, D;
@@ -50,7 +65,8 @@ require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-pgp148-ajuste-
 function servicio(trx, saldos, abonos) {
   const s = Object.create(Servicio.prototype);
   Object.assign(s, {
-    logger: { log() {}, warn() {}, error() {}, debug() {} },
+    // [PGP.184] warn/error se guardan: un ajuste que truena por dentro no debe pasar por «decidió no ajustar».
+    logger: { log() {}, warn(m) { avisos.push(String(m)); }, error(m) { avisos.push(String(m)); }, debug() {} },
     tenantCtx: { requireTenantId: () => T, get: () => ({ tenantId: T, userId: null }) },
     tk: { run: (fn) => trx.transaction((sp) => fn(sp)) },
     ledger: null,
@@ -90,7 +106,9 @@ function servicio(trx, saldos, abonos) {
           if (f.debe !== undefined) saldos.set(id, { debe: f.debe, entity_ref: ref, payee_code: 'CM009' });
           if (f.abonos) abonos.set(`00|20|1|${f.folio}`, f.abonos);
           its.push((await trx('finance.payment_allocation_items').insert({ tenant_id: T, allocation_id: a.id, obligation_source: 'kepler_payable', obligation_id: id,
-            applied_amount: f.aplicado, discount_amount: f.descuento ?? 0 }).returning('*'))[0]);
+            // [PGP.184] Con descuento va su motivo: `ck_pai_discount_consistency` (PGP.91) exige motivo si y sólo si hay
+            // descuento. Sin él, el caso 4 abortaba la transacción y los casos 5–7 nunca corrieron (CI de main, 2026-11-20).
+            applied_amount: f.aplicado, discount_amount: f.descuento ?? 0, discount_reason: f.descuento ? 'pronto_pago' : null }).returning('*'))[0]);
         }
         return { a, its };
       };
@@ -163,6 +181,80 @@ function servicio(trx, saldos, abonos) {
       // ── 7. Otra vez: nada nuevo ──────────────────────────────────────────────────────────────────
       const r7 = await s.ajustarLosQueDebenMenos(HOY, D.AUTOR_AJUSTE_AL_SALDO);
       ok(!r7.ajustados.includes(conNota.a.id) && (await hist(conNota.a)).length === 1, '7. correrlo otra vez no ajusta ni registra nada nuevo');
+
+      // ── 8. [PGP.184] Reprogramar a un día POR VENIR: el pago nuevo baja a lo que la factura debe hoy ─────────────
+      // La forma del caso CE012 (prod, 2026-11-18): programada completa y cuatro notas de crédito antes de moverla.
+      const ce = await mk(lPasado, [{ aplicado: 120000, debe: 115500.25, folio: '9918401',
+        abonos: [nc('2026-01-01', 1750.5), nc('2026-01-01', 1000), nc('2026-01-01', 99.25), nc('2026-01-01', 1650)] }]);
+      const r8 = await s.reprogram(ce.a.id, '2099-06-20', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      const n8 = await fila({ id: r8.id });
+      const i8 = await trx('finance.payment_allocation_items').where({ allocation_id: r8.id });
+      const h8 = await hist({ id: r8.id });
+      const d8 = h8[0] && (typeof h8[0].detail === 'string' ? JSON.parse(h8[0].detail) : h8[0].detail);
+      ok(i8.length === 1 && Number(i8[0].applied_amount) === 115500.25 && Number(n8.amount_assigned) === 115500.25 && n8.reprogrammed_from_id === ce.a.id,
+        `8. reprogramado a un día por venir: nace con lo que la factura debe hoy (${i8[0]?.applied_amount}), no con el importe viejo`);
+      ok(h8.length === 1 && d8?.modo === 'reprogramar' && d8?.antes === 120000 && d8?.despues === 115500.25 && h8[0].created_by === 'tesoreria_prueba',
+        '8. UNA fila «ajustado_al_saldo» (modo reprogramar), con quién lo movió');
+      ok(r8.ajuste_al_saldo?.antes === 120000 && r8.amount_assigned === 115500.25 && r8.ajuste_al_saldo?.ajustadas.length === 1,
+        '8. la respuesta dice cuánto bajó (la pantalla lo avisa)');
+      ok((await fila(ce.a)).status === 'cancelled' && Number((await item(ce.its[0])).applied_amount) === 120000, '8. el pago viejo queda cancelado como estaba');
+
+      // ── 9. ⛔ [PGP.184] Reprogramar a HOY (el caso CE012 tal cual): no baja solo, se dice por qué ────────────────────
+      const ceHoy = await mk(lPasado, [{ aplicado: 120000, debe: 115500.25, folio: '9918404', abonos: [nc('2026-01-01', 4499.75)] }]);
+      const r9 = await s.reprogram(ceHoy.a.id, HOY, 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      const i9 = await trx('finance.payment_allocation_items').where({ allocation_id: r9.id }).first();
+      ok(Number(i9.applied_amount) === 120000 && r9.amount_assigned === 120000 && !(await hist({ id: r9.id })).length
+        && r9.ajuste_al_saldo?.ajustadas.length === 0 && /hoy o a un día pasado/.test(r9.ajuste_al_saldo?.omitidas[0]?.motivo ?? ''),
+        '9. ⛔ a hoy: no baja ni escribe (pudo ya salir del banco) y la respuesta dice por qué');
+
+      // ── 10. ⛔ [PGP.184] El reprogramado es el MISMO pago: «desde que se armó» cuenta desde el original ──────────────
+      const viejo = await mk(lPasado, [{ aplicado: 6000, debe: 2000, folio: '9918402', abonos: [tr('2026-02-01', 3000), nc('2026-01-01', 1000)] }],
+        { created_at: '2026-01-15T18:00:00Z' });
+      const r10 = await s.reprogram(viejo.a.id, '2099-06-20', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      const it10 = () => trx('finance.payment_allocation_items').where({ allocation_id: r10.id }).first();
+      ok(Number((await it10()).applied_amount) === 6000 && !(await hist({ id: r10.id })).length && /pago en Kepler/.test(r10.ajuste_al_saldo?.omitidas[0]?.motivo ?? ''),
+        '10. ⛔ con una transferencia en Kepler después del armado ORIGINAL, el reprogramado no baja solo (y dice por qué)');
+      const w10 = await s.ajustarLosQueDebenMenos(HOY, D.AUTOR_AJUSTE_AL_SALDO);
+      ok(Number((await it10()).applied_amount) === 6000 && !(await hist({ id: r10.id })).length && w10.fallidos === 0,
+        '10. ⛔ el worker tampoco (lee la misma fecha de armado), sin fallidos');
+
+      // ── 11. ⛔ [PGP.184] Venía autorizado: no baja solo (D19 b) ──────────────────────────────────────────────────
+      const autV = await mk(lPasado, [{ aplicado: 9000, debe: 7000, folio: '9918405', abonos: [nc('2026-01-01', 2000)] }],
+        { authorized_at: trx.fn.now(), authorized_by: 'direccion_prueba' });
+      const r11 = await s.reprogram(autV.a.id, '2099-06-20', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      ok(Number((await trx('finance.payment_allocation_items').where({ allocation_id: r11.id }).first()).applied_amount) === 9000
+        && !(await hist({ id: r11.id })).length && /autorizado/.test(r11.ajuste_al_saldo?.omitidas[0]?.motivo ?? ''),
+        '11. ⛔ venía autorizado: no baja solo y la respuesta dice por qué');
+
+      // ── 12. ⛔ [PGP.184] El banco se mira desde el día ORIGINAL ────────────────────────────────────────────────────
+      // Salió del banco por su importe el 03 (su día era el 05) y se mueve al 21: con el día nuevo la ventana quedaba vacía.
+      const salio12 = await mk(lPasado, [{ aplicado: 33333.33, debe: 30000, folio: '9918406', abonos: [nc('2026-01-01', 3333.33)] }]);
+      await trx('finance.bank_statement_lines').insert({ tenant_id: T, file_id: arch.id, bank_account_id: cta.id, line_no: 2, seq: 2, movement_date: '2099-06-03',
+        concept: 'SPEI PRUEBA 184', amount_out: 33333.33, running_balance: 0, line_key: 'pgp184-l2' });
+      const r12 = await s.reprogram(salio12.a.id, '2099-06-21', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      const n12 = await fila({ id: r12.id });
+      ok(n12?.status === 'pending' && Number((await trx('finance.payment_allocation_items').where({ allocation_id: r12.id }).first()).applied_amount) === 33333.33
+        && r12.ajuste_al_saldo === null && !(await hist({ id: r12.id })).length,
+        '12. ⛔ lo que ya salió del banco por su importe (antes de moverlo) no baja; el pago se mueve igual');
+      ok(avisos.length === 0, `8–12. ningún aviso inesperado en el log (${avisos.length})`);
+
+      // ── 13. [PGP.184] Si el ajuste truena después de escribir, el pago se mueve igual y no queda nada a medias ─────
+      const falla = await mk(lPasado, [{ aplicado: 5000, debe: 4000, folio: '9918407', abonos: [nc('2026-01-01', 1000)] }]);
+      s.recalcAllocationTotal = async () => { throw new Error('falla sembrada PGP.184'); };
+      let r13 = null, e13 = null;
+      try { r13 = await s.reprogram(falla.a.id, '2099-06-20', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY); } catch (e) { e13 = e; }
+      delete s.recalcAllocationTotal;
+      const n13 = r13 && await fila({ id: r13.id });
+      ok(!e13 && n13?.status === 'pending' && (await fila(falla.a)).status === 'cancelled'
+        && Number((await trx('finance.payment_allocation_items').where({ allocation_id: r13.id }).first()).applied_amount) === 5000
+        && !(await hist({ id: r13.id })).length && r13.ajuste_al_saldo === null && avisos.some((m) => /falla sembrada/.test(m)),
+        `13. el ajuste truena tras escribir: el pago se mueve, su factura vuelve a su importe y queda en el log${e13 ? ` (error: ${e13.message})` : ''}`);
+
+      // ── 14. Sin nota de por medio: el importe no cambia ──────────────────────────────────────────────────────────
+      const igual = await mk(lPasado, [{ aplicado: 2500, debe: 2500, folio: '9918403' }]);
+      const r14 = await s.reprogram(igual.a.id, '2099-06-20', 'otro', 'prueba PGP.184', 'tesoreria_prueba', HOY);
+      ok(r14.ajuste_al_saldo === null && r14.amount_assigned === 2500 && !(await hist({ id: r14.id })).length,
+        '14. sin nota de por medio, reprogramar no cambia el importe ni deja bitácora');
       throw ROLLBACK;
     });
   } catch (e) {
