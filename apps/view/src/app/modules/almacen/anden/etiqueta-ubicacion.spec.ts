@@ -4,20 +4,20 @@ import { CSS_ETIQUETA_UBICACION, GEOMETRIA_AMARILLA, PAGINA_TSC_AMARILLA, etique
 
 /**
  * `[UB.RF.14]` La etiqueta de ubicación de tienda en la TSC TE200, rollo amarillo. `[UB.RF.16]` Ese rollo es de
- * UNA etiqueta a lo ancho, de 60 × 30 mm (Edgar, 2026-11-20; Kepler lo configura igual). La primera versión
- * mandaba la fila de 3 de 32 × 48 del checado y la etiqueta salía de otro tamaño.
+ * UNA etiqueta a lo ancho, de 55 × 25 mm medida con regla (Edgar, 2026-11-20). Kepler dice 60 × 30 y es falso;
+ * la primera versión mandaba la fila de 3 de 32 × 48 del checado y la etiqueta salía de otro tamaño.
  */
 
 const U = (n: number) => Array.from({ length: n }, (_, i) => ({ code: `TA0${11 + i}`.slice(0, 5), label: 'Tienda · nivel 1', almacen: '01' }));
 
-describe('[UB.RF.16] etiqueta de ubicación · TSC TE200 · rollo amarillo 60 × 30', () => {
-  it('⭐ una hoja de 60 × 30 mm por etiqueta: 7 ubicaciones = 7 etiquetas, sin filas', () => {
+describe('[UB.RF.16] etiqueta de ubicación · TSC TE200 · rollo amarillo 55 × 25 (medido)', () => {
+  it('⭐ una hoja de 55 × 25 mm por etiqueta: 7 ubicaciones = 7 etiquetas, sin filas', () => {
     const doc = new DOMParser().parseFromString(etiquetasUbicacionHtml(U(7)), 'text/html');
     expect(doc.querySelectorAll('.et').length).toBe(7);
     expect(doc.querySelector('.et-fila')).toBeNull();
-    expect(PAGINA_TSC_AMARILLA).toBe('size: 60mm 30mm; margin: 0;');
-    // 29.6 y no 30: con la etiqueta exacta a la hoja, el navegador mete una hoja en blanco.
-    expect(CSS_ETIQUETA_UBICACION).toContain('width:60mm;height:29.6mm');
+    expect(PAGINA_TSC_AMARILLA).toBe('size: 55mm 25mm; margin: 0;');
+    // 24.6 y no 25: con la etiqueta exacta a la hoja, el navegador mete una hoja en blanco.
+    expect(CSS_ETIQUETA_UBICACION).toContain('width:55mm;height:24.6mm');
     expect(CSS_ETIQUETA_UBICACION).toContain('break-after:page');
   });
 
@@ -36,13 +36,13 @@ describe('[UB.RF.16] etiqueta de ubicación · TSC TE200 · rollo amarillo 60 ×
     expect((util - ancho) / 2).toBeGreaterThanOrEqual(10 * MM_POR_MODULO);
   });
 
-  it('⭐ lo que va de arriba abajo cabe en los 29.6 mm (margen · rótulo · código · barras · margen)', () => {
+  it('⭐ lo que va de arriba abajo cabe en los 24.6 mm (margen · rótulo · código · barras · margen), con aire', () => {
     const mm = (re: RegExp) => Number(re.exec(CSS_ETIQUETA_UBICACION)?.[1]);
     const alto = 2 * GEOMETRIA_AMARILLA.margenMm + mm(/\.eu-arriba\{[^}]*font-size:([\d.]+)mm/) * 1.1 + mm(/\.eu-code\{[^}]*font-size:([\d.]+)mm/) + mm(/\.eu-bar\{[^}]*height:([\d.]+)mm/);
-    expect(alto).toBeLessThanOrEqual(29.6 - 3);
+    expect(alto).toBeLessThanOrEqual(GEOMETRIA_AMARILLA.altoMm - 0.4 - 2.5);
   });
 
-  it('NEGATIVA: un código que no cabe a 10 mm se achica, nunca se corta; uno de 5 no', () => {
+  it('NEGATIVA: un código que no cabe a 9 mm se achica, nunca se corta; uno de 5 no', () => {
     expect(tamanoCodigo('TA011')).toBe('');
     expect(tamanoCodigo('RACK-12')).toBe('eu-c-m');
     expect(tamanoCodigo('PASILLO12')).toBe('eu-c-s');
