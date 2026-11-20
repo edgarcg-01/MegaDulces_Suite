@@ -9,7 +9,7 @@
  * a Dirección sin sus huecos se lee como completo (ADR-056).
  */
 import { warehouseName } from '@megadulces/contracts';
-import type { DiaEstado, EstadoDeCuenta } from './estado-cuenta-caja.util';
+import type { DiaEstado, EstadoDeCuenta, GrupoConcepto, LineaEstado } from './estado-cuenta-caja.util';
 
 const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const money = (v: number | null): string =>
@@ -29,10 +29,26 @@ export function avisosDelEstado(e: EstadoDeCuenta): string[] {
   return a;
 }
 
+/** Debajo del concepto: quién, de dónde y lo que se escribió al capturar. */
+function subLinea(l: LineaEstado): string {
+  const partes = [l.beneficiario, l.origen, l.detalle].filter((x): x is string => !!x && !!x.trim());
+  return partes.length ? `<div class="sub">${partes.map(esc).join(' · ')}</div>` : '';
+}
+
+/** De dónde entró o en qué salió, por concepto y, dentro, por ruta. */
+function desglose(titulo: string, grupos: GrupoConcepto[], total: number | null): string {
+  if (!grupos.length) return '';
+  const filas = grupos.map((g) => `<tr><td>${esc(g.concepto)}</td><td class="r m">${g.movimientos}</td><td class="r m">${money(g.monto)}</td></tr>${
+    g.rutas.map((r) => `<tr class="ruta"><td>${esc(r.ruta)}</td><td class="r m">${r.movimientos}</td><td class="r m">${money(r.monto)}</td></tr>`).join('')}`).join('');
+  const suma = grupos.reduce((s, g) => s + g.monto, 0);
+  const nota = total != null && Math.abs(suma - total) >= 0.01 ? `<div class="sub">Los movimientos listados suman ${money(suma)}; los cortes sellaron ${money(total)}.</div>` : '';
+  return `<div class="des"><div class="des-t">${titulo}</div><table class="des-tb"><thead><tr><th>Concepto</th><th class="r">Movs.</th><th class="r">Importe</th></tr></thead>${filas}</table>${nota}</div>`;
+}
+
 function dia(d: DiaEstado): string {
   const filas = d.movimientos.map((l) => `<tr>
     <td class="m">${esc(dmy(l.fecha))}</td><td class="m">${esc(l.folio)}</td>
-    <td>${esc(l.concepto)}${l.beneficiario ? `<div class="sub">${esc(l.beneficiario)}</div>` : ''}</td>
+    <td>${esc(l.concepto)}${l.ruta ? ` · <b>${esc(l.ruta)}</b>` : ''}${subLinea(l)}</td>
     <td>${esc(warehouseName(l.sucursal))}</td>
     <td class="r m">${l.entrada ? money(l.entrada) : ''}</td><td class="r m">${l.salida ? money(l.salida) : ''}</td>
     <td class="r m">${l.saldo == null ? '' : money(l.saldo)}</td></tr>`).join('');
@@ -68,6 +84,10 @@ export function cuerpoEstadoCuenta(e: EstadoDeCuenta, periodo: { desde: string; 
     ${renglon('Saldo final (contado en el último corte)', money(r.saldo_final), true)}
   </table>
   ${avisos.length ? `<div class="avisos">${avisos.map((a) => `<div>${esc(a)}</div>`).join('')}</div>` : ''}
+  <div class="desgloses">
+    ${desglose('De dónde entró', r.por_concepto.entradas, r.entradas)}
+    ${desglose('En qué salió', r.por_concepto.salidas, r.salidas)}
+  </div>
   <table class="det"><thead><tr><th>Fecha</th><th>Folio</th><th>Concepto</th><th>Sucursal</th>
     <th class="r">Entrada</th><th class="r">Salida</th><th class="r">Saldo</th></tr></thead>
     ${e.dias.map(dia).join('')}</table>
@@ -97,6 +117,12 @@ export function imprimirEstadoCuenta(e: EstadoDeCuenta, periodo: { desde: string
   table.res { width: 55%; border-collapse: collapse; margin-bottom: 8px; }
   .res td { padding: 2px 6px; border-bottom: 1px solid #F4F4F5; } .res .fuerte td { font-weight: 700; border-top: 1.5px solid #18181B; }
   .avisos { font-size: 8pt; color: #92400E; margin: 0 0 8px; }
+  .desgloses { display: flex; gap: 14px; margin-bottom: 10px; align-items: flex-start; }
+  .des { flex: 1; } .des-t { font-size: 8.5pt; font-weight: 700; margin-bottom: 2px; }
+  table.des-tb { width: 100%; border-collapse: collapse; }
+  .des-tb th { font-size: 7pt; text-transform: uppercase; color: #71717A; text-align: left; padding: 0 4px 2px; border-bottom: 1px solid #18181B; }
+  .des-tb td { font-size: 8pt; padding: 2px 4px; border-bottom: 1px solid #F4F4F5; }
+  .des-tb tr.ruta td { font-size: 7.5pt; color: #52525B; } .des-tb tr.ruta td:first-child { padding-left: 14px; }
   table.det { width: 100%; border-collapse: collapse; }
   .det th { font-size: 7pt; text-transform: uppercase; letter-spacing: .05em; color: #71717A; text-align: left; padding: 0 5px 4px; border-bottom: 1px solid #18181B; }
   .det td { font-size: 8pt; padding: 3px 5px; border-bottom: 1px solid #F4F4F5; vertical-align: top; }

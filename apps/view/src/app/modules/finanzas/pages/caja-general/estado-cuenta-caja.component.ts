@@ -13,7 +13,7 @@ import { FreshnessPillComponent } from '../../../../shared/components/freshness-
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { CashLedgerService, type MovimientoCaja } from '../../cash-ledger.service';
 import { money, dmy } from '../finanzas-format';
-import { armarEstadoDeCuenta, limitesDeMes, restarDias, type EstadoDeCuenta } from './estado-cuenta-caja.util';
+import { armarEstadoDeCuenta, limitesDeMes, restarDias, type EstadoDeCuenta, type GrupoConcepto } from './estado-cuenta-caja.util';
 import { avisosDelEstado, imprimirEstadoCuenta } from './estado-cuenta-caja-papel';
 
 /**
@@ -75,7 +75,30 @@ const TOPE_PAGINAS = 8;
             @if (truncado()) {
               <p class="ec-avisos warn">El libro tenía más movimientos de los que se pidieron: puede faltar detalle (los totales de cada corte sí son completos).</p>
             }
-            <p class="ec-pie">La hoja impresa lleva cada corte con sus movimientos y el saldo después de cada uno.</p>
+            <div class="ec-des">
+              @for (lado of lados(e); track lado.titulo) {
+                <section [attr.aria-label]="lado.titulo">
+                  <h3 class="ec-des-t">{{ lado.titulo }}</h3>
+                  <ul class="ec-des-l">
+                    @for (g of lado.grupos; track g.concepto) {
+                      <li>
+                        <span class="ec-des-c">{{ g.concepto }} <span class="ec-tenue">· {{ g.movimientos }}</span></span>
+                        <span class="comm-num">{{ m(g.monto) }}</span>
+                      </li>
+                      @for (r of g.rutas; track r.ruta) {
+                        <li class="ec-des-r">
+                          <span>{{ r.ruta }} <span class="ec-tenue">· {{ r.movimientos }}</span></span>
+                          <span class="comm-num">{{ m(r.monto) }}</span>
+                        </li>
+                      }
+                    } @empty {
+                      <li class="ec-tenue">Sin movimientos.</li>
+                    }
+                  </ul>
+                </section>
+              }
+            </div>
+            <p class="ec-pie">La hoja impresa lleva además cada corte con sus movimientos (concepto, ruta, de qué servidor viene, a quién y lo que se anotó) y el saldo después de cada uno.</p>
           }
         }
       </app-load-state>
@@ -92,6 +115,13 @@ const TOPE_PAGINAS = 8;
     .ec-avisos li { margin-bottom: var(--sp-1); }
     .ec-avisos.warn { color: var(--bad-fg); }
     .ec-pie { font-size: var(--fs-xs); color: var(--text-muted); margin: var(--sp-3) 0 0; }
+    .ec-des { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: var(--sp-4); margin-top: var(--sp-3); }
+    .ec-des-t { font-size: var(--fs-sm); font-weight: 600; margin: 0 0 var(--sp-1); color: var(--text-main); }
+    .ec-des-l { list-style: none; margin: 0; padding: 0; font-size: var(--fs-sm); max-height: 18rem; overflow-y: auto; }
+    .ec-des-l li { display: flex; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-1) 0; border-bottom: 1px solid var(--border-color); }
+    .ec-des-l li.ec-des-r { padding-left: var(--sp-4); font-size: var(--fs-xs); color: var(--text-muted); }
+    .ec-tenue { color: var(--text-muted); }
+    .comm-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   `],
 })
 export class EstadoCuentaCajaComponent {
@@ -174,6 +204,13 @@ export class EstadoCuentaCajaComponent {
       item('Caja fuerte (neto)', r.caja_fuerte, 'dejó en el cajón menos lo que se llevó'),
       item('Diferencias de arqueo', r.diferencias, 'contado menos lo que debía haber'),
       item('Saldo final', r.saldo_final, 'contado en el último corte'),
+    ];
+  }
+
+  lados(e: EstadoDeCuenta): Array<{ titulo: string; grupos: GrupoConcepto[] }> {
+    return [
+      { titulo: 'De dónde entró', grupos: e.resumen.por_concepto.entradas },
+      { titulo: 'En qué salió', grupos: e.resumen.por_concepto.salidas },
     ];
   }
 

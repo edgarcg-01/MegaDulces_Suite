@@ -103,6 +103,34 @@ describe('[LE.6.38] estado de cuenta de Caja General', () => {
     expect(armarEstadoDeCuenta([], movimientos).resumen.residuo).toBeNull();
   });
 
+  it('cada movimiento dice su ruta, de qué servidor viene y lo anotado; el mes se abre por concepto y ruta', () => {
+    const conRuta = [
+      { ...mov({ id: 'a', corte: 'c1', tipo: 'ingreso', monto: 200, fecha: '2026-11-03' }), kepler_concepto_nombre: 'Cobranza de ruta', ruta: 'ruta_501', origen_ref: '06-001|U-A-5|123', glosa: 'faltó un ticket' },
+      { ...mov({ id: 'a2', corte: 'c1', tipo: 'ingreso', monto: 100, fecha: '2026-11-03' }), kepler_concepto_nombre: 'Cobranza de ruta', ruta: '502', origen_ref: '06-002|U-A-5|124', glosa: 'Cobranza de ruta' },
+      { ...mov({ id: 'b', corte: 'c1', tipo: 'gasto', monto: 400, fecha: '2026-11-03' }), kepler_concepto_nombre: 'Combustible', beneficiario: 'GASOLINERA', glosa: 'gasolinera' },
+    ] as MovimientoCaja[];
+    const e = armarEstadoDeCuenta([arqueos[1]], conRuta);
+    const [l1, l2, g] = e.dias[0].movimientos.sort((x, y) => x.id.localeCompare(y.id));
+    expect(l1.ruta).toBe('Ruta 501');
+    expect(l1.origen).toMatch(/· Ruta 501$/);
+    expect(l1.detalle).toBe('faltó un ticket');
+    expect(l2.ruta).toBe('Ruta 502');
+    expect(l2.detalle).toBeNull(); // repetir el concepto no es detalle
+    expect(g.detalle).toBeNull(); // ni repetir el beneficiario
+    expect(g.ruta).toBeNull();
+    const ent = e.resumen.por_concepto.entradas;
+    expect(ent).toHaveLength(1);
+    expect(ent[0]).toMatchObject({ concepto: 'Cobranza de ruta', movimientos: 2, monto: 300 });
+    expect(ent[0].rutas.map((r) => r.ruta)).toEqual(['Ruta 501', 'Ruta 502']);
+    expect(e.resumen.por_concepto.salidas[0]).toMatchObject({ concepto: 'Combustible', monto: 400, rutas: [] });
+  });
+
+  it('sin documento de Kepler no se inventa servidor', () => {
+    const e = armarEstadoDeCuenta([arqueos[1]], [mov({ id: 'a', corte: 'c1', tipo: 'ingreso', monto: 300, fecha: '2026-11-03' })]);
+    expect(e.dias[0].movimientos[0].origen).toBeNull();
+    expect(e.dias[0].movimientos[0].ruta).toBeNull();
+  });
+
   it('fechas del periodo', () => {
     expect(limitesDeMes('2026-02')).toEqual({ desde: '2026-02-01', hasta: '2026-02-28' });
     expect(limitesDeMes('2026-11')).toEqual({ desde: '2026-11-01', hasta: '2026-11-30' });
