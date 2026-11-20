@@ -661,6 +661,25 @@ export interface EstadoKeplerDeLaSolicitud {
 }
 
 /**
+ * `[PGP.122.6]` «Cancela sol gasto» desde la Suite, también la capturada en Kepler: lo que pasó.
+ * `cancelada` = la Suite la canceló ahora · `ya_estaba` = Kepler ya la tenía cancelada (no se escribió nada) ·
+ * `rechazada` = Kepler no la dejó (`rechazo` dice por qué; con gasto vivo, se cancela primero el gasto).
+ * `vales_cerrados`: los vales de la Suite ligados a esa solicitud que quedaron rechazados con el motivo.
+ */
+export interface SolicitudKeplerCancelada {
+  sucursal: string;
+  folio: string;
+  estado: 'cancelada' | 'ya_estaba' | 'rechazada';
+  rechazo: string | null;
+  vales_cerrados: number;
+}
+
+/** `[PGP.122.6]` Las sucursales donde hoy se puede cancelar una solicitud desde la Suite (interruptor encendido). */
+export interface CancelacionDeSolicitudDisponible {
+  sucursales: string[];
+}
+
+/**
  * `GET …/solicitudes/abiertas` — las bases donde ESTA persona puede pedir hoy: las abiertas (la misma regla que
  * `disponibilidad`) que son suyas (S.17, `basesDeQuienPide`).
  */

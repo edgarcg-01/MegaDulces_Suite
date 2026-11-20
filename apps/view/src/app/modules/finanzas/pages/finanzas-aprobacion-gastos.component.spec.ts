@@ -145,6 +145,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     for (const r of http.match((x) => x.url.includes('/kepler-autorizacion'))) r.flush({});
     // Abrir un vale que no vino en la lista (o de hace rato) vuelve a pedir sus archivos firmados.
     for (const r of http.match(esDetalle)) if (!r.cancelled) r.flush({});
+    // [PGP.122.6] Dónde se puede cancelar la solicitud capturada en Kepler: se pide una vez al cargar.
+    for (const r of http.match((x) => x.url.endsWith('/finance/expenses/solicitudes/cancelacion'))) if (!r.cancelled) r.flush({ sucursales: [] });
     http.verify();
   });
 
@@ -165,6 +167,40 @@ describe('FinanzasAprobacionGastosComponent', () => {
    * hasta escribirse en Kepler) se anunciaba «Ver el vale null» — medido con Playwright el 2026-11-18
    * (`e2e/solicitud-gasto`, rojo contra el frontend de entonces).
    */
+  /**
+   * `[PGP.122.6]` «Cancelar en Kepler…» de una solicitud CAPTURADA en Kepler va por su sucursal y folio (no por el vale,
+   * que no la escribió); la que nació en la Suite sigue por la F3. Si Kepler no la deja, se dice y se queda en pantalla.
+   */
+  it('[PGP.122.6] cancelar la capturada en Kepler va por sucursal y folio; la de la Suite, por la F3', () => {
+    montar();
+    const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+    const vk = F({ id: 'vk', sucursal: '05', folio_solicitud: '0000077', status: 'validada' });
+    c.abrir(vk);
+    http.match((x) => x.url.includes('/kepler-autorizacion')).forEach((r) => r.flush({ vk: { estado: 'A', solicitud: 'XA1501-0000077', suite: null } }));
+    c.cancelarKepler({ id: 'vk', motivo: 'Se pidió dos veces' });
+    const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes/kepler/05/0000077/cancelar'));
+    expect(req.request.body).toEqual({ motivo: 'Se pidió dos veces' });
+    req.flush({ sucursal: '05', folio: '0000077', estado: 'rechazada', rechazo: 'Ya tiene el gasto 0000700 en Kepler', vales_cerrados: 0 });
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error', sticky: true, detail: expect.stringContaining('0000700') }));
+    expect(c.abierto()?.id).toBe('vk'); // no se cierra: hay algo que resolver
+    c.cancelarKepler({ id: 'vk', motivo: 'Se pidió dos veces' });
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/kepler/05/0000077/cancelar'))
+      .flush({ sucursal: '05', folio: '0000077', estado: 'cancelada', rechazo: null, vales_cerrados: 1 });
+    expect(add).toHaveBeenCalledWith(expect.objectContaining({ severity: 'info', summary: 'Cancelada en Kepler', detail: expect.stringContaining('el vale quedó rechazado') }));
+    expect(c.abierto()).toBeNull();
+    http.match((r) => r.url.includes('/finance/expenses/proofs/del-dia')).forEach((r) => r.flush(DIA()));
+    http.match((r) => r.url.includes('/reaperturas/pendientes')).forEach((r) => r.flush([]));
+    // La que nació en la Suite: por la F3, con el id del vale.
+    const vs = F({ id: 'vs', sucursal: '05', folio_solicitud: '0000091', status: 'validada' });
+    c.abrir(vs);
+    http.match((x) => x.url.includes('/kepler-autorizacion')).forEach((r) => r.flush({ vs: { estado: 'A', solicitud: 'XA1501-0000091', suite: null, nace_en_la_suite: { status: 'seen_in_ods', nota: null, siguiente: null, intentos: 1 } } }));
+    c.cancelarKepler({ id: 'vs', motivo: 'Prueba del canario' });
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/solicitudes/vs/cancelar-en-kepler'))
+      .flush({ id: 'vs', status: 'cancelled', folio: '0000091', nota: 'Cancelada', intentos: 1, siguiente: null });
+    http.match((r) => r.url.includes('/finance/expenses/proofs/del-dia')).forEach((r) => r.flush(DIA()));
+    http.match((r) => r.url.includes('/reaperturas/pendientes')).forEach((r) => r.flush([]));
+  });
+
   it('[PGP.122] el renglón se anuncia con el folio que se ve, y sin folio dice de quién y cuánto (nunca «null»)', () => {
     montar();
     expect(c.etiquetaDelVale({ folio_solicitud: '0000083', proveedor: 'Plomería Prueba', importe: 116 })).toBe('Ver el vale XA1501-0000083');

@@ -659,6 +659,44 @@ describe('ValeGastoPeekComponent', () => {
       expect(emitido).toEqual([{ id: 'v1', motivo: 'Se capturó dos veces' }]);
     });
 
+    /**
+     * `[PGP.122.6]` «Cancela sol gasto» también para la solicitud CAPTURADA en Kepler (pedido de Edgar, 2026-11-19):
+     * en A o N, con el vale vivo, y sólo en una sucursal con el interruptor `cancela_solicitud_gasto` encendido.
+     */
+    it('[PGP.122.6] la capturada en Kepler: en A/N, vale vivo y sucursal encendida; si no, no se ofrece', () => {
+      const KK = (estado: string) => ({ estado, solicitud: 'XA1501-0000077', suite: null }) as never;
+      montar(V({ status: 'validada', sucursal: '05', folio_solicitud: '0000077' }));
+      fix.componentRef.setInput('puedeReintentar', true);
+      fix.componentRef.setInput('kepler', KK('A'));
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // ninguna sucursal encendida
+      fix.componentRef.setInput('cancelaSucursales', ['05']);
+      fix.detectChanges();
+      expect(abrir()).toBeTruthy();
+      fix.componentRef.setInput('kepler', KK('N'));
+      fix.detectChanges();
+      expect(abrir()).toBeTruthy(); // nueva: Kepler también la cancela
+      for (const e of ['F', 'C']) {
+        fix.componentRef.setInput('kepler', KK(e));
+        fix.detectChanges();
+        expect(abrir()).toBeUndefined(); // ejecutada o ya cancelada: no
+      }
+      fix.componentRef.setInput('kepler', KK('A'));
+      fix.componentRef.setInput('cancelaSucursales', ['08']);
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // otra sucursal encendida, ésta no
+      fix.componentRef.setInput('cancelaSucursales', ['05']);
+      fix.componentRef.setInput('vale', V({ status: 'rechazada', sucursal: '05', folio_solicitud: '0000077' }));
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // el vale ya está cerrado
+      fix.componentRef.setInput('vale', V({ status: 'recibida', sucursal: '05', folio_solicitud: '0000077' }));
+      fix.detectChanges();
+      expect(abrir()).toBeTruthy(); // por firmar también: se cancela la solicitud y el vale se cierra con el motivo
+      fix.componentRef.setInput('puedeReintentar', false);
+      fix.detectChanges();
+      expect(abrir()).toBeUndefined(); // la página no dio COMPROBAR
+    });
+
     it('⛔ sin el permiso de la página o con el vale por firmar no se ofrece', () => {
       montar(V({ status: 'validada' }));
       fix.componentRef.setInput('kepler', K('written'));

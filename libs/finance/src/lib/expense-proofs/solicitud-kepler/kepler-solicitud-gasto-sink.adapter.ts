@@ -92,8 +92,11 @@ export type MarcaEnKepler = { ok: true; encontrada: { folio: string; kepler: str
  * pediría un folio que ya existe.
  */
 /** `[PGP.122]` F3: lo que pasó al cancelar en Kepler una solicitud de la Suite. */
+/** `[PGP.122.6]` La cabecera tal como estaba en Kepler ANTES de cancelar (lo que la sentencia pisa): para la bitácora. */
+export interface OriginalDeLaSolicitud { estado: string; iva: string | null; total: string | null; saldo: string | null; capturista: string | null; fecha: string | null; hora: string | null; marca: string | null }
+
 export type ResultadoCancelacionSolicitud =
-  | { estado: 'cancelada'; folio: string }
+  | { estado: 'cancelada'; folio: string; original?: OriginalDeLaSolicitud }
   /** Kepler ya la tenía cancelada (Finanzas lo hizo allá): no se escribe nada y el vale se cierra igual. */
   | { estado: 'ya_estaba'; folio: string }
   | { estado: 'apagado'; motivo: string }
@@ -213,8 +216,9 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
    * `[PGP.122]` F3 (DS40) — **Cancela en el Kepler vivo una solicitud que escribió la Suite**, igual que la cancela
    * Kepler (`solicitud-kepler.cancelacion.ts`). Una transacción: lee con candado (`FOR UPDATE`), decide, escribe y
    * comprueba que tocó exactamente una fila; si no, deshace. Nunca lanza: el resultado dice qué pasó.
+   * `[PGP.122.6]` `marca: null` = la que se capturó en Kepler: candado por el total leído; devuelve la cabecera de antes.
    */
-  async cancelar(e: { sucursal: string; folio: string; marca: string; fecha: string; hora: string }): Promise<ResultadoCancelacionSolicitud> {
+  async cancelar(e: { sucursal: string; folio: string; marca: string | null; fecha: string; hora: string }): Promise<ResultadoCancelacionSolicitud> {
     if (!escrituraDeSolicitudEncendida(this.env)) return { estado: 'apagado', motivo: 'La escritura de solicitudes de gasto a Kepler está apagada (KEPLER_GASTO_SOLICITUD)' };
     const srv = urlDeServidor(e.sucursal, this.env);
     if (!srv.ok) return { estado: 'apagado', motivo: srv.motivo };
@@ -228,8 +232,10 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
       await c.query('BEGIN');
       await c.query(`SET LOCAL lock_timeout = '5s'`);
       const filas = (await c.query(
-        `SELECT btrim(c6) AS folio, btrim(c43) AS estado, btrim(c26) AS marca FROM md.kdm1
-          WHERE c1 = $1 AND ${LLAVE_XA15} AND btrim(c6) = $2 FOR UPDATE`, [e.sucursal, e.folio])).rows as Array<{ folio: string; estado: string; marca: string }>;
+        `SELECT btrim(c6) AS folio, btrim(c43) AS estado, btrim(c26) AS marca, c14::text AS iva, c16::text AS total, c42::text AS saldo,
+                btrim(c67) AS capturista, c68::text AS fecha, btrim(c69) AS hora FROM md.kdm1
+          WHERE c1 = $1 AND ${LLAVE_XA15} AND btrim(c6) = $2 FOR UPDATE`, [e.sucursal, e.folio])).rows as Array<{
+        folio: string; estado: string; marca: string; iva: string | null; total: string | null; saldo: string | null; capturista: string | null; fecha: string | null; hora: string | null }>;
       const gastos = (await c.query(
         `SELECT btrim(c6) AS folio FROM md.kdm1 WHERE c1 = $1 AND c2 = 'X' AND c3 = 'A' AND c4 = 10 AND c5 = 1
             AND btrim(c37::text) = '15' AND btrim(c39) = $2 AND btrim(c43) <> 'C' ORDER BY 1`, [e.sucursal, e.folio])).rows as Array<{ folio: string }>;
@@ -238,7 +244,8 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
         await c.query('ROLLBACK');
         return d.yaCancelada ? { estado: 'ya_estaba', folio: e.folio } : { estado: 'rechazado', motivo: d.motivo, reintentable: false };
       }
-      for (const s of sentenciasCancelacionSolicitud({ sucursal: e.sucursal, folio: e.folio, estado: filas[0].estado, marca: e.marca, capturista: CAPTURISTA_SUITE, fecha: e.fecha, hora: e.hora })) {
+      const f0 = filas[0];
+      for (const s of sentenciasCancelacionSolicitud({ sucursal: e.sucursal, folio: e.folio, estado: f0.estado, marca: e.marca, total: f0.total, capturista: CAPTURISTA_SUITE, fecha: e.fecha, hora: e.hora })) {
         const r = await c.query(s.sql, s.params);
         if (r.rowCount !== s.esperadas) {
           await c.query('ROLLBACK');
@@ -246,8 +253,11 @@ export class KeplerSolicitudGastoSinkAdapter implements OnModuleDestroy {
         }
       }
       await c.query('COMMIT');
-      this.logger.log(`Solicitud ${e.sucursal}-${e.folio} (${e.marca}) cancelada en Kepler desde la Suite`);
-      return { estado: 'cancelada', folio: e.folio };
+      this.logger.log(`Solicitud ${e.sucursal}-${e.folio} (${e.marca ?? 'capturada en Kepler'}) cancelada en Kepler desde la Suite`);
+      return {
+        estado: 'cancelada', folio: e.folio,
+        original: { estado: f0.estado, iva: f0.iva, total: f0.total, saldo: f0.saldo, capturista: f0.capturista, fecha: f0.fecha, hora: f0.hora, marca: f0.marca || null },
+      };
     } catch (err) {
       await c.query('ROLLBACK').catch(() => undefined);
       return { estado: 'rechazado', motivo: `Kepler ${e.sucursal} no la canceló: ${(err as Error).message}`, reintentable: esReintentable(err) };

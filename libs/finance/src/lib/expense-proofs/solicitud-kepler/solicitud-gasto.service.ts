@@ -13,6 +13,7 @@ import {
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
   type DisponibilidadDeLaSolicitud, type DuplicadoProbable, type EstadoKeplerDeLaSolicitud, type LecturaDelComprobante,
   type PrecargaDeLaSolicitud, type SolicitudGastoCreada, type DetalleDeLaSolicitud, type SucursalesAbiertasDeLaSolicitud,
+  type SolicitudKeplerCancelada, type CancelacionDeSolicitudDisponible,
 } from '@megadulces/contracts';
 
 import { ExpenseProofsGateway } from '../expense-proofs.gateway';
@@ -48,6 +49,11 @@ import { SOLICITUD_CANCELADA_DESDE_LA_SUITE, SOLICITUD_CANCELAR_MOTIVO_MIN } fro
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const TIPO_INTERRUPTOR = 'solicitud_gasto';
+/** `[PGP.122.6]` El interruptor de «Cancela sol gasto» (también las capturadas en Kepler), aparte del de escribirlas. */
+const TIPO_CANCELA = 'cancela_solicitud_gasto';
+/** `[PGP.122.6]` La bitácora de cancelaciones en Kepler (de PQ.110 / KR.7, extendida: regla 2). */
+const BITACORA_CANCELA = 'commercial.purchase_order_cancellations';
+const MIGRACION_CANCELA = '20261119113518';
 /** Minutos de espera entre reintentos; tras el último, `stuck` (lo reintenta una persona). */
 export const ESPERAS_MIN = [5, 15, 60, 60, 60, 60] as const;
 /** Un `writing` más viejo que esto ya no está escribiendo: el proceso murió. Se pregunta por la marca. */
@@ -663,6 +669,105 @@ export class SolicitudGastoService {
     }
     this.logger.log(`vale ${id}: ${nota}`);
     return this.estadoDe(fila as FilaEstadoKepler);
+  }
+
+  /**
+   * `[PGP.122.6]` ¿Dónde se puede cancelar hoy una solicitud desde la Suite? Las sucursales con el interruptor
+   * `cancela_solicitud_gasto` encendido, el escritor cargado y su conexión. La pantalla ofrece el botón sólo ahí.
+   */
+  async cancelacionDisponible(): Promise<CancelacionDeSolicitudDisponible> {
+    if (!this.sink?.encendida()) return { sucursales: [] };
+    const filas = await this.tk.run(async (trx) => opcional(trx, (sp) => sp('commercial.kepler_push_switch')
+      .where({ tipo: TIPO_CANCELA, encendida: true }).select<{ sucursal: string }[]>('sucursal'), [] as { sucursal: string }[]));
+    return { sucursales: filas.map((f) => String(f.sucursal)).filter((s) => urlDeServidor(s, process.env).ok).sort() };
+  }
+
+  /**
+   * `[PGP.122.6]` **«Cancela sol gasto» desde la Suite** (pedido de Edgar, 2026-11-19: «todos los procesos de gastos se
+   * deben poder hacer aquí»). Cancela en Kepler la X-A-15 de esa sucursal y folio, igual que Kepler (las 156 medidas
+   * en la F3 eran justo capturadas a mano), y cierra con el motivo los vales de la Suite ligados a ella.
+   *
+   * Candados, en orden (los de `[KR.7]`): motivo · alcance (`base`) · la migración · ya cancelada desde la Suite ·
+   * interruptor `cancela_solicitud_gasto` de ESA sucursal y su tope diario · y en Kepler vivo, con la fila tomada,
+   * la regla (`decidirCancelacionSolicitud`: A o N, sin gasto vivo; candado por estado + total leído).
+   * La que escribió la Suite (su vale nació aquí) va por la F3 (`cancelarEnKepler`), que es la que guarda su marca.
+   * Cada intento queda en la bitácora (cancelada o rechazada), con la foto de Kepler de antes.
+   */
+  async cancelarSolicitudKepler(sucursal: unknown, folio: unknown, motivo: unknown, actor: string): Promise<SolicitudKeplerCancelada> {
+    const m = String(motivo ?? '').trim().replace(/\s+/g, ' ');
+    if (m.length < SOLICITUD_CANCELAR_MOTIVO_MIN) throw new BadRequestException(`Escribe por qué se cancela (al menos ${SOLICITUD_CANCELAR_MOTIVO_MIN} caracteres): lo lee quien revise el gasto después`);
+    const fl = String(folio ?? '').trim();
+    if (!/^\d{1,7}$/.test(fl)) throw new BadRequestException('Folio de solicitud inválido');
+    const f = fl.padStart(7, '0');
+    const s = await this.base(sucursal);
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    // La que nació en la Suite se cancela desde su vale: él guarda la marca, y su escritura y su lazo.
+    const deLaSuite = await this.tk.run(async (trx) => trx('finance.expense_proofs')
+      .where({ sucursal: s, folio_solicitud: f, origen: 'solicitud' }).first<{ id: string } | undefined>('id'));
+    if (deLaSuite) {
+      const r = await this.cancelarEnKepler(deLaSuite.id, m, actor);
+      return { sucursal: s, folio: f, estado: 'cancelada', rechazo: null, vales_cerrados: r.status === 'cancelled' ? 1 : 0 };
+    }
+
+    const hoy = todayMx();
+    const leido = await this.tk.run(async (trx) => {
+      if (!(await trx.schema.withSchema('commercial').hasColumn('purchase_order_cancellations', 'solicitud_folio'))) return null;
+      const ya = await trx(BITACORA_CANCELA).where({ tenant_id: tenantId, sucursal: s, document_type: 'solicitud_gasto', solicitud_folio: f, estado: 'cancelada' })
+        .whereNull('deleted_at').first<{ created_by_username: string | null } | undefined>('created_by_username');
+      const sw = await trx('commercial.kepler_push_switch').where({ tenant_id: tenantId, sucursal: s, tipo: TIPO_CANCELA })
+        .first<{ encendida: boolean; tope_dia: number | null } | undefined>('encendida', 'tope_dia');
+      const n = await trx(BITACORA_CANCELA).where({ tenant_id: tenantId, sucursal: s, document_type: 'solicitud_gasto', estado: 'cancelada' }).whereNull('deleted_at')
+        .whereRaw(`(created_at AT TIME ZONE 'America/Mexico_City')::date = ?::date`, [hoy]).count<{ n: string }[]>('* as n');
+      return { ya: ya ?? null, sw: sw ?? null, hoyN: Number(n[0]?.n ?? 0) };
+    });
+    if (!leido) throw new ServiceUnavailableException(`Cancelar solicitudes en Kepler todavía no está habilitado: falta aplicar la migración ${MIGRACION_CANCELA}`);
+    if (leido.ya) throw new ConflictException(`La solicitud ${f} ya se canceló desde la Suite${leido.ya.created_by_username ? ` (${leido.ya.created_by_username})` : ''}`);
+    if (!leido.sw?.encendida) throw new ServiceUnavailableException(`Cancelar solicitudes en Kepler está apagado para la sucursal ${s}: cancélala en Kepler`);
+    const tope = leido.sw.tope_dia === null || leido.sw.tope_dia === undefined ? null : Number(leido.sw.tope_dia);
+    if (tope !== null && leido.hoyN >= tope) {
+      throw new ServiceUnavailableException(`La sucursal ${s} ya canceló hoy ${leido.hoyN} desde la Suite (tope ${tope}): cancélala en Kepler`);
+    }
+    if (!this.sink) throw new ServiceUnavailableException('El escritor de Kepler no está disponible');
+
+    const r = await this.sink.cancelar({ sucursal: s, folio: f, marca: null, fecha: hoy, hora: horaMx() });
+    if (r.estado === 'apagado') throw new ServiceUnavailableException(r.motivo);
+
+    const ctx = this.tenantCtx.get();
+    const userId = ctx?.userId ?? null;
+    const username = ctx?.username ?? (actor || null);
+    // Los vales de la Suite ligados (los que comprueban esa solicitud): el primero se anota en la bitácora.
+    const vales = await this.tk.run(async (trx) => trx('finance.expense_proofs')
+      .where({ sucursal: s, folio_solicitud: f }).whereIn('status', ['recibida', ...FIRMADAS]).select<{ id: string }[]>('id'));
+    if (r.estado === 'cancelada' || r.estado === 'rechazado') {
+      const fila = {
+        tenant_id: tenantId, sucursal: s, document_type: 'solicitud_gasto', solicitud_folio: f, proof_id: vales[0]?.id ?? null,
+        motivo: m, estado: r.estado === 'cancelada' ? 'cancelada' : 'rechazada', rechazo: r.estado === 'rechazado' ? r.motivo : null,
+        kepler_original: r.estado === 'cancelada' && r.original ? JSON.stringify(r.original) : null,
+        requisicion_reabierta: false, created_by: userId, created_by_username: username, updated_by: userId,
+      };
+      try {
+        await this.tk.run((trx) => trx(BITACORA_CANCELA).insert(fila));
+      } catch (e) {
+        this.logger.error(`[PGP.122.6] solicitud ${s}-${f} ${fila.estado} en Kepler pero NO quedó en la bitácora: ${(e as Error).message} — ${JSON.stringify(fila)}`);
+      }
+    }
+    if (r.estado === 'rechazado') {
+      this.logger.warn(`[PGP.122.6] solicitud ${s}-${f}: Kepler no la canceló (${r.motivo}) — pidió ${username ?? actor}`);
+      if (r.reintentable) throw new ConflictException(`${r.motivo}. Intenta de nuevo en un momento`);
+      return { sucursal: s, folio: f, estado: 'rechazada', rechazo: r.motivo, vales_cerrados: 0 };
+    }
+    // Cancelada ahora o ya cancelada en Kepler: los vales ligados se cierran con el motivo (como la F3).
+    let cerrados = 0;
+    if (vales.length) {
+      const nota = r.estado === 'ya_estaba'
+        ? `Ya estaba cancelada en Kepler (folio ${f}); ${actor} la cerró en la Suite: ${m}`
+        : `${SOLICITUD_CANCELADA_DESDE_LA_SUITE} por ${actor} (folio ${f}): ${m}`;
+      cerrados = await this.tk.run(async (trx) => trx('finance.expense_proofs').whereIn('id', vales.map((v) => v.id)).whereIn('status', ['recibida', ...FIRMADAS])
+        .update({ status: 'rechazada', validated_by: actor || null, validated_at: trx.fn.now(), motivo_rechazo: `${SOLICITUD_CANCELADA_DESDE_LA_SUITE}: ${m}`.slice(0, 500), revision_nota: nota.slice(0, 500), updated_at: trx.fn.now() }));
+    }
+    this.logger.log(`[PGP.122.6] solicitud ${s}-${f}: ${r.estado} por ${username ?? actor} (${cerrados} vale(s) cerrado(s)): ${m}`);
+    return { sucursal: s, folio: f, estado: r.estado === 'ya_estaba' ? 'ya_estaba' : 'cancelada', rechazo: null, vales_cerrados: cerrados };
   }
 
   /** «Reintentar» de una persona con `COMPROBAR`: también los atorados y los que Kepler rechazó (ya corregidos). */

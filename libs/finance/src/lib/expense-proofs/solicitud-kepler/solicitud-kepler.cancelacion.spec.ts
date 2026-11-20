@@ -48,3 +48,38 @@ describe('[PGP.122] F3 sentenciasCancelacionSolicitud — lo mismo que escribe K
     expect(() => sentenciasCancelacionSolicitud({ ...plan, estado: 'F' })).toThrow();
   });
 });
+
+/**
+ * `[PGP.122.6]` «Cancela sol gasto» para la solicitud que se CAPTURÓ en Kepler (pedido de Edgar, 2026-11-19). Sin
+ * marca de la Suite, el candado es el total leído; y una que sí trae la marca de la Suite va por su vale.
+ */
+describe('[PGP.122.6] la solicitud capturada en Kepler', () => {
+  const deKepler = (): EntradaCancelacionSolicitud => ({ coincidencias: 1, solicitud: { folio: '0000077', estado: 'A', marca: '' }, marcaDelVale: null, gastosVivos: [] });
+  it('sin marca (capturada a mano), A o N y sin gasto vivo → se cancela', () => {
+    expect(decidirCancelacionSolicitud(deKepler())).toEqual({ ok: true });
+    expect(decidirCancelacionSolicitud({ ...deKepler(), solicitud: { folio: '0000077', estado: 'N', marca: 'algo que tecleó la persona' } })).toEqual({ ok: true });
+  });
+  it('⛔ una que lleva la marca de la Suite NO se cancela por aquí: se cancela desde su vale', () => {
+    const d = decidirCancelacionSolicitud({ ...deKepler(), solicitud: { folio: '0000091', estado: 'A', marca: 'SUITE SG-6B44A443 ' } });
+    expect(d.ok).toBe(false);
+    expect(!d.ok && d.motivo).toMatch(/la escribió la Suite.*desde su vale/);
+  });
+  it('⛔ las mismas negativas que la F3: gasto vivo, ejecutada, ya cancelada, inexistente, folio repetido', () => {
+    expect(decidirCancelacionSolicitud({ ...deKepler(), gastosVivos: ['0000151'] }).ok).toBe(false);
+    expect(decidirCancelacionSolicitud({ ...deKepler(), solicitud: { folio: '0000077', estado: 'F', marca: '' } }).ok).toBe(false);
+    expect(decidirCancelacionSolicitud({ ...deKepler(), solicitud: { folio: '0000077', estado: 'C', marca: '' } })).toMatchObject({ ok: false, yaCancelada: true });
+    expect(decidirCancelacionSolicitud({ ...deKepler(), solicitud: null, coincidencias: 0 }).ok).toBe(false);
+    expect(decidirCancelacionSolicitud({ ...deKepler(), coincidencias: 2 }).ok).toBe(false);
+  });
+  it('la sentencia: candado por estado + TOTAL leído (no por marca), los mismos SET y sin gasto vivo', () => {
+    const [s] = sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: '4000.00', capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' });
+    expect(s.sql).toMatch(/SET c43 = 'C', c14 = 0, c16 = 0, c42 = 0, c67 = \$5, c68 = \$6, c69 = \$7/);
+    expect(s.sql).toMatch(/btrim\(c43\) = \$3 AND c16 = \$4::numeric/);
+    expect(s.sql).not.toMatch(/c26/);
+    expect(s.sql).toMatch(/NOT EXISTS[\s\S]*btrim\(g\.c39\) = \$2 AND btrim\(g\.c43\) <> 'C'/);
+    expect(s.params).toEqual(['05', '0000077', 'A', '4000.00', 'SUITE', '2026-11-19', '12:10']);
+  });
+  it('⛔ sin marca y sin total no hay candado: no se arma la sentencia', () => {
+    expect(() => sentenciasCancelacionSolicitud({ sucursal: '05', folio: '0000077', estado: 'A', marca: null, total: null, capturista: 'SUITE', fecha: '2026-11-19', hora: '12:10' })).toThrow(/candado/);
+  });
+});

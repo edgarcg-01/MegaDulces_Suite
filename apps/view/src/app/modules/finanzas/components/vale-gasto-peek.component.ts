@@ -535,10 +535,24 @@ export class ValeGastoPeekComponent {
     return ['stuck', 'rejected_by_kepler', 'pending', 'retry'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
   });
   readonly reintentarKepler = output<string>();
-  /** `[PGP.122]` F3 (DS40): solicitud de la Suite ya escrita en Kepler, con el vale firmado: se puede cancelar allá. */
+  /**
+   * `[PGP.122.6]` Las sucursales donde se puede cancelar desde la Suite una solicitud CAPTURADA en Kepler (interruptor
+   * `cancela_solicitud_gasto`). Vacío = en ninguna: sólo se ofrece la F3 (la que nació en la Suite).
+   */
+  readonly cancelaSucursales = input<readonly string[]>([]);
+  /**
+   * `[PGP.122]` F3 (DS40): solicitud de la Suite ya escrita en Kepler, con el vale firmado: se puede cancelar allá.
+   * `[PGP.122.6]` También la capturada en Kepler: en A o N (lo que Kepler deja cancelar), con el vale vivo y en una
+   * sucursal encendida. El gasto vivo no se ve aquí: lo decide el servidor contra Kepler y, si lo hay, lo dice.
+   */
   readonly cancelable = computed(() => {
-    const st = this.kepler()?.nace_en_la_suite?.status ?? '';
-    return ['written', 'seen_in_ods'].includes(st) && ['aprobada', 'validada', 'revision'].includes(this.vale()?.status ?? '');
+    const k = this.kepler();
+    const v = this.vale();
+    if (k?.nace_en_la_suite) {
+      return ['written', 'seen_in_ods'].includes(k.nace_en_la_suite.status ?? '') && ['aprobada', 'validada', 'revision'].includes(v?.status ?? '');
+    }
+    return !!k?.solicitud && ['A', 'N'].includes(k.estado ?? '') && ['recibida', 'aprobada', 'validada', 'revision'].includes(v?.status ?? '')
+      && !!v?.sucursal && this.cancelaSucursales().includes(v.sucursal);
   });
   readonly cancelarKepler = output<{ id: string; motivo: string }>();
   /** El vale cuyo motivo de cancelación está abierto: al abrir otro vale, el formulario no lo sigue. */
