@@ -37,6 +37,7 @@ import { todayMx } from '../../../core/utils/mx-date';
 import { MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION, textoDeMotivo, type OrderJustification } from '@megadulces/contracts';
 import { MotivoChipsComponent } from '../shared/motivo-chips.component';
 import { JustificantesComponent } from '../shared/justificantes.component';
+import { SurtirCarretaComponent } from '../components/surtir-carreta.component';
 import { camposDeMotivo, motivoDe, motivosIncompletos, type MotivoLinea } from '../shared/motivos-preventa';
 
 /**
@@ -110,7 +111,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, SelectModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, FreshnessPillComponent, MotivoChipsComponent, JustificantesComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, SelectModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, FreshnessPillComponent, MotivoChipsComponent, JustificantesComponent, SurtirCarretaComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -391,6 +392,8 @@ function plural(n: number, uno: string, varios: string): string {
             <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
             <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
           </section>
+          <!-- [GP.11.5] La carreta se escanea ANTES del primer renglón (D7); una tanda va sin carreta por ahora. -->
+          <app-surtir-carreta [warehouseId]="o.warehouse_id" [waveId]="o.id" [pedido]="o.pedidos[0] || 'este pedido'" (listo)="carretaLista.set($event)" />
         }
 
         <!-- [MCP.3.15] Indicaciones del vendedor: un solo recuadro por pedido, en grande, arriba de la lista. -->
@@ -409,6 +412,8 @@ function plural(n: number, uno: string, varios: string): string {
           <app-justificantes [items]="justificantesPedido()" idBase="sr-jf"></app-justificantes>
         }
 
+        <!-- [GP.11.5] Sin carreta no hay renglones: es un paso, no una columna. Preventa no lleva carreta todavía (D9). -->
+        @if (pedidoSucursal() || carretaLista()) {
         <!-- [GP.RF.35] Fijo arriba al desplazar: escanear el siguiente no obliga a volver a subir. El avance va pegado. -->
         <div class="sr-fijo">
           <section class="sr-buscar">
@@ -692,6 +697,7 @@ function plural(n: number, uno: string, varios: string): string {
             <span>Terminé de surtir</span>
           </button>
         </footer>
+        }
       }
 
       <!-- ─────────── CERRADA ─────────── -->
@@ -1140,6 +1146,8 @@ export class AlmacenSurtirComponent implements OnInit {
   /** `[MCP.23]` La existencia del sistema de cada renglón del pedido de Sucursal abierto (`PresalePickLine.stock`). */
   readonly stockPedido = signal<Record<string, PresaleReviewStock | null | undefined>>({});
   readonly ola = signal<PickerWave | null>(null);
+  /** [GP.11.5] La ola ya tiene carreta (o es una tanda, que por ahora va sin ella): se pueden ver los renglones. */
+  readonly carretaLista = signal(false);
   /** `[GP.RF.27]` El surtido de Telemarketing que quedó a medias: se avisa, no se retoma solo. */
   readonly olaAMedias = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);

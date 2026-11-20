@@ -169,7 +169,12 @@ export function describeCart(tipo: CartKind, numero: number): string {
  */
 export type CartOrderRef =
   | { source: 'suite'; order_id: string }
-  | { source: 'kepler'; sucursal: string; serie: number; folio: string };
+  | { source: 'kepler'; sucursal: string; serie: number; folio: string }
+  /**
+   * El pedido de una ola de UN pedido, sin que la pantalla descifre folios. Una tanda (varios pedidos
+   * sumados por producto) responde 409: por ahora se surte sin carreta (Edgar, 2026-11-20, «tandas después»).
+   */
+  | { source: 'ola'; wave_id: string };
 
 /** `cargado` lo pone el embarque (E4, D22); `manual` el coordinador; `deshecho` quien la escaneó por error. */
 export type CartReleaseReason = 'cargado' | 'manual' | 'deshecho';
@@ -228,6 +233,20 @@ export interface BulkCartsBody {
 export interface BulkCartsResult {
   creadas: string[];
   ya_existian: string[];
+}
+
+/** Las carretas de una ola: con cuáles se surte ahora y si es una tanda (que por ahora va sin carreta). */
+export interface WaveCartsResponse {
+  wave_id: string;
+  pedidos: number;
+  /** Más de un pedido sumado: la carreta se decide al desconsolidar (pendiente, P-GP.6). */
+  tanda: boolean;
+  /**
+   * Carretas activas dadas de alta en el almacén. 0 = todavía no hay catálogo: se surte sin carreta (si no,
+   * el primer día bloquearía todo el surtido de la sucursal) y la pantalla lo dice.
+   */
+  catalogo: number;
+  carretas: CartRow[];
 }
 
 /** Cómo se lee en voz alta: "Bodega · pasillo A · rack 05 · nivel 3". */

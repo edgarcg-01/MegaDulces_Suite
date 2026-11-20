@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RequireAuthGuard, RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import type { BulkCartsBody, BulkCartsResult, CartRow, CartsResponse, OccupyCartBody, OccupyCartResult } from '@megadulces/contracts';
+import type { BulkCartsBody, BulkCartsResult, CartRow, CartsResponse, OccupyCartBody, OccupyCartResult, WaveCartsResponse } from '@megadulces/contracts';
 import { WarehouseCartsService } from './warehouse-carts.service';
 
 /**
@@ -21,6 +21,13 @@ export class WarehouseCartsController {
   @ApiOperation({ summary: 'Carretas y carritos del almacén, con el pedido que trae cada una' })
   list(@Query('warehouse_id') warehouseId: string): Promise<CartsResponse> {
     return this.svc.list(warehouseId);
+  }
+
+  @Get('ola/:waveId')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'Las carretas con que se surte una ola, y si es una tanda (por ahora sin carreta)' })
+  forWave(@Param('waveId') waveId: string): Promise<WaveCartsResponse> {
+    return this.svc.forWave(waveId);
   }
 
   @Post('bulk')

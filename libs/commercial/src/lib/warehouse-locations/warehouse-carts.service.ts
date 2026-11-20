@@ -15,6 +15,7 @@ import {
   type LocationStatus,
   type OccupyCartBody,
   type OccupyCartResult,
+  type WaveCartsResponse,
 } from '@megadulces/contracts';
 import { almacenDeUbicaciones, contextoDeAlcance, type AlmacenUbicaciones } from './warehouse-locations-scope';
 import { decidirLiberar, decidirOcupar, type CarretaHechos, type PedidoHechos } from './carretas.reglas';
@@ -118,11 +119,12 @@ export class WarehouseCartsService {
     const warehouseId = this.uuid(body?.warehouse_id, 'warehouse_id');
     const leida = parseCartCode(body?.carreta);
     if (!leida.ok) throw new BadRequestException(leida.motivo);
-    const ref = this.referencia(body?.pedido);
+    const pedida = this.referencia(body?.pedido);
     const { userId, nombre } = await this.quien();
     const ctx = await contextoDeAlcance(this.scope, RUTA);
     return this.tk.run(async (trx) => {
       const wh = await almacenDeUbicaciones(trx, this.scope, ctx, warehouseId, false);
+      const ref = pedida.source === 'ola' ? await this.pedidoDeOla(trx, wh.id, pedida.wave_id) : pedida;
       const carreta = await this.carretaParaActualizar(trx, wh.id, leida.code);
       const pedido = await this.pedido(trx, wh, ref);
       const d = decidirOcupar(carreta?.hechos ?? null, pedido?.hechos ?? null, userId, horaMx, leida.code, wh.name);
@@ -145,6 +147,27 @@ export class WarehouseCartsService {
       }
       const [fila] = await this.carretas(trx, wh.id, carreta!.id);
       return { carreta: fila, ya_estaba: d.accion === 'ya_estaba' };
+    });
+  }
+
+  /** Las carretas con que se surte una ola, y si es una tanda (por ahora sin carreta: «tandas después»). */
+  async forWave(waveIdRaw: string): Promise<WaveCartsResponse> {
+    const waveId = this.uuid(waveIdRaw, 'wave_id');
+    const ctx = await contextoDeAlcance(this.scope, RUTA);
+    return this.tk.run(async (trx) => {
+      const w = await trx('commercial.picking_waves').where({ id: waveId }).first('warehouse_id');
+      if (!w) throw new NotFoundException('Ola no encontrada.');
+      const wh = await almacenDeUbicaciones(trx, this.scope, ctx, w.warehouse_id, false);
+      const pedidos = await trx('commercial.wave_orders').where({ wave_id: waveId }).pluck('order_id');
+      const abiertas = pedidos.length
+        ? await trx('commercial.cart_occupations').whereIn('order_id', pedidos).whereNull('released_at').pluck('bin_id')
+        : [];
+      const todas = await this.carretas(trx, wh.id);
+      return {
+        wave_id: waveId, pedidos: pedidos.length, tanda: pedidos.length > 1,
+        catalogo: todas.filter((c) => c.estado === 'activa').length,
+        carretas: todas.filter((c) => abiertas.includes(c.id)),
+      };
     });
   }
 
@@ -226,7 +249,7 @@ export class WarehouseCartsService {
    * `presale_picks`; si va en una ola (Kepler siempre, la Suite a veces), por la ola (`en_surtido` +
    * `assigned_to`). Un pedido de otro almacén responde como si no existiera.
    */
-  private async pedido(trx: Knex.Transaction, wh: AlmacenUbicaciones, ref: CartOrderRef): Promise<{ hechos: PedidoHechos; wave_id: string | null } | null> {
+  private async pedido(trx: Knex.Transaction, wh: AlmacenUbicaciones, ref: Exclude<CartOrderRef, { source: 'ola' }>): Promise<{ hechos: PedidoHechos; wave_id: string | null } | null> {
     const ola = (orderIdSql: string, params: ReadonlyArray<string | number>) =>
       trx.raw(
         `SELECT wo.order_id, w.id AS wave_id, w.status, w.assigned_to, w.warehouse_id, u.nombre
@@ -283,6 +306,25 @@ export class WarehouseCartsService {
     return o?.code ?? 'pedido de la Suite';
   }
 
+  /**
+   * El pedido de una ola de UN pedido. Una tanda (varios pedidos sumados por producto) no lleva carreta por
+   * ahora: el surtidor no puede repartir en una carreta por pedido mientras surte la suma (Edgar, 2026-11-20).
+   */
+  private async pedidoDeOla(trx: Knex.Transaction, warehouseId: string, waveId: string): Promise<Exclude<CartOrderRef, { source: 'ola' }>> {
+    const filas = await trx('commercial.wave_orders as wo')
+      .join('commercial.picking_waves as w', function () { this.on('w.tenant_id', 'wo.tenant_id').andOn('w.id', 'wo.wave_id'); })
+      .where({ 'wo.wave_id': waveId, 'w.warehouse_id': warehouseId })
+      .select('wo.source', 'wo.order_id', 'wo.kepler_sucursal', 'wo.kepler_serie', 'wo.kepler_folio');
+    if (!filas.length) throw new NotFoundException('Esa ola no está en el surtido de tu almacén.');
+    if (filas.length > 1) {
+      throw new ConflictException(`Esta ola es una tanda de ${filas.length} pedidos: por ahora las tandas se surten sin carreta (se decide al desconsolidar).`);
+    }
+    const f = filas[0];
+    return f.source === 'kepler'
+      ? { source: 'kepler', sucursal: String(f.kepler_sucursal), serie: Number(f.kepler_serie), folio: String(f.kepler_folio) }
+      : { source: 'suite', order_id: String(f.order_id) };
+  }
+
   private referencia(p: CartOrderRef | undefined): CartOrderRef {
     if (p?.source === 'suite') return { source: 'suite', order_id: this.uuid(p.order_id, 'pedido.order_id') };
     if (p?.source === 'kepler') {
@@ -294,6 +336,7 @@ export class WarehouseCartsService {
       }
       return { source: 'kepler', sucursal, serie, folio };
     }
+    if (p?.source === 'ola') return { source: 'ola', wave_id: this.uuid(p.wave_id, 'pedido.wave_id') };
     throw new BadRequestException('Falta el pedido (de la Suite o de Kepler).');
   }
 

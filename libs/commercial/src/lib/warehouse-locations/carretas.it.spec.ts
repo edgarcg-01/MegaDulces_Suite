@@ -202,6 +202,17 @@ suite('[GP.11] Carretas: catálogo y ocupación, contra Postgres real (transacci
          VALUES (?, ?, md5('kepler/UD40/97/40/12345')::uuid, 'en_ola', 'kepler', '97', 40, '12345')`,
         [M, ola.id],
       );
+      ids['ola'] = ola.id;
+      // Una TANDA: dos U-D-40 sumados en una ola.
+      const [tanda] = await trx('commercial.picking_waves').insert({ tenant_id: M, code: 'W-GPIT-2', warehouse_id: ids['w'], status: 'en_surtido', assigned_to: USER }).returning('id');
+      for (const folio of ['20001', '20002']) {
+        await trx.raw(
+          `INSERT INTO commercial.wave_orders (tenant_id, wave_id, order_id, stage, source, kepler_sucursal, kepler_serie, kepler_folio)
+           VALUES (?, ?, md5('kepler/UD40/97/40/' || ?)::uuid, 'en_ola', 'kepler', '97', 40, ?)`,
+          [M, tanda.id, folio, folio],
+        );
+      }
+      ids['tanda'] = tanda.id;
     });
 
     it('⭐ alta por rango: C01–C03 se crean; repetir el rango no duplica y lo dice', async () => {
@@ -248,6 +259,22 @@ suite('[GP.11] Carretas: catálogo y ocupación, contra Postgres real (transacci
       yo = USER;
       const fila = await trx('commercial.cart_occupations').where({ bin_id: c02.id }).first('release_reason', 'released_by');
       expect(fila).toEqual({ release_reason: 'manual', released_by: ANA });
+    });
+
+    it('⭐ por OLA: la pantalla manda la ola de un pedido y el servidor encuentra el U-D-40; la ola dice con qué carreta va', async () => {
+      const r = await svc.occupy({ warehouse_id: ids['w'], carreta: 'C03', pedido: { source: 'ola', wave_id: ids['ola'] } });
+      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'U-D-40 12345', source: 'kepler' });
+      const w = await svc.forWave(ids['ola']);
+      expect(w).toMatchObject({ pedidos: 1, tanda: false });
+      // C01–C04 (alta por rango) + C07 y C08 activas; la C09 está dada de baja y no cuenta.
+      expect(w.catalogo).toBe(6);
+      // La C08 ya traía este mismo U-D-40 (la ocupó la prueba de C0): un pedido con dos carretas, «agregar otra».
+      expect(w.carretas.map((c) => c.code)).toEqual(['C03', 'C08']);
+    });
+
+    it('NEGATIVA «tandas después»: una ola de 2 pedidos sumados no toma carreta (409) y se declara tanda', async () => {
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C04', pedido: { source: 'ola', wave_id: ids['tanda'] } }))).toBe(409);
+      expect(await svc.forWave(ids['tanda'])).toMatchObject({ pedidos: 2, tanda: true, carretas: [] });
     });
   });
 });

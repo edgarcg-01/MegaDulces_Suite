@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2945 KB, 15190 líneas, 78 secciones.
+> **Índice navegable** — 2946 KB, 15191 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 13958 | 13999 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 14000 | 14166 | 82 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14167 | 14197 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14198 | 14473 | 55 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14474 | 14538 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14539 | 14547 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14548 | 14606 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14613 | 14622 | 1 | 📝 Convenciones |
-| 14623 | 14660 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14661 | 14679 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14680 | 14732 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14733 | 15127 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15128 | 15158 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15159 | 15180 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15181 | 15208 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15209 | 15252 | 44 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15253 | 15280 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14198 | 14474 | 57 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14475 | 14539 | 95 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14540 | 14548 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14549 | 14607 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14614 | 14623 | 1 | 📝 Convenciones |
+| 14624 | 14661 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14662 | 14680 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14681 | 14733 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14734 | 15128 | 91 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15129 | 15159 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15160 | 15181 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15182 | 15209 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15210 | 15253 | 44 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15254 | 15281 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14206,6 +14206,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 > - [ ] **[GP.10]** ⬜ Consola maestra: Kepler + preventa + estado de piso; absorbe Preventa y Consola de surtido (D1, D2).
 > - [ ] **[GP.11]** 🔨 Carretas y carritos: catálogo con tipo y QR, escaneo obligatorio al surtir, un pedido por carreta, se libera al cargar (D6, D7, D22). **E2 abierta el 2026-11-20** (Edgar: «sigamos entonces»).
 >   - [x] **[GP.11.1]** 🧪 (2026-11-20, C0) **Carretas y carritos en el catálogo de ubicaciones.** Migración `20261120112959_gp11_1_carretas_en_catalogo`, sin aplicar en prod: el CHECK de `tipo` acepta `carreta`/`carrito`; `ck_wh_bins_carreta` exige código `C01`–`C99`, tipo carreta o carrito y ninguna parte de ubicación; `ck_wh_bins_tipo_familia` impide que una `BA053` quede como carrito. Comparten numeración porque Kepler guarda la carreta en una sola columna (`kdm2.c59`). En el contrato, `parseCartCode`: `C07` de la pistola y `7` tecleado dan la misma carreta, y una prueba ata la expresión del contrato con la de la migración. Medido en prod (sólo lectura): 0 carretas; 11 filas de ejemplo dan lo esperado (incluido el tipo NULL); 0 de 384 filas reales en contra. Falta: alta por rango y carteles (C2/C3).
+>   - [ ] **[GP.11.5]** 🔨 (2026-11-20, C3, primera parte) **Surtir pide la carreta antes del primer renglón** (`SurtirCarretaComponent`): en una ola de Kepler de UN pedido, los renglones y «Terminé de surtir» no aparecen hasta que hay carreta; campo con foco y teclado numérico, «Agregar otra» y «Deshacer», el Enter del escáner se queda en el campo (UI.4), un rechazo deja su motivo (`carreta_rechazada`). El servidor acepta la OLA como referencia (`source: 'ola'`) y `GET /warehouse/carts/ola/:id` dice con qué carretas va, si es tanda y cuántas hay en el catálogo. Lo que no se cambió: una TANDA va sin carreta por ahora (Edgar, 2026-11-20, «tandas después»; 3 de 17 olas en 30 días); un almacén SIN carretas dadas de alta surte como hoy (para no bloquear a la sucursal el primer día); preventa no se toca (D9). Pruebas: paso 7 + Surtir 1 negativa; integración 16/16 (ola de un pedido, tanda 409, catálogo); mutantes (sin compuerta, sin freno del Enter) → 2 en rojo; almacén 902/902; `ngc` limpio; `check:pantalla` sin fallas nuevas. Falta: alta por rango con carteles en Ubicaciones y la carreta en el Tablero.
 >   - [x] **[GP.11.3]** 🧪 (2026-11-20, C1) **Las reglas de la carreta** (`carretas.reglas.ts`, funciones puras): la carreta se toma al EMPEZAR y la toma QUIEN SURTE el pedido; una carreta con otro pedido no se toma y dice de quién es y desde cuándo (D7); volver a escanearla para el mismo pedido no hace nada; bloqueada o dada de baja no se toma. Soltarla antes del embarque: «deshacer» sólo quien la escaneó y mientras el pedido siga en surtido; «liberar» a mano, el coordinador (provisional hasta E4); «cargado» es del embarque. 9 pruebas.
 >   - [x] **[GP.11.4]** 🧪 (2026-11-20, C2) **Endpoints de carretas** (`/warehouse/carts`): `GET` (las del almacén con su pedido), `POST bulk` (alta por rango, ALMACEN_UBICACIONES_GESTIONAR), `POST occupy` (COMMERCIAL_PICKING_GESTIONAR), `POST :id/undo` (quien surte) y `POST :id/release` (ALMACEN_SURTIDO_COORDINAR: el permiso lo pone el guard). El pedido se reconoce como lo ve el surtido: preventa por `presale_picks`, y si va en ola (Kepler siempre) por la ola en surtido y su `assigned_to`. Probado contra Postgres real con el cuerpo de la pantalla (`carretas.it.spec.ts`, 14/14): alta por rango sin duplicar, «1» del teclado = C01, D7 409, pedido ajeno 403, código malo 400, carreta inexistente 404, U-D-40 por su llave, deshacer y liberar. Mutante (quitar «sólo quien surte»): 3 en rojo. ⚠️ Arranque de la API NO verificado en local (regla 3): lo verifica `check-boot` en el CI.
 >   - [x] **[GP.11.2]** 🧪 (2026-11-20, C0) **Qué pedido trae cada carreta: `commercial.cart_occupations`.** Migración `20261120113241_gp11_2_ocupacion_de_carretas`, sin aplicar en prod: `source` `suite`/`kepler` (el vocabulario de `wave_orders`) y la llave de Kepler derivada con el mismo CHECK; único parcial por carreta abierta (D7); un pedido puede traer varias; trigger que sólo deja ocupar una carreta activa del mismo almacén; liberar exige quién y motivo (`cargado`, `manual`, `deshecho`); RLS forzado y sin DELETE. `carretas.it.spec.ts` contra Postgres real, 9/9 en transacción revertida; cazó dos defectos de la primera versión (liberar sin motivo pasaba: un NULL hace pasar el CHECK; y `app_runtime` podía borrar, porque los privilegios por omisión de `commercial` en prod le dan `arwd` y el GRANT solo no lo quita). Mutante: sin el índice único, D7 en rojo.
