@@ -201,9 +201,11 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    - **Probado contra Postgres real**: una base desechable local con todas las migraciones
      (`dev-bootstrap-empty-db.js`; la máquina no tiene pgvector y su migración se registró como molde, declarado en
      `_dev_bootstrap_log`). `order-stock.it.spec.ts` corre el servicio REAL como `app_runtime` con `kdil` sembrado y
-     SIN renglón en la copia: 11 casos, y doce mutantes en rojo (sin tope por referencia, sin candado en cada una de
-     las tres operaciones, un cancelado que sigue apartando, la portada, B6 o el cron de vuelta a la copia…). En el CI
-     corre en el job de integración (`TP_IT_DB`).
+     SIN renglón en la copia: 12 casos, y quince mutantes en rojo (sin tope por referencia, sin candado en cada una de
+     las tres operaciones, un cancelado que sigue apartando, la portada, B6 o el cron de vuelta a la copia…). La
+     consulta del detalle de pedido salió de `findById` a `lineas-con-existencia.ts` para que la prueba ejerza ESA
+     consulta y no una copia de su SQL: la API local no estaba corriendo y levantarla está prohibido (regla 3), así que
+     la pantalla del detalle queda **sin validación visual**. En el CI corre en el job de integración (`TP_IT_DB`).
    - ⚠️ **Sin tocar, con nombre:** el apartado fantasma de `PD-2026-00011` (es de Comercial: o se entrega o se
      cancela); el tope del detalle de pedido suma de vuelta la cantidad del renglón también en preventa, que no apartó
      (regla anterior, sin cambio); el aviso «se vendió vencido» sigue leyendo `stock_lots`, cuyo lote `NA` mantiene la

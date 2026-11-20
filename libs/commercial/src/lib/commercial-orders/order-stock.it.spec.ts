@@ -13,6 +13,7 @@
  */
 import knexFactory, { type Knex } from 'knex';
 import { OrderStockService } from './order-stock.service';
+import { lineasConExistencia } from './lineas-con-existencia';
 import {
   EXISTENCIA_ODS_CON_APARTADO_SQL,
   existenciaYApartado,
@@ -132,6 +133,23 @@ suite('[CANON.7.4b] apartar, entregar y liberar: ODS + libro de movimientos, con
       [[ids['w']], [ids['p']]],
     );
     expect(rows).toEqual([{ q: 10, r: 10 }]);
+  });
+
+  it('el detalle de pedido (B6): la consulta REAL de findById da existencia, apartado y tope por renglón', async () => {
+    ids['F'] = await pedido('IT74B-F', 'confirmed');
+    const renglon = (n: number, p: string, q: number) => ({
+      tenant_id: M, order_id: ids['F'], product_id: p, line_number: n, quantity: q, unit_price: 1,
+      line_subtotal: q, line_tax: 0, line_total: q,
+    });
+    await trx('commercial.order_lines').insert([renglon(1, ids['p'], 3), renglon(2, ids['p2'], 1)]);
+    const ls = await lineasConExistencia(trx, ids['F'], { warehouse_id: ids['w'], status: 'confirmed' });
+    expect(ls.map((l) => [l.line_number, Number(l.stock_quantity), Number(l.stock_reserved), Number(l.stock_available)])).toEqual([
+      [1, 10, 10, 3], // 10 de Kepler, 10 apartadas por A y B; confirmado: se le suma de vuelta su renglón (regla anterior)
+      [2, 0, 0, 1],
+    ]);
+    // Control: en borrador no se suma de vuelta nada.
+    const borrador = await lineasConExistencia(trx, ids['F'], { warehouse_id: ids['w'], status: 'draft' });
+    expect(borrador.map((l) => Number(l.stock_available))).toEqual([0, 0]);
   });
 
   it('liberar topa en lo que ESA referencia apartó: B libera 4 aunque pida 100; C, que no apartó, no libera lo de A', async () => {

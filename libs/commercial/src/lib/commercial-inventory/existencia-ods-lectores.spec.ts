@@ -262,7 +262,9 @@ describe('[CANON.7.4b] los pedidos: existencia del ODS, apartado del libro de mo
   });
 
   it('el detalle de pedido (B6) lee lo mismo con lo que valida reserve(), acotado con constantes a lo del pedido', () => {
-    const f = readFileSync(join(RAIZ, 'libs/commercial/src/lib/commercial-orders/commercial-orders.service.ts'), 'utf8').split('\r\n').join('\n');
+    expect(leer('commercial-orders/commercial-orders.service.ts')).toContain('const lines = await lineasConExistencia(trx, orderId, order);');
+    const f = leer('commercial-orders/lineas-con-existencia.ts');
+    expect(lecturasDeLaCopia(f)).toEqual([]);
     expect(f).toContain('FROM ${EXISTENCIA_ODS_CON_APARTADO_SQL} x');
     expect(f).toContain('WHERE x.warehouse_id = ANY(?::uuid[]) AND x.product_id = ANY(?::uuid[])) AS s');
     expect(f).toContain('.leftJoin(existenciaDelPedido, function () {');
