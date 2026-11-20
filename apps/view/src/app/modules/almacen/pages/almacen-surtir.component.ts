@@ -63,6 +63,9 @@ type Origen = 'TELEMARK' | 'SUCURSAL';
 
 /** Lo marcado en un pedido de Sucursal vive en el celular hasta "Terminé de surtir". */
 const PREF_MARCAS = 'gp.surtir.preventa.v1.';
+/** `[GP.RF.45]` Tras un 504 o una red caída, cuántas veces y cada cuánto se relee el pedido antes de decir que no cerró (~12 s). */
+const RELECTURAS_CIERRE = 4;
+const ESPERA_RELECTURA_MS = 3000;
 /** `[MCP.17]` Lo que se surte en otra unidad del mismo producto, también en el celular hasta cerrar. */
 const PREF_OTRA = 'gp.surtir.preventa.otra.v1.';
 /** `[MCP.18]` El motivo de cada faltante, también en el celular hasta cerrar. */
@@ -1752,12 +1755,19 @@ export class AlmacenSurtirComponent implements OnInit {
    * antes de decir que falló: si lo cerró esta persona, queda cerrado (sin el reporte, que no llegó);
    * si lo cerró otra, se dice quién. El incidente se registra igual, con `ya_guardado`.
    */
-  private revisarCierre(o: PickerWave, e: unknown, cambios: number): void {
+  private revisarCierre(o: PickerWave, e: unknown, cambios: number, intento = 0): void {
     const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
     if (status !== 0 && status !== 409 && status < 500) return this.cierreRechazado(o, e, cambios);
     this.preventa.detail(o.id).subscribe({
       next: (d) => {
         const f = d.order.finished;
+        // [GP.RF.45] Sin respuesta clara (5xx o red) el servidor puede seguir cerrando: medido en prod, los 4 cierres
+        // con 504 del 19 y 20-nov SÍ se guardaron, 0–4 s DESPUÉS del 504, y la relectura única llegaba antes.
+        if (!f && status !== 409 && intento < RELECTURAS_CIERRE) {
+          if (intento === 0) this.avisar('info', 'El servidor tardó en contestar: reviso si el cierre se guardó…');
+          setTimeout(() => this.revisarCierre(o, e, cambios, intento + 1), ESPERA_RELECTURA_MS);
+          return;
+        }
         if (!f) return this.cierreRechazado(o, e, cambios, false);
         this.reportarRechazo('cerrar_preventa', o, e, cambios, true);
         if (f.user_id !== this.auth.user()?.sub) return this.yaSurtido(d);
@@ -1774,11 +1784,6 @@ export class AlmacenSurtirComponent implements OnInit {
     this.avisar('error', this.mensaje(e, 'No se pudo terminar el surtido.'));
   }
 
-  /**
-   * `[GP.RF.44]` Un pedido ya surtido no se abre como si siguiera en curso: con `?pedido=` en la URL
-   * (una recarga, el aviso de la campana) «Empezar» lo deja pasar, y la pantalla lo pintaba con las
-   * marcas guardadas en el celular para volver a cerrarlo. Se borran esas marcas y se vuelve a la lista.
-   */
   /**
    * `[MCP.27]` No hubo nada: se avisa a la vendedora y el pedido sale de la cola «por cancelar». No se cierra (la regla
    * de MCP), así que no hay reporte: se regresa a la lista diciendo a quién se avisó.
@@ -1813,6 +1818,11 @@ export class AlmacenSurtirComponent implements OnInit {
     });
   }
 
+  /**
+   * `[GP.RF.44]` Un pedido ya surtido no se abre como si siguiera en curso: con `?pedido=` en la URL
+   * (una recarga, el aviso de la campana) «Empezar» lo deja pasar, y la pantalla lo pintaba con las
+   * marcas guardadas en el celular para volver a cerrarlo. Se borran esas marcas y se vuelve a la lista.
+   */
   private yaSurtido(d: PresalePickDetail): void {
     const id = d.order.order_id;
     const f = d.order.finished;

@@ -19,6 +19,7 @@ import { MotivoChipsComponent } from '../shared/motivo-chips.component';
 import { JustificantesComponent } from '../shared/justificantes.component';
 import { camposDeMotivo, motivoDe, motivosIncompletos, pidenMotivoEnCaja, type MotivoLinea } from '../shared/motivos-preventa';
 import { PresaleReviewService } from '../presale-review.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { deVendedor, etiquetaDia, pendientesDeOtrosDias, sumarDiasIso, vendedoresDe } from '../pedidos-por-dia';
 import { FormsModule } from '@angular/forms';
@@ -546,6 +547,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 })
 export class AlmacenRevisionPreventaComponent implements OnInit {
   private readonly api = inject(PresaleReviewService);
+  private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
@@ -981,11 +983,41 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
         if (sig) this.abrir(sig.order_id);
         else this.cerrarDetalle();
       },
-      error: (e) => {
+      error: (e) => this.revisarCierre(d, e, conMotivo.size),
+    });
+  }
+
+  /**
+   * `[GP.RF.46]` Un cierre rechazado puede estar hecho: medido en prod el 2026-11-20, 3 «ya lo revisó … a las 10:30» en
+   * 9 s, de la misma persona sobre el mismo pedido (el primer toque sí se guardó; la pantalla no avanzaba y volvió a
+   * tocar). Con 409, 5xx o sin respuesta se relee el pedido: si ya quedó revisado, se borra lo guardado en el celular y
+   * se sigue con el siguiente diciendo quién lo revisó; si no, el error de siempre. Como `[GP.RF.44]` en Surtir.
+   */
+  private revisarCierre(d: PresaleReviewDetail, e: unknown, bajados: number): void {
+    const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
+    const fallo = () => {
+      this.trabajando.set(false);
+      this.reportarRechazo(d, e, bajados);
+      this.toast.add({ severity: 'error', summary: mensaje(e, 'No se pudo terminar la revisión.'), life: 8000 });
+    };
+    if (status !== 0 && status !== 409 && status < 500) return fallo();
+    this.api.detail(d.order.order_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (x) => {
+        const r = x.order.reviewed;
+        if (!r) return fallo();
         this.trabajando.set(false);
-        this.reportarRechazo(d, e, conMotivo.size);
-        this.toast.add({ severity: 'error', summary: mensaje(e, 'No se pudo terminar la revisión.'), life: 8000 });
+        this.reportarRechazo(d, e, bajados, true);
+        this.borrarGuardado(d.order.order_id);
+        const quien = r.user_id === this.auth.user()?.sub ? 'lo revisaste tú' : `lo revisó ${r.name}`;
+        const txt = `${d.order.code} ya está revisado: ${quien} a las ${hora.format(new Date(r.at))}.`;
+        this.toast.add({ severity: 'info', summary: txt, life: 7000 });
+        this.anuncio.set(txt);
+        const sig = this.otros()[0];
+        this.cargar(true);
+        if (sig) this.abrir(sig.order_id);
+        else this.cerrarDetalle();
       },
+      error: () => fallo(),
     });
   }
 
@@ -997,7 +1029,7 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
    * candidatas —otra caja ya lo revisó (cuánto llevaba abierto), una revisión guardada de antes
    * (retomado), renglones bajados con su motivo—. Nada de lo que la persona escribe.
    */
-  private reportarRechazo(d: PresaleReviewDetail, e: unknown, bajados: number): void {
+  private reportarRechazo(d: PresaleReviewDetail, e: unknown, bajados: number, yaGuardado?: boolean): void {
     const status = Number((e as { status?: unknown })?.status ?? 0) || 0;
     this.uso.reportarIncidente('revision_cierre_rechazado', {
       accion: 'revisar_terminar',
@@ -1008,6 +1040,8 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
       bajados,
       retomado: this.retomado,
       minutos_abierto: this.abiertoEn ? Math.round((Date.now() - this.abiertoEn) / 60000) : null,
+      // [GP.RF.46] Sólo cuando se releyó: true = ya estaba revisado (rechazo falso).
+      ...(yaGuardado === undefined ? {} : { ya_guardado: yaGuardado }),
     });
   }
 

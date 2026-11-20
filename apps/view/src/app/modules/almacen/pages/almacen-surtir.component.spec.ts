@@ -663,16 +663,49 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 409, ya_guardado: true });
     });
 
-    it('NEGATIVA: un 504 que NO se guardó sigue surtiendo, con el error y ya_guardado false', async () => {
-      pv.finish = vi.fn(() => throwError(() => ({ status: 504, error: null })));
-      await montar();
-      espiarAvisos();
-      cerrarPreventa();
-      expect(pv.detail).toHaveBeenCalledTimes(2);
-      expect(c.fase()).toBe('surtiendo');
-      expect(c.cerrando()).toBe(false);
-      expect(avisos().map((a) => a.severity)).toEqual(['error']);
-      expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 504, ya_guardado: false });
+    it('NEGATIVA: un 504 que NO se guardó sigue surtiendo, con el error y ya_guardado false — después de releer ~12 s', async () => {
+      vi.useFakeTimers();
+      try {
+        pv.finish = vi.fn(() => throwError(() => ({ status: 504, error: null })));
+        await montar();
+        espiarAvisos();
+        cerrarPreventa();
+        // [GP.RF.45] La primera relectura no basta: 4 más, cada 3 s.
+        expect(c.cerrando()).toBe(true);
+        for (let i = 0; i < 4; i++) { vi.advanceTimersByTime(3000); fix.detectChanges(); }
+        expect(pv.detail).toHaveBeenCalledTimes(6);
+        expect(c.fase()).toBe('surtiendo');
+        expect(c.cerrando()).toBe(false);
+        expect(avisos().map((a) => a.severity)).toEqual(['info', 'error']);
+        expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 504, ya_guardado: false });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('⭐ [GP.RF.45] el caso de prod: el 504 llega ANTES de que el servidor termine; a la segunda relectura ya está cerrado', async () => {
+      vi.useFakeTimers();
+      try {
+        pv.finish = vi.fn(() => throwError(() => ({ status: 504, error: null })));
+        await montar();
+        espiarAvisos();
+        let lecturas = 0;
+        pv.detail = vi.fn(() => {
+          lecturas++;
+          // 1ª: abrir el pedido; 2ª: la relectura inmediata (todavía no); 3ª en adelante: ya se guardó.
+          const d = DETALLE();
+          return of(lecturas >= 3 ? { ...d, order: { ...d.order, state: 'completo', finished: { user_id: 'yo', name: 'Ángel Cisneros', at: '2026-11-20T18:54:28.000Z' } } } : d);
+        });
+        cerrarPreventa();
+        expect(c.fase()).toBe('surtiendo');
+        vi.advanceTimersByTime(3000);
+        fix.detectChanges();
+        expect(c.fase()).not.toBe('surtiendo');
+        expect(avisos().map((a) => a.detail).join(' | ')).toContain('El cierre sí se guardó');
+        expect(uso.reportarIncidente.mock.calls[0][1]).toMatchObject({ status: 504, ya_guardado: true });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('NEGATIVA: un 422 no relee el pedido y el incidente no dice ya_guardado', async () => {

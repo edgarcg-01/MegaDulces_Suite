@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2989 KB, 15268 líneas, 78 secciones.
+> **Índice navegable** — 2990 KB, 15270 líneas, 78 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,20 +71,20 @@
 | 14022 | 14063 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
 | 14064 | 14230 | 82 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 14231 | 14262 | 3 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 14263 | 14539 | 58 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
-| 14540 | 14605 | 96 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 14606 | 14614 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 14615 | 14673 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 14680 | 14689 | 1 | 📝 Convenciones |
-| 14690 | 14727 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 14728 | 14746 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 14747 | 14799 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 14800 | 15202 | 99 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 15203 | 15233 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 15234 | 15255 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 15256 | 15283 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 15284 | 15330 | 51 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
-| 15331 | 15358 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 14263 | 14541 | 60 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-086 · plan en [`FASE_ |
+| 14542 | 14607 | 96 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 14608 | 14616 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 14617 | 14675 | 13 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 14682 | 14691 | 1 | 📝 Convenciones |
+| 14692 | 14729 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 14730 | 14748 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 14749 | 14801 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 14802 | 15204 | 99 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 15205 | 15235 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 15236 | 15257 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 15258 | 15285 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 15286 | 15332 | 51 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 15333 | 15360 | 12 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -14483,6 +14483,8 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 >   - [x] **[GP.RF.42][GP.RF.43] en prod (2026-11-19)** 🧪 `/api/health` sirve `e8774698e`. GP.RF.43, después, en `pg_stat_statements` (la consulta nueva lleva su propio registro): 20 llamadas en 45 min, todas bajo 250 ms y sin leer del disco; las 5 que vieron todas las sucursales del mes (1,880 filas), de 101 a 145 ms. Falta una lectura en frío y `ui_usage` por rol con días completos. GP.RF.42: en los primeros 50 min, 2 cierres de caja y ningún rechazo, muy pocos para decir algo.
 >   - [x] **[GP.RF.44]** 🧪 (2026-11-19) **Surtir ya no avisa «no se pudo terminar» cuando el cierre sí se guardó, ni vuelve a abrir en curso un pedido surtido.** Lo encontró el registro de GP.RF.23 en sus primeras horas en prod: de 3 rechazos, ninguno era real. Un 504 llegó medio segundo después de que el servidor guardó el cierre; dos 409 («ya se terminó de surtir»), con 6 s entre uno y otro, eran el mismo pedido reabierto 15 min después de cerrarlo, porque «Empezar» deja pasar un pedido terminado y la pantalla lo pintaba en curso con las marcas guardadas en el celular. Ahora, al abrir un pedido ya surtido se borran esas marcas, se dice quién lo cerró y a qué hora y se vuelve a la lista; al cerrar con 409, 5xx o sin respuesta se relee el pedido antes de decir que falló. El incidente se registra igual, con `ya_guardado`, para separar los rechazos falsos de los reales. Sólo pantalla: el endpoint que escribe no cambia. Pruebas: 7 nuevas (3 negativas), 123 en verde; con el arreglo quitado, 5 en rojo. `ngc --noEmit` sin errores en Surtir; `check:pantalla` sin fallas nuevas.
 >   - [x] **[GP.RF.44] en prod (2026-11-19)** 🧪 `/api/health` sirve `8ec1fc9a5` desde las 15:46. El CI selló con «Lint & test» en rojo por `check:motion` (48→49) y `pButton` con `label` (24 contra techo 21): el mismo rojo que ya tenía `183d7bc4e`; este commit no agrega ninguna transición ni `pButton`.
+>   - [x] **[GP.RF.45]** 🧪 (2026-11-20) **Un 504 al cerrar no es un cierre fallido.** Medido en prod: los 4 cierres de Surtir con 504 del 19 y 20-nov (PD-2026-01234, -01283, -01286, -01346) SÍ se guardaron, 0–4 s DESPUÉS del 504; la relectura única de GP.RF.44 llegaba antes y le decía a la persona «no se pudo terminar». Ahora, sin respuesta clara (5xx o red), se relee hasta 4 veces cada 3 s (~12 s) avisando «reviso si el cierre se guardó…»; un 409 sigue con una sola relectura. Pruebas: el caso de prod (se guarda en la 2ª relectura) y la negativa (no se guardó: error tras 6 lecturas); mutante (sin relecturas) → 2 en rojo; almacén 915/915. NO MEDIDO: por qué cerrar tarda más que el tope del proxy (los logs del pod se perdieron con el despliegue de las 13:20).
+>   - [x] **[GP.RF.46]** 🧪 (2026-11-20) **Revisión en caja: el 409 de un pedido que sí quedó revisado ya no atora.** Medido en prod: 3 «ya lo revisó … a las 10:30» en 9 s, la misma persona sobre el mismo pedido (el primer toque se guardó; la pantalla no avanzaba). Como GP.RF.44: con 409, 5xx o sin respuesta se relee; si ya quedó revisado, se borra lo guardado en el celular, se dice quién y se sigue con el siguiente; el incidente lleva `ya_guardado`. Pruebas +2 (el caso y la negativa del 422); mutante → 1 en rojo; check:pantalla 0 fallas.
 >   - [x] **[GP.12.0c]** 🧪 se reusan los motivos de preventa.
 >   - [x] **[GP.15.0]** 🧪 en `logistics.vehicles` hay 57 activas y 1 con capacidad; las estibas van como columna nueva.
 >   - [x] **[GP.7.0]** 🧪 dinero en juego: NO MEDIDO.
