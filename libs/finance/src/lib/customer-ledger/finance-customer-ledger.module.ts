@@ -7,6 +7,7 @@ import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 import { EstadoCuentaPublicoController } from './estado-cuenta-publico.controller';
+import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Lee el espejo
@@ -24,7 +25,9 @@ import { EstadoCuentaPublicoController } from './estado-cuenta-publico.controlle
   // [CC.20.2] El cliente descarga su estado de cuenta desde su enlace personal (pública, autorizada por el token).
   controllers: [CustomerLedgerController, EstadoCuentaPublicoController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
-    PgListenService, CarteraPorEventoService],
+    PgListenService, CarteraPorEventoService,
+    // [GP.A.4] La bandeja «Por autorizar» de Crédito y cobranza (sólo lectura).
+    AutorizacionPedidosService],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],
 })
 export class FinanceCustomerLedgerModule {}

@@ -343,7 +343,8 @@ export class CustomerLedgerService {
    * No es decorativo: el 2026-09-24 los dos carriles llevaban ~26 h sin latir y la pantalla
    * igual rotulaba «saldos al 2026-09-24» — que era el reloj de Postgres, no la edad del dato.
    */
-  private async freshness(trx: Knex.Transaction, fuente?: FuenteCartera): Promise<Freshness> {
+  /** `[GP.A.4]` Pública: la bandeja de autorización la reusa en vez de copiarla. */
+  async freshness(trx: Knex.Transaction, fuente?: FuenteCartera): Promise<Freshness> {
     try {
       const inputs = [
         evalInput('ods_live_hot', 'Saldos y cobros (kdue/kdm5)', await laneAt(trx, 'ods_live_hot'), 6),
@@ -365,7 +366,8 @@ export class CustomerLedgerService {
    * que drena se cayó, la tabla se queda vieja: se vuelve a la vista sin que nadie tenga que darse cuenta).
    * Sin la migración (tabla inexistente) es la vista, como siempre.
    */
-  private async fuenteCartera(trx: Knex.Transaction): Promise<FuenteCartera> {
+  /** `[GP.A.4]` Pública: la bandeja de autorización lee la misma fuente que Cartera. */
+  async fuenteCartera(trx: Knex.Transaction): Promise<FuenteCartera> {
     const VISTA: FuenteCartera = { rel: 'analytics.customer_receivables', porEvento: false, alDia: null };
     const hay = (await trx.raw(`SELECT to_regclass('analytics.customer_receivables_current') IS NOT NULL AS ok`)).rows[0]?.ok;
     if (!hay) return VISTA;

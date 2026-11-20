@@ -19,6 +19,7 @@
 
 import { SALDO_CERO, esRestoDeFactura } from './resto-tolerado.contract';
 import { diasEntre } from './pago-vencido.contract';
+import type { Freshness } from '../http/provenance.contract';
 
 /**
  * Los parámetros los fija Crédito y cobranza en la Suite (D-A6, D-A10), no el código. Se reciben siempre;
@@ -237,4 +238,54 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
       dias_sin_movimiento: diasSinMov,
     },
   };
+}
+
+/** Cómo paga el cliente, de sus facturas ya pagadas en la cartera. Lo que no hay se dice `null`, no 0. */
+export interface PagoDelCliente {
+  facturas_pagadas: number;
+  /** Mediana de días de la factura a su último cobro. */
+  mediana_dias: number | null;
+  /** Cuántas pagó dentro de su plazo (`kdud.c16`). null = sin plazo en Kepler. */
+  a_tiempo: number | null;
+  /** El peor atraso sobre su plazo, en días. */
+  peor_atraso: number | null;
+}
+
+/** `[GP.A.4]` Un pedido TELEMARK en `CREADO`, con lo que vio la regla y lo que necesita el panel (§3.6). */
+export interface PedidoPorAutorizar {
+  sucursal: string;
+  sucursal_nombre: string;
+  serie: number;
+  folio: string;
+  fecha: string;
+  dias_esperando: number | null;
+  cliente: string;
+  cliente_nombre: string | null;
+  /** La cuenta CONTADO (venta de contado): sin «por cobrar» de Kepler ni cartera, porque no es un cliente con crédito. */
+  es_contado: boolean;
+  importe: number;
+  /** El veredicto de `decidirAutorizacion`, con sus motivos y números. */
+  resultado: ResultadoAutorizacion;
+  limite: number | null;
+  plazo_dias: number | null;
+  por_cobrar_kepler: number | null;
+  /** Lo que el cliente debe según la cartera de la Suite; la diferencia con Kepler va al panel («lo que Kepler no dice»). */
+  saldo_cartera: number | null;
+  otros_pedidos: number | null;
+  pago: PagoDelCliente;
+}
+
+export interface BandejaAutorizacion {
+  hoy: string;
+  freshness: Freshness;
+  /** Los parámetros con los que se evaluó. `propuesta` = los del anexo, sin firmar por Crédito y cobranza. */
+  parametros: ParametrosAutorizacion & { origen: 'propuesta' | 'credito_cobranza' };
+  /** Lo que decide Crédito y cobranza hoy (y lo que pasaría solo si el carril estuviera encendido), el más viejo primero. */
+  pendientes: PedidoPorAutorizar[];
+  /** Pedidos viejos (condición 7): ni automático ni bandeja del día. */
+  aparte: PedidoPorAutorizar[];
+  /** Sucursales con la autorización automática encendida (`kepler_push_switch`, tipo `autorizacion`). */
+  sucursales_encendidas: string[];
+  /** NO MEDIDO hasta GP.A.2: la Suite todavía no registra autorizaciones. */
+  autorizados_hoy: null;
 }

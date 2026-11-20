@@ -9,6 +9,7 @@ import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 import type { PorDiaResp, ContactoRegistrado } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
 import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
+import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
 
 interface AuthedRequest extends RequestConCabeceras { user?: { username?: string } }
 
@@ -26,6 +27,7 @@ export class CustomerLedgerController {
     private readonly scanner: CustomerReceivablesScannerService,
     private readonly tenantCtx: TenantContextService,
     private readonly estadoCuenta: EstadoCuentaClienteDocument,
+    private readonly autorizacion: AutorizacionPedidosService,
   ) {}
 
   @Post('scan-now')
@@ -163,6 +165,17 @@ export class CustomerLedgerController {
   @ApiOperation({ summary: 'Documentos que tocaron un producto: facturas + notas de crédito/devoluciones.' })
   buscarPorProducto(@Query('q') q?: string, @Query('limit') limit?: string) {
     return this.svc.buscarPorProducto({ texto: q, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
+   * `[GP.A.4]` La bandeja «Por autorizar»: los pedidos TELEMARK en CREADO con el veredicto de la regla
+   * (`decidirAutorizacion`) y lo que necesita el panel. Sólo lectura; autorizar es GP.A.2, con su propia llave.
+   */
+  @Get('autorizacion-pedidos')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @ApiOperation({ summary: 'Pedidos de telemarketing por autorizar, con el veredicto de la regla y los números de Kepler.' })
+  autorizacionPedidos(@Query('sucursal') sucursal?: string) {
+    return this.autorizacion.bandeja({ sucursal: sucursal && /^[0-9]{2}$/.test(sucursal) ? sucursal : undefined });
   }
 
   /**
