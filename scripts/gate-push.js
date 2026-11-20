@@ -249,6 +249,12 @@ function correrGate(gate, topeMs = TOPE_MS) {
 }
 
 /**
+ * Las compuertas como las corre el push: cada una con el tope por omisión. La prueba propia usa ESTA función,
+ * no correrGate suelto: así caza el defecto del 2026-11-20 (`map(correrGate)` pasaba el índice como tope).
+ */
+const correrTodas = (gates) => Promise.all(gates.map((g) => correrGate(g)));
+
+/**
  * El veredicto, sin efectos (para poder probarlo). `muertas` = NO MEDIDAS: frenan, como el boundary-gate
  * cuando no puede medir (fail-closed, ADR-056). `tuyos` = rojas que nombran tus archivos. `ajenos` = rojas
  * que terminaron y no nombran nada tuyo (deuda preexistente, no frena).
@@ -395,7 +401,8 @@ ${sinCodigoDelPush.map((t) => '   · ' + t).join('\n')}
   }
 
   const t0 = Date.now();
-  const resultados = await Promise.all(GATES.map(correrGate));
+  // ⛔ Con flecha: `map(correrGate)` le pasaba el ÍNDICE como tope (1 ms, 2 ms…) y mató 25 compuertas (2026-11-20).
+  const resultados = await correrTodas(GATES);
   const ms = Date.now() - t0;
 
   const { muertas, tuyos, ajenos } = clasificar(resultados, mios);
@@ -464,6 +471,8 @@ async function autoPrueba() {
   const tuya = gate('tuya', "console.log('falla en apps/view/src/mia.ts'); process.exit(1);");
   const mios = new Set(['apps/view/src/mia.ts']);
   const r = await Promise.all([colgada, senal, ajena, verde, tuya].map((g) => correrGate(g, 1500)));
+  // Por el camino de main(), con el tope por omisión: ninguna compuerta sana puede morir.
+  const comoMain = await correrTodas([verde, ajena, tuya, verde]);
   const { muertas, tuyos, ajenos } = clasificar(r, mios);
   const nombres = (xs) => xs.map((x) => x.gate.nombre).sort().join(',');
   const casos = [
@@ -471,12 +480,13 @@ async function autoPrueba() {
     ['la colgada dice que venció el tope', /no terminó en 2 s/.test(r[0].motivo || '')],
     ['la roja ajena sigue siendo deuda (no frena)', nombres(ajenos) === 'ajena'],
     ['la roja con tu archivo frena', nombres(tuyos) === 'tuya'],
+    ['por el camino de main() ninguna sana muere (el tope no es el índice)', comoMain.every((x) => !x.murio)],
     ['la verde no aparece en ninguna lista', !muertas.concat(tuyos, ajenos).some((x) => x.gate.nombre === 'verde')],
   ];
   fs.rmSync(dir, { recursive: true, force: true });
   for (const [txt, ok] of casos) console.log(`${ok ? '✓' : '✗'} ${txt}`);
   const fallas = casos.filter(([, ok]) => !ok).length;
-  console.log(fallas ? `✗ gate-push --self-test: ${fallas} falla(s)` : '✓ gate-push --self-test: 5/5');
+  console.log(fallas ? `✗ gate-push --self-test: ${fallas} falla(s)` : `✓ gate-push --self-test: ${casos.length}/${casos.length}`);
   process.exit(fallas ? 1 : 0);
 }
 
