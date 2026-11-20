@@ -3,17 +3,19 @@ import {
 } from '@angular/core';
 import { ButtonModule } from 'primeng/button';
 import JsBarcode from 'jsbarcode';
+import { PAGINA_TSC_3X } from '@megadulces/ui-web';
 import { printIsolated } from '../../../../shared/util/print-isolated';
+import { CSS_ETIQUETA_UBICACION, etiquetasUbicacionHtml } from '../etiqueta-ubicacion';
 
 /**
- * `[UB.RF.12]` `cartel` = media carta, dos por hoja (bodega: se lee caminando). `etiqueta` = 6.7 × 2.5 cm,
- * 30 por hoja carta de etiquetas adhesivas (3 × 10, tipo 5160), para el canto del anaquel de la TIENDA,
- * donde un cartel grande le quita vista al producto (Edgar, 2026-11-19).
+ * `[UB.RF.12]` `cartel` = media carta, dos por hoja (bodega: se lee caminando). `etiqueta` = la chica, para
+ * el canto del anaquel de la TIENDA, donde un cartel grande le quita vista al producto (Edgar, 2026-11-19).
+ * `[UB.RF.14]` La etiqueta sale en la **TSC TE200 con el rollo amarillo**: 3 por fila, 32 × 48 mm.
  */
 export type FormatoCartel = 'cartel' | 'etiqueta';
 
-/** Etiquetas por hoja carta en el formato `etiqueta` (3 columnas × 10 renglones). */
-export const ETIQUETAS_POR_HOJA = 30;
+/** Etiquetas por fila del rollo de la TSC (`etiqueta-ubicacion.ts`). */
+export const ETIQUETAS_POR_FILA = 3;
 
 export interface CartelUbicacion {
   /** El código que se escanea. Es el mismo `warehouse_bins.code`. */
@@ -55,8 +57,7 @@ const MODULO_PX = 2;
     <div class="ct">
       @if (formato() === 'etiqueta') {
         <p class="ct-nota">
-          Para el canto del anaquel: <b>30 por hoja carta</b> de etiquetas adhesivas (3 × 10, de 6.7 × 2.5 cm, tipo 5160).
-          Imprime primero una en papel normal y empálmala con la de etiquetas para ver que cuadre.
+          Salen en la <b>TSC TE200</b> con el <b>rollo amarillo</b>, 3 por fila. Al imprimir, elige la TSC.
         </p>
       } @else {
         <p class="ct-nota">
@@ -72,6 +73,7 @@ const MODULO_PX = 2;
         <div class="ct-prev ct-prev-et" #hoja>
           @for (u of ubicaciones(); track u.code) {
             <article class="ct-et">
+              <div class="ct-et-arriba">{{ arriba(u) }}</div>
               <div class="ct-et-code">{{ u.code }}</div>
               <svg class="ct-bar" [attr.data-code]="u.code"></svg>
             </article>
@@ -140,17 +142,19 @@ const MODULO_PX = 2;
       display: flex; justify-content: space-between; width: 100%;
       font-size: clamp(8px, 2.6vw, 14px); color: #555; font-variant-numeric: tabular-nums;
     }
-    /* [UB.RF.12] La etiqueta chica, en su proporción REAL (66.675 × 25.4 mm), 3 por renglón como en la hoja. */
-    .ct-prev-et { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-1); }
+    /* [UB.RF.14] La etiqueta de la TSC en su proporción REAL (32 × 47.6 mm), 3 por fila como sale el rollo,
+       sobre amarillo como el papel. */
+    .ct-prev-et { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-1); max-width: 360px; }
     .ct-et {
       container-type: inline-size;
-      aspect-ratio: 66.675 / 25.4;
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4%;
-      padding: 3% 5%; background: #fff; color: #111;
+      aspect-ratio: 32 / 47.6;
+      display: flex; flex-direction: column; align-items: center; gap: 6%;
+      padding: 5%; background: #fde68a; color: #111;
       border: 1px solid var(--border-color); border-radius: var(--r-sm); overflow: hidden;
     }
-    .ct-et-code { font-size: 15cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
-    .ct-et .ct-bar { width: 60%; height: 34%; }
+    .ct-et-arriba { font-size: 7.5cqw; font-weight: 700; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .ct-et-code { margin-top: auto; font-size: 25cqw; font-weight: 900; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+    .ct-et .ct-bar { width: 78%; height: 30%; margin-bottom: auto; }
     .ct-acciones { display: flex; flex-direction: column; gap: var(--sp-1); }
     .ct-go { width: 100%; min-height: 54px; font-size: var(--fs-body); font-weight: var(--fw-bold); }
   `],
@@ -173,8 +177,8 @@ export class AndenCartelComponent implements AfterViewInit {
     if (this.imprimiendo()) return 'Preparando…';
     const n = this.ubicaciones().length;
     if (this.formato() === 'etiqueta') {
-      const hojas = Math.ceil(n / ETIQUETAS_POR_HOJA);
-      return n === 1 ? 'Imprimir la etiqueta' : `Imprimir las ${n} etiquetas (${hojas} ${hojas === 1 ? 'hoja' : 'hojas'})`;
+      const filas = Math.ceil(n / ETIQUETAS_POR_FILA);
+      return n === 1 ? 'Imprimir la etiqueta' : `Imprimir las ${n} etiquetas (${filas} ${filas === 1 ? 'fila' : 'filas'} de la TSC)`;
     }
     return n === 1 ? 'Imprimir el cartel' : `Imprimir los ${n} carteles`;
   });
@@ -221,7 +225,7 @@ export class AndenCartelComponent implements AfterViewInit {
     const raiz = this.hoja()?.nativeElement;
     if (!raiz || this.imprimiendo()) return;
     this.imprimiendo.set(true);
-    if (this.formato() === 'etiqueta') { this.imprimirEtiquetas(raiz); return; }
+    if (this.formato() === 'etiqueta') { this.imprimirEtiquetas(); return; }
     printIsolated({
       html: raiz.innerHTML,
       // Se imprime en hoja CARTA con dos carteles por página y se corta a la mitad:
@@ -246,29 +250,21 @@ export class AndenCartelComponent implements AfterViewInit {
     });
   }
 
+  /** Lo de arriba de la etiqueta: almacén y rótulo («01 · Tienda · nivel 1»). */
+  arriba(u: CartelUbicacion): string {
+    return [u.almacen, u.label].filter((x) => !!x).join(' · ');
+  }
+
   /**
-   * `[UB.RF.12]` La hoja de etiquetas: carta, 3 columnas × 10 renglones, cada etiqueta de 66.675 × 25.4 mm
-   * con 3.175 mm entre columnas (el formato tipo 5160). Los márgenes de la PÁGINA son los de la hoja
-   * (12.7 mm arriba, 4.7625 mm a los lados), así cada hoja nueva arranca igual: 3 × 66.675 + 2 × 3.175 +
-   * 2 × 4.7625 = 215.9 mm de ancho, y 10 × 25.4 + 12.7 + 12.6 = 279.3 mm de alto (cabe en 279.4).
-   *
-   * El código de barras va a 40 mm: «TA011» en CODE128 son ~110 módulos con su zona quieta, ~0.36 mm por
-   * módulo, más que los 0.25 mm que lee una pistola de mano.
+   * `[UB.RF.14]` A la TSC TE200, como el checado y la etiqueta de caja: el navegador manda cada FILA de 3 como
+   * una hoja de 100 × 48 mm con el controlador de Windows. La plantilla y su CSS viven en
+   * `etiqueta-ubicacion.ts`, sobre la etiquetera compartida.
    */
-  private imprimirEtiquetas(raiz: HTMLElement): void {
+  private imprimirEtiquetas(): void {
     printIsolated({
-      html: `<div class="ct-hoja-et">${raiz.innerHTML}</div>`,
-      page: 'size: letter portrait; margin: 12.7mm 4.7625mm 12.6mm 4.7625mm;',
-      css: [
-        'body{margin:0}',
-        '.ct-hoja-et{display:grid;grid-template-columns:repeat(3,66.675mm);column-gap:3.175mm;row-gap:0;grid-auto-rows:25.4mm}',
-        '.ct-et{box-sizing:border-box;width:66.675mm;height:25.4mm;aspect-ratio:auto;',
-        'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1mm;',
-        'padding:1.5mm 3mm;background:#fff;color:#111;border:0;border-radius:0;overflow:hidden;',
-        'break-inside:avoid;page-break-inside:avoid}',
-        '.ct-et-code{font-size:9mm;font-weight:900;line-height:1;letter-spacing:.02em;font-variant-numeric:tabular-nums}',
-        '.ct-et .ct-bar{display:block;width:40mm;height:8.5mm}',
-      ].join(''),
+      html: etiquetasUbicacionHtml(this.ubicaciones()),
+      page: PAGINA_TSC_3X,
+      css: CSS_ETIQUETA_UBICACION,
       bodyClass: 'anden-cartel-printing',
       fallbackClass: 'anden-cartel-fallback',
       onDone: () => this.imprimiendo.set(false),

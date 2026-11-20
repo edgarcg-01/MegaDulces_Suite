@@ -79,21 +79,19 @@ export function lugaresEnPalabras(lugares: ReadonlyArray<Pick<ProductPlace, 'pap
 }
 
 /**
- * `[UB.RF.11]` Con un producto abierto, ¿a qué presentación va la ubicación que se escaneó? La que la
- * persona señaló («Poner lugar» de esa presentación); si no señaló, la única que todavía no tiene ese
- * papel; si son varias (o todas ya lo tienen), se pregunta con un botón por presentación.
+ * `[UB.RF.13]` Con un producto abierto, ¿a qué presentación va la ubicación que se escaneó? La que se
+ * leyó por su código de barras; si el producto tiene una sola, ésa; si no, se PREGUNTA con un botón por
+ * presentación. Un producto va en paquete O en caja (Edgar, 2026-11-20): que la caja no tenga lugar no
+ * dice que el lugar nuevo sea de la caja, así que «la que todavía no lo tiene» ya no se deduce.
  */
 export function presentacionParaLugar(
-  d: Pick<ProductLocationDetail, 'presentaciones' | 'asignaciones'>,
-  papel: AssignmentRole,
+  d: Pick<ProductLocationDetail, 'presentaciones'>,
   senalada: number | null,
 ): { peldano: 1 | 2 | 3 } | { opciones: ProductPresentation[] } {
   const s = d.presentaciones.find((p) => p.peldano === senalada);
   if (s) return { peldano: s.peldano };
   if (d.presentaciones.length === 1) return { peldano: d.presentaciones[0].peldano };
-  const sinPapel = d.presentaciones.filter((p) => !d.asignaciones.some((a) => a.presentacion === p.peldano && a.papel === papel && a.estado !== 'baja'));
-  if (sinPapel.length === 1) return { peldano: sinPapel[0].peldano };
-  return { opciones: sinPapel.length ? sinPapel : d.presentaciones };
+  return { opciones: d.presentaciones };
 }
 
 /**

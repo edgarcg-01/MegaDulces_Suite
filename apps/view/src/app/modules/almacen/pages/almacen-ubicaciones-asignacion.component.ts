@@ -71,7 +71,8 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
  * - una **ubicación** con un producto abierto le da ese lugar; sin producto, queda como «Aquí» y cada
  *   producto que se escanee después va a ella (el censo de UB.3b, ya sin ser «otra vista»).
  * El papel sale de la ubicación (B de surtido → lugar fijo, B de reserva → reserva, T → tienda) y la
- * presentación del código de barras o de lo que la persona señaló. Si la ubicación no existe, se crea
+ * presentación del código de barras leído; si no se leyó y hay más de una, se pregunta (`[UB.RF.13]`:
+ * un producto va en paquete O en caja, nunca se exige un lugar por presentación). Si la ubicación no existe, se crea
  * en el acto. Cada guardado se confirma con «Deshacer»; cada rechazo deja su motivo (incidente).
  *
  * La lista va por venta de 30 días (lo más vendido primero) y cada tarjeta dice en palabras dónde está
@@ -144,8 +145,8 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
           </div>
         }
         @if (elegir(); as e) {
-          <div class="ub-accion" role="group" [attr.aria-label]="'¿Qué presentación de ' + e.detalle.product.nombre + '?'">
-            <span><b>{{ e.detalle.product.nombre }}</b> en <b class="mono">{{ e.ubic.code }}</b>: ¿qué presentación?</span>
+          <div class="ub-accion" role="group" [attr.aria-label]="'¿' + e.detalle.product.nombre + ' va en ' + opcionesTexto(e.opciones) + '?'">
+            <span><b>{{ e.detalle.product.nombre }}</b> en <b class="mono">{{ e.ubic.code }}</b>: ¿va en {{ opcionesTexto(e.opciones) }}?</span>
             <span class="ub-btns">
               @for (p of e.opciones; track p.peldano) {
                 <button pButton type="button" class="p-button-sm p-button-outlined ub-tap" (click)="elegirPresentacion(e.detalle, p.peldano, e.ubic)"><span class="p-button-label">{{ p.rotulo || 'Presentación ' + p.peldano }}</span></button>
@@ -186,26 +187,26 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
               @if (!d.presentaciones.length) {
                 <p class="ub-note ub-note-bad">Este producto no tiene ficha en Kepler de {{ d.warehouse.name }}: no hay presentaciones que ubicar.</p>
               }
-              @for (p of d.presentaciones; track p.peldano) {
-                <div class="ub-pres" role="group" [attr.aria-labelledby]="'ub-pres-' + p.peldano">
-                  <h3 class="ub-pres-h" [id]="'ub-pres-' + p.peldano"><span class="ub-pres-r">{{ p.rotulo || 'Presentación ' + p.peldano }}</span><span class="ub-sub">{{ explicaFactor(p, d) }}</span></h3>
-                  @for (f of filasDe(d, p); track f.papel) {
+              <!-- [UB.RF.13] Un producto va en paquete O en caja: tienda y bodega son del PRODUCTO, y cada lugar dice en qué presentación está. -->
+              @if (d.presentaciones.length) {
+                <div class="ub-pres" role="group" [attr.aria-label]="'Dónde está ' + d.product.nombre">
+                  @for (f of filasDe(d); track f.papel) {
                     <div class="ub-lugar">
                       <span class="ub-lugar-l">{{ f.etiqueta + ' ' }}</span>
                       @for (a of f.asignaciones; track a.id) {
                         @if (edicion()?.id === a.id) {
                           <form class="ub-edit" (ngSubmit)="guardarEdicion(a)">
                             <label class="ub-f"><span class="ub-l">Ubicación</span><input pInputText class="mono" name="code" autocapitalize="characters" [ngModel]="edicion()!.code" (ngModelChange)="setEdicion('code', $event)" maxlength="8" /></label>
-                            <label class="ub-f"><span class="ub-l">Mínimo ({{ p.rotulo }})</span><input pInputText type="number" inputmode="numeric" min="0" class="mono" name="min" [ngModel]="edicion()!.min" (ngModelChange)="setEdicion('min', $event)" /></label>
-                            <label class="ub-f"><span class="ub-l">Máximo ({{ p.rotulo }})</span><input pInputText type="number" inputmode="numeric" min="0" class="mono" name="max" [ngModel]="edicion()!.max" (ngModelChange)="setEdicion('max', $event)" /></label>
+                            <label class="ub-f"><span class="ub-l">Mínimo ({{ rotuloDe(a, d) }})</span><input pInputText type="number" inputmode="numeric" min="0" class="mono" name="min" [ngModel]="edicion()!.min" (ngModelChange)="setEdicion('min', $event)" /></label>
+                            <label class="ub-f"><span class="ub-l">Máximo ({{ rotuloDe(a, d) }})</span><input pInputText type="number" inputmode="numeric" min="0" class="mono" name="max" [ngModel]="edicion()!.max" (ngModelChange)="setEdicion('max', $event)" /></label>
                             <span class="ub-btns">
                               <button pButton type="button" class="p-button-sm p-button-text p-button-secondary ub-tap" (click)="edicion.set(null)"><span class="p-button-label">Cancelar</span></button>
                               <button pButton type="submit" class="p-button-sm ub-tap" [loading]="ocupado()"><span class="p-button-label">Guardar</span></button>
                             </span>
                           </form>
                         } @else {
-                          <span class="ub-lugar-v"><b class="mono">{{ a.code }}</b>
-                            <span class="ub-sub">{{ minMax(a, p) }}@if (a.estado !== 'activa') { · <b class="ub-bad">{{ a.estado === 'baja' ? 'dada de baja' : 'bloqueada' }}</b> }</span></span>
+                          <span class="ub-lugar-v"><b class="mono">{{ a.code + ' ' }}</b>@if (d.presentaciones.length > 1) {<span class="ub-rot">{{ rotuloDe(a, d) }}</span>{{ ' ' }}}
+                            <span class="ub-sub">{{ minMax(a, d) }}@if (a.estado !== 'activa') { · <b class="ub-bad">{{ a.estado === 'baja' ? 'dada de baja' : 'bloqueada' }}</b> }</span></span>
                           @if (puedeGestionar()) {
                             <span class="ub-btns">
                               @if (quitar() === a.id) {
@@ -222,7 +223,7 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
                       } @empty {
                         <span class="ub-falta">falta</span>
                         @if (puedeGestionar()) {
-                          <button pButton type="button" class="p-button-sm p-button-outlined ub-tap ub-poner" [attr.aria-label]="'Poner lugar de ' + f.etiqueta.toLowerCase() + ' al ' + (p.rotulo || 'producto')" (click)="senalar(p, f.papel)"><span class="p-button-label">Poner lugar</span></button>
+                          <button pButton type="button" class="p-button-sm p-button-outlined ub-tap ub-poner" [attr.aria-label]="'Poner lugar de ' + f.etiqueta.toLowerCase() + ' a ' + d.product.nombre" (click)="senalar(f.papel)"><span class="p-button-label">Poner lugar</span></button>
                         }
                       }
                     </div>
@@ -368,7 +369,7 @@ interface FilaPapel { papel: AssignmentRole; etiqueta: string; asignaciones: Pro
     .ub-aviso { margin:0; font-size:var(--fs-sm); padding:.45rem .6rem; border:1px solid var(--warn-border); border-radius:var(--r-sm); background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .ub-pres { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); padding:.6rem .75rem; display:flex; flex-direction:column; gap:.4rem; }
     .ub-pres-h { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:.25rem .6rem; font-size:var(--fs-body); }
-    .ub-pres-r { font-weight:700; padding:.05rem .5rem; border:2px solid var(--text-main); border-radius:var(--r-sm); }
+    .ub-rot { font-weight:700; font-size:var(--fs-sm); padding:0 .4rem; border:1px solid var(--text-main); border-radius:var(--r-sm); }
     .ub-lugar { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .75rem; padding:.35rem 0; border-top:1px solid var(--border-color); }
     .ub-lugar-l { min-width:4.5rem; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); }
     .ub-lugar-v { display:flex; flex-direction:column; min-width:0; font-size:var(--fs-lg); }
@@ -410,8 +411,8 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
   readonly det = signal<ProductLocationDetail | null>(null);
   readonly cargandoDet = signal(false);
   readonly errDet = signal<string | null>(null);
-  /** La presentación (y el papel) que la persona señaló con «Poner lugar». */
-  readonly senalada = signal<{ peldano: 1 | 2 | 3; papel: AssignmentRole } | null>(null);
+  /** La presentación leída por su código de barras, o el lugar (tienda/bodega) que la persona señaló con «Poner lugar». */
+  readonly senalada = signal<{ peldano: 1 | 2 | 3 | null; papel: AssignmentRole | null } | null>(null);
   readonly aqui = signal<WarehouseLocationRow | null>(null);
   readonly hechos = signal<Hecho[]>([]);
   readonly aviso = signal<Aviso | null>(null);
@@ -459,8 +460,10 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     if (this.aqui()) return `Escanea un producto para ponerlo en ${this.aqui()!.code}`;
     if (d && this.puedeGestionar()) {
       const s = this.senalada();
-      const p = s ? d.presentaciones.find((x) => x.peldano === s.peldano) : null;
-      return p ? `Ubicación para ${p.rotulo || 'esta presentación'} (${papelLabel(s!.papel).toLowerCase()})` : `Ubicación para ${d.product.nombre}, u otro producto`;
+      const p = s?.peldano ? d.presentaciones.find((x) => x.peldano === s.peldano) : null;
+      const de = s?.papel ? `de ${lugarTexto(s.papel)} ` : '';
+      if (p) return `Ubicación ${de}para ${d.product.nombre} · ${p.rotulo || 'presentación ' + p.peldano}`;
+      return de ? `Ubicación ${de}para ${d.product.nombre}` : `Ubicación para ${d.product.nombre}, u otro producto`;
     }
     return this.puedeGestionar() ? 'Producto o ubicación' : 'Buscar producto';
   });
@@ -720,7 +723,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     this.quitar.set(null);
     const p = lectura ? presentacionDeLectura(d, lectura) : null;
     const porCodigo = p && 'peldano' in p && d.presentaciones.length > 1 && d.presentaciones.some((x) => x.codigos.some((c) => c.toUpperCase() === lectura!.trim().toUpperCase()));
-    this.senalada.set(porCodigo ? { peldano: p.peldano, papel: 'surtido_fijo' } : null);
+    this.senalada.set(porCodigo ? { peldano: p.peldano, papel: null } : null);
     if (this.modo() !== 'producto') {
       this.modo.set('producto');
       if (this.route.snapshot.queryParamMap.get('producto') !== d.product.id) {
@@ -756,15 +759,23 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     this.enfocar();
   }
 
-  senalar(p: ProductPresentation, papel: AssignmentRole): void {
-    this.senalada.set({ peldano: p.peldano, papel });
-    this.aviso.set({ tono: 'info', texto: `Escanea o escribe la ubicación de ${papel === 'exhibicion_tienda' ? 'tienda' : 'bodega'} para ${p.rotulo || 'esta presentación'}.` });
+  /** «Poner lugar» de tienda o bodega: conserva la presentación si ya se leyó por su código de barras. */
+  senalar(papel: AssignmentRole): void {
+    const d = this.det();
+    this.senalada.update((s) => ({ peldano: s?.peldano ?? null, papel }));
+    this.aviso.set({ tono: 'info', texto: `Escanea o escribe la ubicación de ${lugarTexto(papel)} para ${d?.product.nombre ?? 'el producto'}.` });
     this.enfocar();
   }
 
-  /** Los renglones de una presentación: tienda y bodega siempre (si falta, se dice); reserva si tiene. */
-  filasDe(d: ProductLocationDetail, p: ProductPresentation): FilaPapel[] {
-    const de = (papel: AssignmentRole) => d.asignaciones.filter((a) => a.presentacion === p.peldano && a.papel === papel);
+  /**
+   * `[UB.RF.13]` Los renglones del PRODUCTO: tienda y bodega siempre (si falta, se dice), reserva si tiene.
+   * Un producto va en paquete O en caja: el lugar de cualquiera de sus presentaciones cuenta, y el lugar
+   * dice en cuál está. Antes cada presentación pedía los suyos y un producto con su PAQ en tienda decía
+   * «falta» en la tienda de la CJA.
+   */
+  filasDe(d: ProductLocationDetail): FilaPapel[] {
+    const vivos = new Set(d.presentaciones.map((p) => p.peldano));
+    const de = (papel: AssignmentRole) => d.asignaciones.filter((a) => vivos.has(a.presentacion) && a.papel === papel);
     const filas: FilaPapel[] = [
       { papel: 'exhibicion_tienda', etiqueta: 'Tienda', asignaciones: de('exhibicion_tienda') },
       { papel: 'surtido_fijo', etiqueta: 'Bodega', asignaciones: de('surtido_fijo') },
@@ -788,7 +799,7 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     const papel = papelParaUbicacion(u);
     if (!('papel' in papel)) { this.aviso.set({ tono: 'mal', texto: papel.motivo }); return; }
     if (!d.presentaciones.length) { this.aviso.set({ tono: 'mal', texto: `${d.product.nombre} no tiene ficha en Kepler aquí: no hay presentación que ubicar.` }); return; }
-    const pres = presentacionParaLugar(d, papel.papel, this.senalada()?.peldano ?? null);
+    const pres = presentacionParaLugar(d, this.senalada()?.peldano ?? null);
     if ('opciones' in pres) { this.elegir.set({ detalle: d, opciones: pres.opciones, ubic: u }); return; }
     await this.asignar(d, pres.peldano, papel.papel, u);
   }
@@ -994,24 +1005,31 @@ export class AlmacenUbicacionesAsignacionComponent implements OnInit {
     const p = parseLocationCode(u.code);
     return `${p.ok ? describeLocationCode(p.parts) : u.code} · ${tipoLabel(u.tipo).toLowerCase()}`;
   }
-  /** «1 CJA = 32 PAQ». */
+  /** «Va en PAQ o CJA · 1 CJA = 32 PAQ». */
   escalera(d: ProductLocationDetail): string {
     const base = d.presentaciones.find((x) => x.peldano === 1)?.rotulo ?? 'base';
-    return d.presentaciones.filter((p) => p.peldano !== 1).map((p) => (p.factor == null ? `${p.rotulo ?? '?'}: Kepler no dice cuántas trae` : `1 ${p.rotulo ?? '?'} = ${fmt(p.factor)} ${base}`)).join(' · ');
+    const factores = d.presentaciones
+      .filter((p) => p.peldano !== 1)
+      .map((p) => (p.factor == null ? `${p.rotulo ?? '?'}: Kepler no dice cuántas trae` : `1 ${p.rotulo ?? '?'} = ${fmt(p.factor)} ${base}${p.fuente === 'derivado_del_costo' ? ' (calculado del costo)' : ''}`));
+    return [`Va en ${this.opcionesTexto(d.presentaciones)}`, ...factores].join(' · ');
   }
-  explicaFactor(p: ProductPresentation, d: ProductLocationDetail): string {
-    if (p.peldano === 1) return 'la presentación base';
-    if (p.factor == null) return 'Kepler no dice cuántas trae';
-    const base = d.presentaciones.find((x) => x.peldano === 1)?.rotulo ?? 'base';
-    return `trae ${fmt(p.factor)} ${base}${p.fuente === 'derivado_del_costo' ? ' (calculado del costo)' : ''}`;
+  /** «PAQ o CJA». */
+  opcionesTexto(ps: ReadonlyArray<ProductPresentation>): string {
+    const r = ps.map((p) => p.rotulo || 'presentación ' + p.peldano);
+    return r.length > 1 ? `${r.slice(0, -1).join(', ')} o ${r[r.length - 1]}` : (r[0] ?? '');
   }
-  minMax(a: ProductAssignment, p: ProductPresentation): string {
+  /** El rótulo vigente de Kepler; si ya no está, el que se guardó con el lugar. */
+  rotuloDe(a: ProductAssignment, d: ProductLocationDetail): string {
+    return d.presentaciones.find((p) => p.peldano === a.presentacion)?.rotulo || a.presentacion_rotulo || 'presentación ' + a.presentacion;
+  }
+  minMax(a: ProductAssignment, d: ProductLocationDetail): string {
     if (a.min_qty == null && a.max_qty == null) return 'sin mínimo ni máximo';
-    return `mínimo ${a.min_qty == null ? '—' : fmt(a.min_qty)} · máximo ${a.max_qty == null ? '—' : fmt(a.max_qty)} ${p.rotulo ?? ''}`;
+    return `mínimo ${a.min_qty == null ? '—' : fmt(a.min_qty)} · máximo ${a.max_qty == null ? '—' : fmt(a.max_qty)} ${this.rotuloDe(a, d)}`;
   }
 }
 
 const fmt = (n: number) => n.toLocaleString('es-MX', { maximumFractionDigits: 3 });
+const lugarTexto = (p: AssignmentRole): string => (p === 'exhibicion_tienda' ? 'tienda' : p === 'surtido_fijo' ? 'bodega' : 'reserva');
 const vacio = (v: Cantidad): number | null => (v == null || v === '' ? null : Number(v));
 function mensaje(e: HttpErrorResponse, fallback: string): string {
   const m = e?.error?.message;

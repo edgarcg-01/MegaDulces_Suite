@@ -150,7 +150,7 @@ describe('[UB.RF.11] Ubicar productos', () => {
     expect(texto()).toContain('AVILA MAZAPAN 40');
     expect(texto()).toContain('Bodega falta');
     await leer('BA053');
-    expect(texto()).toContain('¿qué presentación?');
+    expect(texto()).toContain('AVILA MAZAPAN 40 en BA053: ¿va en PAQ o CJA?');
     await clic(/^\s*PAQ\s*$/);
     expect(api.createAssignment).toHaveBeenCalledWith({ warehouse_id: PH.id, product_id: 'p-07302', presentacion: 1, papel: 'surtido_fijo', bin_code: 'BA053' });
     expect(texto()).toContain('AVILA MAZAPAN 40 · PAQ en bodega BA053.');
@@ -165,12 +165,44 @@ describe('[UB.RF.11] Ubicar productos', () => {
     expect(api.createAssignment).toHaveBeenCalledWith(expect.objectContaining({ presentacion: 2, papel: 'surtido_fijo', bin_code: 'BA053' }));
   });
 
-  it('«Poner lugar» señala la presentación: la siguiente ubicación va a ella', async () => {
-    const { api, leer, clic } = montar();
+  it('«Poner lugar» de tienda pide la ubicación de tienda y, con PAQ y CJA, pregunta en cuál va', async () => {
+    const { c, api, leer, clic, texto } = montar();
     await leer('07302');
-    await clic(/Poner lugar/); // el primero: tienda del PAQ
+    await clic(/Poner lugar/); // el primero: tienda
+    expect(c.rotuloCampo()).toBe('Ubicación de tienda para AVILA MAZAPAN 40');
     await leer('TA011');
-    expect(api.createAssignment).toHaveBeenCalledWith(expect.objectContaining({ presentacion: 1, papel: 'exhibicion_tienda', bin_code: 'TA011' }));
+    expect(api.createAssignment).not.toHaveBeenCalled();
+    expect(texto()).toContain('¿va en PAQ o CJA?');
+    await clic(/^\s*CJA\s*$/);
+    expect(api.createAssignment).toHaveBeenCalledWith(expect.objectContaining({ presentacion: 2, papel: 'exhibicion_tienda', bin_code: 'TA011' }));
+  });
+
+  // ── [UB.RF.13] Paquete O caja ───────────────────────────────────────────────────────────────
+
+  it('⭐ un producto va en paquete O en caja: con su PAQ en tienda, la tienda NO dice «falta» (la CJA no pide la suya)', async () => {
+    const enTienda = { id: 'a-t', bin_id: 'b-TA011', code: 'TA011', zona: 'T' as const, estado: 'activa' as const, presentacion: 1 as const, presentacion_rotulo: 'PAQ', papel: 'exhibicion_tienda' as const, min_qty: null, max_qty: null };
+    const { fix, leer, texto } = montar({ detalle: DETALLE([enTienda]) });
+    await leer('07302');
+    const lugares = Array.from((fix.nativeElement as HTMLElement).querySelectorAll('.ub-lugar')).map((n) => n.textContent?.replace(/\s+/g, ' ').trim());
+    expect(lugares).toEqual([expect.stringMatching(/^Tienda TA011 PAQ sin mínimo ni máximo/), expect.stringMatching(/^Bodega falta/)]);
+    expect(texto().match(/falta/g)).toHaveLength(1);
+    expect(texto()).toContain('Va en PAQ o CJA · 1 CJA = 20 PAQ');
+  });
+
+  it('NEGATIVA: sin nada asignado, falta UNA tienda y UNA bodega por producto, no una por presentación', async () => {
+    const { leer, texto } = montar();
+    await leer('07302');
+    expect(texto().match(/Tienda falta/g)).toHaveLength(1);
+    expect(texto().match(/Bodega falta/g)).toHaveLength(1);
+  });
+
+  it('⭐ NEGATIVA: con el PAQ ya en bodega, otra ubicación de bodega NO se va sola a la CJA: se pregunta', async () => {
+    const enBodega = { id: 'a-b', bin_id: 'b-BA021', code: 'BA021', zona: 'B' as const, estado: 'activa' as const, presentacion: 1 as const, presentacion_rotulo: 'PAQ', papel: 'surtido_fijo' as const, min_qty: null, max_qty: null };
+    const { api, leer, texto } = montar({ detalle: DETALLE([enBodega]) });
+    await leer('07302');
+    await leer('BA053');
+    expect(api.createAssignment).not.toHaveBeenCalled();
+    expect(texto()).toContain('¿va en PAQ o CJA?');
   });
 
   it('⭐ una ubicación que no existe se crea en el acto y se asigna (lo que faltaba en Padre Hidalgo)', async () => {
