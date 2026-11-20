@@ -115,6 +115,140 @@ export function formatLocationCode(p: LocationCodeParts): string {
   return code;
 }
 
+/**
+ * `[GP.11.1]` Carreta (madera, para cajas) o carrito (tipo súper, para piezas y paquetes) — FASE_GP D6.
+ * Viven en el mismo catálogo con la familia `carreta` (FASE_UB D8) y comparten numeración `C01`–`C99`:
+ * Kepler guarda la carreta en una sola columna (`kdm2.c59`), así que la carreta 12 y el carrito 12 serían
+ * el mismo valor. La base exige lo mismo con `ck_wh_bins_carreta`.
+ */
+export type CartKind = 'carreta' | 'carrito';
+
+export const CART_KINDS: ReadonlyArray<{ key: CartKind; label: string; para: string }> = [
+  { key: 'carreta', label: 'Carreta', para: 'cajas' },
+  { key: 'carrito', label: 'Carrito', para: 'piezas y paquetes' },
+];
+
+export const CART_NUM_MAX = 99;
+
+/** La misma expresión va en el CHECK `ck_wh_bins_carreta` (`20261120112959_gp11_1_carretas_en_catalogo`). */
+export const CART_CODE_RE = /^C(0[1-9]|[1-9][0-9])$/;
+
+export type CartCodeParse = { ok: true; code: string; numero: number } | { ok: false; code: string; motivo: string };
+
+/**
+ * Lee el código de una carreta como lo escanea la pistola (`C07`) o como lo teclea alguien en el teclado
+ * numérico del celular (`7`, `07`, `c7`): todo termina en `C07`. Lo que no es un número del 1 al 99 se
+ * explica.
+ */
+export function parseCartCode(raw: string | null | undefined): CartCodeParse {
+  const limpio = normalizeLocationCode(raw);
+  const m = /^C?(\d{1,2})$/.exec(limpio);
+  const numero = m ? Number(m[1]) : NaN;
+  if (!limpio) return { ok: false, code: limpio, motivo: 'Escanea la carreta o escribe su número.' };
+  if (!(numero >= 1 && numero <= CART_NUM_MAX)) {
+    return { ok: false, code: limpio, motivo: `Las carretas van de la C01 a la C${CART_NUM_MAX} (leíste «${limpio}»).` };
+  }
+  return { ok: true, code: formatCartCode(numero), numero };
+}
+
+/** `7` → `C07`. Lanza si el número no cabe en el formato. */
+export function formatCartCode(numero: number): string {
+  const code = `C${String(numero).padStart(2, '0')}`;
+  if (!CART_CODE_RE.test(code)) throw new Error(`Número de carreta fuera de rango: ${numero}`);
+  return code;
+}
+
+/** Cómo se lee en voz alta: "Carreta 7", "Carrito 12". */
+export function describeCart(tipo: CartKind, numero: number): string {
+  return `${tipo === 'carrito' ? 'Carrito' : 'Carreta'} ${numero}`;
+}
+
+/**
+ * `[GP.11.4]` El pedido que va en una carreta. `suite` = `commercial.orders` (el `PD-` de preventa);
+ * `kepler` = el `U-D-40` por su llave (el servidor deriva el `order_id` como `wave_orders`).
+ */
+export type CartOrderRef =
+  | { source: 'suite'; order_id: string }
+  | { source: 'kepler'; sucursal: string; serie: number; folio: string }
+  /**
+   * El pedido de una ola de UN pedido, sin que la pantalla descifre folios. Una tanda (varios pedidos
+   * sumados por producto) responde 409: por ahora se surte sin carreta (Edgar, 2026-11-20, «tandas después»).
+   */
+  | { source: 'ola'; wave_id: string };
+
+/** `cargado` lo pone el embarque (E4, D22); `manual` el coordinador; `deshecho` quien la escaneó por error. */
+export type CartReleaseReason = 'cargado' | 'manual' | 'deshecho';
+
+export interface CartOccupation {
+  id: string;
+  source: 'suite' | 'kepler';
+  order_id: string;
+  /** El pedido como lo lee la persona: `PD-000123` o `U-D-40 12345`. */
+  pedido: string;
+  occupied_at: string;
+  occupied_by: string;
+  occupied_by_name: string;
+}
+
+export interface CartRow {
+  id: string;
+  code: string;
+  numero: number;
+  tipo: CartKind;
+  estado: LocationStatus;
+  motivo_estado: string | null;
+  /** `null` = libre. */
+  ocupacion: CartOccupation | null;
+}
+
+export interface CartsResponse {
+  warehouse: { id: string; code: string; name: string };
+  carretas: CartRow[];
+  /** Activas sin pedido / activas con pedido. Las bloqueadas y dadas de baja no cuentan en ninguna. */
+  libres: number;
+  ocupadas: number;
+}
+
+export interface OccupyCartBody {
+  warehouse_id: string;
+  /** Lo que se escaneó o tecleó (`C07` o `7`). */
+  carreta: string;
+  pedido: CartOrderRef;
+}
+
+export interface OccupyCartResult {
+  carreta: CartRow;
+  /** `true` si esa carreta ya traía este pedido: escanearla otra vez no hace nada (idempotente). */
+  ya_estaba: boolean;
+}
+
+/** Alta por rango: «carretas del 1 al 40». Las que ya existen no se tocan. */
+export interface BulkCartsBody {
+  warehouse_id: string;
+  tipo: CartKind;
+  desde: number;
+  hasta: number;
+}
+
+export interface BulkCartsResult {
+  creadas: string[];
+  ya_existian: string[];
+}
+
+/** Las carretas de una ola: con cuáles se surte ahora y si es una tanda (que por ahora va sin carreta). */
+export interface WaveCartsResponse {
+  wave_id: string;
+  pedidos: number;
+  /** Más de un pedido sumado: la carreta se decide al desconsolidar (pendiente, P-GP.6). */
+  tanda: boolean;
+  /**
+   * Carretas activas dadas de alta en el almacén. 0 = todavía no hay catálogo: se surte sin carreta (si no,
+   * el primer día bloquearía todo el surtido de la sucursal) y la pantalla lo dice.
+   */
+  catalogo: number;
+  carretas: CartRow[];
+}
+
 /** Cómo se lee en voz alta: "Bodega · pasillo A · rack 05 · nivel 3". */
 export function describeLocationCode(p: LocationCodeParts): string {
   return `${p.zona === 'T' ? 'Tienda' : 'Bodega'} · pasillo ${p.pasillo} · rack ${String(p.rack).padStart(2, '0')} · nivel ${p.nivel}`;

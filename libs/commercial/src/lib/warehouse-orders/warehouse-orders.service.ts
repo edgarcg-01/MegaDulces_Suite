@@ -9,6 +9,7 @@ import type {
   WarehouseOrdersAtorados,
   WarehouseOrdersResponse,
 } from '@megadulces/contracts';
+import { documentoUD40 } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { ATORADOS_ALCANCE_SQL, ESTATUS_VIGENTE_SQL, VENTANA_POOL_DIAS } from '../commercial-picking/kepler-origen';
 import { ENTREGADO_SQL, sucursalKeplerSql } from '../presale-control/presale-control.service';
@@ -227,9 +228,17 @@ interface PreventaCruda {
   ola_status: string | null; ola_stage: string | null; ligado: boolean; en_guia: boolean; entregado: boolean;
 }
 
+/** `[GP.11.5]` Las carretas ocupadas ahora, con la llave del pedido. */
+const CARRETAS_ABIERTAS_SQL = `
+  SELECT o.source, o.order_id, o.kepler_sucursal AS sucursal, o.kepler_serie AS serie, o.kepler_folio AS folio, b.code
+    FROM commercial.cart_occupations o
+    JOIN commercial.warehouse_bins b ON b.tenant_id = o.tenant_id AND b.id = o.bin_id
+   WHERE o.released_at IS NULL
+   ORDER BY b.code`;
+
 type Crudo = Omit<
   WarehouseOrderRow,
-  'clave' | 'sucursal_nombre' | 'documento' | 'importe' | 'horas_abierto' | 'serie' | 'volumen' | 'etapa' | 'etapa_fuente' | 'desfase' | 'order_id'
+  'clave' | 'sucursal_nombre' | 'documento' | 'importe' | 'horas_abierto' | 'serie' | 'volumen' | 'etapa' | 'etapa_fuente' | 'desfase' | 'order_id' | 'carretas'
 > & {
   serie: number | string;
   importe: string | number | null;
@@ -253,7 +262,8 @@ interface EmbarqueCrudo {
 }
 
 const num = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
-const documento = (serie: number, folio: string) => `UD40${String(serie).padStart(2, '0')}-${folio}`;
+/** El nombre del U-D-40 sale del contrato: el mismo en el Tablero, la ola de Surtir y la carreta. */
+const documento = documentoUD40;
 
 @Injectable()
 export class WarehouseOrdersService {
@@ -301,6 +311,7 @@ export class WarehouseOrdersService {
       etapa_fuente: e.fuente,
       desfase: e.desfase,
       order_id: null,
+      carretas: [],
     };
   }
 
@@ -348,7 +359,24 @@ export class WarehouseOrdersService {
       etapa_fuente: e.fuente,
       desfase: e.desfase,
       order_id: r.id,
+      carretas: [],
     };
+  }
+
+  /**
+   * `[GP.11.5]` Qué carretas trae cada pedido: UNA consulta de las ocupaciones abiertas (son pocas: una por
+   * carreta ocupada), cruzada por la misma clave que el piso (`<sucursal>-<serie>-<folio>`) en Kepler y por
+   * `order_id` en preventa.
+   */
+  private async ponerCarretas(trx: Knex.Transaction, filas: WarehouseOrderRow[]): Promise<void> {
+    const { rows } = await trx.raw(CARRETAS_ABIERTAS_SQL);
+    if (!rows.length) return;
+    const porClave = new Map<string, string[]>();
+    for (const o of rows as Array<{ source: string; order_id: string; sucursal: string | null; serie: number | null; folio: string | null; code: string }>) {
+      const k = o.source === 'kepler' ? `${o.sucursal}-${Number(o.serie)}-${o.folio}` : `suite:${o.order_id}`;
+      porClave.set(k, [...(porClave.get(k) ?? []), o.code]);
+    }
+    for (const f of filas) f.carretas = porClave.get(f.order_id ? `suite:${f.order_id}` : f.clave) ?? [];
   }
 
   /** `[GP.10.3]` Hechos de piso de los pedidos de Kepler, por clave (`<sucursal>-<serie>-<folio>`). */
@@ -401,6 +429,7 @@ export class WarehouseOrdersService {
         const pv = await trx.raw(PREVENTA_SQL, [per.from, per.to, alcance.todas, codigos]);
         filas.push(...(pv.rows as PreventaCruda[]).map((x) => this.aFilaPreventa(x)));
       }
+      await this.ponerCarretas(trx, filas);
       const resp = armarRespuesta(filas, filtros, per, alcance, ahora, pagina);
       this.logger.debug(`pedidos ${per.from}..${per.to}: ${filas.length} en ${Date.now() - t0} ms`);
       return resp;

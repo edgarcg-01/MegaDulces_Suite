@@ -70,7 +70,7 @@ describe('AlmacenPedidosComponent · vista del surtidor (MCP.3.2)', () => {
       estatus_kepler: 'AUTORIZADO', cliente_code: 'C001', destino_nombre: 'SUCURSAL ZAMORA CANINDO', destino_ciudad: 'ZAMORA', vendedor_code: null,
       vendedor_nombre: null, renglones: 3, volumen: [], importe: null, guia: null, transporte: null, chofer: null,
       resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 2,
-      etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null,
+      etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, carretas: [],
     }],
     truncado: false,
     generado_en: '2026-10-19T16:53:00.000Z',
@@ -222,7 +222,7 @@ describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
     estatus_kepler: 'AUTORIZADO', cliente_code: 'C9', destino_nombre: 'ABARROTES LUPITA', destino_ciudad: 'ZAMORA',
     vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen: [], importe: 1200, guia: null, transporte: null,
     chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
-    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...extra,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, carretas: [], ...extra,
   });
   const PD: Fila = {
     clave: '01-PD-PD-000123', sucursal: '01', sucursal_nombre: 'Padre Hidalgo', serie: 0, folio: 'PD-000123',
@@ -230,7 +230,7 @@ describe('AlmacenPedidosComponent · preventa y etapa (GP.10.4a)', () => {
     cliente_code: 'C77', destino_nombre: 'TIENDA LA ESQUINA', destino_ciudad: null, vendedor_code: null,
     vendedor_nombre: 'Juan Vendedor', renglones: 6, volumen: [], importe: 850.5, guia: null, transporte: null, chofer: null,
     resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: null,
-    etapa: 'surtiendo', etapa_fuente: 'piso', desfase: null, order_id: '6f1c0f7e-0000-4000-8000-000000000123',
+    etapa: 'surtiendo', etapa_fuente: 'piso', desfase: null, order_id: '6f1c0f7e-0000-4000-8000-000000000123', carretas: [],
   };
   const DESFASADO = KEPLER({ clave: '01-1-0000501', folio: '0000501', documento: 'UD4001-0000501', etapa: 'surtido', etapa_fuente: 'piso', desfase: 'piso_adelante' });
   const RESP = (): WarehouseOrdersResponse => ({
@@ -538,7 +538,7 @@ describe('AlmacenPedidosComponent · lista por páginas (GP.10.5)', () => {
     estatus_kepler: 'AUTORIZADO', cliente_code: 'C9', destino_nombre: 'ABARROTES LUPITA', destino_ciudad: 'ZAMORA',
     vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen: [], importe: 1200, guia: null, transporte: null,
     chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
-    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, ...extra,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, carretas: [], ...extra,
   });
   const RESP = (offset: number, extra: Partial<WarehouseOrdersResponse> = {}): WarehouseOrdersResponse => ({
     periodo: { from: '2026-11-01', to: '2026-11-30' },
@@ -648,7 +648,7 @@ describe('AlmacenPedidosComponent · importe por destino y leyenda (GP.10.5)', (
     estatus_kepler: 'AUTORIZADO', cliente_code: 'TI004', destino_nombre: 'TRASPASO MORELIA ABASTOS', destino_ciudad: null,
     vendedor_code: null, vendedor_nombre: null, renglones: 4, volumen, importe: 1200, guia: null, transporte: null,
     chofer: null, resp_surtido: null, resp_checado: null, resp_embarque: null, horas_abierto: 5,
-    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null,
+    etapa: 'autorizado', etapa_fuente: 'kepler', desfase: null, order_id: null, carretas: [],
   });
   const RESP = (totales: WarehouseOrdersResponse['totales'], items: Fila[]): WarehouseOrdersResponse => ({
     periodo: { from: '2026-11-01', to: '2026-11-30' },
@@ -720,6 +720,18 @@ describe('AlmacenPedidosComponent · importe por destino y leyenda (GP.10.5)', (
     const texto = el.textContent?.replace(/\s+/g, ' ') ?? '';
     expect(texto).toContain('hace 5 h');
     expect(texto).toContain('guía 0002066');
+  });
+
+  it('[GP.11.5] la carreta del pedido va bajo la etapa, como la guía (sin columna nueva)', async () => {
+    const fila = { ...FILA('0000001', VOL), carretas: ['C07'] };
+    const { el } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [fila]));
+    expect(el.textContent?.replace(/s+/g, ' ')).toContain('carreta C07');
+    expect(el.querySelectorAll('th')).toHaveLength(6);
+  });
+
+  it('NEGATIVA: sin carreta la fila no dice «carreta»', async () => {
+    const { el } = await montar(RESP({ pedidos: 1, renglones: 4, importe: 500 }, [FILA('0000001', VOL)]));
+    expect(el.textContent).not.toContain('carreta');
   });
 });
 

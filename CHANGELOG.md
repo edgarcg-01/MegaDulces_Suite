@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Almacén: carretas y carritos (GP.11 · 2026-11-20)
+- Ubicaciones › Mapa › «Carretas»: se dan de alta por rango (carretas para cajas, carritos para piezas y paquetes; comparten numeración C01–C99) y sus carteles salen listos para imprimir. Cada carreta dice si está libre o qué pedido trae, de quién y desde qué hora; el coordinador puede liberarla a mano.
+- Surtir (pedidos de Kepler): en una ola de un pedido, la carreta se escanea antes del primer renglón (o se teclea su número). Una carreta lleva un solo pedido; si ya trae otro, la pantalla dice de quién es. Se puede agregar otra o deshacer la equivocada.
+- Las tandas (varios pedidos sumados) y los almacenes que aún no tienen carretas dadas de alta surten como hoy. Preventa no cambia.
+- El Tablero de pedidos dice, debajo de la etapa, qué carreta trae cada pedido.
+
 ### Fixed — Bancos: un retiro conciliado con Kepler toma la categoría de su documento (BFU.2.10 · 2026-11-20)
 - Un pago del banco que ya está casado con su documento de Kepler (pago a proveedor, nómina, traspaso entre cuentas) deja de aparecer «sin clasificar»: la categoría sale del documento. Si la conciliación cambia, la categoría la sigue; lo clasificado a mano no se toca.
 - La nómina se reconoce por el nombre guardado en el documento («NOMINA») y no por la clave del acreedor, que en noviembre se reasignó a Walmart.

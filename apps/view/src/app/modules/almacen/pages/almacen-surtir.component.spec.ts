@@ -1,5 +1,7 @@
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Component, input, output, type OnInit } from '@angular/core';
+import { SurtirCarretaComponent } from '../components/surtir-carreta.component';
 import { ActivatedRoute, convertToParamMap, provideRouter, Router, UrlTree, type ParamMap } from '@angular/router';
 import { Location } from '@angular/common';
 import { BehaviorSubject, NEVER, of, Subject, throwError } from 'rxjs';
@@ -8,6 +10,17 @@ import type {
   PickerTakeNextResponse, PickerWave, PickerWaveLine, PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow,
 } from '@megadulces/contracts';
 import { AlmacenSurtirComponent } from './almacen-surtir.component';
+
+/** [GP.11.5] Lo que contesta el paso de la carreta: por omisión, que la ola ya tiene carreta. */
+let carretaLista = true;
+@Component({ selector: 'app-surtir-carreta', standalone: true, template: '<p class="sc-sustituta">paso de la carreta</p>' })
+class CarretaSustituta implements OnInit {
+  readonly warehouseId = input<string>('');
+  readonly waveId = input<string>('');
+  readonly pedido = input<string>('');
+  readonly listo = output<boolean>();
+  ngOnInit(): void { this.listo.emit(carretaLista); }
+}
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -147,7 +160,9 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         { provide: UsoService, useValue: uso },
         { provide: AlertsSocketService, useValue: { connect: () => undefined, alert$: new Subject<{ type: string }>() } },
       ],
-    }).compileComponents();
+    })
+      .overrideComponent(AlmacenSurtirComponent, { remove: { imports: [SurtirCarretaComponent] }, add: { imports: [CarretaSustituta] } })
+      .compileComponents();
     fix = TestBed.createComponent(AlmacenSurtirComponent);
     c = fix.componentInstance;
     fix.detectChanges();
@@ -164,6 +179,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       /* sin almacenamiento */
     }
     user = { warehouse_code: '01', sub: 'yo' };
+    carretaLista = true;
     cn = { resumen: vi.fn(() => of({ scope: 'propios', customers: 0, order_ids: [] })) };
     pv = {
       inbox: vi.fn(() => of(BANDEJA())),
@@ -1209,6 +1225,15 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(pv.start).toHaveBeenCalledWith('o-rosy');
     expect(api.tomarSiguiente).not.toHaveBeenCalled();
     expect(c.olaAMedias()?.code).toBe(OLA().code);
+  });
+
+  it('⭐ [GP.11.5] NEGATIVA: con la ola tomada y SIN carreta, no hay renglones ni «Terminé de surtir»: primero la carreta', async () => {
+    carretaLista = false;
+    await montar();
+    clic('Tomar siguiente');
+    expect(el().querySelector('.sc-sustituta')).not.toBeNull();
+    expect(cantidades()).toEqual([]);
+    expect(texto()).not.toContain('Terminé de surtir');
   });
 
   it('⭐ con la ola tomada, la cantidad sale en la presentación de la hoja y la base debajo', async () => {

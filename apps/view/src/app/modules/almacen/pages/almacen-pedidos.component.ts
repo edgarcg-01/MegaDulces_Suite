@@ -245,7 +245,7 @@ const dmy = (v: string | null | undefined): string => {
                   <td role="cell" data-label="Cliente / destino"><span class="gp-trunc">{{ r.destino_nombre || r.cliente_code || '—' }}</span>@if (r.destino_ciudad) { <span class="muted gp-sub">{{ r.destino_ciudad }}</span> }</td>
                   <td class="ta-r" role="cell" data-label="Reng. · volumen"><span class="num">{{ r.renglones }}</span><span class="muted gp-sub gp-vol">{{ volumenTexto(r.volumen) }}</span></td>
                   <!-- [GP.RF.22] La guía deja su columna (casi siempre «—»): va debajo de la etapa cuando existe. -->
-                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }@if (r.guia) { <span class="muted gp-sub mono">guía {{ r.guia }}</span> }</td>
+                  <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.etapa)" [severity]="etapaSev(r.etapa)" />@if (desfaseTexto(r); as t) { <span class="gp-sub" [class.gp-warn]="r.desfase === 'piso_adelante'" [class.muted]="r.desfase !== 'piso_adelante'">{{ t }}</span> }@if (r.guia) { <span class="muted gp-sub mono">guía {{ r.guia }}</span> }@if (r.carretas?.length) { <span class="muted gp-sub mono">{{ (r.carretas.length === 1 ? 'carreta ' : 'carretas ') + r.carretas.join(', ') }}</span> }</td>
                   <td class="ta-r num" role="cell" data-label="Importe">{{ r.importe === null ? '—' : money(r.importe) }}</td>
                 </tr>
               </ng-template>

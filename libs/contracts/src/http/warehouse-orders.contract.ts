@@ -46,6 +46,12 @@ export interface EtapaPedidoResultado {
 
 export type WarehouseOrderOrigen = 'TELEMARK' | 'SUCURSAL';
 
+/**
+ * Cómo se nombra un pedido `U-D-40` en TODAS las pantallas: `UD4001-0002840` (serie a 2 dígitos + folio de
+ * Kepler tal cual). Lo usan el Tablero, la ola de Surtir y la carreta (`[GP.11.5]`): un solo nombre.
+ */
+export const documentoUD40 = (serie: number, folio: string): string => `UD40${String(serie).padStart(2, '0')}-${folio}`;
+
 export interface WarehouseOrderRow {
   /** Llave única en la red: `<sucursal>-<serie>-<folio>`. El folio solo NO es único entre sucursales. */
   clave: string;
@@ -80,6 +86,8 @@ export interface WarehouseOrderRow {
   desfase: EtapaPedidoResultado['desfase'];
   /** `[GP.10.3]` Preventa: id del pedido de la Suite (`commercial.orders`); `null` en los de Kepler. */
   order_id: string | null;
+  /** `[GP.11.5]` Las carretas que trae el pedido ahora (`C07`); vacío = ninguna. */
+  carretas: string[];
   cliente_code: string | null;
   /** Nombre del destino tal como lo trae el pedido (`c32`). */
   destino_nombre: string | null;
