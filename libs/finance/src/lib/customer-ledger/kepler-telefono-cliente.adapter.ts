@@ -15,10 +15,18 @@ import { urlDelConcentrador, urlDeServidor, type Env, type Resolucion } from '@m
  *
  * ── Cuatro candados ───────────────────────────────────────────────────────────────────────────────────────────────
  *   1. `commercial.kepler_push_switch` (sucursal de la cuenta, tipo `telefono_cliente`) encendido, con su tope diario
- *      (lo lee el servicio) · 2. las 10 conexiones `KEPLER_PUSH_URL_SC` y `_00`…`_08` · 3. en las 10 bases, para ese
- *      usuario: `SELECT, UPDATE (c7)` en `md.kdud` e `INSERT` en `md.kdlogmov` · 4. la llave `FINANCE_CARTERA_TELEFONOS`.
+ *      (lo lee el servicio) · 2. las 9 conexiones `KEPLER_PUSH_URL_00`…`_08` · 3. en esas bases, para ese usuario:
+ *      `SELECT, UPDATE (c7)` en `md.kdud` e `INSERT` en `md.kdlogmov` (`ops/prod/kepler-grants/cxc48_telefono_cliente.sql`)
+ *      · 4. la llave `FINANCE_CARTERA_TELEFONOS`.
  *
- * ── Primero se pregunta a las 10, después se escribe ──────────────────────────────────────────────────────────────
+ * ── `[CXC.48.1]` El concentrador es OPCIONAL (Edgar, 2026-11-20) ────────────────────────────────────────────────────
+ * Kepler no tiene su dirección (`pv_suc_ip` lista `SC` sin host) y el secreto no trae `KEPLER_PUSH_URL_SC`. Sin él se
+ * escribe en las 9 y el concentrador sale como `omitida`, con su motivo: nunca callado. Por qué es seguro: la forma de
+ * Kepler guarda CASILLA por casilla (cada una deja su renglón en `kdlogmov`), así que editar otro dato en el concentrador
+ * no regresa el teléfono viejo a las sucursales. Lo que queda viejo es el teléfono del propio concentrador. Con
+ * `KEPLER_PUSH_URL_SC` configurado, entra como una base más.
+ *
+ * ── Primero se pregunta a todas, después se escribe ──────────────────────────────────────────────────────────────
  * Si una base no contesta, no se escribe en NINGUNA: un teléfono distinto por sucursal es justo lo que se quiere evitar.
  * Escribir es por base y en su propia transacción (`FOR UPDATE` sobre la fila). Una base donde la clave no está queda
  * como `no_esta`: no se da de alta a nadie desde aquí.
@@ -28,7 +36,8 @@ import { urlDelConcentrador, urlDeServidor, type Env, type Resolucion } from '@m
 export const SERVIDORES_TELEFONO = ['SC', '00', '01', '02', '03', '04', '05', '06', '07', '08'] as const;
 export const CAPTURISTA_SUITE = 'SUITE';
 
-export type EstadoServidorTelefono = 'escrita' | 'ya_estaba' | 'no_esta' | 'rechazada';
+/** `omitida` = no se intentó (el concentrador sin conexión); no es una falla de escritura. */
+export type EstadoServidorTelefono = 'escrita' | 'ya_estaba' | 'no_esta' | 'rechazada' | 'omitida';
 export interface ResultadoServidorTelefono {
   servidor: string;
   estado: EstadoServidorTelefono;
@@ -91,9 +100,10 @@ export class KeplerTelefonoClienteAdapter implements OnModuleDestroy {
     await Promise.all([...this.pools.values()].map((p) => p.end().catch(() => undefined)));
   }
 
-  /** Las conexiones que faltan, sin conectarse. Vacío = las 10 configuradas. */
+  /** Las conexiones de SUCURSAL que faltan, sin conectarse. Vacío = las 9 configuradas (el concentrador es opcional). */
   faltantes(): string[] {
-    return SERVIDORES_TELEFONO.map((s) => urlDeServidorTelefono(s, this.env)).filter((u) => !u.ok).map((u) => (u as { motivo: string }).motivo);
+    return SERVIDORES_TELEFONO.filter((s) => s !== 'SC').map((s) => urlDeServidorTelefono(s, this.env))
+      .filter((u) => !u.ok).map((u) => (u as { motivo: string }).motivo);
   }
 
   /** El único paso que confirma. Aparte para que un ensayo corra el SQL real y termine en ROLLBACK. */
@@ -101,12 +111,18 @@ export class KeplerTelefonoClienteAdapter implements OnModuleDestroy {
     await c.query('COMMIT');
   }
 
-  /** Escribe el teléfono en las bases donde está la clave. Si alguna de las 10 no contesta, no escribe en ninguna. */
+  /** Escribe el teléfono en las bases donde está la clave. Si alguna de las configuradas no contesta, no escribe en ninguna. */
   async escribir(clave: string, telefono: string): Promise<ResultadoServidorTelefono[]> {
     const faltan = this.faltantes();
     if (faltan.length) throw new Error(faltan.join(' · '));
-    const urls = SERVIDORES_TELEFONO.map((s) => ({ servidor: s, url: (urlDeServidorTelefono(s, this.env) as { valor: string }).valor }));
-    // 1. ¿Contestan las 10? (sólo lectura)
+    const omitidas: ResultadoServidorTelefono[] = [];
+    const urls: { servidor: string; url: string }[] = [];
+    for (const s of SERVIDORES_TELEFONO) {
+      const u = urlDeServidorTelefono(s, this.env);
+      if (u.ok) urls.push({ servidor: s, url: u.valor });
+      else omitidas.push({ servidor: s, estado: 'omitida', anterior: null, motivo: u.motivo });
+    }
+    // 1. ¿Contestan todas las configuradas? (sólo lectura)
     for (const { servidor, url } of urls) {
       let c: PoolClient | null = null;
       try {
@@ -118,8 +134,8 @@ export class KeplerTelefonoClienteAdapter implements OnModuleDestroy {
         c?.release();
       }
     }
-    // 2. Escribir, base por base
-    const out: ResultadoServidorTelefono[] = [];
+    // 2. Escribir, base por base (lo omitido va primero, en su lugar: el concentrador)
+    const out: ResultadoServidorTelefono[] = [...omitidas];
     for (const { servidor, url } of urls) {
       let c: PoolClient | null = null;
       try {

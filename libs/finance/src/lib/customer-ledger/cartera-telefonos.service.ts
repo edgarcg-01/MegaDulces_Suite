@@ -58,7 +58,7 @@ export class CarteraTelefonosService {
         WHERE tenant_id = public.current_tenant_id() AND sucursal = ? AND tipo = ?`, [sucursal, TIPO])).rows[0];
     if (!sw?.encendida) return 'La escritura del teléfono en Kepler está apagada para esta sucursal.';
     const faltan = this.kepler.faltantes();
-    if (faltan.length) return `Faltan conexiones a Kepler (${faltan.length} de 10). Sin las 10 no se escribe en ninguna.`;
+    if (faltan.length) return `Faltan conexiones a Kepler (${faltan.length} de 9 sucursales). Sin las 9 no se escribe en ninguna.`;
     if (sw.tope_dia != null) {
       const { rows: [hoy] } = await trx.raw(
         `SELECT count(*)::int AS n FROM finance.customer_phone_changes
