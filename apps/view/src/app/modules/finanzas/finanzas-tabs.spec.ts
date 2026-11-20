@@ -211,8 +211,6 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       '/finanzas/caja-general/arqueos',
       // [CGA-A.67] El Cuadre (libro contra Kepler) se mudó de Control (histórico) a esta barra.
       '/finanzas/caja-general/cuadre',
-      // [LE.6.38] El estado de cuenta del periodo.
-      '/finanzas/caja-general/estado-de-cuenta',
       '/finanzas/caos',
     ] as const;
 
@@ -254,8 +252,8 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       // [CGA-A.67] Ruta: anyPermissionGuard(CAJA_VER, BANK_VER) — los roles de bancos lo veían en Control.
       expect(t('/finanzas/caja-general/cuadre')?.anyOf).toEqual([Permission.FINANCE_CAJA_VER, Permission.FINANCE_BANK_VER]);
       expect(t('/finanzas/caja-general/cuadre')?.permission).toBeUndefined();
-      // [LE.6.38] Ruta: permissionGuard(FINANCE_CAJA_VER), igual que Arqueos.
-      expect(t('/finanzas/caja-general/estado-de-cuenta')?.permission).toBe(Permission.FINANCE_CAJA_VER);
+      // [LE.6.38] El estado de cuenta es un diálogo de Arqueos, no una pestaña.
+      expect(t('/finanzas/caja-general/estado-de-cuenta')).toBeUndefined();
       // Ruta: anyPermissionGuard(FINANCE_CAOS_VER) — permiso PROPIO, otro circuito de efectivo.
       expect(t('/finanzas/caos')?.permission).toBe(Permission.FINANCE_CAOS_VER);
     });
@@ -270,7 +268,6 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
         '/finanzas/caja-general': 'caja-general/finanzas-caja-general.component.ts',
         '/finanzas/caja-general/arqueos': 'caja-general/finanzas-caja-arqueos.component.ts',
         '/finanzas/caja-general/cuadre': 'caja-general/finanzas-caja-cuadre.component.ts',
-        '/finanzas/caja-general/estado-de-cuenta': 'caja-general/finanzas-caja-estado-cuenta.component.ts',
         '/finanzas/caos': 'caos/finanzas-caos.component.ts',
       };
       for (const ruta of DE_CAJA) {

@@ -750,12 +750,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
       },
       {
-        // ⭐ `[LE.6.38]` **Estado de cuenta**: el periodo de Caja General como lo entrega un banco
-        // (saldo inicial, movimientos con saldo, saldo final contado), desde Captura y sus cortes.
-        // Lectura: `FINANCE_CAJA_VER`, el mismo de Arqueos.
+        // `[LE.6.38]` El estado de cuenta vive en Arqueos (botón «Estado de cuenta» sobre la tabla de
+        // cortes; Edgar, 2026-11-20: «el arqueo y el estado de cuenta en uno solo»). La ruta se
+        // redirige para quien la haya guardado.
         path: 'caja-general/estado-de-cuenta',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-estado-cuenta.component').then(m => m.FinanzasCajaEstadoCuentaComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_CAJA_VER)]
+        redirectTo: 'caja-general/arqueos',
+        pathMatch: 'full',
       },
       {
         // ⭐ `[CGA-A.67]` **Cuadre**: la caja contra la Caja General de Kepler, día por día, con el

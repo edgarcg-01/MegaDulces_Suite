@@ -45,6 +45,7 @@ import { PermissionsService } from '../../../../core/services/permissions.servic
 import { Permission } from '../../../../core/constants/permissions';
 import { textoDeError, BILLETES_CAJA, MONEDAS_CAJA } from './caja-captura.util';
 import { puertasRevision, MINIMO_TEXTO_REVISION, type PuertasRevision } from './caja-revision.util';
+import { EstadoCuentaCajaComponent } from './estado-cuenta-caja.component';
 
 /** Un día visto por Control: sus movimientos y el arqueo que capturó. */
 export interface CorteDia {
@@ -194,7 +195,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
     DialogModule, InputNumberModule, InputTextModule,
     LoadStateComponent, SidePeekComponent, MetricCardComponent, FreshnessPillComponent,
     ContextHelpComponent, CajaTabsComponent, SegmentedComponent, ArqueoDocumentosComponent,
-    DescartarCambiosComponent, DevolverFocoDirective],
+    DescartarCambiosComponent, DevolverFocoDirective, EstadoCuentaCajaComponent],
   template: `
     <app-caja-tabs />
     <div class="surf-page in">
@@ -338,6 +339,9 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
             <app-segmented [options]="opcionesFiltro()" [value]="filtro()" (valueChange)="filtroElegido.set($any($event))"
                            ariaLabel="Qué cortes ver" />
           }
+          <!-- [LE.6.38] El estado de cuenta del mes vive aquí, sobre la misma tabla de cortes (Edgar, 2026-11-20). -->
+          <p-button size="small" icon="pi pi-file" severity="secondary" [outlined]="true" label="Estado de cuenta"
+                    (onClick)="verEstadoCuenta.set(true)" />
         </div>
         @for (nota of notas(); track nota) { <p class="cq-nota">{{ nota }}</p> }
         <!-- [CGS.53] Los límites de la cuenta (lo que el método NO puede ver) son de siempre, no de hoy:
@@ -457,6 +461,7 @@ const VEREDICTO: Record<VeredictoCorte, { texto: string; sev: 'success' | 'warn'
           </p>
         }
       </section>
+      <app-estado-cuenta-caja [(visible)]="verEstadoCuenta" />
 
       <!-- ⭐ LA FUSION: un solo cajon contesta las tres preguntas de la revision, en orden.
            Antes eran dos pantallas y habia que acordarse de ir a la otra. -->
@@ -1016,6 +1021,8 @@ export class FinanzasCajaArqueosComponent implements OnInit, OnDestroy {
 
   readonly sel = signal<DiaFila | null>(null);
   readonly peek = signal(false);
+  /** `[LE.6.38]` El diálogo del estado de cuenta del mes. */
+  readonly verEstadoCuenta = signal(false);
   readonly exp = signal<Expediente | null>(null);
   readonly cargandoExp = signal(false);
 
