@@ -641,6 +641,12 @@ export const routes: Routes = [
         canActivate: [carteraEntryGuard]
       },
       {
+        // `[GP.A.4]` Los pedidos de telemarketing por autorizar: otra lente de Cartera, con su mismo guard (ver arriba).
+        path: 'cartera/por-autorizar',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-por-autorizar.component').then(m => m.FinanzasPorAutorizarComponent),
+        canActivate: [carteraEntryGuard]
+      },
+      {
         path: 'cartera',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
         canActivate: [carteraEntryGuard]

@@ -69,6 +69,9 @@ export class CarteraSegmentsComponent {
       // es el mismo dato reagrupado por día. Un permiso propio sería una puerta nueva sobre
       // información que el rol ya puede ver, y dejaría a medio equipo con media pantalla.
       o.push({ label: 'Por día', value: '/finanzas/cartera/dia' });
+      // `[GP.A.4]` Los pedidos de telemarketing que esperan a Crédito y cobranza. Mismo permiso: hoy sólo se LEE
+      // (autorizar desde la Suite llega con GP.A.2 y trae su propia llave).
+      o.push({ label: 'Por autorizar', value: '/finanzas/cartera/por-autorizar' });
     }
     if (this.tiene(Permission.FINANCE_COLLECTIONS_VER)) o.push({ label: 'Cobranza', value: '/finanzas/cobranza' });
     return o;
