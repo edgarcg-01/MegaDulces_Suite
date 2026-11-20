@@ -7,18 +7,13 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
-import { DialogModule } from 'primeng/dialog';
-import { InputNumberModule } from 'primeng/inputnumber';
-import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
-import { ComercialService, StockRow, Warehouse } from '../comercial.service';
-import { AuthService } from '../../../core/services/auth.service';
+import { ComercialService, StockRow, StockSummary, Warehouse } from '../comercial.service';
 import { makeLazyLoad } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { Permission } from '../../../core/constants/permissions';
 
 @Component({
   selector: 'app-comercial-inventory',
@@ -31,9 +26,6 @@ import { Permission } from '../../../core/constants/permissions';
     TableModule,
     TagModule,
     SelectModule,
-    DialogModule,
-    InputNumberModule,
-    InputTextModule,
     ToastModule,
     TooltipModule,
     MetricCardComponent,
@@ -48,23 +40,21 @@ import { Permission } from '../../../core/constants/permissions';
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Ajustes de stock</h1>
+          <h1>Existencia y apartados</h1>
           <p class="surf-page-sub">
             <b>{{ total() }}</b> línea{{ total() === 1 ? '' : 's' }} de stock
             <span class="in-divider" aria-hidden="true">·</span>
             on-hand / reservado / disponible
           </p>
-          <!-- Se llamaba "Inventario"/"Existencias" y no lo es. Q.2 aplicado a un número que
-               SABEMOS malo: en vez de arreglarlo en silencio (o dejar que alguien lo lea como el
-               censo), se dice qué es, cuánto se desvía y dónde está el bueno. Medido contra el
-               POS en vivo, 22,090 SKUs: esta tabla acierta 91%, el ODS 100%. -->
+          <!-- [CANON.7.4a] Hasta el 2026-11-19 se llamaba «Ajustes de stock»: leía la copia «commercial.stock» del
+               importer (acertaba 91 % contra el POS) y ajustaba ahí. Ahora la cantidad sale del ERP (ODS) y sólo se le
+               agrega el apartado de los pedidos de la Suite. El ajuste de existencia se hace en Kepler (ADR-040). -->
           <p class="in-source-note">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             <span>
-              Éste es el <b>libro interno</b> de la app: lleva el apartado y es lo que escriben los
-              ajustes. Su cantidad se desvía del punto de venta cerca del <b>9%</b>.
-              Para saber <b>qué hay físicamente</b>, usa
-              <a routerLink="/almacen/inventory/existencia">Existencia</a>, que sale del ERP.
+              La existencia sale del ERP (Kepler). <b>Reservado</b> es lo que apartan los pedidos de la app.
+              El ajuste se hace en Kepler. Lotes y caducidades:
+              <a routerLink="/almacen/inventory/existencia">Existencia</a>.
             </span>
           </p>
         </div>
@@ -73,8 +63,9 @@ import { Permission } from '../../../core/constants/permissions';
         </div>
       </header>
     
-      <!-- KPI BENTO — data-viz del total (independiente del paginado) -->
-      @if (summaryAll().length > 0) {
+      <!-- KPI BENTO — data-viz del total (independiente del paginado). [CANON.7.4a] Lo agrega el servidor sobre TODA
+           la selección; antes se sumaban en el navegador las 500 filas a las que se topa el listado. -->
+      @if (summary()) {
         <div class="surf-grid in-bento">
           <!-- HERO: valor del inventario disponible + barras por almacén -->
           <app-metric-card class="panel-col-6" [large]="true"
@@ -82,7 +73,7 @@ import { Permission } from '../../../core/constants/permissions';
             accent="var(--action)"
             [variant]="kpis().valueByWh.length > 1 ? 'bars' : 'plain'"
             [series]="kpis().valueByWh" [seriesLabels]="kpis().whLabels" [highlightLast]="false"
-          [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes')"></app-metric-card>
+          [sub]="'al costo · ' + kpis().whCount + (kpis().whCount === 1 ? ' almacén' : ' almacenes') + (kpis().withoutCost ? ' · ' + kpis().withoutCost + ' con saldo sin costo' : '')"></app-metric-card>
           <app-metric-card class="panel-col-3"
             label="Unidades on-hand" [value]="kpis().totalUnits" format="number"
             accent="var(--chart-2)"
@@ -140,9 +131,10 @@ import { Permission } from '../../../core/constants/permissions';
         </article>
       </div>
     
-      <!-- TABLA flush -->
+      <!-- TABLA flush. [CANON.7.4a] dt-stack: en el teléfono cada renglón se apila con sus campos. Sin la columna
+           «Ajustar», la regla global dejaba fija a la derecha «Valor disp.» y «Disponible» quedaba debajo. -->
       <div class="sheet cols-12">
-        <article class="cell cell-span-12 is-flush">
+        <article class="cell cell-span-12 is-flush dt-scope">
           <p-table
             [value]="rows()"
             [loading]="loading()"
@@ -155,6 +147,7 @@ import { Permission } from '../../../core/constants/permissions';
             (onLazyLoad)="onLazyLoad($event)"
            
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first"
+            class="dt-stack"
             >
             <ng-template #header>
               <tr>
@@ -167,24 +160,23 @@ import { Permission } from '../../../core/constants/permissions';
                 <th scope="col" class="comm-num">Reservado</th>
                 <th scope="col" class="comm-num">Disponible</th>
                 <th scope="col" class="comm-num">Valor disp.</th>
-                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-s>
               <tr [class.in-row-low]="s.available > 0 && s.available < 20" [class.in-row-zero]="s.available <= 0">
-                <td>
+                <td role="cell" data-label="Almacén">
                   <span class="in-warehouse-cell">
                     <i class="pi pi-warehouse" aria-hidden="true"></i>
                     {{ s.warehouse_name || s.warehouse_id }}
                   </span>
                 </td>
-                <td>
+                <td class="dt-id" role="cell">
                   <div class="comm-cell-strong">{{ s.product_name || s.product_id }}</div>
                   @if (s.brand_name) {
                     <div class="comm-muted is-small">{{ s.brand_name }}</div>
                   }
                 </td>
-                <td>
+                <td role="cell" data-label="SKU">
                   @if (s.sku) {
                     <code class="comm-code">{{ s.sku }}</code>
                   }
@@ -192,7 +184,7 @@ import { Permission } from '../../../core/constants/permissions';
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td>
+                <td role="cell" data-label="Ubicación">
                   @if (s.location) {
                     <code class="comm-code in-loc-code">{{ s.location }}</code>
                   }
@@ -200,7 +192,7 @@ import { Permission } from '../../../core/constants/permissions';
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td class="comm-num">
+                <td class="comm-num dt-num" role="cell" data-label="Costo">
                   @if (s.cost_base != null) {
                     <span>{{ s.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                   }
@@ -208,14 +200,15 @@ import { Permission } from '../../../core/constants/permissions';
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td class="comm-num in-num-soft">{{ s.on_hand }}</td>
-                <td class="comm-num in-num-soft">{{ s.reserved }}</td>
-                <td class="comm-num in-avail-cell">
+                <!-- [CANON.7.4a] Con formato: la API manda texto con la escala de cada columna («1» del ERP, «0.000» del apartado). -->
+                <td class="comm-num dt-num in-num-soft" role="cell" data-label="On hand">{{ s.on_hand | number:'1.0-3' }}</td>
+                <td class="comm-num dt-num in-num-soft" role="cell" data-label="Reservado">{{ s.reserved | number:'1.0-3' }}</td>
+                <td class="comm-num dt-num in-avail-cell" role="cell" data-label="Disponible">
                   <span class="comm-pill no-dot in-avail-pill" [class]="stockPillClass(s.available)">
-                    {{ s.available }}
+                    {{ s.available | number:'1.0-3' }}
                   </span>
                 </td>
-                <td class="comm-num">
+                <td class="comm-num dt-num" role="cell" data-label="Valor disp.">
                   @if (s.available_value) {
                     <span>{{ s.available_value | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
                   }
@@ -223,16 +216,11 @@ import { Permission } from '../../../core/constants/permissions';
                     <span class="comm-muted">—</span>
                   }
                 </td>
-                <td class="comm-actions">
-                  @if (canAdjust()) {
-                    <button pButton size="small" severity="secondary" [text]="true" [disabled]="!!frozenFolio(s.warehouse_id)" [pTooltip]="frozenFolio(s.warehouse_id) ? ('Almacén congelado por inventario ' + frozenFolio(s.warehouse_id)) : 'Ajustar saldo'" (click)="openAdjust(s)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
-                  }
-                </td>
               </tr>
             </ng-template>
             <ng-template #emptymessage>
               <tr>
-                <td colspan="10" class="comm-empty-cell">
+                <td colspan="9" class="comm-empty-cell">
                   <div class="comm-empty">
                     <div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                     <h3>Sin stock registrado</h3>
@@ -249,41 +237,6 @@ import { Permission } from '../../../core/constants/permissions';
       </div>
     </div>
     
-    <p-dialog
-      [(visible)]="dialogVisible"
-      [modal]="true"
-      [draggable]="false"
-      [style]="{ width: '440px' }"
-      header="Ajustar saldo de stock"
-      >
-      @if (adjusting(); as a) {
-        <div class="adjust-body">
-          <div class="adjust-info">
-            <div><span>Almacén</span> <strong>{{ a.warehouse_name || a.warehouse_id }}</strong></div>
-            <div><span>Producto</span> <strong>{{ a.product_name || a.product_id }}</strong></div>
-            <div><span>Saldo on_hand</span> <strong>{{ a.on_hand }}</strong></div>
-            <div><span>Reservado</span> <strong>{{ a.reserved }}</strong></div>
-          </div>
-          <label class="adjust-field">
-            <span>Nuevo saldo on_hand</span>
-            <p-inputnumber [(ngModel)]="newQuantity" [min]="0" [showButtons]="true" />
-          </label>
-          <label class="adjust-field">
-            <span>Notas (auditoría física, etc.)</span>
-            <input pInputText [(ngModel)]="adjustNotes" />
-          </label>
-          @if (newQuantity !== null) {
-            <div class="delta-preview">
-              Cambio: <strong [class.up]="delta() > 0" [class.down]="delta() < 0">{{ delta() > 0 ? '+' + delta() : delta() }}</strong> unidades
-            </div>
-          }
-        </div>
-      }
-      <ng-template #footer>
-        <button pButton severity="secondary" [outlined]="true" (click)="dialogVisible = false"><span class="p-button-label">Cancelar</span></button>
-        <button pButton [loading]="saving()" [disabled]="newQuantity === null" (click)="applyAdjust()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aplicar ajuste</span></button>
-      </ng-template>
-    </p-dialog>
     `,
   styles: [`
     :host { display:block; }
@@ -370,8 +323,9 @@ import { Permission } from '../../../core/constants/permissions';
     tr.in-row-zero td:first-child {
       position: relative;
     }
-    tr.in-row-low td:first-child::before,
-    tr.in-row-zero td:first-child::before {
+    /* [CANON.7.4a] ::after y no ::before: en el teléfono (dt-stack) el ::before de cada celda es su rótulo. */
+    tr.in-row-low td:first-child::after,
+    tr.in-row-zero td:first-child::after {
       content: '';
       position: absolute;
       left: 0;
@@ -380,8 +334,8 @@ import { Permission } from '../../../core/constants/permissions';
       width: 3px;
       border-radius: 2px;
     }
-    tr.in-row-low td:first-child::before { background: var(--c-warn); }
-    tr.in-row-zero td:first-child::before { background: var(--c-bad); }
+    tr.in-row-low td:first-child::after { background: var(--c-warn); }
+    tr.in-row-zero td:first-child::after { background: var(--c-bad); }
 
     /* ── Warehouse cell: texto + icono ── */
     .in-warehouse-cell {
@@ -408,47 +362,6 @@ import { Permission } from '../../../core/constants/permissions';
       justify-content: center;
     }
 
-    /* ── DIALOG ajuste de saldo ── */
-    .adjust-body { display: flex; flex-direction: column; gap: 1rem; }
-    .adjust-info {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: .5rem;
-      padding: .75rem 1rem;
-      background: var(--c-surface-2);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-    }
-    .adjust-info > div {
-      display: flex;
-      flex-direction: column;
-      gap: .15rem;
-      font-size: var(--fs-sm);
-    }
-    .adjust-info span { font-size: var(--fs-micro); color: var(--c-text-2); text-transform: uppercase; letter-spacing: .06em; font-weight: var(--fw-bold); }
-    .adjust-info strong { font-size: var(--fs-body); font-weight: var(--fw-bold); color: var(--c-text-1); font-variant-numeric: tabular-nums; }
-    .adjust-field {
-      display: flex;
-      flex-direction: column;
-      gap: .3rem;
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      font-weight: var(--fw-bold);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-    .delta-preview {
-      padding: .65rem .75rem;
-      background: var(--c-surface-2);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      text-align: center;
-      font-size: var(--fs-sm);
-      color: var(--c-text-2);
-    }
-    .delta-preview strong { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; font-size: var(--fs-body); }
-    .delta-preview .up { color: var(--c-ok); }
-    .delta-preview .down { color: var(--c-bad); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -456,12 +369,7 @@ export class ComercialInventoryComponent {
 
   private readonly api = inject(ComercialService);
   private readonly toast = inject(MessageService);
-  private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
-
-  readonly canAdjust = computed(() => {
-    return this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_AJUSTAR] === true;
-  });
 
   readonly rows = signal<StockRow[]>([]);
   readonly total = signal(0);
@@ -488,42 +396,28 @@ export class ComercialInventoryComponent {
     this.reload();
   }
 
-  readonly summaryAll = signal<StockRow[]>([]);
+  /** [CANON.7.4a] El resumen de TODA la selección, agregado en el servidor. Hasta el 2026-11-19 se sumaban aquí las
+   *  filas de `listStock(pageSize: 9999)`, que el servidor topa a 500: en la red pintaba 500 líneas, $475,940 y
+   *  «1 almacén» contra 33,530 líneas, $70.4 M y 9 almacenes. */
+  readonly summary = signal<StockSummary | null>(null);
   readonly kpis = computed(() => {
-    const list = this.summaryAll();
-    const lines = list.length;
-    const critical = list.filter((r) => r.available > 0 && r.available < 20).length;
-    const zero = list.filter((r) => r.available <= 0).length;
-    const healthy = list.filter((r) => r.available >= 20).length;
-    const totalUnits = list.reduce((s, r) => s + Number(r.on_hand || 0), 0);
-    const totalValue = list.reduce((s, r) => s + Number(r.available_value || 0), 0);
-
-    // Composición por almacén (para las micro-gráficas de barras con tooltip).
-    const wmap = new Map<string, { name: string; value: number; units: number }>();
-    for (const r of list) {
-      const e = wmap.get(r.warehouse_id) ?? { name: r.warehouse_name || r.warehouse_id, value: 0, units: 0 };
-      e.value += Number(r.available_value || 0);
-      e.units += Number(r.on_hand || 0);
-      wmap.set(r.warehouse_id, e);
-    }
-    const wh = [...wmap.values()].sort((a, b) => b.value - a.value);
-
+    const su = this.summary();
+    // Composición por almacén (para las micro-gráficas de barras con tooltip), del más valioso al menos.
+    const wh = [...(su?.by_warehouse ?? [])].sort((a, b) => b.value - a.value);
     return {
-      lines, critical, zero, healthy, totalUnits, totalValue,
-      whCount: wmap.size,
-      whLabels: wh.map((w) => w.name),
+      lines: su?.lines ?? 0,
+      critical: su?.critical ?? 0,
+      zero: su?.zero ?? 0,
+      healthy: su?.healthy ?? 0,
+      totalUnits: su?.units ?? 0,
+      totalValue: su?.value ?? 0,
+      withoutCost: su?.without_cost ?? 0,
+      whCount: wh.length,
+      whLabels: wh.map((w) => w.warehouse_name || w.warehouse_id),
       valueByWh: wh.map((w) => Math.round(w.value)),
       unitsByWh: wh.map((w) => Math.round(w.units)),
     };
   });
-
-  readonly frozenWh = signal<Map<string, string>>(new Map());
-
-  readonly adjusting = signal<StockRow | null>(null);
-  dialogVisible = false;
-  readonly saving = signal(false);
-  newQuantity: number | null = null;
-  adjustNotes = '';
 
   constructor() {
     this.api.listWarehouses(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -532,35 +426,13 @@ export class ComercialInventoryComponent {
     });
     this.load();
     this.loadSummary();
-    this.loadFrozen();
   }
 
   private loadSummary(): void {
-    this.api.listStock({ warehouse_id: this.whParam(), pageSize: 9999 }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.summaryAll.set(r.data || []),
-      error: () => this.summaryAll.set([]),
+    this.api.stockSummary({ warehouse_id: this.whParam() }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.summary.set(r),
+      error: () => this.summary.set(null),
     });
-  }
-
-  /** Almacenes con un folio de inventario CONGELADO abierto → su ajuste manual se
-   *  bloquea anticipadamente (el backend igual lo rechaza). */
-  private loadFrozen(): void {
-    this.api.listInventoryCounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (cs) => {
-        const m = new Map<string, string>();
-        for (const c of cs) {
-          if (c.freeze_movements && ['open', 'counting', 'review', 'ready_to_reconcile'].includes(c.status)) {
-            m.set(c.warehouse_id, c.folio);
-          }
-        }
-        this.frozenWh.set(m);
-      },
-      error: () => { /* no crítico */ },
-    });
-  }
-
-  frozenFolio(warehouseId: string): string | null {
-    return this.frozenWh().get(warehouseId) || null;
   }
 
   load(): void {
@@ -605,49 +477,4 @@ export class ComercialInventoryComponent {
   }
 
   readonly onLazyLoad = makeLazyLoad(this.page, this.pageSize, () => this.load());
-
-  openAdjust(s: StockRow): void {
-    const folio = this.frozenFolio(s.warehouse_id);
-    if (folio) {
-      this.toast.add({ severity: 'warn', summary: 'Almacén congelado', detail: `Inventario físico en curso (${folio}).` });
-      return;
-    }
-    this.adjusting.set(s);
-    this.newQuantity = s.on_hand;
-    this.adjustNotes = '';
-    this.dialogVisible = true;
-  }
-
-  delta(): number {
-    const a = this.adjusting();
-    return a && this.newQuantity !== null ? this.newQuantity - a.on_hand : 0;
-  }
-
-  applyAdjust(): void {
-    const a = this.adjusting();
-    if (!a || this.newQuantity === null) return;
-    this.saving.set(true);
-    this.api
-      .adjustStock({
-        warehouse_id: a.warehouse_id,
-        product_id: a.product_id,
-        new_quantity: this.newQuantity,
-        notes: this.adjustNotes || undefined,
-      })
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.saving.set(false);
-          this.dialogVisible = false;
-          this.toast.add({ severity: 'success', summary: 'Stock ajustado' });
-          this.load();
-          this.loadSummary();
-        },
-        error: (err) => {
-          this.saving.set(false);
-          const detail = err?.error?.message || 'No se pudo ajustar';
-          this.toast.add({ severity: 'error', summary: 'Error', detail });
-        },
-      });
-  }
 }

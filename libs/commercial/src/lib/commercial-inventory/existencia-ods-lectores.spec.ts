@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import knexFactory from 'knex';
-import { EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
+import { EXISTENCIA_ODS_CON_APARTADO_SQL, EXISTENCIA_ODS_SQL, existenciaOds } from './stock-state';
 
 /**
  * `[CANON.7.2]` Los reportes leen la existencia del ODS, no la copia `commercial.stock` del importer
@@ -121,5 +121,74 @@ describe('[CANON.7.3] los lectores clase B ya no leen la copia', () => {
       expect(f).not.toMatch(/\bs\.id IS (NOT )?NULL/);
       expect(f).toContain('CASE WHEN s.product_id IS NULL THEN NULL');
     }
+  });
+});
+
+describe('[CANON.7.4a] la portada de Almacén: la existencia del ODS + el apartado de la app', () => {
+  it('la cantidad sale del ODS; de la copia sólo el apartado, que es dato propio', () => {
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain(`FROM ${EXISTENCIA_ODS_SQL} o`);
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('o.quantity');
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).toContain('COALESCE(ap.reserved_quantity, 0)');
+    expect(EXISTENCIA_ODS_CON_APARTADO_SQL).not.toMatch(/ap\.quantity/);
+  });
+
+  it('listStock la usa y ya no lee la cantidad de la copia', () => {
+    const f = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.service.ts'), 'utf8').split('\r\n').join('\n');
+    const i = f.indexOf('async listStock(');
+    const cuerpo = f.slice(i, f.indexOf('\n  async ', i + 10));
+    expect(cuerpo).toContain('EXISTENCIA_ODS_CON_APARTADO_SQL');
+    expect(lecturasDeLaCopia(cuerpo)).toEqual([]);
+  });
+
+  it('D-EX3: la portada ya no ajusta (0 llamadas en 60 días; el ajuste es de Kepler) y no se llama «Ajustes»', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8');
+    expect(c).not.toMatch(/adjustStock|openAdjust|<p-dialog/);
+    expect(c).toContain('<h1>Existencia y apartados</h1>');
+  });
+
+  // Probado en local el 2026-11-19: las tarjetas sumaban en el navegador `listStock(pageSize: 9999)`, que el servidor
+  // topa a 500, y en la red decían 500 líneas, $475,940 y «1 almacén» contra 33,530, $70.4 M y 9.
+  it('el resumen lo agrega el servidor sobre TODA la selección, del mismo universo que el listado', () => {
+    const f = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.service.ts'), 'utf8').split('\r\n').join('\n');
+    const i = f.indexOf('async stockSummary(');
+    expect(i).toBeGreaterThan(0);
+    const cuerpo = f.slice(i, f.indexOf('\n  async ', i + 10));
+    expect(cuerpo).toContain('EXISTENCIA_ODS_CON_APARTADO_SQL');
+    expect(cuerpo).toContain('analytics.v_erp_unit_cost'); // el mismo costo arbitrado que valúa cada renglón
+    expect(cuerpo).toMatch(/groupBy\('s\.warehouse_id'/);
+    expect(cuerpo).toContain('without_cost'); // sin costo se CUENTA, no se suma como cero
+    expect(cuerpo).not.toMatch(/\.limit\(/); // un tope aquí volvería a resumir sólo una parte
+    expect(lecturasDeLaCopia(cuerpo)).toEqual([]);
+  });
+
+  it('la ruta del resumen pide el mismo permiso que el listado y va antes de la ruta con parámetros', () => {
+    const ctl = readFileSync(join(LIB, 'commercial-inventory/commercial-inventory.controller.ts'), 'utf8').split('\r\n').join('\n');
+    const r = ctl.indexOf("@Get('stock/summary')");
+    expect(r).toBeGreaterThan(0);
+    expect(ctl.slice(r, r + 120)).toContain('Permission.COMMERCIAL_INVENTORY_VER');
+    expect(r).toBeLessThan(ctl.indexOf("@Get('stock/:warehouse_id/:product_id')"));
+  });
+
+  it('la pantalla pinta el resumen del servidor (no suma una página) y las cantidades con un solo formato', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8');
+    expect(c).not.toMatch(/listStock\(\{[^}]*pageSize:\s*9999/);
+    expect(c).toContain('this.api.stockSummary(');
+    for (const campo of ['s.on_hand', 's.reserved', 's.available']) expect(c).toContain(`{{ ${campo} | number:'1.0-3' }}`);
+  });
+
+  // check-dense-tables acepta la PALABRA dt-stack en cualquier parte (un comentario basta); esto exige la clase de verdad.
+  it('en el teléfono cada renglón se apila: clase real (no styleClass, muerto en PrimeNG 22), rótulo por celda y la barra en ::after', () => {
+    const c = readFileSync(join(RAIZ, 'apps/view/src/app/modules/comercial/pages/comercial-inventory.component.ts'), 'utf8').split('\r\n').join('\n');
+    const tabla = c.slice(c.indexOf('<p-table'), c.indexOf('</p-table>'));
+    expect(tabla).toMatch(/\n\s+class="dt-stack"\n/);
+    expect(c).toMatch(/class="cell cell-span-12 is-flush dt-scope"/);
+    const celdas = tabla.slice(tabla.indexOf('#body'), tabla.indexOf('#emptymessage')).match(/<td\b[^>]*>/g) ?? [];
+    expect(celdas.length).toBe(9);
+    for (const td of celdas) {
+      expect(td).toContain('role="cell"');
+      if (!td.includes('dt-id')) expect(td).toMatch(/data-label="[^"]+"/);
+    }
+    expect(c).toMatch(/tr\.in-row-low td:first-child::after/);
+    expect(c).not.toMatch(/tr\.in-row-(low|zero) td:first-child::before/);
   });
 });

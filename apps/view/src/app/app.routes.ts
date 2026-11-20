@@ -2074,10 +2074,10 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
       },
       {
-        // OJO: esta pantalla se llamaba "Existencias" y NO lo es — lee `commercial.stock`, el
-        // libro transaccional (acierta 91% contra el POS). Es la consola de AJUSTE y el único
-        // lugar con el apartado. El censo físico está arriba. No se retira porque la escritura
-        // vive acá; se re-rotuló a "Ajustes de stock" y lo declara en pantalla.
+        // [CANON.7.4a] «Existencia y apartados». Hasta el 2026-11-19 fue «Ajustes de stock»: leía la copia
+        // `commercial.stock` (91% contra el POS) y ajustaba ahí. Ahora la cantidad sale del ERP (ODS) más el
+        // apartado de la app, y ya no ajusta (eso es de Kepler). Es la vista de existencia de quien no tiene
+        // EXISTENCIA_VER (surtidor, almacenista).
         path: 'inventory',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]

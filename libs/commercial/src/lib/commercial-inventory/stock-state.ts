@@ -65,6 +65,21 @@ export const EXISTENCIA_ODS_SQL = `(SELECT e.tenant_id, e.warehouse_id, e.produc
           e.qty_stock_units AS quantity, 0::numeric AS reserved_quantity
      FROM analytics.v_erp_stock_on_hand e)`;
 
+/**
+ * `[CANON.7.4a]` La existencia del ODS MÁS el apartado de la Suite, para quien muestra o decide «disponible».
+ * El apartado es dato PROPIO (lo escriben los pedidos en `commercial.stock.reserved_quantity`; la vista no lo tiene),
+ * así que se une ahí y sólo ahí: la cantidad sigue saliendo del ODS. Mismas columnas que `EXISTENCIA_ODS_SQL`, más
+ * `id` (estable: almacén:producto) y `updated_at` en NULL (la vista no tiene fecha por renglón; la frescura es la de
+ * la sucursal, `lecturaDeSucursales`). Medido el 2026-11-19: 0 apartados en 90 días, 1 vivo (15 piezas).
+ */
+export const EXISTENCIA_ODS_CON_APARTADO_SQL = `(SELECT o.tenant_id, o.warehouse_id, o.product_id,
+          concat(o.warehouse_id, ':', o.product_id) AS id,
+          o.quantity, COALESCE(ap.reserved_quantity, 0)::numeric AS reserved_quantity,
+          NULL::timestamptz AS updated_at
+     FROM ${EXISTENCIA_ODS_SQL} o
+     LEFT JOIN commercial.stock ap
+            ON ap.tenant_id = o.tenant_id AND ap.warehouse_id = o.warehouse_id AND ap.product_id = o.product_id)`;
+
 /** `EXISTENCIA_ODS_SQL` como tabla de knex con su alias, para `from(...)` o `leftJoin(...)`. */
 export function existenciaOds(db: Db, alias: string): Knex.Raw {
   if (!/^[a-z_][a-z0-9_]*$/.test(alias)) throw new Error(`existenciaOds: alias inválido «${alias}»`);

@@ -212,7 +212,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // Se llamaba 'Existencias' y NO lo es: lee commercial.stock, el libro transaccional
           // (acierta 91% contra el POS). Es la consola de AJUSTE y de apartado. El censo físico
           // vive arriba, en Existencia, que lee el ODS.
-          { id: 'inventory', label: 'Ajustes de stock', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
+          { id: 'inventory', label: 'Existencia y apartados', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
           { id: 'warehouses', label: 'Almacenes', route: '/almacen/warehouses', view: [Permission.COMMERCIAL_WAREHOUSES_VER], manage: [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR] },
           // `[AZ.3]` `_CANCELAR_CONTEO` estaba en el enum y en el guard pero NO acá: nadie podía
           // otorgarlo. Cancelar un conteo es una acción del inventario físico, así que va a su

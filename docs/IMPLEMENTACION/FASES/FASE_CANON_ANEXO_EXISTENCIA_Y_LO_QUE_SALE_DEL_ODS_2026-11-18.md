@@ -153,6 +153,32 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    | **7.4e Scanner de reorden** (A13) | cron de medianoche + `scan-now` | lee el ODS como la pantalla de Existencia crítica (hoy difieren en el CEDIS) |
 
    Cada pieza que escribe lleva su prueba contra base real con el payload de la pantalla (regla 13).
+
+   🧪 **7.4a en código (2026-11-19).** La portada lee `EXISTENCIA_ODS_CON_APARTADO_SQL` (la cantidad del ODS y el apartado
+   de la app, que es dato propio); D-EX3 firmada («hagámoslo»): fuera «Ajustar» y la pantalla pasa a llamarse «Existencia y
+   apartados» (pestaña, menú, permiso, ayuda y la nota de Existencia). Medido en prod con RLS: el CEDIS pasa de 205
+   renglones congelados a 1,618; una página por sucursal 270–325 ms; la cuenta de la red 708 → 117 ms (sin los cuatro
+   joins 1:1, mismo total con y sin ellos). `POST /inventory/adjust` sigue vivo sin pantalla: se retira en 7.4d.
+
+   **Probado en local antes de empujar (Edgar, 2026-11-19: «primero tenemos que cumplir todos los procesos en local y
+   probarlos»).** La prueba encontró dos defectos que ya estaban en prod con la copia y uno que traía el propio cambio:
+   - **Las tarjetas mentían.** Se sumaban en el navegador sobre `listStock(pageSize: 9999)`, que el servidor topa a 500:
+     en la red decían 500 líneas, $475,940 y «1 almacén» contra **33,530 líneas, $70.4 M y 9 almacenes** (medido en prod
+     con RLS). Ahora las agrega el servidor (`GET /commercial/inventory/stock/summary`, mismo universo y mismo costo
+     arbitrado que el listado; la línea con saldo y sin costo se cuenta, 34 en la red, y no se suma como cero). Visto en
+     local: tarjetas y encabezado dicen lo mismo (33,534 en la red; 1,624 en el CEDIS) y sano + crítico + sin stock suman
+     el total. ⚠️ El resumen de la red tarda 0.83 s en prod (por sucursal ~0.4 s): arriba de 500 ms, deuda con nombre —
+     reemplaza una llamada de 0.76 s que además era falsa.
+   - **Dos formatos de cantidad**: la existencia del ODS llega «1» y el apartado «0.000»; ahora las tres columnas con
+     `number:'1.0-3'`.
+   - **En el teléfono** (un tercio del uso, almacenista y surtidor): sin la columna «Ajustar» la regla global dejaba fija
+     a la derecha «Valor disp.» y «Disponible» quedaba debajo. La tabla pasa a `dt-stack` (cada renglón se apila con sus
+     campos); va con `class` porque en PrimeNG 22 `styleClass` en `p-table` es un atributo muerto (también en
+     `admin-personas` y las demás que lo usan así: hallazgo aparte).
+   Candado ampliado a 27 casos, siete mutantes en rojo. La pantalla sale de la deuda por columnas de `check-dense-tables`
+   (trinquete: quitarle `dt-stack` la vuelve a poner en rojo), con un hueco declarado: esa compuerta busca la PALABRA
+   `dt-stack` en todo el archivo y un comentario la satisface; por eso el candado exige la clase real en `p-table`.
+   Visto en local a 390 px y en escritorio, contra los datos de prod.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

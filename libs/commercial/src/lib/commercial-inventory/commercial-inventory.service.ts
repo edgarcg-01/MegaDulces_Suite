@@ -7,6 +7,7 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { declararFechado } from './por-vencer';
+import { EXISTENCIA_ODS_CON_APARTADO_SQL } from './stock-state';
 
 export type StockMovementType =
   | 'in'
@@ -41,6 +42,36 @@ export interface ListStockQuery {
   product_id?: string;
   page?: number;
   pageSize?: number;
+}
+
+/** [CANON.7.4a] Disponible por debajo de esto es «crítico»; el mismo umbral pinta la pastilla de cada renglón. */
+export const UMBRAL_STOCK_CRITICO = 20;
+
+/** [CANON.7.4a] Una fila del resumen por almacén (`GET /commercial/inventory/stock/summary`). */
+export interface StockSummaryWarehouse {
+  warehouse_id: string;
+  warehouse_name: string | null;
+  lines: number;
+  units: number;
+  /** Disponible × costo arbitrado (`v_erp_unit_cost`). Las líneas sin costo no suman: se cuentan en `without_cost`. */
+  value: number;
+  without_cost: number;
+  healthy: number;
+  critical: number;
+  zero: number;
+}
+
+/** [CANON.7.4a] El resumen de toda la selección, no de una página. */
+export interface StockSummary {
+  lines: number;
+  units: number;
+  value: number;
+  without_cost: number;
+  healthy: number;
+  critical: number;
+  zero: number;
+  critical_threshold: number;
+  by_warehouse: StockSummaryWarehouse[];
 }
 
 export interface ListMovementsQuery {
@@ -83,7 +114,9 @@ export class CommercialInventoryService {
       throw new BadRequestException('product_id inválido');
 
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.stock as s')
+      // [CANON.7.4a] La existencia del ODS + el apartado de la Suite (dato propio). Hasta el 2026-11-19 leía la
+      // copia `commercial.stock` del importer: el CEDIS congelado desde el 16-oct y `MD-32`, un almacén borrado.
+      let q = trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`))
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('public.products as p', 'p.id', 's.product_id')
         .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
@@ -100,7 +133,12 @@ export class CommercialInventoryService {
       if (query.warehouse_id) q = q.where('s.warehouse_id', query.warehouse_id);
       if (query.product_id) q = q.where('s.product_id', query.product_id);
 
-      const [{ count }] = await q.clone().count<{ count: string }[]>('* as count');
+      // [CANON.7.4a] La cuenta sin los joins: los cuatro son 1:1 y no cambian el total (medido el 2026-11-19: 33,522
+      // con y sin ellos en la red, 4,778 en Padre Hidalgo). Sin `v_erp_unit_cost` la red baja de ~750 a ~120 ms.
+      const conteo = trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`));
+      if (query.warehouse_id) conteo.where('s.warehouse_id', query.warehouse_id);
+      if (query.product_id) conteo.where('s.product_id', query.product_id);
+      const [{ count }] = await conteo.count<{ count: string }[]>('* as count');
 
       const data = await q
         .select(
@@ -151,6 +189,58 @@ export class CommercialInventoryService {
           total: Number(count),
           pageCount: Math.ceil(Number(count) / pageSize) || 0,
         },
+      };
+    });
+  }
+
+  /**
+   * [CANON.7.4a] El resumen de «Existencia y apartados», agregado en el SERVIDOR sobre todas las líneas.
+   * Hasta el 2026-11-19 la pantalla lo sumaba en el navegador sobre `listStock(pageSize: 9999)`, que `listStock` topa
+   * a 500: pintaba 500 líneas, $475,940 y «1 almacén» contra 33,530 líneas, $70.4 M y 9 almacenes de la red (medido
+   * en prod con RLS). Mismo universo y mismo costo arbitrado que `listStock`; la línea con saldo y sin costo se
+   * CUENTA (`without_cost`) en vez de sumarse como cero.
+   */
+  async stockSummary(query: { warehouse_id?: string }): Promise<StockSummary> {
+    if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
+      throw new BadRequestException('warehouse_id inválido');
+
+    return this.tk.run(async (trx) => {
+      const disp = '(s.quantity - s.reserved_quantity)';
+      const q = trx.from(trx.raw(`${EXISTENCIA_ODS_CON_APARTADO_SQL} AS s`))
+        .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 's.tenant_id')
+            .andOn('uc.warehouse_id', '=', 's.warehouse_id')
+            .andOn('uc.product_id', '=', 's.product_id');
+        })
+        .groupBy('s.warehouse_id', 'w.name')
+        .select(
+          's.warehouse_id',
+          'w.name as warehouse_name',
+          trx.raw('count(*)::int AS lines'),
+          trx.raw('COALESCE(sum(s.quantity), 0)::float8 AS units'),
+          trx.raw(`COALESCE(sum(GREATEST(${disp}, 0) * uc.costo_unitario), 0)::float8 AS value`),
+          trx.raw(`count(*) FILTER (WHERE uc.costo_unitario IS NULL AND ${disp} > 0)::int AS without_cost`),
+          trx.raw(`count(*) FILTER (WHERE ${disp} >= ${UMBRAL_STOCK_CRITICO})::int AS healthy`),
+          trx.raw(`count(*) FILTER (WHERE ${disp} > 0 AND ${disp} < ${UMBRAL_STOCK_CRITICO})::int AS critical`),
+          trx.raw(`count(*) FILTER (WHERE ${disp} <= 0)::int AS zero`),
+        )
+        .orderBy('w.name', 'asc');
+      if (query.warehouse_id) q.where('s.warehouse_id', query.warehouse_id);
+
+      const by_warehouse = (await q) as StockSummaryWarehouse[];
+      const suma = (k: 'lines' | 'units' | 'value' | 'without_cost' | 'healthy' | 'critical' | 'zero'): number =>
+        by_warehouse.reduce((acc, w) => acc + Number(w[k] || 0), 0);
+      return {
+        lines: suma('lines'),
+        units: suma('units'),
+        value: suma('value'),
+        without_cost: suma('without_cost'),
+        healthy: suma('healthy'),
+        critical: suma('critical'),
+        zero: suma('zero'),
+        critical_threshold: UMBRAL_STOCK_CRITICO,
+        by_warehouse,
       };
     });
   }
