@@ -156,3 +156,42 @@ describe('[PGP.100] qué le falta a un pago para cerrarse', () => {
     expect(faltaParaCerrar(cierre([{ pendiente: null, aplicaciones: [] }]))!.sin_medir).toBe(true);
   });
 });
+
+describe('[PGP.157] un resto de centavos no deja abierto un pago', () => {
+  const base = { lotDate: '2026-11-03', programadoDesde: '2026-11-01' };
+
+  it('una factura pagada que quedó debiendo $0.37 cuenta como pagada', () => {
+    expect(estadoFacturaCierre({ pendiente: 0.37, aplicaciones: [app({ aplicado: 999.63 })] }, '2026-11-01')).toBe('pagada');
+  });
+  it('el pago se da por pagado y el resto se declara, no se esconde', () => {
+    const c = cierreDelPago({ ...base, facturas: [
+      { pendiente: 0, aplicaciones: [app({ aplicado: 600 })] },
+      { pendiente: 0.37, aplicaciones: [app({ aplicado: 399.63 })] },
+    ] });
+    expect(c.estado).toBe('pagado');
+    expect(cierreCompleto(c)).toBe(true);
+    // Ya no pide «aplicar en Kepler el resto»; sólo el comprobante, que este ejemplo no trae.
+    expect(faltaParaCerrar(c)!.kepler).toBe(false);
+    expect(faltaParaCerrar(c)!.texto).toBe('Falta el comprobante');
+    expect(c.resto).toBe(0.37);
+    expect(textoCierre(c)).toBe('Pagado en Kepler el mismo día · queda $0.37 de redondeo en Kepler');
+  });
+  it('negativa: $1.01 ya no es redondeo, sigue en parte', () => {
+    const c = cierreDelPago({ ...base, facturas: [{ pendiente: 1.01, aplicaciones: [app({ aplicado: 998.99 })] }] });
+    expect(c.estado).toBe('en_parte');
+    expect(cierreCompleto(c)).toBe(false);
+  });
+  it('negativa: un documento chico que nadie pagó (promoción a $0.08) sigue sin pagar', () => {
+    expect(estadoFacturaCierre({ pendiente: 0.08, aplicaciones: [] }, '2026-11-01')).toBe('sin_pagar');
+  });
+  it('resto saldado con nota de crédito también se declara', () => {
+    const c = cierreDelPago({ ...base, facturas: [{ pendiente: 0.5, aplicaciones: [app({ doc_tipo: 55, aplicado: 99.5 })] }] });
+    expect(c.estado).toBe('saldado_sin_dinero');
+    expect(textoCierre(c)).toBe('Saldado en Kepler con nota de crédito o devolución · queda $0.50 de redondeo en Kepler');
+  });
+  it('sin resto, el texto no cambia', () => {
+    const c = cierreDelPago({ ...base, facturas: [{ pendiente: 0, aplicaciones: [app()] }] });
+    expect(c.resto).toBe(0);
+    expect(textoCierre(c)).toBe('Pagado en Kepler el mismo día');
+  });
+});

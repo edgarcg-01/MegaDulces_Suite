@@ -1,0 +1,399 @@
+# Fase GP — Anexo EA: autorizar los pedidos de telemarketing en la Suite
+
+> Anexo de [`FASE_GP_PLAN_IMPLEMENTACION.md`](FASE_GP_PLAN_IMPLEMENTACION.md).
+>
+> **El pedido, literal.** Edgar, 2026-11-19: *«a este plan le agreguemos el apartado de autorizar pedidos
+> de tlmk, audítalo a profundidad»*, con una captura de Kepler › Finanzas › Crédito y cobranza › Operación
+> CFDI › **Autorización de Pedidos**. Después, el mismo día: *«que si está dentro de su límite se autorice
+> automáticamente (siempre avisando a Crédito y cobranza); darle valor de información a Crédito y cobranza
+> en base a un análisis de pagos, históricos y todo valor que podamos obtener, para darle información a
+> Crédito y cobranza de si subir el crédito y autorizar esa compra»*.
+>
+> **Cómo cambió.** El primer pedido era mover la autorización de Kepler a la Suite. El segundo la vuelve
+> **automática dentro del límite** (D-A3, decidida por Edgar) y agrega una **ficha de crédito** para que
+> Crédito y cobranza decida lo que la regla no puede: autorizar excedidos y subir límites.
+>
+> **Todas las cifras se midieron el 2026-11-19** en `pg-prod` (sid `7688376744939610156`, rol `edgar`,
+> `transaction_read_only = on`), sobre `kepler_ods` y la cartera de la Fase CXC
+> (`analytics.customer_receivables_current`), salvo que se diga otra cosa. Los pedidos cancelados
+> (`c43 = 'C'`) quedan fuera. Lo que no se pudo medir dice **NO MEDIDO**.
+
+---
+
+## 0. En una pantalla
+
+- **Qué es autorizar.** Es el paso `CREADO → AUTORIZADO` del pedido `U-D-40` (`kdm1.c11`). Los pedidos de
+  telemarketing (`c27 = 'TELEMARK'`) nacen `CREADO`; los de sucursal nacen ya `AUTORIZADO`. Mientras un
+  pedido no se autoriza, **GP no lo surte**: el pool de surtido (GP.2) lee sólo `AUTORIZADO`.
+- **En Kepler, autorizar sólo escribe `kdm1.c11`** (ADR-117). Es la escritura más chica de la cadena.
+- **Kepler no guarda quién autorizó ni a qué hora.**
+- **Hoy casi todo se autoriza por encima del límite.** De los pedidos TELEMARK de 60 días (Padre
+  Hidalgo, Canindo y Morelia Abastos), **70 % del importe ($24.7 M de $35.5 M)** salió con el saldo del
+  cliente más el pedido arriba de su límite de Kepler. Con los límites de hoy, la regla automática
+  autorizaría sola **1 de cada 5 pedidos**.
+- **Por eso el valor está en la ficha de crédito**, no sólo en el automático: **37 clientes que pagan
+  bien** concentran 374 de los pedidos excedidos ($5.66 M). Si Crédito y cobranza les ajusta el límite,
+  el automático sube de 20 % a cerca de 33 % de los pedidos.
+- **La captura de Kepler era Zamora Centro, no telemarketing:** 782 pedidos de la ruta vecinal que
+  nunca se autorizaron (§2.2).
+
+| | HOY (2026-11-19) | META propuesta |
+|---|---|---|
+| Pedidos TELEMARK que se autorizarían solos con los límites de hoy | **19.8 %** (545 de 2,746 en 60 días, simulado) | **≥ 33 %** después de que Crédito y cobranza revise los límites de los 37 buenos pagadores |
+| Autorizaciones con quién, cuándo y con qué saldo | **0 %**: Kepler no lo guarda | **100 %**, automáticas y manuales |
+| Tiempo de `CREADO` a `AUTORIZADO` | **NO MEDIDO**: Kepler no guarda la hora | automáticas en segundos; manuales con mediana bajo 30 min en horario hábil |
+| Pedidos TELEMARK `CREADO` de más de 7 días (sin Zamora Centro) | 17 | 0 de más de 1 día hábil |
+| Pedidos muertos de Zamora Centro en la lista | 782 ($1.37 M) | 0 (D-A4, lo hace una persona en Kepler) |
+
+**Esfuerzo: L** (era M; el automático y la ficha lo suben). **Dinero en juego: $3.1 M de cartera
+vencida a más de 45 días** en las tres sucursales de telemarketing (§4).
+
+---
+
+## 1. La pantalla de Kepler, columna por columna
+
+Anclado a la captura de Edgar (Zamora Centro, `05`) contra el ODS:
+
+| En la pantalla | De dónde sale | Verificado |
+|---|---|---|
+| Pedido | `kdm1.c6` del `U-D-40` con `c11 = 'CREADO'` | ✅ los folios `0000047`, `0000066`, `0000086` y `0000173` de la 05 son `TELEMARK` `CREADO`, mismos clientes e importes |
+| Cliente · Nombre | `kdm1.c10` · `kdm1.c32` | ✅ `00031` JORGE RODRIGUEZ RAMOS |
+| Monto Pedido | `kdm1.c16` | ✅ 6,563.14 · 5,507.43 · 4,381.30 |
+| Monto Crédito | **`kdud.c15`** (límite del cliente en esa sucursal); el plazo es `kdud.c16`. Ya lo expone `analytics.v_cliente_credito` | ✅ 10,000.00 para el `00031` |
+| Monto por Cobrar | **NO DECODIFICADO.** Ver abajo | ❌ |
+| Crédito Disponible | Monto Crédito − Monto por Cobrar | ✅ la resta; su segundo término, no |
+
+**El «Monto por Cobrar» de Kepler no es el saldo del cliente.** Para los 9 clientes de la captura:
+
+| Cliente | Kepler dice | Saldo real (cartera CXC) | Σ`kdue` sin aplicar FIFO | Pedidos `CREADO` del cliente |
+|---|---:|---:|---:|---:|
+| `00031` | 56,702.27 | 568.57 | 111,626.73 | 59,922.47 |
+| `00029` | 39,366.89 | 909.01 | 79,075.52 | 41,182.67 |
+| `00032` | 39,038.47 | 3,560.27 | 74,516.65 | 45,652.34 |
+| `00038` | 32,581.41 | −2,801.52 | 64,841.58 | 35,182.18 |
+
+Lo que Kepler muestra queda **cerca de la suma de los pedidos sin autorizar** del cliente (dentro de ±15 %
+en los 9), no de lo que debe. **Hipótesis, no decode:** Kepler cuenta los pedidos abiertos como «por
+cobrar». Si es así, los pedidos que nadie cierra le comen el crédito al cliente aunque no deba nada.
+**Por eso la Suite no copia este número**: usa el saldo de la cartera CXC (verificado contra `kdue`, Fase
+CXC) más los pedidos abiertos, cada uno por separado y con su fuente.
+
+Lo que la lista de Kepler **no** muestra: lo vencido, la antigüedad del pedido, quién lo capturó, cómo
+paga el cliente, ni si está bloqueado. El bloqueo vive en el **nombre** («NO TOCAR …» en `kdud.c3`):
+15 de los 125 clientes de la lista de la 05.
+
+---
+
+## 2. Lo medido
+
+### 2.1 Telemarketing, 60 días (20-sep a 19-nov)
+
+| Sucursal | Pedidos | Importe | Embarcados | `CREADO` hoy | `CREADO` de más de 7 días |
+|---|---:|---:|---:|---:|---:|
+| Padre Hidalgo (`01`) | 1,082 | $12.08 M | 1,066 | 8 | 4 |
+| Canindo (`06`) | 905 | $10.58 M | 847 | 9 | 6 |
+| Morelia Abastos (`08`) | 755 | $12.77 M | 707 | 7 | 4 |
+| La Piedad Abastos (`02`) · 8 Esquinas (`03`) | — | — | — | 3 (de abril y junio) | 3 |
+
+- Unos **46 pedidos por día calendario** pasan por la autorización.
+- **Pedidos que manda la Suite** (COT.7), 30 días: 20; 11 autorizados y 9 esperando.
+
+### 2.2 Zamora Centro (`05`): la lista de la captura
+
+- **782 pedidos `CREADO`, $1,370,979**, del 25-mar al 30-oct, todos de más de 7 días. **603** los capturó
+  la **Ruta Vecinal Zamora Centro** (vendedor `3V001`). 125 clientes.
+- **Ninguno se facturó** por el camino de telemarketing: 0 de 782 tienen factura `U-D-8` al mismo cliente
+  en ±3 días con el mismo importe (control con importe desplazado: también 0).
+- Los clientes cambiaron de clave el 22-may (`00007` «NO TOCAR ANTONIO VILLA», límite 10,000 → `30007`
+  «ANTONIO VILLA», límite 0). Desde el 1-oct la venta de la 05 se registra como `U-A-5` (277 documentos,
+  $2.02 M) y el último pedido `CREADO` es del 30-oct.
+- **NO MEDIDO** si la mercancía salió con esos pedidos (68 embarques `U-D-41` en el periodo, $353 mil) ni
+  cómo se cobró. Es una pregunta para Finanzas, no una conclusión.
+
+### 2.3 La regla automática, simulada sobre los 2,746 pedidos TELEMARK de 60 días
+
+Regla: el cliente tiene límite, y **su saldo al día anterior al pedido + el pedido** no pasa el límite.
+El saldo «al día anterior» se calculó con la cartera CXC (Σ de cargos y abonos con fecha anterior al
+pedido), no con el saldo de hoy.
+
+| Sucursal | Pedidos | Sin límite en Kepler | Dentro | Excedido | % dentro | Importe dentro |
+|---|---:|---:|---:|---:|---:|---:|
+| Padre Hidalgo | 1,085 | 342 | 341 | 402 | 31.4 % | $3.95 M |
+| Canindo | 906 | 112 | 121 | 673 | 13.4 % | $0.95 M |
+| Morelia Abastos | 755 | 270 | 83 | 402 | 11.0 % | $0.71 M |
+| **Total** | **2,746** | **724** | **545** | **1,477** | **19.8 %** | **$5.61 M de $35.51 M** |
+
+**Control:** con el límite a la mitad, «dentro» baja de 545 a 185. La regla responde al límite.
+
+⚠️ La simulación **no** suma los otros pedidos abiertos del cliente (la regla real sí, GP.A.1), así que
+el 19.8 % es un **techo**. Tampoco revisa lo vencido a la fecha del pedido: eso sólo se puede ver con la
+cartera de hoy.
+
+**Los 1,477 excedidos, por qué:**
+
+| Grupo | Pedidos | Importe | Qué significa |
+|---|---:|---:|---|
+| Clientes con algo vencido de más de 45 días (hoy) | 721 | $10.91 M | Riesgo: se les sigue vendiendo con deuda vieja |
+| **Buenos pagadores**: 5 o más facturas pagadas, mediana de pago hasta el plazo + 10 días, nada vencido de más de 45 días | **374** (37 clientes) | **$5.66 M** | Candidatos a subir el límite |
+| Sin historial suficiente (menos de 5 facturas pagadas) | 306 | NO MEDIDO | La ficha lo dice; decide Crédito y cobranza |
+| Resto | 76 | — | — |
+
+Además, **218 pedidos** son de clientes **sin límite** en Kepler que pagan en 25 días o menos: son
+candidatos a que se les **asigne** un límite.
+
+⚠️ «Vencido» depende del plazo de Kepler (`kdud.c16`), y **71 clientes con pedido tienen plazo 0** (31 en Padre Hidalgo, 16 en Canindo, 24 en Morelia Abastos): con
+plazo 0, una factura vence el día que se emite. Por eso «vencido» se mide con **gracia** (§3.1), no al día.
+
+### 2.4 Cómo pagan los clientes de telemarketing (cartera CXC)
+
+| Sucursal | Clientes con pedido | Con historial de pago | Facturas pagadas por cliente (mediana) | Días que tardan en pagar (mediana) | Pagan a tiempo en 9 de cada 10 facturas |
+|---|---:|---:|---:|---:|---:|
+| Padre Hidalgo | 136 | 117 | 7 | 19 | 15 |
+| Canindo | 102 | 95 | 6 | 23 | 9 |
+| Morelia Abastos | 134 | 101 | 3 | 20 | 17 |
+
+- El plazo pactado más común es **15 días**; la gente paga en **19 a 23**. «A tiempo» = hasta el plazo + 3.
+- ⚠️ **El historial es corto**: la cartera de Kepler empieza cuando cada sucursal pasó a Kepler propio
+  (Padre Hidalgo 27-jun, Canindo 15-ago, Morelia Abastos 14-sep). Lo anterior vive en Wincaja con otras
+  claves de cliente y **no se liga hoy** (NO MEDIDO).
+
+### 2.5 Lo que la Suite ya tiene (no se reinventa, ADR-056)
+
+| Pieza | Dónde | Sirve para |
+|---|---|---|
+| El pedido TELEMARK escrito en Kepler en `CREADO` | `kepler-pedido-tlmk-sink.adapter.ts` (COT.7, ADR-092) | El origen |
+| Tope diario del carril | `kepler_push_switch.tope_dia` | El freno del automático |
+| Límite y plazo | `analytics.v_cliente_credito` (`kdud.c15`/`c16`) | La regla |
+| Saldo, vencido, días de pago por factura | `analytics.customer_receivables_current` (`saldo_ajustado`, `dias_pago`, `vencimiento`) + cartera por evento (CXC.45, en prod desde el 18-nov) | La regla y la ficha |
+| Fotos diarias de la cartera | `analytics.customer_receivable_snapshots` | La tendencia en la ficha |
+| Depósitos y comprobantes del cliente | Fase CC y depósitos del cliente (en prod desde el 18-nov) | La ficha: «último pago, cuándo y cuánto» |
+| El seguimiento de la cotización | `quote-tracking` (GP.9.1, GP.10.1b) | Avisar al telemarketer |
+| La consola maestra | E1 (el Tablero) | La bandeja «Por autorizar» como vista, no otra pantalla |
+| El crédito firmado en el alta | Fase ALC (rol `credito_cobranza`; la Suite **no escribe** `kdud`, D1-b) | Quién decide el crédito; el límite se cambia en Kepler |
+| La campana de avisos | `notifications-bell` | El aviso a Crédito y cobranza |
+| La escritura en sitio de un `U-D-40` | ADR-117 + PQ.110 (`kepler-oc-cancelacion.ts`) | El patrón de escritura |
+
+⛔ **COT.7 decidió lo contrario** ([`FASE_COT7`](FASE_COT7_PEDIDO_TLMK_A_KEPLER.md), D1): *«la autorización
+(crédito) sigue siendo de Kepler»*. Este anexo la revierte (D-A1).
+
+---
+
+## 3. Diseño
+
+### 3.1 La regla automática (D-A3, decidida por Edgar el 2026-11-19)
+
+Un pedido TELEMARK se autoriza **solo** si se cumplen **todas**:
+
+1. El cliente **tiene límite** (`kdud.c15 > 0`). Sin límite no hay automático: va a la bandeja.
+2. **Saldo vivo** (cartera CXC) **+ pedidos abiertos** del cliente sin facturar **+ este pedido ≤ límite**.
+3. **Nada vencido** de más de **plazo + gracia** días. La gracia es un parámetro que fija Crédito y cobranza
+   (propuesta: 15 días; ver D-A6). **Los restos de centavos no cuentan** (hasta $1, el mismo parámetro de
+   [`FASE_PGP_ANEXO_RESIDUOS_DE_CENTAVOS`](FASE_PGP_ANEXO_RESIDUOS_DE_CENTAVOS.md), D-C1): hoy hay 221 cargos
+   de clientes de $10 o menos y 108 de ellos llevan más de 45 días vencidos. Sin esta excepción, la regla
+   rechazaría a clientes que no deben nada.
+4. El cliente **no está bloqueado** (GP.A.0c define la fuente; hoy es «NO TOCAR» en el nombre).
+5. **Los datos están frescos**: la cartera y el pedido se leyeron hace menos de N minutos. Si la lectura
+   está atrasada **no se autoriza solo**: va a la bandeja con «no pude verificar el saldo» (ADR-056: lo
+   que no se pudo medir no se da por bueno).
+6. El **interruptor de la sucursal** está prendido y no se pasó el **tope del día** (`kepler_push_switch`).
+7. **El pedido no es viejo.** Edgar, 2026-11-19: *«evitarlos si ya tienen mucho tiempo»*. Un pedido con
+   más de N días sin movimiento (parámetro; propuesta 30) **no se autoriza ni solo ni en la bandeja del
+   día**: se lista aparte, con su cifra, para que alguien decida si sigue vivo. Así quedan fuera los 782 de
+   Zamora Centro sin que la Suite cancele nada.
+
+**Quién decide lo que no pasa la regla** (D-A2, Edgar, 2026-11-19): **Crédito y cobranza** (rol
+`credito_cobranza`). Lo que Crédito y cobranza **no autoriza sube a Dirección General** (rol `direccion`),
+con el motivo de Crédito y cobranza y la misma ficha. Crédito y cobranza **puede regresar un pedido
+autorizado solo** mientras siga `AUTORIZADO` (D-A7).
+
+**Siempre se avisa a Crédito y cobranza** (pedido de Edgar): cada autorización automática aparece en su
+bandeja como «autorizado solo», con los números que vio la regla, y suma al aviso de la campana. Para no
+llenar la campana (unos 9 automáticos al día con los límites de hoy), el aviso va **agrupado** y la
+bandeja trae el detalle uno por uno.
+
+Lo que **no** cumple la regla va a la bandeja, con la condición que falló dicha en una frase: «excede
+$4,200 su límite», «tiene $12,300 vencidos desde hace 62 días», «sin límite en Kepler».
+
+### 3.2 La ficha de crédito (el valor para Crédito y cobranza)
+
+Se abre desde cada pedido de la bandeja. Contesta dos preguntas: **¿autorizo esta compra?** y **¿le subo el
+crédito?** Cada cifra lleva su fuente y su fecha; lo que no existe se dice.
+
+| Bloque | Qué muestra | Fuente | Disponible hoy |
+|---|---|---|---|
+| **Este pedido** | importe, cuánto excede, quién lo capturó, desde cuándo espera | `kdm1` | ✅ |
+| **Límite y plazo** | límite, plazo, desde cuándo (si ALC lo registró) | `v_cliente_credito`, ALC | ✅ (la fecha del límite sólo para altas de ALC) |
+| **Lo que debe** | saldo vivo, vencido por antigüedad (al día, 1–30, 31–60, 61–90, más de 90), factura más vieja | cartera CXC | ✅ |
+| **Pedidos abiertos** | pedidos sin facturar y su importe; los de más de 30 días sin movimiento, aparte | `kdm1` | ✅ |
+| **Cómo paga** | facturas pagadas, mediana de días de pago contra su plazo, peor atraso, cuántas pagó a tiempo, último pago (fecha y monto) | cartera CXC (`dias_pago`), depósitos del cliente | ✅ desde el cambio de cada sucursal a Kepler (§2.4) |
+| **Cómo compra** | compra por mes (6 meses), ticket promedio, frecuencia, tendencia | facturas `U-D-8` y pedidos | ✅ |
+| **Devoluciones y notas de crédito** | % de lo facturado que regresó | cartera CXC (`Nota Créd/Dev`) | ✅ por medir su cobertura (GP.A.6) |
+| **Cuántas veces excedió** | pedidos que pasaron el límite en 90 días y cómo terminaron (pagados o no) | `kdm1` + cartera | ✅ |
+| **Antes de Kepler** | historia en Wincaja | `wincaja.*` | ❌ **NO MEDIDO**: las claves no ligan |
+| **Sugerencia de límite** | ver §3.3 | — | ✅ cálculo nuevo, propuesta |
+
+### 3.3 La sugerencia de límite
+
+La Suite **sugiere**; Crédito y cobranza **decide**, y el cambio **se hace en Kepler** (la Suite no escribe
+`kdud`, Fase ALC D1-b). Se registra si se aceptó, para medir después si la sugerencia sirve.
+
+**Candidato a subir** (propuesta para validar con Crédito y cobranza, no una fórmula impuesta):
+- 5 o más facturas pagadas;
+- mediana de pago hasta el plazo + 10 días;
+- nada vencido de más de 45 días;
+- excedió su límite 3 o más veces en 90 días.
+
+**Límite sugerido:** el saldo más alto que tuvo el cliente en 90 días (saldo + pedido), redondeado hacia
+arriba a miles. Se muestra junto con lo que pasó en esos 90 días, para que se vea de dónde salió.
+
+**Hoy cumplen la condición 37 clientes** (374 pedidos excedidos, $5.66 M). Los 218 pedidos de clientes sin
+límite que pagan en 25 días o menos son candidatos a que se les **asigne** límite.
+
+⚠️ **El reverso también va:** un cliente con algo vencido de más de 45 días y que sigue comprando (721
+pedidos, $10.91 M en 60 días) aparece como **«revisar»**, aunque no pida aumento.
+
+### 3.4 El aviso para renovar o subir el crédito
+
+Edgar, 2026-11-19: *«se avisa a Crédito y cobranza para renovar su crédito o sugerir un aumento en base a
+nuestro análisis»*.
+
+- **Cuándo se avisa: por evento, no por calendario** (sin cron): cuando entra un pedido del cliente y se
+  cumple una de estas:
+  - **Candidato a subir** (§3.3): «Le sugerimos subir el límite de $10,000 a $18,000» con los números que lo
+    justifican.
+  - **Crédito por renovar**: su última revisión tiene más de M meses (parámetro; propuesta 12) **o nunca se
+    revisó en la Suite**. ⚠️ Kepler no guarda desde cuándo tiene el cliente su límite; la fecha sólo existe
+    para las altas de ALC. Para los demás, la primera revisión en la Suite es la que empieza a contar.
+  - **Revisar a la baja**: vencido de más de 45 días y sigue comprando.
+- **Un aviso por cliente** hasta que Crédito y cobranza lo atiende (aceptar, descartar con motivo o
+  posponer), no uno por pedido.
+- Atenderlo **queda registrado como la revisión del crédito** (quién, cuándo, qué decidió y con qué
+  números). Si se acepta un cambio, la Suite recuerda hacerlo en Kepler y, al leer el `kdud.c15` nuevo,
+  lo marca como aplicado.
+
+### 3.5 El análisis externo («si es posible un análisis foráneo»)
+
+Medido el 2026-11-19 sobre los **366 clientes** con pedido TELEMARK en 60 días:
+
+| Fuente externa | Qué daría | Medido | Veredicto |
+|---|---|---|---|
+| **Listas del SAT** (EFOS 69-B y artículo 69), **ya en la Suite** en `fiscal.sat_list_rfcs` (al día: 19-nov), hoy sólo se cruzan contra proveedores | Si el cliente es una empresa fantasma o tiene créditos fiscales firmes o no localizado | **Sólo 73 de 366 clientes (20 %) tienen RFC propio**; 287 tienen el genérico `XAXX010101000`. **0 de los 73 aparecen en las listas** | ✅ **Se hace** (gratis, ya existe). ⚠️ Excluir el RFC genérico: el SAT lo publica en la lista 69 como «FIRMES», y un cruce sin excluirlo marca a los 287 |
+| **Constancia de situación fiscal** | RFC, régimen y domicilio fiscal verificados | La captura ya existe para altas nuevas (Fase ALC) | ✅ Para clientes nuevos; para los viejos sólo si se pide la constancia al renovar |
+| **Buró de Crédito / Círculo de Crédito** | Historial de pago con otros proveedores y bancos, score | **NO MEDIDO**: necesita contrato con el proveedor, costo por consulta y **autorización firmada del cliente** (la ley la exige). Para personas físicas sin RFC se consulta con nombre, domicilio y CURP | ⬜ **Decisión de Edgar (D-A8)**: es dinero y un contrato. Si sí, la firma de autorización se pide en el alta (ALC) y en la renovación |
+
+⭐ **Lo que más ayudaría es lo de casa:** el 78 % de los clientes no tiene RFC propio, así que ninguna
+fuente externa por RFC los ve. Pedir RFC y constancia al renovar el crédito (§3.4) mejora a la vez el
+análisis externo, la facturación y el alta en ALC.
+
+#### ¿Ya tenemos los RFC? (Edgar, 2026-11-19: *«ya tenemos los RFC, sólo es asignarlos; ya tenemos las pólizas de ContPAQi»*)
+
+Medido sobre los 287 clientes de telemarketing con RFC genérico o vacío en Kepler:
+
+| Fuente | Qué se encontró | Cuántos de los 287 |
+|---|---|---:|
+| **CFDI emitidos** (`analytics.v_cfdi_emitido_match`, que liga cada CFDI a su documento y cliente de Kepler) | 282 sí tienen facturas timbradas, **pero a `XAXX010101000` (público en general)**: el CFDI no trae su RFC | **2** con RFC propio |
+| **Pólizas de ContPAQi** (impuestos por póliza) | Llevan el RFC del CFDI, así que repiten lo mismo | 0 nuevos |
+| **Catálogo de personas de ContPAQi** (`contpaqi_ods.ct_personas`, 5,774 con RFC) por nombre exacto | Mismo nombre y un solo RFC; las iniciales del RFC coinciden con los apellidos y el nombre en la muestra (p. ej. «BLANCA ANDREA CAMPOS RAMIREZ» → `CARB…`) | **30** candidatos |
+| Sin RFC en ninguna fuente | — | **~255** |
+
+**Control:** los 73 clientes que ya tienen RFC propio en Kepler coinciden con el de sus CFDI en **71 de 71**
+cruzables, así que la liga CFDI ↔ cliente es buena; lo que falta es el dato.
+
+**Conclusión:** con lo que ya tenemos se llega de 73 a **unos 105 de 366 clientes (29 %)**. Los demás
+compran como «público en general» y su RFC **no existe en ningún sistema nuestro**: hay que pedirlo.
+
+⚠️ **Asignar un RFC no es sólo llenar un campo:**
+- Los 30 de ContPAQi son **candidatos por nombre**: puede ser un homónimo. Se confirman con el cliente
+  (constancia de situación fiscal) antes de usarlos.
+- **La Suite no escribe en el catálogo de clientes de Kepler** (Fase ALC, D1-b). El RFC lo captura una
+  persona en Kepler, o Edgar decide abrir esa escritura (D-A11).
+- **Cambia la facturación:** con RFC en Kepler, la siguiente factura se timbra a su nombre y CFDI 4.0 exige
+  además régimen fiscal y código postal que coincidan con los del SAT; si no coinciden, el timbrado falla.
+  Por eso va con la constancia, no sólo con el RFC.
+
+---
+
+## 4. Dinero en juego
+
+- **Cartera vencida a más de 45 días** en Padre Hidalgo, Canindo y Morelia Abastos: **$3.1 M hoy**. Es lo
+  que una autorización con información protege. Universo: cartera CXC de esas tres sucursales; el plazo
+  de Kepler con 0 días lo infla (§2.3).
+- **Se autorizó por encima del límite** el 70 % del importe de telemarketing en 60 días ($24.7 M), y **$10.9 M
+  a clientes que hoy tienen algo vencido de más de 45 días**. ⚠️ Lo vencido se mide **hoy**, no a la fecha
+  de cada pedido: es un límite superior.
+- **Zamora Centro: $1.37 M** en pedidos que nunca se cerraron. No es pérdida mientras no se demuestre que la
+  mercancía salió sin cobrarse.
+
+Con la regla del PM, **alto dinero × esfuerzo L = prioridad 2**. EA sube por encima de E2 (sin métrica) y
+de E4.
+
+---
+
+## 5. Los bloques
+
+| # | Resultado | Capa | Depende | ¿Escribe? |
+|---|---|---|---|---|
+| **GP.A.0a** | Se confirma con **3 pedidos reales** que Autorizar en Kepler sólo cambia `kdm1.c11`, y que no toca `kdm2`, `kdue` ni existencias. Foto antes/después en la réplica (protocolo de GP.12.0a), nunca una prueba en el Kepler vivo | C0 | — | no |
+| **GP.A.0b** | Se decodifica el «Monto por Cobrar» de Kepler (hipótesis: incluye los pedidos abiertos, §1). No bloquea: la Suite usa su propio saldo. Sirve para explicarle a Crédito y cobranza por qué los dos números no coinciden | C0 | — | no |
+| **GP.A.0c** | Fuente del bloqueo del cliente: se busca un campo en `kdud`; si no existe, la regla se declara (hoy «NO TOCAR» en el nombre) | C0 | — | no |
+| **GP.A.0d** | Permiso `UPDATE (c11)` en `md.kdm1` para `kepler_push`, en el mismo archivo que GP.12.0e (lo corre el PM) | C0 | GP.12.0e | sí (permiso) |
+| **GP.A.1** | **Regla de autorización** en `libs/commercial` (función pura, con pruebas y su prueba negativa): las 6 condiciones de §3.1, cada una con el número que la decide. Sin límite = `sin límite`, nunca `0` (ADR-056). La gracia y N minutos son **parámetros** (los fija Crédito y cobranza, no el código) | C1 | GP.A.0c | — |
+| **GP.A.2** | **Escribir la autorización**: `c11 = 'AUTORIZADO'` con `WHERE c11 = 'CREADO'`, desde `md`, interruptor por sucursal apagado al nacer, tope diario, idempotente. Guarda en una tabla propia (con `tenant_id` y auditoría) **quién o qué la autorizó**, cuándo, la regla y los números que vio, y el motivo si se autorizó excedida. Rechazar **no cancela en Kepler**: deja el pedido `CREADO` con el motivo en la Suite | C2 | GP.A.1 · GP.A.0d | ⛔ sí: prueba contra un Kepler de pruebas y contra base real con el payload de la pantalla |
+| **GP.A.3** | **Automático**: al ver un pedido TELEMARK `CREADO` nuevo (por evento, no por cron), corre la regla y, si pasa, autoriza con GP.A.2. Aviso agrupado a Crédito y cobranza | C2 | GP.A.2 | ⛔ sí |
+| **GP.A.4** | **Bandeja «Por autorizar»** como vista del Tablero (E1): pedido, cliente, importe, la condición que falló en una frase, antigüedad. Los autorizados solos aparecen marcados. Autorizar excedido pide motivo; los bloqueados no se autorizan | C3 | GP.A.2 · GP.10.4 | — |
+| **GP.A.5** | **Ficha de crédito** (§3.2) en un panel de la bandeja, cada cifra con fuente y fecha. Lectura de la cartera CXC y de los pedidos; no copia tablas | C2/C3 | GP.A.4 | — |
+| **GP.A.6** | **Sugerencia de límite** (§3.3) y lista «revisar» (clientes con vencido viejo que siguen comprando). Crédito y cobranza la acepta o la descarta; aceptarla le recuerda cambiarla en Kepler y queda registrado. Se mide la cobertura de notas de crédito por cliente antes de mostrarlas | C1/C3 | GP.A.5 | sí (aceptar/descartar) |
+| **GP.A.6b** | **Escalamiento a Dirección General**: lo que Crédito y cobranza no autoriza sube a la bandeja de `direccion` con su motivo y la ficha; Dirección General autoriza o rechaza. **Regresar** un autorizado solo (D-A7): `c11 = 'CREADO'` con `WHERE c11 = 'AUTORIZADO'`, sólo `credito_cobranza`. Llaves nuevas repartidas en la misma migración (regla 20) | C2/C3 | GP.A.4 | ⛔ sí |
+| **GP.A.6c** | **Aviso de renovar o subir** (§3.4), por evento al entrar un pedido; un aviso por cliente; atenderlo registra la revisión del crédito; la Suite detecta en `kdud.c15` cuándo se aplicó en Kepler | C1/C2/C3 | GP.A.6 | sí (registro de la revisión) |
+| **GP.A.6d** | **Listas del SAT en la ficha** (§3.5): reusar `fiscal.sat_list_rfcs` con el RFC de `kdud.c10`, **excluyendo los RFC genéricos** (prueba negativa: un cliente con `XAXX010101000` no debe salir «en lista»). Sin RFC propio, la ficha dice «sin RFC: no se puede revisar», no «limpio» | C1/C3 | GP.A.5 | — |
+| **GP.A.7** | El seguimiento de la cotización dice «Autorizado solo», «Esperando a Crédito y cobranza desde las 12:31» o «Rechazado: motivo» | C3 | GP.A.2 | — |
+| **GP.A.8** | Dos semanas de piloto: % automático, motivos de los excedidos, sugerencias aceptadas, y cuántos autorizados solos terminaron con vencido de más de 45 días (control de la regla) | C0 | GP.A.3 en prod | no |
+
+**Fuera de este anexo:** cancelar pedidos en Kepler desde la Suite, escribir el límite en Kepler (ALC D1-b),
+y limpiar la 05 (D-A4).
+
+**Restos de centavos:** la condición de vencido de GP.A.1 usa la regla del resto tolerado, y cerrar esos
+restos en Kepler (Ajuste Abono `U-A-30`) vive en el [anexo RC](FASE_GP_ANEXO_RESTOS_DE_COBRO.md): 17 clientes
+se ven morosos sólo por centavos.
+
+---
+
+## 6. Por qué va antes de E3
+
+1. **Es el primer uso del carril de escritura de E3, con lo mínimo:** una columna, sin cantidades, sin
+   borrar renglones, sin recálculo. Si el permiso, el interruptor o la idempotencia fallan, se ve aquí.
+2. **Comparte sólo un bloqueo con E3 (GP.12.0e).** No necesita al dueño de piso ni las carretas.
+3. **Destraba lo que E3 surte:** sin autorizar no hay surtido.
+4. **Tiene dinero medido** ($3.1 M vencido a más de 45 días); E2 no tiene métrica.
+
+⛔ **Cupo:** hay **8 fases 🔨 contra un tope de 4**. EA es una etapa de GP, no una fase nueva, pero
+construirla pasa GP a 🔨. Si se abre, **reemplaza a E2 como siguiente etapa**.
+
+---
+
+## 7. Decisiones
+
+| | Pregunta | Recomendación | Estado |
+|---|---|---|---|
+| **D-A1** | ¿La autorización pasa de Kepler a la Suite? (revierte COT.7 D1; amplía ADR-117 a `AUTORIZADO`) | Sí | ✅ **implícita en el pedido de Edgar del 2026-11-19** («que se autorice automáticamente»). Falta escribirla en ADR-117 |
+| **D-A2** | ¿Quién autoriza lo que no pasa la regla? | Crédito y cobranza, por sucursal | ✅ **Edgar, 2026-11-19:** Crédito y cobranza; **si no, Dirección General** (rol `direccion`) |
+| **D-A3** | ¿Lo que está dentro del límite se autoriza solo? | — | ✅ **Edgar, 2026-11-19:** sí, siempre avisando a Crédito y cobranza |
+| **D-A4** | ¿Qué pasa con los pedidos viejos (los 782 de la 05)? | — | ✅ **Edgar, 2026-11-19:** *«evitarlos si ya tienen mucho tiempo»*: no se autorizan ni entran a la bandeja del día; se listan aparte (§3.1, condición 7). Sigue abierta para Finanzas la pregunta de si esa mercancía salió (§2.2) |
+| **D-A5** | Los clientes sin límite (724 pedidos): ¿contado o límite sin capturar? | Pregunta para Crédito y cobranza; mientras tanto, sin límite = bandeja | ⬜ Crédito y cobranza |
+| **D-A6** | Los parámetros de la regla: la gracia sobre el plazo (propuesta 15 días), el umbral de «vencido viejo» (propuesta 45 días) y la condición de candidato a subir | Que los fije Crédito y cobranza como parámetros configurables en la Suite, no en el código | ⬜ Crédito y cobranza |
+| **D-A7** | ¿Crédito y cobranza puede regresar un pedido autorizado solo, mientras siga `AUTORIZADO` (antes de surtirse)? | Sí, con motivo | ✅ **Edgar, 2026-11-19:** sí, Crédito y cobranza tiene esa autoridad |
+| **D-A8** | ¿Se contrata Buró de Crédito o Círculo de Crédito? | Primero lo gratis y de casa (listas del SAT y pedir RFC al renovar); el buró sólo si después de 2 semanas de piloto Crédito y cobranza dice que le falta información para los excedidos sin historial (306 pedidos en 60 días) | ⬜ Edgar (costo y contrato) |
+| **D-A9** | «Si no, Dirección General»: ¿sube sólo lo que Crédito y cobranza **rechaza**, o también lo que **no atiende** en cierto tiempo? | Las dos: lo rechazado sube de inmediato, y lo que lleve más de un día hábil sin atender también, para que el pedido no se quede detenido | ⬜ Edgar |
+| **D-A11** | ¿Cómo se asignan los RFC que ya tenemos (2 de CFDI + 30 candidatos de ContPAQi)? | La ficha los muestra como «RFC probable (ContPAQi)»; Crédito y cobranza los confirma con la constancia al renovar el crédito y los captura en Kepler. Que la Suite escriba `kdud` sería abrir lo que ALC D1-b cerró | ⬜ Edgar |
+| **D-A10** | Parámetros nuevos: «pedido viejo» (propuesta 30 días sin movimiento) y «crédito por renovar» (propuesta 12 meses sin revisión) | Que los fije Crédito y cobranza, junto con D-A6 | ⬜ Crédito y cobranza |
+
+---
+
+## 8. Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-19 | Nace el anexo. Auditoría en prod (sólo lectura): qué es autorizar, la pantalla de Kepler columna por columna, telemarketing de 60 días, los 782 pedidos de Zamora Centro, lo que la Suite ya tiene | Claude, a pedido de Edgar |
+| 2026-11-19 | Edgar decide D-A3 (automático dentro del límite, siempre avisando) y pide la ficha de crédito. Medido: el «Monto por Cobrar» de Kepler sigue a los pedidos abiertos, no al saldo; la regla simulada autoriza 19.8 % (control: 185 con el límite a la mitad); 70 % del importe se autorizó excedido; 37 buenos pagadores concentran $5.66 M de excedidos; $3.1 M vencido a más de 45 días. Nuevos GP.A.3 a GP.A.8 y D-A6, D-A7 | Claude |
+| 2026-11-19 | Edgar decide D-A2 (Crédito y cobranza; si no, Dirección General), D-A4 (evitar los pedidos viejos) y D-A7 (Crédito y cobranza puede regresar un autorizado solo), y pide el aviso de renovar o subir el crédito y un análisis externo. Medido: 73 de 366 clientes con RFC propio, 0 en listas del SAT; el RFC genérico aparece en la lista 69 (falso positivo controlado). Nuevos §3.4, §3.5, GP.A.6b a GP.A.6d y D-A8 a D-A10 | Claude |
+| 2026-11-19 | Edgar: «ya tenemos los RFC, sólo es asignarlos (pólizas de ContPAQi)». Medido: los CFDI de 282 de los 287 clientes genéricos están timbrados a público en general (2 con RFC propio); el catálogo de personas de ContPAQi da 30 candidatos por nombre. De 73 se llega a ~105 de 366; ~255 no tienen RFC en ningún sistema. Nuevo D-A11 | Claude |

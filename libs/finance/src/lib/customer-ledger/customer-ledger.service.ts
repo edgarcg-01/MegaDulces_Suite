@@ -9,7 +9,17 @@ import {
   skusDeCodigoDeBarras,
 } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
+import { RESTO_TOLERADO, SALDO_CERO } from '@megadulces/contracts';
 import type { Knex } from 'knex';
+
+/**
+ * `[GP.R.1]` La partida viva SÓLO por un resto de centavos: debe hasta `RESTO_TOLERADO` y ya recibió algo
+ * (`res < importe`). Es `esRestoDeFactura` de `@megadulces/contracts` escrita en SQL; las constantes salen de
+ * ahí para que el umbral viva en un solo lugar. Los campos que la usan son ADITIVOS: no cambian `saldo` ni
+ * `vencido` (el dinero se sigue debiendo en Kepler), sólo dicen cuánto de eso es redondeo.
+ */
+export const PARTIDA_RESTO_SQL =
+  `d.res > ${SALDO_CERO} AND d.res <= ${RESTO_TOLERADO} AND d.res < d.importe - ${SALDO_CERO}`;
 
 /**
  * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.
@@ -523,6 +533,10 @@ export class CustomerLedgerService {
           ${bucket('d.vencimiento IS NULL')} AS p_sin_fecha,
           count(*) FILTER (WHERE ${VIVA})::int AS n_partidas,
           count(*) FILTER (WHERE NOT (${VIVA}))::int AS n_saldadas,
+          -- [GP.R.1] Cuánto de lo vivo es resto de centavos (anexo RC de GP). Aditivo.
+          round(COALESCE(sum(d.res) FILTER (WHERE ${PARTIDA_RESTO_SQL}), 0), 2) AS resto_redondeo,
+          round(COALESCE(sum(d.res) FILTER (WHERE ${PARTIDA_RESTO_SQL} AND d.vencimiento < h.d), 0), 2) AS vencido_resto,
+          count(*) FILTER (WHERE ${PARTIDA_RESTO_SQL})::int AS n_restos,
           round(avg(d.dias_pago) FILTER (WHERE d.dias_pago IS NOT NULL), 1) AS dias_pago_prom,
           count(d.dias_pago)::int AS n_pagos,
           round(COALESCE(sum(d.importe) FILTER (WHERE d.fecha >= h.d - 90), 0), 2) AS ventas_90d
@@ -622,6 +636,8 @@ export class CustomerLedgerService {
       const clientes: any[] = [];
       const kpi = {
         total_saldo: 0, total_vencido: 0, n_clientes: 0, n_partidas: 0, n_sobre_linea: 0,
+        // `[GP.R.1]` Restos de centavos (aditivo: ya están dentro de total_saldo / total_vencido).
+        resto: { monto: 0, partidas: 0, clientes_solo_resto_vencido: 0 },
         total_a_favor: 0, n_a_favor: 0, aging: emptyBucket(),
         sin_documento: { monto: 0, clientes: 0 } as Sindocumento,
         // `[CXC.25]` El total partido por a quién le cobrás. Suma EXACTO `total_saldo`.
@@ -668,6 +684,10 @@ export class CustomerLedgerService {
           sobre_linea,
           saldo, vencido: r2(g.vencido),
           n_partidas: Number(g.n_partidas) || 0, n_saldadas: Number(g.n_saldadas) || 0,
+          // `[GP.R.1]` El redondeo, dicho aparte: `vencido` NO cambia. `solo_resto_vencido` = todo lo que
+          // tiene vencido es resto de centavos: la cola de cobranza no debería salir a cobrar $0.05.
+          resto_redondeo: r2(g.resto_redondeo), n_restos: Number(g.n_restos) || 0,
+          solo_resto_vencido: r2(g.vencido) > SALDO_CERO && r2(g.vencido) - r2(g.vencido_resto) <= SALDO_CERO,
           sin_documento: Math.abs(sin_documento) > 0.005 ? sin_documento : 0,
           saldo_a_favor,
           dias_pago_prom: g.dias_pago_prom != null ? Number(g.dias_pago_prom) : null,
@@ -684,6 +704,8 @@ export class CustomerLedgerService {
         kpi.por_tipo[kind].clientes += 1;
         kpi.n_clientes += 1; kpi.n_partidas += Number(g.n_partidas) || 0;
         if (sobre_linea) kpi.n_sobre_linea += 1;
+        kpi.resto.monto += r2(g.resto_redondeo); kpi.resto.partidas += Number(g.n_restos) || 0;
+        if (clientes[clientes.length - 1].solo_resto_vencido) kpi.resto.clientes_solo_resto_vencido += 1;
         (Object.keys(aging) as (keyof Bucket)[]).forEach((k) => { kpi.aging[k] += aging[k]; });
         if (Math.abs(sin_documento) > 0.005) { kpi.sin_documento.monto += sin_documento; kpi.sin_documento.clientes += 1; }
         porCliente.push({ cliente_code: g.cliente_code, saldo });
@@ -704,6 +726,7 @@ export class CustomerLedgerService {
       kpi.total_saldo = r2(kpi.total_saldo);
       kpi.total_vencido = r2(kpi.total_vencido);
       kpi.total_a_favor = r2(kpi.total_a_favor);
+      kpi.resto.monto = r2(kpi.resto.monto);
       kpi.sin_documento.monto = r2(kpi.sin_documento.monto);
       for (const k of CUENTA_KINDS) {
         kpi.por_tipo[k].saldo = r2(kpi.por_tipo[k].saldo);

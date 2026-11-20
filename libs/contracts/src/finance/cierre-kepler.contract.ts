@@ -1,3 +1,5 @@
+import { SALDO_CERO, esRestoTolerado } from './resto-tolerado.contract';
+
 /**
  * `[PGP.94]` **El cierre de un pago del Calendario contra lo que Kepler hizo de verdad.**
  *
@@ -135,10 +137,28 @@ export interface CierreKeplerPago {
   facturas: Record<EstadoFacturaCierre, number>;
   /** Los documentos de Kepler que lo explican, el más reciente primero. */
   pagos: PagoKeplerDelCierre[];
+  /**
+   * `[PGP.157]` Lo que Kepler sigue debiendo en restos de centavos (hasta {@link RESTO_TOLERADO} por factura)
+   * de facturas que se dieron por saldadas. 0 = ninguno. Opcional para no romper a quien arme el objeto a mano.
+   */
+  resto?: number;
 }
 
-/** Tolerancia de saldo: la misma que `v_supplier_payables` (`pendiente > 0.005`). */
-const SALDO_CERO = 0.005;
+/*
+ * `[PGP.157]` **Un resto de centavos no deja abierto un pago** (S1 de
+ * `FASES/FASE_PGP_ANEXO_RESIDUOS_DE_CENTAVOS.md`, decidida por Edgar el 2026-11-19). Tesorería captura en
+ * Kepler lo que salió del banco, unos centavos menos que la factura, y la factura queda viva por la
+ * diferencia: el pago se quedaba `en_parte` para siempre y `decidirPagoEnKepler` no lo daba por pagado.
+ * Medido en prod ese día (90 días): 4 pagos del Calendario detenidos SÓLO por un resto de hasta $1 (2
+ * ejecutados sin cerrar, 2 pendientes sin pasar solos), ninguno por un resto de $1 a $10.
+ *
+ * Un resto de hasta {@link RESTO_TOLERADO} cuenta como saldado **sólo si la factura ya tuvo aplicaciones**:
+ * un documento chico que nadie pagó nunca (las entradas de promoción a $0.01, 142 de CL005) sigue
+ * `sin_pagar`. Y no se esconde: `CierreKeplerPago.resto` lo suma y `textoCierre` lo dice (ADR-056).
+ * El umbral y la regla viven en `resto-tolerado.contract.ts` (`[GP.R.1]`: un solo primitivo para
+ * proveedores y clientes); aquí se re-exportan para no mover a sus consumidores.
+ */
+export { SALDO_CERO, RESTO_TOLERADO, esRestoTolerado, esRestoDeFactura } from './resto-tolerado.contract';
 /**
  * Un abono a una factura que sigue viva cuenta como «en parte» sólo si es de cuando ya estaba
  * programada (o hasta 3 días antes: Kepler se captura después de que sale el dinero, la misma
@@ -158,7 +178,9 @@ function aplicacionesDelPago(apps: AplicacionKepler[], desde: string): Aplicacio
 export function estadoFacturaCierre(f: FacturaParaCierre, programadaDesde: string): EstadoFacturaCierre {
   if (f.pendiente === null || !Number.isFinite(f.pendiente)) return 'sin_medir';
   const recientes = aplicacionesDelPago(f.aplicaciones, programadaDesde);
-  if (f.pendiente <= SALDO_CERO) {
+  // `[PGP.157]` Un resto de centavos de una factura que ya se pagó cuenta como saldada (sin aplicaciones, no).
+  const resto = esRestoTolerado(f.pendiente) && f.aplicaciones.length > 0;
+  if (f.pendiente <= SALDO_CERO || resto) {
     // Saldada. Si se pagó antes de programarla, el documento que la cerró es igual la explicación.
     const explican = f.aplicaciones;
     if (!explican.length) return 'sin_medir'; // saldo cero sin aplicación: no sabemos con qué
@@ -174,9 +196,11 @@ export function estadoFacturaCierre(f: FacturaParaCierre, programadaDesde: strin
 export function cierreDelPago(input: { lotDate: string; programadoDesde: string; facturas: FacturaParaCierre[] }): CierreKeplerPago {
   const facturas: Record<EstadoFacturaCierre, number> = { pagada: 0, saldada_sin_dinero: 0, en_parte: 0, sin_pagar: 0, sin_medir: 0 };
   const docs = new Map<string, PagoKeplerDelCierre>();
+  let resto = 0;
   for (const f of input.facturas) {
     const est = estadoFacturaCierre(f, input.programadoDesde);
     facturas[est]++;
+    if ((est === 'pagada' || est === 'saldada_sin_dinero') && esRestoTolerado(f.pendiente)) resto += f.pendiente ?? 0;
     if (est === 'sin_medir' || est === 'sin_pagar') continue;
     // Una saldada se explica con lo que la cerró; si nada es de este periodo, con su último documento.
     let explican = aplicacionesDelPago(f.aplicaciones, input.programadoDesde);
@@ -210,7 +234,13 @@ export function cierreDelPago(input: { lotDate: string; programadoDesde: string;
   else if (saldadas > 0 || facturas.en_parte > 0) estado = 'en_parte';
   else estado = 'sin_pagar';
 
-  return { estado, desfase_dias: ultimo ? dias(ultimo, input.lotDate) : null, pagado, facturas, pagos };
+  return { estado, desfase_dias: ultimo ? dias(ultimo, input.lotDate) : null, pagado, facturas, pagos, resto: Math.round(resto * 100) / 100 };
+}
+
+/** `[PGP.157]` « · queda $0.37 de redondeo en Kepler», o nada si no hay resto. */
+function textoResto(c: CierreKeplerPago): string {
+  const r = c.resto ?? 0;
+  return r > 0 ? ` · queda $${r.toFixed(2)} de redondeo en Kepler` : '';
 }
 
 /** ¿Ya no hay nada que hacer con este pago? Kepler lo saldó todo (con dinero o con notas). */
@@ -230,8 +260,8 @@ export function textoDesfase(d: number | null): string | null {
 export function textoCierre(c: CierreKeplerPago): string {
   const sinMedir = c.facturas.sin_medir ? ` (${c.facturas.sin_medir} sin medir)` : '';
   switch (c.estado) {
-    case 'pagado': return `Pagado en Kepler ${textoDesfase(c.desfase_dias) ?? ''}`.trim() + sinMedir;
-    case 'saldado_sin_dinero': return 'Saldado en Kepler con nota de crédito o devolución' + sinMedir;
+    case 'pagado': return `Pagado en Kepler ${textoDesfase(c.desfase_dias) ?? ''}`.trim() + textoResto(c) + sinMedir;
+    case 'saldado_sin_dinero': return 'Saldado en Kepler con nota de crédito o devolución' + textoResto(c) + sinMedir;
     case 'en_parte': {
       const hechas = c.facturas.pagada + c.facturas.saldada_sin_dinero;
       const faltan = c.facturas.sin_pagar + c.facturas.en_parte;
