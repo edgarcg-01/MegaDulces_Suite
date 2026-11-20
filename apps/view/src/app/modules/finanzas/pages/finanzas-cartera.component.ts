@@ -392,7 +392,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
         <div class="ct-det-state ct-det-err">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           <span>No se pudo cargar el auxiliar del cliente. {{ err }}</span>
-          <button pButton type="button" class="p-button-sm p-button-outlined" label="Reintentar" (click)="retryDetalle()"></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="retryDetalle()"><span class="p-button-label">Reintentar</span></button>
         </div>
       }
       @if (detalle(); as det) {
@@ -451,7 +451,7 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
                        [attr.aria-label]="cual === 'cliente' ? 'Teléfono del cliente, 10 dígitos' : 'Teléfono del vendedor, 10 dígitos'"
                        placeholder="10 dígitos" />
                 <button pButton type="submit" [disabled]="telBusy() || (cual === 'cliente' && !tels()?.escritura?.posible)"
-                        [attr.aria-busy]="telBusy()" data-testid="tel-guardar">{{ telBusy() ? 'Guardando…' : cual === 'cliente' ? 'Guardar en Kepler' : 'Guardar' }}</button>
+                        [attr.aria-busy]="telBusy()" data-testid="tel-guardar"><span class="p-button-label">{{ telBusy() ? 'Guardando…' : cual === 'cliente' ? 'Guardar en Kepler' : 'Guardar' }}</span></button>
                 <button type="button" class="ct-link-btn" [disabled]="telBusy()" (click)="editarTel.set(null)">Cancelar</button>
                 @if (cual === 'cliente') {
                   @if (tels()?.escritura?.posible) {
@@ -591,8 +591,8 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <span class="ct-prom-btns">
                 @if (cancelando() === p.id) {
                   <span class="ct-prom-confirma">¿Cancelar este compromiso?</span>
-                  <button pButton type="button" class="p-button-xs p-button-danger" label="Sí, cancelar" [disabled]="resolviendo() === p.id" (click)="resolvePromise(p.id, 'cancelada')"></button>
-                  <button pButton type="button" class="p-button-xs p-button-text" label="No" (click)="cancelando.set(null)"></button>
+                  <button pButton type="button" class="p-button-xs p-button-danger" [disabled]="resolviendo() === p.id" (click)="resolvePromise(p.id, 'cancelada')"><span class="p-button-label">Sí, cancelar</span></button>
+                  <button pButton type="button" class="p-button-xs p-button-text" (click)="cancelando.set(null)"><span class="p-button-label">No</span></button>
                 } @else {
                   <button pButton type="button" class="p-button-xs p-button-outlined" [disabled]="resolviendo() === p.id" (click)="resolvePromise(p.id, 'cumplida')">
                     <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Cumplida</span>
@@ -609,8 +609,8 @@ import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
               <input pInputText type="text" inputmode="decimal" [(ngModel)]="promMontoTxt" placeholder="Monto" class="ct-prom-in" aria-label="Monto prometido" />
               <p-datepicker [(ngModel)]="promFecha" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" placeholder="Fecha" styleClass="ct-prom-dp" ariaLabel="Fecha de promesa" />
               <input pInputText type="text" [(ngModel)]="promNota" placeholder="Nota (opcional)" class="ct-prom-in ct-prom-nota-in" aria-label="Nota" />
-              <button pButton type="button" class="p-button-sm" label="Registrar" [loading]="savingProm()" [disabled]="!montoPromesa() || !promFecha || savingProm()" (click)="savePromise(det)"></button>
-              <button pButton type="button" class="p-button-sm p-button-text" label="Cerrar" [disabled]="savingProm()" (click)="promFormAbierto.set(false)"></button>
+              <button pButton type="button" class="p-button-sm" [loading]="savingProm()" [disabled]="!montoPromesa() || !promFecha || savingProm()" (click)="savePromise(det)"><span class="p-button-label">Registrar</span></button>
+              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="savingProm()" (click)="promFormAbierto.set(false)"><span class="p-button-label">Cerrar</span></button>
             </div>
           }
           @if (promError(); as pe) {

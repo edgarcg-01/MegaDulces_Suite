@@ -284,6 +284,21 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     expect(m('abc')).toBeNull();
   });
 
+  it('7b · ⛔ los botones del compromiso dicen qué hacen (en PrimeNG 22 `label=` en pButton sale VACÍO)', () => {
+    const f = crear();
+    const c = f.componentInstance;
+    c.openDetalle(cli('C1', 'Abarrotes Uno', 100, 100));
+    c.promFormAbierto.set(true);
+    f.detectChanges();
+    const textos = [...document.body.querySelectorAll('button[pButton]')].map((b) => (b.textContent || '').trim());
+    expect(textos).toContain('Registrar');
+    expect(textos).toContain('Cerrar');
+    // Ningún pButton de la pantalla sin texto ni etiqueta accesible.
+    const mudos = [...document.body.querySelectorAll('button[pButton]')]
+      .filter((b) => !(b.textContent || '').trim() && !b.getAttribute('aria-label') && !b.querySelector('.sr-only'));
+    expect(mudos.map((b) => b.outerHTML.slice(0, 120))).toEqual([]);
+  });
+
   it('7 · ⛔ un guardado de compromiso que falla se VE, y lo tecleado se queda', () => {
     createPromise = vi.fn(() => throwError(() => ({ error: { message: 'monto inválido' } })));
     const f = crear();
