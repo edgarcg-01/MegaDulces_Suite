@@ -168,12 +168,18 @@ export class AutorizacionPedidosService {
     return this.tk.run(async (trx) => {
       const fuente = await this.cartera.fuenteCartera(trx);
       const freshness = await this.cartera.freshness(trx, fuente);
-      const lectura = await this.leer(trx, tenantId, fuente.rel, q.sucursal, freshness, PARAMETROS_PROPUESTOS);
+      const lectura = await leerBandeja(trx, tenantId, fuente.rel, q.sucursal, freshness, PARAMETROS_PROPUESTOS);
       return armarBandeja(lectura, PARAMETROS_PROPUESTOS);
     });
   }
+}
 
-  private async leer(trx: Knex.Transaction, tenantId: string, rel: string, sucursal: string | undefined, freshness: Freshness, p: ParametrosAutorizacion): Promise<LecturaBandeja> {
+/**
+ * Las lecturas de la bandeja. Fuera de la clase porque el reporte previo a cada empuje
+ * (`ops/prod/reporte-autorizacion-automatica`) corre ESTAS consultas contra prod en vez de copiarlas: si alguien
+ * cambia la bandeja, el reporte cambia con ella.
+ */
+export async function leerBandeja(trx: Knex.Transaction, tenantId: string, rel: string, sucursal: string | undefined, freshness: Freshness, p: ParametrosAutorizacion): Promise<LecturaBandeja> {
     const filtro = sucursal ? 'AND k.sucursal = ?' : '';
     // La llave de Kepler va CRUDA (sin btrim) para entrar por las llaves primarias; ver POR_COBRAR_KEPLER_SQL.
     const ped = await trx.raw(`
@@ -253,5 +259,4 @@ export class AutorizacionPedidosService {
       freshness,
       ahora: new Date(),
     };
-  }
 }
