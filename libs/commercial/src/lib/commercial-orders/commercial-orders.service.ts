@@ -21,6 +21,7 @@ import { QuotePricingService, rungDeRotulo, type Ladder, type Rung } from '../co
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
 import { revisionDeRenglones, llaveDestino, skusDeKepler, type DestinoRenglon } from '../commercial-inventory/stock-state';
+import { lineasConExistencia } from './lineas-con-existencia';
 import { completarRegistro, marcaDeVersion, marcarAlAgendar } from './order-stock-notices';
 import type { LineStockReview, PresalePickRestore, StockState } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
@@ -3112,41 +3113,8 @@ export class CommercialOrdersService {
           'r.name as route_name',
         );
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
-      const lines = await trx('commercial.order_lines as ol')
-        .leftJoin('public.products as p', 'p.id', 'ol.product_id')
-        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-        // [MCP.3.13] La existencia es la de la sucursal de surtido del renglón (la del pedido si no dice).
-        .leftJoin('commercial.warehouses as sw', 'sw.id', 'ol.source_warehouse_id')
-        .leftJoin('commercial.stock as s', function () {
-          this.on('s.product_id', '=', 'ol.product_id').andOn(
-            's.warehouse_id',
-            '=',
-            trx.raw('COALESCE(ol.source_warehouse_id, ?::uuid)', [order.warehouse_id]),
-          );
-        })
-        .where('ol.order_id', orderId)
-        .orderBy('ol.line_number')
-        .select(
-          'ol.*',
-          'p.nombre as product_name',
-          'b.nombre as brand_name',
-          'sw.name as source_warehouse_name',
-          'sw.short_label as source_warehouse_short',
-          trx.raw('COALESCE(s.quantity, 0) as stock_quantity'),
-          trx.raw('COALESCE(s.reserved_quantity, 0) as stock_reserved'),
-          // Stock disponible para ESTA línea: si el pedido está pending_approval/confirmed,
-          // la qty de la línea ya está incluida en reserved → se suma de vuelta para
-          // mostrar el tope al que se puede subir la línea. En draft no se reserva,
-          // así que (quantity - reserved) ya es el disponible real.
-          trx.raw(
-            `GREATEST(
-               COALESCE(s.quantity, 0) - COALESCE(s.reserved_quantity, 0)
-               + CASE WHEN ? IN ('pending_approval','confirmed') THEN ol.quantity ELSE 0 END,
-               0
-             ) as stock_available`,
-            [order.status],
-          ),
-        );
+      // [CANON.7.4b] Existencia del ODS + apartado del libro, acotada a lo del pedido (ver lineas-con-existencia.ts).
+      const lines = await lineasConExistencia(trx, orderId, order);
       // [MCP.3.13] Pedido agrupado: todas sus partes (la principal primero), para verlo como UNO.
       const group = order.group_id
         ? await trx('commercial.orders as g')
@@ -3596,7 +3564,7 @@ export class CommercialOrdersService {
     const sums = await trx('commercial.order_lines')
       .where({ order_id: orderId })
       .sum({ subtotal: 'line_subtotal', tax: 'line_tax', total: 'line_total' });
-    let { subtotal, tax, total } = sums[0] as {
+    const { subtotal, tax, total } = sums[0] as {
       subtotal: string | null;
       tax: string | null;
       total: string | null;

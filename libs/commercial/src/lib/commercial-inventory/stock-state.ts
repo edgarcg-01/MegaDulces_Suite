@@ -65,6 +65,105 @@ export const EXISTENCIA_ODS_SQL = `(SELECT e.tenant_id, e.warehouse_id, e.produc
           e.qty_stock_units AS quantity, 0::numeric AS reserved_quantity
      FROM analytics.v_erp_stock_on_hand e)`;
 
+/**
+ * `[CANON.7.4b]` El apartado de la Suite, DERIVADO de su propio libro (`commercial.stock_movements`), no guardado en
+ * la copia. Por referencia (pedido o reserva del bot), lo apartado menos lo liberado, sin bajar de cero; sólo cuentan
+ * las referencias VIVAS: un pedido que no está entregado ni cancelado, una reserva sin `released_at`. Entregar o
+ * cancelar lo saca solo, sin escribir nada más.
+ *
+ *  - Por qué no la columna `commercial.stock.reserved_quantity`: la copia exige `quantity >= reserved_quantity`, y
+ *    apartar contra el ODS con la copia rezagada (el CEDIS desde el 16-oct; toda la red cuando se congele en
+ *    `[CANON.7.5]`) rompe esa regla o obliga a escribir la cantidad en la copia — mantenerla, que es lo que se retira.
+ *  - Medido en prod el 2026-11-20: el libro tiene 102 movimientos en total, la derivación da lo mismo que la columna
+ *    (un apartado vivo, 15 piezas, del pedido PD-2026-00011) y cuesta 0.3 ms para toda la red.
+ *  - Un pedido en `draft` cuenta: es el caso del pedido que se está confirmando dentro de la misma transacción (dos
+ *    renglones del mismo producto se validan juntos). Reabrir libera antes de volver a `draft`.
+ */
+export const APARTADO_VIVO_SQL = `(SELECT r.tenant_id, r.warehouse_id, r.product_id, sum(r.neto)::numeric AS reserved_quantity
+     FROM (SELECT m.tenant_id, m.warehouse_id, m.product_id, m.reference_type, m.reference_id,
+                  GREATEST(sum(CASE WHEN m.movement_type = 'reserve' THEN m.quantity ELSE -m.quantity END), 0) AS neto
+             FROM commercial.stock_movements m
+            WHERE m.movement_type IN ('reserve', 'release')
+              AND ((m.reference_type = 'order' AND EXISTS (
+                      SELECT 1 FROM commercial.orders po
+                       WHERE po.id = m.reference_id AND po.status NOT IN ('fulfilled', 'cancelled')))
+                OR (m.reference_type = 'reservation' AND EXISTS (
+                      SELECT 1 FROM commercial.stock_reservations pr
+                       WHERE pr.id = m.reference_id AND pr.released_at IS NULL)))
+            GROUP BY m.tenant_id, m.warehouse_id, m.product_id, m.reference_type, m.reference_id) r
+    GROUP BY r.tenant_id, r.warehouse_id, r.product_id
+   HAVING sum(r.neto) > 0)`;
+
+/**
+ * `[CANON.7.4a]` La existencia del ODS MÁS el apartado de la Suite, para quien muestra o decide «disponible».
+ * El apartado es dato PROPIO y desde `[CANON.7.4b]` se deriva del libro de movimientos (`APARTADO_VIVO_SQL`); la
+ * cantidad sigue saliendo del ODS. Mismas columnas que `EXISTENCIA_ODS_SQL`, más `id` (estable: almacén:producto) y
+ * `updated_at` en NULL (la vista no tiene fecha por renglón; la frescura es la de la sucursal, `lecturaDeSucursales`).
+ */
+export const EXISTENCIA_ODS_CON_APARTADO_SQL = `(SELECT o.tenant_id, o.warehouse_id, o.product_id,
+          concat(o.warehouse_id, ':', o.product_id) AS id,
+          o.quantity, COALESCE(ap.reserved_quantity, 0)::numeric AS reserved_quantity,
+          NULL::timestamptz AS updated_at
+     FROM ${EXISTENCIA_ODS_SQL} o
+     LEFT JOIN ${APARTADO_VIVO_SQL} ap
+            ON ap.tenant_id = o.tenant_id AND ap.warehouse_id = o.warehouse_id AND ap.product_id = o.product_id)`;
+
+/** Lo que el pedido necesita saber de UN producto en UN almacén para apartar o entregar. */
+export interface ExistenciaYApartado {
+  /** Existencia del ODS (Kepler). 0 si la vista no tiene renglón, la misma regla que con la copia. */
+  existencia: number;
+  /** Lo apartado por las referencias vivas (`APARTADO_VIVO_SQL`). */
+  apartado: number;
+}
+
+/**
+ * `[CANON.7.4b]` Existencia del ODS y apartado vivo de un producto en un almacén, para los que ESCRIBEN (apartar,
+ * entregar). A diferencia de `leerExistencia`, NO se traga el error: si la vista no responde, el pedido no se
+ * confirma «sin existencia» sino que falla — un 409 que dice «no hay» cuando lo que pasó es que no se pudo leer
+ * afirmaría lo que no es.
+ */
+export async function existenciaYApartado(trx: Db, warehouseId: string, productId: string): Promise<ExistenciaYApartado> {
+  const { rows } = (await trx.raw(
+    `SELECT (SELECT COALESCE(sum(o.quantity), 0)::float8 FROM ${EXISTENCIA_ODS_SQL} o
+              WHERE o.warehouse_id = ?::uuid AND o.product_id = ?::uuid) AS existencia,
+            (SELECT COALESCE(sum(a.reserved_quantity), 0)::float8 FROM ${APARTADO_VIVO_SQL} a
+              WHERE a.warehouse_id = ?::uuid AND a.product_id = ?::uuid) AS apartado`,
+    [warehouseId, productId, warehouseId, productId],
+  )) as { rows: Array<{ existencia: number | string; apartado: number | string }> };
+  return { existencia: Number(rows[0]?.existencia) || 0, apartado: Number(rows[0]?.apartado) || 0 };
+}
+
+/**
+ * `[CANON.7.4b]` Lo que UNA referencia (pedido o reserva) tiene apartado de un producto: lo apartado menos lo
+ * liberado, sin bajar de cero. Es el tope de lo que esa referencia puede liberar (antes el tope era el apartado de
+ * TODO el almacén, así que un pedido podía liberar el apartado de otro).
+ */
+export async function apartadoDeReferencia(
+  trx: Db,
+  referenceType: string,
+  referenceId: string,
+  warehouseId: string,
+  productId: string,
+): Promise<number> {
+  const { rows } = (await trx.raw(
+    `SELECT GREATEST(COALESCE(sum(CASE WHEN m.movement_type = 'reserve' THEN m.quantity ELSE -m.quantity END), 0), 0)::float8 AS neto
+       FROM commercial.stock_movements m
+      WHERE m.reference_type = ? AND m.reference_id = ?::uuid
+        AND m.warehouse_id = ?::uuid AND m.product_id = ?::uuid
+        AND m.movement_type IN ('reserve', 'release')`,
+    [referenceType, referenceId, warehouseId, productId],
+  )) as { rows: Array<{ neto: number | string }> };
+  return Number(rows[0]?.neto) || 0;
+}
+
+/**
+ * `[CANON.7.4b]` Serializa a quienes apartan o entregan el MISMO producto en el MISMO almacén, hasta el fin de la
+ * transacción. Hace lo que hacía el `FOR UPDATE` sobre el renglón de la copia, sin necesitar la copia.
+ */
+export async function bloquearExistencia(trx: Db, warehouseId: string, productId: string): Promise<void> {
+  await trx.raw(`SELECT pg_advisory_xact_lock(hashtextextended(?, 0))`, [`existencia:${warehouseId}:${productId}`]);
+}
+
 /** `EXISTENCIA_ODS_SQL` como tabla de knex con su alias, para `from(...)` o `leftJoin(...)`. */
 export function existenciaOds(db: Db, alias: string): Knex.Raw {
   if (!/^[a-z_][a-z0-9_]*$/.test(alias)) throw new Error(`existenciaOds: alias inválido «${alias}»`);

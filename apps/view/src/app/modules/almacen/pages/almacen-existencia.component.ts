@@ -57,7 +57,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <h1>Existencia</h1>
           <p class="ex-sub">
             Qué hay y dónde, derivado del ERP. Una fila por producto, una columna por almacén.
-            <span class="ex-note">De consulta: la compra se decide en Pedido y el ajuste en Ajustes de stock.</span>
+            <span class="ex-note">De consulta: la compra se decide en Pedido y el ajuste en Kepler.</span>
           </p>
         </div>
         <div class="ex-actions">

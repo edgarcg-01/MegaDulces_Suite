@@ -153,6 +153,64 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
    | **7.4e Scanner de reorden** (A13) | cron de medianoche + `scan-now` | lee el ODS como la pantalla de Existencia crítica (hoy difieren en el CEDIS) |
 
    Cada pieza que escribe lleva su prueba contra base real con el payload de la pantalla (regla 13).
+
+   🧪 **7.4a en código (2026-11-19).** La portada lee `EXISTENCIA_ODS_CON_APARTADO_SQL` (la cantidad del ODS y el apartado
+   de la app, que es dato propio); D-EX3 firmada («hagámoslo»): fuera «Ajustar» y la pantalla pasa a llamarse «Existencia y
+   apartados» (pestaña, menú, permiso, ayuda y la nota de Existencia). Medido en prod con RLS: el CEDIS pasa de 205
+   renglones congelados a 1,618; una página por sucursal 270–325 ms; la cuenta de la red 708 → 117 ms (sin los cuatro
+   joins 1:1, mismo total con y sin ellos). `POST /inventory/adjust` sigue vivo sin pantalla: se retira en 7.4d.
+
+   **Probado en local antes de empujar (Edgar, 2026-11-19: «primero tenemos que cumplir todos los procesos en local y
+   probarlos»).** La prueba encontró dos defectos que ya estaban en prod con la copia y uno que traía el propio cambio:
+   - **Las tarjetas mentían.** Se sumaban en el navegador sobre `listStock(pageSize: 9999)`, que el servidor topa a 500:
+     en la red decían 500 líneas, $475,940 y «1 almacén» contra **33,530 líneas, $70.4 M y 9 almacenes** (medido en prod
+     con RLS). Ahora las agrega el servidor (`GET /commercial/inventory/stock/summary`, mismo universo y mismo costo
+     arbitrado que el listado; la línea con saldo y sin costo se cuenta, 34 en la red, y no se suma como cero). Visto en
+     local: tarjetas y encabezado dicen lo mismo (33,534 en la red; 1,624 en el CEDIS) y sano + crítico + sin stock suman
+     el total. ⚠️ El resumen de la red tarda 0.83 s en prod (por sucursal ~0.4 s): arriba de 500 ms, deuda con nombre —
+     reemplaza una llamada de 0.76 s que además era falsa.
+   - **Dos formatos de cantidad**: la existencia del ODS llega «1» y el apartado «0.000»; ahora las tres columnas con
+     `number:'1.0-3'`.
+   - **En el teléfono** (un tercio del uso, almacenista y surtidor): sin la columna «Ajustar» la regla global dejaba fija
+     a la derecha «Valor disp.» y «Disponible» quedaba debajo. La tabla pasa a `dt-stack` (cada renglón se apila con sus
+     campos); va con `class` porque en PrimeNG 22 `styleClass` en `p-table` es un atributo muerto (también en
+     `admin-personas` y las demás que lo usan así: hallazgo aparte).
+   Candado ampliado a 27 casos, siete mutantes en rojo. La pantalla sale de la deuda por columnas de `check-dense-tables`
+   (trinquete: quitarle `dt-stack` la vuelve a poner en rojo), con un hueco declarado: esa compuerta busca la PALABRA
+   `dt-stack` en todo el archivo y un comentario la satisface; por eso el candado exige la clase real en `p-table`.
+   Visto en local a 390 px y en escritorio, contra los datos de prod.
+
+   🧪 **7.4b en código (2026-11-20).** Medido antes (prod, sólo lectura): el libro `commercial.stock_movements` tiene
+   102 filas en toda su historia; hubo **un** apartado (`PD-2026-00011`, La Piedad Abastos, «confirmado» desde el
+   27-jul con las 15 piezas que la copia decía tener; Kepler tiene 150); 3 entregas en 90 días, las tres de preventa; y
+   las 8 trazas por lote que dejaron las entregas dicen `NA` (el lote sin lote). ⛔ Y la copia exige
+   `quantity >= reserved_quantity`: apartar contra el ODS con la copia rezagada rompe esa regla o obliga a mantenerla.
+   - **El apartado se deriva del libro, no de la columna de la copia** (`APARTADO_VIVO_SQL` en `stock-state.ts`): por
+     referencia, lo apartado menos lo liberado sin bajar de cero; cuentan los pedidos no entregados ni cancelados y las
+     reservas del bot sin `released_at`. Da lo mismo que la columna (15 = 15) en 0.3 ms para toda la red.
+   - `OrderStockService` ya no toca la copia: **apartar** valida existencia del ODS − apartado y escribe el
+     movimiento; **entregar** valida contra el ODS y ya no resta (la venta la descuenta Kepler; la traza por lote decía
+     siempre `NA`, no se pierde nada); **liberar** topa en lo que ESA referencia apartó (antes, en lo apartado de todo
+     el almacén: un pedido podía liberar el de otro). El `FOR UPDATE` sobre la copia pasa a `pg_advisory_xact_lock`
+     por (almacén, producto). El cron que vence las reservas del bot, igual.
+   - Leen el mismo apartado la portada de Almacén (7.4a) y el detalle de pedido (B6, acotado con constantes a los
+     almacenes y productos del pedido: la vista agrupa y Postgres no empuja una condición de JOIN hasta `kdil`).
+   - Medido con RLS (`app_runtime`): apartar o entregar un producto 7–30 ms; el detalle de un pedido de 55 renglones
+     16–18 ms (con la copia, 84); el resumen de la red da lo mismo que con 7.4a y no empeora (0.73–0.89 s contra
+     1.06–1.54; sigue siendo la deuda de 7.4a).
+   - **Probado contra Postgres real**: una base desechable local con todas las migraciones
+     (`dev-bootstrap-empty-db.js`; la máquina no tiene pgvector y su migración se registró como molde, declarado en
+     `_dev_bootstrap_log`). `order-stock.it.spec.ts` corre el servicio REAL como `app_runtime` con `kdil` sembrado y
+     SIN renglón en la copia: 12 casos, y quince mutantes en rojo (sin tope por referencia, sin candado en cada una de
+     las tres operaciones, un cancelado que sigue apartando, la portada, B6 o el cron de vuelta a la copia…). La
+     consulta del detalle de pedido salió de `findById` a `lineas-con-existencia.ts` para que la prueba ejerza ESA
+     consulta y no una copia de su SQL: la API local no estaba corriendo y levantarla está prohibido (regla 3), así que
+     la pantalla del detalle queda **sin validación visual**. En el CI corre en el job de integración (`TP_IT_DB`).
+   - ⚠️ **Sin tocar, con nombre:** el apartado fantasma de `PD-2026-00011` (es de Comercial: o se entrega o se
+     cancela); el tope del detalle de pedido suma de vuelta la cantidad del renglón también en preventa, que no apartó
+     (regla anterior, sin cambio); el aviso «se vendió vencido» sigue leyendo `stock_lots`, cuyo lote `NA` mantiene la
+     copia (7.4c). En la base desechable la vista de existencia es la de antes de 7.1 (su migración depende de 6.21, que
+     no corre sin los datos de prod): misma cantidad, otro origen del factor de caja, que esta prueba no lee.
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

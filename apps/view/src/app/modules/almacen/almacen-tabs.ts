@@ -113,14 +113,14 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     tabs: [
       // EXISTENCIA va primera: el trabajo del almacén empieza en el censo. Y como
       // `almacenNavGroups` aterriza en el PRIMER tab alcanzable, el item "Inventario" del sidebar
-      // lleva acá a quien tenga el permiso y degrada solo a "Ajustes de stock" a quien no.
+      // lleva acá a quien tenga el permiso y degrada solo a "Existencia y apartados" a quien no.
       // [EX.H2] «Consulta históricos» es una subpágina de Existencia: su pestaña sigue marcada ahí.
       { label: 'Existencia', icon: 'pi pi-box', route: '/almacen/inventory/existencia', permission: Permission.EXISTENCIA_VER, exact: true,
         alsoActiveOn: ['/almacen/inventory/existencia/historico'] },
-      // Se llamaba "Existencias" y NO lo es: lee `commercial.stock`, el libro transaccional
-      // (acierta 91% contra el POS, 15,324 unidades de error). Es la consola de AJUSTE y el
-      // único lugar con el apartado. El censo físico es el tab de arriba.
-      { label: 'Ajustes de stock', icon: 'pi pi-sliders-h', route: '/almacen/inventory', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+      // [CANON.7.4a] Se llamaba «Ajustes de stock» y leía la copia `commercial.stock` (91% contra el POS).
+      // Desde el 2026-11-19 la cantidad sale del ERP (ODS) más el apartado de la app, y ya no ajusta (eso es
+      // de Kepler). Es la vista de existencia de quien no tiene EXISTENCIA_VER (surtidor, almacenista).
+      { label: 'Existencia y apartados', icon: 'pi pi-sliders-h', route: '/almacen/inventory', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
       { label: 'Por vencer', icon: 'pi pi-calendar-times', route: '/almacen/inventory/expiring', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
       // Mudadas desde Entrada al ocultarla: el Andén resuelve UN vale de punta a
       // punta, pero no cubre la deuda que dejaron los vales anteriores (Por

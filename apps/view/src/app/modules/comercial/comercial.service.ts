@@ -497,6 +497,32 @@ export interface StockRow {
   on_hand: number;
 }
 
+/** [CANON.7.4a] Resumen de existencia por almacén, agregado en el servidor (`/inventory/stock/summary`). */
+export interface StockSummaryWarehouse {
+  warehouse_id: string;
+  warehouse_name: string | null;
+  lines: number;
+  units: number;
+  value: number;
+  without_cost: number;
+  healthy: number;
+  critical: number;
+  zero: number;
+}
+
+/** [CANON.7.4a] El resumen de TODA la selección, no de una página (antes se sumaban 500 filas en el navegador). */
+export interface StockSummary {
+  lines: number;
+  units: number;
+  value: number;
+  without_cost: number;
+  healthy: number;
+  critical: number;
+  zero: number;
+  critical_threshold: number;
+  by_warehouse: StockSummaryWarehouse[];
+}
+
 /**
  * Tipos de promoción soportados. Coinciden 1:1 con el CHECK del backend.
  */
@@ -1256,8 +1282,10 @@ export class ComercialService {
     if (opts.pageSize) params = params.set('pageSize', String(opts.pageSize));
     return this.http.get<Paged<StockRow>>(`${this.base}/inventory/stock`, { params });
   }
-  adjustStock(body: { warehouse_id: string; product_id: string; new_quantity: number; notes?: string }) {
-    return this.http.post<StockRow>(`${this.base}/inventory/adjust`, body);
+  stockSummary(opts: { warehouse_id?: string } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    return this.http.get<StockSummary>(`${this.base}/inventory/stock/summary`, { params });
   }
   recordMovement(body: { warehouse_id: string; product_id: string; movement_type: StockMovementType; quantity: number; notes?: string }) {
     return this.http.post<StockMovement>(`${this.base}/inventory/movements`, body);

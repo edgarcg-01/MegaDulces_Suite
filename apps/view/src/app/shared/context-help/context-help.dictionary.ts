@@ -894,14 +894,14 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // mundo es "¿por qué no coincide con Pedido?", así que eso va PRIMERO, no al final.
   existencia: {
     title: 'Existencia — guía',
-    intro: 'Una fila por producto y una columna por almacén: cuánto hay, dónde, en qué unidad y cuánto vale. Sale del ERP (del ODS), que es la fuente que acierta. Es una pantalla de CONSULTA: la decisión de comprar vive en Compras › Pedido, y el ajuste de saldo en Almacén › Ajustes de stock.',
+    intro: 'Una fila por producto y una columna por almacén: cuánto hay, dónde, en qué unidad y cuánto vale. Sale del ERP (del ODS), que es la fuente que acierta. Es una pantalla de CONSULTA: la decisión de comprar vive en Compras › Pedido, y el ajuste de saldo en Kepler.',
     groups: [
       {
         heading: 'Por qué no coincide con otras pantallas',
         entries: [
           { term: 'vs. Pedido (Compras)', def: 'Las dos tienen razón. Existencia lee el ERP directo cada vez que abres la pantalla; Pedido lee una foto que se recalcula cada 15-30 minutos, porque además necesita venta, tránsito y estacionalidad. Si acabas de mover mercancía, Existencia lo ve antes.' },
-          { term: 'vs. Ajustes de stock (Almacén)', def: 'Esa pantalla muestra el libro interno de la app —el que lleva los apartados y el que escriben los ajustes— y su cantidad discrepa del punto de venta alrededor del 9%. Para saber qué hay físicamente, esta pantalla. Medido: contra el POS, el ERP acierta 100% y el libro interno 91%.' },
-          { term: '¿Y el apartado?', def: 'No se muestra, y no es un olvido: el apartado sólo existe en el libro interno y hoy tiene 1 producto con 15 unidades en toda la red. Mezclarlo daría una cifra que no es ni el físico ni lo disponible.' },
+          { term: 'vs. Existencia y apartados (Almacén)', def: 'Las dos leen la misma existencia del ERP. Aquélla la da en lista, por sucursal, y le suma lo que apartan los pedidos de la app. Hasta el 19 de noviembre de 2026 se llamaba «Ajustes de stock» y leía el libro interno de la app, que discrepaba del punto de venta alrededor del 9%.' },
+          { term: '¿Y el apartado?', def: 'Aquí no se muestra: lo apartan los pedidos de la app, no el ERP, y se ve en Almacén › Existencia y apartados. Medido el 19 de noviembre de 2026: 1 producto con 15 unidades en toda la red.' },
         ],
       },
       {

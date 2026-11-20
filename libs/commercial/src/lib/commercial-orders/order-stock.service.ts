@@ -1,13 +1,35 @@
 import { Injectable, ConflictException } from '@nestjs/common';
 import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import {
+  apartadoDeReferencia,
+  bloquearExistencia,
+  existenciaYApartado,
+} from '../commercial-inventory/stock-state';
 
 /**
  * Primitivas de stock del flujo de pedidos (CV.4 — extraído de CommercialOrdersService).
  *
  * Todas operan sobre la `trx` que les pasa el caller, de modo que participan en
- * la MISMA transacción del confirm/fulfill/cancel — la atomicidad y los locks
- * (`FOR UPDATE`) anti-race se mantienen idénticos al comportamiento previo.
- * Única dependencia: TenantContextService para los campos de auditoría.
+ * la MISMA transacción del confirm/fulfill/cancel. Única dependencia:
+ * TenantContextService para los campos de auditoría.
+ *
+ * ── `[CANON.7.4b]` La existencia es la de Kepler; el apartado, el libro de la Suite ──────────────
+ * Hasta el 2026-11-20 apartaban, entregaban y liberaban contra la COPIA `commercial.stock`: validaban con su
+ * `quantity` y escribían `quantity` y `reserved_quantity`. Desde 7.4b NO la tocan:
+ *  - **Existencia** = la del ODS (`analytics.v_erp_stock_on_hand`), la misma que leen la portada de Almacén y el
+ *    catálogo. Sin renglón en la vista se lee 0, la misma regla que con la copia sin fila.
+ *  - **Apartado** = derivado de `commercial.stock_movements` (`APARTADO_VIVO_SQL`): lo apartado menos lo liberado
+ *    de los pedidos y reservas vivos. Apartar y liberar sólo ESCRIBEN el movimiento; entregar o cancelar sacan al
+ *    pedido del apartado solos, por su estado.
+ *  - **Entregar ya no resta** la cantidad: la venta la descuenta Kepler, y la copia la reescribía la ingesta en la
+ *    siguiente pasada. La traza por lote que dejaba el disparador de la copia (`stock_lot_movements`) registraba
+ *    siempre el lote `NA` (8 de 8 en 90 días, medido 2026-11-20): no decía de qué lote salió nada. Los lotes son
+ *    `[CANON.7.4c]`.
+ *  - **El candado** pasa del `FOR UPDATE` sobre el renglón de la copia a `pg_advisory_xact_lock` por
+ *    (almacén, producto): dos pedidos no apartan la misma pieza a la vez.
+ *  - En el movimiento, `quantity_before`/`quantity_after` guardan la existencia del ODS al momento (iguales: la
+ *    Suite no mueve físico); al liberar van en NULL (no se lee la existencia).
  */
 @Injectable()
 export class OrderStockService {
@@ -18,7 +40,7 @@ export class OrderStockService {
    * físico abierto con freeze_movements, bloquea el movimiento de stock — de lo
    * contrario el teórico derivaría durante el conteo y toda varianza sería falsa.
    */
-  async assertNotFrozen(trx: any, warehouseId: string): Promise<void> {
+  async assertNotFrozen(trx: Knex.Transaction, warehouseId: string): Promise<void> {
     const frozen = await trx('commercial.inventory_counts')
       .where({ warehouse_id: warehouseId, freeze_movements: true })
       .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
@@ -30,8 +52,34 @@ export class OrderStockService {
     }
   }
 
+  private movimiento(
+    trx: Knex.Transaction,
+    m: {
+      warehouseId: string;
+      productId: string;
+      tipo: 'reserve' | 'release' | 'sale';
+      quantity: number;
+      existencia: number | null;
+      referenceType: string;
+      referenceId: string;
+    },
+  ) {
+    return trx('commercial.stock_movements').insert({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      warehouse_id: m.warehouseId,
+      product_id: m.productId,
+      movement_type: m.tipo,
+      quantity: m.quantity,
+      quantity_before: m.existencia,
+      quantity_after: m.existencia,
+      reference_type: m.referenceType,
+      reference_id: m.referenceId,
+      created_by: this.tenantCtx.get()?.userId || null,
+    });
+  }
+
   async reserve(
-    trx: any,
+    trx: Knex.Transaction,
     warehouseId: string,
     productId: string,
     quantity: number,
@@ -39,140 +87,54 @@ export class OrderStockService {
     referenceType = 'order',
   ): Promise<void> {
     await this.assertNotFrozen(trx, warehouseId);
-    const stockRow = await trx('commercial.stock')
-      .where({ warehouse_id: warehouseId, product_id: productId })
-      .forUpdate()
-      .first();
+    await bloquearExistencia(trx, warehouseId, productId);
+    const { existencia, apartado } = await existenciaYApartado(trx, warehouseId, productId);
 
-    const qBefore = stockRow ? Number(stockRow.quantity) : 0;
-    const rBefore = stockRow ? Number(stockRow.reserved_quantity) : 0;
-
-    if (qBefore - rBefore < quantity) {
+    if (existencia - apartado < quantity) {
       throw new ConflictException(
-        `Stock disponible insuficiente para producto ${productId}: ${qBefore - rBefore} < ${quantity}`,
+        `Stock disponible insuficiente para producto ${productId}: ${existencia - apartado} < ${quantity}`,
       );
     }
 
-    if (stockRow) {
-      await trx('commercial.stock')
-        .where({ id: stockRow.id })
-        .update({
-          reserved_quantity: rBefore + quantity,
-          updated_at: trx.fn.now(),
-          updated_by: this.tenantCtx.get()?.userId || null,
-        });
-    } else {
-      // No row → no stock → ya rechazó arriba. Defensa por si llegamos acá.
-      throw new ConflictException(
-        `No existe registro de stock para producto ${productId} en almacén`,
-      );
-    }
-
-    await trx('commercial.stock_movements').insert({
-      tenant_id: trx.raw('public.current_tenant_id()'),
-      warehouse_id: warehouseId,
-      product_id: productId,
-      movement_type: 'reserve',
-      quantity,
-      quantity_before: qBefore,
-      quantity_after: qBefore,
-      reference_type: referenceType,
-      reference_id: orderId,
-      created_by: this.tenantCtx.get()?.userId || null,
-    });
+    await this.movimiento(trx, { warehouseId, productId, tipo: 'reserve', quantity, existencia, referenceType, referenceId: orderId });
   }
 
   async consume(
-    trx: any,
+    trx: Knex.Transaction,
     warehouseId: string,
     productId: string,
     quantity: number,
     orderId: string,
   ): Promise<{ expiredConsumed: number }> {
     await this.assertNotFrozen(trx, warehouseId);
-    const stockRow = await trx('commercial.stock')
-      .where({ warehouse_id: warehouseId, product_id: productId })
-      .forUpdate()
-      .first();
-    if (!stockRow) {
-      throw new ConflictException(`Sin stock para producto ${productId}`);
-    }
-    const qBefore = Number(stockRow.quantity);
-    const rBefore = Number(stockRow.reserved_quantity);
+    await bloquearExistencia(trx, warehouseId, productId);
+    const { existencia } = await existenciaYApartado(trx, warehouseId, productId);
     // Una preventa NO reservó stock al confirmar → al entregar puede no alcanzar
-    // el físico. Rebotar con 409 claro antes de violar el CHECK quantity>=0.
-    if (qBefore < quantity) {
+    // el físico. Rebotar con 409 claro (misma regla que con la copia; cambia la fuente).
+    if (existencia < quantity) {
       throw new ConflictException(
-        `Stock físico insuficiente para entregar producto ${productId}: ${qBefore} < ${quantity}`,
+        `Stock físico insuficiente para entregar producto ${productId}: ${existencia} < ${quantity}`,
       );
     }
-    // Snapshot de lotes ANTES del decremento (P2.2d + P2.3). `is_good` viene de
-    // CURRENT_DATE en SQL (sin riesgo de TZ). El trigger hará el FEFO real al
-    // actualizar stock; acá observamos before/after para registrar el consumo por lote.
-    const lotsBefore = await trx('commercial.stock_lots')
+    // P2.2d (warn): si lo bueno (no vencido) no cubre la cantidad, el sobrante saldría de vencidos. Sólo se LEE:
+    // los lotes son `[CANON.7.4c]` (hoy el lote NA de `stock_lots` lo mantiene la copia).
+    const lots = (await trx('commercial.stock_lots')
       .where({ warehouse_id: warehouseId, product_id: productId })
-      .select('id', 'lot_code', 'expiry_date', 'quantity')
-      .select(trx.raw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE) as is_good'));
-    // P2.2d (warn): si lo bueno (no-vencido) no cubre la cantidad, el sobrante saldrá de vencidos.
-    const goodAvail = lotsBefore.reduce((s: number, l: any) => s + (l.is_good ? Number(l.quantity) : 0), 0);
-    const expiredConsumed = Math.max(0, quantity - goodAvail);
-    // Una preventa NO reservó stock al confirmar → liberar solo lo que estaba
-    // reservado para este order (puede ser 0) y consumir la cantidad física.
-    // Para un pedido reservado, release === quantity (comportamiento previo).
-    const release = Math.min(rBefore, quantity);
+      .select('quantity')
+      .select(trx.raw('(expiry_date IS NULL OR expiry_date >= CURRENT_DATE) as is_good'))) as Array<{ quantity: string; is_good: boolean }>;
+    const goodAvail = lots.reduce((s, l) => s + (l.is_good ? Number(l.quantity) : 0), 0);
+    const expiredAvail = lots.reduce((s, l) => s + (l.is_good ? 0 : Number(l.quantity)), 0);
+    // Tope en lo vencido que HAY: con la copia cuadrando (suma de lotes = existencia ≥ cantidad) el tope no cambia
+    // nada; sin ella (producto sin renglón en la copia, o la copia rezagada) evita avisar «se vendió vencido» de un
+    // producto que no tiene ningún lote vencido.
+    const expiredConsumed = Math.min(expiredAvail, Math.max(0, quantity - goodAvail));
 
-    await trx('commercial.stock')
-      .where({ id: stockRow.id })
-      .update({
-        quantity: qBefore - quantity,
-        reserved_quantity: rBefore - release,
-        updated_at: trx.fn.now(),
-        updated_by: this.tenantCtx.get()?.userId || null,
-      });
-
-    await trx('commercial.stock_movements').insert({
-      tenant_id: trx.raw('public.current_tenant_id()'),
-      warehouse_id: warehouseId,
-      product_id: productId,
-      movement_type: 'sale',
-      quantity,
-      quantity_before: qBefore,
-      quantity_after: qBefore - quantity,
-      reference_type: 'order',
-      reference_id: orderId,
-      created_by: this.tenantCtx.get()?.userId || null,
-    });
-
-    // P2.3 — trazabilidad por lote: diff before/after (el trigger ya decrementó FEFO)
-    // → registrar de QUÉ lote(s) salió esta venta, con la referencia del pedido.
-    const lotsAfter = await trx('commercial.stock_lots')
-      .where({ warehouse_id: warehouseId, product_id: productId })
-      .select('id', 'quantity');
-    const afterById = new Map<string, number>(lotsAfter.map((l: any) => [l.id, Number(l.quantity)]));
-    const lotRows: any[] = [];
-    for (const b of lotsBefore) {
-      const delta = Number(b.quantity) - (afterById.get(b.id) ?? 0);
-      if (delta > 0)
-        lotRows.push({
-          tenant_id: trx.raw('public.current_tenant_id()'),
-          warehouse_id: warehouseId,
-          product_id: productId,
-          lot_code: b.lot_code,
-          expiry_date: b.expiry_date,
-          movement_type: 'sale',
-          quantity: delta,
-          reference_type: 'order',
-          reference_id: orderId,
-          created_by: this.tenantCtx.get()?.userId || null,
-        });
-    }
-    if (lotRows.length) await trx('commercial.stock_lot_movements').insert(lotRows);
-
+    await this.movimiento(trx, { warehouseId, productId, tipo: 'sale', quantity, existencia, referenceType: 'order', referenceId: orderId });
     return { expiredConsumed };
   }
 
   async release(
-    trx: any,
+    trx: Knex.Transaction,
     warehouseId: string,
     productId: string,
     quantity: number,
@@ -180,33 +142,20 @@ export class OrderStockService {
     referenceType = 'order',
   ): Promise<void> {
     await this.assertNotFrozen(trx, warehouseId);
-    const stockRow = await trx('commercial.stock')
-      .where({ warehouse_id: warehouseId, product_id: productId })
-      .forUpdate()
-      .first();
-    if (!stockRow) return; // nada que liberar (defensivo)
-    const rBefore = Number(stockRow.reserved_quantity);
-    const releaseQty = Math.min(rBefore, quantity);
-
-    await trx('commercial.stock')
-      .where({ id: stockRow.id })
-      .update({
-        reserved_quantity: rBefore - releaseQty,
-        updated_at: trx.fn.now(),
-        updated_by: this.tenantCtx.get()?.userId || null,
-      });
-
-    await trx('commercial.stock_movements').insert({
-      tenant_id: trx.raw('public.current_tenant_id()'),
-      warehouse_id: warehouseId,
-      product_id: productId,
-      movement_type: 'release',
-      quantity: releaseQty,
-      quantity_before: Number(stockRow.quantity),
-      quantity_after: Number(stockRow.quantity),
-      reference_type: referenceType,
-      reference_id: orderId,
-      created_by: this.tenantCtx.get()?.userId || null,
+    await bloquearExistencia(trx, warehouseId, productId);
+    // Se libera a lo sumo lo que ESTA referencia tiene apartado (antes: lo apartado en todo el almacén, así que un
+    // pedido podía liberar el apartado de otro). Una preventa no apartó: libera 0 y lo deja escrito, como antes.
+    // Sin leer la existencia: liberar no la necesita, y cancelar un pedido de muchos renglones haría una lectura de
+    // la vista por renglón. El movimiento la deja en NULL (las columnas lo admiten y quien las lee lo maneja).
+    const propio = await apartadoDeReferencia(trx, referenceType, orderId, warehouseId, productId);
+    await this.movimiento(trx, {
+      warehouseId,
+      productId,
+      tipo: 'release',
+      quantity: Math.min(propio, quantity),
+      existencia: null,
+      referenceType,
+      referenceId: orderId,
     });
   }
 }
