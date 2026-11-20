@@ -9,6 +9,7 @@
 import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
+import { WarehouseCartsService } from './warehouse-carts.service';
 
 const URL = process.env.TP_IT_DB ?? '';
 const PROD_SYSTEM_ID = '7688376744939610156';
@@ -166,5 +167,87 @@ suite('[GP.11] Carretas: catálogo y ocupación, contra Postgres real (transacci
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
        WHERE n.nspname = 'commercial' AND c.relname = 'cart_occupations'`);
     expect(rows[0]).toEqual({ forced: true, borra: false, inserta: true });
+  });
+  // ── GP.11.4 · el servicio, con el payload de la pantalla ────────────────────────────────────
+
+  describe('[GP.11.4] servicio de carretas (lo que manda la pantalla)', () => {
+    let svc: WarehouseCartsService;
+    let yo = USER;
+    const ANA = '00000000-0000-0000-0000-00000000b302';
+    const status = async (p: Promise<unknown>): Promise<number | 'ok'> => {
+      try { await p; return 'ok'; } catch (e) { return (e as { getStatus?: () => number }).getStatus?.() ?? -1; }
+    };
+
+    beforeAll(async () => {
+      const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => trx.transaction((sp) => fn(sp)) };
+      const tenantCtx = { requireTenantId: () => M, get: () => ({ tenantId: M, userId: yo }) };
+      const scope = { warehouseIds: async () => null, current: async () => ({}), canWrite: () => true };
+      svc = new WarehouseCartsService(tk as never, tenantCtx as never, scope as never);
+      // Un pedido de preventa que YO estoy surtiendo, y otro que surte Ana.
+      // El vendedor del pedido: cualquier usuario de la base (orders.user_id tiene FK a identity.users).
+      const vendedor = (await trx.raw('SELECT id FROM identity.users LIMIT 1')).rows[0]?.id;
+      if (!vendedor) throw new Error('NO MEDIDO: la base local no tiene ningún usuario para el pedido.');
+      const [cli] = await trx('commercial.customers').insert({ tenant_id: M, code: 'GPIT-CLI', name: 'GPIT Cliente' }).returning('id');
+      const pedido = async (code: string, quien: string, nombre: string) => {
+        const [o] = await trx('commercial.orders').insert({ tenant_id: M, code, customer_id: cli.id, user_id: vendedor, warehouse_id: ids['w'] }).returning('id');
+        await trx('commercial.presale_picks').insert({ tenant_id: M, order_id: o.id, warehouse_id: ids['w'], started_by: quien, started_by_name: nombre });
+        return o.id as string;
+      };
+      ids['pdMio'] = await pedido('PD-GPIT01', USER, 'GPIT Yo');
+      ids['pdAna'] = await pedido('PD-GPIT02', ANA, 'GPIT Ana');
+      // Una ola de Kepler en surtido, asignada a mí, con el U-D-40 12345 de la sucursal 97.
+      const [ola] = await trx('commercial.picking_waves').insert({ tenant_id: M, code: 'W-GPIT-1', warehouse_id: ids['w'], status: 'en_surtido', assigned_to: USER }).returning('id');
+      await trx.raw(
+        `INSERT INTO commercial.wave_orders (tenant_id, wave_id, order_id, stage, source, kepler_sucursal, kepler_serie, kepler_folio)
+         VALUES (?, ?, md5('kepler/UD40/97/40/12345')::uuid, 'en_ola', 'kepler', '97', 40, '12345')`,
+        [M, ola.id],
+      );
+    });
+
+    it('⭐ alta por rango: C01–C03 se crean; repetir el rango no duplica y lo dice', async () => {
+      expect(await svc.bulk({ warehouse_id: ids['w'], tipo: 'carreta', desde: 1, hasta: 3 })).toEqual({ creadas: ['C01', 'C02', 'C03'], ya_existian: [] });
+      expect(await svc.bulk({ warehouse_id: ids['w'], tipo: 'carrito', desde: 2, hasta: 4 })).toEqual({ creadas: ['C04'], ya_existian: ['C02', 'C03'] });
+      expect(await status(svc.bulk({ warehouse_id: ids['w'], tipo: 'carreta', desde: 5, hasta: 100 }))).toBe(400);
+    });
+
+    it('⭐ quien surte el PD- teclea «1» en el celular y la C01 queda con su pedido; volver a escanearla no hace nada', async () => {
+      const r = await svc.occupy({ warehouse_id: ids['w'], carreta: '1', pedido: { source: 'suite', order_id: ids['pdMio'] } });
+      expect(r.ya_estaba).toBe(false);
+      expect(r.carreta).toMatchObject({ code: 'C01', ocupacion: { pedido: 'PD-GPIT01', occupied_by: USER, source: 'suite' } });
+      const otra = await svc.occupy({ warehouse_id: ids['w'], carreta: 'C01', pedido: { source: 'suite', order_id: ids['pdMio'] } });
+      expect(otra.ya_estaba).toBe(true);
+    });
+
+    it('⭐ NEGATIVA D7: Ana no mete su pedido en la C01 (409); yo no tomo carreta para el pedido de Ana (403); código malo 400; carreta que no existe 404', async () => {
+      yo = ANA;
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C01', pedido: { source: 'suite', order_id: ids['pdAna'] } }))).toBe(409);
+      yo = USER;
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C03', pedido: { source: 'suite', order_id: ids['pdAna'] } }))).toBe(403);
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C100', pedido: { source: 'suite', order_id: ids['pdMio'] } }))).toBe(400);
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C55', pedido: { source: 'suite', order_id: ids['pdMio'] } }))).toBe(404);
+    });
+
+    it('Kepler: el U-D-40 de mi ola entra por su llave y se lee «U-D-40 12345»; uno que no está en surtido, 404', async () => {
+      const r = await svc.occupy({ warehouse_id: ids['w'], carreta: 'C02', pedido: { source: 'kepler', sucursal: '97', serie: 40, folio: '12345' } });
+      expect(r.carreta.ocupacion).toMatchObject({ pedido: 'U-D-40 12345', source: 'kepler' });
+      const lista = await svc.list(ids['w']);
+      expect(lista.carretas.filter((c) => c.ocupacion).map((c) => c.code)).toEqual(['C01', 'C02', 'C07', 'C08']);
+      expect(await status(svc.occupy({ warehouse_id: ids['w'], carreta: 'C03', pedido: { source: 'kepler', sucursal: '97', serie: 40, folio: '99999' } }))).toBe(404);
+    });
+
+    it('⭐ deshacer: sólo quien la escaneó; liberar a mano: el coordinador (el guard). Después queda libre', async () => {
+      const c01 = (await svc.list(ids['w'])).carretas.find((c) => c.code === 'C01')!;
+      yo = ANA;
+      expect(await status(svc.release(c01.id, 'deshecho'))).toBe(403);
+      yo = USER;
+      expect((await svc.release(c01.id, 'deshecho')).ocupacion).toBeNull();
+      expect(await status(svc.release(c01.id, 'manual'))).toBe(409);
+      const c02 = (await svc.list(ids['w'])).carretas.find((c) => c.code === 'C02')!;
+      yo = ANA;
+      expect((await svc.release(c02.id, 'manual')).ocupacion).toBeNull();
+      yo = USER;
+      const fila = await trx('commercial.cart_occupations').where({ bin_id: c02.id }).first('release_reason', 'released_by');
+      expect(fila).toEqual({ release_reason: 'manual', released_by: ANA });
+    });
   });
 });

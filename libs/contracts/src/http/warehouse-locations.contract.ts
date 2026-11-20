@@ -163,6 +163,73 @@ export function describeCart(tipo: CartKind, numero: number): string {
   return `${tipo === 'carrito' ? 'Carrito' : 'Carreta'} ${numero}`;
 }
 
+/**
+ * `[GP.11.4]` El pedido que va en una carreta. `suite` = `commercial.orders` (el `PD-` de preventa);
+ * `kepler` = el `U-D-40` por su llave (el servidor deriva el `order_id` como `wave_orders`).
+ */
+export type CartOrderRef =
+  | { source: 'suite'; order_id: string }
+  | { source: 'kepler'; sucursal: string; serie: number; folio: string };
+
+/** `cargado` lo pone el embarque (E4, D22); `manual` el coordinador; `deshecho` quien la escaneó por error. */
+export type CartReleaseReason = 'cargado' | 'manual' | 'deshecho';
+
+export interface CartOccupation {
+  id: string;
+  source: 'suite' | 'kepler';
+  order_id: string;
+  /** El pedido como lo lee la persona: `PD-000123` o `U-D-40 12345`. */
+  pedido: string;
+  occupied_at: string;
+  occupied_by: string;
+  occupied_by_name: string;
+}
+
+export interface CartRow {
+  id: string;
+  code: string;
+  numero: number;
+  tipo: CartKind;
+  estado: LocationStatus;
+  motivo_estado: string | null;
+  /** `null` = libre. */
+  ocupacion: CartOccupation | null;
+}
+
+export interface CartsResponse {
+  warehouse: { id: string; code: string; name: string };
+  carretas: CartRow[];
+  /** Activas sin pedido / activas con pedido. Las bloqueadas y dadas de baja no cuentan en ninguna. */
+  libres: number;
+  ocupadas: number;
+}
+
+export interface OccupyCartBody {
+  warehouse_id: string;
+  /** Lo que se escaneó o tecleó (`C07` o `7`). */
+  carreta: string;
+  pedido: CartOrderRef;
+}
+
+export interface OccupyCartResult {
+  carreta: CartRow;
+  /** `true` si esa carreta ya traía este pedido: escanearla otra vez no hace nada (idempotente). */
+  ya_estaba: boolean;
+}
+
+/** Alta por rango: «carretas del 1 al 40». Las que ya existen no se tocan. */
+export interface BulkCartsBody {
+  warehouse_id: string;
+  tipo: CartKind;
+  desde: number;
+  hasta: number;
+}
+
+export interface BulkCartsResult {
+  creadas: string[];
+  ya_existian: string[];
+}
+
 /** Cómo se lee en voz alta: "Bodega · pasillo A · rack 05 · nivel 3". */
 export function describeLocationCode(p: LocationCodeParts): string {
   return `${p.zona === 'T' ? 'Tienda' : 'Bodega'} · pasillo ${p.pasillo} · rack ${String(p.rack).padStart(2, '0')} · nivel ${p.nivel}`;
