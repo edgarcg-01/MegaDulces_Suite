@@ -64,7 +64,8 @@ export async function revisarEscrituraPago(c: PoolClient, w: EscrituraPagoKepler
   }
   const a0 = w.documentos[0].plan.acumulados;
   const colG = columnaAbonoKdxg(a0.mes);
-  const g = await c.query(`SELECT ${colG}::text abono FROM md.kdxg WHERE btrim(c3)=$1 AND btrim(c1)='PESOS'`, [a0.acreedor]);
+  // [PGP.131] La fila de ESTE servidor (`c2` = sucursal): la misma que actualiza el adaptador.
+  const g = await c.query(`SELECT ${colG}::text abono FROM md.kdxg WHERE btrim(c3)=$1 AND btrim(c1)='PESOS' AND btrim(c2)=$2`, [a0.acreedor, w.sucursal]);
   if (g.rowCount !== 1) no.push(`kdxg del acreedor ${a0.acreedor}: ${g.rowCount} filas`);
   const k = columnasKdc126(a0.mes);
   const cuentas = [...new Set(w.documentos.flatMap((d) => d.plan.acumulados.cuentas.map((m) => m.cuenta)))];
