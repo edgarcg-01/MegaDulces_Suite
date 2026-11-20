@@ -613,7 +613,7 @@ async function completo(urlAdmin, urlRuntime) {
       check(qD?.cuadra === true && qD?.repetidos?.renglones === 0, `el cuadre no ve repetidos (${JSON.stringify(qD?.repetidos)}, cuadra ${qD?.cuadra})`);
       // ⛔ NEGATIVA: el repetido que dejaba el defecto, sembrado a mano en el segundo archivo → la cuenta no cuadra.
       const orig = await admin('finance.bank_statement_lines').where({ bank_account_id: DEP }).where('amount_in', 100).first();
-      await admin('finance.bank_statement_lines').insert({ ...orig, id: undefined, file_id: d2.archivo_id, line_key: 'prueba-bfu34-repetido', concept: 'DEPOSITO EN EFECTIVO/' });
+      await admin('finance.bank_statement_lines').insert({ ...orig, id: undefined, file_id: d2.archivo_id, line_key: `${orig.line_key}-repetido`, concept: 'DEPOSITO EN EFECTIVO/' });
       const qN = (await svc.cuadre('2026-11-20')).cuentas.find((x) => x.id === DEP)?.cuadre;
       check(qN?.cuadra === false && qN?.repetidos?.renglones === 1 && qN?.repetidos?.importe === 100 && /dos veces/.test(qN?.motivo ?? ''),
         `⛔ con un renglón repetido entre archivos la cuenta NO cuadra y lo dice (${qN?.motivo})`);
