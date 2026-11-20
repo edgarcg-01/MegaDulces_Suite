@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 505 KB, 4660 líneas, 123 secciones.
+> **Índice navegable** — 507 KB, 4682 líneas, 123 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -122,14 +122,14 @@
 | 4121 | 4172 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
 | 4173 | 4248 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
 | 4249 | 4310 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
-| 4311 | 4405 | 5 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
-| 4406 | 4465 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
-| 4466 | 4552 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
-| 4553 | 4573 | 2 | ADR-120 |
-| 4574 | 4636 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
-| 4637 | 4707 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
-| 4708 | 4748 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
-| 4749 | 4795 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
+| 4311 | 4427 | 7 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
+| 4428 | 4487 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
+| 4488 | 4574 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
+| 4575 | 4595 | 2 | ADR-120 |
+| 4596 | 4658 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
+| 4659 | 4729 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
+| 4730 | 4770 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
+| 4771 | 4817 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4396,6 +4396,28 @@ alguien los capturara (§2.2 del plan); hasta hoy, siete transiciones:
 - **Hoy Kepler deja agregar productos al embarcar.** El 3.2 % de los renglones nace después del
   pedido. **D29 (Edgar, 2026-11-13):** en la Suite se agrega sólo en el checado, con motivo y con el
   nombre de quien lo agregó; nunca en el embarque.
+
+### Enmienda del 2026-11-20 — también AUTORIZADO (D-A1 del anexo EA) · ⏳ **por firmar**
+
+**Contexto.** El [anexo EA](FASES/FASE_GP_ANEXO_AUTORIZACION_PEDIDOS.md) pide que un pedido TELEMARK dentro del
+límite se autorice solo, avisando a Crédito y cobranza (D-A3, Edgar, 2026-11-19). Hoy lo autoriza una persona en
+Kepler y COT.7 (D1) había dejado esa autorización en Kepler. Medido (GP.A.0a): autorizar en Kepler cambia **sólo
+`kdm1.c11`** (8 de 8 casos de la foto del 19-nov), no aparta existencia y no crea cartera.
+
+**Decisión propuesta.**
+1. La Suite escribe **CREADO → AUTORIZADO** en un `U-D-40` TELEMARK existente: `UPDATE md.kdm1 SET c11 =
+   'AUTORIZADO' WHERE <llave> AND c11 = 'CREADO'`. Si no actualiza una fila, alguien lo movió en Kepler: no se
+   reintenta, va a la bandeja (punto 7).
+2. Y **AUTORIZADO → CREADO** para regresar un autorizado solo (D-A7), sólo `credito_cobranza`, con `WHERE c11 =
+   'AUTORIZADO'`: lo ya surtido no se regresa.
+3. Decide `decidirAutorizacion` (`[GP.A.1]`); quién o qué autorizó, cuándo, con qué números y el motivo quedan en una
+   tabla de la Suite (Kepler no los guarda).
+4. Mismo carril que el resto de este ADR: interruptor por sucursal apagado al nacer, tope del día, sólo desde `md`,
+   permiso por columna en su archivo (`ops/prod/kepler-grants/gpa0d_kdm1_update_c11.sql`, lo corre el PM), probado
+   contra base real antes de prod.
+
+**Revierte** COT.7 D1 («la autorización sigue siendo de Kepler»). **No cambia** el límite de crédito en Kepler (ALC
+D1-b) ni cancela pedidos.
 
 Relacionado: ADR-086 (lo enmienda) · ADR-092 y ADR-113 (escribir en Kepler clonando) · ADR-054 (el
 permiso es una clave) · ADR-056 (lo no medido se declara) · ADR-059 (la cifra se arbitra contra un
