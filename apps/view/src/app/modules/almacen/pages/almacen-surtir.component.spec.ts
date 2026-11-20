@@ -119,7 +119,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
   let user: { warehouse_code?: string; sub?: string } | null;
   // [GP.RF.23] el canal de incidentes: un cierre rechazado deja su motivo.
   let uso: { reportarIncidente: ReturnType<typeof vi.fn> };
-  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits' | 'substitutes', ReturnType<typeof vi.fn>>;
+  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits' | 'substitutes' | 'reportEmpty', ReturnType<typeof vi.fn>>;
   /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
   let cn: { resumen: ReturnType<typeof vi.fn> };
   let qp$: BehaviorSubject<ParamMap>;
@@ -189,6 +189,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       detail: vi.fn(() => of(DETALLE())),
       otherUnits: vi.fn(() => of({ for_line_id: '', product_id: '', product_name: '', ordered: 0, unit: 'PZA', factor: 1, units: [] })),
       substitutes: vi.fn(() => of({ for_line_id: '', for_product_name: '', missing: 0, unit: 'PZA', data: [] })),
+      // [MCP.27] El aviso «no hubo nada»: el pedido queda por cancelar.
+      reportEmpty: vi.fn(() => of(PV({ state: 'por_cancelar' }))),
       start: vi.fn(() => of(DETALLE().order)),
       finish: vi.fn(() => of({
         order_id: 'o-rosy', outcome: 'con_faltantes',
@@ -1654,4 +1656,48 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).not.toContain('Pedidos sueltos');
     expect(texto()).toContain('ABARROTES ROSY');
   });
+
+  // ── [MCP.27] No hubo nada: se avisa a la vendedora, no se cierra en cero ──
+  // Medido en prod el 2026-11-20: 7 «Terminé de surtir» en 3 minutos sobre un pedido vacío, todos rechazados.
+  describe('[MCP.27] pedido de preventa en el que no hubo nada', () => {
+    it('⭐ todo «No había»: el botón es «Avisar a la vendedora», avisa y regresa a la lista (no llama a finish)', async () => {
+      await montar({}, 'abre');
+      clic('Preventa');
+      clic('Surtir este');
+      c.noHabia(c.pendientes()[0]);
+      c.noHabia(c.pendientes()[0]);
+      fix.detectChanges();
+      expect(boton('Terminé de surtir')).toBeUndefined();
+      clic('Avisar a la vendedora: no hubo nada');
+      expect(pv['reportEmpty']).toHaveBeenCalledWith('o-rosy');
+      expect(pv['finish']).not.toHaveBeenCalled();
+      expect(c.fase()).toBe('listo');
+      expect(c.ola()).toBeNull();
+    });
+
+    it('NEGATIVA: con algo surtido sigue siendo «Terminé de surtir» (el aviso no aparece)', async () => {
+      await montar({}, 'abre');
+      clic('Preventa');
+      clic('Surtir este');
+      clic('Completo');
+      c.noHabia(c.pendientes()[0]);
+      fix.detectChanges();
+      expect(boton('Avisar a la vendedora')).toBeUndefined();
+      expect(boton('Terminé de surtir')).toBeDefined();
+    });
+
+    it('si el aviso falla, se dice y deja su motivo en el canal de incidentes', async () => {
+      pv['reportEmpty'] = vi.fn(() => throwError(() => ({ status: 403, error: { message: 'Lo está surtiendo Ana.' } })));
+      await montar({}, 'abre');
+      clic('Preventa');
+      clic('Surtir este');
+      c.noHabia(c.pendientes()[0]);
+      c.noHabia(c.pendientes()[0]);
+      fix.detectChanges();
+      clic('Avisar a la vendedora: no hubo nada');
+      expect(uso.reportarIncidente).toHaveBeenCalledWith('surtir_aviso_vacio_rechazado', expect.objectContaining({ status: 403, motivo: 'Lo está surtiendo Ana.' }));
+      expect(c.fase()).toBe('surtiendo');
+    });
+  });
+
 });

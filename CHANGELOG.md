@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén › Surtir: un pedido de preventa en el que no hubo nada (MCP.27 · 2026-11-20)
+- Si todo el pedido quedó en «No había», el botón ya no es «Terminé de surtir» (que el sistema rechazaba sin salida): es «Avisar a la vendedora: no hubo nada». A la vendedora le llega el aviso para cancelarlo, y el pedido sale de la cola del surtidor como «por cancelar». El pedido no se cierra en cero.
+
 ### Changed — Bancos: un solo motor de categoría, con el porqué de lo que no se clasifica (BFU.7 · 2026-11-20)
 - La categoría de un pago del banco sale de la cuenta contable de Kepler del documento que liquida (por la conciliación o por el Calendario): combustible de ventas, fletes, honorarios, publicidad… en vez de «compra con tarjeta» o «sin clasificar».
 - Lo que no se puede clasificar queda con su motivo y quién lo resuelve: Kepler todavía no lo tiene, Kepler lo tiene en otra cuenta, la cuenta de Kepler no tiene categoría, el pareo es débil…

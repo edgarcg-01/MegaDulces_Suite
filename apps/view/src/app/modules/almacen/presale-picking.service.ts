@@ -36,6 +36,11 @@ export class PresalePickingService {
     return this.http.post<PresalePickInboxRow>(`${this.base}/${orderId}/start`, {});
   }
 
+  /** `[MCP.27]` No hubo nada: avisa a la vendedora para que lo cancele (el pedido no se cierra en cero). */
+  reportEmpty(orderId: string): Observable<PresalePickInboxRow> {
+    return this.http.post<PresalePickInboxRow>(`${this.base}/${orderId}/report-empty`, {});
+  }
+
   finish(orderId: string, body: PresalePickFinishRequest): Observable<PresalePickFinishResponse> {
     return this.http.post<PresalePickFinishResponse>(`${this.base}/${orderId}/finish`, body);
   }

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -44,6 +45,7 @@ import {
   pestanaDe,
   planearCierre,
   sumarDias,
+  decidirAvisoVacio,
 } from './presale-picking.engine';
 import {
   ordenarSugerencias,
@@ -247,6 +249,37 @@ export class PresalePickingService {
         parte ? `${parte}: ya lo están surtiendo` : 'Tu pedido ya lo están surtiendo',
         `${fila['customer_name'] ?? fila['code']} · ${nombre} empezó a las ${horaMx(pick.started_at)}`,
       );
+      return this.aRenglon(nueva, hoy);
+    });
+  }
+
+  /**
+   * `[MCP.27]` No hubo nada: el surtidor avisa a la vendedora para que lo cancele. El pedido NO se cierra (no se
+   * surte en cero); queda «por cancelar» y sale de la cola. Avisar otra vez no repite el aviso.
+   */
+  async reportEmpty(orderId: string, query: Record<string, unknown> = {}): Promise<PresalePickInboxRow> {
+    if (!UUID_RE.test(orderId)) throw new BadRequestException('id inválido');
+    const { userId, nombre } = await this.quien();
+    const hoy = relojMx(new Date()).fecha;
+    const almacenes = await this.scope.warehouseIds(query, AREA);
+    return this.tk.run(async (trx) => {
+      const fila = await this.pedidoEnAlcance(trx, orderId, almacenes);
+      const pick = await trx('commercial.presale_picks').where({ order_id: orderId }).forUpdate().first();
+      const d = decidirAvisoVacio(pick ?? null, userId);
+      if (!d.ok) throw new HttpException(d.motivo, d.status);
+      if (!d.ya_avisado) {
+        await trx('commercial.presale_picks').where({ id: pick.id }).update({
+          empty_reported_at: trx.fn.now(), empty_reported_by: userId, empty_reported_by_name: nombre, updated_at: trx.fn.now(),
+        });
+        const parte = parteDe(fila);
+        const cliente = (fila['customer_name'] as string) ?? (fila['code'] as string);
+        this.avisarVendedora(
+          fila,
+          parte ? `${parte}: no hubo nada` : 'No hubo nada de tu pedido',
+          `${cliente} · ${fila['code']} · cancélalo para que no se quede abierto (avisó ${nombre})`,
+        );
+      }
+      const [nueva] = await this.leer(trx, { almacenes: null, orderId });
       return this.aRenglon(nueva, hoy);
     });
   }
@@ -864,6 +897,7 @@ export class PresalePickingService {
         'u.username as seller_username',
         'pp.started_by', 'pp.started_by_name', 'pp.started_at',
         'pp.finished_by', 'pp.finished_by_name', 'pp.finished_at', 'pp.outcome', 'pp.report',
+        'pp.empty_reported_by', 'pp.empty_reported_by_name', 'pp.empty_reported_at',
         'pp.reviewed_by', 'pp.reviewed_by_name', 'pp.reviewed_at',
         trx.raw('(SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines'),
         trx.raw(`EXISTS (SELECT 1 FROM commercial.wave_orders wo WHERE wo.order_id = o.id AND wo.stage <> 'listo_embarque') AS en_ola`),
@@ -880,6 +914,8 @@ export class PresalePickingService {
     const { bucket, days_late } = pestanaDe(f['requested_delivery_date'] as string, hoy);
     let state: PresalePickState = 'nuevo';
     if (f['finished_at']) state = f['outcome'] === 'con_faltantes' ? 'con_faltantes' : 'completo';
+    // [MCP.27] Avisado «no hubo nada»: sale de la cola del surtidor y espera que la vendedora lo cancele.
+    else if (f['empty_reported_at']) state = 'por_cancelar';
     else if (f['started_at']) state = 'surtiendo';
     else if (f['en_ola']) state = 'en_recorrido';
     return {
@@ -898,6 +934,7 @@ export class PresalePickingService {
       state,
       started: f['started_at'] ? { user_id: f['started_by'] as string, name: f['started_by_name'] as string, at: iso(f['started_at']) as string } : null,
       finished: f['finished_at'] ? { user_id: f['finished_by'] as string, name: f['finished_by_name'] as string, at: iso(f['finished_at']) as string } : null,
+      empty_reported: f['empty_reported_at'] ? { user_id: f['empty_reported_by'] as string, name: f['empty_reported_by_name'] as string, at: iso(f['empty_reported_at']) as string } : null,
       unseen: !!f['unseen'],
       // [MCP.10.1] Revisado en caja: el surtidor ve que el pedido ya no es como él lo dejó.
       reviewed: f['reviewed_at'] ? { user_id: f['reviewed_by'] as string, name: f['reviewed_by_name'] as string, at: iso(f['reviewed_at']) as string } : null,

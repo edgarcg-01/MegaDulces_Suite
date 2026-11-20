@@ -197,3 +197,22 @@ export function detectarCobro(candidatos: PresaleCandidate[], productosPedido: n
   );
   return buenos.length === 1 ? buenos[0] : null;
 }
+
+/**
+ * `[MCP.27]` ¿Puede el surtidor avisar a la vendedora que no hubo nada? El pedido NO se cierra en cero (la regla de
+ * `armarPlan` sigue): queda abierto y «por cancelar», y sale de la cola del surtidor (Edgar, 2026-11-20).
+ * Sólo quien lo está surtiendo, en un pedido abierto. Avisar dos veces no repite el aviso.
+ */
+export type DecisionAvisoVacio =
+  | { ok: true; ya_avisado: boolean }
+  | { ok: false; status: 403 | 409; motivo: string };
+
+export function decidirAvisoVacio(
+  pick: { started_by: string; started_by_name: string | null; finished_at: unknown; empty_reported_at: unknown } | null,
+  yo: string,
+): DecisionAvisoVacio {
+  if (!pick) return { ok: false, status: 409, motivo: 'Primero empieza a surtir el pedido.' };
+  if (pick.finished_at) return { ok: false, status: 409, motivo: 'Este pedido ya se terminó de surtir.' };
+  if (pick.started_by !== yo) return { ok: false, status: 403, motivo: `Lo está surtiendo ${pick.started_by_name ?? 'otra persona'}.` };
+  return { ok: true, ya_avisado: !!pick.empty_reported_at };
+}
