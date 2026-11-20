@@ -117,7 +117,7 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
         const c = r.conservados;
         this.logger.log(`pagos vencidos ${r.hoy}: ${r.revisados} con su día hace una semana o más · ${r.liberados} liberados ($${r.monto_liberado.toFixed(2)})`
           + ` · conservados: Kepler pagado ${c.kepler_pagado}, Kepler a medias ${c.kepler_en_parte}, sin medir en Kepler ${c.kepler_sin_medir},`
-          + ` banco ${c.banco}, banco sin medir ${c.banco_sin_medir}, ligados ${c.ligado}`
+          + ` banco ${c.banco}, banco sin medir ${c.banco_sin_medir}, ligados ${c.ligado}, cheques emitidos ${c.cheque_emitido}`
           + (r.ids_liberados.length ? ` · liberados: ${r.ids_liberados.join(', ')}` : '')
           // [PGP.149] Lo que una pasada anterior soltó habiendo salido del banco.
           + (r.ids_regresados?.length ? ` · regresados a pendientes porque salieron del banco: ${r.ids_regresados.join(', ')}` : '')
