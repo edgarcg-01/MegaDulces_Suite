@@ -1733,8 +1733,9 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const p = await cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: buena }, USER);
       expect(p).toMatchObject({ payment_method: 'transferencia', supplier_payment_account_id: buena });
       expect(String(p.destination_account_text)).toContain(CLABE);
+      // `[PGP.157]` En efectivo, la caja de un anticipo es la de su base (la 08 de este anticipo), no la tecleada.
       const e = await cal.prepare(alloc, { payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' }, USER);
-      expect(e.payment_method).toBe('efectivo');
+      expect(e).toMatchObject({ payment_method: 'efectivo', cash_register_text: 'Caja General · Morelia Abastos' });
     });
   });
 
@@ -1798,6 +1799,56 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const p = await cal.prepare(alloc, { payment_method: 'transferencia', bank_account_id: originId, supplier_payment_account_id: buena }, USER);
       expect(p).toMatchObject({ payment_method: 'transferencia', supplier_payment_account_id: buena });
       expect(String(p.destination_account_text)).toContain('Cta 0123 458 796');
+    });
+  });
+
+  /**
+   * `[PGP.157]` **Un anticipo en efectivo sale de la Caja General de SU base** (cada base cuadra sola). El mismo
+   * `POST allocations/:id/preparar` con el cuerpo que manda «Preparar»: la caja no se teclea, la pone el servidor. El
+   * control es la factura en efectivo, que sigue con la caja escrita a mano.
+   */
+  describe('[PGP.157] en efectivo, el anticipo sale de la Caja General de su base', () => {
+    const DIA = '2030-05-22';
+    let sup = '';
+    const anticipo = async (sucursal: string, monto: number) => {
+      const ant = (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature: 'anticipo', concept: `PGP157 anticipo ${sucursal}`, original_amount: monto, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: sucursal, kepler_doc_tipo: 60,
+        quote_file_key: `commercial/${M}/anticipos/pgp157-${sucursal}.pdf`, quote_file_kind: 'pdf',
+      }).returning('id'))[0].id as string;
+      return (await cal.createAllocation({ date: DIA, items: [{ obligation_source: 'supplier_payable', obligation_id: ant, applied_amount: monto }] }, USER)).id;
+    };
+
+    beforeAll(async () => {
+      sup = (await trx('catalog.suppliers').where({ tenant_id: M, code: 'TPIT-GONAC' }).first('id')).id as string;
+    });
+
+    it('⭐ el de Morelia Abastos (08) sale de la Caja General de la 08, aunque no se mande caja o se mande otra', async () => {
+      const alloc = await anticipo('08', 4800);
+      const p = await cal.prepare(alloc, { payment_method: 'efectivo' }, USER);
+      expect(p).toMatchObject({ payment_method: 'efectivo', cash_register_text: 'Caja General · Morelia Abastos', destination_account_text: null });
+      // ⛔ NEGATIVA — una caja tecleada (otra base) no gana: un pago de la 00 no se aplica a la factura de la 08.
+      const otra = await cal.prepare(alloc, { payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL OFICINAS' }, USER);
+      expect(otra.cash_register_text).toBe('Caja General · Morelia Abastos');
+      // Reprogramar lo conserva.
+      const nuevo = await cal.reprogram(alloc, '2030-05-23', 'otro', 'PGP157 prueba', USER);
+      expect(nuevo).toMatchObject({ payment_method: 'efectivo', cash_register_text: 'Caja General · Morelia Abastos' });
+    });
+
+    it('el de la 00 sale de la Caja General de Oficinas', async () => {
+      const alloc = await anticipo('00', 2100);
+      expect(await cal.prepare(alloc, { payment_method: 'efectivo' }, USER)).toMatchObject({ cash_register_text: 'Caja General · Oficinas' });
+    });
+
+    it('control: una FACTURA en efectivo sigue con la caja escrita a mano, y sin ella no se prepara (la regla de antes)', async () => {
+      const fac = (await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup, nature: 'factura', concept: 'PGP157 factura', original_amount: 900, original_due_date: DIA,
+        authorized_by: USER, authorized_at: trx.fn.now(), created_by: USER, kepler_sucursal: '00',
+      }).returning('id'))[0].id as string;
+      const pago = (await cal.createAllocation({ date: DIA, items: [{ obligation_source: 'supplier_payable', obligation_id: fac, applied_amount: 900 }] }, USER)).id;
+      await expect(cal.prepare(pago, { payment_method: 'efectivo' }, USER)).rejects.toThrow(/caja de salida/);
+      const p = await cal.prepare(pago, { payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' }, USER);
+      expect(p).toMatchObject({ payment_method: 'efectivo', cash_register_text: 'CAJA GENERAL' });
     });
   });
 

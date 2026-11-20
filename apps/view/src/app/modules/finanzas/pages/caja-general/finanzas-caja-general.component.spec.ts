@@ -102,7 +102,8 @@ const DOCS_VACIOS = { instalado: true, base: null, cheques: { desde: null, pieza
  */
 function cajonArqueo(raiz: HTMLElement): HTMLElement | null {
   const peeks = Array.from(raiz.querySelectorAll<HTMLElement>('app-side-peek'));
-  return peeks.find((p) => !p.closest('app-caja-reposicion')) ?? null;
+  // `[PGP.157]` La ventana de los anticipos por entregar es otro `app-side-peek` de la página, como la reposición.
+  return peeks.find((p) => !p.closest('app-caja-reposicion') && !p.closest('app-caja-anticipos-por-entregar')) ?? null;
 }
 
 /** Una fila real de la bandeja: un pago de caja chica SIN cuenta declarada. Es el caso que

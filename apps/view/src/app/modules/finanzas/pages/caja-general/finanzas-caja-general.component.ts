@@ -84,6 +84,8 @@ import type { LigarCobrosResultado } from '@megadulces/contracts';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { CajaCuentasKeplerComponent } from './caja-cuentas-kepler.component';
 import { CajaReposicionComponent } from './caja-reposicion.component';
+// [PGP.157] El anticipo en efectivo autorizado en el Calendario, por entregar (antes de su X-D-60).
+import { CajaAnticiposPorEntregarComponent } from '../../components/caja-anticipos-por-entregar.component';
 import { DepositoCobrosComponent } from './deposito-cobros.component';
 
 /**
@@ -202,6 +204,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
     SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, DepositoCobrosComponent, MovimientoDocumentosComponent,
     ArqueoDocumentosComponent, NgTemplateOutlet, DescartarCambiosComponent, DevolverFocoDirective,
+    CajaAnticiposPorEntregarComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -1285,6 +1288,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <span class="cg-jornada-sep" aria-hidden="true"></span>
           <span class="cg-jornada-res">{{ repo.resumen() }}</span>
         </button>
+
+        <!-- [PGP.157] Los anticipos en efectivo que Dirección ya autorizó y Kepler todavía no tiene: la MISMA pieza que
+             «Reposición» (un botón que dice cuántos y cuánto y abre una ventana). Sin anticipos no sale: no hay nada
+             que hacer. Si la lectura falla, sale diciéndolo. -->
+        @if (anticipos.hay()) {
+          <button #antBtn type="button" class="cg-jornada-btn cg-ant-btn" aria-haspopup="dialog"
+                  (click)="anticipos.abrirVentana(antBtn)">
+            <i class="pi pi-wallet" aria-hidden="true"></i>
+            <strong>Anticipos por entregar</strong>
+            <span class="cg-jornada-sep" aria-hidden="true"></span>
+            <span class="cg-jornada-res">{{ anticipos.resumen() }}</span>
+          </button>
+        }
 
         <!-- [CGP-V.6] Sin el permiso de captura el boton no se ofrece: se dice, una vez, aca arriba. -->
         @if (puedeGestionar()) {
@@ -2994,6 +3010,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                ventana encima. Vive en este apartado y no al final de .cg-app porque ese es una
                columna flex con gap, y un hijo mas le quitaria 1rem de alto a la cola. -->
           <app-caja-reposicion #repo [puedeGestionar]="puedeGestionar()" (cambio)="trasReposicion()" />
+          <!-- [PGP.157] Los anticipos en efectivo autorizados, como la reposición: no pintan nada aquí; su botón va en
+               la barra y su lista en una ventana encima. Se releen con la cola. -->
+          <app-caja-anticipos-por-entregar #anticipos [recarga]="datosAl()" />
         </section>
 
       </div><!-- /cg-split -->

@@ -4,7 +4,7 @@ import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from
 import { SupplierPaymentObligationsService, CreateSupplierObligationDto, type ResultadoCuentaAnticipo } from './supplier-payment-obligations.service';
 import type { ProgramarDocumentoDto } from '@megadulces/contracts';
 import type { DeudaProgramableResponse, ProgramarDocumentoResultado, ProveedorSelectorOpcion } from '@megadulces/contracts';
-import type { AnticipoOcKeplerRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody } from '@megadulces/contracts';
+import type { AnticipoOcKeplerRow, AnticipoProveedorRow, AnticipoSolicitadoRow, AnticipoSolicitudBody, AnticipoPorEntregarRow } from '@megadulces/contracts';
 import { PERMISOS_PEDIR_ANTICIPO, type AnticipoKeplerSinSolicitudRow, type ObligacionCancelada } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
@@ -88,6 +88,18 @@ export class SupplierPaymentObligationsController {
   @ApiOperation({ summary: 'PGP.144 — X-D-60 de mercancía de Kepler (30/90/180 días) que no están pareados con ninguna solicitud de anticipo de la Suite.' })
   keplerSinSolicitud(@Query('dias') dias?: string): Promise<AnticipoKeplerSinSolicitudRow[]> {
     return this.svc.anticiposKeplerSinSolicitud(dias);
+  }
+
+  /**
+   * `[PGP.157]` Los anticipos en efectivo que Caja General tiene por entregar: autorizados en el Calendario y sin
+   * `X-D-60` en Kepler todavía (o ya en Kepler, si los dio otra sucursal y el libro no los registra). Los lee
+   * Captura, así que también entra quien ve Caja General. Sólo lectura. ⛔ Va ANTES de `:id`.
+   */
+  @Get('anticipos/por-entregar')
+  @RequireAnyPermission(Permission.FINANCE_CAJA_VER, Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.157 — anticipos en efectivo autorizados que Caja General tiene por entregar, con la sucursal donde se entrega el dinero.' })
+  anticiposPorEntregar(): Promise<AnticipoPorEntregarRow[]> {
+    return this.svc.listAnticiposPorEntregar();
   }
 
   /**
