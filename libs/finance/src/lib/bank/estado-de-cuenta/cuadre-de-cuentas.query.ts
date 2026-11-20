@@ -17,7 +17,8 @@ export async function cuadresDeLaDescarga(trx: Knex.Transaction, ids: readonly s
     .select('bank_account_id', trx.raw("to_char(date_from, 'YYYY-MM-DD') as desde"), trx.raw("to_char(date_to, 'YYYY-MM-DD') as hasta"),
       'opening_balance as abre', 'closing_balance as cierra', trx.raw(`to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS.US') as subido`));
   const saldos: (SaldoDelBanco & { bank_account_id: string })[] = await trx('finance.bank_statement_lines').whereIn('bank_account_id', ids)
-    .select('bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance as saldo');
+    .select('bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'running_balance as saldo',
+      'file_id as archivo', 'amount_in as abono', 'amount_out as cargo');
   const antesDe = new Map<string, string>();
   for (const id of ids) {
     const inicio = [...archivos.filter((a) => a.bank_account_id === id).map((a) => a.desde), ...saldos.filter((s) => s.bank_account_id === id).map((s) => s.fecha)].sort()[0] ?? null;

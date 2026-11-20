@@ -17,6 +17,8 @@
  *   7. ⛔ NEGATIVA: elegir OTRA cuenta BBVA cuando el saldo es el de la primera → se niega y lo dice.
  *   8. ⛔ NEGATIVA: elegir una cuenta de otro banco → se niega.
  *   9. ⛔ RLS: sin tenant, `app_runtime` no ve ningún renglón.
+ *  14. [BFU.3.4] BBVA completa la referencia en la descarga siguiente → el renglón NO entra dos veces, toma el concepto
+ *      completo y el cuadre no ve repetidos; ⛔ NEGATIVA: un repetido sembrado a mano hace que la cuenta no cuadre.
  * Destino PROD: sólo lectura (las tablas existen, cuántos archivos hay); lo que escribe, NO MEDIDO.
  */
 
@@ -576,6 +578,45 @@ async function completo(urlAdmin, urlRuntime) {
       const eLibro = await encabezado();
       check(eLibro.ini === 1000 && eLibro.fin === 2274 && eLibro.ent === 1300 && eLibro.sal === 26,
         `⛔ [CB.75] la carga del libro no pisa el encabezado de una cuenta que usa el banco (${JSON.stringify(eLibro)})`);
+
+      console.log('\n[14] BFU.3.4 — BBVA completa la referencia en la descarga siguiente: el mismo renglón no entra dos veces');
+      // Inventado con la forma de BBVA 4176 (19-nov): el depósito del 14 llega «DEPOSITO EN EFECTIVO/» y, en la descarga
+      // que se encima, «DEPOSITO EN EFECTIVO/0000001» con el mismo día, importe y saldo.
+      const DEP = await cuenta('BBVA', '59006', `${ALIAS} DEP`);
+      const F1 = bbva([
+        '14-11-2026\tVENTAS DEBITO/100000011 TERMINALES PUNTO DE VENTA\t\t50.00\t7,471.00',
+        '14-11-2026\tDEPOSITO EN EFECTIVO/\t\t100.00\t7,421.00',
+      ]);
+      const F2 = bbva([
+        '15-11-2026\tVENTAS DEBITO/100000012 TERMINALES PUNTO DE VENTA\t\t10.00\t7,481.00',
+        '14-11-2026\tVENTAS DEBITO/100000011 TERMINALES PUNTO DE VENTA\t\t50.00\t7,471.00',
+        '14-11-2026\tDEPOSITO EN EFECTIVO/0000001\t\t100.00\t7,421.00',
+      ]);
+      const d1 = await svc.confirmar({ file_base64: F1, bank_account_id: DEP, aceptar_sin_testigo: true }, 'prueba');
+      check(d1.nuevos === 2, `la primera descarga entra (${d1.nuevos})`);
+      const uD = await svc.usarElBanco(DEP, 'prueba', '2026-11-20');
+      check(uD.metidos === 2, `y la cuenta usa el banco (${uD.metidos} metidos)`);
+      const rD = await svc.revisar({ file_base64: F2, bank_account_id: DEP });
+      check(rD.nuevos === 1 && rD.ya_cargados === 2, `⛔ la revisión ve el depósito como ya cargado aunque cambió su concepto (${rD.nuevos} nuevo, ${rD.ya_cargados} ya cargados)`);
+      const d2 = await svc.confirmar({ file_base64: F2, bank_account_id: DEP, aceptar_sin_testigo: true }, 'prueba');
+      const lineasD = await admin('finance.bank_statement_lines').where({ bank_account_id: DEP }).select('concept', 'reference', 'amount_in');
+      const depD = lineasD.filter((l) => Number(l.amount_in) === 100);
+      check(d2.nuevos === 1 && lineasD.length === 3 && depD.length === 1,
+        `⛔ entra sólo el renglón nuevo: 3 renglones, el depósito una vez (${lineasD.length}, depósitos ${depD.length})`);
+      check(depD[0]?.concept === 'DEPOSITO EN EFECTIVO/0000001' && depD[0]?.reference === '0000001',
+        `el renglón guardado toma el concepto completo (${depD[0]?.concept}, ref ${depD[0]?.reference})`);
+      const movD = await admin('finance.bank_movements').where({ bank_account_id: DEP, sync_source: 'banco' }).whereNull('deleted_at').select('concept', 'amount_in');
+      const sumaD = movD.reduce((a, m) => a + Number(m.amount_in), 0);
+      check(movD.length === 3 && sumaD === 160 && movD.some((m) => m.concept === 'DEPOSITO EN EFECTIVO/0000001'),
+        `en Bancos: 3 movimientos, $160 de abonos (no $260) y el depósito con su referencia (${movD.length}, $${sumaD})`);
+      const qD = (await svc.cuadre('2026-11-20')).cuentas.find((x) => x.id === DEP)?.cuadre;
+      check(qD?.cuadra === true && qD?.repetidos?.renglones === 0, `el cuadre no ve repetidos (${JSON.stringify(qD?.repetidos)}, cuadra ${qD?.cuadra})`);
+      // ⛔ NEGATIVA: el repetido que dejaba el defecto, sembrado a mano en el segundo archivo → la cuenta no cuadra.
+      const orig = await admin('finance.bank_statement_lines').where({ bank_account_id: DEP }).where('amount_in', 100).first();
+      await admin('finance.bank_statement_lines').insert({ ...orig, id: undefined, file_id: d2.archivo_id, line_key: 'prueba-bfu34-repetido', concept: 'DEPOSITO EN EFECTIVO/' });
+      const qN = (await svc.cuadre('2026-11-20')).cuentas.find((x) => x.id === DEP)?.cuadre;
+      check(qN?.cuadra === false && qN?.repetidos?.renglones === 1 && qN?.repetidos?.importe === 100 && /dos veces/.test(qN?.motivo ?? ''),
+        `⛔ con un renglón repetido entre archivos la cuenta NO cuadra y lo dice (${qN?.motivo})`);
     }
   } finally {
     await limpiar(admin).catch(() => {});

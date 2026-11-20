@@ -220,8 +220,9 @@ credenciales de banca en línea.
 
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| BFU.3.1 | **Ensayo en seco** para las que cumplen 1 y 2: qué se reemplaza, qué se re-liga, qué queda sin explicar, por cuenta | ⬜ | no | Sólo lectura, con la función real |
-| BFU.3.2 | **Pasar las cuentas**, fuera de horario, con antes/después de Cuentas, Cuadre 3 vías, Conciliación y Cierre | ⬜ | **sí** (`POST statement-files/usar-el-banco`, existente) | Su prueba existe (CB.60b/73) + la de BFU.2.5 |
+| BFU.3.1 | **Ensayo en seco** para las que cumplen 1 y 2: qué se reemplaza, qué se re-liga, qué queda sin explicar, por cuenta | ✅ 2026-11-19 | no | Sólo lectura, con la función real |
+| BFU.3.2 | **Pasar las cuentas**, fuera de horario, con antes/después de Cuentas, Cuadre 3 vías, Conciliación y Cierre. Hecho el 2026-11-19 19:02: 15 cuentas, 1,541 renglones del libro reemplazados, 0 ligas colgando; BB 3660, STDR 1604 y STDR 5565 no cuadran y siguen con el libro | ✅ 2026-11-19 | **sí** (`POST statement-files/usar-el-banco`, existente) | Su prueba existe (CB.60b/73) + la de BFU.2.5 |
+| BFU.3.4 | 🧪 **El mismo renglón no entra dos veces aunque el banco le cambie el concepto** (hallazgo de BFU.3.2: 18 depósitos repetidos en BBVA 4176 y 6586, BBVA completó su referencia en la descarga siguiente). Huella día+cargo+abono+saldo, el cuadre no cuadra con repetidos, el saldo inicial sale de los dos primeros días (BBVA 5712); migración que quita los 18, ensayada en prod con ROLLBACK | 🧪 | **sí** (migración de datos) | Bloque [14] de `test-newdb-bank-estado-de-cuenta.js` + ensayo ROLLBACK en prod |
 | BFU.3.3 | **48 h después**: la conciliación re-casó, los saldos son los del banco, nada quedó en cero por defecto | ⬜ | no | Comparación publicada aquí |
 
 ### E4 · C3 — El estado de cuenta de la suite
@@ -240,7 +241,7 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| BFU.5.1 | 🧪 2026-11-19 (D10) **El libro ya no entra**: `POST finance/bank/import` y `POST sheet-sync/run` se niegan con «súbela en Estados de cuenta» (`libro-retirado.ts`); el cron de Sheets no corre aunque se encienda la variable; los botones «Subir libro» y «Sincronizar» se fueron de Estados de cuenta; el pendiente «sin movimientos» del Cierre lleva a Estados de cuenta. El importador del servicio queda (las pruebas contra base real lo usan) | 🧪 | Prueba: subir y sincronizar se niegan (mutante sin la negativa → rojo) |
+| BFU.5.1 | ✅ en prod 2026-11-19 (D10) **El libro ya no entra**: `POST finance/bank/import` y `POST sheet-sync/run` se niegan con «súbela en Estados de cuenta» (`libro-retirado.ts`); el cron de Sheets no corre aunque se encienda la variable; los botones «Subir libro» y «Sincronizar» se fueron de Estados de cuenta; el pendiente «sin movimientos» del Cierre lleva a Estados de cuenta. El importador del servicio queda (las pruebas contra base real lo usan) | 🧪 | Prueba: subir y sincronizar se niegan (mutante sin la negativa → rojo) |
 | BFU.5.2 | Se apaga `sheet-sync` y se retira el importador de línea de comandos | ⬜ | Sin lectores; regla principal del repo |
 | BFU.5.3 | El Cuadre 3 vías deja el respaldo «libro» (CB.85) | ⬜ | Cuadre de noviembre idéntico antes/después |
 | BFU.5.4 | ADR: «el banco es la fuente de `bank_movements`; el libro queda como historia hasta oct-2026» | ⬜ | ADR escrito |
@@ -313,3 +314,5 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-19 | «¿Qué sentido tiene compararlo?»: el libro deja de ser testigo (§3.1); se retira la verificación de octubre | Edgar / Claude |
 | 2026-11-19 | E0 (BFU.0.1–0.2), E1 (BFU.1.1 VERDAD §39, BFU.1.3 la cadena) y E2 (BFU.2.5 religar, BFU.2.8–2.9 la explicación y su cifra) en código, sin soltar. Medido: «explicado» oct 93.3 % (libro), nov 10.9 % sólo con el texto del banco: lo que mueve la cifra es pasar las cuentas (E3) | Claude |
 | 2026-11-19 | «Nuestra hoja será la verdad absoluta»: se revisaron en vivo Cuentas, Estados de cuenta y el Cuadre; el plan se reestructura alrededor de las 7 propiedades (§2); entra E0 (Cuentas deja de afirmar lo que no es) y E4 (el estado de cuenta explicado) | Edgar / Claude |
+| 2026-11-19 | BFU.5.1 en prod (el libro ya no entra). E3: 15 cuentas pasadas al banco a las 19:02; 0 ligas colgando; 3 cuentas no cuadran y siguen con el libro | Edgar (autorizó) / Claude |
+| 2026-11-20 | Hallazgo tras E3: 18 depósitos repetidos (BBVA completó la referencia entre descargas) y el saldo inicial de BBVA 5712 mal derivado → BFU.3.4 (código + migración ensayada con ROLLBACK). Edgar autorizó corregir los datos | Edgar / Claude |

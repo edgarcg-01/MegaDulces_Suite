@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Fixed — Bancos: una descarga encimada ya no mete dos veces el mismo movimiento (BFU.3.4 · 2026-11-20)
+- BBVA completa días después la referencia de los depósitos en efectivo; al subir la descarga siguiente, esos depósitos entraban otra vez como nuevos. Ahora se reconocen por día, importe y saldo, y el renglón que ya estaba toma la referencia completa.
+- El cuadre de una cuenta dice «N renglón(es) de la descarga están dos veces» si vuelve a pasar, en vez de decir que cuadra.
+- El saldo inicial del mes ya no sale corrido cuando BBVA aplica primero un cargo fechado al día siguiente.
+- Se quitaron los 18 depósitos repetidos de BBVA 4176 y BBVA 6586 (migración de datos).
+
+### Changed — Bancos: 15 cuentas usan la descarga del banco como fuente (BFU.3.2 · 2026-11-19)
+- Desde su primer día descargado, los movimientos de esas cuentas son los del banco; lo que estaba ligado a los renglones del libro (pagos, capturas, confirmaciones) pasó a su renglón del banco. BB 3660, STDR 1604 y STDR 5565 siguen con el libro porque su descarga no cuadra.
 ### Changed — Almacén › Ubicaciones: las etiquetas de tienda salen en la TSC TE200, rollo amarillo (UB.RF.14 · 2026-11-20)
 - En tienda, «Imprimir etiquetas» ya no arma una hoja carta: manda las etiquetas a la TSC TE200 con el rollo amarillo, 3 por fila, de 3.2 × 4.8 cm, con el código grande y su código de barras. Al imprimir se elige la TSC.
 
