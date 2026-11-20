@@ -255,7 +255,8 @@ export interface TelefonosCuenta {
 }
 export interface CambioTelefonoCliente {
   estado: 'escrito' | 'parcial' | 'rechazado';
-  servidores: { servidor: string; estado: 'escrita' | 'ya_estaba' | 'no_esta' | 'rechazada'; anterior: string | null; motivo: string | null }[];
+  /** `omitida` = no se intentó (el concentrador, sin conexión): no es una falla. */
+  servidores: { servidor: string; estado: 'escrita' | 'ya_estaba' | 'no_esta' | 'rechazada' | 'omitida'; anterior: string | null; motivo: string | null }[];
 }
 export interface Compromiso { id: string; monto_prometido: number; fecha_promesa: string; estado: string; nota: string | null; created_by: string | null; created_at: string }
 

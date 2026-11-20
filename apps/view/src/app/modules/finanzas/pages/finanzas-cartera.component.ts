@@ -1333,6 +1333,8 @@ export class FinanzasCarteraComponent implements OnInit {
         const partes = [`${cuenta('escrita')} actualizada(s)`];
         if (cuenta('ya_estaba')) partes.push(`${cuenta('ya_estaba')} ya lo tenía(n)`);
         if (cuenta('no_esta')) partes.push(`no está dado de alta en ${cuenta('no_esta')}`);
+        // `[CXC.48.1]` El concentrador sin conexión no se escribe: se dice, no se calla.
+        if (r.servidores.some((x) => x.servidor === 'SC' && x.estado === 'omitida')) partes.push('el concentrador no (sin conexión)');
         this.editarTel.set(null);
         this.telAviso.set(malas.length
           ? { texto: `Kepler no aceptó el cambio en: ${malas.map((x) => (x.servidor === 'SC' ? 'concentrador' : x.servidor)).join(', ')}. ${malas[0].motivo || ''}`.trim(), error: true }

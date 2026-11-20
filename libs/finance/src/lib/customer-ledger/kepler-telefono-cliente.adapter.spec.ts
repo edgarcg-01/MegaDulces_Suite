@@ -90,10 +90,20 @@ describe('[CXC.48] teléfono del cliente en Kepler', () => {
       for (const s of SERVIDORES_TELEFONO) expect(bases[s].sql.some((x) => x.q.startsWith('UPDATE'))).toBe(false);
     });
 
-    it('⛔ NEGATIVA — sin las 10 conexiones (falta el concentrador) no intenta nada', async () => {
+    it('[CXC.48.1] sin el concentrador escribe en las 9 y lo DECLARA omitido, con su motivo', async () => {
       const sinSc = { ...ENV }; delete sinSc['KEPLER_PUSH_URL_SC'];
       const bases = diez();
-      await expect(new Prueba(sinSc, bases).escribir('C3099', '3314855906')).rejects.toThrow(/KEPLER_PUSH_URL_SC/);
+      const r = await new Prueba(sinSc, bases).escribir('C3099', '3314855906');
+      expect(r[0]).toMatchObject({ servidor: 'SC', estado: 'omitida' });
+      expect(r[0].motivo).toMatch(/KEPLER_PUSH_URL_SC/);
+      expect(r.filter((x) => x.estado === 'escrita').map((x) => x.servidor)).toEqual(['00', '01', '02', '03', '04', '05', '06', '07', '08']);
+      expect(bases['SC'].sql).toHaveLength(0);
+    });
+
+    it('⛔ NEGATIVA — si falta la conexión de UNA sucursal, no intenta nada', async () => {
+      const sin07 = { ...ENV }; delete sin07['KEPLER_PUSH_URL_07'];
+      const bases = diez();
+      await expect(new Prueba(sin07, bases).escribir('C3099', '3314855906')).rejects.toThrow(/07/);
       for (const s of SERVIDORES_TELEFONO) expect(bases[s].sql).toHaveLength(0);
     });
   });

@@ -579,7 +579,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
 
     it('guardar escribe en Kepler, resume por sucursal y el chat del cliente usa el número nuevo', () => {
       const cambiarTelefonoCliente = vi.fn(() => of({ estado: 'escrito', servidores: [
-        { servidor: 'SC', estado: 'escrita', anterior: '', motivo: null },
+        { servidor: 'SC', estado: 'omitida', anterior: null, motivo: 'falta KEPLER_PUSH_URL_SC' },
         { servidor: '00', estado: 'escrita', anterior: '', motivo: null },
         { servidor: '01', estado: 'escrita', anterior: '', motivo: null },
         { servidor: '04', estado: 'no_esta', anterior: null, motivo: null },
@@ -590,7 +590,7 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
       c.telNuevo = '33 1485 5906';
       c.guardarTel(c.detalle()!); f.detectChanges();
       expect(cambiarTelefonoCliente).toHaveBeenCalledWith('01', 'C1', '33 1485 5906');
-      expect(q('tel-aviso')?.textContent).toContain('Teléfono guardado en Kepler: 3 actualizada(s) · no está dado de alta en 1');
+      expect(q('tel-aviso')?.textContent).toContain('Teléfono guardado en Kepler: 3 actualizada(s) · no está dado de alta en 1 · el concentrador no (sin conexión)');
       expect(q('telefonos')?.textContent).toContain('igual en las 3 sucursales');
       expect((q('enviar-estado-cuenta') as HTMLAnchorElement).href).toMatch(/^https:\/\/wa\.me\/523314855906\?/);
     });
