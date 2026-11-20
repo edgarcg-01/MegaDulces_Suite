@@ -66,7 +66,7 @@ function servicio(trx, saldos, abonos) {
   const s = Object.create(Servicio.prototype);
   Object.assign(s, {
     // [PGP.184] warn/error se guardan: un ajuste que truena por dentro no debe pasar por «decidió no ajustar».
-    logger: { log() {}, warn(m) { avisos.push(String(m)); }, error(m) { avisos.push(String(m)); }, debug() {} },
+    logger: { log() { /* lo informativo no se mira */ }, warn(m) { avisos.push(String(m)); }, error(m) { avisos.push(String(m)); }, debug() { /* ídem */ } },
     tenantCtx: { requireTenantId: () => T, get: () => ({ tenantId: T, userId: null }) },
     tk: { run: (fn) => trx.transaction((sp) => fn(sp)) },
     ledger: null,
