@@ -213,17 +213,64 @@ function archivosDelPush({ shaLocal, shaRemoto }) {
   }
 }
 
-function correrGate(gate) {
+/**
+ * Tope por compuerta. Medido el 2026-11-20: las 28 juntas tardan 10–28 s, y ese día `lint-boundary-gate`
+ * se quedó 10 min sin CPU ni hijos hasta que alguien la mató. Sin tope, el push espera para siempre.
+ */
+const TOPE_MS = Number(process.env.GATE_PUSH_TOPE_MS) || 180_000;
+
+function correrGate(gate, topeMs = TOPE_MS) {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
-      [path.join(RAIZ, 'scripts', gate.script)],
-      { cwd: RAIZ, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+      [gate.ruta || path.join(RAIZ, 'scripts', gate.script)],
+      { cwd: RAIZ, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: topeMs, killSignal: 'SIGTERM' },
       (err, stdout, stderr) => {
-        resolve({ gate, rojo: Boolean(err), salida: `${stdout || ''}${stderr || ''}` });
+        // ⛔ Una compuerta que vence el tope o muere por una señal NO midió nada. Antes caía como «rojo
+        // sin rutas tuyas» = «deuda preexistente (no frena)» y el push pasaba: medido el 2026-11-20, una
+        // compuerta matada a mano dio «nada rojo en tus archivos».
+        // En Windows matar un proceso NO deja señal: Node lo ve como código de salida (así fue el `Stop-Process`
+        // del 2026-11-20). Por eso también cuenta como muerta una compuerta roja que no imprimió NADA: toda
+        // compuerta que de verdad encuentra algo lo dice.
+        const salida = `${stdout || ''}${stderr || ''}`;
+        const muda = Boolean(err) && !salida.trim();
+        const murio = Boolean(err && (err.killed || err.signal)) || muda;
+        const motivo = !murio
+          ? null
+          : err.killed
+            ? `no terminó en ${Math.round(topeMs / 1000)} s`
+            : err.signal
+              ? `terminó por la señal ${err.signal}`
+              : `terminó sin decir nada (código ${err.code})`;
+        resolve({ gate, rojo: Boolean(err), murio, motivo, salida });
       },
     );
   });
+}
+
+/**
+ * Las compuertas como las corre el push: cada una con el tope por omisión. La prueba propia usa ESTA función,
+ * no correrGate suelto: así caza el defecto del 2026-11-20 (`map(correrGate)` pasaba el índice como tope).
+ */
+const correrTodas = (gates) => Promise.all(gates.map((g) => correrGate(g)));
+
+/**
+ * El veredicto, sin efectos (para poder probarlo). `muertas` = NO MEDIDAS: frenan, como el boundary-gate
+ * cuando no puede medir (fail-closed, ADR-056). `tuyos` = rojas que nombran tus archivos. `ajenos` = rojas
+ * que terminaron y no nombran nada tuyo (deuda preexistente, no frena).
+ */
+function clasificar(resultados, mios) {
+  const muertas = [];
+  const tuyos = [];
+  const ajenos = [];
+  for (const r of resultados) {
+    if (r.murio) { muertas.push(r); continue; }
+    if (!r.rojo) continue;
+    const culpaTuya = [...rutasQueNombra(r.salida)].filter((x) => mios.has(x));
+    if (culpaTuya.length) tuyos.push({ ...r, archivos: culpaTuya });
+    else ajenos.push(r);
+  }
+  return { muertas, tuyos, ajenos };
 }
 
 /** Extrae las rutas de repo que el gate nombra en su salida.
@@ -354,18 +401,21 @@ ${sinCodigoDelPush.map((t) => '   · ' + t).join('\n')}
   }
 
   const t0 = Date.now();
-  const resultados = await Promise.all(GATES.map(correrGate));
+  // ⛔ Con flecha: `map(correrGate)` le pasaba el ÍNDICE como tope (1 ms, 2 ms…) y mató 25 compuertas (2026-11-20).
+  const resultados = await correrTodas(GATES);
   const ms = Date.now() - t0;
 
-  const tuyos = [];
-  const ajenos = [];
+  const { muertas, tuyos, ajenos } = clasificar(resultados, mios);
 
-  for (const r of resultados) {
-    if (!r.rojo) continue;
-    const rutas = rutasQueNombra(r.salida);
-    const culpaTuya = [...rutas].filter((x) => mios.has(x));
-    if (culpaTuya.length) tuyos.push({ ...r, archivos: culpaTuya });
-    else ajenos.push(r);
+  if (muertas.length) {
+    console.error(`\n⛔ ${muertas.length} compuerta(s) NO MEDIDAS — tu push no se revisó entero, así que no pasa:\n`);
+    for (const m of muertas) console.error(`   ✗ ${m.gate.nombre}: ${m.motivo}`);
+    console.error(`
+   No es un rojo de tu código: la compuerta no terminó. Vuelve a empujar; si se repite, corre
+   el gate solo (node scripts/${muertas[0].gate.script}) y avisa en el canal del equipo.
+   ⛔ No la saltes con --no-verify: una compuerta que no midió no puede decir «nada rojo».
+`);
+    process.exit(1);
   }
 
   if (ajenos.length) {
@@ -401,7 +451,48 @@ ${sinCodigoDelPush.map((t) => '   · ' + t).join('\n')}
   process.exit(1);
 }
 
-main().catch((e) => {
+/**
+ * `--self-test`: la prueba negativa del veredicto (regla 12). Compuertas inventadas: una que se cuelga, una que
+ * muere por una señal, una roja que no nombra tus archivos (deuda: NO debe frenar) y una verde.
+ */
+async function autoPrueba() {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-push-self-'));
+  const gate = (nombre, codigo) => {
+    const ruta = path.join(dir, `${nombre}.js`);
+    fs.writeFileSync(ruta, codigo);
+    return { nombre, script: `${nombre}.js`, ruta };
+  };
+  const colgada = gate('colgada', 'setInterval(() => {}, 1000);');
+  const senal = gate('senal', "process.kill(process.pid, 'SIGTERM'); setInterval(() => {}, 1000);");
+  const ajena = gate('ajena', "console.log('falla en apps/view/src/otra-pantalla.ts'); process.exit(1);");
+  const verde = gate('verde', "console.log('ok'); process.exit(0);");
+  const tuya = gate('tuya', "console.log('falla en apps/view/src/mia.ts'); process.exit(1);");
+  const mios = new Set(['apps/view/src/mia.ts']);
+  const r = await Promise.all([colgada, senal, ajena, verde, tuya].map((g) => correrGate(g, 1500)));
+  // Por el camino de main(), con el tope por omisión: ninguna compuerta sana puede morir.
+  const comoMain = await correrTodas([verde, ajena, tuya, verde]);
+  const { muertas, tuyos, ajenos } = clasificar(r, mios);
+  const nombres = (xs) => xs.map((x) => x.gate.nombre).sort().join(',');
+  const casos = [
+    ['la colgada y la matada son NO MEDIDAS', nombres(muertas) === 'colgada,senal'],
+    ['la colgada dice que venció el tope', /no terminó en 2 s/.test(r[0].motivo || '')],
+    ['la roja ajena sigue siendo deuda (no frena)', nombres(ajenos) === 'ajena'],
+    ['la roja con tu archivo frena', nombres(tuyos) === 'tuya'],
+    ['por el camino de main() ninguna sana muere (el tope no es el índice)', comoMain.every((x) => !x.murio)],
+    ['la verde no aparece en ninguna lista', !muertas.concat(tuyos, ajenos).some((x) => x.gate.nombre === 'verde')],
+  ];
+  fs.rmSync(dir, { recursive: true, force: true });
+  for (const [txt, ok] of casos) console.log(`${ok ? '✓' : '✗'} ${txt}`);
+  const fallas = casos.filter(([, ok]) => !ok).length;
+  console.log(fallas ? `✗ gate-push --self-test: ${fallas} falla(s)` : `✓ gate-push --self-test: ${casos.length}/${casos.length}`);
+  process.exit(fallas ? 1 : 0);
+}
+
+if (process.argv.includes('--self-test')) {
+  autoPrueba().catch((e) => { console.error('✗ gate-push --self-test reventó:', e); process.exit(1); });
+} else main().catch((e) => {
   // ⚠️ Una compuerta que revienta NO debe frenar el trabajo de nadie: se declara y deja pasar.
   console.error(`⚠️  compuerta de push: falló al correr (${e && e.message}). Se deja pasar; el CI decide.`);
   process.exit(0);
