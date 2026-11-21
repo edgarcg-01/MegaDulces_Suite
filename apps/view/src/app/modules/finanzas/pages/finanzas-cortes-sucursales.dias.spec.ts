@@ -117,7 +117,8 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
   it('[CSU.20] lo contado fuera de un corte se pega a su día-sucursal y NO toca los totales del día', () => {
     const fuera = (p: Partial<CorteConteoFuera>): CorteConteoFuera => ({
       sucursal: '05', sucursal_nombre: 'Zamora Centro', fecha: '2026-10-13', hora: '18:00:00', tipo: 'sin_caja', caja: null,
-      total: 340, por_que: 'sin_caja', motivo: 'fondo de caja', folio: null, usuario: 'Guadalupe Meléndez', ...p,
+      total: 340, por_que: 'sin_caja', motivo: 'fondo de caja', folio: null, usuario: 'Guadalupe Meléndez',
+      id: 'f1', piezas: [], piezas_diferencia: null, nota: null, ...p,
     });
     const dias = agruparCortesPorDia([corte({ folio: '0000001' })], [fuera({}), fuera({ sucursal: '01' }), fuera({ fecha: '2026-10-14' })]);
     expect(dias).toHaveLength(1);

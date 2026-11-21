@@ -233,7 +233,9 @@ SELECT bc.id::text AS id, bc.tipo, bc.warehouse_code AS sucursal,
        to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha_captura,
        to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI:SS') AS hora,
        -- [CSU.20] Para los que no quedan en ningún corte: qué escribió y quién contó.
-       NULLIF(btrim(bc.motivo), '') AS motivo, COALESCE(u.nombre, bc.cajero_code) AS usuario
+       NULLIF(btrim(bc.motivo), '') AS motivo, COALESCE(u.nombre, bc.cajero_code) AS usuario,
+       -- [CSU.23] Para verlo conteo por conteo: sus piezas y la nota de quien contó.
+       bc.denominations, NULLIF(btrim(bc.nota), '') AS nota
   FROM reconciliation.blind_counts bc
   LEFT JOIN LATERAL (
     SELECT x.nombre FROM identity.users x
@@ -395,7 +397,7 @@ export class CortesSucursalesService {
     const c = await trx.raw(SQL_CONTEOS, [tenantId, sucs, desde, masDias(hasta, 1)]);
     const turnos = (t.rows as TurnoFechado[]).map((x) => ({ ...x, caja: sinCeros(String(x.caja)), folio: sinCeros(String(x.folio)) }));
     type ConteoFila = ConteoFechado & Omit<ConteoCajeroCrudo, 'ligado' | 'captured_at'>
-      & { captured_at: Date | string; motivo: string | null; usuario: string | null };
+      & { captured_at: Date | string; motivo: string | null; usuario: string | null; denominations: unknown; nota: string | null };
     const filasConteo = (c.rows as ConteoFila[]).map((x) => ({
       ...x, caja: sinCeros(String(x.caja)),
       cash_cut_folio: x.cash_cut_folio == null ? null : sinCeros(String(x.cash_cut_folio)),
@@ -406,12 +408,14 @@ export class CortesSucursalesService {
     const fuera: ConteoFueraCrudo[] = filasConteo.filter((x) => x.tipo === 'sin_caja').map((x) => ({
       sucursal: x.sucursal, fecha: x.fecha_captura, hora: x.hora, tipo: 'sin_caja', caja: null, total: x.total,
       por_que: 'sin_caja', motivo: x.motivo, folio: null, usuario: x.usuario,
+      id: x.id, denominations: x.denominations as Record<string, unknown> | null, nota: x.nota,
     }));
     const { porTurno, sinTurno } = ligarPorCaptura(turnos, conteos);
     for (const x of sinTurno) {
       fuera.push({
         sucursal: x.sucursal, fecha: x.fecha_captura, hora: x.hora, tipo: x.tipo === 'cierre' ? 'cierre' : 'retiro',
         caja: x.caja, total: x.total, por_que: x.motivo, motivo: null, folio: x.cash_cut_folio, usuario: x.usuario,
+        id: x.id, denominations: x.denominations as Record<string, unknown> | null, nota: x.nota,
       });
     }
     // Lo que se contó en esa caja ese día y no se pudo ligar: se declara en el corte, no se pierde.
@@ -424,7 +428,12 @@ export class CortesSucursalesService {
       const caja = sinCeros(String(f.caja));
       const mios = porTurno.get(llaveTurnoFechado({ sucursal: f.sucursal, caja, folio: sinCeros(String(f.turno)), fecha: String(f.arqueo_fecha) }));
       if (mios?.length) {
-        f.conteos_cajero = mios.map((x) => ({ tipo: x.tipo, total: x.total, medios: x.medios, captured_at: x.captured_at, ligado: x.ligado }));
+        f.conteos_cajero = mios.map((x) => ({
+          tipo: x.tipo, total: x.total, medios: x.medios, captured_at: x.captured_at, ligado: x.ligado,
+          // [CSU.23] Para verlo conteo por conteo.
+          id: x.id, fecha_captura: x.fecha_captura, hora: x.hora, usuario: x.usuario, nota: x.nota,
+          denominations: x.denominations as Record<string, unknown> | null,
+        }));
       }
       f.conteos_cajero_sin_ligar = sueltos.get(`${f.sucursal}|${caja}|${f.arqueo_fecha}`) ?? 0;
     }

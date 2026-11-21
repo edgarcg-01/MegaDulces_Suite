@@ -11,6 +11,9 @@ import { CarteraTelefonosController } from './cartera-telefonos.controller';
 import { CarteraTelefonosService } from './cartera-telefonos.service';
 import { KeplerTelefonoClienteAdapter } from './kepler-telefono-cliente.adapter';
 import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
+import { AutorizacionDecisionService } from './autorizacion-decision.service';
+import { AutorizacionPedidosController } from './autorizacion-pedidos.controller';
+import { KeplerAutorizacionPedidoAdapter } from './kepler-autorizacion-pedido.adapter';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Lee el espejo
@@ -27,11 +30,14 @@ import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
   imports: [FinanceCollectionDepositsModule],
   // [CC.20.2] El cliente descarga su estado de cuenta desde su enlace personal (pública, autorizada por el token).
   // [CXC.48] Los teléfonos de la cartera: el del cliente se escribe en Kepler, el del vendedor en la Suite.
-  controllers: [CustomerLedgerController, EstadoCuentaPublicoController, CarteraTelefonosController],
+  // [GP.A.2] La decisión sobre un pedido TELEMARK (escribe kdm1.c11 en Kepler con la escritura encendida).
+  controllers: [CustomerLedgerController, EstadoCuentaPublicoController, CarteraTelefonosController, AutorizacionPedidosController],
   providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument,
     PgListenService, CarteraPorEventoService, CarteraTelefonosService, KeplerTelefonoClienteAdapter,
     // [GP.A.4] La bandeja «Por autorizar» de Crédito y cobranza (sólo lectura).
-    AutorizacionPedidosService],
+    AutorizacionPedidosService,
+    // [GP.A.2] Registrar la decisión y escribirla en Kepler (el adaptador nace apagado: KEPLER_AUTORIZACION_PEDIDOS).
+    AutorizacionDecisionService, KeplerAutorizacionPedidoAdapter],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],
 })
 export class FinanceCustomerLedgerModule {}

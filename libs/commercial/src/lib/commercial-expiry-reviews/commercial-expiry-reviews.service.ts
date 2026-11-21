@@ -21,6 +21,7 @@ import {
   branchKeyFilterSql,
   applySmartSearchConCodigo,
 } from '@megadulces/platform-core';
+import { declararCaducidad, retirarCaducidad } from '../commercial-inventory/lotes-declarados';
 
 /**
  * Fase P2.6 — Control de Caducidades digital (ADR-022).
@@ -632,11 +633,12 @@ export class CommercialExpiryReviewsService {
   // ───── FEFO por renglón (alimentar / revertir) ─────
 
   /**
-   * Reclasifica `min(cantidad, saldo del lote NA)` del lote sin fecha al lote
-   * fechado `EXP-<fecha>`. El total del producto NO cambia (es una
-   * reclasificación, no un movimiento) → `commercial.stock.quantity` queda
-   * intacto, el trigger del invariante no dispara y `SUM(lotes)=stock` se
-   * sostiene. Devuelve `true` si movió algo.
+   * Declara con fecha (`EXP-<fecha>`) `min(cantidad, lo libre)`. Devuelve `true` si declaró algo.
+   *
+   * `[CANON.7.4c]` Lo libre es la existencia de Kepler menos lo ya declarado (`lotes-declarados.ts`): el lote `NA` ya no
+   * se guarda ni se toca, y no hace falta renglón en la copia `commercial.stock`. Hasta el 2026-11-20 se movía del `NA`
+   * que mantenía el disparador de la copia, y sin renglón en ella no se declaraba nada (2 de 151 capturas en 60 días;
+   * en el CEDIS, casi todo).
    *
    * Salía inline dentro de `submitReview`. Se extrajo para que la **alta directa
    * de tienda** alimente FEFO al guardar un solo renglón, y para tener su
@@ -647,42 +649,11 @@ export class CommercialExpiryReviewsService {
     // Alimenta FEFO solo si hay producto + caducidad + cantidad.
     if (!line.product_id || !line.expiry_date || qty <= 0) return false;
 
-    // Lock del saldo total (evita race con reservas/movimientos concurrentes).
-    const stockRow = await trx('commercial.stock')
-      .where({ warehouse_id: warehouseId, product_id: line.product_id })
-      .forUpdate()
-      .first();
-    if (!stockRow) return false; // sin fila de stock → no hay NA que reclasificar
-
-    // Lote 'NA' (balanceador sin fecha): cuánto podemos reclasificar a lote fechado
-    // sin alterar el total (invariante SUM(lotes)=stock).
-    const naLot = await trx('commercial.stock_lots')
-      .where({ warehouse_id: warehouseId, product_id: line.product_id, lot_code: 'NA' })
-      .whereNull('expiry_date')
-      .first();
-    const naQty = naLot ? Number(naLot.quantity) : 0;
-    const moveQty = Math.min(qty, naQty);
-    if (moveQty <= 0) return false;
-
     // expiry_date puede venir como Date (pg parsea `date` a Date) o string.
-    const expiryYmd = this.toYmd(line.expiry_date);
-    const lotCode = `EXP-${expiryYmd}`;
-
-    // Upsert del lote fechado (+moveQty) — mismo patrón que recordMovement('in').
-    await trx.raw(
-      `INSERT INTO commercial.stock_lots
-         (tenant_id, warehouse_id, product_id, lot_code, expiry_date, quantity, reserved_quantity, received_at, updated_by)
-       VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, 0, now(), ?)
-       ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date)
-       DO UPDATE SET quantity = commercial.stock_lots.quantity + EXCLUDED.quantity,
-                     received_at = now(), updated_at = now(), updated_by = EXCLUDED.updated_by`,
-      [warehouseId, line.product_id, lotCode, expiryYmd, moveQty, userId || null],
-    );
-
-    // Decrementa el lote 'NA' en la misma cantidad → total constante, invariante intacto.
-    await trx('commercial.stock_lots')
-      .where({ id: naLot.id })
-      .update({ quantity: naQty - moveQty, updated_at: trx.fn.now(), updated_by: userId || null });
+    const moveQty = await declararCaducidad(trx, {
+      warehouseId, productId: line.product_id, expiryYmd: this.toYmd(line.expiry_date), cantidad: qty, userId,
+    });
+    if (moveQty <= 0) return false;
 
     await trx('commercial.expiry_review_lines')
       .where({ id: line.id })
@@ -691,52 +662,20 @@ export class CommercialExpiryReviewsService {
   }
 
   /**
-   * Inverso exacto de `feedLine`: devuelve `fefo_qty` del lote fechado al lote
-   * 'NA'. Es lo que hace corregible una alta ya guardada (el colaborador puede
-   * arreglar un dedazo de fecha en su turno).
+   * Inverso de `feedLine`: baja `fefo_qty` del lote fechado. Es lo que hace corregible una alta ya guardada (el
+   * colaborador puede arreglar un dedazo de fecha en su turno). Lo retirado vuelve a lo libre solo: el `NA` es derivado
+   * (`[CANON.7.4c]`), ya no se le suma nada.
    *
-   * **Se niega si el lote ya no tiene esa cantidad disponible**: entre el alta y
-   * la corrección pudo salir mercancía de ese lote (el decremento FEFO del
-   * trigger consume no-vencido primero). Devolver algo que ya se despachó
-   * inventaría producto; dejarlo a medias rompería el invariante. En ese caso
-   * corta con 409 y lo manda con el encargado, que tiene el ajuste de inventario.
+   * **Se niega si el lote ya no tiene esa cantidad disponible**: entre el alta y la corrección pudo salir mercancía de
+   * ese lote (el consumo FEFO va primero por lo no vencido). Corta con 409 y lo manda con el encargado.
    */
   private async unfeedLine(trx: any, warehouseId: string, line: any, userId?: string): Promise<void> {
     const fedQty = Number(line.fefo_qty) || 0;
     if (!line.fed_to_fefo || fedQty <= 0 || !line.product_id || !line.expiry_date) return;
 
-    const expiryYmd = this.toYmd(line.expiry_date);
-    const lotCode = `EXP-${expiryYmd}`;
-
-    await trx('commercial.stock')
-      .where({ warehouse_id: warehouseId, product_id: line.product_id })
-      .forUpdate()
-      .first();
-
-    const dated = await trx('commercial.stock_lots')
-      .where({ warehouse_id: warehouseId, product_id: line.product_id, lot_code: lotCode })
-      .first();
-    const libre = dated ? Number(dated.quantity) - Number(dated.reserved_quantity || 0) : 0;
-    if (libre < fedQty)
-      throw new ConflictException(
-        `Ya salió mercancía del lote ${lotCode} (quedan ${libre} de ${fedQty}). Esta alta no se puede corregir sola: pedile al encargado que ajuste el inventario.`,
-      );
-
-    await trx('commercial.stock_lots')
-      .where({ id: dated.id })
-      .update({ quantity: Number(dated.quantity) - fedQty, updated_at: trx.fn.now(), updated_by: userId || null });
-
-    // Devuelve al lote 'NA' (expiry_date NULL). El UNIQUE de stock_lots es
-    // NULLS NOT DISTINCT, así que el ON CONFLICT casa el NA existente.
-    await trx.raw(
-      `INSERT INTO commercial.stock_lots
-         (tenant_id, warehouse_id, product_id, lot_code, expiry_date, quantity, reserved_quantity, received_at, updated_by)
-       VALUES (public.current_tenant_id(), ?, ?, 'NA', NULL, ?, 0, now(), ?)
-       ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date)
-       DO UPDATE SET quantity = commercial.stock_lots.quantity + EXCLUDED.quantity,
-                     updated_at = now(), updated_by = EXCLUDED.updated_by`,
-      [warehouseId, line.product_id, fedQty, userId || null],
-    );
+    await retirarCaducidad(trx, {
+      warehouseId, productId: line.product_id, expiryYmd: this.toYmd(line.expiry_date), cantidad: fedQty, userId,
+    });
 
     // `fefo_qty` es NOT NULL DEFAULT 0 (mig 20260810120000): "no alimentó" se
     // escribe **0**, no `null`. Con null la reversión moría en `23502` y la

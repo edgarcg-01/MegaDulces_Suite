@@ -35,7 +35,7 @@ const LECTORES_A: Array<[archivo: string, quedan: number, porque: string]> = [
   ['commercial-products/commercial-products.service.ts', 0, 'A7 findById (total de la red)'],
   ['commercial-profitability/commercial-profitability.service.ts', 0, 'A8 overview · A9 breakdown'],
   ['commercial-replenishment/commercial-replenishment.service.ts', 0, 'A10 networkSurplus · A11 criticalStock · A12 summary'],
-  ['commercial-replenishment/replenishment-scanner.service.ts', 2, 'A13 scanTenant: escribe la bandeja → [CANON.7.4]'],
+  ['commercial-replenishment/replenishment-scanner.service.ts', 0, 'A13 scanTenant: la bandeja lee lo mismo que Existencia crítica ([CANON.7.4e])'],
 ];
 
 /**
@@ -268,5 +268,38 @@ describe('[CANON.7.4b] los pedidos: existencia del ODS, apartado del libro de mo
     expect(f).toContain('FROM ${EXISTENCIA_ODS_CON_APARTADO_SQL} x');
     expect(f).toContain('WHERE x.warehouse_id = ANY(?::uuid[]) AND x.product_id = ANY(?::uuid[])) AS s');
     expect(f).toContain('.leftJoin(existenciaDelPedido, function () {');
+  });
+});
+
+/**
+ * `[CANON.7.4c]` Capturar una caducidad ya no lee ni escribe la copia, ni el lote `NA` guardado: declara hasta lo libre
+ * (existencia de Kepler − lo declarado, `lotes-declarados.ts`). Hasta el 2026-11-20 exigía renglón en la copia.
+ */
+describe('[CANON.7.4c] caducidades y lotes: sin la copia y sin el NA guardado', () => {
+  const leer = (rel: string) => readFileSync(join(LIB, rel), 'utf8').split('\r\n').join('\n');
+
+  it('la captura de caducidades no lee ni escribe la copia, ni el lote NA', () => {
+    const f = leer('commercial-expiry-reviews/commercial-expiry-reviews.service.ts');
+    expect(lecturasDeLaCopia(f).map((l) => l.trim())).toEqual([]);
+    expect(f).not.toMatch(/'NA', NULL/);
+    expect(f).not.toMatch(/lot_code: 'NA'/);
+    expect(f).toContain('declararCaducidad(trx,');
+    expect(f).toContain('retirarCaducidad(trx,');
+  });
+
+  it('lo libre para declarar es la existencia del ODS menos lo declarado, con el candado del disparador de kdil', () => {
+    const f = leer('commercial-inventory/lotes-declarados.ts');
+    expect(lecturasDeLaCopia(f)).toEqual([]);
+    expect(f).toContain('FROM analytics.v_erp_stock_on_hand e');
+    expect(f).toContain(`l.lot_code <> 'NA' AND l.quantity > 0`);
+    expect(f).toContain('`lotes:${warehouseId}:${productId}`');
+    const mig = readFileSync(join(RAIZ, 'database/migrations-newdb/20261120150025_canon74c_lotes_fefo_por_evento_del_ods.js'), 'utf8');
+    expect(mig).toContain(`hashtextextended('lotes:' || p_warehouse::text || ':' || p_product::text, 0)`);
+  });
+
+  it('entregar no lee el NA guardado para el aviso «se vendió vencido»', () => {
+    const c = leer('commercial-orders/order-stock.service.ts');
+    expect(c).toContain(`.whereNot('lot_code', 'NA')`);
+    expect(c).toContain('Math.max(existencia - declarado, 0)');
   });
 });

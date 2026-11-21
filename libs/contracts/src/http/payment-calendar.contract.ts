@@ -90,6 +90,18 @@ export interface PaymentCalendarAjusteAlSaldo {
   omitidas: { item_id: string; factura: string; motivo: string }[];
 }
 
+/**
+ * `[PGP.184]` Lo que devuelve `POST allocations/:id/reprogramar`: el pago nuevo (la fila completa; aquí lo que la
+ * pantalla lee) y lo que se hizo si alguna de sus facturas ya debe menos en Kepler (una nota o devolución la bajó):
+ * `ajuste_al_saldo` null = nada de más · con `ajustadas` = bajó solo (a un día por venir, D19 b) · sólo `omitidas` =
+ * lleva de más y NO se bajó solo (a hoy o a un día pasado, o venía autorizado), con el motivo: lo decide una persona.
+ */
+export interface PaymentCalendarReprogramado {
+  id: string;
+  amount_assigned: number;
+  ajuste_al_saldo: PaymentCalendarAjusteAlSaldo | null;
+}
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */

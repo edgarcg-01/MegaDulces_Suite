@@ -3,6 +3,7 @@ import { antiguedad, EstadoCuentaClienteDocument, resolverDesde, type DetalleEC 
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerLedgerService } from './customer-ledger.service';
+import { AutorizacionPedidosService } from './autorizacion-pedidos.service';
 import { CustomerDepositsService } from '../collection-deposits/customer-deposits.service';
 import { qrSvg } from '../shared/qr-svg';
 
@@ -112,7 +113,9 @@ describe('[CXC.40] estado de cuenta del cliente', () => {
     expect(providers).toContain(EstadoCuentaClienteDocument);
     expect(providers).toContain(CustomerLedgerService);
     // vitest transpila sin emitDecoratorMetadata: se fija la ARIDAD, no los tipos.
-    expect(CustomerLedgerController.length).toBe(4);
+    // `[GP.A.4]` La 5ª es la bandeja «Por autorizar» (AutorizacionPedidosService, provider del mismo módulo).
+    expect(CustomerLedgerController.length).toBe(5);
+    expect(providers).toContain(AutorizacionPedidosService);
     // `[CC.20]` La 4ª es el servicio del enlace de depósito (para el QR), @Optional: tiene que llegar por el import
     // del módulo de depósitos, o el PDF saldría siempre sin QR sin que nada lo diga.
     expect(EstadoCuentaClienteDocument.length).toBe(4);

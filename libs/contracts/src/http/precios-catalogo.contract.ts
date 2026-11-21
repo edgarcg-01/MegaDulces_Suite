@@ -163,3 +163,52 @@ export interface RespuestaSinClasificar {
   total: number;
   filas: FilaSinClasificar[];
 }
+
+/**
+ * `[CAT-PRECIO.6]` Mantenimiento · **Costo o precio en cero**: lo que la ficha de Kepler tiene en $0.
+ * Se mira cada unidad EN USO de la ficha (la base siempre; la segunda y la tercera sólo con factor > 0: rotuladas y
+ * vacías no son un error, `ERP_KEPLER.md` §2.1.1) en cada sucursal que vende al público.
+ */
+export type CampoEnCero = 'costo' | 'precio';
+
+/** Una unidad de la ficha de UNA sucursal con algo en cero. ⛔ Nunca viaja un costo con valor: sólo qué está en cero. */
+export interface CeroEnFicha {
+  sucursal: string;
+  sucursal_nombre: string | null;
+  unidad: string;
+  /** `cero` = la ficha dice 0; `vacio` = el campo está en blanco (Kepler lo muestra en cero); `null` = el costo está bien. */
+  costo: 'cero' | 'vacio' | null;
+  precio_cero: boolean;
+}
+
+export interface FilaEnCeros {
+  sku: string;
+  nombre: string;
+  /** Sucursales (que venden al público) donde existe la ficha. */
+  plazas: number;
+  linea: { codigo: string | null; nombre: string | null };
+  falta: CampoEnCero[];
+  /** Dónde: sucursal × unidad, en el orden de las sucursales. */
+  ceros: CeroEnFicha[];
+  venta_30d: number;
+}
+
+export interface ConsultaEnCeros {
+  q?: string;
+  falta?: CampoEnCero;
+  linea?: string;
+  /** Sólo los que vendieron algo en 30 días. */
+  con_venta?: boolean;
+  limite?: number;
+  desplazamiento?: number;
+}
+
+export interface RespuestaEnCeros {
+  ficha_al: string | null;
+  /** Productos con algo en cero (búsqueda, línea y venta aplicadas), por lo que tienen en cero. */
+  resumen: Record<CampoEnCero, number>;
+  con_cero: number;
+  lineas: OpcionClasificacion[];
+  total: number;
+  filas: FilaEnCeros[];
+}

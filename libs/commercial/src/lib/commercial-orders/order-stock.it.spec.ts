@@ -75,7 +75,8 @@ suite('[CANON.7.4b] apartar, entregar y liberar: ODS + libro de movimientos, con
     const [b] = await trx('catalog.brands').insert({ tenant_id: M, nombre: 'IT 7.4b marca' }).returning('id');
     // p: el de casi todas las pruebas · p2: sin existencia · pr/pc/pl: uno por operación para la prueba del candado
     // (cada una toca SÓLO su producto, para que el candado que tomó otra operación no la tape).
-    const productos = [['p', SKU, 10], ['p2', SKU2, 0], ['pr', 'IT74B0R', 5], ['pc', 'IT74B0C', 5], ['pl', 'IT74B0L', 5]] as const;
+    // pv: 10 de Kepler con 8 declaradas en un lote ya VENCIDO (y un NA guardado que miente, que no se debe leer).
+    const productos = [['p', SKU, 10], ['p2', SKU2, 0], ['pr', 'IT74B0R', 5], ['pc', 'IT74B0C', 5], ['pl', 'IT74B0L', 5], ['pv', 'IT74B0V', 10]] as const;
     for (const [k, sku] of productos) {
       const [p] = await trx('catalog.products').insert({ tenant_id: M, brand_id: b.id, nombre: `IT 7.4b ${sku}`, sku }).returning('id');
       ids[k] = p.id;
@@ -86,6 +87,10 @@ suite('[CANON.7.4b] apartar, entregar y liberar: ODS + libro de movimientos, con
     for (const [, sku, qty] of productos) {
       await trx.raw(`INSERT INTO kepler_ods.kdil (sucursal, c1, c2, c3, c4, c8, c9, c6, c7) VALUES (?, ?, 0, ?, ?, 0, 0, now(), now())`, [SUC, SUC, sku, qty]);
     }
+    await trx('commercial.stock_lots').insert([
+      { tenant_id: M, warehouse_id: ids['w'], product_id: ids['pv'], lot_code: 'VENCIDO', expiry_date: trx.raw('CURRENT_DATE - 3'), quantity: 8, reserved_quantity: 0 },
+      { tenant_id: M, warehouse_id: ids['w'], product_id: ids['pv'], lot_code: 'NA', expiry_date: null, quantity: 500, reserved_quantity: 0 },
+    ]);
     // ── De aquí en adelante, como la app ────────────────────────────────────────────────────────────
     await trx.raw('SET LOCAL ROLE app_runtime');
   }, 120_000);
@@ -179,6 +184,14 @@ suite('[CANON.7.4b] apartar, entregar y liberar: ODS + libro de movimientos, con
     expect(await movs(ids['D'])).toEqual([{ movement_type: 'sale', quantity: '10.000' }]);
     expect(await ea()).toEqual({ existencia: 10, apartado: 0 }); // la venta la descuenta Kepler, no la Suite
     expect(await copia()).toBe(0);
+  });
+
+  it('[CANON.7.4c] «se vendió vencido» con lo sin lote DERIVADO: 10 de Kepler, 8 en un lote vencido → sin lote 2; entregar 5 avisa 3', async () => {
+    ids['V'] = await pedido('IT74B-V', 'confirmed');
+    let r: { expiredConsumed: number } | undefined;
+    expect(await status(trx, async (sp) => { r = await svc.consume(sp, ids['w'], ids['pv'], 5, ids['V']); })).toBe(200);
+    // Con el NA guardado (500, mentira) sería 0: el candado es que NO se lea.
+    expect(r).toEqual({ expiredConsumed: 3 });
   });
 
   it('la reserva del bot cuenta mientras esté viva y deja de contar al liberarse', async () => {
