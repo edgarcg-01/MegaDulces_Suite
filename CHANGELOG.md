@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Caducidades: lo capturado entra al control de caducidad en la unidad del inventario (P2.9 paso 4 · 2026-11-20)
+- Una caducidad capturada en cajas fechaba en el inventario el mismo número, pero en paquetes o piezas: 3 cajas de 24 paquetes fechaban 3 paquetes. Ahora fecha 72, con el factor de la presentación en Kepler de esa sucursal. En el historial, 47 renglones fecharon 1,248 unidades donde eran 24,365.
+- Si Kepler no dice cuánto trae esa unidad (la pieza de la escalera de mayoreo, una unidad que el producto no tiene, un producto sin presentaciones), la caducidad se guarda pero no se fecha en el inventario, y la pantalla dice por qué en vez de «no hay existencia sin fecha».
+- La hoja impresa y el expediente siguen diciendo la cantidad en la unidad capturada («3 cajas»).
+- Si el producto capturado no tiene clave de Kepler (copias dadas de alta a mano para las promotoras), la hoja dice eso, en vez de «no hay existencia sin fecha».
 ### Internal — Protocolo previo al PR, puntos 121–125, y `[MSP]` a su estado real (2026-11-21)
 - `ONBOARDING.md` §8.0b: **(121)** una spec que llega de afuera se mide contra lo que ya existe y su plan sube al Tablero PM antes del código (observación del PM en `[MDT.4]`); **(122)** un commit de docs a `main` es rama + PR, porque la rama está protegida; **(123)** con `main` rojo, el conflicto de un PR se resuelve en la rama, sin fusionarle `main` (#539); **(124)** en el plan, la migración va después del merge y antes de soltar; **(125)** un job informativo en verde no dice que tus suites pasaron: sus ❌ se comparan contra los de `main`.
 - `[MSP]`: tracker y plan pasan C0–C3 y la migración a ✅; `[MSP.4]` queda 🔨 hasta encender la cola con una solicitud de prueba con evidencia.

@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   CADUCIDAD_UNIDADES, CADUCIDAD_UNIDADES_DEF, esCaducidadUnidad, unidadDesdeKepler, unidadEnTexto,
-  unidadesDesdePresentaciones, unidadesOfrecidas,
+  unidadesDesdePresentaciones, unidadesOfrecidas, factorDeCaptura, FEFO_MOTIVOS, esFefoMotivo,
 } from './caducidad-unidad.contract';
 
 describe('[P2.9 paso 1] caducidad-unidad: una sola definición de las 7 unidades', () => {
@@ -108,5 +110,55 @@ describe('[P2.9 paso 1] caducidad-unidad: una sola definición de las 7 unidades
     expect(esCaducidadUnidad('cubeta')).toBe(false);
     expect(esCaducidadUnidad('Caja')).toBe(false);
     expect(esCaducidadUnidad(null)).toBe(false);
+  });
+});
+
+describe('[P2.9 paso 4] factorDeCaptura: con qué factor entra a FEFO lo capturado (D4)', () => {
+  // Producto real de prod (99734, plaza 06): base PAQ, ranura CJA de 24, escalera PZA SIN factor.
+  const prod = unidadesDesdePresentaciones([
+    { unidad: 'CJA', factor: 24, origen: 'ranura' }, { unidad: 'PAQ', factor: 1, origen: 'base' },
+    { unidad: 'PZA', factor: null, origen: 'escalera' },
+  ]).unidades;
+
+  it('⭐ la base vale 1 y una caja de 24 paquetes vale 24 (45 cajas fechaban 45 paquetes hasta el paso 4)', () => {
+    expect(factorDeCaptura(prod, 'paquete')).toEqual({ factor: 1, motivo: null });
+    expect(factorDeCaptura(prod, 'caja')).toEqual({ factor: 24, motivo: null });
+  });
+
+  it('⛔ NEGATIVA — la escalera sin factor NO vale 1: no entra, y dice por qué', () => {
+    expect(factorDeCaptura(prod, 'pieza')).toEqual({ factor: null, motivo: 'unidad_sin_factor' });
+  });
+
+  it('⛔ NEGATIVA — una unidad que el producto no tiene no se convierte (6 piezas de un producto PAQ no son 6 paquetes)', () => {
+    const soloPaq = unidadesDesdePresentaciones([{ unidad: 'CJA', factor: 12, origen: 'ranura' }, { unidad: 'PAQ', factor: 1, origen: 'base' }]).unidades;
+    expect(factorDeCaptura(soloPaq, 'pieza')).toEqual({ factor: null, motivo: 'unidad_fuera_del_producto' });
+  });
+
+  it('el kilo de un producto de bolsa de 500 g vale 2 bolsas (base × factor_KG = 1000, medido 51/51)', () => {
+    const bolsa = unidadesDesdePresentaciones([{ unidad: '500', factor: 1, origen: 'base' }, { unidad: 'KG', factor: 2, origen: 'ranura' }]).unidades;
+    expect(factorDeCaptura(bolsa, 'kg')).toEqual({ factor: 2, motivo: null });
+    expect(factorDeCaptura(bolsa, 'g500')).toEqual({ factor: 1, motivo: null });
+  });
+
+  it('sin unidad, o sin lista del producto, no entra y el motivo dice cuál', () => {
+    expect(factorDeCaptura(prod, null)).toEqual({ factor: null, motivo: 'sin_unidad' });
+    expect(factorDeCaptura(null, 'caja')).toEqual({ factor: null, motivo: 'sin_presentaciones' });
+    expect(factorDeCaptura([], 'caja', 'sin_lectura')).toEqual({ factor: null, motivo: 'sin_lectura' });
+  });
+
+  it('los motivos son los del CHECK de la migración 20261120172724 (se LEE el archivo, no una copia)', () => {
+    // Un motivo aquí que el CHECK no tiene = la base rechaza el guardado (500). Se compara contra el texto
+    // de la migración para que la deriva salga roja aquí y no en la sucursal.
+    const mig = readFileSync(
+      resolve(__dirname, '../../../../database/migrations-newdb/20261120172724_expiry_review_lines_fefo_en_unidad_base.js'),
+      'utf8',
+    );
+    const bloque = /const MOTIVOS = \[([\s\S]*?)\];/.exec(mig)?.[1] ?? '';
+    const delCheck = Array.from(bloque.matchAll(/'([a-z_]+)'/g), (m) => m[1]);
+    expect(delCheck.length).toBeGreaterThan(0);
+    expect([...FEFO_MOTIVOS]).toEqual(delCheck);
+    expect(FEFO_MOTIVOS).toContain('sin_clave_kepler');
+    expect(esFefoMotivo('unidad_sin_factor')).toBe(true);
+    expect(esFefoMotivo('otro')).toBe(false);
   });
 });
