@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarTransferenciaDe, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiConCancelados, leerCfdiDeFacturas } from './cfdi-factura.sql';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
@@ -51,8 +51,10 @@ import {
 import {
   AUTOR_AJUSTE_AL_SALDO, EVENTO_AJUSTADO_AL_SALDO, SQL_ABONOS_DE_LAS_FACTURAS, SQL_ARMADO_ORIGINAL, SQL_CANDIDATOS_AJUSTE, SQL_YA_SALIO_DEL_BANCO,
   MOTIVO_NO_AJUSTA_AUTORIZADO, MOTIVO_NO_AJUSTA_HOY_O_PASADO, cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo,
-  type CargoKepler, type FacturaParaDebeMenos, type ModoAjusteAlSaldo, type OpcionesAjusteAlSaldo,
+  MOTIVO_CUBIERTA_POR_OTRA_PARTE, SQL_RENGLONES_VIVOS_DE_LAS_FACTURAS, cubiertoAntesPorRenglon, debeParaEsteRenglon,
+  type CargoKepler, type FacturaParaDebeMenos, type ModoAjusteAlSaldo, type OpcionesAjusteAlSaldo, type RenglonVivoDeLaFactura,
 } from './debe-menos';
+import { ErrorAlPartir, EVENTO_PARTIDO_EN_TRANSFERENCIAS, partirEnTransferencias, type ParteDelPago } from './partir-en-transferencias';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
 
@@ -256,6 +258,15 @@ export interface PrepareAllocationDto {
   bank_account_id?: string | null; destination_account_text?: string | null;
   cash_register_text?: string | null; reference_text?: string | null;
   supplier_payment_account_id?: string | null;
+}
+/**
+ * `[PGP.190]` Preparar un pago que sale en varias transferencias: UNA cuenta destino (la del proveedor) y, por
+ * transferencia, su importe y su cuenta de origen. Campos `unknown`: se validan en el servicio (interfaz, no clase: #414).
+ */
+export interface PrepararEnTransferenciasDto {
+  supplier_payment_account_id?: unknown;
+  destination_account_text?: unknown;
+  transferencias?: unknown;
 }
 /** `[TP.16]` Renglón de `finance.payment_allocations` — sólo lo que la vista del día y la autorización leen. */
 export interface AllocationRowLite {
@@ -1490,6 +1501,12 @@ export class PaymentCalendarService {
         }
       }
       const itemsByAllocation = new Map<string, any[]>();
+      // `[PGP.190]` En un pago PENDIENTE, cada factura de Kepler se compara contra SU parte del saldo: lo que cubren los
+      // renglones vivos anteriores de la misma factura (partida entre transferencias) ya está tomado.
+      const pendientes = new Set(allocations.filter((a) => a.status === 'pending').map((a) => String(a.id)));
+      const antesDe = await this.cubiertoAntesDe(trx, tenantId, (items as { obligation_source: string; allocation_id: string; obligation_id: string }[])
+        .filter((it) => it.obligation_source === 'kepler_payable' && pendientes.has(String(it.allocation_id))).map((it) => String(it.obligation_id)));
+      const partidaDe = new Set<string>();
       for (const it of items as any[]) {
         const label = labels.get(`${it.obligation_source}:${it.obligation_id}`);
         // `[PGP.35]` **Una etiqueta vacía de origen derivado NO es un beneficiario desconocido:
@@ -1511,6 +1528,8 @@ export class PaymentCalendarService {
         // EXISTE y trae la marca. Se conserva el caso sin etiqueta por si una factura no
         // estuviera ni en el universo completo — ahí sí no hay de dónde sacar nada.
         const saldada = it.obligation_source === 'kepler_payable' && (!label || label.saldada === true);
+        const antes = pendientes.has(String(it.allocation_id)) ? antesDe.get(String(it.id)) ?? 0 : 0;
+        if (antes > 0.005) partidaDe.add(String(it.id));
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
         arr.push({
           ...it,
@@ -1523,8 +1542,8 @@ export class PaymentCalendarService {
           payee_code: label?.payee_code ?? null,
           es_anticipo: label?.es_anticipo === true,
           kepler_saldada: saldada,
-          // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler).
-          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : label?.kepler_debe ?? null) : null,
+          // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler). `[PGP.190]` Partida: su parte.
+          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : debeParaEsteRenglon(label?.kepler_debe ?? null, antes)) : null,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
           pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
@@ -1558,6 +1577,8 @@ export class PaymentCalendarService {
         allocations.map((a) => ({ id: a.id, lotDate: a.lot_date, alta: toMxDateKey(a['created_at'] as Date | string | null) || a.lot_date })),
         items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
       );
+      // `[PGP.190]` «Transferencia k de n»: las partes vivas de cada pago partido, en el orden en que nacieron.
+      const transferenciaDe = await this.transferenciasDe(trx, tenantId, allocations);
       // `[PGP.146]` Lo que dice la DESCARGA del banco de cada pendiente cuyo día ya llegó. Sólo lee (~45 ms
       // medido en prod el 2026-11-18); no marca pagado. Sin esto, un pago que ya salió se veía «por preparar».
       const hoyMx = todayMx();
@@ -1571,6 +1592,7 @@ export class PaymentCalendarService {
         const fs = (itemsByAllocation.get(a.id) ?? []).map((it) => ({
           id: String(it['id']), applied_amount: Number(it['applied_amount']), kepler_debe: (it['kepler_debe'] ?? null) as number | null,
           kepler_saldada: it['kepler_saldada'] === true, entity_ref: (it['entity_ref'] ?? null) as string | null, payee_code: (it['payee_code'] ?? null) as string | null,
+          partida: partidaDe.has(String(it['id'])),
         }));
         if (facturasQueDebenMenos(fs).length) paraDebeMenos.set(a.id, fs);
       }
@@ -1656,6 +1678,7 @@ export class PaymentCalendarService {
           validacion: validaciones.get(a.id) ?? null,
           banco_descarga: a.status === 'pending' && a.lot_date <= hoyMx ? descarga.get(a.id) ?? null : null,
           debe_menos: paraDebeMenos.has(a.id) ? debeMenosDelPago(paraDebeMenos.get(a.id) ?? [], abonosDebeMenos) : null,
+          transferencia: transferenciaDe.get(String(a.id)) ?? null,
           cuenta_gasto: cuentaGastoDe(a.id),
           poliza: a.status === 'executed' ? (() => {
             const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
@@ -2134,9 +2157,13 @@ export class PaymentCalendarService {
       const out = { revisados: new Set(filas.map((f) => f.id)).size, ajustados: [] as string[], monto: 0, omitidas: 0, fallidos: 0 };
       if (!filas.length) return out;
       const saldos = await this.saldosDeKepler(trx, filas.map((f) => f.obligation_id));
+      // `[PGP.190]` La parte del saldo que le toca a cada renglón (la factura puede estar partida entre transferencias).
+      const antesDe = await this.cubiertoAntesDe(trx, tenantId, filas.map((f) => f.obligation_id));
       const conDeMas = new Set(filas.filter((f) => {
         const s = saldos.get(f.obligation_id);
-        return f.discount_amount <= 0 && !!s && facturasQueDebenMenos([{ id: f.item_id, applied_amount: f.applied_amount, kepler_debe: s.debe, kepler_saldada: false, entity_ref: null, payee_code: null }]).length > 0;
+        const antes = antesDe.get(String(f.item_id)) ?? 0;
+        return f.discount_amount <= 0 && !!s && facturasQueDebenMenos([{ id: f.item_id, applied_amount: f.applied_amount, kepler_debe: debeParaEsteRenglon(s.debe, antes),
+          kepler_saldada: false, entity_ref: null, payee_code: null, partida: antes > 0.005 }]).length > 0;
       }).map((f) => f.id));
       for (const id of conDeMas) {
         try {
@@ -2150,6 +2177,41 @@ export class PaymentCalendarService {
       }
       return out;
     });
+  }
+
+  /**
+   * `[PGP.190]` «Transferencia k de n» de cada pago partido: sus partes vivas (no canceladas) en el orden en que nacieron.
+   * El grupo se lee de la fila (`a.*`): si el código llega antes que la migración `pgp190`, ninguna fila lo trae y no se
+   * consulta nada — el día no se cae por una columna que aún no existe (mismo criterio que `[PGP.126]`).
+   */
+  private async transferenciasDe(trx: Knex.Transaction, tenantId: string, allocations: readonly { id: unknown; [k: string]: unknown }[]): Promise<Map<string, PaymentCalendarTransferenciaDe>> {
+    const grupos = [...new Set(allocations.map((a) => a['split_from_id']).filter((g): g is string => typeof g === 'string' && !!g))];
+    const out = new Map<string, PaymentCalendarTransferenciaDe>();
+    if (!grupos.length) return out;
+    const filas = (await trx.raw(
+      `SELECT a.id::text AS id, a.split_from_id::text AS grupo
+         FROM finance.payment_allocations a
+        WHERE a.tenant_id = ? AND a.split_from_id = ANY(?::uuid[]) AND a.status <> 'cancelled'
+        ORDER BY a.created_at, a.id`, [tenantId, grupos])).rows as { id: string; grupo: string }[];
+    const porGrupo = new Map<string, string[]>();
+    for (const f of filas) porGrupo.set(f.grupo, [...(porGrupo.get(f.grupo) ?? []), f.id]);
+    for (const [grupo, ids] of porGrupo) {
+      if (ids.length < 2) continue;
+      ids.forEach((id, k) => out.set(id, { grupo, parte: k + 1, de: ids.length }));
+    }
+    return out;
+  }
+
+  /**
+   * `[PGP.190]` Lo que cubren los renglones vivos ANTERIORES de la misma factura, por renglón (0 si la factura no está
+   * partida). Con esto, «lo que debe» de cada renglón es su parte del saldo y no el saldo entero: una factura partida
+   * entre dos transferencias no puede llevar, sumada, más de lo que Kepler dice que se debe.
+   */
+  private async cubiertoAntesDe(trx: Knex.Transaction, tenantId: string, obligationIds: string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(obligationIds.filter(Boolean))];
+    if (!ids.length) return new Map();
+    const filas = (await trx.raw(SQL_RENGLONES_VIVOS_DE_LAS_FACTURAS, [tenantId, ids])).rows as RenglonVivoDeLaFactura[];
+    return cubiertoAntesPorRenglon(filas);
   }
 
   /** `[PGP.148]` El saldo de HOY de facturas de Kepler, por su llave de obligación (la misma consulta que la etiqueta). */
@@ -2187,9 +2249,13 @@ export class PaymentCalendarService {
       .select('id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount');
     const kp = items.filter((i) => i.obligation_source === 'kepler_payable');
     const saldos = await this.saldosDeKepler(trx, kp.map((i) => String(i.obligation_id)));
+    // `[PGP.190]` Cada renglón contra SU parte del saldo: lo de los renglones vivos anteriores de la misma factura ya está tomado.
+    const antesDe = await this.cubiertoAntesDe(trx, tenantId, kp.map((i) => String(i.obligation_id)));
     const facturas: FacturaParaDebeMenos[] = kp.map((i) => {
       const s = saldos.get(String(i.obligation_id));
-      return { id: String(i.id), applied_amount: Number(i.applied_amount), kepler_debe: s ? s.debe : null, kepler_saldada: !s, entity_ref: s?.entity_ref ?? null, payee_code: s?.payee_code ?? null };
+      const antes = antesDe.get(String(i.id)) ?? 0;
+      return { id: String(i.id), applied_amount: Number(i.applied_amount), kepler_debe: s ? debeParaEsteRenglon(s.debe, antes) : null, kepler_saldada: !s,
+        entity_ref: s?.entity_ref ?? null, payee_code: s?.payee_code ?? null, partida: antes > 0.005 };
     });
     const malas = facturasQueDebenMenos(facturas);
     // `[PGP.184]` Sin nada de más no hay nada que mirar en el banco (cada reprogramación pasa por aquí).
@@ -2216,6 +2282,8 @@ export class PaymentCalendarService {
       const c = cargoDeLaFactura(f);
       const factura = nombre(f);
       const ab = c ? abonos.get(c.llave) ?? [] : [];
+      // `[PGP.190]` Un renglón no baja a cero (la base pide importe > 0): si las otras transferencias ya cubren la factura, se quita.
+      if ((f.kepler_debe as number) <= 0.005) { omitidas.push({ item_id: f.id, factura, motivo: MOTIVO_CUBIERTA_POR_OTRA_PARTE }); continue; }
       if (Number(it.discount_amount ?? 0) > 0) { omitidas.push({ item_id: f.id, factura, motivo: 'lleva descuento al pagar: ajústala a mano' }); continue; }
       if (modo !== 'manual' && !seAjustaSolo(ab, armadoEl)) {
         omitidas.push({ item_id: f.id, factura, motivo: 'un pago en Kepler bajó su saldo (puede ser este mismo pago): lo decide una persona' });
@@ -2849,6 +2917,8 @@ export class PaymentCalendarService {
         cash_register_text: allocation.cash_register_text, reference_text: allocation.reference_text,
         supplier_payment_account_id: allocation.supplier_payment_account_id,
         reprogrammed_from_id: allocation.id, created_by: username,
+        // `[PGP.190]` La transferencia movida sigue siendo parte de su pago partido (sólo si la columna ya existe).
+        ...(allocation.split_from_id ? { split_from_id: allocation.split_from_id } : {}),
       }).returning('*');
       for (const it of items as any[]) {
         // `[PGP.91]` El descuento al pagar viaja con la factura: reprogramar cambia el DÍA, no lo
@@ -2909,145 +2979,270 @@ export class PaymentCalendarService {
    */
   async prepare(allocationId: string, dto: PrepareAllocationDto, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => this.prepareEn(trx, tenantId, allocationId, dto, username));
+  }
+
+  /**
+   * `[PGP.190]` El cuerpo de `prepare`, dentro de una transacción: preparar en varias transferencias prepara cada parte con
+   * las MISMAS reglas (cuenta destino, CLABE, mismo banco, anticipo) en la transacción que la parte. `pedirAltaDeCuenta`
+   * en `false` para la 2ª parte en adelante: la CLABE a mano se pide de alta una vez por pago, no una por transferencia.
+   */
+  private async prepareEn(
+    trx: Knex.Transaction, tenantId: string, allocationId: string, dto: PrepareAllocationDto, username: string,
+    opciones: { pedirAltaDeCuenta?: boolean } = {},
+  ) {
     if (!['transferencia', 'cheque', 'efectivo', 'cargo_automatico'].includes(dto.payment_method)) throw new BadRequestException('payment_method inválido');
+    const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
+    if (!allocation) throw new NotFoundException('Pago no encontrado');
+    if (allocation.status !== 'pending') throw new BadRequestException('Solo se prepara un pago pendiente');
+    assertSinAutorizar(allocation);
+
+    // `[TP.16]` La cuenta DESTINO sólo existe para transferencia / cargo automático. En efectivo o
+    // cheque se descarta: si no, la favorita del proveedor (o un texto de una preparación anterior)
+    // terminaba impresa como destino en la instrucción a Caja General.
+    const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
+    let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
+    const accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
+    let cuentaElegida: { clabe: string | null; account_number: string | null } | null = null;
+    let destinoCatalogo: { clabe: string | null; bank_name: string | null; account_number: string | null } | null = null;
+    if (accountId) {
+      const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
+      if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
+      // `[PGP.155]` También el número de cuenta: el anticipo a una cuenta sin CLABE se compara por él.
+      cuentaElegida = { clabe: acc.clabe ? String(acc.clabe).replace(/\D/g, '') : null, account_number: acc.account_number ?? null };
+      destinoCatalogo = { clabe: acc.clabe ?? null, bank_name: acc.bank_name ?? null, account_number: acc.account_number ?? null };
+      // [PGP.90] La referencia fija viaja en el snapshot: es lo que imprime la instrucción a Caja
+      // General y lo que el banco tiene que llevar, o el proveedor no reconoce el depósito.
+      destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.payment_reference ? ' · Ref ' + acc.payment_reference : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
+    }
+    // `[TP.16]` ORIGEN (nuestra cuenta) y DESTINO (la del beneficiario) son dos datos distintos, y
+    // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
+    // «preparada» con sólo la cuenta de origen y sin saber a dónde iba el dinero.
+    const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
+    if (needsOrigin) {
+      if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
+      // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
+      // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
+      const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
+      if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
+      // `[PGP.155]` A una cuenta del catálogo SIN CLABE no hay SPEI: sólo sale de una cuenta nuestra del mismo
+      // banco (VUMERSOFT: BBVA a BBVA). Qué cuenta de ese banco, la decide la Tesorería (`[PGP.75]`).
+      // `[PGP.155.2]` Sólo en TRANSFERENCIA (revisión independiente): en un cargo automático el proveedor cobra
+      // de nuestra cuenta y el banco de su cuenta no ata el origen. Y una tarjeta de 16 dígitos no ata (SPEI).
+      if (dto.payment_method === 'transferencia') {
+        const otroBanco = faltaOrigenMismoBanco({ destino: destinoCatalogo, origen: { bank: origin.bank ?? null, kind: origin.kind ?? null } });
+        if (otroBanco) throw new BadRequestException(otroBanco);
+      }
+    }
+    /**
+     * `[PGP.128]` D12 — **el anticipo se transfiere sólo a la cuenta APROBADA de su cotización.** Una CLABE
+     * tecleada aquí quedaría pedida de alta (`[PGP.46]`) pero el dinero ya habría salido a una cuenta que
+     * nadie revisó: justo el fraude de la cotización con la CLABE cambiada. `to_jsonb(o)`: no truena si la
+     * migración `pgp127` todavía no llegó (sin `payee_clabe`, pide igual una cuenta aprobada). Va ANTES del
+     * «Transferencia requiere la cuenta destino» genérico: en un anticipo, el aviso dice cuál cuenta.
+     */
+    if (usesDestination) {
+      const { rows: ants } = await trx.raw(
+        `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe, to_jsonb(o) ->> 'payee_account_number' AS cuenta
+           FROM finance.payment_allocation_items i
+           JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
+          WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
+        [tenantId, allocationId]);
+      const filas = ants as { clabe: string | null; cuenta: string | null }[];
+      const falta = faltaCuentaParaTransferirAnticipo({
+        clabesDeAnticipos: filas.map((r) => r.clabe ?? null), cuentasDeAnticipos: filas.map((r) => r.cuenta ?? null), cuentaElegida,
+      });
+      if (falta) throw new BadRequestException(falta);
+    }
+    if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
+      throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
+    }
+    // Una CLABE capturada a mano se valida con su dígito de control: el error de dedo se ve aquí,
+    // no cuando el banco rechaza el layout.
+    // Sólo corridas de dígitos CONTIGUOS: pegar grupos separados por espacio inventaba una CLABE.
+    // 18 → se valida el control; 17 o 19 → casi seguro una CLABE con un dígito de más/menos.
+    if (!accountId) {
+      for (const run of (destinationText ?? '').match(/\d+/g) ?? []) {
+        if (run.length === 17 || run.length === 19) throw new BadRequestException(`«${run}» tiene ${run.length} dígitos: una CLABE lleva 18. Revísala.`);
+        if (run.length === 18 && !clabeValida(run)) throw new BadRequestException(`La CLABE ${run} no es válida (el dígito de control no cuadra). Revísala.`);
+      }
+    }
+    if (dto.payment_method === 'cheque' && !dto.reference_text?.trim()) throw new BadRequestException('Cheque requiere folio/referencia');
+    /**
+     * `[PGP.157]` **Un anticipo en efectivo sale de la Caja General de SU base** (cada base cuadra sola; Francisco,
+     * 2026-11-19): el de una compra de Morelia sale de la 08, se captura en su Kepler y se aplica a su factura. Por eso
+     * la caja no se teclea: se DERIVA de la sucursal del anticipo (la de su OC). Así la ve Caja General «por entregar»
+     * al autorizarlo. Otro pago en efectivo sigue con la caja escrita a mano (la regla de antes).
+     */
+    let cajaTexto = dto.payment_method === 'efectivo' ? dto.cash_register_text?.trim() || null : null;
+    if (dto.payment_method === 'efectivo') {
+      const { rows: bases } = await trx.raw(
+        `SELECT DISTINCT nullif(btrim(o.kepler_sucursal), '') AS sucursal FROM finance.payment_allocation_items i
+           JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
+          WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
+        [tenantId, allocationId]);
+      const sucursales = (bases as { sucursal: string | null }[]).map((b) => b.sucursal);
+      if (sucursales.length > 1 || sucursales.includes(null)) {
+        throw new BadRequestException('Este pago lleva anticipos sin una sola sucursal: no se sabe de qué Caja General sale el efectivo.');
+      }
+      if (sucursales.length === 1) cajaTexto = cajaDeSalidaTexto(sucursales[0] as string);
+      if (!cajaTexto) throw new BadRequestException('Efectivo requiere la caja de salida');
+    }
+
+    const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
+      payment_method: dto.payment_method, bank_account_id: needsOrigin ? dto.bank_account_id : null,
+      destination_account_text: destinationText, cash_register_text: cajaTexto,
+      reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
+      updated_by: username, updated_at: trx.fn.now(),
+    }).returning('*');
+
+    /**
+     * `[PGP.46]` **La CLABE tecleada a mano queda PEDIDA de alta, para no teclearla otra vez.**
+     *
+     * Medido el 2026-11-03: el catálogo está en **0 filas**, y el Calendario lleva **146 pagos
+     * y 0 preparados jamás** (33 lotes, todos `draft`). Quien prepara tecleaba 18 dígitos que
+     * se guardaban **sólo en ese pago**; la semana siguiente, el mismo proveedor, los mismos 18
+     * dígitos. El acto ya ocurre: lo que faltaba era quedárselo.
+     *
+     * ⛔ **Sólo cuando se capturó a mano** (`!accountId`): si la cuenta salió del catálogo, ya
+     * está dada de alta y pedirla de nuevo ensuciaría la bandeja de quien aprueba.
+     *
+     * ⚠️ **Fuera de la transacción del pago, y sin propagar el error.** El pago ya quedó
+     * guardado arriba; esto es accesorio. Si el catálogo falla, se registra y se sigue — un
+     * pago que no se puede preparar porque el catálogo tuvo un problema sería peor que volver
+     * a teclear la CLABE.
+     */
+    if (!accountId && destinationText && this.cuentas && opciones.pedirAltaDeCuenta !== false) {
+      const supplierId = await this.proveedorDeAllocation(trx, tenantId, allocationId);
+      if (supplierId) {
+        try {
+          const r = await this.cuentas.registrarDesdePago(
+            supplierId, destinationText, username,
+            `Capturada al preparar el pago ${allocationId} el ${new Date().toISOString().slice(0, 10)}.`,
+          );
+          if (r.resultado === 'pedida') {
+            this.logger.log(`[PGP.46] alta de cuenta pedida para el proveedor ${supplierId} desde el pago ${allocationId}`);
+          }
+        } catch (e) {
+          this.logger.warn(`[PGP.46] el pago ${allocationId} quedó preparado, pero no se pudo pedir el alta de su cuenta: ${String((e as Error)?.message ?? e)}`);
+        }
+      }
+    }
+    return updated;
+  }
+
+  /**
+   * `[PGP.190]` **Preparar un pago que sale en varias transferencias** (Francisco, 2026-11-20: «hay pagos que se hacen con
+   * varias transferencias»; eligió «Partir en pagos»). El pago se parte en un pago por transferencia, en el mismo día, y
+   * cada uno queda preparado: la misma cuenta destino y su propia cuenta de origen. Así cada transferencia se casa sola
+   * con su salida del banco, lleva su comprobante y su X-D-26 en Kepler, como hoy lo hace Tesorería a mano (medido: CE012
+   * 31-ago, una factura abonada con dos X-D-26, un millón y el resto). Reparto y reglas: `partir-en-transferencias.ts`.
+   *
+   * ⛔ Sólo un pago pendiente, sin autorizar y de un día abierto (como preparar). ⛔ Un anticipo no se parte: sale a la
+   * cuenta aprobada de su cotización en un solo movimiento (`[PGP.128]` D12). Todo o nada: una transacción.
+   */
+  async prepararEnTransferencias(allocationId: string, dto: PrepararEnTransferenciasDto, username: string): Promise<PaymentCalendarPartido> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const lista = Array.isArray(dto?.transferencias) ? (dto.transferencias as { amount?: unknown; bank_account_id?: unknown }[]) : [];
+    const importes = lista.map((t) => (typeof t?.amount === 'number' ? t.amount : typeof t?.amount === 'string' && t.amount.trim() ? Number(t.amount) : NaN));
+    const origenes = lista.map((t) => (typeof t?.bank_account_id === 'string' ? t.bank_account_id.trim() : ''));
+    const texto = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+    const destino: Pick<PrepareAllocationDto, 'supplier_payment_account_id' | 'destination_account_text'> = {
+      supplier_payment_account_id: texto(dto?.supplier_payment_account_id), destination_account_text: texto(dto?.destination_account_text),
+    };
     return this.tk.run(async (trx) => {
-      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
-      if (!allocation) throw new NotFoundException('Pago no encontrado');
-      if (allocation.status !== 'pending') throw new BadRequestException('Solo se prepara un pago pendiente');
-      assertSinAutorizar(allocation);
+      const a = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
+      if (!a) throw new NotFoundException('Pago no encontrado');
+      if (!('split_from_id' in a)) throw new ServiceUnavailableException('Falta aplicar la migración pgp190 (pago partido en transferencias): avisa a Sistemas.');
+      if (a.status !== 'pending') throw new BadRequestException('Sólo se parte un pago pendiente.');
+      assertSinAutorizar(a);
+      const lot = await trx('finance.payment_calendar_lots').where({ id: a.lot_id }).first('status') as { status: string } | undefined;
+      if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: sus pagos ya no se parten.');
+      const items = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocationId }).forUpdate()
+        .orderBy([{ column: 'created_at' }, { column: 'id' }])
+        .select('id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount', 'agreement_id') as {
+          id: string; obligation_source: ObligationSource; obligation_id: string;
+          applied_amount: string | number; discount_amount: string | number | null; agreement_id: string | null;
+        }[];
+      const { rows: anticipos } = await trx.raw(
+        `SELECT 1 FROM finance.payment_allocation_items i
+           JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
+          WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo' LIMIT 1`,
+        [tenantId, allocationId]);
+      if (anticipos.length) throw new BadRequestException('Un anticipo no se parte en transferencias: sale en una sola, a la cuenta aprobada de su cotización.');
+      if (origenes.length !== importes.length || origenes.some((o) => !o)) throw new BadRequestException('Elige la cuenta de origen de cada transferencia.');
 
-      // `[TP.16]` La cuenta DESTINO sólo existe para transferencia / cargo automático. En efectivo o
-      // cheque se descarta: si no, la favorita del proveedor (o un texto de una preparación anterior)
-      // terminaba impresa como destino en la instrucción a Caja General.
-      const usesDestination = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico';
-      let destinationText = usesDestination ? dto.destination_account_text ?? null : null;
-      const accountId = usesDestination ? dto.supplier_payment_account_id ?? null : null;
-      let cuentaElegida: { clabe: string | null; account_number: string | null } | null = null;
-      let destinoCatalogo: { clabe: string | null; bank_name: string | null; account_number: string | null } | null = null;
-      if (accountId) {
-        const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
-        if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
-        // `[PGP.155]` También el número de cuenta: el anticipo a una cuenta sin CLABE se compara por él.
-        cuentaElegida = { clabe: acc.clabe ? String(acc.clabe).replace(/\D/g, '') : null, account_number: acc.account_number ?? null };
-        destinoCatalogo = { clabe: acc.clabe ?? null, bank_name: acc.bank_name ?? null, account_number: acc.account_number ?? null };
-        // [PGP.90] La referencia fija viaja en el snapshot: es lo que imprime la instrucción a Caja
-        // General y lo que el banco tiene que llevar, o el proveedor no reconoce el depósito.
-        destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.payment_reference ? ' · Ref ' + acc.payment_reference : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
-      }
-      // `[TP.16]` ORIGEN (nuestra cuenta) y DESTINO (la del beneficiario) son dos datos distintos, y
-      // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
-      // «preparada» con sólo la cuenta de origen y sin saber a dónde iba el dinero.
-      const needsOrigin = dto.payment_method === 'transferencia' || dto.payment_method === 'cargo_automatico' || dto.payment_method === 'cheque';
-      if (needsOrigin) {
-        if (!dto.bank_account_id) throw new BadRequestException('Elige la cuenta de origen (de cuál cuenta nuestra sale el pago).');
-        // `[PGP.33]` La caja YA es un origen válido: medido, 2,771 pagos ($54,897,784) salieron de
-        // CAJA GENERAL. Antes este `where` la rechazaba y el error culpaba a la cuenta.
-        const origin = await trx('finance.bank_accounts').where({ id: dto.bank_account_id, active: true }).first();
-        if (!origin) throw new BadRequestException('La cuenta de origen no existe o está inactiva.');
-        // `[PGP.155]` A una cuenta del catálogo SIN CLABE no hay SPEI: sólo sale de una cuenta nuestra del mismo
-        // banco (VUMERSOFT: BBVA a BBVA). Qué cuenta de ese banco, la decide la Tesorería (`[PGP.75]`).
-        // `[PGP.155.2]` Sólo en TRANSFERENCIA (revisión independiente): en un cargo automático el proveedor cobra
-        // de nuestra cuenta y el banco de su cuenta no ata el origen. Y una tarjeta de 16 dígitos no ata (SPEI).
-        if (dto.payment_method === 'transferencia') {
-          const otroBanco = faltaOrigenMismoBanco({ destino: destinoCatalogo, origen: { bank: origin.bank ?? null, kind: origin.kind ?? null } });
-          if (otroBanco) throw new BadRequestException(otroBanco);
-        }
-      }
-      /**
-       * `[PGP.128]` D12 — **el anticipo se transfiere sólo a la cuenta APROBADA de su cotización.** Una CLABE
-       * tecleada aquí quedaría pedida de alta (`[PGP.46]`) pero el dinero ya habría salido a una cuenta que
-       * nadie revisó: justo el fraude de la cotización con la CLABE cambiada. `to_jsonb(o)`: no truena si la
-       * migración `pgp127` todavía no llegó (sin `payee_clabe`, pide igual una cuenta aprobada). Va ANTES del
-       * «Transferencia requiere la cuenta destino» genérico: en un anticipo, el aviso dice cuál cuenta.
-       */
-      if (usesDestination) {
-        const { rows: ants } = await trx.raw(
-          `SELECT to_jsonb(o) ->> 'payee_clabe' AS clabe, to_jsonb(o) ->> 'payee_account_number' AS cuenta
-             FROM finance.payment_allocation_items i
-             JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
-            WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
-          [tenantId, allocationId]);
-        const filas = ants as { clabe: string | null; cuenta: string | null }[];
-        const falta = faltaCuentaParaTransferirAnticipo({
-          clabesDeAnticipos: filas.map((r) => r.clabe ?? null), cuentasDeAnticipos: filas.map((r) => r.cuenta ?? null), cuentaElegida,
-        });
-        if (falta) throw new BadRequestException(falta);
-      }
-      if (dto.payment_method === 'transferencia' && !destinationText?.trim()) {
-        throw new BadRequestException('Transferencia requiere la cuenta destino (elige una del catálogo del proveedor o captura la CLABE).');
-      }
-      // Una CLABE capturada a mano se valida con su dígito de control: el error de dedo se ve aquí,
-      // no cuando el banco rechaza el layout.
-      // Sólo corridas de dígitos CONTIGUOS: pegar grupos separados por espacio inventaba una CLABE.
-      // 18 → se valida el control; 17 o 19 → casi seguro una CLABE con un dígito de más/menos.
-      if (!accountId) {
-        for (const run of (destinationText ?? '').match(/\d+/g) ?? []) {
-          if (run.length === 17 || run.length === 19) throw new BadRequestException(`«${run}» tiene ${run.length} dígitos: una CLABE lleva 18. Revísala.`);
-          if (run.length === 18 && !clabeValida(run)) throw new BadRequestException(`La CLABE ${run} no es válida (el dígito de control no cuadra). Revísala.`);
-        }
-      }
-      if (dto.payment_method === 'cheque' && !dto.reference_text?.trim()) throw new BadRequestException('Cheque requiere folio/referencia');
-      /**
-       * `[PGP.157]` **Un anticipo en efectivo sale de la Caja General de SU base** (cada base cuadra sola; Francisco,
-       * 2026-11-19): el de una compra de Morelia sale de la 08, se captura en su Kepler y se aplica a su factura. Por eso
-       * la caja no se teclea: se DERIVA de la sucursal del anticipo (la de su OC). Así la ve Caja General «por entregar»
-       * al autorizarlo. Otro pago en efectivo sigue con la caja escrita a mano (la regla de antes).
-       */
-      let cajaTexto = dto.payment_method === 'efectivo' ? dto.cash_register_text?.trim() || null : null;
-      if (dto.payment_method === 'efectivo') {
-        const { rows: bases } = await trx.raw(
-          `SELECT DISTINCT nullif(btrim(o.kepler_sucursal), '') AS sucursal FROM finance.payment_allocation_items i
-             JOIN commercial.supplier_payment_obligations o ON o.id = i.obligation_id AND o.tenant_id = ?
-            WHERE i.allocation_id = ? AND i.obligation_source = 'supplier_payable' AND to_jsonb(o) ->> 'nature' = 'anticipo'`,
-          [tenantId, allocationId]);
-        const sucursales = (bases as { sucursal: string | null }[]).map((b) => b.sucursal);
-        if (sucursales.length > 1 || sucursales.includes(null)) {
-          throw new BadRequestException('Este pago lleva anticipos sin una sola sucursal: no se sabe de qué Caja General sale el efectivo.');
-        }
-        if (sucursales.length === 1) cajaTexto = cajaDeSalidaTexto(sucursales[0] as string);
-        if (!cajaTexto) throw new BadRequestException('Efectivo requiere la caja de salida');
+      // El reparto, con el nombre de cada factura para los avisos (las de Kepler por su folio).
+      const keplerIds = items.filter((i) => i.obligation_source === 'kepler_payable').map((i) => String(i.obligation_id));
+      const saldos = await this.saldosDeKepler(trx, keplerIds);
+      const nombreDe = (obligationId: string) => {
+        const c = cargoDeLaFactura({ entity_ref: saldos.get(String(obligationId))?.entity_ref ?? null, payee_code: 'x' });
+        return c ? `${c.tipo}-${c.sub}-${c.folio}` : 'del pago';
+      };
+      let partes: ParteDelPago[];
+      try {
+        partes = partirEnTransferencias(items.map((i) => ({
+          id: String(i.id), applied_amount: Number(i.applied_amount), discount_amount: Number(i.discount_amount ?? 0), factura: nombreDe(i.obligation_id),
+        })), importes);
+      } catch (e: unknown) {
+        if (e instanceof ErrorAlPartir) throw new BadRequestException(e.message);
+        throw e;
       }
 
-      const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
-        payment_method: dto.payment_method, bank_account_id: needsOrigin ? dto.bank_account_id : null,
-        destination_account_text: destinationText, cash_register_text: cajaTexto,
-        reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
-        updated_by: username, updated_at: trx.fn.now(),
-      }).returning('*');
+      // La 1ª transferencia se queda en el pago original; las demás nacen en el mismo día, en el orden escrito
+      // (`clock_timestamp()`: dentro de una transacción `now()` es el mismo para todas y «2 de 3» saldría al azar).
+      const grupo = String(a.split_from_id ?? a.id);
+      const ids: string[] = [String(a.id)];
+      for (let k = 1; k < partes.length; k++) {
+        const [nueva] = await trx('finance.payment_allocations').insert({
+          tenant_id: tenantId, lot_id: a.lot_id, classification: a.classification, priority_rank: a.priority_rank,
+          amount_assigned: partes[k].importe, notes: a.notes, split_from_id: grupo, created_by: username, created_at: trx.raw('clock_timestamp()'),
+        }).returning('id');
+        ids.push(String((nueva as { id: string }).id));
+      }
+      await trx('finance.payment_allocations').where({ id: a.id }).update({ split_from_id: grupo, updated_by: username, updated_at: trx.fn.now() });
 
-      /**
-       * `[PGP.46]` **La CLABE tecleada a mano queda PEDIDA de alta, para no teclearla otra vez.**
-       *
-       * Medido el 2026-11-03: el catálogo está en **0 filas**, y el Calendario lleva **146 pagos
-       * y 0 preparados jamás** (33 lotes, todos `draft`). Quien prepara tecleaba 18 dígitos que
-       * se guardaban **sólo en ese pago**; la semana siguiente, el mismo proveedor, los mismos 18
-       * dígitos. El acto ya ocurre: lo que faltaba era quedárselo.
-       *
-       * ⛔ **Sólo cuando se capturó a mano** (`!accountId`): si la cuenta salió del catálogo, ya
-       * está dada de alta y pedirla de nuevo ensuciaría la bandeja de quien aprueba.
-       *
-       * ⚠️ **Fuera de la transacción del pago, y sin propagar el error.** El pago ya quedó
-       * guardado arriba; esto es accesorio. Si el catálogo falla, se registra y se sigue — un
-       * pago que no se puede preparar porque el catálogo tuvo un problema sería peor que volver
-       * a teclear la CLABE.
-       */
-      if (!accountId && destinationText && this.cuentas) {
-        const supplierId = await this.proveedorDeAllocation(trx, tenantId, allocationId);
-        if (supplierId) {
-          try {
-            const r = await this.cuentas.registrarDesdePago(
-              supplierId, destinationText, username,
-              `Capturada al preparar el pago ${allocationId} el ${new Date().toISOString().slice(0, 10)}.`,
-            );
-            if (r.resultado === 'pedida') {
-              this.logger.log(`[PGP.46] alta de cuenta pedida para el proveedor ${supplierId} desde el pago ${allocationId}`);
-            }
-          } catch (e) {
-            this.logger.warn(`[PGP.46] el pago ${allocationId} quedó preparado, pero no se pudo pedir el alta de su cuenta: ${String((e as Error)?.message ?? e)}`);
+      // Los renglones: la 1ª vez que aparece un renglón se mueve (o se queda) con su tramo; si su factura cruza a la
+      // siguiente transferencia, ese tramo es un renglón nuevo (sin descuento: el que lo lleva no se parte).
+      const porId = new Map(items.map((i) => [String(i.id), i]));
+      const visto = new Set<string>();
+      for (let k = 0; k < partes.length; k++) {
+        for (const t of partes[k].tramos) {
+          const it = porId.get(t.item_id);
+          if (!it) throw new Error(`[PGP.190] el reparto devolvió un renglón que el pago no tiene (${t.item_id})`);
+          if (!visto.has(t.item_id)) {
+            visto.add(t.item_id);
+            await trx('finance.payment_allocation_items').where({ id: t.item_id }).update({ allocation_id: ids[k], applied_amount: t.applied_amount });
+          } else {
+            await trx('finance.payment_allocation_items').insert({
+              tenant_id: tenantId, allocation_id: ids[k], obligation_source: it.obligation_source, obligation_id: it.obligation_id,
+              applied_amount: t.applied_amount, agreement_id: it.agreement_id ?? null, discount_amount: 0,
+            });
           }
         }
       }
-      return updated;
+      for (const id of ids) await this.recalcAllocationTotal(trx, id);
+      const obligaciones = new Map(items.map((i) => [`${i.obligation_source}:${i.obligation_id}`, i]));
+      for (const i of obligaciones.values()) await this.recalcObligation(trx, i.obligation_source, String(i.obligation_id));
+
+      // Cada parte, preparada con las mismas reglas que «Preparar pago» (destino, CLABE, mismo banco).
+      for (let k = 0; k < ids.length; k++) {
+        await this.prepareEn(trx, tenantId, ids[k], { payment_method: 'transferencia', bank_account_id: origenes[k], ...destino }, username, { pedirAltaDeCuenta: k === 0 });
+      }
+
+      const resumen = ids.map((id, k) => ({ id, importe: partes[k].importe, origen: origenes[k] }));
+      for (const id of ids) {
+        await trx('finance.payment_allocation_history').insert({
+          tenant_id: tenantId, allocation_id: id, event: EVENTO_PARTIDO_EN_TRANSFERENCIAS, status_from: 'pending', status_to: 'pending', created_by: username,
+          detail: JSON.stringify({ regla: 'PGP.190', original: String(a.id), antes: Number(a.amount_assigned), partes: resumen }),
+        });
+      }
+      const filas = await trx('finance.payment_allocations').whereIn('id', ids).select('id', 'amount_assigned', 'bank_account_id');
+      const porPago = new Map((filas as { id: string; amount_assigned: string | number; bank_account_id: string | null }[]).map((f) => [String(f.id), f]));
+      return {
+        original: String(a.id),
+        partes: ids.map((id, k) => ({ id, parte: k + 1, de: ids.length, amount_assigned: Number(porPago.get(id)?.amount_assigned ?? partes[k].importe), bank_account_id: porPago.get(id)?.bank_account_id ?? origenes[k] })),
+      };
     });
   }
 
