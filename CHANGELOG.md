@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Internal — Protocolo previo al PR, puntos 121–125, y `[MSP]` a su estado real (2026-11-21)
+- `ONBOARDING.md` §8.0b: **(121)** una spec que llega de afuera se mide contra lo que ya existe y su plan sube al Tablero PM antes del código (observación del PM en `[MDT.4]`); **(122)** un commit de docs a `main` es rama + PR, porque la rama está protegida; **(123)** con `main` rojo, el conflicto de un PR se resuelve en la rama, sin fusionarle `main` (#539); **(124)** en el plan, la migración va después del merge y antes de soltar; **(125)** un job informativo en verde no dice que tus suites pasaron: sus ❌ se comparan contra los de `main`.
+- `[MSP]`: tracker y plan pasan C0–C3 y la migración a ✅; `[MSP.4]` queda 🔨 hasta encender la cola con una solicitud de prueba con evidencia.
+
 ### Added — Compras › Calendario de compras: a qué proveedor le toca la revisión y dónde (PQ.3.2–PQ.3.6 · 2026-11-20)
 - Pantalla nueva `/compras/calendario`, hecha para reemplazar la hoja «2026» del Excel (se retira después de correr las dos en paralelo, PQ.3.7). Cada proveedor tiene su regla de revisión: para todas las sucursales, una zona o una sucursal. La regla dice cuándo toca: días de la semana, días del mes (con «el último») o cada N días. Si cae en fin de semana, se corre al viernes.
 - Abre con la respuesta: cuántas revisiones se deben, la más atrasada y las que tocan hoy. Tiene cinco vistas: «Por revisar», «Semana», «Mes», «Reglas» y «Sin regla».
@@ -123,13 +127,13 @@
 ### Fixed — Los saldos de cartera llegan completos de Kepler (CXC.45 · 2026-11-19 · en producción)
 - Los pagos aplicados y los saldos de cada documento de cartera ahora llegan de Kepler por la cola de cambios, que ve cada alta y cada cambio. Antes una parte se perdía en el camino: 2,967 saldos viejos y 133 pagos aplicados que nunca llegaron, entre ellos el que hizo reclamar a un cliente de Canindo.
 - Una comparación de sólo lectura contra Kepler dice, sucursal por sucursal, si falta algo (`database/scripts/ods-cartera-vs-replica.js`).
-### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en PR #567, sin soltar; la cola nace apagada)
+### Added — Mesa de Servicio: área «Presupuestos y Requerimientos» con dictamen y órdenes de servicio (MSP · 2026-11-18 · en prod desde el 2026-11-19 por #567; la cola sigue apagada hasta que el PM ratifique el cupo)
 - Nueva área en la Mesa, coordinada por Ernesto Zárate. Sólo levantan solicitudes los encargados de sucursal, sus auxiliares y las gerencias de zona: a los demás no se les ofrece y el servidor les responde qué puestos sí pueden.
 - La descripción, las observaciones y la evidencia (foto o PDF) son obligatorias. Categorías: gastos operativos, compra de activos y otros.
 - **Dictamen**: la coordinación autoriza o no autoriza, con motivo; quien lo pidió lo ve y recibe el aviso. Sin dictamen la solicitud no se resuelve.
 - **Orden de servicio**: si la autoriza, la coordinación manda una orden a Mantenimiento o a Sistemas, a nombre de quien lo pidió, con su sucursal y su evidencia. La solicitud espera a la orden y se resuelve sola cuando la orden se resuelve; la orden dice de qué solicitud viene.
 - Todo se configura por área (quién levanta, descripción y dictamen obligatorios, a qué áreas manda órdenes): la próxima área que lo necesite no requiere código.
-- Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): van a prod antes del código.
+- Migraciones `20261118132504` (esquema) y `20261118132506` (siembra, cola apagada): se aplicaron una por una después del merge y antes de soltar (batch 1213 y 1214, 2026-11-19 19:35 UTC).
 ### Changed — Verificador de precios: una sola verdad y la frescura real (VAC.D3 + VAC.D4, 2026-11-19 · en código, sin soltar)
 - El precio es siempre el de Kepler: se retira la «corrección a mano» (0 de 80,036 precios la usaban), en el verificador y en el checador de la app del vendedor.
 - La frescura de cada sucursal ya se mide: sale de la última revisión del carril caliente contra el ERP. El verificador y la Caja de mostrador dejan de decir «Frescura del ERP sin medir».
