@@ -52,7 +52,7 @@ import { SegmentedComponent, type SegOption } from '../../../shared/components/s
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler } from '@megadulces/contracts';
+import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler, PaymentCalendarReprogramado } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
@@ -5982,13 +5982,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     // final del orden de cada día destino, día por día.
     const nuevosPorDia = new Map<string, string[]>();
     const fallas: string[] = [];
+    // [PGP.184] Los movidos cuya factura ya debe menos en Kepler (una nota o devolución la bajó): bajaron solos o se avisa.
+    const ajustes: PaymentCalendarAjusteAlSaldo[] = [];
     for (const a of pagos) {
       const fecha = this.fechaDeMover(a);
       try {
-        const movido = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations/${a.id}/reprogramar`, {
+        const movido = await firstValueFrom(this.http.post<PaymentCalendarReprogramado | null>(`${this.base}/allocations/${a.id}/reprogramar`, {
           date: fecha, reason: motivo, reason_detail: detalle || undefined,
         }));
         if (movido?.id) nuevosPorDia.set(fecha, [...(nuevosPorDia.get(fecha) ?? []), movido.id]);
+        if (movido?.ajuste_al_saldo) ajustes.push(movido.ajuste_al_saldo);
       } catch (e) {
         fallas.push(`${this.allocationTitle(a)}: ${this.errMsg(e, 'error')}`);
       }
@@ -6000,7 +6003,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const ok = pagos.length - fallas.length;
     const dondeTxt = this.diasDestino(new Map(pagos.map((a) => [a.id, this.fechaDeMover(a)])));
     if (!fallas.length) this.reprogramVisible = false;
-    if (ok) this.toast.add({ severity: 'success', summary: 'Movido', detail: pagos.length === 1 ? `${this.allocationTitle(pagos[0])} pasó al ${this.dayLong(this.fechaDeMover(pagos[0]))}.` : `${ok} de ${this.pagos(pagos.length)} pasaron al ${dondeTxt}.` });
+    if (ok) this.toast.add({ severity: 'success', summary: 'Movido', life: ajustes.some((x) => x.ajustadas.length) ? 10000 : undefined,
+      detail: (pagos.length === 1 ? `${this.allocationTitle(pagos[0])} pasó al ${this.dayLong(this.fechaDeMover(pagos[0]))}.` : `${ok} de ${this.pagos(pagos.length)} pasaron al ${dondeTxt}.`) + this.textoAjusteAlMover(ajustes) });
+    const avisoMover = this.avisoNoAjustadoAlMover(ajustes);
+    if (avisoMover) this.toast.add({ severity: 'warn', summary: 'Revisa el importe', detail: avisoMover, life: 12000 });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se movieron`, detail: fallas.join(' · '), life: 10000 });
   }
 
@@ -6026,6 +6032,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
     if (ok) this.toast.add({ severity: 'success', summary: 'Facturas quitadas', detail: `${ok === 1 ? 'Se quitó 1 factura' : `Se quitaron ${ok} facturas`} del pago de ${this.allocationTitle(a)}. El resto ya se puede pagar.` });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se quitaron`, detail: fallas.join(' · '), life: 10000 });
+  }
+
+  /**
+   * `[PGP.184]` Lo que se dice cuando el pago, al moverse, bajó a lo que su factura debe hoy en Kepler: el importe es
+   * lo que Tesorería teclea en el banco, así que cambiarlo sin decirlo haría que quien lo movió no reconozca su pago.
+   */
+  private textoAjusteAlMover(todos: readonly PaymentCalendarAjusteAlSaldo[]): string {
+    const ajustes = todos.filter((x) => x.ajustadas.length);
+    if (!ajustes.length) return '';
+    const menos = ajustes.reduce((s, x) => s + (x.antes - x.amount_assigned), 0);
+    if (ajustes.length === 1) {
+      const x = ajustes[0];
+      return ` Bajó de ${this.money(x.antes)} a ${this.money(x.amount_assigned)}: una nota de crédito o devolución en Kepler ya había bajado lo que debe su factura.`;
+    }
+    return ` ${ajustes.length} bajaron a lo que sus facturas deben hoy en Kepler (${this.money(menos)} menos): una nota de crédito o devolución ya las había bajado.`;
+  }
+
+  /**
+   * `[PGP.184]` El pago movido que lleva más de lo que su factura debe hoy y NO bajó solo (va a hoy o a un día pasado, o
+   * venía autorizado: D19 b). Se dice al moverlo, que es cuando la persona está mirando ese pago; el renglón ya lo dice en rojo.
+   */
+  private avisoNoAjustadoAlMover(todos: readonly PaymentCalendarAjusteAlSaldo[]): string {
+    const sin = todos.filter((x) => !x.ajustadas.length && x.omitidas.length);
+    if (!sin.length) return '';
+    if (sin.length === 1) return `Lleva más de lo que su factura debe hoy en Kepler (una nota de crédito o devolución la bajó) y no se bajó solo: ${sin[0].omitidas[0].motivo}.`;
+    return `${sin.length} llevan más de lo que sus facturas deben hoy en Kepler y no se bajaron solos (van a hoy o a un día pasado, o venían autorizados): revísalos y usa «Bajar a» en su renglón.`;
   }
 
   /**
@@ -6131,11 +6163,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       return;
     }
     let movido = false;
+    let ajusteRebote: PaymentCalendarAjusteAlSaldo | null = null;
     if (fecha) {
       try {
-        const nuevo = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations/${a.id}/reprogramar`, { date: fecha, reason: r, reason_detail: r === 'otro' ? detalle : undefined }));
+        const nuevo = await firstValueFrom(this.http.post<PaymentCalendarReprogramado | null>(`${this.base}/allocations/${a.id}/reprogramar`, { date: fecha, reason: r, reason_detail: r === 'otro' ? detalle : undefined }));
         await this.ordenarNuevos(fecha, nuevo?.id ? [nuevo.id] : []);
         movido = true;
+        if (nuevo?.ajuste_al_saldo) ajusteRebote = nuevo.ajuste_al_saldo;
       } catch (e) {
         this.toast.add({ severity: 'warn', summary: 'Quedó marcado que rebotó, pero no se movió', detail: this.errMsg(e, 'No se pudo mover.'), life: 10000 });
       }
@@ -6144,7 +6178,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reboteVisible = false;
     this.invalidarDeuda();
     this.reload();
-    if (movido) this.toast.add({ severity: 'success', summary: 'Rebotó y se movió', detail: `${this.allocationTitle(a)} pasó al ${this.dayLong(fecha)}.` });
+    if (movido) this.toast.add({ severity: 'success', summary: 'Rebotó y se movió', life: ajusteRebote?.ajustadas.length ? 10000 : undefined,
+      detail: `${this.allocationTitle(a)} pasó al ${this.dayLong(fecha)}.` + this.textoAjusteAlMover(ajusteRebote ? [ajusteRebote] : []) });
+    const avisoRebote = movido && ajusteRebote ? this.avisoNoAjustadoAlMover([ajusteRebote]) : '';
+    if (avisoRebote) this.toast.add({ severity: 'warn', summary: 'Revisa el importe', detail: avisoRebote, life: 12000 });
     else if (!fecha) this.toast.add({ severity: 'info', summary: 'Marcado que rebotó', detail: `${this.allocationTitle(a)} queda en este día hasta que lo muevas.` });
   }
   /** `[PGP.70]` Quitar del día, ya confirmado; `saving` apaga la ✕ y el botón desde el primer clic. */

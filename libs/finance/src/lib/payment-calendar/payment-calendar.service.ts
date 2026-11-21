@@ -8,7 +8,7 @@ import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarAjusteAlSaldo, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SalidaSegunLaDescarga, AbonoQueBajoElSaldo, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDeLosDias, leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiConCancelados, leerCfdiDeFacturas } from './cfdi-factura.sql';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
@@ -49,9 +49,9 @@ import {
   SQL_SALIDAS_LIGADAS, SQL_SALIDAS_POR_EL_BANCO,
 } from './pago-por-el-banco.sql';
 import {
-  AUTOR_AJUSTE_AL_SALDO, EVENTO_AJUSTADO_AL_SALDO, SQL_ABONOS_DE_LAS_FACTURAS, SQL_CANDIDATOS_AJUSTE, SQL_YA_SALIO_DEL_BANCO,
-  cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo,
-  type CargoKepler, type FacturaParaDebeMenos,
+  AUTOR_AJUSTE_AL_SALDO, EVENTO_AJUSTADO_AL_SALDO, SQL_ABONOS_DE_LAS_FACTURAS, SQL_ARMADO_ORIGINAL, SQL_CANDIDATOS_AJUSTE, SQL_YA_SALIO_DEL_BANCO,
+  MOTIVO_NO_AJUSTA_AUTORIZADO, MOTIVO_NO_AJUSTA_HOY_O_PASADO, cargoDeLaFactura, claseDeAbono, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo,
+  type CargoKepler, type FacturaParaDebeMenos, type ModoAjusteAlSaldo, type OpcionesAjusteAlSaldo,
 } from './debe-menos';
 import { SQL_CREDITOS_A_FAVOR } from './creditos-a-favor.sql';
 import { AUTOR_PAGO_EN_KEPLER, EVENTO_LIGADO_A_KEPLER, EVENTO_PAGADO_EN_KEPLER, SQL_POR_LIGAR_A_KEPLER, decidirPagoEnKepler } from './pago-en-kepler';
@@ -2166,9 +2166,13 @@ export class PaymentCalendarService {
     return new Map(rows.map((r) => [String(r.id), { debe: Number(r.debe), entity_ref: r.entity_ref, payee_code: r.payee_code }]));
   }
 
-  /** `[PGP.148]` El ajuste, dentro de una transacción. `automatico` = el worker (sólo lo que `seAjustaSolo` permite). */
+  /**
+   * `[PGP.148]` El ajuste, dentro de una transacción. `automatico` = el worker y `reprogramar` = el pago que nace al
+   * moverlo (`[PGP.184]`): los dos sólo ajustan lo que `seAjustaSolo` permite; `manual` es la persona con «Bajar a».
+   */
   private async ajustarAlSaldoEn(
-    trx: Knex.Transaction, tenantId: string, allocationId: string, username: string, modo: 'manual' | 'automatico', hoy: string,
+    trx: Knex.Transaction, tenantId: string, allocationId: string, username: string, modo: ModoAjusteAlSaldo, hoy: string,
+    opciones: OpcionesAjusteAlSaldo = {},
   ): Promise<PaymentCalendarAjusteAlSaldo> {
     const a = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
     if (!a) throw new NotFoundException('Pago no encontrado');
@@ -2178,11 +2182,7 @@ export class PaymentCalendarService {
     const lot = await trx('finance.payment_calendar_lots').where({ id: a.lot_id }).first('status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { status: string; dia: string } | undefined;
     if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le puede cambiar el importe a sus pagos.');
     const dia = lot?.dia ?? hoy;
-    // ⛔ Lo que ya salió del banco por su importe no se ajusta: la salida se quedaría sin pago que la reclame.
-    const [{ salio }] = (await trx.raw(SQL_YA_SALIO_DEL_BANCO, [tenantId, Number(a.amount_assigned), dia, hoy, tenantId, Number(a.amount_assigned), dia, hoy])).rows as { salio: boolean }[];
-    if (salio) {
-      throw new BadRequestException('Este pago ya salió del banco por su importe: no se ajusta (lo pagado de más se recupera con el proveedor o se aplica a su siguiente factura en Kepler).');
-    }
+    const antes = Number(a.amount_assigned);
     const items = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocationId }).forUpdate()
       .select('id', 'obligation_source', 'obligation_id', 'applied_amount', 'discount_amount');
     const kp = items.filter((i) => i.obligation_source === 'kepler_payable');
@@ -2192,17 +2192,32 @@ export class PaymentCalendarService {
       return { id: String(i.id), applied_amount: Number(i.applied_amount), kepler_debe: s ? s.debe : null, kepler_saldada: !s, entity_ref: s?.entity_ref ?? null, payee_code: s?.payee_code ?? null };
     });
     const malas = facturasQueDebenMenos(facturas);
-    const abonos = malas.length ? await this.abonosDeLasFacturas(trx, malas) : new Map<string, AbonoQueBajoElSaldo[]>();
-    const armadoEl = toMxDateKey(a.created_at);
+    // `[PGP.184]` Sin nada de más no hay nada que mirar en el banco (cada reprogramación pasa por aquí).
+    if (!malas.length) return { allocation_id: allocationId, antes, amount_assigned: antes, ajustadas: [], omitidas: [] };
+    const nombre = (f: FacturaParaDebeMenos) => { const c = cargoDeLaFactura(f); return c ? `${c.tipo}-${c.sub}-${c.folio}` : (f.entity_ref ?? '—'); };
+    // `[PGP.184]` Al reprogramar a hoy o a un día pasado, o si venía autorizado: sólo se dice (D19 b), no se escribe.
+    if (opciones.soloAvisar) {
+      return { allocation_id: allocationId, antes, amount_assigned: antes, ajustadas: [], omitidas: malas.map((f) => ({ item_id: f.id, factura: nombre(f), motivo: opciones.soloAvisar as string })) };
+    }
+    // ⛔ Lo que ya salió del banco por su importe no se ajusta: la salida se quedaría sin pago que la reclame. `[PGP.184]`
+    // Al reprogramar se mira desde el día ORIGINAL: con el día nuevo (más adelante) la ventana quedaba vacía.
+    const desde = opciones.diaBancoDesde && opciones.diaBancoDesde < dia ? opciones.diaBancoDesde : dia;
+    const [{ salio }] = (await trx.raw(SQL_YA_SALIO_DEL_BANCO, [tenantId, antes, desde, hoy, tenantId, antes, desde, hoy])).rows as { salio: boolean }[];
+    if (salio) {
+      throw new BadRequestException('Este pago ya salió del banco por su importe: no se ajusta (lo pagado de más se recupera con el proveedor o se aplica a su siguiente factura en Kepler).');
+    }
+    const abonos = await this.abonosDeLasFacturas(trx, malas);
+    // `[PGP.184]` «Desde que se armó» cuenta desde el pago ORIGINAL: el reprogramado es el mismo pago en otro día.
+    const armadoEl = modo !== 'manual' ? await this.armadoOriginal(trx, allocationId, a.created_at) : toMxDateKey(a.created_at);
     const ajustadas: (PaymentCalendarAjusteAlSaldo['ajustadas'][number] & { abonos: AbonoQueBajoElSaldo[] })[] = [];
     const omitidas: PaymentCalendarAjusteAlSaldo['omitidas'] = [];
     for (const f of malas) {
       const it = kp.find((i) => String(i.id) === f.id)!;
       const c = cargoDeLaFactura(f);
-      const factura = c ? `${c.tipo}-${c.sub}-${c.folio}` : (f.entity_ref ?? '—');
+      const factura = nombre(f);
       const ab = c ? abonos.get(c.llave) ?? [] : [];
       if (Number(it.discount_amount ?? 0) > 0) { omitidas.push({ item_id: f.id, factura, motivo: 'lleva descuento al pagar: ajústala a mano' }); continue; }
-      if (modo === 'automatico' && !seAjustaSolo(ab, armadoEl)) {
+      if (modo !== 'manual' && !seAjustaSolo(ab, armadoEl)) {
         omitidas.push({ item_id: f.id, factura, motivo: 'un pago en Kepler bajó su saldo (puede ser este mismo pago): lo decide una persona' });
         continue;
       }
@@ -2211,7 +2226,6 @@ export class PaymentCalendarService {
       await this.recalcObligation(trx, it.obligation_source as ObligationSource, it.obligation_id);
       ajustadas.push({ item_id: f.id, factura, antes: f.applied_amount, despues, abonos: ab });
     }
-    const antes = Number(a.amount_assigned);
     if (!ajustadas.length) return { allocation_id: allocationId, antes, amount_assigned: antes, ajustadas: [], omitidas };
     await this.recalcAllocationTotal(trx, allocationId);
     const [b] = await trx('finance.payment_allocations').where({ id: allocationId })
@@ -2222,6 +2236,12 @@ export class PaymentCalendarService {
       detail: JSON.stringify({ regla: 'PGP.148', modo, hoy, antes, despues, facturas: ajustadas, omitidas }),
     });
     return { allocation_id: allocationId, antes, amount_assigned: despues, ajustadas: ajustadas.map((x) => ({ item_id: x.item_id, factura: x.factura, antes: x.antes, despues: x.despues })), omitidas };
+  }
+
+  /** `[PGP.184]` El día (AAAA-MM-DD, México) en que se armó el pago original de la cadena de reprogramaciones. */
+  private async armadoOriginal(trx: Knex.Transaction, allocationId: string, creadoEl: Date | string): Promise<string> {
+    const [r] = (await trx.raw(SQL_ARMADO_ORIGINAL, [allocationId])).rows as { armado: string | null }[];
+    return r?.armado || toMxDateKey(creadoEl);
   }
 
   /** `[PGP.147]` Los abonos vivos que Kepler aplicó a las facturas que deben menos, por llave de cargo. */
@@ -2802,7 +2822,9 @@ export class PaymentCalendarService {
    * TP.10 — exige motivo (cerrado + 'otro' con detalle libre): permite reprogramar un pago
    * PENDIENTE (ej. presupuesto recortado) o uno FALLIDO (cuenta errónea/banco/devuelto/otro).
    */
-  async reprogram(allocationId: string, newDate: string, reason: ReprogramReason, reasonDetail: string | undefined, username: string) {
+  async reprogram(
+    allocationId: string, newDate: string, reason: ReprogramReason, reasonDetail: string | undefined, username: string, hoy: string = todayMx(),
+  ): Promise<AllocationRowLite & PaymentCalendarReprogramado> {
     this.assertDate(newDate);
     if (!REPROGRAM_REASONS.includes(reason)) throw new BadRequestException(`reason inválido — debe ser uno de: ${REPROGRAM_REASONS.join(', ')}`);
     if (reason === 'otro' && !reasonDetail?.trim()) throw new BadRequestException('reasonDetail es requerido cuando reason = "otro"');
@@ -2844,7 +2866,38 @@ export class PaymentCalendarService {
         });
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
       }
-      return newAllocation;
+      // `[PGP.184]` **El pago que nace al reprogramar no lleva más de lo que su factura debe HOY** (Francisco, 2026-11-20:
+      // «cuando un proveedor ya está agendado y se le aplica una nota de crédito o devolución, y aún no está pagada, se
+      // debe actualizar el calendario»). Reprogramar copiaba el importe viejo sin compararlo con Kepler (crear y agregar sí
+      // lo comparan). Caso CE012 (prod, anexo C §4b): factura programada el 10-nov, cuatro notas de crédito de ese mismo
+      // día, reprogramada el 18 a ese mismo día con el importe completo; al 20-nov seguía pendiente con lo de las notas de
+      // más. Medido: 27 de 55 reprogramaciones van a hoy o a un día pasado. Dentro de D19 (b), igual que el worker:
+      // · a un día POR VENIR y sin autorización previa: baja solo, con las reglas del worker (sólo lo que explica una nota
+      //   o devolución sin dinero desde el armado ORIGINAL; nunca sube; la factura con descuento no se toca) y el banco se
+      //   mira desde el día ORIGINAL — con el día nuevo, más adelante, la ventana quedaba vacía;
+      // · a HOY o a un día pasado, o si venía autorizado: no se escribe nada (pudo ya salir del banco por su importe esta
+      //   mañana; bajarlo dejaría esa salida sin pago que case con ella), pero la respuesta lo dice y la pantalla lo avisa
+      //   al moverlo, con «Bajar a» en su renglón.
+      // En su propio punto de guardado: si el ajuste falla, el pago se mueve igual y el aviso rojo de `[PGP.147]` sigue.
+      const loteViejo = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id })
+        .first('status', trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { status: string; dia: string } | undefined;
+      const veniaAutorizado = !!allocation.authorized_at || (!!loteViejo && LOCKED_LOT_STATUSES.has(loteViejo.status));
+      const soloAvisar = veniaAutorizado ? MOTIVO_NO_AJUSTA_AUTORIZADO : newDate <= hoy ? MOTIVO_NO_AJUSTA_HOY_O_PASADO : undefined;
+      const diaBancoDesde = loteViejo?.dia && loteViejo.dia < newDate ? loteViejo.dia : newDate;
+      let ajuste: PaymentCalendarAjusteAlSaldo | null = null;
+      try {
+        ajuste = await trx.transaction((sp) => this.ajustarAlSaldoEn(sp, tenantId, newAllocation.id, username, 'reprogramar', hoy, { soloAvisar, diaBancoDesde }));
+      } catch (e: unknown) {
+        // Ya salió del banco por su importe (u otra regla del ajuste): se mueve igual. Lo inesperado se registra como aviso.
+        const msg = `[PGP.184] el pago ${newAllocation.id} se reprogramó sin ajustarlo al saldo de Kepler: ${(e as Error)?.message}`;
+        if (e instanceof BadRequestException) this.logger.log(msg); else this.logger.warn(msg);
+      }
+      const reprogramado: AllocationRowLite & PaymentCalendarReprogramado = {
+        ...newAllocation,
+        amount_assigned: ajuste ? ajuste.amount_assigned : Number(newAllocation.amount_assigned),
+        ajuste_al_saldo: ajuste && (ajuste.ajustadas.length || ajuste.omitidas.length) ? ajuste : null,
+      };
+      return reprogramado;
     });
   }
 
