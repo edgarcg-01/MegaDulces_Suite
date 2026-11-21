@@ -2,12 +2,17 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { skusDeCodigoDeBarras } from '@megadulces/platform-core';
 import type {
+  CampoEnCero,
   CampoSinClasificar,
+  CeroEnFicha,
+  ConsultaEnCeros,
   ConsultaListaPrecios,
   ConsultaSinClasificar,
+  FilaEnCeros,
   FilaListaPrecios,
   FilaSinClasificar,
   OrdenListaPrecios,
+  RespuestaEnCeros,
   RespuestaHistoriaPrecio,
   RespuestaListaPrecios,
   RespuestaSinClasificar,
@@ -20,7 +25,7 @@ import {
   HISTORIA_PRECIO_SQL,
   LISTA_PRECIOS_SQL,
 } from './precios-catalogo.sql';
-import { SIN_CLASIFICAR_SQL } from './ficha-sucursales.sql';
+import { EN_CEROS_SQL, SIN_CLASIFICAR_SQL } from './ficha-sucursales.sql';
 
 /** `[ZN.8]` El proyecto desde el que se pregunta el alcance: estas pantallas viven en Compras. */
 const AREA = 'compras';
@@ -264,6 +269,81 @@ export class PreciosCatalogoService {
         ficha_al: al === null ? null : new Date(al).toISOString(),
         resumen,
         con_falta: universo.length,
+        lineas: [...lineas.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
+        total: visibles.length,
+        filas: visibles.slice(desplazamiento, desplazamiento + limite),
+      };
+    });
+  }
+
+  /**
+   * `[CAT-PRECIO.6]` Mantenimiento · **Costo o precio en cero** (`EN_CEROS_SQL`). Mismo molde que `sinClasificar`:
+   * el resumen y las líneas sobre el universo (búsqueda y venta), los chips filtran lo que tiene en cero.
+   * ⛔ No viaja ningún costo con valor (el permiso lo tiene también el cliente B2B, ver `sinMargenParaCliente`): sólo
+   * QUÉ está en cero, por sucursal y unidad. Medido en prod el 2026-11-20 con RLS: 0.47–0.55 s toda la red.
+   */
+  async enCeros(c: ConsultaEnCeros = {}): Promise<RespuestaEnCeros> {
+    const limite = Math.min(Math.max(Number(c.limite) || 100, 1), 500);
+    const desplazamiento = Math.max(Number(c.desplazamiento) || 0, 0);
+    const CAMPOS: CampoEnCero[] = ['costo', 'precio'];
+    const falta = CAMPOS.includes(c.falta as CampoEnCero) ? (c.falta as CampoEnCero) : undefined;
+
+    return this.tk.run(async (trx) => {
+      const [crudo, sync] = await Promise.all([
+        trx.raw(EN_CEROS_SQL),
+        trx.from('kepler_ods._sync_status').where('table_name', 'kdii').first('last_push_at'),
+      ]);
+      const palabras = norm((c.q ?? '').trim()).split(/\s+/).filter(Boolean);
+      // `[BU.4.2]` Un código de barras buscado: sus claves (sin consulta si no tiene forma de código).
+      const porCodigo = new Set(await skusDeCodigoDeBarras(trx, c.q));
+      const todas: FilaEnCeros[] = ((crudo.rows ?? []) as Record<string, unknown>[]).map((r) => ({
+        sku: String(r.sku),
+        nombre: String(r.nombre ?? r.sku),
+        plazas: Number(r.plazas) || 0,
+        linea: { codigo: (r.linea as string | null) ?? null, nombre: (r.linea_nombre as string | null) ?? null },
+        falta: CAMPOS.filter((k) => r[`${k}_en_cero`] === true),
+        ceros: ((r.ceros as CeroEnFicha[] | null) ?? []).map((z) => ({
+          sucursal: String(z.sucursal),
+          sucursal_nombre: z.sucursal_nombre ?? null,
+          unidad: String(z.unidad),
+          costo: z.costo === 'cero' || z.costo === 'vacio' ? z.costo : null,
+          precio_cero: z.precio_cero === true,
+        })),
+        venta_30d: num(r.venta_30d),
+      }));
+      const linea = filtroCodigo(c.linea);
+      // El universo del resumen: búsqueda, línea y venta. Los chips SON el selector de `falta`.
+      const universo = todas.filter(
+        (f) =>
+          (!c.con_venta || f.venta_30d > 0) &&
+          (linea === undefined || (f.linea.codigo ?? '') === linea) &&
+          (palabras.length === 0 || porCodigo.has(f.sku) || palabras.every((p) => norm(`${f.sku} ${f.nombre}`).includes(p))),
+      );
+      const resumen = { costo: 0, precio: 0 } as Record<CampoEnCero, number>;
+      for (const f of universo) for (const k of f.falta) resumen[k]++;
+
+      const lineas = new Map<string, { codigo: string; nombre: string; productos: number }>();
+      for (const f of todas) {
+        const k = f.linea.codigo ?? '';
+        const o = lineas.get(k) ?? { codigo: k, nombre: k ? (f.linea.nombre ?? k) : 'Sin línea', productos: 0 };
+        o.productos++;
+        lineas.set(k, o);
+      }
+
+      // Primero lo que vende con precio en cero (se regala), luego por venta: lo que más se vende es lo que más cuesta.
+      const visibles = universo
+        .filter((f) => !falta || f.falta.includes(falta))
+        .sort(
+          (a, b) =>
+            Number(b.falta.includes('precio') && b.venta_30d > 0) - Number(a.falta.includes('precio') && a.venta_30d > 0) ||
+            b.venta_30d - a.venta_30d ||
+            a.nombre.localeCompare(b.nombre, 'es'),
+        );
+      const al = (sync as { last_push_at: Date | string | null } | undefined)?.last_push_at ?? null;
+      return {
+        ficha_al: al === null ? null : new Date(al).toISOString(),
+        resumen,
+        con_cero: universo.length,
         lineas: [...lineas.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')),
         total: visibles.length,
         filas: visibles.slice(desplazamiento, desplazamiento + limite),

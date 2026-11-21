@@ -26,7 +26,7 @@ const apagado = { condicion: 6 as const, texto: 'la autorización automática es
 const bandeja = (pendientes: PedidoPorAutorizar[], aparte: PedidoPorAutorizar[] = []): BandejaAutorizacion => ({
   hoy: '2026-11-20',
   freshness: { data_as_of: '2026-11-20T18:00:00Z', status: 'fresh', stale: false, age_human: '2 min', inputs: [] },
-  parametros: { graciaDias: 15, pedidoViejoDias: 30, frescuraMaxMin: 15, origen: 'propuesta' },
+  parametros: { graciaDias: 15, pedidoViejoDias: 2, abiertosHorizonteDias: 30, frescuraMaxMin: 15, origen: 'propuesta' },
   pendientes, aparte, contado: [], sucursales_encendidas: [], autorizados_hoy: null,
 });
 

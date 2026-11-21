@@ -4,12 +4,12 @@ import { createHash } from 'node:crypto';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantKnexService, latirCron, todayMx, urlDeServidor } from '@megadulces/platform-core';
 import {
-  comprobacionDelVale, totalParaComprobar, formaPago, type ComprobacionEnLaCola, type EscrituraDelGastoEnLaBase, type EstadoKeplerDelGasto,
+  comprobacionDelVale, totalParaComprobar, montoLeidoDelVale, formaPago, type ComprobacionEnLaCola, type EscrituraDelGastoEnLaBase, type EstadoKeplerDelGasto,
   type SolicitudAComprobar, type ValeAComprobar,
 } from '@megadulces/contracts';
 
 import {
-  KeplerGastoSinkAdapter, SERVIDORES_POLIZA_MENSUAL, type EntregaGastoKepler, type ResultadoEscrituraGasto,
+  KeplerGastoSinkAdapter, type EntregaGastoKepler, type ResultadoEscrituraGasto,
 } from './kepler-gasto-sink.adapter';
 
 /**
@@ -75,10 +75,14 @@ interface ValeParaGasto {
   kepler_expense_date: string | null;
   /** GX.9 guarda aquí lo que declaró quien capturó (`importe_declarado`) cuando casa el vale con su solicitud. */
   capture_meta: unknown;
+  /** DG12: el monto que leyó el comprobante cuando no cuadró, y el aviso del lector (de ahí sale si `monto_ocr` falta). */
+  monto_ocr: string | number | null;
+  revision_nota: string | null;
 }
 const COLUMNAS_DEL_VALE = [
   'id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'kepler_expense_status', 'kepler_expense_folio',
   'kepler_expense_attempts', 'kepler_expense_note', 'kepler_expense_next_at', 'kepler_expense_policy', 'capture_meta',
+  'monto_ocr', 'revision_nota',
 ] as const;
 
 /** La X-A-15 en el ODS, con el folio de su gasto vivo si lo tiene. */
@@ -136,18 +140,13 @@ export class ComprobacionGastoService {
     @Optional() private readonly sink?: KeplerGastoSinkAdapter,
   ) {}
 
-  /** La llaman la firma (si cierra en `validada`) y la validación, DESPUÉS de guardarse. Nunca lanza. */
-  async escribirAlValidar(id: string, actor: string | null, disparo: 'firma' | 'validacion' = 'validacion'): Promise<EstadoKeplerDelGasto | null> {
-    try {
-      return await this.intentar((fn) => this.tk.run(fn), id, disparo, actor);
-    } catch (e) {
-      this.logger.error(`vale ${id}: quedó validado, pero la comprobación en Kepler no terminó: ${(e as Error).message}. Si alcanzó a reclamarse, el cron la revisa en ${WRITING_HUERFANO_MIN} min`);
-      return null;
-    }
-  }
-
-  /** «Reintentar» de una persona: también los atorados, los que Kepler rechazó (ya corregidos) y los cancelados. */
-  async reintentar(id: string, actor: string): Promise<EstadoKeplerDelGasto | null> {
+  /**
+   * `[PGP.123]` G.14 — **«Generar gasto»: una persona lo pide con un clic** (D1/D2 de Edgar, 2026-11-21). Es la ÚNICA
+   * puerta que escribe un gasto nuevo: ni la firma ni la validación ni el cron lo escriben solos. Lo pueden pedir el
+   * dueño del vale (quien lo pidió) y quien aprueba gastos; esa cerradura la pone `ExpenseProofsService.generarGasto`.
+   * También retoma lo atorado, lo que Kepler rechazó (ya corregido) y lo que Kepler canceló.
+   */
+  async generar(id: string, actor: string): Promise<EstadoKeplerDelGasto | null> {
     return this.intentar((fn) => this.tk.run(fn), id, 'reintento', actor);
   }
 
@@ -205,7 +204,7 @@ export class ComprobacionGastoService {
       const conG6 = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_expense_status');
       const vales = (await trx('finance.expense_proofs').whereIn('id', limpios)
         .select(conG6 ? [...COLUMNAS_DEL_VALE, trx.raw(`to_char(kepler_expense_date, 'YYYY-MM-DD') AS kepler_expense_date`)]
-          : ['id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'capture_meta'])) as ValeParaGasto[];
+          : ['id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'capture_meta', 'monto_ocr', 'revision_nota'])) as ValeParaGasto[];
       const conSolicitud = vales.filter((v) => String(v.sucursal ?? '').trim() && String(v.folio_solicitud ?? '').trim());
       const solicitudes = new Map<string, SolicitudDelOds>();
       if (conSolicitud.length) {
@@ -257,7 +256,7 @@ export class ComprobacionGastoService {
         const cfdi = declarado ? cfdis.get(String(v.cfdi_uuid).trim().toLowerCase()) ?? null : null;
         out.set(String(v.id), {
           comprobacion: comprobacionDelVale({ status: v.status, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud,
-            total: totalParaComprobar(v.importe, v.capture_meta), cfdi, cfdi_declarado: declarado }, s, hoy),
+            total: totalParaComprobar(v.importe, v.capture_meta), cfdi, cfdi_declarado: declarado, monto_leido: montoLeidoDelVale(v.monto_ocr, v.revision_nota) }, s, hoy),
           gasto: conG6 && (v.kepler_expense_status || v.kepler_expense_folio) ? this.estadoDe(v) : null,
           escritura: this.escrituraEn(String(v.sucursal ?? '').trim(), encendidas),
         });
@@ -270,14 +269,12 @@ export class ComprobacionGastoService {
   private escrituraEn(sucursal: string, encendidas: ReadonlySet<string>): EscrituraDelGastoEnLaBase {
     const detalle = !this.sink ? 'El escritor de gastos a Kepler no está cargado en este servidor'
       : !this.sink.encendida() ? 'La bandera KEPLER_GASTO_COMPROBACION está apagada'
-        : !SERVIDORES_POLIZA_MENSUAL.has(sucursal) ? `DG7: en ${sucursal} la póliza D lleva un contador que la Suite todavía no ve (G.1)`
-          : !encendidas.has(sucursal) ? `El interruptor ${TIPO_INTERRUPTOR} de la sucursal ${sucursal} está apagado`
+        : !encendidas.has(sucursal) ? `El interruptor ${TIPO_INTERRUPTOR} de la sucursal ${sucursal} está apagado`
             : !urlDeServidor(sucursal, process.env).ok ? `Sin conexión configurada al Kepler de la sucursal ${sucursal}` : null;
     if (!detalle) return { abierta: true, motivo: null, detalle: null };
     return {
       abierta: false, detalle,
-      motivo: detalle.startsWith('DG7') ? 'En esta base la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir'
-        : 'La escritura de gastos a Kepler todavía está apagada en esta base',
+      motivo: 'La escritura de gastos a Kepler todavía está apagada en esta base',
     };
   }
 
@@ -324,7 +321,7 @@ export class ComprobacionGastoService {
         const r: ResultadoEscrituraGasto = { estado: 'ya_estaba', sucursal, folio: m.encontrado.folio, kepler: m.encontrado.kepler };
         return run(async (trx) => this.anotar(trx, id, v, r, disparo, actor, null));
       }
-      // No quedó: deja de estar en duda y sigue el camino de siempre (la regla decide si se escribe).
+      // No quedó: deja de estar en duda y sigue el camino de siempre (la regla decide). G.14: el cron se detiene antes de escribir.
       await run(async (trx) => trx('finance.expense_proofs').where({ id, kepler_expense_status: 'in_doubt' })
         .update({ kepler_expense_status: 'retry', updated_at: trx.fn.now() }));
       v.kepler_expense_status = 'retry';
@@ -334,6 +331,7 @@ export class ComprobacionGastoService {
     const decision = comprobacionDelVale({
       status: v.status, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud,
       total: totalParaComprobar(v.importe, v.capture_meta), cfdi: factura.cfdi, cfdi_declarado: factura.declarado,
+      monto_leido: montoLeidoDelVale(v.monto_ocr, v.revision_nota),
     }, s, hoy);
     if (!decision.listo) {
       // Una persona ya lo capturó en Kepler: se reconoce con su folio y el lazo queda cerrado.
@@ -358,11 +356,10 @@ export class ComprobacionGastoService {
 
     // G.5 sólo dice «listo» con la solicitud leída; si no, no se sigue (y el tipo lo sabe).
     if (!s) return this.estadoDe(v);
-    // Apagado (interruptor, bandera o DG7): no se intenta y no cuenta; queda esperando a que lo enciendan.
+    // Apagado (interruptor o bandera): no se intenta y no cuenta; queda esperando a que lo enciendan.
     // [PGP.123] G.UI.8: la nota llega a la persona (el aviso de «Escribir el gasto ahora»): en llano, sin códigos.
     const apagadoPor = !sw?.encendida ? `El interruptor de la escritura de gastos de la sucursal ${sucursal} está apagado`
-      : !this.sink.encendida() ? 'La escritura de gastos a Kepler está apagada en este servidor'
-        : !SERVIDORES_POLIZA_MENSUAL.has(sucursal) ? `En la sucursal ${sucursal} la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir` : null;
+      : !this.sink.encendida() ? 'La escritura de gastos a Kepler está apagada en este servidor' : null;
     if (apagadoPor) {
       if (v.kepler_expense_note !== apagadoPor || disparo !== 'cron') {
         await run(async (trx) => {
@@ -373,6 +370,15 @@ export class ComprobacionGastoService {
         });
       }
       return this.estadoDe({ ...v, kepler_expense_status: v.kepler_expense_status ?? 'pending', kepler_expense_note: apagadoPor });
+    }
+
+    // G.14 (D2, 2026-11-21): el cron NO escribe. Llega aquí sólo un «en duda» que no estaba en Kepler y que la regla deja
+    // escribir: queda listo para que una persona lo genere con un clic.
+    if (disparo === 'cron') {
+      const nota = 'No quedó en Kepler: genéralo otra vez con «Generar gasto»';
+      await run(async (trx) => trx('finance.expense_proofs').where({ id }).whereNull('kepler_expense_folio')
+        .update({ kepler_expense_status: 'retry', kepler_expense_note: nota, kepler_expense_next_at: null, updated_at: trx.fn.now() }));
+      return this.estadoDe({ ...v, kepler_expense_status: 'retry', kepler_expense_note: nota, kepler_expense_next_at: null });
     }
 
     // ── 3. El reclamo atómico, confirmado ANTES de hablar con Kepler ──────────────────────────────────────────────
@@ -489,16 +495,15 @@ export class ComprobacionGastoService {
         .where({ tenant_id: MEGA, kepler_expense_status: 'writing' })
         .whereRaw(`kepler_expense_at < now() - make_interval(mins => ?)`, [WRITING_HUERFANO_MIN])
         .update({ kepler_expense_status: 'in_doubt', kepler_expense_note: 'El intento anterior no terminó: se busca el gasto en Kepler antes de reintentar', updated_at: trx.fn.now() })));
-      // Sólo las sucursales ABIERTAS (interruptor, bandera, URL y DG7): lo de una sucursal apagada espera sin ocupar el cupo.
+      // Sólo las sucursales ABIERTAS (interruptor, bandera y URL): lo de una sucursal apagada espera sin ocupar el cupo.
       const encendidas = new Set(await run(async (trx) => trx.transaction(async (sp) => sp('commercial.kepler_push_switch')
         .where({ tipo: TIPO_INTERRUPTOR, encendida: true }).pluck('sucursal')).catch(() => [] as string[])));
-      const abiertas = SUCURSALES.filter((s) => encendidas.has(s) && this.sink?.encendida() && urlDeServidor(s, process.env).ok && SERVIDORES_POLIZA_MENSUAL.has(s));
-      // Los que toca: validados, con su X-A-15, sin gasto, en espera vencida o en duda, y cuya X-A-15 sigue en A en el
-      // ODS (sin esto, los miles de vales viejos ya comprobados se revisarían cada 5 minutos). El que más espera, primero.
+      const abiertas = SUCURSALES.filter((s) => encendidas.has(s) && this.sink?.encendida() && urlDeServidor(s, process.env).ok);
+      // G.14 (D2, 2026-11-21): el cron YA NO ESCRIBE gastos nuevos. Sólo toma los que quedaron EN DUDA (un COMMIT sin
+      // respuesta o un proceso que murió) para averiguar si quedaron en Kepler; si no, vuelven a esperar el botón.
       const ids: string[] = !abiertas.length ? [] : await run(async (trx) => (await trx('finance.expense_proofs as p')
         .where({ 'p.tenant_id': MEGA, 'p.status': 'validada' }).whereNotNull('p.folio_solicitud').whereNull('p.kepler_expense_folio').whereIn('p.sucursal', abiertas)
-        .where((q) => q.whereNull('p.kepler_expense_status').orWhereIn('p.kepler_expense_status', ['pending', 'retry', 'in_doubt']))
-        .where((y) => y.whereNull('p.kepler_expense_next_at').orWhere('p.kepler_expense_next_at', '<=', trx.fn.now()))
+        .where('p.kepler_expense_status', 'in_doubt')
         .modify((qb) => this.filtrarCandidatos(qb))
         // «En duda» entra aunque su X-A-15 ya no esté en A: si el COMMIT llegó, Kepler la dejó en F (revisión independiente).
         .where((w) => w.where('p.kepler_expense_status', 'in_doubt').orWhereExists(function () {

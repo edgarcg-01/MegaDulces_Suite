@@ -4,12 +4,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import {
   PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto, ItemDiscountDto,
-  PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
+  PrepareAllocationDto, PrepararEnTransferenciasDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -279,8 +279,8 @@ export class PaymentCalendarController {
 
   @Post('allocations/:id/reprogramar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
-  @ApiOperation({ summary: 'Mueve el pago a otro día (pendiente o fallido) — actualiza la capacidad consumida de ambas fechas. Exige motivo (TP.10).' })
-  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string }, @Req() req: AuthedRequest) {
+  @ApiOperation({ summary: 'Mueve el pago a otro día (pendiente o fallido) — actualiza la capacidad consumida de ambas fechas. Exige motivo (TP.10). [PGP.184] El pago nuevo baja a lo que su factura debe hoy en Kepler si una nota o devolución ya lo bajó (ajuste_al_saldo).' })
+  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string }, @Req() req: AuthedRequest): Promise<PaymentCalendarReprogramado> {
     return this.svc.reprogram(id, body.date, body.reason, body.reason_detail, req.user?.username || 'sistema');
   }
 
@@ -342,6 +342,13 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Completa método de pago / cuenta de origen / destino — lo que quien dispersa necesita para ejecutar.' })
   prepare(@Param('id') id: string, @Body() dto: PrepareAllocationDto, @Req() req: AuthedRequest) {
     return this.svc.prepare(id, dto, req.user?.username || 'sistema');
+  }
+
+  @Post('allocations/:id/preparar-en-transferencias')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.190] Prepara un pago que sale en varias transferencias: lo parte en un pago por transferencia (mismo día, misma cuenta destino, cada uno con su cuenta de origen).' })
+  prepararEnTransferencias(@Param('id') id: string, @Body() dto: PrepararEnTransferenciasDto, @Req() req: AuthedRequest): Promise<PaymentCalendarPartido> {
+    return this.svc.prepararEnTransferencias(id, dto, req.user?.username || 'sistema');
   }
 
   /**
@@ -426,6 +433,44 @@ export class PaymentCalendarController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="preliminar-${date}.pdf"`);
     res.end(buf);
+  }
+
+  /**
+   * `[PGP.165]` **El cheque del pago**, en PDF del tamaño del cheque (BanBajío). `?prueba=1`: la hoja de prueba en
+   * carta con los datos de este pago. `?dx=&dy=`: corrimiento de la impresora en mm (±15). Lo pide quien prepara los
+   * pagos (Tesorería): no escribe nada, y el importe y la fecha los pone el servidor.
+   */
+  @Get('allocations/:id/cheque.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.165 — el cheque del pago en PDF del tamaño del cheque (?prueba=1: hoja de prueba en carta; ?dx=&dy=: corrimiento en mm). 409 con el motivo si el pago no puede salir en cheque.' })
+  async chequePdf(
+    @Param('id') id: string,
+    @Query('prueba') prueba: string | undefined,
+    @Query('dx') dx: string | undefined,
+    @Query('dy') dy: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const esPrueba = prueba === '1' || prueba === 'true';
+    const { pdf, folio } = await this.docs.renderCheque(id, { prueba: esPrueba, dx: Number(dx), dy: Number(dy) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${esPrueba ? 'prueba-' : ''}cheque-${folio}.pdf"`);
+    res.end(pdf);
+  }
+
+  /** `[PGP.165]` La hoja de prueba sin pago (nombre y cantidad largos a propósito), para calibrar la impresora. */
+  @Get('cheques/prueba.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.165 — hoja de prueba del cheque en carta, sin pago (?banco=BBAJIO; ?dx=&dy= en mm).' })
+  async chequePruebaPdf(
+    @Query('banco') banco: string | undefined,
+    @Query('dx') dx: string | undefined,
+    @Query('dy') dy: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const pdf = await this.docs.renderChequePrueba(banco || 'BBAJIO', { dx: Number(dx), dy: Number(dy) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="prueba-cheque.pdf"');
+    res.end(pdf);
   }
 
   /**

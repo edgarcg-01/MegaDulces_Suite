@@ -244,6 +244,15 @@ documento al entregar. **MCP.7** (liquidación) es el que retira el papel de la 
 | **D11** | El repartidor cobra **en efectivo y por transferencia**. La liquidación separa las dos. |
 | **D12** | Un repartidor **sí lleva repartos de varias rutas**, pero **cada ruta lleva su propia guía**. La guía es por (ruta, día, repartidor); un repartidor puede firmar varias guías el mismo día. |
 
+**Respondidas por David (2026-11-20, MCP.28–30, sobre una maqueta navegable):**
+
+| # | Decisión |
+|---|---|
+| **D13** | El buscador de pedidos busca **global** (folio, cliente, productos, monto) y **por palabras**, en los últimos **60 días**, cancelados y entregados incluidos. |
+| **D14** | El **supervisor** ve en el buscador los pedidos de su equipo, **sólo para consultar**: los cambia quien los levantó. |
+| **D15** | El día de entrega se cambia con el **calendario libre** desde hoy, **domingos incluidos** («en ocasiones sí trabajan en domingo»), con **motivo obligatorio** y en el **mismo guardado** que los productos. |
+| **D16** | Un pedido en dos sucursales se mueve **entero** (opción A de la maqueta). |
+
 Todas las decisiones de diseño están tomadas. Lo que queda abierto es de implementación (§4.1).
 
 ### 4.1 Pendientes de implementación (no bloquean el arranque)
@@ -269,6 +278,10 @@ Todas las decisiones de diseño están tomadas. Lo que queda abierto es de imple
   salir) y guardar la selección para subirla al recuperar señal.
 - **Inventario**: la preventa no aparta (Fase SU §3.2); al surtir puede faltar.
 - **Árbol compartido**: GP.3b está en vuelo en otra sesión; MCP.3 se coordina con ella.
+- **Dos caminos para mover la entrega (2026-11-20):** el de la tarjeta (MCP.29) revisa D1, pide motivo y deja
+  historia; el botón «Mover» de Carga (`PATCH /commercial/orders/:id/delivery-date`) no hace nada de eso y puede
+  mover un pedido que el surtidor ya tomó. **Dueño: el PM (Edgar)** decide si Carga pasa por la misma regla o se
+  retira el botón; no se tocó en MCP.29 para no salir de su alcance.
 
 ## 6. Estado de implementación
 
@@ -564,6 +577,46 @@ el ODS por pedido, así que se limita a los 12 más recientes con surtido cerrad
 - No hay checado de la preventa (la etapa *En caja* sale del cierre del surtido, no de un checado).
 - La pantalla de la vendedora no escucha el socket: se refresca por sondeo y por el push.
 - Aplicar la migración en prod **antes** de desplegar (el código lee la tabla).
+
+### 6.9 MCP.28 + MCP.29 + MCP.30 — buscar pedidos y mover el día de entrega (🧪 en código, 2026-11-20)
+
+**Pedido de David (2026-11-20):** «vamos a agregar un buscador en la sección de pedidos, porque normalmente
+llega a haber problemas y tenemos que buscar algún pedido pasado o del día… hazlo tokenizado»; «al modificar el
+pedido, que no sea sólo en productos sino también en fechas»; y «hay otra sección donde hay pedidos, agrégale
+también un buscador» (Por entregar). Los problemas, en sus palabras: «el cliente dice uy ese día no estoy, no
+quiero ese producto, cosas así». Maqueta navegable aprobada antes de construir (local, fuera del repo).
+
+| Capa | Estado | Verificado contra / Prueba |
+|---|---|---|
+| C0 | no aplica | Sin vista ni migración. La historia del cambio de día va en `order_status_history` (`confirmed → confirmed`, el CHECK lo permite) con `snapshot.delivery_date {from,to}` |
+| C1 | 🧪 | `reagendar.engine.ts` (≥ hoy en México, domingos sí) 6 casos; `justificantes.engine` acción `rescheduled` +2 (uno negativo); `smart-search` opción `wholeWordUpTo` +3 (sin la opción, el SQL de siempre); `buscar-pedidos.spec.ts` 5 |
+| C2 | 🧪 · prueba real NO MEDIDA en local | `GET /vendor/presale-status/search`, `?q=` en `GET /commercial/orders`, `requested_delivery_date` en `POST /orders/:id/modify`. `buscar-y-reagendar.it.spec.ts` (10 casos, código real como `app_runtime`, payload de `VendorService.modificarPedido`): **se saltó en local** (la base local estaba apagada); la corre el paso de integración del CI |
+| C3 | 🧪 · sin validación visual | `vendor-mis-pedidos.buscar-fecha.spec.ts` 8 y `vendor-pending.buscar.spec.ts` 4; módulo vendor 458/458; un sabotaje (quitar «sólo si es tuyo») salió en rojo. `check:pantalla` **no cubre `apps/vendor`** (su raíz es `apps/view`): no medido por compuerta |
+| C4 | ⬜ | Sin migración. Falta PR, CI, despliegue y verlo en prod desde el menú |
+
+**Lo que cambia:** ver `docs/MODULOS/vendedor-mis-pedidos.md` (2026-11-20). En corto: buscador por palabras en
+Mis pedidos (60 días, todos los estados, el supervisor también ve lo de su equipo sólo para consultar); «Día de
+entrega · Cambiar» en la tarjeta, que se guarda con el mismo «Guardar cambios» y un motivo, sin reabrir el pedido y
+moviendo el grupo entero; buscador de pedidos en Por entregar contra el servidor, y el aviso «Se muestran los 200
+más recientes de N».
+
+**Declarado / fuera de alcance:**
+- El botón «Mover» de Carga (`PATCH /orders/:id/delivery-date`) sigue igual: no revisa D1 ni pide motivo (§5).
+- Un día movido junto con «Agregar otro producto» se rechaza («guarda primero el día»).
+- La búsqueda de Por entregar va por `/api/commercial/orders/**`, que el service worker guarda con `freshness`
+  (8 s): con señal muy lenta podría mostrar la respuesta guardada de la misma búsqueda. Sin señal no pregunta: lo dice.
+- NO MEDIDO: cuántos pendientes hay de verdad detrás del «200 por entregar» de la captura de David; si los cancelados
+  y entregados desaparecen de la lista del día en prod (leído en el código: `diasCerrados: 0`).
+- **Revisión independiente (agente verificador, 2026-11-20): 8 afirmaciones, 0 refutadas.** Corregido en el mismo PR:
+  las líneas de tiempo de Comercial, Almacén y el **portal del cliente** pintaban la fila nueva como «Confirmado →
+  Confirmado · motivo» sin decir el día — ahora el servidor la escribe «Cambió el día de entrega del … al … · motivo»
+  (`razonDeHistoria`, en `getHistory` y en el detalle de la mesa); un pedido borrado daba «ya se entrega ese día»
+  (ahora 404); faltaba `updated_by`; «#4» no encontraba nada (una palabra corta con signo va como pedazo).
+  **Queda declarado:** el camino «productos + día» (reabre → re-agenda → mueve) no se ejerció contra una base real
+  (necesita precios y existencia de verdad); `commercial.order_stock_notices` guarda la fecha vieja (hoy nadie lee
+  esa columna); en ese camino la reapertura y el cambio de día tienen la misma hora y su orden en «Por qué cambió»
+  puede salir al revés; con `group=true` la búsqueda de la lista sólo ve los renglones del principal (hoy nadie la
+  llama así).
 
 ## 7. Fuera de alcance
 

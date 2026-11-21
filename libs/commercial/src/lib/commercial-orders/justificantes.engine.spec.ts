@@ -203,3 +203,25 @@ describe('[MCP.18] armarJustificantes — lo que ven los otros roles', () => {
     expect(motivoDeHistoria('Pedido duplicado')).toBe('Pedido duplicado');
   });
 });
+
+/** `[MCP.29]` El cambio de día de entrega en «Por qué cambió». */
+describe('[MCP.29] justificante de cambio de fecha', () => {
+  it('una fila confirmed → confirmed con las dos fechas dice de cuál a cuál, con su motivo', () => {
+    const js = armarJustificantes({
+      historia: [{ from_status: 'confirmed', to_status: 'confirmed', reason: 'Cambiar la fecha de entrega: el cliente cierra', changed_at: '2026-11-20T16:42:00Z',
+        by_name: 'Vendedor Prueba', by_seller: true, delivery_date: { from: '2026-11-21', to: '2026-11-23' } }],
+    });
+    expect(js).toHaveLength(1);
+    expect(js[0]).toMatchObject({ action: 'rescheduled', actor: 'seller', detail: 'del sáb 21 nov al lun 23 nov' });
+    expect(textoDeJustificante(js[0]).que).toBe('Movió la entrega del sáb 21 nov al lun 23 nov');
+    expect(textoDeJustificante(js[0]).motivo).toBe('Cambiar la fecha de entrega: el cliente cierra');
+  });
+
+  it('negativa: una fila confirmed → confirmed SIN fechas (la de agendar) no es un justificante', () => {
+    const js = armarJustificantes({
+      historia: [{ from_status: 'draft', to_status: 'confirmed', reason: null, changed_at: '2026-11-20T16:00:00Z', by_name: 'X', by_seller: true },
+        { from_status: 'confirmed', to_status: 'confirmed', reason: 'x', changed_at: '2026-11-20T16:01:00Z', by_name: 'X', by_seller: true, delivery_date: null }],
+    });
+    expect(js).toEqual([]);
+  });
+});

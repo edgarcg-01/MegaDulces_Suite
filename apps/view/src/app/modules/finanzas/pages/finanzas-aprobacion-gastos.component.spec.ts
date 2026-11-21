@@ -1175,16 +1175,43 @@ describe('FinanzasAprobacionGastosComponent', () => {
       fix.detectChanges();
       const t = txt();
       expect(t).toContain('3 por comprobar · $1,768.00');
-      expect(t).toContain('la Suite las escribe: 1 · con motivo: 2');
+      expect(t).toContain('listas para generar: 1 · con motivo: 2');
       // Primero lo que necesita una decisión, después lo rutinario, al final lo que hace la Suite.
       const titulos = [...fix.nativeElement.querySelectorAll('.ap-kep-h')].map((h: Element) => (h.textContent ?? '').trim());
       expect(titulos[0]).toContain('Las comprueba la sucursal, en Kepler');
-      expect(titulos[1]).toContain('Se comprobarían solas, pero en su base la Suite todavía no escribe');
-      expect(titulos[2]).toContain('La Suite las escribe');
+      expect(titulos[1]).toContain('Listas, pero en su base la Suite todavía no genera gastos');
+      expect(titulos[2]).toContain('Listas para generar el gasto');
       // G.UI.6: el renglón dice qué le falta, con su consecuencia.
       expect(t).toContain('El vale es por $347.59 y la solicitud por $518.00: se comprueba en Kepler');
-      expect(t).toContain('Se comprobaría sola, pero la escritura de gastos a Kepler todavía está apagada en esta base');
-      expect(t).toContain('Se comprueba sola: la Suite la escribe en el siguiente ciclo (cada 5 min)');
+      expect(t).toContain('Lista para generar, pero la escritura de gastos a Kepler todavía está apagada en esta base');
+      expect(t).toContain('Listo para generar su gasto en Kepler con un clic');
+      // G.14 (D1/D2): el botón, ANTES del folio y con su cifra, sólo donde de verdad se puede (a3: listo y la base escribe).
+      const botones = [...fix.nativeElement.querySelectorAll('.ap-kep-gen')] as HTMLButtonElement[];
+      expect(botones.length).toBe(1);
+      expect((botones[0].textContent ?? '').trim()).toBe('Generar gasto · $250.00');
+      const fila = botones[0].closest('.ap-kep')!;
+      expect(fila.firstElementChild).toBe(botones[0]);
+      expect(fila.querySelector('.ap-kep-folio')?.textContent?.trim()).toBe('0000603');
+      // ⛔ Lo listo en una base cerrada y lo que tiene motivo NO ofrecen el botón (su lugar queda vacío).
+      expect(fix.nativeElement.querySelectorAll('.ap-kep-gen-vacio').length).toBe(2);
+    });
+
+    it('G.14: «Generar gasto» en la fila manda el POST de ESE vale, se apaga mientras escribe y dos clics no mandan dos', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [K({ id: 'g1', folio_solicitud: '0000700', importe: 99, gasto_kepler: LISTO_ABIERTA })] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const b = fix.nativeElement.querySelector('.ap-kep-gen') as HTMLButtonElement;
+      b.click();
+      b.click();
+      fix.detectChanges();
+      const reqs = http.match((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/g1/reintentar-gasto'));
+      expect(reqs.length).toBe(1);
+      expect(c.actuando()).toBe('g1');
+      expect((fix.nativeElement.querySelector('.ap-kep-gen') as HTMLButtonElement).disabled).toBe(true);
+      reqs[0].flush({ id: 'g1', status: 'written', folio: '0000124', poliza: 'kdc22611/D/5', fecha: '2026-11-21', nota: null, intentos: 1, siguiente: null });
+      colaKepler().flush(RESP({ vales: [] }));
+      expect(c.actuando()).toBeNull();
     });
 
     /** G.UI.7 — La cancelada lleva un marcador; su texto es neutro. El folio es un enlace neutro (no el color de acción). */

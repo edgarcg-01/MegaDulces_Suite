@@ -211,6 +211,69 @@ drenado cuesta ~40 ms por SKU porque recalcula también precio y costo.)
      (regla anterior, sin cambio); el aviso «se vendió vencido» sigue leyendo `stock_lots`, cuyo lote `NA` mantiene la
      copia (7.4c). En la base desechable la vista de existencia es la de antes de 7.1 (su migración depende de 6.21, que
      no corre sin los datos de prod): misma cantidad, otro origen del factor de caja, que esta prueba no lee.
+
+   🧪 **7.4e en código (2026-11-20).** El scanner de reorden (A13, `replenishment-scanner.service.ts`, la bandeja
+   `commercial.replenishment_findings`) leía la copia en sus dos consultas (bajo reorden y cadencia lenta); ahora lee
+   `existenciaOds`, la MISMA fuente que la pantalla de Existencia crítica desde 7.2 (sin apartados, igual que ella: 15
+   piezas en toda la red). Medido en prod con RLS: «bajo reorden» pasa de 24,251 a 24,261 (Canindo +74, CEDIS −64, el
+   resto ±3); la consulta, 0.79 s (corre de noche). Prueba contra Postgres real `replenishment-scanner.it.spec.ts`: el
+   servicio REAL como `app_runtime` con una copia que miente a propósito (100 contra 3 de Kepler, y 0 contra 40): marca
+   el bajo y no el sano; devuelto a la copia, rojo (2 de 2) y también el candado estático.
+
+   **7.4c (lotes), medido el 2026-11-20 — sin código todavía.** De 151 caducidades capturadas en 60 días, 139 se
+   volvieron lote fechado (`EXP-…`); 12 no, porque el lote `NA` no alcanzaba (2 sin renglón en la copia). En el CEDIS no
+   se capturan caducidades y su `NA` es basura: 5,385 renglones, 104.7 M de piezas, 5,178 sin renglón en la copia. Hay
+   ~130 lotes fechados vivos y **ninguno tiene su entrada en `stock_lot_movements`**. Ubicaciones usa un solo renglón
+   de lote (60 piezas). ⚠️ Lo que decide el diseño: cuando la existencia de Kepler baja de lo declarado en lotes, el
+   disparador de la copia consume los lotes fechados en orden FEFO, y ese consumo es irreversible (si después entra
+   mercancía, va a `NA`, no regresa al lote). Sin la copia, eso tiene que ocurrir por EVENTO del ODS (el cambio de
+   `kdil` del producto), sólo para los ~130 productos con lote fechado — no derivarse al leer, que lo volvería
+   reversible.
+
+   **Plan de 7.4c (2026-11-20, sin código; D-EX4 la decide Claude y la firma Edgar, D-EX5 es de Edgar):**
+   1. **C0 — el consumo FEFO pasa al evento del ODS.** Un disparador POR SENTENCIA sobre `kepler_ods.kdil` (tablas de
+      transición, el patrón de `[CANON.6.21]`, `tg_kdii_ficha_history` y ADR-104: la ingesta escribe por lote, así que
+      corre una vez por lote y sólo ve lo que cambió). Sólo actúa sobre los productos que tienen lote fechado vivo
+      (~130): si la existencia de Kepler quedó por debajo de lo declarado en lotes, consume la diferencia en orden FEFO
+      (lo bueno primero, como el disparador de hoy) y lo deja escrito en `stock_lot_movements`. Nace APAGADO con su
+      interruptor, atrapa su propio error y nunca frena la ingesta. Fuera de horario: `CREATE TRIGGER` sobre la tabla
+      más escrita del ODS. ⛔ Mientras exista la copia, los dos disparadores coexisten: se prende éste y se apaga el de
+      la copia en el mismo paso, no antes.
+   2. **C1 — el lote `NA` deja de guardarse y se deriva**: `NA = max(existencia del ODS − Σ lotes fechados, 0)`, una
+      definición en `stock-state.ts` (como `APARTADO_VIVO_SQL`). La leen la lista de lotes de inventario, «por ubicar»
+      de Ubicaciones y el aviso «se vendió vencido» de entregar.
+   3. **C1 — capturar una caducidad** (`feedLine`) ya no necesita renglón en la copia ni mueve cantidad del `NA`: declara
+      hasta lo que la existencia de Kepler deja libre (existencia − Σ fechados). Corregirla (`unfeedLine`) sólo baja el
+      lote fechado. Prueba contra Postgres real con `kdil` sembrado, incluido el caso que hoy falla (sin renglón en la
+      copia).
+   4. **D-EX5 (Edgar):** los ~64 mil renglones `NA` guardados (en el CEDIS, 104.7 M de piezas que no existen) quedan sin
+      lector después del paso 2. Recomendado: borrarlos en 7.5, con el conteo antes y después, cuando ya nadie los lea.
+
+   🧪 **Paso 1 (C0) en código (2026-11-20), D-EX4 firmada («sí, sigue»).** Migración
+   `20261120150025_canon74c_lotes_fefo_por_evento_del_ods` (sin aplicar: fuera de horario). La llave de la copia se
+   INSERTA en la definición que la base tiene (`pg_get_functiondef`) y `down` la quita exacta: copiar el cuerpo a mano daba
+   otra función (lo cazó la prueba). El disparador parte de las celdas declaradas (índice parcial
+   `ix_stock_lots_declarados`) y no del lote de la ingesta: medido en prod con un lote simulado de ~1,400 renglones,
+   60–110 ms al revés contra 13–30 ms así, sin el índice. La existencia de una celda, ~100 ms, sólo cuando el lote toca
+   un producto declarado. Al prenderlo hoy, 5 celdas tienen declarado por encima de Kepler (5,035 piezas; 2 sin
+   renglón en `kdil`, que no se consumen hasta que Kepler las escriba). Prueba contra Postgres real
+   `lotes-fefo-por-evento.it.spec.ts` 9/9 y siete mutantes en rojo (sin interruptor, FEFO sin preferir lo bueno, sin
+   bitácora, el error que frena la ingesta, la copia que sigue consumiendo, `down` sin quitar la llave, consumir sin
+   comparar).
+
+   🧪 **Pasos 2–3 (C1) en código (2026-11-20).** Medido el uso (30 días): de lo que lee el `NA` guardado, sólo la captura
+   de caducidades está viva (las promotoras capturan y corrigen a diario); la lista de lotes de inventario, «por ubicar»
+   y «asignar lote» tuvieron 0 llamadas → 7.4d. `lotes-declarados.ts` (una definición): lo libre para declarar =
+   existencia del ODS − lo declarado (`lot_code <> 'NA'`), con el MISMO candado que el disparador de `kdil`.
+   `feedLine`/`unfeedLine` lo usan: ya no exigen renglón en la copia ni mueven el `NA`. Entregar (`consume`) calcula el
+   aviso «se vendió vencido» con lo sin lote derivado. Medido en prod, 155 capturas en 60 días: 143 alimentaron, 12 no;
+   con la regla nueva, 2 de esas 12 tendrían hoy lugar; el `NA` guardado coincide con el derivado en todas las celdas
+   capturadas menos una. Pruebas contra Postgres real: `lotes-declarados.it.spec.ts` 5/5 (con un `NA` guardado que
+   miente: 500), el caso de «vendido vencido» en `order-stock.it.spec.ts`, y las 4 suites de caducidades con servicio
+   real 31/31 (`createEntry` incluido; en serie: en paralelo chocan entre ellas por la base compartida, ajeno a este
+   cambio). Seis mutantes en rojo. ⛔ El interruptor sigue apagado: hasta aplicar la migración y prenderlo, los lotes
+   los sigue consumiendo el disparador de la copia (que ahora ya no ve el `NA` que la captura dejó de mover; se cuadra
+   solo en la siguiente pasada del importer).
 5. **`[CANON.7.5]`** — `import-branch-stock-live` sale del carril `stock`; `commercial.stock.quantity` queda congelada (la tabla
    NO se borra, regla 5); el sensor `stock` de db-health se retira o se repunta (clase D).
 

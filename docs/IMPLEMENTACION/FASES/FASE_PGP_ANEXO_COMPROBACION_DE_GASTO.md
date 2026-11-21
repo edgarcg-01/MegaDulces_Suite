@@ -1,27 +1,29 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 74 KB, 857 líneas, 15 secciones.
+> **Índice navegable** — 83 KB, 946 líneas, 17 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 27 | 63 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
-| 64 | 73 | 1 | 1. El pedido, literal |
-| 74 | 113 | 3 | 2. Qué es comprobar hoy (medido) |
-| 114 | 265 | 10 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
-| 266 | 282 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
-| 283 | 380 | 6 | 5. El diseño |
-| 381 | 400 | 1 | 6. Alcance v1 y lo que no entra |
-| 401 | 407 | 1 | 7. El orden de construcción, de abajo hacia arriba |
-| 408 | 427 | 2 | 8. Plan por capas (`[PGP.123]`) |
-| 428 | 440 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 441 | 461 | 4 | 10. Decisiones |
-| 462 | 484 | 1 | 11. Riesgos y NO MEDIDO |
-| 485 | 497 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
-| 498 | 535 | 8 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 536 | 884 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
+| 29 | 65 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
+| 66 | 75 | 1 | 1. El pedido, literal |
+| 76 | 115 | 3 | 2. Qué es comprobar hoy (medido) |
+| 116 | 276 | 11 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
+| 277 | 293 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
+| 294 | 391 | 6 | 5. El diseño |
+| 392 | 411 | 1 | 6. Alcance v1 y lo que no entra |
+| 412 | 418 | 1 | 7. El orden de construcción, de abajo hacia arriba |
+| 419 | 438 | 2 | 8. Plan por capas (`[PGP.123]`) |
+| 439 | 451 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 452 | 476 | 5 | 10. Decisiones |
+| 477 | 499 | 1 | 11. Riesgos y NO MEDIDO |
+| 500 | 512 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
+| 513 | 553 | 10 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 554 | 902 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
+| 903 | 935 | 3 | 15. El primer gasto escrito por la Suite (2026-11-20) |
+| 936 | 975 | 4 | 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite
@@ -213,6 +215,15 @@ ni del usuario.
 casi siempre, pero el contador escondido podría repetir un número que la Suite ya usó (por ejemplo, con un
 documento retro-fechado). **El escritor no se enciende en esos cinco servidores hasta que G.1 encuentre el
 contador** (DG7). El canario en 05 no lo prueba: su secuencia es la simple.
+
+> ✅ **Re-medido el 2026-11-20 (G.1): no hay contador.** Las 9 bases numeran la póliza D como **MAX+1 de la tabla del
+> mes**. En orden de captura (`kdm1.c68`/`c69`), en 00, 01, 03, 06 y 08 y en octubre y noviembre, el 98 % de las pólizas
+> D es exactamente «el máximo del mes + 1»; las que no, tienen el hueco ocupado por pólizas sin hora de captura. La
+> «segunda secuencia» la abre **siempre un X-D-55**, que deja su póliza en el mes nuevo con el número del mes anterior
+> (00: X-D-55-0001491 el 5-nov 15:58 con 31,088; 01: X-D-55-0000127 el 4-nov con 4,146; 08: X-D-55-0000092 el 4-nov con
+> 2,504, en las tablas de octubre y de noviembre); desde ahí MAX+1 sigue esa serie. La medición pasiva lo confirmó en
+> vivo: once pólizas D seguidas en 01, cada una el máximo + 1, sin ninguna tabla que se moviera una vez por póliza
+> fuera del folio del documento. **DG7 se retira**: el escritor escribe en las 9.
 
 ### 3.7 Los acumulados
 
@@ -440,6 +451,10 @@ falta permiso sobre `kdc22701`.
 
 ## 10. Decisiones
 
+> ✅ **Firmadas por Edgar el 2026-11-20:** DG1–DG11 como se recomiendan abajo (ya estaban así en el código).
+> **DG12 = no**: el vale cuya lectura del comprobante dice otro monto no se comprueba solo (G.13, §15).
+> **DG10:** dueño **Francisco**; meta, que la Suite escriba ≥ 80 % de los X-A-10 de vales autorizados, a 30 días.
+
 | # | Decisión | Dueño | Recomendación |
 |---|---|---|---|
 | **DG1** | ⭐ La fecha del X-A-10 (`c9`), que decide el mes de la póliza y de los acumulados | Contabilidad / Edgar | **La fecha de la solicitud si cae en el mes en curso; si cae en un mes anterior, no se escribe sola** (queda «por comprobar: fecha de otro mes», para Contabilidad, como la manda G.5) hasta que Contabilidad diga hasta qué día se puede asentar el mes anterior. Hoy el 8.5 % se fecha en el mes anterior |
@@ -449,7 +464,7 @@ falta permiso sobre `kdc22701`.
 | **DG5** | La cuenta del acreedor | Contabilidad | **La de `kdmm` del servidor, leída en vivo**, como Kepler. Que la `203` de 00 no tenga cargos es de Contabilidad (§12) |
 | **DG6** | Retenciones | Contabilidad | Fuera de v1 (como DS18) |
 | **DG7** | ⭐ El número de la póliza D | Edgar | **MAX+1 del mes, re-medido antes del COMMIT, sólo en 02/04/05/07.** En 00/01/03/06/08 el escritor queda apagado hasta que G.1 encuentre el contador de la secuencia corrida (§3.6). Ojo con el orden: el 15-nov, 92 de los 106 vales listos estaban en esos cinco servidores (44 en 00): la captura de prueba de la 00 es la que más destraba |
-| **DG8** | El disparo | Edgar | **Automático al firmar o validar el vale**, con interruptor por sucursal y tope. La persona valida al firmar; no hay segundo botón |
+| **DG8** | El disparo — ⛔ **reemplazada el 2026-11-21** por D1/D2 de Edgar (§16): lo genera una persona con un clic | Edgar | ~~**Automático al firmar o validar el vale**~~, con interruptor por sucursal y tope. La persona valida al firmar; no hay segundo botón |
 | **DG9** | Vales que no nacieron en la Suite | Edgar | **Sí**: la cola real (128, $1.26 M) es de vales de hoy ligados por `folio_solicitud` |
 | **DG10** | Dueño y meta | Edgar | — |
 | **DG11** | Vocabulario: en la Suite, «Comprobado» es el vale con la evidencia revisada (GX.58, «Dar por comprobado»); en Kepler, comprobar es dar de alta el gasto (X-A-10). Hoy conviven: un vale «Comprobado» puede seguir sin gasto en Kepler | Edgar / Francisco | Que la Suite llame al eslabón de Kepler **«Gasto en Kepler»** y deje «Comprobado» como está (lo menos disruptivo; así lo usa este anexo desde §14). La otra opción, renombrar el estado a «Validado», cambia la palabra que hoy usan todos los que capturan |
@@ -514,7 +529,10 @@ contable (ADR-040)», junto con el que el Anexo S debe a ADR-092.
 | G.UI.1d–1e | 🧪 2026-11-16 | La **pista** de cada cancelada (pagos en Kepler, forma de pago del vale y recaptura; `pista-cancelada.ts`, `lecturaDeLaCancelada`) y el **cierre del caso**: «Ligar a XA1501-…» (sólo a la recaptura de la pista), «Rechazar por repetido» (el rechazo de siempre) y «Ya lo revisé» con nota (migración `20261117005015`). Detalle en §14.8 | contrato 52 ✓ · diálogo 6 ✓ · Aprobación 123 ✓ · biblioteca 369 ✓ · contra Postgres 52 ✓ (J: la pista contra control independiente; K: el cierre con el payload de la pantalla) · migración real 7 ✓ · 7 mutantes → rojos · de punta a punta en la pantalla viva |
 | G.UI.1f | 🧪 2026-11-17 | **La comprobación le toca a la sucursal, no a Finanzas** (Francisco, con el proceso entero): `QuienResuelve` parte `kepler` en `sucursal` (lo que se comprueba a mano en Kepler y lo listo en una base que todavía no escribe) y `finanzas` (autorizar, la cancelada y lo que la Suite intentó). Detalle en §14.9 | contrato 62 ✓ · pantalla 194 ✓ · contra Postgres 52 ✓ · 4 mutantes → rojos |
 | Revisión | 🧪 2026-11-17 | **La revisión independiente del PR**: 12 hallazgos, todos confirmados en el código y corregidos (factura ilegible, la solicitud viva contra lo aprobado, «en duda» que no se resolvía, «cancelado» sin salida, ligar, rechazar, el CHECK de la nota…). Detalle en §14.10 | contrato 87 ✓ · finanzas 402 ✓ · pantallas de gastos 447 ✓ · escritor 10 ✓ y contra Postgres 46 ✓ · de punta a punta contra Postgres 68 ✓ · migración real 9 ✓ (con la versión anterior, 1 ✗) · 16 mutantes en 10 grupos → rojos · ngc 0 errores |
-| G.10–G.12 | ⬜ Edgar | — | — |
+| G.10 | 🔨 2026-11-20 | Permisos de `pgp123` en las 9 bases. Ensayo con ROLLBACK (`ops/prod/ensayo-comprobacion-gasto/`) **verde en 02, 04, 05 y 07**. Bandera `KEPLER_GASTO_COMPROBACION=encendida` en el secreto. **Canario en 05: el X-A-10 0000090** ($1,100, póliza D 369), verificado en el Kepler vivo y visto por el ODS. 05 se volvió a apagar hasta que DG12 llegue a prod. Detalle en §15 | ensayo 4/4 (0 fallas, permisos completos, control intacto) · canario verificado columna por columna |
+| G.1 | 🧪 2026-11-20 | **Pasiva, sin documento de prueba.** Medición de sólo lectura en md (00, 01, 05, 07, 08 hasta el 2026-11-23 16:00), cada 20 s, de `pg_stat_user_tables` contra cada X-A-10 y cada póliza D nuevos, más la reconstrucción en el ODS del orden de captura de cada póliza D. **No hay contador** (§3.6): DG7 se retira y el escritor escribe en las 9. Ensayo con ROLLBACK verde también en 00, 01, 03, 06 y 08 | 98 % de las D = MAX del mes + 1 en 5 bases y 2 meses · el salto, siempre un X-D-55 · 11 pólizas en vivo en 01 · ensayo 5/5 · la prueba de los candados con las 9 y su mutante en rojo. NO MEDIDO: la lista de tablas de un X-A-10 de una persona (la medición sigue) |
+| G.11–G.12 | ⬜ Edgar | — | — |
+| G.13 DG12 | 🧪 2026-11-20 | La regla G.5 deja en la cola, para la sucursal, el vale cuya lectura del comprobante dice otro monto (`lectura_distinta`, tolerancia del lector: $1 o 1 %). El monto leído se guarda como dato (`monto_ocr`) al escribir el aviso; para los vales anteriores se toma del aviso en `revision_nota` | contrato 14 ✓ (2 nuevos) · 4 mutantes → rojos · expense-proofs 401 ✓ |
 
 **Lo que dio la sombra (G.2), 2026-11-15:**
 
@@ -881,3 +899,76 @@ es un parámetro («¿salió dinero?» se volvió `$2`), y un acento grave en un
 
 **Pruebas después de los arreglos:** contrato 87 ✓ · finanzas 402 ✓ · pantallas de gastos 447 ✓ · escritor 10 ✓ y contra Postgres 46 ✓ · de punta a punta contra Postgres 68 ✓ · migración real 9 ✓ (con la versión anterior, 1 ✗) · 16 mutantes en 10 grupos → rojos · ngc 0 errores. Cada mutante rompe un arreglo a la vez (o varios que no se tocan entre
 sí) y su prueba sale en rojo; los archivos se restauran y se verifica que quedaron igual.
+
+## 15. El primer gasto escrito por la Suite (2026-11-20)
+
+Edgar firmó DG1–DG12 y pidió encender **sin esperar G.1**. Qué se hizo, en orden:
+
+1. **Ensayo con ROLLBACK** del escritor real desde `md`, con una solicitud lista por base: 02 `0000371`, 04 `0000132`,
+   05 `0000092`, 07 `0000185`. Las cuatro en verde: cero fallas, los diez permisos, el contador al día y el control
+   (contador, solicitud, gastos, máximo de la póliza D, `kdxe`, `kdcn26`) igual antes y después.
+2. **Bandera** `KEPLER_GASTO_COMPROBACION=encendida` con `kubectl patch` (52 → 53 llaves), anotada en el maestro; `api` y
+   `worker` reiniciados.
+3. **Canario: 05 encendida con tope 1.** El cron tomó el vale más antiguo (una solicitud de octubre: ya tenía su gasto
+   tecleado en Kepler, el lazo lo reconoció) y después la solicitud `0000092`: **X-A-10 `0000090`**, $1,100.00,
+   póliza `kdc22611` D 369. En el Kepler vivo: el gasto con `c67 = SUITE`, la solicitud en `F` con saldo 0, la
+   cuenta por pagar por $1,100, la póliza cuadrada (abono 201, cargo 611-007 con su departamento), el contador en 91 y
+   un solo gasto vivo de esa solicitud. El ODS ya lo veía en el siguiente ciclo.
+4. **05 se volvió a apagar.** El siguiente en la cola lo frenó el tope, y los nueve siguientes de 05 (comisiones
+   bancarias, acreedor GB004) traen el aviso «el comprobante dice …»: con DG12 = no, no se escriben solos, y DG12
+   todavía no estaba en prod.
+
+**Lo que DG12 cambia (G.13):** en la base, 628 de 2,254 vales validados en 60 días traen ese aviso (28 %). Validar desde
+la revisión borra `revision_nota`: lo que se validó así antes de G.13 perdió su aviso y no se puede recuperar
+(NO MEDIDO cuántos). Desde G.13 el monto queda en `monto_ocr`, y las pantallas que ya leían esa columna (el panel de la
+evidencia, capturas sin folio) vuelven a decir «difiere».
+
+**G.1, el mismo día (con el ejemplo de Edgar: 08, X-A-10 0000412 → póliza D 3,757):** no hay contador escondido (§3.6).
+Ninguna tabla chica de Kepler guarda un valor cercano al máximo de la D (ni `sqliov`, ni el ODS, ni `kdfolio`, que
+guarda `PD26-` = 740 y `PD-` = 98,335); en vivo, en 01, ninguna tabla se mueve una vez por póliza fuera del folio del
+documento; y en el ODS el 98 % de las D de las cinco bases es «máximo del mes + 1». El salto a la «serie corrida» lo hace
+siempre un X-D-55 con el número del mes anterior. **DG7 se retira** y el ensayo con ROLLBACK sale verde también en 00
+(`0010967`, póliza 31,876), 01 (`0000216`, 5,471), 03 (`0000220`, 948), 06 (`0000354`, 3,158) y 08 (`0000454`, 3,766).
+
+**Lo que sigue:** DG12 y el retiro de DG7 a prod → encender 05 y, si su primera semana sale limpia, las demás con su
+tope (00 primero: es la mitad de la cola).
+
+## 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21)
+
+**El pedido, literal (Edgar):** *«no está clara la escritura en comprobación de gasto CFDI en la Suite. Una vez que los
+tienes en la pestaña de Esperan a Kepler, antes del folio poner un botón para que se compruebe el gasto, que el usuario en
+un clic genere su gasto… y que ahí sea cuando se escribe en Kepler.»* Decisiones: **D1, lo genera el solicitante** (y
+quien aprueba); **D2, sin escritura automática en este módulo**. Reemplazan a DG8.
+
+**Por qué es mejor que lo automático (medido antes de decidir):** el gasto se escribía al validar, o el cron lo escribía a
+las 07:00, con un interruptor y un tope que nadie veía; la bitácora decía «validación» o «cron». Con el botón la persona
+hace el acto, ve el folio y la póliza en la misma fila y la bitácora guarda su nombre.
+
+**Las cinco preguntas (`diseno` §0b):**
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve y en qué orden? | En Aprobación › «Esperan a Kepler», el vale listo abre con **«Generar gasto · $importe»**, antes del folio. En Mis gastos › «Esperan a Kepler», quien lo pidió lo ve en su columna de acción (donde esa pantalla ya pone «Subir evidencia»). Al generar, la fila dice «Escrito por la Suite: X-A-10 … · póliza D …» |
+| 2 | ¿Qué no ve? | Un botón donde no se puede: lo que no está listo, o está en una base cerrada, dice su motivo y a quién le toca, con el lugar vacío. Ningún texto promete que «se escribe sola» |
+| 3 | Accesibilidad | Un clic, sin diálogo (D1). El botón lleva la cifra (y el folio en su nombre accesible), se apaga mientras escribe y dos clics no escriben dos gastos (el servidor reclama el vale antes de hablar con Kepler). Lo que contestó Kepler: en Aprobación un aviso (fijo si no se generó); en Mis gastos una región `role="status"` siempre presente |
+| 4 | ¿Ligado a otro proceso? | Viene de la solicitud firmada (XA1501, PGP.122) y del vale validado; va a la cuenta por pagar que paga el Calendario (X-D-26). El folio y la póliza quedan en la fila |
+| 5 | ¿Le toca a esta pantalla? | Sí: la cola es donde se decide. Quien pidió el gasto lo genera desde Mis gastos (D1); quien aprueba, desde Aprobación |
+
+**Qué cambió (código):**
+
+- **Nada escribe solo.** La firma y la validación ya no llaman a la escritura. El cron sólo toma los vales **en duda** (un
+  COMMIT sin respuesta o un proceso que murió): si el gasto está en Kepler lo reconoce; si no, evalúa la regla y se
+  detiene antes de escribir — el vale queda «No quedó en Kepler: genéralo otra vez». El lazo con el ODS (visto, cancelado)
+  sigue igual.
+- **La cerradura:** el mismo `POST …/:id/reintentar-gasto`, ahora para quien trabaja con gastos (`VER`, `CAPTURAR` o
+  `COMPROBAR`); el servicio exige **ser el dueño del vale** (`esDuenoDelVale`, con el nombre del padrón) **o aprobar**
+  (`COMPROBAR` o rol de plataforma), si no, 403. Hoy `COMPROBAR` lo tiene sólo Tesorería (1 persona) además de los
+  superusuarios: por eso el botón también vive en Mis gastos.
+- **Mis gastos** recibe en `/mine` lo mismo que la cola (`gasto_kepler`) para los vales validados.
+- La bitácora sigue registrando el disparo como `reintento` (= lo pidió una persona); el nombre va en el intento.
+
+**Pruebas:** front de finanzas 1,936 (3 ✗ ajenas de `cartera-segments`), con las nuevas: el botón antes del folio y
+sólo donde se puede, un POST por dos clics, el motivo si no se genera, ningún texto de «sola»; `expense-proofs` 401 ✓
+(el conteo deliberado de `identidadConNombre` pasa a 6); `tsc` de finance y `ngc` sin errores; `check:pantalla` de
+las dos pantallas: 0 nuevas. **NO MEDIDO:** `test-newdb-comprobacion-gasto-suite.js` reescrito para el clic (validar no
+escribe, 403 del ajeno, el aprobador no dueño, el cron que no escribe) — sin Docker local; corre en el CI.

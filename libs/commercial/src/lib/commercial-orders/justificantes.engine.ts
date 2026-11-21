@@ -12,6 +12,7 @@ import type {
   PresaleReviewResultLine,
 } from '@megadulces/contracts';
 import { AVISO_PANTALLA_VIEJA, MOTIVOS_CAJA, MOTIVOS_SURTIDO, errorDeMotivo, motivoDeHistoria, textoDeMotivo } from '@megadulces/contracts';
+import { detalleDeCambioDeFecha } from './reagendar.engine';
 
 /** Un motivo que no se puede guardar. El llamador lo vuelve un 400. */
 export class MotivoInvalido extends Error {}
@@ -161,6 +162,8 @@ export interface FilaHistoria {
   by_name: string | null;
   /** ¿La hizo la vendedora del pedido? */
   by_seller: boolean;
+  /** `[MCP.29]` Cambio del día de entrega (de `snapshot.delivery_date`); ausente en las demás filas. */
+  delivery_date?: { from: string | null; to: string } | null;
 }
 
 function iso(v: Date | string | null | undefined): string | null {
@@ -187,6 +190,19 @@ export function armarJustificantes(f: {
 }): OrderJustification[] {
   const out: OrderJustification[] = [];
   for (const h of f.historia ?? []) {
+    // [MCP.29] Movió el día de entrega (la fila no cambia de estado: confirmed → confirmed).
+    if (h.delivery_date?.to) {
+      out.push({
+        actor: h.by_seller ? 'seller' : 'other',
+        action: 'rescheduled',
+        by_name: h.by_name?.trim() || null,
+        at: iso(h.changed_at),
+        product_name: null,
+        detail: detalleDeCambioDeFecha(h.delivery_date.from, h.delivery_date.to),
+        reason: motivoDeHistoria(h.reason),
+      });
+      continue;
+    }
     const reabierto = h.to_status === 'draft' && (h.from_status === 'confirmed' || h.from_status === 'pending_approval');
     const cancelado = h.to_status === 'cancelled';
     if (!reabierto && !cancelado) continue;

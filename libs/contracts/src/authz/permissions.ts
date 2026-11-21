@@ -590,6 +590,8 @@ export enum Permission {
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
   /** `[CXC.48]` Corregir teléfonos de la cartera: el del cliente se escribe en Kepler (kdud.c7, cada base donde está); el del vendedor queda en la Suite. */
   FINANCE_CARTERA_TELEFONOS = 'FINANCE_CARTERA_TELEFONOS',
+  /** `[GP.A.2]` Autorizar, regresar, rechazar o pasar a Dirección un pedido TELEMARK (bandeja «Por autorizar»). Autorizar y regresar escriben `kdm1.c11` en Kepler. */
+  FINANCE_PEDIDOS_AUTORIZAR = 'FINANCE_PEDIDOS_AUTORIZAR',
   // MA (ADR-028/016) — reparto de tareas de conciliación (líder de Finanzas).
   FINANCE_RECON_ASIGNAR = 'FINANCE_RECON_ASIGNAR',
   // MA — marca "recibe tareas de conciliación": define el pool del área de Finanzas
@@ -711,6 +713,13 @@ export enum Permission {
   // Claves PROPIAS: la temporada frena el sugerido de Pedido, y quien la decide no es sólo quien pide.
   COMPRAS_TEMPORADAS_VER = 'COMPRAS_TEMPORADAS_VER',
   COMPRAS_TEMPORADAS_GESTIONAR = 'COMPRAS_TEMPORADAS_GESTIONAR',
+  // `[PQ.3.4]` Compras › Calendario de compras (anexo C §10, DC7): VER las reglas de revisión y su estado de hoy;
+  // GESTIONAR = marcar el día («se pidió fuera de Kepler», «hoy no se pide»); CICLO = definir, dar de baja o sacar
+  // del ciclo una regla (DC8: la gerencia de compras). Claves PROPIAS: `COMPRAS_PEDIDO_VER` lo tienen 29 roles
+  // (cajeros, rutas…), demasiado ancho para esto.
+  COMPRAS_CALENDARIO_VER = 'COMPRAS_CALENDARIO_VER',
+  COMPRAS_CALENDARIO_GESTIONAR = 'COMPRAS_CALENDARIO_GESTIONAR',
+  COMPRAS_CALENDARIO_CICLO = 'COMPRAS_CALENDARIO_CICLO',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',

@@ -9,7 +9,7 @@ import {
  * `[PGP.123]` G.9 — Las reglas de «Esperan a Kepler» como cola de comprobación (anexo G §14). Lo que cuidan:
  *
  * - ⛔ que «la Suite las escribe» no cuente lo que la Suite NO va a escribir. Hoy el interruptor nace apagado en todas
- *   las bases y DG7 deja fuera cinco: si un vale «listo» se contara como de la Suite, nadie lo capturaría en Kepler;
+ *   las bases (DG7 se retiró con G.1, 2026-11-20): si un vale «listo» se contara como de la Suite, nadie lo capturaría en Kepler;
  * - ⛔ que un gasto «en duda» fuera de una base abierta no se mande a capturar a mano: puede que ya esté en Kepler;
  * - que ningún vale se pierda ni se repita entre secciones (las secciones suman lo que dice la pestaña).
  */
@@ -178,14 +178,18 @@ describe('[PGP.123] G.9 la cola de comprobación', () => {
 
     it('listo con la base cerrada: se comprobaría sola, el motivo de la base y a quién le toca mientras', () => {
       const l = lineaDelGasto(G({ motivoEscritura: 'En esta base la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir' }));
-      expect(l.texto).toBe('Se comprobaría sola, pero en esta base la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir');
+      expect(l.texto).toBe('Lista para generar, pero en esta base la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir');
       expect(l.quien).toBe('la sucursal, en Kepler');
     });
 
-    it('listo con la base abierta: se comprueba sola en el siguiente ciclo; un reintento dice su nota', () => {
-      expect(lineaDelGasto(G({ abierta: true })).texto).toBe('Se comprueba sola: la Suite la escribe en el siguiente ciclo (cada 5 min)');
+    it('G.14 (D2): listo con la base abierta NO se escribe solo: espera el clic; lo que no quedó, se genera otra vez', () => {
+      expect(lineaDelGasto(G({ abierta: true })).texto).toBe('Listo para generar su gasto en Kepler con un clic');
       expect(lineaDelGasto(G({ abierta: true, gasto: { status: 'retry', nota: 'Kepler no contestó' } })).texto)
-        .toBe('La Suite lo reintenta sola: Kepler no contestó');
+        .toBe('No quedó: Kepler no contestó. Genéralo otra vez');
+      // ⛔ Ningún texto promete que la Suite lo hará sola.
+      for (const g of [G({ abierta: true }), G({ abierta: true, gasto: { status: 'retry', nota: 'x' } }), G({ abierta: false })]) {
+        expect(lineaDelGasto(g).texto).not.toMatch(/sola|siguiente ciclo|cada 5 min/);
+      }
     });
 
     it('con motivo: el texto de la regla G.5 y quién lo mueve aparte (la cola ya lo dice en su título)', () => {

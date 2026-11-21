@@ -21,6 +21,7 @@ import type {
   PresaleOrderRow,
 } from '@megadulces/contracts';
 import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
+import { razonDeHistoria } from '../commercial-orders/reagendar.engine';
 import {
   bloqueoDeLiga,
   claveCliente,
@@ -160,7 +161,7 @@ export class PresaleControlService {
       const [order] = await this.completar(trx, tenantId, [fila], hoy);
 
       const { rows: history } = await trx.raw(
-        `SELECT h.from_status, h.to_status, h.changed_at, h.reason, h.changed_by_username
+        `SELECT h.from_status, h.to_status, h.changed_at, h.reason, h.changed_by_username, h.snapshot
            FROM commercial.order_status_history h
           WHERE h.order_id = ?
           ORDER BY h.changed_at ASC`,
@@ -187,7 +188,11 @@ export class PresaleControlService {
           from_status: (h['from_status'] as string) ?? null,
           to_status: h['to_status'] as string,
           changed_at: new Date(h['changed_at'] as string).toISOString(),
-          reason: (h['reason'] as string) ?? null,
+          // [MCP.29] Un cambio de día no cambia de estado: el texto dice qué pasó.
+          reason: razonDeHistoria({
+            from_status: (h['from_status'] as string) ?? null, to_status: h['to_status'] as string,
+            reason: (h['reason'] as string) ?? null, snapshot: h['snapshot'],
+          }),
           changed_by_username: (h['changed_by_username'] as string) ?? null,
         })),
         compare,

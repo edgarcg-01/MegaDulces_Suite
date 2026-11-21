@@ -90,6 +90,42 @@ export interface PaymentCalendarAjusteAlSaldo {
   omitidas: { item_id: string; factura: string; motivo: string }[];
 }
 
+/**
+ * `[PGP.184]` Lo que devuelve `POST allocations/:id/reprogramar`: el pago nuevo (la fila completa; aquí lo que la
+ * pantalla lee) y lo que se hizo si alguna de sus facturas ya debe menos en Kepler (una nota o devolución la bajó):
+ * `ajuste_al_saldo` null = nada de más · con `ajustadas` = bajó solo (a un día por venir, D19 b) · sólo `omitidas` =
+ * lleva de más y NO se bajó solo (a hoy o a un día pasado, o venía autorizado), con el motivo: lo decide una persona.
+ */
+export interface PaymentCalendarReprogramado {
+  id: string;
+  amount_assigned: number;
+  ajuste_al_saldo: PaymentCalendarAjusteAlSaldo | null;
+}
+
+/**
+ * `[PGP.190]` Preparar un pago que sale en varias transferencias (`POST allocations/:id/preparar-en-transferencias`):
+ * UNA cuenta destino (la del catálogo o la CLABE escrita) y, por transferencia, su importe y su cuenta de ORIGEN. Los
+ * importes suman exactamente el pago. Cada transferencia se vuelve un pago del mismo día, ya preparado.
+ */
+export interface PaymentCalendarPrepararEnTransferencias {
+  supplier_payment_account_id?: string | null;
+  destination_account_text?: string | null;
+  transferencias: { amount: number; bank_account_id: string }[];
+}
+
+/** `[PGP.190]` Lo que regresa partir: el pago original (es la 1ª parte) y cada parte con su importe y su origen. */
+export interface PaymentCalendarPartido {
+  original: string;
+  partes: { id: string; parte: number; de: number; amount_assigned: number; bank_account_id: string | null }[];
+}
+
+/** `[PGP.190]` «Transferencia k de n» de un pago partido; `grupo` es el id del pago original. */
+export interface PaymentCalendarTransferenciaDe {
+  grupo: string;
+  parte: number;
+  de: number;
+}
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */
@@ -373,6 +409,8 @@ export interface PaymentCalendarAllocation {
   banco_descarga?: SalidaSegunLaDescarga | null;
   /** `[PGP.147]` Sólo en un pago PENDIENTE: lo que lleva de más contra el saldo de hoy en Kepler. Null = nada; ausente = API anterior. */
   debe_menos?: DebeMenosDelPago | null;
+  /** `[PGP.190]` Parte de un pago partido en transferencias («transferencia 1 de 2»). Null = pago sin partir; ausente = API anterior. */
+  transferencia?: PaymentCalendarTransferenciaDe | null;
   /** `[PGP.107]` La evidencia guardada al marcar Pagado (null = sin marcar, efectivo, o anterior a PGP.107). */
   paid_bank_movement_id?: string | null;
   paid_proof_id?: string | null;

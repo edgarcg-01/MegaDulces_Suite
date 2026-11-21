@@ -14,8 +14,8 @@
  * con los padres que existen y `*`, `kdxg`) · otra vez → ya_estaba · la solicitud cancelada, aplicada o con un gasto
  * parcial → rechazado sin escribir · ⛔ una persona captura el gasto entre la lectura y el COMMIT → ya_estaba ·
  * ⛔ otro documento toma el número de póliza antes del COMMIT → nada escrito · cuenta sin fila en `kdc126` y acreedor
- * con dos filas en `kdxg` → rechazado (Kepler los crearía) · ⛔ sin permiso → apagado, no rechazado · tope · DG7
- * (00 apagado) · interruptor apagado.
+ * con dos filas en `kdxg` → rechazado (Kepler los crearía) · ⛔ sin permiso → apagado, no rechazado · tope · las 9
+ * bases sin DG7 (G.1) · interruptor apagado.
  *
  * Lo que NO prueba (se declara): las llaves primarias reales de `kdm6`, `kdxe`, la póliza y `kdcn26` (no están
  * medidas), lo que Kepler además escriba al capturar un X-A-10 (lo cierra la captura de prueba G.1) y el estado
@@ -308,15 +308,19 @@ async function main() {
     check(await foto() === antes8 && (await sol('0000129')).c43 === 'A', 'nada escrito: el ROLLBACK deshizo el gasto y el contador');
     await k.query(`GRANT INSERT ON md.kdxe TO ${ROL}`);
 
-    console.log('\n[9] Tope del día, DG7 y el interruptor');
+    console.log('\n[9] Tope del día, las 9 bases (DG7 retirado por G.1) y el interruptor');
     r = await ad.entregar(pedido('0000129', { tope_dia: 1 }));
     check(r.estado === 'rechazado' && r.porTope && r.reintentable, 'con un gasto de la Suite hoy y tope 1 → rechazado por tope (se reintenta mañana)', r);
     r = await ad.entregar(pedido('0000129', { tope_dia: 2 }));
     // La persona de [5] capturó el 0000077 sin avanzar el contador (52): el folio es greatest(52, MAX+1) y se repara.
     check(r.estado === 'escrito' && r.folio === '0000078' && r.contador.atrasado && r.contador.nuevo === '79' && r.poliza === 6,
       'con tope 2 → escrito: folio 0000078 (MAX+1; el contador venía atrasado y queda reparado en 79), póliza 6 (la 5 era ajena)', r);
+    const antes9 = await foto();
     r = await ad.entregar(pedido('0000129', { sucursal: '00' }));
-    check(r.estado === 'apagado' && /DG7/.test(r.motivo), 'DG7: en 00 no escribe (su póliza D lleva un contador que la Suite no ve)', r);
+    // G.1 (2026-11-20): no hay contador escondido; 00 ya no se apaga por DG7. La base de prueba no tiene esa solicitud en
+    // 00: se rechaza al leerla y no se escribe nada.
+    check(r.estado !== 'apagado' && !/DG7/.test(JSON.stringify(r)), 'G.1: en 00 ya no hay candado DG7 (llega a leer la solicitud)', r);
+    check(await foto() === antes9, 'y no escribió nada: la solicitud no existe en 00');
     r = await nuevo(Adaptador, { ...env, KEPLER_GASTO_COMPROBACION: 'apagada' }).entregar(pedido('0000129'));
     check(r.estado === 'apagado' && /KEPLER_GASTO_COMPROBACION/.test(r.motivo), 'con el interruptor apagado → apagado', r);
 

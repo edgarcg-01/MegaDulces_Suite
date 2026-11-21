@@ -106,7 +106,7 @@ describe('[GP.A.4] armarBandeja', () => {
   it('el más viejo primero', () => {
     const b = armarBandeja(lectura({ pedidos: [
       { sucursal: '08', serie: 1, folio: 'B', cliente: 'C1', importe: 1, fecha: '2026-11-19', nombre: 'B', limite: 10, plazo: 1, por_cobrar: 0, ruta_vecinal: false },
-      { sucursal: '08', serie: 1, folio: 'A', cliente: 'C2', importe: 1, fecha: '2026-11-15', nombre: 'A', limite: 10, plazo: 1, por_cobrar: 0, ruta_vecinal: false },
+      { sucursal: '08', serie: 1, folio: 'A', cliente: 'C2', importe: 1, fecha: '2026-11-18', nombre: 'A', limite: 10, plazo: 1, por_cobrar: 0, ruta_vecinal: false },
     ] }), P);
     expect(b.pendientes.map((x) => x.folio)).toEqual(['A', 'B']);
   });

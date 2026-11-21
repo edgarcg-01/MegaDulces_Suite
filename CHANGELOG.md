@@ -14,6 +14,25 @@
 - Si Kepler no dice cuánto trae esa unidad (la pieza de la escalera de mayoreo, una unidad que el producto no tiene, un producto sin presentaciones), la caducidad se guarda pero no se fecha en el inventario, y la pantalla dice por qué en vez de «no hay existencia sin fecha».
 - La hoja impresa y el expediente siguen diciendo la cantidad en la unidad capturada («3 cajas»).
 - Si el producto capturado no tiene clave de Kepler (copias dadas de alta a mano para las promotoras), la hoja dice eso, en vez de «no hay existencia sin fecha».
+### Added — Compras › Calendario de compras: a qué proveedor le toca la revisión y dónde (PQ.3.2–PQ.3.6 · 2026-11-20)
+- Pantalla nueva `/compras/calendario`, hecha para reemplazar la hoja «2026» del Excel (se retira después de correr las dos en paralelo, PQ.3.7). Cada proveedor tiene su regla de revisión: para todas las sucursales, una zona o una sucursal. La regla dice cuándo toca: días de la semana, días del mes (con «el último») o cada N días. Si cae en fin de semana, se corre al viernes.
+- Abre con la respuesta: cuántas revisiones se deben, la más atrasada y las que tocan hoy. Tiene cinco vistas: «Por revisar», «Semana», «Mes», «Reglas» y «Sin regla».
+- Una revisión cuenta como atendida con:
+  - una orden de compra de Kepler (también una cancelada: la revisión sí se hizo);
+  - una entrada aplicada en las sucursales de la regla;
+  - una marca en la Suite: «se pidió fuera de Kepler», u «hoy no se pide» con su motivo y, si quiere, una nueva fecha.
+- «Sin regla» lista los proveedores con compra en Kepler en los últimos 12 meses que no tienen regla, con el ciclo que Kepler propone. Definir la regla, sacarla del ciclo hasta una fecha o darla de baja lo hace sólo la gerencia de compras.
+- Cada quien ve y marca sólo las reglas de sus sucursales, y la pantalla dice cuando la lista está recortada.
+  - Ven y marcan: compras, encargados de tienda y almacenistas. Encargados y almacenistas, sólo su sucursal.
+  - Dirección sólo ve.
+- Requiere dos migraciones, en este orden y antes de soltar: `20261120130156` (las tablas) y `20261120180734` (los permisos; la gente vuelve a entrar).
+
+### Added — Estado de cuenta de acreedores: buscar, la factura a un clic y «Agendar» (ECA.9 · 2026-11-20)
+- Al entrar se ven 7 documentos del acreedor en lugar de 1: los avisos, la ficha y las cifras ocupan mucho menos.
+- Buscador dentro de los documentos del acreedor: folio, referencia, importe (con o sin comas), fecha, sucursal y el folio del pago que se les aplicó. Si no encuentra nada, ofrece buscar también en los pagados de los últimos 12 meses.
+- «PDF» abre la factura del proveedor en un clic (la misma que ya encuentra Pagos); si sólo hay UUID, se copia. Sólo para documentos con saldo.
+- «Agendar» lleva al Calendario de pagos al día del vencimiento (u hoy, si ya venció), con la factura ya buscada en «Agregar facturas».
+- La columna «Saldo» ahora muestra el saldo del documento (antes mostraba su estado); en el teléfono cada documento se ve como ficha.
 ### Fixed — Almacén: la etiqueta de ubicación sale del tamaño del rollo amarillo (UB.RF.16 · 2026-11-20)
 - Las etiquetas de tienda se imprimían como la fila de 3 del checado y en el rollo amarillo (una etiqueta de 6 × 3 cm) salían cortadas y encimadas. Ahora sale una etiqueta de 60 × 30 mm por hoja, con el código grande y su código de barras.
 

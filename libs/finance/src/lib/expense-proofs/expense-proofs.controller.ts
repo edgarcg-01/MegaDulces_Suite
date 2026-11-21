@@ -130,7 +130,8 @@ export class ExpenseProofsController {
       // `[GX.95]` La búsqueda también filtra lo asignado, y el corte del tope viaja declarado.
       this.svc.valesAsignados(req?.user?.username, 50, search),
     ]);
-    return { ...propio, asignados: asignados.vales, asignados_truncados: asignados.truncado };
+    // `[PGP.123]` G.14: a sus vales validados sin gasto, lo que necesita «Generar gasto» (la misma respuesta que la cola).
+    return { ...propio, rows: await this.svc.conGastoKepler(propio.rows), asignados: asignados.vales, asignados_truncados: asignados.truncado };
   }
 
   @Get('resumen')
@@ -412,13 +413,16 @@ export class ExpenseProofsController {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body, quienDecide(req));
   }
 
-  // `[PGP.123]` G.9 — «Reintentar» el gasto (X-A-10) de un vale validado en Kepler: la misma persona que valida.
-  // Si no toca (apagado, otro mes, otro importe…) contesta el estado con su motivo; no es un error.
+  // `[PGP.123]` G.14 — «Generar gasto» (X-A-10) de un vale validado, con un clic (D1/D2 de Edgar, 2026-11-21): lo pide
+  // quien pidió el vale o quien aprueba. El decorador deja entrar a quien trabaja con gastos; la cerradura de verdad (dueño
+  // o aprobador) es la del servicio. Si no toca (apagado, otro mes, otro importe…) contesta el estado con su motivo.
   @Post(':id/reintentar-gasto')
-  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
-  @ApiOperation({ summary: '[PGP.123] G.9 Reintenta comprobar el gasto (X-A-10) de un vale validado en Kepler; devuelve cómo quedó, con su motivo si no tocaba.' })
-  reintentarGasto(@Param('id') id: string, @Req() req: AuthedRequest): Promise<EstadoKeplerDelGasto | null> {
-    return this.svc.reintentarGasto(id, req?.user?.full_name || req?.user?.username);
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[PGP.123] G.14 Genera el gasto (X-A-10) de un vale validado en Kepler (quien lo pidió o quien aprueba); devuelve cómo quedó, con su motivo si no tocaba.' })
+  generarGasto(@Param('id') id: string, @Req() req: AuthedRequest): Promise<EstadoKeplerDelGasto | null> {
+    const esAprobador = req?.user?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true
+      || isPlatformAdminRole(req?.user?.role_name);
+    return this.svc.generarGasto(id, quienDecide(req), esAprobador);
   }
 
   // `[PGP.123]` G.UI.1e — Cerrar el caso de una cancelada en Kepler: «Ya lo revisé» (con nota) o ligarla a su recaptura.

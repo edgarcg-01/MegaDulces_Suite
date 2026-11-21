@@ -11,8 +11,8 @@ import type { ValeEsperaKepler } from '../comprobaciones.service';
  * escribe la Suite; lo demás, plegado con su conteo.
  *
  * ⛔ «La Suite las escribe» sólo cuenta lo que la Suite VA a escribir sin que nadie haga nada: lo que ya escribió, o lo
- * listo en una base donde la escritura está abierta. Lo listo en una base cerrada (hoy, todas: el interruptor nace
- * apagado y DG7 deja fuera 00, 01, 03, 06 y 08) lo sigue capturando una persona en Kepler, y decir lo contrario
+ * listo en una base donde la escritura está abierta. Lo listo en una base cerrada (el interruptor de la sucursal o la
+ * bandera apagados) lo sigue capturando una persona en Kepler, y decir lo contrario
  * haría que nadie lo comprobara.
  */
 
@@ -59,7 +59,7 @@ export const TITULO_GRUPO: Readonly<Record<ClaveDelGrupo, string>> = {
   finanzas: 'Le toca a Finanzas, en Kepler',
   contabilidad: 'Las decide Contabilidad',
   suite: 'Falta algo en la Suite',
-  apagada: 'Se comprobarían solas, pero en su base la Suite todavía no escribe: mientras, las comprueba la sucursal en Kepler',
+  apagada: 'Listas, pero en su base la Suite todavía no genera gastos: mientras, las comprueba la sucursal en Kepler',
   sin_calcular: 'No se pudo calcular si se comprueban solas',
   ya_tiene: 'Kepler ya tiene su gasto: salen de la lista al actualizarse',
   nadie: 'No hay nada que hacer',
@@ -72,8 +72,9 @@ export const TITULO_OTRO_MOTIVO = 'Con otro motivo (actualiza la página)';
 const FALLO = new Set(['stuck', 'rejected_by_kepler', 'cancelled']);
 
 /**
- * ¿La Suite lo mueve sin que nadie haga nada? Lo que ya escribió o está escribiendo, o lo listo en una base donde
- * escribe y que no falló (ahí también resuelve sola la duda: busca el gasto en Kepler antes de reintentar).
+ * ¿Lo resuelve la Suite? Lo que ya escribió o está escribiendo, o lo listo en una base donde escribe y que no falló.
+ * `[PGP.123]` G.14 (D2, 2026-11-21): «listo» ya NO se escribe solo: espera el clic de «Generar gasto» de quien pidió el
+ * vale o de quien aprueba. La sección se llama «Listas para generar el gasto».
  */
 export function loEscribeLaSuite(g: ComprobacionEnLaCola): boolean {
   const e = g.gasto;
@@ -182,9 +183,10 @@ export function lineaDelGasto(g: ComprobacionEnLaCola | null | undefined): { tex
       : { texto: 'En duda: puede que ya esté en Kepler; búscalo antes de capturarlo', tono: 'warn', quien: persona };
   }
   if (g.comprobacion.listo) {
-    if (!abierta) return { texto: `Se comprobaría sola, pero ${minuscula(g.escritura.motivo ?? 'la escritura de gastos está apagada en esta base')}`, tono: 'neutro', quien: QUIEN_RESUELVE_TEXTO.sucursal };
-    if (e?.status === 'retry') return { texto: `La Suite lo reintenta sola: ${e.nota || 'el intento anterior no quedó'}`, tono: 'warn', quien: null };
-    return { texto: 'Se comprueba sola: la Suite la escribe en el siguiente ciclo (cada 5 min)', tono: 'neutro', quien: null };
+    if (!abierta) return { texto: `Lista para generar, pero ${minuscula(g.escritura.motivo ?? 'la escritura de gastos está apagada en esta base')}`, tono: 'neutro', quien: QUIEN_RESUELVE_TEXTO.sucursal };
+    // G.14 (D2): nada lo escribe solo; lo genera una persona con un clic.
+    if (e?.status === 'retry') return { texto: `No quedó: ${e.nota || 'el intento anterior no quedó'}. Genéralo otra vez`, tono: 'warn', quien: null };
+    return { texto: 'Listo para generar su gasto en Kepler con un clic', tono: 'neutro', quien: null };
   }
   const quien = g.comprobacion.quien === 'nadie' ? null : (QUIEN_RESUELVE_TEXTO[g.comprobacion.quien] ?? null);
   return { texto: g.comprobacion.texto, tono: 'neutro', quien };

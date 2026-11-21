@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
-import { warehouseName } from '@megadulces/contracts';
+import { todayMx } from '@megadulces/platform-core';
+import { camposDelCheque, datosDeChequeDePrueba, dictamenCheque, plantillaDeCheque, warehouseName, type PlantillaCheque } from '@megadulces/contracts';
+import { chequeHtml, hojaDePruebaHtml, opcionesPdfCheque, type OpcionesCheque } from './cheque-svg';
 import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
 import { lineasDeDescuento, rotuloDescuentos } from './descuento-al-pagar';
 import { facturasQueDebenMenos } from './debe-menos';
@@ -197,6 +199,54 @@ export class PaymentCalendarDocumentService {
         margin: { top: '10mm', bottom: '12mm', left: '9mm', right: '9mm' },
       });
       return Buffer.from(pdf);
+    } finally {
+      await page.close().catch(() => undefined);
+      PaymentCalendarDocumentService.touchIdle();
+    }
+  }
+
+  private readonly logger = new Logger(PaymentCalendarDocumentService.name);
+
+  /**
+   * `[PGP.165]` **El cheque de un pago del Calendario**, en un PDF del tamaño exacto del cheque (BanBajío, 160 × 70 mm),
+   * para meterlo suelto y centrado en la impresora. Con `prueba`, la hoja de prueba en carta con los datos de ESE pago
+   * (para ver cómo cae un nombre largo sin gastar un cheque).
+   *
+   * El importe es el del pago al centavo y la fecha la del día del Calendario; nada viene de la pantalla. ⛔ Si el pago
+   * no puede salir en cheque (otro método, sin número, sin cuadrar con sus facturas, dos beneficiarios…) responde 409
+   * con el motivo en palabras: un cheque con un dato dudoso no se imprime. Sólo lectura: imprimir no cambia el pago.
+   */
+  async renderCheque(allocationId: string, o: OpcionesCheque & { prueba?: boolean }): Promise<{ pdf: Buffer; folio: string }> {
+    const p = await this.calendar.pagoParaCheque(allocationId);
+    if (!p) throw new NotFoundException('Ese pago no existe o está cancelado.');
+    const d = dictamenCheque(p);
+    if (!d.ok) throw new ConflictException(d.texto);
+    const campos = camposDelCheque({ fecha: p.dia, beneficiario: d.beneficiario, centavos: d.centavos });
+    const html = o.prueba ? hojaDePruebaHtml(d.plantilla, campos, o) : chequeHtml(d.plantilla, campos, o);
+    return { pdf: await this.renderPdfCheque(html, d.plantilla, !!o.prueba, `cheque ${d.folio}`), folio: d.folio };
+  }
+
+  /** `[PGP.165]` La hoja de prueba sin pago, con un nombre y una cantidad largos a propósito: para calibrar cuando sea. */
+  async renderChequePrueba(banco: string, o: OpcionesCheque): Promise<Buffer> {
+    const pl = plantillaDeCheque(banco);
+    if (!pl) throw new NotFoundException(`No hay plantilla de cheque para «${banco}»: por ahora sólo BanBajío (BBAJIO).`);
+    return this.renderPdfCheque(hojaDePruebaHtml(pl, camposDelCheque(datosDeChequeDePrueba(todayMx())), o), pl, true, 'hoja de prueba');
+  }
+
+  /**
+   * HTML → PDF con la página que pide la plantilla. Espera a que el script del documento acomode cada dato con la fuente
+   * ya cargada (`__chequeListo`) y deja en el log lo que tuvo que comprimir: un nombre comprimido se lee, pero conviene
+   * saber cuántos hay.
+   */
+  private async renderPdfCheque(html: string, pl: PlantillaCheque, carta: boolean, que: string): Promise<Buffer> {
+    const browser = await PaymentCalendarDocumentService.getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
+      await page.waitForFunction('window.__chequeListo === true', { timeout: 10000 });
+      const comprimidos = await page.$$eval('text.fit[data-ajuste="comprimida"]', (ts) => ts.map((t) => t.getAttribute('class')));
+      if (comprimidos.length) this.logger.warn(`[PGP.165] ${que}: comprimido para caber (${comprimidos.join(', ')})`);
+      return Buffer.from(await page.pdf(opcionesPdfCheque(pl, carta)));
     } finally {
       await page.close().catch(() => undefined);
       PaymentCalendarDocumentService.touchIdle();

@@ -22,7 +22,7 @@ const T = '00000000-0000-0000-0000-00000000d01c';
 // Plaza y almacén que no existen en una base real de sucursales, y que ninguna otra prueba siembra:
 // vitest corre los archivos a la vez. Era `94` y chocaba con `expediente-dias` (su `COD_D`): juntas,
 // una de las dos moría en `commercial_warehouses_tenant_code_unique` (cazado en el paso 4, 2026-11-20).
-// Ocupados: 89 (box-labels) · 90 (fefo-unidad-base) · 93 (unidades-captura) · 94–98 (expediente-dias) · 99 (resolve-code-kepler).
+// Ocupados: 72 (fefo-unidad-base) · 89 (box-labels) · 90 (lotes-declarados) · 93 (unidades-captura) · 94–98 (expediente-dias) · 99 (resolve-code-kepler).
 const PLAZA = '87';
 const OTRA = '86'; // ordena ANTES que la del almacén: «la primera» no puede ganar por casualidad
 const M = `PU${Date.now().toString(36)}`.toUpperCase();

@@ -6,6 +6,42 @@ nuevas van arriba.
 
 ---
 
+## Buscar un pedido, mover el día de entrega y buscar en «Por entregar» (MCP.28–29, 2026-11-20)
+
+- **Problema:** cuando hay un problema con un pedido («ese día no estoy», «ya no quiero ese producto», «no me llegó»),
+  hay que encontrarlo, y la lista enseña un día a la vez: había que adivinar el día y abrirlos uno por uno. Los
+  cancelados y los ya entregados no aparecen en la lista del día (leído en el código: la lista lee con cero días de
+  cerrados; NO MEDIDO en prod). Y si el cliente pedía otro día de entrega no había cómo moverlo desde la tarjeta: el
+  único camino (el botón «Mover» de Carga) no revisa si el surtidor ya lo tomó, no pide motivo y no deja historia.
+  En «Por entregar» la lista trae como mucho 200 pedidos y decía «200 por entregar» sin avisar que hay más.
+- **Solución:**
+  - **Buscador en Mis pedidos (MCP.28):** con 2 letras o más busca en los pedidos de los últimos 60 días, cualquier
+    estado (cancelados y entregados incluidos): folio, cliente, su clave de Kepler, productos y monto. Cada palabra
+    en cualquier orden y sin acentos; las de 1–2 caracteres cuentan completas («ruta 4» no trae el folio 01364). El
+    supervisor ve también los de su equipo, con el nombre de quien lo levantó, **sólo para consultar**. Sin señal lo
+    dice; con más de 30 coincidencias dice que hay más.
+  - **Día de entrega en la tarjeta (MCP.29):** «Día de entrega · Cambiar» abre el calendario (desde hoy, domingos
+    incluidos). Cuenta como un cambio más y se guarda con el mismo «Guardar cambios» y un solo motivo (si sólo cambió
+    el día, viene sugerido «Cambiar la fecha de entrega»). «Por qué cambió» dice «Movió la entrega del vie 21 nov al
+    lun 23 nov». Un pedido en dos sucursales se mueve entero.
+  - **Buscador en Por entregar (MCP.30):** «Pedido: folio, cliente o producto» (distinto del buscador de precios de
+    arriba), busca en todos los pendientes de la cartera, no sólo en los 200 de la lista; y la lista dice «Se
+    muestran los 200 más recientes de N» cuando hay más.
+- **Cómo:** `GET /vendor/presale-status/search?q=` (nuevo) y `?q=` en `GET /commercial/orders` (la lista de Por
+  entregar). Las dos usan el mismo motor de búsqueda de la suite (`applySmartSearch`, modo estricto, opción nueva
+  `wholeWordUpTo`). El día viaja como `requested_delivery_date` en `POST /commercial/orders/:id/modify`. Sólo el día:
+  no se reabre el pedido (el surtidor no lo ve salir y volver), se revisa que sea tuyo y que el surtidor no lo haya
+  tomado (la regla D1 de modificar), y queda una fila en la historia (`confirmed → confirmed`, con las dos fechas en
+  `snapshot`). Día y productos: el flujo de siempre y luego el día, en la misma transacción. Sin migración.
+- **Por qué:** el vendedor resuelve la llamada del cliente desde su tarjeta, en un solo guardado, y el surtidor ve el
+  pedido en el día correcto. Lo que se movió queda dicho con quién, cuándo y por qué.
+- **Límites declarados:** un día movido junto con «Agregar otro producto» se rechaza («guarda primero el día»): mover
+  la fecha de un borrador abierto dejaría a las partes del grupo con otra fecha. El botón «Mover» de Carga sigue como
+  estaba (otro flujo). La prueba contra base real (`buscar-y-reagendar.it.spec.ts`) la corre el CI; en local no se
+  pudo (la base local estaba apagada).
+
+---
+
 ## Corregir y cancelar en la tarjeta, y «Más» en la barra (MCP.21, 2026-11-11)
 
 - **Problema (auditoría, nivel C + B):** corregir costaba ~10 toques y sólo se llegaba desde Mi ruta → cliente → «Ver

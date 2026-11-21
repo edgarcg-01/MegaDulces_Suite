@@ -145,6 +145,29 @@ hecho (el saldo de Kepler), y en un pago sin autorizar nadie ha comprometido nad
 Tesorería ya cargó la transferencia en el portal, y ahí cambiarlo en silencio haría que la Suite y el banco digan cosas
 distintas. **✅ Firmada (b) por Edgar el 2026-11-18** («si»).
 
+**Reprogramar dejaba el importe viejo (`[PGP.184]`, 2026-11-20).** Lo pidió Francisco con los casos de Mondelez
+(«cuando un proveedor ya está agendado y se le aplica una nota de crédito o devolución, y aún no está pagada, se debe
+actualizar el calendario»). Medido ese día en prod (sólo lectura): lo de arriba ya funciona para los días por venir
+—el worker había bajado 2 pagos solo y ningún pago de un día por venir llevaba de más—, pero `reprogram()` copiaba el
+importe de cada factura sin compararlo con Kepler (crear un pago y agregarle una factura sí lo comparan) y **27 de 55
+reprogramaciones van a hoy o a un día pasado**, donde el worker no llega, y nadie lo decía al moverlo. Es el `d0bc010a`
+de CE012: movido el 18-nov a ese mismo día con el importe de antes de sus cuatro notas, el 20-nov seguía pendiente y sin
+salir del banco. Ahora, **dentro de D19 (b) e igual que el worker**:
+- a un día **por venir** y sin autorización previa, el pago nuevo pasa por el mismo ajuste en modo `reprogramar`, con las
+  mismas reglas y su bitácora, y el banco se mira desde el día **original** (con el día nuevo, más adelante, la ventana
+  quedaba vacía);
+- a **hoy o a un día pasado**, o si **venía autorizado**, no se escribe nada —pudo ya salir del banco esta mañana, y
+  bajarlo dejaría esa salida sin un pago que case con ella (`[PGP.121]` casa por importe)—, pero la respuesta trae el
+  motivo y la pantalla avisa «Revisa el importe» al moverlo, con «Bajar a» en su renglón.
+
+Y «desde que se armó» cuenta desde el pago **original** de la cadena, también para el worker: una transferencia
+capturada en Kepler entre el armado original y el día en que se movió puede ser este mismo pago. Una revisión
+independiente encontró que la primera versión bajaba solo también lo de hoy, lo atrasado y lo que venía autorizado (más
+allá de D19); se corrigió antes de enviar. En Mondelez, la nota de la factura que salió completa el 13-nov se canceló y
+se volvió a aplicar dos veces a otras facturas (18 y 20-nov); la del 20 no está en ningún pago.
+**Sigue sólo con aviso, por D19:** el pago de HOY cuando la nota llega el mismo día y los atrasados (movidos o no). Que se
+bajen solos cuando la descarga del banco cubre el día y no muestra la salida sería una enmienda a D19.
+
 ### 4b-bis. C3 de `[PGP.146]` y `[PGP.147]`: lo que dice la fila (diseño, 2026-11-18)
 
 Las cinco preguntas de `diseno` §0b, contestadas antes de la plantilla:
@@ -313,3 +336,8 @@ del 13-nov, aplicar $346,929.24 a la `0010007` y el resto a las facturas del pag
   y +35 días) **0 de 99**. C1+C2 en código: la regla pura, el endpoint que recibe el PDF, el worker que lo da por pagado
   y lo escribe en Kepler. Falta C3 (subir los comprobantes del día desde el Calendario) y `[PGP.130b]` (el banco
   confirma; aviso si la salida no aparece).
+- **2026-11-20** — `[PGP.184]` (pedido de Francisco, casos de Mondelez; §4b): el pago que nace al reprogramar a un día
+  por venir baja a lo que su factura debe hoy en Kepler; a hoy, a un día pasado o si venía autorizado, se avisa al
+  moverlo (27 de 55 reprogramaciones iban a hoy o antes, sin decir nada). «Desde que se armó» cuenta desde el pago
+  original. Prueba con base real 25/25 y 6 mutaciones en rojo; incluye los casos 5–7 de `[PGP.148]`, que en el CI de
+  `main` nunca corrieron porque el caso 4 abortaba la transacción por `ck_pai_discount_consistency`.

@@ -13,6 +13,12 @@ describe('[CB.61] clasificarRenglon — la categoría sin M/C', () => {
     expect(sale('RENTA TERMINAL PUNTO DE VENTA').categoria).toBe('comision_bancaria');
     expect(sale('Compra - Disposicion por POS por (1,000.00) mxn en SUPER').categoria).toBe('compra_tarjeta');
   });
+  it('[BFU.7.8] las abreviaturas de BBVA son comisión; su IVA sigue siendo IVA; sin anclar no es del banco', () => {
+    expect(sale('COM SERV BBVA NET CAS/00000001 SICOCO OCT 2026')).toEqual({ categoria: 'comision_bancaria', por: 'banco' });
+    expect(sale('SERV BANCA INTERNET/OPS SERV BCA IN')).toEqual({ categoria: 'comision_bancaria', por: 'banco' });
+    expect(sale('IVA COM SERV BCA INTERNET/IVA COM SERV BC').categoria).toBe('iva_acreditable');
+    expect(sale('PAGO COM SERVICIOS DEL NORTE').categoria).toBe('sin_clasificar');
+  });
 
   it('el documento de Kepler casado manda sobre el texto', () => {
     expect(entra('DEP.EFECTIVO', { doc_tipo: 'U-A-5' })).toEqual({ categoria: 'cobranza', por: 'documento' });

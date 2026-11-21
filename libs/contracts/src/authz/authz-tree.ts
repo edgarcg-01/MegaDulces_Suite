@@ -368,6 +368,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-existencia', label: 'Existencia', route: '/compras/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
           // `[PQ.94]` Temporadas: se mira antes de pedir (como Existencia). Una sola puerta de escritura de la temporada.
           { id: 'compras-temporadas', label: 'Temporadas', route: '/compras/temporadas', view: [Permission.COMPRAS_TEMPORADAS_VER], manage: [Permission.COMPRAS_TEMPORADAS_GESTIONAR] },
+          // `[PQ.3.5]` Calendario de compras: se mira antes de pedir. Marcar el día (GESTIONAR) y definir el ciclo
+          // (CICLO) son dos claves: el ciclo lo define la gerencia de compras (DC8).
+          { id: 'compras-calendario', label: 'Calendario de compras', route: '/compras/calendario', view: [Permission.COMPRAS_CALENDARIO_VER], manage: [Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO] },
           { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR, Permission.COMPRAS_REQUISICIONES_AUTORIZAR, Permission.COMPRAS_REQUISICION_CANCELAR] },
@@ -423,7 +426,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'bancos', label: 'Bancos (conciliación)', route: '/finanzas/bancos', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_BANK_GESTIONAR] },
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
-          { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [Permission.FINANCE_CARTERA_TELEFONOS] },
+          { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [Permission.FINANCE_CARTERA_TELEFONOS, Permission.FINANCE_PEDIDOS_AUTORIZAR] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
           // [PP.1] Pronto pago. Sólo lectura (pagar se hace en Tesorería, no acá): reusa
           // FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login.

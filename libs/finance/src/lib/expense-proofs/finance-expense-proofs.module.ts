@@ -44,7 +44,7 @@ import { ComprobacionGastoService } from './comprobacion-kepler/comprobacion-gas
   // `[PGP.122]` KeplerSolicitudGastoSinkAdapter + SolicitudGastoService: firmar ESCRIBE en Kepler la solicitud
   // nacida en la Suite (apagado por default: bandera, plantilla por servidor, interruptor y GRANT).
   // `[PGP.123]` KeplerGastoSinkAdapter + ComprobacionGastoService: validar el vale COMPRUEBA su gasto en Kepler (X-A-10
-  // con su póliza; apagado por default: bandera, DG7, interruptor y GRANT).
+  // con su póliza; apagado por default: bandera, interruptor y GRANT; DG7 se retiró con G.1).
   // `[PGP.122]` R1 por evento: SolicitudPorEventoService escucha `solicitud_gasto_kepler` (sólo en el worker).
   // PgListenService NO es global: cada módulo que escucha lo provee (como CarteraPorEventoService).
   providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService,
