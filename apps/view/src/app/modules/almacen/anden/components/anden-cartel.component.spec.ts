@@ -10,7 +10,7 @@ import { AndenCartelComponent, type CartelUbicacion } from './anden-cartel.compo
  * `[UB.RF.12]` El cartel de ubicación en sus dos tamaños. En la TIENDA un cartel de media carta le quita
  * vista al producto: va una etiqueta chica para el canto del anaquel, con el mismo CODE128 del código que lee
  * la pantalla «Ubicar productos». `[UB.RF.14]` Esa etiqueta sale en la TSC TE200, rollo amarillo; `[UB.RF.16]`
- * ese rollo es de UNA etiqueta a lo ancho, de 60 × 30 mm.
+ * ese rollo es de UNA etiqueta a lo ancho, de 55 × 25 mm (medida con regla).
  */
 
 const U = (n: number): CartelUbicacion[] =>
@@ -44,18 +44,20 @@ describe('[UB.RF.12] cartel de ubicación · etiqueta chica para la tienda', () 
     expect(el.textContent).toContain('Imprimir las 31 etiquetas');
     expect(el.textContent).not.toContain('filas de la TSC');
     expect(el.textContent).toContain('rollo amarillo');
-    expect(el.textContent).toContain('60 × 30 mm');
+    expect(el.textContent).toContain('55 × 25 mm');
   });
 
-  it('⭐ [UB.RF.16] imprime a la TSC TE200 con el rollo amarillo: UNA hoja de 60 × 30 mm por etiqueta', () => {
+  it('⭐ [UB.RF.16] imprime a la TSC TE200 con el rollo amarillo: UNA hoja de 55 × 25 mm por etiqueta', () => {
     const { fix } = montar(U(4), 'etiqueta');
     fix.componentInstance.imprimir();
     expect(printIsolated).toHaveBeenCalledTimes(1);
     const o = vi.mocked(printIsolated).mock.calls[0][0];
-    expect(o.page).toBe('size: 60mm 30mm; margin: 0;');
+    expect(o.page).toBe('size: 55mm 25mm; margin: 0;');
+    // NEGATIVA: no la medida que configura Kepler (60 × 30), que resultó falsa.
+    expect(o.page).not.toContain('60mm');
     expect(o.html.match(/class="et eu"/g)).toHaveLength(4);
     expect(o.html).toContain('TA014');
-    expect(o.css).toContain('.et{box-sizing:border-box;width:60mm;height:29.6mm');
+    expect(o.css).toContain('.et{box-sizing:border-box;width:55mm;height:24.6mm');
   });
 
   it('NEGATIVA [UB.RF.16]: ya no manda la fila de 3 del checado (100 × 48) al rollo amarillo', () => {
