@@ -39,8 +39,17 @@ async function codigo(trx, fn) {
     ok(col.length === 1, 'queues.privacy_notice_code existe');
     const trg = (await knex.raw(`SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace s ON s.oid = c.relnamespace WHERE s.nspname='servicedesk' AND NOT t.tgisinternal AND t.tgname IN ('trg_privacy_notices_protege','trg_privacy_acceptances_inmutable') ORDER BY 1`)).rows.map((r) => r.tgname);
     ok(JSON.stringify(trg) === JSON.stringify(['trg_privacy_acceptances_inmutable', 'trg_privacy_notices_protege']), 'los 2 triggers existen', JSON.stringify(trg));
-    const exigen = await knex('servicedesk.queues').where({ tenant_id: T }).whereNotNull('privacy_notice_code').count({ n: '*' }).first();
-    ok(Number(exigen.n) === 0, '⭐ ninguna cola exige aviso todavía (TI y Mantenimiento quedan EXACTAMENTE como estaban)');
+    // `[MSH.4]` siembra la cola confidencial `rh` ligada al aviso `rh` (apagada y sin sembrar el aviso): es la ÚNICA que puede exigirlo.
+    const exigenAviso = (db) => db('servicedesk.queues').where({ tenant_id: T }).whereNotNull('privacy_notice_code').select('code', 'privacy_notice_code');
+    const fueraDeRh = (filas) => filas.filter((q) => !(q.code === 'rh' && q.privacy_notice_code === 'rh'));
+    const exigen = await exigenAviso(knex);
+    ok(fueraDeRh(exigen).length === 0, '⭐ ninguna cola exige aviso salvo `rh`, que exige el `rh` (TI y Mantenimiento quedan EXACTAMENTE como estaban)', JSON.stringify(exigen));
+    // NEGATIVA: si TI exigiera un aviso, la guarda tiene que verlo. Dentro de una transacción que se revierte.
+    const negativa = await knex.transaction(async (trx) => {
+      const n = await trx('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).update({ privacy_notice_code: 'rh' });
+      throw Object.assign(new Error('__ROLLBACK__'), { n, filas: await exigenAviso(trx) });
+    }).catch((e) => { if (e.message !== '__ROLLBACK__') throw e; return e; });
+    ok(negativa.n === 1 && fueraDeRh(negativa.filas).some((q) => q.code === 'ti'), 'NEGATIVA: con TI exigiendo un aviso, la guarda lo ve (y se revierte)', JSON.stringify(negativa.filas));
 
     const usuario = await knex('identity.users').where({ tenant_id: T }).whereNull('deleted_at').first('id');
     const usuario2 = await knex('identity.users').where({ tenant_id: T }).whereNull('deleted_at').whereNot('id', usuario?.id ?? '00000000-0000-0000-0000-000000000000').first('id');
