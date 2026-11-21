@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import type {
   CalendarioCompras, FueraDeCicloDto, GuardarReglaDto, GuardarReglaRespuesta, MarcarRevisionDto, PropuestasCalendario,
@@ -35,6 +35,8 @@ export type Sesion = Omit<Quien, 'escribe'>;
  */
 @Injectable()
 export class PurchaseCalendarService {
+  private readonly logger = new Logger(PurchaseCalendarService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -59,7 +61,9 @@ export class PurchaseCalendarService {
 
   propuestas(): Promise<PropuestasCalendario> {
     const tenant = this.tenantCtx.requireTenantId();
-    return this.tk.run((trx: Knex.Transaction) => leerPropuestas(trx, tenant));
+    // `[PQ.3.14]` Si la actividad de 12 meses falla, la respuesta lo DECLARA (`dia_fijo.measured: false`) y aquí queda la causa.
+    return this.tk.run((trx: Knex.Transaction) => leerPropuestas(trx, tenant, (e) =>
+      this.logger.warn(`[PQ.3.14] día fijo por sucursal NO MEDIDO: ${String((e as Error)?.message ?? e).split(' - ').pop()}`)));
   }
 
   async guardarRegla(sesion: Sesion, dto: GuardarReglaDto): Promise<GuardarReglaRespuesta> {

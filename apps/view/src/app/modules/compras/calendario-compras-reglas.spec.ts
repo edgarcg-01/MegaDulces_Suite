@@ -1,6 +1,6 @@
 import type { ReglaCalendario } from '@megadulces/contracts';
 import {
-  atencionEnPalabras, corrimientoEnPalabras, diaCorto, estadoEnPalabras, fechasEnRango, patronEnPalabras, propuestaEnPalabras, relativo, alcanceEnPalabras, paraQuienVe,
+  atencionEnPalabras, corrimientoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente, estadoEnPalabras, fechasEnRango, patronEnPalabras, propuestaEnPalabras, relativo, alcanceEnPalabras, paraQuienVe,
 } from './calendario-compras-reglas';
 
 /** `[PQ.3.5]` Lo que la pantalla del calendario dice en palabras, y las fechas de «Semana» y «Mes». */
@@ -124,5 +124,23 @@ describe('`[PQ.3.6]` la lista recortada se dice', () => {
   it('negativa: sin sucursal en la ficha NO se lee como «no hay reglas»', () => {
     expect(alcanceEnPalabras({ todas: false, sucursales: [] }, nombre)).toMatch(/no tiene sucursal/);
     expect(paraQuienVe({ todas: false, sucursales: [] }, nombre)).toBe('');
+  });
+});
+
+describe('`[PQ.3.14]` el día fijo por sucursal, en palabras', () => {
+  it('cada semana, uno sí y otro no, cada N semanas', () => {
+    expect(diaFijoEnPalabras({ weekday: 4, every_days: 7 })).toBe('cada jueves');
+    expect(diaFijoEnPalabras({ weekday: 5, every_days: 14 })).toBe('un viernes sí y otro no');
+    expect(diaFijoEnPalabras({ weekday: 4, every_days: 21 })).toBe('cada 3 semanas, en jueves');
+    expect(diaFijoEnPalabras({ weekday: 1, every_days: 28 })).toBe('cada 4 semanas, en lunes');
+  });
+  it('lo reciente: «n de m»; si vino más de lo que pide el periodo, cuántas veces (nunca «9 de 6»); plural del sábado', () => {
+    expect(diaFijoReciente({ weekday: 5, recientes: { en_el_dia: 5, esperadas: 6 } })).toBe('5 de 6 viernes en las últimas 13 semanas');
+    expect(diaFijoReciente({ weekday: 1, recientes: { en_el_dia: 9, esperadas: 6 } })).toBe('9 lunes en las últimas 13 semanas');
+    expect(diaFijoReciente({ weekday: 6, recientes: { en_el_dia: 9, esperadas: 13 } })).toBe('9 de 13 sábados en las últimas 13 semanas');
+  });
+  it('la evidencia completa del formulario, con la sucursal', () => {
+    expect(diaFijoEvidencia({ branch_code: '04', weekday: 5, every_days: 14, dias: 13, en_el_dia: 13, recientes: { en_el_dia: 5, esperadas: 6 }, ultima: '2026-11-13' }, 'Yurécuaro'))
+      .toBe('Kepler: en Yurécuaro, 13 de los 13 días con orden o entrada de los últimos 12 meses cayeron en viernes; 5 de 6 viernes en las últimas 13 semanas.');
   });
 });

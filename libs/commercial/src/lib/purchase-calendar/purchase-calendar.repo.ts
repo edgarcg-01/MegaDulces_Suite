@@ -2,10 +2,10 @@ import type { Knex } from 'knex';
 import {
   sumarDias, validarFueraDeCiclo, validarMarca, validarRegla, VENTANA_REZAGO_DIAS,
   type CalendarioCompras, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
-  type MarcarRevisionDto, type PropuestasCalendario, type PropuestaSinRegla,
+  type MarcarRevisionDto, type PropuestaDiaFijo, type PropuestasCalendario, type PropuestaSinRegla,
 } from '@megadulces/contracts';
 import {
-  armarCalendario, desdeEntradas, nombreDelAlcance, reglaEnAlcance, type AlmacenPedido, type FilaActividad, type ReglaLeida, type SucursalZona,
+  armarCalendario, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance, type AlmacenPedido, type FilaActividad, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 import { SQL_ACTIVIDAD_KEPLER, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
 
@@ -144,24 +144,60 @@ export async function leerCalendario(trx: Knex.Transaction, tenant: string, lee:
   return armarCalendario(hoy, reglas, actividad, marcas, sucursales, await leerAlmacenes(trx, tenant), lee);
 }
 
-/** `GET /compras/calendario/propuestas`: lo que Kepler propone para los proveedores SIN regla viva. */
-export async function leerPropuestas(trx: Knex.Transaction, tenant: string): Promise<PropuestasCalendario> {
+/**
+ * `GET /compras/calendario/propuestas`: lo que Kepler propone para los proveedores SIN regla viva. `[PQ.3.14]` Y el
+ * día fijo por sucursal de TODOS los proveedores con compra, menos las sucursales que ya tienen su regla de
+ * sucursal: definir primero la corporativa no debe borrar la propuesta de la sucursal (§10.1: las reglas no se suman).
+ */
+export async function leerPropuestas(
+  trx: Knex.Transaction, tenant: string, alFallarDiaFijo: (e: unknown) => void = () => undefined,
+): Promise<PropuestasCalendario> {
   const hoy = await hoyMx(trx);
   const { rows } = await trx.raw(`
     SELECT v.supplier_code, v.supplier_name, v.supplier_record, v.proposal_status, v.cycle_days_proposed,
            to_char(v.next_date_proposed, 'YYYY-MM-DD') AS next_date_proposed, v.rounds_12m,
            to_char(v.last_order_date, 'YYYY-MM-DD') AS last_order_date, v.branches_12m,
-           EXISTS (SELECT 1 FROM ${RULES} r WHERE r.tenant_id = ? AND r.supplier_code = v.supplier_code AND r.deleted_at IS NULL) AS con_regla
+           (SELECT count(*) FROM ${RULES} r WHERE r.tenant_id = ? AND r.supplier_code = v.supplier_code AND r.deleted_at IS NULL)::int AS reglas_vivas,
+           COALESCE((SELECT array_agg(r.branch_code) FROM ${RULES} r
+                      WHERE r.tenant_id = ? AND r.supplier_code = v.supplier_code AND r.deleted_at IS NULL AND r.scope = 'branch'), '{}') AS con_regla_de_sucursal
       FROM commercial.v_purchase_calendar_proposal v
-     ORDER BY v.next_date_proposed NULLS LAST, v.supplier_name`, [tenant]);
-  const sin = rows.filter((r: { con_regla: boolean }) => !r.con_regla).map((r: Record<string, unknown>) => ({
+     ORDER BY v.next_date_proposed NULLS LAST, v.supplier_name`, [tenant, tenant]);
+  const todos = rows.map((r: Record<string, unknown>) => ({
     supplier_code: r['supplier_code'], supplier_name: r['supplier_name'], supplier_record: r['supplier_record'],
     proposal_status: r['proposal_status'],
     cycle_days_proposed: r['cycle_days_proposed'] == null ? null : Number(r['cycle_days_proposed']),
     next_date_proposed: r['next_date_proposed'], rounds_12m: Number(r['rounds_12m']),
     last_order_date: r['last_order_date'], branches_12m: r['branches_12m'],
-  })) as PropuestaSinRegla[];
-  return { hoy, sin_regla: sin, con_regla: rows.length - sin.length };
+    reglas_vivas: Number(r['reglas_vivas']),
+    con_regla_de_sucursal: r['con_regla_de_sucursal'] as string[],
+  })) as (Omit<PropuestaSinRegla, 'dias_fijos'> & { con_regla_de_sucursal: string[] })[];
+  const dia = await leerDiasFijos(trx, hoy, todos.map((p) => p.supplier_code), alFallarDiaFijo);
+  const { sin_regla, dia_fijo_pendiente } = repartirPropuestas(todos, dia.por);
+  return { hoy, sin_regla, dia_fijo_pendiente, con_regla: rows.length - sin_regla.length, dia_fijo: dia.estado };
+}
+
+/**
+ * `[PQ.3.14]` El día fijo por sucursal de los proveedores con compra: la MISMA consulta de actividad del calendario
+ * (`SQL_ACTIVIDAD_KEPLER`: OC también canceladas + entradas, por plaza), leída 12 meses. Medido en prod el
+ * 2026-11-21: 1.2 s con las 340 claves (dos corridas). Va en un SAVEPOINT: si falla (una base sin el ODS de
+ * Kepler, un tiempo agotado), el día fijo se DECLARA no medido y la propuesta por ciclo se entrega igual.
+ */
+async function leerDiasFijos(
+  trx: Knex.Transaction, hoy: string, codes: readonly string[], alFallar: (e: unknown) => void,
+): Promise<{ por: Map<string, PropuestaDiaFijo[]>; estado: PropuestasCalendario['dia_fijo'] }> {
+  if (!codes.length) return { por: new Map(), estado: { measured: true, note: null } };
+  const desde = sumarDias(hoy, -364);
+  try {
+    const [filas, sucursales] = await trx.transaction(async (sp) =>
+      [await leerActividad(sp, { hoy, desde, desde_entradas: desde, codes }), await leerSucursales(sp)] as const);
+    return { por: diasFijosPorProveedor(filas, sucursales, hoy), estado: { measured: true, note: null } };
+  } catch (e) {
+    alFallar(e);
+    return {
+      por: new Map(),
+      estado: { measured: false, note: 'No se pudo leer la actividad de Kepler de 12 meses: el día fijo por sucursal no se midió.' },
+    };
+  }
 }
 
 const PATRON_VACIO = { weekdays: null, month_days: null, month_last_day: false, every_n_days: null };

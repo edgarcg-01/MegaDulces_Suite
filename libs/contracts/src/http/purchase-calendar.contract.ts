@@ -346,13 +346,61 @@ export interface PropuestaSinRegla {
   readonly rounds_12m: number;
   readonly last_order_date: string;
   readonly branches_12m: readonly string[];
+  /** `[PQ.3.14]` Reglas vivas del proveedor (0 en `sin_regla`). */
+  readonly reglas_vivas: number;
+  /**
+   * `[PQ.3.14]` Las sucursales donde este proveedor tiene día fijo y todavía NO tienen su regla de sucursal: una regla
+   * propuesta por cada una.
+   */
+  readonly dias_fijos: readonly PropuestaDiaFijo[];
+}
+
+/** `[PQ.3.14]` Los periodos que se proponen: cada semana, cada 2, 3 o 4 semanas. Otro intervalo no es un día fijo. */
+export type PeriodoDiaFijo = 7 | 14 | 21 | 28;
+export const PERIODOS_DIA_FIJO: readonly PeriodoDiaFijo[] = [7, 14, 21, 28];
+
+/**
+ * `[PQ.3.14]` Un proveedor que en una sucursal pasa, se le pide y entrega el mismo día de la semana (anexo C §10.2):
+ * la regla de sucursal que Kepler propone. Se deriva de los días con orden de compra o entrada en 12 meses; no se
+ * captura ni se copia.
+ */
+export interface PropuestaDiaFijo {
+  readonly branch_code: string;
+  /** Día ISO: 1 = lunes … 7 = domingo. */
+  readonly weekday: number;
+  /** 7 = cada semana (regla «días de la semana»); 14, 21 o 28 = «cada N días», contando desde `ultima`. */
+  readonly every_days: PeriodoDiaFijo;
+  /** Días con orden o entrada en la sucursal en 12 meses, y cuántos cayeron en `weekday`. */
+  readonly dias: number;
+  readonly en_el_dia: number;
+  /** Las últimas 13 semanas: cuántas veces cayó en `weekday` contra las que le tocaban con este periodo. */
+  readonly recientes: { readonly en_el_dia: number; readonly esperadas: number };
+  /** La última orden o entrada en la sucursal: la fecha base de «cada N días». */
+  readonly ultima: string;
+}
+
+/** Lo que la regla propuesta guarda: «días de la semana» si es cada semana; si no, «cada N días». */
+export function patronDelDiaFijo(p: Pick<PropuestaDiaFijo, 'weekday' | 'every_days'>): PatronDeRegla {
+  return p.every_days === 7
+    ? { pattern: 'weekdays', weekdays: [p.weekday], month_days: null, month_last_day: false, every_n_days: null, weekend_shift: 'friday' }
+    : { pattern: 'every_n_days', weekdays: null, month_days: null, month_last_day: false, every_n_days: p.every_days, weekend_shift: 'friday' };
 }
 
 export interface PropuestasCalendario {
   readonly hoy: string;
   readonly sin_regla: readonly PropuestaSinRegla[];
+  /**
+   * `[PQ.3.14]` Proveedores que YA tienen alguna regla (p. ej. la corporativa) y aún tienen día fijo en una sucursal
+   * sin regla de sucursal. Aparte de `sin_regla`: no cuentan como «sin regla».
+   */
+  readonly dia_fijo_pendiente: readonly PropuestaSinRegla[];
   /** Proveedores con compra que ya tienen al menos una regla. */
   readonly con_regla: number;
+  /**
+   * `[PQ.3.14]` Si el día fijo por sucursal se pudo medir. Si no (`measured: false`), `dias_fijos` viene vacío
+   * porque NO se midió, no porque no haya: la pantalla lo dice. La propuesta por ciclo sigue.
+   */
+  readonly dia_fijo: { readonly measured: boolean; readonly note: string | null };
 }
 
 export interface GuardarReglaDto {
