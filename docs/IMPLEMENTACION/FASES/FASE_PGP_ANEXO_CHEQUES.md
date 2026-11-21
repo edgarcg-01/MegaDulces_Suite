@@ -1,3 +1,27 @@
+<!-- INDICE-AUTO:INICIO -->
+
+> **Índice navegable** — 44 KB, 364 líneas, 13 secciones.
+> ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
+> Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_CHEQUES.md`.
+> Lo genera `npm run docs:indices` — no lo edites a mano.
+
+| Desde | Hasta | KB | Sección |
+|---:|---:|---:|---|
+| 25 | 57 | 2 | Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite |
+| 58 | 79 | 6 | 0. El pedido |
+| 80 | 113 | 5 | 1. En una pantalla |
+| 114 | 124 | 1 | 2. El universo y el trabajo |
+| 125 | 143 | 3 | 3. Lo que creíamos y cayó |
+| 144 | 177 | 9 | 4. Decisiones a firmar |
+| 178 | 190 | 1 | 5. Qué NO incluye |
+| 191 | 212 | 3 | 6. El orden |
+| 213 | 305 | 7 | 7. Las capas |
+| 306 | 319 | 1 | 8. Riesgos y bloqueos |
+| 320 | 344 | 2 | 9. NO MEDIDO — preguntas para Tesorería |
+| 345 | 354 | 1 | 10. DoD |
+| 355 | 389 | 3 | 11. Bitácora |
+
+<!-- INDICE-AUTO:FIN -->
 # Fase PGP — Anexo CH: el cheque nace, se imprime y se sigue en la Suite
 
 > Anexo de [`FASE_PGP_PAGO_A_PROVEEDOR.md`](FASE_PGP_PAGO_A_PROVEEDOR.md). El método: [`docs/METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
@@ -17,10 +41,10 @@ MÉTRICA 2 (control de la chequera): folios sin paradero
 CAPA TOPE: C3
 ÁREA:      Finanzas (Tesorería)
 DUEÑO:     <por asignar — lo firma Edgar>
-ESTADO:    ⬜ plan; DCH1–DCH9 esperan firma (DCH2 contestada; DCH1 decidida en lo que toca al papel —la hoja se
-           desprende— y espera las medidas y la copia de cada cheque para calibrar). El proceso lo describió
-           Francisco (§0 fila 8). ⛔ `[PGP.173]` es prioridad 0: la liberación a la semana ya soltó un cheque.
-           Absorbe `[PGP.133]`.
+ESTADO:    🔨 (2026-11-20) `[PGP.173]` ✅ en prod (#577) · la letra de `[PGP.165]` ✅ en prod (#578) · el cheque
+           impreso de BanBajío y su hoja de prueba, en código (`[PGP.165]`, falta calibrar con papel real).
+           DCH1 tiene medidas (§0 fila 11); DCH2 contestada; DCH3–DCH10 esperan firma. El proceso lo describió
+           Francisco (§0 fila 8). Absorbe `[PGP.133]`.
 ```
 
 Medido en `pg-prod` (`system_identifier 7688376744939610156`, usuario `francisco`, `transaction_read_only = on`) sobre
@@ -45,6 +69,7 @@ Control: los mismos números del Calendario desplazados +1000 y +5000 casan **0*
 | 8 | **El proceso, en palabras de Francisco** (mismo día): *«el proceso sigue igual, agregando a calendario de pago; el despliegue del cheque es al momento de seleccionar la forma de pago con cheque, ahí se llena la información del cheque, toma la fecha del calendario (nombre de la persona que firma la póliza de recibido), desglose en la póliza de la información de notas contempladas en el cheque, y procede a imprimir el cheque; lo que cambia con hoy, un funnel de cheques; en la impresión del programa del día señalando que hay que dejar los fondos y liberar en la página del banco; agregar el distintivo de confirmado (llamada que se pide por parte del proveedor previo depósito al banco para proceder con la liberación), y Caja General confirma al siguiente día en el workbook del banco el cobro; en caso de que por alguna razón no se cobre hay que arrastrar el saldo al siguiente día hasta que se cobre o cancele el cheque y se proceda a transferencia. ¿Qué nos está faltando?»* | Es el flujo de §7 C1. Cambia el orden que este plan traía: **el cheque se entrega antes de liberarse** y se libera **cuando el proveedor llama**. Se agregan: la **póliza** con desglose y recibí, el **programa del día** con «dejar fondos / liberar», el distintivo **confirmado**, el **arrastre** diario y el paso **cheque → transferencia**. Lo que falta, en §4a |
 | 9 | Respuestas de Francisco a §9 (mismo día): *«1) cancelados; 2) la póliza hoy se llena con papel pasante, y se pone a mano el número de cheque en la póliza; 3) todos los cheques ya registrados en el calendario están entregados; la llamada la recibe Tesorería o en su ausencia Analista de egresos o Caja General»* | Los 6 cheques físicos que se pagaron por SPEI están **cancelados**. La póliza se imprime **aparte, con el número de cheque ya puesto** (una impresora láser no pasa a través del papel carbón). Los cheques fechados en diciembre **ya están en manos del proveedor**: sólo la liberación los detiene. «Confirmado» lo marcan Tesorería, Analista de Egresos o Caja General (DCH9); libera Caja General |
 | 10 | Francisco, mismo día: *«se canceló el cheque 5399; sí, se acomodan en la impresora centrados: cheque, y 2 hojas de póliza en blanco para que reimprima el cheque, anexe los documentos pagados, el nombre de quien firma»*; el puesto de Analista de Egresos quedó **vacante** la semana pasada | Los 7 cheques pagados por SPEI están cancelados. **Se imprime cheque por cheque, centrado** (no la hoja de 3), seguido de **2 pólizas** en hoja blanca: cada una repite el cheque, lista los documentos pagados y lleva el nombre de **quien recibe el cheque** (aclarado por Francisco). Mientras el puesto esté vacante, la llamada la reciben Tesorería o Caja General |
+| 11 | Francisco, 2026-11-20: *«aquí están las medidas de cheques y pólizas»* — fotos con regla del cheque de BAJÍO 4166 («Conecta»), del de SANTANDER 2169 y de la póliza | **Cheques ≈ 160 × 70 mm** los dos. Las posiciones de BAJÍO se midieron sobre la foto con el perfil de oscuridad de cada línea (±0.5 mm; §7 C1) y quedan en la plantilla, **sin calibrar** hasta la hoja de prueba. ⚠️ **La póliza no es hoja blanca: es un talonario preimpreso de media carta** (≈ 14 × 21.5 cm) con recuadro en blanco para la copia del cheque, casillas de banco, concepto, referencia, firma y nombre de quien recibe, una tabla de ~6 renglones (cuenta, subcuenta, nombre, parcial, cargo, abono), sumas iguales y hecho/revisado/sello/número: DCH10. Las fotos (con datos del titular y de la cuenta) **no entran al repo** |
 
 **Lo que este anexo cambia de D7** (anexo C): D7 decía que la Suite «asigna el número al autorizar» y que «la `BAJÍO
 4166` queda bloqueada para cheques hasta revisarla». Se proponen DCH4 (el folio se confirma al imprimir) y DCH6
@@ -111,6 +136,8 @@ efectivo, E-22), y las cuentas sin chequera.
 | 9 | (versión anterior de este plan) «6 de 22 cheques numerados salieron por SPEI» | Son **7 de 28**: el universo eran los 28 pagos con número no cancelados, y faltaba el 5399 |
 | 10 | (versión anterior) «mañana la liberación suelta el 5399» | No: lo conserva porque el banco tiene una salida por su importe… que es su pago por SPEI. La regla acertó por casualidad |
 | 8 | (primera versión de este plan) «No se entrega un cheque sin liberar» | Al revés: se entrega, el proveedor llama antes de depositar y **entonces** Caja General libera (§0 fila 8) |
+| 11 | (versión anterior) «2 pólizas en hoja blanca carta» | Es un **talonario preimpreso de media carta** con ~6 renglones (§0 fila 11). Medido 2026-11-20: los pagos con cheque llevan **mediana 1 documento, 90 % ≤ 3, máximo 7**; sólo 1 de 34 pasa de 6 renglones. DCH10 |
+| 12 | `[PGP.168]`: «❌ un pago no autorizado no imprime» | Medido 2026-11-20: de 29 pagos con cheque numerado vigentes **sólo 1 tiene la autorización de la Suite**, y los **13 pagados salieron sin ella**. La autorización de un cheque es **la firma de Dirección en el papel** (`[PGP.169]` la registra). Exigirla para imprimir frenaría 14 de 15 cheques pendientes: la impresión no la pide (lo confirma Edgar) |
 
 ---
 
@@ -118,7 +145,7 @@ efectivo, E-22), y las cuentas sin chequera.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| **DCH1** | El papel. **Chequera de libro, 3 cheques por hoja; la hoja se desprende del libro y después el cheque de la hoja** (Francisco, 2026-11-19); medidas y copia de cada cheque por llegar | (a) imprimir sobre la hoja desprendida · (b) llenar a mano copiando una **hoja de llenado** que imprime la Suite · (c) pedir al banco chequera para impresora | **(a), con (b) mientras se calibra.** ✅ **Cómo se imprime** (Francisco, 2026-11-19): **el cheque suelto, centrado en la impresora, y detrás 2 hojas blancas de póliza.** La plantilla es el cheque de cada banco, centrado; la póliza, hoja carta. ⚠️ **Al desprender un cheque, los otros de su hoja quedan sueltos y en blanco**: la Suite lleva qué folios están desprendidos y sin usar («5408 y 5409 sueltos») y propone usarlos primero. La hoja de llenado (b) sigue sirviendo si la impresora falla. La calibración, con las medidas y la copia |
+| **DCH1** | El papel. **Chequera de libro, 3 cheques por hoja; la hoja se desprende del libro y después el cheque de la hoja** (Francisco, 2026-11-19); **medidas recibidas el 2026-11-20: ≈ 160 × 70 mm** (BAJÍO y SANTANDER) | (a) imprimir sobre la hoja desprendida · (b) llenar a mano copiando una **hoja de llenado** que imprime la Suite · (c) pedir al banco chequera para impresora | **(a), con (b) mientras se calibra.** ✅ **Cómo se imprime** (Francisco, 2026-11-19): **el cheque suelto, centrado en la impresora, y detrás 2 pólizas** (el talonario preimpreso: DCH10). La plantilla es el cheque de cada banco: **BAJÍO hecha** (PDF de 160 × 70 mm + hoja de prueba en carta, `[PGP.165]`); SANTANDER con `[PGP.172]`. ⚠️ Falta saber **qué impresora** y si acepta papel de 7 cm (muchas láser piden ≥ 7.6 cm de ancho): la hoja de prueba lo dice. ⚠️ **Al desprender un cheque, los otros de su hoja quedan sueltos y en blanco**: la Suite lleva qué folios están desprendidos y sin usar («5408 y 5409 sueltos») y propone usarlos primero. La hoja de llenado (b) sigue sirviendo si la impresora falla. La calibración, con las medidas y la copia |
 | **DCH2** | Qué es «liberar». ✅ **Contestada** (Francisco, 2026-11-19): **el banco libera la chequera; Caja General libera cada cheque en el portal con número, beneficiario e importe** | — | Dos pasos con quién y cuándo: «chequera liberada por el banco» al recibirla, y «cheque liberado» por Caja General. La Suite **no entra al portal** (credenciales del banco: regla del repo). Le da a Caja General la lista **«por liberar»** —sólo cheques firmados, entregados y **confirmados** por la llamada del proveedor— con **número, beneficiario e importe exactamente como se imprimieron**, cada uno con su botón de copiar, para no recalcular ni reescribir el nombre; Caja General marca «liberado» con un clic. Si el portal acepta archivo, se agrega después (no se preguntó) |
 | **DCH3** | Cuentas | (a) sólo 4166 · (b) 4166 y 2169 a la vez · (c) chequeras y embudo para las dos; impresión y Calendario primero en 4166; 2169 con **cheque suelto** | **(c).** El folio es papel del banco, se pague a quien se pague: el control no puede ser de media chequera. El contenido de la nómina (a quién, cuánto) sigue siendo de RH; el cheque suelto pide beneficiario, concepto, importe y motivo, y aparece en el día del Calendario como «fuera de programa» (ya existe) |
 | **DCH4** | Cuándo se amarra el folio (cambia D7) | (a) al autorizar (D7) · (b) al imprimir, confirmando contra el papel en la mano | **(b).** El número ya viene impreso por el banco (con su banda magnética): la Suite no lo asigna, lo **predice** (el siguiente de la chequera activa) y la persona confirma *«el cheque en la impresora es el 5407»*. Un pago autorizado que se cancela no quema folio; un atasco sí, y se anula con motivo |
@@ -128,8 +155,10 @@ efectivo, E-22), y las cuentas sin chequera.
 | **DCH9** | La llamada de «confirmado». **Quién la recibe, contestado** (Francisco, 2026-11-19): **Tesorería; en su ausencia, Analista de Egresos o Caja General** | contra qué se valida | Quien la recibe marca quién llamó, a qué hora y desde qué teléfono; **libera Caja General**. El permiso de confirmar va **a la persona, no al puesto**: Analista de Egresos está **vacante** (2026-11-19) y en `MATRIZ_ACCESOS` figura «sin definir»; mientras tanto confirman Tesorería o Caja General. **Se valida contra un contacto registrado del proveedor, no contra el número que da quien llama**: un cheque robado más una llamada es una liberación. Hoy la Suite no guarda ningún teléfono de proveedor: se registra el contacto de los acreedores que se pagan con cheque (9 con hábito «cheque»; 81 acreedores con algún cheque en 2026, incluido gasto). Mientras no exista, el «confirmado» lleva la nota «sin contacto registrado» |
 | **DCH8** | Leyenda y nombre | — | **«PARA ABONO EN CUENTA DEL BENEFICIARIO»** en todo cheque a proveedor (los 16 cobros con número de 4166 en nov fueron por Cámara de compensación: depositados); nómina sin leyenda (2169 se cobra en ventanilla). **El nombre sale de la factura del SAT** (emisor del CFDI), no de Kepler (2 de 81 con la Ñ perdida); si no hay CFDI, lo confirma una persona. **El nombre impreso y el que Caja General libera son la misma cadena**: el portal lo pide, y un nombre reescrito es otra forma de que no coincidan |
 
-Lo que firmar no destraba: DCH1 espera **las medidas y la copia de cada cheque**. Ninguna decisión frena `[PGP.173]`
-ni los frentes 0 y 1.
+| **DCH10** | La póliza: **talonario preimpreso de media carta** (§0 fila 11), hoy con papel carbón y el número a mano | (a) imprimir sobre el talonario: calibrar ~12 campos contra un papel que cambia de lote, y la tabla de ~6 renglones alcanza para 33 de 34 cheques · (b) **la Suite imprime la póliza completa en hoja blanca de media carta**: el mismo contenido (copia del cheque, banco, concepto, documentos pagados, recibí, sumas, número) dibujado por la Suite | **(b).** No hay que calibrar nada contra el talonario, caben todos los documentos (el de 7 renglones también, en una segunda hoja si hace falta), la póliza lleva el número del cheque impreso y lo único a mano son las firmas. El titular y el logo salen de la cuenta y del sistema, **no del repo**. La cuenta contable del banco ya está (`finance.bank_accounts.contpaqi_cuenta`); la del proveedor, NO MEDIDA. Decide Tesorería con Edgar |
+
+Lo que firmar no destraba: DCH1 espera **la hoja de prueba sobre un cheque real** (las medidas ya llegaron). Ninguna
+decisión frena `[PGP.173]` ni los frentes 0 y 1.
 
 ### 4a. Lo que le falta al proceso (la respuesta a «¿qué nos está faltando?»)
 
@@ -164,7 +193,7 @@ ni los frentes 0 y 1.
 | Orden | Frente | Item | Dinero | Esfuerzo | Prioridad | Por qué ahí |
 |---|---|---|---|---|---|---|
 | ⛔ 0 | **El cheque emitido no se libera a la semana ni se «mueve»**: se arrastra hasta cobrarse o cancelarse | `[PGP.173]` | **Crítico** · un doble pago por cheque; $586,079.27 entregados con fecha del 7 al 14-dic | S | **0** | Mismo tipo de falla que `[PGP.149]`; ya pasó con el 5383. Funciona con los cheques de hoy (método «cheque» + folio en referencia). Tiene que estar antes de que la descarga se suba al día |
-| 0 | **Un solo importe**: centavos enteros, letra correcta, hoja de llenado | `[PGP.165]` | Alto · ~$5.7 M/mes en cheques | S | **1** | Quita la calculadora desde el día 1 con la chequera de hoy (DCH1-b). No espera firma salvo DCH8 |
+| 0 | **Un solo importe**: centavos enteros, letra correcta, **el cheque impreso desde su pago** (BAJÍO) y su hoja de prueba | `[PGP.165]` | Alto · ~$5.7 M/mes en cheques | S | **1** | Quita la calculadora desde el día 1 con la chequera de hoy: con las medidas, se imprime sobre el cheque (DCH1-a) sin esperar a la chequera. No espera firma salvo DCH8 (hoy, el nombre que muestra el Calendario) |
 | 1 | **El cobro por número**: la descarga cierra el cheque | `[PGP.166]` | Alto · $1.52 M «pendientes» ya cobrados; $1.85 M cobrados sin Kepler | S–M | **1** | El árbitro ya existe; arregla el estado del Calendario de los cheques de hoy aunque se sigan llenando a mano |
 | 2 | **Chequeras**: recibir, liberar, existencia de folios | `[PGP.167]` | Alto (control: 17 folios sin paradero) | M | **1** | Sin chequera no hay folio que confirmar al imprimir |
 | 3 | **Emitir e imprimir** al elegir «cheque» en el pago del Calendario: cheque + póliza con desglose y recibí | `[PGP.168]` | Alto · $15.4 M en 90 días | M | **1** | Depende de DCH1, DCH4 y del frente 2; se calibra con papel real |
@@ -223,8 +252,8 @@ esperar al papel ni a ninguna firma.
   cheques** (dato propio: hoy no existe en ninguna tabla; DCH9).
 - **La póliza** sale del mismo pago: cada factura con lo aplicado, cada nota de crédito y descuento que la bajó
   (las lecturas de `[PGP.147]` y `descuento-al-pagar.ts`), y el total = el cheque, al centavo. Hoy se llena con
-  papel carbón debajo del cheque y el número se pone a mano; con la Suite se imprimen **2 pólizas en hoja blanca**
-  detrás del cheque: cada una **repite el cheque** (folio, fecha, beneficiario, importe con número y letra), **anexa
+  papel carbón debajo del cheque y el número se pone a mano, sobre un **talonario preimpreso de media carta** (§0
+  fila 11); con la Suite se imprimen **2 pólizas** detrás del cheque (en el talonario o en hoja blanca: DCH10): cada una **repite el cheque** (folio, fecha, beneficiario, importe con número y letra), **anexa
   los documentos pagados** y lleva **el nombre de quien recibe el cheque** (Francisco, 2026-11-19). Ese nombre sale
   del **contacto registrado del proveedor** —el mismo contra el que se valida la llamada (DCH9)—; si no hay, va la
   línea en blanco. Al marcar «entregado» se anota quién lo recibió de verdad y se sube la foto de la póliza firmada.
@@ -234,8 +263,15 @@ esperar al papel ni a ninguna firma.
 ### C2 — la API
 
 - Chequeras: recibir (rango) y liberar. Rechaza un rango que se encime con otro de la misma cuenta.
-- Emitir: del pago **autorizado** con método cheque → confirma el folio → devuelve el PDF (cheque u hoja de
-  llenado). El importe lo pone el servidor; la pantalla no lo manda.
+- Emitir: del pago con método cheque → confirma el folio → devuelve el PDF (cheque u hoja de llenado). El importe
+  lo pone el servidor; la pantalla no lo manda. ⚠️ «Autorizado» se quitó de aquí (§3 fila 12): la autorización de
+  un cheque es la firma de Dirección; lo confirma Edgar.
+- ✅ **Ya existe (`[PGP.165]`, 2026-11-20), sólo lectura:** `GET allocations/:id/cheque.pdf` (el cheque en PDF de
+  160 × 70 mm; `?prueba=1` la hoja de prueba con ese pago; `?dx=&dy=` el corrimiento de la impresora, ±15 mm) y
+  `GET cheques/prueba.pdf` (sin pago). Permiso: el de preparar pagos (`FINANCE_PAYMENTS_GESTIONAR`, ya repartido:
+  tesorería, finanzas_operativo y otros 7 roles). 409 con el motivo en palabras si el pago no puede salir en cheque:
+  otro método, sin cuenta, cuenta sin plantilla, sin número, importe que no es la suma de sus facturas (34 de 34
+  cuadran hoy), sin beneficiario o con dos.
 - Liberado · entregado · anulado · devuelto.
 - **Cobro:** dentro de la pasada que ya lee la descarga (`[PGP.121]`/`[PGP.146]`), **no un cron nuevo**: por número
   de cheque y cuenta → «cobrado»; si el importe del banco no es el emitido, hallazgo en rojo con los dos importes.
@@ -286,7 +322,8 @@ esperar al papel ni a ninguna firma.
 1. ~~Cuántos cheques se devolvieron por diferencia~~ — **sin dato; Francisco estima menos de 2 %** (2026-11-19). Para
    medirlo de aquí en adelante, la Suite registra el estado `devuelto` con su motivo.
 2. ~~El formato del papel~~ — **libro, 3 cheques por hoja; la hoja se desprende y después el cheque** (2026-11-19).
-   **Falta:** las medidas y una copia de cada cheque (BAJÍO 4166 y SANTANDER 2169) para calibrar.
+   ~~Las medidas~~ — **≈ 160 × 70 mm** los dos, con foto y regla (2026-11-20). **Falta:** la hoja de prueba impresa
+   y puesta sobre un cheque cancelado de BAJÍO, y **qué impresora** se usa (modelo, y si tiene bandeja manual).
 3. ~~Qué es «liberar»~~ — **el banco libera la chequera; Caja General libera cada cheque con número, beneficiario e
    importe** (2026-11-19).
 4. ~~Quién firma~~ — **Dirección General**; **Tesorería programa**; **Caja General libera** (2026-11-19).
@@ -335,5 +372,17 @@ esperar al papel ni a ninguna firma.
   ninguno, con la descarga al día sí. Aparece un séptimo cheque pagado por SPEI (5399, $37,674.38), «pendiente»
   en el Calendario: 7 de 28, $1,304,085.11 (corrige «6 de 22»).
 - **2026-11-19** — El 5399 también está cancelado. Se imprime cheque por cheque, centrado, más 2 pólizas que repiten
-  el cheque, anexan lo pagado y llevan el nombre de quien recibe el cheque (DCH1 deja la plantilla de 3 posiciones). Analista
+  el cheque, anexan lo pagado y llevan el nombre de quien recibe el cheque (DCH1 deja la plantilla de 3 posiciones).
+- **2026-11-19** — Plan enviado (PR #576). Construido y enviado: `[PGP.173]` (la liberación no suelta un cheque
+  emitido, PR #577) y la letra de `[PGP.165]` (PR #578: de 222 cheques reales, la copia vieja escribía mal 26). Analista
   de Egresos, vacante.
+- **2026-11-20** — Edgar fusiona #576, #577 y #578 (14:40); `/api/health` sirve `ea3923afe`, que los contiene:
+  `[PGP.173]` y la letra, en prod. Llegan las medidas (§0 fila 11): cheques ≈ 160 × 70 mm; la póliza es un talonario
+  preimpreso de media carta (corrige «hoja blanca carta»: DCH10). Medido: 34 de 34 pagos con cheque cuadran con sus
+  facturas al centavo; 1 de 29 cheques numerados vigentes tiene la autorización de la Suite (§3 fila 12).
+- **2026-11-20** — `[PGP.165]` el cheque impreso de BAJÍO: la plantilla en mm se midió **sobre la foto**, con la
+  plantilla montada en perspectiva (homografía de las 4 esquinas; control: el contorno cae sobre los bordes del cheque)
+  y el perfil de oscuridad de cada línea impresa. ⚠️ La primera versión, medida a ojo, tenía la línea de la cantidad
+  2.3 mm arriba de donde está (35.8 contra 38.1) y el renglón de arriba de una letra larga pisaba «PÁGUESE…»: la prueba
+  negativa de la geometría reproduce ese choque. PDF de 160.19 × 69.85 mm (Chrome redondea a píxeles), una página.
+  Botón «Imprimir cheque» en la fila del pago y «Hoja de prueba» en Preparar. Sin calibrar con papel real.

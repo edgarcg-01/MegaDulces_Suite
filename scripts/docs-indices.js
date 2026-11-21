@@ -48,6 +48,8 @@ const DOCS = [
   { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md', niveles: 2, omitir: [] },
   // `[PGP.123]` El anexo G pasó de 40 KB con la prueba visual de la interfaz (§14).
   { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md', niveles: 2, omitir: [] },
+  // `[PGP.165]` El anexo CH pasó de 40 KB con las medidas del cheque y la póliza (§0 fila 11, DCH10).
+  { archivo: 'docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_CHEQUES.md', niveles: 2, omitir: [] },
 ];
 
 const INICIO = '<!-- INDICE-AUTO:INICIO -->';
