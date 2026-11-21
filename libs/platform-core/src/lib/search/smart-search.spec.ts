@@ -1,4 +1,4 @@
-import { corregirConVocabulario, distanciaEdicion, particionesDePalabra, similitudTrigramas, smartSearchRank } from './smart-search';
+import { applySmartSearch, corregirConVocabulario, distanciaEdicion, particionesDePalabra, similitudTrigramas, smartSearchRank } from './smart-search';
 
 /**
  * `[BU.5.1]` La calificación de coincidencia para ORDENAR. ⚠️ Prueba de forma: la regex se ejerció contra
@@ -81,5 +81,41 @@ describe('[BU.6.1] corregirConVocabulario', () => {
   it('particiones: mitades de 2 letras o más, sólo en palabras de 5 letras o más', () => {
     expect(particionesDePalabra('elrey')).toEqual([['el', 'rey'], ['elr', 'ey']]);
     expect(particionesDePalabra('rey')).toEqual([]);
+  });
+});
+
+/**
+ * `[MCP.28]` `wholeWordUpTo`: una palabra corta coincide COMPLETA. Prueba de forma (el SQL que se arma);
+ * la regex `\m…\M` es la misma que ya ejerce `smartSearchRank` contra Postgres.
+ */
+describe('[MCP.28] applySmartSearch · wholeWordUpTo', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const knex = require('knex')({ client: 'pg' });
+  const armar = (q: string, wholeWordUpTo?: number) => {
+    const qb = knex('t');
+    applySmartSearch(qb, q, { columns: ['t.code', 't.name'], fuzzy: false, ...(wholeWordUpTo ? { wholeWordUpTo } : {}) });
+    return qb.toSQL().toNative() as { sql: string; bindings: unknown[] };
+  };
+
+  it('sin la opción: todo como pedazo (el comportamiento de siempre no cambia)', () => {
+    const r = armar('ruta 4');
+    expect(r.bindings).toEqual(['%ruta%', '%4%']);
+    expect(r.sql).not.toContain('~');
+  });
+
+  it('con la opción: «4» como palabra completa; «ruta» sigue como pedazo', () => {
+    const r = armar('ruta 4', 2);
+    expect(r.bindings).toEqual(['%ruta%', '\\m4\\M']);
+    expect(r.sql).toContain(' ~ $2');
+  });
+
+  it('el límite es inclusivo', () => {
+    expect(armar('pd', 2).bindings).toEqual(['\\mpd\\M']);
+    expect(armar('pdx', 2).bindings).toEqual(['%pdx%']);
+  });
+
+  it('negativa: una palabra corta con signo («#4», «4.») va como pedazo — completa no podría pegar nunca', () => {
+    expect(armar('#4', 2).bindings).toEqual(['%#4%']);
+    expect(armar('lupita 4.', 2).bindings).toEqual(['%lupita%', '%4.%']);
   });
 });

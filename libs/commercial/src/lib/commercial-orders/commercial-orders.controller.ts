@@ -73,8 +73,11 @@ export class CommercialOrdersController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('group') group?: string,
+    // [MCP.30] Buscar en todos los que cumplen los filtros (no sólo en la página).
+    @Query('q') q?: string,
   ) {
     return this.service.list({
+      q,
       status,
       statuses,
       customer_id: customerId,
@@ -308,12 +311,16 @@ export class CommercialOrdersController {
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
   @ApiOperation({
     summary:
-      '[MCP.21] Modificar un pedido agendado (cantidades y quitar), con su motivo, en UNA transacción: reabre, cambia y lo vuelve a agendar. keep_open deja el borrador para agregar productos en la captura.',
+      '[MCP.21] Modificar un pedido agendado (cantidades y quitar), con su motivo, en UNA transacción: reabre, cambia y lo vuelve a agendar. keep_open deja el borrador para agregar productos en la captura. [MCP.29] requested_delivery_date mueve el día de entrega (sólo, sin reabrir; o junto con los productos), al grupo entero.',
   })
-  modify(@Param('id') id: string, @Body() body: CuerpoConMotivo & { changes?: unknown; keep_open?: unknown }): Promise<PedidoEscrito> {
+  modify(
+    @Param('id') id: string,
+    @Body() body: CuerpoConMotivo & { changes?: unknown; keep_open?: unknown; requested_delivery_date?: unknown },
+  ): Promise<PedidoEscrito> {
     // El motivo es siempre obligatorio aquí (es una pantalla nueva: no hay apps viejas que no lo manden).
     const motivo = motivoO400(body, MOTIVOS_CORREGIR, true) as string;
-    return this.service.modificarAgendado(id, motivo, body?.changes, body?.keep_open === true);
+    // [MCP.29] `requested_delivery_date` (YYYY-MM-DD, ≥ hoy): mueve el día de entrega, sólo o junto con los productos.
+    return this.service.modificarAgendado(id, motivo, body?.changes, body?.keep_open === true, body?.requested_delivery_date);
   }
 
   @Post(':id/fulfill')

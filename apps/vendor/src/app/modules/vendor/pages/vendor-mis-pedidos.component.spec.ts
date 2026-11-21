@@ -139,7 +139,7 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
       const n = api.status.mock.calls.length;
       clic(botonEn(el().querySelector('app-vendor-motivo-sheet'), 'Guardar cambios'));
       expect(v['modificarPedido']).toHaveBeenCalledWith('o-rosy', { reason_code: 'agregar' },
-        [{ line_id: 'l1', quantity: 3, qty_unit: 'CJA', qty_factor: 24 }], false);
+        [{ line_id: 'l1', quantity: 3, qty_unit: 'CJA', qty_factor: 24 }], false, null); // [MCP.29] sin cambio de día
       expect(v['reopenOrder']).not.toHaveBeenCalled();
       expect(api.status.mock.calls.length).toBeGreaterThan(n);
     });
@@ -163,7 +163,7 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
       clic(botonEn(tarjeta('o-rosy'), 'Agregar otro producto'));
       expect(radio('agregar')?.checked).toBe(true);
       clic(botonEn(el().querySelector('app-vendor-motivo-sheet'), 'Seguir y agregar'));
-      expect(v['modificarPedido']).toHaveBeenCalledWith('o-rosy', { reason_code: 'agregar' }, [], true);
+      expect(v['modificarPedido']).toHaveBeenCalledWith('o-rosy', { reason_code: 'agregar' }, [], true, null);
       expect(nav).toHaveBeenCalledWith(['/vendor/take-order', 'c-1'], { queryParams: { order: 'o-rosy' } });
     });
 

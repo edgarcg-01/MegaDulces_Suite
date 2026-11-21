@@ -346,3 +346,30 @@ export interface PresaleSellerStatusResponse {
   /** `[MCP.20]` Días (`YYYY-MM-DD`, de captura) con un reporte de surtido que la vendedora no ha visto. */
   unseen_days?: string[];
 }
+
+/**
+ * `[MCP.28]` Un pedido encontrado por el buscador de «Mis pedidos»: el mismo avance que la lista del
+ * día, más de qué día es y de quién (el supervisor también ve los de su equipo, sólo para consultar).
+ */
+export interface PresaleSellerSearchOrder extends PresaleSellerOrder {
+  /** Día en que se levantó (`YYYY-MM-DD`, hora de México). */
+  created_date: string;
+  /** Quién lo levantó (nombre, o usuario si no tiene nombre). */
+  seller_name: string | null;
+  /** ¿Lo levantó la persona en sesión? Sólo los suyos se modifican o cancelan. */
+  is_mine: boolean;
+}
+
+/** `[MCP.28]` `GET /vendor/presale-status/search?q=`: los pedidos que coinciden, del más reciente al más viejo. */
+export interface PresaleSellerSearchResponse {
+  q: string;
+  /** Hasta dónde busca hacia atrás (por fecha en que se levantó). */
+  window_days: number;
+  /** Cuántos devuelve como máximo. */
+  limit: number;
+  /** `true` = hubo más coincidencias que `limit`: la pantalla lo dice («escribe más palabras»). */
+  truncated: boolean;
+  /** `true` = también busca en los pedidos de su equipo (es supervisor). */
+  includes_team: boolean;
+  data: PresaleSellerSearchOrder[];
+}

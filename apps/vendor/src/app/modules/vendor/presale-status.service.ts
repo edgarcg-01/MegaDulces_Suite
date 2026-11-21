@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import type { PresaleSellerStatusResponse } from '@megadulces/contracts';
+import type { PresaleSellerSearchResponse, PresaleSellerStatusResponse } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -17,6 +17,14 @@ export class PresaleStatusService {
   /** `[MCP.20]` Con `date` (`YYYY-MM-DD`): los pedidos que levanté ese día. Sin él: lo agendado de cualquier día. */
   status(date?: string): Observable<PresaleSellerStatusResponse> {
     return this.http.get<PresaleSellerStatusResponse>(this.base, date ? { params: { date } } : {});
+  }
+
+  /**
+   * `[MCP.28]` Buscar en mis pedidos de los últimos 60 días (y los de mi equipo si soy supervisor): folio,
+   * cliente, producto o monto, cada palabra en cualquier orden. No marca nada como visto.
+   */
+  search(q: string): Observable<PresaleSellerSearchResponse> {
+    return this.http.get<PresaleSellerSearchResponse>(`${this.base}/search`, { params: { q } });
   }
 
   unseen(): Observable<{ unseen_reports: number }> {

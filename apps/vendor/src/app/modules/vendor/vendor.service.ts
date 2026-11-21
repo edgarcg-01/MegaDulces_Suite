@@ -286,6 +286,9 @@ export interface RouteTicket {
  * Offline real (Dexie sync queue para pedidos sin conexión) está deferred —
  * por ahora todas las operaciones requieren conexión.
  */
+/** `[MCP.30]` Cuántos pedidos trae «Por entregar» (el tope del servidor es 200 por página). */
+export const POR_ENTREGAR_TOPE = 200;
+
 @Injectable({ providedIn: 'root' })
 export class VendorService {
   private readonly http = inject(HttpClient);
@@ -628,10 +631,14 @@ export class VendorService {
   /**
    * `[MCP.21]` Modificar un pedido agendado desde su tarjeta (cantidades y quitar), con UN motivo, en una sola
    * transacción del servidor. `keepOpen` lo deja abierto para agregar productos en la captura.
+   * `[MCP.29]` `nuevaEntrega` (YYYY-MM-DD) mueve el día de entrega en el mismo guardado (sola o con los productos).
    */
-  modificarPedido(orderId: string, motivo: MotivoElegido, changes: OrderModifyChange[], keepOpen = false): Observable<VendorOrder> {
+  modificarPedido(
+    orderId: string, motivo: MotivoElegido, changes: OrderModifyChange[], keepOpen = false, nuevaEntrega?: string | null,
+  ): Observable<VendorOrder> {
     return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/modify`, {
       reason_code: motivo.reason_code, note: motivo.note ?? null, changes, ...(keepOpen ? { keep_open: true } : {}),
+      ...(nuevaEntrega ? { requested_delivery_date: nuevaEntrega } : {}),
     });
   }
 
@@ -679,6 +686,22 @@ export class VendorService {
     return this.http
       .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
+  }
+
+  /**
+   * `[MCP.30]` «Por entregar» con su TOTAL: la lista trae como mucho {@link POR_ENTREGAR_TOPE} (los más recientes),
+   * y el total dice si hay más, para que la pantalla lo declare. Con `q`, el servidor busca en TODOS los que
+   * cumplen (folio, cliente, productos, vendedor, ruta o monto), no sólo en los que caben en la lista.
+   */
+  pendingDeliveriesPage(q?: string): Observable<{ data: VendorOrder[]; total: number }> {
+    let params = new HttpParams()
+      .set('mine', 'true')
+      .set('statuses', 'pending_approval,confirmed')
+      .set('pageSize', String(POR_ENTREGAR_TOPE));
+    if (q?.trim()) params = params.set('q', q.trim());
+    return this.http
+      .get<{ data: VendorOrder[]; total?: number }>(`${this.base}/orders`, { params })
+      .pipe(map((r) => ({ data: r.data || [], total: Number(r.total ?? r.data?.length ?? 0) })));
   }
 
   /**
