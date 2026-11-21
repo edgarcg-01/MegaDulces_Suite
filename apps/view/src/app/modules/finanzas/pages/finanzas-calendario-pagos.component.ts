@@ -52,7 +52,7 @@ import { SegmentedComponent, type SegOption } from '../../../shared/components/s
 import { avisoAnticipoDelPago } from './calendario-pagos-anticipo';
 import { notaAplicable } from './calendario-pagos-credito';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler, PaymentCalendarReprogramado } from '@megadulces/contracts';
+import type { DebeMenosDelPago, FacturaQueDebeMenos, PaymentCalendarAjusteAlSaldo, PaymentCalendarBandeja, PaymentCalendarEscrituraKepler, PaymentCalendarPartido, PaymentCalendarPrepararEnTransferencias, PaymentCalendarReprogramado } from '@megadulces/contracts';
 import { ETAPAS, ETAPA_NOMBRE, autorizado as estaAutorizado, diasDeAtraso, etapaDelPago, etapaInicial, salioDelBanco, type EtapaPago } from './calendario-pagos-etapa';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
@@ -902,7 +902,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <td class="pg-c-ben">
                       <!-- [PGP.60] La línea de corte: desde este pago, lo acumulado ya no cabe en el tope. -->
                       @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
-                      <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
+                      <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span>@if (a.transferencia; as t) {<span class="pg-transf"> · transferencia {{ t.parte }} de {{ t.de }}</span>}<span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
                       <!-- [PGP.139] El anticipo sin aplicar de este proveedor en esta sucursal, sin desplegar el pago: se aplica aquí. -->
                       @if (anticipoDelPago(a); as an) {
                         <!-- Sin regla CSS nueva: el bloque de estilos de esta pantalla está en su tope (34 kB). -->
@@ -1153,7 +1153,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 @if (it.entity_ref) {
                                   <button type="button" class="cal-reflink comm-num" (click)="inspect.set(it.entity_ref!)" [attr.aria-label]="'Abrir la ficha del documento ' + it.concept + ' de ' + it.beneficiary">{{ it.concept }}</button>
                                 } @else { <span class="comm-num">{{ it.concept }}</span> }
-                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }@else if (debeMenosDe(a, it.id); as dmf) { · <span class="pg-it-sald">hoy debe {{ money(dmf.debe) }}: lleva {{ money(dmf.de_mas) }} de más</span> }
+                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }@else if (debeMenosDe(a, it.id); as dmf) { · @if (dmf.debe <= 0.005) {<span class="pg-it-sald">las otras transferencias ya cubren lo que debe: quítala de este pago</span>} @else {<span class="pg-it-sald">hoy debe {{ money(dmf.debe) }}: lleva {{ money(dmf.de_mas) }} de más</span>} }
                               </td>
                               <td class="comm-num">{{ it.doc_ref || '—' }}</td>
                               <td>
@@ -1364,7 +1364,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     <!-- Dialog: preparar UN pago (lo que pide el layout del banco) -->
     <p-dialog [(visible)]="prepareVisible" [modal]="true" header="Preparar pago" [style]="{ width: '32rem' }">
       @if (prepAllocation; as a) {
-        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}</p>
+        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong>@if (a.transferencia; as t) { · transferencia {{ t.parte }} de {{ t.de }}} · {{ money(a.amount_assigned) }}</p>
       }
       <label class="cal-dlg-label" for="cal-prep-method">Método de pago</label>
       <p-select appendTo="body" inputId="cal-prep-method" [options]="methodOpts" [(ngModel)]="prepMethod" (onChange)="ajustarOrigenAlDestino()" optionLabel="label" optionValue="value" placeholder="Método" [fluid]="true" class="cal-dlg-sel" />
@@ -1425,9 +1425,43 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         }
       }
       @if (prepMethod === 'transferencia' || prepMethod === 'cargo_automatico' || prepMethod === 'cheque') {
+        <!-- [PGP.190] Un pago que sale en varias transferencias (Francisco, 2026-11-20): cada una con su importe y su cuenta
+             de origen; la última lleva el resto. Al guardar, el pago se parte en un pago por transferencia. -->
+        @if (puedePartir()) {
+          <label class="cal-check cal-prep-varias"><p-checkbox inputId="cal-prep-varias" [binary]="true" [ngModel]="prepVarias" (ngModelChange)="activarVarias($event)" />Sale en varias transferencias</label>
+        }
+        @if (prepVarias && puedePartir()) {
+          <p class="cal-dlg-label" id="cal-prep-tr-titulo">Transferencias: importe y cuenta de origen de cada una</p>
+          <div role="group" aria-labelledby="cal-prep-tr-titulo">
+            @for (p of prepPartes; track $index; let i = $index, ultima = $last) {
+              <div class="cal-prep-tr">
+                <span class="cal-prep-tr-n" aria-hidden="true">{{ i + 1 }}</span>
+                @if (ultima) {
+                  <span class="cal-prep-tr-resto comm-num" [class.cal-bad-txt]="restoDeTransferencias() <= 0">{{ money(restoDeTransferencias()) }}<small> el resto</small></span>
+                } @else {
+                  <input pInputText type="text" inputmode="decimal" autocomplete="off" class="comm-num" [(ngModel)]="p.amount" (ngModelChange)="prepPartesError.set(null)"
+                         placeholder="Importe" [attr.aria-label]="'Importe de la transferencia ' + (i + 1)" />
+                }
+                <p-select appendTo="body" [options]="prepOrigenes()" [(ngModel)]="p.origin" (onChange)="prepPartesError.set(null)" optionLabel="label" optionValue="id"
+                          placeholder="Cuenta de origen…" [filter]="true" filterBy="label" [fluid]="true" [ariaLabel]="'Cuenta de origen de la transferencia ' + (i + 1)" />
+                @if (prepPartes.length > 2) {
+                  <button pButton type="button" class="p-button-text p-button-sm p-button-secondary" icon="pi pi-times" (click)="quitarTransferencia(i)" [attr.aria-label]="'Quitar la transferencia ' + (i + 1)"></button>
+                } @else { <span></span> }
+              </div>
+            }
+          </div>
+          @if (prepPartes.length < 10) {
+            <button pButton type="button" class="p-button-text p-button-sm" icon="pi pi-plus" label="Otra transferencia" (click)="agregarTransferencia()"></button>
+          }
+          @if (prepAllocation; as a) {
+            <p class="cal-dlg-hint">Al guardar, el pago de <b class="comm-num">{{ money(a.amount_assigned) }}</b> se parte en <b>{{ prepPartes.length }} pagos de este mismo día</b>, uno por transferencia y ya preparados: cada uno se casa con su salida del banco y lleva su propio X-D-26 en Kepler. Las facturas se reparten en el orden del pago; la que cruza de una transferencia a otra se abona en dos.</p>
+          }
+          @if (prepPartesError(); as e) { <p class="cal-dlg-hint cal-habito-nm" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}</p> }
+        } @else {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
         <!-- [PGP.155] A una cuenta sin CLABE sólo se transfiere desde una cuenta nuestra del mismo banco: sólo se ofrecen ésas. -->
         <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
+        }
         @if (prepBancoObligado(); as b) {
           <p class="cal-dlg-hint"><i class="pi pi-building-columns" aria-hidden="true"></i> La cuenta destino no tiene CLABE: la transferencia sale sólo de una cuenta <b>{{ b }}</b> nuestra; de nuestros bancos sólo se ofrecen ésas.</p>
         } @else if (prepBancoSinCuenta(); as b) {
@@ -1455,7 +1489,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
              este pago rotulado así, y sin este aviso lo leería como un error de captura. -->
         <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-info-circle" aria-hidden="true"></i> Kepler no distingue «efectivo»: el <b>X-D-26</b> va a quedar rotulado <b>transferencia</b> aunque el dinero salga de la caja. Acá queda bien; al conciliar contra el ERP, cuenta con eso.</p>
       }
-      <div class="cal-dlg-actions"><button pButton type="button" class="p-button-text p-button-secondary" (click)="prepareVisible = false">Cancelar</button><button pButton type="button" (click)="confirmPrepare()" [loading]="saving()">Guardar</button></div>
+      <div class="cal-dlg-actions"><button pButton type="button" class="p-button-text p-button-secondary" (click)="prepareVisible = false">Cancelar</button><button pButton type="button" (click)="confirmPrepare()" [loading]="saving()">{{ prepVarias && puedePartir() ? 'Partir en ' + prepPartes.length + ' y preparar' : 'Guardar' }}</button></div>
     </p-dialog>
 
     <!-- Dialog: marcar pagados (Caja General). Irreversible aqui: friccion proporcional, un solo paso. -->
@@ -1929,6 +1963,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ben { display:block; min-width:0; }
     .pg-ben .cal-benef { display:inline; }
     .pg-ben-d { color:var(--text-muted); font-size:var(--fs-sm); }
+    /* [PGP.190] La parte de un pago partido: va con el nombre (es lo que lo distingue de otro pago al mismo proveedor). */
+    .pg-transf { font-size:var(--fs-sm); font-weight:600; color:var(--text); }
     .pg-c-how { min-width:0; font-size:var(--fs-sm); }
     td.pg-c-how .pg-how { display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); }
     td.pg-c-how .pg-how-t { color:var(--text-main); }
@@ -2237,6 +2273,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .cal-dlg-actions { display:flex; gap:var(--sp-2); align-items:center; justify-content:flex-end; margin-top:var(--sp-3); }
     .cal-dlg-label { display:block; font-size:var(--fs-sm); color:var(--text-muted); margin:var(--sp-2) 0 var(--sp-1); }
     :host ::ng-deep .cal-dlg-sel { width:100%; margin-bottom:var(--sp-2); }
+    /* [PGP.190] Varias transferencias: número · importe · cuenta de origen · quitar. */
+    .cal-prep-varias { margin:var(--sp-2) 0; color:var(--text); }
+    .cal-prep-tr { display:grid; grid-template-columns:1.25rem minmax(5.5rem, 9rem) minmax(0, 1fr) 2.75rem; gap:var(--sp-2); align-items:center; margin-bottom:var(--sp-2); }
+    .cal-prep-tr input { width:100%; min-width:0; }
+    .cal-prep-tr-n { font-size:var(--fs-sm); color:var(--text-muted); text-align:right; }
+    .cal-prep-tr-resto { font-weight:600; }
+    .cal-prep-tr-resto small { font-weight:400; color:var(--text-muted); }
     /* Lo que cabe el dia destino, a la escala del dialogo; solo el exceso lleva color. */
     .pg-dlg-cap { margin:0; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.45; }
     .pg-dlg-cap b { color:var(--text-main); }
@@ -3694,6 +3737,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   prepCash = '';
   prepAccountId: string | null = null;
   prepOriginId: string | null = null;
+  /**
+   * `[PGP.190]` **El pago sale en varias transferencias** (Francisco, 2026-11-20). Un renglón por transferencia: su importe
+   * (tecleado, se lee con `numero()`) y su cuenta de origen. La última no se teclea: lleva el resto.
+   */
+  prepVarias = false;
+  prepPartes: { amount: number | string; origin: string | null }[] = [];
+  readonly prepPartesError = signal<string | null>(null);
   prepSupplierId: string | null = null;
   /** `[PGP.155]` Con su banco y su CLABE: una cuenta sin CLABE restringe el origen al mismo banco. */
   prepAccounts = signal<{ id: string; label: string; bank_name: string | null; clabe: string | null; account_number?: string | null }[]>([]);
@@ -3933,7 +3983,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   bajarA(a: PaymentCalendarAllocation, dm: DebeMenosDelPago): number | null {
     const conDescuento = new Set((a.items ?? []).filter((it) => this.numero(it.discount_amount) > 0).map((it) => it.id));
-    const baja = dm.facturas.filter((f) => !conDescuento.has(f.item_id)).reduce((s, f) => s + f.de_mas, 0);
+    // `[PGP.190]` La parte que las otras transferencias ya cubren (debe 0) no baja: se quita del pago (un renglón paga algo).
+    const baja = dm.facturas.filter((f) => !conDescuento.has(f.item_id) && f.debe > 0.005).reduce((s, f) => s + f.de_mas, 0);
     return baja > 0.005 ? Math.round((this.numero(a.amount_assigned) - baja) * 100) / 100 : null;
   }
   /** `[PGP.147]` La factura del pago que debe menos, por renglón (para el desglose). */
@@ -5702,6 +5753,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.prepAccounts.set([]);
     this.prepAccountsError.set(null);
     this.prepPedida.set(null);
+    this.prepVarias = false; this.prepPartes = []; this.prepPartesError.set(null);
     this.prepSupplierId = this.proveedorDe(a);
     // `[PGP.75]` La CLABE de sus comprobantes, si no hay nada puesto. Es lo ÚLTIMO en precedencia: la
     // cuenta aprobada del catálogo y la captura pendiente la reemplazan si llegan y nadie la tocó.
@@ -5797,8 +5849,62 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       actual: this.prepOriginId, sirven: this.prepOrigenes().map((o) => o.id), delDia: this.bulkOriginId, historial: h?.cuenta_origen_id ?? null,
     });
   }
+  /**
+   * `[PGP.190]` Se puede partir en varias transferencias: una transferencia que no es anticipo (el anticipo sale en una
+   * sola, a la cuenta aprobada de su cotización — el servidor lo rechaza igual).
+   */
+  puedePartir(): boolean {
+    return this.prepMethod === 'transferencia' && !!this.prepAllocation && !this.esPagoDeAnticipo(this.prepAllocation);
+  }
+  /** `[PGP.190]` Al activarlo arranca con dos transferencias, las dos desde la cuenta que ya estaba propuesta. */
+  activarVarias(on: boolean): void {
+    this.prepVarias = on;
+    this.prepPartesError.set(null);
+    if (on && this.prepPartes.length < 2) this.prepPartes = [{ amount: '', origin: this.prepOriginId }, { amount: '', origin: this.prepOriginId }];
+  }
+  agregarTransferencia(): void {
+    if (this.prepPartes.length >= 10) return;
+    // La nueva entra antes de la última: la última es siempre «el resto».
+    this.prepPartes = [...this.prepPartes.slice(0, -1), { amount: '', origin: this.prepOriginId }, this.prepPartes[this.prepPartes.length - 1]];
+    this.prepPartesError.set(null);
+  }
+  quitarTransferencia(i: number): void {
+    if (this.prepPartes.length <= 2) return;
+    this.prepPartes = this.prepPartes.filter((_, k) => k !== i);
+    this.prepPartesError.set(null);
+  }
+  /** `[PGP.190]` Lo que lleva la última transferencia: el pago menos lo tecleado en las demás (al centavo). */
+  restoDeTransferencias(): number {
+    const tecleado = this.prepPartes.slice(0, -1).reduce((s, p) => s + Math.round(this.numero(p.amount) * 100), 0);
+    return (Math.round(this.numero(this.prepAllocation?.amount_assigned) * 100) - tecleado) / 100;
+  }
+  /** `[PGP.190]` Partir y preparar: un pago por transferencia, mismo día, misma cuenta destino, cada uno con su origen. */
+  private confirmarVarias(a: PaymentCalendarAllocation): void {
+    const n = this.prepPartes.length;
+    const importes = this.prepPartes.map((p, i) => (i === n - 1 ? this.restoDeTransferencias() : this.numero(p.amount)));
+    if (importes.slice(0, -1).some((x) => !(x > 0))) { this.prepPartesError.set('Escribe el importe de cada transferencia (la última lleva el resto).'); return; }
+    if (!(importes[n - 1] > 0)) { this.prepPartesError.set('Las transferencias escritas ya suman el pago o más: a la última no le queda nada.'); return; }
+    if (this.prepPartes.some((p) => !p.origin)) { this.prepPartesError.set('Elige de qué cuenta sale cada transferencia.'); return; }
+    const body: PaymentCalendarPrepararEnTransferencias = {
+      supplier_payment_account_id: this.prepAccountId || null,
+      destination_account_text: this.prepAccountId ? null : (this.prepDestination.trim() || null),
+      transferencias: this.prepPartes.map((p, i) => ({ amount: importes[i], bank_account_id: p.origin as string })),
+    };
+    this.saving.set(true);
+    this.prepPartesError.set(null);
+    this.http.post<PaymentCalendarPartido>(`${this.base}/allocations/${a.id}/preparar-en-transferencias`, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.saving.set(false); this.prepareVisible = false; this.prepVarias = false; this.recargarPagos();
+        this.toast.add({ severity: 'success', summary: `Partido en ${r.partes.length} transferencias`, life: 10000,
+          detail: `${this.allocationTitle(a)}: ${r.partes.map((p) => this.money(p.amount_assigned)).join(' + ')}. Cada una es un pago de este día, ya preparado.` });
+      },
+      // El aviso se queda en el diálogo (la factura con descuento dice a cuánto dejar la transferencia): un toast se iría.
+      error: (e) => { this.saving.set(false); this.prepPartesError.set(e?.error?.message || 'No se pudo partir el pago.'); },
+    });
+  }
   confirmPrepare(): void {
     if (!this.prepAllocation || !this.prepMethod) { this.toast.add({ severity: 'warn', summary: 'Falta el método', detail: 'Elige cómo se paga.' }); return; }
+    if (this.prepVarias && this.puedePartir()) { this.confirmarVarias(this.prepAllocation); return; }
     const usesOrigin = this.prepMethod !== 'efectivo';
     // El destino sólo viaja en transferencia / cargo: en efectivo o cheque la favorita del
     // proveedor (que se propone sola) no debe acabar impresa como destino para Caja General.
