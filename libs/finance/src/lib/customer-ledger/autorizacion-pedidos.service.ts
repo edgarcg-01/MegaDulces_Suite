@@ -96,11 +96,12 @@ export function armarBandeja(l: LecturaBandeja, p: ParametrosAutorizacion): Band
 
   const todos: PedidoPorAutorizar[] = l.pedidos.map((x) => {
     const k = llave(x.sucursal, x.cliente);
-    // Los OTROS pedidos abiertos del cliente, sin los viejos: un pedido muerto de hace meses no le come el crédito
+    // Los OTROS pedidos abiertos del cliente de los últimos `abiertosHorizonteDias` (no `pedidoViejoDias`: un
+    // AUTORIZADO sin surtir de hace una semana sí compromete crédito): un pedido muerto de hace meses no le come el crédito
     // a uno nuevo (Kepler tampoco los suma; los viejos se listan aparte, condición 7).
     const otros = (abiertosPor.get(k) ?? [])
       .filter((a) => !(a.serie === x.serie && a.folio === x.folio))
-      .filter((a) => { const d = diasDesde(a.fecha, l.hoy); return d != null && d <= p.pedidoViejoDias; })
+      .filter((a) => { const d = diasDesde(a.fecha, l.hoy); return d != null && d <= p.abiertosHorizonteDias; })
       .reduce((s, a) => s + a.importe, 0);
     const suyas = facturasPor.get(k) ?? [];
     const vivas: FacturaDelCliente[] = suyas.filter((f) => f.saldo > SALDO_CERO)
@@ -223,7 +224,7 @@ export async function leerBandeja(trx: Knex.Transaction, tenantId: string, rel: 
          WHERE k.c2 = 'U' AND k.c3 = 'D' AND (k.c9)::date >= (now() AT TIME ZONE 'America/Mexico_City')::date - ?::int
            AND k.c4 = 40 AND k.c1 = k.sucursal AND coalesce(k.c43, '') NOT IN ('C', 'F'))
       SELECT r.* FROM r JOIN unnest(?::text[], ?::text[]) AS q(sucursal, cliente) ON q.sucursal = r.sucursal AND q.cliente = r.cliente`,
-      [p.pedidoViejoDias, sucs, clis])).rows : [];
+      [p.abiertosHorizonteDias, sucs, clis])).rows : [];
 
     // `rel` sale de fuenteCartera (una de dos constantes), nunca de la petición.
     const facturas = conCredito.length ? (await trx.raw(`

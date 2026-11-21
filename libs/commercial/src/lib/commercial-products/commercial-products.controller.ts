@@ -30,9 +30,11 @@ import { sucursalDelCatalogo } from './catalogo-ficha';
 import { CatalogoDetalladoService } from './catalogo-detallado.service';
 import type { CatalogoListaDetallada, Compras90 } from './catalogo-detallado';
 import type {
+  CampoEnCero,
   CampoFicha,
   CampoSinClasificar,
   OrdenListaPrecios,
+  RespuestaEnCeros,
   RespuestaFichaSucursales,
   RespuestaHistoriaPrecio,
   RespuestaListaPrecios,
@@ -209,6 +211,28 @@ export class CommercialProductsController {
     return this.precios.sinClasificar({
       q, linea,
       falta: falta as CampoSinClasificar | undefined,
+      con_venta: conVenta === 'true',
+      limite: limite ? Number(limite) : undefined,
+      desplazamiento: desplazamiento ? Number(desplazamiento) : undefined,
+    });
+  }
+
+  @Get('zero-cost-or-price')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[CAT-PRECIO.6]` Mantenimiento: productos con costo o precio de venta en cero en alguna unidad en uso de su ficha de Kepler, por sucursal que vende al público. Sin montos de costo.',
+  })
+  zeroCostOrPrice(
+    @Query('q') q?: string,
+    @Query('falta') falta?: string,
+    @Query('linea') linea?: string,
+    @Query('con_venta') conVenta?: string,
+    @Query('limite') limite?: string,
+    @Query('desplazamiento') desplazamiento?: string,
+  ): Promise<RespuestaEnCeros> {
+    return this.precios.enCeros({
+      q, linea,
+      falta: falta as CampoEnCero | undefined,
       con_venta: conVenta === 'true',
       limite: limite ? Number(limite) : undefined,
       desplazamiento: desplazamiento ? Number(desplazamiento) : undefined,

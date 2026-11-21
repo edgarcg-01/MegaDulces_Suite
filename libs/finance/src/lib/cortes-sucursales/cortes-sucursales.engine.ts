@@ -32,8 +32,9 @@
  * · La diferencia del cajero es la identidad única `cuadreTurno` (platform-core), contra el
  *   esperado de efectivo NETO de devoluciones (`[CSU.7]`: la devolución sale del cajón).
  */
+import { denomDe } from '@megadulces/contracts';
 import type {
-  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteDevolucion, CorteEstadoCobro,
+  CorteArqueo, CorteConteoCajero, CorteConteoMedio, CorteConteoPieza, CorteCobro, CorteCobroCancelado, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteDevolucion, CorteEstadoCobro,
   CorteMedioCobro, CorteRow, CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { CUADRE_UMBRAL, cuadreTurno, type ComoSeLigo } from '@megadulces/platform-core';
@@ -123,6 +124,10 @@ export interface ConteoFueraCrudo {
   motivo: string | null;
   folio: string | null;
   usuario: string | null;
+  /** `[CSU.23]` Para abrirlo. */
+  id?: string;
+  denominations?: Record<string, unknown> | string | null;
+  nota?: string | null;
 }
 
 /** `[CSU.16]` Un retiro o cierre de `reconciliation.blind_counts`, ya ligado al turno del corte. */
@@ -133,6 +138,13 @@ export interface ConteoCajeroCrudo {
   medios: Record<string, unknown> | string | null;
   captured_at: string;
   ligado: ComoSeLigo;
+  /** `[CSU.23]` Lo que hace falta para verlo conteo por conteo. */
+  id?: string;
+  fecha_captura?: string;
+  hora?: string;
+  usuario?: string | null;
+  nota?: string | null;
+  denominations?: Record<string, unknown> | string | null;
 }
 
 const n = (v: string | number | null | undefined): number => Number(v) || 0;
@@ -149,6 +161,71 @@ const medio = (medios: Record<string, unknown> | null, k: string): number | null
   if (v == null || v === '' || !Number.isFinite(Number(v))) return null;
   return r2(Number(v));
 };
+
+/**
+ * `[CSU.23]` Las piezas de un conteo, con el nombre del catálogo compartido y de la mayor a la menor.
+ * Una llave que el catálogo no conoce no se adivina: se publica con su llave y su valor numérico.
+ */
+export function piezasDeConteo(denominations: unknown): CorteConteoPieza[] {
+  const d = objeto(denominations);
+  if (!d) return [];
+  const out: CorteConteoPieza[] = [];
+  for (const [k, v] of Object.entries(d)) {
+    const piezas = Number(v);
+    if (!Number.isFinite(piezas) || piezas <= 0) continue;
+    const cat = denomDe(k);
+    const valor = cat?.valor ?? Number(k);
+    if (!Number.isFinite(valor)) continue;
+    const etiqueta = cat ? `${cat.familia === 'billete' ? 'Billete' : 'Moneda'} de ${cat.label}` : `Pieza «${k}»`;
+    out.push({ denom_key: k, etiqueta, valor, piezas, importe: r2(valor * piezas) });
+  }
+  // Billete antes que moneda del mismo valor ($20 y $20m), y de la mayor a la menor.
+  return out.sort((a, b) => b.valor - a.valor || (a.denom_key.endsWith('m') ? 1 : 0) - (b.denom_key.endsWith('m') ? 1 : 0));
+}
+
+const ETIQUETA_MEDIO: Record<string, string> = {
+  tarjeta: 'Tarjeta', transferencia: 'Transferencia', creditos: 'Créditos', cheques: 'Cheques', retiros: 'Retiros que declaró',
+};
+
+/** `[CSU.23]` Lo que el cierre declaró fuera del efectivo; lo que no declaró no se pinta en cero. */
+export function mediosDeConteo(medios: unknown): CorteConteoMedio[] {
+  const m = objeto(medios);
+  if (!m) return [];
+  // [CSU.19] El campo «tarjeta» trae tarjeta + transferencia cuando la transferencia no viene aparte
+  // (medido en octubre: 112 de 126 cierres); rotularlo «Tarjeta» a secas mentiría.
+  const juntas = medio(m, 'transferencia') === null;
+  return Object.keys(m)
+    .map((clave) => ({ clave, monto: medio(m, clave) }))
+    .filter((x): x is { clave: string; monto: number } => x.monto !== null)
+    .map((x) => ({
+      ...x,
+      etiqueta: x.clave === 'tarjeta' && juntas ? 'Tarjeta y transferencia' : ETIQUETA_MEDIO[x.clave] ?? x.clave,
+    }));
+}
+
+/** `[CSU.23]` Suma de las piezas − total; `null` si no guardó piezas (no es «contó cero»). */
+export function diferenciaDePiezas(piezas: CorteConteoPieza[], total: number): number | null {
+  return piezas.length ? r2(piezas.reduce((t, p) => t + p.importe, 0) - total) : null;
+}
+
+/** `[CSU.23]` Un conteo del cajero, listo para verlo. */
+export function conteoCajero(x: ConteoCajeroCrudo): CorteConteoCajero {
+  const total = r2(n(x.total));
+  const piezas = piezasDeConteo(x.denominations);
+  return {
+    id: x.id ?? '',
+    tipo: x.tipo === 'cierre' ? 'cierre' : 'retiro',
+    fecha: x.fecha_captura ?? String(x.captured_at).slice(0, 10),
+    hora: (x.hora ?? '').slice(0, 5),
+    total,
+    usuario: x.usuario || null,
+    nota: x.nota || null,
+    piezas,
+    piezas_diferencia: diferenciaDePiezas(piezas, total),
+    medios: x.tipo === 'cierre' ? mediosDeConteo(x.medios) : [],
+    ligado: x.ligado,
+  };
+}
 
 /**
  * `[CSU.16]` Lo que declaró el cajero para este turno. `null` si no contó nada. Sin cierre se publica
@@ -259,6 +336,10 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
       fisico_diferencia,
     ),
     conteos_cajero_sin_ligar: c.conteos_cajero_sin_ligar ?? 0,
+    // [CSU.23] Cada conteo, con sus piezas: la evidencia de «Declarado · cajero».
+    conteos_cajero: [...(c.conteos_cajero || [])]
+      .sort((x, y) => String(x.captured_at).localeCompare(String(y.captured_at)))
+      .map(conteoCajero),
   };
 }
 
@@ -373,11 +454,17 @@ export function armarRespuesta(
     // [CSU.20] Sólo los del periodo; el más reciente primero, como la lista.
     conteos_fuera_de_corte: fuera
       .filter((x) => x.fecha >= periodo.from && x.fecha <= periodo.to)
-      .map((x) => ({
-        sucursal: x.sucursal, sucursal_nombre: nombres[x.sucursal] || `Sucursal ${x.sucursal}`,
-        fecha: x.fecha, hora: x.hora, tipo: x.tipo, caja: x.caja, total: r2(n(x.total)), por_que: x.por_que,
-        motivo: x.motivo || null, folio: x.folio || null, usuario: x.usuario || null,
-      }))
+      .map((x) => {
+        const total = r2(n(x.total));
+        const piezas = piezasDeConteo(x.denominations);
+        return {
+          sucursal: x.sucursal, sucursal_nombre: nombres[x.sucursal] || `Sucursal ${x.sucursal}`,
+          fecha: x.fecha, hora: x.hora, tipo: x.tipo, caja: x.caja, total, por_que: x.por_que,
+          motivo: x.motivo || null, folio: x.folio || null, usuario: x.usuario || null,
+          // [CSU.23] Para abrirlo: sus piezas y la nota.
+          id: x.id ?? '', piezas, piezas_diferencia: diferenciaDePiezas(piezas, total), nota: x.nota || null,
+        };
+      })
       .sort((a, b) => `${b.fecha} ${b.hora}`.localeCompare(`${a.fecha} ${a.hora}`)),
     cortes_en_blanco: todos.length - cortes.length,
     umbral_descuadre: CUADRE_UMBRAL,

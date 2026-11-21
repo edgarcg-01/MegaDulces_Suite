@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { transitoDescontado, transitoMostrado } from './transito';
+import { existenciaOds } from '../commercial-inventory/stock-state';
 
 /**
  * RA.8 — Scanner nocturno de reabastecimiento. Detecta situaciones críticas y las
@@ -51,6 +52,9 @@ export class ReplenishmentScannerService {
     await this.knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`); // Postgres NO acepta bind param en SET (42601); literal como los demás scanners
 
+      // [CANON.7.4e] La existencia es la del ODS (`existenciaOds`), la MISMA que lee la pantalla de Existencia crítica
+      // ([CANON.7.2]); antes, la copia `commercial.stock`, con el CEDIS congelado desde el 16-oct: la bandeja y la
+      // pantalla diferían ahí. Sin apartados, igual que la pantalla (medido: 15 piezas apartadas en toda la red).
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
       // OC a recibir en unidades de stock, desde el fact (que lo deriva del ODS en cajas → ×bf
       // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
@@ -87,7 +91,7 @@ export class ReplenishmentScannerService {
       const suggCost = `CASE WHEN ${medible} THEN ROUND(${sugg} * ${costUnit}, 2) END AS suggested_cost`;
 
       const rows: any[] = await trx('commercial.reorder_policy as rp')
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin(existenciaOds(trx, 's'), (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
@@ -144,7 +148,7 @@ export class ReplenishmentScannerService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rc.tenant_id').andOn('pr.supplier_id', 'rc.supplier_id'))
         .join('commercial.reorder_policy as rp', (j) =>
           j.on('rp.tenant_id', 'rc.tenant_id').andOn('rp.warehouse_id', 'rc.warehouse_id').andOn('rp.product_id', 'pr.id'))
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin(existenciaOds(trx, 's'), (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))

@@ -10,7 +10,7 @@
  * se declara).
  */
 import {
-  armarRespuesta, construirCorte, estadoCobro, sinCuadrar, veredictoCuadre, type CorteCrudo,
+  armarRespuesta, construirCorte, conteoCajero, estadoCobro, mediosDeConteo, piezasDeConteo, sinCuadrar, veredictoCuadre, type CorteCrudo,
 } from './cortes-sucursales.engine';
 import type { CorteArqueo } from '@megadulces/contracts';
 
@@ -528,5 +528,80 @@ describe('[CSU.16] la declaración del cajero, que no es la del sistema', () => 
     const r = armarRespuesta([{ ...piedad, conteos_cajero: conteos }, { ...piedad, folio: '0000113', turno: '408' }], NOMBRES, { from: '2026-10-30', to: '2026-10-30' });
     expect(r.totales.con_declaracion_cajero).toBe(1);
     expect(r.totales.contado_igual_esperado).toBe(2);
+  });
+});
+
+describe('[CSU.23] los conteos del cajero, uno por uno y con sus piezas', () => {
+  // Caso real de forma (prod, 2026-11-20): un retiro con billetes y un cierre con monedas y medios.
+  const retiro = {
+    id: 'r1', tipo: 'retiro', total: '10000', medios: null, captured_at: '2026-10-30T22:04:22Z', ligado: 'folio' as const,
+    fecha_captura: '2026-10-30', hora: '16:04:22', usuario: 'Claudia Pimentel', nota: null,
+    denominations: { '500': 16, '200': 10 },
+  };
+  const cierre = {
+    id: 'c1', tipo: 'cierre', total: '6108.5', captured_at: '2026-10-31T02:56:04Z', ligado: 'hora' as const,
+    fecha_captura: '2026-10-30', hora: '20:56:04', usuario: 'Claudia Pimentel', nota: 'faltó una moneda de 10',
+    medios: { retiros: 31440, tarjeta: 6482.95, creditos: 225.23 },
+    denominations: JSON.stringify({ '1000': 2, '500': 6, '20': 50, '20m': 5, '0.5': 1, '1': 8 }),
+  };
+
+  it('las piezas salen con su nombre del catálogo, de la mayor a la menor, billete antes que moneda del mismo valor', () => {
+    const p = piezasDeConteo(cierre.denominations);
+    expect(p.map((x) => x.etiqueta)).toEqual([
+      'Billete de $1,000', 'Billete de $500', 'Billete de $20', 'Moneda de $20', 'Moneda de $1', 'Moneda de 50¢',
+    ]);
+    expect(p.map((x) => x.denom_key)).toEqual(['1000', '500', '20', '20m', '1', '0.5']);
+    expect(p.find((x) => x.denom_key === '20m')!.importe).toBe(100);
+    expect(p.reduce((t, x) => t + x.importe, 0)).toBe(6108.5);
+  });
+
+  it('NEGATIVA: sin piezas no es «contó cero» — vacío, y la diferencia de piezas es null', () => {
+    expect(piezasDeConteo(null)).toEqual([]);
+    expect(piezasDeConteo('no-json')).toEqual([]);
+    expect(piezasDeConteo({ '500': 0, '200': -1, '100': 'x' })).toEqual([]);
+    expect(conteoCajero({ ...retiro, denominations: null }).piezas_diferencia).toBeNull();
+  });
+
+  it('una llave que el catálogo no conoce no se adivina: se publica con su llave', () => {
+    const p = piezasDeConteo({ '5000': 1 });
+    expect(p).toEqual([{ denom_key: '5000', etiqueta: 'Pieza «5000»', valor: 5000, piezas: 1, importe: 5000 }]);
+  });
+
+  it('cuando las piezas no dan el total, la diferencia lo dice (y en 0 cuando cuadran)', () => {
+    expect(conteoCajero(retiro).piezas_diferencia).toBe(0);
+    expect(conteoCajero({ ...retiro, total: '10500' }).piezas_diferencia).toBe(-500);
+  });
+
+  it('el cierre trae sus medios; «tarjeta» sin transferencia aparte se rotula con las dos (CSU.19)', () => {
+    const m = conteoCajero(cierre).medios;
+    expect(m.find((x) => x.clave === 'tarjeta')).toEqual({ clave: 'tarjeta', monto: 6482.95, etiqueta: 'Tarjeta y transferencia' });
+    expect(mediosDeConteo({ tarjeta: 100, transferencia: 50 }).map((x) => x.etiqueta)).toEqual(['Tarjeta', 'Transferencia']);
+    // No declarar no es declarar cero.
+    expect(mediosDeConteo({ tarjeta: null, cheques: '' })).toEqual([]);
+    // NEGATIVA: un retiro no publica medios aunque los traiga.
+    expect(conteoCajero({ ...retiro, medios: { tarjeta: 5 } }).medios).toEqual([]);
+  });
+
+  it('el corte publica sus conteos del más viejo al más nuevo, con hora HH:MM, quién y la nota', () => {
+    const piedad = base({
+      sucursal: '02', folio: '0000112', referencia: 'Caja 3-407', caja: '3', turno: '407', monto: '44031.01', arqueo_fecha: '2026-10-30',
+      efectivo_esperado: '37548.06', efectivo_contado: '37548.06', tarjeta_esperado: '6482.95', tarjeta_contado: '6482.95',
+      transfer_esperado: '0', transfer_contado: '0', arqueo_billetes: '6060.00', arqueo_monedas: '48.00', efectivo_retirado: '31440.00',
+    });
+    const a = construirCorte({ ...piedad, conteos_cajero: [cierre, retiro] }, NOMBRES).arqueo!;
+    expect(a.conteos_cajero.map((x) => [x.id, x.tipo, x.hora, x.ligado])).toEqual([['r1', 'retiro', '16:04', 'folio'], ['c1', 'cierre', '20:56', 'hora']]);
+    expect(a.conteos_cajero[1].nota).toBe('faltó una moneda de 10');
+    expect(a.conteos_cajero[1].usuario).toBe('Claudia Pimentel');
+    // NEGATIVA: sin conteos ligados, lista vacía (no se inventa).
+    expect(construirCorte(piedad, NOMBRES).arqueo!.conteos_cajero).toEqual([]);
+  });
+
+  it('un conteo fuera de corte también se abre: id, piezas y nota', () => {
+    const r = armarRespuesta([], { '02': 'La Piedad Abastos' }, { from: '2026-11-02', to: '2026-11-02' }, undefined, [{
+      sucursal: '02', fecha: '2026-11-02', hora: '09:00:00', tipo: 'sin_caja', caja: null, total: '700', por_que: 'sin_caja',
+      motivo: 'DEPOSITO', folio: null, usuario: 'Claudia Pimentel', id: 'f1', denominations: { '500': 1, '200': 1 }, nota: 'del domingo',
+    }]);
+    const x = r.conteos_fuera_de_corte[0];
+    expect([x.id, x.nota, x.piezas.map((p) => p.importe), x.piezas_diferencia]).toEqual(['f1', 'del domingo', [500, 200], 0]);
   });
 });

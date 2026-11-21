@@ -152,3 +152,79 @@ SELECT count(*)::int AS productos
          GROUP BY 1
         HAVING count(*) >= 2) x
 `;
+
+/**
+ * `[CAT-PRECIO.6]` Mantenimiento · **Costo o precio en cero.** Cada unidad EN USO de la ficha de Kepler (`kdii`) en cada
+ * sucursal que vende al público, con su costo o su precio de venta en cero.
+ *
+ *  - Las tres unidades de la ficha (`ERP_KEPLER.md` §2.1.1, decodificadas al centavo contra la pantalla de Kepler):
+ *    base `c11` · costo `c77` · PV `c90`; dos `c80` · factor `c81` · costo `c78` · PV `c91`; tres `c83` · `c84` · `c79` · `c92`.
+ *  - «En uso» = la base siempre; la dos y la tres sólo rotuladas Y con factor > 0. Una unidad rotulada con factor 0 trae
+ *    costo y precio 0 por construcción (la escalera corrida de §2.1): no es un error de la ficha.
+ *  - `c77` es TEXTO en el espejo y trae vacíos: vacío = «vacio» (Kepler lo muestra en cero), 0 = «cero». Mismo regex que
+ *    `LISTA_PRECIOS_SQL` (sin el cuantificador corto: knex vuelve parámetro cada signo de interrogación).
+ *  - Medido en prod el 2026-11-20 (con RLS): 291 productos, 63 de ellos también con precio en cero, 120 con venta en 30 días.
+ *  - UNA pasada sobre la ficha: la marca «tiene algo en cero» se calcula por renglón ANTES de abrirlo en sus tres
+ *    unidades. Abrir las ~76 mil fichas en tres costaba 1.0–1.5 s; se abren sólo las que tienen algo.
+ */
+export const EN_CEROS_SQL = `
+WITH plazas AS (
+  SELECT w.kepler_code AS suc, min(w.name) AS nombre
+    FROM commercial.warehouses w
+   WHERE w.deleted_at IS NULL AND w.sells_to_public IS TRUE AND w.kepler_code IS NOT NULL
+   GROUP BY 1
+), k AS (
+  SELECT i.sucursal AS suc, btrim(i.c1) AS sku, i.c2, i.c3, i.c11, i.c80, i.c81, i.c83, i.c84, i.c78, i.c79, i.c90, i.c91, i.c92,
+         CASE WHEN btrim(i.c77) ~ '^[-]{0,1}[0-9]+([.][0-9]+){0,1}$' THEN btrim(i.c77)::numeric END AS c77n
+    FROM kepler_ods.kdii i
+    JOIN plazas ON plazas.suc = i.sucursal
+   -- Fichas con SKU vacío existen en el espejo (basura de captura): no son un producto.
+   WHERE btrim(i.c1) <> ''
+), marcadas AS (
+  SELECT k.*,
+         (COALESCE(k.c77n, 0) = 0 OR COALESCE(k.c90, 0) = 0
+          OR (btrim(k.c80) <> '' AND k.c81 > 0 AND (COALESCE(k.c78, 0) = 0 OR COALESCE(k.c91, 0) = 0))
+          OR (btrim(k.c83) <> '' AND k.c84 > 0 AND (COALESCE(k.c79, 0) = 0 OR COALESCE(k.c92, 0) = 0))) AS algo_en_cero
+    FROM k
+), fichas AS (
+  SELECT sku, count(DISTINCT suc)::int AS plazas FROM marcadas GROUP BY sku HAVING bool_or(algo_en_cero)
+), u AS (
+  SELECT m.suc, m.sku, btrim(m.c2) AS nombre,
+         nullif(nullif(btrim(m.c3), ''), '00001') AS linea, btrim(lg.c2) AS linea_nombre,
+         n.n,
+         upper(CASE n.n WHEN 1 THEN btrim(m.c11) WHEN 2 THEN btrim(m.c80) ELSE btrim(m.c83) END) AS unidad,
+         (CASE n.n WHEN 1 THEN 1 WHEN 2 THEN m.c81 ELSE m.c84 END)::numeric AS factor,
+         (CASE n.n WHEN 1 THEN m.c77n WHEN 2 THEN m.c78 ELSE m.c79 END)::numeric AS costo,
+         (CASE n.n WHEN 1 THEN m.c90 WHEN 2 THEN m.c91 ELSE m.c92 END)::numeric AS pv
+    FROM marcadas m
+    LEFT JOIN kepler_ods.kdig lg ON lg.sucursal = m.suc AND btrim(lg.c1) = btrim(m.c3)
+    CROSS JOIN (VALUES (1), (2), (3)) AS n(n)
+   WHERE m.algo_en_cero
+), ceros AS (
+  SELECT u.*,
+         CASE WHEN u.costo IS NULL THEN 'vacio' WHEN u.costo = 0 THEN 'cero' END AS costo_mal,
+         COALESCE(u.pv, 0) = 0 AS precio_cero
+    FROM u
+   WHERE u.unidad <> '' AND (u.n = 1 OR u.factor > 0)
+     AND (u.costo IS NULL OR u.costo = 0 OR COALESCE(u.pv, 0) = 0)
+), venta AS (
+  SELECT a.sku, sum(a.venta_bruta)::numeric AS venta_30d
+    FROM analytics.mv_kepler_standard_cost_activity a
+   WHERE a.sku IN (SELECT sku FROM fichas)
+   GROUP BY 1
+)
+SELECT c.sku, max(c.nombre) AS nombre, max(fichas.plazas) AS plazas,
+       (array_agg(c.linea ORDER BY c.linea, c.linea_nombre) FILTER (WHERE c.linea IS NOT NULL))[1] AS linea,
+       (array_agg(c.linea_nombre ORDER BY c.linea, c.linea_nombre) FILTER (WHERE c.linea IS NOT NULL))[1] AS linea_nombre,
+       bool_or(c.costo_mal IS NOT NULL) AS costo_en_cero,
+       bool_or(c.precio_cero) AS precio_en_cero,
+       jsonb_agg(jsonb_build_object('sucursal', c.suc, 'sucursal_nombre', p.nombre, 'unidad', c.unidad,
+                                    'costo', c.costo_mal, 'precio_cero', c.precio_cero)
+                 ORDER BY c.suc, c.n) AS ceros,
+       coalesce(max(venta.venta_30d), 0) AS venta_30d
+  FROM ceros c
+  JOIN plazas p ON p.suc = c.suc
+  JOIN fichas ON fichas.sku = c.sku
+  LEFT JOIN venta ON venta.sku = c.sku
+ GROUP BY c.sku
+`;

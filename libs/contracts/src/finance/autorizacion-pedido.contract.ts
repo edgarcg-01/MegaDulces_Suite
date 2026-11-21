@@ -30,6 +30,12 @@ export interface ParametrosAutorizacion {
   graciaDias: number;
   /** Un pedido con más de estos días sin movimiento es «viejo» y se lista aparte (D-A4/D-A10). */
   pedidoViejoDias: number;
+  /**
+   * Los OTROS pedidos abiertos del cliente que cuentan contra su crédito: los de estos últimos días. Aparte de
+   * `pedidoViejoDias` porque son preguntas distintas: un pedido AUTORIZADO de hace una semana sin surtir sigue
+   * comprometiendo crédito, aunque un CREADO de esa edad ya esté muerto.
+   */
+  abiertosHorizonteDias: number;
   /** La cartera y el pedido se leyeron hace a lo más estos minutos (condición 5). */
   frescuraMaxMin: number;
 }
@@ -37,7 +43,13 @@ export interface ParametrosAutorizacion {
 /** La propuesta del anexo (§3.1, D-A6, D-A10). NO está firmada: es lo que se le propone a Crédito y cobranza. */
 export const PARAMETROS_PROPUESTOS: Readonly<ParametrosAutorizacion> = Object.freeze({
   graciaDias: 15,
-  pedidoViejoDias: 30,
+  // Medido en prod el 2026-11-20 (TELEMARK de 60 días, sin cancelados ni ruta vecinal): de los capturados hace 0–1
+  // días quedan en CREADO 0 de 115; de ahí en adelante, un 1 % que ya no baja (2 de 121 a los 2–3 días, 18 de 1,387 a
+  // los 31–60): todo lo que se autoriza se autoriza el mismo día o al siguiente. Lo que sigue en CREADO después es
+  // un pedido muerto. Crédito y cobranza lo dijo de los 6 de contado del reporte (de 3 a 30 días): «eran viejos y no
+  // debían pasar». Antes, 30 (propuesta sin medir).
+  pedidoViejoDias: 2,
+  abiertosHorizonteDias: 30,
   frescuraMaxMin: 15,
 });
 
@@ -231,7 +243,8 @@ export function decidirAutorizacion(e: EntradaAutorizacion, p: ParametrosAutoriz
 
   // 6 · el carril de la sucursal
   if (!e.carril.encendido) falla(6, 'la autorización automática está apagada en esta sucursal');
-  else if (e.carril.tope_dia == null) falla(6, 'la sucursal no tiene tope del día configurado');
+  // [D-A14] Sin tope = el interruptor encendido sólo para autorizar a mano desde la Suite; el automático no corre.
+  else if (e.carril.tope_dia == null) falla(6, 'en esta sucursal la Suite sólo autoriza a mano (sin tope del día)');
   else if (e.carril.autorizados_hoy >= e.carril.tope_dia) falla(6, `ya se autorizaron ${e.carril.autorizados_hoy} hoy: es el tope del día`);
 
   // 7 · el pedido no es viejo
@@ -314,3 +327,36 @@ export interface BandejaAutorizacion {
   /** NO MEDIDO hasta GP.A.2: la Suite todavía no registra autorizaciones. */
   autorizados_hoy: null;
 }
+
+/**
+ * `[GP.A.2]` Lo que decide Crédito y cobranza sobre un pedido, desde el panel de la bandeja.
+ *  · `autorizar`: CREADO → AUTORIZADO en Kepler.
+ *  · `regresar` (D-A7): AUTORIZADO → CREADO en Kepler; sólo un pedido que autorizó la Suite.
+ *  · `rechazar`: no toca Kepler (el pedido sigue CREADO); el motivo queda en la Suite y sube a Dirección (GP.A.6b).
+ *  · `escalar`: «Pasar a Dirección General», tampoco toca Kepler.
+ */
+export type AccionDecisionPedido = 'autorizar' | 'regresar' | 'rechazar' | 'escalar';
+
+/** El cuerpo de `POST /api/finance/autorizacion-pedidos/:sucursal/:serie/:folio`: lo que manda el panel. */
+export interface DecisionPedidoBody {
+  accion: AccionDecisionPedido;
+  /** Obligatorio (§3.6): queda en la bitácora con quién y cuándo. */
+  motivo: string;
+}
+
+/**
+ * Cómo terminó. `escrito` / `ya_estaba`: Kepler tiene el estatus pedido. `apagado` / `rechazado`: Kepler no se tocó o
+ * no aceptó (el motivo dice por qué; `reintentable` si fue la red o un candado). `registrado`: rechazar o escalar.
+ */
+export type EstadoDecisionPedido = 'escrito' | 'ya_estaba' | 'apagado' | 'rechazado' | 'registrado';
+
+export interface ResultadoDecisionPedido {
+  id: string;
+  accion: AccionDecisionPedido;
+  estado: EstadoDecisionPedido;
+  /** La frase para la persona, corta. */
+  mensaje: string;
+  reintentable: boolean;
+}
+
+export const MOTIVO_MAX = 500;
