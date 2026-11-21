@@ -4850,6 +4850,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (qSearch) this.search = qSearch;
     const qWh = qp.get('warehouse_ids');
     if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
+    // `[PQ.3.5]` Desde el Calendario de compras («Abrir en Pedido»): el proveedor y las sucursales de la
+    // regla, ya puestos. Sin `warehouse_ids` (regla corporativa) son TODAS: no se hereda la selección guardada.
+    const qSup = qp.get('supplier_id');
+    if (qSup) {
+      this.fSupplier = qSup;
+      if (!qWh) this.wbWarehouses = [];
+      this.mode.set('pedido');
+    }
     if (this.mode() === 'muerto') this.loadDead();
     else if (this.mode() === 'sobrante') this.loadSobrante();
     else if (this.mode() === 'pedido') this.loadWorkbook();
