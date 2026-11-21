@@ -1,7 +1,7 @@
 import {
-  estadoDeRegla, sumarDias, VENTANA_REZAGO_DIAS,
-  type AlcanceDeQuienVe, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type ReglaCalendario, type ReglaRevision,
-  type ZonaDeCompra,
+  diaIso, diasEntre, estadoDeRegla, PERIODOS_DIA_FIJO, sumarDias, VENTANA_REZAGO_DIAS,
+  type AlcanceDeQuienVe, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
+  type ReglaCalendario, type ReglaRevision, type ZonaDeCompra,
 } from '@megadulces/contracts';
 
 /**
@@ -68,6 +68,95 @@ export function actividadDeLaRegla(
   const fechas = [...new Set(suyas.flatMap((f) => f.fechas))].sort();
   const ultima = suyas.reduce<FilaActividad | null>((m, f) => (!m || f.ultima > m.ultima ? f : m), null);
   return { fechas, ultima: ultima ? { fecha: ultima.ultima, fuente: ultima.ultima_fuente } : null };
+}
+
+/**
+ * `[PQ.3.14]` Día fijo de un proveedor en una plaza — cuándo se propone (anexo C §10.2, medido en prod el
+ * 2026-11-21 con la actividad de 12 meses de las 340 claves):
+ * - al menos `DIA_FIJO_MIN_DIAS` días con orden o entrada en 12 meses (con menos, cualquier día «es fijo»);
+ * - al menos el 70 % de esos días en el MISMO día de la semana (es el umbral con el que se midieron los 16
+ *   pares de §10.2, y donde el 84 % de las OC cae ese día: el proveedor pasa, se le pide y entrega);
+ * - el periodo es la MEDIANA entre esos días: 7, 14, 21 o 28. Otra (un par da 49) no es un día fijo;
+ * - y SIGUE con ese ritmo: en las últimas 13 semanas cayó en ese día al menos la mitad de las veces que le
+ *   tocaba. Sin esto se colaba un par con racha semanal en abril y nada después: con la regla puesta habría
+ *   amanecido rezagado 97 de cada 100 días (control con `estadoDeRegla`, 180 días).
+ * Con eso salen 12 reglas de sucursal para 10 proveedores (8 cada semana, 2 cada 14, 1 cada 21 y 1 cada 28); por
+ * el ritmo reciente quedan fuera 2, y 1 por periodo irregular.
+ */
+export const DIA_FIJO_MIN_DIAS = 8;
+export const DIA_FIJO_MIN_PARTE = 0.7;
+/** La ventana del ritmo reciente: 13 semanas. */
+export const DIA_FIJO_RECIENTE_DIAS = 91;
+
+export type DiaFijoMedido =
+  | ({ readonly motivo: null } & Omit<PropuestaDiaFijo, 'branch_code'>)
+  | { readonly motivo: 'pocos_dias' | 'sin_dia_fijo' | 'periodo_irregular' | 'sin_ritmo_reciente' };
+
+/** El día fijo de UNA plaza, de sus días con actividad (12 meses). Pura. */
+export function diaFijoDeActividad(fechas: readonly string[], hoy: string): DiaFijoMedido {
+  const f = [...new Set(fechas)].sort();
+  if (f.length < DIA_FIJO_MIN_DIAS) return { motivo: 'pocos_dias' };
+  const cuenta = new Array<number>(8).fill(0);
+  for (const x of f) cuenta[diaIso(x)] += 1;
+  let weekday = 1;
+  for (let d = 2; d <= 7; d++) if (cuenta[d] > cuenta[weekday]) weekday = d;
+  const enElDia = f.filter((x) => diaIso(x) === weekday);
+  if (enElDia.length < DIA_FIJO_MIN_PARTE * f.length) return { motivo: 'sin_dia_fijo' };
+  const pasos = enElDia.slice(1).map((x, i) => diasEntre(enElDia[i], x)).sort((a, b) => a - b);
+  const mediana = pasos[Math.floor((pasos.length - 1) / 2)];
+  const periodo = PERIODOS_DIA_FIJO.find((p) => p === mediana);
+  if (!periodo) return { motivo: 'periodo_irregular' };
+  const recientes = enElDia.filter((x) => diasEntre(x, hoy) < DIA_FIJO_RECIENTE_DIAS && diasEntre(x, hoy) >= 0).length;
+  const esperadas = Math.floor(DIA_FIJO_RECIENTE_DIAS / periodo);
+  if (2 * recientes < esperadas) return { motivo: 'sin_ritmo_reciente' };
+  return {
+    motivo: null, weekday, every_days: periodo, dias: f.length, en_el_dia: enElDia.length,
+    recientes: { en_el_dia: recientes, esperadas }, ultima: f[f.length - 1],
+  };
+}
+
+/**
+ * `[PQ.3.14]` Las reglas de sucursal que se proponen, por proveedor. Sólo en sucursales con zona: en el CEDIS el
+ * día fijo es el de RECEPCIÓN, no el de revisión (R7: 28 de 31 caen en miércoles y sólo el 37 % de las OC ese
+ * día), y una plaza que no es sucursal no puede llevar regla.
+ */
+export function diasFijosPorProveedor(
+  filas: readonly Pick<FilaActividad, 'supplier_code' | 'plaza' | 'fechas'>[],
+  sucursales: readonly SucursalZona[],
+  hoy: string,
+): Map<string, PropuestaDiaFijo[]> {
+  const conZona = new Set(sucursales.filter((s) => s.zona_code).map((s) => s.branch_code));
+  const out = new Map<string, PropuestaDiaFijo[]>();
+  for (const fila of filas) {
+    if (!conZona.has(fila.plaza)) continue;
+    const m = diaFijoDeActividad(fila.fechas, hoy);
+    if (m.motivo !== null) continue;
+    const { motivo: _m, ...p } = m;
+    const lista = out.get(fila.supplier_code) ?? [];
+    lista.push({ branch_code: fila.plaza, ...p });
+    out.set(fila.supplier_code, lista);
+  }
+  for (const lista of out.values()) lista.sort((a, b) => a.branch_code.localeCompare(b.branch_code));
+  return out;
+}
+
+/**
+ * `[PQ.3.14]` Reparte las propuestas: «sin regla» = los proveedores sin ninguna regla viva, con todo su día fijo;
+ * «pendiente» = los que YA tienen alguna regla y aún tienen día fijo en una sucursal sin SU regla de sucursal.
+ * Una regla de zona o corporativa no cubre la de sucursal (§10.1: no se suman), así que no la borra.
+ */
+export function repartirPropuestas<T extends { readonly supplier_code: string; readonly reglas_vivas: number }>(
+  todos: readonly (T & { readonly con_regla_de_sucursal: readonly string[] })[],
+  dias: ReadonlyMap<string, readonly PropuestaDiaFijo[]>,
+): { sin_regla: (T & { dias_fijos: PropuestaDiaFijo[] })[]; dia_fijo_pendiente: (T & { dias_fijos: PropuestaDiaFijo[] })[] } {
+  const con = todos.map(({ con_regla_de_sucursal, ...p }) => {
+    const tiene = new Set(con_regla_de_sucursal);
+    return { ...(p as unknown as T), dias_fijos: (dias.get(p.supplier_code) ?? []).filter((d) => !tiene.has(d.branch_code)) };
+  });
+  return {
+    sin_regla: con.filter((p) => p.reglas_vivas === 0),
+    dia_fijo_pendiente: con.filter((p) => p.reglas_vivas > 0 && p.dias_fijos.length > 0),
+  };
 }
 
 /**

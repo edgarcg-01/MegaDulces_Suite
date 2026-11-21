@@ -20,7 +20,9 @@
  *  6. «Fuera de ciclo» con motivo saca la regla del rezago; sin motivo no entra; `hasta: null` la regresa.
  *  7. La baja es UPDATE (la regla deja de verse) y libera el alcance para otra; una regla dada de baja ya
  *     no se puede marcar ni dar de baja otra vez.
- *  8. Las propuestas de Kepler no traen a quien ya tiene regla.
+ *  8. Las propuestas de Kepler no traen a quien ya tiene regla. `[PQ.3.14]` El día fijo por sucursal se DECLARA:
+ *     medido si la base tiene la actividad de Kepler; si no, `measured: false` con nota, sin inventar ninguno, y la
+ *     transacción sigue viva (la consulta va en un SAVEPOINT).
  *  9. `[PQ.3.6]` El alcance por sucursal: quien ve una sucursal sólo ve las reglas que caben en ella (y el
  *     resumen cuenta sólo esas); marcar, sacar del ciclo, dar de baja o definir fuera de su alcance se
  *     rechaza como `fuera_de_alcance` sin escribir; sin alcance dicho, el repositorio no adivina: falla.
@@ -273,8 +275,26 @@ correr(async () => {
     // 8 · Propuestas de Kepler.
     const hayVista = (await trx.raw(`SELECT to_regclass('commercial.v_purchase_calendar_proposal') IS NOT NULL AS ok`)).rows[0].ok;
     if (hayVista) {
-      const prop = await R.leerPropuestas(trx, TENANT);
+      let causa = null;
+      const prop = await R.leerPropuestas(trx, TENANT, (e) => { causa = e; });
       check('las propuestas no traen a quien ya tiene regla', !prop.sin_regla.some((p) => p.supplier_code === P.code), prop.sin_regla.length);
+      // [PQ.3.14] El día fijo por sucursal: con el ODS de Kepler se mide; sin él, se DECLARA no medido (con su nota y
+      // la causa a quien llama), la consulta va en un SAVEPOINT y la transacción sigue viva para lo que viene.
+      check(`[PQ.3.14] el día fijo se declara: measured = ${actividadOk} (la base ${actividadOk ? 'tiene' : 'no tiene'} la actividad de Kepler)`,
+        prop.dia_fijo && prop.dia_fijo.measured === actividadOk
+          && (actividadOk ? prop.dia_fijo.note === null && causa === null : !!prop.dia_fijo.note && !!causa)
+          && prop.sin_regla.every((p) => Array.isArray(p.dias_fijos) && (actividadOk || p.dias_fijos.length === 0)),
+        { dia_fijo: prop.dia_fijo, causa: causa && causa.message });
+      check('[PQ.3.14] las dos listas con las columnas reales: «sin regla» = 0 reglas vivas; «pendiente» = con regla y con día fijo por definir',
+        prop.sin_regla.every((p) => p.reglas_vivas === 0) && Array.isArray(prop.dia_fijo_pendiente)
+          && prop.dia_fijo_pendiente.every((p) => p.reglas_vivas > 0 && p.dias_fijos.length > 0),
+        { sin: prop.sin_regla.length, pendiente: prop.dia_fijo_pendiente.length });
+      const viva = await trx.raw('SELECT 1 AS ok').then((r) => r.rows[0].ok === 1).catch(() => false);
+      check('[PQ.3.14] tras leer el día fijo la transacción sigue viva (el fallo, si lo hubo, quedó en su SAVEPOINT)', viva, viva);
+      if (actividadOk) {
+        const conDia = prop.sin_regla.filter((p) => p.dias_fijos.length);
+        console.log(`  · ${conDia.length} proveedores sin regla con día fijo en alguna sucursal`);
+      }
     } else {
       NM('la vista commercial.v_purchase_calendar_proposal no existe en esta base (PQ.3.1 sin fuente)');
     }

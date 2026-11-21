@@ -135,9 +135,9 @@ Ciclo de Pedido: una sola agenda.
 | DC19 | En «días del mes», si la fecha cae en sábado o domingo **se adelanta al viernes**, para que «el último» no se pase al mes siguiente. Los días de la semana pueden incluir el sábado si el proveedor pasa ese día. Los feriados se mueven a mano mientras no haya calendario de días inhábiles (§10.3) | ✅ Francisco, 2026-11-20 (aceptó la propuesta: «me gustó»); se puede cambiar a «al lunes» por regla |
 | DC20 | Las **visitas** se coordinan por WhatsApp en los dos sentidos: el proveedor la pide y se le ofrecen fechas y horas; Compras la pide después de una revisión, con motivo. La Suite arma el mensaje con los horarios libres y abre WhatsApp con el texto escrito (`wa.me`), sin BSP (§10.4) | ✅ Francisco, 2026-11-20 (el proceso; aceptó la propuesta sin BSP) |
 | DC21 | Quien recibe visitas declara su **horario de visitas**. Los horarios que se ofrecen son ese horario menos sus reuniones; sin horario declarado, la Suite no inventa huecos | ✅ Francisco, 2026-11-20 (aceptó la propuesta) |
-| DC22 | Las dos **gerencias de zona con rol de plataforma** ven todo el calendario (modo dios), no sólo su zona. Recortarlas es una regla de usuario en el área `compras`, que es también la de Pedido, donde ese rol aprueba requisiciones a diario: el recorte les cambiaría Pedido. Propuesta: dejarlo así; si se quiere el recorte, se decide para las dos pantallas (§10.7) | 🟡 Claude, 2026-11-20 · falta Francisco |
-| DC23 | El rol `compras` (comprador y auxiliar, 2 personas) **ve y marca**. No estaba en §4.1; se agregó porque el comprador es quien revisa al proveedor | 🟡 Claude, 2026-11-20 · falta Francisco |
-| DC24 | La gerencia de compras de Canindo y Zamora Centro **no se recorta** a 05–06: define reglas para todas (DC8) y un recorte de alcance le quitaría las corporativas. «Abre en 05 y 06» queda como búsqueda («Zamora», «Canindo»); un filtro que se recuerde sería otro item | 🟡 Claude, 2026-11-20 · falta Francisco |
+| DC22 | Las dos **gerencias de zona con rol de plataforma** ven todo el calendario (modo dios), no sólo su zona. Recortarlas es una regla de usuario en el área `compras`, que es también la de Pedido, donde ese rol aprueba requisiciones a diario: el recorte les cambiaría Pedido. Propuesta: dejarlo así; si se quiere el recorte, se decide para las dos pantallas (§10.7) | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
+| DC23 | El rol `compras` (comprador y auxiliar, 2 personas) **ve y marca**. No estaba en §4.1; se agregó porque el comprador es quien revisa al proveedor | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
+| DC24 | La gerencia de compras de Canindo y Zamora Centro **no se recorta** a 05–06: define reglas para todas (DC8) y un recorte de alcance le quitaría las corporativas. «Abre en 05 y 06» queda como búsqueda («Zamora», «Canindo»); un filtro que se recuerde sería otro item | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
 
@@ -221,6 +221,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-20 | **PQ.3.3 🧪 · PQ.3.4 🧪** (§10.5): la actividad de Kepler por alcance, elegida contra la hoja (OC también canceladas + entrada: 67 % del verde, 38 % del rojo; cumple el control), 445–494 ms en prod; la API (6 rutas, 3 permisos declarados) probada con el repositorio real como `app_runtime`, 26 ✓ y 3 mutantes en rojo. Hallazgo: hay proveedores quincenales en sucursal (PQ.3.14 debe proponer el periodo) | sesión Claude |
 | 2026-11-20 | **PQ.3.6 🧪** (§10.7): las tres claves repartidas por migración (sin aplicar) y el alcance por sucursal en la API: cada quien ve y escribe sólo las reglas que caben en sus sucursales; el almacenista queda recortado a la suya sólo en Compras (medido: ninguno usó una ruta de Compras en 60 días). Tres decisiones propuestas (DC22–DC24) | sesión Claude |
 | 2026-11-20 | **PQ.3.5 🧪** (§10.6): la pantalla, con las preguntas de diseño escritas antes; probada en local contra Docker en los tres perfiles (escritorio, Fold 7 abierto, celular) y en oscuro, con las cuatro escrituras hechas desde la pantalla. Hallazgo en la base: los privilegios por defecto de `commercial` le daban DELETE a `app_runtime`; la migración ahora lo revoca (sin el REVOKE, la prueba se pone en rojo) | Francisco (autorizó levantar los servidores) + sesión Claude |
+| 2026-11-21 | **DC22–DC24 ✅** (Francisco, como se propusieron): las gerencias de zona con rol de plataforma siguen viendo todo el calendario (recortarlas cambiaría también Pedido); el rol `compras` ve y marca; la gerencia de compras de Canindo y Zamora Centro no se recorta a 05–06. |
 
 ---
 
@@ -664,5 +665,106 @@ línea de alcance en oscuro: zinc-400 sobre `#09090b`.
   401 llega después del 201 del login, borra la sesión recién abierta y la persona vuelve al login con «tu sesión
   expiró». La prueba lo reprodujo con un robot que entra en milisegundos. **No se midió en prod.**
 
-**Falta:** aplicar las dos migraciones en prod (Edgar) y que la gente vuelva a entrar; DC22–DC24; elegir a la
-persona que revisa en el formulario.
+**Falta:** elegir a la persona que revisa en el formulario. Las migraciones ya están en prod (abajo) y DC22–DC24
+las aprobó Francisco el 2026-11-21 tal como se propusieron.
+
+**En prod (2026-11-21):** #588 (squash `51a1d9238`); migraciones en los lotes 1230 y 1231; los 7 roles con sus
+claves y `_CICLO` sólo en `gerente_compras`. Al soltar: 0 reglas, 0 marcas.
+
+### 10.8 El día fijo por sucursal (PQ.3.14, 2026-11-21)
+
+Con 0 reglas en prod, la gerencia tiene que definir las de ~340 proveedores. «Sin regla» ya trae la propuesta
+corporativa de Kepler («cada N días»). PQ.3.14 agrega la propuesta **de sucursal**: donde el proveedor pasa, se le
+pide y entrega el mismo día de la semana, la regla ya viene armada y definirla es aceptarla.
+
+**La fuente, sin vista nueva ni migración.** Es la MISMA consulta de actividad del calendario
+(`SQL_ACTIVIDAD_KEPLER`: OC también canceladas + entradas, por plaza), leída 12 meses, y una función pura en el
+dominio (`diaFijoDeActividad`). Medido en prod (sólo lectura) el 2026-11-21:
+
+| Medido | Valor |
+|---|---|
+| Costo de la consulta, 340 claves, 12 meses | **1.2 s** (dos corridas) |
+| Sólo la OC, sin la entrada | no sirve: no ve 9 de los 16 pares (la compra local entra sin OC), y sin el filtro por clave tarda 95 s |
+| Pares (proveedor, sucursal) con ≥ 8 días y ≥ 70 % el mismo día, fuera del CEDIS | 15: 14 con periodo de 7, 14, 21 o 28 días y 1 irregular (cada 49) |
+| Con «sigue con ese ritmo» (≥ la mitad de las fechas que tocaban en las últimas 13 semanas) | **12 reglas para 10 proveedores**: 8 cada semana, 2 cada 14 días, 1 cada 21 y 1 cada 28 |
+
+**El criterio, y por qué cada pieza:**
+- ≥ 8 días con orden o entrada en 12 meses: con menos, cualquier día «es fijo».
+- ≥ 70 % en el mismo día: el umbral con el que se midieron los 16 pares de §10.2.
+- El periodo es la mediana entre esos días, si es 7, 14, 21 o 28. Cada 14 cubre al proveedor de tostadas de
+  Yurécuaro (13 de 13 viernes, uno sí y otro no), que es el ejemplo de §10.2. Otro intervalo no es un día fijo.
+- **Sigue con ese ritmo.** La primera versión pedía sólo «su última vez no tiene más de tres periodos». El
+  **control** la tumbó: se corrió cada regla propuesta con `estadoDeRegla` sobre los últimos 180 días. Un par con
+  racha semanal en abril y una OC suelta hoy habría amanecido **rezagado 97 de cada 100 días**. Con el ritmo
+  reciente queda fuera, igual que un par mensual con 1 de 3. Las 12 que quedan amanecen rezagadas entre el 3 % y
+  el 36 % de los días, contando que nadie marcó nada.
+- Sólo sucursales con zona. En el CEDIS el día fijo es el de recepción, no el de revisión (R7).
+- `cada 7` se guarda como «días de la semana»; 14, 21 y 28 como «cada N días», contando desde la última actividad
+  de esa sucursal (la del alcance de la regla, no la corporativa).
+
+**Las cinco preguntas** (skill `diseno` §0b), antes de la plantilla:
+1. *Qué ve y en qué orden:* en «Sin regla», bajo lo que Kepler propone para la empresa, una línea por sucursal con
+   día fijo («Yurécuaro: un viernes sí y otro no · 5 de 6 viernes en las últimas 13 semanas»). La línea es el
+   botón, y abre el formulario ya lleno: sucursal, patrón y fecha base.
+2. *Qué no ve:* el CEDIS, los irregulares, los que perdieron el ritmo y el detalle de 12 meses. Ese detalle va en
+   el formulario, en una frase.
+3. *Accesibilidad:* un clic del renglón al formulario lleno. El formulario muestra las próximas fechas antes de
+   guardar. El buscador ya encuentra por nombre de sucursal.
+4. *Ligas:* la regla guardada sale en «Reglas» y la ve el encargado de esa sucursal (alcance de PQ.3.6).
+   Definir primero la regla corporativa **no** borra la propuesta de sucursal. El proveedor sigue en la lista
+   como «ya tiene N reglas» mientras le falte la de esa sucursal, y no cuenta como «sin regla».
+5. *¿Le toca?* Sí: «Sin regla» es donde nacen las reglas, y sólo quien define ciclos la ve.
+
+**Si la consulta de 12 meses falla**, por ejemplo en una base sin el ODS de Kepler o por un tiempo agotado:
+- Va en un SAVEPOINT.
+- La respuesta declara `dia_fijo.measured: false` con su nota, y la pantalla lo dice.
+- La propuesta por ciclo se entrega igual, y la causa queda en el registro de la API.
+- Probado rompiendo a propósito la columna de plaza dentro de una transacción revertida en Postgres local: se
+  declaró «no medido» y la transacción siguió viva.
+
+**Pruebas (🧪, 2026-11-21):**
+- **Dominio, 29 ✔.** Controles con pares medidos: un viernes sí y otro no se lee cada 14, y cada 49 días no es un
+  día fijo. Bordes exactos: 70 % y 67 %, 8 días, el ritmo reciente con 7 de 13 y con 6 de 13. El CEDIS y una plaza
+  que no es sucursal quedan fuera. El reparto `repartirPropuestas` no deja que la regla corporativa borre la de
+  sucursal. Cinco mutantes en rojo: umbral de 60 %, sin ritmo reciente, también el CEDIS, cualquier periodo y sin
+  filtrar por la regla de sucursal.
+- **La función real sobre la actividad de prod** (JSON leído en sólo lectura) da las 12 reglas para 10
+  proveedores de la tabla de arriba.
+- **Vista, 21 ✔** (el texto del día fijo) y **componente, 8 ✔**. El componente pinta la línea, el clic deja el
+  formulario lleno con la fecha base de la sucursal y la vista previa da el viernes 27 de noviembre. El que ya
+  tiene regla sigue en la lista y no cuenta como «sin regla». Si no se midió, se dice. Guardar desde «Sin regla»
+  no abre el detalle y el aviso dice la sucursal; desde «Reglas» sí lo abre. Tres mutantes en rojo: la
+  evidencia que se queda pegada, las pendientes que se pierden y el detalle abierto de nuevo en «Sin regla».
+- **`test-newdb-pq3-4-calendario-api.js`, 41 ✓**, contra Postgres real como `app_runtime`. El día fijo se declara
+  (`measured` igual a si la base tiene la actividad) y las dos listas salen con las columnas reales.
+- **Prueba negativa en Postgres local.** Con la columna de plaza rota dentro de una transacción revertida, el día
+  fijo se declara no medido, la propuesta por ciclo sigue y la transacción sigue viva.
+- `check:pantalla compras-calendario` tipa y cumple las 10 reglas. `nx build view` (desarrollo) compila.
+
+**Prueba visual de punta a punta (2026-11-21, Docker local, API y vista locales; 0 fallas):**
+- **Datos.** Se sembraron OC de prueba en el `kdm1` local para dos proveedores:
+  - uno sin regla, con viernes por medio en Yurécuaro (5 de 6 recientes) y cada martes en Morelia Madero;
+  - otro con regla corporativa, con cada jueves en Morelia Abastos y cada lunes en el CEDIS, que no debe salir.
+  - **Control:** antes de la pantalla, `leerPropuestas` sobre esa base devolvió exactamente esas tres sucursales.
+- **Quién lo ve.** Entró la gerencia de compras; el encargado de sucursal pide la propuesta y recibe 403.
+- **Tres perfiles:** escritorio 1440×900, Fold 7 abierto 750×832 táctil y celular 390×844 táctil.
+  - Sin desplazamiento lateral y nada fuera de la pantalla.
+  - Con el dedo, todo mide 44 px o más, salvo la X de cerrar del diálogo, que mide 36 px.
+- **El flujo.** Se aceptaron las tres propuestas una tras otra:
+  - cada una guardó con 201;
+  - el renglón cambió («ya tiene 1 regla; falta la de su sucursal»);
+  - al final los dos proveedores salieron de la lista, y «Reglas» muestra las 3 de sucursal con su encargado y «Al día».
+- **Teclado.** Tab llega a la línea, con anillo de foco, y Enter abre el diálogo armado.
+- **Modo oscuro:** revisado en la captura.
+- **Lo que encontró, ya corregido:**
+  - **En el celular la celda «Kepler propone» salía en cuatro columnas de una palabra.** La tabla apilada (`.dt-stack`)
+    hace flex la celda, y cada línea era un hijo. Ahora las celdas de varias líneas van en un solo hijo
+    (`.cc-celda`). Se mide que las líneas queden apiladas: misma orilla y cada una más abajo. Control: al quitar el
+    envoltorio en la página, la medición da «no apilado».
+  - **Guardar desde «Sin regla» abría el detalle encima de la lista:** un clic más por cada propuesta. Ya no se
+    abre ahí. El aviso dice dónde quedó la regla: «Regla creada: … en Yurécuaro, cada 14 días.»
+  - «(la última, vie 13 nov) .» traía un espacio de más antes del punto.
+- **Lo que no es de esta pieza (declarado):**
+  - La X de cerrar los diálogos de PrimeNG mide 36 px con el dedo en todos los diálogos (ya estaba en PQ.3.5/3.6).
+    Arreglarla es de la hoja global. «Cancelar» sí mide 44 px.
+  - La campana de avisos pide `finance/goods-receipts/devueltas`, y la API local da 404 («Cannot GET»).
