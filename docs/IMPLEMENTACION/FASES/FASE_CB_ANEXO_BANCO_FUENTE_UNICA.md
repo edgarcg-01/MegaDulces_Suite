@@ -270,13 +270,14 @@ Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo 
 
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| BFU.7.1 | C0 · Mapeo cuenta de Kepler → categoría (`finance.category_kepler_accounts`, prefijo más largo; 15 categorías nuevas con el nombre del mayor en `kdc126`) | 🧪 | Libro ago–oct: 93.6 % de 3,994; placebo 36.4 % |
-| BFU.7.2 | C0 · La evidencia de cada retiro: pareo → `kdxf` → documento, o Calendario → `kepler_payable` → documento; compra = 511, gasto = renglones `kdm6` con cuenta y departamento | 🧪 | Noviembre entero en 362 ms |
-| BFU.7.3 | C1 · El motor puro y los motivos (`motor-de-categoria.ts`) | 🧪 | 13 pruebas, una por fuente y por motivo; mutantes |
-| BFU.7.4 | C1 · El motor en la conciliación, dueño de la categoría de la descarga, escribe sólo lo que cambió | 🧪 | Bloque [15] contra base real; antes/después de noviembre en prod |
+| BFU.7.1 | C0 · Mapeo cuenta de Kepler → categoría (`finance.category_kepler_accounts`, prefijo más largo; 15 categorías nuevas con el nombre del mayor en `kdc126`) | ✅ | Libro ago–oct: 93.6 % de 3,994; placebo 36.4 % |
+| BFU.7.2 | C0 · La evidencia de cada retiro: pareo → `kdxf` → documento, o Calendario → `kepler_payable` → documento; compra = 511, gasto = renglones `kdm6` con cuenta y departamento | ✅ | Noviembre entero en 362 ms |
+| BFU.7.3 | C1 · El motor puro y los motivos (`motor-de-categoria.ts`) | ✅ | 13 pruebas, una por fuente y por motivo; mutantes |
+| BFU.7.4 | C1 · El motor en la conciliación, dueño de la categoría de la descarga, escribe sólo lo que cambió | ✅ | Bloque [15] contra base real; antes/después de noviembre en prod |
 | BFU.7.5 | C1 · Pareo pendiente (Kepler lo tiene y la conciliación no lo casa) y pago en otra cuenta | ⬜ | 10 cheques de nómina de noviembre |
 | BFU.7.6 | C2 · La cobertura en `diagnostico`: con categoría + por motivo y responsable = total | ⬜ | Suma igual al total del mes |
 | BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
+| BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | 🧪 | Su IVA del 16 % el mismo día, al centavo |
 
 ## 9. Riesgos y bloqueos
 
@@ -339,3 +340,4 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-20 | Hallazgo tras E3: 18 depósitos repetidos (BBVA completó la referencia entre descargas) y el saldo inicial de BBVA 5712 mal derivado → BFU.3.4 (código + migración ensayada con ROLLBACK). Edgar autorizó corregir los datos | Edgar / Claude |
 | 2026-11-20 | «¿Por qué no podemos clasificar estos 265?»: todos retiros; 145 ya casados con Kepler sin categoría (el motor no la escribía), 40 del Calendario, 65 sin documento. BFU.2.10 en código; BFU.2.11, 2.12 y 4.5 (cada área reconoce sus movimientos) planeados. Edgar: «hagámoslo» | Edgar / Claude |
 | 2026-11-20 | «No necesito parches, necesito un motor que cubra el 100 %»: E7. La cuenta contable de Kepler (pareo o Calendario → documento → `kdm6`) da la categoría (93.6 % contra el libro, placebo 36.4 %) y el departamento; lo que no, un motivo con responsable. BFU.7.1–7.4 en código; BFU.2.11 y 2.12 sustituidos | Edgar / Claude |
+| 2026-11-20 | El motor (BFU.7.1–7.4) en prod y medido: en noviembre, sin categoría 143 → 78, todos con motivo y responsable; 1,639 renglones con la categoría de su documento de Kepler. BFU.7.8: las comisiones abreviadas de BBVA, con su IVA como testigo | Claude |

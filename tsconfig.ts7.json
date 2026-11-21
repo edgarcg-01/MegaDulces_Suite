@@ -39,6 +39,7 @@
       "@megadulces/contracts/authz/divergencia": ["./libs/contracts/src/authz/divergencia.ts"],
       "@megadulces/contracts/authz/scope-areas": ["./libs/contracts/src/authz/scope-areas.ts"],
       "@megadulces/contracts/http/cierre-viaje": ["./libs/contracts/src/http/cierre-viaje.contract.ts"],
+      "@megadulces/contracts/http/warehouse-order": ["./libs/contracts/src/http/warehouse-order.contract.ts"],
 
       "@megadulces/contracts/http/service-desk": ["./libs/contracts/src/http/service-desk.contract.ts"],
 
