@@ -171,6 +171,61 @@ export function unidadesDesdePresentaciones(
   };
 }
 
+// ───── [P2.9 paso 4] FEFO en la unidad BASE del producto (D4) ─────
+
+/**
+ * Por qué un renglón NO fechó en FEFO, o no fechó todo. Lo escribe el servidor al alimentar
+ * (`commercial.expiry_review_lines.fefo_motivo`, CHECK de la migración 20261120172724) y la pantalla lo
+ * dice tal cual. Antes la pantalla lo INFERÍA, y con la conversión la inferencia mentiría: diría «no hay
+ * existencia sin fecha» cuando lo que falta es el factor de Kepler.
+ *
+ * `sin_clave_kepler` (AUD-DAT.32): el renglón apunta a un producto del catálogo SIN `sku` de Kepler (las
+ * altas de mayo para las promotoras). No es el producto del inventario: nunca puede fechar, tenga o no
+ * existencia, y decir «no hay existencia sin fecha» sería falso.
+ *
+ * ⛔ Agregar un motivo aquí sin ampliar el CHECK hace que la base rechace el guardado (500).
+ */
+export const FEFO_MOTIVOS = [
+  'sin_producto', 'sin_clave_kepler', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
+  'sin_presentaciones', 'sin_lectura', 'unidad_fuera_del_producto', 'unidad_sin_factor',
+  'sin_existencia_sin_fecha', 'existencia_sin_fecha_insuficiente',
+] as const;
+export type FefoMotivo = (typeof FEFO_MOTIVOS)[number];
+
+export function esFefoMotivo(v: unknown): v is FefoMotivo {
+  return typeof v === 'string' && (FEFO_MOTIVOS as readonly string[]).includes(v);
+}
+
+/** El factor con que una captura entra a FEFO, o por qué no entra. */
+export type FactorDeCaptura =
+  | { factor: number; motivo: null }
+  | { factor: null; motivo: Extract<FefoMotivo, 'sin_unidad' | 'sin_presentaciones' | 'sin_lectura' | 'unidad_fuera_del_producto' | 'unidad_sin_factor'> };
+
+/**
+ * D4 — cuántas unidades **base** de Kepler vale UNA unidad capturada. La existencia, y con ella los lotes
+ * de FEFO, cuenta en la base: medido el 2026-11-20 (prod, sólo lectura), el costo unitario que Kepler
+ * guarda con la existencia es el de la base en 45 de 46 productos (0.54–0.90 de su precio, lejos del de la caja).
+ *
+ *  · La base vale 1. Una presentación con factor vale su factor (caja de 24 sobre base paquete → 24).
+ *  · **Sin factor no se inventa uno**: la escalera de Kepler llega sin factor (1,226 en la plaza 01).
+ *  · Una unidad que el producto NO tiene en Kepler no se convierte: 6 piezas de un producto que sólo se
+ *    maneja en paquete no son 6 paquetes (hasta el paso 4 así se fechaban: 66 renglones en prod).
+ *  · Sin lista del producto, el motivo dice por qué no la hubo (`sinLista`).
+ */
+export function factorDeCaptura(
+  unidades: ReadonlyArray<CaducidadUnidadProducto> | null,
+  unidad: string | null | undefined,
+  sinLista: 'sin_presentaciones' | 'sin_lectura' = 'sin_presentaciones',
+): FactorDeCaptura {
+  if (!unidad) return { factor: null, motivo: 'sin_unidad' };
+  if (!unidades?.length) return { factor: null, motivo: sinLista };
+  const u = unidades.find((x) => x.codigo === unidad);
+  if (!u) return { factor: null, motivo: 'unidad_fuera_del_producto' };
+  if (u.base) return { factor: 1, motivo: null };
+  if (u.factor == null || !Number.isFinite(u.factor) || u.factor <= 0) return { factor: null, motivo: 'unidad_sin_factor' };
+  return { factor: u.factor, motivo: null };
+}
+
 /**
  * Qué botones ofrece el selector. Sin lista del producto (no se supo) → las 7. Con lista → sólo las
  * del producto, más las que ya están en juego (`extra`: la que sugirió el código escaneado, la del

@@ -512,7 +512,9 @@ const ORIGENES = ORIGENES_COTIZACION;
                 (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
                 (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
                 (keydown.enter)="$event.preventDefault(); elegirResaltado()"
-                [placeholder]="sucursal() ? 'Escanea el código de barras o escribe SKU / nombre · ↓ muestra los más vendidos · Enter elige' : 'Primero elige la sucursal'"
+                [placeholder]="!sucursal() ? 'Primero elige la sucursal' : tactil ? 'Código de barras, SKU o nombre' : 'Escanea el código de barras o escribe SKU / nombre · ↓ muestra los más vendidos · Enter elige'"
+                enterkeyhint="search"
+                autocomplete="off"
                 autocorrect="off"
                 spellcheck="false"
                 [disabled]="guardando() || !sucursal()"
@@ -1026,6 +1028,9 @@ const ORIGENES = ORIGENES_COTIZACION;
       /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7: el atajo que nadie sabe no existe). */
       .atajos { margin: 0.4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
       .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
+      /* [COT.49] En el celular no hay Alt, Ctrl ni flechas: los atajos eran tres renglones de ruido
+         entre el buscador y la lista. Con teclado y mouse siguen a la vista. */
+      @media (hover: none) and (pointer: coarse) { .atajos { display: none; } }
       /* [COT.32] El aviso de la cotización que se cortó. */
       .borrador-aviso { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2, 0.5rem); margin-bottom: var(--sp-3, 0.75rem); padding: 0.5rem 0.75rem; border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); background: var(--surface-card); }
       .borrador-aviso .pi-history { color: var(--action); }
@@ -1196,6 +1201,28 @@ const ORIGENES = ORIGENES_COTIZACION;
         font-size: var(--fs-sm); color: var(--text-muted); background: var(--card-bg);
         border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem;
         box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      }
+      /* [COT.49] Un nombre largo se parte en su columna en vez de salirse y encimarse con el SKU
+         (en el celular, «MAZAPAN» se montaba sobre «70056» y el precio se cortaba). */
+      .cat-nom { overflow-wrap: anywhere; }
+      .captura-manual-card { scroll-margin-top: var(--sp-2, 0.5rem); }
+      /* [COT.49] Angosto: el buscador toma todo el ancho de la tarjeta (el título sube a su propio
+         renglón) y cada artículo se lee en dos líneas, el nombre completo arriba y SKU · unidad ·
+         existencia abajo, con el precio a la derecha. El EAN no cabe y no decide: sigue a la vista
+         al elegir el artículo. */
+      @container cot (max-width: 38rem) {
+        .card-head-search { flex-wrap: wrap; row-gap: 0.4rem; }
+        .card-head-search .search-step { flex: 1 1 100%; }
+        .cat-row {
+          display: grid; grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas: 'nom precio' 'meta precio';
+          align-items: start; gap: 0.2rem 0.75rem; min-height: 44px;
+        }
+        .cat-col-nom { grid-area: nom; }
+        .cat-col-meta { grid-area: meta; flex-wrap: wrap; row-gap: 0.15rem; }
+        .cat-col-precio { grid-area: precio; }
+        .cat-bc { display: none; }
+        .search-hint { flex-wrap: wrap; }
       }
       /* [BU.6.1] «¿Quisiste decir…?»: la palabra es un enlace en el color del texto (el --action sobre
          blanco no da el contraste de texto chico), subrayada y con foco visible. */
@@ -1675,6 +1702,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
   /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
   private buscadorEnFoco = false;
+  /**
+   * [COT.49] Pantalla de dedo (celular, tableta): el buscador dice lo justo y, al tocarlo, sube
+   * arriba de la vista para que la lista quepa entre él y el teclado.
+   */
+  readonly tactil = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   /** El campo de cantidad de la franja: recibe el cursor al elegir artículo (dictado sin mouse). */
   private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
   /** Renglón resaltado de la lista de artículos (↑/↓ + Enter). */
@@ -2134,6 +2166,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** Entrar al campo NO abre la lista (E.29): se abre al teclear o con ↓. */
   onFocoArticulo(): void {
     this.buscadorEnFoco = true;
+    // [COT.49] En el celular el teclado se come media pantalla y la barra de abajo otro poco: con
+    // el buscador a media altura, la lista cabía en dos renglones y medio. Arriba, cabe entera.
+    // Sin animación: el salto es uno y no compite con el desplazamiento propio del teclado.
+    if (this.tactil) {
+      this.buscadorArticulo()?.nativeElement.closest('.captura-manual-card')?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }
   }
 
   /** Salir del buscador (clic afuera, Tab) cierra la lista; moverse a una opción de la lista, no. */

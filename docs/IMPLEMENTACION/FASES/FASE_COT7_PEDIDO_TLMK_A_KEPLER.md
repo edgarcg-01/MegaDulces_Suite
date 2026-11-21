@@ -328,6 +328,31 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-21** — 🧪 **[COT.49] La lista de artículos en el celular** (Francisco, con una captura de iPhone: «así fue la
+  experiencia»). Al buscar «Mazapan» en el alta, el nombre se encimaba con el SKU («MAZAPAN» sobre «70056»), el precio salía
+  cortado por la derecha, la lista medía 241 px de 390 y, entre el teclado y la barra de abajo, cabían dos renglones y medio;
+  arriba, tres renglones de atajos de teclado (Alt, Ctrl, flechas) que en el celular no existen. **Causa:** en cada renglón,
+  SKU · unidad · existencia (`flex: 0 0 auto`) y el precio (5.5rem) no ceden ancho; el nombre se quedaba con ~70 px y una
+  palabra larga se salía de su columna. **Uso medido** (prod, sólo lectura, 30 días, `uso-movil.js`): el alta se abrió 16
+  persona-días en celular (8 personas: telemarketing, vendedor de ruta, encargado de tienda) contra 112 en computadora.
+  **Las cinco preguntas:** (1) al teclear se ve la lista: nombre completo primero, precio a la derecha, debajo SKU · unidad
+  · existencia; (2) en táctil salen los atajos de teclado y el EAN de la lista (no decide y sigue a la vista al elegir el
+  artículo) y el placeholder largo pasa a «Código de barras, SKU o nombre»; (3) la lista a 0 toques al teclear, renglones de
+  53–70 px (≥44 al dedo), el teclado dice «Buscar» (`enterkeyhint`) y al tocar el buscador éste sube arriba de la vista para
+  que la lista quepa; (4) sin cambio de ligas: mismo catálogo y misma elección; (5) le toca a esta pantalla y a su gemela,
+  el borrador (`/cotizaciones/:id`), que tenía la misma lista y recibe el mismo arreglo. **Medido** con un banco que monta el
+  CSS real de los dos componentes con renglones de muestra, antes (HEAD) y ahora, a 390, 750 y 1440 px: antes a 390 px los 3
+  renglones encimados (911–1,210 px² de cruce) y con el precio cortado — reproduce la captura —; ahora 0 encimados, 0
+  cortados, lista de 335 px, nombre en 1–2 líneas. A 750 y 1440 px el resultado es idéntico al de antes. Pruebas: 2 nuevas
+  (en táctil la tarjeta sube; con mouse no se mueve nada), con prueba negativa (sin el salto, la primera se pone roja);
+  147/147 de televenta; `nx build view` limpio; `check:pantalla -- televenta` sin fallas nuevas en las dos pantallas (las 4
+  nuevas del módulo son de `quote-lines-table`, `quote-tracking` y `ultimo-agregado`, que este item no toca);
+  `check:templates` y `check:estilos` en verde. **Sin validación en iPhone real:** el banco no es la app y no simula el
+  teclado del iPhone; el salto del buscador con el teclado abierto se verifica en un celular después de soltar.
+  **Pendiente, no es de este item:** la barra de abajo de la suite sigue a la vista con el teclado abierto en todas las
+  pantallas (esconderla mientras se escribe es un cambio del marco, para todas) y la lista vive duplicada en el alta y el
+  borrador (dos copias del mismo CSS; un componente compartido la volvería una).
+
 - **2026-11-19** — 🧪 **[COT.48] Lo último arriba, y el encabezado fijo que COT.47 no logró** (Edgar, probando en prod:
   «tengo que usar el cursor para estar viendo los productos agregados, haciendo scroll… quita tiempo y es confuso no ver lo
   que estoy agregando»). COT.46 confirmaba lo agregado debajo del buscador, pero el renglón seguía cayendo al FINAL de la

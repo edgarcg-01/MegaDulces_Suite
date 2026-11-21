@@ -1,6 +1,7 @@
 import {
   ETIQUETA_MOTIVO_NO_SE_PIDE, fechasDeLaRegla, sumarDias, diaIso,
-  type AlcanceDeQuienVe, type EstadoDeRegla, type FuenteActividad, type MarcaVista, type PatronDeRegla, type PropuestaSinRegla, type ReglaCalendario,
+  type AlcanceDeQuienVe, type EstadoDeRegla, type FuenteActividad, type MarcaVista, type PatronDeRegla, type PropuestaDiaFijo, type PropuestaSinRegla,
+  type ReglaCalendario,
 } from '@megadulces/contracts';
 
 /**
@@ -10,6 +11,8 @@ import {
  */
 
 const DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+/** Plural de cada día (sábado y domingo cambian; los demás no). */
+const DIAS_PLURAL = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'];
 const DIAS_CORTOS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -174,6 +177,30 @@ export function propuestaEnPalabras(p: Pick<PropuestaSinRegla, 'proposal_status'
     case 'pocas_compras': return 'Pocas rondas: define el ciclo a mano';
     default: return 'Una sola compra en el año';
   }
+}
+
+/** `[PQ.3.14]` Cuándo pasa el proveedor en esa sucursal: «cada jueves», «un viernes sí y otro no», «cada 3 semanas, en lunes». */
+export function diaFijoEnPalabras(d: Pick<PropuestaDiaFijo, 'weekday' | 'every_days'>): string {
+  const dia = DIAS[d.weekday - 1];
+  if (d.every_days === 7) return `cada ${dia}`;
+  if (d.every_days === 14) return `un ${dia} sí y otro no`;
+  return `cada ${d.every_days / 7} semanas, en ${dia}`;
+}
+
+/**
+ * `[PQ.3.14]` La evidencia del día fijo, lo reciente primero: «5 de 6 en las últimas 13 semanas». Si vino MÁS de lo
+ * que el periodo pide, no se dice «9 de 6»: se dice cuántas veces vino.
+ */
+export function diaFijoReciente(d: Pick<PropuestaDiaFijo, 'weekday' | 'recientes'>): string {
+  const { en_el_dia: n, esperadas } = d.recientes;
+  const dias = n === 1 ? DIAS[d.weekday - 1] : DIAS_PLURAL[d.weekday - 1];
+  return n > esperadas ? `${n} ${dias} en las últimas 13 semanas` : `${n} de ${esperadas} ${DIAS_PLURAL[d.weekday - 1]} en las últimas 13 semanas`;
+}
+
+/** `[PQ.3.14]` La evidencia completa, para el formulario: de dónde sale la propuesta, en una frase. */
+export function diaFijoEvidencia(d: PropuestaDiaFijo, sucursal: string): string {
+  return `Kepler: en ${sucursal}, ${d.en_el_dia} de los ${d.dias} días con orden o entrada de los últimos 12 meses cayeron en `
+    + `${DIAS[d.weekday - 1]}; ${diaFijoReciente(d)}.`;
 }
 
 /** «la ficha en la Suite está borrada» / «sin ficha en la Suite» (R4). `null` = ficha viva. */

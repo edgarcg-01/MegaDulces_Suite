@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
-import type { Freshness, ExpenseFamilia, DefinicionVista, CaducidadUnidad, CaducidadUnidadesProducto } from '@megadulces/contracts';
+import type { Freshness, ExpenseFamilia, DefinicionVista, CaducidadUnidad, CaducidadUnidadesProducto, FefoMotivo } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { ViajesTlmkResponse } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
@@ -688,8 +688,15 @@ export interface ExpiryReviewLine {
   location?: string | null;
   files?: ReviewFile[];
   fed_to_fefo?: boolean;
+  /** Lo fechado en FEFO, en la unidad CAPTURADA (se compara contra `quantity`). */
   fefo_qty?: number | string;
-  /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
+  /** `[P2.9 paso 4]` Lo fechado en la unidad BASE del producto. `null` = renglón anterior al paso 4. */
+  fefo_base_qty?: number | string | null;
+  /** `[P2.9 paso 4]` Unidades base por unidad capturada que se usó (la base = 1). */
+  fefo_factor?: number | string | null;
+  /** `[P2.9 paso 4]` Por qué no fechó, o no fechó todo (lo dice el servidor). `null` = fechó todo o es anterior. */
+  fefo_motivo?: FefoMotivo | null;
+  /** Unidad en que se contó el renglón: una de las 7 de `caducidad-unidad`. */
   unit?: CaducidadUnidad | null;
 }
 

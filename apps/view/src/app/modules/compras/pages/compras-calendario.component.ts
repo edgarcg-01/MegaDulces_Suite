@@ -15,8 +15,8 @@ import {
   ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, proximasRevisiones, sumarDias, validarFueraDeCiclo,
   validarMarca, validarRegla, warehouseName,
   type AlcanceRevision, type CalendarioCompras, type CorrimientoFinDeSemana, type FueraDeCicloDto, type GuardarReglaDto,
-  type MarcarRevisionDto, type MotivoNoSePide, type PatronDeRegla, type PatronRevision, type PropuestaSinRegla,
-  type PropuestasCalendario, type ReglaCalendario, type ResultadoRevision,
+  type MarcarRevisionDto, type MotivoNoSePide, type PatronDeRegla, type PatronRevision, type PropuestaDiaFijo, type PropuestaSinRegla,
+  type PropuestasCalendario, type ReglaCalendario, type ResultadoRevision, patronDelDiaFijo,
 } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -29,8 +29,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import {
-  alcanceEnPalabras, atencionEnPalabras, corrimientoEnPalabras, diaCorto, estadoEnPalabras, fechasEnRango, fichaEnPalabras,
-  paraQuienVe, patronEnPalabras, propuestaEnPalabras, proximasDeLaRegla, relativo, type EstadoVisible, type FechaEnCalendario,
+  alcanceEnPalabras, atencionEnPalabras, corrimientoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente,
+  estadoEnPalabras, fechasEnRango, fichaEnPalabras, paraQuienVe, patronEnPalabras, propuestaEnPalabras, proximasDeLaRegla, relativo, type EstadoVisible, type FechaEnCalendario,
 } from '../calendario-compras-reglas';
 
 type Vista = 'revisar' | 'semana' | 'mes' | 'reglas' | 'sin_regla';
@@ -228,7 +228,7 @@ interface ProveedorDelFormulario {
         </app-load-state>
       } @else {
         <!-- ===== Sin regla: lo que propone Kepler (vista PQ.3.1) ===== -->
-        <app-load-state class="dt-scope" [loading]="cargandoProp()" [error]="errorProp()" [isEmpty]="!!prop() && !prop()!.sin_regla.length"
+        <app-load-state class="dt-scope" [loading]="cargandoProp()" [error]="errorProp()" [isEmpty]="!!prop() && !prop()!.sin_regla.length && !prop()!.dia_fijo_pendiente.length"
                         [skeletonRows]="8" emptyIcon="pi-check-circle" emptyTitle="Todos los proveedores con compra tienen regla"
                         emptyHint="Un proveedor nuevo aparece aquí con su primera orden de compra en Kepler." (retry)="cargarPropuestas()">
           <p class="cc-nota">
@@ -236,6 +236,18 @@ interface ProveedorDelFormulario {
             sus rondas de órdenes: es una propuesta, no un ciclo confirmado.
             @if (prop(); as p) { {{ p.con_regla }} proveedores con compra ya tienen al menos una regla. }
           </p>
+          <!-- [PQ.3.14] El día fijo por sucursal: de dónde sale, y si no se pudo medir, se DICE (no es «no hay»). -->
+          @if (prop(); as p) {
+            @if (!p.dia_fijo.measured) {
+              <p class="cc-advertencia" role="status">{{ p.dia_fijo.note }} Las propuestas por ciclo sí están.</p>
+            } @else if (diasFijosTotal(); as n) {
+              <p class="cc-nota">
+                {{ n }} {{ n === 1 ? 'sucursal tiene' : 'sucursales tienen' }} día fijo: el proveedor pasa, se le pide y entrega el mismo
+                día de la semana (órdenes y entradas de Kepler de 12 meses; el CEDIS no, ahí es día de recepción). Su regla ya viene armada:
+                ábrela desde su renglón.
+              </p>
+            }
+          }
           <p-table [value]="$any(sinRegla())" dataKey="supplier_code" class="cc-table dt-stack surf-table surf-table--plain surf-table--sticky"
                    size="small" [rowHover]="true" [paginator]="sinRegla().length > porPagina" [rows]="porPagina" [tableStyle]="{ 'min-width': '40rem' }">
             <ng-template #header>
@@ -250,11 +262,29 @@ interface ProveedorDelFormulario {
             </ng-template>
             <ng-template #body let-p>
               <tr>
+                <!-- [PQ.3.14] Las celdas de varias líneas van en UN hijo (.cc-celda): en el celular la tabla apilada hace
+                     flex la celda, y sin él el ciclo, cada sucursal y su evidencia salían como columnas de una palabra. -->
                 <td role="cell" data-label="Proveedor">
-                  <span class="cc-pri">{{ p.supplier_name ?? 'Proveedor ' + p.supplier_code }}</span>
-                  <span class="cc-sub">clave {{ p.supplier_code }}@if (ficha(p); as fi) { · {{ fi }} }</span>
+                  <div class="cc-celda">
+                    <span class="cc-pri">{{ p.supplier_name ?? 'Proveedor ' + p.supplier_code }}</span>
+                    <span class="cc-sub">clave {{ p.supplier_code }}@if (ficha(p); as fi) { · {{ fi }} }</span>
+                    @if (p.reglas_vivas) {
+                      <span class="cc-sub">ya tiene {{ p.reglas_vivas }} {{ p.reglas_vivas === 1 ? 'regla' : 'reglas' }}; falta la de su sucursal con día fijo</span>
+                    }
+                  </div>
                 </td>
-                <td role="cell" data-label="Kepler propone">{{ propuesta(p) }}</td>
+                <td role="cell" data-label="Kepler propone">
+                  <div class="cc-celda">
+                    {{ propuesta(p) }}
+                    @for (d of p.dias_fijos; track d.branch_code) {
+                      <button type="button" class="cc-link cc-diafijo" (click)="abrirReglaDeDiaFijo(p, d)"
+                              [attr.aria-label]="'Definir la regla de ' + sucursales([d.branch_code]) + ': ' + diaFijo(d)">
+                        {{ sucursales([d.branch_code]) }}: {{ diaFijo(d) }}
+                      </button>
+                      <span class="cc-sub">{{ diaFijoReciente(d) }}</span>
+                    }
+                  </div>
+                </td>
                 <td role="cell" data-label="Rondas en 12 meses" class="comm-num">{{ p.rounds_12m }}</td>
                 <td role="cell" data-label="Última orden">
                   {{ dia(p.last_order_date) }}
@@ -363,6 +393,7 @@ interface ProveedorDelFormulario {
                 [header]="tituloRegla()" [style]="{ width: '38rem' }" appendTo="body">
         <div class="cc-form">
           <p class="cc-pri">{{ rProv?.name ?? 'Proveedor ' + rProv?.code }} <span class="cc-sub cc-inline">clave {{ rProv?.code }}</span></p>
+          @if (rEvidencia) { <p class="cc-sub">{{ rEvidencia }}</p> }
 
           <span class="cc-label">¿Dónde se revisa?</span>
           <app-segmented [options]="opcionesAlcance" [value]="rScope" (valueChange)="cambiarAlcance($event)" ariaLabel="Dónde se revisa" />
@@ -399,7 +430,7 @@ interface ProveedorDelFormulario {
             <label class="cc-label" for="cc-n">Cada cuántos días</label>
             <p-inputnumber [(ngModel)]="rCadaN" inputId="cc-n" [min]="1" [max]="365" [useGrouping]="false" suffix=" días" />
             <p class="cc-sub">
-              Cuenta desde la última orden o entrada de Kepler@if (rProv?.ancla) { (la última, {{ dia(rProv?.ancla) }}) }.
+              Cuenta desde la última orden o entrada de Kepler@if (rProv?.ancla) { (la última, {{ dia(rProv?.ancla) }})}.
             </p>
           }
 
@@ -592,7 +623,10 @@ export class ComprasCalendarioComponent implements OnInit {
   });
   readonly sinRegla = computed<PropuestaSinRegla[]>(() => {
     const q = this.busqueda();
-    return (this.prop()?.sin_regla ?? []).filter((p) =>
+    // `[PQ.3.14]` También los que YA tienen alguna regla y aún tienen día fijo en una sucursal sin la suya: definir
+    // primero la corporativa no borra la propuesta de la sucursal. No cuentan en la cifra «Sin regla».
+    const p0 = this.prop();
+    return [...(p0?.sin_regla ?? []), ...(p0?.dia_fijo_pendiente ?? [])].filter((p) =>
       coincideBusqueda(q, p.supplier_name, p.supplier_code, ...p.branches_12m.map((c) => warehouseName(c))));
   });
 
@@ -717,6 +751,13 @@ export class ComprasCalendarioComponent implements OnInit {
   rel(f: string): string { const h = this.cal()?.hoy ?? this.prop()?.hoy; return h ? relativo(f, h) : ''; }
   motivo(m: MotivoNoSePide): string { return ETIQUETA_MOTIVO_NO_SE_PIDE[m]; }
   propuesta(p: PropuestaSinRegla): string { return propuestaEnPalabras(p); }
+  diaFijo(d: PropuestaDiaFijo): string { return diaFijoEnPalabras(d); }
+  diaFijoReciente(d: PropuestaDiaFijo): string { return diaFijoReciente(d); }
+  /** `[PQ.3.14]` Cuántas sucursales traen su regla de día fijo armada (las de «Sin regla» y las pendientes). */
+  readonly diasFijosTotal = computed(() => {
+    const p = this.prop();
+    return p ? [...p.sin_regla, ...p.dia_fijo_pendiente].reduce((n, x) => n + x.dias_fijos.length, 0) : 0;
+  });
   ficha(p: PropuestaSinRegla): string | null { return fichaEnPalabras(p); }
   sucursales(codes: readonly string[]): string { return codes.map((c) => warehouseName(c)).join(', '); }
   proximas(r: ReglaCalendario): FechaEnCalendario[] {
@@ -750,6 +791,8 @@ export class ComprasCalendarioComponent implements OnInit {
   rCadaN: number | null = null;
   rCorre: CorrimientoFinDeSemana = 'friday';
   rNota = '';
+  /** `[PQ.3.14]` De dónde sale la regla propuesta (día fijo), en una frase; null si no viene de una propuesta. */
+  rEvidencia: string | null = null;
 
   readonly diasSemana = DIAS_SEMANA;
   readonly diasSemanaLargo = DIAS_SEMANA_LARGO;
@@ -783,6 +826,22 @@ export class ComprasCalendarioComponent implements OnInit {
       this.rPatron = 'every_n_days';
       this.rCadaN = p.cycle_days_proposed;
     }
+    this.dlgRegla.set(true);
+  }
+
+  /**
+   * `[PQ.3.14]` El formulario ya lleno con la regla de sucursal que propone el día fijo: sucursal, patrón y, en «cada
+   * N días», la fecha base de ESA sucursal (su última orden o entrada), no la de la empresa.
+   */
+  abrirReglaDeDiaFijo(p: PropuestaSinRegla, d: PropuestaDiaFijo): void {
+    this.prepararRegla({ code: p.supplier_code, name: p.supplier_name, ancla: d.ultima }, null);
+    const patron = patronDelDiaFijo(d);
+    this.rScope = 'branch';
+    this.rSucursal = d.branch_code;
+    this.rPatron = patron.pattern;
+    for (const w of patron.weekdays ?? []) this.rSemana[w - 1] = true;
+    this.rCadaN = patron.every_n_days;
+    this.rEvidencia = diaFijoEvidencia(d, warehouseName(d.branch_code));
     this.dlgRegla.set(true);
   }
 
@@ -822,6 +881,7 @@ export class ComprasCalendarioComponent implements OnInit {
     this.rCadaN = null;
     this.rCorre = 'friday';
     this.rNota = '';
+    this.rEvidencia = null;
   }
 
   cambiarAlcance(v: string): void {
@@ -899,6 +959,13 @@ export class ComprasCalendarioComponent implements OnInit {
     return this.rSucursal ? `Encargado de ${warehouseName(this.rSucursal)}` : 'Encargado de la sucursal';
   }
 
+  /** Dónde aplica lo que se guarda, para el aviso: «todas las sucursales» · «zona Zamora» · «Yurécuaro». */
+  private alcanceDelFormulario(): string {
+    if (this.rScope === 'corporate') return 'todas las sucursales';
+    if (this.rScope === 'zone') return `zona ${this.cal()?.zonas.find((x) => x.code === this.rZona)?.nombre ?? this.rZona}`;
+    return this.rSucursal ? warehouseName(this.rSucursal) : 'la sucursal';
+  }
+
   /** Dice qué va a pasar ANTES de guardar: reemplazar otra regla, o crear una nueva al cambiar de alcance. */
   avisoReemplazo(): string | null {
     const viva = this.reglaDelAlcance();
@@ -921,8 +988,10 @@ export class ComprasCalendarioComponent implements OnInit {
       next: (r) => {
         this.ocupado.set(false);
         this.dlgRegla.set(false);
-        this.aviso.set(`${r.accion === 'creada' ? 'Regla creada' : 'Regla actualizada'}: ${this.rProv?.name ?? dto.supplier_code}, ${patronEnPalabras(this.patronDelFormulario()).toLowerCase()}.`);
-        this.abiertaId.set(r.id);
+        this.aviso.set(`${r.accion === 'creada' ? 'Regla creada' : 'Regla actualizada'}: ${this.rProv?.name ?? dto.supplier_code} en ${this.alcanceDelFormulario()}, ${patronEnPalabras(this.patronDelFormulario()).toLowerCase()}.`);
+        // `[PQ.3.14]` En «Sin regla» se aceptan propuestas una tras otra: el detalle NO se abre encima de la lista (la
+        // prueba visual: cada propuesta costaba un clic más para cerrarlo). Lo guardado sale del renglón y el aviso dice dónde quedó.
+        if (this.vista() !== 'sin_regla') this.abiertaId.set(r.id);
         this.cargar();
         this.cargarPropuestas();
       },
