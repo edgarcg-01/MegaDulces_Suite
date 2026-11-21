@@ -30,6 +30,7 @@ import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
+import type { PagoParaCheque } from '@megadulces/contracts';
 import { leerCorteSueltas } from './corte-suelta.sql';
 import { EVENTO_LIBERADO, decidirVencido, notaLiberado, type MotivoConservar, type ResultadoPagosVencidos } from '@megadulces/contracts';
 import {
@@ -1263,6 +1264,39 @@ export class PaymentCalendarService {
     this.assertDate(date);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => (await this.armarDias(trx, tenantId, [date]))?.armadas ?? []);
+  }
+
+  /**
+   * `[PGP.165]` **Un pago con lo que su cheque necesita**: el día del Calendario (la fecha del cheque), el banco de su
+   * cuenta (el papel) y el pago ARMADO como lo ve la pantalla — el mismo beneficiario y las mismas facturas, no una
+   * segunda lectura que pudiera decir otra cosa. Null si no existe, es de otro tenant o está cancelado. Sólo lectura.
+   */
+  async pagoParaCheque(allocationId: string): Promise<(PagoParaCheque & { dia: string }) | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(allocationId ?? ''))) return null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = (await trx('finance.payment_allocations as a')
+        .join('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
+        .leftJoin('finance.bank_accounts as ba', 'ba.id', 'a.bank_account_id')
+        .where({ 'a.id': allocationId, 'a.tenant_id': tenantId })
+        .whereNot('a.status', 'cancelled')
+        .first(trx.raw("to_char(l.lot_date, 'YYYY-MM-DD') AS dia"), 'ba.bank AS banco', 'a.payment_method', 'a.reference_text',
+          // El importe como TEXTO del numeric: los centavos se leen exactos, sin pasar por un flotante.
+          trx.raw('a.amount_assigned::text AS amount_assigned'))) as
+        { dia: string; banco: string | null; payment_method: string | null; reference_text: string | null; amount_assigned: string } | undefined;
+      if (!r) return null;
+      // El beneficiario y las facturas, del pago ARMADO: lo que la pantalla muestra es lo que se imprime.
+      const pago = (await this.armarDias(trx, tenantId, [r.dia]))?.armadas.find((x) => x.id === allocationId);
+      if (!pago) return null;
+      return {
+        dia: r.dia,
+        banco: r.banco ?? null,
+        payment_method: r.payment_method ?? null,
+        reference_text: r.reference_text ?? null,
+        amount_assigned: r.amount_assigned,
+        items: (pago.items ?? []).map((it) => ({ applied_amount: it.applied_amount, beneficiary: (it.beneficiary ?? null) as string | null })),
+      };
+    });
   }
 
   /** `[PGP.151]` Los pagos de varios días, repartidos por día (para la semana). */

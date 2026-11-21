@@ -436,6 +436,44 @@ export class PaymentCalendarController {
   }
 
   /**
+   * `[PGP.165]` **El cheque del pago**, en PDF del tamaño del cheque (BanBajío). `?prueba=1`: la hoja de prueba en
+   * carta con los datos de este pago. `?dx=&dy=`: corrimiento de la impresora en mm (±15). Lo pide quien prepara los
+   * pagos (Tesorería): no escribe nada, y el importe y la fecha los pone el servidor.
+   */
+  @Get('allocations/:id/cheque.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.165 — el cheque del pago en PDF del tamaño del cheque (?prueba=1: hoja de prueba en carta; ?dx=&dy=: corrimiento en mm). 409 con el motivo si el pago no puede salir en cheque.' })
+  async chequePdf(
+    @Param('id') id: string,
+    @Query('prueba') prueba: string | undefined,
+    @Query('dx') dx: string | undefined,
+    @Query('dy') dy: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const esPrueba = prueba === '1' || prueba === 'true';
+    const { pdf, folio } = await this.docs.renderCheque(id, { prueba: esPrueba, dx: Number(dx), dy: Number(dy) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${esPrueba ? 'prueba-' : ''}cheque-${folio}.pdf"`);
+    res.end(pdf);
+  }
+
+  /** `[PGP.165]` La hoja de prueba sin pago (nombre y cantidad largos a propósito), para calibrar la impresora. */
+  @Get('cheques/prueba.pdf')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'PGP.165 — hoja de prueba del cheque en carta, sin pago (?banco=BBAJIO; ?dx=&dy= en mm).' })
+  async chequePruebaPdf(
+    @Query('banco') banco: string | undefined,
+    @Query('dx') dx: string | undefined,
+    @Query('dy') dy: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const pdf = await this.docs.renderChequePrueba(banco || 'BBAJIO', { dx: Number(dx), dy: Number(dy) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="prueba-cheque.pdf"');
+    res.end(pdf);
+  }
+
+  /**
    * `[PGP.33]` La instrucción de ejecución. La ruta vieja (`caja-general.pdf`) se conserva **viva**
    * y sirve exactamente lo mismo: una pestaña abierta desde antes del despliegue la sigue pidiendo,
    * y un 404 ahí se leería como «el documento ya no existe». No es deuda sin nombre: se retira
