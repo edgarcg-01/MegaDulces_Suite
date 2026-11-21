@@ -118,6 +118,9 @@ const JOB = 'gastos_comprobacion_kepler';
 // Códigos y folios PROPIOS de la prueba, que no existen en ningún Kepler.
 const ACR = 'GZPRU3';
 const QUIEN = { username: 'valida_prueba', full_name: 'Valida De Prueba' };
+// [PGP.123] G.14 (D1): quien pidió el vale (`created_by` de `valeAprobado`) genera su gasto; otra persona, no.
+const DUENO = { username: 'captura_prueba', full_name: 'Captura De Prueba' };
+const AJENO = { username: 'ajeno_prueba', full_name: 'Ajeno De Prueba' };
 /** Lo que guardó la pantalla al capturar: la foto del vale firmado y su comprobante. */
 const ARCHIVOS = [{ role: 'comprobante_1', url: 'https://archivos.prueba.invalid/pgp123/ticket.jpg', public_id: 'expense-proofs/pgp123-prueba', kind: 'image' }];
 /** El payload de la pantalla al «Dar por comprobado» (Aprobación de gastos). */
@@ -232,6 +235,9 @@ async function main() {
   };
   const vale = (id) => knex('finance.expense_proofs').where({ id }).first('status', 'kepler_expense_status', 'kepler_expense_folio', 'kepler_expense_policy',
     'kepler_expense_note', 'kepler_expense_attempts', knex.raw(`to_char(kepler_expense_date, 'YYYY-MM-DD') AS fecha`));
+  // G.14: «Generar gasto» con un clic. Por omisión, quien pidió el vale (no aprueba).
+  const generar = (id, quien = DUENO, aprobador = false) => proofs.generarGasto(id, quien, aprobador);
+  const estatusDe = async (fn) => { try { await fn(); return 200; } catch (x) { return typeof x.getStatus === 'function' ? x.getStatus() : (x.code || x.message); } };
   const intentos = (id) => knex('finance.expense_request_kepler_attempts').where({ proof_id: id }).orderBy('created_at').select('document_type', 'trigger', 'result', 'folio', 'mark', 'note');
   const gastoEnKepler = async (folio) => (await k.query(`SELECT btrim(c6) c6, btrim(c43) c43 FROM md.kdm1 WHERE c4 = 10 AND btrim(c39) = $1`, [folio])).rows;
   const solicitudKepler = async (folio) => (await k.query(`SELECT btrim(c43) c43, c42::text c42 FROM md.kdm1 WHERE c4 = 15 AND c6 = $1`, [folio])).rows[0];
@@ -256,20 +262,25 @@ async function main() {
     await sembrar('kdxd', [{ sucursal: SUC, c1: SUC, c2: ACR, c3: 'ACREEDOR DE PRUEBA PGP123 SA DE CV', c10: 'XAXX010101000' }]);
 
     // ── A ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    console.log('\n— A. Validar con el payload de la pantalla escribe el gasto en Kepler');
+    console.log('\n— A. G.14: validar ya NO escribe el gasto; quien lo pidió lo genera con un clic');
     await interruptor(true);
     await solicitudEnKepler('0990120');
     await solicitudEnOds('0990120');
     const a = await valeAprobado('0990120');
     const ra = await proofs.validate(a, QUIEN.full_name, PANTALLA, QUIEN);
-    check(ra.status === 'validada' && ra.gasto_kepler?.status === 'written' && ra.gasto_kepler?.folio === '0000051' && ra.gasto_kepler?.poliza === `${MES}/D/4`,
-      `validar → validada, y el gasto escrito: X-A-10 0000051, póliza ${MES}/D/4`, ra);
+    check(ra.status === 'validada' && ra.gasto_kepler === undefined && (await gastoEnKepler('0990120')).length === 0 && (await intentos(a)).length === 0,
+      '⛔ D2: validar → validada, y NADA se escribe solo (ni gasto en Kepler ni intento en la bitácora)', ra);
+    check(await estatusDe(() => generar(a, AJENO, false)) === 403 && (await gastoEnKepler('0990120')).length === 0,
+      '⛔ D1: otra persona que no lo pidió ni aprueba → 403, y Kepler no se toca');
+    const ga = await generar(a);
+    check(ga?.status === 'written' && ga?.folio === '0000051' && ga?.poliza === `${MES}/D/4`,
+      `«Generar gasto» de quien lo pidió (el payload de la pantalla: sólo el id) → X-A-10 0000051, póliza ${MES}/D/4`, ga);
     const va = await vale(a);
     check(va.kepler_expense_status === 'written' && va.kepler_expense_folio === '0000051' && va.kepler_expense_policy === `${MES}/D/4` && va.fecha === hoy && va.kepler_expense_attempts === 1,
       'el vale guarda el estado, el folio, la póliza, la fecha (DG1) y un intento', va);
     const ia = await intentos(a);
-    check(ia.length === 1 && Number(ia[0].document_type) === 10 && ia[0].trigger === 'validacion' && ia[0].result === 'escrito' && ia[0].folio === '0000051' && ia[0].mark === 'X-A-15/0990120',
-      'la bitácora: un intento del gasto (tipo 10), disparado por la validación, con la solicitud que comprueba', ia);
+    check(ia.length === 1 && Number(ia[0].document_type) === 10 && ia[0].trigger === 'reintento' && ia[0].result === 'escrito' && ia[0].folio === '0000051' && ia[0].mark === 'X-A-15/0990120',
+      'la bitácora: un intento del gasto (tipo 10), pedido por una persona (el botón), con la solicitud que comprueba', ia);
     check((await gastoEnKepler('0990120')).length === 1 && (await solicitudKepler('0990120')).c43 === 'F', 'en Kepler: el X-A-10 existe y su solicitud quedó aplicada (F)');
 
     // ── B ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -302,10 +313,11 @@ async function main() {
     await solicitudEnKepler('0990121');
     await solicitudEnOds('0990121');
     const c = await valeAprobado('0990121');
-    const rc = await proofs.validate(c, QUIEN.full_name, PANTALLA, QUIEN);
-    check(rc.status === 'validada' && rc.gasto_kepler?.status === 'pending' && /interruptor de la escritura de gastos de la sucursal 05 está apagado/.test(rc.gasto_kepler?.nota), 'validado; el gasto espera y dice por qué', rc.gasto_kepler);
+    const rcv = await proofs.validate(c, QUIEN.full_name, PANTALLA, QUIEN);
+    const rc = await generar(c);
+    check(rcv.status === 'validada' && rc?.status === 'pending' && /interruptor de la escritura de gastos de la sucursal 05 está apagado/.test(rc?.nota), 'validado; al generar, el gasto espera y dice por qué', rc);
     const ic = await intentos(c);
-    check(ic.length === 1 && ic[0].result === 'apagado' && ic[0].trigger === 'validacion' && (await gastoEnKepler('0990121')).length === 0, 'la bitácora dice «apagado» y Kepler no se tocó', ic);
+    check(ic.length === 1 && ic[0].result === 'apagado' && ic[0].trigger === 'reintento' && (await gastoEnKepler('0990121')).length === 0, 'la bitácora dice «apagado» y Kepler no se tocó', ic);
 
     // ── D ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     console.log('\n— D. Un vale que no se puede comprobar solo: dice por qué y no escribe');
@@ -313,17 +325,19 @@ async function main() {
     await solicitudEnKepler('0990122');
     await solicitudEnOds('0990122');
     const d = await valeAprobado('0990122', { importe: 100 });
-    const rd = await proofs.validate(d, QUIEN.full_name, PANTALLA, QUIEN);
-    check(rd.gasto_kepler?.status === 'pending' && /El vale es por \$100\.00 y la solicitud por \$116\.00/.test(rd.gasto_kepler?.nota) && (await gastoEnKepler('0990122')).length === 0,
-      'otro importe → pendiente con el motivo, sin escribir', rd.gasto_kepler);
+    await proofs.validate(d, QUIEN.full_name, PANTALLA, QUIEN);
+    const rd = await generar(d);
+    check(rd?.status === 'pending' && /El vale es por \$100\.00 y la solicitud por \$116\.00/.test(rd?.nota) && (await gastoEnKepler('0990122')).length === 0,
+      'otro importe → al generar, pendiente con el motivo, sin escribir', rd);
 
     console.log('\n— D2. ⛔ El vale trae factura y la Suite no la encuentra: no se escribe a ciegas');
     await solicitudEnKepler('0990128');
     await solicitudEnOds('0990128');
     const d2 = await valeAprobado('0990128', { cfdi_uuid: '0c0c0c0c-1111-4222-8333-944444444444' });
-    const rd2 = await proofs.validate(d2, QUIEN.full_name, PANTALLA, QUIEN);
-    check(rd2.gasto_kepler?.status === 'pending' && /trae factura y la Suite no la pudo leer/.test(rd2.gasto_kepler?.nota ?? '') && (await gastoEnKepler('0990128')).length === 0,
-      'la factura no está en fiscal.cfdis → pendiente «sin medir», sin escribir (antes contaba como «sin factura» y se escribía)', rd2.gasto_kepler);
+    await proofs.validate(d2, QUIEN.full_name, PANTALLA, QUIEN);
+    const rd2 = await generar(d2);
+    check(rd2?.status === 'pending' && /trae factura y la Suite no la pudo leer/.test(rd2?.nota ?? '') && (await gastoEnKepler('0990128')).length === 0,
+      'la factura no está en fiscal.cfdis → pendiente «sin medir», sin escribir (antes contaba como «sin factura» y se escribía)', rd2);
 
     // ── E ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     console.log('\n— E. ⛔ El gasto que capturó una persona se reconoce, y no se escribe otro');
@@ -331,12 +345,13 @@ async function main() {
     await solicitudEnOds('0990123', { c43: 'F', c42: 0 });
     await sembrar('kdm1', [{ sucursal: SUC, c1: SUC, c2: 'X', c3: 'A', c4: 10, c5: 1, c6: '0000777', c9: hoy, c10: ACR, c16: 116, c42: 116, c36: 'A', c37: 15, c38: 1, c39: '0990123', c43: 'N' }]);
     const e = await valeAprobado('0990123');
-    const re = await proofs.validate(e, QUIEN.full_name, PANTALLA, QUIEN);
-    check(re.gasto_kepler?.status === 'seen_in_ods' && re.gasto_kepler?.folio === '0000777' && (await gastoEnKepler('0990123')).length === 0,
-      'queda visto con el folio de la persona (0000777) y Kepler no recibe otro', re.gasto_kepler);
+    await proofs.validate(e, QUIEN.full_name, PANTALLA, QUIEN);
+    const re = await generar(e);
+    check(re?.status === 'seen_in_ods' && re?.folio === '0000777' && (await gastoEnKepler('0990123')).length === 0,
+      'al generar, queda visto con el folio de la persona (0000777) y Kepler no recibe otro', re);
 
     // ── F ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    console.log('\n— F. ⛔ El proceso murió tras reclamarlo: el cron lo da por huérfano, lo busca y lo escribe UNA vez');
+    console.log('\n— F. ⛔ El proceso murió tras reclamarlo: el cron lo da por huérfano y lo busca, pero NO lo escribe (D2); el clic, UNA vez');
     await solicitudEnKepler('0990124');
     await solicitudEnOds('0990124');
     const f = await valeAprobado('0990124');
@@ -345,24 +360,29 @@ async function main() {
     await knex('finance.expense_proofs').where({ id: f }).update({ kepler_expense_status: 'writing', kepler_expense_at: knex.raw(`now() - interval '20 minutes'`), kepler_expense_next_at: null });
     await interruptor(true);
     m = await comp.ciclo();
+    const vf0 = await vale(f);
+    check(m.huerfanos >= 1 && vf0.kepler_expense_status === 'retry' && /genéralo otra vez/.test(vf0.kepler_expense_note ?? '') && (await gastoEnKepler('0990124')).length === 0,
+      '⛔ D2: huérfano → en duda → no estaba en Kepler → el cron NO lo escribe: queda listo para el clic', { m, vf0 });
+    const gf = await generar(f);
     const vf = await vale(f);
-    check(m.huerfanos >= 1 && vf.kepler_expense_status === 'written' && vf.kepler_expense_folio === '0000052' && (await gastoEnKepler('0990124')).length === 1,
-      'huérfano → en duda → no estaba en Kepler → escrito una vez (0000052)', { m, vf });
+    check(gf?.status === 'written' && vf.kepler_expense_folio === '0000052' && (await gastoEnKepler('0990124')).length === 1,
+      'el clic lo escribe una vez (0000052)', { gf, vf });
     const ifl = await intentos(f);
-    check(ifl.some((x) => x.trigger === 'cron' && x.result === 'escrito'), 'el intento del cron queda en la bitácora', ifl);
+    check(!ifl.some((x) => x.trigger === 'cron' && x.result === 'escrito') && ifl.some((x) => x.trigger === 'reintento' && x.result === 'escrito'),
+      'la bitácora: el cron no escribió; lo escribió una persona', ifl);
     m = await comp.ciclo();
     check((await gastoEnKepler('0990124')).length === 1, '⛔ otra pasada del cron no escribe un segundo gasto');
 
     // ── G ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    console.log('\n— G. Firmar un vale que cierra en «validada» también comprueba su gasto');
+    console.log('\n— G. ⛔ D2: firmar un vale que cierra en «validada» NO escribe su gasto; el clic sí');
     await solicitudEnKepler('0990125');
     await solicitudEnOds('0990125');
     const g = await valeAprobado('0990125', { status: 'recibida' });
     const rg = await proofs.approve(g, QUIEN.full_name, PANTALLA, QUIEN);
     if (rg.status === 'validada') {
-      check(rg.gasto_kepler?.status === 'written' && (await gastoEnKepler('0990125')).length === 1, 'la firma cerró en validada y el gasto quedó escrito', rg);
-      const ig = await intentos(g);
-      check(ig.some((x) => x.trigger === 'firma' && x.result === 'escrito'), 'la bitácora dice que lo disparó la firma', ig);
+      check(!rg.gasto_kepler && (await gastoEnKepler('0990125')).length === 0 && (await intentos(g)).length === 0, '⛔ la firma cerró en validada y NO escribió el gasto', rg);
+      const gg = await generar(g, QUIEN, true);
+      check(gg?.status === 'written' && (await gastoEnKepler('0990125')).length === 1, 'quien aprueba (no es el dueño) también lo genera con el clic', gg);
     } else {
       check(!rg.gasto_kepler && (await gastoEnKepler('0990125')).length === 0, `la firma dejó el vale en «${rg.status}»: no se comprueba hasta validarlo`, rg);
     }
@@ -405,12 +425,12 @@ async function main() {
     check(conDg7.length === 0, `G.1: ningún vale de la cola dice que su base espera el contador de DG7 (${cola.vales.length} vales)`, conDg7.map((x) => x.sucursal));
 
     // «Reintentar»: con el motivo vigente, dice por qué y no escribe; sobre un vale sin validar, 409; un id roto, 400.
-    const rr = await proofs.reintentarGasto(d, QUIEN.full_name);
-    check(rr?.status === 'pending' && /\$100\.00/.test(rr?.nota ?? '') && (await gastoEnKepler('0990122')).length === 0, 'Reintentar un vale con otro importe: dice el motivo y no escribe', rr);
+    const rr = await generar(d, QUIEN, true);
+    check(rr?.status === 'pending' && /\$100\.00/.test(rr?.nota ?? '') && (await gastoEnKepler('0990122')).length === 0, 'Generar (quien aprueba) un vale con otro importe: dice el motivo y no escribe', rr);
+    check(await estatusDe(() => generar(d, AJENO, false)) === 403, '⛔ ni dueño ni aprobador → 403');
     const h = await valeAprobado('0990127');
-    const estatusDe = async (fn) => { try { await fn(); return 200; } catch (x) { return typeof x.getStatus === 'function' ? x.getStatus() : (x.code || x.message); } };
-    check(await estatusDe(() => proofs.reintentarGasto(h, QUIEN.full_name)) === 409, '⛔ Reintentar un vale sin validar → 409');
-    check(await estatusDe(() => proofs.reintentarGasto('no-es-un-id', QUIEN.full_name)) === 400, '⛔ Reintentar con un id roto → 400');
+    check(await estatusDe(() => generar(h)) === 409, '⛔ Generar un vale sin validar → 409');
+    check(await estatusDe(() => generar('no-es-un-id')) === 400, '⛔ Generar con un id roto → 400');
     const ih = await intentos(h);
     check(ih.length === 0, 'el 409 no deja intento en la bitácora', ih);
 
@@ -551,7 +571,7 @@ async function main() {
     check(await estatusDe(() => proofs.ligarCancelada(c4, '0990147', QUIEN)) === 409, '⛔ ligar con el gasto vivo → 409 (antes lo ligaba y el gasto quedaba dos veces)');
 
     // ── L ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    console.log('\n— L. Lo que Kepler canceló vuelve a la cola, y «Reintentar el gasto» lo escribe de nuevo');
+    console.log('\n— L. Lo que Kepler canceló vuelve a la cola, y «Generar otra vez» lo escribe de nuevo');
     await interruptor(true);
     // En el Kepler de prueba, la cancelación de verdad: su X-A-10 en C y la solicitud de vuelta en A con su saldo (§3.9).
     await k.query(`UPDATE md.kdm1 SET c43 = 'C' WHERE c1 = $1 AND c4 = 10 AND btrim(c39) = '0990120'`, [SUC]);
@@ -559,10 +579,10 @@ async function main() {
     const la = (await proofs.esperanKepler(2000)).vales.find((x) => x.id === a);
     check(la?.espera === 'falta_generar_gasto' && la?.gasto_kepler?.gasto?.status === 'cancelled' && !la?.gasto_kepler?.gasto?.folio,
       'la cola lo trae: «falta el gasto», con el suyo cancelado (antes salía de la cola como si lo tuviera)', la && { espera: la.espera, gasto: la.gasto_kepler?.gasto });
-    const rl = await proofs.reintentarGasto(a, QUIEN.full_name);
+    const rl = await generar(a);
     const vivosL = (await gastoEnKepler('0990120')).filter((x) => x.c43 !== 'C');
     check(rl?.status === 'written' && !!rl?.folio && rl.folio !== '0000051' && vivosL.length === 1 && vivosL[0].c6 === rl.folio,
-      '«Reintentar el gasto» lo escribe otra vez: un X-A-10 vivo nuevo; el cancelado se queda como estaba (antes no hacía nada)', { rl, vivosL });
+      '«Generar otra vez» (quien lo pidió) lo escribe otra vez: un X-A-10 vivo nuevo; el cancelado se queda como estaba', { rl, vivosL });
 
     // ── M ────────────────────────────────────────────────────────────────────────────────────────────────────────────
     console.log('\n— M. «En duda» se resuelve aunque su solicitud ya no esté en A, y no se queda para siempre');

@@ -580,7 +580,7 @@ describe('ValeGastoPeekComponent', () => {
       fix.componentRef.setInput('puedeReintentarGasto', puede);
       fix.detectChanges();
     };
-    const boton = () => [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => /el gasto/.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+    const boton = () => [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => /^\s*Generar (gasto|otra vez) · /.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
 
     it('sin el dato (el vale no espera su gasto) el eslabón no se pinta', () => {
       conGasto(undefined);
@@ -609,18 +609,18 @@ describe('ValeGastoPeekComponent', () => {
       expect(boton()).toBeUndefined();
     });
 
-    it('listo en una base que escribe: «Escribir el gasto ahora»; atorado: «Reintentar el gasto»; sólo si la página lo ofrece', () => {
+    it('G.14: listo en una base que escribe: «Generar gasto · $importe»; atorado: «Generar otra vez»; sólo si la página lo ofrece', () => {
       conGasto({ comprobacion: { listo: true, fecha: '2026-11-10' }, escritura: ABIERTA, gasto: null }, true);
       const emitido: string[] = [];
       c.reintentarGasto.subscribe((id) => emitido.push(id));
-      expect(boton()?.textContent).toContain('Escribir el gasto ahora');
+      expect(boton()?.textContent).toMatch(/Generar gasto · \$[\d,]+\.\d{2}/);
       boton()!.click();
       expect(emitido).toEqual(['v1']);
       fix.componentRef.setInput('gastoKepler', { comprobacion: { listo: true, fecha: '2026-11-10' }, escritura: ABIERTA,
         gasto: { ...GASTO, status: 'stuck', nota: 'Kepler no contestó (3 intentos: lo reintenta una persona)' } });
       fix.detectChanges();
       expect(texto()).toContain('No se pudo escribir: Kepler no contestó');
-      expect(boton()?.textContent).toContain('Reintentar el gasto');
+      expect(boton()?.textContent).toMatch(/Generar otra vez · \$[\d,]+\.\d{2}/);
       fix.componentRef.setInput('puedeReintentarGasto', false);
       fix.detectChanges();
       expect(boton()).toBeUndefined();

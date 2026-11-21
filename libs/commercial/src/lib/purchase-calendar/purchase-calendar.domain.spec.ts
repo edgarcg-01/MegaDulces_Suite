@@ -1,0 +1,257 @@
+// Sin `import ... from 'vitest'`: la config usa `globals: true` (con el import el spec no carga: compuerta spec-vivo).
+import {
+  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
+  plazasDelAlcance, reglaEnAlcance, repartirPropuestas, revisaPorAlcance, zonasDeCompra,
+  type FilaActividad, type ReglaLeida, type SucursalZona,
+} from './purchase-calendar.domain';
+
+/** `[PQ.3.3]` La actividad de Kepler por alcance y el armado del calendario. El SQL se prueba contra base real. */
+
+// Las zonas MEDIDAS en prod el 2026-11-20 (`analytics.v_branch_zone`).
+const SUC: SucursalZona[] = [
+  ['00', 'CEDIS', null, null], ['01', 'Padre Hidalgo', 'LP', 'La Piedad'], ['02', 'La Piedad Abastos', 'LP', 'La Piedad'],
+  ['03', '8 Esquinas', 'LP', 'La Piedad'], ['04', 'Yurécuaro', 'LP', 'La Piedad'], ['05', 'Zamora Centro', 'ZAM', 'Zamora'],
+  ['06', 'Canindo', 'ZAM', 'Zamora'], ['07', 'Morelia Madero', 'MOR', 'Morelia'], ['08', 'Morelia Abastos', 'MOR', 'Morelia'],
+].map(([branch_code, branch_name, zona_code, zona_nombre]) => ({ branch_code: branch_code as string, branch_name, branch_short: null, zona_code, zona_nombre }));
+
+const fila = (supplier_code: string, plaza: string, fechas: string[], fuente: FilaActividad['ultima_fuente'] = 'oc'): FilaActividad =>
+  ({ supplier_code, plaza, fechas, ultima: fechas[fechas.length - 1], ultima_fuente: fuente });
+
+const regla = (o: Partial<ReglaLeida>): ReglaLeida => ({
+  id: 'r', supplier_code: 'P1', scope: 'corporate', zone_code: null, branch_code: null, pattern: 'weekdays', weekdays: [3],
+  month_days: null, month_last_day: false, every_n_days: null, weekend_shift: 'friday', reviewer_user_id: null,
+  out_of_cycle_until: null, out_of_cycle_reason: null, supplier_name: 'Proveedor uno', reviewer_name: null,
+  definida_por: 'Gerencia', definida_el: '2026-10-01', vigente_desde: '2026-10-01', note: null, pedido_supplier_id: null, ...o,
+});
+
+describe('plazas y nombre del alcance', () => {
+  it('corporativo = todas; zona = sus sucursales medidas; sucursal = la suya', () => {
+    expect(plazasDelAlcance({ scope: 'corporate', zone_code: null, branch_code: null }, SUC)).toBeNull();
+    expect([...(plazasDelAlcance({ scope: 'zone', zone_code: 'ZAM', branch_code: null }, SUC) ?? [])].sort()).toEqual(['05', '06']);
+    expect([...(plazasDelAlcance({ scope: 'branch', zone_code: null, branch_code: '04' }, SUC) ?? [])]).toEqual(['04']);
+  });
+
+  it('el nombre se dice con palabras, y quién revisa sale del alcance si la regla no nombra a nadie', () => {
+    expect(nombreDelAlcance({ scope: 'zone', zone_code: 'ZAM', branch_code: null }, SUC)).toBe('Zona Zamora');
+    expect(nombreDelAlcance({ scope: 'branch', zone_code: null, branch_code: '04' }, SUC)).toBe('Yurécuaro');
+    expect(revisaPorAlcance({ scope: 'corporate', zone_code: null, branch_code: null }, SUC)).toBe('Gerencia de compras');
+    expect(revisaPorAlcance({ scope: 'branch', zone_code: null, branch_code: '06' }, SUC)).toBe('Encargado de Canindo');
+  });
+});
+
+describe('actividadDeLaRegla — cada regla ve SÓLO su proveedor en SUS plazas', () => {
+  const filas = [
+    fila('P1', '04', ['2026-11-18']), fila('P1', '06', ['2026-11-17'], 'entrada'),
+    fila('P1', '00', ['2026-11-12', '2026-11-19'], 'oc_cancelada'), fila('P2', '04', ['2026-11-20']),
+  ];
+  it('sucursal: la actividad de OTRA sucursal del mismo proveedor no la atiende', () => {
+    expect(actividadDeLaRegla({ supplier_code: 'P1', scope: 'branch', zone_code: null, branch_code: '04' }, filas, SUC).fechas).toEqual(['2026-11-18']);
+  });
+  it('zona Zamora: sólo 05 y 06', () => {
+    const a = actividadDeLaRegla({ supplier_code: 'P1', scope: 'zone', zone_code: 'ZAM', branch_code: null }, filas, SUC);
+    expect(a).toEqual({ fechas: ['2026-11-17'], ultima: { fecha: '2026-11-17', fuente: 'entrada' } });
+  });
+  it('corporativo: todas las plazas del proveedor, y la última dice su fuente (OC cancelada)', () => {
+    const a = actividadDeLaRegla({ supplier_code: 'P1', scope: 'corporate', zone_code: null, branch_code: null }, filas, SUC);
+    expect(a.fechas).toEqual(['2026-11-12', '2026-11-17', '2026-11-18', '2026-11-19']);
+    expect(a.ultima).toEqual({ fecha: '2026-11-19', fuente: 'oc_cancelada' });
+  });
+});
+
+describe('desdeEntradas — la parte cara de la consulta, sólo lo necesario', () => {
+  it('la ventana de rezago, o N + 7 si una regla «cada N» es más larga', () => {
+    expect(desdeEntradas('2026-11-20', [{ pattern: 'weekdays', every_n_days: null }])).toBe('2026-09-19');
+    expect(desdeEntradas('2026-11-20', [{ pattern: 'every_n_days', every_n_days: 90 }])).toBe('2026-08-15');
+  });
+});
+
+describe('armarCalendario', () => {
+  const hoy = '2026-11-20';
+  it('ordena: rezagada (la más vieja primero) → toca hoy → al día; y cuenta el resumen', () => {
+    const cal = armarCalendario(hoy, [
+      regla({ id: 'a', supplier_code: 'A', supplier_name: 'Al día', weekdays: [3] }),
+      regla({ id: 'b', supplier_code: 'B', supplier_name: 'Toca hoy', weekdays: [5] }),
+      regla({ id: 'c', supplier_code: 'C', supplier_name: 'Rezagada', weekdays: [3] }),
+    ], [fila('A', '00', ['2026-11-18']), fila('B', '00', ['2026-11-13']), fila('C', '00', ['2026-11-04'])], [], SUC);
+    expect(cal.reglas.map((r) => [r.supplier_name, r.estado.estado])).toEqual([
+      ['Rezagada', 'rezagada'], ['Toca hoy', 'toca_hoy'], ['Al día', 'al_dia'],
+    ]);
+    expect(cal.resumen).toEqual({ rezagada: 1, toca_hoy: 1, sin_ancla: 0, al_dia: 1, fuera_de_ciclo: 0 });
+    expect(cal.fuente).toMatch(/canceladas/);
+  });
+
+  it('una marca «se pidió fuera de Kepler» atiende la fecha y es la última actividad', () => {
+    const cal = armarCalendario(hoy, [regla({ id: 'x', weekdays: [3] })], [fila('P1', '00', ['2026-11-11'])], [
+      { rule_id: 'x', review_date: '2026-11-18', outcome: 'ordered_outside_kepler', postponed_to: null, skip_reason: null, note: null, marcada_por: 'Ana', marcada_el: '2026-11-18T18:00:00Z' },
+    ], SUC);
+    expect(cal.reglas[0].estado.estado).toBe('al_dia');
+    expect(cal.reglas[0].ultima_actividad).toEqual({ fecha: '2026-11-18', fuente: 'marca' });
+    expect(cal.reglas[0].ultima_marca).toMatchObject({ outcome: 'ordered_outside_kepler', marcada_por: 'Ana' });
+  });
+
+  it('`[PQ.3.5]` trae las zonas con sus sucursales y, por regla, los almacenes de Pedido de SU alcance', () => {
+    const alm = [{ id: 'w04', code: '04' }, { id: 'w05', code: '05' }, { id: 'w06', code: '06' }];
+    const cal = armarCalendario(hoy, [
+      regla({ id: 'corp' }),
+      regla({ id: 'zam', scope: 'zone', zone_code: 'ZAM', pedido_supplier_id: 'sup-1', note: 'pasa en ruta' }),
+      regla({ id: 'yur', scope: 'branch', branch_code: '04' }),
+    ], [], [], SUC, alm);
+    const por = Object.fromEntries(cal.reglas.map((r) => [r.id, r]));
+    expect(por['corp'].pedido_warehouse_ids).toEqual([]); // corporativo = todas, sin filtro
+    expect(por['zam'].pedido_warehouse_ids).toEqual(['w05', 'w06']);
+    expect(por['yur'].pedido_warehouse_ids).toEqual(['w04']);
+    expect(por['zam']).toMatchObject({ pedido_supplier_id: 'sup-1', note: 'pasa en ruta' });
+    expect(cal.zonas).toEqual(zonasDeCompra(SUC));
+    expect(cal.zonas.map((z) => [z.code, z.nombre, z.sucursales.join(',')])).toEqual([
+      ['LP', 'La Piedad', '01,02,03,04'], ['ZAM', 'Zamora', '05,06'], ['MOR', 'Morelia', '07,08'],
+    ]);
+    expect(cal.sucursales).toEqual(['00', '01', '02', '03', '04', '05', '06', '07', '08']);
+  });
+
+  it('negativa: una sucursal sin almacén de Pedido no inventa uno (y el CEDIS no está en ninguna zona)', () => {
+    expect(almacenesDelAlcance({ scope: 'branch', zone_code: null, branch_code: '07' }, SUC, [{ id: 'w05', code: '05' }])).toEqual([]);
+    expect(zonasDeCompra(SUC).some((z) => z.sucursales.includes('00'))).toBe(false);
+  });
+
+  it('negativa: la marca de OTRA regla no atiende a ésta', () => {
+    const cal = armarCalendario(hoy, [regla({ id: 'x', weekdays: [3] })], [fila('P1', '00', ['2026-11-11'])], [
+      { rule_id: 'otra', review_date: '2026-11-18', outcome: 'ordered_outside_kepler', postponed_to: null, skip_reason: null, note: null, marcada_por: null, marcada_el: '2026-11-18T18:00:00Z' },
+    ], SUC);
+    expect(cal.reglas[0].estado.estado).toBe('rezagada');
+  });
+});
+
+describe('`[PQ.3.6]` reglaEnAlcance — cada quien ve las reglas que caben COMPLETAS en sus sucursales (§10.1)', () => {
+  const corp = { scope: 'corporate', zone_code: null, branch_code: null } as const;
+  const zam = { scope: 'zone', zone_code: 'ZAM', branch_code: null } as const;
+  const zamora = { scope: 'branch', zone_code: null, branch_code: '05' } as const;
+  const yur = { scope: 'branch', zone_code: null, branch_code: '04' } as const;
+
+  it('alcance `all` (null): ve todas, también la corporativa', () => {
+    for (const r of [corp, zam, zamora, yur]) expect(reglaEnAlcance(r, SUC, null)).toBe(true);
+  });
+
+  it('el encargado de Zamora Centro (05) ve SÓLO la regla de su sucursal: ni la de su zona ni la corporativa', () => {
+    expect([corp, zam, zamora, yur].map((r) => reglaEnAlcance(r, SUC, ['05']))).toEqual([false, false, true, false]);
+  });
+
+  it('la gerencia de la zona Zamora (05, 06) ve la de su zona y la de su sucursal, no la corporativa ni la de otra zona', () => {
+    expect([corp, zam, zamora, yur].map((r) => reglaEnAlcance(r, SUC, ['05', '06']))).toEqual([false, true, true, false]);
+  });
+
+  it('negativa: la corporativa no cabe ni con las 8 sucursales sin el CEDIS (son TODAS las plazas)', () => {
+    expect(reglaEnAlcance(corp, SUC, ['01', '02', '03', '04', '05', '06', '07', '08'])).toBe(false);
+    expect(reglaEnAlcance(corp, SUC, SUC.map((x) => x.branch_code))).toBe(true);
+  });
+
+  it('negativa: sin sucursales ([]) no ve nada, y una zona sin sucursales no cabe en nadie recortado', () => {
+    for (const r of [corp, zam, zamora]) expect(reglaEnAlcance(r, SUC, [])).toBe(false);
+    expect(reglaEnAlcance({ scope: 'zone', zone_code: 'NADA', branch_code: null }, SUC, ['05'])).toBe(false);
+  });
+
+  it('armarCalendario recorta las reglas Y el resumen a lo que la persona ve, y lo DICE', () => {
+    const reglas = [regla({ id: 'corp' }), regla({ id: 'zam', scope: 'zone', zone_code: 'ZAM' }), regla({ id: 'z05', scope: 'branch', branch_code: '05' })];
+    const todo = armarCalendario('2026-11-20', reglas, [], [], SUC, [], null);
+    const suyo = armarCalendario('2026-11-20', reglas, [], [], SUC, [], ['05']);
+    expect(todo.reglas.map((r) => r.id).sort()).toEqual(['corp', 'z05', 'zam']);
+    expect(todo.tu_alcance).toEqual({ todas: true, sucursales: SUC.map((x) => x.branch_code) });
+    expect(suyo.reglas.map((r) => r.id)).toEqual(['z05']);
+    expect(Object.values(suyo.resumen).reduce((a, b) => a + b, 0)).toBe(1);
+    expect(suyo.tu_alcance).toEqual({ todas: false, sucursales: ['05'] });
+  });
+
+  it('alcanceDeQuienVe: sólo sucursales que existen, en el orden de la red; vacío = su ficha no tiene sucursal', () => {
+    expect(alcanceDeQuienVe(SUC, ['06', '05', 'MD-30'])).toEqual({ todas: false, sucursales: ['05', '06'] });
+    expect(alcanceDeQuienVe(SUC, [])).toEqual({ todas: false, sucursales: [] });
+  });
+});
+
+/**
+ * `[PQ.3.14]` El día fijo por sucursal. Los controles son pares MEDIDOS en prod (2026-11-21): un proveedor de
+ * tostadas que en Yurécuaro entrega un viernes sí y otro no (13 de 13 días en viernes, cada 14), uno de bebidas
+ * que en 8 Esquinas cae en jueves 34 de 42 días, y el mismo proveedor de tostadas en La Piedad Abastos: 8 de 8 en
+ * miércoles, pero cada 49 días (no es un día fijo).
+ */
+describe('día fijo por sucursal (PQ.3.14)', () => {
+  const HOY = '2026-11-21';
+  /** n fechas desde `ultima` hacia atrás, cada `paso` días. */
+  const serie = (ultima: string, n: number, paso: number): string[] => {
+    const out: string[] = [];
+    const [y, m, d] = ultima.split('-').map(Number);
+    for (let i = n - 1; i >= 0; i--) out.push(new Date(Date.UTC(y, m - 1, d - i * paso)).toISOString().slice(0, 10));
+    return out;
+  };
+
+  it('control: 13 viernes, uno sí y otro no → viernes, cada 14 días, con su evidencia', () => {
+    expect(diaFijoDeActividad(serie('2026-11-13', 13, 14), HOY)).toEqual({
+      motivo: null, weekday: 5, every_days: 14, dias: 13, en_el_dia: 13, recientes: { en_el_dia: 6, esperadas: 6 }, ultima: '2026-11-13' });
+  });
+
+  it('control: cada jueves con días sueltos de otro día (34 de 42, 81 %) → jueves, cada semana', () => {
+    const jueves = serie('2026-11-12', 34, 7);
+    const sueltos = serie('2026-11-10', 8, 21); // martes
+    const m = diaFijoDeActividad([...sueltos, ...jueves], HOY);
+    expect(m).toMatchObject({ motivo: null, weekday: 4, every_days: 7, dias: 42, en_el_dia: 34, ultima: '2026-11-12' });
+  });
+
+  it('control: 8 de 8 en miércoles pero cada 49 días no es un día fijo (periodo irregular)', () => {
+    expect(diaFijoDeActividad(serie('2026-11-18', 8, 49), HOY)).toEqual({ motivo: 'periodo_irregular' });
+  });
+
+  it('el umbral: 7 de 10 en el mismo día (70 %) sí; 6 de 9 (67 %) no', () => {
+    const lunes = serie('2026-11-16', 7, 7);
+    expect(diaFijoDeActividad([...lunes, '2026-11-04', '2026-10-22', '2026-10-09'], HOY)).toMatchObject({ motivo: null, weekday: 1, dias: 10, en_el_dia: 7 });
+    expect(diaFijoDeActividad([...serie('2026-11-16', 6, 7), '2026-11-04', '2026-10-22', '2026-10-09'], HOY)).toEqual({ motivo: 'sin_dia_fijo' });
+  });
+
+  it('con menos de 8 días no se propone, aunque todos caigan el mismo día', () => {
+    expect(diaFijoDeActividad(serie('2026-11-20', 7, 7), HOY)).toEqual({ motivo: 'pocos_dias' });
+  });
+
+  it('el mismo día repetido (OC y entrada el mismo día) cuenta una vez', () => {
+    const v = serie('2026-11-20', 7, 7);
+    expect(diaFijoDeActividad([...v, ...v], HOY)).toEqual({ motivo: 'pocos_dias' });
+  });
+
+  it('sin el ritmo reciente no se propone: la racha de abril con una OC suelta hoy (el caso medido: 97 % rezagada)', () => {
+    expect(diaFijoDeActividad([...serie('2026-04-28', 14, 7), '2026-11-21'], HOY)).toEqual({ motivo: 'sin_ritmo_reciente' });
+  });
+
+  it('el ritmo reciente, en su borde: 7 de 13 jueves en las últimas 13 semanas sí; 6 de 13 no', () => {
+    const viejos = serie('2026-06-04', 10, 7);
+    expect(diaFijoDeActividad([...viejos, ...serie('2026-11-19', 7, 7)], HOY)).toMatchObject({ motivo: null, weekday: 4, recientes: { en_el_dia: 7, esperadas: 13 } });
+    expect(diaFijoDeActividad([...viejos, ...serie('2026-11-19', 6, 7)], HOY)).toEqual({ motivo: 'sin_ritmo_reciente' });
+  });
+
+  it('por proveedor: sólo sucursales con zona (el CEDIS no: R7), ordenadas, y la plaza desconocida fuera', () => {
+    const v = serie('2026-11-20', 12, 7);
+    const m = diasFijosPorProveedor([
+      { supplier_code: 'P1', plaza: '06', fechas: v },
+      { supplier_code: 'P1', plaza: '04', fechas: serie('2026-11-13', 13, 14) },
+      { supplier_code: 'P1', plaza: '00', fechas: v },
+      { supplier_code: 'P1', plaza: 'MD-30', fechas: v },
+      { supplier_code: 'P2', plaza: '05', fechas: v.slice(0, 5) },
+    ], SUC, HOY);
+    expect([...m.keys()]).toEqual(['P1']);
+    expect(m.get('P1')?.map((p) => [p.branch_code, p.weekday, p.every_days])).toEqual([['04', 5, 14], ['06', 5, 7]]);
+  });
+});
+
+describe('`[PQ.3.14]` el día fijo no se pierde al definir otra regla', () => {
+  const d = (branch_code: string) => ({ branch_code, weekday: 4, every_days: 7 as const, dias: 30, en_el_dia: 28, recientes: { en_el_dia: 12, esperadas: 13 }, ultima: '2026-11-19' });
+  const dias = new Map([['A', [d('07'), d('08')]], ['B', [d('07'), d('08')]], ['C', [d('04')]], ['D', [d('04')]]]);
+  const r = repartirPropuestas([
+    { supplier_code: 'A', reglas_vivas: 0, con_regla_de_sucursal: [] },          // sin regla: sus dos sucursales
+    { supplier_code: 'B', reglas_vivas: 2, con_regla_de_sucursal: ['07'] },      // corporativa + la de 07: falta 08
+    { supplier_code: 'C', reglas_vivas: 1, con_regla_de_sucursal: [] },          // sólo corporativa (o de zona): falta 04
+    { supplier_code: 'D', reglas_vivas: 1, con_regla_de_sucursal: ['04'] },      // ya tiene la de 04: nada pendiente
+    { supplier_code: 'E', reglas_vivas: 0, con_regla_de_sucursal: [] },          // sin regla y sin día fijo
+  ], dias);
+
+  it('sin regla: los que no tienen ninguna, con todo su día fijo (también el que no tiene)', () => {
+    expect(r.sin_regla.map((p) => [p.supplier_code, p.dias_fijos.map((x) => x.branch_code)])).toEqual([['A', ['07', '08']], ['E', []]]);
+  });
+  it('pendiente: la regla corporativa o de zona NO borra la propuesta de sucursal; la de esa sucursal sí', () => {
+    expect(r.dia_fijo_pendiente.map((p) => [p.supplier_code, p.dias_fijos.map((x) => x.branch_code)])).toEqual([['B', ['08']], ['C', ['04']]]);
+  });
+});

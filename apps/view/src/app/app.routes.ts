@@ -1424,6 +1424,14 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/compras/pages/compras-temporadas.component').then(m => m.ComprasTemporadasComponent),
         canActivate: [anyPermissionGuard(Permission.COMPRAS_TEMPORADAS_VER, Permission.COMPRAS_TEMPORADAS_GESTIONAR)]
       },
+      {
+        // `[PQ.3.5]` Calendario de compras: a qué proveedor le toca la revisión y dónde (reglas por alcance,
+        // estado leído de Kepler). Plan: FASE_PQ_ANEXO_CALENDARIO_COMPRAS §10.6. Las tres claves abren la ruta
+        // (NO REBOTE: el árbol de accesos la ofrece con VER, GESTIONAR o CICLO).
+        path: 'calendario',
+        loadComponent: () => import('./modules/compras/pages/compras-calendario.component').then(m => m.ComprasCalendarioComponent),
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_CALENDARIO_VER, Permission.COMPRAS_CALENDARIO_GESTIONAR, Permission.COMPRAS_CALENDARIO_CICLO)]
+      },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
       { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido

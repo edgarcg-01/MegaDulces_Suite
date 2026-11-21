@@ -1421,22 +1421,12 @@ export class ExpenseProofsService {
     // (DS2). Después del commit, igual que PGP.79: si Kepler falla, la firma ya quedó y el cron reintenta.
     if (solicitudSuite.es) {
       const solicitud_kepler = this.solicitudGasto ? await this.solicitudGasto.escribirAlFirmar(id, actor ?? null) : null;
-      const gasto_kepler = await this.gastoAlValidar(id, firmado.row, actor, 'firma');
-      return { ...firmado.row, ...(solicitud_kepler ? { solicitud_kepler } : {}), ...(gasto_kepler ? { gasto_kepler } : {}) };
+      return { ...firmado.row, ...(solicitud_kepler ? { solicitud_kepler } : {}) };
     }
     // `[PGP.79]` DESPUÉS del commit de la firma: si Kepler falla, el vale ya quedó aprobado aquí.
     const kepler = await this.autorizarEnKepler(id, { sucursal: firmado.sucursal, folio_solicitud: base.cur.folio_solicitud });
-    const gasto_kepler = await this.gastoAlValidar(id, firmado.row, actor, 'firma');
-    return { ...firmado.row, ...(kepler ? { kepler } : {}), ...(gasto_kepler ? { gasto_kepler } : {}) };
-  }
-
-  /**
-   * `[PGP.123]` G.8 — Si el vale quedó `validada`, su gasto (X-A-10) se comprueba en Kepler DESPUÉS del commit (DG8).
-   * Nunca lanza: la firma o la validación ya quedaron guardadas, y lo que pase en Kepler se anota en el vale.
-   */
-  private async gastoAlValidar(id: string, row: { status?: string } | null | undefined, actor: string | undefined, disparo: 'firma' | 'validacion') {
-    if (!this.comprobacionGasto || row?.status !== 'validada') return null;
-    return this.comprobacionGasto.escribirAlValidar(id, actor ?? null, disparo);
+    // `[PGP.123]` G.14 (D2, 2026-11-21): firmar ya NO escribe el gasto (X-A-10). Lo genera una persona: «Generar gasto».
+    return { ...firmado.row, ...(kepler ? { kepler } : {}) };
   }
 
   /**
@@ -3350,17 +3340,41 @@ export class ExpenseProofsService {
   }
 
   /**
-   * `[PGP.123]` G.9 — «Reintentar» el gasto (X-A-10) de un vale validado: también los atorados, los que Kepler rechazó
-   * y los cancelados. Lo decide la misma regla G.5; si está apagado o no toca, dice por qué (no lanza por eso).
+   * `[PGP.123]` G.14 — **«Generar gasto»: el gasto (X-A-10) de un vale validado, con un clic** (D1/D2 de Edgar,
+   * 2026-11-21). Es la única puerta que lo escribe. La pide **el dueño del vale** (quien lo pidió, `esDuenoDelVale` con
+   * el nombre del padrón) o **quien aprueba** (`esAprobador`: `COMPROBAR` o rol de plataforma, lo decide el
+   * controller). También retoma lo atorado, lo rechazado y lo cancelado. Lo decide la regla G.5; si no toca, dice por qué.
    */
-  async reintentarGasto(id: string, actor: string | null | undefined): Promise<EstadoKeplerDelGasto | null> {
+  async generarGasto(id: string, quien: IdentidadQueDecide, esAprobador: boolean): Promise<EstadoKeplerDelGasto | null> {
     const limpio = String(id ?? '').trim().toLowerCase();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(limpio)) throw new BadRequestException('Identificador de vale inválido');
     if (!this.comprobacionGasto) throw new ServiceUnavailableException('La comprobación del gasto en Kepler no está cargada en este servidor');
-    const v = await this.tk.run(async (trx) => trx('finance.expense_proofs').where({ id: limpio }).first('status'));
+    const { v, yo } = await this.tk.run(async (trx) => ({
+      v: await trx('finance.expense_proofs').where({ id: limpio }).first('status', 'created_by', 'evidencia_por') as
+        { status: string; created_by: string | null; evidencia_por: string | null } | undefined,
+      yo: await this.identidadConNombre(trx, quien),
+    }));
     if (!v) throw new NotFoundException('El vale no existe');
-    if (v.status !== 'validada') throw new ConflictException('Sólo un vale validado tiene gasto que comprobar en Kepler');
-    return this.comprobacionGasto.reintentar(limpio, String(actor ?? '').trim() || 'sistema');
+    if (!esAprobador && !esDuenoDelVale(v, yo)) throw new ForbiddenException('Sólo quien pidió el gasto o quien aprueba gastos puede generarlo en Kepler.');
+    if (v.status !== 'validada') throw new ConflictException('Sólo un vale validado tiene gasto que generar en Kepler');
+    return this.comprobacionGasto.generar(limpio, String(yo.full_name || yo.username || '').trim() || 'sistema');
+  }
+
+  /**
+   * `[PGP.123]` G.14 — Lo que «Mis gastos» necesita para ofrecer «Generar gasto» a quien pidió el vale: la misma
+   * respuesta que la cola (`enLaCola`) para sus vales validados sin gasto. Nunca lanza: si no se pudo calcular, la
+   * fila no trae el campo y la pantalla no ofrece el botón.
+   */
+  async conGastoKepler<T extends object>(rows: T[]): Promise<Array<T & { gasto_kepler?: ComprobacionEnLaCola | null }>> {
+    const campo = (r: T, k: 'id' | 'status'): string => String((r as Record<string, unknown>)[k] ?? '');
+    const ids = rows.filter((r) => campo(r, 'status') === 'validada').map((r) => campo(r, 'id')).filter(Boolean);
+    if (!ids.length || !this.comprobacionGasto) return rows;
+    const mapa = await this.comprobacionGasto.enLaCola(ids).catch((e) => {
+      this.logger.warn(`mis gastos: no se pudo calcular el gasto en Kepler de ${ids.length} vales: ${(e as Error).message}`);
+      return null;
+    });
+    if (!mapa) return rows;
+    return rows.map((r) => (mapa.has(campo(r, 'id')) ? { ...r, gasto_kepler: mapa.get(campo(r, 'id')) ?? null } : r));
   }
 
   /**
@@ -4073,9 +4087,8 @@ export class ExpenseProofsService {
       if (full) this.avisarAlSolicitante('aprobado', full);
       return row;
     });
-    // `[PGP.123]` G.8 — validado: su gasto (X-A-10) se comprueba en Kepler, DESPUÉS del commit (DG8).
-    const gasto_kepler = await this.gastoAlValidar(id, validado, actor, 'validacion');
-    return gasto_kepler ? { ...validado, gasto_kepler } : validado;
+    // `[PGP.123]` G.14 (D2, 2026-11-21): validar ya NO escribe el gasto (X-A-10). Lo genera una persona: «Generar gasto».
+    return validado;
   }
 
   /** Rechaza (con motivo). */

@@ -140,18 +140,13 @@ export class ComprobacionGastoService {
     @Optional() private readonly sink?: KeplerGastoSinkAdapter,
   ) {}
 
-  /** La llaman la firma (si cierra en `validada`) y la validación, DESPUÉS de guardarse. Nunca lanza. */
-  async escribirAlValidar(id: string, actor: string | null, disparo: 'firma' | 'validacion' = 'validacion'): Promise<EstadoKeplerDelGasto | null> {
-    try {
-      return await this.intentar((fn) => this.tk.run(fn), id, disparo, actor);
-    } catch (e) {
-      this.logger.error(`vale ${id}: quedó validado, pero la comprobación en Kepler no terminó: ${(e as Error).message}. Si alcanzó a reclamarse, el cron la revisa en ${WRITING_HUERFANO_MIN} min`);
-      return null;
-    }
-  }
-
-  /** «Reintentar» de una persona: también los atorados, los que Kepler rechazó (ya corregidos) y los cancelados. */
-  async reintentar(id: string, actor: string): Promise<EstadoKeplerDelGasto | null> {
+  /**
+   * `[PGP.123]` G.14 — **«Generar gasto»: una persona lo pide con un clic** (D1/D2 de Edgar, 2026-11-21). Es la ÚNICA
+   * puerta que escribe un gasto nuevo: ni la firma ni la validación ni el cron lo escriben solos. Lo pueden pedir el
+   * dueño del vale (quien lo pidió) y quien aprueba gastos; esa cerradura la pone `ExpenseProofsService.generarGasto`.
+   * También retoma lo atorado, lo que Kepler rechazó (ya corregido) y lo que Kepler canceló.
+   */
+  async generar(id: string, actor: string): Promise<EstadoKeplerDelGasto | null> {
     return this.intentar((fn) => this.tk.run(fn), id, 'reintento', actor);
   }
 
@@ -326,7 +321,7 @@ export class ComprobacionGastoService {
         const r: ResultadoEscrituraGasto = { estado: 'ya_estaba', sucursal, folio: m.encontrado.folio, kepler: m.encontrado.kepler };
         return run(async (trx) => this.anotar(trx, id, v, r, disparo, actor, null));
       }
-      // No quedó: deja de estar en duda y sigue el camino de siempre (la regla decide si se escribe).
+      // No quedó: deja de estar en duda y sigue el camino de siempre (la regla decide). G.14: el cron se detiene antes de escribir.
       await run(async (trx) => trx('finance.expense_proofs').where({ id, kepler_expense_status: 'in_doubt' })
         .update({ kepler_expense_status: 'retry', updated_at: trx.fn.now() }));
       v.kepler_expense_status = 'retry';
@@ -375,6 +370,15 @@ export class ComprobacionGastoService {
         });
       }
       return this.estadoDe({ ...v, kepler_expense_status: v.kepler_expense_status ?? 'pending', kepler_expense_note: apagadoPor });
+    }
+
+    // G.14 (D2, 2026-11-21): el cron NO escribe. Llega aquí sólo un «en duda» que no estaba en Kepler y que la regla deja
+    // escribir: queda listo para que una persona lo genere con un clic.
+    if (disparo === 'cron') {
+      const nota = 'No quedó en Kepler: genéralo otra vez con «Generar gasto»';
+      await run(async (trx) => trx('finance.expense_proofs').where({ id }).whereNull('kepler_expense_folio')
+        .update({ kepler_expense_status: 'retry', kepler_expense_note: nota, kepler_expense_next_at: null, updated_at: trx.fn.now() }));
+      return this.estadoDe({ ...v, kepler_expense_status: 'retry', kepler_expense_note: nota, kepler_expense_next_at: null });
     }
 
     // ── 3. El reclamo atómico, confirmado ANTES de hablar con Kepler ──────────────────────────────────────────────
@@ -495,12 +499,11 @@ export class ComprobacionGastoService {
       const encendidas = new Set(await run(async (trx) => trx.transaction(async (sp) => sp('commercial.kepler_push_switch')
         .where({ tipo: TIPO_INTERRUPTOR, encendida: true }).pluck('sucursal')).catch(() => [] as string[])));
       const abiertas = SUCURSALES.filter((s) => encendidas.has(s) && this.sink?.encendida() && urlDeServidor(s, process.env).ok);
-      // Los que toca: validados, con su X-A-15, sin gasto, en espera vencida o en duda, y cuya X-A-15 sigue en A en el
-      // ODS (sin esto, los miles de vales viejos ya comprobados se revisarían cada 5 minutos). El que más espera, primero.
+      // G.14 (D2, 2026-11-21): el cron YA NO ESCRIBE gastos nuevos. Sólo toma los que quedaron EN DUDA (un COMMIT sin
+      // respuesta o un proceso que murió) para averiguar si quedaron en Kepler; si no, vuelven a esperar el botón.
       const ids: string[] = !abiertas.length ? [] : await run(async (trx) => (await trx('finance.expense_proofs as p')
         .where({ 'p.tenant_id': MEGA, 'p.status': 'validada' }).whereNotNull('p.folio_solicitud').whereNull('p.kepler_expense_folio').whereIn('p.sucursal', abiertas)
-        .where((q) => q.whereNull('p.kepler_expense_status').orWhereIn('p.kepler_expense_status', ['pending', 'retry', 'in_doubt']))
-        .where((y) => y.whereNull('p.kepler_expense_next_at').orWhere('p.kepler_expense_next_at', '<=', trx.fn.now()))
+        .where('p.kepler_expense_status', 'in_doubt')
         .modify((qb) => this.filtrarCandidatos(qb))
         // «En duda» entra aunque su X-A-15 ya no esté en A: si el COMMIT llegó, Kepler la dejó en F (revisión independiente).
         .where((w) => w.where('p.kepler_expense_status', 'in_doubt').orWhereExists(function () {

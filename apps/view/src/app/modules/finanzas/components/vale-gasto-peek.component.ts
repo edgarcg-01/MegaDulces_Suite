@@ -217,7 +217,7 @@ type DocDelExpediente = DocEvidencia;
             @if (l.quien) { <p class="vp-kep-t">Le toca a {{ l.quien }}.</p> }
             @if (gastoKepler()?.gasto?.fecha; as fg) { <p class="vp-kep-t">Fecha del gasto en Kepler: {{ diaLocal(fg) | date: 'dd/MM/yy' }}</p> }
             @if (puedeReintentarGasto() && escribibleG()) {
-              <p-button type="button" [label]="gastoKepler()?.gasto?.status ? 'Reintentar el gasto' : 'Escribir el gasto ahora'"
+              <p-button type="button" [label]="(gastoKepler()?.gasto?.status ? 'Generar otra vez · ' : 'Generar gasto · ') + money(p.importe)"
                         icon="pi pi-refresh" size="small" [outlined]="true" [disabled]="ocupado()" (onClick)="reintentarGasto.emit(p.id)" />
             }
           </div>

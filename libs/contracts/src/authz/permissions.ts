@@ -713,6 +713,13 @@ export enum Permission {
   // Claves PROPIAS: la temporada frena el sugerido de Pedido, y quien la decide no es sólo quien pide.
   COMPRAS_TEMPORADAS_VER = 'COMPRAS_TEMPORADAS_VER',
   COMPRAS_TEMPORADAS_GESTIONAR = 'COMPRAS_TEMPORADAS_GESTIONAR',
+  // `[PQ.3.4]` Compras › Calendario de compras (anexo C §10, DC7): VER las reglas de revisión y su estado de hoy;
+  // GESTIONAR = marcar el día («se pidió fuera de Kepler», «hoy no se pide»); CICLO = definir, dar de baja o sacar
+  // del ciclo una regla (DC8: la gerencia de compras). Claves PROPIAS: `COMPRAS_PEDIDO_VER` lo tienen 29 roles
+  // (cajeros, rutas…), demasiado ancho para esto.
+  COMPRAS_CALENDARIO_VER = 'COMPRAS_CALENDARIO_VER',
+  COMPRAS_CALENDARIO_GESTIONAR = 'COMPRAS_CALENDARIO_GESTIONAR',
+  COMPRAS_CALENDARIO_CICLO = 'COMPRAS_CALENDARIO_CICLO',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',

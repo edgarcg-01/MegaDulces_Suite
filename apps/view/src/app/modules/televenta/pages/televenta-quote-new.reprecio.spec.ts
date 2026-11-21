@@ -11,6 +11,7 @@ import { provideRouter } from '@angular/router';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { MessageService } from 'primeng/api';
 import { Subject, of, throwError } from 'rxjs';
+import { vi } from 'vitest';
 
 import { ItemBandeja, TeleventaQuoteNewComponent } from './televenta-quote-new.component';
 import { PricedLine, QuotesService, WholesaleCustomer } from '../quotes.service';
@@ -139,5 +140,47 @@ describe('[COT.48] sumar a un renglón que ya estaba', () => {
     c.agregarABandeja();
     expect(c.bandeja()[1].quantity).toBe(2);
     expect(c.ultimoAgregado()).toMatchObject({ id: 'r1', numero: 2, sumado: true });
+  });
+});
+
+/**
+ * [COT.49] En el celular el teclado y la barra de abajo se comían la lista: con el buscador a
+ * media pantalla cabían dos renglones y medio (captura de Francisco, iPhone, 2026-11-21). Al
+ * tocarlo, el buscador sube arriba de la vista; con mouse, nada se mueve.
+ */
+describe('[COT.49] el buscador sube en pantalla de dedo', () => {
+  function montar(tactil: boolean) {
+    TestBed.configureTestingModule({
+      imports: [TeleventaQuoteNewComponent],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        MessageService,
+        { provide: QuotesService, useValue: { listSalespersons: () => of([]) } satisfies Partial<QuotesService> },
+      ],
+    });
+    const c = TestBed.createComponent(TeleventaQuoteNewComponent).componentInstance;
+    const scrollIntoView = vi.fn();
+    const pedidas: string[] = [];
+    Object.assign(c, {
+      tactil,
+      buscadorArticulo: () => ({
+        nativeElement: { closest: (sel: string) => (pedidas.push(sel), sel === '.captura-manual-card' ? { scrollIntoView } : null) },
+      }),
+    });
+    return { c, scrollIntoView, pedidas };
+  }
+
+  it('al tocar el buscador, su tarjeta sube al borde de arriba, sin animación', () => {
+    const { c, scrollIntoView, pedidas } = montar(true);
+    c.onFocoArticulo();
+    expect(pedidas).toEqual(['.captura-manual-card']);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+  });
+
+  it('con mouse y teclado la vista no se mueve (escritorio igual que antes)', () => {
+    const { c, scrollIntoView } = montar(false);
+    c.onFocoArticulo();
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

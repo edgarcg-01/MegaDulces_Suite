@@ -421,4 +421,55 @@ describe('FinanzasMisGastosComponent', () => {
       expect(c.visibles().map((f) => f.folio)).toEqual(['0000555', '0000444']);
     });
   });
+
+  /**
+   * `[PGP.123]` G.14 (D1/D2 de Edgar, 2026-11-21) — **Quien pidió el gasto lo genera en Kepler con un clic.** El servidor
+   * manda en `/mine` lo mismo que la cola (`gasto_kepler`); la pantalla ofrece «Generar gasto · $importe» sólo donde de
+   * verdad se puede, y nada se escribe solo.
+   */
+  describe('[PGP.123] G.14 «Generar gasto» para quien lo pidió', () => {
+    const ABIERTA = { abierta: true, motivo: null, detalle: null };
+    const CERRADA = { abierta: false, motivo: 'La escritura de gastos a Kepler todavía está apagada en esta base', detalle: 'x' };
+    const KEP = (id: string, folio: string, escritura: typeof ABIERTA | typeof CERRADA) => FILA({
+      id, status: 'validada', folio_solicitud: folio, etapa: 'autorizado', gasto_folios: [], importe: 250,
+      gasto_kepler: { comprobacion: { listo: true, fecha: '2026-11-20' }, escritura, gasto: null },
+    });
+    const boton = () => [...fix.nativeElement.querySelectorAll('button')].find((b: Element) => /^s*Generar gasto · /.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+
+    it('listo y en una base que escribe: el botón lleva la cifra y manda el POST de ESE vale; dos clics, un POST', () => {
+      montar(REPORTE({ rows: [KEP('g1', '0000901', ABIERTA)] }));
+      ver('kepler');
+      expect(boton()?.textContent).toContain('Generar gasto · $250.00');
+      expect(txt()).toContain('Listo para generar su gasto en Kepler con un clic');
+      boton()!.click();
+      boton()!.click();
+      fix.detectChanges();
+      const reqs = http.match((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/proofs/g1/reintentar-gasto'));
+      expect(reqs.length).toBe(1);
+      expect(boton()?.disabled).toBe(true);
+      reqs[0].flush({ id: 'g1', status: 'written', folio: '0000125', poliza: 'kdc22611/D/6', fecha: '2026-11-20', nota: null, intentos: 1, siguiente: null });
+      http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine')).flush(REPORTE({ rows: [] }));
+      fix.detectChanges();
+      expect(txt()).toContain('Gasto generado en Kepler: X-A-10 0000125 · póliza D 6 (nov 2026).');
+      expect(c.generando()).toBeNull();
+    });
+
+    it('⛔ lo listo en una base cerrada no ofrece el botón: dice por qué', () => {
+      montar(REPORTE({ rows: [KEP('g2', '0000902', CERRADA)] }));
+      ver('kepler');
+      expect(boton()).toBeUndefined();
+      expect(txt()).toContain('Lista para generar, pero la escritura de gastos a Kepler todavía está apagada en esta base');
+    });
+
+    it('si no se genera, dice el motivo del servidor (no un «listo» falso)', () => {
+      montar(REPORTE({ rows: [KEP('g3', '0000903', ABIERTA)] }));
+      ver('kepler');
+      boton()!.click();
+      http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/g3/reintentar-gasto'))
+        .flush({ id: 'g3', status: 'pending', folio: null, poliza: null, fecha: null, nota: 'El vale es por $250.00 y la solicitud por $300.00', intentos: 0, siguiente: null });
+      http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine')).flush(REPORTE({ rows: [] }));
+      fix.detectChanges();
+      expect(txt()).toContain('Todavía no se genera: El vale es por $250.00 y la solicitud por $300.00.');
+    });
+  });
 });

@@ -47,6 +47,8 @@ export * from './lib/commercial-picking/commercial-picking.module';
 export * from './lib/product-sheets/product-sheets.module';
 // [PQ.94] Compras › Temporadas: calendario de temporadas y productos de cada una.
 export * from './lib/temporadas/temporadas.module';
+// [PQ.3.4] Compras › Calendario de compras: reglas de revisión por alcance y la marca del día.
+export * from './lib/purchase-calendar/purchase-calendar.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

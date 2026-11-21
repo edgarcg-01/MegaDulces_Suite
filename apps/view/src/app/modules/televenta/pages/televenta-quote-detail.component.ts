@@ -366,7 +366,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
                     (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
                     (keydown.enter)="$event.preventDefault(); elegirResaltado()"
-                    placeholder="Escribe código SKU, código de barras o nombre del producto · ↑↓ y Enter eligen"
+                    [placeholder]="tactil ? 'Código de barras, SKU o nombre' : 'Escribe código SKU, código de barras o nombre del producto · ↑↓ y Enter eligen'"
+                    enterkeyhint="search"
+                    autocomplete="off"
                     autocorrect="off"
                     spellcheck="false"
                     [disabled]="guardando()"
@@ -1049,6 +1051,26 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .cat-precio-val { font-weight: 700; font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
       .search-hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0.5rem 0 0; }
+      /* [COT.49] Igual que en el alta: el nombre largo se parte en su columna (no se encima con el
+         SKU) y, en angosto, la etiqueta sube y el buscador y su lista toman todo el ancho; cada
+         artículo en dos líneas (nombre arriba; SKU · unidad · existencia abajo; precio a la
+         derecha). El EAN sigue a la vista al elegir el artículo. */
+      .cat-nom { overflow-wrap: anywhere; }
+      .captura-card { scroll-margin-top: var(--sp-2, 0.5rem); }
+      @media (max-width: 40rem) {
+        .search-step { grid-template-columns: minmax(0, 1fr); row-gap: 0.35rem; }
+        .cat-dropdown { grid-column: 1; grid-row: 2; }
+        .search-hint { grid-column: 1; }
+        .cat-row {
+          display: grid; grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas: 'nom precio' 'meta precio';
+          align-items: start; gap: 0.2rem 0.75rem; min-height: 44px;
+        }
+        .cat-col-nom { grid-area: nom; }
+        .cat-col-meta { grid-area: meta; flex-wrap: wrap; row-gap: 0.15rem; }
+        .cat-col-precio { grid-area: precio; }
+        .cat-bc { display: none; }
+      }
       /* [BU.6.1] La sugerencia: enlace en el color del texto (el --action no da contraste de texto chico). */
       .link-sugerencia {
         background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--text);
@@ -1140,6 +1162,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7). */
       .atajos { margin: 0.5rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
       .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
+      /* [COT.49] En el celular no hay Alt ni flechas: los atajos sólo con teclado y mouse. */
+      @media (hover: none) and (pointer: coarse) { .atajos { display: none; } }
       .qty-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.25rem; flex-wrap: wrap; }
@@ -1332,6 +1356,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  /** [COT.49] Pantalla de dedo: el buscador dice lo justo y, al tocarlo, sube para que la lista quepa. */
+  readonly tactil = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
   /** [COT.33] El campo de cantidad del artículo elegido: recibe el cursor al elegir. */
   private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
   /** [COT.33] Renglón resaltado de la lista de artículos (↑/↓ + Enter), como en el alta. */
@@ -1608,6 +1634,11 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   /** Entrar al campo NO abre la lista (E.29): se abre al teclear. */
   onFoco(): void {
     this.buscadorEnFoco = true;
+    // [COT.49] En el celular, el buscador sube arriba de la vista para que la lista quepa entre él
+    // y el teclado (como en el alta). Sin animación: un solo salto.
+    if (this.tactil) {
+      this.buscadorArticulo()?.nativeElement.closest('.captura-card')?.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }
   }
 
   /** Salir del buscador cierra la lista; moverse a una opción de la lista, no. */

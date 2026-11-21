@@ -31,7 +31,7 @@ import { lecturaKepler, solicitudKepler, type DetalleDeLaSolicitud, type KeplerD
 // `[PGP.123]` G.9 — La cola de comprobación: qué le falta a cada gasto autorizado, con las reglas puras de la cola.
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 import { ETIQUETA_FALTA_EN_KEPLER, importeDelVale, lecturaDeLaCancelada } from '@megadulces/contracts';
-import { colaDeKepler, esCanceladaEnKepler, lecturaSinEscribir, lineaDelGasto, partirCanceladas, polizaCorta, quienTexto, solicitudSinEscribir } from './esperan-kepler.ayudas';
+import { colaDeKepler, esCanceladaEnKepler, lecturaSinEscribir, lineaDelGasto, partirCanceladas, polizaCorta, puedeEscribirseYa, quienTexto, solicitudSinEscribir } from './esperan-kepler.ayudas';
 import { SolicitudGastoService } from '../solicitud-gasto.service';
 import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
@@ -306,7 +306,7 @@ const ESTADO_LABEL: Record<string, string> = {
               <div class="ap-kep-cab">
                 @if (q.porComprobar.length) {
                   <h2 class="ap-kep-tot">{{ q.porComprobar.length | number }} por comprobar · {{ money(montoDe(q.porComprobar)) }}</h2>
-                  <span class="ap-kep-rep">la Suite las escribe: {{ q.laSuite.length | number }} · con motivo: {{ conMotivoN() | number }}@if (sinCalcularN()) { · sin calcular: {{ sinCalcularN() | number }}}</span>
+                  <span class="ap-kep-rep">listas para generar: {{ q.laSuite.length | number }} · con motivo: {{ conMotivoN() | number }}@if (sinCalcularN()) { · sin calcular: {{ sinCalcularN() | number }}}</span>
                 } @else {
                   <h2 class="ap-kep-tot">Ningún gasto autorizado espera su comprobación</h2>
                 }
@@ -322,7 +322,7 @@ const ESTADO_LABEL: Record<string, string> = {
               }
               @if (q.laSuite.length) {
                 <section class="ap-kep-sec" aria-labelledby="kep-la-suite">
-                  <h3 class="ap-kep-h" id="kep-la-suite">La Suite las escribe
+                  <h3 class="ap-kep-h" id="kep-la-suite">Listas para generar el gasto
                     <span class="ap-kep-n">{{ q.laSuite.length | number }} · {{ money(montoDe(q.laSuite)) }}</span></h3>
                   <div class="ap-kep-lista">
                     @for (v of q.laSuite; track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
@@ -492,6 +492,15 @@ const ESTADO_LABEL: Record<string, string> = {
            renglón en rojo; el folio es un enlace neutro. G.UI.8: las personas, por su nombre. -->
       <ng-template #filaKepler let-v let-enCanceladas="enCanceladas">
         <div class="ap-kep" [class.hallazgo]="v.hallazgo">
+          <!-- [PGP.123] G.14 (D1/D2 de Edgar, 2026-11-21): el acto, primero y con su cifra. Sólo donde de verdad se puede
+               (la regla dice «listo» y la base escribe); en las demás filas, el lugar vacío conserva la columna. -->
+          @if (!enCanceladas && v.espera === 'falta_generar_gasto' && !v.hallazgo && puedeEscribirseYa(v.gasto_kepler)) {
+            <button pButton type="button" size="small" class="ap-kep-gen" [loading]="actuando() === v.id" [disabled]="!!actuando()"
+                    (click)="reintentarGasto(v.id)" [attr.aria-label]="'Generar el gasto en Kepler de la solicitud ' + (v.folio_solicitud || '') + ' por ' + money(importeEnCola(v))">
+              <span class="p-button-label">Generar gasto · {{ money(importeEnCola(v)) }}</span></button>
+          } @else {
+            <span class="ap-kep-gen-vacio" aria-hidden="true"></span>
+          }
           <!-- [PGP.122] Sin folio también se abre (por su id): es justo el vale que hay que reintentar en Kepler. -->
           <button type="button" class="ap-kep-folio" [class.ap-kep-folio-txt]="!v.folio_solicitud" (click)="abrirDesdeCola(v, $event)"
                   [disabled]="abriendoDeCola() === v.id" [attr.aria-label]="etiquetaDeCola(v)">{{ v.folio_solicitud || 'sin folio' }}</button>
@@ -703,9 +712,12 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-imp-de { font-size: var(--fs-xs); font-weight: var(--fw-normal, 400); color: var(--fg-3); }
     /* [GX.96] La cola de Kepler: un renglón por vale, el folio busca el vale arriba. */
     .ap-kep-lista { display: flex; flex-direction: column; gap: var(--sp-1); }
-    .ap-kep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: baseline;
+    .ap-kep { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr) auto auto; align-items: baseline;
       gap: var(--sp-1) var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color);
       border-radius: var(--r-sm); background: var(--card-bg); }
+    /* [PGP.123] G.14: «Generar gasto» va antes del folio; en pantalla angosta, en su propio renglón. */
+    .ap-kep-gen { white-space: nowrap; }
+    @media (max-width: 40rem) { .ap-kep-gen, .ap-kep-gen-vacio { grid-column: 1 / -1; } .ap-kep-gen-vacio { display: none; } }
     /* [PGP.123] G.UI.7: el folio es un enlace NEUTRO (el color de acción tiene un solo papel, el botón principal). */
     .ap-kep-folio { border: 0; background: transparent; padding: 0; font-family: var(--font-mono); font-weight: var(--fw-bold);
       color: var(--fg-1); cursor: pointer; text-decoration: underline; text-decoration-color: var(--fg-3); text-underline-offset: 2px; }
@@ -1303,6 +1315,8 @@ export class FinanzasAprobacionGastosComponent {
   }
   readonly solicitudSinEscribir = solicitudSinEscribir;
   readonly lecturaSinEscribir = lecturaSinEscribir;
+  /** `[PGP.123]` G.14: ¿se ofrece «Generar gasto» en la fila? La misma regla que el panel del vale. */
+  readonly puedeEscribirseYa = puedeEscribirseYa;
 
   /**
    * `[PGP.123]` G.UI.5 — El gasto (X-A-10) del vale abierto, si está en la cola de comprobación. `undefined` = no espera
@@ -1315,21 +1329,26 @@ export class FinanzasAprobacionGastosComponent {
     return v?.espera === 'falta_generar_gasto' && !v.hallazgo ? (v.gasto_kepler ?? null) : undefined;
   });
 
-  /** `[PGP.123]` G.9 — Escribe (o reintenta) el gasto del vale en Kepler ahora, sin esperar el ciclo; dice cómo quedó. */
+  /**
+   * `[PGP.123]` G.14 — «Generar gasto»: escribe el gasto (X-A-10) del vale en Kepler ahora (D2: nada lo escribe solo) y
+   * dice cómo quedó. Un clic, sin confirmación (D1): el botón lleva la cifra y se apaga mientras escribe; dos clics no
+   * escriben dos gastos (el servidor reclama el vale antes de hablar con Kepler).
+   */
   reintentarGasto(id: string): void {
+    if (this.actuando()) return;
     this.actuando.set(id);
     this.svc.reintentarGasto(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (e) => {
         this.actuando.set(null);
         if (e?.folio && (e.status === 'written' || e.status === 'seen_in_ods')) {
-          this.toast.add({ severity: 'success', summary: 'Gasto escrito en Kepler',
+          this.toast.add({ severity: 'success', summary: 'Gasto generado en Kepler',
             detail: `X-A-10 ${e.folio}${e.poliza ? ' · póliza ' + polizaCorta(e.poliza) : ''}.` });
         } else {
-          this.toast.add({ severity: 'warn', summary: 'Todavía no se escribe', life: 8000, detail: e?.nota ?? 'La Suite no pudo escribirlo todavía.' });
+          this.toast.add({ severity: 'warn', summary: 'Todavía no se genera', sticky: true, detail: e?.nota ?? 'La Suite no pudo escribirlo todavía.' });
         }
         this.pedirCola();
       },
-      error: (e) => { this.actuando.set(null); this.falla('No se pudo escribir el gasto', e); },
+      error: (e) => { this.actuando.set(null); this.falla('No se pudo generar el gasto', e); },
     });
   }
 

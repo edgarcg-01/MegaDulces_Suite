@@ -12,7 +12,7 @@ MÉTRICA:  cajas recibidas por orden de entrada X-A-40 que quedan etiquetadas de
 CAPA TOPE: C3
 ÁREA:      Logística (almacén)
 DUEÑO:     (por asignar)
-ESTADO:    🚀 en prod desde el 2026-11-19 (PR #571; migraciones batch 1215–1217; permiso a 21 personas). Sin prueba física (3.5) ni medición del controlador (0.3)
+ESTADO:    🚀 en prod desde el 2026-11-19 (PR #571; migraciones batch 1215–1217; permiso a 21 personas). Sin prueba física (3.5). La TE200 va por USB (0.3); sólo la vía A (D7, 2026-11-21)
 ```
 
 Requerimientos para revisión: [`REQ_ETQ_GR_ETIQUETAS_CAJA.md`](REQ_ETQ_GR_ETIQUETAS_CAJA.md). Tarjeta
@@ -27,11 +27,12 @@ los items se llaman **`RE.ETQ.*`** desde D1.
 |---|---|---|---|
 | D1 | ¿Fase propia o dentro de RE? | **Dentro de Recepción (RE)** | Items `RE.ETQ.*`; no suma una fase al cupo |
 | D2 | ¿De dónde sale cuántas etiquetas? | **De la orden de entrada** (`X-A-40`) | Nada se teclea. La reimpresión también parte de la orden (RE.ETQ.3.3) |
-| D3 | ¿Controlador de Windows o TSPL? | **Las dos** | Vía A navegador + controlador (la de GP.4) · vía B TSPL con contador de la impresora (RE.ETQ.1.6) |
+| D3 | ¿Controlador de Windows o TSPL? | **Las dos** | Vía A navegador + controlador (la de GP.4) · vía B TSPL con contador de la impresora (RE.ETQ.1.6). **D7 la deja en sólo la vía A** |
 | D4 | ¿Bitácora de impresiones? | **Sí** | Tabla propia; el endpoint escribe y exige prueba contra base real (regla 13) |
 | D5 | ¿`70106` o `C70106`? | **`C` cuando sea caja** | Caja = `C`+clave siempre, aunque Kepler no lo tenga en `c85` (RE.ETQ.1.4) |
 | D6 | ¿Fecha del vale o de la orden? | **Ninguna: el día en que se imprime la etiqueta**, porque el vale o la orden pueden quedar pendientes | La fecha deja de salir de Kepler (RE.ETQ.0.4) y la calcula el servidor al imprimir (RE.ETQ.2.3) |
 | — | Medir el rollo y el controlador | **Se mide al implementar** | RE.ETQ.0.3 queda para el arranque de C3 |
+| D7 | ¿Se instala un agente local en la PC para la vía B? (la TE200 es USB, sin red: 0.3) | **No: sólo la vía A** (2026-11-21) | No se instala nada en las PCs. RE.ETQ.1.6 y 3.4 se cierran sin ofrecerse; el generador TSPL queda en `libs/` sin consumidor (retirarlo es un cambio aparte). El volumen alto (Suc 00: 4,417 cajas en un día) va por lotes por orden en la vía A; si no aguanta, se reabre con la medición |
 
 **Cómo se aplica D6** (decisiones de diseño, 2026-11-17):
 - **El día de la *primera* impresión** de esa etiqueta, en hora de la Ciudad de México y con el
@@ -118,7 +119,7 @@ imprime solo: la impresora puede estar sin rollo y las cajas pueden no estar ah�
    productos), que sus pantallas no reconocen. La Suite no escribe en Kepler: se arregla allá.
 7. **Volumen.** La vía B (TSPL) manda una plantilla por renglón y deja que la impresora numere
    (`1:20 … 20:20`), en lugar de 20 etiquetas dibujadas: es la que aguanta los 4,417 de un día de
-   Suc 00.
+   Suc 00. **Descartada por D7 (2026-11-21): la TE200 es USB y sólo se usa la vía A.**
 
 ---
 
@@ -161,7 +162,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 |---|---|---|---|
 | RE.ETQ.0.1 | Formas vigentes de Kepler leídas: Órdenes de entrada (`MD_OE` + `Md_etiq_OE_fto`, la del espécimen), vale (`MD_oc`, no imprime), Granel y Generales | ✅ 2026-11-05 | `MD_OE.rep_etiq` reproduce el 70106 campo por campo |
 | RE.ETQ.0.2 | Vista `derive-no-copy` **`analytics.v_box_label_lines`**: una fila por renglón de `X-A-40` con sucursal, folio, renglón, fecha y hora de captura (`c68`+`c69`), fecha y vale de origen (`c39`; no se imprimen, D6: van a la cola y a la bitácora), SKU, nombre completo, unidad (`c55`), **UXC = `c58`**, cajas completas, piezas sueltas, código de caja `'C'\|\|c1`, y dos banderas: `kepler_sin_c85` y `catalogo_factor_0` | ✅ 2026-11-19 (#571): en prod (batch 1215) | Σ cajas de 30 días por sucursal = la medición de §2.1; el 70106 de la orden `0000474` da 20 cajas, UXC 18 |
-| RE.ETQ.0.3 | Medir el rollo y el controlador TSC de la PC de Suc 08; averiguar si la TE200 tiene red o sólo USB (decide el transporte de la vía B) | ⬜ rollo ✅ 2026-11-19 (abajo); falta el controlador y red/USB | rollo: la configuración de Kepler contra la hoja del módulo y la medida de Francisco · falta: foto con regla + captura de la configuración del controlador |
+| RE.ETQ.0.3 | Medir el rollo y el controlador TSC de la PC de Suc 08; averiguar si la TE200 tiene red o sólo USB (decide el transporte de la vía B) | ✅ 2026-11-19: rollo 100 × 48 mm (abajo) · **USB, sin red** · el controlador pasa a 3.5 | rollo: la configuración de Kepler contra la hoja del módulo y la medida de Francisco · USB: lo dijo Sistemas (sin foto) · controlador: se captura en la prueba física (3.5) |
 | RE.ETQ.0.4 | Fecha de la etiqueta: cuenta de Kepler (1-ene = 0) sobre **el día de la primera impresión** (D6), no sobre una fecha de Kepler | ✅ 2026-11-05 (cuenta) · ✅ 2026-11-17 (fuente, D6) | espécimen: 308 = 5-nov (captura de la orden 0000474); prueba de la cuenta en RE.ETQ.1.3 |
 
 ⛔ Sin importer. Nada se trunca en el dato.
@@ -176,7 +177,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | RE.ETQ.1.3 | Fecha (D6): el instante de la primera impresión, con la cuenta de Kepler y TZ `America/Mexico_City` (`mx-date.ts`); la reimpresión recibe la fecha guardada y no la recalcula | ✅ 2026-11-19 (#571, en prod; lectura física en 3.5) | spec: 2026-11-05 → `308-26`; 2026-01-01 → `0-26`; 31-dic de 2028 (bisiesto) → `365-28`; **17-nov 23:30 CDMX (05:30 UTC del 18) → `320-26`**; reimpresión del 20-nov de una etiqueta del 17 → `320-26` |
 | RE.ETQ.1.4 | Código por unidad: si la unidad del renglón es la tercera del producto (`c55` = `kdii.c83`) → `C`+clave; si es otra → el código de esa unidad (`c7` base, `c82` paquete) o la clave. Producto con `c85` vacío: se imprime `C`+clave y se marca «Kepler no lo reconoce» | ✅ 2026-11-19 (#571, en prod; lectura física en 3.5): `C`+clave en CJA/BTO/CUB + aviso | spec con el 70106 (`C70106`) y con un producto real de Suc 00 sin `c85` |
 | RE.ETQ.1.5 | Caja incompleta: `c9` no múltiplo de `c58` → una etiqueta más, que dice sus piezas (`21:21 · 6 PZA`) | ✅ 2026-11-19 (#571, en prod; lectura física en 3.5) | spec con la orden `0000685` de Suc 01 (4 renglones de media caja) |
-| RE.ETQ.1.6 | **Vía B — TSPL**: la misma plantilla escrita en TSPL, una por renglón, con `SET COUNTER` para que la impresora numere; el transporte (red, WebUSB o agente local) se elige con RE.ETQ.0.3 | 🧪 2026-11-19 (#571; en prod sin ofrecerse): sin medir la impresora | spec: el TSPL del 70106 contra un archivo de referencia; prueba física en C3 |
+| RE.ETQ.1.6 | **Vía B — TSPL**: la misma plantilla escrita en TSPL, una por renglón, con `SET COUNTER` para que la impresora numere; el transporte (red, WebUSB o agente local) se elige con RE.ETQ.0.3 | ❌ 2026-11-21: no se ofrece (D7, sólo la vía A); el código de #571 queda en `libs/` sin consumidor | spec: el TSPL del 70106 contra un archivo de referencia; prueba física en C3 |
 
 ### C2 · API
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
@@ -192,8 +193,8 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | RE.ETQ.3.1 | `/almacen/etiquetas`: **cola de órdenes de entrada** de la sucursal con su estado; «Imprimir» por orden o por renglón; aviso de órdenes sin etiquetar con más de N horas | ✅ 2026-11-19 (#571): recorrida en local con capturas; en prod, sin validación visual en prod | pantalla nueva |
 | RE.ETQ.3.2 | Vista previa a tamaño real; avisos por renglón: «Kepler no reconoce este código», «factor de caja en 0 en Kepler», «caja incompleta» | ✅ 2026-11-19 (#571): recorrida en local con capturas; en prod, sin validación visual en prod | |
 | RE.ETQ.3.3 | Reimpresión: elegir renglón y consecutivos (p. ej. sólo la 7:20); sale con los datos congelados y queda en la bitácora como reimpresión | ✅ 2026-11-19 (#571): recorrida en local con capturas; en prod, sin validación visual en prod | |
-| RE.ETQ.3.4 | Selector de vía A (navegador) / B (TSPL) por PC, recordado en el navegador | ⬜ la vía B no se ofrece hasta medir la impresora (0.3) | |
-| RE.ETQ.3.5 | **Prueba física (nivel A):** imprimir el 70106 × 20 en la TSC de Suc 08 por las dos vías y **leer las 20 con el handheld**; destraba también el pendiente de GP.4 | ⬜ | foto + 20/20 lecturas por vía |
+| RE.ETQ.3.4 | Selector de vía A (navegador) / B (TSPL) por PC, recordado en el navegador | ❌ 2026-11-21: no se hará (D7, sólo la vía A) | |
+| RE.ETQ.3.5 | **Prueba física (nivel A):** imprimir el 70106 × 20 en la TSC de Suc 08 por la vía A (D7) y **leer las 20 con el handheld**; capturar la configuración del controlador (papel 100 × 48, de 0.3); destraba también el pendiente de GP.4 | ⬜ | foto + 20/20 lecturas + captura del controlador |
 
 ⛔ Cargar la skill `diseno` **antes** del primer archivo, con las 5 preguntas de §0b por escrito.
 ⛔ **Antes del primer item C3:** «Observaciones de diseño UI — revisión del plan» (`auditoria-diseno` §9).
@@ -205,7 +206,7 @@ térmica directa a 203 dpi, texto girado 90°, numeración a lo ancho. Se confir
 | Riesgo | Efecto | Mitigación |
 |---|---|---|
 | La impresión de GP.4 nunca se probó en la TSC real | barras ilegibles | RE.ETQ.3.5 prueba las dos vías antes de soltar |
-| La TE200 sólo tiene USB y el controlador de Windows la ocupa | la vía B necesita agente o cambiar el controlador | RE.ETQ.0.3 lo mide; la vía A sigue disponible |
+| La TE200 sólo tiene USB y el controlador de Windows la ocupa | la vía B necesita agente o cambiar el controlador | **Se cumplió** (0.3, 2026-11-19): D7 (2026-11-21) se queda con la vía A. Cambiar el controlador por WinUSB (para WebUSB) no sirve: la impresora deja de existir para Kepler y para la vía A |
 | Etiquetas ya pegadas que se reimprimieron en Kepler | cajas con UXC 1 y fecha del documento | avisar al almacén; no se corrige lo ya pegado |
 | Productos con `c85` vacío (43 %) | el `C`+clave de la Suite no lo leen las pantallas de **Kepler** | aviso en pantalla + lista para Compras (RE.ETQ.2.2) |
 | La cola depende del ODS | si la ingesta se atrasa, la orden tarda en aparecer | la pantalla dice la hora del último dato (frescura, ADR-056) |
@@ -251,12 +252,14 @@ C0–C3 en el PR #571 (2026-11-19), probados en local y recorridos en el navegad
 
 **Pruebas:** contrato 22 (mutación: 5 rojos) · etiquetera 15 · GP.4 idéntica por huella (mutación: rojo) · API 11 unitarias + 11 contra Postgres real (primera, reimpresión congelada aunque Kepler cambie, dos clics = una primera, 403/404/400, la base rechaza una segunda primera) · `design:paramtypes` 4 (negativa: 3 rojos) · pantalla 16 + 71 en `view` · `check:pantalla` de las dos pantallas: 0 fallas.
 
-**En prod el 2026-11-19:** las 3 migraciones una por una (batches 1215 → 1216 → 1217), prod sirve `04285b22b` (rutas 401 sin sesión, menú en el bundle publicado), permiso a 4 roles / 21 personas y `MATRIZ_ACCESOS.md` regenerada (#574). **Pendiente para cerrar:** `RE.ETQ.0.3` el controlador TSC de la PC de Suc 08 y si la TE200 tiene red o sólo USB (el rollo ya está) · `RE.ETQ.3.5` prueba física por la vía A · `RE.ETQ.3.4` la vía B, cuando 0.3 diga el transporte.
+**En prod el 2026-11-19:** las 3 migraciones una por una (batches 1215 → 1216 → 1217), prod sirve `04285b22b` (rutas 401 sin sesión, menú en el bundle publicado), permiso a 4 roles / 21 personas y `MATRIZ_ACCESOS.md` regenerada (#574). El #574 entró a `main` y prod sirve `183d7bc4e`. `RE.ETQ.0.3` cerrado: la TE200 va por USB, sin red. **Pendiente para cerrar:** `RE.ETQ.3.5` prueba física por la vía A, con la captura del controlador. La vía B (`RE.ETQ.1.6`, `RE.ETQ.3.4`) no se hará (D7, 2026-11-21).
 
 ## 8. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-21 | D7 respondida: sólo la vía A, sin instalar nada en las PCs. RE.ETQ.1.6 y 3.4 (la vía B) se cierran sin ofrecerse; el generador TSPL queda en `libs/` sin consumidor | Sistemas + Claude |
+| 2026-11-19 | `RE.ETQ.0.3` cerrado: la TE200 va por USB, sin red. La vía A (navegador → controlador) es el único transporte que no instala nada; la vía B necesitaría un agente local (D7). El controlador se captura en la prueba física (3.5). El #574 entró a `main` y prod sirve `183d7bc4e` | Sistemas + Claude |
 | 2026-11-19 | En prod: migraciones una por una (batches 1215–1217), permiso a 21 personas, rutas y menú publicados; la bitácora arrancó en 0 filas. El candado de GP.4 dependía de la versión de jsbarcode y dejó «Lint & test» rojo en `main`: se partió en marco + barras (#574). Sistemas compartió las medidas de los rollos de Kepler: el de uso normal (Colores 3 al paso, 100 × 48 mm) es la hoja del módulo, sin cambio de código | Sistemas + Claude |
 | 2026-11-19 | Prueba en local con capturas: cola, detalle con avisos, imprimir (la hoja que iba a la impresora, interceptada), reimprimir el 2:3, consecutivo fuera de rango y catálogo de Kepler. Se corrigieron la vista previa (cortaba la 3.ª etiqueta) y la nota de fecha repetida; revisión previa al PR (retornos tipados con el contrato, sucursal de prueba propia). PR #571 | Sistemas + Claude |
 | 2026-11-19 | C0–C3 construidos y probados en local (4 commits sin push): vista verificada contra prod, etiquetera en libs/ (GP.4 idéntica), API con bitácora probada contra base real, pantallas /almacen/etiquetas. Falta validación visual, prueba física y prod | Sistemas + Claude |
