@@ -15,7 +15,7 @@ MÉTRICA:  solicitudes de presupuesto con dictamen registrado en la Suite —
 CAPA TOPE: C3
 ÁREA:      Finanzas (Presupuestos y Compras Corporativas) + Plataforma (Mesa de Servicio)
 DUEÑO:     Sistemas (construcción) · Ernesto Zárate (coordinación del área)
-ESTADO:    🔨  (C0–C3 🧪 con mutantes · evidencia de punta a punta y validación visual NO MEDIDAS · nada en prod)
+ESTADO:    🔨  (C0–C3 ✅ en prod desde el 2026-11-19 con la cola APAGADA · evidencia de punta a punta y validación visual NO MEDIDAS · falta encender, MSP.4.2–4.3)
 ```
 
 ⚠️ **Cupo:** MS está ⏸️ en el roadmap y la campaña de aterrizaje sigue (Fase 0). Este frente lo pidió el usuario el
@@ -58,8 +58,8 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| MSP.0.1 | Migración de esquema `servicedesk_presupuestos_esquema`: en `queues` → `requester_positions text[]` (NULL = cualquiera), `requires_description`, `requires_decision`, `work_order_queue_codes text[]`; en `requests` → `decision`, `decision_note`, `decided_by`, `decided_at`, `parent_request_id`; motivo de espera `orden_servicio`. Con CHECK de coherencia (el dictamen va completo o no va; una hija no es su propio padre; el padre es del mismo tenant) | 🧪 | `test-newdb-presupuestos.js` (Postgres local :5442, transacciones revertidas): negativas por cada CHECK/FK, cada una exige el NOMBRE de la restricción en el error |
-| MSP.0.2 | Siembra `servicedesk_seed_presupuestos`: cola `presupuestos` **APAGADA**, departamento `finanzas`, sin prioridad ni SLA, 3 categorías (gastos operativos, compra de activos, otros), campos obligatorios `observaciones` (texto) y `evidencia` (foto/PDF), quién levanta = los 3 puestos de D1, exige descripción y dictamen, órdenes a `mantenimiento` y `ti`; `ernesto_zarate` coordinador con `SERVICIO_ATENDER` + `SERVICIO_COORDINAR` individuales | 🧪 | el mismo `test-newdb-presupuestos.js`: propiedades, idempotencia, no pisa ajustes, `down` conserva lo que tiene tickets |
+| MSP.0.1 | Migración de esquema `servicedesk_presupuestos_esquema`: en `queues` → `requester_positions text[]` (NULL = cualquiera), `requires_description`, `requires_decision`, `work_order_queue_codes text[]`; en `requests` → `decision`, `decision_note`, `decided_by`, `decided_at`, `parent_request_id`; motivo de espera `orden_servicio`. Con CHECK de coherencia (el dictamen va completo o no va; una hija no es su propio padre; el padre es del mismo tenant) | ✅ | `test-newdb-presupuestos.js` (Postgres local :5442, transacciones revertidas): negativas por cada CHECK/FK, cada una exige el NOMBRE de la restricción en el error |
+| MSP.0.2 | Siembra `servicedesk_seed_presupuestos`: cola `presupuestos` **APAGADA**, departamento `finanzas`, sin prioridad ni SLA, 3 categorías (gastos operativos, compra de activos, otros), campos obligatorios `observaciones` (texto) y `evidencia` (foto/PDF), quién levanta = los 3 puestos de D1, exige descripción y dictamen, órdenes a `mantenimiento` y `ti`; `ernesto_zarate` coordinador con `SERVICIO_ATENDER` + `SERVICIO_COORDINAR` individuales | ✅ | el mismo `test-newdb-presupuestos.js`: propiedades, idempotencia, no pisa ajustes, `down` conserva lo que tiene tickets |
 
 ⛔ Sin importer: todo es configuración de la Mesa (datos propios), no un dato de Kepler.
 
@@ -67,39 +67,39 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| MSP.1.1 | `puedeLevantarEnCola(puesto, cola)` — `NULL` = cualquiera; si hay lista, el puesto del TITULAR debe estar | 🧪 | `presupuesto.spec.ts` |
-| MSP.1.2 | `validarDescripcion` — una cola que la exige rechaza vacío/blancos | 🧪 | idem |
-| MSP.1.3 | `validarDictamen` — sólo la coordinación de esa cola, sólo si la cola lo exige, motivo obligatorio, no en resuelto/cerrado/cancelado, no se cambia si ya hay órdenes | 🧪 | idem |
-| MSP.1.4 | `exigeDictamenParaResolver` — resolver sin dictamen en una cola que lo exige → 409 | 🧪 | idem |
-| MSP.1.5 | `validarOrdenDeServicio` — dictamen **autorizado**, destino en la lista de la cola, destino no confidencial y con quien atienda, categoría del destino, padre vivo | 🧪 | idem |
-| MSP.1.6 | `resolverPadrePorOrdenes` — el padre se resuelve solo cuando ninguna orden sigue abierta y al menos una se resolvió | 🧪 | idem |
+| MSP.1.1 | `puedeLevantarEnCola(puesto, cola)` — `NULL` = cualquiera; si hay lista, el puesto del TITULAR debe estar | ✅ | `presupuesto.spec.ts` |
+| MSP.1.2 | `validarDescripcion` — una cola que la exige rechaza vacío/blancos | ✅ | idem |
+| MSP.1.3 | `validarDictamen` — sólo la coordinación de esa cola, sólo si la cola lo exige, motivo obligatorio, no en resuelto/cerrado/cancelado, no se cambia si ya hay órdenes | ✅ | idem |
+| MSP.1.4 | `exigeDictamenParaResolver` — resolver sin dictamen en una cola que lo exige → 409 | ✅ | idem |
+| MSP.1.5 | `validarOrdenDeServicio` — dictamen **autorizado**, destino en la lista de la cola, destino no confidencial y con quien atienda, categoría del destino, padre vivo | ✅ | idem |
+| MSP.1.6 | `resolverPadrePorOrdenes` — el padre se resuelve solo cuando ninguna orden sigue abierta y al menos una se resolvió | ✅ | idem |
 
 ### C2 · API
 
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| MSP.2.1 | `GET /service-desk/catalog` — la cola sólo aparece a quien puede levantar en ella (o la atiende) y declara `requires_description` | 🧪 | no | `http-service-desk-presupuestos-test.js` contra la API local (62/62, §7) |
-| MSP.2.2 | `POST /service-desk/requests` — 403 a un puesto fuera de la lista (también a nombre de otro) **antes de tocar el bucket**, 400 sin descripción, 400 sin observaciones, 400 sin evidencia | 🧪 | **sí** | idem, con el payload del formulario; ⚠️ el alta CON evidencia NO MEDIDA (sin bucket local) |
-| MSP.2.3 | `POST /service-desk/requests/:id/decision` `{ decision, note }` | 🧪 | **sí** | idem |
-| MSP.2.4 | `POST /service-desk/requests/:id/work-orders` — crea la solicitud HIJA en Mantenimiento/TI a nombre de quien pidió el presupuesto, copia la evidencia, deja al padre en espera (`orden_servicio`); todo en una transacción | 🧪 | **sí** | idem; ⚠️ la copia de la evidencia NO MEDIDA (sin bucket local) |
-| MSP.2.5 | Resolver (`POST …/status`) exige dictamen; resolver la última orden abierta resuelve al padre; cancelar una orden lo anota en el padre | 🧪 | **sí** | idem |
-| MSP.2.6 | `GET /service-desk/requests/:id` — trae el dictamen, el padre (folio, área) y las órdenes (folio, área, estado) | 🧪 | no | idem |
+| MSP.2.1 | `GET /service-desk/catalog` — la cola sólo aparece a quien puede levantar en ella (o la atiende) y declara `requires_description` | ✅ | no | `http-service-desk-presupuestos-test.js` contra la API local (62/62, §7) |
+| MSP.2.2 | `POST /service-desk/requests` — 403 a un puesto fuera de la lista (también a nombre de otro) **antes de tocar el bucket**, 400 sin descripción, 400 sin observaciones, 400 sin evidencia | ✅ | **sí** | idem, con el payload del formulario; ⚠️ el alta CON evidencia NO MEDIDA (sin bucket local) |
+| MSP.2.3 | `POST /service-desk/requests/:id/decision` `{ decision, note }` | ✅ | **sí** | idem |
+| MSP.2.4 | `POST /service-desk/requests/:id/work-orders` — crea la solicitud HIJA en Mantenimiento/TI a nombre de quien pidió el presupuesto, copia la evidencia, deja al padre en espera (`orden_servicio`); todo en una transacción | ✅ | **sí** | idem; ⚠️ la copia de la evidencia NO MEDIDA (sin bucket local) |
+| MSP.2.5 | Resolver (`POST …/status`) exige dictamen; resolver la última orden abierta resuelve al padre; cancelar una orden lo anota en el padre | ✅ | **sí** | idem |
+| MSP.2.6 | `GET /service-desk/requests/:id` — trae el dictamen, el padre (folio, área) y las órdenes (folio, área, estado) | ✅ | no | idem |
 
 ### C3 · UI (`apps/view/src/app/modules/servicio/`)
 
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| MSP.3.1 | Formulario «Nueva solicitud»: el área aparece sólo a quien puede; la descripción se marca obligatoria cuando el área la exige | 🧪 | ver §8 |
-| MSP.3.2 | Detalle: bloque «Dictamen de Presupuestos» (Autorizado / No autorizado + motivo) para la coordinación; el solicitante lo ve | 🧪 | idem |
-| MSP.3.3 | Detalle: «Generar orden de servicio» (área destino, categoría, instrucciones, riesgo si el destino lo pide) y la lista de órdenes ligadas con su estado | 🧪 | idem |
-| MSP.3.4 | Detalle de la orden: «Viene de SRV-… (Presupuestos y Requerimientos)» | 🧪 | idem |
+| MSP.3.1 | Formulario «Nueva solicitud»: el área aparece sólo a quien puede; la descripción se marca obligatoria cuando el área la exige | ✅ | ver §8 |
+| MSP.3.2 | Detalle: bloque «Dictamen de Presupuestos» (Autorizado / No autorizado + motivo) para la coordinación; el solicitante lo ve | ✅ | idem |
+| MSP.3.3 | Detalle: «Generar orden de servicio» (área destino, categoría, instrucciones, riesgo si el destino lo pide) y la lista de órdenes ligadas con su estado | ✅ | idem |
+| MSP.3.4 | Detalle de la orden: «Viene de SRV-… (Presupuestos y Requerimientos)» | ✅ | idem |
 
 ### Encender (después del merge)
 
 | # | Item | Estado |
 |---|---|---|
-| MSP.4.1 | Aplicar las 2 migraciones en prod **una por una**, ANTES del merge (sólo agregan columnas con default y filas; el código viejo las ignora y la cola queda apagada) | ⬜ |
-| MSP.4.2 | Desplegar; `ernesto_zarate` cierra sesión y vuelve a entrar (los permisos viajan en el token) | ⬜ |
+| MSP.4.1 | Aplicar las 2 migraciones en prod **una por una**, después del merge y antes de soltar (el envoltorio sólo aplica archivos que ya están en `origin/main`; este plan decía «antes del merge» y estaba mal). Sólo agregan columnas con default y filas; la cola queda apagada | ✅ 2026-11-19 19:35 UTC (batch 1213 y 1214) |
+| MSP.4.2 | Desplegar; `ernesto_zarate` cierra sesión y vuelve a entrar (los permisos viajan en el token) | 🔨 desplegado (prod sirve `f43a7340e`, que contiene el squash `3e3bf4caf`; medido el 2026-11-21); el re-login de Ernesto no se puede verificar desde la base |
 | MSP.4.3 | Encender la cola desde Configuración y levantar una solicitud de prueba (marcarla «de prueba») con un encargado, **con evidencia adjunta** y una orden de servicio a Mantenimiento: es la primera vez que la evidencia corre de punta a punta (el bucket no existe en local) | ⬜ |
 
 ## 4. Decisiones (→ ADR-124)
@@ -131,8 +131,8 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 - [ ] 3. Los 4 endpoints que escriben ejercidos contra base real con el payload de la pantalla — ejercidos los 4 (2026-11-19), **falta la evidencia**: sin bucket local, el alta con adjunto y su copia en la orden esperan a `[MSP.4.3]`
 - [x] 4. Toda compuerta nueva rota a propósito una vez (mutantes del §7: C0 4/4, C1 6/6, C2 3 rondas, C3 3/3)
 - [ ] 5. Primitivos genéricos: son columnas de `queues` + `domain/presupuesto.ts` en `libs/service-desk` (no hay primitivo local)
-- [x] 6. Tracker + log + roadmap al día (2026-11-19, checkpoint del PR #567)
-- [ ] 7. En prod
+- [x] 6. Tracker + log + roadmap al día (2026-11-19, checkpoint del PR #567; 2026-11-21, en prod)
+- [x] 7. En prod (2026-11-19, squash `3e3bf4caf`, migraciones batch 1213 y 1214; la cola sigue apagada hasta `[MSP.4.3]`)
 
 ## 7. Pruebas y mutantes (medido el 2026-11-18; C0 y C2 el 2026-11-19)
 
@@ -184,3 +184,4 @@ adjuntos, los campos por área y el traslado; le faltan cuatro piezas.
 | 2026-11-18 | C0–C3 escritos. C1 y C3 🧪 (con mutantes); C0 y la matriz HTTP de C2 NO MEDIDAS (sin Postgres local ni API). Ver §7. | Claude |
 | 2026-11-19 | Con Postgres local y la API levantada desde la copia: C0 47/47 (4 mutantes en rojo), C2 62/62 (3 rondas de mutantes en rojo). La matriz encontró el 403 que llegaba después del bucket; arreglado. Evidencia de punta a punta NO MEDIDA (sin bucket local) → `[MSP.4.3]`. | Usuario + Claude |
 | 2026-11-19 | **PR #567** abierto. CI obligatorio en verde; `Lint & test` rojo ajeno (`primeng` 24 > 21 ya en la base). `main` tomó ADR-122 (`[VER]`): la decisión de esta fase pasa a **ADR-124** en una fusión. Las observaciones del ciclo, al protocolo previo al PR (`ONBOARDING.md` §8.0b, puntos 114–119; 109–113 son de #569). | Claude |
+| 2026-11-21 | **En prod, con la cola apagada** (re-medido, sólo lectura): #567 fusionado el 2026-11-19 (squash `3e3bf4caf`, 18:28 UTC); las 2 migraciones aplicadas a las 19:35 UTC (batch 1213 y 1214), después del merge; prod sirve `f43a7340e`, que contiene el squash; cola `presupuestos` apagada, 3 categorías, 0 solicitudes; Ernesto coordinador con sus 2 permisos. C0–C3 y MSP.4.1 a ✅. Falta MSP.4.2 (re-login) y MSP.4.3 (encender + prueba con evidencia), con el cupo ratificado por el PM. | Claude |
