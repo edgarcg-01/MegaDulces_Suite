@@ -277,7 +277,7 @@ Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo 
 | BFU.7.5 | C1 · Pareo pendiente (Kepler lo tiene y la conciliación no lo casa) y pago en otra cuenta | ⬜ | 10 cheques de nómina de noviembre |
 | BFU.7.6 | C2 · La cobertura en `diagnostico`: con categoría + por motivo y responsable = total | ⬜ | Suma igual al total del mes |
 | BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
-| BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | 🧪 | Su IVA del 16 % el mismo día, al centavo |
+| BFU.7.8 | C1 · El vocabulario del banco: las abreviaturas de comisión de BBVA | ✅ | Su IVA del 16 % el mismo día, al centavo |
 
 ## 9. Riesgos y bloqueos
 
