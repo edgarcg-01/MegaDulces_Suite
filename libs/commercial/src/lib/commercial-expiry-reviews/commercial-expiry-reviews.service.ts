@@ -43,8 +43,14 @@ import {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** `numeric(14,3)`: las existencias y los lotes guardan 3 decimales. */
 const redondea3 = (n: number): number => Math.round(n * 1000) / 1000;
-/** `[P2.9 paso 4]` El factor con que entra a FEFO una captura de un producto en cierta unidad. */
-type FactorDe = (productId: string | null | undefined, unidad: string | null | undefined) => FactorDeCaptura;
+/**
+ * `[P2.9 paso 4]` El factor con que entra a FEFO una captura de un producto en cierta unidad. Además de los
+ * motivos de `factorDeCaptura`, `sin_clave_kepler` (AUD-DAT.32): el producto del catálogo no tiene `sku`.
+ */
+type FactorDe = (
+  productId: string | null | undefined,
+  unidad: string | null | undefined,
+) => FactorDeCaptura | { factor: null; motivo: Extract<FefoMotivo, 'sin_clave_kepler'> };
 /** `[P2.9 paso 4]` Lo que `feedLine` lee de un renglón (viene crudo de la base). */
 interface LineaFefo {
   id: string;
@@ -661,14 +667,19 @@ export class CommercialExpiryReviewsService {
    * Si la lectura falla o tarda más de 5 s, la captura se guarda igual y el renglón dice `sin_lectura`
    * (corregir la alta del día vuelve a intentar). Un almacén sin plaza de Kepler (código que no es de
    * 2 dígitos) no tiene presentaciones: `sin_presentaciones`.
+   *
+   * Un producto del catálogo SIN `sku` de Kepler (AUD-DAT.32: las altas de mayo para las promotoras) no es
+   * el del inventario: `sin_clave_kepler`, antes que cualquier motivo de unidad, porque ninguna unidad lo arregla.
    */
   private async factoresFefo(trx: Knex.Transaction, warehouseId: string, productIds: Array<string | null | undefined>): Promise<FactorDe> {
     const ids = Array.from(new Set(productIds.filter((p): p is string => !!p && UUID_REGEX.test(p))));
     const skuDe = new Map<string, string>();
+    const sinClave = new Set<string>();
     if (ids.length) {
       for (const p of await trx('catalog.products').whereIn('id', ids).select('id', 'sku')) {
         const sku = String(p.sku ?? '').trim();
         if (sku) skuDe.set(p.id, sku);
+        else sinClave.add(p.id);
       }
     }
     const w = await trx('commercial.warehouses').where({ id: warehouseId }).first('code');
@@ -699,6 +710,7 @@ export class CommercialExpiryReviewsService {
     }
     const unidadesDe = new Map<string, ReturnType<typeof unidadesDesdePresentaciones>['unidades']>();
     return (productId, unidad) => {
+      if (productId && sinClave.has(productId)) return { factor: null, motivo: 'sin_clave_kepler' };
       const sku = productId ? skuDe.get(productId) : undefined;
       let unidades: ReturnType<typeof unidadesDesdePresentaciones>['unidades'] = null;
       if (sku) {

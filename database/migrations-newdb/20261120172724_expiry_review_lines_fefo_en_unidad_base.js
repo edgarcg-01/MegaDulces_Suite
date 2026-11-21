@@ -9,6 +9,7 @@
  *  · `fefo_factor`   — unidades base por unidad capturada que se usó (la base vale 1; una caja de 24
  *    paquetes vale 24). Sale de `analytics.v_label_presentations` en la plaza del almacén.
  *  · `fefo_motivo`   — por qué el renglón NO fechó, o no fechó todo. `NULL` = fechó todo, o es anterior.
+ *    `sin_clave_kepler` (AUD-DAT.32): el producto del catálogo no tiene `sku` de Kepler, no es el del inventario.
  *
  * `fefo_qty` NO cambia de significado: sigue en la unidad CAPTURADA (lo que leen la hoja, el expediente
  * y `estadoFefo`), ahora como `fefo_base_qty / fefo_factor`.
@@ -33,7 +34,7 @@ const T = 'commercial.expiry_review_lines';
 const CHK = 'commercial_expiry_review_lines_fefo_motivo_chk';
 // Espejo de FEFO_MOTIVOS en libs/contracts (caducidad-unidad). Agregar uno allá sin ampliar éste = 500 al guardar.
 const MOTIVOS = [
-  'sin_producto', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
+  'sin_producto', 'sin_clave_kepler', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
   'sin_presentaciones', 'sin_lectura', 'unidad_fuera_del_producto', 'unidad_sin_factor',
   'sin_existencia_sin_fecha', 'existencia_sin_fecha_insuficiente',
 ];

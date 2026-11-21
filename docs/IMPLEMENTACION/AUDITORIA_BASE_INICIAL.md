@@ -1094,7 +1094,7 @@ celular.
 
 ## Addendum — `AUD-DAT.32`: 23 promotoras tienen una marca sin productos de Kepler, y Caducidades les rechaza su producto real (2026-11-21)
 
-**Estado: ABIERTO.** Arreglarlo es reasignar marcas en prod: qué cubre cada promotora lo decide Edgar,
+**Estado: ABIERTO** (el punto 2 de abajo, hecho). Arreglarlo es reasignar marcas en prod: qué cubre cada promotora lo decide Edgar,
 y la escritura va con su autorización. Lo encontró la revisión de dos fotos de tienda del 20-nov que
 reportaban «al escanear, la Suite captura otro producto».
 
@@ -1140,8 +1140,9 @@ reportaban «al escanear, la Suite captura otro producto».
   asignada en la Suite.
 - **Cómo se arregla cuando se decida:**
   1. Reasignar cada cuenta a la marca de Kepler confirmada (escritura en `commercial.promoter_brands`).
-  2. Que la hoja diga el motivo verdadero de un producto sin `sku` («no tiene clave de Kepler»). Cabe en el
-     `fefo_motivo` del paso 4 de P2.9.
+  2. ✅ **Hecho en el paso 4 de P2.9 (2026-11-21, en PR):** la hoja dice «este producto no tiene clave de Kepler»
+     (`fefo_motivo = sin_clave_kepler`) en vez de «no hay existencia sin fecha». Probado contra Postgres real y en pantalla
+     local con la API de la copia.
   3. Después del 1, no antes: sacar los productos sin `sku` de la búsqueda de Caducidades. Antes, estas
      promotoras se quedarían sin nada que elegir.
 - **No medido:** cuántos códigos se rechazaron por alcance (`resolveCode` no deja rastro) y quién borró

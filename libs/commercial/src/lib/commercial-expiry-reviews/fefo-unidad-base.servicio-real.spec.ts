@@ -38,7 +38,7 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
   let svc: CommercialExpiryReviewsService;
   let wh = '';
   let brand = '';
-  const prod: Record<'A' | 'B' | 'C', string> = { A: '', B: '', C: '' };
+  const prod: Record<'A' | 'B' | 'C' | 'D', string> = { A: '', B: '', C: '', D: '' };
 
   /** Los lotes de un producto en el almacén de prueba: `NA` y los fechados. */
   const lotes = async (p: string) => {
@@ -74,6 +74,10 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
         .returning('id');
       prod[k] = id;
     }
+    // D — AUD-DAT.32: un producto del catálogo SIN sku de Kepler (como las altas de mayo para las promotoras).
+    [{ id: prod.D }] = await admin('catalog.products')
+      .insert({ tenant_id: T, brand_id: brand, sku: null, nombre: `PRUEBA P2.9 paso 4 D sin clave ${M}` })
+      .returning('id');
     await admin('kepler_ods.kdii').insert([
       // A — el caso de prod (99734): base PAQ, ranura CJA de 24; en la escalera, PZA sin factor
       { sucursal: PLAZA, c1: `${M}A`, c2: 'PRUEBA PAQ', c11: 'PAQ', c90: 34, c80: 'CJA', c81: 24, c91: 750 },
@@ -87,6 +91,8 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
       { tenant_id: T, warehouse_id: wh, product_id: prod.A, quantity: 1000, reserved_quantity: 0 },
       { tenant_id: T, warehouse_id: wh, product_id: prod.B, quantity: 30, reserved_quantity: 0 },
       { tenant_id: T, warehouse_id: wh, product_id: prod.C, quantity: 50, reserved_quantity: 0 },
+      // D con existencia a propósito: si no fecha, el motivo no puede ser «no hay existencia sin fecha».
+      { tenant_id: T, warehouse_id: wh, product_id: prod.D, quantity: 50, reserved_quantity: 0 },
     ]);
     expect(await lotes(prod.A)).toEqual({ NA: 1000 });
   });
@@ -105,6 +111,7 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
       await admin('kepler_ods.kdpv_prod_util').where('c1', 'like', `${M}%`).del();
       await admin('kepler_ods.kdii').where('c1', 'like', `${M}%`).del();
       await admin('catalog.products').where('sku', 'like', `${M}%`).del();
+      if (prod.D) await admin('catalog.products').where({ id: prod.D }).del();
       if (brand) await admin('catalog.brands').where({ id: brand }).del();
     }
     await knex?.destroy();
@@ -170,6 +177,16 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
     expect(await lotes(prod.C)).toEqual({ NA: 50 });
   });
 
+  it('⛔ NEGATIVA (AUD-DAT.32) — producto sin clave de Kepler: no fecha aunque haya existencia, y lo dice', async () => {
+    const e = await alta(prod.D, 'paquete', 16, '2026-12-16'); // el renglón de la foto de tienda
+    const l = await renglon(e.id);
+    expect(l.fed_to_fefo).toBe(false);
+    expect(l.fefo_motivo).toBe('sin_clave_kepler');
+    // gana sobre los motivos de unidad: ninguna unidad lo arregla
+    expect((await renglon((await alta(prod.D, null, 1, '2026-12-17')).id)).fefo_motivo).toBe('sin_clave_kepler');
+    expect(await lotes(prod.D)).toEqual({ NA: 50 });
+  });
+
   it('⭐ corregir una alta revierte lo movido EN LA BASE y vuelve a fechar con la cantidad nueva', async () => {
     const e = await alta(prod.A, 'caja', 2, '2027-02-01');
     expect((await lotes(prod.A))['EXP-2027-02-01']).toBe(48);
@@ -212,7 +229,7 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 4] FEFO en la unidad base del produc
   });
 
   it('el invariante SUM(lotes) = existencia se sostiene al final', async () => {
-    for (const p of [prod.A, prod.B, prod.C]) {
+    for (const p of [prod.A, prod.B, prod.C, prod.D]) {
       const suma = Object.values(await lotes(p)).reduce((a, b) => a + b, 0);
       expect(suma).toBe(await total(p));
     }

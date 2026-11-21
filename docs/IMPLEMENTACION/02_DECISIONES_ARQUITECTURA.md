@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 510 KB, 4725 líneas, 124 secciones.
+> **Índice navegable** — 511 KB, 4730 líneas, 124 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -130,7 +130,7 @@
 | 4660 | 4730 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
 | 4731 | 4771 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
 | 4772 | 4818 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
-| 4819 | 4861 | 3 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
+| 4819 | 4866 | 4 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4836,7 +4836,9 @@ independiente: el costo unitario que Kepler guarda con ella (`kdik.c16`) es el d
    `analytics.v_label_presentations` **de la plaza del almacén** (no de otra: el factor es configuración de cada sucursal).
    La base vale 1. Una sola lectura por hoja, antes de bloquear existencias.
 2. **Sin factor no se alimenta** (D4): unidad de la escalera (llega sin factor), unidad que el producto no tiene, sin
-   presentaciones, sin unidad o lectura caída. **No se inventa un 1.**
+   presentaciones, sin unidad o lectura caída. **No se inventa un 1.** Tampoco se alimenta un producto del catálogo **sin
+   `sku` de Kepler** (`sin_clave_kepler`, AUD-DAT.32, 2026-11-21): no es el producto del inventario, y ese motivo gana sobre
+   los de unidad porque ninguna unidad lo arregla.
 3. **El renglón declara con qué se calculó** (`fefo_base_qty`, `fefo_factor`) **y por qué no fechó** (`fefo_motivo`, CHECK
    espejo de `FEFO_MOTIVOS` en `libs/contracts`). La pantalla dice ese motivo; ya no lo infiere.
 4. `fefo_qty` **no cambia de significado** (unidad capturada): sus 3 lectores siguen siendo correctos sin tocarlos.
@@ -4856,5 +4858,8 @@ cuando la del almacén no publica el SKU; (d) cambiar `fefo_qty` a la base (romp
 
 ### Medido
 
-- Contra Postgres real: 12/12; romper la conversión da 5 rojos, factor 1 para la escalera 3, revertir sin la base 1.
+- Contra Postgres real: 13/13; romper la conversión da 5 rojos, factor 1 para la escalera 3, revertir sin la base 1,
+  no distinguir el producto sin clave 1.
+- Prueba de pantalla en local (2026-11-21, API y pantalla de la copia contra `:5442`): caja, pieza de escalera, kg parcial,
+  sin presentaciones y sin clave dicen lo correcto al guardar y en la hoja impresa; el invariante de lotes se sostiene.
 - Pantalla: la negativa (la frase «no hay existencia sin fecha» ya no sale si el motivo es el factor) da 3 rojos con el código viejo.

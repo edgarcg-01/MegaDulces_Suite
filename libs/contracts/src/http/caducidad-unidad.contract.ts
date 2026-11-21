@@ -179,10 +179,14 @@ export function unidadesDesdePresentaciones(
  * dice tal cual. Antes la pantalla lo INFERÍA, y con la conversión la inferencia mentiría: diría «no hay
  * existencia sin fecha» cuando lo que falta es el factor de Kepler.
  *
+ * `sin_clave_kepler` (AUD-DAT.32): el renglón apunta a un producto del catálogo SIN `sku` de Kepler (las
+ * altas de mayo para las promotoras). No es el producto del inventario: nunca puede fechar, tenga o no
+ * existencia, y decir «no hay existencia sin fecha» sería falso.
+ *
  * ⛔ Agregar un motivo aquí sin ampliar el CHECK hace que la base rechace el guardado (500).
  */
 export const FEFO_MOTIVOS = [
-  'sin_producto', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
+  'sin_producto', 'sin_clave_kepler', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
   'sin_presentaciones', 'sin_lectura', 'unidad_fuera_del_producto', 'unidad_sin_factor',
   'sin_existencia_sin_fecha', 'existencia_sin_fecha_insuficiente',
 ] as const;

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   CADUCIDAD_UNIDADES, CADUCIDAD_UNIDADES_DEF, esCaducidadUnidad, unidadDesdeKepler, unidadEnTexto,
   unidadesDesdePresentaciones, unidadesOfrecidas, factorDeCaptura, FEFO_MOTIVOS, esFefoMotivo,
@@ -144,12 +146,18 @@ describe('[P2.9 paso 4] factorDeCaptura: con qué factor entra a FEFO lo captura
     expect(factorDeCaptura([], 'caja', 'sin_lectura')).toEqual({ factor: null, motivo: 'sin_lectura' });
   });
 
-  it('los motivos son los del CHECK de la migración 20261120172724', () => {
-    expect(FEFO_MOTIVOS).toEqual([
-      'sin_producto', 'sin_caducidad', 'sin_cantidad', 'sin_unidad',
-      'sin_presentaciones', 'sin_lectura', 'unidad_fuera_del_producto', 'unidad_sin_factor',
-      'sin_existencia_sin_fecha', 'existencia_sin_fecha_insuficiente',
-    ]);
+  it('los motivos son los del CHECK de la migración 20261120172724 (se LEE el archivo, no una copia)', () => {
+    // Un motivo aquí que el CHECK no tiene = la base rechaza el guardado (500). Se compara contra el texto
+    // de la migración para que la deriva salga roja aquí y no en la sucursal.
+    const mig = readFileSync(
+      resolve(__dirname, '../../../../database/migrations-newdb/20261120172724_expiry_review_lines_fefo_en_unidad_base.js'),
+      'utf8',
+    );
+    const bloque = /const MOTIVOS = \[([\s\S]*?)\];/.exec(mig)?.[1] ?? '';
+    const delCheck = Array.from(bloque.matchAll(/'([a-z_]+)'/g), (m) => m[1]);
+    expect(delCheck.length).toBeGreaterThan(0);
+    expect([...FEFO_MOTIVOS]).toEqual(delCheck);
+    expect(FEFO_MOTIVOS).toContain('sin_clave_kepler');
     expect(esFefoMotivo('unidad_sin_factor')).toBe(true);
     expect(esFefoMotivo('otro')).toBe(false);
   });

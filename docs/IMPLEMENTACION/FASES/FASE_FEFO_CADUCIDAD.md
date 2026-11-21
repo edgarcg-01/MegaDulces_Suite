@@ -297,20 +297,33 @@ Misma pregunta que el paso 0 (¿la unidad capturada es una que el producto tiene
 - **Hallazgo:** en **26 de 82** renglones convertibles, `cantidad × factor` supera la existencia **de hoy** (no la del día de la captura: ésa no se midió). Con la conversión, «parcial» será más frecuente, y la pantalla lo dirá con su cifra. Puede ser venta posterior, conteo mayor que el sistema o una unidad mal elegida («caja» por «paquete», §4b); no se adivina.
 
 **Lo construido:**
-- **Contrato** (`caducidad-unidad`): `factorDeCaptura(unidades, unidad)` → `{ factor }` o `{ motivo }`. La base vale 1, una presentación vale su factor y **sin factor no se inventa un 1**. `FEFO_MOTIVOS` (10), espejo del CHECK.
+- **Contrato** (`caducidad-unidad`): `factorDeCaptura(unidades, unidad)` → `{ factor }` o `{ motivo }`. La base vale 1, una presentación vale su factor y **sin factor no se inventa un 1**. `FEFO_MOTIVOS` (11), espejo del CHECK; la prueba del contrato **lee** la lista de la migración, no una copia.
 - **Migración `20261120172724`** (aditiva, idempotente, nullable): `fefo_base_qty` (lo movido en la base, lo que se revierte), `fefo_factor` y `fefo_motivo` con CHECK. **No toca filas.** Va en prod **antes** del código: el servidor nuevo escribe esas columnas.
 - **Servicio:** `feedLine` mueve `cantidad × factor` con el factor de la plaza del almacén (una lectura por hoja, antes de bloquear existencias; SAVEPOINT de 5 s). Sin factor, no alimenta y guarda el motivo. `fefo_qty` **no cambia de significado** (unidad capturada), así que la hoja impresa, el expediente y «Capturas por día» siguen diciendo «3 cajas». `unfeedLine` revierte `fefo_base_qty`; en un renglón anterior al paso 4 revierte lo que movió (`fefo_qty`), no `× factor`.
 - **Pantalla:** `estadoFefo` dice el motivo **del servidor**. La inferencia de antes habría dicho «no hay existencia sin fecha» de un renglón al que sólo le falta el factor. Mismo texto en el aviso al guardar, la hoja impresa y el detalle de Almacén. No cambia el diseño: sólo la frase.
-- **Prueba HTTP** (`http-expiry-reviews-test.js`): el almacén de prueba no es plaza de Kepler, así que ahora se espera que **no** feche y que diga `sin_presentaciones`. La alta en sucursal exige la conversión si fechó, o el motivo si no. ⚠️ **NO MEDIDO:** necesita la API local levantada.
+- **Producto sin clave de Kepler** (`sin_clave_kepler`, [AUD-DAT.32](../AUDITORIA_BASE_INICIAL.md), 2026-11-21): un renglón sobre un producto del catálogo **sin `sku`** (las altas de mayo para las promotoras: 232 productos de 12 marcas) no fecha, tenga o no existencia, y la hoja lo dice. Gana sobre los motivos de unidad: ninguna unidad lo arregla. Antes la hoja decía «el sistema no tiene existencia sin fecha» (foto de tienda del 20-nov, ASTRIDIX).
+- **Prueba HTTP** (`http-expiry-reviews-test.js`): el almacén de prueba no es plaza de Kepler, así que ahora se espera que **no** feche y que diga `sin_presentaciones`. La alta en sucursal exige la conversión si fechó, o el motivo si no. ⚠️ **NO MEDIDO:** con la API arriba (2026-11-21) se detiene en su preparación porque la base local `:5442` no tiene `analytics.v_erp_unit_cost` y el listado de existencias da 500. Es del entorno, no del paso 4; se corre en el CI o con esa vista.
 
-**Medido después (local, `:5442`):** contra Postgres real **12/12** (`fefo-unidad-base.servicio-real.spec.ts`: caja, base, kg de bolsa, escalera, unidad ajena, parcial, sin presentaciones, sin unidad, corrección, renglón viejo, hoja de Almacén, invariante y CHECK). Negativas: sin convertir → **5 rojos**; escalera con factor 1 → **3**; revertir `fefo_qty × factor` → **1**; pantalla que ignora el motivo → **3**. Módulo de caducidades **43/43** corrido junto; `modules/comercial` + `modules/tienda` **944/944**; contrato **1,668/1,668**; `tsgo` sin errores nuevos (el único, `apps/api/src/instrument.ts`, ya está en `main`).
+**Medido después (local, `:5442`):** contra Postgres real **13/13** (2026-11-21: + producto sin clave, con existencia: no fecha y dice `sin_clave_kepler`) (`fefo-unidad-base.servicio-real.spec.ts`: caja, base, kg de bolsa, escalera, unidad ajena, parcial, sin presentaciones, sin unidad, corrección, renglón viejo, hoja de Almacén, invariante y CHECK). Negativas: sin convertir → **5 rojos**; escalera con factor 1 → **3**; revertir `fefo_qty × factor` → **1**; pantalla que ignora el motivo → **3**; servicio que no distingue el producto sin clave → **1**; migración sin el motivo nuevo → **1** (prueba del contrato); pantalla sin la frase → **2**. Módulo de caducidades **44/44** corrido junto; `modules/comercial` + `modules/tienda` **945/945**; contrato **1,668/1,668**; `tsgo` sin errores nuevos (el único, `apps/api/src/instrument.ts`, ya está en `main`).
 - **Defecto propio cazado:** la spec del paso 3 (`unidades-producto`) sembraba el almacén `94`, que `expediente-dias` también usa. Corridas juntas, una moría en `commercial_warehouses_tenant_code_unique`. Pasa a `86`/`87`; ver §8.0b punto 93.
 
 **Métrica de P2.9, re-medida con más volumen (2026-11-20):** desde el despliegue del paso 2, **24 de 25 renglones (96 %)** están en una unidad que el producto tiene en Kepler en su plaza (paso 0: 46 %). 18 en «paquete», en 5 sucursales y 5 días con captura. El único fuera es una «pieza» de un producto sólo PAQ (SKU 88004, plaza 01). Supera la meta propuesta (≥ 90 %); «sostenido» pide más semanas con la misma consulta.
 
+**Prueba de pantalla (2026-11-21, local, API 3394 + pantalla 4294 desde la copia, sucursal 05, payload de la pantalla):**
+
+| Captura | Aviso al guardar | Base de datos | Hoja impresa |
+|---|---|---|---|
+| P4A · 3 cajas | «Ya se reflejó todo» | 72 en la base, factor 24, lote `NA` 1,000 → 928 | «Sí — se fecharon 3 cajas» |
+| P4A · 2 piezas (escalera) | «…Kepler no dice a cuánto del inventario equivale «pieza»…» | no fecha, `unidad_sin_factor` | «No — … (Kepler no dice …)» |
+| P4B · 20 kg (30 bolsas sin fecha) | «Se reflejaron 15 kg de 20 kg … Quedan 5 kg sin fechar» | 30 en la base, factor 2, `existencia_sin_fecha_insuficiente` | «Parcial — 15 de 20 kg» |
+| P4C · 1 caja | «…Kepler no publica las presentaciones…» | no fecha, `sin_presentaciones` | — |
+| P4D · 16 paquetes, sin clave (el caso ASTRIDIX) | «…no tiene clave de Kepler, así que no es el del inventario…» | no fecha, `sin_clave_kepler`, lote `NA` 50 intacto | «No — … (este producto no tiene clave de Kepler …)» |
+
+En los cuatro productos, la suma de los lotes es igual a la existencia. Los servidores se apagaron al terminar.
+
 **No medido / pendiente:**
 - **El «después» en prod** (criterio de cierre): lo que entra a FEFO con las capturas nuevas, con la misma clasificación. Se mide cuando el paso 4 esté en prod.
-- **Arranque de la API**: no cambian ni el constructor ni los decoradores, sólo métodos privados y un `select`.
+- ~~**Arranque de la API**~~ **medido (2026-11-21):** la API de la copia arrancó con este código («Nest application successfully started») contra `:5442`.
 - **`[P2.9.4.D1]` — decisión del PM:** los **113** renglones viejos (47 convertibles + 66 en unidad ajena) siguen fechados tal cual. Reconvertirlos movería lotes que ya se consumieron en parte. Opciones: no tocarlos (recomendado: son de oct-nov y su caducidad ya pasó o está cerca), o un ajuste puntual por sucursal.
 - **Equivalencias «esto son N …»** (opcional en el plan): no se construyeron. Con `fefo_factor` guardado, la hoja podría decir «3 cajas = 72 paquetes». Queda para cuando el PM lo pida.
 

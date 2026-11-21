@@ -194,6 +194,8 @@ export function motivoFefoEnTexto(motivo: FefoMotivo | string, unidad?: string |
   const d = caducidadUnidadDef(unidad);
   switch (motivo) {
     case 'sin_producto': return 'el producto no está en el catálogo';
+    case 'sin_clave_kepler':
+      return 'este producto no tiene clave de Kepler, así que no es el del inventario; avísale al encargado para que lo corrija';
     case 'sin_caducidad': return 'no tiene fecha de caducidad';
     case 'sin_cantidad': return 'la cantidad es cero';
     case 'sin_unidad': return 'no se dijo en qué unidad se contó';

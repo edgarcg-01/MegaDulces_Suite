@@ -84,6 +84,13 @@ describe('[P2.9 paso 4] estadoFefo dice el motivo del servidor', () => {
     expect(motivoFefoEnTexto('motivo_del_futuro')).toBe('motivo_del_futuro');
   });
 
+  it('AUD-DAT.32 — producto sin clave de Kepler: lo dice, y NO culpa a la existencia', () => {
+    const e = estadoFefo({ fed_to_fefo: false, quantity: 16, product_id: 'copia-sin-sku', unit: 'paquete', fefo_motivo: 'sin_clave_kepler' });
+    expect(e.nivel).toBe('ninguno');
+    expect(e.motivo).toMatch(/no tiene clave de Kepler/);
+    expect(e.motivo).not.toMatch(/existencia sin fecha/);
+  });
+
   it('el mensaje al guardar lo lleva tal cual', () => {
     expect(mensajeFefo(estadoFefo({ fed_to_fefo: false, quantity: 2, product_id: 'p', unit: 'kg', fefo_motivo: 'sin_presentaciones' }), 'kg').detail)
       .toBe('Guardado, pero no movió inventario: Kepler no publica las presentaciones de este producto en esta sucursal, y sin ellas no se sabe a cuánto inventario equivale lo contado.');
