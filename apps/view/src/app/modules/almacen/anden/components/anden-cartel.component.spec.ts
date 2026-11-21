@@ -9,7 +9,8 @@ import { AndenCartelComponent, type CartelUbicacion } from './anden-cartel.compo
 /**
  * `[UB.RF.12]` El cartel de ubicación en sus dos tamaños. En la TIENDA un cartel de media carta le quita
  * vista al producto: va una etiqueta chica para el canto del anaquel, con el mismo CODE128 del código que lee
- * la pantalla «Ubicar productos». `[UB.RF.14]` Esa etiqueta sale en la TSC TE200, rollo amarillo, 3 por fila.
+ * la pantalla «Ubicar productos». `[UB.RF.14]` Esa etiqueta sale en la TSC TE200, rollo amarillo; `[UB.RF.16]`
+ * ese rollo es de UNA etiqueta a lo ancho, de 55 × 25 mm (medida con regla).
  */
 
 const U = (n: number): CartelUbicacion[] =>
@@ -30,7 +31,7 @@ describe('[UB.RF.12] cartel de ubicación · etiqueta chica para la tienda', () 
     vi.mocked(printIsolated).mockClear();
   });
 
-  it('⭐ etiqueta: una por ubicación, con su código y su código de barras, y el botón dice cuántas filas de la TSC', async () => {
+  it('⭐ etiqueta: una por ubicación, con su código y su código de barras, y el botón dice cuántas', async () => {
     const { fix, el } = montar(U(31), 'etiqueta');
     await fix.whenStable();
     await Promise.resolve();
@@ -40,19 +41,32 @@ describe('[UB.RF.12] cartel de ubicación · etiqueta chica para la tienda', () 
     expect(etiquetas[0].querySelector('.ct-et-arriba')?.textContent?.trim()).toBe('01 · Tienda · nivel 1');
     expect(etiquetas[0].querySelector('svg.ct-bar')?.getAttribute('data-code')).toBe('TA011');
     expect(el.querySelector('.ct-cartel')).toBeNull();
-    expect(el.textContent).toContain('Imprimir las 31 etiquetas (11 filas de la TSC)');
+    expect(el.textContent).toContain('Imprimir las 31 etiquetas');
+    expect(el.textContent).not.toContain('filas de la TSC');
     expect(el.textContent).toContain('rollo amarillo');
+    expect(el.textContent).toContain('55 × 25 mm');
   });
 
-  it('⭐ imprime a la TSC TE200: una hoja de 100 × 48 mm por fila de 3, con la etiquetera compartida', () => {
+  it('⭐ [UB.RF.16] imprime a la TSC TE200 con el rollo amarillo: UNA hoja de 55 × 25 mm por etiqueta', () => {
     const { fix } = montar(U(4), 'etiqueta');
     fix.componentInstance.imprimir();
     expect(printIsolated).toHaveBeenCalledTimes(1);
     const o = vi.mocked(printIsolated).mock.calls[0][0];
-    expect(o.page).toBe('size: 100mm 48mm; margin: 0;');
-    expect(o.html.match(/class="et-fila"/g)).toHaveLength(2);
+    expect(o.page).toBe('size: 55mm 25mm; margin: 0;');
+    // NEGATIVA: no la medida que configura Kepler (60 × 30), que resultó falsa.
+    expect(o.page).not.toContain('60mm');
+    expect(o.html.match(/class="et eu"/g)).toHaveLength(4);
     expect(o.html).toContain('TA014');
-    expect(o.css).toContain('.et{box-sizing:border-box;width:32mm');
+    expect(o.css).toContain('.et{box-sizing:border-box;width:55mm;height:24.6mm');
+  });
+
+  it('NEGATIVA [UB.RF.16]: ya no manda la fila de 3 del checado (100 × 48) al rollo amarillo', () => {
+    const { fix } = montar(U(3), 'etiqueta');
+    fix.componentInstance.imprimir();
+    const o = vi.mocked(printIsolated).mock.calls[0][0];
+    expect(o.page).not.toContain('100mm');
+    expect(o.html).not.toContain('et-fila');
+    expect(o.css).not.toContain('width:32mm');
   });
 
   it('NEGATIVA: la hoja carta tipo 5160 ya no existe en el formato etiqueta', () => {

@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: la etiqueta de ubicación sale del tamaño del rollo amarillo (UB.RF.16 · 2026-11-20)
+- Las etiquetas de tienda se imprimían como la fila de 3 del checado y en el rollo amarillo (una etiqueta de 6 × 3 cm) salían cortadas y encimadas. Ahora sale una etiqueta de 60 × 30 mm por hoja, con el código grande y su código de barras.
+
 ### Fixed — Almacén: cierres que sí se guardaron ya no se reportan como fallidos (GP.RF.45 y GP.RF.46 · 2026-11-20)
 - Surtir: si al terminar el servidor tarda y no contesta, la pantalla revisa unos segundos si el cierre se guardó antes de decir que falló (en prod, los 4 casos de estos días sí se habían guardado).
 - Revisión en caja: si un pedido ya quedó revisado (por ejemplo, con un segundo toque), la pantalla lo dice y pasa al siguiente en lugar de mostrar un error.
@@ -85,12 +88,12 @@
 - Desde la espera de tipografías del 11-nov, ninguna tienda podía imprimir: «la hoja de impresión no alcanzó a cargar Anton, Bebas Neue, Baloo 2». La hoja de impresión buscaba los estilos en la dirección equivocada y nunca los encontraba. Corregido en el hotfix #536, el mismo 12-nov.
 - Ese mismo defecto hacía que, antes, las etiquetas se imprimieran con la tipografía de respaldo. De ahí salía el último dígito del código cortado (NUTELLA 42089). Ahora salen con la tipografía de la etiqueta.
 
-### Added — Los teléfonos de la cartera se corrigen desde la ficha: el del cliente en Kepler y el del vendedor en la Suite (CXC.48 · 2026-11-20 · en código, sin soltar; la escritura en Kepler nace apagada)
+### Added — Los teléfonos de la cartera se corrigen desde la ficha: el del cliente en Kepler y el del vendedor en la Suite (CXC.48 · 2026-11-20 · en producción; la escritura en Kepler, encendida sólo en Canindo)
 - En la ficha de Cartera se ve el teléfono del cliente, y si es distinto en otras sucursales, junto con el del vendedor. Quien tenga la llave «Corregir teléfonos de la cartera» los puede cambiar.
 - El del cliente se escribe en Kepler, en cada sucursal donde está dado de alta, y queda en la bitácora de Kepler como lo deja su propia pantalla. Si una sucursal no contesta, no se escribe en ninguna.
 - El del vendedor se guarda en la Suite, porque el catálogo de vendedores de Kepler no tiene dónde. Con él guardado, «Enviar al vendedor» abre su chat directo.
 
-### Added — El estado de cuenta del cliente trae también las facturas pagadas, por periodo, y se manda al vendedor (CXC.47 · 2026-11-20 · en código, sin soltar)
+### Added — El estado de cuenta del cliente trae también las facturas pagadas, por periodo, y se manda al vendedor (CXC.47 · 2026-11-20 · en producción)
 - El PDF del estado de cuenta trae las facturas abiertas (todas) y las pagadas del periodo, cada una con los cobros y notas que la pagaron.
 - En la ficha de Cartera se elige el periodo (de un mes a toda la historia; por defecto, tres meses). La tabla, el PDF y los mensajes usan el mismo.
 - Nuevo botón «Enviar al vendedor»: le manda por WhatsApp el estado de cuenta de su cliente, con la liga al PDF. El teléfono del vendedor no está en ningún sistema, así que el chat se elige en WhatsApp.
