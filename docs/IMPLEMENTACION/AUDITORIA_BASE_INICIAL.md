@@ -1089,3 +1089,61 @@ celular.
 - **Lo que sigue abierto:** las tablas que no optaron por `.dt-stack` siguen escondiendo columnas en el
   celular. Arreglarlo es pasar cada una a `.dt-stack` o declarar qué falta. No se tocó a ciegas: cambia
   lo que se ve en cada pantalla de la Suite en el teléfono.
+
+---
+
+## Addendum — `AUD-DAT.32`: 23 promotoras tienen una marca sin productos de Kepler, y Caducidades les rechaza su producto real (2026-11-21)
+
+**Estado: ABIERTO** (el punto 2 de abajo, hecho). Arreglarlo es reasignar marcas en prod: qué cubre cada promotora lo decide Edgar,
+y la escritura va con su autorización. Lo encontró la revisión de dos fotos de tienda del 20-nov que
+reportaban «al escanear, la Suite captura otro producto».
+
+- **Qué pasa:** el alcance de una promotora sale de `commercial.promoter_brands` → `public.brands`. 12 de
+  esas marcas son nombres cortos (DELICIAS, TOTIS, HERSHEYS, WINIS, ARCOR, PIGUI, JOVY, SNAKY, GUSTINOS,
+  HUBIN, MARS, NUTRESA). Sus productos se dieron de alta entre el 27 y el 29 de mayo **sin `sku` de Kepler**,
+  y Kepler pone el producto real bajo la marca del proveedor. En Caducidades
+  (`commercial-expiry-reviews.service.ts`):
+  - `resolveCode` identifica bien el código, pero filtra por la marca de la promotora: `out_of_scope` y
+    «Ese código es de una marca que no llevas».
+  - `searchProducts` filtra igual y sólo ofrece las copias sin `sku`. Lo capturado sobre ellas nunca alimenta
+    FEFO, y la hoja dice «el sistema no tiene existencia sin fecha», que no es el motivo.
+- **Lo medido (prod, sólo lectura, 2026-11-21):**
+  - 23 de las 79 cuentas `promotor` con marca asignada apuntan a esas 12 marcas: 232 productos, **0 con `sku`**.
+  - Esas 23 cuentas tienen **0 renglones** de caducidad vivos en toda su historia.
+  - Caso Totis: `83368` es la clave de Kepler de TOTIS PAPITAS HOT CHILI 90 GR (EAN `7500366003910`) en las 9
+    sucursales, bajo «CONSERVAS LA COSTEÑA (TOTTIS)»; las cuentas de Totis tienen «TOTIS» (9 productos sin `sku`).
+  - Caso ASTRIDIX: se capturó sobre la copia «ASTRIDIX» (sin `sku`, marca DELICIAS); el producto de Kepler es `28099`
+    («DULCES LAS DELICIAS SA DE CV»). El renglón ya no existe: falta el folio `CAD-05-2026-00003`, pedido el
+    20-nov a las 11:55. **Inferido**: no hay bitácora de borrados.
+  - En todo el catálogo hay 1,144 productos vivos sin `sku` (altas del 2026-05-27 al 2026-06-19).
+- **Equivalencias candidatas.** Cada producto sin `sku` se buscó por sus dos primeras palabras entre los
+  productos con `sku`; se descartan PRODUCTOS VARIOS y PROMOCIONES, que son combos:
+
+  | Marca corta | Cuentas | Productos (con coincidencia) | Marca de Kepler candidata (votos) |
+  |---|---:|---:|---|
+  | ARCOR | 2 | 20 (17) | UNIDAL MEXICO SA DE CV (17) |
+  | DELICIAS | 4 | 45 (37) | DULCES LAS DELICIAS SA DE CV (36) |
+  | GUSTINOS | 1 | 6 (6) | COMERCIALIZADORA SARAMEL SA DE CV (6) |
+  | HERSHEYS | 3 | 25 (22) | HERSHEY MEXICO SA DE CV (21) |
+  | HUBIN | 1 | 38 (35) | GAMAHUBIN SA DE CV (35) |
+  | JOVY | 1 | 11 (11) | PROCESADORA DE ALIMENTOS CALE (11) |
+  | MARS | 1 | 31 (28) | EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV (28) ⚠️ |
+  | NUTRESA | 1 | 18 (18) | TRESMONTES LUCHETTI (NUTRESA) (18) |
+  | PIGUI | 2 | 6 (6) | ALCARRUZZ S DE RL DE CV (6) |
+  | SNAKY | 1 | 1 (1) | BOTANAS Y DERIVADOS BYDSA (1) ⚠️ |
+  | TOTIS | 3 | 9 (9) | CONSERVAS LA COSTEÑA (TOTTIS) (9) |
+  | WINIS | 3 | 22 (22) | THE KLASS COMPANY S.A. DE C.V. (19) |
+
+  ⚠️ EFFEM también trae Turín y Snickers, que ya cubre otra promotora: asignarla entera abre de más. SNAKY
+  tiene un solo voto, y BYDSA ya tiene su propia promotora.
+- **No es Kepler:** en los dos casos el código resolvió al producto correcto; lo que no casa es la marca
+  asignada en la Suite.
+- **Cómo se arregla cuando se decida:**
+  1. Reasignar cada cuenta a la marca de Kepler confirmada (escritura en `commercial.promoter_brands`).
+  2. ✅ **Hecho en el paso 4 de P2.9 (2026-11-21, en PR):** la hoja dice «este producto no tiene clave de Kepler»
+     (`fefo_motivo = sin_clave_kepler`) en vez de «no hay existencia sin fecha». Probado contra Postgres real y en pantalla
+     local con la API de la copia.
+  3. Después del 1, no antes: sacar los productos sin `sku` de la búsqueda de Caducidades. Antes, estas
+     promotoras se quedarían sin nada que elegir.
+- **No medido:** cuántos códigos se rechazaron por alcance (`resolveCode` no deja rastro) y quién borró
+  `CAD-05-2026-00003`.

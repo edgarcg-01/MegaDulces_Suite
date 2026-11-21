@@ -1,4 +1,4 @@
-import { unidadEnTexto } from '@megadulces/contracts';
+import { caducidadUnidadDef, unidadEnTexto, type FefoMotivo } from '@megadulces/contracts';
 /**
  * El **plazo** de una caducidad: cuántos días le quedan y qué tan grave es.
  *
@@ -143,30 +143,37 @@ const TOLERANCIA_FEFO = 0.0005;
  *    si la bandera no la respalda (ni en la bandera sin cifra).
  *  - `fefo_qty` ≥ `quantity` (con tolerancia) → `total`. Si por algún motivo se fechó MÁS de lo
  *    capturado, se cuenta como `total` y `reflejado` se recorta a lo capturado: no se dice «12 de 10».
- *  - El motivo sólo nombra lo que se sabe: producto sin catálogo (no hay `product_id`) o falta de
- *    existencia SIN FECHA registrada. No adivina por qué falta (conteo físico mayor, lote ya
- *    fechado…): eso lo decide quien revise el inventario.
+ *  - El motivo sólo nombra lo que se sabe. `[P2.9 paso 4]` Desde que FEFO convierte a la unidad
+ *    base, **el motivo lo dice el servidor** (`fefo_motivo`) y aquí sólo se pone en palabras: con la
+ *    conversión hay razones nuevas (la unidad no tiene factor en Kepler, el producto no se maneja en
+ *    esa unidad) que la pantalla no podía inferir — y la inferencia de antes («no hay existencia sin
+ *    fecha») habría sido falsa. Sin `fefo_motivo` (renglón anterior al paso 4) se infiere como antes:
+ *    producto sin catálogo o falta de existencia SIN FECHA. No adivina por qué falta (conteo físico
+ *    mayor, lote ya fechado…): eso lo decide quien revise el inventario.
  *
- * ⚠️ NO resuelve —y no lo oculta— que `quantity` está en la unidad que se eligió (caja/pieza/…) y
- * `feedLine` la mueve tal cual contra existencia que puede estar en otra: ver `docs/UNIDADES_DE_MEDIDA.md`.
+ * `fefo_qty` y `quantity` están los dos en la unidad CAPTURADA (caja/pieza/…): el servidor mueve
+ * `quantity × factor` en la base y devuelve lo movido en la unidad capturada. Ver `feedLine`.
  */
 export function estadoFefo(l: {
   fed_to_fefo?: boolean | null;
   fefo_qty?: number | string | null;
   quantity?: number | string | null;
   product_id?: string | null;
+  fefo_motivo?: FefoMotivo | string | null;
+  unit?: string | null;
 }): EstadoFefo {
   const cap = Number(l.quantity);
   const capturado = Number.isFinite(cap) && cap > 0 ? cap : 0;
   const fq = Number(l.fefo_qty);
   const fechado = l.fed_to_fefo && Number.isFinite(fq) && fq > 0 ? fq : 0;
+  const delServidor = l.fefo_motivo ? motivoFefoEnTexto(l.fefo_motivo, l.unit) : null;
 
   if (fechado <= 0) {
     return {
       nivel: 'ninguno', reflejado: 0, capturado, faltante: capturado,
-      motivo: l.product_id
+      motivo: delServidor ?? (l.product_id
         ? 'el sistema no tiene existencia sin fecha de este producto en esta sucursal'
-        : 'el producto no está en el catálogo',
+        : 'el producto no está en el catálogo'),
     };
   }
   if (fechado >= capturado - TOLERANCIA_FEFO) {
@@ -174,8 +181,36 @@ export function estadoFefo(l: {
   }
   return {
     nivel: 'parcial', reflejado: fechado, capturado, faltante: capturado - fechado,
-    motivo: 'el sistema no tenía más existencia sin fecha de este producto en esta sucursal',
+    motivo: delServidor ?? 'el sistema no tenía más existencia sin fecha de este producto en esta sucursal',
   };
+}
+
+/**
+ * `[P2.9 paso 4]` El `fefo_motivo` del servidor en palabras de quien captura. Va detrás de «no movió
+ * inventario: …» o «quedaron N sin fechar porque …». Un código que esta versión no conoce se muestra
+ * crudo (no se traduce a otra cosa).
+ */
+export function motivoFefoEnTexto(motivo: FefoMotivo | string, unidad?: string | null): string {
+  const d = caducidadUnidadDef(unidad);
+  switch (motivo) {
+    case 'sin_producto': return 'el producto no está en el catálogo';
+    case 'sin_clave_kepler':
+      return 'este producto no tiene clave de Kepler, así que no es el del inventario; avísale al encargado para que lo corrija';
+    case 'sin_caducidad': return 'no tiene fecha de caducidad';
+    case 'sin_cantidad': return 'la cantidad es cero';
+    case 'sin_unidad': return 'no se dijo en qué unidad se contó';
+    case 'sin_presentaciones':
+      return 'Kepler no publica las presentaciones de este producto en esta sucursal, y sin ellas no se sabe a cuánto inventario equivale lo contado';
+    case 'sin_lectura':
+      return 'no se pudieron leer las presentaciones del producto en Kepler; corregir la captura lo vuelve a intentar';
+    case 'unidad_fuera_del_producto':
+      return `en Kepler este producto no se maneja en ${d?.plural ?? unidad ?? 'esa unidad'}`;
+    case 'unidad_sin_factor':
+      return `Kepler no dice a cuánto del inventario equivale «${d?.singular ?? unidad ?? 'esa unidad'}» en este producto`;
+    case 'sin_existencia_sin_fecha': return 'el sistema no tiene existencia sin fecha de este producto en esta sucursal';
+    case 'existencia_sin_fecha_insuficiente': return 'el sistema no tenía más existencia sin fecha de este producto en esta sucursal';
+    default: return String(motivo);
+  }
 }
 
 /**
