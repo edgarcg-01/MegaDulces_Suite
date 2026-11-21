@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Telemarketing › Cotizaciones: la lista de artículos en el celular (COT.49 · 2026-11-21)
+- En el celular el nombre del artículo se encimaba con el SKU, el precio salía cortado y la lista medía dos tercios del ancho. Ahora el buscador ocupa todo el ancho de la tarjeta y cada artículo se lee en dos líneas: el nombre completo arriba; SKU, unidad y existencia abajo; el precio a la derecha. Vale para la cotización nueva y para el borrador.
+- Al tocar el buscador en el celular, sube arriba de la pantalla para que la lista quepa entre él y el teclado.
+- En pantallas táctiles el buscador dice «Código de barras, SKU o nombre», el teclado muestra «Buscar» y ya no aparecen los atajos de teclado (Alt, Ctrl y flechas no existen en el celular).
+- En computadora no cambia nada.
+
 ### Fixed — Caducidades: lo capturado entra al control de caducidad en la unidad del inventario (P2.9 paso 4 · 2026-11-20)
 - Una caducidad capturada en cajas fechaba en el inventario el mismo número, pero en paquetes o piezas: 3 cajas de 24 paquetes fechaban 3 paquetes. Ahora fecha 72, con el factor de la presentación en Kepler de esa sucursal. En el historial, 47 renglones fecharon 1,248 unidades donde eran 24,365.
 - Si Kepler no dice cuánto trae esa unidad (la pieza de la escalera de mayoreo, una unidad que el producto no tiene, un producto sin presentaciones), la caducidad se guarda pero no se fecha en el inventario, y la pantalla dice por qué en vez de «no hay existencia sin fecha».
