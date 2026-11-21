@@ -6,7 +6,7 @@ import { CommercialExpiryReviewsService } from './commercial-expiry-reviews.serv
 /**
  * `[P2.9 paso 3]` `GET products/:sku/unidades` (`unidadesProducto`) contra Postgres REAL: la vista
  * `analytics.v_label_presentations` de verdad, sobre filas de `kepler_ods.kdii` y
- * `kepler_ods.kdpv_prod_util` sembradas en plazas que no existen (`94`, `91`). Lo que un doble no ve:
+ * `kepler_ods.kdpv_prod_util` sembradas en plazas que no existen (`87`, `86`). Lo que un doble no ve:
  * que la vista traiga la base, las ranuras y la escalera, y en qué plaza.
  *
  *     CADUCIDADES_TEST_DB_URL=postgresql://app_runtime:app_runtime@127.0.0.1:5442/postgres_platform \
@@ -19,10 +19,12 @@ import { CommercialExpiryReviewsService } from './commercial-expiry-reviews.serv
 const URL = process.env.CADUCIDADES_TEST_DB_URL;
 const ADMIN = process.env.CADUCIDADES_TEST_ADMIN_URL;
 const T = '00000000-0000-0000-0000-00000000d01c';
-// Plaza y almacén que no existen en una base real de sucursales. No `93`: ése lo usa
-// `unidades-captura.servicio-real.spec.ts`, y vitest corre las dos a la vez.
-const PLAZA = '94';
-const OTRA = '91'; // ordena ANTES que la del almacén: «la primera» no puede ganar por casualidad
+// Plaza y almacén que no existen en una base real de sucursales, y que ninguna otra prueba siembra:
+// vitest corre los archivos a la vez. Era `94` y chocaba con `expediente-dias` (su `COD_D`): juntas,
+// una de las dos moría en `commercial_warehouses_tenant_code_unique` (cazado en el paso 4, 2026-11-20).
+// Ocupados: 72 (fefo-unidad-base) · 89 (box-labels) · 90 (lotes-declarados) · 93 (unidades-captura) · 94–98 (expediente-dias) · 99 (resolve-code-kepler).
+const PLAZA = '87';
+const OTRA = '86'; // ordena ANTES que la del almacén: «la primera» no puede ganar por casualidad
 const M = `PU${Date.now().toString(36)}`.toUpperCase();
 
 if (!URL || !ADMIN) {
@@ -99,7 +101,7 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 3] unidadesProducto lee las presenta
     expect(r).toMatchObject({ plaza: OTRA, otra_plaza: true, base: 'pieza', motivo: 'ok' });
   });
 
-  it('⭐ el mismo SKU en dos plazas: manda la plaza del almacén (94 = paquete), no la primera (91 = pieza)', async () => {
+  it('⭐ el mismo SKU en dos plazas: manda la plaza del almacén (87 = paquete), no la primera (86 = pieza)', async () => {
     const r = await svc.unidadesProducto(`${M}E`, wh);
     expect(r).toMatchObject({ plaza: PLAZA, otra_plaza: false, base: 'paquete' });
     expect(r.unidades?.map((u) => u.codigo)).toEqual(['paquete']);

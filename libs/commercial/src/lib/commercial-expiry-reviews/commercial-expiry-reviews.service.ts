@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 import {
-  CADUCIDAD_UNIDADES, esCaducidadUnidad, unidadDesdeKepler, unidadesDesdePresentaciones,
-  type CaducidadUnidad, type CaducidadUnidadesProducto,
+  CADUCIDAD_UNIDADES, esCaducidadUnidad, factorDeCaptura, unidadDesdeKepler, unidadesDesdePresentaciones,
+  type CaducidadUnidad, type CaducidadUnidadesProducto, type FactorDeCaptura, type FefoMotivo,
 } from '@megadulces/contracts';
 import {
   Injectable,
@@ -31,14 +31,34 @@ import { declararCaducidad, retirarCaducidad } from '../commercial-inventory/lot
  * (bueno/regular/malo) + observaciones + acción + foto de evidencia.
  *
  * Al ENVIAR la hoja (submit), cada renglón con producto + caducidad + cantidad
- * ALIMENTA FEFO: reclasifica cantidad del lote 'NA' (sin fecha) a un lote fechado
- * en commercial.stock_lots, SIN tocar commercial.stock.quantity (el total no
- * cambia → el trigger trg_rebalance_stock_lots NO dispara → invariante
- * SUM(lotes)=stock intacto). Así la mercancía aparece en /commercial/inventory/expiring
- * y dispara las alertas de vencimiento existentes.
+ * ALIMENTA FEFO: declara esa cantidad en un lote fechado de commercial.stock_lots,
+ * topada en lo libre (`[CANON.7.4c]`: existencia de Kepler menos lo ya declarado; el
+ * lote 'NA' es derivado y ya no se mueve). Así la mercancía aparece en
+ * /commercial/inventory/expiring y dispara las alertas de vencimiento existentes.
+ *
+ * `[P2.9 paso 4]` Lo capturado entra a FEFO en la unidad BASE del producto (`cantidad × factor` de su
+ * presentación en Kepler); sin factor no entra y el renglón dice por qué (`fefo_motivo`). Ver `feedLine`.
  */
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `numeric(14,3)`: las existencias y los lotes guardan 3 decimales. */
+const redondea3 = (n: number): number => Math.round(n * 1000) / 1000;
+/**
+ * `[P2.9 paso 4]` El factor con que entra a FEFO una captura de un producto en cierta unidad. Además de los
+ * motivos de `factorDeCaptura`, `sin_clave_kepler` (AUD-DAT.32): el producto del catálogo no tiene `sku`.
+ */
+type FactorDe = (
+  productId: string | null | undefined,
+  unidad: string | null | undefined,
+) => FactorDeCaptura | { factor: null; motivo: Extract<FefoMotivo, 'sin_clave_kepler'> };
+/** `[P2.9 paso 4]` Lo que `feedLine` lee de un renglón (viene crudo de la base). */
+interface LineaFefo {
+  id: string;
+  product_id: string | null;
+  expiry_date: Date | string | null;
+  quantity: number | string | null;
+  unit?: string | null;
+}
 const VALID_CONDITIONS = ['bueno', 'regular', 'malo'] as const;
 /**
  * `[P2.9 paso 1]` Las unidades en que se cuenta una caducidad salen de UNA definición (`libs/contracts`,
@@ -317,6 +337,9 @@ export class CommercialExpiryReviewsService {
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
+          'l.fefo_base_qty',
+          'l.fefo_factor',
+          'l.fefo_motivo',
           'l.created_at',
         )
         .orderBy('l.created_at', 'asc');
@@ -612,12 +635,15 @@ export class CommercialExpiryReviewsService {
 
       const lines = await trx('commercial.expiry_review_lines').where({ review_id: id });
 
+      // Ya alimentado (alta directa de tienda, que alimenta al guardar) → no
+      // se vuelve a mover: sin esta guarda, enviar la hoja duplicaría el lote.
+      const pendientes = lines.filter((l) => !l.fed_to_fefo);
+      // `[P2.9 paso 4]` Una sola lectura de presentaciones para toda la hoja, ANTES de bloquear existencias.
+      const factorDe = await this.factoresFefo(trx, review.warehouse_id, pendientes.map((l) => l.product_id));
+
       let fedCount = 0;
-      for (const line of lines) {
-        // Ya alimentado (alta directa de tienda, que alimenta al guardar) → no
-        // se vuelve a mover: sin esta guarda, enviar la hoja duplicaría el lote.
-        if (line.fed_to_fefo) continue;
-        if (await this.feedLine(trx, review.warehouse_id, line, ctx?.userId)) fedCount++;
+      for (const line of pendientes) {
+        if (await this.feedLine(trx, review.warehouse_id, line, ctx?.userId, factorDe)) fedCount++;
       }
 
       const [updated] = await trx('commercial.expiry_reviews')
@@ -633,44 +659,145 @@ export class CommercialExpiryReviewsService {
   // ───── FEFO por renglón (alimentar / revertir) ─────
 
   /**
-   * Declara con fecha (`EXP-<fecha>`) `min(cantidad, lo libre)`. Devuelve `true` si declaró algo.
+   * `[P2.9 paso 4]` Con qué factor entra a FEFO cada captura (D4). Lee las presentaciones de Kepler
+   * (`analytics.v_label_presentations`: base + ranuras + escalera) **de la plaza del almacén**, no de otra:
+   * el factor es de la configuración de esa sucursal. Una sola lectura para todos los productos y ANTES
+   * de bloquear existencias: la vista tarda ~0.2 s con 1 SKU y ~0.7 s con 36 (prod, 2026-11-20).
+   *
+   * Si la lectura falla o tarda más de 5 s, la captura se guarda igual y el renglón dice `sin_lectura`
+   * (corregir la alta del día vuelve a intentar). Un almacén sin plaza de Kepler (código que no es de
+   * 2 dígitos) no tiene presentaciones: `sin_presentaciones`.
+   *
+   * Un producto del catálogo SIN `sku` de Kepler (AUD-DAT.32: las altas de mayo para las promotoras) no es
+   * el del inventario: `sin_clave_kepler`, antes que cualquier motivo de unidad, porque ninguna unidad lo arregla.
+   */
+  private async factoresFefo(trx: Knex.Transaction, warehouseId: string, productIds: Array<string | null | undefined>): Promise<FactorDe> {
+    const ids = Array.from(new Set(productIds.filter((p): p is string => !!p && UUID_REGEX.test(p))));
+    const skuDe = new Map<string, string>();
+    const sinClave = new Set<string>();
+    if (ids.length) {
+      for (const p of await trx('catalog.products').whereIn('id', ids).select('id', 'sku')) {
+        const sku = String(p.sku ?? '').trim();
+        if (sku) skuDe.set(p.id, sku);
+        else sinClave.add(p.id);
+      }
+    }
+    // La plaza es el `code` de sucursal, como en `unidadesProducto` (paso 3). La existencia contra la que se declara
+    // (`[CANON.7.4c]`) liga por `kepler_code`; en prod coinciden en todo almacén vivo con código de sucursal (medido
+    // 2026-11-21: 0 distintos; `MD-32` → `07` está borrado y `kepler_code` es único entre los vivos).
+    const w = await trx('commercial.warehouses').where({ id: warehouseId }).first('code');
+    const plaza = /^[0-9]{2}$/.test(String(w?.code ?? '')) ? String(w.code) : null;
+    const skus = Array.from(new Set(skuDe.values()));
+
+    let lectura: 'sin_presentaciones' | 'sin_lectura' = 'sin_presentaciones';
+    const filasDe = new Map<string, Array<{ unidad: string | null; factor: string | number | null; origen: string }>>();
+    if (plaza && skus.length) {
+      try {
+        // SAVEPOINT: si la vista no existe o tarda, la transacción de la captura sigue viva.
+        const rows = await trx.transaction(async (sp) => {
+          await sp.raw(`SET LOCAL statement_timeout = '5s'`);
+          return (await sp.raw(
+            `SELECT sku, unidad, factor, origen FROM analytics.v_label_presentations WHERE sucursal = ? AND sku = ANY(?)`,
+            [plaza, skus],
+          )).rows ?? [];
+        }) as Array<{ sku: string; unidad: string | null; factor: string | number | null; origen: string }>;
+        for (const r of rows) {
+          const k = String(r.sku).trim();
+          if (!filasDe.has(k)) filasDe.set(k, []);
+          filasDe.get(k)!.push(r);
+        }
+      } catch (e) {
+        lectura = 'sin_lectura';
+        this.logger.warn(`[P2.9 paso 4] FEFO: no se pudo leer v_label_presentations de la plaza ${plaza} (${(e as Error).message})`);
+      }
+    }
+    const unidadesDe = new Map<string, ReturnType<typeof unidadesDesdePresentaciones>['unidades']>();
+    return (productId, unidad) => {
+      if (productId && sinClave.has(productId)) return { factor: null, motivo: 'sin_clave_kepler' };
+      const sku = productId ? skuDe.get(productId) : undefined;
+      let unidades: ReturnType<typeof unidadesDesdePresentaciones>['unidades'] = null;
+      if (sku) {
+        if (!unidadesDe.has(sku)) unidadesDe.set(sku, unidadesDesdePresentaciones(filasDe.get(sku) ?? []).unidades);
+        unidades = unidadesDe.get(sku) ?? null;
+      }
+      return factorDeCaptura(unidades, unidad, lectura);
+    };
+  }
+
+  /**
+   * Declara con fecha (`EXP-<fecha>`) `min(cantidad en la base, lo libre)`. Devuelve `true` si declaró algo.
    *
    * `[CANON.7.4c]` Lo libre es la existencia de Kepler menos lo ya declarado (`lotes-declarados.ts`): el lote `NA` ya no
    * se guarda ni se toca, y no hace falta renglón en la copia `commercial.stock`. Hasta el 2026-11-20 se movía del `NA`
    * que mantenía el disparador de la copia, y sin renglón en ella no se declaraba nada (2 de 151 capturas en 60 días;
    * en el CEDIS, casi todo).
    *
+   * `[P2.9 paso 4]` **Declara en la unidad BASE del producto** (D4): `cantidad × factor`, con el factor de la
+   * presentación capturada en la plaza del almacén (`factoresFefo`). La existencia de Kepler cuenta en la base; hasta el
+   * paso 4 se declaraba la cantidad tal cual: 45 cajas de 24 paquetes fechaban 45 paquetes (prod, 2026-11-20: 1,248
+   * unidades fechadas donde eran 24,365). **Sin factor no alimenta**, y el renglón guarda POR QUÉ (`fefo_motivo`) para
+   * que la pantalla lo diga en vez de adivinarlo.
+   *
+   * Lo que guarda: `fefo_base_qty` (lo declarado, en la base: es lo que `unfeedLine` retira), `fefo_factor`, y
+   * `fefo_qty` = lo declarado en la unidad CAPTURADA (no cambia de significado: la hoja, el expediente y `estadoFefo`
+   * lo comparan contra `quantity`).
+   *
    * Salía inline dentro de `submitReview`. Se extrajo para que la **alta directa
    * de tienda** alimente FEFO al guardar un solo renglón, y para tener su
    * inverso (`unfeedLine`) sin duplicar la aritmética de lotes.
    */
-  private async feedLine(trx: any, warehouseId: string, line: any, userId?: string): Promise<boolean> {
+  private async feedLine(trx: Knex.Transaction, warehouseId: string, line: LineaFefo, userId?: string, factorDe?: FactorDe): Promise<boolean> {
+    const noAlimenta = async (motivo: FefoMotivo): Promise<false> => {
+      await trx('commercial.expiry_review_lines')
+        .where({ id: line.id })
+        .update({ fed_to_fefo: false, fefo_qty: 0, fefo_base_qty: null, fefo_factor: null, fefo_motivo: motivo, updated_at: trx.fn.now() });
+      return false;
+    };
     const qty = Number(line.quantity) || 0;
     // Alimenta FEFO solo si hay producto + caducidad + cantidad.
-    if (!line.product_id || !line.expiry_date || qty <= 0) return false;
+    if (!line.product_id) return noAlimenta('sin_producto');
+    if (!line.expiry_date) return noAlimenta('sin_caducidad');
+    if (qty <= 0) return noAlimenta('sin_cantidad');
 
-    // expiry_date puede venir como Date (pg parsea `date` a Date) o string.
-    const moveQty = await declararCaducidad(trx, {
-      warehouseId, productId: line.product_id, expiryYmd: this.toYmd(line.expiry_date), cantidad: qty, userId,
-    });
-    if (moveQty <= 0) return false;
+    const f = (factorDe ?? (await this.factoresFefo(trx, warehouseId, [line.product_id])))(line.product_id, line.unit);
+    if (f.factor == null) return noAlimenta(f.motivo);
+    const baseQty = redondea3(qty * f.factor);
 
+    // expiry_date puede venir como Date (pg parsea `date` a Date) o string. Lo libre está en la base: se pide `baseQty`.
+    // `numeric(14,3)` redondea lo que se guarda; se redondea igual lo que se anota en el renglón.
+    const moveQty = redondea3(await declararCaducidad(trx, {
+      warehouseId, productId: line.product_id, expiryYmd: this.toYmd(line.expiry_date), cantidad: baseQty, userId: userId ?? null,
+    }));
+    if (moveQty <= 0) return noAlimenta('sin_existencia_sin_fecha');
+
+    const completo = moveQty >= baseQty;
     await trx('commercial.expiry_review_lines')
       .where({ id: line.id })
-      .update({ fed_to_fefo: true, fefo_qty: moveQty, updated_at: trx.fn.now() });
+      .update({
+        fed_to_fefo: true,
+        // En la unidad capturada. Completo = lo capturado exacto (sin ruido de la división).
+        fefo_qty: completo ? qty : redondea3(moveQty / f.factor),
+        fefo_base_qty: moveQty,
+        fefo_factor: f.factor,
+        fefo_motivo: completo ? null : 'existencia_sin_fecha_insuficiente',
+        updated_at: trx.fn.now(),
+      });
     return true;
   }
 
   /**
-   * Inverso de `feedLine`: baja `fefo_qty` del lote fechado. Es lo que hace corregible una alta ya guardada (el
+   * Inverso de `feedLine`: baja del lote fechado lo que se declaró. Es lo que hace corregible una alta ya guardada (el
    * colaborador puede arreglar un dedazo de fecha en su turno). Lo retirado vuelve a lo libre solo: el `NA` es derivado
    * (`[CANON.7.4c]`), ya no se le suma nada.
+   *
+   * `[P2.9 paso 4]` Retira `fefo_base_qty` (lo declarado, en la unidad base). Un renglón fechado antes del paso 4 no lo
+   * tiene (`NULL`) y se declaró `fefo_qty` tal cual: se retira eso, ni más ni menos.
    *
    * **Se niega si el lote ya no tiene esa cantidad disponible**: entre el alta y la corrección pudo salir mercancía de
    * ese lote (el consumo FEFO va primero por lo no vencido). Corta con 409 y lo manda con el encargado.
    */
   private async unfeedLine(trx: any, warehouseId: string, line: any, userId?: string): Promise<void> {
-    const fedQty = Number(line.fefo_qty) || 0;
+    const fedQty = line.fefo_base_qty != null ? Number(line.fefo_base_qty) || 0 : Number(line.fefo_qty) || 0;
     if (!line.fed_to_fefo || fedQty <= 0 || !line.product_id || !line.expiry_date) return;
 
     await retirarCaducidad(trx, {
@@ -681,10 +808,10 @@ export class CommercialExpiryReviewsService {
     // escribe **0**, no `null`. Con null la reversión moría en `23502` y la
     // corrección de una alta devolvía un 500 — cazado por el smoke, no por el
     // build ni por el tipo (Knex acepta null contra una columna NOT NULL y la
-    // negativa la pone Postgres en runtime).
+    // negativa la pone Postgres en runtime). Las tres columnas del paso 4 sí son NULLABLE.
     await trx('commercial.expiry_review_lines')
       .where({ id: line.id })
-      .update({ fed_to_fefo: false, fefo_qty: 0, updated_at: trx.fn.now() });
+      .update({ fed_to_fefo: false, fefo_qty: 0, fefo_base_qty: null, fefo_factor: null, fefo_motivo: null, updated_at: trx.fn.now() });
   }
 
   // ───── alta directa de UNA caducidad (captura de tienda) ─────
@@ -862,6 +989,9 @@ export class CommercialExpiryReviewsService {
     return this.tk.run(async (trx) => {
       const wh = await this.resolveWriteWarehouse(trx, dto.warehouse_id);
       const sheet = await this.findOrCreateTodaySheet(trx, wh, { userId: ctx?.userId, username: ctx?.username });
+      // `[P2.9 paso 4]` El factor se lee ANTES de tomar el folio: el consecutivo queda bloqueado
+      // hasta el COMMIT y la vista tarda ~0.2 s; leerla después frenaría a la sucursal entera.
+      const factorDe = await this.factoresFefo(trx, wh.id, [dto.product_id]);
 
       const folio = await this.nextFolio(trx, wh.code);
 
@@ -886,7 +1016,7 @@ export class CommercialExpiryReviewsService {
         })
         .returning('*');
 
-      await this.feedLine(trx, wh.id, line, ctx?.userId);
+      await this.feedLine(trx, wh.id, line, ctx?.userId, factorDe);
       await this.touchReview(trx, sheet.id, ctx?.userId);
 
       const fresh = await trx('commercial.expiry_review_lines').where({ id: line.id }).first();
@@ -928,6 +1058,9 @@ export class CommercialExpiryReviewsService {
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
+          'l.fefo_base_qty',
+          'l.fefo_factor',
+          'l.fefo_motivo',
           'l.created_at',
           'w.code as warehouse_code',
           'w.name as warehouse_name',
@@ -973,6 +1106,8 @@ export class CommercialExpiryReviewsService {
     const ctx = this.tenantCtx.get();
     return this.tk.run(async (trx) => {
       const line = await this.loadOwnEntry(trx, lineId);
+      // `[P2.9 paso 4]` Antes de bloquear existencias (unfeed), con el producto que quedará.
+      const factorDe = await this.factoresFefo(trx, line.warehouse_id, [dto.product_id !== undefined ? dto.product_id : line.product_id]);
       await this.unfeedLine(trx, line.warehouse_id, line, ctx?.userId);
 
       const patch: Record<string, unknown> = { updated_at: trx.fn.now(), updated_by: ctx?.userId || null };
@@ -990,7 +1125,7 @@ export class CommercialExpiryReviewsService {
 
       await trx('commercial.expiry_review_lines').where({ id: lineId }).update(patch);
       const updated = await trx('commercial.expiry_review_lines').where({ id: lineId }).first();
-      await this.feedLine(trx, line.warehouse_id, updated, ctx?.userId);
+      await this.feedLine(trx, line.warehouse_id, updated, ctx?.userId, factorDe);
       await this.touchReview(trx, line.review_id, ctx?.userId);
 
       const fresh = await trx('commercial.expiry_review_lines').where({ id: lineId }).first();
@@ -1122,6 +1257,9 @@ export class CommercialExpiryReviewsService {
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
+          'l.fefo_base_qty',
+          'l.fefo_factor',
+          'l.fefo_motivo',
           'l.created_at',
           'r.review_date',
           'r.warehouse_id',
@@ -1345,6 +1483,9 @@ export class CommercialExpiryReviewsService {
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
+          'l.fefo_base_qty',
+          'l.fefo_factor',
+          'l.fefo_motivo',
           'l.created_at',
           'r.review_date',
           'r.warehouse_id',
