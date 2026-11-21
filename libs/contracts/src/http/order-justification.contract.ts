@@ -150,7 +150,8 @@ export type JustificationActor = 'seller' | 'picker' | 'cashier' | 'other';
  * Qué cambió: `reopened` la vendedora lo corrigió · `cancelled` se canceló · `removed` el surtidor lo
  * quitó · `trimmed` el surtidor surtió menos · `not_in_cart` la caja dejó menos de lo que surtió el surtidor.
  */
-export type JustificationAction = 'reopened' | 'cancelled' | 'removed' | 'trimmed' | 'not_in_cart';
+/** `[MCP.29]` `rescheduled` = cambió el día de entrega; `detail` dice de cuál a cuál («del vie 21 nov al lun 23 nov»). */
+export type JustificationAction = 'reopened' | 'cancelled' | 'removed' | 'trimmed' | 'not_in_cart' | 'rescheduled';
 
 /** Un cambio al pedido con su motivo, como lo ven los otros roles. */
 export interface OrderJustification {
@@ -176,6 +177,7 @@ export function textoDeJustificante(j: OrderJustification): { quien: string; que
   const det = j.detail ? ` (${j.detail})` : '';
   const que = j.action === 'reopened' ? 'Corrigió el pedido'
     : j.action === 'cancelled' ? 'Canceló el pedido'
+    : j.action === 'rescheduled' ? `Movió la entrega${j.detail ? ` ${j.detail}` : ''}`
     : j.action === 'removed' ? `Quitó ${prod}${det}`
     : j.action === 'trimmed' ? `Surtió menos de ${prod}${det}`
     : `Dejó menos de ${prod}${det}`;

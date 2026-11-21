@@ -74,6 +74,7 @@ describe('[MCP.18] «Corregir» en Por entregar', () => {
   async function montar(puede: () => Observable<unknown>) {
     const api = {
       pendingDeliveries: vi.fn(() => of([ORDEN])),
+      pendingDeliveriesPage: vi.fn(() => of({ data: [ORDEN], total: 1 })),
       puedeCorregir: vi.fn(puede),
       reopenOrder: vi.fn(() => of({ ...ORDEN, status: 'draft' })),
       orderById: vi.fn(() => of({ lines: [] })),

@@ -48,6 +48,13 @@ export interface SmartSearchOptions {
    * usan las palabras originales (nunca se convierte en "traer todo"). Default: ninguna.
    */
   ignore?: string[];
+  /**
+   * `[MCP.28]` Una palabra de este largo o menos tiene que coincidir COMPLETA (`\m…\M`), no como
+   * pedazo: en «ruta 4» el «4» debe pegar con «RUTA 4», no con el folio «MD-01364» ni con el monto
+   * «1445.40». Las palabras más largas siguen buscándose como pedazo («payas» → «payaso»). Default:
+   * ninguna (el comportamiento de siempre).
+   */
+  wholeWordUpTo?: number;
 }
 
 /** Identificador SQL válido (`col` o `alias.col`). Las columnas vienen de código, no de input. */
@@ -127,6 +134,12 @@ export function applySmartSearch(
       top.orWhere((allTok: Knex.QueryBuilder) => {
         for (const tok of tokens) {
           allTok.andWhere((one: Knex.QueryBuilder) => {
+            // [MCP.28] Palabra corta: completa (regex de palabra; el token va escapado y como binding). Sólo si es
+            // letras y números: con un signo («#4», «4.») `\m…\M` no podría pegar nunca; ésa va como pedazo.
+            if (opts.wholeWordUpTo && tok.length <= opts.wholeWordUpTo && /^[a-z0-9]+$/.test(tok)) {
+              one.whereRaw(`${hay} ~ ?`, [`\\m${reEsc(tok)}\\M`]);
+              return;
+            }
             one.whereRaw(`${hay} LIKE ?`, [`%${tok}%`]);
             // Variantes que SUMAN (OR): singular/sin diminutivo y sinónimos de palabra completa.
             const formas = opts.stem ? [tok, ...stemVariants(tok)] : [tok];
