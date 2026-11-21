@@ -64,7 +64,9 @@ export function categoriaDelDocumento(tipoDoc: string | null | undefined, entida
 const RETIRO: [RegExp, string][] = [
   [/^IVA\b|\bIVA (COM|TASA|POR)|COBRO IVA|PAGO DE IVA|\bI V A\b|\bI\.V\.A\./, 'iva_acreditable'],
   [/DOMICILIACION|^CFE\b|COMISION FEDERA|TELMEX|TELEFONOS DE MEXICO/, 'servicios'],
-  [/TASA DE DES|\bCOMISION\b|^COM VTAS|RENTA (DE )?TERMINAL|RENTA TPV|CUOTA AFILIACION|MEMBRESIA|ANUALIDAD/, 'comision_bancaria'],
+  // `[BFU.7.8]` BBVA abrevia: «COM SERV BBVA NET CAS», «SERV BANCA INTERNET». Testigo: cada uno trae su IVA del 16 % el
+  // mismo día (uno exacto, dos sumados en un solo renglón de IVA). Anclados al inicio: «PAGO COM SERVICIOS…» no es del banco.
+  [/TASA DE DES|\bCOMISION\b|^COM VTAS|^COM SERV|^SERV BANCA INTERNET|RENTA (DE )?TERMINAL|RENTA TPV|CUOTA AFILIACION|MEMBRESIA|ANUALIDAD/, 'comision_bancaria'],
   [/DISPOSICION POR POS/, 'compra_tarjeta'],
   [/^TRASPASO (ENTRE|CUENTAS PROPIAS|A (?!CUENTA DE TERCEROS))|RETIRO DE RECURSOS/, 'traspaso_entre_cuentas'],
 ];
