@@ -7,7 +7,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, esSolicitudDeNomina, type EstadoAporte } from '@megadulces/contracts';
-import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
+import { detallesDePago, unirDetallesDePago, montoDelAviso } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional, faltaParaEvidenciaAdicional, ROL_EVIDENCIA_ADICIONAL } from '@megadulces/contracts';
 import type { KeplerDelVale } from '@megadulces/contracts';
 // `[PGP.123]` G.9: lo que la cola dice del gasto (X-A-10) de cada vale.
@@ -1381,6 +1381,9 @@ export class ExpenseProofsService {
           // comprobante cuadró — no se escribe «todo bien»: un aviso que siempre aparece
           // deja de leerse, y el silencio acá significa «la visión no objetó nada».
           revision_nota: aviso,
+          // `[PGP.123]` DG12: el monto leído queda como DATO (la nota se borra al validar desde la revisión). Sólo
+          // registra lo que dijo el lector; no decide el estado (GX.33): lo mira la regla de la comprobación.
+          monto_ocr: montoDelAviso(aviso),
           ...(base.clasCol ? { clasificacion: finalClas || null, comprobacion_nota: !lleva ? motivo : null } : {}),
           /**
            * `[GX.51]` **Sin fecha limite.** Acá se ponían 15 días por defecto (GX.30) con este
@@ -1661,6 +1664,7 @@ export class ExpenseProofsService {
           files: JSON.stringify(files),
           status,
           revision_nota: revisionNota,
+          monto_ocr: montoDelAviso(aviso),  // [PGP.123] DG12: ver approve()
           // Nadie la validó todavía: el expediente espera a una persona.
           validated_by: null,
           validated_at: null,

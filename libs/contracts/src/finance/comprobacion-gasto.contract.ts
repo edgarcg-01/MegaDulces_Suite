@@ -30,6 +30,11 @@ export interface ValeAComprobar {
    * ciegas (revisión independiente, 2026-11-17).
    */
   cfdi_declarado?: boolean;
+  /**
+   * `[PGP.123]` DG12 — Lo que la lectura del comprobante dijo cuando NO cuadró con el vale (`monto_ocr`, o el monto
+   * del aviso en `revision_nota`: ver `montoLeidoDelVale`). `null` = no hubo lectura o cuadró.
+   */
+  monto_leido?: number | null;
 }
 
 /** La X-A-15 como la ve Kepler: el ODS para la lista, el Kepler vivo al escribir. */
@@ -62,6 +67,7 @@ export type MotivoSinComprobar =
   | 'retencion'
   | 'total_distinto'
   | 'factura_distinta'
+  | 'lectura_distinta'
   | 'fecha_futura'
   | 'fecha_otro_mes';
 
@@ -122,6 +128,12 @@ export function comprobacionDelVale(v: ValeAComprobar, s: SolicitudAComprobar | 
       return no('factura_distinta', 'sucursal', `La factura es de otro RFC (${v.cfdi.emisor_rfc}) que el del acreedor en Kepler`);
     }
   }
+  // DG12 (Edgar, 2026-11-20): si la lectura del comprobante dijo otro monto, una persona compara antes; la Suite no lo
+  // escribe por el monto de la solicitud. Misma tolerancia que el lector ($1 o 1 %, redondeo e IVA).
+  const leido = v.monto_leido == null ? null : Number(v.monto_leido);
+  if (leido != null && Number.isFinite(leido) && Math.abs(leido - Number(s.total)) > Math.max(1, Math.abs(Number(s.total)) * 0.01)) {
+    return no('lectura_distinta', 'sucursal', `La lectura del comprobante dice ${pesos(cent(leido))} y la solicitud ${pesos(cent(s.total))}: compáralo y compruébalo en Kepler`);
+  }
   if (!FECHA.test(s.fecha ?? '') || !FECHA.test(hoy ?? '')) return no('sin_medir', 'nadie', 'La fecha de la solicitud no se pudo leer');
   if (s.fecha > hoy) return no('fecha_futura', 'sucursal', `La solicitud tiene fecha futura (${s.fecha})`);
   if (s.fecha.slice(0, 7) !== hoy.slice(0, 7)) {
@@ -147,6 +159,25 @@ export function totalParaComprobar(importe: unknown, captureMeta: unknown): numb
   const declarado = d == null || d === '' || !Number.isFinite(Number(d)) ? null : Number(d);
   if (declarado != null && (base == null || Math.round(declarado * 100) !== Math.round(base * 100))) return declarado;
   return base;
+}
+
+/**
+ * `[PGP.123]` DG12 — **El monto que leyó el comprobante, cuando no cuadró.** El lector (GX.33) deja su aviso en
+ * `revision_nota` («⚠ El comprobante dice $6,032.48 y la solicitud $150.81 …») y, desde DG12, también el monto en
+ * `monto_ocr`. Manda `monto_ocr`; si no está (vales anteriores), se toma del aviso. ⛔ Validar desde la revisión borra
+ * `revision_nota`: lo que se validó así antes de DG12 perdió su aviso y no se puede recuperar.
+ */
+export function montoLeidoDelVale(montoOcr: unknown, revisionNota: unknown): number | null {
+  if (montoOcr != null && montoOcr !== '' && Number.isFinite(Number(montoOcr))) return Number(montoOcr);
+  return montoDelAviso(revisionNota);
+}
+
+/** El monto de «El comprobante dice $X» en el aviso del lector, o `null`. */
+export function montoDelAviso(texto: unknown): number | null {
+  const m = /El comprobante dice \$(\d{1,3}(?:,\d{3})*(?:\.\d+)?|\d+(?:\.\d+)?)/.exec(String(texto ?? ''));
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
 /**

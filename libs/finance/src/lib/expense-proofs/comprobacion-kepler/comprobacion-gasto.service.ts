@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import type { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantKnexService, latirCron, todayMx, urlDeServidor } from '@megadulces/platform-core';
 import {
-  comprobacionDelVale, totalParaComprobar, formaPago, type ComprobacionEnLaCola, type EscrituraDelGastoEnLaBase, type EstadoKeplerDelGasto,
+  comprobacionDelVale, totalParaComprobar, montoLeidoDelVale, formaPago, type ComprobacionEnLaCola, type EscrituraDelGastoEnLaBase, type EstadoKeplerDelGasto,
   type SolicitudAComprobar, type ValeAComprobar,
 } from '@megadulces/contracts';
 
@@ -75,10 +75,14 @@ interface ValeParaGasto {
   kepler_expense_date: string | null;
   /** GX.9 guarda aquí lo que declaró quien capturó (`importe_declarado`) cuando casa el vale con su solicitud. */
   capture_meta: unknown;
+  /** DG12: el monto que leyó el comprobante cuando no cuadró, y el aviso del lector (de ahí sale si `monto_ocr` falta). */
+  monto_ocr: string | number | null;
+  revision_nota: string | null;
 }
 const COLUMNAS_DEL_VALE = [
   'id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'kepler_expense_status', 'kepler_expense_folio',
   'kepler_expense_attempts', 'kepler_expense_note', 'kepler_expense_next_at', 'kepler_expense_policy', 'capture_meta',
+  'monto_ocr', 'revision_nota',
 ] as const;
 
 /** La X-A-15 en el ODS, con el folio de su gasto vivo si lo tiene. */
@@ -205,7 +209,7 @@ export class ComprobacionGastoService {
       const conG6 = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_expense_status');
       const vales = (await trx('finance.expense_proofs').whereIn('id', limpios)
         .select(conG6 ? [...COLUMNAS_DEL_VALE, trx.raw(`to_char(kepler_expense_date, 'YYYY-MM-DD') AS kepler_expense_date`)]
-          : ['id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'capture_meta'])) as ValeParaGasto[];
+          : ['id', 'status', 'sucursal', 'folio_solicitud', 'importe', 'forma_pago', 'cfdi_uuid', 'capture_meta', 'monto_ocr', 'revision_nota'])) as ValeParaGasto[];
       const conSolicitud = vales.filter((v) => String(v.sucursal ?? '').trim() && String(v.folio_solicitud ?? '').trim());
       const solicitudes = new Map<string, SolicitudDelOds>();
       if (conSolicitud.length) {
@@ -257,7 +261,7 @@ export class ComprobacionGastoService {
         const cfdi = declarado ? cfdis.get(String(v.cfdi_uuid).trim().toLowerCase()) ?? null : null;
         out.set(String(v.id), {
           comprobacion: comprobacionDelVale({ status: v.status, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud,
-            total: totalParaComprobar(v.importe, v.capture_meta), cfdi, cfdi_declarado: declarado }, s, hoy),
+            total: totalParaComprobar(v.importe, v.capture_meta), cfdi, cfdi_declarado: declarado, monto_leido: montoLeidoDelVale(v.monto_ocr, v.revision_nota) }, s, hoy),
           gasto: conG6 && (v.kepler_expense_status || v.kepler_expense_folio) ? this.estadoDe(v) : null,
           escritura: this.escrituraEn(String(v.sucursal ?? '').trim(), encendidas),
         });
@@ -334,6 +338,7 @@ export class ComprobacionGastoService {
     const decision = comprobacionDelVale({
       status: v.status, sucursal: v.sucursal, folio_solicitud: v.folio_solicitud,
       total: totalParaComprobar(v.importe, v.capture_meta), cfdi: factura.cfdi, cfdi_declarado: factura.declarado,
+      monto_leido: montoLeidoDelVale(v.monto_ocr, v.revision_nota),
     }, s, hoy);
     if (!decision.listo) {
       // Una persona ya lo capturó en Kepler: se reconoce con su folio y el lazo queda cerrado.
