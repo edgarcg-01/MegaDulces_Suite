@@ -31,6 +31,11 @@ export interface FacturaParaDebeMenos {
   entity_ref: string | null;
   /** El acreedor en Kepler (`[PGP.120]`). */
   payee_code: string | null;
+  /**
+   * `[PGP.190]` La factura también está en otro pago vivo ANTERIOR (se partió en transferencias): su `kepler_debe` ya es
+   * lo que le toca a este renglón, y en cero quiere decir «las otras transferencias ya cubren lo que se debe».
+   */
+  partida?: boolean;
 }
 
 /** La factura en Kepler, para buscar quién le bajó el saldo. */
@@ -54,9 +59,58 @@ export function cargoDeLaFactura(f: Pick<FacturaParaDebeMenos, 'entity_ref' | 'p
 
 /** Las facturas de un pago que hoy deben menos de lo que el pago les lleva (sin las ya saldadas). */
 export function facturasQueDebenMenos<T extends FacturaParaDebeMenos>(items: readonly T[]): T[] {
-  return items.filter((it) => !it.kepler_saldada && it.kepler_debe !== null && it.kepler_debe > 0.005
+  // `[PGP.190]` En cero, una factura partida sí lleva de más (la cubren las otras transferencias); una sin partir en
+  // cero es la saldada, que dice `[PGP.35]`.
+  return items.filter((it) => !it.kepler_saldada && it.kepler_debe !== null && (it.kepler_debe > 0.005 || it.partida === true)
     && it.applied_amount > it.kepler_debe + TOLERANCIA_DEBE_MENOS);
 }
+
+/**
+ * `[PGP.190]` **Una factura partida entre varios pagos vivos no puede llevar, sumada, más de lo que debe.** Antes cada
+ * pago se comparaba contra el saldo COMPLETO de la factura: partida en $1,000,000 + $150,000 y con una nota de $100,000,
+ * ninguna parte pasaba del saldo nuevo ($1,050,000) y juntas sí — se pagaba de más sin aviso. Ahora cada renglón ve el
+ * saldo menos lo que cubren los renglones vivos ANTERIORES de la misma factura (por día, alta e id): la última
+ * transferencia, la del resto, absorbe primero la nota. Medido el 2026-11-20: ninguna factura estaba en dos pagos
+ * pendientes, así que esto no cambia ningún número de hoy.
+ */
+export interface RenglonVivoDeLaFactura {
+  item_id: string;
+  obligation_id: string;
+  /** Neto + descuento al pagar (lo que el renglón cubre de la factura, como `SQL_CUBIERTO`). */
+  cubierto: number;
+}
+
+/**
+ * Lo que cubren los renglones vivos anteriores, por renglón. `filas` viene en el orden de `SQL_RENGLONES_VIVOS_DE_LAS_FACTURAS`.
+ */
+export function cubiertoAntesPorRenglon(filas: readonly RenglonVivoDeLaFactura[]): Map<string, number> {
+  const acumulado = new Map<string, number>();
+  const antes = new Map<string, number>();
+  for (const f of filas) {
+    const a = acumulado.get(f.obligation_id) ?? 0;
+    antes.set(f.item_id, Math.round(a * 100) / 100);
+    acumulado.set(f.obligation_id, a + Number(f.cubierto));
+  }
+  return antes;
+}
+
+/** Lo que la factura debe para ESTE renglón: su saldo menos lo que ya cubren los anteriores (nunca negativo). */
+export function debeParaEsteRenglon(debe: number | null, antes: number): number | null {
+  if (debe === null) return null;
+  return Math.round(Math.max(0, debe - antes) * 100) / 100;
+}
+
+/** Parámetros: `[tenant_id, obligation_ids (uuid[])]`. Los renglones de facturas de Kepler en pagos PENDIENTES, en orden. */
+export const SQL_RENGLONES_VIVOS_DE_LAS_FACTURAS = `
+SELECT i.id::text AS item_id, i.obligation_id::text AS obligation_id, (i.applied_amount + i.discount_amount)::float8 AS cubierto
+  FROM finance.payment_allocation_items i
+  JOIN finance.payment_allocations a ON a.id = i.allocation_id
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+ WHERE i.tenant_id = ? AND a.status = 'pending' AND i.obligation_source = 'kepler_payable' AND i.obligation_id = ANY(?::uuid[])
+ ORDER BY i.obligation_id, l.lot_date, a.created_at, a.id, i.id`;
+
+/** `[PGP.190]` La parte que las otras transferencias ya cubren no baja a cero (un renglón paga algo): se quita del pago. */
+export const MOTIVO_CUBIERTA_POR_OTRA_PARTE = 'las otras transferencias de esta factura ya cubren lo que debe hoy: quítala de este pago';
 
 const CLASE: Record<number, string> = {
   25: 'Cheque', 26: 'Transferencia', 60: 'Anticipo', 55: 'Nota de crédito', 56: 'Nota de crédito CFDI',

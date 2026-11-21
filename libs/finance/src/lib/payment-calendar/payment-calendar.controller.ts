@@ -4,12 +4,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import {
   PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto, ItemDiscountDto,
-  PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
+  PrepareAllocationDto, PrepararEnTransferenciasDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarPartido, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -342,6 +342,13 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Completa método de pago / cuenta de origen / destino — lo que quien dispersa necesita para ejecutar.' })
   prepare(@Param('id') id: string, @Body() dto: PrepareAllocationDto, @Req() req: AuthedRequest) {
     return this.svc.prepare(id, dto, req.user?.username || 'sistema');
+  }
+
+  @Post('allocations/:id/preparar-en-transferencias')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.190] Prepara un pago que sale en varias transferencias: lo parte en un pago por transferencia (mismo día, misma cuenta destino, cada uno con su cuenta de origen).' })
+  prepararEnTransferencias(@Param('id') id: string, @Body() dto: PrepararEnTransferenciasDto, @Req() req: AuthedRequest): Promise<PaymentCalendarPartido> {
+    return this.svc.prepararEnTransferencias(id, dto, req.user?.username || 'sistema');
   }
 
   /**
