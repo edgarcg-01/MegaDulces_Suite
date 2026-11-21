@@ -100,6 +100,7 @@ export * from './http/warehouse-order.contract';
 export * from './http/levantamiento.contract';
 // `[PQ.94]` Compras › Temporadas: calendario, candidatos que propone la venta y decisiones de las áreas.
 export * from './http/temporadas.contract';
+export * from './http/purchase-calendar.contract';
 // [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';
