@@ -5,7 +5,7 @@ import { Client, type PoolClient } from 'pg';
 import type { Env } from '@megadulces/platform-core';
 
 import {
-  cambioContraLoAprobado, esReintentableGasto, escrituraDeGastoEncendida, KeplerGastoSinkAdapter, SERVIDORES_POLIZA_MENSUAL, vacioDeTipo,
+  cambioContraLoAprobado, esReintentableGasto, escrituraDeGastoEncendida, KeplerGastoSinkAdapter, vacioDeTipo,
   type EntregaGastoKepler, type EscrituraGastoKepler,
 } from './kepler-gasto-sink.adapter';
 import { revisarEscrituraGasto } from './kepler-gasto-sink.revision';
@@ -42,15 +42,22 @@ describe('[PGP.123] G.7 los candados del escritor del gasto — apagado por defa
     expect(escrituraDeGastoEncendida({ KEPLER_GASTO_COMPROBACION: 'true' })).toBe(false);
     expect(escrituraDeGastoEncendida({ KEPLER_GASTO_COMPROBACION: ' encendida ' })).toBe(true);
   });
-  it('DG7: sólo las sucursales con UNA secuencia de póliza D por mes (02, 04, 05, 07)', () => {
-    expect([...SERVIDORES_POLIZA_MENSUAL].sort()).toEqual(['02', '04', '05', '07']);
+  it('G.1 (2026-11-20): DG7 retirado — las 9 bases pasan los candados y llegan a Kepler (no hay contador escondido)', async () => {
+    for (const suc of ['00', '01', '02', '03', '04', '05', '06', '07', '08']) {
+      class Abierto extends KeplerGastoSinkAdapter { protected override get env(): Env { return { KEPLER_GASTO_COMPROBACION: 'encendida', [`KEPLER_PUSH_URL_${suc}`]: CERRADO }; } }
+      const ad = new Abierto();
+      const r = await ad.entregar(pedido(suc));
+      await ad.onModuleDestroy();
+      // Llega a conectarse (puerto cerrado): rechazado y reintentable, nunca «apagado».
+      expect(r, suc).toMatchObject({ estado: 'rechazado', reintentable: true });
+    }
   });
   it('⛔ NEGATIVA — con cualquier candado cerrado NO abre conexión y dice cuál', async () => {
     const casos: Array<[Env, string, RegExp]> = [
       [{ KEPLER_PUSH_URL_05: CERRADO }, '05', /KEPLER_GASTO_COMPROBACION/],
       [{ KEPLER_GASTO_COMPROBACION: 'encendida' }, '05', /KEPLER_PUSH_URL_05/],
-      [{ KEPLER_GASTO_COMPROBACION: 'encendida', KEPLER_PUSH_URL_00: CERRADO }, '00', /DG7/],
-      [{ KEPLER_GASTO_COMPROBACION: 'encendida', KEPLER_PUSH_URL_08: CERRADO }, '08', /DG7/],
+      [{ KEPLER_GASTO_COMPROBACION: 'apagada', KEPLER_PUSH_URL_00: CERRADO }, '00', /KEPLER_GASTO_COMPROBACION/],
+      [{ KEPLER_GASTO_COMPROBACION: 'encendida', KEPLER_PUSH_URL_05: CERRADO }, '08', /KEPLER_PUSH_URL_08/],
     ];
     for (const [env, suc, rx] of casos) {
       class Cerrado extends KeplerGastoSinkAdapter { protected override get env(): Env { return env; } }

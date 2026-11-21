@@ -9,7 +9,7 @@ import {
  * `[PGP.123]` G.9 — Las reglas de «Esperan a Kepler» como cola de comprobación (anexo G §14). Lo que cuidan:
  *
  * - ⛔ que «la Suite las escribe» no cuente lo que la Suite NO va a escribir. Hoy el interruptor nace apagado en todas
- *   las bases y DG7 deja fuera cinco: si un vale «listo» se contara como de la Suite, nadie lo capturaría en Kepler;
+ *   las bases (DG7 se retiró con G.1, 2026-11-20): si un vale «listo» se contara como de la Suite, nadie lo capturaría en Kepler;
  * - ⛔ que un gasto «en duda» fuera de una base abierta no se mande a capturar a mano: puede que ya esté en Kepler;
  * - que ningún vale se pierda ni se repita entre secciones (las secciones suman lo que dice la pestaña).
  */

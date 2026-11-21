@@ -9,7 +9,7 @@ import {
 } from '@megadulces/contracts';
 
 import {
-  KeplerGastoSinkAdapter, SERVIDORES_POLIZA_MENSUAL, type EntregaGastoKepler, type ResultadoEscrituraGasto,
+  KeplerGastoSinkAdapter, type EntregaGastoKepler, type ResultadoEscrituraGasto,
 } from './kepler-gasto-sink.adapter';
 
 /**
@@ -274,14 +274,12 @@ export class ComprobacionGastoService {
   private escrituraEn(sucursal: string, encendidas: ReadonlySet<string>): EscrituraDelGastoEnLaBase {
     const detalle = !this.sink ? 'El escritor de gastos a Kepler no está cargado en este servidor'
       : !this.sink.encendida() ? 'La bandera KEPLER_GASTO_COMPROBACION está apagada'
-        : !SERVIDORES_POLIZA_MENSUAL.has(sucursal) ? `DG7: en ${sucursal} la póliza D lleva un contador que la Suite todavía no ve (G.1)`
-          : !encendidas.has(sucursal) ? `El interruptor ${TIPO_INTERRUPTOR} de la sucursal ${sucursal} está apagado`
+        : !encendidas.has(sucursal) ? `El interruptor ${TIPO_INTERRUPTOR} de la sucursal ${sucursal} está apagado`
             : !urlDeServidor(sucursal, process.env).ok ? `Sin conexión configurada al Kepler de la sucursal ${sucursal}` : null;
     if (!detalle) return { abierta: true, motivo: null, detalle: null };
     return {
       abierta: false, detalle,
-      motivo: detalle.startsWith('DG7') ? 'En esta base la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir'
-        : 'La escritura de gastos a Kepler todavía está apagada en esta base',
+      motivo: 'La escritura de gastos a Kepler todavía está apagada en esta base',
     };
   }
 
@@ -363,11 +361,10 @@ export class ComprobacionGastoService {
 
     // G.5 sólo dice «listo» con la solicitud leída; si no, no se sigue (y el tipo lo sabe).
     if (!s) return this.estadoDe(v);
-    // Apagado (interruptor, bandera o DG7): no se intenta y no cuenta; queda esperando a que lo enciendan.
+    // Apagado (interruptor o bandera): no se intenta y no cuenta; queda esperando a que lo enciendan.
     // [PGP.123] G.UI.8: la nota llega a la persona (el aviso de «Escribir el gasto ahora»): en llano, sin códigos.
     const apagadoPor = !sw?.encendida ? `El interruptor de la escritura de gastos de la sucursal ${sucursal} está apagado`
-      : !this.sink.encendida() ? 'La escritura de gastos a Kepler está apagada en este servidor'
-        : !SERVIDORES_POLIZA_MENSUAL.has(sucursal) ? `En la sucursal ${sucursal} la Suite todavía no escribe gastos: su póliza lleva un contador que falta medir` : null;
+      : !this.sink.encendida() ? 'La escritura de gastos a Kepler está apagada en este servidor' : null;
     if (apagadoPor) {
       if (v.kepler_expense_note !== apagadoPor || disparo !== 'cron') {
         await run(async (trx) => {
@@ -494,10 +491,10 @@ export class ComprobacionGastoService {
         .where({ tenant_id: MEGA, kepler_expense_status: 'writing' })
         .whereRaw(`kepler_expense_at < now() - make_interval(mins => ?)`, [WRITING_HUERFANO_MIN])
         .update({ kepler_expense_status: 'in_doubt', kepler_expense_note: 'El intento anterior no terminó: se busca el gasto en Kepler antes de reintentar', updated_at: trx.fn.now() })));
-      // Sólo las sucursales ABIERTAS (interruptor, bandera, URL y DG7): lo de una sucursal apagada espera sin ocupar el cupo.
+      // Sólo las sucursales ABIERTAS (interruptor, bandera y URL): lo de una sucursal apagada espera sin ocupar el cupo.
       const encendidas = new Set(await run(async (trx) => trx.transaction(async (sp) => sp('commercial.kepler_push_switch')
         .where({ tipo: TIPO_INTERRUPTOR, encendida: true }).pluck('sucursal')).catch(() => [] as string[])));
-      const abiertas = SUCURSALES.filter((s) => encendidas.has(s) && this.sink?.encendida() && urlDeServidor(s, process.env).ok && SERVIDORES_POLIZA_MENSUAL.has(s));
+      const abiertas = SUCURSALES.filter((s) => encendidas.has(s) && this.sink?.encendida() && urlDeServidor(s, process.env).ok);
       // Los que toca: validados, con su X-A-15, sin gasto, en espera vencida o en duda, y cuya X-A-15 sigue en A en el
       // ODS (sin esto, los miles de vales viejos ya comprobados se revisarían cada 5 minutos). El que más espera, primero.
       const ids: string[] = !abiertas.length ? [] : await run(async (trx) => (await trx('finance.expense_proofs as p')
