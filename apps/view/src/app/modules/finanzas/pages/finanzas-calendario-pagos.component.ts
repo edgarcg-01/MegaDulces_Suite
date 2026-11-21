@@ -668,6 +668,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </div>
               }
             </section>
+          } @else if (panelAgregar()) {
+            <!-- [ECA.9] Se llega aquí con «Agendar» y el día ya se liberó: se dice, no se abre un panel vacío. -->
+            <p class="pg-qp-nm"><i class="pi pi-lock" aria-hidden="true"></i> El {{ dayShort(day.date) }} ya se liberó: no se le agregan facturas. Elige otro día de la semana para programar@if (busqueda()) { «{{ busqueda() }}» }.</p>
           }
           </app-side-peek>
 
@@ -4438,6 +4441,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (qp.get('vista') === 'dia') this.modo.set('dia');
     const et = qp.get('etapa');
     if (et && (ETAPAS as readonly string[]).includes(et)) this.etapaElegida.set(et as EtapaPago);
+    // `[ECA.9]` «Agendar» desde Deuda con proveedores llega con `?fecha=…&buscar=<clave> <folio>`: el día abre
+    // con «Agregar facturas» ya buscando esa factura — el mismo camino que «Tomar» del pronto pago (`[PGP.44]`),
+    // ahora desde la URL. Se pone ANTES de `reload()` para que la primera lectura de la deuda ya venga filtrada.
+    const buscar = (qp.get('buscar') ?? '').trim().slice(0, 80);
+    if (buscar) {
+      this.modo.set('dia');
+      this.panelAgregar.set(true);
+      this.busqueda.set(buscar);
+    }
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
     this.loadCreditos();
