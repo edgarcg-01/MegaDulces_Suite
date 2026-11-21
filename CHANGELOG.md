@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Telemarketing › Cotizaciones: la lista de artículos en el celular (COT.49 · 2026-11-21)
+- En el celular el nombre del artículo se encimaba con el SKU, el precio salía cortado y la lista medía dos tercios del ancho. Ahora el buscador ocupa todo el ancho de la tarjeta y cada artículo se lee en dos líneas: el nombre completo arriba; SKU, unidad y existencia abajo; el precio a la derecha. Vale para la cotización nueva y para el borrador.
+- Al tocar el buscador en el celular, sube arriba de la pantalla para que la lista quepa entre él y el teclado.
+- En pantallas táctiles el buscador dice «Código de barras, SKU o nombre», el teclado muestra «Buscar» y ya no aparecen los atajos de teclado (Alt, Ctrl y flechas no existen en el celular).
+- En computadora no cambia nada.
+
 ### Internal — Protocolo previo al PR, puntos 121–125, y `[MSP]` a su estado real (2026-11-21)
 - `ONBOARDING.md` §8.0b: **(121)** una spec que llega de afuera se mide contra lo que ya existe y su plan sube al Tablero PM antes del código (observación del PM en `[MDT.4]`); **(122)** un commit de docs a `main` es rama + PR, porque la rama está protegida; **(123)** con `main` rojo, el conflicto de un PR se resuelve en la rama, sin fusionarle `main` (#539); **(124)** en el plan, la migración va después del merge y antes de soltar; **(125)** un job informativo en verde no dice que tus suites pasaron: sus ❌ se comparan contra los de `main`.
 - `[MSP]`: tracker y plan pasan C0–C3 y la migración a ✅; `[MSP.4]` queda 🔨 hasta encender la cola con una solicitud de prueba con evidencia.
