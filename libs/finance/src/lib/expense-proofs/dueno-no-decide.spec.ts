@@ -85,7 +85,8 @@ describe('[GX.65.4a] la guarda lee el nombre del padrón', () => {
     expect((SERVICIO.match(/\.first\('nombre'\)/g) || []).length).toBe(1);
     // Cinco que la USAN (no la copian): ésta, el alcance del expediente, `[GX.87]` quién puede
     // sumar evidencia adicional y `[PGP.123]` G.UI.1e quién cierra el caso de una cancelada
-    // (revisarla y ligarla). Uno nuevo se agrega acá a propósito, no de arrastre.
-    expect((SERVICIO.match(/this\.identidadConNombre\(/g) || []).length).toBe(5);
+    // (revisarla y ligarla), y `[PGP.123]` G.14 quién genera el gasto en Kepler (el dueño del vale
+    // o quien aprueba). Uno nuevo se agrega acá a propósito, no de arrastre.
+    expect((SERVICIO.match(/this\.identidadConNombre\(/g) || []).length).toBe(6);
   });
 });

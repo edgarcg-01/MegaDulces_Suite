@@ -22,6 +22,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+import { lineaDelGasto, polizaCorta, puedeEscribirseYa } from './esperan-kepler.ayudas';
 import { diaMxDe, parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado, TransferenciaGasto } from '@megadulces/contracts';
@@ -162,6 +163,8 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
           }
         </div>
 
+        <!-- [PGP.123] G.14: lo que contestó Kepler al generar un gasto; siempre presente para que el lector de pantalla lo anuncie. -->
+        <div class="mg-sub" role="status" aria-live="polite">@if (avisoGasto(); as a) { <span [class.mg-mal]="a.mal">{{ a.texto }}</span> }</div>
         @if (fueraDeColumnas() > 0) {
           <!-- Un estado que la regla no conoce se DICE, no se mete callado en una lista. -->
           <p class="mg-err">{{ fueraDeColumnas() }} vale(s) con un estado que esta pantalla no sabe ubicar. Avisa a Sistemas.</p>
@@ -219,6 +222,10 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                 <td>
                   <div [class.mg-mal]="f.situacion?.mal">{{ f.situacion?.texto ?? '—' }}</div>
                   @if (f.notaPago; as n) { <div class="mg-sub" [class.mg-mal]="n.clase === 'bad'">{{ n.texto }}</div> }
+                  <!-- [PGP.123] G.14: lo que falta para su gasto en Kepler, o el folio y la póliza que ya generó. -->
+                  @if (f.situacion?.aQuien === 'kepler' && f.proof?.gasto_kepler; as g) {
+                    <div class="mg-sub" [class.mg-mal]="lineaDelGasto(g).tono === 'bad'">{{ lineaDelGasto(g).texto }}</div>
+                  }
                   @if (filtro() === 'cerrado' && f.gasto_folios.length) {
                     <div class="mg-sub mg-clave">{{ foliosGasto(f) }}</div>
                   }
@@ -234,7 +241,12 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                 </td>
                 <td class="comm-num">{{ money(f.importe) }}</td>
                 <td class="mg-acc">
-                  @if (f.puedeSubir) {
+                  @if (f.proof && f.situacion?.aQuien === 'kepler' && puedeEscribirseYa(f.proof.gasto_kepler)) {
+                    <!-- [PGP.123] G.14 (D1/D2 de Edgar, 2026-11-21): quien pidió el gasto lo genera en Kepler con un clic.
+                         Lleva la cifra; se apaga mientras escribe; dos clics no escriben dos gastos. -->
+                    <button pButton type="button" class="p-button-sm" [loading]="generando() === f.proof.id" [disabled]="!!generando()"
+                            (click)="generarGasto(f.proof)">Generar gasto · {{ money(f.importe) }}<span class="mg-sr"> del vale {{ f.folio || 'sin folio' }}</span></button>
+                  } @else if (f.puedeSubir) {
                     <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
                        [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">
                       <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ f.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}<span class="mg-sr"> del vale {{ f.folio || 'sin folio' }}</span>
@@ -312,6 +324,11 @@ export class FinanzasMisGastosComponent {
   /** `[GX.68]` La sucursal del vale se nombra con clave + nombre (`02 La Piedad Abastos`). */
   readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
+  /** `[PGP.123]` G.14 — El vale cuyo gasto se está generando (uno a la vez) y lo que contestó Kepler. */
+  readonly generando = signal<string | null>(null);
+  readonly avisoGasto = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly puedeEscribirseYa = puedeEscribirseYa;
+  readonly lineaDelGasto = lineaDelGasto;
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute, { optional: true });
 
@@ -526,6 +543,30 @@ export class FinanzasMisGastosComponent {
   }
 
   abrir(p: ExpenseProof): void { this.abierto.set(p as ValeGasto); }
+
+  /**
+   * `[PGP.123]` G.14 — «Generar gasto»: escribe en Kepler el gasto (X-A-10) del vale que pidió esta persona (D1) y dice
+   * cómo quedó; nada lo escribe solo (D2). Un clic, sin confirmación: el botón lleva la cifra y se apaga mientras escribe.
+   */
+  generarGasto(p: ExpenseProof): void {
+    if (this.generando()) return;
+    this.generando.set(p.id);
+    this.avisoGasto.set(null);
+    this.svc.reintentarGasto(p.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (e) => {
+        this.generando.set(null);
+        const ok = !!e?.folio && (e.status === 'written' || e.status === 'seen_in_ods');
+        this.avisoGasto.set(ok
+          ? { texto: `Gasto generado en Kepler: X-A-10 ${e!.folio}${e!.poliza ? ' · póliza ' + polizaCorta(e!.poliza) : ''}.`, mal: false }
+          : { texto: `Todavía no se genera: ${e?.nota ?? 'la Suite no pudo escribirlo'}.`, mal: true });
+        this.cargar();
+      },
+      error: (err) => {
+        this.generando.set(null);
+        this.avisoGasto.set({ texto: `No se pudo generar el gasto: ${err?.error?.message ?? 'revisa tu conexión y vuelve a intentar'}.`, mal: true });
+      },
+    });
+  }
   cerrar(abierto: boolean): void { if (!abierto) this.abierto.set(null); }
 
   /** `[GX.87]` Todo lo de esta lista es tuyo: se ofrece sumar evidencia, salvo en un rechazado. */

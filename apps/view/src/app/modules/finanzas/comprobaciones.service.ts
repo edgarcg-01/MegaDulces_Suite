@@ -85,6 +85,11 @@ export interface ProofByFolio {
 
 export interface ExpenseProof {
   id: string;
+  /**
+   * `[PGP.123]` G.14 — Sólo en `/mine`, en los vales validados: lo que necesita «Generar gasto» (la misma respuesta que
+   * la cola). Ausente = servidor viejo o no se pudo calcular: no se ofrece el botón.
+   */
+  gasto_kepler?: ComprobacionEnLaCola | null;
   solicitante: string;
   departamento: string;
   departamento_code: string | null;
