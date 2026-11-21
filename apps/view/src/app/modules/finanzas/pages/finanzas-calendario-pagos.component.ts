@@ -23,6 +23,7 @@ import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finan
 import { avisoPagadasCanceladas, avisosFiscales, pagadasCanceladasDe, textoCfdi, textoMetodo, type AvisoFiscal, type CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
+import { folioDelCheque } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { CreditoPorSucursal, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { anteriorAlCorte, bloqueadaPorCorte, type CorteSueltaRow } from '@megadulces/contracts';
@@ -992,6 +993,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             <!-- [PGP.75] Lo que el historial propone, con su procedencia: todavía no está guardado. -->
                             <span class="pg-how-t pg-sug" [title]="sg.porque"><i class="pi pi-history" aria-hidden="true"></i>{{ sg.texto }}</span>
                           }
+                          <!-- [PGP.165] El cheque sale impreso del pago, junto a su número: importe al centavo, letra y fecha los pone el servidor. -->
+                          @if (canGestionar() && chequeImprimible(a)) {
+                            <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirCheque(a)"
+                                    [attr.aria-label]="'Imprimir el cheque ' + a.reference_text + ' de ' + allocationTitle(a)"><i class="pi pi-print" aria-hidden="true"></i> Imprimir cheque</button>
+                          }
                           <!-- [PGP.114] En la etapa no se repite lo que dice la etapa («Preparado · por autorizar» en «Por autorizar»). -->
                           @if (day || a.status !== 'pending' || !!cs.falta || etapa(a) !== 'autorizar') {
                           <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
@@ -1438,7 +1444,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       }
       @if (prepMethod === 'cheque') {
         <label class="cal-dlg-label" for="cal-prep-ref">Folio del cheque</label>
-        <input id="cal-prep-ref" pInputText type="text" [(ngModel)]="prepReference" placeholder="Folio" class="cal-dlg-full" />
+        <input id="cal-prep-ref" pInputText type="text" inputmode="numeric" autocomplete="off" [(ngModel)]="prepReference" placeholder="Folio" class="cal-dlg-full" />
+        <!-- [PGP.165] El número que trae el cheque que va a la impresora; la hoja de prueba se usa una vez por impresora. -->
+        <p class="cal-dlg-hint"><i class="pi pi-print" aria-hidden="true"></i> El número impreso en el cheque que vas a meter a la impresora. Al guardar, «Imprimir cheque» aparece en su renglón.
+          ¿Impresora nueva? <button type="button" class="pg-saldada-btn" [disabled]="printing()" (click)="imprimirHojaDePrueba()">Hoja de prueba</button> en papel blanco, contra un cheque cancelado.</p>
       }
       @if (prepMethod === 'efectivo' && prepAllocation && esPagoDeAnticipo(prepAllocation)) {
         <!-- [PGP.157] Un anticipo en efectivo sale de la Caja General de SU base: cada base cuadra sola (Francisco,
@@ -2310,6 +2319,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   @ViewChild('payPanel') private payPanel?: ElementRef<HTMLElement>;
 
   readonly canAuthorize = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] === true);
+  /** `[PGP.165]` Quien prepara los pagos imprime sus cheques: el servidor exige el mismo permiso (sin él, un 403 en vez de un PDF). */
+  readonly canGestionar = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_PAYMENTS_GESTIONAR] === true);
 
   // ── `[PGP.130]` El comprobante dispara el pago ──────────────────────────────────────────────
   private recargaPorComprobante?: ReturnType<typeof setTimeout>;
@@ -6114,10 +6125,33 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         if (!win) this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permite las ventanas emergentes para ver el PDF.' });
         setTimeout(() => URL.revokeObjectURL(objUrl), 60_000);
       },
-      error: (e) => { this.printing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo generar el documento.' }); },
+      // `[PGP.165]` Con `responseType: 'blob'` el error TAMBIÉN llega como Blob: `e.error.message` era siempre undefined y
+      // el motivo del servidor («falta el número del cheque», «no cuadra con sus facturas») se perdía. Se lee el texto.
+      error: (e) => {
+        this.printing.set(false);
+        const decir = (m: unknown) => this.toast.add({ severity: 'error', summary: 'Error',
+          detail: (Array.isArray(m) ? m.join(' · ') : String(m || '')) || 'No se pudo generar el documento.' });
+        const err = e?.error;
+        if (err instanceof Blob) {
+          err.text().then((t) => { let m: unknown = ''; try { m = JSON.parse(t)?.message; } catch { m = ''; } decir(m); }, () => decir(''));
+        } else decir(err?.message);
+      },
     });
   }
   printPreliminar(): void { this.openPdf(`${this.base}/days/${this.selectedDate()}/preliminar.pdf`); }
+
+  /**
+   * `[PGP.165]` **El pago que puede salir en cheque impreso**: pendiente, con cheque y su número escrito en «Preparar»
+   * (la misma regla de `folioDelCheque`, que es la de `[PGP.173]`). Lo demás —que la cuenta tenga plantilla, que el
+   * importe cuadre con sus facturas, un solo beneficiario— lo decide el servidor y lo dice en palabras.
+   */
+  chequeImprimible(a: PaymentCalendarAllocation): boolean {
+    return a.status === 'pending' && a.payment_method === 'cheque' && folioDelCheque(a.reference_text) !== null;
+  }
+  /** `[PGP.165]` El cheque en PDF del tamaño del cheque: importe al centavo, letra y fecha del día los pone el servidor. */
+  imprimirCheque(a: PaymentCalendarAllocation): void { this.openPdf(`${this.base}/allocations/${a.id}/cheque.pdf`); }
+  /** `[PGP.165]` La hoja de prueba en carta, para calibrar la impresora contra un cheque cancelado. */
+  imprimirHojaDePrueba(): void { this.openPdf(`${this.base}/cheques/prueba.pdf?banco=BBAJIO`); }
   /**
    * `[PGP.33]` La instrucción de ejecución. Se llamaba `printCajaGeneral` y el PDF se titulaba
    * «— Caja General» para TODO el lote; medido, el 87.3 % del dinero sale de banco y lo dispersa
