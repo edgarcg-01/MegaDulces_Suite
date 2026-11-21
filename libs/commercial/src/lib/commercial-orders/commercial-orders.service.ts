@@ -9,7 +9,8 @@ import {
   ForbiddenException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
+import { BUSQUEDA_MODO, PRODUCTOS_DEL_PEDIDO_SQL, textoDeBusqueda } from '../presale-picking/buscar-pedidos';
 import { TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 import { CommercialPricingService } from '../commercial-pricing/commercial-pricing.service';
@@ -27,6 +28,8 @@ import type { LineStockReview, PresalePickRestore, StockState } from '@megadulce
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 import { AVISO_PANTALLA_VIEJA, MAX_CAMBIOS_PEDIDO, POLITICA_CORREGIR, motivoDeHistoria, type OrderModifyChange } from '@megadulces/contracts';
 import { bloqueoParaCorregir, type SurtidoDelPedido } from './justificantes.engine';
+import { FechaDeEntregaInvalida, fechaDeEntregaNueva, razonDeHistoria } from './reagendar.engine';
+import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 
 // ─────────── tipos ───────────
 
@@ -220,6 +223,8 @@ export interface ListOrdersQuery {
   to?: string;
   page?: number;
   pageSize?: number;
+  /** `[MCP.30]` Texto a buscar (cada palabra, en cualquier orden): folio, cliente, productos, vendedor, ruta o monto. */
+  q?: string;
   /**
    * `[MCP.3.14]` Un renglón por pedido agrupado: las partes de otra sucursal no salen solas, se
    * suman a su principal (`total`, `subtotal`, `tax_total`, `balance_due`) y viajan en
@@ -2783,10 +2788,27 @@ export class CommercialOrdersService {
    * se queda en borrador (mismo folio) para agregar productos en la captura, que es donde se eligen la
    * presentación y el precio; ahí se vuelve a agendar.
    */
-  async modificarAgendado(orderId: string, reason: string, changes: unknown, keepOpen = false): Promise<PedidoEscrito> {
+  async modificarAgendado(
+    orderId: string, reason: string, changes: unknown, keepOpen = false, nuevaEntrega?: unknown,
+  ): Promise<PedidoEscrito> {
     if (!UUID_REGEX.test(orderId)) throw new BadRequestException('orderId inválido');
     const cambios = validarCambios(changes);
-    if (!cambios.length && !keepOpen) throw new BadRequestException('No hay cambios que guardar.');
+    // [MCP.29] El día de entrega viaja en el mismo «Guardar cambios» (D7: un guardado, un motivo).
+    const quiereFecha = nuevaEntrega !== undefined && nuevaEntrega !== null && nuevaEntrega !== '';
+    if (quiereFecha && keepOpen) {
+      // Mover la fecha de un borrador abierto en la captura dejaría a las partes del grupo con otra fecha.
+      throw new BadRequestException('Guarda primero el cambio de día de entrega; después agrega productos.');
+    }
+    let fecha: string | null = null;
+    if (quiereFecha) {
+      try {
+        fecha = fechaDeEntregaNueva(nuevaEntrega, relojMx(new Date()).fecha);
+      } catch (e) {
+        if (e instanceof FechaDeEntregaInvalida) throw new BadRequestException(e.message);
+        throw e;
+      }
+    }
+    if (!cambios.length && !keepOpen && !fecha) throw new BadRequestException('No hay cambios que guardar.');
     const tenantId = this.tenantCtx.requireTenantId();
     let registro = null as { root: string | null; marcadas: number } | null;
     const res = await this.tk.run(async (trx) => {
@@ -2796,6 +2818,12 @@ export class CommercialOrdersService {
         throw new ConflictException(order.status === 'draft'
           ? 'Este pedido ya está abierto para corregir: termínalo en «Tomar pedido».'
           : `Este pedido ya no se puede modificar (está «${order.status}»).`);
+      }
+      // [MCP.29] Sólo el día: no se reabre (el surtidor no ve el pedido salir y volver a su bandeja).
+      if (!cambios.length && fecha) {
+        const movido = await this.moverEntregaEnTrx(trx, orderId, fecha, reason);
+        if (!movido) throw new BadRequestException('El pedido ya se entrega ese día: no hay cambios que guardar.');
+        return movido;
       }
       const ids = (await trx('commercial.order_lines').where({ order_id: orderId }).pluck('id')) as string[];
       if (cambios.some((c) => !ids.includes(c.line_id))) {
@@ -2820,10 +2848,59 @@ export class CommercialOrdersService {
       if (keepOpen) return trx('commercial.orders').where({ id: orderId }).first();
       const r = await this.placeEnTrx(trx, orderId, {});
       registro = r.registro;
+      // [MCP.29] Productos Y día: ya re-agendado, se mueve el día en la MISMA transacción (pasa todo o nada).
+      if (fecha) {
+        const movido = await this.moverEntregaEnTrx(trx, orderId, fecha, reason);
+        if (movido) return { ...r.tomado, requested_delivery_date: movido.requested_delivery_date };
+      }
       return r.tomado;
     });
     if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
     return res;
+  }
+
+  /**
+   * `[MCP.29]` Mueve el día de entrega de un pedido AGENDADO, sin reabrirlo. Las mismas reglas que
+   * modificar: que sea tuyo y D1 (ninguna parte del grupo la ha tomado el surtidor). Un pedido agrupado se
+   * mueve ENTERO (decisión de David, 2026-11-20: si no, al cliente le llega la mitad un día y la mitad otro).
+   * Cada pedido movido deja su fila en la historia (`confirmed → confirmed`, con las dos fechas en el
+   * snapshot), que es lo que lee «Por qué cambió». `null` = ya se entregaba ese día (nada que mover).
+   */
+  async moverEntregaEnTrx(trx: Knex.Transaction, orderId: string, fecha: string, reason: string): Promise<PedidoEscrito | null> {
+    // Uno borrado no existe para esto (si no, caería en «ya se entrega ese día», que es falso).
+    const order = await trx('commercial.orders').where({ id: orderId }).whereNull('deleted_at').forUpdate().first();
+    if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+    await this.enforceOrderOwnership(trx, order);
+    if (order.status !== 'confirmed' && order.status !== 'pending_approval') {
+      throw new ConflictException(`Este pedido ya no se puede mover (está «${order.status}»).`);
+    }
+    const ctx = this.tenantCtx.get();
+    const userId = ctx?.userId || null;
+    if (order.user_id && userId && order.user_id !== userId && !isPlatformAdminRole(ctx?.roleName)) {
+      throw new ForbiddenException('Este pedido lo tomó otro vendedor');
+    }
+    const bloqueo = bloqueoParaCorregir(await this.surtidosDelGrupo(trx, order), POLITICA_CORREGIR);
+    if (bloqueo) throw new ConflictException(bloqueo);
+
+    // El pedido y las otras partes vivas de su grupo, con su día como texto (un `date` de pg llega como Date local).
+    const filas = (await trx('commercial.orders')
+      // Entre paréntesis: un OR suelto se saltaría los filtros de abajo (borrado y estado).
+      .where((q: Knex.QueryBuilder) => {
+        q.where('id', orderId);
+        if (order.group_id) q.orWhere('group_id', order.group_id);
+      })
+      .whereNull('deleted_at')
+      .whereIn('status', ['confirmed', 'pending_approval'])
+      .forUpdate()
+      .select('id', 'status', trx.raw(`to_char(requested_delivery_date, 'YYYY-MM-DD') AS dia`))) as Array<{ id: string; status: string; dia: string | null }>;
+    const principal = filas.find((f) => f.id === orderId);
+    if (!principal || principal.dia === fecha) return null;
+    for (const f of filas) {
+      if (f.dia === fecha) continue;
+      await trx('commercial.orders').where({ id: f.id }).update({ requested_delivery_date: fecha, updated_at: trx.fn.now(), updated_by: userId });
+      await this.recordHistory(trx, f.id, f.status, f.status, reason, { delivery_date: { from: f.dia, to: fecha } });
+    }
+    return trx('commercial.orders').where({ id: orderId }).first();
   }
 
   async reopen(orderId: string, reason?: string, opts: { soloRevisar?: boolean } = {}): Promise<PedidoEscrito> {
@@ -2948,7 +3025,7 @@ export class CommercialOrdersService {
       if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
       await this.enforceOrderOwnership(trx, order);
 
-      return trx('commercial.order_status_history')
+      const filas = await trx('commercial.order_status_history')
         .where({ order_id: orderId })
         .orderBy('changed_at', 'asc')
         .select(
@@ -2961,6 +3038,8 @@ export class CommercialOrdersService {
           'snapshot',
           'changed_at',
         );
+      // [MCP.29] Un cambio de día no cambia de estado: el texto dice qué pasó (lo lee también el portal del cliente).
+      return filas.map((h: { from_status: string | null; to_status: string; reason: string | null; snapshot?: unknown }) => ({ ...h, reason: razonDeHistoria(h) }));
     });
   }
 
@@ -3179,7 +3258,17 @@ export class CommercialOrdersService {
       if (query.to) q = q.where('o.created_at', '<=', query.to);
       // [MCP.3.14] Agrupado: sólo el principal (o el pedido sin grupo); sus partes se suman a él.
       if (query.group) q = q.where((w) => w.whereNull('o.group_id').orWhereRaw('o.group_id = o.id'));
-      const monto = (col: 'total' | 'subtotal' | 'tax_total' | 'balance_due') =>
+      // [MCP.30] Buscar en TODO lo que cumple los filtros, no sólo en la página: folio, cliente, su clave,
+      // productos, quién lo levantó y ruta (el mismo motor que «Mis pedidos»). `total` cuenta lo encontrado.
+      if (typeof query.q === 'string' && query.q.trim()) {
+        const texto = textoDeBusqueda(query.q);
+        q = q.joinRaw(PRODUCTOS_DEL_PEDIDO_SQL);
+        applySmartSearch(q, texto, {
+          ...BUSQUEDA_MODO,
+          columns: ['o.code', 'c.name', 'c.erp_customer_code', 'lp.productos', 'u.nombre', 'u.username', 'r.name'],
+        });
+      }
+      const monto =(col: 'total' | 'subtotal' | 'tax_total' | 'balance_due') =>
         query.group ? trx.raw(`${grupoSumaSql(col)} AS ${col}`) : `o.${col}`;
 
       const [agg] = await q
@@ -3399,13 +3488,16 @@ export class CommercialOrdersService {
     fromStatus: string | null,
     toStatus: string,
     reason: string | null,
+    /** `[MCP.29]` Lo que se suma al snapshot (p. ej. `delivery_date: { from, to }` al mover la entrega). */
+    extra?: Record<string, unknown>,
   ): Promise<void> {
     const ctx = this.tenantCtx.get();
     // Snapshot ligero de totals para debugging futuro
-    const order = await trx('commercial.orders')
+    const totales = await trx('commercial.orders')
       .where({ id: orderId })
       .select('subtotal', 'tax_total', 'total', 'balance_due')
       .first();
+    const order = totales || extra ? { ...(totales ?? {}), ...(extra ?? {}) } : null;
 
     await trx('commercial.order_status_history').insert({
       tenant_id: trx.raw('public.current_tenant_id()'),

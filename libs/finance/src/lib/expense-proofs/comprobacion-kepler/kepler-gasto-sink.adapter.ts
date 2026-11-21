@@ -22,8 +22,9 @@ import { clonarFila, insertarFila } from '../../shared/kepler-filas';
  *
  * ── Cinco candados, y los cinco tienen que estar abiertos ────────────────────────────────────────────────────────
  *   1. `KEPLER_GASTO_COMPROBACION=encendida` (apagado por default)  2. `KEPLER_PUSH_URL_NN`
- *   3. **DG7**: la sucursal numera su póliza D con UNA secuencia por mes (02, 04, 05, 07). En 00/01/03/06/08 Kepler
- *      lleva un contador escondido que el ODS no ve; no se escribe ahí hasta que la captura de prueba (G.1) lo encuentre
+ *   3. (DG7, retirado el 2026-11-20 por G.1: no hay contador escondido. Las 9 bases numeran la póliza D como MAX+1 de
+ *      la tabla del mes; la «segunda secuencia» de 00/01/03/06/08 la hereda un X-D-55 que deja su póliza en el mes
+ *      nuevo con el número del mes anterior, y desde ahí MAX+1 sigue esa serie. Anexo G §3.6 y §15.)
  *   4. el renglón `comprobacion_gasto` de `commercial.kepler_push_switch` (lo lee el servicio, con su tope)
  *   5. los `GRANT` en Kepler (`ops/prod/kepler-grants/pgp123_comprobacion_gasto.sql`). Sin ellos: `apagado`.
  *
@@ -37,12 +38,6 @@ import { clonarFila, insertarFila } from '../../shared/kepler-filas';
 export function escrituraDeGastoEncendida(env: Env): boolean {
   return valorDeEnv(env, 'KEPLER_GASTO_COMPROBACION') === 'encendida';
 }
-
-/**
- * DG7 — Los servidores donde «MAX+1 de la tabla del mes» reproduce el número de la póliza D (re-medido en
- * `kdc22609`–`kdc22611`, anexo §3.6). Los otros cinco esperan a G.1.
- */
-export const SERVIDORES_POLIZA_MENSUAL: ReadonlySet<string> = new Set(['02', '04', '05', '07']);
 
 export interface EntregaGastoKepler {
   sucursal: string;
@@ -73,7 +68,7 @@ export interface EscrituraGastoKepler {
   folio: string;
   /** `kdc2AAMM` del mes del gasto (validada: `^kdc2\d{4}$`). */
   tablaPoliza: string;
-  /** El número de la póliza D (`c1`): MAX+1 del mes (DG7). */
+  /** El número de la póliza D (`c1`): MAX+1 de la tabla del mes, como Kepler en las 9 bases (G.1). */
   poliza: number;
   plan: PlanGastoKepler;
   contador: FolioReservado;
@@ -286,9 +281,6 @@ export class KeplerGastoSinkAdapter implements OnModuleDestroy {
     if (!escrituraDeGastoEncendida(this.env)) return { estado: 'apagado', motivo: 'La escritura de gastos a Kepler está apagada (KEPLER_GASTO_COMPROBACION)' };
     const srv = urlDeServidor(e.sucursal, this.env);
     if (!srv.ok) return { estado: 'apagado', motivo: srv.motivo };
-    if (!SERVIDORES_POLIZA_MENSUAL.has(e.sucursal)) {
-      return { estado: 'apagado', motivo: `DG7: en la sucursal ${e.sucursal} Kepler numera la póliza D con un contador que la Suite todavía no ve; se escribe cuando la captura de prueba (G.1) lo encuentre` };
-    }
     if (!/^\d{7}$/.test(e.solicitud)) return { estado: 'rechazado', motivo: `Folio de solicitud inválido «${e.solicitud}»`, reintentable: false };
     const esp = e.esperado;
     if (!esp || !Number.isFinite(Number(esp.total)) || !String(esp.acreedor ?? '').trim() || !/^\d{4}-\d{2}-\d{2}$/.test(String(esp.fecha ?? ''))) {

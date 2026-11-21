@@ -1,7 +1,10 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { PresaleSellerOrder, PresaleSellerStatusResponse, SellerDayRecap } from '@megadulces/contracts';
+import { Subject, catchError, debounceTime, map, of, switchMap } from 'rxjs';
+import type {
+  PresaleSellerOrder, PresaleSellerSearchOrder, PresaleSellerSearchResponse, PresaleSellerStatusResponse, SellerDayRecap,
+} from '@megadulces/contracts';
 import { MOTIVOS_CAJA, MOTIVOS_CANCELAR, MOTIVOS_CORREGIR, MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION, textoDeJustificante, textoDeMotivo, type MotivoElegido } from '@megadulces/contracts';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
@@ -23,6 +26,14 @@ import { Permission } from '../../../core/constants/permissions';
 /** `[MCP.16]` Qué pestaña se ve; la dice la URL (`?ver=cotizaciones`). Cualquier otra cosa = pedidos. */
 type VistaPedidos = 'pedidos' | 'cotizaciones';
 const vistaDe = (v: string | null | undefined): VistaPedidos => (v === 'cotizaciones' ? 'cotizaciones' : 'pedidos');
+
+/** `[MCP.28]` Lo mínimo que se busca (igual que el servidor) y cuánto se espera a que deje de escribir. */
+const BUSQUEDA_MINIMO = 2;
+const BUSQUEDA_ESPERA_MS = 300;
+/** Letras y números que cuentan (sin acentos, espacios ni signos), la misma cuenta que el servidor. */
+const largoUtil = (q: string): number => q.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]/g, '').length;
+/** `[MCP.29]` La clave del motivo «Cambiar la fecha de entrega» en `MOTIVOS_CORREGIR`. */
+const MOTIVO_FECHA = 'fecha';
 
 /** Cada cuánto se vuelve a pedir mientras la pantalla se está viendo. */
 const REFRESCO_MS = 30_000;
@@ -102,6 +113,53 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
         </div>
       }
 
+      <!-- [MCP.28] Buscar un pedido de cualquier día (60 días): folio, cliente o producto, cada palabra en cualquier
+           orden y sin acentos. Con 2 letras o más, la lista de abajo son los resultados; la X regresa al día. -->
+      <div class="mp-bs" role="search">
+        <i class="pi pi-search" aria-hidden="true"></i>
+        <input type="search" class="mp-bs-in" [value]="busqueda()" (input)="buscar($any($event.target).value)"
+               placeholder="Buscar folio, cliente o producto" aria-label="Buscar en tus pedidos de los últimos 60 días"
+               enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        @if (busqueda()) {
+          <button type="button" class="mp-bs-x" (click)="limpiarBusqueda()" aria-label="Borrar la búsqueda"><i class="pi pi-times" aria-hidden="true"></i></button>
+        }
+      </div>
+
+      @if (enBusqueda()) {
+        <div class="mp-res">
+          <h2 class="mp-h2">Resultados@if (resultados(); as r) {<span> · {{ r.data.length }}</span>}</h2>
+          <span class="mp-sub">{{ resultados()?.includes_team ? 'Tuyos y de tu equipo · ' : '' }}últimos 60 días</span>
+        </div>
+        @if (sinSenal()) {
+          <div class="mp-err" role="status">
+            <i class="pi pi-wifi" aria-hidden="true"></i>
+            <span>Para buscar necesitas señal. Tus pedidos del día siguen abajo cuando borres la búsqueda.</span>
+          </div>
+        } @else if (errorBusqueda()) {
+          <div class="mp-err" role="alert">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{{ errorBusqueda() }}</span>
+            <button type="button" (click)="rebuscar()">Reintentar</button>
+          </div>
+        } @else if (!resultados()) {
+          <p class="mp-vacio">Buscando…</p>
+        } @else if (!resultados()!.data.length) {
+          <div class="mp-vacio">
+            <i class="pi pi-search" aria-hidden="true"></i>
+            <p>Ningún pedido de los últimos 60 días tiene «{{ busqueda().trim() }}».</p>
+            <p class="mp-nota">Prueba con menos palabras o con el folio.</p>
+          </div>
+        } @else {
+          <ul class="mp-lista">
+            @for (p of resultados()!.data; track p.order_id) {
+              <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: p }"></ng-container>
+            }
+          </ul>
+          @if (resultados()!.truncated) {
+            <p class="mp-nota mp-res-tope" role="status">Se muestran los {{ resultados()!.limit }} más recientes. Escribe otra palabra para encontrar el que buscas.</p>
+          }
+        }
+      } @else {
       <!-- [MCP.20] Un día a la vez: hoy por omisión, la semana a un toque y cualquier otro en el calendario.
            El recuento y la lista de abajo son del día elegido (antes la lista juntaba todo lo agendado de cualquier fecha). -->
       <div class="mp-dias" role="group" aria-label="Qué día ver">
@@ -173,6 +231,15 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
         }
         <ul class="mp-lista">
           @for (p of visibles(); track p.order_id) {
+            <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: p }"></ng-container>
+          }
+        </ul>
+      }
+      }
+      }
+    </section>
+    <!-- [MCP.28] La tarjeta, una sola vez: la usan la lista del día y los resultados del buscador. -->
+    <ng-template #tarjeta let-p>
             <li class="mp-card" [class.mp-card-nuevo]="p.report_unseen" [attr.id]="'mp-' + p.order_id">
               <button type="button" class="mp-card-h" (click)="alternar(p.order_id)" [attr.aria-expanded]="abierto() === p.order_id">
                 <span class="mp-r1">
@@ -184,6 +251,13 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <span>entrega {{ fechaCorta(p.requested_delivery_date) }}</span>
                   <span class="mp-total">{{ dinero(p.total) }}</span>
                 </span>
+                <!-- [MCP.28] En los resultados del buscador: de qué día es y, si no es tuyo, de quién. -->
+                @if (p.created_date) {
+                  <span class="mp-r2">
+                    <span>levantado {{ fechaCorta(p.created_date) }}</span>
+                    @if (!esMio(p)) { <span>· de {{ p.seller_name || 'otro vendedor' }}</span> }
+                  </span>
+                }
               </button>
               <!-- [MCP.21] Modificar y cancelar en la misma tarjeta (antes: Mi ruta → cliente → «Ver pedido pendiente» →
                    Por entregar → Corregir, ~10 toques; y cancelar pedía reabrir primero, con dos motivos). Sólo mientras
@@ -200,6 +274,9 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 </div>
               }
               @if (abierto() === p.order_id) {
+                @if (!esMio(p)) {
+                  <p class="mp-solo-ver">Lo levantó {{ p.seller_name || 'otro vendedor' }}. Puedes consultarlo; los cambios los hace quien lo levantó.</p>
+                }
                 <!-- [MCP.21] Dónde va, en UNA línea (David: los seis pasos «me son innecesarios»); el estado ya está arriba. -->
                 @if (lineaDeEstado(p); as le) {
                   <p class="mp-linea"><b>{{ le.titulo }}</b>@if (le.detalle) { · {{ le.detalle }} }</p>
@@ -221,6 +298,21 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <!-- [MCP.21] Mientras nadie lo surte, sus productos se modifican aquí: − / + en su unidad, quitar, y UN
                        «Guardar cambios» (una transacción en el servidor). Un producto nuevo se elige en la captura. -->
                   <div class="mp-ed">
+                    <!-- [MCP.29] El día de entrega se cambia aquí mismo y se guarda con «Guardar cambios» (un motivo para todo). -->
+                    <div class="mp-ent">
+                      <span class="mp-ent-t">
+                        <small>Día de entrega</small>
+                        <b [class.mp-ed-cambio]="!!fechaNueva(p)">@if (fechaNueva(p)) {<s class="mp-ent-antes">{{ fechaCorta(p.requested_delivery_date) }}</s> → }{{ fechaLarga(entregaDe(p)) }}</b>
+                      </span>
+                      @if (calDe() === p.order_id) {
+                        <input type="date" class="mp-ent-in" [attr.id]="'ent-' + p.order_id" [min]="hoy()" [value]="entregaDe(p)"
+                               aria-label="Nuevo día de entrega" (change)="cambiarEntrega(p, $any($event.target).value)" />
+                      } @else {
+                        <button type="button" class="mp-acc-b mp-ent-b" [disabled]="ocupado() === p.order_id" (click)="abrirEntrega(p)">
+                          <i class="pi pi-calendar" aria-hidden="true"></i> Cambiar
+                        </button>
+                      }
+                    </div>
                     <b>Tus productos</b>
                     @if (editables(p); as rs) {
                       <ul class="mp-ed-l">
@@ -325,11 +417,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 }
               }
             </li>
-          }
-        </ul>
-      }
-      }
-    </section>
+    </ng-template>
   `,
   styles: [`
     :host { display: block; }
@@ -456,6 +544,30 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill); background: var(--card-bg);
       color: var(--text-main); text-decoration: none; min-height: 2.75rem; font-size: var(--fs-sm); }
     .mp-llevar > .pi:first-child { color: var(--action); }
+    /* [MCP.28] El buscador: un campo, 44 px, 16 px de letra (iOS no hace zoom al enfocarlo). */
+    .mp-bs { position: relative; margin-bottom: var(--sp-3); }
+    .mp-bs > .pi-search { position: absolute; left: var(--sp-3); top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+    .mp-bs-in { width: 100%; min-height: var(--tap-min); padding: 0 var(--tap-min) 0 calc(var(--sp-3) * 2 + 1rem); font-family: inherit; font-size: 1rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); }
+    .mp-bs-in:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .mp-bs-in::-webkit-search-cancel-button { display: none; }
+    .mp-bs-x { position: absolute; right: 0; top: 0; width: var(--tap-min); height: var(--tap-min); border: 0; background: none; color: var(--text-muted); cursor: pointer; }
+    .mp-bs-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+    .mp-res { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); }
+    .mp-res .mp-h2 { margin-top: 0; }
+    .mp-res-tope { margin-top: var(--sp-3); }
+    .mp-solo-ver { margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--overlay-selected);
+      font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [MCP.29] El día de entrega en el editor de la tarjeta. */
+    .mp-ent { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .mp-ent-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .mp-ent-t small { font-size: var(--fs-xs); color: var(--text-muted); }
+    .mp-ent-t b { font-size: var(--fs-body); }
+    .mp-ent-antes { font-weight: 400; color: var(--text-faint); }
+    .mp-ent-b { flex: 0 0 auto; padding: 0 var(--sp-3); }
+    .mp-ent-in { min-height: var(--tap-min); padding: 0 var(--sp-2); font-family: inherit; font-size: 1rem; border: 1px solid var(--border-color);
+      border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); }
+    .mp-ent-in:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
   `],
 })
 export class VendorMisPedidosComponent implements OnInit {
@@ -539,7 +651,23 @@ export class VendorMisPedidosComponent implements OnInit {
   /** La persona ya eligió un día: el «hoy» del servidor ya no la mueve. */
   private diaElegido = false;
 
+  // ─── [MCP.28] Buscador ───
+  readonly busqueda = signal('');
+  /** ¿Está buscando? (2 letras o números o más): la lista de abajo son los resultados, no el día. */
+  readonly enBusqueda = computed(() => largoUtil(this.busqueda()) >= BUSQUEDA_MINIMO);
+  readonly resultados = signal<PresaleSellerSearchResponse | null>(null);
+  readonly errorBusqueda = signal<string | null>(null);
+  readonly sinSenal = signal(false);
+  private readonly busquedas = new Subject<string>();
+
+  // ─── [MCP.29] Día de entrega ───
+  /** El día nuevo de cada pedido, mientras no se guarda (se conserva si cierra la tarjeta). */
+  readonly fechas = signal<Readonly<Record<string, string>>>({});
+  /** El pedido con el calendario abierto. */
+  readonly calDe = signal<string | null>(null);
+
   ngOnInit(): void {
+    this.conectarBuscador();
     // [MCP.16] Al cambiar de pestaña cambia la URL; al volver a «Pedidos» se piden de nuevo.
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((m) => {
       const v = vistaDe(m.get('ver'));
@@ -637,9 +765,109 @@ export class VendorMisPedidosComponent implements OnInit {
     });
   }
 
-  /** `[MCP.21]` Se puede corregir o cancelar desde la app mientras está agendado y el surtidor no lo ha tomado. */
+  /**
+   * `[MCP.21]` Se puede corregir o cancelar desde la app mientras está agendado y el surtidor no lo ha tomado.
+   * `[MCP.28]` Y sólo si es tuyo: el supervisor ve los de su equipo en el buscador, para consultarlos.
+   */
   cambiable(p: PresaleSellerOrder): boolean {
-    return (p.status === 'confirmed' || p.status === 'pending_approval') && !p.started && !p.finished && !p.delivered_at;
+    return this.esMio(p) && (p.status === 'confirmed' || p.status === 'pending_approval') && !p.started && !p.finished && !p.delivered_at;
+  }
+
+  /** `[MCP.28]` Los de la lista del día siempre son tuyos; los del buscador lo dicen (`is_mine`). */
+  esMio(p: PresaleSellerOrder): boolean {
+    return (p as Partial<PresaleSellerSearchOrder>).is_mine !== false;
+  }
+
+  // ─── [MCP.28] Buscador ───
+
+  /** Lo que escribió y cambia la lista (con 2 letras o números o más). */
+  buscar(v: string): void {
+    this.busqueda.set(v);
+    this.abierto.set(null);
+    this.errorBusqueda.set(null);
+    if (!this.enBusqueda()) {
+      this.resultados.set(null);
+      this.sinSenal.set(false);
+      return;
+    }
+    this.resultados.set(null);
+    this.busquedas.next(v);
+  }
+
+  /** Otra vez lo mismo (después de guardar o cancelar, o al reintentar). */
+  rebuscar(): void {
+    if (!this.enBusqueda()) return;
+    this.errorBusqueda.set(null);
+    this.busquedas.next(this.busqueda());
+  }
+
+  limpiarBusqueda(): void {
+    this.buscar('');
+  }
+
+  private conectarBuscador(): void {
+    this.busquedas.pipe(
+      debounceTime(BUSQUEDA_ESPERA_MS),
+      switchMap((q) => {
+        if (largoUtil(q) < BUSQUEDA_MINIMO) return of(null);
+        // Sin señal no se pregunta: se dice (el celular sabe que no hay red).
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return of({ q, r: null, sinRed: true, msg: null });
+        return this.api.search(q.trim()).pipe(
+          map((r) => ({ q, r, sinRed: false, msg: null as string | null })),
+          catchError((e: { status?: number; error?: { message?: string } }) =>
+            of({ q, r: null, sinRed: e?.status === 0, msg: e?.error?.message || 'No se pudo buscar. Intenta de nuevo.' })),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((x) => {
+      // Escribió otra cosa mientras tanto: esta respuesta ya no es la que está viendo.
+      if (!x || x.q !== this.busqueda()) return;
+      this.sinSenal.set(x.sinRed);
+      if (x.r) {
+        this.resultados.set(x.r);
+        this.errorBusqueda.set(null);
+      } else if (!x.sinRed) {
+        this.errorBusqueda.set(x.msg);
+      }
+    });
+  }
+
+  // ─── [MCP.29] Día de entrega ───
+
+  /** El día nuevo elegido para el pedido; `null` = no se ha cambiado (o se regresó al mismo). */
+  fechaNueva(p: PresaleSellerOrder): string | null {
+    const f = this.fechas()[p.order_id];
+    return f && f !== p.requested_delivery_date ? f : null;
+  }
+
+  entregaDe(p: PresaleSellerOrder): string {
+    return this.fechaNueva(p) ?? p.requested_delivery_date;
+  }
+
+  /** «Cambiar»: muestra el calendario del celular (si el navegador sabe abrirlo solo, se abre). */
+  abrirEntrega(p: PresaleSellerOrder): void {
+    this.calDe.set(p.order_id);
+    setTimeout(() => {
+      const el = document.getElementById(`ent-${p.order_id}`) as (HTMLInputElement & { showPicker?: () => void }) | null;
+      if (!el) return;
+      el.focus();
+      try {
+        el.showPicker?.();
+      } catch {
+        /* sin permiso del navegador: queda el campo a la vista */
+      }
+    });
+  }
+
+  /** Calendario libre hacia adelante (domingos incluidos); el pasado no. El servidor vuelve a revisarlo. */
+  cambiarEntrega(p: PresaleSellerOrder, v: string): void {
+    this.calDe.set(null);
+    if (!v) return;
+    if (!esDia(v) || v < this.hoy()) {
+      this.toast.add({ severity: 'warn', summary: 'Elige hoy o un día después', detail: 'La entrega no puede ser en un día que ya pasó.' });
+      return;
+    }
+    this.fechas.update((m) => ({ ...m, [p.order_id]: v }));
   }
 
   // ─── [MCP.21] Modificar en la tarjeta ───
@@ -658,9 +886,10 @@ export class VendorMisPedidosComponent implements OnInit {
     return cuentaDe(r, this.edicionDe(p));
   }
 
+  /** Productos cambiados + `[MCP.29]` el día de entrega (cuenta como un cambio). */
   nCambios(p: PresaleSellerOrder): number {
     const rs = this.editables(p);
-    return rs ? cambiosDe(rs, this.edicionDe(p)).length : 0;
+    return (rs ? cambiosDe(rs, this.edicionDe(p)).length : 0) + (this.fechaNueva(p) ? 1 : 0);
   }
 
   private editar(p: PresaleSellerOrder, f: (e: Edicion) => Edicion): void {
@@ -676,17 +905,28 @@ export class VendorMisPedidosComponent implements OnInit {
       const { [p.order_id]: _fuera, ...resto } = m;
       return resto;
     });
+    this.fechas.update((m) => {
+      const { [p.order_id]: _fuera, ...resto } = m;
+      return resto;
+    });
+    if (this.calDe() === p.order_id) this.calDe.set(null);
   }
 
-  /** «Guardar cambios»: el motivo, ya sugerido por lo que cambió. */
+  /** «Guardar cambios»: el motivo, ya sugerido por lo que cambió (sólo el día → «Cambiar la fecha de entrega»). */
   pedirGuardar(p: PresaleSellerOrder): void {
-    const rs = this.editables(p);
-    if (!rs || !this.nCambios(p)) return;
-    this.guardando.set({ p, agregar: false, sugerido: motivoSugerido(rs, this.edicionDe(p)) });
+    if (!this.nCambios(p)) return;
+    const rs = this.editables(p) ?? [];
+    const soloFecha = !cambiosDe(rs, this.edicionDe(p)).length && !!this.fechaNueva(p);
+    this.guardando.set({ p, agregar: false, sugerido: soloFecha ? MOTIVO_FECHA : motivoSugerido(rs, this.edicionDe(p)) });
   }
 
   /** «Agregar otro producto»: guarda lo que ya cambió y abre la captura de ESTE pedido (ahí se elige la presentación). */
   pedirAgregar(p: PresaleSellerOrder): void {
+    // [MCP.29] El día se guarda aparte: mover la fecha de un pedido abierto en la captura no se permite.
+    if (this.fechaNueva(p)) {
+      this.toast.add({ severity: 'warn', summary: 'Primero guarda el día de entrega', detail: 'Toca «Guardar cambios»; después agrega productos.' });
+      return;
+    }
     if (!p.customer_id) {
       this.toast.add({ severity: 'warn', summary: 'No se puede abrir', detail: 'Abre al cliente desde «Mi ruta» para agregarle productos.' });
       return;
@@ -697,9 +937,10 @@ export class VendorMisPedidosComponent implements OnInit {
   confirmarGuardar(p: PresaleSellerOrder, agregar: boolean, motivo: MotivoElegido): void {
     if (this.guardandoMotivo()) return;
     const cambios = cambiosDe(this.editables(p) ?? [], this.edicionDe(p));
+    const nueva = agregar ? null : this.fechaNueva(p);
     this.guardandoMotivo.set(true);
     this.ocupado.set(p.order_id);
-    this.vendor.modificarPedido(p.order_id, motivo, cambios, agregar).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.vendor.modificarPedido(p.order_id, motivo, cambios, agregar, nueva).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (o) => {
         this.guardandoMotivo.set(false);
         this.guardando.set(null);
@@ -713,8 +954,13 @@ export class VendorMisPedidosComponent implements OnInit {
           this.router.navigate(['/vendor/take-order', p.customer_id], { queryParams: { order: p.order_id } });
           return;
         }
-        this.toast.add({ severity: 'success', summary: 'Pedido modificado', detail: `${p.code} · nuevo total ${this.dinero(Number(o?.total))}` });
+        this.toast.add({
+          severity: 'success',
+          summary: nueva ? `Pedido movido al ${this.fechaLarga(nueva)}` : 'Pedido modificado',
+          detail: nueva && !cambios.length ? `${p.code} · el surtidor lo verá ese día` : `${p.code} · nuevo total ${this.dinero(Number(o?.total))}`,
+        });
         this.actualizar();
+        this.rebuscar();
         if (this.abierto() === p.order_id) this.cargarLineas(p.order_id);
       },
       error: (e) => {
@@ -751,6 +997,7 @@ export class VendorMisPedidosComponent implements OnInit {
         this.cancelando.set(null);
         this.toast.add({ severity: 'info', summary: 'Pedido cancelado', detail: `${p.code} · ${p.customer_name || ''}`.trim() });
         this.actualizar();
+        this.rebuscar();
       },
       error: (e) => {
         this.guardandoMotivo.set(false);
@@ -850,7 +1097,8 @@ export class VendorMisPedidosComponent implements OnInit {
     this.abierto.set(abre ? id : null);
     if (!abre) return;
     // [MCP.15] La revisión en caja ya trae todos los renglones; si no, se piden las líneas del pedido.
-    const p = this.pedidos().find((x) => x.order_id === id);
+    // [MCP.28] El pedido puede venir de la lista del día o de los resultados del buscador.
+    const p = this.pedidos().find((x) => x.order_id === id) ?? this.resultados()?.data.find((x) => x.order_id === id);
     const yaEstan = this.lineasDe()[id];
     if (p && !p.review?.lines?.length && (!yaEstan || yaEstan === 'error')) this.cargarLineas(id);
   }
@@ -1008,6 +1256,13 @@ export class VendorMisPedidosComponent implements OnInit {
 
   dinero(n: number | string | null | undefined): string { return pesos.format(Number(n) || 0); }
   horaDe(iso: string): string { return hora.format(new Date(iso)); }
+  /** `[MCP.29]` «lunes 23 de nov.»: el día al que se mueve, completo, para no confundir un día de la semana. */
+  fechaLarga(f: string): string {
+    if (!esDia(f)) return f;
+    const [y, m, d] = f.split('-').map(Number);
+    return new Intl.DateTimeFormat('es-MX', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));
+  }
+
   fechaCorta(f: string): string {
     const [y, m, d] = f.split('-').map(Number);
     return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)));

@@ -400,11 +400,9 @@ async function main() {
     const esperados = cola.vales.filter((x) => delPadron(x.created_by) || delPadron(x.validated_by)).length;
     if (!esperados) bloqueNoMedido('G.UI.8: ningún vale de la cola trae un usuario con nombre en el padrón');
     else check(malNombre === 0, `G.UI.8: quien capturó y quien revisó, con el nombre del padrón en los ${cola.vales.length} vales (${conNombre} con nombre, ${esperados} esperados)`, malNombre);
-    // La base cerrada (DG7): otra sucursal que no es 02/04/05/07 lo dice en llano y con su detalle.
-    const conDg7 = cola.vales.find((x) => x.gasto_kepler && !['02', '04', '05', '07'].includes(String(x.sucursal)));
-    if (conDg7) check(conDg7.gasto_kepler.escritura.abierta === false && /contador que falta medir/.test(conDg7.gasto_kepler.escritura.motivo ?? '') && /^DG7/.test(conDg7.gasto_kepler.escritura.detalle ?? ''),
-      `DG7: en ${conDg7.sucursal} la cola dice que la Suite todavía no escribe, con el detalle para Sistemas`, conDg7.gasto_kepler.escritura);
-    else bloqueNoMedido('DG7 en la cola: la base local no trae vales autorizados sin gasto fuera de 02/04/05/07');
+    // G.1 (2026-11-20): DG7 retirado. Ninguna base se declara cerrada por «un contador que falta medir».
+    const conDg7 = cola.vales.filter((x) => x.gasto_kepler && /contador que falta medir|^DG7/.test(`${x.gasto_kepler.escritura?.motivo ?? ''} ${x.gasto_kepler.escritura?.detalle ?? ''}`));
+    check(conDg7.length === 0, `G.1: ningún vale de la cola dice que su base espera el contador de DG7 (${cola.vales.length} vales)`, conDg7.map((x) => x.sucursal));
 
     // «Reintentar»: con el motivo vigente, dice por qué y no escribe; sobre un vale sin validar, 409; un id roto, 400.
     const rr = await proofs.reintentarGasto(d, QUIEN.full_name);

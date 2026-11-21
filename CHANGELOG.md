@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Estado de cuenta de acreedores: buscar, la factura a un clic y «Agendar» (ECA.9 · 2026-11-20)
+- Al entrar se ven 7 documentos del acreedor en lugar de 1: los avisos, la ficha y las cifras ocupan mucho menos.
+- Buscador dentro de los documentos del acreedor: folio, referencia, importe (con o sin comas), fecha, sucursal y el folio del pago que se les aplicó. Si no encuentra nada, ofrece buscar también en los pagados de los últimos 12 meses.
+- «PDF» abre la factura del proveedor en un clic (la misma que ya encuentra Pagos); si sólo hay UUID, se copia. Sólo para documentos con saldo.
+- «Agendar» lleva al Calendario de pagos al día del vencimiento (u hoy, si ya venció), con la factura ya buscada en «Agregar facturas».
+- La columna «Saldo» ahora muestra el saldo del documento (antes mostraba su estado); en el teléfono cada documento se ve como ficha.
 ### Fixed — Almacén: la etiqueta de ubicación sale del tamaño del rollo amarillo (UB.RF.16 · 2026-11-20)
 - Las etiquetas de tienda se imprimían como la fila de 3 del checado y en el rollo amarillo (una etiqueta de 6 × 3 cm) salían cortadas y encimadas. Ahora sale una etiqueta de 60 × 30 mm por hoja, con el código grande y su código de barras.
 

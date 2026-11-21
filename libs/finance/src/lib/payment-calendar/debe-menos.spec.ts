@@ -1,4 +1,4 @@
-import { cargoDeLaFactura, debeMenosDelPago, facturasQueDebenMenos, seAjustaSolo, tipoDeAbono, type FacturaParaDebeMenos } from './debe-menos';
+import { cargoDeLaFactura, cubiertoAntesPorRenglon, debeMenosDelPago, debeParaEsteRenglon, facturasQueDebenMenos, seAjustaSolo, tipoDeAbono, type FacturaParaDebeMenos } from './debe-menos';
 
 /**
  * `[PGP.147]` La factura ya debe menos de lo que el pago le lleva. Forma tomada del caso real (Mondelez, 13-nov):
@@ -74,5 +74,49 @@ describe('[PGP.148] cuándo el pago se ajusta SOLO (D19 b)', () => {
   it('un pago viejo, anterior a armarlo, no estorba a la nota nueva', () => {
     expect(seAjustaSolo([pago('2026-09-01'), nc('2026-11-12')], '2026-10-26')).toBe(true);
     expect(tipoDeAbono('55-0001512')).toBe(55);
+  });
+});
+
+/**
+ * `[PGP.190]` Una factura partida en dos transferencias ($1,000,000 + $150,000.25) y una nota de crédito que baja su
+ * saldo: la suma de las partes no puede pasar de lo que se debe. La última transferencia absorbe primero.
+ */
+describe('[PGP.190] la factura partida entre varios pagos vivos', () => {
+  const vivos = [
+    { item_id: 'p1', obligation_id: 'F', cubierto: 1000000 },
+    { item_id: 'p2', obligation_id: 'F', cubierto: 150000.25 },
+    { item_id: 'otra', obligation_id: 'G', cubierto: 5000 },
+  ];
+  const antes = cubiertoAntesPorRenglon(vivos);
+  const parte = (id: string, applied: number, debe: number): FacturaParaDebeMenos =>
+    f({ id, applied_amount: applied, kepler_debe: debeParaEsteRenglon(debe, antes.get(id) ?? 0), partida: (antes.get(id) ?? 0) > 0.005 });
+
+  it('cada renglón ve lo que cubren los anteriores de la MISMA factura', () => {
+    expect([...antes]).toEqual([['p1', 0], ['p2', 1000000], ['otra', 0]]);
+  });
+
+  it('sin nota: ninguna parte lleva de más', () => {
+    expect(facturasQueDebenMenos([parte('p1', 1000000, 1150000.25), parte('p2', 150000.25, 1150000.25)])).toEqual([]);
+  });
+
+  it('una nota de $100,000: la última lleva $100,000 de más y baja a $50,000.25; la primera no se toca', () => {
+    const malas = facturasQueDebenMenos([parte('p1', 1000000, 1050000.25), parte('p2', 150000.25, 1050000.25)]);
+    expect(malas.map((m) => [m.id, m.kepler_debe])).toEqual([['p2', 50000.25]]);
+    expect(debeMenosDelPago(malas, new Map())?.de_mas).toBe(100000);
+  });
+
+  it('NEGATIVA: comparar cada parte contra el saldo completo (lo de antes) no veía los $100,000', () => {
+    const contraElSaldo = (id: string, applied: number) => f({ id, applied_amount: applied, kepler_debe: 1050000.25 });
+    expect(facturasQueDebenMenos([contraElSaldo('p1', 1000000), contraElSaldo('p2', 150000.25)])).toEqual([]);
+  });
+
+  it('una nota mayor que la última parte: esa parte queda en cero y sí se dice (se quita del pago); la primera baja', () => {
+    const malas = facturasQueDebenMenos([parte('p1', 1000000, 900000), parte('p2', 150000.25, 900000)]);
+    expect(malas.map((m) => [m.id, m.kepler_debe])).toEqual([['p1', 900000], ['p2', 0]]);
+  });
+
+  it('una factura SIN partir en cero sigue siendo la saldada de [PGP.35], no un «de más»', () => {
+    expect(facturasQueDebenMenos([f({ kepler_debe: 0 })])).toEqual([]);
+    expect(debeParaEsteRenglon(null, 5)).toBeNull();
   });
 });

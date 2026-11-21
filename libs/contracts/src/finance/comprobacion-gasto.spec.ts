@@ -1,4 +1,6 @@
-import { comprobacionDelVale, QUIEN_RESUELVE_TEXTO, totalParaComprobar, type SolicitudAComprobar, type ValeAComprobar } from './comprobacion-gasto.contract';
+import {
+  comprobacionDelVale, montoDelAviso, montoLeidoDelVale, QUIEN_RESUELVE_TEXTO, totalParaComprobar, type SolicitudAComprobar, type ValeAComprobar,
+} from './comprobacion-gasto.contract';
 
 /**
  * `[PGP.123]` G.5 — Candado de «cuándo se comprueba» (anexo G §5.1). Cada condición tiene su caso con su motivo y a
@@ -102,5 +104,38 @@ describe('[PGP.123] comprobacionDelVale', () => {
     // Rechazado manda sobre todo; con gasto vivo no importa que el total difiera.
     expect(motivo({ status: 'rechazada', total: 1 }, { estado: 'C' })).toBe('rechazado/nadie');
     expect(motivo({ total: 1 }, { gasto_vivo: true })).toBe('ya_comprobado/nadie');
+  });
+
+  it('⭐ DG12 (Edgar, 2026-11-20): si la lectura del comprobante dijo otro monto, no se comprueba sola: la sucursal compara', () => {
+    const r = comprobacionDelVale(vale({ monto_leido: 6032.48 }), sol(), HOY);
+    expect(r).toMatchObject({ listo: false, motivo: 'lectura_distinta', quien: 'sucursal' });
+    expect(r.listo ? '' : r.texto).toContain('$6,032.48');
+    // Misma tolerancia que el lector: $1 o el 1 % (redondeo e IVA) se da por bueno.
+    expect(motivo({ monto_leido: 116.99 })).toBe('listo');
+    expect(motivo({ monto_leido: 115.01 })).toBe('listo');
+    expect(motivo({ monto_leido: 117.16 })).toBe('listo');               // $116 × 1 % = $1.16
+    expect(motivo({ monto_leido: 117.2 })).toBe('lectura_distinta/sucursal');
+    expect(motivo({ total: 2000, monto_leido: 2019 }, { total: 2000, saldo: 2000 })).toBe('listo');
+    expect(motivo({ total: 2000, monto_leido: 2021 }, { total: 2000, saldo: 2000 })).toBe('lectura_distinta/sucursal');
+    // ⛔ NEGATIVA: sin lectura (o cuadró) no frena nada.
+    expect(motivo({ monto_leido: null })).toBe('listo');
+    expect(motivo({ monto_leido: undefined })).toBe('listo');
+    expect(motivo({ monto_leido: Number.NaN })).toBe('listo');
+    // El orden: lo de la solicitud y la factura gana; la fecha de otro mes va después (Contabilidad no la ve sin comparar).
+    expect(motivo({ monto_leido: 5000 }, { estado: 'N' })).toBe('sin_autorizar/finanzas');
+    expect(motivo({ monto_leido: 5000 }, { fecha: '2026-10-30' })).toBe('lectura_distinta/sucursal');
+  });
+
+  it('DG12: el monto leído sale de monto_ocr y, si falta, del aviso del lector', () => {
+    expect(montoLeidoDelVale('6032.48', null)).toBe(6032.48);
+    expect(montoLeidoDelVale(0, 'El comprobante dice $9.00')).toBe(0);
+    expect(montoLeidoDelVale(null, '⚠ El comprobante dice $140,007.59 y la solicitud $126.59 (difieren $139,881.00). Revísalo antes de autorizar.')).toBe(140007.59);
+    expect(montoLeidoDelVale(null, 'Evidencia subida por quien capturó — falta que alguien la revise · ⚠ El comprobante dice $24.27 y la solicitud $21.00')).toBe(24.27);
+    expect(montoDelAviso('⚠ El comprobante dice $1,100 y la solicitud $1,000.00')).toBe(1100);
+    // ⛔ NEGATIVA: el aviso de ilegible, una nota cualquiera o nada no inventan un monto.
+    expect(montoLeidoDelVale(null, 'No se pudo leer el comprobante automáticamente — revísalo a mano.')).toBeNull();
+    expect(montoLeidoDelVale('', 'Evidencia subida por quien capturó — falta que alguien la revise')).toBeNull();
+    expect(montoLeidoDelVale(undefined, undefined)).toBeNull();
+    expect(montoDelAviso('El comprobante dice $— y la solicitud $5.00')).toBeNull();
   });
 });

@@ -16,7 +16,14 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { VendorService, VendorOrder } from '../vendor.service';
+import { Subject, catchError, debounceTime, map, of, switchMap } from 'rxjs';
+import { POR_ENTREGAR_TOPE, VendorService, VendorOrder } from '../vendor.service';
+
+/** `[MCP.30]` Lo mínimo que se busca (igual que el servidor) y cuánto se espera a que deje de escribir. */
+const BUSQUEDA_MINIMO = 2;
+const BUSQUEDA_ESPERA_MS = 300;
+/** Letras y números que cuentan (sin acentos, espacios ni signos), la misma cuenta que el servidor. */
+const largoUtil = (q: string): number => q.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]/g, '').length;
 import { OrderLine } from '../../portal/portal.service';
 import { MOTIVOS_CORREGIR, type MotivoElegido } from '@megadulces/contracts';
 import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
@@ -59,7 +66,7 @@ import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.co
     <div class="page-head">
       <div>
         <h1 class="page-title">Por entregar</h1>
-        @if (!loading() && !loadError()) {
+        @if (!loading() && !loadError() && !enBusqueda()) {
           <p class="subtitle">
             {{ toApprove().length }} por aprobar · {{ toDeliver().length }} por entregar
           </p>
@@ -79,10 +86,46 @@ import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.co
       }
     </div>
     
+    <!-- [MCP.30] Buscador de PEDIDOS (el de arriba es de precios): busca en el servidor, en TODOS los pendientes de
+         tu cartera, no sólo en los que caben en la lista. Cada palabra en cualquier orden, sin acentos. -->
+    @if (!loading() && !(loadError() && orders().length === 0)) {
+      <div class="pe-bs" role="search">
+        <i class="pi pi-box" aria-hidden="true"></i>
+        <input type="search" class="pe-bs-in" [value]="busqueda()" (input)="buscar($any($event.target).value)"
+               placeholder="Pedido: folio, cliente o producto" aria-label="Buscar en todos tus pedidos por entregar"
+               enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        @if (busqueda()) {
+          <button type="button" class="pe-bs-x" (click)="buscar('')" aria-label="Borrar la búsqueda"><i class="pi pi-times" aria-hidden="true"></i></button>
+        }
+      </div>
+      @if (enBusqueda()) {
+        @if (sinSenal()) {
+          <p class="pe-nota pe-aviso" role="status"><i class="pi pi-wifi" aria-hidden="true"></i> Para buscar necesitas señal.</p>
+        } @else if (errorBusqueda()) {
+          <p class="pe-nota pe-aviso" role="alert">{{ errorBusqueda() }} <button type="button" class="pe-re" (click)="rebuscar()">Reintentar</button></p>
+        } @else if (!resultados()) {
+          <p class="pe-nota">Buscando…</p>
+        } @else {
+          <p class="pe-nota" role="status">
+            <b>Resultados · {{ resultados()!.total }}</b> en tus pedidos por entregar
+            @if (resultados()!.total > resultados()!.data.length) { · se muestran los {{ resultados()!.data.length }} más recientes }
+          </p>
+          @if (!resultados()!.data.length) {
+            <p-card><div class="empty"><i class="pi pi-search pe-ico-muted"></i><p>Ningún pedido por entregar tiene «{{ busqueda().trim() }}».</p></div></p-card>
+          }
+        }
+      } @else if (total() > orders().length) {
+        <!-- [MCP.30] La lista tiene tope: se dice cuántos hay de verdad (antes decía «200 por entregar» y callaba el resto). -->
+        <p class="pe-nota pe-tope" role="status">
+          Se muestran los {{ orders().length }} más recientes de {{ total() }}. Usa el buscador para encontrar los demás.
+        </p>
+      }
+    }
+
     @if (loading()) {
       <p-skeleton height="400px"></p-skeleton>
     }
-    
+
     <!-- Fallo de red (distinto de "sin pendientes") -->
     @if (!loading() && loadError() && orders().length === 0) {
       <p-card>
@@ -94,7 +137,7 @@ import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.co
       </p-card>
     }
     
-    @if (!loading() && !loadError() && orders().length === 0) {
+    @if (!loading() && !loadError() && orders().length === 0 && !enBusqueda()) {
       <p-card>
         <div class="empty">
           <i class="pi pi-check-circle"></i>
@@ -103,7 +146,7 @@ import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.co
       </p-card>
     }
     
-    @if (!loading() && orders().length > 0) {
+    @if (!loading() && fuente().length > 0) {
       <ng-container
         *ngTemplateOutlet="section; context: { title: 'Por aprobar', list: toApprove(), kind: 'approve' }"
       ></ng-container>
@@ -240,6 +283,21 @@ import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.co
       .line .ltotal { font-variant-numeric: tabular-nums; color: var(--text-muted); }
       .empty-line { color: var(--text-muted); font-style: italic; }
       .actions { margin-top: 0.75rem; display: flex; justify-content: flex-end; }
+      /* [MCP.30] El buscador de pedidos: 44 px, 16 px de letra (iOS no hace zoom al enfocarlo). */
+      .pe-bs { position: relative; margin-bottom: var(--sp-3); }
+      .pe-bs > .pi-box { position: absolute; left: var(--sp-3); top: 50%; transform: translateY(-50%); color: var(--text-faint); pointer-events: none; }
+      .pe-bs-in { width: 100%; min-height: var(--tap-min); padding: 0 var(--tap-min) 0 calc(var(--sp-3) * 2 + 1rem); font-family: inherit; font-size: 1rem;
+        border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); }
+      .pe-bs-in:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+      .pe-bs-in::-webkit-search-cancel-button { display: none; }
+      .pe-bs-x { position: absolute; right: 0; top: 0; width: var(--tap-min); height: var(--tap-min); border: 0; background: none; color: var(--text-muted); cursor: pointer; }
+      .pe-bs-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+      .pe-nota { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); }
+      .pe-nota b { color: var(--text-main); }
+      .pe-tope { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--info-border); border-radius: var(--r-md); background: var(--info-soft-bg); color: var(--info-soft-fg); }
+      .pe-aviso { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-border); border-radius: var(--r-md); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+      .pe-re { border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; min-height: var(--tap-min); }
+      .empty .pe-ico-muted { color: var(--text-faint); }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -263,8 +321,21 @@ export class VendorPendingComponent implements OnInit {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   });
 
-  readonly toApprove = computed(() => this.orders().filter((o) => o.status === 'pending_approval'));
-  readonly toDeliver = computed(() => this.orders().filter((o) => o.status === 'confirmed'));
+  /** `[MCP.30]` Cuántos pendientes hay de verdad (la lista trae como mucho {@link POR_ENTREGAR_TOPE}). */
+  readonly total = signal(0);
+
+  // ─── [MCP.30] Buscador ───
+  readonly busqueda = signal('');
+  readonly enBusqueda = computed(() => largoUtil(this.busqueda()) >= BUSQUEDA_MINIMO);
+  readonly resultados = signal<{ data: VendorOrder[]; total: number } | null>(null);
+  readonly errorBusqueda = signal<string | null>(null);
+  readonly sinSenal = signal(false);
+  private readonly busquedas = new Subject<string>();
+
+  /** Lo que se ve: los resultados mientras busca, si no la lista. Las dos secciones salen de aquí. */
+  readonly fuente = computed<VendorOrder[]>(() => (this.enBusqueda() ? (this.resultados()?.data ?? []) : this.orders()));
+  readonly toApprove = computed(() => this.fuente().filter((o) => o.status === 'pending_approval'));
+  readonly toDeliver = computed(() => this.fuente().filter((o) => o.status === 'confirmed'));
 
   readonly open = signal<Set<string>>(new Set());
   readonly linesById = signal<Record<string, OrderLine[]>>({});
@@ -276,19 +347,61 @@ export class VendorPendingComponent implements OnInit {
   readonly motivosCorregir = MOTIVOS_CORREGIR;
 
   ngOnInit(): void {
+    this.conectarBuscador();
     this.reload();
+  }
+
+  /** `[MCP.30]` Lo que escribió: con 2 letras o números o más, busca en el servidor. */
+  buscar(v: string): void {
+    this.busqueda.set(v);
+    this.errorBusqueda.set(null);
+    this.resultados.set(null);
+    if (!this.enBusqueda()) {
+      this.sinSenal.set(false);
+      return;
+    }
+    this.busquedas.next(v);
+  }
+
+  rebuscar(): void {
+    if (!this.enBusqueda()) return;
+    this.errorBusqueda.set(null);
+    this.busquedas.next(this.busqueda());
+  }
+
+  private conectarBuscador(): void {
+    this.busquedas.pipe(
+      debounceTime(BUSQUEDA_ESPERA_MS),
+      switchMap((q) => {
+        if (largoUtil(q) < BUSQUEDA_MINIMO) return of(null);
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return of({ q, r: null, sinRed: true, msg: null });
+        return this.api.pendingDeliveriesPage(q).pipe(
+          map((r) => ({ q, r, sinRed: false, msg: null as string | null })),
+          catchError((e: { status?: number; error?: { message?: string } }) =>
+            of({ q, r: null, sinRed: e?.status === 0, msg: e?.error?.message || 'No se pudo buscar. Intenta de nuevo.' })),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((x) => {
+      if (!x || x.q !== this.busqueda()) return; // escribió otra cosa mientras tanto
+      this.sinSenal.set(x.sinRed);
+      if (x.r) this.resultados.set(x.r);
+      else if (!x.sinRed) this.errorBusqueda.set(x.msg);
+    });
   }
 
   reload(silent = false): void {
     if (silent) this.refreshing.set(true);
     else this.loading.set(true);
     this.loadError.set(false);
+    this.rebuscar();
     this.api
-      .pendingDeliveries()
+      .pendingDeliveriesPage()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (list) => {
+        next: ({ data: list, total }) => {
           this.orders.set(list);
+          this.total.set(total);
           this.loading.set(false);
           this.refreshing.set(false);
         },

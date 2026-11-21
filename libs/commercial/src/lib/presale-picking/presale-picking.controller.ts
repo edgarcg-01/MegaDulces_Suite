@@ -15,6 +15,7 @@ import type {
   PresalePickInboxRow,
   PresaleOtherUnitsResponse,
   PresaleSellerStatusResponse,
+  PresaleSellerSearchResponse,
   PresaleSubstituteResponse,
   RouteBatchDetail,
   RouteBatchFinishRequest,
@@ -155,6 +156,14 @@ export class PresaleSellerStatusController {
   @ApiOperation({ summary: 'Mis pedidos de preventa: agendado, surtido, cobrado, entregado. [MCP.20] ?date=YYYY-MM-DD: los que levanté ese día.' })
   status(@Query('date') date?: string): Promise<PresaleSellerStatusResponse> {
     return this.service.sellerStatus(date);
+  }
+
+  // [MCP.28] Antes de ':algo' no hay nada que choque (las rutas de aquí son literales); va junto a su hermano `GET /`.
+  @Get('search')
+  @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
+  @ApiOperation({ summary: '[MCP.28] Buscar en mis pedidos (y los de mi equipo, si soy supervisor) de los últimos 60 días: ?q= folio, cliente, producto o monto, cada palabra en cualquier orden.' })
+  search(@Query('q') q?: string): Promise<PresaleSellerSearchResponse> {
+    return this.service.sellerSearch(q);
   }
 
   @Get('unseen')

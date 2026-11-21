@@ -11,8 +11,8 @@ import type { ValeEsperaKepler } from '../comprobaciones.service';
  * escribe la Suite; lo demás, plegado con su conteo.
  *
  * ⛔ «La Suite las escribe» sólo cuenta lo que la Suite VA a escribir sin que nadie haga nada: lo que ya escribió, o lo
- * listo en una base donde la escritura está abierta. Lo listo en una base cerrada (hoy, todas: el interruptor nace
- * apagado y DG7 deja fuera 00, 01, 03, 06 y 08) lo sigue capturando una persona en Kepler, y decir lo contrario
+ * listo en una base donde la escritura está abierta. Lo listo en una base cerrada (el interruptor de la sucursal o la
+ * bandera apagados) lo sigue capturando una persona en Kepler, y decir lo contrario
  * haría que nadie lo comprobara.
  */
 
