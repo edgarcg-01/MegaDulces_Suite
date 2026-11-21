@@ -27,6 +27,9 @@
 .cc-pri { display: block; font-weight: var(--fw-medium); color: var(--fg-1); }
 .cc-sub { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
 .cc-sub.cc-inline { display: inline; font-weight: var(--fw-regular); }
+/* [PQ.3.14] Celda de varias líneas: UN solo hijo. En la tabla apilada del celular (.dt-stack) la celda es flex; este
+   hijo toma lo que deja el rótulo y por dentro las líneas se apilan como en escritorio (donde no cambia nada). */
+.cc-celda { flex: 1 1 auto; min-width: 0; }
 .cc-falta { color: var(--fg-2); font-style: italic; }
 .cc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* «Semana»/«Mes»: el día nuevo se separa con una línea, no con una caja (Gestalt: agrupar por espacio). */
@@ -38,6 +41,12 @@
   font: inherit; font-weight: var(--fw-medium); color: var(--fg-1);
 }
 .cc-link:hover { text-decoration: underline; }
+/* [PQ.3.14] La propuesta de sucursal (día fijo) es el botón que abre su regla armada: subrayado tenue = se puede abrir. */
+.cc-diafijo {
+  display: block; margin-top: var(--sp-2); font-weight: var(--fw-regular);
+  text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px;
+}
+.cc-diafijo:hover { text-decoration-color: currentColor; }
 .cc-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
 
 .cc-acc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }

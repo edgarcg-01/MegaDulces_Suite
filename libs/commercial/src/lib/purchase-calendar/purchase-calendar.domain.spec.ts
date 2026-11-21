@@ -1,7 +1,7 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (con el import el spec no carga: compuerta spec-vivo).
 import {
-  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, desdeEntradas, nombreDelAlcance, plazasDelAlcance, reglaEnAlcance,
-  revisaPorAlcance, zonasDeCompra,
+  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
+  plazasDelAlcance, reglaEnAlcance, repartirPropuestas, revisaPorAlcance, zonasDeCompra,
   type FilaActividad, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 
@@ -163,5 +163,95 @@ describe('`[PQ.3.6]` reglaEnAlcance — cada quien ve las reglas que caben COMPL
   it('alcanceDeQuienVe: sólo sucursales que existen, en el orden de la red; vacío = su ficha no tiene sucursal', () => {
     expect(alcanceDeQuienVe(SUC, ['06', '05', 'MD-30'])).toEqual({ todas: false, sucursales: ['05', '06'] });
     expect(alcanceDeQuienVe(SUC, [])).toEqual({ todas: false, sucursales: [] });
+  });
+});
+
+/**
+ * `[PQ.3.14]` El día fijo por sucursal. Los controles son pares MEDIDOS en prod (2026-11-21): un proveedor de
+ * tostadas que en Yurécuaro entrega un viernes sí y otro no (13 de 13 días en viernes, cada 14), uno de bebidas
+ * que en 8 Esquinas cae en jueves 34 de 42 días, y el mismo proveedor de tostadas en La Piedad Abastos: 8 de 8 en
+ * miércoles, pero cada 49 días (no es un día fijo).
+ */
+describe('día fijo por sucursal (PQ.3.14)', () => {
+  const HOY = '2026-11-21';
+  /** n fechas desde `ultima` hacia atrás, cada `paso` días. */
+  const serie = (ultima: string, n: number, paso: number): string[] => {
+    const out: string[] = [];
+    const [y, m, d] = ultima.split('-').map(Number);
+    for (let i = n - 1; i >= 0; i--) out.push(new Date(Date.UTC(y, m - 1, d - i * paso)).toISOString().slice(0, 10));
+    return out;
+  };
+
+  it('control: 13 viernes, uno sí y otro no → viernes, cada 14 días, con su evidencia', () => {
+    expect(diaFijoDeActividad(serie('2026-11-13', 13, 14), HOY)).toEqual({
+      motivo: null, weekday: 5, every_days: 14, dias: 13, en_el_dia: 13, recientes: { en_el_dia: 6, esperadas: 6 }, ultima: '2026-11-13' });
+  });
+
+  it('control: cada jueves con días sueltos de otro día (34 de 42, 81 %) → jueves, cada semana', () => {
+    const jueves = serie('2026-11-12', 34, 7);
+    const sueltos = serie('2026-11-10', 8, 21); // martes
+    const m = diaFijoDeActividad([...sueltos, ...jueves], HOY);
+    expect(m).toMatchObject({ motivo: null, weekday: 4, every_days: 7, dias: 42, en_el_dia: 34, ultima: '2026-11-12' });
+  });
+
+  it('control: 8 de 8 en miércoles pero cada 49 días no es un día fijo (periodo irregular)', () => {
+    expect(diaFijoDeActividad(serie('2026-11-18', 8, 49), HOY)).toEqual({ motivo: 'periodo_irregular' });
+  });
+
+  it('el umbral: 7 de 10 en el mismo día (70 %) sí; 6 de 9 (67 %) no', () => {
+    const lunes = serie('2026-11-16', 7, 7);
+    expect(diaFijoDeActividad([...lunes, '2026-11-04', '2026-10-22', '2026-10-09'], HOY)).toMatchObject({ motivo: null, weekday: 1, dias: 10, en_el_dia: 7 });
+    expect(diaFijoDeActividad([...serie('2026-11-16', 6, 7), '2026-11-04', '2026-10-22', '2026-10-09'], HOY)).toEqual({ motivo: 'sin_dia_fijo' });
+  });
+
+  it('con menos de 8 días no se propone, aunque todos caigan el mismo día', () => {
+    expect(diaFijoDeActividad(serie('2026-11-20', 7, 7), HOY)).toEqual({ motivo: 'pocos_dias' });
+  });
+
+  it('el mismo día repetido (OC y entrada el mismo día) cuenta una vez', () => {
+    const v = serie('2026-11-20', 7, 7);
+    expect(diaFijoDeActividad([...v, ...v], HOY)).toEqual({ motivo: 'pocos_dias' });
+  });
+
+  it('sin el ritmo reciente no se propone: la racha de abril con una OC suelta hoy (el caso medido: 97 % rezagada)', () => {
+    expect(diaFijoDeActividad([...serie('2026-04-28', 14, 7), '2026-11-21'], HOY)).toEqual({ motivo: 'sin_ritmo_reciente' });
+  });
+
+  it('el ritmo reciente, en su borde: 7 de 13 jueves en las últimas 13 semanas sí; 6 de 13 no', () => {
+    const viejos = serie('2026-06-04', 10, 7);
+    expect(diaFijoDeActividad([...viejos, ...serie('2026-11-19', 7, 7)], HOY)).toMatchObject({ motivo: null, weekday: 4, recientes: { en_el_dia: 7, esperadas: 13 } });
+    expect(diaFijoDeActividad([...viejos, ...serie('2026-11-19', 6, 7)], HOY)).toEqual({ motivo: 'sin_ritmo_reciente' });
+  });
+
+  it('por proveedor: sólo sucursales con zona (el CEDIS no: R7), ordenadas, y la plaza desconocida fuera', () => {
+    const v = serie('2026-11-20', 12, 7);
+    const m = diasFijosPorProveedor([
+      { supplier_code: 'P1', plaza: '06', fechas: v },
+      { supplier_code: 'P1', plaza: '04', fechas: serie('2026-11-13', 13, 14) },
+      { supplier_code: 'P1', plaza: '00', fechas: v },
+      { supplier_code: 'P1', plaza: 'MD-30', fechas: v },
+      { supplier_code: 'P2', plaza: '05', fechas: v.slice(0, 5) },
+    ], SUC, HOY);
+    expect([...m.keys()]).toEqual(['P1']);
+    expect(m.get('P1')?.map((p) => [p.branch_code, p.weekday, p.every_days])).toEqual([['04', 5, 14], ['06', 5, 7]]);
+  });
+});
+
+describe('`[PQ.3.14]` el día fijo no se pierde al definir otra regla', () => {
+  const d = (branch_code: string) => ({ branch_code, weekday: 4, every_days: 7 as const, dias: 30, en_el_dia: 28, recientes: { en_el_dia: 12, esperadas: 13 }, ultima: '2026-11-19' });
+  const dias = new Map([['A', [d('07'), d('08')]], ['B', [d('07'), d('08')]], ['C', [d('04')]], ['D', [d('04')]]]);
+  const r = repartirPropuestas([
+    { supplier_code: 'A', reglas_vivas: 0, con_regla_de_sucursal: [] },          // sin regla: sus dos sucursales
+    { supplier_code: 'B', reglas_vivas: 2, con_regla_de_sucursal: ['07'] },      // corporativa + la de 07: falta 08
+    { supplier_code: 'C', reglas_vivas: 1, con_regla_de_sucursal: [] },          // sólo corporativa (o de zona): falta 04
+    { supplier_code: 'D', reglas_vivas: 1, con_regla_de_sucursal: ['04'] },      // ya tiene la de 04: nada pendiente
+    { supplier_code: 'E', reglas_vivas: 0, con_regla_de_sucursal: [] },          // sin regla y sin día fijo
+  ], dias);
+
+  it('sin regla: los que no tienen ninguna, con todo su día fijo (también el que no tiene)', () => {
+    expect(r.sin_regla.map((p) => [p.supplier_code, p.dias_fijos.map((x) => x.branch_code)])).toEqual([['A', ['07', '08']], ['E', []]]);
+  });
+  it('pendiente: la regla corporativa o de zona NO borra la propuesta de sucursal; la de esa sucursal sí', () => {
+    expect(r.dia_fijo_pendiente.map((p) => [p.supplier_code, p.dias_fijos.map((x) => x.branch_code)])).toEqual([['B', ['08']], ['C', ['04']]]);
   });
 });
