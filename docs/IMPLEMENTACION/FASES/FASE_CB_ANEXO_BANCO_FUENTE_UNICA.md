@@ -156,6 +156,9 @@ libro después de E3.
 | **D7** | Descarga automática del banco | Contrato por banco | **Fuera de esta fase** |
 | **D8** | Qué cuenta como «explicado» (propiedad 4) | (a) documento de Kepler, o categoría con evidencia (regla o texto del banco que la disparó) · (b) sólo documento de Kepler | **(a)**, pero «depósito sin otra señal = cobranza» **no** cuenta como explicado hasta identificar al cliente: es el piso del placebo (62 %) |
 | **D9** | Un archivo sin testigo de cuenta (19 hoy) | (a) no cuenta para «completo» hasta comprobarse por saldo · (b) se acepta con confirmación de quien sube | **(a)**: hoy se aceptan con un clic; una cuenta equivocada contamina dos estados de cuenta |
+| **D11** (Claude, 2026-11-20; Edgar: «sigue con lo tuyo», sin firma explícita) | De dónde sale la categoría de un movimiento del banco | (a) de la cuenta contable de Kepler del documento que liquida · (b) se pregunta por acreedor | **(a)**: es la contabilidad real y Kepler es el árbitro; el catálogo se completa con los mayores de Kepler (15 categorías nuevas). Control 93.6 % contra el libro, placebo 36.4 % |
+| **D12** (ídem) | Kepler registró el pago en otra cuenta de banco | (a) la categoría sale del documento igual · (b) motivo para Tesorería | **(b)** en el motor de hoy (no se casa por cuenta ajena); BFU.7.5 decide si además da la categoría |
+| **D13** (ídem) | Plazo para «Kepler todavía no lo tiene» | días hábiles | **5** (mediana de captura 2–5, CB.53); después el motivo pasa al área dueña |
 | **D10** ✅ Edgar, 2026-11-19 («ya no se vuelve a usar workbook») | El libro CUENTAS ¿se sigue cargando mientras pasan las cuentas? | — | **No se vuelve a cargar.** La subida y la sincronización de Sheets se niegan desde ya (BFU.5.1); las cuentas que todavía no cuadran quedan con su libro al 10-nov hasta que su descarga se complete y pasen |
 
 ---
@@ -215,6 +218,9 @@ credenciales de banca en línea.
 | BFU.2.7 | **Categoría por documento, por evento** (CB.66): al casar un movimiento del banco sin categoría, toma la del documento; nunca pisa una manual | ⬜ | Los «sin categoría» bajan al llegar los documentos |
 | BFU.2.8 | **La explicación de cada renglón, en un solo lugar** (función pura en `libs/finance`): documento de Kepler, categoría y su evidencia, sucursal y su origen, contraparte y referencia, póliza de ContPAQi, pago del calendario, comprobante; y si no hay, «sin explicar» con el porqué | ⬜ | Spec con un caso por fuente de explicación + el caso vacío; es lo que leen E4 y la cifra de la métrica 2 |
 | BFU.2.9 | **Medir la métrica 2 sobre la descarga** (hoy NO MEDIDA): pesos explicados por cuenta y mes con BFU.2.8 | ⬜ | Cruce contra el 82.2 % del libro de octubre (mismo criterio D8) |
+| BFU.2.10 | 🧪 2026-11-20 **Al casar con Kepler, la categoría sale del documento** (el motor, en su transacción; `classified_by = 'documento'`, sigue al pareo). Corrige «GN… = nómina»: la nómina sale del nombre congelado (NOMINA), no del prefijo | 🧪 | Bloque [15] de `test-newdb-bank-estado-de-cuenta.js` + antes/después en prod |
+| BFU.2.11 | ⬜ La categoría de un acreedor de gasto (G…) y de un pago del Calendario, como parámetro que se contesta una vez (28 + 40 en noviembre) | ⬜ | Antes/después en prod |
+| BFU.2.12 | ⬜ El motor no casa los cheques de nómina que Kepler sí tiene (10 en noviembre) | ⬜ | Prueba del pase |
 
 ### E3 · C2 — Pasar las cuentas
 
@@ -236,6 +242,7 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 | BFU.4.3 | **«Sin explicar» como bandeja con dueño**: por cuenta, lo que no tiene documento, categoría con evidencia o sucursal; se resuelve ahí | ⬜ | |
 | BFU.4.4 | **Exportar el estado de cuenta explicado** (Excel y PDF): el del banco más el porqué de cada peso, con las propiedades del mes en el encabezado | ⬜ | |
 | BFU.4.5 | **Aviso a quien sube** (D6): a la hora límite, qué cuenta no tiene el archivo de ayer y desde qué día bajarlo | ⬜ | |
+| BFU.4.5 | ⬜ **Cada área ve y reconoce sus movimientos del banco para conciliarlos en Kepler** (Edgar, 2026-11-20). Lo que no tiene documento le llega al área dueña (del Calendario, del acreedor, o asignada por Tesorería con un clic); el área lo captura en Kepler y el motor casa solo. Primero Compras, RH y Tesorería; falta quién en cada una | ⬜ | Permiso repartido en prod + pantalla viva |
 
 ### E5 · C2–C3 — Apagar el libro
 
@@ -256,6 +263,20 @@ Cargar la skill `diseno` antes del primer archivo; las 🔴 de §11 son criterio
 | BFU.6.4 | **Alertas de la verdad**: un saldo que salta, un archivo de otra cuenta, un retiro grande sin explicar en 24 h | ⬜ | Cada alerta con su prueba negativa |
 
 ---
+
+### E7 · C0–C3 — El motor de categoría (Edgar, 2026-11-20: «no necesito parches, necesito un motor que cubra el 100 %, y lo que no podamos cubrir, revisar por qué»)
+
+Cada movimiento de la descarga tiene **categoría con su evidencia, o un motivo de lista cerrada con responsable**: cobertura = categorizados + con motivo = 100 %. Las fuentes, en orden: manual > IVA/comisión por el texto del banco > documento de Kepler (su cuenta contable, por el pareo o por el Calendario; pases débiles no deciden) > texto del banco y reglas > depósito. Corre dentro de la conciliación, por evento. Sustituye a BFU.2.10–2.12.
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| BFU.7.1 | C0 · Mapeo cuenta de Kepler → categoría (`finance.category_kepler_accounts`, prefijo más largo; 15 categorías nuevas con el nombre del mayor en `kdc126`) | 🧪 | Libro ago–oct: 93.6 % de 3,994; placebo 36.4 % |
+| BFU.7.2 | C0 · La evidencia de cada retiro: pareo → `kdxf` → documento, o Calendario → `kepler_payable` → documento; compra = 511, gasto = renglones `kdm6` con cuenta y departamento | 🧪 | Noviembre entero en 362 ms |
+| BFU.7.3 | C1 · El motor puro y los motivos (`motor-de-categoria.ts`) | 🧪 | 13 pruebas, una por fuente y por motivo; mutantes |
+| BFU.7.4 | C1 · El motor en la conciliación, dueño de la categoría de la descarga, escribe sólo lo que cambió | 🧪 | Bloque [15] contra base real; antes/después de noviembre en prod |
+| BFU.7.5 | C1 · Pareo pendiente (Kepler lo tiene y la conciliación no lo casa) y pago en otra cuenta | ⬜ | 10 cheques de nómina de noviembre |
+| BFU.7.6 | C2 · La cobertura en `diagnostico`: con categoría + por motivo y responsable = total | ⬜ | Suma igual al total del mes |
+| BFU.7.7 | C3 · Bancos: «N por resolver», por qué y de quién (con BFU.4.5) | ⬜ | Pantalla viva + `diseno` §0b |
 
 ## 9. Riesgos y bloqueos
 
@@ -316,3 +337,5 @@ falta; terciario = el detalle de cada movimiento.
 | 2026-11-19 | «Nuestra hoja será la verdad absoluta»: se revisaron en vivo Cuentas, Estados de cuenta y el Cuadre; el plan se reestructura alrededor de las 7 propiedades (§2); entra E0 (Cuentas deja de afirmar lo que no es) y E4 (el estado de cuenta explicado) | Edgar / Claude |
 | 2026-11-19 | BFU.5.1 en prod (el libro ya no entra). E3: 15 cuentas pasadas al banco a las 19:02; 0 ligas colgando; 3 cuentas no cuadran y siguen con el libro | Edgar (autorizó) / Claude |
 | 2026-11-20 | Hallazgo tras E3: 18 depósitos repetidos (BBVA completó la referencia entre descargas) y el saldo inicial de BBVA 5712 mal derivado → BFU.3.4 (código + migración ensayada con ROLLBACK). Edgar autorizó corregir los datos | Edgar / Claude |
+| 2026-11-20 | «¿Por qué no podemos clasificar estos 265?»: todos retiros; 145 ya casados con Kepler sin categoría (el motor no la escribía), 40 del Calendario, 65 sin documento. BFU.2.10 en código; BFU.2.11, 2.12 y 4.5 (cada área reconoce sus movimientos) planeados. Edgar: «hagámoslo» | Edgar / Claude |
+| 2026-11-20 | «No necesito parches, necesito un motor que cubra el 100 %»: E7. La cuenta contable de Kepler (pareo o Calendario → documento → `kdm6`) da la categoría (93.6 % contra el libro, placebo 36.4 %) y el departamento; lo que no, un motivo con responsable. BFU.7.1–7.4 en código; BFU.2.11 y 2.12 sustituidos | Edgar / Claude |

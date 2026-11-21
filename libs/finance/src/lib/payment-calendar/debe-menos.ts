@@ -111,6 +111,30 @@ SELECT k.suc || '|' || k.tipo || '|' || k.sub || '|' || k.folio AS llave,
 export const EVENTO_AJUSTADO_AL_SALDO = 'ajustado_al_saldo';
 export const AUTOR_AJUSTE_AL_SALDO = 'sistema:ajuste-al-saldo';
 
+/**
+ * Quién pide el ajuste: una persona con «Bajar a $X» (`manual`), el worker con cada aviso de Kepler (`automatico`) o
+ * `[PGP.184]` el pago que nace al reprogramar (`reprogramar`). Los dos últimos sólo ajustan lo que `seAjustaSolo` permite.
+ */
+export type ModoAjusteAlSaldo = 'manual' | 'automatico' | 'reprogramar';
+
+/**
+ * `[PGP.184]` Por qué el pago que nace al reprogramar NO baja solo aunque lleve de más (D19 b, igual que el worker): se
+ * dice en el aviso de «Movido» para que quien lo movió lo baje con «Bajar a» si procede.
+ * · A hoy o a un día pasado: pudo ya salir del banco por su importe esta mañana y la descarga todavía no lo trae;
+ *   bajarlo dejaría esa salida sin un pago que case con ella (`[PGP.121]` casa por importe ±$1) y el pago, «sin pagar».
+ * · Venía autorizado: Tesorería pudo haber cargado ya la transferencia en el portal.
+ */
+export const MOTIVO_NO_AJUSTA_HOY_O_PASADO = 'va a hoy o a un día pasado y pudo ya salir del banco por su importe: si no ha salido, usa «Bajar a» en su renglón';
+export const MOTIVO_NO_AJUSTA_AUTORIZADO = 'venía autorizado y Tesorería pudo haber cargado ya la transferencia: si no, usa «Bajar a» en su renglón';
+
+/** `[PGP.184]` Lo que pide quien reprograma: desde qué día mirar el banco y, si no debe bajarse solo, por qué. */
+export interface OpcionesAjusteAlSaldo {
+  /** El banco se mira desde 3 días antes de este día (el más temprano entre el día original y el nuevo). */
+  diaBancoDesde?: string;
+  /** Si viene, no se escribe nada: cada factura que lleva de más sale en `omitidas` con este motivo. */
+  soloAvisar?: string;
+}
+
 /** Abonos que son DINERO: cheque (25), transferencia (26), anticipo (60). */
 export const TIPOS_ABONO_DINERO: ReadonlySet<number> = new Set([25, 26, 60]);
 
@@ -148,6 +172,23 @@ SELECT EXISTS (
           WHERE s.tenant_id = ? AND abs(coalesce(s.amount_out, 0) - ?::numeric) < 1
             AND s.movement_date BETWEEN ?::date - 3 AND ?::date
        ) AS salio`;
+
+/**
+ * `[PGP.184]` **El día en que se armó el pago ORIGINAL**, siguiendo la cadena de reprogramaciones (`reprogrammed_from_id`)
+ * hasta el primero. Reprogramar no arma un pago nuevo: es el mismo pago en otro día, así que «desde que se armó» (la
+ * regla de `seAjustaSolo`) cuenta desde el original. Con la fecha del reprogramado, una transferencia capturada en Kepler
+ * entre armarlo y moverlo —que puede ser ESTE pago— quedaba «antes de armarlo» y el pago se ajustaba solo, escondiéndola.
+ * Parámetros: `[allocation_id]`. Devuelve `armado` (AAAA-MM-DD, hora de México) o null si el pago no existe.
+ */
+export const SQL_ARMADO_ORIGINAL = `
+WITH RECURSIVE cadena AS (
+  SELECT id, reprogrammed_from_id, created_at, 0 AS paso FROM finance.payment_allocations WHERE id = ?::uuid
+  UNION ALL
+  SELECT p.id, p.reprogrammed_from_id, p.created_at, c.paso + 1
+    FROM finance.payment_allocations p JOIN cadena c ON p.id = c.reprogrammed_from_id
+   WHERE c.paso < 50
+)
+SELECT to_char(min(created_at) AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS armado FROM cadena`;
 
 /**
  * Los pagos que el worker revisa: pendientes, sin autorizar, de un día POR VENIR (el de hoy o uno pasado pudo ya

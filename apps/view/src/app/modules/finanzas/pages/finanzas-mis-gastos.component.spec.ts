@@ -84,10 +84,11 @@ describe('FinanzasMisGastosComponent', () => {
   });
 
   /** ⭐ La única acción primaria: antes «Mis gastos» no tenía entrada a la captura. */
-  it('⭐ ofrece «Capturar gasto», que lleva a la captura', () => {
+  // `[PGP.122.10]` Se llama como su pestaña: «Capturar gasto» no decía que ahí también se pide.
+  it('⭐ ofrece «Pedir un gasto», que lleva a la captura', () => {
     montar();
     const a = fix.nativeElement.querySelector('a.mg-capturar') as HTMLAnchorElement;
-    expect(a?.textContent).toContain('Capturar gasto');
+    expect(a?.textContent).toContain('Pedir un gasto');
     expect(a?.getAttribute('href')).toBe('/finanzas/gastos');
   });
 

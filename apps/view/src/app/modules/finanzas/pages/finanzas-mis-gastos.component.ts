@@ -124,7 +124,8 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
           <button pButton type="button" class="p-button-text p-button-sm" (click)="cargar()" [loading]="cargando()"
                   aria-label="Actualizar"><i class="pi pi-refresh" aria-hidden="true"></i></button>
           <!-- [GX.97] La única acción primaria. Antes «Mis gastos» no tenía entrada a la captura. -->
-          <a pButton class="mg-capturar" routerLink="/finanzas/gastos"><i class="pi pi-plus" aria-hidden="true"></i>&nbsp;Capturar gasto</a>
+          <!-- [PGP.122.10] Decía «Capturar gasto»: no se sabía que ahí también se PIDE. Mismo nombre que su pestaña. -->
+          <a pButton class="mg-capturar" routerLink="/finanzas/gastos"><i class="pi pi-plus" aria-hidden="true"></i>&nbsp;Pedir un gasto</a>
         </div>
       </header>
       @if (buscandoArriba()) {
@@ -178,17 +179,19 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
             </div>
           </div>
         } @else {
+          <!-- [PGP.122.9] La tabla dice QUÉ lista es (caption) y cada encabezado es de su columna (scope); modern-web-guidance: responsive-table. -->
           <p-table [value]="visibles()" dataKey="key" size="small" class="surf-table surf-table--plain surf-table--sticky mg-tabla">
+            <ng-template #caption><span class="mg-sr">Tus vales: {{ nombreDelFiltro() }}</span></ng-template>
             <ng-template #header>
               <tr>
-                <th>Folio</th>
-                <th pSortableColumn="titulo">Proveedor <p-sorticon field="titulo" /></th>
-                <th class="mg-c-etapa">Etapa</th>
-                <th>{{ filtro() === 'cerrado' ? 'Cómo cerró' : (filtro() === 'tu' ? 'Qué te falta' : 'A qué espera') }}</th>
+                <th scope="col">Folio</th>
+                <th scope="col" pSortableColumn="titulo">Proveedor <p-sorticon field="titulo" /></th>
+                <th scope="col" class="mg-c-etapa">Etapa</th>
+                <th scope="col">{{ filtro() === 'cerrado' ? 'Cómo cerró' : (filtro() === 'tu' ? 'Qué te falta' : 'A qué espera') }}</th>
                 <!-- [GX.106] La fecha en que se mandó, no «hace N días» (pedido del usuario, 2026-11-09). -->
-                <th class="mg-c-env" pSortableColumn="enviado">Se mandó <p-sorticon field="enviado" /></th>
-                <th class="comm-num" pSortableColumn="importe">Importe <p-sorticon field="importe" /></th>
-                <th><span class="mg-sr">Acción</span></th>
+                <th scope="col" class="mg-c-env" pSortableColumn="enviado">Se mandó <p-sorticon field="enviado" /></th>
+                <th scope="col" class="comm-num" pSortableColumn="importe">Importe <p-sorticon field="importe" /></th>
+                <th scope="col"><span class="mg-sr">Acción</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-f>
@@ -234,11 +237,12 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                   @if (f.puedeSubir) {
                     <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
                        [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">
-                      <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ f.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}
+                      <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ f.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}<span class="mg-sr"> del vale {{ f.folio || 'sin folio' }}</span>
                     </a>
                   } @else if (f.status === 'rechazada') {
+                    <!-- [PGP.122.9] Varios «Capturar de nuevo» con distinto destino: el nombre lleva su folio. -->
                     <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
-                       [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">Capturar de nuevo</a>
+                       [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">Capturar de nuevo<span class="mg-sr"> el vale {{ f.folio || 'sin folio' }}</span></a>
                   }
                 </td>
               </tr>
@@ -411,6 +415,8 @@ export class FinanzasMisGastosComponent {
   });
 
   readonly textoVacio = computed(() => FILTROS.find((x) => x.value === this.filtro())?.vacio ?? '');
+  /** `[PGP.122.9]` El nombre del filtro elegido, para el caption de la tabla («Tus vales: Te toca»). */
+  readonly nombreDelFiltro = computed(() => FILTROS.find((x) => x.value === this.filtro())?.label ?? '');
 
   /**
    * Las filas del filtro. Lo abierto, del más viejo al más nuevo: lo que más urge arriba. Lo

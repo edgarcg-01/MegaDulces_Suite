@@ -9,12 +9,33 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: la etiqueta de ubicación sale del tamaño del rollo amarillo (UB.RF.16 · 2026-11-20)
+- Las etiquetas de tienda se imprimían como la fila de 3 del checado y en el rollo amarillo (una etiqueta de 6 × 3 cm) salían cortadas y encimadas. Ahora sale una etiqueta de 60 × 30 mm por hoja, con el código grande y su código de barras.
+
 ### Fixed — Almacén: cierres que sí se guardaron ya no se reportan como fallidos (GP.RF.45 y GP.RF.46 · 2026-11-20)
 - Surtir: si al terminar el servidor tarda y no contesta, la pantalla revisa unos segundos si el cierre se guardó antes de decir que falló (en prod, los 4 casos de estos días sí se habían guardado).
 - Revisión en caja: si un pedido ya quedó revisado (por ejemplo, con un segundo toque), la pantalla lo dice y pasa al siguiente en lugar de mostrar un error.
 
 ### Fixed — Almacén › Surtir: un pedido de preventa en el que no hubo nada (MCP.27 · 2026-11-20)
 - Si todo el pedido quedó en «No había», el botón ya no es «Terminé de surtir» (que el sistema rechazaba sin salida): es «Avisar a la vendedora: no hubo nada». A la vendedora le llega el aviso para cancelarlo, y el pedido sale de la cola del surtidor como «por cancelar». El pedido no se cierra en cero.
+
+### Changed — Bancos: un solo motor de categoría, con el porqué de lo que no se clasifica (BFU.7 · 2026-11-20)
+- La categoría de un pago del banco sale de la cuenta contable de Kepler del documento que liquida (por la conciliación o por el Calendario): combustible de ventas, fletes, honorarios, publicidad… en vez de «compra con tarjeta» o «sin clasificar».
+- Lo que no se puede clasificar queda con su motivo y quién lo resuelve: Kepler todavía no lo tiene, Kepler lo tiene en otra cuenta, la cuenta de Kepler no tiene categoría, el pareo es débil…
+- 15 categorías nuevas con el nombre de la cuenta de mayor de Kepler (logística, local, tecnología, publicidad, contables, dirección, papelería, venta, financieros, activo fijo…).
+### Added — Almacén: carretas y carritos (GP.11 · 2026-11-20)
+- Ubicaciones › Mapa › «Carretas»: se dan de alta por rango (carretas para cajas, carritos para piezas y paquetes; comparten numeración C01–C99) y sus carteles salen listos para imprimir. Cada carreta dice si está libre o qué pedido trae, de quién y desde qué hora; el coordinador puede liberarla a mano.
+- Surtir (pedidos de Kepler): en una ola de un pedido, la carreta se escanea antes del primer renglón (o se teclea su número). Una carreta lleva un solo pedido; si ya trae otro, la pantalla dice de quién es. Se puede agregar otra o deshacer la equivocada.
+- Las tandas (varios pedidos sumados) y los almacenes que aún no tienen carretas dadas de alta surten como hoy. Preventa no cambia.
+- El Tablero de pedidos dice, debajo de la etapa, qué carreta trae cada pedido.
+
+### Fixed — Bancos: un retiro conciliado con Kepler toma la categoría de su documento (BFU.2.10 · 2026-11-20)
+- Un pago del banco que ya está casado con su documento de Kepler (pago a proveedor, nómina, traspaso entre cuentas) deja de aparecer «sin clasificar»: la categoría sale del documento. Si la conciliación cambia, la categoría la sigue; lo clasificado a mano no se toca.
+- La nómina se reconoce por el nombre guardado en el documento («NOMINA») y no por la clave del acreedor, que en noviembre se reasignó a Walmart.
+### Added — Mi trabajo: «Temporadas por confirmar» (PQ.132 · 2026-11-20)
+- Quien confirma las temporadas (Coordinación de Compras y Dirección) ve en «Mi trabajo» cada temporada que ya está en venta, o que empieza en 45 días o menos, y que sigue con las fechas propuestas: cuál es, del cuándo al cuándo se vende y cuántos productos lleva confirmados. Lleva a Compras › Temporadas y sale de la lista en cuanto se confirma.
+- Lo propuesto no llega al pedido, y hasta hoy nada le pedía a nadie confirmarlo. Quien sólo puede ver Temporadas no la recibe: no podría vaciarla.
+- Requiere la migración `20261120111847` (responsabilidad `compras.temporadas`), aplicada antes de soltar.
 
 ### Fixed — Bancos: una descarga encimada ya no mete dos veces el mismo movimiento (BFU.3.4 · 2026-11-20)
 - BBVA completa días después la referencia de los depósitos en efectivo; al subir la descarga siguiente, esos depósitos entraban otra vez como nuevos. Ahora se reconocen por día, importe y saldo, y el renglón que ya estaba toma la referencia completa.

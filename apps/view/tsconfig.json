@@ -36,6 +36,9 @@
       // [EMB.24] Lo que el NAVEGADOR importa con valor (textos, validaciones) entra por subruta: por el
       // barrel caía en el chunk compartido que `main` carga al arrancar (+1.5 kB sobre el presupuesto).
       "@megadulces/contracts/http/cierre-viaje": ["../../libs/contracts/src/http/cierre-viaje.contract.ts"],
+      // [RE.83] warehouseName lo usa la CAMPANA, que va en LayoutComponent (ansioso): por el
+      // barrel entraba entero al chunk inicial -> 2.01 MB contra el techo de 1.75.
+      "@megadulces/contracts/http/warehouse-order": ["../../libs/contracts/src/http/warehouse-order.contract.ts"],
 
       "@megadulces/contracts/http/service-desk": ["../../libs/contracts/src/http/service-desk.contract.ts"],
 

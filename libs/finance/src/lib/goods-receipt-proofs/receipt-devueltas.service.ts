@@ -57,7 +57,7 @@ export class ReceiptDevueltasService {
     if (sucursales && !sucursales.length) return { n: 0, filas: [] };
     const hayDescartes = await this.existeTabla(trx, 'goods_receipt_discards');
     const hayHistorial = await this.existeTabla(trx, 'goods_receipt_proof_history');
-    const binds: unknown[] = [];
+    const binds: Knex.RawBinding[] = [];
     const filtroSuc = sucursales ? (binds.push(sucursales), 'AND p.sucursal = ANY(?)') : '';
     const sinDescarte = hayDescartes
       ? `AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x

@@ -36,6 +36,8 @@ export interface RenglonComparable {
   categoria?: string | null;
   doc_tipo?: string | null;
   entidad?: string | null;
+  /** `[BFU.2.10]` El nombre del acreedor congelado en el documento (la única señal de nómina). */
+  beneficiario?: string | null;
   /** `[CB.61]` Banco: la referencia del renglón. Libro: su S (unidad de negocio). */
   referencia?: string | null;
   sucursal?: string | null;

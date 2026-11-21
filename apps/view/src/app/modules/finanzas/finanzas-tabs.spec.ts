@@ -316,8 +316,15 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
    * sucursal en la URL. Si alguien «limpia» la ruta creyendo que sobra, ese botón deja de
    * llevar a ningún lado — y la pantalla se ve igual de bien.
    */
-  it('[GX.42] la captura NO está en el nav, pero su ruta sigue existiendo', () => {
-    expect(FINANZAS_TABS.map((t) => t.route)).not.toContain(CAPTURA);
+  /**
+   * `[PGP.122.10]` **GX.42 queda reemplazada** (Edgar, 2026-11-20: «¿existe algún botón para visualizarlo? ¿cuántos
+   * clics?» → «resolvámoslos»). GX.42 la sacó del nav porque el gasto ya no se levantaba en la Suite: LLEGABA de
+   * Kepler. Desde PGP.122 esa pantalla también PIDE el gasto (nace en la Suite y se escribe en Kepler al firmarse), y
+   * sólo se llegaba por un botón de Mis gastos: 4 clics para quien aprueba. Ahora es una pestaña del área de Gastos
+   * («Pedir un gasto», `GASTOS_TABS`), no un renglón suelto del sidebar; la ruta sigue existiendo y sin guard.
+   */
+  it('[GX.42 → PGP.122.10] la captura es la pestaña «Pedir un gasto» del área de Gastos, no un renglón del sidebar', () => {
+    expect(GASTOS_TABS.find((t) => t.route === CAPTURA)?.label).toBe('Pedir un gasto');
     expect(fuenteSidebar()).not.toContain("route: '" + CAPTURA + "'");
 
     const CANDIDATAS = ['src/app/app.routes.ts', 'apps/view/src/app/app.routes.ts'];

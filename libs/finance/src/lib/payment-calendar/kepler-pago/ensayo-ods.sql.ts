@@ -161,13 +161,14 @@ export async function leerEnsayoPagoKepler(
   const d = (await trx.raw(`SELECT btrim(c2) c2, btrim(c3) c3, btrim(coalesce(c10, '')) rfc, btrim(coalesce(c4, '')) dom, c16::text dias
       FROM kepler_ods.kdxd WHERE sucursal = ? AND btrim(c2) = ? LIMIT 1`, [servidor, acreedor])).rows[0];
   if (!d) return vacio([`Kepler (${servidor}) no tiene al acreedor ${acreedor} en su catálogo (kdxd)`]);
-  const prev = (await trx.raw(`SELECT coalesce(c22, '') c22, coalesce(c32, '') c32, coalesce(c33, '') c33, coalesce(c34, '') c34, coalesce(c35, '') c35
+  const prev = (await trx.raw(`SELECT coalesce(c22, '') c22, coalesce(c32, '') c32, coalesce(c33, '') c33, coalesce(c34, '') c34, coalesce(c35, '') c35,
+             btrim(coalesce(c12, '')) c12
       FROM kepler_ods.kdm1 WHERE sucursal = ? AND c1 = ? AND c2 = 'X' AND c3 = 'D' AND btrim(c4::text) = '26' AND btrim(c10) = ? AND c43 <> 'C'
       ORDER BY c6 DESC LIMIT 1`, [servidor, servidor, acreedor])).rows[0];
   const dias = Number(d.dias);
   const proveedor: ProveedorKepler = prev
-    ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null }
-    : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null };
+    ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: prev.c12 || null }
+    : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: null };
 
   // ── La cuenta de tesorería: la misma regla del adaptador (dígitos + banco contra kdb1).
   const digitos = String(a.account_label ?? '').replace(/\D/g, '');
@@ -208,7 +209,7 @@ export async function leerEnsayoPagoKepler(
   if (!armado.ok) motivos.push(...armado.motivos.filter((m) => !motivos.includes(m)));
   const planes = armado.ok ? armado.planes : [];
   // `[PGP.111]` P8 pendiente de Contabilidad: se avisa sin detener (no es un motivo).
-  const avisos = facturas.some((f) => !(f.concepto ?? '').trim() && conceptoDeFactura(f) === CONCEPTO_GASTOS_GENERALES)
+  const avisos = facturas.some((f) => !(f.concepto ?? '').trim() && conceptoDeFactura(f, proveedor) === CONCEPTO_GASTOS_GENERALES)
     ? [`Factura de gasto sin concepto: se paga con ${CONCEPTO_GASTOS_GENERALES} «Gastos generales», como lo hace Tesorería (pendiente de que Contabilidad lo confirme)`]
     : [];
   const facturaDe = new Map(facturas.map((f) => [`${f.tipo}-${f.subtipo}-${f.folio}`, f]));

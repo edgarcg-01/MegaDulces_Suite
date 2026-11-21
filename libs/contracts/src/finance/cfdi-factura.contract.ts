@@ -153,7 +153,7 @@ export function fechaCortaMx(fecha: string): string {
   return `${String(d)}-${MESES_C[m - 1]}`;
 }
 
-export type ClaveAvisoFiscal = 'pue_limite' | 'pue_fuera_de_mes' | 'pue_mes_cerrado' | 'pue_pagada_fuera' | 'cfdi_cancelado' | 'efectivo_no_deducible';
+export type ClaveAvisoFiscal = 'proveedor_69b' | 'proveedor_cancelo_pagada' | 'pue_limite' | 'pue_fuera_de_mes' | 'pue_mes_cerrado' | 'pue_pagada_fuera' | 'cfdi_cancelado' | 'efectivo_no_deducible';
 export interface AvisoFiscal {
   clave: ClaveAvisoFiscal;
   /** `warn` = hay que hacer algo; `info` = sólo la fecha límite. */
@@ -166,6 +166,60 @@ export interface CfdiDelRenglon {
   cfdi: CfdiDeLaFactura;
   /** `[PGP.163]` UUID de un CFDI CANCELADO que casa con la factura cuando no hay uno vigente; null si no hay. */
   cancelado_uuid: string | null;
+  /**
+   * `[PGP.177]` El acreedor está en la lista 69-B del SAT (`fiscal.sat_list_rfcs`), presunto o definitivo.
+   * Null o ausente = no aparece **o no se conoce su RFC** (eso lo dice `cfdi.estado = 'sin_rfc'`).
+   */
+  efos?: ProveedorEnLista69B | null;
+  /**
+   * `[PGP.178]` Facturas del MISMO proveedor (mismo RFC) que ya se le pagaron en Kepler y que él canceló en el SAT
+   * sin otra vigente que las sustituya. Ausente = no se pudo saber (sin RFC); `[]` = no hay.
+   */
+  pagadas_canceladas?: FacturaPagadaCancelada[];
+}
+
+/**
+ * `[PGP.178]` Una factura ya pagada cuyo CFDI el proveedor canceló. Medido el 2026-11-20: 11 desde dic-2025, 8 sin
+ * sustituta, y 3 de un mismo proveedor se pagaron el 13-nov cuando la Suite ya las tenía canceladas desde el 28-oct.
+ */
+export interface FacturaPagadaCancelada {
+  uuid: string;
+  /** Serie y folio del CFDI cancelado. */
+  folio: string | null;
+  total: number;
+  /** Lo que se le pagó por ella en Kepler. */
+  pagado: number;
+  /** El día del último pago (`YYYY-MM-DD`). */
+  fecha_pago: string | null;
+}
+
+/** `[PGP.178]` Las del proveedor de un pago, sin repetir (varias facturas del pago traen la misma lista). */
+export function pagadasCanceladasDe(renglones: readonly (CfdiDelRenglon | null | undefined)[]): FacturaPagadaCancelada[] {
+  const porUuid = new Map<string, FacturaPagadaCancelada>();
+  for (const r of renglones) for (const f of r?.pagadas_canceladas ?? []) porUuid.set(f.uuid, f);
+  return [...porUuid.values()].sort((a, b) => (a.fecha_pago ?? '').localeCompare(b.fecha_pago ?? ''));
+}
+
+/**
+ * `[PGP.178]` **El aviso al pagarle otra vez a quien canceló una factura ya pagada.** Es el momento en que todavía se le
+ * puede pedir la sustituta: después del pago ya no hay con qué.
+ */
+export function avisoPagadasCanceladas(lista: readonly FacturaPagadaCancelada[]): AvisoFiscal | null {
+  if (!lista.length) return null;
+  if (lista.length === 1) {
+    const f = lista[0];
+    const cuando = f.fecha_pago ? ` (pagada el ${fechaCortaMx(f.fecha_pago)})` : '';
+    return { clave: 'proveedor_cancelo_pagada', nivel: 'warn', texto: `Ya le pagaste la factura ${f.folio ?? f.uuid.slice(0, 8)}${cuando} y la canceló en el SAT sin otra que la sustituya: pídesela antes de pagarle otra vez` };
+  }
+  const folios = lista.slice(0, 3).map((f) => f.folio ?? f.uuid.slice(0, 8)).join(', ') + (lista.length > 3 ? '…' : '');
+  return { clave: 'proveedor_cancelo_pagada', nivel: 'warn', texto: `Ya le pagaste ${lista.length} facturas que canceló en el SAT sin otras que las sustituyan (${folios}): pídeselas antes de pagarle otra vez` };
+}
+
+/** `[PGP.177]` Un proveedor en la lista 69-B: el SAT presume (o ya resolvió) que sus facturas amparan operaciones inexistentes. */
+export interface ProveedorEnLista69B {
+  situacion: 'Presunto' | 'Definitivo';
+  /** Fecha de publicación en la lista (`YYYY-MM-DD`), si el SAT la da. */
+  publicado: string | null;
 }
 
 export interface EntradaAvisoFiscal {
@@ -190,6 +244,12 @@ export interface EntradaAvisoFiscal {
 export function avisosFiscales(e: EntradaAvisoFiscal): AvisoFiscal[] {
   const out: AvisoFiscal[] = [];
   const r = e.renglon;
+  // [PGP.177] Primero: con el proveedor en la 69-B, ninguna de sus facturas cuenta para impuestos.
+  if (r?.efos?.situacion === 'Definitivo') {
+    out.push({ clave: 'proveedor_69b', nivel: 'warn', texto: 'El SAT tiene a este proveedor en la lista 69-B (definitivo): sus facturas no son deducibles. No lo pagues sin Contabilidad' });
+  } else if (r?.efos?.situacion === 'Presunto') {
+    out.push({ clave: 'proveedor_69b', nivel: 'warn', texto: 'El SAT tiene a este proveedor en la lista 69-B (presunto): que Contabilidad lo revise antes de pagar' });
+  }
   if (r && r.cancelado_uuid && r.cfdi.estado !== 'unico') {
     out.push({ clave: 'cfdi_cancelado', nivel: 'warn', texto: 'El proveedor canceló esta factura en el SAT: no la pagues sin la que la sustituye' });
   }

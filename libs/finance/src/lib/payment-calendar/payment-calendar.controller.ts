@@ -9,7 +9,7 @@ import {
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import type { CfdiDelRenglon } from '@megadulces/contracts/finance/cfdi-factura';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { AnticipoDeudaRow, AnticipoRow, CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarEscrituraKepler, PaymentCalendarAjusteAlSaldo, PaymentCalendarItemDiscountResult, PaymentCalendarReprogramado, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -279,8 +279,8 @@ export class PaymentCalendarController {
 
   @Post('allocations/:id/reprogramar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
-  @ApiOperation({ summary: 'Mueve el pago a otro día (pendiente o fallido) — actualiza la capacidad consumida de ambas fechas. Exige motivo (TP.10).' })
-  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string }, @Req() req: AuthedRequest) {
+  @ApiOperation({ summary: 'Mueve el pago a otro día (pendiente o fallido) — actualiza la capacidad consumida de ambas fechas. Exige motivo (TP.10). [PGP.184] El pago nuevo baja a lo que su factura debe hoy en Kepler si una nota o devolución ya lo bajó (ajuste_al_saldo).' })
+  reprogram(@Param('id') id: string, @Body() body: { date: string; reason: ReprogramReason; reason_detail?: string }, @Req() req: AuthedRequest): Promise<PaymentCalendarReprogramado> {
     return this.svc.reprogram(id, body.date, body.reason, body.reason_detail, req.user?.username || 'sistema');
   }
 

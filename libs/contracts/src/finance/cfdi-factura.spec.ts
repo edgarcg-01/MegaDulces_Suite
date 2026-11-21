@@ -1,4 +1,4 @@
-import { avisosFiscales, candidatosCfdi, cfdisDeFacturas, finDeMes, textoMetodo, type CfdiDelRenglon, type CfdiRecibido, type EntradaAvisoFiscal, type FacturaParaCfdi } from './cfdi-factura.contract';
+import { avisoPagadasCanceladas, avisosFiscales, candidatosCfdi, pagadasCanceladasDe, cfdisDeFacturas, finDeMes, textoMetodo, type CfdiDelRenglon, type CfdiRecibido, type EntradaAvisoFiscal, type FacturaParaCfdi } from './cfdi-factura.contract';
 
 const fac = (o: Partial<FacturaParaCfdi> = {}): FacturaParaCfdi => ({ item_id: 'I1', rfc: 'GAM010101AB1', importe: 11600, fecha: '2026-10-20', ...o });
 const cfdi = (o: Partial<CfdiRecibido> = {}): CfdiRecibido => ({
@@ -89,10 +89,51 @@ describe('[PGP.158][PGP.163] el aviso fiscal del renglón del pago', () => {
     expect(claves(e({ renglon: { ...ligado(cfdi({ metodo_pago: 'PPD', forma_pago: '99' })), cancelado_uuid: 'C1' } }))).toEqual([]);
   });
 
+  it('[PGP.177] proveedor en la 69-B: avisa primero, definitivo o presunto, y no tapa los demás', () => {
+    const def: CfdiDelRenglon = { ...ligado(cfdi()), efos: { situacion: 'Definitivo', publicado: '2026-01-23' } };
+    expect(claves(e({ renglon: def }))).toEqual(['proveedor_69b', 'pue_limite']);
+    expect(avisosFiscales(e({ renglon: def }))[0]).toMatchObject({ nivel: 'warn', texto: expect.stringContaining('(definitivo)') });
+    const pre: CfdiDelRenglon = { ...ligado(cfdi()), efos: { situacion: 'Presunto', publicado: null } };
+    expect(avisosFiscales(e({ renglon: pre }))[0]).toMatchObject({ clave: 'proveedor_69b', texto: expect.stringContaining('(presunto)') });
+    // sin CFDI ligado también avisa: la lista es del proveedor, no de la factura
+    const sinCfdi: CfdiDelRenglon = { cfdi: { estado: 'ninguno', cfdi: null, candidatos: 0, metodo: null }, cancelado_uuid: null, efos: { situacion: 'Definitivo', publicado: null } };
+    expect(claves(e({ renglon: sinCfdi }))).toEqual(['proveedor_69b']);
+  });
+
+  it('⛔ control 69-B: sin efos, con efos null o en otra situación, nada', () => {
+    expect(claves(e({ renglon: { ...ligado(cfdi()), efos: null } }))).toEqual(['pue_limite']);
+    expect(claves(e())).toEqual(['pue_limite']);
+    const otra = { ...ligado(cfdi()), efos: { situacion: 'Desvirtuado', publicado: null } } as unknown as CfdiDelRenglon;
+    expect(claves(e({ renglon: otra }))).toEqual(['pue_limite']);
+  });
+
   it('efectivo arriba de $2,000 no es deducible; hasta $2,000 sí', () => {
     const ppd = ligado(cfdi({ metodo_pago: 'PPD', forma_pago: '99' }));
     expect(claves(e({ renglon: ppd, metodo_pago: 'efectivo', importe: 2000.01 }))).toEqual(['efectivo_no_deducible']);
     expect(claves(e({ renglon: ppd, metodo_pago: 'efectivo', importe: 2000 }))).toEqual([]);
     expect(claves(e({ renglon: ppd, metodo_pago: 'transferencia', importe: 50000 }))).toEqual([]);
+  });
+});
+
+describe('[PGP.178] el proveedor canceló una factura que ya le pagamos', () => {
+  const f = (uuid: string, fecha_pago: string | null, folio: string | null = 'F' + uuid) => ({ uuid, folio, total: 100, pagado: 100, fecha_pago });
+  const r = (lista?: ReturnType<typeof f>[]): CfdiDelRenglon => ({ cfdi: { estado: 'unico', cfdi: null, candidatos: 1, metodo: 'PPD' }, cancelado_uuid: null, pagadas_canceladas: lista });
+
+  it('las facturas del pago traen la misma lista: se cuenta cada una una vez, la pagada antes primero', () => {
+    const l = pagadasCanceladasDe([r([f('B', '2026-11-13'), f('A', '2026-05-05')]), r([f('A', '2026-05-05')]), undefined, null]);
+    expect(l.map((x) => x.uuid)).toEqual(['A', 'B']);
+  });
+
+  it('una: dice cuál y cuándo se pagó; varias: cuántas y sus folios (hasta 3)', () => {
+    expect(avisoPagadasCanceladas([f('639464', '2026-05-05', 'F639464')])).toEqual({ clave: 'proveedor_cancelo_pagada', nivel: 'warn',
+      texto: 'Ya le pagaste la factura F639464 (pagada el 5-may) y la canceló en el SAT sin otra que la sustituya: pídesela antes de pagarle otra vez' });
+    const v = avisoPagadasCanceladas([f('1', '2026-11-13'), f('2', '2026-11-13'), f('3', '2026-11-13'), f('4', null)]);
+    expect(v?.texto).toBe('Ya le pagaste 4 facturas que canceló en el SAT sin otras que las sustituyan (F1, F2, F3…): pídeselas antes de pagarle otra vez');
+    expect(avisoPagadasCanceladas([f('ABCDEF1234', null, null)])?.texto).toContain('la factura ABCDEF12 y la canceló');
+  });
+
+  it('⛔ control: sin lista, lista vacía o sin RFC (ausente = NO MEDIDO), no avisa', () => {
+    expect(avisoPagadasCanceladas([])).toBeNull();
+    expect(avisoPagadasCanceladas(pagadasCanceladasDe([r(undefined), r([]), undefined]))).toBeNull();
   });
 });

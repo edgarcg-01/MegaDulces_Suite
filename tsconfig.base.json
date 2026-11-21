@@ -35,6 +35,10 @@
       // Quedan mapeos EXPLÍCITOS, uno por módulo. Cada import es tan angosto
       // como antes de centralizar (sin depender de que el sacudido funcione) y
       // además se pueden grepear. Un permiso nuevo no toca esta lista.
+      // [CI] warehouseName se importa por mapeo EXPLICITO, no por el barrel raiz:
+      // la campana (LayoutComponent, ansioso) metia TODO el barrel en el chunk inicial
+      // de view -> 2.01 MB contra el techo de 1.75. Mismo criterio que [ID.28].
+      "@megadulces/contracts/http/warehouse-order": ["libs/contracts/src/http/warehouse-order.contract.ts"],
       "@megadulces/contracts/authz/permissions": ["libs/contracts/src/authz/permissions.ts"],
       "@megadulces/contracts/authz/authz-tree": ["libs/contracts/src/authz/authz-tree.ts"],
       "@megadulces/contracts/authz/permission-meta": ["libs/contracts/src/authz/permission-meta.ts"],

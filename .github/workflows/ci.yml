@@ -199,6 +199,10 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
         env:
+          # [CI] onnxruntime-node (transitiva) baja en su postinstall el binario de GPU
+          # onnxruntime-linux-x64-gpu-1.17.3.tgz, que con Node 24 da 404 y tumba el npm ci
+          # entero. No se usa la EP de CUDA: se saltea, igual que el Chrome de puppeteer.
+          npm_config_onnxruntime_node_install_cuda: 'skip'
           # El monorepo tiene puppeteer (deps del api). Sin esto npm ci baja
           # Chrome (~120MB) y puede colgarse. Mismo flag que los Dockerfiles.
           PUPPETEER_SKIP_DOWNLOAD: 'true'
@@ -433,6 +437,10 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
         env:
+          # [CI] onnxruntime-node (transitiva) baja en su postinstall el binario de GPU
+          # onnxruntime-linux-x64-gpu-1.17.3.tgz, que con Node 24 da 404 y tumba el npm ci
+          # entero. No se usa la EP de CUDA: se saltea, igual que el Chrome de puppeteer.
+          npm_config_onnxruntime_node_install_cuda: 'skip'
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
@@ -948,6 +956,10 @@ jobs:
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
         env:
+          # [CI] onnxruntime-node (transitiva) baja en su postinstall el binario de GPU
+          # onnxruntime-linux-x64-gpu-1.17.3.tgz, que con Node 24 da 404 y tumba el npm ci
+          # entero. No se usa la EP de CUDA: se saltea, igual que el Chrome de puppeteer.
+          npm_config_onnxruntime_node_install_cuda: 'skip'
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
@@ -1169,6 +1181,11 @@ jobs:
       - name: Install dependencies
         if: steps.cache-nm.outputs.cache-hit != 'true'
         run: npm ci
+        env:
+          # [CI] onnxruntime-node (transitiva) baja en su postinstall el binario de GPU
+          # onnxruntime-linux-x64-gpu-1.17.3.tgz, que con Node 24 da 404 y tumba el npm ci
+          # entero. No se usa la EP de CUDA: se saltea, igual que el Chrome de puppeteer.
+          npm_config_onnxruntime_node_install_cuda: 'skip'
 
       # Las DOS bases: `megadulces_logistica` (legacy, knexfile.js) y `postgres_platform`
       # (multi-tenant, knexfile-newdb.js). Eso es lo que este archivo llamaba "multi-DB

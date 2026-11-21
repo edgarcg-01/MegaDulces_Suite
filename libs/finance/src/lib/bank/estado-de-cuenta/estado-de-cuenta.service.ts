@@ -14,6 +14,7 @@ import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { leerReglaDelLibro } from './descarga-en-movimientos.query';
 import { avisarBancos } from '../aviso-bancos';
 import { refrescarEncabezadosDelBanco } from './encabezado-del-banco';
+import { columnasDelDocumento } from './motor-de-categoria.aplicar';
 import { completaElConcepto, huellaDe, huellaGuardada, marcarYaCargados, type RenglonGuardado } from './renglones-repetidos';
 
 /**
@@ -483,25 +484,21 @@ export class EstadoDeCuentaService {
     // mayor importe), con la entidad del documento: con eso se clasifica el renglón del banco sin M/C.
     // La entidad vive en la vista derivada del ODS; sin ODS (CI, desarrollo) la vista no la tiene y
     // va nula: el renglón pierde la señal de proveedor/nómina, no la consulta.
-    const conEntidad = (await trx.raw(`select 1 from information_schema.columns
-      where table_schema = 'analytics' and table_name = 'kepler_bank_movements' and column_name = 'entidad_code'`)).rows.length > 0;
-    const entidad = conEntidad
-      ? `(select kb.entidad_code from analytics.kepler_bank_movements kb
-           where kb.sucursal = r.kepler_sucursal and kb.doc_tipo = r.kepler_doc_tipo and kb.folio = r.kepler_doc_folio limit 1)`
-      : 'null::text';
+    // [BFU.2.10] La entidad y el nombre congelado del documento, del mismo primitivo que usa el motor al categorizar.
+    const { entidad, beneficiario } = await columnasDelDocumento(trx);
     const libro = await trx('finance.bank_movements as bm')
       .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
       .joinRaw(`left join lateral (
-          select r.kepler_doc_tipo as doc_tipo, ${entidad} as entidad
+          select r.kepler_doc_tipo as doc_tipo, ${entidad} as entidad, ${beneficiario} as beneficiario
             from finance.bank_recon_matches r where r.bank_movement_id = bm.id
            order by r.kepler_amount desc limit 1) k on true`)
       .whereIn('bm.bank_account_id', ids).whereNull('bm.deleted_at').whereNot('bm.sync_source', 'banco')
       .andWhere('bm.movement_date', '>=', trx.raw("?::date - 3", [desde]))
       .select('bm.id', 'bm.bank_account_id', trx.raw("to_char(bm.movement_date, 'YYYY-MM-DD') as fecha"), 'bm.amount_in', 'bm.amount_out',
-        'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad', 'bm.sucursal');
+        'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad', 'k.beneficiario', 'bm.sucursal');
     const reglaDelLibro = await this.reglaDelLibro(trx);
     const clasificar: ClasificarSinLibro = (b, par) => clasificarRenglon(
-      { amount_in: b.amount_in, amount_out: b.amount_out, concepto: b.concepto, doc_tipo: par.doc_tipo, entidad: par.entidad }, reglaDelLibro);
+      { amount_in: b.amount_in, amount_out: b.amount_out, concepto: b.concepto, doc_tipo: par.doc_tipo, entidad: par.entidad, beneficiario: par.beneficiario }, reglaDelLibro);
     const conBanco = await this.conColumnaBanco(trx);
     const cuentas = new Map<string, { alias: string; banco_desde: string | null }>((await trx('finance.bank_accounts').whereIn('id', ids)
       .select('id', trx.raw('coalesce(alias, account_label) as alias'),

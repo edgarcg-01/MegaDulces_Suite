@@ -3551,7 +3551,9 @@ export class ExpenseProofsService {
         vq.where((w) => {
           if (buscar.texto) {
             applySmartSearch(w, buscar.texto, {
-              columns: ['p.folio_solicitud', 'p.proveedor', 'p.created_by', 'p.validated_by', 'p.evidencia_por', 'p.departamento'],
+              // `[PGP.122.10]` + la nota del vale (`comentarios`, la tienen 1,364 de 1,364 en 30 días): es lo que la
+              // persona escribió («Caseta», «PRUEBA — NO EJERCER») y hasta hoy no se encontraba por ahí.
+              columns: ['p.folio_solicitud', 'p.proveedor', 'p.created_by', 'p.validated_by', 'p.evidencia_por', 'p.departamento', 'p.comentarios'],
               numeric: ['p.folio_solicitud'],
             });
           }

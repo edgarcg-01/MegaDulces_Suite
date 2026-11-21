@@ -581,23 +581,6 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
-        // GX.10 — UNA puerta al ciclo del gasto. Antes eran tres rutas para el mismo
-        // trámite. El guard deja pasar con CUALQUIERA de los dos permisos y el componente
-        // decide la superficie: tablero para quien puede ver, captura mínima para quien
-        // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
-        path: 'gastos',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
-        // `[GX.17]` SIN permiso: la sección se partió en dos y ésta es la de CAPTURAR —
-        // pegar el folio de Kepler, declarar cómo se pagó y subir la foto. Decisión del
-        // usuario: «para este tendrán acceso todos».
-        //
-        // ⛔ Abrir la RUTA no abre el dato: el backend sigue acotando por áreas, y quien no
-        // tiene ninguna necesita el folio EXACTO para encontrar una solicitud
-        // (`searchSolicitudes`). O sea que nadie puede pasearse por el gasto ajeno.
-        // El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión.
-        canActivate: []
-      },
-      {
         path: 'gastos-tablero',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
@@ -910,6 +893,26 @@ export const routes: Routes = [
         path: 'mis-gastos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+      {
+        // `[PGP.122.10]` Dentro del área de Gastos (antes, hermana suelta): «Registrar o pedir» tiene su pestaña
+        // («Pedir un gasto», `gastos-tabs.ts`) y su barra. Quien aprueba llegaba en 4 clics por un botón de
+        // Mis gastos que decía «Capturar gasto»; ahora en 3. La URL no cambia y sigue SIN guard (GX.17).
+        // GX.10 — UNA puerta al ciclo del gasto. Antes eran tres rutas para el mismo
+        // trámite. El guard deja pasar con CUALQUIERA de los dos permisos y el componente
+        // decide la superficie: tablero para quien puede ver, captura mínima para quien
+        // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
+        path: 'gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
+        // `[GX.17]` SIN permiso: la sección se partió en dos y ésta es la de CAPTURAR —
+        // pegar el folio de Kepler, declarar cómo se pagó y subir la foto. Decisión del
+        // usuario: «para este tendrán acceso todos».
+        //
+        // ⛔ Abrir la RUTA no abre el dato: el backend sigue acotando por áreas, y quien no
+        // tiene ninguna necesita el folio EXACTO para encontrar una solicitud
+        // (`searchSolicitudes`). O sea que nadie puede pasearse por el gasto ajeno.
+        // El padre `/finanzas` conserva su `authGuard`: «todos» son los que iniciaron sesión.
+        canActivate: []
       },
       {
         // `[EMB.29]` Comisiones y viáticos de logística por corte de 14 días (ADR-091): un vale

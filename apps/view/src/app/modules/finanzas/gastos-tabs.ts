@@ -33,6 +33,16 @@ export const GASTOS_TABS: readonly PageTab[] = [
     anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
   },
   {
+    // `[PGP.122.10]` Pedir (o registrar con folio de Kepler) un gasto. Antes no tenía pestaña: sólo se llegaba por un
+    // botón de Mis gastos que decía «Capturar gasto» (4 clics para quien aprueba, medido en prod el 2026-11-20).
+    // Va DESPUÉS de Mis gastos para no cambiar a dónde entra cada quien. La ruta sigue abierta a todos (GX.17);
+    // la PESTAÑA, sólo para quien tiene algún permiso de gastos (si no, «Gastos» le aparecería a todo el mundo).
+    label: 'Pedir un gasto',
+    route: '/finanzas/gastos',
+    icon: 'pi pi-plus-circle',
+    anyOf: [Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR],
+  },
+  {
     // `[GX.59]` El trámite de TODAS las personas, agrupado por persona, con el veredicto del
     // protocolo. Es la pantalla que el usuario pidió «en lugar de historial».
     label: 'Expediente',

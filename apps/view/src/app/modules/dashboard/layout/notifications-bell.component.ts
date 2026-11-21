@@ -17,7 +17,7 @@ import { avisoDePrecio } from '../../tienda/aviso-precio';
 import { DesktopNoticeService } from '../../../core/services/desktop-notice.service';
 import { ComprasService } from '../../compras/compras.service';
 import { EntradasService } from '../../compras/entradas.service';
-import { warehouseName } from '@megadulces/contracts';
+import { warehouseName } from '@megadulces/contracts/http/warehouse-order';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 

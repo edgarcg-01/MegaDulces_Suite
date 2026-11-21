@@ -7,6 +7,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
+import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -2173,6 +2174,19 @@ export class FinanceBankService {
           pct_sin_retrofecha: Math.round((v.sinRetrofecha / v.docs) * 100), monto: Math.round(v.monto * 100) / 100 }))
         .sort((a, b) => b.monto - a.monto);
 
+      // [BFU.7.4] Las pistas del motor de categoría, con la bolsa ya cargada (sin consultas): de un movimiento que NO
+      // casó, ¿Kepler tiene el mismo importe y dirección a ±10 días en la MISMA cuenta sin casar (la conciliación no lo
+      // casó), o en OTRA cuenta (la captura de Kepler está en otro banco)? Si no, Kepler no lo tiene.
+      const porImporte = new Map<string, { label: string; dir: string; fecha: unknown; used: boolean }[]>();
+      for (const p of kepAll) { const k = `${p.dir}|${cents(p.importe)}`; (porImporte.get(k) || porImporte.set(k, []).get(k))!.push(p); }
+      const pistas = new Map<string, 'pareo_pendiente' | 'kepler_en_otra_cuenta'>();
+      for (const mv of bankMovs) {
+        if (matchedSet.has(mv.id)) continue;
+        const cerca = (porImporte.get(`${mv.dir}|${cents(mv.amount)}`) || []).filter((p) => days(p.fecha, mv.date) <= 10);
+        if (cerca.some((p) => p.label === mv.label && !p.used)) pistas.set(mv.id, 'pareo_pendiente');
+        else if (cerca.some((p) => p.label !== mv.label)) pistas.set(mv.id, 'kepler_en_otra_cuenta');
+      }
+
       // Persistir. Colapsa por (bank_movement_id, doc_tipo, folio): el pase agrupado
       // suma varias LÍNEAS del mismo folio Kepler → si no, dos filas con la misma llave
       // única → duplicate key → 500. Aquí se unen sumando el importe.
@@ -2233,12 +2247,17 @@ export class FinanceBankService {
           await trx('finance.bank_movements').whereIn('id', plan.aMatched.slice(i, i + 500)).update({ recon_status: 'matched', updated_at: trx.fn.now() });
         }
       }
+      // [BFU.7.4] Con el pareo ya escrito, el motor de categoría (`motor-de-categoria.ts`): cada renglón de la descarga
+      // queda con categoría y su evidencia (el documento de Kepler y su cuenta contable, el texto del banco, las reglas),
+      // o con el motivo de por qué no y quién lo resuelve. Lo puesto a mano no se toca. En seco sólo cuenta.
+      const motorDeCategoria = await aplicarMotorDeCategoria(trx, periodMovIds, { pistas, soloContar: dryRun });
+      (diff as Record<string, unknown>).motor_de_categoria = motorDeCategoria;
 
       const matchedBank = matchedSet.size;
       const outMovs = bankMovs.filter((m) => m.dir === 'out'), inMovs = bankMovs.filter((m) => m.dir === 'in');
       const matchedAmt = matches.reduce((s, m) => s + n(m.kepler_amount), 0);
       const bankTotal = bankMovs.reduce((s: number, m: any) => s + m.amount, 0);
-      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate) · ${dryRun ? 'en seco' : `escribió −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados`}`);
+      this.logger.log(`match-tesoreria ${period}: ${matchedBank}/${bankMovs.length} casados (${p2} 2º, ${p3} nombre, ${p4} agrupado, ${p5} lote-cruzado, ${p6} 1:1-cruzado, ${p7} rescate) · ${dryRun ? 'en seco' : `escribió −${plan.borrar.length}/+${plan.insertar.length} pareos y ${plan.aMatched.length + plan.aUnmatched.length} estados`} · motor de categoría: ${motorDeCategoria.categorizados}/${motorDeCategoria.evaluados} con categoría, ${motorDeCategoria.cambios} cambios`);
       return {
         period, engine: 'tesoreria', bank_movements: bankMovs.length, matched: matchedBank,
         second_pass: p2, name_pass: p3, group_pass: p4, rescue_pass: p7,

@@ -26,27 +26,28 @@ describe('[GX.80] GastosAreaShellComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  /** Las cinco, en orden. `[LE.6.19]` quitó «Hoja de zona»: se paga en Caja General, sin aprobarla aparte. */
-  const CINCO = ['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística'];
+  /** Las seis, en orden. `[LE.6.19]` quitó «Hoja de zona»: se paga en Caja General, sin aprobarla aparte.
+   *  `[PGP.122.10]` + «Pedir un gasto» (antes sólo un botón de Mis gastos: 4 clics para quien aprueba). */
+  const CINCO = ['Aprobación de gastos', 'Mis gastos', 'Pedir un gasto', 'Expediente', 'Historial', 'Comisiones de logística'];
 
-  it('quien firma ve la barra con las cinco pantallas (EMB.29: + Comisiones de logística)', async () => {
+  it('quien firma ve la barra con las seis pantallas (EMB.29: + Comisiones de logística; PGP.122.10: + Pedir un gasto)', async () => {
     const el = await render({ FINANCE_EXPENSES_COMPROBAR: true, FINANCE_EXPENSES_VER: true });
     expect(etiquetas(el)).toEqual(CINCO);
   });
 
-  it('con VER (sin firmar) ve Mis gastos e Historial', async () => {
+  it('con VER (sin firmar) ve Mis gastos, Pedir un gasto e Historial', async () => {
     const el = await render({ FINANCE_EXPENSES_VER: true });
-    expect(etiquetas(el)).toEqual(['Mis gastos', 'Historial']);
+    expect(etiquetas(el)).toEqual(['Mis gastos', 'Pedir un gasto', 'Historial']);
   });
 
-  /** ⛔ Quien sólo captura tiene UNA pantalla: no hay barra, ni su espacio reservado. */
-  it('⛔ quien sólo captura no ve barra', async () => {
+  /** `[PGP.122.10]` Quien sólo captura tiene DOS pantallas (sus gastos y pedir uno): ahora sí ve la barra. */
+  it('quien sólo captura ve Mis gastos y Pedir un gasto', async () => {
     const el = await render({ FINANCE_EXPENSES_CAPTURAR: true });
-    expect(el.querySelector('.gx-area-tabs')).toBeNull();
+    expect(etiquetas(el)).toEqual(['Mis gastos', 'Pedir un gasto']);
     expect(el.querySelector('router-outlet')).not.toBeNull();
   });
 
-  it('el administrador de plataforma ve las cinco', async () => {
+  it('el administrador de plataforma ve las seis', async () => {
     const el = await render({}, true);
     expect(etiquetas(el)).toEqual(CINCO);
   });
@@ -64,8 +65,8 @@ describe('[GX.80] GastosAreaShellComponent', () => {
   });
 
   /** `[LE.6.19]` La caja ya no suma una pestaña de Gastos: la hoja se paga en Caja General. */
-  it('con VER y la caja ve Mis gastos e Historial (la hoja está en Caja)', async () => {
+  it('con VER y la caja ve Mis gastos, Pedir un gasto e Historial (la hoja está en Caja)', async () => {
     const el = await render({ FINANCE_EXPENSES_VER: true, FINANCE_CAJA_VER: true });
-    expect(etiquetas(el)).toEqual(['Mis gastos', 'Historial']);
+    expect(etiquetas(el)).toEqual(['Mis gastos', 'Pedir un gasto', 'Historial']);
   });
 });

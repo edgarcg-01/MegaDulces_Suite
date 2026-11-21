@@ -184,9 +184,12 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
     const fecha = String(w.documentos[0].plan.poliza.fecha);
     const abono = Math.round(w.documentos.reduce((s, d) => s + d.plan.acumulados.abonoAcreedor * 100, 0)) / 100;
     const colG = columnaAbonoKdxg(a0.mes);
+    // [PGP.131] La fila del acreedor es la de ESTE servidor (`c2` = sucursal), como la busca el escritor del gasto
+    // (`kepler-gasto-sink.adapter.ts`): La Piedad Abastos y 8 Esquinas guardan además filas de otras sucursales
+    // (medido 2026-11-20: en 8 Esquinas, 114 filas de 01, 02 y 03; la propia es única por acreedor en los 9 servidores).
     const g = await c.query(
       `UPDATE md.kdxg SET ${colG} = ${colG} + $1, c4 = greatest(c4, $2::timestamp), c7 = greatest(c7, $2::timestamp)
-        WHERE btrim(c3)=$3 AND btrim(c1)='PESOS'`, [abono, fecha, a0.acreedor]);
+        WHERE btrim(c3)=$3 AND btrim(c1)='PESOS' AND btrim(c2)=$4`, [abono, fecha, a0.acreedor, w.sucursal]);
     if (g.rowCount !== 1) throw new Error(`El acumulado del acreedor ${a0.acreedor} (kdxg) trae ${g.rowCount} filas en ${w.sucursal}: se esperaba una`);
 
     const porCuenta = new Map<string, { cargo: number; abono: number }>();
@@ -253,13 +256,15 @@ export class KeplerPagoSinkAdapter implements OnModuleDestroy {
       if (!d) return { estado: 'rechazado', motivo: `Kepler (${e.sucursal}) no tiene al acreedor ${e.acreedor} en su catálogo (kdxd)` };
       // RFC, nombre y domicilio del último pago a ese acreedor (98.9 %); si no hay, del catálogo.
       const prev = (await c.query(
-        `SELECT coalesce(c22,'') c22, coalesce(c32,'') c32, coalesce(c33,'') c33, coalesce(c34,'') c34, coalesce(c35,'') c35
+        `SELECT coalesce(c22,'') c22, coalesce(c32,'') c32, coalesce(c33,'') c33, coalesce(c34,'') c34, coalesce(c35,'') c35,
+                btrim(coalesce(c12,'')) c12
            FROM md.kdm1 WHERE c1=$1 AND c2='X' AND c3='D' AND btrim(c4::text)='26' AND btrim(c10)=$2 AND c43 <> 'C'
           ORDER BY c6 DESC LIMIT 1`, [e.sucursal, e.acreedor])).rows[0];
       const dias = Number(d.dias);
+      // [PGP.180] El concepto del último pago: el del gasto de un acreedor de gasto, que su X-A-10 no trae.
       const proveedor: ProveedorKepler = prev
-        ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null }
-        : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null };
+        ? { codigo: d.c2, rfc: prev.c22, nombre: prev.c32, domicilio: [prev.c33, prev.c34, prev.c35], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: prev.c12 || null }
+        : { codigo: d.c2, rfc: d.rfc, nombre: d.c3, domicilio: [d.dom, '', ''], dias: Number.isFinite(dias) ? dias : null, conceptoUltimoPago: null };
 
       // ── La cuenta de tesorería: UN código de kdb1 (18 de 18 cuentas resuelven, medido) ─────
       const digitos = (e.origen.account_label || '').replace(/\D/g, '');

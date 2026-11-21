@@ -19,6 +19,9 @@
  *   9. ⛔ RLS: sin tenant, `app_runtime` no ve ningún renglón.
  *  14. [BFU.3.4] BBVA completa la referencia en la descarga siguiente → el renglón NO entra dos veces, toma el concepto
  *      completo y el cuadre no ve repetidos; ⛔ NEGATIVA: un repetido sembrado a mano hace que la cuenta no cuadre.
+ *  15. [BFU.7.4] El motor de categoría (como app_runtime, con RLS): el retiro casado con un traspaso toma la categoría del
+ *      documento; el que no tiene de dónde, queda con su MOTIVO guardado (nunca mudo); ⛔ NEGATIVAS: lo manual no se
+ *      toca; si el pareo se va, la categoría del documento se va y queda el motivo; una segunda corrida no escribe.
  * Destino PROD: sólo lectura (las tablas existen, cuántos archivos hay); lo que escribe, NO MEDIDO.
  */
 
@@ -617,6 +620,46 @@ async function completo(urlAdmin, urlRuntime) {
       const qN = (await svc.cuadre('2026-11-20')).cuentas.find((x) => x.id === DEP)?.cuadre;
       check(qN?.cuadra === false && qN?.repetidos?.renglones === 1 && qN?.repetidos?.importe === 100 && /dos veces/.test(qN?.motivo ?? ''),
         `⛔ con un renglón repetido entre archivos la cuenta NO cuadra y lo dice (${qN?.motivo})`);
+
+      console.log('\n[15] BFU.7.4 — el motor de categoría: categoría con evidencia, o el motivo de por qué no');
+      const { aplicarMotorDeCategoria } = require(path.join(ROOT, 'libs/finance/src/lib/bank/estado-de-cuenta/motor-de-categoria.aplicar.ts'));
+      const [stDep] = await admin('finance.bank_statements').where({ bank_account_id: DEP, period: '2026-11' }).select('id');
+      const retiro = async (n, extra = {}) => (await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: stDep.id, bank_account_id: DEP,
+        movement_date: '2026-11-15', concept: `SPEI ENVIADO PRUEBA ${n}`, amount_in: 0, amount_out: n, client_uuid: `prueba-bfu74-${n}`,
+        classified_by: 'banco', sync_source: 'banco', source_file: 'banco', ...extra }).returning('id'))[0];
+      const idDe = (r) => r.id ?? r;
+      const TRASP = idDe(await retiro(11));                 // casado con un traspaso (N-A-26): la categoría la da el documento
+      const SIN_APL = idDe(await retiro(12));               // casado con un pago (X-D-26) que no se ve qué liquida: motivo
+      const comision = await catId('comision_bancaria');
+      const MANO = idDe(await retiro(13, { category_id: comision, classified_by: 'manual' })); // ya clasificado a mano
+      const pareo = (mov, tipo, folio) => admin('finance.bank_recon_matches').insert({ tenant_id: MEGA, bank_movement_id: mov, kepler_sucursal: '01',
+        kepler_doc_tipo: tipo, kepler_doc_folio: folio, kepler_amount: 1, match_type: 'inferred', match_confidence: 0.9, matched_by: 'motor-tes' });
+      await pareo(TRASP, 'N-A-26', 'PRB0001'); await pareo(SIN_APL, 'X-D-26', 'PRB0002'); await pareo(MANO, 'N-A-26', 'PRB0003');
+      const comoApp = (fn) => runtime.transaction(async (trx) => { await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]); return fn(trx); });
+      const ids = [TRASP, SIN_APL, MANO];
+      const enSeco = await comoApp((trx) => aplicarMotorDeCategoria(trx, ids, { hoy: '2026-11-20', soloContar: true }));
+      const tras0 = await admin('finance.bank_movements').where({ id: TRASP }).first('category_id', 'category_reason');
+      check(enSeco.evaluados === 2 && enSeco.cambios === 2 && tras0.category_id === null && tras0.category_reason === null,
+        `en seco evalúa 2 (lo manual no entra) y no escribe (${JSON.stringify(enSeco)})`);
+      const r1 = await comoApp((trx) => aplicarMotorDeCategoria(trx, ids, { hoy: '2026-11-20' }));
+      const de = async (id) => admin('finance.bank_movements as bm').leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+        .where('bm.id', id).first('mc.code', 'bm.classified_by', 'bm.category_reason', 'bm.category_evidence');
+      const t1 = await de(TRASP), s1 = await de(SIN_APL), m1 = await de(MANO);
+      check(t1.code === 'traspaso_entre_cuentas' && t1.classified_by === 'documento' && t1.category_reason === null && t1.category_evidence?.fuente === 'documento',
+        `como app_runtime: casado con un traspaso → «traspaso», con su evidencia (${t1.code}/${t1.classified_by}/${JSON.stringify(t1.category_evidence)})`);
+      check(s1.code === null && s1.category_reason === 'documento_sin_aplicacion' && s1.category_evidence?.responsable === 'sistemas',
+        `⛔ sin de dónde sacar la categoría NO se adivina y queda el motivo con su responsable (${s1.category_reason}/${s1.category_evidence?.responsable})`);
+      check(m1.code === 'comision_bancaria' && m1.classified_by === 'manual' && m1.category_reason === null, `⛔ lo puesto a mano no se toca (${m1.code}/${m1.classified_by})`);
+      check(r1.categorizados + Object.values(r1.sin_categoria).reduce((a, b) => a + b, 0) === r1.evaluados,
+        `cobertura: con categoría + con motivo = evaluados (${JSON.stringify(r1)})`);
+      const r2 = await comoApp((trx) => aplicarMotorDeCategoria(trx, ids, { hoy: '2026-11-20' }));
+      check(r2.cambios === 0, `⛔ la segunda corrida no escribe nada: el motor no se re-dispara solo (${JSON.stringify(r2)})`);
+      await admin('finance.bank_recon_matches').where({ bank_movement_id: TRASP }).del();
+      const r3 = await comoApp((trx) => aplicarMotorDeCategoria(trx, ids, { hoy: '2026-11-20' }));
+      const t3 = await de(TRASP);
+      check(r3.cambios === 1 && t3.code === null && t3.classified_by === 'banco' && !!t3.category_reason,
+        `⛔ si el pareo se va, la categoría del documento se va y queda el motivo (${t3.code}/${t3.classified_by}/${t3.category_reason})`);
+      noMedido('[BFU.7.4] la cuenta contable (kdxf → kdm6) necesita el ODS de Kepler: aquí sólo el traspaso y los motivos; en prod se mide antes/después');
     }
   } finally {
     await limpiar(admin).catch(() => {});
