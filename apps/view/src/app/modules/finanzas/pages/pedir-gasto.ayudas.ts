@@ -33,7 +33,11 @@ export function textoDelPlazo(p: { dias: number | null; fecha: string | null; ve
 }
 
 /** Un renglón en captura (lo que va a kdm6). */
-export interface RenglonEnCaptura { concepto: string | null; proyecto: string | null; departamento: string | null; importe: number | null }
+/** `[PGP.122.17]` Lo que se captura del bien en un renglón de activo (DS47, DS55; el resguardo lo pone el alta: DS56). */
+export interface ActivoEnCaptura { tipo: 'bien' | 'gasto' | null; descripcion: string; cantidad: number | null; lugar: string }
+export const ACTIVO_VACIO: ActivoEnCaptura = { tipo: null, descripcion: '', cantidad: 1, lugar: '' };
+
+export interface RenglonEnCaptura { concepto: string | null; proyecto: string | null; departamento: string | null; importe: number | null; activo?: ActivoEnCaptura | null }
 
 export const FUENTE_TEXTO: Record<FuenteDelDato, string> = {
   cfdi: 'de la factura del SAT', ticket: 'leído del comprobante', habito: 'como la última vez', catalogo: 'del catálogo de Kepler',
@@ -120,12 +124,21 @@ const LUGAR_DEL_FALTANTE: Record<FaltanteSolicitudId, { orden: number; id: strin
   pago_cuenta: { orden: 60, id: 'pg-cuenta' },
   pago_banco: { orden: 61, id: 'pg-banco' },
   pago_correo: { orden: 62, id: 'pg-correo' },
+  activo: { orden: 42, id: 'pg-que' },
 };
 
 /**
  * H20 — El id del PRIMER campo que falta, en el orden de la pantalla; `null` si no falta nada. Después de «Registrar»
  * el foco iba siempre a «Qué es y cuánto», aunque ya estuviera lleno y lo que faltara fuera la forma de pago.
  */
+/** `[PGP.122.17]` El campo del bloque de activo que falta: la pregunta, qué es o cuántos; si es gasto, el concepto. */
+function idDelActivo(i: number, r: RenglonEnCaptura | undefined): string {
+  const a = r?.activo;
+  if (!a?.tipo) return `pg-act-tipo-${i}`;
+  if (a.tipo === 'gasto') return `pg-con-${i}`;
+  return a.descripcion.trim() ? `pg-act-cuantos-${i}` : `pg-act-que-${i}`;
+}
+
 export function campoQueFalta(faltan: readonly FaltanteSolicitud[], renglones: readonly RenglonEnCaptura[]): string | null {
   let primero: { orden: number; id: string } | null = null;
   for (const f of faltan) {
@@ -135,7 +148,8 @@ export function campoQueFalta(faltan: readonly FaltanteSolicitud[], renglones: r
       const i = n - 1;
       const r = renglones[i];
       // La cuenta fuera de alcance es del concepto; si no, el primer campo vacío del renglón, de izquierda a derecha.
-      const id = f.id === 'alcance' || !r?.concepto ? `pg-con-${i}` : !r.proyecto ? `pg-pro-${i}` : !r.departamento ? `pg-dep-${i}` : `pg-imp-${i}`;
+      const id = f.id === 'activo' ? idDelActivo(i, r)
+        : f.id === 'alcance' || !r?.concepto ? `pg-con-${i}` : !r.proyecto ? `pg-pro-${i}` : !r.departamento ? `pg-dep-${i}` : `pg-imp-${i}`;
       lugar = { orden: 41 + n / 1000, id };
     }
     if (!primero || lugar.orden < primero.orden) primero = lugar;

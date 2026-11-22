@@ -3,6 +3,7 @@ import {
   lineaAmpara, puedePedir, referenciaDelComprobante, totalesDeLaSolicitud, type EstadoSolicitudGasto,
   basesDeQuienPide, correoValido, cuentaDePago, fechaDePago, hayInformacionDePago, PLAZOS_DE_PAGO,
   conceptoDistintoDeCedis, rubroDeCuenta, lecturaParaGuardar, fechaLeidaProponible, conceptoSinCuenta, motivoParaNoOfrecer,
+  esCuentaDeActivo, vidaFiscalEnMeses, importePorUnidad, activoLimpio, faltaDelActivo, UMBRAL_ACTIVO_POR_UNIDAD, activoEnUnaLinea,
 } from './solicitud-gasto.contract';
 
 /** Una solicitud completa y válida: la base de cada caso, que después se rompe en UNA cosa. */
@@ -25,8 +26,11 @@ describe('[PGP.122] alcanceDelAcreedor — DS3, firmado por Francisco el 2026-11
 });
 
 describe('[PGP.122] cuentaFueraDeAlcance — lo que no es gasto aunque pase por la solicitud', () => {
-  it('SUA, impuestos, activo fijo y capital de créditos quedan fuera', () => {
-    for (const c of ['601-015', '761-001', '762-001', '763-001', '150-009', '210-001']) expect(cuentaFueraDeAlcance(c), c).toMatch(/Kepler/);
+  it('SUA, impuestos y capital de créditos quedan fuera', () => {
+    for (const c of ['601-015', '761-001', '762-001', '763-001', '210-001']) expect(cuentaFueraDeAlcance(c), c).toMatch(/Kepler/);
+  });
+  it('[PGP.122.17] el activo fijo (150) ya entra (DS47): con su propio formulario, no fuera de alcance', () => {
+    for (const c of ['150-002', '150-009', '150']) expect(cuentaFueraDeAlcance(c), c).toBeNull();
   });
   it('el gasto entra, incluida la nómina-hermana 601-001 que no es SUA', () => {
     for (const c of ['602-008', '611-006', '601-001', '603-001', '1500-001', null]) expect(cuentaFueraDeAlcance(c), String(c)).toBeNull();
@@ -351,13 +355,76 @@ describe('[PGP.122.14] lo que no se ofrece se dice, con su motivo', () => {
     expect(conceptoSinCuenta(null, '06')).toMatch(/Kepler de 06/);
     expect(conceptoSinCuenta('601-002', '01')).toBeNull();
   });
-  it('el 364 «PC VERIFICADOR DE PRECIO» va a 150-002: activo fijo, fuera de v1 por DS3, con su motivo', () => {
-    expect(cuentaFueraDeAlcance('150-002')).toBe('La cuenta 150-002 es de activo fijo, no de gasto: ese renglón se captura en Kepler');
+  it('[PGP.122.17] el 364 «PC VERIFICADOR DE PRECIO» (150-002) ya se ofrece: es de activo y pide su formulario (DS47)', () => {
+    expect(cuentaFueraDeAlcance('150-002')).toBeNull();
+    expect(esCuentaDeActivo('150-002')).toBe(true);
   });
   it('motivoParaNoOfrecer: el de alcance (o sin cuenta) primero, después R14; null si se ofrece', () => {
     expect(motivoParaNoOfrecer({ fuera_de_alcance: 'A', distinto_de_cedis: 'B' })).toBe('A');
     expect(motivoParaNoOfrecer({ fuera_de_alcance: null, distinto_de_cedis: 'B' })).toBe('B');
     expect(motivoParaNoOfrecer({ fuera_de_alcance: null })).toBeNull();
     expect(motivoParaNoOfrecer({ fuera_de_alcance: '', distinto_de_cedis: '' })).toBeNull();
+  });
+});
+
+/**
+ * `[PGP.122.17]` La compra de un activo (anexo S §20). DS53: es activo lo que pasa de $5,000 por unidad y dura más de 12
+ * meses; DS55: cada unidad es un activo; DS56: el resguardo no se pide aquí (lo asigna Control de Activos en el alta).
+ */
+describe('[PGP.122.17] el renglón de activo', () => {
+  it('activoEnUnaLinea: qué es, cuántas unidades (con lo de cada una si son varias) y dónde, para quien firma', () => {
+    expect(activoEnUnaLinea({ descripcion: 'PC verificador, marca X', cantidad: 1, lugar: 'Piso de venta' }, 9000)).toBe('Compra de activo: PC verificador, marca X · 1 unidad · Piso de venta');
+    expect(activoEnUnaLinea({ descripcion: 'Silla ejecutiva', cantidad: 3, lugar: null }, 18000)).toBe('Compra de activo: Silla ejecutiva · 3 unidades de $6,000.00');
+    // Sin importe no se inventa lo de cada una.
+    expect(activoEnUnaLinea({ descripcion: 'Silla', cantidad: 2, lugar: '' }, null)).toBe('Compra de activo: Silla · 2 unidades');
+  });
+  const bien = (extra = {}) => ({ tipo: 'bien' as const, descripcion: 'PC verificador de precio, marca X, modelo Y', cantidad: 1, lugar: null, ...extra });
+  it('esCuentaDeActivo: sólo la 150, con o sin subcuenta', () => {
+    expect(['150', '150-002', ' 150-011 '].every(esCuentaDeActivo)).toBe(true);
+    expect(['1500-001', '601-002', '', null].some((c) => esCuentaDeActivo(c))).toBe(false);
+  });
+  it('vidaFiscalEnMeses: 1200 ÷ tasa; sin tasa o en cero (terrenos), null', () => {
+    expect([30, 10, 25, 5].map(vidaFiscalEnMeses)).toEqual([40, 120, 48, 240]);
+    expect([0, null, undefined, NaN].map((t) => vidaFiscalEnMeses(t as number))).toEqual([null, null, null, null]);
+  });
+  it('importePorUnidad: al centavo; sin cantidad entera positiva, null', () => {
+    expect(importePorUnidad(15000, 3)).toBe(5000);
+    expect(importePorUnidad(10000, 3)).toBe(3333.33);
+    expect([importePorUnidad(100, 0), importePorUnidad(100, 1.5), importePorUnidad(null, 1)]).toEqual([null, null, null]);
+  });
+  it('activoLimpio: sólo los cuatro campos, textos recortados; lo que no es objeto, null', () => {
+    expect(activoLimpio({ tipo: 'bien', descripcion: '  PC   nueva ', cantidad: '2', lugar: ' ', otro: 1 })).toEqual({ tipo: 'bien', descripcion: 'PC nueva', cantidad: 2, lugar: null });
+    expect(activoLimpio({ tipo: 'otro' })?.tipo).toBeNull();
+    expect(activoLimpio('x')).toBeNull();
+  });
+  it('un renglón que no es de activo no pide nada', () => {
+    expect(faltaDelActivo({ cuenta: '601-002', importe: 100, activo: null }, 1)).toEqual([]);
+  });
+  it('⭐ el de activo: primero, ¿bien nuevo o reparación? — una reparación, refacción o consumible es gasto', () => {
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 8500, activo: null }, 1)[0].motivo).toMatch(/bien nuevo o es una reparación/);
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 8500, activo: bien({ tipo: 'gasto' }) }, 1)[0].motivo).toMatch(/es gasto, no activo/);
+  });
+  it('⭐ DS53: con $5,000 o menos por unidad es gasto; con más, pasa', () => {
+    expect(UMBRAL_ACTIVO_POR_UNIDAD).toBe(5000);
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 5000, activo: bien() }, 2)[0].motivo).toContain('en el renglón 2, por $5,000.00 cada uno es gasto');
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 15000, activo: bien({ cantidad: 3 }) }, 1)[0].motivo).toContain('por $5,000.00 cada uno');
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 15003, activo: bien({ cantidad: 3 }) }, 1)).toEqual([]);
+    expect(faltaDelActivo({ cuenta: '150-002', importe: 8500, activo: bien() }, 1)).toEqual([]);
+  });
+  it('qué es y cuántos son obligatorios; cuántos, entero de 1 a 999', () => {
+    const m = (a: object) => faltaDelActivo({ cuenta: '150-001', importe: 90000, activo: bien(a) }, 1).map((f) => f.motivo).join(' | ');
+    expect(m({ descripcion: '  ' })).toMatch(/falta qué es el bien/);
+    expect(m({ cantidad: 0 })).toMatch(/cuántos tiene que ser/);
+    expect(m({ cantidad: 2.5 })).toMatch(/cuántos tiene que ser/);
+    expect(m({ cantidad: 1000 })).toMatch(/cuántos tiene que ser/);
+    expect(m({ descripcion: 'x'.repeat(201) })).toMatch(/no cabe/);
+  });
+  it('faltaParaPedir lo junta con lo demás (la misma compuerta que el botón y el 400)', () => {
+    const base = { sucursal: '00', acreedor: 'GA022', iva: 0, fecha_solicitud: '2026-11-22', comprobante: { tipo: 'cotizacion' as const, folio: '1', fecha: '2026-11-22', uuid: null }, forma_pago: 'transferencia', archivos: [{ role: 'comprobante_1' }] };
+    const r = { concepto: '364', proyecto: 'P1', departamento: 'D1', importe: 3000, cuenta: '150-002' };
+    const ids = (x: object) => faltaParaPedir({ ...base, renglones: [{ ...r, ...x }] } as never).filter((f) => f.id === 'activo').map((f) => f.motivo);
+    expect(ids({ activo: null })).toHaveLength(1);
+    expect(ids({ activo: bien() })[0]).toContain('por $3,000.00 cada uno es gasto');
+    expect(ids({ importe: 9000, activo: bien() })).toEqual([]);
   });
 });

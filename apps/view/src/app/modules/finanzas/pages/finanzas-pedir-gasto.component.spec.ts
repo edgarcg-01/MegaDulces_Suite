@@ -186,36 +186,120 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     expect(txt()).not.toContain('No se ofrece: '); // un solo aviso, no dos
   });
 
-  it('[PGP.122.14] lo que no se puede pedir (activo fijo, sin cuenta) sale al final, deshabilitado y con su motivo; nada se propone con eso', () => {
-    const ACTIVO = 'La cuenta 150-002 es de activo fijo, no de gasto: ese renglón se captura en Kepler';
+  it('[PGP.122.14] lo que no se puede pedir (SUA, sin cuenta) sale al final, deshabilitado y con su motivo; nada se propone con eso', () => {
+    // [PGP.122.17] El ejemplo era el 364 (activo fijo); desde DS47 el activo entra con su formulario: ahora es el SUA.
+    const SUA = 'La cuenta 601-015 es de SUA, no de gasto: ese renglón se captura en Kepler';
     const SIN = 'Le falta la cuenta contable en el catálogo de Kepler de 06: se podrá pedir cuando Contabilidad la ponga';
     montar();
     pide('/abiertas').flush({ sucursales: ['06'], alcance: 'una' });
     abrirBase('06', [], [
-      { codigo: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', fuera_de_alcance: ACTIVO },
+      { codigo: '047', nombre: 'SUA', cuenta: '601-015', fuera_de_alcance: SUA },
       { codigo: '274', nombre: 'ALINEACION Y BALANCEO', cuenta: '', fuera_de_alcance: SIN },
       { codigo: 'AGU', nombre: 'AGUA', cuenta: '601-002', fuera_de_alcance: null },
     ]);
     // El selector trae TODO el catálogo: lo que se puede pedir primero, lo que no al final y con su motivo.
-    expect(c.opcionesConcepto().map((x) => [x.codigo, x.bloqueado])).toEqual([['GAS', false], ['AGU', false], ['364', true], ['274', true]]);
-    expect(c.opcionesConcepto().find((x) => x.codigo === '364')?.motivo).toBe(ACTIVO);
+    expect(c.opcionesConcepto().map((x) => [x.codigo, x.bloqueado])).toEqual([['GAS', false], ['AGU', false], ['047', true], ['274', true]]);
+    expect(c.opcionesConcepto().find((x) => x.codigo === '047')?.motivo).toBe(SUA);
     expect(c.opcionesConcepto().find((x) => x.codigo === '274')?.motivo).toBe(SIN);
     // Y el p-select del renglón los recibe deshabilitados (buscar «364» lo encuentra, pero no se puede elegir).
     const sel = fix.debugElement.queryAll(By.directive(Select)).map((d) => d.componentInstance as Select).find((s) => s.inputId() === 'pg-con-0');
     expect(sel?.optionDisabled()).toBe('bloqueado');
-    expect(sel?.options()?.map((o: { codigo: string }) => o.codigo)).toEqual(['GAS', 'AGU', '364', '274']);
+    expect(sel?.options()?.map((o: { codigo: string }) => o.codigo)).toEqual(['GAS', 'AGU', '047', '274']);
     expect(sel?.isOptionDisabled(sel.options()![2])).toBe(true);
     // Lo que la pantalla propone sola sale únicamente de lo que se puede pedir.
     expect(c.conceptos().map((x) => x.codigo)).toEqual(['GAS', 'AGU']);
-    // Si el concepto de siempre del proveedor es de activo fijo, no se pone y se dice por qué.
+    // Si el concepto de siempre del proveedor no se puede pedir aquí, no se pone y se dice por qué.
     elegir(PRECARGA(null, {
-      conceptos: [{ codigo: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', fuera_de_alcance: ACTIVO, usos: 2 }],
-      ultimo: { concepto: '364', proyecto: 'P1', departamento: 'D1', fecha: '2026-11-01' },
+      conceptos: [{ codigo: '047', nombre: 'SUA', cuenta: '601-015', fuera_de_alcance: SUA, usos: 2 }],
+      ultimo: { concepto: '047', proyecto: 'P1', departamento: 'D1', fecha: '2026-11-01' },
     }));
     expect(c.renglones()[0].concepto).toBeFalsy();
-    expect(txt()).toContain(`El concepto que usa este proveedor no se ofrece aquí: ${ACTIVO}`);
+    expect(txt()).toContain(`El concepto que usa este proveedor no se ofrece aquí: ${SUA}`);
   });
 
+  describe('[PGP.122.17] la compra de un activo (anexo S §20)', () => {
+    const ACT = { codigo: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', fuera_de_alcance: null, activo: { grupo: 'ECE', nombre: 'EQUIPO DE COMPUTO ELECTRONICO', tasa: 30, vida_meses: 40 } };
+    const SIN_GRUPO = { codigo: '213', nombre: 'HERRAMIENTAS Y EQUIPO', cuenta: '150-009', fuera_de_alcance: null, activo: { grupo: null, nombre: null, tasa: null, vida_meses: null } };
+    const preparar = (factura = F({ total: 11600, subtotal: 10000, iva: 1600 })) => {
+      montar();
+      pide('/abiertas').flush({ sucursales: ['06'], alcance: 'una' });
+      abrirBase('06', [factura], [ACT, SIN_GRUPO]);
+      elegir(PRECARGA('transferencia'));
+      c.usarFactura(factura);
+      fix.detectChanges();
+    };
+    const bloque = () => (fix.nativeElement as HTMLElement).querySelector('.pg-activo')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    const activoFalta = () => c.faltan().filter((f) => f.id === 'activo').map((f) => f.motivo);
+
+    it('un concepto de gasto no abre nada; uno de activo abre «Compra de activo» con su grupo y vida fiscal de Kepler', () => {
+      preparar();
+      expect((fix.nativeElement as HTMLElement).querySelector('.pg-activo')).toBeNull();
+      c.cambiarRenglon(0, 'concepto', '364'); fix.detectChanges();
+      expect(bloque()).toContain('Compra de activo · renglón 1');
+      expect(bloque()).toContain('Grupo: Equipo de computo electronico · vida fiscal 40 meses (30 % al año), de Kepler.');
+      expect(c.renglones()[0].activo).toEqual({ tipo: null, descripcion: '', cantidad: 1, lugar: '' });
+      // Sin grupo en Kepler (DS54) se dice; no se inventa una tasa.
+      c.cambiarRenglon(0, 'concepto', '213'); fix.detectChanges();
+      expect(bloque()).toContain('Contabilidad aún no lo define en Kepler');
+      // De vuelta a un concepto de gasto, el bloque se va.
+      c.cambiarRenglon(0, 'concepto', 'GAS'); fix.detectChanges();
+      expect(c.renglones()[0].activo).toBeNull();
+      expect((fix.nativeElement as HTMLElement).querySelector('.pg-activo')).toBeNull();
+    });
+
+    it('⭐ primero la pregunta; «reparación, refacción o consumible» es gasto y «Cambiar el concepto» lo quita', () => {
+      preparar();
+      c.cambiarRenglon(0, 'concepto', '364'); fix.detectChanges();
+      expect(activoFalta()[0]).toMatch(/bien nuevo o es una reparación/);
+      c.cambiarActivo(0, 'tipo', 'gasto'); fix.detectChanges();
+      expect(bloque()).toContain('Una reparación, refacción o consumible es gasto, no activo');
+      expect(activoFalta()[0]).toMatch(/es gasto, no activo/);
+      c.cambiarConceptoAGasto(0); fix.detectChanges();
+      expect(c.renglones()[0].concepto).toBeNull();
+      expect(c.renglones()[0].activo).toBeNull();
+    });
+
+    it('⭐ DS53: con $5,000 o menos por unidad es gasto (lo dice junto a cuántos); con más se puede pedir y el envío lleva el activo', () => {
+      preparar();
+      c.cambiarRenglon(0, 'concepto', '364');
+      c.cambiarActivo(0, 'tipo', 'bien');
+      c.cambiarActivo(0, 'descripcion', 'PC verificador de precio, marca X, modelo Y');
+      c.cambiarActivo(0, 'cantidad', 2); fix.detectChanges();
+      expect(bloque()).toContain('— es gasto, no activo');
+      expect(activoFalta()[0]).toContain('cada uno es gasto');
+      c.cambiarActivo(0, 'cantidad', 1); c.cambiarActivo(0, 'lugar', 'Piso de venta'); fix.detectChanges();
+      expect(bloque()).not.toContain('es gasto, no activo');
+      expect(c.faltan()).toEqual([]);
+      c.enviar();
+      const req = http.expectOne((x) => x.method === 'POST' && x.url.endsWith('/finance/expenses/solicitudes'));
+      expect(req.request.body.renglones[0].activo).toEqual({ tipo: 'bien', descripcion: 'PC verificador de precio, marca X, modelo Y', cantidad: 1, lugar: 'Piso de venta' });
+      req.flush({ id: 'x', status: 'recibida', kepler_request_status: 'pending', total: 11600, retroactiva: false, duplicados: [] });
+      fix.detectChanges();
+      pide('/facturas-sat').flush(BANDEJA());
+    });
+
+    it('el concepto de siempre del proveedor puede ser de activo: su bloque nace como al elegirlo a mano (cuántos = 1)', () => {
+      montar();
+      pide('/abiertas').flush({ sucursales: ['06'], alcance: 'una' });
+      abrirBase('06', [], [ACT, SIN_GRUPO]);
+      elegir(PRECARGA(null, { conceptos: [{ ...ACT, usos: 4 }], ultimo: { concepto: '364', proyecto: 'P1', departamento: 'D1', fecha: '2026-11-01' } }));
+      expect(c.renglones()[0].concepto).toBe('364');
+      expect(c.renglones()[0].activo).toEqual({ tipo: null, descripcion: '', cantidad: 1, lugar: '' });
+      expect(bloque()).toContain('Compra de activo · renglón 1');
+      expect(activoFalta()[0]).toMatch(/bien nuevo o es una reparación/);
+    });
+
+    it('el renglón de gasto no manda activo', () => {
+      preparar();
+      expect(c.faltan()).toEqual([]);
+      c.enviar();
+      const req = http.expectOne((x) => x.method === 'POST' && x.url.endsWith('/finance/expenses/solicitudes'));
+      expect(req.request.body.renglones[0].activo).toBeUndefined();
+      req.flush({ id: 'x', status: 'recibida', kepler_request_status: 'pending', total: 11600, retroactiva: false, duplicados: [] });
+      fix.detectChanges();
+      pide('/facturas-sat').flush(BANDEJA());
+    });
+  });
   it('DS27 · con un solo almacén la base es fija y no se pregunta', () => {
     abrir();
     const base = (fix.nativeElement as HTMLElement).querySelector('#pg-base')!;

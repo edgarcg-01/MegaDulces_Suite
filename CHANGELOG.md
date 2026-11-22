@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Finanzas › Gastos: pedir la compra de un activo con su propio formulario (PGP.122.17 · 2026-11-22)
+- En «Pedir un gasto», un concepto de activo fijo (cuenta 150, como el 364 «PC VERIFICADOR DE PRECIO») ya se puede pedir. Al elegirlo, el renglón abre «Compra de activo» y primero pregunta si es un bien nuevo o una reparación, refacción o consumible. Si es lo segundo, es gasto y ofrece cambiar el concepto.
+- Si es un bien nuevo, pide qué es (con marca y modelo), cuántos y dónde va, y muestra su grupo y su vida fiscal según Kepler, o dice que Contabilidad aún no los define. Con el importe y cuántos calcula lo que cuesta cada uno: con $5,000 o menos por unidad es gasto, no activo, y así no se puede pedir.
+- Quien firma ve en el panel qué se compra, cuántas unidades y dónde va, antes de firmar.
+- Todavía no: dar de alta el activo en el catálogo de Kepler, asignar quién lo resguarda (lo hace Presupuestos y Control de Activos al darlo de alta) y la depreciación.
+
 ### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
 - Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
 - Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.
