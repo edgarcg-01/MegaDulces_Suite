@@ -1481,7 +1481,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                          placeholder="Importe" [attr.aria-label]="'Importe de la transferencia ' + (i + 1)" />
                 }
                 <p-select appendTo="body" [options]="prepOrigenes()" [(ngModel)]="p.origin" (onChange)="prepPartesError.set(null)" optionLabel="label" optionValue="id"
-                          placeholder="Cuenta de origen…" [filter]="true" filterBy="label" [fluid]="true" [ariaLabel]="'Cuenta de origen de la transferencia ' + (i + 1)" />
+                          placeholder="Cuenta de origen…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" [ariaLabel]="'Cuenta de origen de la transferencia ' + (i + 1)" />
                 @if (prepPartes.length > 2) {
                   <button pButton type="button" class="p-button-text p-button-sm p-button-secondary" icon="pi pi-times" (click)="quitarTransferencia(i)" [attr.aria-label]="'Quitar la transferencia ' + (i + 1)"></button>
                 } @else { <span></span> }
@@ -1498,7 +1498,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         } @else {
         <label class="cal-dlg-label" for="cal-prep-origin">Cuenta de origen (de dónde sale el dinero)</label>
         <!-- [PGP.155] A una cuenta sin CLABE sólo se transfiere desde una cuenta nuestra del mismo banco: sólo se ofrecen ésas. -->
-        <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" class="cal-dlg-sel" />
+        <p-select appendTo="body" inputId="cal-prep-origin" [options]="prepOrigenes()" [(ngModel)]="prepOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta de Mega Dulces…" [filter]="true" filterBy="label" [fluid]="true" [emptyMessage]="origenVacio()" class="cal-dlg-sel" />
+        }
+        <!-- [PGP.190.1] Si la lista de cuentas no se pudo leer, se dice aquí con su salida; antes el selector sólo decía «Sin opciones». -->
+        @if (originError(); as e) {
+          <p class="cal-dlg-hint cal-habito-nm" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron leer nuestras cuentas de origen ({{ e }}). <button type="button" class="pg-saldada-btn" [disabled]="originLoading()" (click)="cargarOrigenes()">Reintentar</button></p>
         }
         @if (prepBancoObligado(); as b) {
           <p class="cal-dlg-hint"><i class="pi pi-building-columns" aria-hidden="true"></i> La cuenta destino no tiene CLABE: la transferencia sale sólo de una cuenta <b>{{ b }}</b> nuestra; de nuestros bancos sólo se ofrecen ésas.</p>
@@ -4009,6 +4013,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** `[PGP.155]` Con su banco y su tipo: el diálogo «Preparar» filtra por banco cuando el destino no tiene CLABE. */
   readonly originOpts = signal<{ id: string; label: string; bank: string; kind: string }[]>([]);
+  /** `[PGP.190.1]` La lista de origen se está pidiendo / no se pudo leer (se dice; no se dibuja como «sin cuentas»). */
+  readonly originLoading = signal(false);
+  readonly originError = signal<string | null>(null);
 
   reprogramVisible = false;
   /** `[PGP.48]` Lo que mueve el diálogo «Mover a otro día»: uno, o todos los pendientes de un día ya pasado. */
@@ -4648,14 +4655,36 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       next: (rows) => { this.quePagar.set(rows ?? []); this.quePagarError.set(null); },
       error: (e) => { this.quePagar.set([]); this.quePagarError.set(e?.error?.message || 'No se pudo calcular qué conviene pagar.'); },
     });
+    this.cargarOrigenes();
+  }
+
+  /**
+   * `[PGP.190.1]` Las cuentas de origen. Se piden al entrar y otra vez al abrir «Preparar pago» si no llegaron:
+   * antes un error dejaba la lista vacía para toda la sesión y el selector decía «Sin opciones», que se lee como
+   * «no hay cuentas» (Francisco, 2026-11-21, con 20 cuentas activas en el catálogo). Si falla, se dice.
+   */
+  cargarOrigenes(): void {
+    this.originLoading.set(true);
+    this.originError.set(null);
     this.http.get<PaymentOriginAccount[]>(`${this.base}/origin-accounts`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (rows) => {
-        this.originOpts.set(rows.map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}`, bank: r.bank, kind: r.kind })));
+        this.originOpts.set((rows ?? []).map((r) => ({ id: r.id, label: r.alias ? `${r.alias} (${r.bank})` : `${r.bank} ${r.account_label}`, bank: r.bank, kind: r.kind })));
         // Una cuenta recordada que ya no está en el catálogo no se propone: se pide de nuevo.
-        if (this.bulkOriginId && !rows.some((r) => r.id === this.bulkOriginId)) this.bulkOriginId = null;
+        if (this.bulkOriginId && !(rows ?? []).some((r) => r.id === this.bulkOriginId)) this.bulkOriginId = null;
+        this.originLoading.set(false);
       },
-      error: () => this.originOpts.set([]),
+      error: (e) => {
+        this.originOpts.set([]);
+        this.originLoading.set(false);
+        this.originError.set(e?.error?.message || 'No se pudieron leer las cuentas de origen.');
+      },
     });
+  }
+  /** `[PGP.190.1]` Qué dice el selector de origen cuando no trae cuentas: cargando, error o catálogo vacío — nunca un «Sin opciones» mudo. */
+  origenVacio(): string {
+    if (this.originLoading()) return 'Cargando las cuentas…';
+    if (this.originError()) return 'No se pudieron leer las cuentas: usa «Reintentar»';
+    return 'No hay cuentas de origen activas en «Cuentas de pago»';
   }
 
   /** Fecha civil local (no UTC): a las 19:00 en CDMX el UTC ya es mañana. */
@@ -5882,6 +5911,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.prepAccountsError.set(null);
     this.prepPedida.set(null);
     this.prepVarias = false; this.prepPartes = []; this.prepPartesError.set(null);
+    // `[PGP.190.1]` Si las cuentas de origen no llegaron al entrar, se piden otra vez al abrir el diálogo.
+    if (!this.originOpts().length && !this.originLoading()) this.cargarOrigenes();
     this.prepSupplierId = this.proveedorDe(a);
     // `[PGP.75]` La CLABE de sus comprobantes, si no hay nada puesto. Es lo ÚLTIMO en precedencia: la
     // cuenta aprobada del catálogo y la captura pendiente la reemplazan si llegan y nadie la tocó.

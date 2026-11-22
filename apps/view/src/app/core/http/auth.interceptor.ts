@@ -57,7 +57,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       // perdiendo dónde estabas. Ahora se lleva el motivo y la ruta de vuelta.
       if (error.status === 401) {
         const from = router.url;
-        authService.logout();
+        // `[COT.50]` Involuntario: la cotización a medias se queda para cuando vuelva a entrar.
+        authService.logout({ involuntario: true });
         // La regla de "a dónde volver" vive en 'login-redirect', compartida con
         // los guards. Estaba escrita sólo acá y por eso los guards no la tenían.
         router.navigateByUrl(loginUrlTree(router, from, 'expired'));

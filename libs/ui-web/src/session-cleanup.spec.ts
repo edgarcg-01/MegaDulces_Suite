@@ -1,4 +1,4 @@
-import { limpiarRastroDeSesion, CLAVES_DEL_APARATO } from './session-cleanup';
+import { limpiarRastroDeSesion, CLAVES_DEL_APARATO, PREFIJOS_TRABAJO_SIN_ENVIAR } from './session-cleanup';
 
 /**
  * `[SEG.2]` — El rastro de una sesión no puede sobrevivir al cierre de sesión.
@@ -135,6 +135,53 @@ describe('[SEG.2] limpiarRastroDeSesion', () => {
   it('la lista de sobrevivientes no tiene duplicados ni claves vacías', () => {
     expect(new Set(CLAVES_DEL_APARATO).size).toBe(CLAVES_DEL_APARATO.length);
     expect(CLAVES_DEL_APARATO.every((k) => !!k.trim())).toBe(true);
+  });
+});
+
+/**
+ * `[COT.50]` La cotización a medias sobrevive al cierre que la persona NO pidió (token vencido,
+ * o la sesión cerrada en otra pestaña) y se va con el voluntario. Antes la borraba siempre: el
+ * 401 llama a `logout()` y la captura de 40 renglones se iba con el resto del rastro.
+ */
+describe('[COT.50] limpiarRastroDeSesion · trabajo sin enviar', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    delete (globalThis as unknown as { caches?: unknown }).caches;
+  });
+
+  it('⭐ sesión vencida: la cotización a medias se queda y el resto del rastro se va', async () => {
+    localStorage.setItem('cotizacion-a-medias:u1:t1', '{"bandeja":[1]}');
+    localStorage.setItem('cotizacion-a-medias:u1', '{"bandeja":[2]}'); // la clave de antes de COT.50
+    localStorage.setItem('auth_token', 'eyJ...');
+    localStorage.setItem('app_diag', '[]');
+
+    const r = await limpiarRastroDeSesion({ conservarTrabajoSinEnviar: true });
+
+    expect(localStorage.getItem('cotizacion-a-medias:u1:t1')).toBe('{"bandeja":[1]}');
+    expect(localStorage.getItem('cotizacion-a-medias:u1')).toBe('{"bandeja":[2]}');
+    expect(localStorage.getItem('auth_token')).toBeNull();
+    expect(localStorage.getItem('app_diag')).toBeNull();
+    expect(r.declarado).toContain('trabajo sin enviar conservado: 2 clave(s)');
+  });
+
+  it('⭐ NEGATIVA: el cierre voluntario la borra, como todo lo de la persona', async () => {
+    localStorage.setItem('cotizacion-a-medias:u1:t1', '{"bandeja":[1]}');
+    const r = await limpiarRastroDeSesion();
+    expect(localStorage.getItem('cotizacion-a-medias:u1:t1')).toBeNull();
+    expect(r.declarado.some((d) => /trabajo sin enviar/.test(d))).toBe(false);
+  });
+
+  it('el prefijo conserva sólo lo que empieza con él: un parecido no se cuela', async () => {
+    localStorage.setItem('x-cotizacion-a-medias:u1', 'no es trabajo');
+    localStorage.setItem('cotizacion-a-mediasu1', 'tampoco');
+    await limpiarRastroDeSesion({ conservarTrabajoSinEnviar: true });
+    expect(localStorage.getItem('x-cotizacion-a-medias:u1')).toBeNull();
+    expect(localStorage.getItem('cotizacion-a-mediasu1')).toBeNull();
+  });
+
+  it('los prefijos no son vacíos (un prefijo vacío conservaría TODO)', () => {
+    expect(PREFIJOS_TRABAJO_SIN_ENVIAR.every((p) => p.trim().length > 3)).toBe(true);
   });
 });
 

@@ -214,7 +214,7 @@ export class AuthService {
    * llama acá ante un 401, y recargar ahí puede dejar un bucle. El borrado del rastro, en
    * cambio, corre **siempre**: un 401 por token vencido deja el mismo cache que un logout.
    */
-  logout(opts: { derribar?: boolean } = {}): void {
+  logout(opts: { derribar?: boolean; involuntario?: boolean } = {}): void {
     // `[SEG.3]` La decisión de borrar la base offline necesita saber QUIÉN se va, así que se
     // toma ANTES de vaciar `user`. Dos líneas más abajo ya no habría a quién preguntarle.
     const quienSeVa = this.user();
@@ -243,7 +243,10 @@ export class AuthService {
     // `[SEG.3]` La base offline se borra para toda persona que NO sea de campo (decisión del
     // usuario). Guarda visitas, FOTOS de tienda, pings de GPS y conteos: en un equipo compartido
     // la siguiente persona los heredaba. Quien sí es de campo la conserva — es su trabajo.
-    const limpieza = this.decidirYLimpiar(quienSeVa);
+    // `[COT.50]` `involuntario` = la sesión se cayó sin que la persona la cerrara (401 por token
+    // vencido, o la cerraron en otra pestaña): su trabajo sin enviar —la cotización a medias— se
+    // queda para cuando vuelva a entrar. El cierre voluntario lo borra con todo lo demás.
+    const limpieza = this.decidirYLimpiar(quienSeVa, !!opts.involuntario);
 
     if (opts.derribar && typeof window !== 'undefined') {
       // Se espera a que el borrado termine ANTES de recargar: si la navegación gana la carrera,
@@ -268,7 +271,7 @@ export class AuthService {
    * resolvía uno. Por eso acá va un `await import()` de verdad: la clase llega cuando se cierra
    * sesión, que es el único momento en que hace falta.
    */
-  private async decidirYLimpiar(quienSeVa: JwtPayload | null): Promise<RastroLimpiado> {
+  private async decidirYLimpiar(quienSeVa: JwtPayload | null, involuntario = false): Promise<RastroLimpiado> {
     let pendientes: number | null = null;
     let db: OfflineDatabaseService | null = null;
     try {
@@ -289,7 +292,7 @@ export class AuthService {
       try { db.close(); } catch { /* ya estaba cerrada */ }
     }
 
-    const r = await limpiarRastroDeSesion({ borrarIndexedDb: veredicto.borrar });
+    const r = await limpiarRastroDeSesion({ borrarIndexedDb: veredicto.borrar, conservarTrabajoSinEnviar: involuntario });
     r.declarado.push(`offline: ${veredicto.motivo}`);
     if (!veredicto.borrar && pendientes) {
       // Un rol que no es de campo dejando trabajo sin sincronizar es una sorpresa, no una
