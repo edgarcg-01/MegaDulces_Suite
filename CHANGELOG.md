@@ -14,6 +14,12 @@
 - Con dos pestañas de «Nueva cotización», una vacía borraba lo que la otra llevaba capturado, y dos capturas en paralelo se pisaban. Ahora cada pestaña guarda la suya, y el aviso sólo ofrece las de pestañas que ya se cerraron.
 - Lo que se captura mientras el aviso espera respuesta también se respalda, y recuperar una cotización ya no tira lo que había en pantalla: lo aparta como otra cotización por recuperar.
 
+
+### Fixed — Finanzas › Gastos: lo que dijeron las primeras usuarias de la solicitud y la comprobación (PGP.122.12–14, PGP.123 G.15 · 2026-11-21)
+- Mis gastos: «Folio» ahora dice «Folio de solicitud» y junto va «Folio de comprobación» (el gasto X-A-10, también el que la Suite acaba de generar). Antes la comprobación era una línea «XA1001-…» debajo de «Cómo cerró» y costaba encontrarla. En el celular cada vale se apila: el folio arriba, con el de comprobación debajo, y cada dato con su rótulo.
+- Al firmar una solicitud pedida desde la Suite, el panel muestra el departamento que eligió quien la pidió, y dice que se escribe en Kepler al firmar (antes decía «aún no está en Kepler»).
+- La fecha del ticket la copia la IA tal como está impresa y el sistema la convierte día/mes, como se escribe en México. Sólo se propone si es de los últimos 30 días: una fecha futura, imposible o con el año mal leído ya no llega (tampoco a la liga de captura), y junto a la fecha se ve lo que se leyó. Lo que leyó la IA se guarda para medir cuánto se corrige.
+- Pedir un gasto: los conceptos que no se pueden pedir desde la Suite (activo fijo, SUA, impuestos, capital de créditos, o sin cuenta en el catálogo de Kepler de esa sucursal) ya no desaparecen: salen al final de la lista, deshabilitados y con el motivo. Buscar «364» encuentra el PC VERIFICADOR DE PRECIO y dice que el activo fijo se captura en Kepler.
 ### Fixed — Telemarketing › Cotizaciones: la lista de artículos en el celular (COT.49 · 2026-11-21)
 - En el celular el nombre del artículo se encimaba con el SKU, el precio salía cortado y la lista medía dos tercios del ancho. Ahora el buscador ocupa todo el ancho de la tarjeta y cada artículo se lee en dos líneas: el nombre completo arriba; SKU, unidad y existencia abajo; el precio a la derecha. Vale para la cotización nueva y para el borrador.
 - Al tocar el buscador en el celular, sube arriba de la pantalla para que la lista quepa entre él y el teclado.

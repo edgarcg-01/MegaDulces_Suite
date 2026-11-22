@@ -563,6 +563,25 @@ describe('ValeGastoPeekComponent', () => {
       fix.detectChanges();
       expect(texto()).toContain('sin leer en Kepler');
     });
+
+    /**
+     * `[PGP.122.12]` La solicitud nacida en la Suite, ANTES de firmar (sin folio): quien firma veía «aún no está en
+     * Kepler» en vez del departamento (observación de usuario, 01/0000223, 2026-11-21). El servidor ya manda el de sus
+     * renglones; la pantalla lo muestra y dice que todavía no está en Kepler.
+     */
+    it('[PGP.122.12] sin folio: el departamento que eligió quien la pidió, y que todavía no está en Kepler', () => {
+      montar(V({ folio_solicitud: '', departamentos: [{ clave: '1-01-10-00', nombre: 'PADRE HIDALGO PISO', importe: 200 }] }));
+      expect(texto()).toContain('PADRE HIDALGO PISO');
+      expect(texto()).toContain('Lo eligió quien la pidió; se escribe en Kepler al firmarse');
+      expect(texto()).not.toContain('aún no está en Kepler (se escribe al firmarse)');
+      expect(c.subtituloPeek()).toContain('PADRE HIDALGO PISO');
+    });
+
+    it('[PGP.122.12] con folio (ya en Kepler) no se dice nada de eso: el departamento ya es el de Kepler', () => {
+      montar(V({ folio_solicitud: '0000223', departamentos: [{ clave: '1-01-10-00', nombre: 'PADRE HIDALGO PISO', importe: 200 }] }));
+      expect(texto()).toContain('PADRE HIDALGO PISO');
+      expect(texto()).not.toContain('se escribe en Kepler al firmarse');
+    });
   });
 
   /**
