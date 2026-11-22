@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Telemarketing › Cotizaciones: la cotización a medias ya no se pierde (COT.50 · 2026-11-22)
+- Si la sesión se vencía a media captura (dura 12 horas), la app cerraba sesión y borraba la cotización que el navegador tenía guardada. Ahora, al volver a entrar, la cotización está en «Nueva cotización» con «Recuperar». Cerrar sesión a propósito la sigue borrando.
+- Con dos pestañas de «Nueva cotización», una vacía borraba lo que la otra llevaba capturado, y dos capturas en paralelo se pisaban. Ahora cada pestaña guarda la suya, y el aviso sólo ofrece las de pestañas que ya se cerraron.
+- Lo que se captura mientras el aviso espera respuesta también se respalda, y recuperar una cotización ya no tira lo que había en pantalla: lo aparta como otra cotización por recuperar.
+
 ### Fixed — Telemarketing › Cotizaciones: la lista de artículos en el celular (COT.49 · 2026-11-21)
 - En el celular el nombre del artículo se encimaba con el SKU, el precio salía cortado y la lista medía dos tercios del ancho. Ahora el buscador ocupa todo el ancho de la tarjeta y cada artículo se lee en dos líneas: el nombre completo arriba; SKU, unidad y existencia abajo; el precio a la derecha. Vale para la cotización nueva y para el borrador.
 - Al tocar el buscador en el celular, sube arriba de la pantalla para que la lista quepa entre él y el teclado.
