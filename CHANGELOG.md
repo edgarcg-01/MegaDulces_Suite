@@ -9,11 +9,11 @@
 ---
 
 ## [Unreleased]
-### Added — Venta y clientes › Alta de clientes: fotos y capturas se leen con IA (ALC.4 · 2026-11-22, apagada hasta D9)
+### Added — Venta y clientes › Alta de clientes: fotos y capturas se leen con IA (ALC.4 · 2026-11-22, ENCENDIDA en prod)
 - El alta acepta de 1 a 4 archivos del mismo cliente: la constancia en PDF, fotos de la constancia, capturas de Wincaja o de otro sistema, la foto de una etiqueta con sus datos. En el celular, «Tomar foto».
 - El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.
 - Cada lectura queda guardada con sus archivos y su costo, y al crear la solicitud se anota qué corrigió la persona. En el detalle, «Documentos» abre los archivos de los que salió.
-- Llega apagada: la enciende `ALC_AI_ENABLED=true` cuando Edgar y Dirección firmen D9 (los datos del cliente van a un proveedor de IA). Apagada, el alta acepta sólo el PDF, como antes. Antes de soltar: migración `20261122115947`.
+- **Encendida en producción el 2026-11-22**, con D9 firmada por Edgar: los documentos que no son el PDF del SAT se mandan a un proveedor de IA. Tope de 60 lecturas al día en todo el tenant; nada entra a la solicitud sin que la persona lo revise, y la pantalla avisa que la IA puede equivocarse. Queda con Dirección que el aviso de privacidad lo diga.
 ### Added — Finanzas › Gastos: pedir la compra de un activo con su propio formulario (PGP.122.17 · 2026-11-22)
 - En «Pedir un gasto», un concepto de activo fijo (cuenta 150, como el 364 «PC VERIFICADOR DE PRECIO») ya se puede pedir. Al elegirlo, el renglón abre «Compra de activo» y primero pregunta si es un bien nuevo o una reparación, refacción o consumible. Si es lo segundo, es gasto y ofrece cambiar el concepto.
 - Si es un bien nuevo, pide qué es (con marca y modelo), cuántos y dónde va, y muestra su grupo y su vida fiscal según Kepler, o dice que Contabilidad aún no los define. Con el importe y cuántos calcula lo que cuesta cada uno: con $5,000 o menos por unidad es gasto, no activo, y así no se puede pedir.
