@@ -1,6 +1,7 @@
 import type { ReglaCalendario } from '@megadulces/contracts';
 import {
   atencionEnPalabras, corrimientoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente, estadoEnPalabras, fechasEnRango, patronEnPalabras, propuestaEnPalabras, relativo, alcanceEnPalabras, paraQuienVe,
+  avanceEscalonEnPalabras, avanceTotalEnPalabras, NOMBRE_ESCALON, pesoEnPalabras, porcentaje,
 } from './calendario-compras-reglas';
 
 /** `[PQ.3.5]` Lo que la pantalla del calendario dice en palabras, y las fechas de «Semana» y «Mes». */
@@ -142,5 +143,35 @@ describe('`[PQ.3.14]` el día fijo por sucursal, en palabras', () => {
   it('la evidencia completa del formulario, con la sucursal', () => {
     expect(diaFijoEvidencia({ branch_code: '04', weekday: 5, every_days: 14, dias: 13, en_el_dia: 13, recientes: { en_el_dia: 5, esperadas: 6 }, ultima: '2026-11-13' }, 'Yurécuaro'))
       .toBe('Kepler: en Yurécuaro, 13 de los 13 días con orden o entrada de los últimos 12 meses cayeron en viernes; 5 de 6 viernes en las últimas 13 semanas.');
+  });
+});
+
+describe('`[PQ.3.18]` el embudo de llenado en palabras', () => {
+  const total = { escalon: null, proveedores: 340, con_regla: 0, compra_pct: 100, compra_con_regla_pct: 0, ocs_pct: 100, ocs_con_regla_pct: 0 };
+  it('el avance total, también en cero: dice 0\u00a0%, no vacío', () => {
+    expect(avanceTotalEnPalabras(total)).toBe('Con regla: 0 de 340 proveedores · 0\u00a0% de la compra · 0\u00a0% de las OC');
+    expect(avanceTotalEnPalabras({ ...total, con_regla: 5, compra_con_regla_pct: 12.25, ocs_con_regla_pct: 8 }))
+      .toBe('Con regla: 5 de 340 proveedores · 12.3\u00a0% de la compra · 8\u00a0% de las OC');
+  });
+  it('sin la compra medida, el total lo DICE en vez de pintar un 0', () => {
+    expect(avanceTotalEnPalabras({ ...total, compra_pct: null, compra_con_regla_pct: null, ocs_pct: null, ocs_con_regla_pct: null }))
+      .toBe('Con regla: 0 de 340 proveedores (lo que pesan en la compra no se midió)');
+  });
+  it('el avance de un escalón: lo hecho DE lo que pesa', () => {
+    expect(avanceEscalonEnPalabras({ escalon: 1, proveedores: 62, con_regla: 0, compra_pct: 82.8, compra_con_regla_pct: 0, ocs_pct: 65.8, ocs_con_regla_pct: 0 }))
+      .toBe('0 de 62 proveedores · 0\u00a0% de 82.8\u00a0% de la compra · 0\u00a0% de 65.8\u00a0% de las OC');
+  });
+  it('el nombre de cada escalón dice qué junta', () => {
+    expect(NOMBRE_ESCALON[1]).toBe('Escalón 1 · el 80\u00a0% de la compra o el 50\u00a0% de las OC');
+    expect(NOMBRE_ESCALON[3]).toBe('Escalón 3 · ocasionales');
+  });
+  it('el peso del proveedor en su renglón, y sin medir lo dice', () => {
+    expect(pesoEnPalabras({ escalon: 1, compra_pct: 10.9, ocs_12m: 490 }, 49)).toEqual({ principal: '10.9\u00a0% de la compra', detalle: '490 OC · 49 rondas en 12 meses · escalón 1' });
+    expect(pesoEnPalabras(null, 1)).toEqual({ principal: 'Peso no medido', detalle: '1 ronda en 12 meses' });
+    expect(porcentaje(0)).toBe('0\u00a0%');
+  });
+  it('NEGATIVA: el % nunca se separa de su número (espacio que no se parte), y un escalón vacío se dice en llano', () => {
+    expect(porcentaje(68.1)).not.toContain(' %');
+    expect(avanceEscalonEnPalabras({ escalon: 3, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 })).toBe('Ningún proveedor en este escalón');
   });
 });

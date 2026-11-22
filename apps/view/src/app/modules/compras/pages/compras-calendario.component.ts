@@ -12,9 +12,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import {
-  ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, proximasRevisiones, sumarDias, validarFueraDeCiclo,
+  ETIQUETA_MOTIVO_NO_SE_PIDE, MARCA_MAX_ADELANTE_DIAS, MOTIVOS_NO_SE_PIDE, ordenDelEmbudo, proximasRevisiones, sumarDias, validarFueraDeCiclo,
   validarMarca, validarRegla, warehouseName,
-  type AlcanceRevision, type CalendarioCompras, type CorrimientoFinDeSemana, type FueraDeCicloDto, type GuardarReglaDto,
+  type AlcanceRevision, type AvanceDelEmbudo, type CalendarioCompras, type EscalonLlenado, type CorrimientoFinDeSemana, type FueraDeCicloDto, type GuardarReglaDto,
   type MarcarRevisionDto, type MotivoNoSePide, type PatronDeRegla, type PatronRevision, type PropuestaDiaFijo, type PropuestaSinRegla,
   type PropuestasCalendario, type ReglaCalendario, type ResultadoRevision, patronDelDiaFijo,
 } from '@megadulces/contracts';
@@ -29,7 +29,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { motivoHttp } from '../../almacen/shared/http-motivo';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import {
-  alcanceEnPalabras, atencionEnPalabras, corrimientoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente,
+  alcanceEnPalabras, atencionEnPalabras, avanceEscalonEnPalabras, avanceTotalEnPalabras, corrimientoEnPalabras, NOMBRE_ESCALON, pesoEnPalabras, diaCorto, diaFijoEnPalabras, diaFijoEvidencia, diaFijoReciente,
   estadoEnPalabras, fechasEnRango, fichaEnPalabras, paraQuienVe, patronEnPalabras, propuestaEnPalabras, proximasDeLaRegla, relativo, type EstadoVisible, type FechaEnCalendario,
 } from '../calendario-compras-reglas';
 
@@ -231,10 +231,30 @@ interface ProveedorDelFormulario {
         <app-load-state class="dt-scope" [loading]="cargandoProp()" [error]="errorProp()" [isEmpty]="!!prop() && !prop()!.sin_regla.length && !prop()!.dia_fijo_pendiente.length"
                         [skeletonRows]="8" emptyIcon="pi-check-circle" emptyTitle="Todos los proveedores con compra tienen regla"
                         emptyHint="Un proveedor nuevo aparece aquí con su primera orden de compra en Kepler." (retry)="cargarPropuestas()">
+          <!-- [PQ.3.18] El embudo de llenado (anexo C §10.10): primero cuánto se lleva, luego por dónde seguir. Cada escalón
+               es un botón que filtra la lista a ése (aria-pressed); el avance va en texto, no sólo en color. -->
+          @if (prop(); as p) {
+            <section class="cc-embudo" aria-label="Llenado del calendario">
+              <p class="cc-embudo-total">{{ avanceTotal(p.embudo.total) }}</p>
+              @if (p.embudo.measured) {
+                <ul class="cc-embudo-escalones">
+                  @for (e of p.embudo.escalones; track e.escalon) {
+                    <li>
+                      <button type="button" class="cc-escalon" [class.is-on]="escalonFiltro() === e.escalon"
+                              [attr.aria-pressed]="escalonFiltro() === e.escalon" (click)="filtrarEscalon(e.escalon)">{{ nombreEscalon(e.escalon) }}</button>
+                      <span class="cc-sub">{{ avanceEscalon(e) }}</span>
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="cc-advertencia" role="status">{{ p.embudo.note }}</p>
+              }
+            </section>
+          }
           <p class="cc-nota">
-            Proveedores con orden de compra en Kepler en los últimos 12 meses y sin regla. «Kepler propone» es la mediana entre
-            sus rondas de órdenes: es una propuesta, no un ciclo confirmado.
-            @if (prop(); as p) { {{ p.con_regla }} proveedores con compra ya tienen al menos una regla. }
+            Proveedores con orden de compra en Kepler en los últimos 12 meses y sin regla, primero los que más pesan: por escalón
+            y luego por su parte de la compra de 12 meses. «Kepler propone» es la mediana entre sus rondas de órdenes: es una
+            propuesta, no un ciclo confirmado.
           </p>
           <!-- [PQ.3.14] El día fijo por sucursal: de dónde sale, y si no se pudo medir, se DICE (no es «no hay»). -->
           @if (prop(); as p) {
@@ -248,13 +268,19 @@ interface ProveedorDelFormulario {
               </p>
             }
           }
+          <!-- [PQ.3.18] El filtro por escalón se dice pegado a la lista que filtra (la prueba visual lo encontró entre dos notas). -->
+          @if (escalonFiltro(); as e) {
+            <p class="cc-nota" role="status">Viendo sólo el {{ nombreEscalon(e) }}.
+              <button type="button" class="cc-link" (click)="filtrarEscalon(null)">Ver todos</button>
+            </p>
+          }
           <p-table [value]="$any(sinRegla())" dataKey="supplier_code" class="cc-table dt-stack surf-table surf-table--plain surf-table--sticky"
                    size="small" [rowHover]="true" [paginator]="sinRegla().length > porPagina" [rows]="porPagina" [tableStyle]="{ 'min-width': '40rem' }">
             <ng-template #header>
               <tr>
                 <th>Proveedor</th>
+                <th>Peso en la compra</th>
                 <th>Kepler propone</th>
-                <th class="comm-num">Rondas en 12 meses</th>
                 <th>Última orden</th>
                 <th>Sucursales</th>
                 <th><span class="cc-sr">Acciones</span></th>
@@ -273,6 +299,13 @@ interface ProveedorDelFormulario {
                     }
                   </div>
                 </td>
+                <!-- [PQ.3.18] Lo que pesa: su parte de la compra de 12 meses; debajo sus OC, rondas (antes su propia columna) y escalón. -->
+                <td role="cell" data-label="Peso en la compra">
+                  <div class="cc-celda">
+                    <span class="cc-pri">{{ peso(p).principal }}</span>
+                    <span class="cc-sub">{{ peso(p).detalle }}</span>
+                  </div>
+                </td>
                 <td role="cell" data-label="Kepler propone">
                   <div class="cc-celda">
                     {{ propuesta(p) }}
@@ -285,7 +318,6 @@ interface ProveedorDelFormulario {
                     }
                   </div>
                 </td>
-                <td role="cell" data-label="Rondas en 12 meses" class="comm-num">{{ p.rounds_12m }}</td>
                 <td role="cell" data-label="Última orden">
                   {{ dia(p.last_order_date) }}
                   <span class="cc-sub">{{ rel(p.last_order_date) }}</span>
@@ -304,7 +336,9 @@ interface ProveedorDelFormulario {
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="6" class="cc-nota">Nada coincide con «{{ busqueda() }}».</td></tr>
+              <tr><td colspan="6" class="cc-nota">
+                @if (busqueda()) { Nada coincide con «{{ busqueda() }}». } @else { No quedan proveedores sin regla en el {{ nombreEscalon(escalonFiltro()) }}. }
+              </td></tr>
             </ng-template>
           </p-table>
         </app-load-state>
@@ -621,13 +655,18 @@ export class ComprasCalendarioComponent implements OnInit {
     if (!hoy) return [];
     return fechasEnRango(this.reglas(), hoy, sumarDias(hoy, this.vista() === 'mes' ? 30 : 6));
   });
+  /** `[PQ.3.18]` El escalón del embudo que se está viendo; `null` = todos. */
+  readonly escalonFiltro = signal<EscalonLlenado | null>(null);
   readonly sinRegla = computed<PropuestaSinRegla[]>(() => {
     const q = this.busqueda();
+    const e = this.escalonFiltro();
     // `[PQ.3.14]` También los que YA tienen alguna regla y aún tienen día fijo en una sucursal sin la suya: definir
     // primero la corporativa no borra la propuesta de la sucursal. No cuentan en la cifra «Sin regla».
+    // `[PQ.3.18]` Las dos listas juntas van por el orden del embudo: escalón, luego lo que pesa en la compra.
     const p0 = this.prop();
-    return [...(p0?.sin_regla ?? []), ...(p0?.dia_fijo_pendiente ?? [])].filter((p) =>
-      coincideBusqueda(q, p.supplier_name, p.supplier_code, ...p.branches_12m.map((c) => warehouseName(c))));
+    return [...(p0?.sin_regla ?? []), ...(p0?.dia_fijo_pendiente ?? [])].sort(ordenDelEmbudo).filter((p) =>
+      (e === null || p.peso?.escalon === e)
+      && coincideBusqueda(q, p.supplier_name, p.supplier_code, ...p.branches_12m.map((c) => warehouseName(c))));
   });
 
   /** Vacío SIN buscar (la búsqueda sin resultados la dice la tabla, no el estado vacío). */
@@ -759,6 +798,13 @@ export class ComprasCalendarioComponent implements OnInit {
     return p ? [...p.sin_regla, ...p.dia_fijo_pendiente].reduce((n, x) => n + x.dias_fijos.length, 0) : 0;
   });
   ficha(p: PropuestaSinRegla): string | null { return fichaEnPalabras(p); }
+  // `[PQ.3.18]` El embudo de llenado en palabras.
+  avanceTotal(a: AvanceDelEmbudo): string { return avanceTotalEnPalabras(a); }
+  avanceEscalon(a: AvanceDelEmbudo): string { return avanceEscalonEnPalabras(a); }
+  nombreEscalon(e: EscalonLlenado | null): string { return e === null ? '' : NOMBRE_ESCALON[e]; }
+  peso(p: PropuestaSinRegla) { return pesoEnPalabras(p.peso, p.rounds_12m); }
+  /** Un clic en el escalón filtra la lista a ése; otro clic en el mismo, vuelve a todos. */
+  filtrarEscalon(e: EscalonLlenado | null): void { this.escalonFiltro.set(this.escalonFiltro() === e ? null : e); }
   sucursales(codes: readonly string[]): string { return codes.map((c) => warehouseName(c)).join(', '); }
   proximas(r: ReglaCalendario): FechaEnCalendario[] {
     const hoy = this.cal()?.hoy;

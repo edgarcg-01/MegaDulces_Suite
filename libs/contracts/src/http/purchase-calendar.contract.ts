@@ -353,6 +353,59 @@ export interface PropuestaSinRegla {
    * propuesta por cada una.
    */
   readonly dias_fijos: readonly PropuestaDiaFijo[];
+  /** `[PQ.3.18]` Su peso en el embudo de llenado; `null` = la compra de 12 meses no se pudo leer (no medido). */
+  readonly peso: PesoProveedor | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[PQ.3.18]` El embudo de llenado (anexo C §10.10): por qué proveedor seguir y cuánto se lleva. Dinero y
+// operaciones NO ordenan igual (medido el 2026-11-22: el 50 % de la compra son 10 proveedores; el 50 % de las OC,
+// 22, y 14 de esos 22 casi no pesan en dinero), así que el escalón 1 junta a los dos.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** 1 = los que hacen el 80 % de la compra o el 50 % de las OC · 2 = el resto con compra recurrente · 3 = ocasionales. */
+export type EscalonLlenado = 1 | 2 | 3;
+export const ESCALONES_LLENADO: readonly EscalonLlenado[] = [1, 2, 3];
+/** Hasta qué parte acumulada de la COMPRA (monto de OC) entra un proveedor al escalón 1. */
+export const ESCALON1_COMPRA_PCT = 80;
+/** Hasta qué parte acumulada de las OC (operaciones) entra un proveedor al escalón 1. */
+export const ESCALON1_OCS_PCT = 50;
+
+/** El peso de un proveedor: sus OC vivas (X-A-35, estatus ≠ C) de 12 meses. */
+export interface PesoProveedor {
+  readonly escalon: EscalonLlenado;
+  /** Su parte de la compra de 12 meses, en % (un decimal). */
+  readonly compra_pct: number;
+  /** Sus OC vivas de 12 meses. */
+  readonly ocs_12m: number;
+}
+
+/** El avance de un escalón (o del total, `escalon: null`). Los % son de la compra y de las OC de TODOS los proveedores. */
+export interface AvanceDelEmbudo {
+  readonly escalon: EscalonLlenado | null;
+  readonly proveedores: number;
+  /** Con al menos una regla viva (también las que están fuera de ciclo). */
+  readonly con_regla: number;
+  /** Lo que pesa el escalón y lo que de eso ya tiene regla. `null` = no medido. */
+  readonly compra_pct: number | null;
+  readonly compra_con_regla_pct: number | null;
+  readonly ocs_pct: number | null;
+  readonly ocs_con_regla_pct: number | null;
+}
+
+export interface EmbudoLlenado {
+  /** `false` = la compra de 12 meses no se pudo leer: los conteos sí, los % y los escalones no. */
+  readonly measured: boolean;
+  readonly note: string | null;
+  readonly total: AvanceDelEmbudo;
+  /** Los tres escalones, en orden; vacío si no se midió. */
+  readonly escalones: readonly AvanceDelEmbudo[];
+}
+
+/** El orden de trabajo: escalón, luego lo que pesa en la compra, luego las OC. Sin peso, al final y en su orden. */
+export function ordenDelEmbudo(a: { readonly peso: PesoProveedor | null }, b: { readonly peso: PesoProveedor | null }): number {
+  if (!a.peso || !b.peso) return a.peso ? -1 : b.peso ? 1 : 0;
+  return a.peso.escalon - b.peso.escalon || b.peso.compra_pct - a.peso.compra_pct || b.peso.ocs_12m - a.peso.ocs_12m;
 }
 
 /** `[PQ.3.14]` Los periodos que se proponen: cada semana, cada 2, 3 o 4 semanas. Otro intervalo no es un día fijo. */
@@ -401,6 +454,8 @@ export interface PropuestasCalendario {
    * porque NO se midió, no porque no haya: la pantalla lo dice. La propuesta por ciclo sigue.
    */
   readonly dia_fijo: { readonly measured: boolean; readonly note: string | null };
+  /** `[PQ.3.18]` El embudo de llenado: el avance de la adopción en % de la compra y de las OC. */
+  readonly embudo: EmbudoLlenado;
 }
 
 export interface GuardarReglaDto {

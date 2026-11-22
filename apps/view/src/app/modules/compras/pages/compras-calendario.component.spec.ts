@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
-import type { CalendarioCompras, GuardarReglaRespuesta, PropuestaDiaFijo, PropuestaSinRegla, PropuestasCalendario } from '@megadulces/contracts';
+import type { AvanceDelEmbudo, CalendarioCompras, EmbudoLlenado, GuardarReglaRespuesta, PropuestaDiaFijo, PropuestaSinRegla, PropuestasCalendario } from '@megadulces/contracts';
 import { ComprasCalendarioComponent } from './compras-calendario.component';
 import { CalendarioComprasService } from '../calendario-compras.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -27,8 +27,12 @@ const dia = (o: Partial<PropuestaDiaFijo>): PropuestaDiaFijo => ({
 const prov = (o: Partial<PropuestaSinRegla>): PropuestaSinRegla => ({
   supplier_code: 'PT1', supplier_name: 'TOSTADAS DE PRUEBA', supplier_record: 'ficha_viva', proposal_status: 'propuesto',
   cycle_days_proposed: 14, next_date_proposed: '2026-11-27', rounds_12m: 20, last_order_date: '2026-11-13', branches_12m: ['02', '04'],
-  reglas_vivas: 0, dias_fijos: [], ...o,
+  reglas_vivas: 0, dias_fijos: [], peso: { escalon: 2, compra_pct: 1, ocs_12m: 10 }, ...o,
 });
+const avance = (o: Partial<AvanceDelEmbudo>): AvanceDelEmbudo => ({
+  escalon: null, proveedores: 3, con_regla: 1, compra_pct: 100, compra_con_regla_pct: 1, ocs_pct: 100, ocs_con_regla_pct: 1, ...o,
+});
+const EMBUDO: EmbudoLlenado = { measured: true, note: null, total: avance({}), escalones: [avance({ escalon: 1, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 }), avance({ escalon: 2 }), avance({ escalon: 3, proveedores: 0, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 })] };
 
 function montar(prop: PropuestasCalendario, vista?: string) {
   const api = {
@@ -52,7 +56,7 @@ const abiertaId = (c: ComprasCalendarioComponent) => (c as unknown as { abiertaI
 
 describe('[PQ.3.14] Sin regla: el día fijo por sucursal', () => {
   const PROP: PropuestasCalendario = {
-    hoy: HOY, con_regla: 1, dia_fijo: { measured: true, note: null },
+    hoy: HOY, con_regla: 1, dia_fijo: { measured: true, note: null }, embudo: EMBUDO,
     sin_regla: [prov({ dias_fijos: [dia({})] }), prov({ supplier_code: 'PX2', supplier_name: 'SIN DIA FIJO', dias_fijos: [] })],
     dia_fijo_pendiente: [prov({
       supplier_code: 'PB3', supplier_name: 'BEBIDAS DE PRUEBA', reglas_vivas: 1,
@@ -127,5 +131,84 @@ describe('[PQ.3.14] Sin regla: el día fijo por sucursal', () => {
     expect(t).toContain('el día fijo por sucursal no se midió');
     expect(t).toContain('Las propuestas por ciclo sí están');
     expect(t).not.toContain('tienen día fijo');
+  });
+});
+
+describe('[PQ.3.18] Sin regla: el embudo de llenado', () => {
+  // Llegan DESORDENADOS (como si la API no ordenara): la pantalla junta las dos listas y las ordena por escalón y peso.
+  const PROP: PropuestasCalendario = {
+    hoy: HOY, con_regla: 1, dia_fijo: { measured: true, note: null },
+    sin_regla: [
+      prov({ supplier_code: 'C3', supplier_name: 'OCASIONAL DE PRUEBA', proposal_status: 'una_compra', peso: { escalon: 3, compra_pct: 0.1, ocs_12m: 1 } }),
+      prov({ supplier_code: 'B2', supplier_name: 'RECURRENTE DE PRUEBA', peso: { escalon: 2, compra_pct: 1, ocs_12m: 12 } }),
+      prov({ supplier_code: 'A1', supplier_name: 'GRANDE DE PRUEBA', rounds_12m: 49, peso: { escalon: 1, compra_pct: 10.9, ocs_12m: 490 } }),
+    ],
+    dia_fijo_pendiente: [prov({ supplier_code: 'D1', supplier_name: 'BOLSAS DE PRUEBA', reglas_vivas: 1, dias_fijos: [dia({})], peso: { escalon: 1, compra_pct: 8.5, ocs_12m: 420 } })],
+    embudo: {
+      measured: true, note: null,
+      total: avance({ proveedores: 340, con_regla: 1, compra_con_regla_pct: 8.5, ocs_con_regla_pct: 4 }),
+      escalones: [
+        avance({ escalon: 1, proveedores: 62, con_regla: 1, compra_pct: 82.8, compra_con_regla_pct: 8.5, ocs_pct: 65.8, ocs_con_regla_pct: 4 }),
+        avance({ escalon: 2, proveedores: 184, con_regla: 0, compra_pct: 15.4, compra_con_regla_pct: 0, ocs_pct: 32.4, ocs_con_regla_pct: 0 }),
+        avance({ escalon: 3, proveedores: 94, con_regla: 0, compra_pct: 1.8, compra_con_regla_pct: 0, ocs_pct: 1.8, ocs_con_regla_pct: 0 }),
+      ],
+    },
+  };
+
+  it('dice primero cuánto se lleva y cada escalón con su avance (lo hecho DE lo que pesa)', () => {
+    const { el } = montar(PROP);
+    const t = el.textContent ?? '';
+    expect(el.querySelector('.cc-embudo-total')?.textContent?.trim()).toBe('Con regla: 1 de 340 proveedores · 8.5\u00a0% de la compra · 4\u00a0% de las OC');
+    expect([...el.querySelectorAll('.cc-escalon')].map((b) => b.textContent?.trim())).toEqual([
+      'Escalón 1 · el 80\u00a0% de la compra o el 50\u00a0% de las OC', 'Escalón 2 · el resto con compra recurrente', 'Escalón 3 · ocasionales',
+    ]);
+    expect(t).toContain('1 de 62 proveedores · 8.5\u00a0% de 82.8\u00a0% de la compra · 4\u00a0% de 65.8\u00a0% de las OC');
+  });
+
+  it('la lista va por escalón y luego por lo que pesa, juntando «sin regla» y los pendientes de día fijo', () => {
+    const { c } = montar(PROP);
+    expect(c.sinRegla().map((p) => p.supplier_code)).toEqual(['A1', 'D1', 'B2', 'C3']);
+  });
+
+  it('el renglón dice su peso: parte de la compra, OC, rondas y escalón (las rondas ya no son columna)', () => {
+    const { el } = montar(PROP);
+    const fila = [...el.querySelectorAll('tr')].find((tr) => tr.textContent?.includes('GRANDE DE PRUEBA'));
+    expect(fila?.textContent).toContain('10.9\u00a0% de la compra');
+    expect(fila?.textContent).toContain('490 OC · 49 rondas en 12 meses · escalón 1');
+    expect([...el.querySelectorAll('th')].map((h) => h.textContent?.trim())).not.toContain('Rondas en 12 meses');
+  });
+
+  it('un clic en el escalón filtra la lista a ése (aria-pressed y lo dice); otro clic vuelve a todos', () => {
+    const { c, el, f } = montar(PROP);
+    const b1 = () => el.querySelectorAll<HTMLButtonElement>('.cc-escalon')[0];
+    b1().click(); f.detectChanges();
+    expect(c.sinRegla().map((p) => p.supplier_code)).toEqual(['A1', 'D1']);
+    expect(b1().getAttribute('aria-pressed')).toBe('true');
+    expect(el.textContent ?? '').toContain('Viendo sólo el Escalón 1 · el 80\u00a0% de la compra o el 50\u00a0% de las OC.');
+    b1().click(); f.detectChanges();
+    expect(c.sinRegla().map((p) => p.supplier_code)).toEqual(['A1', 'D1', 'B2', 'C3']);
+    expect(b1().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('un escalón ya lleno lo dice en la tabla, no «nada coincide»', () => {
+    const { c, el, f } = montar({ ...PROP, sin_regla: PROP.sin_regla.filter((p) => p.supplier_code !== 'C3') });
+    c.filtrarEscalon(3); f.detectChanges();
+    expect(el.textContent ?? '').toContain('No quedan proveedores sin regla en el Escalón 3 · ocasionales.');
+  });
+
+  it('NEGATIVA: sin la compra medida lo DICE (no pinta 0 %), no ofrece escalones y la lista queda en el orden de Kepler', () => {
+    const nm: PropuestasCalendario = {
+      ...PROP,
+      sin_regla: PROP.sin_regla.map((p) => ({ ...p, peso: null })), dia_fijo_pendiente: [],
+      embudo: { measured: false, note: 'No se pudo leer la compra de 12 meses: el peso de cada proveedor no se midió y la lista va en el orden de Kepler.',
+        total: avance({ proveedores: 340, con_regla: 1, compra_pct: null, compra_con_regla_pct: null, ocs_pct: null, ocs_con_regla_pct: null }), escalones: [] },
+    };
+    const { c, el } = montar(nm);
+    const t = el.textContent ?? '';
+    expect(el.querySelector('.cc-embudo-total')?.textContent?.trim()).toBe('Con regla: 1 de 340 proveedores (lo que pesan en la compra no se midió)');
+    expect(t).toContain('el peso de cada proveedor no se midió');
+    expect(el.querySelectorAll('.cc-escalon').length).toBe(0);
+    expect(c.sinRegla().map((p) => p.supplier_code)).toEqual(['C3', 'B2', 'A1']);
+    expect(t).toContain('Peso no medido');
   });
 });

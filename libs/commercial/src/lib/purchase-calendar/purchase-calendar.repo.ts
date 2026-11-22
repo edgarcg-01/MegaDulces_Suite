@@ -1,13 +1,14 @@
 import type { Knex } from 'knex';
 import {
-  sumarDias, validarFueraDeCiclo, validarMarca, validarRegla, VENTANA_REZAGO_DIAS,
+  ordenDelEmbudo, sumarDias, validarFueraDeCiclo, validarMarca, validarRegla, VENTANA_REZAGO_DIAS,
   type CalendarioCompras, type FueraDeCicloDto, type GuardarReglaDto, type GuardarReglaRespuesta, type MarcaVista,
   type MarcarRevisionDto, type PropuestaDiaFijo, type PropuestasCalendario, type PropuestaSinRegla,
 } from '@megadulces/contracts';
 import {
-  armarCalendario, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance, type AlmacenPedido, type FilaActividad, type ReglaLeida, type SucursalZona,
+  armarCalendario, armarEmbudo, desdeEntradas, diasFijosPorProveedor, nombreDelAlcance, repartirPropuestas, reglaEnAlcance,
+  type AlmacenPedido, type CompraDoceMeses, type FilaActividad, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
-import { SQL_ACTIVIDAD_KEPLER, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
+import { SQL_ACTIVIDAD_KEPLER, SQL_COMPRA_DOCE_MESES, SQL_SUCURSALES_Y_ZONAS } from './purchase-calendar.sql';
 
 /**
  * `[PQ.3.4]` Calendario de compras — el acceso a la base. Cada función recibe la transacción con el
@@ -150,7 +151,7 @@ export async function leerCalendario(trx: Knex.Transaction, tenant: string, lee:
  * sucursal: definir primero la corporativa no debe borrar la propuesta de la sucursal (§10.1: las reglas no se suman).
  */
 export async function leerPropuestas(
-  trx: Knex.Transaction, tenant: string, alFallarDiaFijo: (e: unknown) => void = () => undefined,
+  trx: Knex.Transaction, tenant: string, alFallar: (e: unknown, que: 'dia_fijo' | 'compra') => void = () => undefined,
 ): Promise<PropuestasCalendario> {
   const hoy = await hoyMx(trx);
   const { rows } = await trx.raw(`
@@ -170,10 +171,40 @@ export async function leerPropuestas(
     last_order_date: r['last_order_date'], branches_12m: r['branches_12m'],
     reglas_vivas: Number(r['reglas_vivas']),
     con_regla_de_sucursal: r['con_regla_de_sucursal'] as string[],
-  })) as (Omit<PropuestaSinRegla, 'dias_fijos'> & { con_regla_de_sucursal: string[] })[];
-  const dia = await leerDiasFijos(trx, hoy, todos.map((p) => p.supplier_code), alFallarDiaFijo);
-  const { sin_regla, dia_fijo_pendiente } = repartirPropuestas(todos, dia.por);
-  return { hoy, sin_regla, dia_fijo_pendiente, con_regla: rows.length - sin_regla.length, dia_fijo: dia.estado };
+  })) as (Omit<PropuestaSinRegla, 'dias_fijos' | 'peso'> & { con_regla_de_sucursal: string[] })[];
+  const codes = todos.map((p) => p.supplier_code);
+  const dia = await leerDiasFijos(trx, hoy, codes, (e) => alFallar(e, 'dia_fijo'));
+  // `[PQ.3.18]` El embudo: el escalón es del proveedor (con o sin regla), así que se arma sobre TODOS. El día fijo
+  // cuenta aunque su sucursal ya tenga regla: quien tiene día fijo no es «ocasional».
+  const compra = await leerCompraDoceMeses(trx, hoy, codes, (e) => alFallar(e, 'compra'));
+  const { peso, embudo } = armarEmbudo(todos.map((p) => ({
+    supplier_code: p.supplier_code, proposal_status: p.proposal_status, reglas_vivas: p.reglas_vivas,
+    con_dia_fijo: (dia.por.get(p.supplier_code) ?? []).length > 0,
+  })), compra);
+  const { sin_regla, dia_fijo_pendiente } = repartirPropuestas(todos.map((p) => ({ ...p, peso: peso.get(p.supplier_code) ?? null })), dia.por);
+  // Por escalón y peso; sin peso medido, `sort` es estable y deja el orden de Kepler (la siguiente fecha).
+  return {
+    hoy, sin_regla: sin_regla.sort(ordenDelEmbudo), dia_fijo_pendiente: dia_fijo_pendiente.sort(ordenDelEmbudo),
+    con_regla: rows.length - sin_regla.length, dia_fijo: dia.estado, embudo,
+  };
+}
+
+/**
+ * `[PQ.3.18]` La compra de 12 meses por proveedor (monto y OC vivas), en un SAVEPOINT: si falla, el peso se DECLARA
+ * no medido (`embudo.measured: false`) y las propuestas se entregan igual, en el orden de Kepler.
+ */
+async function leerCompraDoceMeses(
+  trx: Knex.Transaction, hoy: string, codes: readonly string[], alFallar: (e: unknown) => void,
+): Promise<Map<string, CompraDoceMeses> | null> {
+  if (!codes.length) return new Map();
+  try {
+    const { rows } = await trx.transaction((sp) => sp.raw(SQL_COMPRA_DOCE_MESES, { hoy, codes: [...codes] }));
+    return new Map(rows.map((r: { supplier_code: string; monto: number | string; ocs: number | string }) =>
+      [r.supplier_code, { monto: Number(r.monto) || 0, ocs: Number(r.ocs) || 0 }] as const));
+  } catch (e) {
+    alFallar(e);
+    return null;
+  }
 }
 
 /**

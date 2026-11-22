@@ -14,6 +14,11 @@
 - El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.
 - Cada lectura queda guardada con sus archivos y su costo, y al crear la solicitud se anota qué corrigió la persona. En el detalle, «Documentos» abre los archivos de los que salió.
 - Llega apagada: la enciende `ALC_AI_ENABLED=true` cuando Edgar y Dirección firmen D9 (los datos del cliente van a un proveedor de IA). Apagada, el alta acepta sólo el PDF, como antes. Antes de soltar: migración `20261122115947`.
+### Added — Compras › Calendario de compras: el embudo de llenado en «Sin regla» (PQ.3.18 · 2026-11-22)
+- Arriba de «Sin regla» va cuánto se lleva: «Con regla: N de 340 proveedores · X % de la compra · Y % de las OC». Debajo, tres escalones con su avance: 1) los que hacen el 80 % de la compra o el 50 % de las OC, 2) el resto con compra recurrente, 3) ocasionales.
+- La lista va por escalón y luego por lo que pesa en la compra de 12 meses; antes iba por la siguiente fecha. Un clic en un escalón muestra sólo ése; otro clic, todos.
+- Cada renglón dice su peso: su parte de la compra, sus OC y rondas de 12 meses, y su escalón. La columna «Rondas en 12 meses» se fundió ahí.
+- Si la compra de 12 meses no se puede leer, la pantalla lo dice en vez de pintar 0 %, y la lista sigue en el orden de antes.
 ### Added — Telemarketing › Cotizaciones: cuánto cuesta capturar cada cotización (COT.54 · 2026-11-22)
 - Al guardar una cotización nueva se anota cuánto tardó la captura (desde el primer artículo), cuántas búsquedas hubo y si salió de un respaldo. Sirve para medir si las mejoras que vienen ahorran tiempo.
 - Se reporta sólo en promedios por sucursal o semana, nunca por persona.
