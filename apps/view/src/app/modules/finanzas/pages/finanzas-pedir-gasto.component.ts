@@ -15,7 +15,8 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import {
-  DIAS_MAXIMOS_COMPROBANTE, FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
+  DIAS_MAXIMOS_COMPROBANTE, LARGO_DESCRIPCION_ACTIVO, MAX_CANTIDAD_ACTIVO, UMBRAL_ACTIVO_POR_UNIDAD, esCuentaDeActivo, importePorUnidad,
+  FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
   detallePagoOpcional, exigeDetalle, faltaParaPedir, fechaDePago, hayInformacionDePago, lecturaParaGuardar, motivoParaNoOfrecer, totalesDeLaSolicitud,
   type AcreedorDeGasto, type AlcanceDeLaBase, type CatalogoDeLaSolicitud, type DuplicadoProbable, type FacturaPorRegistrar, type FuenteDelDato,
   type InformacionDePago, type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante, type FaltanteSolicitud,
@@ -30,7 +31,7 @@ import { SegmentedComponent, type SegOption } from '../../../shared/components/s
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { FacturasSatBandejaComponent, type ProveedorDeLaBandeja } from '../components/facturas-sat-bandeja.component';
-import { FUENTE_TEXTO, campoQueFalta, enLista, loQueReemplaza, origenDelRenglon, sinBaseTexto, textoDelPlazo, type RenglonEnCaptura } from './pedir-gasto.ayudas';
+import { ACTIVO_VACIO, FUENTE_TEXTO, campoQueFalta, type ActivoEnCaptura, enLista, loQueReemplaza, origenDelRenglon, sinBaseTexto, textoDelPlazo, type RenglonEnCaptura } from './pedir-gasto.ayudas';
 
 /** `YYYY-MM-DD` de un Date en la hora local (la del navegador, que en la flota es la de México). */
 const iso = (d: Date | null | undefined): string | null =>
@@ -263,6 +264,46 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
               </div>
               <!-- H1: cada campo con SU origen («de la factura» era sólo el importe; el concepto salió del hábito). -->
               @if (origenRenglon(i); as o) { <small class="pg-fuente">{{ o }}</small> }
+              <!-- [PGP.122.17] El concepto de activo (cuenta 150) abre su formulario (DS47/DS48): qué es, cuántos y dónde va.
+                   El resguardo no se pide aquí: lo asigna Control de Activos en el alta (DS56). Anexo S §20. -->
+              @if (esActivo(i)) {
+                <div class="pg-activo" role="group" [attr.aria-labelledby]="'pg-act-t-' + i">
+                  <span class="pg-activo-titulo" [id]="'pg-act-t-' + i">Compra de activo · renglón {{ i + 1 }}</span>
+                  <div class="pg-campo">
+                    <span class="pg-label" [id]="'pg-act-tipo-l-' + i">¿Qué compras? <span class="pg-req" aria-hidden="true">*</span></span>
+                    <p-selectbutton [id]="'pg-act-tipo-' + i" [options]="tiposDeActivo" optionLabel="label" optionValue="value" [allowEmpty]="false"
+                      [ariaLabelledBy]="'pg-act-tipo-l-' + i" [ngModel]="r.activo?.tipo ?? null" (ngModelChange)="cambiarActivo(i, 'tipo', $event)" />
+                  </div>
+                  @if (r.activo?.tipo === 'gasto') {
+                    <p class="pg-nota-aviso" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i>
+                      <span>Una reparación, refacción o consumible es gasto, no activo: elige un concepto de gasto.</span>
+                      <p-button type="button" label="Cambiar el concepto" [text]="true" size="small" (onClick)="cambiarConceptoAGasto(i)" />
+                    </p>
+                  } @else {
+                    <small class="pg-fuente">{{ grupoTexto(i) }}</small>
+                    <div class="pg-activo-grid">
+                      <div class="pg-campo">
+                        <label [for]="'pg-act-que-' + i">Qué es <span class="pg-req" aria-hidden="true">*</span></label>
+                        <input pInputText [id]="'pg-act-que-' + i" [maxlength]="largoDescripcion" [class.ng-invalid]="mal('pg-act-que-' + i)" [class.ng-dirty]="mal('pg-act-que-' + i)"
+                          [ngModel]="r.activo?.descripcion ?? ''" (ngModelChange)="cambiarActivo(i, 'descripcion', $event)" placeholder="El bien, con marca y modelo" />
+                      </div>
+                      <div class="pg-campo">
+                        <label [for]="'pg-act-cuantos-' + i">Cuántos <span class="pg-req" aria-hidden="true">*</span></label>
+                        <p-inputnumber [inputId]="'pg-act-cuantos-' + i" [min]="1" [max]="maxCantidad" [useGrouping]="false" inputmode="numeric" [invalid]="mal('pg-act-cuantos-' + i)"
+                          [ngModel]="r.activo?.cantidad ?? null" (ngModelChange)="cambiarActivo(i, 'cantidad', $event)" [fluid]="true" />
+                      </div>
+                      <div class="pg-campo">
+                        <label [for]="'pg-act-lugar-' + i">Lugar</label>
+                        <input pInputText [id]="'pg-act-lugar-' + i" [maxlength]="largoDescripcion" [ngModel]="r.activo?.lugar ?? ''"
+                          (ngModelChange)="cambiarActivo(i, 'lugar', $event)" placeholder="Además de la sucursal y el departamento" />
+                      </div>
+                    </div>
+                    @if (porUnidad(i); as u) {
+                      <small class="pg-fuente" [class.pg-mal]="u <= umbralActivo">Por unidad: {{ dinero(u) }} sin IVA{{ u <= umbralActivo ? ' — es gasto, no activo: es activo si pasa de ' + dinero(umbralActivo) + ' por unidad' : '' }}</small>
+                    }
+                  }
+                </div>
+              }
             }
             <!-- R14: el concepto que va a otro rubro que en CEDIS no se ofrece, pero se dice por qué (no se esconde). -->
             @if (habitoBloqueado(); as hb) {
@@ -514,10 +555,25 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
     .pg-barra-total { font-size: var(--fs-lg); font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
     .pg-barra-falta { font-size: var(--fs-xs); color: var(--text-muted); }
     .pg-enviar { min-height: 2.75rem; }
+    /* [PGP.122.17] La compra de un activo, bajo su renglón: se agrupa por sangría y espacio, no con una caja. */
+    .pg-activo { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0 0 var(--sp-2) var(--sp-4); }
+    .pg-activo-titulo { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .pg-activo-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr) minmax(0, 2fr); gap: var(--sp-3); align-items: end; }
+    /* Al dedo, lo que se toca en el bloque mide 44 px (VALORES.md, objetivo táctil): medido en Fold 7, el botón medía 28 y
+       los campos 38. Los campos de arriba del formulario siguen en ~38: deuda con nombre, fuera de este bloque. */
+    @media (pointer: coarse) {
+      :host ::ng-deep .pg-activo .p-inputtext, :host ::ng-deep .pg-activo .pg-nota-aviso .p-button { min-height: var(--tap-min); }
+    }
+    /* En el celular el botón se partía en tres renglones junto a la nota: va en una línea y, si no cabe, baja. */
+    .pg-activo .pg-nota-aviso { flex-wrap: wrap; }
+    .pg-activo .pg-nota-aviso > span { flex: 1 1 16rem; }
+    :host ::ng-deep .pg-activo .pg-nota-aviso .p-button { white-space: nowrap; }
     @container (max-width: 40rem) {
       .pg-grid { grid-template-columns: minmax(0, 1fr); }
       .pg-renglon { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
       .pg-quitar { justify-self: end; }
+      .pg-activo { margin-left: 0; }
+      .pg-activo-grid { grid-template-columns: minmax(0, 1fr); }
     }
   `],
 })
@@ -530,6 +586,11 @@ export class FinanzasPedirGastoComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly maxRenglones = MAX_RENGLONES;
+  // [PGP.122.17] La compra de un activo (anexo S §20).
+  readonly umbralActivo = UMBRAL_ACTIVO_POR_UNIDAD;
+  readonly maxCantidad = MAX_CANTIDAD_ACTIVO;
+  readonly largoDescripcion = LARGO_DESCRIPCION_ACTIVO;
+  readonly tiposDeActivo = [{ label: 'Un bien nuevo', value: 'bien' }, { label: 'Reparación, refacción o consumible', value: 'gasto' }];
   /** `[PGP.122.13]` La lectura sólo propone una fecha de estos últimos días (`fechaLeidaProponible`): la pantalla lo dice. */
   readonly diasMaximosLectura = DIAS_MAXIMOS_COMPROBANTE;
   /** «Hoy» se refresca: la pantalla puede quedarse abierta de un día para otro (al volver a la pestaña y cada 5 min). */
@@ -764,7 +825,8 @@ export class FinanzasPedirGastoComponent {
   readonly faltan = computed(() => faltaParaPedir({
     sucursal: this.sucursal(), acreedor: this.acreedorSel()?.clave ?? '',
     renglones: this.renglones().map((r) => ({ concepto: r.concepto ?? '', proyecto: r.proyecto ?? '', departamento: r.departamento ?? '', importe: Number(r.importe ?? 0),
-      cuenta: this.catalogo()?.conceptos.find((c) => c.codigo === r.concepto)?.cuenta ?? null })),
+      cuenta: this.catalogo()?.conceptos.find((c) => c.codigo === r.concepto)?.cuenta ?? null,
+      activo: r.activo ? { tipo: r.activo.tipo, descripcion: r.activo.descripcion, cantidad: r.activo.cantidad, lugar: r.activo.lugar || null } : null })),
     iva: this.iva(), fecha_solicitud: this.hoy(),
     comprobante: { tipo: this.tipo(), folio: this.folioDoc() || null, fecha: iso(this.fechaDoc()), uuid: this.cfdiUuid() },
     forma_pago: this.formaPago(), forma_pago_detalle: this.detalle(),
@@ -1139,7 +1201,12 @@ export class FinanzasPedirGastoComponent {
           // se dice con su motivo, en vez de dejar el campo vacío sin razón.
           this.habitoBloqueado.set(this.opcionesConcepto().find((c) => c.codigo === propuesto && c.bloqueado)?.motivo ?? null);
           const concepto = ofrecido(this.conceptos(), propuesto);
-          if (yo['concepto_1'] !== 'persona' && concepto) { r0.concepto = concepto; this.poner('concepto_1', 'habito'); puso = true; }
+          if (yo['concepto_1'] !== 'persona' && concepto) {
+            r0.concepto = concepto;
+            // [PGP.122.17] El de siempre puede ser de activo: su bloque nace igual que al elegirlo a mano (cuántos = 1).
+            r0.activo = esCuentaDeActivo(this.cuentaDe(concepto)) ? (r0.activo ?? { ...ACTIVO_VACIO }) : null;
+            this.poner('concepto_1', 'habito'); puso = true;
+          }
           const proyecto = ofrecido(this.proyectos(), p.ultimo?.proyecto);
           if (yo['proyecto_1'] !== 'persona' && proyecto) { r0.proyecto = proyecto; this.poner('proyecto_1', 'habito'); puso = true; }
           const depto = ofrecido(this.departamentos(), p.ultimo?.departamento);
@@ -1210,9 +1277,43 @@ export class FinanzasPedirGastoComponent {
 
   // ── Renglones ──────────────────────────────────────────────────────────────────────────────────
   cambiarRenglon(i: number, campo: keyof RenglonEnCaptura, v: string | number | null): void {
-    this.renglones.update((rs) => rs.map((r, j) => (j === i ? { ...r, [campo]: v } : r)));
+    this.renglones.update((rs) => rs.map((r, j) => {
+      if (j !== i) return r;
+      const nuevo: RenglonEnCaptura = { ...r, [campo]: v };
+      // [PGP.122.17] Con un concepto de activo nace su bloque (cuántos = 1); con otro, se va.
+      if (campo === 'concepto') nuevo.activo = esCuentaDeActivo(this.cuentaDe(v as string | null)) ? (r.activo ?? { ...ACTIVO_VACIO }) : null;
+      return nuevo;
+    }));
     this.marcar(`renglon_${i + 1}`);
     this.marcar(`${campo}_${i + 1}`);
+  }
+
+  /** `[PGP.122.17]` La cuenta de un concepto en el catálogo de la base. */
+  private cuentaDe(codigo: string | null | undefined): string | null {
+    return codigo ? this.catalogo()?.conceptos.find((c) => c.codigo === codigo)?.cuenta ?? null : null;
+  }
+  /** ¿El renglón es de activo (cuenta 150)? Entonces abre «Compra de activo» (DS47). */
+  esActivo(i: number): boolean { return esCuentaDeActivo(this.cuentaDe(this.renglones()[i]?.concepto)); }
+  /** El grupo de Kepler del concepto y su vida fiscal; sin grupo, se dice (DS54). */
+  grupoTexto(i: number): string {
+    const g = this.catalogo()?.conceptos.find((c) => c.codigo === this.renglones()[i]?.concepto)?.activo;
+    if (!g?.grupo) return 'Grupo: Contabilidad aún no lo define en Kepler, así que todavía no tiene vida fiscal.';
+    const nombre = (g.nombre ?? g.grupo).toLowerCase().replace(/^./, (x) => x.toUpperCase());
+    return g.vida_meses ? `Grupo: ${nombre} · vida fiscal ${g.vida_meses} meses (${g.tasa} % al año), de Kepler.` : `Grupo: ${nombre} · no se deprecia, de Kepler.`;
+  }
+  /** El importe por unidad (sin IVA), para la regla de los $5,000 (DS53). */
+  porUnidad(i: number): number | null {
+    const r = this.renglones()[i];
+    return Number(r?.importe ?? 0) > 0 ? importePorUnidad(r?.importe ?? null, r?.activo?.cantidad ?? null) : null;
+  }
+  cambiarActivo(i: number, campo: keyof ActivoEnCaptura, v: unknown): void {
+    this.renglones.update((rs) => rs.map((r, j) => (j === i ? { ...r, activo: { ...(r.activo ?? ACTIVO_VACIO), [campo]: v } } : r)));
+    this.marcar(`activo_${i + 1}`);
+  }
+  /** «Es una reparación, refacción o consumible»: se quita el concepto de activo y el foco va a elegir uno de gasto. */
+  cambiarConceptoAGasto(i: number): void {
+    this.renglones.update((rs) => rs.map((r, j) => (j === i ? { ...r, concepto: null, activo: null } : r)));
+    this.enfocar(`pg-con-${i}`);
   }
 
   agregarRenglon(): void {
@@ -1252,7 +1353,10 @@ export class FinanzasPedirGastoComponent {
     this.api.crear({
       id_cliente: this.idCliente,
       sucursal: this.sucursal(), acreedor: this.acreedorSel()!.clave,
-      renglones: this.renglones().map((r) => ({ concepto: r.concepto ?? '', proyecto: r.proyecto ?? '', departamento: r.departamento ?? '', importe: Number(r.importe ?? 0) })),
+      renglones: this.renglones().map((r) => ({ concepto: r.concepto ?? '', proyecto: r.proyecto ?? '', departamento: r.departamento ?? '', importe: Number(r.importe ?? 0),
+        // [PGP.122.17] Sólo en el renglón de activo; el servidor lo vuelve a validar con la cuenta del catálogo.
+        ...(esCuentaDeActivo(this.cuentaDe(r.concepto)) && r.activo
+          ? { activo: { tipo: r.activo.tipo, descripcion: r.activo.descripcion, cantidad: r.activo.cantidad, lugar: r.activo.lugar || null } } : {}) })),
       iva: this.iva(),
       comprobante: { tipo: this.tipo(), folio: this.folioDoc() || null, fecha: iso(this.fechaDoc()), uuid: this.cfdiUuid() },
       forma_pago: this.formaPago(), forma_pago_detalle: this.detalle() || null,

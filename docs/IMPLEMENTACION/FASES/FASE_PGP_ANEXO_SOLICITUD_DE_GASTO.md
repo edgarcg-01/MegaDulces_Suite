@@ -1,32 +1,34 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 140 KB, 1648 líneas, 20 secciones.
+> **Índice navegable** — 158 KB, 1806 líneas, 22 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 32 | 67 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
-| 68 | 80 | 1 | 1. El pedido, literal |
-| 81 | 96 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
-| 97 | 178 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
-| 179 | 197 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
-| 198 | 340 | 9 | 5. El escritor (C1–C2) |
-| 341 | 354 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
-| 355 | 434 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
-| 435 | 496 | 4 | 8. Plan por capas y orden de entrega |
-| 497 | 524 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 525 | 552 | 4 | 10. Decisiones |
-| 553 | 568 | 1 | 11. Riesgos y NO MEDIDO |
-| 569 | 597 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
-| 598 | 623 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 624 | 862 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
-| 863 | 998 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 999 | 1252 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1253 | 1442 | 17 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
-| 1443 | 1549 | 11 | 18. Observaciones de usuarios tras los primeros usos (2026-11-21) |
-| 1550 | 1680 | 11 | 19. Los cuatro tipos de egreso en «Mis gastos», empezando por el activo fijo (2026-11-21) ⬜ |
+| 34 | 69 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
+| 70 | 82 | 1 | 1. El pedido, literal |
+| 83 | 98 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
+| 99 | 180 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
+| 181 | 199 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
+| 200 | 342 | 9 | 5. El escritor (C1–C2) |
+| 343 | 356 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
+| 357 | 436 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
+| 437 | 498 | 4 | 8. Plan por capas y orden de entrega |
+| 499 | 526 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 527 | 554 | 4 | 10. Decisiones |
+| 555 | 570 | 1 | 11. Riesgos y NO MEDIDO |
+| 571 | 599 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
+| 600 | 625 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 626 | 864 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
+| 865 | 1000 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
+| 1001 | 1254 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 1255 | 1444 | 17 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1445 | 1551 | 11 | 18. Observaciones de usuarios tras los primeros usos (2026-11-21) |
+| 1552 | 1696 | 12 | 19. Los cuatro tipos de egreso en «Mis gastos», empezando por el activo fijo (2026-11-21) ⬜ |
+| 1697 | 1775 | 12 | 20. El formulario de compra de activo: diseño antes de construir (2026-11-21) 🧪 |
+| 1776 | 1840 | 5 | 21. El catálogo de conceptos en la Suite (propuesta, 2026-11-21) ⬜ |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1638,9 +1640,23 @@ SAT (S.13) y el patrón de escribir un catálogo de Kepler (DS42, `kdxd`).
 | **DS50** | ¿Quién deprecia, con qué tasa y desde cuándo? | a) la Suite la deriva y arma la póliza para ContPAQi · b) Contabilidad, a mano en ContPAQi · c) nadie, como hoy | **a**, con las tasas que fije Contabilidad (hoy las de `kdtact`) y las 15 cuentas que ya existen en ContPAQi | Contabilidad y Edgar |
 | **DS51** | ¿Qué pasa con lo comprado en 2026 sin alta? | a) una lista derivada de las pólizas (cada cargo a la 150 con su X-A-10 y su factura) que Contabilidad valida antes del alta · b) se empieza desde hoy | **a**: son $4.42 M sólo por X-A-10, y empezar desde hoy los deja sin depreciar | Contabilidad |
 
-**DS52 (pendiente, para la etapa de diseño): ¿qué cuentas son de cada tipo?** El tipo sale de la cuenta del concepto
-(`kdco.c3`). Punto de partida, por medir y firmar: `150` → compra de activo · `761`–`763` y `601-015` (SUA) →
-impuestos · `210` y las de gasto financiero → financieros · el resto → operativos. Hasta firmarla, «Pedir un gasto»
+**DS52 ✅ (Francisco, 2026-11-21: «continuamos» a la propuesta tal cual, con sus dos fronteras): ¿qué cuentas son de cada tipo?** El tipo sale de la cuenta
+mayor del concepto (`kdco.c3`), con las familias del catálogo de Kepler. Medido el 2026-11-21 en las X-A-15 de 12 meses
+(no canceladas), en el alcance v1 (acreedores `G*` sin `GB` ni `GN001`):
+
+| Tipo | Cuentas del concepto | Solicitudes v1 · importe | Qué pide su formulario (a diseñar) |
+|---|---|---|---|
+| Gastos operativos | familia 6 (`601`–`613`, `659`) sin `601-015`, más `514` (logística de compras) y `517` (transformación) | ~8,800 · $34.0 M | el de hoy |
+| Compra de activo | `150` | 205 · $4.7 M | el grupo (`kdtact`), qué es, dónde va y quién lo resguarda; al comprobar, el alta (DS49) |
+| Impuestos | `760`–`763` y `601-015` (seguridad social: el SUA) | ~180 · $12.3 M | qué impuesto y de qué periodo, la línea de captura o referencia, la fecha límite y el acuse; quien cobra es la autoridad, no un proveedor |
+| Gastos financieros | `702` (intereses, comisiones bancarias y de terminal, pérdida cambiaria, financiamiento) y `210` (pagos a capital de préstamos) | 6 · $0.2 M | el crédito o la cuenta, si es capital o interés, el periodo y el estado de cuenta |
+| No es un egreso que se pida | `102` (cajas y bancos: traspasos), `401` (ventas), las de inventario y compra de mercancía (`114`, `116`, `509`–`516`), `115`, `122`, `140`, `201`, `203`, `206`, `999` y los conceptos sin cuenta | ~115 · $0.2 M | ninguno: se ve deshabilitado con su motivo |
+
+Dos fronteras que se firman con ella: (a) las comisiones bancarias de las ventas van a `611-003` (familia 6), así que
+por la cuenta son operativas aunque el dinero sea financiero; mientras los acreedores de banco (`GB`) sigan fuera de v1
+(las lee CB.62 del estado de cuenta) no cambia nada. (b) `514` y `517` son «costos» en el catálogo, pero quien pide los
+vive como gasto de operación (fletes de compra, transformación). Los financieros casi no pasan por v1: casi todo entra
+por acreedores de banco, así que su formulario va después del de activo e impuestos. Hasta firmarla, «Pedir un gasto»
 sigue igual: sólo ofrece los operativos y muestra los demás deshabilitados con su motivo (`[PGP.122.14]`).
 
 Para Contabilidad, en el catálogo de Kepler: el grupo MAQ apunta a una cuenta de depreciación (`158-005`) y cinco
@@ -1677,3 +1693,147 @@ subcuentas de la 150 no tienen grupo.
 **NO MEDIDO:** dónde registra ContPAQi las compras de activo de Kepler (¿como gasto?, ¿no llegan?); si Kepler tiene un
 proceso que calcula `kdt2` y genera su póliza (nadie lo corre, o no existe); si hay un inventario físico de activos por
 sucursal (el catálogo es el mismo en las 9).
+
+## 20. El formulario de compra de activo: diseño antes de construir (2026-11-21) 🧪
+
+> Los doce pasos de `diseno` §0a, por escrito, antes de la primera línea de plantilla. Medido en prod (sólo lectura) en
+> las X-A-15 del alcance v1 de 12 meses con un renglón de activo (cuenta del concepto `150`): **205 solicitudes, 233
+> renglones, $4.67 M**. Sigue la regla de DS48: el concepto elegido define el formulario.
+
+| # | Paso | Respuesta |
+|---|---|---|
+| 1 | Propósito | Que la compra de un activo salga de «Pedir un gasto» con lo que su alta necesita, y que lo que no es activo no se registre como activo. La pregunta que contesta: **«¿qué bien compro, cuántos, dónde va y quién lo cuida?»** |
+| 2 | Quién entra | CEDIS: 188 de las 205 solicitudes y el 99 % del dinero (sistemas, mantenimiento, logística y dirección). Las sucursales piden poco y barato: 17 solicitudes, $56 k. Los puestos exactos: NO MEDIDO (saldrán de `analytics.ui_usage` cuando el formulario exista) |
+| 3 | El estado real | (a) **Mucho de lo que entra como activo es gasto**: el 64 % de los renglones es de menos de $5,000 (suma el 5.7 % del dinero) y 1 de cada 4 dice en su texto que es reparación, refacción, material, mano de obra o servicio ($660 k). (b) El 54 % del dinero va a subcuentas sin grupo en `kdtact` (herramientas, transporte personal, equipo electrónico, licencias): sin grupo no hay tasa ni vida fiscal. (c) Sólo 5 de 233 renglones dicen cuántos bienes son. (d) 2 activos dados de alta en 2026 (§19.2). (e) 6 renglones ($360 k) son abonos de una compra a plazos |
+| 4 | Qué ve, en qué orden | Al elegir un concepto de activo, el renglón abre «Compra de activo». Primero una pregunta: **«¿Es un bien nuevo, o una reparación, refacción o consumible?»**; si es lo segundo, es gasto y la pantalla ofrece cambiar a un concepto de mantenimiento. Si es un bien: (1) el grupo y su vida fiscal, solos, de la subcuenta del concepto (o «Contabilidad aún no define su grupo»); (2) qué es: el bien, con marca y modelo; (3) cuántos: 1 por defecto, y cada unidad es un activo (DS55); (4) dónde va: la sucursal y el departamento del renglón, y el lugar si hace falta. Con el importe y cuántos, la pantalla saca el **importe por unidad**: si es de $5,000 o menos, es gasto (DS53) y ofrece cambiar a un concepto de gasto |
+| 5 | Qué no ve | **Quién lo resguarda**: lo asigna Presupuestos y Control de Activos en el alta (DS56). La clave del activo, la póliza y la depreciación: nacen en el alta (DS49) y cada mes (DS50). El número de serie se toma en el alta, cuando el bien ya llegó |
+| 6 | Mapa de desglose | grupo y tasa → `kdtact`, por la subcuenta del concepto · concepto → `kdco` · departamento → `kdc3` · quién resguarda → lo asigna Control de Activos en el alta (DS56) · el alta → `kdt1` (DS49) |
+| 7 | Accesibilidad | Cada campo con su etiqueta y su error en texto; «cuántos» con teclado numérico en el celular; el grupo dicho en texto, no en color; 44 px al dedo; la pregunta de arriba es un grupo de opciones navegable con teclado |
+| 8 | Ligas | De la solicitud (X-A-15) al gasto (X-A-10, con la factura del SAT: proveedor, folio, fecha y valor) y al alta: **Presupuestos y Control de Activos recibe la factura, etiqueta el bien (su clave) y asigna quién lo resguarda**; con eso la Suite lo da de alta en `kdt1` (DS49). La clave del activo se verá en Mis gastos junto al folio de comprobación |
+| 9 | ¿Le toca a esta pantalla? | Sí: se pide donde se piden los egresos («Mis gastos» › «Pedir un gasto», DS48). El alta vive en la comprobación, no aquí |
+| 10 | Maqueta | Abajo |
+| 11 | Criterios de aceptación | Abajo |
+| 12 | Lo que la interfaz no puede resolver | El umbral para capitalizar (DS53), los grupos que faltan (DS54), el alta (DS49) y la depreciación (DS50). Sin ellos el formulario captura bien, pero nadie da de alta ni deprecia. Y la compra a plazos: el bien se da de alta una vez, no en cada abono |
+
+```
+4 · Qué es y cuánto
+┌ Renglón 1 ────────────────────────────────────────────────────────────────┐
+│ Concepto [PC VERIFICADOR DE PRECIO · 364 ▾]  Proyecto [ … ▾]  Depto [ … ▾] │
+│ Importe sin IVA [$ 8,500.00]                                              │
+│ ── Compra de activo ──────────────────────────────────────────────────────│
+│ ¿Qué compras?  (•) Un bien nuevo    ( ) Reparación, refacción o consumible │
+│ Grupo: Equipo de cómputo · vida fiscal 40 meses (30 % al año) · de Kepler  │
+│ Qué es *      [ PC verificador de precio, marca …, modelo …             ]  │
+│ Cuántos *     [ 1 ]          Por unidad: $8,500.00 (más de $5,000: activo)  │
+│ Dónde va      Sucursal 00 · Depto del renglón    Lugar [ piso de venta  ]  │
+└───────────────────────────────────────────────────────────────────────────┘
+  Si eliges «Reparación, refacción o consumible»:
+  ⓘ Eso es un gasto, no un activo: elige un concepto de mantenimiento.  [Cambiar el concepto]
+```
+
+**Criterios de aceptación** (medibles en la pantalla viva, en los tres perfiles):
+
+- Un concepto con cuenta `150` abre «Compra de activo»; cualquier otro, no.
+- El grupo y la vida fiscal salen de `kdtact` por la subcuenta; sin grupo se dice «Contabilidad aún no define su grupo» y no se inventa una tasa.
+- No se puede pedir un activo sin qué es y cuántos; el error dice cuál falta.
+- Con $5,000 o menos por unidad no deja seguir con un concepto de activo (DS53) y ofrece cambiarlo.
+- «Reparación, refacción o consumible» no deja seguir con un concepto de activo y ofrece cambiarlo.
+- Lo capturado viaja con la solicitud y se ve en Aprobación y en Mis gastos.
+- Nada se sale de la pantalla y lo que se toca mide 44 px.
+
+**Decisiones de este formulario:**
+
+| # | Decisión | Opciones | Recomendación | Firma |
+|---|---|---|---|---|
+| **DS53** ✅ | ¿Desde qué importe por unidad un bien se capitaliza? | a) un umbral por unidad: abajo es gasto · b) todo lo de la `150` es activo, como hoy | ✅ **Francisco, 2026-11-21: activo si cuesta más de $5,000 por unidad y su vida útil pasa de 12 meses**; lo demás es gasto. El 64 % de los renglones de hoy es de menos de $5,000 | Francisco |
+| **DS54** | Los grupos que faltan en `kdtact` | Contabilidad crea en Kepler los de `150-008`…`150-012` (licencias, herramientas, transporte personal, equipo electrónico, desarrollo de software) con su tasa, y corrige el de maquinaria, que apunta a `158-005` | Es el 54 % del dinero: sin esto no hay vida fiscal ni depreciación | Contabilidad |
+| **DS55** ✅ | ¿Cada unidad es un activo? | a) sí: «cuántos = N» da N activos al darse de alta · b) un activo por renglón | ✅ **Francisco, 2026-11-21: a** («si son 3, son 3 activos») | Francisco |
+| **DS56** ✅ | ¿Quién asigna el resguardo, y de dónde sale la persona? | a) quien pide · b) Presupuestos y Control de Activos, en el alta | ✅ **Francisco, 2026-11-21: b** — el puesto de Presupuestos y Control de Activos recibe la factura, etiqueta el activo y asigna el resguardo. La persona: un usuario de la Suite ahora, y los empleados de RH (`hr.employees`, hoy vacía en prod) cuando estén cargados; nunca texto libre | Francisco |
+
+**La capa de datos (C1), para Edgar:** lo que se captura del activo es dato propio de la Suite (regla principal: una
+tabla real es legítima para datos propios). Propuesta: una tabla de renglones de activo ligada al vale (qué es, cuántos y
+lugar, al pedir) y otra para el alta que hace Control de Activos (la clave de la etiqueta, quién resguarda, la factura y
+el número de serie), las dos con `tenant_id` y campos de auditoría; el grupo no se guarda, se deriva de `kdtact` en la lectura.
+
+### 20.1 Construcción — `[PGP.122.17]` (2026-11-22) 🧪
+
+Francisco dio la orden el 2026-11-22 («arranca»). Lo construido, capa por capa:
+
+| Capa | Qué | Dónde |
+|---|---|---|
+| C0 dato | El grupo y la tasa se **leen** del `kdtact` del servidor por la subcuenta (`c4`); no se copian. Medido en prod (sólo lectura): `app_runtime` ya puede leerla; en los 9 servidores la `150-002` trae además una fila **sin grupo** (`c1` vacío, tasa 0), que se descarta; ningún concepto de `kdco` usa la `158`, así que el grupo de maquinaria que apunta a `158-005` (DS54) no cambia el formulario | `gruposDeActivo` en `solicitud-gasto.service.ts` |
+| C1 regla | Vive en el contrato y la usan los dos lados: `esCuentaDeActivo` (la mayor `150`), `faltaDelActivo` (¿bien o gasto?, qué es hasta 200 caracteres, cuántos entero de 1 a 999, **más de $5,000 por unidad sin IVA** por DS53), `activoLimpio`, `importePorUnidad`, `vidaFiscalEnMeses` (1200 ÷ tasa) y `activoEnUnaLinea`. La `150` sale de `CUENTAS_FUERA_DE_ALCANCE` (DS47) | `libs/contracts/src/finance/solicitud-gasto.contract.ts` |
+| C1 tabla | **Se extiende la tabla del renglón en vez de crear otra** (regla 2: un renglón de activo es un renglón del vale, 1 a 1; cambia la propuesta de arriba): `finance.expense_proof_lines` + `asset_description`, `asset_quantity` (CHECK mayor que 0) y `asset_location`, las tres nulas (regla 14: ningún camino de inserción se rompe). Se llenan sólo si la cuenta del concepto es `150` y es un bien: lo decide la cuenta, no lo que mande el cliente. La tabla del alta (clave de la etiqueta, quién resguarda, número de serie) espera DS49 | migración `20261122002332_pgp122_17_activo_en_el_renglon.js` |
+| C2 API | El catálogo trae `activo` (grupo, nombre, tasa y vida en meses) sólo en los conceptos de activo. `crear` vuelve a aplicar la regla con la cuenta de Kepler y responde 400 con el renglón y el motivo. `detalle` (lo que ve quien firma) trae el activo de cada renglón | `catalogo()`, `crear()`, `detalle()` |
+| C3 pantalla | Con un concepto de la `150`, el renglón abre «Compra de activo»: la pregunta primero; si es reparación, refacción o consumible, «Cambiar el concepto»; si es un bien, el grupo y su vida fiscal, qué es, cuántos (1), el lugar y «Por unidad: $X sin IVA», que con $5,000 o menos dice «es gasto, no activo». El hábito del proveedor abre el bloque igual. En Aprobación, quien firma lee «Compra de activo: Silla ejecutiva · 3 unidades de $6,000.00 · lugar» | `finanzas-pedir-gasto.component.ts`, `vale-gasto-peek.component.ts` |
+
+**Pruebas.** Contrato 70 ✓ · catálogo 3 ✓ · Pedir un gasto 32 ✓ · panel del vale 56 ✓. Contra Postgres real (Docker, como `app_runtime` con RLS): 147 ✓ · 6 ✗; las 6 son las del bloque O, igual que en `main` (CI `d7cf82d08`: 125 ✓ · 6 ✗). Las 20 verificaciones nuevas cubren el catálogo con su grupo (la fila sin grupo no gana), el payload de la pantalla con un renglón de gasto y uno de activo, lo que lee quien firma, DS55 (cuántos = 3), un renglón de gasto que trae datos de activo y no los guarda, 8 rechazos con su motivo sin dejar vale, y la firma que lo escribe en Kepler con su cuenta `150`. **Prueba negativa:** 5 mutantes, los 5 en rojo — el servidor deja de validar, guarda el activo de cualquier renglón, gana la fila sin grupo, DS53 con `<` en vez de `<=` y la precarga sin bloque. La migración, en Docker: `up` dos veces (idempotente), `down` y `up` otra vez.
+
+**Prueba visual ✓** (2026-11-22, base local de Docker, escritorio 1440 · Fold 750 · celular 390, como `superoot`): la pregunta, «es gasto» con «Cambiar el concepto» (el foco vuelve al concepto), DS53 con 2 de $4,500, el bien de $9,000, el 213 sin grupo y el panel de Aprobación con «… · 3 unidades de $6,000.00»; contraste de 4.54:1 para arriba (grupo y por unidad 4.8, aviso de DS53 7.56, panel 19.9) y nada se sale de la pantalla. Corregido en la prueba: con el dedo, el botón medía 28 px y los campos 38 → 44; en el celular, «Cambiar el concepto» se partía en 3 renglones → baja en una línea. Deuda con nombre: los demás campos del formulario miden ~38 px con el dedo.
+
+**Falta.** Verlo también en Mis gastos (hoy se ve en Aprobación, donde se firma); el alta en `kdt1` y quién resguarda (DS49, DS56); los grupos que faltan (DS54). **Antes de soltar:** la migración `20261122002332`.
+
+## 21. El catálogo de conceptos en la Suite (propuesta, 2026-11-21) ⬜
+
+> **El pedido (Francisco, 2026-11-21):** «hay que revisar los conceptos actuales y traer a la Suite el control del
+> catálogo de conceptos». **ESTADO:** ⬜ propuesta sin abrir (cupo). Medido en `pg-prod`, sólo lectura, en el catálogo
+> `kdco` de los 9 servidores y en el uso de 12 meses (renglones de solicitudes X-A-15 y gastos X-A-10 no cancelados).
+
+### 21.1 Cómo está hoy
+
+El catálogo vive en Kepler, **una copia por servidor**, y nadie lo cuida como uno solo:
+
+| Hecho | Medido |
+|---|---|
+| Tamaño | 414 códigos distintos en 3,134 filas: 407 en 00 y de 289 a 393 en las sucursales |
+| No es el mismo en todos lados | sólo 273 códigos están en los 9 servidores |
+| El mismo código con otro nombre | 46 (casi siempre errores de captura: «MANTENIMINETO», «HERRAMINETAS») |
+| El mismo código con otra cuenta | 3 con otro rubro (el 074 de R14 entre ellos) y 8 con otra subcuenta |
+| Sin cuenta | de 2 a 19 por servidor (113 filas): no se pueden pedir (`[PGP.122.14]`) |
+| Repetidos | 26 nombres con dos códigos en el mismo servidor |
+| Sin uso | 62 de 414 códigos no se usaron ni una vez en 12 meses |
+| Activos mal clasificados | de los 50 conceptos de activo que se usaron, **16 siempre fueron de $5,000 o menos** (con DS53 son gasto), 19 mezclan compras chicas y grandes y 15 siempre pasaron de $5,000 |
+
+La revisión concepto por concepto (con una propuesta para cada uno) está en un libro local para Contabilidad y Control de
+Activos, **fuera del repo**: el repo es público y los conceptos de préstamos llevan nombres de personas.
+
+### 21.2 La propuesta
+
+La Suite es la dueña del catálogo y Kepler lo recibe:
+
+1. **Un solo catálogo en la Suite**: código, nombre (sin errores), la cuenta (la misma en todas las sucursales, salvo las
+   que por naturaleza cambian, como la caja propia de cada una), su tipo de egreso (DS52), si es activo con su regla
+   (DS53) y si está activo o dado de baja.
+2. **Se edita en la Suite**, por quien lo decida DS58, con historial de cada cambio.
+3. **La Suite lo escribe en el `kdco` de los 9 servidores**: otro escritor sobre un catálogo de Kepler, como el de
+   acreedores (DS42).
+4. **Lo que hoy está mal se corrige primero**, con el libro de revisión: nombres, cuentas, sin cuenta, repetidos,
+   activos que son gasto (partir los mixtos en su versión activo y su versión gasto) y los que no se usan.
+
+### 21.3 Decisiones
+
+| # | Decisión | Opciones | Recomendación | Firma |
+|---|---|---|---|---|
+| **DS57** ✅ | ¿La Suite es la dueña del catálogo de conceptos y lo escribe en el `kdco` de los 9 servidores? | a) sí, como DS42 con los acreedores · b) se corrige en Kepler a mano y la Suite sólo lo lee | ✅ **Dirección General (Francisco), 2026-11-22: a.** Falta que Edgar ratifique el escritor y el cupo (ADR-126) | Francisco; Edgar ratifica |
+| **DS58** ✅ | ¿Quién edita el catálogo? | a) Contabilidad · b) Contabilidad con la firma de Presupuestos y Control de Activos para los de activo | ✅ **Francisco, 2026-11-22: Contabilidad propone y Dirección General decide** | Francisco |
+| **DS59** ✅ | ¿Qué pasa con los conceptos de activo que con DS53 son gasto? | a) los 16 que siempre fueron chicos pasan a una cuenta de gasto (la `604` «Gastos en mobiliario y equipo» ya existe) y los 19 mixtos se parten en su versión activo y su versión gasto · b) se dejan y decide cada solicitud | ✅ **Francisco, 2026-11-22: a** — los 16 chicos pasan a gasto (`604`) y los 19 mixtos se parten en su versión activo y su versión gasto | Francisco |
+
+### 21.4 La arquitectura: administrar sin copiar (ADR-126)
+
+La regla principal del repo prohíbe copiar tablas, así que la Suite **no guarda el catálogo**: lo lee de los 9 `kdco`
+(una vista sobre `kepler_ods`, con sus diferencias), guarda sólo lo propio —la propuesta de Contabilidad, la decisión de
+Dirección General y su historial— y escribe en los 9 `kdco` lo aprobado; el cambio se da por hecho cuando el ODS lo trae
+de vuelta de cada servidor. El tipo de egreso y la regla de activo no se guardan: salen de la cuenta (DS52) y del
+importe por unidad (DS53). Dos claves de permiso: proponer (Contabilidad) y decidir (Dirección General).
+
+### 21.5 El orden
+
+| Orden | Frente | Por qué ahí |
+|---|---|---|
+| 1 | Revisar el libro con Contabilidad y Control de Activos (C0) | Es lo barato y destapa qué corregir |
+| 2 | El catálogo en la Suite: su tabla y la vista de diferencias contra los 9 `kdco` (C1) | Sin un dueño, lo corregido se vuelve a separar |
+| 3 | El escritor del `kdco` (C2) | Depende de DS57 |
+| 4 | La pantalla del catálogo (C3) | Al final, sobre lo de abajo ya verificado |
+
+**Qué NO incluye:** los otros catálogos de Kepler (proyectos `kdcp`, departamentos `kdc3`, acreedores ya en DS42). No
+se abre fase: el tablero tiene 9 fases en curso contra un cupo de 4; lo decide Edgar.

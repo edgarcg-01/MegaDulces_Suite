@@ -123,6 +123,14 @@ const ACR = 'GZPRU1';
 const C_GASTO = 'Z40';
 const C_SUA = 'Z47';
 const C_CAMBIO = 'Z99';
+// [PGP.122.17] Activo fijo (DS47): un concepto cuya subcuenta tiene grupo en kdtact y otro cuya subcuenta no (DS54).
+// Subcuentas que no existen en ningún Kepler, para no chocar con el catálogo real que pueda traer la base local.
+const C_ACTIVO = 'Z15';
+const C_ACTIVO_SIN_GRUPO = 'Z16';
+const SUB_ACTIVO = '150-097';
+const SUB_SIN_GRUPO = '150-098';
+/** Lo que no se pudo medir se declara AL FINAL: `noMedido` sale del proceso y a media suite se saltaría la limpieza. */
+let sinMedir = null;
 const DEPTO = '9-99-99-99';
 const PIDE = { nombre: 'Ana Prueba Solicitante', usuario: 'aprueba' };
 const FIRMA = { username: 'firmante_prueba', full_name: 'Firmante De Prueba' };
@@ -154,7 +162,8 @@ async function main() {
   await k.query('TRUNCATE md.kdxd, md.kdco, md.kdcp, md.kdc3');
   await k.query(`INSERT INTO md.kdxd (c1, c2, c3, c10) VALUES ($1, $2, 'ACREEDOR DE PRUEBA PGP122 SA DE CV', 'XAXX010101000')`, [SUC, ACR]);
   // En Kepler, el concepto C_CAMBIO ya no tiene cuenta (el ODS todavía cree que sí: ver la siembra del ODS).
-  await k.query(`INSERT INTO md.kdco (c1, c2, c3) VALUES ($1, 'MANTENIMIENTO VEHICULAR.', '602-008'), ($2, 'SUA', '601-015'), ($3, 'CONCEPTO QUE CAMBIO EN KEPLER', '')`, [C_GASTO, C_SUA, C_CAMBIO]);
+  await k.query(`INSERT INTO md.kdco (c1, c2, c3) VALUES ($1, 'MANTENIMIENTO VEHICULAR.', '602-008'), ($2, 'SUA', '601-015'), ($3, 'CONCEPTO QUE CAMBIO EN KEPLER', ''),
+    ($4, 'PC DE PRUEBA ACTIVO.', $5), ($6, 'ACTIVO SIN GRUPO DE PRUEBA', $7)`, [C_GASTO, C_SUA, C_CAMBIO, C_ACTIVO, SUB_ACTIVO, C_ACTIVO_SIN_GRUPO, SUB_SIN_GRUPO]);
   await k.query(`INSERT INTO md.kdcp (c1, c2, c3, c4, c5) VALUES ($1, 'PRESUPUESTO DE PRUEBA', $2, '', 'A')`, [PROYECTO, SUC]);
   await k.query(`INSERT INTO md.kdc3 (c1, c2, c3, c4, c5) VALUES ($1, 'DEPTO PRUEBA', '', '', '')`, [DEPTO]);
   const ENV = ['KEPLER_GASTO_SOLICITUD', `KEPLER_PUSH_URL_${SUC}`, `KEPLER_SOLGASTO_TEMPLATE_FOLIO_${SUC}`, 'ANTHROPIC_API_KEY'];
@@ -174,7 +183,7 @@ async function main() {
   const proofs = new ExpenseProofsService(tk, ctx, {}, almacen, lector, undefined, undefined, undefined, svc);
 
   const ids = [];
-  const sembradas = { kdxd: [], kdco: [], kdcp: [], kdc3: [], kdm1: [], kdm6: [] };
+  const sembradas = { kdxd: [], kdco: [], kdcp: [], kdc3: [], kdm1: [], kdm6: [], kdtact: [] };
   const cfdisSembrados = [];
   const sembrar = async (tabla, filas) => {
     for (const f of filas) {
@@ -224,6 +233,14 @@ async function main() {
       { sucursal: SUC, c1: C_SUA, c2: 'SUA', c3: '601-015' },
       // El ODS cree que el 999 tiene cuenta; el Kepler de la sucursal ya no (su catálogo cambió después de la réplica).
       { sucursal: SUC, c1: C_CAMBIO, c2: 'CONCEPTO QUE CAMBIO EN KEPLER', c3: '602-099' },
+      { sucursal: SUC, c1: C_ACTIVO, c2: 'PC DE PRUEBA ACTIVO.', c3: SUB_ACTIVO },
+      { sucursal: SUC, c1: C_ACTIVO_SIN_GRUPO, c2: 'ACTIVO SIN GRUPO DE PRUEBA', c3: SUB_SIN_GRUPO },
+    ]);
+    // [PGP.122.17] kdtact como en prod (medido 2026-11-22): c3 la mayor, c4 la subcuenta, c5 la tasa anual. En los 9 servidores
+    // la 150-002 trae además una fila SIN grupo (c1 vacío, tasa 0): se siembra igual, para que no gane a la buena.
+    await sembrar('kdtact', [
+      { sucursal: SUC, c1: '', c2: '', c3: '150', c4: SUB_ACTIVO, c5: 0 },
+      { sucursal: SUC, c1: 'ZPR', c2: 'GRUPO DE PRUEBA PGP122', c3: '150', c4: SUB_ACTIVO, c5: 30 },
     ]);
     await sembrar('kdcp', [{ sucursal: SUC, c1: PROYECTO, c2: 'PRESUPUESTO DE PRUEBA' }]);
     await sembrar('kdc3', [{ sucursal: SUC, c1: DEPTO, c2: 'DEPTO PRUEBA' }]);
@@ -236,6 +253,15 @@ async function main() {
     const c047 = cat.conceptos.find((c) => c.codigo === C_SUA);
     check(c240?.cuenta === '602-008' && !c240.fuera_de_alcance, 'catálogo: el concepto de gasto trae su cuenta (602-008) y entra', c240);
     check(!!c047?.fuera_de_alcance, 'catálogo: el del SUA (601-015) viene marcado fuera de alcance', c047);
+    // [PGP.122.17] El activo fijo ya entra (DS47) con su grupo de Kepler; la subcuenta sin grupo lo dice (DS54).
+    const cAct = cat.conceptos.find((c) => c.codigo === C_ACTIVO);
+    const cSinG = cat.conceptos.find((c) => c.codigo === C_ACTIVO_SIN_GRUPO);
+    check(cAct?.cuenta === SUB_ACTIVO && !cAct.fuera_de_alcance
+      && JSON.stringify(cAct.activo) === JSON.stringify({ grupo: 'ZPR', nombre: 'GRUPO DE PRUEBA PGP122', tasa: 30, vida_meses: 40 }),
+      '[PGP.122.17] catálogo: el concepto de activo (150) entra con su grupo de kdtact y su vida fiscal (30 % al año = 40 meses); la fila sin grupo no gana', cAct);
+    check(!!cSinG && !cSinG.fuera_de_alcance && JSON.stringify(cSinG.activo) === JSON.stringify({ grupo: null, nombre: null, tasa: null, vida_meses: null }),
+      '[PGP.122.17] catálogo: la subcuenta sin grupo en kdtact entra y lo dice (DS54), sin inventar una tasa', cSinG);
+    check(!!c240 && c240.activo === undefined, '[PGP.122.17] catálogo: el concepto de gasto no trae datos de activo', c240?.activo);
     check(cat.proyectos.some((p) => p.codigo === PROYECTO) && cat.departamentos.some((d) => d.codigo === DEPTO), 'catálogo: el proyecto y el departamento de la sucursal');
     const acr = await svc.buscarAcreedores(SUC, 'acreedor prueba');
     check(acr.length === 1 && acr[0].clave === ACR && acr[0].rfc === 'XAXX010101000', 'acreedores: «acreedor prueba» encuentra al acreedor de prueba con su RFC', acr);
@@ -742,6 +768,73 @@ async function main() {
           .update({ encendida: swC0.encendida, tope_dia: swC0.tope_dia, nota: swC0.nota, updated_at: swC0.updated_at }).catch((e) => console.log(`  ! limpieza O: ${e.message}`));
       }
     }
+
+    // ── P · [PGP.122.17] La compra de un activo: su propio formulario (anexo S §20) ──────────────────────────────
+    console.log('\n— P. [PGP.122.17] La compra de un activo: qué es, cuántos y dónde; con $5,000 o menos por unidad es gasto');
+    if (!(await knex.schema.withSchema('finance').hasColumn('expense_proof_lines', 'asset_description'))) {
+      sinMedir = 'falta la migración 20261122002332 (PGP.122.17) en esta base: el bloque P no se mide';
+      console.log(`  ⓘ ${sinMedir}`);
+    } else {
+      alcance.dim = { mode: 'all', values: [], resolvable: true };
+      await interruptor(true, 100);
+      const lineas = (id) => knex('finance.expense_proof_lines').where({ proof_id: id }).orderBy('line_no')
+        .select('concept_code', 'account', knex.raw('amount::float8 AS amount'), 'asset_description', 'asset_quantity', 'asset_location');
+      const ACT = (activo, importe = 9000) => ({ concepto: C_ACTIVO, proyecto: PROYECTO, departamento: DEPTO, importe, ...(activo === undefined ? {} : { activo }) });
+      const GASTO = { concepto: C_GASTO, proyecto: PROYECTO, departamento: DEPTO, importe: 100 };
+      const ticket = (folio) => ({ comprobante: { tipo: 'ticket', folio, fecha: ayer, uuid: null }, lectura: null });
+
+      // El payload de la pantalla (`enviar()`): el renglón de gasto sin `activo`; el de activo con lo capturado, tal cual.
+      const cA = await pedir({
+        renglones: [GASTO, ACT({ tipo: 'bien', descripcion: '  PC verificador de precio, marca X, modelo Y  ', cantidad: 1, lugar: 'Piso de venta' })],
+        iva: 1456, ...ticket('1717'),
+      });
+      check(cA.status === 'recibida' && cA.total === 10556, 'con un renglón de activo se pide: por firmar, total $10,556 (9,100 + IVA 1,456)', cA);
+      const lA = await lineas(cA.id);
+      check(lA.length === 2 && lA[0].concept_code === C_GASTO && lA[0].asset_description === null && lA[0].asset_quantity === null && lA[0].asset_location === null,
+        'el renglón de gasto no guarda nada de activo', lA[0]);
+      check(lA[1]?.concept_code === C_ACTIVO && lA[1].account === SUB_ACTIVO && lA[1].amount === 9000
+        && lA[1].asset_description === 'PC verificador de precio, marca X, modelo Y' && lA[1].asset_quantity === 1 && lA[1].asset_location === 'Piso de venta',
+        'el renglón de activo: cuenta 150, qué es (sin espacios de más), cuántos y dónde', lA[1]);
+      // Lo que lee quien firma (`GET …/:id/detalle`, Aprobación): el activo del renglón, y nada en el de gasto.
+      const dA = await svc.detalle(cA.id);
+      check(dA.renglones[0]?.activo === null
+        && JSON.stringify(dA.renglones[1]?.activo) === JSON.stringify({ descripcion: 'PC verificador de precio, marca X, modelo Y', cantidad: 1, lugar: 'Piso de venta' }),
+        'el detalle para quien firma trae el activo del renglón (y null en el de gasto)', dA.renglones);
+
+      // DS55: tres sillas son tres activos; un renglón con cuántos = 3, y la regla de los $5,000 es por unidad.
+      const c3 = await pedir({ renglones: [ACT({ tipo: 'bien', descripcion: 'Silla ejecutiva, marca X', cantidad: 3, lugar: '  ' }, 18000)], iva: 2880, ...ticket('1718') });
+      const l3 = await lineas(c3.id);
+      check(l3.length === 1 && l3[0].asset_quantity === 3 && l3[0].asset_location === null && l3[0].amount === 18000,
+        'DS55: tres sillas de $6,000 = un renglón con cuántos 3 (un lugar en blanco se guarda como nada)', l3);
+
+      // Un renglón de GASTO que trae datos de activo (una pantalla vieja, otro cliente) no los guarda: decide la cuenta.
+      const cG = await pedir({ renglones: [{ ...GASTO, activo: { tipo: 'bien', descripcion: 'NO SE GUARDA', cantidad: 1, lugar: 'X' } }], ...ticket('1719') });
+      const lG = await lineas(cG.id);
+      check(lG.length === 1 && lG[0].asset_description === null && lG[0].asset_quantity === null && lG[0].asset_location === null,
+        'un renglón de gasto con datos de activo no los guarda: lo decide la cuenta del concepto, no lo que mande el cliente', lG);
+
+      // ⛔ Lo que no se puede pedir: 400 con su motivo, y nada escrito.
+      const antesP = await cuantas();
+      await no({ renglones: [ACT(undefined)] }, /renglón 1, di si compras un bien nuevo o es una reparación/, '⛔ activo sin decir si es un bien nuevo → 400');
+      await no({ renglones: [ACT({ tipo: 'gasto', descripcion: '', cantidad: 1 })] }, /reparación, refacción o consumible es gasto, no activo: elige un concepto de gasto/,
+        '⛔ «reparación, refacción o consumible» con un concepto de activo → 400: es gasto');
+      await no({ renglones: [ACT({ tipo: 'bien', descripcion: '   ', cantidad: 1 })] }, /falta qué es el bien/, '⛔ sin decir qué es el bien → 400');
+      await no({ renglones: [ACT({ tipo: 'bien', descripcion: 'x'.repeat(201), cantidad: 1 })] }, /no cabe \(200 caracteres\)/, '⛔ qué es, de más de 200 caracteres → 400');
+      await no({ renglones: [ACT({ tipo: 'bien', descripcion: 'PC', cantidad: 1.5 })] }, /número entero de 1 a 999/, '⛔ cuántos no entero → 400');
+      await no({ renglones: [ACT({ tipo: 'bien', descripcion: 'PC', cantidad: 2 })] }, /por \$4,500\.00 cada uno es gasto, no activo/, '⛔ DS53: $9,000 entre 2 = $4,500 por unidad → 400, es gasto');
+      await no({ renglones: [ACT({ tipo: 'bien', descripcion: 'PC', cantidad: 1 }, 5000)] }, /por \$5,000\.00 cada uno es gasto/, '⛔ DS53: justo $5,000 todavía es gasto (es activo si PASA de $5,000) → 400');
+      await no({ renglones: [GASTO, ACT({ tipo: 'bien', descripcion: 'PC', cantidad: 2 })] }, /renglón 2, por \$4,500\.00/, '⛔ el motivo nombra el renglón que es (el 2)');
+      check(await cuantas() === antesP, 'ninguno de los rechazados dejó vale', { antes: antesP, despues: await cuantas() });
+
+      // Firmar la escribe en Kepler como cualquier solicitud: el renglón de activo con su concepto y su cuenta. La alta en el
+      // catálogo de activos de Kepler (kdt1) es DS49: la Suite todavía no la escribe.
+      const rA = await firmar(cA.id);
+      const folioA = rA?.solicitud_kepler?.folio;
+      check(rA?.status === 'validada' && rA?.solicitud_kepler?.status === 'written' && !!folioA, 'otra persona la firma → escrita en Kepler', rA?.solicitud_kepler);
+      const renA = (await k.query(`SELECT btrim(c12) c12, btrim(c8) c8 FROM md.kdm6 WHERE c1 = $1 AND btrim(c6) = $2`, [SUC, folioA || ''])).rows;
+      check(renA.length === 2 && renA.some((x) => x.c12 === C_ACTIVO && x.c8 === SUB_ACTIVO) && renA.some((x) => x.c12 === C_GASTO),
+        'Kepler: los dos renglones en kdm6; el de activo con su concepto y su cuenta 150 (c8, de kdco)', renA);
+    }
   } finally {
     // ── Limpieza: exactamente lo que se creó ─────────────────────────────────────────────────────
     if (cfdisSembrados.length) await knex('fiscal.cfdis').where({ tenant_id: T }).whereIn('uuid', cfdisSembrados).del().catch((e) => console.log(`  ! limpieza: ${e.message}`));
@@ -768,6 +861,7 @@ main()
   .then(async () => {
     await knex.destroy();
     console.log(`\n  ${ok} ✓ · ${fail} ✗`);
+    if (!fail && sinMedir) noMedido(sinMedir);
     process.exit(fail ? 1 : 0);
   })
   .catch(async (e) => {

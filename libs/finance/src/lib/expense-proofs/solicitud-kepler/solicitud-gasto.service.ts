@@ -7,7 +7,8 @@ import {
   todayMx, urlDeServidor,
 } from '@megadulces/platform-core';
 import {
-  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, conceptoSinCuenta, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  activoLimpio, alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, conceptoSinCuenta, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  esCuentaDeActivo, faltaDelActivo, vidaFiscalEnMeses, type GrupoDeActivo,
   exigeDetalle, faltaParaPedir, fechaLeidaProponible, fechaReal, formaPago, hayInformacionDePago, lecturaParaGuardar, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
   totalesDeLaSolicitud, unirDetallesDePago, type AlmacenesDeQuienPide, type InformacionDePago,
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
@@ -175,14 +176,31 @@ export class SolicitudGastoService {
       const proyectos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdcp WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const departamentos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdc3 WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const cedis = await this.cuentasDeCedis(trx, s);
+      const grupos = await this.gruposDeActivo(trx, s);
       return {
         sucursal: s,
         conceptos: conceptos.map((c): ConceptoDeGasto => ({
           ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) ?? conceptoSinCuenta(c.cuenta, s), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s),
+          // [PGP.122.17] Sólo en un concepto de activo: su grupo de Kepler y su vida fiscal (sin grupo = DS54 pendiente).
+          ...(esCuentaDeActivo(c.cuenta) ? { activo: grupos.get(c.cuenta) ?? { grupo: null, nombre: null, tasa: null, vida_meses: null } } : {}),
         })),
         proyectos, departamentos,
       };
     });
+  }
+
+  /**
+   * `[PGP.122.17]` Los grupos de activo de Kepler (`kdtact`) de ESE servidor, por subcuenta (`c4`): nombre, tasa anual y
+   * vida fiscal. Una subcuenta sin grupo no aparece (DS54: hoy `150-008`…`150-012` no tienen). Sin `kdtact` en el ODS,
+   * mapa vacío: el concepto se ofrece igual y dice que su grupo no está definido.
+   */
+  private async gruposDeActivo(trx: Trx, sucursal: string): Promise<Map<string, GrupoDeActivo>> {
+    const hay = (await trx.raw(`SELECT to_regclass('kepler_ods.kdtact') IS NOT NULL AS ok`)).rows[0]?.ok;
+    if (!hay) return new Map();
+    const filas = (await trx.raw(
+      `SELECT DISTINCT ON (btrim(c4)) btrim(c4) AS sub, btrim(c1) AS grupo, btrim(c2) AS nombre, c5::float8 AS tasa
+         FROM kepler_ods.kdtact WHERE sucursal = ? AND btrim(c1) <> '' AND btrim(c4) <> '' ORDER BY btrim(c4), c1`, [sucursal])).rows as Array<{ sub: string; grupo: string; nombre: string; tasa: number | null }>;
+    return new Map(filas.map((f) => [f.sub, { grupo: f.grupo, nombre: f.nombre, tasa: f.tasa, vida_meses: vidaFiscalEnMeses(f.tasa) }]));
   }
 
   /**
@@ -388,13 +406,17 @@ export class SolicitudGastoService {
         trx.raw(`to_char(needed_by, 'YYYY-MM-DD') AS needed_by`), trx.raw('vat_amount::float8 AS iva'), trx.raw('importe::float8 AS total'),
         ...(conPago ? ['payee_account', 'payee_bank', 'payee_email'] : []));
       if (!v) throw new NotFoundException('No es una solicitud nacida en la Suite');
+      // [PGP.122.17] El activo del renglón, para que quien firma vea qué se compra (antes de la migración, no se pide).
+      const conActivo = await trx.schema.withSchema('finance').hasColumn('expense_proof_lines', 'asset_description');
       const lineas = await trx('finance.expense_proof_lines').where({ proof_id: limpio }).orderBy('line_no').select(
-        'line_no', 'concept_code', 'concept_name', 'account', 'project_code', 'department_code', trx.raw('amount::float8 AS amount'));
+        'line_no', 'concept_code', 'concept_name', 'account', 'project_code', 'department_code', trx.raw('amount::float8 AS amount'),
+        ...(conActivo ? ['asset_description', 'asset_quantity', 'asset_location'] : []));
       return {
         id: String(v.id), sucursal: String(v.sucursal), acreedor: { clave: String(v.creditor_code ?? ''), nombre: v.proveedor ?? null },
         renglones: (lineas as Array<Record<string, unknown>>).map((l) => ({
           linea: Number(l['line_no']), concepto: String(l['concept_code']), nombre: (l['concept_name'] as string | null) ?? null,
           cuenta: (l['account'] as string | null) ?? null, proyecto: String(l['project_code']), departamento: String(l['department_code']), importe: Number(l['amount']),
+          ...(conActivo ? { activo: l['asset_description'] ? { descripcion: String(l['asset_description']), cantidad: Number(l['asset_quantity']), lugar: (l['asset_location'] as string | null) ?? null } : null } : {}),
         })),
         iva: Number(v.iva ?? 0), total: Number(v.total ?? 0),
         documento: { tipo: v.document_type ?? null, folio: v.document_folio ?? null, fecha: v.document_date ?? null, uuid: v.cfdi_uuid ?? null },
@@ -480,6 +502,8 @@ export class SolicitudGastoService {
     const renglones = (dto.renglones ?? []).map((r) => ({
       concepto: String(r.concepto ?? '').trim(), proyecto: String(r.proyecto ?? '').trim(),
       departamento: String(r.departamento ?? '').trim(), importe: Number(r.importe),
+      // [PGP.122.17] Lo que dice quien pide del bien; se valida abajo con la cuenta del catálogo, no con la de la pantalla.
+      activo: activoLimpio(r.activo),
     }));
     const formaPagoDetalle = unirDetallesDePago(detallesDePago(dto.forma_pago_detalle));
     const faltan = faltaParaPedir({
@@ -551,6 +575,11 @@ export class SolicitudGastoService {
           const distinto = conceptoDistintoDeCedis({ codigo: c, nombre: k.nombre, cuenta: k.cuenta }, cedis.get(c), s); if (distinto) no.push(distinto);
         }
       }
+      // [PGP.122.17] Cada renglón de activo (por la cuenta de Kepler): bien o gasto, qué es, cuántos y más de $5,000 por unidad.
+      renglones.forEach((r, i) => {
+        const k = conceptos.get(r.concepto);
+        if (k) for (const f of faltaDelActivo({ cuenta: k.cuenta, importe: r.importe, activo: r.activo }, i + 1)) no.push(f.motivo);
+      });
       for (const [k, tabla, que] of [['proyecto', 'kdcp', 'proyecto'], ['departamento', 'kdc3', 'departamento']] as const) {
         const hay = new Set(((await trx.raw(`SELECT DISTINCT btrim(c1) AS c FROM kepler_ods.${tabla} WHERE sucursal = ? AND btrim(c1) = ANY(?::text[])`, [s, codigos(k)])).rows as Array<{ c: string }>).map((r) => r.c));
         for (const c of codigos(k)) if (!hay.has(c)) no.push(`el ${que} ${c} no está en el catálogo de ${s}`);
@@ -591,6 +620,9 @@ export class SolicitudGastoService {
         concept_code: r.concepto, concept_name: conceptos.get(r.concepto)?.nombre ?? null, account: conceptos.get(r.concepto)?.cuenta ?? null,
         project_code: r.proyecto, department_code: r.departamento, amount: Math.round(r.importe * 100) / 100,
         prefill_source: dto.fuentes?.[`renglon_${i + 1}`] ?? null, created_by: actor, updated_by: actor,
+        // [PGP.122.17] Sólo un renglón de activo (ya validado): qué es, cuántos y el lugar. El resguardo lo pone el alta (DS56).
+        ...(esCuentaDeActivo(conceptos.get(r.concepto)?.cuenta) && r.activo?.tipo === 'bien'
+          ? { asset_description: r.activo.descripcion, asset_quantity: r.activo.cantidad, asset_location: r.activo.lugar ?? null } : {}),
       })));
       return { comentario };
       });
