@@ -94,6 +94,24 @@
 .cc-dia.is-on { background: var(--action); border-color: var(--action); color: var(--action-ink); font-weight: var(--fw-medium); }
 .cc-dia-ultimo { grid-column: span 4; }
 
+/* [PQ.3.18] El embudo de llenado: primario = cuánto se lleva (la respuesta de «Sin regla»); secundario = cada escalón,
+   que es un botón para ver sólo ése. Se agrupa por espacio, sin caja (Gestalt); el escalón activo se marca con peso,
+   subrayado y aria-pressed (nunca sólo color). */
+.cc-embudo { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.cc-embudo-total { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-medium); color: var(--fg-1); font-variant-numeric: tabular-nums; }
+.cc-embudo-escalones { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-1); }
+.cc-embudo-escalones li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-3); font-variant-numeric: tabular-nums; }
+.cc-embudo-escalones .cc-sub { display: inline; }
+.cc-escalon {
+  padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: var(--fs-sm); color: var(--fg-1);
+  text-decoration: underline; text-decoration-color: var(--border-color); text-underline-offset: 3px;
+}
+.cc-escalon:hover { text-decoration-color: currentColor; }
+.cc-escalon:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+/* Activo: peso + subrayado grueso del color de acción (no texto en --action: sobre claro no llega a 4.5:1). */
+.cc-escalon.is-on { font-weight: var(--fw-medium); text-decoration-color: var(--action); text-decoration-thickness: 2px; }
+
 /* Angosto: la búsqueda a todo el ancho. */
 @container (max-width: 40rem) {
   .cc-buscar { max-width: none; }
@@ -101,7 +119,7 @@
 
 /* Táctil: objetivos de 44 px (Fitts gana a la densidad cuando el puntero es el dedo). */
 @media (pointer: coarse) {
-  .cc-acc button, .cc-acc a, .cc-dia, .cc-link, .cc-buscar { min-height: var(--tap-min, 44px); }
+  .cc-acc button, .cc-acc a, .cc-dia, .cc-link, .cc-escalon, .cc-buscar { min-height: var(--tap-min, 44px); }
   /* Los campos de PrimeNG de los diálogos: su ANFITRIÓN es la caja (host [class]="cx('root')": p-select,
      p-datepicker, p-inputnumber), y el anfitrión sí lleva el atributo de este componente, así que se alcanza
      sin ::ng-deep (check:cascada) y sin tocar la hoja global. El input y el botón se estiran con él (inline-flex). */

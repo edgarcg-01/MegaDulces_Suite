@@ -275,8 +275,9 @@ correr(async () => {
     // 8 · Propuestas de Kepler.
     const hayVista = (await trx.raw(`SELECT to_regclass('commercial.v_purchase_calendar_proposal') IS NOT NULL AS ok`)).rows[0].ok;
     if (hayVista) {
-      let causa = null;
-      const prop = await R.leerPropuestas(trx, TENANT, (e) => { causa = e; });
+      const causas = {};
+      const prop = await R.leerPropuestas(trx, TENANT, (e, que) => { causas[que] = e; });
+      const causa = causas.dia_fijo ?? null;
       check('las propuestas no traen a quien ya tiene regla', !prop.sin_regla.some((p) => p.supplier_code === P.code), prop.sin_regla.length);
       // [PQ.3.14] El día fijo por sucursal: con el ODS de Kepler se mide; sin él, se DECLARA no medido (con su nota y
       // la causa a quien llama), la consulta va en un SAVEPOINT y la transacción sigue viva para lo que viene.
@@ -295,6 +296,45 @@ correr(async () => {
         const conDia = prop.sin_regla.filter((p) => p.dias_fijos.length);
         console.log(`  · ${conDia.length} proveedores sin regla con día fijo en alguna sucursal`);
       }
+
+      // [PQ.3.18] El embudo de llenado: se DECLARA, cuadra contra una consulta independiente y ordena por escalón.
+      const E = prop.embudo;
+      const lista = [...prop.sin_regla, ...prop.dia_fijo_pendiente];
+      if (E && E.measured) {
+        const vistaConRegla = Number((await trx.raw(`
+          SELECT count(*) AS n FROM commercial.v_purchase_calendar_proposal v
+           WHERE EXISTS (SELECT 1 FROM commercial.purchase_review_rules r
+                          WHERE r.tenant_id = ? AND r.supplier_code = v.supplier_code AND r.deleted_at IS NULL)`, [TENANT])).rows[0].n);
+        check('[PQ.3.18] el embudo cuadra: proveedores = sin regla + con regla; con regla = la vista con regla viva (consulta independiente); los escalones suman el total',
+          E.total.proveedores === prop.sin_regla.length + prop.con_regla && E.total.con_regla === vistaConRegla
+            && E.escalones.length === 3 && E.escalones.reduce((a, e) => a + e.proveedores, 0) === E.total.proveedores
+            && E.escalones.reduce((a, e) => a + e.con_regla, 0) === E.total.con_regla && causas.compra === undefined,
+          { total: E.total, vistaConRegla, escalones: E.escalones.map((e) => [e.escalon, e.proveedores, e.con_regla]) });
+        const enOrden = lista.every((p, i) => p.peso && [1, 2, 3].includes(p.peso.escalon)
+          && (i === 0 || i === prop.sin_regla.length || lista[i - 1].peso.escalon < p.peso.escalon
+            || (lista[i - 1].peso.escalon === p.peso.escalon && lista[i - 1].peso.compra_pct >= p.peso.compra_pct)));
+        check('[PQ.3.18] cada propuesta trae su peso y la lista va por escalón y luego por lo que pesa en la compra', enOrden,
+          lista.slice(0, 5).map((p) => [p.supplier_code, p.peso]));
+        // PRUEBA NEGATIVA: definir una regla la suma al avance; darla de baja la saca (el avance vuelve a lo de antes).
+        const primero = prop.sin_regla.find((p) => p.peso && p.peso.compra_pct > 0);
+        if (primero) {
+          const r1 = await R.guardarRegla(trx, TENANT, quien, { supplier_code: primero.supplier_code, scope: 'corporate', pattern: 'weekdays', weekdays: [2] });
+          const conRegla = (await R.leerPropuestas(trx, TENANT)).embudo.total;
+          await R.darDeBaja(trx, TENANT, quien, r1.id);
+          const deBaja = (await R.leerPropuestas(trx, TENANT)).embudo.total;
+          check(`[PQ.3.18] PRUEBA NEGATIVA: con la regla de ${primero.supplier_code} el avance sube 1 (y ${primero.peso.compra_pct} % de la compra); dada de baja, vuelve a lo de antes`,
+            conRegla.con_regla === E.total.con_regla + 1 && Math.abs(conRegla.compra_con_regla_pct - E.total.compra_con_regla_pct - primero.peso.compra_pct) <= 0.2
+              && deBaja.con_regla === E.total.con_regla && deBaja.compra_con_regla_pct === E.total.compra_con_regla_pct,
+            { antes: E.total, conRegla, deBaja });
+        } else {
+          NM('[PQ.3.18] la prueba negativa del avance: ninguna propuesta con compra en 12 meses en esta base');
+        }
+      } else {
+        check('[PQ.3.18] sin la compra de 12 meses el embudo se DECLARA no medido, con nota y la causa a quien llama; nadie trae peso',
+          !!E && E.measured === false && !!E.note && !!causas.compra && lista.every((p) => p.peso === null), { embudo: E, causa: causas.compra && causas.compra.message });
+      }
+      const viva2 = await trx.raw('SELECT 1 AS ok').then((r) => r.rows[0].ok === 1).catch(() => false);
+      check('[PQ.3.18] tras leer la compra de 12 meses la transacción sigue viva (el fallo, si lo hubo, quedó en su SAVEPOINT)', viva2, viva2);
     } else {
       NM('la vista commercial.v_purchase_calendar_proposal no existe en esta base (PQ.3.1 sin fuente)');
     }

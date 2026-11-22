@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Calendario de compras: el embudo de llenado en «Sin regla» (PQ.3.18 · 2026-11-22)
+- Arriba de «Sin regla» va cuánto se lleva: «Con regla: N de 340 proveedores · X % de la compra · Y % de las OC». Debajo, tres escalones con su avance: 1) los que hacen el 80 % de la compra o el 50 % de las OC, 2) el resto con compra recurrente, 3) ocasionales.
+- La lista va por escalón y luego por lo que pesa en la compra de 12 meses; antes iba por la siguiente fecha. Un clic en un escalón muestra sólo ése; otro clic, todos.
+- Cada renglón dice su peso: su parte de la compra, sus OC y rondas de 12 meses, y su escalón. La columna «Rondas en 12 meses» se fundió ahí.
+- Si la compra de 12 meses no se puede leer, la pantalla lo dice en vez de pintar 0 %, y la lista sigue en el orden de antes.
 ### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
 - Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
 - Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.

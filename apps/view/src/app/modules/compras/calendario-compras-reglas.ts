@@ -1,6 +1,6 @@
 import {
   ETIQUETA_MOTIVO_NO_SE_PIDE, fechasDeLaRegla, sumarDias, diaIso,
-  type AlcanceDeQuienVe, type EstadoDeRegla, type FuenteActividad, type MarcaVista, type PatronDeRegla, type PropuestaDiaFijo, type PropuestaSinRegla,
+  type AlcanceDeQuienVe, type AvanceDelEmbudo, type EscalonLlenado, type EstadoDeRegla, type FuenteActividad, type MarcaVista, type PatronDeRegla, type PesoProveedor, type PropuestaDiaFijo, type PropuestaSinRegla,
   type ReglaCalendario,
 } from '@megadulces/contracts';
 
@@ -223,4 +223,45 @@ export function alcanceEnPalabras(a: AlcanceDeQuienVe, nombre: (code: string) =>
 /** `[PQ.3.6]` «para Yurécuaro» cuando la lista está recortada; vacío si ve todas. */
 export function paraQuienVe(a: AlcanceDeQuienVe, nombre: (code: string) => string): string {
   return a.todas || !a.sucursales.length ? '' : ` para ${lista(a.sucursales.map(nombre))}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[PQ.3.18]` El embudo de llenado en palabras (anexo C §10.10).
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Un porcentaje con un decimal como máximo: «82.8 %», «0 %». Entre el número y el signo va un espacio que NO se parte
+ * (U+00A0): la prueba visual en el celular encontró «68.1» en un renglón y «% de las OC» en el siguiente.
+ */
+export function porcentaje(x: number): string {
+  return `${x.toLocaleString('es-MX', { maximumFractionDigits: 1 })}\u00a0%`;
+}
+
+/** Qué junta cada escalón, en el orden en que se llena (el % pegado a su número, como en `porcentaje`). */
+export const NOMBRE_ESCALON: Readonly<Record<EscalonLlenado, string>> = {
+  1: 'Escalón 1 · el 80\u00a0% de la compra o el 50\u00a0% de las OC',
+  2: 'Escalón 2 · el resto con compra recurrente',
+  3: 'Escalón 3 · ocasionales',
+};
+
+/** La línea del avance total: «Con regla: 0 de 340 proveedores · 0 % de la compra · 0 % de las OC». Sin medir, lo dice. */
+export function avanceTotalEnPalabras(t: AvanceDelEmbudo): string {
+  const prov = `Con regla: ${t.con_regla} de ${t.proveedores} ${t.proveedores === 1 ? 'proveedor' : 'proveedores'}`;
+  if (t.compra_con_regla_pct === null || t.ocs_con_regla_pct === null) return `${prov} (lo que pesan en la compra no se midió)`;
+  return `${prov} · ${porcentaje(t.compra_con_regla_pct)} de la compra · ${porcentaje(t.ocs_con_regla_pct)} de las OC`;
+}
+
+/** El avance de un escalón: «0 de 62 proveedores · 0 de 82.8 % de la compra · 0 de 65.8 % de las OC». */
+export function avanceEscalonEnPalabras(e: AvanceDelEmbudo): string {
+  if (e.proveedores === 0) return 'Ningún proveedor en este escalón';
+  const prov = `${e.con_regla} de ${e.proveedores} ${e.proveedores === 1 ? 'proveedor' : 'proveedores'}`;
+  if (e.compra_pct === null || e.compra_con_regla_pct === null || e.ocs_pct === null || e.ocs_con_regla_pct === null) return prov;
+  return `${prov} · ${porcentaje(e.compra_con_regla_pct)} de ${porcentaje(e.compra_pct)} de la compra · ${porcentaje(e.ocs_con_regla_pct)} de ${porcentaje(e.ocs_pct)} de las OC`;
+}
+
+/** El peso de un proveedor en su renglón: principal y detalle. Sin medir, lo dice. */
+export function pesoEnPalabras(peso: PesoProveedor | null, rondas: number): { readonly principal: string; readonly detalle: string } {
+  const r = `${rondas} ${rondas === 1 ? 'ronda' : 'rondas'} en 12 meses`;
+  if (!peso) return { principal: 'Peso no medido', detalle: r };
+  return { principal: `${porcentaje(peso.compra_pct)} de la compra`, detalle: `${peso.ocs_12m} OC · ${r} · escalón ${peso.escalon}` };
 }

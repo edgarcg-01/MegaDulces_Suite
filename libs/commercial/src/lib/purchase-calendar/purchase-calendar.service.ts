@@ -62,8 +62,9 @@ export class PurchaseCalendarService {
   propuestas(): Promise<PropuestasCalendario> {
     const tenant = this.tenantCtx.requireTenantId();
     // `[PQ.3.14]` Si la actividad de 12 meses falla, la respuesta lo DECLARA (`dia_fijo.measured: false`) y aquí queda la causa.
-    return this.tk.run((trx: Knex.Transaction) => leerPropuestas(trx, tenant, (e) =>
-      this.logger.warn(`[PQ.3.14] día fijo por sucursal NO MEDIDO: ${String((e as Error)?.message ?? e).split(' - ').pop()}`)));
+    // `[PQ.3.18]` Igual con la compra de 12 meses del embudo (`embudo.measured: false`).
+    return this.tk.run((trx: Knex.Transaction) => leerPropuestas(trx, tenant, (e, que) =>
+      this.logger.warn(`${que === 'compra' ? '[PQ.3.18] peso del embudo' : '[PQ.3.14] día fijo por sucursal'} NO MEDIDO: ${String((e as Error)?.message ?? e).split(' - ').pop()}`)));
   }
 
   async guardarRegla(sesion: Sesion, dto: GuardarReglaDto): Promise<GuardarReglaRespuesta> {

@@ -1,6 +1,6 @@
 import {
-  diaIso, diasEntre, estadoDeRegla, PERIODOS_DIA_FIJO, sumarDias, VENTANA_REZAGO_DIAS,
-  type AlcanceDeQuienVe, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
+  diaIso, diasEntre, ESCALON1_COMPRA_PCT, ESCALON1_OCS_PCT, ESCALONES_LLENADO, estadoDeRegla, PERIODOS_DIA_FIJO, sumarDias, VENTANA_REZAGO_DIAS,
+  type AlcanceDeQuienVe, type AvanceDelEmbudo, type EmbudoLlenado, type EscalonLlenado, type PesoProveedor, type CalendarioCompras, type EstadoRevision, type FuenteActividad, type MarcaVista, type PropuestaDiaFijo,
   type ReglaCalendario, type ReglaRevision, type ZonaDeCompra,
 } from '@megadulces/contracts';
 
@@ -156,6 +156,87 @@ export function repartirPropuestas<T extends { readonly supplier_code: string; r
   return {
     sin_regla: con.filter((p) => p.reglas_vivas === 0),
     dia_fijo_pendiente: con.filter((p) => p.reglas_vivas > 0 && p.dias_fijos.length > 0),
+  };
+}
+
+/** `[PQ.3.18]` Lo que el embudo necesita de cada proveedor del universo (la vista PQ.3.1). */
+export interface FilaEmbudo {
+  readonly supplier_code: string;
+  readonly proposal_status: string;
+  readonly reglas_vivas: number;
+  /** Tiene día fijo en alguna sucursal (PQ.3.14): su regla ya viene armada, no es «ocasional». */
+  readonly con_dia_fijo: boolean;
+}
+
+/** `[PQ.3.18]` La compra de 12 meses de un proveedor: monto y número de sus OC vivas. */
+export interface CompraDoceMeses {
+  readonly monto: number;
+  readonly ocs: number;
+}
+
+const unDecimal = (x: number): number => Math.round(x * 10) / 10;
+const OCASIONAL = new Set(['pocas_compras', 'una_compra']);
+
+/**
+ * `[PQ.3.18]` El embudo de llenado (anexo C §10.10), puro. Escalón 1 = los que, de mayor a menor, juntan el 80 % de la
+ * COMPRA **o** el 50 % de las OC (dinero y operaciones no ordenan igual); 3 = ocasionales (una o pocas compras, sin
+ * día fijo); 2 = el resto. El escalón es del proveedor, no de si ya tiene regla: así el avance de cada escalón no se
+ * mueve de lugar al llenarse. `compra = null` = no se pudo leer: se cuentan proveedores y reglas, y nada más.
+ */
+export function armarEmbudo(
+  filas: readonly FilaEmbudo[],
+  compra: ReadonlyMap<string, CompraDoceMeses> | null,
+): { readonly peso: ReadonlyMap<string, PesoProveedor>; readonly embudo: EmbudoLlenado } {
+  const conRegla = (f: FilaEmbudo) => f.reglas_vivas > 0;
+  if (!compra) {
+    return {
+      peso: new Map(),
+      embudo: {
+        measured: false,
+        note: 'No se pudo leer la compra de 12 meses: el peso de cada proveedor no se midió y la lista va en el orden de Kepler.',
+        total: { escalon: null, proveedores: filas.length, con_regla: filas.filter(conRegla).length, compra_pct: null, compra_con_regla_pct: null, ocs_pct: null, ocs_con_regla_pct: null },
+        escalones: [],
+      },
+    };
+  }
+  const de = (f: FilaEmbudo): CompraDoceMeses => compra.get(f.supplier_code) ?? { monto: 0, ocs: 0 };
+  const totalMonto = filas.reduce((a, f) => a + Math.max(0, de(f).monto), 0);
+  const totalOcs = filas.reduce((a, f) => a + Math.max(0, de(f).ocs), 0);
+  // Los primeros que, de mayor a menor, juntan el umbral: entra el que empieza ANTES de cruzarlo.
+  const primeros = (valor: (f: FilaEmbudo) => number, total: number, umbral: number): Set<string> => {
+    const out = new Set<string>();
+    if (total <= 0) return out;
+    let acum = 0;
+    for (const f of [...filas].sort((a, b) => valor(b) - valor(a) || a.supplier_code.localeCompare(b.supplier_code))) {
+      if ((100 * acum) / total >= umbral || valor(f) <= 0) break;
+      out.add(f.supplier_code);
+      acum += valor(f);
+    }
+    return out;
+  };
+  const porCompra = primeros((f) => Math.max(0, de(f).monto), totalMonto, ESCALON1_COMPRA_PCT);
+  const porOcs = primeros((f) => Math.max(0, de(f).ocs), totalOcs, ESCALON1_OCS_PCT);
+  const escalonDe = (f: FilaEmbudo): EscalonLlenado =>
+    porCompra.has(f.supplier_code) || porOcs.has(f.supplier_code) ? 1 : OCASIONAL.has(f.proposal_status) && !f.con_dia_fijo ? 3 : 2;
+  const pct = (x: number, t: number): number => (t > 0 ? unDecimal((100 * x) / t) : 0);
+  const peso = new Map<string, PesoProveedor>(filas.map((f) => [f.supplier_code, {
+    escalon: escalonDe(f), compra_pct: pct(Math.max(0, de(f).monto), totalMonto), ocs_12m: Math.max(0, de(f).ocs),
+  }]));
+  const avance = (escalon: EscalonLlenado | null, xs: readonly FilaEmbudo[]): AvanceDelEmbudo => {
+    const con = xs.filter(conRegla);
+    const suma = (ys: readonly FilaEmbudo[], k: keyof CompraDoceMeses) => ys.reduce((a, f) => a + Math.max(0, de(f)[k]), 0);
+    return {
+      escalon, proveedores: xs.length, con_regla: con.length,
+      compra_pct: pct(suma(xs, 'monto'), totalMonto), compra_con_regla_pct: pct(suma(con, 'monto'), totalMonto),
+      ocs_pct: pct(suma(xs, 'ocs'), totalOcs), ocs_con_regla_pct: pct(suma(con, 'ocs'), totalOcs),
+    };
+  };
+  return {
+    peso,
+    embudo: {
+      measured: true, note: null, total: avance(null, filas),
+      escalones: ESCALONES_LLENADO.map((e) => avance(e, filas.filter((f) => peso.get(f.supplier_code)?.escalon === e))),
+    },
   };
 }
 
