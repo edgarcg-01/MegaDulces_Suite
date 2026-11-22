@@ -5,6 +5,7 @@ import type { Knex } from 'knex';
 import { totalesCotizacion } from '@megadulces/contracts';
 import { FUENTE_PRECIOS_COTIZACION } from '../shared/catalogo-buscador';
 import { factorExactoDeFicha } from '../commercial-replenishment/ficha-kepler';
+import { disponibilidadAlCotizar } from './quote-disponibilidad';
 
 /**
  * `[COT.1]` — El motor de precio de una cotización.
@@ -1077,11 +1078,11 @@ export class QuotePricingService {
         `INSERT INTO commercial.quote_lines
            (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
             unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-            availability, notes, qty_unit, created_by, updated_by)
+            availability, stock_at_quote, notes, qty_unit, created_by, updated_by)
          VALUES
            (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
             0, 0, 0, 0, 'free_goods', :parent,
-            :availability, :notes, :qty_unit, :user_id, :user_id)`,
+            :availability, :stock_at_quote, :notes, :qty_unit, :user_id, :user_id)`,
         {
           quote_id: quoteId,
           line_number: lineNumber,
@@ -1089,7 +1090,8 @@ export class QuotePricingService {
           requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
           quantity: priced.free_goods.quantity,
           parent,
-          availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+          ...(await this.alCotizar(trx, priced.branch, priced.free_goods.sku,
+            priced.free_goods.product_id ? 'available' : 'unmatched', priced.free_goods.quantity, 'desconocido')),
           notes: `Producto gratis del ERP por el renglón ${parent}`,
           qty_unit: priced.free_goods.unit_label ?? null,
           user_id: userId,
@@ -1117,6 +1119,8 @@ export class QuotePricingService {
     const unit = priced?.unit_price ?? null;
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
     const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
+    // `[COT.51]` La existencia de la sucursal en este momento, y si alcanzaba.
+    const al = await this.alCotizar(trx, priced?.branch, priced?.sku, priced?.availability ?? 'unmatched', qty, priced?.unit_factor ?? null);
 
     await trx.raw(
       // `[COT.1b]` El sello de unidad (`qty_unit`/`qty_factor`/`qty_factor_source`) entra al
@@ -1125,11 +1129,11 @@ export class QuotePricingService {
       `INSERT INTO commercial.quote_lines
          (tenant_id, quote_id, line_number, product_id, requested_text, requested_quantity, quantity,
           unit_price, list_price, tax_rate, iva_rate, ieps_rate, line_subtotal, line_total, price_source, parent_line_number,
-          availability, notes, qty_unit, qty_factor, qty_factor_source, created_by, updated_by)
+          availability, stock_at_quote, notes, qty_unit, qty_factor, qty_factor_source, created_by, updated_by)
        VALUES
          (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :requested_quantity, :quantity,
           :unit_price, :list_price, :tax_rate, :iva_rate, :ieps_rate, :line_subtotal, :line_total, :price_source, :parent,
-          :availability, :notes, :qty_unit, :qty_factor, :qty_factor_source, :user_id, :user_id)`,
+          :availability, :stock_at_quote, :notes, :qty_unit, :qty_factor, :qty_factor_source, :user_id, :user_id)`,
       {
         quote_id: quoteId,
         line_number: lineNumber,
@@ -1148,7 +1152,8 @@ export class QuotePricingService {
         line_total: lineTotal,
         price_source: priced?.price_source ?? 'unknown',
         parent,
-        availability: priced?.availability ?? 'unmatched',
+        availability: al.availability,
+        stock_at_quote: al.stock_at_quote,
         notes: priced?.unpriced_reason ?? null,
         // `[COT.1b]` El peldaño cotizado, tal como el ERP lo rotula. Los tres van juntos o no van:
         // un rótulo sin factor, o un factor sin de-dónde-salió, es media afirmación.
@@ -1287,6 +1292,8 @@ export class QuotePricingService {
     const unit = priced?.unit_price ?? null;
     const lineTotal = unit === null ? 0 : this.round(unit * qty, 2);
     const subtotal = unit === null ? 0 : this.round(lineTotal / this.divisorImpuesto(priced), 2);
+    // `[COT.51]` Re-cotizar es volver a cotizar: la existencia se vuelve a tomar.
+    const al = await this.alCotizar(trx, priced?.branch, priced?.sku, priced?.availability ?? 'unmatched', qty, priced?.unit_factor ?? null);
 
     await trx.raw(
       `UPDATE commercial.quote_lines
@@ -1300,6 +1307,7 @@ export class QuotePricingService {
               line_total = :line_total,
               price_source = :price_source,
               availability = :availability,
+              stock_at_quote = :stock_at_quote,
               notes = :notes,
               qty_unit = :qty_unit,
               qty_factor = :qty_factor,
@@ -1319,7 +1327,8 @@ export class QuotePricingService {
         line_subtotal: subtotal,
         line_total: lineTotal,
         price_source: priced?.price_source ?? 'unknown',
-        availability: priced?.availability ?? 'unmatched',
+        availability: al.availability,
+        stock_at_quote: al.stock_at_quote,
         notes: priced?.unpriced_reason ?? null,
         qty_unit: priced?.unit_label ?? null,
         qty_factor: priced?.unit_factor ?? null,
@@ -1340,11 +1349,11 @@ export class QuotePricingService {
         `INSERT INTO commercial.quote_lines
            (tenant_id, quote_id, line_number, product_id, requested_text, quantity,
             unit_price, list_price, line_subtotal, line_total, price_source, parent_line_number,
-            availability, notes, qty_unit, created_by, updated_by)
+            availability, stock_at_quote, notes, qty_unit, created_by, updated_by)
          VALUES
            (public.current_tenant_id(), :quote_id, :line_number, :product_id, :requested_text, :quantity,
             0, 0, 0, 0, 'free_goods', :parent,
-            :availability, :notes, :qty_unit, :user_id, :user_id)`,
+            :availability, :stock_at_quote, :notes, :qty_unit, :user_id, :user_id)`,
         {
           quote_id: quoteId,
           line_number: Number(nextN.rows[0].n),
@@ -1352,7 +1361,8 @@ export class QuotePricingService {
           requested_text: priced.free_goods.product_id ? null : priced.free_goods.sku,
           quantity: priced.free_goods.quantity,
           parent: n,
-          availability: priced.free_goods.product_id ? 'available' : 'unmatched',
+          ...(await this.alCotizar(trx, priced.branch, priced.free_goods.sku,
+            priced.free_goods.product_id ? 'available' : 'unmatched', priced.free_goods.quantity, 'desconocido')),
           notes: `Producto gratis del ERP por el renglón ${n}`,
           qty_unit: priced.free_goods.unit_label ?? null,
           user_id: userId,
@@ -1459,20 +1469,48 @@ export class QuotePricingService {
 
   /** Existencia por SKU de UNA sucursal y la frescura del feed. La vista sin filtro tarda más de un minuto; por sucursal y SKU, ~75 ms (medido). */
   private async existencia(trx: Knex, branch: string, skus: string[]): Promise<{ stock: Map<string, number>; al: string | null }> {
-    const stock = new Map<string, number>();
-    if (skus.length) {
-      const st = await trx.raw(
-        `SELECT sku, qty_stock_units FROM analytics.v_erp_stock_on_hand
-          WHERE warehouse_code = ? AND sku IN (${skus.map(() => '?').join(', ')})`,
-        [branch, ...skus],
-      );
-      for (const r of st.rows as Array<{ sku: string; qty_stock_units: string | number | null }>) {
-        if (r.qty_stock_units !== null) stock.set(r.sku, Number(r.qty_stock_units));
-      }
-    }
+    const stock = await this.existenciaBase(trx, branch, skus);
     const fresco = await trx.raw(`SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`);
     const al = (fresco.rows as Array<{ dato_al: string | Date | null }>)[0]?.dato_al ?? null;
     return { stock, al: al ? new Date(al).toISOString() : null };
+  }
+
+  /** La existencia en unidad BASE por SKU de una sucursal. Ausente del mapa = el ERP no la da (sin dato, no cero). */
+  private async existenciaBase(trx: Knex, branch: string, skus: string[]): Promise<Map<string, number>> {
+    const stock = new Map<string, number>();
+    if (!skus.length) return stock;
+    const st = await trx.raw(
+      `SELECT sku, qty_stock_units FROM analytics.v_erp_stock_on_hand
+        WHERE warehouse_code = ? AND sku IN (${skus.map(() => '?').join(', ')})`,
+      [branch, ...skus],
+    );
+    for (const r of st.rows as Array<{ sku: string; qty_stock_units: string | number | null }>) {
+      if (r.qty_stock_units !== null) stock.set(r.sku, Number(r.qty_stock_units));
+    }
+    return stock;
+  }
+
+  /**
+   * `[COT.51]` Lo que el renglón guarda de la existencia: la de la sucursal en unidad base
+   * (`stock_at_quote`) y si alcanzaba (`availability`, ver `quote-disponibilidad.ts`). Una lectura
+   * por renglón, ~5 ms medido en prod (sucursal + un SKU). Sin producto casado no se lee nada: lo
+   * que no casó con el catálogo no tiene existencia que medir.
+   */
+  private async alCotizar(
+    trx: Knex,
+    branch: string | null | undefined,
+    sku: string | null | undefined,
+    delMotor: string,
+    cantidad: number,
+    factor: number | null | 'desconocido',
+  ): Promise<{ availability: string; stock_at_quote: number | null }> {
+    const suc = (branch || '').trim();
+    const clave = (sku || '').trim();
+    if (!suc || !clave || delMotor === 'unmatched' || delMotor === 'not_carried') {
+      return { availability: delMotor, stock_at_quote: null };
+    }
+    const base = (await this.existenciaBase(trx, suc, [clave])).get(clave) ?? null;
+    return { availability: disponibilidadAlCotizar(delMotor, base, cantidad, factor), stock_at_quote: base };
   }
 
   async checkQuote(quoteId: string): Promise<QuoteCheck> {

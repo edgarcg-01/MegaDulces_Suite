@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
+- Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
+- Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.
+
 ### Fixed — Telemarketing › Cotizaciones: la lista de artículos en el celular (COT.49 · 2026-11-21)
 - En el celular el nombre del artículo se encimaba con el SKU, el precio salía cortado y la lista medía dos tercios del ancho. Ahora el buscador ocupa todo el ancho de la tarjeta y cada artículo se lee en dos líneas: el nombre completo arriba; SKU, unidad y existencia abajo; el precio a la derecha. Vale para la cotización nueva y para el borrador.
 - Al tocar el buscador en el celular, sube arriba de la pantalla para que la lista quepa entre él y el teclado.
