@@ -328,6 +328,37 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-22** — 🧪 **[COT.50] La cotización a medias ya no se pierde con la sesión vencida ni con dos pestañas**
+  (Sergio, vendedor de telemarketing de la 01, por Francisco: «dos veces esta semana se me cerró la ventana, perdí la
+  captura y tuve que volver a empezar»). COT.32 ya guardaba la captura en el navegador; **por qué no alcanzó, medido:**
+  (1) **la sesión vencida la borraba.** El token dura 12 h (`expiresIn: '12h'`); el 401 llama a `logout()`, y `logout()`
+  vacía `localStorage` salvo las 11 claves del aparato (`[SEG.2]`), con la cotización a medias adentro. Sergio cotiza de
+  ~10:00 a 22:30 (16 y 18-nov, `portal_telemetry_events` + `commercial.quotes`): cruza las 12 h a media captura, y cerrar
+  la ventana y volver con el token vencido cae en el mismo borrado. COT.32 decía protegerla de «la sesión vencida» y la
+  limpieza de sesión la tiraba. (2) **Una sola ranura por usuario:** una pestaña vacía de «Nueva cotización» borraba al
+  ocultarse lo que la otra llevaba capturado, dos capturas en paralelo se pisaban y, mientras el aviso esperaba respuesta,
+  lo nuevo no se respaldaba. En 14 días, 5 personas de telemarketing tuvieron sesiones abiertas a la vez (38 pares; 10 con
+  las dos en «Nueva cotización»; Sergio 0, así que en él fue (1)). **Arreglo:** el cierre de sesión que la persona no
+  pidió (401, o la sesión cerrada en otra pestaña) conserva su trabajo sin enviar (`PREFIJOS_TRABAJO_SIN_ENVIAR` en
+  `libs/ui-web`, opción `conservarTrabajoSinEnviar`); el voluntario lo sigue borrando. Cada pestaña escribe en su ranura
+  (`cotizacion-a-medias:<usuario>:<pestaña>`), la clave de antes se sigue leyendo, y el aviso sólo ofrece las de pestañas
+  cerradas: cada pestaña abierta sostiene un candado de Web Locks que el navegador suelta solo al cerrarse o tronar (sin
+  Web Locks se ofrecen todas, como antes). Recuperar con algo ya capturado lo aparta como un borrador más del aviso.
+  **Las cinco preguntas:** (1) al entrar, si hay respaldos de pestañas cerradas, arriba el aviso, el más nuevo primero:
+  quién, cuántos artículos, sucursal y hace cuánto, con Recuperar y Descartar; (2) no se ofrece el de una pestaña que sigue
+  abierta (recuperarlo duplicaría la captura) ni sale aviso sin respaldo; (3) a 0 clics, cada botón con su nombre
+  accesible («Recuperar Abarrotes Lupita · 12 artículos…»); (4) ligada a la sesión: el login regresa a `/nueva` con
+  `returnUrl` y ahí está el aviso; al crear la cotización su respaldo se borra; (5) le toca a esta pantalla: el borrador
+  (`/cotizaciones/:id`) guarda renglón por renglón en el servidor y no tiene captura que perder. **Seguridad (SEG.2):** lo
+  conservado es de la persona, no del aparato: su clave lleva el usuario (en una PC compartida otra persona no lo ve en la
+  pantalla), caduca a 7 días y el primer cierre voluntario en ese navegador lo borra. **Comprobado:** 8 pruebas nuevas en
+  `cotizacion-a-medias.spec.ts` (ranura por pestaña, pestaña abierta no se ofrece, candado de mentira, de punta a punta
+  401→sigue ahí / voluntario→se va), 3 en `televenta-quote-new.borrador.spec.ts` y 4 en `session-cleanup.spec.ts`;
+  **prueba negativa:** con el arreglo roto (guarda de la ranura única, sin apartar, sin conservar) caen 3; televenta + core
+  424/424, ui-web 17/17; `nx build view` limpio; `check:templates` y `check:estilos` en verde; `check:pantalla -- televenta`
+  igual antes y después (25 fallas, 4 nuevas, ninguna de este cambio). **NO verificado:** sin prueba visual con la app
+  levantada; sin reproducir un 401 real en el navegador (lo cubre la prueba de punta a punta sobre `localStorage` de
+  jsdom). Sin migración ni endpoint.
 - **2026-11-22** — 🧪 **[COT.51] Cada renglón guarda la existencia que había al cotizarlo** (punto 1 de la auditoría de uso y
   ML de Cotizaciones, 2026-11-21: «sin el dato, ningún modelo»). **Medido en prod** (sólo lectura): `stock_at_quote` vacío en
   9,163 de 9,163 renglones y `availability = 'available'` en los 9,163. En el código ese valor significaba «el SKU casó con
