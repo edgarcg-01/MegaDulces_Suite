@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { WAREHOUSE_ORDER_CANCELADO } from '@megadulces/contracts';
+import { estatusVigenteSql } from '@megadulces/contracts';
 
 /**
  * `[GP.2]` El pedido de Kepler (`U-D-40`) como origen del motor de surtido (ADR-086, ADR-067).
@@ -20,9 +20,13 @@ import { WAREHOUSE_ORDER_CANCELADO } from '@megadulces/contracts';
  * «en SURTIDO» de noviembre y 15 de los 75 AUTORIZADO que la cola ofrecía para surtir.
  * UN solo lugar para la regla: el tablero (GP.1), la cola de surtido y los atorados la usan igual.
  * Pide el alias `h` para `kepler_ods.kdm1`.
+ *
+ * `[PQ.137]` La regla se mudó a `libs/contracts` (`estatusVigenteSql`, con el alias como
+ * parámetro) porque Autoabasto la necesita con otro alias y la estaba resolviendo por su cuenta
+ * —leyendo `c11` a secas— en «Lo que te va a llegar» (ADR-056). Acá queda el mismo valor de
+ * siempre, para no tocar a los cuatro consumidores de este archivo.
  */
-export const ESTATUS_VIGENTE_SQL = `CASE WHEN btrim(coalesce(h.c43::text, '')) = 'C' THEN '${WAREHOUSE_ORDER_CANCELADO}'
-              ELSE upper(NULLIF(btrim(h.c11::text), '')) END`;
+export const ESTATUS_VIGENTE_SQL = estatusVigenteSql('h');
 
 /**
  * `[GP.10.1]` La cabecera VIGENTE de UN pedido `U-D-40` por su llave, como cuerpo de un `LATERAL`:

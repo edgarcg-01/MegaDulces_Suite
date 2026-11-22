@@ -16,7 +16,7 @@ MÉTRICA:  Requisiciones aprobadas que llegaron a un documento de Kepler — HOY
           los renglones con venta posterior.
 CAPA TOPE: C3 (la agenda y el Ciclo como entrada) — pero los frentes M1 y M2 se quedan en C0.
 ÁREA:      Comercial (Compras)
-DUEÑO:     <a firmar: el PM abrió la fase el 2026-10-23 sin nombrar dev; sin dueño y fecha cae a ⏸️ (método §3)>
+DUEÑO:     Francisco (firmado por Edgar el 2026-11-22, al abrir el anexo T.2: «Francisco es el nombre en el tablero»)
 ESTADO:    🔨 desde 2026-10-23 — el PM pasó PO a ⏸️ para hacerle lugar (PO: sin commit desde el 3-oct,
            0 items en el tracker). Fila en el roadmap de CLAUDE.md. M1 y M2 ya corrieron (§11).
 ```

@@ -1,5 +1,10 @@
 import { Knex } from 'knex';
-import type { EscaleraUnidades, VieneBase } from '@megadulces/contracts';
+import {
+  estatusVigenteSql,
+  WAREHOUSE_ORDER_ABIERTOS_SQL,
+  type EscaleraUnidades,
+  type VieneBase,
+} from '@megadulces/contracts';
 
 /**
  * `[AB.34]` **Lo que la sucursal ya pidió**: la cuenta compartida de «lo que ya viene» de una
@@ -15,6 +20,13 @@ import type { EscaleraUnidades, VieneBase } from '@megadulces/contracts';
  *    no tiene ningún `U-D-40`; restarlas restaría mercancía que no existe).
  *  · Pedido abierto de 7 días o menos y embarque sin recibir de 7 días o menos: se RESTAN. Lo más
  *    viejo (atorado) y lo negado se MUESTRAN, no se restan.
+ *  · `[PQ.136]` **Abierto** son los estatus de `WAREHOUSE_ORDER_ABIERTOS`, y desde ADR-126 incluyen
+ *    `CREADO`: el pedido que escribe la Suite nace así, y si no contara, la sucursal volvería a
+ *    pedir al día siguiente lo que acaba de pedir.
+ *  · `[PQ.137]` El estatus es el **vigente** (`estatusVigenteSql`), no el `c11` crudo: Kepler
+ *    cancela con `c43='C'` y le conserva el estatus viejo. Hoy un cancelado no inflaba esta cuenta
+ *    de milagro —el `JOIN` a `kdm2` lo descartaba porque la cancelación borra los renglones
+ *    (medido: 164 de 164)—, y eso no es una regla, es una casualidad.
  *  · La cantidad del renglón viene en su unidad (`kdm2.c11`) y se lleva a base con la escalera (AB.23:
  *    44 renglones en 30 días venían en CAJAS). Una unidad que la escalera no conoce no se adivina: se cuenta.
  *
@@ -67,7 +79,7 @@ WITH dest AS (
 ),
 h AS MATERIALIZED (
   SELECT DISTINCT ON (k.sucursal, k.c5, k.c6)
-         k.sucursal, k.c2, k.c3, k.c4, k.c5, k.c6, upper(btrim(k.c11::text)) AS est, k.c9::date AS f
+         k.sucursal, k.c2, k.c3, k.c4, k.c5, k.c6, ${estatusVigenteSql('k')} AS est, k.c9::date AS f
     FROM kepler_ods.kdm1 k
    WHERE k.c2 = 'U' AND k.c3 = 'D' AND (k.c4)::int = 40
      AND btrim(k.c1) = btrim(k.sucursal)
@@ -88,8 +100,8 @@ l AS (
      AND btrim(x.c1) = btrim(x.sucursal)
 )
 SELECT sku, unidad,
-       COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f >= current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS ya_pedido,
-       COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f <  current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS atorado,
+       COALESCE(sum(base_qty) FILTER (WHERE est IN ${WAREHOUSE_ORDER_ABIERTOS_SQL} AND f >= current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS ya_pedido,
+       COALESCE(sum(base_qty) FILTER (WHERE est IN ${WAREHOUSE_ORDER_ABIERTOS_SQL} AND f <  current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS atorado,
        COALESCE(sum(GREATEST(ped - emb, 0) * base_qty / NULLIF(fin, 0))
                 FILTER (WHERE est = 'EMBARCADO' AND f >= current_date - ${VENTANA_NEGADO_DIAS}), 0) AS negado
   FROM l
@@ -199,7 +211,7 @@ WITH cat AS (
 ),
 h AS MATERIALIZED (
   SELECT DISTINCT ON (k.sucursal, k.c5, k.c6)
-         k.sucursal, k.c2, k.c3, k.c4, k.c5, k.c6, upper(btrim(k.c11::text)) AS est, k.c9::date AS f,
+         k.sucursal, k.c2, k.c3, k.c4, k.c5, k.c6, ${estatusVigenteSql('k')} AS est, k.c9::date AS f,
          btrim(k.c10::text) AS dest
     FROM kepler_ods.kdm1 k
    WHERE k.c2 = 'U' AND k.c3 = 'D' AND (k.c4)::int = 40
@@ -222,8 +234,8 @@ l AS (
      AND btrim(x.c1) = btrim(x.sucursal)
 )
 SELECT suc, sku, unidad,
-       COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f >= current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS ya_pedido,
-       COALESCE(sum(base_qty) FILTER (WHERE est IN ('AUTORIZADO','SURTIDO','CHECADO') AND f <  current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS atorado,
+       COALESCE(sum(base_qty) FILTER (WHERE est IN ${WAREHOUSE_ORDER_ABIERTOS_SQL} AND f >= current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS ya_pedido,
+       COALESCE(sum(base_qty) FILTER (WHERE est IN ${WAREHOUSE_ORDER_ABIERTOS_SQL} AND f <  current_date - ${VENTANA_YA_PEDIDO_DIAS}), 0) AS atorado,
        COALESCE(sum(GREATEST(ped - emb, 0) * base_qty / NULLIF(fin, 0))
                 FILTER (WHERE est = 'EMBARCADO' AND f >= current_date - ${VENTANA_NEGADO_DIAS}), 0) AS negado
   FROM l

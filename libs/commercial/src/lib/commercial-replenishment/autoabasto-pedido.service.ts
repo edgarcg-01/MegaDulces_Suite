@@ -4,6 +4,8 @@ import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey, branchKeyS
 import {
   armarRenglon,
   surteDe,
+  estatusVigenteSql,
+  WAREHOUSE_ORDER_ABIERTOS_SQL,
   coberturaAutoabasto,
   COBERTURA_AUTOABASTO,
   COBERTURA_AUTOABASTO_DEFAULT,
@@ -58,14 +60,14 @@ export { factorBaseDe } from './ya-pedido-sucursal';
  * `PEDIDOS_SUCURSAL_SQL`) y embarques sin recibir, de `VENTANA_VIENE_DIAS`. Es lo que la sucursal
  * lee arriba para no pedir dos veces; el detalle por producto va en cada renglón.
  */
-const VIENE_DOCS_SQL = `
+export const VIENE_DOCS_SQL = `
 WITH dest AS (
   SELECT dest_code FROM analytics.v_erp_branch_catalog WHERE tenant_id = :t AND suc_code = :suc
 ),
 ped AS (
   SELECT DISTINCT ON (k.sucursal, k.c5, k.c6)
          'pedido'::text AS tipo, btrim(k.sucursal) AS origen, (k.c5)::int AS serie, btrim(k.c6::text) AS folio,
-         upper(btrim(k.c11::text)) AS estado, (k.c9)::date AS f,
+         ${estatusVigenteSql('k')} AS estado, (k.c9)::date AS f,
          NULLIF(regexp_replace(k.c16::text, '[^0-9.-]', '', 'g'), '')::numeric AS monto,
          k.sucursal AS s_raw, k.c2, k.c3, k.c4, k.c5, k.c6
     FROM kepler_ods.kdm1 k
@@ -95,7 +97,10 @@ emb AS (
           AND btrim(COALESCE(x.c43, '')) <> 'C' AND (x.c9)::date >= (h.c9)::date - 1)
 ),
 docs AS (
-  SELECT * FROM ped WHERE estado IN ('AUTORIZADO', 'SURTIDO', 'CHECADO')
+  -- [PQ.136] CREADO entra: desde ADR-126 la Suite escribe el pedido y nace así. [PQ.137] El
+  -- estado es el VIGENTE, así que un cancelado de Kepler sale CANCELADO y no cae acá (antes se
+  -- pintaba con su c11 viejo: 82 de 111 documentos de Morelia Madero estaban cancelados).
+  SELECT * FROM ped WHERE estado IN ${WAREHOUSE_ORDER_ABIERTOS_SQL}
   UNION ALL SELECT * FROM emb
 )
 SELECT d.tipo, d.origen, d.serie, d.folio, d.estado, to_char(d.f, 'YYYY-MM-DD') AS fecha,

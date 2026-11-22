@@ -22,6 +22,39 @@ export type WarehouseOrderEstatus = (typeof WAREHOUSE_ORDER_ESTATUS)[number];
 export const WAREHOUSE_ORDER_CANCELADO = 'CANCELADO' as const;
 
 /**
+ * `[PQ.136]` Los estatus en los que un pedido **sigue abierto**: ya se pidió y todavía no salió.
+ * Es lo que cuenta como «ya pedido» para no pedir dos veces, y lo que se muestra como «te va a
+ * llegar». `EMBARCADO` queda fuera a propósito (lo cuenta el embarque, `AB.23`) y `CANCELADO`
+ * tampoco está: no es etapa.
+ *
+ * ⛔ `CREADO` **sí** cuenta. Antes se omitía porque ningún pedido de sucursal nacía así —medido el
+ * 2026-11-22: 0 de 5,621 en 365 días, el estado sólo existía en telemarketing—, pero desde
+ * ADR-126 la Suite escribe el pedido de Autoabasto y el PM decidió que nazca `CREADO`. Sin esto el
+ * pedido recién escrito era invisible para el módulo que lo escribió: no se restaba del sugerido
+ * (la sucursal volvía a pedir lo mismo al día siguiente) ni aparecía en «Lo que te va a llegar».
+ */
+export const WAREHOUSE_ORDER_ABIERTOS = ['CREADO', 'AUTORIZADO', 'SURTIDO', 'CHECADO'] as const;
+
+/** La misma lista, como lista de `IN (…)` de SQL. Derivada, para que no se desincronicen. */
+export const WAREHOUSE_ORDER_ABIERTOS_SQL = `(${WAREHOUSE_ORDER_ABIERTOS.map((e) => `'${e}'`).join(',')})`;
+
+/**
+ * `[GP.10.0]` · `[PQ.137]` El estatus VIGENTE de una cabecera `kdm1`, en SQL: un cancelado sale
+ * `CANCELADO` y no con el `c11` viejo que Kepler le conservó.
+ *
+ * Vive acá —y no en el módulo de surtido, donde nació— porque lo necesitan los dos lados del mismo
+ * documento (ADR-056): el pool de pedidos de GP y, desde `[PQ.137]`, «Lo que te va a llegar» y el
+ * «ya pedido» de Autoabasto, que decidían por `c11` a secas. *Cifra: de 111 documentos que
+ * Autoabasto pintaba para Morelia Madero, 82 estaban cancelados en Kepler.*
+ *
+ * @param alias el alias de `kepler_ods.kdm1` en la consulta que lo interpola (`h` por omisión).
+ */
+export function estatusVigenteSql(alias = 'h'): string {
+  return `CASE WHEN btrim(coalesce(${alias}.c43::text, '')) = 'C' THEN '${WAREHOUSE_ORDER_CANCELADO}'
+              ELSE upper(NULLIF(btrim(${alias}.c11::text), '')) END`;
+}
+
+/**
  * `[GP.10.2]` Etapa de ALMACÉN de un pedido, de Kepler (`U-D-40`) o de preventa (`PD-`), en el orden
  * en que avanza (FASE_GP §3, paso 3). `en_cola`, `surtiendo` y `checando` sólo existen en el piso
  * (la Suite); los demás también los registra Kepler. La deriva `etapaDePedido` (warehouse-orders).
