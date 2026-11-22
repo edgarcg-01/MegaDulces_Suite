@@ -46,15 +46,123 @@ export function alcanceDelAcreedor(clave: string | null | undefined): Alcance {
   return { dentro: true };
 }
 
-/** Las cuentas que NO son gasto aunque pasen por una solicitud: se capturan en Kepler. */
+/**
+ * Las cuentas que NO se piden aquí aunque pasen por una solicitud: se capturan en Kepler. `[PGP.122.17]` El activo fijo
+ * (`150`) salió de la lista: DS47 (Francisco, 2026-11-21) lo deja entrar con su propio formulario (`faltaDelActivo`).
+ * Impuestos, SUA y capital esperan el suyo (DS52).
+ */
 export const CUENTAS_FUERA_DE_ALCANCE: ReadonlyArray<{ prefijo: string; que: string }> = [
   { prefijo: '601-015', que: 'SUA' },
   { prefijo: '761', que: 'impuestos' },
   { prefijo: '762', que: 'impuestos' },
   { prefijo: '763', que: 'impuestos sobre nómina' },
-  { prefijo: '150', que: 'activo fijo' },
   { prefijo: '210', que: 'capital de créditos' },
 ];
+
+// ── `[PGP.122.17]` La compra de un activo (anexo S §20) ───────────────────────────────────────
+
+/**
+ * DS53 (Francisco, 2026-11-21): es activo lo que cuesta **más de $5,000 por unidad** (sin IVA, el importe del renglón
+ * entre cuántos) y dura más de 12 meses; lo demás es gasto. Medido: el 64 % de los renglones de «activo» del último año
+ * era de $5,000 o menos (el 5.7 % del dinero).
+ */
+export const UMBRAL_ACTIVO_POR_UNIDAD = 5000;
+/** Hasta cuántos bienes en un renglón (DS55: cada unidad es un activo). */
+export const MAX_CANTIDAD_ACTIVO = 999;
+/** El largo de «qué es»: el bien, con marca y modelo. */
+export const LARGO_DESCRIPCION_ACTIVO = 200;
+
+/** Lo que quien pide dice del bien. El resguardo NO va aquí: lo asigna Control de Activos en el alta (DS56). */
+export interface ActivoDelRenglon {
+  /** «¿Es un bien nuevo, o una reparación, refacción o consumible?». `gasto` = no es activo: va con un concepto de gasto. */
+  tipo: 'bien' | 'gasto' | null;
+  /** Qué es: el bien, con marca y modelo. */
+  descripcion: string;
+  /** Cuántos (DS55): entero de 1 a `MAX_CANTIDAD_ACTIVO`. */
+  cantidad: number | null;
+  /** El lugar, además de la sucursal y el departamento del renglón. Opcional. */
+  lugar?: string | null;
+}
+
+/** El grupo de activo de Kepler (`kdtact`) de la subcuenta del concepto, con su vida fiscal. `grupo` null = sin grupo (DS54). */
+export interface GrupoDeActivo {
+  grupo: string | null;
+  nombre: string | null;
+  /** Tasa anual de depreciación, en %. */
+  tasa: number | null;
+  /** 1200 ÷ tasa (30 % → 40 meses). `null` sin grupo o si el grupo no se deprecia (terrenos). */
+  vida_meses: number | null;
+}
+
+/** ¿La cuenta del concepto es de activo fijo (`150`)? */
+export function esCuentaDeActivo(cuenta: string | null | undefined): boolean {
+  return String(cuenta ?? '').trim().split('-')[0] === '150';
+}
+
+/** Meses de vida fiscal de una tasa anual (%); `null` si no hay tasa o es cero. */
+export function vidaFiscalEnMeses(tasa: number | null | undefined): number | null {
+  const t = Number(tasa);
+  return Number.isFinite(t) && t > 0 ? Math.round(1200 / t) : null;
+}
+
+/** El importe por unidad, al centavo; `null` si falta el importe o la cantidad. */
+export function importePorUnidad(importe: number | null | undefined, cantidad: number | null | undefined): number | null {
+  if (importe === null || importe === undefined || cantidad === null || cantidad === undefined) return null;
+  const i = Number(importe); const c = Number(cantidad);
+  return Number.isFinite(i) && Number.isInteger(c) && c > 0 ? Math.round((i / c) * 100) / 100 : null;
+}
+
+/** `[PGP.122.17]` Lo que se guardó del activo de un renglón (sólo los bienes; la reparación o el consumible no llegan aquí). */
+export interface ActivoGuardado { descripcion: string; cantidad: number; lugar: string | null }
+
+/**
+ * `[PGP.122.17]` El activo en una línea, para quien firma: qué es, cuántas unidades (con el importe de cada una si son
+ * varias, que es lo que decide DS53) y dónde va. Ej.: «Compra de activo: Silla ejecutiva · 3 unidades de $6,000.00».
+ */
+export function activoEnUnaLinea(a: ActivoGuardado, importe: number | null | undefined): string {
+  const n = Number(a.cantidad);
+  const u = importePorUnidad(importe, n);
+  const cuantos = n === 1 ? '1 unidad'
+    : `${n} unidades${u !== null ? ` de $${u.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}`;
+  return `Compra de activo: ${a.descripcion} · ${cuantos}${a.lugar ? ` · ${a.lugar}` : ''}`;
+}
+
+/** Lo que llega de la pantalla, limpio: sin campos de más, textos recortados. `null` si no trae nada. */
+export function activoLimpio(x: unknown): ActivoDelRenglon | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const tipo = o['tipo'] === 'bien' || o['tipo'] === 'gasto' ? o['tipo'] : null;
+  const descripcion = typeof o['descripcion'] === 'string' ? o['descripcion'].trim().replace(/\s+/g, ' ') : '';
+  const c = Number(o['cantidad']);
+  const lugar = typeof o['lugar'] === 'string' && o['lugar'].trim() ? o['lugar'].trim().replace(/\s+/g, ' ') : null;
+  return { tipo, descripcion, cantidad: Number.isFinite(c) ? c : null, lugar };
+}
+
+/**
+ * Qué le falta a un renglón de ACTIVO para poder pedirse (vacío = nada, o no es de activo). La misma regla para el botón,
+ * el `400` del servidor (que la corre con la cuenta del catálogo, no con la que mande la pantalla) y las pruebas.
+ */
+export function faltaDelActivo(r: Pick<RenglonDeLaSolicitud, 'cuenta' | 'importe' | 'activo'>, n: number): FaltanteSolicitud[] {
+  if (!esCuentaDeActivo(r.cuenta)) return [];
+  const a = r.activo;
+  const no = (motivo: string): FaltanteSolicitud => ({ id: 'activo', label: `Renglón ${n}`, motivo });
+  if (!a || !a.tipo) return [no(`en el renglón ${n}, di si compras un bien nuevo o es una reparación, refacción o consumible`)];
+  if (a.tipo === 'gasto') return [no(`en el renglón ${n}, una reparación, refacción o consumible es gasto, no activo: elige un concepto de gasto`)];
+  const out: FaltanteSolicitud[] = [];
+  const d = String(a.descripcion ?? '').trim();
+  if (!d) out.push(no(`en el renglón ${n} falta qué es el bien (con marca y modelo)`));
+  else if (d.length > LARGO_DESCRIPCION_ACTIVO) out.push(no(`en el renglón ${n}, qué es el bien no cabe (${LARGO_DESCRIPCION_ACTIVO} caracteres)`));
+  const c = Number(a.cantidad);
+  if (!Number.isInteger(c) || c < 1 || c > MAX_CANTIDAD_ACTIVO) out.push(no(`en el renglón ${n}, cuántos tiene que ser un número entero de 1 a ${MAX_CANTIDAD_ACTIVO}`));
+  else {
+    const u = importePorUnidad(r.importe, c);
+    if (u !== null && Number(r.importe) > 0 && u <= UMBRAL_ACTIVO_POR_UNIDAD) {
+      out.push(no(`en el renglón ${n}, por $${u.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} cada uno es gasto, no activo (es activo si pasa de $${UMBRAL_ACTIVO_POR_UNIDAD.toLocaleString('es-MX')} por unidad): elige un concepto de gasto`));
+    }
+  }
+  if (a.lugar && a.lugar.length > LARGO_DESCRIPCION_ACTIVO) out.push(no(`en el renglón ${n}, el lugar no cabe (${LARGO_DESCRIPCION_ACTIVO} caracteres)`));
+  return out;
+}
 
 /** El motivo si la cuenta (`kdco.c3` del concepto) queda fuera; `null` si entra. */
 export function cuentaFueraDeAlcance(cuenta: string | null | undefined): string | null {
@@ -153,6 +261,8 @@ export interface RenglonDeLaSolicitud {
   importe: number;
   /** La cuenta del concepto (`kdco.c3`), si ya se conoce: sirve para avisar el alcance antes del servidor. */
   cuenta?: string | null;
+  /** `[PGP.122.17]` Sólo en un renglón de activo (cuenta `150`): qué es, cuántos y dónde va (`faltaDelActivo`). */
+  activo?: ActivoDelRenglon | null;
 }
 
 /** Lo que hay capturado hasta ahora, para preguntarle a la compuerta qué falta. */
@@ -404,7 +514,7 @@ export type FaltanteSolicitudId =
   | 'acreedor' | 'alcance' | 'renglones' | 'renglon' | 'importe' | 'iva'
   | 'comprobante' | 'fecha_documento' | 'motivo_fecha'
   | 'forma_pago' | 'forma_pago_detalle' | 'evidencia'
-  | 'pago_cuenta' | 'pago_banco' | 'pago_correo';
+  | 'pago_cuenta' | 'pago_banco' | 'pago_correo' | 'activo';
 
 export interface FaltanteSolicitud {
   id: FaltanteSolicitudId;
@@ -476,6 +586,8 @@ export function faltaParaPedir(e: EstadoSolicitudGasto): FaltanteSolicitud[] {
     }
     const fuera = cuentaFueraDeAlcance(r.cuenta);
     if (fuera) no.push({ id: 'alcance', label: `Renglón ${n}`, motivo: fuera });
+    // [PGP.122.17] El renglón de activo pide lo suyo: bien o gasto, qué es, cuántos y más de $5,000 por unidad (DS53).
+    no.push(...faltaDelActivo(r, n));
   });
 
   const t = totalesDeLaSolicitud(renglones, e.iva);
@@ -642,6 +754,11 @@ export interface ConceptoDeGasto {
    * La pantalla lo muestra (no lo esconde) y el servidor rechaza pedir con él. Opcional: un servidor viejo no lo manda.
    */
   distinto_de_cedis?: string | null;
+  /**
+   * `[PGP.122.17]` Sólo si la cuenta es de activo (`150`): su grupo de Kepler (`kdtact`, por la subcuenta) y su vida fiscal.
+   * `grupo` null = Contabilidad aún no lo define (DS54). Ausente en cualquier otra cuenta, o en un servidor viejo.
+   */
+  activo?: GrupoDeActivo | null;
 }
 
 /** `GET /finance/expenses/solicitudes/catalogo?sucursal=` — lo que la pantalla ofrece para elegir. */
@@ -765,7 +882,11 @@ export interface DetalleDeLaSolicitud {
   id: string;
   sucursal: string;
   acreedor: { clave: string; nombre: string | null };
-  renglones: Array<{ linea: number; concepto: string; nombre: string | null; cuenta: string | null; proyecto: string; departamento: string; importe: number }>;
+  renglones: Array<{
+    linea: number; concepto: string; nombre: string | null; cuenta: string | null; proyecto: string; departamento: string; importe: number;
+    /** `[PGP.122.17]` Sólo en un renglón de activo: qué es, cuántos y dónde. Sin la migración, no viene. */
+    activo?: ActivoGuardado | null;
+  }>;
   iva: number;
   total: number;
   documento: { tipo: string | null; folio: string | null; fecha: string | null; uuid: string | null };

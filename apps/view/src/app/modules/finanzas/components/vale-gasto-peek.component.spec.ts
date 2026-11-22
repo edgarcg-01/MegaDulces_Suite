@@ -746,4 +746,30 @@ describe('ValeGastoPeekComponent', () => {
       expect(abrir()).toBeUndefined();
     });
   });
+
+  describe('[PGP.122.17] la compra de un activo, a la vista de quien firma', () => {
+    const K = { estado: null, solicitud: null, nace_en_la_suite: { status: 'pending', nota: null, siguiente: null, intentos: 0 } } as never;
+    const REN = (over: object = {}) => ({ linea: 1, concepto: '240', nombre: 'MANTENIMIENTO VEHICULAR.', cuenta: '602-008', proyecto: 'P1', departamento: 'D1', importe: 100, ...over });
+    const D = (renglones: object[]) => ({ id: 'v1', sucursal: '00', acreedor: { clave: 'A1', nombre: 'PROVEEDOR' }, renglones, iva: 16, total: 116,
+      documento: { tipo: 'ticket', folio: '1', fecha: '2026-11-21', uuid: null }, fecha_solicitud: '2026-11-22' }) as never;
+    const lineas = () => Array.from((fix.nativeElement as HTMLElement).querySelectorAll('.vp-ren-a')).map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+
+    it('el renglón de activo dice qué es, cuántas unidades y dónde; el de gasto, nada', () => {
+      montar(V({ status: 'recibida' }));
+      fix.componentRef.setInput('kepler', K);
+      fix.componentRef.setInput('solicitudSuite', D([
+        REN(),
+        REN({ linea: 2, concepto: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', importe: 9000,
+          activo: { descripcion: 'PC verificador de precio, marca X', cantidad: 1, lugar: 'Piso de venta' } }),
+        REN({ linea: 3, concepto: '213', nombre: 'MOBILIARIO.', cuenta: '150-001', importe: 18000,
+          activo: { descripcion: 'Silla ejecutiva', cantidad: 3, lugar: null } }),
+      ]));
+      fix.detectChanges();
+      expect((fix.nativeElement as HTMLElement).textContent).toContain('Al firmarla se escribe en Kepler así:');
+      expect(lineas()).toEqual([
+        'Compra de activo: PC verificador de precio, marca X · 1 unidad · Piso de venta',
+        'Compra de activo: Silla ejecutiva · 3 unidades de $6,000.00',
+      ]);
+    });
+  });
 });
