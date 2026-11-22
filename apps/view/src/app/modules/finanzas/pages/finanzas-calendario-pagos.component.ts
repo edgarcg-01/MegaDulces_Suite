@@ -42,6 +42,7 @@ import { nombreDeBase } from '@megadulces/contracts';
 // `[PGP.129]` Los anticipos que Compras pidió para el día (D13) y la cotización a un clic.
 import { anticiposDelDia, PERMISOS_PEDIR_ANTICIPO, type AnticipoSolicitadoRow } from '@megadulces/contracts';
 import { PedirAnticipoDialogComponent, diaInicialDelAnticipo, type AnticipoPedido } from '../components/pedir-anticipo-dialog.component';
+import { AvisoProveedorDialogComponent } from '../components/aviso-proveedor-dialog.component';
 import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarUrl } from '../../../shared/util/abrir-pdf';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
@@ -198,7 +199,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent, SemanaPickerComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent, SegmentedComponent, PedirAnticipoDialogComponent, SemanaPickerComponent, AvisoProveedorDialogComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -251,6 +252,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         }
       </div>
       <app-pedir-anticipo-dialog #pedirAnt (pedido)="alPedirAnticipo($event)" />
+      <!-- [PGP.194] El aviso de pago al proveedor (su desglose y la transferencia), desde el renglón de un pago pagado. -->
+      <app-aviso-proveedor-dialog #avisoProv />
 
       @if (modo() === 'etapa') {
         <section class="pg-bandeja" aria-labelledby="pg-bandeja-h">
@@ -885,7 +888,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </tr>
                 </ng-template>
                 <ng-template #body let-a let-i="rowIndex" let-expanded="expanded">
-                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()">
+                  <!-- [PGP.191] El PDF de la transferencia se suelta sobre el renglón de SU pago (Francisco, 2026-11-21). -->
+                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()" [class.is-soltar]="soltandoSobre() === a.id"
+                      (dragover)="alArrastrarSobre($event, a)" (dragleave)="alSalirDelRenglon($event, a)" (drop)="alSoltarEnRenglon($event, a)">
                     <td class="pg-c-tg">
                       <button type="button" class="pg-tg" [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Ocultar el detalle de ' : 'Ver el detalle de ') + allocationTitle(a)" (click)="toggleAbierto(a.id)">
                         <span class="pi" [class.pi-angle-down]="expanded" [class.pi-angle-right]="!expanded" aria-hidden="true"></span>
@@ -950,6 +955,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       @if (porQueHoy(a); as q) { <span [class.pg-why-f]="q.fuerte">{{ q.texto }}</span> } @else { <span class="pg-why-n">—</span> }
                     </td>
                     <td class="pg-c-how" data-l="Cómo sale">
+                      <!-- [PGP.191] Lo que pasa con el PDF soltado aquí, dicho en el mismo renglón (con texto, no sólo color). -->
+                      @if (soltandoSobre() === a.id) {
+                        <span class="pg-comp is-drop"><i class="pi pi-file-pdf" aria-hidden="true"></i>Suelta el PDF para ligarlo a este pago</span>
+                      } @else if (comprobanteRenglon().get(a.id); as cr) {
+                        <span class="pg-comp" [class.is-ok]="cr.estado === 'ligado'" [class.is-bad]="cr.estado === 'no'" role="status">
+                          <i class="pi" [class.pi-spin]="cr.estado === 'leyendo'" [class.pi-spinner]="cr.estado === 'leyendo'" [class.pi-check-circle]="cr.estado === 'ligado'" [class.pi-times-circle]="cr.estado === 'no'" aria-hidden="true"></i>{{ cr.texto }}
+                        </span>
+                      }
+                      <!-- [PGP.192] Sólo donde explica algo: lo pagó su PDF sin autorización y Kepler espera al banco. No en todo lo
+                           ejecutado sin autorizar: medido el 2026-11-21, eran los 207 de 207 desde octubre (ruido, no aviso). -->
+                      @if (retenidoSinAutorizar(a)) {
+                        <span class="pg-comp is-bad"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>Salió sin autorizar: Kepler lo registra cuando el estado de cuenta muestre la salida</span>
+                      }
                       @if (pagadoEnKepler(a); as c) {
                         <!-- [PGP.96] Kepler ya lo pagó: se dice con qué documento, y su PDF a un clic. Antes decía
                              «Ya no se debe: quítalo del día», que en un día pasado era la instrucción equivocada. -->
@@ -1043,6 +1061,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       } @else if (a.status === 'failed') {
                         <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
                       }
+                      <!-- [PGP.194] Ya pagado: se le avisa al proveedor con el desglose y la transferencia (la celda estaba vacía). -->
+                      @if (a.status === 'executed' && canGestionar()) {
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" aria-haspopup="dialog" (click)="avisoProv.abrir(a.id, allocationTitle(a))"
+                                [attr.aria-label]="'Avisar al proveedor del pago de ' + allocationTitle(a)"><span class="pi pi-send" aria-hidden="true"></span>&nbsp;Avisar</button>
+                      }
                     </td>
                   </tr>
                 </ng-template>
@@ -1052,6 +1075,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       <!-- [PGP.52] El desglose junta lo que antes llenaba el renglón: por qué se paga hoy, las
                            notas, lo que el ERP ya no debe y cada factura con lo que se le aplica. -->
                       <div class="pg-x-info">
+                        <!-- [PGP.191] Lo mismo que soltar el PDF sobre el renglón, con teclado: elegir el archivo. -->
+                        @if (admiteComprobante(a)) {
+                          <p class="pg-x-d">
+                            <button type="button" class="pg-saldada-btn" [disabled]="comprobanteRenglon().get(a.id)?.estado === 'leyendo'" (click)="pickComp.click()"
+                                    [attr.aria-label]="'Ligar el comprobante PDF de la transferencia al pago de ' + allocationTitle(a)"><i class="pi pi-paperclip" aria-hidden="true"></i> Ligar comprobante</button>
+                            <input #pickComp type="file" accept="application/pdf" hidden (change)="alElegirComprobante($event, a)" />
+                            o suelta el PDF de la transferencia sobre el renglón.
+                          </p>
+                        }
                         <!-- [PGP.113] Quién lo armó y quién lo autorizó (separación de funciones: se dice, la Suite todavía no la impone). -->
                         @if (a.status === 'pending' && a.authorized_at) {
                           <p class="pg-x-d pg-aut"><i class="pi pi-verified" aria-hidden="true"></i> Autorizado por {{ a.authorized_by || '—' }} el {{ fechaHora(a.authorized_at) }}@if (a.created_by) { · lo armó {{ a.created_by }}}. Ya no cambia mientras esté autorizado.
@@ -2189,6 +2221,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.104] La validación banco + comprobante: ámbar mientras falte algo, verde al validarse; siempre con su palabra. */
     .pg-val { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
     .pg-val.is-ok { color:var(--ok-fg); }
+    /* [PGP.191] El PDF soltado sobre el renglón: dónde cae y qué pasó, en el mismo renglón. */
+    .pg-comp { display:flex; align-items:center; gap:var(--sp-1); margin-bottom:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
+    .pg-comp.is-ok { color:var(--ok-fg); }
+    .pg-comp.is-bad { color:var(--bad-fg); }
+    .pg-comp.is-drop { color:var(--action); }
+    tr.is-soltar > td { background:var(--overlay-hover); box-shadow:inset 0 1px 0 var(--action), inset 0 -1px 0 var(--action); }
     /* [PGP.108] El CFDI de la factura, debajo de su archivo: terciario; lo que no se ligó, en ámbar con su palabra. */
     /* [PGP.105] El ensayo en Kepler: dentro del desglose, terciario; el veredicto con icono + palabra. */
     .pg-ens { display:flex; flex-direction:column; gap:var(--sp-1); padding:var(--sp-2) 0; }
@@ -2375,6 +2413,85 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.recargaPorComprobante === undefined) this.destroyRef.onDestroy(() => clearTimeout(this.recargaPorComprobante));
     clearTimeout(this.recargaPorComprobante);
     this.recargaPorComprobante = setTimeout(() => { this.invalidarDeuda(); this.recargarPagos(); }, 75_000);
+  }
+
+  // ── `[PGP.191]` El PDF soltado sobre el renglón de su pago ──────────────────────────────────
+  /** El renglón sobre el que se arrastra un archivo ahora mismo. */
+  readonly soltandoSobre = signal<string | null>(null);
+  /** Lo que pasó con el PDF de cada renglón: leyendo, ligado o por qué no. */
+  readonly comprobanteRenglon = signal<ReadonlyMap<string, { estado: 'leyendo' | 'ligado' | 'no'; texto: string }>>(new Map());
+  /**
+   * Un renglón acepta el PDF de una transferencia si quien mira gestiona pagos y el pago está pendiente o pagado, y no
+   * sale en efectivo ni en cheque. Lo demás (importe, cuenta, fecha, si ya tiene uno) lo revisa el servidor y lo dice.
+   */
+  admiteComprobante(a: PaymentCalendarAllocation): boolean {
+    if (!this.canGestionar() || !(a.status === 'pending' || a.status === 'executed')) return false;
+    if (a.payment_method === 'efectivo' || a.payment_method === 'cheque') return false;
+    // Ya tiene su PDF (el que pagó, o el de su documento de Kepler): no se ofrece otro.
+    return !a.paid_proof_id && !(a.kepler_cierre && this.pdfDelCierre(a.kepler_cierre));
+  }
+  /**
+   * `[PGP.192]` Lo pagó su comprobante sin autorización en la Suite, el banco todavía no muestra la salida y Kepler no lo
+   * tiene: el escritor lo retiene (`MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE`). Es la misma condición, dicha en el renglón.
+   */
+  retenidoSinAutorizar(a: PaymentCalendarAllocation): boolean {
+    return a.status === 'executed' && !!a.paid_proof_id && !a.paid_bank_movement_id && !this.autorizadoFila(a) && !this.pagadoEnKepler(a);
+  }
+  private traeArchivos(e: DragEvent): boolean {
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  }
+  alArrastrarSobre(e: DragEvent, a: PaymentCalendarAllocation): void {
+    if (!this.admiteComprobante(a) || !this.traeArchivos(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (this.soltandoSobre() !== a.id) this.soltandoSobre.set(a.id);
+  }
+  alSalirDelRenglon(e: DragEvent, a: PaymentCalendarAllocation): void {
+    // Pasar de una celda a otra del mismo renglón también dispara `dragleave`: sólo cuenta salir del renglón.
+    const tr = e.currentTarget as HTMLElement | null;
+    if (tr && e.relatedTarget instanceof Node && tr.contains(e.relatedTarget)) return;
+    if (this.soltandoSobre() === a.id) this.soltandoSobre.set(null);
+  }
+  alSoltarEnRenglon(e: DragEvent, a: PaymentCalendarAllocation): void {
+    if (!this.admiteComprobante(a) || !this.traeArchivos(e)) return;
+    e.preventDefault();
+    this.soltandoSobre.set(null);
+    const archivos = Array.from(e.dataTransfer?.files ?? []);
+    if (archivos.length > 1) { this.marcarComprobante(a.id, 'no', 'Suelta un solo PDF por pago; para varios a la vez usa «Comprobantes PDF» del día.'); return; }
+    if (archivos[0]) this.ligarComprobante(a, archivos[0]);
+  }
+  alElegirComprobante(e: Event, a: PaymentCalendarAllocation): void {
+    const input = e.target as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = '';
+    if (f) this.ligarComprobante(a, f);
+  }
+  private marcarComprobante(id: string, estado: 'leyendo' | 'ligado' | 'no', texto: string): void {
+    const m = new Map(this.comprobanteRenglon());
+    m.set(id, { estado, texto });
+    this.comprobanteRenglon.set(m);
+  }
+  private ligarComprobante(a: PaymentCalendarAllocation, f: File): void {
+    if (this.comprobanteRenglon().get(a.id)?.estado === 'leyendo') return;
+    // El comprobante se guarda sólo en PDF (`storage.putPdf`): una foto se leería y después fallaría al subirse.
+    if (f.type !== 'application/pdf') { this.marcarComprobante(a.id, 'no', 'Sólo el PDF del comprobante de la transferencia (el que descarga el banco).'); return; }
+    if (f.size > 10 * 1024 * 1024) { this.marcarComprobante(a.id, 'no', 'El archivo pesa más de 10 MB.'); return; }
+    this.marcarComprobante(a.id, 'leyendo', 'Leyendo el comprobante…');
+    const lector = new FileReader();
+    lector.onerror = () => this.marcarComprobante(a.id, 'no', 'No se pudo leer el archivo.');
+    lector.onload = () => {
+      this.comprobantes.calendarioDelRenglon(a.id, String(lector.result ?? '')).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          if (r.estado !== 'ligado') { this.marcarComprobante(a.id, 'no', r.motivo || 'No se ligó el comprobante.'); return; }
+          this.marcarComprobante(a.id, 'ligado', r.sin_autorizar
+            ? 'Comprobante ligado. Salió sin autorizar: se marca pagado en un minuto y Kepler espera al estado de cuenta.'
+            : (a.status === 'pending' ? 'Comprobante ligado: se marca pagado en un minuto.' : 'Comprobante ligado.'));
+          this.alPagarPorComprobante();
+        },
+        error: (err) => this.marcarComprobante(a.id, 'no', err?.error?.message || 'No se pudo ligar el comprobante.'),
+      });
+    };
+    lector.readAsDataURL(f);
   }
 
   // ── `[PGP.138]` Programar un anticipo desde el Calendario ────────────────────────────────────

@@ -306,3 +306,101 @@ export interface LecturaComprobante {
   beneficiario: string | null; clave_rastreo: string | null; banco_destino: string | null; metodo: string | null;
   ocr_status: string; sha256?: string;
 }
+
+/**
+ * `[PGP.191]` Un pago del Calendario visto desde SU renglón: la persona soltó el PDF sobre él, así que no se busca a
+ * qué pago corresponde (eso es `casarComprobantesConPagos`) — se revisa que el PDF sea de ESTE pago.
+ */
+export interface PagoDelRenglon {
+  /** `payment_allocations.status`: pending · executed · failed · cancelled. */
+  status: string;
+  metodo: string | null;
+  /** La cuenta de origen preparada; null si nunca se preparó. */
+  cuenta_id: string | null;
+  importe: number;
+  /** Día al que estaba programado (`YYYY-MM-DD`). */
+  dia: string;
+  /** Autorizado por Dirección (el pago o su día entero). */
+  autorizado: boolean;
+  /** Ya tiene un comprobante (ligado o esperando a ligarse). */
+  con_comprobante: boolean;
+}
+
+/** Lo que el servidor leyó del PDF, con la cuenta de origen ya resuelta contra nuestras cuentas de banco. */
+export interface LecturaDelRenglon {
+  importe: number | null;
+  fecha: string | null;
+  /** Nuestra cuenta de banco que el PDF dice como origen; null si no es nuestra o no se leyó. */
+  cuenta_id: string | null;
+  /** Lo que el PDF dice como cuenta de origen, para decirlo si no es nuestra. */
+  cuenta_leida: string | null;
+}
+
+export type DecisionDelRenglon =
+  | {
+    liga: true;
+    /** DA1 (Francisco, 2026-11-21): un pago sin pagar y sin autorizar que paga su comprobante sale «sin autorizar» (`[PGP.192]`). */
+    sin_autorizar: boolean;
+    /** La cuenta que se le fija al pago: la del PDF, si el pago nunca se preparó. Null si ya la tenía. */
+    fija_cuenta: string | null;
+  }
+  | { liga: false; motivo: string };
+
+/** `[PGP.191]` Un PDF de más de 30 días antes del día programado no es de este pago: es de otro. */
+export const DIAS_ANTES_DEL_PROGRAMA = 30;
+
+const pesos = (n: number) => `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const diasAntes = (iso: string, dias: number): string => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - dias);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * `[PGP.191]` **¿El PDF que soltaron sobre este renglón es el de este pago?** Pura.
+ *
+ * La persona eligió el pago, así que la regla no busca: revisa. Liga si el importe cuadra (±$1, `TOLERANCIA_IMPORTE`),
+ * el PDF sale de una cuenta nuestra de banco —la preparada, si el pago se preparó— y su fecha no es futura ni de más de
+ * 30 días antes del día programado. ⛔ Lo cancelado, lo rebotado, el efectivo y el cheque no se ligan: un SPEI no prueba
+ * ninguno de ellos. ⛔ Un pago con comprobante no recibe otro.
+ *
+ * Un pago pendiente SIN autorizar sí se liga (DA1 de Francisco, 2026-11-21: el dinero ya salió) y sale marcado
+ * `sin_autorizar`: el escritor de Kepler lo retiene hasta que el estado de cuenta confirme la salida (`[PGP.192]`).
+ */
+export function decidirComprobanteDelRenglon(p: PagoDelRenglon, l: LecturaDelRenglon, hoy: string): DecisionDelRenglon {
+  const no = (motivo: string): DecisionDelRenglon => ({ liga: false, motivo });
+  if (p.status === 'cancelled') return no('Este pago está cancelado: no lleva comprobante.');
+  if (p.status === 'failed') return no('Este pago rebotó: muévelo a otro día antes de ligarle un comprobante.');
+  if (p.status !== 'pending' && p.status !== 'executed') return no('Este pago no admite comprobante en su estado.');
+  if (p.metodo && NO_TRANSFERENCIA.has(p.metodo)) return no(`Este pago sale en ${p.metodo}: el PDF de una transferencia no lo prueba.`);
+  if (p.con_comprobante) return no('Este pago ya tiene su comprobante.');
+  if (l.importe == null) return no('No se pudo leer el importe del PDF: súbelo en PDF legible.');
+  if (Math.abs(l.importe - p.importe) > TOLERANCIA_IMPORTE) {
+    return no(`El PDF es por ${pesos(l.importe)} y este pago es de ${pesos(p.importe)}: ¿es el comprobante de otro pago?`);
+  }
+  if (!l.cuenta_id) {
+    return no(l.cuenta_leida
+      ? `El PDF sale de la cuenta ${l.cuenta_leida}, que no es una cuenta de banco nuestra.`
+      : 'No se pudo leer de qué cuenta salió el dinero.');
+  }
+  if (p.cuenta_id && p.cuenta_id !== l.cuenta_id) return no('El PDF sale de otra cuenta que la preparada para este pago.');
+  if (!l.fecha) return no('No se pudo leer la fecha del PDF.');
+  if (l.fecha > hoy) return no(`El PDF tiene fecha ${l.fecha}, posterior a hoy: revisa que se haya leído bien.`);
+  if (l.fecha < diasAntes(p.dia, DIAS_ANTES_DEL_PROGRAMA)) {
+    return no(`El PDF es del ${l.fecha}, más de ${DIAS_ANTES_DEL_PROGRAMA} días antes del día de este pago (${p.dia}): ¿es de otro pago?`);
+  }
+  return { liga: true, sin_autorizar: p.status === 'pending' && !p.autorizado, fija_cuenta: p.cuenta_id ? null : l.cuenta_id };
+}
+
+/** `[PGP.191]` La respuesta de `POST finance/supplier-payments/calendario/:allocationId`. */
+export interface ResultadoComprobanteDelRenglon {
+  /** `ligado` = guardado; el worker lo da por pagado (o sólo lo liga) en su siguiente pasada. */
+  estado: 'ligado' | 'no' | 'sin_lectura' | 'repetido';
+  pago_id: string;
+  comprobante_id: string | null;
+  /** En palabras; null si se ligó. */
+  motivo: string | null;
+  /** `[PGP.192]` El pago estaba sin autorizar: sale marcado y Kepler espera al estado de cuenta. */
+  sin_autorizar: boolean;
+  lectura: { importe: number | null; fecha: string | null; cuenta_origen: string | null; beneficiario: string | null; ocr_status: string };
+}

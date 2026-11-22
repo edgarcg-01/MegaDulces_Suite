@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import type { Browser } from 'puppeteer';
 
 /**
@@ -88,4 +90,24 @@ export function esc(s: unknown): string {
 /** Dinero en pesos, con separador de miles y dos decimales. */
 export function money(n: unknown): string {
   return '$' + Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+let logoCache: string | undefined;
+/**
+ * `[PGP.194]` **El logo de Mega Dulces para los documentos que salen a terceros**, como data URI (`''` si no está).
+ * Lo repetían el estado de cuenta de clientes (`[CC.20.2]`) y el anexo de venta (`AnexoVentaService`), con la nota
+ * «sube junto al Chromium compartido cuando lo pida un tercer documento»: el aviso de pago al proveedor es ese tercero.
+ * ⬜ Deuda nombrada: esos dos todavía usan su copia; deben migrar a éste.
+ */
+export function logoParaDocumentos(): string {
+  if (logoCache !== undefined) return logoCache;
+  for (const f of ['mega-dulces-logo-print.png', 'mega-dulces-logo.png']) {
+    try {
+      const p = path.join(process.cwd(), 'apps', 'view', 'src', 'assets', 'logos', f);
+      logoCache = `data:image/png;base64,${fs.readFileSync(p).toString('base64')}`;
+      return logoCache;
+    } catch { /* siguiente */ }
+  }
+  logoCache = '';
+  return logoCache;
 }

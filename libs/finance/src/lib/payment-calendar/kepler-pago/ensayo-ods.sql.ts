@@ -90,6 +90,7 @@ export async function leerEnsayoPagoKepler(
            to_char(a.paid_bank_date, 'YYYY-MM-DD') AS paid_bank_date, a.paid_proof_id::text AS paid_proof_id,
            (SELECT to_char(coalesce(p.ocr_fecha, p.pago_date), 'YYYY-MM-DD') FROM finance.supplier_payment_proofs p WHERE p.id = a.paid_proof_id) AS paid_proof_date, to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta,
            l.status AS lot_status, to_char(l.lot_date, 'YYYY-MM-DD') AS dia,
+           (a.authorized_at IS NOT NULL OR l.status IN ('released', 'executing', 'closed')) AS autorizado,
            b.bank, b.account_label, b.kind
       FROM finance.payment_allocations a
       JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
@@ -195,6 +196,7 @@ export async function leerEnsayoPagoKepler(
   motivos.push(...motivosParaNoEscribir({
     status: a.status, payment_method: a.payment_method, origen_kind: a.kind ?? null, kepler_payment_folio: a.kepler_payment_folio,
     lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null, probado_por_el_banco: !!a.paid_bank_movement_id, probado_por_comprobante: !!a.paid_proof_id,
+    autorizado: a.autorizado === true,
     items: items.map(() => ({ obligation_source: 'kepler_payable', branch_code: servidor, kepler_saldada: false })),
   }));
   if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
