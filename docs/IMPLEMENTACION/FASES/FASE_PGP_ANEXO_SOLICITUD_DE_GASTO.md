@@ -1,30 +1,32 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 116 KB, 1382 líneas, 18 secciones.
+> **Índice navegable** — 140 KB, 1648 líneas, 20 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_SOLICITUD_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 30 | 65 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
-| 66 | 78 | 1 | 1. El pedido, literal |
-| 79 | 94 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
-| 95 | 176 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
-| 177 | 195 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
-| 196 | 338 | 9 | 5. El escritor (C1–C2) |
-| 339 | 352 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
-| 353 | 432 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
-| 433 | 494 | 4 | 8. Plan por capas y orden de entrega |
-| 495 | 522 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 523 | 550 | 4 | 10. Decisiones |
-| 551 | 566 | 1 | 11. Riesgos y NO MEDIDO |
-| 567 | 595 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
-| 596 | 621 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 622 | 860 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
-| 861 | 996 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
-| 997 | 1250 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
-| 1251 | 1412 | 14 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 32 | 67 | 3 | Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler |
+| 68 | 80 | 1 | 1. El pedido, literal |
+| 81 | 96 | 1 | 2. Lo que ya existe: falta sólo la primera pieza |
+| 97 | 178 | 6 | 3. Lo que dicen las solicitudes (12,744 desde dic-2025) |
+| 179 | 197 | 1 | 4. Qué es una X-A-15 dentro de Kepler (lo que hay que escribir) |
+| 198 | 340 | 9 | 5. El escritor (C1–C2) |
+| 341 | 354 | 1 | 6. Alcance v1 y lo que no entra, con su dueño (DS3) |
+| 355 | 434 | 6 | 7. El proceso propuesto: la Suite llena, la persona valida |
+| 435 | 496 | 4 | 8. Plan por capas y orden de entrega |
+| 497 | 524 | 2 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 525 | 552 | 4 | 10. Decisiones |
+| 553 | 568 | 1 | 11. Riesgos y NO MEDIDO |
+| 569 | 597 | 2 | 12. Hallazgos fuera de alcance, con su dueño |
+| 598 | 623 | 5 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 624 | 862 | 23 | 14. S.13 — La bandeja de facturas del SAT por registrar |
+| 863 | 998 | 13 | 15. S.17 — El orden del formulario: base, proveedor y sus facturas, y al final cómo se paga |
+| 999 | 1252 | 18 | 16. Revisión del plan antes de encender (2026-11-17) |
+| 1253 | 1442 | 17 | 17. «Que todo el gasto se pueda hacer desde la Suite» — alcance y orden (2026-11-17) |
+| 1443 | 1549 | 11 | 18. Observaciones de usuarios tras los primeros usos (2026-11-21) |
+| 1550 | 1680 | 11 | 19. Los cuatro tipos de egreso en «Mis gastos», empezando por el activo fijo (2026-11-21) ⬜ |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo S — La solicitud de gasto nace en la Suite y se escribe en Kepler
@@ -1437,3 +1439,241 @@ programada.**
 | D | Pregunta | De quién |
 |---|---|---|
 | ~~DS46~~ | ✅ Resuelta por Edgar con la D15 (2026-11-17): la réplica de ContPAQi corre en ciclo en `md` y la nómina llega fresca (pago del 13-nov) | Edgar |
+
+## 18. Observaciones de usuarios tras los primeros usos (2026-11-21)
+
+Encendida en las 9 sucursales desde el 20-nov 16:37 (`[PGP.122.11]`). Al 21-nov 14:20 (prod, sólo lectura) había **3
+solicitudes reales** pedidas desde la Suite (una en 00 y dos en 01), además de las pruebas. Francisco trajo tres
+observaciones de las dos primeras usuarias de 01 (Prevención y la sucursal). Las tres se midieron antes de tocar código:
+
+| # | Lo que dijeron | Lo que se midió | Arreglo |
+|---|---|---|---|
+| 1 | En Mis gastos costó encontrar el folio de la comprobación | El X-A-10 vivía como «XA1001-…» debajo de «Cómo cerró», y sólo en Cerrados | `[PGP.123]` G.15, anexo G §17 |
+| 2 | Al firmar no llega el departamento, «y sí estaba en la solicitud» | Sí estaba: el renglón de la Suite (`expense_proof_lines.department_code`) es idéntico a lo que llegó a `kdm6.c16` en 01/0000223 y 01/0000222. El panel lo leía sólo de la X-A-15, que antes de firmar no existe, y decía «aún no está en Kepler (se escribe al firmarse)» | `[PGP.122.12]` |
+| 3 | La IA leyó mal la fecha, **hasta el año**; las dos la pusieron a mano | La fecha final viene de «persona» en 8 de 9 solicitudes nacidas en la Suite; los dos tickets de 01 son del 11-nov (PDF) y del 21-nov (foto). El lector todavía le pedía al modelo «convierte cualquier formato», la instrucción que `[PGP.125]` ya había retirado del comprobante de pago (leyó «09/11» como 11 de septiembre), y no había tope hacia atrás: un año mal leído se proponía. Lo leído no se guardaba: no se sabe qué fecha exacta propuso | `[PGP.122.13]` |
+| 4 | No salen todos los conceptos: no se encontró el 364 «PC VERIFICADOR DE PRECIO» | Sí está en el catálogo de las 9 sucursales, con la cuenta 150-002 (activo fijo), que DS3 deja fuera de v1. La pantalla no ofrecía de 71 a 77 conceptos por servidor (en 01, 73 de 290) y sólo explicaba los de R14 (uno o ninguno): activo fijo, SUA, impuestos, capital y los que no tienen cuenta desaparecían sin decir nada. El 364 se pidió 2 veces en toda la historia del ODS, en 00 y con tarjeta (`TC`), que tampoco entra en v1 | `[PGP.122.14]`; DS47 para Francisco |
+
+**`[PGP.122.12]` El departamento al firmar.** `detallarDelDia` (Aprobación y el buscador) toma, para el vale sin folio,
+el departamento de sus renglones con el nombre de `kdc3` (`departamentosDeLaSuite`: una consulta, 18 ms en prod con los
+dos vales reales), con la misma forma y el mismo reparto que el de Kepler. El panel lo muestra y dice «Lo eligió quien la
+pidió; se escribe en Kepler al firmarse». Con folio no cambia nada: el departamento es el de Kepler.
+
+**`[PGP.122.13]` La fecha del ticket.** La misma regla que `[PGP.125]`: el modelo **copia** la fecha como está impresa y
+la convierte `parseTicketDate`, DÍA/MES como se escribe en México. Además:
+
+- MES/DÍA sólo si el segundo número pasa de 12 («11/21/2026» sólo puede ser el 21 de noviembre); lo ambiguo se queda DÍA/MES;
+- el año primero también con `/` o `.` («2026/11/21»), y el mes en letra en inglés o antes del día («Nov 21, 2026»);
+- la fecha en medio de otro texto, revisada ANTES que el mes en letra: «MAR 12/11/2026» es martes, no marzo;
+- un día que no existe («31/02/2026») ya no sale como fecha;
+- **una fecha futura no se propone**: un gasto no puede ser de mañana;
+- ⭐ **ni una de hace más de 30 días** (`fechaLeidaProponible`, con `DIAS_MAXIMOS_COMPROBANTE`). Cubre el AÑO mal leído que
+  vieron las dos usuarias sea cual sea la causa —el modelo que convertía solo «21/11/26» como AÑO/MES/DÍA, un dígito mal
+  leído o el año que el modelo supone—, porque un año de diferencia queda a 365 días o más. Medido el 2026-11-21 en 2,317
+  vales de la Suite de un año (fecha del gasto contra el día de captura): 59 % del mismo día, P99 = 16 días y sólo el
+  0.43 % pasa de 30 (ésos ya piden motivo, DS6). Fuera de la ventana tampoco se busca la factura del SAT: con un importe
+  que se repite cada mes encontraría la del año pasado. La liga de captura (`leerTicketPreview`) usa la misma regla: su
+  pantalla tomaba cualquier fecha leída que no fuera futura.
+
+Pedir un gasto pone junto a la fecha lo que dice el papel («leído del comprobante: «20/11/26»») para compararlo de un
+vistazo. Si no la propone (no la pudo leer completa, es futura o de hace más de 30 días), lo dice sin afirmar lo
+que el papel no dice: «Se leyó «…», pero no se propone (sólo una fecha completa de los últimos 30 días): escríbela
+viendo el comprobante». Lo que propuso el lector se guarda limpio en `capture_meta.lectura` (`lecturaParaGuardar`), y la
+medición queda así:
+
+```sql
+SELECT count(*) FILTER (WHERE capture_meta::jsonb->'lectura'->>'fecha' IS NOT NULL) AS con_fecha_propuesta,
+       count(*) FILTER (WHERE capture_meta::jsonb->'lectura'->>'fecha' <> document_date::text) AS corregidas,
+       count(*) FILTER (WHERE capture_meta::jsonb->'lectura'->>'fecha' IS NULL
+                          AND capture_meta::jsonb->'lectura'->>'fecha_impresa' IS NOT NULL) AS leidas_sin_proponer
+  FROM finance.expense_proofs WHERE origen = 'solicitud';
+```
+
+**`[PGP.122.14]` Los conceptos que no se ofrecen se ven, con su motivo.** El catálogo trae todos los conceptos del
+servidor —antes la consulta quitaba los que no tienen cuenta (`conceptoSinCuenta`)— y el selector pone al final,
+deshabilitado y con el motivo debajo, lo que no se puede pedir (`motivoParaNoOfrecer`): «La cuenta 150-002 es de activo
+fijo, no de gasto: ese renglón se captura en Kepler», «Le falta la cuenta contable en el catálogo de Kepler de 01: se
+podrá pedir cuando Contabilidad la ponga» o el de R14. Buscar «364» o «verificador» lo encuentra, pero no se puede
+elegir. Si el concepto de siempre del proveedor es uno de ésos, se dice por qué no se pone (antes, sólo con R14). Lo que
+se puede pedir no cambia: `crear` rechaza los mismos. Medido el 2026-11-21 (prod, sólo lectura), con los usos en
+solicitudes X-A-15 de 12 meses de acreedores del alcance (`G*` sin `GB` ni `GN001`; un uso = una solicitud × concepto):
+
+| Motivo | Conceptos por servidor | Usos en 12 meses (alcance v1) |
+|---|---|---|
+| Activo fijo (150) | 36–53 | 207 (205 solicitudes) |
+| SUA (601-015) · impuesto sobre nómina (763) · impuestos (761–762) | 1 · 1 · 7 | 65 · 62 · 35 |
+| Capital de créditos (210) | 6–7 | 2 |
+| Sin cuenta en el catálogo de ese servidor | 2–19 | 19 (4 conceptos: alineación, papel higiénico, transmisión…) |
+| R14, otro rubro que CEDIS (ya traía nota) | 0–1 | 40 (el 074) |
+
+**DS47 (de Francisco, sin firmar): ¿el activo fijo (150) entra a «Pedir un gasto»?** DS3 lo dejó en Kepler («es activo,
+no gasto»), pero en Kepler sigue el mismo camino que un gasto: de esas 205 solicitudes, las 186 firmadas tienen su X-A-10
+y sus renglones conservan la cuenta 150. El escritor del X-A-10 no filtra cuentas. Abrirlo es quitar `150` de
+`CUENTAS_FUERA_DE_ALCANCE`, con sus pruebas. SUA, impuestos y capital se quedan fuera: los paga Contabilidad, no la
+sucursal. El 364 en particular sólo se ha pedido con tarjeta, que DS3 también deja en Kepler.
+
+Las cinco preguntas (`diseno` §0b) de los tres cambios de pantalla:
+
+| # | Pregunta | El panel al firmar | La fecha en Pedir un gasto | Los conceptos que no se ofrecen |
+|---|---|---|---|---|
+| 1 | ¿Qué ve y en qué orden? | El departamento en su lugar de siempre, y debajo de dónde sale | La fecha propuesta y, junto, lo que dice el papel | Primero lo que se puede pedir, como antes; al final, deshabilitado, lo que no, con su motivo debajo |
+| 2 | ¿Qué no ve? | «aún no está en Kepler» cuando sí hay un departamento | Una fecha futura, imposible o con el año mal (más de 30 días) propuesta como buena | Ya no se esconde nada; lo que no se puede pedir no se puede elegir |
+| 3 | Accesibilidad | Texto, sin depender del color; 0 clics | Texto junto al campo, 0 clics; el aviso se va en cuanto se escribe la fecha | Se busca por nombre o código («364», «verificador»); el motivo es texto, a 5.3:1 en claro y 6.8:1 en oscuro aun con el 60 % de opacidad que PrimeNG da a lo deshabilitado (con `--fg-2` quedaba en 2.9:1) |
+| 4 | ¿Ligado a otro proceso? | Es el `kdm6.c16` que la Suite escribe al firmar | La fecha va a `c25` («AMPARA TICKET … DEL …») y, sólo dentro de la ventana, a la búsqueda de la factura del SAT (±5 días) | El catálogo `kdco` de cada servidor, DS3 (el alcance) y Contabilidad (la cuenta que falta, R14); `crear` los sigue rechazando |
+| 5 | ¿Le toca a esta pantalla? | Sí: quien firma decide con eso | Sí: es donde se captura | Sí: es donde se elige el concepto, y el motivo dice dónde se pide |
+
+**Pruebas:** fecha del lector 15 ✓ (10 nuevas; 3 mutantes → rojos) · contrato 59 ✓ (12 nuevas), 1,734 en todo `contracts`
+· panel 55 ✓ (2 nuevas) · Pedir un gasto 27 ✓ (4 nuevas; con la lista de conceptos vieja, rojo) · finance `expense-proofs`
+408 ✓ (7 nuevas: la ventana en «Pedir un gasto» y en la liga de captura, sin ella 3 → rojos; el catálogo con sus
+motivos, sin el de «sin cuenta» → rojo) · `nx build view` ✓ · `check:pantalla` 0 nuevas · de punta a punta contra
+Postgres real (Docker, como `app_runtime` con RLS): **127 ✓ · 6 ✗** — los dos nuevos en verde, y los 6 rojos son los
+mismos del bloque O que ya tiene `main` (CI de `2012a8109`: 125 ✓ · 6 ✗).
+
+**Prueba visual (2026-11-21, base local de Docker, en escritorio 1440, Fold 750 y celular 390):** el panel al firmar dice
+«Lo eligió quien la pidió; se escribe en Kepler al firmarse» (13 px, 7.03:1) y Aprobación ya agrupa el vale de la Suite
+por su departamento, no en «Sin departamento en Kepler»; la fecha no propuesta y la propuesta se leen a 4.8:1 sin
+desbordar (con la lectura simulada: en local no hay IA); el 364 sale deshabilitado con su motivo (5.29:1 con la opacidad
+de PrimeNG, 49 px de alto y 67 en el celular, el panel no se sale) y la lista de la 05 trae primero los 313 que se pueden
+pedir y al final los 76 bloqueados. Hallazgo: PrimeNG 22 no pone `aria-disabled` en la opción del select; el lector de
+pantalla oye «No se puede elegir:» (texto `sr-only` en la plantilla).
+
+**NO MEDIDO (se declara):** qué fecha exacta les propuso la IA a las dos usuarias
+(no se guardaba: la ventana cubre el año mal sea cual sea la causa); cuánto mejora la lectura real (desde que esté en
+prod, con la consulta de arriba); el modelo sigue siendo Haiku 4.5: compararlo con uno más nuevo sobre comprobantes con su fecha
+conocida (la de `c25`, que tecleó la persona) cuesta llamadas al modelo y es decisión de Edgar.
+
+**Hallazgo para Edgar (no es de este cambio):** el bloque O de `test-newdb-solicitud-gasto-suite.js` (`[PGP.122.6]`,
+cancelar desde la Suite) está en rojo en `main` con «permission denied for table kdm6»: el Kepler de prueba
+(`database/tests/_lib/kepler-de-prueba.js`) sólo da `SELECT, INSERT` en `kdm6`, y `[PGP.122.8]` ahora borra sus renglones
+al cancelar. Fuera del CI, además, ese bloque sale por `noMedido()` cuando la base no tiene la migración `20261119113518`
+y se salta la limpieza del final.
+
+## 19. Los cuatro tipos de egreso en «Mis gastos», empezando por el activo fijo (2026-11-21) ⬜
+
+> **OBJETIVO:** que el egreso que hoy corre entero en Kepler por la X-A-15 se pida desde la Suite con lo que cada tipo
+> necesita, empezando por el activo fijo: que cada compra de activo quede dada de alta y se deprecie.
+> **MÉTRICA HOY (2026-11-21):** 2 activos con póliza de 2026 en el catálogo de activos de Kepler contra 308 renglones de
+> gasto X-A-10 cargados a la cuenta 150 ($4.42 M); 0 movimientos de depreciación en Kepler y en ContPAQi en 2025–2026 →
+> **META:** cada compra de activo con su alta en el mes en que se comprueba, y su depreciación en la póliza del mes
+> (la fecha la pone el dueño). · **CAPA TOPE:** C0 (decisiones) · **ÁREA:** Finanzas y Contabilidad · **DUEÑO:** por
+> asignar (Edgar) · **ESTADO:** ⬜ propuesta sin abrir: el tablero tiene 9 fases 🔨 contra un cupo de 4.
+>
+> Medido en `pg-prod` (`system_identifier` 7688376744939610156), sólo lectura: catálogo de activos (`kdt1`, `kdtact`),
+> pólizas de 2026 (`kdc22601`…`kdc22612`), catálogo de cuentas (`kdc126`), X-A-15 de 12 meses (`kdm1`, `kdm6`, `kdco`) y
+> la réplica de ContPAQi (`contpaqi_ods.ct_cuentas`, `ct_movimientospoliza`).
+
+### 19.1 El pedido
+
+| # | Lo que se pidió (Francisco) | Efecto |
+|---|---|---|
+| 1 | «No encontré el 364 PC VERIFICADOR DE PRECIO» | `[PGP.122.14]`: lo que no se ofrece se ve con su motivo; DS47 |
+| 2 | «La Suite está complementando las deficiencias de Kepler: indaga cómo maneja los activos, ¿tiene módulo de lista de activos, póliza, depreciación?» | §19.2 |
+| 3 | «El nombre correcto no debe ser solicitud de gasto, sino solicitud de un egreso (gastos, activos, impuestos)» | §19.3, DS48 |
+| 4 | «Hoy corre todo el tracking en Kepler sobre esa ruta: ¿cómo nutrimos el proceso?» | §19.4 |
+
+### 19.2 Cómo maneja Kepler el activo fijo: el módulo existe y el proceso no lo alimenta
+
+Kepler tiene la pantalla «Activos fijos» (`actcatfijpag.kpl`): clave, nombre, grupo, fecha de adquisición, vida fiscal,
+valor original, número de factura, proveedor, fecha y número de póliza contable, fecha y monto de venta (tabla `kdt1`,
+columnas `c1`, `c2`, `c15`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`, `c9`, `c16`, `c17`). Los grupos, con su cuenta y su tasa
+anual, viven en `kdtact` (mobiliario 10 %, cómputo 30 %, reparto 25 %, edificios y construcciones 5 %, almacén y
+maquinaria 10 %, terrenos 0 %), y la depreciación en `kdt2`. Lo medido:
+
+| Hecho | Medido |
+|---|---|
+| La compra de activo va por la misma ruta que un gasto | X-A-15 → X-A-10 → cuenta `150-xxx`. En 2026: 308 renglones de X-A-10 por $4.42 M, más $1.19 M en pólizas manuales (que además abonan $1.07 M) |
+| El catálogo de activos no se alimenta de esas compras | 2 activos con póliza de 2026, los dos en 00; el último, el 2026-03-20 |
+| El catálogo es una copia, no un inventario por sucursal | 993 filas en los 9 servidores = 183 activos distintos; 01 y 08 son idénticos |
+| Casi sin liga con la compra | En 00, de 72 activos: 1 con factura, 4 con proveedor, 4 con fecha de adquisición, 6 con número de póliza |
+| Kepler no deprecia | `kdt2` vacía; 0 movimientos de depreciación en sus pólizas de 2026 (la única cuenta con ese nombre, `158-005`, no se movió) |
+| La contabilidad tampoco | ContPAQi tiene 15 cuentas de depreciación y amortización (mobiliario, cómputo, reparto, herramientas, construcciones, licencias) con **0 movimientos en 2025 y 2026**; una sola cuenta de activo se movió en 2026: equipo de reparto, $409,828 |
+| Configuración con huecos | El grupo MAQ apunta a `158-005` (una cuenta de depreciación, no de activo); las subcuentas `150-008` a `150-012` (licencias, herramientas, transporte personal, equipo electrónico, desarrollo de software) no tienen grupo |
+
+Por subcuenta, lo cargado a la 150 en 2026: herramientas $1.25 M · edificio $1.06 M · transporte personal $0.91 M ·
+cómputo $0.87 M · reparto $0.75 M · mobiliario $0.26 M · equipo electrónico $0.24 M · licencias $0.16 M · almacén $0.07 M
+· construcciones $0.03 M.
+
+### 19.3 Por la X-A-15 pasa todo el egreso, no sólo el gasto
+
+12 meses (2025-11-21 → 2026-11-21), no canceladas, importe de los renglones (`kdm6.c11`). El tipo sale del acreedor y,
+para los `G*`, de la cuenta del concepto (`kdco.c3`), la misma regla que usa la Suite:
+
+| Tipo de egreso | Solicitudes | Importe | % |
+|---|---:|---:|---:|
+| Gasto | 8,880 | $34.4 M | 39.0 |
+| Nómina (`GN001`) | 602 | $28.4 M | 32.2 |
+| SUA (`601-015`) | 65 | $9.5 M | 10.7 |
+| Activo fijo (`150`) | 205 | $4.7 M | 5.3 |
+| Préstamos, compras y otros (`A*`, `C*`, `B`, `TI`…) | 280 | $4.1 M | 4.7 |
+| Impuestos (`761`–`763`) | 93 | $2.7 M | 3.1 |
+| Comisiones bancarias (`GB`) | 2,055 | $2.7 M | 3.1 |
+| Tarjetas (`TC`) | 88 | $1.7 M | 1.9 |
+| Capital de créditos (`210`) | 2 | $0.1 M | 0.1 |
+| **Total** | **12,247** | **$88.3 M** | |
+
+«Pedir un gasto» cubre la primera fila: el 73 % de las solicitudes y el 39 % del dinero. Por eso el nombre se queda
+corto: la X-A-15 es la solicitud de **egreso** de Mega Dulces.
+
+### 19.4 La propuesta: cómo se nutre el proceso
+
+El registro sigue en Kepler (la X-A-15, el X-A-10 y su catálogo de activos). La Suite captura en el momento lo que el
+proceso de Kepler necesita y nadie captura, y cierra el lazo, como ya hace con la solicitud, el gasto y el acreedor.
+
+| Momento | Hoy, en Kepler | Con la Suite |
+|---|---|---|
+| Pedir | Una X-A-15 con un concepto de la 150; nada dice qué activo es | El concepto elegido define el tipo y el resto del formulario (DS48). Con uno de activo: el grupo (`kdtact`, con su vida fiscal), qué es, dónde va (sucursal y departamento) y quién lo resguarda |
+| Comprobar (X-A-10) | El cargo a la 150, y ya | La factura del SAT da proveedor, folio, fecha y valor: el alta del activo, ligada a la factura, al gasto y a su póliza |
+| Cada mes | Nada | La depreciación por grupo, derivada (vista sobre el catálogo y las tasas de Kepler), y el archivo de póliza para ContPAQi (ADR-040) con las 15 cuentas que ya existen |
+| Venta o baja | Fecha y monto de venta, a mano | La baja con su motivo y su comprobante |
+
+Lo que ya existe y se reusa: los escritores de la X-A-15 y del X-A-10 (no filtran cuentas), la bandeja de facturas del
+SAT (S.13) y el patrón de escribir un catálogo de Kepler (DS42, `kdxd`).
+
+### 19.5 Decisiones
+
+| # | Decisión | Opciones | Recomendación | Firma |
+|---|---|---|---|---|
+| **DS47** ✅ | ¿El activo fijo entra a la solicitud de la Suite? | a) quitar `150` de `CUENTAS_FUERA_DE_ALCANCE`, y ya · b) entra con su propio formulario, pidiendo grupo, ubicación y resguardo · c) sigue en Kepler | ✅ **Francisco, 2026-11-21: b**, dentro de la regla de DS48: el activo tiene su formulario | Francisco |
+| **DS48** ✅ | ¿El módulo se llama «Solicitud de egreso»? | a) sí, con el tipo de egreso al empezar · b) sigue «gasto» | ✅ **Francisco, 2026-11-21: se queda «Mis gastos»**, porque la gente ya lo conoce, y se le va enseñando que hay cuatro tipos de egreso: **gastos operativos, compra de activo, gastos financieros e impuestos**. No hay selector de tipo: **el concepto elegido define el resto del formulario**, y cada tipo tiene el suyo. Deroga la recomendación (a), que cambiaba el nombre | Francisco |
+| **DS49** | ¿Quién da de alta el activo, y dónde vive? | a) la Suite escribe el alta en el catálogo de activos de Kepler al comprobar (otro escritor, como DS42) · b) registro propio en la Suite y Contabilidad lo pasa a Kepler | **a**, y lo propio de la Suite (resguardo, fotos, número de serie) en su tabla: el módulo ya está en Kepler y así no hay dos listas | Edgar |
+| **DS50** | ¿Quién deprecia, con qué tasa y desde cuándo? | a) la Suite la deriva y arma la póliza para ContPAQi · b) Contabilidad, a mano en ContPAQi · c) nadie, como hoy | **a**, con las tasas que fije Contabilidad (hoy las de `kdtact`) y las 15 cuentas que ya existen en ContPAQi | Contabilidad y Edgar |
+| **DS51** | ¿Qué pasa con lo comprado en 2026 sin alta? | a) una lista derivada de las pólizas (cada cargo a la 150 con su X-A-10 y su factura) que Contabilidad valida antes del alta · b) se empieza desde hoy | **a**: son $4.42 M sólo por X-A-10, y empezar desde hoy los deja sin depreciar | Contabilidad |
+
+**DS52 (pendiente, para la etapa de diseño): ¿qué cuentas son de cada tipo?** El tipo sale de la cuenta del concepto
+(`kdco.c3`). Punto de partida, por medir y firmar: `150` → compra de activo · `761`–`763` y `601-015` (SUA) →
+impuestos · `210` y las de gasto financiero → financieros · el resto → operativos. Hasta firmarla, «Pedir un gasto»
+sigue igual: sólo ofrece los operativos y muestra los demás deshabilitados con su motivo (`[PGP.122.14]`).
+
+Para Contabilidad, en el catálogo de Kepler: el grupo MAQ apunta a una cuenta de depreciación (`158-005`) y cinco
+subcuentas de la 150 no tienen grupo.
+
+### 19.6 Qué NO incluye
+
+- Nómina (de RH: DS38–DS42, D15), comisiones bancarias (CB.62), tarjetas, préstamos y compras: siguen como hoy. El tipo
+  de egreso los deja nombrados, no construidos.
+- Impuestos y SUA van después del activo: su forma de nutrir el proceso es otra (calendario de obligaciones, línea de
+  captura, acuse).
+- Ningún importer ni copia: el catálogo de activos y la depreciación se leen del ODS (vista); el alta se escribe en Kepler
+  (DS49) o vive como dato propio.
+- No se abre fase: entra como frente de PGP cuando haya cupo.
+
+### 19.7 El orden (dinero × esfuerzo)
+
+| Orden | Frente | Dinero · esfuerzo | Por qué ahí |
+|---|---|---|---|
+| 1 | C0: firmar DS47–DS51 y que Contabilidad conteste dónde quedan en ContPAQi las compras de activo | — · S | Sin árbitro no hay código |
+| 2 | La lista del rezago 2026 (vista derivada) | Alto · S | El pedazo barato que destapa los $4.42 M |
+| 3 | El concepto define el formulario: el de activo fijo con grupo, ubicación y resguardo (y después impuestos y financieros) | Alto · M | Desde ese día cada compra nace con lo que el alta necesita |
+| 4 | El alta al comprobar (escritor del catálogo de activos) | Alto · M–L | Depende de DS49 |
+| 5 | La depreciación del mes y su póliza para ContPAQi | Alto · M | Depende de DS50 y de que haya altas |
+
+### 19.8 Bloqueos y lo NO MEDIDO
+
+| Bloqueo | Dueño | Causa | Qué lo destraba |
+|---|---|---|---|
+| Cupo | Edgar | 9 fases 🔨 contra 4 | cerrar o pausar alguna |
+| La política de depreciación | Contabilidad | tasa fiscal o contable, cuentas, desde cuándo | DS50 |
+| Escribir en el catálogo de activos de Kepler | Edgar | otro escritor sobre Kepler (permisos por servidor) | DS49 y un ensayo como el de la X-A-15 |
+
+**NO MEDIDO:** dónde registra ContPAQi las compras de activo de Kepler (¿como gasto?, ¿no llegan?); si Kepler tiene un
+proceso que calcula `kdt2` y genera su póliza (nadie lo corre, o no existe); si hay un inventario físico de activos por
+sucursal (el catálogo es el mismo en las 9).

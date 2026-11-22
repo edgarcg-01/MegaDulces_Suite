@@ -128,6 +128,11 @@ type DocDelExpediente = DocEvidencia;
                 @for (x of p.departamentos; track x.clave) { <li>{{ nombreDep(x) }} <span class="vp-mono">{{ money(x.importe) }}</span></li> }
               </ul>
             }
+            <!-- [PGP.122.12] Sin folio, el departamento es el que eligió quien la pidió (sus renglones): se dice que todavía
+                 no está en Kepler, para que nadie lo busque ahí antes de firmar. -->
+            @if (p.departamentos?.length && !p.folio_solicitud) {
+              <span class="vp-dep-suite">{{ (p.departamentos?.length ?? 0) > 1 ? 'Los eligió quien la pidió; se escriben' : 'Lo eligió quien la pidió; se escribe' }} en Kepler al firmarse</span>
+            }
           </dd></div>
           <div><dt>Levantado</dt><dd>{{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}@if (p.created_hora) { {{ p.created_hora }} } · {{ p.created_by || '—' }}</dd></div>
           <!-- Las dos fechas, siempre: el gasto puede ser de otro día que el levantamiento. -->
@@ -436,6 +441,8 @@ type DocDelExpediente = DocEvidencia;
   .vp-datos dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
   .vp-datos dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
   .vp-mono { font-family: var(--font-mono); }
+  /* [PGP.122.12] De dónde sale el departamento de la solicitud nacida en la Suite, antes de firmar. */
+  .vp-dep-suite { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
   .vp-nota { font-size: var(--fs-sm); color: var(--fg-2); font-style: italic; margin: 0; }
   /* [PGP.123] G.UI.8: --warn-fg como texto sobre blanco da 2.15:1; el -soft-fg pasa AA. */
   .vp-nota.warn { color: var(--warn-soft-fg); font-style: normal; }
