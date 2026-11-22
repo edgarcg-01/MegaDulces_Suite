@@ -1,286 +1,325 @@
 # Guía de usuario — Presupuestos
 
 > **Para quién es esto:** la persona que arma y opera el presupuesto (Finanzas / Dirección).
-> No hace falta saber nada técnico. Ruta en la app: **Finanzas › Presupuesto** (`/finanzas/presupuesto`).
+> No hace falta saber nada técnico.
 >
-> **La idea del módulo en una frase:** el sistema **arma solo** el presupuesto desde la historia de
-> ventas (ODS) y los egresos (Kepler); vos solo **ajustás los supuestos del año** y **autorizás**.
-> No se captura nada desde cero.
+> **Dónde está:** menú **Administración y Finanzas › Presupuestos › Presupuesto**, ruta
+> **`/presupuesto`**. El enlace viejo `/finanzas/presupuesto` redirige ahí.
+>
+> **La idea del módulo en tres frases:**
+> 1. **El sistema arma** el borrador solo, cada mañana, con las ventas y los gastos reales de Kepler.
+> 2. **Tú revisas** lo que propuso y **decides la política** (qué familias de gasto se presupuestan,
+>    si va por sucursal y qué tan estricto es el control de sobregiro).
+> 3. **Dirección firma.** Desde la firma, el presupuesto controla: cada obligación autorizada
+>    compromete su partida y, al pagarla en el Calendario de Pagos, la consume.
+>
+> *Al día con la pantalla el 2026-11-20 (`[PU.16]`).*
 
 ---
 
-## Antes de empezar: cómo está organizada la pantalla
+## Antes de empezar
 
-Arriba hay dos grupos de pestañas:
+### Los tres permisos
 
-**Armar el presupuesto** (el trabajo de planeación, una vez al año):
-`Ejercicio` · `Ventas` · `Gastos` · `Flujo / Resultado` · `Campañas`
+| Permiso | Qué deja hacer |
+|---|---|
+| **Presupuestos · ver** | Abrir todas las pestañas y consultar. |
+| **Presupuestos · gestionar** | Preparar: guardar la política, proponer planes, generar y **autorizar obligaciones**, mandar a firma. |
+| **Presupuestos · aprobar** | Firmar el ejercicio. Nadie puede aprobar un ejercicio que preparó él mismo. |
 
-**Programación de pagos** (lo que alimenta el Calendario de Pagos):
-`Capacidad de pago` · `Obligaciones`
+> 💡 **Los botones se ven aunque no tengas el permiso.** «Guardar política», «Proponer…» y «Enviar a
+> autorización» aparecen según el estado del ejercicio; si al pulsarlos el sistema responde que no
+> tienes permiso, te falta el de **gestionar**. Se asigna en Administración › Roles; pídelo a quien
+> administra los roles.
 
-Todo lo que hagas ocurre **sobre un ejercicio seleccionado** (ej. "Presupuesto operativo 2027").
-Si una pestaña dice *"Elegí un ejercicio…"*, andá primero a **Ejercicio** y seleccioná uno.
+### Cómo está organizada la pantalla
 
-### El ciclo de vida de un ejercicio (importante)
+Arriba de todo, la franja **«esperan tu firma»** resume lo que está pendiente de autorizar
+(ejercicios y obligaciones). La flecha de la derecha abre el detalle.
 
-Un ejercicio pasa por estos estados, en orden. **Qué podés hacer depende del estado:**
+Debajo del título hay dos grupos:
 
-| Estado | Qué significa | Qué podés hacer |
+- **Armar el presupuesto:** `Dirección` · `Ejercicio` · `Ventas` · `Gastos` · `Campañas`
+- **¿Alcanza el dinero?:** `Diagnóstico` · `Ingresos` (abren como páginas aparte) ·
+  `Flujo / Resultado` · `Capacidad de pago` · `Obligaciones`
+
+Casi todo ocurre **sobre un ejercicio seleccionado**: los ejercicios aparecen como botones en la
+pestaña **Ejercicio** (folio, nombre, año y estado). Si una pestaña te pide un ejercicio, elígelo ahí.
+
+> ⚠️ **El ejercicio marcado PRUEBA** es una copia para ensayar: sus cifras no son presupuesto, el
+> motor de la mañana no lo rearma y no cuenta como el ejercicio del año. No lo uses ni lo sumes.
+> (La pasada de obligaciones sí le genera las suyas: por eso Dirección las muestra aparte.)
+
+### El motor: qué hace solo y cuándo
+
+| Cuándo | Qué hace |
+|---|---|
+| **Cada mañana, 07:30** | Crea el ejercicio del año siguiente si falta, recalcula los supuestos desde la historia, propone los planes de ventas y de gastos y materializa las partidas. Respeta lo capturado a mano. **Sólo en ejercicios abiertos** (*borrador* o *en revisión*) que no sean de prueba. |
+| **Cada madrugada, 03:50** | Genera las obligaciones recurrentes desde el plan de gastos, en estado *propuesta*, en **todo ejercicio que no esté cerrado** (también pendiente, aprobado y el de prueba). |
+
+⭐ **Al mandarlo a autorización, el motor de la mañana deja de rearmar el plan:** lo que se firma es
+lo que viste. Si quieres ver el efecto de un cambio sin esperar a mañana, el ícono **Re-armar ahora**
+(junto a «Enviar a autorización») corre esa misma pasada en ese momento.
+
+### El ciclo de vida de un ejercicio
+
+| Estado | Qué significa | Qué puedes hacer |
 |---|---|---|
-| **borrador** | Recién creado, se está armando | Ajustar supuestos · Proponer plan y gastos · Enviar a autorización |
-| **en_revisión** | En ajuste | Igual que borrador |
-| **pendiente** | Enviado, esperando visto bueno | **Aprobar** (quien autorice) |
-| **aprobado** | Autorizado y en operación | Mover partidas (reservar/ejercer/pagar) · Re-materializar · Cerrar |
-| **cerrado** | Terminado | Solo consulta |
+| **borrador** | Lo arma el motor | Revisar · guardar la política · proponer · **Enviar a autorización** |
+| **en_revision** | En ajuste | Igual que borrador |
+| **pendiente** | Enviado, esperando firma | **Aprobar** (quien tenga el permiso de aprobar) |
+| **aprobado** | Firmado y en operación | Mover partidas · **Re-materializar** · **Cerrar** |
+| **cerrado** | Terminado | Sólo consulta |
 
-> ⚠️ Los **supuestos** y los botones **"Proponer…"** solo funcionan en **borrador / en_revisión**.
-> Una vez **aprobado**, el plan queda fijo y el trabajo pasa a operar los pagos.
-
----
-
-# PARTE 1 — Armar el presupuesto (una vez al año)
-
-Seguí las pestañas de izquierda a derecha. El orden es el flujo.
-
-## Paso 1 — Ejercicio
-
-Acá creás el presupuesto del año y ajustás **lo único que decide un humano**: los supuestos.
-
-### 1.1 Crear el ejercicio
-
-Tenés dos caminos:
-
-- **Nuevo ejercicio** (botón arriba a la derecha): abre un diálogo con Nombre, Año fiscal y
-  Escenario (Base / Conservador / Expansión). Llenalo y **Crear**. Nace en *borrador*.
-- **Copiar del año anterior** (botón, con el ejercicio seleccionado): clona el ejercicio actual a
-  uno nuevo en *borrador*, sin autorizaciones. Es la vía recomendada si ya tuviste presupuesto el
-  año pasado — arrancás con todo puesto y solo ajustás lo que cambió.
-
-Los ejercicios aparecen como **chips** (botones) arriba; hacé clic en uno para seleccionarlo.
-
-### 1.2 Ajustar los "Supuestos del año" ⭐ (tu trabajo principal)
-
-Es el panel resaltado, con el subtítulo *"lo único que ajustás; el sistema propone ventas y gastos
-con esto"*. Dos columnas:
-
-- **Ventas — crecimiento por canal (%):** cuánto esperás crecer respecto al año pasado, por cada
-  canal. Hay un campo **Respaldo** para los canales sin valor propio.
-- **Gastos:**
-  - **Crecimiento (%):** cuánto suben los gastos respecto al año anterior.
-  - **Familias Kepler:** qué tipo de gasto presupuestar. `6` = gasto operativo · `5` = compras ·
-    `7` = financieros · `1` = inversión. (Normalmente `6`.)
-  - **Presupuestar por sucursal:** marcalo si querés el gasto abierto por sucursal en vez de
-    consolidado.
-
-Cuando termines: **Guardar supuestos**.
-
-> 💡 No inventás cifras acá. Solo decís "espero crecer X% en tal canal". El sistema hace el resto.
-
-### 1.3 La tabla de partidas (solo lectura)
-
-Debajo verás la tabla de **partidas** con columnas Vigente / Reservado / Comprometido / Ejercido /
-Disponible / Ocupación. **No se captura a mano.** Estará vacía hasta que apruebes el ejercicio: las
-partidas se **materializan** automáticamente de los planes de Ventas y Gastos. Más sobre esto en el
-Paso 5.
+Antes de mandarlo a firma, la pantalla te dice lo que **bloquea** («No puede ir a autorización
+todavía: …») y lo que conviene mirar aunque no frene. Lo que se firma se lee antes de firmar.
 
 ---
 
-## Paso 2 — Ventas
+# PARTE 1 — Armar el presupuesto
 
-Con los supuestos guardados, generás el plan de ventas del año.
+Sigue las pestañas de izquierda a derecha: el orden es el flujo.
 
-### 2.1 Proponer el plan
+## 1 · Dirección — el punto de partida
 
-Botón **"Proponer plan del año"** (solo en borrador/en_revisión). Un clic: el sistema arma el plan
-usando la historia real de ventas × el crecimiento que pusiste en los supuestos. No hay que capturar
-metas celda por celda.
+La primera pestaña. Contesta qué falta antes de abrir cualquier otra:
 
-Cada meta trae su **Origen**:
-- **Histórico** — real del año anterior × crecimiento (lo más confiable).
-- **Estacional** — donde no hay base, se usa participación + estacionalidad.
-- **Sin señal** — no había con qué estimar: **no se inventa** (queda en blanco).
-- **Manual** — ajustada a mano.
+- **El motor:** cuántas veces corrió, si la última salió bien y su cadencia.
+- **Los ejercicios:** cuáles esperan firma y desde hace cuántos días; quién los creó y quién los
+  autorizó.
+- **Las obligaciones, en dos universos:** las del ejercicio real y las del ejercicio de prueba,
+  **nunca sumadas**.
+- **Las cinco etapas del dinero** (vigente, reservado, comprometido, ejercido y pagado) más el
+  disponible, **una columna por año**. Los años no se suman entre sí. Cada etapa dice qué la mueve.
+- **Lo que no se puede medir hoy**, con su motivo (por ejemplo, familias de gasto sin dueño).
 
-La línea de "Última propuesta" te dice cuántas metas salieron de cada origen.
+Si un bloque no se pudo medir, lo dice con su motivo en lugar de mostrar un cero.
 
-### 2.2 Ver "meta vs real" (opcional, tarda unos segundos)
+## 2 · Ejercicio — supuestos y política
 
-Botón **"Cargar meta vs real"** (o "Actualizar real"). Consulta el sell-out del ODS y llena las
-columnas **Real**, **Cumpl.** (cumplimiento), **CREC** (crecimiento) y **PART** (participación).
+### Los ejercicios
 
-> Este cálculo consulta datos en vivo y **tarda unos segundos** — por eso no carga solo, hay que
-> pedirlo con el botón. La propuesta del plan **no** lo necesita.
+El ejercicio del año siguiente **lo crea el motor solo**. Los otros dos botones son para casos
+especiales:
 
-Podés filtrar por **Periodo (P1–P13)** con el selector.
+- **Duplicar como escenario:** duplica *este* ejercicio como una versión nueva en borrador, del mismo
+  año, para armar un escenario alterno (conservador, expansión). **No** copia del año anterior.
+  ⚠️ El diálogo que abre todavía se titula «Copiar del año anterior» y dice «Luego ajustas los
+  supuestos»: es texto viejo; lo que hace es lo de arriba.
+- **Nuevo ejercicio:** para un año o un escenario distinto del que arma el sistema. Si todavía no hay
+  ningún ejercicio, aparece como **Crear uno a mano**.
 
-### 2.3 Las otras dos vistas (pestañas dentro de Ventas)
+### Supuestos del año — los calcula el sistema
 
-- **Indicadores:** CREC y PART históricos por canal, directo del sell-out. Reemplaza el seguimiento
-  manual del Excel.
+El panel **Supuestos del año** muestra el crecimiento que el sistema calculó desde la historia:
+
+- **Ventas — crecimiento por canal (%):** año contra año del sell-out. Un canal sin par de años con
+  qué calcular usa el **Respaldo**, y la pantalla lo marca.
+- **Gastos — crecimiento (%):** año contra año de los egresos de Kepler. Si no hay historia
+  suficiente se marca **«sin medir»**.
+
+Estos números **no se capturan**. ⭐ **Si un supuesto no cuadra, el arreglo es la fuente, no el
+número:** avisa a Sistemas para revisar de dónde sale (un canal mal clasificado, un hueco de datos).
+
+### Política — esto sí lo decides tú
+
+| Perilla | Qué decide |
+|---|---|
+| **Familias Kepler** | Qué tipo de gasto se presupuesta: `6` gasto operativo · `5` compras · `7` financieros · `1` inversión. Normalmente `6`. |
+| **Presupuestar por sucursal** | Gasto abierto por sucursal en lugar de consolidado. |
+| **Control de sobregiro** | *Informativo* (no avisa) · *Advertencia* (avisa) · *Bloqueo* (impide autorizar un gasto que exceda la partida). |
+
+Cuando termines: **Guardar política**. Sólo se puede en borrador o en revisión.
+
+### Partidas
+
+La tabla de partidas (vigente, reservado, comprometido, ejercido, disponible, ocupación) **no se
+captura a mano**: sale de los planes de Ventas y Gastos.
+
+## 3 · Ventas
+
+Tres vistas: **Plan**, **Indicadores** y **Conciliación**.
+
+- **Proponer plan del año** (borrador o en revisión): arma la meta por canal y periodo con la venta
+  real por el crecimiento de los supuestos. El año va en **13 periodos de cuatro semanas (P1 a
+  P13)**; el selector de periodo filtra la tabla.
+- Cada meta dice su **origen** en la columna Origen: **Histórico** (real del año anterior por el
+  crecimiento), **Estacional** (participación y estacionalidad donde no hay base propia), **Proxy
+  canal** (repartida con el promedio de su canal), **Sin base** (no había con qué estimar: queda en
+  0 y **se declara**, no se inventa), **Manual** o **Mixto** (el renglón junta celdas de orígenes
+  distintos).
+- **Meta contra real** se carga sola al entrar a Ventas: real, cumplimiento, crecimiento y
+  participación desde el sell-out. **Actualizar real** vuelve a consultar.
+- **Proyectar a Análisis:** reparte la meta del plan a metas mensuales del «vs objetivo» del
+  sub-módulo Análisis.
+- **Indicadores:** crecimiento y participación históricos por canal, directo del sell-out.
 - **Conciliación:** contrasta el sell-out contra la facturación contable (cuenta 401). Es
-  documental — el real del presupuesto sigue siendo el sell-out.
+  documental: el real del presupuesto sigue siendo el sell-out.
 
-### 2.4 Proyectar a Análisis (opcional)
+### Corregir una meta a mano
 
-Botón **"Proyectar a Análisis"**: reparte la meta del plan (13×4) a metas mensuales del "vs objetivo"
-del sub-módulo Análisis. Esto también pasa **automáticamente al aprobar** el ejercicio, así que
-normalmente no hace falta tocarlo.
+Si una meta no cuadra con lo que sabes del negocio (una apertura, un cliente que se fue, una
+temporada que el motor no vio), corrígela:
 
----
+1. En **Plan**, elige un **periodo** (P1 a P13). En «Todos (anual)» no hay lápiz, porque la meta se
+   guarda por periodo; la pantalla te lo recuerda.
+2. En el renglón de la sucursal o canal, pulsa el **lápiz**. Los subtotales y el total no tienen.
+3. Escribe la **meta nueva en pesos** y **Guardar meta** (o Enter).
 
-## Paso 3 — Gastos
+La meta queda con origen **Manual** y **el motor la respeta** cada mañana al rearmar el plan: no
+la vuelve a pisar. Sólo se puede con el ejercicio en *borrador* o *en revisión*.
 
-Botón **"Proponer gastos del año"** (solo en borrador/en_revisión). Un clic arma el presupuesto de
-gastos desde los egresos reales de Kepler (base del año anterior × el crecimiento de los supuestos).
+## 4 · Gastos
 
-Verás dos bloques:
+- **Proponer gastos del año** (borrador o en revisión): arma el gasto desde los egresos reales de
+  Kepler (base del año anterior por el crecimiento de los supuestos).
+- Arriba, el resumen: presupuesto de gasto, comprometido + ejercido, disponible y ocupación.
+- Después, **la concentración**: cuántas partidas se llevan la mayor parte del gasto. Es la respuesta
+  a «¿dónde puedo recortar?».
+- Abajo, **Presupuesto propuesto**: el detalle por cuenta de mayor, familia y sucursal, con su
+  origen, los meses que cubre y el presupuesto anual. Lo que no tiene base no se inventa.
 
-1. **Partidas de gasto** (arriba) — vacías hasta aprobar; se materializan del propuesto.
-2. **Presupuesto propuesto** (abajo) — el detalle por **cuenta mayor × mes**, con su **Origen**
-   (mismo criterio que ventas: histórico / estacional / sin señal). Al pie, el **Total propuesto del
-   año**.
+> ⚠️ A diferencia de Ventas, **en Gastos hoy no hay corrección a mano de un renglón** desde la
+> pantalla. Si uno no cuadra, anótalo y avisa a Sistemas antes de mandar el ejercicio a firma.
 
-La línea de "Última propuesta" resume cuántas cuentas salieron de cada origen y cuántas quedaron
-"sin señal" (que **no se inventan**).
+## 5 · Flujo / Resultado
 
----
+- **Estado de resultados — plan contra real, renglón por renglón:** venta, costo de ventas, margen
+  bruto, gasto operativo, gastos financieros e impuestos y resultado, con plan, real y cumplimiento.
+  Si falta un lado, lo dice en lugar de ponerlo en cero.
+- **Flujo de caja previsto:** se carga solo al entrar; para otro rango cambia Desde / Hasta y
+  **Actualizar**. Muestra por semana
+  los cobros (cartera de clientes por vencimiento), los pagos (obligaciones), el neto y el saldo
+  proyectado. Si no hay saldo inicial de bancos, el saldo se declara (—); si una semana queda en
+  negativo, aparece una alerta de liquidez. ⚠️ El flujo es de **toda la empresa**, no del ejercicio.
 
-## Paso 4 — Flujo / Resultado
+## 6 · Campañas (opcional, durante el año)
 
-Pantalla de revisión, para ver si el presupuesto cierra bien.
+Una campaña la decide una persona; el sistema la evalúa.
 
-### 4.1 Resultado presupuestado (carga solo)
+- **Nueva campaña:** nombre, tipo, objetivo, canales, fechas, inversión y la **regla de atribución**
+  (cómo se medirá el resultado). Sin regla explícita, las ventas vinculadas no prueban efecto.
+- **Aportación de proveedor:** sólo la *confirmada* o *aplicada* reduce el gasto neto; la
+  *incierta* no.
+- **Retorno:** si no hay base para calcularlo, puedes capturar el margen incremental y calcular.
 
-Arriba: **Ingresos (plan) − Egresos (plan) = Resultado**, con el **Margen %**, y el desglose mes a
-mes. Sale directo de los dos planes (ventas y gastos). Si falta un lado, lo **dice** (no lo pone en
-cero).
+## 7 · Mandar a firma y aprobar
 
-### 4.2 Flujo de caja previsto (opcional, tarda unos segundos)
+En **Ejercicio**:
 
-Elegí un rango de fechas (Desde / Hasta) y **Actualizar**. Muestra por semana: Cobros (cartera por
-vencimiento), Pagos (obligaciones), Neto y Saldo proyectado.
+1. Revisa los bloqueos y avisos de arriba.
+2. **Enviar a autorización** → el ejercicio pasa a *pendiente* y el motor de la mañana deja de
+   rearmarlo.
+3. Quien tenga el permiso de aprobar pulsa **Aprobar** → pasa a *aprobado*.
 
-> Consulta la cartera en vivo y **tarda unos segundos** — por eso es con botón.
-> Si no hay saldo inicial de bancos, el saldo proyectado se **declara** (—); el neto por semana sí
-> es real. Si hay semanas con saldo negativo, aparece una **alerta de liquidez**.
-> Nota: el flujo es a nivel **empresa**, no por ejercicio.
-
----
-
-## Paso 5 — Autorizar (el momento clave)
-
-Con Ventas y Gastos propuestos y el Resultado revisado, en la pestaña **Ejercicio**:
-
-1. **Enviar a autorización** → el ejercicio pasa a *pendiente*.
-2. Quien autorice pulsa **Aprobar** → pasa a *aprobado*.
-
-**Al aprobar, el sistema hace dos cosas solo:**
-- **Materializa las partidas:** convierte los planes de Ventas y Gastos en las partidas del libro de
-  5 estados (las tablas que estaban vacías se llenan).
-- **Proyecta las metas** de ventas al sub-módulo Análisis.
-
-Si después cambiás un plan, usá **Re-materializar** (botón con el ejercicio aprobado) para
-re-sincronizar las partidas sin perder los movimientos ya hechos.
-
----
-
-## Paso 6 — Campañas (durante el año, opcional)
-
-Definición manual legítima (una campaña la decide una persona) + evaluación automática.
-
-- **Nueva campaña:** nombre, tipo, objetivo, canales, fechas, inversión y — importante — la
-  **regla de atribución** (cómo se medirá el resultado). Sin regla explícita, las ventas vinculadas
-  no prueban efecto real.
-- **Activar / Cerrar** la campaña con los botones del detalle.
-- **Aportación:** registrá lo que aporta un proveedor. Solo la **confirmada/aplicada** reduce el
-  gasto neto; la **incierta** no. Confirmás una aportación con el ✓.
-- **Retorno (ROI):** si no hay base para calcularlo, podés meter el margen incremental a mano y
-  **Calcular**.
+**Al aprobar** se materializan las partidas del libro desde los planes, y la pantalla además
+proyecta las metas de ventas a Análisis. ⚠️ Si esa proyección falla no avisa: revisa Análisis y, si
+no llegaron, usa **Proyectar a Análisis** en Ventas. Si después cambia un plan, **Re-materializar**
+re-sincroniza las partidas sin perder los movimientos ya hechos.
 
 ---
 
-# PARTE 2 — Programación de pagos (alimenta el Calendario)
+# PARTE 2 — ¿Alcanza el dinero? (cada semana y cada día)
 
-Estas dos pestañas convierten el presupuesto aprobado en lo que el **Calendario de Pagos** va a usar.
+## 8 · Diagnóstico (`/presupuesto/tesoreria`)
 
-## Paso 7 — Capacidad de pago
+**¿Alcanza?** — si el dinero alcanza para pagar lo que se debe — y el **ciclo de conversión de
+efectivo**: cuántos días tardamos en cobrar y en pagar.
 
-Cuánto se puede pagar por día. El sistema la **propone**, vos **confirmás**.
+⚠️ Mide **la operación completa** (ERP y bancos), no el ejercicio que tengas seleccionado: no cambia
+al cambiar de año. Se mira una vez por semana.
 
-1. Elegí un rango (Desde / Hasta) y **Proponer capacidad**. El sistema deriva una capacidad diaria
-   desde la cobranza esperada (flujo).
-2. Revisá la tabla (Día · Capacidad propuesta · Cobranza de la semana) y **Confirmar capacidad
-   propuesta**.
+## 9 · Ingresos (`/presupuesto/ingresos`)
 
-> Si no hay cartera para estimar, lo **dice** (no inventa un número).
+Cuánto va a entrar **cada día** a bancos y a caja general, y cuánto entró de verdad, por mes,
+semana y día. Dos etiquetas dicen hasta qué día están cargados bancos y caja general. Es la base con
+la que se propone la capacidad de pago.
 
-**Ajuste manual de un día** (abajo): si necesitás cambiar un día puntual, elegí la fecha, poné el
-importe autorizado y un **motivo del cambio**, y **Guardar**. Queda registrado en el historial (antes
-/ después / motivo / quién).
+## 10 · Capacidad de pago
 
-## Paso 8 — Obligaciones
+Cuánto se **autoriza** pagar por día. El sistema lo propone, tú confirmas.
 
-Los pagos recurrentes (luz, renta, sueldos, comisiones…). Se **auto-generan**, vos **autorizás**.
+1. Al entrar, la pestaña ya trae la propuesta de hoy a 30 días. Para otro rango, cambia Desde /
+   Hasta y **Proponer capacidad**. Por default, la capacidad de cada día hábil es el ingreso
+   estimado de ese día más lo que entró en los días inhábiles anteriores (fin de semana, feriados).
+   Si no hay estimado para el rango, cae a la cartera y lo dice. Un día sin estimado no se propone
+   en cero: se declara.
+2. Revisa la tabla y **Confirmar capacidad propuesta**.
 
-1. **Generar del plan:** crea las obligaciones recurrentes del plan de gastos aprobado, en estado
-   **propuesta** (aún no cuentan).
-2. Marcá las que correspondan con el checkbox y **Autorizar seleccionadas**.
+**Ajuste manual del día (antes de pasar a Pagos):** arranca en mañana; eliges la fecha, el importe
+autorizado y el motivo. Queda en el historial (antes, después, motivo, quién). ⛔ Un día que ya pasó
+a Pagos no se puede cambiar.
 
-> ⭐ **Solo las obligaciones autorizadas entran al Calendario de Pagos.** Las que quedan en
-> *propuesta* no se pagan. Autorizar es un acto humano a propósito.
+⭐ **El Calendario de Pagos obedece este techo:** no autoriza un pago que no quepa en la capacidad
+del día, y un día sin capacidad no se puede autorizar.
 
-Las obligaciones **críticas** salen marcadas con una banderita 🚩 (con su motivo).
+## 11 · Obligaciones
+
+Los pagos recurrentes del plan de gastos (sueldos, renta, luz, comisiones…). El motor las genera
+cada madrugada en *propuesta*; también puedes pulsar **Generar del plan**.
+
+1. Marca las que correspondan con la casilla.
+2. **Autorizar seleccionadas**.
+
+> ⭐ **Sólo las obligaciones autorizadas entran al Calendario de Pagos.** Las que quedan en
+> *propuesta* no se pagan. Autorizar es un acto humano a propósito, y **compromete** el dinero de su
+> partida.
+
+Las obligaciones críticas salen marcadas con bandera y su motivo.
 
 ---
 
-# PARTE 3 — Durante el año: operar el presupuesto
+# PARTE 3 — Durante el año: el dinero de cada partida
 
-Con el ejercicio **aprobado**, cada partida se maneja con **movimientos**. En las pestañas
-**Ejercicio** o **Gastos**, en la fila de una partida activa, el botón ⚡ (rayo) abre el diálogo de
-movimiento.
+Con el ejercicio **aprobado**, cada partida avanza por cinco etapas, más el disponible. Esto es lo
+que las mueve hoy:
 
-El presupuesto se consume en 5 estados, en este orden:
+| Etapa | Qué la mueve |
+|---|---|
+| **Vigente** | La firma del ejercicio, Re-materializar y las adecuaciones (ampliar, reducir). |
+| **Reservado** | Sólo a mano: botón de **movimiento de partida** (⚡) en Ejercicio o Gastos. |
+| **Comprometido** | **Autorizar** la obligación en la pestaña Obligaciones, o a mano con ⚡. |
+| **Ejercido** y **Pagado** | **Pagar** esa obligación en el Calendario de Pagos, o a mano con ⚡. |
+| **Disponible** | Nadie: se calcula. |
 
-1. **Reservar** — aparto dinero (todavía no comprometido con nadie).
-2. **Comprometer** — hay un compromiso firme (ej. una orden). Puede venir *desde una reserva*.
-3. **Ejercer** — el gasto ya ocurrió.
-4. **Pagar** — ya se pagó.
-5. **Cancelar** — libero una reserva o un compromiso.
+El movimiento manual (⚡) también permite **cancelar** una reserva o un compromiso, y **ampliar** o
+**reducir** el vigente (adecuaciones).
 
-También existen **Ampliar** y **Reducir** (adecuaciones del vigente).
+> ⚠️ **El disponible manda.** Si reservas o comprometes más de lo disponible, el sistema avisa o
+> bloquea según el control de sobregiro que elegiste en la política.
 
-> ⚠️ **El disponible manda.** Si intentás reservar/comprometer más de lo disponible, el sistema
-> **bloquea o avisa** según el nivel de control de esa partida. Esto es a propósito: es el control
-> antes de gastar.
+### Lo que todavía NO descuenta del presupuesto
+
+Las **órdenes de compra a proveedor**, la **recepción de mercancía** y los **pagos a proveedor**
+que ya pasan por el Calendario de Pagos viven en Compras y en Pagos y **no tocan ninguna partida**.
+Sólo las obligaciones del presupuesto la mueven.
 
 ---
 
 # Resumen del flujo (chuleta)
 
-**Una vez al año:**
-1. **Ejercicio** → Crear o Copiar → **Guardar supuestos del año**
-2. **Ventas** → Proponer plan del año
-3. **Gastos** → Proponer gastos del año
-4. **Flujo / Resultado** → revisar que cierre
-5. **Ejercicio** → Enviar a autorización → **Aprobar** (materializa partidas + proyecta metas)
-6. **Capacidad de pago** → Proponer → Confirmar
-7. **Obligaciones** → Generar del plan → **Autorizar** → entran al Calendario de Pagos
+**Para tener el año firmado:**
+1. **Dirección** → ver qué falta.
+2. **Ejercicio** → revisar los supuestos que calculó el sistema → **Guardar política**.
+3. **Ventas** y **Gastos** → revisar lo propuesto (el motor lo rearma cada mañana).
+4. **Flujo / Resultado** → revisar que el año cierre.
+5. **Ejercicio** → **Enviar a autorización** → Dirección **Aprueba**.
+6. **Obligaciones** → **Autorizar** las que van → entran al Calendario de Pagos.
 
-**Durante el año:**
-- Operar partidas con ⚡ (reservar → comprometer → ejercer → pagar)
-- Campañas (definir + evaluar)
-- Ventas → "meta vs real" e Indicadores para seguimiento
+**Cada semana:** Dirección · Diagnóstico · Ventas «meta vs real».
+**Cada día (Tesorería):** Ingresos → Capacidad de pago → Calendario de Pagos.
 
 ---
 
 ## Reglas que conviene tener claras
 
-- **"Sin datos" no es cero.** Cuando el sistema no puede estimar algo, lo deja en blanco (—) y lo
+- **«Sin datos» no es cero.** Cuando el sistema no puede estimar algo, lo deja en blanco (—) y lo
   explica. Nunca dibuja un cero falso.
-- **Lo que tarda, se pide con botón.** "Cargar meta vs real", el flujo de caja y "Proponer capacidad"
-  consultan datos en vivo y tardan unos segundos. El resto de las pantallas abre al instante.
+- **Lo que tarda, carga solo al entrar.** Meta contra real, el flujo de caja y la propuesta de
+  capacidad consultan datos en vivo y tardan unos segundos; el botón de cada una sólo vuelve a
+  consultar.
 - **Autorizar es humano.** El sistema propone todo; aprobar el ejercicio y autorizar obligaciones lo
   hace una persona.
-- **No se captura desde cero.** Si ves una pantalla vacía, casi siempre es porque falta *Proponer* o
-  *Aprobar*, no porque tengas que llenarla a mano.
+- **Un supuesto que no cuadra se arregla en la fuente**, no tecleando otro número.
+- **Si ves una pantalla vacía**, casi siempre falta que el motor corra (Re-armar ahora), que alguien
+  apruebe o que se elija un ejercicio. No hace falta llenarla a mano.
