@@ -328,6 +328,90 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-22** — 🧪 **[COT.54] Cuánto cuesta capturar cada cotización, para medir si las mejoras ahorran tiempo** (punto 1 de
+  la auditoría de uso y ML; decisión de Francisco del 2026-11-22: se guarda por cotización y **se reporta sólo agregado**, por
+  sucursal o semana, **nunca un ranking por persona**). **Medido en prod:** hoy es imposible medirlo, porque los renglones se
+  guardan en el mismo segundo (p90 de 0.02 min entre el primero y el último): la bandeja vive en el navegador.
+  **Ahora:**
+  - tres columnas que aceptan nulos en `commercial.quotes` (migración `20261122011540_cot54_quote_capture_metrics.js`, con
+    sus `COMMENT` que dicen la regla del reporte):
+    - `capture_seconds`: del primer artículo en la bandeja a guardar;
+    - `capture_searches`: búsquedas que trajeron lista;
+    - `capture_recovered`: salió de un respaldo de COT.50; el reloj arranca al recuperar y lo de antes del corte no se midió;
+  - viajan en el alta (`capture`, contrato `quote-capture.contract.ts`);
+  - `capturaLimpia` guarda como **no medido** (NULL) lo imposible (más de 8 h, negativo, fracción, tipo raro) en vez de
+    recortarlo a algo creíble.
+
+  **Comprobado:**
+  - pruebas: 3 del contrato y 3 de la pantalla (el reloj arranca con el primer artículo y se reinicia al vaciar);
+  - la migración real (`up` ×2, `INSERT` de la cabecera con y sin captura, negativa por CHECK y `down`) ejecutada en el
+    Postgres local en una transacción revertida;
+  - televenta 166/166, cotizaciones 219/219, contratos 621/621; `nx build view` limpio;
+  - boundary, templates, estilos, `spec-vivo` y `mig-colisiones` en verde (1,561).
+
+  ⛔ **La migración va ANTES de soltar, sin excepción:** el `INSERT` del alta ya nombra las columnas. Sin ellas **no se puede
+  crear ninguna cotización** (el vigía no despliega con una migración pendiente, pero que no dependa de eso).
+  **NO verificado:** el alta completa con la API levantada (regla 3); el reporte agregado todavía no existe (no se pidió).
+- **2026-11-22** — 🧪 **[COT.53] Qué se busca en el cotizador y qué se elige, anónimo y agregado** (punto 1 de la auditoría de
+  uso y ML; decisión de Francisco del 2026-11-22: «anónimo y agregado»). **Medido en prod:** 50,855 búsquedas de artículo en
+  42 días (~5.5 por renglón guardado) y 982 «¿quisiste decir…?» (búsquedas que no trajeron nada) en sus primeros 5 días; no se
+  guardaba qué se escribió ni qué se eligió. La telemetría de la Suite (`UsoService`) declara que NO guarda lo que la persona
+  escribe en el buscador, así que **no se usa ese canal**.
+  **Ahora:**
+  - tabla nueva `commercial.quote_search_stats` (migración `20261122010736_cot53_quote_search_stats.js`). Es un contador por
+    día (CDMX) · sucursal · término · SKU elegido · posición, con `results` (cuántos mostraba la lista) y `times`;
+  - **sin columnas de usuario, a propósito** (excepción a la regla 18 por la decisión);
+  - `chosen_sku = ''` y `position = 0` = no trajo nada, amarrados por CHECK;
+  - RLS forzada y `SELECT/INSERT/UPDATE` a `app_runtime`;
+  - `POST /commercial/quotes/search-events` (contrato `quote-search-event.contract.ts`, término normalizado: espacios y
+    minúsculas, acentos conservados, tope 80);
+  - las dos pantallas (alta y borrador) avisan sin esperar respuesta al elegir un artículo (término, SKU, su lugar en la
+    lista, cuántos había) y cuando la búsqueda no trajo nada (el mismo momento en que piden «¿quisiste decir…?»);
+  - un elegido sin lugar en la lista no se cuenta: ponerle «1» sería inventar.
+
+  **Comprobado:**
+  - pruebas: 5 del servicio, una de ellas «ni el SQL ni sus parámetros llevan quién buscó»; 3 del contrato; 2 de la
+    pantalla;
+  - **la migración real** (`up` dos veces, contador, 3 negativas por CHECK, RLS forzada, columnas, `down`) ejecutada en el
+    Postgres local en una transacción revertida, sin tocar su `knex_migrations`;
+  - cotizaciones 219/219, televenta 161/161; `nx build view` limpio;
+  - `lint:boundary`, `check:templates`, `check:estilos`, `spec-vivo` y `check:mig-colisiones` en verde (1,560 migraciones,
+    leyendo el registro de prod).
+
+  ⚠️ **Lleva migración: se aplica en prod ANTES de soltar** (`aplicar-migracion.sh 20261122010736_cot53_quote_search_stats.js`).
+  Si se suelta sin ella, el endpoint da 500 y la pantalla no se entera (avisa sin esperar respuesta): se pierden los
+  eventos, no la captura. **NO verificado:** el endpoint con la API levantada (regla 3).
+- **2026-11-22** — 🧪 **[COT.52] Cerrar una cotización sin pedido, con motivo** (punto 1 de la auditoría de uso y ML; motivos
+  elegidos por Francisco el 2026-11-22). **Medido en prod:** 122 borradores vivos, 94 de más de 7 días ($1.82M); **ninguna**
+  cotización `rejected` ni `cancelled`. `POST /:id/cancel` existe con motivo libre pero ninguna pantalla lo ofrece, y las 75
+  `deleted_at` son de una limpieza del 3-nov sin usuario. No había cómo cerrar un borrador, y sin motivo no se aprende por
+  qué se pierde una venta. **Ahora:** `POST /commercial/quotes/:id/close` con `motivo` de la lista (`MOTIVOS_CIERRE_COTIZACION`,
+  `libs/contracts/src/http/quote-close.contract.ts`) y `nota`. El motivo decide el estado:
+  - el cliente no compró (no hizo el pedido, precio, sin existencia, se fue con otro) → `rejected` + `rejected_at`;
+  - baja nuestra (prueba, otro) → `cancelled` + `cancelled_at`. «Otro» no cuenta como venta perdida porque nadie afirmó
+    que el cliente dijera que no, y su detalle es obligatorio.
+
+  `close_reason` = `<código>` o `<código> — <nota>`: el código va siempre primero para contarlo
+  (`motivoDeCierreCotizacion`). Sólo se cierra lo abierto (borrador/enviada) y fuera de Kepler; el `UPDATE` lo vuelve a
+  exigir en su `WHERE` (otra pestaña pudo cerrarla). En la pantalla del borrador, «Cerrar sin pedido» va junto a «Editar
+  datos», con la misma condición (`cabeceraEditable`). **Las cinco preguntas:** (1) en la cabecera del borrador, la acción
+  con su nombre; el diálogo pregunta «¿Por qué no hubo pedido?» con 6 motivos y el detalle; (2) no aparece si ya está en
+  Kepler, cerrada o sin escritura en la sucursal; (3) un clic + elegir + confirmar, cada motivo un renglón de 44 px con
+  su radio y teclado; (4) la cerrada como rechazada cae en «Perdidas» de la lista (que ya filtra `rejected,expired`);
+  «sin existencia» es la misma señal que COT.51 guarda por renglón; (5) le toca al borrador, que es donde se decide.
+  **Comprobado:**
+  - pruebas: 8 del servicio (`quote-close.spec.ts`: motivo → estado, sin motivo o inventado no escribe, «otro» exige
+    detalle, Kepler/cerrada/ajena no se tocan); 4 del contrato; 3 de la pantalla (`televenta-quote-detail.cierre.spec.ts`);
+  - **prueba negativa:** sin la exigencia de «otro», cae 1;
+  - el `UPDATE` real ejecutado en el Postgres local (rejected y cancelled), en una transacción revertida: un segundo
+    cierre no toca filas;
+  - televenta 161/161, cotizaciones 214/214; `nx build view` limpio. El primer build cayó por un choque de nombres
+    (`motivoDeCierre` ya existía en `finance/ejercicio.contract`) y se renombró;
+  - `lint:boundary`, `check:templates`, `check:estilos` y `spec-vivo` en verde; `check:pantalla -- televenta` igual antes
+    y después (25/4).
+
+  **NO verificado:** sin prueba visual; el endpoint completo contra una base real con la API levantada (regla 3).
+  **Sin migración** (las columnas `rejected_at`, `cancelled_at` y `close_reason` ya existen).
 - **2026-11-22** — 🧪 **[COT.50] La cotización a medias ya no se pierde con la sesión vencida ni con dos pestañas**
   (Sergio, vendedor de telemarketing de la 01, por Francisco: «dos veces esta semana se me cerró la ventana, perdí la
   captura y tuve que volver a empezar»). COT.32 ya guardaba la captura en el navegador; **por qué no alcanzó, medido:**

@@ -31,11 +31,14 @@
  *    que no se puede revisar.
  *
  * Lo que sigue en el shell y es deuda declarada de este carril: el diálogo de propuesta
- * (`openProposePlan`/`confirmProposePlan`) y los de captura manual (`openGenPlan`, `openMetaEdit`)
- * **no tienen un solo llamador** — y la tabla de abajo conserva su columna «Acciones» con la celda
- * vacía, que es el residuo visible de ese botón. No se borran acá: son estado + HTTP, viven del
- * lado del shell por el patrón, y decidir si se restauran o se retiran es una decisión de producto,
- * no un efecto colateral de mover archivos.
+ * (`openProposePlan`/`confirmProposePlan`) y `openGenPlan` **no tienen un solo llamador**. No se
+ * borran acá: son estado + HTTP, viven del lado del shell por el patrón, y decidir si se restauran o
+ * se retiran es una decisión de producto, no un efecto colateral de mover archivos.
+ *
+ * `[PU.17]` (2026-11-20) **La corrección de la meta por celda volvió** (`editMeta` → `openMetaEdit`).
+ * ADR-074 la había retirado con su costo escrito —«corregir una celda obliga a ajustar supuestos y
+ * re-proponer… reversible fácil si estorba en operación»— y después PVI volvió los supuestos de solo
+ * lectura: el humano se quedó sin ninguna palanca y el presupuesto siguió en Excel.
  */
 import { ChangeDetectionStrategy, Component, EventEmitter, Output, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -118,6 +121,11 @@ import {
             <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
               <label class="pres-muted">Periodo (13×4):</label>
               <p-select [options]="periodOpts" [ngModel]="period()" (ngModelChange)="periodChange.emit($any($event))" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
+              <!-- [PU.17] La meta se guarda por entidad y PERIODO: en la vista anual no hay una
+                   celda que corregir, así que se dice cómo llegar a ella en vez de esconder el lápiz. -->
+              @if (editable() && period() === 0) {
+                <span class="pres-muted"><span class="pi pi-pencil" aria-hidden="true"></span> Para corregir una meta, elige un periodo.</span>
+              }
             </div>
             <!-- [PVI.9] Nueve columnas no entran en 430 px, y hasta hoy nada decía qué hacía esta
                  tabla en un teléfono: la compuerta check:tables no la veía porque el archivo no
@@ -145,7 +153,16 @@ import {
                   <td class="ta-r pres-mono" role="cell" data-label="Cumpl.">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
                   <td class="ta-r pres-mono" role="cell" data-label="CREC" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
                   <td class="ta-r pres-mono" role="cell" data-label="PART">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
-                  <td role="cell" data-label="Acciones"></td>
+                  <td role="cell" data-label="Acciones">
+                    <!-- [PU.17] Corregir la meta de UNA celda (entidad x periodo). El motor no la
+                         vuelve a pisar al rearmar: la guarda queda como Manual. Sólo con el
+                         ejercicio abierto (el servidor rechaza lo demás) y nunca en subtotales. -->
+                    @if (editable() && period() > 0 && !r.is_rollup && r.entity_key) {
+                      <button pButton type="button" class="p-button-text p-button-sm" icon="pi pi-pencil"
+                              (click)="editMeta.emit(r)"
+                              [attr.aria-label]="'Corregir la meta de ' + r.label + ' en P' + period()"></button>
+                    }
+                  </td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usa «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
@@ -260,6 +277,11 @@ export class PresupuestoVentasComponent {
   @Output() proposePlan = new EventEmitter<void>();
   @Output() loadComparison = new EventEmitter<void>();
   @Output() projectTargets = new EventEmitter<void>();
+  /** `[PU.17]` Pide al shell abrir la corrección de la meta de una celda (entidad × periodo elegido). */
+  @Output() editMeta = new EventEmitter<SalesRow>();
+
+  /** `[PU.17]` El plan sólo se corrige con el ejercicio abierto: es la misma regla que aplica el servidor. */
+  readonly editable = computed(() => ['borrador', 'en_revision'].includes(String(this.budget().status)));
 
   protected readonly money = money;
   readonly periodOpts = [{ label: 'Todos (anual)', value: 0 }, ...Array.from({ length: 13 }, (_, i) => ({ label: `P${i + 1}`, value: i + 1 }))];

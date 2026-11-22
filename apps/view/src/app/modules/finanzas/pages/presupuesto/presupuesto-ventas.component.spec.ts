@@ -213,3 +213,63 @@ describe('[PVI.9] lo que el hijo le pide al shell', () => {
     expect(visto).toEqual(['tab:indicadores', 'propose', 'load', 'project', 'period:7']);
   });
 });
+
+/**
+ * `[PU.17]` — **La meta de una celda se vuelve a corregir a mano.**
+ *
+ * ADR-074 retiró la meta por celda («reversible fácil si estorba en operación») y PVI volvió los
+ * supuestos de solo lectura: quien arma el presupuesto no tenía con qué corregir un número y seguía
+ * en Excel. El lápiz vuelve, pero sólo donde el servidor lo acepta: una ENTIDAD (no un subtotal), en
+ * un PERIODO (la meta se guarda por periodo) y con el ejercicio ABIERTO (borrador o en revisión).
+ * Cada condición tiene su caso negativo: un lápiz que abre y luego el servidor rechaza es peor que
+ * no tenerlo.
+ */
+describe('[PU.17] corregir la meta de una celda', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const celdas = () => comparacion([
+    celda({ entity_key: 'e1', branch_name: 'Morelia Centro', period_no: 3, meta: 100, method: 'historico_ajustado' }),
+    celda({ entity_key: 'e2', branch_name: 'Zamora', period_no: 3, meta: 200, method: 'estacional' }),
+  ]);
+  const lapices = (fix: ComponentFixture<PresupuestoVentasComponent>) =>
+    Array.from((fix.nativeElement as HTMLElement).querySelectorAll('button[aria-label^="Corregir la meta"]')) as HTMLButtonElement[];
+
+  it('⭐ con un periodo elegido y el ejercicio abierto, cada entidad tiene su lápiz y los subtotales no', async () => {
+    const fix = await montar({ cmp: celdas(), period: 3 });
+    const b = lapices(fix);
+    expect(b.length).toBe(2);   // e1 y e2; ni «Subtotal» ni «Total Venta»
+    expect(b.map((x) => x.getAttribute('aria-label'))).toEqual([
+      'Corregir la meta de Morelia Centro en P3',
+      'Corregir la meta de Zamora en P3',
+    ]);
+  });
+
+  it('⭐ el lápiz emite el renglón de ESA entidad, para que el shell guarde la celda correcta', async () => {
+    const fix = await montar({ cmp: celdas(), period: 3 });
+    const pedidos: Array<string | null> = [];
+    fix.componentInstance.editMeta.subscribe((r) => pedidos.push(r.entity_key));
+    lapices(fix)[1].click();
+    expect(pedidos).toEqual(['e2']);
+  });
+
+  it('⛔ en la vista anual no hay lápiz: no hay una celda que corregir, y se dice cómo llegar a ella', async () => {
+    const fix = await montar({ cmp: celdas(), period: 0 });
+    expect(lapices(fix).length).toBe(0);
+    expect((fix.nativeElement as HTMLElement).textContent).toContain('Para corregir una meta, elige un periodo.');
+  });
+
+  it('⛔ con el ejercicio aprobado no hay lápiz ni invitación: el servidor sólo acepta borrador o revisión', async () => {
+    const fix = await montar({ cmp: celdas(), period: 3 });
+    fix.componentRef.setInput('budget', { ...budget, status: 'aprobado' });
+    fix.detectChanges();
+    expect(lapices(fix).length).toBe(0);
+    expect((fix.nativeElement as HTMLElement).textContent).not.toContain('Para corregir una meta');
+  });
+
+  it('en revisión sí se corrige, igual que en borrador', async () => {
+    const fix = await montar({ cmp: celdas(), period: 3 });
+    fix.componentRef.setInput('budget', { ...budget, status: 'en_revision' });
+    fix.detectChanges();
+    expect(lapices(fix).length).toBe(2);
+  });
+});
