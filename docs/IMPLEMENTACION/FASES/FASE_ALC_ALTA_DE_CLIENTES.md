@@ -27,6 +27,10 @@ ESTADO:    🧪 C0–C3 en código y probados en local el 2026-11-04 — empezad
 >
 > **2026-11-07:** ALC.0.3 quedó resuelto (`kdfedir`, §4.1). La escritura directa en Kepler (D1-b)
 > está **construida y apagada**; encenderla es configuración de Edgar, en el orden de §13.
+>
+> **2026-11-22:** el alta también lee **fotos y capturas** con IA (§4.2, `[ALC.4]`): los 7 documentos
+> que juntó Francisco del histórico eran fotos o capturas, ninguno el PDF del SAT. Está **construida y
+> apagada**; encenderla es D9.
 
 Medido con `pg-prod` en sólo lectura (`system_identifier` 7688376744939610156, usuario `francisco`,
 `transaction_read_only = on`) sobre `kepler_ods.kdud`, `kdm1`, `kdfe33*` y `commercial.customers`,
@@ -167,6 +171,41 @@ clientes… tenían bastantes errores ortográficos»*). Medido en las 2,468 fic
 **El armador reproduce la fila real:** con los mismos datos que se le dieron a Kepler, da 30 de 30
 columnas iguales en `kdud` y 19 de 19 en `kdfedir`. La comparación se corrió fuera del repo.
 
+### 4.2 Lo que llega para un alta no es sólo el PDF del SAT (2026-11-22)
+
+Con el módulo ya en pruebas, Francisco juntó del histórico **siete documentos reales** que llegaron
+para dar de alta un cliente. **Ninguno es el PDF del SAT con texto**, que era lo único que el lector
+de `[ALC.1.1]` sabía leer. Con todos ellos el alta habría sido a mano. ⛔ Los documentos **no se versionan**:
+traen RFC, CURP, domicilios y teléfonos de personas reales.
+
+| Lo que llegó | Cuántos | Qué trae, y qué le falta |
+|---|---:|---|
+| Foto de una etiqueta o nota con los datos fiscales | 1 | RFC, nombre, CP, régimen, uso de CFDI y forma de pago escritos a mano o impresos; «tarjeta» sin decir si es de crédito o de débito |
+| Captura de la ventana de Wincaja «Datos del cliente para facturación CFDI» | 2 | RFC (a veces el genérico), nombre, domicilio, correo, teléfono y la clave del cliente en Wincaja; sin régimen |
+| Captura del «Catálogo de clientes» de otro sistema | 1 | razón social, RFC, régimen, uso de CFDI, forma y **método** de pago |
+| Foto de páginas de una constancia | 2 | lo de la constancia, pero en foto, así que no hay texto que leer, y puede faltar una página |
+| Captura de celular de un PDF de constancia | 1 | la constancia en imagen, recortada por la pantalla |
+
+**Qué se construyó** (`[ALC.4.1]`–`[ALC.4.5]`):
+- El alta recibe **de 1 a 4 archivos del mismo cliente** y los lee juntos. El PDF del SAT con texto
+  se sigue leyendo **sin IA** (exacto y gratis). Lo demás va en **una sola llamada** a un modelo con
+  visión (Claude, por el `AnthropicService` que la Suite ya usa en NP.7). La salida es estructurada:
+  copia lo que ve, deja vacío lo que no está y nunca arma un RFC o una CURP a partir del nombre.
+- **Lo que devuelve la IA se trata como la captura de un tercero.** RFC y CURP pasan por su dígito
+  verificador. Si no cuadra, se proponen igual, para que la persona los corrija mirando la foto, pero
+  con el aviso «La IA leyó «X», pero…», y la regla de la solicitud no deja guardarlos así. Régimen, uso
+  de CFDI y forma de pago se buscan en los catálogos del SAT del ODS: si hay dos candidatos, no se
+  elige ninguno. «Tarjeta», sin decir si es de crédito o de débito, no se adivina. Lo que la IA marcó como dudoso se dice junto a su casilla. Si entre los archivos viene
+  la constancia en PDF, **la constancia gana** y la IA sólo llena los huecos.
+- **Cada lectura queda guardada**: los archivos, el modelo, el costo y lo que se propuso. Al crear la
+  solicitud se guarda también **qué corrigió la persona**. Así se puede medir si la IA ayuda, en vez de
+  suponerlo.
+- **Apagada por default** (`ALC_AI_ENABLED`). Encenderla es la decisión D9 (§7).
+
+⚠️ **NO MEDIDO: qué tan bien lee la IA los siete documentos reales.** Probarlo era mandarlos al
+proveedor, que es justo lo que D9 decide. Las pruebas usan documentos **sintéticos** con la forma
+de los reales (RFC de prueba del SAT, CURP de ejemplo de RENAPO).
+
 ---
 
 ## 5. Reglas que no se discuten
@@ -210,6 +249,7 @@ columnas iguales en `kdud` y 19 de 19 en `kdfedir`. La comparación se corrió f
 | **D3b** | ¿Quién **ve** la bandeja sin capturar ni aprobar? | Darles la llave de captura · una llave nueva de sólo consulta | ✅ **Francisco, 2026-11-06:** *«Paulina y Gloria ven solicitudes de alta, también las gerencias de zona y Dirección General»*. Se construyó la de **sólo consulta** (`COMMERCIAL_ALTA_CLIENTES_VER`, `[ALC.0.6]`): «ven» no es «capturan, ligan y cancelan». Va al rol `credito_cobranza` (3 personas, medido: Paula Alanis, Gloria Vera y, como rol secundario, Jesús Carrillo, que ya veía por `finanzas`/`direccion`). Gerencia de Zona (puesto `jefe_zona`: 3 personas, todas `superadmin`; su rol por defecto `supervisor_ventas` también tiene la de captura) y Dirección General (`direccion`: 2) **ya la veían**: nada que repartir. ✅ **Francisco, misma fecha: *«maria de la paz no»*** — `maria_gutierrez` (Jefe de Tesorería) aprobaba crédito sin que nadie la nombrara, por su rol secundario `finanzas`: se le **niega por persona** (`[ALC.0.7]`). ⚠️ Los `superadmin` (Sistemas, los 3 gerentes de zona y Viviana Flores) también pueden aprobar: el modo god entra a todo y una negación por persona no lo detiene |
 | **D4** | ¿Se valida contra el SAT en línea? | No (formato, dígito verificador, catálogos del ODS) · servicio del PAC · página del QR (`idCIF`) | **No en esta fase.** Lo fuera de línea atrapa los errores de captura; lo en línea es un servicio externo (ADR-040: integrar) que se decide aparte |
 | **D5** | ¿Se guarda la constancia y por cuánto? | No guardar · guardar en el almacén de objetos con permiso y plazo | **Guardar**, con el `object-storage` que ya existe en `libs/platform-core`, visible sólo con el permiso del módulo, con fecha de emisión a la vista (una CSF vieja puede tener otro domicilio). Construido así (carpeta `alta-clientes/`, liga de 10 min). ⚠️ **Plazo de resguardo: sin firmar, lo fija Dirección** |
+| **D9** | ¿Se mandan a un proveedor de IA los documentos del cliente que no son el PDF del SAT (fotos, capturas; §4.2)? | No: esos se capturan a mano, como hoy · Sí, a Anthropic (Claude), con el aviso de privacidad al día y un tope diario | **Sí, con tres condiciones** (propuesta de Claude). (1) El aviso de privacidad (LFPDPPP, §5) dice que los datos fiscales se mandan a un **encargado** que los procesa por cuenta de la empresa. (2) Tope diario: `ALC_AI_DAILY_CAP`, 60 por default. (3) Antes de quitar la revisión humana, medir con las correcciones guardadas. Costo **estimado** con `claude-opus-5-5` y 4 fotos: unos 12,000 tokens de entrada y 2,000–3,000 de salida, **≈ US$0.10 por lectura** y **≤ US$6 al día** con el tope. El costo **medido** queda en `cost_usd` de cada lectura. La pantalla avisa que «la IA puede equivocarse», y nada entra a la solicitud sin que la persona lo revise. Interruptores: `ALC_AI_ENABLED=true` la enciende; `ALC_AI_MODEL`, `ALC_AI_EFFORT` y `ALC_AI_DAILY_CAP` la ajustan; la llave es la `ANTHROPIC_API_KEY` que ya lee `AnthropicService` (NO MEDIDO si está puesta en el `api` de prod). ⚠️ **Sin firmar: lo deciden Edgar y Dirección** |
 
 Lo que **no** depende de ninguna decisión: el lector de la CSF y las validaciones (C1) se pueden
 construir con cualquier respuesta.
@@ -224,6 +264,7 @@ construir con cualquier respuesta.
 | 2 | **C1** — lector de la CSF + validaciones + armado de la ficha | No depende de D1–D5; es lo que quita los errores de tecleo |
 | 3 | **C2/C3 con D1-a** — solicitud, aprobación, bandeja, liga automática | Reusa la bandeja de MCP.3.8 (ADR-056: no otra bandeja) |
 | 4 | **D1-b** — escribir `kdud` en Kepler | Sólo con firma y con la propagación del concentrador medida — ✅ medida (§4.1) y construida apagada el 2026-11-07; falta §13 |
+| 5 | **ALC.4** — leer con IA lo que no es el PDF del SAT (§4.2) | Pedido de Francisco con el módulo ya en pruebas (2026-11-22): 7 de 7 documentos del histórico eran fotos o capturas. Construido apagado; encenderlo es D9 |
 
 ⚠️ **Cómo se hizo de verdad (2026-11-04):** 2 y 3 se construyeron **antes** que 1, a pedido de
 Francisco. Mientras ALC.0.3 no se cierre, la Suite guarda el régimen y el CP fiscal en su propia ficha
@@ -290,6 +331,27 @@ Las cinco preguntas de `diseno` §0b se contestaron antes de la plantilla y vive
 navegador. ⚠️ La revisión de diseño independiente (`auditoria-diseno` §9) **no se hizo**: queda como
 deuda antes de soltar.
 
+### ALC.4 · Leer con IA lo que no es el PDF del SAT (§4.2, D9)
+| # | Capa | Item | Estado | Prueba que lo ejerce |
+|---|---|---|---|---|
+| ALC.4.1 | C0 | `commercial.customer_onboarding_readings` (mig `20261122115947`): una fila por lectura, sea leída o fallida (archivos, fuente `pdf_texto`/`ia`/`mixta`, modelo, uso y `cost_usd`, propuesta y correcciones). `tenant_id`, auditoría, RLS `FORCE`, sin `DELETE`. CHECK: «leída ⇒ con propuesta» y «no leída ⇒ con motivo». La solicitud gana `reading_id` (**nullable**, índice único: una lectura, una solicitud) y el origen `documento` | 🧪 | `up()` real ×2, `down()`, `up()` otra vez y 3 negativas del CHECK: **7 ✓** en un Postgres armado como el del CI |
+| ALC.4.2 | C1 | `ia/lectura-documento.*` (puro): esquema de salida estructurada **sin uniones** (el tope es 16), instrucciones (copiar, no inventar, del CFDI sólo el **receptor**), y la propuesta revisada por código: dígitos verificadores, catálogos del SAT, dudosos en su casilla, rellenos como vacío. La constancia oficial gana sobre la IA. Correcciones: «corregido» si la máquina propuso y la persona cambió, «completado» si venía vacío | 🧪 | `lectura-documento.spec.ts`: **14 pruebas**, una por cada tipo de documento de §4.2 con datos sintéticos, y 4 negativas. Mutación: sin la regla de «tarjeta», rojo verificado |
+| ALC.4.3 | C2 | `POST documentos` (llave de captura): 1–4 archivos (PDF, JPEG, PNG o WebP, ≤10 MB). El PDF con texto se lee sin IA; lo demás va a la IA sólo si está encendida y queda tope diario. Las fotos pasan por `prepararFoto` de NP.7. Los archivos se guardan **sólo si hubo lectura**. `GET :id/documentos` (llave de consulta): ligas de 10 min. Al crear con `lectura_id`, el servidor decide el origen, exige que el RFC sea el de la constancia si la hubo, y la lectura no se reusa (409). Límite de JSON propio de esa ruta: 24 MB | 🧪 | `test-newdb-alc-alta-clientes.js` §9: **68 ✓ / 0 ✗** en total (13 de ALC.4), con un doble del lector y del almacén. Negativas: con la IA apagada la foto no se lee y el modelo **no se llama**; pasado el tope del día, tampoco; una lectura no sirve a dos solicitudes (409); una que no existe (400); un rechazo del modelo no se vuelve datos y la lectura fallida queda con su costo. ⚠️ **No se ejerce** el RFC distinto al de la constancia en una lectura mixta: el código lo rechaza, pero ninguna prueba lo pasa. `controller.spec`: quien sólo consulta o aprueba crédito no llega a `leerDocumentos` |
+| ALC.4.4 | C3 | El alta: «Subir sus documentos» (hasta 4, varios a la vez) y, en pantalla táctil, «Tomar foto». Con la IA apagada sólo acepta PDF y lo dice. Miniaturas de lo que se subió, aviso «la IA puede equivocarse» junto a lo que llenó, y el uso de CFDI, la forma de pago y el comentario prellenados. La foto se reduce en el navegador a ≤2000 px | 🧪 | `check:pantalla` 0 fallas; `ngc` sin errores de tipo en las plantillas. **Sin validación visual** |
+| ALC.4.5 | C3 | El detalle: el renglón «Constancia» pasa a «Documentos» (de dónde salió: PDF del SAT, IA o mixta; cuántos archivos; cuántas casillas corrigió la persona) con «Ver archivos» | 🧪 | ídem |
+| ALC.9b | — | Deuda ADR-056: el compresor de fotos de ALC.4.4 es el **tercero** del front (Compras `imagenes-a-pdf.ts`, Finanzas `camera-shot`). Hay que unificarlos en `shared/` | ⬜ | — |
+
+Las cinco preguntas de `diseno` §0b, para ALC.4.4–4.5:
+1. **Qué ve primero:** las dos maneras de empezar, lado a lado: «Subir sus documentos» o «Capturar a
+   mano». Después de leer, lo prellenado, con el aviso de la IA arriba de lo que llenó.
+2. **Qué no ve:** el modelo, los tokens ni el costo, que quedan en la lectura guardada. «Tomar foto» no
+   aparece en escritorio, y con la IA apagada no se ofrecen las fotos.
+3. **Accesibilidad:** un clic para subir; los avisos van junto a su casilla; las miniaturas sirven para
+   comparar sin salir del diálogo.
+4. **A qué proceso está ligada:** la lectura queda ligada a la solicitud (`reading_id`), y desde el
+   detalle se abren los archivos de los que salió.
+5. **Si le toca a esta pantalla:** sí; es la misma alta, con otra entrada.
+
 ---
 
 ## 10. Riesgos y bloqueos
@@ -301,6 +363,7 @@ deuda antes de soltar.
 | Conexión al concentrador | Edgar | El concentrador no está en el ODS y `pv_suc_ip` no publica su dirección: no sabemos dónde está su Postgres | `KEPLER_PUSH_URL_SC` en el secreto `kepler-push` |
 | D7 (quién pulsa) | Francisco | Personas | §7 |
 | D4 (SAT en línea) y plazo de resguardo de D5 | Edgar (D4) · Dirección (D5) | Servicio externo · dato personal | §7 |
+| Encender la lectura con IA (ALC.4) | Edgar · Dirección | D9: dato personal hacia un proveedor externo (aviso de privacidad) y gasto por lectura | Firmar D9; aplicar la mig `20261122115947`; `ALC_AI_ENABLED=true` en el `api` (y la `ANTHROPIC_API_KEY`, si no está) |
 | ~~Régimen del receptor en Kepler sin ubicar~~ | — | ✅ Está en `kdfedir` (§4.1, `[ALC.0.8]`) | — |
 | ~~Propagación del concentrador sin medir~~ | — | ✅ Medida: `pv_sc_lib`, del lado del cliente (§4.1, `[ALC.0.9]`) | — |
 | ~~Constancia de persona moral para pruebas~~ | — | ✅ Francisco la dio el 2026-11-04; se usó para armar la sintética y no se versiona | — |
@@ -334,6 +397,7 @@ deuda antes de soltar.
 | 2026-11-07 | #501 fusionado con dos defectos míos que cazó `pruebas-db` (informativa, no bloquea): el INSERT de la solicitud traía **30 `?` para 29 valores** (crear daba 500) y la migración `20261106232506` **no agregaba `longitude`** (reusaba un `knex.schema` para varios `hasColumn`). Al probar el arreglo con un Postgres desechable apareció un tercero: el CHECK dejaba entrar latitud sin longitud (un CHECK que da NULL pasa). Arreglado en `[ALC.3.5.1]`, con el `up()` real corrido dos veces, el `down()` y la versión vieja fallando. Prod no se tocó: seguía en `b852ba8ba` | Francisco + Claude |
 | 2026-11-07 | En prod (`aee639d73`, con #503 y sus 2 migraciones). Francisco da de alta un cliente en Kepler desde el concentrador y pide revisar qué cambió para diseñar la escritura directa, con la nomenclatura de claves y *«que este módulo asista demasiado al usuario»*. Medido (§4.1): la ficha llegó a las 9 bases y lo fiscal sólo a una; la propagación es del cliente de Kepler (`pv_sc_lib`), no de la base; lo fiscal del receptor vive en `kdfedir` (cierra ALC.0.3). Construido apagado: armador (reproduce la fila real 30/30 y 19/19), adaptador a las 10 bases, plan y escritura en la API, asistencia en la captura y el panel «En Kepler». Al armar la base como el CI apareció que la regla 20 hacía que el arranque **saltara** la migración (columnas incluidas): ahora se exige sólo si el rol existe | Francisco + Claude |
 | 2026-11-08 | Francisco: *«CR1001: CR = crédito, 1 = zona La Piedad, (123) el consecutivo del cliente con crédito»*. La serie de crédito pasa a `CR` + zona + 3. Medido antes de cambiarla: 9 de las 10 `CR` que ya existen son el mismo cliente que la `C` de su número, y la forma `C` sigue en uso; el consecutivo cuenta las dos (D8): la siguiente sería `CR1121`, no `CR1067` (que ya es `C1067`) | Francisco + Claude |
+| 2026-11-22 | Con el módulo en pruebas, Francisco trae 7 documentos reales del histórico y pide que la digitalización los alcance «privilegiando la transformación digital a través de la IA». Ninguno era el PDF del SAT con texto (§4.2). Construido apagado `[ALC.4.1]`–`[ALC.4.5]`: 1–4 archivos leídos juntos, la IA sólo copia, el código decide (verificadores, catálogos, «tarjeta» no se adivina), cada lectura guardada con su costo y con lo que corrigió la persona. Corregido antes de enviar: los archivos se guardaban aunque no se leyera nada (IA apagada); ahora sólo con lectura, y la prueba lo vigila. Prueba con base real 68/0 y migración 7/7 en un Postgres armado como el del CI. **NO MEDIDO** cómo lee la IA los 7 reales: mandarlos al proveedor es D9 | Francisco + Claude |
 
 ---
 

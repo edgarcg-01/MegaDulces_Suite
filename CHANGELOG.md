@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Venta y clientes › Alta de clientes: fotos y capturas se leen con IA (ALC.4 · 2026-11-22, apagada hasta D9)
+- El alta acepta de 1 a 4 archivos del mismo cliente: la constancia en PDF, fotos de la constancia, capturas de Wincaja o de otro sistema, la foto de una etiqueta con sus datos. En el celular, «Tomar foto».
+- El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.
+- Cada lectura queda guardada con sus archivos y su costo, y al crear la solicitud se anota qué corrigió la persona. En el detalle, «Documentos» abre los archivos de los que salió.
+- Llega apagada: la enciende `ALC_AI_ENABLED=true` cuando Edgar y Dirección firmen D9 (los datos del cliente van a un proveedor de IA). Apagada, el alta acepta sólo el PDF, como antes. Antes de soltar: migración `20261122115947`.
 ### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
 - Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
 - Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.

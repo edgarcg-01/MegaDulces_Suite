@@ -17,6 +17,7 @@ import {
   CASILLAS_KEPLER,
   type CasillaKepler,
   type CatalogosAlta,
+  type DocumentoDeSolicitud,
   type EstadoSolicitudAlta,
   type PlanAltaKepler,
   type SolicitudAlta,
@@ -356,8 +357,21 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
               <dt>Régimen</dt><dd>{{ regimen(s.regimen_fiscal) }}</dd>
               <dt>CP fiscal</dt><dd class="ac-mono">{{ s.codigo_postal_fiscal }}</dd>
               @if (s.regimen_capital) { <dt>Régimen de capital</dt><dd>{{ s.regimen_capital }}</dd> }
-              <dt>Constancia</dt>
-              <dd>@if (s.constancia_key) {
+              <dt>Documentos</dt>
+              <dd>@if (s.lectura_documento; as ld) {
+                  <span>{{ ld.fuente === 'pdf_texto' ? 'Constancia del SAT' : 'Leída con IA de ' + (ld.que_se_leyo || 'un documento') }} · {{ ld.archivos }} {{ ld.archivos === 1 ? 'archivo' : 'archivos' }}</span>
+                  @if (ld.fuente !== 'pdf_texto') {
+                    <span class="ac-tenue"> · {{ ld.correcciones.length ? 'quien capturó corrigió ' + ld.correcciones.length + (ld.correcciones.length === 1 ? ' casilla' : ' casillas') : 'sin correcciones a lo que leyó' }}</span>
+                  }
+                  <button pButton type="button" size="small" [text]="true" (click)="verDocumentos(s)">Ver archivos</button>
+                  @if (documentosAbiertos(); as docs) {
+                    <span class="ac-docs">
+                      @for (d of docs; track d.url; let i = $index) {
+                        <a [href]="d.url" target="_blank" rel="noopener">{{ d.tipo === 'pdf' ? 'PDF' : 'Foto' }} {{ i + 1 }}</a>
+                      }
+                    </span>
+                  }
+                } @else if (s.constancia_key) {
                   <button pButton type="button" size="small" [text]="true" (click)="verConstancia(s)">Ver PDF{{ s.constancia_emitida_el ? ' (emitida ' + fechaCorta(s.constancia_emitida_el) + ')' : '' }}</button>
                 } @else { <span class="ac-tenue">{{ s.origen === 'manual' ? 'Capturada a mano' : 'Leída, sin guardar' }}</span> }</dd>
               <dt>Ubicación</dt>
@@ -426,6 +440,7 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
     .ac-servidores li { display: inline-flex; gap: var(--sp-1); align-items: center; }
     .ac-srv-mal, .ac-mal { color: var(--bad-fg); }
     .ac-hallazgos { margin: 0; padding-left: var(--sp-4); font-size: var(--fs-sm); color: var(--warn-soft-fg); }
+    .ac-docs { display: inline-flex; flex-wrap: wrap; gap: var(--sp-2); margin-left: var(--sp-1); }
     .ac-sub { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--fg-1); }
     .ac-peligro { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .ac-peligro h3 { color: var(--bad-fg); }
@@ -599,6 +614,7 @@ export class ComercialAltaClientesComponent {
     this.clave.set('');
     this.motivoCancelar.set('');
     this.confirmarKepler.set(false);
+    this.documentosAbiertos.set(null);
     this.abierta.set(s);
   }
 
@@ -637,6 +653,15 @@ export class ComercialAltaClientesComponent {
     } catch {
       this.toast.add({ severity: 'warn', summary: 'No se pudo copiar', detail: 'Selecciónalo y cópialo a mano.' });
     }
+  }
+
+  /** `[ALC.4]` Las ligas (10 min) a los archivos de los que salió; se muestran como enlaces, sin abrir ventanas solas. */
+  readonly documentosAbiertos = signal<DocumentoDeSolicitud[] | null>(null);
+  verDocumentos(s: SolicitudAlta): void {
+    this.svc.documentos(s.id).subscribe({
+      next: (d) => this.documentosAbiertos.set(d),
+      error: (e: HttpErrorResponse) => this.error(e, 'No se pudieron abrir los archivos.'),
+    });
   }
 
   verConstancia(s: SolicitudAlta): void {

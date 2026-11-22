@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
+import { createHash } from 'crypto';
 import {
   ObjectStorageService,
   ScopeService,
@@ -26,10 +27,16 @@ import {
   type CatalogosAlta,
   type CodigoPostalAlta,
   type CoincidenciaKepler,
+  type ConstanciaSituacionFiscal,
   type CrearSolicitudRespuesta,
   type DecidirCreditoBody,
+  type DocumentoDeSolicitud,
   type EstadoSolicitudAlta,
   type FichaKeplerCliente,
+  type FuenteLecturaAlta,
+  type LecturaConstancia,
+  type LeerDocumentosBody,
+  type LeerDocumentosRespuesta,
   type HallazgoAlta,
   type LigarSolicitudBody,
   type OpcionCatalogo,
@@ -55,6 +62,13 @@ import {
   siguienteClave, telefonoKepler, textoKepler, usoCfdiPorDefecto, type ArmadoClienteKepler,
 } from './kepler-cliente.armador';
 import { KeplerClienteSinkAdapter } from './kepler-cliente-sink.adapter';
+import { LectorDocumentoAltaService, type ArchivoParaModelo, type ResultadoLecturaAlta } from './ia/lector-documento-alta.service';
+import { MAX_ARCHIVOS, leerConfigLecturaAlta } from './ia/lectura-documento.config';
+import {
+  correccionesDe, fusionarConConstancia, propuestaDesdeLectura, queEs, regimenDeTexto,
+  type PropuestaGuardada,
+} from './ia/lectura-documento';
+import { prepararFoto, sharpDisponible } from '../product-sheets/ia/preparar-foto';
 import { NewCustomersKeplerService } from '../new-customers-kepler/new-customers-kepler.service';
 import { codigoKepler, normalizarClave, normalizarNombre, parecido, UMBRAL_PARECIDO } from '../new-customers-kepler/new-customers-kepler.engine';
 
@@ -99,6 +113,8 @@ interface FilaSolicitud {
   latitude: string | null; longitude: string | null; location_source: UbicacionAlta['origen'] | null; location_accuracy_m: string | null;
   uso_cfdi: string | null; payment_form: string | null;
   kepler_code: string | null; kepler_write_started_at: Date | null; kepler_write_by_name: string | null;
+  reading_id: string | null; reading_source: FuenteLecturaAlta | null; reading_docs: number | null;
+  reading_type: string | null; reading_corrections: { corregidos?: string[] } | null;
   kepler_written_at: Date | null; kepler_write_result: { intentada_el?: string; servidores?: ResultadoServidorAlta[] } | null;
 }
 
@@ -136,6 +152,7 @@ export class CustomerOnboardingService {
     private readonly storage: ObjectStorageService,
     private readonly nuevos: NewCustomersKeplerService,
     private readonly kepler: KeplerClienteSinkAdapter,
+    private readonly lector: LectorDocumentoAltaService,
   ) {}
 
   // ───────────────────────────── alcance ─────────────────────────────
@@ -266,6 +283,7 @@ export class CustomerOnboardingService {
         usos_cfdi: await this.usosCfdi(trx),
         formas_pago: await this.formasPago(trx),
         sugeridos: await this.sugeridos(trx, branch),
+        lectura_ia: leerConfigLecturaAlta().habilitada,
       };
     });
   }
@@ -411,6 +429,7 @@ export class CustomerOnboardingService {
       credito_solicitado: num(raw.credito_solicitado), plazo_dias: num(raw.plazo_dias), descuento_pct: num(raw.descuento_pct),
       comentarios: txt(raw.comentarios),
       constancia_key: txt(raw.constancia_key),
+      lectura_id: txt(raw.lectura_id),
       customer_id: txt(raw.customer_id),
       ubicacion: ubicacionDe(raw.ubicacion),
       confirmar_duplicado: raw.confirmar_duplicado === true,
@@ -465,6 +484,235 @@ export class CustomerOnboardingService {
     });
   }
 
+  // ───────────────────────────── 1b. fotos, capturas y constancias (ALC.4) ─────────────────────────────
+
+  /** ¿Existe la tabla de lecturas? (base sin la migración de ALC.4: se lee igual, no se guarda). */
+  private async hayTablaLecturas(trx: Knex | Knex.Transaction): Promise<boolean> {
+    const { rows: [t] } = await trx.raw(`SELECT to_regclass('commercial.customer_onboarding_readings') IS NOT NULL AS hay`);
+    return t?.hay === true;
+  }
+
+  /**
+   * `[ALC.4]` `POST documentos` — de 1 a 4 archivos del MISMO cliente: el PDF del SAT, fotos de sus
+   * hojas, la captura de Wincaja o de otro sistema, una etiqueta, una factura vieja.
+   *
+   * 1. Cada PDF con texto se lee con el lector de la constancia, **sin IA**: es exacto y no cuesta.
+   * 2. Lo demás (fotos, capturas, PDF escaneados o que no son constancia) va a la IA en UNA llamada,
+   *    si está encendida (`ALC_AI_ENABLED`, D9) y no se pasó el tope del día.
+   * 3. Lo que copió la IA se revisa con código (RFC/CURP con su dígito verificador, catálogos del SAT)
+   *    y la constancia oficial, si la hubo, gana.
+   * 4. Se guardan los archivos y la lectura (evidencia + costo); al crear, la solicitud la liga.
+   * No crea la solicitud: la persona revisa y guarda.
+   */
+  async leerDocumentos(body: LeerDocumentosBody, query: Record<string, unknown> = {}): Promise<LeerDocumentosRespuesta> {
+    const me = this.tenantCtx.get()?.userId ?? null;
+    const cfg = leerConfigLecturaAlta();
+    for (const a of cfg.advertencias) this.logger.warn(`[ALC] ${a}`);
+    const archivos = Array.isArray(body?.archivos) ? body.archivos : [];
+    if (!archivos.length) throw new BadRequestException('Sube al menos un archivo: la constancia, una foto o una captura.');
+    if (archivos.length > MAX_ARCHIVOS) throw new BadRequestException(`A lo más ${MAX_ARCHIVOS} archivos, todos del mismo cliente.`);
+
+    const docs = archivos.map((a, i) => {
+      const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(String(a?.data_uri ?? ''));
+      if (!m || !m[2]) throw new BadRequestException(`El archivo ${i + 1} no llegó completo: vuelve a elegirlo.`);
+      const mime = m[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : m[1].toLowerCase();
+      const bytes = Buffer.from(m[3], 'base64');
+      if (bytes.length > MAX_PDF_BYTES * 2) throw new BadRequestException(`El archivo ${i + 1} pesa más de 10 MB: toma la foto con menos resolución.`);
+      return { mime, bytes, dataUri: `data:${mime};base64,${m[3]}`, sha256: createHash('sha256').update(bytes).digest('hex') };
+    });
+    const noSoportados = docs.filter((d) => !['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(d.mime));
+    if (noSoportados.length) throw new BadRequestException(`Sólo PDF, JPG, PNG o WEBP (llegó ${noSoportados.map((d) => d.mime).join(', ')}).`);
+
+    // 1 · Los PDF que son constancia del SAT con texto: sin IA.
+    let oficial: LecturaConstancia | null = null;
+    const paraIa: typeof docs = [];
+    for (const d of docs) {
+      if (d.mime === 'application/pdf') {
+        const l = await leerConstanciaPdf(new Uint8Array(d.bytes));
+        if (l.ok && !oficial) { oficial = l; continue; }
+        if (l.ok) continue; // otra constancia legible: con la primera basta
+      }
+      paraIa.push(d);
+    }
+
+    // 2 · Lo demás, a la IA (una llamada), si se puede.
+    let ia: ResultadoLecturaAlta | null = null;
+    let iaNoSeIntento: { motivo: 'ia_apagada' | 'tope_diario' | 'formato_no_soportado'; detalle: string } | null = null;
+    if (paraIa.length) {
+      const usadasHoy = await this.tk.run(async (trx) => {
+        if (!(await this.hayTablaLecturas(trx))) return 0;
+        const { rows: [c] } = await trx.raw(
+          `/* alc:tope-ia */ SELECT count(*)::int AS n FROM commercial.customer_onboarding_readings
+            WHERE model IS NOT NULL
+              AND created_at >= (date_trunc('day', now() AT TIME ZONE 'America/Mexico_City') AT TIME ZONE 'America/Mexico_City')`);
+        return Number(c?.n ?? 0);
+      });
+      if (!cfg.habilitada) {
+        iaNoSeIntento = { motivo: 'ia_apagada', detalle: 'La lectura con IA de fotos y capturas está apagada. Sube el PDF de la constancia o captura a mano.' };
+      } else if (usadasHoy >= cfg.topeDiario) {
+        iaNoSeIntento = { motivo: 'tope_diario', detalle: `Hoy ya se hicieron ${usadasHoy} lecturas con IA (tope ${cfg.topeDiario}). Captura a mano o súbelo mañana.` };
+      } else {
+        const preparados: ArchivoParaModelo[] = [];
+        for (const d of paraIa) {
+          if (d.mime === 'application/pdf') { preparados.push({ base64: d.bytes.toString('base64'), mediaType: 'application/pdf' }); continue; }
+          if (sharpDisponible()) {
+            try {
+              const f = await prepararFoto(d.bytes, { recorte: 'ninguno' });
+              preparados.push({ base64: f.base64, mediaType: f.mediaType });
+              continue;
+            } catch { /* abajo: se manda como vino si se puede */ }
+          }
+          if (d.bytes.length <= 5 * 1024 * 1024) preparados.push({ base64: d.bytes.toString('base64'), mediaType: d.mime as ArchivoParaModelo['mediaType'] });
+          else iaNoSeIntento = { motivo: 'formato_no_soportado', detalle: 'Una foto es demasiado grande para leerla: tómala con menos resolución.' };
+        }
+        if (!iaNoSeIntento) ia = await this.lector.leer(preparados, cfg);
+      }
+    }
+
+    // 3 · La propuesta, revisada por código.
+    return this.tk.run(async (trx) => {
+      const regimenes = await this.regimenes(trx);
+      const usos = await this.usosCfdi(trx);
+      const formas = await this.formasPago(trx);
+      const propuestaIa = ia?.estado === 'leida' ? propuestaDesdeLectura(ia.lectura, { regimenes, usos, formas }) : null;
+      let constancia: ConstanciaSituacionFiscal | null = oficial?.ok ? oficial.constancia : null;
+      const hallazgosLectura: HallazgoAlta[] = [];
+      if (oficial?.ok) {
+        hallazgosLectura.push(...oficial.avisos.map((m) => ({ campo: 'constancia', gravedad: 'aviso' as const, mensaje: m })));
+        hallazgosLectura.push(...oficial.faltantes.map((f) => ({ campo: 'constancia', gravedad: 'aviso' as const, mensaje: `La constancia no trae ${f}: captúralo a mano.` })));
+      }
+      if (constancia && propuestaIa) {
+        const f = fusionarConConstancia(constancia, propuestaIa.constancia);
+        constancia = f.constancia;
+        hallazgosLectura.push(...f.hallazgos, ...propuestaIa.hallazgos.filter((h) => h.campo !== 'rfc' && h.campo !== 'curp' && h.campo !== 'nombre_fiscal'));
+      } else if (propuestaIa) {
+        constancia = propuestaIa.constancia;
+        hallazgosLectura.push(...propuestaIa.hallazgos);
+      }
+      const intentoIa = ia !== null;
+      const fuente: FuenteLecturaAlta | null = oficial?.ok && propuestaIa ? 'mixta' : oficial?.ok ? 'pdf_texto' : propuestaIa ? 'ia' : intentoIa ? 'ia' : null;
+      const motivoIa = ia && ia.estado !== 'leida' ? ia.motivo : iaNoSeIntento?.detalle ?? null;
+      if (constancia && motivoIa) hallazgosLectura.push({ campo: 'documento', gravedad: 'aviso', mensaje: `Las fotos no se leyeron: ${motivoIa}` });
+
+      // 4 · La lectura (y, si trajo datos, los archivos) guardada. Lo que no se leyó no se guarda: son
+      // datos personales y no hay solicitud que los necesite.
+      const guardados: Array<{ key: string; sha256: string; mime: string; bytes: number }> = [];
+      const vacio: LeerDocumentosRespuesta = {
+        lectura: { ok: false, motivo: 'ilegible', detalle: '' }, constancia_key: null, aviso_guardado: null,
+        armado: null, regimen_sugerido: null, regimenes_vigentes: [], hallazgos: [], duplicados: [], lectura_id: null,
+        fuente, que_se_leyo: null, archivos: docs.length, uso_cfdi: null, forma_pago: null, comentario: null, ia_encendida: cfg.habilitada,
+      };
+      const guardarLectura = async (status: string, proposal: PropuestaGuardada | null, failure: string | null): Promise<string | null> => {
+        if (!(await this.hayTablaLecturas(trx))) { vacio.aviso_guardado = vacio.aviso_guardado ?? 'La lectura no se guardó (falta la migración de ALC.4).'; return null; }
+        const uso = ia?.uso ?? null;
+        const { rows: [r] } = await trx.raw(
+          `/* alc:lectura */
+           INSERT INTO commercial.customer_onboarding_readings
+             (tenant_id, source, status, branch, documents, document_type, model, usage, cost_usd, proposal, failure, created_by, updated_by)
+           VALUES (public.current_tenant_id(), ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?)
+           RETURNING id`,
+          [fuente ?? 'ia', status, txt(body?.branch), JSON.stringify(guardados),
+            ia?.estado === 'leida' ? ia.lectura.tipo_documento : oficial?.ok ? 'constancia_sat' : null,
+            uso?.modelo ?? null, uso ? JSON.stringify(uso) : null, uso?.costo_usd ?? null,
+            proposal ? JSON.stringify(proposal) : null, failure, me, me] as Knex.RawBinding[],
+        );
+        return r?.id ? String(r.id) : null;
+      };
+
+      if (!constancia) {
+        const motivo = iaNoSeIntento?.motivo ?? (ia ? 'ia_fallida' : 'no_es_constancia');
+        const detalle = iaNoSeIntento?.detalle ?? (ia && ia.estado !== 'leida' ? ia.motivo : 'No se encontró una constancia del SAT en los archivos.');
+        if (ia) vacio.lectura_id = await guardarLectura(ia.estado === 'leida' ? 'fallida' : ia.estado, null, detalle);
+        return { ...vacio, lectura: { ok: false, motivo, detalle } };
+      }
+
+      if (!this.storage.isConfigured()) vacio.aviso_guardado = 'El almacén de documentos no está configurado: los archivos se leyeron pero NO se guardaron.';
+      else {
+        for (const d of docs) {
+          try { guardados.push({ key: (await this.storage.putFile(d.dataUri, CARPETA)).key, sha256: d.sha256, mime: d.mime, bytes: d.bytes.length }); }
+          catch (e) { vacio.aviso_guardado = `Un archivo se leyó pero no se pudo guardar: ${(e as Error).message}`; }
+        }
+      }
+      vacio.constancia_key = guardados[0]?.key ?? null;
+
+      const armado = fichaDesdeConstancia(constancia);
+      if (propuestaIa?.email && !armado.ficha.email) armado.ficha.email = propuestaIa.email;
+      if (propuestaIa?.telefono && !armado.ficha.telefono_1) armado.ficha.telefono_1 = propuestaIa.telefono.slice(0, 14);
+      const vigentes = oficial?.ok
+        ? oficial.constancia.regimenes.filter((r) => r.vigente).map((r) => regimenDeTexto(r.descripcion, regimenes)?.clave).filter((x): x is string => !!x)
+        : propuestaIa?.regimenes_vigentes ?? [];
+      const unicos = [...new Set(vigentes)];
+      const regimen_sugerido = unicos.length === 1 ? unicos[0] : null;
+      const que_se_leyo = ia?.estado === 'leida' ? queEs(ia.lectura.tipo_documento) : 'una constancia del SAT';
+
+      const proposal: PropuestaGuardada = {
+        tipo_persona: constancia.tipo, rfc: constancia.rfc, curp: constancia.curp ?? '', nombre_fiscal: constancia.nombre_fiscal,
+        regimen_fiscal: regimen_sugerido ?? '', codigo_postal_fiscal: constancia.domicilio.codigo_postal ?? '',
+        uso_cfdi: propuestaIa?.uso_cfdi ?? '', forma_pago: propuestaIa?.forma_pago ?? '', ficha: { ...armado.ficha },
+        rfc_oficial: oficial?.ok ? oficial.constancia.rfc : null, emitida_el: constancia.emitida_el, que_se_leyo,
+        lectura_oficial: oficial?.ok ? oficial : null,
+      };
+      const lectura_id = await guardarLectura('leida', proposal, motivoIa);
+
+      const branch = txt(body?.branch) ?? ((await this.sucursalesDelAlcance(query))?.[0] ?? '');
+      const preliminar: SolicitudAltaBody = {
+        branch, origen: 'constancia', tipo_persona: constancia.tipo, rfc: constancia.rfc, curp: constancia.curp, nombre_fiscal: constancia.nombre_fiscal,
+        regimen_capital: constancia.regimen_capital, nombre_comercial: constancia.nombre_comercial, regimen_fiscal: regimen_sugerido ?? '',
+        codigo_postal_fiscal: constancia.domicilio.codigo_postal ?? '', ficha: armado.ficha,
+        uso_cfdi: propuestaIa?.uso_cfdi ?? null, forma_pago: propuestaIa?.forma_pago ?? null,
+      };
+      // Lo que ya dijo la lectura de una casilla no se repite con el mensaje genérico de la regla.
+      const yaDichas = new Set(hallazgosLectura.map((h) => h.campo));
+      const hallazgos: HallazgoAlta[] = [
+        ...hallazgosLectura,
+        ...revisarSolicitud(preliminar, await this.contexto(trx, preliminar))
+          .filter((h) => h.campo !== 'kepler' && h.campo !== 'regimen_fiscal' && !yaDichas.has(h.campo)),
+      ];
+      return {
+        ...vacio,
+        lectura: { ok: true, constancia, faltantes: propuestaIa?.faltantes ?? [], avisos: [] },
+        armado, regimen_sugerido, regimenes_vigentes: unicos, hallazgos, lectura_id, que_se_leyo,
+        uso_cfdi: propuestaIa?.uso_cfdi ?? null, forma_pago: propuestaIa?.forma_pago ?? null, comentario: propuestaIa?.comentario ?? null,
+        duplicados: await this.duplicados(trx, constancia.rfc, constancia.nombre_fiscal, branch),
+      };
+    });
+  }
+
+  /** `[ALC.4]` La lectura que liga una solicitud: debe existir, estar leída y no haberse usado. */
+  private async lecturaParaCrear(id: string): Promise<{ id: string; source: FuenteLecturaAlta; documentos: string[]; proposal: PropuestaGuardada }> {
+    if (!UUID_RE.test(id)) throw new BadRequestException('lectura_id inválido.');
+    return this.tk.run(async (trx) => {
+      if (!(await this.hayTablaLecturas(trx))) throw new BadRequestException('Las lecturas de documentos aún no están disponibles: captura a mano.');
+      const { rows: [r] } = await trx.raw(
+        `/* alc:lectura-para-crear */ SELECT id, source, status, documents, proposal,
+                (SELECT count(*) FROM commercial.customer_onboarding_requests q WHERE q.reading_id = rd.id)::int AS usada
+           FROM commercial.customer_onboarding_readings rd WHERE rd.id = ?`, [id]);
+      if (!r) throw new BadRequestException('No se encontró la lectura de los documentos: vuelve a subirlos.');
+      if (r.status !== 'leida' || !r.proposal) throw new BadRequestException('Esa lectura no trajo datos: vuelve a subir los documentos o captura a mano.');
+      if (r.usada > 0) throw new ConflictException('Esa lectura ya se usó en otra solicitud: vuelve a subir los documentos.');
+      const documentos = Array.isArray(r.documents) ? (r.documents as Array<{ key?: unknown }>).map((d) => String(d?.key ?? '')).filter(Boolean) : [];
+      return { id: String(r.id), source: r.source as FuenteLecturaAlta, documentos, proposal: r.proposal as PropuestaGuardada };
+    });
+  }
+
+  /** `[ALC.4]` `GET :id/documentos` — ligas de 10 min a los archivos de los que salió la solicitud. */
+  async documentos(id: string, query: Record<string, unknown> = {}): Promise<DocumentoDeSolicitud[]> {
+    const s = await this.una(id, query);
+    const llaves: Array<{ key: string; mime: string }> = await this.tk.run(async (trx) => {
+      if (!(await this.hayTablaLecturas(trx))) return [];
+      const { rows } = await trx.raw(
+        `/* alc:documentos */ SELECT rd.documents FROM commercial.customer_onboarding_requests r
+           JOIN commercial.customer_onboarding_readings rd ON rd.id = r.reading_id WHERE r.id = ?`, [id]);
+      return Array.isArray(rows[0]?.documents) ? rows[0].documents : [];
+    });
+    if (!llaves.length && s.constancia_key) llaves.push({ key: s.constancia_key, mime: 'application/pdf' });
+    if (!llaves.length) throw new NotFoundException('Esta solicitud se capturó sin documentos.');
+    return Promise.all(llaves.map(async (d) => ({
+      url: await this.storage.signedUrl(d.key, 600),
+      tipo: d.mime === 'application/pdf' ? 'pdf' as const : 'imagen' as const,
+    })));
+  }
+
   // ───────────────────────────── 2. revisar y crear ─────────────────────────────
 
   async revisar(raw: SolicitudAltaBody, query: Record<string, unknown> = {}): Promise<RevisionAlta> {
@@ -487,11 +735,20 @@ export class CustomerOnboardingService {
     await this.exigirSucursal(b0.branch, query);
     if (b0.customer_id && !UUID_RE.test(b0.customer_id)) throw new BadRequestException('customer_id inválido.');
     let b = b0;
+    // `[ALC.4]` Con lectura de documentos, lo que vale es lo que guardó el servidor al leer: los archivos,
+    // el origen (lo decide el servidor, no el navegador) y, si hubo constancia oficial, su RFC.
+    const lecturaDoc = b.lectura_id ? await this.lecturaParaCrear(b.lectura_id) : null;
+    if (lecturaDoc) {
+      b = { ...b, constancia_key: lecturaDoc.documentos[0] ?? null, origen: lecturaDoc.source === 'ia' ? 'documento' : 'constancia' };
+      const oficial = lecturaDoc.proposal.rfc_oficial;
+      if (oficial && oficial !== b.rfc) throw new BadRequestException(`El RFC capturado (${b.rfc}) no es el de la constancia (${oficial}).`);
+    }
     if (b.constancia_key && !b.constancia_key.startsWith(`${CARPETA}/`)) throw new BadRequestException('La constancia no es de este módulo.');
 
     // La lectura que se guarda es la del PDF guardado, no la que mandó el navegador.
-    let lectura: unknown = null, emitida: string | null = null;
-    if (b.constancia_key && this.storage.isConfigured()) {
+    let lectura: unknown = lecturaDoc?.proposal.lectura_oficial ?? null;
+    let emitida: string | null = lecturaDoc?.proposal.emitida_el ?? null;
+    if (!lecturaDoc && b.constancia_key && this.storage.isConfigured()) {
       const uri = await this.storage.getDataUri(b.constancia_key).catch(() => null);
       if (!uri) throw new BadRequestException('No se encontró la constancia guardada: vuelve a subirla.');
       const l = await leerConstanciaPdf(new Uint8Array(Buffer.from(uri.replace(/^data:[^,]*,/, ''), 'base64')));
@@ -539,6 +796,7 @@ export class CustomerOnboardingService {
           ['constancia_reading', lectura ? JSON.stringify(lectura) : null, 'jsonb'], ['constancia_issued_on', emitida, 'date'],
           ['customer_id', b.customer_id], ['latitude', b.ubicacion?.lat], ['longitude', b.ubicacion?.lng],
           ['location_source', b.ubicacion?.origen], ['location_accuracy_m', b.ubicacion?.precision_m],
+          ...(lecturaDoc ? [['reading_id', lecturaDoc.id] as [string, unknown]] : []),
           ['created_by', me], ['updated_by', me],
         ];
         const { rows } = await trx.raw(
@@ -548,9 +806,20 @@ export class CustomerOnboardingService {
            RETURNING id`,
           columnas.map(([, v]) => (v === undefined ? null : v)) as Knex.RawBinding[],
         );
+        if (lecturaDoc) {
+          // La medición: qué cambió la persona respecto de lo que leyó la máquina.
+          const correcciones = correccionesDe(lecturaDoc.proposal, b);
+          await trx.raw(
+            `/* alc:correcciones */ UPDATE commercial.customer_onboarding_readings
+                SET corrections = ?::jsonb, updated_at = now(), updated_by = ? WHERE id = ?`,
+            [JSON.stringify(correcciones), me, lecturaDoc.id]);
+        }
         this.logger.log(`[ALC] solicitud ${rows[0].id} (${b.rfc}, sucursal ${b.branch}) creada por ${me}`);
         return { solicitud: await this.leerUna(trx, rows[0].id), revision };
       } catch (e) {
+        if ((e as { constraint?: string })?.constraint === 'ux_customer_onboarding_requests_reading') {
+          throw new ConflictException('Esa lectura ya se usó en otra solicitud: vuelve a subir los documentos.');
+        }
         if ((e as { code?: string })?.code === '23505') {
           throw new ConflictException('Ese RFC ya tiene una solicitud de alta abierta: búscala en la bandeja.');
         }
@@ -629,11 +898,14 @@ export class CustomerOnboardingService {
 
   private selectSolicitud(): string {
     return `/* alc:solicitud */
-      SELECT r.*, uc.nombre AS created_by_name, ud.nombre AS credit_decided_by_name, uk.nombre AS kepler_write_by_name
+      SELECT r.*, uc.nombre AS created_by_name, ud.nombre AS credit_decided_by_name, uk.nombre AS kepler_write_by_name,
+             rd.source AS reading_source, jsonb_array_length(rd.documents) AS reading_docs,
+             rd.document_type AS reading_type, rd.corrections AS reading_corrections
         FROM commercial.customer_onboarding_requests r
         LEFT JOIN public.users uc ON uc.id = r.created_by
         LEFT JOIN public.users ud ON ud.id = r.credit_decided_by
-        LEFT JOIN public.users uk ON uk.id = r.kepler_write_by`;
+        LEFT JOIN public.users uk ON uk.id = r.kepler_write_by
+        LEFT JOIN commercial.customer_onboarding_readings rd ON rd.id = r.reading_id`;
   }
 
   private async leerUna(trx: Knex.Transaction, id: string, bloquear = false): Promise<SolicitudAlta> {
@@ -676,6 +948,15 @@ export class CustomerOnboardingService {
           intentada_el: f.kepler_write_result?.intentada_el ?? null,
           intentada_por_nombre: f.kepler_write_by_name ?? null,
           servidores: f.kepler_write_result?.servidores ?? [],
+        }
+        : null,
+      lectura_documento: f.reading_source
+        ? {
+          fuente: f.reading_source,
+          archivos: Number(f.reading_docs ?? 0),
+          que_se_leyo: f.reading_type && f.reading_type !== 'constancia_sat'
+            ? queEs(f.reading_type as Parameters<typeof queEs>[0]) : 'una constancia del SAT',
+          correcciones: (f.reading_corrections?.corregidos ?? []).filter((x): x is string => typeof x === 'string'),
         }
         : null,
     };

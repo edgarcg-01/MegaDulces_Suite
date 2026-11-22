@@ -59,7 +59,9 @@ export interface ConstanciaSituacionFiscal {
 }
 
 export type MotivoConstanciaIlegible =
-  | 'no_es_pdf' | 'cifrado' | 'sin_texto' | 'fuente_no_soportada' | 'ilegible' | 'no_es_constancia' | 'sin_rfc';
+  | 'no_es_pdf' | 'cifrado' | 'sin_texto' | 'fuente_no_soportada' | 'ilegible' | 'no_es_constancia' | 'sin_rfc'
+  // `[ALC.4]` Lectura con IA de fotos y capturas.
+  | 'ia_apagada' | 'ia_fallida' | 'tope_diario' | 'formato_no_soportado';
 
 export type LecturaConstancia =
   | { ok: true; constancia: ConstanciaSituacionFiscal; faltantes: string[]; avisos: string[] }
@@ -160,6 +162,8 @@ export interface CatalogosAlta {
   usos_cfdi: UsoCfdiOpcion[];
   formas_pago: OpcionCatalogo[];
   sugeridos: SugeridosCartera;
+  /** `[ALC.4]` ¿Se leen fotos y capturas con IA? (`ALC_AI_ENABLED`). Si no, la pantalla lo dice antes de que las suban. */
+  lectura_ia: boolean;
 }
 
 /**
@@ -194,7 +198,8 @@ export type EstadoSolicitudAlta =
   | 'ligada'                // ya tiene su clave de Kepler
   | 'cancelada';
 
-export type OrigenSolicitudAlta = 'constancia' | 'manual';
+/** `documento` = `[ALC.4]` leída con IA de fotos, capturas o una constancia escaneada. */
+export type OrigenSolicitudAlta = 'constancia' | 'manual' | 'documento';
 
 /** Lo que captura la pantalla. Con o sin constancia, los mismos campos. */
 export interface SolicitudAltaBody {
@@ -231,6 +236,11 @@ export interface SolicitudAltaBody {
    * Sin esto, el servidor responde 409 con los duplicados: nunca se duplica sin que alguien lo diga.
    */
   confirmar_duplicado?: boolean;
+  /**
+   * `[ALC.4]` La lectura de `POST …/documentos` de la que salió la captura. El servidor guarda lo que
+   * la IA propuso; al crear, anota qué corrigió la persona (así se mide cuánto acierta la IA).
+   */
+  lectura_id?: string | null;
 }
 
 export interface DecisionCredito {
@@ -288,6 +298,54 @@ export interface SolicitudAlta {
   credito_decidido_por_quien_la_creo: boolean;
   /** `[ALC.2.8]` La escritura directa en Kepler (D1-b): `null` si nunca se intentó. */
   kepler: EscrituraKeplerSolicitud | null;
+  /** `[ALC.4]` De qué documentos salió y qué corrigió la persona; `null` = capturada a mano o anterior a ALC.4. */
+  lectura_documento: LecturaDocumentoResumen | null;
+}
+
+// ── `[ALC.4]` Leer fotos, capturas y constancias (con IA cuando no es el PDF del SAT) ─────────
+
+/** `pdf_texto` = la constancia del SAT leída sin IA; `ia` = el modelo leyó fotos o capturas; `mixta` = las dos. */
+export type FuenteLecturaAlta = 'pdf_texto' | 'ia' | 'mixta';
+
+export interface ArchivoParaLeerAlta {
+  /** `data:` URI: PDF, JPEG, PNG o WEBP. */
+  data_uri: string;
+  nombre?: string | null;
+}
+
+/** `POST /commercial/customer-onboarding/documentos` — de 1 a 4 archivos del MISMO cliente. */
+export interface LeerDocumentosBody {
+  archivos: ArchivoParaLeerAlta[];
+  branch?: string | null;
+}
+
+export interface LeerDocumentosRespuesta extends SubirConstanciaRespuesta {
+  /** Para mandarlo al crear; `null` = no se guardó (se dice en `aviso_guardado`). */
+  lectura_id: string | null;
+  fuente: FuenteLecturaAlta | null;
+  /** «una constancia del SAT», «la captura de otro sistema»… */
+  que_se_leyo: string | null;
+  archivos: number;
+  uso_cfdi: string | null;
+  forma_pago: string | null;
+  /** Lo que no tiene casilla (clave en el sistema anterior, método de pago): va a Comentarios. */
+  comentario: string | null;
+  /** ¿Está encendida la IA? Si no, las fotos no se leen y la pantalla lo dice antes de que las suban. */
+  ia_encendida: boolean;
+}
+
+export interface LecturaDocumentoResumen {
+  fuente: FuenteLecturaAlta;
+  archivos: number;
+  que_se_leyo: string | null;
+  /** Casillas que la persona cambió respecto de lo que leyó la máquina. */
+  correcciones: string[];
+}
+
+/** `GET /commercial/customer-onboarding/:id/documentos` — ligas temporales (10 min) a cada archivo. */
+export interface DocumentoDeSolicitud {
+  url: string;
+  tipo: 'pdf' | 'imagen';
 }
 
 // ── `[ALC.1.6]`/`[ALC.2.8]` La escritura directa en Kepler (D1-b) ────────────────────────────
