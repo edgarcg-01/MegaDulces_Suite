@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
+- Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
+- Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.
 ### Fixed — Telemarketing › Cotizaciones: la cotización a medias ya no se pierde (COT.50 · 2026-11-22)
 - Si la sesión se vencía a media captura (dura 12 horas), la app cerraba sesión y borraba la cotización que el navegador tenía guardada. Ahora, al volver a entrar, la cotización está en «Nueva cotización» con «Recuperar». Cerrar sesión a propósito la sigue borrando.
 - Con dos pestañas de «Nueva cotización», una vacía borraba lo que la otra llevaba capturado, y dos capturas en paralelo se pisaban. Ahora cada pestaña guarda la suya, y el aviso sólo ofrece las de pestañas que ya se cerraron.

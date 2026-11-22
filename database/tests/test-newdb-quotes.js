@@ -181,6 +181,38 @@ async function intentar(tabla, fila) {
         `renglón normal colgado de un padre: rechazado [${c4d}]`,
       );
 
+      // `[COT.51]` La existencia al cotizar: el servicio guarda la de la sucursal en unidad base y si
+      // alcanzaba. «En parte» y «sin dato» son valores del candado; uno inventado, no.
+      const c4e = await intentar('commercial.quote_lines', {
+        ...lineBase,
+        line_number: 97,
+        unit_price: 12.5,
+        price_source: 'list',
+        availability: 'partial',
+        stock_at_quote: 31,
+      });
+      ok(c4e === null, '(COT.51) «alcanza en parte» con la existencia guardada (31 en base) se guarda');
+      const c4f = await intentar('commercial.quote_lines', {
+        ...lineBase,
+        line_number: 98,
+        unit_price: 12.5,
+        price_source: 'list',
+        availability: 'unknown',
+        stock_at_quote: null,
+      });
+      ok(c4f === null, '(COT.51) sin dato de existencia se declara «unknown» con la existencia en NULL, no en 0');
+      const c4g = await intentar('commercial.quote_lines', {
+        ...lineBase,
+        line_number: 99,
+        unit_price: 12.5,
+        price_source: 'list',
+        availability: 'hay',
+      });
+      ok(
+        c4g === 'commercial_quote_lines_availability_valid',
+        `(COT.51) una disponibilidad inventada: rechazada [${c4g}]`,
+      );
+
       // ── BLOQUE 5: el renglón que no casó con el catálogo ─────────────────────────────────
       console.log('\nBLOQUE 5 — lo que el cliente pidió y no tenemos: informa, no cobra');
       const c5 = await intentar('commercial.quote_lines', {

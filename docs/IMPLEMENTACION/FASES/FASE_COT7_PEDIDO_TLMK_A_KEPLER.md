@@ -359,6 +359,29 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
   igual antes y después (25 fallas, 4 nuevas, ninguna de este cambio). **NO verificado:** sin prueba visual con la app
   levantada; sin reproducir un 401 real en el navegador (lo cubre la prueba de punta a punta sobre `localStorage` de
   jsdom). Sin migración ni endpoint.
+- **2026-11-22** — 🧪 **[COT.51] Cada renglón guarda la existencia que había al cotizarlo** (punto 1 de la auditoría de uso y
+  ML de Cotizaciones, 2026-11-21: «sin el dato, ningún modelo»). **Medido en prod** (sólo lectura): `stock_at_quote` vacío en
+  9,163 de 9,163 renglones y `availability = 'available'` en los 9,163. En el código ese valor significaba «el SKU casó con
+  el catálogo», no «había»: la columna afirmaba existencia sin medirla (regla 11). La pantalla consultó la existencia 45,098
+  veces en 28 días (`GET /quotes/stock`) y no la guardaba. **Ahora**, al escribir un renglón (alta, agregar, cambiar la
+  cantidad, re-cotizar), el servicio lee la existencia de la sucursal (`analytics.v_erp_stock_on_hand`, la misma de
+  `checkQuote`) y guarda `stock_at_quote` en **unidad base** y `availability` = `available` / `partial` / `unavailable` /
+  `unknown`. `unknown` es sin dato del ERP, que **no** es cero. Lo requerido en base es cantidad × `qty_factor`, la misma
+  conversión de `[E.29]`. Lo que el motor ya marcaba por otra razón (`unavailable` o `not_carried` sin precio, `unmatched`)
+  se conserva. Al regalo, sin factor declarado, sólo se le afirma «no hay». **Unidad probada contra prod:** 1 CJA de 24
+  contra 1,423 piezas; 1 CJA de 50 contra 3 piezas = en parte. **Reparto con la existencia de HOY** sobre los renglones de
+  3 días: 77 % alcanza, 11 % en parte, 9 % no hay, 3 % sin dato. Es la señal de demanda negada que DN y cualquier modelo
+  de demanda necesitan. **Costo:** una lectura por renglón, ~5 ms medido (sucursal + SKU). El feed `kdil` iba a 1 min, así
+  que no se guarda su fecha (sin migración). **Comprobado:** 8 pruebas de la regla (`quote-disponibilidad.spec.ts`), con
+  negativa: si se ignora el factor, caen 2. `commercial-quotes` 206/206. `tsc`: 0 errores en los archivos tocados (103
+  ajenos del tsconfig base). **Las 3 sentencias SQL cambiadas** (INSERT del renglón, INSERT del regalo, UPDATE de
+  re-cotizar) **ejecutadas contra el Postgres local de Docker** con los mismos parámetros nombrados, en una transacción
+  revertida; un valor fuera del CHECK falla con `commercial_quote_lines_availability_valid`. En `test-newdb-quotes.js`
+  (job de Postgres del CI) hay 3 casos nuevos: `partial` + 31 en base, `unknown` + NULL, y uno inventado que se rechaza.
+  **NO verificado:** el endpoint completo contra una base real (la API no se levanta en local, regla 3; las suites HTTP no
+  corren en el CI). El testigo va a ser prod después de soltar: `stock_at_quote` no nulo en los renglones nuevos.
+  ⚠️ **Los renglones de antes de este cambio siguen con `available` = «casó»**: quien los lea para un modelo filtra por
+  `created_at`.
 - **2026-11-21** — 🧪 **[COT.49] La lista de artículos en el celular** (Francisco, con una captura de iPhone: «así fue la
   experiencia»). Al buscar «Mazapan» en el alta, el nombre se encimaba con el SKU («MAZAPAN» sobre «70056»), el precio salía
   cortado por la derecha, la lista medía 241 px de 390 y, entre el teclado y la barra de abajo, cabían dos renglones y medio;
