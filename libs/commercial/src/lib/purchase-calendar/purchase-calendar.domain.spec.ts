@@ -1,8 +1,8 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (con el import el spec no carga: compuerta spec-vivo).
 import {
-  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
+  actividadDeLaRegla, alcanceDeQuienVe, almacenesDelAlcance, armarCalendario, armarEmbudo, desdeEntradas, diaFijoDeActividad, diasFijosPorProveedor, nombreDelAlcance,
   plazasDelAlcance, reglaEnAlcance, repartirPropuestas, revisaPorAlcance, zonasDeCompra,
-  type FilaActividad, type ReglaLeida, type SucursalZona,
+  type CompraDoceMeses, type FilaActividad, type FilaEmbudo, type ReglaLeida, type SucursalZona,
 } from './purchase-calendar.domain';
 
 /** `[PQ.3.3]` La actividad de Kepler por alcance y el armado del calendario. El SQL se prueba contra base real. */
@@ -253,5 +253,61 @@ describe('`[PQ.3.14]` el día fijo no se pierde al definir otra regla', () => {
   });
   it('pendiente: la regla corporativa o de zona NO borra la propuesta de sucursal; la de esa sucursal sí', () => {
     expect(r.dia_fijo_pendiente.map((p) => [p.supplier_code, p.dias_fijos.map((x) => x.branch_code)])).toEqual([['B', ['08']], ['C', ['04']]]);
+  });
+});
+
+describe('`[PQ.3.18]` el embudo de llenado', () => {
+  // Diez proveedores con números redondos (monto, OC): el total es 1,000 de compra y 100 OC.
+  //   A 500/5 · B 200/5 · C 100/5 · D 50/40 (poco dinero, muchas OC) · E 50/15 · F 40/10 · G 30/10 · H 20/5 · I 10/4 (ocasional) · J 0/1 (ocasional con día fijo)
+  const filas: FilaEmbudo[] = [
+    ['A', 'propuesto', 1], ['B', 'propuesto', 0], ['C', 'propuesto', 0], ['D', 'compra_continua', 0], ['E', 'propuesto', 0],
+    ['F', 'propuesto', 0], ['G', 'propuesto', 0], ['H', 'propuesto', 0], ['I', 'pocas_compras', 0], ['J', 'una_compra', 0],
+  ].map(([supplier_code, proposal_status, reglas_vivas]) => ({
+    supplier_code: supplier_code as string, proposal_status: proposal_status as string, reglas_vivas: reglas_vivas as number, con_dia_fijo: supplier_code === 'J',
+  }));
+  const compra = new Map<string, CompraDoceMeses>([
+    ['A', { monto: 500, ocs: 5 }], ['B', { monto: 200, ocs: 5 }], ['C', { monto: 100, ocs: 5 }], ['D', { monto: 50, ocs: 40 }],
+    ['E', { monto: 50, ocs: 15 }], ['F', { monto: 40, ocs: 10 }], ['G', { monto: 30, ocs: 10 }], ['H', { monto: 20, ocs: 5 }],
+    ['I', { monto: 10, ocs: 4 }], ['J', { monto: 0, ocs: 1 }],
+  ]);
+  const { peso, embudo } = armarEmbudo(filas, compra);
+  const escalon = (c: string) => peso.get(c)?.escalon;
+
+  it('escalón 1 = los que juntan el 80 % de la compra (C empieza en 70 %) O el 50 % de las OC (E empieza en 40 % y termina en 55 %: entra el que empieza ANTES del umbral)', () => {
+    // Por compra: A (0 % antes) · B (50 %) · C (70 %) entran; D empieza en 80 % → no. Por OC: D (0 %) · E (40 %) entran; F empieza en 55 % → no.
+    expect(['A', 'B', 'C', 'D', 'E'].map(escalon)).toEqual([1, 1, 1, 1, 1]);
+    expect(['F', 'G', 'H'].map(escalon)).toEqual([2, 2, 2]);
+  });
+  it('escalón 3 = ocasional SIN día fijo; con día fijo es escalón 2 (su regla ya viene armada)', () => {
+    expect([escalon('I'), escalon('J')]).toEqual([3, 2]);
+  });
+  it('el peso de cada uno, en % de la compra y OC de 12 meses', () => {
+    expect(peso.get('A')).toEqual({ escalon: 1, compra_pct: 50, ocs_12m: 5 });
+    expect(peso.get('D')).toEqual({ escalon: 1, compra_pct: 5, ocs_12m: 40 });
+  });
+  it('el avance: con regla sólo A → 1 de 10 proveedores, 50 % de la compra y 5 % de las OC; los escalones suman el total', () => {
+    expect(embudo.measured).toBe(true);
+    expect(embudo.total).toEqual({ escalon: null, proveedores: 10, con_regla: 1, compra_pct: 100, compra_con_regla_pct: 50, ocs_pct: 100, ocs_con_regla_pct: 5 });
+    expect(embudo.escalones.map((e) => [e.escalon, e.proveedores, e.con_regla, e.compra_pct, e.ocs_pct])).toEqual([
+      [1, 5, 1, 90, 70], [2, 4, 0, 9, 26], [3, 1, 0, 1, 4],
+    ]);
+  });
+  it('PRUEBA NEGATIVA: el escalón no depende de tener regla (A sin regla sigue en 1) y una regla dada de baja (0 vivas) sale del avance', () => {
+    const sinReglas = armarEmbudo(filas.map((f) => ({ ...f, reglas_vivas: 0 })), compra);
+    expect(sinReglas.peso.get('A')?.escalon).toBe(1);
+    expect(sinReglas.embudo.total.con_regla).toBe(0);
+    expect(sinReglas.embudo.total.compra_con_regla_pct).toBe(0);
+  });
+  it('con cero reglas y cero compra dice 0 %, no vacío ni NaN', () => {
+    const vacio = armarEmbudo(filas.map((f) => ({ ...f, reglas_vivas: 0 })), new Map());
+    expect(vacio.embudo.total).toEqual({ escalon: null, proveedores: 10, con_regla: 0, compra_pct: 0, compra_con_regla_pct: 0, ocs_pct: 0, ocs_con_regla_pct: 0 });
+  });
+  it('sin la compra de 12 meses (no medido): se cuentan proveedores y reglas, los % son null, sin escalones ni peso, y lo dice', () => {
+    const nm = armarEmbudo(filas, null);
+    expect(nm.embudo.measured).toBe(false);
+    expect(nm.embudo.note).toMatch(/no se midió/);
+    expect(nm.embudo.total).toEqual({ escalon: null, proveedores: 10, con_regla: 1, compra_pct: null, compra_con_regla_pct: null, ocs_pct: null, ocs_con_regla_pct: null });
+    expect(nm.embudo.escalones).toEqual([]);
+    expect(nm.peso.size).toBe(0);
   });
 });

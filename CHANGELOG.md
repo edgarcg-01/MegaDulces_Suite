@@ -14,6 +14,11 @@
 - Si es un bien nuevo, pide qué es (con marca y modelo), cuántos y dónde va, y muestra su grupo y su vida fiscal según Kepler, o dice que Contabilidad aún no los define. Con el importe y cuántos calcula lo que cuesta cada uno: con $5,000 o menos por unidad es gasto, no activo, y así no se puede pedir.
 - Quien firma ve en el panel qué se compra, cuántas unidades y dónde va, antes de firmar.
 - Todavía no: dar de alta el activo en el catálogo de Kepler, asignar quién lo resguarda (lo hace Presupuestos y Control de Activos al darlo de alta) y la depreciación.
+### Added — Compras › Calendario de compras: el embudo de llenado en «Sin regla» (PQ.3.18 · 2026-11-22)
+- Arriba de «Sin regla» va cuánto se lleva: «Con regla: N de 340 proveedores · X % de la compra · Y % de las OC». Debajo, tres escalones con su avance: 1) los que hacen el 80 % de la compra o el 50 % de las OC, 2) el resto con compra recurrente, 3) ocasionales.
+- La lista va por escalón y luego por lo que pesa en la compra de 12 meses; antes iba por la siguiente fecha. Un clic en un escalón muestra sólo ése; otro clic, todos.
+- Cada renglón dice su peso: su parte de la compra, sus OC y rondas de 12 meses, y su escalón. La columna «Rondas en 12 meses» se fundió ahí.
+- Si la compra de 12 meses no se puede leer, la pantalla lo dice en vez de pintar 0 %, y la lista sigue en el orden de antes.
 ### Added — Telemarketing › Cotizaciones: cuánto cuesta capturar cada cotización (COT.54 · 2026-11-22)
 - Al guardar una cotización nueva se anota cuánto tardó la captura (desde el primer artículo), cuántas búsquedas hubo y si salió de un respaldo. Sirve para medir si las mejoras que vienen ahorran tiempo.
 - Se reporta sólo en promedios por sucursal o semana, nunca por persona.
