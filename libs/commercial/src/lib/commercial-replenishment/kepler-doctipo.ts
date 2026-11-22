@@ -56,6 +56,24 @@ export interface DoctipoSpec {
   envFolio: string;
   /** Doctypes (`c4`) de los que se lee el precedente de unidad para este tipo. */
   gruposPrecedente: string[];
+  /**
+   * `[PQ.135]` El renglón de este documento lleva **cantidad pedida (`c51`)** y **estado
+   * (`c28`)**, y el sink los escribe en vez de heredarlos del renglón molde.
+   *
+   * Medido el 2026-11-22 en los pedidos de sucursal reales de Morelia Abastos (30 días): `c51`
+   * viene lleno en 145 de 145 renglones y vale lo mismo que `c56` en 145 de 145; `c28` sigue al
+   * encabezado (`CREADO` en 1,405 de 1,405 renglones de encabezados `CREADO`). Heredarlos del
+   * molde es inocuo sólo mientras el molde tenga el mismo estado: con un pedido que nace
+   * `CREADO` (ADR-126) el encabezado diría `CREADO` y sus renglones `AUTORIZADO`.
+   *
+   * ⛔ En la compra (`X-A-30`) **no se midió**: queda en `false` y el renglón sigue como estaba.
+   */
+  renglonPedidaYEstado?: boolean;
+  /**
+   * `[DT5]` Estados con los que este documento puede NACER, además del de `c11`. Vacío = el
+   * estado no es elegible y `estado_inicial` se rechaza.
+   */
+  estadosIniciales?: readonly string[];
 }
 
 export const DOCTIPOS: Readonly<Record<KeplerDoctipo, DoctipoSpec>> = Object.freeze({
@@ -82,6 +100,11 @@ export const DOCTIPOS: Readonly<Record<KeplerDoctipo, DoctipoSpec>> = Object.fre
     limpiar: ['c100', 'c102', 'c103'],
     envSerie: 'KEPLER_PED_TEMPLATE_SERIE', envFolio: 'KEPLER_PED_TEMPLATE_FOLIO',
     gruposPrecedente: ['40', '41'],
+    renglonPedidaYEstado: true,
+    // `[DT5]` El pedido que escribe Autoabasto nace CREADO (D1 del PM, 2026-11-22) y el que manda
+    // una requisición aprobada sigue naciendo AUTORIZADO. Es el MISMO documento con dos puertas,
+    // así que el estado viaja en la entrada y no se edita esta constante.
+    estadosIniciales: ['CREADO', 'AUTORIZADO'],
   },
 });
 

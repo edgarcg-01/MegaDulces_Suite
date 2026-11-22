@@ -151,6 +151,22 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
 
     const tipo = e.tipo ?? 'compra';
     const d = DOCTIPOS[tipo];
+
+    // `[PQ.135]`/`[DT5]` Con qué estado nace el documento. Ausente = el del tipo. Un estado que el
+    // tipo no declara se RECHAZA antes de abrir la conexión: un `c11` inventado no rompe nada al
+    // escribir, pero deja el documento fuera de todos los filtros del ERP y de la Suite, y eso se
+    // descubre cuando alguien pregunta por qué su pedido no le llegó a nadie.
+    const pedido = e.estado_inicial?.trim().toUpperCase();
+    if (pedido && !(d.estadosIniciales ?? []).includes(pedido)) {
+      return {
+        estado: 'rechazada',
+        motivo: `Estado inicial «${e.estado_inicial}» no válido para ${coordenada(tipo)}: ` +
+          `${(d.estadosIniciales ?? []).length ? `sólo ${(d.estadosIniciales ?? []).join(' o ')}` : 'este documento no admite elegir estado'}`,
+      };
+    }
+    /** El `c11` del encabezado, y el `c28` de cada renglón, que lo sigue. */
+    const estadoDoc = pedido || d.c11;
+
     // El documento se crea en el servidor de `e.sucursal` (en el traspaso, el ORIGEN).
     const srv = urlDeServidor(e.sucursal, process.env);
     if (!srv.ok) return { estado: 'rechazada', motivo: srv.motivo };
@@ -375,7 +391,7 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
             c11 = $6, c24 = $7`,
         [reserva.valor.folio,
           e.fecha, c10, c32, e.total,
-          d.c11 === 'referencia' ? e.folio_suite : d.c11,
+          d.c11 === 'referencia' ? e.folio_suite : estadoDoc,
           d.marca === 'c24' ? e.folio_suite : '']);
 
       // ⛔ `[KR.17]` Lo que la plantilla arrastraba y es del documento, no del molde. Medido sobre
@@ -455,6 +471,16 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
             WHERE c7=$7`,
           [folio, ln.sku, cantidad, ln.nombre, costoUnit, ln.importe, i + 1, textoKepler(costoUnit),
             textoKepler(cantidad), c10, e.fecha, rs.unidad]);
+        // ⛔ `[PQ.135]` Cantidad PEDIDA (`c51`) y ESTADO del renglón (`c28`). Sin esto los hereda
+        // del renglón molde: el `c51` de la plantilla (otra cantidad) y su `c28` (otro estado).
+        // Medido en los pedidos de sucursal reales de la 08 (30 días): `c51` lleno en 145 de 145 y
+        // `c51 = c56` en 145 de 145; `c28` sigue al encabezado (1,405 de 1,405 en los `CREADO`).
+        // Los dos van como TEXTO, con el mismo formato y en su propio UPDATE — la misma forma que
+        // usa el sink de telemarketing, que escribe este MISMO documento (`[KR.16]`: mezclar texto
+        // y numérico en un parámetro compartido rechaza la sentencia entera).
+        if (d.renglonPedidaYEstado) {
+          await c.query('UPDATE _l SET c51=$1, c28=$2 WHERE c7=$3', [textoKepler(cantidad), estadoDoc, i + 1]);
+        }
         const tx = tasas.get(ln.sku);
         // `c17` es texto y `c18` numérico: cada uno con su propio parámetro (`[KR.16]`).
         if (tx) await c.query('UPDATE _l SET c17=$1, c18=$2 WHERE c7=$3', [textoKepler(tx.iva), tx.ieps, i + 1]);

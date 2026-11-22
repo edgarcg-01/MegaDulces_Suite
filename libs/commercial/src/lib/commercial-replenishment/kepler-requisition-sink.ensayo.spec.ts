@@ -46,9 +46,11 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
   public ultimoC10: string | undefined;
   protected override async confirmar(c: PoolClient, conOrden = false): Promise<void> {
     const h = (await c.query(`SELECT count(*) OVER ()::int n, c9::date f, c18::date entrega, btrim(c10) c10, c14::text c14, c15::text c15,
-                                     btrim(c67) c67, c69, btrim(c43) c43, btrim(c2) c2, c16::text c16, c42::text c42 FROM _h`)).rows;
+                                     btrim(c67) c67, c69, btrim(c43) c43, btrim(c2) c2, c16::text c16, c42::text c42,
+                                     btrim(c11::text) c11 FROM _h`)).rows;
     const l = (await c.query(`SELECT c7::text ren, c9::float8 cant, c24::float8 pend, btrim(c56) c56, btrim(c25) c25, c32::date f,
-                                     btrim(c11) u, btrim(c55) uc, btrim(c57) c57, btrim(c58) c58, c13::float8 imp, btrim(c17::text) c17, c18::float8 c18 FROM _l ORDER BY c7`)).rows;
+                                     btrim(c11) u, btrim(c55) uc, btrim(c57) c57, btrim(c58) c58, c13::float8 imp, btrim(c17::text) c17, c18::float8 c18,
+                                     btrim(c51::text) c51, btrim(c28::text) c28 FROM _l ORDER BY c7`)).rows;
     const no: string[] = [];
     if (h.length !== 1) no.push(`_h tiene ${h.length} filas`);
     if (!l.length) no.push('_l vacío');
@@ -80,7 +82,16 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
       if (Number(r.c56) !== r.cant) no.push(`ren ${r.ren}: c56 ${r.c56} ≠ c9 ${r.cant}`);
       if (r.c25 !== H.c10) no.push(`ren ${r.ren}: c25 ${r.c25} ≠ c10 ${H.c10}`);
       if (!mismo(r.f?.toISOString?.(), H.f?.toISOString?.())) no.push(`ren ${r.ren}: c32 ${r.f} ≠ fecha`);
-      if (r.u !== 'CJA' || r.uc !== 'CJA' || r.c58 !== '1') no.push(`ren ${r.ren}: unidad ${r.u}/${r.uc}/${r.c58}`);
+      if (H.c2 === 'U') {
+        // `[PQ.135]` Traspaso: `c51` (cantidad pedida) y `c28` (estado del renglón) los escribe el
+        // sink; antes los heredaba del renglón molde — el `c51` de otro pedido y el `c28` de otro
+        // estado. Medido en la 08: `c51 = c56` en 145 de 145 y `c28` sigue al encabezado.
+        if (Number(r.c51) !== r.cant) no.push(`ren ${r.ren}: c51 ${r.c51} ≠ c9 ${r.cant} (lo heredó del molde)`);
+        if (r.c28 !== H.c11) no.push(`ren ${r.ren}: c28 ${r.c28} ≠ estado del documento ${H.c11}`);
+        // `[PQ.19]` El renglón del traspaso va en la unidad BASE del producto, no en `CJA`: la
+        // unidad de línea y la de la caja son la misma y `c58 = 1`.
+        if (r.uc !== r.u || r.c58 !== '1') no.push(`ren ${r.ren}: unidad ${r.u}/${r.uc}/${r.c58}`);
+      } else if (r.u !== 'CJA' || r.uc !== 'CJA' || r.c58 !== '1') no.push(`ren ${r.ren}: unidad ${r.u}/${r.uc}/${r.c58}`);
     }
     if (conOrden) {
       // `[PQ.22]` La OC: liga a la requisición y abierta (reglas medidas en 1,142 pares).
@@ -204,18 +215,37 @@ describe.skipIf(!ACTIVO)('ensayo contra los Kepler reales (ROLLBACK, no escribe)
       const k = new Client({ connectionString: process.env[`KEPLER_PUSH_URL_${s}`], statement_timeout: 20000 });
       await k.connect();
       const muestra = (await k.query(
-        `SELECT btrim(d.c8) sku, btrim(d.c10) nombre FROM md.kdm2 d
+        `SELECT btrim(d.c8) sku, btrim(d.c10) nombre, NULLIF(btrim(d.c58::text), '') c58 FROM md.kdm2 d
           WHERE d.c1=$1 AND d.c2='U' AND d.c3='D' AND btrim(d.c4::text)='40' ORDER BY d.c32 DESC LIMIT 1`, [s])).rows[0];
-      const antes = await contar(k, s, 'U', 'D', '40');
-      const r = await adapter!.entregar({
-        requisition_id: '00000000-0000-0000-0000-000000000000', folio_suite: 'RQ-ENSAYO-KR17', tipo: 'traspaso',
+      // ⛔ `[PQ.19]` Todo renglón de traspaso se escribe en la unidad BASE, así que la entrada
+      // necesita `piezas_por_caja`: sin él `piezasEnterasDe` da `null` y el adapter rechaza el
+      // documento entero. El ensayo lo mandaba sin él desde PQ.19 y por eso no podía pasar — como
+      // además se salta sin plantilla, nadie lo vio fallar.
+      const porCaja = Math.max(1, Math.round(Number(muestra.c58) || 1));
+      const base = {
+        requisition_id: '00000000-0000-0000-0000-000000000000', folio_suite: 'RQ-ENSAYO-KR17', tipo: 'traspaso' as const,
         sucursal: s, destino_sucursal: s === '01' ? '00' : '01', fecha: new Date().toISOString().slice(0, 10),
-        lineas: [{ sku: muestra.sku, nombre: muestra.nombre, cajas: 4, costo_caja: 100, importe: 400 }], total: 400,
-      });
+        lineas: [{ sku: muestra.sku, nombre: muestra.nombre, cajas: 4, piezas_por_caja: porCaja, costo_caja: 100, importe: 400 }],
+        total: 400,
+      };
+      const antes = await contar(k, s, 'U', 'D', '40');
+      const r = await adapter!.entregar(base);
       expect(r.motivo ?? '', `servidor ${s}`).toBe('');
       expect(r.estado).toBe('entregada');
       expect(adapter!.fallas, `servidor ${s}: columnas arrastradas de la plantilla`).toEqual([]);
       expect(await contar(k, s, 'U', 'D', '40')).toBe(antes);   // no escribió
+
+      // `[PQ.135]`/`[DT5]` El pedido de Autoabasto nace CREADO, y sus renglones con él (lo revisa
+      // `confirmar`: `c28` tiene que seguir al `c11` del encabezado).
+      const creado = await adapter!.entregar({ ...base, folio_suite: 'RQ-ENSAYO-PQ135', estado_inicial: 'CREADO' });
+      expect(creado.motivo ?? '', `servidor ${s} (CREADO)`).toBe('');
+      expect(adapter!.fallas, `servidor ${s}: el documento CREADO`).toEqual([]);
+
+      // NEGATIVA: un estado que el tipo no declara se rechaza, y no escribe nada.
+      const malo = await adapter!.entregar({ ...base, estado_inicial: 'EMBARCADO' });
+      expect(malo.estado).toBe('rechazada');
+      expect(malo.motivo).toContain('EMBARCADO');
+      expect(await contar(k, s, 'U', 'D', '40')).toBe(antes);
       await k.end();
     }, 60000);
   }

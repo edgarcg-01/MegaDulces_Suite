@@ -110,6 +110,17 @@ export interface KeplerRequisitionEntrada {
    * abierta). Lo decide la Suite (`kepler_push_switch.genera_orden`); ausente = sólo requisición.
    */
   generar_orden?: boolean;
+  /**
+   * `[PQ.135]` · `[DT5]` Sólo `traspaso`: con qué estado NACE el documento (`kdm1.c11`), y con él
+   * sus renglones (`kdm2.c28`). Ausente = el del tipo (`AUTORIZADO`, que es como nacen los 4,213
+   * pedidos de sucursal que las sucursales capturan a mano).
+   *
+   * Existe porque el mismo documento tiene dos puertas desde ADR-126: la requisición aprobada por
+   * Compras y el pedido que arma la sucursal en Autoabasto, que el PM decidió que nazca `CREADO`
+   * para que el origen lo revise antes de surtir. Un estado que el tipo no declare se **rechaza**:
+   * un `c11` inventado deja el documento fuera de todos los filtros del ERP.
+   */
+  estado_inicial?: string;
 }
 
 /** `[KR.6]` Qué unidad resolvió el adapter para un SKU, o por qué no pudo. */
