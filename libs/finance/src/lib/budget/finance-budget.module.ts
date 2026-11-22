@@ -36,7 +36,12 @@ import { BudgetIncomeForecastController } from './budget-income-forecast.control
  * calendario; éste es el sistema de presupuestos. Comparten el schema `budget.*` pero no el módulo.
  */
 @Module({
-  controllers: [BudgetIncomeForecastController, BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
+  // ⛔ EL ORDEN DE ESTA LISTA ES EL ORDEN EN QUE EXPRESS PRUEBA LAS RUTAS. `BudgetComparisonController`
+  // va ANTES que `BudgetLinesController`: aquél declara `GET budgets/direccion` y éste
+  // `GET budgets/:id`. Al revés, `direccion` entraba como id → `invalid input syntax for type
+  // uuid: "direccion"` → 500, y la vista Dirección de `/presupuesto` nunca abrió en prod desde
+  // `[TES.21]` (medido 2026-11-20, `[PU.15]`). Lo vigila `finance-budget.rutas.spec.ts`.
+  controllers: [BudgetIncomeForecastController, BudgetComparisonController, BudgetLinesController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
   providers: [BudgetIncomeForecastService, BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
   exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
 })

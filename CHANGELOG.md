@@ -14,6 +14,21 @@
 - El PDF del SAT se sigue leyendo sin IA. Lo demás lo lee la IA, que sólo copia: el sistema revisa el RFC y la CURP con su dígito verificador y busca régimen, uso de CFDI y forma de pago en el catálogo del SAT. Lo que no cuadra o es dudoso se avisa junto a su casilla; «tarjeta», sin decir si es de crédito o de débito, se pregunta.
 - Cada lectura queda guardada con sus archivos y su costo, y al crear la solicitud se anota qué corrigió la persona. En el detalle, «Documentos» abre los archivos de los que salió.
 - Llega apagada: la enciende `ALC_AI_ENABLED=true` cuando Edgar y Dirección firmen D9 (los datos del cliente van a un proveedor de IA). Apagada, el alta acepta sólo el PDF, como antes. Antes de soltar: migración `20261122115947`.
+### Added — Telemarketing › Cotizaciones: cuánto cuesta capturar cada cotización (COT.54 · 2026-11-22)
+- Al guardar una cotización nueva se anota cuánto tardó la captura (desde el primer artículo), cuántas búsquedas hubo y si salió de un respaldo. Sirve para medir si las mejoras que vienen ahorran tiempo.
+- Se reporta sólo en promedios por sucursal o semana, nunca por persona.
+- Lleva columnas nuevas: hay que aplicar su migración antes de soltar. Sin ella no se pueden crear cotizaciones.
+
+### Added — Telemarketing › Cotizaciones: el buscador de artículos empieza a contar qué se busca y qué se elige, sin decir quién (COT.53 · 2026-11-22)
+- Cada vez que se elige un artículo se cuenta qué se escribió, cuál se eligió y en qué lugar de la lista estaba; también se cuentan las búsquedas que no encontraron nada. Es la base para que el buscador aprenda sinónimos y ponga primero lo que se elige.
+- Se guarda como un contador por día y sucursal, sin el nombre de quien buscó.
+- Lleva una tabla nueva: hay que aplicar su migración antes de soltar.
+
+### Added — Telemarketing › Cotizaciones: cerrar un borrador sin pedido, diciendo por qué (COT.52 · 2026-11-22)
+- En el borrador, «Cerrar sin pedido» pregunta por qué no hubo pedido: el cliente no lo hizo, por el precio, no había existencia, se fue con otro proveedor, era una prueba u otro (con «Otro» hay que escribir cuál).
+- Si el cliente no compró, la cotización pasa a «Perdidas»; si fue una prueba u otro motivo nuestro, queda cancelada y no cuenta como venta perdida.
+- Hasta hoy no había forma de cerrar un borrador: había 94 de más de una semana sin cerrar.
+
 ### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
 - Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.
 - Es el dato que hace falta para saber qué se pidió y no había (demanda negada) y para cualquier pronóstico de demanda. Los renglones de antes de este cambio no lo tienen.

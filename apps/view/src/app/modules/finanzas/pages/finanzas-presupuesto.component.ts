@@ -796,7 +796,8 @@ const VISTA_DEFAULT: PresView = 'direccion';
             [loadingSales]="loadingSales()" [loadingIndicators]="loadingIndicators()" [loadingReconciliation]="loadingReconciliation()"
             [savingPropose]="savingPropose()" [projecting]="projecting()" [period]="salesPeriod"
             (tabChange)="setSalesTab($event)" (periodChange)="salesPeriod = $event"
-            (proposePlan)="runProposePlan()" (loadComparison)="loadSalesComparison()" (projectTargets)="projectTargets()" />
+            (proposePlan)="runProposePlan()" (loadComparison)="loadSalesComparison()" (projectTargets)="projectTargets()"
+            (editMeta)="openMetaEdit($event)" />
         } @else {
           <section class="pres-section">
             <p class="pres-muted">Elige un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
@@ -1298,8 +1299,26 @@ const VISTA_DEFAULT: PresView = 'direccion';
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmCopy()" [loading]="savingCopy()">Copiar</button></div>
     </p-dialog>
 
-    <!-- PR.5 (ADR-074): dialogos retirados — captura manual de partida/gasto/meta y los diálogos de
+    <!-- PR.5 (ADR-074): dialogos retirados — captura manual de partida/gasto y los diálogos de
          «Proponer» (ahora un clic con los Supuestos del año). La partida se materializa del plan. -->
+
+    <!-- [PU.17] La meta de UNA celda (entidad x periodo) vuelve a corregirse a mano. ADR-074 la
+         había retirado con su costo escrito y «reversible si estorba en operación»; después PVI
+         volvió los supuestos de solo lectura y no quedó ninguna palanca. Queda como Manual y el
+         motor no la pisa al rearmar (lo vigila test-newdb-budget-autopilot.js). -->
+    <p-dialog [(visible)]="metaEditVisible" [modal]="true" header="Corregir meta" [style]="{ width: '26rem' }">
+      @if (metaEditRow(); as r) {
+        <p class="pres-lbl-hint"><strong>{{ r.label }}</strong> · {{ r.channel_label }} · periodo P{{ salesPeriod }}</p>
+        <p class="pres-lbl-hint">Meta actual: <strong class="pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</strong> · origen {{ origenMeta(r.method) }}</p>
+        <label class="pres-lbl" for="pres-meta-edit">Meta nueva, en pesos</label>
+        <input pInputText id="pres-meta-edit" type="number" inputmode="decimal" min="0" step="0.01" autocomplete="off"
+               [(ngModel)]="metaEditAmount" class="pres-full" (keydown.enter)="confirmMetaEdit()" />
+        <p class="pres-lbl-hint">Queda como <strong>Manual</strong>: el motor la respeta cada mañana al rearmar el plan.</p>
+        <div class="pres-dlg-actions">
+          <button pButton type="button" (click)="confirmMetaEdit()" [loading]="savingMeta()" [disabled]="savingMeta()">Guardar meta</button>
+        </div>
+      }
+    </p-dialog>
 
     <!-- Movimiento de partida -->
     <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
@@ -2272,12 +2291,20 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   openMetaEdit(r: SalesRow): void { this.metaEditRow.set(r); this.metaEditAmount = r.meta; this.metaEditVisible = true; }
+  /** `[PU.17]` El origen de la meta en palabras, con los mismos rótulos que la columna Origen de Ventas. */
+  origenMeta(m: string | null | undefined): string {
+    const r: Record<string, string> = { historico_ajustado: 'Histórico', estacional: 'Estacional', proxy_canal: 'Proxy canal', sin_base_declarado: 'Sin base', manual: 'Manual', mixto: 'Mixto' };
+    return m ? (r[m] ?? m) : '—';
+  }
   confirmMetaEdit(): void {
+    // `[PU.17]` Enter y el botón llegan acá; el segundo disparo mientras guarda no manda otra escritura.
+    if (this.savingMeta()) return;
     const b = this.selected(); const r = this.metaEditRow(); if (!b || !r || !r.entity_key) return;
-    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa una meta válida (≥ 0).' }); return; }
+    if (!(this.salesPeriod >= 1 && this.salesPeriod <= 13)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Elige un periodo: la meta se guarda por periodo.' }); return; }
+    if (this.metaEditAmount == null || !(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresa una meta válida (≥ 0).' }); return; }
     this.savingMeta.set(true);
     this.http.post(`${this.base}/budgets/${b.id}/sales-plan/line`, { entity_key: r.entity_key, period_no: this.salesPeriod, meta_amount: Number(this.metaEditAmount) }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Guardada', detail: 'Meta capturada.' }); },
+      next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Meta guardada', detail: 'Queda como Manual; el motor la respeta al rearmar.' }); },
       error: (e) => { this.savingMeta.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
     });
   }
