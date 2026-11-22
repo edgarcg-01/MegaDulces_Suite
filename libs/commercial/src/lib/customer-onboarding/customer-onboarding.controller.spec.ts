@@ -26,12 +26,12 @@ function entra(m: Metodo, llaves: Permission[]): boolean {
 }
 const alcanza = (llaves: Permission[]) => metodos.filter((m) => entra(m, llaves)).sort();
 
-const LECTURAS = ['catalogs', 'constanciaUrl', 'inbox', 'one', 'planKepler'];
+const LECTURAS = ['catalogs', 'constanciaUrl', 'documentos', 'inbox', 'one', 'planKepler'];
 
 describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
-  it('el recorrido mide algo: trece endpoints, y ninguno sin llave', () => {
+  it('el recorrido mide algo: quince endpoints, y ninguno sin llave', () => {
     expect(metodos.sort()).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'inbox', 'link', 'one', 'planKepler', 'postalCode', 'validate', 'writeKepler'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'documentos', 'inbox', 'leerDocumentos', 'link', 'one', 'planKepler', 'postalCode', 'validate', 'writeKepler'],
     );
     for (const m of metodos) {
       expect((todas(m)?.length ?? 0) + (alguna(m)?.length ?? 0), `${m} no declara llave: quedaría abierto a cualquiera con sesión`).toBeGreaterThan(0);
@@ -41,14 +41,19 @@ describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
     expect(Reflect.getMetadata(ANY_PERMISSIONS_KEY, CustomerOnboardingController)).toBeUndefined();
   });
 
-  it('sólo consultar (`_VER`) abre las cinco lecturas (con el plan de Kepler) y ninguna escritura', () => {
+  it('sólo consultar (`_VER`) abre las seis lecturas (con el plan de Kepler y los documentos) y ninguna escritura', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_VER])).toEqual(LECTURAS);
   });
 
-  it('control: capturar (`ALTA_CLIENTES`) abre lecturas, captura (con el CP), liga y cancela; no decide crédito', () => {
+  it('control: capturar (`ALTA_CLIENTES`) abre lecturas, captura (con el CP y los documentos), liga y cancela; no decide crédito', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES])).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'inbox', 'link', 'one', 'planKepler', 'postalCode', 'validate'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'documentos', 'inbox', 'leerDocumentos', 'link', 'one', 'planKepler', 'postalCode', 'validate'],
     );
+  });
+
+  it('[ALC.4] leer documentos (gasta IA) pide la llave de captura: consultar no la abre', () => {
+    expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_VER])).not.toContain('leerDocumentos');
+    expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO])).not.toContain('leerDocumentos');
   });
 
   it('[ALC.2.8] escribir en Kepler pide SU llave: ni capturar, ni crédito, ni consultar la abren', () => {

@@ -2,7 +2,10 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  ArchivoParaLeerAlta,
   BandejaAlta,
+  DocumentoDeSolicitud,
+  LeerDocumentosRespuesta,
   CatalogosAlta,
   CodigoPostalAlta,
   CrearSolicitudRespuesta,
@@ -15,6 +18,33 @@ import type {
   SubirConstanciaRespuesta,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
+
+/** Lado mayor de una foto antes de subirla: de sobra para leerla (el servidor la deja en 1568 px). */
+const LADO_MAX_FOTO = 2000;
+
+/**
+ * `[ALC.4]` Un archivo del selector → `data:` URI para leer. Una foto del celular (3–6 MB) se re-codifica
+ * a JPEG de ≤2000 px (~0.5 MB): cuatro caben en una petición y la orientación de la cámara queda
+ * aplicada. Un PDF va tal cual. ⚠️ Es el tercer compresor de fotos del front (Compras:
+ * `imagenes-a-pdf.ts`; Finanzas: `camera-shot`): deuda `[ALC.9b]`, unificarlos en `shared/`.
+ */
+export async function archivoParaLeer(f: File): Promise<ArchivoParaLeerAlta> {
+  const comoDataUri = (b: Blob) => new Promise<string>((ok, mal) => {
+    const r = new FileReader();
+    r.onload = () => ok(String(r.result ?? ''));
+    r.onerror = () => mal(new Error('No se pudo abrir el archivo.'));
+    r.readAsDataURL(b);
+  });
+  if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) return { data_uri: await comoDataUri(f), nombre: f.name };
+  const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+  const k = Math.min(1, LADO_MAX_FOTO / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k);
+  c.height = Math.round(bmp.height * k);
+  c.getContext('2d')?.drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close();
+  return { data_uri: c.toDataURL('image/jpeg', 0.85), nombre: f.name };
+}
 
 /** `[ALC]` Alta de clientes: constancia → solicitud → crédito → liga con Kepler. */
 @Injectable({ providedIn: 'root' })
@@ -38,6 +68,19 @@ export class AltaClientesService {
   geocode(q: string): Observable<{ results: { lat: number; lng: number; place_name: string; relevance: number }[] }> {
     return this.http.get<{ results: { lat: number; lng: number; place_name: string; relevance: number }[] }>(
       `${environment.apiUrl}/reports/geocode`, { params: new HttpParams().set('q', q) });
+  }
+
+  /**
+   * `[ALC.4]` De 1 a 4 archivos del mismo cliente (constancia, fotos, capturas). El PDF del SAT se lee
+   * sin IA; lo demás, con IA si está encendida. Devuelve el prellenado y el `lectura_id`; no crea nada.
+   */
+  leerDocumentos(archivos: ArchivoParaLeerAlta[], branch?: string | null): Observable<LeerDocumentosRespuesta> {
+    return this.http.post<LeerDocumentosRespuesta>(`${this.base}/documentos`, { archivos, branch: branch ?? null });
+  }
+
+  /** `[ALC.4]` Ligas temporales a los archivos de los que salió una solicitud. */
+  documentos(id: string): Observable<DocumentoDeSolicitud[]> {
+    return this.http.get<DocumentoDeSolicitud[]>(`${this.base}/${id}/documentos`);
   }
 
   /** El PDF en data URI. La API lo lee, lo guarda y devuelve el prellenado; no crea nada. */

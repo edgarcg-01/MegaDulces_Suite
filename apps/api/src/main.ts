@@ -327,6 +327,9 @@ async function bootstrap() {
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
   // `[PGP.127]` La cotización del anticipo (PDF o foto, hasta 10 MB → ~14 MB en base64). Sólo la ruta de subida.
   app.use('/api/commercial/supplier-obligations/anticipo/cotizacion', json({ limit: '16mb' }));
+  // `[ALC.4]` Alta de clientes: hasta 4 archivos del cliente (constancia, fotos, capturas). La pantalla
+  // reduce cada foto a ≤2000 px antes de mandarla; el tope cubre 4 PDF/fotos de ~4 MB en base64. Sólo la ruta de lectura.
+  app.use('/api/commercial/customer-onboarding/documentos', json({ limit: '24mb' }));
   // MS — Mesa de Servicio: capturas de pantalla/PDF como base64 en la solicitud y en cada comentario.
   app.use('/api/service-desk', json({ limit: '32mb' }));
   // `[RH.2.2]` Expediente de reclutamiento: un documento (foto de celular o PDF escaneado) hasta 10 MB
