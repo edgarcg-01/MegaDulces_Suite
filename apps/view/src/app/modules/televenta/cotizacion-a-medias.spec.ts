@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { PREFIJOS_TRABAJO_SIN_ENVIAR, limpiarRastroDeSesion } from '@megadulces/ui-web';
 import {
   BorradorCotizacion,
+  PREFIJO_BORRADOR,
   VERSION_BORRADOR,
   VIGENCIA_BORRADOR_MS,
   borrarBorrador,
@@ -8,6 +10,9 @@ import {
   guardarBorrador,
   haceCuanto,
   leerBorrador,
+  leerBorradores,
+  marcarAbierta,
+  pestanasAbiertas,
 } from './cotizacion-a-medias';
 import type { ItemBandeja } from './pages/televenta-quote-new.component';
 
@@ -92,5 +97,80 @@ describe('[COT.32] cotización a medias en el navegador', () => {
     expect(haceCuanto(AHORA, AHORA + 12 * 60_000)).toBe('hace 12 min');
     expect(haceCuanto(AHORA, AHORA + 3 * 3_600_000)).toBe('hace 3 h');
     expect(haceCuanto(AHORA, AHORA + 2 * 86_400_000)).toBe('hace 2 días');
+  });
+});
+
+/** Web Locks de mentira: un candado se sostiene hasta que se resuelve la promesa de quien lo pidió. */
+function candadosFalsos() {
+  const sostenidos = new Set<string>();
+  return {
+    request: (nombre: string, cb: () => Promise<void>) => {
+      sostenidos.add(nombre);
+      return cb().then(() => { sostenidos.delete(nombre); });
+    },
+    query: async () => ({ held: [...sostenidos].map((name) => ({ name })) }),
+  };
+}
+
+describe('[COT.50] una ranura por pestaña, y la sesión vencida no la borra', () => {
+  it('⭐ una pestaña VACÍA no borra lo que la otra lleva capturado', () => {
+    const s = memoria();
+    guardarBorrador(claveBorrador('u1', 'A'), borrador(), s); // la pestaña A captura
+    guardarBorrador(claveBorrador('u1', 'B'), borrador({ bandeja: [] }), s); // la B, vacía, se oculta
+    expect(leerBorrador(claveBorrador('u1', 'A'), AHORA, s)?.bandeja).toHaveLength(1);
+  });
+
+  it('NEGATIVA: con la ranura única de antes, la vacía sí lo borraba (el defecto que se cierra)', () => {
+    const s = memoria();
+    guardarBorrador(claveBorrador('u1'), borrador(), s);
+    guardarBorrador(claveBorrador('u1'), borrador({ bandeja: [] }), s);
+    expect(leerBorrador(claveBorrador('u1'), AHORA, s)).toBeNull();
+  });
+
+  it('ofrece los del usuario —también la clave de antes de COT.50—, el más nuevo primero, y no los de otro', () => {
+    const s = memoria();
+    guardarBorrador(claveBorrador('u1'), borrador({ guardado: AHORA - 3_000 }), s);
+    guardarBorrador(claveBorrador('u1', 'A'), borrador({ guardado: AHORA - 1_000 }), s);
+    guardarBorrador(claveBorrador('u1', 'B'), borrador({ guardado: AHORA - 2_000 }), s);
+    guardarBorrador(claveBorrador('u10', 'C'), borrador(), s); // otro usuario con prefijo parecido
+    expect(leerBorradores('u1', new Set(), AHORA, s).map((p) => p.clave)).toEqual([
+      claveBorrador('u1', 'A'), claveBorrador('u1', 'B'), claveBorrador('u1'),
+    ]);
+  });
+
+  it('⭐ no ofrece el de una pestaña que sigue abierta (recuperarlo duplicaría la captura)', () => {
+    const s = memoria();
+    guardarBorrador(claveBorrador('u1', 'viva'), borrador(), s);
+    guardarBorrador(claveBorrador('u1', 'cerrada'), borrador(), s);
+    expect(leerBorradores('u1', new Set(['viva']), AHORA, s).map((p) => p.clave)).toEqual([claveBorrador('u1', 'cerrada')]);
+  });
+
+  it('la pestaña se sabe abierta mientras sostiene su candado, y deja de estarlo al soltarlo', async () => {
+    const l = candadosFalsos();
+    const soltar = marcarAbierta('t1', l);
+    expect(await pestanasAbiertas(l)).toEqual(new Set(['t1']));
+    soltar();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await pestanasAbiertas(l)).toEqual(new Set());
+  });
+
+  it('sin Web Locks no se sabe cuáles están abiertas: null (se ofrecen todas, como antes)', async () => {
+    expect(await pestanasAbiertas(null)).toBeNull();
+    expect(() => marcarAbierta('t1', null)()).not.toThrow();
+  });
+
+  it('⭐ el prefijo del borrador es trabajo sin enviar para la limpieza de sesión (si alguien lo renombra, esto cae)', () => {
+    expect(PREFIJOS_TRABAJO_SIN_ENVIAR.some((p) => PREFIJO_BORRADOR.startsWith(p))).toBe(true);
+  });
+
+  it('⭐ de punta a punta: la sesión vence (401) y la cotización sigue ahí al volver a entrar', async () => {
+    localStorage.clear();
+    guardarBorrador(claveBorrador('u1', 'A'), borrador({ guardado: Date.now() }));
+    await limpiarRastroDeSesion({ conservarTrabajoSinEnviar: true });
+    expect(leerBorradores('u1').map((p) => p.clave)).toEqual([claveBorrador('u1', 'A')]);
+    // Y el cierre voluntario sí la borra.
+    await limpiarRastroDeSesion();
+    expect(leerBorradores('u1')).toEqual([]);
   });
 });

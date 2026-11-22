@@ -66,6 +66,22 @@ export const CLAVES_DEL_APARATO: readonly string[] = [
   'metas_furniture_v1',
 ];
 
+/**
+ * `[COT.50]` Prefijos de `localStorage` que son **trabajo sin enviar de la persona**: se conservan
+ * sólo cuando el cierre de sesión NO lo pidió ella (token vencido → 401, o la sesión que se cerró
+ * en otra pestaña). El cierre voluntario los borra igual que todo lo demás.
+ *
+ * Existe porque la cotización a medias (`[COT.32]`) prometía sobrevivir a la sesión vencida y
+ * esta misma limpieza la borraba: el 401 llama a `logout()` y `logout()` vacía `localStorage`.
+ * Un vendedor de telemarketing que entra a las 10:00 y cotiza hasta las 22:30 cruza las 12 h del
+ * token a media captura (2026-11-21: «dos veces esta semana perdí la captura»).
+ *
+ * Por qué no va en `CLAVES_DEL_APARATO`: es de la PERSONA, no del aparato. En una PC compartida
+ * la siguiente persona no la ve (la clave lleva el usuario) y la caducan 7 días o el primer
+ * cierre voluntario en ese navegador.
+ */
+export const PREFIJOS_TRABAJO_SIN_ENVIAR: readonly string[] = ['cotizacion-a-medias:'];
+
 export interface RastroLimpiado {
   localStorage: number;
   sessionStorage: number;
@@ -88,6 +104,11 @@ export interface OpcionesDeLimpieza {
    * hace trabajo de campo y si quedó algo sin sincronizar.
    */
   borrarIndexedDb?: boolean;
+  /**
+   * `[COT.50]` Conservar el trabajo sin enviar (`PREFIJOS_TRABAJO_SIN_ENVIAR`). Sólo para el
+   * cierre que la persona no pidió; el voluntario lo borra.
+   */
+  conservarTrabajoSinEnviar?: boolean;
   /** Cuánto se espera a cada borrado antes de declararlo bloqueado. */
   timeoutMs?: number;
 }
@@ -157,16 +178,23 @@ export async function limpiarRastroDeSesion(
   };
 
   // ── localStorage: se conserva sólo lo declarado del aparato ────────────────
+  // (y, si el cierre no fue de la persona, su trabajo sin enviar — `[COT.50]`)
   try {
     const conservar = new Set(CLAVES_DEL_APARATO);
+    const esTrabajo = (k: string) =>
+      !!opts.conservarTrabajoSinEnviar && PREFIJOS_TRABAJO_SIN_ENVIAR.some((p) => k.startsWith(p));
     const aBorrar: string[] = [];
+    let trabajo = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && !conservar.has(k)) aBorrar.push(k);
+      if (!k || conservar.has(k)) continue;
+      if (esTrabajo(k)) trabajo++;
+      else aBorrar.push(k);
     }
     for (const k of aBorrar) {
       try { localStorage.removeItem(k); out.localStorage++; } catch { /* clave trabada */ }
     }
+    if (trabajo) out.declarado.push(`trabajo sin enviar conservado: ${trabajo} clave(s)`);
   } catch {
     // Modo privado o almacenamiento bloqueado: no hay nada que borrar porque no hay nada guardado.
     out.declarado.push('localStorage inaccesible');
