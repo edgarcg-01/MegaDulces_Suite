@@ -7,4 +7,4 @@
  *
  * ⬜ Deuda declarada, sin cambios: `PaymentCalendarDocumentService` sigue con su copia y debe migrar al helper común.
  */
-export { htmlAPdf, esc, money, type PdfOpts } from '@megadulces/platform-core';
+export { htmlAPdf, esc, money, logoParaDocumentos, type PdfOpts } from '@megadulces/platform-core';

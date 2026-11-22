@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { JwtModule } from '@nestjs/jwt';
+import { CloudinaryModule, requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { PagosVencidosService } from './pagos-vencidos.service';
 import { PagosPorElBancoService } from './pagos-por-el-banco.service';
 import { KeplerPagoSinkAdapter } from './kepler-pago/kepler-pago-sink.adapter';
@@ -14,6 +15,8 @@ import { FinancialCommitmentsController } from './financial-commitments.controll
 import { PaymentCalendarService } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import { PaymentCalendarController } from './payment-calendar.controller';
+import { AvisoDePagoService } from './aviso-de-pago.service';
+import { AvisoDePagoController, AvisoDePagoPublicoController } from './aviso-de-pago.controller';
 import { FinanceBudgetModule } from '../budget/finance-budget.module';
 import { FinanceSupplierPaymentAccountsModule } from '../supplier-payment-accounts/finance-supplier-payment-accounts.module';
 import { BudgetLinesService } from '../budget/budget-lines.service';
@@ -40,12 +43,24 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
   // a propósito para que todos los oyentes de finanzas compartan la MISMA conexión `LISTEN` (`[CG.197]`).
   // Proveerlo aquí compila igual y abre una segunda conexión a prod para el mismo aviso. Sin ciclo:
   // `CajaRealtimeModule` sólo importa `JwtModule`.
-  imports: [FinanceBudgetModule, CloudinaryModule, FinanceSupplierPaymentAccountsModule, CajaRealtimeModule],
+  // `[PGP.194]` `JwtModule` local para firmar la liga del aviso de pago al proveedor (la misma configuración que la
+  // liga del depósito del cliente, `[CC.20]`): `CajaRealtimeModule` lo importa pero no lo exporta.
+  imports: [
+    FinanceBudgetModule, CloudinaryModule, FinanceSupplierPaymentAccountsModule, CajaRealtimeModule,
+    JwtModule.register({
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
+    }),
+  ],
   controllers: [
     BudgetCapacityController,
     BudgetExpenseObligationsController,
     FinancialCommitmentsController,
     PaymentCalendarController,
+    // `[PGP.194]` El aviso de pago al proveedor: el del Calendario y el de la liga pública.
+    AvisoDePagoController,
+    AvisoDePagoPublicoController,
   ],
   providers: [
     // `[VE.4]` El quinto motor del presupuesto, que vive de este lado de la frontera: genera las
@@ -57,6 +72,7 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     FinancialCommitmentsService,
     PaymentCalendarService,
     PaymentCalendarDocumentService,
+    AvisoDePagoService,
     // `[PGP.117]` Escucha `caja_fuente` y, una vez al día, libera los pagos que nadie pagó en una
     // semana (con bitácora). Su `PgListenService` llega de `CajaRealtimeModule` (ver `imports`).
     PagosVencidosService,

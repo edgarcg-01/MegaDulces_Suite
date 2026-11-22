@@ -66,6 +66,8 @@
       "@megadulces/contracts/finance/clabe": ["libs/contracts/src/finance/clabe.contract.ts"],
       // [PGP.103] La validación banco + comprobante del pago: la leen la API y la pantalla de Pagos.
       "@megadulces/contracts/finance/validacion-pago": ["libs/contracts/src/finance/validacion-pago.contract.ts"],
+      // [PGP.194] El aviso de pago al proveedor (qué lleva, su mensaje y sus ligas): la leen la API y la pantalla de Pagos.
+      "@megadulces/contracts/finance/aviso-de-pago": ["libs/contracts/src/finance/aviso-de-pago.contract.ts"],
       // [PGP.108] La factura del pago con su CFDI (PUE/PPD): la leen la API y la pantalla de Pagos.
       "@megadulces/contracts/finance/cfdi-factura": ["libs/contracts/src/finance/cfdi-factura.contract.ts"],
       // [PGP.109] Cuándo se genera la póliza de egreso (PUE al pagar, PPD con el REP).

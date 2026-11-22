@@ -357,7 +357,21 @@ export interface PagoSuite {
    * cuenta como probado igual que por el banco. La autorización se exige antes, al casarlo (`casarComprobantesConPagos`).
    */
   probado_por_comprobante?: boolean;
+  /**
+   * `[PGP.192]` Autorizado en la Suite: el pago (`authorized_at`) o su día firmado. Hace falta porque desde `[PGP.191]`
+   * un comprobante soltado sobre su renglón también paga un pago SIN autorizar (DA1 de Francisco). Ausente = no se
+   * sabe y no retiene (los llamadores de antes de `[PGP.192]`).
+   */
+  autorizado?: boolean;
 }
+
+/**
+ * `[PGP.192]` Un PDF lo sube una persona: un pago sin autorizar que SÓLO su comprobante probó no va a Kepler hasta que
+ * el estado de cuenta confirme la salida (`[PGP.130b]` liga la salida y entonces sí). Si Tesorería ya lo capturó a mano,
+ * `[PGP.132]` lo liga y tampoco se escribe. Es el resguardo con el que DA1 amplía la D1 de Edgar (anexo AV §3).
+ */
+export const MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE =
+  'Lo pagó su comprobante sin autorización en la Suite: se escribe en Kepler cuando el estado de cuenta confirme la salida';
 
 const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
 
@@ -370,6 +384,7 @@ export function motivosParaNoEscribir(p: PagoSuite): string[] {
   const m: string[] = [];
   const probado = !!p.probado_por_el_banco || !!p.probado_por_comprobante;
   if (!probado && !LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
+  if (p.probado_por_comprobante && !p.probado_por_el_banco && p.autorizado === false) m.push(MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE);
   if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
   if (!probado && p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
   if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias (D1)');
