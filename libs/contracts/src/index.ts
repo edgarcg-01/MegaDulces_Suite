@@ -307,3 +307,9 @@ export * from './finance/factura-sat.contract';
 export * from './finance/comprobacion-gasto.contract';
 // `[CXC.47]` El periodo del estado de cuenta del cliente: una regla para la pantalla de Cartera y para el PDF.
 export * from './finance/estado-cuenta-periodo.contract';
+// `[COT.52]` Cerrar una cotización sin pedido, con motivo (rechazada por el cliente o cancelada por nosotros).
+export * from './http/quote-close.contract';
+// `[COT.53]` El buscador del cotizador, anónimo y agregado: qué se busca y qué se elige.
+export * from './http/quote-search-event.contract';
+// `[COT.54]` Cuánto costó capturar una cotización (sólo se reporta agregado).
+export * from './http/quote-capture.contract';

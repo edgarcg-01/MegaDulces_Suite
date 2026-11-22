@@ -10,6 +10,7 @@ import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { DialogModule } from 'primeng/dialog';
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { AutoCompleteModule } from 'primeng/autocomplete';
 import { DatePickerModule } from 'primeng/datepicker';
 import { InputTextModule } from 'primeng/inputtext';
@@ -55,7 +56,7 @@ import {
   fechaVigencia,
   type QuoteDeliverableData,
 } from '../quote-deliverable-export';
-import { totalesCotizacion } from '@megadulces/contracts';
+import { LARGO_NOTA_CIERRE, MOTIVOS_CIERRE_COTIZACION, totalesCotizacion, type MotivoCierreCotizacion } from '@megadulces/contracts';
 import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
@@ -110,6 +111,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     SelectModule,
     TextareaModule,
     DialogModule,
+    RadioButtonModule,
     AutoCompleteModule,
     DatePickerModule,
     InputTextModule,
@@ -214,6 +216,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
           @if (cabeceraEditable()) {
             <p-button class="tl-editar" label="Editar datos" icon="pi pi-pencil" size="small" [text]="true"
               (onClick)="abrirEdicion(q)" ariaLabel="Editar cliente, dirección, vendedor, vigencia, origen y contacto" />
+            <!-- [COT.52] Sin pedido, se cierra con su motivo: es lo único que dice por qué se perdió la venta. -->
+            <p-button class="tl-editar" label="Cerrar sin pedido" icon="pi pi-times-circle" size="small" [text]="true"
+              severity="secondary" (onClick)="abrirCierre()" ariaLabel="Cerrar la cotización sin pedido y decir por qué" />
           }
         </div>
 
@@ -318,6 +323,35 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               <span class="t-sub">Atajos: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> guarda · <kbd>Esc</kbd> cierra sin guardar</span>
               <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="edAbierta.set(false)" [disabled]="edGuardando()" />
               <p-button label="Guardar cambios" icon="pi pi-check" (onClick)="guardarEdicion()" [loading]="edGuardando()" />
+            </div>
+          </div>
+        </p-dialog>
+
+        <!-- [COT.52] Cerrar sin pedido. El motivo decide si cuenta como venta perdida (rechazada: el
+             cliente no compró) o como baja nuestra (cancelada: prueba u otro). -->
+        <p-dialog header="Cerrar sin pedido" [visible]="cierreAbierto()" (visibleChange)="cierreAbierto.set($event)"
+          [modal]="true" [draggable]="false" [style]="{ width: 'min(30rem, 96vw)' }" appendTo="body">
+          <div class="ed-form">
+            <p class="t-sub">{{ q.code }} · ya no se podrá editar ni mandar a Kepler.</p>
+            <div class="cierre-motivos" role="radiogroup" aria-label="¿Por qué no hubo pedido?">
+              <span class="ed-lbl">¿Por qué no hubo pedido?</span>
+              @for (m of MOTIVOS_CIERRE; track m.codigo) {
+                <label class="cierre-m" [class.is-sel]="cierreMotivo() === m.codigo" [attr.for]="'cierre-' + m.codigo">
+                  <p-radiobutton name="motivoCierre" [value]="m.codigo" [ngModel]="cierreMotivo()"
+                    (ngModelChange)="cierreMotivo.set($event)" [inputId]="'cierre-' + m.codigo" />
+                  <span>{{ m.etiqueta }}</span>
+                </label>
+              }
+            </div>
+            <div class="ed-grupo">
+              <label class="ed-lbl" for="cierreNota">Detalle {{ cierreMotivo() === 'otro' ? '(obligatorio)' : '(opcional)' }}</label>
+              <textarea pTextarea id="cierreNota" rows="2" [maxlength]="LARGO_NOTA_CIERRE" [ngModel]="cierreNota()"
+                (ngModelChange)="cierreNota.set($event)" placeholder="Ej.: le dieron la caja $5 más barata"></textarea>
+            </div>
+            <div class="ed-pie">
+              <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cierreAbierto.set(false)" [disabled]="cerrando()" />
+              <p-button label="Cerrar cotización" icon="pi pi-check" (onClick)="cerrarSinPedido(q)" [loading]="cerrando()"
+                [disabled]="!puedeCerrar()" />
             </div>
           </div>
         </p-dialog>
@@ -1156,6 +1190,10 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .ed-cliente { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
       .ed-pie { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); }
       .ed-pie .t-sub { margin-right: auto; }
+      /* [COT.52] Los motivos de cierre: cada uno es un renglón entero para el dedo (44 px). */
+      .cierre-motivos { display: flex; flex-direction: column; gap: 0.25rem; }
+      .cierre-m { display: flex; align-items: center; gap: 0.6rem; min-height: 44px; padding: 0 0.6rem; border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px); cursor: pointer; }
+      .cierre-m.is-sel { border-color: var(--action); }
       .ed-pie kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; }
       .qty-num-input { width: 5rem; text-align: center; font-variant-numeric: tabular-nums; background: transparent; border: 1px solid var(--surface-border); border-radius: 6px; padding: 0.15rem 0.3rem; font-family: inherit; }
       .qty-num-input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
@@ -1619,6 +1657,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.sugerencia.set(null);
     const suc = this.cot()?.source_branch;
     if (resultados > 0 || !suc || termino.length < 3) return;
+    this.svc.registrarBusqueda({ branch: suc, term: termino, results: 0 }); // [COT.53] no trajo nada
     this.svc.suggestCatalog(suc, termino).pipe(catchError(() => of({ suggestion: null }))).subscribe((r) => {
       if (this.termino.trim() === termino) this.sugerencia.set(r.suggestion);
     });
@@ -1650,11 +1689,59 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   }
 
   elegir(p: QuoteCatalogRow): void {
+    // [COT.53] Qué se escribió y qué se eligió, en qué lugar de la lista (anónimo).
+    const suc = this.cot()?.source_branch;
+    const lista = this.resultados();
+    const lugar = lista.findIndex((x) => x.sku === p.sku) + 1;
+    if (suc && lugar > 0) {
+      this.svc.registrarBusqueda({ branch: suc, term: this.termino, chosen_sku: p.sku, position: lugar, results: lista.length });
+    }
     this.elegido.set(p);
     this.catalogoAbierto.set(false);
     this.previa$.next();
     // [COT.33] Elegido el artículo, el cursor pasa a la cantidad (con el 1 seleccionado).
     afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  // ── [COT.52] Cerrar sin pedido, con motivo ──────────────────────────────────────────────
+  readonly MOTIVOS_CIERRE = MOTIVOS_CIERRE_COTIZACION;
+  readonly LARGO_NOTA_CIERRE = LARGO_NOTA_CIERRE;
+  readonly cierreAbierto = signal(false);
+  readonly cierreMotivo = signal<MotivoCierreCotizacion | null>(null);
+  readonly cierreNota = signal('');
+  readonly cerrando = signal(false);
+  /** Con «otro» hace falta decir cuál; los demás se cierran con el puro motivo. */
+  readonly puedeCerrar = computed(() => {
+    const m = this.cierreMotivo();
+    return !!m && (m !== 'otro' || !!this.cierreNota().trim()) && !this.cerrando();
+  });
+
+  abrirCierre(): void {
+    this.cierreMotivo.set(null);
+    this.cierreNota.set('');
+    this.cierreAbierto.set(true);
+  }
+
+  cerrarSinPedido(q: { id: string }): void {
+    const motivo = this.cierreMotivo();
+    if (!motivo || !this.puedeCerrar()) return;
+    this.cerrando.set(true);
+    this.svc.close(q.id, { motivo, nota: this.cierreNota().trim() || null }).subscribe({
+      next: (r) => {
+        this.cerrando.set(false);
+        this.cierreAbierto.set(false);
+        this.toast.add({
+          severity: 'success',
+          summary: r.status === 'rejected' ? 'Cotización perdida' : 'Cotización cancelada',
+          detail: `${r.code} queda cerrada con su motivo.`,
+        });
+        this.recargar(true);
+      },
+      error: (err) => {
+        this.cerrando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se cerró', detail: err?.error?.message || 'Intenta de nuevo.' });
+      },
+    });
   }
 
   // ── [COT.34] Editar la cabecera del borrador ─────────────────────────────────────────────
