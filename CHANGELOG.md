@@ -14,6 +14,20 @@
 - Si es un bien nuevo, pide qué es (con marca y modelo), cuántos y dónde va, y muestra su grupo y su vida fiscal según Kepler, o dice que Contabilidad aún no los define. Con el importe y cuántos calcula lo que cuesta cada uno: con $5,000 o menos por unidad es gasto, no activo, y así no se puede pedir.
 - Quien firma ve en el panel qué se compra, cuántas unidades y dónde va, antes de firmar.
 - Todavía no: dar de alta el activo en el catálogo de Kepler, asignar quién lo resguarda (lo hace Presupuestos y Control de Activos al darlo de alta) y la depreciación.
+### Added — Telemarketing › Cotizaciones: cuánto cuesta capturar cada cotización (COT.54 · 2026-11-22)
+- Al guardar una cotización nueva se anota cuánto tardó la captura (desde el primer artículo), cuántas búsquedas hubo y si salió de un respaldo. Sirve para medir si las mejoras que vienen ahorran tiempo.
+- Se reporta sólo en promedios por sucursal o semana, nunca por persona.
+- Lleva columnas nuevas: hay que aplicar su migración antes de soltar. Sin ella no se pueden crear cotizaciones.
+
+### Added — Telemarketing › Cotizaciones: el buscador de artículos empieza a contar qué se busca y qué se elige, sin decir quién (COT.53 · 2026-11-22)
+- Cada vez que se elige un artículo se cuenta qué se escribió, cuál se eligió y en qué lugar de la lista estaba; también se cuentan las búsquedas que no encontraron nada. Es la base para que el buscador aprenda sinónimos y ponga primero lo que se elige.
+- Se guarda como un contador por día y sucursal, sin el nombre de quien buscó.
+- Lleva una tabla nueva: hay que aplicar su migración antes de soltar.
+
+### Added — Telemarketing › Cotizaciones: cerrar un borrador sin pedido, diciendo por qué (COT.52 · 2026-11-22)
+- En el borrador, «Cerrar sin pedido» pregunta por qué no hubo pedido: el cliente no lo hizo, por el precio, no había existencia, se fue con otro proveedor, era una prueba u otro (con «Otro» hay que escribir cuál).
+- Si el cliente no compró, la cotización pasa a «Perdidas»; si fue una prueba u otro motivo nuestro, queda cancelada y no cuenta como venta perdida.
+- Hasta hoy no había forma de cerrar un borrador: había 94 de más de una semana sin cerrar.
 
 ### Changed — Telemarketing › Cotizaciones: cada renglón guarda la existencia que había al cotizarlo (COT.51 · 2026-11-22)
 - Al agregar, cambiar o volver a cotizar un renglón se guarda la existencia de la sucursal en ese momento, y si alcanzaba: alcanza, alcanza en parte, no hay, o sin dato (sin dato no es cero). Antes todos los renglones decían «disponible» sin haberlo medido.

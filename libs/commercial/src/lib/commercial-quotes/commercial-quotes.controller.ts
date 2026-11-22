@@ -20,6 +20,13 @@ import {
   BranchStock,
 } from './quote-pricing.service';
 import type { QuienCotiza } from './quote-scope';
+import type {
+  BusquedaRegistrada,
+  CapturaCotizacion,
+  CerrarCotizacionInput,
+  CotizacionCerrada,
+  EventoBusquedaCotizacion,
+} from '@megadulces/contracts';
 
 /** Lo que `RolesGuard` deja en `request.user`: el mapa y los roles FRESCOS de DB (COT.21). */
 type ConQuien = { user?: QuienCotiza };
@@ -269,6 +276,8 @@ export class CommercialQuotesController {
        * Qué y cuánto; el precio lo calcula el servidor.
        */
       lines?: CreateQuoteLine[];
+      /** `[COT.54]` Cuánto costó capturarla (sólo se reporta agregado). */
+      capture?: CapturaCotizacion | null;
     },
   ): Promise<CreatedQuote> {
     return this.service.create(body);
@@ -282,6 +291,26 @@ export class CommercialQuotesController {
   })
   cancel(@Param('id') id: string, @Body() body: { reason: string }, @Req() req: ConQuien): ReturnType<CommercialQuotesService['cancel']> {
     return this.service.cancel(id, body?.reason, req?.user);
+  }
+
+  @Post(':id/close')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary:
+      '[COT.52] Cierra la cotización SIN pedido, con un motivo de la lista: el cliente no compró (rechazada) o la dimos de baja (cancelada). Con «otro», el detalle es obligatorio.',
+  })
+  close(@Param('id') id: string, @Body() body: CerrarCotizacionInput, @Req() req: ConQuien): Promise<CotizacionCerrada> {
+    return this.service.close(id, body, req?.user);
+  }
+
+  @Post('search-events')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary:
+      '[COT.53] Cuenta un evento del buscador de artículos (se eligió uno, o no trajo nada), ANÓNIMO y agregado por día, sucursal, término, artículo y posición. No guarda quién buscó.',
+  })
+  registrarBusqueda(@Body() body: EventoBusquedaCotizacion): Promise<BusquedaRegistrada> {
+    return this.service.registrarBusqueda(body);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────────────────

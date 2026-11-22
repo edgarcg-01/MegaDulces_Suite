@@ -1,6 +1,14 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { catchError, of } from 'rxjs';
+import type {
+  BusquedaRegistrada,
+  CapturaCotizacion,
+  CerrarCotizacionInput,
+  CotizacionCerrada,
+  EventoBusquedaCotizacion,
+} from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -556,6 +564,8 @@ export class QuotesService {
      * falla no se crea nada (ni folio) y el error dice cuál. Qué y cuánto; nunca a cuánto.
      */
     lines?: Array<{ sku?: string; requested_text?: string; quantity: number; rung?: Rung }>;
+    /** `[COT.54]` Cuánto costó capturarla (sólo se reporta agregado). */
+    capture?: CapturaCotizacion;
   }): Observable<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }> {
     return this.http.post<{ id: string; code: string; status: QuoteStatus; valid_until: string; lines?: number }>(
       this.base,
@@ -579,5 +589,22 @@ export class QuotesService {
       `${this.base}/${id}/cancel`,
       { reason },
     );
+  }
+
+  /** `[COT.52]` Cierra sin pedido, con un motivo de la lista (`MOTIVOS_CIERRE_COTIZACION`). */
+  close(id: string, input: CerrarCotizacionInput): Observable<CotizacionCerrada> {
+    return this.http.post<CotizacionCerrada>(`${this.base}/${id}/close`, input);
+  }
+
+  /**
+   * `[COT.53]` Cuenta un evento del buscador (se eligió un artículo, o no trajo nada), anónimo.
+   * Dispara y olvida: si falla, la captura sigue igual — es medición, no trabajo de la persona.
+   */
+  registrarBusqueda(evt: EventoBusquedaCotizacion): void {
+    if (!evt.branch || !evt.term.trim()) return;
+    this.http
+      .post<BusquedaRegistrada>(`${this.base}/search-events`, evt)
+      .pipe(catchError(() => of(null)))
+      .subscribe();
   }
 }

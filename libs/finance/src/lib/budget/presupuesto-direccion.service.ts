@@ -201,12 +201,23 @@ export class PresupuestoDireccionService {
             trx.raw('coalesce(sum(l.paid_amount),0)::float8 as pagado'),
           ).orderBy('b.fiscal_year', 'asc') as unknown as Array<Record<string, unknown>>;
 
+        // ⛔ `[PU.15]` Lo que de verdad mueve cada etapa, leído del código el 2026-11-20 (los únicos
+        // `applyInTrx` fuera de este módulo). Decía «comprometido: la orden de compra» y
+        // «ejercido: la recepción», y ni la OC ni la recepción tocan una partida: la promesa
+        // estaba escrita antes que el cable. Si algún día se conectan, se cambia acá junto con
+        // el código que lo hace — no antes.
+        //   compromiso  ← BudgetExpenseObligationsService.authorize (Presupuesto › Obligaciones)
+        //   ejercido+pago ← PaymentCalendarService, al pagar una obligación `budget_expense`
+        //   reserva     ← sólo el movimiento manual de la partida (⚡)
+        //   ⚡ manual   ← también compromete, ejerce y paga (el diálogo ofrece las cuatro)
+        //   vigente     ← el piloto SÓLO en borrador/en revisión (`esEjercicioOperable`); firmado,
+        //                 lo mueven la aprobación, Re-materializar y las adecuaciones
         const QUIEN: Record<string, string> = {
-          vigente: 'el motor, cada mañana',
-          reservado: 'el calendario de pagos',
-          comprometido: 'la orden de compra',
-          ejercido: 'la recepción',
-          pagado: 'tesorería',
+          vigente: 'el motor cada mañana mientras está abierto; firmado, la aprobación y las adecuaciones',
+          reservado: 'a mano, con el movimiento de la partida',
+          comprometido: 'autorizar la obligación (pestaña Obligaciones), o a mano',
+          ejercido: 'pagar esa obligación en el Calendario de Pagos, o a mano',
+          pagado: 'pagar esa obligación en el Calendario de Pagos, o a mano',
           disponible: 'nadie: se deriva',
         };
         const etapas: EtapaPorEjercicio[] = (

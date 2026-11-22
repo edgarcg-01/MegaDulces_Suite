@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 513 KB, 4771 líneas, 125 secciones.
+> **Índice navegable** — 514 KB, 4773 líneas, 125 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -79,59 +79,59 @@
 | 2277 | 2302 | 3 | ADR-071 |
 | 2303 | 2325 | 3 | ADR-072 |
 | 2326 | 2351 | 4 | ADR-073 |
-| 2352 | 2375 | 4 | ADR-074 |
-| 2376 | 2411 | 4 | ADR-075 |
-| 2412 | 2452 | 6 | ADR-076 |
-| 2453 | 2497 | 7 | ADR-077 |
-| 2498 | 2527 | 5 | ADR-078 |
-| 2528 | 2657 | 9 | ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no. |
-| 2658 | 2679 | 5 | ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mid |
-| 2680 | 2701 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
-| 2702 | 2719 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
-| 2720 | 2740 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
-| 2741 | 2772 | 8 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
-| 2773 | 2793 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
-| 2794 | 2813 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
-| 2814 | 2833 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
-| 2834 | 2854 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
-| 2855 | 2872 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
-| 2873 | 2896 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
-| 2897 | 2923 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
-| 2924 | 2962 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
-| 2963 | 3000 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
-| 3001 | 3071 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
-| 3072 | 3121 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
-| 3124 | 3152 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
-| 3153 | 3191 | 20 | ADRs vigentes (resumen) |
-| 3192 | 3239 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
-| 3240 | 3316 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
-| 3317 | 3366 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
-| 3367 | 3398 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
-| 3399 | 3433 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
-| 3434 | 3495 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
-| 3498 | 3542 | 23 | ADRs vigentes (resumen) |
-| 3543 | 3596 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
-| 3597 | 3625 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
-| 3626 | 3660 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
-| 3661 | 3771 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
-| 3772 | 3848 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
-| 3849 | 3884 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
-| 3885 | 3996 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
-| 3997 | 4073 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
-| 4074 | 4122 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
-| 4123 | 4174 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
-| 4175 | 4250 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
-| 4251 | 4312 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
-| 4313 | 4429 | 7 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
-| 4430 | 4489 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
-| 4490 | 4576 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
-| 4577 | 4597 | 2 | ADR-120 |
-| 4598 | 4660 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
-| 4661 | 4731 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
-| 4732 | 4772 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
-| 4773 | 4819 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
-| 4820 | 4873 | 4 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
-| 4874 | 4908 | 2 | ADR-126 — El catálogo de conceptos de Kepler se administra desde la Suite sin copiarlo (propuesto, 2026-11-22) |
+| 2352 | 2377 | 5 | ADR-074 |
+| 2378 | 2413 | 4 | ADR-075 |
+| 2414 | 2454 | 6 | ADR-076 |
+| 2455 | 2499 | 7 | ADR-077 |
+| 2500 | 2529 | 5 | ADR-078 |
+| 2530 | 2659 | 9 | ADR-080 — El sustrato: Compose hoy, K3s cuando haya un segundo nodo. Podman no. |
+| 2660 | 2681 | 5 | ADR-081 — Mesa de Servicio: el ticket ES la tarea, la prioridad se sugiere y se confirma, y el SLA primero mid |
+| 2682 | 2703 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
+| 2704 | 2721 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
+| 2722 | 2742 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
+| 2743 | 2774 | 8 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
+| 2775 | 2795 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
+| 2796 | 2815 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
+| 2816 | 2835 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
+| 2836 | 2856 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
+| 2857 | 2874 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
+| 2875 | 2898 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
+| 2899 | 2925 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
+| 2926 | 2964 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
+| 2965 | 3002 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
+| 3003 | 3073 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
+| 3074 | 3123 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
+| 3126 | 3154 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
+| 3155 | 3193 | 20 | ADRs vigentes (resumen) |
+| 3194 | 3241 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
+| 3242 | 3318 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
+| 3319 | 3368 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
+| 3369 | 3400 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
+| 3401 | 3435 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
+| 3436 | 3497 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
+| 3500 | 3544 | 23 | ADRs vigentes (resumen) |
+| 3545 | 3598 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
+| 3599 | 3627 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
+| 3628 | 3662 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
+| 3663 | 3773 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
+| 3774 | 3850 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
+| 3851 | 3886 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
+| 3887 | 3998 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
+| 3999 | 4075 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
+| 4076 | 4124 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
+| 4125 | 4176 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
+| 4177 | 4252 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
+| 4253 | 4314 | 4 | ADR-116 — Toda entrada lleva caducidad: el servidor la exige al cerrar el vale, el catálogo dice qué no caduca |
+| 4315 | 4431 | 7 | ADR-117 — La Suite escribe en Kepler el estatus del pedido (Surtido, Checado, Embarque) actualizándolo en su l |
+| 4432 | 4491 | 4 | ADR-118 — El manual por puesto vive como dato sobre UN motor de checklist en `platform`, y la tarea del día se |
+| 4492 | 4578 | 7 | ADR-119 — La Suite escribe la solicitud de gasto (X-A-15) en Kepler al firmarla, ya autorizada, con el folio d |
+| 4579 | 4599 | 2 | ADR-120 |
+| 4600 | 4662 | 4 | ADR-121 — La Suite cancela en Kepler la solicitud de gasto que ella escribió, igual que la cancela Kepler, y s |
+| 4663 | 4733 | 5 | ADR-122 — La versión que ve una persona es «producto · fecha», el commit queda para las máquinas, y el estado  |
+| 4734 | 4774 | 2 | ADR-123 — JIT apagado para la app (`app_runtime`), no consulta por consulta |
+| 4775 | 4821 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
+| 4822 | 4875 | 4 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
+| 4876 | 4910 | 2 | ADR-126 — El catálogo de conceptos de Kepler se administra desde la Suite sin copiarlo (propuesto, 2026-11-22) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -2372,6 +2372,8 @@ Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVG)
 **Hereda:** ADR-066 (Presupuestos) · ADR-069 (motor propone / humano ajusta) · ADR-073 (gastos auto) · ADR-064 (capacidad la fija Presupuestos; obligaciones tienen origen; autorización HITL) · ADR-056 (lo no medido se declara).
 
 Detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PR).
+
+**Enmienda 2026-11-20 — vuelve la meta por celda de Ventas (`[PU.17]`; la pidió Francisco, la ratifica Edgar).** Se ejerce la salida que este ADR dejó escrita («reversible fácil si estorba en operación»), y sólo para la **meta de ventas por celda** (entidad × periodo); la captura manual de partidas y de gasto sigue retirada. **Por qué estorba, medido:** después de este ADR, la fase PVI volvió los supuestos de crecimiento **derivados y de solo lectura**, así que la válvula que este ADR conservaba —«ajustar supuestos y re-proponer»— dejó de existir. El humano quedó sin ninguna palanca sobre el plan: los dos ejercicios siguen en borrador desde octubre y el presupuesto se sigue armando en Excel. **Cómo queda:** la celda corregida se guarda `method='manual'`; los tres motores la saltan salvo `overwrite_manual`, que el piloto nunca manda (lo vigila `database/tests/test-newdb-budget-autopilot.js`, con prueba negativa). Sólo se corrige con el ejercicio en borrador o en revisión, igual que antes. **Lo que no cambia:** la página sigue arrancando en el resultado automático; corregir es la excepción, una celda a la vez.
 
 ## ADR-075
 
