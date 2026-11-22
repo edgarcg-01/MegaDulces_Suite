@@ -109,7 +109,7 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
     ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, LoadStateComponent, FreshnessPillComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="surf-page in mg">
+    <div class="surf-page in mg dt-scope">
       <!-- [GX.101] El buscador va junto al título (pedido del usuario: «a uno más visible»). Mientras hay
            búsqueda, lo de abajo del encabezado se cambia por los resultados; el encabezado se queda
            (si no, la caja se iría mientras se escribe). El visor y el diálogo del final NO se
@@ -183,14 +183,18 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
           </div>
         } @else {
           <!-- [PGP.122.9] La tabla dice QUÉ lista es (caption) y cada encabezado es de su columna (scope); modern-web-guidance: responsive-table. -->
-          <p-table [value]="visibles()" dataKey="key" size="small" class="surf-table surf-table--plain surf-table--sticky mg-tabla">
+          <p-table [value]="visibles()" dataKey="key" size="small" class="surf-table surf-table--plain surf-table--sticky mg-tabla dt-stack">
             <ng-template #caption><span class="mg-sr">Tus vales: {{ nombreDelFiltro() }}</span></ng-template>
             <ng-template #header>
               <tr>
-                <th scope="col">Folio</th>
+                <!-- [PGP.123] G.15 (observación de usuario, 2026-11-21): «Folio» era el de la SOLICITUD y el de la
+                     comprobación vivía como «XA1001-…» debajo de «Cómo cerró»; costaba encontrarlo. Cada uno con su
+                     nombre, uno junto al otro: de dónde viene el gasto y con qué se comprobó. -->
+                <th scope="col">Folio de solicitud</th>
+                @if (mostrarComprobacion()) { <th scope="col" class="mg-c-comp">Folio de comprobación</th> }
                 <th scope="col" pSortableColumn="titulo">Proveedor <p-sorticon field="titulo" /></th>
                 <th scope="col" class="mg-c-etapa">Etapa</th>
-                <th scope="col">{{ filtro() === 'cerrado' ? 'Cómo cerró' : (filtro() === 'tu' ? 'Qué te falta' : 'A qué espera') }}</th>
+                <th scope="col">{{ encabezadoSituacion() }}</th>
                 <!-- [GX.106] La fecha en que se mandó, no «hace N días» (pedido del usuario, 2026-11-09). -->
                 <th scope="col" class="mg-c-env" pSortableColumn="enviado">Se mandó <p-sorticon field="enviado" /></th>
                 <th scope="col" class="comm-num" pSortableColumn="importe">Importe <p-sorticon field="importe" /></th>
@@ -198,16 +202,29 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
               </tr>
             </ng-template>
             <ng-template #body let-f>
+              <!-- [PGP.123] G.15: con «Folio de comprobación» la tabla llega a 8 columnas; en estrecho se APILA (DESIGN_TABLES §6,
+                   caso A: las columnas son campos del vale). El folio es la identidad (dt-id, sin rótulo) y la acción no lleva
+                   rótulo (sólo el botón, con sus 44 px). -->
               <tr>
-                <td>
+                <td class="dt-id" role="cell"><div class="mg-celda">
                   @if (f.proof) {
                     <button type="button" class="mg-folio" (click)="abrir(f.proof)" [attr.aria-label]="'Ver el vale ' + (f.folio || 'sin folio')">{{ f.folio || 'sin folio' }}</button>
                   } @else {
                     <span class="mg-folio-txt">{{ f.folio || 'sin folio' }}</span>
                   }
                   @if (f.sucursal) { <div class="mg-sub">{{ branchLabel(f.sucursal) }}</div> }
-                </td>
-                <td>
+                  <!-- En angosto la columna de la comprobación se quita y su folio baja aquí, rotulado. -->
+                  @if (mostrarComprobacion()) {
+                    @for (g of comprobacionDe(f); track g) { <div class="mg-sub mg-comp-angosto">comprobación <span class="mg-clave">{{ g }}</span></div> }
+                  }
+                </div></td>
+                @if (mostrarComprobacion()) {
+                  <td class="mg-c-comp" data-label="Folio de comprobación" role="cell">
+                    @for (g of comprobacionDe(f); track g) { <div class="mg-folio-txt">{{ g }}</div> }
+                    @empty { <span class="mg-sub" aria-hidden="true">—</span><span class="mg-sr">sin comprobación todavía</span> }
+                  </td>
+                }
+                <td data-label="Proveedor" role="cell"><div class="mg-celda">
                   <div class="mg-prov">{{ f.titulo || '—' }}</div>
                   <div class="mg-sub">
                     @if (f.proveedor_clave) { <span class="mg-clave">{{ f.proveedor_clave }}</span> }
@@ -217,20 +234,17 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                     @if (f.proof && diaLocal(f.fecha); as d) { <span>gastado el {{ d | date: 'dd/MM/yy' }}</span> }
                     @if (diaLocal(f.fechaDocumentoDistinta); as d) { <span>documento del {{ d | date: 'dd/MM/yy' }}</span> }
                   </div>
-                </td>
-                <td class="mg-c-etapa"><p-tag [value]="f.situacion?.etapaNombre ?? '—'" severity="secondary" /></td>
-                <td>
+                </div></td>
+                <td class="mg-c-etapa" data-label="Etapa" role="cell"><p-tag [value]="f.situacion?.etapaNombre ?? '—'" severity="secondary" /></td>
+                <td [attr.data-label]="encabezadoSituacion()" role="cell"><div class="mg-celda">
                   <div [class.mg-mal]="f.situacion?.mal">{{ f.situacion?.texto ?? '—' }}</div>
                   @if (f.notaPago; as n) { <div class="mg-sub" [class.mg-mal]="n.clase === 'bad'">{{ n.texto }}</div> }
                   <!-- [PGP.123] G.14: lo que falta para su gasto en Kepler, o el folio y la póliza que ya generó. -->
                   @if (f.situacion?.aQuien === 'kepler' && f.proof?.gasto_kepler; as g) {
                     <div class="mg-sub" [class.mg-mal]="lineaDelGasto(g).tono === 'bad'">{{ lineaDelGasto(g).texto }}</div>
                   }
-                  @if (filtro() === 'cerrado' && f.gasto_folios.length) {
-                    <div class="mg-sub mg-clave">{{ foliosGasto(f) }}</div>
-                  }
-                </td>
-                <td class="mg-c-env">
+                </div></td>
+                <td class="mg-c-env" data-label="Se mandó" role="cell"><div class="mg-celda">
                   @if (diaLocal(f.enviado); as d) {
                     <span class="mg-fecha">{{ d | date: 'dd/MM/yy' }}</span>
                     <!-- Los días, sólo cuando urge: lo abierto que lleva más de un mes. En palabras, no sólo en ámbar. -->
@@ -238,9 +252,9 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                   } @else {
                     <span class="mg-sub">—</span>
                   }
-                </td>
-                <td class="comm-num">{{ money(f.importe) }}</td>
-                <td class="mg-acc">
+                </div></td>
+                <td class="comm-num dt-num" data-label="Importe" role="cell">{{ money(f.importe) }}</td>
+                <td class="mg-acc dt-actions" role="cell">
                   @if (f.proof && f.situacion?.aQuien === 'kepler' && puedeEscribirseYa(f.proof.gasto_kepler)) {
                     <!-- [PGP.123] G.14 (D1/D2 de Edgar, 2026-11-21): quien pidió el gasto lo genera en Kepler con un clic.
                          Lleva la cifra; se apaga mientras escribe; dos clics no escriben dos gastos. -->
@@ -283,9 +297,19 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
   styles: [FINANZAS_SHARED_STYLES, `
     :host { display: block; }
     .mg { display: flex; flex-direction: column; gap: var(--sp-3); container-type: inline-size; }
+    /* [PGP.123] G.15: en la tabla apilada la celda es una fila flex (rótulo | valor); su contenido va en un solo bloque. */
+    .mg-celda { min-width: 0; }
+    /* Apilada, la celda de acción vacía (Cerrados no tiene acción) no deja un hueco al final de cada vale. Sólo apilada:
+       en la rejilla quitar un td desalinea las columnas. */
+    @container densetable (max-width: 34rem) { .mg-acc:empty { display: none; } }
     /* En angosto (teléfono, o el panel con el menú abierto) se quita la Etapa: lo que decide es el
        folio, qué falta, cuándo se mandó (ahí vive la marca de atorado), el importe y la acción. */
-    @container (max-width: 40rem) { .mg-c-etapa { display: none; } .mg-buscar input { width: 100%; } }
+    /* [PGP.123] G.15: dos clases, para ganarle a «.mg-sub { display: flex }» que va más abajo; y la base ANTES del
+       @container (con la misma especificidad gana la última regla). */
+    .mg-sub.mg-comp-angosto { display: none; }
+    @container (max-width: 40rem) { .mg-c-etapa { display: none; } .mg-buscar input { width: 100%; }
+      /* La comprobación baja al folio de la solicitud, rotulada, en vez de apretar otra columna. */
+      .mg-c-comp { display: none; } .mg-sub.mg-comp-angosto { display: flex; } }
     .mg-head-acc { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .mg-aviso { margin: 0; font-size: var(--fs-sm); color: var(--warn-soft-fg); }
     .mg-err { margin: 0; font-size: var(--fs-sm); color: var(--bad-fg); }
@@ -434,6 +458,8 @@ export class FinanzasMisGastosComponent {
   readonly textoVacio = computed(() => FILTROS.find((x) => x.value === this.filtro())?.vacio ?? '');
   /** `[PGP.122.9]` El nombre del filtro elegido, para el caption de la tabla («Tus vales: Te toca»). */
   readonly nombreDelFiltro = computed(() => FILTROS.find((x) => x.value === this.filtro())?.label ?? '');
+  /** El encabezado de la columna de la situación: el mismo texto es el rótulo de la celda cuando la tabla se apila. */
+  readonly encabezadoSituacion = computed(() => (this.filtro() === 'cerrado' ? 'Cómo cerró' : this.filtro() === 'tu' ? 'Qué te falta' : 'A qué espera'));
 
   /**
    * Las filas del filtro. Lo abierto, del más viejo al más nuevo: lo que más urge arriba. Lo
@@ -594,8 +620,24 @@ export class FinanzasMisGastosComponent {
     return f.situacion?.aQuien !== 'cerrado' && f.dias !== null && f.dias > DIAS_ATORADO;
   }
 
-  /** `[GX.65.3]` El gasto de Kepler, con su tipo de documento (el folio de destino del vale). */
-  foliosGasto(f: FilaLista): string { return f.gasto_folios.map((g) => 'XA1001-' + g).join(' · '); }
+  /**
+   * `[PGP.123]` G.15 — El folio de la COMPROBACIÓN de la fila (el gasto X-A-10): los que ya ve Kepler (`gasto_folios`)
+   * y, mientras el ODS todavía no lo ve, el que acaba de generar la Suite (G.14). Antes era «XA1001-…» debajo de «Cómo
+   * cerró» y sólo en Cerrados (`[GX.65.3]`): la observación de usuario del 2026-11-21 fue que costaba encontrarlo.
+   */
+  comprobacionDe(f: FilaLista): string[] {
+    const g = f.proof?.gasto_kepler?.gasto;
+    const recien = g?.folio && g.status !== 'cancelled' ? [g.folio] : [];
+    return [...new Set([...f.gasto_folios, ...recien])];
+  }
+
+  /**
+   * `[PGP.123]` G.15 — La columna va donde la comprobación existe o es lo que falta (Esperan a Kepler, Cerrados) y en
+   * cualquier pestaña que traiga alguna. En «Te toca» y «Esperan a Finanzas» todavía no puede haberla: sería una
+   * columna entera de rayas.
+   */
+  readonly mostrarComprobacion = computed(() => this.filtro() === 'kepler' || this.filtro() === 'cerrado'
+    || this.visibles().some((f) => this.comprobacionDe(f).length > 0));
 
   money(v: number | null | undefined): string {
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });

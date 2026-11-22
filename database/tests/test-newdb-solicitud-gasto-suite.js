@@ -107,7 +107,8 @@ const tk = {
 };
 // get(): quién actúa (la bitácora de cancelaciones de [PGP.122.6] guarda el usuario de la petición).
 const ctx = { requireTenantId: () => T, getTenantId: () => T, get: () => ({ tenantId: T, username: 'firmante_prueba' }) };
-const almacen = { getDataUri: async () => null };
+// `signFiles`: Aprobación (`delDia`) firma las urls de los archivos; aquí no hay almacén, se devuelven tal cual.
+const almacen = { getDataUri: async () => null, signFiles: async (files) => files };
 const lector = { extractExpenseReceipt: async () => { throw new Error('la prueba no lee comprobantes'); } };
 
 const SUC = '05';
@@ -197,6 +198,8 @@ async function main() {
     periodo_del: null, periodo_al: null, unidad: null,
     necesita_para: null, motivo_fecha: null,
     fuentes: { acreedor: 'habito', renglon_1: 'habito', folio: 'ticket', fecha: 'ticket' },
+    // [PGP.122.13] La pantalla manda lo que propuso el lector (`lecturaParaGuardar`), para medir cuánto se corrige.
+    lectura: { fecha: ayer, fecha_impresa: `${ayer.slice(8, 10)}/${ayer.slice(5, 7)}/${ayer.slice(2, 4)}`, total: 116, folio: '1198' },
     ...extra,
   });
   const pedir = async (extra) => { const c = await svc.crear(pantalla(extra), PIDE); ids.push(c.id); return c; };
@@ -270,6 +273,16 @@ async function main() {
     const meta = typeof v1.capture_meta === 'string' ? JSON.parse(v1.capture_meta) : v1.capture_meta;
     check(meta?.solicita_usuario === 'aprueba' && v1.created_by === PIDE.nombre && v1.proveedor === 'ACREEDOR DE PRUEBA PGP122 SA DE CV',
       'quién pide (su usuario para c48, su nombre en el vale) y el proveedor del catálogo', { meta, created_by: v1.created_by, proveedor: v1.proveedor });
+    const leidoEsperado = { fecha: ayer, fecha_impresa: `${ayer.slice(8, 10)}/${ayer.slice(5, 7)}/${ayer.slice(2, 4)}`, total: 116, folio: '1198' };
+    // jsonb reordena las llaves: se compara llave por llave, no el texto.
+    const mismasLlaves = (a, b) => !!a && !!b && Object.keys(a).length === Object.keys(b).length && Object.keys(b).every((x) => a[x] === b[x]);
+    check(mismasLlaves(meta?.lectura, leidoEsperado),
+      '[PGP.122.13] lo que propuso el lector queda en capture_meta.lectura (para medir cuánto se corrige la fecha)', meta?.lectura);
+    // [PGP.122.12] Antes de firmar (sin folio), Aprobación ya recibe su departamento: el del renglón, con el nombre de
+    // kdc3 y el importe del vale. Antes salía «aún no está en Kepler» (observación de usuario, 01/0000223, 2026-11-21).
+    const enAprobacion = (await proofs.delDia(hoy)).filas.find((x) => x.id === c1.id);
+    check(JSON.stringify(enAprobacion?.departamentos) === JSON.stringify([{ clave: DEPTO, nombre: 'DEPTO PRUEBA', importe: 116 }]),
+      '[PGP.122.12] sin folio, Aprobación recibe el departamento del renglón (el que la Suite escribe en kdm6 al firmar)', enAprobacion?.departamentos);
     const l1 = await knex('finance.expense_proof_lines').where({ proof_id: c1.id }).orderBy('line_no');
     check(l1.length === 1 && l1[0].concept_code === C_GASTO && l1[0].account === '602-008' && l1[0].concept_name === 'MANTENIMIENTO VEHICULAR.'
       && Number(l1[0].amount) === 100 && l1[0].prefill_source === 'habito', 'el renglón: concepto, cuenta y nombre del catálogo, importe y de dónde salió (hábito)', l1);

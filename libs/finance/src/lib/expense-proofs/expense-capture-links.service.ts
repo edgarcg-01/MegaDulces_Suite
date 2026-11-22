@@ -1,7 +1,8 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
-import { TenantKnexService, TenantContextService, ObjectStorageService, LlmExtractorService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, LlmExtractorService, todayMx } from '@megadulces/platform-core';
+import { fechaLeidaProponible } from '@megadulces/contracts';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { PROOF_FILE_ROLES, ProofFileRole, ProofFile, EXPENSE_CLASIFICACIONES, ExpenseClasificacion, requiereEvidencia } from './expense-proofs.service';
 
@@ -368,8 +369,10 @@ export class ExpenseCaptureLinksService {
       const total = f.total ?? f.subtotal ?? null;
       const legible = !!f.legible && total != null;
       this.logger.log(`lectura de ticket para ${link.persona}: ${legible ? `$${total} · ${f.comercio ?? 's/comercio'}` : 'ilegible'}`);
+      // `[PGP.122.13]` La fecha leída sólo se propone si es de los últimos 30 días: un AÑO mal leído no llega (la
+      // pantalla acepta cualquier fecha que no sea futura, y se quedaría con ella).
       return { legible, total, subtotal: f.subtotal ?? null, comercio: f.comercio ?? null,
-        fecha: f.fecha ?? null, motivo: legible ? 'ok' : 'ilegible' };
+        fecha: fechaLeidaProponible(f.fecha, todayMx()), motivo: legible ? 'ok' : 'ilegible' };
     } catch (e: any) {
       // Que falle la lectura NO puede frenar la captura: el trabajador teclea y sigue.
       this.logger.warn(`lectura de ticket falló para ${link.persona}: ${e?.message || e}`);
