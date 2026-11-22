@@ -6,7 +6,7 @@
  * Kepler cancela con `kdm1.c43='C'`: deja el importe en $0 y borra los renglones, pero **conserva
  * el `c11`**. «Lo que te va a llegar» decidía por ese `c11` a secas (el filtro de cancelados sólo
  * estaba del lado del embarque `U-D-41`), así que un pedido cancelado seguía apareciendo como si
- * viniera en camino. Y desde ADR-126 la Suite escribe el pedido de Autoabasto, que nace `CREADO`:
+ * viniera en camino. Y desde ADR-127 la Suite escribe el pedido de Autoabasto, que nace `CREADO`:
  * ese estado tampoco entraba en la lista de «abierto».
  *
  *   1. El SQL NUEVO no devuelve ningún pedido cancelado, en ninguna sucursal.

@@ -1,5 +1,5 @@
 import {
-  armarPagoKepler, armarPagosKepler, conceptoDeFactura, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
+  MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE, armarPagoKepler, armarPagosKepler, conceptoDeFactura, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
   type FacturaAPagar, type PagoKeplerEntrada, type PagoSuite,
 } from './pago-kepler.armador';
 
@@ -135,6 +135,20 @@ describe('[PGP.71] E3.3 motivosParaNoEscribir', () => {
     expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, status: 'pending' }))).toContain('El pago no está marcado como pagado');
     expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, kepler_payment_folio: '0024276' })).join(' ')).toMatch(/duplicaría/);
     expect(motivosParaNoEscribir(pago({ probado_por_comprobante: true, payment_method: 'efectivo' })).length).toBeGreaterThan(0);
+  });
+  // `[PGP.192]` DA1: el PDF soltado sobre su renglón paga también lo no autorizado; Kepler espera al banco.
+  it('⛔ [PGP.192] sin autorizar y probado SÓLO por su comprobante: no se escribe hasta que lo confirme el banco', () => {
+    const solo = pago({ lot_status: 'in_prep', validacion_estado: null, probado_por_comprobante: true, autorizado: false });
+    expect(motivosParaNoEscribir(solo)).toEqual([MOTIVO_SIN_AUTORIZAR_SOLO_COMPROBANTE]);
+    expect(motivosParaNoEscribir({ ...solo, probado_por_el_banco: true })).toEqual([]);
+  });
+  it('[PGP.192] autorizado, o sin saberlo (llamadores de antes): el comprobante solo basta, como en [PGP.130]', () => {
+    const base = { lot_status: 'in_prep', validacion_estado: null, probado_por_comprobante: true };
+    expect(motivosParaNoEscribir(pago({ ...base, autorizado: true }))).toEqual([]);
+    expect(motivosParaNoEscribir(pago(base))).toEqual([]);
+  });
+  it('[PGP.192] el resguardo es del comprobante: lo que probó el banco sin autorizar se escribe (D6)', () => {
+    expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep', validacion_estado: null, probado_por_el_banco: true, autorizado: false }))).toEqual([]);
   });
   it('⛔ uno ya ligado a un X-D-26 no se vuelve a escribir (sería un pago doble)', () => {
     expect(motivosParaNoEscribir(pago({ kepler_payment_folio: '0023969' })).join(' ')).toMatch(/duplicaría/);

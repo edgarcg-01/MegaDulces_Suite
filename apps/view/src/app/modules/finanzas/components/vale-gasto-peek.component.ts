@@ -13,7 +13,7 @@ import {
 } from '../comprobaciones.service';
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 // `[PGP.79]` La misma lectura que el renglón de la bandeja: una regla, no dos.
-import { explicacionKepler, lecturaKepler, type DetalleDeLaSolicitud, type KeplerDelVale } from '@megadulces/contracts';
+import { activoEnUnaLinea, explicacionKepler, lecturaKepler, type DetalleDeLaSolicitud, type KeplerDelVale } from '@megadulces/contracts';
 // `[PGP.123]` G.UI.5 — La misma línea del gasto que la cola «Esperan a Kepler»: una regla, no dos.
 import type { ComprobacionEnLaCola } from '@megadulces/contracts';
 import { lineaDelGasto, puedeEscribirseYa } from '../pages/esperan-kepler.ayudas';
@@ -173,6 +173,8 @@ type DocDelExpediente = DocEvidencia;
                     <span class="vp-ren-c">{{ r.nombre || r.concepto }}</span>
                     <span class="vp-mono vp-ren-d">{{ r.concepto }} · cuenta {{ r.cuenta || 'sin cuenta' }} · proy. {{ r.proyecto }} · depto. {{ r.departamento }}</span>
                     <span class="vp-mono vp-ren-i">{{ money(r.importe) }}</span>
+                    <!-- [PGP.122.17] Lo que se compra como activo: quien firma lo ve antes de firmar (anexo S §20). -->
+                    @if (r.activo; as a) { <span class="vp-ren-a">{{ activoTexto(a, r.importe) }}</span> }
                   </li>
                 }
               </ul>
@@ -410,6 +412,7 @@ type DocDelExpediente = DocEvidencia;
   .vp-ren-c { color: var(--fg-1); }
   .vp-ren-d { grid-column: 1; color: var(--fg-2); font-size: var(--fs-xs); overflow-wrap: anywhere; }
   .vp-ren-i { grid-column: 2; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums; }
+  .vp-ren-a { grid-column: 1 / -1; color: var(--fg-1); font-size: var(--fs-xs); overflow-wrap: anywhere; }
   /* [GX.48] La constancia de autorizacion. Enmarcada: es un documento, no un dato suelto. */
   .vp-aut { border: 1px solid var(--border); border-radius: var(--r-md);
     padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -545,6 +548,8 @@ export class ValeGastoPeekComponent {
    * cuenta, IVA, total y el documento que la ampara—. `null` = no nació en la Suite, o todavía no llega.
    */
   readonly solicitudSuite = input<DetalleDeLaSolicitud | null>(null);
+  /** `[PGP.122.17]` El activo de un renglón en una línea: qué es, cuántas unidades (y de cuánto cada una) y dónde. */
+  readonly activoTexto = activoEnUnaLinea;
   /** `[PGP.122]` La página ofrece «Reintentar en Kepler» (sólo donde se puede: Aprobación exige COMPROBAR). */
   readonly puedeReintentar = input(false);
   /** Sólo una solicitud de la Suite YA firmada cuya escritura se atoró, espera o Kepler rechazó. */

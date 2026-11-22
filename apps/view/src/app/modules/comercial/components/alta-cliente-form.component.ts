@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -20,12 +20,16 @@ import {
   type RevisionAlta,
   type SolicitudAlta,
   type SolicitudAltaBody,
-  type SubirConstanciaRespuesta,
+  type ArchivoParaLeerAlta,
+  type LeerDocumentosRespuesta,
   type TipoPersona,
   warehouseName,
 } from '@megadulces/contracts';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
-import { AltaClientesService } from '../alta-clientes.service';
+import { AltaClientesService, archivoParaLeer } from '../alta-clientes.service';
+
+/** `[ALC.4]` Archivos por cliente (el servidor tiene el mismo tope). */
+const MAX_ARCHIVOS = 4;
 import { MapComponent } from '../../../shared/components/map/map.component';
 
 type Paso = 'elegir' | 'leyendo' | 'forma';
@@ -67,12 +71,25 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
   template: `
     @if (paso() === 'elegir') {
       <div class="af-elegir">
-        <label class="af-opcion" for="af-pdf">
-          <i class="pi pi-file-pdf" aria-hidden="true"></i>
-          <span class="af-op-t">Subir su constancia</span>
-          <span class="af-op-s">El PDF que da el SAT. Se llenan RFC, nombre, domicilio y régimen; tú los revisas.</span>
-          <input id="af-pdf" type="file" accept="application/pdf" class="af-oculto" (change)="elegirPdf($event)" />
+        <label class="af-opcion" for="af-docs">
+          <i class="pi pi-images" aria-hidden="true"></i>
+          <span class="af-op-t">Subir sus documentos</span>
+          @if (catalogos()?.lectura_ia) {
+            <span class="af-op-s">La constancia del SAT (PDF o foto), la captura de otro sistema o una etiqueta con sus datos: hasta 4 archivos del mismo cliente. Las fotos las lee la IA; tú revisas.</span>
+          } @else {
+            <span class="af-op-s">El PDF de la constancia del SAT. Las fotos y capturas todavía no se leen solas: para ésas, captura a mano.</span>
+          }
+          <input id="af-docs" type="file" multiple class="af-oculto" [attr.accept]="catalogos()?.lectura_ia ? 'application/pdf,image/*' : 'application/pdf'"
+                 (change)="elegirArchivos($event)" />
         </label>
+        @if (catalogos()?.lectura_ia) {
+          <label class="af-opcion af-solo-tactil" for="af-foto">
+            <i class="pi pi-camera" aria-hidden="true"></i>
+            <span class="af-op-t">Tomar foto</span>
+            <span class="af-op-s">De la constancia, la etiqueta o la pantalla, de frente y con luz.</span>
+            <input id="af-foto" type="file" accept="image/*" capture="environment" class="af-oculto" (change)="elegirArchivos($event)" />
+          </label>
+        }
         <button type="button" class="af-opcion" (click)="aMano()">
           <i class="pi pi-pencil" aria-hidden="true"></i>
           <span class="af-op-t">Capturar a mano</span>
@@ -83,20 +100,37 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
     }
 
     @if (paso() === 'leyendo') {
-      <p class="af-leyendo" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Leyendo la constancia…</p>
+      <p class="af-leyendo" role="status"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+        Leyendo {{ vistas().length > 1 ? 'los ' + vistas().length + ' archivos' : 'el documento' }}…
+        @if (hayFotos()) { <span class="af-tenue">con fotos puede tardar hasta un minuto</span> }
+      </p>
     }
 
     @if (paso() === 'forma') {
       <form class="af-forma" (ngSubmit)="guardar()" autocomplete="off">
         @if (lectura(); as l) {
           @if (l.lectura.ok) {
-            <p class="af-banda af-banda-info" role="status">
-              <i class="pi pi-file-check" aria-hidden="true"></i>
-              Constancia leída{{ l.lectura.constancia.emitida_el ? ', emitida el ' + fechaLarga(l.lectura.constancia.emitida_el) : '' }}.
-              Revisa lo que se llenó.
+            <p class="af-banda" [class.af-banda-info]="!conIa()" [class.af-banda-warn]="conIa()" role="status">
+              <i class="pi" [class.pi-file-check]="!conIa()" [class.pi-sparkles]="conIa()" aria-hidden="true"></i>
+              @if (conIa()) {
+                <span>Se leyó {{ l.que_se_leyo || 'el documento' }} con IA{{ l.archivos > 1 ? ' (' + l.archivos + ' archivos)' : '' }}.
+                  <strong>La IA puede equivocarse: compara el RFC, el nombre y el domicilio con lo que subiste antes de guardar.</strong></span>
+              } @else {
+                <span>Constancia leída{{ l.lectura.constancia.emitida_el ? ', emitida el ' + fechaLarga(l.lectura.constancia.emitida_el) : '' }}. Revisa lo que se llenó.</span>
+              }
               @if (l.aviso_guardado) { <strong>{{ l.aviso_guardado }}</strong> }
             </p>
           }
+        }
+        @if (vistas().length) {
+          <div class="af-vistas" role="group" aria-label="Lo que subiste, para comparar">
+            @for (v of vistas(); track v.url; let i = $index) {
+              <a class="af-vista" [href]="v.url" target="_blank" rel="noopener" [attr.aria-label]="'Abrir ' + (v.nombre || 'archivo ' + (i + 1)) + ' en otra pestaña'">
+                @if (v.imagen) { <img [src]="v.url" alt="" /> } @else { <i class="pi pi-file-pdf" aria-hidden="true"></i> }
+              </a>
+            }
+            <span class="af-tenue">Un clic la abre en grande.</span>
+          </div>
         }
         @if (avisosGenerales().length) {
           <ul class="af-avisos" aria-label="Avisos de la captura">
@@ -335,7 +369,14 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
     .af-opcion .pi { font-size: var(--fs-lg); color: var(--action); }
     .af-op-t { font-size: var(--fs-h3); font-weight: var(--fw-bold); }
     .af-op-s { font-size: var(--fs-sm); color: var(--fg-2); }
-    .af-leyendo { display: flex; gap: var(--sp-2); align-items: center; color: var(--fg-2); }
+    .af-leyendo { display: flex; gap: var(--sp-2); align-items: center; color: var(--fg-2); flex-wrap: wrap; }
+    .af-solo-tactil { display: none; }
+    @media (pointer: coarse) { .af-solo-tactil { display: flex; } }
+    .af-vistas { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; font-size: var(--fs-xs); }
+    .af-vista { display: inline-flex; align-items: center; justify-content: center; width: 4.5rem; height: 4.5rem; overflow: hidden;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); background: var(--card-bg); color: var(--fg-2); }
+    .af-vista img { width: 100%; height: 100%; object-fit: cover; }
+    .af-vista:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .af-forma { display: flex; flex-direction: column; gap: var(--sp-4); }
     .af-grupo { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
     .af-grupo legend { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--fg-1); padding: 0; margin-bottom: var(--sp-2); }
@@ -370,7 +411,7 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
     @media (pointer: coarse) { .af-pie button { min-height: 44px; } }
   `],
 })
-export class AltaClienteFormComponent implements OnInit {
+export class AltaClienteFormComponent implements OnInit, OnDestroy {
   private readonly svc = inject(AltaClientesService);
 
   readonly catalogos = input<CatalogosAlta | null>(null);
@@ -396,7 +437,14 @@ export class AltaClienteFormComponent implements OnInit {
 
   readonly paso = signal<Paso>('elegir');
   readonly f = signal<SolicitudAltaBody>(formaVacia(''));
-  readonly lectura = signal<SubirConstanciaRespuesta | null>(null);
+  readonly lectura = signal<LeerDocumentosRespuesta | null>(null);
+  /** `[ALC.4]` Lo que se subió, para tenerlo a la vista mientras se revisa. */
+  readonly vistas = signal<Array<{ url: string; nombre: string; imagen: boolean }>>([]);
+  readonly hayFotos = computed(() => this.vistas().some((v) => v.imagen));
+  readonly conIa = computed(() => {
+    const f = this.lectura()?.fuente;
+    return f === 'ia' || f === 'mixta';
+  });
   readonly hallazgos = signal<HallazgoAlta[]>([]);
   readonly duplicados = signal<PosibleDuplicado[]>([]);
   readonly pideConfirmar = signal(false);
@@ -559,6 +607,7 @@ export class AltaClienteFormComponent implements OnInit {
     this.buscandoUbicacion.set(null);
     this.avisoUbicacion.set(null);
     this.cpConsultado = '';
+    this.soltarVistas();
     this.sucio = false;
     this.aplicarSugeridos();
   }
@@ -712,21 +761,29 @@ export class AltaClienteFormComponent implements OnInit {
     this.paso.set('forma');
   }
 
-  elegirPdf(ev: Event): void {
-    const archivo = (ev.target as HTMLInputElement).files?.[0];
-    (ev.target as HTMLInputElement).value = '';
-    if (!archivo) return;
-    if (archivo.size > 5 * 1024 * 1024) { this.errorLectura.set('El archivo pesa más de 5 MB: la constancia del SAT pesa alrededor de 140 KB.'); return; }
+  /**
+   * `[ALC.4]` De 1 a 4 archivos del mismo cliente (o una foto de la cámara). Las fotos se reducen aquí
+   * antes de subirlas y quedan como miniaturas junto al formulario para comparar dato por dato.
+   */
+  async elegirArchivos(ev: Event): Promise<void> {
+    const input = ev.target as HTMLInputElement;
+    const archivos = Array.from(input.files ?? []);
+    input.value = '';
+    if (!archivos.length) return;
+    if (archivos.length > MAX_ARCHIVOS) { this.errorLectura.set(`A lo más ${MAX_ARCHIVOS} archivos, todos del mismo cliente.`); return; }
+    if (archivos.some((a) => a.size > 15 * 1024 * 1024)) { this.errorLectura.set('Un archivo pesa más de 15 MB: tómalo con menos resolución.'); return; }
     this.errorLectura.set(null);
+    this.ponerVistas(archivos);
     this.paso.set('leyendo');
-    const lector = new FileReader();
-    lector.onload = () => this.leer(String(lector.result ?? ''));
-    lector.onerror = () => { this.paso.set('elegir'); this.errorLectura.set('No se pudo abrir el archivo.'); };
-    lector.readAsDataURL(archivo);
-  }
-
-  private leer(dataUri: string): void {
-    this.svc.subirConstancia(dataUri, this.f().branch).subscribe({
+    let preparados: ArchivoParaLeerAlta[];
+    try {
+      preparados = await Promise.all(archivos.map((a) => archivoParaLeer(a)));
+    } catch {
+      this.paso.set('elegir');
+      this.errorLectura.set('No se pudo abrir un archivo. Si es una foto del iPhone (HEIC), compártela como JPG o captura a mano.');
+      return;
+    }
+    this.svc.leerDocumentos(preparados, this.f().branch).subscribe({
       next: (r) => {
         if (!r.lectura.ok) {
           this.paso.set('elegir');
@@ -736,9 +793,11 @@ export class AltaClienteFormComponent implements OnInit {
         const c = r.lectura.constancia;
         this.lectura.set(r);
         this.f.update((x) => ({
-          ...x, origen: 'constancia', constancia_key: r.constancia_key, tipo_persona: c.tipo, rfc: c.rfc, curp: c.curp ?? '',
+          ...x, origen: 'constancia', constancia_key: r.constancia_key, lectura_id: r.lectura_id, tipo_persona: c.tipo, rfc: c.rfc, curp: c.curp ?? '',
           nombre_fiscal: c.nombre_fiscal, regimen_capital: c.regimen_capital, nombre_comercial: c.nombre_comercial,
           regimen_fiscal: r.regimen_sugerido ?? '', codigo_postal_fiscal: c.domicilio.codigo_postal ?? '',
+          uso_cfdi: r.uso_cfdi ?? x.uso_cfdi ?? null, forma_pago: r.forma_pago ?? x.forma_pago ?? null,
+          comentarios: [x.comentarios, r.comentario].filter(Boolean).join('\n') || null,
           ficha: r.armado ? { ...r.armado.ficha } : x.ficha,
         }));
         this.hallazgos.set(r.hallazgos);
@@ -747,9 +806,20 @@ export class AltaClienteFormComponent implements OnInit {
         this.paso.set('forma');
         this.alCambiarCp(); // el estado ya viene de la constancia y no se pisa; quedan las sugerencias
       },
-      error: (e: HttpErrorResponse) => { this.paso.set('elegir'); this.errorLectura.set(this.mensaje(e, 'No se pudo leer la constancia.')); },
+      error: (e: HttpErrorResponse) => { this.paso.set('elegir'); this.errorLectura.set(this.mensaje(e, 'No se pudieron leer los documentos.')); },
     });
   }
+
+  /** Miniaturas locales de lo subido (no salen de este navegador); las anteriores se sueltan. */
+  private ponerVistas(archivos: File[]): void {
+    this.soltarVistas();
+    this.vistas.set(archivos.map((a) => ({ url: URL.createObjectURL(a), nombre: a.name, imagen: a.type.startsWith('image/') })));
+  }
+  private soltarVistas(): void {
+    for (const v of this.vistas()) URL.revokeObjectURL(v.url);
+    this.vistas.set([]);
+  }
+  ngOnDestroy(): void { this.soltarVistas(); }
 
   // ── revisar y guardar ────────────────────────────────────────────────────────────────────
   revisar(): void {

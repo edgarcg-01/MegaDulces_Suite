@@ -70,3 +70,19 @@ SELECT branch_code, branch_name, branch_short, zona_code,
   FROM analytics.v_branch_zone
  WHERE tenant_id = current_tenant_id()
  ORDER BY branch_code`;
+
+/**
+ * `[PQ.3.18]` La compra de 12 meses por proveedor, para el embudo de llenado (anexo C §10.10): monto y número de OC
+ * VIVAS (X-A-35, estatus ≠ C; aquí sí se excluyen las canceladas, porque es peso económico y no «se revisó»). La
+ * misma ventana de 12 meses que la actividad. Una OC es (sucursal, folio): el folio se repite entre servidores.
+ * Bindings con nombre: `:hoy` y `:codes`. Medido en prod el 2026-11-22: 340 claves, 10,382 OC.
+ */
+export const SQL_COMPRA_DOCE_MESES = `
+SELECT o.proveedor_code AS supplier_code,
+       COALESCE(sum(o.monto) FILTER (WHERE o.estatus <> 'C'), 0)::float8 AS monto,
+       count(DISTINCT (o.sucursal, o.folio)) FILTER (WHERE o.estatus <> 'C')::int AS ocs
+  FROM analytics.erp_purchase_orders o
+ WHERE o.tenant_id = current_tenant_id()
+   AND o.proveedor_code = ANY(:codes::text[])
+   AND o.doc_date > (:hoy::date - 365) AND o.doc_date <= :hoy::date
+ GROUP BY 1`;

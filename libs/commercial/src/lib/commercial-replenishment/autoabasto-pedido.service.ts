@@ -97,7 +97,7 @@ emb AS (
           AND btrim(COALESCE(x.c43, '')) <> 'C' AND (x.c9)::date >= (h.c9)::date - 1)
 ),
 docs AS (
-  -- [PQ.136] CREADO entra: desde ADR-126 la Suite escribe el pedido y nace así. [PQ.137] El
+  -- [PQ.136] CREADO entra: desde ADR-127 la Suite escribe el pedido y nace así. [PQ.137] El
   -- estado es el VIGENTE, así que un cancelado de Kepler sale CANCELADO y no cae acá (antes se
   -- pintaba con su c11 viejo: 82 de 111 documentos de Morelia Madero estaban cancelados).
   SELECT * FROM ped WHERE estado IN ${WAREHOUSE_ORDER_ABIERTOS_SQL}

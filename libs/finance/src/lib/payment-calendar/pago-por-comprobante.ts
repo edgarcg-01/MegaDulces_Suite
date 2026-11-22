@@ -48,6 +48,30 @@ SELECT a.id::text AS id, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.amount_assi
  WHERE a.tenant_id = ? AND a.status IN ('pending', 'executed')
    AND l.lot_date BETWEEN ?::date - 5 AND ?::date + 5`;
 
+/** `[PGP.191]` El PDF lo soltó una persona sobre el renglón de su pago (no lo casó la regla del día). */
+export const EVENTO_COMPROBANTE_SOLTADO = 'comprobante_soltado';
+
+/**
+ * `[PGP.191]` El pago de UN renglón, visto para ligarle el PDF que soltaron sobre él. «Ya tiene comprobante» también
+ * cuenta el que ya está ligado a su documento de Kepler (el de Comprobantes de pago): uno por pago, no dos.
+ * Parámetros: `[tenant, allocation_id]`. Se le agrega `FOR UPDATE OF a` cuando se va a guardar.
+ */
+export const SQL_PAGO_DEL_RENGLON = `
+SELECT a.id::text AS id, a.status, a.payment_method AS metodo, a.bank_account_id::text AS cuenta_id,
+       a.amount_assigned::float8 AS importe, to_char(l.lot_date, 'YYYY-MM-DD') AS dia,
+       (a.authorized_at IS NOT NULL OR l.status IN ('released', 'executing', 'closed')) AS autorizado,
+       (a.paid_proof_id IS NOT NULL
+        OR EXISTS (SELECT 1 FROM finance.supplier_payment_proofs p
+                    WHERE p.tenant_id = a.tenant_id AND p.doc_prefix = '${PREFIJO_CALENDARIO}' AND p.folio = a.id::text
+                      AND p.status <> 'rechazado')
+        OR EXISTS (SELECT 1 FROM finance.supplier_payment_proofs k
+                    WHERE k.tenant_id = a.tenant_id AND a.kepler_payment_folio IS NOT NULL
+                      AND k.sucursal = a.kepler_payment_sucursal AND k.doc_prefix = a.kepler_payment_doc_prefix
+                      AND k.folio = a.kepler_payment_folio AND k.status <> 'rechazado')) AS con_comprobante
+  FROM finance.payment_allocations a
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+ WHERE a.tenant_id = ? AND a.id = ?`;
+
 /** Las cuentas propias de banco, para resolver la cuenta de origen que leyó el OCR. Parámetros: `[tenant]`. */
 export const SQL_CUENTAS_DE_BANCO = `
 SELECT id::text AS cuenta_id, account_label FROM finance.bank_accounts WHERE tenant_id = ? AND kind = 'bank'`;

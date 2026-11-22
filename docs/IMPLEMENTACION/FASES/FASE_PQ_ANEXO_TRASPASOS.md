@@ -181,7 +181,7 @@ contra piezas, así que «hecho» puede estar subcontado.
 |---|---|
 | 2026-11-09 | Análisis de la interfaz de traspasos (16 superficies, uso, cadena de Kepler, liga con la Suite). Anexo creado; PQ.115 a 🔨 |
 | 2026-11-09 | **PQ.115 en código**: migración `20261109140626_pq115_v_traspasos_ciclo.js` (`analytics.v_traspasos_ciclo`) y prueba `test-newdb-pq115-traspasos-ciclo.js` (escenario sintético con ROLLBACK, control negativo sin origen en la llave). El SQL exacto de la migración, como vista temporal en prod: 3,767 filas = 3,767 pedidos de Kepler, 0 duplicados, 0 sin tenant, 140–240 ms. Dos lecciones: (1) con `LEFT JOIN` el planificador estimaba ~1 fila por pieza y tardaba 6.2 s (> 2 min sin `MATERIALIZED`; esa consulta se canceló en prod); apilar y agrupar por llave es lineal. (2) La recepción se liga por origen (`c10`). **NO MEDIDO:** la prueba no corrió en local (sin Docker); corre en `pruebas-db` del CI. **Falta:** aplicar la migración (lo hace el carril de despliegue) y, ya aplicada, que Autoabasto lea la vista (corrige AB.45) |
-| 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-126** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
+| 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-127** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
 
 ---
 
@@ -203,7 +203,7 @@ MÉTRICA:  HOY (2026-11-22, pg-prod, sólo lectura):
           siguiente. Antes/después del volumen capturado a mano en esa pareja.
 CAPA TOPE: C3
 ÁREA:      Almacén (sucursales) · Compras (ve, ya no decide el traspaso) · Sistemas (plantilla)
-ESTADO:    🔨 C0 — decisiones D1–D4 de Edgar del 2026-11-22; ADR-126 escrito
+ESTADO:    🔨 C0 — decisiones D1–D4 de Edgar del 2026-11-22; ADR-127 escrito
 ```
 
 ### 7.1 Lo que decidió el PM (2026-11-22)
@@ -211,9 +211,9 @@ ESTADO:    🔨 C0 — decisiones D1–D4 de Edgar del 2026-11-22; ADR-126 escri
 | | Decisión | Estado |
 |---|---|---|
 | **D1** | El documento nace en **`CREADO`** | ⚠️ **Abierta otra vez**: la medición posterior no la respalda, ver §7.2 |
-| **D2** | La Suite sugiere el almacén principal y el usuario **puede cambiar el origen** | Firme — ADR-126 §3 |
+| **D2** | La Suite sugiere el almacén principal y el usuario **puede cambiar el origen** | Firme — ADR-127 §3 |
 | **D3** | Piloto en **Morelia Abastos (08) → Morelia Madero (07)** | Firme |
-| **D4** | Se **deroga ADR-100**: la sucursal vuelve a decidir su pedido | Firme — ADR-126, ADR-100 marcada |
+| **D4** | Se **deroga ADR-100**: la sucursal vuelve a decidir su pedido | Firme — ADR-127, ADR-100 marcada |
 
 ### 7.2 ⚠️ Lo que la medición le discute a D1
 
@@ -261,7 +261,7 @@ mediana de `CREADO → AUTORIZADO` pasa de **1 día hábil**, se cambia a (a) si
 | **PQ.136** | C1 | **`CREADO` deja de ser invisible** (sólo si D1 queda en (b)): las cuatro lecturas lo aceptan y la pantalla lo muestra como «pedido, esperando autorización» — se resta del sugerido y aparece en «Lo que te va a llegar» | Prueba negativa: un pedido `CREADO` sembrado se resta del sugerido; sin el cambio, el renglón se vuelve a proponer |
 | **PQ.137** | C0–C1 | **Un cancelado de Kepler no se pinta como vivo.** `VIENE_DOCS_SQL` usa `ESTATUS_VIGENTE_SQL` (`kepler-origen.ts`) en el tramo del pedido, no sólo en el del embarque. *Cifra: de 111 documentos que «Lo que te va a llegar» pintaría hoy para Morelia Madero, **82 están cancelados** (74 %)* | Conteo antes/después contra `kdm1` con `c43='C'` del mismo periodo |
 | **PQ.138** | C1–C2 | **`enviar()` escribe en Kepler** cuando el grupo es de origen sucursal: migración que agrega `kepler_sucursal / kepler_serie / kepler_folio / kepler_error / kepler_pushed_at / kepler_pushed_by` a `commercial.autoabasto_pedidos`, cierre del borrador (`estado='enviado'`, el CHECK ya lo admite) y huella `enviar`. ⛔ La idempotencia lee **la fila propia**, no el ODS: el último empuje de `kdm1` medido llevaba **288 min** de atraso | Prueba contra base real con el payload de la pantalla (regla del repo); enviar dos veces el mismo renglón escribe **un** documento |
-| **PQ.139** | C2–C3 | **Elegir el origen** (D2): `origen_clave` en `AutoabastoEnviarRequest` y en el diálogo de envío, default = almacén principal, validado en el servidor contra la lista blanca (activo, `kind <> 'truck'`, con `kepler_code`, distinto del destino). El interruptor y el servidor de escritura se resuelven por el **origen elegido** (ya resuelto en `commercial-replenishment.service.ts:5952`). La existencia del origen se muestra como dato, nunca como compuerta (ADR-126 §4) | Prueba negativa: origen `truck` o igual al destino → 400; origen con push apagado → mensaje claro, no silencio. *Respaldo: segundo origen real en las 8 sucursales, 27.7 %–58.6 % de los pedidos* |
+| **PQ.139** | C2–C3 | **Elegir el origen** (D2): `origen_clave` en `AutoabastoEnviarRequest` y en el diálogo de envío, default = almacén principal, validado en el servidor contra la lista blanca (activo, `kind <> 'truck'`, con `kepler_code`, distinto del destino). El interruptor y el servidor de escritura se resuelven por el **origen elegido** (ya resuelto en `commercial-replenishment.service.ts:5952`). La existencia del origen se muestra como dato, nunca como compuerta (ADR-127 §4) | Prueba negativa: origen `truck` o igual al destino → 400; origen con push apagado → mensaje claro, no silencio. *Respaldo: segundo origen real en las 8 sucursales, 27.7 %–58.6 % de los pedidos* |
 | **PQ.140** | C0 | **Encender el piloto 08→07**: interruptor `traspaso` de la 08 (con su `tope_dia`; ⚠️ el contador del tope es **compartido con las requisiciones de compra** de esa sucursal, `kepler-requisition-sink.adapter.ts:341-345`) y medir una semana: documentos escritos, mediana `CREADO→AUTORIZADO`, renglones recapturados a mano | Antes/después contra los 129 pedidos/mes de la pareja. **Cierra D1** |
 | **PQ.141** | C0 | **Quién opera el piloto.** Medido: en 07 y 08 hay **cero almacenistas con almacén asignado**; en 07 el único con permiso y alcance propio es 1 encargado de tienda. Asignar `warehouse_id` o declarar por escrito que el piloto lo opera el encargado | `identity.users` de 07 y 08 con su alcance, antes de encender |
 | **PQ.142** | C1 | **Cancelar lo que la Suite escribió**: hoy no hay camino en la Suite para cancelar un `U-D-40` y el interruptor `cancela_requisicion` está apagado en 9 de 9. Declarar el camino (cancelar en Kepler) y que la pantalla lo refleje. *Contexto: la pareja piloto cancela 1 de cada 3 pedidos, y 90 de 124 se cancelan **ya surtidas**, por la misma gente del origen que las capturó: no es arrepentimiento de quien pide* | La pantalla muestra `CANCELADO` dentro del día siguiente a una cancelación hecha a mano |

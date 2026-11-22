@@ -15,6 +15,9 @@ import type {
   CodigoPostalAlta,
   CrearSolicitudRespuesta,
   DecidirCreditoBody,
+  DocumentoDeSolicitud,
+  LeerDocumentosBody,
+  LeerDocumentosRespuesta,
   LigarSolicitudBody,
   PlanAltaKepler,
   RevisionAlta,
@@ -91,6 +94,13 @@ export class CustomerOnboardingController {
     return this.service.subirConstancia(body, query);
   }
 
+  @Post('documentos')
+  @RequirePermissions(Permission.COMMERCIAL_ALTA_CLIENTES)
+  @ApiOperation({ summary: '[ALC.4] Lee de 1 a 4 archivos del cliente (PDF del SAT sin IA; fotos y capturas con IA si está encendida) y prellena. No crea nada.' })
+  leerDocumentos(@Body() body: LeerDocumentosBody, @Query() query: Record<string, unknown>): Promise<LeerDocumentosRespuesta> {
+    return this.service.leerDocumentos(body, query);
+  }
+
   @Post('validate')
   @RequirePermissions(Permission.COMMERCIAL_ALTA_CLIENTES)
   @ApiOperation({ summary: 'Revisa una solicitud sin guardarla: hallazgos, duplicados en Kepler y casillas que no caben' })
@@ -124,6 +134,13 @@ export class CustomerOnboardingController {
   @ApiOperation({ summary: 'Liga temporal (10 min) para ver la constancia guardada' })
   constanciaUrl(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<{ url: string }> {
     return this.service.urlConstancia(id, query);
+  }
+
+  @Get(':id/documentos')
+  @RequireAnyPermission(...VER_BANDEJA)
+  @ApiOperation({ summary: '[ALC.4] Ligas temporales (10 min) a los archivos de los que salió la solicitud' })
+  documentos(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<DocumentoDeSolicitud[]> {
+    return this.service.documentos(id, query);
   }
 
   @Post(':id/credit')

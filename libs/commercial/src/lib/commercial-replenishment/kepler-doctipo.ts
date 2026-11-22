@@ -64,7 +64,7 @@ export interface DoctipoSpec {
    * viene lleno en 145 de 145 renglones y vale lo mismo que `c56` en 145 de 145; `c28` sigue al
    * encabezado (`CREADO` en 1,405 de 1,405 renglones de encabezados `CREADO`). Heredarlos del
    * molde es inocuo sólo mientras el molde tenga el mismo estado: con un pedido que nace
-   * `CREADO` (ADR-126) el encabezado diría `CREADO` y sus renglones `AUTORIZADO`.
+   * `CREADO` (ADR-127) el encabezado diría `CREADO` y sus renglones `AUTORIZADO`.
    *
    * ⛔ En la compra (`X-A-30`) **no se midió**: queda en `false` y el renglón sigue como estaba.
    */

@@ -115,7 +115,7 @@ export interface KeplerRequisitionEntrada {
    * sus renglones (`kdm2.c28`). Ausente = el del tipo (`AUTORIZADO`, que es como nacen los 4,213
    * pedidos de sucursal que las sucursales capturan a mano).
    *
-   * Existe porque el mismo documento tiene dos puertas desde ADR-126: la requisición aprobada por
+   * Existe porque el mismo documento tiene dos puertas desde ADR-127: la requisición aprobada por
    * Compras y el pedido que arma la sucursal en Autoabasto, que el PM decidió que nazca `CREADO`
    * para que el origen lo revise antes de surtir. Un estado que el tipo no declare se **rechaza**:
    * un `c11` inventado deja el documento fuera de todos los filtros del ERP.

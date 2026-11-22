@@ -4,7 +4,7 @@ import { DOCTIPOS } from './kepler-doctipo';
 /**
  * `[PQ.135]` · `[DT5]` **Con qué estado nace el pedido de traspaso.**
  *
- * El mismo `U-D-40` tiene dos puertas desde ADR-126: la requisición que aprueba Compras (nace
+ * El mismo `U-D-40` tiene dos puertas desde ADR-127: la requisición que aprueba Compras (nace
  * `AUTORIZADO`, como los 4,213 que las sucursales capturan a mano) y el pedido que arma la
  * sucursal en Autoabasto, que el PM decidió que nazca `CREADO` para que el origen lo revise.
  * El estado viaja en la entrada y **no se edita la constante compartida**.

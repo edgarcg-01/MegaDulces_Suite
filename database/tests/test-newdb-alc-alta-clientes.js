@@ -22,6 +22,9 @@
  *      intento parcial reserva la clave; otra solicitud no se lleva la misma (índice único); una
  *      clave ajena suelta la reserva; el reintento usa la MISMA clave; escrita no se repite ni se
  *      cancela; el tope diario; ligar sin teclear la clave. Y `[ALC.3.6]`: estado del CP, uso y forma.
+ *   9. `[ALC.4]` Fotos y capturas con IA, con un DOBLE del modelo: apagada no llama; dos fotos = una
+ *      llamada; texto → claves del SAT; la lectura se guarda con su costo; el origen lo decide el
+ *      servidor; la corrección queda medida; una lectura no sirve dos veces; refusal y tope diario.
  *
  * Datos ficticios o públicos (RFC de prueba del SAT, CURP de ejemplo de RENAPO). Si la base no trae
  * las tablas del ODS que usa el alta (el CI no las tiene: las crea la ingesta), se crean mínimas
@@ -334,6 +337,84 @@ function payload(extra = {}) {
       await trx.raw('SET LOCAL ROLE app_runtime');
       const lk = await s.ligar(k.solicitud.id, {});
       ok(lk.estado === 'ligada' && lk.erp_customer_code === '29991', 'ligar sin escribir la clave: toma la que la Suite escribió', [lk.estado, lk.erp_customer_code]);
+
+      // 9. [ALC.4] Fotos y capturas leídas con IA. El MODELO es un doble (en el CI no hay llave y no se
+      // gasta); lo de la Suite es real: interruptor, tope, una llamada, lectura guardada, origen, medición.
+      const hayLecturas = (await trx.raw(`SELECT to_regclass('commercial.customer_onboarding_readings') t`)).rows[0].t;
+      if (!hayLecturas) noMedido('[ALC.4] la base no tiene commercial.customer_onboarding_readings (falta la migración 20261122115947)');
+      else {
+        const envAntes = { e: process.env.ALC_AI_ENABLED, c: process.env.ALC_AI_DAILY_CAP };
+        const lector = { llamadas: 0, archivos: 0, respuesta: null,
+          leer: async (arch) => { lector.llamadas++; lector.archivos = arch.length; return lector.respuesta; } };
+        const almacen = new Map();
+        Object.assign(s, {
+          lector,
+          storage: {
+            isConfigured: () => true,
+            putFile: async (uri, carpeta) => { const key = `${carpeta}/prueba-${almacen.size + 1}`; almacen.set(key, uri); return { key, kind: 'image' }; },
+            signedUrl: async (key) => `https://almacen.prueba/${key}`,
+            getDataUri: async (key) => almacen.get(key) ?? null,
+          },
+        });
+        const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        const uso = { modelo: 'claude-opus-5-5', input_tokens: 3000, output_tokens: 400, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, costo_usd: 0.02, precio_fuente: 'prueba' };
+        try {
+          delete process.env.ALC_AI_ENABLED;
+          const apagada = await s.leerDocumentos({ archivos: [{ data_uri: PNG }], branch: SUC });
+          ok(apagada.lectura.ok === false && apagada.lectura.motivo === 'ia_apagada' && lector.llamadas === 0 && apagada.ia_encendida === false,
+            '[ALC.4] NEGATIVA: con la IA apagada la foto no se lee y el modelo NO se llama', apagada.lectura);
+
+          process.env.ALC_AI_ENABLED = 'true';
+          delete process.env.ALC_AI_DAILY_CAP;
+          lector.respuesta = { estado: 'leida', uso, lectura: {
+            tipo_documento: 'captura_de_sistema', legible: 'si', tipo_persona: 'fisica',
+            campos: { rfc: 'XAXX010101000', nombres: 'CLIENTE DE PRUEBA IA', colonia: 'CENTRO', localidad: 'MORELIA', codigo_postal: '58000',
+              clave_en_otro_sistema: '900001', uso_cfdi: 'Sin efectos fiscales', forma_pago: 'Efectivo' },
+            regimenes: [{ descripcion: 'Sin obligaciones fiscales', vigente: true }], dudosos: ['colonia'], avisos: [] } };
+          const r = await s.leerDocumentos({ archivos: [{ data_uri: PNG }, { data_uri: PNG }], branch: SUC });
+          ok(r.lectura.ok && r.fuente === 'ia' && lector.llamadas === 1 && lector.archivos === 2,
+            '[ALC.4] dos fotos del mismo cliente → UNA llamada al modelo con las dos', { fuente: r.fuente, llamadas: lector.llamadas, archivos: lector.archivos });
+          ok(r.uso_cfdi === 'S01' && r.forma_pago === '01' && r.regimen_sugerido === '616' && /900001/.test(r.comentario || ''),
+            '[ALC.4] el texto se vuelve claves del catálogo del SAT (uso, forma, régimen) y la clave anterior va a comentarios', [r.uso_cfdi, r.forma_pago, r.regimen_sugerido, r.comentario]);
+          ok(r.hallazgos.some((h) => h.campo === 'ficha.direccion_2'), '[ALC.4] lo que la IA leyó con duda se avisa en su casilla');
+          const fila = (await trx.raw(`SELECT status, source, model, cost_usd::float8 costo, jsonb_array_length(documents) docs FROM commercial.customer_onboarding_readings WHERE id = ?`, [r.lectura_id])).rows[0];
+          ok(fila && fila.status === 'leida' && fila.source === 'ia' && fila.model === 'claude-opus-5-5' && fila.costo === 0.02 && fila.docs === 2,
+            '[ALC.4] la lectura queda guardada como evidencia: fuente, modelo, costo y los 2 archivos', fila);
+
+          const conIa = payload({ rfc: 'XAXX010101000', curp: null, nombre_fiscal: 'CLIENTE DE PRUEBA IA CORREGIDO', regimen_fiscal: '616',
+            codigo_postal_fiscal: '58000', vendedor_code: '20002', grupo_code: '2VP01', zona_code: '20000', lectura_id: r.lectura_id, origen: 'manual' });
+          conIa.ficha = { ...r.armado.ficha, rfc: 'XAXX010101000', nombre: 'CLIENTE DE PRUEBA IA CORREGIDO' };
+          const ci = await s.crear(conIa);
+          creadas.push(ci.solicitud.id);
+          ok(almacen.size === 2, '[ALC.4] la foto que no se leyó (IA apagada) NO se guardó: sólo las 2 de la lectura buena', [...almacen.keys()]);
+          ok(ci.solicitud.origen === 'documento' && ci.solicitud.constancia_key === 'alta-clientes/prueba-1' && ci.solicitud.lectura_documento?.archivos === 2,
+            '[ALC.4] el ORIGEN lo decide el servidor (documento), no el navegador (mandó «manual»), y la solicitud liga sus archivos', ci.solicitud.lectura_documento);
+          ok(ci.solicitud.lectura_documento?.correcciones.includes('nombre_fiscal'),
+            '[ALC.4] la medición: queda anotado que la persona corrigió el nombre que leyó la IA', ci.solicitud.lectura_documento);
+          ok(await status(() => s.crear({ ...conIa, nombre_fiscal: 'OTRO SIN RFC', ficha: { ...conIa.ficha, nombre: 'OTRO SIN RFC' } })) === 409,
+            '[ALC.4] NEGATIVA: una lectura no sirve a dos solicitudes → 409');
+          ok(await status(() => s.crear({ ...conIa, lectura_id: '00000000-0000-0000-0000-000000000abc' })) === 400,
+            '[ALC.4] NEGATIVA: una lectura que no existe → 400');
+          const docs = await s.documentos(ci.solicitud.id);
+          ok(docs.length === 2 && docs.every((d) => d.tipo === 'imagen' && d.url.startsWith('https://almacen.prueba/')),
+            '[ALC.4] el detalle abre los 2 archivos con ligas temporales', docs);
+
+          lector.respuesta = { estado: 'rechazada', motivo: 'El modelo no quiso leerlo (prueba): captúralo a mano.', uso };
+          const rech = await s.leerDocumentos({ archivos: [{ data_uri: PNG }], branch: SUC });
+          const filaR = (await trx.raw(`SELECT status, failure FROM commercial.customer_onboarding_readings WHERE id = ?`, [rech.lectura_id])).rows[0];
+          ok(rech.lectura.ok === false && rech.lectura.motivo === 'ia_fallida' && filaR?.status === 'rechazada' && /no quiso/.test(filaR.failure || ''),
+            '[ALC.4] un «refusal» no se vuelve datos: se dice, y la lectura fallida queda guardada con su costo', filaR);
+
+          process.env.ALC_AI_DAILY_CAP = '1';
+          const llamadasAntes = lector.llamadas;
+          const tope = await s.leerDocumentos({ archivos: [{ data_uri: PNG }], branch: SUC });
+          ok(tope.lectura.ok === false && tope.lectura.motivo === 'tope_diario' && lector.llamadas === llamadasAntes,
+            '[ALC.4] NEGATIVA: pasado el tope del día, el modelo NO se llama', tope.lectura);
+        } finally {
+          if (envAntes.e === undefined) delete process.env.ALC_AI_ENABLED; else process.env.ALC_AI_ENABLED = envAntes.e;
+          if (envAntes.c === undefined) delete process.env.ALC_AI_DAILY_CAP; else process.env.ALC_AI_DAILY_CAP = envAntes.c;
+        }
+      }
 
       throw Object.assign(new Error('rollback'), { esRollback: true });
     }).catch((e) => { if (!e.esRollback) throw e; });

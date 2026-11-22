@@ -8,10 +8,15 @@ import {
   hojaRelegible, motivoDeHoja, tipoLeible, base64De, lecturaSirve, camposQueCambiaron, pasadaVacia,
   type ResultadoRelectura,
 } from './relectura.engine';
-import { casarComprobantesConPagos, type PagoPorComprobante, type ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
+import {
+  casarComprobantesConPagos, decidirComprobanteDelRenglon,
+  type PagoDelRenglon, type PagoPorComprobante, type ResultadoComprobanteCalendario, type ResultadoComprobanteDelRenglon,
+} from '@megadulces/contracts/finance/validacion-pago';
+import { todayMx } from '@megadulces/platform-core';
 import { cuentaDeOrigen } from '../payment-calendar/validacion-pago.sql';
 import {
-  AUTOR_PAGO_POR_COMPROBANTE, PREFIJO_CALENDARIO, SQL_CUENTAS_DE_BANCO, SQL_PAGOS_PARA_COMPROBANTE, avisarComprobante,
+  AUTOR_PAGO_POR_COMPROBANTE, EVENTO_COMPROBANTE_SOLTADO, PREFIJO_CALENDARIO, SQL_CUENTAS_DE_BANCO, SQL_PAGO_DEL_RENGLON,
+  SQL_PAGOS_PARA_COMPROBANTE, avisarComprobante,
 } from '../payment-calendar/pago-por-comprobante';
 
 /**
@@ -1023,6 +1028,92 @@ export class SupplierPaymentProofsService {
       return { estado: 'casa' as const, pago_id: pagoId, comprobante_id: row.id as string, motivo: null, lectura, ocr };
     });
     this.logger.log(`[PGP.130] comprobante ${r.estado} · pago ${r.pago_id ?? '-'} · $${importe ?? '?'} ${lectura.fecha ?? '?'} · por ${actor || '?'}`);
+    return r;
+  }
+
+  /**
+   * `[PGP.191]` **El PDF soltado sobre el renglón de su pago** (Francisco, 2026-11-21: «encimar la transferencia sobre el
+   * renglón de pago»). La persona eligió el pago, así que no se busca: `decidirComprobanteDelRenglon` revisa que el PDF
+   * sea de ESTE pago (importe ±$1, una cuenta nuestra —la preparada, si la hay—, fecha razonable).
+   *
+   * Lo que liga se guarda como el comprobante `CAL` del pago, igual que `[PGP.130]`, y el worker hace el resto con sus
+   * reglas de siempre: lo da por pagado si estaba pendiente, sólo lo liga si ya estaba pagado, y lo pasa a apuntar a su
+   * `X-D-26` cuando Kepler lo tiene (`moverComprobanteAKepler`). Si el pago nunca se preparó, toma como origen la cuenta
+   * que leyó el PDF, que es la que necesita el `X-D-26`.
+   *
+   * DA1 (Francisco): un pago pendiente SIN autorizar también se liga — el dinero ya salió — y queda «sin autorizar»;
+   * el escritor de Kepler lo retiene hasta que el estado de cuenta confirme la salida (`[PGP.192]`).
+   *
+   * ⛔ Se revisa dos veces: antes de subir el archivo (un PDF que no es de este pago no deja archivo) y otra con el pago
+   * bloqueado (`FOR UPDATE`), porque otra persona pudo ligarle uno mientras se leía.
+   */
+  async comprobanteDelRenglon(allocationId: string, dataUri: string, actor?: string, hoy: string = todayMx()): Promise<ResultadoComprobanteDelRenglon> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(allocationId)) throw new BadRequestException('Pago inválido.');
+    // El comprobante se guarda sólo en PDF (`putPdf`): una imagen se rechaza ANTES de gastar la lectura.
+    if (!/^data:application\/pdf[;,]/i.test(dataUri || '')) throw new BadRequestException('Sólo el PDF del comprobante de la transferencia (el que descarga el banco).');
+    const leido = await this.runOcr(dataUri, 'comprobante');
+    const importe = leido.monto != null ? Number(leido.monto) : null;
+    const lectura = {
+      importe, fecha: leido.fecha ?? null, cuenta_origen: leido.cuenta_origen ?? null, beneficiario: leido.beneficiario ?? null, ocr_status: leido.ocr_status,
+    };
+    const no = (estado: ResultadoComprobanteDelRenglon['estado'], motivo: string): ResultadoComprobanteDelRenglon =>
+      ({ estado, pago_id: allocationId, comprobante_id: null, motivo, sin_autorizar: false, lectura });
+    if (leido.ocr_status !== 'ok') return no('sin_lectura', 'No se pudo leer el comprobante: súbelo en PDF legible.');
+    const revisar = async (trx: Knex.Transaction, bloquear: boolean) => {
+      const pago = (await trx.raw(`${SQL_PAGO_DEL_RENGLON}${bloquear ? ' FOR UPDATE OF a' : ''}`, [tenantId, allocationId])).rows[0] as
+        (PagoDelRenglon & { id: string }) | undefined;
+      if (!pago) throw new BadRequestException('Ese pago no existe.');
+      const cuentas = (await trx.raw(SQL_CUENTAS_DE_BANCO, [tenantId])).rows as { cuenta_id: string; account_label: string | null }[];
+      const cuentaLeida = String(leido.cuenta_origen ?? '').trim() || null;
+      const decision = decidirComprobanteDelRenglon(
+        { ...pago, importe: Number(pago.importe) },
+        { importe, fecha: lectura.fecha, cuenta_id: cuentaDeOrigen(String(cuentaLeida ?? '').replace(/\D/g, ''), cuentas), cuenta_leida: cuentaLeida },
+        hoy,
+      );
+      return { pago, decision };
+    };
+
+    const previa = await this.tk.run((trx) => revisar(trx, false));
+    if (!previa.decision.liga) return no('no', previa.decision.motivo);
+    const ref = normRef(leido.clave_rastreo);
+    const archivo = await this.uploadFile(dataUri, 'comprobante');
+    const r = await this.tk.run(async (trx): Promise<ResultadoComprobanteDelRenglon> => {
+      const { pago, decision } = await revisar(trx, true);
+      if (!decision.liga) return no('no', decision.motivo);
+      if (ref) {
+        const dup = await trx('finance.supplier_payment_proofs').where({ tenant_id: tenantId, ref_norm: ref }).whereNot('status', 'rechazado').first('id');
+        if (dup) return no('repetido', 'Ese comprobante (misma clave de rastreo) ya está en la Suite, ligado a otro pago.');
+      }
+      const [row] = await trx('finance.supplier_payment_proofs').insert({
+        tenant_id: tenantId, sucursal: PREFIJO_CALENDARIO, doc_prefix: PREFIJO_CALENDARIO, folio: allocationId,
+        metodo_pago: 'transferencia', proveedor_nombre: lectura.beneficiario, pago_date: lectura.fecha, pago_monto: Number(pago.importe),
+        files: JSON.stringify([{ ...archivo, sha256: leido.sha256 }]),
+        ocr_monto: importe, ocr_fecha: lectura.fecha, ocr_banco: leido.banco_destino || null, ocr_cuenta_dest: leido.cuenta_destino || null,
+        ocr_cuenta_origen: leido.cuenta_origen || null, ocr_concepto: leido.concepto || null, ocr_referencia: leido.clave_rastreo || null,
+        ocr_ordenante: leido.beneficiario || null, ocr_metodo: leido.metodo || null, ocr_raw: JSON.stringify(leido), ocr_status: 'ok',
+        // `ref_norm` NO se escribe: es GENERATED de `ocr_referencia` (la lección de `[PGP.130]`).
+        monto_match: true, cuenta_propia: true, lectura_verificada: true, auto_validado: true,
+        status: 'validado', validated_by: AUTOR_PAGO_POR_COMPROBANTE, validated_at: trx.fn.now(), created_by: actor || null,
+        comentarios: `[PGP.191] Soltado sobre el renglón del pago ${allocationId}: importe (±$1), cuenta nuestra y fecha revisados.`
+          + (decision.sin_autorizar ? ' El pago no estaba autorizado en la Suite (DA1).' : ''),
+      }).returning(['id']);
+      if (decision.fija_cuenta) {
+        await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).whereNull('bank_account_id')
+          .update({ bank_account_id: decision.fija_cuenta, payment_method: trx.raw(`coalesce(payment_method, 'transferencia')`), updated_at: trx.fn.now() });
+      }
+      await trx('finance.payment_allocation_history').insert({
+        tenant_id: tenantId, allocation_id: allocationId, event: EVENTO_COMPROBANTE_SOLTADO,
+        status_from: pago.status, status_to: pago.status, created_by: actor || null,
+        detail: JSON.stringify({
+          regla: 'PGP.191', comprobante: { id: row.id, fecha: lectura.fecha, importe, rastreo: leido.clave_rastreo ?? null },
+          autorizado_en_la_suite: pago.autorizado, cuenta_fijada: decision.fija_cuenta,
+        }),
+      });
+      await avisarComprobante(trx, row.id);
+      return { estado: 'ligado', pago_id: allocationId, comprobante_id: row.id as string, motivo: null, sin_autorizar: decision.sin_autorizar, lectura };
+    });
+    this.logger.log(`[PGP.191] comprobante ${r.estado} · pago ${allocationId} · $${importe ?? '?'} ${lectura.fecha ?? '?'}${r.sin_autorizar ? ' · SIN AUTORIZAR' : ''} · por ${actor || '?'}`);
     return r;
   }
 

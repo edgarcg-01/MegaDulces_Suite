@@ -17,6 +17,18 @@ import {
   corregirConVocabulario,
   smartSearchRank,
 } from '@megadulces/platform-core';
+import {
+  LARGO_NOTA_CIERRE,
+  MOTIVOS_CIERRE_COTIZACION,
+  capturaLimpia,
+  normalizarTerminoBusqueda,
+  type CapturaCotizacion,
+  textoDeCierreCotizacion,
+  type BusquedaRegistrada,
+  type CerrarCotizacionInput,
+  type CotizacionCerrada,
+  type EventoBusquedaCotizacion,
+} from '@megadulces/contracts';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
 import { consultaBuscadorCatalogo, PRECIO_SIMBOLICO_MAX } from '../shared/catalogo-buscador';
@@ -1108,12 +1120,16 @@ export class CommercialQuotesService {
      * nada. Opcional: sin `lines` el alta es la de siempre (cabecera sola).
      */
     lines?: CreateQuoteLine[];
+    /** `[COT.54]` Cuánto costó capturarla. Un valor imposible se guarda como no medido (`capturaLimpia`). */
+    capture?: CapturaCotizacion | null;
   }): Promise<CreatedQuote> {
     const userId = this.tenantCtx.get()?.userId;
     if (dto.lines !== undefined && dto.lines !== null && !Array.isArray(dto.lines)) {
       throw new BadRequestException('`lines` tiene que ser una lista de renglones.');
     }
     const lineas: CreateQuoteLine[] = dto.lines ?? [];
+    // `[COT.54]` Lo imposible se guarda como no medido, no se corrige a algo creíble.
+    const captura = capturaLimpia(dto.capture);
     if (lineas.length > MAX_LINES_ALTA) {
       throw new BadRequestException(`Una cotización admite hasta ${MAX_LINES_ALTA} renglones por alta (vienen ${lineas.length}).`);
     }
@@ -1216,6 +1232,7 @@ export class CommercialQuotesService {
             source_branch, terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days,
             salesperson_code, salesperson_name,
             delivery_address_key, order_notes,
+            capture_seconds, capture_searches, capture_recovered,
             created_by, updated_by
           ) VALUES (
             :tenant_id, :code, :customer_id, :erp_code, :erp_name,
@@ -1227,6 +1244,7 @@ export class CommercialQuotesService {
             :branch, :terms_source, :discount, :credit_limit, :payment_days,
             :salesperson_code, :salesperson_name,
             :delivery_address_key, :order_notes,
+            :capture_seconds, :capture_searches, :capture_recovered,
             :user_id, :user_id
           )
           RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until,
@@ -1267,6 +1285,9 @@ export class CommercialQuotesService {
             salesperson_name: dto.salesperson_name ?? null,
             delivery_address_key: direccionAlta,
             order_notes: observacionesAlta,
+            capture_seconds: captura?.segundos ?? null,
+            capture_searches: captura?.busquedas ?? null,
+            capture_recovered: captura?.recuperada ?? null,
           },
         );
 
@@ -1355,5 +1376,89 @@ export class CommercialQuotesService {
       );
       return updated.rows[0];
     });
+  }
+
+  /**
+   * `[COT.52]` Cierra una cotización SIN pedido, con un motivo de la lista. El motivo decide el
+   * estado: el cliente no compró → `rejected`; la dimos de baja nosotros → `cancelled` (ver
+   * `MOTIVOS_CIERRE_COTIZACION`). Sólo se cierra lo que sigue abierto (borrador o enviada) y no
+   * se escribió en Kepler: lo que ya es pedido se cancela en Kepler, no aquí.
+   */
+  async close(id: string, input: CerrarCotizacionInput, quien?: QuienCotiza | null): Promise<CotizacionCerrada> {
+    const motivo = MOTIVOS_CIERRE_COTIZACION.find((m) => m.codigo === input?.motivo);
+    if (!motivo) {
+      throw new BadRequestException('Elige por qué se cierra: sin motivo no se puede saber por qué no hubo pedido.');
+    }
+    const nota = (input?.nota ?? '').trim();
+    if (motivo.codigo === 'otro' && !nota) {
+      throw new BadRequestException('Con «Otro» escribe cuál fue el motivo.');
+    }
+    if (nota.length > LARGO_NOTA_CIERRE) {
+      throw new BadRequestException(`El detalle admite ${LARGO_NOTA_CIERRE} caracteres.`);
+    }
+    await this.assertPuedeAbrir(id, quien);
+    const userId = this.tenantCtx.get()?.userId;
+
+    return this.tk.run(async (knex) => {
+      const current = await knex('commercial.quotes')
+        .where({ id })
+        .whereNull('deleted_at')
+        .first('status', 'source_branch', 'kepler_folio');
+      if (!current) throw new NotFoundException('Cotización no encontrada');
+      await this.assertEscribeSucursal(current.source_branch);
+      if (current.kepler_folio) {
+        throw new ConflictException('La cotización ya es un pedido en Kepler: se cancela allá, no aquí.');
+      }
+      if (current.status !== 'draft' && current.status !== 'sent') {
+        throw new ConflictException(`La cotización ya está cerrada («${current.status}»).`);
+      }
+      const marca = motivo.estado === 'rejected' ? 'rejected_at' : 'cancelled_at';
+      const updated = await knex.raw(
+        `UPDATE commercial.quotes
+            SET status = :status,
+                ${marca} = now(),
+                close_reason = :reason,
+                updated_at = now(),
+                updated_by = :user_id
+          WHERE id = :id AND status IN ('draft', 'sent') AND kepler_folio IS NULL
+          RETURNING id, code, status, close_reason`,
+        { id, status: motivo.estado, reason: textoDeCierreCotizacion(motivo.codigo, nota), user_id: userId },
+      );
+      if (!updated.rows.length) {
+        // Otro la cerró o la mandó a Kepler entre la lectura y el UPDATE.
+        throw new ConflictException('La cotización cambió mientras se cerraba: vuelve a abrirla.');
+      }
+      return updated.rows[0] as CotizacionCerrada;
+    });
+  }
+
+  /**
+   * `[COT.53]` Cuenta un evento del buscador de artículos, ANÓNIMO: por día (CDMX), sucursal,
+   * término, artículo elegido y posición. No se guarda quién (decisión 2026-11-22). Un evento que
+   * no dice nada (término vacío) no se guarda y no es error: la pantalla lo manda sin esperar.
+   */
+  async registrarBusqueda(evt: EventoBusquedaCotizacion): Promise<BusquedaRegistrada> {
+    const branch = (evt?.branch ?? '').trim();
+    const term = normalizarTerminoBusqueda(evt?.term);
+    if (!branch) throw new BadRequestException('Falta la sucursal.');
+    if (!term) return { registrada: false };
+    await this.assertLeeSucursal(branch);
+    const sku = (evt.chosen_sku ?? '').trim().slice(0, 40);
+    const pos = Number(evt.position);
+    // Elegido sin posición no se guarda: ponerle «1» sería inventar dónde estaba (regla 11).
+    if (sku && !(Number.isInteger(pos) && pos > 0)) return { registrada: false };
+    const position = sku ? Math.min(pos, 32767) : 0;
+    const res = Number(evt.results);
+    const results = Number.isInteger(res) && res > 0 ? Math.min(res, 32767) : 0;
+    await this.tk.run((knex) =>
+      knex.raw(
+        `INSERT INTO commercial.quote_search_stats (tenant_id, day, branch, term, chosen_sku, position, results)
+         VALUES (public.current_tenant_id(), (now() AT TIME ZONE 'America/Mexico_City')::date, :branch, :term, :sku, :position, :results)
+         ON CONFLICT (tenant_id, day, branch, term, chosen_sku, position)
+         DO UPDATE SET times = commercial.quote_search_stats.times + 1, results = EXCLUDED.results, updated_at = now()`,
+        { branch, term, sku, position, results },
+      ),
+    );
+    return { registrada: true };
   }
 }

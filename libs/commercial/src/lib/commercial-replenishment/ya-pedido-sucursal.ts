@@ -20,7 +20,7 @@ import {
  *    no tiene ningún `U-D-40`; restarlas restaría mercancía que no existe).
  *  · Pedido abierto de 7 días o menos y embarque sin recibir de 7 días o menos: se RESTAN. Lo más
  *    viejo (atorado) y lo negado se MUESTRAN, no se restan.
- *  · `[PQ.136]` **Abierto** son los estatus de `WAREHOUSE_ORDER_ABIERTOS`, y desde ADR-126 incluyen
+ *  · `[PQ.136]` **Abierto** son los estatus de `WAREHOUSE_ORDER_ABIERTOS`, y desde ADR-127 incluyen
  *    `CREADO`: el pedido que escribe la Suite nace así, y si no contara, la sucursal volvería a
  *    pedir al día siguiente lo que acaba de pedir.
  *  · `[PQ.137]` El estatus es el **vigente** (`estatusVigenteSql`), no el `c11` crudo: Kepler

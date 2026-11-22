@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { SupplierPaymentProofsService, ListPaymentsQuery, AttachPaymentDto } from './supplier-payment-proofs.service';
-import type { ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
+import type { ResultadoComprobanteCalendario, ResultadoComprobanteDelRenglon } from '@megadulces/contracts/finance/validacion-pago';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 /** Lo único que se usa de la respuesta HTTP: poner un encabezado. */
@@ -135,6 +135,19 @@ export class SupplierPaymentProofsController {
   @ApiOperation({ summary: 'Sube el comprobante de una transferencia del Calendario: lo lee, lo casa con su pago y, si casa solo, lo da por pagado y lo registra en Kepler.' })
   calendario(@Body() body: { file_base64?: string }, @Req() req: AuthedRequest): Promise<ResultadoComprobanteCalendario> {
     return this.svc.comprobanteDelCalendario(body?.file_base64 || '', req?.user?.full_name || req?.user?.username);
+  }
+
+  /**
+   * `[PGP.191]` El PDF que soltaron sobre el renglón de UN pago del Calendario: se revisa contra ese pago (no se busca) y,
+   * si es suyo, se liga; el worker lo da por pagado o sólo lo liga. Mismo permiso que marcar pagado.
+   */
+  @Post('calendario/:allocationId')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.191] Liga el PDF de la transferencia al pago del Calendario sobre cuyo renglón se soltó, si es de ese pago.' })
+  calendarioDelRenglon(
+    @Param('allocationId') allocationId: string, @Body() body: { file_base64?: string }, @Req() req: AuthedRequest,
+  ): Promise<ResultadoComprobanteDelRenglon> {
+    return this.svc.comprobanteDelRenglon(allocationId, body?.file_base64 || '', req?.user?.full_name || req?.user?.username);
   }
 
   @Post('attach')

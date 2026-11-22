@@ -29,7 +29,7 @@ export const WAREHOUSE_ORDER_CANCELADO = 'CANCELADO' as const;
  *
  * ⛔ `CREADO` **sí** cuenta. Antes se omitía porque ningún pedido de sucursal nacía así —medido el
  * 2026-11-22: 0 de 5,621 en 365 días, el estado sólo existía en telemarketing—, pero desde
- * ADR-126 la Suite escribe el pedido de Autoabasto y el PM decidió que nazca `CREADO`. Sin esto el
+ * ADR-127 la Suite escribe el pedido de Autoabasto y el PM decidió que nazca `CREADO`. Sin esto el
  * pedido recién escrito era invisible para el módulo que lo escribió: no se restaba del sugerido
  * (la sucursal volvía a pedir lo mismo al día siguiente) ni aparecía en «Lo que te va a llegar».
  */

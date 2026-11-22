@@ -1,4 +1,7 @@
-import { textoValidacion, validadoParaKepler, validarPagos, type ComprobanteBanco, type EntradaValidacion, type MovimientoBanco, type PagoAValidar } from './validacion-pago.contract';
+import {
+  decidirComprobanteDelRenglon, textoValidacion, validadoParaKepler, validarPagos,
+  type ComprobanteBanco, type DecisionDelRenglon, type EntradaValidacion, type LecturaDelRenglon, type MovimientoBanco, type PagoAValidar, type PagoDelRenglon,
+} from './validacion-pago.contract';
 
 const pago = (o: Partial<PagoAValidar> = {}): PagoAValidar => ({ id: 'P1', dia: '2026-11-03', importe: 19400, cuenta_id: 'BB4166', metodo: 'transferencia', ...o });
 const mov = (o: Partial<MovimientoBanco> = {}): MovimientoBanco => ({ id: 'M1', cuenta_id: 'BB4166', fecha: '2026-11-03', importe: 19400, ...o });
@@ -75,5 +78,63 @@ describe('[PGP.103] validar un pago contra el banco y su comprobante', () => {
   it('cada estado tiene su frase', () => {
     expect(textoValidacion('falta_comprobante')).toBe('En el banco · falta el comprobante');
     expect(validadoParaKepler(null)).toBe(false);
+  });
+});
+
+describe('[PGP.191] el PDF soltado sobre su renglón: ¿es de este pago?', () => {
+  const HOY = '2026-11-21';
+  const renglon = (o: Partial<PagoDelRenglon> = {}): PagoDelRenglon => ({
+    status: 'executed', metodo: 'transferencia', cuenta_id: 'BB4166', importe: 19400, dia: '2026-11-19', autorizado: true, con_comprobante: false, ...o,
+  });
+  const leido = (o: Partial<LecturaDelRenglon> = {}): LecturaDelRenglon => ({ importe: 19400, fecha: '2026-11-19', cuenta_id: 'BB4166', cuenta_leida: '0004166', ...o });
+  const d = (p: Partial<PagoDelRenglon> = {}, l: Partial<LecturaDelRenglon> = {}) => decidirComprobanteDelRenglon(renglon(p), leido(l), HOY);
+  const motivo = (r: DecisionDelRenglon) => (r.liga ? '' : r.motivo);
+
+  it('⭐ el pago ya pagado, importe y cuenta iguales: se liga, sin marca ni cuenta nueva', () => {
+    expect(d()).toEqual({ liga: true, sin_autorizar: false, fija_cuenta: null });
+  });
+  it('±$1 todavía es el mismo pago (Kepler suele traer centavos de menos)', () => {
+    expect(d({}, { importe: 19400.99 }).liga).toBe(true);
+    expect(d({}, { importe: 19399.01 }).liga).toBe(true);
+  });
+  it('⛔ NEGATIVA: un importe distinto no se liga, y dice los dos importes', () => {
+    const r = d({}, { importe: 19401.5 });
+    expect(r.liga).toBe(false);
+    expect(motivo(r)).toContain('$19,401.50');
+    expect(motivo(r)).toContain('$19,400.00');
+  });
+  it('⭐ DA1: pendiente y sin autorizar se liga, marcado «sin autorizar»', () => {
+    expect(d({ status: 'pending', autorizado: false })).toEqual({ liga: true, sin_autorizar: true, fija_cuenta: null });
+    expect(d({ status: 'pending', autorizado: true })).toEqual({ liga: true, sin_autorizar: false, fija_cuenta: null });
+  });
+  it('un ejecutado sin autorización no se marca aquí: ya estaba pagado antes del PDF', () => {
+    expect(d({ status: 'executed', autorizado: false })).toEqual({ liga: true, sin_autorizar: false, fija_cuenta: null });
+  });
+  it('⭐ un pago nunca preparado toma la cuenta que leyó el PDF (la necesita el X-D-26)', () => {
+    expect(d({ status: 'pending', autorizado: false, cuenta_id: null, metodo: null })).toEqual({ liga: true, sin_autorizar: true, fija_cuenta: 'BB4166' });
+  });
+  it('⛔ NEGATIVA: el PDF sale de otra cuenta nuestra que la preparada', () => {
+    expect(motivo(d({}, { cuenta_id: 'BBVA0489' }))).toBe('El PDF sale de otra cuenta que la preparada para este pago.');
+  });
+  it('⛔ NEGATIVA: una cuenta que no es nuestra (o ilegible) no se liga, y se dice cuál se leyó', () => {
+    expect(motivo(d({}, { cuenta_id: null, cuenta_leida: '9999' }))).toContain('9999');
+    expect(motivo(d({}, { cuenta_id: null, cuenta_leida: null }))).toBe('No se pudo leer de qué cuenta salió el dinero.');
+  });
+  it('⛔ cancelado, rebotado, efectivo, cheque y con comprobante: no', () => {
+    expect(motivo(d({ status: 'cancelled' }))).toContain('cancelado');
+    expect(motivo(d({ status: 'failed' }))).toContain('rebotó');
+    expect(motivo(d({ metodo: 'efectivo' }))).toContain('efectivo');
+    expect(motivo(d({ metodo: 'cheque' }))).toContain('cheque');
+    expect(motivo(d({ con_comprobante: true }))).toBe('Este pago ya tiene su comprobante.');
+  });
+  it('⛔ sin importe o sin fecha leídos: no se adivina', () => {
+    expect(d({}, { importe: null }).liga).toBe(false);
+    expect(d({}, { fecha: null }).liga).toBe(false);
+  });
+  it('⛔ fechas: futura no; más de 30 días antes del programa no; 30 justos y después del día, sí', () => {
+    expect(motivo(d({}, { fecha: '2026-11-22' }))).toContain('posterior a hoy');
+    expect(motivo(d({}, { fecha: '2026-10-19' }))).toContain('más de 30 días');
+    expect(d({}, { fecha: '2026-10-20' }).liga).toBe(true);
+    expect(d({}, { fecha: '2026-11-21' }).liga).toBe(true);
   });
 });

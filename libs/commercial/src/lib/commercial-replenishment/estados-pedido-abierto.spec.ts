@@ -5,7 +5,7 @@ import { PEDIDOS_SUCURSAL_SQL, PEDIDOS_SUCURSAL_RED_SQL } from './ya-pedido-sucu
 /**
  * `[PQ.136]` · `[PQ.137]` **Qué cuenta como pedido abierto, y de dónde sale el estatus.**
  *
- * Las dos reglas que cambiaron con ADR-126, en un solo lugar:
+ * Las dos reglas que cambiaron con ADR-127, en un solo lugar:
  *  · `CREADO` cuenta como abierto — el pedido que la Suite escribe nace así, y si no contara, la
  *    sucursal volvería a pedir al día siguiente lo que acaba de pedir.
  *  · El estatus se lee VIGENTE (`c43='C'` → `CANCELADO`), no por el `c11` que Kepler conserva al

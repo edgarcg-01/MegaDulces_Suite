@@ -138,6 +138,8 @@ Ciclo de Pedido: una sola agenda.
 | DC22 | Las dos **gerencias de zona con rol de plataforma** ven todo el calendario (modo dios), no sólo su zona. Recortarlas es una regla de usuario en el área `compras`, que es también la de Pedido, donde ese rol aprueba requisiciones a diario: el recorte les cambiaría Pedido. Propuesta: dejarlo así; si se quiere el recorte, se decide para las dos pantallas (§10.7) | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
 | DC23 | El rol `compras` (comprador y auxiliar, 2 personas) **ve y marca**. No estaba en §4.1; se agregó porque el comprador es quien revisa al proveedor | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
 | DC24 | La gerencia de compras de Canindo y Zamora Centro **no se recorta** a 05–06: define reglas para todas (DC8) y un recorte de alcance le quitaría las corporativas. «Abre en 05 y 06» queda como búsqueda («Zamora», «Canindo»); un filtro que se recuerde sería otro item | ✅ Francisco, 2026-11-21 (aceptó la propuesta) |
+| DC25 | El conocimiento para definir reglas lo tienen **dos personas**: la jefa actual de compras (`gerente_compras`) y quien llevaba antes la gerencia, hoy en operaciones de compras (`compras_operaciones`, rol de **una** sola persona, que ve y marca pero no define). El resto del equipo ejecuta (Francisco, 2026-11-21). **Define la jefa actual**: no se le da `COMPRAS_CALENDARIO_CICLO` a `compras_operaciones`. Como la clave la tiene otra persona de `gerente_compras` y el modo dios también define, se rastrea **quién definió y quién cambió** cada regla (PQ.3.17). Refina DC8 (§10.9) | ✅ Francisco, 2026-11-22 («Arizbeth o hacer un tracking de quién definió reglas»: las dos) |
+| DC26 | **Mantenimiento**: el patrón lo decide la jefa de compras (DC25). Si un comprador no avanzó, **pospone** («hoy no se pide» con nueva fecha) o hace una **revisión extemporánea** (las dos ya existen), o **ajusta la regla sólo para su sucursal o zona** (PQ.3.19: nueva clave por ADR-054, limitada a su alcance de escritura, nunca la corporativa; falta decidir si la de sucursal o zona reemplaza a la corporativa en esas sucursales o se revisa aparte, §10.1). Con el rastro de quién cambió qué (PQ.3.17) | ✅ Francisco, 2026-11-22 |
 
 ### 4.1 Quién entra (DC6), medido contra los roles de prod
 
@@ -180,7 +182,7 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
   concentrada caen en miércoles, pero sólo el 37 % de sus OC sale ese día. No se propone como día de
   revisión; las citas de entrega son del WMS (§2).
 
-## 6. Items (en el tracker como PQ.3.1–PQ.3.14)
+## 6. Items (en el tracker como PQ.3.1–PQ.3.19)
 
 | # | Entregable | Capa |
 |---|---|---|
@@ -198,6 +200,11 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | PQ.3.12 | **Invitación de calendario** (§9.5): `.ics` por correo (Google Workspace / Outlook) con el puerto de correo existente | C2 |
 | PQ.3.13 | **Visitas por WhatsApp** (§10.4): horario de visitas por persona, «Ofrecer horarios» y «Pedir visita» (con motivo); el mensaje sale por `wa.me` con el ayudante que ya existe, movido a `libs/`; el contacto del ejecutivo es dato propio | C0→C3 |
 | PQ.3.14 | La vista propone **día fijo por sucursal** donde la entrega y la OC caen el mismo día de la semana (16 pares medidos, 84 %). En el CEDIS no lo propone: ahí es día de recepción (37 %, R7) | C0 |
+| PQ.3.15 | **Cada 2, 3 o 4 semanas en un día fijo** (§10.9): «días de la semana» lleva cada cuántas semanas y desde qué semana cuenta, para que «un lunes sí y otro no» no se mueva con la actividad de Kepler | C0→C3 |
+| PQ.3.16 | **La siguiente fecha la pone quien pide** (§10.9), como en la hoja; «cada N días» no cae en domingo; se decide de qué se cuenta «cada N» (OC u OC y entrada), con antes/después | C0→C3 |
+| PQ.3.17 | **Quién definió y quién cambió cada regla** (DC25): la regla dice quién la creó y quién la cambió por última vez; el historial de cambios (de qué a qué) se decide en C0 sin inventar una tabla de historial propia (ADR-056) | C0→C3 |
+| PQ.3.18 | **El embudo de llenado en «Sin regla»** (§10.10): la lista por escalón (dinero y operaciones), el medidor de adopción en % de la compra y de las OC, y la decisión en bloque para los ocasionales | C2→C3 |
+| PQ.3.19 | **El comprador ajusta la regla de su sucursal o zona** (DC26): clave nueva, sólo dentro de su alcance de escritura, nunca la corporativa; con rastro (PQ.3.17) | C1→C3 |
 
 ## 7. Definición de Terminado
 
@@ -222,6 +229,11 @@ las compras de tienda en Wincaja (`WIN_C`) **NO MEDIDAS** todavía para el calen
 | 2026-11-20 | **PQ.3.6 🧪** (§10.7): las tres claves repartidas por migración (sin aplicar) y el alcance por sucursal en la API: cada quien ve y escribe sólo las reglas que caben en sus sucursales; el almacenista queda recortado a la suya sólo en Compras (medido: ninguno usó una ruta de Compras en 60 días). Tres decisiones propuestas (DC22–DC24) | sesión Claude |
 | 2026-11-20 | **PQ.3.5 🧪** (§10.6): la pantalla, con las preguntas de diseño escritas antes; probada en local contra Docker en los tres perfiles (escritorio, Fold 7 abierto, celular) y en oscuro, con las cuatro escrituras hechas desde la pantalla. Hallazgo en la base: los privilegios por defecto de `commercial` le daban DELETE a `app_runtime`; la migración ahora lo revoca (sin el REVOKE, la prueba se pone en rojo) | Francisco (autorizó levantar los servidores) + sesión Claude |
 | 2026-11-21 | **DC22–DC24 ✅** (Francisco, como se propusieron): las gerencias de zona con rol de plataforma siguen viendo todo el calendario (recortarlas cambiaría también Pedido); el rol `compras` ve y marca; la gerencia de compras de Canindo y Zamora Centro no se recorta a 05–06. |
+| 2026-11-21 | **La hoja de las próximas semanas contra la Suite** (§10.9): 27 proveedores (28 reglas), 6 de ellos ubicados por la marca en la descripción del artículo. Simulado con el código real contra Kepler (sólo lectura): 23 de 50 fechas iguales (semanales 21 de 24, quincenales 0 de 7, fecha única 2 de 19). Se abren PQ.3.15 y PQ.3.16; DC25 propuesta | Francisco + sesión Claude |
+| 2026-11-22 | **DC25 ✅**: define la jefa actual de compras (no se reparte la clave a `compras_operaciones`) y se rastrea quién definió y quién cambió cada regla → **PQ.3.17**. Las 5 reglas semanales las captura ella desde la pantalla | Francisco + sesión Claude |
+| 2026-11-22 | **DC26 ✅** y **PQ.3.19**: el patrón lo decide la jefa de compras; el comprador pospone, revisa fuera de fecha (ya existen) o ajusta la regla sólo para su sucursal o zona (nuevo) | Francisco + sesión Claude |
+| 2026-11-22 | **El embudo de llenado** (§10.10): 340 proveedores, 0 reglas; dinero y operaciones no ordenan igual (50 % de la compra = 10 proveedores, 50 % de las OC = 22); escalón 1 = 62 proveedores, 82.8 % de la compra y 65.8 % de las OC. Se abre **PQ.3.18**. PQ.3.14 ✅ (en prod con #591) | Francisco + sesión Claude |
+| 2026-11-22 | **PQ.3.18 🧪**: el orden y el medidor del embudo en «Sin regla», sin migración. Control en prod con el repo real = medición independiente (0 escalones distintos); dominio 36 ✔ (5 mutantes), vista 26 ✔, componente 14 ✔ (3 mutantes), Postgres real 45 ✓. Falta la decisión en bloque de los ocasionales, la prueba visual y el PR | sesión Claude |
 
 ---
 
@@ -768,3 +780,209 @@ dominio (`diaFijoDeActividad`). Medido en prod (sólo lectura) el 2026-11-21:
   - La X de cerrar los diálogos de PrimeNG mide 36 px con el dedo en todos los diálogos (ya estaba en PQ.3.5/3.6).
     Arreglarla es de la hoja global. «Cancelar» sí mide 44 px.
   - La campana de avisos pide `finance/goods-receipts/devueltas`, y la API local da 404 («Cannot GET»).
+
+### 10.9 La hoja de las próximas semanas contra la Suite (2026-11-21)
+
+Francisco compartió la hoja con las fechas de las próximas semanas (18-nov → 28-dic: 17 días, 30 nombres,
+27 proveedores; uno se revisa en dos alcances, así que son 28 reglas) para cargarla y que la gerencia llegue a un calendario con lo que ya conoce. **La hoja no se
+importa** (§2, regla 1): se simuló qué reglas la reproducen con el código real del calendario
+(`armarCalendario`, cargado por ts-node como en `test-newdb-pq3-4`) contra la actividad de Kepler en prod, en
+sólo lectura y sin escribir nada.
+
+**Quién es quién.**
+- 21 proveedores salen por el nombre de su ficha.
+- 6 nombres son marcas, nombres comerciales o razones sociales viejas: «identificadores cotidianos; lo
+  correcto es la línea del catálogo» (Francisco). En Kepler, la «línea» (`kdii.c3` → `kdig`) guarda razones
+  sociales viejas, no la marca: la marca vive en la **descripción del artículo**. Por ahí se ubicaron: los
+  artículos cuya descripción lleva la marca → a qué proveedor se les compró en 12 meses (líneas de OC).
+  - **Control:** dos proveedores conocidos dan su clave.
+  - Los 6 salen con un proveedor claro (entre 12 de 14 y 22 de 25 de sus artículos), sin contar las claves
+    de sucursal propia ni una clave que aparece en casi todas las marcas.
+  - En uno, la ficha con el nombre de la marca no tiene compra en 12 meses: la marca se le compra a otro
+    proveedor.
+- ⛔ Un cruce por **coincidencia de fechas** (OC a ±3 días de las de la hoja) **no pasó su control** y se
+  descartó: a un proveedor de compra frecuente todo le coincide, y los dos conocidos no salían arriba.
+
+**Qué reproduce la Suite** (fechas de la hoja del 21-nov al 28-dic):
+
+| Cómo los revisa la hoja | Reglas | Fechas de la hoja que la Suite da igual |
+|---|---:|---:|
+| Cada semana, el mismo día | 5 | **21 de 24** (2 a un día; 1 viernes extra de la hoja) |
+| Cada 2 semanas, el mismo día | 3 | **0 de 7**: «cada 14 días» cuenta desde la última actividad, que no cae ese día → PQ.3.15 |
+| Una sola fecha próxima, que elige el comprador en cada ronda | 20 | **2 de 19** con el ciclo de 12 meses de Kepler → PQ.3.16 |
+| **Total** | **28** | **23 de 50 (46 %)** |
+
+- **De qué se cuenta «cada N días».** El §10.3 dice «la última ronda de OC»; el código toma la última OC
+  **o entrada** (`actividadDeLaRegla`). Anclar sólo en la OC no cambia el total (23 de 43 sobre las primeras
+  22 reglas) pero sí mueve fechas sueltas: la entrada no es la causa del desacuerdo. Se decide en
+  PQ.3.16, con antes/después (regla 15).
+- **Fin de semana.** Las reglas «cada N días» darían 49 fechas: 8 en sábado y **3 en domingo**. El
+  corrimiento de fin de semana (DC19) sólo aplica a «días del mes».
+- **Feriados.** Las semanales de viernes marcan el 25-dic. Mientras no haya calendario de días inhábiles
+  (§10.3, deuda con nombre), ese día se marca «hoy no se pide».
+
+**Qué se carga.** Sólo las 5 semanales, por la API de la pantalla, con la sesión de quien define reglas
+(DC8) y una nota de origen. **Las captura la jefa de compras desde la pantalla** (Francisco, 2026-11-22), así quedan
+definidas por ella; al 22-nov, nada se escribió en prod. Las otras 23 esperan a PQ.3.15 y PQ.3.16: cargadas hoy, la Suite mostraría fechas
+que contradicen la hoja, lo contrario de lo que se busca. Los nombres y claves viven fuera del repo (es
+público), en el scratch de la sesión.
+
+**Quién define (DC25).** `COMPRAS_CALENDARIO_CICLO` lo tiene sólo `gerente_compras` (2 personas, medido
+en prod). De las dos personas con el conocimiento, una está en ese rol y la otra en `compras_operaciones`,
+que ve y marca pero no define. Decidido (2026-11-22): define la jefa actual, y se rastrea quién definió y quién
+cambió cada regla. **Medido:** la base ya guarda `created_by`, `updated_by` y `deleted_by`, pero la pantalla sólo
+dice «Definida por» con quien la CREÓ: si otra persona cambia el patrón (guardar sobre una regla viva la
+reemplaza), sigue nombrando a la primera, y eso afirma lo que no es. El patrón anterior no se guarda en ningún
+lado. El repo no tiene un historial genérico (cada módulo tiene el suyo) → PQ.3.17.
+
+### 10.10 El embudo de llenado (2026-11-22)
+
+Francisco: *«un embudo de decisiones para llevar el avance de adopción del calendario en relación a importancia
+económica y número de operaciones, para el rápido llenado; una vez lleno, se estarían editando las reglas como
+hoy cada quien llenaba el Drive»*.
+
+**Medido el 2026-11-22 en prod (sólo lectura), con el código real del calendario** (`leerCalendario` y
+`leerPropuestas`) y las OC vivas de 12 meses (X-A-35, estatus ≠ C, sin claves de sucursal propia): 340
+proveedores, 10,382 OC, **0 reglas vivas**.
+
+**Las dos importancias no ordenan igual:**
+
+| | Para el 50 % | Para el 80 % |
+|---|---:|---:|
+| De la **compra** (monto) | 10 proveedores | 48 |
+| De las **OC** (operaciones) | 22 proveedores | 84 |
+
+De los 22 que hacen la mitad de las OC, sólo 8 pesan en dinero: los otros 14 son compra local de todos los
+días, poca plata y mucho trabajo. Ordenar sólo por dinero los dejaría al final.
+
+**El embudo (tres escalones, en este orden):**
+
+| Escalón | Quiénes | Proveedores | % de la compra | % de las OC | Decisión que lo saca |
+|---|---|---:|---:|---:|---|
+| 1 | Los que hacen el 80 % de la compra **o** el 50 % de las OC | **62** | **82.8** | **65.8** | 55 confirmar el ciclo de Kepler · 3 aceptar día fijo · 4 compra continua (días de la semana) |
+| 2 | El resto con compra recurrente | 184 | 15.4 | 32.4 | 177 confirmar el ciclo · 7 aceptar día fijo |
+| 3 | Ocasionales (una o pocas compras en 12 meses) | 94 | 1.8 | 1.8 | en bloque: ciclo largo o «fuera de ciclo» con motivo |
+
+- **Avance de la adopción** = proveedores con decisión (regla viva o fuera de ciclo), en % de la compra y % de
+  las OC; después, cuántos de ellos están **al día**. Hoy: 0 de 340 (0 %).
+- De los 62 del escalón 1, unos 36 aparecen en la hoja 2026 (cruce aproximado por nombre del 10-nov): la
+  Suite cubriría proveedores que la hoja no tiene.
+- **Lo que no está medido:** cuánto tarda cada decisión en la pantalla (estimado: un diálogo por proveedor).
+
+**Después del llenado (fase 2):** las reglas se mantienen como hoy se llena el Drive. Lo decidió Francisco (DC26, abajo).
+
+**En la Suite: PQ.3.18.** El embudo vive en «Sin regla» para que el avance sea el de hoy y no una foto:
+- la lista ordenada por escalón;
+- el medidor de adopción («con regla: N de 340 · X % de la compra · Y % de las OC»);
+- la decisión en bloque para los ocasionales.
+
+Mientras tanto, la medición se repite a pedido con el script de la sesión, sin escribir en prod.
+
+**PQ.3.18: las preguntas antes de construir** (skill `diseno` §0a, 2026-11-22):
+
+1. **Propósito.** «¿A qué proveedor le defino la regla ahora, y cuánto llevo?». Cierra el acto de *definir la siguiente
+   regla que más pesa*.
+2. **Quién entra.** Quien define reglas: `gerente_compras` (2 personas) y el modo dios (Francisco, Dirección). Uso
+   medido el 21-nov: una consulta al calendario (Dirección), 0 reglas.
+3. **Estado real.** 0 de 340 proveedores con regla. El trabajo está detenido en el primer paso: nadie sabe por dónde
+   empezar. La lista de hoy va por la siguiente fecha que propone Kepler, no por lo que pesa.
+4. **Qué ve primero (nivel 0).** Una línea: «Con regla: N de 340 proveedores · X % de la compra · Y % de las OC».
+   Debajo, los tres escalones con su avance. La lista empieza por el escalón 1, de mayor a menor peso.
+5. **Qué no ve.** El monto en pesos: el peso va en % de la compra, porque decide igual y no expone cifras. Los
+   proveedores con regla no se listan uno por uno: ya están en «Reglas».
+6. **Mapa de desglose.**
+
+   | Cifra | Dónde se abre | Qué contiene |
+   |---|---|---|
+   | Avance total | — | es la suma de los escalones de abajo |
+   | Avance de un escalón | un clic: la lista se filtra a ese escalón | sus proveedores sin regla |
+   | Peso de un proveedor (% compra · OC) | su renglón | rondas de 12 meses y la propuesta de Kepler |
+   | Proveedor | «Definir regla» (ya existe) | el diálogo con la propuesta armada |
+
+7. **Accesibilidad.** Cada escalón es un botón con nombre («Ver sólo el escalón 1»), alcanzable con Tab. El escalón
+   también va en texto, no sólo en color. El buscador sigue igual.
+8. **Ligas.** Viene de Kepler (OC X-A-35, la vista PQ.3.1) y va a la regla («Definir regla» → «Reglas»).
+9. **¿Le toca a esta pantalla?** Sí: «Sin regla» es donde se definen las reglas. No se crea otra pantalla.
+10. **Maqueta.**
+
+    ```
+    Con regla: 0 de 340 proveedores · 0 % de la compra · 0 % de las OC
+    [Escalón 1 · 80 % de la compra o 50 % de las OC]  0 de 62 · 0 de 82.8 % de la compra · 0 de 65.8 % de las OC
+    [Escalón 2 · el resto con compra recurrente]       0 de 184 · …
+    [Escalón 3 · ocasionales]                          0 de 94 · …
+    Proveedor | Peso (% compra · OC · rondas) | Kepler propone | Última orden | Sucursales | Definir regla
+    ```
+
+    Cambia contra hoy: el medidor, el orden y la columna «Peso», que absorbe «Rondas en 12 meses». Se conserva todo lo
+    demás, incluido el día fijo por sucursal (PQ.3.14).
+11. **Criterios.**
+    - El medidor cuadra con una consulta independiente.
+    - Con cero reglas dice 0 %, no vacío.
+    - Una regla dada de baja sale del avance (prueba negativa).
+    - Si la compra de 12 meses no se puede leer, se **declara** («el peso no se midió») y la lista sigue en el orden
+      de hoy.
+12. **Lo que no resuelve.**
+    - La decisión en bloque de los ocasionales necesita definir qué regla llevan: ciclo largo, o «fuera de ciclo» con
+      motivo (que exige una regla antes). **Queda para después de esa decisión.**
+    - El peso es el monto de las OC vivas, no lo recibido.
+
+**Después del llenado (DC26, Francisco 2026-11-22).**
+- El **patrón lo decide la jefa de compras**.
+- Si un comprador no avanzó, puede:
+  - **posponer** («hoy no se pide» con nueva fecha; ya existe);
+  - hacer una **revisión extemporánea** (marcar «se pidió fuera de Kepler» en cualquier fecha, o que caiga la OC;
+    ya cuenta como atendida);
+  - **ajustar la regla sólo para su sucursal o su zona** (nuevo → PQ.3.19).
+
+**Cómo quedó (PQ.3.18 🧪, 2026-11-22): (a) el orden y (b) el medidor. Sin migración ni vista nueva.**
+- **API.** `GET /compras/calendario/propuestas` trae `embudo` (avance total y por escalón, en % de la compra y de las
+  OC) y el `peso` de cada propuesta (escalón, % de la compra, OC de 12 meses). La lista llega ordenada por escalón y
+  peso.
+  - La compra de 12 meses es una consulta nueva (`SQL_COMPRA_DOCE_MESES`, OC vivas) dentro de un SAVEPOINT. Si falla,
+    se declara `embudo.measured: false` con nota, y la lista queda en el orden de Kepler.
+  - El escalón lo calcula una función pura (`armarEmbudo`). Es del proveedor, no de si ya tiene regla.
+- **Pantalla.** En «Sin regla» va primero «Con regla: N de 340 proveedores · X % de la compra · Y % de las OC», y
+  debajo los tres escalones.
+  - Cada escalón es un botón que filtra la lista a ése (`aria-pressed`, y lo dice); otro clic vuelve a todos.
+  - La columna «Peso en la compra» absorbe a «Rondas en 12 meses».
+  - Sin la compra medida, lo dice en vez de pintar 0 %.
+- **Control en prod (sólo lectura).** El repositorio real da lo mismo que la medición independiente de la sesión:
+  62/184/94 proveedores, 82.8/15.4/1.8 % de la compra, 65.8/32.4/1.8 % de las OC y **0 proveedores en un escalón
+  distinto**. Las propuestas tardan 2.9 s en prod con la compra incluida.
+- **Pruebas.**
+  - Dominio: 36 ✔. Cinco mutantes en rojo: sólo por dinero, umbral de 70 %, ocasional con día fijo, contar sin reglas
+    vivas, y entrar al cruzar el umbral.
+  - Vista: 27 ✔. Componente: 14 ✔, con 3 mutantes en rojo (sin orden, filtro que no filtra, escalón que no se suelta).
+  - `test-newdb-pq3-4`: 45 ✓ contra Postgres real, con la negativa «definir una regla sube el avance; darla de baja lo
+    regresa».
+  - Negativa local: con la consulta de la compra rota, el embudo se declara no medido y la transacción sigue viva; sin
+    el SAVEPOINT, la prueba se pone roja.
+  - `check:pantalla` tipa y cumple las 10 reglas. `nx build view` (desarrollo) compila.
+- **Prueba visual de punta a punta (2026-11-22, Docker local, API y vista locales; 0 fallas, 43 ✓).** Francisco
+  autorizó levantar los servidores.
+  - **Datos.** La base local preparada como en PQ.3.14 (8 reglas de muestra, 9 sucursales con zona, OC sembradas):
+    10 proveedores con compra, 7 con regla.
+  - **Control.** Antes de abrir la pantalla, el total de la API cuadra con un conteo independiente en la base (7 de 10).
+    La línea de la pantalla se compara contra la misma fórmula escrita aparte.
+  - **Perfiles:** escritorio 1440×900, Fold 7 abierto 750×832 táctil, celular 390×844 táctil, y escritorio en oscuro.
+    Sin desplazamiento lateral, nada fuera de la pantalla, y lo nuevo mide 44 px o más con el dedo.
+  - **Flujo.**
+    - El escalón 1 filtra la lista a sus 2 proveedores y lo dice; otro clic regresa a los 4.
+    - Con teclado, Tab llega al escalón con anillo de foco y Enter filtra.
+    - En el celular, el peso queda apilado bajo su rótulo.
+    - **Escribe una vez:** definir desde la pantalla la regla del primero de la lista (36.4 % de la compra) da 201, y el
+      medidor pasa de «7 de 10 · 58.9 % de la compra · 72 % de las OC» a «8 de 10 · 95.3 % · 78.3 %».
+  - **Lo que encontró, ya corregido:**
+    - **En el celular el % se separaba de su número** («68.1» en un renglón y «% de las OC» en el siguiente). Ahora va
+      un espacio que no se parte (U+00A0), también en el nombre de los escalones. La prueba mide que llegue así al
+      DOM. ⚠️ El primer lector de la prueba lo ocultaba: normalizaba con `s`, que también se come ese espacio.
+    - **Un escalón vacío decía «0 de 0 proveedores · 0 % de 0 %…».** Ahora dice «Ningún proveedor en este escalón».
+    - **El embudo quedaba pegado a la nota de abajo**, y la línea «Viendo sólo el escalón…» quedaba entre dos notas.
+      Ahora el embudo tiene aire, y el filtro se dice pegado a la tabla que filtra.
+  - **Lo que no es de esta pieza (declarado):** la campana de avisos pide `finance/goods-receipts/devueltas` y la API
+    local da 404, igual que en PQ.3.14. No se vio en prod con datos reales.
+  - La base local se dejó como estaba: las reglas que escribió la prueba se borraron, y la preparación se deshizo en
+    orden inverso.
+- **Falta:**
+  - (c) la decisión en bloque para los ocasionales, que espera la decisión de qué regla llevan;
+  - el PR.

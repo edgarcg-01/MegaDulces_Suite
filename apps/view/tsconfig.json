@@ -48,6 +48,7 @@
       "@megadulces/contracts/http/codigo-de-barras": ["../../libs/contracts/src/http/codigo-de-barras.contract.ts"],
       // [PGP.104] El texto de la validación banco + comprobante de un pago (Pagos).
       "@megadulces/contracts/finance/validacion-pago": ["../../libs/contracts/src/finance/validacion-pago.contract.ts"],
+      "@megadulces/contracts/finance/aviso-de-pago": ["../../libs/contracts/src/finance/aviso-de-pago.contract.ts"],
       "@megadulces/contracts/finance/cfdi-factura": ["../../libs/contracts/src/finance/cfdi-factura.contract.ts"],
       "@megadulces/contracts/finance/momento-poliza": ["../../libs/contracts/src/finance/momento-poliza.contract.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],

@@ -70,7 +70,7 @@ import {
 function esPesable(it: { base_unit: string | null; rung: Rung }): boolean {
   return it.base_unit === 'KG' && it.rung === 'base';
 }
-import { totalesCotizacion } from '@megadulces/contracts';
+import { totalesCotizacion, type CapturaCotizacion } from '@megadulces/contracts';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
 import { UltimoAgregadoComponent, textoAgregado, verRenglonEnLista, type UltimoAgregado } from '../components/ultimo-agregado.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -1457,6 +1457,29 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** Hay algo que una recarga tiraría. */
   readonly hayTrabajo = computed(() => this.bandeja().length > 0 || !!this.cliente() || !!this.contactoNombre().trim());
 
+  // ── [COT.54] Cuánto cuesta capturar (se reporta sólo agregado, nunca por persona) ──────────
+  /** epoch ms del primer artículo en la bandeja; null = bandeja vacía. */
+  private inicioCaptura: number | null = null;
+  /** Búsquedas de artículo que trajeron lista en esta pantalla. */
+  busquedasCaptura = 0;
+  /** La captura salió de un respaldo (COT.50): el reloj arranca al recuperar; lo de antes del corte no se midió. */
+  private capturaRecuperada = false;
+  private readonly _relojCaptura = effect(() => {
+    const n = this.bandeja().length;
+    if (n > 0 && this.inicioCaptura === null) this.inicioCaptura = Date.now();
+    if (n === 0) this.inicioCaptura = null;
+  });
+
+  /** Lo que viaja en el alta. Sin artículo en la bandeja no hay captura que medir. */
+  medidaDeCaptura(ahora = Date.now()): CapturaCotizacion | undefined {
+    if (this.inicioCaptura === null) return undefined;
+    return {
+      segundos: Math.max(0, Math.round((ahora - this.inicioCaptura) / 1000)),
+      busquedas: this.busquedasCaptura,
+      recuperada: this.capturaRecuperada,
+    };
+  }
+
   /**
    * Se guarda con cada cambio de lo que es señal; lo que es campo plano, al ocultar o salir.
    * [COT.50] También mientras el aviso espera respuesta: antes lo nuevo no se respaldaba hasta
@@ -1531,6 +1554,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     }
     borrarBorrador(p.clave); // desde ahora vive en la ranura de esta pestaña
     this.borradoresPendientes.set(restantes);
+    this.capturaRecuperada = true; // [COT.54]
     this.cliente.set(null);
     this.direccionPendiente = null;
     const permitida = !!b.sucursal && this.sucursalesPermitidas().some((x) => x.code === b.sucursal);
@@ -1912,6 +1936,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         const ordenados = rows;
         this.terminoDeResultados = termino;
         this.resultadosArticulos.set(ordenados);
+        this.busquedasCaptura++; // [COT.54]
         this.pedirSugerencia(termino, ordenados.length);
         this.pedirExistenciaBusqueda(this.sucursal(), ordenados);
         this.resaltado.set(0);
@@ -2144,6 +2169,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.sugerenciaArticulo.set(null);
     const suc = this.sucursal();
     if (resultados > 0 || !suc || termino.length < 3) return;
+    this.svc.registrarBusqueda({ branch: suc, term: termino, results: 0 }); // [COT.53] no trajo nada
     this.svc.suggestCatalog(suc, termino).pipe(catchError(() => of({ suggestion: null }))).subscribe((r) => {
       if (this.terminoArticulo.trim() === termino) this.sugerenciaArticulo.set(r.suggestion);
     });
@@ -2221,6 +2247,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   elegirArticulo(p: QuoteCatalogRow): void {
+    // [COT.53] Qué se escribió y qué se eligió, en qué lugar de la lista (anónimo).
+    const lista = this.resultadosArticulos();
+    const lugar = lista.findIndex((x) => x.sku === p.sku) + 1;
+    if (lugar > 0) {
+      this.svc.registrarBusqueda({ branch: this.sucursal(), term: this.terminoArticulo, chosen_sku: p.sku, position: lugar, results: lista.length });
+    }
     this.agregarAlLlegarPrecio = false; // lo pendiente era del artículo anterior
     this.articuloElegido.set(p);
     this.fijarExistenciaElegido(p);
@@ -2690,6 +2722,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       salesperson_code: this.vendedorSeleccionado() || undefined,
       salesperson_name: this.vendedorSeleccionadoObj()?.name || undefined,
       order_notes: this.observaciones.replace(/\s+/g, ' ').trim() || undefined,
+      capture: this.medidaDeCaptura(),
     };
     if (esMayoreo) {
       payload.erp_customer_code = this.cliente()!.customer_code;

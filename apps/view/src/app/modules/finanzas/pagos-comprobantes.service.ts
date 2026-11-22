@@ -1,4 +1,4 @@
-import type { ResultadoComprobanteCalendario } from '@megadulces/contracts/finance/validacion-pago';
+import type { ResultadoComprobanteCalendario, ResultadoComprobanteDelRenglon } from '@megadulces/contracts/finance/validacion-pago';
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
@@ -224,6 +224,13 @@ export class PagosComprobantesService {
    */
   calendario(file_base64: string): Observable<ResultadoComprobanteCalendario> {
     return this.http.post<ResultadoComprobanteCalendario>(`${this.base}/calendario`, { file_base64 });
+  }
+  /**
+   * `[PGP.191]` El PDF que soltaron sobre el renglón de UN pago del Calendario: el servidor lo revisa contra ese pago
+   * (no lo busca) y, si es suyo, lo liga; el worker lo da por pagado o sólo lo liga.
+   */
+  calendarioDelRenglon(allocationId: string, file_base64: string): Observable<ResultadoComprobanteDelRenglon> {
+    return this.http.post<ResultadoComprobanteDelRenglon>(`${this.base}/calendario/${encodeURIComponent(allocationId)}`, { file_base64 });
   }
   /** Sube el comprobante a Cloudinary y devuelve su referencia. */
   uploadFile(file_base64: string, role = 'comprobante'): Observable<ProofFile> {
