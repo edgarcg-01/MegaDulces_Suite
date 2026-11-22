@@ -15,8 +15,8 @@ import { TextareaModule } from 'primeng/textarea';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import {
-  FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
-  detallePagoOpcional, exigeDetalle, faltaParaPedir, fechaDePago, hayInformacionDePago, totalesDeLaSolicitud,
+  DIAS_MAXIMOS_COMPROBANTE, FORMAS_PAGO, MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB, MAX_RENGLONES, PLAZOS_DE_PAGO, avisoDeFechas, cfdiCuadra, correoValido, cuentaDePago,
+  detallePagoOpcional, exigeDetalle, faltaParaPedir, fechaDePago, hayInformacionDePago, lecturaParaGuardar, motivoParaNoOfrecer, totalesDeLaSolicitud,
   type AcreedorDeGasto, type AlcanceDeLaBase, type CatalogoDeLaSolicitud, type DuplicadoProbable, type FacturaPorRegistrar, type FuenteDelDato,
   type InformacionDePago, type LecturaDelComprobante, type SolicitudGastoCreada, type TipoComprobante, type FaltanteSolicitud,
 } from '@megadulces/contracts';
@@ -197,7 +197,10 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                   [showIcon]="true" appendTo="body" [maxDate]="hoyDate()" [fluid]="true" [required]="true" [invalid]="mal('pg-fecha')"
                   placeholder="dd/mm/aaaa" ariaLabelledBy="pg-fecha-l" />
                 <small id="pg-fecha-l" class="sr-only">Fecha del documento, día/mes/año</small>
-                @if (fuente('fecha'); as f) { <small class="pg-fuente">{{ f }}</small> }
+                <!-- [PGP.122.13] Junto a la fecha que propuso el lector, lo que dice el papel: la persona compara de un vistazo.
+                     Si leyó algo que no es fecha (o es futura), no se propone nada y se dice qué leyó. -->
+                @if (fuente('fecha'); as f) { <small class="pg-fuente">{{ f }}@if (fechaImpresaPropuesta(); as t) {: «{{ t }}»}</small> }
+                @else if (fechaImpresaSinUsar(); as t) { <small class="pg-fuente">Se leyó «{{ t }}», pero no se propone (sólo una fecha completa de los últimos {{ diasMaximosLectura }} días): escríbela viendo el comprobante.</small> }
               </div>
             </div>
             @if (cfdiUuid()) {
@@ -229,8 +232,14 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
                   <!-- [PGP.122.9] El combobox de p-select es un <span>: un <label for> no lo nombra. Se nombra por id del
                        label (ariaLabelledBy); si no, su nombre era el valor elegido (modern-web-guidance: accessibility). -->
                   <label [for]="'pg-con-' + i" [id]="'pg-con-l-' + i">Concepto <span class="pg-req" aria-hidden="true">*</span></label>
-                  <p-select [inputId]="'pg-con-' + i" [ariaLabelledBy]="'pg-con-l-' + i" [required]="true" [invalid]="mal('pg-con-' + i)" appendTo="body" [options]="conceptos()" optionLabel="etiqueta" optionValue="codigo" [filter]="true"
-                    filterBy="etiqueta" [ngModel]="r.concepto" (ngModelChange)="cambiarRenglon(i, 'concepto', $event)" [fluid]="true" placeholder="Elige el concepto" />
+                  <!-- [PGP.122.14] Lo que no se puede pedir aparece al final, deshabilitado y con su motivo: buscarlo lo encuentra. -->
+                  <p-select [inputId]="'pg-con-' + i" [ariaLabelledBy]="'pg-con-l-' + i" [required]="true" [invalid]="mal('pg-con-' + i)" appendTo="body" [options]="opcionesConcepto()" optionLabel="etiqueta" optionValue="codigo"
+                    optionDisabled="bloqueado" [filter]="true" filterBy="etiqueta" [ngModel]="r.concepto" (ngModelChange)="cambiarRenglon(i, 'concepto', $event)" [fluid]="true" placeholder="Elige el concepto">
+                    <!-- PrimeNG 22 no pone aria-disabled en la opción (sólo data-p-disabled): el lector de pantalla lo oye aquí. -->
+                    <ng-template #item let-c>
+                      <span class="pg-opcion">{{ c.etiqueta }}@if (c.motivo) {<small class="pg-opcion-motivo"><span class="sr-only">No se puede elegir: </span>{{ c.motivo }}</small>}</span>
+                    </ng-template>
+                  </p-select>
                 </div>
                 <div class="pg-campo">
                   <label [for]="'pg-pro-' + i" [id]="'pg-pro-l-' + i">Proyecto <span class="pg-req" aria-hidden="true">*</span></label>
@@ -439,6 +448,10 @@ type FacturaDelSat = NonNullable<LecturaDelComprobante['cfdi']>;
     .pg-campo { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
     .pg-campo label, .pg-label { font-size: var(--fs-sm); color: var(--text-muted); }
     .pg-fuente { color: var(--text-faint); font-size: var(--fs-xs); }
+    /* [PGP.122.14] La opción que no se puede pedir lleva su motivo debajo. PrimeNG la atenúa al 60 %: con --fg-1 el motivo
+       queda en 5.3:1 (claro) y 6.8:1 (oscuro); con --fg-2 bajaría a 2.9:1. La jerarquía la da el tamaño, no el gris. */
+    .pg-opcion { display: flex; flex-direction: column; gap: 2px; white-space: normal; min-width: 0; }
+    .pg-opcion-motivo { color: var(--fg-1); font-size: var(--fs-xs); }
     .pg-arch { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; }
     .pg-subir { display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 2.75rem; padding: 0 var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-md); cursor: pointer; color: var(--text-main); }
     .pg-subir input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -517,6 +530,8 @@ export class FinanzasPedirGastoComponent {
   private readonly destroyRef = inject(DestroyRef);
 
   readonly maxRenglones = MAX_RENGLONES;
+  /** `[PGP.122.13]` La lectura sólo propone una fecha de estos últimos días (`fechaLeidaProponible`): la pantalla lo dice. */
+  readonly diasMaximosLectura = DIAS_MAXIMOS_COMPROBANTE;
   /** «Hoy» se refresca: la pantalla puede quedarse abierta de un día para otro (al volver a la pestaña y cada 5 min). */
   readonly hoyIso = signal(iso(new Date()) ?? '');
   readonly hoyDate = computed(() => deIso(this.hoyIso()) ?? new Date());
@@ -563,14 +578,27 @@ export class FinanzasPedirGastoComponent {
   readonly catalogoLeidoEn = signal<Date | null>(null);
   readonly frecuentes = signal<AcreedorDeGasto[]>([]);
 
-  readonly conceptos = computed(() => (this.catalogo()?.conceptos ?? []).filter((c) => !c.fuera_de_alcance && !c.distinto_de_cedis).map((c) => ({ ...c, etiqueta: `${c.nombre} · ${c.codigo}` })));
+  /**
+   * `[PGP.122.14]` TODO el catálogo para el selector: primero lo que se puede pedir y al final, deshabilitado, lo que no,
+   * cada uno con su motivo (activo fijo, SUA, impuestos, capital, sin cuenta o R14). Antes desaparecía sin decir por qué:
+   * se buscaba el 364 «PC VERIFICADOR DE PRECIO» y no salía nada.
+   */
+  readonly opcionesConcepto = computed(() => {
+    const todas = (this.catalogo()?.conceptos ?? []).map((c) => {
+      const motivo = motivoParaNoOfrecer(c);
+      return { ...c, etiqueta: `${c.nombre} · ${c.codigo}`, motivo, bloqueado: !!motivo };
+    });
+    return [...todas.filter((c) => !c.bloqueado), ...todas.filter((c) => c.bloqueado)];
+  });
+  /** Lo que SÍ se puede pedir. Lo que la pantalla propone sola (hábito, factura) sale sólo de aquí. */
+  readonly conceptos = computed(() => this.opcionesConcepto().filter((c) => !c.bloqueado));
   /**
    * R14 (anexo S §16): conceptos que en el Kepler de esta sucursal van a OTRO rubro que en CEDIS (el 074 «Capitán de
    * marca» a caja y bancos). No se ofrecen —el servidor los rechaza—, pero se DICEN: esconderlos sin explicar dejaba a
    * la persona buscando un concepto que no aparece.
    */
   readonly conceptosBloqueados = computed(() => (this.catalogo()?.conceptos ?? []).filter((c) => !c.fuera_de_alcance && !!c.distinto_de_cedis));
-  /** R14: el concepto de siempre de este proveedor está bloqueado aquí: se dice en vez de dejar el campo vacío sin razón. */
+  /** El concepto de siempre de este proveedor no se puede pedir aquí (R14, y desde PGP.122.14 cualquier motivo): se dice. */
   readonly habitoBloqueado = signal<string | null>(null);
   readonly proyectos = computed(() => (this.catalogo()?.proyectos ?? []).map((p) => ({ ...p, etiqueta: `${p.nombre || p.codigo} · ${p.codigo}` })));
   readonly departamentos = computed(() => (this.catalogo()?.departamentos ?? []).map((d) => ({ ...d, etiqueta: `${d.nombre || d.codigo} · ${d.codigo}` })));
@@ -817,6 +845,18 @@ export class FinanzasPedirGastoComponent {
     const f = this.fuentes()[campo];
     return f && f !== 'persona' ? FUENTE_TEXTO[f] : null;
   }
+
+  /** `[PGP.122.13]` Lo impreso en el comprobante, cuando la fecha la puso el lector (no la factura del SAT ni la persona). */
+  readonly fechaImpresaPropuesta = computed(() => (this.fuentes()['fecha'] === 'ticket' ? this.lectura()?.leido?.fecha_impresa ?? null : null));
+  /**
+   * `[PGP.122.13]` El lector vio algo en la fecha y el servidor no lo propuso —no se pudo leer completa, era futura o de
+   * hace más de 30 días, como un año mal leído— y la persona aún no escribe ninguna. Dice «se leyó», no «el comprobante
+   * dice»: la lectura puede estar mal, y fue justo lo que pasó con las dos primeras usuarias.
+   */
+  readonly fechaImpresaSinUsar = computed(() => {
+    const l = this.lectura()?.leido;
+    return l && !l.fecha && l.fecha_impresa && !this.fechaDoc() ? l.fecha_impresa : null;
+  });
 
   origenRenglon(i: number): string | null {
     return origenDelRenglon(this.fuentes(), i + 1);
@@ -1095,7 +1135,9 @@ export class FinanzasPedirGastoComponent {
           const r0 = { ...rs[0] };
           let puso = false;
           const propuesto = p.ultimo?.concepto ?? p.conceptos[0]?.codigo;
-          this.habitoBloqueado.set(this.conceptosBloqueados().find((c) => c.codigo === propuesto)?.distinto_de_cedis ?? null);
+          // [PGP.122.14] El concepto de siempre de este proveedor que no se puede pedir aquí (R14, activo fijo, sin cuenta…)
+          // se dice con su motivo, en vez de dejar el campo vacío sin razón.
+          this.habitoBloqueado.set(this.opcionesConcepto().find((c) => c.codigo === propuesto && c.bloqueado)?.motivo ?? null);
           const concepto = ofrecido(this.conceptos(), propuesto);
           if (yo['concepto_1'] !== 'persona' && concepto) { r0.concepto = concepto; this.poner('concepto_1', 'habito'); puso = true; }
           const proyecto = ofrecido(this.proyectos(), p.ultimo?.proyecto);
@@ -1217,6 +1259,8 @@ export class FinanzasPedirGastoComponent {
       files: a ? [{ ...a, role: this.rolDelArchivo() }] : [], comentario: this.nota() || null,
       periodo_del: iso(this.periodoDel()), periodo_al: iso(this.periodoAl()), unidad: this.unidad() || null,
       necesita_para: this.necesitaParaIso(), motivo_fecha: this.motivoFecha() || null, pago: this.pagoDto(), fuentes: this.fuentes(),
+      // [PGP.122.13] Lo que propuso el lector, para medir cuánto lo corrige la gente (no decide nada).
+      lectura: lecturaParaGuardar(this.lectura()?.leido ?? null),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (c) => {
         this.enviando.set(false);
