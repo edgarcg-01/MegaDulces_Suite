@@ -5,8 +5,10 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideRouter } from '@angular/router';
+import { By } from '@angular/platform-browser';
 import { ConfirmationService, type Confirmation } from 'primeng/api';
-import { sucursalPropuesta, type FacturaPorRegistrar, type FaltanteSolicitud, type PrecargaDeLaSolicitud } from '@megadulces/contracts';
+import { Select } from 'primeng/select';
+import { sucursalPropuesta, type FacturaPorRegistrar, type FaltanteSolicitud, type LecturaDelComprobante, type PrecargaDeLaSolicitud } from '@megadulces/contracts';
 import { FinanzasPedirGastoComponent } from './finanzas-pedir-gasto.component';
 import { campoQueFalta, enLista, loQueReemplaza, origenDelRenglon, sinBaseTexto, textoDelPlazo, type RenglonEnCaptura } from './pedir-gasto.ayudas';
 
@@ -182,6 +184,36 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     expect(c.renglones()[0].concepto).toBeFalsy();
     expect(txt()).toContain(`El concepto que usa este proveedor no se ofrece aquí: ${MOTIVO}`);
     expect(txt()).not.toContain('No se ofrece: '); // un solo aviso, no dos
+  });
+
+  it('[PGP.122.14] lo que no se puede pedir (activo fijo, sin cuenta) sale al final, deshabilitado y con su motivo; nada se propone con eso', () => {
+    const ACTIVO = 'La cuenta 150-002 es de activo fijo, no de gasto: ese renglón se captura en Kepler';
+    const SIN = 'Le falta la cuenta contable en el catálogo de Kepler de 06: se podrá pedir cuando Contabilidad la ponga';
+    montar();
+    pide('/abiertas').flush({ sucursales: ['06'], alcance: 'una' });
+    abrirBase('06', [], [
+      { codigo: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', fuera_de_alcance: ACTIVO },
+      { codigo: '274', nombre: 'ALINEACION Y BALANCEO', cuenta: '', fuera_de_alcance: SIN },
+      { codigo: 'AGU', nombre: 'AGUA', cuenta: '601-002', fuera_de_alcance: null },
+    ]);
+    // El selector trae TODO el catálogo: lo que se puede pedir primero, lo que no al final y con su motivo.
+    expect(c.opcionesConcepto().map((x) => [x.codigo, x.bloqueado])).toEqual([['GAS', false], ['AGU', false], ['364', true], ['274', true]]);
+    expect(c.opcionesConcepto().find((x) => x.codigo === '364')?.motivo).toBe(ACTIVO);
+    expect(c.opcionesConcepto().find((x) => x.codigo === '274')?.motivo).toBe(SIN);
+    // Y el p-select del renglón los recibe deshabilitados (buscar «364» lo encuentra, pero no se puede elegir).
+    const sel = fix.debugElement.queryAll(By.directive(Select)).map((d) => d.componentInstance as Select).find((s) => s.inputId() === 'pg-con-0');
+    expect(sel?.optionDisabled()).toBe('bloqueado');
+    expect(sel?.options()?.map((o: { codigo: string }) => o.codigo)).toEqual(['GAS', 'AGU', '364', '274']);
+    expect(sel?.isOptionDisabled(sel.options()![2])).toBe(true);
+    // Lo que la pantalla propone sola sale únicamente de lo que se puede pedir.
+    expect(c.conceptos().map((x) => x.codigo)).toEqual(['GAS', 'AGU']);
+    // Si el concepto de siempre del proveedor es de activo fijo, no se pone y se dice por qué.
+    elegir(PRECARGA(null, {
+      conceptos: [{ codigo: '364', nombre: 'PC VERIFICADOR DE PRECIO.', cuenta: '150-002', fuera_de_alcance: ACTIVO, usos: 2 }],
+      ultimo: { concepto: '364', proyecto: 'P1', departamento: 'D1', fecha: '2026-11-01' },
+    }));
+    expect(c.renglones()[0].concepto).toBeFalsy();
+    expect(txt()).toContain(`El concepto que usa este proveedor no se ofrece aquí: ${ACTIVO}`);
   });
 
   it('DS27 · con un solo almacén la base es fija y no se pregunta', () => {
@@ -408,5 +440,59 @@ describe('[PGP.122] S.17 FinanzasPedirGastoComponent · base, proveedor y sus fa
     c.enviar();
     expect(c.errorEnvio()).toBeNull();
     http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes'));
+  });
+
+  /**
+   * `[PGP.122.13]` La fecha que propone el lector va con lo que dice el papel, y lo que leyó y no es fecha se DICE en vez
+   * de proponerse. Medido el 2026-11-21: las dos primeras solicitudes de usuarios traían la fecha mal leída y las dos
+   * personas la corrigieron a mano; lo leído no se guardaba, así que no se podía medir cuánto pasa.
+   */
+  const LECTURA = (leido: Partial<NonNullable<LecturaDelComprobante['leido']>>): LecturaDelComprobante => ({
+    legible: true, motivo: null, acreedor: null, cfdi: null,
+    leido: { total: 116, subtotal: 100, iva: 16, fecha: null, fecha_impresa: null, folio: '102933', rfc: null, comercio: 'X', ...leido },
+  });
+  const leer = (l: LecturaDelComprobante) => {
+    c.lectura.set(l);
+    (c as unknown as { aplicarLectura(x: LecturaDelComprobante): void }).aplicarLectura(l);
+    fix.detectChanges();
+  };
+  const campoFecha = () => (fix.nativeElement as HTMLElement).querySelector('#pg-fecha')?.closest('.pg-campo')?.textContent ?? '';
+
+  it('[PGP.122.13] la fecha que propone el lector va con lo impreso en el comprobante, para compararla de un vistazo', () => {
+    abrir();
+    leer(LECTURA({ fecha: '2026-11-20', fecha_impresa: '20/11/26' }));
+    expect(c.fuente('fecha')).toBe('leído del comprobante');
+    expect(campoFecha()).toContain('leído del comprobante: «20/11/26»');
+  });
+
+  it('[PGP.122.13] lo que el servidor no propuso (incompleto, futuro o con el año mal) no se pone: se dice qué se leyó y por qué', () => {
+    abrir();
+    // «26/11/21»: el año mal leído —el caso de las dos primeras usuarias— queda a años de hoy y el servidor no lo propone.
+    leer(LECTURA({ fecha: null, fecha_impresa: '26/11/21' }));
+    expect(c.fechaDoc()).toBeNull();
+    expect(campoFecha()).toContain('Se leyó «26/11/21», pero no se propone (sólo una fecha completa de los últimos 30 días): escríbela viendo el comprobante.');
+    // Dice «se leyó», no «el comprobante dice»: la lectura puede estar mal.
+    expect(campoFecha()).not.toContain('El comprobante dice');
+    // En cuanto la persona escribe una, el aviso se va.
+    c.fechaDoc.set(new Date(2026, 10, 20, 12));
+    fix.detectChanges();
+    expect(campoFecha()).not.toContain('Se leyó');
+  });
+
+  it('[PGP.122.13] el payload lleva lo que propuso el lector (limpio), para medir cuánto se corrige', () => {
+    abrir([F()]);
+    elegir(PRECARGA('transferencia'));
+    c.usarFactura(F());
+    // «Usar esta factura» descarta la foto Y su lectura (ya no es el documento): por eso la lectura va después.
+    expect(c.lectura()).toBeNull();
+    c.lectura.set(LECTURA({ fecha: '2026-11-20', fecha_impresa: '20/11/26', total: 580, folio: 'A-1' }));
+    fix.detectChanges();
+    expect(c.faltan()).toEqual([]);
+    c.enviar();
+    const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/finance/expenses/solicitudes'));
+    expect(req.request.body.lectura).toEqual({ fecha: '2026-11-20', fecha_impresa: '20/11/26', total: 580, folio: 'A-1' });
+    req.flush({ id: 'x', status: 'recibida', kepler_request_status: 'pending', total: 500, retroactiva: false, duplicados: [] });
+    fix.detectChanges();
+    pide('/facturas-sat').flush(BANDEJA());
   });
 });

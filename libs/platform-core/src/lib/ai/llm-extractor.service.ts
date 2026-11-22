@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AnthropicService } from './anthropic.service';
+import { todayMx } from '../date/mx-date';
 
 /**
  * Campos de cabecera extraídos de un ticket de ruta (cierre de ruta).
@@ -151,7 +152,9 @@ export interface ExpenseReceiptFields {
   total: number | null;      // importe TOTAL pagado (lo principal a validar)
   subtotal: number | null;   // subtotal antes de impuestos, si se distingue
   iva: number | null;        // IVA, si se distingue
-  fecha: string | null;      // ISO YYYY-MM-DD del ticket/recibo
+  fecha: string | null;      // ISO YYYY-MM-DD del ticket/recibo (nunca futura: `[PGP.122.13]`)
+  /** `[PGP.122.13]` La fecha TAL CUAL está impresa (la copia el modelo; la convierte el código). `null` si no se ve. */
+  fecha_impresa?: string | null;
   comercio: string | null;   // nombre del establecimiento / proveedor emisor
   rfc: string | null;        // RFC del emisor, si aparece
   folio: string | null;      // folio/ticket del comprobante, si aparece
@@ -1134,7 +1137,10 @@ export class LlmExtractorService implements OnModuleInit {
                 total: { type: ['number', 'null'], description: 'Importe TOTAL pagado en pesos (sin símbolo ni comas). El "Total"/"Total a pagar" del comprobante. Es el dato principal.' },
                 subtotal: { type: ['number', 'null'], description: 'Subtotal antes de impuestos, si aparece. null si no.' },
                 iva: { type: ['number', 'null'], description: 'IVA/impuesto, si aparece. null si no.' },
-                fecha: { type: ['string', 'null'], description: 'Fecha del comprobante en ISO YYYY-MM-DD (convierte cualquier formato). null si no se ve.' },
+                // [PGP.122.13] La fecha se COPIA, no se convierte (la misma regla que [PGP.125]): con «convierte cualquier
+                // formato», las dos primeras solicitudes de gasto de usuarios (01, 2026-11-21) traían la fecha mal y la
+                // corrigieron a mano. La convierte `parseTicketDate`, DÍA/MES como se escribe en México.
+                fecha: { type: ['string', 'null'], description: 'Fecha de la compra COPIADA TAL CUAL está impresa en el comprobante, sin convertirla ni reordenarla (ej. "21/11/2026", "21/11/26", "21-NOV-2026", "2026-11-21 13:05"). En México la fecha numérica es DÍA/MES/AÑO. Es la fecha de la venta o de expedición, no la de vencimiento ni la de vigencia. null si no se ve.' },
                 comercio: { type: ['string', 'null'], description: 'Nombre del establecimiento o proveedor emisor. null si no se ve.' },
                 rfc: { type: ['string', 'null'], description: 'RFC del emisor, si aparece. null si no.' },
                 folio: { type: ['string', 'null'], description: 'Folio o número de ticket del comprobante, si aparece. null si no.' },
@@ -1177,11 +1183,16 @@ export class LlmExtractorService implements OnModuleInit {
       return t && !PLACEHOLDERS.has(t.toLowerCase()) ? t : null;
     };
     const total = num(inp.total);
+    // [PGP.122.13] Un gasto no puede ser de mañana: una fecha futura es una mala lectura y no se propone. Lo impreso
+    // viaja aparte (`fecha_impresa`) para que la persona lo compare y para medir cuánto corrige.
+    const fechaImpresa = str(inp.fecha);
+    const fecha = this.parseTicketDate(fechaImpresa);
     return {
       total,
       subtotal: num(inp.subtotal),
       iva: num(inp.iva),
-      fecha: this.parseTicketDate(inp.fecha),
+      fecha: fecha && fecha <= todayMx() ? fecha : null,
+      fecha_impresa: fechaImpresa,
       comercio: str(inp.comercio),
       rfc: str(inp.rfc),
       folio: str(inp.folio),
@@ -1555,10 +1566,15 @@ export class LlmExtractorService implements OnModuleInit {
 
   /**
    * Normaliza una fecha de ticket en CUALQUIER formato a ISO YYYY-MM-DD.
-   * Acepta: ISO ("2026-06-23"), numérico DD/MM/YYYY o DD-MM-YY ("23/06/2026",
-   * "23-6-26"), y con mes en español abreviado o completo ("23/jun/2026",
-   * "23 de junio de 2026", "23 jun 26"). Devuelve null si no hay fecha legible
-   * (incluye placeholders tipo "<UNKNOWN>") — NUNCA propaga basura como fecha.
+   * Acepta: ISO ("2026-06-23", también "2026/06/23"), numérico DD/MM/YYYY o DD-MM-YY ("23/06/2026",
+   * "23-6-26"), con mes en español o inglés, abreviado o completo, antes o después del día ("23/jun/2026",
+   * "23 de junio de 2026", "23 jun 26", "Jun 23, 2026"), y la fecha numérica en medio de otro texto
+   * ("Fecha: 23/06/2026"). Devuelve null si no hay fecha legible (incluye placeholders tipo "<UNKNOWN>")
+   * o si el día no existe en ese mes — NUNCA propaga basura como fecha.
+   *
+   * ⭐ La fecha numérica es DÍA/MES, como se escribe en México (`[PGP.125]`). Sólo cuando así no es fecha
+   * y el segundo número no puede ser mes (más de 12) se lee MES/DÍA: «11/21/2026» sólo puede ser el 21 de
+   * noviembre. Lo ambiguo («05/11/2026», los dos ≤ 12) se queda DÍA/MES.
    */
   private parseTicketDate(v: unknown): string | null {
     if (typeof v !== 'string') return null;
@@ -1566,34 +1582,47 @@ export class LlmExtractorService implements OnModuleInit {
     if (!raw || ['<unknown>', 'unknown', 'n/a', 'na', 'null', 'none', '-', '--', '?', 'desconocido', 'sin fecha'].includes(raw.toLowerCase()))
       return null;
 
+    // `[PGP.122.13]` Además del rango, que el día exista en ese mes: «31/02/2026» antes salía «2026-02-31», que no
+    // es una fecha (revienta al convertirse en `date`).
     const iso = (y: number, mo: number, d: number): string | null => {
       if (y < 100) y += 2000;
       if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 2000 || y > 2100) return null;
+      const t = new Date(Date.UTC(y, mo - 1, d));
+      if (t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) return null;
       return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     };
+    const diaMes = (a: number, b: number, y: number): string | null => iso(y, b, a) ?? (b > 12 ? iso(y, a, b) : null);
 
-    // 1) ISO directo (puede venir con hora pegada).
-    let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    // 1) El año primero: ISO («2026-11-21», puede venir con hora pegada) o con / o . («2026/11/21»).
+    let m = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
     if (m) return iso(+m[1], +m[2], +m[3]);
 
     // 2) Numérico DD/MM/YYYY (o - . como separador), con o sin la hora pegada («12/11/2026 17:30:58»,
     //    «09/11/2026 5:17:36 PM»: así la imprimen Santander y BBVA; `[PGP.125]`).
     m = raw.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})(?=$|[\sT,])/);
-    if (m) return iso(+m[3], +m[2], +m[1]);
+    if (m) return diaMes(+m[1], +m[2], +m[3]);
 
-    // 3) Con mes en español (abreviado o completo): "23/jun/2026", "23 de junio de 2026".
+    // 2b) La fecha numérica en medio de otro texto («Fecha: 21/11/2026», «13:05 21/11/26», «MAR 12/11/2026»): la
+    //     misma regla DÍA/MES. Va ANTES que el mes en letra: «mar» de martes no es marzo.
+    m = raw.match(/(?:^|[^\d/\-.])(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})(?![\d/\-.])/);
+    if (m) return diaMes(+m[1], +m[2], +m[3]);
+
+    // 3) Con el mes en letra, en español o en inglés: "23/jun/2026", "23 de junio de 2026", "21-DEC-2026".
     const MONTHS: Record<string, number> = {
-      ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7,
-      ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12,
+      ene: 1, jan: 1, feb: 2, mar: 3, abr: 4, apr: 4, may: 5, jun: 6, jul: 7,
+      ago: 8, aug: 8, sep: 9, set: 9, oct: 10, nov: 11, dic: 12, dec: 12,
     };
-    m = raw
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '') // sin acentos
-      .match(/(\d{1,2})\D+([a-z]{3,})\D+(\d{2,4})/);
+    const txt = raw.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); // sin acentos
+    m = txt.match(/(\d{1,2})\D+([a-z]{3,})\D+(\d{2,4})/);
     if (m) {
       const mo = MONTHS[m[2].slice(0, 3)];
       if (mo) return iso(+m[3], mo, +m[1]);
+    }
+    // 3b) El mes en letra ANTES del día: "Nov 21, 2026", "NOV-21-26".
+    m = txt.match(/([a-z]{3,})\D+(\d{1,2})\D+(\d{2,4})/);
+    if (m) {
+      const mo = MONTHS[m[1].slice(0, 3)];
+      if (mo) return iso(+m[3], mo, +m[2]);
     }
     return null;
   }
