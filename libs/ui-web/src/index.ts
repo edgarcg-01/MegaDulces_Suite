@@ -26,7 +26,7 @@ export { qrSvg, pintarQr, QR_LADO_MINIMO } from './qr/qr-svg';
  * `[SEG.2]` Borrar el rastro de la sesion que se va. Vive aca y no en una app porque las tres
  * comparten el problema: el service worker cachea por URL y no mira quien pregunta.
  */
-export { limpiarRastroDeSesion, borrarBasesIndexedDb, CLAVES_DEL_APARATO } from './session-cleanup';
+export { limpiarRastroDeSesion, borrarBasesIndexedDb, CLAVES_DEL_APARATO, PREFIJOS_TRABAJO_SIN_ENVIAR } from './session-cleanup';
 export type { RastroLimpiado, OpcionesDeLimpieza } from './session-cleanup';
 
 /**

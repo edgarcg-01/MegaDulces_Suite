@@ -2,7 +2,7 @@ import {
   alcanceDelAcreedor, avisoDeFechas, comentarioDeLaSolicitud, cuentaFueraDeAlcance, evidenciaEsElSat, faltaParaPedir, fechaReal, rfcCompatible,
   lineaAmpara, puedePedir, referenciaDelComprobante, totalesDeLaSolicitud, type EstadoSolicitudGasto,
   basesDeQuienPide, correoValido, cuentaDePago, fechaDePago, hayInformacionDePago, PLAZOS_DE_PAGO,
-  conceptoDistintoDeCedis, rubroDeCuenta,
+  conceptoDistintoDeCedis, rubroDeCuenta, lecturaParaGuardar, fechaLeidaProponible, conceptoSinCuenta, motivoParaNoOfrecer,
 } from './solicitud-gasto.contract';
 
 /** Una solicitud completa y válida: la base de cada caso, que después se rompe en UNA cosa. */
@@ -279,5 +279,85 @@ describe('[PGP.122] S.17 cuentaDePago y correoValido — DS31: lo que va al banc
   it('⛔ NEGATIVA — la compuerta nombra cada dato mal escrito', () => {
     const ids = faltaParaPedir({ ...buena(), pago: { cuenta: CLABE_MALA, banco: 'X'.repeat(41), correo: 'pagos@' } }).map((x) => x.id);
     expect(ids).toEqual(['pago_cuenta', 'pago_banco', 'pago_correo']);
+  });
+});
+
+/**
+ * `[PGP.122.13]` Lo que propuso el lector se guarda con la solicitud (`capture_meta.lectura`) para MEDIR cuánto corrige la
+ * gente la fecha leída: sin eso, el 2026-11-21 sólo se sabía que la fuente final era «persona» en 8 de 9 solicitudes.
+ * Nunca decide nada; lo que llega de la pantalla se limpia antes de guardarse.
+ */
+describe('[PGP.122.13] lecturaParaGuardar', () => {
+  it('guarda los cuatro datos de la lectura, tal cual', () => {
+    expect(lecturaParaGuardar({ fecha: '2026-11-21', fecha_impresa: '21/11/26', total: 3000, folio: '102933', subtotal: 1, rfc: 'X' }))
+      .toEqual({ fecha: '2026-11-21', fecha_impresa: '21/11/26', total: 3000, folio: '102933' });
+  });
+  it('⛔ limpia lo que no es: fecha sin forma ISO, total no numérico, textos largos o vacíos', () => {
+    expect(lecturaParaGuardar({ fecha: '21/11/2026', fecha_impresa: 'x'.repeat(60), total: 'mucho', folio: '  ' }))
+      .toEqual({ fecha: null, fecha_impresa: 'x'.repeat(40), total: null, folio: null });
+    expect(lecturaParaGuardar({ total: Number.NaN })).toBeNull();
+  });
+  it('sin lectura (ilegible, o un servidor anterior) no se guarda nada', () => {
+    expect(lecturaParaGuardar(null)).toBeNull();
+    expect(lecturaParaGuardar(undefined)).toBeNull();
+    expect(lecturaParaGuardar('2026-11-21')).toBeNull();
+    expect(lecturaParaGuardar({ fecha: null, fecha_impresa: null, total: null, folio: null })).toBeNull();
+  });
+  it('el total en cero sí es una lectura (no se confunde con «nada leído»)', () => {
+    expect(lecturaParaGuardar({ total: 0 })).toEqual({ fecha: null, fecha_impresa: null, total: 0, folio: null });
+  });
+});
+
+/**
+ * `[PGP.122.13]` Las dos primeras usuarias (2026-11-21) recibieron una fecha propuesta con el AÑO mal. La lectura sólo se
+ * propone si cae en los últimos 30 días: un año mal leído queda a 365 días o más y nunca llega a la pantalla.
+ */
+describe('[PGP.122.13] fechaLeidaProponible — la fecha leída sólo se propone si es de los últimos 30 días', () => {
+  const hoy = '2026-11-21';
+  it('hoy y hasta 30 días atrás, sí', () => {
+    expect(fechaLeidaProponible('2026-11-21', hoy)).toBe('2026-11-21');
+    expect(fechaLeidaProponible('2026-11-11', hoy)).toBe('2026-11-11');
+    expect(fechaLeidaProponible('2026-10-22', hoy)).toBe('2026-10-22');
+  });
+  it('⭐ el AÑO mal leído no se propone: el anterior, uno lejano («21/11/26» leído AÑO/MES/DÍA) ni el siguiente', () => {
+    expect(fechaLeidaProponible('2025-11-21', hoy)).toBeNull();
+    expect(fechaLeidaProponible('2021-11-26', hoy)).toBeNull();
+    expect(fechaLeidaProponible('2027-11-21', hoy)).toBeNull();
+  });
+  it('a 31 días, o de mañana, no', () => {
+    expect(fechaLeidaProponible('2026-10-21', hoy)).toBeNull();
+    expect(fechaLeidaProponible('2026-11-22', hoy)).toBeNull();
+  });
+  it('el cambio de año no estorba: el ticket del 30 de diciembre leído el 3 de enero sí se propone', () => {
+    expect(fechaLeidaProponible('2025-12-30', '2026-01-03')).toBe('2025-12-30');
+  });
+  it('sin fecha, sin forma ISO o con un día que no existe: null', () => {
+    expect(fechaLeidaProponible(null, hoy)).toBeNull();
+    expect(fechaLeidaProponible('', hoy)).toBeNull();
+    expect(fechaLeidaProponible('21/11/2026', hoy)).toBeNull();
+    expect(fechaLeidaProponible('2026-02-31', hoy)).toBeNull();
+    expect(fechaLeidaProponible('2026-11-20', 'hoy')).toBeNull();
+  });
+});
+
+/**
+ * `[PGP.122.14]` Lo que «Pedir un gasto» no ofrece se DICE, no se esconde: el 2026-11-21 se buscó el 364 «PC VERIFICADOR DE
+ * PRECIO» y no salía nada. El catálogo trae todo y cada concepto que no se puede pedir viene con su motivo.
+ */
+describe('[PGP.122.14] lo que no se ofrece se dice, con su motivo', () => {
+  it('conceptoSinCuenta: sin cuenta en el catálogo de ese servidor, el motivo; con cuenta, null', () => {
+    expect(conceptoSinCuenta('', '01')).toBe('Le falta la cuenta contable en el catálogo de Kepler de 01: se podrá pedir cuando Contabilidad la ponga');
+    expect(conceptoSinCuenta('  ', '01')).toMatch(/Kepler de 01/);
+    expect(conceptoSinCuenta(null, '06')).toMatch(/Kepler de 06/);
+    expect(conceptoSinCuenta('601-002', '01')).toBeNull();
+  });
+  it('el 364 «PC VERIFICADOR DE PRECIO» va a 150-002: activo fijo, fuera de v1 por DS3, con su motivo', () => {
+    expect(cuentaFueraDeAlcance('150-002')).toBe('La cuenta 150-002 es de activo fijo, no de gasto: ese renglón se captura en Kepler');
+  });
+  it('motivoParaNoOfrecer: el de alcance (o sin cuenta) primero, después R14; null si se ofrece', () => {
+    expect(motivoParaNoOfrecer({ fuera_de_alcance: 'A', distinto_de_cedis: 'B' })).toBe('A');
+    expect(motivoParaNoOfrecer({ fuera_de_alcance: null, distinto_de_cedis: 'B' })).toBe('B');
+    expect(motivoParaNoOfrecer({ fuera_de_alcance: null })).toBeNull();
+    expect(motivoParaNoOfrecer({ fuera_de_alcance: '', distinto_de_cedis: '' })).toBeNull();
   });
 });

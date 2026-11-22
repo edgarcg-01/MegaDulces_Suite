@@ -23,12 +23,16 @@ import { atajoDeTecla } from '../quote-atajos';
 import { bloquearRecargaAutomatica } from '../../../core/services/recarga-segura';
 import {
   type BorradorCotizacion,
+  type BorradorGuardado,
   VERSION_BORRADOR,
   borrarBorrador,
   claveBorrador,
   guardarBorrador,
   haceCuanto,
-  leerBorrador,
+  leerBorradores,
+  marcarAbierta,
+  nuevaPestana,
+  pestanasAbiertas,
 } from '../cotizacion-a-medias';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, map } from 'rxjs';
 import { STORE_BRANCHES, type StoreBranch } from '../../../core/constants/store-branches';
@@ -160,13 +164,18 @@ const ORIGENES = ORIGENES_COTIZACION;
       </header>
 
       <!-- [COT.32] Lo que se cortó (recarga de versión, sesión vencida, navegador cerrado) no se
-           pierde: queda en ESTE navegador y se ofrece aquí. Los precios se vuelven a pedir. -->
-      @if (borradorPendiente(); as b) {
-        <div class="borrador-aviso" role="status">
-          <i class="pi pi-history" aria-hidden="true"></i>
-          <span class="borrador-txt"><b>Tienes una cotización sin terminar</b> · {{ resumenBorrador(b) }}</span>
-          <p-button label="Recuperar" icon="pi pi-replay" size="small" (onClick)="recuperarBorrador()" [disabled]="!misRamas()" />
-          <p-button label="Descartar" severity="secondary" [text]="true" size="small" (onClick)="descartarBorrador()" />
+           pierde: queda en ESTE navegador y se ofrece aquí. Los precios se vuelven a pedir.
+           [COT.50] Una por pestaña cerrada; la de una pestaña que sigue abierta no se ofrece. -->
+      @if (borradoresPendientes().length) {
+        <div class="borradores" role="status">
+          @for (p of borradoresPendientes(); track p.clave; let primero = $first) {
+            <div class="borrador-aviso">
+              <i class="pi pi-history" aria-hidden="true"></i>
+              <span class="borrador-txt"><b>{{ primero ? 'Tienes una cotización sin terminar' : 'Y otra sin terminar' }}</b> · {{ resumenBorrador(p.borrador) }}</span>
+              <p-button label="Recuperar" icon="pi pi-replay" size="small" [ariaLabel]="'Recuperar ' + resumenBorrador(p.borrador)" (onClick)="recuperarBorrador(p)" [disabled]="!misRamas()" />
+              <p-button label="Descartar" severity="secondary" [text]="true" size="small" [ariaLabel]="'Descartar ' + resumenBorrador(p.borrador)" (onClick)="descartarBorrador(p)" />
+            </div>
+          }
         </div>
       }
 
@@ -1032,7 +1041,8 @@ const ORIGENES = ORIGENES_COTIZACION;
          entre el buscador y la lista. Con teclado y mouse siguen a la vista. */
       @media (hover: none) and (pointer: coarse) { .atajos { display: none; } }
       /* [COT.32] El aviso de la cotización que se cortó. */
-      .borrador-aviso { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2, 0.5rem); margin-bottom: var(--sp-3, 0.75rem); padding: 0.5rem 0.75rem; border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); background: var(--surface-card); }
+      .borradores { display: flex; flex-direction: column; gap: var(--sp-2, 0.5rem); margin-bottom: var(--sp-3, 0.75rem); }
+      .borrador-aviso { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2, 0.5rem); padding: 0.5rem 0.75rem; border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); background: var(--surface-card); }
       .borrador-aviso .pi-history { color: var(--action); }
       .borrador-txt { flex: 1 1 18rem; font-size: var(--fs-sm); }
       /* COT.16: pantalla apaisada. Zona de trabajo + riel fijo a la derecha; cada línea vertical
@@ -1426,9 +1436,18 @@ export class TeleventaQuoteNewComponent implements OnInit {
   });
 
   // ── [COT.32] La cotización a medias (ver cotizacion-a-medias.ts) ───────────────────────────
-  private readonly claveBorrador = claveBorrador(this.auth.user()?.sub);
-  /** El borrador que encontró al abrir; mientras se decide, lo nuevo no lo pisa. */
-  readonly borradorPendiente = signal<BorradorCotizacion | null>(leerBorrador(this.claveBorrador));
+  // [COT.50] Cada apertura de la pantalla escribe en SU ranura: dos pestañas ya no se pisan, y
+  // una vacía no borra al ocultarse lo que la otra lleva capturado.
+  private readonly usuario = this.auth.user()?.sub;
+  private readonly pestana = nuevaPestana();
+  private readonly claveBorrador = claveBorrador(this.usuario, this.pestana);
+  /** Mientras la pantalla viva, las otras pestañas no ofrecen su borrador para recuperar. */
+  private readonly soltarPestana = marcarAbierta(this.pestana);
+  /** Los borradores de pestañas cerradas (o de la sesión que se venció), el más nuevo primero. */
+  readonly borradoresPendientes = signal<BorradorGuardado[]>([]);
+  private readonly _leerPendientes = pestanasAbiertas().then((vivas) =>
+    this.borradoresPendientes.set(leerBorradores(this.usuario, vivas ?? new Set())),
+  );
   /** Ya se creó en el servidor (o se canceló a propósito): lo que quede no es «a medias». */
   private creada = false;
   private direccionPendiente: string | null = null;
@@ -1438,10 +1457,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
   /** Hay algo que una recarga tiraría. */
   readonly hayTrabajo = computed(() => this.bandeja().length > 0 || !!this.cliente() || !!this.contactoNombre().trim());
 
-  /** Se guarda con cada cambio de lo que es señal; lo que es campo plano, al ocultar o salir. */
+  /**
+   * Se guarda con cada cambio de lo que es señal; lo que es campo plano, al ocultar o salir.
+   * [COT.50] También mientras el aviso espera respuesta: antes lo nuevo no se respaldaba hasta
+   * decidir, porque había una sola ranura y lo pisaba.
+   */
   private readonly _autoguardado = effect(() => {
     this.bandeja(); this.cliente(); this.sucursal(); this.modo(); this.direccionAlta(); this.vendedorSeleccionado(); this.contactoNombre();
-    if (this.borradorPendiente()) return;
     this.guardarAhora();
   });
 
@@ -1452,7 +1474,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   });
 
   private readonly _alOcultar = (() => {
-    const guardar = () => { if (!this.borradorPendiente()) this.guardarAhora(); };
+    const guardar = () => this.guardarAhora();
     const vis = () => { if (document.visibilityState === 'hidden') guardar(); };
     document.addEventListener('visibilitychange', vis);
     window.addEventListener('pagehide', guardar);
@@ -1460,6 +1482,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       document.removeEventListener('visibilitychange', vis);
       window.removeEventListener('pagehide', guardar);
       guardar(); // salir por el menú o por sesión vencida
+      this.soltarPestana(); // ya guardado: desde ahora otra pestaña la puede ofrecer
       this.soltarRecarga?.();
     });
     return true;
@@ -1467,7 +1490,12 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   private guardarAhora(): void {
     if (this.creada) return;
-    guardarBorrador(this.claveBorrador, {
+    guardarBorrador(this.claveBorrador, this.estadoActual());
+  }
+
+  /** Lo capturado en pantalla, como se guarda en el navegador. */
+  private estadoActual(): BorradorCotizacion {
+    return {
       v: VERSION_BORRADOR,
       guardado: Date.now(),
       modo: this.modo(),
@@ -1481,7 +1509,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
       lista: this.listaCruda,
       observaciones: this.observaciones,
       bandeja: this.bandeja(),
-    });
+    };
   }
 
   resumenBorrador(b: BorradorCotizacion): string {
@@ -1491,9 +1519,20 @@ export class TeleventaQuoteNewComponent implements OnInit {
       .filter(Boolean).join(' · ');
   }
 
-  recuperarBorrador(): void {
-    const b = this.borradorPendiente();
-    if (!b) return;
+  recuperarBorrador(p: BorradorGuardado): void {
+    const b = p.borrador;
+    // [COT.50] Lo que ya se capturó en esta pantalla no se tira al recuperar otra: se aparta como
+    // un borrador más del aviso (su propia ranura, sin pestaña viva que lo sostenga).
+    const restantes = this.borradoresPendientes().filter((x) => x.clave !== p.clave);
+    if (this.hayTrabajo()) {
+      const aparte: BorradorGuardado = { clave: claveBorrador(this.usuario, nuevaPestana()), borrador: this.estadoActual() };
+      guardarBorrador(aparte.clave, aparte.borrador);
+      restantes.unshift(aparte);
+    }
+    borrarBorrador(p.clave); // desde ahora vive en la ranura de esta pestaña
+    this.borradoresPendientes.set(restantes);
+    this.cliente.set(null);
+    this.direccionPendiente = null;
     const permitida = !!b.sucursal && this.sucursalesPermitidas().some((x) => x.code === b.sucursal);
     this.modo.set(b.modo);
     this.contactoNombre.set(b.contacto.nombre);
@@ -1507,7 +1546,6 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.observaciones = b.observaciones;
     this.bandeja.set(b.bandeja);
     this.vendedorPendiente = b.vendedor;
-    this.borradorPendiente.set(null);
     if (!permitida) {
       this.toast.add({ severity: 'warn', summary: 'Recuperada sin sucursal', detail: 'Ya no puedes cotizar en la sucursal de esa cotización: elige una y revisa los precios.' });
       return;
@@ -1536,10 +1574,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
     }
   }
 
-  descartarBorrador(): void {
-    borrarBorrador(this.claveBorrador);
-    this.borradorPendiente.set(null);
-    this.guardarAhora(); // lo que ya se haya capturado mientras se decidía
+  /** Descarta ESE borrador; lo que lleva esta pantalla sigue respaldándose en su ranura. */
+  descartarBorrador(p: BorradorGuardado): void {
+    borrarBorrador(p.clave);
+    this.borradoresPendientes.update((l) => l.filter((x) => x.clave !== p.clave));
   }
 
   /** Cancelar es querer tirarla: se pregunta si hay renglones y se borra el borrador. */

@@ -64,6 +64,25 @@ export function cuentaFueraDeAlcance(cuenta: string | null | undefined): string 
   return f ? `La cuenta ${c} es de ${f.que}, no de gasto: ese renglón se captura en Kepler` : null;
 }
 
+/**
+ * `[PGP.122.14]` El concepto que en el catálogo de Kepler de ese servidor NO tiene cuenta (`kdco.c3` vacía): sin cuenta no
+ * se puede escribir el renglón. Antes se quitaba de la lista sin decir nada. Medido el 2026-11-21: de 2 a 19 por
+ * servidor, y 4 de ellos se usaron en 19 solicitudes de 12 meses (alineación, papel higiénico, transmisión…).
+ */
+export function conceptoSinCuenta(cuenta: string | null | undefined, sucursal: string): string | null {
+  return String(cuenta ?? '').trim() ? null
+    : `Le falta la cuenta contable en el catálogo de Kepler de ${sucursal}: se podrá pedir cuando Contabilidad la ponga`;
+}
+
+/**
+ * `[PGP.122.14]` Por qué «Pedir un gasto» NO ofrece un concepto, o `null` si se ofrece. La pantalla lo muestra deshabilitado
+ * y con este motivo en vez de esconderlo: el 2026-11-21 se buscó el 364 «PC VERIFICADOR DE PRECIO» (cuenta 150-002, activo
+ * fijo, fuera de v1 por DS3) y no salía nada ni se decía por qué.
+ */
+export function motivoParaNoOfrecer(c: { fuera_de_alcance?: string | null; distinto_de_cedis?: string | null }): string | null {
+  return c.fuera_de_alcance || c.distinto_de_cedis || null;
+}
+
 /** El nombre de un concepto de Kepler para compararlo entre servidores: mayúsculas, sin el punto final ni espacios de más. */
 function nombreDeConcepto(n: string | null | undefined): string {
   return String(n ?? '').trim().toUpperCase().replace(/\.+$/, '').replace(/\s+/g, ' ');
@@ -214,6 +233,20 @@ export function avisoDeFechas(fechaDocumento: string | null | undefined, fechaSo
   if (d.slice(0, 4) !== s.slice(0, 4)) return { ok: false, bloquea: false, motivo: `El documento es de ${d.slice(0, 4)} y la solicitud de ${s.slice(0, 4)}: escribe por qué se registra hasta ahora` };
   if (atras > DIAS_MAXIMOS_COMPROBANTE) return { ok: false, bloquea: false, motivo: `El documento tiene ${atras} días (más de ${DIAS_MAXIMOS_COMPROBANTE}): escribe por qué se registra hasta ahora` };
   return { ok: true, retroactiva: atras > 0 };
+}
+
+/**
+ * `[PGP.122.13]` ¿La fecha que LEYÓ la IA en el comprobante se puede PROPONER? Sólo si es de hoy o de los últimos
+ * `DIAS_MAXIMOS_COMPROBANTE` días; fuera de eso casi siempre es una mala lectura, y la persona la escribe viendo el papel.
+ * ⭐ Un AÑO mal leído —lo que vieron las dos primeras usuarias el 2026-11-21, que además traía el día cambiado— queda a
+ * 365 días o más de hoy, así que nunca se propone; una fecha futura tampoco. Medido ese día en los vales de la Suite de
+ * un año: el 99 % se capturó a 16 días o menos del gasto y sólo el 0.4 % pasó de 30 (ésos ya piden motivo, DS6).
+ */
+export function fechaLeidaProponible(fecha: string | null | undefined, hoy: string): string | null {
+  const f = String(fecha ?? '').trim();
+  if (!fechaReal(f) || !fechaReal(hoy)) return null;
+  const atras = dias(f, hoy);
+  return atras >= 0 && atras <= DIAS_MAXIMOS_COMPROBANTE ? f : null;
 }
 
 // ── S.17 · La base: en qué servidor de Kepler se pide (DS27) ─────────────────────────────────
@@ -532,6 +565,36 @@ export interface CrearSolicitudGastoDto {
   pago?: InformacionDePago | null;
   /** Procedencia de cada dato prellenado, por campo (`acreedor`, `concepto`, `importe`, …). */
   fuentes?: Record<string, FuenteDelDato>;
+  /** `[PGP.122.13]` Lo que propuso el lector del comprobante, para medir cuánto lo corrige la persona (`lecturaParaGuardar`). */
+  lectura?: LecturaGuardada | null;
+}
+
+/**
+ * `[PGP.122.13]` **Lo que el lector propuso, tal cual, guardado con la solicitud** (`capture_meta.lectura`). Nunca
+ * decide nada (GX.33): sirve para medir. Hasta el 2026-11-21 no se guardaba, y por eso no se podía saber cuántas
+ * fechas leídas corregía la gente (sólo que la fuente final era «persona» en 8 de 9). Con esto, la medición es
+ * `capture_meta->'lectura'->>'fecha'` contra `document_date`.
+ */
+export interface LecturaGuardada {
+  fecha: string | null;
+  fecha_impresa: string | null;
+  total: number | null;
+  folio: string | null;
+}
+
+/**
+ * La lectura que se guarda, limpia: sólo esos cuatro datos, la fecha con forma `YYYY-MM-DD`, los textos recortados a
+ * 40 caracteres y el total finito. Lo que no es lectura (nada leído, o basura) es `null`. La usan la pantalla (para
+ * mandarla) y el servidor (para no guardar lo que no debe).
+ */
+export function lecturaParaGuardar(l: unknown): LecturaGuardada | null {
+  if (!l || typeof l !== 'object') return null;
+  const x = l as Record<string, unknown>;
+  const texto = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 40) : null);
+  const fecha = typeof x['fecha'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x['fecha']) ? x['fecha'] : null;
+  const total = typeof x['total'] === 'number' && Number.isFinite(x['total']) ? x['total'] : null;
+  const r: LecturaGuardada = { fecha, fecha_impresa: texto(x['fecha_impresa']), total, folio: texto(x['folio']) };
+  return r.fecha || r.fecha_impresa || r.total !== null || r.folio ? r : null;
 }
 
 export interface DuplicadoProbable {
@@ -567,9 +630,12 @@ export interface AcreedorDeGasto {
 export interface ConceptoDeGasto {
   codigo: string;
   nombre: string;
-  /** `kdco.c3` del servidor. */
+  /** `kdco.c3` del servidor; vacía si el catálogo de ese servidor no la tiene. */
   cuenta: string;
-  /** `null` si entra; el motivo si la cuenta es de SUA, impuestos, activo o capital. */
+  /**
+   * `null` si entra; el motivo si la cuenta es de SUA, impuestos, activo o capital (DS3), o si el concepto no tiene cuenta
+   * en el catálogo de ese servidor (`conceptoSinCuenta`, `[PGP.122.14]`). La pantalla lo muestra deshabilitado con el motivo.
+   */
   fuera_de_alcance: string | null;
   /**
    * R14: `null` si entra; el motivo si en este servidor la cuenta es de OTRO rubro que en CEDIS (`conceptoDistintoDeCedis`).
@@ -630,7 +696,12 @@ export interface LecturaDelComprobante {
   /** `false` = no se pudo leer: la persona captura a mano (no se inventa nada). */
   legible: boolean;
   motivo: string | null;
-  leido: { total: number | null; subtotal: number | null; iva: number | null; fecha: string | null; folio: string | null; rfc: string | null; comercio: string | null } | null;
+  /**
+   * `fecha` ya convertida (DÍA/MES) y sólo si es de los últimos `DIAS_MAXIMOS_COMPROBANTE` días (`fechaLeidaProponible`:
+   * ni futura ni con el año mal leído); `fecha_impresa` = lo que se leyó impreso en el comprobante, para que la persona
+   * lo compare (`[PGP.122.13]`). Un servidor anterior no la manda.
+   */
+  leido: { total: number | null; subtotal: number | null; iva: number | null; fecha: string | null; fecha_impresa?: string | null; folio: string | null; rfc: string | null; comercio: string | null } | null;
   /** El acreedor del catálogo de esa sucursal con ese RFC, si es UNO (con dos o más se pregunta). */
   acreedor: AcreedorDeGasto | null;
   /**

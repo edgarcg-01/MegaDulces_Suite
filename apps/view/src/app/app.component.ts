@@ -175,7 +175,10 @@ export class AppComponent implements OnInit {
       // `[CG.203]` Quien está en `/firmar` no tiene una sesión que cerrar: llevarlo al login
       // porque el cajero salió en otra pestaña del mismo teléfono sería el mismo defecto.
       if (enRutaPublica()) return;
-      this.auth.logout();
+      // `[COT.50]` Involuntario PARA ESTA pestaña: si la otra cerró a propósito, su propia
+      // limpieza ya borró el trabajo; si fue un 401, éste no tiene por qué borrar lo que aquélla
+      // conservó.
+      this.auth.logout({ involuntario: true });
       void this.router.navigateByUrl(loginUrlTree(this.router, this.router.url, 'required'));
     });
     this.destroyRef.onDestroy(dejar);

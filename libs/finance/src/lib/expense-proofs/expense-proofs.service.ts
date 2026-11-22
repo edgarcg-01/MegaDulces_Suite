@@ -3082,6 +3082,9 @@ export class ExpenseProofsService {
       for (const r of rows) sol.set(`${r.sucursal}|${r.folio}`, r);
     }
     const departamentosDe = await this.departamentosDeKepler(trx, porSucursal);
+    // `[PGP.122.12]` La solicitud nacida en la Suite todavía no está en Kepler (sin folio): su departamento es el de
+    // sus renglones, el que eligió quien la pidió y el que la Suite escribe en `kdm6.c16` al firmar.
+    const departamentosSuite = await this.departamentosDeLaSuite(trx, filas.filter((f) => !String(f.folio_solicitud ?? '').trim()).map((f) => f.id));
 
     return Promise.all(filas.map(async (f): Promise<ExpedienteDelDiaDetallado> => {
       const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
@@ -3116,12 +3119,46 @@ export class ExpenseProofsService {
         tiene_evidencia: arch.some((a) => String(a?.role ?? '').startsWith('evidencia') && !!a?.url),
         evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
         provisional: f.provisional === true,
-        departamentos: departamentosDe
-          ? repartirPorDepartamento(departamentosDe.get(`${f.sucursal}|${f.folio_solicitud}`) ?? [], Number(f.importe) || 0)
-          : null,
+        departamentos: departamentosSuite.has(f.id)
+          ? repartirPorDepartamento(departamentosSuite.get(f.id) ?? [], Number(f.importe) || 0)
+          : departamentosDe
+            ? repartirPorDepartamento(departamentosDe.get(`${f.sucursal}|${f.folio_solicitud}`) ?? [], Number(f.importe) || 0)
+            : null,
         files: await this.storage.signFiles(arch, 1800),
       };
     }));
+  }
+
+  /**
+   * `[PGP.122.12]` **El departamento de la solicitud nacida en la Suite, antes de firmarla.** Quien firma veía
+   * «aún no está en Kepler (se escribe al firmarse)» en vez del departamento: `departamentosDeKepler` lo lee de la
+   * X-A-15, y antes de firmar no hay X-A-15. Medido en prod el 2026-11-21 (01/0000223 y 01/0000222): el renglón de la
+   * Suite (`finance.expense_proof_lines.department_code`, validado contra `kdc3` al pedir) es EXACTAMENTE el que llegó
+   * a `kdm6.c16` al firmar. Mismo nombre (`kdc3`) y la misma forma que el de Kepler, para repartir igual.
+   *
+   * Sólo los vales que se le pasan (los que no tienen folio). Sin la tabla de renglones no hay nada que leer (mapa vacío:
+   * la pantalla dice lo de antes); sin `kdc3`, la clave sin nombre (la pantalla muestra la clave).
+   */
+  private async departamentosDeLaSuite(trx: Knex.Transaction, ids: readonly string[]): Promise<Map<string, RenglonesDeDepartamento[]>> {
+    const mapa = new Map<string, RenglonesDeDepartamento[]>();
+    if (!ids.length) return mapa;
+    const reg = await trx.raw(`SELECT to_regclass('finance.expense_proof_lines') l, to_regclass('kepler_ods.kdc3') c`);
+    if (!reg.rows[0]?.l) return mapa;
+    const conNombre = !!reg.rows[0]?.c;
+    const rows = (await trx.raw(`
+      SELECT l.proof_id::text AS id, btrim(l.department_code) AS clave,
+             ${conNombre ? 'max(btrim(k.c2))' : 'NULL::text'} AS nombre, sum(l.amount)::numeric AS importe
+        FROM finance.expense_proof_lines l
+        JOIN finance.expense_proofs p ON p.id = l.proof_id
+        ${conNombre ? 'LEFT JOIN kepler_ods.kdc3 k ON k.sucursal = p.sucursal AND btrim(k.c1) = btrim(l.department_code)' : ''}
+       WHERE l.proof_id = ANY(?::uuid[]) AND nullif(btrim(l.department_code), '') IS NOT NULL
+       GROUP BY 1, 2`, [[...ids]])).rows as { id: string; clave: string; nombre: string | null; importe: string | number | null }[];
+    for (const r of rows) {
+      const l = mapa.get(r.id) ?? [];
+      l.push({ clave: String(r.clave ?? ''), nombre: r.nombre ?? null, importe: Number(r.importe) || 0 });
+      mapa.set(r.id, l);
+    }
+    return mapa;
   }
 
   /**
