@@ -167,7 +167,70 @@ describe('FinanzasMisGastosComponent', () => {
       expect(txt()).toContain('0000005');
       expect(txt()).toContain('Solicitud cancelada en Kepler');
       expect(txt()).toContain('0000006');
-      expect(txt()).toContain('XA1001-0008879');
+      expect(txt()).toContain('0008879');
+    });
+
+    /**
+     * `[PGP.123]` G.15 — Observación de usuario (2026-11-21): «Folio» era el de la solicitud y el de la comprobación vivía
+     * como «XA1001-…» debajo de «Cómo cerró»; costó encontrarlo. Ahora cada uno tiene su columna, uno junto al otro.
+     */
+    describe('[PGP.123] G.15 el folio de la solicitud y el de la comprobación, cada uno con su columna', () => {
+      const encabezados = () => [...fix.nativeElement.querySelectorAll('th')].map((t) => (t as HTMLElement).textContent?.trim());
+      const fila = (folio: string) => [...fix.nativeElement.querySelectorAll('tbody tr')]
+        .find((tr) => (tr as HTMLElement).textContent?.includes(folio)) as HTMLElement;
+      const comprobacion = (folio: string) => (fila(folio).querySelector('td.mg-c-comp') as HTMLElement | null)?.textContent?.trim();
+
+      it('en Cerrados: «Folio de solicitud» y junto «Folio de comprobación», con el X-A-10 en su celda (ya no «XA1001-…» abajo)', () => {
+        montar(MEZCLA());
+        ver('cerrado');
+        const th = encabezados();
+        expect(th[0]).toBe('Folio de solicitud');
+        expect(th[1]).toBe('Folio de comprobación');
+        expect(comprobacion('0000006')).toBe('0008879');
+        expect(txt()).not.toContain('XA1001-');
+        // La cancelada en Kepler no tiene comprobación: la celda lo dice sin inventar un folio.
+        expect(comprobacion('0000005')).toContain('sin comprobación todavía');
+      });
+
+      it('con 8 columnas dice qué hace en estrecho: se apila (dt-scope + dt-stack), cada celda con su rótulo y role=cell', () => {
+        montar(MEZCLA());
+        ver('cerrado');
+        const raiz = fix.nativeElement as HTMLElement;
+        expect(raiz.querySelector('.mg.dt-scope')).not.toBeNull();
+        expect(raiz.querySelector('p-table.dt-stack')).not.toBeNull();
+        const celdas = [...fila('0000006').querySelectorAll(':scope > td')] as HTMLElement[];
+        expect(celdas.every((td) => td.getAttribute('role') === 'cell')).toBe(true);
+        // La identidad (el folio) y la acción no llevan rótulo; las demás, el de su columna.
+        expect(celdas[0].classList.contains('dt-id')).toBe(true);
+        expect(celdas[0].hasAttribute('data-label')).toBe(false);
+        expect(celdas.map((td) => td.getAttribute('data-label')).filter(Boolean)).toEqual(['Folio de comprobación', 'Proveedor', 'Etapa', 'Cómo cerró', 'Se mandó', 'Importe']);
+        expect(celdas[celdas.length - 1].classList.contains('dt-actions')).toBe(true);
+      });
+
+      it('en Esperan a Kepler la columna está (es lo que falta); en Te toca y Esperan a Finanzas no (todavía no puede haberla)', () => {
+        montar(MEZCLA());
+        ver('kepler');
+        expect(encabezados()).toContain('Folio de comprobación');
+        expect(comprobacion('0000004')).toContain('sin comprobación todavía');
+        ver('tu');
+        expect(encabezados()).toContain('Folio de solicitud');
+        expect(encabezados()).not.toContain('Folio de comprobación');
+        ver('finanzas');
+        expect(encabezados()).not.toContain('Folio de comprobación');
+      });
+
+      it('el gasto que la Suite acaba de generar (G.14) sale en la columna aunque el ODS todavía no lo vea; el cancelado no', () => {
+        const GK = (gasto: object) => ({ comprobacion: { listo: false, quien: 'nadie', texto: '' }, escritura: { abierta: true, motivo: null, detalle: null }, gasto });
+        montar(REPORTE({ rows: [
+          FILA({ id: 'g1', status: 'validada', folio_solicitud: '0000222', etapa: 'autorizado', gasto_folios: [],
+            gasto_kepler: GK({ status: 'written', folio: '0000178', poliza: 'kdc22611/D/5498', nota: null }) } as never),
+          FILA({ id: 'g2', status: 'validada', folio_solicitud: '0000099', etapa: 'autorizado', gasto_folios: [],
+            gasto_kepler: GK({ status: 'cancelled', folio: '0000093', poliza: null, nota: 'Kepler canceló el gasto' }) } as never),
+        ] }));
+        ver('kepler');
+        expect(comprobacion('0000222')).toBe('0000178');
+        expect(comprobacion('0000099')).toContain('sin comprobación todavía');
+      });
     });
 
     it('lo que sigue sin cerrar suma te toca + Finanzas + Kepler, nunca lo cerrado', () => {

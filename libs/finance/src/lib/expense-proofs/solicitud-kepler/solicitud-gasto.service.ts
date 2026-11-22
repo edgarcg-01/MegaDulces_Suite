@@ -7,8 +7,8 @@ import {
   todayMx, urlDeServidor,
 } from '@megadulces/platform-core';
 import {
-  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
-  exigeDetalle, faltaParaPedir, fechaReal, formaPago, hayInformacionDePago, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
+  alcanceDelAcreedor, avisoDeFechas, basesDeQuienPide, comentarioDeLaSolicitud, conceptoDistintoDeCedis, conceptoSinCuenta, correoValido, cuentaDePago, cuentaFueraDeAlcance, detallesDePago,
+  exigeDetalle, faltaParaPedir, fechaLeidaProponible, fechaReal, formaPago, hayInformacionDePago, lecturaParaGuardar, PLAZO_MAXIMO_DIAS, quedaDebiendoComprobante, rfcCompatible,
   totalesDeLaSolicitud, unirDetallesDePago, type AlmacenesDeQuienPide, type InformacionDePago,
   type AcreedorDeGasto, type CatalogoDeLaSolicitud, type ConceptoDeGasto, type CrearSolicitudGastoDto,
   type DisponibilidadDeLaSolicitud, type DuplicadoProbable, type EstadoKeplerDeLaSolicitud, type LecturaDelComprobante,
@@ -161,20 +161,24 @@ export class SolicitudGastoService {
 
   // ── Lectura para la pantalla (ODS) ──────────────────────────────────────────────────────────
 
-  /** Conceptos (con su cuenta y si entran), proyectos y departamentos del catálogo de ESE servidor. */
+  /**
+   * Conceptos (con su cuenta y si entran), proyectos y departamentos del catálogo de ESE servidor. `[PGP.122.14]` TODOS los
+   * conceptos, también los que no se pueden pedir (sin cuenta, fuera de alcance, R14), cada uno con su motivo: la pantalla
+   * los muestra deshabilitados en vez de esconderlos. Pedir con ellos lo sigue rechazando `crear`.
+   */
   async catalogo(sucursal: string): Promise<CatalogoDeLaSolicitud> {
     const s = await this.base(sucursal);
     return this.tk.run(async (trx) => {
       const conceptos = (await trx.raw(
-        `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(c3) AS cuenta
-           FROM kepler_ods.kdco WHERE sucursal = ? AND btrim(c3) <> '' ORDER BY btrim(c1), c2`, [s])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
+        `SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre, btrim(coalesce(c3, '')) AS cuenta
+           FROM kepler_ods.kdco WHERE sucursal = ? AND btrim(c1) <> '' ORDER BY btrim(c1), c2`, [s])).rows as Array<{ codigo: string; nombre: string; cuenta: string }>;
       const proyectos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdcp WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const departamentos = (await trx.raw(`SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS codigo, btrim(c2) AS nombre FROM kepler_ods.kdc3 WHERE sucursal = ? ORDER BY btrim(c1)`, [s])).rows;
       const cedis = await this.cuentasDeCedis(trx, s);
       return {
         sucursal: s,
         conceptos: conceptos.map((c): ConceptoDeGasto => ({
-          ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s),
+          ...c, fuera_de_alcance: cuentaFueraDeAlcance(c.cuenta) ?? conceptoSinCuenta(c.cuenta, s), distinto_de_cedis: conceptoDistintoDeCedis(c, cedis.get(c.codigo), s),
         })),
         proyectos, departamentos,
       };
@@ -422,7 +426,11 @@ export class SolicitudGastoService {
     const f = await this.ocr.extractExpenseReceipt(dataUri.replace(/^data:[^,]*,/, ''), tipo as 'image/jpeg');
     if (!f.legible) return vacio('No se pudo leer el comprobante: captúralo a mano');
     const rfc = String(f.rfc ?? '').trim().toUpperCase();
-    const leido = { total: f.total, subtotal: f.subtotal, iva: f.iva, fecha: f.fecha, folio: f.folio, rfc: rfc || null, comercio: f.comercio };
+    // [PGP.122.13] Con lo impreso: la pantalla lo pone junto a la fecha para que la persona la compare con el papel. La
+    // fecha sólo se propone si es de los últimos 30 días (un AÑO mal leído no llega), y con ella —no con la cruda— se
+    // busca la factura del SAT: con el año mal y un importe que se repite cada mes, encontraría la del año pasado.
+    const fecha = fechaLeidaProponible(f.fecha, todayMx());
+    const leido = { total: f.total, subtotal: f.subtotal, iva: f.iva, fecha, fecha_impresa: f.fecha_impresa ?? null, folio: f.folio, rfc: rfc || null, comercio: f.comercio };
     return this.tk.run(async (trx) => {
       let acreedor: AcreedorDeGasto | null = null;
       if (rfc) {
@@ -433,7 +441,7 @@ export class SolicitudGastoService {
         if (filas.length === 1) acreedor = filas[0];
       }
       let cfdi: LecturaDelComprobante['cfdi'] = null;
-      if (rfc && Number(f.total) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(f.fecha ?? ''))) {
+      if (rfc && Number(f.total) > 0 && fecha) {
         const c = await opcional(trx, async (sp) => (await sp.raw(
           `SELECT uuid, nullif(concat_ws('-', nullif(btrim(serie), ''), nullif(btrim(folio), '')), '') AS folio, to_char(fecha, 'YYYY-MM-DD') AS fecha,
                   subtotal::float8 AS subtotal, coalesce(descuento, 0)::float8 AS descuento, coalesce(total_trasladados, 0)::float8 AS iva,
@@ -441,7 +449,7 @@ export class SolicitudGastoService {
              FROM fiscal.cfdis
             WHERE rol = 'recibidas' AND tipo_comprobante = 'I' AND upper(emisor_rfc) = ? AND abs(total - ?) <= 1
               AND fecha::date BETWEEN ?::date - 5 AND ?::date + 5 AND coalesce(estatus_sat, '') NOT ILIKE 'cancel%'
-            LIMIT 2`, [rfc, Number(f.total), f.fecha, f.fecha])).rows as Array<NonNullable<LecturaDelComprobante['cfdi']>>, []);
+            LIMIT 2`, [rfc, Number(f.total), fecha, fecha])).rows as Array<NonNullable<LecturaDelComprobante['cfdi']>>, []);
         if (c.length === 1) cfdi = c[0];
       }
       return { legible: true, motivo: null, leido, acreedor, cfdi };
@@ -562,7 +570,8 @@ export class SolicitudGastoService {
         // DS17: al pedir, la referencia o el cheque pueden no existir todavía; vacío se guarda como «sin dato», no ''.
         forma_pago: dto.forma_pago, forma_pago_detalle: exigeDetalle(dto.forma_pago) && formaPagoDetalle ? formaPagoDetalle : null,
         files: JSON.stringify(files), comentarios: comentario, status: 'recibida', created_by: actor, origen: 'solicitud',
-        capture_meta: JSON.stringify({ pgp122: true, solicita_usuario: String(quien.usuario ?? '').trim() || null, fuentes: dto.fuentes ?? {}, periodo_del: dto.periodo_del ?? null, periodo_al: dto.periodo_al ?? null, unidad: dto.unidad ?? null }),
+        // [PGP.122.13] `lectura`: lo que propuso el lector (limpio), para medir cuánto lo corrige la gente.
+        capture_meta: JSON.stringify({ pgp122: true, solicita_usuario: String(quien.usuario ?? '').trim() || null, fuentes: dto.fuentes ?? {}, lectura: lecturaParaGuardar(dto.lectura), periodo_del: dto.periodo_del ?? null, periodo_al: dto.periodo_al ?? null, unidad: dto.unidad ?? null }),
         ...(tieneComprobante ? { evidencia_por: actor, evidencia_at: trx.fn.now() } : {}),
         ...(quedaDebiendoComprobante({ archivos: files, exige_evidencia: true, forma_pago: dto.forma_pago }) ? { provisional: true } : {}),
         creditor_code: acreedor, vat_amount: t.iva, document_type: dto.comprobante.tipo,

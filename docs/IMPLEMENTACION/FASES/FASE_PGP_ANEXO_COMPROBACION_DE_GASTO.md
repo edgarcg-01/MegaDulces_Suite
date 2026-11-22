@@ -1,29 +1,30 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 83 KB, 946 líneas, 17 secciones.
+> **Índice navegable** — 86 KB, 981 líneas, 18 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/FASES/FASE_PGP_ANEXO_COMPROBACION_DE_GASTO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 29 | 65 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
-| 66 | 75 | 1 | 1. El pedido, literal |
-| 76 | 115 | 3 | 2. Qué es comprobar hoy (medido) |
-| 116 | 276 | 11 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
-| 277 | 293 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
-| 294 | 391 | 6 | 5. El diseño |
-| 392 | 411 | 1 | 6. Alcance v1 y lo que no entra |
-| 412 | 418 | 1 | 7. El orden de construcción, de abajo hacia arriba |
-| 419 | 438 | 2 | 8. Plan por capas (`[PGP.123]`) |
-| 439 | 451 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
-| 452 | 476 | 5 | 10. Decisiones |
-| 477 | 499 | 1 | 11. Riesgos y NO MEDIDO |
-| 500 | 512 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
-| 513 | 553 | 10 | 13. Construcción — lo que ya está y lo que es de Edgar |
-| 554 | 902 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
-| 903 | 935 | 3 | 15. El primer gasto escrito por la Suite (2026-11-20) |
-| 936 | 975 | 4 | 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21) |
+| 30 | 66 | 3 | Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite |
+| 67 | 76 | 1 | 1. El pedido, literal |
+| 77 | 116 | 3 | 2. Qué es comprobar hoy (medido) |
+| 117 | 277 | 11 | 3. Qué escribe un X-A-10 dentro de Kepler (las 9 escrituras) |
+| 278 | 294 | 1 | 4. Lo que Kepler no cuida y la Suite sí |
+| 295 | 392 | 6 | 5. El diseño |
+| 393 | 412 | 1 | 6. Alcance v1 y lo que no entra |
+| 413 | 419 | 1 | 7. El orden de construcción, de abajo hacia arriba |
+| 420 | 439 | 2 | 8. Plan por capas (`[PGP.123]`) |
+| 440 | 452 | 1 | 9. Pruebas (cada compuerta con su prueba negativa) |
+| 453 | 477 | 5 | 10. Decisiones |
+| 478 | 500 | 1 | 11. Riesgos y NO MEDIDO |
+| 501 | 513 | 1 | 12. Hallazgos fuera de alcance, con su dueño |
+| 514 | 555 | 10 | 13. Construcción — lo que ya está y lo que es de Edgar |
+| 556 | 904 | 31 | 14. La interfaz de la comprobación — prueba visual (2026-11-15) |
+| 905 | 937 | 3 | 15. El primer gasto escrito por la Suite (2026-11-20) |
+| 938 | 977 | 4 | 16. «Generar gasto»: una persona lo genera con un clic (G.14, 2026-11-21) |
+| 978 | 1011 | 3 | 17. Mis gastos: el folio de la comprobación con su columna (G.15, 2026-11-21) |
 
 <!-- INDICE-AUTO:FIN -->
 # Fase PGP · Anexo G — La comprobación del gasto (X-A-10) se escribe desde la Suite
@@ -533,6 +534,7 @@ contable (ADR-040)», junto con el que el Anexo S debe a ADR-092.
 | G.1 | 🧪 2026-11-20 | **Pasiva, sin documento de prueba.** Medición de sólo lectura en md (00, 01, 05, 07, 08 hasta el 2026-11-23 16:00), cada 20 s, de `pg_stat_user_tables` contra cada X-A-10 y cada póliza D nuevos, más la reconstrucción en el ODS del orden de captura de cada póliza D. **No hay contador** (§3.6): DG7 se retira y el escritor escribe en las 9. Ensayo con ROLLBACK verde también en 00, 01, 03, 06 y 08 | 98 % de las D = MAX del mes + 1 en 5 bases y 2 meses · el salto, siempre un X-D-55 · 11 pólizas en vivo en 01 · ensayo 5/5 · la prueba de los candados con las 9 y su mutante en rojo. NO MEDIDO: la lista de tablas de un X-A-10 de una persona (la medición sigue) |
 | G.11–G.12 | ⬜ Edgar | — | — |
 | G.13 DG12 | 🧪 2026-11-20 | La regla G.5 deja en la cola, para la sucursal, el vale cuya lectura del comprobante dice otro monto (`lectura_distinta`, tolerancia del lector: $1 o 1 %). El monto leído se guarda como dato (`monto_ocr`) al escribir el aviso; para los vales anteriores se toma del aviso en `revision_nota` | contrato 14 ✓ (2 nuevos) · 4 mutantes → rojos · expense-proofs 401 ✓ |
+| G.15 Mis gastos | 🧪 2026-11-21 | «Folio de solicitud» y, junto, «Folio de comprobación» (el X-A-10, también el recién generado por G.14); la línea «XA1001-…» de «Cómo cerró» se retira. Observación de usuario. Detalle en §17 | Mis gastos 44 ✓ (3 nuevas) · vista de finanzas 1,950 ✓ · build de la vista ✓ · `check:pantalla` 0 nuevas. NO MEDIDO: prueba visual |
 
 **Lo que dio la sombra (G.2), 2026-11-15:**
 
@@ -972,3 +974,37 @@ sólo donde se puede, un POST por dos clics, el motivo si no se genera, ningún 
 (el conteo deliberado de `identidadConNombre` pasa a 6); `tsc` de finance y `ngc` sin errores; `check:pantalla` de
 las dos pantallas: 0 nuevas. **NO MEDIDO:** `test-newdb-comprobacion-gasto-suite.js` reescrito para el clic (validar no
 escribe, 403 del ajeno, el aprobador no dueño, el cron que no escribe) — sin Docker local; corre en el CI.
+
+## 17. Mis gastos: el folio de la comprobación con su columna (G.15, 2026-11-21)
+
+**La observación (Prevención, 01, después de su primer gasto generado con un clic):** que el título «Folio» diga que es
+el de la solicitud, y que a un lado vaya la columna de la comprobación con su folio. El folio del gasto (X-A-10) vivía como
+«XA1001-…» debajo de «Cómo cerró», y sólo en Cerrados: le costó identificarlo.
+
+**Lo que cambió.** «Folio» se llama **«Folio de solicitud»** y junto va **«Folio de comprobación»**: los X-A-10 que ya
+ve el ODS (`gasto_folios`) y, mientras todavía no lo ve, el que acaba de generar la Suite (`gasto_kepler.gasto.folio`,
+G.14; el cancelado no cuenta). La columna va en Esperan a Kepler (es lo que falta) y en Cerrados, y en cualquier pestaña
+donde alguna fila traiga uno; en «Te toca» y «Esperan a Finanzas» todavía no puede haberla (sería una columna de rayas).
+En angosto (celular, o el panel con el menú abierto) la columna se quita y su folio baja al de la solicitud, rotulado
+«comprobación». La línea «XA1001-…» de «Cómo cerró» se retiró: el dato ya no se repite.
+
+| # | Pregunta (`diseno` §0b) | Respuesta |
+|---|---|---|
+| 1 | ¿Qué ve y en qué orden? | De dónde viene el gasto (la solicitud) y con qué se comprobó, juntos y al inicio de la fila |
+| 2 | ¿Qué no ve? | El mismo folio dos veces; una columna vacía donde la comprobación todavía no puede existir |
+| 3 | Accesibilidad | Encabezado propio (`scope=col`), texto en mono que se puede copiar; la celda vacía dice «sin comprobación todavía» al lector de pantalla |
+| 4 | ¿Ligado a otro proceso? | Sí: X-A-15 → X-A-10 → la cuenta por pagar que paga el Calendario (X-D-26). Origen y destino en la misma fila |
+| 5 | ¿Le toca a esta pantalla? | Sí: Mis gastos sigue el vale de quien lo levantó hasta que Kepler lo cierra |
+
+**Pruebas:** Mis gastos 44 ✓ (3 nuevas: las dos columnas en Cerrados sin «XA1001-»; la columna sólo donde va; el folio
+recién generado sí y el cancelado no) · vista de finanzas 1,950 ✓ (3 ✗ ajenas de `cartera-segments`, las mismas de §16)
+· `nx build view` (development) sin errores · `check:pantalla` 0 nuevas. **Prueba visual (2026-11-21, base local de Docker):** con filas reales de la base local y sus X-A-10
+del ODS local, «Folio de solicitud» y «Folio de comprobación» se ven juntas en escritorio (1440) y Fold (750); en el
+celular (390) el folio baja como «comprobación 0000082»; ya no queda ningún «XA1001-» y la página no se desborda.
+
+**En estrecho la tabla se apila.** Con la columna nueva llega a 8, y la compuerta de tablas densas del pre-push exige
+decir qué hace en un teléfono. Las columnas son campos del vale, así que se apila (DESIGN_TABLES §6, caso A): `dt-scope`
+en la página, `dt-stack` en la tabla, cada celda con su rótulo y `role="cell"`; el folio es la identidad y la celda de
+acción vacía no deja hueco. Medido en el celular: cada vale es un bloque con el folio, su sucursal y «comprobación …»
+arriba, y debajo Proveedor, Cómo cerró (o A qué espera), Se mandó e Importe, sin desborde; escritorio y Fold siguen en
+rejilla. NO MEDIDO: el botón apilado (las filas locales no traen acción); su piso de 44 px lo pone `dense-table.css`.
