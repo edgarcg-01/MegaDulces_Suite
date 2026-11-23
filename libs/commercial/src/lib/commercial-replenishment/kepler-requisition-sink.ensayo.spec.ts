@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Client, type PoolClient } from 'pg';
 
-import { KeplerRequisitionSinkAdapter, textoKepler } from './kepler-requisition-sink.adapter';
+import { KeplerRequisitionSinkAdapter, plazoDeKepler, textoKepler } from './kepler-requisition-sink.adapter';
 
 /**
  * `[KR.16]` ENSAYO contra los Kepler REALES: corre `entregar()` completo —plantilla, proveedor,
@@ -73,6 +73,19 @@ class AdaptadorEnsayo extends KeplerRequisitionSinkAdapter {
       if (Math.abs(Number(H.c15) - ieps) > 0.005) no.push(`c15 ${H.c15} ≠ IEPS ${ieps}`);
       if (Math.abs(Number(H.c16) - r2(sub + iva + ieps)) > 0.005) no.push(`c16 ${H.c16} ≠ ${r2(sub + iva + ieps)}`);
       for (const r of l) if (Number(r.c17) < 0 || r.c18 < 0) no.push(`ren ${r.ren}: tasa negativa ${r.c17}/${r.c18}`);
+    }
+    if (H.c2 === 'X') {
+      // `[PQ.146]` El plazo y su texto son los de la ficha del proveedor en ESTE servidor, no los del molde.
+      const f = (await c.query('SELECT c16::text d FROM md.kdxd WHERE btrim(c2)=$1 LIMIT 1', [H.c10])).rows[0];
+      const esperado = plazoDeKepler(f?.d);
+      const p = (await c.query('SELECT btrim(c17::text) c17, btrim(c30) c30 FROM _h')).rows[0];
+      if (!esperado.ok) no.push(`ficha de ${H.c10}: ${esperado.motivo}`);
+      else if (Number(p.c17) !== Number(esperado.valor.dias) || p.c30 !== esperado.valor.condicion)
+        no.push(`plazo ${p.c17}/«${p.c30}» ≠ ficha ${esperado.valor.dias}/«${esperado.valor.condicion}»`);
+      if (conOrden) {
+        const po = (await c.query('SELECT btrim(c17::text) c17, btrim(c30) c30 FROM _oh')).rows[0];
+        if (po.c17 !== p.c17 || po.c30 !== p.c30) no.push(`OC plazo ${po.c17}/«${po.c30}» ≠ requisición ${p.c17}/«${p.c30}»`);
+      }
     }
     if (H.c67 !== 'SUITE') no.push(`c67 = ${H.c67}`);
     if (!/^\d{2}:\d{2}$/.test(String(H.c69))) no.push(`c69 = ${H.c69}`);
