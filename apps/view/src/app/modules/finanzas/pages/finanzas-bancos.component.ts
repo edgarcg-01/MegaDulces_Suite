@@ -943,6 +943,12 @@ export class FinanzasBancosComponent implements OnInit {
       case 'uncat': this.fUncat.set(!!e.value); break;
       case 'descarga': this.fDescarga.set(e.value || ''); break;
     }
+    // [CB.90] «Lo que el libro no tiene» son renglones de la descarga, y «sin clasificar» y la conciliación son trabajo
+    // del libro (CB.65): juntos daban «0 movimientos» siempre, sin decir por qué. Se excluyen: el último que se pide gana.
+    if (e.field === 'descarga' && e.value === 'solo_descarga') { this.fUncat.set(false); this.fRecon.set(''); }
+    if ((e.field === 'uncat' && e.value) || (e.field === 'recon' && e.value)) {
+      if (this.fDescarga() === 'solo_descarga') this.fDescarga.set('');
+    }
     this.reloadMovements();
   }
 

@@ -1,19 +1,25 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Knex } from 'knex';
 import { CANAL_FUENTE_KEPLER, KNEX_NEW_DB, MiradaAlAviso, PgListenService, TenantContextService, todayMx } from '@megadulces/platform-core';
+import { CANAL_BANCOS } from '../bank/aviso-bancos';
 import { PaymentCalendarService } from './payment-calendar.service';
 
 /** Lo que se espera tras el primer aviso de Kepler antes de mirar: los avisos de en medio se absorben. */
 const ESPERA_MS = 60_000;
 
 /**
- * `[PGP.117]` **A la semana, el pago que nadie pagó se libera solo, sin reloj.** Edgar, 2026-11-12.
+ * `[PGP.117]` **A la semana, el pago que nadie pagó se libera solo, sin reloj.** Edgar, 2026-11-12. `[PGP.204]` Se
+ * bajó a un día y se regresó a la semana el mismo 2026-11-23: ver `DIAS_PARA_LIBERAR`.
  *
  * ── Qué lo dispara ──────────────────────────────────────────────────────────────────────────
  * Lo mismo que a la descarga del SAT (`[PGP.110c]`): `caja_fuente` suena con cada documento que
  * cambia de verdad en Kepler, y los pagos a proveedor son documentos de Kepler. La firma de la mirada
  * es el DÍA: el primer aviso de cada día corre una pasada y los demás de ese día no hacen nada. Al
  * arrancar mira una vez (NOTIFY no se guarda). Re-correr el mismo día no libera nada nuevo.
+ * `[PGP.202]` También `bancos_movimientos` (la descarga o el libro que entran a Bancos): lo que frena una liberación
+ * es casi siempre que el banco todavía no cubre esos días, y es justo ese aviso el que lo cambia. La firma pasa a ser
+ * el día + cuántos avisos del banco van. ⚠️ Una descarga que sólo alarga la cobertura sin movimientos nuevos no avisa:
+ * ésa espera al primer aviso de Kepler del día siguiente.
  *
  * ── Qué hace ────────────────────────────────────────────────────────────────────────────────
  * Por cada tenant activo, `PaymentCalendarService.liberarVencidos()` dentro de su scope: la regla
@@ -31,6 +37,9 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
   /** `[PGP.132]` La pasada de «lo que Kepler ya pagó»: con cada aviso (la firma cambia), no una vez al día. */
   private miradaKepler: MiradaAlAviso | null = null;
   private avisosKepler = 0;
+  /** `[PGP.202]` Los avisos del banco: cada uno puede cubrir los días que faltaban para liberar. */
+  private avisosBanco = 0;
+  private dejarDeEscucharBanco: (() => void) | null = null;
 
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
@@ -44,15 +53,20 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
     if (process.env.WORKER !== 'true') { this.logger.log(`no escucho ${CANAL_FUENTE_KEPLER}: este proceso no es el worker (WORKER distinto de true)`); return; }
     this.mirada = new MiradaAlAviso(
       ESPERA_MS,
-      async () => todayMx(),
+      async () => `${todayMx()}|${this.avisosBanco}`,
       async (cambio) => { if (cambio) await this.liberarHoy(); },
       (e) => this.logger.error(`pagos vencidos: la pasada falló, no se liberó nada: ${(e as Error)?.message}`),
     );
     try {
       this.dejarDeEscuchar = this.listen.escuchar(CANAL_FUENTE_KEPLER, () => { this.avisosKepler++; this.miradaKepler?.avisar(); this.mirada?.avisar(); });
-      this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): libera una vez al día los pagos que nadie pagó en una semana`);
+      this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): libera a la semana los pagos que nadie pagó, en cuanto el banco lo confirma`);
     } catch (e: unknown) {
       this.logger.error(`no se pudo escuchar ${CANAL_FUENTE_KEPLER}: ${(e as Error)?.message} — los pagos vencidos NO se van a liberar`);
+    }
+    try {
+      this.dejarDeEscucharBanco = this.listen.escuchar(CANAL_BANCOS, () => { this.avisosBanco++; this.mirada?.avisar(); });
+    } catch (e: unknown) {
+      this.logger.error(`no se pudo escuchar ${CANAL_BANCOS}: ${(e as Error)?.message} — los pagos vencidos esperan al aviso de Kepler del día`);
     }
     this.mirada.avisar();
     if (process.env.DISABLE_PAGOS_POR_KEPLER === 'true') { this.logger.log('pagos por Kepler APAGADO (DISABLE_PAGOS_POR_KEPLER)'); return; }
@@ -68,6 +82,8 @@ export class PagosVencidosService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     this.dejarDeEscuchar?.();
     this.dejarDeEscuchar = null;
+    this.dejarDeEscucharBanco?.();
+    this.dejarDeEscucharBanco = null;
     this.mirada?.detener();
     this.miradaKepler?.detener();
   }

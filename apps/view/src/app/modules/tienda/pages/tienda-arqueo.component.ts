@@ -469,10 +469,59 @@ interface CortesPersona {
              ocupaba media pantalla para decir "nada todavía" en el momento en que
              está contando billetes de pie frente a la caja. -->
         <!-- [SM.48] Quien valida ve las sucursales y sus cajas (turno, retiros, cajon y su
-             cuadre, con el desglose). Trae el esperado: la cajera NO tiene historial (SM.51). -->
+             cuadre, con el desglose). Trae el esperado, asi que no es para la cajera: ella ve
+             solo sus arqueos de HOY, para reimprimir (SM.54; SM.51 se lo habia quitado). -->
         @if (revela) {
           <div class="card-premium card-flat arq-panel">
             <app-arqueo-cajas [refresco]="refrescoCajas()" />
+          </div>
+        } @else if (histError()) {
+          <!-- [SM.54] Un error no se lee como "no tienes arqueos": se dice y se reintenta. -->
+          <div class="card-premium card-flat arq-panel arq-hoy" role="status">
+            <p class="arq-hoy-error">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              No se pudieron cargar tus arqueos de hoy.
+              <p-button type="button" label="Reintentar" icon="pi pi-refresh" [text]="true" size="small" (click)="recargarHoy()" />
+            </p>
+          </div>
+        } @else if (rows().length) {
+          <!-- [SM.54] Pedido de la jefa de zona: la cajera reimprime el ticket de un arqueo de HOY.
+               Solo los suyos y solo de hoy: ese recorte lo hace el servidor (SM.33), no esta lista.
+               Sin esperado ni diferencia (el arqueo es ciego) y sin buscador: son pocos al dia.
+               Sin arqueos no se dibuja nada. NO PONER ACENTOS GRAVES ACA (template literal). -->
+          <div class="card-premium card-flat arq-panel arq-hoy">
+            <h3 class="arq-card-title">Tus arqueos de hoy</h3>
+            <!-- En el telefono cada arqueo se apila con sus rotulos (dt-stack): nada se esconde tras un scroll.
+                 dt-scope va en su propio envoltorio: en el mismo div que arq-panel, el container-name
+                 arqpanel le ganaba y la consulta densetable nunca aplicaba. -->
+            <div class="dt-scope">
+            <p-table [value]="rows()" dataKey="id" size="small" class="surf-table surf-table--plain dt-stack">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Hora</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Caja</th>
+                  <th scope="col" class="ta-r comm-num">Contado</th>
+                  <th scope="col"><span class="sr-only">Ticket</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-b>
+                <tr>
+                  <td class="arq-mono" data-label="Hora" role="cell">{{ horaDe(b.captured_at) }}</td>
+                  <td class="dt-id" data-label="Tipo" role="cell">{{ tipoHoy(b) }}</td>
+                  <td data-label="Caja" role="cell" [attr.aria-label]="'Caja ' + (b.tipo === 'sin_caja' || !b.caja ? 'sin caja' : b.caja)">{{ b.tipo === 'sin_caja' || !b.caja ? '—' : b.caja }}</td>
+                  <td class="ta-r comm-num strong dt-num" data-label="Contado" role="cell">{{ money(b.total_contado) }}</td>
+                  <!-- Sin arq-tk-td: su width 1% apilado dejaba la celda en 12px y el boton fuera de vista. -->
+                  <td class="dt-actions" data-label="Ticket" role="cell">
+                    <p-button type="button" label="Reimprimir" icon="pi pi-print" [text]="true" size="small"
+                              styleClass="arq-reimprimir"
+                              [ariaLabel]="'Reimprimir el ticket de ' + tipoHoy(b) + ' de las ' + horaDe(b.captured_at)"
+                              (click)="reimprimir(b)" />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+            </div>
           </div>
         }
       </div>
@@ -834,6 +883,9 @@ interface CortesPersona {
     :host ::ng-deep .arq-hist-search input { width: 100%; }
     .arq-hist-n { font-size: var(--fs-xs); }
     .arq-tk-th, .arq-tk-td { width: 1%; white-space: nowrap; }
+    /* [SM.54] Error de «Tus arqueos de hoy»: el icono lleva el aviso, no solo el color. */
+    .arq-hoy-error { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--text-muted); }
+    .arq-hoy-error .pi { color: var(--warn-fg); }
     /* El historial tiene hasta 10 columnas: en un telefono no cabe de ninguna
        forma. Scrollea DENTRO de su contenedor - que la pagina entera se corra en
        horizontal mueve tambien el encabezado y la barra de guardar. */
@@ -2371,11 +2423,36 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** [SM.48] Se incrementa en cada recarga: la vista de cajas se vuelve a pedir. */
   readonly refrescoCajas = signal(0);
 
+  /** [SM.54] La lista de hoy no se pudo pedir: distinto de «no tienes arqueos». */
+  readonly histError = signal(false);
+
   private load() {
     this.loading.set(true);
     if (this.revela) this.refrescoCajas.update((n) => n + 1);
     this.svc.list({ limit: 100 }).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (r) => { this.rows.set(r); this.loading.set(false); }, error: () => this.loading.set(false) });
+      .subscribe({
+        next: (r) => { this.rows.set(r); this.histError.set(false); this.loading.set(false); },
+        error: () => { this.histError.set(true); this.loading.set(false); },
+      });
+  }
+
+  /** [SM.54] Botón «Reintentar» de «Tus arqueos de hoy». */
+  recargarHoy() { this.load(); }
+
+  /**
+   * [SM.54] Nombre del arqueo en «Tus arqueos de hoy», como la cajera lo eligió en el menú.
+   * El retiro lleva su número: tres sangrías del mismo turno no deben leerse como la misma fila.
+   */
+  tipoHoy(b: ArqueoRow): string {
+    switch (b.tipo) {
+      case 'retiro': return `Retiro ${b.secuencia ?? 1}`;
+      case 'cierre': return 'Cierre de día';
+      case 'relevo': return 'Relevo';
+      case 'rd': return 'RD';
+      case 'rv': return 'RV';
+      case 'sin_caja': return 'Conteo de efectivo';
+      default: return String(b.tipo ?? '—');
+    }
   }
 
   /** Fecha local → 'YYYY-MM-DD' sin corrimiento de TZ (§10: no re-convertir). */

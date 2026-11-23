@@ -1,7 +1,16 @@
 /**
- * `[PGP.117]` **A la semana, lo que no se pagó se quita del Calendario, y queda la bitácora.**
+ * `[PGP.117]` **Lo que no se pagó se quita del Calendario, y queda la bitácora.**
  * Edgar, 2026-11-12: «después de una semana hay que quitar lo que no se haya pagado, pero dejar logs
  * de lo ocurrido».
+ *
+ * `[PGP.202]` → `[PGP.204]` **La semana se queda.** El 2026-11-23 se bajó a un día (pedido de Edgar: «cuando una
+ * factura no se pagó y ya se pasó el día de pagos, quitémosla automáticamente pero dejemos el registro») y el mismo
+ * día se regresó, con la medición: de 225 pagos que SÍ se pagaron (1-oct a 20-nov), 4 salieron del banco por OTRO
+ * importe que el programado (dos parciales de ~$1M y ~$425k, uno junto con otra factura en un cheque, uno en efectivo
+ * de Caja General) y Tesorería los capturó en Kepler 3 a 6 días después de su día: ningún testigo los veía. Con un
+ * día se habrían liberado los 4 (y sus facturas, ofrecido otra vez); con 3, 2; con 6 o 7, ninguno. En 1 de cada 3
+ * pagos Tesorería captura en Kepler 5 o 6 días después. Lo que se quita al día siguiente es la VISTA del pago
+ * vencido (`[PGP.205]`), no el apartado de sus facturas.
  *
  * ── Por qué ────────────────────────────────────────────────────────────────────────────────
  * Un pago pendiente APARTA el saldo de sus facturas: mientras siga `pending`, la lista de deuda no
@@ -31,7 +40,11 @@
  */
 import type { CierreKeplerPago } from './cierre-kepler.contract';
 
-/** Días después del día programado a partir de los cuales un pago sin testigo se libera. */
+/**
+ * Días después del día programado a partir de los cuales un pago sin testigo se libera. ⛔ `[PGP.204]` No bajarlo
+ * sin un testigo que vea el pago por OTRO importe (parcial, junto con otra factura, efectivo): con 1 día se habrían
+ * liberado 4 pagos ya pagados de 225 medidos; con 6 o 7, ninguno (Tesorería captura en Kepler hasta 6 días después).
+ */
 export const DIAS_PARA_LIBERAR = 7;
 /** Holgura del banco: el dinero puede salir unos días antes del día programado. */
 export const DIAS_ANTES_BANCO = 3;
@@ -85,7 +98,7 @@ export function decidirVencido(p: PagoPendienteVencido, hoy: string): DecisionVe
 
 /** La nota que se agrega al pago liberado (la evidencia completa va en la bitácora). */
 export function notaLiberado(hoy: string, dias: number): string {
-  return `[liberado ${hoy}] ${dias} días después de su día sin pagarse: Kepler no registra abono a sus facturas desde que se programó y el banco no tiene una salida por ese importe. Las facturas vuelven a quedar disponibles.`;
+  return `[liberado ${hoy}] ${dias === 1 ? '1 día' : `${dias} días`} después de su día sin pagarse: Kepler no registra abono a sus facturas desde que se programó y el banco no tiene una salida por ese importe. Las facturas vuelven a quedar disponibles.`;
 }
 
 /** Lo que devuelve una pasada: cuántos se liberaron y por qué se conservó el resto. */

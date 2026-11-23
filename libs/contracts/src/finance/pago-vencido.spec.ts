@@ -27,6 +27,14 @@ describe('[PGP.117] decidirVencido', () => {
     expect(DIAS_PARA_LIBERAR).toBe(7);
   });
 
+  it('[PGP.204] al día siguiente NO se libera: el pago pudo salir por otro importe y Kepler llega hasta 6 días tarde', () => {
+    expect(decidirVencido(p(), '2026-11-04')).toEqual({ accion: 'esperar', dias: 1 });
+  });
+
+  it('a la semana con el banco todavía sin cubrir esos días: NO se libera', () => {
+    expect(decidirVencido(p({ salidaDeBanco: null }), '2026-11-10')).toEqual({ accion: 'conservar', dias: 7, motivo: 'banco_sin_medir' });
+  });
+
   it('un día futuro también espera (no se libera lo que todavía no llega)', () => {
     expect(decidirVencido(p({ lotDate: '2026-11-20' }), '2026-11-12').accion).toBe('esperar');
   });
@@ -102,5 +110,8 @@ describe('[PGP.117] diasEntre y la nota', () => {
     expect(n).toContain('[liberado 2026-11-12]');
     expect(n).toContain('9 días');
     expect(n).toContain('disponibles');
+  });
+  it('[PGP.202] al día siguiente la nota dice «1 día», no «1 días»', () => {
+    expect(notaLiberado('2026-11-04', 1)).toContain('] 1 día después de su día');
   });
 });

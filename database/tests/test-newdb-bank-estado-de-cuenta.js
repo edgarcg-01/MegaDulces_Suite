@@ -356,6 +356,17 @@ async function completo(urlAdmin, urlRuntime) {
       const sinCat = await mov(BBVA_A, { uncategorized: 'true' });
       check(sinCat.rows.length > 0 && sinCat.rows.every((x) => x.fuente === 'libro'),
         `[negativa] «sin clasificar» es del libro: la descarga no se clasifica ahí (${sinCat.rows.map((x) => x.fuente)})`);
+      // [CB.90] El grupo «Sin clasificar» (la leyenda y el selector) alcanza lo que no tiene categoría. Antes comparaba
+      // `group_key` crudo, que es NULL sin categoría: daba 0 siempre, y con «Solo sin clasificar» puesto también.
+      const grupoSC = await mov(BBVA_A, { group_key: 'sin_clasificar' });
+      const idsSinCat = sinCat.rows.map((x) => x.id).sort().join(',');
+      check(grupoSC.total >= sinCat.total && sinCat.rows.every((x) => grupoSC.rows.some((y) => y.id === x.id)),
+        `[CB.90] el grupo «Sin clasificar» trae lo del libro sin categoría (${grupoSC.total} ⊇ ${sinCat.total})`);
+      check(grupoSC.rows.every((x) => (x.group_key ?? 'sin_clasificar') === 'sin_clasificar') && !grupoSC.rows.some((x) => x.fuente === 'descarga' && x.category_id),
+        `[CB.90][negativa] nada con categoría entra, tampoco la comisión, el IVA ni la venta de la descarga (${grupoSC.rows.map((x) => `${x.fuente}:${x.group_key}`)})`);
+      const ambos = await mov(BBVA_A, { group_key: 'sin_clasificar', uncategorized: 'true' });
+      check(ambos.total === sinCat.total && ambos.rows.map((x) => x.id).sort().join(',') === idsSinCat,
+        `[CB.90] el caso de la pantalla: grupo «Sin clasificar» + «Solo sin clasificar» = los mismos ${sinCat.total} (antes 0; da ${ambos.total})`);
       const sinPeriodo = await fbs.movements({ account_id: BBVA_A, limit: 50 });
       check(sinPeriodo.descarga === null && sinPeriodo.rows.every((x) => x.fuente === 'libro' && x.en_descarga === null),
         '[negativa] sin periodo no se afirma nada de la descarga');
@@ -660,6 +671,23 @@ async function completo(urlAdmin, urlRuntime) {
       check(r3.cambios === 1 && t3.code === null && t3.classified_by === 'banco' && !!t3.category_reason,
         `⛔ si el pareo se va, la categoría del documento se va y queda el motivo (${t3.code}/${t3.classified_by}/${t3.category_reason})`);
       noMedido('[BFU.7.4] la cuenta contable (kdxf → kdm6) necesita el ODS de Kepler: aquí sólo el traspaso y los motivos; en prod se mide antes/después');
+
+      // [BFU.7.6] El diagnóstico dice la cobertura del motor: con categoría + por resolver + sin motivo = la descarga,
+      // contrastado contra un conteo aparte. Se lee como app_runtime (RLS) por el mismo servicio que usa la pantalla.
+      const { FinanceBankService: FBS76 } = require(path.join(ROOT, 'libs/finance/src/lib/bank/finance-bank.service.ts'));
+      const fbs76 = new FBS76({ run: (cb) => comoApp(cb) }, { requireTenantId: () => MEGA });
+      let dg = null;
+      try { dg = await fbs76.diagnostico('2026-11'); } catch (e) { noMedido(`[BFU.7.6] el diagnóstico no corre en este destino: ${e.message}`); }
+      if (dg) {
+        const cc = dg.cobertura_categoria;
+        const bancoNov = (await admin('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where({ 'st.period': '2026-11', 'bm.sync_source': 'banco', 'bm.tenant_id': MEGA }).whereNull('bm.deleted_at').count({ n: '*' }).first()).n;
+        check(cc?.suma_cuadra === true && cc.evaluados === Number(bancoNov),
+          `[BFU.7.6] la cobertura suma la descarga entera, contra un conteo aparte (${cc?.evaluados} de ${bancoNov})`);
+        check(cc.por_resolver.some((g) => g.motivo === 'documento_sin_aplicacion' && g.responsable === 'sistemas' && g.n >= 1),
+          `[BFU.7.6] el motivo que dejó el motor aparece con su responsable (${JSON.stringify(cc.por_resolver)})`);
+        check(cc.con_categoria.n >= 1, `[BFU.7.6] lo categorizado (también lo puesto a mano) cuenta como con categoría (${cc.con_categoria.n})`);
+      }
     }
   } finally {
     await limpiar(admin).catch(() => {});

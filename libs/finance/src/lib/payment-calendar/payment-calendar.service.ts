@@ -28,6 +28,12 @@ import { faltaCuentaParaTransferirAnticipo, faltaOrigenMismoBanco, tipoDeAcreedo
 import { cajaDeSalidaTexto, ESTADOS_DIA_AUTORIZADO } from '@megadulces/contracts';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
+import { sqlEjecutadoSinKepler, type LlaveFacturaSql } from './pago-ya-en-kepler.sql';
+import { SALDADA_EN_KEPLER, conLlaveDeKepler, sqlDebeKeplerDeCapturada, sqlDisponibleDeCapturada, type LlaveDeCapturada } from './capturada-kepler.sql';
+import {
+  DIAS_ANTES, EVENTO_AUNQUE_SALIO, SQL_SALIDA_QUE_LO_PAGO, motivoAunqueSalioValido, motivoParaNoCambiar,
+  type AccionSobreElPago, type SalidaQueLoPago,
+} from './salio-antes-de-cambiar';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
 import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
 import type { PagoParaCheque } from '@megadulces/contracts';
@@ -71,6 +77,10 @@ export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supp
  */
 export { keplerPayableId, sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 const KEPLER_PAYABLE_ID = sqlKeplerPayableId('v');
+/** `[PGP.206]` La factura de la fila de `analytics.v_supplier_payables` (alias `v`), para `sqlEjecutadoSinKepler`. */
+const LLAVE_V: LlaveFacturaSql = { suc: 'v.sucursal', prov: 'v.proveedor', tipo: 'v.doc_tipo', sub: 'v.doc_sub', folio: 'v.folio' };
+/** `[PGP.206]` La misma factura cuando llega por parámetros (`loadObligationRow`, alias `f`). */
+const LLAVE_F: LlaveFacturaSql = { suc: 'f.suc', prov: 'f.prov', tipo: 'f.tipo', sub: 'f.sub', folio: 'f.folio' };
 
 /**
  * `[TP.17.1b]` **Un crédito bancario no es mercancía** (ADR-094 §7).
@@ -597,11 +607,14 @@ export class PaymentCalendarService {
     const [agg] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .where({ 'i.obligation_source': source, 'i.obligation_id': id })
-      .select(
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
-      );
-    return { ...row, reserved_amount: Number(agg?.reserved ?? 0), paid_amount: Number(agg?.paid ?? 0) };
+      .select(trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`));
+    // `[PGP.206]` De lo EJECUTADO, sólo lo que Kepler todavía no tiene: `original_amount` ya es el pendiente de
+    // Kepler. La misma regla que la lista (`sqlEjecutadoSinKepler`), o la lista ofrecería lo que aquí se rechaza.
+    const [ej] = (await trx.raw(
+      `WITH f AS (SELECT ?::text AS suc, ?::text AS prov, ?::numeric AS tipo, ?::numeric AS sub, ?::text AS folio, ?::uuid AS oid)
+       SELECT z.sin_kepler FROM f CROSS JOIN LATERAL (${sqlEjecutadoSinKepler(LLAVE_F, 'i.obligation_id = f.oid')}) z`,
+      [row.kepler_sucursal, row.kepler_proveedor, row.kepler_doc_tipo, row.kepler_doc_sub, row.kepler_folio, id])).rows as { sin_kepler: string }[];
+    return { ...row, reserved_amount: Number(agg?.reserved ?? 0), paid_amount: Number(ej?.sin_kepler ?? 0) };
   }
 
   private async getOrCreateLot(trx: Knex.Transaction, tenantId: string, date: string) {
@@ -989,13 +1002,16 @@ export class PaymentCalendarService {
 
       const legSupplier = trx('commercial.supplier_payment_obligations as o')
         .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
+        // `[PGP.197]` Lo que Kepler todavía debe de su factura: la que Tesorería ya pagó por fuera no se vuelve a
+        // ofrecer (CD031, 13-nov: pagada dos veces). Sólo las obligaciones que traen su llave; 85 ms las 38.
+        .joinRaw(`LEFT JOIN LATERAL (${sqlDebeKeplerDeCapturada('o')}) kd ON o.status IN ('pending', 'partial')`)
         .select(
           trx.raw(`'supplier_payable'::text AS obligation_source`), 'o.id AS obligation_id',
           's.name AS beneficiary', trx.raw(`coalesce(o.concept, o.invoice_folio, 'Mercancía')::text AS concept`),
           trx.raw(`'proveedor_mercancia'::text AS classification`), trx.raw(`'mercancia'::text AS subtype`),
           's.code AS area_code', 'o.original_due_date', 'o.negotiated_date', 'o.original_amount',
           'o.reserved_amount', 'o.paid_amount',
-          trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
+          trx.raw(`${sqlDisponibleDeCapturada('o', 'kd')} AS available_amount`),
           's.is_critical', 's.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at', trx.raw("nullif(btrim(o.kepler_sucursal), '') AS branch_code"), 'o.supplier_id AS payee_id',
           trx.raw('NULL::date AS pronto_fecha_limite'), trx.raw('NULL::numeric AS pronto_tasa'), trx.raw('NULL::numeric AS pronto_beneficio'), trx.raw("'sin_medir'::text AS pronto_estado"),
           // [TP.20.5] La obligacion CAPTURADA por Entregas tambien tiene ficha, pero solo si
@@ -1051,6 +1067,10 @@ export class PaymentCalendarService {
            WHERE i.obligation_source = 'kepler_payable'
            GROUP BY i.obligation_id
         ) r ON r.obligation_id = ${KEPLER_PAYABLE_ID}`)
+        // `[PGP.206]` De lo EJECUTADO sólo aparta lo que Kepler todavía no tiene: `v.pendiente` ya descuenta lo
+        // que Kepler aplicó, y restarlo otra vez escondía el resto de la factura (INDULMI 0000095, $2,805.35).
+        // Sólo se mide donde hubo un pago ejecutado (`r.paid > 0`): unas 20 de ~2,900 filas.
+        .joinRaw(`LEFT JOIN LATERAL (${sqlEjecutadoSinKepler(LLAVE_V, 'r.paid > 0 AND i.obligation_id = r.obligation_id')}) t ON true`)
         .where('v.tenant_id', tenantId)
         .whereRaw(`v.proveedor NOT LIKE 'TI%'`)
         .whereNotExists(function () {
@@ -1077,8 +1097,9 @@ export class PaymentCalendarService {
           // ⚠️ `coalesce` acá y no dentro del agregado: con LEFT JOIN, una factura SIN reserva no
           // trae fila de `r`, así que `r.reserved` es NULL y `pendiente - NULL` sería NULL — el
           // disponible desaparecería justo en las ~2,890 facturas que nadie programó todavía.
-          trx.raw('coalesce(r.reserved, 0) AS reserved_amount'), trx.raw('coalesce(r.paid, 0) AS paid_amount'),
-          trx.raw('(v.pendiente - coalesce(r.reserved, 0) - coalesce(r.paid, 0)) AS available_amount'),
+          // `[PGP.206]` `paid_amount` de la deuda de Kepler = lo ejecutado que Kepler todavía no tiene (`t`).
+          trx.raw('coalesce(r.reserved, 0) AS reserved_amount'), trx.raw('coalesce(t.sin_kepler, 0) AS paid_amount'),
+          trx.raw('(v.pendiente - coalesce(r.reserved, 0) - coalesce(t.sin_kepler, 0)) AS available_amount'),
           trx.raw('coalesce(s.is_critical, false) AS is_critical'), trx.raw('s.critical_reason'),
           // ⛔ `authorized_by` NULL y es correcto: a esta factura nadie la aceptó en una bandeja.
           // La autorización es LIBERAR EL DÍA, no un acto por documento (ADR-094 §2).
@@ -1425,11 +1446,20 @@ export class PaymentCalendarService {
         if (source === 'supplier_payable') {
           const rows = await trx('commercial.supplier_payment_obligations as o')
             .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
+            // `[PGP.197]` Si Kepler ya saldó su factura, el renglón lo dice igual que con una derivada (`[PGP.35]`).
+            .joinRaw(`LEFT JOIN LATERAL (${sqlDebeKeplerDeCapturada('o')}) kd ON true`)
             .whereIn('o.id', ids)
             // `[PGP.126]` `to_jsonb(o) ->> 'nature'` en vez de `o.nature`: si el código llegara antes
             // que la migración `pgp119`, el día entero no se cae por una columna que aún no existe.
-            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"), trx.raw("to_jsonb(o) ->> 'nature' as nature"));
-          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; nature: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, es_anticipo: r.nature === 'anticipo' });
+            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"), trx.raw("to_jsonb(o) ->> 'nature' as nature"), trx.raw('kd.debe AS kepler_debe'));
+          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; nature: string | null; kepler_debe: number | string | null }[]) {
+            const debe = r.kepler_debe === null || r.kepler_debe === undefined ? null : Number(r.kepler_debe);
+            labels.set(`${source}:${r.id}`, {
+              beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, es_anticipo: r.nature === 'anticipo',
+              // Sólo la saldada por completo: el «debe menos» de una capturada no tiene botón que lo baje (`[PGP.148]` ajusta derivadas).
+              saldada: debe !== null && debe <= SALDADA_EN_KEPLER,
+            });
+          }
         } else if (source === 'kepler_payable') {
           // `[TP.18]` El derivado no tiene tabla: su etiqueta se rearma desde la vista por la
           // misma llave determinística con que se guardó el item (ADR-094 §4).
@@ -1561,7 +1591,9 @@ export class PaymentCalendarService {
         // `[PGP.40]` Ya no se deduce de la ausencia de etiqueta: desde el rescate la etiqueta
         // EXISTE y trae la marca. Se conserva el caso sin etiqueta por si una factura no
         // estuviera ni en el universo completo — ahí sí no hay de dónde sacar nada.
-        const saldada = it.obligation_source === 'kepler_payable' && (!label || label.saldada === true);
+        const saldada = (it.obligation_source === 'kepler_payable' && (!label || label.saldada === true))
+          // `[PGP.197]` La capturada, sólo si se midió contra Kepler (sin llave no se afirma nada).
+          || (it.obligation_source === 'supplier_payable' && label?.saldada === true);
         const antes = pendientes.has(String(it.allocation_id)) ? antesDe.get(String(it.id)) ?? 0 : 0;
         if (antes > 0.005) partidaDe.add(String(it.id));
         const arr = itemsByAllocation.get(it.allocation_id) ?? [];
@@ -1577,7 +1609,7 @@ export class PaymentCalendarService {
           es_anticipo: label?.es_anticipo === true,
           kepler_saldada: saldada,
           // `[PGP.147]` Lo que debe hoy (0 si está saldada; null si no es factura de Kepler). `[PGP.190]` Partida: su parte.
-          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : debeParaEsteRenglon(label?.kepler_debe ?? null, antes)) : null,
+          kepler_debe: it.obligation_source === 'kepler_payable' ? (saldada ? 0 : debeParaEsteRenglon(label?.kepler_debe ?? null, antes)) : (saldada ? 0 : null),
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
           pronto_fecha_limite: label?.pronto_fecha_limite ?? null,
@@ -2053,10 +2085,10 @@ export class PaymentCalendarService {
   }
 
   /**
-   * `[PGP.117]` **A la semana, el pago que nadie pagó se libera, y queda en la bitácora.** Edgar,
-   * 2026-11-12: «después de una semana hay que quitar lo que no se haya pagado, pero dejar logs de lo
-   * ocurrido». `[PGP.48]` sólo avisaba de los pagos atrasados; mientras seguían `pending`, sus facturas
-   * no se ofrecían para programar.
+   * `[PGP.117]` **El pago que nadie pagó se libera, y queda en la bitácora.** Edgar, 2026-11-12: «después de una
+   * semana hay que quitar lo que no se haya pagado, pero dejar logs de lo ocurrido» (`[PGP.204]`: se bajó a un día y
+   * se regresó a la semana el 2026-11-23, medido). `[PGP.48]` sólo avisaba de los pagos atrasados;
+   * mientras seguían `pending`, sus facturas no se ofrecían para programar.
    *
    * La regla es `decidirVencido` (pura, con sus pruebas): se libera sólo si NINGÚN testigo dice que se
    * pagó (Kepler sin abono a ninguna de sus facturas y el banco sin una salida por ese importe). Aquí
@@ -2424,7 +2456,7 @@ export class PaymentCalendarService {
           detail: JSON.stringify({
             regla: 'PGP.121', hoy,
             planeado: { dia: p.dia, importe: Number(p.importe), metodo: p.metodo, cuenta: p.cuenta_planeada },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe },
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}), ...(d.cheque ? { cheque: d.cheque } : {}) },
           }),
         });
         await this.aplicarRenglonesPagados(trx, tenantId, p.id, autor);
@@ -2527,7 +2559,7 @@ export class PaymentCalendarService {
           tenant_id: tenantId, allocation_id: p.id, event: EVENTO_CONFIRMADO_POR_EL_BANCO, status_from: 'executed', status_to: 'executed',
           created_by: autor,
           detail: JSON.stringify({ regla: 'PGP.130b', hoy, comprobante: { dia: p.dia, importe: Number(p.importe) },
-            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe } }),
+            banco: { movimiento: d.movimiento_id, cuenta: d.cuenta_id, fecha: d.fecha, importe: d.importe, ...(d.grupo ? { grupo: d.grupo } : {}), ...(d.cheque ? { cheque: d.cheque } : {}) } }),
         });
         return true;
       });
@@ -2639,11 +2671,19 @@ export class PaymentCalendarService {
     items: ItemParaCierre[],
   ): Promise<Map<string, CierreKeplerPago>> {
     if (!pagos.length) return new Map();
-    const ids = idsParaCierre(items);
+    // `[PGP.197]` La obligación capturada que trae su llave de Kepler se mide como la factura que es; sin esto quedaba
+    // «sin medir» y el pago nunca se cerraba ni se ligaba (2 de CF006 «pendientes» desde el 26-oct, pagados en Kepler).
+    const capturadas = [...new Set(items.filter((i) => i.obligation_source === 'supplier_payable').map((i) => i.obligation_id))];
+    const llaves = capturadas.length
+      ? ((await trx('commercial.supplier_payment_obligations').whereIn('id', capturadas)
+        .select('id', 'kepler_sucursal as sucursal', 'kepler_doc_tipo as doc_tipo', 'kepler_doc_sub as doc_sub', 'kepler_folio as folio')) as LlaveDeCapturada[])
+      : [];
+    const medibles = conLlaveDeKepler(items, llaves);
+    const ids = idsParaCierre(medibles);
     const filas = ids.length
       ? ((await trx.raw(SQL_CIERRE_KEPLER, [ids, this.tenantCtx.requireTenantId()])).rows as FilaCierreKepler[])
       : [];
-    return armarCierres(pagos, items, filas);
+    return armarCierres(pagos, medibles, filas);
   }
 
   async originAccounts(): Promise<PaymentOriginAccount[]> {
@@ -2926,6 +2966,7 @@ export class PaymentCalendarService {
    */
   async reprogram(
     allocationId: string, newDate: string, reason: ReprogramReason, reasonDetail: string | undefined, username: string, hoy: string = todayMx(),
+    aunqueSalio?: string,
   ): Promise<AllocationRowLite & PaymentCalendarReprogramado> {
     this.assertDate(newDate);
     if (!REPROGRAM_REASONS.includes(reason)) throw new BadRequestException(`reason inválido — debe ser uno de: ${REPROGRAM_REASONS.join(', ')}`);
@@ -2935,6 +2976,8 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (!['pending', 'failed'].includes(allocation.status)) throw new BadRequestException('Solo se puede reprogramar un pago pendiente o fallido');
+      // `[PGP.199]` Un pago fallido ya rebotó (su salida se devolvió y no cuenta): la guarda sólo encuentra dinero que sí salió.
+      await this.assertNoSalio(trx, tenantId, allocation, 'reprogramar', username, aunqueSalio, hoy);
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
       await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: `${allocation.notes ?? ''}\n[reprogramado a ${newDate}]`.trim(),
@@ -3626,12 +3669,44 @@ export class PaymentCalendarService {
     });
   }
 
-  async fail(allocationId: string, reason: string | undefined, username: string) {
+  /**
+   * `[PGP.199]` **Antes de cancelar, marcar fallido o reprogramar: ¿ya salió el dinero?** Si el banco (sin devueltas, sin
+   * las salidas de otros pagos, o varias con la misma referencia) o Kepler (todas sus facturas pagadas con dinero) lo
+   * prueban, se niega con lo que se vio; una persona sigue sólo diciendo por qué esa salida no es de este pago
+   * (`aunqueSalio`), y queda en la bitácora con la evidencia. La regla es pura (`motivoParaNoCambiar`).
+   */
+  private async assertNoSalio(
+    trx: Knex.Transaction, tenantId: string, allocation: { id: string; lot_id: string; amount_assigned: string | number; created_at: Date | string },
+    accion: AccionSobreElPago, username: string, aunqueSalio?: string, hoy: string = todayMx(),
+  ): Promise<void> {
+    const lot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id })
+      .first(trx.raw("to_char(lot_date, 'YYYY-MM-DD') AS dia")) as { dia: string } | undefined;
+    if (!lot) return;
+    const desde = new Date(Date.parse(`${lot.dia}T12:00:00Z`) - DIAS_ANTES * 86_400_000).toISOString().slice(0, 10);
+    const salida = desde <= hoy
+      ? ((await trx.raw(SQL_SALIDA_QUE_LO_PAGO, [tenantId, Number(allocation.amount_assigned), lot.dia, hoy, allocation.id])).rows as SalidaQueLoPago[])[0] ?? null
+      : null;
+    const items = (await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, allocation_id: allocation.id })
+      .select('allocation_id', 'obligation_source', 'obligation_id')) as ItemParaCierre[];
+    const alta = new Date(allocation.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const cierre = items.length ? (await this.cierresKepler(trx, [{ id: allocation.id, lotDate: lot.dia, alta }], items)).get(allocation.id) : null;
+    const motivo = motivoParaNoCambiar(accion, salida, cierre);
+    if (!motivo) return;
+    if (!motivoAunqueSalioValido(aunqueSalio)) throw new ConflictException(motivo);
+    await trx('finance.payment_allocation_history').insert({
+      tenant_id: tenantId, allocation_id: allocation.id, event: EVENTO_AUNQUE_SALIO, created_by: username,
+      detail: JSON.stringify({ regla: 'PGP.199', accion, motivo_de_la_persona: aunqueSalio!.trim(), lo_que_se_vio: motivo, banco: salida ?? null,
+        kepler: cierre ? { estado: cierre.estado, pagos: cierre.pagos.map((p) => `${p.doc_prefix}-${p.folio}`) } : null }),
+    });
+  }
+
+  async fail(allocationId: string, reason: string | undefined, username: string, aunqueSalio?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se marca como fallido un pago pendiente (uno ejecutado no se revierte acá)');
+      await this.assertNoSalio(trx, tenantId, allocation, 'marcar como fallido', username, aunqueSalio);
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
         .update({ status: 'failed', failure_reason: reason ?? null, updated_by: username, updated_at: trx.fn.now() }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
@@ -3640,12 +3715,13 @@ export class PaymentCalendarService {
     });
   }
 
-  async cancelAllocation(allocationId: string, reason: string | undefined, username: string) {
+  async cancelAllocation(allocationId: string, reason: string | undefined, username: string, aunqueSalio?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede cancelar un pago pendiente');
+      await this.assertNoSalio(trx, tenantId, allocation, 'cancelar', username, aunqueSalio);
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
         status: 'cancelled', notes: reason ? `${allocation.notes ?? ''}\n[cancelado] ${reason}`.trim() : allocation.notes,
         updated_by: username, updated_at: trx.fn.now(),

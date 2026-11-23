@@ -2,12 +2,14 @@ import { Injectable, BadRequestException, Logger, Inject, Optional } from '@nest
 import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch, todayMx } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
-import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { buildClaimIndex, claimFueraDeAlcance, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { elegirEnLaSemana } from './recon-pase-semana';
 import { huellaPareos, planEscritura, type PareoFila } from './recon-escritura';
 import { aplicarMotorDeCategoria } from './estado-de-cuenta/motor-de-categoria.aplicar';
+import { coberturaDeCategoria, type FilaDeCobertura } from './estado-de-cuenta/cobertura-de-categoria';
 import { compileRules, classifyWith, normKey } from './classify-rules';
 import { avisarBancos } from './aviso-bancos';
 import { leerDescargaDelPeriodo } from './estado-de-cuenta/descarga-en-movimientos.query';
@@ -728,8 +730,13 @@ export class FinanceBankService {
         const c = descarga?.categoria.get(id)?.codigo;
         return c && c !== 'sin_clasificar' ? catDe.get(c) ?? null : null;
       };
+      // [CB.90] Sin categoría = grupo «sin_clasificar», igual que la leyenda la pinta y que el resto del servicio la suma
+      // (`COALESCE(mc.group_key,'sin_clasificar')`). Antes el grupo comparaba `group_key` crudo: lo sin categoría tiene
+      // NULL, así que «Sin clasificar» nunca traía nada (medido en prod el 2026-11-23: 86 renglones de noviembre sin
+      // categoría, la ventana decía «0 movimientos»).
+      const grupoDeDescarga = (id: string) => catDeDescarga(id)?.group_key ?? 'sin_clasificar';
       const idsDescarga = Array.from(descarga?.solo.keys() ?? []).filter((id) =>
-        (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || catDeDescarga(id)?.group_key === q.group_key));
+        (!q.category_id || catDeDescarga(id)?.id === q.category_id) && (!q.group_key || grupoDeDescarga(id) === q.group_key));
       const soloDelLibro = q.uncategorized === 'true' || !!q.recon_status;
       const conLibro = q.contra_descarga !== 'solo_descarga';
       const conDescarga = idsDescarga.length > 0 && !soloDelLibro && q.contra_descarga !== 'no_trae';
@@ -743,7 +750,7 @@ export class FinanceBankService {
         if (q.period) b.where('st.period', q.period);
         if (q.account_id) b.where('bm.bank_account_id', q.account_id);
         if (q.category_id) b.where('bm.category_id', q.category_id);
-        if (q.group_key) b.where('mc.group_key', q.group_key);
+        if (q.group_key) b.whereRaw(`COALESCE(mc.group_key, 'sin_clasificar') = ?`, [q.group_key]); // [CB.90]
         if (q.uncategorized === 'true') b.whereNull('bm.category_id');
         if (q.recon_status) b.where('bm.recon_status', q.recon_status);
         if (q.search) {
@@ -1390,7 +1397,7 @@ export class FinanceBankService {
 
     // Totales de la tabla (ingresos/egresos) + sin_clasificar + cuentas sin estado de cuenta.
     const { totales, sinClas, sinClasBuckets, cuentasSinEstado, matchedCount, keplerPostingsCount,
-      reconAmt, cobertura, ultimoImport, sinEvaluar } = await this.tk.run(async (trx) => {
+      reconAmt, cobertura, ultimoImport, sinEvaluar, filasCobertura, totalBanco } = await this.tk.run(async (trx) => {
       const t = await trx('finance.bank_movements as bm')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('st.period', period).whereNull('bm.deleted_at')
@@ -1496,9 +1503,24 @@ export class FinanceBankService {
         .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
         .count({ n: '*' }).first() as { n: string | number } | undefined;
 
+      // [BFU.7.6] La cobertura del motor de categoría sobre la descarga del banco: por estado, motivo, responsable y día
+      // (el día, para recalcular «todavía no» al leer). El total sale de OTRA consulta, para contrastar el agrupado.
+      // Medido en prod (2026-11-23, nov): 18 ms y 12 ms de ejecución.
+      const filasCob = await trx('finance.bank_movements as bm')
+        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
+        .groupByRaw(`(bm.category_id IS NOT NULL), bm.category_reason, bm.category_evidence->>'responsable', to_char(bm.movement_date, 'YYYY-MM-DD')`)
+        .select(trx.raw('(bm.category_id IS NOT NULL) AS con_categoria'), trx.raw('bm.category_reason AS motivo'),
+          trx.raw(`bm.category_evidence->>'responsable' AS responsable`), trx.raw(`to_char(bm.movement_date, 'YYYY-MM-DD') AS fecha`),
+          trx.raw('COUNT(*)::int AS n'), trx.raw('SUM(bm.amount_in + bm.amount_out)::numeric AS monto')) as FilaDeCobertura[];
+      const totBanco = await trx('finance.bank_movements as bm')
+        .whereNull('bm.deleted_at').where('bm.sync_source', 'banco')
+        .whereIn('bm.statement_id', trx('finance.bank_statements').where('period', period).select('id'))
+        .count({ n: '*' }).first() as { n: string | number } | undefined;
+
       return { totales: t, sinClas: sc, sinClasBuckets: scb, cuentasSinEstado: missing,
         matchedCount: n((mc as any)?.n), keplerPostingsCount: n((kp as any)?.n),
-        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n) };
+        reconAmt, cobertura, ultimoImport, sinEvaluar: n(sinEv?.n), filasCobertura: filasCob, totalBanco: n(totBanco?.n) };
     });
 
     const bal = await this.balances(period);
@@ -1688,6 +1710,9 @@ export class FinanceBankService {
       // los meses (medido en prod: mayo decía 99%, real 86%).
       sin_clasificar_n: n((sinClas as any)?.n),
       sin_clasificar_monto: n((sinClas as any)?.monto),
+      // [BFU.7.6] El motor de categoría sobre la descarga del banco: con categoría + por resolver (motivo y responsable)
+      // + sin motivo = sus renglones, contrastado contra un conteo aparte. «Todavía no» se recalcula con la fecha de hoy.
+      cobertura_categoria: coberturaDeCategoria(filasCobertura, todayMx(), totalBanco),
       recon_estado: reconEstado,
       items,
     };
@@ -1962,16 +1987,22 @@ export class FinanceBankService {
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
         .where('m.tenant_id', tenantId).andWhereNot('st.period', period).whereNull('bm.deleted_at')
         .distinct('m.kepler_sucursal as suc', 'm.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio',
-          'm.kepler_cuenta as cuenta');
+          'm.kepler_cuenta as cuenta', 'st.period as period');
       // Llave exacta (sucursal conocida) y llave parcial (filas históricas sin sucursal). La
       // parcial se CONSERVA a propósito: tirarla abriría el doble-cobro que el candado existe
       // para cerrar. Lo que sí se hace es DECLARAR cuánto bloquea (ADR-056), para que el residuo
       // tenga nombre y monto en vez de desaparecer.
-      const claims = buildClaimIndex(claimedRows as ClaimRow[]);
+      // [BFU.7.5] Cada reclamación lleva el periodo de su corrida: sólo aparta documentos que esa corrida alcanzaba
+      // (mes ±OVERLAP_DAYS). Un pareo de enero sin sucursal ya no aparta el cheque de noviembre con el mismo folio.
+      const claims = buildClaimIndex(claimedRows as ClaimRow[], OVERLAP_DAYS);
       let yaCasadosOtroPeriodo = 0, bloqueadosPorLlaveParcial = 0, montoLlaveParcial = 0;
+      let liberadosPorAlcance = 0, montoLiberadoPorAlcance = 0;
       for (const p of kepAll) {
         const via = claimVerdict(claims, p);
-        if (!via) continue;
+        if (!via) {
+          if (claimFueraDeAlcance(claims, p)) { liberadosPorAlcance++; montoLiberadoPorAlcance += p.importe; }
+          continue;
+        }
         p.used = true; yaCasadosOtroPeriodo++;
         if (via === 'parcial') { bloqueadosPorLlaveParcial++; montoLlaveParcial += p.importe; }
       }
@@ -2012,16 +2043,15 @@ export class FinanceBankService {
       };
 
       // Pase 1: monto exacto (o ±$1) + fecha ±7d, greedy, por (cuenta,dirección).
+      // [BFU.7.5] La elección vive en `recon-pase-semana.ts`: con un exacto LEJOS ya no se pierde el documento del
+      // mismo día que difiere por redondeo (≤ 5 centavos, ≤ 1 día). Fuera de ese caso, la misma regla de siempre.
       for (const mv of bankMovs) {
         const e = pool.get(`${mv.label}|${mv.dir}`); if (!e) continue;
         const tc = cents(mv.amount);
-        let cands = (e.byAmt.get(tc) || []).filter((p) => !p.used);
-        const exact = cands.length > 0;
-        if (!exact) cands = candsInTol(e.byAmt, tc);
-        if (!cands.length) continue;
-        let best: any = null, bestD = 8;
-        for (const p of cands) { const d = p.fecha ? days(mv.date, p.fecha) : 99; if (d < bestD) { best = p; bestD = d; } }
-        if (best) emit(mv, best, exact ? (bestD === 0 ? 0.95 : 0.8) : 0.7, exact ? 'motor-tes' : 'motor-tes-tol');
+        const exactos = (e.byAmt.get(tc) || []).filter((p) => !p.used);
+        const tolerancia = candsInTol(e.byAmt, tc).filter((p) => cents(p.importe) !== tc);
+        const r = elegirEnLaSemana(exactos, tolerancia, (p) => (p.fecha ? days(mv.date, p.fecha) : 99), mv.amount);
+        if (r) emit(mv, r.elegido, r.exacto ? (r.dias === 0 ? 0.95 : 0.8) : 0.7, r.exacto ? 'motor-tes' : 'motor-tes-tol');
       }
       // Pase 2: materiales ≥$5k sin casar, exacto/±$1 SIN tope de fecha.
       let p2 = 0;
@@ -2273,6 +2303,12 @@ export class FinanceBankService {
           docs: bloqueadosPorLlaveParcial,
           monto: Math.round(montoLlaveParcial * 100) / 100,
           nota: 'Bloqueados contra matches viejos sin kepler_sucursal. Re-concilia los periodos anteriores para que la llave quede exacta.',
+        },
+        // [BFU.7.5] Homónimos reclamados por corridas que NO alcanzaban este documento (su folio se repite tras el corte
+        // del 1-oct, o en otro año): se liberan, y se declaran con nombre y monto.
+        claimed_fuera_de_alcance: {
+          docs: liberadosPorAlcance,
+          monto: Math.round(montoLiberadoPorAlcance * 100) / 100,
         },
         dry_run: !!dryRun,
         diff,

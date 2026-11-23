@@ -84,6 +84,15 @@ describe('[PGP.146] según la descarga del banco', () => {
     });
   });
 
+  it('[PGP.202] una cuenta DORMIDA no se nombra como «sin cubrir» del pago sin cuenta; preparado EN ella, sí', () => {
+    const dormida = cob.map((c) => (c.cuenta_id === 'nueva' ? { ...c, dormida: true } : c));
+    expect(segunLaDescarga([r()], [], dormida, HOY).get('p1')).toEqual({
+      estado: 'sin_salida', revisadas: 1, sin_cubrir: [{ cuenta: 'STDR 1621', hasta: '2026-11-04' }],
+    });
+    expect(segunLaDescarga([r({ cuenta_planeada: 'nueva' })], [], dormida, HOY).get('p1'))
+      .toEqual({ estado: 'sin_salida', revisadas: 0, sin_cubrir: [{ cuenta: 'STDR 5565', hasta: null }] });
+  });
+
   it('sin salida con la cuenta preparada: sólo se mira esa', () => {
     expect(segunLaDescarga([r({ cuenta_planeada: 'bbva' })], [], cob, HOY).get('p1'))
       .toEqual({ estado: 'sin_salida', revisadas: 1, sin_cubrir: [] });

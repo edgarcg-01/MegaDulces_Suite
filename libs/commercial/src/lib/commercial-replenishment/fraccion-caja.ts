@@ -60,7 +60,7 @@ export interface RenglonCantidadConFactor extends RenglonCantidad {
 }
 
 /**
- * `[PQ.145]` **El recorte a 3 decimales se mide en CAJAS, que es donde ocurre.**
+ * `[PQ.147]` **El recorte a 3 decimales se mide en CAJAS, que es donde ocurre.**
  *
  * `final_qty` se guarda con 3 decimales, así que el error máximo del recorte es **media
  * milésima de caja** — siempre, sin importar cuántas piezas tenga la caja.
@@ -92,7 +92,7 @@ export function piezasEnteras(l: RenglonCantidadConFactor): number | null {
   if (!Number.isFinite(cajas) || !Number.isFinite(uxc) || uxc <= 0) return null;
   const ent = Math.round(cajas * uxc);
   if (ent <= 0) return null;
-  // `[PQ.145]` La pregunta correcta no es «¿cuántas piezas da?» sino **«esas piezas, vueltas a
+  // `[PQ.147]` La pregunta correcta no es «¿cuántas piezas da?» sino **«esas piezas, vueltas a
   // cajas, reproducen lo que se guardó?»**. Así se compara en la escala donde ocurrió el recorte,
   // y el criterio vale igual para una caja de 4 que para una de 96.
   return Math.abs(ent / uxc - cajas) <= TOLERANCIA_CAJAS + 1e-9 ? ent : null;

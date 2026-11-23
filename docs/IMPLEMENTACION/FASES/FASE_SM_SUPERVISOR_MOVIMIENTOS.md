@@ -745,6 +745,35 @@ y a Railway, redeploy api+view, validacion visual. Sin permisos nuevos, sin
 re-login.
 
 
+## SM.54 — La cajera reimprime el ticket de sus arqueos de HOY (🧪 local 2026-11-23)
+
+**Pedido** (jefa de zona, 2026-11-23): que las cajeras puedan ver el historial **solo del día** en que están
+cobrando, para reimprimir un ticket. Días pasados no. Revierte en parte SM.51 (#489, 2026-11-05), que le quitó a
+la cajera todo historial y dejó escrito «la cajera ya no reimprime arqueos anteriores».
+
+**Decisión D1** (David, 2026-11-23): cada cajera ve **solo los suyos**, no los de sus compañeras: ver los ajenos
+revela cuánto entregó cada una, y el arqueo es ciego.
+
+| Capa | Estado | Verificado contra / prueba |
+|---|---|---|
+| C0 dato | no aplica | — |
+| C1 dominio | no aplica | — |
+| C2 API | sin cambio, leída | El recorte ya existía (SM.33): `GET /store/arqueo` fuerza `cajero_code` = el usuario y `solo_hoy` a quien no tiene `RECONCILIATION_VER` (`store-arqueo.controller.ts` `list()`); «hoy» es la fecha de la base en hora de México e incluye el turno que cierra pasada la medianoche (`blind-count.service.ts` `list()`) |
+| C3 pantalla | 🧪 | «Tus arqueos de hoy» en `tienda-arqueo.component.ts`: hora · tipo · caja · contado · Reimprimir; reusa `rows()` y `reimprimir()`. 4 pruebas en `tienda-arqueo.component.spec.ts` (sus 2 arqueos y Reimprimir manda ESE; sin arqueos no hay sección; NEGATIVA error → aviso + Reintentar; quien valida no la ve), rotas a propósito → 2 rojas · tienda 486/486 · `check:pantalla` 0 nuevas (O.4 deja de fallar en `tienda-arqueo`) · `check:templates` y `check:estilos` verdes |
+| C4 plataforma | 🔨 | PR abierto 2026-11-23 (CI pendiente); sin migraciones ni permisos nuevos |
+
+**NO MEDIDO / bloqueos:**
+- Cuántas cajeras de prod tienen `STORE_ARQUEO_CAPTURAR` sin `STORE_ARQUEO_VER`. Las migraciones los dan juntos
+  (`20260711130000_grant_store_arqueo_perm.js`, `20260730140000_role_cajera.js`), pero hay ajustes por usuario. Sin VER
+  la lista da 403 y esa cajera vería «No se pudieron cargar tus arqueos de hoy». **Dueño:** David autoriza la lectura
+  de prod; si aparecen, el reparto del permiso lo decide el PM.
+- Visto en local (2026-11-23, cajera 10c02, desde el menú): escritorio en tabla; en angosto se apila con `.dt-stack` (la tabla base escondía «Contado» tras un scroll); Reimprimir sacó el ticket correcto marcado REIMPRESION. **Con filas SIMULADAS**: en la base local `/users/me/scope` y `/store/arqueo` dan 500 y la pantalla mostró el aviso de error. Causa medida (solo lectura): la base local va atrasada — a `trade.zones` le falta `kind` (ZN.0) y no existe `analytics.v_pos_cashiers` (CANON.6.1); ajeno a SM.54. Revisado otra vez con 3 arqueos de prueba simulados (relevo y dos retiros): tabla en escritorio, apilado a 500 px con botón de 44 px y sin scroll horizontal, y la reimpresión del «Retiro 2» con piezas y total correctos. Falta verlo con datos reales en prod. **Dueño:** David.
+
+**Trampas encontradas al verlo** (van a `GOTCHAS.md` cuando la otra sesión que lo edita commitee): (1) `.dt-scope` en el mismo elemento que un panel con su propio `container-name` (`.arq-panel` → `arqpanel`) queda INERTE: el estilo del componente le gana y `@container densetable` nunca aplica; va en un envoltorio propio. (2) En `p-table`, `class` y `styleClass` juntos: la clase de `styleClass` no llega al DOM; `dt-stack` va en `class` con `size="small"`. (3) `width: 1%` en una celda que luego se apila deja la celda en 12 px y su botón fuera de vista. Ninguna compuerta lo vio: `check:tables` sólo pide que `dt-stack` esté escrito.
+
+**Falta para ✅:** que el PM revise y mergee el PR, el despliegue (`/api/health` con el commit) y verlo en prod con una cajera desde el menú.
+
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

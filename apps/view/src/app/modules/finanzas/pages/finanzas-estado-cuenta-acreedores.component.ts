@@ -266,7 +266,8 @@ const fechasBuscables = (f: string | null | undefined): string[] => {
                                 @if (p.estado === 'ejecutado') {
                                   <b>Cubierta el {{ diaLargo(p.pagado_el || p.fecha) }}{{ p.metodo ? ' por ' + p.metodo : '' }}</b> · <span class="num">{{ money(p.cubierto) }}</span>@if (p.banco) { · desde {{ p.banco }} }@if (p.referencia) { · ref. <span class="ec-mono">{{ p.referencia }}</span> }
                                   @if (p.aplicado_en_kepler) {
-                                    <span class="ec-prog-sub">· Kepler ya la aplicó (pago <span class="ec-mono">{{ p.kepler_folio }}</span>).</span>
+                                    <!-- [PGP.206] Sin ligar no hay folio que nombrar: Kepler la tiene (su documento está en las aplicaciones de arriba). -->
+                                    <span class="ec-prog-sub">· Kepler ya la aplicó@if (p.kepler_folio) { (pago <span class="ec-mono">{{ p.kepler_folio }}</span>)}.</span>
                                   } @else {
                                     <span class="ec-prog-sub">· Kepler aún no la aplica: no la vuelvas a programar.</span>
                                   }

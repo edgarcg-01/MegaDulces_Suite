@@ -79,7 +79,7 @@ describe('[RA-FIX.3] fracción de caja', () => {
 });
 
 /**
- * `[PQ.145]` **La caja grande no puede ser motivo de rechazo.**
+ * `[PQ.147]` **La caja grande no puede ser motivo de rechazo.**
  *
  * El primer pedido que Autoabasto mandó a Kepler (`RQ-2026-03239`, Morelia Madero → Morelia
  * Abastos, 2026-11-23) se frenó con **11 de 294 renglones**, y ninguno estaba mal: eran piezas
@@ -90,7 +90,7 @@ describe('[RA-FIX.3] fracción de caja', () => {
  * ⭐ El arreglo no es aflojar el número: es **comparar en la escala donde ocurre el recorte**
  * (cajas), donde el error máximo es media milésima pase lo que pase.
  */
-describe('[PQ.145] piezas enteras de cajas grandes', () => {
+describe('[PQ.147] piezas enteras de cajas grandes', () => {
   /** Los cuatro renglones REALES que rechazó `RQ-2026-03239`, con su factor medido en prod. */
   const reales: ReadonlyArray<[string, number, number, number]> = [
     ['02031', 0.333, 96, 32],   // 32/96 = 0.33333… → 0.333 → ×96 = 31.968

@@ -40,6 +40,8 @@ export interface ClaimRow {
   folio?: string | null;
   /** `kepler_cuenta` = la clave de banco en Kepler (`kdm1.c45`). */
   cuenta?: string | null;
+  /** `[BFU.7.5]` El periodo (`YYYY-MM`) de la corrida que lo casó. Sin él, la reclamación alcanza siempre. */
+  period?: string | null;
 }
 
 /** El documento de la bolsa de tesorería que se quiere juzgar. */
@@ -49,13 +51,18 @@ export interface ClaimDoc {
   folio?: string | null;
   /** La clave de banco del documento (`clave_banco` en la vista). */
   clave?: string | null;
+  /** `[BFU.7.5]` La fecha efectiva del documento. Sin ella, cualquier reclamación con su llave lo bloquea. */
+  fecha?: string | Date | null;
 }
 
+/** [desde, hasta) en días desde 1970. */
+type Ventana = readonly [number, number];
+
 export interface ClaimIndex {
-  /** Llave completa: la sucursal estaba escrita, así que identifica. */
-  exacta: Set<string>;
+  /** Llave completa: la sucursal estaba escrita, así que identifica. Cada llave, con la ventana de cada corrida que la reclamó. */
+  exacta: Map<string, Array<Ventana | null>>;
   /** Llave degradada: la fila venía sin sucursal y no se puede desambiguar. */
-  parcial: Set<string>;
+  parcial: Map<string, Array<Ventana | null>>;
 }
 
 const norm = (v: unknown): string => (v == null ? '' : String(v).trim());
@@ -68,13 +75,48 @@ export const claimKeyExacta = (suc: unknown, dt: unknown, folio: unknown, cuenta
 export const claimKeyParcial = (dt: unknown, folio: unknown, cuenta: unknown): string =>
   `${norm(dt)}|${norm(folio)}|${norm(cuenta)}`;
 
-/** Parte las reclamaciones en las que identifican y las que no. */
-export function buildClaimIndex(rows: ClaimRow[]): ClaimIndex {
-  const exacta = new Set<string>(), parcial = new Set<string>();
+/**
+ * `[BFU.7.5]` El alcance de una corrida: `runMatchTreasury` sólo casa documentos fechados dentro del mes ±45 días
+ * (`OVERLAP_DAYS`). Medido en prod el 2026-11-23: de 50,993 pareos guardados, el 100 % cae dentro de esa ventana
+ * (con y sin sucursal); ninguno fuera.
+ */
+export const ALCANCE_DE_UNA_CORRIDA_DIAS = 45;
+
+/** Un día como entero (días desde 1970), para comparar fechas sin zona horaria. */
+const diaDe = (v: unknown): number | null => {
+  let s: string;
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return null;
+    s = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  } else s = norm(v).slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 : null;
+};
+
+/** La ventana de la corrida del periodo `YYYY-MM`: [día 1 − alcance, día 1 del mes siguiente + alcance). */
+const ventanaDe = (period: unknown, alcanceDias: number): Ventana | null => {
+  const m = /^(\d{4})-(\d{2})$/.exec(norm(period));
+  if (!m) return null;
+  const y = +m[1], mes = +m[2] - 1;
+  return [Date.UTC(y, mes, 1) / 86400000 - alcanceDias, Date.UTC(y, mes + 1, 1) / 86400000 + alcanceDias];
+};
+
+const agregar = (idx: Map<string, Array<Ventana | null>>, k: string, v: Ventana | null) => {
+  const a = idx.get(k); if (a) a.push(v); else idx.set(k, [v]);
+};
+
+/** Una reclamación sin periodo (o un documento sin fecha) alcanza siempre: ante la duda, se bloquea. */
+const alcanza = (ventanas: ReadonlyArray<Ventana | null> | undefined, dia: number | null): boolean =>
+  !!ventanas && ventanas.some((w) => w === null || dia === null || (dia >= w[0] && dia < w[1]));
+
+/** Parte las reclamaciones en las que identifican y las que no, cada una con la ventana de su corrida. */
+export function buildClaimIndex(rows: ClaimRow[], alcanceDias: number = ALCANCE_DE_UNA_CORRIDA_DIAS): ClaimIndex {
+  const exacta = new Map<string, Array<Ventana | null>>(), parcial = new Map<string, Array<Ventana | null>>();
   for (const r of rows || []) {
     if (!r) continue;
-    if (norm(r.suc)) exacta.add(claimKeyExacta(r.suc, r.dt, r.folio, r.cuenta));
-    else parcial.add(claimKeyParcial(r.dt, r.folio, r.cuenta));
+    const w = ventanaDe(r.period, alcanceDias);
+    if (norm(r.suc)) agregar(exacta, claimKeyExacta(r.suc, r.dt, r.folio, r.cuenta), w);
+    else agregar(parcial, claimKeyParcial(r.dt, r.folio, r.cuenta), w);
   }
   return { exacta, parcial };
 }
@@ -83,9 +125,22 @@ export function buildClaimIndex(rows: ClaimRow[]): ClaimIndex {
  * ¿Este documento ya se lo quedó otra corrida?
  * Devuelve `'exacta'` (certeza: es el mismo documento), `'parcial'` (sospecha: una fila vieja
  * sin sucursal podría ser éste o un homónimo → se bloquea y se declara) o `null` (libre).
+ *
+ * `[BFU.7.5]` ⛔ **Sólo bloquea dentro del alcance de la corrida que reclamó.** Un pareo de enero no puede ser un
+ * documento fechado en noviembre: esa corrida no lo veía. Sin esto, el corte del 1-oct-2026 (cada sucursal reinició
+ * sus folios en 1, números que la 00 ya había usado en enero) dejaba apartados por filas viejas sin sucursal a 465
+ * documentos de octubre y 206 de noviembre — los cheques de nómina entre ellos.
  */
 export function claimVerdict(idx: ClaimIndex, doc: ClaimDoc): 'exacta' | 'parcial' | null {
-  if (idx.exacta.has(claimKeyExacta(doc.sucursal, doc.doc_tipo, doc.folio, doc.clave))) return 'exacta';
-  if (idx.parcial.has(claimKeyParcial(doc.doc_tipo, doc.folio, doc.clave))) return 'parcial';
+  const dia = diaDe(doc.fecha);
+  if (alcanza(idx.exacta.get(claimKeyExacta(doc.sucursal, doc.doc_tipo, doc.folio, doc.clave)), dia)) return 'exacta';
+  if (alcanza(idx.parcial.get(claimKeyParcial(doc.doc_tipo, doc.folio, doc.clave)), dia)) return 'parcial';
   return null;
+}
+
+/** El documento tiene un homónimo reclamado por otra corrida, pero FUERA de su alcance: se libera y se declara. */
+export function claimFueraDeAlcance(idx: ClaimIndex, doc: ClaimDoc): boolean {
+  if (claimVerdict(idx, doc)) return false;
+  return idx.exacta.has(claimKeyExacta(doc.sucursal, doc.doc_tipo, doc.folio, doc.clave))
+    || idx.parcial.has(claimKeyParcial(doc.doc_tipo, doc.folio, doc.clave));
 }
