@@ -22,3 +22,5 @@ export * from './lib/talent/talent-public.controller';
 export * from './lib/talent/talent-links.service';
 export * from './lib/talent/bot/recruitment-bot.service';
 export * from './lib/hr.module';
+// Fase RH · frente NE — el periodo de nómina como llave (ADR-056: el primitivo vive en libs/).
+export * from './lib/nomina/periodo';
