@@ -20,9 +20,11 @@ import {
  *    no tiene ningún `U-D-40`; restarlas restaría mercancía que no existe).
  *  · Pedido abierto de 7 días o menos y embarque sin recibir de 7 días o menos: se RESTAN. Lo más
  *    viejo (atorado) y lo negado se MUESTRAN, no se restan.
- *  · `[PQ.136]` **Abierto** son los estatus de `WAREHOUSE_ORDER_ABIERTOS`, y desde ADR-127 incluyen
- *    `CREADO`: el pedido que escribe la Suite nace así, y si no contara, la sucursal volvería a
- *    pedir al día siguiente lo que acaba de pedir.
+ *  · `[PQ.136]` **Abierto** son los estatus de `WAREHOUSE_ORDER_ABIERTOS`, que incluyen `CREADO`
+ *    por tolerancia de lectura, no porque aparezca: medido el 2026-11-22, **0 de 5,621** pedidos de
+ *    sucursal de 365 días están en ese estado, y el documento que escribe la Suite nace
+ *    `AUTORIZADO` (D1, cerrada ese día). Si un `CREADO` llegara a aparecer es un pedido que ya se
+ *    pidió y no ha salido: no contarlo haría que la sucursal lo pidiera otra vez.
  *  · `[PQ.137]` El estatus es el **vigente** (`estatusVigenteSql`), no el `c11` crudo: Kepler
  *    cancela con `c43='C'` y le conserva el estatus viejo. Hoy un cancelado no inflaba esta cuenta
  *    de milagro —el `JOIN` a `kdm2` lo descartaba porque la cancelación borra los renglones

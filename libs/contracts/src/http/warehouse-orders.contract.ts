@@ -27,11 +27,17 @@ export const WAREHOUSE_ORDER_CANCELADO = 'CANCELADO' as const;
  * llegar». `EMBARCADO` queda fuera a propósito (lo cuenta el embarque, `AB.23`) y `CANCELADO`
  * tampoco está: no es etapa.
  *
- * ⛔ `CREADO` **sí** cuenta. Antes se omitía porque ningún pedido de sucursal nacía así —medido el
- * 2026-11-22: 0 de 5,621 en 365 días, el estado sólo existía en telemarketing—, pero desde
- * ADR-127 la Suite escribe el pedido de Autoabasto y el PM decidió que nazca `CREADO`. Sin esto el
- * pedido recién escrito era invisible para el módulo que lo escribió: no se restaba del sugerido
- * (la sucursal volvía a pedir lo mismo al día siguiente) ni aparecía en «Lo que te va a llegar».
+ * ⛔ `CREADO` **sí** cuenta — aunque hoy no haya ninguno. Medido el 2026-11-22: **0 de 5,621**
+ * pedidos de sucursal de 365 días están en ese estado (`CREADO` es del carril de telemarketing), y
+ * el PM cerró D1 el mismo día: el documento que escribe la Suite nace **`AUTORIZADO`**, como los
+ * 4,182 que capturan las sucursales a mano. Esta entrada, por lo tanto, **no mueve ninguna cifra
+ * de hoy**.
+ *
+ * Se queda porque leer y escribir piden lo contrario. **Escribir** un estado que el carril no usa
+ * produce un documento que ninguna pantalla sabe mover —por eso el sink sólo admite `AUTORIZADO`
+ * (`kepler-doctipo.ts`)—, pero **leer** tiene que ser tolerante: si un `CREADO` llegara a aparecer
+ * (alguien lo captura a mano, Kepler cambia), es un pedido que ya se pidió y todavía no sale, y no
+ * contarlo haría que la sucursal volviera a pedir lo mismo. Lo que no se ve, se declara: hoy, cero.
  */
 export const WAREHOUSE_ORDER_ABIERTOS = ['CREADO', 'AUTORIZADO', 'SURTIDO', 'CHECADO'] as const;
 

@@ -235,16 +235,20 @@ describe.skipIf(!ACTIVO)('ensayo contra los Kepler reales (ROLLBACK, no escribe)
       expect(adapter!.fallas, `servidor ${s}: columnas arrastradas de la plantilla`).toEqual([]);
       expect(await contar(k, s, 'U', 'D', '40')).toBe(antes);   // no escribió
 
-      // `[PQ.135]`/`[DT5]` El pedido de Autoabasto nace CREADO, y sus renglones con él (lo revisa
-      // `confirmar`: `c28` tiene que seguir al `c11` del encabezado).
-      const creado = await adapter!.entregar({ ...base, folio_suite: 'RQ-ENSAYO-PQ135', estado_inicial: 'CREADO' });
-      expect(creado.motivo ?? '', `servidor ${s} (CREADO)`).toBe('');
-      expect(adapter!.fallas, `servidor ${s}: el documento CREADO`).toEqual([]);
+      // `[PQ.135]`/`[DT5]` El estado pedido explícitamente da el MISMO documento que el default:
+      // D1 se cerró en `AUTORIZADO` (2026-11-22), así que las dos puertas llegan al mismo lugar y
+      // los renglones lo siguen (lo revisa `confirmar`: `c28` = `c11` del encabezado).
+      const explicito = await adapter!.entregar({ ...base, folio_suite: 'RQ-ENSAYO-PQ135', estado_inicial: 'AUTORIZADO' });
+      expect(explicito.motivo ?? '', `servidor ${s} (AUTORIZADO explícito)`).toBe('');
+      expect(adapter!.fallas, `servidor ${s}: el documento con estado explícito`).toEqual([]);
 
-      // NEGATIVA: un estado que el tipo no declara se rechaza, y no escribe nada.
-      const malo = await adapter!.entregar({ ...base, estado_inicial: 'EMBARCADO' });
-      expect(malo.estado).toBe('rechazada');
-      expect(malo.motivo).toContain('EMBARCADO');
+      // NEGATIVA: un estado que el tipo no declara se rechaza, y no escribe nada. `CREADO` entra
+      // acá a propósito: era la decisión original del PM y la medición la revirtió.
+      for (const estado of ['CREADO', 'EMBARCADO']) {
+        const malo = await adapter!.entregar({ ...base, estado_inicial: estado });
+        expect(malo.estado, `servidor ${s}: ${estado}`).toBe('rechazada');
+        expect(malo.motivo).toContain(estado);
+      }
       expect(await contar(k, s, 'U', 'D', '40')).toBe(antes);
       await k.end();
     }, 60000);

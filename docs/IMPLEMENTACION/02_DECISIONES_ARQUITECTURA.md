@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 521 KB, 4873 líneas, 126 secciones.
+> **Índice navegable** — 522 KB, 4877 líneas, 126 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -132,7 +132,7 @@
 | 4784 | 4830 | 3 | ADR-124 — Mesa de Servicio: quién levanta, el dictamen y la orden de servicio se configuran POR COLA; la orden |
 | 4831 | 4884 | 4 | ADR-125 — Caducidades: FEFO se alimenta en la unidad BASE del producto con el factor de su presentación en la  |
 | 4885 | 4918 | 2 | ADR-126 — El catálogo de conceptos de Kepler se administra desde la Suite sin copiarlo (propuesto, 2026-11-22) |
-| 4919 | 5011 | 6 | ADR-127 — El pedido de sucursal lo decide la sucursal y la Suite lo ESCRIBE en Kepler como `U-D-40`; el pedido |
+| 4919 | 5015 | 7 | ADR-127 — El pedido de sucursal lo decide la sucursal y la Suite lo ESCRIBE en Kepler como `U-D-40`; el pedido |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4918,8 +4918,8 @@ La Suite administra el catálogo **sin copiarlo** (regla principal: ningún impo
 - ➖ Mientras el escritor no exista, lo aprobado se captura a mano en Kepler y la vista dice si ya llegó a cada servidor.
 ## ADR-127 — El pedido de sucursal lo decide la sucursal y la Suite lo ESCRIBE en Kepler como `U-D-40`; el pedido a proveedor sigue siendo requisición
 
-**Fecha:** 2026-11-22 · **Estado:** aceptada por Edgar (PM) en las decisiones D1–D4 del 2026-11-22
-(el **estado inicial del documento** queda ABIERTO, ver «La decisión», punto 5) ·
+**Fecha:** 2026-11-22 · **Estado:** aceptada por Edgar (PM) en las decisiones D1–D4 del 2026-11-22;
+el **estado inicial** se reabrió con la medición y se cerró el mismo día en `AUTORIZADO` (punto 5) ·
 **Contexto:** Fase AB §16 · anexo T de PQ (DT1–DT4) · **supersede ADR-100** en sus decisiones 1 y 2.
 
 ### El problema
@@ -4966,16 +4966,20 @@ el 2026-11-04, ~1 % de coincidencia contra 5 % del placebo; anexo T §2.3).
    en **349 SKU** contra 3,006–3,363 de las demás sucursales porque es cruce, no bodega — surtió
    1,123 SKU distintos en 30 días y sólo 273 (24.3 %) tienen existencia hoy. Una compuerta por
    existencia bloquearía el 75.7 % de lo que el CEDIS sí surte.
-5. **⚠️ ABIERTO — el estado inicial del documento.** El PM decidió `CREADO` (D1). La medición
-   posterior dice que ese estado **no tiene precedente en este carril**: **0 de 5,621** pedidos
-   `U-D-40` con `c27='SUCURSAL'` de 365 días están en `CREADO` (los 815 `CREADO` del año son todos
-   `TELEMARK`), y en TELEMARK `CREADO` se comporta como estado terminal (**290 documentos en 90
-   días, el 100 % con más de 3 días**; dos de los que escribió la propia Suite llevan 5 y 11 días
-   sin moverse). A favor de `CREADO`: **6 de los 8 `U-D-40` que la Suite ya escribió nacieron
-   `CREADO` y hoy están `AUTORIZADO`**, movidos por personas en Kepler — el mecanismo existe.
-   Mientras esto no se cierre, la implementación escribe el estado **explícitamente en el sink de
-   Autoabasto** (no hereda la constante compartida) y los filtros de la Suite aceptan `CREADO` como
-   «pedido, esperando autorización» (PQ.136). La decisión se cierra con el piloto.
+5. **El documento nace `AUTORIZADO`.** D1 pidió `CREADO` para que el origen revisara antes de
+   surtir; la medición mostró que **ese paso no existe en este carril de Kepler**: **0 de 5,621**
+   pedidos `U-D-40` con `c27='SUCURSAL'` de 365 días están en `CREADO` (los 818 del año son todos
+   `TELEMARK`, que sí tiene autorización), y el menú del ERP va de «Alta de pedido» directo a
+   «Estatus Surtido» — lo recorrió el PM a mano el 2026-11-22, de punta a punta (anexo T §8). Un
+   documento que naciera `CREADO` quedaría antes del primer paso del flujo y ninguna pantalla
+   medida lo movería de ahí. **Cerrada el 2026-11-22 por Edgar: «AUTORIZADO, seguimos el modelo de
+   Kepler».**
+
+   Lo que D1 quería **no se pierde, cambia de lugar**: la revisión del origen vive en el **borrador
+   de Autoabasto**, y «Enviar» es el acto que lo convierte en documento. Y el mecanismo construido
+   para sostener la duda se queda como **puerta**: el estado viaja en la entrada y el sink rechaza
+   —antes de abrir la conexión— cualquiera que el tipo no declare, hoy sólo `AUTORIZADO`. Escribir
+   un `c11` inventado no falla; deja el documento fuera de todos los filtros.
 
 ### Lo que NO cambia
 

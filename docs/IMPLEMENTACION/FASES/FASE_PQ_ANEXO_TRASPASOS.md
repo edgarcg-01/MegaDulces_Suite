@@ -183,6 +183,7 @@ contra piezas, así que «hecho» puede estar subcontado.
 | 2026-11-09 | **PQ.115 en código**: migración `20261109140626_pq115_v_traspasos_ciclo.js` (`analytics.v_traspasos_ciclo`) y prueba `test-newdb-pq115-traspasos-ciclo.js` (escenario sintético con ROLLBACK, control negativo sin origen en la llave). El SQL exacto de la migración, como vista temporal en prod: 3,767 filas = 3,767 pedidos de Kepler, 0 duplicados, 0 sin tenant, 140–240 ms. Dos lecciones: (1) con `LEFT JOIN` el planificador estimaba ~1 fila por pieza y tardaba 6.2 s (> 2 min sin `MATERIALIZED`; esa consulta se canceló en prod); apilar y agrupar por llave es lineal. (2) La recepción se liga por origen (`c10`). **NO MEDIDO:** la prueba no corrió en local (sin Docker); corre en `pruebas-db` del CI. **Falta:** aplicar la migración (lo hace el carril de despliegue) y, ya aplicada, que Autoabasto lea la vista (corrige AB.45) |
 | 2026-11-22 | **Edgar: «el bloqueo funcional es que el informe no tiene a dónde llegar»**. Decisiones D1–D4 y **ADR-127** (deroga las decisiones 1 y 2 de ADR-100): el pedido de sucursal lo decide la sucursal y la Suite lo escribe como `U-D-40` en el Kepler del origen; el de proveedor sigue como requisición. Medición de la operación real (4,213 pedidos a mano en 90 días, red, cadencia, ventana horaria) y de las piezas: el sink de traspaso **ya existe y está en prod**, apagado en 9 de 9. Items **PQ.134–PQ.142** en §7.4. ⚠️ D1 (`CREADO`) queda abierta otra vez: 0 de 5,621 pedidos de sucursal de 365 días nacieron así, y donde el estado existe se pudre (§7.2) |
 | 2026-11-22 | **PQ.135, PQ.136 y PQ.137 en código.** PQ.136/137: «Lo que te va a llegar» dejaba de pintar un pedido **cancelado** —de 170 documentos a 61 en las 9 sucursales, 109 eran cancelados; Morelia Madero 111 → 29— y `CREADO` entra en la lista de abiertos; la regla vive en `libs/contracts` y las tres consultas la comparten (ADR-056). PQ.135: el renglón del traspaso se escribe completo (`c51`, `c28`) y el estado inicial pasa a ser un parámetro validado (`[DT5]`). De paso, el ensayo contra el Kepler vivo estaba roto desde PQ.19 (mandaba las líneas sin factor de caja) y se saltaba en silencio por falta de plantilla. Nueve mutantes muertos |
+| 2026-11-22 | **D1 cerrada por Edgar: `AUTORIZADO`** — *«seguimos el modelo de Kepler»*. El documento nace donde caen los 4,182 capturados a mano y la revisión del origen se muda al **borrador de la Suite**. En el código: `estadosIniciales` pasa de dos opciones a **una puerta** (`CREADO` entre los rechazados, 5 mutantes muertos); `WAREHOUSE_ORDER_ABIERTOS` conserva `CREADO` pero **por tolerancia de lectura**, declarado en cero; caen la condición de PQ.136 (nombrar quién autoriza) y el «cierra D1» de PQ.140. Los dos hallazgos de §8.4 quedan **anotados, no abiertos** (§8.7) — y el del sugerido trae su razón: *«nunca se hizo la configuración del sugerido, y es donde nace la necesidad del módulo de Autoabasto»* |
 | 2026-11-22 | **El PM recorrió el carril entero a mano**, con un faltante deliberado, y lo cerró con un `U-D-90`. **§8**. Confirma `c10`, `c24` y `limpiar`; **corrige** dos cifras propias (`c28` **no** sigue al encabezado: guarda el estado de nacimiento, 81,482 renglones lo prueban; `c51` está en la **presentación**, no en unidad base) y **cierra D1** con evidencia: 0 de 4,182 pedidos de sucursal nacen `CREADO`, el estado es del carril de telemarketing y el menú del pedido de sucursal no tiene paso de autorización. Destapa dos cosas nuevas: el faltante **en tránsito** no lo ve nadie (35 embarques de 90 días llevan más de 11 días sin recepción) y Kepler **ya tiene una columna «Cant. Sug»** vacía donde cabría el sugerido de Autoabasto |
 
 ---
@@ -242,14 +243,18 @@ surtido) y `picking.service.ts:1650` (que lo rechaza con 409).
 | **(a) Nace `AUTORIZADO`** | Igual que los 4,213 reales; el circuito cierra solo y no hay nada que esperar | Ya es lo que escribe `kepler-doctipo.ts:81`. **Pierde** el paso de revisión del origen |
 | **(b) Nace `CREADO`** (D1) | El origen revisa antes de surtir | Exige: nombrar quién autoriza en Morelia Abastos, agregar `CREADO` a las cuatro lecturas (PQ.136), fijar el estado explícitamente en el sink, y una alarma con plazo — sin eso el bloqueo se **muda** de la requisición al `CREADO` |
 
-**Recomendación:** (b) **con las tres condiciones**, y el piloto decide: si en la primera semana la
-mediana de `CREADO → AUTORIZADO` pasa de **1 día hábil**, se cambia a (a) sin volver a discutirlo.
+**✅ RESUELTA el 2026-11-22 — (a): nace `AUTORIZADO`.** El recorrido del carril a mano (§8) mostró
+que el paso de revisión **no existe en este carril de Kepler**: el almacenista da de alta y el
+documento nace `AUTORIZADO` sin preguntar; el menú va de «Alta de pedido» a «Estatus Surtido».
+Edgar: *«AUTORIZADO, seguimos el modelo de Kepler»*. La revisión del origen que (b) buscaba vive en
+el **borrador de la Suite** — «Enviar» es el acto que lo convierte en documento. ⛔ Cae con ella la
+condición de PQ.136 sobre nombrar a quien autoriza, y PQ.140 deja de tener que cerrar D1.
 
 ### 7.3 Decisiones nuevas de este anexo
 
 | | Decisión | Estado |
 |---|---|---|
-| **DT5** | El **estado inicial** del documento se escribe explícito en el sink de Autoabasto, no se hereda de la constante compartida `DOCTIPOS.traspaso` (hoy `AUTORIZADO` fijo, `kepler-doctipo.ts:81`), para que (a) y (b) sean un parámetro y no un `sed` | Decidida por Claude |
+| **DT5** | El **estado inicial** del documento viaja en la entrada del sink, no en la constante compartida. Nació para que (a) y (b) fueran un parámetro y no un `sed`; cerrada D1 en `AUTORIZADO`, **se queda como puerta**: el sink rechaza, antes de abrir la conexión, cualquier estado que el tipo no declare — hoy sólo `AUTORIZADO`, y `CREADO` entre los rechazados. *Un `c11` inventado no falla al escribir: deja el documento fuera de todos los filtros* | Decidida por Claude · alcance ajustado por D1 (2026-11-22) |
 | **DT6** | El trabajo vive en **este anexo** (DT1, firmada por Edgar el 2026-11-09), aunque `FASE_PQ §7` diga que Autoabasto queda fuera: gana la firma más nueva. Se corrige esa línea de PQ al cerrar PQ.134 | Decidida por Claude |
 | **DT7** | La **plantilla** del traspaso se valida **antes de cada escritura** (viva, sin `c43='C'`, con ≥1 renglón), no una vez al configurarla. *Cifra: las dos candidatas que el repo arrastra para la 08 —`1/0000847` y `0000028`— están canceladas y con 0 renglones* | Decidida por Claude |
 | **DT8** | El pedido se envía **parcial y varias veces al día**, como se opera hoy. ⛔ No se vuelca el sugerido entero: para Morelia Madero serían **1,244 renglones / $1.41 M** contra una mediana real de **7 renglones / $18,423** | Decidida por Claude |
@@ -349,11 +354,21 @@ centavos. ⛔ **El agujero no es la merma, es la recepción que no se captura.**
 funciona —lo acaba de ejercer el PM—, pero en toda la historia del ODS hay **dos**, y uno es el de
 esta prueba.
 
-**d) ⭐ Kepler ya tiene una columna para el SUGERIDO.** La pantalla de pedido de sucursal muestra
-**«Cant. Sug»** justo antes de «Cant. Ped», y está **vacía** en el documento del PM. Si Autoabasto
-escribiera ahí su sugerido y en `c51` lo que la sucursal confirmó, **el lazo se cerraría dentro del
-propio ERP**: cuánto de lo que el motor propuso se convirtió en pedido quedaría medible sin ninguna
-tabla nuestra. ⚠️ **Qué columna es, no está arbitrado** — ver §8.5.
+**d) ⭐⭐ Kepler ya tiene una columna para el SUGERIDO — y nunca se configuró.** La pantalla de
+pedido de sucursal muestra **«Cant. Sug»** justo antes de «Cant. Ped», y está **vacía** en el
+documento del PM. No es un descuido de esta captura: está vacía en los 85,436 renglones de 90 días.
+
+⭐ **Esto explica por qué existe Autoabasto.** Edgar, el 2026-11-22: *«nunca se hizo la
+configuración del sugerido, y es donde nace la necesidad del módulo de Autoabasto»*. El ERP previó
+que alguien le dijera a la sucursal cuánto pedir, esa parte nunca se llenó, y el hueco se cubrió
+durante años a criterio del almacenista. **Autoabasto no está inventando un concepto: está
+ocupando un lugar que el ERP dejó vacío.** Por eso el módulo no tenía a dónde llegar — lo que le
+faltaba no era el cálculo, era el documento.
+
+Si algún día Autoabasto escribiera su sugerido en esa columna y en `c51` lo que la sucursal
+confirmó, **el lazo se cerraría dentro del propio ERP**: cuánto de lo propuesto se vuelve pedido
+quedaría medible sin ninguna tabla nuestra, y en la pantalla que el almacenista ya usa. ⚠️ **Qué
+columna es, no está arbitrado** (§8.5), y el PM lo dejó **anotado, no abierto** (§8.7).
 
 ### 8.5 Lo NO medido de este recorrido
 
@@ -377,11 +392,32 @@ que el recorrido muestra es que **ese paso no existe en este carril de Kepler**:
 de alta el pedido y el documento nace `AUTORIZADO` sin preguntar; el siguiente acto del menú es
 surtirlo. `CREADO` es un estado del carril de **telemarketing**, que sí tiene autorización.
 
-**Recomendación revisada (reemplaza la de §7.2):** la Suite escribe **`AUTORIZADO`** —donde caen los
-4,182— y **la revisión del origen vive en la Suite**, no en el estado de Kepler. El borrador de
-Autoabasto ya es ese lugar: el pedido se arma, el origen lo mira y «Enviar» es el acto que lo
-convierte en documento. Así no se inventa un estado que ninguna pantalla medida sabe mover, y no se
-pierde la revisión que D1 quería.
+**✅ DECIDIDO el 2026-11-22 por Edgar: «AUTORIZADO, seguimos el modelo de Kepler».** La Suite
+escribe el documento donde caen los 4,182, y **la revisión del origen vive en la Suite**, no en el
+estado del ERP: el borrador de Autoabasto ya es ese lugar — el pedido se arma, el origen lo mira y
+«Enviar» es el acto que lo convierte en documento. No se inventa un estado que ninguna pantalla
+medida sabe mover, y no se pierde la revisión que D1 quería.
 
-El mecanismo de `[DT5]` **queda igual**: el estado es un parámetro validado, no una constante. Si el
-PM sostiene `CREADO`, se enciende cambiando el valor que manda `enviar()` — sin tocar el sink.
+**Qué cambió en el código al cerrarla** (mismo día, sin cambio de comportamiento del default):
+
+| | Antes | Ahora |
+|---|---|---|
+| `DOCTIPOS.traspaso.estadosIniciales` | `['CREADO','AUTORIZADO']` — dos opciones | `['AUTORIZADO']` — una **puerta**: todo lo demás se rechaza antes de abrir la conexión, `CREADO` incluido |
+| `WAREHOUSE_ORDER_ABIERTOS` | incluye `CREADO` *porque el pedido nacería así* | lo sigue incluyendo, pero **por tolerancia de lectura**: hoy no hay ninguno (0 de 5,621) y está declarado. Escribir es estricto; leer, tolerante |
+| PQ.136 | exigía nombrar quién autoriza en el origen | esa condición **cae** |
+| PQ.140 | «cierra D1» | el piloto ya no decide nada de esto |
+
+⭐ El mecanismo de `[DT5]` **no se tira**: deja de ser una opción y pasa a ser la compuerta que
+impide escribir un `c11` que el carril no usa. Escribirlo no falla —por eso hacía falta la
+puerta—, deja el documento fuera de todos los filtros del ERP y de la Suite. Probado con **5
+mutantes muertos**: al devolver `CREADO` a la lista, cinco pruebas se ponen rojas.
+
+### 8.7 Anotado, no abierto (decisión del PM, 2026-11-22)
+
+Los dos hallazgos de §8.4 quedan **con nombre y con su medición**, sin item y sin ocupar cupo. No
+son deuda olvidada: son trabajo que espera su turno, y acá está lo que haría falta para retomarlo.
+
+| | Qué es | Qué costaría empezarlo | Por qué no ahora |
+|---|---|---|---|
+| **La recepción que no se captura** | 35 embarques de traspaso de 90 días llevan más de 11 días sin su `U-A-50`, con un desfase normal de 1 día y p90 de 4. El faltante **en tránsito** no lo ve ninguna pantalla: sólo se ve cruzando el embarque con la recepción, y el documento que lo cierra (`U-D-90`) tiene **dos** usos en toda la historia | Una medición por pareja de sucursales y preguntarle a las dos qué pasó con cada embarque: el ODS no distingue «no se capturó» de «no llegó» | Es un frente propio (toca almacén y contraloría, no Autoabasto) y PQ ya está en curso |
+| **El sugerido dentro de Kepler** | La columna «Cant. Sug» del renglón, vacía en los 85,436 renglones de 90 días. **Nunca se configuró, y de ahí nace Autoabasto** (§8.4d) | Arbitrar qué columna de `kdm2` es, capturando un valor a mano en el servidor vivo y viendo cuál cambia. Hasta entonces **no se escribe** | El módulo primero tiene que llegar al documento (PQ.138); escribir el sugerido en el ERP es el paso siguiente, no el primero |

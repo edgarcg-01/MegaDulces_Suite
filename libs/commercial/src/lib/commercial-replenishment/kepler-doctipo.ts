@@ -111,16 +111,20 @@ export const DOCTIPOS: Readonly<Record<KeplerDoctipo, DoctipoSpec>> = Object.fre
     // requisición que aprueba Compras y el pedido que arma la sucursal en Autoabasto. Por eso no se
     // edita esta constante.
     //
-    // ⛔⛔ Lo que la medición del 2026-11-22 le dice a D1 («el pedido nace CREADO»): en el carril de
-    // sucursal (`c27='SUCURSAL'`) **no existe un solo pedido CREADO** — 0 de 4,182 en 90 días y
-    // ninguno en toda la historia del ODS. `CREADO` vive SÓLO en el carril de telemarketing (818
-    // desde marzo de 2026), que sí tiene un paso de autorización. El menú del pedido de sucursal va
-    // de «Alta de pedido» directo a «Estatus Surtido»: un documento que naciera CREADO quedaría
-    // antes del primer paso del flujo, y ninguna pantalla medida lo mueve de ahí.
+    // ⛔⛔ **`CREADO` NO es elegible**, y la lista tiene un solo valor a propósito. D1 se decidió el
+    // 2026-11-22 a favor de `AUTORIZADO` —«seguimos el modelo de Kepler», Edgar— después de medir
+    // que en el carril de sucursal (`c27='SUCURSAL'`) **no existe un solo pedido `CREADO`**: 0 de
+    // 4,182 en 90 días y ninguno en toda la historia del ODS. `CREADO` vive sólo en el carril de
+    // telemarketing (818 desde marzo de 2026), que sí tiene un paso de autorización; el menú del
+    // pedido de sucursal va de «Alta de pedido» directo a «Estatus Surtido». Un documento que
+    // naciera `CREADO` quedaría antes del primer paso del flujo y ninguna pantalla medida lo
+    // movería de ahí. La revisión del origen, que es lo que D1 buscaba, vive en el **borrador de la
+    // Suite**: «Enviar» es el acto que lo convierte en documento.
     //
-    // Queda ELEGIBLE porque la decisión es del PM, pero el DEFAULT del tipo es `AUTORIZADO` (`c11`
-    // arriba): quien no manda `estado_inicial` cae donde caen los 4,182.
-    estadosIniciales: ['CREADO', 'AUTORIZADO'],
+    // Entonces ¿para qué queda el parámetro? Para ser una **puerta**, no una opción: cualquier
+    // estado que no sea `AUTORIZADO` se rechaza antes de abrir la conexión. Escribir un `c11`
+    // inventado no falla —por eso es peligroso—, deja el documento fuera de todos los filtros.
+    estadosIniciales: ['AUTORIZADO'],
   },
 });
 

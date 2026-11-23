@@ -2,15 +2,18 @@ import { KeplerRequisitionSinkAdapter } from './kepler-requisition-sink.adapter'
 import { DOCTIPOS } from './kepler-doctipo';
 
 /**
- * `[PQ.135]` · `[DT5]` **Con qué estado nace el pedido de traspaso.**
+ * `[PQ.135]` · `[DT5]` **Con qué estado nace el pedido de traspaso — y con cuáles NO.**
  *
- * El mismo `U-D-40` tiene dos puertas desde ADR-127: la requisición que aprueba Compras (nace
- * `AUTORIZADO`, como los 4,213 que las sucursales capturan a mano) y el pedido que arma la
- * sucursal en Autoabasto, que el PM decidió que nazca `CREADO` para que el origen lo revise.
- * El estado viaja en la entrada y **no se edita la constante compartida**.
+ * D1, cerrada por el PM el 2026-11-22 («seguimos el modelo de Kepler»): el `U-D-40` que escribe la
+ * Suite nace **`AUTORIZADO`**, igual que los 4,182 que las sucursales capturan a mano. `CREADO`
+ * quedó descartado con la medición: en el carril de sucursal no existe un solo pedido en ese
+ * estado, y el menú de Kepler va de «Alta de pedido» directo a «Estatus Surtido» — un documento
+ * que naciera `CREADO` quedaría antes del primer paso del flujo. La revisión del origen, que es lo
+ * que D1 buscaba, vive en el **borrador de la Suite**.
  *
- * Un `c11` que el tipo no declara se rechaza ANTES de abrir la conexión: escribirlo no falla, y
- * por eso es peligroso — deja el documento fuera de todos los filtros del ERP y de la Suite.
+ * Por eso `estado_inicial` no es una opción sino una **puerta**: un `c11` que el tipo no declara se
+ * rechaza ANTES de abrir la conexión. Escribirlo no falla —y por eso es peligroso—, deja el
+ * documento fuera de todos los filtros del ERP y de la Suite.
  *
  * ⚠️ Lo que estas pruebas NO cubren: que Kepler acepte el documento. Eso lo ejerce
  * `kepler-requisition-sink.ensayo.spec.ts` contra el servidor real, y sólo corre desde `md` con
@@ -30,35 +33,48 @@ const base = {
 const sink = () => Object.create(KeplerRequisitionSinkAdapter.prototype) as KeplerRequisitionSinkAdapter;
 
 describe('[PQ.135] el estado con el que nace el traspaso', () => {
-  it('CREADO y AUTORIZADO son los estados que el pedido de traspaso admite', () => {
-    expect(DOCTIPOS.traspaso.estadosIniciales).toEqual(['CREADO', 'AUTORIZADO']);
+  it('AUTORIZADO es el ÚNICO estado que el pedido de traspaso admite (D1, 2026-11-22)', () => {
+    expect(DOCTIPOS.traspaso.estadosIniciales).toEqual(['AUTORIZADO']);
   });
 
-  it('⛔ un estado que el tipo no declara se rechaza, y el motivo dice cuáles valen', async () => {
-    const r = await sink().entregar({ ...base, tipo: 'traspaso', estado_inicial: 'SURTIDO' });
-    expect(r.estado).toBe('rechazada');
-    expect(r.motivo).toContain('SURTIDO');
-    expect(r.motivo).toContain('CREADO o AUTORIZADO');
-  });
-
-  it('⛔ tampoco se cuela un estado inventado', async () => {
-    const r = await sink().entregar({ ...base, tipo: 'traspaso', estado_inicial: 'LISTO' });
-    expect(r.estado).toBe('rechazada');
-    expect(r.motivo).toContain('LISTO');
+  it('y es también el default del tipo: quien no manda estado_inicial cae ahí', () => {
+    expect(DOCTIPOS.traspaso.c11).toBe('AUTORIZADO');
   });
 
   /**
-   * CONTROL: los estados buenos NO se rechazan por el estado. Llegan más lejos y mueren por otra
-   * cosa (sin servidor ni plantilla configurados en esta máquina) — lo que importa es que el
-   * motivo ya no hable del estado inicial.
+   * ⛔ LA PRUEBA DE D1. `CREADO` fue la decisión original del PM y se revirtió con la medición: 0 de
+   * 5,621 pedidos de sucursal de 365 días nacen así. Si alguien vuelve a abrir esa puerta, esta se
+   * pone roja.
    */
-  it.each(['CREADO', 'AUTORIZADO', 'creado'])('CONTROL: «%s» pasa la puerta del estado', async (estado) => {
+  it('⛔ CREADO se RECHAZA: no existe en el carril de sucursal y ninguna pantalla lo mueve', async () => {
+    const r = await sink().entregar({ ...base, tipo: 'traspaso', estado_inicial: 'CREADO' });
+    expect(r.estado).toBe('rechazada');
+    expect(r.motivo).toContain('CREADO');
+    expect(r.motivo).toContain('sólo AUTORIZADO');
+  });
+
+  it.each(['SURTIDO', 'EMBARCADO', 'LISTO'])(
+    '⛔ «%s» tampoco se cuela, y el motivo dice cuál es el único que vale',
+    async (estado) => {
+      const r = await sink().entregar({ ...base, tipo: 'traspaso', estado_inicial: estado });
+      expect(r.estado).toBe('rechazada');
+      expect(r.motivo).toContain(estado);
+      expect(r.motivo).toContain('sólo AUTORIZADO');
+    },
+  );
+
+  /**
+   * CONTROL: el estado bueno NO se rechaza por el estado. Llega más lejos y muere por otra cosa
+   * (sin servidor ni plantilla configurados en esta máquina) — lo que importa es que el motivo ya
+   * no hable del estado inicial.
+   */
+  it.each(['AUTORIZADO', 'autorizado', '  Autorizado  '])('CONTROL: «%s» pasa la puerta del estado', async (estado) => {
     const r = await sink().entregar({ ...base, tipo: 'traspaso', estado_inicial: estado });
     expect(r.motivo ?? '').not.toContain('no válido');
   });
 
   it('⛔ la COMPRA no admite elegir estado: su c11 es la referencia de la Suite', async () => {
-    const r = await sink().entregar({ ...base, tipo: 'compra', proveedor_code: 'P1', estado_inicial: 'CREADO' });
+    const r = await sink().entregar({ ...base, tipo: 'compra', proveedor_code: 'P1', estado_inicial: 'AUTORIZADO' });
     expect(r.estado).toBe('rechazada');
     expect(r.motivo).toContain('no admite elegir estado');
   });
