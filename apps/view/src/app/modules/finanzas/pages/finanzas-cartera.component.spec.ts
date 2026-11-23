@@ -498,6 +498,10 @@ describe('FinanzasCarteraComponent — [CXC.41]', () => {
     f.detectChanges();
     expect(celdas(f).celdas).toEqual(['no medido', 'no medido']);
     expect(total()).toEqual(['Total · 2 vendedores', '', 'no medido', '900', '1,700']);
+    // Con un solo vendedor (filtro puesto) no hay total: repetiría su renglón.
+    const r1 = conVenta(true);
+    (r1.resumen as unknown as { por_vendedor: unknown[] }).por_vendedor.splice(1);
+    expect(f.componentInstance.totalVendedores(r1.resumen)).toBeNull();
   });
 
   describe('21 · [CXC.47] periodo, pagadas y envío al vendedor', () => {

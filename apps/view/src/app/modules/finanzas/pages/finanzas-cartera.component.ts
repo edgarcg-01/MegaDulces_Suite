@@ -1028,7 +1028,8 @@ export class FinanzasCarteraComponent implements OnInit {
    */
   totalVendedores(rs: CarteraResumen): { n: number; venta: number; vencido: number; saldo: number } | null {
     const vs = rs.por_vendedor;
-    if (!vs.length) return null;
+    // Con uno solo, el total repetiría su renglón: no se gana su lugar.
+    if (vs.length < 2) return null;
     const r = (n: number) => Math.round(n * 100) / 100;
     return {
       n: vs.length,
